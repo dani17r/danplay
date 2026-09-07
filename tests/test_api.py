@@ -5,7 +5,11 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-SOURCE = "/home/core/Musica/Artistas"
+# Biblioteca de referencia para las pruebas. No se incrusta una ruta
+# personal: se puede apuntar a la tuya con DANPLAY_TEST_MUSIC, y si no
+# existe las pruebas que la necesitan se saltan solas.
+SOURCE = os.environ.get("DANPLAY_TEST_MUSIC") or str(
+    pathlib.Path.home() / "Musica" / "Artistas")
 
 
 @pytest.fixture(scope="module")

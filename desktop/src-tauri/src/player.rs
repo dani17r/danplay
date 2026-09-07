@@ -204,14 +204,22 @@ impl Handle {
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = "/home/core/Musica/Artistas/Barak/Barak - Mi Gozo.mp3";
-    fn has_sample() -> bool { std::path::Path::new(SAMPLE).exists() }
+    /// Audio real para las pruebas que lo necesitan. No se incrusta una ruta
+    /// personal: se apunta a la tuya con DANPLAY_TEST_SAMPLE, y si no existe
+    /// esas pruebas se saltan solas.
+    fn sample() -> String {
+        std::env::var("DANPLAY_TEST_SAMPLE").unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_default();
+            format!("{home}/Musica/Artistas/Barak/Barak - Mi Gozo.mp3")
+        })
+    }
+    fn has_sample() -> bool { std::path::Path::new(&sample()).exists() }
     fn wait_ms(ms: u64) { std::thread::sleep(Duration::from_millis(ms)) }
 
     #[test]
     fn duration_is_read_from_the_file() {
         if !has_sample() { return }
-        assert!(duration_of(SAMPLE) > 60.0);
+        assert!(duration_of(&sample()) > 60.0);
     }
 
     #[test]
@@ -257,7 +265,7 @@ mod tests {
         let m = Handle::new();
         wait_ms(250);
         if !m.state().has_output { eprintln!("sin tarjeta de sonido; se omite"); return }
-        m.send(Command::Play(SAMPLE.into())).unwrap();
+        m.send(Command::Play(sample())).unwrap();
         wait_ms(900);
         let e = m.state();
         assert!(e.error.is_empty(), "error: {}", e.error);
@@ -279,7 +287,7 @@ mod tests {
         let m = Handle::new();
         wait_ms(250);
         if !m.state().has_output { return }
-        m.send(Command::Play(SAMPLE.into())).unwrap();
+        m.send(Command::Play(sample())).unwrap();
         wait_ms(500);
         m.send(Command::Seek(30.0)).unwrap();
         wait_ms(500);
@@ -295,8 +303,8 @@ mod tests {
         let m = Handle::new();
         wait_ms(250);
         if !m.state().has_output { return }
-        let total = duration_of(SAMPLE);
-        m.send(Command::Play(SAMPLE.into())).unwrap();
+        let total = duration_of(&sample());
+        m.send(Command::Play(sample())).unwrap();
         wait_ms(400);
         m.send(Command::Seek(total - 0.6)).unwrap();     // casi al final
         wait_ms(1600);
@@ -315,8 +323,8 @@ mod tests {
         let m = Handle::new();
         wait_ms(250);
         if !m.state().has_output { return }
-        let total = duration_of(SAMPLE);
-        m.send(Command::Play(SAMPLE.into())).unwrap();
+        let total = duration_of(&sample());
+        m.send(Command::Play(sample())).unwrap();
         wait_ms(400);
         m.send(Command::Seek(total - 0.6)).unwrap();
         wait_ms(1600);
@@ -336,7 +344,7 @@ mod tests {
         let m = Handle::new();
         wait_ms(250);
         if !m.state().has_output { return }
-        m.send(Command::Play(SAMPLE.into())).unwrap();
+        m.send(Command::Play(sample())).unwrap();
         wait_ms(500);
         m.send(Command::Stop).unwrap();
         wait_ms(400);

@@ -87,7 +87,7 @@ def save_env(pairs: dict) -> None:
 
 
 # --- rutas ---
-LIBRARY = Path(env("DANPLAY_LIBRARY") or (Path.home() / "Musica"))
+LIBRARY = Path(env("DANPLAY_LIBRARY") or (Path.home() / "Musica")).expanduser()
 INBOX    = LIBRARY / env("DANPLAY_INBOX", "Entrada")
 ARTISTS_DIR   = LIBRARY / "Artistas"
 REVIEW_DIR    = LIBRARY / "Revisar"          # lo que no se pudo identificar

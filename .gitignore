@@ -7,6 +7,12 @@ node_modules/
 danplay.db
 danplay.db-wal
 danplay.db-shm
+# cualquier copia de la base: lleva las rutas y los titulos de TU musica
+danplay.db.*
+*.db.viejo*
+
+# binario compilado del nucleo: pesa 40 MB y se genera con scripts/build.sh
+desktop/src-tauri/binaries/
 
 # artefactos de compilacion
 target/

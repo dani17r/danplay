@@ -28,6 +28,9 @@ paso "2/4  nucleo empaquetado (PyInstaller)"
     packaging/core.spec
 
 paso "3/4  copiar el nucleo junto a la app"
+# La carpeta no esta en git (el binario pesa 40 MB y se genera aqui mismo),
+# asi que en un clon recien hecho hay que crearla antes de copiar.
+mkdir -p desktop/src-tauri/binaries
 cp dist/core/danplay-core \
    desktop/src-tauri/binaries/danplay-core-x86_64-unknown-linux-gnu
 

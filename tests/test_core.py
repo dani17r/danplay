@@ -7,6 +7,17 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from danplay import names as N, theory as M, duplicates as D, tags as E
 
 
+# Biblioteca de referencia para las pruebas que necesitan audio de verdad.
+# No se incrusta una ruta personal: se apunta a la tuya con la variable
+# DANPLAY_TEST_MUSIC, y si no existe esas pruebas se saltan solas.
+MUSIC = pathlib.Path(os.environ.get("DANPLAY_TEST_MUSIC")
+                     or pathlib.Path.home() / "Musica")
+
+
+def _muestra(relativa: str) -> str:
+    return str(MUSIC / relativa)
+
+
 # ------------------------------------------------------------------ nombres
 
 @pytest.mark.parametrize("value,expected", [
@@ -158,7 +169,7 @@ def test_rust_and_python_hashes_match():
 
 @pytest.fixture
 def mp3(tmp_path):
-    source_path = "/home/core/Musica/Artistas/Barak/Barak - Mi Gozo.mp3"
+    source_path = _muestra("Artistas/Barak/Barak - Mi Gozo.mp3")
     if not os.path.exists(source_path):
         pytest.skip("no hay biblioteca de prueba")
     target = tmp_path / "prueba.mp3"
@@ -194,7 +205,7 @@ def test_extract_cover(mp3):
     assert mime == "image/jpeg" and data.startswith(b"\xff\xd8")
 
 
-@pytest.mark.parametrize("folder", ["/home/core/Musica/Secuencias"])
+@pytest.mark.parametrize("folder", [_muestra("Secuencias")])
 def test_wav_duration_is_not_zero(folder):
     """mutagen.File() devuelve None para algunos .wav; debe usarse el lector concreto."""
     if not os.path.isdir(folder):
@@ -207,7 +218,7 @@ def test_wav_duration_is_not_zero(folder):
 
 
 def test_mp3_duration_still_right():
-    m = "/home/core/Musica/Artistas/Barak/Barak - Mi Gozo.mp3"
+    m = _muestra("Artistas/Barak/Barak - Mi Gozo.mp3")
     if not os.path.exists(m):
         pytest.skip("sin biblioteca")
     assert E.duration(m) > 60
