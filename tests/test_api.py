@@ -674,3 +674,106 @@ def test_the_interface_sends_the_body_fields_the_api_reads(cliente):
     r = cliente.delete("/api/exclusions?pattern=Prueba")
     assert r.status_code == 200, r.text
     assert "Prueba" not in [e["pattern"] for e in r.json()["exclusions"]]
+
+
+def test_rescanning_reuses_files_that_have_not_changed(cliente):
+    """Un reescaneo no vuelve a abrir los archivos que siguen igual.
+
+    Y tiene que dejar el indice EXACTAMENTE igual que un escaneo completo:
+    el atajo es solo para no releer, no para guardar cosas distintas.
+    """
+    from danplay import library as B
+    def foto():
+        conn = B.connect()
+        d = {r["path"]: tuple(r[k] for k in B.COLUMNS)
+             for r in conn.execute("SELECT * FROM songs")}
+        conn.close()
+        return d
+
+    B.scan()
+    antes = foto()
+    r = B.scan()
+    assert antes == foto(), "el reescaneo cambio el indice"
+    assert r["reused"] > 0, "no reaprovecho ninguno"
+    assert r["total"] == len(antes)
+
+    # Tocar un archivo obliga a releerlo, y el resto se sigue reaprovechando.
+    # Se elige uno CON artista a proposito: los que no lo tienen se releen
+    # siempre (pueden resolverse ahora que hay mas carpetas de artista), asi
+    # que tocar uno de esos no cambiaria la cuenta.
+    artista_en = B.COLUMNS.index("artist")
+    alguna = next(p for p, fila in antes.items()
+                  if fila[artista_en] and os.path.exists(p))
+    os.utime(alguna, None)
+    r2 = B.scan()
+    assert r2["total"] == r["total"]
+    assert r2["reused"] == r["reused"] - 1, "deberia releer justo el que se toco"
+
+
+def test_a_lost_database_is_rebuilt_from_the_files(cliente):
+    """Sin base de datos no hay atajo que valga: se relee todo del disco.
+
+    Es la promesa de la app: las estrellas, el favorito y la letra viven
+    dentro del mp3, asi que perder el indice no pierde nada.
+    """
+    from danplay import config, library as B
+    songs = cliente.get("/api/search", params={"limit": 500}).json()["songs"]
+    elegida = songs[0]
+    cliente.post(f"/api/song/{elegida['id']}/stars", json={"stars": 4})
+    cliente.post(f"/api/song/{elegida['id']}/favorite", json={"favorite": True})
+
+    os.remove(config.DATABASE)
+    B._prepared.clear()
+    B.add_folder(str(config.LIBRARY), "prueba")
+    r = B.scan()
+    assert r["reused"] == 0, "sin base no hay nada que reaprovechar"
+
+    rehecha = {c["path"]: c for c in
+               cliente.get("/api/search", params={"limit": 500}).json()["songs"]}
+    assert len(rehecha) == r["total"]
+    vuelta = rehecha[elegida["path"]]
+    assert vuelta["stars"] == 4, "las estrellas no volvieron del archivo"
+    assert vuelta["favorite"], "el favorito no volvio del archivo"
+    cliente.post(f"/api/song/{vuelta['id']}/stars", json={"stars": 0})
+    cliente.post(f"/api/song/{vuelta['id']}/favorite", json={"favorite": False})
+
+
+def test_the_cover_cache_notices_when_the_file_changes(cliente):
+    """Se recuerda la caratula para no reabrir el mp3, pero sin quedarse vieja.
+
+    La clave lleva la fecha y el tamaño del archivo, asi que incrustar otra
+    portada invalida la entrada sola.
+    """
+    from danplay import tags as T
+    original = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    copia = pathlib.Path(original["path"]).with_name("con caratula.mp3")
+    shutil.copy(original["path"], copia)
+    try:
+        uno = b"\xff\xd8\xff\xe0" + b"1" * 400
+        otro = b"\xff\xd8\xff\xe0" + b"2" * 900
+        assert T.write_cover(str(copia), uno, "image/jpeg")
+        assert T.cached_cover(str(copia))[0] == uno
+        assert T.cached_cover(str(copia))[0] == uno        # ahora desde la cache
+        assert T.write_cover(str(copia), otro, "image/jpeg")
+        assert T.cached_cover(str(copia))[0] == otro, "devolvio la caratula vieja"
+    finally:
+        copia.unlink(missing_ok=True)
+
+
+def test_the_cover_cache_stays_within_its_memory_budget(cliente):
+    """No puede crecer sin freno: en un equipo justo eso se nota."""
+    from danplay import tags as T
+    original = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    copias = []
+    try:
+        grande = b"\xff\xd8\xff\xe0" + b"x" * (700 * 1024)
+        for i in range(24):                       # 24 x 700 KB = ~16 MB > tope
+            c = pathlib.Path(original["path"]).with_name(f"pesada {i}.mp3")
+            shutil.copy(original["path"], c)
+            copias.append(c)
+            T.write_cover(str(c), grande, "image/jpeg")
+            T.cached_cover(str(c))
+        assert T._cover_bytes <= T._COVER_CACHE_MAX_BYTES, "se paso del tope"
+    finally:
+        for c in copias:
+            c.unlink(missing_ok=True)

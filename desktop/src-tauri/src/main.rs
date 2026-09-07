@@ -294,6 +294,12 @@ fn main() {
                     return respond_404(responder);
                 }
                 let (class, id) = (parts[0], parts[1]);
+                // El id se pega dentro de la ruta que se le pide al nucleo, asi
+                // que tiene que ser un numero y nada mas: si no, cualquier cosa
+                // con barras se colaria como trozos de ruta.
+                if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) {
+                    return respond_404(responder);
+                }
 
                 // OJO: tiene que coincidir EXACTAMENTE con lo que manda
                 // api.js (`coverUrl` -> /cover/<id>). Se quedo en "portada"

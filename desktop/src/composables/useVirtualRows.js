@@ -15,11 +15,22 @@
 // por lo que sea no se puede medir —el contenedor aun no tiene alto, o
 // estamos en un entorno sin maquetacion como las pruebas— se pinta la lista
 // entera: mas vale de mas que de menos.
+//
+// Sirve igual para la tabla y para la cuadricula. La diferencia es cuantos
+// elementos caben en una linea, y eso no se deduce del css sino que se mira
+// en lo ya pintado: los que empiezan a la misma altura son una linea. Asi
+// funciona sin saber nada de `auto-fill`, del ancho de ficha ni del hueco.
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 
-/** El antepasado que tiene la barra de desplazamiento. */
+/**
+ * El elemento que tiene la barra de desplazamiento.
+ *
+ * Empieza por el propio: en la tabla el ancla es el <tbody> y quien se
+ * desplaza es un antepasado, pero en la cuadricula el ancla ES la rejilla y
+ * ella misma es la que se desplaza.
+ */
 function nearestScroller (el) {
-  let n = el?.parentElement
+  let n = el
   while (n && n !== document.body) {
     const o = getComputedStyle(n).overflowY
     if (o === 'auto' || o === 'scroll') return n
@@ -44,7 +55,8 @@ export function useVirtualRows (getAnchor, getCount, options = {}) {
 
   const first = ref(0)
   const last = ref(initial)
-  const rowHeight = ref(0)
+  const rowHeight = ref(0)      // lo que baja de una linea a la siguiente
+  const columns = ref(1)        // cuantos elementos caben en una linea
   // Solo se pone a true si, DESPUES de intentarlo, resulta que no hay forma
   // de medir (un entorno sin maquetacion, o un panel todavia sin alto). Es la
   // valvula de seguridad: en ese caso se pinta la lista entera y no se
@@ -57,20 +69,42 @@ export function useVirtualRows (getAnchor, getCount, options = {}) {
   const all = computed(() => getCount() <= minimum || cannotMeasure.value)
   const from = computed(() => all.value ? 0 : Math.min(first.value, getCount()))
   const to = computed(() => all.value ? getCount() : Math.min(last.value, getCount()))
-  const padTop = computed(() => all.value ? 0 : from.value * rowHeight.value)
-  const padBottom = computed(() =>
-    all.value ? 0 : Math.max(0, (getCount() - to.value) * rowHeight.value))
+  const padTop = computed(() =>
+    all.value ? 0 : Math.floor(from.value / columns.value) * rowHeight.value)
+  const padBottom = computed(() => all.value ? 0 : Math.max(0,
+    Math.ceil((getCount() - to.value) / columns.value) * rowHeight.value))
 
-  /** Alto real de una fila, medido de la primera que haya pintada. */
-  function measureRow () {
+  /**
+   * Mide de lo ya pintado: cuantos elementos hay por linea y cuanto baja de
+   * una linea a la siguiente. Devuelve false si no se pudo medir.
+   */
+  function measure () {
     const anchor = getAnchor()
-    const row = anchor?.firstElementChild
-    // el primer hijo puede ser el separador de arriba: se busca uno con datos
-    let el = row
-    while (el && el.dataset && el.dataset.spacer !== undefined) el = el.nextElementSibling
-    const h = el ? el.offsetHeight : 0
-    if (h > 0 && h !== rowHeight.value) rowHeight.value = h
-    return rowHeight.value
+    if (!anchor) return false
+    const items = []
+    for (const el of anchor.children) {
+      if (!el.dataset || el.dataset.spacer === undefined) items.push(el)
+    }
+    if (!items.length) return false
+    const top = items[0].offsetTop
+    let cols = 0
+    let step = 0
+    for (const el of items) {
+      if (el.offsetTop === top) cols++
+      else { step = el.offsetTop - top; break }
+    }
+    if (!step) {
+      // solo hay una linea pintada: sirve su propio alto
+      if (items.length > 1 && cols === items.length && items.length >= minimum) {
+        // muchos elementos y todos a la misma altura: no hay maquetacion real
+        return false
+      }
+      step = items[0].offsetHeight
+    }
+    if (step <= 0) return false
+    rowHeight.value = step
+    columns.value = Math.max(1, cols)
+    return true
   }
 
   function compute () {
@@ -78,28 +112,36 @@ export function useVirtualRows (getAnchor, getCount, options = {}) {
     if (!anchor) return
     if (!viewport) viewport = nearestScroller(anchor)
     const total = getCount()
-    const h = measureRow()
-    const alto = viewport ? viewport.clientHeight : 0
     if (total <= minimum) {
       cannotMeasure.value = false
       first.value = 0
       last.value = total
       return
     }
-    if (!viewport || h <= 0 || alto <= 0) {
+    const ok = measure()
+    const alto = viewport ? viewport.clientHeight : 0
+    if (!viewport || !ok || alto <= 0) {
       cannotMeasure.value = true      // sin medidas fiables: se pinta todo
       first.value = 0
       last.value = total
       return
     }
     cannotMeasure.value = false
-    // donde empiezan las filas, dentro del contenido desplazable
-    const anchorTop = anchor.getBoundingClientRect().top
-      - viewport.getBoundingClientRect().top + viewport.scrollTop
-    const desde = Math.floor((viewport.scrollTop - anchorTop) / h) - overscan
-    const hasta = Math.ceil((viewport.scrollTop + alto - anchorTop) / h) + overscan
-    first.value = Math.max(0, Math.min(desde, Math.max(0, total - 1)))
-    last.value = Math.max(first.value, Math.min(total, hasta))
+    const h = rowHeight.value
+    const cols = columns.value
+    // Donde empiezan las filas, dentro del contenido desplazable. Si el ancla
+    // es el propio panel que se desplaza, empiezan al principio: su rectangulo
+    // no se mueve al desplazarse y la resta daria un valor que no es.
+    const anchorTop = anchor === viewport ? 0
+      : anchor.getBoundingClientRect().top
+        - viewport.getBoundingClientRect().top + viewport.scrollTop
+    const lineas = Math.ceil(total / cols)
+    const desde = Math.max(0,
+      Math.floor((viewport.scrollTop - anchorTop) / h) - overscan)
+    const hasta = Math.min(lineas,
+      Math.ceil((viewport.scrollTop + alto - anchorTop) / h) + overscan)
+    first.value = Math.min(desde * cols, Math.max(0, total - 1))
+    last.value = Math.max(first.value, Math.min(total, hasta * cols))
   }
 
   /** Se agrupan los avisos de desplazamiento en un solo recalculo por cuadro. */
@@ -120,8 +162,10 @@ export function useVirtualRows (getAnchor, getCount, options = {}) {
   async function reveal (index) {
     if (index < 0) return null
     if (!all.value) {
-      first.value = Math.max(0, index - overscan)
-      last.value = Math.min(getCount(), index + overscan + 1)
+      const cols = columns.value
+      const linea = Math.floor(index / cols)
+      first.value = Math.max(0, (linea - overscan) * cols)
+      last.value = Math.min(getCount(), (linea + overscan + 1) * cols)
       await nextTick()
     }
     return { viewport, rowHeight: rowHeight.value }
@@ -151,5 +195,5 @@ export function useVirtualRows (getAnchor, getCount, options = {}) {
   // al cambiar la lista se vuelve arriba: es otra busqueda, otra vista
   watch(() => getCount(), () => { first.value = 0; last.value = initial; recompute() })
 
-  return { from, to, padTop, padBottom, all, rowHeight, recompute, reveal }
+  return { from, to, padTop, padBottom, all, rowHeight, columns, recompute, reveal }
 }

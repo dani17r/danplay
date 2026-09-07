@@ -4,8 +4,11 @@ portada (APIC), tono (TKEY), BPM (TBPM) y campos propios (TXXX).
 
 Todo se guarda DENTRO del archivo, para que la biblioteca sea portatil.
 """
+import os
 import mutagen
+from collections import OrderedDict as _OrderedDict
 from pathlib import Path
+from threading import Lock as _Lock
 from mutagen.id3 import (ID3, ID3NoHeaderError, APIC, USLT, POPM, TXXX, TKEY,
                          TBPM, TIT2, TPE1, TPE2, TALB, TDRC, TCON, COMM)
 from mutagen.mp3 import MP3
@@ -258,6 +261,13 @@ def write_cover(path, data: bytes, mime="image/jpeg") -> bool:
                 del t[k]
         t.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=data))
         t.save(v2_version=3)
+        # Se olvida lo cacheado AQUI, que es el unico sitio donde cambia una
+        # caratula. No basta con mirar la fecha del archivo: la etiqueta cabe
+        # en el hueco que ya habia, asi que el tamaño no cambia, y dos
+        # escrituras seguidas pueden caer en el mismo tic del reloj del
+        # sistema de archivos y quedarse con la MISMA fecha. Entonces la
+        # entrada vieja seguiria pareciendo buena.
+        forget_cover(path)
         return True
     except Exception:
         return False
@@ -280,3 +290,50 @@ def extract_cover(path) -> tuple[bytes, str] | None:
         if k.startswith("APIC"):
             return t[k].data, t[k].mime
     return None
+
+
+# Sacar una caratula significa abrir el mp3 y parsear sus etiquetas. La
+# cuadricula pide muchas y las vuelve a pedir cada vez que se desplaza, asi
+# que se recuerdan las ultimas. La clave lleva la fecha y el tamaño del
+# archivo: si cambia cualquiera de las dos —al incrustar otra caratula, por
+# ejemplo— la entrada vieja deja de valer sola, sin nada que invalidar a mano.
+#
+# El tope es en bytes y no en numero de caratulas: una portada puede ocupar
+# 20 KB o medio mega, y en un equipo justo de memoria la diferencia importa.
+_COVER_CACHE: "OrderedDict[tuple, tuple[bytes, str] | None]" = _OrderedDict()
+_COVER_CACHE_MAX_BYTES = 12 * 1024 * 1024
+_cover_bytes = 0
+_cover_lock = _Lock()
+
+
+def cached_cover(path) -> tuple[bytes, str] | None:
+    """Como `extract_cover`, pero sin releer el archivo si no ha cambiado."""
+    global _cover_bytes
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (str(path), st.st_mtime, st.st_size)
+    with _cover_lock:
+        if key in _COVER_CACHE:
+            _COVER_CACHE.move_to_end(key)
+            return _COVER_CACHE[key]
+    r = extract_cover(path)
+    size = len(r[0]) if r else 0
+    with _cover_lock:
+        if key not in _COVER_CACHE:
+            _COVER_CACHE[key] = r
+            _cover_bytes += size
+            while _cover_bytes > _COVER_CACHE_MAX_BYTES and len(_COVER_CACHE) > 1:
+                _, viejo = _COVER_CACHE.popitem(last=False)
+                _cover_bytes -= len(viejo[0]) if viejo else 0
+    return r
+
+
+def forget_cover(path) -> None:
+    """Olvida lo cacheado de un archivo. Por si se toca sin cambiar la fecha."""
+    global _cover_bytes
+    with _cover_lock:
+        for k in [k for k in _COVER_CACHE if k[0] == str(path)]:
+            viejo = _COVER_CACHE.pop(k)
+            _cover_bytes -= len(viejo[0]) if viejo else 0

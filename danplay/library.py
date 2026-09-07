@@ -203,6 +203,12 @@ def connect():
     config.DATABASE.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(config.DATABASE)
     conn.row_factory = sqlite3.Row
+    # Con WAL ya activo, esto evita esperar al disco en cada commit. Se puede
+    # perder la ultima escritura si se va la luz de golpe (no si se cierra la
+    # app), y aqui eso no cuesta nada: la base es solo un indice y un escaneo
+    # la reconstruye entera desde los propios archivos. En un disco duro
+    # normal la diferencia por escritura es grande.
+    conn.execute("PRAGMA synchronous=NORMAL")
     key = str(config.DATABASE)
     if key not in _prepared:
         with _prepare_lock:
@@ -420,22 +426,41 @@ def scan(progress=None) -> dict:
     """
     conn = connect()
     cache = {f["path"]: f for f in conn.execute(
-        "SELECT path,chords,analyzed FROM songs")}
+        f"SELECT {','.join(COLUMNS)},chords,analyzed FROM songs")}
     conn.execute("DELETE FROM songs")
-    n, added_count = 0, 0
+    n, added_count, reused = 0, 0, 0
     vocab = names.vocabulary(config.ARTISTS_DIR)
     exclusions = list_exclusions()
+    mtime_at, size_at = COLUMNS.index("mtime"), COLUMNS.index("size")
     for root in _roots():
         if not os.path.isdir(root):
             continue
         for path in audio_files(root, exclusions):
-            try:
-                row = _row(path, root, vocab)
-            except OSError:
-                continue
+            v = cache.get(path)
+            row = None
+            # Si el archivo no se ha tocado desde el ultimo escaneo, sus
+            # etiquetas no pueden haber cambiado: se reaprovecha lo que ya
+            # habia en vez de volver a abrirlo y parsearlo. Es lo que hace que
+            # un reescaneo sea casi instantaneo en vez de tardar lo mismo que
+            # el primero. Escribir etiquetas (estrellas, favorito, un titulo
+            # corregido) cambia la fecha del archivo, asi que eso siempre se
+            # relee. Los que no tienen artista tambien: pueden resolverse
+            # ahora que hay mas carpetas de artista que antes.
+            if v is not None and v["artist"]:
+                try:
+                    st = os.stat(path)
+                except OSError:
+                    continue
+                if st.st_mtime == v["mtime"] and st.st_size == v["size"]:
+                    row = tuple(v[c] for c in COLUMNS)
+                    reused += 1
+            if row is None:
+                try:
+                    row = _row(path, root, vocab)
+                except OSError:
+                    continue
             conn.execute(f"INSERT OR REPLACE INTO songs ({','.join(COLUMNS)}) "
                         f"VALUES ({','.join('?'*len(COLUMNS))})", row)
-            v = cache.get(path)
             if v:
                 if v["chords"] or v["analyzed"]:
                     conn.execute("UPDATE songs SET chords=?,analyzed=? WHERE path=?",
@@ -447,7 +472,7 @@ def scan(progress=None) -> dict:
                 progress(n)
     conn.execute("INSERT INTO search_index(search_index) VALUES('rebuild')")
     conn.commit(); conn.close()
-    return {"total": n, "added_count": added_count}
+    return {"total": n, "added_count": added_count, "reused": reused}
 
 
 # ------------------------------------------------------------- busqueda

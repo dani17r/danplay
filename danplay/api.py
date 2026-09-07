@@ -277,7 +277,7 @@ def cover(cid: int):
     c = library.by_id(cid)
     if not c:
         raise HTTPException(404, "no existe")
-    r = tags.extract_cover(c["path"]) if os.path.exists(c["path"]) else None
+    r = tags.cached_cover(c["path"]) if os.path.exists(c["path"]) else None
     if not r:
         raise HTTPException(404, "sin portada")
     return Response(content=r[0], media_type=r[1])
@@ -370,6 +370,7 @@ def set_cover(cid: int, body: dict = Body(...)):
     data, mime = r
     if not tags.write_cover(c["path"], data, mime):
         raise HTTPException(500, "no se pudo incrustar la imagen")
+    tags.forget_cover(c["path"])
     library.update(cid, cover="embedded")
     return {"ok": True, "kb": len(data) // 1024, "song": library.by_id(cid)}
 

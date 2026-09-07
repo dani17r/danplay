@@ -95,9 +95,22 @@ impl Handle {
             let mut path = String::new();
             let mut duration = 0.0f64;
 
+            // Cada cuanto se refresca el estado si no llega ninguna orden.
+            // Mientras suena hace falta a menudo: de ahi salen la barra de
+            // progreso y el aviso de fin de pista. Parado o en pausa no se
+            // mueve nada, asi que despertar ocho veces por segundo para mirar
+            // lo mismo solo gasta bateria. Una orden entra por el canal y
+            // despierta al hilo al momento, asi que no se pierde reaccion.
+            const ACTIVO_MS: u64 = 120;
+            const QUIETO_MS: u64 = 600;
+
             loop {
+                let sonando = sink
+                    .as_ref()
+                    .map_or(false, |s| !s.is_paused() && !s.empty());
+                let espera = if sonando { ACTIVO_MS } else { QUIETO_MS };
                 // atiende ordenes; si no llega ninguna, refresca el estado
-                match rx.recv_timeout(Duration::from_millis(120)) {
+                match rx.recv_timeout(Duration::from_millis(espera)) {
                     Ok(cmd) => {
                         let mut failure = String::new();
                         match cmd {

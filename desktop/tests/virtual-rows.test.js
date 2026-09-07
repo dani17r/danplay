@@ -25,12 +25,30 @@ let originales = null
 function conMaquetacion () {
   originales = {
     offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
+    offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop'),
     clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
     overflow: window.getComputedStyle
   }
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
     configurable: true,
-    get () { return this.tagName === 'TR' ? FILA : 0 }
+    get () {
+      // los separadores llevan su alto puesto a mano
+      const propio = parseInt(this.style?.height || '', 10)
+      if (propio > 0) return propio
+      return this.tagName === 'TR' ? FILA : 0
+    }
+  })
+  // cada fila empieza donde acaba la anterior: es lo que mira el composable
+  // para saber cuantas caben por linea y cuanto baja de una a otra
+  Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
+    configurable: true,
+    get () {
+      let t = 0
+      for (let el = this.previousElementSibling; el; el = el.previousElementSibling) {
+        t += el.offsetHeight
+      }
+      return t
+    }
   })
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
     configurable: true,
@@ -45,7 +63,7 @@ function sinMaquetacion () {
   if (!originales) return
   // jsdom no siempre define estas en HTMLElement.prototype: si no habia nada
   // que guardar, se quita lo que pusimos en vez de restaurar «undefined».
-  for (const prop of ['offsetHeight', 'clientHeight']) {
+  for (const prop of ['offsetHeight', 'offsetTop', 'clientHeight']) {
     if (originales[prop]) Object.defineProperty(HTMLElement.prototype, prop, originales[prop])
     else delete HTMLElement.prototype[prop]
   }
@@ -130,6 +148,91 @@ describe('si no se puede medir, se pinta todo', () => {
     await flushPromises(); await nextTick()
     expect(filas(w).length).toBe(300)
     expect(w.text()).toContain('Cancion 299')
+    w.unmount()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// La cuadricula es el mismo mecanismo, pero con varias fichas por linea. No
+// se calcula del css: se mira cuantas de las pintadas empiezan a la misma
+// altura. Aqui se simula una rejilla de 4 columnas y fichas de 200 px.
+import SongGrid from '../src/components/SongGrid.vue'
+
+const COLS = 4
+const FICHA = 200
+
+function conRejilla () {
+  originales = {
+    offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
+    offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop'),
+    clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
+    overflow: window.getComputedStyle
+  }
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get () {
+      const propio = parseInt(this.style?.height || '', 10)
+      if (propio > 0) return propio
+      return this.classList?.contains('tile') ? FICHA : 0
+    }
+  })
+  Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
+    configurable: true,
+    get () {
+      // altura de los separadores que haya antes, mas la linea que le toca
+      let hueco = 0
+      let indice = 0
+      for (let el = this.previousElementSibling; el; el = el.previousElementSibling) {
+        if (el.dataset && el.dataset.spacer !== undefined) hueco += el.offsetHeight
+        else indice++
+      }
+      return hueco + Math.floor(indice / COLS) * FICHA
+    }
+  })
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get () { return this.classList?.contains('grid') ? PANEL : 0 }
+  })
+  window.getComputedStyle = (el) =>
+    ({ overflowY: el.classList?.contains('grid') ? 'auto' : 'visible' })
+}
+
+describe('cuadricula: varias fichas por linea', () => {
+  beforeEach(conRejilla)
+  afterEach(sinMaquetacion)
+
+  it('con mil fichas pinta solo unas cuantas lineas', async () => {
+    const w = mount(SongGrid, { props: { songs: lista(1000), selected: null, playing: null },
+                                attachTo: document.body })
+    await flushPromises(); await nextTick()
+    const fichas = w.findAll('.tile').length
+    expect(fichas).toBeGreaterThan(COLS)          // al menos una linea
+    expect(fichas).toBeLessThan(200)              // ni de lejos las mil
+    expect(fichas % COLS).toBe(0)                 // lineas enteras
+    w.unmount()
+  })
+
+  it('los separadores dejan el alto total correcto', async () => {
+    const songs = lista(1000)
+    const w = mount(SongGrid, { props: { songs, selected: null, playing: null },
+                                attachTo: document.body })
+    await flushPromises(); await nextTick()
+    const pintadas = w.findAll('.tile').length
+    const hueco = w.findAll('.grid > [data-spacer]')
+      .reduce((t, d) => t + alto(d), 0)
+    const lineasTotales = Math.ceil(songs.length / COLS)
+    expect(hueco + (pintadas / COLS) * FICHA).toBe(lineasTotales * FICHA)
+    w.unmount()
+  })
+
+  it('«ir a lo que suena» trae una ficha lejana', async () => {
+    const w = mount(SongGrid, { props: { songs: lista(1000), selected: null, playing: null, jumpTo: null },
+                                attachTo: document.body })
+    await flushPromises(); await nextTick()
+    expect(w.text()).not.toContain('Cancion 800')
+    await w.setProps({ jumpTo: 800 })
+    await flushPromises(); await nextTick()
+    expect(w.text()).toContain('Cancion 800')
     w.unmount()
   })
 })

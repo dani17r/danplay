@@ -3,7 +3,8 @@ import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
 import EmptyState from './ui/EmptyState.vue'
 import { useDragSong } from '../composables/useDragSong.js'
-import { watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
+import { useVirtualRows } from '../composables/useVirtualRows.js'
 
 // Una ficha se puede coger y soltar en un repertorio del menu lateral.
 const { startDrag, isDragged } = useDragSong()
@@ -14,8 +15,19 @@ const props = defineProps(['songs','selected','playing','size','jumpTo'])
 const cards = new Map()
 watch(() => props.songs, () => cards.clear())
 
+// Igual que en la tabla: solo se pintan las fichas que se ven. Cuantas caben
+// por linea no hace falta calcularlo del css: se mira cuantas de las ya
+// pintadas empiezan a la misma altura.
+const box = ref(null)
+const { from, to, padTop, padBottom, reveal } =
+  useVirtualRows(() => box.value, () => props.songs.length)
+const visible = computed(() => props.songs.slice(from.value, to.value))
+
 watch(() => props.jumpTo, async (id) => {
   if (!id) return
+  const i = props.songs.findIndex(c => c.id === id)
+  if (i < 0) return
+  await reveal(i)
   await nextTick()
   const el = cards.get(id)
   if (el && typeof el.scrollIntoView === 'function') {
@@ -28,8 +40,10 @@ const emit = defineEmits(['select','play','context'])
 </script>
 
 <template>
-  <div class="grid" :style="{'--card-w': (size||164)+'px'}">
-    <div v-for="c in songs" :key="c.id" class="tile"
+  <div class="grid" ref="box" :style="{'--card-w': (size||164)+'px'}">
+    <div v-if="padTop" data-spacer aria-hidden="true"
+         :style="{gridColumn: '1 / -1', height: padTop + 'px'}"></div>
+    <div v-for="c in visible" :key="c.id" class="tile"
          v-memo="[c.id, c.title, c.file, c.artist, c.stars,
                   selected===c.id, playing===c.id, jumpTo===c.id, isDragged(c.id)]"
          :ref="el => { if (el) cards.set(c.id, el) }"
@@ -48,6 +62,8 @@ const emit = defineEmits(['select','play','context'])
       <div class="sub2" v-if="c.stars" style="display:flex;gap:1px;color:var(--amber)">
         <Icon v-for="n in c.stars" :key="n" n="star" :t="12" /></div>
     </div>
+    <div v-if="padBottom" data-spacer aria-hidden="true"
+         :style="{gridColumn: '1 / -1', height: padBottom + 'px'}"></div>
     <EmptyState v-if="!songs.length" style="grid-column:1/-1"
                 title="Nada por aqui" hint="Prueba con otra busqueda o revisa tus carpetas" />
   </div>
