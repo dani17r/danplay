@@ -1,0 +1,17 @@
+# entorno y dependencias
+.venv/
+node_modules/
+
+# secretos y datos del usuario
+.env
+danplay.db
+danplay.db-wal
+danplay.db-shm
+
+# artefactos de compilacion
+target/
+dist/
+build/
+__pycache__/
+*.pyc
+.pytest_cache/

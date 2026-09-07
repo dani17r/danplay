@@ -1,0 +1,57 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DanPlay",
+  "version": "0.1.0",
+  "identifier": "local.danplay.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5273",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "DanPlay",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1080,
+        "minHeight": 640,
+        "resizable": true,
+        "theme": "Dark",
+        "label": "main"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; media-src 'self' danplay: http://danplay.localhost; img-src 'self' data: danplay: http://danplay.localhost; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb",
+      "appimage"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ],
+    "externalBin": [
+      "binaries/danplay-core"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "ffmpeg",
+          "libchromaprint-tools"
+        ],
+        "section": "sound",
+        "priority": "optional"
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "shortDescription": "Gestor de biblioteca musical",
+    "longDescription": "Identifica, renombra y organiza tu musica; reproduce, busca letra y acordes, y transpone tonos."
+  }
+}

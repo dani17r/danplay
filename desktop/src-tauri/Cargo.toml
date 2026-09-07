@@ -1,0 +1,33 @@
+[package]
+name = "danplay-app"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "tokio", "http1"] }
+http-body-util = "0.1"
+hyperlocal = "0.9"
+libc = "0.2"
+rodio = { version = "0.20", default-features = false, features = ["symphonia-mp3", "symphonia-wav", "symphonia-flac", "symphonia-vorbis", "symphonia-aac", "symphonia-isomp4"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+# El crate del nucleo ya se compilaba asi; la app no, y es la que arranca en
+# frio cada vez. Menos binario que cargar y codigo mas rapido.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

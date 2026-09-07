@@ -1,0 +1,20 @@
+[package]
+name = "danplay_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "danplay_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"] }
+rayon = "1.10"
+rustfft = "6.2"
+md-5 = "0.10"
+symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "isomp4", "aac", "ogg", "vorbis"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
