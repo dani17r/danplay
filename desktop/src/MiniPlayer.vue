@@ -18,7 +18,7 @@ import Icon from './components/Icon.vue'
 import CoverArt from './components/ui/CoverArt.vue'
 import { applyTheme, applyDensity, savedTheme, savedDensity } from './themes.js'
 
-const VACIO = { id: null, title: '', artist: '', playing: false,
+const VACIO = { id: null, title: '', artist: '', playing: false, blur: false,
                 has_previous: false, has_next: false }
 
 const now = ref({ ...VACIO })
@@ -112,7 +112,7 @@ function seek (e) {
 </script>
 
 <template>
-  <div class="mini">
+  <div class="miniplayer">
     <!-- la barra de arriba hace de asa: la ventana no tiene marco -->
     <header class="mini-head" data-tauri-drag-region>
       <span class="mini-brand" data-tauri-drag-region>
@@ -124,7 +124,7 @@ function seek (e) {
     </header>
 
     <div class="mini-song">
-      <CoverArt :id="now.id" class="mini-art" :icon-size="18" :alt="now.title" />
+      <CoverArt :id="now.id" :blur="!!now.blur" class="mini-art" :icon-size="18" :alt="now.title" />
       <div class="mini-text">
         <div class="mini-title">{{ loaded ? (now.title || 'Sin titulo') : 'Nada sonando' }}</div>
         <div class="mini-artist">

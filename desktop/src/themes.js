@@ -16,6 +16,10 @@ export const FIELDS = [
   { k: 'red',     n: 'Alertas',          d: 'favoritos y errores' }
 ]
 
+// Como se dice el tipo de tema en la interfaz. Se mostraba «dark» / «light»
+// tal cual, que son los valores internos, no algo que enseñar al usuario.
+export const KIND_LABEL = { dark: 'oscuro', light: 'claro' }
+
 export const CATALOG = {
   night: { name: 'Noche', kind: 'dark', v: {
     bg:'#0c0d10', panel:'#131519', panel2:'#181b21', border:'#22262e', border2:'#2c313b',

@@ -49,7 +49,7 @@ onUnmounted(() => { if (document.documentElement.dataset.theme === '__previa') a
              width="minmax(180px, 1fr)" style="flex:1;min-width:180px" />
       <SelectField v-if="!editing" :modelValue="base" label="Partir de" width="190px"
                 :options="Object.entries(allThemes()).map(([k,t]) =>
-                           ({v:k, n:t.name, color:t.v.acento}))"
+                           ({v:k, n:t.name, color:t.v.accent}))"
                 @update:modelValue="v => { base = v; partirDe(v) }" />
       <SelectField v-model="kind" label="Base" width="140px"
                 :options="[{v:'dark',n:'Oscuro'},{v:'light',n:'Claro'}]" />

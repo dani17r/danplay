@@ -16,13 +16,13 @@ const highlighted = ref(0)
 const current = computed(() =>
   props.options.find(o => o.v === props.modelValue) || props.options[0] || { n: '—' })
 
-function togglePlay () {
+function toggle () {
   if (props.disabled) return
   open.value = !open.value
   if (open.value) {
     highlighted.value = Math.max(0, props.options.findIndex(o => o.v === props.modelValue))
     nextTick(() => {
-      const el = root.value?.querySelector('.select-opt.res')
+      const el = root.value?.querySelector('.select-opt.current')
       if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' })
     })
   }
@@ -30,7 +30,7 @@ function togglePlay () {
 function choose (o) { emit('update:modelValue', o.v); open.value = false }
 function onKey (e) {
   if (!open.value) {
-    if (['Enter', ' ', 'ArrowDown'].includes(e.key)) { e.preventDefault(); togglePlay() }
+    if (['Enter', ' ', 'ArrowDown'].includes(e.key)) { e.preventDefault(); toggle() }
     return
   }
   if (e.key === 'Escape') { open.value = false; return }
@@ -45,7 +45,7 @@ onClickOutside(root, () => { open.value = false })
   <div class="field" :class="{off: disabled}" :style="width ? {width: width} : null" ref="root">
     <span v-if="label" class="field-label">{{ label }}</span>
     <button class="select-box" type="button" :class="{open}" :disabled="disabled"
-            @click="togglePlay" @keydown="onKey">
+            @click="toggle" @keydown="onKey">
       <span v-if="current.color" class="select-dot" :style="{background: current.color}"></span>
       <span class="select-text">{{ current.n }}</span>
       <Icon n="down" :t="14" class="select-arrow" />

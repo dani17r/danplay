@@ -17,7 +17,10 @@ const props = defineProps({
   id: [Number, String],
   version: { type: Number, default: 0 },
   iconSize: { type: Number, default: 24 },
-  alt: { type: String, default: '' }
+  alt: { type: String, default: '' },
+  // Para portadas que uno no quiere tener delante. La imagen se guarda
+  // entera: esto es solo como se pinta, asi que quitarlo la devuelve igual.
+  blur: Boolean
 })
 
 const failed = ref(false)
@@ -45,7 +48,8 @@ function onError (e) {
 </script>
 
 <template>
-  <img v-if="src && !failed" class="cover-art" :src="src" :alt="alt"
+  <img v-if="src && !failed" class="cover-art" :class="{blurred: blur}"
+       :src="src" :alt="blur ? (alt ? alt + ' (portada difuminada)' : 'portada difuminada') : alt"
        loading="lazy" @error="onError" />
   <span v-else class="cover-art no-art" aria-hidden="true">
     <Icon n="music" :t="iconSize" />

@@ -295,6 +295,19 @@ def favorite(cid: int, body: dict = Body(...)):
     return library.by_id(cid)
 
 
+@app.post("/api/song/{cid}/blur")
+def blur_cover(cid: int, body: dict = Body(default={})):
+    """Difumina la portada al pintarla. La imagen no se toca.
+
+    Para portadas que uno no quiere tener delante. Se guarda dentro del mp3,
+    asi que la decision no se pierde ni al rehacer el indice.
+    """
+    c = library.set_blur(cid, bool(body.get("blur", True)))
+    if not c:
+        raise HTTPException(404, "no existe")
+    return c
+
+
 # ---------------------------------------------------------------- listas
 
 @app.get("/api/playlists")
@@ -521,7 +534,7 @@ async def duplicates_report():
                     items.append({
                         "id": c["id"] if c else None,
                         "path": r,
-                        "relativa": os.path.relpath(r, config.LIBRARY),
+                        "relative": os.path.relpath(r, config.LIBRARY),
                         "file": os.path.basename(r),
                         "artist": (c or {}).get("artist", ""),
                         "title": (c or {}).get("title", ""),
@@ -530,13 +543,13 @@ async def duplicates_report():
                         "size": (c or {}).get("size", 0),
                         "stars": (c or {}).get("stars", 0),
                         "favorite": (c or {}).get("favorite", 0),
-                        "tiene_sufijo": duplicates.name_without_suffix(os.path.basename(r)) != os.path.basename(r),
+                        "has_suffix": duplicates.name_without_suffix(os.path.basename(r)) != os.path.basename(r),
                     })
                 # se sugiere la de mejor calidad como candidata a conservar
                 # a igualdad de calidad, gana la que ya tiene el nombre limpio
                 best = max(items, key=lambda t: (t["bitrate"], t["size"],
-                                                  not t["tiene_sufijo"]))
-                out.append({"items": items, "sugerida": best["path"]})
+                                                  not t["has_suffix"]))
+                out.append({"items": items, "suggested": best["path"]})
             return out
         return {"identical": enrich(duplicates.identical(paths)),
                 "similar": enrich(duplicates.same_song(paths, config.DUPLICATE_THRESHOLD))}

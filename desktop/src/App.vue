@@ -7,8 +7,8 @@ import { useViewport } from './composables/useViewport.js'
 import Drawer from './components/ui/Drawer.vue'
 import CoverArt from './components/ui/CoverArt.vue'
 import { useDragSong, onDrop } from './composables/useDragSong.js'
-import { DENSITIES, SIZES, allThemes, applyTheme, applyDensity, applySize,
-         savedTheme, savedDensity, savedSize } from './themes.js'
+import { DENSITIES, SIZES, KIND_LABEL, allThemes, applyTheme, applyDensity,
+         applySize, savedTheme, savedDensity, savedSize } from './themes.js'
 import Sidebar from './components/Sidebar.vue'
 import SongTable from './components/SongTable.vue'
 import SongGrid from './components/SongGrid.vue'
@@ -124,8 +124,13 @@ const { isPhone, isCompact } = useViewport()
 const { drag, cancelDrag } = useDragSong()
 const navOpen = ref(false)
 const detailsOpen = ref(false)
+// Paginas que no tienen ninguna cancion que seleccionar: ahi el panel de
+// detalle solo ocupa 340px para decir «selecciona una cancion». En Duplicados
+// SI se queda, porque desde ahi se pueden escuchar las copias y la ficha se
+// llena.
+const SIN_DETALLE = ['settings', 'chat', 'downloads', 'inbox']
 const detailsVisible = computed(() =>
-  showDetails.value && !['settings', 'chat', 'downloads'].includes(view.value.kind))
+  showDetails.value && !SIN_DETALLE.includes(view.value.kind))
 // al navegar se cierra el panel: en movil tapa toda la pantalla
 watch(view, () => { navOpen.value = false; detailsOpen.value = false })
 watch(isCompact, (v) => { if (!v) { navOpen.value = false; detailsOpen.value = false } })
@@ -378,6 +383,7 @@ const trayState = computed(() => {
     title: c ? (c.title || c.file || '') : '',
     artist: c ? (c.artist || '') : '',
     playing: nativePlaying.value,
+    blur: !!(c && c.blur),
     has_previous: !!c && neighbours,
     has_next: !!c && neighbours
   }
@@ -392,6 +398,14 @@ function trayCommand ({ action } = {}) {
 
 async function setStars (c, n) { Object.assign(c, await api.setStars(c.id, n)) }
 async function toggleFavorite (c) { Object.assign(c, await api.toggleFavorite(c.id, !c.favorite)) }
+
+/** Difumina la portada, o le quita el difuminado. La imagen no se toca. */
+async function toggleBlur (song) {
+  const c = await api.setBlur(song.id, !song.blur)
+  Object.assign(song, c)
+  onUpdated(c)
+  notify(c.blur ? 'Portada difuminada' : 'Portada a la vista', 'ok', 3)
+}
 
 // ---------------------------------------------------------------- dialogos
 // Los `prompt()` y `confirm()` del navegador ignoran el tema y se ven de otra
@@ -441,6 +455,9 @@ function songMenu (ev, song) {
   items.push({ separator: true })
   items.push({ label: 'Buscar letra y portada', icon: 'lyrics',
                action: () => enrichSong(song) })
+  items.push({ label: song.blur ? 'Ver la portada' : 'Difuminar la portada',
+               icon: song.blur ? 'eye' : 'eyeOff',
+               action: () => toggleBlur(song) })
   items.push({ label: 'Renombrar…', icon: 'pencil', action: () => renameSong(song) })
   items.push({ separator: true })
   items.push({ label: 'Mandar a la papelera…', icon: 'trash', danger: true,
@@ -635,6 +652,7 @@ function onUpdated (c) {
     <div style="position:relative" ref="viewBox">
       <button class="btn mini" @click="viewMenu=!viewMenu" style="gap:6px">
         <Icon n="viewOptions" :t="14" /> Vista</button>
+      <transition name="dropdown">
       <div v-if="viewMenu" class="card view-menu" ref="viewPanel">
         <!-- separado en dos: lo que cambia la LISTA que estas viendo y lo que
              cambia la APP entera. Estaba todo revuelto y habia que leerselo
@@ -656,7 +674,8 @@ function onUpdated (c) {
           <div class="menu-head">La app</div>
           <SelectField v-model="theme" label="Tema"
                     :options="Object.entries(allThemes()).map(([k,t]) =>
-                               ({v: k, n: t.name, note: t.kind, color: t.v.acento}))" />
+                               ({v: k, n: t.name, note: KIND_LABEL[t.kind] || t.kind,
+                                 color: t.v.accent}))" />
           <SelectField v-model="appSize" label="Tamaño de la app"
                     :options="Object.entries(SIZES).map(([k,s]) => ({v: k, n: s.name, note: s.note}))" />
           <button v-if="native.available" class="btn mini mini-open"
@@ -664,6 +683,7 @@ function onUpdated (c) {
             <Icon n="note" :t="14" /> Mini reproductor</button>
         </div>
       </div>
+      </transition>
     </div>
     <span class="syntax-hint" v-if="stats">{{ stats.total }} temas</span>
   </header>
@@ -871,29 +891,32 @@ function onUpdated (c) {
     <DetailsPanel v-if="detailsVisible && !isCompact"
                   :song="detail" :aiReady="!!status?.ai"
                   @updated="onUpdated" @notice="(m,k)=>notify(m,k)"
+                  @toggle-blur="toggleBlur"
                   @goSettings="view = { kind: 'settings' }" />
 
     <Drawer v-if="isCompact" :open="detailsOpen && detailsVisible" side="right"
             title="Ficha" width="min(400px, 92vw)" @close="detailsOpen=false">
       <DetailsPanel :song="detail" :aiReady="!!status?.ai"
                     @updated="onUpdated" @notice="(m,k)=>notify(m,k)"
+                    @toggle-blur="toggleBlur"
                     @goSettings="view = { kind: 'settings' }; detailsOpen = false" />
     </Drawer>
   </div>
 
-  <div class="toasts">
-    <div v-for="a in notices" :key="a.id" class="toast" :class="'notice-' + (a.kind === 'ok' ? 'ok' : 'ambar')">
+  <transition-group name="toast" tag="div" class="toasts">
+    <div v-for="a in notices" :key="a.id" class="toast"
+           :class="a.kind === 'ok' ? 'hint-ok' : 'hint-amber'">
       <Icon :n="a.kind === 'ok' ? 'check' : 'warning'" :t="15" />
       <span>{{ a.message }}</span>
       <button class="close" @click="notices = notices.filter(x => x.id !== a.id)">
         <Icon n="close" :t="13" /></button>
     </div>
-  </div>
+  </transition-group>
 
   <teleport to="body">
     <div v-if="drag.song" class="drag-ghost"
          :style="{left: drag.x + 'px', top: drag.y + 'px'}">
-      <CoverArt :id="drag.song.id" class="ghost-art" :icon-size="13"
+      <CoverArt :id="drag.song.id" :blur="!!drag.song.blur" class="ghost-art" :icon-size="13"
                 :alt="drag.song.title || drag.song.file" />
       <span class="ghost-name">{{ drag.song.title || drag.song.file }}</span>
     </div>

@@ -781,3 +781,109 @@ def test_the_cover_cache_stays_within_its_memory_budget(cliente):
     finally:
         for c in copias:
             c.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Portadas difuminadas: para las que uno no quiere tener delante. La imagen no
+# se toca; solo se marca como «pintala borrosa».
+
+def test_blurring_a_cover_does_not_touch_the_image(cliente):
+    """Difuminar es solo como se pinta: el archivo no cambia.
+
+    La portada se pone aqui mismo en vez de buscar una cancion que ya la
+    tenga, para que la prueba no dependa de con que musica se ejecute.
+    """
+    from danplay import tags as T
+    elegida = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    imagen = b"\xff\xd8\xff\xe0" + b"portada de prueba" * 20
+    assert T.write_cover(elegida["path"], imagen, "image/jpeg")
+    antes = T.extract_cover(elegida["path"])
+    assert antes and antes[0] == imagen
+    try:
+        r = cliente.post(f"/api/song/{elegida['id']}/blur", json={"blur": True}).json()
+        assert r["blur"] == 1
+        despues = T.extract_cover(elegida["path"])
+        assert despues[0] == antes[0], "la imagen NO deberia cambiar al difuminarla"
+        assert despues[1] == antes[1]
+        # y al quitarlo sigue igual
+        cliente.post(f"/api/song/{elegida['id']}/blur", json={"blur": False})
+        assert T.extract_cover(elegida["path"])[0] == imagen
+    finally:
+        cliente.post(f"/api/song/{elegida['id']}/blur", json={"blur": False})
+
+
+def test_blur_survives_a_lost_database(cliente):
+    """Como las estrellas: la marca vive dentro del mp3, no en el indice."""
+    from danplay import config, library as B
+    elegida = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    cliente.post(f"/api/song/{elegida['id']}/blur", json={"blur": True})
+
+    os.remove(config.DATABASE)
+    B._prepared.clear()
+    B.add_folder(str(config.LIBRARY), "prueba")
+    B.scan()
+
+    vuelta = next(x for x in cliente.get("/api/search", params={"limit": 500}).json()["songs"]
+                  if x["path"] == elegida["path"])
+    assert vuelta["blur"] == 1, "el difuminado no volvio del archivo"
+    cliente.post(f"/api/song/{vuelta['id']}/blur", json={"blur": False})
+
+
+def test_blurring_an_unknown_song_is_a_404(cliente):
+    assert cliente.post("/api/song/999999/blur", json={"blur": True}).status_code == 404
+
+
+def test_the_blur_column_is_added_to_an_older_database(tmp_path):
+    """Quien ya tenia su base no deberia notar nada: la columna se añade sola."""
+    import sqlite3
+    from danplay import config, library as B
+    vieja = tmp_path / "vieja.db"
+    conn = sqlite3.connect(vieja)
+    # una tabla `songs` como la de antes, sin la columna nueva
+    sin_blur = [c for c in B.COLUMNS if c != "blur"]
+    conn.execute(f"CREATE TABLE songs (id INTEGER PRIMARY KEY, "
+                 + ",".join(f"{c} TEXT" for c in sin_blur) + ")")
+    conn.execute(f"INSERT INTO songs (path) VALUES ('/x/uno.mp3')")
+    conn.commit(); conn.close()
+
+    antes = config.DATABASE
+    try:
+        config.DATABASE = vieja
+        B._prepared.clear()
+        c = B.connect()
+        columnas = {r[1] for r in c.execute("PRAGMA table_info(songs)")}
+        filas = c.execute("SELECT COUNT(*) FROM songs").fetchone()[0]
+        c.close()
+        assert "blur" in columnas, "no se añadio la columna"
+        assert filas == 1, "se perdieron filas al migrar"
+    finally:
+        config.DATABASE = antes
+        B._prepared.clear()
+
+
+def test_the_duplicate_report_uses_the_keys_the_interface_reads():
+    """El informe de duplicados y la interfaz tienen que hablar el mismo idioma.
+
+    Devolvia `sugerida`, `relativa` y `tiene_sufijo` mientras la plantilla leia
+    `suggested`, `relative` y `has_suffix`: la insignia de «mejor calidad» no
+    salia nunca y la ruta quedaba vacia. El remedo de la prueba del frontend
+    tenia las claves en ingles, asi que pasaba en verde contra un contrato que
+    no existia. Esto lo comprueba contra el codigo de verdad.
+    """
+    import inspect
+    import re
+    from danplay import api as A
+
+    fuente = inspect.getsource(A.duplicates_report)
+    claves_grupo = set(re.findall(r'"(\w+)":', fuente))
+    for k in ("items", "suggested", "relative", "has_suffix"):
+        assert k in claves_grupo, f"el informe ya no devuelve «{k}»"
+
+    vue = (pathlib.Path(__file__).resolve().parent.parent
+           / "desktop/src/components/DuplicateGroup.vue").read_text(encoding="utf-8")
+    for k in ("suggested", "relative", "has_suffix"):
+        assert k in vue, f"la interfaz ya no lee «{k}»"
+    # y que no queden nombres del esquema anterior en ninguno de los dos lados
+    for viejo in ("sugerida", "relativa", "tiene_sufijo"):
+        assert viejo not in fuente, f"quedo «{viejo}» en la API"
+        assert viejo not in vue, f"quedo «{viejo}» en la interfaz"

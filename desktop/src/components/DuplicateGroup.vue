@@ -20,11 +20,15 @@ const mb = (b) => b ? (b / 1048576).toFixed(1) + ' MB' : '—'
         <div class="dup-name">
           {{ t.file }}
           <span v-if="t.path === group.suggested" class="badge ok">mejor calidad</span>
-          <span v-if="t.tiene_sufijo" class="badge">lleva « - r»</span>
+          <span v-if="t.has_suffix" class="badge">lleva « - r»</span>
         </div>
         <div class="dup-meta mono">
-          {{ Math.round(t.bitrate/1000) || '—' }} kbps · {{ fmtDuration(t.duration) }} · {{ mb(t.size) }}
-          <span class="dup-path">{{ t.relativa }}</span>
+          <!-- Los datos en su propio span: como texto suelto dentro de un flex
+               se partian por cualquier espacio y el «MB» acababa en la linea
+               de abajo, separado de su numero. -->
+          <span class="dup-stats">{{ Math.round(t.bitrate/1000) || '—' }} kbps ·
+            {{ fmtDuration(t.duration) }} · {{ mb(t.size) }}</span>
+          <span class="dup-path">{{ t.relative }}</span>
         </div>
       </div>
 

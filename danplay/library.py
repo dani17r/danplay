@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS songs (
     chords   TEXT DEFAULT '',
     analyzed REAL DEFAULT 0,
     stars INTEGER DEFAULT 0,
-    favorite  INTEGER DEFAULT 0
+    favorite  INTEGER DEFAULT 0,
+    blur      INTEGER DEFAULT 0    -- la portada se pinta difuminada
 );
 CREATE INDEX IF NOT EXISTS i_artist ON songs(artist);
 CREATE INDEX IF NOT EXISTS i_match_key   ON songs(match_key);
@@ -108,7 +109,7 @@ END;
 # bpm y caratula viajan dentro del mp3.
 COLUMNS = ("path","root","folder","file","artist","title","album","year",
            "genre","feat","match_key","duration","bitrate","size","mtime",
-           "key","bpm","cover","lyrics","stars","favorite")
+           "key","bpm","cover","lyrics","stars","favorite","blur")
 
 
 # Tablas y columnas del esquema anterior (estaban en castellano). Se migran
@@ -192,10 +193,24 @@ def register_schema(sql: str) -> None:
         _prepared.discard(str(config.DATABASE))
 
 
+# Columnas añadidas despues de la primera version. `CREATE TABLE IF NOT
+# EXISTS` no toca una tabla que ya existe, asi que a quien ya tenia su base
+# hay que añadirselas a mano.
+_ADDED_LATER = (("songs", "blur", "INTEGER DEFAULT 0"),)
+
+
+def _add_missing_columns(conn) -> None:
+    for tabla, columna, tipo in _ADDED_LATER:
+        tiene = {r[1] for r in conn.execute(f"PRAGMA table_info({tabla})")}
+        if tiene and columna not in tiene:
+            conn.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}")
+
+
 def _prepare(conn) -> None:
     conn.executescript(SCHEMA)
     for extra in _EXTRA_SCHEMAS:
         conn.executescript(extra)
+    _add_missing_columns(conn)
     _migrate_from_spanish(conn)
 
 
@@ -414,7 +429,8 @@ def _row(path, root, vocab=None) -> tuple:
             tag.get("key", ""), tag.get("bpm", 0.0),
             "embedded" if tag.get("cover") else "",
             tag.get("lyrics", ""), int(tag.get("stars", 0) or 0),
-            1 if tag.get("favorite") else 0)
+            1 if tag.get("favorite") else 0,
+            1 if tag.get("blur") else 0)
 
 
 def scan(progress=None) -> dict:
@@ -564,6 +580,22 @@ def search(query="", filters=None, sort="artist", limit=200, offset=0,
     return [dict(f) for f in rows]
 
 
+def set_blur(cid: int, value=True) -> dict | None:
+    """Difumina (o deja de difuminar) la portada de una cancion.
+
+    La imagen no se toca: se guarda una marca dentro del propio mp3 y la
+    interfaz la pinta borrosa. Quitarla devuelve la portada intacta.
+    """
+    c = by_id(cid)
+    if not c:
+        return None
+    value = bool(value)
+    if config.WRITE_TAGS and os.path.exists(c["path"]):
+        tags.set_blurred_cover(c["path"], value)
+    update(cid, blur=1 if value else 0)
+    return by_id(cid)
+
+
 def by_id(cid: int) -> dict | None:
     conn = connect()
     f = conn.execute("SELECT * FROM songs WHERE id=?", (cid,)).fetchone()
@@ -573,7 +605,7 @@ def by_id(cid: int) -> dict | None:
 
 def update(cid: int, **fields) -> None:
     allowed = {"artist","title","album","year","genre","feat","key","bpm",
-                  "cover","lyrics","chords","analyzed","stars","favorite"}
+                  "cover","lyrics","chords","analyzed","stars","favorite","blur"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return

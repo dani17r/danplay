@@ -42,7 +42,8 @@ const fmtDuration = (l) => {
   <div class="table-wrap">
     <div v-for="[k, items] in groups" :key="k">
       <div class="group-head collapsible" @click="toggleGroup(k)">
-        <Icon :n="collapsed.has(k) ? 'right' : 'down'" :t="13" />
+        <Icon n="right" :t="13" class="group-chevron"
+              :class="{open: !collapsed.has(k)}" />
         <span>{{ k }}</span>
         <span class="cnt">{{ items.length }} temas · {{ fmtDuration(items) }}</span>
       </div>

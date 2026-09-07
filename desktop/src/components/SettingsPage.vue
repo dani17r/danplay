@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api, pickFolder } from '../api.js'
-import { DENSITIES, allThemes, deleteCustomTheme, applyTheme } from '../themes.js'
+import { DENSITIES, KIND_LABEL, allThemes, deleteCustomTheme, applyTheme } from '../themes.js'
 import ThemeEditor from './ThemeEditor.vue'
 import Icon from './Icon.vue'
 import Loading from './ui/Loading.vue'
@@ -113,12 +113,12 @@ const gb = (b) => (b / 1073741824).toFixed(2)
     <Card title="Apariencia" note="El tema se aplica al instante y se recuerda.">
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:9px">
         <div v-for="(t,k) in catalog" :key="k" @click="emit('theme', k)"
-             :style="{background:t.v.panel, border:'2px solid '+(theme===k?t.v.acento:t.v.borde),
+             :style="{background:t.v.panel, border:'2px solid '+(theme===k?t.v.accent:t.v.border),
                       borderRadius:'8px', padding:'10px', cursor:'pointer', position:'relative'}">
           <div style="display:flex;gap:4px;margin-bottom:7px">
-            <span v-for="c in [t.v.acento,t.v.text,t.v.tenue,t.v.panel2]" :key="c"
+            <span v-for="c in [t.v.accent,t.v.text,t.v.muted,t.v.panel2]" :key="c"
                   :style="{background:c,width:'15px',height:'15px',borderRadius:'3px',
-                           border:'1px solid '+t.v.borde2}"></span>
+                           border:'1px solid '+t.v.border2}"></span>
           </div>
           <div :style="{color:t.v.text,fontSize:'12px',fontWeight:theme===k?600:400}">
             {{ t.name }}</div>
@@ -128,8 +128,8 @@ const gb = (b) => (b / 1073741824).toFixed(2)
             <button class="btn mini" style="padding:2px 7px"
                     @click.stop="removeTheme(k)">Borrar</button>
           </div>
-          <div v-else :style="{fontSize:'10px',color:t.v.tenue2,marginTop:'6px'}">
-            {{ t.kind }}</div>
+          <div v-else :style="{fontSize:'10px',color:t.v.muted2,marginTop:'6px'}">
+            {{ KIND_LABEL[t.kind] || t.kind }}</div>
         </div>
         <div @click="editor=''" :style="{border:'2px dashed var(--border2)',borderRadius:'8px',
              padding:'10px',cursor:'pointer',display:'flex',flexDirection:'column',

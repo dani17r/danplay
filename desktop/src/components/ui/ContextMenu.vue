@@ -59,14 +59,19 @@ function teclas (e) {
   if (!props.open) return
   if (e.key === 'Escape') { e.preventDefault(); drill.value ? (drill.value = null) : emit('close') }
 }
+// Con nombre, no una funcion suelta: una arrow anonima no se puede quitar
+// despues, y quedaba escuchando para siempre.
+function alRedimensionar () { if (props.open) emit('close') }
+
 onMounted(() => {
   window.addEventListener('mousedown', fuera, true)
   window.addEventListener('keydown', teclas)
-  window.addEventListener('resize', () => props.open && emit('close'))
+  window.addEventListener('resize', alRedimensionar)
 })
 onUnmounted(() => {
   window.removeEventListener('mousedown', fuera, true)
   window.removeEventListener('keydown', teclas)
+  window.removeEventListener('resize', alRedimensionar)
 })
 </script>
 

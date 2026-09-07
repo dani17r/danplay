@@ -266,7 +266,7 @@ const tt = (s) => (!s && s !== 0) ? '0:00'
 
   <div class="player">
     <audio v-if="!native.available" ref="audio" preload="metadata"></audio>
-    <CoverArt :id="song?.id" class="pl-cover" :icon-size="20" :alt="song?.title || ''" />
+    <CoverArt :id="song?.id" :blur="!!song?.blur" class="pl-cover" :icon-size="20" :alt="song?.title || ''" />
 
     <div class="pl-info">
       <div class="title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">

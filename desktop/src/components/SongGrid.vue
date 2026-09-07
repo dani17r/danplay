@@ -44,7 +44,7 @@ const emit = defineEmits(['select','play','context'])
     <div v-if="padTop" data-spacer aria-hidden="true"
          :style="{gridColumn: '1 / -1', height: padTop + 'px'}"></div>
     <div v-for="c in visible" :key="c.id" class="tile"
-         v-memo="[c.id, c.title, c.file, c.artist, c.stars,
+         v-memo="[c.id, c.title, c.file, c.artist, c.stars, c.blur,
                   selected===c.id, playing===c.id, jumpTo===c.id, isDragged(c.id)]"
          :ref="el => { if (el) cards.set(c.id, el) }"
          :class="{selected: selected===c.id, playing: playing===c.id,
@@ -52,7 +52,7 @@ const emit = defineEmits(['select','play','context'])
          @pointerdown="startDrag(c, $event)"
          @click="emit('select', c.id)" @dblclick="emit('play', c)"
          @contextmenu.prevent="emit('context', $event, c)">
-      <CoverArt :id="c.id" class="art" :icon-size="30" :alt="c.title || c.file" />
+      <CoverArt :id="c.id" :blur="!!c.blur" class="art" :icon-size="30" :alt="c.title || c.file" />
       <button class="tile-play" @click.stop="emit('play', c)"><Icon n="play" :t="15" /></button>
       <div class="name" :title="c.title">
         <Icon v-if="playing===c.id" n="play" :t="11"

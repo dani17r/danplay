@@ -205,6 +205,16 @@ Cuatro capas, cada una en lo que mejor se le da:
 El código está en inglés; los comentarios y todo lo que ve el usuario, en
 castellano.
 
+## Portadas que prefieres no ver
+
+Algunas descargas traen carátulas desagradables. En el menú de la canción (clic
+derecho) o en su ficha hay **Difuminar la portada**: se sigue viendo que hay
+algo, pero no qué. Se puede quitar cuando quieras.
+
+**La imagen no se toca.** Lo que se guarda es una marca dentro del propio mp3,
+así que la decisión viaja con la canción y sobrevive a perder el índice,
+igual que las estrellas.
+
 ## Formatos
 
 Lee `.mp3`, `.flac`, `.m4a`, `.wav`, `.ogg`, `.opus`, `.aac` y `.wma`. Puede

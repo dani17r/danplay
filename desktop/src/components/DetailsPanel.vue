@@ -10,7 +10,9 @@ import SelectField from './ui/SelectField.vue'
 import TextField from './ui/TextField.vue'
 
 const props = defineProps(['song', 'aiReady'])
-const emit = defineEmits(['updated', 'notice', 'goSettings'])
+// «blur» a secas no: es el nombre de un evento nativo del DOM y se presta
+// a confusion con el foco.
+const emit = defineEmits(['updated', 'notice', 'goSettings', 'toggleBlur'])
 
 const details = ref(null)
 const loading = ref('')
@@ -198,8 +200,16 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
   <aside class="details" v-if="song">
     <div class="details-head">
       <div class="cover-wrap">
-        <CoverArt :id="song.id" :version="coverVersion" class="cover" :icon-size="40"
-                  :alt="song.title || song.file" />
+        <CoverArt :id="song.id" :version="coverVersion" :blur="!!song.blur"
+                  class="cover" :icon-size="40" :alt="song.title || song.file" />
+        <!-- Difuminar no toca el archivo: la imagen sigue entera y se puede
+             volver a ver cuando se quiera. Por eso esta siempre a mano y no
+             escondido tras el modo de edicion. -->
+        <button class="cover-blur" :title="song.blur
+                  ? 'Ver la portada como es' : 'Difuminar esta portada'"
+                @click="emit('toggleBlur', song)">
+          <Icon :n="song.blur ? 'eye' : 'eyeOff'" :t="14" />
+        </button>
         <button v-if="editing" class="cover-change" :disabled="loading === 'cover'"
                 title="Elegir una imagen del disco" @click="changeCover">
           <Icon n="image" :t="15" />

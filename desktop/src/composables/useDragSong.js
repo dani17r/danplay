@@ -28,11 +28,24 @@ function targetOf (e) {
   return e.target?.closest?.('[data-drop]')?.getAttribute('data-drop') || null
 }
 
+/**
+ * Mientras se arrastra no se empieza a seleccionar texto.
+ *
+ * El css ya lleva `user-select:none`, pero eso no basta: el WebView de
+ * escritorio (WebKit) igualmente empieza a seleccionar las filas por las que
+ * pasa el puntero, y ves media lista en azul mientras llevas una cancion. Se
+ * corta el evento en origen, que es lo unico que se comporta igual en todos
+ * los motores.
+ */
+function noSelect (e) { e.preventDefault() }
+
 function listen (on) {
   const f = on ? window.addEventListener : window.removeEventListener
   f.call(window, 'pointermove', move)
   f.call(window, 'pointerup', drop)
   f.call(window, 'pointercancel', cancelDrag)
+  f.call(document, 'selectstart', noSelect)
+  f.call(document, 'dragstart', noSelect)   // y el arrastre nativo del texto
 }
 
 function move (e) {
@@ -42,6 +55,9 @@ function move (e) {
     drag.song = pending.song
     pending = null
     document.body.classList.add('dragging-song')
+    // Por si el motor alcanzo a marcar algo en los primeros pixeles, antes
+    // de que esto contara como arrastre.
+    try { window.getSelection()?.removeAllRanges() } catch { /* da igual */ }
   }
   if (!drag.song) return
   drag.x = e.clientX

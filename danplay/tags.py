@@ -64,7 +64,7 @@ def read_all(path) -> dict:
     d = {"artist":"", "title":"", "album":"", "year":"", "genre":"", "album_artist":"",
          "stars":0, "play_count":0, "favorite":False, "lyrics":"", "key":"",
          "bpm":0.0, "cover":False, "comment":"", "duration":0.0, "bitrate":0,
-         "tags":[]}
+         "tags":[], "blur":False}
     # UNA sola lectura del archivo. Antes se abria y parseaba dos veces: una
     # con mutagen.File() para la duracion y el bitrate, y otra con ID3() para
     # las etiquetas. En un escaneo eso es el doble de trabajo de disco por
@@ -108,6 +108,8 @@ def read_all(path) -> dict:
             val = str(t[k].text[0]) if t[k].text else ""
             if desc == "FAVORITO":
                 d["favorite"] = val in ("1", "true", "si", "yes")
+            elif desc == "PORTADA_BORROSA":
+                d["blur"] = val in ("1", "true", "si", "yes")
             elif desc == "ETIQUETAS":
                 d["tags"] = [x.strip() for x in val.split(",") if x.strip()]
     return d
@@ -202,6 +204,17 @@ def rate(path, stars: int, play_count: int | None = None) -> bool:
 
 def set_favorite(path, value=True) -> bool:
     return _write_txxx(path, "FAVORITO", "1" if value else "0")
+
+
+def set_blurred_cover(path, value=True) -> bool:
+    """Marca la portada como «no la quiero ver bien».
+
+    Se guarda dentro del archivo, igual que el favorito, para que la decision
+    sobreviva a perder la base de datos y viaje con la cancion. La imagen NO
+    se toca: se sigue guardando entera y el difuminado es solo al pintarla,
+    asi que quitarlo la devuelve intacta.
+    """
+    return _write_txxx(path, "PORTADA_BORROSA", "1" if value else "0")
 
 
 def set_labels(path, tags: list[str]) -> bool:

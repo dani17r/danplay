@@ -5,14 +5,14 @@ import DuplicateGroup from '../src/components/DuplicateGroup.vue'
 const group = {
   suggested: '/m/Barak - Mi Gozo - r.mp3',
   items: [
-    { id: 1, path: '/m/Barak - Mi Gozo.mp3', relativa: 'Barak/Mi Gozo.mp3',
+    { id: 1, path: '/m/Barak - Mi Gozo.mp3', relative: 'Barak/Mi Gozo.mp3',
       file: 'Barak - Mi Gozo.mp3', artist: 'Barak', title: 'Mi Gozo',
       duration: 200, bitrate: 128000, size: 3200000, stars: 0, favorite: 0,
-      tiene_sufijo: false },
-    { id: 2, path: '/m/Barak - Mi Gozo - r.mp3', relativa: 'Barak/Mi Gozo - r.mp3',
+      has_suffix: false },
+    { id: 2, path: '/m/Barak - Mi Gozo - r.mp3', relative: 'Barak/Mi Gozo - r.mp3',
       file: 'Barak - Mi Gozo - r.mp3', artist: 'Barak', title: 'Mi Gozo',
       duration: 201, bitrate: 320000, size: 8100000, stars: 4, favorite: 1,
-      tiene_sufijo: true }
+      has_suffix: true }
   ]
 }
 

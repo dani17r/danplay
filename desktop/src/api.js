@@ -151,6 +151,7 @@ export const api = {
   edit: (id, d) => PATCH(`/song/${id}`, d),
   setStars: (id, n) => POST(`/song/${id}/stars`, { stars: n }),
   toggleFavorite: (id, v) => POST(`/song/${id}/favorite`, { favorite: v }),
+  setBlur: (id, v) => POST(`/song/${id}/blur`, { blur: v }),
   details: (id) => GET(`/song/${id}/details`),
   enrich: (id, o = {}) => POST(`/song/${id}/enrich`, o),
   autofill: (id) => POST(`/song/${id}/autofill`),

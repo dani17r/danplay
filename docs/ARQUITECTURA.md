@@ -84,6 +84,7 @@ estándar:
 | Carátula | `APIC` |
 | Tono | `TKEY` |
 | BPM | `TBPM` |
+| Portada difuminada | `TXXX:PORTADA_BORROSA` |
 
 La base SQLite es solo un índice para buscar rápido. Si la borras, un escaneo
 la reconstruye entera. Y otros reproductores leen esas etiquetas igual que
