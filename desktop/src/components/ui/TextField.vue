@@ -42,9 +42,13 @@ const realType = computed(() =>
         <Icon :n="showKey ? 'eyeOff' : 'eye'" :t="15" />
       </button>
       <button v-else-if="!multiline && clearable && modelValue" class="field-btn" type="button" tabindex="-1"
-              @click.prevent="emit('update:modelValue', '')" title="Limpiar">
+              @click.prevent="emit('update:modelValue', '')" title="Vaciar el campo">
         <Icon n="close" :t="14" />
       </button>
+      <!-- Sitio para lo que cada campo quiera poner DENTRO de la caja, a la
+           derecha: el boton de busqueda avanzada, un «copiar»... Fuera
+           quedaba como un boton suelto al lado, no como parte del campo. -->
+      <slot name="acciones" />
     </span>
     <span v-if="error" class="field-error">{{ error }}</span>
     <span v-else-if="hint" class="field-hint">{{ hint }}</span>

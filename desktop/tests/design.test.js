@@ -644,3 +644,86 @@ describe('el buscador', () => {
     expect(CSS).toMatch(/\.view-switch\{display:none\}/)
   })
 })
+
+describe('comodidad de los campos', () => {
+  it('el boton de busqueda avanzada va dentro del campo', () => {
+    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
+    // dentro del hueco que TextField deja en su caja, no como boton suelto
+    const campo = app.match(/<TextField v-model="query"[\s\S]*?<\/TextField>/)
+    expect(campo, 'el buscador ya no es un TextField con acciones').toBeTruthy()
+    expect(campo[0]).toContain('#acciones')
+    expect(campo[0]).toContain('search-more')
+    const tf = readFileSync(join(SRC, 'components/ui/TextField.vue'), 'utf8')
+    expect(tf, 'TextField no deja meter nada en su caja')
+      .toMatch(/<slot name="acciones"[^>]*\/>/)
+  })
+
+  it('todos los campos de texto se pueden vaciar', () => {
+    // `clearable` viene puesto; lo que se revisa es que nadie lo apague
+    const apagados = []
+    for (const { file, code } of componentes()) {
+      if (/:clearable="false"/.test(code)) apagados.push(file)
+    }
+    expect(apagados, 'campos sin forma de vaciarlos').toEqual([])
+  })
+
+  it('un desplegable puede quedarse sin elegir', () => {
+    const sf = readFileSync(join(SRC, 'components/ui/SelectField.vue'), 'utf8')
+    expect(sf, 'no se puede quitar la seleccion').toMatch(/clearable/)
+    expect(sf).toMatch(/select-clear/)
+    expect(CSS).toMatch(/\.select-clear\{/)
+    // y la «x» no puede taparle la flecha
+    expect(CSS).toMatch(/\.field:has\(\.select-clear\) \.select-box\{[^}]*padding-right/)
+  })
+})
+
+describe('copiar textos', () => {
+  it('el boton copia y avisa de que lo hizo', () => {
+    const cb = readFileSync(join(SRC, 'components/ui/CopyButton.vue'), 'utf8')
+    expect(cb).toMatch(/navigator\.clipboard/)
+    // sin la segunda via el boton no haria nada donde el navegador lo niegue
+    expect(cb, 'no hay plan B si el portapapeles esta vetado')
+      .toMatch(/execCommand\('copy'\)/)
+    expect(cb, 'no se acusa el copiado').toMatch(/listo\.value = true/)
+  })
+
+  it('esta donde hay texto que copiar', () => {
+    const dp = readFileSync(join(SRC, 'components/DetailsPanel.vue'), 'utf8')
+    for (const que of ['el titulo', 'el artista', 'la letra', 'los acordes']) {
+      expect(dp, `no se puede copiar ${que}`).toContain(`what="${que}"`)
+    }
+  })
+
+  it('no aparece si no hay nada que copiar', () => {
+    const cb = readFileSync(join(SRC, 'components/ui/CopyButton.vue'), 'utf8')
+    expect(cb).toMatch(/<button v-if="String\(text \?\? ''\)\.trim\(\)"/)
+  })
+})
+
+describe('resultados del buscador', () => {
+  it('se pueden reproducir, no solo mirar', () => {
+    const sr = readFileSync(join(SRC, 'components/SearchResults.vue'), 'utf8')
+    expect(sr, 'no hay boton de reproducir').toContain('sr-play')
+    expect(sr).toMatch(/@click\.stop="emit\('play', c\)"/)
+  })
+
+  it('al reproducir uno, la cola pasa a ser lo encontrado', () => {
+    // si no, la cancion no esta en ninguna lista que mire el reproductor y se
+    // queda en «Nada sonando»
+    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
+    const fn = app.match(/function playResult \([\s\S]{0,320}?\n\}/)
+    expect(fn, 'no encuentro como se reproduce un resultado').toBeTruthy()
+    expect(fn[0]).toMatch(/queue\.value = quick\.value/)
+  })
+
+  it('se pueden arrastrar a un repertorio', () => {
+    const sr = readFileSync(join(SRC, 'components/SearchResults.vue'), 'utf8')
+    expect(sr).toContain('useDragSong')
+    expect(sr).toMatch(/@pointerdown="startDrag\(c, \$event\)"/)
+    // una fila-boton nunca podria arrastrarse: startDrag se aparta de ellos
+    expect(sr, 'la fila es un boton y no se podria arrastrar')
+      .not.toMatch(/<button[^>]*class="sr-row"/)
+    // y mientras arrastras el desplegable no puede tapar el lateral
+    expect(CSS).toMatch(/body\.dragging-song \.search-results\{[^}]*pointer-events:none/)
+  })
+})

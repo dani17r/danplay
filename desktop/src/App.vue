@@ -654,7 +654,21 @@ async function pickResult (c) {
   selected.value = c.id
   detail.value = await api.song(c.id)
 }
-function playResult (c) { quickOpen.value = false; play(c) }
+/**
+ * Reproducir un resultado del desplegable.
+ *
+ * La cola pasa a ser LO ENCONTRADO, no la lista de la pagina. Si no, la
+ * cancion no esta en ninguna de las dos listas que mira el reproductor y se
+ * quedaba en «Nada sonando»: se marcaba como sonando algo que no existia
+ * para el. Ademas asi «siguiente» recorre los resultados, que es lo que se
+ * espera despues de buscar.
+ */
+function playResult (c) {
+  quickOpen.value = false
+  queue.value = quick.value.slice()
+  queueOrigin.value = { kind: 'all', label: `Busqueda «${query.value.trim()}»` }
+  play(c, false)
+}
 /** «Verlos todos»: se va a la biblioteca con la misma busqueda puesta. */
 function seeAllResults () {
   quickOpen.value = false
@@ -720,11 +734,14 @@ function onUpdated (c) {
     <div class="search-box" ref="searchBox">
       <TextField v-model="query" icon="search" width="100%"
              placeholder="Buscar…  artista:barak  tono:Bb  bpm>100  duracion>300"
-             @keydown="onSearchKey" />
-      <button class="icon-btn search-more" :class="{on: advanced}"
-              title="Busqueda avanzada: filtros y orden"
-              @click="advanced = !advanced; quickOpen = false">
-        <Icon n="viewOptions" :t="15" /></button>
+             @keydown="onSearchKey">
+        <template #acciones>
+          <button class="field-btn search-more" :class="{on: advanced}" type="button"
+                  tabindex="-1" title="Busqueda avanzada: filtros y orden"
+                  @click.prevent="advanced = !advanced; quickOpen = false">
+            <Icon n="viewOptions" :t="15" /></button>
+        </template>
+      </TextField>
 
       <transition name="dropdown">
         <SearchPanel v-if="advanced" v-model:query="query" :facets="facets"

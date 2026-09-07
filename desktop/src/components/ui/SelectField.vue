@@ -6,7 +6,11 @@ import Icon from '../Icon.vue'
 const props = defineProps({
   modelValue: [String, Number, Boolean],
   options: { type: Array, required: true },   // [{v, n, nota?, color?}]
-  label: String, width: String, disabled: Boolean
+  label: String, width: String, disabled: Boolean,
+  /** Enseña una «x» para dejarlo sin elegir. `vacio` es a que valor vuelve. */
+  clearable: Boolean,
+  vacio: { type: [String, Number, Boolean], default: '' },
+  placeholder: { type: String, default: 'Sin elegir' }
 })
 const emit = defineEmits(['update:modelValue'])
 const open = ref(false)
@@ -15,6 +19,11 @@ const highlighted = ref(0)
 
 const current = computed(() =>
   props.options.find(o => o.v === props.modelValue) || props.options[0] || { n: '—' })
+/** ¿Hay algo elegido que se pueda quitar? */
+const sePuedeVaciar = computed(() =>
+  props.clearable && !props.disabled &&
+  props.modelValue !== props.vacio && props.modelValue != null && props.modelValue !== '')
+function vaciar () { emit('update:modelValue', props.vacio); open.value = false }
 
 function toggle () {
   if (props.disabled) return
@@ -49,6 +58,10 @@ onClickOutside(root, () => { open.value = false })
       <span v-if="current.color" class="select-dot" :style="{background: current.color}"></span>
       <span class="select-text">{{ current.n }}</span>
       <Icon n="down" :t="14" class="select-arrow" />
+    </button>
+    <button v-if="sePuedeVaciar" type="button" class="select-clear" tabindex="-1"
+            title="Quitar la seleccion" @click.stop="vaciar">
+      <Icon n="close" :t="13" />
     </button>
     <transition name="dropdown">
       <div v-if="open" class="select-menu">

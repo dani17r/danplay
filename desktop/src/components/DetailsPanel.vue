@@ -4,6 +4,7 @@ import { api, pickImage } from '../api.js'
 import StarRating from './StarRating.vue'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
+import CopyButton from './ui/CopyButton.vue'
 import EmptyState from './ui/EmptyState.vue'
 import Loading from './ui/Loading.vue'
 import SelectField from './ui/SelectField.vue'
@@ -146,6 +147,14 @@ const acordesJson = computed(() => {
 
 const progression = computed(() =>
   transpuesto.value?.progression ?? acordesJson.value?.progression ?? '')
+/** Los acordes en texto plano, con sus secciones, listos para pegar. */
+const acordesParaCopiar = computed(() => {
+  const trozos = []
+  if (progression.value) trozos.push(progression.value)
+  for (const [k, v] of Object.entries(secciones.value || {})) trozos.push(`${k}: ${v}`)
+  return trozos.join('\n')
+})
+
 const secciones = computed(() =>
   transpuesto.value?.section_chords ?? acordesJson.value?.section_chords ?? null)
 
@@ -219,8 +228,18 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
 
       <div class="details-titlebar">
         <div style="flex:1;min-width:0">
-          <div class="details-title">{{ song.title || song.file }}</div>
-          <div class="details-artist">{{ song.artist || 'Artista sin identificar' }}</div>
+          <div class="copiable">
+            <div class="details-title">{{ song.title || song.file }}</div>
+            <CopyButton :text="song.title || song.file" what="el titulo"
+                        @copied="ok => emit('notice', ok ? 'Titulo copiado'
+                          : 'No se pudo copiar', ok ? 'ok' : 'info')" />
+          </div>
+          <div class="copiable">
+            <div class="details-artist">{{ song.artist || 'Artista sin identificar' }}</div>
+            <CopyButton v-if="song.artist" :text="song.artist" what="el artista"
+                        @copied="ok => emit('notice', ok ? 'Artista copiado'
+                          : 'No se pudo copiar', ok ? 'ok' : 'info')" />
+          </div>
           <div v-if="song.feat && !editing" class="details-artist" style="font-size:12px">
             feat. {{ song.feat }}</div>
         </div>
@@ -266,7 +285,7 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
         <TextField v-model="draft.bpm" label="BPM" width="100%" type="number" />
       </div>
       <TextField v-model="draft.lyrics" label="Letra" width="100%" multiline :rows="10"
-                 :clearable="false" placeholder="Se guarda dentro del mp3" />
+                 placeholder="Se guarda dentro del mp3" />
 
       <div class="edit-actions">
         <span class="edit-state">
@@ -317,10 +336,13 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
         {{ failure }}</div>
     </div>
 
-    <div class="section" v-if="acordesJson">
+    <div class="section copiable-section" v-if="acordesJson">
       <h4>Acordes
         <span class="badge" v-if="acordesJson.confidence">
           confianza {{ Math.round(acordesJson.confidence*100) }}%</span>
+        <CopyButton :text="acordesParaCopiar" what="los acordes" :size="14"
+                    @copied="ok => emit('notice', ok ? 'Acordes copiados'
+                      : 'No se pudo copiar', ok ? 'ok' : 'info')" />
       </h4>
       <div v-if="progression" class="chords">{{ progression }}</div>
       <div v-if="secciones" style="margin-top:9px">
@@ -356,8 +378,11 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
         {{ acordesJson.about_the_song }}</div>
     </div>
 
-    <div class="section" v-if="song.lyrics">
-      <h4>Letra</h4>
+    <div class="section copiable-section" v-if="song.lyrics">
+      <h4>Letra
+        <CopyButton :text="song.lyrics" what="la letra" :size="14"
+                    @copied="ok => emit('notice', ok ? 'Letra copiada'
+                      : 'No se pudo copiar', ok ? 'ok' : 'info')" /></h4>
       <div class="lyrics">{{ song.lyrics }}</div>
     </div>
   </aside>

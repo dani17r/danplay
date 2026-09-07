@@ -134,7 +134,7 @@ function limpiar () {
       <TextField :modelValue="libre" @update:modelValue="v => libre = v"
                  label="Texto" width="100%" icon="search"
                  placeholder="palabras sueltas" />
-      <SelectField v-for="t in TEXTOS" :key="t.k" :label="t.label"
+      <SelectField v-for="t in TEXTOS" :key="t.k" :label="t.label" clearable
                    :modelValue="texto(t.k)" :options="opciones(t.faceta)"
                    @update:modelValue="v => setTexto(t.k, v)" />
     </div>
@@ -145,11 +145,11 @@ function limpiar () {
         <span class="field-label">{{ n.label }}</span>
         <div class="rango-campos">
           <TextField type="number" placeholder="desde" width="100%"
-                     :modelValue="numero(n.k, '>')" :clearable="false"
+                     :modelValue="numero(n.k, '>')"
                      @update:modelValue="v => setNumero(n.k, '>', v)" />
           <span class="rango-sep">—</span>
           <TextField type="number" placeholder="hasta" width="100%"
-                     :modelValue="numero(n.k, '<')" :clearable="false"
+                     :modelValue="numero(n.k, '<')"
                      @update:modelValue="v => setNumero(n.k, '<', v)" />
         </div>
       </div>

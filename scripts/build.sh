@@ -45,6 +45,12 @@ if [ "${1:-}" = "--package" ]; then
     ( cd desktop && npx tauri build )
 
     BUNDLE=desktop/src-tauri/target/release/bundle
+    # Fuera los paquetes de la version anterior. El nombre lleva el numero
+    # dentro, asi que al subirla los viejos NO se sobreescriben: se quedaban
+    # al lado, y abrir el que no toca te devuelve la app de antes sin que
+    # nada lo advierta. Es el error que mas tiempo cuesta encontrar.
+    rm -f dist/installers/*.deb dist/installers/*.AppImage
+
     for f in $(find "$BUNDLE" -type f \( -name '*.deb' -o -name '*.AppImage' \)); do
         # Se desenlaza antes de copiar. Si tienes el AppImage abierto, el
         # kernel no deja SOBRESCRIBIRLO ("Text file busy") y el build moria

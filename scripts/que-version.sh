@@ -19,8 +19,12 @@ epoca () { [ -e "$1" ] && date -r "$1" +%s || echo 0; }
 APP=desktop/src-tauri/target/release/danplay-app
 WEB=desktop/dist/index.html
 NUCLEO=dist/core/danplay-core
-APPIMAGE=dist/installers/DanPlay_0.1.0_amd64.AppImage
-DEB=dist/installers/DanPlay_0.1.0_amd64.deb
+# Sin la version en el nombre: al subirla, estas lineas se quedaban apuntando
+# a un archivo que ya no existe y el aviso de «paquete viejo» dejaba de salir
+# justo cuando mas falta hace.
+PAQUETES=$(ls -1 dist/installers/*.AppImage dist/installers/*.deb 2>/dev/null)
+APPIMAGE=$(printf '%s\n' "$PAQUETES" | grep '\.AppImage$' | head -1)
+DEB=$(printf '%s\n' "$PAQUETES" | grep '\.deb$' | head -1)
 
 echo "Cuando se genero cada capa"
 printf "  %-34s %s\n" "interfaz (desktop/dist)"   "$(fecha $WEB)"
@@ -43,8 +47,9 @@ else
     echo "  ${verde}ok${fin} la app lleva la interfaz actual"
 fi
 
-# 2) los paquetes solo se rehacen con --package
-for p in "$APPIMAGE" "$DEB"; do
+# 2) los paquetes solo se rehacen con --package. Se miran TODOS los que haya:
+#    si queda alguno de una version anterior, hay que decirlo.
+for p in $PAQUETES; do
     [ -e "$p" ] || continue
     if [ "$(epoca "$p")" -lt "$(epoca $APP)" ]; then
         echo "  ${ambar}!${fin}  $(basename "$p") es mas viejo que la app."

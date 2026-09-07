@@ -15,7 +15,9 @@ from . import (ai, chat, config, convert, duplicates, enrich,
                fingerprint, ingest, library, names, playlists,
                tags, theory, web, youtube)
 
-app = FastAPI(title="DanPlay", version="0.1.0")
+from . import __version__
+
+app = FastAPI(title="DanPlay", version=__version__)
 
 # La app de escritorio habla por un socket Unix y no es un navegador: no usa
 # CORS para nada. Quien si lo necesitaba era `npm run dev`, y ni eso, porque

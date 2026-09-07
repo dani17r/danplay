@@ -479,13 +479,13 @@ td{vertical-align:middle}
 /* ============================================================
    BUSCADOR: boton de avanzada, panel y resultados sueltos
    ============================================================ */
-.search-box{position:relative;display:flex;align-items:center;gap:6px;
+.search-box{position:relative;display:flex;align-items:center;
   width:min(620px, 42vw);min-width:0}
 .search-box > .field{flex:1;min-width:0}
-.search-more{flex-shrink:0;width:30px;height:30px;border-radius:8px;
-  border:1px solid var(--border2);background:var(--panel2);color:var(--muted2)}
-.search-more:hover{color:var(--text);border-color:var(--muted2)}
-.search-more.on{color:var(--bg);background:var(--accent2);border-color:var(--accent2)}
+/* Dentro de la caja, no al lado: es parte del campo de busqueda, no un boton
+   suelto que le acompaña. Se separa un poco de la «x» de vaciar. */
+.search-more{margin-left:2px}
+.search-more.on{color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent)}
 
 /* Los dos cuelgan del buscador y crecen desde arriba, que es de donde salen. */
 .search-panel,.search-results{position:absolute;top:calc(100% + 7px);left:0;
@@ -505,16 +505,28 @@ td{vertical-align:middle}
 .rango-sep{color:var(--muted2);flex-shrink:0}
 
 .search-results{width:min(460px,94vw);padding:0;overflow:hidden}
-.sr-head{padding:9px 12px;font-size:11px;color:var(--muted2);
-  border-bottom:1px solid var(--border)}
+.sr-head{display:flex;align-items:center;gap:10px;padding:9px 12px;font-size:11px;
+  color:var(--muted2);border-bottom:1px solid var(--border)}
+.sr-tip{margin-left:auto;opacity:.75;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
 .sr-empty{border-bottom:none}
 /* Solo esta parte se desplaza: la cabecera y el pie se quedan quietos. */
 .sr-list{overflow-y:auto;overscroll-behavior:contain}
 .sr-row{display:flex;align-items:center;gap:10px;width:100%;padding:7px 12px;
-  text-align:left;color:var(--text);transition:background .12s}
+  text-align:left;color:var(--text);cursor:default;transition:background .12s}
 .sr-row.on{background:var(--panel2)}
-.sr-art{width:30px;height:30px;border-radius:5px;object-fit:cover;flex-shrink:0;
+.sr-row.dragged{opacity:.4}
+.sr-art-wrap{position:relative;width:30px;height:30px;flex-shrink:0}
+.sr-art{width:100%;height:100%;border-radius:5px;object-fit:cover;display:block;
   background:var(--panel2);border:1px solid var(--border)}
+.sr-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  border-radius:5px;background:#000000ad;color:#fff;opacity:0;transition:opacity .14s}
+.sr-row.on .sr-play,.sr-play:focus-visible{opacity:1}
+
+/* Mientras llevas una cancion en la mano el desplegable no debe estorbar: si
+   recibiera el puntero seria siempre «lo que hay debajo» y no se podria
+   soltar en un repertorio del lateral, que es justo lo que tapa. */
+body.dragging-song .search-results{pointer-events:none}
 .sr-txt{flex:1;min-width:0;display:flex;flex-direction:column}
 .sr-title{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sr-sub{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -523,6 +535,22 @@ td{vertical-align:middle}
   padding:9px;font-size:11.5px;color:var(--muted);border-top:1px solid var(--border);
   transition:color .14s,background .14s}
 .sr-foot:hover{color:var(--accent);background:var(--panel2)}
+
+/* ---------- copiar al portapapeles ---------- */
+.copy-btn{display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:5px;color:var(--muted2);flex-shrink:0;
+  opacity:0;transition:opacity .14s,color .14s,background .14s}
+.copy-btn:hover{color:var(--text);background:var(--border)}
+/* Aparece al acercarse a lo que copia: siempre visible seria ruido en cada
+   titulo y cada linea de datos. Con el teclado tambien sale. */
+.copiable:hover .copy-btn,.copy-btn:focus-visible{opacity:1}
+.copy-btn.done{opacity:1;color:var(--accent)}
+.copiable{display:flex;align-items:center;gap:5px;min-width:0}
+.copiable > :first-child{min-width:0}
+/* En un bloque entero (la letra, los acordes) el boton vive en su titulo y
+   aparece al acercarse a cualquier parte del bloque, no solo al titulo. */
+.copiable-section h4{display:flex;align-items:center;gap:7px}
+.copiable-section:hover .copy-btn{opacity:1}
 
 /* ---------- aviso flotante ---------- */
 .toasts{position:fixed;left:50%;bottom:calc(var(--player-h) + 16px);transform:translateX(-50%);
@@ -595,6 +623,15 @@ td{vertical-align:middle}
 .select-box.open .select-arrow{transform:rotate(180deg);color:var(--accent)}
 .select-dot{width:11px;height:11px;border-radius:3px;flex-shrink:0;
   border:1px solid color-mix(in srgb,var(--text) 22%,transparent)}
+/* La «x» de quitar la seleccion va DENTRO de la caja, justo antes de la
+   flecha, y se aparta para no taparla. */
+.select-clear{position:absolute;right:30px;bottom:9px;display:flex;align-items:center;
+  justify-content:center;width:19px;height:19px;border-radius:5px;color:var(--muted2);
+  transition:color .14s,background .14s}
+.select-clear:hover{color:var(--text);background:var(--border)}
+.select-box{padding-right:34px}
+.field:has(.select-clear) .select-box{padding-right:54px}
+
 .select-menu{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:70;
   background:var(--panel);border:1px solid var(--border2);border-radius:9px;
   padding:4px;max-height:264px;overflow-y:auto;box-shadow:0 12px 34px var(--shadow)}

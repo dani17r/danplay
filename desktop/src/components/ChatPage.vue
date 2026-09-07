@@ -177,7 +177,7 @@ function clearChat () {
     </div>
 
     <div class="chat-foot">
-      <TextField v-model="entrada" width="100%" :clearable="false"
+      <TextField v-model="entrada" width="100%"
              placeholder="Escribe lo que necesites…" @enter="send()" />
       <!-- `next` es el icono de «cancion siguiente» del reproductor; aqui
            lo que se hace es enviar, no saltar de pista. -->

@@ -469,3 +469,68 @@ def test_identical_files_are_grouped_byte_by_byte(tmp_path):
     c = tmp_path / "c.mp3"; c.write_bytes(b"y" * 5000)
     grupos = duplicates.identical([str(a), str(b), str(c)])
     assert _normalizar(grupos) == [(str(a), str(b))]
+
+
+# ---------------------------------------------------------------------------
+# La version vive en siete archivos de cuatro tecnologias distintas. Subirla y
+# olvidarse de uno es el fallo tipico, y no se nota hasta que alguien mira el
+# «Acerca de» o el nombre de un paquete.
+
+def _raiz():
+    return pathlib.Path(__file__).resolve().parent.parent
+
+
+def _versiones() -> dict:
+    import json
+    import re
+    raiz = _raiz()
+    fuentes = {}
+
+    ini = (raiz / "danplay/__init__.py").read_text(encoding="utf-8")
+    fuentes["danplay/__init__.py"] = re.search(r'__version__ = "([^"]+)"', ini).group(1)
+
+    for toml in ("core/pyproject.toml", "core/Cargo.toml",
+                 "desktop/src-tauri/Cargo.toml"):
+        txt = (raiz / toml).read_text(encoding="utf-8")
+        fuentes[toml] = re.search(r'^version\s*=\s*"([^"]+)"', txt, re.M).group(1)
+
+    for js in ("desktop/package.json", "desktop/src-tauri/tauri.conf.json"):
+        fuentes[js] = json.loads((raiz / js).read_text(encoding="utf-8"))["version"]
+
+    return fuentes
+
+
+def test_all_the_pieces_carry_the_same_version():
+    v = _versiones()
+    assert len(set(v.values())) == 1, (
+        "las piezas no van a la misma version:\n  "
+        + "\n  ".join(f"{k}: {x}" for k, x in v.items()))
+
+
+def test_the_api_does_not_repeat_the_version():
+    """La API la lee de `__version__`, no la copia.
+
+    Antes estaba escrita a mano en `api.py`, asi que subirla en un sitio y no
+    en el otro no daba ningun error: simplemente el «Acerca de» mentia.
+    """
+    from danplay import api, __version__
+    assert api.app.version == __version__
+
+
+def test_the_version_looks_like_a_version():
+    import re
+    for archivo, v in _versiones().items():
+        assert re.fullmatch(r"\d+\.\d+\.\d+", v), f"{archivo} tiene «{v}»"
+
+
+def test_nothing_hardcodes_the_version_in_a_file_name():
+    """Los scripts buscan los paquetes por extension, no por nombre.
+
+    Con la version dentro del nombre, subirla dejaba a `que-version.sh`
+    mirando un archivo que ya no existe: el aviso de «este paquete es viejo»
+    desaparecia justo cuando mas falta hace.
+    """
+    from danplay import __version__
+    for script in ("scripts/build.sh", "scripts/que-version.sh"):
+        txt = (_raiz() / script).read_text(encoding="utf-8")
+        assert __version__ not in txt, f"{script} lleva la version escrita a mano"

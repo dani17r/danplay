@@ -15,6 +15,7 @@ import { ref, watch, nextTick, computed } from 'vue'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
 import Loading from './ui/Loading.vue'
+import { useDragSong } from '../composables/useDragSong.js'
 
 const props = defineProps({
   songs: { type: Array, default: () => [] },
@@ -23,6 +24,10 @@ const props = defineProps({
   visibles: { type: Number, default: 5 }
 })
 const emit = defineEmits(['pick', 'play', 'seeAll', 'close'])
+
+// Un resultado se puede coger y soltar en un repertorio del lateral, igual
+// que una fila de la lista.
+const { startDrag, isDragged } = useDragSong()
 
 const caja = ref(null)
 const alto = ref(null)
@@ -73,20 +78,31 @@ const fmt = (s) => {
       <div class="sr-head">
         <span>{{ songs.length }} {{ songs.length === 1 ? 'resultado' : 'resultados' }}
           en toda la biblioteca</span>
+        <span class="sr-tip">pulsa para verla · arrastrala a un repertorio</span>
       </div>
       <div class="sr-list" ref="caja" :style="alto ? {maxHeight: alto + 'px'} : null">
-        <button v-for="(c, i) in songs" :key="c.id" type="button" class="sr-row"
-                :class="{on: i === marcada}"
-                @mouseenter="marcada = i"
-                @click="emit('pick', c)" @dblclick="emit('play', c)">
-          <CoverArt :id="c.id" :blur="!!c.blur" class="sr-art" :icon-size="13"
-                    :alt="c.title || c.file" />
+        <!-- Un div y no un boton: `startDrag` se aparta de los botones a
+             proposito (ahi el clic tiene otra cosa que hacer), asi que dentro
+             de uno no se podria arrastrar nunca. -->
+        <div v-for="(c, i) in songs" :key="c.id" class="sr-row" role="option"
+             :aria-selected="i === marcada"
+             :class="{on: i === marcada, dragged: isDragged(c.id)}"
+             @pointerdown="startDrag(c, $event)"
+             @mouseenter="marcada = i"
+             @click="emit('pick', c)" @dblclick="emit('play', c)">
+          <span class="sr-art-wrap">
+            <CoverArt :id="c.id" :blur="!!c.blur" class="sr-art" :icon-size="13"
+                      :alt="c.title || c.file" />
+            <button type="button" class="sr-play" title="Reproducir"
+                    @click.stop="emit('play', c)">
+              <Icon n="play" :t="12" /></button>
+          </span>
           <span class="sr-txt">
             <span class="sr-title">{{ c.title || c.file }}</span>
             <span class="sr-sub sub">{{ c.artist || 'Sin artista' }}</span>
           </span>
           <span class="sr-dur sub mono">{{ fmt(c.duration) }}</span>
-        </button>
+        </div>
       </div>
       <button type="button" class="sr-foot" @click="emit('seeAll')">
         <Icon n="viewList" :t="13" /> Verlos todos en la biblioteca

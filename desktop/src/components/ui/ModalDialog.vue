@@ -72,7 +72,7 @@ function teclas (e) {
         <div v-if="message" class="modal-msg">{{ message }}</div>
 
         <TextField v-if="kind === 'prompt'" v-model="text" width="100%"
-                   :placeholder="placeholder" :clearable="false" @enter="aceptar" />
+                   :placeholder="placeholder" @enter="aceptar" />
 
         <div v-if="detail" class="modal-detail">{{ detail }}</div>
 
