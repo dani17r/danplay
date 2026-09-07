@@ -485,3 +485,162 @@ describe('paginas sin canciones', () => {
     expect(lista[1]).not.toContain("'duplicates'")
   })
 })
+
+describe('las cuatro vistas', () => {
+  it('hay exactamente cuatro y cada una tiene nombre e icono', () => {
+    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
+    const lista = app.match(/const VIEWS = \[([^\]]*)\]/)
+    expect(lista, 'no encuentro las vistas').toBeTruthy()
+    const vistas = lista[1].split(',').map(v => v.trim().replace(/'/g, '')).filter(Boolean)
+    expect(vistas).toEqual(['rows', 'cards', 'grid', 'table'])
+    for (const v of vistas) {
+      expect(app, `falta el nombre de «${v}»`).toMatch(new RegExp(`${v}:\\s*'`))
+    }
+  })
+
+  it('quien tenia elegida una vista vieja no la pierde', () => {
+    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
+    expect(app, 'no se traducen los nombres anteriores').toMatch(/ANTIGUAS = \{[^}]*list:/)
+    expect(app).toMatch(/ANTIGUAS = \{[^}]*compact:/)
+  })
+
+  it('cada vista se pinta con su componente', () => {
+    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
+    for (const [vista, comp] of [['rows', 'SongRows'], ['cards', 'SongCards'],
+                                 ['grid', 'SongGrid'], ['table', 'SongTable']]) {
+      expect(app, `«${vista}» no pinta nada`).toContain(`<${comp}`)
+    }
+  })
+
+  it('las cuatro vistas tambien valen agrupadas', () => {
+    const g = readFileSync(join(SRC, 'components/GroupedSongs.vue'), 'utf8')
+    for (const comp of ['SongRows', 'SongCards', 'SongGrid', 'SongTable']) {
+      expect(g, `agrupado no sabe pintar ${comp}`).toContain(`<${comp}`)
+    }
+  })
+
+  it('todas se adaptan al ancho', () => {
+    // cada vista tiene que ceder algo cuando falta sitio
+    expect(CSS, 'la lista fina no se adapta').toMatch(/@media[^{]*\{\s*\.row-/)
+    expect(CSS, 'las fichas no se acoplan solas').toMatch(/\.cards\{[^}]*auto-fill/)
+    expect(CSS, 'la cuadricula no se acopla sola').toMatch(/\.grid\{[^}]*auto-fill/)
+  })
+
+  it('las cuatro pintan solo lo que se ve', async () => {
+    for (const f of ['SongRows.vue', 'SongCards.vue', 'SongGrid.vue', 'SongTable.vue']) {
+      const code = readFileSync(join(SRC, 'components', f), 'utf8')
+      expect(code, `${f} pinta la lista entera`).toContain('useVirtualRows')
+    }
+  })
+})
+
+describe('ordenar por una columna', () => {
+  it('la cabecera enseña por donde va el orden', () => {
+    const t = readFileSync(join(SRC, 'components/SongTable.vue'), 'utf8')
+    expect(t).toMatch(/aria-sort/)
+    expect(t, 'no hay flecha de direccion').toMatch(/th-arrow/)
+    expect(CSS, 'la flecha no se da la vuelta').toMatch(/\.th-arrow\.up\{[^}]*rotate\(180deg\)/)
+  })
+
+  it('pulsar la misma columna invierte el orden', () => {
+    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
+    const fn = app.match(/function sortBy \([\s\S]{0,220}?\n\}/)
+    expect(fn, 'no encuentro como se ordena').toBeTruthy()
+    expect(fn[0]).toMatch(/sortDesc\.value = !sortDesc\.value/)
+  })
+
+  it('cada columna ordena por un campo que el nucleo conoce', () => {
+    // los nombres salen del nucleo (SORT_FIELDS); si aqui se inventa uno,
+    // la API lo ignora y la lista no cambia
+    const t = readFileSync(join(SRC, 'components/SongTable.vue'), 'utf8')
+    const usados = [...t.matchAll(/sort:\s*'(\w+)'/g)].map(m => m[1])
+    expect(usados.length).toBeGreaterThan(4)
+    const core = readFileSync(join(SRC, '..', '..', 'danplay', 'library.py'), 'utf8')
+    for (const campo of usados) {
+      expect(core, `el nucleo no sabe ordenar por «${campo}»`)
+        .toMatch(new RegExp(`"${campo}":\\s*\\(`))
+    }
+  })
+})
+
+describe('columnas ajustables', () => {
+  it('se pueden arrastrar y se recuerdan', () => {
+    const t = readFileSync(join(SRC, 'components/SongTable.vue'), 'utf8')
+    expect(t).toContain('col-resize')
+    expect(t, 'no se guardan').toContain('danplay.colWidths')
+  })
+
+  it('sin tocarlas no se fija ningun ancho', () => {
+    // asi la vista de fabrica sigue cabiendo en el panel
+    const t = readFileSync(join(SRC, 'components/SongTable.vue'), 'utf8')
+    expect(t).toMatch(/<colgroup v-if="aMedida">/)
+  })
+
+  it('el tirador queda dentro de la celda', () => {
+    // `th` recorta lo que se salga: a caballo del borde no recibia el puntero
+    expect(CSS).toMatch(/\.col-resize\{[^}]*right:0/)
+  })
+})
+
+describe('el buscador', () => {
+  it('en la biblioteca filtra la lista; fuera de ella, despliega resultados', () => {
+    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
+    const cual = app.match(/const searchesList = computed\(\(\) => ([^)]*\))/)
+    expect(cual, 'no se distingue donde filtra el buscador').toBeTruthy()
+    expect(cual[1]).toContain("'all'")
+    // fuera de ahi se consulta toda la biblioteca sin tocar la lista de la pagina
+    expect(app).toMatch(/api\.quickSearch\(/)
+  })
+
+  it('el desplegable enseña cinco y el resto con la rueda', () => {
+    const sr = readFileSync(join(SRC, 'components/SearchResults.vue'), 'utf8')
+    expect(sr).toMatch(/visibles:\s*\{[^}]*default:\s*5/)
+    // la altura sale de MEDIR una fila, no de un numero a ojo: asi sigue
+    // cuadrando aunque cambie la densidad o el tamaño de la app
+    expect(sr, 'la altura esta puesta a ojo').toMatch(/getBoundingClientRect\(\)\.height/)
+    expect(CSS).toMatch(/\.sr-list\{[^}]*overflow-y:auto/)
+  })
+
+  it('se maneja con el teclado', () => {
+    const sr = readFileSync(join(SRC, 'components/SearchResults.vue'), 'utf8')
+    for (const k of ['ArrowDown', 'ArrowUp', 'Enter', 'Escape']) {
+      expect(sr, `no responde a ${k}`).toContain(k)
+    }
+  })
+
+  it('la busqueda avanzada escribe en la misma caja', () => {
+    // asi no hay dos estados que puedan discrepar, y de paso se aprende la
+    // sintaxis viendo lo que aparece escrito
+    const sp = readFileSync(join(SRC, 'components/SearchPanel.vue'), 'utf8')
+    expect(sp).toMatch(/emit\('update:query'/)
+    expect(sp, 'no sabe leer lo ya escrito').toMatch(/partes = computed/)
+  })
+
+  it('el panel ofrece filtrar, comparar y ordenar', () => {
+    const sp = readFileSync(join(SRC, 'components/SearchPanel.vue'), 'utf8')
+    for (const campo of ['artista', 'album', 'genero', 'tono', 'carpeta']) {
+      expect(sp, `falta filtrar por ${campo}`).toContain(`'${campo}'`)
+    }
+    for (const n of ['bpm', 'duracion', 'bitrate', 'anio']) {
+      expect(sp, `falta el rango de ${n}`).toContain(`'${n}'`)
+    }
+    expect(sp, 'no se puede ordenar').toMatch(/SORTS = \[/)
+  })
+
+  it('los campos que ofrece el panel existen en el nucleo', () => {
+    const sp = readFileSync(join(SRC, 'components/SearchPanel.vue'), 'utf8')
+    const core = readFileSync(join(SRC, '..', '..', 'danplay', 'library.py'), 'utf8')
+    const orden = [...sp.matchAll(/\{ v: '(\w+)', n: '/g)].map(m => m[1])
+    expect(orden.length).toBeGreaterThan(8)
+    for (const campo of orden) {
+      expect(core, `el nucleo no sabe ordenar por «${campo}»`)
+        .toMatch(new RegExp(`"${campo}":\\s*\\(`))
+    }
+  })
+
+  it('la vista se puede cambiar tambien donde el conmutador no cabe', () => {
+    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
+    expect(app, 'el menu de Vista no deja elegir como se ve').toMatch(/label="Como se ve"/)
+    expect(CSS).toMatch(/\.view-switch\{display:none\}/)
+  })
+})

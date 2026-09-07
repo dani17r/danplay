@@ -510,6 +510,49 @@ NUMERIC_FIELDS = {
 }
 
 
+# Por que se puede ordenar: nombre que usa la interfaz -> (columna, tipo).
+# Se define aqui y no en la interfaz para que las dos no puedan separarse: la
+# API rechaza cualquier otro nombre.
+SORT_FIELDS = {
+    "artist":   ("c.artist",   "text"),
+    "title":    ("c.title",    "text"),
+    "album":    ("c.album",    "text"),
+    "genre":    ("c.genre",    "text"),
+    "year":     ("c.year",     "text"),
+    "key":      ("c.key",      "text"),
+    "folder":   ("c.folder",   "text"),
+    "file":     ("c.file",     "text"),
+    "duration": ("c.duration", "num"),
+    "bpm":      ("c.bpm",      "num"),
+    "bitrate":  ("c.bitrate",  "num"),
+    "size":     ("c.size",     "num"),
+    "stars":    ("c.stars",    "num"),
+    "recent":   ("c.mtime",    "num"),
+}
+
+
+def _order_by(sort: str, desc: bool) -> str:
+    """Clausula ORDER BY para un campo y una direccion.
+
+    Dos cosas que no son obvias:
+
+    - Los vacios van SIEMPRE al final, se ordene como se ordene. Una lista que
+      empieza con veinte «sin album» no dice nada de como esta ordenada, y al
+      invertir el orden esos veinte volverian arriba.
+    - Al final se desempata siempre por artista y titulo, para que dos temas
+      con el mismo bpm no se intercambien de sitio entre una consulta y otra.
+    """
+    columna, tipo = SORT_FIELDS.get(sort) or SORT_FIELDS["artist"]
+    vacio = f"{columna}=''" if tipo == "text" else f"{columna} IS NULL OR {columna}=0"
+    direccion = "DESC" if desc else "ASC"
+    return f"({vacio}), {columna} {direccion}, c.artist, c.title"
+
+
+def sort_options() -> list[str]:
+    """Por que campos se puede ordenar. Lo usa la interfaz para no inventarse."""
+    return list(SORT_FIELDS)
+
+
 def _fts_query(words) -> str:
     """Consulta FTS5 a partir de las palabras sueltas del usuario.
 
@@ -521,7 +564,7 @@ def _fts_query(words) -> str:
 
 
 def search(query="", filters=None, sort="artist", limit=200, offset=0,
-           only_favorites=False, min_stars=0) -> list[dict]:
+           only_favorites=False, min_stars=0, desc=False) -> list[dict]:
     """Busqueda avanzada. `consulta` usa FTS5; `filtros` son pares campo=valor.
 
     Soporta sintaxis inline:  artista:barak tono:Bb  bpm>100  duracion<300
@@ -569,12 +612,9 @@ def search(query="", filters=None, sort="artist", limit=200, offset=0,
         except ValueError:
             pass
 
-    SORTS = {"artist": "c.artist, c.title", "title": "c.title",
-             "duration": "c.duration DESC", "bpm": "c.bpm DESC",
-             "recent": "c.mtime DESC", "album": "c.album, c.title"}
     sql = ("SELECT c.* FROM songs c"
            + (" WHERE " + " AND ".join(where) if where else "")
-           + f" ORDER BY {SORTS.get(sort, SORTS['artist'])} LIMIT ? OFFSET ?")
+           + f" ORDER BY {_order_by(sort, desc)} LIMIT ? OFFSET ?")
     rows = conn.execute(sql, params + [limit, offset]).fetchall()
     conn.close()
     return [dict(f) for f in rows]

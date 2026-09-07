@@ -214,7 +214,7 @@ async def scan():
 # ---------------------------------------------------------------- busqueda
 
 @app.get("/api/search")
-def search(q: str = "", sort: str = "artist",
+def search(q: str = "", sort: str = "artist", desc: bool = False,
            limit: int = Query(200, ge=1, le=5000),
            from_key: int = Query(0, ge=0), artist: str = "", album: str = "",
            genre: str = "", folder: str = "", only_favorites: bool = False,
@@ -223,13 +223,22 @@ def search(q: str = "", sort: str = "artist",
                {"artist": artist, "album": album, "genre": genre,
                 "folder": folder}.items() if v}
     rows = library.search(q, filters, sort, limit, from_key,
-                          only_favorites=only_favorites, min_stars=min_stars)
+                          only_favorites=only_favorites, min_stars=min_stars,
+                          desc=desc)
     return {"total": len(rows), "songs": rows}
 
 
 @app.get("/api/facets")
 def facets():
-    return library.facets()
+    """Valores disponibles para los filtros, y por que se puede ordenar.
+
+    La lista de campos sale del nucleo para que la interfaz no tenga que
+    repetirla: si aqui se añade uno, aparece solo en el buscador avanzado.
+    """
+    return {**library.facets(),
+            "sorts": library.sort_options(),
+            "filters": sorted(set(library.FILTER_FIELDS.values())),
+            "numeric": sorted(set(library.NUMERIC_FIELDS.values()))}
 
 
 @app.get("/api/song/{cid}")

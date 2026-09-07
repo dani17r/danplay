@@ -12,6 +12,10 @@ import { DENSITIES, SIZES, KIND_LABEL, allThemes, applyTheme, applyDensity,
 import Sidebar from './components/Sidebar.vue'
 import SongTable from './components/SongTable.vue'
 import SongGrid from './components/SongGrid.vue'
+import SongRows from './components/SongRows.vue'
+import SongCards from './components/SongCards.vue'
+import SearchPanel from './components/SearchPanel.vue'
+import SearchResults from './components/SearchResults.vue'
 import GroupedSongs from './components/GroupedSongs.vue'
 import DetailsPanel from './components/DetailsPanel.vue'
 import Player from './components/Player.vue'
@@ -33,6 +37,14 @@ import Card from './components/ui/Card.vue'
 const view = ref({ kind: 'all' })
 const query = ref('')
 const sort = ref('artist')
+// Hacia donde ordena. Pulsar la misma cabecera la invierte; pulsar otra
+// empieza por lo que tenga sentido en ese campo (A-Z en un texto, lo mas
+// largo primero en una duracion).
+const sortDesc = ref(false)
+function sortBy (campo, porDefectoDesc = false) {
+  if (sort.value === campo) sortDesc.value = !sortDesc.value
+  else { sort.value = campo; sortDesc.value = porDefectoDesc }
+}
 const songs = ref([])
 const playlists = ref([])
 const stats = ref(null)
@@ -106,9 +118,20 @@ const appSize = ref(savedSize())
 // Se comprueba lo que hay guardado en vez de fiarse: la disposicion movible
 // que hubo antes escribia en esta misma clave, y quien la usara tiene ahi un
 // objeto que no es ningun formato de vista.
-const VIEWS = ['list', 'compact', 'grid']
+// Cuatro formas de ver lo mismo, de mas apretada a mas visual:
+//   rows   una linea por cancion, a lo largo
+//   cards  fichas pequeñas con su portada
+//   grid   cuadricula de caratulas
+//   table  tabla con columnas ordenables y ajustables
+// El nombre viejo «list»/«compact» se traduce solo, para no perder la
+// preferencia de quien ya tenia una elegida.
+const VIEWS = ['rows', 'cards', 'grid', 'table']
+const VIEW_NAMES = { rows: 'Lista fina', cards: 'Fichas', grid: 'Cuadricula', table: 'Tabla' }
+const VIEW_ICONS = { rows: 'viewCompact', cards: 'viewList', grid: 'viewGrid', table: 'queue' }
+const ANTIGUAS = { list: 'table', compact: 'rows' }
 const savedView = localStorage.getItem('danplay.layout')
-const layout = ref(VIEWS.includes(savedView) ? savedView : 'list')
+const layout = ref(VIEWS.includes(savedView) ? savedView
+  : (ANTIGUAS[savedView] || 'table'))
 const groupBy = ref(localStorage.getItem('danplay.groupBy') || '')
 const cardSize = ref(Number(localStorage.getItem('danplay.cardSize') || 164))
 const viewMenu = ref(false)
@@ -182,9 +205,8 @@ const title = computed(() => ({
   playlist: view.value.name
 }[view.value.kind] || ''))
 
-const columns = computed(() => layout.value === 'compact'
-  ? { stars: false, album: false, key: true, bpm: true, kbps: false }
-  : null)
+// La tabla enseña todas sus columnas; las demas vistas no usan esto.
+const columns = computed(() => null)
 
 watch(layout, v => localStorage.setItem('danplay.layout', v))
 watch(groupBy, v => localStorage.setItem('danplay.groupBy', v))
@@ -209,7 +231,9 @@ async function load () {
     } else if (['settings', 'inbox', 'chat', 'downloads'].includes(view.value.kind)) {
       // paginas propias
     } else {
-      const p = { q: query.value, sort: sort.value, limit: 1000 }
+      const p = { q: query.value, sort: sort.value, desc: sortDesc.value, limit: 1000 }
+      if (onlyFavorites.value) p.only_favorites = true
+      if (minStars.value) p.min_stars = minStars.value
       if (view.value.kind === 'favorites') p.only_favorites = true
       songs.value = (await api.search(p)).songs
     }
@@ -594,9 +618,62 @@ const SEARCH_DELAY = 180
 let searchTimer = null
 watch(query, () => {
   clearTimeout(searchTimer)
-  searchTimer = setTimeout(load, SEARCH_DELAY)
+  searchTimer = setTimeout(onQuery, SEARCH_DELAY)
 })
-watch([sort, view], load, { deep: true })
+
+// --------------------------------------------------------------- buscador
+// En «Todas las canciones» el buscador filtra la propia lista. En cualquier
+// otro sitio esa lista es otra cosa (un repertorio, los favoritos) y
+// filtrarla no vale: se busca en TODA la biblioteca y se enseña el resultado
+// en un desplegable, sin sacarte de donde estabas.
+const searchesList = computed(() => ['all', 'artists'].includes(view.value.kind))
+const quick = ref([])
+const quickLoading = ref(false)
+const quickOpen = ref(false)
+const searchBox = ref(null)
+const resultsEl = ref(null)
+const advanced = ref(false)
+const facets = ref({})
+const onlyFavorites = ref(false)
+const minStars = ref(0)
+
+async function onQuery () {
+  if (searchesList.value) { quickOpen.value = false; return load() }
+  const q = query.value.trim()
+  if (!q) { quickOpen.value = false; quick.value = []; return }
+  quickOpen.value = true
+  quickLoading.value = true
+  try { quick.value = (await api.quickSearch(q, 60)).songs || [] }
+  catch { quick.value = [] }
+  finally { quickLoading.value = false }
+}
+
+/** Al elegir un resultado: se abre su ficha sin moverte de sitio. */
+async function pickResult (c) {
+  quickOpen.value = false
+  selected.value = c.id
+  detail.value = await api.song(c.id)
+}
+function playResult (c) { quickOpen.value = false; play(c) }
+/** «Verlos todos»: se va a la biblioteca con la misma busqueda puesta. */
+function seeAllResults () {
+  quickOpen.value = false
+  view.value = { kind: 'all' }
+}
+function onSearchKey (e) {
+  if (quickOpen.value && resultsEl.value?.onKey(e)) return
+  if (e.key === 'Escape') { quickOpen.value = false; advanced.value = false }
+}
+onClickOutside(searchBox, () => { quickOpen.value = false; advanced.value = false })
+// al cambiar de sitio, el desplegable sobra
+watch(view, () => { quickOpen.value = false })
+watch([onlyFavorites, minStars], () => { if (searchesList.value) load() })
+
+async function loadFacets () {
+  try { facets.value = await api.facets() } catch { /* el nucleo aun no responde */ }
+}
+watch(advanced, (v) => { if (v && !facets.value.artists) loadFacets() })
+watch([sort, sortDesc, view], load, { deep: true })
 // Sin `deep`: solo interesa cuando cambia la LISTA (otra busqueda, otra vista,
 // otra agrupacion), que es lo que altera el alto del scroll. Vigilarla en
 // profundidad obligaba a recorrer las mil canciones y todos sus campos cada
@@ -640,13 +717,35 @@ function onUpdated (c) {
     <button v-if="isCompact" class="icon-btn nav-toggle" title="Menu"
             @click="navOpen = true"><Icon n="viewList" :t="17" /></button>
     <div class="brand"><span class="brand-dot"></span> DANPLAY</div>
-    <TextField v-model="query" icon="search" width="min(620px, 42vw)"
-           placeholder="Buscar…  artista:barak  tono:Bb  bpm>100  duracion>300" />
+    <div class="search-box" ref="searchBox">
+      <TextField v-model="query" icon="search" width="100%"
+             placeholder="Buscar…  artista:barak  tono:Bb  bpm>100  duracion>300"
+             @keydown="onSearchKey" />
+      <button class="icon-btn search-more" :class="{on: advanced}"
+              title="Busqueda avanzada: filtros y orden"
+              @click="advanced = !advanced; quickOpen = false">
+        <Icon n="viewOptions" :t="15" /></button>
+
+      <transition name="dropdown">
+        <SearchPanel v-if="advanced" v-model:query="query" :facets="facets"
+                     v-model:onlyFavorites="onlyFavorites" v-model:minStars="minStars"
+                     :sort="sort" :desc="sortDesc"
+                     @sort="(c,d)=>{ sort=c; sortDesc=d }"
+                     @close="advanced = false" />
+      </transition>
+
+      <transition name="dropdown">
+        <SearchResults v-if="quickOpen && !advanced" ref="resultsEl"
+                       :songs="quick" :loading="quickLoading" :query="query"
+                       @pick="pickResult" @play="playResult"
+                       @seeAll="seeAllResults" @close="quickOpen = false" />
+      </transition>
+    </div>
 
     <div class="view-switch">
-      <button :class="{on: layout==='list'}" title="Vista de lista" @click="layout='list'"><Icon n="viewList" :t="15" /></button>
-      <button :class="{on: layout==='compact'}" title="Vista compacta" @click="layout='compact'"><Icon n="viewCompact" :t="15" /></button>
-      <button :class="{on: layout==='grid'}" title="Vista de cuadricula" @click="layout='grid'"><Icon n="viewGrid" :t="15" /></button>
+      <button v-for="v in VIEWS" :key="v" :class="{on: layout===v}"
+              :title="VIEW_NAMES[v]" @click="layout=v">
+        <Icon :n="VIEW_ICONS[v]" :t="15" /></button>
     </div>
 
     <div style="position:relative" ref="viewBox">
@@ -659,6 +758,10 @@ function onUpdated (c) {
              entero para dar con lo que buscabas. -->
         <div class="menu-block">
           <div class="menu-head">Esta lista</div>
+          <!-- En estrecho el conmutador de la barra no cabe y se esconde; el
+               css ya lo decia, pero aqui no habia forma de elegir vista. -->
+          <SelectField v-model="layout" label="Como se ve"
+                    :options="VIEWS.map(v => ({v, n: VIEW_NAMES[v]}))" />
           <SelectField v-model="groupBy" label="Agrupar"
                     :options="GROUPINGS.map(a => ({v: a.v, n: a.n}))" />
           <SelectField v-model="density" label="Densidad de las filas"
@@ -867,17 +970,28 @@ function onUpdated (c) {
         </div>
 
         <GroupedSongs v-if="effectiveGroupBy" :songs="songs" :by="effectiveGroupBy" :layout="layout"
+                      :sort="sort" :desc="sortDesc" @sortBy="sortBy"
                   :selected="selected" :playing="playing" :size="cardSize" :jumpTo="jumpToSong"
                   @select="select" @play="play" @context="songMenu"
                   @setStars="setStars" @toggleFavorite="toggleFavorite" />
+        <SongRows v-else-if="layout==='rows'" :songs="songs" :selected="selected"
+                  :playing="playing" :jumpTo="jumpToSong"
+                  @select="select" @play="play" @setStars="setStars"
+                  @toggleFavorite="toggleFavorite" @context="songMenu" />
+
+        <SongCards v-else-if="layout==='cards'" :songs="songs" :selected="selected"
+                   :playing="playing" :jumpTo="jumpToSong"
+                   @select="select" @play="play" @setStars="setStars"
+                   @toggleFavorite="toggleFavorite" @context="songMenu" />
+
         <SongGrid v-else-if="layout==='grid'" :songs="songs"
                     :selected="selected" :playing="playing" :size="cardSize"
                     :jumpTo="jumpToSong"
                     @select="select" @play="play" @context="songMenu" />
         <SongTable v-else :songs="songs" :selected="selected" :playing="playing"
-               :sort="sort" :columns="columns" :jumpTo="jumpToSong"
+               :sort="sort" :desc="sortDesc" :columns="columns" :jumpTo="jumpToSong"
                @select="select" @play="play" @context="songMenu"
-               @setStars="setStars" @toggleFavorite="toggleFavorite" @sortBy="c=>sort=c" />
+               @setStars="setStars" @toggleFavorite="toggleFavorite" @sortBy="sortBy" />
       </template>
 
       <transition name="pop">

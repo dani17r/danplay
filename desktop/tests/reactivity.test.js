@@ -186,8 +186,11 @@ describe('cambio de vista', () => {
     const w = await montar()
     await w.findAll('button').find(b => b.text().includes('Vista')).trigger('click')
     await flushPromises()
-    // el selector propio: se abre y se elige la opcion
-    await w.findAll('.select-box')[0].trigger('click')
+    // Se busca por su etiqueta y no por posicion: el menu tiene varios
+    // desplegables y basta con añadir uno arriba para que un indice mienta.
+    const agrupar = w.findAll('.field').find(f => f.text().includes('Agrupar'))
+    expect(agrupar, 'no encuentro el desplegable de agrupar').toBeTruthy()
+    await agrupar.find('.select-box').trigger('click')
     await flushPromises()
     const opcion = w.findAll('.select-opt').find(o => o.text().includes('Por artista'))
     expect(opcion, 'no encuentro la opcion "Por artista"').toBeTruthy()
@@ -526,7 +529,7 @@ describe('arrastrar una cancion', () => {
     // aquella opcion guardaba un objeto en la misma clave que el formato
     localStorage.setItem('danplay.layout', '{"topbar":"bottom","player":"top"}')
     const w = await conLista()
-    expect(w.vm.layout).toBe('list')
+    expect(w.vm.layout).toBe('table')
     expect(w.findAll('tbody tr')).toHaveLength(2)
   })
 

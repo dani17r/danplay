@@ -146,6 +146,9 @@ export const api = {
   scan: () => POST('/scan'),
 
   search: (p) => GET('/search?' + new URLSearchParams(p)),
+  // busqueda suelta para el desplegable: no toca la lista de la pagina
+  quickSearch: (q, limit = 40) =>
+    GET('/search?' + new URLSearchParams({ q, limit })),
   facets: () => GET('/facets'),
   song: (id) => GET(`/song/${id}`),
   edit: (id, d) => PATCH(`/song/${id}`, d),

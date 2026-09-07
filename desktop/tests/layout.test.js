@@ -26,9 +26,15 @@ describe('nada debe provocar desplazamiento horizontal', () => {
     expect(css).toMatch(/html,body,#app\{[^}]*overflow:hidden/)
   })
 
-  it('la tabla se adapta en vez de desbordar', () => {
+  it('la tabla se adapta sola, y solo desborda si tu la ensanchas', () => {
     expect(ultimoValor('table', 'table-layout')).toBe('fixed')
-    expect(ultimoValor('.table-wrap', 'overflow-x')).toBe('hidden')
+    // `auto` y no `hidden`: mientras las columnas quepan no sale ninguna barra
+    // —la tabla se reparte el ancho—, pero desde que las columnas se pueden
+    // ensanchar a mano hay que poder llegar a las de la derecha. Con `hidden`
+    // se quedaban recortadas sin salida.
+    expect(ultimoValor('.table-wrap', 'overflow-x')).toBe('auto')
+    // y sin tocar nada la tabla no se pasa: solo crece con anchos a medida
+    expect(css).toMatch(/\.song-table\.medida\{[^}]*width:auto/)
   })
 
   it('las celdas recortan con puntos suspensivos', () => {
