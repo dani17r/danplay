@@ -126,12 +126,13 @@ pesos por banda) y todas se estancan ahí. El código está en
 [`core/src/audio.rs`](../core/src/audio.rs). Si sabes de esto, es donde más
 falta hace.
 
-**Windows.** Ya se compila —`./scripts/build-windows-cross.sh` saca una
-versión portátil desde Linux y `.github/workflows/windows.yml` el instalador—
-pero **nadie lo ha ejecutado en un Windows de verdad**. Falta comprobar lo que
-solo se ve al abrirlo: que suene (WASAPI), que las rutas con acentos no rompan
-el índice, que la papelera reciba los archivos, que el clic en el icono abra
-la ventanita y que las teclas multimedia funcionen. Los detalles están en
+**Windows.** Ya se compila entero desde Linux: `./scripts/build-windows-cross.sh
+--zip --instalador` saca la versión portátil **y** el instalador. Pero **nadie
+lo ha ejecutado en un Windows de verdad**. Falta comprobar lo que solo se ve
+al abrirlo: que suene (WASAPI), que las rutas con acentos no rompan el índice,
+que la papelera reciba los archivos, que el clic en el icono abra la
+ventanita, que las teclas multimedia funcionen, y que el instalador deje los
+accesos directos y el «Abrir con» donde debe. Los detalles están en
 [Windows](WINDOWS.md).
 
 **macOS.** Sin probar. El transporte por socket Unix vale tal cual y la

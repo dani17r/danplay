@@ -8,12 +8,12 @@
 
 <p align="center">
   <img alt="Linux" src="https://img.shields.io/badge/Linux-.deb%20%C2%B7%20AppImage-333?logo=linux&logoColor=white">
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-instalador%20en%20CI-0078d4?logo=windows&logoColor=white">
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-portable%20%2B%20instalador-0078d4?logo=windows&logoColor=white">
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-513%20en%20verde-2ea043">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-4ade80">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-523%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -152,6 +152,22 @@ choca con la licencia de este proyecto —
 > permisos `0600` y nunca salen de tu equipo salvo hacia el servicio al que
 > pertenecen.
 
+### Que las canciones se abran con DanPlay
+
+La primera vez, DanPlay te lo pregunta. Si dijiste que no y te arrepientes,
+está en **Ajustes → Abrir canciones con DanPlay**.
+
+Lo hace la aplicación y no el instalador porque en Linux el reproductor
+predeterminado es un ajuste **tuyo** —vive en tu `~/.config/mimeapps.list`—, y
+un paquete que se instala como root no puede ponerlo sin decidir por ti. En
+Windows es aún más estricto: desde Windows 8 ningún programa puede elegirse a
+sí mismo, así que DanPlay se registra y te abre la página de Ajustes donde das
+el último clic.
+
+Funciona igual con el `.deb`, con el `.AppImage` y con la versión portátil de
+Windows: si no hay un `.desktop` instalado, la app escribe el suyo en
+`~/.local/share/applications` apuntando a donde esté.
+
 ## Primeros pasos
 
 1. Abre DanPlay y elige tu carpeta de música. Te avisa si la carpeta que
@@ -252,12 +268,11 @@ Prefiero decirlo aquí que en un issue:
 - **El BPM es usable, no exacto.** 5 de 8 aceptando errores de octava.
 - **Los acordes que da la IA son aproximados.** La app lo avisa. La
   transposición sobre ellos sí es determinista y exacta.
-- **Solo Linux probado.** Para Windows hay dos caminos que funcionan —una
-  versión portátil que se construye desde Linux (`scripts/build-windows-cross.sh`)
-  y el instalador que sale de la integración continua
-  (`.github/workflows/windows.yml`)—, pero **nadie los ha ejecutado todavía en
-  un Windows de verdad**: hasta el primer arranque, es un «debería funcionar».
-  macOS ni siquiera se ha compilado. Los detalles, en
+- **Solo Linux probado.** Para Windows salen las dos formas desde Linux
+  (`scripts/build-windows-cross.sh --zip --instalador`) y también desde la
+  integración continua, pero **nadie las ha ejecutado todavía en un Windows de
+  verdad**: hasta el primer arranque, es un «debería funcionar». macOS ni
+  siquiera se ha compilado. Los detalles, en
   [docs/WINDOWS.md](docs/WINDOWS.md).
 - **El mini reproductor aparece donde puede.** Con X11 y con el AppImage sale
   pegado al icono de la bandeja. En Wayland lo coloca el escritorio: no existen
@@ -270,7 +285,7 @@ Prefiero decirlo aquí que en un issue:
 | --- | --- |
 | [Arquitectura](docs/ARQUITECTURA.md) | Cómo encaja todo por dentro, decisiones de diseño y por qué. |
 | [Contrato interno](docs/CONTRATO-INTERNO.md) | Qué se dicen las capas: comandos, eventos y nombres de cada campo. |
-| [Windows](docs/WINDOWS.md) | Cómo se consigue el instalador y qué cambia respecto a Linux. |
+| [Windows](docs/WINDOWS.md) | Las dos formas (portátil e instalador), cómo se construyen desde Linux y qué cambia respecto a Linux. |
 | [Contribuir](docs/CONTRIBUIR.md) | Cómo montar el entorno, ejecutar las pruebas y en qué se puede ayudar. |
 
 ## Pruebas
@@ -279,16 +294,16 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-513 pruebas repartidas así:
+523 pruebas repartidas así:
 
 | Tanda | Pruebas |
 | --- | --- |
-| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, Windows) | 99 |
+| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, Windows, asociaciones) | 103 |
 | API sobre una biblioteca temporal de verdad | 82 |
 | Interfaz: componentes, reactividad, temas, listas grandes, contratos | 259 |
 | Interfaz: rutas de medios en cada sistema | 7 |
 | Rust: hashes y análisis de audio | 14 |
-| Rust: reproductor, cola de reproducción y bandeja | 37 |
+| Rust: reproductor, cola, bandeja y archivos abiertos desde fuera | 43 |
 | Humo sobre la app **ya compilada** | 15 |
 
 La biblioteca de prueba **se genera**: mp3 de verdad hechos con ffmpeg. Antes

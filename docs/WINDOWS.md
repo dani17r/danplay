@@ -7,26 +7,50 @@ un Windows de verdad, así que hasta el primer arranque hay que tratarlo como
 
 ---
 
-## Las dos formas de conseguirlo
-
-| | Portátil (desde Linux) | Instalador (desde Windows o CI) |
-| --- | --- | --- |
-| **Cómo** | `./scripts/build-windows-cross.sh --zip` | `.github/workflows/windows.yml`, o `scripts\build-windows.ps1 -Instalador` |
-| **Qué sale** | una carpeta que se copia y se ejecuta | un `.exe` con desinstalador y acceso directo |
-| **El núcleo Python** | Python embebido oficial + ruedas `win_amd64` | PyInstaller |
-| **Tamaño** | 74 MB (25 MB comprimido) | ~120 MB con ffmpeg dentro |
-| **Hace falta** | nada de administrador; se descarga todo a una caché | una máquina Windows (o GitHub Actions) |
-
-### Portátil, desde Linux
+## Las dos formas, y las dos salen desde Linux
 
 ```bash
-./scripts/build-windows-cross.sh --zip     # deja dist/danplay-windows.zip
+./scripts/build-windows-cross.sh --zip          # portátil
+./scripts/build-windows-cross.sh --instalador   # instalador
+./scripts/build-windows-cross.sh --zip --instalador   # los dos
 ```
 
-La primera vez descarga a `~/.cache/danplay-cross` lo que necesita —mingw-w64
-(extraído de sus paquetes, sin instalarlo), zig y el Python embebido de
-Windows— y luego ya es rápido. Al final comprueba que ha salido todo: que los
-dos ejecutables son PE32+, que están el Python y las dependencias.
+Salen **de la misma carpeta**, así que no pueden desincronizarse: el
+instalador es esa carpeta comprimida con NSIS, más los accesos directos, las
+asociaciones de archivo y el desinstalador.
+
+| | Portátil | Instalador |
+| --- | --- | --- |
+| **Qué es** | una carpeta que se copia y se ejecuta | un `.exe` que instala |
+| **Dónde va** | donde lo dejes | `%LOCALAPPDATA%\Programs\DanPlay` |
+| **Administrador** | no | **tampoco**: instala para tu usuario, sin aviso de UAC |
+| **Accesos directos** | ninguno | menú Inicio y escritorio (se puede desmarcar) |
+| **«Abrir con DanPlay»** | lo activa la propia app desde Ajustes | lo deja puesto el instalador |
+| **Desinstalador** | borrar la carpeta | sí, y sale en «Aplicaciones instaladas» |
+| **ffmpeg y fpcalc** | solo con `--herramientas` | siempre |
+| **Tamaño** | 273 MB (98 MB comprimido) con herramientas; 74 MB (25 MB) sin ellas | 71 MB |
+
+De esos 273 MB, **197 son `ffmpeg.exe` y `ffprobe.exe`**, que van enteros
+porque son los binarios oficiales. `ffprobe` solo se usa para medir las
+portadas antes de encogerlas; si algún día molesta el tamaño, ahí están los
+98 MB más fáciles de quitar.
+
+La primera vez descarga a `~/.cache/danplay-cross` lo que necesita —mingw-w64,
+zig, NSIS y el Python embebido de Windows, todos extraídos de sus paquetes sin
+instalar nada— y luego ya es rápido. Al final comprueba lo que ha salido: que
+los dos ejecutables son PE32+, que están el Python y las dependencias, y que
+dentro del instalador va todo lo de la carpeta.
+
+### Lo que el instalador NO puede hacer, y por qué
+
+**Ponerse como reproductor predeterminado.** Desde Windows 8 esa elección vive
+en una clave del registro (`UserChoice`) protegida con un hash: si un programa
+la escribe, Windows lo detecta y la deshace. Lo que sí hace el instalador es
+dejar a DanPlay **registrado** —sale en «Abrir con» y en la lista de
+aplicaciones predeterminadas del sistema— y ofrecerte al terminar abrir la
+página de Ajustes donde das el último clic. Es lo mismo que hacen VLC, Spotify
+y foobar2000. Desde la app, ese botón está en Ajustes → «Abrir canciones con
+DanPlay».
 
 **Por qué no usa PyInstaller.** Porque PyInstaller no compila para otro
 sistema. En su lugar coge el Python embebido oficial de Windows y le mete las
@@ -42,12 +66,15 @@ lanzador y para preprocesar los recursos, pero su enlazador no sabe usar las
 bibliotecas de importación de Windows que trae Rust (`libwindows.0.52.0.a`):
 busca un `.dll` y se para. Con el `ld` de mingw enlaza a la primera.
 
-**Lo que esta versión no trae.** Ni desinstalador, ni acceso directo, ni
-asociación de archivos; y `ffmpeg`/`fpcalc` hay que ponerlos a mano en
-`tools\` si se quieren (sin ellos no hay conversión de formatos, ni huella
-acústica, ni reproducción de `.opus` y `.wma`).
+**Lo que la versión portátil no trae.** Ni desinstalador ni accesos directos;
+y las asociaciones de archivo no las deja puestas nadie, así que hay que
+pedirlas desde Ajustes → «Abrir canciones con DanPlay» (se registran en HKCU,
+las mismas claves que escribe el instalador).
 
-## Cómo se consigue el instalador
+## El instalador desde Windows, o desde la integración continua
+
+Sigue existiendo el camino con PyInstaller, que es el que produce un núcleo de
+un solo ejecutable en vez del Python embebido:
 
 ### Con la integración continua
 
