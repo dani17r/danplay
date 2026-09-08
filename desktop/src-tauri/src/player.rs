@@ -13,8 +13,9 @@ use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use serde::Serialize;
 use std::fs::File;
 use std::io::BufReader;
+use crate::transcode;
 use std::sync::mpsc::{channel, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 #[derive(Serialize, Clone, Default, Debug, PartialEq)]
@@ -56,24 +57,92 @@ pub struct Handle {
     state: Arc<Mutex<State>>,
 }
 
+/// Donde esta ffmpeg, si esta. Se busca una vez: recorrer el PATH en cada
+/// cancion no aporta nada.
+fn ffmpeg() -> Option<&'static str> {
+    static FOUND: OnceLock<Option<String>> = OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            // el mismo orden que usa el nucleo: primero donde lo dejo el
+            // instalador, luego el PATH
+            let mut folders: Vec<std::path::PathBuf> = Vec::new();
+            if let Some(dir) = std::env::var_os("DANPLAY_TOOLS_DIR") {
+                folders.push(std::path::PathBuf::from(dir));
+            }
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    folders.push(dir.join("tools"));
+                    folders.push(dir.to_path_buf());
+                }
+            }
+            if let Some(path) = std::env::var_os("PATH") {
+                folders.extend(std::env::split_paths(&path));
+            }
+            let names: &[&str] = if cfg!(windows) {
+                &["ffmpeg.exe", "ffmpeg"]
+            } else {
+                &["ffmpeg"]
+            };
+            for folder in folders {
+                for name in names {
+                    let candidate = folder.join(name);
+                    if candidate.is_file() {
+                        return Some(candidate.to_string_lossy().into_owned());
+                    }
+                }
+            }
+            None
+        })
+        .as_deref()
+}
+
 /// Abre el archivo y deja un `Sink` listo para sonar.
 ///
 /// Devuelve tambien la duracion que anuncia el propio archivo, que sale gratis
 /// aqui: antes se volvia a abrir y decodificar el archivo solo para medirla.
+///
+/// `hint` es la duracion que sabe el indice; solo se usa para los formatos que
+/// pasan por ffmpeg, donde no hay de donde sacarla.
 fn open_sink(
     handle: &OutputStreamHandle,
     path: &str,
     volume: f32,
     speed: f32,
+    hint: f64,
 ) -> Result<(Sink, Option<f64>), String> {
-    let file = File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
-    let source = Decoder::new(BufReader::new(file)).map_err(|e| readable(&e.to_string(), path))?;
-    let announced = source.total_duration().map(|d| d.as_secs_f64());
     let sink = Sink::try_new(handle).map_err(|e| e.to_string())?;
     sink.set_volume(volume);
     sink.set_speed(speed);
+
+    // opus, wma y compañia: el decodificador no los conoce, asi que los
+    // decodifica ffmpeg y nos manda el audio crudo.
+    if transcode::is_handled(path) {
+        let Some(ffmpeg) = ffmpeg() else {
+            return Err(no_ffmpeg(path));
+        };
+        let source = transcode::Transcoded::open(ffmpeg, path, Some(hint))?;
+        let announced = source.total_duration().map(|d| d.as_secs_f64());
+        sink.append(source);
+        return Ok((sink, announced));
+    }
+
+    let file = File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
+    let source = Decoder::new(BufReader::new(file)).map_err(|e| readable(&e.to_string(), path))?;
+    let announced = source.total_duration().map(|d| d.as_secs_f64());
     sink.append(source);
     Ok((sink, announced))
+}
+
+/// Ese formato necesita ffmpeg y no lo hay.
+fn no_ffmpeg(path: &str) -> String {
+    let extension = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("ese")
+        .to_lowercase();
+    format!(
+        "Para reproducir .{extension} hace falta ffmpeg, y no lo encuentro.          Instalalo y vuelve a intentarlo."
+    )
 }
 
 /// Los errores de symphonia vienen en ingles y no dicen nada al usuario.
@@ -84,15 +153,16 @@ fn readable(error: &str, path: &str) -> String {
         .unwrap_or("")
         .to_lowercase();
     if error.contains("Unrecognized format") || error.contains("unsupported") {
-        return match extension.as_str() {
-            // symphonia no trae ni opus ni wma; se avisa en vez de dejar un
-            // mensaje en ingles que no dice que hacer
-            "opus" | "wma" => format!(
-                "DanPlay no sabe reproducir .{extension} todavia. \
-                 Conviertelo a mp3 desde Ajustes y sonara."
-            ),
-            _ => "No se pudo leer este archivo: puede estar dañado".into(),
-        };
+        // Los formatos que el decodificador no conoce ya no llegan aqui: los
+        // manda a ffmpeg `open_sink`. Si aun asi cae uno, se dice en
+        // castellano y no con el mensaje del decodificador.
+        if !extension.is_empty() {
+            return format!(
+                "No se pudo leer este .{extension}: puede estar dañado o \
+                 usar una variante que DanPlay no conoce."
+            );
+        }
+        return "No se pudo leer este archivo: puede estar dañado".into();
     }
     error.to_string()
 }
@@ -158,7 +228,7 @@ impl Handle {
                                     if let Some(s) = sink.take() {
                                         s.stop()
                                     }
-                                    match open_sink(&handle, &r, volume, speed) {
+                                    match open_sink(&handle, &r, volume, speed, hint) {
                                         Ok((s, announced)) => {
                                             s.play();
                                             // la del indice manda: en mp3 de
@@ -195,7 +265,7 @@ impl Handle {
                                     };
                                     if wants_play && exhausted && !path.is_empty() {
                                         // la pista acabo: se recarga y suena otra vez
-                                        match open_sink(&handle, &path, volume, speed) {
+                                        match open_sink(&handle, &path, volume, speed, duration) {
                                             Ok((s, _)) => {
                                                 s.play();
                                                 sink = Some(s);
@@ -222,7 +292,7 @@ impl Handle {
                                 Command::Seek(seconds) => {
                                     let exhausted = sink.as_ref().map_or(true, |s| s.empty());
                                     if exhausted && !path.is_empty() {
-                                        match open_sink(&handle, &path, volume, speed) {
+                                        match open_sink(&handle, &path, volume, speed, duration) {
                                             Ok((s, _)) => {
                                                 s.play();
                                                 sink = Some(s);
@@ -631,13 +701,24 @@ mod tests {
         assert!(!e.playing && e.path.is_empty());
     }
 
-    /// Los formatos que symphonia no trae tienen que decirlo en castellano y
-    /// explicando que hacer, no soltar «Unrecognized format».
+    /// Lo que el decodificador no sabe leer lo dice en castellano, no con un
+    /// «Unrecognized format» que no explica nada.
     #[test]
-    fn unsupported_formats_explain_themselves() {
-        let message = readable("Unrecognized format", "/musica/cancion.opus");
-        assert!(message.contains("opus") && message.contains("mp3"), "{message}");
-        let other = readable("Unrecognized format", "/musica/cancion.mp3");
+    fn unreadable_files_explain_themselves_in_spanish() {
+        let message = readable("Unrecognized format", "/musica/cancion.mp3");
+        assert!(message.contains("dañado"), "{message}");
+        assert!(message.contains("mp3"), "deberia decir de que archivo habla: {message}");
+        let other = readable("Unrecognized format", "/musica/sin-extension");
         assert!(other.contains("dañado"), "{other}");
+    }
+
+    /// opus y wma ya no dan error: van por ffmpeg. Lo que si tiene que
+    /// explicarse es cuando ffmpeg no esta.
+    #[test]
+    fn formats_that_need_ffmpeg_do_not_go_through_the_decoder() {
+        assert!(transcode::is_handled("/musica/cancion.opus"));
+        assert!(transcode::is_handled("/musica/cancion.wma"));
+        let message = no_ffmpeg("/musica/cancion.opus");
+        assert!(message.contains("opus") && message.contains("ffmpeg"), "{message}");
     }
 }

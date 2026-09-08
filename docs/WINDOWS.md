@@ -1,40 +1,55 @@
 # DanPlay en Windows
 
-Estado a 8 de septiembre de 2026: **el código está listo y compila para
-Windows; el instalador lo produce la integración continua.** Nadie lo ha
-ejecutado todavía en un Windows de verdad, así que hasta el primer arranque
-hay que tratarlo como «debería funcionar», no como «funciona».
+Estado a 8 de septiembre de 2026: **hay una versión portátil compilada desde
+Linux y un flujo que genera el instalador.** Nadie lo ha ejecutado todavía en
+un Windows de verdad, así que hasta el primer arranque hay que tratarlo como
+«debería funcionar», no como «funciona».
 
 ---
 
-## Por qué no se puede compilar entero desde Linux
+## Las dos formas de conseguirlo
 
-Una sola razón, y no tiene vuelta: **PyInstaller no compila para otro
-sistema.** El núcleo Python (`danplay-core.exe`) tiene que empaquetarse
-ejecutando PyInstaller **en Windows**. No hay opción de cruzar.
+| | Portátil (desde Linux) | Instalador (desde Windows o CI) |
+| --- | --- | --- |
+| **Cómo** | `./scripts/build-windows-cross.sh --zip` | `.github/workflows/windows.yml`, o `scripts\build-windows.ps1 -Instalador` |
+| **Qué sale** | una carpeta que se copia y se ejecuta | un `.exe` con desinstalador y acceso directo |
+| **El núcleo Python** | Python embebido oficial + ruedas `win_amd64` | PyInstaller |
+| **Tamaño** | 74 MB (25 MB comprimido) | ~120 MB con ffmpeg dentro |
+| **Hace falta** | nada de administrador; se descarga todo a una caché | una máquina Windows (o GitHub Actions) |
 
-Lo demás sí se podría: la interfaz es JavaScript (igual en todas partes) y la
-aplicación de Rust se puede compilar cruzada. Pero una aplicación sin núcleo
-arranca, no encuentra con quién hablar y enseña un error. No sirve de nada.
-
-Lo que **sí** se hace desde Linux, y se hizo:
+### Portátil, desde Linux
 
 ```bash
-cargo check --target x86_64-pc-windows-msvc      # o -gnu
+./scripts/build-windows-cross.sh --zip     # deja dist/danplay-windows.zip
 ```
 
-Eso comprueba de verdad el código de Windows —los bloques `#[cfg(windows)]`
-que en Linux nunca se compilan— y sale limpio. Hace falta un compilador de
-recursos (`llvm-rc` para MSVC, `x86_64-w64-mingw32-windres` para GNU); sin él,
-el script de compilación de Tauri se para antes de llegar al código.
+La primera vez descarga a `~/.cache/danplay-cross` lo que necesita —mingw-w64
+(extraído de sus paquetes, sin instalarlo), zig y el Python embebido de
+Windows— y luego ya es rápido. Al final comprueba que ha salido todo: que los
+dos ejecutables son PE32+, que están el Python y las dependencias.
 
-Enlazar un `.exe` desde Linux es otra historia: Tauri no da soporte al destino
-`-gnu`, y el `-msvc` necesita las bibliotecas de Microsoft. No merece la pena
-pelearlo cuando de todos modos faltaría el núcleo.
+**Por qué no usa PyInstaller.** Porque PyInstaller no compila para otro
+sistema. En su lugar coge el Python embebido oficial de Windows y le mete las
+dependencias como ruedas `win_amd64`, que sí se pueden descargar desde
+cualquier parte. Un lanzador de treinta líneas
+([`packaging/launcher.c`](../packaging/launcher.c)) hace de `danplay-core.exe`
+y arranca ese Python; espera a que termine en vez de sustituirse por él, para
+que la aplicación siga vigilando un proceso vivo y el Job Object se lleve a
+los dos al cerrar.
+
+**Por qué el enlazador de mingw y no el de zig.** Zig sirve para compilar el
+lanzador y para preprocesar los recursos, pero su enlazador no sabe usar las
+bibliotecas de importación de Windows que trae Rust (`libwindows.0.52.0.a`):
+busca un `.dll` y se para. Con el `ld` de mingw enlaza a la primera.
+
+**Lo que esta versión no trae.** Ni desinstalador, ni acceso directo, ni
+asociación de archivos; y `ffmpeg`/`fpcalc` hay que ponerlos a mano en
+`tools\` si se quieren (sin ellos no hay conversión de formatos, ni huella
+acústica, ni reproducción de `.opus` y `.wma`).
 
 ## Cómo se consigue el instalador
 
-### Con la integración continua (lo normal)
+### Con la integración continua
 
 `.github/workflows/windows.yml` lo hace entero en `windows-latest`:
 
@@ -104,7 +119,10 @@ Cosas que solo se ven al abrirlo de verdad:
 
 ## Lo que no está preparado
 
-- **macOS.** El transporte por socket ya vale, pero falta que la aplicación
-  desaparezca del Dock al esconderse y probar la bandeja.
-- **Reproducir `.opus` y `.wma`** en cualquier sistema: el decodificador no los
-  trae. Se organizan igual; para escucharlos hay que convertirlos.
+- **macOS.** Sin compilar ni probar. El transporte por socket vale y la
+  aplicación ya sale del Dock al esconderse (`ActivationPolicy::Accessory`);
+  falta que alguien con un Mac compruebe la bandeja.
+- **Reproducir `.opus` y `.wma` sin ffmpeg.** El decodificador no los conoce,
+  así que se pasan por ffmpeg. En Windows va dentro del instalador, pero si
+  alguien monta la versión portátil sin él, esos dos formatos no sonarán y la
+  aplicación lo dirá.

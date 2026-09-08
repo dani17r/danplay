@@ -13,7 +13,7 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-506%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-513%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -232,12 +232,12 @@ igual que las estrellas.
 
 ## Formatos
 
-Lee y organiza `.mp3`, `.flac`, `.m4a`, `.wav`, `.ogg`, `.opus`, `.aac` y
-`.wma`. **Reproduce** todos menos `.opus` y `.wma`, que el decodificador no
-trae todavía: ahí la app lo dice y te ofrece convertirlos. Puede unificar a
-mp3 con ffmpeg conservando etiquetas y carátula, respetando las carpetas que
-marques como intocables (`Secuencias`, `Pistas`, `Multitracks`…), donde
-comprimir sería perder calidad.
+Lee, organiza y **reproduce** `.mp3`, `.flac`, `.m4a`, `.wav`, `.ogg`,
+`.opus`, `.aac` y `.wma`. Los dos últimos no los conoce el decodificador, así
+que los pasa por ffmpeg sin tocar el archivo: suenan igual y siguen siendo lo
+que eran. Puede unificar a mp3 con ffmpeg conservando etiquetas y carátula,
+respetando las carpetas que marques como intocables (`Secuencias`, `Pistas`,
+`Multitracks`…), donde comprimir sería perder calidad.
 
 ## Lo que NO hace bien
 
@@ -252,10 +252,13 @@ Prefiero decirlo aquí que en un issue:
 - **El BPM es usable, no exacto.** 5 de 8 aceptando errores de octava.
 - **Los acordes que da la IA son aproximados.** La app lo avisa. La
   transposición sobre ellos sí es determinista y exacta.
-- **Solo Linux probado.** El código compila para Windows y hay un flujo que
-  genera el instalador (`.github/workflows/windows.yml`), pero **nadie lo ha
-  ejecutado todavía en un Windows de verdad**: hasta el primer arranque, es un
-  «debería funcionar». Los detalles, en [docs/WINDOWS.md](docs/WINDOWS.md).
+- **Solo Linux probado.** Para Windows hay dos caminos que funcionan —una
+  versión portátil que se construye desde Linux (`scripts/build-windows-cross.sh`)
+  y el instalador que sale de la integración continua
+  (`.github/workflows/windows.yml`)—, pero **nadie los ha ejecutado todavía en
+  un Windows de verdad**: hasta el primer arranque, es un «debería funcionar».
+  macOS ni siquiera se ha compilado. Los detalles, en
+  [docs/WINDOWS.md](docs/WINDOWS.md).
 - **El mini reproductor aparece donde puede.** Con X11 y con el AppImage sale
   pegado al icono de la bandeja. En Wayland lo coloca el escritorio: no existen
   las coordenadas globales y una aplicación no puede situar sus ventanas.
@@ -276,16 +279,16 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-506 pruebas repartidas así:
+513 pruebas repartidas así:
 
 | Tanda | Pruebas |
 | --- | --- |
 | Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, Windows) | 99 |
 | API sobre una biblioteca temporal de verdad | 82 |
-| Interfaz: componentes, reactividad, temas, listas grandes, contratos | 255 |
+| Interfaz: componentes, reactividad, temas, listas grandes, contratos | 259 |
 | Interfaz: rutas de medios en cada sistema | 7 |
 | Rust: hashes y análisis de audio | 14 |
-| Rust: reproductor, cola de reproducción y bandeja | 34 |
+| Rust: reproductor, cola de reproducción y bandeja | 37 |
 | Humo sobre la app **ya compilada** | 15 |
 
 La biblioteca de prueba **se genera**: mp3 de verdad hechos con ffmpeg. Antes

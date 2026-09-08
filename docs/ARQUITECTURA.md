@@ -132,6 +132,21 @@ cliente reintentara en bucle.
 > en Linux y Windows es `http://<esquema>.localhost/...`, y solo en macOS/iOS
 > es `<esquema>://localhost/...`. Hay pruebas dedicadas a esto.
 
+## Los formatos que el decodificador no conoce
+
+`symphonia` —lo que usa rodio por debajo— no trae ni opus ni wma, y los dos
+están en la lista de lo que DanPlay organiza. La salida no es pedirle al
+usuario que convierta su archivo para poder oírlo: se le pide a **ffmpeg** que
+lo decodifique y mande el audio crudo por una tubería, y eso se le da a rodio
+como una fuente más (`transcode.rs`).
+
+ffmpeg ya era dependencia del programa (convierte formatos y encoge
+carátulas), así que no se añade nada. Buscar dentro de la canción vuelve a
+lanzar ffmpeg desde el segundo pedido: una tubería no se rebobina.
+
+Todo lo demás sigue yendo por el decodificador nativo, que es más rápido y no
+depende de nada externo.
+
 ## La base de datos es desechable
 
 Esta es la decisión de diseño que gobierna todo lo demás.

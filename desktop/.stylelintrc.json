@@ -1,12 +1,7 @@
 {
   "extends": "stylelint-config-standard",
   "rules": {
-    "no-duplicate-selectors": [
-      true,
-      {
-        "severity": "warning"
-      }
-    ],
+    "no-duplicate-selectors": true,
     "declaration-block-no-duplicate-properties": true,
     "no-descending-specificity": null,
     "custom-property-pattern": null,

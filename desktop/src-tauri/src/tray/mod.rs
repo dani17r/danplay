@@ -144,11 +144,31 @@ pub(crate) fn mark_available(app: &AppHandle, value: bool) {
 // ------------------------------------------------------------- las ventanas
 
 pub fn show_main(app: &AppHandle) {
+    dock(app, true);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+/// Que la aplicacion este o no en el Dock de macOS.
+///
+/// Esconder la ventana no la quita de ahi: se queda un icono que ya no abre
+/// nada y que ademas hace pensar que la aplicacion sigue «abierta» cuando lo
+/// que se queria era dejarla en la bandeja. `Accessory` la saca del Dock y del
+/// cambiador de aplicaciones sin cerrarla; `Regular` la devuelve al mostrarla.
+///
+/// En Linux y en Windows no hay nada que hacer: la barra de tareas deja de
+/// mostrarla en cuanto no hay ventana visible.
+pub fn dock(app: &AppHandle, visible: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::ActivationPolicy::{Accessory, Regular};
+        let _ = app.set_activation_policy(if visible { Regular } else { Accessory });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, visible);
 }
 
 pub fn hide_popup(app: &AppHandle) {

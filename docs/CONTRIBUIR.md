@@ -126,24 +126,20 @@ pesos por banda) y todas se estancan ahí. El código está en
 [`core/src/audio.rs`](../core/src/audio.rs). Si sabes de esto, es donde más
 falta hace.
 
-**Windows.** El código ya tiene su camino —papelera con `send2trash`, rutas
-con `platformdirs`, transporte por loopback con token, Job Object para que el
-núcleo muera con la aplicación— pero **nadie lo ha compilado ni ejecutado**.
-Hace falta alguien con Windows: construir el núcleo con PyInstaller allí (no
-se puede desde Linux), generar el instalador NSIS y probar audio, rutas con
-acentos y papelera.
+**Windows.** Ya se compila —`./scripts/build-windows-cross.sh` saca una
+versión portátil desde Linux y `.github/workflows/windows.yml` el instalador—
+pero **nadie lo ha ejecutado en un Windows de verdad**. Falta comprobar lo que
+solo se ve al abrirlo: que suene (WASAPI), que las rutas con acentos no rompan
+el índice, que la papelera reciba los archivos, que el clic en el icono abra
+la ventanita y que las teclas multimedia funcionen. Los detalles están en
+[Windows](WINDOWS.md).
 
-**macOS.** Sin explorar. El transporte por socket Unix ya vale; falta la
-política de activación para que la aplicación desaparezca del Dock al
-esconderse, y probar la bandeja.
-
-**Reproducir `.opus` y `.wma`.** El decodificador (symphonia) no los trae. Hoy
-la aplicación lo dice y ofrece convertirlos; sonarían con `libopus` o pasando
-esos formatos por ffmpeg.
-
-**Los selectores repetidos del CSS.** `stylelint` avisa de una veintena: son
-parches que se fueron pegando al final del archivo. Fusionarlos toca el orden
-de la cascada, así que hay que hacerlo mirando la aplicación, con calma.
+**macOS.** Sin probar. El transporte por socket Unix vale tal cual y la
+política de activación ya está puesta (`tray::dock`: al esconderse pasa a
+`Accessory` y sale del Dock, al volver a `Regular`), pero **nadie lo ha
+compilado ahí**. Falta ver si la bandeja de Tauri entrega el clic como en
+Windows, si la ventanita queda bien pegada al icono de la barra y si el
+cambio de política no deja la aplicación sin foco al reaparecer.
 
 **Traducción.** Todo lo que ve el usuario está en castellano, escrito a mano.
 No hay sistema de idiomas.

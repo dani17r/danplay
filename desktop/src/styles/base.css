@@ -62,6 +62,7 @@ input:focus,select:focus{border-color:var(--accent);
 /* ---------- lateral ---------- */
 .nav-group{padding:12px 8px 4px}
 .nav-title{
+  display:flex;align-items:center;gap:7px;
   font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted2);
   padding:0 8px 6px;font-weight:600;
 }
@@ -93,7 +94,6 @@ input:focus,select:focus{border-color:var(--accent);
   padding-top:10px;padding-bottom:10px}
 .nav-scroll{overflow-y:auto;min-height:0;flex:1;padding-bottom:8px;
   scrollbar-gutter:stable}
-.nav-title{display:flex;align-items:center;gap:7px}
 .nav-count{margin-left:auto;font-size:10px;color:var(--muted2);
   background:var(--panel2);border-radius:9px;padding:1px 6px;letter-spacing:0}
 .nav-new{color:var(--accent);font-weight:500}
@@ -118,11 +118,16 @@ input:focus,select:focus{border-color:var(--accent);
    sin forma de llegar a ellas. */
 .table-wrap{flex:1;overflow:auto;min-height:0}
 table{width:100%;border-collapse:collapse}
+/* OJO con `position`: tiene que ser `sticky` para que la cabecera se quede
+   arriba al desplazar la lista, y ademas ya crea el contexto que necesita la
+   flecha de ordenar. Habia un segundo `thead th` mas abajo que lo cambiaba a
+   `relative` y dejaba la cabecera suelta; se perdio en la duplicacion. */
 thead th{
   position:sticky;top:0;z-index:2;background:var(--bg);
   border-bottom:1px solid var(--border);
   font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted2);
-  font-weight:600;text-align:left;padding:9px 10px;white-space:nowrap;cursor:pointer;
+  font-weight:600;text-align:left;padding:9px 10px;white-space:nowrap;
+  vertical-align:middle;cursor:default;
 }
 thead th:hover{color:var(--muted)}
 /* Con anchos propios hay que fijar la maquetacion: si no, el navegador
@@ -130,7 +135,6 @@ thead th:hover{color:var(--muted)}
 /* Solo cuando hay anchos a medida la tabla puede pasarse del panel. Sin
    tocarla se comporta como siempre: `width:100%` y se adapta. */
 .song-table.medida{min-width:100%;width:auto}
-thead th{position:relative;cursor:default}
 thead th.sortable{cursor:pointer}
 /* Sin `max-width`: reservar sitio para la flecha dejaba «Dur.» en «DU…» en
    las columnas estrechas. El propio `th` ya recorta con puntos suspensivos si
@@ -162,7 +166,7 @@ td{padding:7px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .col-title{width:34%}
 .col-artist{width:21%}
 .col-album{width:19%}
-.col-n{width:44px;color:var(--muted2);text-align:right}
+.col-n{position:relative;width:44px;color:var(--muted2);text-align:right}
 .col-fav{width:36px;text-align:center}
 /* Cinco estrellas de 15px con sus huecos piden ~115px contando el relleno
    de la celda. Con menos se recortaban y, como `td` lleva text-overflow,
@@ -196,7 +200,6 @@ thead th.col-n,thead th.col-fav{padding-left:6px;padding-right:6px}
 /* boton de reproducir que aparece al pasar por encima de la fila.
    Va en posicion absoluta para no alterar el ancho de la columna: la tabla
    es de maquetacion fija y cualquier cambio de contenido la descuadraria. */
-.col-n{position:relative}
 .row-n{display:block}
 .row-play{position:absolute;inset:0;width:100%;display:none;
   align-items:center;justify-content:center;color:var(--text);padding:0}

@@ -540,6 +540,26 @@ describe('las cuatro vistas', () => {
   })
 })
 
+describe('la cabecera de la tabla', () => {
+  // Estaba definida DOS veces: la primera la dejaba fija (`position:sticky`) y
+  // la segunda, ochenta lineas mas abajo, la pisaba con `position:relative`.
+  // Resultado: al desplazar una lista larga la cabecera se iba con ella y no
+  // se sabia que columna era cual. Nadie lo vio porque las dos reglas estaban
+  // lejos y ninguna herramienta miraba los selectores repetidos.
+  it('se queda fija al desplazar la lista', () => {
+    const reglas = [...CSS.matchAll(/(^|\n)thead th\{([^}]*)\}/g)].map(m => m[2])
+    expect(reglas.length, 'thead th deberia definirse una sola vez').toBe(1)
+    expect(reglas[0]).toMatch(/position:\s*sticky/)
+    expect(reglas[0], 'sin top no se pega a ningun sitio').toMatch(/top:\s*0/)
+    expect(reglas[0], 'tiene que quedar por encima de las filas').toMatch(/z-index/)
+    expect(reglas[0], 'sin fondo se ven las filas por debajo').toMatch(/background:/)
+  })
+
+  it('solo las columnas que ordenan parecen pulsables', () => {
+    expect(CSS).toMatch(/thead th\.sortable\{[^}]*cursor:\s*pointer/)
+  })
+})
+
 describe('ordenar por una columna', () => {
   it('la cabecera enseña por donde va el orden', () => {
     const t = readFileSync(join(SRC, 'components/SongTable.vue'), 'utf8')

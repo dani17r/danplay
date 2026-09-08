@@ -30,7 +30,7 @@
 :root{--row-pad-base:7px;--table-font-base:13px;
   --row-pad:calc(var(--row-pad-base) * var(--scale));
   --table-font:calc(var(--table-font-base) * var(--scale))}
-td{padding:var(--row-pad) 10px;font-size:var(--table-font)}
+td{padding:var(--row-pad) 10px;font-size:var(--table-font);vertical-align:middle}
 
 /* ---------- tema claro: ajustes puntuales ---------- */
 :root[data-kind="light"] tbody tr{border-bottom:1px solid var(--border)}
@@ -81,7 +81,7 @@ td{padding:var(--row-pad) 10px;font-size:var(--table-font)}
 .pl-btn.on{color:var(--accent)}
 .pl-btn.on::after{content:'';position:absolute;bottom:2px;width:3px;height:3px;
   border-radius:50%;background:var(--accent)}
-.pl-btn{position:relative}
+.pl-btn{position:relative;padding:0}
 .speed{font-family:var(--mono);font-size:10.5px;color:var(--muted2);
   border:1px solid var(--border2);border-radius:4px;padding:2px 5px;cursor:pointer}
 .speed:hover{color:var(--text);border-color:var(--accent)}
@@ -105,9 +105,6 @@ td{padding:var(--row-pad) 10px;font-size:var(--table-font)}
 .check,.brand{display:flex;align-items:center}
 .btn,.chip,.badge,.speed{display:inline-flex;align-items:center;justify-content:center}
 .nav-link .nav-icon{display:flex;align-items:center;justify-content:center;width:17px;height:17px}
-.pl-btn{padding:0}
-thead th{vertical-align:middle}
-td{vertical-align:middle}
 .col-fav .heart{display:inline-flex;align-items:center;justify-content:center;
   width:100%;height:16px}
 /* row-reverse: el marcado va 5..1 para poder pintar «esta y las anteriores» */

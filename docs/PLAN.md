@@ -1,8 +1,8 @@
 # Plan de evolución de DanPlay
 
 Fecha: 7 de septiembre de 2026. **Actualizado el 8 de septiembre: los bloques
-A y D están hechos** (ver «Qué se hizo» más abajo); Android se descartó por
-ahora y Windows queda preparado pero sin compilar.
+A, B y D están hechos** (ver «Qué se hizo» más abajo); Android se descartó por
+ahora.
 
 Todo lo que se afirma aquí se comprobó en el repositorio, en las dependencias
 descargadas en `~/.cargo`, en tu sesión de escritorio o en la documentación
@@ -46,19 +46,30 @@ comprobación de tipos, integración continua, el generador de iconos que el
 propio archivo decía que existía, y una biblioteca de prueba que se genera
 con ffmpeg en vez de depender de tu música.
 
-De 426 pruebas a **501**, todas en verde.
+**Windows, compilado.** `./scripts/build-windows-cross.sh` saca una versión
+portátil **desde Linux**, rodeando el único obstáculo real (PyInstaller no
+cruza plataformas) con el Python embebido oficial y ruedas `win_amd64`; y
+`.github/workflows/windows.yml` genera el instalador NSIS con las pruebas
+pasadas en Windows. Los detalles, en [Windows](WINDOWS.md).
+
+**Los `.opus` y los `.wma` suenan.** El decodificador no los conoce, así que
+se pasan por ffmpeg —que ya era una dependencia— en vez de pedirte que
+conviertas tus archivos para poder oírlos.
+
+**Los selectores repetidos del CSS, fusionados.** Escondían un fallo de
+verdad: `thead th` estaba definido dos veces y el segundo dejaba la cabecera
+de la tabla sin fijar al desplazar. Hay una prueba que cuenta los choques que
+quedan (todos a propósito) para que no vuelva a colarse uno.
+
+De 426 pruebas a **513**, todas en verde.
 
 Lo que **no** se hizo, y por qué:
 
 - **Android**: descartado por ahora a petición tuya. El bloque C se queda como
   estudio para cuando toque.
-- **Windows**: el código ya tiene su camino (papelera, rutas, transporte con
-  token, Job Object), pero **nadie lo ha compilado ni ejecutado**. Hace falta
-  una máquina Windows: PyInstaller no cruza plataformas.
-- **Los selectores repetidos del CSS**: la hoja está partida por áreas y las
-  reglas muertas fuera, pero quedan unos veinte selectores definidos dos
-  veces. Fusionarlos cambia el orden de la cascada y hay que hacerlo mirando
-  la aplicación.
+- **Ejecutarlo en Windows y en macOS**: el código está y compila, pero desde
+  aquí no hay ninguna de las dos máquinas. Lo que falta comprobar está en
+  [Windows](WINDOWS.md) y en [Contribuir](CONTRIBUIR.md).
 
 ---
 
@@ -362,9 +373,9 @@ Tres detalles que no son opcionales:
   ventana, así que ocultarla no lo corta. Pero la **cola** (qué va después) vive
   hoy en `App.vue` (`step`, `onTrackEnded`, líneas 338-371), y eso es un
   problema con la ventana oculta; ver 2.6.
-- **macOS** (si algún día): al ocultar la última ventana conviene pasar a
-  `ActivationPolicy::Accessory` para que desaparezca del Dock. Fuera de alcance
-  ahora.
+- **macOS**: al ocultar la última ventana hay que pasar a
+  `ActivationPolicy::Accessory` para que desaparezca del Dock. Hecho, en
+  `tray::dock`; sin probar, porque no hay Mac a mano.
 
 ### 2.6 La cola de reproducción pasa a Rust
 

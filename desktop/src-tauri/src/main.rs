@@ -10,6 +10,7 @@ mod dependencies;
 mod media;
 mod player;
 mod queue;
+mod transcode;
 mod tray;
 
 use std::io::SeekFrom;
@@ -103,6 +104,8 @@ fn main() {
                             let _ = window.hide();
                         }
                         tray::hide_popup(&handle);
+                        // en macOS, esconderla no la quita del Dock
+                        tray::dock(&handle, false);
                         first_time_notice(&handle);
                     }
                 });
