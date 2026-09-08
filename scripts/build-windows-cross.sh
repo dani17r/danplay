@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Construye DanPlay para Windows DESDE LINUX, en versión portátil.
+# Construye DanPlay para Windows DESDE LINUX: portátil e instalador.
 #
-#   ./scripts/build-windows-cross.sh            construye dist/windows/
-#   ./scripts/build-windows-cross.sh --zip      además, el .zip para repartir
+#   ./scripts/build-windows-cross.sh                 construye dist/windows/
+#   ./scripts/build-windows-cross.sh --zip           además, el .zip portátil
+#   ./scripts/build-windows-cross.sh --instalador    además, el .exe instalador
+#   ./scripts/build-windows-cross.sh --herramientas  mete ffmpeg y fpcalc dentro
 #
-# Sale una carpeta que se copia a un Windows y se ejecuta: no es un instalador
-# (para eso está .github/workflows/windows.yml o scripts/build-windows.ps1),
-# pero permite probar sin tener una máquina Windows delante ni esperar a la
-# integración continua.
+# Las dos formas salen de LA MISMA carpeta, así que no pueden desincronizarse:
+# el instalador es esa carpeta comprimida con NSIS más los accesos directos,
+# las asociaciones de archivo y el desinstalador.
+#
+# `--instalador` implica `--herramientas`: un instalador que se llama «con
+# todo» y luego no sabe convertir formatos ni reproducir .opus no es con todo.
 #
 # Por qué NO se usa PyInstaller aquí: no compila para otro sistema. En su
 # lugar se coge el Python embebido oficial de Windows y se le meten las
@@ -25,6 +29,16 @@ DESTINO="$RAIZ/dist/windows"
 TRIPLE=x86_64-pc-windows-gnu
 PY_VERSION="${DANPLAY_PY_WIN:-3.13.5}"
 PY_TAG=313
+
+ZIP=0; INSTALADOR=0; HERRAMIENTAS=0
+for arg in "$@"; do
+    case "$arg" in
+        --zip)          ZIP=1 ;;
+        --instalador)   INSTALADOR=1; HERRAMIENTAS=1 ;;
+        --herramientas) HERRAMIENTAS=1 ;;
+        *) printf 'no conozco la opción %s\n' "$arg" >&2; exit 2 ;;
+    esac
+done
 
 paso () { printf '\n\033[36m== %s\033[0m\n' "$1"; }
 aviso () { printf '\033[33m%s\033[0m\n' "$1"; }
@@ -132,6 +146,43 @@ cp -r "$NUCLEO/python" "$DESTINO/python"
 mkdir -p "$DESTINO/tools"
 cp desktop/src-tauri/tools/LEEME.txt "$DESTINO/tools/" 2>/dev/null || true
 
+# ffmpeg y fpcalc: en Windows no hay `apt install`, así que o van dentro o no
+# hay conversión de formatos, ni huella acústica, ni .opus/.wma sonando.
+if [ "$HERRAMIENTAS" = 1 ]; then
+    TOOLS="$CACHE/tools-win"
+    if [ ! -f "$TOOLS/ffmpeg.exe" ]; then
+        paso "herramientas de Windows: ffmpeg y fpcalc (una vez, ~90 MB)"
+        rm -rf "$TOOLS"; mkdir -p "$TOOLS"
+        tmp=$(mktemp -d)
+        curl -sL -o "$tmp/ffmpeg.zip" \
+          "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" \
+          || morir "no pude descargar ffmpeg"
+        unzip -oq "$tmp/ffmpeg.zip" -d "$tmp/ffmpeg"
+        find "$tmp/ffmpeg" -name 'ffmpeg.exe' -o -name 'ffprobe.exe' \
+          | while read -r f; do cp "$f" "$TOOLS/"; done
+        curl -sL -o "$tmp/fpcalc.zip" \
+          "https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-windows-x86_64.zip" \
+          || morir "no pude descargar fpcalc"
+        unzip -oq "$tmp/fpcalc.zip" -d "$tmp/fpcalc"
+        find "$tmp/fpcalc" -name 'fpcalc.exe' -exec cp {} "$TOOLS/" \;
+        rm -rf "$tmp"
+        [ -f "$TOOLS/ffmpeg.exe" ] || morir "el zip de ffmpeg no traía ffmpeg.exe"
+    fi
+    cp "$TOOLS"/*.exe "$DESTINO/tools/"
+    # el LEEME de la carpeta vacia diria que aqui no hay nada
+    cat > "$DESTINO/tools/LEEME.txt" <<'EOF'
+ffmpeg, ffprobe y fpcalc, incluidos.
+
+En Windows no hay gestor de paquetes que los ponga, asi que viajan aqui. Son
+los que hacen que funcionen la conversion de formatos, la reproduccion de
+.opus y .wma, el encogido de portadas y la identificacion de canciones por su
+sonido. La aplicacion los busca en esta carpeta antes que en el PATH.
+
+No los borres. Si faltan, DanPlay sigue abriendo y avisa de lo que no puede
+hacer.
+EOF
+fi
+
 cat > "$DESTINO/LEEME.txt" <<'EOF'
 DanPlay para Windows (versión portátil)
 =======================================
@@ -143,9 +194,11 @@ Qué hay aquí
   danplay-core.exe     arranca el núcleo que está en python\
   python\              Python con lo que el núcleo necesita
   WebView2Loader.dll   lo carga la aplicación al abrir
-  tools\               si pones aquí ffmpeg.exe, ffprobe.exe y fpcalc.exe,
-                       se activan la conversión de formatos y la
-                       identificación de canciones por su sonido
+  tools\               ffmpeg.exe, ffprobe.exe y fpcalc.exe: conversión de
+                       formatos, reproducción de .opus y .wma, e
+                       identificación de canciones por su sonido. Si la
+                       carpeta está vacía, esas tres cosas no funcionan y la
+                       aplicación lo dice
 
 Hace falta WebView2, que Windows 10 y 11 actualizados ya traen. Si la ventana
 sale en blanco, instálalo desde
@@ -170,6 +223,11 @@ comprobar python/python.exe
 comprobar python/danplay/cli.py
 comprobar python/site-packages/fastapi
 comprobar python/site-packages/mutagen
+if [ "$HERRAMIENTAS" = 1 ]; then
+    comprobar tools/ffmpeg.exe
+    comprobar tools/ffprobe.exe
+    comprobar tools/fpcalc.exe
+fi
 
 for exe in danplay-app.exe danplay-core.exe; do
     tipo=$(file -b "$DESTINO/$exe")
@@ -194,13 +252,55 @@ then fallos=$((fallos+1)); fi
 
 [ "$fallos" -eq 0 ] || morir "$fallos comprobación(es) fallida(s)"
 
-if [ "${1:-}" = "--zip" ]; then
-    paso "extra  comprimir"
+if [ "$ZIP" = 1 ]; then
+    paso "extra  comprimir el portátil"
     # con python: `zip` no siempre esta instalado y esto ya lo tenemos
     ( cd dist && rm -f danplay-windows.zip && python3 -c "
 import shutil; shutil.make_archive('danplay-windows', 'zip', '.', 'windows')" )
     printf '  %s\n' "dist/danplay-windows.zip ($(du -h dist/danplay-windows.zip | cut -f1))"
 fi
 
-printf '\n\033[32mLISTO\033[0m  %s  (%s)\n' "$DESTINO" "$(du -sh "$DESTINO" | cut -f1)"
-aviso 'Sin probar en Windows: cópialo a uno y ejecuta danplay-app.exe.'
+# ---------------------------------------------------------------- instalador
+if [ "$INSTALADOR" = 1 ]; then
+    paso "extra  instalador (NSIS)"
+    # NSIS también se saca de sus paquetes sin instalarlo, igual que mingw.
+    NSIS="$CACHE/nsis"
+    if [ ! -x "$NSIS/usr/bin/makensis" ]; then
+        tmp=$(mktemp -d)
+        ( cd "$tmp" && apt-get download nsis nsis-common >/dev/null ) \
+          || morir "no pude descargar NSIS. ¿Hay red y apt configurado?"
+        mkdir -p "$NSIS"
+        for d in "$tmp"/*.deb; do dpkg-deb -x "$d" "$NSIS"; done
+        rm -rf "$tmp"
+    fi
+
+    VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' \
+              desktop/src-tauri/tauri.conf.json | head -1)
+    mkdir -p dist/installers
+    SALIDA="$RAIZ/dist/installers/DanPlay-$VERSION-instalador.exe"
+    rm -f "$SALIDA"
+
+    NSISDIR="$NSIS/usr/share/nsis" "$NSIS/usr/bin/makensis" -V2 -NOCD \
+        -DVERSION="$VERSION" \
+        -DORIGEN="$DESTINO" \
+        -DSALIDA="$SALIDA" \
+        -DICONO="$RAIZ/desktop/src-tauri/icons/icon.ico" \
+        packaging/windows/installer.nsi \
+      || morir "makensis no pudo construir el instalador"
+
+    [ -f "$SALIDA" ] || morir "makensis dijo que si pero no dejo el .exe"
+    # Que dentro este TODO lo de la carpeta: si NSIS se salta archivos, la
+    # aplicacion instalada arranca y falla luego, que es peor que no arrancar.
+    dentro=$(7z l "$SALIDA" 2>/dev/null | grep -c '^20[0-9][0-9]-' || echo 0)
+    fuera=$(find "$DESTINO" -type f | wc -l)
+    printf '  %s  (%s)\n' "$(basename "$SALIDA")" "$(du -h "$SALIDA" | cut -f1)"
+    if [ "$dentro" -gt 0 ] && [ "$dentro" -lt "$fuera" ]; then
+        aviso "  ojo: $dentro archivos dentro y $fuera en la carpeta"
+    fi
+fi
+
+printf '\n\033[32mLISTO\033[0m\n'
+printf '  portátil    : %s  (%s)\n' "$DESTINO" "$(du -sh "$DESTINO" | cut -f1)"
+[ "$ZIP" = 1 ] && printf '  comprimido  : %s\n' "dist/danplay-windows.zip"
+[ "$INSTALADOR" = 1 ] && printf '  instalador  : %s\n' "dist/installers/DanPlay-$VERSION-instalador.exe"
+aviso 'Sin probar en Windows: cópialo a uno y ejecútalo.'
