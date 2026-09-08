@@ -554,7 +554,49 @@ onMounted(async () => {
   prefs.applyAll()
   await loadStatus()
   await Promise.all([configured.value ? load() : Promise.resolve(), playlistActions.load()])
+  offerToBeDefault()
 })
+
+/** La clave de «ya lo pregunté». Una vez en la vida, no en cada arranque. */
+const ASKED_DEFAULT = 'danplay.default-player-asked'
+
+/**
+ * La primera vez, ofrece abrir las canciones con DanPlay.
+ *
+ * Aquí y no en el instalador porque en Linux el reproductor predeterminado es
+ * un ajuste TUYO (vive en `~/.config/mimeapps.list`): un paquete que se
+ * instala como root no puede ponerlo, y si lo pusiera estaría decidiendo por
+ * ti. Se pregunta una sola vez; quien diga que no lo tiene en Ajustes.
+ */
+async function offerToBeDefault() {
+  try {
+    if (localStorage.getItem(ASKED_DEFAULT)) return
+  } catch {
+    return // sin almacenamiento no hay forma de recordar el «no», así que ni se pregunta
+  }
+  const state = await tauriApp.defaultPlayer()
+  if (!state?.supported || state.is_default) return
+  try {
+    localStorage.setItem(ASKED_DEFAULT, '1')
+  } catch {
+    return
+  }
+  const yes = await ask({
+    title: '¿Abrir las canciones con DanPlay?',
+    message: state.direct
+      ? 'Al abrir una canción desde el explorador de archivos sonará aquí. Puedes cambiarlo cuando quieras en Ajustes.'
+      : 'DanPlay quedará en «Abrir con». Windows pide que el último clic lo des tú, así que se abrirá su ventana de Ajustes.',
+    okLabel: 'Sí, que las abra'
+  })
+  if (!yes) return
+  try {
+    const now = await tauriApp.makeDefaultPlayer()
+    if (now?.is_default) notify('Ya se abren con DanPlay')
+    else if (now?.note) notify(now.note)
+  } catch (e) {
+    notify(errorMessage(e))
+  }
+}
 
 // si la app se va con algo en la mano, que no queden escuchas sueltas
 onUnmounted(() => {

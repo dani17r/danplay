@@ -575,6 +575,63 @@ def test_nothing_hardcodes_the_version_in_a_file_name():
         assert __version__ not in txt, f"{script} lleva la version escrita a mano"
 
 
+# ------------------------------------- abrir canciones desde fuera de DanPlay
+# Los tipos de audio que DanPlay dice saber abrir estan escritos en CUATRO
+# sitios: la lista de la biblioteca, la tabla de tipos MIME de la API, las
+# asociaciones que declara el empaquetador y la copia que tiene Rust. Se
+# separan solos, y cuando se separan el sintoma es «al abrir una cancion no
+# pasa nada», que no apunta a ninguno de los cuatro.
+
+def _associations() -> list:
+    import json
+    conf = json.loads((_raiz() / "desktop/src-tauri/tauri.conf.json").read_text("utf-8"))
+    return conf["bundle"]["fileAssociations"]
+
+
+def test_the_declared_associations_match_the_library():
+    from danplay import config
+    declared = {f".{a['ext'][0]}" for a in _associations()}
+    assert declared == config.EXTENSIONS, (
+        "las extensiones de tauri.conf.json y las de la biblioteca no coinciden:\n"
+        f"  solo en el empaquetado: {sorted(declared - config.EXTENSIONS)}\n"
+        f"  solo en la biblioteca:  {sorted(config.EXTENSIONS - declared)}")
+
+
+def test_every_association_declares_the_type_the_api_serves():
+    from danplay.api import AUDIO_TYPES
+    for a in _associations():
+        ext = f".{a['ext'][0]}"
+        assert a["mimeType"] == AUDIO_TYPES[ext], (
+            f"{ext} se declara como {a['mimeType']} al sistema pero se sirve "
+            f"como {AUDIO_TYPES[ext]}")
+
+
+def test_rust_knows_the_same_types():
+    """La copia de Rust (`associate.rs`) tiene que decir lo mismo."""
+    import re
+    src = (_raiz() / "desktop/src-tauri/src/associate.rs").read_text("utf-8")
+    bloque = re.search(r"MIME_TYPES: &\[&str\] = &\[(.*?)\];", src, re.S).group(1)
+    tipos = set(re.findall(r'"([^"]+)"', bloque))
+    assert tipos == {a["mimeType"] for a in _associations()}
+
+    src = (_raiz() / "desktop/src-tauri/src/open.rs").read_text("utf-8")
+    bloque = re.search(r"EXTENSIONS: &\[&str\] = &\[(.*?)\];", src, re.S).group(1)
+    exts = {f".{e}" for e in re.findall(r'"([^"]+)"', bloque)}
+    assert exts == {f".{a['ext'][0]}" for a in _associations()}
+
+
+def test_the_desktop_entry_passes_the_file_to_the_app():
+    """Sin `%F`, «Abrir con DanPlay» abre la aplicacion y no suena nada.
+
+    Es la plantilla de Tauri con ese cambio, y al actualizar Tauri es justo lo
+    que se pierde sin que falle nada.
+    """
+    plantilla = (_raiz() / "packaging/danplay.desktop").read_text("utf-8")
+    exec_line = [l for l in plantilla.splitlines() if l.startswith("Exec=")]
+    assert exec_line == ["Exec={{exec}} %F"], f"la linea Exec es {exec_line}"
+    assert "MimeType={{mime_type}}" in plantilla
+
+
 # ------------------------------------------------------------------ Windows
 # Estos caminos no se ejecutan nunca en Linux, asi que se fuerzan aqui. Lo que
 # de verdad corre en Windows lo prueba la integracion continua (hay un trabajo

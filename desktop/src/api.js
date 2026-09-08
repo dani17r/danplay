@@ -15,6 +15,16 @@
  * @property {string} artist
  * @property {number} duration  segundos
  * @property {boolean} blur     portada difuminada
+ * @property {string} [path]    solo para archivos abiertos desde fuera de la
+ *                              biblioteca; con ruta, Rust no la pregunta al núcleo
+ */
+
+/**
+ * @typedef {Object} DefaultPlayer  Si el sistema abre las canciones con DanPlay.
+ * @property {boolean} supported   el sistema permite hacer algo desde aquí
+ * @property {boolean} is_default  DanPlay las abre hoy
+ * @property {boolean} direct      la app puede ponerlo ella sola
+ * @property {string}  note        qué contarle al usuario, o vacío
  */
 
 /** @typedef {'list'|'one'|'once'|'queue'} Repeat */
@@ -311,7 +321,25 @@ export const app = {
    * ¿Hay bandeja donde quedarse? Si no, cerrar la ventana cierra la app.
    * @returns {Promise<boolean>}
    */
-  trayAvailable: () => (inTauri ? invoke('tray_available') : Promise.resolve(false))
+  trayAvailable: () => (inTauri ? invoke('tray_available') : Promise.resolve(false)),
+  /**
+   * ¿Abre el sistema las canciones con DanPlay?
+   *
+   * `direct` dice si la propia app puede ponerlo: en Linux sí, en Windows no
+   * (desde Windows 8 la elección la tiene que confirmar el usuario en Ajustes,
+   * y ningún programa puede saltársela).
+   * @returns {Promise<DefaultPlayer>}
+   */
+  defaultPlayer: () =>
+    inTauri
+      ? invoke('default_player')
+      : Promise.resolve({ supported: false, is_default: false, direct: false, note: '' }),
+  /**
+   * Pide ser el reproductor predeterminado. En Windows, además, abre la
+   * ventana de Ajustes donde se confirma.
+   * @returns {Promise<DefaultPlayer>}
+   */
+  makeDefaultPlayer: () => (inTauri ? invoke('make_default_player') : Promise.resolve(null))
 }
 
 /** El popup del mini reproductor. */

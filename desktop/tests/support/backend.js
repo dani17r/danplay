@@ -209,6 +209,34 @@ export function buildApiDouble(actual, state) {
 }
 
 /**
+ * El doble de `app`: lo que la aplicación pide a Rust sobre sí misma.
+ *
+ * Con valores neutros: sin bandeja y sin ser el reproductor predeterminado,
+ * que es el estado en el que arranca cualquier prueba. `defaultPlayer` hace
+ * falta aunque la prueba no vaya de eso: App.vue lo consulta al montarse.
+ */
+export function createAppDouble(over = {}) {
+  return {
+    showWindow: vi.fn(async () => {}),
+    quit: vi.fn(async () => {}),
+    trayAvailable: vi.fn(async () => false),
+    defaultPlayer: vi.fn(async () => ({
+      supported: true,
+      is_default: false,
+      direct: true,
+      note: ''
+    })),
+    makeDefaultPlayer: vi.fn(async () => ({
+      supported: true,
+      is_default: true,
+      direct: true,
+      note: ''
+    })),
+    ...over
+  }
+}
+
+/**
  * Un puente de reproducción falso con la misma forma que el de Rust.
  * Guarda lo que se le manda para poder comprobarlo, y publica el estado por
  * el mismo camino que el de verdad (`onState`).

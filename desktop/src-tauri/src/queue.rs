@@ -30,6 +30,12 @@ pub struct Track {
     pub duration: f64,
     #[serde(default)]
     pub blur: bool,
+    /// Ruta del archivo cuando la cancion NO sale de la biblioteca: la abrio
+    /// el sistema («Abrir con DanPlay») y puede estar en cualquier carpeta.
+    /// Si viene, se usa tal cual; si no, la ruta se le pregunta al nucleo por
+    /// el id, que es lo de siempre.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 /// Que hacer cuando una cancion se acaba sola.
@@ -370,15 +376,20 @@ fn start(inner: &mut Inner, index: usize, player: &player::Handle, address: &Add
     }
     inner.index = index;
 
-    let path = tauri::async_runtime::block_on(async {
-        core::get_json(address, &format!("/api/song/{}/path", track.id))
-            .await
-            .and_then(|v| {
-                v.get("path")
-                    .and_then(|p| p.as_str())
-                    .map(|s| s.to_string())
-            })
-    });
+    // La de un archivo abierto desde fuera ya la sabemos; preguntarsela al
+    // nucleo por un id que no existe solo serviria para no sonar.
+    let path = match &track.path {
+        Some(path) => Some(path.clone()),
+        None => tauri::async_runtime::block_on(async {
+            core::get_json(address, &format!("/api/song/{}/path", track.id))
+                .await
+                .and_then(|v| {
+                    v.get("path")
+                        .and_then(|p| p.as_str())
+                        .map(|s| s.to_string())
+                })
+        }),
+    };
     match path {
         Some(path) => {
             let _ = player.send(player::Command::Play {

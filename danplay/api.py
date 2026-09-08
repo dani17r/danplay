@@ -858,6 +858,25 @@ async def duplicates_report():
     return await asyncio.get_running_loop().run_in_executor(None, work)
 
 
+class PathIn(Body_):
+    path: str
+
+
+@app.post("/api/by-path")
+def song_by_path(body: PathIn):
+    """¿Esta esta ruta en la biblioteca? La pregunta Rust al abrir un archivo
+    desde fuera («Abrir con DanPlay»).
+
+    Es POST y no GET porque la clave es una ruta: con acentos, espacios, `&` y
+    `#` dentro, meterla en la parte de consulta de la URL es pedir un fallo de
+    codificacion. Solo MIRA el indice —no abre el archivo ni toca el disco—,
+    asi que preguntar por una ruta cualquiera no revela nada de ella salvo si
+    esta o no en la biblioteca, que es justo lo que se pregunta.
+    """
+    song = library.by_path(body.path)
+    return {"song": song}
+
+
 @app.get("/api/song/{cid}/path")
 def audio_path(cid: int):
     """Devuelve la ruta en disco. La usa Rust para servir el audio sin pasar por Python."""

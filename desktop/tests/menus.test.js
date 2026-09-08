@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
-const { estadoFalso, status, api, native, pickFolder, tray } = vi.hoisted(() => {
+const { estadoFalso, status, api, native, pickFolder, tray, app } = vi.hoisted(() => {
   const estadoFalso = { configured: true, folders: 1, stats: { total: 3, bytes: 0, seconds: 0 },
     model: 'x', ia: false, fingerprint: false, rust: true, ffmpeg: true,
     never_convert: [], convert: false, quality: 'high', tareas: {} }
@@ -36,10 +36,21 @@ const { estadoFalso, status, api, native, pickFolder, tray } = vi.hoisted(() => 
     showApp: vi.fn(async () => {}), send: vi.fn(async () => {}),
     onCommand: vi.fn(async () => () => {}), onChanged: vi.fn(async () => () => {})
   }
+  // App.vue pregunta al montarse si DanPlay abre las canciones; sin esto
+  // revienta el `onMounted` de cualquier prueba que monte la aplicacion.
+  //
+  // Va escrito aqui y no con `createAppDouble` de support/backend.js porque
+  // este `vi.hoisted` es sincrono y se eleva por encima de los import.
+  const app = {
+    showWindow: vi.fn(async () => {}), quit: vi.fn(async () => {}),
+    trayAvailable: vi.fn(async () => false),
+    defaultPlayer: vi.fn(async () => ({ supported: true, is_default: true, direct: true, note: '' })),
+    makeDefaultPlayer: vi.fn(async () => ({ supported: true, is_default: true, direct: true, note: '' }))
+  }
   return { estadoFalso, status, api, native: { available: false },
-           pickFolder: vi.fn(async () => null), tray }
+           pickFolder: vi.fn(async () => null), tray, app }
 })
-vi.mock('../src/api.js', () => ({ api, native, pickFolder, tray }))
+vi.mock('../src/api.js', () => ({ api, native, pickFolder, tray, app }))
 import App from '../src/App.vue'
 
 const theme = (n, i) => ({ id: i + 1, title: 'Tema ' + (i + 1), artist: 'Artista ' + (i + 1),

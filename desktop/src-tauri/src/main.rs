@@ -5,9 +5,11 @@
 // solo conoce `invoke`; nunca hace HTTP.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod associate;
 mod core;
 mod dependencies;
 mod media;
+mod open;
 mod player;
 mod queue;
 mod transcode;
@@ -38,8 +40,16 @@ fn main() {
         // arranque antes de que ningun otro plugin toque nada. Sin esto, una
         // segunda instancia borraba el socket de la primera y dejaba dos
         // nucleos sobre la misma base de datos.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            tray::show_main(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Abrir una cancion con DanPlay ya abierto llega por aqui: el
+            // sistema arranca un segundo proceso, este le pasa los argumentos
+            // al primero y se va.
+            let files = open::files_in(args.into_iter().skip(1));
+            if files.is_empty() {
+                tray::show_main(app);
+            } else {
+                open::play(app, files);
+            }
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -73,6 +83,11 @@ fn main() {
 
             // en segundo plano para no retrasar la ventana
             std::thread::spawn(dependencies::ensure);
+
+            // «Abrir con DanPlay» sobre la aplicacion cerrada: las canciones
+            // vienen en la linea de ordenes. `play` ya espera al nucleo por su
+            // cuenta, asi que esto no retrasa el arranque.
+            open::play(&handle, open::files_in(std::env::args().skip(1)));
 
             if !failure.is_empty() {
                 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -149,6 +164,8 @@ fn main() {
             tray::toggle_mini,
             tray::tray_available,
             tray::quit_app,
+            associate::default_player,
+            associate::make_default_player,
         ])
         .build(tauri::generate_context!())
         .expect("no se pudo arrancar DanPlay")

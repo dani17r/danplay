@@ -823,6 +823,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "tokio",
  "win32job",
+ "winreg",
 ]
 
 [[package]]

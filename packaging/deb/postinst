@@ -1,0 +1,12 @@
+#!/bin/sh
+# Que el escritorio se entere de que DanPlay abre canciones, sin esperar al
+# siguiente arranque de sesion.
+#
+# En Debian esto suele hacerlo solo un disparador de `desktop-file-utils`,
+# pero ese paquete no esta en todas partes; sin el, el .desktop se instala y
+# «Abrir con DanPlay» no aparece hasta vete a saber cuando.
+set -e
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+exit 0

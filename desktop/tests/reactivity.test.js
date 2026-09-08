@@ -9,7 +9,8 @@ const held = vi.hoisted(() => ({ state: null, api: null, playback: null, pickFol
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
-  const { createState, buildApiDouble, createPlaybackDouble } = await import('./support/backend.js')
+  const { createState, buildApiDouble, createPlaybackDouble, createAppDouble } =
+    await import('./support/backend.js')
   const { vi: v } = await import('vitest')
   held.state = createState()
   held.api = buildApiDouble(actual, held.state)
@@ -23,7 +24,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
     api: held.api,
     playback: held.playback.bridge,
     pickFolder: held.pickFolder,
-    app: { showWindow: v.fn(async () => {}), quit: v.fn(async () => {}), trayAvailable: v.fn(async () => false) },
+    app: createAppDouble(),
     mini: { hide: v.fn(async () => {}), toggle: v.fn(async () => {}) },
     core: { onStatus: async () => () => {} }
   }

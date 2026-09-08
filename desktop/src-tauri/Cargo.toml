@@ -55,6 +55,9 @@ tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 # Sin PDEATHSIG: en Windows la forma de que el nucleo muera con la app es
 # meterlo en un Job Object que se cierra al morir el proceso padre.
 win32job = "2"
+# Para registrar DanPlay como reproductor de musica: todo en HKCU, asi que no
+# hace falta ser administrador ni tocar nada de los demas usuarios.
+winreg = "0.55"
 
 [features]
 default = ["custom-protocol"]

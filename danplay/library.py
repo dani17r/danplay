@@ -1009,6 +1009,23 @@ BRIEF_COLUMNS = ("id", "path", "file", "artist", "title", "duration",
                  "bitrate", "size", "stars", "favorite")
 
 
+def by_path(path: str) -> dict | None:
+    """La cancion que vive en esa ruta exacta, o None si no esta indexada.
+
+    Para cuando el sistema abre un archivo con DanPlay: si resulta ser una de
+    la biblioteca se reproduce como tal (con su caratula, sus estrellas y su
+    id) en vez de como un archivo suelto. Pregunta por UNA ruta; el
+    `brief_by_path` de abajo se trae la biblioteca entera y para esto seria
+    tirar la casa por la ventana.
+    """
+    conn = connect()
+    row = conn.execute(
+        "SELECT id,title,artist,duration,blur FROM songs WHERE path=?", (str(path),)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def brief_by_path() -> dict:
     """{ruta: datos basicos} de toda la biblioteca, sin los campos pesados."""
     conn = connect()

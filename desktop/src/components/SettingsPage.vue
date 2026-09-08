@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { api, pickFolder, errorMessage } from '../api.js'
+import { api, app, pickFolder, errorMessage } from '../api.js'
 import { addFolder } from '../utils/folders.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { notify } from '../composables/useNotices.js'
@@ -28,6 +28,11 @@ const fingerprintKey = ref('')
 // llamada mas barata posible contra DeepInfra para saberlo de verdad.
 const checkingKey = ref(false)
 const keyState = ref(null)
+// Si el sistema abre las canciones con DanPlay. Se pregunta al entrar y
+// despues de pedirlo: es un ajuste del SISTEMA, no nuestro, y puede haberlo
+// cambiado otro programa desde fuera.
+const player = ref(null)
+const claiming = ref(false)
 
 async function checkKey () {
   checkingKey.value = true; keyState.value = null
@@ -57,8 +62,26 @@ async function load () {
   settings.value = await api.settings()
   folders.value = await api.folders()
   convertibles.value = await api.convertible()
+  player.value = await app.defaultPlayer()
 }
 onMounted(load)
+
+/** Pide que el sistema abra las canciones con DanPlay. */
+async function claimDefault () {
+  claiming.value = true
+  try {
+    player.value = await app.makeDefaultPlayer()
+    if (player.value?.is_default) notify('Ya se abren con DanPlay')
+    else if (player.value?.note) notify(player.value.note)
+  } catch (e) {
+    notify(errorMessage(e))
+    // Puede haber cambiado a medias: se vuelve a preguntar al sistema en vez
+    // de dejar en pantalla lo que creíamos antes de intentarlo.
+    player.value = await app.defaultPlayer()
+  } finally {
+    claiming.value = false
+  }
+}
 
 async function save (key, value) {
   settings.value[key] = value
@@ -285,6 +308,30 @@ const gb = formatGigabytes
       <ToggleField :modelValue="settings.write_tags" title="Escribir etiquetas dentro del archivo"
                hint="Estrellas, letra, portada y tono viajan con el mp3"
                @update:modelValue="v => save('write_tags', v)" />
+    </Card>
+
+    <Card v-if="player?.supported" title="Abrir canciones con DanPlay"
+          note="Para que al abrir una canción desde el explorador de archivos suene aquí.">
+      <div class="setting-row">
+        <div>
+          <div>{{ player.is_default ? 'Las canciones se abren con DanPlay.'
+                                    : 'Ahora mismo las abre otro programa.' }}</div>
+          <div class="hint" v-if="!player.direct">
+            Windows no deja que un programa se ponga solo: DanPlay queda en «Abrir con»
+            y el último clic lo das tú en Ajustes.
+          </div>
+          <div class="hint" v-else-if="player.is_default">
+            Puedes volver a cambiarlo desde los ajustes de tu escritorio.
+          </div>
+        </div>
+        <button class="btn" :disabled="claiming || (player.is_default && player.direct)"
+                @click="claimDefault">
+          {{ claiming ? 'un momento…'
+             : player.is_default ? (player.direct ? 'Ya está puesto' : 'Volver a Ajustes')
+             : 'Abrirlas con DanPlay' }}
+        </button>
+      </div>
+      <div class="hint" v-if="player.note">{{ player.note }}</div>
     </Card>
 
     <Card title="Sistema">

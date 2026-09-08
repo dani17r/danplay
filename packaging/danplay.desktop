@@ -1,0 +1,24 @@
+# Plantilla del .desktop que va dentro del .deb (bundle.linux.deb.desktopTemplate).
+#
+# Es la de Tauri con un cambio de dos caracteres: el `%F` del final de `Exec`.
+# Sin el, el escritorio arranca DanPlay pero NO le pasa el archivo, asi que
+# «Abrir con DanPlay» abre la aplicacion y no suena nada. Es un detalle facil
+# de perder al actualizar Tauri, y por eso hay una prueba que lo vigila
+# (tests/test_core.py).
+#
+# %F son varios archivos ya en el disco, que es lo que manda un explorador al
+# abrir una seleccion. %U seria para URLs, y DanPlay no abre URLs.
+[Desktop Entry]
+Categories={{categories}}
+{{#if comment}}
+Comment={{comment}}
+{{/if}}
+Exec={{exec}} %F
+StartupWMClass={{exec}}
+Icon={{icon}}
+Name={{name}}
+Terminal=false
+Type=Application
+{{#if mime_type}}
+MimeType={{mime_type}}
+{{/if}}

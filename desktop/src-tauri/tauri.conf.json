@@ -64,7 +64,10 @@
           "libchromaprint-tools"
         ],
         "section": "sound",
-        "priority": "optional"
+        "priority": "optional",
+        "desktopTemplate": "../../packaging/danplay.desktop",
+        "postInstallScript": "../../packaging/deb/postinst",
+        "postRemoveScript": "../../packaging/deb/postrm"
       },
       "appimage": {
         "bundleMediaFramework": false
@@ -86,6 +89,81 @@
     "longDescription": "Identifica, renombra y organiza tu musica; reproduce, busca letra y acordes, y transpone tonos.",
     "resources": [
       "tools/*"
-    ]
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "mp3"
+        ],
+        "name": "DanPlay.mp3",
+        "description": "Canción MP3",
+        "mimeType": "audio/mpeg",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "flac"
+        ],
+        "name": "DanPlay.flac",
+        "description": "Canción FLAC",
+        "mimeType": "audio/flac",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "wav"
+        ],
+        "name": "DanPlay.wav",
+        "description": "Sonido WAV",
+        "mimeType": "audio/wav",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "m4a"
+        ],
+        "name": "DanPlay.m4a",
+        "description": "Canción M4A",
+        "mimeType": "audio/mp4",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "ogg"
+        ],
+        "name": "DanPlay.ogg",
+        "description": "Canción OGG",
+        "mimeType": "audio/ogg",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "opus"
+        ],
+        "name": "DanPlay.opus",
+        "description": "Canción Opus",
+        "mimeType": "audio/opus",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "aac"
+        ],
+        "name": "DanPlay.aac",
+        "description": "Canción AAC",
+        "mimeType": "audio/aac",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "wma"
+        ],
+        "name": "DanPlay.wma",
+        "description": "Canción WMA",
+        "mimeType": "audio/x-ms-wma",
+        "role": "Viewer"
+      }
+    ],
+    "category": "Music"
   }
 }
