@@ -26,12 +26,16 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 const CHUNK: u64 = 1 << 21; // 2 MB
 
 fn main() {
-    let core = core::Core::start();
-    let failure = core
-        .failure
-        .lock()
-        .map(|f| f.clone())
-        .unwrap_or_default();
+    // OJO: el nucleo NO se arranca aqui. Se arranca dentro de `setup`, que
+    // solo corre en la instancia que se queda.
+    //
+    // Arrancarlo antes parecia inofensivo y no lo era: al abrir una cancion
+    // con DanPlay ya abierto, el sistema lanza un segundo proceso, y ese
+    // segundo proceso levantaba SU nucleo —que borra el socket y lo vuelve a
+    // crear— antes de que el plugin de instancia unica pudiera cortarlo. Al
+    // irse se llevaba el socket, y la primera instancia se quedaba viva pero
+    // sin nucleo: la musica seguia sonando (eso lo lleva Rust) mientras que
+    // buscar, las caratulas y la lista dejaban de funcionar hasta reiniciar.
 
     // `mut` solo se usa fuera de Linux, donde se añade el plugin de posicion
     #[allow(unused_mut)]
@@ -66,11 +70,20 @@ fn main() {
     }
 
     builder
-        .manage(core)
         .manage(tray::Tray::new())
         .setup(move |app| {
             let handle = app.handle().clone();
-            let address = app.state::<core::Core>().address.clone();
+
+            // Aqui ya no hay duda de que somos la instancia buena: el plugin
+            // de instancia unica corta el arranque antes de llegar a `setup`.
+            let core = core::Core::start();
+            let failure = core
+                .failure
+                .lock()
+                .map(|f| f.clone())
+                .unwrap_or_default();
+            let address = core.address.clone();
+            app.manage(core);
 
             // La cola vive en Rust: con la ventana escondida, los
             // temporizadores del WebView se ralentizan y la musica se quedaba
@@ -87,7 +100,18 @@ fn main() {
             // «Abrir con DanPlay» sobre la aplicacion cerrada: las canciones
             // vienen en la linea de ordenes. `play` ya espera al nucleo por su
             // cuenta, asi que esto no retrasa el arranque.
-            open::play(&handle, open::files_in(std::env::args().skip(1)));
+            let files = open::files_in(std::env::args().skip(1));
+            if files.is_empty() {
+                // Sin canciones que abrir, se vuelve a donde se dejo: la
+                // misma lista y la misma cancion, pero en silencio. Si se
+                // abrio CON una cancion no se restaura nada, que para eso la
+                // has abierto.
+                if let Some(session) = queue::last_session(&handle) {
+                    app.state::<queue::Playback>().send(queue::Command::Restore(session));
+                }
+            } else {
+                open::play(&handle, files);
+            }
 
             if !failure.is_empty() {
                 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};

@@ -80,6 +80,25 @@ else
   falla "sin canciones indexadas para probar"
 fi
 
+# Una SEGUNDA instancia: es lo que pasa al abrir una cancion con DanPlay ya
+# abierto. Debe pasarle los argumentos a la primera y desaparecer sin tocar
+# nada de ella.
+#
+# Esto se rompio de verdad: el segundo proceso levantaba su propio nucleo
+# antes de que el plugin de instancia unica pudiera cortarlo, y al irse se
+# llevaba el socket. La primera seguia viva y sonando, pero sin nucleo: ni
+# busqueda, ni caratulas, ni lista, hasta reiniciar. Y no se notaba hasta que
+# pinchabas algo.
+"$APP" >/dev/null 2>&1
+i=0; while [ $i -lt 5 ]; do [ "$(pgrep -cx danplay-app)" = "1" ] && break; i=$((i+1)); sleep 1; done
+[ -S "$SOCK" ] && pasa "una segunda instancia no se lleva el socket" \
+  || falla "la segunda instancia dejo a la primera sin socket"
+pide /api/status | grep -q '"stats"' \
+  && pasa "y el nucleo sigue contestando despues" \
+  || falla "el nucleo dejo de contestar tras la segunda instancia"
+[ "$(pgrep -cx danplay-app)" = "1" ] && pasa "sigue habiendo una sola instancia" \
+  || falla "quedaron $(pgrep -cx danplay-app) instancias"
+
 kill -9 "$PID" 2>/dev/null
 if [ -n "$HIJO" ]; then
   i=0; while [ $i -lt 8 ]; do kill -0 "$HIJO" 2>/dev/null || break; i=$((i+1)); sleep 1; done
