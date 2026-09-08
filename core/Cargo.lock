@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "danplay_core"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "md-5",
  "pyo3",
