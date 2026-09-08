@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Deteccion de duplicados: identicos byte a byte y misma cancion en otra version."""
-import hashlib, os, re
+import hashlib, logging, os, re
 from collections import defaultdict
-from . import names
+from . import config, names
+
+log = logging.getLogger("danplay")
 
 try:
     import danplay_core as _rust          # crate en Rust: ~9x mas rapido
@@ -37,20 +39,20 @@ def identical(paths) -> list[list[str]]:
         except OSError:
             pass
     suspects = [r for size_of, rs in by_size.items() if len(rs) > 1 and size_of for r in rs]
-    tabla = hashes(suspects)
+    table = hashes(suspects)
     groups = []
     for size_of, rs in by_size.items():
         if len(rs) < 2 or size_of == 0:
             continue
         by_hash = defaultdict(list)
         for r in rs:
-            if tabla.get(r):
-                by_hash[tabla[r]].append(r)
+            if table.get(r):
+                by_hash[table[r]].append(r)
         groups += [g for g in by_hash.values() if len(g) > 1]
     return groups
 
 
-def same_song(paths, umbral=0.88) -> list[list[str]]:
+def same_song(paths, threshold=0.88) -> list[list[str]]:
     """Grupos que parecen la misma cancion aunque el archivo sea distinto."""
     from rapidfuzz import fuzz
     match_keys = {r: names.match_key(os.path.basename(r)) for r in paths}
@@ -61,7 +63,7 @@ def same_song(paths, umbral=0.88) -> list[list[str]]:
         if k:
             by_match_key[k].append(r)
     groups = [g for g in by_match_key.values() if len(g) > 1]
-    ya = {r for g in groups for r in g}
+    taken = {r for g in groups for r in g}
 
     # Luego los parecidos. La comparacion es de todos contra todos, pero
     # `token_set_ratio` cuesta unas diez veces mas que una comparacion simple
@@ -79,7 +81,7 @@ def same_song(paths, umbral=0.88) -> list[list[str]]:
     #     mismo numero. Comprobado sobre cientos de miles de parejas.
     #
     # Los grupos que salen son identicos; lo unico que cambia es cuanto tarda.
-    remaining = [r for r in paths if r not in ya and match_keys[r]]
+    remaining = [r for r in paths if r not in taken and match_keys[r]]
     if len(remaining) > 1:
         from rapidfuzz import process
         keys = [match_keys[r] for r in remaining]
@@ -89,7 +91,7 @@ def same_song(paths, umbral=0.88) -> list[list[str]]:
             for w in ws:
                 by_word[w].append(j)
 
-        minimo = umbral * 100
+        minimum = threshold * 100
         used = set()
         for i, a in enumerate(remaining):
             if a in used:
@@ -102,13 +104,18 @@ def same_song(paths, umbral=0.88) -> list[list[str]]:
                 share.update(j for j in by_word[w] if j > i)
             for j in share:
                 if remaining[j] not in used and \
-                        fuzz.token_set_ratio(keys[i], keys[j]) >= minimo:
+                        fuzz.token_set_ratio(keys[i], keys[j]) >= minimum:
                     group.append(remaining[j])
 
-            # 2) sin ninguna palabra en comun: comparacion simple, en C
-            for _, _, j in process.extract(keys[i], keys, scorer=fuzz.ratio,
-                                           score_cutoff=minimo, limit=None):
-                if j > i and j not in share and not (words[i] & words[j]) \
+            # 2) sin ninguna palabra en comun: comparacion simple, en C. Solo
+            #    contra las claves que vienen DESPUES: las de antes ya se
+            #    compararon con esta en su turno, asi que la mitad de las
+            #    parejas sobraban. `extract` devuelve la posicion dentro del
+            #    trozo, de ahi el desplazamiento.
+            for _, _, k in process.extract(keys[i], keys[i + 1:], scorer=fuzz.ratio,
+                                           score_cutoff=minimum, limit=None):
+                j = i + 1 + k
+                if j not in share and not (words[i] & words[j]) \
                         and remaining[j] not in used:
                     group.append(remaining[j])
 
@@ -130,26 +137,47 @@ def name_without_suffix(name: str) -> str:
     return (clean_name or stem) + ext
 
 
-def resolve(keep: str, remove: list[str], dry_run=False) -> dict:
-    """Se queda con una de las copias y elimina las demas.
+def _rejection(path: str) -> str:
+    """Por que una ruta no se puede tocar desde aqui, o cadena vacia."""
+    from . import library
+    if os.path.splitext(path)[1].lower() not in config.EXTENSIONS:
+        return f"«{os.path.basename(path)}» no es un archivo de audio"
+    if not library.within_roots(path):
+        return f"«{os.path.basename(path)}» esta fuera de las carpetas de la biblioteca"
+    return ""
+
+
+def resolve(keep: str, remove: list[str], dry_run=True) -> dict:
+    """Se queda con una de las copias y manda las demas a la papelera.
 
     Si la que se conserva llevaba el sufijo ' - r' (el que se pone al detectar
     duplicados), se lo quita, siempre que el nombre limpio quede libre.
+
+    Todas las rutas tienen que ser audio y estar dentro de las carpetas
+    gestionadas: esto lo llama la API con rutas que vienen de fuera, y sin
+    la comprobacion borraba cualquier archivo del disco. `dry_run` es True
+    por defecto por lo mismo: borrar solo cuando se pide expresamente.
     """
+    from . import library
     keep = os.path.abspath(keep)
     remove = [os.path.abspath(b) for b in remove if os.path.abspath(b) != keep]
     if not os.path.isfile(keep):
         return {"ok": False, "reason": "el archivo a conservar no existe"}
+    for path in [keep] + remove:
+        why = _rejection(path)
+        if why:
+            return {"ok": False, "reason": why}
 
     deleted, failures = [], []
     if not dry_run:
         for b in remove:
-            try:
-                if os.path.isfile(b):
-                    os.remove(b)
-                    deleted.append(b)
-            except OSError as e:
-                failures.append({"path": b, "reason": str(e)})
+            if not os.path.isfile(b):
+                continue
+            r = library.trash_path(b)
+            if r.get("ok"):
+                deleted.append(b)
+            else:
+                failures.append({"path": b, "reason": r.get("error", "")})
     else:
         deleted = [b for b in remove if os.path.isfile(b)]
 

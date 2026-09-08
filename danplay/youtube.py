@@ -27,7 +27,12 @@ from . import config, convert, tags, ingest, names
 QUALITY_KBPS = {"high": "320", "medium": "192", "variable": "0", "copy": "256"}
 
 # lo que sabemos bajar. Se acepta pegar la URL con parametros de sobra.
-DOMAINS = ("youtube.com", "youtu.be", "music.youtube.com", "m.youtube.com")
+# Topes de lo que se descarga. Sin ellos, un directo de tres horas llena el
+# temporal y deja a ffmpeg trabajando un buen rato para nada.
+MAX_SECONDS = 30 * 60
+MAX_BYTES = 200 * 1024 * 1024
+# De una lista, como mucho los primeros 50: `download` recorria TODOS.
+PLAYLIST_LIMIT = "1:50"
 
 
 class Canceled(Exception):
@@ -95,19 +100,59 @@ def unavailable_reason() -> str:
     return ""
 
 
+# Los dominios de YouTube, exactos. Antes se miraba si el texto CONTENIA
+# alguno, asi que «https://loquesea.example/?youtube.com» contaba como
+# YouTube; y si no era ninguno se le pasaba igual a yt-dlp, cuyo extractor
+# generico descarga de cualquier sitio, incluidas direcciones de la red local.
+ALLOWED_HOSTS = frozenset({
+    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
+    "youtu.be", "www.youtu.be",
+})
+
+
+def host_of(text: str) -> str:
+    """El dominio de una direccion, o cadena vacia si no lo es."""
+    import urllib.parse
+    t = (text or "").strip()
+    if not t.lower().startswith(("http://", "https://")):
+        return ""
+    try:
+        return (urllib.parse.urlsplit(t).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
 def is_url(text: str) -> bool:
-    t = (text or "").strip().lower()
-    return t.startswith(("http://", "https://")) and any(d in t for d in DOMAINS)
+    """Una direccion de YouTube de verdad, mirando el dominio y no el texto."""
+    return host_of(text) in ALLOWED_HOSTS
+
+
+class NotYouTube(ValueError):
+    """Una direccion que no es de YouTube. No se le pasa a yt-dlp."""
 
 
 def normalize(inbox: str, results=5) -> str:
-    """URL tal cual, o busqueda en YouTube si el usuario escribio texto suelto."""
+    """URL de YouTube tal cual, o busqueda si el usuario escribio texto suelto."""
     e = (inbox or "").strip()
     if is_url(e):
         return e
-    if e.startswith(("http://", "https://")):
-        return e                      # otra web: que yt-dlp diga si sabe o no
+    if host_of(e):
+        raise NotYouTube(
+            f"«{host_of(e)}» no es YouTube. Pega un enlace de YouTube, "
+            "o escribe lo que buscas y lo busco alli.")
     return f"ytsearch{max(1, int(results))}:{e}"
+
+
+def wanted(info, *, incomplete=False):
+    """Filtro de yt-dlp: nada de mas de media hora.
+
+    Los directos y las recopilaciones de tres horas llenan el temporal y
+    dejan a ffmpeg trabajando un buen rato para nada.
+    """
+    duration = info.get("duration") or 0
+    if duration and duration > MAX_SECONDS:
+        return f"dura {int(duration // 60)} minutos; el tope son {MAX_SECONDS // 60}"
+    return None
 
 
 def _base_options(quiet=True) -> dict:
@@ -139,8 +184,16 @@ def info(inbox: str, results=5) -> dict:
     yt = _yt_dlp()
     if yt is None:
         return {"ok": False, "reason": unavailable_reason(), "items": []}
-    target_url = normalize(inbox, results)
-    options = {**_base_options(), "extract_flat": "in_playlist", "skip_download": True}
+    try:
+        target_url = normalize(inbox, results)
+    except NotYouTube as e:
+        return {"ok": False, "reason": str(e), "items": []}
+    # `noplaylist` salvo que se haya pegado un enlace de lista a proposito: sin
+    # esto, pegar «watch?v=X&list=Y» consultaba la lista entera.
+    explicit_list = "list=" in target_url
+    options = {**_base_options(), "extract_flat": "in_playlist", "skip_download": True,
+               "noplaylist": not explicit_list, "playlist_items": PLAYLIST_LIMIT,
+               "match_filter": wanted}
     try:
         with yt.YoutubeDL(options) as ydl:
             data = ydl.extract_info(target_url, download=False)
@@ -215,6 +268,10 @@ def download_one(target_url, quality="high", folder=None, progress=None,
             "outtmpl": str(Path(tmp) / "%(id)s.%(ext)s"),
             "noplaylist": True,
             "writethumbnail": True,
+            # tope de tamaño y de duracion: un directo de tres horas no
+            # deberia poder llenar el disco por accidente
+            "max_filesize": MAX_BYTES,
+            "match_filter": wanted,
             "progress_hooks": [hook],
             "postprocessors": [
                 {"key": "FFmpegExtractAudio", "preferredcodec": "mp3",

@@ -109,7 +109,7 @@ export function applyTheme (key, preview = null) {
   for (const [k, v] of Object.entries(t.v)) r.style.setProperty('--' + k, v)
   r.dataset.theme = key
   r.dataset.kind = t.kind || 'dark'
-  if (!preview) { try { localStorage.setItem('danplay.theme', key) } catch {} }
+  if (!preview) { try { localStorage.setItem('danplay.theme', key) } catch { /* sin almacenamiento (modo privado) */ } }
   return t
 }
 export function applyDensity (key) {
@@ -119,14 +119,14 @@ export function applyDensity (key) {
   // asi densidad y tamaño se combinan en vez de pisarse
   r.style.setProperty('--row-pad-base', d.rowPad)
   r.style.setProperty('--table-font-base', d.fontSize)
-  try { localStorage.setItem('danplay.density', key) } catch {}
+  try { localStorage.setItem('danplay.density', key) } catch { /* sin almacenamiento (modo privado) */ }
   return d
 }
 
 export function applySize (key) {
   const s = SIZES[key] || SIZES.medium
   document.documentElement.style.setProperty('--scale', String(s.scale))
-  try { localStorage.setItem('danplay.size', key) } catch {}
+  try { localStorage.setItem('danplay.size', key) } catch { /* sin almacenamiento (modo privado) */ }
   return s
 }
 

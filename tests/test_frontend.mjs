@@ -55,7 +55,7 @@ prueba('la ruta de medios coincide con lo que espera Rust (clase/id)', () => {
 // la clase «audio». Ahora se leen las clases que Rust acepta de su fuente.
 prueba('Rust entiende TODAS las clases de medios que pide el JS', () => {
   const rust = readFileSync(new URL('../desktop/src-tauri/src/main.rs', import.meta.url), 'utf8')
-  const aceptadas = [...rust.matchAll(/class\s*==\s*"([a-z_]+)"/g)].map(m => m[1])
+  const aceptadas = [...rust.matchAll(/kind\s*==\s*"([a-z_]+)"/g)].map(m => m[1])
   // el audio es la rama por defecto, no lleva comparacion explicita
   const conocidas = new Set([...aceptadas, 'audio'])
 

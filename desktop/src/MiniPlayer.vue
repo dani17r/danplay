@@ -1,154 +1,135 @@
 <script setup>
 /**
- * El reproductor en pequeño, para la ventanita de la bandeja.
+ * El mini reproductor: lo que sale al pulsar el icono de la bandeja.
  *
- * Vive en su propia ventana, asi que no comparte nada con la app: lo que
- * suena se lo cuenta Rust, que guarda lo ultimo que le dijo la ventana
- * principal, y el avance lo pregunta al hilo de audio, que es quien lo sabe
- * de verdad.
+ * Es un popup, no una ventana suelta. Aparece pegado al icono (donde el
+ * sistema deja: ver docs/PLAN.md §2.8), se va al perder el foco o con Escape,
+ * y no se arrastra ni recuerda posición, porque la coloca Rust cada vez.
  *
- * Pausar y mover la barra son ordenes directas al audio: funcionan aunque la
- * ventana principal este ocupada. Cambiar de cancion no, porque la cola y el
- * modo de repeticion viven alli; se le manda un aviso y ella decide. Por eso
- * «anterior» y «siguiente» salen en gris cuando no hay a donde ir.
+ * Comparte estado con la ventana grande a través de Rust: `usePlayback`
+ * escucha el mismo evento, así que lo que se pulsa aquí se ve allí y al revés.
  */
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { native, tray } from './api.js'
+import { computed, onMounted, onUnmounted } from 'vue'
+import { app, mini } from './api.js'
+import { usePlayback } from './composables/usePlayback.js'
+import { formatTime } from './utils/format.js'
 import Icon from './components/Icon.vue'
 import CoverArt from './components/ui/CoverArt.vue'
 import { applyTheme, applyDensity, savedTheme, savedDensity } from './themes.js'
 
-const VACIO = { id: null, title: '', artist: '', playing: false, blur: false,
-                has_previous: false, has_next: false }
+const player = usePlayback()
+const { track, playing, position, duration, hasPrevious, hasNext } = player
 
-const now = ref({ ...VACIO })
-const pos = ref(0)
-const total = ref(0)
-const playing = ref(false)
+const loaded = computed(() => !!track.value)
+const percent = computed(() =>
+  duration.value ? Math.min(100, (position.value / duration.value) * 100) : 0
+)
 
-const loaded = computed(() => now.value.id != null)
-const pct = computed(() => total.value ? Math.min(100, (pos.value / total.value) * 100) : 0)
-
-function fmt (s) {
-  if (!s || s < 0) return '0:00'
-  const m = Math.floor(s / 60), r = Math.floor(s % 60)
-  return `${m}:${String(r).padStart(2, '0')}`
+// Los dos atajos que se esperan en una ventanita así: espacio para pausar y
+// Escape para quitarla de en medio.
+function onKey(e) {
+  if (e.key === 'Escape') mini.hide()
+  else if (e.key === ' ') {
+    e.preventDefault()
+    if (loaded.value) player.toggle()
+  }
 }
 
-let poll = null
-let stop = null
-
-// Igual que en el reproductor grande: seguido mientras suena, tranquilo
-// cuando esta parado. Es una ventanita que se queda abierta encima de todo,
-// asi que no tiene sentido que este preguntando sin parar sin nada que sonar.
-function pollLoop () {
-  poll = setTimeout(async () => {
-    await refresh()
-    pollLoop()
-  }, playing.value ? 400 : 1200)
+// El tema se guarda en el navegador, que es el mismo para las dos ventanas.
+// Sin esto, cambiarlo en la app dejaba el mini con el tema viejo hasta
+// reiniciar.
+function onStorage(e) {
+  if (!e || e.key === null || e.key === 'danplay.theme') applyTheme(savedTheme())
+  if (!e || e.key === null || e.key === 'danplay.density') applyDensity(savedDensity())
 }
 
-async function refresh () {
-  try {
-    const e = await native.status()
-    playing.value = !!e.playing
-    pos.value = e.position || 0
-    total.value = e.duration || 0
-  } catch { /* la app se esta cerrando */ }
-}
-
-// Donde la dejaste la ultima vez. Rust la pone en una esquina al crearla,
-// pero en Linux nadie sabe donde esta el icono de la bandeja, asi que lo
-// razonable es que la coloques tu una vez y no tener que repetirlo.
-const POS = 'danplay.miniPos'
-async function rememberPlace () {
-  if (!tray.available) return
-  try {
-    const { getCurrentWindow } = await import('@tauri-apps/api/window')
-    const { PhysicalPosition } = await import('@tauri-apps/api/dpi')
-    const win = getCurrentWindow()
-    const saved = JSON.parse(localStorage.getItem(POS) || 'null')
-    if (saved) await win.setPosition(new PhysicalPosition(saved.x, saved.y))
-    await win.onMoved(({ payload }) => {
-      try { localStorage.setItem(POS, JSON.stringify({ x: payload.x, y: payload.y })) } catch {}
-    })
-  } catch { /* fuera de la app no hay ventana que colocar */ }
-}
-
-// Los dos atajos que se esperan en una ventanita asi: espacio para
-// pausar y Escape para quitarla de en medio.
-function onKey (e) {
-  if (e.key === 'Escape') tray.closeMini()
-  else if (e.key === ' ') { e.preventDefault(); toggle() }
-}
-
-onMounted(async () => {
+onMounted(() => {
   window.addEventListener('keydown', onKey)
-  // el mismo tema y la misma densidad que la app: comparten el navegador
-  applyTheme(savedTheme()); applyDensity(savedDensity())
-  const first = await tray.nowPlaying()
-  if (first) now.value = { ...VACIO, ...first }
-  stop = await tray.onChanged(d => { now.value = { ...VACIO, ...d } })
-  await refresh()
-  pollLoop()
-  rememberPlace()
+  window.addEventListener('storage', onStorage)
+  applyTheme(savedTheme())
+  applyDensity(savedDensity())
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
-  if (poll) clearTimeout(poll)
-  if (typeof stop === 'function') stop()
+  window.removeEventListener('storage', onStorage)
 })
 
-const toggle = () => { if (loaded.value) native.togglePlay().then(refresh) }
-const previous = () => tray.send('previous')
-const next = () => tray.send('next')
-function seek (e) {
-  if (!loaded.value || !total.value) return
+function seek(e) {
+  if (!loaded.value || !duration.value) return
   const r = e.currentTarget.getBoundingClientRect()
-  const s = ((e.clientX - r.left) / r.width) * total.value
-  pos.value = s
-  native.seek(s)
+  player.seek(((e.clientX - r.left) / r.width) * duration.value)
 }
 </script>
 
 <template>
   <div class="miniplayer">
-    <!-- la barra de arriba hace de asa: la ventana no tiene marco -->
-    <header class="mini-head" data-tauri-drag-region>
-      <span class="mini-brand" data-tauri-drag-region>
-        <span class="brand-dot"></span> DANPLAY</span>
-      <button class="icon-btn" title="Abrir DanPlay" @click="tray.showApp()">
-        <Icon n="viewGrid" :t="13" /></button>
-      <button class="icon-btn" title="Cerrar la ventanita" @click="tray.closeMini()">
-        <Icon n="close" :t="13" /></button>
+    <header class="mini-head">
+      <span class="mini-brand"> <span class="brand-dot"></span> DANPLAY</span>
+      <button class="icon-btn" title="Abrir DanPlay" @click="app.showWindow()">
+        <Icon n="viewGrid" :t="13" />
+      </button>
+      <button class="icon-btn" title="Cerrar la ventanita" @click="mini.hide()">
+        <Icon n="close" :t="13" />
+      </button>
     </header>
 
     <div class="mini-song">
-      <CoverArt :id="now.id" :blur="!!now.blur" class="mini-art" :icon-size="18" :alt="now.title" />
+      <CoverArt
+        :id="track?.id"
+        :blur="!!track?.blur"
+        class="mini-art"
+        :icon-size="18"
+        :size="96"
+        :alt="track?.title || ''"
+      />
       <div class="mini-text">
-        <div class="mini-title">{{ loaded ? (now.title || 'Sin titulo') : 'Nada sonando' }}</div>
+        <div class="mini-title">
+          {{ loaded ? track.title || 'Sin título' : 'Nada sonando' }}
+        </div>
         <div class="mini-artist">
-          {{ loaded ? (now.artist || 'Sin artista') : 'Elige algo en DanPlay' }}</div>
+          {{ loaded ? track.artist || 'Sin artista' : 'Elige algo en DanPlay' }}
+        </div>
       </div>
     </div>
 
-    <div class="mini-seek" :class="{off: !loaded}" @click="seek"
-         :title="loaded ? 'Ir a un punto' : ''">
-      <div class="mini-seek-fill" :style="{width: pct + '%'}"></div>
+    <div
+      class="mini-seek"
+      :class="{ off: !loaded }"
+      :title="loaded ? 'Ir a un punto' : ''"
+      @click="seek"
+    >
+      <div class="mini-seek-fill" :style="{ width: percent + '%' }"></div>
     </div>
     <div class="mini-times">
-      <span>{{ fmt(pos) }}</span>
-      <span>{{ loaded ? fmt(total) : '' }}</span>
+      <span>{{ formatTime(position) }}</span>
+      <span>{{ loaded ? formatTime(duration) : '' }}</span>
     </div>
 
     <div class="mini-controls">
-      <button class="mini-btn" :disabled="!loaded || !now.has_previous"
-              title="Anterior" @click="previous"><Icon n="previous" :t="15" /></button>
-      <button class="mini-btn big" :disabled="!loaded"
-              :title="playing ? 'Pausar' : 'Reproducir'" @click="toggle">
-        <Icon :n="playing ? 'pause' : 'play'" :t="17" /></button>
-      <button class="mini-btn" :disabled="!loaded || !now.has_next"
-              title="Siguiente" @click="next"><Icon n="next" :t="15" /></button>
+      <button
+        class="mini-btn"
+        :disabled="!loaded || !hasPrevious"
+        title="Anterior"
+        @click="player.previous()"
+      >
+        <Icon n="previous" :t="15" />
+      </button>
+      <button
+        class="mini-btn big"
+        :disabled="!loaded"
+        :title="playing ? 'Pausar' : 'Reproducir'"
+        @click="player.toggle()"
+      >
+        <Icon :n="playing ? 'pause' : 'play'" :t="17" />
+      </button>
+      <button
+        class="mini-btn"
+        :disabled="!loaded || !hasNext"
+        title="Siguiente"
+        @click="player.next()"
+      >
+        <Icon n="next" :t="15" />
+      </button>
     </div>
   </div>
 </template>

@@ -1,5 +1,5 @@
 import { createApp } from 'vue'
-import './style.css'
+import './styles/index.css'
 
 // La misma pagina sirve para dos ventanas: la app y la ventanita de la
 // bandeja. Se distinguen por la direccion, que es lo unico que se le puede

@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Indice SQLite con busqueda de texto completo (FTS5) y carpetas gestionadas."""
-import os, sqlite3, time
+import logging, os, shutil, sqlite3, subprocess, sys, time
 from pathlib import Path
 from . import config, tags, names
+
+log = logging.getLogger("danplay")
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -146,11 +148,11 @@ def _migrate_from_spanish(conn) -> bool:
     Va por pares y solo cuando el destino ya existe y esta vacio, porque las
     listas las crea otro modulo: asi da igual quien abra la base primero.
     """
-    tablas = {r[0] for r in conn.execute(
+    tables = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
-    migro = False
+    migrated = False
     for old, (new, cols) in _ANTIGUO.items():
-        if old not in tablas or new not in tablas:
+        if old not in tables or new not in tables:
             continue
         if conn.execute(f"SELECT COUNT(*) FROM {new}").fetchone()[0]:
             continue                      # ya hay datos nuevos: no se toca
@@ -159,18 +161,19 @@ def _migrate_from_spanish(conn) -> bool:
         conn.execute(f"INSERT OR IGNORE INTO {new} ({dest}) "
                      f"SELECT {src} FROM {old}")
         conn.execute(f"DROP TABLE {old}")
-        migro = True
-    if not migro:
+        migrated = True
+    if not migrated:
         return False
     # los unicos valores fijos que tambien estaban en castellano
-    if "folders" in tablas:
+    if "folders" in tables:
         conn.execute("UPDATE folders SET role='library' WHERE role='biblioteca'")
-    if "exclusions" in tablas:
+    if "exclusions" in tables:
         conn.execute("UPDATE exclusions SET kind='path' WHERE kind='ruta'")
-    if "songs" in tablas:
+    if "songs" in tables:
         conn.execute("DROP TABLE IF EXISTS busqueda")
         conn.execute("INSERT INTO search_index(search_index) VALUES('rebuild')")
     conn.commit()
+    _touch()
     return True
 
 
@@ -200,10 +203,10 @@ _ADDED_LATER = (("songs", "blur", "INTEGER DEFAULT 0"),)
 
 
 def _add_missing_columns(conn) -> None:
-    for tabla, columna, tipo in _ADDED_LATER:
-        tiene = {r[1] for r in conn.execute(f"PRAGMA table_info({tabla})")}
-        if tiene and columna not in tiene:
-            conn.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}")
+    for table, column, kind in _ADDED_LATER:
+        present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if present and column not in present:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
 
 def _prepare(conn) -> None:
@@ -224,6 +227,10 @@ def connect():
     # la reconstruye entera desde los propios archivos. En un disco duro
     # normal la diferencia por escritura es grande.
     conn.execute("PRAGMA synchronous=NORMAL")
+    # Si otra conexion esta escribiendo (el escaneo, por ejemplo), se espera
+    # hasta cinco segundos en vez de fallar al instante con «database is
+    # locked»: puntuar una cancion mientras se escanea tiene que funcionar.
+    conn.execute("PRAGMA busy_timeout=5000")
     key = str(config.DATABASE)
     if key not in _prepared:
         with _prepare_lock:
@@ -234,6 +241,38 @@ def connect():
 
 
 # ------------------------------------------------------------- carpetas
+
+def _inside(path, root) -> bool:
+    """True si `path` es `root` o cuelga de el.
+
+    Sobre rutas reales (enlaces simbolicos y «..» resueltos) y por
+    componentes, no pegando «/» a una cadena: asi `../../x` o un enlace que
+    apunte fuera no cuentan como «dentro», y en Windows tampoco importa si
+    la unidad viene en mayuscula o minuscula.
+    """
+    try:
+        p, r = os.path.realpath(path), os.path.realpath(root)
+        return os.path.commonpath([p, r]) == r
+    except ValueError:                 # unidades distintas, o relativa y absoluta
+        return False
+
+
+def _same_or_under(path: str, folder: str) -> bool:
+    """Como `_inside` pero puramente textual: para patrones ya normalizados."""
+    try:
+        return os.path.commonpath([path, folder]) == os.path.normpath(folder)
+    except ValueError:
+        return False
+
+
+def within_roots(path) -> bool:
+    """Si la ruta esta dentro de alguna carpeta gestionada (activa).
+
+    Es la barrera de todo lo que borra o mueve: nada que venga de la API o
+    del asistente debe tocar un archivo fuera de la biblioteca.
+    """
+    return any(_inside(path, r) for r in _roots())
+
 
 def check_overlap(path) -> dict | None:
     """Avisa si la carpeta nueva repite musica que ya esta indexada.
@@ -246,10 +285,10 @@ def check_overlap(path) -> dict | None:
         other = c["path"]
         if other == path:
             return {"kind": "same", "other": other, "message": "esa carpeta ya esta añadida"}
-        if path.startswith(other.rstrip("/") + os.sep):
+        if _inside(path, other):
             return {"kind": "inside", "other": other,
                     "message": f"esta dentro de «{other}», que ya esta indexada"}
-        if other.startswith(path.rstrip("/") + os.sep):
+        if _inside(other, path):
             return {"kind": "contains", "other": other,
                     "message": f"contiene a «{other}», que ya esta indexada"}
 
@@ -265,9 +304,9 @@ def check_overlap(path) -> dict | None:
     if len(sample) < 5:
         return None
     conn = connect()
-    marcadores = ",".join("?" * len(sample))
+    placeholders = ",".join("?" * len(sample))
     rows = conn.execute(
-        f"SELECT file, size, root FROM songs WHERE file IN ({marcadores})",
+        f"SELECT file, size, root FROM songs WHERE file IN ({placeholders})",
         list(sample)).fetchall()
     conn.close()
     by_root = {}
@@ -302,6 +341,7 @@ def remove_folder(path) -> None:
     conn.execute("DELETE FROM folders WHERE path=?", (path,))
     conn.execute("DELETE FROM songs WHERE root=?", (path,))
     conn.commit(); conn.close()
+    _touch()
 
 
 def list_folders() -> list[dict]:
@@ -318,6 +358,12 @@ def _roots() -> list[str]:
     conn.close()
     # sin carpetas configuradas no se indexa nada: la app pide elegirlas primero
     return [f["path"] for f in rows]
+
+
+def roots() -> list[str]:
+    """Carpetas gestionadas activas. Para pasarselas a `index_file` en bucle
+    y no consultar la base por cada archivo."""
+    return _roots()
 
 
 # ------------------------------------------------------------- escaneo
@@ -356,19 +402,19 @@ def _excluded(dir_path, dir_name, exclusions) -> bool:
     """
     from fnmatch import fnmatch
     full_path = os.path.join(dir_path, dir_name)
-    nombre_b, completa_b = dir_name.lower(), full_path.lower()
+    name_lc, full_lc = dir_name.lower(), full_path.lower()
     for pat in DEFAULT_EXCLUDES:
-        if fnmatch(dir_name, pat) or fnmatch(nombre_b, pat.lower()):
+        if fnmatch(dir_name, pat) or fnmatch(name_lc, pat.lower()):
             return True
     for e in exclusions:
         p = (e["pattern"] or "").lower()
         if not p:
             continue
         if e["kind"] == "path":
-            if completa_b == p or completa_b.startswith(p.rstrip("/") + os.sep):
+            if _same_or_under(full_lc, p):
                 return True
-        elif (fnmatch(nombre_b, p) or fnmatch(completa_b, p)
-              or fnmatch(completa_b, "*/" + p.strip("*/") + "/*")):
+        elif (fnmatch(name_lc, p) or fnmatch(full_lc, p)
+              or fnmatch(full_lc, "*/" + p.strip("*/") + "/*")):
             return True
     return False
 
@@ -394,15 +440,16 @@ def _artist_from_folder(path, root) -> str:
     return ""
 
 
-def _row(path, root, vocab=None) -> tuple:
+def _row(path, root, vocab=None, tag=None) -> tuple:
     """Fila del indice a partir del archivo. Una sola lectura de etiquetas.
 
     Antes se abria tres veces (etiquetas, duracion y bitrate por separado) y
     aun asi no se leian ni la caratula ni la letra: si perdias la base, esas
-    se quedaban vacias aunque estuvieran dentro del mp3.
+    se quedaban vacias aunque estuvieran dentro del mp3. `tag` permite pasar
+    lo que `tags.read_all` ya leyo, para no abrir el archivo dos veces.
     """
     st = os.stat(path)
-    tag = tags.read_all(path)
+    tag = tags.read_all(path) if tag is None else tag
     file = os.path.basename(path)
     stem = Path(file).stem
 
@@ -433,62 +480,149 @@ def _row(path, root, vocab=None) -> tuple:
             1 if tag.get("blur") else 0)
 
 
+# Cada cuantos archivos se confirma la transaccion del escaneo. Una sola
+# transaccion para toda la biblioteca dejaba la base bloqueada minutos: poner
+# una estrella mientras tanto fallaba con «database is locked».
+SCAN_BATCH = 500
+
+_INSERT_SQL = (f"INSERT INTO songs ({','.join(COLUMNS)}) "
+               f"VALUES ({','.join('?' * len(COLUMNS))})")
+_UPDATE_SQL = f"UPDATE songs SET {','.join(f'{c}=?' for c in COLUMNS)} WHERE id=?"
+
+
 def scan(progress=None) -> dict:
-    """Reindexa todas las carpetas gestionadas.
+    """Pone el indice al dia con lo que hay en las carpetas gestionadas.
+
+    Incremental y por ruta: lo nuevo se inserta, lo que cambio se actualiza
+    y lo que ya no esta en el disco se borra. Los ids NO cambian nunca.
+    Antes se vaciaba la tabla y se reinsertaba todo: los ids volvian a
+    empezar en 1 en el orden del disco, y un archivo nuevo desplazaba a todos
+    los siguientes, con lo que las listas (que guardan ids) pasaban a
+    apuntar a otras canciones.
 
     Casi todo se relee del archivo, asi que el escaneo reconstruye el indice
-    aunque la base se pierda. De la base solo se rescatan los acordes y la
-    marca de analizado: son lo unico que no cabe en las etiquetas.
+    aunque la base se pierda; de la base se conservan los acordes y la marca
+    de analizado (las columnas que no estan en COLUMNS no se tocan). Las
+    listas se recrean al final desde la etiqueta LISTAS de cada archivo.
+
+    No se reconstruye el indice de busqueda: los triggers lo mantienen fila
+    a fila, y solo para las filas que de verdad cambian.
     """
     conn = connect()
-    cache = {f["path"]: f for f in conn.execute(
-        f"SELECT {','.join(COLUMNS)},chords,analyzed FROM songs")}
-    conn.execute("DELETE FROM songs")
-    n, added_count, reused = 0, 0, 0
+    existing = {r["path"]: r for r in conn.execute(
+        "SELECT id, path, artist, mtime, size FROM songs")}
     vocab = names.vocabulary(config.ARTISTS_DIR)
     exclusions = list_exclusions()
-    mtime_at, size_at = COLUMNS.index("mtime"), COLUMNS.index("size")
+    seen: set = set()
+    playlists_found: dict = {}
+    n = added_count = reused = updated = pending = 0
     for root in _roots():
         if not os.path.isdir(root):
             continue
         for path in audio_files(root, exclusions):
-            v = cache.get(path)
-            row = None
+            v = existing.get(path)
             # Si el archivo no se ha tocado desde el ultimo escaneo, sus
-            # etiquetas no pueden haber cambiado: se reaprovecha lo que ya
-            # habia en vez de volver a abrirlo y parsearlo. Es lo que hace que
-            # un reescaneo sea casi instantaneo en vez de tardar lo mismo que
-            # el primero. Escribir etiquetas (estrellas, favorito, un titulo
-            # corregido) cambia la fecha del archivo, asi que eso siempre se
-            # relee. Los que no tienen artista tambien: pueden resolverse
-            # ahora que hay mas carpetas de artista que antes.
+            # etiquetas no pueden haber cambiado: se deja la fila como esta
+            # en vez de volver a abrirlo y parsearlo. Es lo que hace que un
+            # reescaneo sea casi instantaneo. Escribir etiquetas (estrellas,
+            # favorito, un titulo corregido) cambia la fecha del archivo, asi
+            # que eso siempre se relee. Los que no tienen artista tambien:
+            # pueden resolverse ahora que hay mas carpetas de artista.
             if v is not None and v["artist"]:
                 try:
                     st = os.stat(path)
                 except OSError:
-                    continue
+                    continue                 # desaparecio: se borra al final
                 if st.st_mtime == v["mtime"] and st.st_size == v["size"]:
-                    row = tuple(v[c] for c in COLUMNS)
-                    reused += 1
-            if row is None:
-                try:
-                    row = _row(path, root, vocab)
-                except OSError:
+                    seen.add(path)
+                    reused += 1; n += 1
+                    if progress and n % 50 == 0:
+                        progress(n)
                     continue
-            conn.execute(f"INSERT OR REPLACE INTO songs ({','.join(COLUMNS)}) "
-                        f"VALUES ({','.join('?'*len(COLUMNS))})", row)
-            if v:
-                if v["chords"] or v["analyzed"]:
-                    conn.execute("UPDATE songs SET chords=?,analyzed=? WHERE path=?",
-                                 (v["chords"], v["analyzed"], path))
-            else:
+            try:
+                tag = tags.read_all(path)
+                row = _row(path, root, vocab, tag)
+            except OSError:
+                log.warning("no se pudo indexar %s", path, exc_info=True)
+                continue
+            seen.add(path)
+            if tag.get("playlists"):
+                playlists_found[path] = tag["playlists"]
+            if v is None:
+                conn.execute(_INSERT_SQL, row)
                 added_count += 1
-            n += 1
+            else:
+                conn.execute(_UPDATE_SQL, row + (v["id"],))
+                updated += 1
+            n += 1; pending += 1
+            if pending >= SCAN_BATCH:
+                conn.commit(); pending = 0
             if progress and n % 50 == 0:
                 progress(n)
-    conn.execute("INSERT INTO search_index(search_index) VALUES('rebuild')")
+    # lo que ya no esta en el disco (o quedo fuera de las carpetas activas)
+    gone = [p for p in existing if p not in seen]
+    for i in range(0, len(gone), SCAN_BATCH):
+        chunk = gone[i:i + SCAN_BATCH]
+        conn.execute(f"DELETE FROM songs WHERE path IN ({','.join('?' * len(chunk))})",
+                     chunk)
+        conn.commit()
     conn.commit(); conn.close()
-    return {"total": n, "added_count": added_count, "reused": reused}
+    _touch()
+    restored = restore_playlists_from_tags(playlists_found)
+    return {"total": n, "added_count": added_count, "reused": reused,
+            "updated": updated, "removed": len(gone), "playlists_restored": restored}
+
+
+def restore_playlists_from_tags(found: dict | None = None) -> int:
+    """Recrea listas y pertenencias a partir de lo que dicen los archivos.
+
+    Cada cancion lleva dentro (etiqueta LISTAS / DANPLAY_PLAYLISTS) los
+    nombres de las listas a las que pertenece. Antes se escribia y nadie lo
+    leia, asi que las listas no sobrevivian a perder la base, en contra de lo
+    que promete la arquitectura.
+
+    `found` es {ruta: [nombres]} ya leido durante el escaneo; sin el, se
+    releen las etiquetas de todo el indice (lento, pero sirve suelto).
+
+    Solo AÑADE lo que falte: nunca quita canciones de una lista ni borra
+    listas, porque la base puede ir por delante del archivo. Devuelve cuantas
+    pertenencias se han añadido.
+    """
+    from . import playlists as _playlists   # noqa: F401  (registra su esquema)
+    conn = connect()
+    if found is None:
+        found = {}
+        for r in conn.execute("SELECT path FROM songs").fetchall():
+            if os.path.exists(r["path"]):
+                lists = tags.read_all(r["path"]).get("playlists") or []
+                if lists:
+                    found[r["path"]] = lists
+    if not found:
+        conn.close()
+        return 0
+    ids = {r["name"]: r["id"] for r in conn.execute("SELECT id, name FROM playlists")}
+    added, now = 0, time.time()
+    for path, lists in found.items():
+        song = conn.execute("SELECT id FROM songs WHERE path=?", (path,)).fetchone()
+        if not song:
+            continue
+        for name in lists:
+            lid = ids.get(name)
+            if lid is None:
+                cur = conn.execute("INSERT INTO playlists (name,note,color,created) "
+                                   "VALUES (?,?,?,?)", (name, "", "", now))
+                lid = ids[name] = cur.lastrowid
+            position = conn.execute(
+                "SELECT COALESCE(MAX(position),-1)+1 FROM playlist_songs "
+                "WHERE playlist_id=?", (lid,)).fetchone()[0]
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO playlist_songs (playlist_id,song_id,position,added) "
+                "VALUES (?,?,?,?)", (lid, song["id"], position, now))
+            added += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    conn.commit(); conn.close()
+    if added:
+        log.info("listas recuperadas desde las etiquetas: %d pertenencias", added)
+    return added
 
 
 # ------------------------------------------------------------- busqueda
@@ -542,10 +676,10 @@ def _order_by(sort: str, desc: bool) -> str:
     - Al final se desempata siempre por artista y titulo, para que dos temas
       con el mismo bpm no se intercambien de sitio entre una consulta y otra.
     """
-    columna, tipo = SORT_FIELDS.get(sort) or SORT_FIELDS["artist"]
-    vacio = f"{columna}=''" if tipo == "text" else f"{columna} IS NULL OR {columna}=0"
-    direccion = "DESC" if desc else "ASC"
-    return f"({vacio}), {columna} {direccion}, c.artist, c.title"
+    column, kind = SORT_FIELDS.get(sort) or SORT_FIELDS["artist"]
+    empty = f"{column}=''" if kind == "text" else f"{column} IS NULL OR {column}=0"
+    direction = "DESC" if desc else "ASC"
+    return f"({empty}), {column} {direction}, c.artist, c.title"
 
 
 def sort_options() -> list[str]:
@@ -630,10 +764,14 @@ def set_blur(cid: int, value=True) -> dict | None:
     if not c:
         return None
     value = bool(value)
+    written = False
     if config.WRITE_TAGS and os.path.exists(c["path"]):
-        tags.set_blurred_cover(c["path"], value)
+        written = tags.set_blurred_cover(c["path"], value)
     update(cid, blur=1 if value else 0)
-    return by_id(cid)
+    out = by_id(cid)
+    if out is not None:
+        out["tags_written"] = bool(written)
+    return out
 
 
 def by_id(cid: int) -> dict | None:
@@ -643,68 +781,122 @@ def by_id(cid: int) -> dict | None:
     return dict(f) if f else None
 
 
-def update(cid: int, **fields) -> None:
+def update(cid: int, **fields) -> int:
+    """Cambia columnas del indice (solo el indice). Devuelve filas tocadas."""
     allowed = {"artist","title","album","year","genre","feat","key","bpm",
                   "cover","lyrics","chords","analyzed","stars","favorite","blur"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
-        return
+        return 0
     conn = connect()
-    conn.execute(f"UPDATE songs SET {','.join(f'{k}=?' for k in fields)} WHERE id=?",
-                list(fields.values()) + [cid])
+    cur = conn.execute(f"UPDATE songs SET {','.join(f'{k}=?' for k in fields)} WHERE id=?",
+                       list(fields.values()) + [cid])
     conn.commit(); conn.close()
+    _touch()
+    return cur.rowcount or 0
+
+
+_METADATA_FIELDS = ("artist", "title", "album", "year", "genre")
 
 
 def edit(cid: int, **fields) -> dict | None:
     """Cambia los datos de una cancion en el indice y en las etiquetas.
 
     Lo usan la API y el asistente: un solo camino para que no se separen.
+    La ficha que devuelve lleva `tags_written`: si el archivo se actualizo
+    de verdad. Antes se ignoraba el resultado y en un flac o un m4a la
+    edicion cambiaba el indice y el archivo se quedaba igual, sin aviso.
     """
     c = by_id(cid)
     if not c:
         return None
     update(cid, **fields)
+    written = False
     if config.WRITE_TAGS and os.path.exists(c["path"]):
-        tags.write(c["path"],
-                   artist=fields.get("artist", c["artist"]),
-                   title=fields.get("title", c["title"]),
-                   album=fields.get("album", c["album"]),
-                   year=str(fields.get("year", c["year"])),
-                   genre=fields.get("genre", c["genre"]))
+        written = True
+        if any(k in fields for k in _METADATA_FIELDS):
+            written = tags.write(c["path"],
+                                 artist=fields.get("artist", c["artist"]),
+                                 title=fields.get("title", c["title"]),
+                                 album=fields.get("album", c["album"]),
+                                 year=str(fields.get("year", c["year"])),
+                                 genre=fields.get("genre", c["genre"])) and written
         if "key" in fields or "bpm" in fields:
-            tags.write_analysis(c["path"], fields.get("key", c["key"]),
-                                fields.get("bpm", c["bpm"]))
-        # la letra vive en el USLT del propio mp3, no solo en el indice
+            written = tags.write_analysis(c["path"], fields.get("key", c["key"]),
+                                          fields.get("bpm", c["bpm"])) and written
+        # la letra vive en el USLT del propio archivo, no solo en el indice
         if "lyrics" in fields:
-            tags.write_lyrics(c["path"], fields["lyrics"] or "")
-    return by_id(cid)
+            written = tags.write_lyrics(c["path"], fields["lyrics"] or "") and written
+    out = by_id(cid)
+    if out is not None:
+        out["tags_written"] = bool(written)
+    return out
 
 
-def index_file(path: str) -> dict | None:
+def index_file(path: str, roots=None, vocab=None) -> dict | None:
     """Mete en el indice un archivo recien llegado, sin reescanear todo.
 
     Sin esto, lo que se descarga o se importa se mueve a Artistas/ pero no
     aparece en la app hasta el siguiente escaneo completo: el archivo esta en
     el disco y el usuario no lo ve por ningun lado.
+
+    `roots` y `vocab` se pueden pasar ya calculados: la importacion y las
+    descargas llaman a esto en bucle, y consultar las carpetas y relistar
+    Artistas/ por cada archivo era lo que mas tardaba.
     """
     path = os.path.abspath(path)
     if not os.path.isfile(path):
         return None
-    root = next((r for r in _roots()
-                 if path.startswith(r.rstrip("/") + os.sep)), None)
+    roots = _roots() if roots is None else roots
+    root = next((r for r in roots if _inside(path, r)), None)
     if root is None:
         return None                      # fuera de las carpetas gestionadas
     try:
-        row = _row(path, root, names.vocabulary(config.ARTISTS_DIR))
+        row = _row(path, root, names.vocabulary(config.ARTISTS_DIR)
+                   if vocab is None else vocab)
     except OSError:
+        log.warning("no se pudo indexar %s", path, exc_info=True)
         return None
     conn = connect()
-    conn.execute(f"INSERT OR REPLACE INTO songs ({','.join(COLUMNS)}) "
-                 f"VALUES ({','.join('?' * len(COLUMNS))})", row)
+    # si ya estaba, se actualiza en sitio: un INSERT OR REPLACE le daria un
+    # id nuevo y las listas que lo tuvieran lo perderian
+    old = conn.execute("SELECT id FROM songs WHERE path=?", (path,)).fetchone()
+    if old:
+        conn.execute(_UPDATE_SQL, row + (old["id"],))
+    else:
+        conn.execute(_INSERT_SQL, row)
     conn.commit()
     r = conn.execute("SELECT * FROM songs WHERE path=?", (path,)).fetchone()
     conn.close()
+    _touch()
     return dict(r) if r else None
+
+
+def trash_path(path) -> dict:
+    """Manda un archivo a la papelera del sistema. No toca el indice.
+
+    `send2trash` sabe de la papelera de Linux, Windows y macOS. En Linux, si
+    falla (archivos en otro disco montado, por ejemplo), se prueba con
+    `gio trash`, que conoce las papeleras de cada volumen. Si nada funciona
+    se avisa: borrar sin vuelta atras no es una opcion.
+    """
+    path = str(path)
+    if not os.path.lexists(path):
+        return {"ok": True, "missing": True}
+    reason = ""
+    try:
+        from send2trash import send2trash
+        send2trash(path)
+        return {"ok": True}
+    except Exception as e:                                  # noqa: BLE001
+        log.warning("send2trash no pudo con %s", path, exc_info=True)
+        reason = str(e)[:120]
+    if sys.platform.startswith("linux") and shutil.which("gio"):
+        r = subprocess.run(["gio", "trash", path], capture_output=True, text=True)
+        if r.returncode == 0:
+            return {"ok": True}
+        reason = (r.stderr or "").strip()[:120] or reason
+    return {"ok": False, "error": "no se pudo mandar a la papelera: " + reason}
 
 
 def trash(cid: int) -> dict:
@@ -713,22 +905,13 @@ def trash(cid: int) -> dict:
     A la papelera y no `unlink`: borrar musica del usuario sin vuelta atras,
     y menos desde un menu o desde el chat, es demasiado definitivo.
     """
-    import shutil as _sh, subprocess as _sp
     c = by_id(cid)
     if not c:
         return {"ok": False, "error": "no existe esa cancion"}
     path = c["path"]
-    if os.path.exists(path):
-        if not _sh.which("gio"):
-            return {"ok": False,
-                    "error": "este escritorio no tiene papelera; borralo a mano"}
-        r = _sp.run(["gio", "trash", path], capture_output=True, text=True)
-        if r.returncode != 0:
-            # pasa con archivos fuera del home (otro sistema de archivos sin
-            # papelera). Se avisa en vez de borrar sin vuelta atras.
-            return {"ok": False,
-                    "error": "no se pudo mandar a la papelera: "
-                             + (r.stderr or "").strip()[:120]}
+    r = trash_path(path)
+    if not r["ok"]:
+        return r
     forget(cid)
     return {"ok": True, "trashed": True, "path": path,
             "name": os.path.basename(path),
@@ -740,6 +923,7 @@ def forget(cid: int) -> None:
     conn = connect()
     conn.execute("DELETE FROM songs WHERE id=?", (cid,))
     conn.commit(); conn.close()
+    _touch()
 
 
 def forget_path(path: str) -> int:
@@ -751,6 +935,7 @@ def forget_path(path: str) -> int:
     conn = connect()
     cur = conn.execute("DELETE FROM songs WHERE path=?", (os.path.abspath(path),))
     conn.commit(); conn.close()
+    _touch()
     return cur.rowcount or 0
 
 
@@ -845,12 +1030,33 @@ def facets() -> dict:
     return d
 
 
+# `/api/status` pide las cifras continuamente y calcularlas es un agregado
+# sobre toda la tabla que ademas evalua `lyrics != ''`, la columna mas pesada.
+# Se recuerdan unos segundos, y cualquier escritura en `songs` las olvida al
+# instante con `_touch()`, asi que nunca se enseña un total viejo despues de
+# indexar o borrar algo.
+_STATS_TTL = 5.0
+_stats_cache: dict = {"at": 0.0, "db": "", "value": None}
+
+
+def _touch() -> None:
+    """Algo cambio en el indice: la proxima `stats_of` vuelve a contar."""
+    _stats_cache["at"] = 0.0
+
+
 def stats_of() -> dict:
+    key = str(config.DATABASE)
+    cached = _stats_cache
+    if (cached["value"] is not None and cached["db"] == key
+            and time.monotonic() - cached["at"] < _STATS_TTL):
+        return dict(cached["value"])
     conn = connect()
     f = conn.execute("SELECT COUNT(*) n, SUM(size) bytes, SUM(duration) seconds, "
                     "SUM(analyzed>0) analyzed_count, SUM(lyrics!='') with_lyrics, "
                     "SUM(artist='') without_artist FROM songs").fetchone()
     conn.close()
-    return {"total": f["n"] or 0, "bytes": f["bytes"] or 0, "seconds": f["seconds"] or 0,
-            "analyzed_count": f["analyzed_count"] or 0, "with_lyrics": f["with_lyrics"] or 0,
-            "without_artist": f["without_artist"] or 0}
+    value = {"total": f["n"] or 0, "bytes": f["bytes"] or 0, "seconds": f["seconds"] or 0,
+             "analyzed_count": f["analyzed_count"] or 0, "with_lyrics": f["with_lyrics"] or 0,
+             "without_artist": f["without_artist"] or 0}
+    _stats_cache.update(at=time.monotonic(), db=key, value=value)
+    return dict(value)

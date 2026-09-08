@@ -28,11 +28,14 @@ paso "2/4  nucleo empaquetado (PyInstaller)"
     packaging/core.spec
 
 paso "3/4  copiar el nucleo junto a la app"
-# La carpeta no esta en git (el binario pesa 40 MB y se genera aqui mismo),
-# asi que en un clon recien hecho hay que crearla antes de copiar.
+# La carpeta no esta en git (pesa 40 MB y se genera aqui mismo), asi que en un
+# clon recien hecho hay que crearla antes de copiar.
+#
+# Tauri quiere el sidecar con el triple del destino en el nombre. Se pregunta
+# a rustc en vez de escribirlo a mano: asi vale para cualquier maquina.
+TRIPLE=$(rustc -vV | awk '/^host:/{print $2}')
 mkdir -p desktop/src-tauri/binaries
-cp dist/core/danplay-core \
-   desktop/src-tauri/binaries/danplay-core-x86_64-unknown-linux-gnu
+cp dist/core/danplay-core "desktop/src-tauri/binaries/danplay-core-$TRIPLE"
 
 paso "4/4  app de escritorio (Tauri)"
 ( cd desktop/src-tauri && cargo build --release )

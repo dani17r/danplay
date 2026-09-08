@@ -5,34 +5,55 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-# Biblioteca de referencia para las pruebas. No se incrusta una ruta
-# personal: se puede apuntar a la tuya con DANPLAY_TEST_MUSIC, y si no
-# existe las pruebas que la necesitan se saltan solas.
-SOURCE = os.environ.get("DANPLAY_TEST_MUSIC") or str(
-    pathlib.Path.home() / "Musica" / "Artistas")
+# La biblioteca de prueba se GENERA: mp3 de verdad, de un segundo de
+# silencio, hechos con ffmpeg (ver tests/conftest.py). Antes hacia falta la
+# musica del que ejecutara las pruebas, asi que en cualquier otra maquina —y
+# en integracion continua— casi todas se saltaban solas y no comprobaban nada.
+#
+# Con DANPLAY_TEST_MUSIC apuntando a una biblioteca de verdad se usa esa, por
+# si se quiere probar con archivos reales.
+SOURCE = os.environ.get("DANPLAY_TEST_MUSIC")
+
+ARTISTS = {
+    "Barak": ["Mi Gozo", "Sera Llena La Tierra", "Baruch Hashem"],
+    "New Wine": ["Shekinah", "A Una Voz", "Aceite Fresco"],
+}
+
+
+def _build_library(lib):
+    """Los mp3 sinteticos, con sus etiquetas puestas."""
+    from conftest import make_mp3
+    for artist, titles in ARTISTS.items():
+        for title in titles:
+            make_mp3(os.path.join(lib, "Artistas", artist, f"{artist} - {title}.mp3"),
+                     artist=artist, title=title, album="Pruebas")
+
+
+def _copy_library(lib):
+    copied = 0
+    for artist in ARTISTS:
+        d = os.path.join(SOURCE, artist)
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d))[:3]:
+            if f.endswith(".mp3"):
+                shutil.copy(os.path.join(d, f), os.path.join(lib, "Artistas", artist, f))
+                copied += 1
+    return copied
 
 
 @pytest.fixture(scope="module")
 def cliente():
     from fastapi.testclient import TestClient
     from danplay import config
+    if not shutil.which("ffmpeg") and not SOURCE:
+        pytest.skip("hace falta ffmpeg para generar la biblioteca de prueba")
     tmp = tempfile.mkdtemp(prefix="danplay-pruebas-")
     lib = os.path.join(tmp, "Musica")
     for sub in ("Artistas/Barak", "Artistas/New Wine", "Entrada", "Secuencias"):
         os.makedirs(os.path.join(lib, sub), exist_ok=True)
-    if not os.path.isdir(SOURCE):
-        pytest.skip("no hay biblioteca de referencia")
-    copied = 0
-    for artist, target in (("Barak", "Barak"), ("New Wine", "New Wine")):
-        d = os.path.join(SOURCE, artist)
-        if not os.path.isdir(d):
-            continue
-        for f in sorted(os.listdir(d))[:3]:
-            if f.endswith(".mp3"):
-                shutil.copy(os.path.join(d, f), os.path.join(lib, "Artistas", target, f))
-                copied += 1
-    if not copied:
-        pytest.skip("no se pudo preparar la biblioteca")
+    if not (SOURCE and os.path.isdir(SOURCE) and _copy_library(lib)):
+        _build_library(lib)
 
     config.LIBRARY = __import__("pathlib").Path(lib)
     config.INBOX = config.LIBRARY / "Entrada"
@@ -335,7 +356,7 @@ def test_chat_create_playlist_tool(cliente):
     from danplay import chat as CH, playlists as L
     ids = [c["id"] for c in CH.run_tool("search_songs", {"query": "", "limit": 3})["songs"]]
     r = CH.run_tool("create_playlist", {"name": "Prueba del chat", "ids": ids})
-    assert r["añadidas"] == len(ids)
+    assert r["added"] == len(ids)
     assert any(l["name"] == "Prueba del chat" for l in L.list_all())
     L.remove(r["playlist_id"])
 
@@ -583,8 +604,15 @@ def test_resolving_a_duplicate_updates_the_index(cliente):
              cliente.get("/api/search", params={"limit": 500}).json()["songs"]}
     assert str(copia) in antes
 
+    # `dry_run` es True por defecto: borrar hay que pedirlo expresamente
+    prueba = cliente.post("/api/duplicates/resolve",
+                          json={"keep": str(copia), "remove": [original["path"]]}).json()
+    assert prueba["dry_run"] and os.path.exists(original["path"]), \
+        "sin pedirlo, no deberia borrar nada"
+
     r = cliente.post("/api/duplicates/resolve",
-                     json={"keep": str(copia), "remove": [original["path"]]}).json()
+                     json={"keep": str(copia), "remove": [original["path"]],
+                           "dry_run": False}).json()
     assert r["ok"], r
 
     despues = {c["path"] for c in
@@ -887,3 +915,155 @@ def test_the_duplicate_report_uses_the_keys_the_interface_reads():
     for viejo in ("sugerida", "relativa", "tiene_sufijo"):
         assert viejo not in fuente, f"quedo «{viejo}» en la API"
         assert viejo not in vue, f"quedo «{viejo}» en la interfaz"
+
+
+# --------------------------------------------------------------- seguridad
+# El transporte: por socket Unix no hace falta nada, pero en Windows la app
+# habla por loopback y ahi el token es lo unico que separa a DanPlay de
+# cualquier otro programa del equipo.
+
+def test_with_a_token_nothing_passes_without_it(cliente):
+    from danplay import api as A
+    A._TOKEN = "secreto-de-prueba"
+    try:
+        assert cliente.get("/api/status").status_code == 401
+        assert cliente.get("/api/status", headers={"Authorization": "Bearer otro"}
+                           ).status_code == 401
+        ok = cliente.get("/api/status", headers={"Authorization": "Bearer secreto-de-prueba"})
+        assert ok.status_code == 200
+    finally:
+        A._TOKEN = ""
+
+
+def test_in_browser_mode_a_plain_post_is_refused(cliente):
+    """Sin la cabecera propia, un POST desde otra pagina no dispara nada.
+
+    CORS impide LEER la respuesta, pero no evita el efecto: un POST sin cuerpo
+    a /api/scan desde cualquier pestaña abierta arrancaba un escaneo.
+    """
+    from danplay import api as A
+    A._ENFORCE_HOST = True
+    local = {"Host": "localhost"}       # el TestClient manda «testserver»
+    try:
+        assert cliente.post("/api/scan", headers=local).status_code == 403
+        r = cliente.post("/api/scan", headers={**local, "X-DanPlay": "1"})
+        assert r.status_code in (200, 409)
+        # leer nunca hace nada, asi que no se pide
+        assert cliente.get("/api/status", headers=local).status_code == 200
+    finally:
+        A._ENFORCE_HOST = False
+
+
+def test_an_unknown_host_is_refused(cliente):
+    from danplay import api as A
+    A._ENFORCE_HOST = True
+    try:
+        r = cliente.get("/api/status", headers={"Host": "malo.example"})
+        assert r.status_code == 421
+    finally:
+        A._ENFORCE_HOST = False
+
+
+def test_editing_only_accepts_the_fields_a_person_can_fix(cliente):
+    """Poner estrellas por aqui dejaba el indice y el archivo diciendo cosas
+    distintas: las estrellas van al POPM del mp3, no a la base a secas."""
+    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    assert cliente.patch(f"/api/song/{cid}", json={"stars": 5}).status_code == 422
+    assert cliente.patch(f"/api/song/{cid}", json={"cid": 1}).status_code == 422
+    assert cliente.patch(f"/api/song/{cid}", json={"title": "Nuevo"}).status_code == 200
+
+
+def test_stars_out_of_range_are_refused(cliente):
+    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    assert cliente.post(f"/api/song/{cid}/stars", json={"stars": 9}).status_code == 422
+    assert cliente.post(f"/api/song/{cid}/stars", json={"stars": 3}).status_code == 200
+
+
+def test_resolving_refuses_paths_outside_the_library(cliente, tmp_path):
+    fuera = tmp_path / "fuera.mp3"
+    fuera.write_bytes(b"x" * 100)
+    dentro = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["path"]
+    r = cliente.post("/api/duplicates/resolve",
+                     json={"keep": dentro, "remove": [str(fuera)], "dry_run": False})
+    assert r.status_code == 400
+    assert fuera.exists(), "no deberia haber borrado nada de fuera"
+
+
+def test_a_cover_has_to_be_an_image(cliente, tmp_path):
+    """Se podia pasar cualquier archivo del disco y recuperarlo despues
+    pidiendo la caratula de esa cancion."""
+    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    secreto = tmp_path / "secreto.txt"
+    secreto.write_text("una contraseña")
+    assert cliente.post(f"/api/song/{cid}/cover", json={"path": str(secreto)}).status_code == 400
+    disfrazado = tmp_path / "disfrazado.jpg"
+    disfrazado.write_text("tampoco soy una imagen")
+    assert cliente.post(f"/api/song/{cid}/cover",
+                        json={"path": str(disfrazado)}).status_code == 400
+
+
+def test_the_audio_says_its_real_format(cliente):
+    d = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    r = cliente.get(f"/api/song/{d['id']}/path").json()
+    assert r["kind"] == "audio/mpeg"
+    from danplay.api import audio_type
+    assert audio_type("x.flac") == "audio/flac"
+    assert audio_type("x.opus") == "audio/opus"
+    assert audio_type("x.m4a") == "audio/mp4"
+
+
+def test_the_assistant_does_not_delete_on_its_own():
+    """Lo que no tiene vuelta atras se pregunta ANTES, aunque lo pida el modelo.
+
+    Por la busqueda web y por los titulos de YouTube entra texto que escribe
+    cualquiera; si eso pudiera disparar un borrado, bastaria con una linea
+    bien puesta en una pagina.
+    """
+    from danplay import chat
+    llamadas = []
+
+    class _Call:
+        def __init__(self, name, args):
+            self.id = "1"
+            self.function = type("f", (), {"name": name, "arguments": args})()
+
+    class _FakeClient:
+        class chat:                                          # noqa: N801
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    llamadas.append(kw)
+                    if len(llamadas) == 1:
+                        msg = type("m", (), {"content": "", "tool_calls":
+                                             [_Call("delete_song", '{"id": 1}')]})()
+                    else:
+                        msg = type("m", (), {"content": "Te lo pregunto antes.",
+                                             "tool_calls": None})()
+                    return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+
+    original_get, original_available = chat.ai._get_client, chat.ai.available
+    borradas = []
+    original_trash = chat.library.trash
+    chat.ai._get_client = lambda: _FakeClient()
+    chat.ai.available = lambda: True
+    chat.library.trash = lambda cid: borradas.append(cid) or {"ok": True}
+    try:
+        r = chat.reply([{"role": "user", "text": "borra la 1"}])
+    finally:
+        chat.ai._get_client, chat.ai.available = original_get, original_available
+        chat.library.trash = original_trash
+
+    assert borradas == [], "no puede borrar sin preguntar"
+    assert r["confirm"], "deberia devolver que quiere confirmacion"
+    assert r["confirm"]["tool"] == "delete_song"
+    assert "papelera" in r["confirm"]["summary"]
+
+
+def test_confirming_is_only_for_the_three_that_need_it():
+    from danplay import chat
+    assert chat.confirm("search_songs", {})["ok"] is False
+
+
+def test_the_confirm_endpoint_refuses_anything_else(cliente):
+    r = cliente.post("/api/chat/confirm", json={"tool": "search_songs", "args": {}})
+    assert r.status_code == 400

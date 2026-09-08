@@ -1,0 +1,17 @@
+/* Los estilos, por áreas. El orden IMPORTA: es el mismo que tenía el
+   archivo único de 1.245 líneas del que salieron, y varias reglas de abajo
+   ajustan a propósito lo que definen las de arriba.
+
+   Antes era un solo archivo al que se le iban pegando parches al final; ya
+   no cabía en la cabeza de nadie y por eso convivían reglas muertas
+   (.searchbox, cuando la app usa .search-box) con otras repetidas. */
+@import url('./base.css');
+@import url('./list-rows.css');
+@import url('./list-cards.css');
+@import url('./search.css');
+@import url('./ui.css');
+@import url('./responsive.css');
+@import url('./drawers.css');
+@import url('./drag.css');
+@import url('./mini.css');
+@import url('./motion.css');

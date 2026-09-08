@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import { allCss } from './support/css.js'
 import { readFileSync, readdirSync } from 'node:fs'
-import { CATALOG, FIELDS, applyTheme, allThemes, SIZES, applySize, savedSize, applyDensity } from '../src/themes.js'
+import { CATALOG, FIELDS, applyTheme, SIZES, applySize, savedSize, applyDensity } from '../src/themes.js'
 
-const css = readFileSync('src/style.css', 'utf8')
+const css = allCss()
 
 describe('los colores salen del tema', () => {
   it('no hay colores fijos fuera de las variables', () => {

@@ -48,7 +48,7 @@ const realType = computed(() =>
       <!-- Sitio para lo que cada campo quiera poner DENTRO de la caja, a la
            derecha: el boton de busqueda avanzada, un «copiar»... Fuera
            quedaba como un boton suelto al lado, no como parte del campo. -->
-      <slot name="acciones" />
+      <slot name="actions" />
     </span>
     <span v-if="error" class="field-error">{{ error }}</span>
     <span v-else-if="hint" class="field-hint">{{ hint }}</span>

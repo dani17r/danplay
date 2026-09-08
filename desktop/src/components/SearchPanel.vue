@@ -10,7 +10,7 @@
  * Lo que no cabe en esa sintaxis —favoritos, estrellas minimas, el orden—
  * viaja como parametros propios.
  */
-import { ref, computed, watch } from 'vue'
+import { computed } from 'vue'
 import Icon from './Icon.vue'
 import SelectField from './ui/SelectField.vue'
 import TextField from './ui/TextField.vue'

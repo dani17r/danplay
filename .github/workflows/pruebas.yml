@@ -1,0 +1,83 @@
+# Las pruebas en cada push. No habia ninguna automatizacion: las pruebas solo
+# corrian si alguien se acordaba, y varias se saltaban solas porque dependian
+# de la musica del que las ejecutara. Ahora la biblioteca de prueba se genera
+# con ffmpeg, asi que aqui comprueban lo mismo que en tu equipo.
+name: pruebas
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  nucleo:
+    name: núcleo Python y crate de Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: programas del sistema
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg libchromaprint-tools
+      - name: dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: pruebas del núcleo
+        run: pytest tests/test_core.py tests/test_api.py -q
+      - name: pruebas del crate
+        run: cargo test --release --manifest-path core/Cargo.toml
+      - name: avisos de seguridad de las dependencias
+        run: |
+          cargo install cargo-audit --locked || true
+          cargo audit --file core/Cargo.lock
+
+  interfaz:
+    name: interfaz
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - name: estilo
+        run: npm run lint && npm run lint:css
+      - name: los iconos están al día
+        run: node scripts/icons.mjs --check
+      - name: pruebas
+        run: npm test
+      - name: compila
+        run: npx vite build
+      - name: rutas de medios
+        working-directory: .
+        run: node tests/test_frontend.mjs
+
+  escritorio:
+    name: envoltorio de escritorio
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - name: dependencias de Tauri
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            librsvg2-dev patchelf libasound2-dev libdbus-1-dev
+      - name: pruebas del reproductor, la cola y la bandeja
+        run: cargo test --release --manifest-path desktop/src-tauri/Cargo.toml

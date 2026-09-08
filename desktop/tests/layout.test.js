@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
+import { allCss } from './support/css.js'
 import { readFileSync } from 'node:fs'
 
-const css = readFileSync('src/style.css', 'utf8')
+const css = allCss()
 // sin comentarios: si no, se cuelan en la captura del selector
 const limpio = css.replace(/\/\*[\s\S]*?\*\//g, '')
 const reglas = [...limpio.matchAll(/([^{}]+)\{([^{}]*)\}/g)]

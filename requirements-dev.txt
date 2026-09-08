@@ -1,0 +1,9 @@
+# Para trabajar en DanPlay: pruebas, el crate de Rust y el empaquetado.
+-r requirements.txt
+pytest==9.1.1
+# el crate de Rust que acelera hashes y analisis de audio (opcional en
+# ejecucion: si no esta, Python tiene su propia version mas lenta)
+maturin==1.15.0
+-e ./core
+# el nucleo empaquetado que viaja dentro del .deb / .AppImage / instalador
+pyinstaller==6.22.2

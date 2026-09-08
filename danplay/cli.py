@@ -71,7 +71,9 @@ def cmd_exclude(args):
 
 def cmd_playlist(args):
     if args.action == "create":
-        print(f"{GREEN}creada{RESET} id={playlists.create(args.name)}")
+        made = playlists.create(args.name)
+        estado = "creada" if made["created"] else "ya existia"
+        print(f"{GREEN}{estado}{RESET} id={made['id']}")
     elif args.action == "remove":
         playlists.remove(int(args.name)); print("borrada")
     elif args.action == "show":
@@ -271,6 +273,10 @@ def cmd_watch(args):
 
 
 def main(argv=None):
+    # Un solo sitio donde se decide como se ven los avisos. Sin esto, todo lo
+    # que el nucleo tragaba en silencio seguia sin verse ni ejecutandolo a mano.
+    import logging
+    logging.basicConfig(level=logging.INFO, format="danplay: %(message)s")
     p = argparse.ArgumentParser(prog="danplay", description="Gestor de biblioteca musical")
     sub = p.add_subparsers(dest="cmd", required=True)
 

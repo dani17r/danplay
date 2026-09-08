@@ -1,5 +1,6 @@
 <script setup>
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { notify } from '../composables/useNotices.js'
 import { api, pickImage } from '../api.js'
 import StarRating from './StarRating.vue'
 import Icon from './Icon.vue'
@@ -13,7 +14,7 @@ import TextField from './ui/TextField.vue'
 const props = defineProps(['song', 'aiReady'])
 // «blur» a secas no: es el nombre de un evento nativo del DOM y se presta
 // a confusion con el foco.
-const emit = defineEmits(['updated', 'notice', 'goSettings', 'toggleBlur'])
+const emit = defineEmits(['updated', 'goSettings', 'toggleBlur'])
 
 const details = ref(null)
 const loading = ref('')
@@ -80,7 +81,7 @@ async function saveEdit () {
     if ('bpm' in payload) payload.bpm = Number(payload.bpm) || 0
     emit('updated', await api.edit(props.song.id, payload))
     const n = Object.keys(payload).length
-    emit('notice', `${n} ${n === 1 ? 'campo guardado' : 'campos guardados'} en el archivo`, 'ok')
+    notify(`${n} ${n === 1 ? 'campo guardado' : 'campos guardados'} en el archivo`, 'ok')
     cancelEdit()
   } catch (e) {
     failure.value = String(e).replace(/^Error:\s*/, '')
@@ -104,7 +105,7 @@ async function changeCover () {
     const r = await api.setCover(props.song.id, path)
     emit('updated', r.song)
     coverVersion.value++
-    emit('notice', `Caratula cambiada (${r.kb} KB)`, 'ok')
+    notify(`Caratula cambiada (${r.kb} KB)`, 'ok')
   } catch (e) {
     failure.value = String(e).replace(/^Error:\s*/, '')
   } finally { loading.value = '' }
@@ -123,7 +124,7 @@ async function autofill () {
       blocked.value = { reason: r.reason || 'La IA no pudo completar toda la ficha.' }
     }
     const n = Object.keys(r.filled || {}).length
-    emit('notice', n ? `Ficha completada: ${Object.keys(r.filled)
+    notify(n ? `Ficha completada: ${Object.keys(r.filled)
       .map(k => FIELD_LABELS[k] || k).join(', ')}`
       : (r.reason || 'No se pudo completar nada'), n ? 'ok' : 'info')
   } catch (e) {
@@ -181,7 +182,7 @@ async function enrich (opts) {
     if (opts.lyrics) hecho.push(r.song?.lyrics && !antes.lyrics ? 'letra encontrada'
                                 : r.song?.lyrics ? 'ya tenia letra' : 'no se encontro letra')
     if (opts.cover) hecho.push(r.result?.cover ? 'portada encontrada' : 'no se encontro portada')
-    if (hecho.length) emit('notice', hecho.join(' · '),
+    if (hecho.length) notify(hecho.join(' · '),
                            hecho.some(h => h.includes('encontrada')) ? 'ok' : 'info')
   } catch (e) {
     failure.value = String(e).replace(/^Error:\s*/, '')
@@ -231,13 +232,13 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
           <div class="copiable">
             <div class="details-title">{{ song.title || song.file }}</div>
             <CopyButton :text="song.title || song.file" what="el titulo"
-                        @copied="ok => emit('notice', ok ? 'Titulo copiado'
+                        @copied="ok => notify(ok ? 'Titulo copiado'
                           : 'No se pudo copiar', ok ? 'ok' : 'info')" />
           </div>
           <div class="copiable">
             <div class="details-artist">{{ song.artist || 'Artista sin identificar' }}</div>
             <CopyButton v-if="song.artist" :text="song.artist" what="el artista"
-                        @copied="ok => emit('notice', ok ? 'Artista copiado'
+                        @copied="ok => notify(ok ? 'Artista copiado'
                           : 'No se pudo copiar', ok ? 'ok' : 'info')" />
           </div>
           <div v-if="song.feat && !editing" class="details-artist" style="font-size:12px">
@@ -341,7 +342,7 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
         <span class="badge" v-if="acordesJson.confidence">
           confianza {{ Math.round(acordesJson.confidence*100) }}%</span>
         <CopyButton :text="acordesParaCopiar" what="los acordes" :size="14"
-                    @copied="ok => emit('notice', ok ? 'Acordes copiados'
+                    @copied="ok => notify(ok ? 'Acordes copiados'
                       : 'No se pudo copiar', ok ? 'ok' : 'info')" />
       </h4>
       <div v-if="progression" class="chords">{{ progression }}</div>
@@ -381,7 +382,7 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
     <div class="section copiable-section" v-if="song.lyrics">
       <h4>Letra
         <CopyButton :text="song.lyrics" what="la letra" :size="14"
-                    @copied="ok => emit('notice', ok ? 'Letra copiada'
+                    @copied="ok => notify(ok ? 'Letra copiada'
                       : 'No se pudo copiar', ok ? 'ok' : 'info')" /></h4>
       <div class="lyrics">{{ song.lyrics }}</div>
     </div>

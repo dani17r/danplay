@@ -121,10 +121,14 @@ describe('el menu de Vista', () => {
       .not.toContain('Tema')
   })
 
-  it('el mini reproductor solo se ofrece dentro de la app de escritorio', async () => {
-    const w = await montar()          // native.available es false en las pruebas
+  // El mini reproductor ya no se abre desde aqui: sale al pulsar el icono de
+  // la bandeja, que es lo que se pidio. Lo que si tiene que haber es una
+  // forma de salir, porque cerrar la ventana ahora solo la esconde.
+  it('ofrece salir de la aplicacion', async () => {
+    const w = await montar()
     await abrir(w)
-    expect(w.find('.mini-open').exists()).toBe(false)
+    const salir = w.findAll('button').find(b => b.text().includes('Salir de DanPlay'))
+    expect(salir, 'sin esto no hay forma de cerrar DanPlay desde la ventana').toBeTruthy()
   })
 })
 

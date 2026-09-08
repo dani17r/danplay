@@ -1,7 +1,12 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { api, pickFolder } from '../api.js'
-import { DENSITIES, KIND_LABEL, allThemes, deleteCustomTheme, applyTheme } from '../themes.js'
+import { api, pickFolder, errorMessage } from '../api.js'
+import { addFolder } from '../utils/folders.js'
+import { usePreferences } from '../composables/usePreferences.js'
+import { notify } from '../composables/useNotices.js'
+import { ask, tell } from '../composables/useDialog.js'
+import { formatGigabytes } from '../utils/format.js'
+import { DENSITIES, KIND_LABEL, allThemes, deleteCustomTheme } from '../themes.js'
 import ThemeEditor from './ThemeEditor.vue'
 import Icon from './Icon.vue'
 import Loading from './ui/Loading.vue'
@@ -14,8 +19,8 @@ const status = ref(null)
 const settings = ref({})
 const folders = ref({ folders: [], exclusions: [], always_excluded: [] })
 const convertibles = ref(null)
-const rutaNueva = ref('')
-const patronNuevo = ref('')
+const newPath = ref('')
+const newPattern = ref('')
 const busy = ref('')
 const aiKey = ref('')
 const fingerprintKey = ref('')
@@ -27,20 +32,25 @@ const keyState = ref(null)
 async function checkKey () {
   checkingKey.value = true; keyState.value = null
   try { keyState.value = await api.checkAi() }
-  catch (e) { keyState.value = { ok: false, reason: String(e).replace(/^Error:\s*/, '') } }
+  catch (e) { keyState.value = { ok: false, reason: errorMessage(e) } }
   finally { checkingKey.value = false }
 }
 const folderNotice = ref(null)
 const editor = ref(null)      // null | '' (isNew) | key (editar)
 const catalog = ref(allThemes())
-function afterSave (key) { catalog.value = allThemes(); editor.value = null; emit('theme', key) }
-function removeTheme (key) {
-  if (!confirm('¿Borrar este tema?')) return
+// El tema y la densidad viven en las preferencias, no en props que suben y
+// bajan por eventos hasta App.
+const { theme, density } = usePreferences()
+function afterSave (key) { catalog.value = allThemes(); editor.value = null; theme.value = key }
+async function removeTheme (key) {
+  const ok = await ask({ kind: 'confirm', title: 'Borrar el tema', danger: true,
+                         message: 'Se borrará este tema tuyo. Los del catálogo no se tocan.',
+                         okLabel: 'Borrar' })
+  if (!ok) return
   deleteCustomTheme(key); catalog.value = allThemes()
-  if (props.theme === key) emit('theme', 'night')
+  if (theme.value === key) theme.value = 'night'
 }
-const props = defineProps(['theme','density'])
-const emit = defineEmits(['reindexed','theme','density','changed'])
+const emit = defineEmits(['reindexed','changed'])
 
 async function load () {
   status.value = await api.status()
@@ -55,53 +65,52 @@ async function save (key, value) {
   settings.value = await api.saveSettings({ [key]: value })
   status.value = await api.status()
 }
-async function examinarCarpeta () {
-  const r = await pickFolder('Añadir carpeta de musica')
-  if (r) { rutaNueva.value = r; await agregarCarpeta() }
+async function browseFolder () {
+  const r = await pickFolder('Añadir carpeta de música')
+  if (r) { newPath.value = r; await addNewFolder() }
 }
 
-async function agregarCarpeta (forzar = false) {
-  const path = rutaNueva.value.trim()
-  if (!path) return
+// Los nombres de `action` los traduce `utils/folders.js`, que es el mismo
+// codigo que usa la bienvenida. Aqui se comparaban con los nombres en
+// castellano que la API dejo de usar, asi que no salia ningun aviso y el
+// caso «parece una copia» vaciaba el campo sin añadir nada.
+async function addNewFolder (force = false) {
+  if (!newPath.value.trim()) return
   busy.value = 'folder'
   folderNotice.value = null
   try {
-    const r = await api.addFolder(path, '', forzar)
-    folders.value = r
-    if (r.action === 'confirmar') {
-      folderNotice.value = { ...r.notice, confirmable: true }
+    const r = await addFolder(newPath.value, { force, scan: false })
+    if (r.action === 'confirm' || r.action === 'error') {
+      folderNotice.value = r
       return
     }
-    if (r.action === 'ya_estaba') {
-      folderNotice.value = { message: r.notice.message + ' — no hace falta añadirla otra vez',
-                             confirmable: false }
-    } else if (r.action === 'reemplaza') {
-      folderNotice.value = { message: r.notice.message + ' — se sustituyo por esta',
-                             confirmable: false }
-    }
-    rutaNueva.value = ''
+    folderNotice.value = r.action === 'added' ? null : r
+    folders.value = await api.folders()
+    newPath.value = ''
+    notify(r.message, r.kind)
     emit('changed')
-  } catch (e) {
-    folderNotice.value = { message: 'No existe esa carpeta', confirmable: false }
   } finally { busy.value = '' }
 }
 
-async function escanear () {
-  busy.value = 'escaneo'
+async function scan () {
+  busy.value = 'scan'
   try { const r = await api.scan(); status.value = await api.status(); emit('reindexed', r) }
   finally { busy.value = '' }
 }
 async function convert (dry_run) {
   busy.value = 'convert'
   try {
+    // OJO: la API lee `keep`, no `keepOne`. Con el nombre mal, «conservar el
+    // original» se ignoraba siempre y los archivos de partida se borraban.
     const r = await api.convert({ dry_run, quality: settings.value.quality,
-                                    keepOne: settings.value.keep_original })
-    alert(dry_run ? `Se convertirian ${r.converted} archivos`
-                  : `Convertidos ${r.converted}, fallos ${r.failures}`)
+                                  keep: settings.value.keep_original })
+    tell(dry_run ? `Se convertirían ${r.converted} archivos`
+                 : `Convertidos ${r.converted}, fallos ${r.failures}`,
+         { title: 'Conversión a mp3' })
     convertibles.value = await api.convertible()
   } finally { busy.value = '' }
 }
-const gb = (b) => (b / 1073741824).toFixed(2)
+const gb = formatGigabytes
 </script>
 
 <template>
@@ -112,7 +121,7 @@ const gb = (b) => (b / 1073741824).toFixed(2)
 
     <Card title="Apariencia" note="El tema se aplica al instante y se recuerda.">
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:9px">
-        <div v-for="(t,k) in catalog" :key="k" @click="emit('theme', k)"
+        <div v-for="(t,k) in catalog" :key="k" @click="theme = k"
              :style="{background:t.v.panel, border:'2px solid '+(theme===k?t.v.accent:t.v.border),
                       borderRadius:'8px', padding:'10px', cursor:'pointer', position:'relative'}">
           <div style="display:flex;gap:4px;margin-bottom:7px">
@@ -142,7 +151,7 @@ const gb = (b) => (b / 1073741824).toFixed(2)
       <div style="display:flex;align-items:center;gap:9px;margin-top:13px">
         <SelectField :modelValue="density" width="220px" label="Densidad de las listas"
                   :options="Object.entries(DENSITIES).map(([k,d]) => ({v: k, n: d.name}))"
-                  @update:modelValue="v => emit('density', v)" />
+                  @update:modelValue="v => density = v" />
       </div>
     </Card>
 
@@ -172,24 +181,24 @@ const gb = (b) => (b / 1073741824).toFixed(2)
         <button class="btn mini" @click="api.removeFolder(c.path).then(r=>{folders=r; emit('changed')})">Quitar</button>
       </div>
       <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="btn" :disabled="busy==='folder'" @click="examinarCarpeta" style="gap:7px">
+        <button class="btn" :disabled="busy==='folder'" @click="browseFolder" style="gap:7px">
           <Icon n="folderOpen" :t="15" /> Examinar…</button>
-        <TextField v-model="rutaNueva" width="100%" icon="folder"
-               placeholder="o escribe la ruta" @enter="agregarCarpeta()" />
-        <button class="btn" :disabled="busy==='folder' || !rutaNueva.trim()"
-                @click="agregarCarpeta()">Agregar</button>
+        <TextField v-model="newPath" width="100%" icon="folder"
+               placeholder="o escribe la ruta" @enter="addNewFolder()" />
+        <button class="btn" :disabled="busy==='folder' || !newPath.trim()"
+                @click="addNewFolder()">Agregar</button>
       </div>
       <div v-if="folderNotice" class="hint"
            :style="{color: folderNotice.confirmable ? 'var(--amber)' : 'var(--muted)'}">
         {{ folderNotice.message }}
         <div v-if="folderNotice.confirmable" class="btn-row" style="margin-top:8px">
-          <button class="btn mini" @click="agregarCarpeta(true)">Añadir igualmente</button>
+          <button class="btn mini" @click="addNewFolder(true)">Añadir igualmente</button>
           <button class="btn mini" @click="folderNotice=null">Cancelar</button>
         </div>
       </div>
       <div style="margin-top:12px">
-        <button class="btn primary" :disabled="busy==='escaneo'" @click="escanear">
-          {{ busy==='escaneo' ? 'Analizando…' : 'Analizar e indexar todo' }}</button>
+        <button class="btn primary" :disabled="busy==='scan'" @click="scan">
+          {{ busy==='scan' ? 'Analizando…' : 'Analizar e indexar todo' }}</button>
       </div>
     </Card>
 
@@ -202,10 +211,10 @@ const gb = (b) => (b / 1073741824).toFixed(2)
           ninguna</span>
       </div>
       <div style="display:flex;gap:8px;align-items:flex-end">
-        <TextField v-model="patronNuevo" width="100%" placeholder="Secuencias  o  */Copias/*"
-               @enter="api.addExclusion(patronNuevo).then(r=>{folders=r;patronNuevo=''})" />
-        <button class="btn" :disabled="!patronNuevo.trim()"
-                @click="api.addExclusion(patronNuevo).then(r=>{folders=r;patronNuevo=''})">
+        <TextField v-model="newPattern" width="100%" placeholder="Secuencias  o  */Copias/*"
+               @enter="api.addExclusion(newPattern).then(r=>{folders=r;newPattern=''})" />
+        <button class="btn" :disabled="!newPattern.trim()"
+                @click="api.addExclusion(newPattern).then(r=>{folders=r;newPattern=''})">
           Omitir</button>
       </div>
       <div class="hint">Siempre omitidas: {{ (folders.always_excluded || []).join(', ') }}</div>
@@ -220,8 +229,8 @@ const gb = (b) => (b / 1073741824).toFixed(2)
                @update:modelValue="v => save('keep_original', v)" />
       <div style="margin-top:11px">
         <SelectField :modelValue="settings.quality" width="240px" label="Calidad"
-                  :options="[{v:'alta',n:'Alta',note:'320 kbps'},
-                              {v:'media',n:'Media',note:'192 kbps'},
+                  :options="[{v:'high',n:'Alta',note:'320 kbps'},
+                              {v:'medium',n:'Media',note:'192 kbps'},
                               {v:'variable',n:'Variable',note:'V0, peso ajustado'}]"
                   @update:modelValue="v => save('quality', v)" />
       </div>
@@ -280,7 +289,7 @@ const gb = (b) => (b / 1073741824).toFixed(2)
 
     <Card title="Sistema">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
-        <span class="badge" :class="status.ia?'ok':'bad'">IA {{ status.ia?'lista':'sin clave' }}</span>
+        <span class="badge" :class="status.ai?'ok':'bad'">IA {{ status.ai?'lista':'sin clave' }}</span>
         <span class="badge" :class="status.rust?'ok':'bad'">Rust {{ status.rust?'activo':'no compilado' }}</span>
         <span class="badge" :class="status.ffmpeg?'ok':'bad'">ffmpeg</span>
         <span class="badge" :class="status.fingerprint?'ok':'bad'">Huella acustica</span>

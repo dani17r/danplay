@@ -15,25 +15,44 @@
         "title": "DanPlay",
         "width": 1440,
         "height": 900,
-        "minWidth": 1080,
-        "minHeight": 640,
+        "minWidth": 800,
+        "minHeight": 600,
         "resizable": true,
         "theme": "Dark",
         "label": "main"
+      },
+      {
+        "label": "mini",
+        "url": "index.html?mini=1",
+        "title": "DanPlay",
+        "width": 340,
+        "height": 196,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": true,
+        "shadow": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; media-src 'self' danplay: http://danplay.localhost; img-src 'self' data: danplay: http://danplay.localhost; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; script-src 'self'; media-src 'self' danplay: http://danplay.localhost; img-src 'self' danplay: http://danplay.localhost; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'"
     }
   },
   "bundle": {
     "active": true,
     "targets": [
       "deb",
-      "appimage"
+      "appimage",
+      "nsis"
     ],
     "icon": [
-      "icons/icon.png"
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
     ],
     "externalBin": [
       "binaries/danplay-core"
@@ -49,6 +68,18 @@
       },
       "appimage": {
         "bundleMediaFramework": false
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "Spanish",
+          "English"
+        ]
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
       }
     },
     "shortDescription": "Gestor de biblioteca musical",

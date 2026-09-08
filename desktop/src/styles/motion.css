@@ -1,0 +1,22 @@
+/* ============================================================
+   MOVIMIENTO REDUCIDO
+   Quien lo pide en su sistema no quiere que nada se mueva. Estaba puesto
+   suelto en cuatro sitios, asi que cubria cuatro cosas y dejaba fuera el
+   resto: los desplegables, los avisos, la flecha de los grupos, el destello
+   al saltar a una cancion...
+   Se dejan vivos los indicadores que GIRAN para decir «esto sigue en
+   marcha»: congelarlos no es respetar una preferencia, es aparentar que la
+   app se ha colgado.
+   ============================================================ */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;
+    transition-delay:0ms !important;
+  }
+  .spinner{
+    animation-duration:1.4s !important;
+    animation-iteration-count:infinite !important;
+  }
+}

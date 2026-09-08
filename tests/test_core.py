@@ -237,40 +237,79 @@ def test_strip_duplicate_suffix(value, expected):
     assert D.name_without_suffix(value) == expected
 
 
-def test_resolve_deletes_others_and_renames():
-    with tempfile.TemporaryDirectory() as d:
-        base = os.path.join(d, "Barak - Mi Gozo.mp3")
-        copy = os.path.join(d, "Barak - Mi Gozo - r.mp3")
-        for f in (base, copy):
-            with open(f, "wb") as h: h.write(b"x" * 100)
-        inodo_copia = os.stat(copy).st_ino
-        r = D.resolve(keep=copy, remove=[base])
-        assert r["ok"]
-        # queda un solo archivo, con el nombre limpio, y es el que conservamos
-        assert os.listdir(d) == ["Barak - Mi Gozo.mp3"]
-        assert os.path.basename(r["kept"]) == "Barak - Mi Gozo.mp3"
-        assert r["renamed"] is True
-        assert os.stat(r["kept"]).st_ino == inodo_copia
+@pytest.fixture
+def managed_dir(tmp_path, monkeypatch):
+    """Una carpeta gestionada de verdad: `resolve` solo toca lo que esta dentro."""
+    from danplay import config, library
+    folder = tmp_path / "Musica"
+    folder.mkdir()
+    # cada prueba con su propia base: `_prepared` se lleva por ruta, asi que
+    # apuntar DATABASE a un archivo nuevo basta para partir de cero
+    monkeypatch.setattr(config, "DATABASE", tmp_path / "danplay.db")
+    library.add_folder(str(folder))
+    return folder
 
 
-def test_resolve_keeps_clean_one_unrenamed():
-    with tempfile.TemporaryDirectory() as d:
-        base = os.path.join(d, "A - B.mp3")
-        copy = os.path.join(d, "A - B - r.mp3")
-        for f in (base, copy):
-            with open(f, "wb") as h: h.write(b"x" * 50)
-        r = D.resolve(keep=base, remove=[copy])
-        assert r["ok"] and r["renamed"] is False
-        assert os.path.isfile(base) and not os.path.exists(copy)
+def _fake_song(folder, name, size=100):
+    path = os.path.join(str(folder), name)
+    with open(path, "wb") as h:
+        h.write(b"x" * size)
+    return path
 
 
-def test_resolve_deletes_nothing_on_dry_run():
-    with tempfile.TemporaryDirectory() as d:
-        a = os.path.join(d, "X.mp3"); b = os.path.join(d, "X - r.mp3")
-        for f in (a, b):
-            with open(f, "wb") as h: h.write(b"y" * 20)
-        r = D.resolve(keep=b, remove=[a], dry_run=True)
-        assert r["dry_run"] and os.path.isfile(a) and os.path.isfile(b)
+def test_resolve_deletes_others_and_renames(managed_dir):
+    base = _fake_song(managed_dir, "Barak - Mi Gozo.mp3")
+    copy = _fake_song(managed_dir, "Barak - Mi Gozo - r.mp3")
+    copy_inode = os.stat(copy).st_ino
+    r = D.resolve(keep=copy, remove=[base], dry_run=False)
+    assert r["ok"], r
+    # queda un solo archivo, con el nombre limpio, y es el que conservamos
+    assert os.listdir(managed_dir) == ["Barak - Mi Gozo.mp3"]
+    assert os.path.basename(r["kept"]) == "Barak - Mi Gozo.mp3"
+    assert r["renamed"] is True
+    assert os.stat(r["kept"]).st_ino == copy_inode
+
+
+def test_resolve_keeps_clean_one_unrenamed(managed_dir):
+    base = _fake_song(managed_dir, "A - B.mp3", 50)
+    copy = _fake_song(managed_dir, "A - B - r.mp3", 50)
+    r = D.resolve(keep=base, remove=[copy], dry_run=False)
+    assert r["ok"] and r["renamed"] is False
+    assert os.path.isfile(base) and not os.path.exists(copy)
+
+
+def test_resolve_deletes_nothing_on_dry_run(managed_dir):
+    a = _fake_song(managed_dir, "X.mp3", 20)
+    b = _fake_song(managed_dir, "X - r.mp3", 20)
+    r = D.resolve(keep=b, remove=[a], dry_run=True)
+    assert r["dry_run"] and os.path.isfile(a) and os.path.isfile(b)
+
+
+def test_resolve_is_dry_by_default(managed_dir):
+    """Borrar es lo excepcional: sin pedirlo expresamente no se toca nada."""
+    a = _fake_song(managed_dir, "Y.mp3", 20)
+    b = _fake_song(managed_dir, "Y - r.mp3", 20)
+    r = D.resolve(keep=b, remove=[a])
+    assert r["dry_run"] and os.path.isfile(a)
+
+
+def test_resolve_refuses_paths_outside_the_library(managed_dir, tmp_path):
+    """Lo que llega de la API no puede borrar cualquier archivo del disco."""
+    inside = _fake_song(managed_dir, "Z.mp3", 20)
+    outside = tmp_path / "fuera.mp3"
+    outside.write_bytes(b"x" * 20)
+    r = D.resolve(keep=inside, remove=[str(outside)], dry_run=False)
+    assert not r["ok"] and "fuera" in r["reason"]
+    assert outside.exists()
+
+
+def test_resolve_refuses_non_audio(managed_dir):
+    """Ni siquiera dentro de la biblioteca se borra lo que no es musica."""
+    keep = _fake_song(managed_dir, "W.mp3", 20)
+    other = _fake_song(managed_dir, "apuntes.txt", 20)
+    r = D.resolve(keep=keep, remove=[other], dry_run=False)
+    assert not r["ok"]
+    assert os.path.isfile(other)
 
 
 def test_resolve_warns_if_kept_is_missing():

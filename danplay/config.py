@@ -5,19 +5,24 @@ Los datos del usuario (base de datos y claves) viven SIEMPRE en su home, nunca
 dentro del programa: asi la app se puede empaquetar y repartir sin arrastrar
 la biblioteca de nadie.
 """
-import os, shutil, sys
+import logging, os, shutil, sys
 from pathlib import Path
 from dotenv import load_dotenv
+from platformdirs import user_config_dir, user_data_dir
+
+log = logging.getLogger("danplay")
 
 FROZEN = getattr(sys, "frozen", False)          # True dentro del .deb/.AppImage
 PROJECT_ROOT = (Path(sys.executable).parent if FROZEN
                  else Path(__file__).resolve().parent.parent)
 
-def _xdg(var, default):
-    return Path(os.getenv(var) or Path.home() / default) / "danplay"
-
-DATA_DIR  = _xdg("XDG_DATA_HOME",   ".local/share")
-CONFIG_DIR = _xdg("XDG_CONFIG_HOME", ".config")
+# `platformdirs` da la carpeta correcta en cada sistema. En Linux respeta
+# XDG_DATA_HOME / XDG_CONFIG_HOME y cae a ~/.local/share y ~/.config: son
+# EXACTAMENTE las rutas que se usaban antes, asi que nadie pierde su base ni
+# sus ajustes al actualizar. `appauthor=False` evita que en Windows aparezca
+# una carpeta intermedia con el mismo nombre (AppData\Local\danplay\danplay).
+DATA_DIR   = Path(user_data_dir("danplay", appauthor=False))
+CONFIG_DIR = Path(user_config_dir("danplay", appauthor=False))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -30,7 +35,7 @@ for _old, _new in ((Path.home() / ".config/melodia/melodia.env", CONFIG_DIR / "d
         if _old.is_file() and not _new.exists():
             shutil.copy2(_old, _new)
     except OSError:
-        pass
+        log.warning("no se pudo migrar %s", _old, exc_info=True)
 
 # migracion desde el proyecto en desarrollo, una sola vez
 for source_path, target in ((PROJECT_ROOT / ".env", ENV_FILE),
@@ -39,7 +44,7 @@ for source_path, target in ((PROJECT_ROOT / ".env", ENV_FILE),
         if source_path.is_file() and not target.exists():
             shutil.copy2(source_path, target)
     except OSError:
-        pass
+        log.warning("no se pudo copiar %s", source_path, exc_info=True)
 
 load_dotenv(ENV_FILE)
 load_dotenv(PROJECT_ROOT / ".env", override=False)   # el proyecto solo como respaldo
@@ -83,11 +88,49 @@ def save_env(pairs: dict) -> None:
         lines = [l for l in lines if not l.startswith(key + "=")]
         lines.append(f"{key}={value}")
     ENV_FILE.write_text("\n".join(lines) + "\n")
-    os.chmod(ENV_FILE, 0o600)
+    # el archivo lleva claves de API: solo lo lee su dueño. En Windows los
+    # permisos POSIX no existen (el perfil del usuario ya es privado).
+    if os.name == "posix":
+        os.chmod(ENV_FILE, 0o600)
+
+
+def _default_library() -> Path:
+    """~/Musica si existe; si no, ~/Music (nombre en ingles); si no, ~/Musica."""
+    home = Path.home()
+    for name in ("Musica", "Music"):
+        if (home / name).is_dir():
+            return home / name
+    return home / "Musica"
+
+
+# Carpeta con ffmpeg/ffprobe/fpcalc cuando no estan en el PATH: la del
+# instalador (junto al ejecutable) o la que diga DANPLAY_TOOLS_DIR.
+TOOLS_DIR = os.getenv("DANPLAY_TOOLS_DIR", "")
+
+
+def find_tool(name: str) -> str | None:
+    """Ruta de un binario externo, o None.
+
+    Se mira primero en DANPLAY_TOOLS_DIR y junto al ejecutable (la app
+    empaquetada lleva ffmpeg y fpcalc dentro, sobre todo en Windows), y por
+    ultimo en el PATH del sistema.
+    """
+    candidates = []
+    if TOOLS_DIR:
+        candidates.append(Path(TOOLS_DIR))
+    if FROZEN:
+        candidates.append(Path(sys.executable).parent)
+    suffixes = (".exe", "") if os.name == "nt" else ("",)
+    for folder in candidates:
+        for suffix in suffixes:
+            p = folder / (name + suffix)
+            if p.is_file() and os.access(p, os.X_OK):
+                return str(p)
+    return shutil.which(name)
 
 
 # --- rutas ---
-LIBRARY = Path(env("DANPLAY_LIBRARY") or (Path.home() / "Musica")).expanduser()
+LIBRARY = Path(env("DANPLAY_LIBRARY") or _default_library()).expanduser()
 INBOX    = LIBRARY / env("DANPLAY_INBOX", "Entrada")
 ARTISTS_DIR   = LIBRARY / "Artistas"
 REVIEW_DIR    = LIBRARY / "Revisar"          # lo que no se pudo identificar

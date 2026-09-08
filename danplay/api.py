@@ -3,19 +3,163 @@
 
 La app de escritorio (Tauri + Vue) habla con esto en localhost.
 """
-import asyncio, io, os, shutil, subprocess
+import asyncio, hashlib, hmac, logging, mimetypes, os, threading, time
 from pathlib import Path
-from typing import Any
+from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query, Body
+from fastapi import FastAPI, HTTPException, Query, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import (ai, chat, config, convert, duplicates, enrich,
-               fingerprint, ingest, library, names, playlists,
-               tags, theory, web, youtube)
+               fingerprint, ingest, library, playlists,
+               tags, theory, youtube)
 
 from . import __version__
+
+log = logging.getLogger("danplay.api")
+
+# Cada formato con su tipo. El navegador rechaza un .flac anunciado como mp3.
+AUDIO_TYPES = {
+    ".mp3": "audio/mpeg", ".flac": "audio/flac", ".ogg": "audio/ogg",
+    ".opus": "audio/opus", ".m4a": "audio/mp4", ".aac": "audio/aac",
+    ".wav": "audio/wav", ".wma": "audio/x-ms-wma",
+}
+
+
+class Body_(BaseModel):
+    """Base de todos los cuerpos: lo que no se espera, se rechaza.
+
+    Antes se pasaba el diccionario entero a la funcion del nucleo, asi que
+    una clave de mas era un 500 y, en el caso de editar, una forma de tocar
+    campos que solo debe cambiar el propio programa.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+
+class SongEdit(Body_):
+    """Lo unico que se puede editar a mano de una cancion."""
+    artist: str | None = Field(default=None, max_length=300)
+    title: str | None = Field(default=None, max_length=300)
+    album: str | None = Field(default=None, max_length=300)
+    year: str | None = Field(default=None, max_length=10)
+    genre: str | None = Field(default=None, max_length=120)
+    key: str | None = Field(default=None, max_length=12)
+    bpm: float | None = Field(default=None, ge=0, le=400)
+    lyrics: str | None = Field(default=None, max_length=200_000)
+
+
+EDITABLE = tuple(SongEdit.model_fields)
+
+
+class Stars(Body_):
+    stars: int = Field(ge=0, le=5)
+
+
+class Favorite(Body_):
+    favorite: bool = True
+
+
+class Blur(Body_):
+    blur: bool = True
+
+
+class FolderIn(Body_):
+    path: str = Field(min_length=1, max_length=4096)
+    label: str = Field(default="", max_length=120)
+    force: bool = False
+
+
+class PathIn(Body_):
+    path: str = Field(min_length=1, max_length=4096)
+
+
+class ExclusionIn(Body_):
+    pattern: str = Field(min_length=1, max_length=512)
+    kind: Literal["glob", "path"] = "glob"
+    note: str = Field(default="", max_length=300)
+
+
+class ConvertIn(Body_):
+    quality: Literal["high", "medium", "variable"] | None = None
+    keep: bool = False
+    dry_run: bool = True
+
+
+class ResolveIn(Body_):
+    keep: str = Field(min_length=1, max_length=4096)
+    remove: list[str] = Field(default_factory=list, max_length=200)
+    # Borrar es lo excepcional: hay que pedirlo. Antes bastaba con no decir
+    # nada y se borraba de verdad.
+    dry_run: bool = True
+
+
+class ImportIn(Body_):
+    dry_run: bool = False
+    convert: bool | None = None
+
+
+class EnrichIn(Body_):
+    lyrics: bool = True
+    cover: bool = True
+    details: bool = True
+
+
+class TransposeIn(Body_):
+    text: str = Field(default="", max_length=100_000)
+    from_key: str = Field(default="", max_length=12)
+    to_key: str = Field(default="", max_length=12)
+    semitones: int = Field(default=0, ge=-24, le=24)
+
+
+class PlaylistIn(Body_):
+    name: str = Field(default="Nueva lista", min_length=1, max_length=200)
+    note: str = Field(default="", max_length=500)
+    color: str = Field(default="", max_length=32)
+
+
+class SongsIn(Body_):
+    ids: list[int] = Field(default_factory=list, max_length=5000)
+    id: int | None = None
+
+
+class OrderIn(Body_):
+    ids: list[int] = Field(default_factory=list, max_length=5000)
+
+
+class SettingsIn(Body_):
+    convert_mp3: bool | None = None
+    keep_original: bool | None = None
+    write_tags: bool | None = None
+    ai_enabled: bool | None = None
+    quality: Literal["high", "medium", "variable"] | None = None
+    model: str | None = Field(default=None, max_length=200)
+    ai_key: str | None = Field(default=None, max_length=400)
+    fingerprint_key: str | None = Field(default=None, max_length=400)
+    library: str | None = Field(default=None, max_length=4096)
+
+
+class YoutubeIn(Body_):
+    query: str = Field(default="", max_length=2000)
+    results: int = Field(default=5, ge=1, le=20)
+    quality: Literal["high", "medium", "variable"] | None = None
+    file_it: bool = True
+    force: bool = False
+
+
+class ChatIn(Body_):
+    messages: list[dict] = Field(default_factory=list, max_length=200)
+
+
+class ChatConfirmIn(Body_):
+    tool: str = Field(min_length=1, max_length=64)
+    args: dict = Field(default_factory=dict)
+
+
+def audio_type(path) -> str:
+    ext = os.path.splitext(str(path))[1].lower()
+    return AUDIO_TYPES.get(ext) or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
 
 app = FastAPI(title="DanPlay", version=__version__)
 
@@ -40,22 +184,73 @@ app.add_middleware(CORSMiddleware, allow_origins=DEV_ORIGINS,
 _ENFORCE_HOST = False
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
 
+# En Windows no hay sockets Unix que uvicorn sepa escuchar, asi que la app
+# habla por TCP en loopback. Para que «solo la app» siga siendo cierto, Rust
+# genera un secreto al arrancar y lo pasa por el entorno: sin el, 401.
+_TOKEN = ""
+
+# Cuerpos de peticion: 1 MB de sobra para todo menos el chat, que lleva el
+# historial de la conversacion. Sin tope, una letra de 200 MB acababa dentro
+# de un mp3.
+MAX_BODY = 1 * 1024 * 1024
+MAX_CHAT_BODY = 4 * 1024 * 1024
+
 
 @app.middleware("http")
-async def _only_local_hosts(request, call_next):
+async def _guard(request: Request, call_next):
+    path = request.url.path
+    if _TOKEN and path.startswith("/api/"):
+        sent = (request.headers.get("authorization") or "")
+        expected = f"Bearer {_TOKEN}"
+        # comparacion en tiempo constante: el token no se adivina a base de
+        # medir cuanto tarda en decir que no
+        if not hmac.compare_digest(sent, expected):
+            return Response(status_code=401, content=b"hace falta el token de la aplicacion")
+
     if _ENFORCE_HOST:
         host = (request.headers.get("host") or "").rsplit(":", 1)[0]
         if host not in ALLOWED_HOSTS:
             return Response(status_code=421, content=b"host no permitido")
+        # CORS impide LEER la respuesta, pero no evita que la peticion pase:
+        # un POST sin cuerpo desde cualquier pagina abierta en el navegador
+        # disparaba un escaneo o una importacion. Exigir una cabecera propia
+        # obliga al navegador a preguntar antes (preflight), y ahi CORS si
+        # corta.
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            if request.headers.get("x-danplay") != "1":
+                return Response(status_code=403, content=b"falta la cabecera X-DanPlay")
+
+    length = request.headers.get("content-length")
+    if length and length.isdigit():
+        tope = MAX_CHAT_BODY if path.startswith("/api/chat") else MAX_BODY
+        if int(length) > tope:
+            return Response(status_code=413, content=b"eso es demasiado grande")
     return await call_next(request)
 
 # estado de tareas largas (escaneo, analisis, conversion)
 JOBS: dict[str, dict] = {}
+_JOBS_LOCK = threading.Lock()
+# Cuanto se guarda un trabajo ya terminado antes de olvidarlo. Sin esto,
+# `JOBS` crecia para siempre y se devolvia entero en cada /api/status.
+JOB_TTL = 600
 
 
 def _job(name) -> dict:
-    JOBS[name] = {"active": True, "done": 0, "total": 0, "message": ""}
-    return JOBS[name]
+    """Reserva el trabajo. Si ya hay uno igual en marcha, no deja empezar otro."""
+    with _JOBS_LOCK:
+        now = time.time()
+        for key, job in list(JOBS.items()):
+            if not job.get("active") and now - job.get("ended", now) > JOB_TTL:
+                del JOBS[key]
+        current = JOBS.get(name)
+        if current and current.get("active"):
+            raise HTTPException(409, f"ya hay un(a) {name} en marcha")
+        JOBS[name] = {"active": True, "done": 0, "total": 0, "message": ""}
+        return JOBS[name]
+
+
+def _job_done(job: dict, message="") -> None:
+    job.update(active=False, message=message, ended=time.time())
 
 
 # ---------------------------------------------------------------- estado
@@ -91,7 +286,7 @@ def settings():
 
 
 @app.post("/api/settings")
-def save_settings(body: dict = Body(...)):
+def save_settings(body: SettingsIn = Body(...)):
     """Las casillas y campos de la app. Se aplican en caliente y se persisten."""
     flags = {"convert_mp3": ("CONVERT_TO_MP3", "DANPLAY_CONVERT"),
              "keep_original": ("KEEP_ORIGINAL", "DANPLAY_KEEP_ORIGINAL"),
@@ -102,7 +297,7 @@ def save_settings(body: dict = Body(...)):
              "ai_key": ("DEEPINFRA_API_KEY", "DEEPINFRA_API_KEY"),
              "fingerprint_key": ("ACOUSTID_API_KEY", "ACOUSTID_API_KEY")}
     save = {}
-    for k, v in body.items():
+    for k, v in body.model_dump(exclude_none=True).items():
         if k in flags:
             attr, env = flags[k]
             setattr(config, attr, bool(v)); save[env] = "1" if v else "0"
@@ -140,16 +335,16 @@ def folders():
 
 
 @app.post("/api/check-folder")
-def check_folder(body: dict = Body(...)):
+def check_folder(body: PathIn = Body(...)):
     """Mira si la carpeta repite musica ya indexada, antes de añadirla."""
-    path = body.get("path", "")
+    path = body.path
     if not os.path.isdir(os.path.expanduser(path)):
         raise HTTPException(400, "esa ruta no existe")
     return {"notice": library.check_overlap(path)}
 
 
 @app.post("/api/folders")
-def add_folder(body: dict = Body(...)):
+def add_folder(body: FolderIn = Body(...)):
     """Añade una carpeta. Es idempotente: repetir la misma no duplica nada.
 
     accion:
@@ -158,7 +353,7 @@ def add_folder(body: dict = Body(...)):
       confirmar   -> parece una copia de otra distinta; hace falta force
       agregada    -> añadida
     """
-    path = body.get("path", "")
+    path = body.path
     if not os.path.isdir(os.path.expanduser(path)):
         raise HTTPException(400, "esa ruta no existe")
 
@@ -170,13 +365,13 @@ def add_folder(body: dict = Body(...)):
 
     if kind == "contains":
         library.remove_folder(notice["other"])
-        library.add_folder(path, body.get("label", ""))
+        library.add_folder(path, body.label)
         return {"action": "replaced", "notice": notice, **folders()}
 
-    if kind == "copy" and not body.get("force"):
+    if kind == "copy" and not body.force:
         return {"action": "confirm", "notice": notice, **folders()}
 
-    if not library.add_folder(path, body.get("label", "")):
+    if not library.add_folder(path, body.label):
         raise HTTPException(400, "esa ruta no existe")
     return {"action": "added", "notice": notice, **folders()}
 
@@ -188,9 +383,8 @@ def remove_folder(path: str = Query(...)):
 
 
 @app.post("/api/exclusions")
-def add_exclusion(body: dict = Body(...)):
-    library.add_exclusion(body.get("pattern", ""), body.get("kind", "glob"),
-                        body.get("note", ""))
+def add_exclusion(body: ExclusionIn = Body(...)):
+    library.add_exclusion(body.pattern, body.kind, body.note)
     return folders()
 
 
@@ -206,9 +400,10 @@ async def scan():
     def work():
         try:
             r = library.scan(progress=lambda n: t.update(done=n))
-            t.update(active=False, message=f"{r['total']} canciones ({r['added_count']} nuevas)")
-        except Exception as ex:
-            t.update(active=False, message=f"error: {ex}")
+            _job_done(t, f"{r['total']} canciones ({r['added_count']} nuevas)")
+        except Exception as ex:                              # noqa: BLE001
+            log.warning("el escaneo fallo", exc_info=True)
+            _job_done(t, f"error: {ex}")
     await asyncio.get_running_loop().run_in_executor(None, work)
     return {"job": t, "stats": library.stats_of()}
 
@@ -254,8 +449,14 @@ def song(cid: int):
 
 
 @app.patch("/api/song/{cid}")
-def edit(cid: int, body: dict = Body(...)):
-    c = library.edit(cid, **body)
+def edit(cid: int, body: SongEdit = Body(...)):
+    """Solo los campos que el usuario puede corregir a mano.
+
+    Antes se pasaba el cuerpo entero, asi que se podian poner estrellas o el
+    favorito directamente en la base, sin escribirlos en el archivo: el
+    indice decia una cosa y el mp3 otra.
+    """
+    c = library.edit(cid, **body.model_dump(exclude_none=True))
     if not c:
         raise HTTPException(404, "no existe")
     return c
@@ -280,40 +481,78 @@ def audio(cid: int):
     c = library.by_id(cid)
     if not c or not os.path.exists(c["path"]):
         raise HTTPException(404, "archivo no encontrado")
-    return FileResponse(c["path"], media_type="audio/mpeg", filename=c["file"])
+    return FileResponse(c["path"], media_type=audio_type(c["path"]), filename=c["file"])
+
+
+# Tamaños de miniatura que se generan y se guardan. Pedir otro devuelve la
+# imagen tal cual: si no, cada pixel distinto seria un archivo nuevo en cache.
+THUMBNAIL_SIZES = (96, 192, 320)
+
+
+def _thumbnail(path: str, size: int) -> tuple[bytes, str] | None:
+    """Miniatura cuadrada de la caratula, guardada en disco para la proxima.
+
+    Una lista de mil canciones pedia mil caratulas completas —a menudo de dos
+    megas cada una— para pintarlas a 40 pixeles. Ahora se pide el tamaño que
+    se va a enseñar.
+    """
+    original = tags.cached_cover(path)
+    if not original:
+        return None
+    try:
+        stamp = os.path.getmtime(path)
+    except OSError:
+        stamp = 0
+    key = hashlib.sha1(f"{path}:{stamp}:{size}".encode()).hexdigest()
+    folder = config.DATA_DIR / "covers"
+    folder.mkdir(parents=True, exist_ok=True)
+    cached = folder / f"{key}.jpg"
+    if cached.is_file():
+        return cached.read_bytes(), "image/jpeg"
+    made = convert.shrink_bytes(original[0], original[1], max_side=size)
+    if not made:
+        return original
+    try:
+        cached.write_bytes(made[0])
+    except OSError:
+        log.warning("no pude guardar la miniatura %s", cached, exc_info=True)
+    return made
 
 
 @app.get("/api/song/{cid}/cover")
-def cover(cid: int):
+def cover(cid: int, size: int | None = Query(default=None)):
     c = library.by_id(cid)
     if not c:
         raise HTTPException(404, "no existe")
-    r = tags.cached_cover(c["path"]) if os.path.exists(c["path"]) else None
+    if not os.path.exists(c["path"]):
+        raise HTTPException(404, "sin portada")
+    r = _thumbnail(c["path"], size) if size in THUMBNAIL_SIZES else tags.cached_cover(c["path"])
     if not r:
         raise HTTPException(404, "sin portada")
-    return Response(content=r[0], media_type=r[1])
+    return Response(content=r[0], media_type=r[1],
+                    headers={"cache-control": "private, max-age=300"})
 
 
 @app.post("/api/song/{cid}/stars")
-def stars(cid: int, body: dict = Body(...)):
-    playlists.rate(cid, int(body.get("stars", 0)))
+def stars(cid: int, body: Stars = Body(...)):
+    playlists.rate(cid, body.stars)
     return library.by_id(cid)
 
 
 @app.post("/api/song/{cid}/favorite")
-def favorite(cid: int, body: dict = Body(...)):
-    playlists.favorite(cid, bool(body.get("favorite", True)))
+def favorite(cid: int, body: Favorite = Body(...)):
+    playlists.favorite(cid, body.favorite)
     return library.by_id(cid)
 
 
 @app.post("/api/song/{cid}/blur")
-def blur_cover(cid: int, body: dict = Body(default={})):
+def blur_cover(cid: int, body: Blur = Body(default=Blur())):
     """Difumina la portada al pintarla. La imagen no se toca.
 
     Para portadas que uno no quiere tener delante. Se guarda dentro del mp3,
     asi que la decision no se pierde ni al rehacer el indice.
     """
-    c = library.set_blur(cid, bool(body.get("blur", True)))
+    c = library.set_blur(cid, body.blur)
     if not c:
         raise HTTPException(404, "no existe")
     return c
@@ -327,10 +566,11 @@ def list_playlists():
 
 
 @app.post("/api/playlists")
-def create_playlist(body: dict = Body(...)):
-    lid = playlists.create(body.get("name", "Nueva lista"), body.get("note", ""),
-                  body.get("color", ""))
-    return {"id": lid, "playlists": playlists.list_all()}
+def create_playlist(body: PlaylistIn = Body(...)):
+    # `created` importa: con un nombre repetido se devuelve la que ya habia,
+    # y la interfaz tiene que poder decirlo en vez de fingir que creo una.
+    made = playlists.create(body.name, body.note, body.color)
+    return {**made, "playlists": playlists.list_all()}
 
 
 @app.delete("/api/playlists/{lid}")
@@ -345,9 +585,9 @@ def playlist_songs_of(lid: int):
 
 
 @app.post("/api/playlists/{lid}/songs")
-def add_to_playlist(lid: int, body: dict = Body(...)):
-    ids = body.get("ids") or [body.get("id")]
-    added = playlists.add(lid, [i for i in ids if i])
+def add_to_playlist(lid: int, body: SongsIn = Body(...)):
+    ids = body.ids or ([body.id] if body.id else [])
+    added = playlists.add(lid, [int(i) for i in ids if i])
     return {"added": added, "songs": playlists.songs(lid)}
 
 
@@ -358,8 +598,8 @@ def remove_from_playlist(lid: int, cid: int):
 
 
 @app.post("/api/playlists/{lid}/order")
-def reorder(lid: int, body: dict = Body(...)):
-    playlists.reorder(lid, body.get("ids", []))
+def reorder(lid: int, body: OrderIn = Body(...)):
+    playlists.reorder(lid, body.ids)
     return {"songs": playlists.songs(lid)}
 
 
@@ -371,23 +611,36 @@ def export(lid: int):
 # ---------------------------------------------------------------- IA
 
 @app.post("/api/song/{cid}/enrich")
-async def enrich_song(cid: int, body: dict = Body(default={})):
+async def enrich_song(cid: int, body: EnrichIn = Body(default=EnrichIn())):
     def work():
-        return enrich.enrich(cid, body.get("lyrics", True), body.get("cover", True),
-                             body.get("details", True))
+        return enrich.enrich(cid, body.lyrics, body.cover, body.details)
     r = await asyncio.get_running_loop().run_in_executor(None, work)
     return {"result": r, "song": library.by_id(cid)}
 
 
 @app.post("/api/song/{cid}/cover")
-def set_cover(cid: int, body: dict = Body(...)):
-    """Incrusta una imagen del disco como caratula de la cancion."""
+def set_cover(cid: int, body: PathIn = Body(...)):
+    """Incrusta una imagen del disco como caratula de la cancion.
+
+    Se comprueba que sea una imagen de verdad ANTES de pasarsela a ffmpeg y
+    de meterla en el mp3: por aqui se podia leer cualquier archivo del disco
+    y recuperarlo despues pidiendo la caratula.
+    """
     c = library.by_id(cid)
     if not c:
         raise HTTPException(404, "no existe")
-    src = str(body.get("path") or "").strip()
+    src = body.path.strip()
     if not src or not os.path.isfile(src):
         raise HTTPException(400, "esa imagen no existe")
+    if os.path.splitext(src)[1].lower() not in (".jpg", ".jpeg", ".png", ".webp"):
+        raise HTTPException(400, "solo valen imagenes jpg, png o webp")
+    try:
+        with open(src, "rb") as f:
+            head = f.read(16)
+    except OSError:
+        raise HTTPException(400, "no se pudo leer esa imagen")
+    if not enrich.image_type(head):
+        raise HTTPException(400, "ese archivo no es una imagen")
     r = convert.shrink_image(src)
     if not r:
         raise HTTPException(400, "no se pudo leer esa imagen")
@@ -424,13 +677,46 @@ async def details(cid: int):
 
 
 @app.post("/api/chat")
-async def converse(body: dict = Body(...)):
-    """Chat con acceso a la biblioteca. `mensajes`: [{rol: 'yo'|'ia', texto}]"""
-    messages = body.get("messages") or []
-    if not messages:
+async def converse(body: ChatIn = Body(...)):
+    """Chat con acceso a la biblioteca. `messages`: [{role: 'user'|'ai', text}]"""
+    if not body.messages:
         raise HTTPException(400, "no hay mensajes")
     def work():
-        return chat.reply(messages)
+        return chat.reply(body.messages)
+    return await asyncio.get_running_loop().run_in_executor(None, work)
+
+
+@app.post("/api/chat/confirm")
+async def confirm_tool(body: ChatConfirmIn = Body(...)):
+    """Ejecuta lo que el asistente pidio y la persona acaba de aprobar.
+
+    Lo que no tiene vuelta atras no lo hace el modelo por su cuenta: devuelve
+    lo que iba a hacer y hasta que no pasa por aqui no ocurre nada.
+    """
+    if body.tool not in chat.NEEDS_CONFIRMATION:
+        raise HTTPException(400, "eso no necesita confirmacion")
+    # Descargar tarda minutos: se arranca y se contesta enseguida, igual que
+    # el boton de Descargas. Antes bloqueaba la peticion del chat.
+    if body.tool == "download_music":
+        if youtube.STATE["active"]:
+            raise HTTPException(409, "ya hay una descarga en marcha")
+        args = dict(body.args)
+        query = str(args.get("query") or "").strip()
+        if not query:
+            raise HTTPException(400, "hace falta algo que descargar")
+        with _DOWNLOAD_LOCK:
+            if youtube.STATE["active"]:
+                raise HTTPException(409, "ya hay una descarga en marcha")
+            youtube.STATE["active"] = True
+        asyncio.get_running_loop().run_in_executor(
+            None, lambda: youtube.run_job(query, quality=config.MP3_QUALITY,
+                                          file_it=True, results=5,
+                                          force=bool(args.get("force"))))
+        return {"ok": True, "result": {"active": True},
+                "text": "Descargando. Te lo cuento en Descargas."}
+
+    def work():
+        return chat.confirm(body.tool, body.args)
     return await asyncio.get_running_loop().run_in_executor(None, work)
 
 
@@ -444,15 +730,14 @@ def chat_tools():
 
 
 @app.post("/api/transpose")
-def transpose(body: dict = Body(...)):
-    text = body.get("text", "")
-    if body.get("from_key") and body.get("to_key"):
-        out = theory.transpose_to(text, body["from_key"], body["to_key"])
+def transpose(body: TransposeIn = Body(...)):
+    if body.from_key and body.to_key:
+        out = theory.transpose_to(body.text, body.from_key, body.to_key)
     else:
-        out = theory.transpose(text, int(body.get("semitonos", 0)))
+        out = theory.transpose(body.text, body.semitones)
     return {"text": out,
             "latin": theory.to_latin(out),
-            "capo": theory.suggested_capo(body.get("to_key", "") or ""),
+            "capo": theory.suggested_capo(body.to_key),
             "keys": theory.available_keys()}
 
 
@@ -469,10 +754,9 @@ def inbox():
 
 
 @app.post("/api/import")
-async def run_import(body: dict = Body(default={})):
+async def run_import(body: ImportIn = Body(default=ImportIn())):
     def work():
-        rs = ingest.process_inbox(dry_run=body.get("dry_run", False),
-                                 convert_mp3=body.get("convert"))
+        rs = ingest.process_inbox(dry_run=body.dry_run, convert_mp3=body.convert)
         for r in rs:                     # que aparezcan sin reescanear todo
             if r.target and r.action != "dry_run":
                 library.index_file(str(r.target))
@@ -494,23 +778,28 @@ def convertible_files():
 
 
 @app.post("/api/convert")
-async def convert_batch(body: dict = Body(default={})):
+async def convert_batch(body: ConvertIn = Body(default=ConvertIn())):
     def work():
-        return convert.convert_batch(quality=body.get("quality", config.MP3_QUALITY),
-                                 conservar_original=body.get("keep", False),
-                                 dry_run=body.get("dry_run", True))
+        return convert.convert_batch(quality=body.quality or config.MP3_QUALITY,
+                                     keep_original=body.keep,
+                                     dry_run=body.dry_run)
     return await asyncio.get_running_loop().run_in_executor(None, work)
 
 
 @app.post("/api/duplicates/resolve")
-async def resolve_duplicate(body: dict = Body(...)):
-    """Conserva una copia y borra las demas. Reindexa despues."""
+async def resolve_duplicate(body: ResolveIn = Body(...)):
+    """Conserva una copia y manda las demas a la papelera. Reindexa despues.
+
+    Las rutas vienen de fuera, asi que `duplicates.resolve` comprueba que
+    esten dentro de las carpetas gestionadas y que sean audio. Aqui solo se
+    completan las relativas.
+    """
     base = str(config.LIBRARY)
     def full_path(r):
         return r if os.path.isabs(r) else os.path.join(base, r)
-    keep = full_path(body.get("keep", ""))
-    remove = [full_path(b) for b in body.get("remove", [])]
-    dry_run = bool(body.get("dry_run"))
+    keep = full_path(body.keep)
+    remove = [full_path(b) for b in body.remove]
+    dry_run = body.dry_run
 
     def work():
         r = duplicates.resolve(keep, remove, dry_run)
@@ -525,6 +814,8 @@ async def resolve_duplicate(body: dict = Body(...)):
             library.index_file(r["kept"])
         return r
     r = await asyncio.get_running_loop().run_in_executor(None, work)
+    if not r["ok"] and r.get("reason"):
+        raise HTTPException(400, r["reason"])
     if r["ok"] and not dry_run:
         r["stats"] = library.stats_of()
     return r
@@ -573,7 +864,8 @@ def audio_path(cid: int):
     c = library.by_id(cid)
     if not c or not os.path.exists(c["path"]):
         raise HTTPException(404, "no existe")
-    return {"path": c["path"], "kind": "audio/mpeg", "bytes": os.path.getsize(c["path"])}
+    return {"path": c["path"], "kind": audio_type(c["path"]),
+            "bytes": os.path.getsize(c["path"])}
 
 
 # ---------------------------------------------------------------- YouTube
@@ -588,33 +880,40 @@ def youtube_status():
 
 
 @app.post("/api/youtube/info")
-async def youtube_info(body: dict = Body(default={})):
+async def youtube_info(body: YoutubeIn = Body(default=YoutubeIn())):
     """Que se bajaria, sin bajar nada todavia."""
-    query = (body.get("query") or "").strip()
+    query = body.query.strip()
     if not query:
         raise HTTPException(400, "hace falta una URL o algo que buscar")
     def work():
-        return youtube.info(query, int(body.get("results", 5)))
+        return youtube.info(query, body.results)
     return await asyncio.get_running_loop().run_in_executor(None, work)
 
 
+# Una descarga a la vez. La comprobacion y el arranque van juntos bajo el
+# mismo cerrojo: dos peticiones seguidas arrancaban dos descargas.
+_DOWNLOAD_LOCK = threading.Lock()
+
+
 @app.post("/api/youtube/download")
-async def youtube_download(body: dict = Body(default={})):
+async def youtube_download(body: YoutubeIn = Body(default=YoutubeIn())):
     """Arranca la descarga y vuelve enseguida. El avance se consulta en /api/youtube."""
-    if youtube.STATE["active"]:
-        raise HTTPException(409, "ya hay una descarga en marcha")
-    query = (body.get("query") or "").strip()
+    query = body.query.strip()
     if not query:
         raise HTTPException(400, "hace falta una URL o algo que buscar")
     if not youtube.available():
         raise HTTPException(503, youtube.unavailable_reason())
 
+    with _DOWNLOAD_LOCK:
+        if youtube.STATE["active"]:
+            raise HTTPException(409, "ya hay una descarga en marcha")
+        youtube.STATE["active"] = True
     asyncio.get_running_loop().run_in_executor(
         None, lambda: youtube.run_job(query,
-                                      quality=body.get("quality") or config.MP3_QUALITY,
-                                      file_it=body.get("file_it", True),
-                                      results=int(body.get("results", 5)),
-                                      force=bool(body.get("force", False))))
+                                      quality=body.quality or config.MP3_QUALITY,
+                                      file_it=body.file_it,
+                                      results=body.results,
+                                      force=body.force))
     return {"ok": True, "active": True}
 
 
@@ -657,24 +956,42 @@ def _watch_parent(intervalo=2.0):
 
 
 def serve(host="127.0.0.1", port=8730, uds=None):
-    global _ENFORCE_HOST
-    """Levanta la API. Con `uds` escucha en un socket Unix (sin port TCP abierto),
-    que es como la usa la app de escritorio: solo Rust puede hablar con ella."""
+    """Levanta la API.
+
+    Con `uds` escucha en un socket Unix, que es como la usa la app de
+    escritorio en Linux y macOS: sin puerto abierto, y con permisos 0600 solo
+    tu usuario puede hablar con ella.
+
+    En Windows no hay sockets Unix que uvicorn sepa escuchar, asi que la app
+    arranca esto en loopback y le pasa un secreto por `DANPLAY_TOKEN`; sin esa
+    cabecera, la API contesta 401 a todo.
+    """
+    global _ENFORCE_HOST, _TOKEN
     import uvicorn
+    logging.basicConfig(level=logging.INFO, format="danplay: %(message)s")
     _watch_parent()
-    _ENFORCE_HOST = not uds
+    _TOKEN = os.environ.get("DANPLAY_TOKEN", "")
+    # La comprobacion de Host y la cabecera propia son cosa de navegadores:
+    # por el socket no hay ninguno, y con token tampoco hacen falta.
+    _ENFORCE_HOST = not uds and not _TOKEN
     if uds:
         import socket as _s
         p = Path(uds)
         p.parent.mkdir(parents=True, exist_ok=True)
         if p.exists():
             p.unlink()
-        # uvicorn hace chmod 0666 al socket que crea el mismo, asi que lo creamos
-        # nosotros con permisos de usuario y se lo pasamos ya escuchando.
-        sock = _s.socket(_s.AF_UNIX, _s.SOCK_STREAM)
-        sock.bind(str(p))
+        # uvicorn hace chmod 0666 al socket que crea el mismo, asi que lo
+        # creamos nosotros. Con la umask puesta ANTES del bind: entre el bind
+        # y el chmod habia un instante en el que el socket era de todos.
+        previous = os.umask(0o077)
+        try:
+            sock = _s.socket(_s.AF_UNIX, _s.SOCK_STREAM)
+            sock.bind(str(p))
+        finally:
+            os.umask(previous)
         os.chmod(p, 0o600)
         sock.listen(128)
+        log.info("escuchando en %s", p)
         try:
             uvicorn.run(app, fd=sock.fileno(), log_level="warning")
         finally:
@@ -683,4 +1000,6 @@ def serve(host="127.0.0.1", port=8730, uds=None):
                 p.unlink()
         return
 
+    log.info("escuchando en http://%s:%s%s", host, port,
+             " (con token)" if _TOKEN else "")
     uvicorn.run(app, host=host, port=port, log_level="warning")

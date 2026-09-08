@@ -20,7 +20,8 @@ prueban las cosas y en qué se puede ayudar.
 git clone https://github.com/dani17r/danplay.git && cd danplay
 
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+# `requirements-dev.txt` trae también pytest, maturin y PyInstaller
+.venv/bin/python -m pip install -r requirements-dev.txt
 
 # el crate de Rust que usa Python (hashes y análisis de audio)
 .venv/bin/maturin develop --release -m core/Cargo.toml
@@ -28,6 +29,9 @@ python3 -m venv .venv
 cd desktop && npm install && cd ..
 cp .env.example .env
 ```
+
+Para usar DanPlay sin tocarlo basta con `requirements.txt`, que solo lleva lo
+necesario para ejecutarlo (sin compilador de Rust).
 
 Opcional, para la huella acústica y la conversión de formatos:
 
@@ -59,22 +63,26 @@ cd desktop && npm run dev                  # Vite en el 5273, con proxy
 ./scripts/test.sh
 ```
 
-Son cinco tandas y todas tienen que pasar:
+Son siete tandas y todas tienen que pasar:
 
 | Tanda | Qué cubre |
 | --- | --- |
 | Núcleo Python | nombres, etiquetas, duplicados, teoría musical, índice |
 | API | los endpoints sobre una biblioteca temporal de verdad |
 | Frontend (URLs) | cómo se construyen las rutas de medios en cada sistema |
-| Frontend (vitest) | componentes, reactividad, temas, listas grandes |
-| Rust | análisis de audio y reproductor nativo |
-| Humo | la app **ya compilada**: socket, permisos, ciclo de vida |
+| Frontend (estilo) | ESLint y stylelint |
+| Frontend (vitest) | componentes, reactividad, temas, listas grandes, contratos |
+| Rust | hashes, análisis de audio, reproductor, cola y bandeja |
+| Humo | la app **ya compilada**: socket, permisos, bandeja, ciclo de vida |
+
+`./scripts/test.sh --rapido` se salta las de humo, que arrancan la aplicación
+de verdad.
 
 Una tanda suelta, mientras trabajas:
 
 ```bash
 .venv/bin/python -m pytest tests/ -q
-cd desktop && npx vitest run
+cd desktop && npm run check      # lint + css + pruebas
 cd core && cargo test --release
 ```
 
@@ -90,8 +98,16 @@ momento y ver que se pone en rojo.
 día el índice mientras el resultado sea el correcto. Así las pruebas sobreviven
 a que se cambie la implementación por dentro, que es justo para lo que están.
 
-Algunas pruebas necesitan música real y se saltan solas si no la encuentran.
-No es lo ideal; ver más abajo.
+**La biblioteca de prueba se genera.** `tests/conftest.py` hace mp3 de verdad
+con ffmpeg (un segundo de silencio, con sus etiquetas), así que las pruebas
+comprueban lo mismo en cualquier máquina. Antes dependían de la música de
+quien las ejecutara y la mitad se saltaban solas.
+
+**Los dobles se construyen a partir del código real.** El de la API
+(`desktop/tests/support/backend.js`) recorre el `api` de verdad, así que un
+método que la interfaz llame y la prueba no haya programado falla diciendo
+cuál es. Cinco fallos de la interfaz eran nombres que dejaron de existir al
+pasar el código a inglés y que nadie comparó con el núcleo.
 
 ## Estilo
 
@@ -110,17 +126,24 @@ pesos por banda) y todas se estancan ahí. El código está en
 [`core/src/audio.rs`](../core/src/audio.rs). Si sabes de esto, es donde más
 falta hace.
 
-**Otros sistemas.** El núcleo Python es portable, pero el envoltorio usa cosas
-de escritorio Linux: `gio trash` para la papelera, `zenity`/`kdialog` para los
-diálogos, `pkexec` para instalar dependencias. Windows y macOS están sin
-explorar.
+**Windows.** El código ya tiene su camino —papelera con `send2trash`, rutas
+con `platformdirs`, transporte por loopback con token, Job Object para que el
+núcleo muera con la aplicación— pero **nadie lo ha compilado ni ejecutado**.
+Hace falta alguien con Windows: construir el núcleo con PyInstaller allí (no
+se puede desde Linux), generar el instalador NSIS y probar audio, rutas con
+acentos y papelera.
 
-**Pruebas que no dependan de música real.** Varias se saltan solas si no
-encuentran una biblioteca de referencia. Generar audio de prueba en el momento
-las haría fiables en cualquier máquina y en CI.
+**macOS.** Sin explorar. El transporte por socket Unix ya vale; falta la
+política de activación para que la aplicación desaparezca del Dock al
+esconderse, y probar la bandeja.
 
-**Integración continua.** No hay. Un workflow que ejecute `./scripts/test.sh`
-en cada push sería una buena primera aportación.
+**Reproducir `.opus` y `.wma`.** El decodificador (symphonia) no los trae. Hoy
+la aplicación lo dice y ofrece convertirlos; sonarían con `libopus` o pasando
+esos formatos por ffmpeg.
+
+**Los selectores repetidos del CSS.** `stylelint` avisa de una veintena: son
+parches que se fueron pegando al final del archivo. Fusionarlos toca el orden
+de la cascada, así que hay que hacerlo mirando la aplicación, con calma.
 
 **Traducción.** Todo lo que ve el usuario está en castellano, escrito a mano.
 No hay sistema de idiomas.

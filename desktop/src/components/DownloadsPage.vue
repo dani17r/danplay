@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { notify } from '../composables/useNotices.js'
 import { api } from '../api.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
@@ -7,7 +8,7 @@ import SelectField from './ui/SelectField.vue'
 import ToggleField from './ui/ToggleField.vue'
 import Card from './ui/Card.vue'
 
-const emit = defineEmits(['reload', 'notice'])
+const emit = defineEmits(['reload'])
 
 const query = ref('')
 const quality = ref(localStorage.getItem('danplay.ytQuality') || 'high')
@@ -47,8 +48,8 @@ async function clearHistory () {
   try {
     await api.clearDownloadHistory()
     await loadHistory()
-    emit('notice', 'Historial vaciado', 'ok')
-  } catch (e) { emit('notice', 'No se pudo vaciar: ' + e) }
+    notify('Historial vaciado', 'ok')
+  } catch (e) { notify('No se pudo vaciar: ' + e) }
 }
 let poll = null
 
@@ -145,7 +146,7 @@ async function bucle () {
     if (ok) partes.push(`${ok} descargada${ok > 1 ? 's' : ''}`)
     if (already) partes.push(`${already} ya la ten${already > 1 ? 'ias' : 'ias'}`)
     if (failed) partes.push(`${failed} sin suerte`)
-    if (partes.length) emit('notice', partes.join(' · '), ok ? 'ok' : 'info')
+    if (partes.length) notify(partes.join(' · '), ok ? 'ok' : 'info')
     // si solo hubo repetidas, se ofrece bajarlas igualmente
     const rep = done.value.filter(r => r.already_there && r.url)
     askAgain.value = rep.length ? rep : null

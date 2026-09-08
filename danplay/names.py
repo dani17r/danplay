@@ -8,7 +8,9 @@ Reglas acordadas con el usuario:
   - fuera el ruido de descargas (VIDEO OFICIAL, LETRA, y2mate.com, ...)
   - duplicados: sufijo " - r", " - r2", ...
 """
-import os, re, unicodedata
+import logging, os, re, unicodedata
+
+log = logging.getLogger("danplay")
 
 NOISE = [
     r"lyric\s*video\s*oficial", r"official\s*(lyric\s*)?video", r"videoclip\s*oficial",
@@ -88,9 +90,28 @@ def clean(s: str) -> str:
     return s.strip(" .-–—,")
 
 
+# Nombres que Windows no deja usar como archivo ni carpeta, con o sin
+# extension y sin distinguir mayusculas: «Con» (hay un titulo «Con Poder») o
+# «Aux» darian una carpeta imposible de crear en un disco NTFS. En Linux se
+# aplica igual para que la biblioteca se pueda copiar a un Windows tal cual.
+WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL",
+                    *(f"COM{i}" for i in range(1, 10)),
+                    *(f"LPT{i}" for i in range(1, 10))}
+
+
 def sanitize(s: str) -> str:
+    """Nombre valido de archivo o carpeta en cualquier sistema.
+
+    Quita caracteres prohibidos y de control, los puntos y espacios finales
+    (Windows los recorta en silencio y el nombre deja de coincidir) y añade
+    «_» a los nombres reservados.
+    """
     s = CONTROL_CHARS.sub("", s).translate(INVALID_CHARS)
-    return re.sub(r"\s{2,}", " ", s).strip(" .")
+    s = re.sub(r"\s{2,}", " ", s).strip(" .")
+    stem, ext = os.path.splitext(s)
+    if stem.upper() in WINDOWS_RESERVED:
+        s = stem + "_" + ext
+    return s
 
 
 def extract_feat(text: str) -> tuple[str, str]:
@@ -146,13 +167,13 @@ def _flat(s: str) -> str:
     return re.sub(r"[^\w\s]", "", strip_accents(s).lower()).strip()
 
 
-def vocabulary(carpeta_artistas) -> dict:
+def vocabulary(artists_dir) -> dict:
     """{clave_plana: NombreRealDeCarpeta} a partir de las carpetas existentes."""
     vocab = {}
-    if not os.path.isdir(carpeta_artistas):
+    if not os.path.isdir(artists_dir):
         return vocab
-    for d in sorted(os.listdir(carpeta_artistas)):
-        if os.path.isdir(os.path.join(carpeta_artistas, d)):
+    for d in sorted(os.listdir(artists_dir)):
+        if os.path.isdir(os.path.join(artists_dir, d)):
             vocab[_flat(d)] = d
     return vocab
 
@@ -165,17 +186,17 @@ def detect_artist(name: str, vocab: dict) -> dict:
     """
     base = clean(os.path.splitext(name)[0])
     base, feat = extract_feat(base)
-    plano = _flat(base)
+    flat = _flat(base)
 
     hits = []
     for k, real_name in vocab.items():
         if not k or len(k) < 3:
             continue
-        pos = plano.find(k)
+        pos = flat.find(k)
         if pos < 0:
             continue
         if pos == 0:                       score = 0.92   # el nombre empieza por el artista
-        elif pos + len(k) >= len(plano):   score = 0.86   # termina por el artista
+        elif pos + len(k) >= len(flat):    score = 0.86   # termina por el artista
         else:                              score = 0.60   # aparece en medio
         hits.append((score, len(k), real_name, k))
 

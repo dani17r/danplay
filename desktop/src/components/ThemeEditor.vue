@@ -11,34 +11,40 @@ const props = defineProps(['activeTheme','editing'])
 const emit = defineEmits(['close','saved'])
 
 const base = ref(props.editing || props.activeTheme || 'night')
-const partida = allThemes()[base.value] || CATALOG.noche
-const name = ref(props.editing ? partida.name : partida.name + ' (mio)')
-const kind = ref(partida.kind || 'oscuro')
-const v = ref({ ...partida.v })
-const avanzado = ref(false)
-const BASICOS = ['fondo', 'panel', 'text', 'acento', 'tenue', 'ambar']
+// `CATALOG.noche` no existe (la clave es `night`) y `'oscuro'` no es un kind
+// válido: eran restos del paso a inglés. Con la clave mal, el respaldo dejaba
+// el editor sin colores de partida.
+const source = allThemes()[base.value] || CATALOG.night
+const name = ref(props.editing ? source.name : source.name + ' (mío)')
+const kind = ref(source.kind || 'dark')
+const v = ref({ ...source.v })
+const advanced = ref(false)
+// Los seis que casi todo el mundo toca. Antes esta lista estaba en castellano
+// y solo dos nombres coincidían con los campos de verdad, así que el modo
+// básico enseñaba dos colores en vez de seis.
+const BASIC = ['bg', 'panel', 'text', 'accent', 'muted', 'amber']
 
 // vista previa en vivo mientras se toca
-watch(v, (nv) => applyTheme('__previa', { v: nv, kind: kind.value }), { deep: true })
-watch(kind, () => applyTheme('__previa', { v: v.value, kind: kind.value }))
+watch(v, (nv) => applyTheme('__preview', { v: nv, kind: kind.value }), { deep: true })
+watch(kind, () => applyTheme('__preview', { v: v.value, kind: kind.value }))
 
-function partirDe (key) {
+function startFrom (key) {
   const t = allThemes()[key]
   if (!t) return
-  v.value = { ...t.v }; kind.value = t.kind || 'oscuro'
-  if (!props.editing) name.value = t.name + ' (mio)'
+  v.value = { ...t.v }; kind.value = t.kind || 'dark'
+  if (!props.editing) name.value = t.name + ' (mío)'
 }
 function save () {
-  const limpio = (name.value || 'Mi tema').trim()
-  const key = props.editing || 'propio-' + limpio.toLowerCase()
+  const clean = (name.value || 'Mi tema').trim()
+  const key = props.editing || 'propio-' + clean.toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || 'propio-' + Date.now()
-  saveCustomTheme(key, { name: limpio, kind: kind.value, v: { ...v.value }, custom: true })
+  saveCustomTheme(key, { name: clean, kind: kind.value, v: { ...v.value }, custom: true })
   applyTheme(key)
   emit('saved', key)
 }
-function cancelDownload () { applyTheme(props.activeTheme); emit('close') }
-onUnmounted(() => { if (document.documentElement.dataset.theme === '__previa') applyTheme(props.activeTheme) })
+function cancel () { applyTheme(props.activeTheme); emit('close') }
+onUnmounted(() => { if (document.documentElement.dataset.theme === '__preview') applyTheme(props.activeTheme) })
 </script>
 
 <template>
@@ -50,23 +56,23 @@ onUnmounted(() => { if (document.documentElement.dataset.theme === '__previa') a
       <SelectField v-if="!editing" :modelValue="base" label="Partir de" width="190px"
                 :options="Object.entries(allThemes()).map(([k,t]) =>
                            ({v:k, n:t.name, color:t.v.accent}))"
-                @update:modelValue="v => { base = v; partirDe(v) }" />
+                @update:modelValue="v => { base = v; startFrom(v) }" />
       <SelectField v-model="kind" label="Base" width="140px"
                 :options="[{v:'dark',n:'Oscuro'},{v:'light',n:'Claro'}]" />
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:11px">
-      <ColorField v-for="c in FIELDS.filter(c => avanzado || BASICOS.includes(c.k))" :key="c.k"
+      <ColorField v-for="c in FIELDS.filter(c => advanced || BASIC.includes(c.k))" :key="c.k"
              v-model="v[c.k]" :title="c.n" :hint="c.d" />
     </div>
 
     <div class="btn-row" style="margin-top:15px">
       <button class="btn primary" @click="save" style="gap:7px">
         <Icon n="save" :t="15" /> Guardar tema</button>
-      <button class="btn" @click="cancelDownload">Cancelar</button>
-      <button class="btn mini" @click="avanzado=!avanzado" style="margin-left:auto;gap:6px">
+      <button class="btn" @click="cancel">Cancelar</button>
+      <button class="btn mini" @click="advanced=!advanced" style="margin-left:auto;gap:6px">
         <Icon n="palette" :t="14" />
-        {{ avanzado ? 'Menos colores' : 'Todos los colores (12)' }}</button>
+        {{ advanced ? 'Menos colores' : 'Todos los colores (12)' }}</button>
     </div>
   </Card>
 </template>

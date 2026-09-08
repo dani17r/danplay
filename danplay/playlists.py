@@ -5,9 +5,11 @@ Todo lo que se puede guardar dentro del archivo, se guarda ahi tambien
 (estrellas en POPM, favorito y listas en TXXX), para que la biblioteca
 siga siendo portatil aunque se pierda la base de datos.
 """
-import os, time
+import logging, os, time
 from pathlib import Path
-from . import library, tags
+from . import library, names, tags
+
+log = logging.getLogger("danplay")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS playlists (
@@ -41,24 +43,35 @@ def _connect():
 
 # ---------------------------------------------------------------- listas
 
-def create(name, note="", color="") -> int:
+def create(name, note="", color="") -> dict:
+    """Crea la lista, o devuelve la que ya habia con ese nombre.
+
+    Devuelve {"id", "name", "created"}. `created` es False si la lista ya
+    existia: antes se devolvia solo el id y quien llamaba no podia saberlo,
+    asi que el asistente «creaba» una lista y en realidad añadia a otra.
+    """
+    name = str(name or "").strip()
     conn = _connect()
-    cur = conn.execute("INSERT OR IGNORE INTO playlists (name,note,color,created) "
-                      "VALUES (?,?,?,?)", (name, note, color, time.time()))
-    if not cur.lastrowid:
-        cur = conn.execute("SELECT id FROM playlists WHERE name=?", (name,))
-        lid = cur.fetchone()["id"]
-    else:
-        lid = cur.lastrowid
+    row = conn.execute("SELECT id FROM playlists WHERE name=?", (name,)).fetchone()
+    if row:
+        conn.close()
+        return {"id": row["id"], "name": name, "created": False}
+    cur = conn.execute("INSERT INTO playlists (name,note,color,created) "
+                       "VALUES (?,?,?,?)", (name, note, color, time.time()))
+    lid = cur.lastrowid
     conn.commit(); conn.close()
-    return lid
+    return {"id": lid, "name": name, "created": True}
 
 
 def remove(playlist_id) -> None:
     conn = _connect()
+    members = [r["song_id"] for r in conn.execute(
+        "SELECT song_id FROM playlist_songs WHERE playlist_id=?", (playlist_id,))]
     conn.execute("DELETE FROM playlist_songs WHERE playlist_id=?", (playlist_id,))
     conn.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
     conn.commit(); conn.close()
+    # los archivos dejan de nombrar la lista: si no, un reescaneo la resucitaria
+    _stamp_playlists_into_files(members)
 
 
 def rename_folder(playlist_id, name) -> None:
@@ -145,21 +158,22 @@ def _stamp_playlists_into_files(song_ids) -> None:
     song_ids = [int(i) for i in song_ids]
     if not song_ids:
         return
-    marcadores = ",".join("?" * len(song_ids))
+    placeholders = ",".join("?" * len(song_ids))
     conn = _connect()
     paths = {r["id"]: r["path"] for r in conn.execute(
-        f"SELECT id, path FROM songs WHERE id IN ({marcadores})", song_ids)}
-    listas: dict = {}
+        f"SELECT id, path FROM songs WHERE id IN ({placeholders})", song_ids)}
+    lists: dict = {}
     for r in conn.execute(
             f"SELECT lc.song_id id, l.name name FROM playlist_songs lc "
             f"JOIN playlists l ON l.id=lc.playlist_id "
-            f"WHERE lc.song_id IN ({marcadores}) ORDER BY l.name", song_ids):
-        listas.setdefault(r["id"], []).append(r["name"])
+            f"WHERE lc.song_id IN ({placeholders}) ORDER BY l.name", song_ids):
+        lists.setdefault(r["id"], []).append(r["name"])
     conn.close()
     for cid in song_ids:
         path = paths.get(cid)
         if path and os.path.exists(path):
-            tags._write_txxx(path, "LISTAS", ", ".join(listas.get(cid, [])))
+            if not tags.set_playlists(path, lists.get(cid, [])):
+                log.warning("no se pudo apuntar las listas dentro de %s", path)
 
 
 # ------------------------------------------------------- estrellas y favoritos
@@ -197,15 +211,36 @@ def favorites() -> list[dict]:
 
 # ---------------------------------------------------------------- m3u
 
+def export_folder() -> Path:
+    return library.config.LIBRARY / "Listas"
+
+
 def export_m3u(playlist_id, target=None) -> str:
+    """Escribe la lista como .m3u8 en LIBRARY/Listas/.
+
+    El nombre de archivo sale del nombre de la lista pasado por
+    `names.sanitize`, y el resultado tiene que quedar DENTRO de Listas/: el
+    nombre lo puede fijar el asistente, y «../../x» escribia donde quisiera.
+    Un nombre que no de un archivo valido, o un `target` fuera de la
+    carpeta, levantan ValueError.
+    """
     conn = _connect()
-    name = conn.execute("SELECT name FROM playlists WHERE id=?", (playlist_id,)).fetchone()["name"]
+    row = conn.execute("SELECT name FROM playlists WHERE id=?", (playlist_id,)).fetchone()
     conn.close()
-    cs = songs(playlist_id)
-    target = Path(target or (library.config.LIBRARY / "Listas" / f"{name}.m3u8"))
-    target.parent.mkdir(parents=True, exist_ok=True)
+    if not row:
+        raise ValueError("no existe esa lista")
+    folder = export_folder()
+    if target is None:
+        safe = names.sanitize(str(row["name"]).replace("/", " ").replace("\\", " "))
+        if not safe or safe in (".", "..") or ".." in safe.split():
+            raise ValueError("el nombre de la lista no sirve como nombre de archivo")
+        target = folder / f"{safe}.m3u8"
+    target = Path(target)
+    folder.mkdir(parents=True, exist_ok=True)
+    if not library._inside(target.parent, folder) or target.name in ("", ".", ".."):
+        raise ValueError("la lista solo se exporta dentro de la carpeta Listas")
     lines = ["#EXTM3U"]
-    for c in cs:
+    for c in songs(playlist_id):
         lines.append(f"#EXTINF:{int(c['duration'])},{c['artist']} - {c['title']}")
         lines.append(os.path.relpath(c["path"], target.parent))
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -215,7 +250,7 @@ def export_m3u(playlist_id, target=None) -> str:
 def import_m3u(path) -> int:
     """Crea una lista a partir de un .m3u/.m3u8 existente."""
     path = Path(path)
-    lid = create(path.stem)
+    lid = create(path.stem)["id"]
     base = path.parent
     ids = []
     conn = _connect()

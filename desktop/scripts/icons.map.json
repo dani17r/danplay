@@ -1,0 +1,202 @@
+{
+  "play": {
+    "style": "s",
+    "file": "play.svg"
+  },
+  "pause": {
+    "style": "s",
+    "file": "pause.svg"
+  },
+  "previous": {
+    "style": "s",
+    "file": "backward.svg"
+  },
+  "next": {
+    "style": "s",
+    "file": "forward.svg"
+  },
+  "back10": {
+    "style": "o",
+    "file": "arrow-uturn-left.svg"
+  },
+  "forward10": {
+    "style": "o",
+    "file": "arrow-uturn-right.svg"
+  },
+  "shuffle": {
+    "style": "o",
+    "file": "arrows-right-left.svg"
+  },
+  "repeat": {
+    "style": "o",
+    "file": "arrow-path.svg"
+  },
+  "repeatOne": {
+    "style": "o",
+    "file": "arrow-path-rounded-square.svg"
+  },
+  "volume": {
+    "style": "o",
+    "file": "speaker-wave.svg"
+  },
+  "mute": {
+    "style": "o",
+    "file": "speaker-x-mark.svg"
+  },
+  "queue": {
+    "style": "o",
+    "file": "queue-list.svg"
+  },
+  "note": {
+    "style": "o",
+    "file": "musical-note.svg"
+  },
+  "heart": {
+    "style": "o",
+    "file": "heart.svg"
+  },
+  "heartFull": {
+    "style": "s",
+    "file": "heart.svg"
+  },
+  "artists": {
+    "style": "o",
+    "file": "user-group.svg"
+  },
+  "duplicates": {
+    "style": "o",
+    "file": "document-duplicate.svg"
+  },
+  "list": {
+    "style": "o",
+    "file": "list-bullet.svg"
+  },
+  "plus": {
+    "style": "o",
+    "file": "plus.svg"
+  },
+  "inbox": {
+    "style": "o",
+    "file": "arrow-down-tray.svg"
+  },
+  "settings": {
+    "style": "o",
+    "file": "cog-6-tooth.svg"
+  },
+  "folder": {
+    "style": "o",
+    "file": "folder.svg"
+  },
+  "folderOpen": {
+    "style": "o",
+    "file": "folder-open.svg"
+  },
+  "viewList": {
+    "style": "o",
+    "file": "bars-3.svg"
+  },
+  "viewCompact": {
+    "style": "o",
+    "file": "bars-4.svg"
+  },
+  "viewGrid": {
+    "style": "o",
+    "file": "squares-2x2.svg"
+  },
+  "viewOptions": {
+    "style": "o",
+    "file": "adjustments-horizontal.svg"
+  },
+  "search": {
+    "style": "o",
+    "file": "magnifying-glass.svg"
+  },
+  "star": {
+    "style": "s",
+    "file": "star.svg"
+  },
+  "starOutline": {
+    "style": "o",
+    "file": "star.svg"
+  },
+  "close": {
+    "style": "o",
+    "file": "x-mark.svg"
+  },
+  "down": {
+    "style": "o",
+    "file": "chevron-down.svg"
+  },
+  "right": {
+    "style": "o",
+    "file": "chevron-right.svg"
+  },
+  "music": {
+    "style": "s",
+    "file": "musical-note.svg"
+  },
+  "check": {
+    "style": "o",
+    "file": "check.svg"
+  },
+  "warning": {
+    "style": "o",
+    "file": "exclamation-triangle.svg"
+  },
+  "trash": {
+    "style": "o",
+    "file": "trash.svg"
+  },
+  "pencil": {
+    "style": "o",
+    "file": "pencil.svg"
+  },
+  "download": {
+    "style": "o",
+    "file": "arrow-down-on-square.svg"
+  },
+  "refresh": {
+    "style": "o",
+    "file": "arrow-path.svg"
+  },
+  "lyrics": {
+    "style": "o",
+    "file": "document-text.svg"
+  },
+  "chords": {
+    "style": "o",
+    "file": "musical-note.svg"
+  },
+  "ai": {
+    "style": "o",
+    "file": "sparkles.svg"
+  },
+  "image": {
+    "style": "o",
+    "file": "photo.svg"
+  },
+  "eye": {
+    "style": "o",
+    "file": "eye.svg"
+  },
+  "eyeOff": {
+    "style": "o",
+    "file": "eye-slash.svg"
+  },
+  "palette": {
+    "style": "o",
+    "file": "swatch.svg"
+  },
+  "copy": {
+    "style": "o",
+    "file": "clipboard-document.svg"
+  },
+  "send": {
+    "style": "o",
+    "file": "paper-airplane.svg"
+  },
+  "save": {
+    "style": "o",
+    "file": "check-circle.svg"
+  }
+}

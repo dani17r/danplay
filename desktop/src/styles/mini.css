@@ -1,0 +1,61 @@
+/* ============================================================
+   MINI REPRODUCTOR
+   La ventanita que abre el icono de la bandeja. Es la misma pagina que la
+   app, con otro componente dentro, asi que hereda el tema; el tamaño de la
+   app NO se aplica aqui porque la ventana mide lo que mide.
+   ============================================================ */
+body.is-mini{overflow:hidden;background:var(--panel);--scale:1}
+/* OJO con el nombre. Esto es la VENTANA del mini reproductor, y se llamaba
+   `.mini` a secas: exactamente el mismo nombre que el modificador `.btn.mini`
+   que usan los botones pequeños por toda la app. Como las dos reglas pesan lo
+   mismo y esta va despues, ganaba ella: los veintitantos botones pequeños se
+   volvian columnas de 100vh de alto. Eso era lo que descolocaba el menu de
+   vista, porque su boton estiraba el bloque que le sirve de referencia. */
+.miniplayer{display:flex;flex-direction:column;height:100vh;padding:0 12px 10px;
+  box-sizing:border-box;border:1px solid var(--border);border-radius:10px;
+  background:var(--panel)}
+
+/* la barra de arriba hace de asa: la ventana no tiene marco */
+.mini-head{display:flex;align-items:center;gap:4px;height:30px;flex-shrink:0;
+  cursor:grab;margin:0 -4px}
+.mini-head:active{cursor:grabbing}
+.mini-brand{flex:1;display:flex;align-items:center;gap:6px;font-size:10px;
+  letter-spacing:1.4px;color:var(--muted2);padding-left:4px}
+.mini-head .icon-btn{width:22px;height:22px;border-radius:6px}
+
+.mini-song{display:flex;align-items:center;gap:9px;min-width:0;margin-bottom:9px}
+.mini-art{width:40px;height:40px;border-radius:6px;flex-shrink:0;
+  border:1px solid var(--border)}
+.mini-text{min-width:0;flex:1}
+.mini-title{font-size:12.5px;font-weight:600;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mini-artist{font-size:11px;color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.mini-seek{height:5px;border-radius:3px;background:var(--panel2);cursor:pointer;
+  overflow:hidden;flex-shrink:0}
+.mini-seek.off{cursor:default;opacity:.5}
+.mini-seek-fill{height:100%;background:var(--accent);border-radius:3px;
+  transition:width .18s linear}
+.mini-times{display:flex;justify-content:space-between;font-size:10px;
+  color:var(--muted2);margin-top:3px;font-variant-numeric:tabular-nums}
+
+.mini-controls{display:flex;align-items:center;justify-content:center;gap:12px;
+  margin-top:auto;padding-top:6px}
+.mini-btn{display:flex;align-items:center;justify-content:center;
+  width:30px;height:30px;border-radius:50%;color:var(--text);
+  background:transparent;border:none;cursor:pointer;
+  transition:color .14s,background .14s,transform .14s}
+.mini-btn:hover:not(:disabled){background:var(--panel2);color:var(--accent)}
+.mini-btn:active:not(:disabled){transform:scale(.92)}
+.mini-btn.big{width:38px;height:38px;background:var(--accent);color:var(--bg)}
+.mini-btn.big:hover:not(:disabled){background:var(--accent);filter:brightness(1.1)}
+/* deshabilitado se ve deshabilitado: sin nada cargado no hay nada que pulsar */
+.mini-btn:disabled{opacity:.32;cursor:default}
+.mini-btn.big:disabled{background:var(--panel2);color:var(--muted2)}
+
+@media (prefers-reduced-motion:reduce){
+  .mini-seek-fill{transition:none}
+}
+
+

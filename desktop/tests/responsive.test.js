@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { readFileSync } from 'node:fs'
+import { allCss } from './support/css.js'
 import Drawer from '../src/components/ui/Drawer.vue'
 import { PHONE_MAX, TABLET_MAX } from '../src/composables/useViewport.js'
 
@@ -8,7 +8,7 @@ import { PHONE_MAX, TABLET_MAX } from '../src/composables/useViewport.js'
 // COMPORTAMIENTO (los laterales dejan de ocupar sitio y se abren encima) vive
 // en useViewport; el css solo se ocupa del aspecto.
 
-const css = readFileSync('src/style.css', 'utf8')
+const css = allCss()
 
 describe('tramos de pantalla', () => {
   it('el movil es mas estrecho que la tablet', () => {

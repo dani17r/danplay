@@ -1,0 +1,38 @@
+/* ============================================================
+   ARRASTRAR CANCIONES
+   Se coge una cancion de la lista y se suelta donde tenga sentido: en un
+   repertorio, en favoritos o en «Nueva lista». Mientras dura el arrastre se
+   marcan los sitios que la aceptan, para no tener que adivinar donde soltar.
+   ============================================================ */
+body.dragging-song{-webkit-user-select:none;user-select:none;cursor:grabbing}
+body.dragging-song *{cursor:grabbing !important}
+
+/* el fantasma va pegado al puntero, y por eso no puede recibir el puntero:
+   si lo hiciera, seria siempre el elemento «bajo el cursor» y no habria
+   forma de saber sobre que destino estamos */
+.drag-ghost{position:fixed;z-index:200;pointer-events:none;
+  transform:translate(13px,11px);display:flex;align-items:center;gap:8px;
+  max-width:250px;padding:5px 11px 5px 5px;border-radius:9px;font-size:12px;
+  background:var(--panel);border:1px solid var(--accent);
+  box-shadow:0 12px 28px var(--shadow)}
+.drag-ghost .ghost-art{width:26px;height:26px;border-radius:5px;flex-shrink:0}
+.drag-ghost .ghost-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.sidebar.drop-ready .nav-link[data-drop]{
+  outline:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);
+  outline-offset:-2px}
+.nav-link.drop-over{color:var(--text);
+  background:color-mix(in srgb,var(--accent) 24%,transparent);
+  outline:1px solid var(--accent);outline-offset:-2px}
+.nav-link.drop-over .nav-icon{color:var(--accent)}
+
+/* la fila de origen se atenua: se ve de donde salio lo que llevas */
+tr.dragged,.tile.dragged{opacity:.4}
+/* el menu de Vista, en dos grupos: la lista y la app */
+.view-menu .menu-block{display:flex;flex-direction:column;gap:13px}
+.view-menu .menu-block + .menu-block{margin-top:15px;padding-top:15px;
+  border-top:1px solid var(--border)}
+.view-menu .menu-head{font-size:10px;letter-spacing:1.3px;text-transform:uppercase;
+  color:var(--muted2)}
+.view-menu .mini-open{width:100%;justify-content:flex-start;gap:7px}
+

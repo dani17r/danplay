@@ -65,15 +65,12 @@ acción.
 | `idna` | BSD-3-Clause |
 | `jiter` | MIT |
 | `maturin` | MIT OR Apache-2.0 |
-| `musicbrainzngs` | BSD License |
 | `mutagen` | GPL-2.0-or-later |
 | `openai` | Apache-2.0 |
 | `pyacoustid` | MIT |
 | `pydantic` | MIT |
 | `pydantic_core` | MIT |
 | `python-dotenv` | BSD-3-Clause |
-| `python-multipart` | Apache-2.0 |
-| `PyYAML` | MIT License |
 | `RapidFuzz` | MIT |
 | `requests` | Apache Software License |
 | `sniffio` | MIT License |
@@ -90,6 +87,8 @@ acción.
 | `watchdog` | Apache Software License |
 | `watchfiles` | MIT License |
 | `websockets` | BSD-3-Clause |
+| `platformdirs` | MIT |
+| `Send2Trash` | BSD-3-Clause |
 | `yt-dlp` | Unlicense |
 
 ## Rust
@@ -99,7 +98,13 @@ afecta mientras no se modifiquen sus archivos.
 
 | Crate | Licencia |
 | --- | --- |
-| `tauri`, `tauri-plugin-dialog` | MIT OR Apache-2.0 |
+| `tauri` y sus plugins (dialog, single-instance, window-state, notification, positioner) | MIT OR Apache-2.0 |
+| `ksni` (bandeja por D-Bus en Linux) | Unlicense |
+| `souvlaki` (MPRIS / SMTC / Now Playing) | MIT |
+| `zbus`, `dbus` | MIT |
+| `mime_guess` | MIT |
+| `rand` | MIT OR Apache-2.0 |
+| `win32job` (solo Windows) | MIT OR Apache-2.0 |
 | `rodio` | MIT OR Apache-2.0 |
 | `symphonia` | MPL-2.0 |
 | `pyo3` | MIT OR Apache-2.0 |
@@ -130,7 +135,7 @@ No se distribuyen con la app; se invocan si están en el sistema.
 | `ffmpeg` | LGPL-2.1+ / GPL-2+ según compilación | convertir formatos, encoger carátulas |
 | `fpcalc` (Chromaprint) | LGPL-2.1+ | calcular la huella acústica |
 | `yt-dlp` | Unlicense | descargar de YouTube |
-| `gio` (GLib) | LGPL-2.1+ | mandar archivos a la papelera |
+| `gio` (GLib) | LGPL-2.1+ | papelera de respaldo en Linux, si `send2trash` no puede |
 
 ## Servicios que se consultan
 

@@ -1,0 +1,124 @@
+/* ============================================================
+   LISTA ACOPLADA  (fichas pequeñas con portada)
+   ============================================================ */
+.cards{flex:1;overflow-y:auto;min-height:0;display:grid;gap:9px;padding:12px;
+  align-content:start;
+  grid-template-columns:repeat(auto-fill,minmax(var(--card-min,300px),1fr))}
+.card-song{display:flex;gap:10px;align-items:center;padding:8px;border-radius:9px;
+  background:var(--panel);border:1px solid var(--border);cursor:default;min-width:0;
+  transition:border-color .14s,background .14s,transform .12s}
+.card-song:hover{border-color:var(--border2);background:var(--panel2)}
+.card-song.selected{border-color:var(--accent);
+  background:color-mix(in srgb,var(--accent) 10%,var(--panel))}
+.card-song.playing .card-title{color:var(--accent)}
+.card-song.dragged{opacity:.4}
+.card-art{position:relative;width:46px;height:46px;flex-shrink:0}
+.card-cover{width:100%;height:100%;border-radius:6px;object-fit:cover;display:block;
+  background:var(--panel2);border:1px solid var(--border)}
+.card-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  border-radius:6px;background:#000000a8;color:#fff;opacity:0;transition:opacity .14s}
+.card-song:hover .card-play{opacity:1}
+.card-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.card-title{font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.card-sub{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-foot{display:flex;align-items:center;gap:8px;margin-top:1px}
+.card-dur{margin-left:auto;font-size:11px}
+
+/* ---------- densidad de tabla ---------- */
+/* la densidad pone la base; el tamaño la multiplica */
+:root{--row-pad-base:7px;--table-font-base:13px;
+  --row-pad:calc(var(--row-pad-base) * var(--scale));
+  --table-font:calc(var(--table-font-base) * var(--scale))}
+td{padding:var(--row-pad) 10px;font-size:var(--table-font)}
+
+/* ---------- tema claro: ajustes puntuales ---------- */
+:root[data-kind="light"] tbody tr{border-bottom:1px solid var(--border)}
+:root[data-kind="light"] tbody tr:hover{background:var(--panel2)}
+:root[data-kind="light"] .pl-play{background:var(--accent2);color:#fff}
+:root[data-kind="light"] .pl-play:hover{background:var(--accent)}
+:root[data-kind="light"] .chords{background:var(--panel2);color:var(--accent2)}
+
+/* ---------- selector de vista ---------- */
+.view-switch{display:flex;gap:2px;background:var(--panel2);border:1px solid var(--border2);
+  border-radius:7px;padding:2px}
+.view-switch button{padding:4px 9px;border-radius:5px;color:var(--muted2);font-size:12px;
+  display:flex;align-items:center;gap:5px}
+.view-switch button:hover{color:var(--text)}
+.view-switch button.on{background:var(--bg);color:var(--accent)}
+
+/* ---------- cuadricula ---------- */
+.grid{display:grid;gap:16px;padding:16px;overflow-y:auto;flex:1;align-content:start;
+  grid-template-columns:repeat(auto-fill,minmax(var(--card-w,164px),1fr))}
+.tile{cursor:pointer;position:relative}
+.tile .art{width:100%;aspect-ratio:1;border-radius:7px;object-fit:cover;
+  background:var(--panel2);border:1px solid var(--border);display:block}
+.tile .no-art{width:100%;aspect-ratio:1;border-radius:7px;
+  background:linear-gradient(140deg,var(--panel2),var(--bg));
+  border:1px solid var(--border);display:flex;align-items:center;justify-content:center;
+  font-size:30px;color:var(--muted2)}
+.tile .name{margin-top:7px;font-size:12.5px;font-weight:500;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.tile .sub2{font-size:11.5px;color:var(--muted2);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.tile:hover .art,.tile:hover .no-art{border-color:var(--accent)}
+.tile.selected .art,.tile.selected .no-art{border-color:var(--accent);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
+.tile .tile-play{position:absolute;left:50%;top:calc(50% - 16px);transform:translate(-50%,-50%);
+  width:42px;height:42px;border-radius:50%;background:#000c;color:#fff;display:flex;
+  align-items:center;justify-content:center;opacity:0;font-size:15px}
+.tile:hover .tile-play{opacity:1}
+
+/* ---------- agrupado ---------- */
+.group-head{position:sticky;top:0;z-index:1;background:var(--bg);padding:11px 14px 7px;
+  font-size:11px;text-transform:uppercase;letter-spacing:1.3px;color:var(--accent);
+  font-weight:650;border-bottom:1px solid var(--border);display:flex;gap:9px;align-items:center}
+.group-head .cnt{color:var(--muted2);letter-spacing:0;text-transform:none;font-weight:400}
+.collapsible{cursor:pointer}
+.collapsible:hover{color:var(--text)}
+
+/* ---------- reproductor ampliado ---------- */
+.pl-btn.on{color:var(--accent)}
+.pl-btn.on::after{content:'';position:absolute;bottom:2px;width:3px;height:3px;
+  border-radius:50%;background:var(--accent)}
+.pl-btn{position:relative}
+.speed{font-family:var(--mono);font-size:10.5px;color:var(--muted2);
+  border:1px solid var(--border2);border-radius:4px;padding:2px 5px;cursor:pointer}
+.speed:hover{color:var(--text);border-color:var(--accent)}
+.queue{position:fixed;right:0;bottom:var(--player-h);width:320px;max-height:52vh;
+  background:var(--panel);border:1px solid var(--border);border-radius:9px 0 0 0;
+  overflow-y:auto;z-index:30;box-shadow:-6px -6px 24px var(--shadow-soft)}
+.queue h4{position:sticky;top:0;background:var(--panel);padding:11px 14px;
+  border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;
+  letter-spacing:1.2px;color:var(--muted2);display:flex;align-items:center;gap:8px}
+.queue-row{padding:7px 14px;display:flex;gap:9px;align-items:center;cursor:pointer;font-size:12px}
+.queue-row:hover{background:var(--panel2)}
+.queue-row.current{color:var(--accent)}
+
+/* ---------- iconos ---------- */
+.ico{display:block;flex:0 0 auto;vertical-align:middle}
+/* todo lo que lleva icono se alinea por el centro optico */
+/* alineacion de lo que lleva icono. OJO: los que van dentro de una linea de
+   texto deben seguir siendo inline-flex; con display:flex ocupan todo el ancho
+   y parten la maquetacion. */
+.nav-link,.pl-btn,.view-switch button,.group-head,.queue-row,.filters,
+.check,.brand{display:flex;align-items:center}
+.btn,.chip,.badge,.speed{display:inline-flex;align-items:center;justify-content:center}
+.nav-link .nav-icon{display:flex;align-items:center;justify-content:center;width:17px;height:17px}
+.pl-btn{padding:0}
+thead th{vertical-align:middle}
+td{vertical-align:middle}
+.col-fav .heart{display:inline-flex;align-items:center;justify-content:center;
+  width:100%;height:16px}
+/* row-reverse: el marcado va 5..1 para poder pintar «esta y las anteriores» */
+.stars{display:inline-flex;flex-direction:row-reverse;justify-content:flex-end;
+  align-items:center;gap:1.5px;line-height:0}
+.stars .ico{color:color-mix(in srgb,var(--text) 26%,var(--panel))}
+.stars .ico.on{color:var(--amber)}
+.stars:hover .ico{color:color-mix(in srgb,var(--text) 42%,var(--panel))}
+.stars .ico:hover,.stars .ico:hover ~ .ico{color:var(--amber)}
+.heart .ico{color:color-mix(in srgb,var(--text) 26%,var(--panel))}
+.heart.on .ico{color:var(--red)}
+.pl-controls .ico{margin:0 auto}
+.title,.sub{min-width:0}
+

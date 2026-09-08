@@ -1,20 +1,23 @@
 //! Reproduccion nativa en Rust.
 //!
-//! El audio se decodifica y sale a la tarjeta de sonido from_byte el propio
-//! proceso: el WebView no lo toca en ningun momento. Asi evitamos el
-//! streaming por protocolo propio, que es lo que colgaba la maquina.
+//! El audio se decodifica y sale a la tarjeta de sonido desde el propio
+//! proceso: el WebView no lo toca en ningun momento.
 //!
 //! `OutputStream` de rodio no es Send, asi que vive en un hilo dedicado que
-//! recibe ordenes por un canal y publica su estado en una estructura compartida.
+//! recibe ordenes por un canal. Ese hilo **avisa** de lo que pasa en vez de
+//! esperar a que le pregunten: antes la interfaz consultaba el estado cuatro
+//! veces por segundo, y con la ventana escondida el navegador ralentiza esos
+//! temporizadores hasta una vez por minuto, con lo que el fin de una cancion
+//! podia tardar un minuto en notarse.
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use serde::Serialize;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-#[derive(Serialize, Clone, Default, Debug)]
+#[derive(Serialize, Clone, Default, Debug, PartialEq)]
 pub struct State {
     pub path: String,
     pub playing: bool,
@@ -22,179 +25,314 @@ pub struct State {
     pub duration: f64,
     pub volume: f32,
     pub speed: f32,
-    pub finished: bool,
     pub error: String,
     pub has_output: bool,
 }
 
+/// Lo que el hilo de audio cuenta hacia fuera.
+pub enum Event {
+    /// Algo cambio (empezo, se pauso, fallo) o toca refrescar la posicion.
+    Changed(State),
+    /// La pista se acabo sola. Solo una vez por pista: quien decide que suena
+    /// despues es la cola, no esto.
+    Finished,
+}
+
 pub enum Command {
-    Play(String),
+    Play { path: String, duration: f64 },
     Toggle,
+    Pause,
+    Resume,
     Stop,
     Seek(f64),
     Volume(f32),
+    NudgeVolume(f32),
     Speed(f32),
 }
 
 #[derive(Clone)]
 pub struct Handle {
     channel: Sender<Command>,
-    pub state: Arc<Mutex<State>>,
+    state: Arc<Mutex<State>>,
 }
 
 /// Abre el archivo y deja un `Sink` listo para sonar.
 ///
-/// Se saco a una funcion porque hace falta en tres sitios: al reproducir, y
-/// al retomar una pista que ya termino. Cuando una pista acaba, su `Sink`
-/// sigue existiendo pero VACIO: la fuente ya se consumio. Sin recargar, darle
-/// a play solo lo pausa y buscar en la barra no encuentra nada que mover, que
-/// es lo que parecia un cuelgue.
-fn open_sink(handle: &OutputStreamHandle, path: &str, volume: f32, speed: f32)
-    -> Result<Sink, String> {
+/// Devuelve tambien la duracion que anuncia el propio archivo, que sale gratis
+/// aqui: antes se volvia a abrir y decodificar el archivo solo para medirla.
+fn open_sink(
+    handle: &OutputStreamHandle,
+    path: &str,
+    volume: f32,
+    speed: f32,
+) -> Result<(Sink, Option<f64>), String> {
     let file = File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
-    let source = Decoder::new(BufReader::new(file)).map_err(|e| e.to_string())?;
+    let source = Decoder::new(BufReader::new(file)).map_err(|e| readable(&e.to_string(), path))?;
+    let announced = source.total_duration().map(|d| d.as_secs_f64());
     let sink = Sink::try_new(handle).map_err(|e| e.to_string())?;
     sink.set_volume(volume);
     sink.set_speed(speed);
     sink.append(source);
-    Ok(sink)
+    Ok((sink, announced))
 }
 
-
-pub fn duration_of(path: &str) -> f64 {
-    File::open(path).ok()
-        .and_then(|f| Decoder::new(BufReader::new(f)).ok())
-        .and_then(|d| d.total_duration())
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
+/// Los errores de symphonia vienen en ingles y no dicen nada al usuario.
+fn readable(error: &str, path: &str) -> String {
+    let extension = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if error.contains("Unrecognized format") || error.contains("unsupported") {
+        return match extension.as_str() {
+            // symphonia no trae ni opus ni wma; se avisa en vez de dejar un
+            // mensaje en ingles que no dice que hacer
+            "opus" | "wma" => format!(
+                "DanPlay no sabe reproducir .{extension} todavia. \
+                 Conviertelo a mp3 desde Ajustes y sonara."
+            ),
+            _ => "No se pudo leer este archivo: puede estar dañado".into(),
+        };
+    }
+    error.to_string()
 }
 
 impl Handle {
-    pub fn new() -> Self {
+    pub fn new(events: Sender<Event>) -> Self {
         let (tx, rx) = channel::<Command>();
         let state = Arc::new(Mutex::new(State {
-            volume: 0.9, speed: 1.0, ..Default::default()
+            volume: 0.9,
+            speed: 1.0,
+            ..Default::default()
         }));
         let shared = state.clone();
 
-        std::thread::Builder::new().name("danplay-audio".into()).spawn(move || {
-            let output = OutputStream::try_default().ok();
-            if let Ok(mut e) = shared.lock() { e.has_output = output.is_some() }
-            let Some((_stream, handle)) = output else {
+        std::thread::Builder::new()
+            .name("danplay-audio".into())
+            .spawn(move || {
+                let output = OutputStream::try_default().ok();
                 if let Ok(mut e) = shared.lock() {
-                    e.error = "no hay salida de audio en este equipo".into();
+                    e.has_output = output.is_some()
                 }
-                // seguimos vivos para no romper las ordenes entrantes
-                while rx.recv().is_ok() {}
-                return;
-            };
+                let Some((_stream, handle)) = output else {
+                    if let Ok(mut e) = shared.lock() {
+                        e.error = "no hay salida de audio en este equipo".into();
+                        let _ = events.send(Event::Changed(e.clone()));
+                    }
+                    // seguimos vivos para no romper las ordenes entrantes
+                    while rx.recv().is_ok() {}
+                    return;
+                };
 
-            let mut sink: Option<Sink> = None;
-            let mut volume = 0.9f32;
-            let mut speed = 1.0f32;
-            let mut path = String::new();
-            let mut duration = 0.0f64;
+                let mut sink: Option<Sink> = None;
+                let mut volume = 0.9f32;
+                let mut speed = 1.0f32;
+                let mut path = String::new();
+                let mut duration = 0.0f64;
+                let mut was_finished = false;
+                let mut last_sent = State::default();
+                let mut last_tick = Instant::now();
 
-            // Cada cuanto se refresca el estado si no llega ninguna orden.
-            // Mientras suena hace falta a menudo: de ahi salen la barra de
-            // progreso y el aviso de fin de pista. Parado o en pausa no se
-            // mueve nada, asi que despertar ocho veces por segundo para mirar
-            // lo mismo solo gasta bateria. Una orden entra por el canal y
-            // despierta al hilo al momento, asi que no se pierde reaccion.
-            const ACTIVO_MS: u64 = 120;
-            const QUIETO_MS: u64 = 600;
+                // Cada cuanto se mira el reloj si no llega ninguna orden.
+                // Sonando hace falta a menudo (de ahi sale la barra de
+                // progreso); parado no se mueve nada, asi que despertar ocho
+                // veces por segundo para ver lo mismo solo gasta bateria.
+                const ACTIVE_MS: u64 = 100;
+                const IDLE_MS: u64 = 500;
+                // Cada cuanto se avisa de la posicion mientras suena.
+                const TICK: Duration = Duration::from_millis(250);
 
-            loop {
-                let sonando = sink
-                    .as_ref()
-                    .map_or(false, |s| !s.is_paused() && !s.empty());
-                let espera = if sonando { ACTIVO_MS } else { QUIETO_MS };
-                // atiende ordenes; si no llega ninguna, refresca el estado
-                match rx.recv_timeout(Duration::from_millis(espera)) {
-                    Ok(cmd) => {
-                        let mut failure = String::new();
-                        match cmd {
-                            Command::Play(r) => {
-                                if let Some(s) = sink.take() { s.stop() }
-                                match open_sink(&handle, &r, volume, speed) {
-                                    Ok(s) => {
-                                        s.play();
-                                        duration = duration_of(&r);
-                                        path = r.clone();
-                                        sink = Some(s);
+                loop {
+                    let sounding = sink
+                        .as_ref()
+                        .map_or(false, |s| !s.is_paused() && !s.empty());
+                    let wait = if sounding { ACTIVE_MS } else { IDLE_MS };
+                    let mut failure: Option<String> = None;
+                    let mut clear_error = false;
+
+                    match rx.recv_timeout(Duration::from_millis(wait)) {
+                        Ok(cmd) => {
+                            clear_error = matches!(cmd, Command::Play { .. } | Command::Stop);
+                            match cmd {
+                                Command::Play { path: r, duration: hint } => {
+                                    if let Some(s) = sink.take() {
+                                        s.stop()
                                     }
-                                    Err(e) => failure = e,
-                                }
-                            }
-                            Command::Toggle => {
-                                let agotada = sink.as_ref().map_or(true, |s| s.empty());
-                                if agotada && !path.is_empty() {
-                                    // la pista acabo: se recarga y suena otra vez
-                                    match open_sink(&handle, &path, volume, speed) {
-                                        Ok(s) => { s.play(); sink = Some(s) }
-                                        Err(e) => failure = e,
-                                    }
-                                } else if let Some(s) = &sink {
-                                    if s.is_paused() { s.play() } else { s.pause() }
-                                }
-                            }
-                            Command::Stop => {
-                                if let Some(s) = sink.take() { s.stop() }
-                                path.clear(); duration = 0.0;
-                            }
-                            Command::Seek(seg) => {
-                                let agotada = sink.as_ref().map_or(true, |s| s.empty());
-                                if agotada && !path.is_empty() {
-                                    match open_sink(&handle, &path, volume, speed) {
-                                        Ok(s) => { s.play(); sink = Some(s) }
-                                        Err(e) => failure = e,
+                                    match open_sink(&handle, &r, volume, speed) {
+                                        Ok((s, announced)) => {
+                                            s.play();
+                                            // la del indice manda: en mp3 de
+                                            // bitrate variable sin cabecera
+                                            // Xing la del archivo se inventa
+                                            duration = if hint > 0.0 {
+                                                hint
+                                            } else {
+                                                announced.unwrap_or(0.0)
+                                            };
+                                            path = r.clone();
+                                            sink = Some(s);
+                                            was_finished = false;
+                                        }
+                                        Err(e) => {
+                                            // Sin limpiar la ruta, el siguiente
+                                            // play o un salto en la barra
+                                            // reproducian la cancion ANTERIOR,
+                                            // que es de las cosas mas raras que
+                                            // puede hacer un reproductor.
+                                            path.clear();
+                                            duration = 0.0;
+                                            failure = Some(e);
+                                        }
                                     }
                                 }
-                                if let Some(s) = &sink {
-                                    if let Err(e) = s.try_seek(
-                                        Duration::from_secs_f64(seg.max(0.0))) {
-                                        failure = format!("no se puede buscar aqui: {e:?}");
+                                Command::Toggle | Command::Resume | Command::Pause => {
+                                    let exhausted = sink.as_ref().map_or(true, |s| s.empty());
+                                    let wants_play = match cmd {
+                                        Command::Resume => true,
+                                        Command::Pause => false,
+                                        // Toggle: lo contrario de lo que hay
+                                        _ => sink.as_ref().map_or(true, |s| s.is_paused() || s.empty()),
+                                    };
+                                    if wants_play && exhausted && !path.is_empty() {
+                                        // la pista acabo: se recarga y suena otra vez
+                                        match open_sink(&handle, &path, volume, speed) {
+                                            Ok((s, _)) => {
+                                                s.play();
+                                                sink = Some(s);
+                                                was_finished = false;
+                                            }
+                                            Err(e) => failure = Some(e),
+                                        }
+                                    } else if let Some(s) = &sink {
+                                        if wants_play {
+                                            s.play()
+                                        } else {
+                                            s.pause()
+                                        }
                                     }
                                 }
-                            }
-                            Command::Volume(v) => {
-                                volume = v.clamp(0.0, 2.0);
-                                if let Some(s) = &sink { s.set_volume(volume) }
-                            }
-                            Command::Speed(v) => {
-                                speed = v.clamp(0.25, 3.0);
-                                if let Some(s) = &sink { s.set_speed(speed) }
+                                Command::Stop => {
+                                    if let Some(s) = sink.take() {
+                                        s.stop()
+                                    }
+                                    path.clear();
+                                    duration = 0.0;
+                                    was_finished = false;
+                                }
+                                Command::Seek(seconds) => {
+                                    let exhausted = sink.as_ref().map_or(true, |s| s.empty());
+                                    if exhausted && !path.is_empty() {
+                                        match open_sink(&handle, &path, volume, speed) {
+                                            Ok((s, _)) => {
+                                                s.play();
+                                                sink = Some(s);
+                                                was_finished = false;
+                                            }
+                                            Err(e) => failure = Some(e),
+                                        }
+                                    }
+                                    if let Some(s) = &sink {
+                                        if let Err(e) =
+                                            s.try_seek(Duration::from_secs_f64(seconds.max(0.0)))
+                                        {
+                                            failure = Some(format!("no se puede buscar aqui: {e}"));
+                                        }
+                                    }
+                                }
+                                Command::Volume(v) => {
+                                    volume = v.clamp(0.0, 1.0);
+                                    if let Some(s) = &sink {
+                                        s.set_volume(volume)
+                                    }
+                                }
+                                Command::NudgeVolume(d) => {
+                                    volume = (volume + d).clamp(0.0, 1.0);
+                                    if let Some(s) = &sink {
+                                        s.set_volume(volume)
+                                    }
+                                }
+                                Command::Speed(v) => {
+                                    speed = v.clamp(0.25, 3.0);
+                                    if let Some(s) = &sink {
+                                        s.set_speed(speed)
+                                    }
+                                }
                             }
                         }
-                        if let Ok(mut e) = shared.lock() { e.error = failure }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(_) => break, // el canal se cerro: fin
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(_) => break,     // el channel se cerro: fin
-                }
 
-                if let Ok(mut e) = shared.lock() {
-                    match &sink {
-                        Some(s) => {
-                            e.finished = s.empty();
-                            e.playing = !s.is_paused() && !s.empty();
-                            e.position = s.get_pos().as_secs_f64();
+                    // ------------------------------------------- estado nuevo
+                    let finished = sink.as_ref().map_or(false, |s| s.empty());
+                    let current = {
+                        let Ok(mut e) = shared.lock() else { break };
+                        if let Some(reason) = failure {
+                            e.error = reason;
+                        } else if clear_error {
+                            e.error.clear();
                         }
-                        None => { e.playing = false; e.position = 0.0; e.finished = false }
+                        match &sink {
+                            Some(s) => {
+                                e.playing = !s.is_paused() && !s.empty();
+                                e.position = s.get_pos().as_secs_f64();
+                            }
+                            None => {
+                                e.playing = false;
+                                e.position = 0.0;
+                            }
+                        }
+                        e.path = path.clone();
+                        e.duration = duration;
+                        e.volume = volume;
+                        e.speed = speed;
+                        e.clone()
+                    };
+
+                    // Fin de pista: se avisa UNA vez. Quien decide que pasa
+                    // luego (repetir, avanzar, pararse) es la cola.
+                    if finished && !was_finished && !path.is_empty() {
+                        was_finished = true;
+                        if events.send(Event::Finished).is_err() {
+                            break;
+                        }
                     }
-                    e.path = path.clone();
-                    e.duration = duration;
-                    e.volume = volume;
-                    e.speed = speed;
+                    if !finished {
+                        was_finished = false;
+                    }
+
+                    // Se avisa cuando cambia algo que se ve, y mientras suena
+                    // tambien cada 250 ms para mover la barra de progreso.
+                    let changed = current.playing != last_sent.playing
+                        || current.path != last_sent.path
+                        || current.error != last_sent.error
+                        || current.duration != last_sent.duration
+                        || (current.volume - last_sent.volume).abs() > f32::EPSILON
+                        || (current.speed - last_sent.speed).abs() > f32::EPSILON;
+                    let due = current.playing && last_tick.elapsed() >= TICK;
+                    if changed || due {
+                        last_sent = current.clone();
+                        last_tick = Instant::now();
+                        if events.send(Event::Changed(current)).is_err() {
+                            break;
+                        }
+                    }
                 }
-            }
-        }).expect("no se pudo crear el hilo de audio");
+            })
+            .expect("no se pudo crear el hilo de audio");
 
         Self { channel: tx, state }
     }
 
-    pub fn send(&self, o: Command) -> Result<(), String> {
-        self.channel.send(o).map_err(|_| "el hilo de audio no responde".to_string())
+    pub fn send(&self, command: Command) -> Result<(), String> {
+        self.channel
+            .send(command)
+            .map_err(|_| "el hilo de audio no responde".to_string())
     }
+
+    /// La ultima foto del estado. El camino normal son los eventos; esto es
+    /// para las pruebas y para mirar el estado sin esperar al siguiente aviso.
+    #[allow(dead_code)]
     pub fn state(&self) -> State {
         self.state.lock().map(|e| e.clone()).unwrap_or_default()
     }
@@ -203,6 +341,7 @@ impl Handle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc::Receiver;
 
     /// Audio real para las pruebas que lo necesitan. No se incrusta una ruta
     /// personal: se apunta a la tuya con DANPLAY_TEST_SAMPLE, y si no existe
@@ -213,25 +352,48 @@ mod tests {
             format!("{home}/Musica/Artistas/Barak/Barak - Mi Gozo.mp3")
         })
     }
-    fn has_sample() -> bool { std::path::Path::new(&sample()).exists() }
-    fn wait_ms(ms: u64) { std::thread::sleep(Duration::from_millis(ms)) }
+    fn has_sample() -> bool {
+        std::path::Path::new(&sample()).exists()
+    }
+    fn wait_ms(ms: u64) {
+        std::thread::sleep(Duration::from_millis(ms))
+    }
+    fn handle() -> (Handle, Receiver<Event>) {
+        let (tx, rx) = channel();
+        (Handle::new(tx), rx)
+    }
 
+    /// La duracion sale del propio archivo al abrirlo, sin decodificarlo
+    /// entero otra vez como se hacia antes.
     #[test]
-    fn duration_is_read_from_the_file() {
-        if !has_sample() { return }
-        assert!(duration_of(&sample()) > 60.0);
+    fn duration_is_read_when_the_track_loads() {
+        if !has_sample() {
+            return;
+        }
+        let (m, _rx) = handle();
+        wait_ms(250);
+        if !m.state().has_output {
+            return;
+        }
+        m.send(Command::Play { path: sample(), duration: 0.0 }).unwrap();
+        wait_ms(600);
+        assert!(m.state().duration > 60.0, "duracion: {}", m.state().duration);
     }
 
     #[test]
-    fn non_audio_has_zero_duration() {
+    fn non_audio_reports_an_error() {
         let r = std::env::temp_dir().join("dp_basura.mp3");
         std::fs::write(&r, b"no soy audio").unwrap();
-        assert_eq!(duration_of(r.to_str().unwrap()), 0.0);
+        let (m, _rx) = handle();
+        wait_ms(200);
+        m.send(Command::Play { path: r.to_string_lossy().into(), duration: 0.0 }).unwrap();
+        wait_ms(400);
+        assert!(!m.state().error.is_empty());
     }
 
     #[test]
     fn initial_state_is_consistent() {
-        let m = Handle::new();
+        let (m, _rx) = handle();
         wait_ms(250);
         let e = m.state();
         assert!(!e.playing && e.position == 0.0 && e.path.is_empty());
@@ -240,32 +402,90 @@ mod tests {
 
     #[test]
     fn missing_file_reports_error_without_panic() {
-        let m = Handle::new();
+        let (m, _rx) = handle();
         wait_ms(200);
-        m.send(Command::Play("/no/existe/x.mp3".into())).unwrap();
+        m.send(Command::Play {
+            path: "/no/existe/x.mp3".into(),
+            duration: 0.0,
+        })
+        .unwrap();
         wait_ms(300);
         assert!(!m.state().error.is_empty(), "deberia informar del error");
     }
 
+    /// El fallo que dejaba sonando la cancion anterior: si `Play` falla, la
+    /// ruta tiene que quedar limpia o el siguiente Toggle revive la de antes.
+    #[test]
+    fn a_failed_play_forgets_the_previous_track() {
+        if !has_sample() {
+            return;
+        }
+        let (m, _rx) = handle();
+        wait_ms(250);
+        if !m.state().has_output {
+            return;
+        }
+        m.send(Command::Play {
+            path: sample(),
+            duration: 0.0,
+        })
+        .unwrap();
+        wait_ms(500);
+        m.send(Command::Play {
+            path: "/no/existe/y.mp3".into(),
+            duration: 0.0,
+        })
+        .unwrap();
+        wait_ms(400);
+        assert!(m.state().path.is_empty(), "no deberia recordar la anterior");
+        m.send(Command::Toggle).unwrap();
+        wait_ms(400);
+        assert!(!m.state().playing, "no deberia sonar nada");
+    }
+
     #[test]
     fn volume_and_speed_are_clamped() {
-        let m = Handle::new();
+        let (m, _rx) = handle();
         wait_ms(200);
         m.send(Command::Volume(9.0)).unwrap();
         m.send(Command::Speed(99.0)).unwrap();
         wait_ms(300);
         let e = m.state();
-        assert_eq!(e.volume, 2.0);
+        assert_eq!(e.volume, 1.0);
         assert_eq!(e.speed, 3.0);
     }
 
     #[test]
-    fn really_plays_advances_and_pauses() {
-        if !has_sample() { return }
-        let m = Handle::new();
+    fn nudging_the_volume_stays_in_range() {
+        let (m, _rx) = handle();
+        wait_ms(200);
+        m.send(Command::Volume(0.98)).unwrap();
+        m.send(Command::NudgeVolume(0.05)).unwrap();
         wait_ms(250);
-        if !m.state().has_output { eprintln!("sin tarjeta de sonido; se omite"); return }
-        m.send(Command::Play(sample())).unwrap();
+        assert_eq!(m.state().volume, 1.0);
+        for _ in 0..30 {
+            m.send(Command::NudgeVolume(-0.05)).unwrap();
+        }
+        wait_ms(300);
+        assert_eq!(m.state().volume, 0.0);
+    }
+
+    #[test]
+    fn really_plays_advances_and_pauses() {
+        if !has_sample() {
+            return;
+        }
+        let (m, _rx) = handle();
+        wait_ms(250);
+        if !m.state().has_output {
+            eprintln!("sin tarjeta de sonido; se omite");
+            return;
+        }
+        m.send(Command::Play {
+            path: sample(),
+            duration: 0.0,
+        })
+        .unwrap();
         wait_ms(900);
         let e = m.state();
         assert!(e.error.is_empty(), "error: {}", e.error);
@@ -281,13 +501,49 @@ mod tests {
         assert!(m.state().playing, "deberia haber reanudado");
     }
 
+    /// Pausar y reanudar explicitamente (lo que manda el escritorio por MPRIS)
+    /// no puede invertirse: «pausa» sobre algo pausado lo deja pausado.
+    #[test]
+    fn pause_and_resume_are_not_a_toggle() {
+        if !has_sample() {
+            return;
+        }
+        let (m, _rx) = handle();
+        wait_ms(250);
+        if !m.state().has_output {
+            return;
+        }
+        m.send(Command::Play {
+            path: sample(),
+            duration: 0.0,
+        })
+        .unwrap();
+        wait_ms(500);
+        m.send(Command::Pause).unwrap();
+        m.send(Command::Pause).unwrap();
+        wait_ms(400);
+        assert!(!m.state().playing);
+        m.send(Command::Resume).unwrap();
+        m.send(Command::Resume).unwrap();
+        wait_ms(400);
+        assert!(m.state().playing);
+    }
+
     #[test]
     fn can_seek_inside_the_song() {
-        if !has_sample() { return }
-        let m = Handle::new();
+        if !has_sample() {
+            return;
+        }
+        let (m, _rx) = handle();
         wait_ms(250);
-        if !m.state().has_output { return }
-        m.send(Command::Play(sample())).unwrap();
+        if !m.state().has_output {
+            return;
+        }
+        m.send(Command::Play {
+            path: sample(),
+            duration: 0.0,
+        })
+        .unwrap();
         wait_ms(500);
         m.send(Command::Seek(30.0)).unwrap();
         wait_ms(500);
@@ -295,60 +551,93 @@ mod tests {
         assert!(p >= 28.0, "no salto a los 30s: {p}");
     }
 
-    // Cuando una pista acaba, su Sink queda vacio. Antes, darle a play solo lo
-    // pausaba y buscar en la barra no hacia nada: parecia colgado.
+    /// Al acabar una pista se avisa una sola vez: es lo que dispara el paso a
+    /// la siguiente, y avisar dos veces se saltaba una cancion.
+    #[test]
+    fn the_end_of_a_track_is_announced_once() {
+        if !has_sample() {
+            return;
+        }
+        let (m, rx) = handle();
+        wait_ms(250);
+        if !m.state().has_output {
+            return;
+        }
+        m.send(Command::Play {
+            path: sample(),
+            duration: 0.0,
+        })
+        .unwrap();
+        wait_ms(600);
+        let total = m.state().duration;
+        m.send(Command::Seek(total - 0.6)).unwrap();
+        wait_ms(2000);
+        let finales = std::iter::from_fn(|| rx.try_recv().ok())
+            .filter(|e| matches!(e, Event::Finished))
+            .count();
+        assert_eq!(finales, 1, "se aviso {finales} veces del fin de pista");
+    }
+
     #[test]
     fn a_finished_track_plays_again_on_toggle() {
-        if !has_sample() { return }
-        let m = Handle::new();
+        if !has_sample() {
+            return;
+        }
+        let (m, _rx) = handle();
         wait_ms(250);
-        if !m.state().has_output { return }
-        let total = duration_of(&sample());
-        m.send(Command::Play(sample())).unwrap();
-        wait_ms(400);
-        m.send(Command::Seek(total - 0.6)).unwrap();     // casi al final
+        if !m.state().has_output {
+            return;
+        }
+        m.send(Command::Play {
+            path: sample(),
+            duration: 0.0,
+        })
+        .unwrap();
+        wait_ms(600);
+        let total = m.state().duration;
+        m.send(Command::Seek(total - 0.6)).unwrap(); // casi al final
         wait_ms(1600);
-        assert!(m.state().finished, "deberia haber terminado");
 
         m.send(Command::Toggle).unwrap();
         wait_ms(700);
         let e = m.state();
         assert!(e.playing, "tras terminar, play deberia volver a sonar");
-        assert!(e.position < total - 1.0, "deberia empezar de nuevo: {}", e.position);
-    }
-
-    #[test]
-    fn a_finished_track_can_be_rewound() {
-        if !has_sample() { return }
-        let m = Handle::new();
-        wait_ms(250);
-        if !m.state().has_output { return }
-        let total = duration_of(&sample());
-        m.send(Command::Play(sample())).unwrap();
-        wait_ms(400);
-        m.send(Command::Seek(total - 0.6)).unwrap();
-        wait_ms(1600);
-        assert!(m.state().finished);
-
-        m.send(Command::Seek(10.0)).unwrap();            // retroceder en la barra
-        wait_ms(700);
-        let e = m.state();
-        assert!(e.playing, "retroceder deberia dejarla sonando");
-        assert!(e.position >= 8.0 && e.position < total - 1.0,
-                "no volvio al segundo 10: {}", e.position);
+        assert!(
+            e.position < total - 1.0,
+            "deberia empezar de nuevo: {}",
+            e.position
+        );
     }
 
     #[test]
     fn stop_clears_the_state() {
-        if !has_sample() { return }
-        let m = Handle::new();
+        if !has_sample() {
+            return;
+        }
+        let (m, _rx) = handle();
         wait_ms(250);
-        if !m.state().has_output { return }
-        m.send(Command::Play(sample())).unwrap();
+        if !m.state().has_output {
+            return;
+        }
+        m.send(Command::Play {
+            path: sample(),
+            duration: 0.0,
+        })
+        .unwrap();
         wait_ms(500);
         m.send(Command::Stop).unwrap();
         wait_ms(400);
         let e = m.state();
         assert!(!e.playing && e.path.is_empty());
+    }
+
+    /// Los formatos que symphonia no trae tienen que decirlo en castellano y
+    /// explicando que hacer, no soltar «Unrecognized format».
+    #[test]
+    fn unsupported_formats_explain_themselves() {
+        let message = readable("Unrecognized format", "/musica/cancion.opus");
+        assert!(message.contains("opus") && message.contains("mp3"), "{message}");
+        let other = readable("Unrecognized format", "/musica/cancion.mp3");
+        assert!(other.contains("dañado"), "{other}");
     }
 }

@@ -1,0 +1,42 @@
+/* ============================================================
+   MAQUETACION ADAPTABLE
+   Nada debe provocar desplazamiento horizontal: las columnas
+   menos importantes se van escondiendo segun falta sitio.
+   ============================================================ */
+.app,.main,.center{min-width:0;max-width:100%}
+/* `auto` y no `hidden`: mientras las columnas quepan no aparece ninguna barra
+   —la promesa de arriba se mantiene—, pero si TU ensanchas una a mano hasta
+   pasarte del panel, hay que poder llegar a las de la derecha. Antes se
+   quedaban recortadas sin salida. */
+.table-wrap{overflow-x:auto}
+table{table-layout:fixed;width:100%}
+th,td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* la barra superior nunca desborda */
+/* Nada de overflow:hidden aqui: el menu de Vista cuelga de la cabecera con
+   position:absolute y quedaba recortado. Para que no desborde basta con que
+   el buscador pueda encogerse. */
+.topbar{min-width:0;flex-wrap:nowrap}
+.topbar > .search-box{flex:1 1 260px;min-width:90px}
+.topbar .view-switch,.topbar .btn{flex-shrink:0}
+.syntax-hint{flex-shrink:0}
+
+/* el panel de detalle cede sitio antes de romper nada */
+@media (max-width:1500px){ :root{--details-w:calc(312px * var(--scale))} }
+@media (max-width:1300px){ :root{--details-w:calc(288px * var(--scale));
+  --sidebar-w:calc(198px * var(--scale))} }
+@media (max-width:1150px){ :root{--sidebar-w:calc(184px * var(--scale))} }
+
+/* columnas que se retiran cuando falta anchura */
+@media (max-width:1460px){ .col-kbps{display:none} }
+@media (max-width:1330px){ .col-bpm{display:none} }
+@media (max-width:1230px){ .col-key{display:none} }
+@media (max-width:1120px){ .col-stars{display:none} }
+@media (max-width:1000px){ thead th:nth-child(5),tbody td:nth-child(5){display:none} }
+
+/* la cola flotante tampoco desborda en ventanas estrechas */
+.queue{max-width:calc(100vw - 24px)}
+.toasts{max-width:calc(100vw - 32px)}
+.toast{max-width:100%}
+
+

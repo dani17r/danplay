@@ -8,11 +8,12 @@
 
 <p align="center">
   <img alt="Linux" src="https://img.shields.io/badge/Linux-.deb%20%C2%B7%20AppImage-333?logo=linux&logoColor=white">
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-en%20preparaci%C3%B3n-666?logo=windows&logoColor=white">
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-426%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-501%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -87,8 +88,20 @@ busca en la base de datos abierta de MusicBrainz.
 ## Lo que lo hace distinto
 
 **No abre ningún puerto.** La interfaz habla con el núcleo por un socket Unix
-con permisos `0600`. Ningún otro proceso de tu equipo —ni una web abierta en
-el navegador— puede hablar con la API. Comprobado en las pruebas de humo.
+con permisos `0600`, dentro de una carpeta que solo tú puedes abrir. Ningún
+otro proceso de tu equipo —ni una web abierta en el navegador— puede hablar
+con la API. Comprobado en las pruebas de humo.
+
+**Vive en la bandeja del sistema.** Al cerrar la ventana, DanPlay se esconde y
+la música sigue. Un clic en el icono saca un mini reproductor; el botón
+derecho, el menú; el central pausa; la rueda sube y baja el volumen. Se cierra
+del todo con **Salir**. Si tu escritorio no tiene bandeja, cerrar cierra, para
+que nunca quede una aplicación viva sin forma de volver a ella.
+
+**Las teclas multimedia funcionan.** DanPlay se anuncia al escritorio (MPRIS en
+Linux), así que las teclas de reproducción del teclado y de los auriculares
+valen, y el reproductor del sistema y la pantalla de bloqueo enseñan lo que
+suena, con su carátula.
 
 **El audio no pasa por el navegador.** Lo decodifica Rust y sale directo a la
 tarjeta de sonido. El WebView no lo toca en ningún momento.
@@ -110,7 +123,7 @@ Se construye desde el código. Son cuatro comandos y un script:
 git clone https://github.com/dani17r/danplay.git && cd danplay
 
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/maturin develop --release -m core/Cargo.toml   # el crate de Rust
 cd desktop && npm install && cd ..
 
@@ -187,7 +200,7 @@ Cuatro capas, cada una en lo que mejor se le da:
 ```text
    Vue 3 + Vite            interfaz
         │  invoke()        único puente; el JS no hace HTTP
-   Tauri / Rust            proceso principal, reproducción de audio
+   Tauri / Rust            proceso principal, cola, audio, bandeja, MPRIS
         │  socket Unix     0600; sin puerto TCP
    Python                  identificación, índice, IA, etiquetas
         │
@@ -195,9 +208,10 @@ Cuatro capas, cada una en lo que mejor se le da:
 ```
 
 - **Vue 3** para la interfaz: temas claros y oscuros, densidad ajustable,
-  responsive hasta tamaño móvil, mini reproductor en la bandeja del sistema.
-- **Rust (Tauri)** para el proceso principal: sirve el audio leyendo del disco
-  con soporte de rangos, y lo reproduce nativamente.
+  responsive hasta tamaño móvil.
+- **Rust (Tauri)** para el proceso principal: la cola de reproducción, el
+  icono de la bandeja, el mini reproductor y los mandos del sistema. Sirve el
+  audio leyendo del disco con soporte de rangos, y lo reproduce nativamente.
 - **Python** para el núcleo: la cascada de identificación, el índice SQLite con
   búsqueda de texto completo (FTS5), la IA y las etiquetas.
 - **Rust (PyO3)** para lo que Python hace lento: hashes en paralelo con rayon y
@@ -218,10 +232,12 @@ igual que las estrellas.
 
 ## Formatos
 
-Lee `.mp3`, `.flac`, `.m4a`, `.wav`, `.ogg`, `.opus`, `.aac` y `.wma`. Puede
-unificar a mp3 con ffmpeg conservando etiquetas y carátula, respetando las
-carpetas que marques como intocables (`Secuencias`, `Pistas`, `Multitracks`…),
-donde comprimir sería perder calidad.
+Lee y organiza `.mp3`, `.flac`, `.m4a`, `.wav`, `.ogg`, `.opus`, `.aac` y
+`.wma`. **Reproduce** todos menos `.opus` y `.wma`, que el decodificador no
+trae todavía: ahí la app lo dice y te ofrece convertirlos. Puede unificar a
+mp3 con ffmpeg conservando etiquetas y carátula, respetando las carpetas que
+marques como intocables (`Secuencias`, `Pistas`, `Multitracks`…), donde
+comprimir sería perder calidad.
 
 ## Lo que NO hace bien
 
@@ -236,9 +252,13 @@ Prefiero decirlo aquí que en un issue:
 - **El BPM es usable, no exacto.** 5 de 8 aceptando errores de octava.
 - **Los acordes que da la IA son aproximados.** La app lo avisa. La
   transposición sobre ellos sí es determinista y exacta.
-- **Solo Linux, de momento.** El empaquetado, la papelera del sistema y los
-  diálogos usan herramientas de escritorio Linux. El núcleo es portable; el
-  envoltorio no lo he probado en otros sistemas.
+- **Solo Linux probado.** El código ya está preparado para Windows —la
+  papelera, las rutas de datos y el transporte con el núcleo tienen su camino
+  allí— pero nadie lo ha compilado ni ejecutado todavía. Hasta que eso pase,
+  Windows es una intención, no una promesa.
+- **El mini reproductor aparece donde puede.** Con X11 y con el AppImage sale
+  pegado al icono de la bandeja. En Wayland lo coloca el escritorio: no existen
+  las coordenadas globales y una aplicación no puede situar sus ventanas.
 - **Un solo usuario, una sola máquina.** No hay sincronización entre equipos.
 
 ## Documentación
@@ -246,6 +266,7 @@ Prefiero decirlo aquí que en un issue:
 | Documento | Qué encontrarás |
 | --- | --- |
 | [Arquitectura](docs/ARQUITECTURA.md) | Cómo encaja todo por dentro, decisiones de diseño y por qué. |
+| [Contrato interno](docs/CONTRATO-INTERNO.md) | Qué se dicen las capas: comandos, eventos y nombres de cada campo. |
 | [Contribuir](docs/CONTRIBUIR.md) | Cómo montar el entorno, ejecutar las pruebas y en qué se puede ayudar. |
 
 ## Pruebas
@@ -254,20 +275,30 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-426 pruebas repartidas así:
+501 pruebas repartidas así:
 
 | Tanda | Pruebas |
 | --- | --- |
-| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice) | 91 |
-| API sobre una biblioteca temporal de verdad | 71 |
-| Interfaz: componentes, reactividad, temas, listas grandes | 232 |
+| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice) | 94 |
+| API sobre una biblioteca temporal de verdad | 82 |
+| Interfaz: componentes, reactividad, temas, listas grandes, contratos | 255 |
 | Interfaz: rutas de medios en cada sistema | 7 |
-| Rust: análisis de audio y reproductor nativo | 22 |
-| Humo sobre la app **ya compilada** | 12 |
+| Rust: hashes y análisis de audio | 14 |
+| Rust: reproductor, cola de reproducción y bandeja | 34 |
+| Humo sobre la app **ya compilada** | 15 |
+
+La biblioteca de prueba **se genera**: mp3 de verdad hechos con ffmpeg. Antes
+hacía falta la música de quien ejecutara las pruebas y en cualquier otra
+máquina la mitad se saltaban solas.
 
 Las de humo arrancan la app de verdad y comprueban, entre otras cosas, que el
-socket es privado (`0600`), que no queda ningún puerto TCP abierto y que el
-núcleo muere con la app sin dejar procesos huérfanos.
+socket es privado (`0600`), que no queda ningún puerto TCP abierto, que el
+icono se registra en la bandeja del escritorio y que el núcleo muere con la
+app sin dejar procesos huérfanos.
+
+También hay `npm run lint`, `npm run lint:css` y una comprobación de que
+`src/icons.js` sigue siendo lo que genera `npm run icons`; todo eso corre en
+cada push.
 
 ## Licencia
 

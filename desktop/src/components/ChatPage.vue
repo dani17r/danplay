@@ -1,6 +1,7 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
-import { api } from '../api.js'
+import { api, errorMessage } from '../api.js'
+import { ask } from '../composables/useDialog.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 
@@ -73,14 +74,14 @@ function stopWatching () {
 onUnmounted(stopWatching)
 
 onMounted(async () => {
-  try { info.value = await api.chatTools() } catch {}
+  try { info.value = await api.chatTools() } catch { /* sin almacenamiento (modo privado) */ }
   const guardado = localStorage.getItem('danplay.chat')
-  if (guardado) { try { messages.value = JSON.parse(guardado) } catch {} }
+  if (guardado) { try { messages.value = JSON.parse(guardado) } catch { /* sin almacenamiento (modo privado) */ } }
   scrollToBottom()
 })
 
 function save () {
-  try { localStorage.setItem('danplay.chat', JSON.stringify(messages.value.slice(-60))) } catch {}
+  try { localStorage.setItem('danplay.chat', JSON.stringify(messages.value.slice(-60))) } catch { /* sin almacenamiento (modo privado) */ }
 }
 async function scrollToBottom () {
   await nextTick()
@@ -112,18 +113,52 @@ async function send (text = null) {
       // reproducir no se puede hacer desde Python: el nucleo devuelve la orden
       // y la ejecuta la app
       for (const a of r.actions || []) emit('action', a)
+      if (r.confirm) await confirmPending(r.confirm)
     }
   } catch (e) {
-    messages.value.push({ role: 'ai', text: 'No pude responder: ' + e, error: true })
+    messages.value.push({ role: 'ai', text: 'No pude responder: ' + errorMessage(e), error: true })
   } finally {
     thinking.value = false; stopWatching(); save(); scrollToBottom()
   }
 }
 
-function clearChat () {
-  if (!messages.value.length || confirm('¿Borrar la conversacion?')) {
-    messages.value = []; save()
+/**
+ * Lo que no tiene vuelta atras no lo hace el modelo por su cuenta.
+ *
+ * El nucleo devuelve `confirm` con lo que iba a hacer en vez de hacerlo
+ * (docs/CONTRATO-INTERNO.md §3): borrar una cancion, borrar un repertorio o
+ * descargar. Aqui se pregunta, y solo si dices que si se ejecuta. Un texto
+ * copiado de una pagina web o de un titulo de YouTube no puede borrarte nada.
+ */
+async function confirmPending (pending) {
+  const ok = await ask({
+    kind: 'confirm', title: 'El asistente quiere hacer esto', danger: true,
+    message: pending.summary, okLabel: 'Adelante'
+  })
+  if (!ok) {
+    messages.value.push({ role: 'ai', text: 'Cancelado, no he tocado nada.' })
+    save(); scrollToBottom()
+    return
   }
+  try {
+    const r = await api.chatConfirm(pending.tool, pending.args)
+    messages.value.push({ role: 'ai', text: r.text || 'Hecho.' })
+    emit('reload')
+  } catch (e) {
+    messages.value.push({ role: 'ai', text: 'No se pudo: ' + errorMessage(e), error: true })
+  } finally {
+    save(); scrollToBottom()
+  }
+}
+
+async function clearChat () {
+  if (!messages.value.length) return
+  const ok = await ask({
+    kind: 'confirm', title: 'Borrar la conversación',
+    message: 'Se borra el historial del chat. Tu biblioteca no se toca.',
+    okLabel: 'Borrar'
+  })
+  if (ok) { messages.value = []; save() }
 }
 </script>
 

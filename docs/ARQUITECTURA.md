@@ -9,22 +9,27 @@ usarlo, con el [README](../README.md) tienes de sobra.
 
 ```text
    Vue 3 + Vite  (interfaz)
-        │  invoke()          ← único puente, sin HTTP en el JS
-   Tauri / Rust  (proceso principal)
-        │  socket Unix 0600  ← sin puerto TCP; solo tu usuario
+        │  invoke() + eventos ← único puente, sin HTTP en el JS
+   Tauri / Rust  (proceso principal: cola, audio, bandeja, MPRIS)
+        │  socket Unix 0600   ← sin puerto TCP; solo tu usuario
    Python        (núcleo: identificación, índice, IA, etiquetas)
         │
    Rust (PyO3)   (hashes en paralelo, análisis de audio)
 ```
+
+El contrato exacto entre capas —qué comandos hay, qué eventos se emiten y qué
+nombres usa cada campo— está en [CONTRATO-INTERNO.md](CONTRATO-INTERNO.md).
 
 Cada capa está donde está por una razón concreta:
 
 **Vue 3** es interfaz y nada más. No sabe qué es un socket ni hace `fetch`.
 Todo lo que necesita del núcleo lo pide con `invoke()` a Rust.
 
-**Rust (Tauri)** es el proceso principal: arranca y vigila el núcleo Python,
-hace de puente con la API, sirve el audio leyendo del disco y lo reproduce
-nativamente.
+**Rust (Tauri)** es el proceso principal: arranca y **vigila** el núcleo
+Python (si se muere, lo levanta otra vez y avisa), hace de puente con la API,
+sirve el audio leyendo del disco y lo reproduce nativamente. También guarda
+**la cola de reproducción**, dibuja el icono de la bandeja y publica lo que
+suena al escritorio.
 
 **Python** es el núcleo: la cascada de identificación, el índice SQLite, las
 etiquetas ID3, la IA, las descargas. Se puede usar solo, sin interfaz, desde
@@ -33,6 +38,54 @@ la línea de comandos.
 **Rust (PyO3)** es donde va lo que Python hace lento: hashes de archivos en
 paralelo (rayon) y análisis de audio con FFT. Es opcional: si el crate no está
 compilado, Python tiene su propia versión más lenta y la app funciona igual.
+
+## Por qué la cola vive en Rust
+
+Estaba en la interfaz, que es donde parecía natural: allí está la lista y allí
+se pulsa. Se movió por tres razones concretas.
+
+**Con la ventana escondida, el JS se ralentiza.** Los navegadores frenan los
+temporizadores de una página que no se ve; a los pocos minutos, hasta una vez
+por minuto. El aviso de «se acabó la canción» salía de un temporizador cada
+250 ms, así que con la aplicación en la bandeja podía haber un minuto de
+silencio entre canciones.
+
+**La bandeja y el mini reproductor piden «siguiente» sin ventana delante.**
+Igual que las teclas multimedia del teclado. Alguien tiene que saber qué es
+«siguiente» sin depender de una ventana que puede estar dormida o cerrada.
+
+**Había tres bucles preguntando lo mismo.** El reproductor grande cada 250 ms,
+la ventanita cada 400 ms, y la app observando su propio estado para
+reenviárselo a la bandeja. Ahora Rust **avisa** (`danplay://state`) y las
+ventanas escuchan: ni un sondeo.
+
+La máquina de estados (qué suena al acabarse una canción según el modo de
+repetición y el aleatorio) es una función pura, así que se prueba con `cargo
+test` sin tarjeta de sonido. La interfaz tiene la misma en
+`playback/queueLogic.js` para el modo navegador, con las mismas pruebas.
+
+## Por qué la bandeja no usa la de Tauri
+
+En Linux, Tauri dibuja el icono con `libappindicator`, y esa biblioteca **no
+entrega los clics**: solo abre el menú. Lo dice la propia documentación de
+Tauri («Linux: unsupported») y lleva años así. Por eso no se podía tener un
+mini reproductor al pulsar el icono.
+
+DanPlay habla el protocolo directamente (`StatusNotifierItem` sobre D-Bus, con
+el crate `ksni`), que es el mismo que usa Plasma de forma nativa y el que
+traduce la extensión AppIndicator en GNOME. Con eso llegan el clic izquierdo,
+el central y la rueda.
+
+Fuera de Linux sí se usa la bandeja de Tauri, porque allí los clics llegan y
+además el sistema dice **dónde** está el icono, con lo que la ventanita se
+pega justo encima. En Linux con Wayland eso no se puede: no existen las
+coordenadas globales y una aplicación no puede colocar sus propias ventanas;
+la sitúa el escritorio.
+
+Si no hay bandeja donde quedarse (un escritorio sin ella, GNOME sin la
+extensión), la aplicación se entera —`spawn` falla— y entonces **cerrar la
+ventana cierra la aplicación**. Dejarla viva y escondida sin icono sería
+dejarla sin forma de volver ni de salir.
 
 ## Por qué no hay puerto TCP
 
@@ -47,10 +100,22 @@ Con un socket Unix `0600`, solo tu usuario puede abrirlo.
 `uvicorn` hace `chmod 0666` al socket que crea él mismo, así que lo creamos
 nosotros con los permisos correctos y se lo pasamos ya escuchando.
 
-Para desarrollo (`danplay serve` sin `--uds`) sí hay puerto TCP, y ahí sí se
-aplican las protecciones de navegador: CORS restringido a los orígenes de Vite
-y validación de la cabecera `Host` contra el reenlace de DNS. La prueba de humo
-verifica que la app de escritorio no abre ningún puerto.
+Para desarrollo (`danplay serve` sin `--uds`) sí hay puerto TCP, y ahí se
+aplican tres protecciones de navegador: CORS restringido a los orígenes de
+Vite, validación de la cabecera `Host` contra el reenlace de DNS, y una
+cabecera propia (`X-DanPlay: 1`) en todo lo que no sea `GET`. Esto último
+porque CORS impide **leer** la respuesta pero no evita el efecto: un `POST`
+sin cuerpo a `/api/scan` desde cualquier pestaña abierta arrancaba un escaneo.
+Exigir una cabecera propia obliga al navegador a preguntar antes, y ahí CORS
+sí corta.
+
+En Windows no hay sockets Unix que uvicorn sepa escuchar, así que allí la
+aplicación levanta el núcleo en `127.0.0.1` con un puerto libre y un secreto
+de un solo arranque que le pasa por el entorno. Sin ese secreto, la API
+responde `401` a todo. Es lo más cerca de «solo la aplicación habla con el
+núcleo» que permite ese sistema.
+
+La prueba de humo verifica que la app de escritorio no abre ningún puerto.
 
 ## El audio no pasa por el WebView
 
@@ -188,9 +253,16 @@ fallo de medida.
 paralelo: cuando el asistente corrige un título, llama a la misma función que
 el botón de renombrar.
 
-**Reproducir no lo puede hacer él.** El audio lo maneja Rust y la cola vive en
-la interfaz, así que las herramientas de reproducción devuelven una `action`
-que la app ejecuta al recibir la respuesta.
+**Reproducir no lo puede hacer él.** El audio y la cola los maneja Rust, así
+que las herramientas de reproducción devuelven una `action` que la app ejecuta
+al recibir la respuesta.
+
+**Lo que no tiene vuelta atrás lo aprueba una persona.** Borrar una canción,
+borrar un repertorio y descargar no se ejecutan dentro de la conversación: el
+núcleo devuelve lo que *iba* a hacer y la interfaz lo pregunta. El texto del
+sistema ya pedía consultar antes, pero un texto no es una barrera: por la
+búsqueda web, por los títulos de YouTube y por las letras entra contenido que
+escribe cualquiera, y bastaría una línea bien puesta para disparar un borrado.
 
 **El texto de fuera es un dato, no una instrucción.** Lo que devuelven la
 búsqueda web, los títulos de YouTube y las letras lo escriben terceros. Las
@@ -203,12 +275,22 @@ forma de orden, no viene del usuario y no se obedece.
 danplay/        núcleo Python (índice, IA, etiquetas, descargas)
 core/           crate Rust (PyO3): hashes en paralelo y análisis de audio
 desktop/        interfaz Vue 3 + envoltorio Tauri
-  src/          componentes, composables, estilos
-  src-tauri/    proceso principal en Rust
+  src/
+    composables/  estado compartido (reproducción, avisos, diálogos, ajustes)
+    playback/     la máquina de estados de la cola, en JS y sin dependencias
+    components/   la interfaz, una página por archivo
+    styles/       los estilos, por áreas (base, listas, ui, responsive…)
+    utils/        formato, teclas, carpetas
+  src-tauri/src/
+    core.rs       arrancar, vigilar y hablar con el núcleo Python
+    queue.rs      la cola: qué suena y qué viene
+    player.rs     el hilo de audio
+    tray/         bandeja: linux.rs (ksni) y desktop.rs (Windows/macOS)
+    media.rs      MPRIS / SMTC
   tests/        pruebas de la interfaz
 tests/          pruebas de Python, del frontend y de humo
 packaging/      receta de PyInstaller para el núcleo empaquetado
-scripts/        build.sh y test.sh
+scripts/        build.sh, test.sh e icons.mjs
 docs/           esta documentación
 ```
 

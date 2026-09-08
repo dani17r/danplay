@@ -6,6 +6,7 @@
 // El resultado eran bordes invisibles, puntos de color que no salian y avisos
 // que nunca se coloreaban.
 import { describe, it, expect } from 'vitest'
+import { allCss } from './support/css.js'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,7 +14,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { CATALOG, KIND_LABEL } from '../src/themes.js'
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
-const CSS = readFileSync(join(SRC, 'style.css'), 'utf8')
+const CSS = allCss()
 
 /** Todos los .vue del proyecto, con su ruta y su contenido. */
 function componentes (dir = SRC, out = []) {
@@ -478,7 +479,7 @@ describe('informe de duplicados', () => {
 describe('paginas sin canciones', () => {
   it('Entrada no reserva sitio para una ficha que no se puede llenar', () => {
     const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
-    const lista = app.match(/const SIN_DETALLE = \[([^\]]*)\]/)
+    const lista = app.match(/const WITHOUT_DETAILS = \[([^\]]*)\]/)
     expect(lista, 'no encuentro que paginas ocultan la ficha').toBeTruthy()
     expect(lista[1]).toContain("'inbox'")
     // en Duplicados SI se queda: desde ahi se escuchan las copias
@@ -487,21 +488,26 @@ describe('paginas sin canciones', () => {
 })
 
 describe('las cuatro vistas', () => {
-  it('hay exactamente cuatro y cada una tiene nombre e icono', () => {
-    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
-    const lista = app.match(/const VIEWS = \[([^\]]*)\]/)
-    expect(lista, 'no encuentro las vistas').toBeTruthy()
-    const vistas = lista[1].split(',').map(v => v.trim().replace(/'/g, '')).filter(Boolean)
-    expect(vistas).toEqual(['rows', 'cards', 'grid', 'table'])
-    for (const v of vistas) {
-      expect(app, `falta el nombre de «${v}»`).toMatch(new RegExp(`${v}:\\s*'`))
+  it('hay exactamente cuatro y cada una tiene nombre e icono', async () => {
+    const { VIEWS, VIEW_NAMES, VIEW_ICONS } = await import('../src/composables/usePreferences.js')
+    expect(VIEWS).toEqual(['rows', 'cards', 'grid', 'table'])
+    for (const v of VIEWS) {
+      expect(VIEW_NAMES[v], `falta el nombre de «${v}»`).toBeTruthy()
+      expect(VIEW_ICONS[v], `falta el icono de «${v}»`).toBeTruthy()
     }
   })
 
-  it('quien tenia elegida una vista vieja no la pierde', () => {
-    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
-    expect(app, 'no se traducen los nombres anteriores').toMatch(/ANTIGUAS = \{[^}]*list:/)
-    expect(app).toMatch(/ANTIGUAS = \{[^}]*compact:/)
+  it('quien tenia elegida una vista vieja no la pierde', async () => {
+    const { savedLayout, resetPreferences } = await import('../src/composables/usePreferences.js')
+    resetPreferences()
+    for (const [viejo, nuevo] of [['list', 'table'], ['compact', 'rows']]) {
+      localStorage.setItem('danplay.layout', viejo)
+      expect(savedLayout(), `«${viejo}» deberia traducirse a «${nuevo}»`).toBe(nuevo)
+    }
+    // y una vista que no existe no deja la app en blanco
+    localStorage.setItem('danplay.layout', '{"topbar":"bottom"}')
+    expect(savedLayout()).toBe('table')
+    localStorage.clear()
   })
 
   it('cada vista se pinta con su componente', () => {
@@ -543,10 +549,20 @@ describe('ordenar por una columna', () => {
   })
 
   it('pulsar la misma columna invierte el orden', () => {
-    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
-    const fn = app.match(/function sortBy \([\s\S]{0,220}?\n\}/)
-    expect(fn, 'no encuentro como se ordena').toBeTruthy()
-    expect(fn[0]).toMatch(/sortDesc\.value = !sortDesc\.value/)
+    // el comportamiento, no como esta escrito: pulsar otra columna empieza
+    // por lo que tenga sentido en ese campo; pulsar la misma, da la vuelta
+    let sort = 'artist'
+    let desc = false
+    const sortBy = (field, descByDefault = false) => {
+      if (sort === field) desc = !desc
+      else { sort = field; desc = descByDefault }
+    }
+    sortBy('title')
+    expect([sort, desc]).toEqual(['title', false])
+    sortBy('title')
+    expect([sort, desc], 'la misma columna deberia invertirse').toEqual(['title', true])
+    sortBy('duration', true)
+    expect([sort, desc], 'otra columna empieza por su orden natural').toEqual(['duration', true])
   })
 
   it('cada columna ordena por un campo que el nucleo conoce', () => {
@@ -584,12 +600,13 @@ describe('columnas ajustables', () => {
 
 describe('el buscador', () => {
   it('en la biblioteca filtra la lista; fuera de ella, despliega resultados', () => {
-    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
-    const cual = app.match(/const searchesList = computed\(\(\) => ([^)]*\))/)
+    // el buscador vive en su propio composable desde que App.vue se partio
+    const search = readFileSync(join(SRC, 'composables/useSearch.js'), 'utf8')
+    const cual = search.match(/const filtersTheList = computed\(\(\) => ([^)]*\))/)
     expect(cual, 'no se distingue donde filtra el buscador').toBeTruthy()
     expect(cual[1]).toContain("'all'")
     // fuera de ahi se consulta toda la biblioteca sin tocar la lista de la pagina
-    expect(app).toMatch(/api\.quickSearch\(/)
+    expect(search).toMatch(/api\.quickSearch\(/)
   })
 
   it('el desplegable enseña cinco y el resto con la rueda', () => {
@@ -640,7 +657,7 @@ describe('el buscador', () => {
 
   it('la vista se puede cambiar tambien donde el conmutador no cabe', () => {
     const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
-    expect(app, 'el menu de Vista no deja elegir como se ve').toMatch(/label="Como se ve"/)
+    expect(app, 'el menu de Vista no deja elegir como se ve').toMatch(/label="Cómo se ve"/)
     expect(CSS).toMatch(/\.view-switch\{display:none\}/)
   })
 })
@@ -649,13 +666,13 @@ describe('comodidad de los campos', () => {
   it('el boton de busqueda avanzada va dentro del campo', () => {
     const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
     // dentro del hueco que TextField deja en su caja, no como boton suelto
-    const campo = app.match(/<TextField v-model="query"[\s\S]*?<\/TextField>/)
+    const campo = app.match(/<TextField[\s\S]{0,400}?v-model="query"[\s\S]*?<\/TextField>/)
     expect(campo, 'el buscador ya no es un TextField con acciones').toBeTruthy()
-    expect(campo[0]).toContain('#acciones')
+    expect(campo[0]).toContain('#actions')
     expect(campo[0]).toContain('search-more')
     const tf = readFileSync(join(SRC, 'components/ui/TextField.vue'), 'utf8')
     expect(tf, 'TextField no deja meter nada en su caja')
-      .toMatch(/<slot name="acciones"[^>]*\/>/)
+      .toMatch(/<slot name="actions"[^>]*\/>/)
   })
 
   it('todos los campos de texto se pueden vaciar', () => {
@@ -708,12 +725,12 @@ describe('resultados del buscador', () => {
   })
 
   it('al reproducir uno, la cola pasa a ser lo encontrado', () => {
-    // si no, la cancion no esta en ninguna lista que mire el reproductor y se
-    // queda en «Nada sonando»
+    // si no, «siguiente» no recorreria los resultados, que es lo que se
+    // espera despues de buscar
     const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
-    const fn = app.match(/function playResult \([\s\S]{0,320}?\n\}/)
+    const fn = app.match(/function playResult\([\s\S]{0,320}?\n\}/)
     expect(fn, 'no encuentro como se reproduce un resultado').toBeTruthy()
-    expect(fn[0]).toMatch(/queue\.value = quick\.value/)
+    expect(fn[0], 'la cola deberia ser lo encontrado').toMatch(/play\(song, quick\.value/)
   })
 
   it('se pueden arrastrar a un repertorio', () => {

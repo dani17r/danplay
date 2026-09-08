@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "mini",
+  "description": "Permisos de la ventanita del reproductor. Sin esto, Tauri le niega `listen` y `emit`, y la ventanita se quedaba con el titulo de cuando se abrio: la barra no avanzaba, el boton decia siempre «Reproducir» y anterior/siguiente no hacian nada.",
+  "windows": ["mini"],
+  "permissions": [
+    "core:app:default",
+    "core:event:default",
+    "core:path:default",
+    "core:webview:default",
+    "core:window:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-start-dragging"
+  ]
+}

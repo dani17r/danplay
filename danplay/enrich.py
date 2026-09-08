@@ -7,17 +7,47 @@ Fuentes, en orden de preferencia:
   acordes  -> IA (aproximados) + transposicion deterministica
   metadata -> MusicBrainz -> IA
 """
-import json, re, urllib.parse, urllib.request
-from . import ai, library, tags, theory
+import json, logging, re, urllib.parse, urllib.request
+from . import ai, convert, library, tags, theory
+
+log = logging.getLogger("danplay.enrich")
 
 USER_AGENT = "DanPlay/0.1 (gestor de biblioteca personal)"
 TIMEOUT = 15
+# Tope de lo que se descarga de una caratula. Sin el, una respuesta grande
+# (o una pagina de error) se incrustaba entera dentro del mp3.
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+# Los primeros bytes de cada formato. Una pagina HTML de error devuelta con
+# `Content-Type: image/jpeg` no pasa de aqui.
+MAGIC = ((b"\xff\xd8\xff", "image/jpeg"),
+         (b"\x89PNG\r\n\x1a\n", "image/png"),
+         (b"RIFF", "image/webp"))
+UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 
 
 def _get(url, headers=None, binary=False):
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-        return r.read() if binary else json.loads(r.read().decode("utf-8"))
+        if not binary:
+            return json.loads(r.read().decode("utf-8"))
+        kind = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+        if not kind.startswith("image/"):
+            raise ValueError(f"eso no es una imagen, es {kind or 'algo sin tipo'}")
+        # se lee uno de mas para saber si se paso del tope, y no el archivo entero
+        data = r.read(MAX_IMAGE_BYTES + 1)
+        if len(data) > MAX_IMAGE_BYTES:
+            raise ValueError("la imagen pesa demasiado")
+        return data
+
+
+def image_type(data: bytes) -> str:
+    """El tipo real segun los primeros bytes, o cadena vacia si no es imagen."""
+    for magic, kind in MAGIC:
+        if data.startswith(magic):
+            if kind == "image/webp" and data[8:12] != b"WEBP":
+                continue
+            return kind
+    return ""
 
 
 # ---------------------------------------------------------------- letra
@@ -81,31 +111,56 @@ def _cover_queries(artist, title, album) -> list[str]:
     return salida[:4]
 
 
+def _fetch_image(url: str) -> tuple[bytes, str] | None:
+    """Descarga una imagen y la deja lista para incrustar.
+
+    Tres cosas que antes no se hacian: mirar que de verdad sea una imagen (no
+    la pagina de error de un servicio caido), no pasar de 5 MB, y encogerla.
+    Las caratulas que elige el usuario si se encogian; las que se bajan solas
+    no, asi que una portada de 1000x1000 engordaba cada mp3 en dos megas.
+    """
+    try:
+        data = _get(url, binary=True)
+    except Exception:                                        # noqa: BLE001
+        log.warning("no pude bajar la caratula %s", url, exc_info=True)
+        return None
+    kind = image_type(data)
+    if not kind:
+        log.warning("lo que devolvio %s no es una imagen", url)
+        return None
+    return convert.shrink_bytes(data, kind) or (data, kind)
+
+
 def cover(artist, title, album="") -> tuple[bytes, str] | None:
     """Busca caratula. iTunes primero (rapido, sin clave), luego Cover Art Archive."""
     for query in _cover_queries(artist, title, album):
         try:
             d = _get("https://itunes.apple.com/search?" + urllib.parse.urlencode(
                 {"term": query, "entity": "song", "limit": 5}))
-            for r in d.get("results", []):
-                url = r.get("artworkUrl100") or ""
-                if url:
-                    url = url.replace("100x100bb", "1000x1000bb")
-                    return _get(url, binary=True), "image/jpeg"
-        except Exception:
+        except Exception:                                    # noqa: BLE001
+            log.warning("iTunes no contesto para %r", query, exc_info=True)
             continue
+        for r in d.get("results", []):
+            url = r.get("artworkUrl100") or ""
+            if not url.startswith("https://"):
+                continue
+            got = _fetch_image(url.replace("100x100bb", "1000x1000bb"))
+            if got:
+                return got
     try:
         d = _get("https://musicbrainz.org/ws/2/release/?" + urllib.parse.urlencode(
             {"query": f'artist:"{artist}" AND release:"{album or title}"',
              "fmt": "json", "limit": 3}))
-        for rel in d.get("releases", []):
-            try:
-                return _get(f"https://coverartarchive.org/release/{rel['id']}/front-500",
-                            binary=True), "image/jpeg"
-            except Exception:
-                continue
-    except Exception:
-        pass
+    except Exception:                                        # noqa: BLE001
+        log.warning("MusicBrainz no contesto", exc_info=True)
+        return None
+    for rel in d.get("releases", []):
+        # el id se pega dentro de una URL: si no es un UUID, no se usa
+        if not UUID.match(str(rel.get("id", ""))):
+            continue
+        got = _fetch_image(f"https://coverartarchive.org/release/{rel['id']}/front-500")
+        if got:
+            return got
     return None
 
 
@@ -250,13 +305,16 @@ def enrich(song_id, with_lyrics=True, with_cover=True, with_details=True,
     if with_details:
         d = details(c)
         if d and not d.get("error"):
+            # OJO: por aqui tambien entra lo que dice la IA, asi que pasa por
+            # el mismo filtro que `autofill`. Sin el, un «desconocido» del
+            # modelo se guardaba como album de verdad.
+            album = _dato_util("album", d.get("album")) or c["album"]
+            year = _dato_util("year", d.get("year")) or str(c["year"] or "")
+            genre = _dato_util("genre", d.get("genre")) or c["genre"]
             library.update(song_id, chords=json.dumps(d, ensure_ascii=False),
-                         album=d.get("album") or c["album"],
-                         year=str(d.get("year") or c["year"]),
-                         genre=d.get("genre") or c["genre"])
+                         album=album, year=year, genre=genre)
             if save_to_file:
-                tags.write(c["path"], album=d.get("album",""), year=str(d.get("year","")),
-                           genre=d.get("genre",""))
+                tags.write(c["path"], album=album, year=year, genre=genre)
             done["details"] = {k: d.get(k) for k in
                                  ("likely_key","genre","year","confidence")}
     return done

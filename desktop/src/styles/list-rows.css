@@ -1,0 +1,29 @@
+/* ============================================================
+   LISTA FINA  (una linea por cancion, a lo largo)
+   ============================================================ */
+.rows{flex:1;overflow-y:auto;min-height:0;padding:4px 0}
+.row{display:flex;align-items:center;gap:11px;padding:var(--row-pad) 14px;
+  font-size:var(--table-font);cursor:default;
+  border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
+.row:hover{background:var(--panel2)}
+.row.selected{background:color-mix(in srgb,var(--accent) 13%,var(--panel2));
+  box-shadow:inset 2px 0 0 var(--accent)}
+.row.playing{color:var(--accent)}
+.row.dragged{opacity:.4}
+.row-num{width:34px;text-align:right;color:var(--muted2);flex-shrink:0;font-size:11px}
+.row-go{width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;
+  align-items:center;justify-content:center;color:var(--muted2);
+  border:1px solid transparent;transition:color .14s,border-color .14s}
+.row:hover .row-go{color:var(--accent);border-color:var(--accent)}
+/* El titulo manda; el artista cede sitio antes que el. */
+.row-title{flex:3 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-weight:500}
+.row-artist{flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-extra{width:34px;text-align:right;flex-shrink:0;font-size:11px}
+.row-stars{flex-shrink:0}
+.row-dur{width:46px;text-align:right;flex-shrink:0}
+/* segun falta sitio se van cayendo, de menos a mas importante */
+@media (max-width:1000px){ .row-extra{display:none} }
+@media (max-width:820px){ .row-stars{display:none} }
+@media (max-width:620px){ .row-artist{display:none} .row-num{display:none} }
+

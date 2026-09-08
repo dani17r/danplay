@@ -15,12 +15,12 @@ import StarRating from './StarRating.vue'
 import Icon from './Icon.vue'
 import EmptyState from './ui/EmptyState.vue'
 import { useDragSong } from '../composables/useDragSong.js'
-import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue'
+import { ref, watch, nextTick, computed, onUnmounted } from 'vue'
 import { useVirtualRows } from '../composables/useVirtualRows.js'
 
 const { startDrag, isDragged } = useDragSong()
 const props = defineProps(['songs','selected','playing','sort','desc','noHeader',
-                           'columns','jumpTo'])
+                           'jumpTo'])
 const emit = defineEmits(['select','play','setStars','toggleFavorite','sortBy','context'])
 
 // Un Map normal, fuera de la reactividad: aqui solo se guardan nodos del DOM
@@ -47,14 +47,12 @@ const COLS = [
   { k: 'kbps',   cls: 'col-kbps',   label: 'Kbps',      sort: 'bitrate', desc: true }
 ]
 
-/** Que columnas se ven. `columns` viene de la vista; sin el, todas. */
-const show = computed(() => {
-  const c = props.columns
-  const visible = {}
-  for (const col of COLS) visible[col.k] = !c || c[col.k] !== false
-  return visible
-})
-const cols = computed(() => COLS.filter(c => show.value[c.k]))
+// La tabla enseña todas sus columnas. Hubo un `columns` que venia de la vista
+// para esconder algunas, pero se quedo siempre en null: era codigo muerto que
+// ademas invalidaba el v-memo de cada fila. Se deja `show` porque el marcado
+// lo consulta columna a columna y es donde se volveria a enganchar.
+const show = Object.fromEntries(COLS.map(c => [c.k, true]))
+const cols = computed(() => COLS)
 
 // ------------------------------------------------------------ anchos
 //
@@ -197,7 +195,7 @@ const fmtDuration = (s) => {
              las mil filas de la lista con sus ocho iconos cada una. -->
         <tr v-for="(c,i) in visible" :key="c.id"
             v-memo="[from + i, c.id, c.title, c.file, c.feat, c.artist, c.album, c.stars,
-                     c.favorite, c.key, c.bpm, c.duration, c.bitrate, columns,
+                     c.favorite, c.key, c.bpm, c.duration, c.bitrate,
                      selected===c.id, playing===c.id, jumpTo===c.id, isDragged(c.id)]"
             :ref="el => { if (el) rows.set(c.id, el) }"
             :class="{selected: selected===c.id, playing: playing===c.id,
