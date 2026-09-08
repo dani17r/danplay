@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import (ai, chat, config, convert, duplicates, enrich,
+from . import (ai, chat, config, convert, duplicates, enrich, external,
                fingerprint, ingest, library, playlists,
                tags, theory, youtube)
 
@@ -73,6 +73,10 @@ class FolderIn(Body_):
 
 class PathIn(Body_):
     path: str = Field(min_length=1, max_length=4096)
+
+
+class PlaylistName(Body_):
+    name: str = Field(min_length=1, max_length=120)
 
 
 class ExclusionIn(Body_):
@@ -440,7 +444,11 @@ def facets():
 
 @app.get("/api/song/{cid}")
 def song(cid: int):
-    c = library.by_id(cid)
+    # `resolve`: esto solo LEE, y la ficha de una cancion abierta desde fuera
+    # tiene que poder verse igual que la de una de la biblioteca. Editarla,
+    # borrarla o ponerle estrellas son otros endpoints, y esos siguen usando
+    # `library.by_id`, que no las encuentra: de ahi que no se les pueda tocar.
+    c = external.resolve(cid)
     if not c:
         raise HTTPException(404, "no existe")
     c["playlists"] = playlists.playlists_of(cid)
@@ -521,7 +529,9 @@ def _thumbnail(path: str, size: int) -> tuple[bytes, str] | None:
 
 @app.get("/api/song/{cid}/cover")
 def cover(cid: int, size: int | None = Query(default=None)):
-    c = library.by_id(cid)
+    # `resolve`: la portada sale del propio archivo, asi que una cancion de
+    # fuera de la biblioteca tambien tiene la suya.
+    c = external.resolve(cid)
     if not c:
         raise HTTPException(404, "no existe")
     if not os.path.exists(c["path"]):
@@ -533,14 +543,26 @@ def cover(cid: int, size: int | None = Query(default=None)):
                     headers={"cache-control": "private, max-age=300"})
 
 
+# Estrellas, favorito y difuminado se guardan DENTRO del archivo, asi que
+# solo valen para la biblioteca: a una cancion abierta desde fuera no se le
+# escribe nada. Antes esto contestaba 200 con un `null` y quien llamaba se
+# quedaba creyendo que habia funcionado.
+
+
 @app.post("/api/song/{cid}/stars")
 def stars(cid: int, body: Stars = Body(...)):
+    # Se mira que EXISTA, no si la escritura funciono: en un archivo de solo
+    # lectura la etiqueta no se puede poner y aun asi la cancion esta.
+    if not library.by_id(cid):
+        raise HTTPException(404, "no esta en la biblioteca")
     playlists.rate(cid, body.stars)
     return library.by_id(cid)
 
 
 @app.post("/api/song/{cid}/favorite")
 def favorite(cid: int, body: Favorite = Body(...)):
+    if not library.by_id(cid):
+        raise HTTPException(404, "no esta en la biblioteca")
     playlists.favorite(cid, body.favorite)
     return library.by_id(cid)
 
@@ -858,29 +880,65 @@ async def duplicates_report():
     return await asyncio.get_running_loop().run_in_executor(None, work)
 
 
-class PathIn(Body_):
-    path: str
+# --------------------------------------------- la lista del reproductor
+# Lo que se abre desde fuera de DanPlay. Ver `danplay/external.py`: NO se
+# importa a la biblioteca, solo se recuerda que sono.
 
 
-@app.post("/api/by-path")
-def song_by_path(body: PathIn):
-    """¿Esta esta ruta en la biblioteca? La pregunta Rust al abrir un archivo
-    desde fuera («Abrir con DanPlay»).
+@app.post("/api/external/play")
+def external_play(body: PathIn = Body(...)):
+    """Esa ruta acaba de sonar. Devuelve la cancion, venga de donde venga.
 
     Es POST y no GET porque la clave es una ruta: con acentos, espacios, `&` y
-    `#` dentro, meterla en la parte de consulta de la URL es pedir un fallo de
-    codificacion. Solo MIRA el indice —no abre el archivo ni toca el disco—,
-    asi que preguntar por una ruta cualquiera no revela nada de ella salvo si
-    esta o no en la biblioteca, que es justo lo que se pregunta.
+    `#` dentro, meterla en la parte de consulta de una URL es pedir un fallo
+    de codificacion.
+
+    Si el archivo ya esta indexado, devuelve la cancion de la biblioteca tal
+    cual, con su caratula y sus estrellas. Si no, se le leen las etiquetas una
+    vez y se le da un id negativo. En los dos casos sube al principio de la
+    lista, y volver a ponerla no la duplica.
     """
-    song = library.by_path(body.path)
+    song = external.played(body.path)
+    if not song:
+        raise HTTPException(404, "ese archivo no esta")
     return {"song": song}
+
+
+@app.get("/api/external")
+def external_list():
+    """La lista, de lo ultimo que sono a lo mas antiguo."""
+    return {"songs": external.listing()}
+
+
+@app.delete("/api/external")
+def external_clear():
+    """Descarta la lista. Ni toca los archivos ni deshace lo ya guardado."""
+    return {"removed": external.clear()}
+
+
+@app.delete("/api/external/{cid}")
+def external_forget(cid: int):
+    """Quita una sola cancion de la lista."""
+    return {"removed": external.forget(cid)}
+
+
+@app.post("/api/external/save")
+def external_save(body: PlaylistName = Body(...)):
+    """Guarda la lista de ahora como una lista de reproduccion de DanPlay."""
+    try:
+        return external.save_as_playlist(body.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.get("/api/song/{cid}/path")
 def audio_path(cid: int):
-    """Devuelve la ruta en disco. La usa Rust para servir el audio sin pasar por Python."""
-    c = library.by_id(cid)
+    """Devuelve la ruta en disco. La usa Rust para servir el audio sin pasar por Python.
+
+    `resolve` y no `by_id`: aqui solo se REPRODUCE, y una cancion abierta
+    desde fuera de la biblioteca tiene que sonar igual que las demas.
+    """
+    c = external.resolve(cid)
     if not c or not os.path.exists(c["path"]):
         raise HTTPException(404, "no existe")
     return {"path": c["path"], "kind": audio_type(c["path"]),

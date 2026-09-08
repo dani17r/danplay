@@ -76,15 +76,21 @@ fn loose(path: &str, position: usize) -> Track {
     }
 }
 
-/// Le pregunta al nucleo si esas rutas estan indexadas y devuelve la mejor
-/// version de cada una.
+/// Apunta en el nucleo que esas rutas van a sonar y devuelve la mejor version
+/// de cada una.
+///
+/// El nucleo hace dos cosas de una: si el archivo esta en la biblioteca
+/// devuelve la cancion de verdad —con su caratula y sus estrellas—, y si no,
+/// le lee las etiquetas y le da un id propio. En los dos casos la apunta en la
+/// lista del reproductor, que es de donde sale el historial. Ver
+/// `danplay/external.py`.
 async fn describe(address: &Address, paths: &[String]) -> Vec<Track> {
     let mut items = Vec::with_capacity(paths.len());
     for (position, path) in paths.iter().enumerate() {
         let found = core::request(
             address,
             "POST",
-            "/api/by-path",
+            "/api/external/play",
             Some(json!({ "path": path }).to_string()),
         )
         .await
@@ -95,7 +101,7 @@ async fn describe(address: &Address, paths: &[String]) -> Vec<Track> {
         .filter(|s| !s.is_null());
 
         items.push(match found {
-            // esta en la biblioteca: se reproduce como la cancion que es, pero
+            // el nucleo la conoce: se reproduce con su id de verdad, pero
             // conservando la ruta que nos dieron para no volver a resolverla
             Some(song) => Track {
                 id: song.get("id").and_then(|v| v.as_i64()).unwrap_or(0),
@@ -162,9 +168,9 @@ pub fn play(app: &AppHandle, paths: Vec<String>) {
             playback.send(queue::Command::SetQueue {
                 items,
                 start: None,
-                // Sin origen: no hay ninguna lista a la que «volver», y el
-                // boton de la interfaz se calla solo cuando esto es None.
-                origin: None,
+                // El «Ir a» del reproductor lleva a la lista donde se van
+                // acumulando las canciones abiertas desde fuera.
+                origin: Some(json!({ "kind": "player", "label": "el reproductor" })),
             });
         }
         tray::show_main(&app);

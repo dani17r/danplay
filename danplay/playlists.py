@@ -7,7 +7,7 @@ siga siendo portatil aunque se pierda la base de datos.
 """
 import logging, os, time
 from pathlib import Path
-from . import library, names, tags
+from . import external, library, names, tags
 
 log = logging.getLogger("danplay")
 
@@ -82,10 +82,15 @@ def rename_folder(playlist_id, name) -> None:
 
 def list_all() -> list[dict]:
     conn = _connect()
+    # La duracion suma las dos procedencias: las de la biblioteca y las de
+    # fuera. Con un solo JOIN a `songs`, una lista guardada desde el
+    # reproductor salia con «0 min» aunque tuviera veinte canciones.
     rows = conn.execute(
         "SELECT l.*, (SELECT COUNT(*) FROM playlist_songs lc WHERE lc.playlist_id=l.id) n, "
         "(SELECT COALESCE(SUM(c.duration),0) FROM playlist_songs lc "
-        " JOIN songs c ON c.id=lc.song_id WHERE lc.playlist_id=l.id) seconds "
+        " JOIN songs c ON c.id=lc.song_id WHERE lc.playlist_id=l.id) "
+        "+ (SELECT COALESCE(SUM(e.duration),0) FROM playlist_songs lc "
+        "   JOIN external_songs e ON e.id=-lc.song_id WHERE lc.playlist_id=l.id) seconds "
         "FROM playlists l ORDER BY l.name").fetchall()
     conn.close()
     return [dict(f) for f in rows]
@@ -131,12 +136,29 @@ def reorder(playlist_id, ordered_song_ids) -> None:
 
 
 def songs(playlist_id) -> list[dict]:
+    """Las canciones de la lista, en su orden.
+
+    Una lista puede llevar canciones de la biblioteca (id positivo) y
+    canciones de fuera de ella (id negativo, ver `external.py`), asi que no
+    vale el JOIN con `songs` de toda la vida: las de fuera se caian por el
+    camino sin decir nada.
+    """
     conn = _connect()
-    rows = conn.execute(
-        "SELECT c.*, lc.position FROM playlist_songs lc JOIN songs c ON c.id=lc.song_id "
-        "WHERE lc.playlist_id=? ORDER BY lc.position", (playlist_id,)).fetchall()
+    order = conn.execute(
+        "SELECT song_id, position FROM playlist_songs WHERE playlist_id=? "
+        "ORDER BY position", (playlist_id,)).fetchall()
+    inside = {r["id"]: dict(r) for r in conn.execute(
+        "SELECT c.* FROM playlist_songs lc JOIN songs c ON c.id=lc.song_id "
+        "WHERE lc.playlist_id=?", (playlist_id,)).fetchall()}
     conn.close()
-    return [dict(f) for f in rows]
+
+    out = []
+    for r in order:
+        cid = r["song_id"]
+        song = inside.get(cid) if cid > 0 else external.by_id(cid)
+        if song:                       # si el archivo ya no esta, no se enseña
+            out.append({**song, "position": r["position"]})
+    return out
 
 
 def playlists_of(song_id) -> list[str]:
@@ -155,7 +177,11 @@ def _stamp_playlists_into_files(song_ids) -> None:
     conexiones POR CANCION (una para la ruta y otra para sus listas): meter
     treinta temas en un repertorio eran sesenta aperturas de la base.
     """
-    song_ids = [int(i) for i in song_ids]
+    # Solo las de la biblioteca. Escribir dentro de un archivo de fuera seria
+    # justo lo que DanPlay promete no hacer: si lo abriste desde el
+    # explorador, es tuyo y se queda como esta. El `IN (...)` de abajo ya no
+    # los encontraria, pero mas vale decirlo que dejarlo al azar del SQL.
+    song_ids = [int(i) for i in song_ids if int(i) > 0]
     if not song_ids:
         return
     placeholders = ",".join("?" * len(song_ids))

@@ -1067,3 +1067,118 @@ def test_confirming_is_only_for_the_three_that_need_it():
 def test_the_confirm_endpoint_refuses_anything_else(cliente):
     r = cliente.post("/api/chat/confirm", json={"tool": "search_songs", "args": {}})
     assert r.status_code == 400
+
+
+# --------------------------------------------- la lista del reproductor
+# Abrir una cancion desde el explorador NO la importa a la biblioteca. Lo que
+# se guarda es que sono, para poder volver a ella desde el reproductor.
+
+
+def _de_fuera(cliente, nombre="suelta.mp3", titulo="Suelta", artista="Nadie"):
+    """Un mp3 real FUERA de la biblioteca."""
+    from conftest import make_mp3
+    from danplay import config
+    fuera = os.path.join(os.path.dirname(str(config.LIBRARY)), "fuera")
+    return make_mp3(os.path.join(fuera, nombre), artist=artista, title=titulo)
+
+
+def test_an_outside_song_plays_without_entering_the_library(cliente):
+    from danplay import library
+    antes = library.stats_of()["total"]
+    ruta = _de_fuera(cliente)
+
+    r = cliente.post("/api/external/play", json={"path": ruta})
+    assert r.status_code == 200, r.text
+    song = r.json()["song"]
+    assert song["id"] < 0, "las de fuera llevan id negativo"
+    assert song["title"] == "Suelta" and song["artist"] == "Nadie", song
+    assert song["external"] is True
+    assert library.stats_of()["total"] == antes, "se ha colado en la biblioteca"
+    assert library.by_id(song["id"]) is None, "la biblioteca no debe encontrarla"
+
+
+def test_playing_it_again_does_not_duplicate_it_and_moves_it_up(cliente):
+    cliente.delete("/api/external")
+    una = _de_fuera(cliente, "una.mp3", "Una")
+    otra = _de_fuera(cliente, "otra.mp3", "Otra")
+    cliente.post("/api/external/play", json={"path": una})
+    cliente.post("/api/external/play", json={"path": otra})
+    titulos = [s["title"] for s in cliente.get("/api/external").json()["songs"]]
+    assert titulos == ["Otra", "Una"], titulos
+
+    cliente.post("/api/external/play", json={"path": una})
+    songs = cliente.get("/api/external").json()["songs"]
+    assert [s["title"] for s in songs] == ["Una", "Otra"], "no subio al reproducirla"
+    assert len(songs) == 2, "se añadio dos veces"
+
+
+def test_a_library_song_opened_from_outside_stays_the_library_one(cliente):
+    cliente.delete("/api/external")
+    dentro = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    ruta = cliente.get(f"/api/song/{dentro['id']}/path").json()["path"]
+
+    song = cliente.post("/api/external/play", json={"path": ruta}).json()["song"]
+    assert song["id"] == dentro["id"], "deberia ser la de la biblioteca, con su id"
+    assert not song.get("external")
+    assert [s["id"] for s in cliente.get("/api/external").json()["songs"]] == [dentro["id"]]
+
+
+def test_an_outside_song_serves_its_audio_and_its_cover_route(cliente):
+    ruta = _de_fuera(cliente, "sonora.mp3", "Sonora")
+    song = cliente.post("/api/external/play", json={"path": ruta}).json()["song"]
+    d = cliente.get(f"/api/song/{song['id']}/path").json()
+    assert d["path"] == ruta and d["bytes"] > 0, d
+    # sin caratula dentro, 404 limpio: lo que importa es que resuelva el id
+    assert cliente.get(f"/api/song/{song['id']}/cover").status_code in (200, 404)
+
+
+def test_saving_the_list_keeps_it_after_discarding(cliente):
+    cliente.delete("/api/external")
+    cliente.post("/api/external/play", json={"path": _de_fuera(cliente, "g1.mp3", "G1")})
+    cliente.post("/api/external/play", json={"path": _de_fuera(cliente, "g2.mp3", "G2")})
+
+    r = cliente.post("/api/external/save", json={"name": "Guardada del reproductor"})
+    assert r.status_code == 200, r.text
+    lid, n = r.json()["id"], r.json()["n"]
+    assert n == 2
+
+    assert cliente.delete("/api/external").json()["removed"] == 2
+    assert cliente.get("/api/external").json()["songs"] == []
+    # y lo guardado sigue entero
+    guardada = cliente.get(f"/api/playlists/{lid}/songs").json()["songs"]
+    assert sorted(s["title"] for s in guardada) == ["G1", "G2"], guardada
+
+
+def test_an_empty_list_cannot_be_saved(cliente):
+    cliente.delete("/api/external")
+    assert cliente.post("/api/external/save", json={"name": "Vacia"}).status_code == 400
+
+
+def test_one_song_can_be_dropped_from_the_list(cliente):
+    cliente.delete("/api/external")
+    a = _de_fuera(cliente, "q1.mp3", "Q1")
+    cliente.post("/api/external/play", json={"path": a})
+    cliente.post("/api/external/play", json={"path": _de_fuera(cliente, "q2.mp3", "Q2")})
+    cid = [s for s in cliente.get("/api/external").json()["songs"] if s["title"] == "Q1"][0]["id"]
+    assert cliente.delete(f"/api/external/{cid}").json()["removed"] is True
+    assert [s["title"] for s in cliente.get("/api/external").json()["songs"]] == ["Q2"]
+
+
+def test_a_file_that_is_not_there_is_not_added(cliente):
+    r = cliente.post("/api/external/play", json={"path": "/no/existe/nada.mp3"})
+    assert r.status_code == 404
+
+
+def test_an_outside_song_can_be_looked_at_but_not_touched(cliente):
+    ruta = _de_fuera(cliente, "mirar.mp3", "Mirar")
+    cid = cliente.post("/api/external/play", json={"path": ruta}).json()["song"]["id"]
+
+    # se puede VER
+    d = cliente.get(f"/api/song/{cid}").json()
+    assert d["title"] == "Mirar" and d["existe"] is True
+
+    # pero no se le escribe nada dentro ni se borra desde aqui
+    assert cliente.patch(f"/api/song/{cid}", json={"title": "Otro"}).status_code == 404
+    assert cliente.post(f"/api/song/{cid}/stars", json={"stars": 5}).status_code in (404, 422, 500)
+    assert cliente.delete(f"/api/song/{cid}").status_code == 404
+    assert cliente.get(f"/api/song/{cid}").json()["title"] == "Mirar", "se le cambio el titulo"

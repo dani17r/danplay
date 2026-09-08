@@ -46,6 +46,9 @@ const shown = computed(() => {
       <button class="nav-link" :class="{active: view.kind==='artists'}" @click="emit('go',{kind:'artists'})">
         <span class="nav-icon"><Icon n="artists" /></span> Artistas
       </button>
+      <button class="nav-link" :class="{active: view.kind === 'player'}" @click="emit('go',{kind:'player'})">
+        <span class="nav-icon"><Icon n="music" /></span> Reproductor
+      </button>
       <button class="nav-link" :class="{active: view.kind==='duplicates'}" @click="emit('go',{kind:'duplicates'})">
         <span class="nav-icon"><Icon n="duplicates" /></span> Duplicados
       </button>

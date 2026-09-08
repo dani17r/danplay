@@ -416,6 +416,19 @@ export const api = {
   removeFromPlaylist: (l, c) => DEL(`/playlists/${l}/songs/${c}`),
   exportPlaylist: (id) => POST(`/playlists/${id}/export`),
 
+  // La lista del reproductor: lo que has abierto desde FUERA de DanPlay.
+  // No entra en la biblioteca; ver `danplay/external.py`.
+  /** @returns {Promise<{songs: Song[]}>} de lo último a lo más antiguo */
+  externalList: () => GET('/external'),
+  /** Apunta que esa ruta acaba de sonar. @param {string} path */
+  externalPlayed: (path) => POST('/external/play', { path }),
+  /** Descarta la lista entera. Los archivos no se tocan. */
+  externalClear: () => DEL('/external'),
+  /** Quita una sola. @param {number} id */
+  externalForget: (id) => DEL(`/external/${id}`),
+  /** La guarda como lista de DanPlay. @param {string} name */
+  externalSave: (name) => POST('/external/save', { name }),
+
   inbox: () => GET('/inbox'),
 
   // descargas de YouTube: la descarga arranca y vuelve enseguida; el avance

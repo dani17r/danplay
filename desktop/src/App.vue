@@ -176,6 +176,7 @@ const title = computed(
       duplicates: 'Duplicados',
       chat: 'Asistente',
       downloads: 'Descargas',
+      player: 'Reproductor',
       playlist: view.value.name
     })[view.value.kind] || ''
 )
@@ -198,6 +199,11 @@ async function load() {
 
     if (view.value.kind === 'playlist') {
       const r = await api.playlistSongs(view.value.id)
+      if (mine === request) songs.value = r.songs
+    } else if (view.value.kind === 'player') {
+      // La lista del reproductor no se busca en el índice: es lo que has ido
+      // abriendo desde fuera, en el orden en que lo abriste.
+      const r = await api.externalList()
       if (mine === request) songs.value = r.songs
     } else if (['settings', 'inbox', 'chat', 'downloads', 'duplicates'].includes(view.value.kind)) {
       // páginas propias
@@ -291,6 +297,45 @@ async function runAction(a) {
       resume: () => !player.state.playing && player.toggle()
     }
     await orders[a.command]?.()
+  }
+}
+
+/** Guarda la lista del reproductor como una lista de DanPlay. */
+async function savePlayerList() {
+  const name = await ask({
+    kind: 'prompt',
+    title: 'Guardar la lista',
+    message:
+      'Se guarda tal como está, en el mismo orden. Las canciones de fuera no se copian a la biblioteca: la lista las nombra donde estén.',
+    value: 'Del reproductor',
+    placeholder: 'Nombre de la lista',
+    okLabel: 'Guardar'
+  })
+  if (!name) return
+  try {
+    const r = await api.externalSave(String(name).trim())
+    notify(`Guardada «${r.name}» con ${r.n} ${r.n === 1 ? 'canción' : 'canciones'}`)
+    await playlistActions.load()
+  } catch (e) {
+    notify(errorMessage(e))
+  }
+}
+
+/** Vacía la lista del reproductor. Ni toca los archivos ni lo ya guardado. */
+async function discardPlayerList() {
+  const ok = await ask({
+    title: '¿Descartar la lista?',
+    message:
+      'Se vacía la lista del reproductor. Los archivos siguen donde estén, y las listas que hayas guardado no se tocan.',
+    okLabel: 'Descartar',
+    danger: true
+  })
+  if (!ok) return
+  try {
+    await api.externalClear()
+    songs.value = []
+  } catch (e) {
+    notify(errorMessage(e))
   }
 }
 
@@ -826,6 +871,14 @@ function onUpdated(song) {
             <span v-if="query" class="chip x" @click="query = ''"> «{{ query }}» ×</span>
             <span v-if="shuffle" class="chip on">aleatorio</span>
             <span v-if="repeat !== 'list'" class="chip on">{{ REPEAT_NAMES[repeat] }}</span>
+            <template v-if="view.kind === 'player' && songs.length">
+              <button class="btn mini" style="margin-left: auto" @click="savePlayerList">
+                <Icon n="save" :t="13" /> Guardar
+              </button>
+              <button class="btn mini" @click="discardPlayerList">
+                <Icon n="trash" :t="13" /> Descartar
+              </button>
+            </template>
             <Loading v-if="loading" text="" inline style="margin-left: auto" />
           </div>
 
