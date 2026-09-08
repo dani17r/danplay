@@ -15,6 +15,12 @@ Comment={{comment}}
 {{/if}}
 Exec={{exec}} %F
 StartupWMClass={{exec}}
+# Sin esto, el escritorio espera una VENTANA NUEVA para dar por arrancada la
+# aplicacion. Al abrir una cancion con DanPlay ya abierto no hay ventana
+# nueva —la que hay se trae al frente—, asi que el cursor se quedaba girando
+# hasta que el escritorio se cansaba, con la musica ya sonando. VLC tampoco
+# declara arranque por este mismo motivo.
+StartupNotify=false
 Icon={{icon}}
 Name={{name}}
 Terminal=false

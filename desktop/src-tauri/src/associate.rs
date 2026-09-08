@@ -116,6 +116,7 @@ mod platform {
              Terminal=false\n\
              Categories=AudioVideo;Audio;Music;\n\
              StartupWMClass=danplay-app\n\
+             StartupNotify=false\n\
              MimeType={};\n",
             MIME_TYPES.join(";")
         );
