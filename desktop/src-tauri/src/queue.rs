@@ -38,6 +38,67 @@ pub struct Track {
     pub path: Option<String>,
 }
 
+/// Lo que se guarda al cerrar para volver donde lo dejaste.
+///
+/// Se guarda la cola entera, no un puntero a «la lista tal»: la cola puede
+/// venir de una busqueda, de una carpeta o de haber abierto tres archivos
+/// sueltos, y ninguna de esas cosas tiene nombre al que volver.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Session {
+    #[serde(default)]
+    items: Vec<Track>,
+    #[serde(default)]
+    index: usize,
+    #[serde(default)]
+    origin: Option<serde_json::Value>,
+    #[serde(default)]
+    repeat: Repeat,
+    #[serde(default)]
+    shuffle: bool,
+    /// La ruta de la cancion en la que se quedo. Se guarda resuelta para que
+    /// el boton de play funcione desde el primer segundo, sin esperar a que
+    /// el nucleo este en pie.
+    #[serde(default)]
+    current_path: String,
+}
+
+impl Session {
+    fn of(inner: &Inner) -> Self {
+        Self {
+            items: inner.items.clone(),
+            index: inner.index,
+            origin: inner.origin.clone(),
+            repeat: inner.repeat,
+            shuffle: inner.shuffle,
+            current_path: inner.current_path.clone(),
+        }
+    }
+}
+
+fn session_file(app: &AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    let dir = app.path().app_config_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("sesion.json"))
+}
+
+/// Lo ultimo que sonaba, si se guardo algo.
+pub fn last_session(app: &AppHandle) -> Option<Session> {
+    let raw = std::fs::read(session_file(app)?).ok()?;
+    // Si el archivo esta a medias o es de una version que ya no cuadra, se
+    // empieza limpio: perder la cola no es motivo para no abrir.
+    serde_json::from_slice(&raw).ok()
+}
+
+fn save_session(app: &AppHandle, inner: &Inner) {
+    let Some(file) = session_file(app) else {
+        return;
+    };
+    if let Ok(raw) = serde_json::to_vec(&Session::of(inner)) {
+        let _ = std::fs::write(file, raw);
+    }
+}
+
 /// Que hacer cuando una cancion se acaba sola.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -64,6 +125,8 @@ pub struct PlaybackState {
     pub volume: f32,
     pub speed: f32,
     pub repeat: Repeat,
+    /// Cuantas veces ha cambiado la lista. Ver `Inner::revision`.
+    pub revision: u64,
     pub shuffle: bool,
     pub has_previous: bool,
     pub has_next: bool,
@@ -78,6 +141,8 @@ pub enum Command {
         start: Option<i64>,
         origin: Option<serde_json::Value>,
     },
+    /// Vuelve a poner la cola de la sesion anterior, SIN empezar a sonar.
+    Restore(Session),
     Next,
     Previous,
     Jump(i64),
@@ -180,6 +245,18 @@ struct Inner {
     /// Por donde se ha pasado, para que «anterior» con aleatorio vuelva a lo
     /// que sonaba de verdad y no a otra cancion al azar.
     history: Vec<usize>,
+    /// La ruta de lo que suena. Se guarda con la sesion para poder volver a
+    /// dejarlo puesto al abrir sin tener que esperar al nucleo.
+    current_path: String,
+    /// Sube cada vez que la lista deja de ser la de antes.
+    ///
+    /// La interfaz guarda su propia copia de la cola y solo la vuelve a pedir
+    /// cuando esto cambia. Compararla por el numero de canciones no vale:
+    /// abrir una cancion desde el explorador deja una cola de UNA, y si ya
+    /// habia una cola de una, los numeros coinciden y la pantalla se quedaba
+    /// con la cancion anterior mientras sonaba la nueva. Por el id tampoco:
+    /// dos archivos sueltos distintos pueden llevar el mismo.
+    revision: u64,
 }
 
 impl Inner {
@@ -229,6 +306,8 @@ impl Playback {
             .spawn(move || {
                 let mut inner = Inner {
                     items: Vec::new(),
+                    current_path: String::new(),
+                    revision: 0,
                     index: 0,
                     repeat: Repeat::List,
                     shuffle: false,
@@ -240,6 +319,7 @@ impl Playback {
                     speed: 1.0,
                     ..Default::default()
                 };
+                let mut saved = (0u64, usize::MAX, Repeat::List, false);
 
                 while let Ok(message) = rx.recv() {
                     match message {
@@ -283,6 +363,16 @@ impl Playback {
                         if guard.0 != inner.items || guard.1 != inner.origin {
                             *guard = (inner.items.clone(), inner.origin.clone());
                         }
+                    }
+
+                    // La sesion se guarda cuando cambia la FORMA de la cola,
+                    // no en cada latido: la posicion de la aguja se mueve
+                    // cuatro veces por segundo y escribir el archivo cada vez
+                    // seria disco para nada.
+                    let shape = (inner.revision, inner.index, inner.repeat, inner.shuffle);
+                    if shape != saved {
+                        saved = shape;
+                        save_session(&app, &inner);
                     }
                     if changed {
                         let _ = app.emit(STATE_EVENT, &state);
@@ -348,6 +438,7 @@ fn compose(inner: &Inner, audio: &player::State) -> PlaybackState {
         volume: audio.volume,
         speed: audio.speed,
         repeat: inner.repeat,
+        revision: inner.revision,
         shuffle: inner.shuffle,
         // Con una sola cancion no hay a donde ir; con mas, siempre, porque a
         // mano la lista da la vuelta.
@@ -376,34 +467,41 @@ fn start(inner: &mut Inner, index: usize, player: &player::Handle, address: &Add
     }
     inner.index = index;
 
-    // La de un archivo abierto desde fuera ya la sabemos; preguntarsela al
-    // nucleo por un id que no existe solo serviria para no sonar.
-    let path = match &track.path {
-        Some(path) => Some(path.clone()),
-        None => tauri::async_runtime::block_on(async {
-            core::get_json(address, &format!("/api/song/{}/path", track.id))
-                .await
-                .and_then(|v| {
-                    v.get("path")
-                        .and_then(|p| p.as_str())
-                        .map(|s| s.to_string())
-                })
-        }),
-    };
-    match path {
+    match path_of(&track, address) {
         Some(path) => {
+            inner.current_path = path.clone();
             let _ = player.send(player::Command::Play {
                 path,
                 duration: track.duration,
             });
         }
         None => {
+            inner.current_path.clear();
             let _ = player.send(player::Command::Play {
                 path: String::new(),
                 duration: 0.0,
             });
         }
     }
+}
+
+/// Donde esta el archivo de esa cancion.
+///
+/// La de un archivo abierto desde fuera ya viene con la suya; preguntarsela al
+/// nucleo por un id que el no conoce solo serviria para no sonar.
+fn path_of(track: &Track, address: &Address) -> Option<String> {
+    if let Some(path) = &track.path {
+        return Some(path.clone());
+    }
+    tauri::async_runtime::block_on(async {
+        core::get_json(address, &format!("/api/song/{}/path", track.id))
+            .await
+            .and_then(|v| {
+                v.get("path")
+                    .and_then(|p| p.as_str())
+                    .map(|s| s.to_string())
+            })
+    })
 }
 
 fn apply(inner: &mut Inner, command: Command, player: &player::Handle, address: &Address) {
@@ -415,6 +513,7 @@ fn apply(inner: &mut Inner, command: Command, player: &player::Handle, address: 
         } => {
             inner.items = items;
             inner.origin = origin;
+            inner.revision = inner.revision.wrapping_add(1);
             inner.history.clear();
             let index = from
                 .and_then(|id| inner.items.iter().position(|t| t.id == id))
@@ -425,6 +524,30 @@ fn apply(inner: &mut Inner, command: Command, player: &player::Handle, address: 
             } else {
                 inner.index = index;
                 start(inner, index, player, address);
+            }
+        }
+        Command::Restore(session) => {
+            if session.items.is_empty() {
+                return;
+            }
+            inner.index = session.index.min(session.items.len() - 1);
+            inner.items = session.items;
+            inner.origin = session.origin;
+            inner.repeat = session.repeat;
+            inner.shuffle = session.shuffle;
+            inner.history.clear();
+            inner.revision = inner.revision.wrapping_add(1);
+            // La ruta guardada primero: al arrancar, el nucleo puede tardar un
+            // segundo en levantarse y preguntarsela devolveria nada.
+            let path = if session.current_path.is_empty() {
+                inner.current().cloned().and_then(|t| path_of(&t, address))
+            } else {
+                Some(session.current_path)
+            };
+            if let Some(path) = path {
+                let duration = inner.current().map(|t| t.duration).unwrap_or(0.0);
+                inner.current_path = path.clone();
+                let _ = player.send(player::Command::Load { path, duration });
             }
         }
         Command::Next => {
@@ -650,6 +773,86 @@ mod tests {
         }
     }
 
+    /// Un reproductor de mentira: se queda con las ordenes sin tocar audio.
+    fn silent_player() -> (player::Handle, std::sync::mpsc::Receiver<player::Event>) {
+        let (tx, rx) = channel::<player::Event>();
+        (player::Handle::new(tx), rx)
+    }
+
+    /// Una direccion que no contesta. Vale mientras la prueba no dependa del
+    /// nucleo, que es justo lo que se comprueba al restaurar.
+    fn nowhere() -> Address {
+        Address::Tcp { port: 1, token: String::new() }
+    }
+
+    #[test]
+    fn a_session_survives_the_round_trip_through_disk() {
+        let inner = inner_with(vec![track(1), track(2)], 1);
+        let raw = serde_json::to_vec(&Session::of(&inner)).unwrap();
+        let back: Session = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(back.items.len(), 2);
+        assert_eq!(back.index, 1);
+        assert_eq!(back.repeat, Repeat::List);
+    }
+
+    #[test]
+    fn a_session_from_an_older_version_does_not_stop_the_app() {
+        // Si el archivo se queda a medias o cambia de forma, se empieza
+        // limpio: perder la cola no puede impedir abrir DanPlay.
+        let back: Result<Session, _> = serde_json::from_slice(b"{\"items\":[]}");
+        assert!(back.is_ok(), "un json incompleto deberia dar una sesion vacia");
+        assert!(back.unwrap().items.is_empty());
+    }
+
+    #[test]
+    fn restoring_puts_the_queue_back_without_playing() {
+        let (player, _events) = silent_player();
+        let mut inner = inner_with(vec![], 0);
+        let session = Session {
+            items: vec![track(7), track(8)],
+            index: 1,
+            origin: None,
+            repeat: Repeat::One,
+            shuffle: true,
+            current_path: "/musica/ocho.mp3".into(),
+        };
+        apply(&mut inner, Command::Restore(session), &player, &nowhere());
+
+        assert_eq!(inner.items.len(), 2);
+        assert_eq!(inner.index, 1, "vuelve a la cancion en la que se quedo");
+        assert_eq!(inner.repeat, Repeat::One);
+        assert!(inner.shuffle);
+        assert_eq!(inner.current_path, "/musica/ocho.mp3");
+        // y el reproductor no esta sonando: solo se le mando cargar
+        assert!(!player.state().playing, "no debe arrancar sola");
+    }
+
+    #[test]
+    fn restoring_a_position_that_no_longer_exists_does_not_panic() {
+        let (player, _events) = silent_player();
+        let mut inner = inner_with(vec![], 0);
+        apply(
+            &mut inner,
+            Command::Restore(Session {
+                items: vec![track(1)],
+                index: 40,                       // la lista encogio
+                current_path: "/musica/una.mp3".into(),
+                ..Default::default()
+            }),
+            &player,
+            &nowhere(),
+        );
+        assert_eq!(inner.index, 0);
+    }
+
+    #[test]
+    fn an_empty_session_leaves_everything_as_it_was() {
+        let (player, _events) = silent_player();
+        let mut inner = inner_with(vec![track(3)], 0);
+        apply(&mut inner, Command::Restore(Session::default()), &player, &nowhere());
+        assert_eq!(inner.items.len(), 1, "no deberia haber tocado la cola");
+    }
+
     fn inner_with(items: Vec<Track>, index: usize) -> Inner {
         Inner {
             items,
@@ -658,6 +861,8 @@ mod tests {
             shuffle: false,
             origin: None,
             history: Vec::new(),
+            current_path: String::new(),
+            revision: 0,
         }
     }
 

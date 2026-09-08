@@ -131,6 +131,24 @@ describe('usePlayback', () => {
     expect(player.hasNext.value).toBe(true)
   })
 
+  it('si Rust cambia la cola por otra del mismo tamaño, la interfaz se entera', async () => {
+    // El caso de verdad: abrir una canción con DanPlay desde el explorador
+    // deja una cola de UNA. Si ya había una cola de una, los dos números
+    // coinciden, y antes de esto la interfaz seguía enseñando la canción
+    // anterior mientras sonaba la nueva.
+    const player = usePlayback()
+    await player.setQueue([{ id: -1, title: 'La primera', artist: '', duration: 100 }])
+    await flushPromises()
+    expect(player.track.value.title).toBe('La primera')
+
+    held.playback.replaceQueueFromRust([
+      { id: -1, title: 'La segunda', artist: 'Alguien', duration: 200 }
+    ])
+    await flushPromises()
+    expect(player.track.value.title, 'se quedó con la anterior').toBe('La segunda')
+    expect(player.queue.value[0].title).toBe('La segunda')
+  })
+
   it('el volumen y la velocidad se recuerdan entre sesiones', async () => {
     const player = usePlayback()
     await player.setVolume(0.42)

@@ -230,6 +230,8 @@ let backend = null
 let booting = null
 let ready = false
 let stopListening = null
+/** La revisión de cola que ya conocemos. Ver `applyState`. */
+let seenRevision = -1
 
 const isMiniWindow = () =>
   typeof location !== 'undefined' && new URLSearchParams(location.search).has('mini')
@@ -258,8 +260,17 @@ function applyState(s) {
   if (!s || typeof s !== 'object') return
   for (const k of Object.keys(EMPTY)) if (k in s) state[k] = s[k]
   state.repeat = normalizeRepeat(state.repeat)
-  // la cola la cambió otra ventana (el mini, la bandeja): se vuelve a pedir
-  if (ready && backend && state.length !== queue.value.length) refreshQueue()
+  // La cola la cambió alguien que no es esta ventana: el mini, la bandeja, o
+  // el sistema al abrir una canción con DanPlay. Se vuelve a pedir.
+  //
+  // Se mira la revisión que trae Rust, y no el número de canciones: abrir una
+  // canción desde el explorador deja una cola de UNA, y si ya había una cola
+  // de una los números coinciden, así que la pantalla se quedaba con la
+  // canción anterior mientras sonaba la nueva. Por el id tampoco vale: dos
+  // archivos sueltos distintos pueden llevar el mismo.
+  const changed = 'revision' in s && s.revision !== seenRevision
+  if (changed) seenRevision = s.revision
+  if (ready && backend && (changed || state.length !== queue.value.length)) refreshQueue(changed)
   if (ready) {
     remember(VOLUME_KEY, state.volume)
     remember(SPEED_KEY, state.speed)
@@ -267,12 +278,23 @@ function applyState(s) {
   }
 }
 
-async function refreshQueue() {
+/**
+ * Vuelve a traerse la cola de Rust.
+ *
+ * Sin `force` se conforma con comparar los ids, que es barato y evita
+ * repintar la lista por nada. Con `force` se queda con lo que diga Rust: los
+ * ids no siempre distinguen dos canciones —los archivos abiertos desde fuera
+ * de la biblioteca no tienen id propio— y ahí la comparación decía «es la
+ * misma» sobre dos canciones distintas.
+ */
+async function refreshQueue(force = false) {
   try {
     const r = await backend.queueItems()
     const items = r?.items || []
     const same =
-      items.length === queue.value.length && items.every((t, i) => t.id === queue.value[i]?.id)
+      !force &&
+      items.length === queue.value.length &&
+      items.every((t, i) => t.id === queue.value[i]?.id)
     if (!same) queue.value = items
     if (r && 'origin' in r && r.origin != null) state.origin = r.origin
   } catch {
@@ -322,6 +344,7 @@ export function resetPlayback() {
   backend = null
   booting = null
   ready = false
+  seenRevision = -1
   queue.value = []
   Object.assign(state, { ...EMPTY })
 }

@@ -258,7 +258,8 @@ export function createPlaybackDouble() {
     has_next: false,
     error: '',
     has_output: true,
-    origin: null
+    origin: null,
+    revision: 0
   }
   let items = []
   let origin = null
@@ -282,6 +283,7 @@ export function createPlaybackDouble() {
       const i = start == null ? 0 : list.findIndex((t) => t.id === start)
       const index = i < 0 ? 0 : i
       emit({
+        revision: state.revision + 1,
         track: list[index] || null,
         index: list.length ? index : -1,
         length: list.length,
@@ -310,6 +312,28 @@ export function createPlaybackDouble() {
       return () => listeners.delete(fn)
     })
   }
+  /**
+   * Lo que pasa cuando la cola la cambia RUST, no la interfaz: al abrir una
+   * canción con DanPlay desde el explorador de archivos, o desde la bandeja.
+   * La interfaz no se entera por haberlo pedido ella, solo por el estado.
+   */
+  const replaceQueueFromRust = (list) => {
+    items = list
+    origin = null
+    emit({
+      revision: state.revision + 1,
+      track: list[0] || null,
+      index: list.length ? 0 : -1,
+      length: list.length,
+      playing: !!list.length,
+      position: 0,
+      duration: list[0]?.duration || 0,
+      origin: null,
+      has_previous: false,
+      has_next: list.length > 1
+    })
+  }
+
   /** Vuelve a empezar: sin oyentes y sin nada sonando. */
   function reset() {
     listeners.clear()
@@ -317,5 +341,5 @@ export function createPlaybackDouble() {
     items = []
     origin = null
   }
-  return { bridge, emit, state, reset }
+  return { bridge, emit, state, reset, replaceQueueFromRust }
 }
