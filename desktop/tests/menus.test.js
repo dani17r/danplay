@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
-const { estadoFalso, status, api, native, pickFolder, tray, app } = vi.hoisted(() => {
+const { estadoFalso, status, api, native, pickFolder, tray, app, core } = vi.hoisted(() => {
   const estadoFalso = { configured: true, folders: 1, stats: { total: 3, bytes: 0, seconds: 0 },
     model: 'x', ia: false, fingerprint: false, rust: true, ffmpeg: true,
     never_convert: [], convert: false, quality: 'high', tareas: {} }
@@ -27,7 +27,13 @@ const { estadoFalso, status, api, native, pickFolder, tray, app } = vi.hoisted((
     saveSettings: vi.fn(async (d) => d), details: vi.fn(async () => ({})),
     enrich: vi.fn(async () => ({})), transpose: vi.fn(async () => ({})),
     resolverDuplicado: vi.fn(async () => ({ ok: true })),
-    chat: vi.fn(async () => ({ text: '' })), chatTools: vi.fn(async () => ({ model: 'x' }))
+    chat: vi.fn(async () => ({ text: '' })), chatTools: vi.fn(async () => ({ model: 'x' })),
+    // Escuchadores a los que App se suscribe al montarse. Sin ellos revienta
+    // el `onMounted` de cualquier prueba que monte la aplicacion, y el fallo
+    // sale en otro archivo. Este doble se escribe a mano —el `vi.hoisted` es
+    // sincrono y no puede derivarlo del api de verdad—, asi que al añadir un
+    // escuchador nuevo hay que acordarse de ponerlo aqui.
+    onExternal: vi.fn(async () => () => {})
   }
   const tray = {
     available: false,
@@ -47,10 +53,13 @@ const { estadoFalso, status, api, native, pickFolder, tray, app } = vi.hoisted((
     defaultPlayer: vi.fn(async () => ({ supported: true, is_default: true, direct: true, note: '' })),
     makeDefaultPlayer: vi.fn(async () => ({ supported: true, is_default: true, direct: true, note: '' }))
   }
+  // Rust avisa por aqui de que el nucleo esta listo; App se suscribe al
+  // montarse para recargar si llego antes que el.
+  const core = { onStatus: vi.fn(async () => () => {}) }
   return { estadoFalso, status, api, native: { available: false },
-           pickFolder: vi.fn(async () => null), tray, app }
+           pickFolder: vi.fn(async () => null), tray, app, core }
 })
-vi.mock('../src/api.js', () => ({ api, native, pickFolder, tray, app }))
+vi.mock('../src/api.js', () => ({ api, native, pickFolder, tray, app, core }))
 import App from '../src/App.vue'
 
 const theme = (n, i) => ({ id: i + 1, title: 'Tema ' + (i + 1), artist: 'Artista ' + (i + 1),

@@ -5,7 +5,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 // Se construye a partir del `api` de verdad (tests/support/backend.js), asi
 // que si la app llama a algo que no esta programado, la prueba lo dice con su
 // nombre en vez de pasar en verde contra un contrato que ya no existe.
-const held = vi.hoisted(() => ({ state: null, api: null, playback: null, pickFolder: null }))
+const held = vi.hoisted(() => ({ state: null, api: null, playback: null, pickFolder: null, coreListener: null }))
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -26,7 +26,12 @@ vi.mock('../src/api.js', async (importOriginal) => {
     pickFolder: held.pickFolder,
     app: createAppDouble(),
     mini: { hide: v.fn(async () => {}), toggle: v.fn(async () => {}) },
-    core: { onStatus: async () => () => {} }
+    core: {
+      onStatus: async (fn) => {
+        held.coreListener = fn
+        return () => (held.coreListener = null)
+      }
+    }
   }
 })
 
@@ -35,6 +40,7 @@ import { cancelDrag } from '../src/composables/useDragSong.js'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 import { resetPreferences } from '../src/composables/usePreferences.js'
 import { clearNotices } from '../src/composables/useNotices.js'
+import { song } from './support/backend.js'
 
 const api = held.api
 const state = held.state
@@ -78,6 +84,71 @@ describe('arranque sin carpetas', () => {
     expect(api.search).toHaveBeenCalled()
     expect(w.text()).toContain('Mi Gozo')
     expect(w.text()).toContain('Shekinah')
+  })
+})
+
+describe('el nucleo llega tarde', () => {
+  it('la biblioteca se llena sola cuando el nucleo arranca', async () => {
+    // Abrir DanPlay con una cancion desde el explorador es cuando mas tarda
+    // el nucleo: todo pasa a la vez. Si la interfaz carga antes de que
+    // conteste, la biblioteca sale vacia; y antes se quedaba asi para
+    // siempre, porque nadie escuchaba el aviso de «ya estoy».
+    state.status.configured = true
+    state.status.stats.total = 0
+    state.songs = []
+    const w = await montar()
+    expect(w.text()).toContain('Nada por aqui')
+
+    // el nucleo termina de arrancar y avisa
+    state.status.stats.total = 3
+    state.songs = [song(1), song(2), song(3)]
+    held.coreListener?.({ ready: true, message: '' })
+    await flushPromises(); await flushPromises()
+
+    expect(w.text()).not.toContain('Nada por aqui')
+  })
+
+  it('los avisos siguientes no recargan por nada', async () => {
+    state.status.configured = true
+    await montar()
+    held.coreListener?.({ ready: true, message: '' })
+    await flushPromises()
+    api.search.mockClear()
+    held.coreListener?.({ ready: true, message: 'sigue en pie' })
+    await flushPromises()
+    expect(api.search).not.toHaveBeenCalled()
+  })
+})
+
+describe('la lista del reproductor abierta', () => {
+  it('se actualiza sola cuando llega una cancion desde fuera', async () => {
+    state.status.configured = true
+    const w = await montar()
+    // se entra a «Reproductor»
+    api.externalList.mockResolvedValue({ songs: [song(1, { title: 'La primera' })] })
+    await w.findAll('.nav-link').find((b) => b.text().includes('Reproductor')).trigger('click')
+    await flushPromises(); await flushPromises()
+    expect(w.text()).toContain('La primera')
+
+    // llega otra por «Abrir con DanPlay», con la lista delante
+    api.externalList.mockResolvedValue({
+      songs: [song(2, { title: 'Recien llegada' }), song(1, { title: 'La primera' })]
+    })
+    api.externalList.mockClear()
+    held.api.fireExternal?.()
+    await flushPromises(); await flushPromises()
+
+    expect(api.externalList).toHaveBeenCalled()
+    expect(w.text()).toContain('Recien llegada')
+  })
+
+  it('en otra vista no se recarga por nada', async () => {
+    state.status.configured = true
+    await montar()
+    api.externalList.mockClear()
+    held.api.fireExternal?.()
+    await flushPromises()
+    expect(api.externalList).not.toHaveBeenCalled()
   })
 })
 

@@ -11,7 +11,7 @@
  *   bienvenida, entrada y duplicados → sus propios componentes
  */
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
-import { api, app as tauriApp, errorMessage } from './api.js'
+import { api, app as tauriApp, core, errorMessage } from './api.js'
 import { onClickOutside } from './composables/useClickOutside.js'
 import { useHasScroll, useIsOffscreen } from './composables/useHasScroll.js'
 import { useViewport } from './composables/useViewport.js'
@@ -164,6 +164,11 @@ onClickOutside(viewBox, () => {
 const effectiveGroupBy = computed(() =>
   view.value.kind === 'artists' ? groupBy.value || 'artist' : groupBy.value
 )
+
+// Para no recargar en cada aviso: solo cuando el núcleo PASA a estar listo.
+let coreWasReady = false
+let stopCoreWatch = null
+let stopExternalWatch = null
 
 const title = computed(
   () =>
@@ -600,6 +605,23 @@ onMounted(async () => {
   await loadStatus()
   await Promise.all([configured.value ? load() : Promise.resolve(), playlistActions.load()])
   offerToBeDefault()
+
+  // El núcleo puede tardar un segundo en levantarse, y arrancar la app
+  // abriendo una canción desde el explorador es justo cuando más tarda:
+  // todo pasa a la vez. Si se carga antes de que conteste, la biblioteca
+  // sale vacía —«Nada por aquí»— y ahí se quedaba, porque nadie escuchaba
+  // este aviso. Rust ya lo mandaba desde el principio.
+  stopCoreWatch = await core.onStatus((e) => {
+    if (e?.ready && !coreWasReady) refreshAll()
+    coreWasReady = !!e?.ready
+  })
+
+  // Abrir una canción desde el explorador la mete en la lista del
+  // reproductor. Si esa lista está delante, tiene que aparecer sola: se
+  // cargaba al entrar y se quedaba quieta mientras iban llegando canciones.
+  stopExternalWatch = await api.onExternal(() => {
+    if (view.value.kind === 'player') load()
+  })
 })
 
 /** La clave de «ya lo pregunté». Una vez en la vida, no en cada arranque. */
@@ -645,6 +667,8 @@ async function offerToBeDefault() {
 
 // si la app se va con algo en la mano, que no queden escuchas sueltas
 onUnmounted(() => {
+  stopCoreWatch?.()
+  stopExternalWatch?.()
   cancelDrag()
   window.removeEventListener('contextmenu', blockContextMenu)
   window.removeEventListener('keydown', onEscape)

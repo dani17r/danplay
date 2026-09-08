@@ -82,12 +82,32 @@ fn client() -> &'static Client<Connector, Full<Bytes>> {
 /// consultan aparte, asi que un minuto es de sobra.
 const TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Lo que se espera cuando hay alguien mirando la pantalla.
+///
+/// Resolver la ruta de una cancion bloquea el hilo de la cola, y ese hilo es
+/// el que atiende TODAS las ordenes: mientras espera, pulsar otra cancion, dar
+/// a siguiente o a pausa no hace nada. Con el minuto de arriba, un nucleo que
+/// vaya lento —la maquina cargada, un escaneo por detras— se siente como que
+/// el reproductor se ha colgado. Mejor rendirse pronto y decirlo.
+pub const QUICK: Duration = Duration::from_secs(8);
+
 /// Peticion HTTP al nucleo Python por el transporte que toque.
 pub async fn request(
     address: &Address,
     method: &str,
     path: &str,
     body: Option<String>,
+) -> Result<(u16, Vec<u8>, String), String> {
+    request_within(address, method, path, body, TIMEOUT).await
+}
+
+/// Igual, pero rindiendose antes. Ver `QUICK`.
+pub async fn request_within(
+    address: &Address,
+    method: &str,
+    path: &str,
+    body: Option<String>,
+    timeout: Duration,
 ) -> Result<(u16, Vec<u8>, String), String> {
     let (uri, token): (hyper::Uri, Option<&str>) = match address {
         #[cfg(unix)]
@@ -112,7 +132,7 @@ pub async fn request(
         .map_err(|e| e.to_string())?;
 
     let call = client().request(req);
-    let res = match tokio::time::timeout(TIMEOUT, call).await {
+    let res = match tokio::time::timeout(timeout, call).await {
         Ok(r) => r.map_err(|e| e.to_string())?,
         Err(_) => return Err("el nucleo no contesta".into()),
     };

@@ -493,14 +493,25 @@ fn path_of(track: &Track, address: &Address) -> Option<String> {
     if let Some(path) = &track.path {
         return Some(path.clone());
     }
+    // Con tope corto A PROPOSITO: esto corre en el hilo de la cola, que es el
+    // que atiende todas las ordenes. Esperar un minuto a un nucleo lento deja
+    // el reproductor sin responder a nada, y se siente como si se hubiera
+    // colgado. Mejor decir que no se pudo.
     tauri::async_runtime::block_on(async {
-        core::get_json(address, &format!("/api/song/{}/path", track.id))
-            .await
-            .and_then(|v| {
-                v.get("path")
-                    .and_then(|p| p.as_str())
-                    .map(|s| s.to_string())
-            })
+        match core::request_within(
+            address,
+            "GET",
+            &format!("/api/song/{}/path", track.id),
+            None,
+            core::QUICK,
+        )
+        .await
+        {
+            Ok((200, bytes, _)) => serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(String::from)),
+            _ => None,
+        }
     })
 }
 
@@ -783,6 +794,21 @@ mod tests {
     /// nucleo, que es justo lo que se comprueba al restaurar.
     fn nowhere() -> Address {
         Address::Tcp { port: 1, token: String::new() }
+    }
+
+    #[test]
+    fn the_state_the_interface_receives_carries_the_revision() {
+        // Es la señal de la que depende que la pantalla cambie de cancion. Si
+        // se cae del JSON, la interfaz se queda con la cancion anterior y
+        // nada falla a gritos: solo se ve mal.
+        let mut inner = inner_with(vec![track(1)], 0);
+        inner.revision = 7;
+        let json = serde_json::to_value(compose(&inner, &player::State::default())).unwrap();
+        assert_eq!(
+            json.get("revision").and_then(|v| v.as_u64()),
+            Some(7),
+            "el estado que llega al JS no lleva revision: {json}"
+        );
     }
 
     #[test]

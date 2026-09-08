@@ -428,6 +428,12 @@ export const api = {
   externalForget: (id) => DEL(`/external/${id}`),
   /** La guarda como lista de DanPlay. @param {string} name */
   externalSave: (name) => POST('/external/save', { name }),
+  /**
+   * Avisa cuando la lista cambia porque se ha abierto algo desde fuera.
+   * Devuelve cómo dejar de escuchar.
+   * @param {() => void} fn
+   */
+  onExternal: inTauri ? (fn) => listen('danplay://recent', () => fn()) : noListener,
 
   inbox: () => GET('/inbox'),
 

@@ -205,6 +205,12 @@ export function buildApiDouble(actual, state) {
           )
   }
   double.inTauri = false
+  // Los escuchadores no son respuestas programables: se guardan para poder
+  // dispararlos desde la prueba, como hace Rust.
+  double.onExternal = vi.fn(async (fn) => {
+    double.fireExternal = fn
+    return () => (double.fireExternal = null)
+  })
   return double
 }
 

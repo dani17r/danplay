@@ -16,7 +16,15 @@ use crate::queue::{self, Track};
 use crate::tray;
 use serde_json::json;
 use std::path::Path;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+
+/// «La lista del reproductor ha cambiado».
+///
+/// Lo escucha la interfaz para refrescarla cuando esta abierta: si no, se
+/// carga al entrar y se queda quieta mientras van llegando canciones nuevas
+/// por detras. Solo cambia al abrir algo desde fuera, y de eso nos enteramos
+/// aqui, asi que el aviso sale de aqui.
+pub const RECENT_EVENT: &str = "danplay://recent";
 
 /// Las extensiones que reconoce la biblioteca (`danplay/config.py`).
 pub const EXTENSIONS: &[&str] = &[
@@ -173,6 +181,7 @@ pub fn play(app: &AppHandle, paths: Vec<String>) {
                 origin: Some(json!({ "kind": "player", "label": "el reproductor" })),
             });
         }
+        let _ = app.emit(RECENT_EVENT, ());
         tray::show_main(&app);
     });
 }
