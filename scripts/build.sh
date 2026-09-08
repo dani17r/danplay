@@ -42,19 +42,37 @@ paso "4/4  app de escritorio (Tauri)"
 
 if [ "${1:-}" = "--package" ]; then
     paso "extra  paquetes .deb y .AppImage"
+    BUNDLE=desktop/src-tauri/target/release/bundle
+
+    # Se vacia ANTES de empaquetar. Tauri no limpia lo suyo: el nombre lleva
+    # la version dentro, asi que al subirla el paquete nuevo se pone AL LADO
+    # del viejo en vez de sustituirlo, y esta carpeta acaba con una version de
+    # cada dia. Como luego se copia todo lo que haya, en dist/installers/
+    # aparecian tres .deb con fecha de hoy y el de arriba no era el de hoy.
+    # Vaciando antes, lo que quede aqui es exactamente lo que se acaba de
+    # construir. (No se pierde nada: es todo salida de compilacion.)
+    rm -rf "$BUNDLE/deb" "$BUNDLE/appimage" "$BUNDLE/rpm"
+
     # Sin `|| true`: si el empaquetado falla hay que enterarse. Antes se lo
     # tragaba y luego se copiaban los paquetes VIEJOS con fecha nueva, que es
     # la peor forma de fallar: parece que funciono y arrancas la app de ayer.
     ( cd desktop && npx tauri build )
 
-    BUNDLE=desktop/src-tauri/target/release/bundle
-    # Fuera los paquetes de la version anterior. El nombre lleva el numero
-    # dentro, asi que al subirla los viejos NO se sobreescriben: se quedaban
-    # al lado, y abrir el que no toca te devuelve la app de antes sin que
-    # nada lo advierta. Es el error que mas tiempo cuesta encontrar.
+    # Y fuera tambien los de la version anterior en el destino, por lo mismo.
     rm -f dist/installers/*.deb dist/installers/*.AppImage
 
+    # La version que se acaba de construir, para comprobar lo que sale.
+    VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' \
+              desktop/src-tauri/tauri.conf.json | head -1)
+
     for f in $(find "$BUNDLE" -type f \( -name '*.deb' -o -name '*.AppImage' \)); do
+        # Cinturon: si por lo que sea aparece un paquete que no es de esta
+        # version, se para en vez de copiarlo.
+        case "$(basename "$f")" in
+            *_"$VERSION"_*) ;;
+            *) printf '\n\033[31mERROR\033[0m  %s no es de la version %s\n' \
+                   "$(basename "$f")" "$VERSION" >&2; exit 1 ;;
+        esac
         # Se desenlaza antes de copiar. Si tienes el AppImage abierto, el
         # kernel no deja SOBRESCRIBIRLO ("Text file busy") y el build moria
         # en el ultimo paso dejandote el paquete de antes; desenlazarlo si
