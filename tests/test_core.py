@@ -573,3 +573,66 @@ def test_nothing_hardcodes_the_version_in_a_file_name():
     for script in ("scripts/build.sh", "scripts/que-version.sh"):
         txt = (_raiz() / script).read_text(encoding="utf-8")
         assert __version__ not in txt, f"{script} lleva la version escrita a mano"
+
+
+# ------------------------------------------------------------------ Windows
+# Estos caminos no se ejecutan nunca en Linux, asi que se fuerzan aqui. Lo que
+# de verdad corre en Windows lo prueba la integracion continua (hay un trabajo
+# en windows-latest), pero estas cazan los descuidos sin esperar a un push.
+
+def test_external_tools_are_looked_up_next_to_the_executable(tmp_path, monkeypatch):
+    """En Windows no hay `apt install ffmpeg`: viaja dentro del instalador.
+
+    El nucleo tiene que encontrarlo al lado del ejecutable o donde diga
+    DANPLAY_TOOLS_DIR, y no solo en el PATH.
+    """
+    from danplay import config
+    herramienta = tmp_path / "ffmpeg"
+    herramienta.write_text("#!/bin/sh\n")
+    herramienta.chmod(0o755)
+    monkeypatch.setattr(config, "TOOLS_DIR", str(tmp_path))
+    assert config.find_tool("ffmpeg") == str(herramienta)
+    # lo que no esta ahi se sigue buscando en el PATH
+    assert config.find_tool("no-existe-este-programa") is None
+
+
+def test_on_windows_the_exe_suffix_is_tried(tmp_path, monkeypatch):
+    from danplay import config
+    (tmp_path / "fpcalc.exe").write_text("")
+    (tmp_path / "fpcalc.exe").chmod(0o755)
+    monkeypatch.setattr(config, "TOOLS_DIR", str(tmp_path))
+    monkeypatch.setattr(config, "exe_suffixes", lambda: (".exe", ""))
+    assert config.find_tool("fpcalc") == str(tmp_path / "fpcalc.exe")
+
+
+def test_reserved_windows_names_get_out_of_the_way():
+    """`CON`, `PRN`, `NUL`... no se pueden usar como nombre de archivo en
+    Windows. Hay artistas que se llaman asi («Con Poder»)."""
+    for reservado in ("CON", "con", "PRN", "AUX", "NUL", "COM1", "LPT9"):
+        limpio = N.sanitize(reservado)
+        assert limpio.upper() not in {"CON", "PRN", "AUX", "NUL", "COM1", "LPT9"}, limpio
+        assert limpio, "no puede quedarse vacio"
+    # y con extension tambien
+    assert N.sanitize("NUL.mp3").upper() != "NUL.MP3"
+    # los nombres normales no se tocan
+    assert N.sanitize("Con Poder") == "Con Poder"
+
+
+def test_names_do_not_end_in_a_dot_or_a_space():
+    """Windows los quita al crear el archivo, y luego la ruta guardada en el
+    indice ya no coincide con la de verdad."""
+    for entrada in ("Cancion.", "Cancion ", "Cancion. ", "Cancion..."):
+        limpio = N.sanitize(entrada)
+        assert not limpio.endswith((".", " ")), repr(limpio)
+
+
+def test_being_inside_the_library_is_decided_by_components():
+    """Pegar «/» a una cadena decia que /musica-copia estaba dentro de /musica.
+
+    En Windows ademas la unidad puede venir en mayuscula o minuscula.
+    """
+    from danplay import library as B
+    assert B._inside("/musica/artistas/x.mp3", "/musica")
+    assert B._inside("/musica", "/musica")
+    assert not B._inside("/musica-copia/x.mp3", "/musica")
+    assert not B._inside("/otro/x.mp3", "/musica")

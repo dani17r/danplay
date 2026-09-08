@@ -1,0 +1,10 @@
+Aqui van ffmpeg.exe, ffprobe.exe y fpcalc.exe cuando se quieren DENTRO del
+instalador.
+
+Hace falta en Windows, donde no hay un gestor de paquetes que los ponga: sin
+ellos DanPlay funciona, pero sin conversion de formatos ni identificacion de
+canciones por su sonido. En Linux no se usa: los instala apt (o el que sea) y
+el .deb los declara en Depends.
+
+Los pone el flujo de integracion continua (.github/workflows/windows.yml) o
+scripts/build-windows.ps1. Los binarios no estan en git.

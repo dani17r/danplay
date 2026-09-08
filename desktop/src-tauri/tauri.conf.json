@@ -83,6 +83,9 @@
       }
     },
     "shortDescription": "Gestor de biblioteca musical",
-    "longDescription": "Identifica, renombra y organiza tu musica; reproduce, busca letra y acordes, y transpone tonos."
+    "longDescription": "Identifica, renombra y organiza tu musica; reproduce, busca letra y acordes, y transpone tonos.",
+    "resources": [
+      "tools/*"
+    ]
   }
 }

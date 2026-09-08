@@ -108,6 +108,15 @@ def _default_library() -> Path:
 TOOLS_DIR = os.getenv("DANPLAY_TOOLS_DIR", "")
 
 
+def exe_suffixes() -> tuple[str, ...]:
+    """Que extensiones tiene un ejecutable en este sistema.
+
+    Aparte para poder probarlo: cambiar `os.name` a mano en una prueba hace
+    que pathlib se pase a rutas de Windows y ya no se puedan crear archivos.
+    """
+    return (".exe", "") if os.name == "nt" else ("",)
+
+
 def find_tool(name: str) -> str | None:
     """Ruta de un binario externo, o None.
 
@@ -120,7 +129,7 @@ def find_tool(name: str) -> str | None:
         candidates.append(Path(TOOLS_DIR))
     if FROZEN:
         candidates.append(Path(sys.executable).parent)
-    suffixes = (".exe", "") if os.name == "nt" else ("",)
+    suffixes = exe_suffixes()
     for folder in candidates:
         for suffix in suffixes:
             p = folder / (name + suffix)

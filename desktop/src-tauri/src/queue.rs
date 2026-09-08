@@ -83,6 +83,9 @@ pub enum Command {
     Stop,
     Seek(f64),
     Volume(f32),
+    /// Subir o bajar un poco. Lo usa la rueda sobre el icono de la bandeja,
+    /// que solo existe en Linux: el resto de sistemas no dan ese gesto.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     NudgeVolume(f32),
     Speed(f32),
 }

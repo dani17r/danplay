@@ -39,6 +39,29 @@ jobs:
           cargo install cargo-audit --locked || true
           cargo audit --file core/Cargo.lock
 
+  # El nucleo, en Windows. Es la unica forma de saber si de verdad funciona
+  # alli: las rutas, la papelera y el transporte por loopback con token toman
+  # caminos distintos que en Linux no se ejecutan nunca.
+  nucleo-windows:
+    name: núcleo Python en Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: ffmpeg (para generar la biblioteca de prueba)
+        run: choco install ffmpeg --no-progress -y
+      - name: dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+      - name: pruebas
+        run: pytest tests/test_core.py tests/test_api.py -q
+      - name: la línea de órdenes arranca
+        run: python -m danplay.cli status
+
   interfaz:
     name: interfaz
     runs-on: ubuntu-latest

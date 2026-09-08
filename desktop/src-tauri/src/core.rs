@@ -295,6 +295,25 @@ fn arm_child(cmd: &mut std::process::Command) {
     }
 }
 
+/// La carpeta `tools/` que el instalador deja junto al ejecutable, si la hay.
+///
+/// Solo se usa donde no hay gestor de paquetes que instale `ffmpeg` y
+/// `fpcalc`. Si no existe, el nucleo los busca en el PATH como siempre.
+fn bundled_tools() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let mut candidates = vec![
+        // Windows (NSIS) y macOS: los recursos van al lado del ejecutable
+        dir.join("tools"),
+        dir.join("resources").join("tools"),
+    ];
+    // .deb: el ejecutable en /usr/bin y los recursos en /usr/lib/DanPlay
+    if let Some(prefix) = dir.parent() {
+        candidates.push(prefix.join("lib").join("DanPlay").join("tools"));
+    }
+    candidates.into_iter().find(|c| c.is_dir())
+}
+
 fn spawn_core(address: &Address) -> Result<std::process::Child, String> {
     let mut cmd = match sidecar() {
         // 1) nucleo empaquetado (app instalada): no necesita Python en el sistema
@@ -311,6 +330,13 @@ fn spawn_core(address: &Address) -> Result<std::process::Child, String> {
             c
         }
     };
+
+    // Donde estan ffmpeg y fpcalc cuando viajan dentro del instalador. En
+    // Linux se instalan con el gestor de paquetes; en Windows no hay ninguno,
+    // asi que van al lado y hay que decirle al nucleo donde mirar.
+    if let Some(tools) = bundled_tools() {
+        cmd.env("DANPLAY_TOOLS_DIR", tools);
+    }
 
     match address {
         #[cfg(unix)]

@@ -21,3 +21,7 @@ build/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# ffmpeg y fpcalc del instalador de Windows: se descargan al compilar
+desktop/src-tauri/tools/*
+!desktop/src-tauri/tools/LEEME.txt

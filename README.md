@@ -8,12 +8,12 @@
 
 <p align="center">
   <img alt="Linux" src="https://img.shields.io/badge/Linux-.deb%20%C2%B7%20AppImage-333?logo=linux&logoColor=white">
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-en%20preparaci%C3%B3n-666?logo=windows&logoColor=white">
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-instalador%20en%20CI-0078d4?logo=windows&logoColor=white">
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-501%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-506%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -252,10 +252,10 @@ Prefiero decirlo aquí que en un issue:
 - **El BPM es usable, no exacto.** 5 de 8 aceptando errores de octava.
 - **Los acordes que da la IA son aproximados.** La app lo avisa. La
   transposición sobre ellos sí es determinista y exacta.
-- **Solo Linux probado.** El código ya está preparado para Windows —la
-  papelera, las rutas de datos y el transporte con el núcleo tienen su camino
-  allí— pero nadie lo ha compilado ni ejecutado todavía. Hasta que eso pase,
-  Windows es una intención, no una promesa.
+- **Solo Linux probado.** El código compila para Windows y hay un flujo que
+  genera el instalador (`.github/workflows/windows.yml`), pero **nadie lo ha
+  ejecutado todavía en un Windows de verdad**: hasta el primer arranque, es un
+  «debería funcionar». Los detalles, en [docs/WINDOWS.md](docs/WINDOWS.md).
 - **El mini reproductor aparece donde puede.** Con X11 y con el AppImage sale
   pegado al icono de la bandeja. En Wayland lo coloca el escritorio: no existen
   las coordenadas globales y una aplicación no puede situar sus ventanas.
@@ -267,6 +267,7 @@ Prefiero decirlo aquí que en un issue:
 | --- | --- |
 | [Arquitectura](docs/ARQUITECTURA.md) | Cómo encaja todo por dentro, decisiones de diseño y por qué. |
 | [Contrato interno](docs/CONTRATO-INTERNO.md) | Qué se dicen las capas: comandos, eventos y nombres de cada campo. |
+| [Windows](docs/WINDOWS.md) | Cómo se consigue el instalador y qué cambia respecto a Linux. |
 | [Contribuir](docs/CONTRIBUIR.md) | Cómo montar el entorno, ejecutar las pruebas y en qué se puede ayudar. |
 
 ## Pruebas
@@ -275,11 +276,11 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-501 pruebas repartidas así:
+506 pruebas repartidas así:
 
 | Tanda | Pruebas |
 | --- | --- |
-| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice) | 94 |
+| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, Windows) | 99 |
 | API sobre una biblioteca temporal de verdad | 82 |
 | Interfaz: componentes, reactividad, temas, listas grandes, contratos | 255 |
 | Interfaz: rutas de medios en cada sistema | 7 |
