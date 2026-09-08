@@ -41,6 +41,12 @@ pub enum Event {
 
 pub enum Command {
     Play { path: String, duration: f64 },
+    /// Deja una cancion preparada pero en silencio.
+    ///
+    /// Es como se vuelve al abrir DanPlay a donde lo dejaste: la cancion esta
+    /// puesta y el boton de play la arranca (el Toggle de abajo la carga
+    /// sola al ver que no hay sonido), pero no empieza a sonar por su cuenta.
+    Load { path: String, duration: f64 },
     Toggle,
     Pause,
     Resume,
@@ -222,7 +228,8 @@ impl Handle {
 
                     match rx.recv_timeout(Duration::from_millis(wait)) {
                         Ok(cmd) => {
-                            clear_error = matches!(cmd, Command::Play { .. } | Command::Stop);
+                            clear_error =
+                                matches!(cmd, Command::Play { .. } | Command::Load { .. } | Command::Stop);
                             match cmd {
                                 Command::Play { path: r, duration: hint } => {
                                     if let Some(s) = sink.take() {
@@ -254,6 +261,14 @@ impl Handle {
                                             failure = Some(e);
                                         }
                                     }
+                                }
+                                Command::Load { path: r, duration: hint } => {
+                                    if let Some(s) = sink.take() {
+                                        s.stop()
+                                    }
+                                    path = r;
+                                    duration = hint;
+                                    was_finished = false;
                                 }
                                 Command::Toggle | Command::Resume | Command::Pause => {
                                     let exhausted = sink.as_ref().map_or(true, |s| s.empty());
