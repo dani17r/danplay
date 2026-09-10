@@ -114,6 +114,14 @@ describe('usePlayback', () => {
     expect(toTrack({ id: 1, file: 'pista.mp3' }).title).toBe('pista.mp3')
   })
 
+  // Con la ruta puesta, Rust arranca sin esperar al nucleo. Cuando iba lento
+  // o aun se estaba levantando, esa espera era «le doy y no suena».
+  it('la ruta viaja con la cancion cuando se conoce', () => {
+    expect(toTrack({ id: 1, title: 'x', path: '/musica/x.mp3' }).path).toBe('/musica/x.mp3')
+    expect('path' in toTrack({ id: 1, title: 'x', path: '' })).toBe(false)
+    expect('path' in toTrack({ id: 1, title: 'x' })).toBe(false)
+  })
+
   it('pone la cola y refleja lo que Rust contesta', async () => {
     const player = usePlayback()
     await player.setQueue(

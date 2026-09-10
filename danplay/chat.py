@@ -43,8 +43,55 @@ def _describe(name: str, args: dict) -> str:
         which = f"«{name_of}»" if name_of else f"la lista {args.get('id')}"
         return f"Borrar el repertorio {which}. Las canciones no se borran."
     if name == "download_music":
-        return f"Descargar de YouTube: {args.get('query') or 'lo buscado'}."
+        plan = download_plan(args)
+        items = plan["items"]
+        if not items:
+            return "Descargar de YouTube: lo buscado."
+        shown = ", ".join(f"«{x}»" for x in items[:5])
+        if len(items) > 5:
+            shown += f" y {len(items) - 5} mas"
+        text = f"Descargar de YouTube: {shown}."
+        if plan["force"]:
+            text += " Aunque ya la tengas: se guarda como otra version."
+        if not plan["file_it"]:
+            text += " Se deja en Entrada/ sin archivar."
+        return text
     return f"Ejecutar {name}."
+
+
+def download_plan(args: dict | None) -> dict:
+    """Lo que se va a bajar, saneado, a partir de los argumentos de la herramienta.
+
+    Un solo sitio para leerlos: lo usan el dialogo de confirmacion, la
+    ejecucion desde el chat y el endpoint que arranca la descarga aprobada.
+    Cuando cada uno los leia por su cuenta, la API buscaba `query`, que la
+    herramienta no tiene, y la descarga confirmada nunca arrancaba.
+
+    Se admite tambien `query` (texto suelto) por si el modelo lo manda asi.
+    """
+    args = args or {}
+    raw = args.get("items")
+    if isinstance(raw, str):
+        raw = [raw]
+    elif not isinstance(raw, (list, tuple)):
+        raw = []
+    items = [str(x).strip() for x in raw if str(x).strip()]
+    if not items and args.get("query"):
+        items = [str(args["query"]).strip()]
+    seen: set = set()
+    unique = []
+    for x in items:
+        if x.lower() not in seen:
+            seen.add(x.lower())
+            unique.append(x)
+    trimmed = len(unique) > MAX_DOWNLOADS
+    quality = args.get("quality")
+    if quality not in ("high", "medium", "variable"):
+        quality = config.MP3_QUALITY
+    return {"items": unique[:MAX_DOWNLOADS], "trimmed": trimmed,
+            "quality": quality,
+            "file_it": args.get("file_it", True) is not False,
+            "force": bool(args.get("force", False))}
 
 
 def wrap_external(text: str) -> str:
@@ -100,11 +147,15 @@ AL DESCARGAR
   enseña que has encontrado con search_youtube y pide el visto bueno.
   Con un enlace concreto y una orden clara, tira directo.
 - Antes de bajar algo, mira con search_songs si ya lo tiene. Si ya esta,
-  dilo en vez de duplicarlo.
-- download_music no baja lo que ya esta en la biblioteca: te lo devuelve como
-  "already_there" con las coincidencias. Cuentaselo al usuario y preguntale si
-  la quiere igualmente; solo entonces repites la llamada con force=true.
-- Cuando termines, di que entro, bajo que artista quedo y que hubo que revisar.
+  dilo y pregunta si la quiere igualmente como otra version.
+- download_music no se ejecuta en la conversacion: la app le enseña al
+  usuario lo que vas a bajar, y si acepta, la descarga corre en segundo plano
+  y la propia app le cuenta como fue. Tu llamala UNA vez con todos los
+  `items` y di en una linea que has pedido la descarga; no la repitas.
+- Sin force, no se baja lo que ya esta en la biblioteca (se avisa como
+  "ya la tienes"). Si el usuario dice que la quiere igualmente aunque este
+  repetida, o que quiere OTRA version de una que ya tiene, llama a
+  download_music con force=true: asi se baja y se guarda como otra version.
 
 AL ARMAR UNA LISTA
   1. busca los temas con search_songs
@@ -206,9 +257,10 @@ TOOLS = [
         "name": "download_music",
         "description": ("Descarga audio de YouTube, lo pasa a mp3 con su caratula, lo "
                         "identifica y lo archiva en Artistas/. Usala SOLO cuando te lo "
-                        "hayan pedido. Cada elemento de `temas` puede ser una URL de "
+                        "hayan pedido. Cada elemento de `items` puede ser una URL de "
                         "video, una URL de lista, o texto a buscar (se coge el primer "
-                        "resultado). Tarda: unos segundos por cancion."),
+                        "resultado). La app le pide confirmacion al usuario y la "
+                        "ejecuta en segundo plano: llamala una vez con todos los temas."),
         "parameters": {"type": "object", "properties": {
             "items": {"type": "array", "items": {"type": "string"},
                       "description": "URLs o titulos, uno por cancion"},
@@ -221,7 +273,8 @@ TOOLS = [
                       "description": "por defecto false: si la cancion ya esta en la "
                                      "biblioteca NO se baja y se avisa. Ponlo a true "
                                      "solo si el usuario confirma que la quiere igual "
-                                     "aunque este repetida"}
+                                     "aunque este repetida, o que quiere otra version "
+                                     "de una que ya tiene"}
         }, "required": ["items"]}}},
     {"type": "function", "function": {
         "name": "download_status",
@@ -402,37 +455,30 @@ def run_tool(name, args) -> dict:
         if name == "download_music":
             if not youtube.available():
                 return {"error": youtube.unavailable_reason()}
-            items = [str(x).strip() for x in (args.get("items") or []) if str(x).strip()]
-            if not items:
+            plan = download_plan(args)
+            if not plan["items"]:
                 return {"error": "no me has dicho que bajar"}
-            trimmed = len(items) > MAX_DOWNLOADS
-            items = items[:MAX_DOWNLOADS]
-            quality = args.get("quality") or config.MP3_QUALITY
-            file_it = args.get("file_it", True)
-            force = bool(args.get("force", False))
+            # Todo bajo un solo turno: `run_many` publica el avance en
+            # youtube.STATE y la pagina de Descargas lo enseña mientras tanto.
             done_items = []
-            for x in items:
-                # de uno en uno: `run_job` publica el avance en youtube.STATE y
-                # la pagina de Descargas lo enseña mientras el chat trabaja
-                for r in youtube.run_job(x, quality=quality, file_it=file_it,
-                                         results=1, force=force,
-                                         source="assistant"):
-                    done_items.append({"ok": r.get("ok", False),
-                                       "already_there": r.get("already_there", False),
-                                       "matches": r.get("matches", []),
-                                       "requested": x,
-                                       "title": r.get("title") or r.get("source", ""),
-                                       "artist": r.get("artist", ""),
-                                       "song": r.get("song", ""),
-                                       "action": r.get("action", ""),
-                                       "identified_by": r.get("identified_by", ""),
-                                       "target": r.get("target", ""),
-                                       "reason": r.get("reason", "")})
+            for r in youtube.run_many(plan["items"], quality=plan["quality"],
+                                      file_it=plan["file_it"], results=1,
+                                      force=plan["force"], source="assistant"):
+                done_items.append({"ok": r.get("ok", False),
+                                   "already_there": r.get("already_there", False),
+                                   "matches": r.get("matches", []),
+                                   "title": r.get("title") or r.get("source", ""),
+                                   "artist": r.get("artist", ""),
+                                   "song": r.get("song", ""),
+                                   "action": r.get("action", ""),
+                                   "identified_by": r.get("identified_by", ""),
+                                   "target": r.get("target", ""),
+                                   "reason": r.get("reason", "")})
             return {"downloaded": sum(1 for h in done_items if h["ok"]),
                     "already_there": sum(1 for h in done_items if h["already_there"]),
                     "failures": sum(1 for h in done_items
                                     if not h["ok"] and not h["already_there"]),
-                    "trimmed_to": MAX_DOWNLOADS if trimmed else None,
+                    "trimmed_to": MAX_DOWNLOADS if plan["trimmed"] else None,
                     "detail": done_items}
 
         if name == "download_status":
@@ -598,7 +644,9 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
                 if res.get("action"):
                     actions.append(res["action"])
             used.append({"name": name, "args": args,
-                         "summary": _summarize(name, res)})
+                         "summary": ("espera tu visto bueno"
+                                     if res.get("needs_confirmation")
+                                     else _summarize(name, res))})
             history.append({"role": "tool", "tool_call_id": c.id,
                          "content": json.dumps(res, ensure_ascii=False)[:12000]})
 

@@ -13,7 +13,7 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-541%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-593%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -294,16 +294,16 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-541 pruebas repartidas así:
+593 pruebas repartidas así:
 
 | Tanda | Pruebas |
 | --- | --- |
-| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, Windows, asociaciones) | 103 |
-| API sobre una biblioteca temporal de verdad | 91 |
-| Interfaz: componentes, reactividad, temas, listas grandes, contratos | 260 |
+| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, descargas, Windows, asociaciones) | 108 |
+| API sobre una biblioteca temporal de verdad | 99 |
+| Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat | 289 |
 | Interfaz: rutas de medios en cada sistema | 7 |
 | Rust: hashes y análisis de audio | 14 |
-| Rust: reproductor, cola, bandeja, sesión y archivos abiertos desde fuera | 48 |
+| Rust: reproductor, cola, bandeja, sesión y archivos abiertos desde fuera | 58 |
 | Humo sobre la app **ya compilada** | 18 |
 
 La biblioteca de prueba **se genera**: mp3 de verdad hechos con ffmpeg. Antes

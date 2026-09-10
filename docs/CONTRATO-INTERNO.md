@@ -14,7 +14,8 @@ un evento. No hay sondeo desde JS.
 
 ```ts
 type Track = {
-  id: number, title: string, artist: string, duration: number, blur: boolean
+  id: number, title: string, artist: string, duration: number, blur: boolean,
+  path?: string             // donde esta el archivo, si quien lo manda lo sabe
 }
 type Repeat = 'list' | 'one' | 'once' | 'queue'
 type PlaybackState = {
@@ -36,8 +37,13 @@ type PlaybackState = {
 }
 ```
 
-Rust obtiene la **ruta del archivo** él mismo (`GET /api/song/{id}/path` por
-el socket) al empezar cada pista. La interfaz no manda rutas.
+La **ruta del archivo** viaja en `Track.path` cuando quien manda la canción la
+sabe: la interfaz la trae del índice con cada canción, y «Abrir con DanPlay»
+la recibe en la orden. Si el archivo está ahí, Rust lo pone a sonar sin
+preguntarle nada al núcleo. Si no viene, o el archivo ya no está donde
+estaba, Rust se la pide al núcleo (`GET /api/song/{id}/path`, con un tope de
+8 s) al empezar la pista. Si tampoco así se localiza, `error` lo dice en
+castellano y, si la canción se acabó sola, se prueba con la siguiente.
 
 ### Comandos (`invoke`)
 
@@ -138,6 +144,22 @@ La interfaz muestra un diálogo con `summary`; si el usuario acepta, llama a
 `POST /api/chat/confirm` con `{ "tool": "...", "args": {...} }` → ejecuta la
 herramienta y devuelve `{ "ok": true, "result": {...}, "text": "resumen en
 castellano" }`. Si rechaza, no se llama a nada.
+
+`download_music` es la excepción: tarda minutos, así que el confirm la
+**arranca en segundo plano** y vuelve al momento con
+`result: { active: true, items: [...], force: bool }`. Los `args` son los de
+la herramienta tal cual (`items`, `quality`, `file_it`, `force`); la
+interfaz no los toca. A partir de ahí el chat sigue la descarga por
+`GET /api/youtube` (el mismo estado que la página de Descargas: `active`,
+`phase`, `index`, `total`, `results`) y, cuando `active` pasa a `false`,
+cuenta en la conversación qué entró, qué ya estaba (`already_there`, con sus
+`matches`) y qué falló. `409` si ya hay una descarga en marcha; `400` si
+no hay nada que bajar; `503` si falta yt-dlp o ffmpeg.
+
+Las burbujas del asistente se pintan como **markdown** (negritas, listas,
+títulos, tablas, código) con un conversor propio que escapa todo el HTML
+antes de marcar nada (`desktop/src/utils/markdown.js`). Los enlaces no se
+convierten en `<a>`: se enseñan como texto con la dirección al lado.
 
 ## 4. Ajustes (Python ↔ Vue), nombres correctos
 

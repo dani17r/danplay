@@ -51,6 +51,10 @@ pub enum Command {
     Pause,
     Resume,
     Stop,
+    /// La cola no pudo localizar el archivo de la cancion: se para lo que
+    /// hubiera y se cuenta el motivo, en castellano. Antes se mandaba un
+    /// `Play` con la ruta vacia y el error que salia era el del sistema.
+    Fail(String),
     Seek(f64),
     Volume(f32),
     NudgeVolume(f32),
@@ -132,7 +136,17 @@ fn open_sink(
         return Ok((sink, announced));
     }
 
-    let file = File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
+    let file = File::open(path).map_err(|e| {
+        let name = std::path::Path::new(path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string());
+        if e.kind() == std::io::ErrorKind::NotFound {
+            format!("No encuentro «{name}»: puede que se haya movido o borrado.")
+        } else {
+            format!("No se pudo abrir «{name}»: {e}")
+        }
+    })?;
     let source = Decoder::new(BufReader::new(file)).map_err(|e| readable(&e.to_string(), path))?;
     let announced = source.total_duration().map(|d| d.as_secs_f64());
     sink.append(source);
@@ -173,6 +187,38 @@ fn readable(error: &str, path: &str) -> String {
     error.to_string()
 }
 
+/// Lo que sobrevive a un reinicio del bucle de audio.
+///
+/// El bucle se cae por dos cosas que no dependen de nosotros: un archivo que
+/// hace panic al decodificarlo, y una salida de audio que muere (se fue el
+/// servidor de sonido, se desconecto el aparato). En los dos casos se vuelve
+/// a empezar con el mismo volumen y la misma velocidad, y sin olvidar que
+/// habia una cancion puesta.
+struct Carry {
+    volume: f32,
+    speed: f32,
+    path: String,
+    duration: f64,
+    /// Una orden que llego mientras no habia salida de audio. Se atiende en
+    /// cuanto la haya, en vez de perderse.
+    pending: Option<Command>,
+}
+
+/// Lo que se dice cuando no hay por donde sacar el sonido.
+const NO_OUTPUT: &str = "no hay salida de audio en este equipo";
+
+/// Cuanto puede estar la aguja quieta, sonando, antes de dar la salida por
+/// muerta. Si el servidor de sonido se cae o el aparato desaparece, cpal
+/// deja de pedir muestras y no avisa: la cancion se queda «sonando» sin
+/// sonar y sin acabarse nunca. Se rehace la salida y se sigue donde estaba.
+const STALL: Duration = Duration::from_secs(4);
+
+/// El estado compartido, aunque un panic lo dejara envenenado: solo se
+/// guardan copias, asi que lo que hay dentro siempre esta entero.
+fn lock(shared: &Arc<Mutex<State>>) -> std::sync::MutexGuard<'_, State> {
+    shared.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 impl Handle {
     pub fn new(events: Sender<Event>) -> Self {
         let (tx, rx) = channel::<Command>();
@@ -186,220 +232,44 @@ impl Handle {
         std::thread::Builder::new()
             .name("danplay-audio".into())
             .spawn(move || {
-                let output = OutputStream::try_default().ok();
-                if let Ok(mut e) = shared.lock() {
-                    e.has_output = output.is_some()
-                }
-                let Some((_stream, handle)) = output else {
-                    if let Ok(mut e) = shared.lock() {
-                        e.error = "no hay salida de audio en este equipo".into();
-                        let _ = events.send(Event::Changed(e.clone()));
-                    }
-                    // seguimos vivos para no romper las ordenes entrantes
-                    while rx.recv().is_ok() {}
-                    return;
+                let mut carry = Carry {
+                    volume: 0.9,
+                    speed: 1.0,
+                    path: String::new(),
+                    duration: 0.0,
+                    pending: None,
                 };
-
-                let mut sink: Option<Sink> = None;
-                let mut volume = 0.9f32;
-                let mut speed = 1.0f32;
-                let mut path = String::new();
-                let mut duration = 0.0f64;
-                let mut was_finished = false;
-                let mut last_sent = State::default();
-                let mut last_tick = Instant::now();
-
-                // Cada cuanto se mira el reloj si no llega ninguna orden.
-                // Sonando hace falta a menudo (de ahi sale la barra de
-                // progreso); parado no se mueve nada, asi que despertar ocho
-                // veces por segundo para ver lo mismo solo gasta bateria.
-                const ACTIVE_MS: u64 = 100;
-                const IDLE_MS: u64 = 500;
-                // Cada cuanto se avisa de la posicion mientras suena.
-                const TICK: Duration = Duration::from_millis(250);
-
+                // El bucle se supervisa: si un archivo hace panic al
+                // decodificarse, el hilo NO se muere en silencio (antes,
+                // desde ese momento ninguna orden hacia nada hasta reiniciar
+                // DanPlay). Se avisa del archivo y se vuelve a empezar.
                 loop {
-                    let sounding = sink
-                        .as_ref()
-                        .map_or(false, |s| !s.is_paused() && !s.empty());
-                    let wait = if sounding { ACTIVE_MS } else { IDLE_MS };
-                    let mut failure: Option<String> = None;
-                    let mut clear_error = false;
-
-                    match rx.recv_timeout(Duration::from_millis(wait)) {
-                        Ok(cmd) => {
-                            clear_error =
-                                matches!(cmd, Command::Play { .. } | Command::Load { .. } | Command::Stop);
-                            match cmd {
-                                Command::Play { path: r, duration: hint } => {
-                                    if let Some(s) = sink.take() {
-                                        s.stop()
-                                    }
-                                    match open_sink(&handle, &r, volume, speed, hint) {
-                                        Ok((s, announced)) => {
-                                            s.play();
-                                            // la del indice manda: en mp3 de
-                                            // bitrate variable sin cabecera
-                                            // Xing la del archivo se inventa
-                                            duration = if hint > 0.0 {
-                                                hint
-                                            } else {
-                                                announced.unwrap_or(0.0)
-                                            };
-                                            path = r.clone();
-                                            sink = Some(s);
-                                            was_finished = false;
-                                        }
-                                        Err(e) => {
-                                            // Sin limpiar la ruta, el siguiente
-                                            // play o un salto en la barra
-                                            // reproducian la cancion ANTERIOR,
-                                            // que es de las cosas mas raras que
-                                            // puede hacer un reproductor.
-                                            path.clear();
-                                            duration = 0.0;
-                                            failure = Some(e);
-                                        }
-                                    }
-                                }
-                                Command::Load { path: r, duration: hint } => {
-                                    if let Some(s) = sink.take() {
-                                        s.stop()
-                                    }
-                                    path = r;
-                                    duration = hint;
-                                    was_finished = false;
-                                }
-                                Command::Toggle | Command::Resume | Command::Pause => {
-                                    let exhausted = sink.as_ref().map_or(true, |s| s.empty());
-                                    let wants_play = match cmd {
-                                        Command::Resume => true,
-                                        Command::Pause => false,
-                                        // Toggle: lo contrario de lo que hay
-                                        _ => sink.as_ref().map_or(true, |s| s.is_paused() || s.empty()),
-                                    };
-                                    if wants_play && exhausted && !path.is_empty() {
-                                        // la pista acabo: se recarga y suena otra vez
-                                        match open_sink(&handle, &path, volume, speed, duration) {
-                                            Ok((s, _)) => {
-                                                s.play();
-                                                sink = Some(s);
-                                                was_finished = false;
-                                            }
-                                            Err(e) => failure = Some(e),
-                                        }
-                                    } else if let Some(s) = &sink {
-                                        if wants_play {
-                                            s.play()
-                                        } else {
-                                            s.pause()
-                                        }
-                                    }
-                                }
-                                Command::Stop => {
-                                    if let Some(s) = sink.take() {
-                                        s.stop()
-                                    }
-                                    path.clear();
-                                    duration = 0.0;
-                                    was_finished = false;
-                                }
-                                Command::Seek(seconds) => {
-                                    let exhausted = sink.as_ref().map_or(true, |s| s.empty());
-                                    if exhausted && !path.is_empty() {
-                                        match open_sink(&handle, &path, volume, speed, duration) {
-                                            Ok((s, _)) => {
-                                                s.play();
-                                                sink = Some(s);
-                                                was_finished = false;
-                                            }
-                                            Err(e) => failure = Some(e),
-                                        }
-                                    }
-                                    if let Some(s) = &sink {
-                                        if let Err(e) =
-                                            s.try_seek(Duration::from_secs_f64(seconds.max(0.0)))
-                                        {
-                                            failure = Some(format!("no se puede buscar aqui: {e}"));
-                                        }
-                                    }
-                                }
-                                Command::Volume(v) => {
-                                    volume = v.clamp(0.0, 1.0);
-                                    if let Some(s) = &sink {
-                                        s.set_volume(volume)
-                                    }
-                                }
-                                Command::NudgeVolume(d) => {
-                                    volume = (volume + d).clamp(0.0, 1.0);
-                                    if let Some(s) = &sink {
-                                        s.set_volume(volume)
-                                    }
-                                }
-                                Command::Speed(v) => {
-                                    speed = v.clamp(0.25, 3.0);
-                                    if let Some(s) = &sink {
-                                        s.set_speed(speed)
-                                    }
-                                }
-                            }
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                        Err(_) => break, // el canal se cerro: fin
-                    }
-
-                    // ------------------------------------------- estado nuevo
-                    let finished = sink.as_ref().map_or(false, |s| s.empty());
-                    let current = {
-                        let Ok(mut e) = shared.lock() else { break };
-                        if let Some(reason) = failure {
-                            e.error = reason;
-                        } else if clear_error {
-                            e.error.clear();
-                        }
-                        match &sink {
-                            Some(s) => {
-                                e.playing = !s.is_paused() && !s.empty();
-                                e.position = s.get_pos().as_secs_f64();
-                            }
-                            None => {
-                                e.playing = false;
-                                e.position = 0.0;
-                            }
-                        }
-                        e.path = path.clone();
-                        e.duration = duration;
-                        e.volume = volume;
-                        e.speed = speed;
-                        e.clone()
-                    };
-
-                    // Fin de pista: se avisa UNA vez. Quien decide que pasa
-                    // luego (repetir, avanzar, pararse) es la cola.
-                    if finished && !was_finished && !path.is_empty() {
-                        was_finished = true;
-                        if events.send(Event::Finished).is_err() {
-                            break;
-                        }
-                    }
-                    if !finished {
-                        was_finished = false;
-                    }
-
-                    // Se avisa cuando cambia algo que se ve, y mientras suena
-                    // tambien cada 250 ms para mover la barra de progreso.
-                    let changed = current.playing != last_sent.playing
-                        || current.path != last_sent.path
-                        || current.error != last_sent.error
-                        || current.duration != last_sent.duration
-                        || (current.volume - last_sent.volume).abs() > f32::EPSILON
-                        || (current.speed - last_sent.speed).abs() > f32::EPSILON;
-                    let due = current.playing && last_tick.elapsed() >= TICK;
-                    if changed || due {
-                        last_sent = current.clone();
-                        last_tick = Instant::now();
-                        if events.send(Event::Changed(current)).is_err() {
-                            break;
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        run(&rx, &shared, &events, &mut carry)
+                    }));
+                    match outcome {
+                        Ok(()) => break, // el canal se cerro: fin
+                        Err(_) => {
+                            let bad = std::mem::take(&mut carry.path);
+                            carry.duration = 0.0;
+                            let name = std::path::Path::new(&bad)
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default();
+                            let mut e = lock(&shared);
+                            e.playing = false;
+                            e.position = 0.0;
+                            e.path.clear();
+                            e.duration = 0.0;
+                            e.error = if name.is_empty() {
+                                "El reproductor se cayo leyendo un archivo y se ha vuelto a levantar.".into()
+                            } else {
+                                format!(
+                                    "No se pudo leer «{name}»: el archivo esta dañado. \
+                                     El reproductor se ha vuelto a levantar."
+                                )
+                            };
+                            let _ = events.send(Event::Changed(e.clone()));
                         }
                     }
                 }
@@ -419,7 +289,360 @@ impl Handle {
     /// para las pruebas y para mirar el estado sin esperar al siguiente aviso.
     #[allow(dead_code)]
     pub fn state(&self) -> State {
-        self.state.lock().map(|e| e.clone()).unwrap_or_default()
+        lock(&self.state).clone()
+    }
+}
+
+/// Abre la salida de audio, y si no la hay, espera a que alguien pida sonido
+/// para volver a intentarlo.
+///
+/// Antes, si al arrancar no habia salida (el servidor de sonido aun no estaba
+/// en pie, unos auriculares Bluetooth sin conectar), el hilo se quedaba
+/// tragando ordenes para siempre y DanPlay decia «este equipo no tiene salida
+/// de audio» hasta reiniciarlo. Devuelve None solo si el canal se cerro.
+fn open_output(
+    rx: &std::sync::mpsc::Receiver<Command>,
+    shared: &Arc<Mutex<State>>,
+    events: &Sender<Event>,
+    carry: &mut Carry,
+) -> Option<(OutputStream, OutputStreamHandle)> {
+    loop {
+        if let Ok(pair) = OutputStream::try_default() {
+            let mut e = lock(shared);
+            e.has_output = true;
+            if e.error == NO_OUTPUT {
+                e.error.clear();
+            }
+            return Some(pair);
+        }
+        {
+            let mut e = lock(shared);
+            e.has_output = false;
+            e.playing = false;
+            e.error = NO_OUTPUT.into();
+            e.volume = carry.volume;
+            e.speed = carry.speed;
+            e.path = carry.path.clone();
+            e.duration = carry.duration;
+            let _ = events.send(Event::Changed(e.clone()));
+        }
+        // Se espera a la siguiente orden. Las que no necesitan sonido se
+        // aplican aqui mismo; las demas se guardan y se atienden en cuanto
+        // haya salida.
+        match rx.recv() {
+            Ok(Command::Volume(v)) => carry.volume = v.clamp(0.0, 1.0),
+            Ok(Command::NudgeVolume(d)) => carry.volume = (carry.volume + d).clamp(0.0, 1.0),
+            Ok(Command::Speed(v)) => carry.speed = v.clamp(0.25, 3.0),
+            Ok(Command::Stop) | Ok(Command::Fail(_)) => {
+                carry.path.clear();
+                carry.duration = 0.0;
+            }
+            Ok(Command::Load { path, duration }) => {
+                carry.path = path;
+                carry.duration = duration;
+            }
+            Ok(other) => carry.pending = Some(other),
+            Err(_) => return None,
+        }
+    }
+}
+
+/// El bucle del hilo de audio. Vuelve solo cuando se cierra el canal; si hace
+/// panic, `Handle::new` lo vuelve a lanzar.
+fn run(
+    rx: &std::sync::mpsc::Receiver<Command>,
+    shared: &Arc<Mutex<State>>,
+    events: &Sender<Event>,
+    carry: &mut Carry,
+) {
+    let Some((mut _stream, mut handle)) = open_output(rx, shared, events, carry) else {
+        return;
+    };
+
+    let mut sink: Option<Sink> = None;
+    let mut was_finished = false;
+    let mut last_sent = State::default();
+    let mut last_tick = Instant::now();
+    // el vigilante de atasco: donde estaba la aguja y desde cuando no se mueve
+    let mut last_pos = -1.0f64;
+    let mut stalled_since: Option<Instant> = None;
+
+    // Cada cuanto se mira el reloj si no llega ninguna orden.
+    // Sonando hace falta a menudo (de ahi sale la barra de
+    // progreso); parado no se mueve nada, asi que despertar ocho
+    // veces por segundo para ver lo mismo solo gasta bateria.
+    const ACTIVE_MS: u64 = 100;
+    const IDLE_MS: u64 = 500;
+    // Cada cuanto se avisa de la posicion mientras suena.
+    const TICK: Duration = Duration::from_millis(250);
+
+    loop {
+        let sounding = sink
+            .as_ref()
+            .map_or(false, |s| !s.is_paused() && !s.empty());
+        let wait = if sounding { ACTIVE_MS } else { IDLE_MS };
+        let mut failure: Option<String> = None;
+        let mut clear_error = false;
+
+        let next = match carry.pending.take() {
+            Some(cmd) => Ok(cmd),
+            None => rx.recv_timeout(Duration::from_millis(wait)),
+        };
+        match next {
+            Ok(cmd) => {
+                clear_error =
+                    matches!(cmd, Command::Play { .. } | Command::Load { .. } | Command::Stop);
+                match cmd {
+                    Command::Play { path: r, duration: hint } => {
+                        if let Some(s) = sink.take() {
+                            s.stop()
+                        }
+                        match open_sink(&handle, &r, carry.volume, carry.speed, hint) {
+                            Ok((s, announced)) => {
+                                s.play();
+                                // la del indice manda: en mp3 de
+                                // bitrate variable sin cabecera
+                                // Xing la del archivo se inventa
+                                carry.duration = if hint > 0.0 {
+                                    hint
+                                } else {
+                                    announced.unwrap_or(0.0)
+                                };
+                                carry.path = r.clone();
+                                sink = Some(s);
+                                was_finished = false;
+                            }
+                            Err(e) => {
+                                // Sin limpiar la ruta, el siguiente
+                                // play o un salto en la barra
+                                // reproducian la cancion ANTERIOR,
+                                // que es de las cosas mas raras que
+                                // puede hacer un reproductor.
+                                carry.path.clear();
+                                carry.duration = 0.0;
+                                failure = Some(e);
+                            }
+                        }
+                    }
+                    Command::Load { path: r, duration: hint } => {
+                        if let Some(s) = sink.take() {
+                            s.stop()
+                        }
+                        carry.path = r;
+                        carry.duration = hint;
+                        was_finished = false;
+                    }
+                    Command::Toggle | Command::Resume | Command::Pause => {
+                        let exhausted = sink.as_ref().map_or(true, |s| s.empty());
+                        let wants_play = match cmd {
+                            Command::Resume => true,
+                            Command::Pause => false,
+                            // Toggle: lo contrario de lo que hay
+                            _ => sink.as_ref().map_or(true, |s| s.is_paused() || s.empty()),
+                        };
+                        if wants_play && exhausted && !carry.path.is_empty() {
+                            // la pista acabo: se recarga y suena otra vez
+                            match open_sink(
+                                &handle,
+                                &carry.path,
+                                carry.volume,
+                                carry.speed,
+                                carry.duration,
+                            ) {
+                                Ok((s, _)) => {
+                                    s.play();
+                                    sink = Some(s);
+                                    was_finished = false;
+                                }
+                                Err(e) => failure = Some(e),
+                            }
+                        } else if let Some(s) = &sink {
+                            if wants_play {
+                                s.play()
+                            } else {
+                                s.pause()
+                            }
+                        }
+                    }
+                    Command::Stop => {
+                        if let Some(s) = sink.take() {
+                            s.stop()
+                        }
+                        carry.path.clear();
+                        carry.duration = 0.0;
+                        was_finished = false;
+                    }
+                    Command::Fail(reason) => {
+                        // La cola no pudo ni localizar el archivo: se para
+                        // lo que hubiera y se cuenta el motivo. Antes se
+                        // mandaba un Play con la ruta vacia y el error que
+                        // salia era «No such file or directory (os error 2)».
+                        if let Some(s) = sink.take() {
+                            s.stop()
+                        }
+                        carry.path.clear();
+                        carry.duration = 0.0;
+                        was_finished = false;
+                        failure = Some(reason);
+                    }
+                    Command::Seek(seconds) => {
+                        let exhausted = sink.as_ref().map_or(true, |s| s.empty());
+                        if exhausted && !carry.path.is_empty() {
+                            match open_sink(
+                                &handle,
+                                &carry.path,
+                                carry.volume,
+                                carry.speed,
+                                carry.duration,
+                            ) {
+                                Ok((s, _)) => {
+                                    s.play();
+                                    sink = Some(s);
+                                    was_finished = false;
+                                }
+                                Err(e) => failure = Some(e),
+                            }
+                        }
+                        if let Some(s) = &sink {
+                            if let Err(e) =
+                                s.try_seek(Duration::from_secs_f64(seconds.max(0.0)))
+                            {
+                                failure = Some(format!("no se puede buscar aqui: {e}"));
+                            }
+                        }
+                    }
+                    Command::Volume(v) => {
+                        carry.volume = v.clamp(0.0, 1.0);
+                        if let Some(s) = &sink {
+                            s.set_volume(carry.volume)
+                        }
+                    }
+                    Command::NudgeVolume(d) => {
+                        carry.volume = (carry.volume + d).clamp(0.0, 1.0);
+                        if let Some(s) = &sink {
+                            s.set_volume(carry.volume)
+                        }
+                    }
+                    Command::Speed(v) => {
+                        carry.speed = v.clamp(0.25, 3.0);
+                        if let Some(s) = &sink {
+                            s.set_speed(carry.speed)
+                        }
+                    }
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(_) => return, // el canal se cerro: fin
+        }
+
+        // ------------------------------------------- vigilante de atasco
+        // Sonando, la aguja tiene que moverse. Si lleva STALL quieta, la
+        // salida ha muerto por debajo: se rehace y se sigue donde estaba.
+        let sounding_now = sink
+            .as_ref()
+            .map_or(false, |s| !s.is_paused() && !s.empty());
+        if sounding_now {
+            let pos = sink.as_ref().map_or(0.0, |s| s.get_pos().as_secs_f64());
+            if (pos - last_pos).abs() > 1e-6 {
+                last_pos = pos;
+                stalled_since = None;
+            } else if stalled_since.is_none() {
+                stalled_since = Some(Instant::now());
+            } else if stalled_since.is_some_and(|t| t.elapsed() >= STALL) {
+                stalled_since = None;
+                last_pos = -1.0;
+                if let Some(s) = sink.take() {
+                    s.stop()
+                }
+                match OutputStream::try_default() {
+                    Ok((stream, new_handle)) => {
+                        _stream = stream;
+                        handle = new_handle;
+                        match open_sink(
+                            &handle,
+                            &carry.path,
+                            carry.volume,
+                            carry.speed,
+                            carry.duration,
+                        ) {
+                            Ok((s, _)) => {
+                                let _ = s.try_seek(Duration::from_secs_f64(pos.max(0.0)));
+                                s.play();
+                                sink = Some(s);
+                                was_finished = false;
+                            }
+                            Err(e) => failure = Some(e),
+                        }
+                    }
+                    Err(_) => {
+                        lock(shared).has_output = false;
+                        failure = Some(
+                            "La salida de audio dejo de responder y no se pudo recuperar. \
+                             Pulsa play para volver a intentarlo."
+                                .into(),
+                        );
+                    }
+                }
+            }
+        } else {
+            stalled_since = None;
+        }
+
+        // ------------------------------------------- estado nuevo
+        let finished = sink.as_ref().map_or(false, |s| s.empty());
+        let current = {
+            let mut e = lock(shared);
+            if let Some(reason) = failure {
+                e.error = reason;
+            } else if clear_error {
+                e.error.clear();
+            }
+            match &sink {
+                Some(s) => {
+                    e.playing = !s.is_paused() && !s.empty();
+                    e.position = s.get_pos().as_secs_f64();
+                }
+                None => {
+                    e.playing = false;
+                    e.position = 0.0;
+                }
+            }
+            e.path = carry.path.clone();
+            e.duration = carry.duration;
+            e.volume = carry.volume;
+            e.speed = carry.speed;
+            e.clone()
+        };
+
+        // Fin de pista: se avisa UNA vez. Quien decide que pasa
+        // luego (repetir, avanzar, pararse) es la cola.
+        if finished && !was_finished && !carry.path.is_empty() {
+            was_finished = true;
+            if events.send(Event::Finished).is_err() {
+                return;
+            }
+        }
+        if !finished {
+            was_finished = false;
+        }
+
+        // Se avisa cuando cambia algo que se ve, y mientras suena
+        // tambien cada 250 ms para mover la barra de progreso.
+        let changed = current.playing != last_sent.playing
+            || current.path != last_sent.path
+            || current.error != last_sent.error
+            || current.duration != last_sent.duration
+            || current.has_output != last_sent.has_output
+            || (current.volume - last_sent.volume).abs() > f32::EPSILON
+            || (current.speed - last_sent.speed).abs() > f32::EPSILON;
+        let due = current.playing && last_tick.elapsed() >= TICK;
+        if changed || due {
+            last_sent = current.clone();
+            last_tick = Instant::now();
+            if events.send(Event::Changed(current)).is_err() {
+                return;
+            }
+        }
     }
 }
 
@@ -526,6 +749,38 @@ mod tests {
         m.send(Command::Toggle).unwrap();
         wait_ms(400);
         assert!(!m.state().playing, "no deberia sonar nada");
+    }
+
+    /// La cola no encontro el archivo: el motivo llega tal cual al estado y
+    /// no queda ninguna cancion «puesta» que un play posterior reviva.
+    #[test]
+    fn a_failure_from_the_queue_is_reported_verbatim() {
+        let (m, rx) = handle();
+        wait_ms(250);
+        m.send(Command::Fail("No pude localizar «Barak - Mi Gozo».".into())).unwrap();
+        wait_ms(300);
+        let e = m.state();
+        assert_eq!(e.error, "No pude localizar «Barak - Mi Gozo».");
+        assert!(e.path.is_empty() && !e.playing);
+        // y se avisa, que es como se entera la interfaz
+        let avisado = std::iter::from_fn(|| rx.try_recv().ok())
+            .any(|ev| matches!(ev, Event::Changed(s) if s.error.contains("Mi Gozo")));
+        assert!(avisado, "deberia haber salido un Changed con el error");
+        // un play despues limpia el error
+        m.send(Command::Stop).unwrap();
+        wait_ms(300);
+        assert!(m.state().error.is_empty());
+    }
+
+    /// Las ordenes que no necesitan sonido no se pierden aunque no haya
+    /// salida: el volumen que se pide es el que se guarda.
+    #[test]
+    fn volume_survives_without_output() {
+        let (m, _rx) = handle();
+        wait_ms(250);
+        m.send(Command::Volume(0.3)).unwrap();
+        wait_ms(300);
+        assert!((m.state().volume - 0.3).abs() < 1e-6);
     }
 
     #[test]

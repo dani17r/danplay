@@ -2,6 +2,7 @@
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { api, errorMessage } from '../api.js'
 import { ask } from '../composables/useDialog.js'
+import { renderMarkdown } from '../utils/markdown.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 
@@ -54,29 +55,109 @@ const SUGGESTIONS = [
   'Pasa esos acordes a Sol'
 ]
 
-// Mientras el asistente trabaja puede estar bajando musica. Se mira el mismo
-// estado que enseña la pagina de Descargas, para no dejar al usuario a ciegas.
+// La descarga que se aprobo desde aqui corre en el nucleo, en segundo plano.
+// El chat la sigue —el mismo estado que enseña la pagina de Descargas— y, al
+// terminar, cuenta que entro, que ya tenias y que fallo. Antes se decia «te
+// lo cuento en Descargas» y aqui no volvia a saberse nada.
+//
+// Lo pedido se guarda en localStorage: una descarga tarda minutos y es normal
+// cambiar de pagina mientras tanto; al volver, se retoma el seguimiento y el
+// resultado se cuenta igual.
+const FOLLOW_KEY = 'danplay.chat.download'
 const downloading = ref(null)
 let poll = null
+let following = null
+
+function rememberFollowing () {
+  try {
+    if (following) localStorage.setItem(FOLLOW_KEY, JSON.stringify(following))
+    else localStorage.removeItem(FOLLOW_KEY)
+  } catch { /* sin almacenamiento (modo privado) */ }
+}
 function watchDownload () {
   if (poll) return
-  poll = setInterval(async () => {
-    try {
-      const e = await api.youtube()
-      downloading.value = e.active ? e : null
-    } catch { downloading.value = null }
-  }, 900)
+  poll = setInterval(tick, 900)
 }
 function stopWatching () {
   if (poll) { clearInterval(poll); poll = null }
   downloading.value = null
 }
-onUnmounted(stopWatching)
+async function tick () {
+  let e
+  try { e = await api.youtube() } catch { return /* el nucleo aun no responde */ }
+  if (e.active) { downloading.value = e; return }
+  stopWatching()
+  const asked = following
+  following = null
+  rememberFollowing()
+  if (asked) reportDownload(e)
+}
+onUnmounted(() => { if (poll) { clearInterval(poll); poll = null } })
+
+/** Una fila del resultado, legible. */
+function describe (r) {
+  const name = r.song || r.title || r.source || r.requested || 'un tema'
+  const who = r.artist ? `${r.artist} - ` : ''
+  return `${who}${name}`
+}
+
+/**
+ * Lo que se cuenta al acabar la descarga aprobada. Va en markdown: son
+ * listas de temas y se leen mejor con sus negritas.
+ */
+function reportDownload (e) {
+  const results = e.results || []
+  const ok = results.filter(r => r.ok)
+  const already = results.filter(r => r.already_there)
+  const failed = results.filter(r => !r.ok && !r.already_there)
+  const lines = []
+  if (e.phase === 'canceled') lines.push('Descarga cancelada.')
+  if (ok.length) {
+    lines.push(ok.length > 1 ? `**Descargadas (${ok.length}):**` : '**Descargada:**')
+    for (const r of ok) {
+      let where = ''
+      if (r.action === 'review') where = ' → en *Revisar/*, sin artista claro'
+      else if (r.forced) where = ' (otra versión)'
+      lines.push(`- ${describe(r)}${where}`)
+    }
+  }
+  if (already.length) {
+    lines.push('', already.length > 1 ? '**Ya las tenías, no las he bajado:**' : '**Ya la tenías, no la he bajado:**')
+    for (const r of already) {
+      const m = r.matches?.[0]
+      const as = m ? ` — en tu biblioteca como «${m.artist ? m.artist + ' - ' : ''}${m.title}»` : ''
+      lines.push(`- ${r.title || r.source || 'un tema'}${as}`)
+    }
+    lines.push('', already.length > 1
+      ? 'Si las quieres igualmente como otra versión, dímelo y las bajo.'
+      : 'Si la quieres igualmente como otra versión, dímelo y la bajo.')
+  }
+  if (failed.length) {
+    lines.push('', '**No se pudo:**')
+    for (const r of failed) lines.push(`- ${describe(r)}: ${r.reason || 'sin motivo conocido'}`)
+  }
+  if (!results.length && e.phase !== 'canceled') lines.push('No se ha bajado nada.' + (e.error ? ` ${e.error}` : ''))
+  const parts = []
+  parts.push(`${ok.length} descargada${ok.length === 1 ? '' : 's'}`)
+  if (already.length) parts.push(`${already.length} ya la${already.length > 1 ? 's' : ''} tenías`)
+  if (failed.length) parts.push(`${failed.length} con fallo`)
+  messages.value.push({
+    role: 'ai', text: lines.join('\n').trim(),
+    tools: [{ name: 'download_music', summary: parts.join(', ') }]
+  })
+  if (ok.length) emit('reload')
+  save(); scrollToBottom()
+}
 
 onMounted(async () => {
   try { info.value = await api.chatTools() } catch { /* sin almacenamiento (modo privado) */ }
   const guardado = localStorage.getItem('danplay.chat')
   if (guardado) { try { messages.value = JSON.parse(guardado) } catch { /* sin almacenamiento (modo privado) */ } }
+  // una descarga pedida desde aqui que seguia en marcha al cambiar de pagina
+  try {
+    const pending = localStorage.getItem(FOLLOW_KEY)
+    if (pending) { following = JSON.parse(pending); watchDownload() }
+  } catch { /* sin almacenamiento (modo privado) */ }
   scrollToBottom()
 })
 
@@ -94,7 +175,6 @@ async function send (text = null) {
   entrada.value = ''
   messages.value.push({ role: 'me', text: t })
   thinking.value = true
-  watchDownload()
   scrollToBottom()
   try {
     // copia: el historial sigue creciendo mientras esperamos la respuesta
@@ -105,7 +185,10 @@ async function send (text = null) {
       messages.value.push({ role: 'ai', text: r.text, tools: r.tools || [] })
       // OJO: son los nombres de las herramientas tal y como estan hoy. Estaban
       // los viejos en castellano y por eso la lista nunca se refrescaba.
-      const changesLibrary = ['create_playlist', 'add_to_playlist', 'download_music',
+      // `download_music` no esta: en la conversacion solo se PIDE; la
+      // biblioteca cambia cuando termina la descarga, y eso lo avisa
+      // `reportDownload`.
+      const changesLibrary = ['create_playlist', 'add_to_playlist',
                               'edit_song', 'set_stars', 'set_favorite', 'delete_song',
                               'delete_playlist', 'remove_from_playlist',
                               'find_lyrics_and_cover']
@@ -118,7 +201,7 @@ async function send (text = null) {
   } catch (e) {
     messages.value.push({ role: 'ai', text: 'No pude responder: ' + errorMessage(e), error: true })
   } finally {
-    thinking.value = false; stopWatching(); save(); scrollToBottom()
+    thinking.value = false; save(); scrollToBottom()
   }
 }
 
@@ -143,7 +226,14 @@ async function confirmPending (pending) {
   try {
     const r = await api.chatConfirm(pending.tool, pending.args)
     messages.value.push({ role: 'ai', text: r.text || 'Hecho.' })
-    emit('reload')
+    if (pending.tool === 'download_music' && r.result?.active) {
+      // arranco en segundo plano: se sigue desde aqui y se cuenta al acabar
+      following = { items: r.result.items || [], force: !!r.result.force }
+      rememberFollowing()
+      watchDownload()
+    } else {
+      emit('reload')
+    }
   } catch (e) {
     messages.value.push({ role: 'ai', text: 'No se pudo: ' + errorMessage(e), error: true })
   } finally {
@@ -193,19 +283,28 @@ async function clearChat () {
             <Icon n="check" :t="11" /> {{ toolLabel(h.name) }} · {{ h.summary }}
           </span>
         </div>
-        <div class="chat-bubble">{{ m.text }}</div>
+        <!-- Lo del asistente viene en markdown y se pinta como tal. Lo tuyo y
+             los errores van tal cual: son texto plano. `renderMarkdown`
+             escapa todo antes de marcar nada (ver utils/markdown.js). -->
+        <div v-if="m.role === 'ai' && !m.error" class="chat-bubble chat-md"
+             v-html="renderMarkdown(m.text)"></div>
+        <div v-else class="chat-bubble">{{ m.text }}</div>
       </div>
 
-      <div v-if="thinking" class="chat-msg ai">
-        <div v-if="downloading" class="chat-bubble chat-downloading">
+      <div v-if="downloading" class="chat-msg ai">
+        <div class="chat-bubble chat-downloading">
           <span class="spinner"></span>
           <span class="chat-downloading-txt">
             {{ PHASES[downloading.phase] || 'Bajando' }}
+            <span v-if="downloading.total > 1"> · {{ downloading.index || 1 }}/{{ downloading.total }}</span>
             <span v-if="downloading.name"> · {{ downloading.name }}</span>
           </span>
           <span class="mono sub">{{ (downloading.percent || 0).toFixed(0) }}%</span>
         </div>
-        <div v-else class="chat-bubble chat-thinking">
+      </div>
+
+      <div v-if="thinking" class="chat-msg ai">
+        <div class="chat-bubble chat-thinking">
           <span></span><span></span><span></span>
         </div>
       </div>

@@ -15,8 +15,9 @@
  * @property {string} artist
  * @property {number} duration  segundos
  * @property {boolean} blur     portada difuminada
- * @property {string} [path]    solo para archivos abiertos desde fuera de la
- *                              biblioteca; con ruta, Rust no la pregunta al núcleo
+ * @property {string} [path]    dónde está el archivo, si se sabe. Con ruta y el
+ *                              archivo ahí, Rust no le pregunta nada al núcleo;
+ *                              si falta o ya no está, se lo pregunta por el id
  */
 
 /**
@@ -154,6 +155,21 @@ function describeFailure(text, status) {
 }
 
 /**
+ * Un fallo que llega por el puente de Rust. Rust lo manda como
+ * `<código>: <cuerpo>`, y el cuerpo es el JSON de FastAPI: se saca el
+ * `detail` para que el usuario lea «ya hay una descarga en marcha» y no
+ * `409: {"detail":"ya hay una descarga en marcha"}`.
+ * @param {unknown} e
+ */
+export function fromBridge(e) {
+  const raw = errorMessage(e)
+  const m = raw.match(/^(\d{3}):\s*([\s\S]*)$/)
+  if (!m) return new ApiError(raw)
+  const status = Number(m[1])
+  return new ApiError(describeFailure(m[2], status), status)
+}
+
+/**
  * @param {'GET'|'POST'|'PATCH'|'DELETE'} method
  * @param {string} path  ruta sin el prefijo /api
  * @param {Object} [body]
@@ -169,7 +185,7 @@ async function request(method, path, body) {
       })
       return txt ? JSON.parse(txt) : null
     } catch (e) {
-      throw new ApiError(errorMessage(e))
+      throw fromBridge(e)
     }
   }
   /** @type {Record<string, string>} */

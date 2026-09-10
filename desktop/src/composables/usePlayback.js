@@ -38,17 +38,25 @@ const EMPTY = {
 
 /**
  * Lo mínimo que Rust necesita de una canción.
+ *
+ * La ruta va también: la interfaz la conoce del índice y con ella Rust puede
+ * ponerla a sonar sin preguntarle nada al núcleo. Cuando el núcleo iba lento
+ * o aún se estaba levantando, esa pregunta era lo que dejaba el reproductor
+ * mudo («le doy y no suena»). Si el archivo ya no está ahí, Rust vuelve a
+ * preguntar al núcleo, que es quien sabe si se movió.
  * @param {import('../api.js').Song} s
  * @returns {Track}
  */
 export function toTrack(s) {
-  return {
+  const t = {
     id: s.id,
     title: s.title || s.file || '',
     artist: s.artist || '',
     duration: Number(s.duration) || 0,
     blur: !!s.blur
   }
+  if (typeof s.path === 'string' && s.path) t.path = s.path
+  return t
 }
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))

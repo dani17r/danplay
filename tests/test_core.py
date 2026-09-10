@@ -379,6 +379,69 @@ def test_download_state_starts_idle():
     assert set(Y.STATE) >= {"active", "phase", "percent", "index", "total"}
 
 
+def test_el_turno_de_descarga_es_de_uno_solo():
+    """`claim` reserva y `release` suelta; entre medias nadie mas entra."""
+    assert Y.claim()
+    try:
+        assert not Y.claim(), "el segundo no deberia conseguirlo"
+        assert Y.STATE["active"] and Y.STATE["phase"] == "starting"
+    finally:
+        Y.release()
+    assert not Y.STATE["active"] and Y.STATE["phase"] == "done"
+    assert Y.claim()
+    Y.release()
+
+
+def test_run_job_no_se_bloquea_con_el_turno_ya_cogido(monkeypatch):
+    """Es el fallo de fondo del boton y del asistente: la API se quedaba el
+    turno y `run_job` se negaba a descargar por verlo cogido."""
+    llamadas = []
+    monkeypatch.setattr(Y, "download", lambda q, **kw: llamadas.append(q) or [{"ok": True}])
+    assert Y.claim()
+    rs = Y.run_job("una", claimed=True)
+    assert llamadas == ["una"], "con claimed=True tiene que descargar"
+    assert rs and rs[0]["ok"]
+    assert not Y.STATE["active"], "y soltar el turno al terminar"
+    # sin claimed, se lo coge el mismo
+    rs = Y.run_job("dos")
+    assert llamadas == ["una", "dos"] and not Y.STATE["active"]
+
+
+def test_run_many_baja_todo_bajo_un_turno_y_publica_el_avance(monkeypatch):
+    """Tres temas del asistente: un solo turno, resultados acumulados y un
+    indice/total del conjunto, no de cada busqueda por separado."""
+    vistos = []
+
+    def falsa(q, progress=None, **kw):
+        assert Y.STATE["active"], "durante la descarga el turno esta cogido"
+        if progress:
+            progress({"phase": "starting", "index": 1, "total": 1, "name": q, "percent": 0})
+            vistos.append((Y.STATE["index"], Y.STATE["total"]))
+        return [{"ok": q != "mala", "title": q, "reason": "" if q != "mala" else "no"}]
+
+    monkeypatch.setattr(Y, "download", falsa)
+    rs = Y.run_many(["a", "mala", "c"], results=1, source="assistant")
+    assert [r["title"] for r in rs] == ["a", "mala", "c"]
+    assert vistos == [(1, 3), (2, 3), (3, 3)], vistos
+    assert Y.STATE["results"] == rs
+    assert not Y.STATE["active"] and Y.STATE["phase"] == "done"
+
+
+def test_run_many_sin_nada_suelta_el_turno():
+    assert Y.run_many([]) == []
+    assert not Y.STATE["active"]
+
+
+def test_un_fallo_dentro_de_la_descarga_no_deja_el_turno_cogido(monkeypatch):
+    def rompe(q, **kw):
+        raise RuntimeError("se cayo la red")
+    monkeypatch.setattr(Y, "download", rompe)
+    rs = Y.run_job("x")
+    assert not rs[0]["ok"] and "red" in rs[0]["reason"]
+    assert not Y.STATE["active"], "el turno tiene que soltarse aunque falle"
+    assert "red" in Y.STATE["error"]
+
+
 # ------------------------------------------------------- busqueda de caratula
 # Los titulos que vienen de descargas llevan ruido y con eso iTunes no encuentra
 # nada. Se prueban variantes cada vez mas limpias.

@@ -1069,6 +1069,182 @@ def test_the_confirm_endpoint_refuses_anything_else(cliente):
     assert r.status_code == 400
 
 
+# ------------------------------------------------- arrancar una descarga
+# La descarga corre en segundo plano y la peticion vuelve enseguida. Aqui se
+# comprueba el arranque, con `youtube.download` sustituido: lo que se prueba
+# es que se llegue a llamar y que el turno se suelte, no que yt-dlp baje nada.
+#
+# El fallo que cubre: la API marcaba `STATE["active"]` a mano antes de llamar
+# a `run_job`, y `run_job`, al verlo puesto, contestaba «ya hay una descarga
+# en marcha» sin bajar nada. El estado se quedaba en marcha para siempre y
+# cualquier descarga posterior —del boton o del asistente— recibia un 409.
+
+
+@pytest.fixture
+def descarga_simulada(monkeypatch):
+    import time
+    from danplay import youtube
+    llamadas = []
+
+    def falsa(query, **kw):
+        llamadas.append({"query": query, **kw})
+        time.sleep(0.02)
+        return [{"ok": True, "title": query, "url": "https://youtu.be/x",
+                 "forced": bool(kw.get("force"))}]
+
+    monkeypatch.setattr(youtube, "download", falsa)
+    monkeypatch.setattr(youtube, "available", lambda: True)
+    youtube.STATE["active"] = False
+    yield llamadas
+    # que un fallo aqui no deje el turno cogido para las pruebas siguientes
+    youtube.STATE["active"] = False
+
+
+def _esperar_a_que_termine(timeout=3.0):
+    import time
+    from danplay import youtube
+    limite = time.time() + timeout
+    while youtube.STATE["active"] and time.time() < limite:
+        time.sleep(0.02)
+    assert not youtube.STATE["active"], "la descarga no ha soltado el turno"
+
+
+def test_el_boton_de_descargas_llega_a_descargar_y_suelta_el_turno(cliente, descarga_simulada):
+    from danplay import youtube
+    r = cliente.post("/api/youtube/download", json={"query": "barak mi gozo", "results": 3})
+    assert r.status_code == 200, r.text
+    _esperar_a_que_termine()
+    assert len(descarga_simulada) == 1, "download() no se llego a llamar"
+    assert descarga_simulada[0]["results"] == 3
+    assert youtube.STATE["phase"] == "done"
+    assert youtube.STATE["results"] and youtube.STATE["results"][0]["ok"]
+    # y la siguiente no recibe un 409 por un turno que nadie solto
+    r = cliente.post("/api/youtube/download", json={"query": "otra"})
+    assert r.status_code == 200, r.text
+    _esperar_a_que_termine()
+    assert len(descarga_simulada) == 2
+
+
+def test_dos_descargas_a_la_vez_no_caben(cliente, descarga_simulada):
+    from danplay import youtube
+    assert youtube.claim(), "el turno deberia estar libre"
+    try:
+        r = cliente.post("/api/youtube/download", json={"query": "x"})
+        assert r.status_code == 409
+        r = cliente.post("/api/chat/confirm",
+                         json={"tool": "download_music", "args": {"items": ["x"]}})
+        assert r.status_code == 409
+    finally:
+        youtube.release()
+    assert not descarga_simulada, "no deberia haber descargado nada"
+
+
+def test_confirmar_una_descarga_del_asistente_arranca_con_sus_argumentos(cliente, descarga_simulada):
+    """Los argumentos son los de la herramienta: `items` y `force`, no `query`.
+
+    Con `query` la confirmacion acababa SIEMPRE en «400: hace falta algo que
+    descargar», aunque la persona acabara de aceptar.
+    """
+    from danplay import youtube
+    r = cliente.post("/api/chat/confirm", json={
+        "tool": "download_music",
+        "args": {"items": ["I Want Jesus Bethel", "Ruja o Leao Carol Braga"],
+                 "force": True}})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["ok"] and d["result"]["active"]
+    assert d["result"]["items"] == ["I Want Jesus Bethel", "Ruja o Leao Carol Braga"]
+    assert d["result"]["force"] is True
+    _esperar_a_que_termine()
+    assert [c["query"] for c in descarga_simulada] == ["I Want Jesus Bethel",
+                                                       "Ruja o Leao Carol Braga"]
+    for c in descarga_simulada:
+        assert c["force"] is True, "el «bajala igual» tiene que llegar a la descarga"
+        assert c["results"] == 1, "del chat se coge el primer resultado, no cinco"
+        assert c["source"] == "assistant"
+    # el resultado queda donde lo mira el chat y la pagina de Descargas
+    assert len(youtube.STATE["results"]) == 2
+    assert all(x["forced"] for x in youtube.STATE["results"])
+
+
+def test_confirmar_sin_nada_que_bajar_es_un_400_claro(cliente, descarga_simulada):
+    r = cliente.post("/api/chat/confirm",
+                     json={"tool": "download_music", "args": {"items": []}})
+    assert r.status_code == 400
+    assert "descargar" in r.json()["detail"]
+    assert not descarga_simulada
+
+
+def test_confirmar_acepta_tambien_query_suelto(cliente, descarga_simulada):
+    """Por si el modelo manda `query` en vez de `items`: se baja igual."""
+    r = cliente.post("/api/chat/confirm",
+                     json={"tool": "download_music", "args": {"query": "algo"}})
+    assert r.status_code == 200, r.text
+    _esperar_a_que_termine()
+    assert [c["query"] for c in descarga_simulada] == ["algo"]
+
+
+def test_el_plan_de_descarga_sanea_los_argumentos():
+    from danplay import chat, config
+    plan = chat.download_plan({"items": [" a ", "A", "", "b"], "quality": "rara",
+                               "file_it": False, "force": "si"})
+    assert plan["items"] == ["a", "b"], "sin vacios ni repetidos"
+    assert plan["quality"] == config.MP3_QUALITY, "una calidad desconocida cae a la de la app"
+    assert plan["file_it"] is False and plan["force"] is True
+    largo = chat.download_plan({"items": [str(i) for i in range(chat.MAX_DOWNLOADS + 5)]})
+    assert len(largo["items"]) == chat.MAX_DOWNLOADS and largo["trimmed"]
+    assert chat.download_plan({})["items"] == []
+    assert chat.download_plan({"items": "solo una"})["items"] == ["solo una"]
+
+
+def test_el_dialogo_de_confirmacion_dice_que_se_va_a_bajar():
+    from danplay import chat
+    texto = chat._describe("download_music", {"items": ["Mi Gozo", "Shekinah"]})
+    assert "«Mi Gozo»" in texto and "«Shekinah»" in texto
+    assert "otra version" not in texto
+    con_force = chat._describe("download_music", {"items": ["Mi Gozo"], "force": True})
+    assert "otra version" in con_force, "hay que avisar de que se guarda repetida"
+
+
+def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
+    """La ficha del chat decia «descargo · 0 descargada(s)» cuando en realidad
+    estaba esperando el visto bueno. Confundia: parecia que habia fallado."""
+    from danplay import chat
+    llamadas = []
+
+    class _Call:
+        def __init__(self, name, args):
+            self.id = "1"
+            self.function = type("f", (), {"name": name, "arguments": args})()
+
+    class _FakeClient:
+        class chat:                                          # noqa: N801
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    llamadas.append(kw)
+                    if len(llamadas) == 1:
+                        msg = type("m", (), {"content": "", "tool_calls": [
+                            _Call("download_music",
+                                  '{"items": ["Ruja o Leao Carol Braga"], "force": true}')]})()
+                    else:
+                        msg = type("m", (), {"content": "Te lo pido.", "tool_calls": None})()
+                    return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+
+    original_get, original_available = chat.ai._get_client, chat.ai.available
+    chat.ai._get_client = lambda: _FakeClient()
+    chat.ai.available = lambda: True
+    try:
+        r = chat.reply([{"role": "user", "text": "bajala igual"}])
+    finally:
+        chat.ai._get_client, chat.ai.available = original_get, original_available
+    assert r["confirm"]["tool"] == "download_music"
+    assert r["confirm"]["args"]["items"] == ["Ruja o Leao Carol Braga"]
+    assert r["confirm"]["args"]["force"] is True
+    assert r["tools"][0]["summary"] == "espera tu visto bueno"
+    assert "0 descargada" not in r["tools"][0]["summary"]
+
+
 # --------------------------------------------- la lista del reproductor
 # Abrir una cancion desde el explorador NO la importa a la biblioteca. Lo que
 # se guarda es que sono, para poder volver a ella desde el reproductor.

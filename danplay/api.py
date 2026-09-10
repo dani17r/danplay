@@ -720,22 +720,29 @@ async def confirm_tool(body: ChatConfirmIn = Body(...)):
     # Descargar tarda minutos: se arranca y se contesta enseguida, igual que
     # el boton de Descargas. Antes bloqueaba la peticion del chat.
     if body.tool == "download_music":
-        if youtube.STATE["active"]:
-            raise HTTPException(409, "ya hay una descarga en marcha")
-        args = dict(body.args)
-        query = str(args.get("query") or "").strip()
-        if not query:
+        # Los argumentos son los de la herramienta tal y como los declara
+        # `chat.TOOLS`: `items` (lista), `quality`, `file_it` y `force`.
+        # Aqui se leia `query`, que la herramienta no tiene, asi que TODA
+        # confirmacion de descarga acababa en «hace falta algo que
+        # descargar» aunque la persona acabara de decir que si.
+        plan = chat.download_plan(body.args)
+        if not plan["items"]:
             raise HTTPException(400, "hace falta algo que descargar")
-        with _DOWNLOAD_LOCK:
-            if youtube.STATE["active"]:
-                raise HTTPException(409, "ya hay una descarga en marcha")
-            youtube.STATE["active"] = True
+        if not youtube.available():
+            raise HTTPException(503, youtube.unavailable_reason())
+        if not youtube.claim():
+            raise HTTPException(409, "ya hay una descarga en marcha")
         asyncio.get_running_loop().run_in_executor(
-            None, lambda: youtube.run_job(query, quality=config.MP3_QUALITY,
-                                          file_it=True, results=5,
-                                          force=bool(args.get("force"))))
-        return {"ok": True, "result": {"active": True},
-                "text": "Descargando. Te lo cuento en Descargas."}
+            None, lambda: youtube.run_many(plan["items"], quality=plan["quality"],
+                                           file_it=plan["file_it"], results=1,
+                                           force=plan["force"], source="assistant",
+                                           claimed=True))
+        n = len(plan["items"])
+        return {"ok": True,
+                "result": {"active": True, "items": plan["items"],
+                           "force": plan["force"], "trimmed": plan["trimmed"]},
+                "text": ("Descargando" + (f" {n} temas" if n > 1 else "")
+                         + ". Te cuento cuando termine.")}
 
     def work():
         return chat.confirm(body.tool, body.args)
@@ -967,30 +974,29 @@ async def youtube_info(body: YoutubeIn = Body(default=YoutubeIn())):
     return await asyncio.get_running_loop().run_in_executor(None, work)
 
 
-# Una descarga a la vez. La comprobacion y el arranque van juntos bajo el
-# mismo cerrojo: dos peticiones seguidas arrancaban dos descargas.
-_DOWNLOAD_LOCK = threading.Lock()
-
-
 @app.post("/api/youtube/download")
 async def youtube_download(body: YoutubeIn = Body(default=YoutubeIn())):
-    """Arranca la descarga y vuelve enseguida. El avance se consulta en /api/youtube."""
+    """Arranca la descarga y vuelve enseguida. El avance se consulta en /api/youtube.
+
+    Una descarga a la vez. Quedarse el turno es cosa de `youtube.claim()`,
+    que comprueba y reserva bajo un mismo cerrojo; luego `run_job` corre con
+    `claimed=True`. Antes se marcaba `active` aqui a mano y `run_job`, al
+    verlo puesto, se negaba a descargar: el boton decia «Bajando…» para
+    siempre y no bajaba nada.
+    """
     query = body.query.strip()
     if not query:
         raise HTTPException(400, "hace falta una URL o algo que buscar")
     if not youtube.available():
         raise HTTPException(503, youtube.unavailable_reason())
-
-    with _DOWNLOAD_LOCK:
-        if youtube.STATE["active"]:
-            raise HTTPException(409, "ya hay una descarga en marcha")
-        youtube.STATE["active"] = True
+    if not youtube.claim():
+        raise HTTPException(409, "ya hay una descarga en marcha")
     asyncio.get_running_loop().run_in_executor(
         None, lambda: youtube.run_job(query,
                                       quality=body.quality or config.MP3_QUALITY,
                                       file_it=body.file_it,
                                       results=body.results,
-                                      force=body.force))
+                                      force=body.force, claimed=True))
     return {"ok": True, "active": True}
 
 

@@ -5,13 +5,19 @@ const { api } = vi.hoisted(() => ({
   api: {
     chatTools: vi.fn(async () => ({ model: 'Qwen/Qwen3-Next-80B-A3B-Instruct',
                                            available: true, tools: [] })),
-    chat: vi.fn(async () => ({ text: 'Tienes 260 canciones.', tools: [] }))
+    chat: vi.fn(async () => ({ text: 'Tienes 260 canciones.', tools: [] })),
+    chatConfirm: vi.fn(async () => ({ ok: true, result: {}, text: 'Hecho.' })),
+    youtube: vi.fn(async () => ({ available: true, active: false, results: [] }))
   }
 }))
-vi.mock('../src/api.js', () => ({ api, native: { available: false } }))
+vi.mock('../src/api.js', () => ({
+  api, native: { available: false },
+  errorMessage: (e) => String(e?.message || e)
+}))
 import ChatPage from '../src/components/ChatPage.vue'
+import { dialogOk, dialogCancel, useDialog } from '../src/composables/useDialog.js'
 
-beforeEach(() => { localStorage.clear(); vi.clearAllMocks() })
+beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); vi.useRealTimers() })
 
 const montar = async () => {
   const w = mount(ChatPage, { attachTo: document.body })
@@ -132,5 +138,150 @@ describe('ordenes del asistente hacia la app', () => {
     const w = await montar()
     await escribir(w, 'ponle 4 estrellas')
     expect(w.emitted('reload')).toBeTruthy()
+  })
+})
+
+
+// El asistente contesta en markdown. Antes se pintaba tal cual, con los
+// asteriscos y las almohadillas a la vista.
+describe('el chat pinta el markdown del asistente', () => {
+  it('negritas y listas salen como HTML, no como asteriscos', async () => {
+    api.chat.mockResolvedValueOnce({
+      text: 'Tienes dos:\n\n1. **Mi Gozo** – Barak\n2. **Shekinah** – New Wine', tools: [] })
+    const w = await montar()
+    await escribir(w, 'que tengo de barak?')
+    const bubble = w.find('.chat-msg.ai .chat-bubble')
+    expect(bubble.classes()).toContain('chat-md')
+    expect(bubble.findAll('li')).toHaveLength(2)
+    expect(bubble.find('strong').text()).toBe('Mi Gozo')
+    expect(bubble.text()).not.toContain('**')
+  })
+
+  it('lo que escribes tu va tal cual, sin interpretar', async () => {
+    const w = await montar()
+    await escribir(w, 'busca **esto** literal')
+    const mine = w.find('.chat-msg.me .chat-bubble')
+    expect(mine.classes()).not.toContain('chat-md')
+    expect(mine.text()).toContain('**esto**')
+  })
+
+  it('un titulo de YouTube con HTML dentro no se cuela', async () => {
+    api.chat.mockResolvedValueOnce({
+      text: 'Encontre <img src=x onerror=alert(1)> y **esto**', tools: [] })
+    const w = await montar()
+    await escribir(w, 'busca')
+    const bubble = w.find('.chat-msg.ai .chat-bubble')
+    expect(bubble.find('img').exists()).toBe(false)
+    expect(bubble.text()).toContain('<img src=x onerror=alert(1)>')
+    expect(bubble.find('strong').exists()).toBe(true)
+  })
+
+  it('los errores del nucleo se ven como texto plano', async () => {
+    api.chat.mockResolvedValueOnce({ error: 'la IA **no** esta configurada' })
+    const w = await montar()
+    await escribir(w, 'hola')
+    expect(w.find('.chat-msg.error .chat-bubble').text()).toContain('**no**')
+  })
+})
+
+// Descargar no se hace dentro de la conversacion: el nucleo devuelve
+// `confirm`, la app pregunta, y si aceptas arranca en segundo plano. El chat
+// la sigue y, al terminar, cuenta que entro y que no. Antes se decia «te lo
+// cuento en Descargas» y aqui no volvia a saberse nada; y el «bajala igual»
+// (force) se perdia por el camino.
+describe('descargas pedidas al asistente', () => {
+  const pendiente = {
+    text: 'Te pido permiso.', tools: [{ name: 'download_music', summary: 'espera tu visto bueno' }],
+    confirm: { tool: 'download_music', summary: 'Descargar de YouTube: «Ruja o Leão».',
+               args: { items: ['Ruja o Leao Carol Braga'], force: true } }
+  }
+
+  it('al aceptar manda al nucleo los argumentos tal cual, force incluido', async () => {
+    api.chat.mockResolvedValueOnce(pendiente)
+    api.chatConfirm.mockResolvedValueOnce({
+      ok: true, text: 'Descargando. Te cuento cuando termine.',
+      result: { active: true, items: ['Ruja o Leao Carol Braga'], force: true } })
+    const w = await montar()
+    await escribir(w, 'bajala igual')
+    expect(useDialog().dialog.value.open).toBe(true)
+    expect(useDialog().dialog.value.message).toContain('Ruja o Leão')
+    dialogOk()
+    await flushPromises()
+    expect(api.chatConfirm).toHaveBeenCalledWith('download_music',
+      { items: ['Ruja o Leao Carol Braga'], force: true })
+    expect(w.text()).toContain('Descargando. Te cuento cuando termine.')
+    // no hace falta recargar la biblioteca todavia: no ha entrado nada
+    expect(w.emitted('reload')).toBeFalsy()
+  })
+
+  it('si dices que no, no se llama a nada', async () => {
+    api.chat.mockResolvedValueOnce(pendiente)
+    const w = await montar()
+    await escribir(w, 'baja eso')
+    dialogCancel()
+    await flushPromises()
+    expect(api.chatConfirm).not.toHaveBeenCalled()
+    expect(w.text()).toContain('Cancelado, no he tocado nada.')
+  })
+
+  it('sigue la descarga y al acabar cuenta que entro y que ya tenias', async () => {
+    vi.useFakeTimers()
+    api.chat.mockResolvedValueOnce(pendiente)
+    api.chatConfirm.mockResolvedValueOnce({
+      ok: true, text: 'Descargando 2 temas.',
+      result: { active: true, items: ['a', 'b'], force: false } })
+    api.youtube
+      .mockResolvedValueOnce({ active: true, phase: 'downloading', name: 'I Want Jesus', percent: 40, index: 1, total: 2 })
+      .mockResolvedValueOnce({ active: false, phase: 'done', results: [
+        { ok: true, artist: 'Bethel Music', song: 'I Want Jesus (Live)', title: 'I Want Jesus' },
+        { ok: false, already_there: true, title: 'Ruja o Leão - Carol Braga',
+          matches: [{ id: 3, artist: 'Carol Braga', title: 'Ruja O Leao' }] }
+      ] })
+    const w = await montar()
+    await escribir(w, 'baja estas dos')
+    dialogOk()
+    await flushPromises()
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.find('.chat-downloading').exists()).toBe(true)
+    expect(w.find('.chat-downloading').text()).toContain('Bajando')
+    expect(w.find('.chat-downloading').text()).toContain('1/2')
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.find('.chat-downloading').exists()).toBe(false)
+    const last = w.findAll('.chat-msg.ai').at(-1)
+    expect(last.text()).toContain('Descargada')
+    expect(last.text()).toContain('Bethel Music - I Want Jesus (Live)')
+    expect(last.text()).toContain('Ya la tenías')
+    expect(last.text()).toContain('Carol Braga - Ruja O Leao')
+    expect(last.text()).toContain('otra versión')
+    expect(last.find('.chat-tools').text()).toContain('1 descargada, 1 ya la tenías')
+    // entro una: la biblioteca tiene que refrescarse
+    expect(w.emitted('reload')).toBeTruthy()
+    // y ya no sigue preguntando
+    const llamadas = api.youtube.mock.calls.length
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(api.youtube.mock.calls.length).toBe(llamadas)
+  })
+
+  it('si cambias de pagina y vuelves, retoma el seguimiento', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
+    api.youtube.mockResolvedValueOnce({ active: false, phase: 'done', results: [
+      { ok: true, artist: 'Barak', song: 'Mi Gozo' }] })
+    const w = await montar()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.findAll('.chat-msg.ai').at(-1).text()).toContain('Barak - Mi Gozo')
+    expect(localStorage.getItem('danplay.chat.download')).toBeNull()
+  })
+
+  it('un fallo al confirmar se enseña sin romper el chat', async () => {
+    api.chat.mockResolvedValueOnce(pendiente)
+    api.chatConfirm.mockRejectedValueOnce(new Error('409: ya hay una descarga en marcha'))
+    const w = await montar()
+    await escribir(w, 'baja')
+    dialogOk()
+    await flushPromises()
+    expect(w.find('.chat-msg.error').text()).toContain('ya hay una descarga en marcha')
   })
 })

@@ -30,10 +30,14 @@ pub struct Track {
     pub duration: f64,
     #[serde(default)]
     pub blur: bool,
-    /// Ruta del archivo cuando la cancion NO sale de la biblioteca: la abrio
-    /// el sistema («Abrir con DanPlay») y puede estar en cualquier carpeta.
-    /// Si viene, se usa tal cual; si no, la ruta se le pregunta al nucleo por
-    /// el id, que es lo de siempre.
+    /// Donde esta el archivo, si quien manda la cancion lo sabe.
+    ///
+    /// Lo saben los dos que mandan canciones: la interfaz (lo trae del
+    /// indice con cada cancion) y «Abrir con DanPlay» (viene en la orden).
+    /// Si el archivo esta ahi, se usa sin preguntar nada; si no viene, o ya
+    /// no esta donde estaba, se le pregunta al nucleo por el id. Ver
+    /// `path_of`: es lo que evita que un nucleo lento o que aun se esta
+    /// levantando deje el reproductor mudo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
@@ -325,23 +329,7 @@ impl Playback {
                     match message {
                         Message::Audio(player::Event::Changed(state)) => audio = state,
                         Message::Audio(player::Event::Finished) => {
-                            let target = after_end(
-                                inner.items.len(),
-                                inner.index,
-                                inner.repeat,
-                                inner.shuffle,
-                            );
-                            match target {
-                                Some(_) if inner.shuffle && inner.repeat != Repeat::One => {
-                                    let next = random_other(inner.items.len(), inner.index);
-                                    start(&mut inner, next, &player, &address);
-                                }
-                                Some(next) => start(&mut inner, next, &player, &address),
-                                // fin de la cola, o «solo esta cancion»
-                                None => {
-                                    let _ = player.send(player::Command::Pause);
-                                }
-                            }
+                            advance(&mut inner, &player, &address);
                         }
                         Message::User(command) => {
                             apply(&mut inner, command, &player, &address);
@@ -451,13 +439,43 @@ fn compose(inner: &Inner, audio: &player::State) -> PlaybackState {
     }
 }
 
-/// Manda a sonar la cancion que esta en esa posicion.
+/// Que suena cuando la cancion se acaba **sola**.
 ///
-/// La ruta se la pregunta al nucleo aqui mismo: la interfaz puede estar
-/// escondida o cerrada, asi que no puede ser ella quien la resuelva.
-fn start(inner: &mut Inner, index: usize, player: &player::Handle, address: &Address) {
+/// Si la siguiente no se puede ni localizar (el archivo ya no esta, el nucleo
+/// no contesta), se prueba con la de despues en vez de quedarse parado con un
+/// error en mitad de la lista. Como mucho una vuelta entera; y con «repetir
+/// esta» no se insiste sobre la misma.
+fn advance(inner: &mut Inner, player: &player::Handle, address: &Address) {
+    let mut from = inner.index;
+    for _ in 0..inner.items.len().max(1) {
+        let target = after_end(inner.items.len(), from, inner.repeat, inner.shuffle);
+        let next = match target {
+            Some(_) if inner.shuffle && inner.repeat != Repeat::One => {
+                random_other(inner.items.len(), from)
+            }
+            Some(next) => next,
+            // fin de la cola, o «solo esta cancion»
+            None => {
+                let _ = player.send(player::Command::Pause);
+                return;
+            }
+        };
+        if start(inner, next, player, address) || inner.repeat == Repeat::One {
+            return;
+        }
+        from = next;
+    }
+}
+
+/// Manda a sonar la cancion que esta en esa posicion. Devuelve si pudo
+/// localizar el archivo; si no, el reproductor ya tiene el motivo.
+///
+/// La ruta se resuelve aqui mismo y no en la interfaz: puede estar escondida
+/// o cerrada (la bandeja, las teclas multimedia), asi que no puede ser ella
+/// quien la busque en ese momento.
+fn start(inner: &mut Inner, index: usize, player: &player::Handle, address: &Address) -> bool {
     let Some(track) = inner.items.get(index).cloned() else {
-        return;
+        return false;
     };
     if inner.history.last() != Some(&inner.index) {
         inner.history.push(inner.index);
@@ -468,51 +486,71 @@ fn start(inner: &mut Inner, index: usize, player: &player::Handle, address: &Add
     inner.index = index;
 
     match path_of(&track, address) {
-        Some(path) => {
+        Ok(path) => {
             inner.current_path = path.clone();
             let _ = player.send(player::Command::Play {
                 path,
                 duration: track.duration,
             });
+            true
         }
-        None => {
+        Err(reason) => {
             inner.current_path.clear();
-            let _ = player.send(player::Command::Play {
-                path: String::new(),
-                duration: 0.0,
-            });
+            let _ = player.send(player::Command::Fail(reason));
+            false
         }
     }
 }
 
-/// Donde esta el archivo de esa cancion.
-///
-/// La de un archivo abierto desde fuera ya viene con la suya; preguntarsela al
-/// nucleo por un id que el no conoce solo serviria para no sonar.
-fn path_of(track: &Track, address: &Address) -> Option<String> {
-    if let Some(path) = &track.path {
-        return Some(path.clone());
+/// Como se nombra una cancion en un mensaje de error.
+fn label(track: &Track) -> String {
+    match (track.artist.trim(), track.title.trim()) {
+        ("", "") => format!("la cancion {}", track.id),
+        ("", title) => title.to_string(),
+        (artist, title) => format!("{artist} - {title}"),
     }
-    // Con tope corto A PROPOSITO: esto corre en el hilo de la cola, que es el
-    // que atiende todas las ordenes. Esperar un minuto a un nucleo lento deja
-    // el reproductor sin responder a nada, y se siente como si se hubiera
-    // colgado. Mejor decir que no se pudo.
-    tauri::async_runtime::block_on(async {
-        match core::request_within(
-            address,
-            "GET",
-            &format!("/api/song/{}/path", track.id),
-            None,
-            core::QUICK,
-        )
-        .await
-        {
-            Ok((200, bytes, _)) => serde_json::from_slice::<serde_json::Value>(&bytes)
-                .ok()
-                .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(String::from)),
-            _ => None,
+}
+
+/// Donde esta el archivo de esa cancion, o por que no se sabe.
+///
+/// Primero la ruta que trae la propia cancion, si el archivo esta ahi: la
+/// interfaz la conoce del indice y «Abrir con DanPlay» la trae en la orden.
+/// Con eso no hay que esperar al nucleo, que es lo que dejaba el reproductor
+/// mudo cuando iba lento (un escaneo, las caratulas) o aun se estaba
+/// levantando: «le doy y no suena», y a la segunda si.
+///
+/// Sin ruta, o si el archivo ya no esta donde estaba, se le pregunta al
+/// nucleo, que es quien sabe si se movio. Con tope corto A PROPOSITO: esto
+/// corre en el hilo de la cola, que atiende todas las ordenes, y esperar un
+/// minuto se siente como un programa colgado.
+fn path_of(track: &Track, address: &Address) -> Result<String, String> {
+    if let Some(path) = track.path.as_deref().filter(|p| !p.is_empty()) {
+        if std::path::Path::new(path).is_file() {
+            return Ok(path.to_string());
         }
-    })
+    }
+    let who = label(track);
+    let answer = tauri::async_runtime::block_on(core::request_within(
+        address,
+        "GET",
+        &format!("/api/song/{}/path", track.id),
+        None,
+        core::QUICK,
+    ));
+    match answer {
+        Ok((200, bytes, _)) => serde_json::from_slice::<serde_json::Value>(&bytes)
+            .ok()
+            .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(String::from))
+            .filter(|p| !p.is_empty())
+            .ok_or_else(|| format!("No encuentro el archivo de «{who}».")),
+        Ok((404, ..)) => Err(format!(
+            "No encuentro el archivo de «{who}»: ya no esta donde estaba.              Un escaneo pone la biblioteca al dia."
+        )),
+        Ok((code, ..)) => Err(format!("No pude localizar «{who}»: el nucleo contesto {code}.")),
+        Err(_) => Err(format!(
+            "No pude localizar «{who}»: el nucleo no contesta. Prueba otra vez en un momento."
+        )),
+    }
 }
 
 fn apply(inner: &mut Inner, command: Command, player: &player::Handle, address: &Address) {
@@ -551,7 +589,10 @@ fn apply(inner: &mut Inner, command: Command, player: &player::Handle, address: 
             // La ruta guardada primero: al arrancar, el nucleo puede tardar un
             // segundo en levantarse y preguntarsela devolveria nada.
             let path = if session.current_path.is_empty() {
-                inner.current().cloned().and_then(|t| path_of(&t, address))
+                inner
+                    .current()
+                    .cloned()
+                    .and_then(|t| path_of(&t, address).ok())
             } else {
                 Some(session.current_path)
             };
@@ -890,6 +931,90 @@ mod tests {
             current_path: String::new(),
             revision: 0,
         }
+    }
+
+    // ------------------------------------------------- localizar el archivo
+    // Es lo que decidia si una cancion sonaba o no: si el nucleo tardaba, no
+    // sonaba. Ahora la ruta que trae la cancion vale por si sola.
+
+    fn a_real_file(name: &str) -> String {
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(&path, b"no importa lo que haya dentro").unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_track_that_brings_its_path_does_not_ask_the_core() {
+        let path = a_real_file("dp_cola_con_ruta.mp3");
+        let mut t = track(5);
+        t.path = Some(path.clone());
+        // `nowhere()` no contesta: si se le preguntara, esto fallaria
+        assert_eq!(path_of(&t, &nowhere()), Ok(path));
+    }
+
+    #[test]
+    fn a_path_that_no_longer_exists_falls_back_to_the_core() {
+        let mut t = track(5);
+        t.path = Some("/no/existe/ya.mp3".into());
+        // el nucleo no contesta: se dice, y se dice de que cancion se habla
+        let err = path_of(&t, &nowhere()).unwrap_err();
+        assert!(err.contains("Barak - Cancion 5"), "{err}");
+        assert!(err.contains("no contesta"), "{err}");
+    }
+
+    #[test]
+    fn without_a_path_and_without_core_the_error_is_readable() {
+        let err = path_of(&track(9), &nowhere()).unwrap_err();
+        assert!(!err.contains("os error"), "nada de errores del sistema: {err}");
+        assert!(err.contains("«Barak - Cancion 9»"), "{err}");
+    }
+
+    #[test]
+    fn a_failed_start_tells_the_player_why_instead_of_playing_nothing() {
+        let (player, _events) = silent_player();
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let mut inner = inner_with(vec![track(1), track(2)], 0);
+        assert!(!start(&mut inner, 1, &player, &nowhere()));
+        assert_eq!(inner.index, 1, "la posicion se mueve igual: es la que se pidio");
+        assert!(inner.current_path.is_empty());
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let state = player.state();
+        assert!(state.error.contains("Cancion 2"), "el motivo llega al estado: {}", state.error);
+        assert!(state.path.is_empty() && !state.playing);
+    }
+
+    #[test]
+    fn advancing_skips_what_cannot_be_located() {
+        // 1 acaba; 2 no se localiza; 3 si (trae su ruta). Se salta la 2.
+        let (player, _events) = silent_player();
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let mut good = track(3);
+        good.path = Some(a_real_file("dp_cola_salta.mp3"));
+        let mut inner = inner_with(vec![track(1), track(2), good], 0);
+        advance(&mut inner, &player, &nowhere());
+        assert_eq!(inner.index, 2, "deberia haber saltado la que no se encuentra");
+        assert!(!inner.current_path.is_empty());
+    }
+
+    #[test]
+    fn advancing_gives_up_after_one_full_round() {
+        let (player, _events) = silent_player();
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let mut inner = inner_with(vec![track(1), track(2)], 0);
+        advance(&mut inner, &player, &nowhere()); // ninguna se localiza
+        // no se queda en bucle: vuelve, y el reproductor tiene el motivo
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(!player.state().error.is_empty());
+    }
+
+    #[test]
+    fn repeat_one_does_not_insist_on_an_unreadable_track() {
+        let (player, _events) = silent_player();
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let mut inner = inner_with(vec![track(1), track(2)], 0);
+        inner.repeat = Repeat::One;
+        advance(&mut inner, &player, &nowhere());
+        assert_eq!(inner.index, 0, "con «repetir esta» no se pasa a otra");
     }
 
     #[test]

@@ -19,6 +19,7 @@ resto de la app sigue igual.
 import re
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 from . import config, convert, tags, ingest, names
@@ -45,6 +46,38 @@ class Canceled(Exception):
 STATE: dict = {"active": False, "phase": "", "name": "", "percent": 0.0,
                 "index": 0, "total": 0, "results": [], "error": ""}
 _CANCELAR = {"requested": False}
+# Comprobar que no hay nada en marcha y quedarse el turno van juntos bajo el
+# mismo cerrojo: dos peticiones seguidas arrancaban dos descargas.
+_TURN = threading.Lock()
+
+
+def claim() -> bool:
+    """Se queda el turno de descarga. False si ya hay una en marcha.
+
+    Quien lo consigue tiene que llamar a `run_job`/`run_many` con
+    `claimed=True` (o a `release`): el turno no se suelta solo. La API lo usa
+    para contestar «ya hay una en marcha» al momento y arrancar la descarga
+    en segundo plano sin que nadie se cuele entre medias.
+
+    Antes la API ponia `STATE["active"] = True` a mano y luego llamaba a
+    `run_job`, que al ver `active` contestaba «ya hay una descarga en marcha»
+    y NO descargaba: el estado se quedaba en marcha para siempre y toda
+    descarga posterior recibia un 409. Desde el boton y desde el asistente.
+    """
+    with _TURN:
+        if STATE["active"]:
+            return False
+        _CANCELAR["requested"] = False
+        STATE.update({"active": True, "phase": "starting", "name": "", "percent": 0.0,
+                      "index": 0, "total": 0, "results": [], "error": ""})
+        return True
+
+
+def release() -> None:
+    """Suelta el turno sin haber descargado (la descarga no llego a arrancar)."""
+    with _TURN:
+        STATE["active"] = False
+        STATE["phase"] = "canceled" if _CANCELAR["requested"] else "done"
 
 
 def cancel() -> None:
@@ -416,22 +449,60 @@ def download(inbox: str, quality=None, file_it=True, results=5, force=False,
 
 
 def run_job(query: str, quality=None, file_it=True, results=5, force=False,
-            source="manual") -> list[dict]:
-    """`descargar` publicando el avance en ESTADO. Solo una descarga a la vez."""
-    if STATE["active"]:
+            source="manual", claimed=False) -> list[dict]:
+    """`download` publicando el avance en STATE. Solo una descarga a la vez.
+
+    `claimed=True` dice que quien llama ya se quedo el turno con `claim()`.
+    """
+    return run_many([query], quality=quality, file_it=file_it, results=results,
+                    force=force, source=source, claimed=claimed)
+
+
+def run_many(queries: list[str], quality=None, file_it=True, results=1,
+             force=False, source="manual", claimed=False) -> list[dict]:
+    """Varias descargas seguidas bajo un solo turno; el avance en STATE.
+
+    Es lo que pide el asistente: «bajame estas tres». Cada elemento va por
+    `download` con su propia busqueda, y los resultados se van acumulando en
+    `STATE["results"]` segun terminan, para que Descargas y el chat puedan
+    contar lo que hay aunque aun queden temas.
+
+    El indice/total que se publica es del conjunto: un tema suelto cuenta
+    uno; una lista, lo que traiga. Como no se sabe de antemano cuantos trae
+    cada elemento, el total se estima suponiendo uno por elemento pendiente y
+    se corrige sobre la marcha.
+    """
+    queries = [str(q).strip() for q in (queries or []) if str(q).strip()]
+    if not claimed and not claim():
         return [{"ok": False, "reason": "ya hay una descarga en marcha"}]
-    _CANCELAR["requested"] = False
-    STATE.update({"active": True, "phase": "starting", "name": "", "percent": 0.0,
-                   "index": 0, "total": 0, "results": [], "error": ""})
+    done: list[dict] = []
     try:
-        rs = download(query, quality=quality, file_it=file_it, results=results,
-                      force=force, source=source, progress=_publish,
-                      cancel=canceled)
-        STATE["results"] = rs
-        return rs
+        if not queries:
+            return done
+        for position, query in enumerate(queries):
+            if canceled():
+                break
+            offset = len(done)
+            pending_after = len(queries) - position - 1
+
+            def step(p, _offset=offset, _pending=pending_after):
+                p = dict(p)
+                if "index" in p:
+                    p["index"] = _offset + int(p.get("index") or 0)
+                if "total" in p:
+                    p["total"] = _offset + int(p.get("total") or 0) + _pending
+                _publish(p)
+
+            rs = download(query, quality=quality, file_it=file_it, results=results,
+                          force=force, source=source, progress=step,
+                          cancel=canceled)
+            done.extend(rs)
+            STATE["results"] = list(done)
+        return done
     except Exception as e:                                  # noqa: BLE001
         STATE["error"] = str(e)[:200]
-        return [{"ok": False, "reason": str(e)[:200]}]
+        done.append({"ok": False, "reason": str(e)[:200]})
+        STATE["results"] = list(done)
+        return done
     finally:
-        STATE["active"] = False
-        STATE["phase"] = "canceled" if _CANCELAR["requested"] else "done"
+        release()

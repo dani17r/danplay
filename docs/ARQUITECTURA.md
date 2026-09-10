@@ -284,6 +284,37 @@ búsqueda web, los títulos de YouTube y las letras lo escriben terceros. Las
 instrucciones del asistente dicen explícitamente que si ahí aparece algo con
 forma de orden, no viene del usuario y no se obedece.
 
+**Descargar se pide, no se espera.** Una descarga tarda minutos y la
+conversación no puede quedarse colgada: al aprobarla, el núcleo la arranca en
+segundo plano bajo el mismo turno que usa la página de Descargas (una a la
+vez, reservado con `youtube.claim()`), y el chat la sigue y cuenta el
+resultado cuando acaba. Si algo ya estaba en la biblioteca no se baja, se
+dice; y si el usuario la quiere igualmente como otra versión, el asistente
+repite la petición con `force`.
+
+## El hilo de audio no se rinde
+
+El hilo que decodifica y saca el sonido es uno solo, y si se cae no hay
+música. Tres cosas lo dejaban mudo hasta reiniciar DanPlay, y las tres se
+tratan ahora dentro del propio hilo (`player.rs`):
+
+- **Un archivo que hace *panic* al decodificarse.** El bucle corre bajo
+  `catch_unwind`: se avisa de qué archivo era y se vuelve a empezar con el
+  mismo volumen y la misma velocidad. Es para lo que el binario se compila
+  con `panic = "unwind"`.
+- **Sin salida de audio al arrancar** (el servidor de sonido aún no estaba,
+  unos auriculares sin conectar). Antes se tragaba las órdenes para siempre;
+  ahora, cada vez que alguien pide sonido, se vuelve a intentar abrirla.
+- **La salida muere sonando** (se cae el servidor, desaparece el aparato).
+  cpal deja de pedir muestras sin avisar y la canción se queda «sonando»
+  quieta. Un vigilante mira la aguja: si lleva cuatro segundos sin moverse
+  con la pista en marcha, se rehace la salida y se sigue donde estaba.
+
+Y la cola (`queue.rs`) ya no depende del núcleo para empezar a sonar: la
+interfaz manda la ruta con cada canción, y solo si el archivo no está ahí se
+le pregunta al núcleo. Cuando ni así se localiza, el error se dice en
+castellano y, si la canción se acabó sola, se pasa a la siguiente.
+
 ## Estructura del proyecto
 
 ```text

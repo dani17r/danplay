@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { api, mediaUrl, mediaUrlAlt, COVER_SIZES, errorMessage, ApiError } from '../src/api.js'
+import { api, mediaUrl, mediaUrlAlt, COVER_SIZES, errorMessage, ApiError, fromBridge } from '../src/api.js'
 import { createState, buildApiDouble } from './support/backend.js'
 
 // Cinco fallos de la interfaz eran el mismo: un nombre que dejó de existir al
@@ -112,5 +112,17 @@ describe('los errores se cuentan en una sola frase', () => {
     expect(errorMessage(new Error('no existe'))).toBe('no existe')
     expect(errorMessage(new ApiError('404: no existe', 404))).toBe('404: no existe')
     expect(errorMessage('algo suelto')).toBe('algo suelto')
+  })
+
+  // Rust reenvia el fallo del nucleo como `<codigo>: <cuerpo JSON>`. En el
+  // chat se leia «400: {"detail":"hace falta algo que descargar"}».
+  it('lo que llega por el puente de Rust se queda con el detail', () => {
+    const e = fromBridge(new Error('409: {"detail":"ya hay una descarga en marcha"}'))
+    expect(e).toBeInstanceOf(ApiError)
+    expect(e.message).toBe('ya hay una descarga en marcha')
+    expect(e.status).toBe(409)
+    // sin JSON, el texto tal cual; sin codigo, el mensaje entero
+    expect(fromBridge('500: se rompio').message).toBe('se rompio')
+    expect(fromBridge('el nucleo no contesta').message).toBe('el nucleo no contesta')
   })
 })
