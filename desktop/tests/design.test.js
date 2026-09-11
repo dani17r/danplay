@@ -112,7 +112,7 @@ describe('animaciones', () => {
     const bloque = CSS.slice(CSS.lastIndexOf('prefers-reduced-motion'))
     expect(bloque, 'falta la regla global').toMatch(/\*,\s*\*::before,\s*\*::after/)
     // ...pero los indicadores de «esto sigue en marcha» no se congelan
-    expect(bloque).toMatch(/\.spinner\{[^}]*infinite/)
+    expect(bloque).toMatch(/\.spinner[^{]*\{[^}]*infinite/)
   })
 })
 

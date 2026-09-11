@@ -375,7 +375,15 @@ export const core = {
    * Avisa cuando el núcleo arranca, muere o se reinicia.
    * @param {(e: {ready: boolean, message: string}) => void} fn
    */
-  onStatus: inTauri ? (fn) => listen('danplay://core', (e) => fn(e.payload)) : noListener
+  onStatus: inTauri ? (fn) => listen('danplay://core', (e) => fn(e.payload)) : noListener,
+  /**
+   * Avisa cuando algo de lo que se enseña ha cambiado en el núcleo (el
+   * índice, las listas, las estrellas), venga de donde venga: el asistente,
+   * una descarga que termina, la línea de órdenes. Rust lo detecta por la
+   * `revision` de `/api/status` (§1). Devuelve cómo dejar de escuchar.
+   * @param {(e: {revision: number}) => void} fn
+   */
+  onChanged: inTauri ? (fn) => listen('danplay://changed', (e) => fn(e.payload)) : noListener
 }
 
 export const api = {

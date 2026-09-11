@@ -272,6 +272,9 @@ def status():
             "never_convert": sorted(config.NEVER_CONVERT),
             "rust": duplicates.RUST, "ffmpeg": convert.available(), "stats": e,
             "youtube": youtube.available(), "youtube_reason": youtube.unavailable_reason(),
+            # cuantas veces ha cambiado algo que se enseña: Rust lo vigila y
+            # avisa a las ventanas cuando se mueve (`danplay://changed`)
+            "revision": library.revision(),
             "jobs": JOBS}
 
 

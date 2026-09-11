@@ -30,6 +30,7 @@ import {
 import { useHotkeys } from './composables/useHotkeys.js'
 import { useSearch } from './composables/useSearch.js'
 import { usePlaylistActions } from './composables/usePlaylistActions.js'
+import { useDownloads } from './composables/useDownloads.js'
 import { DENSITIES, SIZES, KIND_LABEL, allThemes } from './themes.js'
 import Drawer from './components/ui/Drawer.vue'
 import CoverArt from './components/ui/CoverArt.vue'
@@ -73,6 +74,15 @@ const view = ref({ kind: 'all' })
 // una cancion) y `load` (para volver a pedirla despues).
 const playlistActions = usePlaylistActions({ view, reload: () => load() })
 const { playlists } = playlistActions
+// Lo que se está bajando, para el número de «Descargas» en la barra lateral.
+const downloads = useDownloads()
+// De dónde salió lo que suena, para marcarlo en la barra lateral: la lista,
+// «Todas las canciones», Favoritos… Con un punto quieto si está en pausa.
+const nowPlaying = computed(() => {
+  const o = player.origin.value
+  if (!o?.kind || !player.track.value) return null
+  return { kind: o.kind, id: o.id ?? null, playing: player.state.playing }
+})
 const sort = ref('artist')
 // Hacia dónde ordena. Pulsar la misma cabecera la invierte; pulsar otra
 // empieza por lo que tenga sentido en ese campo (A-Z en un texto, lo más
@@ -169,6 +179,7 @@ const effectiveGroupBy = computed(() =>
 let coreWasReady = false
 let stopCoreWatch = null
 let stopExternalWatch = null
+let stopChangeWatch = null
 
 const title = computed(
   () =>
@@ -191,9 +202,14 @@ const title = computed(
 // la de «bar» después de la de «barak» y pisar la lista con lo que ya no se
 // estaba buscando.
 let request = 0
-async function load() {
+/**
+ * `quiet`: sin el indicador de carga. Es para los refrescos de fondo, que
+ * pasan cada vez que algo cambia en el núcleo; el indicador es para cuando
+ * la persona acaba de pedir algo y espera.
+ */
+async function load(quiet = false) {
   const mine = ++request
-  loading.value = true
+  if (!quiet) loading.value = true
   try {
     // el estado se relee siempre: si no, `configured` se quedaba congelado
     // en false y toda la vista central seguía mostrando la bienvenida
@@ -234,9 +250,38 @@ async function loadStatus() {
   waiting.value = (await api.inbox()).total
 }
 
-/** Recarga estado y lista. Lo usan Ajustes y la bienvenida. */
+/**
+ * Recarga TODO lo que la app tiene en memoria: estado y contadores, la lista
+ * de la vista, los repertorios, la ficha abierta y los datos de la cola.
+ *
+ * Es lo que se llama cuando algo cambia en el núcleo, venga de donde venga
+ * (el asistente, una descarga que termina, Ajustes, la línea de órdenes).
+ * Antes cada página refrescaba «lo suyo» y lo demás se quedaba congelado
+ * hasta salir y volver a entrar: la lista decía «6 temas» con tres.
+ */
 async function refreshAll() {
-  await Promise.all([loadStatus(), load(), playlistActions.load()])
+  await Promise.all([loadStatus(), load(true), playlistActions.load(), refreshDetail()])
+}
+
+/** La ficha abierta y la copia de la cola, con lo que diga el núcleo ahora. */
+async function refreshDetail() {
+  const id = detail.value?.id
+  if (id == null || id < 0) return
+  try {
+    const song = await api.song(id)
+    if (detail.value?.id === id) detail.value = song
+    player.patchItem(song)
+  } catch {
+    /* la canción ya no está: la lista recargada lo dirá */
+  }
+}
+
+// Los avisos de cambio llegan cada dos segundos como mucho, y una descarga
+// de tres canciones dispara varios seguidos: se agrupan y se refresca una vez.
+let changeTimer = null
+function onCoreChanged() {
+  clearTimeout(changeTimer)
+  changeTimer = setTimeout(() => refreshAll(), 250)
 }
 
 async function select(id) {
@@ -552,7 +597,7 @@ function onSearchKey(e) {
 }
 onClickOutside(searchBox, search.close)
 
-watch([sort, sortDesc, view], load, { deep: true })
+watch([sort, sortDesc, view], () => load(), { deep: true })
 // Sin `deep`: solo interesa cuando cambia la LISTA (otra búsqueda, otra vista,
 // otra agrupación), que es lo que altera el alto del scroll. Vigilarla en
 // profundidad obligaba a recorrer las mil canciones y todos sus campos cada
@@ -620,8 +665,14 @@ onMounted(async () => {
   // reproductor. Si esa lista está delante, tiene que aparecer sola: se
   // cargaba al entrar y se quedaba quieta mientras iban llegando canciones.
   stopExternalWatch = await api.onExternal(() => {
-    if (view.value.kind === 'player') load()
+    if (view.value.kind === 'player') load(true)
   })
+
+  // Cualquier cambio en el núcleo —lo haga quien lo haga— se refleja aquí
+  // sin salir y volver a entrar. Rust avisa; esta ventana escucha.
+  stopChangeWatch = await core.onChanged(onCoreChanged)
+  // y si había una descarga en marcha (un reinicio de la ventana), que se vea
+  downloads.refresh()
 })
 
 /** La clave de «ya lo pregunté». Una vez en la vida, no en cada arranque. */
@@ -669,6 +720,8 @@ async function offerToBeDefault() {
 onUnmounted(() => {
   stopCoreWatch?.()
   stopExternalWatch?.()
+  stopChangeWatch?.()
+  clearTimeout(changeTimer)
   cancelDrag()
   window.removeEventListener('contextmenu', blockContextMenu)
   window.removeEventListener('keydown', onEscape)
@@ -839,6 +892,8 @@ function onUpdated(song) {
         :playlists="playlists"
         :stats="stats"
         :entrada="waiting"
+        :download="downloads.state"
+        :now-playing="nowPlaying"
         @go="goTo"
         @new-playlist="playlistActions.create()"
         @playlist-menu="playlistMenu"
@@ -850,6 +905,8 @@ function onUpdated(song) {
           :playlists="playlists"
           :stats="stats"
           :entrada="waiting"
+          :download="downloads.state"
+          :now-playing="nowPlaying"
           @go="goTo"
           @new-playlist="playlistActions.create()"
           @playlist-menu="playlistMenu"

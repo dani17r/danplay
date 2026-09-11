@@ -1206,6 +1206,126 @@ def test_el_dialogo_de_confirmacion_dice_que_se_va_a_bajar():
     assert "otra version" in con_force, "hay que avisar de que se guarda repetida"
 
 
+# ------------------------------------------- ids inventados y repertorios
+# Paso de verdad: el modelo creo «Herlin» con los ids 102, 103 y 104 (otras
+# canciones), la «corrigio» con 123, 456 y 789 (uno era Kabed y dos no
+# existian: la lista decia «6 temas» con cuatro), y pidio borrar el
+# repertorio id 1 —«domingo»— creyendo que era «Herlin».
+
+
+def _ids(cliente, n=3):
+    from danplay import library
+    return [c["id"] for c in library.search("", limit=n)]
+
+
+def _limpiar_listas(*nombres):
+    from danplay import playlists
+    for l in playlists.list_all():
+        if l["name"] in nombres:
+            playlists.remove(l["id"])
+
+
+def test_un_id_inventado_no_entra_en_ninguna_lista(cliente):
+    from danplay import chat, playlists
+    _limpiar_listas("Inventada")
+    ids = _ids(cliente, 2)
+    r = chat.run_tool("create_playlist", {"name": "Inventada", "ids": ids + [999999]})
+    assert "error" in r and "999999" in r["error"]
+    assert "search_songs" in r["error"], "tiene que decirle de donde salen los ids"
+    assert not any(l["name"] == "Inventada" for l in playlists.list_all()), \
+        "con un id falso no se crea nada: los demas tampoco son de fiar"
+    # y la base tampoco admite huerfanos aunque se cuele por otro camino
+    made = playlists.create("Inventada")
+    assert playlists.add(made["id"], [999999, 888888]) == 0
+    assert playlists.by_id(made["id"])["n"] == 0
+    _limpiar_listas("Inventada")
+
+
+def test_crear_una_lista_devuelve_lo_que_entro_de_verdad(cliente):
+    from danplay import chat
+    _limpiar_listas("Con nombres")
+    ids = _ids(cliente, 2)
+    r = chat.run_tool("create_playlist", {"name": "Con nombres", "ids": ids})
+    assert r["added"] == 2 and r["created"] is True
+    assert [c["id"] for c in r["songs"]] == ids, "cuenta que canciones son, no solo cuantas"
+    assert all(c["title"] for c in r["songs"])
+    # la ficha del chat enseña los nombres: asi se ve si metio lo que no era
+    resumen = chat._summarize("create_playlist", r)
+    assert r["songs"][0]["title"] in resumen
+    _limpiar_listas("Con nombres")
+
+
+def test_los_repertorios_se_nombran_por_su_nombre(cliente):
+    from danplay import chat, playlists
+    _limpiar_listas("Herlin", "domingo")
+    a = playlists.create("domingo")["id"]
+    b = playlists.create("Herlin")["id"]
+    ids = _ids(cliente, 3)
+    playlists.add(a, ids[:2])
+    # ver: por nombre, sin distinguir mayusculas ni tildes
+    r = chat.run_tool("playlist_songs", {"name": "herlín"})
+    assert r["playlist_id"] == b and r["songs"] == []
+    # borrar por nombre borra ESA, no la del id que el modelo se imagine
+    assert chat._describe("delete_playlist", {"name": "Herlin"}).startswith("Borrar el repertorio «Herlin»")
+    r = chat.run_tool("delete_playlist", {"name": "Herlin", "id": a})
+    assert r["ok"] and r["name"] == "Herlin"
+    assert playlists.by_id(a)["name"] == "domingo", "«domingo» sigue ahi"
+    # un nombre que no existe: error con la lista de las que hay
+    r = chat.run_tool("playlist_songs", {"name": "No existe"})
+    assert "error" in r and "«domingo»" in r["error"] and "No inventes ids" in r["error"]
+    _limpiar_listas("domingo")
+
+
+def test_corregir_una_lista_la_deja_exactamente_como_se_pide(cliente):
+    from danplay import chat, playlists
+    _limpiar_listas("Arreglame")
+    ids = _ids(cliente, 4)
+    lid = playlists.create("Arreglame")["id"]
+    playlists.add(lid, [ids[0], ids[1]])          # dos que no van
+    r = chat.run_tool("set_playlist_songs", {"name": "Arreglame", "ids": [ids[2], ids[3], ids[1]]})
+    assert "error" not in r, r
+    assert r["removed"] == 1 and r["added"] == 2 and r["total"] == 3
+    assert [c["id"] for c in playlists.songs(lid)] == [ids[2], ids[3], ids[1]], "en ese orden"
+    # con un id inventado no se toca nada
+    r = chat.run_tool("set_playlist_songs", {"name": "Arreglame", "ids": [ids[0], 424242]})
+    assert "error" in r
+    assert [c["id"] for c in playlists.songs(lid)] == [ids[2], ids[3], ids[1]]
+    _limpiar_listas("Arreglame")
+
+
+def test_quitar_y_renombrar(cliente):
+    from danplay import chat, playlists
+    _limpiar_listas("Vieja", "Nueva")
+    ids = _ids(cliente, 3)
+    lid = playlists.create("Vieja")["id"]
+    playlists.add(lid, ids)
+    r = chat.run_tool("remove_from_playlist", {"name": "Vieja", "song_ids": [ids[0], ids[2]]})
+    assert r["removed"] == 2 and [c["id"] for c in r["songs"]] == [ids[1]]
+    r = chat.run_tool("rename_playlist", {"name": "Vieja", "new_name": "Nueva", "note": "para el domingo"})
+    assert r["ok"] and r["name"] == "Nueva" and r["was"] == "Vieja"
+    assert playlists.by_name("nueva")["note"] == "para el domingo"
+    assert chat.run_tool("rename_playlist", {"name": "Nueva"})["error"]
+    _limpiar_listas("Nueva")
+
+
+def test_la_revision_sube_con_cada_cambio_que_se_ensena(cliente):
+    """Es lo que Rust vigila para avisar a las ventanas (`danplay://changed`)."""
+    from danplay import library, playlists
+    antes = cliente.get("/api/status").json()["revision"]
+    made = playlists.create("Revision")
+    r1 = library.revision()
+    assert r1 > antes, "crear una lista cuenta"
+    playlists.add(made["id"], _ids(cliente, 1))
+    assert library.revision() > r1, "añadir a una lista cuenta"
+    r2 = library.revision()
+    playlists.rate(_ids(cliente, 1)[0], 3)
+    assert library.revision() > r2, "puntuar cuenta"
+    r3 = library.revision()
+    playlists.remove(made["id"])
+    assert library.revision() > r3, "borrar la lista cuenta"
+    assert cliente.get("/api/status").json()["revision"] == library.revision()
+
+
 # ------------------------------------------------ narrar no es hacer
 # Paso de verdad: el modelo dijo «Confirmo descarga», «Descarga pedida» y
 # «Ya la cree» en tres turnos seguidos sin llamar a una sola herramienta. La

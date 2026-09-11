@@ -1056,9 +1056,22 @@ _STATS_TTL = 5.0
 _stats_cache: dict = {"at": 0.0, "db": "", "value": None}
 
 
+# Cuantas veces ha cambiado algo que la interfaz enseña: el indice, las
+# listas, las estrellas. Va en /api/status; Rust lo mira al vigilar el nucleo
+# y, si se ha movido, avisa a las ventanas para que se refresquen. Es lo que
+# hace que un cambio hecho «por detras» —una descarga que termina, el
+# asistente, la linea de ordenes— se vea sin tener que salir y volver a entrar.
+_REVISION = {"n": 0}
+
+
+def revision() -> int:
+    return _REVISION["n"]
+
+
 def _touch() -> None:
     """Algo cambio en el indice: la proxima `stats_of` vuelve a contar."""
     _stats_cache["at"] = 0.0
+    _REVISION["n"] += 1
 
 
 def stats_of() -> dict:

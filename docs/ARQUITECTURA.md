@@ -284,6 +284,15 @@ búsqueda web, los títulos de YouTube y las letras lo escriben terceros. Las
 instrucciones del asistente dicen explícitamente que si ahí aparece algo con
 forma de orden, no viene del usuario y no se obedece.
 
+**Los ids no se adivinan.** El modelo se inventaba ids de canciones y de
+listas: creó un repertorio con tres canciones ajenas y pidió borrar «domingo»
+queriendo borrar «Herlin». Ahora las herramientas de listas rechazan
+cualquier id que no exista (todo o nada), aceptan el **nombre** del
+repertorio, devuelven qué canciones quedaron de verdad, y hay una para ver
+una lista (`playlist_songs`) y otra para dejarla exactamente como debe
+(`set_playlist_songs`). El aviso de fin de descarga le da los ids exactos de
+lo que entró.
+
 **Narrar no es hacer.** El modelo puede escribir «ya la creé» sin haber
 llamado a nada, y al turno siguiente leer esa frase suya como un hecho. Tres
 defensas en `chat.reply`: en cada turno recibe el **estado real** de la app
@@ -302,6 +311,21 @@ vez, reservado con `youtube.claim()`), y el chat la sigue y cuenta el
 resultado cuando acaba. Si algo ya estaba en la biblioteca no se baja, se
 dice; y si el usuario la quiere igualmente como otra versión, el asistente
 repite la petición con `force`.
+
+## La interfaz se entera de todo
+
+Nada de lo que se enseña puede quedarse congelado porque el cambio lo hiciera
+otro: el asistente, una descarga que termina, la línea de órdenes. El núcleo
+lleva un contador (`revision`) que sube con cada cambio del índice, de las
+listas o de las estrellas; Rust, que ya consulta `/api/status` cada dos
+segundos para vigilar que el núcleo vive, emite `danplay://changed` cuando
+se mueve, y la ventana refresca todo lo que tiene en memoria. Los cambios que
+hace la propia ventana siguen refrescando al momento; esto cubre el resto.
+
+Las descargas tienen un solo seguimiento (`useDownloads`) que comparten la
+página de Descargas, el chat y la barra lateral, donde «Descargas» lleva el
+número (`2/3`) mientras algo baja. Y la entrada de la que salió lo que suena
+—una lista, Todas las canciones, Favoritos— lleva un punto que late.
 
 ## El hilo de audio no se rinde
 

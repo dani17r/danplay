@@ -30,6 +30,11 @@ vi.mock('../src/api.js', async (importOriginal) => {
       onStatus: async (fn) => {
         held.coreListener = fn
         return () => (held.coreListener = null)
+      },
+      // «algo cambio en el nucleo»: App se refresca entero al oirlo
+      onChanged: async (fn) => {
+        held.changeListener = fn
+        return () => (held.changeListener = null)
       }
     }
   }
@@ -117,6 +122,51 @@ describe('el nucleo llega tarde', () => {
     held.coreListener?.({ ready: true, message: 'sigue en pie' })
     await flushPromises()
     expect(api.search).not.toHaveBeenCalled()
+  })
+})
+
+// Rust avisa (`danplay://changed`) cuando el nucleo cuenta un cambio, lo haya
+// hecho quien lo haya hecho: el asistente, una descarga que termina, la linea
+// de ordenes. Antes la lista decia «6 temas» con tres hasta salir y volver a
+// entrar en la pagina.
+describe('algo cambia en el nucleo por detras', () => {
+  it('la lista, los repertorios y el estado se refrescan solos', async () => {
+    vi.useFakeTimers()
+    state.status.configured = true
+    state.status.stats.total = 1
+    state.songs = [song(1)]
+    const w = await montar()
+    expect(w.text()).not.toContain('Herlin')
+
+    // el asistente crea una lista y entra una cancion nueva
+    state.playlists = [{ id: 2, name: 'Herlin', n: 3 }]
+    state.songs = [song(1), song(2)]
+    state.status.stats.total = 2
+    held.changeListener?.({ revision: 7 })
+    await vi.advanceTimersByTimeAsync(400)
+    await flushPromises(); await flushPromises()
+
+    expect(w.text()).toContain('Herlin')
+    expect(w.findAll('.nav-playlist').length).toBe(1)
+    expect(api.search).toHaveBeenCalled()
+    expect(w.text()).toContain(song(2).title)
+    vi.useRealTimers()
+  })
+
+  it('varios avisos seguidos son un solo refresco', async () => {
+    vi.useFakeTimers()
+    state.status.configured = true
+    state.songs = [song(1)]
+    await montar()
+    api.search.mockClear(); api.playlists.mockClear()
+    held.changeListener?.({ revision: 1 })
+    held.changeListener?.({ revision: 2 })
+    held.changeListener?.({ revision: 3 })
+    await vi.advanceTimersByTimeAsync(400)
+    await flushPromises()
+    expect(api.search).toHaveBeenCalledTimes(1)
+    expect(api.playlists).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
   })
 })
 

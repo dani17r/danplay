@@ -16,8 +16,9 @@ vi.mock('../src/api.js', () => ({
 }))
 import ChatPage from '../src/components/ChatPage.vue'
 import { dialogOk, dialogCancel, useDialog } from '../src/composables/useDialog.js'
+import { resetDownloads } from '../src/composables/useDownloads.js'
 
-beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); vi.useRealTimers() })
+beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); vi.useRealTimers(); resetDownloads() })
 
 const montar = async () => {
   const w = mount(ChatPage, { attachTo: document.body })
@@ -247,7 +248,7 @@ describe('descargas pedidas al asistente', () => {
     api.youtube
       .mockResolvedValueOnce({ active: true, phase: 'downloading', name: 'I Want Jesus', percent: 40, index: 1, total: 2 })
       .mockResolvedValueOnce({ active: false, phase: 'done', results: [
-        { ok: true, artist: 'Bethel Music', song: 'I Want Jesus (Live)', title: 'I Want Jesus' },
+        { ok: true, id: 267, artist: 'Bethel Music', song: 'I Want Jesus (Live)', title: 'I Want Jesus' },
         { ok: false, already_there: true, title: 'Ruja o Leão - Carol Braga',
           matches: [{ id: 3, artist: 'Carol Braga', title: 'Ruja O Leao' }] }
       ] })
@@ -256,7 +257,8 @@ describe('descargas pedidas al asistente', () => {
     dialogOk()
     await flushPromises()
 
-    await vi.advanceTimersByTimeAsync(1000)
+    // la primera mirada es inmediata; las siguientes, cada 700 ms
+    await vi.advanceTimersByTimeAsync(300)
     expect(w.find('.chat-downloading').exists()).toBe(true)
     expect(w.find('.chat-downloading').text()).toContain('Bajando')
     expect(w.find('.chat-downloading').text()).toContain('1/2')
@@ -286,6 +288,8 @@ describe('descargas pedidas al asistente', () => {
     const sent = api.chat.mock.calls.at(-1)[0]
     expect(sent.at(-1).role).toBe('me')
     expect(sent.at(-1).text).toContain('La descarga ha terminado')
+    // con los ids exactos de lo que entro: sin ellos el modelo se los inventaba
+    expect(sent.at(-1).text).toContain('267 = «Bethel Music - I Want Jesus (Live)»')
     // y el historial que recibe el nucleo lleva las herramientas de cada mensaje
     const withTools = sent.find(m => m.tools?.some(t => t.name === 'download_music'))
     expect(withTools).toBeTruthy()

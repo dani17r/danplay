@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { notify } from '../composables/useNotices.js'
+import { useDownloads } from '../composables/useDownloads.js'
 import { api } from '../api.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
@@ -15,7 +16,10 @@ const quality = ref(localStorage.getItem('danplay.ytQuality') || 'high')
 const fileIt = ref(localStorage.getItem('danplay.ytFileIt') !== '0')
 const results = ref(Number(localStorage.getItem('danplay.ytResults') || 5))
 
-const status = ref(null)           // lo que devuelve /api/youtube
+// El estado de la descarga es de toda la app (lo comparte con el chat y con
+// la barra lateral): aqui solo se lee y se arranca.
+const downloads = useDownloads()
+const status = downloads.state     // lo que devuelve /api/youtube
 const preview = ref(null)          // lo que se bajaria
 const looking = ref(false)
 const error = ref('')
@@ -51,8 +55,6 @@ async function clearHistory () {
     notify('Historial vaciado', 'ok')
   } catch (e) { notify('No se pudo vaciar: ' + e) }
 }
-let poll = null
-
 const QUALITIES = [
   { v: 'high', n: 'Alta', note: '320 kbps' },
   { v: 'medium', n: 'Media', note: '192 kbps' },
@@ -62,8 +64,8 @@ const HOW_MANY = [1, 3, 5, 10, 20].map(n => ({ v: n, n: String(n) }))
 
 // El nucleo publica `active`. Antes esto miraba `running`, que no existe, asi
 // que la barra nunca salia y el boton nunca se bloqueaba.
-const running = computed(() => !!status.value?.active)
-const ready = computed(() => !!status.value?.available)
+const running = computed(() => !!status.active)
+const ready = computed(() => !!status.available)
 // mientras baja no se toca nada: ni el enlace, ni la calidad, ni el archivado
 const locked = computed(() => running.value || !ready.value)
 
@@ -72,7 +74,7 @@ const isSearch = computed(() => {
   return !!t && !t.startsWith('http://') && !t.startsWith('https://')
 })
 
-const done = computed(() => status.value?.results || [])
+const done = computed(() => status.results || [])
 const summary = computed(() => ({
   ok: done.value.filter(r => r.ok).length,
   already: done.value.filter(r => r.already_there).length,
@@ -85,10 +87,6 @@ const PHASES = {
 }
 const tt = (s) => !s ? '—'
   : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
-
-async function refresh () {
-  try { status.value = await api.youtube() } catch { /* el nucleo aun no responde */ }
-}
 
 async function showPreview () {
   const q = query.value.trim()
@@ -117,8 +115,7 @@ async function startDownload (what = null, force = false) {
       results: force ? 1 : results.value, force
     })
     preview.value = null
-    await refresh()
-    schedule(300)          // que la barra aparezca al momento
+    downloads.wake()       // que la barra aparezca al momento
   } catch (e) {
     error.value = String(e).replace(/^Error:\s*/, '')
   }
@@ -128,40 +125,30 @@ async function cancelDownload () {
   try { await api.youtubeCancel() } catch { /* da igual: ya habra terminado */ }
 }
 
-// Rapido mientras baja algo (hay barra de progreso que mover) y tranquilo
-// cuando no. Antes preguntaba cada 0,6 s pasara lo que pasara: cien viajes
-// por minuto al nucleo por estar mirando una pagina quieta.
-let wasRunning = false
-function schedule (ms = running.value ? 600 : 3000) {
-  clearTimeout(poll)
-  poll = setTimeout(bucle, ms)
-}
-async function bucle () {
-  await refresh()
-  if (wasRunning && !running.value) {
-    // al terminar: la biblioteca ha cambiado y hay que contar como fue
-    const { ok, already, failed } = summary.value
-    if (ok) emit('reload')
-    const partes = []
-    if (ok) partes.push(`${ok} descargada${ok > 1 ? 's' : ''}`)
-    if (already) partes.push(`${already} ya la ten${already > 1 ? 'ias' : 'ias'}`)
-    if (failed) partes.push(`${failed} sin suerte`)
-    if (partes.length) notify(partes.join(' · '), ok ? 'ok' : 'info')
-    // si solo hubo repetidas, se ofrece bajarlas igualmente
-    const rep = done.value.filter(r => r.already_there && r.url)
-    askAgain.value = rep.length ? rep : null
-    loadHistory()          // el asistente tambien escribe aqui
-  }
-  wasRunning = running.value
-  schedule()
-}
+// Al terminar una descarga (esta o la del asistente): la biblioteca ha
+// cambiado y hay que contar como fue.
+const stopFollowing = downloads.onFinished((s) => {
+  const results = s.results || []
+  const ok = results.filter(r => r.ok).length
+  const already = results.filter(r => r.already_there).length
+  const failed = results.filter(r => !r.ok && !r.already_there).length
+  if (ok) emit('reload')
+  const partes = []
+  if (ok) partes.push(`${ok} descargada${ok > 1 ? 's' : ''}`)
+  if (already) partes.push(`${already} ya la tenias`)
+  if (failed) partes.push(`${failed} sin suerte`)
+  if (partes.length) notify(partes.join(' · '), ok ? 'ok' : 'info')
+  // si hubo repetidas, se ofrece bajarlas igualmente
+  const rep = results.filter(r => r.already_there && r.url)
+  askAgain.value = rep.length ? rep : null
+  loadHistory()          // el asistente tambien escribe aqui
+})
 
 onMounted(async () => {
-  await refresh()
+  await downloads.refresh()
   await loadHistory()
-  schedule()
 })
-onUnmounted(() => clearTimeout(poll))
+onUnmounted(stopFollowing)
 </script>
 
 <template>
@@ -173,7 +160,7 @@ onUnmounted(() => clearTimeout(poll))
       igual que todo lo demas.
     </div>
 
-    <div v-if="status && !ready" class="card">
+    <div v-if="status.known && !ready" class="card">
       <h3>Falta una pieza</h3>
       <div class="note">{{ status.reason }}</div>
       <div class="hint">Mientras tanto el resto de DanPlay funciona igual.</div>

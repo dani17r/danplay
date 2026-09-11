@@ -45,6 +45,19 @@ estaba, Rust se la pide al núcleo (`GET /api/song/{id}/path`, con un tope de
 8 s) al empezar la pista. Si tampoco así se localiza, `error` lo dice en
 castellano y, si la canción se acabó sola, se prueba con la siguiente.
 
+### Eventos del núcleo (Rust → Vue)
+
+- `danplay://core` → `{ ready, message }`: el núcleo arrancó, murió o se
+  reinició.
+- `danplay://changed` → `{ revision }`: algo de lo que se enseña ha cambiado
+  en el núcleo (índice, listas, estrellas), lo haya hecho quien lo haya hecho.
+  Rust lo detecta comparando `revision` de `GET /api/status` en su vigilancia
+  (cada 2 s); la interfaz responde con un refresco completo (lista de la
+  vista, repertorios, estado, ficha abierta, cola). Un núcleo sin `revision`
+  nunca lo emite.
+- `danplay://recent` → la lista del reproductor cambió (se abrió algo desde
+  fuera).
+
 ### Comandos (`invoke`)
 
 | Comando | Argumentos | Efecto |

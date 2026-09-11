@@ -55,7 +55,7 @@ const { estadoFalso, status, api, native, pickFolder, tray, app, core } = vi.hoi
   }
   // Rust avisa por aqui de que el nucleo esta listo; App se suscribe al
   // montarse para recargar si llego antes que el.
-  const core = { onStatus: vi.fn(async () => () => {}) }
+  const core = { onStatus: vi.fn(async () => () => {}), onChanged: vi.fn(async () => () => {}) }
   return { estadoFalso, status, api, native: { available: false },
            pickFolder: vi.fn(async () => null), tray, app, core }
 })

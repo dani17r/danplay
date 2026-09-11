@@ -39,9 +39,9 @@ def _describe(name: str, args: dict) -> str:
         which = f"«{c['artist']} - {c['title']}»" if c else f"la cancion {args.get('id')}"
         return f"Mandar {which} a la papelera del sistema y sacarla de la biblioteca."
     if name == "delete_playlist":
-        lists = {l["id"]: l["name"] for l in playlists.list_all()}
-        name_of = lists.get(int(args.get("id", 0) or 0))
-        which = f"«{name_of}»" if name_of else f"la lista {args.get('id')}"
+        pl, _ = _find_playlist(args)
+        which = (f"«{pl['name']}» ({pl['n']} temas)" if pl
+                 else f"la lista {args.get('name') or args.get('id') or args.get('playlist_id')}")
         return f"Borrar el repertorio {which}. Las canciones no se borran."
     if name == "download_music":
         plan = download_plan(args)
@@ -58,6 +58,59 @@ def _describe(name: str, args: dict) -> str:
             text += " Se deja en Entrada/ sin archivar."
         return text
     return f"Ejecutar {name}."
+
+
+def _find_playlist(args: dict) -> tuple[dict | None, str]:
+    """El repertorio al que se refiere la herramienta, o por que no se sabe.
+
+    Se admite `playlist_id`/`id` o `name`. El nombre manda si viene: el
+    modelo conoce las listas por como se llaman, y cuando adivinaba el id
+    acababa pidiendo borrar «domingo» queriendo borrar «Herlin».
+    """
+    name = str(args.get("name") or args.get("playlist") or "").strip()
+    if name:
+        pl = playlists.by_name(name)
+        if pl:
+            return pl, ""
+    raw = args.get("playlist_id", args.get("id"))
+    if raw not in (None, ""):
+        pl = playlists.by_id(raw)
+        if pl:
+            return pl, ""
+    have = ", ".join(f"«{l['name']}» (id {l['id']})" for l in playlists.list_all()) or "ninguno"
+    what = f"«{name}»" if name else f"con id {raw}" if raw not in (None, "") else "sin nombre ni id"
+    return None, f"no existe ningun repertorio {what}. Los que hay: {have}. No inventes ids."
+
+
+def _checked_song_ids(raw) -> tuple[list[int], str]:
+    """Los ids de cancion que existen, o el error si alguno no existe.
+
+    Todo o nada: si el modelo trae un id que no es ninguna cancion es que se
+    lo ha inventado, y entonces los demas tampoco son de fiar.
+    """
+    if isinstance(raw, (int, str)):
+        raw = [raw]
+    wanted = []
+    for x in raw or []:
+        try:
+            wanted.append(int(x))
+        except (TypeError, ValueError):
+            return [], f"«{x}» no es un id de cancion"
+    if not wanted:
+        return [], "no me has dado ningun id de cancion"
+    ok = playlists.existing_ids(wanted)
+    missing = [i for i in wanted if i not in ok]
+    if missing:
+        return [], (f"estos ids no son ninguna cancion: {', '.join(map(str, missing))}. "
+                    "No he tocado nada. Los ids salen de search_songs o del aviso de "
+                    "descarga de la app; no los supongas.")
+    return ok, ""
+
+
+def _playlist_view(pl: dict) -> dict:
+    """Un repertorio con sus canciones, tal y como se le cuenta al modelo."""
+    return {"playlist_id": pl["id"], "name": pl["name"], "note": pl.get("note") or "",
+            "songs": [_song_brief(c) for c in playlists.songs(pl["id"])]}
 
 
 def download_plan(args: dict | None) -> dict:
@@ -158,10 +211,26 @@ AL DESCARGAR
   repetida, o que quiere OTRA version de una que ya tiene, llama a
   download_music con force=true: asi se baja y se guarda como otra version.
 
-AL ARMAR UNA LISTA
-  1. busca los temas con search_songs
-  2. crea la lista con create_playlist pasando los ids que encontraste
-  3. resume que metiste y por que
+IDS: NUNCA LOS INVENTES
+Un id de cancion solo vale si ha salido de search_songs o del aviso de la app
+al terminar una descarga, EN ESTA conversacion. Un repertorio se nombra por su
+NOMBRE (todas las herramientas de listas aceptan `name`); su id solo si lo
+devolvio list_playlists o playlist_songs. Si no tienes el id, buscalo antes.
+Las herramientas rechazan los ids que no existen; si eso pasa, busca de nuevo,
+no pruebes con otros numeros.
+
+REPERTORIOS
+Puedes verlos (playlist_songs), crearlos (create_playlist), añadir
+(add_to_playlist), quitar (remove_from_playlist), dejarlos EXACTAMENTE con
+unas canciones (set_playlist_songs), renombrarlos (rename_playlist) y
+borrarlos (delete_playlist, con confirmacion).
+  Para armar una lista: 1) busca los temas con search_songs, 2) create_playlist
+  con esos ids, 3) resume que metiste, con sus nombres.
+  Si el usuario dice que una lista esta mal: 1) mira que tiene con
+  playlist_songs, 2) compara con lo que pidio en la conversacion, 3) dejala
+  bien con set_playlist_songs y los ids correctos. Reconoce el error en una
+  linea, sin excusas, y no toques ninguna otra lista. Corregir una lista NUNCA
+  es borrarla y crear otra.
 
 LO HECHO ES LO QUE HACEN LAS HERRAMIENTAS
 Solo has hecho algo si EN ESTE TURNO has llamado a la herramienta y ha
@@ -221,7 +290,10 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
         "name": "create_playlist",
-        "description": "Crea una lista de reproduccion con las canciones indicadas por su id.",
+        "description": ("Crea una lista de reproduccion con las canciones indicadas por su "
+                        "id. Los ids tienen que venir de search_songs o del aviso de "
+                        "descarga de la app: los que no existen se rechazan. Si ya hay una "
+                        "lista con ese nombre, se le añaden a esa."),
         "parameters": {"type": "object", "properties": {
             "name": {"type": "string"},
             "ids": {"type": "array", "items": {"type": "integer"}},
@@ -229,15 +301,43 @@ TOOLS = [
         }, "required": ["name", "ids"]}}},
     {"type": "function", "function": {
         "name": "list_playlists",
-        "description": "Lista los repertorios existentes con cuantos temas tiene cada uno.",
+        "description": "Lista los repertorios existentes con su id y cuantos temas tiene cada uno.",
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
-        "name": "add_to_playlist",
-        "description": "Añade canciones a una lista que ya existe.",
+        "name": "playlist_songs",
+        "description": ("Que canciones tiene un repertorio, en orden, con sus ids. Miralo "
+                        "SIEMPRE antes de corregir una lista."),
         "parameters": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "el nombre de la lista"},
+            "playlist_id": {"type": "integer"}
+        }}}},
+    {"type": "function", "function": {
+        "name": "add_to_playlist",
+        "description": "Añade canciones a una lista que ya existe (por nombre o id).",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "el nombre de la lista"},
             "playlist_id": {"type": "integer"},
             "ids": {"type": "array", "items": {"type": "integer"}}
-        }, "required": ["playlist_id", "ids"]}}},
+        }, "required": ["ids"]}}},
+    {"type": "function", "function": {
+        "name": "set_playlist_songs",
+        "description": ("Deja un repertorio EXACTAMENTE con estas canciones, en este orden: "
+                        "quita lo que sobre y añade lo que falte. Es como se corrige una "
+                        "lista que quedo mal. No borra ningun archivo."),
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "el nombre de la lista"},
+            "playlist_id": {"type": "integer"},
+            "ids": {"type": "array", "items": {"type": "integer"}}
+        }, "required": ["ids"]}}},
+    {"type": "function", "function": {
+        "name": "rename_playlist",
+        "description": "Cambia el nombre o la nota de un repertorio.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "el nombre actual"},
+            "playlist_id": {"type": "integer"},
+            "new_name": {"type": "string"},
+            "note": {"type": "string"}
+        }}}},
     {"type": "function", "function": {
         "name": "get_lyrics",
         "description": "Busca la letra de una cancion de la biblioteca por su id.",
@@ -309,9 +409,10 @@ TOOLS = [
             "id": {"type": "integer"}}, "required": ["id"]}}},
     {"type": "function", "function": {
         "name": "play_playlist",
-        "description": "Pone a sonar un repertorio entero desde el principio.",
+        "description": "Pone a sonar un repertorio entero (por nombre o id) desde el principio.",
         "parameters": {"type": "object", "properties": {
-            "playlist_id": {"type": "integer"}}, "required": ["playlist_id"]}}},
+            "name": {"type": "string", "description": "el nombre de la lista"},
+            "playlist_id": {"type": "integer"}}}}},
     {"type": "function", "function": {
         "name": "player_control",
         "description": ("Controla lo que ya esta sonando: pausar, reanudar, "
@@ -364,16 +465,21 @@ TOOLS = [
             "id": {"type": "integer"}}, "required": ["id"]}}},
     {"type": "function", "function": {
         "name": "remove_from_playlist",
-        "description": "Quita una cancion de un repertorio. No borra el archivo.",
+        "description": "Quita canciones de un repertorio (por nombre o id). No borra archivos.",
         "parameters": {"type": "object", "properties": {
-            "playlist_id": {"type": "integer"}, "song_id": {"type": "integer"}
-        }, "required": ["playlist_id", "song_id"]}}},
+            "name": {"type": "string", "description": "el nombre de la lista"},
+            "playlist_id": {"type": "integer"},
+            "song_ids": {"type": "array", "items": {"type": "integer"}},
+            "song_id": {"type": "integer"}
+        }}}},
     {"type": "function", "function": {
         "name": "delete_playlist",
-        "description": ("Borra un repertorio. Las canciones NO se borran. "
-                        "PREGUNTA antes de usarla."),
+        "description": ("Borra un repertorio entero (por nombre o id). Las canciones NO "
+                        "se borran. Solo si el usuario pide borrar la lista: para "
+                        "corregirla usa set_playlist_songs. PREGUNTA antes de usarla."),
         "parameters": {"type": "object", "properties": {
-            "id": {"type": "integer"}}, "required": ["id"]}}},
+            "name": {"type": "string", "description": "el nombre de la lista"},
+            "id": {"type": "integer"}}}}},
     {"type": "function", "function": {
         "name": "lyrics_by_name",
         "description": ("Busca la letra de una cancion que NO esta en la biblioteca, "
@@ -409,19 +515,63 @@ def run_tool(name, args) -> dict:
                     "without_artist": e["without_artist"]}
 
         if name == "create_playlist":
-            made = playlists.create(args["name"], args.get("note", ""))
+            title = str(args.get("name") or "").strip()
+            if not title:
+                return {"error": "la lista necesita un nombre"}
+            ids, bad = _checked_song_ids(args.get("ids"))
+            if bad:
+                return {"error": bad}
+            made = playlists.create(title, args.get("note", ""))
             lid, created = made["id"], made["created"]
-            n = playlists.add(lid, [int(i) for i in args.get("ids", [])])
-            return {"playlist_id": lid, "name": args["name"], "added": n,
-                    "created": created}
+            n = playlists.add(lid, ids)
+            view = _playlist_view(playlists.by_id(lid))
+            return {**view, "added": n, "created": created,
+                    "note": ("" if created else
+                             f"ya existia una lista «{title}»: se han añadido a esa")}
 
         if name == "list_playlists":
             return {"playlists": [{"id": l["id"], "name": l["name"], "items": l["n"],
                                 "minutos": round(l["seconds"] / 60)} for l in playlists.list_all()]}
 
+        if name == "playlist_songs":
+            pl, bad = _find_playlist(args)
+            if bad:
+                return {"error": bad}
+            return _playlist_view(pl)
+
         if name == "add_to_playlist":
-            n = playlists.add(int(args["playlist_id"]), [int(i) for i in args.get("ids", [])])
-            return {"added": n}
+            pl, bad = _find_playlist(args)
+            if bad:
+                return {"error": bad}
+            ids, bad = _checked_song_ids(args.get("ids"))
+            if bad:
+                return {"error": bad}
+            n = playlists.add(pl["id"], ids)
+            return {**_playlist_view(playlists.by_id(pl["id"])), "added": n}
+
+        if name == "set_playlist_songs":
+            pl, bad = _find_playlist(args)
+            if bad:
+                return {"error": bad}
+            ids, bad = _checked_song_ids(args.get("ids"))
+            if bad:
+                return {"error": bad}
+            r = playlists.set_songs(pl["id"], ids)
+            return {**_playlist_view(playlists.by_id(pl["id"])), **r}
+
+        if name == "rename_playlist":
+            pl, bad = _find_playlist(args)
+            if bad:
+                return {"error": bad}
+            new_name = str(args.get("new_name") or "").strip()
+            note = args.get("note")
+            if not new_name and note is None:
+                return {"error": "no me has dicho que cambiar"}
+            if new_name and (other := playlists.by_name(new_name)) and other["id"] != pl["id"]:
+                return {"error": f"ya hay otra lista que se llama «{other['name']}»"}
+            out = playlists.edit(pl["id"], name=new_name or None, note=note)
+            return {"ok": True, "playlist_id": out["id"], "name": out["name"],
+                    "was": pl["name"]}
 
         if name == "get_lyrics":
             c = library.by_id(int(args["id"]))
@@ -518,12 +668,14 @@ def run_tool(name, args) -> dict:
                     "action": {"kind": "play_song", "song_id": c["id"]}}
 
         if name == "play_playlist":
-            lid = int(args["playlist_id"])
-            cs = playlists.songs(lid)
+            pl, bad = _find_playlist(args)
+            if bad:
+                return {"error": bad}
+            cs = playlists.songs(pl["id"])
             if not cs:
-                return {"error": "esa lista no existe o esta vacia"}
-            return {"ok": True, "songs": len(cs),
-                    "action": {"kind": "play_playlist", "playlist_id": lid}}
+                return {"error": f"la lista «{pl['name']}» esta vacia"}
+            return {"ok": True, "name": pl["name"], "songs": len(cs),
+                    "action": {"kind": "play_playlist", "playlist_id": pl["id"]}}
 
         if name == "player_control":
             cmd = str(args.get("command", "")).lower()
@@ -569,12 +721,26 @@ def run_tool(name, args) -> dict:
             return library.trash(int(args["id"]))
 
         if name == "remove_from_playlist":
-            playlists.remove_song(int(args["playlist_id"]), int(args["song_id"]))
-            return {"ok": True}
+            pl, bad = _find_playlist(args)
+            if bad:
+                return {"error": bad}
+            raw = args.get("song_ids") or args.get("song_id")
+            ids, bad = _checked_song_ids(raw)
+            if bad:
+                return {"error": bad}
+            inside = {c["id"] for c in playlists.songs(pl["id"])}
+            gone = [i for i in ids if i in inside]
+            if gone:
+                playlists.remove_song(pl["id"], gone)
+            return {**_playlist_view(playlists.by_id(pl["id"])), "removed": len(gone),
+                    "not_in_list": [i for i in ids if i not in inside]}
 
         if name == "delete_playlist":
-            playlists.remove(int(args["id"]))
-            return {"ok": True}
+            pl, bad = _find_playlist(args)
+            if bad:
+                return {"error": bad}
+            playlists.remove(pl["id"])
+            return {"ok": True, "name": pl["name"]}
 
         if name == "lyrics_by_name":
             r = enrich.lyrics(args.get("artist", ""), args.get("title", ""))
@@ -623,7 +789,7 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
             r = cliente.chat.completions.create(
                 model=config.DEEPINFRA_CHAT_MODEL, messages=history,
                 tools=TOOLS, tool_choice="required" if force_tools else "auto",
-                temperature=0.4, max_tokens=1400)
+                temperature=0.2, max_tokens=1400)
         except Exception as e:
             return {"error": f"no pude hablar con el modelo: {e}"}
         force_tools = False
@@ -800,9 +966,17 @@ def _summarize(name, res) -> str:
     if name == "search_songs":
         return f"{res.get('total', 0)} resultados"
     if name == "create_playlist":
-        return f"lista «{res.get('name')}» con {res.get('added', 0)} temas"
+        return (f"lista «{res.get('name')}» con {res.get('added', 0)} temas"
+                + _first_names(res))
     if name == "add_to_playlist":
-        return f"{res.get('added', 0)} añadidas"
+        return f"{res.get('added', 0)} añadidas a «{res.get('name')}»" + _first_names(res)
+    if name == "set_playlist_songs":
+        return (f"«{res.get('name')}»: {res.get('added', 0)} entran, "
+                f"{res.get('removed', 0)} salen, quedan {res.get('total', 0)}" + _first_names(res))
+    if name == "playlist_songs":
+        return f"«{res.get('name')}» tiene {len(res.get('songs', []))} temas"
+    if name == "rename_playlist":
+        return f"«{res.get('was')}» → «{res.get('name')}»"
     if name == "list_playlists":
         return f"{len(res.get('playlists', []))} listas"
     if name == "get_lyrics":
@@ -845,6 +1019,19 @@ def _summarize(name, res) -> str:
         return ", ".join(hechos) if hechos else "no se encontro nada"
     if name == "delete_song":
         return f"a la papelera: {res.get('name', '')}"[:60]
-    if name in ("remove_from_playlist", "delete_playlist"):
-        return "hecho"
+    if name == "remove_from_playlist":
+        return f"{res.get('removed', 0)} fuera de «{res.get('name')}»"
+    if name == "delete_playlist":
+        return f"borrada «{res.get('name')}»"
     return "ok"
+
+
+def _first_names(res, limit=3) -> str:
+    """Las primeras canciones de la lista, para que se vea QUE entro."""
+    songs = res.get("songs") or []
+    if not songs:
+        return ""
+    shown = ", ".join(f"{c['artist']} - {c['title']}" if c.get("artist") else c["title"]
+                      for c in songs[:limit])
+    more = f" y {len(songs) - limit} mas" if len(songs) > limit else ""
+    return f": {shown}{more}"

@@ -15,7 +15,7 @@
     transition-duration:.01ms !important;
     transition-delay:0ms !important;
   }
-  .spinner{
+  .spinner,.nav-link .count.live::before,.nav-link .now-dot{
     animation-duration:1.4s !important;
     animation-iteration-count:infinite !important;
   }

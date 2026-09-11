@@ -24,6 +24,16 @@ use tauri::{AppHandle, Emitter};
 
 pub const READY: &str = "danplay://core";
 
+/// «Algo de lo que se enseña ha cambiado»: el indice, las listas, las
+/// estrellas. Lo escucha la interfaz para refrescarse sola.
+///
+/// El nucleo cuenta sus cambios en `/api/status` (`revision`), y este proceso
+/// ya consulta esa ruta cada pocos segundos para vigilar que sigue vivo. Con
+/// mirar el numero de paso, un cambio hecho «por detras» —una descarga que
+/// termina, el asistente, la linea de ordenes— se ve sin salir y volver a
+/// entrar en la pagina.
+pub const CHANGED: &str = "danplay://changed";
+
 /// Como se llega al nucleo. Se decide una vez al arrancar.
 #[derive(Clone, Debug)]
 pub enum Address {
@@ -450,10 +460,15 @@ impl Core {
     /// El nucleo esta vivo y contesta. Antes bastaba con que existiera el
     /// archivo del socket, que se queda ahi aunque el proceso haya muerto.
     pub async fn ready(&self) -> bool {
-        matches!(
-            request(&self.address, "GET", "/api/status", None).await,
-            Ok((200, _, _))
-        )
+        self.status().await.is_some()
+    }
+
+    /// El estado del nucleo si contesta: `Some(revision)`. Ver `CHANGED`.
+    async fn status(&self) -> Option<u64> {
+        match request(&self.address, "GET", "/api/status", None).await {
+            Ok((200, bytes, _)) => Some(revision_of(&bytes)),
+            _ => None,
+        }
     }
 
     pub fn stop(&self) {
@@ -482,29 +497,46 @@ impl Core {
     }
 }
 
+/// El contador de cambios que trae `/api/status`. Sin el (un nucleo mas
+/// viejo), cero: nunca cambia y nunca avisa, que es lo que hacia antes.
+pub fn revision_of(bytes: &[u8]) -> u64 {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|v| v.get("revision").and_then(|r| r.as_u64()))
+        .unwrap_or(0)
+}
+
+/// Cada cuanto se mira el nucleo. Es tambien el retraso maximo con que se ve
+/// un cambio hecho por detras: dos segundos se sienten «al momento».
+const WATCH_EVERY: Duration = Duration::from_secs(2);
+
 /// Vigila el nucleo en segundo plano y avisa a la interfaz de los cambios.
 ///
 /// Con la app viviendo en la bandeja durante horas, que el nucleo se muera y
 /// nadie se entere significa una ventana que no responde al volver a abrirla.
+/// Y de paso, si el nucleo dice que algo ha cambiado (`revision`), se avisa
+/// con `CHANGED` para que la interfaz se refresque sola.
 pub fn watch(app: AppHandle) {
     std::thread::Builder::new()
         .name("danplay-core-watch".into())
         .spawn(move || {
             let mut was_ready = false;
+            let mut seen: Option<u64> = None;
             loop {
-                std::thread::sleep(Duration::from_secs(3));
+                std::thread::sleep(WATCH_EVERY);
                 let Some(core) = app.try_state::<Core>() else {
                     return;
                 };
-                let ready = tauri::async_runtime::block_on(core.ready());
-                if !ready {
+                let mut status = tauri::async_runtime::block_on(core.status());
+                if status.is_none() {
                     let revived = core.revive_if_dead();
                     if revived {
                         // darle tiempo a abrir el socket antes de volver a mirar
                         std::thread::sleep(Duration::from_secs(2));
                     }
+                    status = tauri::async_runtime::block_on(core.status());
                 }
-                let ready = ready || tauri::async_runtime::block_on(core.ready());
+                let ready = status.is_some();
                 if ready != was_ready {
                     was_ready = ready;
                     let message = if ready {
@@ -517,9 +549,30 @@ pub fn watch(app: AppHandle) {
                     };
                     let _ = app.emit(READY, serde_json::json!({"ready": ready, "message": message}));
                 }
+                if let Some(revision) = status {
+                    // La primera lectura solo fija el punto de partida: al
+                    // arrancar, la interfaz ya carga todo por su cuenta.
+                    if seen.is_some_and(|s| s != revision) {
+                        let _ = app.emit(CHANGED, serde_json::json!({"revision": revision}));
+                    }
+                    seen = Some(revision);
+                }
             }
         })
         .ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_revision_is_read_from_the_status() {
+        assert_eq!(revision_of(br#"{"stats":{},"revision":42}"#), 42);
+        // un nucleo que no la trae no avisa nunca: cero es «sin cambios»
+        assert_eq!(revision_of(br#"{"stats":{}}"#), 0);
+        assert_eq!(revision_of(b"no es json"), 0);
+    }
 }
 
 use tauri::Manager;

@@ -77,6 +77,17 @@ input:focus,select:focus{border-color:var(--accent);
 .nav-link.active .nav-icon{color:var(--accent)}
 .nav-link .nav-icon{width:15px;text-align:center;font-size:13px;color:var(--muted2)}
 .nav-link .count{margin-left:auto;font-size:11px;color:var(--muted2)}
+/* algo en marcha (una descarga): el numero se ve y late */
+.nav-link .count.live{color:var(--accent);font-weight:600;display:inline-flex;
+  align-items:center;gap:5px;font-variant-numeric:tabular-nums}
+.nav-link .count.live::before{content:"";width:6px;height:6px;border-radius:50%;
+  background:var(--accent);animation:vivo 1.2s ease-in-out infinite}
+@keyframes vivo{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+/* de donde salio lo que suena: un punto que late; quieto si esta en pausa */
+.nav-link .now-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);
+  flex-shrink:0;margin-left:6px;animation:vivo 1.2s ease-in-out infinite}
+.nav-link .now-dot.paused{animation:none;opacity:.55}
+.nav-playlist .now-dot{margin-left:0}
 .nav-playlist{position:relative}
 .nav-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   text-align:left}

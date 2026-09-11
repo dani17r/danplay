@@ -1,7 +1,8 @@
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { api, errorMessage } from '../api.js'
 import { ask } from '../composables/useDialog.js'
+import { useDownloads } from '../composables/useDownloads.js'
 import { renderMarkdown } from '../utils/markdown.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
@@ -33,6 +34,9 @@ const TOOL_LABELS = {
   search_web: 'busco en la web',
   play_song: 'pongo la cancion',
   play_playlist: 'pongo la lista',
+  playlist_songs: 'miro la lista',
+  set_playlist_songs: 'dejo la lista como debe',
+  rename_playlist: 'renombro la lista',
   player_control: 'controlo el reproductor',
   set_stars: 'pongo estrellas',
   set_favorite: 'marco favorito',
@@ -56,43 +60,33 @@ const SUGGESTIONS = [
 ]
 
 // La descarga que se aprobo desde aqui corre en el nucleo, en segundo plano.
-// El chat la sigue —el mismo estado que enseña la pagina de Descargas— y, al
-// terminar, cuenta que entro, que ya tenias y que fallo. Antes se decia «te
-// lo cuento en Descargas» y aqui no volvia a saberse nada.
+// El chat la sigue —el mismo estado que enseñan Descargas y la barra
+// lateral, via useDownloads— y, al terminar, cuenta que entro, que ya tenias
+// y que fallo. Antes se decia «te lo cuento en Descargas» y aqui no volvia a
+// saberse nada.
 //
 // Lo pedido se guarda en localStorage: una descarga tarda minutos y es normal
 // cambiar de pagina mientras tanto; al volver, se retoma el seguimiento y el
 // resultado se cuenta igual.
 const FOLLOW_KEY = 'danplay.chat.download'
-const downloading = ref(null)
-let poll = null
-let following = null
+const downloads = useDownloads()
+const following = ref(null)
+// la burbuja de avance solo para lo que se pidio desde aqui
+const downloading = computed(() => (following.value && downloads.state.active ? downloads.state : null))
 
 function rememberFollowing () {
   try {
-    if (following) localStorage.setItem(FOLLOW_KEY, JSON.stringify(following))
+    if (following.value) localStorage.setItem(FOLLOW_KEY, JSON.stringify(following.value))
     else localStorage.removeItem(FOLLOW_KEY)
   } catch { /* sin almacenamiento (modo privado) */ }
 }
-function watchDownload () {
-  if (poll) return
-  poll = setInterval(tick, 900)
-}
-function stopWatching () {
-  if (poll) { clearInterval(poll); poll = null }
-  downloading.value = null
-}
-async function tick () {
-  let e
-  try { e = await api.youtube() } catch { return /* el nucleo aun no responde */ }
-  if (e.active) { downloading.value = e; return }
-  stopWatching()
-  const asked = following
-  following = null
+const stopFollowing = downloads.onFinished((s) => {
+  if (!following.value) return
+  following.value = null
   rememberFollowing()
-  if (asked) reportDownload(e)
-}
-onUnmounted(() => { if (poll) { clearInterval(poll); poll = null } })
+  reportDownload(s)
+})
+onUnmounted(stopFollowing)
 
 /** Una fila del resultado, legible. */
 function describe (r) {
@@ -150,11 +144,17 @@ function reportDownload (e) {
   // Si entro algo, se le pasa el turno al asistente: «descargame estas y
   // armame una lista» se quedaba a medias, porque el no se entera solo de
   // que la descarga acabo y la persona tenia que volver a pedirselo.
+  //
+  // Con los ids EXACTOS de lo que entro. Sin ellos, el modelo se los
+  // inventaba y la lista salia con otras canciones.
   if (ok.length && !thinking.value) {
+    const ids = ok.filter(r => r.id).map(r => `${r.id} = «${describe(r)}»`).join('; ')
     send('[aviso de la app] La descarga ha terminado; el resultado esta en el mensaje ' +
-         'anterior. Si en lo que te pedi quedaba algo por hacer con esas canciones ' +
+         'anterior. Las canciones que han entrado, con su id en la biblioteca: ' +
+         (ids || 'ninguna con id') + '. Usa EXACTAMENTE esos ids. ' +
+         'Si en lo que te pedi quedaba algo por hacer con esas canciones ' +
          '(una lista, ponerlas a sonar…), hazlo ahora con las herramientas y cuentamelo ' +
-         'en una linea. Si no quedaba nada, di solo que ya estan.', true)
+         'en una linea; no toques nada mas. Si no quedaba nada, di solo que ya estan.', true)
   }
 }
 
@@ -165,7 +165,7 @@ onMounted(async () => {
   // una descarga pedida desde aqui que seguia en marcha al cambiar de pagina
   try {
     const pending = localStorage.getItem(FOLLOW_KEY)
-    if (pending) { following = JSON.parse(pending); watchDownload() }
+    if (pending) { following.value = JSON.parse(pending); downloads.wake() }
   } catch { /* sin almacenamiento (modo privado) */ }
   scrollToBottom()
 })
@@ -214,9 +214,9 @@ async function send (text = null, hidden = false) {
       // `download_music` no esta: en la conversacion solo se PIDE; la
       // biblioteca cambia cuando termina la descarga, y eso lo avisa
       // `reportDownload`.
-      const changesLibrary = ['create_playlist', 'add_to_playlist',
-                              'edit_song', 'set_stars', 'set_favorite', 'delete_song',
-                              'delete_playlist', 'remove_from_playlist',
+      const changesLibrary = ['create_playlist', 'add_to_playlist', 'set_playlist_songs',
+                              'rename_playlist', 'edit_song', 'set_stars', 'set_favorite',
+                              'delete_song', 'delete_playlist', 'remove_from_playlist',
                               'find_lyrics_and_cover']
       if ((r.tools || []).some(h => changesLibrary.includes(h.name))) emit('reload')
       // reproducir no se puede hacer desde Python: el nucleo devuelve la orden
@@ -254,9 +254,9 @@ async function confirmPending (pending) {
     messages.value.push({ role: 'ai', text: r.text || 'Hecho.' })
     if (pending.tool === 'download_music' && r.result?.active) {
       // arranco en segundo plano: se sigue desde aqui y se cuenta al acabar
-      following = { items: r.result.items || [], force: !!r.result.force }
+      following.value = { items: r.result.items || [], force: !!r.result.force }
       rememberFollowing()
-      watchDownload()
+      downloads.wake()
     } else {
       emit('reload')
     }

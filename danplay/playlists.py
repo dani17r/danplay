@@ -58,6 +58,7 @@ def create(name, note="", color="") -> dict:
         return {"id": row["id"], "name": name, "created": False}
     cur = conn.execute("INSERT INTO playlists (name,note,color,created) "
                        "VALUES (?,?,?,?)", (name, note, color, time.time()))
+    library._touch()
     lid = cur.lastrowid
     conn.commit(); conn.close()
     return {"id": lid, "name": name, "created": True}
@@ -70,6 +71,7 @@ def remove(playlist_id) -> None:
     conn.execute("DELETE FROM playlist_songs WHERE playlist_id=?", (playlist_id,))
     conn.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
     conn.commit(); conn.close()
+    library._touch()
     # los archivos dejan de nombrar la lista: si no, un reescaneo la resucitaria
     _stamp_playlists_into_files(members)
 
@@ -78,6 +80,66 @@ def rename_folder(playlist_id, name) -> None:
     conn = _connect()
     conn.execute("UPDATE playlists SET name=? WHERE id=?", (name, playlist_id))
     conn.commit(); conn.close()
+    library._touch()
+
+
+def by_id(playlist_id) -> dict | None:
+    """La lista con ese id, con cuantos temas tiene, o None."""
+    try:
+        playlist_id = int(playlist_id)
+    except (TypeError, ValueError):
+        return None
+    return next((l for l in list_all() if l["id"] == playlist_id), None)
+
+
+def by_name(name: str) -> dict | None:
+    """La lista que se llama asi, sin distinguir mayusculas ni tildes.
+
+    El asistente conoce las listas por su nombre («Herlin»), no por su id; y
+    cuando adivinaba el id acababa borrando la lista equivocada.
+    """
+    key = names._flat(str(name or ""))
+    if not key:
+        return None
+    return next((l for l in list_all() if names._flat(l["name"]) == key), None)
+
+
+def edit(playlist_id, name=None, note=None) -> dict | None:
+    """Cambia el nombre o la nota. Devuelve la lista ya cambiada, o None."""
+    current = by_id(playlist_id)
+    if not current:
+        return None
+    fields, values = [], []
+    if name is not None and str(name).strip():
+        fields.append("name=?"); values.append(str(name).strip())
+    if note is not None:
+        fields.append("note=?"); values.append(str(note))
+    if fields:
+        conn = _connect()
+        conn.execute(f"UPDATE playlists SET {','.join(fields)} WHERE id=?",
+                     values + [current["id"]])
+        conn.commit(); conn.close()
+        library._touch()
+        if name is not None:
+            # las canciones llevan dentro los nombres de sus listas
+            _stamp_playlists_into_files([s["id"] for s in songs(current["id"])])
+    return by_id(current["id"])
+
+
+def set_songs(playlist_id, song_ids) -> dict:
+    """Deja la lista EXACTAMENTE con esas canciones, en ese orden.
+
+    Es «corrige la lista»: lo que sobra se quita, lo que falta se añade, y lo
+    que ya estaba se queda. Devuelve cuantas se quitaron y cuantas entraron.
+    """
+    wanted = existing_ids(song_ids)
+    current = [s["id"] for s in songs(playlist_id)]
+    gone = [i for i in current if i not in wanted]
+    if gone:
+        remove_song(playlist_id, gone)
+    added = add(playlist_id, [i for i in wanted if i not in current])
+    reorder(playlist_id, wanted)
+    return {"removed": len(gone), "added": added, "total": len(wanted)}
 
 
 def list_all() -> list[dict]:
@@ -96,9 +158,51 @@ def list_all() -> list[dict]:
     return [dict(f) for f in rows]
 
 
+def existing_ids(song_ids) -> list[int]:
+    """De esos ids, los que son una cancion de verdad, en el mismo orden.
+
+    Positivos: la biblioteca. Negativos: archivos abiertos desde fuera
+    (`external.py`), si esa tabla existe. Lo que no este, fuera.
+    """
+    wanted = []
+    for i in song_ids:
+        try:
+            wanted.append(int(i))
+        except (TypeError, ValueError):
+            continue
+    if not wanted:
+        return []
+    conn = _connect()
+    found: set = set()
+    inside = [i for i in wanted if i > 0]
+    if inside:
+        found |= {r["id"] for r in conn.execute(
+            f"SELECT id FROM songs WHERE id IN ({','.join('?' * len(inside))})", inside)}
+    outside = [-i for i in wanted if i < 0]
+    if outside and conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='external_songs'").fetchone():
+        found |= {-r["id"] for r in conn.execute(
+            f"SELECT id FROM external_songs WHERE id IN ({','.join('?' * len(outside))})",
+            outside)}
+    conn.close()
+    seen: set = set()
+    out = []
+    for i in wanted:
+        if i in found and i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
 def add(playlist_id, song_ids) -> int:
     if isinstance(song_ids, int):
         song_ids = [song_ids]
+    # Solo lo que existe. Un id que no es ninguna cancion (el asistente se los
+    # inventaba) dejaba una fila huerfana: la lista decia «6 temas» y
+    # enseñaba cuatro.
+    song_ids = existing_ids(song_ids)
+    if not song_ids:
+        return 0
     conn = _connect()
     row = conn.execute("SELECT COALESCE(MAX(position),-1) m FROM playlist_songs "
                        "WHERE playlist_id=?", (playlist_id,)).fetchone()
@@ -112,6 +216,8 @@ def add(playlist_id, song_ids) -> int:
         if cur.rowcount:
             sort += 1; n += 1
     conn.commit(); conn.close()
+    if n:
+        library._touch()
     _stamp_playlists_into_files(song_ids)
     return n
 
@@ -124,6 +230,7 @@ def remove_song(playlist_id, song_ids) -> None:
         conn.execute("DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?",
                     (playlist_id, cid))
     conn.commit(); conn.close()
+    library._touch()
     _stamp_playlists_into_files(song_ids)
 
 
@@ -133,6 +240,7 @@ def reorder(playlist_id, ordered_song_ids) -> None:
         conn.execute("UPDATE playlist_songs SET position=? WHERE playlist_id=? AND song_id=?",
                     (i, playlist_id, cid))
     conn.commit(); conn.close()
+    library._touch()
 
 
 def songs(playlist_id) -> list[dict]:
@@ -213,6 +321,7 @@ def rate(song_id, stars: int) -> bool:
     conn.execute("UPDATE songs SET stars=? WHERE id=?",
                 (max(0, min(5, int(stars))), song_id))
     conn.commit(); conn.close()
+    library._touch()
     return ok
 
 
@@ -224,6 +333,7 @@ def favorite(song_id, value=True) -> bool:
     conn = _connect()
     conn.execute("UPDATE songs SET favorite=? WHERE id=?", (1 if value else 0, song_id))
     conn.commit(); conn.close()
+    library._touch()
     return ok
 
 
