@@ -5,7 +5,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 // Se construye a partir del `api` de verdad (tests/support/backend.js), asi
 // que si la app llama a algo que no esta programado, la prueba lo dice con su
 // nombre en vez de pasar en verde contra un contrato que ya no existe.
-const held = vi.hoisted(() => ({ state: null, api: null, playback: null, pickFolder: null, coreListener: null }))
+const held = vi.hoisted(() => ({ state: null, api: null, playback: null, pickFolder: null, coreListener: null, app: null }))
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -24,7 +24,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
     api: held.api,
     playback: held.playback.bridge,
     pickFolder: held.pickFolder,
-    app: createAppDouble(),
+    app: (held.app = createAppDouble()),
     mini: { hide: v.fn(async () => {}), toggle: v.fn(async () => {}) },
     core: {
       onStatus: async (fn) => {
@@ -494,6 +494,38 @@ describe('pausar desde la propia fila', () => {
     expect(all.find('.now-dot').classes()).not.toContain('paused')
     await reproducir(w, 0)                 // pausa
     expect(all.find('.now-dot').classes()).toContain('paused')
+  })
+})
+
+// El menu de la cancion: «Enviar por Telegram» solo si Telegram esta en el
+// equipo (lo dice Rust al arrancar), y «Abrir la carpeta» siempre.
+describe('el menu contextual de una cancion', () => {
+  async function abrirMenu () {
+    state.status.configured = true
+    state.songs = [song(1), song(2)]          // con su ruta, como las de verdad
+    const w = await montar()
+    await w.findAll('tbody tr')[0].trigger('contextmenu')
+    await flushPromises()
+    return w
+  }
+  const etiquetas = (w) => w.findAll('.ctx-item .ctx-label').map(b => b.text())
+
+  it('con Telegram instalado ofrece enviar la cancion, y manda su ruta', async () => {
+    const w = await abrirMenu()
+    expect(etiquetas(w)).toContain('Enviar por Telegram')
+    expect(etiquetas(w)).toContain('Abrir la carpeta')
+    await w.findAll('.ctx-item').find(b => b.text().includes('Enviar por Telegram')).trigger('click')
+    await flushPromises(); await flushPromises()
+    expect(held.app.sendToTelegram).toHaveBeenCalledTimes(1)
+    expect(held.app.sendToTelegram.mock.calls[0][0]).toBe('/musica/cancion-1.mp3')
+    expect(w.text()).toContain('Telegram se ha abierto')
+  })
+
+  it('sin Telegram, la opcion no aparece', async () => {
+    held.app.shareTargets.mockResolvedValueOnce({ telegram: false })
+    const w = await abrirMenu()
+    expect(etiquetas(w)).not.toContain('Enviar por Telegram')
+    expect(etiquetas(w)).toContain('Abrir la carpeta')
   })
 })
 

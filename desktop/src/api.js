@@ -340,6 +340,20 @@ export const app = {
     inTauri
       ? invoke('reveal_in_folder', { path })
       : Promise.reject(new Error('Solo en la aplicación de escritorio')),
+  /**
+   * A dónde se puede enviar una canción desde este equipo.
+   * @returns {Promise<{telegram: boolean}>}
+   */
+  shareTargets: () => (inTauri ? invoke('share_targets') : Promise.resolve({ telegram: false })),
+  /**
+   * Abre Telegram Desktop con el archivo listo para enviar (`-sendpath`);
+   * el chat lo elige la persona allí. No se manda nada solo.
+   * @param {string} path
+   */
+  sendToTelegram: (path) =>
+    inTauri
+      ? invoke('send_to_telegram', { path })
+      : Promise.reject(new Error('Solo en la aplicación de escritorio')),
   /** Cierra DanPlay del todo, lo mismo que «Salir» en la bandeja. */
   quit: () => (inTauri ? invoke('quit_app') : Promise.resolve()),
   /**

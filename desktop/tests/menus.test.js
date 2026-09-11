@@ -50,6 +50,8 @@ const { estadoFalso, status, api, native, pickFolder, tray, app, core } = vi.hoi
   const app = {
     showWindow: vi.fn(async () => {}), quit: vi.fn(async () => {}),
     trayAvailable: vi.fn(async () => false),
+    shareTargets: vi.fn(async () => ({ telegram: false })),
+    sendToTelegram: vi.fn(async () => {}), revealInFolder: vi.fn(async () => {}),
     defaultPlayer: vi.fn(async () => ({ supported: true, is_default: true, direct: true, note: '' })),
     makeDefaultPlayer: vi.fn(async () => ({ supported: true, is_default: true, direct: true, note: '' }))
   }

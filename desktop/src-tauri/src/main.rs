@@ -13,6 +13,7 @@ mod open;
 mod player;
 mod queue;
 mod reveal;
+mod share;
 mod transcode;
 mod tray;
 
@@ -192,6 +193,8 @@ fn main() {
             associate::default_player,
             associate::make_default_player,
             reveal::reveal_in_folder,
+            share::share_targets,
+            share::send_to_telegram,
         ])
         .build(tauri::generate_context!())
         .expect("no se pudo arrancar DanPlay")

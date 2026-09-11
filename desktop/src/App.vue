@@ -304,6 +304,22 @@ function play(song, list = null, origin = null) {
   api.song(song.id).then((d) => (detail.value = d))
 }
 
+// A dónde se puede enviar una canción desde este equipo (Telegram, si está
+// instalado). Se mira una vez al arrancar; sin destino, la opción no aparece.
+const shareTargets = ref({ telegram: false })
+
+/** Abre Telegram con el archivo de la canción listo para enviar. */
+async function sendSongToTelegram(song) {
+  const path = song?.path || (await api.song(song.id).catch(() => null))?.path
+  if (!path) return notify('No sé dónde está ese archivo')
+  try {
+    await tauriApp.sendToTelegram(path)
+    notify('Telegram se ha abierto: elige ahí a quién se la mandas', 'ok')
+  } catch (e) {
+    notify(errorMessage(e))
+  }
+}
+
 /** Abre el explorador del sistema señalando el archivo de la canción. */
 async function revealSong(song) {
   const path = song?.path || (await api.song(song.id).catch(() => null))?.path
@@ -486,6 +502,9 @@ function songMenu(ev, song) {
   items.push({ label: 'Renombrar…', icon: 'pencil', action: () => renameSong(song) })
   items.push({ separator: true })
   items.push({ label: 'Abrir la carpeta', icon: 'folderOpen', action: () => revealSong(song) })
+  if (shareTargets.value.telegram) {
+    items.push({ label: 'Enviar por Telegram', icon: 'send', action: () => sendSongToTelegram(song) })
+  }
   items.push({
     label: 'Mandar a la papelera…',
     icon: 'trash',
@@ -691,6 +710,7 @@ onMounted(async () => {
   // Cualquier cambio en el núcleo —lo haga quien lo haga— se refleja aquí
   // sin salir y volver a entrar. Rust avisa; esta ventana escucha.
   stopChangeWatch = await core.onChanged(onCoreChanged)
+  tauriApp.shareTargets().then((t) => (shareTargets.value = t || { telegram: false })).catch(() => {})
   // y si había una descarga en marcha (un reinicio de la ventana), que se vea
   downloads.refresh()
 })

@@ -226,6 +226,9 @@ export function createAppDouble(over = {}) {
     showWindow: vi.fn(async () => {}),
     quit: vi.fn(async () => {}),
     trayAvailable: vi.fn(async () => false),
+    shareTargets: vi.fn(async () => ({ telegram: true })),
+    sendToTelegram: vi.fn(async () => {}),
+    revealInFolder: vi.fn(async () => {}),
     defaultPlayer: vi.fn(async () => ({
       supported: true,
       is_default: false,

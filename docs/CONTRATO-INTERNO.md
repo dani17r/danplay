@@ -97,6 +97,8 @@ final. Con `shuffle` elige otra al azar distinta de la actual.
 | `toggle_mini` | Muestra u oculta el popup. |
 | `quit_app` | Cierra DanPlay del todo (lo mismo que «Salir» en la bandeja). |
 | `tray_available` | `boolean`: hay bandeja donde quedarse. Si es `false`, cerrar la ventana cierra la app. |
+| `share_targets` | → `{ telegram: boolean }`: a dónde se puede enviar una canción desde este equipo. Se busca Telegram Desktop donde lo pone cada sistema (PATH, snap y flatpak en Linux; `%APPDATA%`, Archivos de programa y el alias de la Store en Windows; `/Applications` en macOS). Sin Telegram, la opción no se enseña. |
+| `send_to_telegram` | `{ path }`: abre Telegram con el archivo listo para enviar (`-sendpath`; `open -a` en macOS; con `--file-forwarding` en flatpak). El chat lo elige la persona allí: no se manda nada solo. |
 | `reveal_in_folder` | `{ path }`: abre el explorador del sistema señalando ese archivo (D-Bus `FileManager1.ShowItems` o `xdg-open` en Linux, `explorer /select,` en Windows, `open -R` en macOS). Error en castellano si la ruta no existe. |
 
 Evento `danplay://mini-visible` con `{ visible: boolean }` cuando el popup
