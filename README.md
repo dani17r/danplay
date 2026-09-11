@@ -12,8 +12,8 @@
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-671%20en%20verde-2ea043">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.0-4ade80">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-672%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -295,11 +295,11 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-671 pruebas repartidas así:
+672 pruebas repartidas así:
 
 | Tanda | Pruebas |
 | --- | --- |
-| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, descargas, corpus de narración del asistente, nombres de YouTube, Windows, asociaciones) | 118 |
+| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, descargas, corpus de narración del asistente, nombres de YouTube, versión, Windows, asociaciones) | 119 |
 | API sobre una biblioteca temporal de verdad | 129 |
 | Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat, descargas, menú, selección múltiple | 322 |
 | Interfaz: rutas de medios en cada sistema | 7 |

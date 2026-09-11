@@ -609,6 +609,24 @@ def test_all_the_pieces_carry_the_same_version():
         + "\n  ".join(f"{k}: {x}" for k, x in v.items()))
 
 
+def test_el_script_de_version_toca_todos_los_sitios_que_mira_esta_prueba():
+    """Regla de la casa: cada cambio sube la version, y se sube con el script.
+
+    Si alguien añade un sitio nuevo donde vive la version a `_versiones()` y
+    se olvida del script (o al reves), subir la version volveria a dejar
+    piezas atras. Los dos tienen que hablar de los mismos archivos.
+    """
+    script = (_raiz() / "scripts/subir-version.sh").read_text(encoding="utf-8")
+    for path in _versiones():
+        assert path in script, f"scripts/subir-version.sh no toca {path}"
+    for extra in ("pyproject.toml", "README.md", "Cargo.lock", "package-lock.json"):
+        assert extra in script, f"scripts/subir-version.sh no toca {extra}"
+    # y la regla esta escrita donde la lee quien contribuye
+    guia = (_raiz() / "docs/CONTRIBUIR.md").read_text(encoding="utf-8")
+    assert "Cada cambio que se entrega sube la versión" in guia
+    assert "subir-version.sh" in guia
+
+
 def test_the_api_does_not_repeat_the_version():
     """La API la lee de `__version__`, no la copia.
 

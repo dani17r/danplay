@@ -109,6 +109,36 @@ método que la interfaz llame y la prueba no haya programado falla diciendo
 cuál es. Cinco fallos de la interfaz eran nombres que dejaron de existir al
 pasar el código a inglés y que nadie comparó con el núcleo.
 
+## La versión
+
+**Cada cambio que se entrega sube la versión.** Sin excepción: una corrección
+pequeña, una función nueva, un cambio que rompe algo. Es la regla de la casa
+porque, sin subirla, un `.deb` con el mismo número no se reinstala con
+`apt install`, Windows enseña el mismo número antes y después, y nadie puede
+saber qué DanPlay tiene delante.
+
+Cuánto se sube lo decide quien hace el cambio, con versionado semántico
+`MAYOR.MENOR.PARCHE`:
+
+| Sube | Cuándo | Ejemplo |
+| --- | --- | --- |
+| **PARCHE** (1.2.0 → 1.2.1) | arregla algo sin cambiar lo que la app hace | el reproductor se quedaba mudo; el asistente narraba sin actuar |
+| **MENOR** (1.2.0 → 1.3.0) | añade algo que antes no se podía hacer | enviar por Telegram, selección múltiple, renombrar listas |
+| **MAYOR** (1.2.0 → 2.0.0) | cambia algo de forma incompatible: formato de la base, del `.desktop`, de la API interna, de las etiquetas que escribe | pasar el índice a otro esquema sin migración |
+
+Si un mismo bloque de cambios mezcla arreglos y funciones, manda el mayor.
+
+La versión vive en ocho archivos y no se toca a mano:
+
+```bash
+./scripts/subir-version.sh 1.3.0
+```
+
+Eso deja los ocho iguales (y los cerrojos de Cargo y npm). Después,
+`./scripts/test.sh --rapido` —hay una prueba que falla si alguno se queda
+atrás—, un **commit propio** (`chore: subir a 1.3.0`, sin mezclarlo con el
+cambio) y se reconstruyen los paquetes, que llevan el número en el nombre.
+
 ## Estilo
 
 - El **código** en inglés: carpetas, archivos, funciones, variables, rutas de
