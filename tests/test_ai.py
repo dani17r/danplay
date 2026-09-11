@@ -743,24 +743,24 @@ def test_las_conversaciones_se_guardan_y_se_buscan(monkeypatch, tmp_path):
     assert chats.title_from("x" * 100).endswith("…")
 
 
-def test_una_llamada_escrita_como_texto_no_pasa_por_respuesta(perfiles, monkeypatch):
+def test_una_llamada_escrita_como_texto_se_ejecuta_igual(perfiles, monkeypatch):
     """Algun modelo, en vez de llamar a la herramienta, escribe la llamada:
-    «search_songs query="barak"». Eso no es una respuesta: se le devuelve la
-    pelota obligandole a usar herramientas de verdad."""
+    «set_stars id=1 stars=5». Si se entiende, se ejecuta como si la hubiera
+    hecho; si no, se le obliga a usar herramientas de verdad."""
     from danplay import chat
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
     assert chat.PSEUDO_CALL.match('search_songs query="artist:Barak" sort="duration"')
-    assert chat.PSEUDO_CALL.match("play_song(12)")
-    assert chat.PSEUDO_CALL.match("`list_playlists: {}`")
+    assert chat.PSEUDO_CALL.match("play_song(12)") and chat.PSEUDO_CALL.match("list_playlists")
     assert not chat.PSEUDO_CALL.match("Busca con search_songs si quieres.")
     assert not chat.PSEUDO_CALL.match("Tienes 18 canciones de Barak.")
-    monkeypatch.setattr(chat, "run_tool", lambda name, args: {"total": 1, "songs": [{"id": 1, "artist": "Barak", "title": "Mi Gozo"}]})
-
-    class _Call:
-        id = "1"
-        function = type("f", (), {"name": "search_songs", "arguments": '{"query": "barak"}'})()
-    turns = [_Msg('search_songs query="artist:Barak" sort="duration" limit=1'),
-             _Msg("", [_Call()]), _Msg("La mas larga es **Mi Gozo**.")]
+    assert chat.parse_pseudo_call("set_stars id=1 stars=5") == ("set_stars", {"id": 1, "stars": 5})
+    assert chat.parse_pseudo_call('create_playlist name="Domingo" ids=[1, 2]') == \
+        ("create_playlist", {"name": "Domingo", "ids": [1, 2]})
+    assert chat.parse_pseudo_call("nada que ver") is None
+    ran = []
+    monkeypatch.setattr(chat, "run_tool", lambda name, args: ran.append((name, args)) or
+                        {"ok": True, "stars": 5, "song": "Barak - Mi Gozo"})
+    turns = [_Msg("set_stars id=1 stars=5"), _Msg("Listo: **Mi Gozo** con 5 estrellas.")]
     fake = _FakeClient()
 
     def create(**kw):
@@ -768,10 +768,20 @@ def test_una_llamada_escrita_como_texto_no_pasa_por_respuesta(perfiles, monkeypa
         return type("r", (), {"choices": [type("c", (), {"message": turns.pop(0)})()]})()
     fake.chat.completions.create = create
     _fake(monkeypatch, fake)
-    r = chat.reply([{"role": "user", "text": "¿cual es la mas larga de Barak?"}])
-    assert r["text"] == "La mas larga es **Mi Gozo**."
-    assert fake.calls[1]["tool_choice"] == "required", "tras el texto falso, herramientas obligadas"
-    assert [t["name"] for t in r["tools"]] == ["search_songs"]
+    r = chat.reply([{"role": "user", "text": "ponle 5 estrellas a Mi Gozo"}])
+    assert ran == [("set_stars", {"id": 1, "stars": 5})]
+    assert r["text"] == "Listo: **Mi Gozo** con 5 estrellas."
+    assert [t["name"] for t in r["tools"]] == ["set_stars"] and not r.get("narrated")
+    # y el historial del turno siguiente lleva la llamada como hecha de verdad
+    assert fake.calls[1]["messages"][-1]["role"] == "tool"
+    assert fake.calls[1]["messages"][-2]["tool_calls"][0]["function"]["name"] == "set_stars"
+    # lo que no se entiende (un JSON roto) sigue el camino de siempre: herramientas obligadas
+    assert chat.parse_pseudo_call('set_stars: {"id": 1,') is None
+    turns[:] = [_Msg('set_stars: {"id": 1,'), _Msg("", [type("C", (), {"id": "1", "function": type("f", (), {"name": "search_songs", "arguments": "{}"})()})()]), _Msg("Fin.")]
+    fake.calls.clear()
+    monkeypatch.setattr(chat, "run_tool", lambda name, args: {"total": 0, "songs": []})
+    chat.reply([{"role": "user", "text": "busca algo"}])
+    assert fake.calls[1]["tool_choice"] == "required"
 
 
 def test_un_flujo_roto_a_medias_se_repite_entero(perfiles, monkeypatch):

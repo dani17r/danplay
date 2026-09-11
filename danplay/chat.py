@@ -10,6 +10,7 @@ Habla SOLO de musica. Lo que no tenga que ver con musica lo dice y ya.
 import json
 import logging
 import re as _re
+from types import SimpleNamespace
 from . import (ai, config, enrich, library, playlists, theory, toon,
                web, youtube)
 
@@ -244,9 +245,9 @@ _LIST = {"name": _STR, "playlist_id": _INT}
 
 TOOLS = [
     _t("search_songs",
-       "Busca en la biblioteca. Texto libre y filtros: artista:barak, album:x, genero:x, "
-       "tono:Bb, bpm>100, duracion>300. Devuelve id, artista, titulo, album, duracion, "
-       "tono, bpm, estrellas, favorito.",
+       "Busca en la biblioteca. Texto libre (titulo, artista) y filtros: artista:barak, "
+       "titulo:gozo, album:x, genero:x, tono:Bb, bpm>100, duracion>300. Devuelve id, artista, "
+       "titulo, album, duracion, tono, bpm, estrellas, favorito.",
        {"query": {"type": "string", "description": "vacio = todo"},
         "limit": {"type": "integer", "description": "por defecto 30"},
         "sort": {"type": "string", "enum": ["artist", "title", "duration", "bpm", "recent", "album"]},
@@ -688,6 +689,7 @@ def reply(messages: list[dict], max_vueltas=6, context: dict | None = None,
     actions = []
     pending = None          # lo que espera un si de la persona
     calls_made = 0
+    pseudo_fixed = 0        # llamadas escritas como texto que se ejecutaron igual
     nudged = False          # ya se le ha parado los pies una vez
     # Algo ha pasado DE VERDAD en este turno: una herramienta que hace algo
     # y no fallo, o una peticion de confirmacion que se ha lanzado. Una
@@ -726,6 +728,21 @@ def reply(messages: list[dict], max_vueltas=6, context: dict | None = None,
 
         msg = r.message
         calls = getattr(msg, "tool_calls", None)
+        if not calls:
+            raw = ai.message_text(msg)
+            # Algun modelo escribe la llamada en vez de hacerla («set_stars
+            # id=1 stars=5»). Si se entiende, se ejecuta como si la hubiera
+            # hecho: es lo que queria, y lo destructivo pasa igualmente por
+            # la confirmacion. Con tope, que no sea un bucle.
+            pseudo = parse_pseudo_call(raw) if PSEUDO_CALL.match(raw) else None
+            if pseudo and pseudo_fixed < 3:
+                pseudo_fixed += 1
+                name, args = pseudo
+                log.info("llamada escrita como texto: %s %s; se ejecuta igual", name, args)
+                calls = [SimpleNamespace(id=f"escrita_{pseudo_fixed}", type="function",
+                                         function=SimpleNamespace(name=name,
+                                                                  arguments=json.dumps(args, ensure_ascii=False)))]
+                msg = SimpleNamespace(content="", tool_calls=calls)
         if not calls:
             raw = ai.message_text(msg)
             # se hizo pasar por herramienta: imitando la nota de la app, o
@@ -827,9 +844,53 @@ def reply(messages: list[dict], max_vueltas=6, context: dict | None = None,
 # Una llamada escrita como texto en vez de hecha: «search_songs query="x"»,
 # «play_song(12)», «list_playlists: {}». Se reconoce por el nombre de una
 # herramienta al principio seguido de argumentos.
+TOOL_NAMES = frozenset(h["function"]["name"] for h in TOOLS)
 PSEUDO_CALL = _re.compile(
-    r"^\s*`?(?:" + "|".join(_re.escape(h["function"]["name"]) for h in TOOLS)
-    + r")\b\s*(?:\(|\{|:|\w+\s*=)", _re.IGNORECASE)
+    r"^\s*`?(?:" + "|".join(_re.escape(n) for n in sorted(TOOL_NAMES))
+    + r")\b\s*(?:\(|\{|:|\w+\s*[:=]|$)", _re.IGNORECASE)
+_PSEUDO_ARG = _re.compile(r"(\w+)\s*[:=]\s*(\"[^\"]*\"|'[^']*'|\[[^\]]*\]|\{[^}]*\}|[^\s,)]+)")
+
+
+def parse_pseudo_call(text: str) -> tuple[str, dict] | None:
+    """La llamada que el modelo escribio en vez de hacer, leida.
+
+    «set_stars id=1 stars=5», «search_songs(query="barak", limit=3)»,
+    «play_song: {"id": 12}»: se admite lo que un modelo suele soltar. Solo la
+    primera linea; lo que no se entienda, None (y se le pide que la haga de
+    verdad).
+    """
+    first = (text or "").strip().split("\n", 1)[0].strip().strip("`")
+    m = _re.match(r"^([A-Za-z_]+)\b\s*(.*)$", first, _re.S)
+    if not m or m.group(1).lower() not in TOOL_NAMES:
+        return None
+    name, rest = m.group(1).lower(), m.group(2).strip()
+    rest = rest.strip("()").strip()
+    if rest.startswith(":"):
+        rest = rest[1:].strip()
+    args: dict = {}
+    if rest.startswith("{"):
+        try:
+            args = json.loads(rest)
+        except Exception:                                    # noqa: BLE001
+            return None
+    else:
+        for key, value in _PSEUDO_ARG.findall(rest):
+            v = value.strip()
+            if v[:1] in "\"'" and v[-1:] == v[:1]:
+                v = v[1:-1]
+            elif v.startswith(("[", "{")):
+                try:
+                    v = json.loads(v)
+                except Exception:                            # noqa: BLE001
+                    pass
+            elif v.lower() in ("true", "false"):
+                v = v.lower() == "true"
+            elif _re.fullmatch(r"-?\d+", v):
+                v = int(v)
+            elif _re.fullmatch(r"-?\d+\.\d+", v):
+                v = float(v)
+            args[key] = v
+    return name, args
 
 NUDGE = ("ATENCION: en este turno ninguna herramienta ha hecho nada, asi que nada "
          "de lo que acabas de decir que hiciste o esta en marcha ha ocurrido. Si el "

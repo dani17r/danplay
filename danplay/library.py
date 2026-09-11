@@ -648,6 +648,7 @@ def restore_playlists_from_tags(found: dict | None = None) -> int:
 # columnas estan en ingles. Se aceptan los dos idiomas.
 FILTER_FIELDS = {
     "artist": "artist",   "artista": "artist",
+    "title": "title",     "titulo": "title",
     "album": "album",
     "genre": "genre",     "genero": "genre",
     "folder": "folder",   "carpeta": "folder",
@@ -744,6 +745,11 @@ def search(query="", filters=None, sort="artist", limit=200, offset=0,
                 break
         if m:
             comparisons.append(m); continue
+        # Un guion suelto («Barak - Mi Gozo»), un «&» o una barra no son
+        # palabras: en FTS iban como termino y no casaban con nada, asi que
+        # la busqueda mas natural del mundo devolvia cero.
+        if not any(ch.isalnum() for ch in tok):
+            continue
         words.append(tok)
 
     where, params = [], []

@@ -1,0 +1,300 @@
+[
+  {
+    "id": "contar",
+    "que": "cuenta bien (del estado real o consultando)",
+    "messages": [
+      {
+        "role": "user",
+        "text": "¿Cuantas canciones tengo de Barak?"
+      }
+    ],
+    "expect": {
+      "text_any": [
+        "3",
+        "tres"
+      ],
+      "no_narration": true
+    }
+  },
+  {
+    "id": "fuera-de-tema",
+    "que": "lo que no es musica se rechaza sin contestarlo",
+    "messages": [
+      {
+        "role": "user",
+        "text": "¿Cual es la capital de Australia?"
+      }
+    ],
+    "expect": {
+      "tools": [],
+      "text_none": [
+        "Canberra"
+      ],
+      "text_any": [
+        "music",
+        "músic"
+      ]
+    }
+  },
+  {
+    "id": "tono",
+    "que": "el tono sale de la biblioteca, con su aviso de aproximado si viene de la IA",
+    "messages": [
+      {
+        "role": "user",
+        "text": "¿En que tono esta Mi Gozo de Barak?"
+      }
+    ],
+    "expect": {
+      "tools_include": [
+        "search_songs"
+      ],
+      "text_any": [
+        "Bb",
+        "Si♭",
+        "Sib",
+        "Si bemol",
+        "si bemol"
+      ]
+    }
+  },
+  {
+    "id": "lista",
+    "que": "armar un repertorio: busca, crea con ids reales y resume con nombres",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Armame una lista que se llame Domingo con las canciones de Barak"
+      }
+    ],
+    "expect": {
+      "tools_include": [
+        "search_songs",
+        "create_playlist"
+      ],
+      "playlist": {
+        "name": "Domingo",
+        "n": 3
+      },
+      "no_narration": true
+    }
+  },
+  {
+    "id": "lista-corregir",
+    "que": "corregir una lista es dejarla bien, no borrarla y crear otra",
+    "setup": {
+      "playlist": {
+        "name": "Ensayo",
+        "songs": [
+          "New Wine - Shekinah"
+        ]
+      }
+    },
+    "messages": [
+      {
+        "role": "user",
+        "text": "La lista Ensayo tiene que tener solo Mi Gozo de Barak, nada mas"
+      }
+    ],
+    "expect": {
+      "tools_include": [
+        "set_playlist_songs"
+      ],
+      "tools_exclude": [
+        "delete_playlist",
+        "create_playlist"
+      ],
+      "playlist": {
+        "name": "Ensayo",
+        "n": 1,
+        "titles": [
+          "Mi Gozo"
+        ]
+      }
+    }
+  },
+  {
+    "id": "borrar-lo-pregunta-la-app",
+    "que": "borrar no se ejecuta en la conversacion: se devuelve para confirmar, sin preguntar en el texto",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Manda a la papelera Shekinah de New Wine"
+      }
+    ],
+    "expect": {
+      "confirm": "delete_song",
+      "text_none": [
+        "¿confirmas",
+        "¿seguro",
+        "¿Confirmas",
+        "¿Seguro"
+      ]
+    }
+  },
+  {
+    "id": "estrellas",
+    "que": "puntuar se hace directo, sin pedir permiso",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Ponle 5 estrellas a Que Se Abra El Cielo"
+      }
+    ],
+    "expect": {
+      "tools_include": [
+        "search_songs",
+        "set_stars"
+      ],
+      "stars": {
+        "title": "Que Se Abra El Cielo",
+        "n": 5
+      }
+    }
+  },
+  {
+    "id": "contexto-la-segunda",
+    "que": "«la segunda» es la segunda de lo que se ve en pantalla",
+    "context": {
+      "view": {
+        "kind": "playlist",
+        "name": "Vista"
+      },
+      "total": 3,
+      "songs": [
+        {
+          "id": "$Barak - Mi Gozo",
+          "artist": "Barak",
+          "title": "Mi Gozo"
+        },
+        {
+          "id": "$New Wine - Shekinah",
+          "artist": "New Wine",
+          "title": "Shekinah"
+        },
+        {
+          "id": "$Barak - Vivo Estas",
+          "artist": "Barak",
+          "title": "Vivo Estas"
+        }
+      ],
+      "selected": [],
+      "playing": null
+    },
+    "messages": [
+      {
+        "role": "user",
+        "text": "pon la segunda"
+      }
+    ],
+    "expect": {
+      "action": {
+        "kind": "play_song",
+        "song": "New Wine - Shekinah"
+      }
+    }
+  },
+  {
+    "id": "contexto-seleccion",
+    "que": "«las seleccionadas» son las de la seleccion, con sus ids del estado real",
+    "context": {
+      "view": {
+        "kind": "all",
+        "name": "Todas las canciones"
+      },
+      "total": 5,
+      "songs": [],
+      "playing": null,
+      "selected": [
+        {
+          "id": "$Barak - Mi Gozo",
+          "artist": "Barak",
+          "title": "Mi Gozo"
+        },
+        {
+          "id": "$Barak - Vivo Estas",
+          "artist": "Barak",
+          "title": "Vivo Estas"
+        }
+      ]
+    },
+    "messages": [
+      {
+        "role": "user",
+        "text": "añade las seleccionadas a una lista nueva que se llame Seleccion"
+      }
+    ],
+    "expect": {
+      "tools_include": [
+        "create_playlist"
+      ],
+      "playlist": {
+        "name": "Seleccion",
+        "n": 2
+      }
+    }
+  },
+  {
+    "id": "vecinos",
+    "que": "los tonos vecinos salen de la herramienta, no de memoria",
+    "messages": [
+      {
+        "role": "user",
+        "text": "¿Que tonos son vecinos de Sol para armar un set sin saltos?"
+      }
+    ],
+    "expect": {
+      "tools_include": [
+        "related_keys"
+      ],
+      "text_any": [
+        "Re",
+        "D"
+      ]
+    }
+  },
+  {
+    "id": "si-a-una-oferta",
+    "que": "un «si» a algo que propuso se traduce en la herramienta, no en «hecho» de boquilla",
+    "messages": [
+      {
+        "role": "user",
+        "text": "¿Puedes marcar Mi Gozo de Barak como favorita?"
+      },
+      {
+        "role": "ai",
+        "text": "Claro, ¿quieres que la marque como favorita ahora?"
+      },
+      {
+        "role": "user",
+        "text": "si"
+      }
+    ],
+    "expect": {
+      "tools_include": [
+        "set_favorite"
+      ],
+      "favorite": {
+        "title": "Mi Gozo"
+      },
+      "no_narration": true
+    }
+  },
+  {
+    "id": "no-inventar-ids",
+    "que": "sin buscar no hay ids: no crea listas con canciones inventadas",
+    "messages": [
+      {
+        "role": "user",
+        "text": "Crea una lista Vacia con la cancion Nube de Fuego de Pedro Perez"
+      }
+    ],
+    "expect": {
+      "tools_include": [
+        "search_songs"
+      ],
+      "playlist_absent_or_empty": "Vacia",
+      "no_narration": true
+    }
+  }
+]

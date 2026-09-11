@@ -96,6 +96,23 @@ def test_search_with_no_results(cliente):
     assert d["total"] == 0
 
 
+def test_search_ignores_lone_punctuation_and_knows_title_filter(cliente):
+    """«Barak - Mi Gozo», tal cual se escribe, devolvia cero: el guion iba a
+    FTS como termino. Y `titulo:`/`title:` no existian como filtro, con lo
+    que el asistente (que lo intenta siempre) tampoco encontraba nada."""
+    from danplay import library
+    first = library.search("", limit=1)[0]
+    q = f"{first['artist']} - {first['title']}"
+    d = cliente.get("/api/search", params={"q": q}).json()
+    assert d["total"] >= 1 and any(c["id"] == first["id"] for c in d["songs"])
+    d = cliente.get("/api/search", params={"q": f"titulo:{first['title'].split()[0]}"}).json()
+    assert any(c["id"] == first["id"] for c in d["songs"])
+    d = cliente.get("/api/search", params={"q": f"artist:{first['artist']} title:{first['title']}"}).json()
+    assert any(c["id"] == first["id"] for c in d["songs"])
+    assert cliente.get("/api/search", params={"q": "- & /"}).json()["total"] > 0, \
+        "solo puntuacion = sin filtro de texto"
+
+
 def test_facets(cliente):
     d = cliente.get("/api/facets").json()
     assert "artists" in d and len(d["artists"]) > 0

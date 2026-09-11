@@ -109,6 +109,28 @@ método que la interfaz llame y la prueba no haya programado falla diciendo
 cuál es. Cinco fallos de la interfaz eran nombres que dejaron de existir al
 pasar el código a inglés y que nadie comparó con el núcleo.
 
+### El banco de pruebas contra un modelo de verdad
+
+Las pruebas de arriba usan un modelo falso: comprueban la mecánica del
+asistente (ids que no existen se rechazan, lo destructivo se confirma, la
+narración se detecta), no que un modelo real siga el prompt. Para eso está
+
+```bash
+./.venv/bin/python scripts/evaluar-asistente.py                 # el proveedor activo
+./.venv/bin/python scripts/evaluar-asistente.py --proveedor llm7 --repetir 3
+```
+
+Monta una biblioteca sintética, corre las conversaciones de
+`tests/evaluacion.json` contra el proveedor configurado en la app y dice qué
+cumplió cada una (herramientas usadas, lo que quedó en la biblioteca, lo que
+dijo), lo que tardó y lo que costó; con `--repetir` se ve lo estable que es.
+Cuesta dinero (céntimos) y red, así que no va en `scripts/test.sh`: se lanza
+a mano **cada vez que se toca el prompt, las herramientas o se cambia de
+modelo**, y antes de subir versión. La primera pasada encontró dos fallos de
+la búsqueda (`Barak - Mi Gozo` devolvía cero por el guion; `titulo:` no
+existía como filtro) y una manía del modelo (escribir la llamada como texto)
+que ninguna prueba con dobles habría visto.
+
 ## La versión
 
 **Cada cambio que se entrega sube la versión.** Sin excepción: una corrección
