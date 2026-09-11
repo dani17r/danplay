@@ -843,3 +843,22 @@ def test_al_juez_solo_se_le_molesta_si_se_pidio_una_accion(perfiles, monkeypatch
     _fake(monkeypatch, fake2)
     chat.reply([{"role": "user", "text": "arregla la lista"}])
     assert any(kw.get("max_tokens") == 3 for kw in fake2.calls), "el juez se consulto"
+
+
+def test_las_herramientas_opcionales_solo_van_cuando_la_charla_lo_pide():
+    """Cada herramienta declarada cuesta tokens en cada llamada: las de
+    descargar, las de musico y la de letra+caratula solo se añaden si la
+    conversacion (cualquiera de los dos) habla de eso."""
+    from danplay import chat
+    names = lambda t: {h["function"]["name"] for h in t}  # noqa: E731
+    base = names(chat.tools_for([{"role": "user", "text": "¿cuantas tengo de Barak?"}]))
+    assert "search_songs" in base and "edit_song" in base and "play" in base
+    assert not {"download_music", "search_youtube", "transpose_chords", "setlist_sheet"} & base
+    with_dl = names(chat.tools_for([{"role": "user", "text": "bájame lo último de Barak"}]))
+    assert {"download_music", "search_youtube", "download_status"} <= with_dl
+    # lo que dijo el asistente antes tambien cuenta: «¿la bajo?» — «dale»
+    offer = names(chat.tools_for([{"role": "ai", "text": "¿Quieres que la descargue?"}, {"role": "user", "text": "dale"}]))
+    assert "download_music" in offer
+    assert names(chat.tools_for([], everything=True)) == names(chat.TOOLS)
+    music = names(chat.tools_for([{"role": "user", "text": "pásala a Sol y hazme la hoja para el atril"}]))
+    assert {"transpose_chords", "setlist_sheet"} <= music

@@ -38,6 +38,7 @@ const TOOL_LABELS = {
   download_music: 'descargo',
   download_status: 'miro la descarga',
   search_web: 'busco en la web',
+  play: 'pongo música',
   play_song: 'pongo la cancion',
   play_playlist: 'pongo la lista',
   playlist_songs: 'miro la lista',
@@ -406,7 +407,7 @@ async function send (text = null, hidden = false, event = null) {
       const changesLibrary = ['create_playlist', 'add_to_playlist', 'set_playlist_songs',
                               'rename_playlist', 'edit_song', 'set_stars', 'set_favorite',
                               'delete_song', 'delete_playlist', 'remove_from_playlist',
-                              'find_lyrics_and_cover']
+                              'find_lyrics_and_cover', 'setlist_sheet']
       if ((r.tools || []).some(h => changesLibrary.includes(h.name))) emit('reload')
       // reproducir no se puede hacer desde Python: el nucleo devuelve la orden
       // y la ejecuta la app

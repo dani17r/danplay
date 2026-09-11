@@ -144,7 +144,7 @@
     "expect": {
       "tools_include": [
         "search_songs",
-        "set_stars"
+        "edit_song"
       ],
       "stars": {
         "title": "Que Se Abra El Cielo",
@@ -272,7 +272,7 @@
     ],
     "expect": {
       "tools_include": [
-        "set_favorite"
+        "edit_song"
       ],
       "favorite": {
         "title": "Mi Gozo"

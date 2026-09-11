@@ -571,8 +571,13 @@ def test_chat_tools_are_declared(cliente):
     assert "search_songs" in names and "create_playlist" in names
     # y las nuevas: el chat ya descarga, busca en YouTube y comprueba en la web
     for n in ("search_youtube", "download_music", "download_status",
-              "search_web", "lyrics_by_name"):
+              "search_web", "get_lyrics", "play", "related_keys", "setlist_sheet"):
         assert n in names, f"falta la herramienta {n}"
+    # las fusionadas ya no se declaran (cada declaracion cuesta tokens en
+    # cada llamada), pero siguen valiendo por su nombre viejo
+    from danplay import chat as CH
+    for viejo in ("set_stars", "set_favorite", "play_song", "play_playlist", "lyrics_by_name"):
+        assert viejo not in names and viejo in CH.TOOL_NAMES
     assert all(h["description"] for h in d["tools"]), "todas necesitan descripcion"
 
 
@@ -642,8 +647,7 @@ def test_system_prompt_never_downloads_alone(cliente):
 def test_las_herramientas_de_control_estan_declaradas(cliente):
     d = cliente.get("/api/chat/tools").json()
     names = [h["nombre" if "nombre" in h else "name"] for h in d["tools"]]
-    for n in ("play_song", "play_playlist", "player_control", "set_stars",
-              "set_favorite", "edit_song", "find_lyrics_and_cover",
+    for n in ("play", "player_control", "edit_song", "find_lyrics_and_cover",
               "delete_song", "remove_from_playlist", "delete_playlist"):
         assert n in names, f"al asistente le falta {n}"
 
@@ -653,6 +657,10 @@ def test_reproducir_devuelve_una_orden_para_la_app(cliente):
     cid = library.search("", limit=1)[0]["id"]
     r = chat.run_tool("play_song", {"id": cid})
     assert r["ok"] and r["action"] == {"kind": "play_song", "song_id": cid}
+    # la fusionada: con id es la cancion, sin id el repertorio
+    r = chat.run_tool("play", {"id": cid})
+    assert r["action"] == {"kind": "play_song", "song_id": cid}
+    assert "error" in chat.run_tool("play", {"name": "no existe esta lista"})
 
 
 def test_reproducir_algo_que_no_existe_no_revienta(cliente):
@@ -677,6 +685,12 @@ def test_el_asistente_puntua_y_marca_favorito(cliente):
     # fuera de rango se recorta en vez de guardar cualquier cosa
     chat.run_tool("set_stars", {"id": cid, "stars": 99})
     assert library.by_id(cid)["stars"] == 5
+    # y todo junto por edit_song, que es la que se declara ahora
+    r = chat.run_tool("edit_song", {"id": cid, "stars": 2, "favorite": False, "genre": "Pop"})
+    assert r["ok"] and set(r["changed"]) == {"stars", "favorite", "genre"}
+    c = library.by_id(cid)
+    assert c["stars"] == 2 and not c["favorite"] and c["genre"] == "Pop"
+    assert chat._summarize("edit_song", r).startswith("2 estrellas; ya no es favorita; cambiado: genre")
 
 
 def test_el_asistente_corrige_datos(cliente):

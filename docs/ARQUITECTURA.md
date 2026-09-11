@@ -434,8 +434,12 @@ anteriores pasa a la base una vez.
 **Cada token se paga, y el prompt viaja en cada llamada.** El texto del
 sistema se escribe una regla por fallo real y sin adornos (1.305 tokens; era
 2.077), las herramientas se declaran con una fábrica que no repite el
-andamiaje y describe cada una en una frase (2.426; eran 2.764: el resto es
-el esquema JSON que exige la API), y **los resultados de las herramientas
+andamiaje y describe cada una en una frase; las que hacían lo mismo se
+fusionaron (`edit_song` puntúa y marca favorito; `get_lyrics` vale por id o
+por nombre; `play` pone una canción o un repertorio; los nombres viejos
+siguen valiendo como alias), y las de descargar, las de músico y la de
+letra+carátula solo se declaran cuando la conversación habla de eso (un
+turno normal lleva 17 herramientas, unos 1.700 tokens; eran 2.764), y **los resultados de las herramientas
 van en TOON** (`toon.py`), no en JSON: una lista de canciones se manda como
 tabla, con las claves una sola vez en la cabecera y una fila por canción.
 Medido sobre resultados reales, la mitad de tokens en una búsqueda (54 %) y

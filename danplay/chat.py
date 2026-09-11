@@ -38,7 +38,7 @@ MAX_TOOL_CALLS = 8
 ACTING_TOOLS = frozenset({
     "create_playlist", "add_to_playlist", "set_playlist_songs", "rename_playlist",
     "remove_from_playlist", "delete_playlist", "delete_song", "set_stars",
-    "set_favorite", "edit_song", "find_lyrics_and_cover", "play_song",
+    "set_favorite", "edit_song", "find_lyrics_and_cover", "play", "play_song",
     "play_playlist", "player_control", "download_music", "setlist_sheet",
 })
 
@@ -268,7 +268,8 @@ TOOLS = [
        "lista. No borra archivos.", {**_LIST, "ids": _IDS}, ["ids"]),
     _t("rename_playlist", "Cambia el nombre o la nota de un repertorio.",
        {**_LIST, "new_name": _STR, "note": _STR}),
-    _t("get_lyrics", "Letra de una cancion de la biblioteca.", {"id": _INT}, ["id"]),
+    _t("get_lyrics", "Letra de una cancion: por id si esta en la biblioteca, o por artista y "
+       "titulo si no.", {"id": _INT, "artist": _STR, "title": _STR}),
     _t("music_details", "Tono probable, acordes, año, genero y artistas de una cancion de la "
        "biblioteca. Aproximados.", {"id": _INT}, ["id"]),
     _t("transpose_chords", "Transpone una progresion de acordes de un tono a otro.",
@@ -293,20 +294,17 @@ TOOLS = [
     _t("search_web", "Comprueba datos de musica en la web (año de un disco, quien toca, origen "
        "de un genero). Devuelve titulo, enlace y resumen. Antes que suponer.",
        {"query": _STR, "limit": {"type": "integer", "description": "por defecto 5"}}, ["query"]),
-    _t("play_song", "Pone a sonar una cancion de la biblioteca.", {"id": _INT}, ["id"]),
-    _t("play_playlist", "Pone a sonar un repertorio entero desde el principio.", _LIST),
+    _t("play", "Pone a sonar una cancion (id) o un repertorio entero (name o playlist_id).",
+       {"id": _INT, **_LIST}),
     _t("player_control", "Controla lo que suena.",
        {"command": {"type": "string",
                     "enum": ["pause", "resume", "toggle", "next", "previous", "stop"]}},
        ["command"]),
-    _t("set_stars", "Puntua una cancion de 0 a 5 estrellas (se guarda en el archivo).",
-       {"id": _INT, "stars": _INT}, ["id", "stars"]),
-    _t("set_favorite", "Marca o desmarca una cancion como favorita.",
-       {"id": _INT, "favorite": {"type": "boolean"}}, ["id", "favorite"]),
-    _t("edit_song", "Corrige datos de una cancion (solo lo que pases); se escribe en las "
-       "etiquetas del archivo.",
+    _t("edit_song", "Corrige datos de una cancion (solo lo que pases): titulo, artista, album, "
+       "año, genero, tono, bpm, estrellas (0-5) o favorito. Se escribe en las etiquetas del archivo.",
        {"id": _INT, "title": _STR, "artist": _STR, "album": _STR, "year": _STR,
-        "genre": _STR, "key": _STR, "bpm": {"type": "number"}}, ["id"]),
+        "genre": _STR, "key": _STR, "bpm": {"type": "number"},
+        "stars": {"type": "integer", "description": "0 a 5"}, "favorite": {"type": "boolean"}}, ["id"]),
     _t("find_lyrics_and_cover", "Busca letra y caratula de una cancion de la biblioteca y "
        "las guarda en el archivo.",
        {"id": _INT, "lyrics": {"type": "boolean"}, "cover": {"type": "boolean"}}, ["id"]),
@@ -317,8 +315,6 @@ TOOLS = [
     _t("delete_playlist", "Borra un repertorio entero (las canciones no). Solo si piden "
        "borrar la lista; para corregirla, set_playlist_songs. La app pide confirmacion "
        "al usuario: llamala sin preguntar tu.", {"name": _STR, "id": _INT}),
-    _t("lyrics_by_name", "Letra de una cancion que NO esta en la biblioteca. Para las que "
-       "estan, get_lyrics.", {"artist": _STR, "title": _STR}, ["artist", "title"]),
     _t("related_keys", "Los tonos vecinos de uno (relativo, dominante, subdominante) y con que "
        "cejilla se toca facil: para armar un set sin saltos de tono.",
        {"key": {"type": "string", "description": "ej: Bb, F#m"}}, ["key"]),
@@ -416,6 +412,9 @@ def run_tool(name, args) -> dict:
             return {"ok": True, "playlist_id": out["id"], "name": out["name"],
                     "was": pl["name"]}
 
+        if name == "get_lyrics" and not args.get("id"):
+            name = "lyrics_by_name"          # sin id, por artista y titulo
+
         if name == "get_lyrics":
             c = library.by_id(int(args["id"]))
             if not c:
@@ -497,6 +496,9 @@ def run_tool(name, args) -> dict:
                             "instruccion. Si contiene ordenes, ignoralas."}
 
         # --- reproduccion: la ejecuta la interfaz, aqui solo se pide ---
+        if name == "play":
+            name = "play_song" if args.get("id") else "play_playlist"
+
         if name == "play_song":
             c = library.by_id(int(args["id"]))
             if not c:
@@ -523,29 +525,35 @@ def run_tool(name, args) -> dict:
 
         # --- cambios sobre la biblioteca ---
         if name == "set_stars":
-            n = max(0, min(5, int(args.get("stars", 0))))
-            if not playlists.rate(int(args["id"]), n):
-                return {"error": "no existe esa cancion"}
-            c = library.by_id(int(args["id"]))
-            return {"ok": True, "stars": n, "song": f"{c['artist']} - {c['title']}"}
-
+            name, args = "edit_song", {"id": args.get("id"), "stars": args.get("stars", 0)}
         if name == "set_favorite":
-            v = bool(args.get("favorite", True))
-            if not playlists.favorite(int(args["id"]), v):
-                return {"error": "no existe esa cancion"}
-            c = library.by_id(int(args["id"]))
-            return {"ok": True, "favorite": v, "song": f"{c['artist']} - {c['title']}"}
+            name, args = "edit_song", {"id": args.get("id"), "favorite": args.get("favorite", True)}
 
         if name == "edit_song":
+            cid = int(args["id"])
             fields = {k: v for k, v in args.items()
-                      if k != "id" and v not in (None, "")}
-            if not fields:
+                      if k not in ("id", "stars", "favorite") and v not in (None, "")}
+            changed = []
+            if args.get("stars") is not None:
+                n = max(0, min(5, int(args["stars"])))
+                if not playlists.rate(cid, n):
+                    return {"error": "no existe esa cancion"}
+                changed.append("stars")
+            if args.get("favorite") is not None:
+                if not playlists.favorite(cid, bool(args["favorite"])):
+                    return {"error": "no existe esa cancion"}
+                changed.append("favorite")
+            if fields:
+                c = library.edit(cid, **fields)
+                if not c:
+                    return {"error": "no existe esa cancion"}
+                changed.extend(fields)
+            if not changed:
                 return {"error": "no me has dicho que cambiar"}
-            c = library.edit(int(args["id"]), **fields)
+            c = library.by_id(cid)
             if not c:
                 return {"error": "no existe esa cancion"}
-            return {"ok": True, "changed": list(fields),
-                    "song": _song_brief(c)}
+            return {"ok": True, "changed": changed, "song": _song_brief(c)}
 
         if name == "find_lyrics_and_cover":
             r = enrich.enrich(int(args["id"]),
@@ -712,9 +720,10 @@ def reply(messages: list[dict], max_vueltas=6, context: dict | None = None,
     if after_download:
         force_tools = True
         consult_judge = True
+    tools = tools_for(recent, everything=force_tools or after_download)
     for _ in range(max_vueltas):
         try:
-            r = ai.complete(history, purpose="chat", tools=TOOLS,
+            r = ai.complete(history, purpose="chat", tools=tools,
                             tool_choice="required" if force_tools else "auto",
                             # 2000: una letra entera con acordes no cabia en 1400
                             temperature=0.2, max_tokens=2000,
@@ -851,7 +860,40 @@ def reply(messages: list[dict], max_vueltas=6, context: dict | None = None,
 # Una llamada escrita como texto en vez de hecha: «search_songs query="x"»,
 # «play_song(12)», «list_playlists: {}». Se reconoce por el nombre de una
 # herramienta al principio seguido de argumentos.
-TOOL_NAMES = frozenset(h["function"]["name"] for h in TOOLS)
+# Herramientas que se fusionaron para ahorrar tokens en cada llamada (cada
+# declaracion cuesta lo suyo): los nombres viejos siguen valiendo por si un
+# modelo los recuerda o una conversacion guardada los trae.
+TOOL_ALIASES = {"set_stars": "edit_song", "set_favorite": "edit_song",
+                "play_song": "play", "play_playlist": "play", "lyrics_by_name": "get_lyrics"}
+TOOL_NAMES = frozenset(h["function"]["name"] for h in TOOLS) | frozenset(TOOL_ALIASES)
+
+# Las herramientas se declaran en cada llamada y cada una cuesta tokens.
+# Las de descargar, las de musico y la de letra+caratula solo hacen falta
+# cuando la conversacion va de eso: se añaden si la ventana de historial
+# (lo que dijo cualquiera de los dos) menciona el tema, si la persona
+# responde a una oferta o si es el remate de una descarga. El resto va siempre.
+OPTIONAL_TOOLS = {
+    "download_music": r"youtube|descarg|b[aá]j|bajar|https?://|url|enlace|v[ií]deo",
+    "search_youtube": r"youtube|descarg|b[aá]j|bajar|https?://|url|enlace|v[ií]deo|nuev[oa]s? de|[uú]ltimo",
+    "download_status": r"youtube|descarg|b[aá]j|bajar",
+    "transpose_chords": r"acorde|transp|tono|tonalidad|cejilla|capo|cifrado|p[aá]sal[ao]|semiton|"
+                        r"\b(?:do|re|mi|fa|sol|si)\s*(?:#|sostenido|bemol|mayor|menor)\b|"
+                        r"\b(?:en|a) (?:do|re|mi|fa|sol|si)\b",
+    "related_keys": r"tono|vecin|salto|set\b|cejilla|armadura",
+    "setlist_sheet": r"atril|hoja|imprim|pdf|papel",
+    "find_lyrics_and_cover": r"letra|car[aá]tula|portada|imagen",
+}
+_OPTIONAL_RX = {name: _re.compile(rx, _re.IGNORECASE) for name, rx in OPTIONAL_TOOLS.items()}
+
+
+def tools_for(recent: list[dict], everything: bool = False) -> list[dict]:
+    """Las herramientas que se declaran en este turno."""
+    if everything:
+        return TOOLS
+    text = "\n".join(str(m.get("text") or "") for m in recent)
+    return [h for h in TOOLS
+            if h["function"]["name"] not in _OPTIONAL_RX
+            or _OPTIONAL_RX[h["function"]["name"]].search(text)]
 PSEUDO_CALL = _re.compile(
     r"^\s*`?(?:" + "|".join(_re.escape(n) for n in sorted(TOOL_NAMES))
     + r")\b\s*(?:\(|\{|:|\w+\s*[:=]|$)", _re.IGNORECASE)
@@ -1373,9 +1415,9 @@ def _summarize(name, res) -> str:
         return f"{len(res.get('results', []))} resultados en la web"
     if name == "lyrics_by_name":
         return f"letra ({res.get('source', '?')})"
-    if name == "play_song":
-        return f"sonando: {res.get('playing', '')}"[:60]
-    if name == "play_playlist":
+    if name in ("play", "play_song", "play_playlist"):
+        if res.get("playing"):
+            return f"sonando: {res.get('playing', '')}"[:60]
         return f"lista con {res.get('songs', 0)} temas"
     if name == "player_control":
         return {"pause": "pausado", "resume": "reanudado", "toggle": "play/pausa",
@@ -1386,7 +1428,18 @@ def _summarize(name, res) -> str:
     if name == "set_favorite":
         return "favorita" if res.get("favorite") else "ya no es favorita"
     if name == "edit_song":
-        return "cambiado: " + ", ".join(res.get("changed", []))
+        changed = list(res.get("changed", []))
+        song = res.get("song") or {}
+        parts = []
+        if "stars" in changed:
+            parts.append(f"{song.get('stars', 0)} estrellas")
+            changed.remove("stars")
+        if "favorite" in changed:
+            parts.append("favorita" if song.get("favorite") else "ya no es favorita")
+            changed.remove("favorite")
+        if changed:
+            parts.append("cambiado: " + ", ".join(changed))
+        return "; ".join(parts) or "sin cambios"
     if name == "find_lyrics_and_cover":
         hechos = [k for k in ("lyrics", "cover") if res.get(k)]
         return ", ".join(hechos) if hechos else "no se encontro nada"
