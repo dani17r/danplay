@@ -13,7 +13,7 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.3.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-715%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-724%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -163,6 +163,7 @@ mismo protocolo:
 
 | | |
 | --- | --- |
+| **Gratis, sin clave** | Para probar sin registrarte: LLM7, las rutas `:free` de Kilo, OpenCode Zen. Un botón, **«Probar gratis, sin clave»**, activa el primero que responda. Tienen límites (LLM7: 10 peticiones por minuto) y son servicios de terceros: tus preguntas pasan por ellos. |
 | **Grandes laboratorios** | OpenAI, Anthropic (Claude), Google Gemini, Mistral, xAI, DeepSeek, Cohere, Perplexity… |
 | **Plataformas de inferencia** | DeepInfra, OpenRouter, Together, Fireworks, Groq, Cerebras, SambaNova, Hugging Face, NVIDIA, Novita, Nebius, Hyperbolic, GitHub Models… |
 | **Nubes corporativas** | Azure OpenAI, Amazon Bedrock, Cloudflare Workers AI, Databricks |
@@ -319,14 +320,14 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-715 pruebas repartidas así:
+724 pruebas repartidas así:
 
 | Tanda | Pruebas |
 | --- | --- |
 | Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, descargas, corpus de narración del asistente, nombres de YouTube, versión, Windows, asociaciones) | 119 |
-| IA con cualquier proveedor: catálogo, perfiles y claves, models.dev, recomendación de modelos, tolerancia a lo que cada servidor rechaza | 23 |
-| API sobre una biblioteca temporal de verdad | 132 |
-| Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat, descargas, menú, selección múltiple, selector de IA | 338 |
+| IA con cualquier proveedor: catálogo, perfiles y claves, models.dev, recomendación de modelos, tolerancia a lo que cada servidor rechaza, prueba gratuita sin clave | 27 |
+| API sobre una biblioteca temporal de verdad | 133 |
+| Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat, descargas, menú, selección múltiple, selector de IA, prueba gratuita | 342 |
 | Interfaz: rutas de medios en cada sistema | 7 |
 | Rust: hashes y análisis de audio | 14 |
 | Rust: reproductor, cola, bandeja, sesión, núcleo, abrir carpeta, enlaces, Telegram y archivos abiertos desde fuera | 64 |

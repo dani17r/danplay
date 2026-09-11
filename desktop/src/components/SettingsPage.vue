@@ -39,6 +39,18 @@ const aiProfiles = computed(() => Object.values(aiInfo.value?.profiles || {}))
 const activeAi = computed(() => aiInfo.value?.active_profile || null)
 
 function openAi (initial = '') { aiInitial.value = initial; aiModal.value = true }
+// «Probar gratis, sin clave»: el nucleo prueba los servicios gratuitos por
+// orden y activa el primero que responda. Tarda lo que tarden en contestar.
+const tryingFree = ref(false)
+const freeResult = ref(null)
+async function tryFree () {
+  tryingFree.value = true; freeResult.value = null; keyState.value = null
+  try {
+    const r = await api.aiFree()
+    freeResult.value = r.free
+    await afterAiSaved(r)
+  } catch (e) { freeResult.value = { ok: false, reason: errorMessage(e) } } finally { tryingFree.value = false }
+}
 async function afterAiSaved (r) {
   aiInfo.value = r
   keyState.value = null
@@ -332,9 +344,18 @@ const gb = formatGigabytes
         <div class="btn-row">
           <button v-if="activeAi" class="btn" @click="openAi(activeAi.id)">Ajustar…</button>
           <button class="btn primary" @click="openAi()">{{ activeAi ? 'Cambiar…' : 'Elegir proveedor…' }}</button>
-          <button class="btn" :disabled="checkingKey || !activeAi" @click="checkKey">
+          <button v-if="!activeAi" class="btn" :disabled="tryingFree" @click="tryFree">
+            {{ tryingFree ? 'Buscando uno que responda…' : 'Probar gratis, sin clave' }}</button>
+          <button v-else class="btn" :disabled="checkingKey" @click="checkKey">
             {{ checkingKey ? 'Probando…' : 'Probar' }}</button>
         </div>
+      </div>
+      <div v-if="freeResult" class="key-state" :class="freeResult.ok ? 'ok' : 'bad'">
+        <Icon :n="freeResult.ok ? 'check' : 'warning'" :t="14" />
+        <span v-if="freeResult.ok">Listo: {{ freeResult.name }} con <span class="mono">{{ freeResult.chat_model }}</span>,
+          gratis y sin cuenta. Tiene límites y tus preguntas pasan por un servicio de terceros: para uso
+          serio, pon tu clave o usa un modelo en tu equipo.</span>
+        <span v-else>{{ freeResult.reason }}</span>
       </div>
       <div v-if="keyState" class="key-state" :class="keyState.ok ? 'ok' : 'bad'">
         <Icon :n="keyState.ok ? 'check' : 'warning'" :t="14" />

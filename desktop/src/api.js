@@ -458,6 +458,12 @@ export const api = {
   aiActivate: (id) => POST('/ai/activate', { id }),
   /** @param {AiProfile} d  prueba lo del formulario sin guardarlo */
   aiCheck: (d) => POST('/ai/check', d),
+  /**
+   * «Probar gratis, sin clave»: el núcleo prueba los servicios gratuitos por
+   * orden y activa el primero que responda. Devuelve lo mismo que
+   * `aiProviders` más `free: {ok, chosen, name, model, tried, reason}`.
+   */
+  aiFree: () => POST('/ai/free'),
   /** @param {AiProfile} d  los modelos de ese proveedor con esa clave */
   aiModels: (d) => POST('/ai/models', d),
 

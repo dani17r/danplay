@@ -146,6 +146,7 @@ Ninguno es obligatorio; la app funciona sin todos ellos.
 | AcoustID + MusicBrainz | identificar por huella acústica | sí (gratuita) |
 | El proveedor de IA que elijas (OpenAI, Anthropic, Google, DeepInfra, OpenRouter… o un Ollama en tu equipo) | IA y asistente | según el proveedor; los locales no |
 | models.dev | el catálogo de modelos de IA (qué modelos existen, precio, si usan herramientas); petición anónima y condicional | no |
+| LLM7, Kilo (rutas `:free`), OpenCode Zen | «Probar gratis, sin clave»: IA de prueba, solo si el usuario la elige; servicios de terceros con límites | no |
 | LRCLIB | letras | no |
 | iTunes Search / Cover Art Archive | carátulas | no |
 | DuckDuckGo (HTML) | comprobar datos en la web | no |

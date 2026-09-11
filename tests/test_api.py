@@ -224,7 +224,7 @@ def test_ai_providers_overview(cliente, perfiles_ia):
     d = cliente.get("/api/ai/providers").json()
     ids = {p["id"] for p in d["catalog"]}
     assert {"openai", "anthropic", "google", "deepinfra", "openrouter", "ollama", "custom"} <= ids
-    assert [g["id"] for g in d["groups"]] == ["lab", "platform", "cloud", "asia", "local", "custom"]
+    assert [g["id"] for g in d["groups"]] == ["free", "lab", "platform", "cloud", "asia", "local", "custom"]
     assert d["active"] == "" and d["active_profile"] is None and not d["ai_ready"]
     assert d["catalog_status"]["models"] > 100, "la foto de models.dev viaja con la app"
     # el catalogo no lleva ningun secreto: son datos publicos
@@ -303,6 +303,32 @@ def test_ai_check_and_models_with_a_fake_provider(cliente, perfiles_ia, monkeypa
 
     # sin proveedor en el borrador, error claro, no un 500
     assert cliente.post("/api/ai/models", json={"provider": "custom"}).json()["ok"] is False
+
+
+def test_ai_free_activates_a_keyless_provider(cliente, perfiles_ia, monkeypatch):
+    from danplay import ai
+
+    class _Call:
+        id = "1"
+        function = type("f", (), {"name": "saluda", "arguments": "{}"})()
+
+    class _Msg:
+        def __init__(self, content, tool_calls=None):
+            self.content, self.tool_calls = content, tool_calls
+
+    class _Fake:
+        class chat:                                          # noqa: N801
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    msg = _Msg("", [_Call()]) if kw.get("tools") else _Msg("ok")
+                    return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+    monkeypatch.setattr(ai, "_build_client", lambda p: _Fake())
+    d = cliente.post("/api/ai/free").json()
+    assert d["free"]["ok"] and d["free"]["chosen"] == "llm7"
+    assert d["active"] == "llm7" and d["ai_ready"]
+    assert not d["profiles"]["llm7"]["has_key"], "sin clave: de eso se trata"
+    assert cliente.get("/api/chat/tools").json()["available"]
 
 
 def test_indexes_nothing_without_folders(tmp_path, monkeypatch):

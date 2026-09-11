@@ -281,3 +281,33 @@ describe('la tarjeta de IA en Ajustes', () => {
     w.unmount()
   })
 })
+
+describe('probar gratis, sin clave', () => {
+  it('desde Ajustes activa el primer gratuito que responde y lo cuenta', async () => {
+    const w = mount(SettingsPage, { attachTo: document.body })
+    await flushPromises(); await flushPromises()
+    const boton = w.findAll('button').find((b) => b.text() === 'Probar gratis, sin clave')
+    expect(boton).toBeTruthy()
+    await boton.trigger('click')
+    await flushPromises(); await flushPromises()
+    expect(held.api.aiFree).toHaveBeenCalledTimes(1)
+    expect(held.state.aiActive).toBe('llm7')
+    expect(w.find('.key-state.ok').text()).toContain('LLM7')
+    expect(w.find('.key-state.ok').text()).toContain('terceros')
+    expect(w.find('.ai-current').text()).toContain('LLM7')
+    // ya hay proveedor: el boton de gratis deja paso a «Probar»
+    expect(w.findAll('button').some((b) => b.text() === 'Probar gratis, sin clave')).toBe(false)
+    w.unmount()
+  })
+
+  it('el modal lo ofrece en el grupo gratuito y se cierra al conseguirlo', async () => {
+    const w = await abrir()
+    expect(w.text()).toContain('Gratis, sin clave')
+    await w.find('.ai-free-btn').trigger('click')
+    await flushPromises()
+    expect(held.api.aiFree).toHaveBeenCalledTimes(1)
+    expect(w.emitted('saved')).toBeTruthy()
+    expect(w.emitted('close')).toBeTruthy()
+    w.unmount()
+  })
+})

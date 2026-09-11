@@ -210,6 +210,12 @@ guardada».
 - `DELETE /api/ai/profile/{id}` → borra clave y ajustes de ese perfil.
 - `POST /api/ai/activate` `{ id }` → cambia el activo (un local sin perfil se
   crea con sus valores por defecto).
+- `POST /api/ai/free` (sin cuerpo) → «Probar gratis, sin clave»: prueba por
+  orden los del grupo `free` (`providers.FREE_ORDER`), guarda y activa el
+  primero que responda. Devuelve lo mismo que `GET` más `free: { ok, chosen,
+  name, model, chat_model, tools_ok, tried: [{id, name, ok, reason}],
+  reason }`. Sin clave, `/api/ai/models` de esos proveedores devuelve solo lo
+  que sirven a anónimos (`quirks.anon_filter`).
 - `POST /api/ai/check` con el mismo cuerpo → prueba **sin guardar**:
   `{ ok, reason, provider, model, chat_model, latency_ms, tools_ok,
   tools_reason }`. Hace la llamada más barata posible (un token) con el

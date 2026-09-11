@@ -156,6 +156,7 @@ onClickOutside(root, () => { open.value = false })
                 <span v-else-if="m.tools === false" class="tag bad">sin herramientas</span>
                 <span v-if="m.reasoning" class="tag">razona</span>
                 <span v-if="m.deprecated" class="tag bad">obsoleto</span>
+                <span v-if="m.trains" class="tag bad" title="El proveedor avisa de que puede entrenar con lo que le mandes">entrena con tus datos</span>
                 <span v-if="!m.known && known" class="tag">sin ficha</span>
               </span>
             </span>

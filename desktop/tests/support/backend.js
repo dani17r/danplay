@@ -37,6 +37,7 @@ function aiOverview(state) {
   return {
     catalog: state.aiCatalog,
     groups: [
+      { id: 'free', name: 'Gratis, sin clave', note: 'para probar' },
       { id: 'lab', name: 'Grandes laboratorios', note: '' },
       { id: 'local', name: 'En tu equipo', note: '' },
       { id: 'custom', name: 'Otro', note: '' }
@@ -60,6 +61,9 @@ export function createState() {
     songs: [],
     /** proveedores de IA: un catálogo mínimo, sin perfiles guardados */
     aiCatalog: [
+      { id: 'llm7', name: 'LLM7', group: 'free', base_url: 'https://api.llm7.io/v1', key: 'optional', key_url: '',
+        docs: '', models_dev: null, suggest: { fast: 'minimax-m2.7', chat: 'minimax-m2.7' }, fields: [], headers: {},
+        note: 'sin cuenta', quirks: {} },
       { id: 'openai', name: 'OpenAI', group: 'lab', base_url: 'https://api.openai.com/v1', key: 'required',
         key_url: 'https://platform.openai.com/api-keys', docs: '', models_dev: 'openai',
         suggest: { fast: 'chico', chat: 'grande' }, fields: [], headers: {}, note: '', quirks: {} },
@@ -162,6 +166,14 @@ function answers(state) {
       return aiOverview(state)
     },
     aiCheck: async (d) => ({ ok: true, model: d.model, chat_model: d.chat_model, latency_ms: 120, tools_ok: true, tools_reason: '' }),
+    aiFree: async () => {
+      state.aiProfiles.llm7 = {
+        id: 'llm7', provider: 'llm7', provider_name: 'LLM7', has_key: false, key: '',
+        model: 'minimax-m2.7', chat_model: 'minimax-m2.7', base_url: '', fields: {}, headers: {}, extra: {}, timeout: 20
+      }
+      state.aiActive = 'llm7'
+      return { ...aiOverview(state), free: { ok: true, chosen: 'llm7', name: 'LLM7', model: 'minimax-m2.7', chat_model: 'minimax-m2.7', tools_ok: true, tried: [{ id: 'llm7', name: 'LLM7', ok: true, reason: '' }] } }
+    },
     aiModels: async () => ({
       ok: true, source: 'provider', provider: 'Prueba',
       models: state.aiModels, catalog: state.aiModels, suggest: { chat: 'grande', fast: 'chico' },

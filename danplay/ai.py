@@ -115,9 +115,12 @@ def _build_client(p: dict):
     # texto cualquiera vale (Ollama documenta justo eso).
     # Reintentar un fallo de conexion tiene sentido con la nube; con un
     # servidor local apagado solo añade segundos antes de decir que no esta.
+    retries = p.get("retries")
+    if retries is None:
+        retries = 0 if p.get("local") else 2
     return OpenAI(api_key=p["key"] or "no-key", base_url=p["base_url"],
                   default_headers=p["headers"] or None,
-                  timeout=p["timeout"], max_retries=0 if p.get("local") else 2)
+                  timeout=p["timeout"], max_retries=int(retries))
 
 
 def _get_client():
@@ -333,7 +336,8 @@ def _probe_tools(client, model: str, p: dict) -> tuple[bool, str]:
               "messages": [{"role": "user", "content": "Saluda a Dani usando la herramienta."}]}
     for what in _known_limits(p, model):
         _strip(kwargs, what)
-    for _ in range(3):
+    waited = 0
+    for _ in range(4):
         try:
             r = client.chat.completions.create(**kwargs)
             msg = r.choices[0].message
@@ -343,6 +347,13 @@ def _probe_tools(client, model: str, p: dict) -> tuple[bool, str]:
                            "con este modelo")
         except Exception as e:                               # noqa: BLE001
             text = str(e)
+            # Los gratuitos admiten una peticion por segundo y esta va justo
+            # detras de la prueba de la clave: se espera y se repite.
+            if (getattr(e, "status_code", None) == 429 or "rate limit" in text.lower()
+                    or "too many" in text.lower()) and waited < 2:
+                waited += 1
+                time.sleep(2.5)
+                continue
             dropped = next((w for w, rx in _HINTS if rx.search(text) and _droppable(kwargs, w)),
                            None)
             if dropped:
@@ -411,6 +422,9 @@ def list_models(draft: dict | None = None) -> dict:
         raw = list(page.data) if hasattr(page, "data") else list(page)
     except Exception as e:                                   # noqa: BLE001
         return {"ok": False, "reason": describe_error(e, p), "models": []}
+    # sin clave, solo lo que el servicio sirve a anonimos (LLM7 lo llama
+    # «turbo», Kilo marca `isFree`, OpenCode Zen termina en «-free»)
+    anon = p["quirks"].get("anon_filter") if not p["key"] else None
     models = []
     for m in raw:
         mid = getattr(m, "id", None) or (m.get("id") if isinstance(m, dict) else None)
@@ -425,9 +439,17 @@ def list_models(draft: dict | None = None) -> dict:
                     break
                 except Exception:                            # noqa: BLE001
                     pass
+        if anon and not _anonymous_ok(mid, extra, anon):
+            continue
         models.append(_merge(mid, extra, p))
     models.sort(key=lambda x: (x["released"] or "", x["id"]), reverse=True)
     return {"ok": True, "models": models, "source": "provider", "provider": p["name"]}
+
+
+def _anonymous_ok(mid: str, extra: dict, rule: dict) -> bool:
+    if rule.get("suffix"):
+        return mid.endswith(rule["suffix"])
+    return extra.get(rule.get("field")) == rule.get("value")
 
 
 def _merge(mid: str, extra: dict, p: dict) -> dict:
@@ -455,7 +477,35 @@ def _merge(mid: str, extra: dict, p: dict) -> dict:
     created = extra.get("created")
     if not out["released"] and isinstance(created, (int, float)) and created > 0:
         out["released"] = time.strftime("%Y-%m-%d", time.gmtime(created))
+    # Kilo dice si el modelo puede entrenar con lo que le mandas: eso se enseña
+    if extra.get("mayTrainOnYourPrompts") is True:
+        out["trains"] = True
     return out
+
+
+def try_free(order=None, timeout: float = 20) -> dict:
+    """«Probar gratis, sin clave»: el primero de los gratuitos que responda
+    de verdad se guarda y se activa. Devuelve cual, o por que ninguno."""
+    tried = []
+    for pid in (order or providers.FREE_ORDER):
+        entry = providers.BY_ID.get(pid)
+        if not entry:
+            continue
+        draft = {"id": pid, "provider": pid, "timeout": timeout, "retries": 0}
+        r = check(draft)
+        tried.append({"id": pid, "name": entry["name"], "ok": bool(r.get("ok")),
+                      "reason": r.get("reason") or r.get("tools_reason") or "",
+                      "tools_ok": r.get("tools_ok")})
+        if r.get("ok"):
+            providers.save_profile({"id": pid, "provider": pid, "model": r["model"],
+                                    "chat_model": r["chat_model"], "timeout": timeout})
+            reset_client()
+            return {"ok": True, "chosen": pid, "name": entry["name"], "model": r["model"],
+                    "chat_model": r["chat_model"], "tools_ok": r.get("tools_ok"),
+                    "tried": tried}
+    return {"ok": False, "chosen": "", "tried": tried,
+            "reason": "ahora mismo ninguno de los servicios gratuitos responde; prueba mas "
+                      "tarde, pon una clave o usa un modelo en tu equipo"}
 
 
 # ----------------------------------------------------------------- consultas

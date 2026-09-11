@@ -28,6 +28,9 @@ log = logging.getLogger("danplay.providers")
 PROFILES_FILE = config.CONFIG_DIR / "ai.json"
 
 GROUPS = [
+    {"id": "free", "name": "Gratis, sin clave",
+     "note": "Para probar sin registrarte en ningun sitio. Son servicios de terceros con limites "
+             "y sin garantia: tus preguntas y los nombres de tus canciones pasan por ellos."},
     {"id": "lab", "name": "Grandes laboratorios",
      "note": "Los que entrenan los modelos. Clave de pago, salvo donde se indica."},
     {"id": "platform", "name": "Plataformas de inferencia",
@@ -59,8 +62,33 @@ def _p(id, name, group, base_url, *, key="required", key_url="", docs="",
 
 # `key`: required | optional | none.  `fields`: huecos de la URL que el
 # usuario rellena ({resource}, {region}…).  `quirks`: lo que se sabe de
-# antemano que el servicio NO acepta, para no mandarselo y comerse el error.
+# antemano que el servicio NO acepta, para no mandarselo y comerse el error;
+# `anon_filter` deja en la lista solo lo que se puede usar sin clave.
 CATALOG = [
+    # --- gratis, sin clave ---
+    # Comprobados el 11-09-2026 con peticiones anonimas de verdad (con
+    # herramientas incluidas). Van los primeros de FREE_ORDER: «Probar gratis»
+    # activa el primero que responda. Cambian sin avisar: Pollinations dejo
+    # de servir anonimos ese mismo mes.
+    _p("llm7", "LLM7", "free", "https://api.llm7.io/v1", key="optional",
+       key_url="https://token.llm7.io", docs="https://llm7.io",
+       suggest={"fast": "minimax-m2.7", "chat": "minimax-m2.7"},
+       quirks={"anon_filter": {"field": "tier", "value": "turbo"}},
+       note="Sin cuenta: 10 peticiones por minuto y 60 por hora, con los modelos «turbo». "
+            "Un token gratuito de token.llm7.io sube el limite."),
+    _p("kilo", "Kilo (rutas :free)", "free", "https://api.kilo.ai/api/gateway", key="optional",
+       key_url="https://app.kilo.ai/profile", docs="https://kilo.ai", models_dev="kilo",
+       suggest={"fast": "nvidia/nemotron-3.5-lightning:free",
+                "chat": "nvidia/nemotron-3-super-120b-a12b:free"},
+       quirks={"anon_filter": {"field": "isFree", "value": True}},
+       note="Sin cuenta valen solo los modelos «:free». Algunos pueden entrenar con lo que "
+            "les mandas: la lista lo marca."),
+    _p("opencode-zen", "OpenCode Zen (gratis)", "free", "https://opencode.ai/zen/v1", key="optional",
+       key_url="https://opencode.ai/auth", docs="https://opencode.ai/docs/zen", models_dev="opencode",
+       suggest={"fast": "nemotron-3.5-lightning-free", "chat": "deepseek-v4-flash-free"},
+       quirks={"anon_filter": {"suffix": "-free"}},
+       note="Acceso promocional a los modelos «-free»; puede desaparecer cualquier dia."),
+
     # --- grandes laboratorios ---
     _p("openai", "OpenAI", "lab", "https://api.openai.com/v1",
        key_url="https://platform.openai.com/api-keys",
@@ -280,6 +308,9 @@ CATALOG = [
 
 BY_ID = {p["id"]: p for p in CATALOG}
 
+# En que orden se prueban los gratuitos con «Probar gratis, sin clave».
+FREE_ORDER = [p["id"] for p in CATALOG if p["group"] == "free"]
+
 # Variables de entorno que mandan sobre lo guardado. Para la linea de
 # ordenes, las pruebas y quien prefiera no tocar la app.
 ENV_PROVIDER, ENV_KEY, ENV_URL = "DANPLAY_AI_PROVIDER", "DANPLAY_AI_KEY", "DANPLAY_AI_BASE_URL"
@@ -438,7 +469,10 @@ def resolve(pid: str, prof: dict) -> dict | None:
             "headers": headers, "model": model, "chat_model": chat_model,
             "extra": dict(prof.get("extra") or {}), "timeout": timeout,
             "quirks": dict(p["quirks"]), "models_dev": p["models_dev"],
-            "local": p["group"] == "local"}
+            "local": p["group"] == "local",
+            # cuantas veces reintenta el SDK un fallo de conexion (None = lo
+            # normal: 2 en la nube, 0 en local); «Probar gratis» pide 0
+            "retries": prof.get("retries")}
 
 
 def usable(prof: dict | None) -> tuple[bool, str]:

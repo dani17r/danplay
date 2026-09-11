@@ -48,6 +48,20 @@ const messages = ref([])
 const entrada = ref('')
 const thinking = ref(false)
 const info = ref(null)
+// Sin IA configurada, el hueco del chat ofrece probar gratis sin clave: el
+// nucleo activa el primer servicio gratuito que responda.
+const tryingFree = ref(false)
+const freeNote = ref('')
+async function tryFree () {
+  tryingFree.value = true; freeNote.value = ''
+  try {
+    const r = await api.aiFree()
+    freeNote.value = r.free?.ok
+      ? `Listo: ${r.free.name} con ${r.free.chat_model}, gratis y con límites.`
+      : (r.free?.reason || 'ninguno responde ahora mismo')
+    info.value = await api.chatTools()
+  } catch (e) { freeNote.value = errorMessage(e) } finally { tryingFree.value = false }
+}
 const thread = ref(null)
 
 const SUGGESTIONS = [
@@ -356,6 +370,13 @@ async function clearChat () {
         </div>
         <p class="chat-note">Solo hablo de musica: canciones, artistas, generos,
            instrumentos, teoria e historia. Lo que se salga de ahi te lo dire.</p>
+        <div v-if="info && !info.available" class="chat-noai">
+          <p><Icon n="warning" :t="14" /> La IA no está lista: {{ info.reason || 'sin proveedor' }}.
+            Elige uno en Ajustes → Inteligencia artificial, o prueba uno gratuito sin clave.</p>
+          <button class="btn primary" :disabled="tryingFree" @click="tryFree">
+            {{ tryingFree ? 'Buscando uno que responda…' : 'Probar gratis, sin clave' }}</button>
+          <p v-if="freeNote" class="chat-note" style="border:none;padding:0">{{ freeNote }}</p>
+        </div>
       </div>
 
       <div v-for="(m,i) in messages" :key="i" v-show="!m.hidden" class="chat-msg"

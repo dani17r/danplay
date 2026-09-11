@@ -436,6 +436,16 @@ def ai_activate(body: AiActivateIn = Body(...)):
     return _ai_overview()
 
 
+@app.post("/api/ai/free")
+async def ai_free():
+    """«Probar gratis, sin clave»: prueba los servicios gratuitos por orden y
+    deja activo el primero que responda. Tarda lo que tarden en contestar."""
+    r = await asyncio.get_running_loop().run_in_executor(None, ai.try_free)
+    out = _ai_overview()
+    out["free"] = r
+    return out
+
+
 @app.post("/api/ai/check")
 async def ai_check(body: AiProfileIn = Body(...)):
     """Prueba lo que hay en el formulario SIN guardarlo: clave, URL, los dos

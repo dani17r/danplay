@@ -251,6 +251,16 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
   (`scripts/actualizar-modelos.py`). Y lo que el usuario puede usar **de
   verdad** con su clave lo dice el propio proveedor (`/models`), cruzado con
   el catálogo.
+- **Gratis, sin clave**: el grupo `free` del catálogo (LLM7, las rutas
+  `:free` de Kilo, OpenCode Zen) son servicios de terceros que hoy contestan
+  a peticiones anónimas, comprobados en vivo el 11-09-2026 con herramientas
+  incluidas. «Probar gratis, sin clave» (`ai.try_free`) los prueba por orden
+  y activa el primero que responda: cambian sin avisar (Pollinations dejó de
+  servir anónimos ese mismo mes), así que se prueban en el momento y no se
+  da ninguno por vivo. Sin clave, la lista de modelos se filtra a lo que
+  sirven a anónimos. No se incrusta ninguna clave «de cortesía» en la app:
+  sería extraíble, compartiría el límite entre todos los usuarios y va
+  contra las condiciones de los proveedores.
 - `ai.py`: el cliente, que **tolera**. Anthropic ignora `response_format`,
   muchos servidores locales rechazan `tool_choice="required"`, los
   razonadores de OpenAI no admiten `temperature` y quieren

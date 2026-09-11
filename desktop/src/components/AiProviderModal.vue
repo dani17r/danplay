@@ -30,7 +30,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'saved'])
 
-const GROUP_ICON = { lab: 'sparkles', platform: 'cloud', cloud: 'building', asia: 'globe', local: 'cpu', custom: 'server' }
+const GROUP_ICON = { free: 'bolt', lab: 'sparkles', platform: 'cloud', cloud: 'building', asia: 'globe', local: 'cpu', custom: 'server' }
 
 const data = ref(null)            // lo que devuelve /api/ai/providers
 const step = ref('pick')          // pick | form
@@ -234,6 +234,20 @@ async function remove () {
 
 const openLink = (url) => app.openInBrowser(url).catch(() => {})
 
+// «Probar gratis, sin clave» desde la rejilla: el nucleo elige el primero
+// de los gratuitos que responda, lo activa, y aqui se cierra con lo hecho.
+const tryingFree = ref(false)
+async function tryFree () {
+  tryingFree.value = true; error.value = ''
+  try {
+    const r = await api.aiFree()
+    if (r.free?.ok) { emit('saved', r); emit('close') } else {
+      data.value = r
+      error.value = r.free?.reason || 'ninguno responde ahora mismo'
+    }
+  } catch (e) { error.value = errorMessage(e) } finally { tryingFree.value = false }
+}
+
 function ago (ts) {
   if (!ts) return 'nunca'
   const m = Math.round((Date.now() / 1000 - ts) / 60)
@@ -265,7 +279,11 @@ function ago (ts) {
           <div v-else class="ai-groups">
             <section v-for="g in groups" :key="g.id" class="ai-group">
               <h4><Icon :n="GROUP_ICON[g.id] || 'cloud'" :t="14" /> {{ g.name }}
-                <span class="ai-group-note">{{ g.note }}</span></h4>
+                <span class="ai-group-note">{{ g.note }}</span>
+                <button v-if="g.id === 'free'" class="btn mini primary ai-free-btn" type="button"
+                        :disabled="tryingFree" @click="tryFree">
+                  {{ tryingFree ? 'buscando uno que responda…' : 'Probar gratis ahora' }}</button>
+              </h4>
               <div class="ai-grid">
                 <template v-for="p in g.items" :key="p.id">
                   <!-- «otro» puede tener varios servidores guardados: uno por tarjeta -->
@@ -290,6 +308,7 @@ function ago (ts) {
             <div v-if="!groups.length" class="model-empty">ningún proveedor se llama así. Elige «Añadir otro
               servidor» si tienes una URL compatible con OpenAI.</div>
           </div>
+          <div v-if="error && step === 'pick'" class="key-state bad"><Icon n="warning" :t="14" /> {{ error }}</div>
           <div v-if="data" class="ai-catalog-line">
             <span>Catálogo de modelos (models.dev): {{ data.catalog_status.models }} modelos de
               {{ data.catalog_status.providers }} proveedores · comprobado {{ ago(data.catalog_status.checked_at) }}

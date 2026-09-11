@@ -29,6 +29,10 @@
   font-size:11px;color:var(--muted2);border-top:1px solid var(--border);padding-top:10px;margin-top:8px;
   flex-wrap:wrap}
 
+.ai-free-btn{margin-left:auto}
+.chat-noai{display:flex;flex-direction:column;align-items:center;gap:9px;margin-top:4px}
+.chat-noai p{display:flex;align-items:center;gap:6px;color:var(--amber);font-size:12px;margin:0}
+
 /* --- formulario --- */
 .ai-form{display:flex;flex-direction:column;gap:12px;overflow-y:auto;min-height:0;
   margin:4px -6px 0;padding:2px 6px;flex:1}

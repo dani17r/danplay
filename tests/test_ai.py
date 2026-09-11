@@ -63,7 +63,7 @@ class _FakeClient:
         class _Models:
             @staticmethod
             def list():
-                return type("p", (), {"data": [type("m", (), {"id": i, "to_dict": (lambda i=i: {"id": i})})()
+                return type("p", (), {"data": [type("m", (), {"id": i, "to_dict": staticmethod(lambda i=i: {"id": i})})()
                                                for i in outer.model_ids]})()
 
         self.chat = type("chat", (), {"completions": _Completions})()
@@ -355,3 +355,69 @@ def test_un_borrador_sin_clave_usa_la_guardada(perfiles):
     assert d["key"] == "clave-guardada"
     p = providers.resolve("mistral", d)
     assert p["model"] == "otro" and p["key"] == "clave-guardada"
+
+
+# --------------------------------------------------------- gratis, sin clave
+
+def test_los_gratuitos_van_primero_y_no_exigen_clave():
+    assert providers.GROUPS[0]["id"] == "free"
+    assert providers.FREE_ORDER and providers.FREE_ORDER[0] == "llm7"
+    for pid in providers.FREE_ORDER:
+        p = providers.BY_ID[pid]
+        assert p["group"] == "free" and p["key"] != "required", pid
+        assert p["suggest"].get("chat") and p["suggest"].get("fast"), pid
+        assert p["quirks"].get("anon_filter"), f"{pid}: sin filtro, la lista enseñaria modelos de pago"
+
+
+def test_probar_gratis_activa_el_primero_que_responde(perfiles, monkeypatch):
+    class _Call:
+        id = "1"
+        function = type("f", (), {"name": "saluda", "arguments": "{}"})()
+
+    def client_for(p):
+        fake = _FakeClient()
+        if p["id"] == "llm7":
+            def down(**kw):
+                raise Exception("Connection error.")
+            fake.chat.completions.create = down
+        else:
+            def create(**kw):
+                msg = _Msg("", [_Call()]) if kw.get("tools") else _Msg("ok")
+                return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+            fake.chat.completions.create = create
+        return fake
+    monkeypatch.setattr(ai, "_build_client", client_for)
+    r = ai.try_free()
+    assert r["ok"] and r["chosen"] == "kilo" and r["tools_ok"]
+    assert [t["id"] for t in r["tried"]] == ["llm7", "kilo"]
+    assert "conexion" in r["tried"][0]["reason"]
+    assert providers.active_id() == "kilo"
+    assert providers.active()["chat_model"] == providers.BY_ID["kilo"]["suggest"]["chat"]
+    assert ai.available(), "sin clave, pero listo"
+
+
+def test_probar_gratis_sin_ninguno_vivo_lo_dice_y_no_activa_nada(perfiles, monkeypatch):
+    def client_for(p):
+        fake = _FakeClient()
+
+        def down(**kw):
+            raise Exception("Connection error.")
+        fake.chat.completions.create = down
+        return fake
+    monkeypatch.setattr(ai, "_build_client", client_for)
+    r = ai.try_free()
+    assert not r["ok"] and len(r["tried"]) == len(providers.FREE_ORDER)
+    assert "ninguno" in r["reason"]
+    assert providers.active_id() == ""
+
+
+def test_sin_clave_la_lista_solo_enseña_lo_que_sirve_a_anonimos(perfiles, monkeypatch):
+    rows = [{"id": "minimax-m2.7", "tier": "turbo"}, {"id": "gpt-6-astra", "tier": "pro"}]
+    fake = _FakeClient()
+    fake.models = type("M", (), {"list": staticmethod(lambda: type("p", (), {
+        "data": [type("m", (), {"id": r["id"], "to_dict": staticmethod(lambda r=r: dict(r))})() for r in rows]})())})()
+    monkeypatch.setattr(ai, "_build_client", lambda p: fake)
+    sin = ai.list_models({"provider": "llm7"})
+    assert [m["id"] for m in sin["models"]] == ["minimax-m2.7"]
+    con = ai.list_models({"provider": "llm7", "key": "token"})
+    assert {m["id"] for m in con["models"]} == {"minimax-m2.7", "gpt-6-astra"}
