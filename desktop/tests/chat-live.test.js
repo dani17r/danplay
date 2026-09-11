@@ -178,3 +178,29 @@ describe('las conversaciones guardadas', () => {
     expect(w.text()).toContain('respuesta vieja')
   })
 })
+
+describe('exportar y presupuesto', () => {
+  it('copia la conversacion como texto al portapapeles', async () => {
+    held.state.chats = [{ id: 2, title: 'Set', updated: 2, messages: [{ role: 'me', text: 'hola' }, { role: 'ai', text: 'que tal' }] }]
+    const written = []
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { written.push(t) } }, configurable: true })
+    const w = await montar()
+    const copiar = w.findAll('.chat-head .btn').find((b) => b.attributes('title')?.includes('Copiar'))
+    await copiar.trigger('click')
+    await flushPromises()
+    expect(held.api.chatExport).toHaveBeenCalledWith(2)
+    expect(written[0]).toContain('# conversacion 2')
+    w.unmount()
+  })
+
+  it('al pasar el tope mensual lo dice una vez, sin cortar la respuesta', async () => {
+    held.polls = [{ text: 'ok', tools: [], done: true,
+      result: { text: 'ok', tools: [], actions: [], confirm: null, budget: { limit: 1, month: 1.5, over: true } } }]
+    const w = await montar()
+    await escribir(w, 'hola')
+    expect(w.findAll('.chat-msg.ai')).toHaveLength(1)
+    const { notices } = await import('../src/composables/useNotices.js').then((m) => m.useNotices())
+    expect(notices.value.some((n) => n.message.includes('tope'))).toBe(true)
+    w.unmount()
+  })
+})

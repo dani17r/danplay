@@ -384,6 +384,12 @@ export const app = {
   openInBrowser: (url) =>
     inTauri ? invoke('open_in_browser', { url }) : Promise.resolve(window.open(url, '_blank') && undefined),
   /**
+   * Abre un .html de la biblioteca (la hoja para el atril) con el navegador
+   * del sistema, para leerlo e imprimirlo. Solo dentro de la app.
+   * @param {string} path
+   */
+  openHtml: (path) => (inTauri ? invoke('open_html', { path }) : Promise.reject(new Error('Solo en la aplicación de escritorio'))),
+  /**
    * A dónde se puede enviar una canción desde este equipo.
    * @returns {Promise<{telegram: boolean}>}
    */
@@ -500,6 +506,8 @@ export const api = {
   aiUsage: () => GET('/ai/usage'),
   /** @param {boolean} enabled  si al fallar el activo se usan los demás */
   aiFallback: (enabled) => POST('/ai/fallback', { enabled }),
+  /** @param {number} dollars  avisar al pasar de tantos dólares al mes (0 = sin aviso) */
+  aiBudget: (dollars) => POST('/ai/budget', { dollars }),
   /** @param {AiProfile} d  prueba lo del formulario sin guardarlo */
   aiCheck: (d) => POST('/ai/check', d),
   /**
@@ -643,6 +651,8 @@ export const api = {
   chatDelete: (id) => DEL(`/chats/${id}`),
   /** @param {string} q  busca en todas las conversaciones */
   chatSearch: (q) => GET(`/chats/search?q=${encodeURIComponent(q)}`),
+  /** @param {number} id  la conversación como markdown: {markdown} */
+  chatExport: (id) => GET(`/chats/${id}/export`),
   chatTools: () => GET('/chat/tools'),
   /**
    * Ejecuta una herramienta que el asistente dejó pendiente de confirmar (§3).

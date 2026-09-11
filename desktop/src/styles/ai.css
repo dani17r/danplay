@@ -90,6 +90,10 @@
 .ai-usage{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:11.5px;color:var(--muted);
   margin:4px 0 10px;padding:8px 10px;border:1px solid var(--border);border-radius:7px}
 .ai-usage strong{color:var(--text);font-weight:600;margin-right:4px}
+.ai-usage.over{border-color:color-mix(in srgb,var(--amber) 55%,transparent)}
+.ai-over{color:var(--amber);font-weight:600}
+.ai-usage-provider{font-size:11px;color:var(--muted2)}
+.ai-budget{display:flex;align-items:center;gap:6px;flex-basis:100%}
 .ai-current{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;
   border:1px solid var(--border2);border-radius:9px;background:var(--panel2);margin-bottom:10px}
 .ai-current-ico{color:var(--accent);display:flex;flex-shrink:0}

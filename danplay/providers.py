@@ -572,6 +572,24 @@ def set_fallback(enabled: bool) -> None:
     _write(store)
 
 
+def budget() -> float:
+    """Tope de gasto al mes en dolares (0 = sin aviso). Solo avisa: la IA no
+    se corta sola, que a mitad de un ensayo seria peor."""
+    try:
+        return max(0.0, float(_read().get("budget") or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def set_budget(value) -> None:
+    store = _read()
+    try:
+        store["budget"] = max(0.0, float(value or 0))
+    except (TypeError, ValueError):
+        store["budget"] = 0.0
+    _write(store)
+
+
 def fallbacks(active_id: str = "") -> list[dict]:
     """Los demas perfiles usables, resueltos, en el orden en que se
     guardaron. Un respaldo sin clave (un local apagado) tambien cuenta: el

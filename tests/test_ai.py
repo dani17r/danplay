@@ -862,3 +862,37 @@ def test_las_herramientas_opcionales_solo_van_cuando_la_charla_lo_pide():
     assert names(chat.tools_for([], everything=True)) == names(chat.TOOLS)
     music = names(chat.tools_for([{"role": "user", "text": "pásala a Sol y hazme la hoja para el atril"}]))
     assert {"transpose_chords", "setlist_sheet"} <= music
+
+
+def test_el_presupuesto_solo_avisa(perfiles, monkeypatch, tmp_path):
+    from danplay import chat, library
+    monkeypatch.setattr(config, "DATABASE", tmp_path / "gasto.db")
+    providers.save_profile({"provider": "openai", "key": "k", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"})
+    assert providers.budget() == 0.0
+    providers.set_budget(0.01)
+    assert providers.budget() == 0.01
+    library.log_ai_usage("openai", "gpt-6-astra", "chat", 1000, 1000, 0.06)
+    fake = _FakeClient(answer="hola")
+    _fake(monkeypatch, fake)
+    r = chat.reply([{"role": "user", "text": "hola"}])
+    assert r["text"] == "hola", "la IA sigue respondiendo: el tope avisa, no corta"
+    assert r["budget"]["over"] and r["budget"]["limit"] == 0.01 and r["budget"]["month"] >= 0.06
+    s = library.ai_usage_summary()
+    assert s["by_provider"][0]["provider"] == "openai" and s["by_provider"][0]["calls"] >= 1
+    providers.set_budget(0)
+    r = chat.reply([{"role": "user", "text": "hola"}])
+    assert "budget" not in r
+
+
+def test_una_conversacion_se_exporta_como_texto(monkeypatch, tmp_path):
+    from danplay import chats
+    monkeypatch.setattr(config, "DATABASE", tmp_path / "chats.db")
+    c = chats.create()
+    chats.append(c["id"], [{"role": "me", "text": "¿en que tono?"},
+                           {"role": "ai", "text": "En **Sol**.", "tools": [{"name": "search_songs", "summary": "1 resultados"}]},
+                           {"role": "me", "text": "[aviso]", "hidden": True}])
+    md = chats.export_markdown(c["id"])
+    assert md.startswith("# ¿en que tono?")
+    assert "**Tu**" in md and "**Asistente**" in md and "En **Sol**." in md
+    assert "search_songs: 1 resultados" in md and "[aviso]" not in md
+    assert chats.export_markdown(999999) is None

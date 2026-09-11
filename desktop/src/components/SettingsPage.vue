@@ -54,6 +54,12 @@ function tokens (u) {
 async function setFallback (v) {
   try { aiInfo.value = await api.aiFallback(v) } catch (e) { notify(errorMessage(e)) }
 }
+// el tope mensual: solo avisa (en Ajustes y en el chat), no corta la IA
+const budgetDraft = ref('')
+async function saveBudget () {
+  const v = Number(String(budgetDraft.value).replace(',', '.')) || 0
+  try { usage.value = await api.aiBudget(v); budgetDraft.value = '' } catch (e) { notify(errorMessage(e)) }
+}
 
 function openAi (initial = '') { aiInitial.value = initial; aiModal.value = true }
 // «Probar gratis, sin clave»: el nucleo prueba los servicios gratuitos por
@@ -400,10 +406,19 @@ const gb = formatGigabytes
                  ? 'Caído, sin crédito o saturado: se responde con ' + aiInfo.fallbacks.map(f => f.name).join(', ') + ' y se avisa'
                  : 'No hay otro configurado: añade uno (o el gratuito) y hará de respaldo'"
                @update:modelValue="setFallback" />
-      <div v-if="usage" class="ai-usage">
+      <div v-if="usage" class="ai-usage" :class="{over: usage.over_budget}">
         <span><strong>Hoy</strong> {{ usage.today.calls }} llamadas · {{ tokens(usage.today) }} tokens · {{ money(usage.today.cost) }}</span>
-        <span><strong>Este mes</strong> {{ usage.month.calls }} llamadas · {{ tokens(usage.month) }} tokens · {{ money(usage.month.cost) }}</span>
+        <span><strong>Este mes</strong> {{ usage.month.calls }} llamadas · {{ tokens(usage.month) }} tokens · {{ money(usage.month.cost) }}
+          <span v-if="usage.budget"> de {{ money(usage.budget) }}</span>
+          <span v-if="usage.over_budget" class="ai-over"> · pasado el tope</span></span>
+        <span v-for="p in usage.by_provider || []" :key="p.provider" class="ai-usage-provider">
+          {{ p.provider }}: {{ p.calls }} llamadas · {{ money(p.cost) }}</span>
         <span v-if="usage.month.unpriced" class="hint" style="margin:0">{{ usage.month.unpriced }} llamadas sin precio conocido (no cuentan en el coste)</span>
+        <span class="ai-budget">
+          <TextField v-model="budgetDraft" type="number" width="150px" compact
+                     :placeholder="usage.budget ? 'tope: ' + money(usage.budget) : 'sin tope'" @enter="saveBudget" />
+          <button class="btn mini" type="button" :disabled="budgetDraft === ''" @click="saveBudget">Avisar al pasar de $ al mes</button>
+        </span>
       </div>
       <div style="display:flex;gap:8px;align-items:flex-end;margin:6px 0 10px">
         <TextField v-model="fingerprintKey" type="password" width="100%" label="Clave de AcoustID"

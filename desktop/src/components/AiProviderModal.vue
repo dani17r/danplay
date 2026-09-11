@@ -372,7 +372,7 @@ function ago (ts) {
                          placeholder="X-Mi-Cabecera: valor  (una por línea)" />
               <TextField v-model="form.extraText" multiline :rows="3" width="100%" label="Parámetros extra (JSON)"
                          placeholder='{"reasoning_effort": "low"}'
-                         hint="se añaden a cada petición tal cual: reasoning_effort, thinking, top_p, lo que admita tu proveedor" />
+                         hint="se añaden a cada petición tal cual: reasoning_effort, thinking, top_p… En OpenRouter, {&quot;plugins&quot;:[{&quot;id&quot;:&quot;web&quot;}]} activa su búsqueda web" />
               <TextField v-model="form.timeout" type="number" width="180px" label="Tiempo máximo (segundos)" />
             </div>
 

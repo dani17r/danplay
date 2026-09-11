@@ -1043,6 +1043,13 @@ def ai_usage_summary() -> dict:
                 "completion": f["completion"] or 0, "cost": round(f["cost"] or 0, 6),
                 "unpriced": f["unpriced"] or 0}
     out = {"today": part(day), "month": part(month), "total": part(0)}
+    out["by_provider"] = [dict(r) for r in conn.execute(
+        "SELECT provider, COUNT(*) calls, COALESCE(SUM(prompt),0)+COALESCE(SUM(completion),0) tokens, "
+        "COALESCE(SUM(cost),0) cost FROM ai_usage WHERE at>=? GROUP BY provider ORDER BY cost DESC, calls DESC",
+        (month,)).fetchall()]
+    # el registro no crece para siempre: mas de un año no cuenta ya nada
+    conn.execute("DELETE FROM ai_usage WHERE at < ?", (time.time() - 400 * 86400,))
+    conn.commit()
     conn.close()
     return out
 

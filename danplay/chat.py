@@ -663,6 +663,14 @@ def reply(messages: list[dict], max_vueltas=6, context: dict | None = None,
                             "cost": round(usage["cost"], 6) if usage["priced"] else None}
         if via:
             out["via"] = via
+        # el tope mensual, si lo hay: la interfaz avisa, no corta
+        try:
+            limit = ai.providers.budget()
+            if limit:
+                month = library.ai_usage_summary()["month"]["cost"]
+                out["budget"] = {"limit": limit, "month": round(month, 4), "over": month > limit}
+        except Exception:                                    # noqa: BLE001
+            pass
         return out
 
     history = [{"role": "system", "content": SYSTEM_PROMPT}]

@@ -209,6 +209,7 @@ fn main() {
             associate::make_default_player,
             reveal::reveal_in_folder,
             reveal::open_in_browser,
+            reveal::open_html,
             share::share_targets,
             share::send_to_telegram,
         ])

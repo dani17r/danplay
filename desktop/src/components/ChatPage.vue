@@ -359,6 +359,18 @@ function forCore (m) {
 // El aviso de fin de descarga que no se pudo mandar porque el chat estaba
 // ocupado: se manda en cuanto termine ese turno, no se pierde.
 let queued = null
+// el tope de gasto se avisa una vez por sesion, no en cada respuesta
+let warnedBudget = false
+
+/** La conversacion abierta, al portapapeles como texto. */
+async function exportChat () {
+  if (!chatId.value) return
+  try {
+    const { markdown } = await api.chatExport(chatId.value)
+    await navigator.clipboard.writeText(markdown)
+    notify('Conversación copiada al portapapeles', 'ok')
+  } catch (e) { notify('No se pudo exportar: ' + errorMessage(e)) }
+}
 
 /**
  * `hidden`: un mensaje que manda la propia app en nombre del usuario (al
@@ -399,6 +411,10 @@ async function send (text = null, hidden = false, event = null) {
     } else {
       pushMessage({ role: 'ai', text: r.text, tools: r.tools || [], narrated: !!r.narrated,
                     usage: r.usage || null, via: r.via || null })
+      if (r.budget?.over && !warnedBudget) {
+        warnedBudget = true
+        notify(`La IA lleva $${r.budget.month} este mes, por encima del tope de $${r.budget.limit} (Ajustes)`, 'info')
+      }
       // OJO: son los nombres de las herramientas tal y como estan hoy. Estaban
       // los viejos en castellano y por eso la lista nunca se refrescaba.
       // `download_music` no esta: en la conversacion solo se PIDE; la
@@ -503,6 +519,8 @@ async function clearChat () {
         <Icon n="list" :t="13" /> {{ chats.length || '' }}</button>
       <button class="btn mini" type="button" title="Nueva conversación" :disabled="thinking || !messages.length"
               @click="newChat"><Icon n="plus" :t="13" /></button>
+      <button class="btn mini" type="button" title="Copiar la conversación como texto" @click="exportChat" v-if="chatId && messages.length">
+        <Icon n="copy" :t="13" /></button>
       <button class="btn mini" type="button" title="Borrar esta conversación" @click="clearChat" v-if="messages.length">
         <Icon n="trash" :t="13" /></button>
     </div>

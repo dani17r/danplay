@@ -290,8 +290,14 @@ function answers(state) {
     }),
     aiUsage: async () => ({ today: { calls: 2, prompt: 3000, completion: 400, cost: 0.0021, unpriced: 0 },
                             month: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
-                            total: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 } }),
+                            total: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
+                            by_provider: [{ provider: 'openai', calls: 20, tokens: 34000, cost: 0.021 }], budget: 0, over_budget: false }),
     aiFallback: async (enabled) => { state.aiFallback = enabled; return aiOverview(state) },
+    aiBudget: async (dollars) => ({ today: { calls: 0, prompt: 0, completion: 0, cost: 0, unpriced: 0 },
+                                    month: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
+                                    total: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
+                                    by_provider: [], budget: dollars, over_budget: dollars > 0 && 0.021 > dollars }),
+    chatExport: async (id) => ({ markdown: `# conversacion ${id}\n` }),
     setStudy: async (id, study) => {
       const s = find(id)
       const raw = study && Object.keys(study).length ? JSON.stringify(study) : ''

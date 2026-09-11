@@ -145,6 +145,47 @@ pub fn open_in_browser(url: String) -> Result<(), String> {
     open_url(&url)
 }
 
+/// Abre un archivo local con el programa del sistema: solo un `.html` que
+/// exista (la hoja para el atril), para leerlo e imprimirlo desde el
+/// navegador. Nada de ejecutables ni de lo que sea.
+pub fn open_local_html(path: &str) -> Result<(), String> {
+    let target = Path::new(path);
+    let is_html = target
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("html"));
+    if !is_html || !target.is_file() {
+        return Err("Solo se abren archivos .html que existan.".into());
+    }
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut c = Command::new("xdg-open");
+        c.arg(target);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", ""]).arg(target);
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = Command::new("open");
+        c.arg(target);
+        c
+    };
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("No pude abrirlo: {e}"))
+}
+
+#[tauri::command]
+pub fn open_html(path: String) -> Result<(), String> {
+    open_local_html(&path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +194,16 @@ mod tests {
     fn a_missing_file_is_refused_before_touching_the_system() {
         let err = reveal("/no/existe/esto.mp3").unwrap_err();
         assert!(err.contains("ya no esta"), "{err}");
+    }
+
+    #[test]
+    fn only_existing_html_files_open_locally() {
+        assert!(open_local_html("/no/existe.html").is_err());
+        let dir = std::env::temp_dir();
+        let bad = dir.join("danplay-prueba.sh");
+        std::fs::write(&bad, "echo no").unwrap();
+        assert!(open_local_html(bad.to_str().unwrap()).is_err(), "un .sh no se abre");
+        let _ = std::fs::remove_file(&bad);
     }
 
     #[test]

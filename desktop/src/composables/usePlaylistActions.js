@@ -121,7 +121,9 @@ export function usePlaylistActions(context) {
     try {
       const r = await api.playlistSheet(playlist.id, !!withLyrics)
       notify(`Hoja escrita en ${r.file}`, 'ok')
-      try { await app.revealInFolder(r.file) } catch { /* fuera de la app no hay explorador */ }
+      // se abre con el navegador, que es desde donde se imprime o se guarda
+      // como PDF; si no se puede, al menos se enseña donde quedo
+      try { await app.openHtml(r.file) } catch { try { await app.revealInFolder(r.file) } catch { /* fuera de la app */ } }
     } catch (e) {
       notify('No se pudo escribir la hoja: ' + errorMessage(e))
     }

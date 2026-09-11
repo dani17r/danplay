@@ -206,6 +206,10 @@ class AiFallbackIn(Body_):
     enabled: bool
 
 
+class AiBudgetIn(Body_):
+    dollars: float = Field(ge=0, le=100000)
+
+
 class SheetIn(Body_):
     with_lyrics: bool = False
 
@@ -482,8 +486,19 @@ async def ai_free():
 
 @app.get("/api/ai/usage")
 def ai_usage():
-    """Lo que gasta la IA: hoy, este mes y en total (tokens y coste)."""
-    return library.ai_usage_summary()
+    """Lo que gasta la IA: hoy, este mes, en total y por proveedor (tokens y
+    coste), y el presupuesto mensual si lo hay."""
+    out = library.ai_usage_summary()
+    out["budget"] = providers.budget()
+    out["over_budget"] = bool(out["budget"] and out["month"]["cost"] > out["budget"])
+    return out
+
+
+@app.post("/api/ai/budget")
+def ai_budget(body: AiBudgetIn = Body(...)):
+    """Avisar al pasar de tantos dolares al mes (0 = sin aviso)."""
+    providers.set_budget(body.dollars)
+    return ai_usage()
 
 
 @app.post("/api/ai/fallback")
@@ -1002,6 +1017,14 @@ def chats_append(chat_id: int, body: ChatAppendIn = Body(...)):
     except ValueError as e:
         raise HTTPException(404, str(e))
     return {"n": n}
+
+
+@app.get("/api/chats/{chat_id}/export")
+def chats_export(chat_id: int):
+    md = chats.export_markdown(chat_id)
+    if md is None:
+        raise HTTPException(404, "no existe esa conversacion")
+    return {"markdown": md}
 
 
 @app.patch("/api/chats/{chat_id}")

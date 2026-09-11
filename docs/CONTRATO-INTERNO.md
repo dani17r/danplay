@@ -213,7 +213,19 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   enciende o apaga el respaldo; `GET /api/ai/providers` trae `fallback` y
   `fallbacks: [{id, name, chat_model}]`.
 - `POST /api/playlists/{id}/sheet { with_lyrics }` → `{ file }`: la hoja para
-  el atril (HTML en `Listas/`).
+  el atril (HTML en `Listas/`); la app la abre con el navegador por el
+  comando de Rust `open_html`, que solo acepta `.html` que existan.
+- `GET /api/ai/usage` añade `by_provider` (este mes), `budget` y
+  `over_budget`; `POST /api/ai/budget { dollars }` fija el tope (0 = sin
+  aviso). El resultado de `/api/chat` lleva `budget: { limit, month, over }`
+  cuando hay tope: la interfaz avisa, no corta.
+- `GET /api/chats/{id}/export` → `{ markdown }`.
+- `PUT /api/song/{id}/study { loop?: [a, b], speed?, markers?: [{t, label}],
+  notes? }` → la ficha; lo que no venga se quita. Va al índice (`study`,
+  JSON) y a la etiqueta `ESTUDIO` del archivo, y vuelve al escanear.
+- Reproducción: `set_loop(a, b)` (sin valores, lo quita); el estado trae
+  `loop_a`, `loop_b` (0,0 = sin bucle) y `pitch_preserved` (la velocidad
+  conserva el tono: ffmpeg `atempo`; `false` = sin ffmpeg, cambia el tono).
 
 ## 4. Ajustes (Python ↔ Vue), nombres correctos
 

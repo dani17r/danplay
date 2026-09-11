@@ -157,3 +157,26 @@ def search(query: str, limit=40) -> list[dict]:
         out.append({"id": r["id"], "chat_id": r["chat_id"], "title": r["title"],
                     "role": r["role"], "snippet": snippet, "at": r["at"]})
     return out
+
+
+def export_markdown(chat_id: int) -> str | None:
+    """La conversacion como texto, para llevarsela a otro sitio."""
+    import datetime
+    c = get(chat_id)
+    if not c:
+        return None
+    lines = [f"# {c['title'] or 'Conversacion'}", ""]
+    for m in c["messages"]:
+        if m.get("hidden"):
+            continue
+        when = datetime.datetime.fromtimestamp(float(m.get("at") or 0)).strftime("%d/%m/%Y %H:%M")
+        who = "Tu" if m["role"] == "me" else ("DanPlay" if m.get("app") else "Asistente")
+        lines.append(f"**{who}** · {when}")
+        lines.append("")
+        lines.append(m["text"])
+        tools = m.get("tools") or []
+        if tools:
+            lines.append("")
+            lines.append("_" + "; ".join(f"{t.get('name')}: {t.get('summary', '')}" for t in tools) + "_")
+        lines.append("")
+    return "\n".join(lines).strip() + "\n"
