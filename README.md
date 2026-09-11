@@ -12,7 +12,7 @@
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.4.0-4ade80">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.5.0-4ade80">
   <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-727%20en%20verde-2ea043">
 </p>
 

@@ -2,7 +2,7 @@
 # viven en desktop/, y el crate que acelera hashes y analisis en core/.
 [project]
 name = "danplay"
-version = "1.4.0"
+version = "1.5.0"
 description = "Gestor de biblioteca musical: identifica, ordena, etiqueta y reproduce"
 # `theory.py` usa re.NOFLAG (3.11+) y hay sintaxis de 3.10 por todas partes;
 # el proyecto se desarrolla y se empaqueta con 3.13.
