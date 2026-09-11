@@ -113,7 +113,7 @@ async function changeCover () {
 
 async function autofill () {
   if (!props.aiReady) {
-    blocked.value = { reason: 'Hace falta la clave de IA en Ajustes para completar la ficha.' }
+    blocked.value = { reason: 'Hace falta configurar la IA en Ajustes para completar la ficha.' }
     return
   }
   loading.value = 'autofill'; failure.value = ''; blocked.value = null
@@ -318,7 +318,7 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
           Rellenar informacion con IA</button>
         <button class="btn mini" :disabled="!!loading || !aiReady"
                 :title="aiReady ? 'Tono, acordes y contexto, con IA'
-                                : 'Hace falta la clave de IA'"
+                                : 'Hace falta configurar la IA en Ajustes'"
                 @click="loadDetails">
           Ver detalles IA</button>
       </div>
@@ -330,8 +330,8 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
       </div>
       <Loading v-if="loading" text="consultando…" style="margin-top:9px" />
       <div v-else-if="!aiReady" class="hint" style="margin-top:8px">
-        Sin clave de IA solo se busca en LRCLIB y en las caratulas publicas.
-        <a class="link" @click="emit('goSettings')">Poner la clave en Ajustes</a>
+        Sin IA configurada solo se busca en LRCLIB y en las caratulas publicas.
+        <a class="link" @click="emit('goSettings')">Elegir la IA en Ajustes</a>
       </div>
       <div v-if="failure" class="hint" style="color:var(--red);font-style:normal">
         {{ failure }}</div>

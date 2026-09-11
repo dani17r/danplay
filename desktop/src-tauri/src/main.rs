@@ -193,6 +193,7 @@ fn main() {
             associate::default_player,
             associate::make_default_player,
             reveal::reveal_in_folder,
+            reveal::open_in_browser,
             share::share_targets,
             share::send_to_telegram,
         ])

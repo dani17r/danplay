@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { api, app, pickFolder, errorMessage } from '../api.js'
 import { addFolder } from '../utils/folders.js'
 import { usePreferences } from '../composables/usePreferences.js'
@@ -8,6 +8,7 @@ import { ask, tell } from '../composables/useDialog.js'
 import { formatGigabytes } from '../utils/format.js'
 import { DENSITIES, KIND_LABEL, allThemes, deleteCustomTheme } from '../themes.js'
 import ThemeEditor from './ThemeEditor.vue'
+import AiProviderModal from './AiProviderModal.vue'
 import Icon from './Icon.vue'
 import Loading from './ui/Loading.vue'
 import TextField from './ui/TextField.vue'
@@ -22,12 +23,46 @@ const convertibles = ref(null)
 const newPath = ref('')
 const newPattern = ref('')
 const busy = ref('')
-const aiKey = ref('')
 const fingerprintKey = ref('')
 // «tengo la clave puesta» y «la clave funciona» no son lo mismo: esto hace la
-// llamada mas barata posible contra DeepInfra para saberlo de verdad.
+// llamada mas barata posible contra el proveedor para saberlo de verdad, y
+// de paso comprueba que el modelo de conversacion sabe usar herramientas.
 const checkingKey = ref(false)
 const keyState = ref(null)
+// El proveedor de IA se elige en un modal aparte: son sesenta y pico
+// servicios con sus campos, y aqui solo se enseña cual esta en uso y los
+// que ya estan configurados, para saltar entre ellos con un clic.
+const aiInfo = ref(null)
+const aiModal = ref(false)
+const aiInitial = ref('')
+const aiProfiles = computed(() => Object.values(aiInfo.value?.profiles || {}))
+const activeAi = computed(() => aiInfo.value?.active_profile || null)
+
+function openAi (initial = '') { aiInitial.value = initial; aiModal.value = true }
+async function afterAiSaved (r) {
+  aiInfo.value = r
+  keyState.value = null
+  settings.value = await api.settings()
+  status.value = await api.status()
+}
+async function activateAi (id) {
+  if (id === aiInfo.value?.active) return
+  try { await afterAiSaved(await api.aiActivate(id)) } catch (e) { notify(errorMessage(e)) }
+}
+async function removeAi (p) {
+  const ok = await ask({ kind: 'confirm', title: 'Quitar este proveedor', danger: true,
+                         message: `Se borra la clave y los ajustes de ${p.provider_name}.`, okLabel: 'Quitar' })
+  if (!ok) return
+  try { await afterAiSaved(await api.aiDeleteProfile(p.id)) } catch (e) { notify(errorMessage(e)) }
+}
+function ago (ts) {
+  if (!ts) return 'nunca'
+  const m = Math.round((Date.now() / 1000 - ts) / 60)
+  if (m < 1) return 'ahora mismo'
+  if (m < 60) return `hace ${m} min`
+  const h = Math.round(m / 60)
+  return h < 48 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`
+}
 // Si el sistema abre las canciones con DanPlay. Se pregunta al entrar y
 // despues de pedirlo: es un ajuste del SISTEMA, no nuestro, y puede haberlo
 // cambiado otro programa desde fuera.
@@ -63,6 +98,9 @@ async function load () {
   folders.value = await api.folders()
   convertibles.value = await api.convertible()
   player.value = await app.defaultPlayer()
+  // Consulta el catalogo de modelos en segundo plano si hace rato: asi el
+  // apartado de IA abre ya con la lista de hoy.
+  try { aiInfo.value = await api.aiProviders() } catch { /* sin nucleo de IA: la tarjeta lo dice */ }
 }
 onMounted(load)
 
@@ -279,36 +317,63 @@ const gb = formatGigabytes
       </div>
     </Card>
 
-    <Card title="Inteligencia artificial" note="Identifica lo que la huella acustica no logra, y busca letra, acordes y datos.">
-      <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">
-        <TextField v-model="aiKey" type="password" width="100%" label="Clave de DeepInfra"
-               :placeholder="settings.has_ai_key ? 'Guardada: ' + settings.ai_key : 'pega aqui tu clave'"
-               @enter="save('ai_key', aiKey); aiKey=''" />
-        <button class="btn" :disabled="!aiKey" @click="save('ai_key', aiKey); aiKey=''">
-          Guardar</button>
-        <button class="btn" :disabled="checkingKey" @click="checkKey">
-          {{ checkingKey ? 'Probando…' : 'Probar' }}</button>
+    <Card title="Inteligencia artificial" note="Identifica lo que la huella acustica no logra, busca letra, acordes y datos, y es el asistente. Vale cualquier proveedor: OpenAI, Anthropic, Google Gemini, DeepInfra, OpenRouter, Ollama en tu equipo…">
+      <div class="ai-current">
+        <span class="ai-current-ico"><Icon n="ai" :t="22" /></span>
+        <div class="ai-current-txt">
+          <strong v-if="activeAi">{{ activeAi.name }}</strong>
+          <strong v-else>Sin proveedor elegido</strong>
+          <span v-if="activeAi">conversación: <span class="mono">{{ activeAi.chat_model || '—' }}</span>
+            · identificar: <span class="mono">{{ activeAi.model || '—' }}</span></span>
+          <span v-else>Elige uno y pega su clave; o usa un modelo en tu propio equipo, sin clave.</span>
+        </div>
+        <span class="badge" :class="settings.ai_ready ? 'ok' : 'bad'">
+          {{ settings.ai_ready ? 'lista' : (settings.ai_reason || 'sin configurar') }}</span>
+        <div class="btn-row">
+          <button v-if="activeAi" class="btn" @click="openAi(activeAi.id)">Ajustar…</button>
+          <button class="btn primary" @click="openAi()">{{ activeAi ? 'Cambiar…' : 'Elegir proveedor…' }}</button>
+          <button class="btn" :disabled="checkingKey || !activeAi" @click="checkKey">
+            {{ checkingKey ? 'Probando…' : 'Probar' }}</button>
+        </div>
       </div>
       <div v-if="keyState" class="key-state" :class="keyState.ok ? 'ok' : 'bad'">
         <Icon :n="keyState.ok ? 'check' : 'warning'" :t="14" />
-        <span>{{ keyState.ok
-          ? `La clave funciona · modelo ${keyState.model}`
-          : keyState.reason }}</span>
+        <span v-if="keyState.ok">Funciona · {{ keyState.model }} responde en {{ keyState.latency_ms }} ms
+          <span v-if="keyState.tools_ok"> · el asistente puede usar {{ keyState.chat_model }}</span>
+          <span v-else style="color:var(--amber)"> · {{ keyState.chat_model }}: {{ keyState.tools_reason }}</span>
+        </span>
+        <span v-else>{{ keyState.reason }}</span>
       </div>
-      <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">
+      <div v-if="aiProfiles.length > 1" class="ai-profiles">
+        <span v-for="p in aiProfiles" :key="p.id" class="ai-profile" :class="{active: p.id === aiInfo.active}"
+              :title="p.id === aiInfo.active ? 'en uso' : 'usar este'" @click="activateAi(p.id)">
+          <Icon v-if="p.id === aiInfo.active" n="check" :t="11" />
+          {{ p.provider_name }}
+          <button class="field-btn" type="button" title="Ajustar" @click.stop="openAi(p.id)"><Icon n="pencil" :t="11" /></button>
+          <button class="field-btn" type="button" title="Quitar" @click.stop="removeAi(p)"><Icon n="close" :t="11" /></button>
+        </span>
+      </div>
+      <ToggleField :modelValue="settings.ai_enabled" title="Usar IA"
+               hint="Apagada, la app identifica solo por etiquetas y huella, y el asistente se calla"
+               @update:modelValue="v => save('ai_enabled', v)" />
+      <div style="display:flex;gap:8px;align-items:flex-end;margin:6px 0 10px">
         <TextField v-model="fingerprintKey" type="password" width="100%" label="Clave de AcoustID"
                :placeholder="settings.fingerprint_key ? 'Guardada' : 'gratis en acoustid.org, opcional'"
                @enter="save('fingerprint_key', fingerprintKey); fingerprintKey=''" />
         <button class="btn" :disabled="!fingerprintKey"
                 @click="save('fingerprint_key', fingerprintKey); fingerprintKey=''">Guardar</button>
       </div>
-      <ToggleField :modelValue="settings.ai_enabled" title="Usar IA"
-               :hint="'Modelo: ' + status.model"
-               @update:modelValue="v => save('ai_enabled', v)" />
       <ToggleField :modelValue="settings.write_tags" title="Escribir etiquetas dentro del archivo"
                hint="Estrellas, letra, portada y tono viajan con el mp3"
                @update:modelValue="v => save('write_tags', v)" />
+      <div v-if="aiInfo" class="hint">
+        Catálogo de modelos (models.dev): {{ aiInfo.catalog_status.models }} modelos de
+        {{ aiInfo.catalog_status.providers }} proveedores, comprobado {{ ago(aiInfo.catalog_status.checked_at) }}.
+        Se vuelve a consultar cada vez que abres el selector.
+      </div>
     </Card>
+
+    <AiProviderModal :open="aiModal" :initial="aiInitial" @close="aiModal = false" @saved="afterAiSaved" />
 
     <Card v-if="player?.supported" title="Abrir canciones con DanPlay"
           note="Para que al abrir una canción desde el explorador de archivos suene aquí.">
@@ -336,7 +401,7 @@ const gb = formatGigabytes
 
     <Card title="Sistema">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
-        <span class="badge" :class="status.ai?'ok':'bad'">IA {{ status.ai?'lista':'sin clave' }}</span>
+        <span class="badge" :class="status.ai?'ok':'bad'">IA {{ status.ai ? (status.provider || 'lista') : 'sin configurar' }}</span>
         <span class="badge" :class="status.rust?'ok':'bad'">Rust {{ status.rust?'activo':'no compilado' }}</span>
         <span class="badge" :class="status.ffmpeg?'ok':'bad'">ffmpeg</span>
         <span class="badge" :class="status.fingerprint?'ok':'bad'">Huella acustica</span>

@@ -31,10 +31,54 @@ export function song(id, extra = {}) {
   }
 }
 
+/** Lo que devuelve /api/ai/providers: catálogo corto, perfiles y activo. */
+function aiOverview(state) {
+  const active = state.aiProfiles[state.aiActive]
+  return {
+    catalog: state.aiCatalog,
+    groups: [
+      { id: 'lab', name: 'Grandes laboratorios', note: '' },
+      { id: 'local', name: 'En tu equipo', note: '' },
+      { id: 'custom', name: 'Otro', note: '' }
+    ],
+    profiles: JSON.parse(JSON.stringify(state.aiProfiles)),
+    active: state.aiActive,
+    active_profile: active
+      ? { id: active.id, provider: active.provider, name: active.provider_name, model: active.model,
+          chat_model: active.chat_model, base_url: active.base_url || 'https://x/v1', local: false }
+      : null,
+    ai_enabled: true,
+    ai_ready: !!active,
+    ai_reason: active ? '' : 'no hay ningun proveedor de IA elegido',
+    catalog_status: { source: 'snapshot', providers: 1, models: 2, fetched_at: 0, checked_at: 0, error: '', refreshing: false }
+  }
+}
+
 /** El estado que comparten el doble y la prueba. */
 export function createState() {
   return {
     songs: [],
+    /** proveedores de IA: un catálogo mínimo, sin perfiles guardados */
+    aiCatalog: [
+      { id: 'openai', name: 'OpenAI', group: 'lab', base_url: 'https://api.openai.com/v1', key: 'required',
+        key_url: 'https://platform.openai.com/api-keys', docs: '', models_dev: 'openai',
+        suggest: { fast: 'chico', chat: 'grande' }, fields: [], headers: {}, note: '', quirks: {} },
+      { id: 'ollama', name: 'Ollama', group: 'local', base_url: 'http://localhost:11434/v1', key: 'none',
+        key_url: '', docs: '', models_dev: null, suggest: {}, fields: [], headers: {}, note: 'sin clave', quirks: {} },
+      { id: 'bedrock', name: 'Amazon Bedrock', group: 'lab', key: 'required', key_url: '', docs: '',
+        base_url: 'https://bedrock-runtime.{region}.amazonaws.com/openai/v1', models_dev: null, suggest: {},
+        fields: [{ name: 'region', label: 'Region', placeholder: 'us-east-1' }], headers: {}, note: '', quirks: {} },
+      { id: 'custom', name: 'Compatible con OpenAI', group: 'custom', base_url: '', key: 'optional', key_url: '',
+        docs: '', models_dev: null, suggest: {}, fields: [{ name: 'name', label: 'Nombre', placeholder: '' }],
+        headers: {}, note: '', quirks: {} }
+    ],
+    aiProfiles: {},
+    aiActive: '',
+    aiModels: [
+      { id: 'grande', name: 'Grande', tools: true, cost_in: 1, cost_out: 5, context: 128000, released: '2026-09-01', deprecated: false, known: true },
+      { id: 'chico', name: 'Chico', tools: true, cost_in: 0.1, cost_out: 0.4, context: 32000, released: '2026-08-01', deprecated: false, known: true },
+      { id: 'viejo', name: 'Viejo', tools: false, cost_in: 1, cost_out: 1, context: 8000, released: '2024-01-01', deprecated: true, known: true }
+    ],
     playlists: [],
     addedFolders: [],
     inbox: 0,
@@ -96,6 +140,33 @@ function answers(state) {
     }),
     saveSettings: async (d) => ({ ...d }),
     checkAi: async () => ({ ok: true }),
+    aiProviders: async () => aiOverview(state),
+    aiSaveProfile: async (d) => {
+      const id = d.id || (d.provider === 'custom' ? 'custom-' + (d.name || 'x').toLowerCase() : d.provider)
+      state.aiProfiles[id] = {
+        id, provider: d.provider, provider_name: d.name || d.provider,
+        has_key: !!(d.key || state.aiProfiles[id]?.has_key), key: d.key ? d.key.slice(0, 4) + '…' : '',
+        model: d.model || '', chat_model: d.chat_model || '', base_url: d.base_url || '',
+        fields: d.fields || {}, headers: d.headers || {}, extra: d.extra || {}, timeout: d.timeout || 60
+      }
+      if (d.activate !== false) state.aiActive = id
+      return { ...aiOverview(state), saved: id }
+    },
+    aiDeleteProfile: async (id) => {
+      delete state.aiProfiles[id]
+      if (state.aiActive === id) state.aiActive = Object.keys(state.aiProfiles)[0] || ''
+      return aiOverview(state)
+    },
+    aiActivate: async (id) => {
+      state.aiActive = id
+      return aiOverview(state)
+    },
+    aiCheck: async (d) => ({ ok: true, model: d.model, chat_model: d.chat_model, latency_ms: 120, tools_ok: true, tools_reason: '' }),
+    aiModels: async () => ({
+      ok: true, source: 'provider', provider: 'Prueba',
+      models: state.aiModels, catalog: state.aiModels, suggest: { chat: 'grande', fast: 'chico' },
+      catalog_status: { models: 2, providers: 1, checked_at: 0, refreshing: false, error: '' }
+    }),
     folders: async () => ({ folders: [], exclusions: [], always_excluded: [] }),
     checkFolder: async () => ({ notice: null }),
     addFolder: async (path, label, force) => {

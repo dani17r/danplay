@@ -76,6 +76,22 @@
  */
 
 /**
+ * @typedef {Object} AiProfile  Un proveedor de IA tal como lo rellena Ajustes.
+ * @property {string} [id]         el perfil guardado (vacío si es nuevo)
+ * @property {string} provider     id del catálogo (`openrouter`, `ollama`, `custom`…)
+ * @property {string} [name]       solo para `custom`
+ * @property {string} [key]        vacío = conservar la guardada
+ * @property {string} [base_url]   vacío = la del catálogo
+ * @property {Object<string,string>} [fields]   huecos de la URL (región, recurso…)
+ * @property {string} [model]      el rápido: identificar, fichas, juez
+ * @property {string} [chat_model] el del asistente (necesita herramientas)
+ * @property {Object<string,string>} [headers]
+ * @property {Object<string,any>} [extra]       parámetros extra del cuerpo
+ * @property {number} [timeout]
+ * @property {boolean} [activate]
+ */
+
+/**
  * @typedef {Object} ChatConfirm  Una herramienta destructiva pendiente (§3).
  * @property {string} id
  * @property {string} tool
@@ -341,6 +357,13 @@ export const app = {
       ? invoke('reveal_in_folder', { path })
       : Promise.reject(new Error('Solo en la aplicación de escritorio')),
   /**
+   * Abre una página web en el navegador del sistema (solo http/https). Fuera
+   * de la app, una pestaña nueva.
+   * @param {string} url
+   */
+  openInBrowser: (url) =>
+    inTauri ? invoke('open_in_browser', { url }) : Promise.resolve(window.open(url, '_blank') && undefined),
+  /**
    * A dónde se puede enviar una canción desde este equipo.
    * @returns {Promise<{telegram: boolean}>}
    */
@@ -418,6 +441,25 @@ export const api = {
   settings: () => GET('/settings'),
   checkAi: () => POST('/settings/check-ai'),
   saveSettings: (d) => POST('/settings', d),
+
+  /**
+   * Proveedores de IA: el catálogo, los perfiles guardados (claves
+   * enmascaradas), cuál está activo y el estado del catálogo de modelos
+   * (models.dev). Con `refresh` espera a consultarlo; si no, lo hace en
+   * segundo plano.
+   * @param {boolean} [refresh]
+   */
+  aiProviders: (refresh = false) => GET('/ai/providers' + (refresh ? '?refresh=1' : '')),
+  /** @param {AiProfile} d  guarda (y activa, salvo `activate: false`) */
+  aiSaveProfile: (d) => POST('/ai/profile', d),
+  /** @param {string} id */
+  aiDeleteProfile: (id) => DEL(`/ai/profile/${encodeURIComponent(id)}`),
+  /** @param {string} id */
+  aiActivate: (id) => POST('/ai/activate', { id }),
+  /** @param {AiProfile} d  prueba lo del formulario sin guardarlo */
+  aiCheck: (d) => POST('/ai/check', d),
+  /** @param {AiProfile} d  los modelos de ese proveedor con esa clave */
+  aiModels: (d) => POST('/ai/models', d),
 
   folders: () => GET('/folders'),
   /** @param {string} path */

@@ -1,0 +1,104 @@
+/* ============================================================
+   PROVEEDOR DE IA: el modal de elegir y configurar, y el selector
+   de modelos. Beben de las variables del tema como todo lo demas.
+   ============================================================ */
+
+.ai-modal{width:min(760px,100%);max-height:min(92vh,900px);display:flex;flex-direction:column;
+  overflow:hidden;padding:18px 20px}
+.ai-modal .modal-title{margin-bottom:8px}
+.ai-modal .modal-title .btn.mini{padding:3px 7px}
+.ai-close{margin-left:auto}
+.ai-groups{overflow-y:auto;min-height:0;margin:12px -6px 0;padding:0 6px;flex:1}
+.ai-group{margin-bottom:16px}
+.ai-group h4{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;margin:0 0 8px;
+  color:var(--text);flex-wrap:wrap}
+.ai-group-note{font-weight:400;font-size:11px;color:var(--muted2);margin-left:2px}
+.ai-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:7px}
+.ai-card{position:relative;display:flex;flex-direction:column;gap:3px;text-align:left;padding:9px 10px;
+  border:1px solid var(--border2);border-radius:8px;background:var(--panel2);color:var(--text);
+  transition:border-color .14s,background .14s;min-height:58px}
+.ai-card:hover{border-color:var(--accent)}
+.ai-card.configured{border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.ai-card.active{background:color-mix(in srgb,var(--accent) 12%,transparent);border-color:var(--accent)}
+.ai-card-name{font-size:12.5px;font-weight:500}
+.ai-card-note{font-size:10.5px;color:var(--muted2);line-height:1.35;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ai-card-mark{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--accent);
+  margin-top:auto;padding-top:3px}
+.ai-catalog-line{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  font-size:11px;color:var(--muted2);border-top:1px solid var(--border);padding-top:10px;margin-top:8px;
+  flex-wrap:wrap}
+
+/* --- formulario --- */
+.ai-form{display:flex;flex-direction:column;gap:12px;overflow-y:auto;min-height:0;
+  margin:4px -6px 0;padding:2px 6px;flex:1}
+.ai-key{display:flex;gap:8px;align-items:flex-end}
+.ai-key .field{flex:1}
+.ai-key-link{height:36px;white-space:nowrap;gap:5px}
+.ai-url{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted);
+  background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:7px 10px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-models{display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);
+  border-radius:9px;padding:10px 12px 12px;background:color-mix(in srgb,var(--panel2) 55%,transparent)}
+.ai-models-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ai-list-note{flex:1;min-width:0;font-size:11px;color:var(--muted2)}
+.ai-advanced-toggle{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);
+  padding:2px 0;align-self:flex-start}
+.ai-advanced-toggle:hover{color:var(--text)}
+.ai-advanced{display:flex;flex-direction:column;gap:10px;padding-left:6px;
+  border-left:2px solid var(--border)}
+.ai-actions{margin-top:12px;align-items:center}
+
+/* --- selector de modelos --- */
+.model-picker .field-box input{font-family:var(--mono);font-size:12px}
+.model-warn{color:var(--amber)!important}
+/* La lista va EN EL FLUJO, no flotando: el formulario del modal hace scroll
+   y un menu absoluto quedaba cortado por el borde del contenedor. Al abrirse
+   empuja lo de abajo, y al elegir se recoge. */
+.model-menu{margin-top:2px;background:var(--panel);border:1px solid var(--border2);
+  border-radius:9px;box-shadow:0 8px 24px var(--shadow);display:flex;flex-direction:column;
+  max-height:320px}
+.model-filters{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:7px 8px;
+  border-bottom:1px solid var(--border)}
+.model-filters .chip{cursor:pointer;-webkit-user-select:none;user-select:none}
+.model-filters .chip input{display:none}
+.model-sort{margin-left:auto;display:flex;gap:4px}
+.model-list{overflow-y:auto;min-height:0;padding:4px}
+.model-row{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;padding:6px 8px;
+  border-radius:6px;color:var(--text);transition:background .12s}
+.model-row.hilite{background:var(--panel2)}
+.model-row.current .model-name{color:var(--accent)}
+.model-row.old{opacity:.6}
+.model-main{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.model-name{font-size:12.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.model-badges{display:flex;gap:4px;flex-wrap:wrap}
+.model-sub{display:flex;gap:10px;flex-wrap:wrap;font-size:10.5px;color:var(--muted2)}
+.model-empty{padding:12px;font-size:11.5px;color:var(--muted2);font-style:italic;text-align:center}
+.tag{font-size:9.5px;padding:1px 6px;border-radius:4px;background:var(--panel2);
+  border:1px solid var(--border2);color:var(--muted2);white-space:nowrap}
+.tag.ok{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.tag.bad{color:var(--red);border-color:color-mix(in srgb,var(--red) 40%,transparent)}
+.tag.accent{color:var(--bg);background:var(--accent);border-color:var(--accent);font-weight:600}
+.spinner.small{width:10px;height:10px;flex-shrink:0}
+
+/* --- la tarjeta de IA en Ajustes --- */
+.ai-current{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;
+  border:1px solid var(--border2);border-radius:9px;background:var(--panel2);margin-bottom:10px}
+.ai-current-ico{color:var(--accent);display:flex;flex-shrink:0}
+.ai-current-txt{flex:1;min-width:180px;display:flex;flex-direction:column;gap:2px}
+.ai-current-txt strong{font-size:13px}
+.ai-current-txt span{font-size:11px;color:var(--muted2)}
+.ai-profiles{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px}
+.ai-profile{display:inline-flex;align-items:center;gap:6px;padding:3px 6px 3px 9px;border-radius:20px;
+  background:var(--panel2);border:1px solid var(--border2);font-size:11.5px;color:var(--muted);cursor:pointer}
+.ai-profile:hover{border-color:var(--accent);color:var(--text)}
+.ai-profile.active{background:color-mix(in srgb,var(--accent) 14%,transparent);
+  border-color:color-mix(in srgb,var(--accent) 45%,transparent);color:var(--accent)}
+.ai-profile .field-btn{padding:2px}
+
+@media (max-width:640px){
+  .ai-modal{padding:14px}
+  .ai-grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
+  .ai-key{flex-direction:column;align-items:stretch}
+}

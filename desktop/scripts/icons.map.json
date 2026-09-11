@@ -198,5 +198,41 @@
   "save": {
     "style": "o",
     "file": "check-circle.svg"
+  },
+  "cloud": {
+    "style": "o",
+    "file": "cloud.svg"
+  },
+  "cpu": {
+    "style": "o",
+    "file": "cpu-chip.svg"
+  },
+  "globe": {
+    "style": "o",
+    "file": "globe-alt.svg"
+  },
+  "key": {
+    "style": "o",
+    "file": "key.svg"
+  },
+  "external": {
+    "style": "o",
+    "file": "arrow-top-right-on-square.svg"
+  },
+  "sparkles": {
+    "style": "o",
+    "file": "sparkles.svg"
+  },
+  "server": {
+    "style": "o",
+    "file": "server-stack.svg"
+  },
+  "building": {
+    "style": "o",
+    "file": "building-office-2.svg"
+  },
+  "back": {
+    "style": "o",
+    "file": "arrow-left.svg"
   }
 }

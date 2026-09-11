@@ -105,6 +105,46 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
     reveal(&path)
 }
 
+/// Abre una pagina web en el navegador del sistema. Solo http(s): la URL
+/// viene de la interfaz (los enlaces «consigue tu clave» del catalogo de IA),
+/// pero no hay por que pasarle al sistema `file://` ni esquemas raros.
+pub fn open_url(url: &str) -> Result<(), String> {
+    let ok = (url.starts_with("https://") || url.starts_with("http://"))
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control());
+    if !ok {
+        return Err("Solo se abren direcciones http(s).".into());
+    }
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut c = Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        // `start` es interno de cmd; el primer argumento entre comillas es
+        // el titulo de la ventana, por eso va vacio
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", "", url]);
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = Command::new("open");
+        c.arg(url);
+        c
+    };
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("No pude abrir el navegador: {e}"))
+}
+
+#[tauri::command]
+pub fn open_in_browser(url: String) -> Result<(), String> {
+    open_url(&url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,6 +153,14 @@ mod tests {
     fn a_missing_file_is_refused_before_touching_the_system() {
         let err = reveal("/no/existe/esto.mp3").unwrap_err();
         assert!(err.contains("ya no esta"), "{err}");
+    }
+
+    #[test]
+    fn only_web_addresses_reach_the_browser() {
+        for bad in ["file:///etc/passwd", "javascript:alert(1)", "ftp://x", "https://a b", ""] {
+            let err = open_url(bad).unwrap_err();
+            assert!(err.contains("http"), "{bad}: {err}");
+        }
     }
 
     #[test]

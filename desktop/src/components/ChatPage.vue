@@ -339,7 +339,7 @@ async function clearChat () {
       <Icon n="ai" :t="16" />
       <div style="flex:1;min-width:0">
         <strong>Asistente</strong>
-        <span class="chat-model mono">{{ info?.model || '—' }}</span>
+        <span class="chat-model mono">{{ info?.provider ? info.provider + ' · ' : '' }}{{ info?.model || '—' }}</span>
       </div>
       <button class="btn mini" @click="clearChat" v-if="messages.length">
         <Icon n="trash" :t="13" /></button>
