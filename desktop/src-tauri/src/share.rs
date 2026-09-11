@@ -102,11 +102,20 @@ pub fn targets() -> ShareTargets {
     }
 }
 
-/// Abre Telegram con ese archivo listo para enviar. El motivo si no se pudo.
-pub fn to_telegram(path: &str) -> Result<(), String> {
-    let file = Path::new(path);
-    if !file.is_file() {
-        return Err("Ese archivo ya no esta donde estaba.".into());
+/// Abre Telegram con esos archivos listos para enviar (uno o varios: una
+/// seleccion, un repertorio entero). El motivo si no se pudo.
+pub fn to_telegram(paths: &[String]) -> Result<(), String> {
+    let files: Vec<&Path> = paths
+        .iter()
+        .map(|p| Path::new(p.as_str()))
+        .filter(|p| p.is_file())
+        .collect();
+    if files.is_empty() {
+        return Err(if paths.len() > 1 {
+            "Esos archivos ya no estan donde estaban.".into()
+        } else {
+            "Ese archivo ya no esta donde estaba.".into()
+        });
     }
     let Some(launcher) = telegram_launcher() else {
         return Err("No encuentro Telegram Desktop en este equipo.".into());
@@ -114,13 +123,14 @@ pub fn to_telegram(path: &str) -> Result<(), String> {
     let mut command = Command::new(&launcher[0]);
     command.args(&launcher[1..]);
     if launcher[0] == "flatpak" {
-        // el portal de documentos le da acceso al archivo dentro del sandbox
-        command.arg("-sendpath").arg("@@").arg(file).arg("@@");
+        // el portal de documentos le da acceso a los archivos dentro del sandbox
+        command.arg("-sendpath").arg("@@").args(&files).arg("@@");
     } else if launcher[0] == "open" {
-        // macOS: el archivo se le entrega al abrir, como desde el Finder
-        command.arg(file);
+        // macOS: los archivos se le entregan al abrir, como desde el Finder
+        command.args(&files);
     } else {
-        command.arg("-sendpath").arg(file);
+        // `-sendpath` se queda con todo lo que venga detras
+        command.arg("-sendpath").args(&files);
     }
     command
         .stdout(std::process::Stdio::null())
@@ -136,8 +146,8 @@ pub fn share_targets() -> ShareTargets {
 }
 
 #[tauri::command]
-pub fn send_to_telegram(path: String) -> Result<(), String> {
-    to_telegram(&path)
+pub fn send_to_telegram(paths: Vec<String>) -> Result<(), String> {
+    to_telegram(&paths)
 }
 
 #[cfg(test)]
@@ -146,8 +156,11 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_refused_before_launching_anything() {
-        let err = to_telegram("/no/existe/cancion.mp3").unwrap_err();
+        let err = to_telegram(&["/no/existe/cancion.mp3".to_string()]).unwrap_err();
         assert!(err.contains("ya no esta"), "{err}");
+        let err = to_telegram(&["/no/a.mp3".to_string(), "/no/b.mp3".to_string()]).unwrap_err();
+        assert!(err.contains("ya no estan"), "{err}");
+        assert!(to_telegram(&[]).is_err());
     }
 
     #[test]

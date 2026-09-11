@@ -7,7 +7,7 @@ import SongCards from './SongCards.vue'
 import Icon from './Icon.vue'
 import EmptyState from './ui/EmptyState.vue'
 
-const props = defineProps(['songs','by','selected','playing','layout','size','jumpTo','sort','desc'])
+const props = defineProps(['songs','by','selected','selectedIds','playing','layout','size','jumpTo','sort','desc'])
 const emit = defineEmits(['select','play','setStars','toggleFavorite','sortBy','context'])
 const collapsed = ref(new Set())
 
@@ -50,23 +50,23 @@ const fmtDuration = (l) => {
         <span class="cnt">{{ items.length }} temas · {{ fmtDuration(items) }}</span>
       </div>
       <template v-if="!collapsed.has(k)">
-        <SongRows v-if="layout==='rows'" :songs="items" :selected="selected"
+        <SongRows v-if="layout==='rows'" :songs="items" :selected="selected" :selected-ids="selectedIds"
                   :playing="playing" :jumpTo="jumpTo"
                   @select="e=>emit('select',e)" @play="e=>emit('play',e)"
                   @setStars="(c,n)=>emit('setStars',c,n)"
                   @toggleFavorite="c=>emit('toggleFavorite',c)"
                   @context="(ev,c)=>emit('context',ev,c)" />
-        <SongCards v-else-if="layout==='cards'" :songs="items" :selected="selected"
+        <SongCards v-else-if="layout==='cards'" :songs="items" :selected="selected" :selected-ids="selectedIds"
                    :playing="playing" :jumpTo="jumpTo"
                    @select="e=>emit('select',e)" @play="e=>emit('play',e)"
                    @setStars="(c,n)=>emit('setStars',c,n)"
                    @toggleFavorite="c=>emit('toggleFavorite',c)"
                    @context="(ev,c)=>emit('context',ev,c)" />
-        <SongGrid v-else-if="layout==='grid'" :songs="items" :selected="selected"
+        <SongGrid v-else-if="layout==='grid'" :songs="items" :selected="selected" :selected-ids="selectedIds"
                     :playing="playing" :size="size" :jumpTo="jumpTo"
                     @select="e=>emit('select',e)" @play="e=>emit('play',e)"
                     @context="(ev,c)=>emit('context',ev,c)" />
-        <SongTable v-else :songs="items" :selected="selected" :playing="playing"
+        <SongTable v-else :songs="items" :selected="selected" :selected-ids="selectedIds" :playing="playing"
                :noHeader="true" :jumpTo="jumpTo" :sort="sort" :desc="desc"
                @select="e=>emit('select',e)" @play="e=>emit('play',e)"
                @setStars="(c,n)=>emit('setStars',c,n)" @toggleFavorite="c=>emit('toggleFavorite',c)"

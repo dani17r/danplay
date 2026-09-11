@@ -13,7 +13,7 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-662%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-670%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -65,7 +65,7 @@ tus archivos. Si mañana te vas a otro reproductor, tu trabajo se va contigo.
 | **Quien tiene la música en el disco** | Cientos de descargas con nombres imposibles, duplicados y etiquetas rotas. Esto lo ordena. |
 | **Quien no quiere depender de nadie** | Sin cuenta, sin nube, sin telemetría. Funciona con el wifi apagado (salvo lo que por definición necesita internet). |
 | **Quien viene de otro reproductor** | Se lee y se escribe ID3 estándar. Kodi, foobar2000 o Rhythmbox verán tus estrellas y tus letras igual. |
-| **Quien comparte música** | «Enviar por Telegram» desde el menú de la canción, si Telegram Desktop está instalado (Linux, Windows y macOS): se abre con el archivo listo y eliges el chat allí. |
+| **Quien comparte música** | «Enviar por Telegram» desde el menú de una canción, de varias seleccionadas (Ctrl/Mayús) o de un repertorio entero, si Telegram Desktop está instalado (Linux, Windows y macOS): se abre con los archivos listos y eliges el chat allí. |
 
 ## Cómo identifica una canción
 
@@ -295,13 +295,13 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-662 pruebas repartidas así:
+670 pruebas repartidas así:
 
 | Tanda | Pruebas |
 | --- | --- |
 | Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, descargas, corpus de narración del asistente, nombres de YouTube, Windows, asociaciones) | 117 |
-| API sobre una biblioteca temporal de verdad | 128 |
-| Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat, descargas, menú | 315 |
+| API sobre una biblioteca temporal de verdad | 129 |
+| Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat, descargas, menú, selección múltiple | 322 |
 | Interfaz: rutas de medios en cada sistema | 7 |
 | Rust: hashes y análisis de audio | 14 |
 | Rust: reproductor, cola, bandeja, sesión, núcleo, abrir carpeta, Telegram y archivos abiertos desde fuera | 63 |

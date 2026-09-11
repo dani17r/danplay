@@ -30,26 +30,66 @@ export function usePlaylistActions(context) {
     load()
   }
 
-  /** Crea una lista, y si se pasa una canción la mete dentro. */
-  async function create(song = null) {
+  /** Varias canciones a una lista de una vez. */
+  async function addManyTo(list, playlist) {
+    const r = await api.addToPlaylist(playlist.id, list.map((s) => s.id))
+    notify(
+      r.added ? `${r.added} añadidas a «${playlist.name}»` : `Ya estaban en «${playlist.name}»`,
+      r.added ? 'ok' : 'info'
+    )
+    load()
+  }
+
+  /** Crea una lista, y si se pasa una canción (o varias) las mete dentro. */
+  async function create(songOrList = null) {
+    const list = Array.isArray(songOrList) ? songOrList : songOrList ? [songOrList] : []
+    const song = list[0] || null
     const name = await ask({
       kind: 'prompt',
       title: 'Nueva lista',
-      message: song
-        ? `Se creará la lista y se añadirá «${song.title || song.file}».`
-        : 'Cómo se va a llamar el repertorio.',
+      message:
+        list.length > 1
+          ? `Se creará la lista y se añadirán ${list.length} canciones.`
+          : song
+            ? `Se creará la lista y se añadirá «${song.title || song.file}».`
+            : 'Cómo se va a llamar el repertorio.',
       placeholder: 'Domingo por la mañana',
       okLabel: 'Crear'
     })
     if (!name) return null
     const r = await api.createPlaylist(name)
-    if (song && r?.id) await api.addToPlaylist(r.id, [song.id])
+    if (list.length && r?.id) await api.addToPlaylist(r.id, list.map((s) => s.id))
     await load()
     // El núcleo devuelve la que ya había si el nombre se repite: decirlo es
     // más honrado que fingir que se ha creado una.
     if (r?.created === false) notify(`Ya existía una lista «${name}»: se ha usado esa`, 'info')
+    else if (list.length > 1) notify(`Lista «${name}» creada con ${list.length} canciones`, 'ok')
     else notify(song ? `Lista «${name}» creada con esa canción` : `Lista «${name}» creada`, 'ok')
     return r
+  }
+
+  /** Cambia el nombre de una lista. Si está abierta, el título la sigue. */
+  async function rename(playlist) {
+    const name = await ask({
+      kind: 'prompt',
+      title: 'Renombrar la lista',
+      message: 'Nuevo nombre del repertorio.',
+      value: playlist.name,
+      placeholder: playlist.name,
+      okLabel: 'Guardar'
+    })
+    if (!name || name.trim() === playlist.name) return
+    try {
+      const r = await api.editPlaylist(playlist.id, { name: name.trim() })
+      const v = context.view.value
+      if (v?.kind === 'playlist' && v.id === playlist.id) {
+        context.view.value = { ...v, name: r.playlist?.name || name.trim() }
+      }
+      await load()
+      notify(`Ahora se llama «${r.playlist?.name || name.trim()}»`, 'ok')
+    } catch (e) {
+      notify('No se pudo renombrar: ' + errorMessage(e))
+    }
   }
 
   async function removeSong(song) {
@@ -85,5 +125,5 @@ export function usePlaylistActions(context) {
     return id
   }
 
-  return { playlists, load, addTo, create, removeSong, exportTo, remove }
+  return { playlists, load, addTo, addManyTo, create, rename, removeSong, exportTo, remove }
 }

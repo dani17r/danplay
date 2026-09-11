@@ -9,11 +9,16 @@ import { usePlayback } from '../composables/usePlayback.js'
 
 // Una ficha se puede coger y soltar en un repertorio del menu lateral.
 const { startDrag, isDragged } = useDragSong()
-const props = defineProps(['songs','selected','playing','size','jumpTo'])
+const props = defineProps(['songs','selected','selectedIds','playing','size','jumpTo'])
 
 // Sobre la que esta puesta, el boton es pausa (o reanudar si esta en pausa);
 // en las demas, reproducir. Lo de «sonando» lo sabe el reproductor.
 const { playing: sounding } = usePlayback()
+// Seleccionada: la principal (la ficha) o cualquiera de la seleccion multiple
+// (Ctrl y Mayus al pulsar, decididas por la app).
+const chosen = computed(() => new Set(props.selectedIds || []))
+const picked = (id) => props.selected === id || chosen.value.has(id)
+
 const rowIcon = (c) => (props.playing === c.id && sounding.value ? 'pause' : 'play')
 const rowTitle = (c) =>
   props.playing !== c.id ? 'Reproducir' : sounding.value ? 'Pausar' : 'Reanudar'
@@ -53,13 +58,13 @@ const emit = defineEmits(['select','play','context'])
          :style="{gridColumn: '1 / -1', height: padTop + 'px'}"></div>
     <div v-for="c in visible" :key="c.id" class="tile"
          v-memo="[c.id, c.title, c.file, c.artist, c.stars, c.blur,
-                  selected===c.id, playing===c.id, playing===c.id && sounding,
+                  picked(c.id), playing===c.id, playing===c.id && sounding,
                   jumpTo===c.id, isDragged(c.id)]"
          :ref="el => { if (el) cards.set(c.id, el) }"
-         :class="{selected: selected===c.id, playing: playing===c.id,
+         :class="{selected: picked(c.id), playing: playing===c.id,
                   flash: jumpTo===c.id, dragged: isDragged(c.id)}"
          @pointerdown="startDrag(c, $event)"
-         @click="emit('select', c.id)" @dblclick="emit('play', c)"
+         @click="emit('select', c.id, $event)" @dblclick="emit('play', c)"
          @contextmenu.prevent="emit('context', $event, c)">
       <CoverArt :id="c.id" :blur="!!c.blur" class="art" :icon-size="30" :alt="c.title || c.file" />
       <button class="tile-play" :title="rowTitle(c)" @click.stop="emit('play', c)">

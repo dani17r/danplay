@@ -1818,6 +1818,24 @@ def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
     assert "0 descargada" not in r["tools"][0]["summary"]
 
 
+def test_renombrar_una_lista_por_la_api(cliente):
+    from danplay import playlists
+    for l in playlists.list_all():
+        if l["name"] in ("Vieja", "Nueva", "Otra"):
+            playlists.remove(l["id"])
+    lid = playlists.create("Vieja")["id"]
+    other = playlists.create("Otra")["id"]
+    r = cliente.patch(f"/api/playlists/{lid}", json={"name": "Nueva"})
+    assert r.status_code == 200, r.text
+    assert r.json()["playlist"]["name"] == "Nueva"
+    assert any(l["name"] == "Nueva" for l in r.json()["playlists"])
+    # el nombre de otra lista no se puede pisar; ni dejarlo vacio
+    assert cliente.patch(f"/api/playlists/{lid}", json={"name": "otra"}).status_code == 409
+    assert cliente.patch(f"/api/playlists/{lid}", json={}).status_code == 400
+    assert cliente.patch("/api/playlists/999999", json={"name": "x"}).status_code == 404
+    playlists.remove(lid); playlists.remove(other)
+
+
 # --------------------------------------------- la lista del reproductor
 # Abrir una cancion desde el explorador NO la importa a la biblioteca. Lo que
 # se guarda es que sono, para poder volver a ella desde el reproductor.

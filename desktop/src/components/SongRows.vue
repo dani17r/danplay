@@ -15,12 +15,17 @@ import { useVirtualRows } from '../composables/useVirtualRows.js'
 import { usePlayback } from '../composables/usePlayback.js'
 
 const { startDrag, isDragged } = useDragSong()
-const props = defineProps(['songs','selected','playing','jumpTo'])
+const props = defineProps(['songs','selected','selectedIds','playing','jumpTo'])
 const emit = defineEmits(['select','play','setStars','toggleFavorite','context'])
 
 // Sobre la que esta puesta, el boton de la fila es pausa (o reanudar si esta
 // en pausa); en las demas, reproducir. Lo de «sonando» lo sabe el reproductor.
 const { playing: sounding } = usePlayback()
+// Seleccionada: la principal (la ficha) o cualquiera de la seleccion multiple
+// (Ctrl y Mayus al pulsar, decididas por la app).
+const chosen = computed(() => new Set(props.selectedIds || []))
+const picked = (id) => props.selected === id || chosen.value.has(id)
+
 const rowIcon = (c) => (props.playing === c.id && sounding.value ? 'pause' : 'play')
 const rowTitle = (c) =>
   props.playing !== c.id ? 'Reproducir' : sounding.value ? 'Pausar' : 'Reanudar'
@@ -54,13 +59,13 @@ const fmt = (s) => {
     <div v-if="padTop" data-spacer :style="{height: padTop + 'px'}" aria-hidden="true"></div>
     <div v-for="(c,i) in visible" :key="c.id" class="row"
          v-memo="[from + i, c.id, c.title, c.file, c.artist, c.stars, c.favorite,
-                  c.duration, c.key, selected===c.id, playing===c.id,
+                  c.duration, c.key, picked(c.id), playing===c.id,
                   playing===c.id && sounding, jumpTo===c.id, isDragged(c.id)]"
          :ref="el => { if (el) filas.set(c.id, el) }"
-         :class="{selected: selected===c.id, playing: playing===c.id,
+         :class="{selected: picked(c.id), playing: playing===c.id,
                   flash: jumpTo===c.id, dragged: isDragged(c.id)}"
          @pointerdown="startDrag(c, $event)"
-         @click="emit('select', c.id)"
+         @click="emit('select', c.id, $event)"
          @dblclick="emit('play', c)"
          @contextmenu.prevent="emit('context', $event, c)">
       <span class="row-num mono">{{ from + i + 1 }}</span>

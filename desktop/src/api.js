@@ -346,13 +346,14 @@ export const app = {
    */
   shareTargets: () => (inTauri ? invoke('share_targets') : Promise.resolve({ telegram: false })),
   /**
-   * Abre Telegram Desktop con el archivo listo para enviar (`-sendpath`);
-   * el chat lo elige la persona allí. No se manda nada solo.
-   * @param {string} path
+   * Abre Telegram Desktop con esos archivos listos para enviar (`-sendpath`):
+   * uno, una selección o un repertorio. El chat lo elige la persona allí; no
+   * se manda nada solo.
+   * @param {string[]} paths
    */
-  sendToTelegram: (path) =>
+  sendToTelegram: (paths) =>
     inTauri
-      ? invoke('send_to_telegram', { path })
+      ? invoke('send_to_telegram', { paths: [].concat(paths) })
       : Promise.reject(new Error('Solo en la aplicación de escritorio')),
   /** Cierra DanPlay del todo, lo mismo que «Salir» en la bandeja. */
   quit: () => (inTauri ? invoke('quit_app') : Promise.resolve()),
@@ -458,6 +459,8 @@ export const api = {
   playlists: () => GET('/playlists'),
   createPlaylist: (name) => POST('/playlists', { name }),
   deletePlaylist: (id) => DEL(`/playlists/${id}`),
+  /** Renombra una lista o cambia su nota. `409` si el nombre ya es de otra. */
+  editPlaylist: (id, fields) => PATCH(`/playlists/${id}`, fields),
   playlistSongs: (id) => GET(`/playlists/${id}/songs`),
   addToPlaylist: (id, ids) => POST(`/playlists/${id}/songs`, { ids }),
   removeFromPlaylist: (l, c) => DEL(`/playlists/${l}/songs/${c}`),

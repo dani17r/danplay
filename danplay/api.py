@@ -123,6 +123,12 @@ class PlaylistIn(Body_):
     color: str = Field(default="", max_length=32)
 
 
+class PlaylistEdit(Body_):
+    """Lo que se puede cambiar de una lista ya creada."""
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    note: str | None = Field(default=None, max_length=500)
+
+
 class SongsIn(Body_):
     ids: list[int] = Field(default_factory=list, max_length=5000)
     id: int | None = None
@@ -596,6 +602,21 @@ def create_playlist(body: PlaylistIn = Body(...)):
     # y la interfaz tiene que poder decirlo en vez de fingir que creo una.
     made = playlists.create(body.name, body.note, body.color)
     return {**made, "playlists": playlists.list_all()}
+
+
+@app.patch("/api/playlists/{lid}")
+def edit_playlist(lid: int, body: PlaylistEdit = Body(...)):
+    """Renombra una lista o cambia su nota. `409` si el nombre ya es de otra."""
+    if body.name is None and body.note is None:
+        raise HTTPException(400, "no hay nada que cambiar")
+    if body.name is not None:
+        other = playlists.by_name(body.name)
+        if other and other["id"] != lid:
+            raise HTTPException(409, f"ya hay una lista que se llama «{other['name']}»")
+    out = playlists.edit(lid, name=body.name, note=body.note)
+    if not out:
+        raise HTTPException(404, "esa lista no existe")
+    return {"playlist": out, "playlists": playlists.list_all()}
 
 
 @app.delete("/api/playlists/{lid}")

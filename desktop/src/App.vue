@@ -100,6 +100,11 @@ const stats = ref(null)
 const status = ref(null) // /api/status entero: hace falta el flag de IA
 const waiting = ref(0) // archivos en la Entrada
 const selected = ref(null)
+// La selección múltiple: Ctrl (o Cmd) añade o quita; Mayús coge el tramo
+// desde la última pulsada; Ctrl+Mayús suma el tramo a lo que había. Sobre
+// varias, el menú actúa sobre todas (enviar, añadir a una lista, papelera…).
+const selectedIds = ref([])
+let anchor = null
 const detail = ref(null)
 const jumpToSong = ref(null)
 const loading = ref(false)
@@ -131,6 +136,8 @@ const detailsVisible = computed(
 watch(view, () => {
   navOpen.value = false
   detailsOpen.value = false
+  selectedIds.value = []
+  anchor = null
 })
 watch(isCompact, (v) => {
   if (!v) {
@@ -284,12 +291,43 @@ function onCoreChanged() {
   changeTimer = setTimeout(() => refreshAll(), 250)
 }
 
-async function select(id) {
+async function select(id, ev = null) {
   const mine = ++request
+  const order = songs.value.map((s) => s.id)
+  const ctrl = !!(ev && (ev.ctrlKey || ev.metaKey))
+  const shift = !!(ev && ev.shiftKey)
+  if (shift && anchor != null && order.includes(anchor) && order.includes(id)) {
+    const [a, b] = [order.indexOf(anchor), order.indexOf(id)].sort((x, y) => x - y)
+    const range = order.slice(a, b + 1)
+    const keep = ctrl ? new Set([...selectedIds.value, ...range]) : new Set(range)
+    selectedIds.value = order.filter((x) => keep.has(x))
+  } else if (ctrl) {
+    const keep = new Set(selectedIds.value.length ? selectedIds.value : selected.value != null ? [selected.value] : [])
+    if (keep.has(id)) keep.delete(id)
+    else keep.add(id)
+    selectedIds.value = order.filter((x) => keep.has(x))
+    anchor = id
+    if (!keep.has(id)) {
+      // se ha quitado: la ficha pasa a la última que quede seleccionada
+      selected.value = selectedIds.value.at(-1) ?? null
+      if (selected.value == null) detail.value = null
+      else detail.value = await api.song(selected.value)
+      return
+    }
+  } else {
+    selectedIds.value = [id]
+    anchor = id
+  }
   selected.value = id
   const song = await api.song(id)
   if (mine === request || selected.value === id) detail.value = song
 }
+
+/** Las canciones de la selección múltiple, en el orden de la lista. */
+const selectedSongs = computed(() => {
+  const keep = new Set(selectedIds.value)
+  return keep.size > 1 ? songs.value.filter((s) => keep.has(s.id)) : []
+})
 
 /**
  * Pone a sonar. La cola pasa a ser la lista que se está viendo, salvo que se
@@ -308,16 +346,44 @@ function play(song, list = null, origin = null) {
 // instalado). Se mira una vez al arrancar; sin destino, la opción no aparece.
 const shareTargets = ref({ telegram: false })
 
-/** Abre Telegram con el archivo de la canción listo para enviar. */
-async function sendSongToTelegram(song) {
-  const path = song?.path || (await api.song(song.id).catch(() => null))?.path
-  if (!path) return notify('No sé dónde está ese archivo')
+/** Abre Telegram con los archivos de esas canciones listos para enviar. */
+async function sendToTelegram(list) {
+  const items = [].concat(list)
+  const paths = []
+  for (const song of items) {
+    const path = song?.path || (await api.song(song.id).catch(() => null))?.path
+    if (path) paths.push(path)
+  }
+  if (!paths.length) return notify('No sé dónde están esos archivos')
   try {
-    await tauriApp.sendToTelegram(path)
-    notify('Telegram se ha abierto: elige ahí a quién se la mandas', 'ok')
+    await tauriApp.sendToTelegram(paths)
+    notify(
+      paths.length > 1
+        ? `Telegram se ha abierto con ${paths.length} canciones: elige ahí a quién se las mandas`
+        : 'Telegram se ha abierto: elige ahí a quién se la mandas',
+      'ok'
+    )
   } catch (e) {
     notify(errorMessage(e))
   }
+}
+const sendSongToTelegram = (song) => sendToTelegram([song])
+
+/** Un repertorio entero a Telegram: todas sus canciones. */
+async function sendPlaylistToTelegram(pl) {
+  const list = (await api.playlistSongs(pl.id)).songs || []
+  if (!list.length) return notify('Esa lista está vacía')
+  await sendToTelegram(list)
+}
+
+// La ficha como ventana emergente: cuando el panel lateral está oculto (o
+// en pantallas estrechas, donde es un cajón), «Ver detalles» la abre aquí.
+const detailModal = ref(false)
+const sidePanelShown = computed(() => detailsVisible.value && !isCompact.value)
+async function showDetailsOf(song) {
+  await select(song.id)
+  if (isCompact.value && detailsVisible.value) detailsOpen.value = true
+  else detailModal.value = true
 }
 
 /** Abre el explorador del sistema señalando el archivo de la canción. */
@@ -452,19 +518,76 @@ async function toggleBlur(song) {
 }
 
 /** Las listas a las que se puede mandar la canción, más «crear una nueva». */
-function playlistTargets(song) {
+function playlistTargets(songOrList) {
+  const many = Array.isArray(songOrList) ? songOrList : null
+  const song = many ? many[0] : songOrList
   const kids = playlists.value.map((l) => ({
     label: l.name,
     icon: 'list',
     note: String(l.n ?? ''),
-    action: () => playlistActions.addTo(song, l)
+    action: () => (many ? playlistActions.addManyTo(many, l) : playlistActions.addTo(song, l))
   }))
   if (kids.length) kids.push({ separator: true })
-  kids.push({ label: 'Nueva lista…', icon: 'plus', action: () => playlistActions.create(song) })
+  kids.push({
+    label: 'Nueva lista…',
+    icon: 'plus',
+    action: () => (many ? playlistActions.create(many) : playlistActions.create(song))
+  })
   return kids
 }
 
+/** El menú sobre varias canciones seleccionadas: actúa sobre todas. */
+function groupMenu(ev, list) {
+  const n = list.length
+  const inPlaylist = view.value.kind === 'playlist'
+  const items = [
+    {
+      label: `Reproducir estas ${n}`,
+      icon: 'play',
+      action: () => play(list[0], list, { ...view.value, label: 'la selección' })
+    },
+    { separator: true },
+    { label: `Añadir ${n} a una lista`, icon: 'list', children: playlistTargets(list) },
+    {
+      label: `Marcar ${n} como favoritas`,
+      icon: 'heart',
+      action: async () => {
+        for (const s of list) if (!s.favorite) onUpdated(await api.toggleFavorite(s.id, true))
+        notify(`${n} favoritas`, 'ok')
+      }
+    }
+  ]
+  if (inPlaylist) {
+    items.push({
+      label: `Quitar ${n} de esta lista`,
+      icon: 'close',
+      action: async () => {
+        for (const s of list) await api.removeFromPlaylist(view.value.id, s.id)
+        notify(`${n} quitadas de la lista`, 'ok')
+        await Promise.all([load(true), playlistActions.load()])
+      }
+    })
+  }
+  items.push({ separator: true })
+  if (shareTargets.value.telegram) {
+    items.push({ label: `Enviar ${n} por Telegram`, icon: 'send', action: () => sendToTelegram(list) })
+  }
+  items.push({
+    label: `Mandar ${n} a la papelera…`,
+    icon: 'trash',
+    danger: true,
+    action: () => trashSongs(list)
+  })
+  openMenu(ev, items, `${n} canciones`)
+}
+
 function songMenu(ev, song) {
+  // Sobre una de las seleccionadas, el menú es el de todas ellas
+  if (selectedSongs.value.length > 1 && selectedIds.value.includes(song.id)) {
+    return groupMenu(ev, selectedSongs.value)
+  }
+  selectedIds.value = [song.id]
+  anchor = song.id
   const inPlaylist = view.value.kind === 'playlist'
   const isCurrent = player.track.value?.id === song.id
   const items = [
@@ -501,6 +624,10 @@ function songMenu(ev, song) {
   })
   items.push({ label: 'Renombrar…', icon: 'pencil', action: () => renameSong(song) })
   items.push({ separator: true })
+  // Con el panel lateral a la vista la ficha ya se ve; si no, se ofrece
+  if (!sidePanelShown.value) {
+    items.push({ label: 'Ver detalles', icon: 'eye', action: () => showDetailsOf(song) })
+  }
   items.push({ label: 'Abrir la carpeta', icon: 'folderOpen', action: () => revealSong(song) })
   if (shareTargets.value.telegram) {
     items.push({ label: 'Enviar por Telegram', icon: 'send', action: () => sendSongToTelegram(song) })
@@ -526,7 +653,11 @@ function playlistMenu(ev, pl) {
           view.value = { kind: 'playlist', id: pl.id, name: pl.name }
         }
       },
+      { label: 'Renombrar…', icon: 'pencil', action: () => playlistActions.rename(pl) },
       { label: 'Exportar a .m3u', icon: 'download', action: () => playlistActions.exportTo(pl) },
+      ...(shareTargets.value.telegram
+        ? [{ label: 'Enviar por Telegram', icon: 'send', action: () => sendPlaylistToTelegram(pl) }]
+        : []),
       { separator: true },
       { label: 'Borrar la lista…', icon: 'trash', danger: true, action: () => deletePlaylist(pl) }
     ],
@@ -603,6 +734,38 @@ async function trashSong(song) {
   }
 }
 
+/** Varias a la papelera, con una sola confirmación que dice cuántas. */
+async function trashSongs(list) {
+  const n = list.length
+  const ok = await ask({
+    kind: 'confirm',
+    title: `Mandar ${n} canciones a la papelera`,
+    danger: true,
+    message:
+      'Los archivos van a la papelera del sistema, así que puedes recuperarlos desde ahí. ' +
+      'También salen de la biblioteca.',
+    detail: list
+      .slice(0, 6)
+      .map((s) => s.title || s.file)
+      .join('\n') + (n > 6 ? `\n… y ${n - 6} más` : ''),
+    okLabel: `A la papelera (${n})`
+  })
+  if (!ok) return
+  let done = 0
+  for (const s of list) {
+    try {
+      await api.deleteSong(s.id)
+      if (playingId.value === s.id) player.stop()
+      done++
+    } catch (e) {
+      notify(`No se pudo borrar «${s.title || s.file}»: ${errorMessage(e)}`)
+    }
+  }
+  selectedIds.value = []
+  if (done) notify(`${done} en la papelera`, 'ok')
+  await refreshAll()
+}
+
 // --------------------------------------------------------------- buscador
 const searchBox = ref(null)
 const resultsEl = ref(null)
@@ -676,7 +839,9 @@ function blockContextMenu(e) {
   e.preventDefault()
 }
 function onEscape(e) {
-  if (e.key === 'Escape' && drag.song) cancelDrag()
+  if (e.key !== 'Escape') return
+  if (drag.song) cancelDrag()
+  if (detailModal.value) detailModal.value = false
 }
 
 onMounted(async () => {
@@ -1011,6 +1176,7 @@ function onUpdated(song) {
             :sort="sort"
             :desc="sortDesc"
             :selected="selected"
+            :selected-ids="selectedIds"
             :playing="playingId"
             :size="cardSize"
             :jump-to="jumpToSong"
@@ -1025,6 +1191,7 @@ function onUpdated(song) {
             v-else-if="layout === 'rows'"
             :songs="songs"
             :selected="selected"
+            :selected-ids="selectedIds"
             :playing="playingId"
             :jump-to="jumpToSong"
             @select="select"
@@ -1038,6 +1205,7 @@ function onUpdated(song) {
             v-else-if="layout === 'cards'"
             :songs="songs"
             :selected="selected"
+            :selected-ids="selectedIds"
             :playing="playingId"
             :jump-to="jumpToSong"
             @select="select"
@@ -1051,6 +1219,7 @@ function onUpdated(song) {
             v-else-if="layout === 'grid'"
             :songs="songs"
             :selected="selected"
+            :selected-ids="selectedIds"
             :playing="playingId"
             :size="cardSize"
             :jump-to="jumpToSong"
@@ -1062,6 +1231,7 @@ function onUpdated(song) {
             v-else
             :songs="songs"
             :selected="selected"
+            :selected-ids="selectedIds"
             :playing="playingId"
             :sort="sort"
             :desc="sortDesc"
@@ -1095,6 +1265,25 @@ function onUpdated(song) {
         @toggle-blur="toggleBlur"
         @go-settings="view = { kind: 'settings' }"
       />
+
+      <Teleport to="body">
+        <transition name="fade">
+          <div v-if="detailModal" class="modal-back" @mousedown.self="detailModal = false">
+            <div class="modal details-modal" role="dialog" aria-modal="true" aria-label="Ficha de la canción">
+              <button class="btn mini details-modal-close" title="Cerrar" @click="detailModal = false">
+                <Icon n="close" :t="14" />
+              </button>
+              <DetailsPanel
+                :song="detail"
+                :ai-ready="!!status?.ai"
+                @updated="onUpdated"
+                @toggle-blur="toggleBlur"
+                @go-settings="((detailModal = false), goToSettings())"
+              />
+            </div>
+          </div>
+        </transition>
+      </Teleport>
 
       <Drawer
         v-if="isCompact"

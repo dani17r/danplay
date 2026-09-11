@@ -517,7 +517,7 @@ describe('el menu contextual de una cancion', () => {
     await w.findAll('.ctx-item').find(b => b.text().includes('Enviar por Telegram')).trigger('click')
     await flushPromises(); await flushPromises()
     expect(held.app.sendToTelegram).toHaveBeenCalledTimes(1)
-    expect(held.app.sendToTelegram.mock.calls[0][0]).toBe('/musica/cancion-1.mp3')
+    expect(held.app.sendToTelegram.mock.calls[0][0]).toEqual(['/musica/cancion-1.mp3'])
     expect(w.text()).toContain('Telegram se ha abierto')
   })
 
@@ -526,6 +526,122 @@ describe('el menu contextual de una cancion', () => {
     const w = await abrirMenu()
     expect(etiquetas(w)).not.toContain('Enviar por Telegram')
     expect(etiquetas(w)).toContain('Abrir la carpeta')
+  })
+
+  it('con el panel a la vista no ofrece «Ver detalles»', async () => {
+    const w = await abrirMenu()
+    expect(w.find('.details').exists()).toBe(true)
+    expect(etiquetas(w)).not.toContain('Ver detalles')
+  })
+})
+
+// Ctrl y Mayus al pulsar seleccionan varias; el menu sobre una de ellas actua
+// sobre todas: enviar, añadir a una lista, papelera (con una confirmacion que
+// dice cuantas).
+describe('seleccion multiple', () => {
+  const tres = () => [song(1), song(2), song(3)]
+  async function lista () {
+    state.status.configured = true
+    state.songs = tres()
+    return montar()
+  }
+  const filas = (w) => w.findAll('tbody tr')
+  const seleccionadas = (w) => filas(w).filter(f => f.classes().includes('selected')).length
+
+  it('Ctrl añade y quita; Mayus coge el tramo; Ctrl+Mayus lo suma', async () => {
+    const w = await lista()
+    await filas(w)[0].trigger('click')
+    await filas(w)[2].trigger('click', { ctrlKey: true })
+    await flushPromises()
+    expect(seleccionadas(w)).toBe(2)
+    await filas(w)[2].trigger('click', { ctrlKey: true })      // la quita
+    await flushPromises()
+    expect(seleccionadas(w)).toBe(1)
+    await filas(w)[0].trigger('click')
+    await filas(w)[2].trigger('click', { shiftKey: true })     // 1..3
+    await flushPromises()
+    expect(seleccionadas(w)).toBe(3)
+    await filas(w)[1].trigger('click')                         // sin teclas: solo esa
+    await flushPromises()
+    expect(seleccionadas(w)).toBe(1)
+  })
+
+  it('el menu sobre la seleccion actua sobre todas', async () => {
+    const w = await lista()
+    await filas(w)[0].trigger('click')
+    await filas(w)[2].trigger('click', { shiftKey: true })
+    await flushPromises()
+    await filas(w)[1].trigger('contextmenu')
+    await flushPromises()
+    const etiquetas = w.findAll('.ctx-item .ctx-label').map(b => b.text())
+    expect(etiquetas).toContain('Enviar 3 por Telegram')
+    expect(etiquetas).toContain('Añadir 3 a una lista')
+    expect(etiquetas).toContain('Mandar 3 a la papelera…')
+    await w.findAll('.ctx-item').find(b => b.text().includes('Enviar 3 por Telegram')).trigger('click')
+    await flushPromises(); await flushPromises()
+    expect(held.app.sendToTelegram.mock.calls[0][0]).toEqual([
+      '/musica/cancion-1.mp3', '/musica/cancion-2.mp3', '/musica/cancion-3.mp3'])
+  })
+
+  it('la papelera de varias pide confirmacion y dice cuantas', async () => {
+    const w = await lista()
+    await filas(w)[0].trigger('click')
+    await filas(w)[1].trigger('click', { ctrlKey: true })
+    await flushPromises()
+    await filas(w)[0].trigger('contextmenu')
+    await flushPromises()
+    await w.findAll('.ctx-item').find(b => b.text().includes('Mandar 2 a la papelera')).trigger('click')
+    await flushPromises()
+    const { dialog, dialogCancel } = await import('../src/composables/useDialog.js').then(m => m.useDialog())
+    expect(dialog.value.open).toBe(true)
+    expect(dialog.value.title).toContain('2 canciones')
+    dialogCancel()
+    await flushPromises()
+    expect(api.deleteSong).not.toHaveBeenCalled()
+  })
+
+  it('el menu sobre una que NO esta en la seleccion es el de esa sola', async () => {
+    const w = await lista()
+    await filas(w)[0].trigger('click')
+    await filas(w)[1].trigger('click', { ctrlKey: true })
+    await flushPromises()
+    await filas(w)[2].trigger('contextmenu')
+    await flushPromises()
+    const etiquetas = w.findAll('.ctx-item .ctx-label').map(b => b.text())
+    expect(etiquetas).toContain('Enviar por Telegram')
+    expect(etiquetas).not.toContain('Enviar 2 por Telegram')
+  })
+})
+
+describe('el menu de un repertorio', () => {
+  it('ofrece renombrar y enviar por Telegram', async () => {
+    state.status.configured = true
+    state.songs = [song(1)]
+    state.playlists = [{ id: 1, name: 'domingo', n: 1 }]
+    const w = await montar()
+    await w.find('.nav-playlist').trigger('contextmenu')
+    await flushPromises()
+    const etiquetas = w.findAll('.ctx-item .ctx-label').map(b => b.text())
+    expect(etiquetas).toContain('Renombrar…')
+    expect(etiquetas).toContain('Enviar por Telegram')
+  })
+})
+
+describe('el panel de detalles, oculto o a la vista', () => {
+  it('cerrado (por ajustes) sale «Ver detalles» y abre la ventana', async () => {
+    const { usePreferences } = await import('../src/composables/usePreferences.js')
+    usePreferences().showDetails.value = false
+    state.status.configured = true
+    state.songs = [song(1)]
+    const w = await montar()
+    expect(w.find('.details').exists()).toBe(false)
+    await w.find('tbody tr').trigger('contextmenu')
+    await flushPromises()
+    await w.findAll('.ctx-item').find(b => b.text().includes('Ver detalles')).trigger('click')
+    await flushPromises(); await flushPromises()
+    expect(document.body.querySelector('.details-modal')).toBeTruthy()
+    expect(document.body.querySelector('.details-modal .details-title')?.textContent).toContain('Cancion 1')
+    usePreferences().showDetails.value = true
   })
 })
 
