@@ -17,11 +17,19 @@ import EmptyState from './ui/EmptyState.vue'
 import { useDragSong } from '../composables/useDragSong.js'
 import { ref, watch, nextTick, computed, onUnmounted } from 'vue'
 import { useVirtualRows } from '../composables/useVirtualRows.js'
+import { usePlayback } from '../composables/usePlayback.js'
 
 const { startDrag, isDragged } = useDragSong()
 const props = defineProps(['songs','selected','playing','sort','desc','noHeader',
                            'jumpTo'])
 const emit = defineEmits(['select','play','setStars','toggleFavorite','sortBy','context'])
+
+// Sobre la que esta puesta, el boton de la fila es pausa (o reanudar si esta
+// en pausa); en las demas, reproducir. Lo de «sonando» lo sabe el reproductor.
+const { playing: sounding } = usePlayback()
+const rowIcon = (c) => (props.playing === c.id && sounding.value ? 'pause' : 'play')
+const rowTitle = (c) =>
+  props.playing !== c.id ? 'Reproducir' : sounding.value ? 'Pausar' : 'Reanudar'
 
 // Un Map normal, fuera de la reactividad: aqui solo se guardan nodos del DOM
 // para poder hacerles scroll, y nadie los pinta. Se vacia al cambiar la lista
@@ -196,7 +204,8 @@ const fmtDuration = (s) => {
         <tr v-for="(c,i) in visible" :key="c.id"
             v-memo="[from + i, c.id, c.title, c.file, c.feat, c.artist, c.album, c.stars,
                      c.favorite, c.key, c.bpm, c.duration, c.bitrate,
-                     selected===c.id, playing===c.id, jumpTo===c.id, isDragged(c.id)]"
+                     selected===c.id, playing===c.id, playing===c.id && sounding,
+                     jumpTo===c.id, isDragged(c.id)]"
             :ref="el => { if (el) rows.set(c.id, el) }"
             :class="{selected: selected===c.id, playing: playing===c.id,
                      flash: jumpTo===c.id, dragged: isDragged(c.id)}"
@@ -205,10 +214,10 @@ const fmtDuration = (s) => {
             @dblclick="emit('play', c)"
             @contextmenu.prevent="emit('context', $event, c)">
           <td v-if="show.n" class="col-n mono">
-            <button class="row-play" :title="playing===c.id ? 'Volver a empezar' : 'Reproducir'"
-                    @click.stop="emit('play', c)"><Icon n="play" :t="12" /></button>
+            <button class="row-play" :title="rowTitle(c)"
+                    @click.stop="emit('play', c)"><Icon :n="rowIcon(c)" :t="12" /></button>
             <span class="row-n">
-              <Icon v-if="playing===c.id" n="play" :t="11" style="margin-left:auto" />
+              <Icon v-if="playing===c.id" :n="sounding ? 'pause' : 'play'" :t="11" style="margin-left:auto" />
               <template v-else>{{ from + i + 1 }}</template>
             </span>
           </td>

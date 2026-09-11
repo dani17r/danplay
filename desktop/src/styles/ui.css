@@ -290,10 +290,13 @@ tbody tr.flash{animation:destello 1.1s ease-out}
 .edit-state{flex:1;min-width:0;font-size:11px;color:var(--muted2)}
 .edit-form .hint{margin:0}
 
-/* historial de descargas */
-.hist{margin-top:10px;max-height:340px;overflow-y:auto}
+/* historial de descargas: unas doce filas a la vista y el resto con scroll */
+.hist{margin-top:10px;max-height:calc(12 * 39px);overflow-y:auto;scrollbar-gutter:stable}
 .hist-row{display:flex;align-items:center;gap:9px;padding:7px 0;
   border-bottom:1px solid var(--border);font-size:12px;min-width:0}
+.hist-row.sounding .hist-title{color:var(--accent);font-weight:500}
+.hist-play,.hist-play-gap{width:24px;height:24px;flex-shrink:0}
+.hist-row:hover .hist-play{color:var(--accent);border-color:var(--accent)}
 .hist-row:last-child{border-bottom:none}
 .hist-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hist-src{flex-shrink:0;font-size:10.5px;color:var(--muted2);

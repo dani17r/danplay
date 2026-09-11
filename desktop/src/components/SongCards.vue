@@ -14,10 +14,18 @@ import EmptyState from './ui/EmptyState.vue'
 import { useDragSong } from '../composables/useDragSong.js'
 import { ref, watch, nextTick, computed } from 'vue'
 import { useVirtualRows } from '../composables/useVirtualRows.js'
+import { usePlayback } from '../composables/usePlayback.js'
 
 const { startDrag, isDragged } = useDragSong()
 const props = defineProps(['songs','selected','playing','jumpTo'])
 const emit = defineEmits(['select','play','setStars','toggleFavorite','context'])
+
+// Sobre la que esta puesta, el boton de la fila es pausa (o reanudar si esta
+// en pausa); en las demas, reproducir. Lo de «sonando» lo sabe el reproductor.
+const { playing: sounding } = usePlayback()
+const rowIcon = (c) => (props.playing === c.id && sounding.value ? 'pause' : 'play')
+const rowTitle = (c) =>
+  props.playing !== c.id ? 'Reproducir' : sounding.value ? 'Pausar' : 'Reanudar'
 
 const fichas = new Map()
 watch(() => props.songs, () => fichas.clear())
@@ -50,7 +58,7 @@ const fmt = (s) => {
     <div v-for="(c,i) in visible" :key="c.id" class="card-song"
          v-memo="[from + i, c.id, c.title, c.file, c.artist, c.album, c.stars,
                   c.favorite, c.duration, c.blur, selected===c.id, playing===c.id,
-                  jumpTo===c.id, isDragged(c.id)]"
+                  playing===c.id && sounding, jumpTo===c.id, isDragged(c.id)]"
          :ref="el => { if (el) fichas.set(c.id, el) }"
          :class="{selected: selected===c.id, playing: playing===c.id,
                   flash: jumpTo===c.id, dragged: isDragged(c.id)}"
@@ -61,9 +69,8 @@ const fmt = (s) => {
       <div class="card-art">
         <CoverArt :id="c.id" :blur="!!c.blur" class="card-cover" :icon-size="18"
                   :alt="c.title || c.file" />
-        <button class="card-play" :title="playing===c.id ? 'Volver a empezar' : 'Reproducir'"
-                @click.stop="emit('play', c)">
-          <Icon :n="playing===c.id ? 'pause' : 'play'" :t="13" />
+        <button class="card-play" :title="rowTitle(c)" @click.stop="emit('play', c)">
+          <Icon :n="rowIcon(c)" :t="13" />
         </button>
       </div>
       <div class="card-txt">

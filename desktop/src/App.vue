@@ -297,8 +297,22 @@ async function select(id) {
  */
 function play(song, list = null, origin = null) {
   selected.value = song.id
+  // Sobre la que ya está puesta, el botón de la fila es pausa/reanudar: antes
+  // volvía a empezar la canción, y no había forma de pararla desde la lista.
+  if (!list && player.track.value?.id === song.id) return player.toggle()
   player.setQueue(list || songs.value, song.id, origin || { ...view.value, label: title.value })
   api.song(song.id).then((d) => (detail.value = d))
+}
+
+/** Abre el explorador del sistema señalando el archivo de la canción. */
+async function revealSong(song) {
+  const path = song?.path || (await api.song(song.id).catch(() => null))?.path
+  if (!path) return notify('No sé dónde está ese archivo')
+  try {
+    await tauriApp.revealInFolder(path)
+  } catch (e) {
+    notify(errorMessage(e))
+  }
 }
 
 /** Pone a sonar una lista entera desde el principio. */
@@ -436,8 +450,13 @@ function playlistTargets(song) {
 
 function songMenu(ev, song) {
   const inPlaylist = view.value.kind === 'playlist'
+  const isCurrent = player.track.value?.id === song.id
   const items = [
-    { label: 'Reproducir', icon: 'play', action: () => play(song) },
+    {
+      label: isCurrent ? (player.state.playing ? 'Pausar' : 'Reanudar') : 'Reproducir',
+      icon: isCurrent && player.state.playing ? 'pause' : 'play',
+      action: () => play(song)
+    },
     {
       label: song.favorite ? 'Quitar de favoritos' : 'Marcar como favorito',
       icon: song.favorite ? 'heartFull' : 'heart',
@@ -466,6 +485,7 @@ function songMenu(ev, song) {
   })
   items.push({ label: 'Renombrar…', icon: 'pencil', action: () => renameSong(song) })
   items.push({ separator: true })
+  items.push({ label: 'Abrir la carpeta', icon: 'folderOpen', action: () => revealSong(song) })
   items.push({
     label: 'Mandar a la papelera…',
     icon: 'trash',

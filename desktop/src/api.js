@@ -331,6 +331,15 @@ export const playback = {
 export const app = {
   /** Trae la ventana principal al frente (y la muestra si estaba oculta). */
   showWindow: () => (inTauri ? invoke('show_window') : Promise.resolve()),
+  /**
+   * Abre el explorador de archivos del sistema señalando ese archivo (o esa
+   * carpeta). Fuera de la app no hay explorador que abrir.
+   * @param {string} path
+   */
+  revealInFolder: (path) =>
+    inTauri
+      ? invoke('reveal_in_folder', { path })
+      : Promise.reject(new Error('Solo en la aplicación de escritorio')),
   /** Cierra DanPlay del todo, lo mismo que «Salir» en la bandeja. */
   quit: () => (inTauri ? invoke('quit_app') : Promise.resolve()),
   /**
@@ -467,7 +476,7 @@ export const api = {
   youtubeInfo: (query, results = 5) => POST('/youtube/info', { query, results }),
   youtubeDownload: (d) => POST('/youtube/download', d),
   youtubeCancel: () => POST('/youtube/cancel'),
-  downloadHistory: (limit = 60) => GET(`/downloads/history?limit=${limit}`),
+  downloadHistory: (limit = 60, offset = 0) => GET(`/downloads/history?limit=${limit}&offset=${offset}`),
   clearDownloadHistory: () => DEL('/downloads/history'),
 
   runImport: (d) => POST('/import', d),

@@ -461,6 +461,42 @@ describe('poner una cancion', () => {
   })
 })
 
+// El boton de la fila de la cancion que suena es pausa, y pulsado reanuda:
+// antes volvia a empezar la cancion y desde la lista no habia forma de pararla.
+describe('pausar desde la propia fila', () => {
+  it('sobre la que suena, el boton pausa y reanuda en vez de reiniciar', async () => {
+    state.status.configured = true
+    state.songs = twoSongs()
+    const w = await montar()
+    await reproducir(w, 1)
+    expect(playback.bridge.setQueue).toHaveBeenCalledTimes(1)
+    const boton = () => w.findAll('tbody tr')[1].find('.row-play')
+    expect(boton().attributes('title')).toBe('Pausar')
+    expect(boton().find('svg').exists()).toBe(true)
+
+    await reproducir(w, 1)                 // otra vez sobre la misma
+    await flushPromises(); await flushPromises()
+    expect(playback.bridge.toggle).toHaveBeenCalledTimes(1)
+    expect(playback.bridge.setQueue).toHaveBeenCalledTimes(1)
+    expect(boton().attributes('title')).toBe('Reanudar')
+    // la otra fila sigue ofreciendo reproducir
+    expect(w.findAll('tbody tr')[0].find('.row-play').attributes('title')).toBe('Reproducir')
+  })
+
+  it('el punto de la barra lateral marca de donde sale lo que suena', async () => {
+    state.status.configured = true
+    state.songs = twoSongs()
+    const w = await montar()
+    expect(w.find('.now-dot').exists()).toBe(false)
+    await reproducir(w, 0)
+    const all = w.findAll('.nav-link').find(b => b.text().includes('Todas las canciones'))
+    expect(all.find('.now-dot').exists()).toBe(true)
+    expect(all.find('.now-dot').classes()).not.toContain('paused')
+    await reproducir(w, 0)                 // pausa
+    expect(all.find('.now-dot').classes()).toContain('paused')
+  })
+})
+
 describe('el boton de play usa la seleccion', () => {
   it('sin nada cargado, reproduce la cancion seleccionada', async () => {
     state.status.configured = true

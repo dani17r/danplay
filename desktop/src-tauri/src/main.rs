@@ -12,6 +12,7 @@ mod media;
 mod open;
 mod player;
 mod queue;
+mod reveal;
 mod transcode;
 mod tray;
 
@@ -190,6 +191,7 @@ fn main() {
             tray::quit_app,
             associate::default_player,
             associate::make_default_player,
+            reveal::reveal_in_folder,
         ])
         .build(tauri::generate_context!())
         .expect("no se pudo arrancar DanPlay")

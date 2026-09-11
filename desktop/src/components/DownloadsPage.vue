@@ -2,7 +2,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { notify } from '../composables/useNotices.js'
 import { useDownloads } from '../composables/useDownloads.js'
-import { api } from '../api.js'
+import { usePlayback } from '../composables/usePlayback.js'
+import { ask } from '../composables/useDialog.js'
+import { api, errorMessage } from '../api.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import SelectField from './ui/SelectField.vue'
@@ -26,7 +28,27 @@ const error = ref('')
 const askAgain = ref(null)         // la que ya tienes y preguntamos si bajar igual
 const history = ref([])
 const historyTotal = ref(0)
-const showHistory = ref(false)
+// El historial se trae por tandas: la lista tiene scroll a partir de una
+// docena, y «Cargar mas» trae las siguientes. Paginar era mas botones para lo
+// mismo.
+const PAGE = 30
+
+// Lo descargado se puede poner a sonar desde aqui mismo, y pararlo.
+const player = usePlayback()
+const playingId = computed(() => player.track.value?.id ?? null)
+const historyIcon = (id) => (playingId.value === id && player.playing.value ? 'pause' : 'play')
+const historyTitle = (id) =>
+  playingId.value !== id ? 'Reproducir' : player.playing.value ? 'Pausar' : 'Reanudar'
+async function playFromHistory (id) {
+  if (!id) return
+  if (playingId.value === id) return player.toggle()
+  try {
+    const song = await api.song(id)
+    player.setQueue([song], song.id, { kind: 'downloads', label: 'Descargas' })
+  } catch (e) {
+    notify('No se pudo poner: ' + errorMessage(e))
+  }
+}
 
 const SOURCE_LABEL = { manual: 'a mano', assistant: 'asistente' }
 const when = (at) => {
@@ -40,20 +62,30 @@ const when = (at) => {
       d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
 }
 
-async function loadHistory () {
+async function loadHistory (more = false) {
   try {
-    const r = await api.downloadHistory(60)
-    history.value = r.items || []
+    const offset = more ? history.value.length : 0
+    const r = await api.downloadHistory(PAGE, offset)
+    history.value = more ? history.value.concat(r.items || []) : (r.items || [])
     historyTotal.value = r.total || 0
   } catch { /* el nucleo aun no responde */ }
 }
 
+// Como en un navegador: se puede vaciar, pero no mientras baja algo, que lo
+// que esta entrando se apunta ahi al terminar.
 async function clearHistory () {
+  if (running.value) return
+  const ok = await ask({
+    kind: 'confirm', title: 'Vaciar el historial de descargas',
+    message: 'Se borra la lista de lo descargado. Las canciones no se tocan.',
+    okLabel: 'Vaciar'
+  })
+  if (!ok) return
   try {
     await api.clearDownloadHistory()
     await loadHistory()
     notify('Historial vaciado', 'ok')
-  } catch (e) { notify('No se pudo vaciar: ' + e) }
+  } catch (e) { notify('No se pudo vaciar: ' + errorMessage(e)) }
 }
 const QUALITIES = [
   { v: 'high', n: 'Alta', note: '320 kbps' },
@@ -75,11 +107,6 @@ const isSearch = computed(() => {
 })
 
 const done = computed(() => status.results || [])
-const summary = computed(() => ({
-  ok: done.value.filter(r => r.ok).length,
-  already: done.value.filter(r => r.already_there).length,
-  failed: done.value.filter(r => !r.ok && !r.already_there).length
-}))
 
 const PHASES = {
   starting: 'Preparando', downloading: 'Bajando', converting: 'Convirtiendo a mp3',
@@ -251,56 +278,42 @@ onUnmounted(stopFollowing)
       </div>
     </Card>
 
-    <!-- historial: aqui cae todo, del boton y del asistente -->
-    <Card v-if="historyTotal">
+    <!-- historial: aqui cae todo, del boton y del asistente. Siempre a la
+         vista (antes habia una tarjeta de «Resultado» aparte que decia lo
+         mismo). Cada fila se puede poner a sonar y parar desde aqui. -->
+    <Card v-if="historyTotal || done.length">
       <template #title>
         <h3 style="display:flex;align-items:center;gap:8px">
           Historial
           <span class="chip">{{ historyTotal }}</span>
-          <button class="btn mini" style="margin-left:auto"
-                  @click="showHistory = !showHistory">
-            {{ showHistory ? 'Ocultar' : 'Ver' }}</button>
-          <button v-if="showHistory" class="btn mini" @click="clearHistory">Vaciar</button>
+          <button class="btn mini" style="margin-left:auto" :disabled="running"
+                  :title="running ? 'Cuando termine lo que esta bajando' : 'Borrar la lista de lo descargado'"
+                  @click="clearHistory">Vaciar</button>
         </h3>
       </template>
       <div class="note">Queda registrado todo lo que se baja, tanto desde aqui
         como cuando se lo pides al asistente.</div>
 
-      <transition name="dropdown">
-        <div v-if="showHistory" class="hist">
-          <div v-for="h in history" :key="h.id" class="hist-row">
-            <span class="badge" :class="h.ok ? 'ok' : (h.already ? '' : 'bad')">
-              {{ h.ok ? 'bajada' : (h.already ? 'ya la tenias' : 'fallo') }}</span>
-            <span class="hist-title" :title="h.title">
-              {{ h.artist ? `${h.artist} — ${h.song}` : (h.title || h.query) }}</span>
-            <span class="hist-src" :title="'Pedida ' + (SOURCE_LABEL[h.source] || h.source)">
-              {{ SOURCE_LABEL[h.source] || h.source }}</span>
-            <span class="mono hist-when">{{ when(h.at) }}</span>
-          </div>
+      <div class="hist">
+        <div v-for="h in history" :key="h.id" class="hist-row"
+             :class="{sounding: playingId === h.song_id}">
+          <button v-if="h.song_id && h.ok" class="row-go hist-play" :title="historyTitle(h.song_id)"
+                  @click="playFromHistory(h.song_id)">
+            <Icon :n="historyIcon(h.song_id)" :t="12" /></button>
+          <span v-else class="hist-play-gap"></span>
+          <span class="badge" :class="h.ok ? 'ok' : (h.already ? '' : 'bad')">
+            {{ h.ok ? 'bajada' : (h.already ? 'ya la tenias' : 'fallo') }}</span>
+          <span class="hist-title" :title="h.target || h.reason || h.title">
+            {{ h.artist ? `${h.artist} — ${h.song}` : (h.title || h.query) }}</span>
+          <span class="hist-src" :title="'Pedida ' + (SOURCE_LABEL[h.source] || h.source)">
+            {{ SOURCE_LABEL[h.source] || h.source }}</span>
+          <span class="mono hist-when">{{ when(h.at) }}</span>
         </div>
-      </transition>
-    </Card>
-
-    <!-- resultados -->
-    <Card v-if="!running && done.length" title="Resultado">
-      <div class="note">
-        {{ summary.ok }} descargada(s)<template v-if="summary.already">, {{ summary.already }} ya la tenias</template><template v-if="summary.failed">, {{ summary.failed }} con fallo</template>
+        <div v-if="!history.length" class="hint">Todavia no se ha bajado nada.</div>
       </div>
-      <div v-for="(r,i) in done" :key="i" class="dl-result">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <span class="badge" :class="r.already_there ? '' : (r.ok ? (r.action === 'review' ? '' : 'ok') : 'bad')">
-            {{ r.already_there ? 'ya la tenias' : (r.ok ? (r.action || 'bajada') : 'fallo') }}</span>
-          <span v-if="r.forced" class="badge">repetida</span>
-          <span v-if="r.identified_by" class="mono" style="font-size:11px;color:var(--muted2)">
-            {{ r.identified_by }} {{ r.confidence?.toFixed(2) }}</span>
-          <strong>{{ r.artist ? `${r.artist} — ${r.song}` : (r.title || r.source) }}</strong>
-        </div>
-        <div class="dl-path" v-if="r.target">{{ r.target }}</div>
-        <div class="hint" v-for="m in r.matches" :key="m.id">
-          ya la tienes como: {{ m.artist ? m.artist + ' — ' : '' }}{{ m.title }}
-        </div>
-        <div class="hint" v-if="!r.ok && !r.already_there">{{ r.reason }}</div>
-        <div class="hint" v-for="w in r.warnings" :key="w">! {{ w }}</div>
+      <div v-if="history.length < historyTotal" class="btn-row" style="margin-top:8px">
+        <button class="btn mini" @click="loadHistory(true)">
+          Cargar mas ({{ historyTotal - history.length }} antes)</button>
       </div>
     </Card>
   </div>
