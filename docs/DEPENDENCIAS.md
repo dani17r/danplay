@@ -144,7 +144,8 @@ Ninguno es obligatorio; la app funciona sin todos ellos.
 | Servicio | Para qué | Requiere clave |
 | --- | --- | --- |
 | AcoustID + MusicBrainz | identificar por huella acústica | sí (gratuita) |
-| DeepInfra | IA y asistente | sí |
+| El proveedor de IA que elijas (OpenAI, Anthropic, Google, DeepInfra, OpenRouter… o un Ollama en tu equipo) | IA y asistente | según el proveedor; los locales no |
+| models.dev | el catálogo de modelos de IA (qué modelos existen, precio, si usan herramientas); petición anónima y condicional | no |
 | LRCLIB | letras | no |
 | iTunes Search / Cover Art Archive | carátulas | no |
 | DuckDuckGo (HTML) | comprobar datos en la web | no |

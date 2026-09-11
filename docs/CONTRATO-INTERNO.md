@@ -185,3 +185,50 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
 - `/api/convert` body: `{ dry_run, quality, keep }`.
 - `/api/folders` respuesta `action`: `added | already_there | replaced | confirm`.
 - Calidad: `high | medium | variable`.
+
+## 5. Proveedor de IA (Python ↔ Vue)
+
+La IA vale con cualquier servicio que hable el *chat completions* de OpenAI
+(todos, hoy). Qué proveedor, con qué clave y qué modelos lo guarda el núcleo
+en `~/.config/danplay/ai.json` (0600), **un perfil por proveedor
+configurado** y uno activo. Las claves entran por `POST` y salen siempre
+enmascaradas (`sk-o…f3a1`); una caja de clave vacía significa «conserva la
+guardada».
+
+- `GET /api/ai/providers[?refresh=1]` → `{ catalog, groups, profiles, active,
+  active_profile, ai_enabled, ai_ready, ai_reason, catalog_status }`.
+  `catalog` es la lista de servicios conocidos (`id, name, group, base_url,
+  key: required|optional|none, key_url, docs, fields, suggest, note`);
+  `fields` son los huecos de la URL (`{region}`, `{resource}`…) que el
+  formulario pide. Sin `refresh`, el núcleo comprueba models.dev en segundo
+  plano (petición condicional con ETag: sin cambios, cero bytes); con
+  `refresh=1`, espera a hacerlo.
+- `POST /api/ai/profile` con `AiProfile` (`id?, provider, name?, key?,
+  base_url?, fields?, model, chat_model, headers?, extra?, timeout?,
+  activate=true`) → guarda y devuelve lo mismo que `GET` más `saved` (el
+  id). Un `custom` nuevo recibe id `custom-<nombre>`; puede haber varios.
+- `DELETE /api/ai/profile/{id}` → borra clave y ajustes de ese perfil.
+- `POST /api/ai/activate` `{ id }` → cambia el activo (un local sin perfil se
+  crea con sus valores por defecto).
+- `POST /api/ai/check` con el mismo cuerpo → prueba **sin guardar**:
+  `{ ok, reason, provider, model, chat_model, latency_ms, tools_ok,
+  tools_reason }`. Hace la llamada más barata posible (un token) con el
+  modelo rápido, otra con el de conversación si es distinto, y una tercera
+  con una herramienta de prueba para saber si el asistente podrá usarlo.
+- `POST /api/ai/models` con el mismo cuerpo → `{ ok, reason, source, models,
+  catalog, suggest, catalog_status }`. `models` es lo que lista el proveedor
+  con esa clave (`/models`) cruzado con el catálogo (`tools, cost_in,
+  cost_out, context, released, deprecated, known`); `catalog` lo que sabe
+  models.dev de ese proveedor aunque no responda; `suggest` `{fast, chat}`
+  recomendados (herramientas, reciente, barato, ni obsoleto ni experimental).
+- `/api/settings` conserva `model`, `ai_key`, `has_ai_key` (van al perfil
+  activo) y añade `chat_model`, `provider`, `provider_name`, `ai_ready`,
+  `ai_reason`, `ai_file`. `/api/status` y `/api/chat/tools` añaden
+  `provider`.
+- `POST /api/settings/check-ai` prueba el perfil activo (mismo resultado que
+  `/api/ai/check`).
+
+Variables de entorno que mandan sobre el archivo, para la línea de órdenes:
+`DANPLAY_AI_PROVIDER`, `DANPLAY_AI_KEY`, `DANPLAY_AI_BASE_URL`,
+`DANPLAY_AI_MODEL`, `DANPLAY_AI_CHAT_MODEL`. Las `DEEPINFRA_*` de antes se
+leen una sola vez para migrar la clave al perfil `deepinfra`.

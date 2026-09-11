@@ -13,7 +13,7 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.2.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-672%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-715%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -114,7 +114,8 @@ y el mismo tiempo de dibujado.
 **Un asistente que solo habla de música.** 23 herramientas: consultar la
 biblioteca, armar repertorios, buscar letras, transponer acordes, descargar de
 YouTube, comprobar datos en la web. Si le preguntas de política te dice que eso
-no es lo suyo. Solo descarga si se lo pides.
+no es lo suyo. Solo descarga si se lo pides. Y corre con la IA que tú elijas:
+OpenAI, Claude, Gemini, DeepInfra, OpenRouter… o un modelo en tu propio equipo.
 
 ## Instalación
 
@@ -147,11 +148,34 @@ choca con la licencia de este proyecto —
 [por qué](docs/DEPENDENCIAS.md#️-aviso-importante-sobre-mutagen).
 
 > **Nota sobre las claves.** DanPlay funciona sin ninguna clave: escanea,
-> organiza, reproduce y busca. Las claves solo activan extras:
-> `DEEPINFRA_API_KEY` para la IA y el asistente, `ACOUSTID_API_KEY` (gratis)
-> para la huella acústica. Se guardan en `~/.config/danplay/danplay.env` con
-> permisos `0600` y nunca salen de tu equipo salvo hacia el servicio al que
-> pertenecen.
+> organiza, reproduce y busca. Las claves solo activan extras: la de un
+> proveedor de IA para la identificación difícil y el asistente, y
+> `ACOUSTID_API_KEY` (gratis) para la huella acústica. Se guardan en
+> `~/.config/danplay/` con permisos `0600` y nunca salen de tu equipo salvo
+> hacia el servicio al que pertenecen.
+
+### La IA que tú quieras
+
+En **Ajustes → Inteligencia artificial** eliges el proveedor y pegas su
+clave; la app te dice si funciona y si el modelo sabe usar herramientas
+(lo que necesita el asistente). Vale cualquiera, porque todos hablan el
+mismo protocolo:
+
+| | |
+| --- | --- |
+| **Grandes laboratorios** | OpenAI, Anthropic (Claude), Google Gemini, Mistral, xAI, DeepSeek, Cohere, Perplexity… |
+| **Plataformas de inferencia** | DeepInfra, OpenRouter, Together, Fireworks, Groq, Cerebras, SambaNova, Hugging Face, NVIDIA, Novita, Nebius, Hyperbolic, GitHub Models… |
+| **Nubes corporativas** | Azure OpenAI, Amazon Bedrock, Cloudflare Workers AI, Databricks |
+| **Asia** | Qwen (Alibaba), Kimi (Moonshot), GLM (Z.ai), MiniMax, StepFun, SiliconFlow… |
+| **En tu equipo, sin clave** | Ollama, LM Studio, llama.cpp, vLLM, Jan, LocalAI, GPT4All, KoboldCpp… |
+| **Otro** | cualquier URL compatible con OpenAI: un proxy, LiteLLM, un servidor propio |
+
+La lista de modelos no está escrita en el programa —caduca en meses—:
+sale del propio proveedor (lo que tu clave puede usar) y de
+[models.dev](https://models.dev), un catálogo abierto que la app consulta
+cada vez que abres el selector, con precio, contexto, si usa herramientas y
+si está obsoleto. Se recuerdan todos los proveedores que configures, para
+cambiar de uno a otro con un clic.
 
 ### Que las canciones se abran con DanPlay
 
@@ -295,16 +319,17 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-672 pruebas repartidas así:
+715 pruebas repartidas así:
 
 | Tanda | Pruebas |
 | --- | --- |
 | Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, descargas, corpus de narración del asistente, nombres de YouTube, versión, Windows, asociaciones) | 119 |
-| API sobre una biblioteca temporal de verdad | 129 |
-| Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat, descargas, menú, selección múltiple | 322 |
+| IA con cualquier proveedor: catálogo, perfiles y claves, models.dev, recomendación de modelos, tolerancia a lo que cada servidor rechaza | 23 |
+| API sobre una biblioteca temporal de verdad | 132 |
+| Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat, descargas, menú, selección múltiple, selector de IA | 338 |
 | Interfaz: rutas de medios en cada sistema | 7 |
 | Rust: hashes y análisis de audio | 14 |
-| Rust: reproductor, cola, bandeja, sesión, núcleo, abrir carpeta, Telegram y archivos abiertos desde fuera | 63 |
+| Rust: reproductor, cola, bandeja, sesión, núcleo, abrir carpeta, enlaces, Telegram y archivos abiertos desde fuera | 64 |
 | Humo sobre la app **ya compilada** | 18 |
 
 La biblioteca de prueba **se genera**: mp3 de verdad hechos con ffmpeg. Antes

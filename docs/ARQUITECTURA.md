@@ -209,7 +209,7 @@ hay más carpetas de artista que antes.
   1  Etiquetas ID3        confianza 0.95 si trae artista Y título
   2  Huella acústica      fpcalc → AcoustID → MusicBrainz     mínimo 0.75
   3  Heurístico           contra las carpetas de Artistas/    umbral 0.80
-  4  IA (DeepInfra)       para los ambiguos                   umbral 0.55
+  4  IA (la que elijas)   para los ambiguos                   umbral 0.55
   5  Revisar/             sin artista, nunca inventado
 ```
 
@@ -223,6 +223,46 @@ etiquetas son el primer escalón de la cascada, se colaría con 0.95 de confianz
 y archivaría la canción bajo un artista inventado. Solo se escriben etiquetas
 cuando YouTube da datos de música de verdad (los campos `track` y `artist`, que
 vienen de YouTube Music).
+
+## Cualquier proveedor de IA
+
+Todos los servicios de IA hablan hoy el mismo protocolo (el *chat
+completions* de OpenAI), así que hay **un solo cliente** y lo que cambia es
+la URL, si pide clave y qué parámetros tolera. Tres piezas:
+
+- `providers.py`: el catálogo (sesenta y pico servicios en seis grupos:
+  laboratorios, plataformas tipo DeepInfra, nubes corporativas, Asia, en tu
+  equipo, otro) y los **perfiles guardados** en `~/.config/danplay/ai.json`
+  (0600), uno por proveedor configurado, con uno activo. Se recuerdan todos
+  para poder saltar de Ollama a OpenRouter y volver sin pegar claves otra
+  vez. Las variables `DANPLAY_AI_*` mandan sobre el archivo (línea de
+  órdenes, pruebas), y la `DEEPINFRA_API_KEY` de antes se migra sola.
+- `model_catalog.py`: **qué modelos existen**, sin escribirlos en el código.
+  Los nombres caducan en meses (OpenAI cambió toda su nomenclatura, Mistral
+  retiró los alias `-latest`), así que se consulta
+  [models.dev](https://models.dev/api.json), una base de datos abierta con
+  200+ proveedores y miles de modelos: el id exacto de cada proveedor, si el
+  modelo usa herramientas, si acepta JSON y temperatura, precio, contexto,
+  fecha y si está obsoleto. Se pide con **petición condicional (ETag)** cada
+  vez que se abre el selector y al arrancar: sin cambios, el servidor
+  responde 304 y cero bytes, así que se puede comprobar siempre. La copia
+  vive en la carpeta de datos; la app lleva dentro una foto para el primer
+  arranque sin red, regenerada en cada compilación
+  (`scripts/actualizar-modelos.py`). Y lo que el usuario puede usar **de
+  verdad** con su clave lo dice el propio proveedor (`/models`), cruzado con
+  el catálogo.
+- `ai.py`: el cliente, que **tolera**. Anthropic ignora `response_format`,
+  muchos servidores locales rechazan `tool_choice="required"`, los
+  razonadores de OpenAI no admiten `temperature` y quieren
+  `max_completion_tokens`. En vez de fallar en seco, `complete()` quita lo
+  que el servidor rechaza, reintenta y se acuerda por (proveedor, modelo);
+  lo que el catálogo ya dice que no se admite ni se manda. Si el modelo no
+  sabe usar herramientas, el asistente lo cuenta en castellano en vez de dar
+  un error genérico. Siguen siendo dos modelos con papeles distintos: el
+  **rápido** (identificar nombres sucios, rellenar fichas, letras, el juez
+  de narración) y el de **conversación** (el asistente, que necesita
+  herramientas). «Probar» hace la llamada más barata posible con cada uno y
+  una tercera con una herramienta de prueba.
 
 ## Reglas de nombres
 
@@ -388,6 +428,9 @@ castellano y, si la canción se acabó sola, se pasa a la siguiente.
 
 ```text
 danplay/        núcleo Python (índice, IA, etiquetas, descargas)
+  providers.py    catálogo de proveedores de IA y perfiles guardados
+  model_catalog.py  el catálogo de modelos (models.dev), siempre al día
+  data/           la foto del catálogo que viaja con la app
 core/           crate Rust (PyO3): hashes en paralelo y análisis de audio
 desktop/        interfaz Vue 3 + envoltorio Tauri
   src/
