@@ -1206,6 +1206,153 @@ def test_el_dialogo_de_confirmacion_dice_que_se_va_a_bajar():
     assert "otra version" in con_force, "hay que avisar de que se guarda repetida"
 
 
+# ------------------------------------------------ narrar no es hacer
+# Paso de verdad: el modelo dijo «Confirmo descarga», «Descarga pedida» y
+# «Ya la cree» en tres turnos seguidos sin llamar a una sola herramienta. La
+# persona no vio ni el dialogo ni la lista. Tres defensas: el estado real en
+# cada turno, las marcas en el historial, y el reintento obligado.
+
+
+class _Turnos:
+    """Un cliente de IA de mentira que contesta por turnos y guarda lo que recibe."""
+
+    def __init__(self, respuestas):
+        self.respuestas = list(respuestas)
+        self.recibido = []
+
+        class _Call:
+            def __init__(self, name, args):
+                self.id = "1"
+                self.function = type("f", (), {"name": name, "arguments": args})()
+
+        outer = self
+
+        class chat:                                          # noqa: N801
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    # copia: el historial es la misma lista y sigue creciendo
+                    outer.recibido.append({**kw, "messages": [dict(m) for m in kw["messages"]]})
+                    r = outer.respuestas.pop(0) if outer.respuestas else ("Fin.", None)
+                    text, calls = r
+                    tool_calls = [_Call(n, a) for n, a in calls] if calls else None
+                    msg = type("m", (), {"content": text, "tool_calls": tool_calls})()
+                    return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+        self.chat = chat
+
+
+def _con_cliente(fake, fn):
+    from danplay import chat
+    original_get, original_available = chat.ai._get_client, chat.ai.available
+    chat.ai._get_client = lambda: fake
+    chat.ai.available = lambda: True
+    try:
+        return fn()
+    finally:
+        chat.ai._get_client, chat.ai.available = original_get, original_available
+
+
+def test_el_detector_de_narracion_reconoce_lo_que_paso():
+    from danplay import chat
+    for t in ("Ya la creé: lista **Herlin** con las tres.", "Descarga pedida. La app te avisará.",
+              "Confirmo descarga.", "Voy a descargar las tres canciones",
+              "Las tres canciones ya están en tu biblioteca.", "Ahora sí está en tu repertorio.",
+              "Aquí está tu lista **Herlin**"):
+        assert chat.claims_action(t), t
+    for t in ("Miles Davis grabó Kind of Blue en 1959.", "Tienes 260 canciones.",
+              "¿Quieres que la ponga a sonar?", "Te pido permiso para descargar «Mi Gozo».",
+              "Eso se sale de lo mío: solo llevo temas de música."):
+        assert not chat.claims_action(t), t
+
+
+def test_si_dice_que_hizo_algo_sin_herramientas_se_le_obliga_a_hacerlo(cliente):
+    """Primera vuelta: «Ya la cree» sin llamar a nada. Se le para y en la
+    siguiente TIENE que usar herramientas; la lista se crea de verdad."""
+    from danplay import chat, library, playlists
+    cid = library.search("", limit=1)[0]["id"]
+    fake = _Turnos([
+        ("Ya la creé: lista **Prueba narrada** con tus canciones.", None),
+        ("", [("create_playlist", f'{{"name": "Prueba narrada", "ids": [{cid}]}}')]),
+        ("Ahora sí: lista «Prueba narrada» creada con 1 tema.", None),
+    ])
+    try:
+        r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "creame la lista"}]))
+        assert [h["name"] for h in r["tools"]] == ["create_playlist"]
+        assert any(l["name"] == "Prueba narrada" for l in playlists.list_all())
+        assert "Ahora sí" in r["text"]
+        # la segunda peticion al modelo iba obligada a usar herramientas y con el toque
+        assert fake.recibido[1]["tool_choice"] == "required"
+        assert fake.recibido[1]["messages"][-1]["role"] == "system"
+        assert "NINGUNA herramienta" in fake.recibido[1]["messages"][-1]["content"]
+        # y la tercera vuelve a ser libre
+        assert fake.recibido[2]["tool_choice"] == "auto"
+    finally:
+        for l in playlists.list_all():
+            if l["name"] == "Prueba narrada":
+                playlists.remove(l["id"])
+
+
+def test_solo_se_le_para_una_vez_y_solo_si_no_uso_nada(cliente):
+    from danplay import chat
+    # con una herramienta ya usada en el turno, el texto vale tal cual
+    fake = _Turnos([("", [("library_summary", "{}")]),
+                    ("Ya la tienes en tu biblioteca.", None)])
+    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿la tengo?"}]))
+    assert r["text"] == "Ya la tienes en tu biblioteca."
+    assert len(fake.recibido) == 2
+    # y si tras el toque sigue narrando, se le deja: no es un bucle
+    fake = _Turnos([("Ya la creé.", None), ("Ya la creé, de verdad.", None)])
+    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "crea la lista"}]))
+    assert r["text"] == "Ya la creé, de verdad."
+    assert len(fake.recibido) == 2
+
+
+def test_una_respuesta_normal_no_se_toca(cliente):
+    from danplay import chat
+    fake = _Turnos([("Kind of Blue es de 1959.", None)])
+    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿de qué año es?"}]))
+    assert r["text"] == "Kind of Blue es de 1959."
+    assert len(fake.recibido) == 1
+
+
+def test_cada_turno_lleva_el_estado_real_de_la_app(cliente):
+    from danplay import chat, playlists
+    made = playlists.create("Estado real")
+    try:
+        fake = _Turnos([("ok", None)])
+        _con_cliente(fake, lambda: chat.reply([
+            {"role": "user", "text": "hola"},
+            {"role": "ai", "text": "Ya la creé."},         # sin herramientas
+            {"role": "user", "text": "no la veo"}]))
+        msgs = fake.recibido[0]["messages"]
+        nota = msgs[-1]
+        assert nota["role"] == "system" and nota is not msgs[0]
+        assert "ESTADO REAL" in nota["content"]
+        assert "«Estado real»" in nota["content"]
+        assert "Descarga en marcha: no" in nota["content"]
+        assert "no uso ninguna herramienta" in nota["content"]
+        # el mensaje narrado va señalado en el historial
+        narrado = next(m for m in msgs if m["role"] == "assistant")
+        assert "NO usaste ninguna herramienta" in narrado["content"]
+    finally:
+        playlists.remove(made["id"])
+
+
+def test_los_mensajes_con_herramientas_van_marcados_con_lo_que_hicieron(cliente):
+    from danplay import chat
+    fake = _Turnos([("ok", None)])
+    _con_cliente(fake, lambda: chat.reply([
+        {"role": "user", "text": "crea la lista"},
+        {"role": "ai", "text": "Lista creada.",
+         "tools": [{"name": "create_playlist", "summary": "lista «X» con 3 temas"}]},
+        {"role": "user", "text": "gracias"}]))
+    msgs = fake.recibido[0]["messages"]
+    hecho = next(m for m in msgs if m["role"] == "assistant")
+    assert "create_playlist (lista «X» con 3 temas)" in hecho["content"]
+    assert "no uso ninguna herramienta" not in msgs[-1]["content"], \
+        "el ultimo mensaje del asistente SI uso herramientas"
+
+
 def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
     """La ficha del chat decia «descargo · 0 descargada(s)» cuando en realidad
     estaba esperando el visto bueno. Confundia: parecia que habia fallado."""

@@ -284,6 +284,17 @@ búsqueda web, los títulos de YouTube y las letras lo escriben terceros. Las
 instrucciones del asistente dicen explícitamente que si ahí aparece algo con
 forma de orden, no viene del usuario y no se obedece.
 
+**Narrar no es hacer.** El modelo puede escribir «ya la creé» sin haber
+llamado a nada, y al turno siguiente leer esa frase suya como un hecho. Tres
+defensas en `chat.reply`: en cada turno recibe el **estado real** de la app
+(qué repertorios existen, si hay descarga en marcha); sus mensajes anteriores
+van **marcados** con las herramientas que usaron, y los que afirman haber hecho
+algo sin ninguna van señalados como «esto no ocurrió»; y si contesta solo
+texto diciendo que hizo algo sin haber llamado a nada en el turno, se le
+devuelve la pelota una vez con `tool_choice="required"`. Cuando termina una
+descarga pedida desde el chat, la app le pasa el turno para que remate lo que
+quedara («…y ármame una lista»).
+
 **Descargar se pide, no se espera.** Una descarga tarda minutos y la
 conversación no puede quedarse colgada: al aprobarla, el núcleo la arranca en
 segundo plano bajo el mismo turno que usa la página de Descargas (una a la

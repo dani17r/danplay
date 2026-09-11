@@ -147,6 +147,15 @@ function reportDownload (e) {
   })
   if (ok.length) emit('reload')
   save(); scrollToBottom()
+  // Si entro algo, se le pasa el turno al asistente: «descargame estas y
+  // armame una lista» se quedaba a medias, porque el no se entera solo de
+  // que la descarga acabo y la persona tenia que volver a pedirselo.
+  if (ok.length && !thinking.value) {
+    send('[aviso de la app] La descarga ha terminado; el resultado esta en el mensaje ' +
+         'anterior. Si en lo que te pedi quedaba algo por hacer con esas canciones ' +
+         '(una lista, ponerlas a sonar…), hazlo ahora con las herramientas y cuentamelo ' +
+         'en una linea. Si no quedaba nada, di solo que ya estan.', true)
+  }
 }
 
 onMounted(async () => {
@@ -169,16 +178,33 @@ async function scrollToBottom () {
   if (thread.value) thread.value.scrollTop = thread.value.scrollHeight
 }
 
-async function send (text = null) {
+/**
+ * Lo que se manda al nucleo de cada mensaje. Las herramientas que uso el
+ * asistente van tambien: con eso el nucleo marca en el historial que hizo de
+ * verdad cada mensaje, y el modelo no se cree sus propias frases («ya la
+ * cree») cuando no llamo a nada.
+ */
+function forCore (m) {
+  const out = { role: m.role, text: m.text }
+  if (m.tools?.length) out.tools = m.tools.map(h => ({ name: h.name, summary: h.summary }))
+  return out
+}
+
+/**
+ * `hidden`: un mensaje que manda la propia app en nombre del usuario (al
+ * terminar una descarga, para que el asistente remate lo que quedaba). Va al
+ * nucleo como cualquier otro, pero no se pinta como si lo hubieras escrito.
+ */
+async function send (text = null, hidden = false) {
   const t = (text ?? entrada.value).trim()
   if (!t || thinking.value) return
-  entrada.value = ''
-  messages.value.push({ role: 'me', text: t })
+  if (!hidden) entrada.value = ''
+  messages.value.push(hidden ? { role: 'me', text: t, hidden: true } : { role: 'me', text: t })
   thinking.value = true
   scrollToBottom()
   try {
     // copia: el historial sigue creciendo mientras esperamos la respuesta
-    const r = await api.chat(messages.value.map(m => ({ role: m.role, text: m.text })))
+    const r = await api.chat(messages.value.map(forCore))
     if (r.error) {
       messages.value.push({ role: 'ai', text: r.error, error: true })
     } else {
@@ -277,7 +303,7 @@ async function clearChat () {
            instrumentos, teoria e historia. Lo que se salga de ahi te lo dire.</p>
       </div>
 
-      <div v-for="(m,i) in messages" :key="i" class="chat-msg" :class="[m.role, {error: m.error}]">
+      <div v-for="(m,i) in messages" :key="i" v-show="!m.hidden" class="chat-msg" :class="[m.role, {error: m.error}]">
         <div v-if="m.tools?.length" class="chat-tools">
           <span v-for="(h,j) in m.tools" :key="j" class="chip">
             <Icon n="check" :t="11" /> {{ toolLabel(h.name) }} · {{ h.summary }}

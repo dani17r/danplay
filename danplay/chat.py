@@ -9,6 +9,7 @@ Habla SOLO de musica. Lo que no tenga que ver con musica lo dice y ya.
 """
 import json
 import logging
+import re as _re
 from . import (ai, config, enrich, library, playlists, theory,
                web, youtube)
 
@@ -161,6 +162,17 @@ AL ARMAR UNA LISTA
   1. busca los temas con search_songs
   2. crea la lista con create_playlist pasando los ids que encontraste
   3. resume que metiste y por que
+
+LO HECHO ES LO QUE HACEN LAS HERRAMIENTAS
+Solo has hecho algo si EN ESTE TURNO has llamado a la herramienta y ha
+devuelto ok. Nunca digas «ya la cree», «descarga pedida», «ya esta en tu
+repertorio» ni «voy a descargar» sin la llamada correspondiente en este mismo
+turno: decirlo no lo hace. Tus mensajes anteriores no son hechos: al final de
+cada turno recibes el ESTADO REAL de la app (que repertorios existen, si hay
+descarga en marcha) y eso es lo que vale. Si el usuario dice que no ve algo
+que tu dijiste haber hecho, es que no lo hiciste: hazlo ahora, sin excusas.
+No prometas hacer algo «cuando termine la descarga»: no te vas a enterar
+solo. Di que cuando la app avise de que termino, te lo pida y lo haces.
 
 LIMITES
 Haz lo que te piden y nada mas. No crees listas, no descargues ni modifiques
@@ -588,7 +600,13 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in messages[-24:]:
         role = "assistant" if m.get("role") == "ai" else "user"
-        history.append({"role": role, "content": m.get("text", "")})
+        text = m.get("text", "")
+        if role == "assistant":
+            text = _marked(text, m.get("tools"))
+        history.append({"role": role, "content": text})
+    # El estado real, al final: lo ultimo que lee pesa mas que sus propias
+    # frases de hace tres turnos.
+    history.append({"role": "system", "content": _context_note(messages)})
 
     cliente = ai._get_client()
     used = []
@@ -598,20 +616,34 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
     actions = []
     pending = None          # lo que espera un si de la persona
     calls_made = 0
+    nudged = False          # ya se le ha parado los pies una vez
+    force_tools = False     # la siguiente vuelta tiene que usar herramientas
     for _ in range(max_vueltas):
         try:
             r = cliente.chat.completions.create(
                 model=config.DEEPINFRA_CHAT_MODEL, messages=history,
-                tools=TOOLS, tool_choice="auto",
+                tools=TOOLS, tool_choice="required" if force_tools else "auto",
                 temperature=0.4, max_tokens=1400)
         except Exception as e:
             return {"error": f"no pude hablar con el modelo: {e}"}
+        force_tools = False
 
         msg = r.choices[0].message
         calls = getattr(msg, "tool_calls", None)
         if not calls:
-            return {"text": _strip_thoughts(msg.content or ""),
-                    "tools": used, "actions": actions, "confirm": pending}
+            text = _strip_thoughts(msg.content or "")
+            # Dice que ha hecho algo y en todo el turno no ha llamado a nada:
+            # no ha pasado nada. Se le devuelve la pelota una vez, obligandole
+            # a usar herramientas. Es lo que evita el «ya la cree» con la
+            # lista sin crear y el «descarga pedida» sin ningun dialogo.
+            if calls_made == 0 and not nudged and claims_action(text):
+                nudged = True
+                force_tools = True
+                history.append({"role": "assistant", "content": text})
+                history.append({"role": "system", "content": NUDGE})
+                continue
+            return {"text": text, "tools": used, "actions": actions,
+                    "confirm": pending}
 
         history.append({"role": "assistant", "content": msg.content or "",
                      "tool_calls": [{"id": c.id, "type": "function",
@@ -654,6 +686,86 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
             "tools": used, "actions": actions, "confirm": pending}
 
 
+NUDGE = ("ATENCION: en este turno no has llamado a NINGUNA herramienta, asi que "
+         "nada de lo que acabas de decir que hiciste ha ocurrido. Hazlo ahora con "
+         "las herramientas (busca los ids con search_songs si te hacen falta) y "
+         "despues cuenta solo lo que las herramientas hayan devuelto.")
+
+# Frases con las que el modelo cuenta que ha hecho algo. Si aparecen en un
+# turno sin ninguna llamada a herramientas, es narracion, no accion.
+_CLAIMS = _re.compile(
+    r"\b(ya (la|lo|las|los|te) (cre|borr|descarg|pus|añad|agregu|guard|puntu|corr)\w*"
+    r"|he (creado|borrado|descargado|añadido|agregado|puesto|puntuado|corregido|guardado|pedido|quitado)"
+    r"|(cre|borr|descargu|añad|agregu|guard|puntu|quit)[eé]\b"
+    r"|lista creada|descarga (pedida|solicitada|iniciada|en marcha)"
+    r"|confirmo (la )?descarga|voy a (descargar|crear|armar|borrar|poner|añadir|agregar|quitar|bajar)"
+    r"|(ya )?est[aá]n? en tu (repertorio|biblioteca)"
+    r"|ya (est[aá]n?|tienes) (en )?(tu )?(la )?(biblioteca|lista)"
+    r"|(aqu[ií] (est[aá]|tienes)|est[aá]) tu (lista|repertorio))",
+    _re.IGNORECASE)
+
+
+def claims_action(text: str) -> bool:
+    """Si el texto afirma haber hecho (o estar haciendo) algo en la app."""
+    # sin las marcas de markdown ni comillas: «**Herlin**» tapaba la frase
+    plain = _re.sub(r"[*_`«»\"']", "", text or "")
+    return bool(_CLAIMS.search(plain))
+
+
+def _marked(text: str, tools) -> str:
+    """Un mensaje anterior del asistente, con la marca de lo que hizo de verdad.
+
+    El modelo lee sus propias frases de turnos pasados como hechos: si dijo
+    «ya la cree» sin llamar a nada, al turno siguiente da la lista por hecha.
+    Con herramientas se anota cuales; sin ellas, y si el texto afirma haber
+    hecho algo, se le señala que no ocurrio.
+    """
+    text = text or ""
+    if tools:
+        done = ", ".join(f"{t.get('name')} ({t.get('summary')})" if t.get("summary")
+                         else str(t.get("name")) for t in tools if t.get("name"))
+        return f"{text}\n[herramientas que usaste en este mensaje: {done}]"
+    if claims_action(text):
+        return (f"{text}\n[en este mensaje NO usaste ninguna herramienta: "
+                "lo que dice haber hecho no ocurrio]")
+    return text
+
+
+def _context_note(messages: list[dict]) -> str:
+    """El estado real de la app, para el turno que empieza.
+
+    Lo que hay de verdad manda sobre lo que el modelo dijo antes. Es corto:
+    repertorios que existen, si hay una descarga en marcha, y si su ultimo
+    mensaje fue solo texto.
+    """
+    lines = ["ESTADO REAL DE LA APP AHORA (manda sobre lo que hayas dicho antes):"]
+    try:
+        lists = playlists.list_all()
+        if lists:
+            shown = ", ".join(f"«{l['name']}» ({l['n']} temas)" for l in lists[:30])
+            if len(lists) > 30:
+                shown += f" y {len(lists) - 30} mas"
+            lines.append(f"- Repertorios que existen: {shown}.")
+        else:
+            lines.append("- Repertorios que existen: ninguno.")
+    except Exception:                                       # noqa: BLE001
+        pass
+    try:
+        e = youtube.STATE
+        if e["active"]:
+            lines.append(f"- Descarga en marcha: si ({e['phase']}, {e['index']}/{e['total']}"
+                         f"{', ' + e['name'] if e['name'] else ''}).")
+        else:
+            lines.append("- Descarga en marcha: no.")
+    except Exception:                                       # noqa: BLE001
+        pass
+    last_ai = next((m for m in reversed(messages) if m.get("role") == "ai"), None)
+    if last_ai is not None and not last_ai.get("tools"):
+        lines.append("- Tu ultimo mensaje no uso ninguna herramienta: si prometiste o "
+                     "dijiste haber hecho algo ahi, NO esta hecho.")
+    return "\n".join(lines)
+
+
 def confirm(tool: str, args: dict) -> dict:
     """Ejecuta lo que la persona acaba de aprobar.
 
@@ -674,8 +786,6 @@ def confirm(tool: str, args: dict) -> dict:
     }
     return {"ok": True, "result": result, "text": texts.get(tool, "Hecho.")}
 
-
-import re as _re
 
 def _strip_thoughts(t: str) -> str:
     """Algunos modelos dejan escapar su razonamiento entre <think>."""

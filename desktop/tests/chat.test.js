@@ -61,6 +61,20 @@ describe('chat', () => {
     expect(ultima[0]).toEqual({ role: 'me', text: 'hola' })
   })
 
+  it('el historial lleva que herramientas uso cada respuesta', async () => {
+    // Con eso el nucleo marca lo que se hizo de verdad en cada mensaje y el
+    // modelo no toma sus propias frases («ya la cree») por hechos.
+    api.chat.mockResolvedValueOnce({
+      text: 'Lista creada', tools: [{ name: 'create_playlist', summary: '4 temas', args: { x: 1 } }] })
+    const w = await montar()
+    await escribir(w, 'crea una lista')
+    await escribir(w, 'gracias')
+    const ultima = api.chat.mock.calls.at(-1)[0]
+    expect(ultima[1]).toEqual({ role: 'ai', text: 'Lista creada',
+                                tools: [{ name: 'create_playlist', summary: '4 temas' }] })
+    expect(ultima[0]).toEqual({ role: 'me', text: 'crea una lista' })
+  })
+
   it('enseña que herramientas uso', async () => {
     api.chat.mockResolvedValueOnce({
       text: 'Lista creada', tools: [{ name: 'create_playlist', summary: '4 temas' }] })
@@ -247,21 +261,37 @@ describe('descargas pedidas al asistente', () => {
     expect(w.find('.chat-downloading').text()).toContain('Bajando')
     expect(w.find('.chat-downloading').text()).toContain('1/2')
 
+    api.chat.mockResolvedValueOnce({
+      text: 'Listo: lista «Herlin» creada con la que entro.',
+      tools: [{ name: 'create_playlist', summary: 'lista «Herlin» con 1 temas' }] })
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.find('.chat-downloading').exists()).toBe(false)
-    const last = w.findAll('.chat-msg.ai').at(-1)
-    expect(last.text()).toContain('Descargada')
-    expect(last.text()).toContain('Bethel Music - I Want Jesus (Live)')
-    expect(last.text()).toContain('Ya la tenías')
-    expect(last.text()).toContain('Carol Braga - Ruja O Leao')
-    expect(last.text()).toContain('otra versión')
-    expect(last.find('.chat-tools').text()).toContain('1 descargada, 1 ya la tenías')
+    const report = w.findAll('.chat-msg.ai').find(m => m.text().includes('Descargada'))
+    expect(report).toBeTruthy()
+    expect(report.text()).toContain('Bethel Music - I Want Jesus (Live)')
+    expect(report.text()).toContain('Ya la tenías')
+    expect(report.text()).toContain('Carol Braga - Ruja O Leao')
+    expect(report.text()).toContain('otra versión')
+    expect(report.find('.chat-tools').text()).toContain('1 descargada, 1 ya la tenías')
     // entro una: la biblioteca tiene que refrescarse
     expect(w.emitted('reload')).toBeTruthy()
     // y ya no sigue preguntando
     const llamadas = api.youtube.mock.calls.length
     await vi.advanceTimersByTimeAsync(3000)
     expect(api.youtube.mock.calls.length).toBe(llamadas)
+
+    // Al entrar algo, se le pasa el turno al asistente para que remate lo que
+    // quedara («y armame una lista»). El aviso va al nucleo como un mensaje
+    // del usuario, pero no se pinta como si lo hubieras escrito tu.
+    const sent = api.chat.mock.calls.at(-1)[0]
+    expect(sent.at(-1).role).toBe('me')
+    expect(sent.at(-1).text).toContain('La descarga ha terminado')
+    // y el historial que recibe el nucleo lleva las herramientas de cada mensaje
+    const withTools = sent.find(m => m.tools?.some(t => t.name === 'download_music'))
+    expect(withTools).toBeTruthy()
+    const bubbles = w.findAll('.chat-msg.me')
+    expect(bubbles.filter(b => b.isVisible()).some(b => b.text().includes('La descarga ha terminado'))).toBe(false)
+    expect(w.text()).toContain('Listo: lista «Herlin» creada')
   })
 
   it('si cambias de pagina y vuelves, retoma el seguimiento', async () => {
@@ -271,8 +301,19 @@ describe('descargas pedidas al asistente', () => {
       { ok: true, artist: 'Barak', song: 'Mi Gozo' }] })
     const w = await montar()
     await vi.advanceTimersByTimeAsync(1000)
-    expect(w.findAll('.chat-msg.ai').at(-1).text()).toContain('Barak - Mi Gozo')
+    expect(w.findAll('.chat-msg.ai').some(m => m.text().includes('Barak - Mi Gozo'))).toBe(true)
     expect(localStorage.getItem('danplay.chat.download')).toBeNull()
+  })
+
+  it('si no entro nada, no se molesta al asistente', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
+    api.youtube.mockResolvedValueOnce({ active: false, phase: 'done', results: [
+      { ok: false, already_there: true, title: 'Mi Gozo', matches: [] }] })
+    const w = await montar()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.text()).toContain('Ya la tenías')
+    expect(api.chat).not.toHaveBeenCalled()
   })
 
   it('un fallo al confirmar se enseña sin romper el chat', async () => {
