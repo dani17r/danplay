@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import (ai, chat, config, convert, duplicates, enrich, external,
+from . import (ai, chat, chats, config, convert, duplicates, enrich, external,
                fingerprint, ingest, library, model_catalog, playlists,
                providers, tags, theory, youtube)
 
@@ -186,6 +186,28 @@ class YoutubeIn(Body_):
 
 class ChatIn(Body_):
     messages: list[dict] = Field(default_factory=list, max_length=200)
+    # lo que la persona tiene delante: vista, seleccion, lo que suena (§3)
+    context: dict | None = None
+
+
+class ChatCreateIn(Body_):
+    title: str = Field(default="", max_length=120)
+
+
+class ChatRenameIn(Body_):
+    title: str = Field(min_length=1, max_length=120)
+
+
+class ChatAppendIn(Body_):
+    messages: list[dict] = Field(default_factory=list, max_length=200)
+
+
+class AiFallbackIn(Body_):
+    enabled: bool
+
+
+class SheetIn(Body_):
+    with_lyrics: bool = False
 
 
 class ChatConfirmIn(Body_):
@@ -389,6 +411,9 @@ def _ai_overview() -> dict:
                                 "base_url": p["base_url"], "local": p["local"]} if p else None),
             "ai_enabled": config.AI_ENABLED, "ai_ready": ai.available(),
             "ai_reason": ai.unavailable_reason(),
+            "fallback": providers.fallback_enabled(),
+            "fallbacks": [{"id": f["id"], "name": f["name"], "chat_model": f["chat_model"]}
+                          for f in providers.fallbacks(providers.active_id())],
             "catalog_status": model_catalog.status()}
 
 
@@ -444,6 +469,20 @@ async def ai_free():
     out = _ai_overview()
     out["free"] = r
     return out
+
+
+@app.get("/api/ai/usage")
+def ai_usage():
+    """Lo que gasta la IA: hoy, este mes y en total (tokens y coste)."""
+    return library.ai_usage_summary()
+
+
+@app.post("/api/ai/fallback")
+def ai_fallback(body: AiFallbackIn = Body(...)):
+    """Si, cuando el proveedor activo falla, se usan los demas configurados."""
+    providers.set_fallback(body.enabled)
+    ai.reset_client()
+    return _ai_overview()
 
 
 @app.post("/api/ai/check")
@@ -853,8 +892,121 @@ async def converse(body: ChatIn = Body(...)):
     if not body.messages:
         raise HTTPException(400, "no hay mensajes")
     def work():
-        return chat.reply(body.messages)
+        return chat.reply(body.messages, context=body.context)
     return await asyncio.get_running_loop().run_in_executor(None, work)
+
+
+# ------------------------------------------------- el chat, en vivo
+# La respuesta se pide en un hilo y la interfaz la va leyendo: el texto
+# segun sale del modelo, las herramientas segun terminan, y al final el
+# mismo resultado que da /api/chat. Se hace preguntando (cada pocos
+# cientos de milisegundos por el socket) y no con un flujo abierto: asi no
+# hay que enseñar al puente de Rust a leer respuestas a trozos, y vale
+# igual en el navegador.
+CHAT_JOBS: dict[str, dict] = {}
+_CHAT_JOBS_LOCK = threading.Lock()
+CHAT_JOB_TTL = 600
+
+
+def _chat_job_new(messages, context) -> dict:
+    import secrets
+    with _CHAT_JOBS_LOCK:
+        now = time.time()
+        for key, job in list(CHAT_JOBS.items()):
+            if job["done"] and now - job["at"] > CHAT_JOB_TTL:
+                del CHAT_JOBS[key]
+        job = {"id": secrets.token_hex(8), "at": now, "text": "", "tools": [],
+               "done": False, "result": None, "cancel": threading.Event()}
+        CHAT_JOBS[job["id"]] = job
+
+    def work():
+        try:
+            r = chat.reply(messages, context=context,
+                           on_text=lambda t: job.__setitem__("text", t),
+                           on_tool=lambda t: job["tools"].append(t),
+                           cancel=job["cancel"])
+        except Exception as e:                               # noqa: BLE001
+            log.warning("el chat en vivo fallo", exc_info=True)
+            r = {"error": f"no pude responder: {e}"}
+        job["result"] = r
+        job["done"] = True
+        job["at"] = time.time()
+    threading.Thread(target=work, name="danplay-chat", daemon=True).start()
+    return job
+
+
+@app.post("/api/chat/start")
+def chat_start(body: ChatIn = Body(...)):
+    if not body.messages:
+        raise HTTPException(400, "no hay mensajes")
+    job = _chat_job_new(body.messages, body.context)
+    return {"id": job["id"]}
+
+
+@app.get("/api/chat/poll/{job_id}")
+def chat_poll(job_id: str):
+    job = CHAT_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "esa respuesta ya no esta")
+    return {"id": job_id, "text": job["text"], "tools": list(job["tools"]),
+            "done": job["done"], "result": job["result"]}
+
+
+@app.post("/api/chat/cancel/{job_id}")
+def chat_cancel(job_id: str):
+    job = CHAT_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "esa respuesta ya no esta")
+    job["cancel"].set()
+    return {"ok": True}
+
+
+# ------------------------------------------------- conversaciones guardadas
+
+@app.get("/api/chats")
+def chats_list():
+    return {"chats": chats.list_all()}
+
+
+@app.post("/api/chats")
+def chats_create(body: ChatCreateIn = Body(default=ChatCreateIn())):
+    return chats.create(body.title)
+
+
+@app.get("/api/chats/search")
+def chats_search(q: str = Query(default="", max_length=200)):
+    return {"hits": chats.search(q)}
+
+
+@app.get("/api/chats/{chat_id}")
+def chats_get(chat_id: int):
+    c = chats.get(chat_id)
+    if not c:
+        raise HTTPException(404, "no existe esa conversacion")
+    return c
+
+
+@app.post("/api/chats/{chat_id}/messages")
+def chats_append(chat_id: int, body: ChatAppendIn = Body(...)):
+    try:
+        n = chats.append(chat_id, body.messages)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return {"n": n}
+
+
+@app.patch("/api/chats/{chat_id}")
+def chats_rename(chat_id: int, body: ChatRenameIn = Body(...)):
+    if not chats.rename(chat_id, body.title):
+        raise HTTPException(404, "no existe esa conversacion")
+    return {"ok": True}
+
+
+@app.delete("/api/chats/{chat_id}")
+def chats_delete(chat_id: int):
+    if not chats.delete(chat_id):
+        raise HTTPException(404, "no existe esa conversacion")
+    return {"ok": True}
 
 
 @app.post("/api/chat/confirm")
@@ -896,6 +1048,16 @@ async def confirm_tool(body: ChatConfirmIn = Body(...)):
     def work():
         return chat.confirm(body.tool, body.args)
     return await asyncio.get_running_loop().run_in_executor(None, work)
+
+
+@app.post("/api/playlists/{pid}/sheet")
+def playlist_sheet(pid: int, body: SheetIn = Body(default=SheetIn())):
+    """La hoja para el atril del repertorio, en HTML dentro de Listas/."""
+    try:
+        path = playlists.export_sheet(pid, with_lyrics=body.with_lyrics)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"file": path}
 
 
 @app.get("/api/chat/tools")

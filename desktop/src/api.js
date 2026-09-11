@@ -106,6 +106,18 @@
  * @property {{name:string, summary:string}[]} [tools]
  * @property {{kind:string, [k:string]: any}[]} [actions]
  * @property {ChatConfirm|null} [confirm]
+ * @property {boolean} [canceled]
+ * @property {{calls:number, prompt:number, completion:number, cost:number|null}} [usage]
+ * @property {{id:string, name:string, model:string, fallback:boolean}} [via]  quién respondió
+ */
+
+/**
+ * @typedef {Object} ChatContext  Lo que la persona tiene delante, para el asistente.
+ * @property {{kind:string, name:string, id?:number}} [view]
+ * @property {{id:number, artist:string, title:string}[]} [songs]   las primeras de la lista, en su orden
+ * @property {number} [total]
+ * @property {{id:number, artist:string, title:string}[]} [selected]
+ * @property {{id:number, artist:string, title:string, paused:boolean}|null} [playing]
  */
 
 export const inTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
@@ -456,6 +468,10 @@ export const api = {
   aiDeleteProfile: (id) => DEL(`/ai/profile/${encodeURIComponent(id)}`),
   /** @param {string} id */
   aiActivate: (id) => POST('/ai/activate', { id }),
+  /** Lo que gasta la IA: hoy, este mes y en total (tokens y coste). */
+  aiUsage: () => GET('/ai/usage'),
+  /** @param {boolean} enabled  si al fallar el activo se usan los demás */
+  aiFallback: (enabled) => POST('/ai/fallback', { enabled }),
   /** @param {AiProfile} d  prueba lo del formulario sin guardarlo */
   aiCheck: (d) => POST('/ai/check', d),
   /**
@@ -512,6 +528,13 @@ export const api = {
   playlistSongs: (id) => GET(`/playlists/${id}/songs`),
   addToPlaylist: (id, ids) => POST(`/playlists/${id}/songs`, { ids }),
   removeFromPlaylist: (l, c) => DEL(`/playlists/${l}/songs/${c}`),
+  /**
+   * La hoja para el atril del repertorio: un HTML en Listas/, para abrir en
+   * el navegador e imprimir.
+   * @param {number} id @param {boolean} [withLyrics]
+   * @returns {Promise<{file: string}>}
+   */
+  playlistSheet: (id, withLyrics = false) => POST(`/playlists/${id}/sheet`, { with_lyrics: withLyrics }),
   exportPlaylist: (id) => POST(`/playlists/${id}/export`),
 
   // La lista del reproductor: lo que has abierto desde FUERA de DanPlay.
@@ -550,7 +573,41 @@ export const api = {
   convert: (d) => POST('/convert', d),
   duplicates: () => GET('/duplicates'),
   /** @returns {Promise<ChatReply>} */
-  chat: (messages) => POST('/chat', { messages }),
+  /**
+   * Una respuesta entera de una vez. `context` es lo que la persona tiene
+   * delante (vista, selección, lo que suena): ver ChatContext.
+   * @param {Object[]} messages
+   * @param {ChatContext} [context]
+   * @returns {Promise<ChatReply>}
+   */
+  chat: (messages, context = null) => POST('/chat', context ? { messages, context } : { messages }),
+  /**
+   * La misma respuesta, pero en vivo: se arranca aquí y se va leyendo con
+   * `chatPoll` (texto según sale, herramientas según terminan) hasta `done`.
+   * @param {Object[]} messages
+   * @param {ChatContext} [context]
+   * @returns {Promise<{id: string}>}
+   */
+  chatStart: (messages, context = null) => POST('/chat/start', context ? { messages, context } : { messages }),
+  /** @param {string} id @returns {Promise<{text: string, tools: Object[], done: boolean, result: ChatReply|null}>} */
+  chatPoll: (id) => GET(`/chat/poll/${encodeURIComponent(id)}`),
+  /** @param {string} id */
+  chatCancel: (id) => POST(`/chat/cancel/${encodeURIComponent(id)}`),
+
+  /** Las conversaciones guardadas, la más reciente primero. */
+  chats: () => GET('/chats'),
+  /** @param {string} [title] */
+  chatCreate: (title = '') => POST('/chats', { title }),
+  /** @param {number} id  la conversación con sus mensajes */
+  chatGet: (id) => GET(`/chats/${id}`),
+  /** @param {number} id @param {Object[]} messages  añade al final */
+  chatAppend: (id, messages) => POST(`/chats/${id}/messages`, { messages }),
+  /** @param {number} id @param {string} title */
+  chatRename: (id, title) => PATCH(`/chats/${id}`, { title }),
+  /** @param {number} id */
+  chatDelete: (id) => DEL(`/chats/${id}`),
+  /** @param {string} q  busca en todas las conversaciones */
+  chatSearch: (q) => GET(`/chats/search?q=${encodeURIComponent(q)}`),
   chatTools: () => GET('/chat/tools'),
   /**
    * Ejecuta una herramienta que el asistente dejó pendiente de confirmar (§3).

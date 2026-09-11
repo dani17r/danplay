@@ -377,6 +377,18 @@ tbody tr.flash{animation:destello 1.1s ease-out}
 .dl-dup{border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
 .dl-dup h3{display:flex;align-items:center;gap:8px;color:var(--amber)}
 
+/* ---------- letra sincronizada ---------- */
+.lrc{display:flex;flex-direction:column;gap:2px;font-size:12.5px;line-height:1.55;max-height:420px;
+  overflow-y:auto;padding:4px 0;scroll-behavior:smooth}
+.lrc-line{padding:3px 8px;border-radius:5px;color:var(--muted);transition:color .2s,background .2s}
+.lrc.active .lrc-line{cursor:pointer}
+.lrc.active .lrc-line:hover{background:var(--panel2)}
+.lrc-line.past{color:var(--muted2)}
+.lrc-line.current{color:var(--text);background:color-mix(in srgb,var(--accent) 14%,transparent);font-weight:600}
+.lrc-line.blank{opacity:.5}
+.lrc-toggle{margin-left:auto;gap:4px}
+.lrc-toggle.on{border-color:var(--accent);color:var(--accent)}
+
 /* ---------- chat ---------- */
 .chat{display:flex;flex-direction:column;height:100%;min-height:0}
 .chat-head{display:flex;align-items:center;gap:10px;padding:12px 18px;
@@ -405,6 +417,24 @@ tbody tr.flash{animation:destello 1.1s ease-out}
   color:var(--red)}
 /* dice haber hecho algo y ninguna herramienta lo hizo: se ve distinto */
 .chat-msg.narrated .chat-bubble{border-color:color-mix(in srgb,var(--amber) 55%,transparent)}
+.chat-title{cursor:default;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-head .btn.on{border-color:var(--accent);color:var(--accent)}
+.chat-cost{font-size:10px;color:var(--muted2);padding:0 4px}
+.chat-live .chat-bubble::after{content:"▍";color:var(--accent);animation:parpadeo 1s steps(2) infinite}
+@keyframes parpadeo{to{opacity:0}}
+.chat-cancel{gap:5px}
+/* las conversaciones guardadas, desplegadas bajo la cabecera */
+.chat-list{border-bottom:1px solid var(--border);padding:10px 14px;display:flex;flex-direction:column;
+  gap:8px;max-height:46%;background:color-mix(in srgb,var(--panel) 70%,transparent)}
+.chat-list-items{overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:3px}
+.chat-item{position:relative;display:flex;flex-direction:column;gap:2px;text-align:left;padding:7px 30px 7px 10px;
+  border-radius:7px;color:var(--text);transition:background .12s}
+.chat-item:hover{background:var(--panel2)}
+.chat-item.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.chat-item-title{font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-item-sub{font-size:11px;color:var(--muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-item-x{position:absolute;right:8px;top:9px}
+.chat-item-empty{padding:10px;font-size:11.5px;color:var(--muted2);font-style:italic;text-align:center}
 
 /* markdown dentro de la burbuja del asistente (utils/markdown.js). Los
    saltos de linea ya vienen como <p> y <br>, asi que aqui no hay pre-wrap */

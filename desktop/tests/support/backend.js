@@ -49,6 +49,8 @@ function aiOverview(state) {
           chat_model: active.chat_model, base_url: active.base_url || 'https://x/v1', local: false }
       : null,
     ai_enabled: true,
+    fallback: state.aiFallback !== false,
+    fallbacks: Object.values(state.aiProfiles).filter((p) => p.id !== state.aiActive).map((p) => ({ id: p.id, name: p.provider_name, chat_model: p.chat_model })),
     ai_ready: !!active,
     ai_reason: active ? '' : 'no hay ningun proveedor de IA elegido',
     catalog_status: { source: 'snapshot', providers: 1, models: 2, fetched_at: 0, checked_at: 0, error: '', refreshing: false }
@@ -78,6 +80,9 @@ export function createState() {
     ],
     aiProfiles: {},
     aiActive: '',
+    aiFallback: true,
+    /** conversaciones guardadas del asistente */
+    chats: [],
     aiModels: [
       { id: 'grande', name: 'Grande', tools: true, cost_in: 1, cost_out: 5, context: 128000, released: '2026-09-01', deprecated: false, known: true },
       { id: 'chico', name: 'Chico', tools: true, cost_in: 0.1, cost_out: 0.4, context: 32000, released: '2026-08-01', deprecated: false, known: true },
@@ -256,6 +261,38 @@ function answers(state) {
     duplicates: async () => copy(state.duplicates),
     resolveDuplicate: async () => ({ ok: true, kept: '/a.mp3', renamed: false, final_name: 'a.mp3', deleted: [] }),
     chat: async () => ({ text: 'hola', tools: [], actions: [], confirm: null }),
+    chatStart: async () => ({ id: 'job1' }),
+    chatPoll: async () => ({ text: 'hola', tools: [], done: true,
+                             result: { text: 'hola', tools: [], actions: [], confirm: null } }),
+    chatCancel: async () => ({ ok: true }),
+    chats: async () => ({ chats: state.chats.map((c) => ({ id: c.id, title: c.title, updated: c.updated, n: c.messages.length })) }),
+    chatCreate: async (title = '') => {
+      const c = { id: state.chats.length + 1, title, updated: Date.now() / 1000, messages: [] }
+      state.chats.unshift(c)
+      return { id: c.id, title: c.title, updated: c.updated, n: 0 }
+    },
+    chatGet: async (id) => {
+      const c = state.chats.find((x) => x.id === id)
+      return c ? { id: c.id, title: c.title, messages: c.messages.map((m) => ({ ...m })) } : null
+    },
+    chatAppend: async (id, messages) => {
+      const c = state.chats.find((x) => x.id === id)
+      if (!c) throw new Error('no existe esa conversacion')
+      c.messages.push(...messages.map((m) => ({ ...m })))
+      if (!c.title) c.title = (messages.find((m) => m.role === 'me' && !m.hidden)?.text || '').slice(0, 60)
+      return { n: messages.length }
+    },
+    chatRename: async (id, title) => { const c = state.chats.find((x) => x.id === id); if (c) c.title = title; return { ok: true } },
+    chatDelete: async (id) => { state.chats = state.chats.filter((x) => x.id !== id); return { ok: true } },
+    chatSearch: async (q) => ({
+      hits: state.chats.flatMap((c) => c.messages.filter((m) => (m.text || '').toLowerCase().includes(q.toLowerCase()))
+        .map((m) => ({ chat_id: c.id, title: c.title, role: m.role, snippet: m.text, at: 0 })))
+    }),
+    aiUsage: async () => ({ today: { calls: 2, prompt: 3000, completion: 400, cost: 0.0021, unpriced: 0 },
+                            month: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
+                            total: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 } }),
+    aiFallback: async (enabled) => { state.aiFallback = enabled; return aiOverview(state) },
+    playlistSheet: async (id) => ({ file: `/musica/Listas/lista-${id}.html` }),
     chatConfirm: async () => ({ ok: true, result: {}, text: 'hecho' }),
     chatTools: async () => ({ model: 'x', available: false, tools: [] })
   }

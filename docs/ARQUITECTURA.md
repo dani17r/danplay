@@ -274,6 +274,21 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
   herramientas). «Probar» hace la llamada más barata posible con cada uno y
   una tercera con una herramienta de prueba.
 
+## Para el atril
+
+Un repertorio se exporta también como **hoja para el atril**: un HTML en
+`Listas/` con cada canción, su tono (americano y latino), bpm, cejilla
+sugerida y los acordes por secciones si la IA los dio, y la letra si se
+pide. Se abre con el navegador y se imprime o se guarda como PDF desde ahí:
+sin ninguna librería de PDF que empaquetar. `theory.related_keys` da los
+tonos vecinos de uno (relativo, dominante, subdominante) para armar un set
+sin saltos, y el asistente lo tiene como herramienta.
+
+La **letra con tiempos** de LRCLIB se guarda en `lyrics_synced` (una
+caché: si se pierde, se vuelve a pedir; el mp3 lleva en su USLT la versión
+con marcas, que la ficha también entiende) y, con la canción sonando, la
+ficha resalta la línea que va y salta al pulsar otra.
+
 ## Reglas de nombres
 
 - Sin acentos. Única excepción: la **ñ** se conserva.
@@ -388,6 +403,34 @@ Cuando termina una descarga pedida desde el chat, la app le pasa el turno
 para que remate lo que quedara («…y ármame una lista»), con los ids exactos
 de lo que entró.
 
+**El asistente ve lo que tú ves.** Con cada mensaje viaja lo que hay en
+pantalla (la vista y sus primeras veinte canciones en orden, la selección,
+lo que suena) y entra en el estado real del turno: «pon la segunda», «esta»,
+«las seleccionadas» dejan de ser adivinanzas. Se le dice que esa lista es
+solo lo visible: para contar, buscar u ordenar sigue usando `search_songs`.
+
+**La respuesta llega en vivo y se puede parar.** El núcleo pide al modelo
+la respuesta en trozos (`stream`), junta las llamadas a herramientas que
+llegan partidas y va entregando el texto según sale; si tras un texto
+aparece una herramienta, ese texto era un preámbulo y se retira. La
+interfaz lo lee sondeando `/api/chat/poll` cada 250 ms por el puente de
+siempre: sin flujo abierto ni cambios en Rust, y vale igual en el
+navegador. «Parar» corta el flujo y deja lo escrito, señalado.
+
+**Si el proveedor falla, responde otro.** Caído, sin crédito, saturado o
+con la clave rechazada, `ai.complete` pasa al siguiente perfil configurado
+(cada uno con su modelo), marca al caído durante un minuto para no volver a
+esperar su tiempo límite, y la respuesta dice quién contestó (`via`). Un
+error del mensaje (un 400) no dispara el respaldo: no lo arreglaría.
+
+**Lo que cuesta, a la vista.** Cada llamada se apunta en `ai_usage`
+(proveedor, modelo, tokens y el coste según el precio del catálogo); cada
+respuesta enseña sus tokens y su coste, y Ajustes lo de hoy y lo del mes.
+
+**Las conversaciones se guardan en la base** (`chats.py`): varias, con
+título, y se busca en todas. Lo que había en el `localStorage` de versiones
+anteriores pasa a la base una vez.
+
 **Cada token se paga, y el prompt viaja en cada llamada.** El texto del
 sistema se escribe una regla por fallo real y sin adornos (1.305 tokens; era
 2.077), las herramientas se declaran con una fábrica que no repite el
@@ -454,6 +497,7 @@ castellano y, si la canción se acabó sola, se pasa a la siguiente.
 danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   providers.py    catálogo de proveedores de IA y perfiles guardados
   toon.py         resultados de herramientas en TOON: la mitad de tokens que JSON
+  chats.py        las conversaciones con el asistente, guardadas y buscables
   model_catalog.py  el catálogo de modelos (models.dev), siempre al día
   data/           la foto del catálogo que viaja con la app
 core/           crate Rust (PyO3): hashes en paralelo y análisis de audio

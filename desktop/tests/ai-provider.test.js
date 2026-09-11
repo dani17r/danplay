@@ -311,3 +311,23 @@ describe('probar gratis, sin clave', () => {
     w.unmount()
   })
 })
+
+describe('respaldo y gasto en Ajustes', () => {
+  it('enseña lo gastado y deja apagar el respaldo', async () => {
+    held.state.aiProfiles = {
+      openai: { id: 'openai', provider: 'openai', provider_name: 'OpenAI', has_key: true, key: 'sk-a…', model: 'chico', chat_model: 'grande', fields: {}, headers: {}, extra: {} },
+      llm7: { id: 'llm7', provider: 'llm7', provider_name: 'LLM7', has_key: false, key: '', model: 'x', chat_model: 'x', fields: {}, headers: {}, extra: {} }
+    }
+    held.state.aiActive = 'openai'
+    const w = mount(SettingsPage, { attachTo: document.body })
+    await flushPromises(); await flushPromises()
+    expect(w.find('.ai-usage').text()).toContain('Hoy 2 llamadas · 3,4 k tokens · $0,0021')
+    expect(w.find('.ai-usage').text()).toContain('Este mes 20 llamadas')
+    const toggle = w.findAll('.toggle').find((t) => t.text().includes('Si el proveedor falla'))
+    expect(toggle.text()).toContain('LLM7')
+    await toggle.find('.toggle-track').trigger('click')
+    await flushPromises()
+    expect(held.api.aiFallback).toHaveBeenCalledWith(false)
+    w.unmount()
+  })
+})

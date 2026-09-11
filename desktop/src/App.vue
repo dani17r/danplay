@@ -115,6 +115,32 @@ const viewBox = ref(null)
 /** El id de lo que suena, que es lo que las listas necesitan para marcarlo. */
 const playingId = computed(() => player.track.value?.id ?? null)
 
+// La ultima vista CON canciones: el chat es una pagina propia, asi que
+// cuando se abre, «lo que el usuario esta viendo» es la lista de antes (que
+// sigue en `songs`). Con eso el asistente entiende «la segunda», «esta» o
+// «las seleccionadas» sin que se lo expliquen.
+const PAGES = ['settings', 'inbox', 'chat', 'downloads', 'duplicates']
+const listView = ref({ kind: 'all' })
+watch(view, (v) => { if (!PAGES.includes(v.kind)) listView.value = { ...v } }, { immediate: true })
+const brief = (s) => ({ id: s.id, artist: s.artist || '', title: s.title || '' })
+/** @type {import('vue').ComputedRef<import('./api.js').ChatContext>} */
+const chatContext = computed(() => {
+  const t = player.track.value
+  const marked = selectedSongs.value.length
+    ? selectedSongs.value
+    : songs.value.filter((s) => s.id === selected.value)
+  const names = { all: 'Todas las canciones', favorites: 'Favoritos', artists: 'Artistas', player: 'Reproductor' }
+  const name = listView.value.kind === 'playlist' ? listView.value.name
+    : (query.value.trim() ? `Búsqueda «${query.value.trim()}»` : names[listView.value.kind] || 'la biblioteca')
+  return {
+    view: { kind: listView.value.kind, name, id: listView.value.id ?? undefined },
+    songs: songs.value.slice(0, 20).map(brief),
+    total: songs.value.length,
+    selected: marked.slice(0, 20).map(brief),
+    playing: t ? { ...brief(t), paused: !player.state.playing } : null
+  }
+})
+
 // La canción que se lleva en la mano, para pintar el fantasma que sigue al
 // puntero. Quien la recibe se declara con `data-drop`; ver useDragSong.
 const { drag, cancelDrag } = useDragSong()
@@ -655,6 +681,7 @@ function playlistMenu(ev, pl) {
       },
       { label: 'Renombrar…', icon: 'pencil', action: () => playlistActions.rename(pl) },
       { label: 'Exportar a .m3u', icon: 'download', action: () => playlistActions.exportTo(pl) },
+      { label: 'Hoja para el atril…', icon: 'chords', action: () => playlistActions.sheet(pl) },
       ...(shareTargets.value.telegram
         ? [{ label: 'Enviar por Telegram', icon: 'send', action: () => sendPlaylistToTelegram(pl) }]
         : []),
@@ -1124,7 +1151,7 @@ function onUpdated(song) {
           @ready="refreshAll"
         />
 
-        <ChatPage v-else-if="view.kind === 'chat'" @reload="refreshAll" @action="runAction" />
+        <ChatPage v-else-if="view.kind === 'chat'" :context="chatContext" @reload="refreshAll" @action="runAction" />
 
         <DownloadsPage v-else-if="view.kind === 'downloads'" @reload="refreshAll" />
 

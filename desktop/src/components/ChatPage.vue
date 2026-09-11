@@ -1,12 +1,18 @@
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { api, errorMessage } from '../api.js'
 import { ask } from '../composables/useDialog.js'
+import { notify } from '../composables/useNotices.js'
 import { useDownloads } from '../composables/useDownloads.js'
 import { renderMarkdown } from '../utils/markdown.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 
+const props = defineProps({
+  /** Lo que la persona tiene delante (vista, selección, lo que suena): va
+   *  al núcleo con cada mensaje para que «la segunda» o «esta» signifiquen algo. */
+  context: { type: Object, default: null }
+})
 const emit = defineEmits(['reload', 'action'])
 
 // las mismas que publica el nucleo en youtube.STATE
@@ -41,7 +47,9 @@ const TOOL_LABELS = {
   set_stars: 'pongo estrellas',
   set_favorite: 'marco favorito',
   edit_song: 'corrijo los datos',
-  delete_song: 'mando a la papelera'
+  delete_song: 'mando a la papelera',
+  related_keys: 'miro los tonos vecinos',
+  setlist_sheet: 'escribo la hoja del repertorio'
 }
 const toolLabel = (n) => TOOL_LABELS[n] || n.replace(/_/g, ' ')
 const messages = ref([])
@@ -63,6 +71,99 @@ async function tryFree () {
   } catch (e) { freeNote.value = errorMessage(e) } finally { tryingFree.value = false }
 }
 const thread = ref(null)
+
+// La respuesta en vivo: el texto según sale del modelo y las herramientas
+// según terminan. Se pregunta al núcleo cada poco (chatPoll) hasta `done`.
+const live = ref(null)
+let jobId = null
+const POLL_MS = 250
+
+// Las conversaciones viven en la base del núcleo: varias, con búsqueda, y
+// no atadas al localStorage de esta instalación. La abierta es `chatId`;
+// se crea sola con el primer mensaje.
+const chats = ref([])
+const chatId = ref(null)
+const chatTitle = computed(() => chats.value.find((c) => c.id === chatId.value)?.title || 'Nueva conversación')
+const showChats = ref(false)
+const chatQuery = ref('')
+const hits = ref([])
+
+/** Añade un mensaje y lo guarda en la conversación abierta. */
+async function pushMessage (m) {
+  messages.value.push(m)
+  if (!chatId.value) return
+  try { await api.chatAppend(chatId.value, [forStore(m)]) } catch (e) { notify('No se pudo guardar el mensaje: ' + errorMessage(e)) }
+}
+/** Lo que se guarda de un mensaje (sin lo transitorio). */
+function forStore (m) {
+  const out = { role: m.role, text: m.text }
+  for (const k of ['tools', 'app', 'event', 'hidden', 'narrated', 'error', 'usage', 'via', 'canceled']) {
+    if (m[k] !== undefined && m[k] !== null && m[k] !== false && m[k] !== '') out[k] = m[k]
+  }
+  return out
+}
+
+async function ensureChat () {
+  if (chatId.value) return
+  const c = await api.chatCreate()
+  chats.value.unshift({ ...c, n: 0 })
+  chatId.value = c.id
+}
+async function loadChats () {
+  try { chats.value = (await api.chats()).chats || [] } catch { chats.value = [] }
+}
+async function openChat (id) {
+  if (thinking.value) return
+  const c = await api.chatGet(id)
+  if (!c) return
+  chatId.value = c.id
+  messages.value = c.messages || []
+  showChats.value = false
+  scrollToBottom()
+}
+async function newChat () {
+  if (thinking.value) return
+  chatId.value = null
+  messages.value = []
+  showChats.value = false
+  entrada.value = ''
+}
+async function renameChat () {
+  if (!chatId.value) return
+  const title = await ask({ kind: 'prompt', title: 'Nombre de la conversación', value: chatTitle.value, okLabel: 'Guardar' })
+  if (!title) return
+  await api.chatRename(chatId.value, title)
+  const c = chats.value.find((x) => x.id === chatId.value)
+  if (c) c.title = title
+}
+async function deleteChat (c) {
+  const ok = await ask({ kind: 'confirm', title: 'Borrar la conversación', danger: true,
+                         message: `Se borra «${c.title || 'sin título'}». Tu biblioteca no se toca.`, okLabel: 'Borrar' })
+  if (!ok) return
+  await api.chatDelete(c.id)
+  chats.value = chats.value.filter((x) => x.id !== c.id)
+  if (chatId.value === c.id) { chatId.value = null; messages.value = [] }
+}
+let searchTimer = null
+watch(chatQuery, (q) => {
+  clearTimeout(searchTimer)
+  if (!q.trim()) { hits.value = []; return }
+  searchTimer = setTimeout(async () => {
+    try { hits.value = (await api.chatSearch(q.trim())).hits || [] } catch { hits.value = [] }
+  }, 250)
+})
+onUnmounted(() => clearTimeout(searchTimer))
+
+/** Tokens y coste de una respuesta, en corto: «3,2k tokens · $0,002». */
+function costLine (m) {
+  const u = m.usage
+  if (!u) return ''
+  const n = (u.prompt || 0) + (u.completion || 0)
+  const parts = [n >= 1000 ? (n / 1000).toFixed(1).replace('.', ',') + 'k tokens' : n + ' tokens']
+  if (u.cost != null) parts.push(u.cost === 0 ? 'gratis' : '$' + (u.cost < 0.01 ? u.cost.toFixed(4) : u.cost.toFixed(3)).replace('.', ','))
+  if (m.via?.fallback) parts.push(`respondió ${m.via.name} (respaldo)`)
+  return parts.join(' · ')
+}
 
 const SUGGESTIONS = [
   '¿Que canciones tengo sin artista?',
@@ -169,7 +270,7 @@ function reportDownload (e, request = '') {
   parts.push(`${ok.length} descargada${ok.length === 1 ? '' : 's'}`)
   if (already.length) parts.push(`${already.length} ya la${already.length > 1 ? 's' : ''} tenías`)
   if (failed.length) parts.push(`${failed.length} con fallo`)
-  messages.value.push({
+  pushMessage({
     role: 'ai', text: lines.join('\n').trim(), app: true,
     tools: [{ name: 'download_music', summary: parts.join(', ') }]
   })
@@ -200,9 +301,21 @@ function reportDownload (e, request = '') {
 }
 
 onMounted(async () => {
-  try { info.value = await api.chatTools() } catch { /* sin almacenamiento (modo privado) */ }
-  const guardado = localStorage.getItem('danplay.chat')
-  if (guardado) { try { messages.value = JSON.parse(guardado) } catch { /* sin almacenamiento (modo privado) */ } }
+  try { info.value = await api.chatTools() } catch { /* sin nucleo de IA: la cabecera lo dice */ }
+  await loadChats()
+  // La conversacion que vivia en el localStorage (versiones anteriores) pasa
+  // a la base una sola vez, para no perderla.
+  let old = null
+  try { old = JSON.parse(localStorage.getItem('danplay.chat') || 'null') } catch { old = null }
+  if (Array.isArray(old) && old.length) {
+    try {
+      const c = await api.chatCreate('Conversación anterior')
+      await api.chatAppend(c.id, old.map(forStore))
+      localStorage.removeItem('danplay.chat')
+      await loadChats()
+    } catch { /* se intenta la proxima vez */ }
+  }
+  if (chats.value.length) await openChat(chats.value[0].id)
   // una descarga pedida desde aqui que seguia en marcha al cambiar de pagina
   try {
     const pending = localStorage.getItem(FOLLOW_KEY)
@@ -211,9 +324,7 @@ onMounted(async () => {
   scrollToBottom()
 })
 
-function save () {
-  try { localStorage.setItem('danplay.chat', JSON.stringify(messages.value.slice(-60))) } catch { /* sin almacenamiento (modo privado) */ }
-}
+function save () { /* cada mensaje se guarda al añadirse (pushMessage) */ }
 async function scrollToBottom () {
   await nextTick()
   if (thread.value) thread.value.scrollTop = thread.value.scrollHeight
@@ -261,16 +372,32 @@ async function send (text = null, hidden = false, event = null) {
   const mine = { role: 'me', text: t }
   if (hidden) mine.hidden = true
   if (event) mine.event = event
-  messages.value.push(mine)
   thinking.value = true
+  live.value = { text: '', tools: [] }
   scrollToBottom()
   try {
+    await ensureChat()
+    await pushMessage(mine)
     // copia: el historial sigue creciendo mientras esperamos la respuesta
-    const r = await api.chat(messages.value.map(forCore))
+    const history = messages.value.map(forCore)
+    const { id } = await api.chatStart(history, props.context)
+    jobId = id
+    let r = null
+    for (;;) {
+      const d = await api.chatPoll(id)
+      live.value = { text: d.text || '', tools: d.tools || [] }
+      if (d.done) { r = d.result || { error: 'sin respuesta' }; break }
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+      scrollToBottom()
+    }
     if (r.error) {
-      messages.value.push({ role: 'ai', text: r.error, error: true, app: true })
+      pushMessage({ role: 'ai', text: r.error, error: true, app: true })
+    } else if (r.canceled) {
+      pushMessage({ role: 'ai', text: (live.value?.text || '') + (live.value?.text ? '\n\n' : '') + '_(Respuesta cortada.)_',
+                    tools: r.tools || [], app: !live.value?.text, canceled: true })
     } else {
-      messages.value.push({ role: 'ai', text: r.text, tools: r.tools || [], narrated: !!r.narrated })
+      pushMessage({ role: 'ai', text: r.text, tools: r.tools || [], narrated: !!r.narrated,
+                    usage: r.usage || null, via: r.via || null })
       // OJO: son los nombres de las herramientas tal y como estan hoy. Estaban
       // los viejos en castellano y por eso la lista nunca se refrescaba.
       // `download_music` no esta: en la conversacion solo se PIDE; la
@@ -286,12 +413,20 @@ async function send (text = null, hidden = false, event = null) {
       for (const a of r.actions || []) emit('action', a)
       if (r.confirm) await confirmPending(r.confirm)
     }
+    const c = chats.value.find((x) => x.id === chatId.value)
+    if (c && !c.title && !hidden) c.title = t.slice(0, 60)
   } catch (e) {
-    messages.value.push({ role: 'ai', text: 'No pude responder: ' + errorMessage(e), error: true, app: true })
+    pushMessage({ role: 'ai', text: 'No pude responder: ' + errorMessage(e), error: true, app: true })
   } finally {
-    thinking.value = false; save(); scrollToBottom()
+    thinking.value = false; live.value = null; jobId = null; save(); scrollToBottom()
     if (queued) { const q = queued; queued = null; send(q.text, true, q.event) }
   }
+}
+
+/** Corta la respuesta que esta llegando. Lo escrito hasta ahi se queda. */
+async function cancel () {
+  if (!jobId) return
+  try { await api.chatCancel(jobId) } catch { /* ya habia terminado */ }
 }
 
 /**
@@ -308,7 +443,7 @@ async function confirmPending (pending) {
     message: pending.summary, okLabel: 'Adelante'
   })
   if (!ok) {
-    messages.value.push({ role: 'ai', text: 'Cancelado, no he tocado nada.', app: true })
+    pushMessage({ role: 'ai', text: 'Cancelado, no he tocado nada.', app: true })
     save(); scrollToBottom()
     return
   }
@@ -316,7 +451,7 @@ async function confirmPending (pending) {
     const r = await api.chatConfirm(pending.tool, pending.args)
     // con la herramienta apuntada: asi el nucleo le cuenta al modelo que la
     // descarga (o el borrado) se pidio y se acepto de verdad
-    messages.value.push({ role: 'ai', text: r.text || 'Hecho.', app: true,
+    pushMessage({ role: 'ai', text: r.text || 'Hecho.', app: true,
       tools: [{ name: pending.tool, summary: pending.tool === 'download_music' ? 'aceptada, en marcha' : 'hecho' }] })
     if (pending.tool === 'download_music' && r.result?.active) {
       // arranco en segundo plano: se sigue desde aqui y se cuenta al acabar.
@@ -330,7 +465,7 @@ async function confirmPending (pending) {
       emit('reload')
     }
   } catch (e) {
-    messages.value.push({ role: 'ai', text: 'No se pudo: ' + errorMessage(e), error: true, app: true })
+    pushMessage({ role: 'ai', text: 'No se pudo: ' + errorMessage(e), error: true, app: true })
   } finally {
     save(); scrollToBottom()
   }
@@ -340,10 +475,16 @@ async function clearChat () {
   if (!messages.value.length) return
   const ok = await ask({
     kind: 'confirm', title: 'Borrar la conversación',
-    message: 'Se borra el historial del chat. Tu biblioteca no se toca.',
+    message: 'Se borra el historial de esta conversación. Tu biblioteca no se toca.',
     okLabel: 'Borrar'
   })
-  if (ok) { messages.value = []; save() }
+  if (!ok) return
+  if (chatId.value) {
+    try { await api.chatDelete(chatId.value) } catch (e) { notify(errorMessage(e)); return }
+    chats.value = chats.value.filter((x) => x.id !== chatId.value)
+  }
+  chatId.value = null
+  messages.value = []
 }
 </script>
 
@@ -352,11 +493,39 @@ async function clearChat () {
     <div class="chat-head">
       <Icon n="ai" :t="16" />
       <div style="flex:1;min-width:0">
-        <strong>Asistente</strong>
+        <strong class="chat-title" :title="chatId ? 'Doble clic para renombrar' : ''"
+                @dblclick="renameChat">{{ chatId ? chatTitle : 'Asistente' }}</strong>
         <span class="chat-model mono">{{ info?.provider ? info.provider + ' · ' : '' }}{{ info?.model || '—' }}</span>
       </div>
-      <button class="btn mini" @click="clearChat" v-if="messages.length">
+      <button class="btn mini" type="button" :class="{on: showChats}" title="Conversaciones guardadas"
+              @click="showChats = !showChats">
+        <Icon n="list" :t="13" /> {{ chats.length || '' }}</button>
+      <button class="btn mini" type="button" title="Nueva conversación" :disabled="thinking || !messages.length"
+              @click="newChat"><Icon n="plus" :t="13" /></button>
+      <button class="btn mini" type="button" title="Borrar esta conversación" @click="clearChat" v-if="messages.length">
         <Icon n="trash" :t="13" /></button>
+    </div>
+
+    <!-- las conversaciones guardadas: lista y busqueda en todas -->
+    <div v-if="showChats" class="chat-list">
+      <TextField v-model="chatQuery" width="100%" icon="search" compact placeholder="buscar en todas las conversaciones…" />
+      <div v-if="chatQuery.trim()" class="chat-list-items">
+        <button v-for="h in hits" :key="h.id || h.chat_id + h.snippet" type="button" class="chat-item"
+                @click="openChat(h.chat_id)">
+          <span class="chat-item-title">{{ h.title || 'sin título' }}</span>
+          <span class="chat-item-sub">{{ h.role === 'me' ? 'tú' : 'asistente' }}: {{ h.snippet }}</span>
+        </button>
+        <div v-if="!hits.length" class="chat-item-empty">nada con «{{ chatQuery }}»</div>
+      </div>
+      <div v-else class="chat-list-items">
+        <button v-for="c in chats" :key="c.id" type="button" class="chat-item" :class="{current: c.id === chatId}"
+                @click="openChat(c.id)">
+          <span class="chat-item-title">{{ c.title || 'sin título' }}</span>
+          <span class="chat-item-sub">{{ c.n }} mensajes</span>
+          <span class="chat-item-x field-btn" title="Borrar" @click.stop="deleteChat(c)"><Icon n="close" :t="12" /></span>
+        </button>
+        <div v-if="!chats.length" class="chat-item-empty">todavía no hay conversaciones guardadas</div>
+      </div>
     </div>
 
     <div class="chat-thread" ref="thread">
@@ -393,6 +562,17 @@ async function clearChat () {
         <div v-if="m.role === 'ai' && !m.error" class="chat-bubble chat-md"
              v-html="renderMarkdown(m.text)"></div>
         <div v-else class="chat-bubble">{{ m.text }}</div>
+        <div v-if="m.role === 'ai' && costLine(m)" class="chat-cost mono" :title="'tokens de esta respuesta (entrada + salida) y su coste según el catálogo'">{{ costLine(m) }}</div>
+      </div>
+
+      <!-- la respuesta que esta llegando: herramientas segun terminan y el texto segun sale -->
+      <div v-if="thinking && live" class="chat-msg ai chat-live">
+        <div v-if="live.tools.length" class="chat-tools">
+          <span v-for="(h,j) in live.tools" :key="j" class="chip">
+            <Icon n="check" :t="11" /> {{ toolLabel(h.name) }} · {{ h.summary }}
+          </span>
+        </div>
+        <div v-if="live.text" class="chat-bubble chat-md" v-html="renderMarkdown(live.text)"></div>
       </div>
 
       <div v-if="downloading" class="chat-msg ai">
@@ -407,7 +587,7 @@ async function clearChat () {
         </div>
       </div>
 
-      <div v-if="thinking" class="chat-msg ai">
+      <div v-if="thinking && !live?.text" class="chat-msg ai">
         <div class="chat-bubble chat-thinking">
           <span></span><span></span><span></span>
         </div>
@@ -423,6 +603,8 @@ async function clearChat () {
               :disabled="thinking || !entrada.trim()" @click="send()">
         <Icon n="send" :t="15" />
       </button>
+      <button v-if="thinking" class="btn chat-cancel" type="button" title="Parar la respuesta" @click="cancel">
+        <Icon n="close" :t="14" /> Parar</button>
     </div>
   </div>
 </template>

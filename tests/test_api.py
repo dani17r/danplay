@@ -305,6 +305,100 @@ def test_ai_check_and_models_with_a_fake_provider(cliente, perfiles_ia, monkeypa
     assert cliente.post("/api/ai/models", json={"provider": "custom"}).json()["ok"] is False
 
 
+def test_chat_start_poll_and_cancel(cliente, perfiles_ia, monkeypatch):
+    """El chat en vivo: se arranca, se pregunta y llega el mismo resultado que
+    da /api/chat, con las herramientas segun terminan."""
+    import time as _t
+    from danplay import ai, providers
+    providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
+
+    class _Call:
+        id = "1"
+        function = type("f", (), {"name": "list_playlists", "arguments": "{}"})()
+
+    class _Msg:
+        def __init__(self, content, tool_calls=None):
+            self.content, self.tool_calls = content, tool_calls
+    turns = [_Msg("", [_Call()]), _Msg("No tienes repertorios.")]
+
+    class _Fake:
+        class chat:                                          # noqa: N801
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    return type("r", (), {"choices": [type("c", (), {"message": turns.pop(0)})()]})()
+    monkeypatch.setattr(ai, "_get_client", lambda: _Fake())
+    monkeypatch.setattr(ai, "_build_client", lambda p: _Fake())
+
+    r = cliente.post("/api/chat/start", json={"messages": [{"role": "user", "text": "¿que listas tengo?"}],
+                                             "context": {"view": {"kind": "all", "name": "Todas"}}})
+    assert r.status_code == 200, r.text
+    job = r.json()["id"]
+    for _ in range(100):
+        d = cliente.get(f"/api/chat/poll/{job}").json()
+        if d["done"]:
+            break
+        _t.sleep(0.02)
+    assert d["done"] and d["result"]["text"] == "No tienes repertorios."
+    assert [t["name"] for t in d["tools"]] == ["list_playlists"]
+    assert d["result"]["tools"][0]["name"] == "list_playlists"
+    assert cliente.post(f"/api/chat/cancel/{job}").json()["ok"]
+    assert cliente.get("/api/chat/poll/nada").status_code == 404
+    assert cliente.post("/api/chat/start", json={"messages": []}).status_code == 400
+
+
+def test_chats_are_kept_and_searchable(cliente):
+    c = cliente.post("/api/chats", json={}).json()
+    assert c["id"]
+    assert cliente.post(f"/api/chats/{c['id']}/messages", json={"messages": [
+        {"role": "me", "text": "armame una lista para el domingo"},
+        {"role": "ai", "text": "Hecho: **Domingo** con 5 temas.", "tools": [{"name": "create_playlist", "summary": "5 temas"}]}
+    ]}).json()["n"] == 2
+    got = cliente.get(f"/api/chats/{c['id']}").json()
+    assert got["title"] == "armame una lista para el domingo"
+    assert got["messages"][1]["tools"][0]["name"] == "create_playlist"
+    assert cliente.get("/api/chats").json()["chats"][0]["id"] == c["id"]
+    hits = cliente.get("/api/chats/search", params={"q": "domingo"}).json()["hits"]
+    assert hits and hits[0]["chat_id"] == c["id"]
+    assert cliente.patch(f"/api/chats/{c['id']}", json={"title": "Set del domingo"}).json()["ok"]
+    assert cliente.get(f"/api/chats/{c['id']}").json()["title"] == "Set del domingo"
+    assert cliente.delete(f"/api/chats/{c['id']}").json()["ok"]
+    assert cliente.get(f"/api/chats/{c['id']}").status_code == 404
+    assert cliente.post("/api/chats/999999/messages", json={"messages": [{"role": "me", "text": "x"}]}).status_code == 404
+
+
+def test_ai_usage_and_fallback_settings(cliente, perfiles_ia):
+    from danplay import library
+    library.log_ai_usage("openai", "gpt-6-astra", "chat", 1000, 100, 0.015)
+    u = cliente.get("/api/ai/usage").json()
+    assert u["today"]["calls"] >= 1 and u["month"]["prompt"] >= 1000 and u["today"]["cost"] >= 0.015
+    cliente.post("/api/ai/profile", json={"provider": "openai", "key": "k", "model": "a"})
+    cliente.post("/api/ai/profile", json={"provider": "ollama", "model": "b", "activate": False})
+    d = cliente.get("/api/ai/providers").json()
+    assert d["fallback"] is True and [f["id"] for f in d["fallbacks"]] == ["ollama"]
+    d = cliente.post("/api/ai/fallback", json={"enabled": False}).json()
+    assert d["fallback"] is False
+
+
+def test_playlist_sheet_is_written_inside_listas(cliente):
+    from danplay import playlists, library, config
+    songs = library.search("", limit=2)
+    made = playlists.create("Atril")
+    playlists.add(made["id"], [c["id"] for c in songs])
+    library.update(songs[0]["id"], key="Bb", bpm=120,
+                   chords=json.dumps({"section_chords": {"coro": "| Bb | Gm |"}}))
+    try:
+        r = cliente.post(f"/api/playlists/{made['id']}/sheet", json={"with_lyrics": True}).json()
+        path = pathlib.Path(r["file"])
+        assert path.is_file() and path.parent == config.LIBRARY / "Listas"
+        page = path.read_text(encoding="utf-8")
+        assert "Atril" in page and songs[0]["title"] in page and "| Bb | Gm |" in page
+        assert "Sib" in page, "el tono tambien en latino"
+        assert cliente.post("/api/playlists/999999/sheet", json={}).status_code == 400
+    finally:
+        playlists.remove(made["id"])
+
+
 def test_ai_free_activates_a_keyless_provider(cliente, perfiles_ia, monkeypatch):
     from danplay import ai
 

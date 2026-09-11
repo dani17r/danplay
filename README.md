@@ -13,7 +13,7 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.5.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-727%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-759%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -61,7 +61,7 @@ tus archivos. Si mañana te vas a otro reproductor, tu trabajo se va contigo.
 
 | Si eres… | Esto es lo que te da |
 | --- | --- |
-| **Músico o equipo de alabanza** | Tonos, acordes y transposición con cejilla sugerida. Repertorios exportables a `.m3u`. Letra dentro del archivo. |
+| **Músico o equipo de alabanza** | Tonos, acordes y transposición con cejilla sugerida. Repertorios exportables a `.m3u` y como **hoja para el atril** (tono, bpm, cejilla, acordes, letra). Letra dentro del archivo, y con tiempos: la ficha sigue la línea que suena. |
 | **Quien tiene la música en el disco** | Cientos de descargas con nombres imposibles, duplicados y etiquetas rotas. Esto lo ordena. |
 | **Quien no quiere depender de nadie** | Sin cuenta, sin nube, sin telemetría. Funciona con el wifi apagado (salvo lo que por definición necesita internet). |
 | **Quien viene de otro reproductor** | Se lee y se escribe ID3 estándar. Kodi, foobar2000 o Rhythmbox verán tus estrellas y tus letras igual. |
@@ -111,11 +111,16 @@ tarjeta de sonido. El WebView no lo toca en ningún momento.
 igual que tengas 500 canciones o 20.000, siempre son unos 900 nodos en pantalla
 y el mismo tiempo de dibujado.
 
-**Un asistente que solo habla de música.** 23 herramientas: consultar la
+**Un asistente que solo habla de música.** 28 herramientas: consultar la
 biblioteca, armar repertorios, buscar letras, transponer acordes, descargar de
-YouTube, comprobar datos en la web. Si le preguntas de política te dice que eso
-no es lo suyo. Solo descarga si se lo pides. Y corre con la IA que tú elijas:
-OpenAI, Claude, Gemini, DeepInfra, OpenRouter… o un modelo en tu propio equipo.
+YouTube, comprobar datos en la web, sacar los tonos vecinos para un set sin
+saltos, escribir la hoja para el atril. Si le preguntas de política te dice
+que eso no es lo suyo. Solo descarga si se lo pides. Ve lo que tú ves («pon
+la segunda», «añade las seleccionadas»), responde en vivo y se puede parar,
+guarda las conversaciones y se buscan, enseña lo que cuesta cada respuesta,
+y si su proveedor falla responde otro de los que tengas configurados. Corre
+con la IA que tú elijas: OpenAI, Claude, Gemini, DeepInfra, OpenRouter… o un
+modelo en tu propio equipo.
 
 ## Instalación
 
@@ -320,14 +325,14 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-727 pruebas repartidas así:
+759 pruebas repartidas así:
 
 | Tanda | Pruebas |
 | --- | --- |
 | Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, descargas, corpus de narración del asistente, nombres de YouTube, versión, Windows, asociaciones) | 119 |
-| IA con cualquier proveedor: catálogo, perfiles y claves, models.dev, recomendación de modelos, tolerancia a lo que cada servidor rechaza, prueba gratuita sin clave, TOON | 30 |
-| API sobre una biblioteca temporal de verdad | 133 |
-| Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat, descargas, menú, selección múltiple, selector de IA, prueba gratuita | 342 |
+| IA con cualquier proveedor: catálogo, perfiles y claves, models.dev, recomendación de modelos, tolerancia a lo que cada servidor rechaza, prueba gratuita sin clave, TOON, respuesta en trozos, respaldo, gasto, contexto, conversaciones, tonos vecinos | 43 |
+| API sobre una biblioteca temporal de verdad | 137 |
+| Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat, descargas, menú, selección múltiple, selector de IA, prueba gratuita, chat en vivo, conversaciones, letra sincronizada | 357 |
 | Interfaz: rutas de medios en cada sistema | 7 |
 | Rust: hashes y análisis de audio | 14 |
 | Rust: reproductor, cola, bandeja, sesión, núcleo, abrir carpeta, enlaces, Telegram y archivos abiertos desde fuera | 64 |

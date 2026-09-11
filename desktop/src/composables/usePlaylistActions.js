@@ -4,7 +4,7 @@
 // Cada acción se explica sola con un aviso flotante: son cosas que el usuario
 // pide y espera ver confirmadas.
 import { ref } from 'vue'
-import { api, errorMessage } from '../api.js'
+import { api, app, errorMessage } from '../api.js'
 import { notify } from './useNotices.js'
 import { ask } from './useDialog.js'
 
@@ -107,6 +107,26 @@ export function usePlaylistActions(context) {
     }
   }
 
+  /**
+   * La hoja para el atril: un HTML en Listas/ con tono, bpm, cejilla y
+   * acordes de cada canción (y la letra si se pide). Se enseña en el
+   * explorador para abrirla con el navegador e imprimirla desde ahí.
+   */
+  async function sheet(playlist) {
+    const withLyrics = await ask({
+      kind: 'confirm', title: 'Hoja para el atril',
+      message: `Se escribe «${playlist.name}.html» en la carpeta Listas/ de tu biblioteca, con tono, bpm, cejilla y acordes de cada canción.\n\n¿Con la letra de cada canción también?`,
+      okLabel: 'Con letra', cancelLabel: 'Solo acordes'
+    })
+    try {
+      const r = await api.playlistSheet(playlist.id, !!withLyrics)
+      notify(`Hoja escrita en ${r.file}`, 'ok')
+      try { await app.revealInFolder(r.file) } catch { /* fuera de la app no hay explorador */ }
+    } catch (e) {
+      notify('No se pudo escribir la hoja: ' + errorMessage(e))
+    }
+  }
+
   async function remove(playlist) {
     const id = typeof playlist === 'object' ? playlist.id : playlist
     const name = typeof playlist === 'object' ? playlist.name : ''
@@ -125,5 +145,5 @@ export function usePlaylistActions(context) {
     return id
   }
 
-  return { playlists, load, addTo, addManyTo, create, rename, removeSong, exportTo, remove }
+  return { playlists, load, addTo, addManyTo, create, rename, removeSong, exportTo, sheet, remove }
 }

@@ -17,6 +17,7 @@ import logging
 import re
 import threading
 import time
+from types import SimpleNamespace
 from . import config, providers, model_catalog
 
 log = logging.getLogger("danplay.ai")
@@ -24,13 +25,35 @@ log = logging.getLogger("danplay.ai")
 _client = None
 _client_for: tuple | None = None       # con que perfil se construyo
 _client_lock = threading.Lock()
+# clientes de los perfiles de respaldo, por su firma
+_clients: dict[tuple, object] = {}
 
 # Lo que un servidor ya rechazo, por (proveedor, modelo): no se repite.
 _unsupported: dict[tuple[str, str], set[str]] = {}
 
+# Un proveedor que no responde se da por caido un rato: en ese rato se va
+# directo al respaldo, sin esperar otra vez el tiempo limite.
+_down_until: dict[str, float] = {}
+DOWN_FOR = 60
+
+# Lo gastado en el turno en curso (por hilo: cada conversacion va en el suyo)
+_turn = threading.local()
+
 
 class ToolsUnsupported(Exception):
     """El modelo no sabe usar herramientas: el asistente no puede con el."""
+
+
+class Canceled(Exception):
+    """La persona paro la respuesta a medias."""
+
+
+class Reply:
+    """Lo que devuelve `complete`: el mensaje ya recibido entero (aunque
+    llegara en trozos), lo que costo y quien respondio."""
+
+    def __init__(self, message, usage, via):
+        self.message, self.usage, self.via = message, usage, via
 
 
 # Sin perfil no hay con quien hablar; `_get_client` lo dice. Este vacio solo
@@ -94,7 +117,54 @@ def reset_client() -> None:
     global _client, _client_for
     with _client_lock:
         _client, _client_for = None, None
+        _clients.clear()
     _unsupported.clear()
+    _down_until.clear()
+
+
+def begin_turn() -> None:
+    """Empieza a contar lo que gasta un turno (varias llamadas: las vueltas
+    con herramientas, el juez…). Por hilo."""
+    _turn.usage = {"calls": 0, "prompt": 0, "completion": 0, "cost": 0.0, "priced": True}
+    _turn.via = None
+
+
+def turn_summary() -> tuple[dict | None, dict | None]:
+    """(uso del turno, quien respondio la ultima vez), o (None, None)."""
+    return getattr(_turn, "usage", None), getattr(_turn, "via", None)
+
+
+def price_of(p: dict | None, model: str, prompt: int, completion: int) -> float | None:
+    """Lo que cuestan esos tokens segun el catalogo, o None si no se sabe."""
+    if not p or p.get("local"):
+        return 0.0 if p and p.get("local") else None
+    info = model_catalog.lookup(p.get("models_dev"), model)
+    if not info or info.get("cost_in") is None or info.get("cost_out") is None:
+        return None
+    return prompt / 1e6 * info["cost_in"] + completion / 1e6 * info["cost_out"]
+
+
+def _account(p: dict, model: str, purpose: str, usage) -> None:
+    """Apunta el gasto de una llamada: en el turno y en la base."""
+    if usage is None:
+        return
+    prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
+    completion = int(getattr(usage, "completion_tokens", 0) or 0)
+    cost = price_of(p, model, prompt, completion)
+    acc = getattr(_turn, "usage", None)
+    if acc is not None:
+        acc["calls"] += 1
+        acc["prompt"] += prompt
+        acc["completion"] += completion
+        if cost is None:
+            acc["priced"] = False
+        else:
+            acc["cost"] += cost
+    try:
+        from . import library
+        library.log_ai_usage(p["id"], model, purpose, prompt, completion, cost)
+    except Exception:                                        # noqa: BLE001
+        log.debug("no se pudo apuntar el uso de la IA", exc_info=True)
 
 
 def _build_client(p: dict):
@@ -111,19 +181,33 @@ def _build_client(p: dict):
                   timeout=p["timeout"], max_retries=int(retries))
 
 
+def _signature(p: dict) -> tuple:
+    return (p["id"], p["base_url"], p["key"], json.dumps(p["headers"], sort_keys=True),
+            p["timeout"])
+
+
 def _get_client():
     """El cliente para el perfil activo; se recrea si el perfil cambio."""
     global _client, _client_for
     p = profile()
     if not p:
         raise RuntimeError("no hay proveedor de IA configurado")
-    signature = (p["id"], p["base_url"], p["key"], json.dumps(p["headers"], sort_keys=True),
-                 p["timeout"])
+    signature = _signature(p)
     with _client_lock:
         if _client is None or _client_for != signature:
             _client = _build_client(p)
             _client_for = signature
         return _client
+
+
+def _client_for_profile(p: dict):
+    """El cliente de un perfil de respaldo (se guardan por firma)."""
+    signature = _signature(p)
+    with _client_lock:
+        c = _clients.get(signature)
+        if c is None:
+            c = _clients[signature] = _build_client(p)
+        return c
 
 
 # ---------------------------------------------------------------- peticion
@@ -132,6 +216,7 @@ def _get_client():
 # un formato comun: aqui van las pistas que dejan OpenAI, Google, Mistral,
 # Ollama, llama.cpp, vLLM, OpenRouter y compañia.
 _HINTS = (
+    ("json_schema", re.compile(r"json_schema|schema|strict", re.I)),
     ("response_format", re.compile(r"response_format|json_object|json_schema|json mode|"
                                    r"structured output", re.I)),
     ("tool_choice", re.compile(r"tool_choice|tool choice", re.I)),
@@ -139,7 +224,15 @@ _HINTS = (
     ("max_tokens", re.compile(r"max_tokens.*(?:not supported|unsupported|use .?max_completion_tokens)|"
                               r"max_completion_tokens", re.I)),
     ("parallel_tool_calls", re.compile(r"parallel_tool_calls", re.I)),
+    ("stream_options", re.compile(r"stream_options|include_usage", re.I)),
+    ("stream", re.compile(r"\bstream(?:ing)?\b.{0,40}(?:not supported|unsupported|not available)", re.I)),
 )
+# Un fallo que no es del mensaje sino del servicio: caido, sin credito,
+# saturado, clave rechazada. Con eso se pasa al respaldo.
+_DOWN_STATUS = {401, 402, 403, 408, 425, 429, 500, 502, 503, 504}
+_DOWN_TEXT = re.compile(r"connection|timeout|timed out|resolve|network|unreachable|refused|"
+                        r"overloaded|rate limit|insufficient|quota|credit|balance|unauthorized|"
+                        r"invalid api key|authentication|service unavailable", re.I)
 _TOOLS_HINT = re.compile(r"(?:does not support|doesn't support|not support(?:ed)?|unsupported|"
                          r"no soporta|cannot use|not available).{0,60}(?:tools|function|tool use)|"
                          r"(?:tools|functions?).{0,60}(?:not support|unsupported|not available)",
@@ -147,6 +240,14 @@ _TOOLS_HINT = re.compile(r"(?:does not support|doesn't support|not support(?:ed)
 
 
 def _strip(kwargs: dict, what: str) -> None:
+    if what == "json_schema":
+        if (kwargs.get("response_format") or {}).get("type") == "json_schema":
+            kwargs["response_format"] = {"type": "json_object"}
+        return
+    if what == "stream":
+        kwargs.pop("stream", None)
+        kwargs.pop("stream_options", None)
+        return
     if what == "tool_choice":
         if kwargs.get("tool_choice") not in (None, "auto"):
             kwargs["tool_choice"] = "auto"
@@ -159,6 +260,10 @@ def _strip(kwargs: dict, what: str) -> None:
 
 def _droppable(kwargs: dict, what: str) -> bool:
     """Si quitar `what` cambia algo en la peticion (si no, reintentar es un bucle)."""
+    if what == "json_schema":
+        return (kwargs.get("response_format") or {}).get("type") == "json_schema"
+    if what == "stream":
+        return "stream" in kwargs
     if what == "tool_choice":
         return kwargs.get("tool_choice") not in (None, "auto")
     if what == "max_tokens":
@@ -180,24 +285,62 @@ def _known_limits(p: dict, model: str) -> set[str]:
     return out
 
 
+def _is_down(e: Exception) -> bool:
+    status = getattr(e, "status_code", None)
+    return status in _DOWN_STATUS or bool(_DOWN_TEXT.search(str(e)))
+
+
 def complete(messages: list[dict], *, model: str = "", tools=None, tool_choice=None,
              response_format=None, temperature=None, max_tokens=None, timeout=None,
-             purpose: str = "fast"):
+             purpose: str = "fast", on_text=None, cancel=None) -> Reply:
     """Una peticion al modelo, con las tolerancias descritas arriba.
 
-    Devuelve la respuesta del SDK (`r.choices[0].message`). Levanta
-    `ToolsUnsupported` si se pidieron herramientas y el modelo no las admite;
-    cualquier otro fallo sale como la excepcion del SDK.
+    Devuelve un `Reply` con el mensaje entero. Con `on_text` la respuesta se
+    pide en trozos y se va llamando con el texto acumulado (vacio si lo que
+    parecia respuesta resulto ser el preambulo de una herramienta); `cancel`
+    es un Event que corta a medias (levanta `Canceled`).
+
+    Si el proveedor activo esta caido, sin credito o saturado, se prueba con
+    los demas configurados (si el respaldo esta activado), cada uno con su
+    modelo. `ToolsUnsupported` si se pidieron herramientas y ningun modelo
+    las admite; cualquier otro fallo sale como la excepcion del SDK.
     """
-    p = profile() or _NO_PROFILE
-    model = model or (p["chat_model"] if purpose == "chat" else p["model"])
+    active = profile() or _NO_PROFILE
+    candidates = [active]
+    if providers.fallback_enabled():
+        candidates += providers.fallbacks(active["id"])
+    now = time.time()
+    errors: list[Exception] = []
+    for i, p in enumerate(candidates):
+        last = i == len(candidates) - 1
+        if _down_until.get(p["id"], 0) > now and not last:
+            continue
+        m = model or (p["chat_model"] if purpose == "chat" else p["model"])
+        try:
+            reply = _complete_with(p, m, messages, tools, tool_choice, response_format,
+                                   temperature, max_tokens, timeout, purpose, on_text, cancel,
+                                   active=(i == 0))
+            _down_until.pop(p["id"], None)
+            return reply
+        except Canceled:
+            raise
+        except ToolsUnsupported as e:
+            errors.append(e)
+        except Exception as e:                               # noqa: BLE001
+            if not _is_down(e):
+                raise                          # es del mensaje, no del servicio
+            _down_until[p["id"]] = now + DOWN_FOR
+            log.info("%s no responde (%s); se prueba el respaldo", p["name"], str(e)[:80])
+            errors.append(e)
+    # el error que se cuenta es el del proveedor elegido, que es el que
+    # el usuario tiene que arreglar
+    raise errors[0] if errors else RuntimeError("no hay proveedor de IA configurado")
+
+
+def _complete_with(p, model, messages, tools, tool_choice, response_format, temperature,
+                   max_tokens, timeout, purpose, on_text, cancel, active=True) -> Reply:
     kwargs: dict = {"model": model, "messages": messages}
     if tools:
-        info = model_catalog.lookup(p.get("models_dev"), model)
-        if info and not info.get("tools") and (p["id"], model) not in _unsupported:
-            # el catalogo dice que no; se intenta igual una vez (puede estar
-            # desactualizado) y si el servidor lo confirma, ya no se insiste
-            log.info("%s: el catalogo dice que %s no usa herramientas", p["id"], model)
         kwargs["tools"] = tools
         if tool_choice:
             kwargs["tool_choice"] = tool_choice
@@ -211,16 +354,25 @@ def complete(messages: list[dict], *, model: str = "", tools=None, tool_choice=N
         kwargs["timeout"] = timeout
     if p["extra"]:
         kwargs["extra_body"] = dict(p["extra"])
+    if on_text is not None:
+        kwargs["stream"] = True
+        kwargs["stream_options"] = {"include_usage": True}
     for what in _known_limits(p, model):
         _strip(kwargs, what)
 
-    client = _get_client()
+    client = _get_client() if active else _client_for_profile(p)
     key = (p["id"], model)
     if tools and "tools" in _unsupported.get(key, ()):
         raise ToolsUnsupported(model)
     for attempt in range(6):
         try:
-            return client.chat.completions.create(**kwargs)
+            raw = client.chat.completions.create(**kwargs)
+            msg, usage = _collect(raw, on_text if kwargs.get("stream") else None, cancel)
+            _account(p, model, purpose, usage)
+            _turn.via = {"id": p["id"], "name": p["name"], "model": model, "fallback": not active}
+            return Reply(msg, usage, _turn.via)
+        except Canceled:
+            raise
         except Exception as e:                               # noqa: BLE001
             status = getattr(e, "status_code", None)
             text = str(e)
@@ -241,6 +393,72 @@ def complete(messages: list[dict], *, model: str = "", tools=None, tool_choice=N
                 raise ToolsUnsupported(model) from e
             raise
     raise RuntimeError("sin respuesta")            # no se llega: el bucle sale antes
+
+
+def _thinking_open(text: str) -> bool:
+    """Un <think> abierto sin cerrar: lo que hay es razonamiento, no respuesta."""
+    low = text.lower()
+    return low.rfind("<think>") > low.rfind("</think>")
+
+
+def _collect(raw, on_text=None, cancel=None):
+    """Recibe la respuesta, entera o en trozos, y devuelve (mensaje, uso).
+
+    En trozos, junta el texto y las llamadas a herramientas (que llegan
+    partidas por indice), avisa a `on_text` con el texto acumulado —sin el
+    razonamiento entre <think>— y, si tras el texto aparece una herramienta,
+    avisa con vacio: lo de antes era un preambulo, no la respuesta.
+    """
+    if hasattr(raw, "choices"):
+        return raw.choices[0].message, getattr(raw, "usage", None)
+    parts: list[str] = []
+    calls: dict[int, dict] = {}
+    usage = None
+    retracted = False
+    try:
+        for chunk in raw:
+            if cancel is not None and cancel.is_set():
+                raise Canceled()
+            u = getattr(chunk, "usage", None)
+            if u:
+                usage = u
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            delta = getattr(choices[0], "delta", None)
+            if delta is None:
+                continue
+            content = getattr(delta, "content", None)
+            if content:
+                parts.append(content)
+                if on_text and not calls:
+                    joined = "".join(parts)
+                    on_text("" if _thinking_open(joined) else strip_thoughts(joined))
+            for tc in getattr(delta, "tool_calls", None) or []:
+                slot = calls.setdefault(getattr(tc, "index", 0) or 0,
+                                        {"id": "", "name": "", "arguments": ""})
+                if getattr(tc, "id", None):
+                    slot["id"] = tc.id
+                fn = getattr(tc, "function", None)
+                if fn is not None:
+                    if getattr(fn, "name", None):
+                        slot["name"] = fn.name
+                    if getattr(fn, "arguments", None):
+                        slot["arguments"] += fn.arguments
+                if on_text and parts and not retracted:
+                    on_text("")
+                    retracted = True
+    finally:
+        close = getattr(raw, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:                                # noqa: BLE001
+                pass
+    tool_calls = [SimpleNamespace(id=c["id"] or f"call_{i}", type="function",
+                                  function=SimpleNamespace(name=c["name"], arguments=c["arguments"]))
+                  for i, c in sorted(calls.items())] or None
+    return SimpleNamespace(content="".join(parts), tool_calls=tool_calls), usage
 
 
 def message_text(msg) -> str:
@@ -498,6 +716,30 @@ def try_free(order=None, timeout: float = 20) -> dict:
 
 # ----------------------------------------------------------------- consultas
 
+# La forma exacta de lo que devuelve la identificacion. Con un modelo que
+# admite salida con esquema (lo dice el catalogo) se le exige; con los demas
+# se pide «un objeto JSON» y se extrae del texto.
+SONG_SCHEMA = {
+    "name": "song", "strict": True,
+    "schema": {"type": "object", "additionalProperties": False,
+               "properties": {"artist": {"type": "string"}, "title": {"type": "string"},
+                              "feat": {"type": "string"}, "extra": {"type": "string"},
+                              "category": {"type": "string",
+                                           "enum": ["song", "track", "tutorial", "sequence", "unknown"]},
+                              "confidence": {"type": "number"}},
+               "required": ["artist", "title", "feat", "extra", "category", "confidence"]}}
+
+
+def json_format(schema: dict | None = None) -> dict:
+    """El `response_format` mas fuerte que admite el modelo activo."""
+    p = profile()
+    if schema and p:
+        info = model_catalog.lookup(p.get("models_dev"), p["model"])
+        if info and info.get("json") is True:
+            return {"type": "json_schema", "json_schema": schema}
+    return {"type": "json_object"}
+
+
 def _json_from(text: str) -> dict | None:
     text = re.sub(r"^```(?:json)?|```$", "", (text or "").strip(), flags=re.MULTILINE).strip()
     try:
@@ -526,8 +768,8 @@ def resolve(file_name: str, known_artists=None, extra_hint="") -> dict | None:
         r = complete([{"role": "system", "content": INSTRUCTIONS},
                       {"role": "user", "content": user_msg}],
                      temperature=0.1, max_tokens=400,
-                     response_format={"type": "json_object"})
-        data = _json_from(message_text(r.choices[0].message))
+                     response_format=json_format(SONG_SCHEMA), purpose="identify")
+        data = _json_from(message_text(r.message))
     except Exception as e:                                   # noqa: BLE001
         return {"error": describe_error(e, profile())}
     if not data:
@@ -544,29 +786,30 @@ def resolve(file_name: str, known_artists=None, extra_hint="") -> dict | None:
 
 
 def ask(prompt, system="Eres un asistente musical preciso y conciso.",
-        max_tokens=800, temperature=0.2) -> str | None:
+        max_tokens=800, temperature=0.2, purpose="ask") -> str | None:
     """Consulta libre en texto plano."""
     if not available():
         return None
     try:
         r = complete([{"role": "system", "content": system},
                       {"role": "user", "content": prompt}],
-                     temperature=temperature, max_tokens=max_tokens)
-        return message_text(r.choices[0].message)
+                     temperature=temperature, max_tokens=max_tokens, purpose=purpose)
+        return message_text(r.message)
     except Exception:                                        # noqa: BLE001
         log.info("la consulta a la IA fallo", exc_info=True)
         return None
 
 
 def ask_json(prompt, system="Responde solo con JSON valido.",
-             max_tokens=1200, temperature=0.15) -> dict | None:
+             max_tokens=1200, temperature=0.15, schema: dict | None = None,
+             purpose="ask_json") -> dict | None:
     if not available():
         return None
     try:
         r = complete([{"role": "system", "content": system},
                       {"role": "user", "content": prompt}],
                      temperature=temperature, max_tokens=max_tokens,
-                     response_format={"type": "json_object"})
-        return _json_from(message_text(r.choices[0].message))
+                     response_format=json_format(schema), purpose=purpose)
+        return _json_from(message_text(r.message))
     except Exception as e:                                   # noqa: BLE001
         return {"error": describe_error(e, profile())}

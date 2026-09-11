@@ -5,9 +5,9 @@ Todo lo que se puede guardar dentro del archivo, se guarda ahi tambien
 (estrellas en POPM, favorito y listas en TXXX), para que la biblioteca
 siga siendo portatil aunque se pierda la base de datos.
 """
-import logging, os, time
+import html, json, logging, os, time
 from pathlib import Path
-from . import external, library, names, tags
+from . import external, library, names, tags, theory
 
 log = logging.getLogger("danplay")
 
@@ -380,6 +380,91 @@ def export_m3u(playlist_id, target=None) -> str:
         lines.append(f"#EXTINF:{int(c['duration'])},{c['artist']} - {c['title']}")
         lines.append(os.path.relpath(c["path"], target.parent))
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return str(target)
+
+
+def _sheet_target(playlist_id, suffix) -> tuple[Path, str]:
+    """Donde va un archivo exportado de la lista, dentro de Listas/, y su nombre."""
+    conn = _connect()
+    row = conn.execute("SELECT name FROM playlists WHERE id=?", (playlist_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise ValueError("no existe esa lista")
+    folder = export_folder()
+    safe = names.sanitize(str(row["name"]).replace("/", " ").replace("\\", " "))
+    if not safe or safe in (".", "..") or ".." in safe.split():
+        raise ValueError("el nombre de la lista no sirve como nombre de archivo")
+    target = folder / f"{safe}{suffix}"
+    folder.mkdir(parents=True, exist_ok=True)
+    if not library._inside(target.parent, folder):
+        raise ValueError("la lista solo se exporta dentro de la carpeta Listas")
+    return target, str(row["name"])
+
+
+def _sheet_chords(c: dict) -> dict:
+    """Los acordes guardados de una cancion (los de la IA), si los hay."""
+    raw = c.get("chords") or ""
+    try:
+        d = json.loads(raw) if raw else {}
+    except Exception:                                        # noqa: BLE001
+        d = {}
+    return d if isinstance(d, dict) else {}
+
+
+def _mmss(seconds) -> str:
+    m, s = divmod(int(seconds or 0), 60)
+    return f"{m}:{s:02d}"
+
+
+def export_sheet(playlist_id, with_lyrics=False) -> str:
+    """Escribe la hoja para el atril: un HTML en Listas/ con las canciones
+    del repertorio en orden, tono (americano y latino), bpm, cejilla
+    sugerida, acordes por secciones si la IA los dio, y la letra si se pide.
+    Se abre con el navegador y se imprime (o se guarda como PDF) desde ahi:
+    no hace falta ninguna libreria, y queda al lado del .m3u de siempre.
+    """
+    target, title = _sheet_target(playlist_id, ".html")
+    rows = songs(playlist_id)
+    e = html.escape
+    parts = [f"<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
+             f"<title>{e(title)}</title><style>"
+             "body{font-family:system-ui,sans-serif;max-width:800px;margin:24px auto;padding:0 16px;color:#111}"
+             "h1{font-size:22px;margin:0 0 4px}.meta{color:#666;font-size:13px;margin-bottom:18px}"
+             "ol{padding-left:22px}li{margin:0 0 14px;page-break-inside:avoid}"
+             ".t{font-weight:600}.k{display:inline-block;margin-left:8px;padding:1px 7px;border:1px solid #999;border-radius:4px;font-size:12px}"
+             ".sub{color:#555;font-size:12.5px;margin-top:2px}.chords{font-family:ui-monospace,monospace;font-size:12.5px;"
+             "white-space:pre-wrap;margin:4px 0 0;padding:6px 8px;background:#f4f4f4;border-radius:4px}"
+             ".lyrics{white-space:pre-wrap;font-size:12.5px;margin:6px 0 0;column-width:300px;column-gap:24px}"
+             "@media print{body{margin:0}.lyrics{column-width:auto}}"
+             "</style></head><body>",
+             f"<h1>{e(title)}</h1><div class=\"meta\">{len(rows)} canciones · "
+             f"{_mmss(sum(float(c.get('duration') or 0) for c in rows))} · "
+             f"{time.strftime('%d/%m/%Y')}</div><ol>"]
+    for c in rows:
+        key = str(c.get("key") or "").strip()
+        head = f"<span class=\"t\">{e(c.get('artist') or '')} - {e(c.get('title') or '')}</span>"
+        if key:
+            head += f"<span class=\"k\">{e(key)} · {e(theory.to_latin(key))}</span>"
+        sub = []
+        if c.get("bpm"):
+            sub.append(f"{int(round(float(c['bpm'])))} bpm")
+        sub.append(_mmss(c.get("duration")))
+        capo = theory.suggested_capo(key) if key else []
+        if capo:
+            sub.append("cejilla " + ", ".join(f"{f} ({sh})" for f, sh in capo[:3]))
+        item = f"<li>{head}<div class=\"sub\">{e(' · '.join(sub))}</div>"
+        d = _sheet_chords(c)
+        sections = d.get("section_chords") or {}
+        lines = [f"{k}: {v}" for k, v in sections.items() if v] if isinstance(sections, dict) else []
+        if not lines and d.get("progression"):
+            lines = [str(d["progression"])]
+        if lines:
+            item += f"<div class=\"chords\">{e(chr(10).join(lines))}</div>"
+        if with_lyrics and c.get("lyrics"):
+            item += f"<div class=\"lyrics\">{e(str(c['lyrics']))}</div>"
+        parts.append(item + "</li>")
+    parts.append("</ol></body></html>")
+    target.write_text("".join(parts), encoding="utf-8")
     return str(target)
 
 

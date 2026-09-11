@@ -301,6 +301,26 @@ describe('cambiar de vista desde el lateral', () => {
     await flushPromises(); await flushPromises()
   }
 
+  it('el asistente recibe lo que se estaba viendo, la seleccion y lo que suena', async () => {
+    // «pon la segunda», «esta», «las seleccionadas»: sin esto el modelo no
+    // sabia a que se referia la persona
+    state.status.configured = true
+    state.songs = [...unaCancion(), { ...unaCancion()[0], id: 2, title: 'Shekinah', artist: 'New Wine' }]
+    const w = mount(App, { attachTo: document.body })
+    await flushPromises(); await flushPromises()
+    await pulsar(w, 'Asistente')
+    await w.find('.chat-foot input').setValue('pon la segunda')
+    await w.find('.chat-foot .btn').trigger('click')
+    await flushPromises(); await flushPromises()
+    expect(api.chatStart).toHaveBeenCalled()
+    const ctx = api.chatStart.mock.calls.at(-1)[1]
+    expect(ctx.view.name).toBe('Todas las canciones')
+    expect(ctx.total).toBe(2)
+    expect(ctx.songs.map(s => s.id)).toEqual([1, 2])
+    expect(ctx.songs[1]).toEqual({ id: 2, artist: 'New Wine', title: 'Shekinah' })
+    expect(ctx.playing).toBeNull()
+  })
+
   it('Favoritos cambia el titulo y pide solo favoritos', async () => {
     const w = await conBiblioteca()
     await pulsar(w, 'Favoritos')

@@ -1,15 +1,45 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
-const { api } = vi.hoisted(() => ({
-  api: {
+// Las conversaciones se guardan en el nucleo (aqui, en memoria): asi
+// «recuerda la conversacion al reabrir» sigue valiendo sin localStorage.
+// La respuesta en vivo (chatStart/chatPoll) delega en `api.chat`: lo que
+// las pruebas programan ahi es lo que llega al final del sondeo.
+const { api, store } = vi.hoisted(() => {
+  const store = { chats: [], last: null }
+  const api = {
     chatTools: vi.fn(async () => ({ model: 'Qwen/Qwen3-Next-80B-A3B-Instruct',
                                            available: true, tools: [] })),
     chat: vi.fn(async () => ({ text: 'Tienes 260 canciones.', tools: [] })),
+    chatStart: vi.fn(async (messages, context) => { store.last = { messages, context }; return { id: 'j1' } }),
+    chatPoll: vi.fn(async () => {
+      const result = await api.chat(store.last.messages, store.last.context)
+      return { text: result.text || '', tools: result.tools || [], done: true, result }
+    }),
+    chatCancel: vi.fn(async () => ({ ok: true })),
+    chats: vi.fn(async () => ({ chats: store.chats.map((c) => ({ id: c.id, title: c.title, n: c.messages.length })) })),
+    chatCreate: vi.fn(async (title = '') => {
+      const c = { id: store.chats.length + 1, title, messages: [] }
+      store.chats.unshift(c)
+      return { id: c.id, title, n: 0 }
+    }),
+    chatGet: vi.fn(async (id) => {
+      const c = store.chats.find((x) => x.id === id)
+      return c ? { id: c.id, title: c.title, messages: c.messages.map((m) => ({ ...m })) } : null
+    }),
+    chatAppend: vi.fn(async (id, messages) => {
+      const c = store.chats.find((x) => x.id === id)
+      c.messages.push(...messages.map((m) => ({ ...m })))
+      return { n: messages.length }
+    }),
+    chatRename: vi.fn(async () => ({ ok: true })),
+    chatDelete: vi.fn(async (id) => { store.chats = store.chats.filter((x) => x.id !== id); return { ok: true } }),
+    chatSearch: vi.fn(async () => ({ hits: [] })),
     chatConfirm: vi.fn(async () => ({ ok: true, result: {}, text: 'Hecho.' })),
     youtube: vi.fn(async () => ({ available: true, active: false, results: [] }))
   }
-}))
+  return { api, store }
+})
 vi.mock('../src/api.js', () => ({
   api, native: { available: false },
   errorMessage: (e) => String(e?.message || e)
@@ -18,7 +48,7 @@ import ChatPage from '../src/components/ChatPage.vue'
 import { dialogOk, dialogCancel, useDialog } from '../src/composables/useDialog.js'
 import { resetDownloads } from '../src/composables/useDownloads.js'
 
-beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); vi.useRealTimers(); resetDownloads() })
+beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); vi.useRealTimers(); resetDownloads(); store.chats = []; store.last = null })
 
 const montar = async () => {
   const w = mount(ChatPage, { attachTo: document.body })

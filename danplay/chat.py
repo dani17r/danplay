@@ -38,7 +38,7 @@ ACTING_TOOLS = frozenset({
     "create_playlist", "add_to_playlist", "set_playlist_songs", "rename_playlist",
     "remove_from_playlist", "delete_playlist", "delete_song", "set_stars",
     "set_favorite", "edit_song", "find_lyrics_and_cover", "play_song",
-    "play_playlist", "player_control", "download_music",
+    "play_playlist", "player_control", "download_music", "setlist_sheet",
 })
 
 
@@ -210,9 +210,9 @@ HERRAMIENTAS: haces lo mismo que el usuario con el raton: buscar, armar y correg
 - Los resultados llegan en TOON: `clave: valor`; una lista de objetos es una tabla `songs[3]{id,artist,title}:` con una fila por elemento en ese orden; `[]` vacio; `null` sin dato.
 - Sin llamadas de mas: una busqueda bien hecha vale por cuatro.
 
-IDS: nunca los inventes. Un id vale solo si salio de search_songs o del aviso de descarga de la app en esta conversacion. Las «Nota de la app» del historial traen ids y nombres de turnos anteriores: ahi resuelves «esa», «la segunda», «la de antes». Los repertorios, por NOMBRE (todas las herramientas de listas aceptan `name`); su id solo si lo devolvio list_playlists o playlist_songs. Id rechazado: busca de nuevo, no pruebes otros.
+IDS: nunca los inventes. Un id vale solo si salio de search_songs, del aviso de descarga de la app o del ESTADO REAL (lo que el usuario ve, tiene seleccionado o suena: ahi resuelves «esta», «la segunda», «las seleccionadas», «la que suena») en esta conversacion. Las «Nota de la app» del historial traen ids y nombres de turnos anteriores: ahi resuelves «esa», «la segunda», «la de antes». Los repertorios, por NOMBRE (todas las herramientas de listas aceptan `name`); su id solo si lo devolvio list_playlists o playlist_songs. Id rechazado: busca de nuevo, no pruebes otros.
 
-REPERTORIOS: playlist_songs (ver), create_playlist, add_to_playlist, remove_from_playlist, set_playlist_songs (dejar EXACTAMENTE con unos ids), rename_playlist, delete_playlist. Armar una: search_songs → create_playlist con esos ids → resume con nombres. Lista mal: playlist_songs, compara con lo pedido, set_playlist_songs, reconoce el error en una linea y no toques otras. Corregir nunca es borrar y crear otra.
+REPERTORIOS: playlist_songs (ver), create_playlist, add_to_playlist, remove_from_playlist, set_playlist_songs (dejar EXACTAMENTE con unos ids), rename_playlist, delete_playlist, setlist_sheet (hoja para el atril, en HTML). Para un set sin saltos de tono, related_keys da los tonos vecinos de uno: agrupa por ellos y ordena con set_playlist_songs. Armar una: search_songs → create_playlist con esos ids → resume con nombres. Lista mal: playlist_songs, compara con lo pedido, set_playlist_songs, reconoce el error en una linea y no toques otras. Corregir nunca es borrar y crear otra.
 
 DESCARGAS: solo descargas si te lo piden; nunca de paso ni por iniciativa propia. Lista larga o ambigua («lo de Barak»): search_youtube, enseña y pide el visto bueno; enlace concreto y orden clara: directo. Antes de bajar, search_songs: si ya esta, dilo y pregunta si la quiere como otra version (solo entonces force=true). download_music no se ejecuta aqui: la app enseña lo que vas a bajar, el usuario acepta y baja en segundo plano; llamala UNA vez con todos los `items` y di en una linea que la pediste. El nombre archivado lo decide la identificacion, NO el titulo de YouTube («Drum Cam de Que se abra el cielo» puede entrar como «Miel San Marcos - Que Se Abra El Cielo»): es la misma descarga; el aviso «pediste X → entro como Y (id N)» te da el id, no la vuelvas a bajar.
 
@@ -249,7 +249,8 @@ TOOLS = [
        "tono, bpm, estrellas, favorito.",
        {"query": {"type": "string", "description": "vacio = todo"},
         "limit": {"type": "integer", "description": "por defecto 30"},
-        "sort": {"type": "string", "enum": ["artist", "title", "duration", "bpm", "recent", "album"]}},
+        "sort": {"type": "string", "enum": ["artist", "title", "duration", "bpm", "recent", "album"]},
+        "desc": {"type": "boolean", "description": "true = de mayor a menor (las mas largas, mas bpm, mas nuevas)"}},
        ["query"]),
     _t("library_summary", "Cuantas canciones hay, cuanto ocupan, artistas y generos."),
     _t("create_playlist",
@@ -317,6 +318,12 @@ TOOLS = [
        "al usuario: llamala sin preguntar tu.", {"name": _STR, "id": _INT}),
     _t("lyrics_by_name", "Letra de una cancion que NO esta en la biblioteca. Para las que "
        "estan, get_lyrics.", {"artist": _STR, "title": _STR}, ["artist", "title"]),
+    _t("related_keys", "Los tonos vecinos de uno (relativo, dominante, subdominante) y con que "
+       "cejilla se toca facil: para armar un set sin saltos de tono.",
+       {"key": {"type": "string", "description": "ej: Bb, F#m"}}, ["key"]),
+    _t("setlist_sheet", "Escribe la hoja para el atril de un repertorio (HTML en la carpeta "
+       "Listas/): canciones con tono, bpm, cejilla y acordes; con la letra si se pide.",
+       {**_LIST, "with_lyrics": {"type": "boolean"}}),
 ]
 
 
@@ -332,8 +339,12 @@ def run_tool(name, args) -> dict:
     le llega en TOON, ver `reply`)."""
     try:
         if name == "search_songs":
+            # `desc`: las mas largas, las de mas bpm, las mas nuevas… Sin
+            # esto el orden era siempre ascendente y «la mas larga» era la
+            # mas corta: el modelo daba por hecho lo contrario.
             rows = library.search(args.get("query", ""), None,
-                             args.get("sort", "artist"), int(args.get("limit", 30)))
+                                  args.get("sort", "artist"), int(args.get("limit", 30)),
+                                  desc=bool(args.get("desc", False)))
             return {"total": len(rows), "songs": [_song_brief(c) for c in rows]}
 
         if name == "library_summary":
@@ -412,7 +423,7 @@ def run_tool(name, args) -> dict:
                 return {"source": "stored", "lyrics": c["lyrics"][:4000]}
             r = enrich.lyrics(c["artist"], c["title"], c["album"], c["duration"])
             if r:
-                library.update(c["id"], lyrics=r["lyrics"])
+                library.update(c["id"], lyrics=r["lyrics"], lyrics_synced=r.get("synced") or "")
                 return {"source": r["source"], "lyrics": r["lyrics"][:4000]}
             return {"error": "no se encontro la letra"}
 
@@ -567,6 +578,20 @@ def run_tool(name, args) -> dict:
             playlists.remove(pl["id"])
             return {"ok": True, "name": pl["name"]}
 
+        if name == "related_keys":
+            r = theory.related_keys(str(args.get("key") or ""))
+            if not r:
+                return {"error": f"no reconozco el tono «{args.get('key')}»"}
+            return r
+
+        if name == "setlist_sheet":
+            pl, bad = _find_playlist(args)
+            if bad:
+                return {"error": bad}
+            path = playlists.export_sheet(pl["id"], with_lyrics=bool(args.get("with_lyrics")))
+            return {"ok": True, "name": pl["name"], "file": path,
+                    "note": "queda en la carpeta Listas/ de la biblioteca; se abre con el navegador y se imprime desde ahi"}
+
         if name == "lyrics_by_name":
             r = enrich.lyrics(args.get("artist", ""), args.get("title", ""))
             if r:
@@ -602,8 +627,15 @@ def _window(messages: list[dict]) -> list[dict]:
     return kept
 
 
-def reply(messages: list[dict], max_vueltas=6) -> dict:
+def reply(messages: list[dict], max_vueltas=6, context: dict | None = None,
+          on_text=None, on_tool=None, cancel=None) -> dict:
     """Conversa usando herramientas. `messages` son {role, text} del historial.
+
+    `context` es lo que la persona tiene delante (vista, seleccion, lo que
+    suena) y entra en el estado real. Con `on_text` la respuesta final se
+    va entregando segun sale del modelo (texto acumulado; vacio para
+    retirar lo enseñado); `on_tool` avisa de cada herramienta al terminar;
+    `cancel` es un Event con el que la persona corta a medias.
 
     Las herramientas que no tienen vuelta atras no se ejecutan aqui: se
     devuelven en `confirm` para que las apruebe la persona (ver
@@ -612,6 +644,17 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
     if not ai.available():
         return {"error": f"la IA no esta lista ({ai.unavailable_reason()}). Configura un "
                          "proveedor en Ajustes → Inteligencia artificial."}
+    ai.begin_turn()
+
+    def finish(out: dict) -> dict:
+        usage, via = ai.turn_summary()
+        if usage and usage["calls"]:
+            out["usage"] = {"calls": usage["calls"], "prompt": usage["prompt"],
+                            "completion": usage["completion"],
+                            "cost": round(usage["cost"], 6) if usage["priced"] else None}
+        if via:
+            out["via"] = via
+        return out
 
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
     recent = _window(messages)
@@ -631,7 +674,7 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
             history.append({"role": role, "content": text})
     # El estado real, al final: lo ultimo que lee pesa mas que sus propias
     # frases de hace tres turnos.
-    history.append({"role": "system", "content": _context_note(messages)})
+    history.append({"role": "system", "content": _context_note(messages, context)})
     # «Si», «dale», «descargala» a una pregunta suya: la primera vuelta va
     # obligada a usar herramientas. Es donde mas narraba: preguntaba
     # «¿la bajo?», la persona decia que si, y contestaba «Descargando…» sin
@@ -666,21 +709,29 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
             r = ai.complete(history, purpose="chat", tools=TOOLS,
                             tool_choice="required" if force_tools else "auto",
                             # 2000: una letra entera con acordes no cabia en 1400
-                            temperature=0.2, max_tokens=2000)
+                            temperature=0.2, max_tokens=2000,
+                            on_text=on_text, cancel=cancel)
+        except ai.Canceled:
+            return finish({"text": "", "canceled": True, "tools": used, "actions": actions,
+                           "confirm": pending})
         except ai.ToolsUnsupported:
-            return {"error": (f"El modelo «{ai.chat_model()}» no sabe usar herramientas, y el "
-                              "asistente las necesita para consultar tu biblioteca. Elige otro "
-                              "modelo de conversacion en Ajustes → Inteligencia artificial "
-                              "(los marcados con «herramientas»).")}
+            return finish({"error": (f"El modelo «{ai.chat_model()}» no sabe usar herramientas, "
+                                     "y el asistente las necesita para consultar tu biblioteca. "
+                                     "Elige otro modelo de conversacion en Ajustes → Inteligencia "
+                                     "artificial (los marcados con «herramientas»).")})
         except Exception as e:                               # noqa: BLE001
-            return {"error": f"no pude hablar con el modelo: {ai.describe_error(e, ai.profile())}"}
+            return finish({"error": "no pude hablar con el modelo: "
+                                    f"{ai.describe_error(e, ai.profile())}"})
         force_tools = False
 
-        msg = r.choices[0].message
+        msg = r.message
         calls = getattr(msg, "tool_calls", None)
         if not calls:
             raw = ai.message_text(msg)
-            faked = has_markers(raw)         # se hizo pasar por herramienta
+            # se hizo pasar por herramienta: imitando la nota de la app, o
+            # escribiendo la llamada como texto («search_songs query="…"»),
+            # que es lo que hace algun modelo cuando se le cruza el formato
+            faked = has_markers(raw) or bool(PSEUDO_CALL.match(raw))
             text = strip_markers(raw)
             # Dice que ha hecho algo y en todo el turno no ha llamado a nada:
             # no ha pasado nada. Se le devuelve la pelota una vez, obligandole
@@ -703,6 +754,8 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
                 force_tools = True
                 history.append({"role": "assistant", "content": text})
                 history.append({"role": "system", "content": NUDGE})
+                if on_text:
+                    on_text("")            # lo enseñado no valia: se retira
                 continue
             out = {"text": text, "tools": used, "actions": actions, "confirm": pending}
             if suspicious:
@@ -712,7 +765,7 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
                 out["text"] = (text + "\n\n_(Nota de la app: en esta respuesta no se "
                                "ha hecho ningun cambio en tu biblioteca.)_")
                 out["narrated"] = True
-            return out
+            return finish(out)
 
         history.append({"role": "assistant", "content": ai.message_text(msg),
                      "tool_calls": [{"id": c.id, "type": "function",
@@ -756,15 +809,27 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
                          # lo que devolvio, en corto: al turno siguiente el
                          # modelo sigue sabiendo que ids y nombres enseño
                          "detail": _brief(name, res)})
+            if on_tool:
+                on_tool(used[-1])
+            if cancel is not None and cancel.is_set():
+                return finish({"text": "", "canceled": True, "tools": used,
+                               "actions": actions, "confirm": pending})
             # En TOON, no en JSON: la mitad de tokens en una busqueda de
             # canciones (medido en tests/test_ai.py). Con el tope en
             # caracteres, en TOON caben mas filas que antes.
             history.append({"role": "tool", "tool_call_id": c.id,
                          "content": toon.encode(res)[:12000]})
 
-    return {"text": "Me he enredado con las consultas. ¿Puedes reformularlo?",
-            "tools": used, "actions": actions, "confirm": pending}
+    return finish({"text": "Me he enredado con las consultas. ¿Puedes reformularlo?",
+                   "tools": used, "actions": actions, "confirm": pending})
 
+
+# Una llamada escrita como texto en vez de hecha: «search_songs query="x"»,
+# «play_song(12)», «list_playlists: {}». Se reconoce por el nombre de una
+# herramienta al principio seguido de argumentos.
+PSEUDO_CALL = _re.compile(
+    r"^\s*`?(?:" + "|".join(_re.escape(h["function"]["name"]) for h in TOOLS)
+    + r")\b\s*(?:\(|\{|:|\w+\s*=)", _re.IGNORECASE)
 
 NUDGE = ("ATENCION: en este turno ninguna herramienta ha hecho nada, asi que nada "
          "de lo que acabas de decir que hiciste o esta en marcha ha ocurrido. Si el "
@@ -935,8 +1000,8 @@ def _judge_claims(text: str, user_text: str = "", downloaded=False) -> bool:
                     + "\n\n"
                     f"Peticion del usuario:\n{(user_text or '')[:400]}\n\n"
                     f"Mensaje del asistente:\n{plain[:1500]}")}],
-            purpose="chat", temperature=0, max_tokens=3, timeout=15)
-        answer = ai.message_text(r.choices[0].message).strip().upper().rstrip(".!")
+            purpose="judge", temperature=0, max_tokens=3, timeout=15)
+        answer = ai.message_text(r.message).strip().upper().rstrip(".!")
         return answer in ("SI", "SÍ")
     except Exception:                                       # noqa: BLE001
         return False
@@ -1046,7 +1111,51 @@ def _tool_note(text: str, tools, app=False) -> str:
     return ""
 
 
-def _context_note(messages: list[dict]) -> str:
+# Cuantas canciones de la vista se le enseñan al modelo: «pon la segunda»
+# necesita ver la lista, pero una biblioteca entera no cabe ni hace falta.
+CONTEXT_ROWS = 20
+
+
+def _screen_note(context: dict | None) -> list[str]:
+    """Lo que la persona tiene delante, en dos o tres lineas.
+
+    «Esta», «la segunda», «las seleccionadas», «la que suena»: sin esto el
+    modelo no tenia forma de saber a que se referian y preguntaba o
+    inventaba. Los ids que van aqui son tan validos como los de una busqueda.
+    """
+    if not isinstance(context, dict):
+        return []
+    lines = []
+    view = context.get("view") or {}
+    songs = [c for c in (context.get("songs") or []) if isinstance(c, dict) and c.get("id")]
+    if view.get("name") or songs:
+        total = context.get("total") or len(songs)
+        head = f"- Esta viendo «{view.get('name') or 'la biblioteca'}»"
+        if view.get("kind") == "playlist":
+            head += " (repertorio)"
+        head += f": {total} canciones."
+        if songs:
+            rows = [{"id": int(c["id"]), "artist": str(c.get("artist") or "")[:60],
+                     "title": str(c.get("title") or "")[:80]} for c in songs[:CONTEXT_ROWS]]
+            head += (f" Las primeras {len(rows)} en pantalla, en su orden (sirven para «esta», "
+                     f"«la segunda»…; para contar, buscar u ordenar usa search_songs):\n"
+                     + toon.encode({"songs": rows}))
+        lines.append(head)
+    selected = [c for c in (context.get("selected") or []) if isinstance(c, dict) and c.get("id")]
+    if selected:
+        shown = "; ".join(f"id {int(c['id'])} «{c.get('artist', '')} - {c.get('title', '')}»"
+                          for c in selected[:CONTEXT_ROWS])
+        more = f" y {len(selected) - CONTEXT_ROWS} mas" if len(selected) > CONTEXT_ROWS else ""
+        lines.append(f"- Tiene seleccionadas {len(selected)} canciones: {shown}{more}.")
+    playing = context.get("playing")
+    if isinstance(playing, dict) and playing.get("id"):
+        state = "en pausa" if playing.get("paused") else "sonando"
+        lines.append(f"- Ahora mismo {state}: id {int(playing['id'])} "
+                     f"«{playing.get('artist', '')} - {playing.get('title', '')}».")
+    return lines
+
+
+def _context_note(messages: list[dict], context: dict | None = None) -> str:
     """El estado real de la app, para el turno que empieza.
 
     Lo que hay de verdad manda sobre lo que el modelo dijo antes. Es corto:
@@ -1054,6 +1163,7 @@ def _context_note(messages: list[dict]) -> str:
     mensaje fue solo texto.
     """
     lines = ["ESTADO REAL DE LA APP AHORA (manda sobre lo que hayas dicho antes):"]
+    lines.extend(_screen_note(context))
     import datetime as _dt
     lines.append(f"- Hoy es {_dt.date.today().strftime('%d/%m/%Y')}.")
     try:
@@ -1139,6 +1249,10 @@ def _summarize(name, res) -> str:
         return "error: " + str(res["error"])[:80]
     if name == "search_songs":
         return f"{res.get('total', 0)} resultados"
+    if name == "setlist_sheet":
+        return f"hoja de «{res.get('name')}» escrita"
+    if name == "related_keys":
+        return f"vecinos de {res.get('key')}: {', '.join(res.get('neighbors', []))}"
     if name == "create_playlist":
         return (f"lista «{res.get('name')}» con {res.get('added', 0)} temas"
                 + _first_names(res))

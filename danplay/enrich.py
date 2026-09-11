@@ -322,7 +322,9 @@ def enrich(song_id, with_lyrics=True, with_cover=True, with_details=True,
     if with_lyrics and not c["lyrics"]:
         r = lyrics(c["artist"], c["title"], c["album"], c["duration"])
         if r:
-            library.update(song_id, lyrics=r["lyrics"])
+            # la letra va al indice y al archivo (lo hace `edit`); la version
+            # con tiempos, que solo da LRCLIB, se queda como cache aparte
+            library.update(song_id, lyrics=r["lyrics"], lyrics_synced=r.get("synced") or "")
             if save_to_file:
                 tags.write_lyrics(c["path"], r["synced"] or r["lyrics"])
             done["lyrics"] = r["source"]

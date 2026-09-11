@@ -179,6 +179,42 @@ títulos, tablas, código) con un conversor propio que escapa todo el HTML
 antes de marcar nada (`desktop/src/utils/markdown.js`). Los enlaces no se
 convierten en `<a>`: se enseñan como texto con la dirección al lado.
 
+### El chat en vivo, el contexto y las conversaciones
+
+- `POST /api/chat` y `POST /api/chat/start` aceptan `context`: lo que la
+  persona tiene delante — `{ view: {kind, name, id?}, songs: [{id, artist,
+  title}] (las primeras 20 de la lista, en su orden), total, selected:
+  [{id, artist, title}], playing: {id, artist, title, paused} | null }`. El
+  núcleo lo mete en el ESTADO REAL de ese turno, así que «la segunda»,
+  «esta» o «las seleccionadas» significan algo.
+- `POST /api/chat/start` → `{ id }`; la respuesta se prepara en un hilo.
+  `GET /api/chat/poll/{id}` → `{ text, tools, done, result }`: `text` es lo
+  que lleva escrito el modelo (vacío si lo que parecía respuesta era el
+  preámbulo de una herramienta, o se retiró por narración), `tools` las
+  herramientas ya ejecutadas, y con `done` llega `result`, idéntico a lo que
+  devuelve `/api/chat`. `POST /api/chat/cancel/{id}` corta: el resultado
+  trae `canceled: true` y el texto que hubiera. La interfaz sondea cada
+  250 ms por el puente de siempre; no hay flujo abierto ni cambios en Rust.
+- El resultado lleva además `usage: { calls, prompt, completion, cost |
+  null }` (el coste según el catálogo; `null` si el precio no se conoce) y
+  `via: { id, name, model, fallback }`: quién respondió y si fue un
+  respaldo porque el activo falló.
+- Conversaciones guardadas: `GET /api/chats` → `{ chats: [{id, title,
+  updated, n}] }`; `POST /api/chats {title?}` → la nueva; `GET
+  /api/chats/{id}` → `{ id, title, messages }` con cada mensaje como lo pinta
+  la interfaz (`role, text, tools?, app?, event?, hidden?, narrated?,
+  error?, usage?, via?, canceled?`); `POST /api/chats/{id}/messages
+  {messages}` añade al final (el título sale del primer mensaje del usuario
+  si no tenía); `PATCH /api/chats/{id} {title}`; `DELETE /api/chats/{id}`;
+  `GET /api/chats/search?q=` → `{ hits: [{chat_id, title, role, snippet,
+  at}] }`.
+- `GET /api/ai/usage` → `{ today, month, total }`, cada uno `{ calls,
+  prompt, completion, cost, unpriced }`. `POST /api/ai/fallback { enabled }`
+  enciende o apaga el respaldo; `GET /api/ai/providers` trae `fallback` y
+  `fallbacks: [{id, name, chat_model}]`.
+- `POST /api/playlists/{id}/sheet { with_lyrics }` → `{ file }`: la hoja para
+  el atril (HTML en `Listas/`).
+
 ## 4. Ajustes (Python ↔ Vue), nombres correctos
 
 - `/api/status`: `ai` (no `ia`).

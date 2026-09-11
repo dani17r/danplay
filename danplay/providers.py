@@ -561,6 +561,31 @@ def activate(pid: str) -> None:
     _write(store)
 
 
+def fallback_enabled() -> bool:
+    """Si, cuando el activo falla, se prueba con los demas configurados."""
+    return bool(_read().get("fallback", True))
+
+
+def set_fallback(enabled: bool) -> None:
+    store = _read()
+    store["fallback"] = bool(enabled)
+    _write(store)
+
+
+def fallbacks(active_id: str = "") -> list[dict]:
+    """Los demas perfiles usables, resueltos, en el orden en que se
+    guardaron. Un respaldo sin clave (un local apagado) tambien cuenta: el
+    cliente lo descarta en un momento si no responde."""
+    out = []
+    for pid, prof in _read()["profiles"].items():
+        if pid == active_id:
+            continue
+        r = resolve(pid, dict(prof, provider=prof.get("provider") or pid))
+        if r and usable(r)[0]:
+            out.append(r)
+    return out
+
+
 def with_saved_key(draft: dict) -> dict:
     """Un borrador de la interfaz con la clave guardada, si no trae una.
 

@@ -500,3 +500,272 @@ def test_una_ficha_de_ia_vacia_no_se_reutiliza(monkeypatch):
     assert json.loads(saved["chords"])["likely_key"] == "G"
     d, cached = enrich.details_for({"id": 8, "chords": buena})
     assert cached and asked == [7], "la buena se reutiliza sin preguntar"
+
+
+# ------------------------------------------------------- en trozos y respaldo
+
+def _chunk(content=None, tool=None, usage=None):
+    """Un trozo como los del SDK: delta con texto o con parte de una herramienta."""
+    from types import SimpleNamespace as NS
+    delta = NS(content=content, tool_calls=None)
+    if tool:
+        idx, tid, name, args = tool
+        delta.tool_calls = [NS(index=idx, id=tid, function=NS(name=name, arguments=args))]
+    return NS(choices=[NS(delta=delta)] if (content is not None or tool) else [], usage=usage)
+
+
+def test_la_respuesta_en_trozos_se_junta_y_se_va_enseñando():
+    from types import SimpleNamespace as NS
+    seen = []
+    stream = iter([_chunk("Hola"), _chunk(" Dani"), _chunk(usage=NS(prompt_tokens=10, completion_tokens=2))])
+    msg, usage = ai._collect(stream, on_text=seen.append)
+    assert msg.content == "Hola Dani" and msg.tool_calls is None
+    assert seen == ["Hola", "Hola Dani"]
+    assert usage.prompt_tokens == 10
+
+
+def test_las_herramientas_en_trozos_se_recomponen_y_el_preambulo_se_retira():
+    seen = []
+    stream = iter([_chunk("Voy a buscar"), _chunk(tool=(0, "c1", "search_songs", '{"que')),
+                   _chunk(tool=(0, None, None, 'ry": "x"}')), _chunk(tool=(1, "c2", "list_playlists", "{}"))])
+    msg, _ = ai._collect(stream, on_text=seen.append)
+    assert seen[-1] == "", "lo enseñado era un preambulo: se retira"
+    assert [c.function.name for c in msg.tool_calls] == ["search_songs", "list_playlists"]
+    assert msg.tool_calls[0].function.arguments == '{"query": "x"}'
+    assert msg.tool_calls[0].id == "c1"
+
+
+def test_el_razonamiento_abierto_no_se_enseña_a_medias():
+    seen = []
+    stream = iter([_chunk("<think>pienso"), _chunk(" mas</think>"), _chunk("Respuesta")])
+    msg, _ = ai._collect(stream, on_text=seen.append)
+    assert seen[0] == "" and seen[-1] == "Respuesta"
+    assert ai.message_text(msg) == "Respuesta"
+
+
+def test_cancelar_corta_la_respuesta_y_cierra_el_flujo():
+    import threading
+    closed = []
+
+    class _Stream:
+        def __iter__(self):
+            yield _chunk("Hola")
+            yield _chunk(" mundo")
+
+        def close(self):
+            closed.append(True)
+    flag = threading.Event()
+
+    def on_text(t):
+        flag.set()
+    with pytest.raises(ai.Canceled):
+        ai._collect(_Stream(), on_text=on_text, cancel=flag)
+    assert closed == [True]
+
+
+def test_si_el_activo_esta_caido_responde_el_respaldo(perfiles, monkeypatch):
+    providers.save_profile({"provider": "openai", "key": "k", "model": "gpt-5.6-luna",
+                            "chat_model": "gpt-5.6-luna"})
+    providers.save_profile({"provider": "groq", "key": "k2", "model": "llama-3.1-8b-instant",
+                            "chat_model": "llama-3.3-70b-versatile", "activate": False})
+    providers.activate("openai")
+    calls = []
+
+    def client_for(p):
+        fake = _FakeClient(answer=f"desde {p['id']}")
+        if p["id"] == "openai":
+            def down(**kw):
+                calls.append(("openai", kw["model"]))
+                e = Exception("Error code: 503 - service unavailable"); e.status_code = 503
+                raise e
+            fake.chat.completions.create = down
+        else:
+            orig = fake.chat.completions.create
+            fake.chat.completions.create = lambda **kw: calls.append(("groq", kw["model"])) or orig(**kw)
+        return fake
+    monkeypatch.setattr(ai, "_build_client", client_for)
+    monkeypatch.setattr(ai, "_get_client", lambda: client_for(ai.profile()))
+    ai.begin_turn()
+    r = ai.complete([{"role": "user", "content": "hola"}], purpose="chat")
+    assert ai.message_text(r.message) == "desde groq"
+    assert r.via["fallback"] and r.via["id"] == "groq" and r.via["model"] == "llama-3.3-70b-versatile"
+    assert calls == [("openai", "gpt-5.6-luna"), ("groq", "llama-3.3-70b-versatile")]
+    # mientras el activo siga marcado como caido, se va directo al respaldo
+    r = ai.complete([{"role": "user", "content": "otra"}], purpose="fast")
+    assert calls[-1] == ("groq", "llama-3.1-8b-instant") and len(calls) == 3
+    # sin respaldo activado, el fallo se cuenta tal cual
+    providers.set_fallback(False)
+    ai.reset_client()
+    with pytest.raises(Exception, match="503"):
+        ai.complete([{"role": "user", "content": "hola"}], purpose="chat")
+
+
+def test_un_error_del_mensaje_no_dispara_el_respaldo(perfiles, monkeypatch):
+    providers.save_profile({"provider": "openai", "key": "k", "model": "m", "chat_model": "m"})
+    providers.save_profile({"provider": "groq", "key": "k2", "model": "g", "activate": False})
+    providers.activate("openai")
+    tried = []
+
+    def client_for(p):
+        fake = _FakeClient()
+
+        def bad(**kw):
+            tried.append(p["id"])
+            e = Exception("Error code: 400 - messages must not be empty"); e.status_code = 400
+            raise e
+        fake.chat.completions.create = bad
+        return fake
+    monkeypatch.setattr(ai, "_build_client", client_for)
+    monkeypatch.setattr(ai, "_get_client", lambda: client_for(ai.profile()))
+    with pytest.raises(Exception, match="400"):
+        ai.complete([], purpose="chat")
+    assert tried == ["openai"], "un 400 es cosa del mensaje: el respaldo no lo arregla"
+
+
+def test_el_uso_se_apunta_por_turno_y_en_la_base(perfiles, monkeypatch, tmp_path):
+    from types import SimpleNamespace as NS
+    from danplay import library
+    monkeypatch.setattr(config, "DATABASE", tmp_path / "uso.db")
+    providers.save_profile({"provider": "openai", "key": "k", "model": "gpt-6-astra",
+                            "chat_model": "gpt-6-astra"})
+    fake = _FakeClient(answer="ok")
+    orig = fake.chat.completions.create
+
+    def create(**kw):
+        r = orig(**kw)
+        r.usage = NS(prompt_tokens=1000, completion_tokens=500)
+        return r
+    fake.chat.completions.create = create
+    _fake(monkeypatch, fake)
+    ai.begin_turn()
+    ai.ask("hola")
+    ai.ask("otra")
+    usage, via = ai.turn_summary()
+    assert usage["calls"] == 2 and usage["prompt"] == 2000 and usage["completion"] == 1000
+    # gpt-6-astra: 10 $/M entrada y 50 $/M salida en el catalogo
+    assert usage["priced"] and abs(usage["cost"] - (2000 / 1e6 * 10 + 1000 / 1e6 * 50)) < 1e-9
+    assert via["model"] == "gpt-6-astra" and not via["fallback"]
+    s = library.ai_usage_summary()
+    assert s["today"]["calls"] == 2 and s["month"]["prompt"] == 2000
+    assert abs(s["today"]["cost"] - usage["cost"]) < 1e-6
+
+
+def test_la_identificacion_pide_esquema_si_el_modelo_lo_admite(perfiles, monkeypatch):
+    providers.save_profile({"provider": "openai", "key": "k", "model": "gpt-6-astra",
+                            "chat_model": "gpt-6-astra"})
+    assert ai.json_format(ai.SONG_SCHEMA)["type"] == "json_schema"
+    fake = _FakeClient(answer='{"artist":"Barak","title":"Mi Gozo","feat":"","extra":"","category":"song","confidence":0.9}')
+    _fake(monkeypatch, fake)
+    r = ai.resolve("BARAK mi gozo.mp3")
+    assert r["artist"] == "Barak"
+    assert fake.calls[-1]["response_format"]["type"] == "json_schema"
+    # un modelo sin ficha: json_object a secas
+    providers.save_profile({"provider": "ollama", "model": "raro", "chat_model": "raro"})
+    assert ai.json_format(ai.SONG_SCHEMA) == {"type": "json_object"}
+    # y si el servidor rechaza el esquema, se baja a json_object antes que quitarlo
+    providers.save_profile({"provider": "openai", "key": "k", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"})
+    fake2 = _FakeClient(rejects={"response_format": "400: json_schema is not supported by this model"},
+                        answer='{"artist":"X","title":"Y","feat":"","extra":"","category":"song","confidence":0.5}')
+    real_create = fake2.chat.completions.create
+
+    def create(**kw):
+        if (kw.get("response_format") or {}).get("type") == "json_object":
+            fake2.calls.append(dict(kw))
+            return type("r", (), {"choices": [type("c", (), {"message": _Msg(fake2.answer)})()]})()
+        return real_create(**kw)
+    fake2.chat.completions.create = create
+    _fake(monkeypatch, fake2)
+    assert ai.resolve("x.mp3")["artist"] == "X"
+    assert fake2.calls[-1]["response_format"] == {"type": "json_object"}
+
+
+# ------------------------------------------------------- lo que ve el usuario
+
+def test_el_estado_real_cuenta_lo_que_ve_selecciona_y_suena():
+    from danplay import chat
+    lines = chat._screen_note({
+        "view": {"kind": "playlist", "name": "Domingo"}, "total": 3,
+        "songs": [{"id": 1, "artist": "Barak", "title": "Mi Gozo"}, {"id": 2, "artist": "New Wine", "title": "Shekinah"}],
+        "selected": [{"id": 2, "artist": "New Wine", "title": "Shekinah"}],
+        "playing": {"id": 1, "artist": "Barak", "title": "Mi Gozo", "paused": True}})
+    text = "\n".join(lines)
+    assert "«Domingo» (repertorio): 3 canciones" in text
+    assert "songs[2]{id,artist,title}:" in text and "1,Barak,Mi Gozo" in text
+    assert "seleccionadas 1 canciones: id 2 «New Wine - Shekinah»" in text
+    assert "en pausa: id 1 «Barak - Mi Gozo»" in text
+    assert chat._screen_note(None) == [] and chat._screen_note({}) == []
+
+
+def test_el_contexto_llega_al_modelo_en_el_estado_real(perfiles, monkeypatch):
+    from danplay import chat
+    providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
+    fake = _FakeClient(answer="Vale.")
+    _fake(monkeypatch, fake)
+    chat.reply([{"role": "user", "text": "pon la segunda"}],
+               context={"view": {"kind": "all", "name": "Todas"}, "total": 2,
+                        "songs": [{"id": 5, "artist": "A", "title": "Uno"}, {"id": 6, "artist": "B", "title": "Dos"}]})
+    system_notes = [m["content"] for m in fake.calls[0]["messages"] if m["role"] == "system"]
+    assert any("6,B,Dos" in n for n in system_notes)
+
+
+# --------------------------------------------------------- tonos y la hoja
+
+def test_los_tonos_vecinos():
+    from danplay import theory
+    r = theory.related_keys("G")
+    assert r["relative"] == "Em" and r["neighbors"] == ["D", "C"]
+    assert theory.related_keys("F#m")["neighbors"] == ["C#m", "Bm"]
+    assert theory.related_keys("Bb")["relative"] == "Gm"
+    assert theory.related_keys("nada") is None
+
+
+def test_las_conversaciones_se_guardan_y_se_buscan(monkeypatch, tmp_path):
+    from danplay import chats
+    monkeypatch.setattr(config, "DATABASE", tmp_path / "chats.db")
+    c = chats.create()
+    assert c["id"] and chats.list_all()[0]["n"] == 0
+    chats.append(c["id"], [{"role": "me", "text": "¿que tengo de Barak?"},
+                           {"role": "ai", "text": "Tienes 18 temas.", "tools": [{"name": "search_songs", "summary": "18"}],
+                            "usage": {"prompt": 10, "completion": 5, "cost": 0.0001}}])
+    got = chats.get(c["id"])
+    assert got["title"] == "¿que tengo de Barak?"
+    assert got["messages"][1]["tools"][0]["name"] == "search_songs"
+    assert got["messages"][1]["usage"]["prompt"] == 10
+    assert "hidden" not in got["messages"][0]
+    hits = chats.search("barak")
+    assert hits and hits[0]["chat_id"] == c["id"] and "Barak" in hits[0]["snippet"]
+    assert chats.search("%") == []
+    assert chats.rename(c["id"], "Domingo") and chats.get(c["id"])["title"] == "Domingo"
+    assert chats.delete(c["id"]) and chats.get(c["id"]) is None
+    assert chats.title_from("x" * 100).endswith("…")
+
+
+def test_una_llamada_escrita_como_texto_no_pasa_por_respuesta(perfiles, monkeypatch):
+    """Algun modelo, en vez de llamar a la herramienta, escribe la llamada:
+    «search_songs query="barak"». Eso no es una respuesta: se le devuelve la
+    pelota obligandole a usar herramientas de verdad."""
+    from danplay import chat
+    providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
+    assert chat.PSEUDO_CALL.match('search_songs query="artist:Barak" sort="duration"')
+    assert chat.PSEUDO_CALL.match("play_song(12)")
+    assert chat.PSEUDO_CALL.match("`list_playlists: {}`")
+    assert not chat.PSEUDO_CALL.match("Busca con search_songs si quieres.")
+    assert not chat.PSEUDO_CALL.match("Tienes 18 canciones de Barak.")
+    monkeypatch.setattr(chat, "run_tool", lambda name, args: {"total": 1, "songs": [{"id": 1, "artist": "Barak", "title": "Mi Gozo"}]})
+
+    class _Call:
+        id = "1"
+        function = type("f", (), {"name": "search_songs", "arguments": '{"query": "barak"}'})()
+    turns = [_Msg('search_songs query="artist:Barak" sort="duration" limit=1'),
+             _Msg("", [_Call()]), _Msg("La mas larga es **Mi Gozo**.")]
+    fake = _FakeClient()
+
+    def create(**kw):
+        fake.calls.append(dict(kw))
+        return type("r", (), {"choices": [type("c", (), {"message": turns.pop(0)})()]})()
+    fake.chat.completions.create = create
+    _fake(monkeypatch, fake)
+    r = chat.reply([{"role": "user", "text": "¿cual es la mas larga de Barak?"}])
+    assert r["text"] == "La mas larga es **Mi Gozo**."
+    assert fake.calls[1]["tool_choice"] == "required", "tras el texto falso, herramientas obligadas"
+    assert [t["name"] for t in r["tools"]] == ["search_songs"]

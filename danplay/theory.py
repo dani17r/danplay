@@ -90,3 +90,49 @@ def suggested_capo(tono_actual, easy_shapes=("G","C","D","A","E","Em","Am","Dm")
         if 1 <= fret <= 7:
             outs.append((fret, shape))
     return sorted(outs)
+
+
+def _split_key(key):
+    """(indice, es_menor) de un tono escrito como «Bb», «F#m», «Am», o None."""
+    k = (key or "").strip()
+    minor = bool(re.search(r"(m|min|-)$", k)) and not k.endswith("dim")
+    root = re.sub(r"(m|min|-)$", "", k)
+    if root not in INDEX_SQL:
+        return None
+    return INDEX_SQL[root], minor
+
+
+def _key_name(index, minor, use_flats):
+    return _nombre(index, use_flats) + ("m" if minor else "")
+
+
+def related_keys(key) -> dict | None:
+    """Los tonos vecinos de uno, para armar un set sin saltos bruscos.
+
+    En el circulo de quintas los vecinos son la dominante, la subdominante y
+    el relativo (y los relativos de aquellos): pasar entre ellos suena
+    natural; saltar a un tono lejano corta. Devuelve tambien la cejilla con
+    la que ese tono se toca con acordes abiertos.
+    """
+    parsed = _split_key(key)
+    if not parsed:
+        return None
+    i, minor = parsed
+    root = re.sub(r"(m|min|-)$", "", key.strip())
+    # se escribe con bemoles si el tono lo lleva («Bb») o si es de los que
+    # van con bemoles en la armadura («F», «Dm»); F#m no es F
+    use_flats = "b" in root[1:] or (root + ("m" if minor else "")) in FLAT_KEYS
+    if minor:
+        relative = _key_name((i + 3) % 12, False, use_flats)
+        neighbors = [_key_name((i + 7) % 12, True, use_flats), _key_name((i + 5) % 12, True, use_flats)]
+        cousins = [_key_name((i + 10) % 12, False, use_flats), _key_name((i + 8) % 12, False, use_flats)]
+    else:
+        relative = _key_name((i + 9) % 12, True, use_flats)
+        neighbors = [_key_name((i + 7) % 12, False, use_flats), _key_name((i + 5) % 12, False, use_flats)]
+        cousins = [_key_name((i + 4) % 12, True, use_flats), _key_name((i + 2) % 12, True, use_flats)]
+    name = _key_name(i, minor, use_flats)
+    return {"key": name, "relative": relative, "neighbors": neighbors,
+            "also_close": cousins, "latin": to_latin(name),
+            "capo": [{"fret": f, "shape": sh} for f, sh in suggested_capo(_nombre(i, use_flats))],
+            "note": "vecinos = misma armadura o una alteracion de diferencia: pasar de uno a "
+                    "otro no suena a salto"}

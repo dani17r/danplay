@@ -54,6 +54,20 @@ CREATE INDEX IF NOT EXISTS i_artist ON songs(artist);
 CREATE INDEX IF NOT EXISTS i_match_key   ON songs(match_key);
 CREATE INDEX IF NOT EXISTS i_root    ON songs(root);
 
+-- Lo que gasta la IA: cada llamada con su proveedor, modelo y tokens, y el
+-- coste si el catalogo conocia el precio. Para enseñar «este mes: X».
+CREATE TABLE IF NOT EXISTS ai_usage (
+    id         INTEGER PRIMARY KEY,
+    at         REAL,
+    provider   TEXT DEFAULT '',
+    model      TEXT DEFAULT '',
+    purpose    TEXT DEFAULT '',
+    prompt     INTEGER DEFAULT 0,
+    completion INTEGER DEFAULT 0,
+    cost       REAL
+);
+CREATE INDEX IF NOT EXISTS i_ai_usage_at ON ai_usage(at);
+
 -- Registro de descargas: manuales y las que hace el asistente. No es
 -- metadata de una cancion, asi que vive aqui y no en el mp3. El escaneo no
 -- la toca: solo vacia `songs`.
@@ -199,7 +213,10 @@ def register_schema(sql: str) -> None:
 # Columnas añadidas despues de la primera version. `CREATE TABLE IF NOT
 # EXISTS` no toca una tabla que ya existe, asi que a quien ya tenia su base
 # hay que añadirselas a mano.
-_ADDED_LATER = (("songs", "blur", "INTEGER DEFAULT 0"),)
+_ADDED_LATER = (("songs", "blur", "INTEGER DEFAULT 0"),
+                # la letra con tiempos (LRC) de LRCLIB: se guarda aparte y el
+                # escaneo no la toca; si se pierde, se vuelve a pedir
+                ("songs", "lyrics_synced", "TEXT DEFAULT ''"))
 
 
 def _add_missing_columns(conn) -> None:
@@ -784,7 +801,7 @@ def by_id(cid: int) -> dict | None:
 def update(cid: int, **fields) -> int:
     """Cambia columnas del indice (solo el indice). Devuelve filas tocadas."""
     allowed = {"artist","title","album","year","genre","feat","key","bpm",
-                  "cover","lyrics","chords","analyzed","stars","favorite","blur"}
+                  "cover","lyrics","lyrics_synced","chords","analyzed","stars","favorite","blur"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return 0
@@ -967,6 +984,37 @@ def download_history(limit=60, offset=0) -> list[dict]:
                         (int(limit), int(offset))).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def log_ai_usage(provider: str, model: str, purpose: str, prompt: int,
+                 completion: int, cost: float | None) -> None:
+    conn = connect()
+    conn.execute("INSERT INTO ai_usage (at, provider, model, purpose, prompt, completion, cost) "
+                 "VALUES (?,?,?,?,?,?,?)",
+                 (time.time(), provider, model, purpose, int(prompt), int(completion), cost))
+    conn.commit(); conn.close()
+
+
+def ai_usage_summary() -> dict:
+    """Lo gastado hoy, este mes y en total: llamadas, tokens y coste (solo
+    de las llamadas con precio conocido; las demas se cuentan aparte)."""
+    import datetime as _dt
+    now = _dt.datetime.now()
+    day = _dt.datetime(now.year, now.month, now.day).timestamp()
+    month = _dt.datetime(now.year, now.month, 1).timestamp()
+    conn = connect()
+
+    def part(since):
+        f = conn.execute(
+            "SELECT COUNT(*) calls, COALESCE(SUM(prompt),0) prompt, COALESCE(SUM(completion),0) completion, "
+            "COALESCE(SUM(cost),0) cost, SUM(cost IS NULL) unpriced FROM ai_usage WHERE at>=?",
+            (since,)).fetchone()
+        return {"calls": f["calls"] or 0, "prompt": f["prompt"] or 0,
+                "completion": f["completion"] or 0, "cost": round(f["cost"] or 0, 6),
+                "unpriced": f["unpriced"] or 0}
+    out = {"today": part(day), "month": part(month), "total": part(0)}
+    conn.close()
+    return out
 
 
 def download_count() -> int:

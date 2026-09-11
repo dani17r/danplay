@@ -10,6 +10,9 @@ import EmptyState from './ui/EmptyState.vue'
 import Loading from './ui/Loading.vue'
 import SelectField from './ui/SelectField.vue'
 import TextField from './ui/TextField.vue'
+import SyncedLyrics from './ui/SyncedLyrics.vue'
+import { parseLrc, stripLrc } from '../utils/lrc.js'
+import { usePlayback } from '../composables/usePlayback.js'
 
 const props = defineProps(['song', 'aiReady'])
 // «blur» a secas no: es el nombre de un evento nativo del DOM y se presta
@@ -27,6 +30,15 @@ const coverVersion = ref(0)
 // ofrece buscarla. Lo mismo con la portada y con la ficha.
 const FIELD_LABELS = { album: 'album', year: 'año', genre: 'genero', key: 'tono' }
 const needsLyrics = computed(() => !!props.song && !props.song.lyrics)
+
+// La letra con tiempos: la de LRCLIB (`lyrics_synced`) o, si el mp3 traia
+// un LRC en su USLT, la propia `lyrics`. Con la cancion sonando se sigue
+// linea a linea; la letra plana se enseña sin las marcas.
+const player = usePlayback()
+const lrcLines = computed(() => parseLrc(props.song?.lyrics_synced) || parseLrc(props.song?.lyrics))
+const plainLyrics = computed(() => (props.song?.lyrics_synced ? props.song.lyrics : stripLrc(props.song?.lyrics)) || '')
+const isPlayingThis = computed(() => !!props.song && player.track.value?.id === props.song.id)
+const follow = ref(true)
 const needsCover = computed(() => !!props.song && !props.song.cover)
 const missingInfo = computed(() => props.song
   ? Object.keys(FIELD_LABELS).filter(k => !String(props.song[k] ?? '').trim())
@@ -379,12 +391,19 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
         {{ acordesJson.about_the_song }}</div>
     </div>
 
-    <div class="section copiable-section" v-if="song.lyrics">
+    <div class="section copiable-section" v-if="song.lyrics || song.lyrics_synced">
       <h4>Letra
-        <CopyButton :text="song.lyrics" what="la letra" :size="14"
+        <CopyButton :text="plainLyrics" what="la letra" :size="14"
                     @copied="ok => notify(ok ? 'Letra copiada'
-                      : 'No se pudo copiar', ok ? 'ok' : 'info')" /></h4>
-      <div class="lyrics">{{ song.lyrics }}</div>
+                      : 'No se pudo copiar', ok ? 'ok' : 'info')" />
+        <button v-if="lrcLines" class="btn mini lrc-toggle" type="button" :class="{on: follow}"
+                :title="isPlayingThis ? 'La linea que suena, resaltada; pulsa una para ir ahi' : 'Con tiempos: al ponerla a sonar, sigue la letra'"
+                @click="follow = !follow">
+          <Icon n="play" :t="11" /> {{ follow ? 'Siguiendo' : 'Seguir la cancion' }}</button>
+      </h4>
+      <SyncedLyrics v-if="lrcLines && follow" :lines="lrcLines" :position="player.position.value"
+                    :active="isPlayingThis" @seek="t => player.seek(t)" />
+      <div v-else class="lyrics">{{ plainLyrics }}</div>
     </div>
   </aside>
 

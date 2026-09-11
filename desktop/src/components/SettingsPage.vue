@@ -37,6 +37,23 @@ const aiModal = ref(false)
 const aiInitial = ref('')
 const aiProfiles = computed(() => Object.values(aiInfo.value?.profiles || {}))
 const activeAi = computed(() => aiInfo.value?.active_profile || null)
+// Lo que gasta la IA (tokens y coste segun el catalogo): hoy y este mes.
+const usage = ref(null)
+async function loadUsage () {
+  try { usage.value = await api.aiUsage() } catch { usage.value = null }
+}
+function money (v) {
+  if (v == null) return '—'
+  if (v === 0) return '$0'
+  return '$' + (v < 0.01 ? v.toFixed(4) : v.toFixed(2)).replace('.', ',')
+}
+function tokens (u) {
+  const n = (u?.prompt || 0) + (u?.completion || 0)
+  return n >= 1_000_000 ? (n / 1e6).toFixed(1).replace('.', ',') + ' M' : n >= 1000 ? (n / 1000).toFixed(1).replace('.', ',') + ' k' : String(n)
+}
+async function setFallback (v) {
+  try { aiInfo.value = await api.aiFallback(v) } catch (e) { notify(errorMessage(e)) }
+}
 
 function openAi (initial = '') { aiInitial.value = initial; aiModal.value = true }
 // «Probar gratis, sin clave»: el nucleo prueba los servicios gratuitos por
@@ -113,6 +130,7 @@ async function load () {
   // Consulta el catalogo de modelos en segundo plano si hace rato: asi el
   // apartado de IA abre ya con la lista de hoy.
   try { aiInfo.value = await api.aiProviders() } catch { /* sin nucleo de IA: la tarjeta lo dice */ }
+  loadUsage()
 }
 onMounted(load)
 
@@ -377,6 +395,16 @@ const gb = formatGigabytes
       <ToggleField :modelValue="settings.ai_enabled" title="Usar IA"
                hint="Apagada, la app identifica solo por etiquetas y huella, y el asistente se calla"
                @update:modelValue="v => save('ai_enabled', v)" />
+      <ToggleField v-if="aiInfo" :modelValue="aiInfo.fallback" title="Si el proveedor falla, usar los demás"
+               :hint="aiInfo.fallbacks?.length
+                 ? 'Caído, sin crédito o saturado: se responde con ' + aiInfo.fallbacks.map(f => f.name).join(', ') + ' y se avisa'
+                 : 'No hay otro configurado: añade uno (o el gratuito) y hará de respaldo'"
+               @update:modelValue="setFallback" />
+      <div v-if="usage" class="ai-usage">
+        <span><strong>Hoy</strong> {{ usage.today.calls }} llamadas · {{ tokens(usage.today) }} tokens · {{ money(usage.today.cost) }}</span>
+        <span><strong>Este mes</strong> {{ usage.month.calls }} llamadas · {{ tokens(usage.month) }} tokens · {{ money(usage.month.cost) }}</span>
+        <span v-if="usage.month.unpriced" class="hint" style="margin:0">{{ usage.month.unpriced }} llamadas sin precio conocido (no cuentan en el coste)</span>
+      </div>
       <div style="display:flex;gap:8px;align-items:flex-end;margin:6px 0 10px">
         <TextField v-model="fingerprintKey" type="password" width="100%" label="Clave de AcoustID"
                :placeholder="settings.fingerprint_key ? 'Guardada' : 'gratis en acoustid.org, opcional'"
