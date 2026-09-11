@@ -421,3 +421,82 @@ def test_sin_clave_la_lista_solo_enseña_lo_que_sirve_a_anonimos(perfiles, monke
     assert [m["id"] for m in sin["models"]] == ["minimax-m2.7"]
     con = ai.list_models({"provider": "llm7", "key": "token"})
     assert {m["id"] for m in con["models"]} == {"minimax-m2.7", "gpt-6-astra"}
+
+
+# ---------------------------------------------------------------------- TOON
+
+def test_toon_sigue_la_especificacion():
+    from danplay import toon
+    enc = toon.encode
+    assert enc({"user": {"id": 123, "name": "Ada"}}) == "user:\n  id: 123\n  name: Ada"
+    assert enc({"tags": ["admin", "ops", "dev"]}) == "tags[3]: admin,ops,dev"
+    assert enc({"items": [{"sku": "A1", "qty": 2, "price": 9.99},
+                          {"sku": "B2", "qty": 1, "price": 14.5}]}) == \
+        "items[2]{sku,qty,price}:\n  A1,2,9.99\n  B2,1,14.5"
+    assert enc({"items": [1, {"a": 1}, "text"]}) == "items[3]:\n  - 1\n  - a: 1\n  - text"
+    assert enc({"e": [], "o": {}}) == "e: []\no:"
+    # numeros, booleanos y nulos tal cual; los flotantes enteros sin «.0»
+    assert enc({"a": 2.0, "b": -3.14, "c": None, "d": True, "e": float("nan")}) == \
+        "a: 2\nb: -3.14\nc: null\nd: true\ne: null"
+    # comillas SOLO cuando hace falta, con sus escapes
+    assert enc({"a": "Hello world", "b": "123", "c": "true", "d": " x", "e": "",
+                "f": "a:b", "g": "x,y", "h": "-1x", "i": 'say "hi"', "j": "l1\nl2",
+                "k": "Barak - Mi Gozo (En Vivo)"}) == (
+        'a: Hello world\nb: "123"\nc: "true"\nd: " x"\ne: ""\nf: "a:b"\ng: "x,y"\n'
+        'h: "-1x"\ni: "say \\"hi\\""\nj: "l1\\nl2"\nk: Barak - Mi Gozo (En Vivo)')
+    assert enc({"my-key": [1, 2, 3]}) == '"my-key"[3]: 1,2,3'
+    # una lista de objetos desiguales o anidados va en forma de lista
+    assert enc({"d": [{"ok": True, "m": []}, {"ok": False, "m": [{"id": 1}]}]}) == \
+        "d[2]:\n  - ok: true\n    m: []\n  - ok: false\n    m[1]{id}:\n      1"
+    # otro delimitador se declara en la cabecera y vale en todas partes
+    assert enc({"items": [{"sku": "A1", "name": "x,y"}]}, "|") == "items[1|]{sku|name}:\n  A1|x,y"
+    with pytest.raises(ValueError):
+        enc({}, ";")
+
+
+def test_las_herramientas_llegan_al_modelo_en_toon_y_pesan_menos(perfiles, monkeypatch):
+    from danplay import chat, toon
+    providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
+    songs = [{"id": i, "artist": "Barak", "title": f"Tema {i}", "album": "Gozo", "duration": 240,
+              "key": "Bb", "bpm": 120, "stars": 0, "favorite": False} for i in range(1, 21)]
+    result = {"total": 20, "songs": songs}
+    monkeypatch.setattr(chat, "run_tool", lambda name, args: result)
+
+    class _Call:
+        id = "1"
+        function = type("f", (), {"name": "search_songs", "arguments": '{"query": "barak"}'})()
+    fake = _FakeClient()
+    turns = [_Msg("", [_Call()]), _Msg("Tienes 20 temas de Barak.")]
+
+    def create(**kw):
+        fake.calls.append(dict(kw))
+        return type("r", (), {"choices": [type("c", (), {"message": turns.pop(0)})()]})()
+    fake.chat.completions.create = create
+    _fake(monkeypatch, fake)
+    chat.reply([{"role": "user", "text": "¿que tengo de Barak?"}])
+    tool_msg = next(m for m in fake.calls[1]["messages"] if m.get("role") == "tool")
+    assert tool_msg["content"].startswith("total: 20\nsongs[20]{id,artist,title,")
+    assert tool_msg["content"] == toon.encode(result)
+    assert len(tool_msg["content"]) < 0.6 * len(json.dumps(result, ensure_ascii=False)), \
+        "la tabla tiene que pesar bastante menos que el JSON"
+
+
+def test_una_ficha_de_ia_vacia_no_se_reutiliza(monkeypatch):
+    from danplay import enrich
+    vacia = json.dumps({"likely_key": "", "progression": "", "confidence": 0.2})
+    buena = json.dumps({"likely_key": "Bb", "progression": "| Bb | Gm |", "confidence": 0.8})
+    assert enrich.cached_details({"chords": vacia}) is None
+    assert enrich.cached_details({"chords": buena})["likely_key"] == "Bb"
+    assert enrich.cached_details({"chords": ""}) is None
+    assert enrich.cached_details({"chords": "esto no es json"}) is None
+    # con una vacia guardada se vuelve a preguntar, y lo nuevo se guarda
+    asked = []
+    monkeypatch.setattr(enrich, "details", lambda song: asked.append(song["id"]) or
+                        {"likely_key": "G", "progression": "| G |", "confidence": 0.7})
+    saved = {}
+    monkeypatch.setattr(enrich.library, "update", lambda cid, **f: saved.update(f))
+    d, cached = enrich.details_for({"id": 7, "chords": vacia})
+    assert asked == [7] and not cached and d["likely_key"] == "G"
+    assert json.loads(saved["chords"])["likely_key"] == "G"
+    d, cached = enrich.details_for({"id": 8, "chords": buena})
+    assert cached and asked == [7], "la buena se reutiliza sin preguntar"

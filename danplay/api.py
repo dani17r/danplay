@@ -843,16 +843,8 @@ async def details(cid: int):
     c = library.by_id(cid)
     if not c:
         raise HTTPException(404, "no existe")
-    import json
-    if c["chords"]:
-        try:
-            return {"details": json.loads(c["chords"]), "cached": True}
-        except Exception:
-            pass
-    d = await asyncio.get_running_loop().run_in_executor(None, enrich.details, c)
-    if d and not d.get("error"):
-        library.update(cid, chords=json.dumps(d, ensure_ascii=False))
-    return {"details": d, "cached": False}
+    d, cached = await asyncio.get_running_loop().run_in_executor(None, enrich.details_for, c)
+    return {"details": d, "cached": cached}
 
 
 @app.post("/api/chat")

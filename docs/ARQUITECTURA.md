@@ -388,6 +388,20 @@ Cuando termina una descarga pedida desde el chat, la app le pasa el turno
 para que remate lo que quedara («…y ármame una lista»), con los ids exactos
 de lo que entró.
 
+**Cada token se paga, y el prompt viaja en cada llamada.** El texto del
+sistema se escribe una regla por fallo real y sin adornos (1.305 tokens; era
+2.077), las herramientas se declaran con una fábrica que no repite el
+andamiaje y describe cada una en una frase (2.426; eran 2.764: el resto es
+el esquema JSON que exige la API), y **los resultados de las herramientas
+van en TOON** (`toon.py`), no en JSON: una lista de canciones se manda como
+tabla, con las claves una sola vez en la cabecera y una fila por canción.
+Medido sobre resultados reales, la mitad de tokens en una búsqueda (54 %) y
+un 47 % en conjunto. El modelo recibe una explicación de dos líneas del
+formato; lo que él devuelve sigue siendo JSON, que es lo que garantizan los
+modos JSON de los proveedores. Y una ficha de IA guardada sin tono ni
+acordes (la dio un modelo que no conocía la canción) no se reutiliza: se
+vuelve a preguntar, que con otro modelo puede salir.
+
 **Descargar se pide, no se espera.** Una descarga tarda minutos y la
 conversación no puede quedarse colgada: al aprobarla, el núcleo la arranca en
 segundo plano bajo el mismo turno que usa la página de Descargas (una a la
@@ -439,6 +453,7 @@ castellano y, si la canción se acabó sola, se pasa a la siguiente.
 ```text
 danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   providers.py    catálogo de proveedores de IA y perfiles guardados
+  toon.py         resultados de herramientas en TOON: la mitad de tokens que JSON
   model_catalog.py  el catálogo de modelos (models.dev), siempre al día
   data/           la foto del catálogo que viaja con la app
 core/           crate Rust (PyO3): hashes en paralelo y análisis de audio

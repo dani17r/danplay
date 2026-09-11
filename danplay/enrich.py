@@ -197,6 +197,37 @@ creer que el dato ya esta. El año son cuatro cifras o nada."""
                        "Eres un musico de sesion y catalogador musical.")
 
 
+def cached_details(song: dict) -> dict | None:
+    """La ficha guardada en el archivo, si merece la pena. Una respuesta
+    vacia (sin tono ni acordes y con confianza baja) no se reutiliza: la dio
+    un modelo que no conocia la cancion, y con otro mejor —o el mismo otro
+    dia— puede salir. Guardarla para siempre era condenar la ficha."""
+    raw = song.get("chords")
+    if not raw:
+        return None
+    try:
+        d = json.loads(raw)
+    except Exception:                                        # noqa: BLE001
+        return None
+    if not isinstance(d, dict):
+        return None
+    useful = bool(d.get("progression") or d.get("likely_key")
+                  or float(d.get("confidence") or 0) >= 0.5)
+    return d if useful else None
+
+
+def details_for(song: dict) -> tuple[dict | None, bool]:
+    """Los detalles de una cancion: los guardados si valen, y si no, se
+    piden a la IA y se guardan. Devuelve (detalles, venian_guardados)."""
+    cached = cached_details(song)
+    if cached:
+        return cached, True
+    d = details(song)
+    if d and not d.get("error"):
+        library.update(song["id"], chords=json.dumps(d, ensure_ascii=False))
+    return d, False
+
+
 # campos de ficha que la IA puede rellenar
 FILLABLE = ("album", "year", "genre", "key")
 

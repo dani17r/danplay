@@ -42,26 +42,14 @@ _NO_PROFILE = {"id": "", "provider": "", "name": "", "base_url": "", "key": "",
                "models_dev": None, "local": False}
 
 
-INSTRUCTIONS = """Eres un catalogador de una biblioteca musical (mucha musica cristiana
-de adoracion en español, y algo de pop/rock secular).
-
-A partir de un nombre de archivo sucio (normalmente descargado de video), deduce:
-  artist     : el interprete PRINCIPAL. Si el archivo dice "X ft Y", el principal es X.
-               Si es un ministerio/proyecto de otro artista, usa el nombre del proyecto.
-  title      : el titulo limpio de la cancion, sin ruido de video.
-  feat       : artistas invitados, separados por coma. "" si no hay.
-  extra      : matiz relevante entre parentesis (En Vivo, Acustico, Cover, Instrumental,
-               Play Along, Tutorial, Pista, Medley...). "" si no aplica.
-  category   : una de -> song | track | tutorial | sequence | unknown
-  confidence : 0.0 a 1.0, que tan seguro estas.
-
-REGLAS DE ESCRITURA (obligatorias):
-  - SIN tildes ni acentos. UNICA excepcion: la ñ se conserva.
-  - Nada en MAYUSCULA SOSTENIDA: escribe Capitalizado.
-  - Nunca inventes un artista. Si no lo sabes, artist="" y confidence baja.
-
-Responde SOLO con un objeto JSON con esas claves EXACTAS, en ingles y sin texto
-alrededor. Los valores van en el idioma original de la cancion."""
+INSTRUCTIONS = """Catalogas una biblioteca musical (mucha adoracion cristiana en español, algo de pop/rock). De un nombre de archivo sucio (suele venir de un video) deduce:
+artist: interprete PRINCIPAL ("X ft Y" → X; un ministerio o proyecto, por su nombre). title: titulo limpio, sin ruido de video. feat: invitados separados por coma, o "". extra: matiz entre parentesis (En Vivo, Acustico, Cover, Instrumental, Play Along, Tutorial, Pista, Medley…) o "". category: song | track | tutorial | sequence | unknown. confidence: 0.0-1.0.
+Reglas: sin tildes (solo se conserva la ñ); nada en MAYUSCULA SOSTENIDA, escribe Capitalizado; nunca inventes un artista: si no lo sabes, artist="" y confidence baja. Si te dan artistas que ya existen, reutiliza el nombre exacto cuando sea uno de ellos.
+Responde SOLO con un objeto JSON con esas claves exactas, sin texto alrededor. Valores en el idioma original.
+Ejemplos:
+"y2mate.com - BARAK Mi Gozo VIDEO OFICIAL LETRA 320kbps.mp3" → {"artist":"Barak","title":"Mi Gozo","feat":"","extra":"","category":"song","confidence":0.9}
+"Que Se Abra El Cielo (Drum Cam) - Miel San Marcos ft Christine D'Clario.mp3" → {"artist":"Miel San Marcos","title":"Que Se Abra El Cielo","feat":"Christine D'Clario","extra":"Drum Cam","category":"song","confidence":0.85}
+"pista_2_FINAL (1).mp3" → {"artist":"","title":"Pista 2 Final","feat":"","extra":"","category":"unknown","confidence":0.1}"""
 
 
 # ------------------------------------------------------------------ perfil
