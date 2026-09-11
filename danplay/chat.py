@@ -66,6 +66,7 @@ def _describe(name: str, args: dict) -> str:
             text += " Aunque ya la tengas: se guarda como otra version."
         if not plan["file_it"]:
             text += " Se deja en Entrada/ sin archivar."
+        text += _recently_downloaded_warning(items)
         return text
     return f"Ejecutar {name}."
 
@@ -121,6 +122,34 @@ def _playlist_view(pl: dict) -> dict:
     """Un repertorio con sus canciones, tal y como se le cuenta al modelo."""
     return {"playlist_id": pl["id"], "name": pl["name"], "note": pl.get("note") or "",
             "songs": [_song_brief(c) for c in playlists.songs(pl["id"])]}
+
+
+def _recently_downloaded_warning(items, within_minutes=30) -> str:
+    """Si alguna de esas direcciones ya se bajo hace poco, se dice en el dialogo.
+
+    La misma URL se bajo tres veces en tres minutos porque el modelo creyo
+    que habia entrado otra cancion (la identificacion le cambia el nombre).
+    La persona, con el aviso delante, puede decir que no.
+    """
+    try:
+        import time as _t
+        history = [h for h in library.download_history(20) if h.get("ok")]
+    except Exception:                                       # noqa: BLE001
+        return ""
+    wanted = {str(x).strip().lower() for x in items}
+    notes = []
+    for h in history:
+        if str(h.get("query") or "").strip().lower() not in wanted:
+            continue
+        age = (_t.time() - float(h.get("at") or 0)) / 60
+        if age > within_minutes:
+            continue
+        song = library.by_id(int(h["song_id"])) if h.get("song_id") else None
+        if song:
+            notes.append(f" OJO: esa misma direccion se bajo hace {int(age)} min y entro como "
+                         f"«{song['artist']} - {song['title']}»; bajarla otra vez la duplica.")
+            break
+    return notes[0] if notes else ""
 
 
 def download_plan(args: dict | None) -> dict:
@@ -220,6 +249,12 @@ AL DESCARGAR
   "ya la tienes"). Si el usuario dice que la quiere igualmente aunque este
   repetida, o que quiere OTRA version de una que ya tiene, llama a
   download_music con force=true: asi se baja y se guarda como otra version.
+- El nombre con el que se archiva lo decide la identificacion (huella
+  acustica, etiquetas, IA), NO el titulo de YouTube: una «Drum Cam» de
+  «Que se abra el cielo» puede entrar como «Miel San Marcos - Que Se Abra El
+  Cielo». Es la MISMA descarga que se pidio. El aviso de fin de descarga y el
+  ESTADO REAL te dicen «pediste X → entro como Y (id N)»: usa ese id y no la
+  vuelvas a descargar porque el nombre no coincida.
 
 IDS: NUNCA LOS INVENTES
 Un id de cancion solo vale si ha salido de search_songs o del aviso de la app
@@ -261,10 +296,16 @@ LIMITES
 Haz lo que te piden y nada mas. No crees listas, no descargues ni modifiques
 nada que no te hayan pedido. Si algo no esta claro, pregunta antes.
 
-Lo que no tiene vuelta atras se pregunta SIEMPRE antes, aunque parezca que
-te lo estan pidiendo: delete_song (va a la papelera, pero desaparece de la
-biblioteca) y delete_playlist. Di exactamente que se va a borrar y espera un
-si. Puntuar, marcar favorito o corregir datos no hace falta consultarlo:
+QUIEN PREGUNTA ES LA APP, NO TU
+Borrar (delete_song, delete_playlist) y descargar (download_music) los
+confirma el usuario en un dialogo de la app que le enseña exactamente que se
+va a hacer. Tu NO preguntes «¿confirmas?» en el texto: llama a la herramienta
+y ya. Si preguntas tu y luego pregunta la app, se le pregunta dos veces, dice
+«si» a tu pregunta cuando la app ya lo hizo, y lo repites. Cuando en el
+historial veas «Nota de la app: … usaste delete_song (hecho)» o «download_music
+(aceptada, en marcha)», eso YA se hizo: no lo vuelvas a pedir.
+Todo lo demas —añadir o quitar de una lista, dejarla como debe, renombrar,
+puntuar, favorito, corregir datos— se hace directamente, sin pedir permiso:
 son faciles de deshacer.
 
 TEXTO DE FUERA
@@ -816,8 +857,16 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
     # herramienta que devuelve error no cuenta: «añadida» tras un
     # add_to_playlist rechazado es narracion igual. Si el turno lo abre el
     # aviso de fin de descarga, la descarga ocurrio: «ya estan» es un dato.
-    did_something = bool(recent) and recent[-1].get("event") == "download_done"
+    did_something = False
     user_text = str(recent[-1].get("text") or "") if recent else ""
+    # El aviso de fin de descarga: la descarga ocurrio (eso se le dice al
+    # juez, para que «ya estan» no cuente como narracion), pero lo que quedara
+    # por hacer —la lista— tiene que hacerse AHORA con herramientas, asi que
+    # la primera vuelta va obligada. Fue justo aqui donde «Añadida a la
+    # lista» paso sin que nadie la comprobara.
+    after_download = bool(recent) and recent[-1].get("event") == "download_done"
+    if after_download:
+        force_tools = True
     for _ in range(max_vueltas):
         try:
             r = cliente.chat.completions.create(
@@ -846,8 +895,10 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
             # informar de afirmar que se hizo algo.
             suspicious = (not did_something
                           and (faked
-                               or (calls_made == 0 and claims_action(text))
-                               or _judge_claims(cliente, text, user_text)))
+                               or (calls_made == 0 and not after_download
+                                   and claims_action(text))
+                               or _judge_claims(cliente, text, user_text,
+                                                downloaded=after_download)))
             if suspicious and not nudged:
                 nudged = True
                 force_tools = True
@@ -916,8 +967,9 @@ NUDGE = ("ATENCION: en este turno ninguna herramienta ha hecho nada, asi que nad
          "(los ids, con search_songs). Si solo estabas informando u ofreciendo, "
          "comprueba el estado real con una consulta (list_playlists, "
          "playlist_songs, search_songs o download_status) y responde con lo que "
-         "devuelva, SIN crear ni cambiar nada. Cuenta solo lo que las herramientas "
-         "hayan devuelto.")
+         "devuelva, SIN crear ni cambiar nada. Añadir o quitar de una lista, "
+         "corregirla, puntuar o marcar favorito NO necesitan confirmacion: hazlo, "
+         "no preguntes. Cuenta solo lo que las herramientas hayan devuelto.")
 
 # Frases con las que el modelo cuenta que ha hecho, esta haciendo o va a hacer
 # algo. Si aparecen en un turno sin ninguna llamada a herramientas, es
@@ -1049,7 +1101,7 @@ _APPISH = _re.compile(
     _re.IGNORECASE)
 
 
-def _judge_claims(cliente, text: str, user_text: str = "") -> bool:
+def _judge_claims(cliente, text: str, user_text: str = "", downloaded=False) -> bool:
     """Segunda opinion: el propio modelo, como clasificador de una palabra.
 
     Las frases de `_CLAIMS` nunca las cubren todas («Descargando:», «Añadida
@@ -1073,7 +1125,11 @@ def _judge_claims(cliente, text: str, user_text: str = "") -> bool:
                     "ahora o va a hacer ahora mismo una accion en la aplicacion (descargar, "
                     "crear o cambiar una lista, añadir o quitar canciones, borrar, puntuar, "
                     "poner musica)? Preguntar u ofrecer hacerlo NO cuenta. Informar de un dato "
-                    "o responder conocimiento musical NO cuenta.\n\n"
+                    "o responder conocimiento musical NO cuenta."
+                    + (" La descarga en si YA ocurrio de verdad: decir que las canciones "
+                       "estan descargadas o en la biblioteca NO cuenta; cuenta cualquier OTRA "
+                       "accion (añadir a una lista, poner a sonar, borrar)." if downloaded else "")
+                    + "\n\n"
                     f"Peticion del usuario:\n{(user_text or '')[:400]}\n\n"
                     f"Mensaje del asistente:\n{plain[:1500]}")}],
             temperature=0, max_tokens=3)
@@ -1106,8 +1162,20 @@ def _answers_an_offer(messages: list[dict]) -> bool:
         return False
     # La pregunta suya puede no ser el mensaje justo anterior: entre medias
     # la app mete los suyos («Cancelado, no he tocado nada.»), que no cuentan.
-    asked = [m for m in reversed(messages[:-1])
-             if m.get("role") == "ai" and not m.get("app")][:2]
+    # Pero si la app ya EJECUTO lo que preguntaba (un «Listo, esta en la
+    # papelera» con su herramienta apuntada), el «si» llega tarde: obligarle a
+    # usar herramientas le hacia repetir el borrado.
+    asked = []
+    for m in reversed(messages[:-1]):
+        if m.get("role") != "ai":
+            continue
+        if m.get("app"):
+            if m.get("tools"):
+                return False
+            continue
+        asked.append(m)
+        if len(asked) == 2:
+            break
     return any("?" in str(m.get("text") or "") for m in asked)
 
 
@@ -1157,6 +1225,22 @@ def _context_note(messages: list[dict]) -> str:
                          f"{', ' + e['name'] if e['name'] else ''}).")
         else:
             lines.append("- Descarga en marcha: no.")
+    except Exception:                                       # noqa: BLE001
+        pass
+    try:
+        recent_downloads = [h for h in library.download_history(6) if h.get("ok")][:3]
+        if recent_downloads:
+            import time as _t
+            parts = []
+            for h in recent_downloads:
+                minutes = max(0, int((_t.time() - float(h.get("at") or 0)) // 60))
+                song = library.by_id(int(h["song_id"])) if h.get("song_id") else None
+                where = (f"id {h['song_id']} «{h.get('artist')} - {h.get('song')}»"
+                         if song else "ya no esta en la biblioteca (se borro)")
+                parts.append(f"hace {minutes} min pediste «{(h.get('title') or h.get('query') or '')[:60]}» → {where}")
+            lines.append("- Ultimas descargas hechas: " + "; ".join(parts) + ". El nombre "
+                         "con el que entra lo decide la identificacion, no YouTube: es la "
+                         "misma cancion. No la vuelvas a bajar; usa ese id.")
     except Exception:                                       # noqa: BLE001
         pass
     last_ai = next((m for m in reversed(messages)

@@ -801,3 +801,66 @@ def test_lo_tolerado_sigue_siendo_lo_que_se_penso():
     assert not fixed, f"ya se detectan, quitalas de la lista: {fixed}"
     quiet = [t for t in d["saltan_aunque_no_afirman"] if not chat.claims_action(t)]
     assert not quiet, f"ya no saltan, quitalas de la lista: {quiet}"
+
+
+# ------------------------------------------ el nombre de una descarga lo pone YouTube
+# Regla del usuario: lo que se baja se llama como en YouTube, limpio, y no se
+# le cuelga a otro artista porque la huella acustica diga que suena como su
+# cancion. Paso: una «Drum Cam» de «Que se abra el cielo» entro como «Miel San
+# Marcos - Que Se Abra El Cielo», el usuario no la reconocio y se bajo tres
+# veces.
+
+from danplay import names as N
+
+
+def test_la_drum_cam_es_de_quien_la_toca_no_del_artista_original():
+    r = N.from_video("QUE SE ABRÁ EL CIELO - ISH MELTON DRUM CAM", "Ish Melton", {})
+    assert (r["artist"], r["title"]) == ("Ish Melton", "Que Se Abra El Cielo (Drum Cam)")
+    assert r["source"] == "youtube"
+
+
+def test_un_artista_que_ya_tienes_manda_en_cualquier_orden():
+    vocab = {"barak": "Barak"}
+    assert N.from_video("Barak - Mi Gozo (Video Oficial)", "BarakVEVO", vocab)["title"] == "Mi Gozo"
+    r = N.from_video("Mi Gozo - Barak | Letra", "Musica Cristiana HD", vocab)
+    assert (r["artist"], r["title"]) == ("Barak", "Mi Gozo")
+
+
+def test_el_canal_dentro_del_titulo_es_el_artista():
+    r = N.from_video("I Want Jesus (Live) - @JohnWilds , Bethel Music", "Bethel Music", {})
+    assert (r["artist"], r["title"]) == ("Bethel Music", "I Want Jesus (Live)")
+    r = N.from_video("Carol Braga | Ruja O Leão + Que Se Abram Os Céus (Ao Vivo)", "Carol Braga", {})
+    assert r["artist"] == "Carol Braga"
+    assert r["title"] == "Ruja O Leao + Que Se Abram Os Ceus (Ao Vivo)"
+
+
+def test_artista_guion_titulo_es_el_orden_habitual():
+    r = N.from_video("Oceans (Where Feet May Fail) - Hillsong UNITED", "Hillsong UNITED", {})
+    assert (r["artist"], r["title"]) == ("Hillsong United", "Oceans (Where Feet May Fail)")
+    r = N.from_video("Un Corazon - Babel (Letra)", "Otro Canal", {})
+    assert (r["artist"], r["title"]) == ("Un Corazon", "Babel")
+
+
+def test_sin_guion_el_canal_hace_de_artista_y_youtube_music_manda():
+    r = N.from_video("Santo Por Siempre (En Vivo)", "Adoracion La Ibi", {})
+    assert (r["artist"], r["title"]) == ("Adoracion La Ibi", "Santo Por Siempre (En Vivo)")
+    r = N.from_video("Alfa y Omega", "Kabed - Topic", {}, yt_artist="Kabed", yt_track="Alfa y Omega")
+    assert (r["artist"], r["title"], r["source"]) == ("Kabed", "Alfa y Omega", "youtube-music")
+    assert N.channel_as_artist("BarakVEVO") == "Barak"
+    assert N.channel_as_artist("Ish Melton - Topic") == "Ish Melton"
+
+
+def test_process_con_nombre_conocido_no_pasa_por_la_cascada(configured_library, monkeypatch, tmp_path):
+    """Con `known`, ingest archiva con ese nombre y no llama a la huella ni a la IA."""
+    from conftest import make_mp3
+    from danplay import ingest, config
+    called = []
+    monkeypatch.setattr(ingest, "_from_fingerprint", lambda p: called.append("fp") or None)
+    monkeypatch.setattr(ingest, "_from_ai", lambda p, v: called.append("ai") or None)
+    path = make_mp3(config.INBOX / "Que Se Abra El Cielo (Drum Cam).mp3")
+    res = ingest.process(path, {}, known={"artist": "Ish Melton", "title": "Que Se Abra El Cielo (Drum Cam)",
+                                          "feat": "", "source": "youtube", "confidence": 0.85})
+    assert res.action == "moved" and res.artist == "Ish Melton"
+    assert res.target.name == "Ish Melton - Que Se Abra El Cielo (Drum Cam).mp3"
+    assert res.target.parent.name == "Ish Melton" and res.source == "youtube"
+    assert not called, "ni huella ni IA: el nombre ya venia decidido"

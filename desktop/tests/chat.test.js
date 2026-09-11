@@ -271,6 +271,9 @@ describe('descargas pedidas al asistente', () => {
     const report = w.findAll('.chat-msg.ai').find(m => m.text().includes('Descargada'))
     expect(report).toBeTruthy()
     expect(report.text()).toContain('Bethel Music - I Want Jesus (Live)')
+    // el nombre de YouTube no era el de archivo: se dice, para que nadie crea
+    // que entro otra cancion
+    expect(report.text()).toContain('pediste «I Want Jesus»')
     expect(report.text()).toContain('Ya la tenías')
     expect(report.text()).toContain('Carol Braga - Ruja O Leao')
     expect(report.text()).toContain('otra versión')
@@ -288,8 +291,11 @@ describe('descargas pedidas al asistente', () => {
     const sent = api.chat.mock.calls.at(-1)[0]
     expect(sent.at(-1).role).toBe('me')
     expect(sent.at(-1).text).toContain('La descarga ha terminado')
-    // con los ids exactos de lo que entro: sin ellos el modelo se los inventaba
-    expect(sent.at(-1).text).toContain('267 = «Bethel Music - I Want Jesus (Live)»')
+    // con los ids exactos de lo que entro y la correspondencia con lo pedido:
+    // sin ellos el modelo se inventaba ids y creia que habia entrado otra cancion
+    expect(sent.at(-1).text).toContain('pediste «I Want Jesus» → entro como «Bethel Music - I Want Jesus (Live)» (id 267)')
+    expect(sent.at(-1).text).toContain('NO la vuelvas a descargar')
+    expect(sent.at(-1).text).toContain('añadir a una lista no necesita confirmacion')
     // y el historial que recibe el nucleo lleva las herramientas de cada mensaje
     const withTools = sent.find(m => m.tools?.some(t => t.name === 'download_music'))
     expect(withTools).toBeTruthy()
@@ -328,7 +334,7 @@ describe('descargas pedidas al asistente', () => {
     expect(api.chat).toHaveBeenCalledTimes(2)
     const sent = api.chat.mock.calls.at(-1)[0]
     expect(sent.at(-1).event).toBe('download_done')
-    expect(sent.at(-1).text).toContain('301 = «Barak - Mi Gozo»')
+    expect(sent.at(-1).text).toContain('«Barak - Mi Gozo» (id 301)')
     expect(sent.at(-1).text).toContain('responde solo: Terminado')
   })
 

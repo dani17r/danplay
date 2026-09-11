@@ -220,3 +220,88 @@ def detect_artist(name: str, vocab: dict) -> dict:
     if not title:
         title, score = base, min(score, 0.5)
     return {"artist": artist, "title": title, "feat": feat, "confidence": round(score, 2)}
+
+
+# ------------------------------------------------- nombre desde YouTube
+
+# Lo que sobra en el nombre de un canal para que sea un nombre de artista.
+_CHANNEL_NOISE = re.compile(r"\s*(?:-\s*topic|vevo|official|oficial|\(oficial\)|tv|hd)\s*$",
+                            re.IGNORECASE)
+
+
+def channel_as_artist(channel: str) -> str:
+    """El canal como artista: «BarakVEVO» → «Barak», «Ish Melton - Topic» → «Ish Melton»."""
+    c = clean(channel or "")
+    c = re.sub(r"vevo$", "", c, flags=re.IGNORECASE).strip()
+    c = _CHANNEL_NOISE.sub("", c).strip(" -–—,|")
+    return c
+
+
+def _tail_to_parens(title: str) -> str:
+    """«Que Se Abra El Cielo - Drum Cam» → «Que Se Abra El Cielo (Drum Cam)».
+
+    En la biblioteca el guion separa artista y titulo; uno de mas dentro del
+    titulo confunde a todo lo que lo lee despues.
+    """
+    parts = [x.strip(" -–—,|") for x in re.split(r"\s+[-–—|]\s+", title) if x.strip(" -–—,|")]
+    if not parts:
+        return ""
+    head, *rest = parts
+    for extra in rest:
+        if f"({extra.lower()})" not in head.lower():
+            head += f" ({extra})"
+    return head
+
+
+def from_video(title: str, channel: str, vocab: dict | None = None,
+               yt_artist: str = "", yt_track: str = "") -> dict:
+    """Artista y titulo de una descarga, a partir de lo que dice YouTube.
+
+    Regla del usuario: lo que se baja se llama como en YouTube, limpio, y no
+    se le cuelga a otro artista porque la huella acustica diga que suena
+    como su cancion (una «Drum Cam» de «Que se abra el cielo» no es de Miel
+    San Marcos). Por orden:
+
+      1. los datos de YouTube Music (`artist`/`track`), si vienen: son los
+         unicos metadatos de verdad;
+      2. un artista que ya tienes en Artistas/ y aparece en el titulo;
+      3. el canal, si aparece en el titulo («X - Ish Melton Drum Cam»): esa
+         parte es el artista y el resto, el titulo;
+      4. «Artista - Titulo», el orden habitual en YouTube;
+      5. sin guion: el titulo entero, y el canal como artista.
+    """
+    vocab = vocab or {}
+    if yt_artist and yt_track:
+        artist = clean(re.sub(r"\s*-\s*topic\s*$", "", yt_artist, flags=re.IGNORECASE))
+        base, feat = extract_feat(clean(yt_track))
+        if artist:
+            return {"artist": artist, "title": base or clean(title), "feat": feat,
+                    "source": "youtube-music", "confidence": 0.95}
+
+    base, feat = extract_feat(clean(title))
+    base = base.strip(" -–—,|")
+
+    known = detect_artist(base, vocab)
+    if known["artist"] and known["confidence"] >= 0.8:
+        return {"artist": known["artist"], "title": _tail_to_parens(known["title"]) or base,
+                "feat": known["feat"] or feat, "source": "youtube", "confidence": 0.9}
+
+    artist = channel_as_artist(channel)
+    flat_base, flat_artist = _flat(base), _flat(artist)
+    if artist and len(flat_artist) >= 3 and flat_artist in flat_base:
+        pattern = re.compile(r"\s*\b" + r"[\s.'\-]*".join(map(re.escape, flat_artist.split()))
+                             + r"\b\s*", re.IGNORECASE)
+        rest = pattern.sub(" ", strip_accents(base))
+        rest = re.sub(r"\s{2,}", " ", rest).strip(" -–—,|")
+        rest = re.sub(r"^\s*(feat\.?|ft\.?|con|y|&|x|,)\s+", "", rest, flags=re.IGNORECASE)
+        return {"artist": artist, "title": _tail_to_parens(rest) or base, "feat": feat,
+                "source": "youtube", "confidence": 0.85}
+
+    parts = [x.strip(" -–—,|") for x in re.split(r"\s+[-–—|]\s+", base, maxsplit=1)]
+    if len(parts) == 2 and all(parts):
+        left, right = parts
+        return {"artist": left, "title": _tail_to_parens(right), "feat": feat,
+                "source": "youtube", "confidence": 0.75}
+
+    return {"artist": artist, "title": _tail_to_parens(base) or base, "feat": feat,
+            "source": "youtube", "confidence": 0.6 if artist else 0.0}

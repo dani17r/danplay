@@ -147,6 +147,22 @@ lanzar ffmpeg desde el segundo pedido: una tubería no se rebobina.
 Todo lo demás sigue yendo por el decodificador nativo, que es más rápido y no
 depende de nada externo.
 
+## Lo descargado se llama como en YouTube
+
+La cascada de identificación reconoce una canción por cómo suena. Para lo que
+entra por `Entrada/` es lo mejor que hay; para una descarga, no: una «Drum
+Cam» de «Que se abra el cielo» suena como el original y la huella la
+archivaba como «Miel San Marcos - Que Se Abra El Cielo», que no es quien la
+toca. El usuario no reconocía lo que acababa de pedir y volvía a bajarlo.
+
+Para las descargas el nombre lo pone YouTube, limpio (`names.from_video`):
+los datos de YouTube Music si vienen; si no, un artista que ya tienes y
+aparece en el título; si no, el canal cuando aparece en el título («X - Ish
+Melton Drum Cam» → Ish Melton); si no, «Artista - Título», el orden habitual;
+y sin guion, el título entero con el canal de artista. `ingest.process`
+recibe ese nombre ya decidido (`known`) y no llama ni a la huella ni a la IA.
+El aviso de fin de descarga dice «pediste X → entró como Y (id N)».
+
 ## La base de datos es desechable
 
 Esta es la decisión de diseño que gobierna todo lo demás.

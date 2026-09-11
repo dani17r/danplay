@@ -93,11 +93,26 @@ const stopFollowing = downloads.onFinished((s) => {
 })
 onUnmounted(stopFollowing)
 
-/** Una fila del resultado, legible. */
+/** Una fila del resultado, legible: con lo que quedo archivada. */
 function describe (r) {
   const name = r.song || r.title || r.source || r.requested || 'un tema'
   const who = r.artist ? `${r.artist} - ` : ''
   return `${who}${name}`
+}
+
+// Como se identifico, en palabras. El nombre con el que entra una descarga lo
+// decide esto, no el titulo de YouTube; si no se dice, la persona (y el
+// modelo) creen que se bajo otra cancion.
+const IDENTIFIED = {
+  tags: 'por sus etiquetas', fingerprint: 'por huella acústica',
+  heuristic: 'por el nombre', ai: 'por la IA', none: 'sin identificar'
+}
+function requestedAs (r) {
+  const asked = (r.source || r.title || '').trim()
+  const filed = describe(r)
+  if (!asked || asked.toLowerCase() === filed.toLowerCase()) return ''
+  const how = IDENTIFIED[r.identified_by] ? ` (${IDENTIFIED[r.identified_by]})` : ''
+  return ` — pediste «${asked}»; se archivó con ese nombre${how}`
 }
 
 /**
@@ -117,7 +132,7 @@ function reportDownload (e) {
       let where = ''
       if (r.action === 'review') where = ' → en *Revisar/*, sin artista claro'
       else if (r.forced) where = ' (otra versión)'
-      lines.push(`- ${describe(r)}${where}`)
+      lines.push(`- **${describe(r)}**${where}${requestedAs(r)}`)
     }
   }
   if (already.length) {
@@ -153,13 +168,17 @@ function reportDownload (e) {
   // Con los ids EXACTOS de lo que entro. Sin ellos, el modelo se los
   // inventaba y la lista salia con otras canciones.
   if (ok.length) {
-    const ids = ok.filter(r => r.id).map(r => `${r.id} = «${describe(r)}»`).join('; ')
-    const notice = '[aviso de la app] La descarga ha terminado; el resultado esta en el mensaje ' +
-         'anterior. Las canciones que han entrado, con su id en la biblioteca: ' +
-         (ids || 'ninguna con id') + '. Usa EXACTAMENTE esos ids. ' +
-         'Si en lo que te pedi quedaba algo por hacer con esas canciones ' +
-         '(una lista, ponerlas a sonar…), hazlo ahora con las herramientas y cuentamelo ' +
-         'en una linea; no toques nada mas. Si no quedaba nada, responde solo: Terminado.'
+    const ids = ok.filter(r => r.id).map(r => {
+      const asked = (r.source || r.title || '').trim()
+      return `pediste «${asked || r.requested || '?'}» → entro como «${describe(r)}» (id ${r.id})`
+    }).join('; ')
+    const notice = '[aviso de la app] La descarga ha terminado y ES la que pediste; el nombre con ' +
+         'el que entra lo decide la identificacion, no YouTube. ' +
+         (ids || 'No entro ninguna con id.') + '. Usa EXACTAMENTE esos ids y NO la vuelvas a descargar. ' +
+         'Si en lo que te pedi quedaba algo por hacer con esas canciones (añadirla a una lista, ' +
+         'ponerla a sonar…), hazlo AHORA con las herramientas —añadir a una lista no necesita ' +
+         'confirmacion— y cuentamelo en una linea; no toques nada mas. ' +
+         'Si no quedaba nada, responde solo: Terminado.'
     if (thinking.value) queued = { text: notice, event: 'download_done' }
     else send(notice, true, 'download_done')
   }

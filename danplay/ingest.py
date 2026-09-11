@@ -103,7 +103,14 @@ def resolve(path, vocab) -> dict:
 
 
 def process(path, vocab=None, dry_run=False, escribir_tags=None,
-             convert_mp3=None) -> Result:
+             convert_mp3=None, known=None) -> Result:
+    """Identifica, renombra y archiva un archivo.
+
+    `known` salta la cascada: es {artist, title, feat, source} ya decidido
+    por quien llama. Lo usan las descargas, donde el nombre lo pone YouTube
+    (ver `names.from_video`): la huella acustica archivaba una «Drum Cam» de
+    una cancion bajo el artista original, que no es quien la toca.
+    """
     path = Path(path)
     convert_mp3 = config.CONVERT_TO_MP3 if convert_mp3 is None else convert_mp3
     vocab = vocab if vocab is not None else names.vocabulary(config.ARTISTS_DIR)
@@ -124,7 +131,7 @@ def process(path, vocab=None, dry_run=False, escribir_tags=None,
     elif convert_mp3 and dry_run and convert.needs_convert(path):
         res.warnings.append("se convertiria a mp3")
 
-    d = resolve(path, vocab)
+    d = dict(known) if known and known.get("title") else resolve(path, vocab)
     res.artist, res.title = d["artist"], d["title"]
     res.feat, res.extra = d.get("feat", ""), d.get("extra", "")
     res.source, res.confidence = d.get("source", ""), float(d.get("confidence", 0))

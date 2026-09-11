@@ -424,7 +424,12 @@ def download(inbox: str, quality=None, file_it=True, results=5, force=False,
                 if progress:
                     progress({"phase": "filing", "index": i, "total": len(items),
                               "name": t["title"], "percent": 100})
-                res = ingest.process(r["file"], vocab, convert_mp3=False)
+                # El nombre lo pone YouTube (limpio), no la huella acustica:
+                # una «Drum Cam» de una cancion no es del artista original.
+                known = names.from_video(r.get("title") or t["title"],
+                                         r.get("channel") or t.get("channel", ""),
+                                         vocab, t.get("artist", ""), t.get("track", ""))
+                res = ingest.process(r["file"], vocab, convert_mp3=False, known=known)
                 r["action"] = res.action
                 r["artist"] = res.artist
                 r["song"] = res.title

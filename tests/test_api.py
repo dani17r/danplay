@@ -1603,10 +1603,11 @@ def test_una_herramienta_que_falla_no_cuenta_como_hecho(cliente):
 
 
 def test_el_aviso_de_fin_de_descarga_no_dispara_el_detector(cliente):
-    """El propio aviso de la app pide «responde solo: Terminado» y el modelo
-    puede decir «Ya estan». Eso no es narrar: la descarga ocurrio."""
+    """El aviso de la app pide «responde solo: Terminado» y el modelo puede
+    decir «Ya estan». Eso no es narrar: la descarga ocurrio, y el juez lo
+    sabe. La primera vuelta va obligada a herramientas (el remate)."""
     from danplay import chat
-    fake = _Turnos([("Ya están en tu biblioteca.", None)], judge="SI")
+    fake = _Turnos([("", [("list_playlists", "{}")]), ("Ya están en tu biblioteca.", None)], judge="NO")
     r = _con_cliente(fake, lambda: chat.reply([
         {"role": "user", "text": "baja estas dos"},
         {"role": "ai", "text": "Descargando 2 temas.", "app": True,
@@ -1614,9 +1615,11 @@ def test_el_aviso_de_fin_de_descarga_no_dispara_el_detector(cliente):
         {"role": "ai", "text": "**Descargadas (2):** …", "app": True,
          "tools": [{"name": "download_music", "summary": "2 descargadas"}]},
         {"role": "user", "text": "[aviso de la app] La descarga ha terminado…", "event": "download_done"}]))
+    assert fake.recibido[0]["tool_choice"] == "required"
     assert r["text"] == "Ya están en tu biblioteca."
-    assert len(fake.recibido) == 1 and not fake.judged
     assert "narrated" not in r
+    # al juez se le dijo que la descarga ya ocurrio; las frases no se miran aqui
+    assert fake.judged and "YA ocurrio" in fake.judged[0]
     # y el estado real no le dice que su ultimo mensaje no hizo nada (era de la app)
     nota = fake.recibido[0]["messages"][-1]["content"]
     assert "no uso ninguna herramienta" not in nota
@@ -1654,6 +1657,78 @@ def test_el_juez_no_se_molesta_por_conocimiento_musical(cliente):
     fake = _Turnos([("Puedo crear la lista con esas tres si quieres.", None)], judge="NO")
     _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "haz una lista"}]))
     assert fake.judged and "haz una lista" in fake.judged[0]
+
+
+def test_tras_la_descarga_el_remate_va_obligado_y_la_lista_se_hace_de_verdad(cliente):
+    """Fue aqui donde «Añadida a la lista (id: 271)» paso sin comprobar: el
+    turno del aviso de fin de descarga daba todo por hecho."""
+    from danplay import chat, playlists, library
+    _limpiar_listas("Remate")
+    playlists.create("Remate")
+    cid = library.search("", limit=1)[0]["id"]
+    fake = _Turnos([("", [("add_to_playlist", f'{{"name": "Remate", "ids": [{cid}]}}')]),
+                    ("Añadida a «Remate».", None)], judge="NO")
+    r = _con_cliente(fake, lambda: chat.reply([
+        {"role": "user", "text": "descarga esta y metela en Remate"},
+        {"role": "ai", "text": "**Descargada:** …", "app": True,
+         "tools": [{"name": "download_music", "summary": "1 descargada"}]},
+        {"role": "user", "text": f"[aviso de la app] … pediste «x» → entro como «y» (id {cid}) …",
+         "event": "download_done"}]))
+    assert fake.recibido[0]["tool_choice"] == "required", "el remate va obligado a usar herramientas"
+    assert [c["id"] for c in playlists.songs(playlists.by_name("Remate")["id"])] == [cid]
+    assert "narrated" not in r
+    # y si en ese turno solo narra («Añadida») tras consultar, el juez lo pilla
+    fake = _Turnos([("", [("playlist_songs", '{"name": "Remate"}')]),
+                    ("Añadida a «Remate», ahora tiene 2.", None),
+                    ("", [("library_summary", "{}")]), ("Nada que añadir.", None)], judge="SI")
+    _con_cliente(fake, lambda: chat.reply([
+        {"role": "user", "text": "[aviso de la app] …", "event": "download_done"}]))
+    assert fake.judged and "YA ocurrio" in fake.judged[0]
+    assert fake.recibido[2]["tool_choice"] == "required"
+    _limpiar_listas("Remate")
+
+
+def test_un_si_a_algo_que_la_app_ya_hizo_no_obliga_a_repetirlo():
+    from danplay import chat
+    assert not chat._answers_an_offer([
+        {"role": "ai", "text": "¿Confirmas que mande «X» a la papelera?"},
+        {"role": "ai", "text": "Listo, esta en la papelera del sistema.", "app": True,
+         "tools": [{"name": "delete_song", "summary": "hecho"}]},
+        {"role": "user", "text": "si"}])
+
+
+def test_el_estado_real_cuenta_las_ultimas_descargas_con_su_id(cliente):
+    from danplay import chat, library
+    cid = library.search("", limit=1)[0]["id"]
+    library.clear_download_history()
+    library.log_download({"source": "assistant", "query": "https://youtu.be/x", "ok": True,
+                          "title": "QUE SE ABRÁ EL CIELO - ISH MELTON DRUM CAM",
+                          "artist": "Ish Melton", "song": "Que Se Abra El Cielo (Drum Cam)",
+                          "song_id": cid})
+    nota = chat._context_note([{"role": "user", "text": "hola"}])
+    assert "ISH MELTON DRUM CAM" in nota and f"id {cid}" in nota
+    assert "No la vuelvas a bajar" in nota
+    library.clear_download_history()
+
+
+def test_el_dialogo_avisa_si_esa_direccion_se_bajo_hace_poco(cliente):
+    from danplay import chat, library
+    cid = library.search("", limit=1)[0]["id"]
+    library.clear_download_history()
+    library.log_download({"source": "assistant", "query": "https://youtu.be/x", "ok": True,
+                          "title": "x", "song_id": cid})
+    texto = chat._describe("download_music", {"items": ["https://youtu.be/x"], "force": True})
+    assert "OJO" in texto and "se bajo hace 0 min" in texto and "duplica" in texto
+    assert "OJO" not in chat._describe("download_music", {"items": ["https://youtu.be/otra"]})
+    library.clear_download_history()
+
+
+def test_el_prompt_deja_las_confirmaciones_a_la_app():
+    from danplay import chat
+    s = chat.SYSTEM_PROMPT
+    assert "QUIEN PREGUNTA ES LA APP, NO TU" in s
+    assert "sin pedir permiso" in s
+    assert "NO el titulo de YouTube" in s
 
 
 def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
