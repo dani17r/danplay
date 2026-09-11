@@ -210,6 +210,15 @@ class SheetIn(Body_):
     with_lyrics: bool = False
 
 
+class StudyIn(Body_):
+    """El modo estudio de una cancion: bucle [a, b], velocidad, marcadores
+    [{t, label}] y notas. Lo que no venga se quita."""
+    loop: list[float] | None = None
+    speed: float | None = None
+    markers: list[dict] | None = None
+    notes: str | None = Field(default=None, max_length=4000)
+
+
 class ChatConfirmIn(Body_):
     tool: str = Field(min_length=1, max_length=64)
     args: dict = Field(default_factory=dict)
@@ -1048,6 +1057,14 @@ async def confirm_tool(body: ChatConfirmIn = Body(...)):
     def work():
         return chat.confirm(body.tool, body.args)
     return await asyncio.get_running_loop().run_in_executor(None, work)
+
+
+@app.put("/api/song/{cid}/study")
+def song_study(cid: int, body: StudyIn = Body(...)):
+    c = library.set_study(cid, body.model_dump(exclude_none=True))
+    if not c:
+        raise HTTPException(404, "no existe")
+    return c
 
 
 @app.post("/api/playlists/{pid}/sheet")

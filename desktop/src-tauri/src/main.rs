@@ -195,6 +195,7 @@ fn main() {
             queue::seek,
             queue::set_volume,
             queue::set_speed,
+            queue::set_loop,
             queue::playback_state,
             queue::queue_items,
             tray::show_window,

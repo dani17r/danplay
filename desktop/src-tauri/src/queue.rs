@@ -137,6 +137,11 @@ pub struct PlaybackState {
     pub error: String,
     pub has_output: bool,
     pub origin: Option<serde_json::Value>,
+    /// La velocidad conserva el tono (ffmpeg); false = cambia el tono (sin ffmpeg).
+    pub pitch_preserved: bool,
+    /// Bucle A-B en segundos; 0,0 = sin bucle.
+    pub loop_a: f64,
+    pub loop_b: f64,
 }
 
 pub enum Command {
@@ -163,6 +168,8 @@ pub enum Command {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     NudgeVolume(f32),
     Speed(f32),
+    /// Repetir de A a B; None lo quita.
+    Loop(Option<(f64, f64)>),
 }
 
 enum Message {
@@ -435,6 +442,9 @@ fn compose(inner: &Inner, audio: &player::State) -> PlaybackState {
         error: audio.error.clone(),
         has_output: audio.has_output,
         origin: inner.origin.clone(),
+        pitch_preserved: audio.pitch_preserved,
+        loop_a: audio.loop_a,
+        loop_b: audio.loop_b,
         track,
     }
 }
@@ -659,6 +669,9 @@ fn apply(inner: &mut Inner, command: Command, player: &player::Handle, address: 
         Command::Speed(value) => {
             let _ = player.send(player::Command::Speed(value));
         }
+        Command::Loop(ab) => {
+            let _ = player.send(player::Command::Loop(ab));
+        }
     }
 }
 
@@ -726,6 +739,16 @@ pub fn set_volume(playback: tauri::State<'_, Playback>, value: f32) {
 #[tauri::command]
 pub fn set_speed(playback: tauri::State<'_, Playback>, value: f32) {
     playback.send(Command::Speed(value));
+}
+
+/// Bucle A-B para estudiar un trozo. Sin `a` ni `b` (o con b <= a) se quita.
+#[tauri::command]
+pub fn set_loop(playback: tauri::State<'_, Playback>, a: Option<f64>, b: Option<f64>) {
+    let ab = match (a, b) {
+        (Some(a), Some(b)) if b > a => Some((a, b)),
+        _ => None,
+    };
+    playback.send(Command::Loop(ab));
 }
 
 #[tauri::command]

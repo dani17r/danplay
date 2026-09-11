@@ -16,7 +16,8 @@ import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
 import SliderField from './ui/SliderField.vue'
 
-const emit = defineEmits(['goToOrigin', 'playSelected'])
+const props = defineProps({ study: Boolean })
+const emit = defineEmits(['goToOrigin', 'playSelected', 'toggleStudy'])
 
 const player = usePlayback()
 const {
@@ -31,7 +32,9 @@ const {
   shuffle,
   error,
   hasOutput,
-  origin
+  origin,
+  loopA,
+  loopB
 } = player
 
 // Como se pinta cada modo. El icono dice «lista o canción» y la marca dice
@@ -280,6 +283,9 @@ useHotkeys({
     <div class="pl-bar">
       <span class="time">{{ formatTime(position) }}</span>
       <div class="track" @click="seekTo">
+        <!-- el tramo del bucle A-B, si lo hay -->
+        <div v-if="loopB > loopA && duration" class="track-loop"
+             :style="{ left: (loopA / duration) * 100 + '%', width: ((loopB - loopA) / duration) * 100 + '%' }"></div>
         <div
           class="track-fill"
           :style="{ width: duration ? (position / duration) * 100 + '%' : '0%' }"
@@ -311,6 +317,11 @@ useHotkeys({
       />
     </div>
 
+    <!-- el modo estudio: bucle, velocidad sin cambiar el tono, marcadores, notas -->
+    <button class="pl-btn pl-study" :class="{ on: props.study }" title="Modo estudio: bucle A-B, velocidad sin cambiar el tono, marcadores y notas"
+            @click="emit('toggleStudy')">
+      <Icon n="academic" :t="16" />
+    </button>
     <!-- la letra en grande, en su propia ventana: para el proyector -->
     <button class="pl-btn pl-project" title="Proyectar la letra (ventana aparte, para el proyector)"
             @click="projection.show()">

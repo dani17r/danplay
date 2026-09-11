@@ -292,6 +292,12 @@ function answers(state) {
                             month: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
                             total: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 } }),
     aiFallback: async (enabled) => { state.aiFallback = enabled; return aiOverview(state) },
+    setStudy: async (id, study) => {
+      const s = find(id)
+      const raw = study && Object.keys(study).length ? JSON.stringify(study) : ''
+      if (s) s.study = raw
+      return s ? { ...s } : null
+    },
     playlistSheet: async (id) => ({ file: `/musica/Listas/lista-${id}.html` }),
     chatConfirm: async () => ({ ok: true, result: {}, text: 'hecho' }),
     chatTools: async () => ({ model: 'x', available: false, tools: [] })
@@ -434,6 +440,7 @@ export function createPlaybackDouble() {
     seek: vi.fn(async (seconds) => emit({ position: seconds })),
     setVolume: vi.fn(async (value) => emit({ volume: value })),
     setSpeed: vi.fn(async (value) => emit({ speed: value })),
+    setLoop: vi.fn(async (a, b) => emit({ loop_a: a == null ? 0 : a, loop_b: b == null ? 0 : b })),
     state: vi.fn(async () => ({ ...state })),
     queueItems: vi.fn(async () => ({ items, origin })),
     onState: vi.fn(async (fn) => {

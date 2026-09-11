@@ -28,6 +28,12 @@ pub struct State {
     pub speed: f32,
     pub error: String,
     pub has_output: bool,
+    /// La velocidad conserva el tono (ffmpeg `atempo`). Sin ffmpeg, rodio
+    /// cambia la velocidad a la antigua, con el tono detras.
+    pub pitch_preserved: bool,
+    /// Bucle A-B para estudiar un trozo, en segundos; 0,0 = sin bucle.
+    pub loop_a: f64,
+    pub loop_b: f64,
 }
 
 /// Lo que el hilo de audio cuenta hacia fuera.
@@ -58,6 +64,8 @@ pub enum Command {
     Seek(f64),
     Volume(f32),
     NudgeVolume(f32),
+    /// Repetir de A a B (segundos de la cancion); None lo quita.
+    Loop(Option<(f64, f64)>),
     Speed(f32),
 }
 
@@ -113,28 +121,43 @@ fn ffmpeg() -> Option<&'static str> {
 ///
 /// `hint` es la duracion que sabe el indice; solo se usa para los formatos que
 /// pasan por ffmpeg, donde no hay de donde sacarla.
+/// Lo que sale de abrir una cancion: el sink, la duracion que anuncia el
+/// archivo y el factor de tempo que aplica ffmpeg (1.0 si no pasa por el).
+struct Opened {
+    sink: Sink,
+    announced: Option<f64>,
+    tempo: f32,
+}
+
 fn open_sink(
     handle: &OutputStreamHandle,
     path: &str,
     volume: f32,
     speed: f32,
     hint: f64,
-) -> Result<(Sink, Option<f64>), String> {
+) -> Result<Opened, String> {
     let sink = Sink::try_new(handle).map_err(|e| e.to_string())?;
     sink.set_volume(volume);
-    sink.set_speed(speed);
+    let slowed = (speed - 1.0).abs() > 1e-4;
 
-    // opus, wma y compañia: el decodificador no los conoce, asi que los
-    // decodifica ffmpeg y nos manda el audio crudo.
-    if transcode::is_handled(path) {
+    // A otra velocidad, ffmpeg (`atempo`) la cambia SIN mover el tono, que
+    // es lo que se quiere para estudiar un trozo: pasa por el cualquier
+    // formato. Sin ffmpeg, rodio la cambia a la antigua (con el tono).
+    let by_ffmpeg = transcode::is_handled(path) || (slowed && ffmpeg().is_some());
+    if by_ffmpeg {
         let Some(ffmpeg) = ffmpeg() else {
             return Err(no_ffmpeg(path));
         };
-        let source = transcode::Transcoded::open(ffmpeg, path, Some(hint))?;
-        let announced = source.total_duration().map(|d| d.as_secs_f64());
+        let tempo = if slowed { speed } else { 1.0 };
+        let source = transcode::Transcoded::open_at_tempo(ffmpeg, path, Some(hint), tempo)?;
+        // la duracion anunciada se devuelve en tiempo de la cancion
+        let announced = source
+            .total_duration()
+            .map(|d| d.as_secs_f64() * f64::from(source.tempo()));
         sink.append(source);
-        return Ok((sink, announced));
+        return Ok(Opened { sink, announced, tempo });
     }
+    sink.set_speed(speed);
 
     let file = File::open(path).map_err(|e| {
         let name = std::path::Path::new(path)
@@ -150,7 +173,19 @@ fn open_sink(
     let source = Decoder::new(BufReader::new(file)).map_err(|e| readable(&e.to_string(), path))?;
     let announced = source.total_duration().map(|d| d.as_secs_f64());
     sink.append(source);
-    Ok((sink, announced))
+    Ok(Opened { sink, announced, tempo: 1.0 })
+}
+
+/// Donde va la cancion, en sus segundos. rodio cuenta en tiempo de salida,
+/// que a otra velocidad (por ffmpeg) no es el mismo.
+fn song_position(sink: &Sink, tempo: f32) -> f64 {
+    sink.get_pos().as_secs_f64() * f64::from(tempo)
+}
+
+/// Ir a un segundo de la cancion, pase por donde pase el audio.
+fn seek_song(sink: &Sink, seconds: f64, tempo: f32) -> Result<(), rodio::source::SeekError> {
+    let out = seconds.max(0.0) / f64::from(tempo.max(0.01));
+    sink.try_seek(Duration::from_secs_f64(out))
 }
 
 /// Ese formato necesita ffmpeg y no lo hay.
@@ -199,6 +234,10 @@ struct Carry {
     speed: f32,
     path: String,
     duration: f64,
+    /// El factor que aplica ffmpeg al sink abierto (1.0 si no pasa por el):
+    /// rodio cuenta en tiempo de salida y la cancion va en el suyo.
+    tempo: f32,
+    loop_ab: Option<(f64, f64)>,
     /// Una orden que llego mientras no habia salida de audio. Se atiende en
     /// cuanto la haya, en vez de perderse.
     pending: Option<Command>,
@@ -237,6 +276,8 @@ impl Handle {
                     speed: 1.0,
                     path: String::new(),
                     duration: 0.0,
+                    tempo: 1.0,
+                    loop_ab: None,
                     pending: None,
                 };
                 // El bucle se supervisa: si un archivo hace panic al
@@ -333,6 +374,7 @@ fn open_output(
             Ok(Command::Volume(v)) => carry.volume = v.clamp(0.0, 1.0),
             Ok(Command::NudgeVolume(d)) => carry.volume = (carry.volume + d).clamp(0.0, 1.0),
             Ok(Command::Speed(v)) => carry.speed = v.clamp(0.25, 3.0),
+            Ok(Command::Loop(ab)) => carry.loop_ab = ab,
             Ok(Command::Stop) | Ok(Command::Fail(_)) => {
                 carry.path.clear();
                 carry.duration = 0.0;
@@ -398,7 +440,7 @@ fn run(
                             s.stop()
                         }
                         match open_sink(&handle, &r, carry.volume, carry.speed, hint) {
-                            Ok((s, announced)) => {
+                            Ok(Opened { sink: s, announced, tempo }) => {
                                 s.play();
                                 // la del indice manda: en mp3 de
                                 // bitrate variable sin cabecera
@@ -409,6 +451,7 @@ fn run(
                                     announced.unwrap_or(0.0)
                                 };
                                 carry.path = r.clone();
+                                carry.tempo = tempo;
                                 sink = Some(s);
                                 was_finished = false;
                             }
@@ -449,8 +492,9 @@ fn run(
                                 carry.speed,
                                 carry.duration,
                             ) {
-                                Ok((s, _)) => {
+                                Ok(Opened { sink: s, tempo, .. }) => {
                                     s.play();
+                                    carry.tempo = tempo;
                                     sink = Some(s);
                                     was_finished = false;
                                 }
@@ -495,8 +539,9 @@ fn run(
                                 carry.speed,
                                 carry.duration,
                             ) {
-                                Ok((s, _)) => {
+                                Ok(Opened { sink: s, tempo, .. }) => {
                                     s.play();
+                                    carry.tempo = tempo;
                                     sink = Some(s);
                                     was_finished = false;
                                 }
@@ -504,12 +549,13 @@ fn run(
                             }
                         }
                         if let Some(s) = &sink {
-                            if let Err(e) =
-                                s.try_seek(Duration::from_secs_f64(seconds.max(0.0)))
-                            {
+                            if let Err(e) = seek_song(s, seconds, carry.tempo) {
                                 failure = Some(format!("no se puede buscar aqui: {e}"));
                             }
                         }
+                    }
+                    Command::Loop(ab) => {
+                        carry.loop_ab = ab.filter(|(a, b)| *b > *a + 0.2 && *a >= 0.0);
                     }
                     Command::Volume(v) => {
                         carry.volume = v.clamp(0.0, 1.0);
@@ -525,8 +571,37 @@ fn run(
                     }
                     Command::Speed(v) => {
                         carry.speed = v.clamp(0.25, 3.0);
+                        // Con ffmpeg la velocidad se aplica al decodificar:
+                        // hay que reabrir la cancion donde iba. Sin el, rodio
+                        // la cambia al vuelo (y el tono con ella).
+                        let reopen = ffmpeg().is_some() && !carry.path.is_empty();
                         if let Some(s) = &sink {
-                            s.set_speed(carry.speed)
+                            if reopen && !s.empty() {
+                                let at = song_position(s, carry.tempo);
+                                let paused = s.is_paused();
+                                match open_sink(
+                                    &handle,
+                                    &carry.path,
+                                    carry.volume,
+                                    carry.speed,
+                                    carry.duration,
+                                ) {
+                                    Ok(Opened { sink: fresh, tempo, .. }) => {
+                                        let _ = seek_song(&fresh, at, tempo);
+                                        if paused {
+                                            fresh.pause();
+                                        } else {
+                                            fresh.play();
+                                        }
+                                        s.stop();
+                                        carry.tempo = tempo;
+                                        sink = Some(fresh);
+                                    }
+                                    Err(e) => failure = Some(e),
+                                }
+                            } else {
+                                s.set_speed(carry.speed)
+                            }
                         }
                     }
                 }
@@ -565,9 +640,10 @@ fn run(
                             carry.speed,
                             carry.duration,
                         ) {
-                            Ok((s, _)) => {
+                            Ok(Opened { sink: s, tempo, .. }) => {
                                 let _ = s.try_seek(Duration::from_secs_f64(pos.max(0.0)));
                                 s.play();
+                                carry.tempo = tempo;
                                 sink = Some(s);
                                 was_finished = false;
                             }
@@ -588,6 +664,15 @@ fn run(
             stalled_since = None;
         }
 
+        // ------------------------------------------- bucle A-B
+        // Al pasar de B se vuelve a A. Sirve para machacar un trozo; es lo
+        // primero que pide cualquiera que estudia una cancion.
+        if let (Some((a, b)), Some(s)) = (carry.loop_ab, &sink) {
+            if !s.is_paused() && !s.empty() && song_position(s, carry.tempo) >= b {
+                let _ = seek_song(s, a, carry.tempo);
+            }
+        }
+
         // ------------------------------------------- estado nuevo
         let finished = sink.as_ref().map_or(false, |s| s.empty());
         let current = {
@@ -600,7 +685,7 @@ fn run(
             match &sink {
                 Some(s) => {
                     e.playing = !s.is_paused() && !s.empty();
-                    e.position = s.get_pos().as_secs_f64();
+                    e.position = song_position(s, carry.tempo);
                 }
                 None => {
                     e.playing = false;
@@ -611,6 +696,10 @@ fn run(
             e.duration = carry.duration;
             e.volume = carry.volume;
             e.speed = carry.speed;
+            e.pitch_preserved = (carry.speed - 1.0).abs() < 1e-4 || carry.tempo != 1.0;
+            let (a, b) = carry.loop_ab.unwrap_or((0.0, 0.0));
+            e.loop_a = a;
+            e.loop_b = b;
             e.clone()
         };
 
@@ -634,7 +723,10 @@ fn run(
             || current.duration != last_sent.duration
             || current.has_output != last_sent.has_output
             || (current.volume - last_sent.volume).abs() > f32::EPSILON
-            || (current.speed - last_sent.speed).abs() > f32::EPSILON;
+            || (current.speed - last_sent.speed).abs() > f32::EPSILON
+            || current.pitch_preserved != last_sent.pitch_preserved
+            || (current.loop_a - last_sent.loop_a).abs() > f64::EPSILON
+            || (current.loop_b - last_sent.loop_b).abs() > f64::EPSILON;
         let due = current.playing && last_tick.elapsed() >= TICK;
         if changed || due {
             last_sent = current.clone();
@@ -839,6 +931,47 @@ mod tests {
         m.send(Command::Toggle).unwrap();
         wait_ms(300);
         assert!(m.state().playing, "deberia haber reanudado");
+    }
+
+    /// A media velocidad (por ffmpeg, sin cambiar el tono) la posicion que se
+    /// cuenta es la de la cancion: en un segundo de reloj avanza medio. Y el
+    /// bucle A-B vuelve a A al pasar de B.
+    #[test]
+    fn slow_tempo_keeps_song_time_and_the_ab_loop_wraps() {
+        if !has_sample() || ffmpeg().is_none() {
+            return;
+        }
+        let (m, _rx) = handle();
+        wait_ms(250);
+        if !m.state().has_output {
+            eprintln!("sin tarjeta de sonido; se omite");
+            return;
+        }
+        m.send(Command::Speed(0.5)).unwrap();
+        m.send(Command::Play { path: sample(), duration: 0.0 }).unwrap();
+        wait_ms(700);
+        m.send(Command::Seek(10.0)).unwrap();
+        wait_ms(400);
+        let start = m.state();
+        assert!(start.pitch_preserved, "con ffmpeg la velocidad conserva el tono");
+        assert!((9.0..12.5).contains(&start.position), "tras buscar a 10 s: {}", start.position);
+        wait_ms(1500);
+        let later = m.state();
+        let advanced = later.position - start.position;
+        assert!((0.4..1.3).contains(&advanced), "a mitad de velocidad avanzo {advanced} s en 1,5 s");
+
+        // bucle: de 20 a 21,5 s; al pasar de B tiene que volver cerca de A
+        m.send(Command::Loop(Some((20.0, 21.5)))).unwrap();
+        m.send(Command::Speed(1.0)).unwrap();
+        m.send(Command::Seek(21.0)).unwrap();
+        wait_ms(1800);
+        let looped = m.state();
+        assert!((19.5..21.6).contains(&looped.position), "el bucle no volvio a A: {}", looped.position);
+        assert_eq!((looped.loop_a, looped.loop_b), (20.0, 21.5));
+        m.send(Command::Loop(None)).unwrap();
+        wait_ms(200);
+        assert_eq!(m.state().loop_b, 0.0);
+        m.send(Command::Stop).unwrap();
     }
 
     /// Pausar y reanudar explicitamente (lo que manda el escritorio por MPRIS)

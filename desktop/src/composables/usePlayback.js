@@ -33,7 +33,11 @@ const EMPTY = {
   has_next: false,
   error: '',
   has_output: true,
-  origin: null
+  origin: null,
+  // modo estudio: la velocidad conserva el tono, y el bucle A-B (0,0 = sin bucle)
+  pitch_preserved: true,
+  loop_a: 0,
+  loop_b: 0
 }
 
 /**
@@ -149,6 +153,11 @@ function createWebBackend() {
 
   audio.addEventListener('timeupdate', () => {
     s.position = audio.currentTime || 0
+    // bucle A-B: al pasar de B, vuelta a A (Rust hace lo mismo en la app)
+    if (s.loop_b > s.loop_a && s.position >= s.loop_b) {
+      audio.currentTime = s.loop_a
+      s.position = s.loop_a
+    }
     push()
   })
   audio.addEventListener('durationchange', () => {
@@ -218,7 +227,14 @@ function createWebBackend() {
     },
     setSpeed: async (value) => {
       s.speed = clamp(Number(value) || 1, 0.25, 3)
+      // el navegador conserva el tono al cambiar playbackRate
       audio.playbackRate = s.speed
+      push()
+    },
+    setLoop: async (a, b) => {
+      const ok = Number.isFinite(a) && Number.isFinite(b) && b > a
+      s.loop_a = ok ? a : 0
+      s.loop_b = ok ? b : 0
       push()
     },
     state: async () => snapshot(),
@@ -392,6 +408,13 @@ function setVolume(value) {
   remember(VOLUME_KEY, v)
   return send((b) => b.setVolume(v))
 }
+/** Repetir de A a B (segundos de la canción). Sin valores, se quita. */
+function setLoop(a = null, b = null) {
+  const ok = Number.isFinite(a) && Number.isFinite(b) && b > a
+  return send((bk) => bk.setLoop(ok ? a : null, ok ? b : null))
+}
+const clearLoop = () => setLoop(null, null)
+
 function setSpeed(value) {
   const v = clamp(Number(value) || 1, 0.25, 3)
   remember(SPEED_KEY, v)
@@ -467,6 +490,11 @@ export function usePlayback() {
     nudge,
     setVolume,
     setSpeed,
+    setLoop,
+    clearLoop,
+    loopA: computed(() => state.loop_a),
+    loopB: computed(() => state.loop_b),
+    pitchPreserved: computed(() => state.pitch_preserved !== false),
     setRepeat,
     cycleRepeat,
     setShuffle,

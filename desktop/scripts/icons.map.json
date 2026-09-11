@@ -238,5 +238,9 @@
   "tv": {
     "style": "o",
     "file": "tv.svg"
+  },
+  "academic": {
+    "style": "o",
+    "file": "academic-cap.svg"
   }
 }

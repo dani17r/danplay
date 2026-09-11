@@ -397,6 +397,32 @@ def test_ai_usage_and_fallback_settings(cliente, perfiles_ia):
     assert d["fallback"] is False
 
 
+def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
+    """Bucle, velocidad, marcadores y notas viajan con el archivo (etiqueta
+    ESTUDIO) y vuelven al indice si este se pierde, como las estrellas."""
+    from danplay import library, tags, config
+    c = library.search("", limit=1)[0]
+    body = {"loop": [12.5, 30], "speed": 0.75, "notes": "intro con cejilla 2",
+            "markers": [{"t": 45, "label": "coro"}, {"t": 12.5, "label": "verso"}, {"t": -1, "label": "no"}]}
+    d = cliente.put(f"/api/song/{c['id']}/study", json=body).json()
+    study = json.loads(d["study"])
+    assert study["loop"] == [12.5, 30.0] and study["speed"] == 0.75
+    assert [m["label"] for m in study["markers"]] == ["verso", "coro"], "ordenados y sin negativos"
+    assert study["notes"] == "intro con cejilla 2"
+    if config.WRITE_TAGS:
+        assert tags.read_all(c["path"])["study"] == d["study"], "va en la etiqueta"
+        # perdido el indice, vuelve del archivo
+        library.update(c["id"], study="")
+        assert library.by_id(c["id"])["study"] == ""
+        library.restore_study_from_tags({c["path"]: tags.read_all(c["path"])["study"]})
+        assert json.loads(library.by_id(c["id"])["study"])["speed"] == 0.75
+    # vacio lo quita; lo raro se rechaza
+    assert cliente.put(f"/api/song/{c['id']}/study", json={}).json()["study"] == ""
+    assert cliente.put(f"/api/song/{c['id']}/study", json={"loop": [30, 10]}).json()["study"] == ""
+    assert cliente.put("/api/song/999999/study", json={}).status_code == 404
+    assert cliente.put(f"/api/song/{c['id']}/study", json={"raro": 1}).status_code == 422
+
+
 def test_playlist_sheet_is_written_inside_listas(cliente):
     from danplay import playlists, library, config
     songs = library.search("", limit=2)

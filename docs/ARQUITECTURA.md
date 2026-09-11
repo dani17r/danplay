@@ -274,6 +274,21 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
   herramientas). «Probar» hace la llamada más barata posible con cada uno y
   una tercera con una herramienta de prueba.
 
+## Modo estudio
+
+Para machacar un trozo: **bucle A-B**, **velocidad sin cambiar el tono**,
+marcadores con nombre y notas por canción. La velocidad la aplica ffmpeg
+(`atempo`) al decodificar —cualquier formato pasa por él cuando no es 1×—,
+así que el tono no se mueve; rodio cuenta entonces en tiempo de salida y el
+reproductor convierte a segundos de la canción en las posiciones, las
+búsquedas y el bucle. Sin ffmpeg, rodio cambia la velocidad a la antigua y
+la barra avisa de que el tono cambia. El bucle vive en el hilo de audio (al
+pasar de B, vuelta a A), y en el navegador lo hace el `<audio>`. Lo que se
+marca se guarda con la canción, en el índice y en una etiqueta del archivo
+(`ESTUDIO`, JSON), y se recupera al escanear si el índice se pierde, como
+las estrellas y las listas. Al cerrar la barra, la canción vuelve a sonar
+normal.
+
 ## Para el atril
 
 Un repertorio se exporta también como **hoja para el atril**: un HTML en

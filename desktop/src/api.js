@@ -47,6 +47,9 @@
  * @property {string} error       en castellano, vacío si no hay
  * @property {boolean} has_output false = este equipo no tiene salida de audio
  * @property {any} origin         lo que la interfaz pasó en set_queue
+ * @property {boolean} pitch_preserved  la velocidad conserva el tono (ffmpeg)
+ * @property {number} loop_a      bucle A-B en segundos; 0,0 = sin bucle
+ * @property {number} loop_b
  */
 
 /**
@@ -73,6 +76,8 @@
  * @property {string} [chords]
  * @property {boolean} [cover]
  * @property {string[]} [playlists]
+ * @property {string} [lyrics_synced]  letra con tiempos (LRC), si la hay
+ * @property {string} [study]          modo estudio, como JSON (ver api.setStudy)
  */
 
 /**
@@ -233,6 +238,7 @@ async function request(method, path, body) {
 const GET = (r) => request('GET', r)
 const POST = (r, c) => request('POST', r, c)
 const PATCH = (r, c) => request('PATCH', r, c)
+const PUT = (r, c) => request('PUT', r, c)
 const DEL = (r) => request('DELETE', r)
 
 // El audio y la portada no viajan por el puente: los sirve Rust con un protocolo
@@ -344,6 +350,8 @@ export const playback = {
   setVolume: (value) => invoke('set_volume', { value }),
   /** @param {number} value */
   setSpeed: (value) => invoke('set_speed', { value }),
+  /** Repetir de A a B (segundos); sin valores, lo quita. @param {number|null} a @param {number|null} b */
+  setLoop: (a, b) => invoke('set_loop', { a, b }),
   /** @returns {Promise<PlaybackState>} */
   state: () => invoke('playback_state'),
   /** @returns {Promise<{items: Track[], origin: any}>} */
@@ -548,6 +556,13 @@ export const api = {
   playlistSongs: (id) => GET(`/playlists/${id}/songs`),
   addToPlaylist: (id, ids) => POST(`/playlists/${id}/songs`, { ids }),
   removeFromPlaylist: (l, c) => DEL(`/playlists/${l}/songs/${c}`),
+  /**
+   * El modo estudio de una canción: bucle [a, b], velocidad, marcadores
+   * [{t, label}] y notas. Se guarda en el índice y en el archivo. Vacío lo quita.
+   * @param {number} id @param {{loop?: number[], speed?: number, markers?: {t:number,label:string}[], notes?: string}} study
+   * @returns {Promise<Song>}
+   */
+  setStudy: (id, study) => PUT(`/song/${id}/study`, study),
   /**
    * La hoja para el atril del repertorio: un HTML en Listas/, para abrir en
    * el navegador e imprimir.

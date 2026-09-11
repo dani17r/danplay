@@ -50,6 +50,7 @@ import InboxPage from './components/InboxPage.vue'
 import DuplicatesPage from './components/DuplicatesPage.vue'
 import Icon from './components/Icon.vue'
 import ChatPage from './components/ChatPage.vue'
+import StudyBar from './components/StudyBar.vue'
 import DownloadsPage from './components/DownloadsPage.vue'
 import TextField from './components/ui/TextField.vue'
 import SelectField from './components/ui/SelectField.vue'
@@ -69,6 +70,10 @@ const prefs = usePreferences()
 const { theme, density, appSize, layout, groupBy, cardSize, showDetails } = prefs
 
 const view = ref({ kind: 'all' })
+// El modo estudio (bucle A-B, velocidad sin cambiar el tono, marcadores,
+// notas): una barra encima del reproductor. Al cerrarla, todo vuelve a lo
+// normal.
+const studyOpen = ref(false)
 // Los repertorios y sus acciones: crear, añadir, exportar, borrar. Se declara
 // aqui y no arriba porque necesita `view` (para saber de que lista se quita
 // una cancion) y `load` (para volver a pedirla despues).
@@ -1363,7 +1368,9 @@ function onUpdated(song) {
       </div>
     </teleport>
 
-    <Player @go-to-origin="goToOrigin" @play-selected="playSelected" />
+    <StudyBar v-if="studyOpen" @close="studyOpen = false" />
+    <Player :study="studyOpen" @go-to-origin="goToOrigin" @play-selected="playSelected"
+            @toggle-study="studyOpen = !studyOpen" />
 
     <ContextMenu
       :open="menu.open"

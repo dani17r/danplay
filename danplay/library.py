@@ -216,7 +216,10 @@ def register_schema(sql: str) -> None:
 _ADDED_LATER = (("songs", "blur", "INTEGER DEFAULT 0"),
                 # la letra con tiempos (LRC) de LRCLIB: se guarda aparte y el
                 # escaneo no la toca; si se pierde, se vuelve a pedir
-                ("songs", "lyrics_synced", "TEXT DEFAULT ''"))
+                ("songs", "lyrics_synced", "TEXT DEFAULT ''"),
+                # modo estudio: bucle, velocidad, marcadores y notas (JSON).
+                # Va tambien en una etiqueta del archivo, y de ahi se recupera
+                ("songs", "study", "TEXT DEFAULT ''"))
 
 
 def _add_missing_columns(conn) -> None:
@@ -532,6 +535,7 @@ def scan(progress=None) -> dict:
     exclusions = list_exclusions()
     seen: set = set()
     playlists_found: dict = {}
+    study_found: dict = {}
     n = added_count = reused = updated = pending = 0
     for root in _roots():
         if not os.path.isdir(root):
@@ -565,6 +569,8 @@ def scan(progress=None) -> dict:
             seen.add(path)
             if tag.get("playlists"):
                 playlists_found[path] = tag["playlists"]
+            if tag.get("study"):
+                study_found[path] = tag["study"]
             if v is None:
                 conn.execute(_INSERT_SQL, row)
                 added_count += 1
@@ -586,8 +592,25 @@ def scan(progress=None) -> dict:
     conn.commit(); conn.close()
     _touch()
     restored = restore_playlists_from_tags(playlists_found)
+    restore_study_from_tags(study_found)
     return {"total": n, "added_count": added_count, "reused": reused,
             "updated": updated, "removed": len(gone), "playlists_restored": restored}
+
+
+def restore_study_from_tags(found: dict) -> int:
+    """Lo del modo estudio que traen los archivos, para las filas que no lo
+    tienen en el indice (una base perdida, un archivo que llega de otro
+    equipo). Nunca pisa lo que ya hay: la base puede ir por delante."""
+    if not found:
+        return 0
+    conn = connect()
+    n = 0
+    for path, study in found.items():
+        cur = conn.execute("UPDATE songs SET study=? WHERE path=? AND (study IS NULL OR study='')",
+                           (study, path))
+        n += cur.rowcount or 0
+    conn.commit(); conn.close()
+    return n
 
 
 def restore_playlists_from_tags(found: dict | None = None) -> int:
@@ -807,7 +830,8 @@ def by_id(cid: int) -> dict | None:
 def update(cid: int, **fields) -> int:
     """Cambia columnas del indice (solo el indice). Devuelve filas tocadas."""
     allowed = {"artist","title","album","year","genre","feat","key","bpm",
-                  "cover","lyrics","lyrics_synced","chords","analyzed","stars","favorite","blur"}
+                  "cover","lyrics","lyrics_synced","chords","analyzed","stars","favorite","blur",
+                  "study"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return 0
@@ -1086,6 +1110,55 @@ def brief_by_path() -> dict:
     rows = conn.execute(f"SELECT {','.join(BRIEF_COLUMNS)} FROM songs").fetchall()
     conn.close()
     return {r["path"]: dict(r) for r in rows}
+
+
+# Lo que se guarda del modo estudio y sus limites: un JSON pequeño y con
+# forma conocida, no lo que mande cualquiera.
+STUDY_KEYS = ("loop", "speed", "markers", "notes")
+
+
+def set_study(cid: int, study: dict | None) -> dict | None:
+    """Guarda el modo estudio de una cancion (indice y etiqueta del archivo).
+    Con None o vacio, lo quita. Devuelve la ficha."""
+    import json as _json
+    c = by_id(cid)
+    if not c:
+        return None
+    clean: dict = {}
+    if study:
+        loop = study.get("loop")
+        if isinstance(loop, (list, tuple)) and len(loop) == 2:
+            try:
+                a, b = float(loop[0]), float(loop[1])
+                if 0 <= a < b:
+                    clean["loop"] = [round(a, 2), round(b, 2)]
+            except (TypeError, ValueError):
+                pass
+        try:
+            speed = float(study.get("speed") or 1.0)
+            if 0.25 <= speed <= 3.0 and abs(speed - 1.0) > 1e-3:
+                clean["speed"] = round(speed, 2)
+        except (TypeError, ValueError):
+            pass
+        markers = []
+        for m in (study.get("markers") or [])[:50]:
+            try:
+                t = float(m.get("t"))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            label = str(m.get("label") or "").strip()[:60]
+            if t >= 0:
+                markers.append({"t": round(t, 2), "label": label})
+        if markers:
+            clean["markers"] = sorted(markers, key=lambda m: m["t"])
+        notes = str(study.get("notes") or "").strip()[:4000]
+        if notes:
+            clean["notes"] = notes
+    raw = _json.dumps(clean, ensure_ascii=False) if clean else ""
+    update(cid, study=raw)
+    if config.WRITE_TAGS and os.path.exists(c["path"]):
+        tags.write_study(c["path"], raw)
+    return by_id(cid)
 
 
 def top_artists(limit=12) -> list[dict]:

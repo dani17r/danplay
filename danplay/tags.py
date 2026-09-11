@@ -217,7 +217,7 @@ def _empty() -> dict:
     return {"artist":"", "title":"", "album":"", "year":"", "genre":"", "album_artist":"",
             "stars":0, "play_count":0, "favorite":False, "lyrics":"", "key":"",
             "bpm":0.0, "cover":False, "comment":"", "duration":0.0, "bitrate":0,
-            "tags":[], "playlists":[], "blur":False}
+            "tags":[], "playlists":[], "blur":False, "study":""}
 
 
 def _read_id3(t, d: dict) -> None:
@@ -251,13 +251,16 @@ def _read_id3(t, d: dict) -> None:
                 d["tags"] = _split_list(val)
             elif desc == "LISTAS":
                 d["playlists"] = _split_list(val)
+            elif desc == "ESTUDIO":
+                d["study"] = val
 
 
 _VORBIS = {"artist": "ARTIST", "title": "TITLE", "album": "ALBUM", "year": "DATE",
            "genre": "GENRE", "album_artist": "ALBUMARTIST", "comment": "COMMENT",
            "lyrics": "LYRICS", "key": "INITIALKEY", "bpm": "BPM",
            "favorite": "DANPLAY_FAVORITE", "blur": "DANPLAY_BLUR",
-           "tags": "DANPLAY_LABELS", "playlists": "DANPLAY_PLAYLISTS"}
+           "tags": "DANPLAY_LABELS", "playlists": "DANPLAY_PLAYLISTS",
+           "study": "DANPLAY_STUDY"}
 
 
 def _read_vorbis(audio, t, d: dict) -> None:
@@ -319,6 +322,7 @@ def _read_mp4(t, d: dict) -> None:
     d["blur"] = _truthy(g(_ff("DANPLAY_BLUR")))
     d["tags"] = _split_list(g(_ff("DANPLAY_LABELS")))
     d["playlists"] = _split_list(g(_ff("DANPLAY_PLAYLISTS")))
+    d["study"] = g(_ff("DANPLAY_STUDY"))
     d["cover"] = bool(t.get("covr"))
 
 
@@ -379,7 +383,7 @@ def bitrate(path) -> int:
 _ID3_TEXT = {"artist": TPE1, "title": TIT2, "album": TALB, "year": TDRC,
              "genre": TCON, "album_artist": TPE2, "key": TKEY}
 _ID3_TXXX = {"favorite": "FAVORITO", "blur": "PORTADA_BORROSA",
-             "tags": "ETIQUETAS", "playlists": "LISTAS"}
+             "tags": "ETIQUETAS", "playlists": "LISTAS", "study": "ESTUDIO"}
 
 
 def _apply_id3(t, fields: dict) -> None:
@@ -430,7 +434,7 @@ def _apply_mp4(t, fields: dict) -> None:
         t["tmpo"] = [int(round(float(fields["bpm"])))]
     freeform = {"key": "initialkey", "favorite": "DANPLAY_FAVORITE",
                 "blur": "DANPLAY_BLUR", "tags": "DANPLAY_LABELS",
-                "playlists": "DANPLAY_PLAYLISTS"}
+                "playlists": "DANPLAY_PLAYLISTS", "study": "DANPLAY_STUDY"}
     for field, name in freeform.items():
         if field in fields:
             t[_ff(name)] = [MP4FreeForm(str(fields[field]).encode("utf-8"))]
@@ -512,6 +516,12 @@ def _write_txxx(path, description, value) -> bool:
 
 def write_lyrics(path, lyrics: str, language="spa") -> bool:
     return _write_fields(path, {"lyrics": lyrics or "", "language": language})
+
+
+def write_study(path, study: str) -> bool:
+    """Lo del modo estudio (bucle, velocidad, marcadores, notas), como JSON
+    en una etiqueta propia: viaja con el archivo, como las estrellas."""
+    return _write_fields(path, {"study": study or ""})
 
 
 def write_analysis(path, key="", bpm=0.0) -> bool:
