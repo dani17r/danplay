@@ -864,3 +864,29 @@ def test_process_con_nombre_conocido_no_pasa_por_la_cascada(configured_library, 
     assert res.target.name == "Ish Melton - Que Se Abra El Cielo (Drum Cam).mp3"
     assert res.target.parent.name == "Ish Melton" and res.source == "youtube"
     assert not called, "ni huella ni IA: el nombre ya venia decidido"
+
+
+# ------------------------------------------- actualizar la instalacion de Windows
+# Volver a ejecutar el instalador tiene que ACTUALIZAR: misma carpeta, misma
+# ficha en «Aplicaciones instaladas», y fuera lo que dejo la version anterior
+# antes de copiar la nueva. Copiar encima dejaba huerfano lo que la version
+# nueva ya no traia.
+
+
+def test_el_instalador_de_windows_actualiza_en_vez_de_duplicar():
+    nsi = (_raiz() / "packaging/windows/installer.nsi").read_text("utf-8")
+    # va siempre a la carpeta de la instalacion anterior y a la misma ficha
+    assert 'InstallDirRegKey HKCU "${CLAVE}" "InstallDir"' in nsi
+    assert nsi.count('"${DESINSTALAR}"') >= 8, "una sola entrada en Aplicaciones instaladas"
+    # limpia lo suyo antes de copiar, pieza a pieza, nunca la carpeta a ciegas
+    assert "Call LimpiarInstalacionAnterior" in nsi
+    limpiar = nsi[nsi.index("Function LimpiarInstalacionAnterior"):nsi.index("FunctionEnd", nsi.index("Function LimpiarInstalacionAnterior"))]
+    for piece in ("python", "tools", "${EJECUTABLE}", "danplay-core.exe", "WebView2Loader.dll"):
+        assert piece in limpiar, f"la limpieza no quita {piece}"
+    assert 'RMDir /r "$INSTDIR"' not in limpiar, "al actualizar no se borra la carpeta entera"
+    assert '${IfNot} ${FileExists} "$INSTDIR\\${EJECUTABLE}"' in limpiar, "solo si ahi hay un DanPlay"
+    # y la limpieza cubre todo lo que produce la version portatil
+    portable = {"danplay-app.exe", "danplay-core.exe", "LEEME.txt", "python", "tools", "WebView2Loader.dll"}
+    for item in portable:
+        name = "${EJECUTABLE}" if item == "danplay-app.exe" else item
+        assert name in limpiar, f"{item} se quedaria huerfano al actualizar"

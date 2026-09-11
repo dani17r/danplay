@@ -30,6 +30,21 @@ asociaciones de archivo y el desinstalador.
 | **ffmpeg y fpcalc** | solo con `--herramientas` | siempre |
 | **Tamaño** | 273 MB (98 MB comprimido) con herramientas; 74 MB (25 MB) sin ellas | 71 MB |
 
+## Actualizar
+
+Volver a ejecutar el instalador nuevo **actualiza**: va a la misma carpeta
+(la recuerda del registro), a la misma ficha de «Aplicaciones instaladas»,
+quita lo que dejó la versión anterior y copia la nueva. Nunca quedan dos
+DanPlay. Si DanPlay está abierto, lo dice y pide cerrarlo (bandeja → Salir).
+La biblioteca (`%LOCALAPPDATA%\danplay`) y los ajustes (`%APPDATA%\danplay`)
+no se tocan ni al actualizar ni al desinstalar. Con la portátil, se borra la
+carpeta vieja y se descomprime la nueva: los datos tampoco viven ahí.
+
+En Linux pasa lo mismo con el `.deb` (mismo paquete, se sustituye en su
+sitio; con `sudo dpkg -i` se reinstala aunque la versión no haya cambiado,
+mientras que `apt install ./…deb` con la **misma** versión puede no hacer
+nada), y el AppImage es un archivo: se sustituye y ya.
+
 De esos 273 MB, **197 son `ffmpeg.exe` y `ffprobe.exe`**, que van enteros
 porque son los binarios oficiales. `ffprobe` solo se usa para medir las
 portadas antes de encogerlas; si algún día molesta el tamaño, ahí están los

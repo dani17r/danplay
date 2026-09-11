@@ -10,6 +10,12 @@
 ;   - No toca a los demas usuarios del equipo.
 ;   - Todo el registro va a HKCU.
 ;
+; Actualizar es volver a ejecutar el instalador: va a la misma carpeta (la
+; recuerda del registro) y a la misma ficha de «Aplicaciones instaladas», quita
+; lo que dejo la version anterior y copia la nueva. Nunca hay dos DanPlay. La
+; biblioteca y los ajustes viven fuera (%LOCALAPPDATA%\danplay, %APPDATA%\danplay)
+; y no se tocan ni al actualizar ni al desinstalar.
+;
 ; Sobre «reproductor predeterminado»: el instalador deja a DanPlay REGISTRADO
 ; (sale en «Abrir con» y en la lista de aplicaciones predeterminadas de
 ; Windows), pero NO puede elegirlo por ti. Desde Windows 8 esa eleccion vive en
@@ -134,9 +140,30 @@ FunctionEnd
 
 ; ------------------------------------------------------------------ secciones
 
+; Al actualizar, fuera lo que dejo la instalacion anterior ANTES de copiar la
+; nueva: copiar encima deja huerfano lo que la version nueva ya no trae (un
+; paquete de Python, una herramienta) y eso acaba dando fallos raros. Se borra
+; solo lo nuestro, pieza a pieza; nunca la carpeta entera a ciegas, que el
+; usuario pudo elegir una que ya tuviera cosas suyas.
+Function LimpiarInstalacionAnterior
+  ${IfNot} ${FileExists} "$INSTDIR\${EJECUTABLE}"
+    Return
+  ${EndIf}
+  DetailPrint "Quitando la version anterior de $INSTDIR"
+  RMDir /r "$INSTDIR\python"
+  RMDir /r "$INSTDIR\tools"
+  RMDir /r "$INSTDIR\danplay-core"
+  Delete "$INSTDIR\${EJECUTABLE}"
+  Delete "$INSTDIR\danplay-core.exe"
+  Delete "$INSTDIR\WebView2Loader.dll"
+  Delete "$INSTDIR\LEEME.txt"
+  Delete "$INSTDIR\desinstalar.exe"
+FunctionEnd
+
 Section "DanPlay" SeccionApp
   SectionIn RO
   Call ComprobarSiEstaAbierta
+  Call LimpiarInstalacionAnterior
 
   SetOutPath "$INSTDIR"
   ; Todo lo que produce la version portatil: la aplicacion, el nucleo, el
