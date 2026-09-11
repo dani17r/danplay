@@ -1034,6 +1034,16 @@ def brief_by_path() -> dict:
     return {r["path"]: dict(r) for r in rows}
 
 
+def top_artists(limit=12) -> list[dict]:
+    """Los artistas con mas canciones: [{value, n}]. Para situar al asistente."""
+    conn = connect()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT artist value, COUNT(*) n FROM songs WHERE artist!='' "
+        "GROUP BY artist ORDER BY n DESC, value LIMIT ?", (int(limit),)).fetchall()]
+    conn.close()
+    return rows
+
+
 def facets() -> dict:
     """Valores disponibles para los filtros de la interfaz."""
     conn = connect()

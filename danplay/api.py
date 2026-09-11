@@ -13,8 +13,8 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import (ai, chat, config, convert, duplicates, enrich, external,
-               fingerprint, ingest, library, playlists,
-               tags, theory, youtube)
+               fingerprint, ingest, library, model_catalog, playlists,
+               providers, tags, theory, youtube)
 
 from . import __version__
 
@@ -144,10 +144,36 @@ class SettingsIn(Body_):
     write_tags: bool | None = None
     ai_enabled: bool | None = None
     quality: Literal["high", "medium", "variable"] | None = None
+    # `model` y `ai_key` van al perfil de IA activo (compatibilidad con la
+    # interfaz de antes); lo demas de la IA entra por /api/ai/*
     model: str | None = Field(default=None, max_length=200)
     ai_key: str | None = Field(default=None, max_length=400)
     fingerprint_key: str | None = Field(default=None, max_length=400)
     library: str | None = Field(default=None, max_length=4096)
+
+
+class AiProfileIn(Body_):
+    """Un proveedor tal y como lo rellena el formulario de Ajustes.
+
+    Sirve para guardar, para probar sin guardar y para pedir los modelos:
+    en los dos ultimos casos, si no trae clave se usa la guardada.
+    """
+    id: str | None = Field(default=None, max_length=80)
+    provider: str = Field(max_length=40)
+    name: str | None = Field(default=None, max_length=80)
+    key: str | None = Field(default=None, max_length=1000)
+    base_url: str | None = Field(default=None, max_length=1000)
+    fields: dict[str, str] | None = None
+    model: str | None = Field(default=None, max_length=200)
+    chat_model: str | None = Field(default=None, max_length=200)
+    headers: dict[str, str] | None = None
+    extra: dict | None = None
+    timeout: float | None = Field(default=None, ge=5, le=600)
+    activate: bool = True
+
+
+class AiActivateIn(Body_):
+    id: str = Field(max_length=80)
 
 
 class YoutubeIn(Body_):
@@ -271,7 +297,7 @@ def status():
     folders = library.list_folders()
     return {"configured": bool(folders), "folders": len(folders),
             "library": str(config.LIBRARY), "inbox": str(config.INBOX),
-            "model": config.DEEPINFRA_MODEL, "ai": ai.available(),
+            "model": ai.fast_model(), "provider": ai.provider_name(), "ai": ai.available(),
             "fingerprint": not fingerprint.unavailable_reason(),
             "fingerprint_reason": fingerprint.unavailable_reason(),
             "convert": config.CONVERT_TO_MP3, "quality": config.MP3_QUALITY,
@@ -286,16 +312,19 @@ def status():
 
 @app.get("/api/settings")
 def settings():
-    k = config.DEEPINFRA_API_KEY
+    p = ai.profile()
     return {"convert_mp3": config.CONVERT_TO_MP3, "quality": config.MP3_QUALITY,
             "keep_original": config.KEEP_ORIGINAL,
             "write_tags": config.WRITE_TAGS, "ai_enabled": config.AI_ENABLED,
-            "model": config.DEEPINFRA_MODEL,
+            "model": ai.fast_model(), "chat_model": ai.chat_model(),
+            "provider": p["id"] if p else "", "provider_name": p["name"] if p else "",
             "library": str(config.LIBRARY),
-            "ai_key": (k[:4] + "…" + k[-4:]) if len(k) > 10 else ("" if not k else "…"),
-            "has_ai_key": bool(k),
+            "ai_key": providers.mask(p["key"]) if p else "",
+            "has_ai_key": bool(p and p["key"]),
+            "ai_ready": ai.available(), "ai_reason": ai.unavailable_reason(),
             "fingerprint_key": bool(config.ACOUSTID_API_KEY),
-            "settings_file": str(config.ENV_FILE)}
+            "settings_file": str(config.ENV_FILE),
+            "ai_file": str(providers.PROFILES_FILE)}
 
 
 @app.post("/api/settings")
@@ -306,10 +335,9 @@ def save_settings(body: SettingsIn = Body(...)):
              "write_tags": ("WRITE_TAGS", "DANPLAY_TAGS"),
              "ai_enabled": ("AI_ENABLED", "DANPLAY_AI")}
     texts = {"quality": ("MP3_QUALITY", "DANPLAY_QUALITY"),
-             "model": ("DEEPINFRA_MODEL", "DEEPINFRA_MODEL"),
-             "ai_key": ("DEEPINFRA_API_KEY", "DEEPINFRA_API_KEY"),
              "fingerprint_key": ("ACOUSTID_API_KEY", "ACOUSTID_API_KEY")}
     save = {}
+    profile_patch = {}
     for k, v in body.model_dump(exclude_none=True).items():
         if k in flags:
             attr, env = flags[k]
@@ -317,6 +345,8 @@ def save_settings(body: SettingsIn = Body(...)):
         elif k in texts and isinstance(v, str) and v.strip():
             attr, env = texts[k]
             setattr(config, attr, v.strip()); save[env] = v.strip()
+        elif k in ("model", "ai_key") and isinstance(v, str) and v.strip():
+            profile_patch["key" if k == "ai_key" else "model"] = v.strip()
         elif k == "library" and v:
             path = Path(v).expanduser()
             if not path.is_dir():
@@ -328,8 +358,13 @@ def save_settings(body: SettingsIn = Body(...)):
             save["DANPLAY_LIBRARY"] = str(path)
     if save:
         config.save_env(save)
-    if "ai_key" in body:
-        ai._client = None                      # fuerza recrear con la clave nueva
+    if profile_patch:
+        # sin proveedor elegido, la clave suelta va a DeepInfra: es lo que
+        # significaba antes «clave de IA»
+        pid = providers.active_id() or "deepinfra"
+        providers.save_profile({"id": pid, "provider": pid if pid in providers.BY_ID else "custom",
+                                **profile_patch})
+        ai.reset_client()                      # fuerza recrear con la clave nueva
     return settings()
 
 
@@ -337,8 +372,96 @@ def save_settings(body: SettingsIn = Body(...)):
 
 @app.post("/api/settings/check-ai")
 async def check_ai():
-    """Prueba la clave contra DeepInfra. Lo usa el boton «Probar» de Ajustes."""
+    """Prueba el proveedor activo. Lo usa el boton «Probar» de Ajustes."""
     return await asyncio.get_running_loop().run_in_executor(None, ai.check)
+
+
+# ------------------------------------------------------------ proveedores
+
+def _ai_overview() -> dict:
+    """Lo que necesita el modal de IA: catalogo, perfiles guardados (sin
+    claves) y el estado del catalogo de modelos."""
+    p = ai.profile()
+    return {"catalog": providers.catalog(), "groups": providers.GROUPS,
+            "profiles": providers.profiles(), "active": providers.active_id(),
+            "active_profile": ({"id": p["id"], "provider": p["provider"], "name": p["name"],
+                                "model": p["model"], "chat_model": p["chat_model"],
+                                "base_url": p["base_url"], "local": p["local"]} if p else None),
+            "ai_enabled": config.AI_ENABLED, "ai_ready": ai.available(),
+            "ai_reason": ai.unavailable_reason(),
+            "catalog_status": model_catalog.status()}
+
+
+@app.get("/api/ai/providers")
+async def ai_providers(refresh: bool = Query(default=False)):
+    """Con `refresh`, espera a consultar models.dev (el boton «Actualizar»);
+    si no, lo consulta en segundo plano si hace rato de la ultima vez. En
+    los dos casos la peticion es condicional: sin cambios, cero bytes."""
+    if refresh:
+        await asyncio.get_running_loop().run_in_executor(
+            None, lambda: model_catalog.refresh(force=True))
+    else:
+        model_catalog.refresh_in_background(max_age=model_catalog.MIN_INTERVAL)
+    return _ai_overview()
+
+
+@app.post("/api/ai/profile")
+def ai_save_profile(body: AiProfileIn = Body(...)):
+    data = body.model_dump(exclude_none=True)
+    activate = data.pop("activate", True)
+    try:
+        pid = providers.save_profile(data, activate=activate)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    ai.reset_client()
+    out = _ai_overview()
+    out["saved"] = pid
+    return out
+
+
+@app.delete("/api/ai/profile/{pid}")
+def ai_delete_profile(pid: str):
+    providers.delete_profile(pid)
+    ai.reset_client()
+    return _ai_overview()
+
+
+@app.post("/api/ai/activate")
+def ai_activate(body: AiActivateIn = Body(...)):
+    try:
+        providers.activate(body.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    ai.reset_client()
+    return _ai_overview()
+
+
+@app.post("/api/ai/check")
+async def ai_check(body: AiProfileIn = Body(...)):
+    """Prueba lo que hay en el formulario SIN guardarlo: clave, URL, los dos
+    modelos y si el de conversacion sabe usar herramientas."""
+    draft = body.model_dump(exclude_none=True)
+    draft.pop("activate", None)
+    return await asyncio.get_running_loop().run_in_executor(None, lambda: ai.check(draft))
+
+
+@app.post("/api/ai/models")
+async def ai_models(body: AiProfileIn = Body(...)):
+    """Los modelos que ofrece ese proveedor con esa clave (su /models), mas
+    los que conoce el catalogo aunque el proveedor no los liste."""
+    draft = body.model_dump(exclude_none=True)
+    draft.pop("activate", None)
+    live = await asyncio.get_running_loop().run_in_executor(None, lambda: ai.list_models(draft))
+    p = providers.BY_ID.get(body.provider) or providers.BY_ID["custom"]
+    known = model_catalog.models_for(p["models_dev"])
+    live["catalog"] = known
+    live["suggest"] = dict(p["suggest"])
+    recommended = model_catalog.recommend(known)
+    for k, v in recommended.items():
+        if v:
+            live["suggest"][k] = v
+    live["catalog_status"] = model_catalog.status()
+    return live
 
 
 @app.get("/api/folders")
@@ -775,8 +898,8 @@ async def confirm_tool(body: ChatConfirmIn = Body(...)):
 
 @app.get("/api/chat/tools")
 def chat_tools():
-    return {"model": config.DEEPINFRA_CHAT_MODEL,
-            "available": ai.available(),
+    return {"model": ai.chat_model(), "provider": ai.provider_name(),
+            "available": ai.available(), "reason": ai.unavailable_reason(),
             "tools": [{"name": h["function"]["name"],
                               "description": h["function"]["description"]}
                              for h in chat.TOOLS]}
@@ -1077,6 +1200,10 @@ def serve(host="127.0.0.1", port=8730, uds=None):
     import uvicorn
     logging.basicConfig(level=logging.INFO, format="danplay: %(message)s")
     _watch_parent()
+    # El catalogo de modelos se pone al dia al arrancar (en segundo plano y
+    # solo si hace horas de la ultima vez): asi el apartado de IA abre ya
+    # con la lista de hoy aunque no se pulse nada.
+    model_catalog.refresh_in_background()
     _TOKEN = os.environ.get("DANPLAY_TOKEN", "")
     # La comprobacion de Host y la cabecera propia son cosa de navegadores:
     # por el socket no hay ninguno, y con token tampoco hacen falta.

@@ -58,7 +58,7 @@ jobs:
       - name: pruebas del núcleo en Windows
         run: |
           pip install pytest
-          pytest tests/test_core.py tests/test_api.py -q
+          pytest tests/test_core.py tests/test_ai.py tests/test_api.py -q
         continue-on-error: false
 
       - name: interfaz

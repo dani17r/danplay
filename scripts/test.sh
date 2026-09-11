@@ -11,7 +11,7 @@ fallo=0
 seccion () { echo; echo "=== $1 ==="; }
 
 seccion "nucleo Python"
-./.venv/bin/python -m pytest tests/test_core.py -q --no-header || fallo=1
+./.venv/bin/python -m pytest tests/test_core.py tests/test_ai.py -q --no-header || fallo=1
 
 seccion "API"
 ./.venv/bin/python -m pytest tests/test_api.py -q --no-header || fallo=1

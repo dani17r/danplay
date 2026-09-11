@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Pruebas de todos los endpoints, sobre una biblioteca temporal."""
-import os, pathlib, shutil, sys, tempfile
+import json, os, pathlib, shutil, sys, tempfile
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -205,6 +205,104 @@ def test_settings_round_trip(cliente):
 def test_ai_key_is_never_returned_whole(cliente):
     d = cliente.get("/api/settings").json()
     assert "…" in d["ai_key"] or d["ai_key"] == ""
+
+
+@pytest.fixture
+def perfiles_ia(tmp_path, monkeypatch):
+    """Los perfiles de IA en un archivo temporal: nada toca los del usuario."""
+    from danplay import ai, providers
+    monkeypatch.setattr(providers, "PROFILES_FILE", tmp_path / "ai.json")
+    for v in ("DANPLAY_AI_PROVIDER", "DANPLAY_AI_KEY", "DANPLAY_AI_MODEL",
+              "DANPLAY_AI_CHAT_MODEL", "DEEPINFRA_API_KEY"):
+        monkeypatch.delenv(v, raising=False)
+    providers.reload(); ai.reset_client()
+    yield
+    providers.reload(); ai.reset_client()
+
+
+def test_ai_providers_overview(cliente, perfiles_ia):
+    d = cliente.get("/api/ai/providers").json()
+    ids = {p["id"] for p in d["catalog"]}
+    assert {"openai", "anthropic", "google", "deepinfra", "openrouter", "ollama", "custom"} <= ids
+    assert [g["id"] for g in d["groups"]] == ["lab", "platform", "cloud", "asia", "local", "custom"]
+    assert d["active"] == "" and d["active_profile"] is None and not d["ai_ready"]
+    assert d["catalog_status"]["models"] > 100, "la foto de models.dev viaja con la app"
+    # el catalogo no lleva ningun secreto: son datos publicos
+    assert "key" not in json.dumps(d["profiles"])
+
+
+def test_ai_profile_save_activate_and_delete(cliente, perfiles_ia):
+    r = cliente.post("/api/ai/profile", json={"provider": "openrouter", "key": "sk-or-v1-abcdefghijklmnop",
+                                              "model": "google/gemini-3.5-flash-lite",
+                                              "chat_model": "google/gemini-3.8-flash"})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["saved"] == "openrouter" and d["active"] == "openrouter" and d["ai_ready"]
+    assert d["active_profile"]["chat_model"] == "google/gemini-3.8-flash"
+    assert "abcdefghijklmnop" not in r.text, "la clave nunca vuelve entera"
+    assert d["profiles"]["openrouter"]["has_key"]
+    s = cliente.get("/api/settings").json()
+    assert s["provider"] == "openrouter" and s["provider_name"] == "OpenRouter"
+    assert s["model"] == "google/gemini-3.5-flash-lite" and s["has_ai_key"]
+    assert cliente.get("/api/status").json()["provider"] == "OpenRouter"
+    assert cliente.get("/api/chat/tools").json()["provider"] == "OpenRouter"
+
+    # un segundo proveedor, sin activarlo, no quita el activo
+    d = cliente.post("/api/ai/profile", json={"provider": "ollama", "model": "qwen3:8b",
+                                              "activate": False}).json()
+    assert d["active"] == "openrouter" and "ollama" in d["profiles"]
+    d = cliente.post("/api/ai/activate", json={"id": "ollama"}).json()
+    assert d["active"] == "ollama" and d["active_profile"]["local"]
+    d = cliente.delete("/api/ai/profile/ollama").json()
+    assert d["active"] == "openrouter" and "ollama" not in d["profiles"]
+
+    assert cliente.post("/api/ai/profile", json={"provider": "inventado"}).status_code == 400
+    assert cliente.post("/api/ai/activate", json={"id": "inventado"}).status_code == 400
+    assert cliente.post("/api/ai/profile", json={"provider": "openai", "raro": 1}).status_code == 422
+
+
+def test_ai_check_and_models_with_a_fake_provider(cliente, perfiles_ia, monkeypatch):
+    from danplay import ai
+    calls = []
+
+    class _Call:
+        id = "1"
+        function = type("f", (), {"name": "saluda", "arguments": "{}"})()
+
+    class _Msg:
+        def __init__(self, content, tool_calls=None):
+            self.content, self.tool_calls = content, tool_calls
+
+    class _Fake:
+        class chat:                                          # noqa: N801
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    calls.append(kw)
+                    msg = _Msg("", [_Call()]) if kw.get("tools") else _Msg("ok")
+                    return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+
+        class models:                                        # noqa: N801
+            @staticmethod
+            def list():
+                return type("p", (), {"data": [type("m", (), {"id": "gpt-6-astra"})(),
+                                               type("m", (), {"id": "gpt-5.6-luna"})()]})()
+    monkeypatch.setattr(ai, "_build_client", lambda p: _Fake())
+
+    draft = {"provider": "openai", "key": "sk-prueba", "model": "gpt-5.6-luna", "chat_model": "gpt-6-astra"}
+    d = cliente.post("/api/ai/check", json=draft).json()
+    assert d["ok"] and d["tools_ok"] and d["provider"] == "OpenAI", d
+    assert [c["model"] for c in calls] == ["gpt-5.6-luna", "gpt-6-astra", "gpt-6-astra"]
+
+    d = cliente.post("/api/ai/models", json=draft).json()
+    assert d["ok"] and [m["id"] for m in d["models"]]
+    astra = next(m for m in d["models"] if m["id"] == "gpt-6-astra")
+    assert astra["known"] and astra["tools"] and astra["cost_out"]
+    assert d["catalog"], "y la lista del catalogo, por si el proveedor no lista todo"
+    assert d["suggest"]["chat"] and d["suggest"]["fast"]
+
+    # sin proveedor en el borrador, error claro, no un 500
+    assert cliente.post("/api/ai/models", json={"provider": "custom"}).json()["ok"] is False
 
 
 def test_indexes_nothing_without_folders(tmp_path, monkeypatch):

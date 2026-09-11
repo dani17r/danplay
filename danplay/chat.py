@@ -843,7 +843,8 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
     NEEDS_CONFIRMATION y docs/CONTRATO-INTERNO.md §3).
     """
     if not ai.available():
-        return {"error": "la IA no esta configurada; pon tu clave de DeepInfra en Ajustes"}
+        return {"error": f"la IA no esta lista ({ai.unavailable_reason()}). Configura un "
+                         "proveedor en Ajustes → Inteligencia artificial."}
 
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
     recent = _window(messages)
@@ -870,7 +871,6 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
     # llamar a nada.
     force_tools = _answers_an_offer(recent)
 
-    cliente = ai._get_client()
     used = []
     # Reproducir no se puede hacer desde aqui: el audio lo maneja Rust y la
     # cola vive en la interfaz. Las herramientas de reproduccion devuelven una
@@ -896,18 +896,23 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
         force_tools = True
     for _ in range(max_vueltas):
         try:
-            r = cliente.chat.completions.create(
-                model=config.DEEPINFRA_CHAT_MODEL, messages=history,
-                tools=TOOLS, tool_choice="required" if force_tools else "auto",
-                temperature=0.2, max_tokens=1400)
-        except Exception as e:
-            return {"error": f"no pude hablar con el modelo: {e}"}
+            r = ai.complete(history, purpose="chat", tools=TOOLS,
+                            tool_choice="required" if force_tools else "auto",
+                            # 2000: una letra entera con acordes no cabia en 1400
+                            temperature=0.2, max_tokens=2000)
+        except ai.ToolsUnsupported:
+            return {"error": (f"El modelo «{ai.chat_model()}» no sabe usar herramientas, y el "
+                              "asistente las necesita para consultar tu biblioteca. Elige otro "
+                              "modelo de conversacion en Ajustes → Inteligencia artificial "
+                              "(los marcados con «herramientas»).")}
+        except Exception as e:                               # noqa: BLE001
+            return {"error": f"no pude hablar con el modelo: {ai.describe_error(e, ai.profile())}"}
         force_tools = False
 
         msg = r.choices[0].message
         calls = getattr(msg, "tool_calls", None)
         if not calls:
-            raw = _strip_thoughts(msg.content or "")
+            raw = ai.message_text(msg)
             faked = has_markers(raw)         # se hizo pasar por herramienta
             text = strip_markers(raw)
             # Dice que ha hecho algo y en todo el turno no ha llamado a nada:
@@ -924,7 +929,7 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
                           and (faked
                                or (calls_made == 0 and not after_download
                                    and claims_action(text))
-                               or _judge_claims(cliente, text, user_text,
+                               or _judge_claims(text, user_text,
                                                 downloaded=after_download)))
             if suspicious and not nudged:
                 nudged = True
@@ -942,7 +947,7 @@ def reply(messages: list[dict], max_vueltas=6) -> dict:
                 out["narrated"] = True
             return out
 
-        history.append({"role": "assistant", "content": msg.content or "",
+        history.append({"role": "assistant", "content": ai.message_text(msg),
                      "tool_calls": [{"id": c.id, "type": "function",
                                      "function": {"name": c.function.name,
                                                   "arguments": c.function.arguments}}
@@ -1131,7 +1136,7 @@ _APPISH = _re.compile(
     _re.IGNORECASE)
 
 
-def _judge_claims(cliente, text: str, user_text: str = "", downloaded=False) -> bool:
+def _judge_claims(text: str, user_text: str = "", downloaded=False) -> bool:
     """Segunda opinion: el propio modelo, como clasificador de una palabra.
 
     Las frases de `_CLAIMS` nunca las cubren todas («Descargando:», «Añadida
@@ -1145,10 +1150,8 @@ def _judge_claims(cliente, text: str, user_text: str = "", downloaded=False) -> 
     if not plain or not _APPISH.search(plain):
         return False
     try:
-        client = cliente.with_options(timeout=15) if hasattr(cliente, "with_options") else cliente
-        r = client.chat.completions.create(
-            model=config.DEEPINFRA_CHAT_MODEL,
-            messages=[
+        r = ai.complete(
+            [
                 {"role": "system", "content": "Eres un clasificador. Contesta solo SI o NO."},
                 {"role": "user", "content": (
                     "¿Este mensaje de un asistente AFIRMA que YA ha hecho, esta haciendo "
@@ -1162,8 +1165,8 @@ def _judge_claims(cliente, text: str, user_text: str = "", downloaded=False) -> 
                     + "\n\n"
                     f"Peticion del usuario:\n{(user_text or '')[:400]}\n\n"
                     f"Mensaje del asistente:\n{plain[:1500]}")}],
-            temperature=0, max_tokens=3)
-        answer = (r.choices[0].message.content or "").strip().upper().rstrip(".!")
+            purpose="chat", temperature=0, max_tokens=3, timeout=15)
+        answer = ai.message_text(r.choices[0].message).strip().upper().rstrip(".!")
         return answer in ("SI", "SÍ")
     except Exception:                                       # noqa: BLE001
         return False
@@ -1281,6 +1284,18 @@ def _context_note(messages: list[dict]) -> str:
     mensaje fue solo texto.
     """
     lines = ["ESTADO REAL DE LA APP AHORA (manda sobre lo que hayas dicho antes):"]
+    import datetime as _dt
+    lines.append(f"- Hoy es {_dt.date.today().strftime('%d/%m/%Y')}.")
+    try:
+        # Cuanto hay y de quien: sin esto, el modelo no sabe si «lo de Barak»
+        # son tres canciones o cuarenta, y se inventa el tamaño de las cosas.
+        stats = library.stats_of()
+        top = ", ".join(f"{a['value']} ({a['n']})" for a in library.top_artists(12))
+        lines.append(f"- Biblioteca: {stats['total']} canciones"
+                     f"{', ' + str(stats['without_artist']) + ' sin artista' if stats.get('without_artist') else ''}."
+                     + (f" Artistas con mas temas: {top}." if top else ""))
+    except Exception:                                       # noqa: BLE001
+        pass
     try:
         lists = playlists.list_all()
         if lists:
@@ -1346,11 +1361,7 @@ def confirm(tool: str, args: dict) -> dict:
     return {"ok": True, "result": result, "text": texts.get(tool, "Hecho.")}
 
 
-def _strip_thoughts(t: str) -> str:
-    """Algunos modelos dejan escapar su razonamiento entre <think>."""
-    t = _re.sub(r"<think>.*?</think>", "", t, flags=_re.DOTALL | _re.IGNORECASE)
-    t = _re.sub(r"</?think>", "", t, flags=_re.IGNORECASE)
-    return t.strip()
+_strip_thoughts = ai.strip_thoughts
 
 
 def _summarize(name, res) -> str:

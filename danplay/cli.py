@@ -17,7 +17,7 @@ def _mmss(seg):
 def cmd_status(_):
     print(config.summary())
     print(f"\nHuella  : {fingerprint.unavailable_reason() or GREEN + 'lista' + RESET}")
-    print(f"IA      : {(GREEN + 'lista' + RESET) if ai.available() else 'sin API key en .env'}")
+    print(f"IA      : {(GREEN + 'lista' + RESET) if ai.available() else ai.unavailable_reason()}")
     if config.DATABASE.exists():
         e = library.stats_of()
         print(f"\nIndice  : {e['total']} canciones, {e['bytes']/2**30:.2f} GB, "

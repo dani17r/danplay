@@ -31,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
       - name: pruebas del núcleo
-        run: pytest tests/test_core.py tests/test_api.py -q
+        run: pytest tests/test_core.py tests/test_ai.py tests/test_api.py -q
       - name: pruebas del crate
         run: cargo test --release --manifest-path core/Cargo.toml
       - name: avisos de seguridad de las dependencias
@@ -58,7 +58,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest
       - name: pruebas
-        run: pytest tests/test_core.py tests/test_api.py -q
+        run: pytest tests/test_core.py tests/test_ai.py tests/test_api.py -q
       - name: la línea de órdenes arranca
         run: python -m danplay.cli status
 

@@ -20,7 +20,8 @@ hidden = (collect_submodules('uvicorn') + collect_submodules('fastapi')
              'danplay.ingest', 'danplay.enrich', 'danplay.convert',
              'danplay.duplicates', 'danplay.fingerprint', 'danplay.ai',
              'danplay.theory', 'danplay.config', 'danplay.youtube',
-             'danplay.web', 'danplay.chat', 'acoustid', 'rapidfuzz',
+             'danplay.web', 'danplay.chat', 'danplay.providers',
+             'danplay.model_catalog', 'acoustid', 'rapidfuzz',
              'openai', 'dotenv', 'platformdirs', 'send2trash',
              'watchdog.observers', 'sqlite3',
              'uvicorn.logging', 'uvicorn.protocols.http.h11_impl',
@@ -29,7 +30,9 @@ hidden = (collect_submodules('uvicorn') + collect_submodules('fastapi')
 a = Analysis(['core_entry.py'],
              pathex=[os.path.abspath(os.path.join(SPECPATH, '..'))],
              binaries=[],
-             datas=collect_data_files('certifi'),
+             # la foto del catalogo de modelos (models.dev) viaja dentro:
+             # sin ella, el primer arranque sin internet no sabria ni un modelo
+             datas=collect_data_files('certifi') + [(os.path.join(SPECPATH, '..', 'danplay', 'data', 'models-snapshot.json'), 'danplay/data')],
              hiddenimports=hidden,
              # `musicbrainzngs` no lo importa nadie y `watchfiles` es para
              # `--reload`, que aqui no se usa.

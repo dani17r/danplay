@@ -15,6 +15,10 @@ dependencies = { file = ["requirements.txt"] }
 [tool.setuptools.packages.find]
 include = ["danplay*"]
 
+[tool.setuptools.package-data]
+# la foto del catalogo de modelos de IA (ver danplay/model_catalog.py)
+danplay = ["data/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

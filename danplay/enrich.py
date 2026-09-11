@@ -235,7 +235,7 @@ def autofill(song_id) -> dict:
                 "complete": True}
     if not ai.available():
         return {"ok": False, "filled": {}, "missing": faltan,
-                "reason": "hace falta la clave de IA en Ajustes"}
+                "reason": f"la IA no esta lista: {ai.unavailable_reason()} (Ajustes)"}
     if not str(c["artist"] or "").strip():
         return {"ok": False, "filled": {}, "missing": faltan,
                 "reason": "esta cancion no tiene artista identificado, "

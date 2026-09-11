@@ -22,6 +22,10 @@ paso "1/4  interfaz (Vite)"
 ( cd desktop && npx vite build )
 
 paso "2/4  nucleo empaquetado (PyInstaller)"
+# La foto del catalogo de modelos de IA se pone al dia en cada compilacion,
+# para que ningun paquete salga con una lista de hace meses. Sin internet se
+# queda la que hay (el script lo dice y no falla).
+"$PY" scripts/actualizar-modelos.py || true
 # --workpath a un temporal: asi no se crea build/ en la raiz del proyecto
 "$PY" -m PyInstaller --noconfirm --clean \
     --workpath "$TRABAJO/work" --distpath dist/core \

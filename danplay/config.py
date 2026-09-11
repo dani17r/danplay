@@ -149,14 +149,10 @@ DATABASE = DATA_DIR / "danplay.db"
 SPECIAL_FOLDERS = {"Entrada", "Revisar", "Secuencias", "Pistas",
                        "Tutoriales y Play Along", "rolas"}
 
-# --- DeepInfra (compatible con la API de OpenAI) ---
-DEEPINFRA_API_KEY  = os.getenv("DEEPINFRA_API_KEY", "")
-DEEPINFRA_BASE_URL = os.getenv("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai")
-DEEPINFRA_MODEL   = env("DEEPINFRA_MODEL", "google/gemini-3.1-flash-lite")
-# El chat usa otro modelo: gemini no soporta el ida y vuelta de herramientas por
-# la API compatible con OpenAI (le falta el thought_signature de Google).
-DEEPINFRA_CHAT_MODEL = env("DEEPINFRA_CHAT_MODEL",
-                           "Qwen/Qwen3-Next-80B-A3B-Instruct")
+# --- IA ---
+# Que proveedor y que modelos: en `providers` (perfiles en ai.json). Aqui solo
+# el interruptor general. Las variables DEEPINFRA_* de antes se leen una vez
+# para migrar la clave al perfil (providers._migrate_legacy).
 AI_ENABLED          = _flag("DANPLAY_AI", "1")
 
 # --- AcoustID (huella acustica) ---
@@ -177,14 +173,15 @@ DUPLICATE_THRESHOLD = float(env("DANPLAY_DUP_THRESHOLD", "0.88"))
 EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".opus", ".aac", ".wma"}
 
 def summary() -> str:
-    ai_txt = f"{DEEPINFRA_MODEL}" if (AI_ENABLED and DEEPINFRA_API_KEY) else "desactivada"
+    from . import ai                       # aqui dentro: ai importa config
+    ai_txt = f"{ai.provider_name()} · {ai.fast_model()}" if ai.available() else "desactivada"
     fp = "activa" if ACOUSTID_API_KEY else "sin API key"
     return (f"Biblioteca : {LIBRARY}\n"
             f"Entrada    : {INBOX}\n"
             f"Artistas   : {ARTISTS_DIR}\n"
             f"Huella     : {fp}\n"
             f"IA         : {ai_txt}\n"
-            f"IA (chat)  : {DEEPINFRA_CHAT_MODEL if AI_ENABLED and DEEPINFRA_API_KEY else '-'}\n"
+            f"IA (chat)  : {ai.chat_model() if ai.available() else '-'}\n"
             f"Etiquetas  : {'si' if WRITE_TAGS else 'no'}\n"
             f"Convertir  : {'si (' + MP3_QUALITY + ')' if CONVERT_TO_MP3 else 'no'}"
             f"  | nunca: {', '.join(sorted(NEVER_CONVERT))}\n"
