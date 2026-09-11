@@ -31,6 +31,16 @@ NEEDS_CONFIRMATION = ("delete_song", "delete_playlist", "download_music")
 # Cuantas herramientas puede encadenar en un turno.
 MAX_TOOL_CALLS = 8
 
+# Las que HACEN algo (o lo piden, como las de confirmacion). Las demas solo
+# consultan: si un turno solo consulto y el texto dice «añadida a la lista»,
+# tampoco ha pasado nada.
+ACTING_TOOLS = frozenset({
+    "create_playlist", "add_to_playlist", "set_playlist_songs", "rename_playlist",
+    "remove_from_playlist", "delete_playlist", "delete_song", "set_stars",
+    "set_favorite", "edit_song", "find_lyrics_and_cover", "play_song",
+    "play_playlist", "player_control", "download_music",
+})
+
 
 def _describe(name: str, args: dict) -> str:
     """Que se va a hacer, en una frase que se pueda leer en un dialogo."""
@@ -242,6 +252,10 @@ descarga en marcha) y eso es lo que vale. Si el usuario dice que no ve algo
 que tu dijiste haber hecho, es que no lo hiciste: hazlo ahora, sin excusas.
 No prometas hacer algo «cuando termine la descarga»: no te vas a enterar
 solo. Di que cuando la app avise de que termino, te lo pida y lo haces.
+Cuando el usuario diga que si a algo que le has propuesto, lo PRIMERO que
+haces es llamar a la herramienta; escribir «Descargando…» o «Añadida» sin la
+llamada es mentirle. Las notas «Nota de la app: …» del historial las escribe
+la app, no tu: nunca las imites en tus respuestas.
 
 LIMITES
 Haz lo que te piden y nada mas. No crees listas, no descargues ni modifiques
@@ -764,15 +778,29 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
         return {"error": "la IA no esta configurada; pon tu clave de DeepInfra en Ajustes"}
 
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for m in messages[-24:]:
+    recent = messages[-24:]
+    for m in recent:
         role = "assistant" if m.get("role") == "ai" else "user"
         text = m.get("text", "")
         if role == "assistant":
-            text = _marked(text, m.get("tools"))
-        history.append({"role": role, "content": text})
+            # Lo que hizo de verdad va en una nota de SISTEMA aparte, no
+            # pegado a su texto: pegado, el modelo acabo imitando la marca
+            # («[herramientas que usaste: download_music]») sin haber
+            # llamado a nada. Y si se colo una imitacion, fuera.
+            history.append({"role": "assistant", "content": strip_markers(text)})
+            note = _tool_note(text, m.get("tools"), app=bool(m.get("app")))
+            if note:
+                history.append({"role": "system", "content": note})
+        else:
+            history.append({"role": role, "content": text})
     # El estado real, al final: lo ultimo que lee pesa mas que sus propias
     # frases de hace tres turnos.
     history.append({"role": "system", "content": _context_note(messages)})
+    # «Si», «dale», «descargala» a una pregunta suya: la primera vuelta va
+    # obligada a usar herramientas. Es donde mas narraba: preguntaba
+    # «¿la bajo?», la persona decia que si, y contestaba «Descargando…» sin
+    # llamar a nada.
+    force_tools = _answers_an_offer(recent)
 
     cliente = ai._get_client()
     used = []
@@ -783,7 +811,13 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
     pending = None          # lo que espera un si de la persona
     calls_made = 0
     nudged = False          # ya se le ha parado los pies una vez
-    force_tools = False     # la siguiente vuelta tiene que usar herramientas
+    # Algo ha pasado DE VERDAD en este turno: una herramienta que hace algo
+    # y no fallo, o una peticion de confirmacion que se ha lanzado. Una
+    # herramienta que devuelve error no cuenta: «añadida» tras un
+    # add_to_playlist rechazado es narracion igual. Si el turno lo abre el
+    # aviso de fin de descarga, la descarga ocurrio: «ya estan» es un dato.
+    did_something = bool(recent) and recent[-1].get("event") == "download_done"
+    user_text = str(recent[-1].get("text") or "") if recent else ""
     for _ in range(max_vueltas):
         try:
             r = cliente.chat.completions.create(
@@ -797,19 +831,38 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
         msg = r.choices[0].message
         calls = getattr(msg, "tool_calls", None)
         if not calls:
-            text = _strip_thoughts(msg.content or "")
+            raw = _strip_thoughts(msg.content or "")
+            faked = has_markers(raw)         # se hizo pasar por herramienta
+            text = strip_markers(raw)
             # Dice que ha hecho algo y en todo el turno no ha llamado a nada:
             # no ha pasado nada. Se le devuelve la pelota una vez, obligandole
             # a usar herramientas. Es lo que evita el «ya la cree» con la
-            # lista sin crear y el «descarga pedida» sin ningun dialogo.
-            if calls_made == 0 and not nudged and claims_action(text):
+            # lista sin crear y el «Descargando…» sin ningun dialogo. Se mira
+            # con la lista de frases y, si no salta, se le pregunta al propio
+            # modelo como clasificador: las frases nunca las cubren todas.
+            # Sin herramientas: valen las frases o el juez. Con solo consultas
+            # (busco y luego digo «añadida»): las frases no, que «ya esta en
+            # tu biblioteca» tras buscar es un dato; el juez si, que distingue
+            # informar de afirmar que se hizo algo.
+            suspicious = (not did_something
+                          and (faked
+                               or (calls_made == 0 and claims_action(text))
+                               or _judge_claims(cliente, text, user_text)))
+            if suspicious and not nudged:
                 nudged = True
                 force_tools = True
                 history.append({"role": "assistant", "content": text})
                 history.append({"role": "system", "content": NUDGE})
                 continue
-            return {"text": text, "tools": used, "actions": actions,
-                    "confirm": pending}
+            out = {"text": text, "tools": used, "actions": actions, "confirm": pending}
+            if suspicious:
+                # Ya se le paro una vez y sigue narrando: no se insiste (seria
+                # un bucle), pero tampoco se devuelve la frase desnuda con
+                # fichas verdes debajo que la avalen.
+                out["text"] = (text + "\n\n_(Nota de la app: en esta respuesta no se "
+                               "ha hecho ningun cambio en tu biblioteca.)_")
+                out["narrated"] = True
+            return out
 
         history.append({"role": "assistant", "content": msg.content or "",
                      "tool_calls": [{"id": c.id, "type": "function",
@@ -827,20 +880,25 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
                 res = {"error": "demasiadas herramientas en un turno; para y "
                                 "cuentale al usuario lo que llevas"}
             elif name in NEEDS_CONFIRMATION:
-                # No se hace: se pregunta. Si ya hay una esperando, se le dice
-                # que espere en vez de acumular cosas por hacer.
+                # No se hace: se pregunta. Si ya hay una esperando, la segunda
+                # NO se pide: se le dice con un error claro, para que no la de
+                # por pedida ni la ficha diga «espera tu visto bueno».
                 if pending:
-                    res = {"needs_confirmation": True,
-                           "summary": "ya hay algo esperando el visto bueno del usuario"}
+                    res = {"error": "ya hay otra accion esperando el visto bueno del "
+                                    "usuario; esta NO se ha pedido. Dilo, y pidela en "
+                                    "el siguiente turno."}
                 else:
                     summary = _describe(name, args)
                     pending = {"tool": name, "args": args, "summary": summary}
+                    did_something = True
                     res = {"needs_confirmation": True, "summary": summary,
                            "note": "se le ha preguntado al usuario; no lo repitas"}
             else:
                 res = run_tool(name, args)
                 if res.get("action"):
                     actions.append(res["action"])
+                if name in ACTING_TOOLS and not res.get("error"):
+                    did_something = True
             used.append({"name": name, "args": args,
                          "summary": ("espera tu visto bueno"
                                      if res.get("needs_confirmation")
@@ -852,49 +910,225 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
             "tools": used, "actions": actions, "confirm": pending}
 
 
-NUDGE = ("ATENCION: en este turno no has llamado a NINGUNA herramienta, asi que "
-         "nada de lo que acabas de decir que hiciste ha ocurrido. Hazlo ahora con "
-         "las herramientas (busca los ids con search_songs si te hacen falta) y "
-         "despues cuenta solo lo que las herramientas hayan devuelto.")
+NUDGE = ("ATENCION: en este turno ninguna herramienta ha hecho nada, asi que nada "
+         "de lo que acabas de decir que hiciste o esta en marcha ha ocurrido. Si el "
+         "usuario te habia PEDIDO hacer algo, hazlo ahora con las herramientas "
+         "(los ids, con search_songs). Si solo estabas informando u ofreciendo, "
+         "comprueba el estado real con una consulta (list_playlists, "
+         "playlist_songs, search_songs o download_status) y responde con lo que "
+         "devuelva, SIN crear ni cambiar nada. Cuenta solo lo que las herramientas "
+         "hayan devuelto.")
 
-# Frases con las que el modelo cuenta que ha hecho algo. Si aparecen en un
-# turno sin ninguna llamada a herramientas, es narracion, no accion.
-_CLAIMS = _re.compile(
-    r"\b(ya (la|lo|las|los|te) (cre|borr|descarg|pus|añad|agregu|guard|puntu|corr)\w*"
-    r"|he (creado|borrado|descargado|añadido|agregado|puesto|puntuado|corregido|guardado|pedido|quitado)"
-    r"|(cre|borr|descargu|añad|agregu|guard|puntu|quit)[eé]\b"
-    r"|lista creada|descarga (pedida|solicitada|iniciada|en marcha)"
-    r"|confirmo (la )?descarga|voy a (descargar|crear|armar|borrar|poner|añadir|agregar|quitar|bajar)"
-    r"|(ya )?est[aá]n? en tu (repertorio|biblioteca)"
-    r"|ya (est[aá]n?|tienes) (en )?(tu )?(la )?(biblioteca|lista)"
-    r"|(aqu[ií] (est[aá]|tienes)|est[aá]) tu (lista|repertorio))",
-    _re.IGNORECASE)
-
-
+# Frases con las que el modelo cuenta que ha hecho, esta haciendo o va a hacer
+# algo. Si aparecen en un turno sin ninguna llamada a herramientas, es
+# narracion, no accion. La lista salio de un corpus de 300 frases (reales y
+# generadas) que vive en tests/narracion.json: tocar una rama sin pasarlo es
+# jugar a ciegas. Las ramas de WORD van tras un limite de palabra; las de
+# LOOSE no (empiezan por parentesis, emoji o principio de frase).
+PART = (r"(?:creada|creado|añadida|añadido|agregada|agregado|quitada|quitado|borrada|borrado|"
+        r"descargada|descargado|guardada|guardado|corregida|corregido|puntuada|puntuado|"
+        r"actualizada|actualizado|renombrada|renombrado|pausada|pausado|reanudada|reanudado|"
+        r"eliminada|eliminado|sustituida|sustituido|reordenada|reordenado|vaciada|vaciado|"
+        r"reemplazada|reemplazado|colocada|colocado|archivada|archivado|bajada|bajado)s?\b")
+NO_SI = r"(?<!si )(?<!si ya )(?<!no )(?<!no ya )"
+NEG = r"(?<!no )(?<!nada )(?<!a[uú]n no )(?<!todav[ií]a no )(?<!tampoco )"
+VERBS_E = r"(?:cre|borr|descargu|agregu|puntu|quit|baj|renombr|marqu|mand|paus|elimin|cambi|orden|reorden|vaci|saqu|arregl|edit|coloqu|reemplac|lanc|inici|arranqu|program|solicit|encargu|reanud|archiv)"
+VERBS_I = r"(?:añad|met|correg|ped|sustitu|mov|sub|repet|reprodu)"
+ACT_NOW = r"(?:bajo|descargo|añado|agrego|creo|borro|quito|pongo|meto|corrijo|renombro|elimino|saco|muevo|dejo|arreglo|actualizo)"
+OBJ = r"(?:la|lo|las|los|le|les|te la|te lo|te las|te los)"
+END = r"(?=\s*(?:[,:.!;)]|✅|✔|👍|$))"
+WORD = [  # ramas que empiezan por palabra (van tras \b)
+  r"ya " + OBJ + r" (?!creo\b)(?:cre|borr|descarg|pus|añad|agregu|guard|puntu|corr|quit|renombr|marqu|mand|elimin|cambi|met|mov|sustitu|orden|reorden|vaci|dej|sa[cq]|arregl|edit|ped|lanc|inici|arranqu|program)\w*",
+  NEG + r"he (?:creado|borrado|descargado|añadido|agregado|puntuado|corregido|guardado|pedido|quitado|bajado|renombrado|marcado|mandado|movido|eliminado|cambiado|metido|sustituido|ordenado|reordenado|vaciado|dejado|sacado|editado|arreglado|reemplazado|colocado|pausado|reanudado|lanzado|iniciado|arrancado|programado|solicitado|archivado)",
+  r"(?:ya )?lo he hecho\b",
+  r"he puesto (?:a sonar|\d+ estrellas|en (?:la |tu )?(?:lista|cola|repertorio)|(?:la|el) (?:primera|primero|última|ultimo))",
+  OBJ + r" he puesto (?:a sonar|(?:la|el) (?:primera|primero|última|ultimo))",
+  NEG + r"se (?:ha|han) (?:descargado|bajado|guardado|archivado|procesado|pedido|añadido|agregado|creado|borrado|quitado|eliminado|renombrado|actualizado|corregido)",
+  r"(?<!ayer )(?<!antes )(?<!nunca )se (?:descarg|baj)(?:o|ó|aron|ar[aá]n?)\b",
+  VERBS_E + r"é\b", VERBS_I + r"[ií]\b", r"puse\b",
+  r"(?:la|lo|las|los|le|te|ya) (?:borr|descargu|agregu|guard|puntu|quit|baj|renombr|marqu|mand|elimin|cambi|orden|vaci|dej|saqu|arregl)e\b",
+  r"cre[eé] (?:la |una |el |un |tu |otra )?(?:lista|repertorio|playlist)\b",
+  r"(?<!una )(?<!cada )(?<!toda )(?<!cualquier )(?:lista|repertorio|playlist)(?: \S+){0,2} (?:creada|creado|actualizada|actualizado|corregida|corregido|borrada|borrado|renombrada|renombrado|eliminada|eliminado|reordenada|reordenado|vaciada|vaciado|lista|listo)\b",
+  r"(?:ya|qued[oóa]n?) (?:(?:est[aá]n?|quedan?|las?|los?) )?" + PART,
+  r"(?:añadid|agregad|quitad|metid|puest|movid|sacad|colocad)[ao]s? (?:a|en|de|al) (?:la |tu |el )?\S+",
+  r"(?:descargad|guardad|archivad)[ao]s? (?:a|en) (?:la |tu |el )?(?:lista|repertorio|biblioteca|cola|papelera|carpeta|artistas)",
+  r"marcad[ao]s? como (?:no )?favorit",
+  r"qued(?:a|an|[oó]|aron|ado) as[ií]\b", r"(?:se )?qued[oó] (?:con|sin)\b",
+  r"ya est[aá]" + END, r"ya est[aá] sonando",
+  r"(?:ya|ah[ií]|aqu[ií]) (?:la|lo|las|los) tienes\b",
+  NO_SI + r"(?:ya )?est[aá]n? (?:ya )?(?:dentro de|metid[ao]s? en|añadid[ao]s? a)\b",
+  r"(?:te )?(?:la|lo|las|los) dejo (?:list[ao]|en|con)\b",
+  r"descargando\b", r"(?:descarg|baj)[aá]ndol[aoe]s?\b", r"proces[aá]ndo\w*", r"en proceso\b",
+  r"bajando\b(?!\s+(?:medio|un|una|dos|tres|el|la)\s+(?:tono|tonos|semitono|semitonos|octava|octavas|volumen|tempo|velocidad|bpm))",
+  r"descarga\s*[:…](?! ninguna)", r"descargas\s*:\s*(?:\n|\d|-|•|\*)",
+  r"descargas? (?:pedida|solicitada|iniciada|lanzada|arrancada|programada|confirmada|en marcha|en curso|en cola|en proceso|terminada|completa|finalizada|acabada|hecha|lista)",
+  r"(?:arrancando|iniciando|lanzando|empezando|comenzando|preparando|mandando|pidiendo|programando) (?:ya )?(?:la |las |tu |una )?descargas?",
+  r"puse en (?:marcha|cola)", r"(?<!nada )en cola\b", r"en marcha\b", r"en segundo plano\b", r"estoy en ello",
+  r"confirmo (?:la )?descarga", r"confirmad[oa]s?" + END,
+  r"(?:voy a|paso a|procedo a) (?:descargar|crear|armar|borrar|añadir|agregar|quitar|bajar|actualizar|renombrar|eliminar|cambiar|meter|mover|ordenar|vaciar|sacar|reproducir|pausar|reanudar|pedir)", r"voy a poner(?:la|lo|las|los)?\b(?: (?:a sonar|en (?:la |tu )?(?:lista|cola)|m[uú]sica))",
+  OBJ + r" " + ACT_NOW + r" (?:ya|ahora|en ?seguida)\b",
+  r"ahora (?:mismo )?" + OBJ + r" " + ACT_NOW + r"\b",
+  r"en un (?:rato|momento|minuto|par de minutos)[^.\n]{0,30}(?:la|lo|las|los) (?:tienes|ves|ver[aá]s|tendr[aá]s)\b",
+  r"(?:la app|te) (?:te )?avisar[aáeé]\b", r"te aviso (?:cuando|en cuanto|al)\b", r"luego (?:la|lo|las|los) (?:añado|agrego|pongo|meto)",
+  r"(?:la|lo|las|los) (?:tienes|ver[aá]s|tendr[aá]s|encuentras|dej[eé]) en artistas/", r"(?:qued[oó]|quedaron|guardad[ao]s?|archivad[ao]s?|est[aá]n?) en artistas/",
+  NO_SI + r"(?:ya )?est[aá]n? en tu (?:repertorio|biblioteca|lista)\b",
+  NO_SI + r"ya (?:la |lo |las |los )?(?:est[aá]n?|tienes) (?:en )?(?:tu |la )?(?:biblioteca|lista|repertorio|artistas)\b",
+  r"(?:aqu[ií] (?:est[aá]|tienes)|est[aá]) tu (?:lista|repertorio)(?! de (?:acordes|notas))",
+  r"ahora (?:tiene|tienes|queda|quedan) (?:\d+|las? |los? |solo |únicamente )", r"ahora (?:abre|empieza|cierra) ",
+  r"ahora (?:suena|est[aá] sonando)", r"ya suena", r"(?<!qu[eé] est[aá] )sonando ahora(?! en)",
+  r"reproduciendo\b", r"reanudad[ao]\b",
+  r"(?<!est[aáeé]s )listo" + END, r"(?<!de )(?<!un )hecho" + END,
+  # presente y futuro en primera persona, con objeto
+  r"(?<!ya )(?<!= )(?<!s[ií] )(?<!s[ií]: )" + OBJ + r" (?:quito|pongo|añado|agrego|creo|borro|bajo|descargo|meto|saco|muevo|renombro|elimino|dejo|arreglo|actualizo|marco|corrijo|punt[uú]o|guardo|mando|env[ií]o)\b",
+  r"(?:borro|creo|añado|agrego|pongo|descargo|quito|meto|renombro|elimino|actualizo|arreglo|saco|mando|env[ií]o) (?:la|las|los|el|una|un|otra|esa|esas|ese|esos|esta|estas|este|estos|mi|tu|a|en) ",
+  r"(?:descargar|bajar|crear|añadir|agregar|borrar|quitar|poner|meter|renombrar|eliminar|actualizar|arreglar|guardar|mandar)[eé]\b",
+  r"(?:empiezo|comienzo|inicio|arranco|lanzo|pido|mando|solicito|programo|preparo) (?:a )?(?:la |las |una |el )?(?:descarga|descargar|bajar|bajada)",
+  r"(?:pedida|solicitada|enviada|mandada|lanzada|iniciada) (?:ya )?la descarga", r"solicitud de descarga (?:enviada|hecha|pedida|lista)",
+  r"te pedir[aá] confirmaci[oó]n", r"(?:la app|te) pide confirmaci[oó]n",
+  NO_SI + r"ya (?:est[aá]n?|forma parte|forman parte) (?:de |en )(?!tu |la |el |los |las |un |una |mi |esa |ese |esta |este |orden|marcha|spotify|youtube)[^\s.,;:]",
+  NEG + r"se (?:añadi|agreg|quit|borr|cre|elimin|renombr|guard|movi|mand|envi|actualiz|corrigi)[oó]\b",
+  r"(?:cambiad|mandad|enviad|movid)[ao]s? (?:el|la|los|las|a) ", r"(?:mandad|enviad|movid)[ao]s? a la papelera", r"(?:^|[.!\n]\s*)a la papelera\b",
+  r"(?:he dado|le di|ya tiene|tiene ahora|le puse|puse|le pongo|le doy) \d+ estrellas", r"ya (?:no )?es favorita", r"favorita ya\b",
+  r"suena ahora\b", r"qued(?:a|an|[oó]) con \d+", r"ya tienen? (?:las |los |\d)", r"guard[eé] la letra", r"(?:la |lo |las |los )?dej[eé] (?:con|en|como|lista)",
+  r"(?:^|[.!\n]\s*)(?:lista|repertorio) [^:\n]{1,40}:\s*\S", r"(?:^|[.!\n]\s*)siguiente(?: canci[oó]n| tema)?\s*[:.]",
+  r"cuando (?:termine|acabe|est[eé])[^.\n]{0,40}(?:la|lo|las|los) (?:añado|agrego|meto|pongo|creo|armo|añadir[eé]|agregar[eé]|meter[eé]|pondr[eé]|crear[eé]|armar[eé])",
+  r"en cuanto (?:termine|acabe|est[eé])[^.\n]{0,30}(?:la|lo|las|los) (?:añado|agrego|meto|pongo|creo|armo)",
+  r"guardad[ao]s? en el archivo", r"he buscado la letra", r"letra (?:y car[aá]tula )?guardadas?\b",
+  r"movid[ao]s? \S+ al (?:final|principio)",
+]
+LOOSE = [  # ramas sin \b delante
+  r"(?<!\w )(?<!\w)(?<!: )(?<!fue )(?<!fueron )(?<!sido )(?<!era )(?:" + PART + r"|est[aá] sonando\b)",
+  r"(?:\A|[.!\n:]\s*)(?:sonando(?! ahora en| en las)|en pausa|pausad[ao]|detenid[ao]|parad[ao])\b",
+  r"\(ids?:? ?\d+",
+  r"[✅✔☑]",
+]
+_CLAIMS = _re.compile(r"(?:\b(?:" + "|".join(WORD) + r")|" + "|".join(LOOSE) + r")", _re.IGNORECASE)
+_QUOTED = _re.compile(r'[«"“][^«»"“”]{0,120}[»"”]')
+_QUESTION = _re.compile(r"¿[^?]*\?|(?:^|(?<=[.!\n,;:]))[^.!?\n,;:]*\?", _re.MULTILINE)
+_CONDITIONAL = _re.compile(r"(?:^|(?<=[.!\n]))[^.!\n]*\b(?:cuando (?:digas|quieras|me lo pidas|me lo digas|me digas)|si (?:dices|me dices|quieres|me lo pides|lo pides|prefieres|confirmas|aceptas|me das)|har[ií]a(?:mos)?|podr[ií]a(?:mos)?|ser[ií]a)\b[^.!\n]*", _re.IGNORECASE | _re.MULTILINE)
 def claims_action(text: str) -> bool:
-    """Si el texto afirma haber hecho (o estar haciendo) algo en la app."""
-    # sin las marcas de markdown ni comillas: «**Herlin**» tapaba la frase
-    plain = _re.sub(r"[*_`«»\"']", "", text or "")
+    """Si el texto afirma haber hecho, estar haciendo o ir a hacer algo en la app.
+
+    Antes de mirar: fuera lo entrecomillado (letras citadas: «guardé tu
+    palabra»), las marcas de markdown, las preguntas («¿la creo?») y las
+    condicionales («si dices que si, la app te avisara»), que no son
+    afirmaciones. Amplia a proposito: sin herramientas en el turno, un falso
+    positivo cuesta una llamada de mas; un falso negativo es una lista que
+    no existe. Los casos que se toleran estan en tests/narracion.json.
+    """
+    t = _QUOTED.sub(" ", text or "")
+    plain = _re.sub(r"[*_`«»\"']", "", t)
+    plain = _QUESTION.sub(" ", plain)
+    plain = _CONDITIONAL.sub(" ", plain)
     return bool(_CLAIMS.search(plain))
 
 
-def _marked(text: str, tools) -> str:
-    """Un mensaje anterior del asistente, con la marca de lo que hizo de verdad.
+# Las notas que la app añade al historial. Si el modelo las imita en su
+# propio texto, se borran y cuentan como afirmacion falsa.
+_MARKERS = _re.compile(
+    r"\s*\[(?:nota de la app|aviso de la app|herramientas que usaste|en este mensaje no usaste)[^\]]*\]\s*",
+    _re.IGNORECASE)
+
+
+def has_markers(text: str) -> bool:
+    return bool(_MARKERS.search(text or ""))
+
+
+def strip_markers(text: str) -> str:
+    return _MARKERS.sub(" ", text or "").strip()
+
+
+# Palabras de la app. Una respuesta sin ninguna de ellas es conocimiento
+# musical o conversacion, y no hace falta molestar al juez.
+_APPISH = _re.compile(
+    r"lista|repertorio|playlist|descarg|baj(a|o|ando|ar)|biblioteca|añad|agreg|quit|borr|"
+    r"papelera|estrella|favorit|son(ar|ando)|suena|pausa|siguiente|anterior|cola|"
+    r"car[aá]tula|letra|archiv|artistas/|hecho|listo|✅|"
+    r"\bcre[eé]|cread|\bpus[eo]|\bpongo|\bmet[ií]|\bmeto|\bmov[ií]|renombr|elimin|"
+    r"actualiz|correg|corrij|guard|puntu|marc[oó]|marcad",
+    _re.IGNORECASE)
+
+
+def _judge_claims(cliente, text: str, user_text: str = "") -> bool:
+    """Segunda opinion: el propio modelo, como clasificador de una palabra.
+
+    Las frases de `_CLAIMS` nunca las cubren todas («Descargando:», «Añadida
+    a la lista» se colaron). Se pregunta cuando en el turno ninguna
+    herramienta ha hecho nada y el texto habla de la app; el conocimiento
+    musical no pasa por aqui. Ve tambien la peticion del usuario, para
+    distinguir una oferta («puedo crear la lista») de una afirmacion. Si el
+    juez falla o tarda, no se le culpa: se sigue con lo que digan las frases.
+    """
+    plain = _QUESTION.sub(" ", text or "").strip()
+    if not plain or not _APPISH.search(plain):
+        return False
+    try:
+        client = cliente.with_options(timeout=15) if hasattr(cliente, "with_options") else cliente
+        r = client.chat.completions.create(
+            model=config.DEEPINFRA_CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": "Eres un clasificador. Contesta solo SI o NO."},
+                {"role": "user", "content": (
+                    "¿Este mensaje de un asistente AFIRMA que YA ha hecho, esta haciendo "
+                    "ahora o va a hacer ahora mismo una accion en la aplicacion (descargar, "
+                    "crear o cambiar una lista, añadir o quitar canciones, borrar, puntuar, "
+                    "poner musica)? Preguntar u ofrecer hacerlo NO cuenta. Informar de un dato "
+                    "o responder conocimiento musical NO cuenta.\n\n"
+                    f"Peticion del usuario:\n{(user_text or '')[:400]}\n\n"
+                    f"Mensaje del asistente:\n{plain[:1500]}")}],
+            temperature=0, max_tokens=3)
+        answer = (r.choices[0].message.content or "").strip().upper().rstrip(".!")
+        return answer in ("SI", "SÍ")
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
+# Un si a una pregunta suya. Con «no» dentro, no es un si.
+_YES = _re.compile(
+    r"^\W*(s[ií]\b|ok\b|okay|okis|dale|vale|venga|claro|hazlo|adelante|confirmo|perfecto|"
+    r"exacto|correcto|eso|esa|ese|b[aá]jal[ao]s?|desc[aá]rgal[ao]s?|ponl[ao]s?|cr[eé]al[ao]|"
+    r"agr[eé]gal[ao]s?|a[ñn][aá]del[ao]s?|qu[ií]tal[ao]s?|b[oó]rral[ao]s?|hazl[ao])",
+    _re.IGNORECASE)
+
+
+def _answers_an_offer(messages: list[dict]) -> bool:
+    """El ultimo mensaje es un si del usuario a una pregunta del asistente.
+
+    Ahi es donde mas narraba: «¿la bajo?» — «si» — «Descargando…» sin llamar
+    a nada. En ese caso la primera vuelta va obligada a usar herramientas.
+    """
+    if not messages or messages[-1].get("role") == "ai":
+        return False
+    answer = str(messages[-1].get("text") or "").strip()
+    if not answer or _re.search(r"\bno\b", answer, _re.IGNORECASE):
+        return False
+    if not _YES.search(answer):
+        return False
+    # La pregunta suya puede no ser el mensaje justo anterior: entre medias
+    # la app mete los suyos («Cancelado, no he tocado nada.»), que no cuentan.
+    asked = [m for m in reversed(messages[:-1])
+             if m.get("role") == "ai" and not m.get("app")][:2]
+    return any("?" in str(m.get("text") or "") for m in asked)
+
+
+def _tool_note(text: str, tools, app=False) -> str:
+    """La nota de sistema que acompaña a un mensaje anterior del asistente.
 
     El modelo lee sus propias frases de turnos pasados como hechos: si dijo
     «ya la cree» sin llamar a nada, al turno siguiente da la lista por hecha.
     Con herramientas se anota cuales; sin ellas, y si el texto afirma haber
-    hecho algo, se le señala que no ocurrio.
+    hecho algo, se le señala que no ocurrio. Vacia si no hay nada que decir.
     """
-    text = text or ""
     if tools:
         done = ", ".join(f"{t.get('name')} ({t.get('summary')})" if t.get("summary")
                          else str(t.get("name")) for t in tools if t.get("name"))
-        return f"{text}\n[herramientas que usaste en este mensaje: {done}]"
-    if claims_action(text):
-        return (f"{text}\n[en este mensaje NO usaste ninguna herramienta: "
-                "lo que dice haber hecho no ocurrio]")
-    return text
+        return f"Nota de la app: en el mensaje anterior usaste {done}."
+    if app:
+        return "Nota de la app: el mensaje anterior lo escribio la app, no tu."
+    if has_markers(text) or claims_action(text):
+        return ("Nota de la app: el mensaje anterior NO uso ninguna herramienta; lo "
+                "que dice haber hecho o estar haciendo NO ocurrio.")
+    return ""
 
 
 def _context_note(messages: list[dict]) -> str:
@@ -925,7 +1159,8 @@ def _context_note(messages: list[dict]) -> str:
             lines.append("- Descarga en marcha: no.")
     except Exception:                                       # noqa: BLE001
         pass
-    last_ai = next((m for m in reversed(messages) if m.get("role") == "ai"), None)
+    last_ai = next((m for m in reversed(messages)
+                    if m.get("role") == "ai" and not m.get("app")), None)
     if last_ai is not None and not last_ai.get("tools"):
         lines.append("- Tu ultimo mensaje no uso ninguna herramienta: si prometiste o "
                      "dijiste haber hecho algo ahi, NO esta hecho.")

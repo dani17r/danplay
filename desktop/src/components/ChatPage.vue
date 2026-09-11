@@ -82,9 +82,14 @@ function rememberFollowing () {
 }
 const stopFollowing = downloads.onFinished((s) => {
   if (!following.value) return
+  const asked = following.value
   following.value = null
   rememberFollowing()
-  reportDownload(s)
+  // Solo la descarga que se pidio desde aqui: si mientras tanto se lanzo
+  // otra desde la pagina de Descargas, esa no es nuestra y no se cuenta.
+  const mine = (s.results || []).filter(r => !r.requested || asked.items.includes(r.requested))
+  if (!mine.length && (s.results || []).length) return
+  reportDownload({ ...s, results: mine })
 })
 onUnmounted(stopFollowing)
 
@@ -136,7 +141,7 @@ function reportDownload (e) {
   if (already.length) parts.push(`${already.length} ya la${already.length > 1 ? 's' : ''} tenías`)
   if (failed.length) parts.push(`${failed.length} con fallo`)
   messages.value.push({
-    role: 'ai', text: lines.join('\n').trim(),
+    role: 'ai', text: lines.join('\n').trim(), app: true,
     tools: [{ name: 'download_music', summary: parts.join(', ') }]
   })
   if (ok.length) emit('reload')
@@ -147,14 +152,16 @@ function reportDownload (e) {
   //
   // Con los ids EXACTOS de lo que entro. Sin ellos, el modelo se los
   // inventaba y la lista salia con otras canciones.
-  if (ok.length && !thinking.value) {
+  if (ok.length) {
     const ids = ok.filter(r => r.id).map(r => `${r.id} = «${describe(r)}»`).join('; ')
-    send('[aviso de la app] La descarga ha terminado; el resultado esta en el mensaje ' +
+    const notice = '[aviso de la app] La descarga ha terminado; el resultado esta en el mensaje ' +
          'anterior. Las canciones que han entrado, con su id en la biblioteca: ' +
          (ids || 'ninguna con id') + '. Usa EXACTAMENTE esos ids. ' +
          'Si en lo que te pedi quedaba algo por hacer con esas canciones ' +
          '(una lista, ponerlas a sonar…), hazlo ahora con las herramientas y cuentamelo ' +
-         'en una linea; no toques nada mas. Si no quedaba nada, di solo que ya estan.', true)
+         'en una linea; no toques nada mas. Si no quedaba nada, responde solo: Terminado.'
+    if (thinking.value) queued = { text: notice, event: 'download_done' }
+    else send(notice, true, 'download_done')
   }
 }
 
@@ -187,28 +194,42 @@ async function scrollToBottom () {
 function forCore (m) {
   const out = { role: m.role, text: m.text }
   if (m.tools?.length) out.tools = m.tools.map(h => ({ name: h.name, summary: h.summary }))
+  // lo que escribio la app (un cancelado, un fallo, el arranque de una
+  // descarga) no es una frase del modelo: el nucleo lo marca como tal
+  if (m.app) out.app = true
+  // y un aviso estructural (la descarga termino) se reconoce por su tipo,
+  // no por su texto
+  if (m.event) out.event = m.event
   return out
 }
+
+// El aviso de fin de descarga que no se pudo mandar porque el chat estaba
+// ocupado: se manda en cuanto termine ese turno, no se pierde.
+let queued = null
 
 /**
  * `hidden`: un mensaje que manda la propia app en nombre del usuario (al
  * terminar una descarga, para que el asistente remate lo que quedaba). Va al
  * nucleo como cualquier otro, pero no se pinta como si lo hubieras escrito.
+ * `event` lo etiqueta para el nucleo («download_done»).
  */
-async function send (text = null, hidden = false) {
+async function send (text = null, hidden = false, event = null) {
   const t = (text ?? entrada.value).trim()
   if (!t || thinking.value) return
   if (!hidden) entrada.value = ''
-  messages.value.push(hidden ? { role: 'me', text: t, hidden: true } : { role: 'me', text: t })
+  const mine = { role: 'me', text: t }
+  if (hidden) mine.hidden = true
+  if (event) mine.event = event
+  messages.value.push(mine)
   thinking.value = true
   scrollToBottom()
   try {
     // copia: el historial sigue creciendo mientras esperamos la respuesta
     const r = await api.chat(messages.value.map(forCore))
     if (r.error) {
-      messages.value.push({ role: 'ai', text: r.error, error: true })
+      messages.value.push({ role: 'ai', text: r.error, error: true, app: true })
     } else {
-      messages.value.push({ role: 'ai', text: r.text, tools: r.tools || [] })
+      messages.value.push({ role: 'ai', text: r.text, tools: r.tools || [], narrated: !!r.narrated })
       // OJO: son los nombres de las herramientas tal y como estan hoy. Estaban
       // los viejos en castellano y por eso la lista nunca se refrescaba.
       // `download_music` no esta: en la conversacion solo se PIDE; la
@@ -225,9 +246,10 @@ async function send (text = null, hidden = false) {
       if (r.confirm) await confirmPending(r.confirm)
     }
   } catch (e) {
-    messages.value.push({ role: 'ai', text: 'No pude responder: ' + errorMessage(e), error: true })
+    messages.value.push({ role: 'ai', text: 'No pude responder: ' + errorMessage(e), error: true, app: true })
   } finally {
     thinking.value = false; save(); scrollToBottom()
+    if (queued) { const q = queued; queued = null; send(q.text, true, q.event) }
   }
 }
 
@@ -245,13 +267,16 @@ async function confirmPending (pending) {
     message: pending.summary, okLabel: 'Adelante'
   })
   if (!ok) {
-    messages.value.push({ role: 'ai', text: 'Cancelado, no he tocado nada.' })
+    messages.value.push({ role: 'ai', text: 'Cancelado, no he tocado nada.', app: true })
     save(); scrollToBottom()
     return
   }
   try {
     const r = await api.chatConfirm(pending.tool, pending.args)
-    messages.value.push({ role: 'ai', text: r.text || 'Hecho.' })
+    // con la herramienta apuntada: asi el nucleo le cuenta al modelo que la
+    // descarga (o el borrado) se pidio y se acepto de verdad
+    messages.value.push({ role: 'ai', text: r.text || 'Hecho.', app: true,
+      tools: [{ name: pending.tool, summary: pending.tool === 'download_music' ? 'aceptada, en marcha' : 'hecho' }] })
     if (pending.tool === 'download_music' && r.result?.active) {
       // arranco en segundo plano: se sigue desde aqui y se cuenta al acabar
       following.value = { items: r.result.items || [], force: !!r.result.force }
@@ -261,7 +286,7 @@ async function confirmPending (pending) {
       emit('reload')
     }
   } catch (e) {
-    messages.value.push({ role: 'ai', text: 'No se pudo: ' + errorMessage(e), error: true })
+    messages.value.push({ role: 'ai', text: 'No se pudo: ' + errorMessage(e), error: true, app: true })
   } finally {
     save(); scrollToBottom()
   }
@@ -303,7 +328,9 @@ async function clearChat () {
            instrumentos, teoria e historia. Lo que se salga de ahi te lo dire.</p>
       </div>
 
-      <div v-for="(m,i) in messages" :key="i" v-show="!m.hidden" class="chat-msg" :class="[m.role, {error: m.error}]">
+      <div v-for="(m,i) in messages" :key="i" v-show="!m.hidden" class="chat-msg"
+           :class="[m.role, {error: m.error, narrated: m.narrated}]"
+           :title="m.narrated ? 'El asistente dice haber hecho algo, pero ninguna herramienta lo hizo' : undefined">
         <div v-if="m.tools?.length" class="chat-tools">
           <span v-for="(h,j) in m.tools" :key="j" class="chip">
             <Icon n="check" :t="11" /> {{ toolLabel(h.name) }} · {{ h.summary }}

@@ -293,16 +293,30 @@ una lista (`playlist_songs`) y otra para dejarla exactamente como debe
 (`set_playlist_songs`). El aviso de fin de descarga le da los ids exactos de
 lo que entró.
 
-**Narrar no es hacer.** El modelo puede escribir «ya la creé» sin haber
-llamado a nada, y al turno siguiente leer esa frase suya como un hecho. Tres
-defensas en `chat.reply`: en cada turno recibe el **estado real** de la app
-(qué repertorios existen, si hay descarga en marcha); sus mensajes anteriores
-van **marcados** con las herramientas que usaron, y los que afirman haber hecho
-algo sin ninguna van señalados como «esto no ocurrió»; y si contesta solo
-texto diciendo que hizo algo sin haber llamado a nada en el turno, se le
-devuelve la pelota una vez con `tool_choice="required"`. Cuando termina una
-descarga pedida desde el chat, la app le pasa el turno para que remate lo que
-quedara («…y ármame una lista»).
+**Narrar no es hacer.** El modelo puede escribir «Descargando… la app te
+avisará» o «Añadida a la lista (id: 278)» sin haber llamado a nada, y al turno
+siguiente leer esa frase suya como un hecho. Llegó a imitar la marca que la
+app añadía al historial. Las defensas, en `chat.reply`:
+
+- **El estado real** de la app al final de cada turno (qué repertorios
+  existen, si hay descarga en marcha, si su último mensaje fue solo texto).
+- **Notas de sistema** junto a cada mensaje suyo anterior: qué herramientas
+  usó, o que no usó ninguna y lo que dice haber hecho no ocurrió, o que ese
+  mensaje lo escribió la app. Van como `system`, no pegadas a su texto, para
+  que no las copie; si copia una, se borra y cuenta como afirmación falsa.
+- **Detector de narración**: si contesta solo texto y no ha llamado a ninguna
+  herramienta que *haga* algo (`ACTING_TOOLS`), se mira si el texto afirma
+  una acción —una lista amplia de frases y, si no salta, el propio modelo como
+  **juez** de una palabra— y en ese caso se le devuelve la pelota una vez con
+  `tool_choice="required"`. Tras solo consultar («busco y digo "añadida"»)
+  decide únicamente el juez: «ya está en tu biblioteca» tras buscar es un
+  dato.
+- **Un sí a una pregunta suya** («¿la bajo?» — «dale») fuerza herramientas
+  en la primera vuelta: es donde más narraba.
+
+Cuando termina una descarga pedida desde el chat, la app le pasa el turno
+para que remate lo que quedara («…y ármame una lista»), con los ids exactos
+de lo que entró.
 
 **Descargar se pide, no se espera.** Una descarga tarda minutos y la
 conversación no puede quedarse colgada: al aprobarla, el núcleo la arranca en

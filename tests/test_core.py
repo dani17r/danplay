@@ -756,3 +756,48 @@ def test_being_inside_the_library_is_decided_by_components():
     assert B._inside("/musica", "/musica")
     assert not B._inside("/musica-copia/x.mp3", "/musica")
     assert not B._inside("/otro/x.mp3", "/musica")
+
+
+# ------------------------------------------------- narrar no es hacer: el corpus
+# El asistente decia «Descargando…», «Añadida a la lista», «Ya la cree» sin
+# llamar a nada. `claims_action` es la primera red; tests/narracion.json es el
+# corpus con el que se afino: 179 frases que afirman una accion y 134 que no
+# (datos musicales, preguntas, condicionales, letras citadas, muletillas).
+# Lo que se tolera —frases sobre el estado de la biblioteca que sin
+# herramientas conviene forzar a comprobar, y un par de muletillas— esta
+# apuntado en el propio archivo. Cambiar una rama sin pasar por aqui es jugar
+# a ciegas.
+
+
+def _corpus():
+    import json, pathlib
+    return json.loads((pathlib.Path(__file__).parent / "narracion.json").read_text(encoding="utf-8"))
+
+
+def test_el_detector_reconoce_todo_el_corpus_de_narraciones():
+    from danplay import chat
+    d = _corpus()
+    tolerated = set(d["no_saltan_aunque_afirman"])
+    missed = [t for t in d["afirman"] if not chat.claims_action(t) and t not in tolerated]
+    assert not missed, f"narraciones que ya no se detectan: {missed}"
+    assert len(tolerated) <= 2, "que no crezca lo que se deja pasar"
+
+
+def test_el_detector_no_salta_con_lo_informativo():
+    from danplay import chat
+    d = _corpus()
+    tolerated = set(d["saltan_aunque_no_afirman"])
+    fps = [t for t in d["no_afirman"] if chat.claims_action(t) and t not in tolerated]
+    assert not fps, f"frases informativas que ahora saltan: {fps}"
+    assert len(tolerated) <= 15, "que no crezca lo que salta de mas"
+
+
+def test_lo_tolerado_sigue_siendo_lo_que_se_penso():
+    """Si una rama nueva arregla un caso tolerado, hay que quitarlo de la lista
+    para que la prueba lo proteja de verdad."""
+    from danplay import chat
+    d = _corpus()
+    fixed = [t for t in d["no_saltan_aunque_afirman"] if chat.claims_action(t)]
+    assert not fixed, f"ya se detectan, quitalas de la lista: {fixed}"
+    quiet = [t for t in d["saltan_aunque_no_afirman"] if not chat.claims_action(t)]
+    assert not quiet, f"ya no saltan, quitalas de la lista: {quiet}"

@@ -395,7 +395,7 @@ def download(inbox: str, quality=None, file_it=True, results=5, force=False,
             mine = already_in_library(t["title"])
             if mine:
                 repetida = {"ok": False, "already_there": True, "title": t["title"],
-                            "url": t["url"], "source": t["title"],
+                            "url": t["url"], "source": t["title"], "requested": inbox,
                             "reason": "ya la tienes en la biblioteca",
                             "matches": mine[:5]}
                 _log(repetida, inbox, source, quality)
@@ -417,6 +417,9 @@ def download(inbox: str, quality=None, file_it=True, results=5, force=False,
                              progress=step, cancel=cancel)
             r["forced"] = bool(force)
             r["source"] = t["title"]
+            # lo que se pidio (URL o texto): el chat lo usa para saber si esta
+            # descarga es la suya
+            r["requested"] = inbox
             if r.get("ok") and file_it:
                 if progress:
                     progress({"phase": "filing", "index": i, "total": len(items),

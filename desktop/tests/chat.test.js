@@ -309,6 +309,65 @@ describe('descargas pedidas al asistente', () => {
     expect(localStorage.getItem('danplay.chat.download')).toBeNull()
   })
 
+  it('el aviso al asistente va etiquetado y con los ids; si el chat estaba ocupado, espera su turno', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
+    api.youtube.mockResolvedValueOnce({ active: false, phase: 'done', results: [
+      { ok: true, id: 301, artist: 'Barak', song: 'Mi Gozo', requested: 'x' }] })
+    // el chat esta ocupado con otra pregunta cuando termina la descarga
+    let release
+    api.chat.mockImplementationOnce(() => new Promise(res => { release = res }))
+    const w = await montar()
+    await escribir(w, '¿de que año es Kind of Blue?')      // se queda pensando
+    await vi.advanceTimersByTimeAsync(1000)                 // termina la descarga
+    expect(w.text()).toContain('Barak - Mi Gozo')
+    expect(api.chat).toHaveBeenCalledTimes(1)                // el aviso NO se perdio ni se colo
+    api.chat.mockResolvedValueOnce({ text: 'Terminado.', tools: [] })
+    release({ text: 'De 1959.', tools: [] })
+    await flushPromises(); await flushPromises(); await flushPromises()
+    expect(api.chat).toHaveBeenCalledTimes(2)
+    const sent = api.chat.mock.calls.at(-1)[0]
+    expect(sent.at(-1).event).toBe('download_done')
+    expect(sent.at(-1).text).toContain('301 = «Barak - Mi Gozo»')
+    expect(sent.at(-1).text).toContain('responde solo: Terminado')
+  })
+
+  it('una descarga que no pidio el chat no se cuenta como suya', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['mi gozo barak'], force: false }))
+    api.youtube.mockResolvedValueOnce({ active: false, phase: 'done', results: [
+      { ok: true, id: 9, artist: 'Otro', song: 'Otra', requested: 'https://youtu.be/otra' }] })
+    const w = await montar()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.text()).not.toContain('Otro - Otra')
+    expect(api.chat).not.toHaveBeenCalled()
+    expect(localStorage.getItem('danplay.chat.download')).toBeNull()
+  })
+
+  it('lo que escribe la app va marcado y la descarga aceptada lleva su herramienta', async () => {
+    api.chat.mockResolvedValueOnce(pendiente)
+    api.chatConfirm.mockResolvedValueOnce({ ok: true, text: 'Descargando.',
+      result: { active: true, items: ['a'], force: false } })
+    const w = await montar()
+    await escribir(w, 'baja')
+    dialogOk()
+    await flushPromises()
+    await escribir(w, 'gracias')
+    const sent = api.chat.mock.calls.at(-1)[0]
+    const accepted = sent.find(m => m.text === 'Descargando.')
+    expect(accepted.app).toBe(true)
+    expect(accepted.tools).toEqual([{ name: 'download_music', summary: 'aceptada, en marcha' }])
+  })
+
+  it('una respuesta narrada se pinta señalada', async () => {
+    api.chat.mockResolvedValueOnce({ text: 'Ya la creé.\n\n_(Nota de la app: …)_', tools: [], narrated: true })
+    const w = await montar()
+    await escribir(w, 'crea la lista')
+    const msg = w.findAll('.chat-msg.ai').at(-1)
+    expect(msg.classes()).toContain('narrated')
+    expect(msg.attributes('title')).toContain('ninguna herramienta')
+  })
+
   it('si no entro nada, no se molesta al asistente', async () => {
     vi.useFakeTimers()
     localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
