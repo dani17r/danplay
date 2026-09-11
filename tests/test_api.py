@@ -1731,6 +1731,54 @@ def test_el_prompt_deja_las_confirmaciones_a_la_app():
     assert "NO el titulo de YouTube" in s
 
 
+def test_lo_que_devolvio_cada_herramienta_viaja_al_turno_siguiente(cliente):
+    """«Esa», «la segunda», «la que te dije»: sin los ids y nombres de lo que
+    enseño antes, el modelo no podia entenderlo y volvia a preguntar o a
+    inventar. Ahora cada herramienta deja un `detail` y el historial lo lleva."""
+    from danplay import chat, library
+    songs = library.search("", limit=2)
+    fake = _Turnos([("", [("search_songs", '{"query": "", "limit": 2}')]), ("Tienes dos.", None)])
+    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿que tengo?"}]))
+    detail = r["tools"][0]["detail"]
+    assert f"id {songs[0]['id']}" in detail and songs[0]["title"] in detail
+    # y al turno siguiente, la nota de sistema lo trae
+    fake = _Turnos([("La segunda es esa.", None)])
+    _con_cliente(fake, lambda: chat.reply([
+        {"role": "user", "text": "¿que tengo?"},
+        {"role": "ai", "text": "Tienes dos.", "tools": r["tools"]},
+        {"role": "user", "text": "pon la segunda"}]))
+    notas = [m["content"] for m in fake.recibido[0]["messages"] if m["role"] == "system"]
+    assert any(f"id {songs[1]['id']}" in n and songs[1]["title"] in n for n in notas), notas
+
+
+def test_la_ventana_de_historial_empieza_en_el_usuario_y_no_se_come_la_peticion():
+    from danplay import chat
+    msgs = [{"role": "user", "text": "descarga esta y metela en Herlin"}]
+    for _ in range(10):
+        msgs += [{"role": "ai", "text": "Descargando.", "app": True},
+                 {"role": "ai", "text": "**Descargada:** …", "app": True},
+                 {"role": "user", "text": "[aviso de la app] …", "hidden": True, "event": "download_done"},
+                 {"role": "ai", "text": "Terminado."}]
+    w = chat._window(msgs)
+    assert w[0]["role"] == "user" and len(w) <= chat.HISTORY_MESSAGES
+    assert len(w) > 24, "la ventana de antes se quedaba corta con los mensajes de la app"
+    # el ultimo mensaje siempre entra, aunque sea enorme
+    w = chat._window([{"role": "user", "text": "x" * 50_000}])
+    assert len(w) == 1
+
+
+def test_brief_resume_con_ids_y_nombres():
+    from danplay import chat
+    assert chat._brief("search_songs", {"songs": [{"id": 12, "artist": "Barak", "title": "Mi Gozo"}]}) \
+        == "id 12 «Barak - Mi Gozo»"
+    assert chat._brief("playlist_songs", {"playlist_id": 2, "name": "Herlin", "songs": []}) == "«Herlin» (id 2): vacia"
+    assert chat._brief("list_playlists", {"playlists": [{"id": 1, "name": "domingo", "items": 2}]}) \
+        == "«domingo» (id 1, 2 temas)"
+    assert chat._brief("search_songs", {"error": "no"}) == ""
+    largo = {"songs": [{"id": i, "artist": "A", "title": f"T{i}"} for i in range(15)]}
+    assert chat._brief("search_songs", largo).endswith("y 5 mas")
+
+
 def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
     """La ficha del chat decia «descargo · 0 descargada(s)» cuando en realidad
     estaba esperando el visto bueno. Confundia: parecia que habia fallado."""

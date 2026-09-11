@@ -89,7 +89,7 @@ const stopFollowing = downloads.onFinished((s) => {
   // otra desde la pagina de Descargas, esa no es nuestra y no se cuenta.
   const mine = (s.results || []).filter(r => !r.requested || asked.items.includes(r.requested))
   if (!mine.length && (s.results || []).length) return
-  reportDownload({ ...s, results: mine })
+  reportDownload({ ...s, results: mine }, asked.request || '')
 })
 onUnmounted(stopFollowing)
 
@@ -119,7 +119,7 @@ function requestedAs (r) {
  * Lo que se cuenta al acabar la descarga aprobada. Va en markdown: son
  * listas de temas y se leen mejor con sus negritas.
  */
-function reportDownload (e) {
+function reportDownload (e, request = '') {
   const results = e.results || []
   const ok = results.filter(r => r.ok)
   const already = results.filter(r => r.already_there)
@@ -175,7 +175,8 @@ function reportDownload (e) {
     const notice = '[aviso de la app] La descarga ha terminado y ES la que pediste; el nombre con ' +
          'el que entra lo decide la identificacion, no YouTube. ' +
          (ids || 'No entro ninguna con id.') + '. Usa EXACTAMENTE esos ids y NO la vuelvas a descargar. ' +
-         'Si en lo que te pedi quedaba algo por hacer con esas canciones (añadirla a una lista, ' +
+         (request ? `Lo que te pedi fue: «${request.slice(0, 300)}». ` : '') +
+         'Si de eso quedaba algo por hacer con esas canciones (añadirla a una lista, ' +
          'ponerla a sonar…), hazlo AHORA con las herramientas —añadir a una lista no necesita ' +
          'confirmacion— y cuentamelo en una linea; no toques nada mas. ' +
          'Si no quedaba nada, responde solo: Terminado.'
@@ -212,7 +213,14 @@ async function scrollToBottom () {
  */
 function forCore (m) {
   const out = { role: m.role, text: m.text }
-  if (m.tools?.length) out.tools = m.tools.map(h => ({ name: h.name, summary: h.summary }))
+  if (m.tools?.length) {
+    out.tools = m.tools.map(h => {
+      const t = { name: h.name, summary: h.summary }
+      // lo que devolvio (ids y nombres): la memoria del modelo entre turnos
+      if (h.detail) t.detail = h.detail
+      return t
+    })
+  }
   // lo que escribio la app (un cancelado, un fallo, el arranque de una
   // descarga) no es una frase del modelo: el nucleo lo marca como tal
   if (m.app) out.app = true
@@ -297,8 +305,11 @@ async function confirmPending (pending) {
     messages.value.push({ role: 'ai', text: r.text || 'Hecho.', app: true,
       tools: [{ name: pending.tool, summary: pending.tool === 'download_music' ? 'aceptada, en marcha' : 'hecho' }] })
     if (pending.tool === 'download_music' && r.result?.active) {
-      // arranco en segundo plano: se sigue desde aqui y se cuenta al acabar
-      following.value = { items: r.result.items || [], force: !!r.result.force }
+      // arranco en segundo plano: se sigue desde aqui y se cuenta al acabar.
+      // Con tu peticion original: al terminar, el aviso se la cita al modelo
+      // para que remate lo que pediste y no lo que le parezca.
+      const request = [...messages.value].reverse().find(m => m.role === 'me' && !m.hidden)?.text || ''
+      following.value = { items: r.result.items || [], force: !!r.result.force, request }
       rememberFollowing()
       downloads.wake()
     } else {

@@ -258,7 +258,10 @@ AL DESCARGAR
 
 IDS: NUNCA LOS INVENTES
 Un id de cancion solo vale si ha salido de search_songs o del aviso de la app
-al terminar una descarga, EN ESTA conversacion. Un repertorio se nombra por su
+al terminar una descarga, EN ESTA conversacion. Las «Nota de la app» del
+historial traen lo que devolvio cada herramienta en turnos anteriores (ids y
+nombres): cuando el usuario diga «esa», «la segunda», «la que te dije» o «la
+de antes», busca ahi a que se refiere antes de volver a preguntar o buscar. Un repertorio se nombra por su
 NOMBRE (todas las herramientas de listas aceptan `name`); su id solo si lo
 devolvio list_playlists o playlist_songs. Si no tienes el id, buscalo antes.
 Las herramientas rechazan los ids que no existen; si eso pasa, busca de nuevo,
@@ -808,7 +811,31 @@ def run_tool(name, args) -> dict:
         return {"error": str(e)}
 
 
-def reply(messages: list[dict], max_vueltas=5) -> dict:
+# Cuanto historial se le da al modelo. Por mensajes Y por tamaño: los de la
+# app (Descargando…, el informe, el aviso oculto) son cortos pero cuentan, y
+# con 24 la peticion original quedaba fuera en cuanto habia una descarga por
+# medio. Se corta siempre en un mensaje del usuario, para no empezar por una
+# respuesta suelta.
+HISTORY_MESSAGES = 48
+HISTORY_CHARS = 16_000
+
+
+def _window(messages: list[dict]) -> list[dict]:
+    """Los ultimos mensajes que caben, empezando por uno del usuario."""
+    kept: list[dict] = []
+    size = 0
+    for m in reversed(messages):
+        size += len(str(m.get("text") or "")) + 40
+        if kept and (len(kept) >= HISTORY_MESSAGES or size > HISTORY_CHARS):
+            break
+        kept.append(m)
+    kept.reverse()
+    while kept and kept[0].get("role") == "ai" and len(kept) > 1:
+        kept.pop(0)
+    return kept
+
+
+def reply(messages: list[dict], max_vueltas=6) -> dict:
     """Conversa usando herramientas. `messages` son {role, text} del historial.
 
     Las herramientas que no tienen vuelta atras no se ejecutan aqui: se
@@ -819,7 +846,7 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
         return {"error": "la IA no esta configurada; pon tu clave de DeepInfra en Ajustes"}
 
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
-    recent = messages[-24:]
+    recent = _window(messages)
     for m in recent:
         role = "assistant" if m.get("role") == "ai" else "user"
         text = m.get("text", "")
@@ -953,7 +980,10 @@ def reply(messages: list[dict], max_vueltas=5) -> dict:
             used.append({"name": name, "args": args,
                          "summary": ("espera tu visto bueno"
                                      if res.get("needs_confirmation")
-                                     else _summarize(name, res))})
+                                     else _summarize(name, res)),
+                         # lo que devolvio, en corto: al turno siguiente el
+                         # modelo sigue sabiendo que ids y nombres enseño
+                         "detail": _brief(name, res)})
             history.append({"role": "tool", "tool_call_id": c.id,
                          "content": json.dumps(res, ensure_ascii=False)[:12000]})
 
@@ -1179,18 +1209,62 @@ def _answers_an_offer(messages: list[dict]) -> bool:
     return any("?" in str(m.get("text") or "") for m in asked)
 
 
+def _brief(name: str, res: dict, limit=10) -> str:
+    """Lo que devolvio una herramienta, en una linea con ids y nombres.
+
+    Es la memoria entre turnos: sin esto, al turno siguiente el modelo solo
+    sabia «3 resultados» y no PODIA entender «la segunda» o «esa», ni tenia
+    los ids de lo que el mismo acababa de enseñar.
+    """
+    if not isinstance(res, dict) or res.get("error") or res.get("needs_confirmation"):
+        return ""
+
+    def song(c):
+        who = f"{c.get('artist')} - " if c.get("artist") else ""
+        return f"id {c.get('id')} «{who}{c.get('title')}»"
+
+    if name in ("search_songs", "playlist_songs", "create_playlist", "add_to_playlist",
+                "set_playlist_songs", "remove_from_playlist"):
+        songs = res.get("songs") or []
+        head = f"«{res.get('name')}» (id {res.get('playlist_id')}): " if res.get("playlist_id") else ""
+        more = f" y {len(songs) - limit} mas" if len(songs) > limit else ""
+        if songs:
+            return head + ", ".join(song(c) for c in songs[:limit]) + more
+        return head + "vacia" if head else ""
+    if name == "list_playlists":
+        return ", ".join(f"«{l['name']}» (id {l['id']}, {l['items']} temas)"
+                         for l in (res.get("playlists") or [])[:limit])
+    if name == "search_youtube":
+        return "; ".join(f"«{t.get('title')}» {t.get('url')}"
+                         for t in (res.get("items") or [])[:5])
+    if name in ("play_song",):
+        return res.get("playing") or ""
+    if name == "edit_song" and res.get("song"):
+        return song(res["song"])
+    if name in ("set_stars", "set_favorite", "delete_song"):
+        return str(res.get("song") or res.get("name") or "")
+    return ""
+
+
 def _tool_note(text: str, tools, app=False) -> str:
     """La nota de sistema que acompaña a un mensaje anterior del asistente.
 
     El modelo lee sus propias frases de turnos pasados como hechos: si dijo
     «ya la cree» sin llamar a nada, al turno siguiente da la lista por hecha.
-    Con herramientas se anota cuales; sin ellas, y si el texto afirma haber
-    hecho algo, se le señala que no ocurrio. Vacia si no hay nada que decir.
+    Con herramientas se anota cuales y QUE devolvieron (ids y nombres: la
+    memoria entre turnos); sin ellas, y si el texto afirma haber hecho algo,
+    se le señala que no ocurrio. Vacia si no hay nada que decir.
     """
     if tools:
-        done = ", ".join(f"{t.get('name')} ({t.get('summary')})" if t.get("summary")
-                         else str(t.get("name")) for t in tools if t.get("name"))
-        return f"Nota de la app: en el mensaje anterior usaste {done}."
+        parts = []
+        for t in tools:
+            if not t.get("name"):
+                continue
+            piece = f"{t['name']} ({t['summary']})" if t.get("summary") else str(t["name"])
+            if t.get("detail"):
+                piece += f": {str(t['detail'])[:600]}"
+            parts.append(piece)
+        return "Nota de la app: en el mensaje anterior usaste " + "; ".join(parts) + "."
     if app:
         return "Nota de la app: el mensaje anterior lo escribio la app, no tu."
     if has_markers(text) or claims_action(text):

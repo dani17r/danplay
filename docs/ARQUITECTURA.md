@@ -317,9 +317,13 @@ app añadía al historial. Las defensas, en `chat.reply`:
 - **El estado real** de la app al final de cada turno (qué repertorios
   existen, si hay descarga en marcha, si su último mensaje fue solo texto).
 - **Notas de sistema** junto a cada mensaje suyo anterior: qué herramientas
-  usó, o que no usó ninguna y lo que dice haber hecho no ocurrió, o que ese
-  mensaje lo escribió la app. Van como `system`, no pegadas a su texto, para
-  que no las copie; si copia una, se borra y cuenta como afirmación falsa.
+  usó **y qué devolvieron** (ids y nombres, en corto: es su memoria entre
+  turnos, lo que le permite entender «esa» o «la segunda»), o que no usó
+  ninguna y lo que dice haber hecho no ocurrió, o que ese mensaje lo escribió
+  la app. Van como `system`, no pegadas a su texto, para que no las copie; si
+  copia una, se borra y cuenta como afirmación falsa. La ventana de historial
+  se mide por mensajes y por tamaño y empieza siempre en un mensaje del
+  usuario: los mensajes de la app no se comen la petición original.
 - **Detector de narración**: si contesta solo texto y no ha llamado a ninguna
   herramienta que *haga* algo (`ACTING_TOOLS`), se mira si el texto afirma
   una acción —una lista amplia de frases y, si no salta, el propio modelo como

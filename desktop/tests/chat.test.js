@@ -62,17 +62,19 @@ describe('chat', () => {
     expect(ultima[0]).toEqual({ role: 'me', text: 'hola' })
   })
 
-  it('el historial lleva que herramientas uso cada respuesta', async () => {
-    // Con eso el nucleo marca lo que se hizo de verdad en cada mensaje y el
-    // modelo no toma sus propias frases («ya la cree») por hechos.
+  it('el historial lleva que herramientas uso cada respuesta y que devolvieron', async () => {
+    // Con eso el nucleo marca lo que se hizo de verdad en cada mensaje, el
+    // modelo no toma sus propias frases («ya la cree») por hechos, y conserva
+    // los ids y nombres que enseño («la segunda», «esa»).
     api.chat.mockResolvedValueOnce({
-      text: 'Lista creada', tools: [{ name: 'create_playlist', summary: '4 temas', args: { x: 1 } }] })
+      text: 'Lista creada', tools: [{ name: 'create_playlist', summary: '4 temas', args: { x: 1 },
+                                      detail: '«X» (id 3): id 1 «A - B»' }] })
     const w = await montar()
     await escribir(w, 'crea una lista')
     await escribir(w, 'gracias')
     const ultima = api.chat.mock.calls.at(-1)[0]
     expect(ultima[1]).toEqual({ role: 'ai', text: 'Lista creada',
-                                tools: [{ name: 'create_playlist', summary: '4 temas' }] })
+                                tools: [{ name: 'create_playlist', summary: '4 temas', detail: '«X» (id 3): id 1 «A - B»' }] })
     expect(ultima[0]).toEqual({ role: 'me', text: 'crea una lista' })
   })
 
@@ -296,6 +298,8 @@ describe('descargas pedidas al asistente', () => {
     expect(sent.at(-1).text).toContain('pediste «I Want Jesus» → entro como «Bethel Music - I Want Jesus (Live)» (id 267)')
     expect(sent.at(-1).text).toContain('NO la vuelvas a descargar')
     expect(sent.at(-1).text).toContain('añadir a una lista no necesita confirmacion')
+    // y cita lo que pediste, para que remate ESO y no lo que le parezca
+    expect(sent.at(-1).text).toContain('Lo que te pedi fue: «baja estas dos»')
     // y el historial que recibe el nucleo lleva las herramientas de cada mensaje
     const withTools = sent.find(m => m.tools?.some(t => t.name === 'download_music'))
     expect(withTools).toBeTruthy()
