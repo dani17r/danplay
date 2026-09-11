@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
-const { estadoFalso, status, api, native, pickFolder, tray, app, core } = vi.hoisted(() => {
+const { estadoFalso, status, api, native, pickFolder, tray, app, core, projection } = vi.hoisted(() => {
   const estadoFalso = { configured: true, folders: 1, stats: { total: 3, bytes: 0, seconds: 0 },
     model: 'x', ia: false, fingerprint: false, rust: true, ffmpeg: true,
     never_convert: [], convert: false, quality: 'high', tareas: {} }
@@ -58,10 +58,11 @@ const { estadoFalso, status, api, native, pickFolder, tray, app, core } = vi.hoi
   // Rust avisa por aqui de que el nucleo esta listo; App se suscribe al
   // montarse para recargar si llego antes que el.
   const core = { onStatus: vi.fn(async () => () => {}), onChanged: vi.fn(async () => () => {}) }
+  const projection = { show: vi.fn(async () => {}), hide: vi.fn(async () => {}) }
   return { estadoFalso, status, api, native: { available: false },
-           pickFolder: vi.fn(async () => null), tray, app, core }
+           pickFolder: vi.fn(async () => null), tray, app, core, projection }
 })
-vi.mock('../src/api.js', () => ({ api, native, pickFolder, tray, app, core }))
+vi.mock('../src/api.js', () => ({ api, native, pickFolder, tray, app, core, projection }))
 import App from '../src/App.vue'
 
 const theme = (n, i) => ({ id: i + 1, title: 'Tema ' + (i + 1), artist: 'Artista ' + (i + 1),

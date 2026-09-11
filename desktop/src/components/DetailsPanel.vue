@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { notify } from '../composables/useNotices.js'
-import { api, pickImage } from '../api.js'
+import { api, pickImage, projection } from '../api.js'
 import StarRating from './StarRating.vue'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
@@ -396,6 +396,8 @@ const fmtDuration = (s) => s ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).p
         <CopyButton :text="plainLyrics" what="la letra" :size="14"
                     @copied="ok => notify(ok ? 'Letra copiada'
                       : 'No se pudo copiar', ok ? 'ok' : 'info')" />
+        <button class="btn mini" type="button" title="La letra en grande, en una ventana aparte para el proyector"
+                style="margin-left:auto" @click="projection.show()"><Icon n="tv" :t="12" /> Proyectar</button>
         <button v-if="lrcLines" class="btn mini lrc-toggle" type="button" :class="{on: follow}"
                 :title="isPlayingThis ? 'La linea que suena, resaltada; pulsa una para ir ahi' : 'Con tiempos: al ponerla a sonar, sigue la letra'"
                 @click="follow = !follow">

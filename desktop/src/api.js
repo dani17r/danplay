@@ -417,6 +417,26 @@ export const app = {
   makeDefaultPlayer: () => (inTauri ? invoke('make_default_player') : Promise.resolve(null))
 }
 
+/**
+ * La ventana de proyección: la letra en grande, para el proyector. Es una
+ * ventana aparte que se arrastra a la otra pantalla; cerrarla la esconde.
+ */
+export const projection = {
+  show: () => (inTauri ? invoke('show_projection') : Promise.resolve(window.open('/?projection=1', 'danplay-projection') && undefined)),
+  hide: () => (inTauri ? invoke('hide_projection') : Promise.resolve(window.close())),
+  /** Pantalla completa de ESTA ventana (solo dentro de la app). @param {boolean} on */
+  fullscreen: async (on) => {
+    if (!inTauri) return
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    await getCurrentWindow().setFullscreen(!!on)
+  },
+  isFullscreen: async () => {
+    if (!inTauri) return false
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    return getCurrentWindow().isFullscreen()
+  }
+}
+
 /** El popup del mini reproductor. */
 export const mini = {
   hide: () => (inTauri ? invoke('hide_mini') : Promise.resolve()),

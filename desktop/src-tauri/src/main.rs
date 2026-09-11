@@ -129,6 +129,18 @@ fn main() {
                 });
             }
 
+            // La ventana de proyeccion: cerrarla la esconde, que si se
+            // destruyera no habria forma de volver a abrirla sin reiniciar.
+            if let Some(projection) = app.get_webview_window(tray::PROJECTION) {
+                let handle = handle.clone();
+                projection.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        tray::hide_projection(handle.clone());
+                    }
+                });
+            }
+
             // Cerrar la ventana la esconde; se sale desde la bandeja.
             if let Some(main) = app.get_webview_window("main") {
                 let handle = handle.clone();
@@ -189,6 +201,8 @@ fn main() {
             tray::hide_mini,
             tray::toggle_mini,
             tray::tray_available,
+            tray::show_projection,
+            tray::hide_projection,
             tray::quit_app,
             associate::default_player,
             associate::make_default_player,

@@ -234,5 +234,9 @@
   "back": {
     "style": "o",
     "file": "arrow-left.svg"
+  },
+  "tv": {
+    "style": "o",
+    "file": "tv.svg"
   }
 }

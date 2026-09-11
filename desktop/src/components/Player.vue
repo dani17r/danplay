@@ -11,6 +11,7 @@ import { onClickOutside } from '../composables/useClickOutside.js'
 import { usePlayback } from '../composables/usePlayback.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
 import { formatTime } from '../utils/format.js'
+import { projection } from '../api.js'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
 import SliderField from './ui/SliderField.vue'
@@ -310,6 +311,11 @@ useHotkeys({
       />
     </div>
 
+    <!-- la letra en grande, en su propia ventana: para el proyector -->
+    <button class="pl-btn pl-project" title="Proyectar la letra (ventana aparte, para el proyector)"
+            @click="projection.show()">
+      <Icon n="tv" :t="16" />
+    </button>
     <button
       ref="queueButton"
       class="pl-btn"

@@ -262,6 +262,28 @@ pub fn tray_available(app: AppHandle) -> bool {
     available(&app)
 }
 
+/// La ventana de proyeccion: la letra en grande para el proyector. Es una
+/// ventana normal (se arrastra a la otra pantalla y se pone a pantalla
+/// completa); cerrarla la esconde, para poder volver a abrirla.
+pub const PROJECTION: &str = "projection";
+
+#[tauri::command]
+pub fn show_projection(app: AppHandle) {
+    if let Some(window) = app.get_webview_window(PROJECTION) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[tauri::command]
+pub fn hide_projection(app: AppHandle) {
+    if let Some(window) = app.get_webview_window(PROJECTION) {
+        let _ = window.set_fullscreen(false);
+        let _ = window.hide();
+    }
+}
+
 /// Cierra DanPlay del todo. Es la unica forma de salir cuando la aplicacion
 /// vive en la bandeja, asi que tambien esta en el menu de la ventana.
 #[tauri::command]
