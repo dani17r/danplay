@@ -681,6 +681,11 @@ def reply(messages: list[dict], max_vueltas=6, context: dict | None = None,
     # «¿la bajo?», la persona decia que si, y contestaba «Descargando…» sin
     # llamar a nada.
     force_tools = _answers_an_offer(recent)
+    # Al juez solo se le pregunta si la persona pidio hacer algo (o dijo que
+    # si a algo propuesto, o es el remate de una descarga): en una charla
+    # normal no hay accion que narrar y la llamada extra sobraba.
+    consult_judge = force_tools or wants_action(
+        str(recent[-1].get("text") or "") if recent else "")
 
     used = []
     # Reproducir no se puede hacer desde aqui: el audio lo maneja Rust y la
@@ -706,6 +711,7 @@ def reply(messages: list[dict], max_vueltas=6, context: dict | None = None,
     after_download = bool(recent) and recent[-1].get("event") == "download_done"
     if after_download:
         force_tools = True
+        consult_judge = True
     for _ in range(max_vueltas):
         try:
             r = ai.complete(history, purpose="chat", tools=TOOLS,
@@ -764,8 +770,9 @@ def reply(messages: list[dict], max_vueltas=6, context: dict | None = None,
                           and (faked
                                or (calls_made == 0 and not after_download
                                    and claims_action(text))
-                               or _judge_claims(text, user_text,
-                                                downloaded=after_download)))
+                               or (consult_judge
+                                   and _judge_claims(text, user_text,
+                                                     downloaded=after_download))))
             if suspicious and not nudged:
                 nudged = True
                 force_tools = True
@@ -1066,6 +1073,23 @@ def _judge_claims(text: str, user_text: str = "", downloaded=False) -> bool:
         return answer in ("SI", "SÍ")
     except Exception:                                       # noqa: BLE001
         return False
+
+
+# La persona pide HACER algo (crear, borrar, poner, descargar, corregir…).
+# Solo entonces merece la pena molestar al juez: «¿de que año es?» o «di
+# solo: listo» no pueden acabar en «ya la cree», y consultarle costaba una
+# llamada mas en cada turno de charla normal.
+_WANTS_ACTION = _re.compile(
+    r"\b(?:arregl|haz|hac[ée]|añad|añ[áa]d|agreg|agr[ée]g|met[ea]|m[ée]tel|cre[aá]|arm[aá]|borr|elimin|"
+    r"pon|p[óo]n|descarg|b[aá]j|marc|puntu|punt[úu]|dale|corrig|corrij|quit|q[uí]t|renombr|"
+    r"dej|cambi|guard|sac|orden|actualiz|repit|reprodu|paus|salt|mand|env[ií]|edit|mu[eé]v|"
+    r"sub[ei]|coloc|reemplaz|sustitu|export|escrib|proyect|quiero que|puedes|podr[ií]as|hazme|hazlo|"
+    r"siguiente|anterior|favorit|estrella)\w*", _re.IGNORECASE)
+
+
+def wants_action(text: str) -> bool:
+    """Si el mensaje de la persona pide hacer algo en la app."""
+    return bool(_WANTS_ACTION.search(text or ""))
 
 
 # Un si a una pregunta suya. Con «no» dentro, no es un si.

@@ -817,3 +817,29 @@ def test_un_flujo_roto_a_medias_se_repite_entero(perfiles, monkeypatch):
     fake.calls.clear()
     ai.complete([{"role": "user", "content": "d"}], purpose="chat", on_text=seen.append)
     assert [bool(c.get("stream")) for c in fake.calls] == [False]
+
+
+def test_al_juez_solo_se_le_molesta_si_se_pidio_una_accion(perfiles, monkeypatch):
+    """«Di solo: listo» costaba cuatro llamadas: «listo» disparaba al juez,
+    que decia que si, y venia el toque. En una charla normal no hay accion
+    que narrar; el juez es para cuando la persona PIDIO hacer algo."""
+    from danplay import chat
+    assert chat.wants_action("crea una lista con las de Barak")
+    assert chat.wants_action("¿puedes marcarla como favorita?")
+    assert chat.wants_action("añádela a Domingo") and chat.wants_action("ponle 4")
+    assert chat.wants_action("bájame lo de Barak") and chat.wants_action("arregla la lista")
+    assert not chat.wants_action("Di solo: listo")
+    assert not chat.wants_action("¿de que año es Kind of Blue?")
+    assert not chat.wants_action("hola")
+    providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
+    # una charla normal con palabras de la app («lista», «repertorio»): sin
+    # accion pedida, ni juez ni toque
+    fake = _FakeClient(answer="Un repertorio suele tener entre 4 y 6 canciones; la lista la decides tu.")
+    _fake(monkeypatch, fake)
+    r = chat.reply([{"role": "user", "text": "¿cuantas canciones suele tener un repertorio de alabanza?"}])
+    assert r["text"].startswith("Un repertorio") and len(fake.calls) == 1, "sin peticion de accion, sin juez ni toque"
+    # con una accion pedida y un texto que huele a app, el juez si entra
+    fake2 = _FakeClient(answer="Todo en orden con tu repertorio, quedó como pediste.")
+    _fake(monkeypatch, fake2)
+    chat.reply([{"role": "user", "text": "arregla la lista"}])
+    assert any(kw.get("max_tokens") == 3 for kw in fake2.calls), "el juez se consulto"
