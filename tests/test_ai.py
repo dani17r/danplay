@@ -533,6 +533,9 @@ def test_las_herramientas_en_trozos_se_recomponen_y_el_preambulo_se_retira():
     assert [c.function.name for c in msg.tool_calls] == ["search_songs", "list_playlists"]
     assert msg.tool_calls[0].function.arguments == '{"query": "x"}'
     assert msg.tool_calls[0].id == "c1"
+    # sin argumentos llega "": devuelto asi al servidor era un 400
+    msg, _ = ai._collect(iter([_chunk(tool=(0, "c3", "library_summary", ""))]))
+    assert msg.tool_calls[0].function.arguments == "{}"
 
 
 def test_el_razonamiento_abierto_no_se_enseña_a_medias():
@@ -769,3 +772,38 @@ def test_una_llamada_escrita_como_texto_no_pasa_por_respuesta(perfiles, monkeypa
     assert r["text"] == "La mas larga es **Mi Gozo**."
     assert fake.calls[1]["tool_choice"] == "required", "tras el texto falso, herramientas obligadas"
     assert [t["name"] for t in r["tools"]] == ["search_songs"]
+
+
+def test_un_flujo_roto_a_medias_se_repite_entero(perfiles, monkeypatch):
+    """DeepInfra manda de vez en cuando un evento vacio y el SDK rompe el
+    flujo: la peticion se repite sin trozos y la respuesta llega igual."""
+    providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
+    fake = _FakeClient(answer="entera")
+    orig = fake.chat.completions.create
+
+    class _Broken:
+        def __iter__(self):
+            yield _chunk("Hol")
+            raise Exception("Input is a zero-length, empty document")
+
+        def close(self):
+            pass
+
+    def create(**kw):
+        if kw.get("stream"):
+            fake.calls.append(dict(kw))            # el falso de siempre apunta las demas
+            return _Broken()
+        return orig(**kw)
+    fake.chat.completions.create = create
+    _fake(monkeypatch, fake)
+    seen = []
+    r = ai.complete([{"role": "user", "content": "hola"}], purpose="chat", on_text=seen.append)
+    assert ai.message_text(r.message) == "entera"
+    assert seen[-1] == "", "lo enseñado a medias se retira"
+    assert [bool(c.get("stream")) for c in fake.calls] == [True, False]
+    # a la tercera seguida, ese modelo deja de pedirse en trozos
+    ai.complete([{"role": "user", "content": "b"}], purpose="chat", on_text=seen.append)
+    ai.complete([{"role": "user", "content": "c"}], purpose="chat", on_text=seen.append)
+    fake.calls.clear()
+    ai.complete([{"role": "user", "content": "d"}], purpose="chat", on_text=seen.append)
+    assert [bool(c.get("stream")) for c in fake.calls] == [False]

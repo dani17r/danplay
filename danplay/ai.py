@@ -36,6 +36,13 @@ _unsupported: dict[tuple[str, str], set[str]] = {}
 _down_until: dict[str, float] = {}
 DOWN_FOR = 60
 
+# Flujos que se rompieron a medias, por (proveedor, modelo). Algun servicio
+# manda de vez en cuando un evento vacio que el SDK no traga: la peticion se
+# repite sin flujo, y si pasa tres veces seguidas se deja de pedir en trozos
+# a ese modelo en esta sesion.
+_stream_failures: dict[tuple[str, str], int] = {}
+STREAM_FAILURES_MAX = 3
+
 # Lo gastado en el turno en curso (por hilo: cada conversacion va en el suyo)
 _turn = threading.local()
 
@@ -365,9 +372,29 @@ def _complete_with(p, model, messages, tools, tool_choice, response_format, temp
     if tools and "tools" in _unsupported.get(key, ()):
         raise ToolsUnsupported(model)
     for attempt in range(6):
+        streaming = bool(kwargs.get("stream"))
         try:
             raw = client.chat.completions.create(**kwargs)
-            msg, usage = _collect(raw, on_text if kwargs.get("stream") else None, cancel)
+            try:
+                msg, usage = _collect(raw, on_text if streaming else None, cancel)
+            except Canceled:
+                raise
+            except Exception as e:                           # noqa: BLE001
+                # el flujo se rompio a medias (un evento vacio, un corte):
+                # la misma peticion, entera y de una vez
+                if not streaming or attempt == 5:
+                    raise
+                n = _stream_failures[key] = _stream_failures.get(key, 0) + 1
+                log.info("%s corto el flujo con %s (%s); se repite sin trozos", p["id"], model,
+                         str(e)[:80])
+                if n >= STREAM_FAILURES_MAX:
+                    _unsupported.setdefault(key, set()).add("stream")
+                _strip(kwargs, "stream")
+                if on_text:
+                    on_text("")
+                continue
+            if streaming:
+                _stream_failures.pop(key, None)
             _account(p, model, purpose, usage)
             _turn.via = {"id": p["id"], "name": p["name"], "model": model, "fallback": not active}
             return Reply(msg, usage, _turn.via)
@@ -455,8 +482,11 @@ def _collect(raw, on_text=None, cancel=None):
                 close()
             except Exception:                                # noqa: BLE001
                 pass
+    # una llamada sin argumentos llega con "" y, devuelta asi al servidor en
+    # el turno siguiente, es «un documento vacio»: un 400. Siempre JSON.
     tool_calls = [SimpleNamespace(id=c["id"] or f"call_{i}", type="function",
-                                  function=SimpleNamespace(name=c["name"], arguments=c["arguments"]))
+                                  function=SimpleNamespace(name=c["name"],
+                                                           arguments=c["arguments"] or "{}"))
                   for i, c in sorted(calls.items())] or None
     return SimpleNamespace(content="".join(parts), tool_calls=tool_calls), usage
 
