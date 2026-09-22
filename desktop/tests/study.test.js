@@ -262,7 +262,112 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('los marcadores se ponen donde va y saltan al pulsarlos', async () => {
+  it('un tramo se guarda como marcador con su inicio y su final, y sus notas', async () => {
+    vi.useFakeTimers()
+    const w = await montar()
+    conAnchura(w)
+    const caja = w.find('.tl-box').element
+    await puntero(caja, 'pointerdown', 100)
+    await puntero(window, 'pointermove', 200)
+    await puntero(window, 'pointerup', 200)
+    expect(boton(w, 'Guardar tramo')).toBeTruthy()
+    await boton(w, 'Guardar tramo').trigger('click')
+    await flushPromises()
+    // queda elegido: tramo entero, y con su cajita de notas
+    const chip = w.find('.study-marker')
+    expect(chip.classes()).toContain('on')
+    expect(chip.text()).toContain('0:50 – 1:40')
+    expect(chip.text()).toContain('Tramo 1')
+    expect(boton(w, 'Guardar tramo'), 'ya guardado: no se ofrece otra vez').toBeUndefined()
+    const notas = w.findAll('textarea')
+    expect(notas).toHaveLength(2)
+    await notas[0].setValue('entrar tras el redoble')
+    await notas[1].setValue('cejilla en 2')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, {
+      loop: [50, 100],
+      markers: [{ t: 50, end: 100, label: 'Tramo 1', notes: 'entrar tras el redoble' }],
+      notes: 'cejilla en 2'
+    })
+    // y en la onda se ve como banda con su banderita
+    expect(w.find('.tl-region').attributes('style')).toContain('left: 25%')
+    expect(w.find('.tl-region').classes()).toContain('on')
+    vi.useRealTimers()
+  })
+
+  it('pulsar un marcador pone su bucle y coloca la cancion al principio del tramo', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({
+      markers: [{ t: 30, end: 45, label: 'Coro', notes: 'fuerte' }, { t: 120, label: 'Solo' }] }) })]
+    const w = await montar()
+    expect(w.findAll('.study-marker')).toHaveLength(2)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
+    vi.clearAllMocks()
+    // sonando por 0:12: pulsar «Coro» repite 0:30-0:45 y salta a 0:30 (sigue sonando)
+    await w.findAll('.study-pick')[0].trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(30, 45)
+    expect(held.playback.bridge.seek).toHaveBeenCalledWith(30)
+    expect(held.playback.bridge.toggle, 'si sonaba, sigue sonando; si no, se queda lista').not.toHaveBeenCalled()
+    expect(w.find('.study-marker').classes()).toContain('on')
+    expect(w.text()).toContain('Notas de «Coro»')
+    expect(w.findAll('textarea')[0].element.value).toBe('fuerte')
+    expect(w.text()).toContain('0:30 – 0:45')
+    // un instante suelto solo lleva alli, sin tocar el bucle
+    vi.clearAllMocks()
+    await w.findAll('.study-pick')[1].trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.seek).toHaveBeenCalledWith(120)
+    expect(held.playback.bridge.setLoop).not.toHaveBeenCalled()
+  })
+
+  it('en pausa, elegir un marcador deja la cancion colocada sin arrancarla', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ markers: [{ t: 30, end: 45, label: 'Coro' }] }) })]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    vi.clearAllMocks()
+    await w.find('.study-pick').trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.seek).toHaveBeenCalledWith(30)
+    expect(held.playback.bridge.toggle).not.toHaveBeenCalled()
+  })
+
+  it('renombrar es otro boton: pulsar el nombre no abre ningun dialogo', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ markers: [{ t: 30, end: 45, label: 'Coro' }] }) })]
+    const w = await montar()
+    await w.find('.study-pick').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('.modal')).toBeNull()
+    expect(w.find('.study-marker .field-btn[title^="Renombrar"]').exists()).toBe(true)
+  })
+
+  it('con un marcador elegido, mover los bordes del tramo lo cambia a el', async () => {
+    vi.useFakeTimers()
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 100], markers: [{ t: 50, end: 100, label: 'Coro' }] }) })]
+    const w = await montar()
+    // el bucle guardado es el del marcador: entra elegido
+    expect(w.find('.study-marker').classes()).toContain('on')
+    conAnchura(w)
+    const caja = w.find('.tl-box').element
+    // el borde B (x=200) a x=300 (2:30)
+    await puntero(caja, 'pointerdown', 201)
+    await puntero(window, 'pointermove', 300)
+    await puntero(window, 'pointerup', 300)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50, 150)
+    expect(w.find('.study-marker').text()).toContain('0:50 – 2:30')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy.mock.calls.at(-1)[1].markers).toEqual([{ t: 50, end: 150, label: 'Coro' }])
+    // dibujar un tramo nuevo de cero NO toca el marcador: deja de estar elegido
+    await puntero(caja, 'pointerdown', 20)
+    await puntero(window, 'pointermove', 60)
+    await puntero(window, 'pointerup', 60)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(10, 30)
+    expect(w.find('.study-marker').classes()).not.toContain('on')
+    expect(w.find('.study-marker').text()).toContain('0:50 – 2:30')
+    expect(boton(w, 'Guardar tramo')).toBeTruthy()
+    vi.useRealTimers()
+  })
+
+  it('sin tramo elegido, «aqui» marca el instante por el que va', async () => {
     vi.useFakeTimers()
     const w = await montar()
     await boton(w, 'aquí').trigger('click')
@@ -270,15 +375,24 @@ describe('la barra de estudio', () => {
     await flushPromises()
     await boton(w, 'aquí').trigger('click')
     await flushPromises()
-    const jumps = w.findAll('.study-jump')
-    expect(jumps.map((j) => j.text())).toEqual(['0:12', '0:45'])
-    await jumps[1].trigger('click')
-    expect(held.playback.bridge.seek).toHaveBeenCalledWith(45.5)
+    expect(w.findAll('.study-pick-time').map((j) => j.text())).toEqual(['0:12', '0:45'])
     await vi.advanceTimersByTimeAsync(700)
     const saved = held.api.setStudy.mock.calls.at(-1)[1]
     expect(saved.markers.map((m) => m.t)).toEqual([12, 45.5])
+    expect(saved.markers.every((m) => !('end' in m))).toBe(true)
     vi.useRealTimers()
-    w.unmount()
+  })
+
+  it('quitar el marcador elegido cierra sus notas', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ markers: [{ t: 30, end: 45, label: 'Coro', notes: 'x' }] }) })]
+    const w = await montar()
+    await w.find('.study-pick').trigger('click')
+    await flushPromises()
+    expect(w.text()).toContain('Notas de «Coro»')
+    await w.find('.study-marker .field-btn[title="Quitar"]').trigger('click')
+    await flushPromises()
+    expect(w.text()).not.toContain('Notas de «Coro»')
+    expect(w.findAll('.study-marker')).toHaveLength(0)
   })
 
   it('lo guardado con la cancion se aplica al entrar y se quita al cerrar', async () => {

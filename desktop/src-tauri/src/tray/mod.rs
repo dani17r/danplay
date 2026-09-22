@@ -62,6 +62,23 @@ pub struct Labels {
     pub next_on: bool,
 }
 
+/// Hasta donde llega el titulo y el artista en la primera linea del menu.
+/// Un titulo de descarga («Hay libertad ((Cover Adoracion la Ibi & Gracia
+/// Soberana Musica))  ·  Ivan Pirela») ensanchaba el menu hasta desbordar la
+/// pantalla; el menu es para pulsar, no para leer la ficha entera.
+const TITLE_CHARS: usize = 32;
+const ARTIST_CHARS: usize = 20;
+
+/// Recorta a `max` caracteres (no bytes: hay acentos) y pone puntos suspensivos.
+fn shorten(text: &str, max: usize) -> String {
+    let text = text.trim();
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let cut: String = text.chars().take(max.saturating_sub(1)).collect();
+    format!("{}…", cut.trim_end())
+}
+
 /// Se saca aparte para poder probarlo: montar una bandeja de verdad necesita
 /// un entorno grafico, y esto es justo la parte que se puede equivocar.
 pub fn labels(now: &NowPlaying) -> Labels {
@@ -69,9 +86,13 @@ pub fn labels(now: &NowPlaying) -> Labels {
         song: if !now.loaded {
             "Nada sonando".into()
         } else if now.artist.is_empty() {
-            now.title.clone()
+            shorten(&now.title, TITLE_CHARS + ARTIST_CHARS)
         } else {
-            format!("{}  ·  {}", now.title, now.artist)
+            format!(
+                "{}  ·  {}",
+                shorten(&now.title, TITLE_CHARS),
+                shorten(&now.artist, ARTIST_CHARS)
+            )
         },
         // sin cancion cargada no se ofrece reproducir: no habria que
         toggle: if now.playing {
@@ -352,6 +373,30 @@ mod tests {
             ..playing()
         });
         assert_eq!(l.song, "Mi Gozo");
+    }
+
+    /// Un titulo kilometrico (los de las descargas) no puede ensanchar el
+    /// menu hasta salirse de la pantalla: se recorta con puntos suspensivos.
+    #[test]
+    fn a_long_title_is_shortened_so_the_menu_fits() {
+        let l = labels(&NowPlaying {
+            title: "Hay libertad ((Cover Adoracion la Ibi & Gracia Soberana Musica))".into(),
+            artist: "Ivan Pirela y los Adoradores del Valle".into(),
+            ..playing()
+        });
+        assert_eq!(l.song, "Hay libertad ((Cover Adoracion…  ·  Ivan Pirela y los A…");
+        assert!(l.song.chars().count() <= TITLE_CHARS + ARTIST_CHARS + 5);
+        // sin artista, el titulo puede estirarse un poco mas
+        let solo = labels(&NowPlaying {
+            title: "Hay libertad ((Cover Adoracion la Ibi & Gracia Soberana Musica)) version larga".into(),
+            artist: String::new(),
+            ..playing()
+        });
+        assert!(solo.song.ends_with('…'));
+        assert!(solo.song.chars().count() <= TITLE_CHARS + ARTIST_CHARS);
+        // los acentos cuentan como una letra, no como dos bytes
+        assert_eq!(shorten("Canción", 7), "Canción");
+        assert_eq!(shorten("Canción larguísima", 8), "Canción…");
     }
 
     /// El resumen para la bandeja sale del mismo estado que ve la interfaz.

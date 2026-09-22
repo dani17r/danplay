@@ -283,14 +283,35 @@ El tramo se elige sobre la **forma de onda** (`StudyTimeline.vue`): se
 arrastra de donde a donde, se cogen sus bordes, se lleva entero, o se marca
 con las teclas A y B mientras suena; un clic sin arrastrar va a ese punto,
 y cerca de un marcador el borde se pega a él. Debajo va una regla con los
-minutos (el paso se elige para que quepan ~70 px entre números). La onda la
+minutos (el paso se elige para que quepan ~70 px entre números).
+
+Un **marcador** es un tramo guardado con nombre (inicio Y final) y sus
+propias notas, aparte de las notas generales de la canción; también puede
+ser un instante suelto. Pulsarlo vuelve a poner ese bucle y coloca la
+canción al principio del tramo: si sonaba sigue sonando desde ahí, y si no,
+queda lista para play. Con el marcador elegido, mover los bordes del tramo
+lo cambia a él; dibujar un tramo nuevo de cero no lo toca. Renombrar es un
+botón aparte, para que pulsar el nombre no abra nada. En la onda un tramo se
+ve como banda y un instante como raya; la banderita con el nombre es lo que
+se pulsa, y la banda no recibe el puntero para poder seguir arrastrando por
+encima.
+
+La barra es una **capa fija** que sube desde el reproductor con una
+transición corta (`<transition name="study">`): no le quita alto a la lista
+de detrás, que antes se recolocaba entera al abrirla y al cerrarla. Queda
+por debajo de la cola del reproductor y por encima del botón flotante.
+
+La onda la
 calcula el núcleo en Rust recorriendo el archivo por bloques —no hace falta
 tener la canción entera en memoria—, con pico y RMS por columna; sin el
 núcleo compilado (Windows) la saca ffmpeg a PCM crudo y la resume Python. Se
 guarda en disco: la segunda vez es gratis. Para pintarla, el RMS se estira a
 su propio máximo y se le da una curva suave, porque en un mp3 de hoy los
 picos van todos a tope y el RMS ronda el tercio: tal cual, no se
-distinguía el verso del estribillo.
+distinguía el verso del estribillo. La onda guardada **se va con la
+canción**: al mandarla a la papelera, y al escanear si desapareció por
+fuera (el escaneo poda además las que no correspondan a ninguna canción del
+índice). El estudio en sí es una columna de la fila, así que se va solo.
 
 La velocidad la aplica ffmpeg
 (`atempo`) al decodificar —cualquier formato pasa por él cuando no es 1×—,

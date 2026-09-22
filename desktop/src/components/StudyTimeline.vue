@@ -24,10 +24,16 @@ const props = defineProps({
   position: { type: Number, default: 0 },
   /** [a, b] en segundos, o null */
   loop: { type: Array, default: null },
-  /** [{t, label}] */
-  markers: { type: Array, default: () => [] }
+  /** [{t, end?, label, notes?}]: tramos con nombre, o instantes sueltos */
+  markers: { type: Array, default: () => [] },
+  /** el marcador elegido, para resaltarlo */
+  selected: { type: Object, default: null }
 })
-const emit = defineEmits(['update:loop', 'seek'])
+// `update:loop` lleva el tramo y `{ mode }`: 'select' si es uno nuevo dibujado
+// de cero, 'edit' si se movio un borde o el tramo entero. Quien guarda
+// marcadores necesita distinguirlo: editar el tramo de un marcador elegido lo
+// cambia a el; dibujar otro nuevo, no.
+const emit = defineEmits(['update:loop', 'seek', 'marker'])
 
 const WAVE_H = 56 // alto de la onda, en px
 const MIN_LOOP = 0.5 // menos que esto no es un bucle, es un clic con temblor
@@ -209,10 +215,11 @@ const shown = computed(() => {
   return props.loop && props.loop.length === 2 && props.loop[1] > props.loop[0] ? props.loop : null
 })
 
-/** Cerca de un marcador, el borde se pega a el. */
+/** Cerca del principio o del final de un marcador, el borde se pega a el. */
 function snap(t) {
   for (const m of props.markers || []) {
     if (Math.abs(xOf(m.t) - xOf(t)) <= SNAP) return m.t
+    if (m.end > m.t && Math.abs(xOf(m.end) - xOf(t)) <= SNAP) return m.end
   }
   return t
 }
@@ -280,7 +287,7 @@ function onUp(e) {
     a = d.a
     b = d.b
   }
-  emit('update:loop', [round2(a), round2(b)])
+  emit('update:loop', [round2(a), round2(b)], { mode: d.mode === 'select' ? 'select' : 'edit' })
 }
 function stopDrag() {
   drag.mode = null
@@ -326,12 +333,19 @@ const dragging = computed(() => !!(drag.mode && drag.moved))
         </div>
       </template>
 
-      <!-- los marcadores, con su nombre -->
-      <button v-for="m in markers" :key="m.t" type="button" class="tl-marker" :style="{ left: pct(m.t) }"
-              :title="m.label + ' · ' + formatTime(m.t)"
-              @pointerdown.stop @click.stop="emit('seek', m.t)">
-        <span class="tl-marker-name">{{ m.label }}</span>
-      </button>
+      <!-- los marcadores: un tramo se ve como banda (que no estorba al
+           puntero: por encima se sigue pudiendo arrastrar), un instante como
+           raya; la banderita con el nombre es lo que se pulsa -->
+      <template v-for="m in markers" :key="m.t + ':' + (m.end || 0)">
+        <div v-if="m.end > m.t" class="tl-region" :class="{ on: m === selected }"
+             :style="{ left: pct(m.t), width: pct(m.end - m.t) }"></div>
+        <button type="button" class="tl-marker" :class="{ on: m === selected, span: m.end > m.t }"
+                :style="{ left: pct(m.t) }"
+                :title="m.label + ' · ' + formatTime(m.t) + (m.end > m.t ? ' – ' + formatTime(m.end) : '')"
+                @pointerdown.stop @click.stop="emit('marker', m)">
+          <span class="tl-marker-name">{{ m.label }}</span>
+        </button>
+      </template>
 
       <div v-if="duration" class="tl-head" :style="{ left: pct(position) }"></div>
     </div>

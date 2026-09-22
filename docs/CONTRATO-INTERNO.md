@@ -226,14 +226,22 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   aviso). El resultado de `/api/chat` lleva `budget: { limit, month, over }`
   cuando hay tope: la interfaz avisa, no corta.
 - `GET /api/chats/{id}/export` → `{ markdown }`.
-- `PUT /api/song/{id}/study { loop?: [a, b], speed?, markers?: [{t, label}],
-  notes? }` → la ficha; lo que no venga se quita. Va al índice (`study`,
-  JSON) y a la etiqueta `ESTUDIO` del archivo, y vuelve al escanear.
+- `PUT /api/song/{id}/study { loop?: [a, b], speed?, markers?: [{t, end?,
+  label, notes?}], notes? }` → la ficha; lo que no venga se quita. Un
+  marcador es un tramo (`t`–`end`) con nombre y sus notas; sin `end` (o con
+  un `end` que no vaya detrás de `t`) es un instante suelto. Va al índice
+  (`study`, JSON) y a la etiqueta `ESTUDIO` del archivo, y vuelve al
+  escanear. Se va con la canción: la fila del índice se borra al mandarla a
+  la papelera o cuando el escaneo la da por desaparecida.
 - `GET /api/song/{id}/waveform?buckets=800` → `{ peaks, rms, buckets }`: la
   forma de onda para la línea de tiempo del estudio, `buckets` columnas con
   pico y RMS entre 0 y 1 (normalizados al pico más alto). Vale para canciones
   de fuera de la biblioteca. La calcula `danplay_core.waveform` (Rust) o, si
-  no está compilado, ffmpeg a PCM crudo; se guarda en `DATA_DIR/waveforms/`.
+  no está compilado, ffmpeg a PCM crudo; se guarda en `DATA_DIR/waveforms/`,
+  un archivo por canción nombrado por su ruta (dentro van ruta, mtime y
+  columnas: si no coinciden se recalcula). Se borra con la canción
+  (`library.forget`, `forget_path`, y las que el escaneo da por perdidas) y
+  el escaneo poda las que no correspondan a ninguna canción del índice.
   `404` sin archivo, `501` sin nada con que decodificar, `422` si no se pudo.
 - Reproducción: `set_loop(a, b)` (sin valores, lo quita); el estado trae
   `loop_a`, `loop_b` (0,0 = sin bucle) y `pitch_preserved` (la velocidad

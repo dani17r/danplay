@@ -591,6 +591,13 @@ def scan(progress=None) -> dict:
         conn.commit()
     conn.commit(); conn.close()
     _touch()
+    # Con la fila se va el estudio (bucle, marcadores, notas: es una columna).
+    # La forma de onda vive en disco, aparte: se borra la de cada cancion que
+    # ya no esta, y de paso las que se hubieran quedado huerfanas por otro
+    # camino. Si no, la carpeta crecia con canciones que ya no existen.
+    from . import waveform as _waveform
+    _waveform.forget(*gone)
+    _waveform.prune(set(seen))
     restored = restore_playlists_from_tags(playlists_found)
     restore_study_from_tags(study_found)
     return {"total": n, "added_count": added_count, "reused": reused,
@@ -966,10 +973,17 @@ def trash(cid: int) -> dict:
 
 
 def forget(cid: int) -> None:
-    """Quita la cancion del indice. No toca el archivo."""
+    """Quita la cancion del indice. No toca el archivo.
+
+    Con la fila se va su estudio; la forma de onda cacheada se borra aqui.
+    """
+    from . import waveform as _waveform
     conn = connect()
+    row = conn.execute("SELECT path FROM songs WHERE id=?", (cid,)).fetchone()
     conn.execute("DELETE FROM songs WHERE id=?", (cid,))
     conn.commit(); conn.close()
+    if row:
+        _waveform.forget(row["path"])
     _touch()
 
 
@@ -979,9 +993,11 @@ def forget_path(path: str) -> int:
     Para cuando el archivo ya no esta ahi (se borro o se renombro) y solo hay
     que ponerse al dia. Devuelve cuantas filas se quitaron.
     """
+    from . import waveform as _waveform
     conn = connect()
     cur = conn.execute("DELETE FROM songs WHERE path=?", (os.path.abspath(path),))
     conn.commit(); conn.close()
+    _waveform.forget(os.path.abspath(path))
     _touch()
     return cur.rowcount or 0
 
@@ -1147,15 +1163,28 @@ def set_study(cid: int, study: dict | None) -> dict | None:
                 clean["speed"] = round(speed, 2)
         except (TypeError, ValueError):
             pass
+        # Un marcador es un tramo con nombre ({t, end, label}) y, si se quiere,
+        # sus notas; sin `end` es un instante suelto. Un `end` que no vaya
+        # detras de `t` se descarta y el marcador queda como instante.
         markers = []
         for m in (study.get("markers") or [])[:50]:
             try:
                 t = float(m.get("t"))
             except (TypeError, ValueError, AttributeError):
                 continue
-            label = str(m.get("label") or "").strip()[:60]
-            if t >= 0:
-                markers.append({"t": round(t, 2), "label": label})
+            if t < 0:
+                continue
+            item = {"t": round(t, 2), "label": str(m.get("label") or "").strip()[:60]}
+            try:
+                end = float(m.get("end")) if m.get("end") is not None else None
+            except (TypeError, ValueError):
+                end = None
+            if end is not None and end > t:
+                item["end"] = round(end, 2)
+            notes = str(m.get("notes") or "").strip()[:2000]
+            if notes:
+                item["notes"] = notes
+            markers.append(item)
         if markers:
             clean["markers"] = sorted(markers, key=lambda m: m["t"])
         notes = str(study.get("notes") or "").strip()[:4000]

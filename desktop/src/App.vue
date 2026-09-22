@@ -1420,7 +1420,10 @@ function onUpdated(song) {
       </div>
     </teleport>
 
-    <StudyBar v-if="studyOpen" @close="studyOpen = false" />
+    <!-- el estudio sube por encima de la lista, sin recolocar nada detrás -->
+    <transition name="study">
+      <StudyBar v-if="studyOpen" @close="studyOpen = false" />
+    </transition>
     <Player :study="studyOpen" @go-to-origin="goToOrigin" @play-selected="playSelected"
             @toggle-study="studyOpen = !studyOpen" />
 

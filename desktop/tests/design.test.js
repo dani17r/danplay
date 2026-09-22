@@ -104,6 +104,21 @@ describe('animaciones', () => {
     expect(faltan, 'transiciones nombradas en las plantillas y sin css').toEqual([])
   })
 
+  it('el modo estudio sube por encima de la lista, con transicion, sin recolocar nada', () => {
+    // Antes entraba en el flujo de la columna y le quitaba alto a la lista:
+    // al abrirlo y al cerrarlo se recolocaba media pantalla.
+    const app = readFileSync(join(SRC, 'App.vue'), 'utf8')
+    const study = app.indexOf('<StudyBar')
+    expect(study).toBeGreaterThan(-1)
+    expect(app.slice(Math.max(0, study - 160), study)).toMatch(/<transition name="study"/)
+    expect(CSS).toMatch(/\.study\{[^}]*position:fixed/)
+    expect(CSS).toMatch(/\.study\{[^}]*bottom:var\(--player-h\)/)
+    expect(CSS).toMatch(/\.study-enter-from[^{]*\{[^}]*translateY/)
+    // por debajo de la cola del reproductor, que se abre desde un boton suyo
+    const z = (sel) => Number((CSS.match(new RegExp(sel.replace(/[.-]/g, '\\$&') + '\\{[^}]*z-index:(\\d+)')) || [])[1])
+    expect(z('.study')).toBeLessThan(z('.queue'))
+  })
+
   it('los botones reaccionan al raton de forma suave', () => {
     expect(CSS).toMatch(/\.btn\{[^}]*transition:/)
   })

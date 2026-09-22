@@ -29,15 +29,66 @@ DEFAULT_BUCKETS = 800
 FALLBACK_RATE = 8000
 
 
-def _cache_file(path: str, buckets: int):
-    try:
-        stamp = os.path.getmtime(path)
-    except OSError:
-        stamp = 0
-    key = hashlib.sha1(f"{path}:{stamp}:{buckets}".encode()).hexdigest()
+def _folder():
     folder = config.DATA_DIR / "waveforms"
     folder.mkdir(parents=True, exist_ok=True)
-    return folder / f"{key}.json"
+    return folder
+
+
+def _cache_file(path: str):
+    """Un archivo por cancion, con el nombre sacado SOLO de la ruta: asi se
+    puede borrar sabiendo la ruta, sin tener que adivinar mtime ni columnas.
+    Dentro van la ruta, el mtime y las columnas con que se calculo, para
+    saber si sigue valiendo."""
+    return _folder() / f"{hashlib.sha1(path.encode('utf-8', 'surrogateescape')).hexdigest()}.json"
+
+
+def _mtime(path: str) -> float:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+def forget(*paths: str) -> int:
+    """Borra la forma de onda guardada de esas canciones. Devuelve cuantas."""
+    n = 0
+    for path in paths:
+        try:
+            _cache_file(str(path)).unlink()
+            n += 1
+        except FileNotFoundError:
+            pass
+        except OSError:
+            log.warning("no pude borrar la forma de onda de %s", path, exc_info=True)
+    return n
+
+
+def prune(known_paths) -> int:
+    """Borra las formas de onda de canciones que ya no estan en el indice.
+
+    Las de `known_paths` se quedan; el resto sobra: un archivo borrado por
+    fuera, movido, o de una carpeta que se quito. Devuelve cuantas se fueron.
+    """
+    known = {str(p) for p in known_paths}
+    n = 0
+    try:
+        files = list(_folder().glob("*.json"))
+    except OSError:
+        return 0
+    for f in files:
+        try:
+            path = json.loads(f.read_text(encoding="utf-8")).get("path")
+        except (OSError, ValueError, AttributeError):
+            path = None                        # roto o de un formato viejo: fuera
+        if path in known:
+            continue
+        try:
+            f.unlink()
+            n += 1
+        except OSError:
+            pass
+    return n
 
 
 def columns(samples, buckets: int) -> tuple[list[float], list[float]]:
@@ -87,12 +138,16 @@ def compute(path: str, buckets: int = DEFAULT_BUCKETS) -> dict | None:
     buckets = max(1, min(int(buckets or DEFAULT_BUCKETS), 4000))
     if not path or not os.path.exists(path):
         return None
-    cached = _cache_file(path, buckets)
+    cached = _cache_file(path)
+    stamp = _mtime(path)
     if cached.is_file():
         try:
-            return json.loads(cached.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            pass
+            saved = json.loads(cached.read_text(encoding="utf-8"))
+            if saved.get("path") == path and saved.get("mtime") == stamp \
+                    and len(saved.get("peaks") or []) == buckets:
+                return {"peaks": saved["peaks"], "rms": saved["rms"]}
+        except (OSError, ValueError, AttributeError, KeyError):
+            pass                               # se recalcula y se sobrescribe
     made = None
     if RUST:
         made = _rust.waveform(path, buckets)
@@ -106,7 +161,8 @@ def compute(path: str, buckets: int = DEFAULT_BUCKETS) -> dict | None:
     out = {"peaks": [round(float(v), 3) for v in made[0]],
            "rms": [round(float(v), 3) for v in made[1]]}
     try:
-        cached.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
+        cached.write_text(json.dumps({"path": path, "mtime": stamp, **out},
+                                     separators=(",", ":")), encoding="utf-8")
     except OSError:
         log.warning("no pude guardar la forma de onda en %s", cached, exc_info=True)
     return out

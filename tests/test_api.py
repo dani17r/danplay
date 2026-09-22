@@ -403,11 +403,16 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
     from danplay import library, tags, config
     c = library.search("", limit=1)[0]
     body = {"loop": [12.5, 30], "speed": 0.75, "notes": "intro con cejilla 2",
-            "markers": [{"t": 45, "label": "coro"}, {"t": 12.5, "label": "verso"}, {"t": -1, "label": "no"}]}
+            "markers": [{"t": 45, "end": 60, "label": "coro", "notes": "entrar tras el redoble"},
+                        {"t": 12.5, "label": "verso", "end": 3, "notes": "  "},
+                        {"t": -1, "label": "no"}]}
     d = cliente.put(f"/api/song/{c['id']}/study", json=body).json()
     study = json.loads(d["study"])
     assert study["loop"] == [12.5, 30.0] and study["speed"] == 0.75
     assert [m["label"] for m in study["markers"]] == ["verso", "coro"], "ordenados y sin negativos"
+    # un marcador es un tramo con sus notas; un fin que no va detras se descarta
+    assert study["markers"][1] == {"t": 45.0, "end": 60.0, "label": "coro", "notes": "entrar tras el redoble"}
+    assert study["markers"][0] == {"t": 12.5, "label": "verso"}
     assert study["notes"] == "intro con cejilla 2"
     if config.WRITE_TAGS:
         assert tags.read_all(c["path"])["study"] == d["study"], "va en la etiqueta"
@@ -475,6 +480,59 @@ def test_waveform_endpoint_draws_the_song_and_caches_it(cliente, tmp_path):
         assert max(made[0][:3]) < 0.1 and min(made[0][7:]) > 0.8
     assert cliente.get("/api/song/999999/waveform").status_code == 404
     assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 0}).status_code == 422
+
+
+def test_waveform_cache_goes_away_with_the_song(cliente):
+    """La onda guardada en disco se borra con la cancion: al mandarla a la
+    papelera, y al escanear si desaparecio por fuera. Las huerfanas de otro
+    formato tambien caen. Si no, la carpeta crecia sin fin."""
+    from conftest import make_mp3
+    from danplay import config, library, waveform
+    if not waveform.available():
+        pytest.skip("hace falta ffmpeg o el nucleo en Rust")
+    folder = config.DATA_DIR / "waveforms"
+    # una cancion nueva, solo para esta prueba
+    path = make_mp3(config.ARTISTS_DIR / "Barak" / "Barak - Efimera.mp3", artist="Barak",
+                    title="Efimera", tone=330)
+    library.scan()
+    c = next(x for x in library.search("Efimera", limit=5))
+    assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 8}).status_code == 200
+    cached = waveform._cache_file(c["path"])
+    assert cached.is_file()
+    saved = json.loads(cached.read_text())
+    assert saved["path"] == c["path"] and len(saved["peaks"]) == 8
+    # otro numero de columnas se recalcula y sustituye al anterior (un solo archivo por cancion)
+    assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 4}).json()["buckets"] == 4
+    assert len(json.loads(cached.read_text())["peaks"]) == 4
+    assert waveform._cache_file(c["path"]) == cached
+
+    # desaparece por fuera: el escaneo quita la fila y la onda
+    orphan = folder / "viejo-formato.json"
+    orphan.write_text('{"peaks":[1],"rms":[1]}')
+    os.remove(path)
+    library.scan()
+    assert library.by_id(c["id"]) is None
+    assert not cached.exists(), "la onda de una cancion que ya no esta sigue en disco"
+    assert not orphan.exists(), "una onda huerfana de otro formato sigue en disco"
+    # y las de las canciones que siguen no se tocan
+    other = library.search("", limit=1)[0]
+    assert cliente.get(f"/api/song/{other['id']}/waveform", params={"buckets": 4}).status_code == 200
+    kept = waveform._cache_file(other["path"])
+    library.scan()
+    assert kept.is_file()
+
+    # a la papelera desde la app: tambien se va
+    path2 = make_mp3(config.ARTISTS_DIR / "Barak" / "Barak - Efimera 2.mp3", artist="Barak",
+                     title="Efimera 2", tone=330)
+    library.scan()
+    c2 = next(x for x in library.search("Efimera 2", limit=5) if x["title"] == "Efimera 2")
+    cliente.get(f"/api/song/{c2['id']}/waveform", params={"buckets": 4})
+    cached2 = waveform._cache_file(c2["path"])
+    assert cached2.is_file()
+    library.forget(c2["id"])
+    assert not cached2.exists()
+    os.remove(path2)
+    library.scan()
 
 
 def test_playlist_sheet_is_written_inside_listas(cliente):
