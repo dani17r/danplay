@@ -31,6 +31,37 @@
 /** @typedef {'list'|'one'|'once'|'queue'} Repeat */
 
 /**
+ * @typedef {Object} MetronomeSettings  Lo que se le manda al metrónomo.
+ * @property {boolean} on
+ * @property {number|null} bpm    tempo a mano (el clic va libre); null = el de la canción
+ * @property {number|null} meter  3 o 4 a mano; null = el detectado
+ * @property {number} shift       correr el «1» tantos pulsos
+ * @property {number} mult        -1 mitad de pulsos, 0 tal cual, 1 el doble
+ * @property {number} volume      0..1
+ */
+/**
+ * @typedef {Object} MetronomeState  Cómo va el metrónomo, según Rust.
+ * @property {boolean} on
+ * @property {number} bpm         tempo nominal (rejilla ajustada, o a mano)
+ * @property {number} meter
+ * @property {number} shift
+ * @property {number} mult
+ * @property {number} volume
+ * @property {boolean} has_grid   hay rejilla para la canción que suena
+ * @property {boolean} free       va libre (sin rejilla o con tempo a mano)
+ * @property {number} confidence  cuánto se fía el análisis del «1» (0..1)
+ */
+/**
+ * @typedef {Object} BeatGrid  El pulso y el compás de una canción.
+ * @property {number} bpm
+ * @property {number} meter        pulsos por compás (3 o 4)
+ * @property {number[]} beats      segundos de cada pulso
+ * @property {number} first_downbeat  índice en `beats` del primer «1»
+ * @property {number} phase3
+ * @property {number} phase4
+ * @property {number} confidence
+ */
+/**
  * @typedef {Object} PlaybackState  Lo que Rust cuenta en `danplay://state`.
  * @property {Track|null} track   lo que suena (o lo último cargado)
  * @property {number} index       posición en la cola (-1 si nada)
@@ -48,6 +79,9 @@
  * @property {boolean} has_output false = este equipo no tiene salida de audio
  * @property {any} origin         lo que la interfaz pasó en set_queue
  * @property {boolean} pitch_preserved  la velocidad conserva el tono (ffmpeg)
+ * @property {number} pitch       el tono corrido, en semitonos (0 = como está grabada)
+ * @property {MetronomeState} metronome
+ * @property {string} path        el archivo que suena de verdad (clave de la rejilla del metrónomo)
  * @property {number} loop_a      bucle A-B en segundos; 0,0 = sin bucle
  * @property {number} loop_b
  */
@@ -352,6 +386,17 @@ export const playback = {
   setSpeed: (value) => invoke('set_speed', { value }),
   /** Repetir de A a B (segundos); sin valores, lo quita. @param {number|null} a @param {number|null} b */
   setLoop: (a, b) => invoke('set_loop', { a, b }),
+  /** El tono corrido, en semitonos (-12..12). Solo hace algo con ffmpeg. */
+  setPitch: (semitones) => invoke('set_pitch', { semitones }),
+  /** @param {MetronomeSettings} settings */
+  setMetronome: (settings) => invoke('set_metronome', { settings }),
+  /**
+   * Analiza el pulso y el compás del archivo (un par de segundos; Rust se
+   * queda con la rejilla para el metrónomo).
+   * @param {string} path @param {number|null} [hintBpm]
+   * @returns {Promise<BeatGrid>}
+   */
+  analyzeBeats: (path, hintBpm = null) => invoke('analyze_beats', { path, hintBpm }),
   /** @returns {Promise<PlaybackState>} */
   state: () => invoke('playback_state'),
   /** @returns {Promise<{items: Track[], origin: any}>} */

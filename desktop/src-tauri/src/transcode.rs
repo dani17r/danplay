@@ -44,6 +44,51 @@ pub fn tempo_filter(tempo: f32) -> String {
     parts.join(",")
 }
 
+/// Semitonos → factor de frecuencia (12 semitonos = el doble).
+pub fn pitch_factor(semitones: i32) -> f64 {
+    2f64.powf(f64::from(semitones.clamp(-12, 12)) / 12.0)
+}
+
+/// La cadena de filtros para velocidad y tono a la vez.
+///
+/// Con `rubberband` (ffmpeg compilado con librubberband, que es lo normal en
+/// Linux y lo que lleva el ffmpeg del paquete de Windows) se hace todo en un
+/// filtro y suena limpio. Sin el, el tono se mueve cambiando la frecuencia
+/// de muestreo (`asetrate`, que tambien cambia la velocidad) y `atempo`
+/// compensa: suena algo mas metalico, pero sirve para estudiar.
+pub fn audio_filter(tempo: f32, semitones: i32, rubberband: bool) -> String {
+    let tempo = f64::from(tempo.clamp(0.25, 3.0));
+    let semitones = semitones.clamp(-12, 12);
+    if semitones == 0 {
+        return tempo_filter(tempo as f32);
+    }
+    let factor = pitch_factor(semitones);
+    if rubberband {
+        return format!("rubberband=tempo={tempo:.4}:pitch={factor:.5}");
+    }
+    // asetrate acelera por `factor`; atempo deshace eso y aplica el tempo pedido
+    format!(
+        "asetrate={}*{factor:.5},aresample={RATE},{}",
+        RATE,
+        tempo_filter((tempo / factor) as f32)
+    )
+}
+
+/// ¿El ffmpeg que hay trae `rubberband`? Se mira una vez.
+pub fn has_rubberband(ffmpeg: &str) -> bool {
+    use std::sync::OnceLock;
+    static FOUND: OnceLock<bool> = OnceLock::new();
+    *FOUND.get_or_init(|| {
+        Command::new(ffmpeg)
+            .args(["-hide_banner", "-filters"])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(" rubberband "))
+            .unwrap_or(false)
+    })
+}
+
 fn extension_of(path: &str) -> Option<String> {
     std::path::Path::new(path)
         .extension()
@@ -71,6 +116,8 @@ pub struct Transcoded {
     /// de cancion son dos de salida: por eso las posiciones de rodio (en
     /// tiempo de salida) se convierten multiplicando por esto.
     tempo: f32,
+    /// El tono corrido, en semitonos (0 = tal cual).
+    semitones: i32,
 }
 
 impl Transcoded {
@@ -87,6 +134,17 @@ impl Transcoded {
         duration: Option<f64>,
         tempo: f32,
     ) -> Result<Self, String> {
+        Self::open_with(ffmpeg, path, duration, tempo, 0)
+    }
+
+    /// Como `open_at_tempo`, y ademas el tono corrido `semitones`.
+    pub fn open_with(
+        ffmpeg: &str,
+        path: &str,
+        duration: Option<f64>,
+        tempo: f32,
+        semitones: i32,
+    ) -> Result<Self, String> {
         let mut source = Self {
             ffmpeg: ffmpeg.to_string(),
             path: path.to_string(),
@@ -97,6 +155,7 @@ impl Transcoded {
             duration: duration.filter(|d| *d > 0.0).map(Duration::from_secs_f64),
             finished: false,
             tempo: tempo.clamp(0.25, 3.0),
+            semitones: semitones.clamp(-12, 12),
         };
         source.start(0.0)?;
         Ok(source)
@@ -117,8 +176,10 @@ impl Transcoded {
             command.arg("-ss").arg(format!("{from:.3}"));
         }
         command.arg("-i").arg(&self.path).arg("-vn"); // nada de la caratula
-        if (self.tempo - 1.0).abs() > 1e-4 {
-            command.arg("-af").arg(tempo_filter(self.tempo));
+        if (self.tempo - 1.0).abs() > 1e-4 || self.semitones != 0 {
+            command
+                .arg("-af")
+                .arg(audio_filter(self.tempo, self.semitones, has_rubberband(&self.ffmpeg)));
         }
         command
             .arg("-f")
@@ -240,6 +301,19 @@ mod tests {
         assert_eq!(tempo_filter(0.25), "atempo=0.5,atempo=0.5000");
         assert_eq!(tempo_filter(3.0), "atempo=2.0,atempo=1.5000");
         assert_eq!(tempo_filter(0.1), "atempo=0.5,atempo=0.5000", "se recorta a 0.25");
+    }
+
+    #[test]
+    fn the_pitch_goes_through_rubberband_or_the_asetrate_fallback() {
+        assert_eq!(audio_filter(1.0, 0, true), "atempo=1.0000", "sin tono se queda como estaba");
+        assert_eq!(audio_filter(0.8, 2, true), "rubberband=tempo=0.8000:pitch=1.12246");
+        assert_eq!(audio_filter(1.0, -12, true), "rubberband=tempo=1.0000:pitch=0.50000");
+        // sin rubberband: asetrate mueve el tono (y la velocidad) y atempo compensa
+        assert_eq!(audio_filter(1.0, 12, false), "asetrate=44100*2.00000,aresample=44100,atempo=0.5000");
+        assert_eq!(audio_filter(0.5, 12, false), "asetrate=44100*2.00000,aresample=44100,atempo=0.5,atempo=0.5000");
+        assert_eq!(audio_filter(1.0, -12, false), "asetrate=44100*0.50000,aresample=44100,atempo=2.0000");
+        assert!((pitch_factor(7) - 1.4983).abs() < 1e-3, "una quinta");
+        assert_eq!(pitch_factor(30), 2.0, "se recorta a una octava");
     }
 
     #[test]

@@ -246,6 +246,28 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
 - Reproducción: `set_loop(a, b)` (sin valores, lo quita); el estado trae
   `loop_a`, `loop_b` (0,0 = sin bucle) y `pitch_preserved` (la velocidad
   conserva el tono: ffmpeg `atempo`; `false` = sin ffmpeg, cambia el tono).
+- `set_pitch(semitones)` (−12..12): el tono corrido, por ffmpeg
+  (`rubberband=tempo:pitch` si lo trae, que es lo normal; si no,
+  `asetrate`+`aresample`+`atempo`). Reabre la canción donde iba, como la
+  velocidad. El estado trae `pitch`. Sin ffmpeg no hace nada.
+- `analyze_beats(path, hint_bpm)` → `BeatGrid { bpm, meter, beats[],
+  first_downbeat, phase3, phase4, confidence }`: el pulso y el compás del
+  archivo, calculados en Rust (`beats.rs`: envolvente de ataques por FFT,
+  tempo por autocorrelación, rejilla por programación dinámica, el «1» por
+  bombo y cambios de acorde). Un par de segundos; Rust guarda la rejilla
+  por ruta durante la sesión y el metrónomo la usa.
+- `set_metronome({ on, bpm, meter, shift, mult, volume })`: se manda
+  entero. `bpm`/`meter` en null = lo detectado; con `bpm` a mano el clic va
+  libre. `shift` corre el «1» tantos pulsos; `mult` −1/0/1 = mitad/tal
+  cual/doble de pulsos. El clic es un sink aparte del mezclador (su volumen
+  y su marcha, independientes de la canción); sonando con la canción se
+  reengancha a su rejilla en cada play, salto, cambio de velocidad y vuelta
+  del bucle, y sigue la velocidad del estudio. El estado trae `metronome
+  { on, bpm, meter, shift, mult, volume, has_grid, free, confidence }` y
+  `path` (el archivo que suena de verdad: la clave de la rejilla).
+- `PUT /api/song/{id}/study` admite además `pitch` (−12..12, 0 no se
+  guarda) y `metronome { bpm?, meter?, shift?, mult? }` (solo lo ajustado a
+  mano sobre lo detectado).
 
 ## 4. Ajustes (Python ↔ Vue), nombres correctos
 

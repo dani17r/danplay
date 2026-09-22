@@ -27,7 +27,11 @@ const props = defineProps({
   /** [{t, end?, label, notes?}]: tramos con nombre, o instantes sueltos */
   markers: { type: Array, default: () => [] },
   /** el marcador elegido, para resaltarlo */
-  selected: { type: Object, default: null }
+  selected: { type: Object, default: null },
+  /** la rejilla de pulsos del metrónomo, para pintarla sobre la onda */
+  grid: { type: Object, default: null },
+  /** alto de la onda en px */
+  height: { type: Number, default: 56 }
 })
 // `update:loop` lleva el tramo y `{ mode }`: 'select' si es uno nuevo dibujado
 // de cero, 'edit' si se movio un borde o el tramo entero. Quien guarda
@@ -35,7 +39,7 @@ const props = defineProps({
 // cambia a el; dibujar otro nuevo, no.
 const emit = defineEmits(['update:loop', 'seek', 'marker'])
 
-const WAVE_H = 56 // alto de la onda, en px
+const WAVE_H = computed(() => props.height) // alto de la onda, en px
 const MIN_LOOP = 0.5 // menos que esto no es un bucle, es un clic con temblor
 const HANDLE = 7 // a estos px de un borde se coge el borde, no se empieza otro tramo
 const THRESHOLD = 4 // px de movimiento a partir de los que un clic pasa a ser arrastre
@@ -82,7 +86,7 @@ function draw() {
   const ctx = c.getContext?.('2d')
   if (!ctx) return // sin maquetacion (las pruebas) no hay donde pintar
   const W = box.value?.clientWidth || 0
-  const H = WAVE_H
+  const H = WAVE_H.value
   if (!W) return
   const dpr = window.devicePixelRatio || 1
   c.width = Math.round(W * dpr)
@@ -142,7 +146,28 @@ function draw() {
     ctx.fillRect(x, mid - hr, bar, hr * 2)
   }
   ctx.globalAlpha = 1
+  drawGrid(ctx, W, H)
 }
+
+/** La rejilla del metrónomo: una raya por pulso abajo; el «1», más alta. */
+function drawGrid(ctx, W, H) {
+  const g = props.grid
+  if (!g || !g.beats?.length || !props.duration) return
+  const styles = getComputedStyle(canvas.value)
+  const text = styles.getPropertyValue('--text').trim() || styles.color || 'gray'
+  ctx.fillStyle = text
+  const m = Math.max(1, g.meter || 4)
+  for (let i = 0; i < g.beats.length; i++) {
+    const x = Math.round((g.beats[i] / props.duration) * W)
+    if (x < 0 || x > W) continue
+    const one = ((i - g.first_downbeat) % m + m) % m === 0
+    // el «1» cruza la onda entera, tenue; los demas pulsos son marcas abajo
+    ctx.globalAlpha = one ? 0.28 : 0.45
+    ctx.fillRect(x, one ? 0 : H - 7, 1, one ? H : 7)
+  }
+  ctx.globalAlpha = 1
+}
+watch(() => props.grid, () => nextTick(draw))
 
 // Al cambiar el ancho se vuelve a medir la regla y a pintar la onda.
 let observer = null
@@ -314,7 +339,7 @@ const dragging = computed(() => !!(drag.mode && drag.moved))
 
 <template>
   <div class="tl" :class="{ 'tl-dragging': dragging, ['tl-hover-' + hover]: hover }"
-       :data-mode="drag.mode || null">
+       :data-mode="drag.mode || null" :style="{ '--tl-h': WAVE_H + 'px' }">
     <div ref="box" class="tl-box" :title="duration ? 'Arrastra para elegir el tramo que se repite · clic para ir a un punto' : ''"
          @pointerdown="onDown" @pointermove="onHover" @pointerleave="hover = ''">
       <canvas ref="canvas" class="tl-wave" :height="WAVE_H"></canvas>

@@ -380,52 +380,121 @@ tbody tr.flash{animation:destello 1.1s ease-out}
 /* ---------- modo estudio ---------- */
 /* Una capa que sube desde el reproductor y se queda por encima de la lista:
    no le quita alto a nada de detras, que antes se recolocaba entero al abrir
-   y al cerrar. Por debajo de la cola (z 30), por encima del boton flotante. */
+   y al cerrar. Media pantalla, para que quepa todo con aire. Por debajo de
+   la cola (z 30), por encima del boton flotante. */
 .study{position:fixed;left:0;right:0;bottom:var(--player-h);z-index:25;
-  background:var(--panel);border-top:1px solid var(--border);padding:8px 16px;display:flex;
-  flex-direction:column;gap:8px;flex-shrink:0;max-height:calc(100vh - var(--player-h) - 60px);
-  overflow-y:auto;box-shadow:0 -12px 32px var(--shadow-soft)}
-.study-enter-active{transition:transform .28s cubic-bezier(.2,.8,.2,1),opacity .22s ease-out}
-.study-leave-active{transition:transform .2s ease-in,opacity .18s ease-in}
-.study-enter-from,.study-leave-to{transform:translateY(24px);opacity:0}
+  height:min(52vh,calc(100vh - var(--player-h) - 56px));min-height:300px;
+  background:var(--panel);border-top:1px solid var(--border);padding:10px 18px 12px;
+  display:flex;flex-direction:column;gap:8px;overflow:hidden;
+  box-shadow:0 -14px 36px var(--shadow-soft)}
+.study-enter-active{transition:transform .32s cubic-bezier(.2,.8,.2,1),opacity .24s ease-out}
+.study-leave-active{transition:transform .22s ease-in,opacity .18s ease-in}
+.study-enter-from,.study-leave-to{transform:translateY(40px);opacity:0}
+/* y lo de dentro asoma escalonado detras del panel */
+.study-enter-active .study-col{animation:study-rise .38s cubic-bezier(.2,.8,.2,1) both}
+.study-enter-active .study-col:nth-child(2){animation-delay:.05s}
+.study-enter-active .study-col:nth-child(3){animation-delay:.1s}
+@keyframes study-rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .study-head{display:flex;align-items:center;gap:8px;font-size:12.5px}
 .study-head .btn{margin-left:auto}
 .study-song{color:var(--muted2);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.study-key{color:var(--accent)}
 .study-saving{font-size:10.5px;color:var(--muted2);font-style:italic}
-.study-row{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
-.study-group{display:flex;flex-direction:column;gap:5px;min-width:0}
-.study-loop{font-size:11px;color:var(--muted);align-self:center}
-.study-markers{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.study-marker{gap:4px;padding:2px 4px 2px 8px}
-.study-jump{color:var(--accent);font-size:11px}
-.study-jump:hover{text-decoration:underline}
-.study-marker-name{color:var(--text);font-size:11px;padding:0 2px;max-width:140px;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap;border-bottom:1px dashed var(--border2)}
-.study-marker-name:hover{border-bottom-color:var(--accent)}
-.study-clear{font-size:11px;padding:1px 8px}
-/* cada marcador: [tiempo · nombre] que se pulsa para repetir su tramo, y al
-   lado renombrar y quitar; el elegido va en color de acento */
-.study-pick{display:inline-flex;align-items:center;gap:7px;color:var(--text);font-size:11px;
-  padding:0 2px;max-width:260px;min-width:0}
-.study-pick-time{color:var(--accent);flex-shrink:0}
+.study-hint{margin:-2px 0 0;font-size:10.5px;color:var(--muted2)}
+.study-hint b{color:var(--muted);font-weight:600}
+
+/* las cuatro columnas: reproduccion, metronomo, marcadores, notas. Cada una
+   con su scroll, por si en una pantalla baja no cabe todo. */
+.study-body{flex:1;min-height:0;display:grid;grid-template-columns:1.05fr 1fr 1fr 1.05fr;gap:16px}
+.study-col{display:flex;flex-direction:column;gap:8px;min-height:0;min-width:0;overflow-y:auto;
+  padding:0 2px 0 14px;border-left:1px solid var(--border)}
+.study-col:first-child{padding-left:0;border-left:none}
+.study-col-title{margin:0;display:flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:1.2px;
+  text-transform:uppercase;color:var(--muted2);font-weight:600}
+.study-col-title small{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400;font-size:10.5px}
+.study-col-title .ico{color:var(--accent)}
+.study-block{display:flex;flex-direction:column;gap:6px;padding:7px 9px;border-radius:8px;flex-shrink:0;
+  background:color-mix(in srgb,var(--text) 3%,transparent);border:1px solid color-mix(in srgb,var(--border) 70%,transparent)}
+.study-block-head{display:flex;align-items:center;gap:8px;min-width:0}
+.study-block-name{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--text)}
+.study-block-name .ico{color:var(--muted)}
+.study-value{margin-left:auto;font-size:11px;color:var(--muted);white-space:nowrap}
+.study-value em{margin-left:6px;font-style:normal;font-size:10px;color:var(--muted2)}
+.study-value b{color:var(--accent)}
+.study-loop{margin-left:auto;font-size:11px;color:var(--accent)}
+.study-loop.off{color:var(--muted2)}
+.study-speeds .btn.mini{padding:3px 7px}
+.study-pitch{align-items:center}
+.study-pitch-n{min-width:34px;text-align:center;font-size:13px;color:var(--muted)}
+.study-pitch-n.on{color:var(--accent);font-weight:600}
+.study-clear{color:var(--muted)}
+.study .model-warn{font-style:normal;font-size:10px}
+
+/* el metronomo */
+.study-metro.on{border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.study-metro-status{margin:0;font-size:10.5px;color:var(--muted2);line-height:1.4}
+.study-metro.on .study-metro-status{color:var(--accent)}
+.study-metro-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.study-metro-toggle.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.study-bpm{display:inline-flex;align-items:center;gap:5px;font-size:12px}
+.study-bpm b{min-width:34px;text-align:center;font-size:15px;color:var(--text)}
+.study-bpm small{color:var(--muted2)}
+.study-metro-vol{gap:8px}
+.study-metro-vol .ico{color:var(--muted2);flex-shrink:0}
+.study-metro-vol .slider{flex:1}
+
+/* los marcadores: una lista con scroll */
+.study-markers{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding-right:4px}
+.study-marker{display:flex;align-items:center;gap:4px;padding:5px 6px 5px 9px;border-radius:8px;
+  background:color-mix(in srgb,var(--text) 3%,transparent);border:1px solid color-mix(in srgb,var(--border) 70%,transparent);
+  transition:border-color .14s,background .14s}
+.study-marker:hover{border-color:var(--border2)}
+.study-marker.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.study-pick{flex:1;display:inline-flex;align-items:center;gap:8px;color:var(--text);font-size:12px;padding:0;min-width:0;text-align:left}
+.study-pick-ico{color:var(--muted2);flex-shrink:0}
+.study-marker.on .study-pick-ico{color:var(--accent)}
+.study-pick-time{color:var(--accent);flex-shrink:0;font-size:11px}
 .study-pick-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .study-pick:hover .study-pick-name{text-decoration:underline}
-.study-marker.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
-.study-marker.on .study-pick-name{color:var(--accent)}
-.study-group .field-label em{margin-left:6px;font-style:normal;color:var(--muted2);font-weight:400}
+.study-marker.on .study-pick-name{color:var(--accent);font-weight:600}
+.study-empty{margin:0;font-size:11.5px;color:var(--muted2);line-height:1.5}
+.study-col-foot{margin-top:auto}
+
+/* las notas: un solo cuadro con pestañas */
+.study-notes-field{flex:1;min-height:0;display:flex;flex-direction:column}
+.study-notes-field textarea{flex:1;min-height:80px;resize:none}
+.study-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border)}
+.study-tab{padding:5px 10px;font-size:11.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;
+  max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.study-tab:hover{color:var(--text)}
+.study-tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.study-tab.off{color:var(--muted2);cursor:default;font-style:italic}
+
+/* menos ancho: dos columnas; estrecho: una, y el panel crece con scroll */
+@media (max-width:1100px){
+  .study-body{grid-template-columns:1fr 1fr}
+  .study-col:nth-child(3){padding-left:0;border-left:none}
+}
+@media (max-width:700px){
+  .study{height:min(78vh,calc(100vh - var(--player-h) - 40px));overflow-y:auto}
+  .study-body{display:flex;flex-direction:column}
+  .study-col{padding-left:0;border-left:none;padding-top:10px;border-top:1px solid var(--border);overflow:visible}
+  .study-col:first-child{padding-top:0;border-top:none}
+  .study-markers{max-height:180px}
+}
 
 /* ---------- la linea de tiempo del estudio ----------
    La onda va en un canvas; encima, en tantos por ciento, el tramo que se
    repite (con las sombras de fuera y sus dos asas), los marcadores y la
    aguja. Debajo, la regla con los minutos. */
-.tl{display:flex;flex-direction:column;user-select:none;-webkit-user-select:none}
-.tl-box{position:relative;height:56px;border-radius:6px;overflow:hidden;cursor:crosshair;
+.tl{--tl-h:56px;display:flex;flex-direction:column;user-select:none;-webkit-user-select:none}
+.tl-box{position:relative;height:var(--tl-h);border-radius:6px;overflow:hidden;cursor:crosshair;
   background:color-mix(in srgb,var(--text) 5%,var(--panel));touch-action:none}
 .tl-hover-edge .tl-box{cursor:ew-resize}
 .tl-hover-inside .tl-box{cursor:grab}
 .tl-dragging .tl-box{cursor:ew-resize}
 .tl-dragging[data-mode="move"] .tl-box{cursor:grabbing}
-.tl-wave{display:block;width:100%;height:56px}
+.tl-wave{display:block;width:100%;height:var(--tl-h)}
 .tl-note{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-size:11px;color:var(--muted2);pointer-events:none}
 /* fuera del tramo se atenua: se ve de un vistazo que trozo da vueltas */

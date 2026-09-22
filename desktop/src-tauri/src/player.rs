@@ -9,8 +9,10 @@
 //! veces por segundo, y con la ventana escondida el navegador ralentiza esos
 //! temporizadores hasta una vez por minuto, con lo que el fin de una cancion
 //! podia tardar un minuto en notarse.
+use crate::beats::BeatGrid;
+use crate::metronome::{self, Mode};
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
 use crate::transcode;
@@ -34,6 +36,46 @@ pub struct State {
     /// Bucle A-B para estudiar un trozo, en segundos; 0,0 = sin bucle.
     pub loop_a: f64,
     pub loop_b: f64,
+    /// El tono corrido, en semitonos (0 = como esta grabada). Solo con ffmpeg.
+    pub pitch: i32,
+    /// Como va el metronomo.
+    pub metronome: MetronomeState,
+}
+
+/// Los ajustes del metronomo que manda la interfaz. Lo que va en `None` lo
+/// decide la rejilla de la cancion; lo demas manda sobre ella.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct MetronomeSettings {
+    pub on: bool,
+    /// Tempo a mano. Con el, el clic va libre (no se puede seguir la cancion
+    /// a otro tempo que el suyo).
+    pub bpm: Option<f32>,
+    /// Compas a mano: 3 o 4.
+    pub meter: Option<u8>,
+    /// Correr el «1» tantos pulsos (positivo: el siguiente pasa a ser el 1).
+    pub shift: i32,
+    /// -1: la mitad de pulsos; 1: el doble (cuando el tempo salio a la mitad).
+    pub mult: i8,
+    pub volume: f32,
+}
+
+/// Como va el metronomo, para la interfaz.
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+pub struct MetronomeState {
+    pub on: bool,
+    /// El tempo nominal: el de la rejilla (ya ajustada) o el puesto a mano.
+    /// Sonando con la cancion, el efectivo es este por la velocidad.
+    pub bpm: f32,
+    pub meter: u8,
+    pub shift: i32,
+    pub mult: i8,
+    pub volume: f32,
+    /// Hay rejilla para la cancion que suena.
+    pub has_grid: bool,
+    /// Va libre: sin rejilla o con tempo a mano. Si no, sigue la cancion.
+    pub free: bool,
+    /// Cuanto se fia el analisis del «1» (0..1).
+    pub confidence: f32,
 }
 
 /// Lo que el hilo de audio cuenta hacia fuera.
@@ -67,6 +109,13 @@ pub enum Command {
     /// Repetir de A a B (segundos de la cancion); None lo quita.
     Loop(Option<(f64, f64)>),
     Speed(f32),
+    /// El tono corrido, en semitonos (-12..12). Reabre la cancion donde iba.
+    Pitch(i32),
+    /// Ajustes del metronomo, y la rejilla de la cancion `path` si se conoce.
+    Metronome {
+        settings: MetronomeSettings,
+        grid: Option<(String, Arc<BeatGrid>)>,
+    },
 }
 
 #[derive(Clone)]
@@ -77,6 +126,10 @@ pub struct Handle {
 
 /// Donde esta ffmpeg, si esta. Se busca una vez: recorrer el PATH en cada
 /// cancion no aporta nada.
+pub fn ffmpeg_path() -> Option<&'static str> {
+    ffmpeg()
+}
+
 fn ffmpeg() -> Option<&'static str> {
     static FOUND: OnceLock<Option<String>> = OnceLock::new();
     FOUND
@@ -134,22 +187,25 @@ fn open_sink(
     path: &str,
     volume: f32,
     speed: f32,
+    pitch: i32,
     hint: f64,
 ) -> Result<Opened, String> {
     let sink = Sink::try_new(handle).map_err(|e| e.to_string())?;
     sink.set_volume(volume);
     let slowed = (speed - 1.0).abs() > 1e-4;
+    let pitched = pitch != 0;
 
     // A otra velocidad, ffmpeg (`atempo`) la cambia SIN mover el tono, que
     // es lo que se quiere para estudiar un trozo: pasa por el cualquier
-    // formato. Sin ffmpeg, rodio la cambia a la antigua (con el tono).
-    let by_ffmpeg = transcode::is_handled(path) || (slowed && ffmpeg().is_some());
+    // formato. El tono corrido tambien es cosa de ffmpeg. Sin ffmpeg, rodio
+    // cambia la velocidad a la antigua (con el tono) y el tono no se toca.
+    let by_ffmpeg = transcode::is_handled(path) || ((slowed || pitched) && ffmpeg().is_some());
     if by_ffmpeg {
         let Some(ffmpeg) = ffmpeg() else {
             return Err(no_ffmpeg(path));
         };
         let tempo = if slowed { speed } else { 1.0 };
-        let source = transcode::Transcoded::open_at_tempo(ffmpeg, path, Some(hint), tempo)?;
+        let source = transcode::Transcoded::open_with(ffmpeg, path, Some(hint), tempo, pitch)?;
         // la duracion anunciada se devuelve en tiempo de la cancion
         let announced = source
             .total_duration()
@@ -238,9 +294,115 @@ struct Carry {
     /// rodio cuenta en tiempo de salida y la cancion va en el suyo.
     tempo: f32,
     loop_ab: Option<(f64, f64)>,
+    /// El tono corrido, en semitonos.
+    pitch: i32,
+    /// El metronomo: sus ajustes y la rejilla de la cancion que suena.
+    metro: Metro,
     /// Una orden que llego mientras no habia salida de audio. Se atiende en
     /// cuanto la haya, en vez de perderse.
     pending: Option<Command>,
+}
+
+/// El metronomo, visto desde el hilo de audio.
+#[derive(Default)]
+struct Metro {
+    settings: MetronomeSettings,
+    /// La rejilla tal cual salio del analisis, y de que archivo es.
+    base: Option<(String, Arc<BeatGrid>)>,
+    /// La rejilla con los ajustes puestos (compas, «1» corrido, doble/mitad).
+    effective: Option<Arc<BeatGrid>>,
+}
+
+impl Metro {
+    fn rebuild(&mut self, path: &str) {
+        self.effective = self.base.as_ref().filter(|(p, _)| p == path).map(|(_, g)| {
+            let s = &self.settings;
+            let mut g = match s.mult {
+                1 => g.doubled(),
+                -1 => g.halved(),
+                _ => (**g).clone(),
+            };
+            if let Some(m) = s.meter {
+                g = g.with_meter(m);
+            }
+            Arc::new(g.shifted(s.shift))
+        });
+    }
+    /// ¿Sigue la cancion, o va libre?
+    fn follows(&self) -> bool {
+        self.settings.on && self.settings.bpm.is_none() && self.effective.is_some()
+    }
+    fn state(&self) -> MetronomeState {
+        let s = &self.settings;
+        let g = self.effective.as_ref();
+        MetronomeState {
+            on: s.on,
+            bpm: s.bpm.or(g.map(|g| g.bpm)).unwrap_or(100.0),
+            meter: s.meter.or(g.map(|g| g.meter)).unwrap_or(4),
+            shift: s.shift,
+            mult: s.mult,
+            volume: s.volume,
+            has_grid: g.is_some(),
+            free: !self.follows(),
+            confidence: g.map(|g| g.confidence).unwrap_or(0.0),
+        }
+    }
+}
+
+/// Por que se vuelve a planificar el clic.
+#[derive(PartialEq)]
+enum Replan {
+    /// Cambiaron los ajustes: siempre.
+    Settings,
+    /// La cancion se movio (play, salto, velocidad, vuelta del bucle): solo
+    /// si el clic la sigue; libre no se toca, que iria a trompicones.
+    Song,
+}
+
+/// Deja el plan del clic para la fuente, segun como va la cancion ahora.
+fn plan_metronome(carry: &Carry, sink: Option<&Sink>, shared: &metronome::Shared, why: Replan) {
+    if why == Replan::Song && !carry.metro.follows() {
+        return;
+    }
+    let mut p = shared.lock().unwrap_or_else(|e| e.into_inner());
+    p.gen += 1;
+    p.volume = carry.metro.settings.volume.clamp(0.0, 1.0);
+    let s = &carry.metro.settings;
+    if !s.on {
+        p.mode = Mode::Off;
+        return;
+    }
+    if carry.metro.follows() {
+        let grid = carry.metro.effective.clone().expect("follows() lo garantiza");
+        let pos = sink.map(|s| song_position(s, carry.tempo)).unwrap_or(0.0);
+        let (index, t, _) = grid.next_beat(pos);
+        let speed = f64::from(carry.speed.max(0.05));
+        p.mode = Mode::Grid { grid, index, delay: ((t - pos) / speed).max(0.0), speed };
+    } else {
+        let st = carry.metro.state();
+        p.mode = Mode::Free {
+            period: 60.0 / f64::from(st.bpm.clamp(20.0, 300.0)),
+            meter: st.meter.max(1),
+            delay: 0.0,
+            first: 0,
+        };
+    }
+}
+
+/// El sink del clic, creado la primera vez que hace falta. Si no se puede
+/// (sin salida), None: el metronomo se queda mudo y ya.
+fn ensure_click(
+    handle: &OutputStreamHandle,
+    click: &mut Option<(Sink, metronome::Shared)>,
+) -> Option<metronome::Shared> {
+    if click.is_none() {
+        let sink = Sink::try_new(handle).ok()?;
+        let shared: metronome::Shared = Arc::new(Mutex::new(metronome::Plan::default()));
+        sink.append(metronome::Click::new(shared.clone()));
+        sink.play();
+        *click = Some((sink, shared));
+    }
+    click.as_ref().map(|(_, s)| s.clone())
 }
 
 /// Lo que se dice cuando no hay por donde sacar el sonido.
@@ -278,6 +440,8 @@ impl Handle {
                     duration: 0.0,
                     tempo: 1.0,
                     loop_ab: None,
+                    pitch: 0,
+                    metro: Metro::default(),
                     pending: None,
                 };
                 // El bucle se supervisa: si un archivo hace panic al
@@ -374,6 +538,15 @@ fn open_output(
             Ok(Command::Volume(v)) => carry.volume = v.clamp(0.0, 1.0),
             Ok(Command::NudgeVolume(d)) => carry.volume = (carry.volume + d).clamp(0.0, 1.0),
             Ok(Command::Speed(v)) => carry.speed = v.clamp(0.25, 3.0),
+            Ok(Command::Pitch(n)) => carry.pitch = n.clamp(-12, 12),
+            Ok(Command::Metronome { settings, grid }) => {
+                carry.metro.settings = settings;
+                if grid.is_some() {
+                    carry.metro.base = grid;
+                }
+                let path = carry.path.clone();
+                carry.metro.rebuild(&path);
+            }
             Ok(Command::Loop(ab)) => carry.loop_ab = ab,
             Ok(Command::Stop) | Ok(Command::Fail(_)) => {
                 carry.path.clear();
@@ -402,6 +575,8 @@ fn run(
     };
 
     let mut sink: Option<Sink> = None;
+    // el clic del metronomo: su propio sink, creado cuando haga falta
+    let mut click: Option<(Sink, metronome::Shared)> = None;
     let mut was_finished = false;
     let mut last_sent = State::default();
     let mut last_tick = Instant::now();
@@ -427,6 +602,8 @@ fn run(
         let mut clear_error = false;
         // Se pidio un salto: la posicion nueva se avisa aunque este en pausa.
         let mut sought = false;
+        // La cancion se movio de sitio o de marcha: el clic se reengancha.
+        let mut replan: Option<Replan> = None;
 
         let next = match carry.pending.take() {
             Some(cmd) => Ok(cmd),
@@ -441,7 +618,7 @@ fn run(
                         if let Some(s) = sink.take() {
                             s.stop()
                         }
-                        match open_sink(&handle, &r, carry.volume, carry.speed, hint) {
+                        match open_sink(&handle, &r, carry.volume, carry.speed, carry.pitch, hint) {
                             Ok(Opened { sink: s, announced, tempo }) => {
                                 s.play();
                                 // la del indice manda: en mp3 de
@@ -456,6 +633,9 @@ fn run(
                                 carry.tempo = tempo;
                                 sink = Some(s);
                                 was_finished = false;
+                                // otra cancion: su rejilla, o ninguna
+                                carry.metro.rebuild(&r);
+                                replan = Some(Replan::Song);
                             }
                             Err(e) => {
                                 // Sin limpiar la ruta, el siguiente
@@ -492,6 +672,7 @@ fn run(
                                 &carry.path,
                                 carry.volume,
                                 carry.speed,
+                                carry.pitch,
                                 carry.duration,
                             ) {
                                 Ok(Opened { sink: s, tempo, .. }) => {
@@ -499,12 +680,14 @@ fn run(
                                     carry.tempo = tempo;
                                     sink = Some(s);
                                     was_finished = false;
+                                    replan = Some(Replan::Song);
                                 }
                                 Err(e) => failure = Some(e),
                             }
                         } else if let Some(s) = &sink {
                             if wants_play {
-                                s.play()
+                                s.play();
+                                replan = Some(Replan::Song);
                             } else {
                                 s.pause()
                             }
@@ -533,6 +716,7 @@ fn run(
                     }
                     Command::Seek(seconds) => {
                         sought = true;
+                        replan = Some(Replan::Song);
                         let exhausted = sink.as_ref().map_or(true, |s| s.empty());
                         if exhausted && !carry.path.is_empty() {
                             match open_sink(
@@ -540,6 +724,7 @@ fn run(
                                 &carry.path,
                                 carry.volume,
                                 carry.speed,
+                                carry.pitch,
                                 carry.duration,
                             ) {
                                 Ok(Opened { sink: s, tempo, .. }) => {
@@ -560,6 +745,15 @@ fn run(
                     Command::Loop(ab) => {
                         carry.loop_ab = ab.filter(|(a, b)| *b > *a + 0.2 && *a >= 0.0);
                     }
+                    Command::Metronome { settings, grid } => {
+                        carry.metro.settings = settings;
+                        if grid.is_some() {
+                            carry.metro.base = grid;
+                        }
+                        let path = carry.path.clone();
+                        carry.metro.rebuild(&path);
+                        replan = Some(Replan::Settings);
+                    }
                     Command::Volume(v) => {
                         carry.volume = v.clamp(0.0, 1.0);
                         if let Some(s) = &sink {
@@ -572,11 +766,17 @@ fn run(
                             s.set_volume(carry.volume)
                         }
                     }
-                    Command::Speed(v) => {
-                        carry.speed = v.clamp(0.25, 3.0);
-                        // Con ffmpeg la velocidad se aplica al decodificar:
-                        // hay que reabrir la cancion donde iba. Sin el, rodio
-                        // la cambia al vuelo (y el tono con ella).
+                    Command::Speed(_) | Command::Pitch(_) => {
+                        match cmd {
+                            Command::Speed(v) => carry.speed = v.clamp(0.25, 3.0),
+                            Command::Pitch(n) => carry.pitch = n.clamp(-12, 12),
+                            _ => {}
+                        }
+                        replan = Some(Replan::Song);
+                        // Con ffmpeg la velocidad (y el tono) se aplican al
+                        // decodificar: hay que reabrir la cancion donde iba.
+                        // Sin el, rodio cambia la velocidad al vuelo (y el
+                        // tono con ella), y el tono corrido no se puede.
                         let reopen = ffmpeg().is_some() && !carry.path.is_empty();
                         if let Some(s) = &sink {
                             if reopen && !s.empty() {
@@ -587,6 +787,7 @@ fn run(
                                     &carry.path,
                                     carry.volume,
                                     carry.speed,
+                                    carry.pitch,
                                     carry.duration,
                                 ) {
                                     Ok(Opened { sink: fresh, tempo, .. }) => {
@@ -636,11 +837,14 @@ fn run(
                     Ok((stream, new_handle)) => {
                         _stream = stream;
                         handle = new_handle;
+                        click = None; // la salida es otra: el clic se rehace en ella
+                        replan = Some(Replan::Settings);
                         match open_sink(
                             &handle,
                             &carry.path,
                             carry.volume,
                             carry.speed,
+                            carry.pitch,
                             carry.duration,
                         ) {
                             Ok(Opened { sink: s, tempo, .. }) => {
@@ -673,6 +877,17 @@ fn run(
         if let (Some((a, b)), Some(s)) = (carry.loop_ab, &sink) {
             if !s.is_paused() && !s.empty() && song_position(s, carry.tempo) >= b {
                 let _ = seek_song(s, a, carry.tempo);
+                replan = Some(Replan::Song);
+            }
+        }
+
+        // ------------------------------------------- metronomo
+        // Se planifica DESPUES de mover la cancion, con su posicion de ahora.
+        if let Some(why) = replan {
+            if carry.metro.settings.on || why == Replan::Settings {
+                if let Some(shared) = ensure_click(&handle, &mut click) {
+                    plan_metronome(carry, sink.as_ref(), &shared, why);
+                }
             }
         }
 
@@ -703,6 +918,8 @@ fn run(
             let (a, b) = carry.loop_ab.unwrap_or((0.0, 0.0));
             e.loop_a = a;
             e.loop_b = b;
+            e.pitch = carry.pitch;
+            e.metronome = carry.metro.state();
             e.clone()
         };
 
@@ -732,7 +949,9 @@ fn run(
             || (current.speed - last_sent.speed).abs() > f32::EPSILON
             || current.pitch_preserved != last_sent.pitch_preserved
             || (current.loop_a - last_sent.loop_a).abs() > f64::EPSILON
-            || (current.loop_b - last_sent.loop_b).abs() > f64::EPSILON;
+            || (current.loop_b - last_sent.loop_b).abs() > f64::EPSILON
+            || current.pitch != last_sent.pitch
+            || current.metronome != last_sent.metronome;
         let due = current.playing && last_tick.elapsed() >= TICK;
         if changed || due {
             last_sent = current.clone();
@@ -1028,6 +1247,74 @@ mod tests {
         wait_ms(500);
         let p = m.state().position;
         assert!(p >= 28.0, "no salto a los 30s: {p}");
+    }
+
+    /// El tono corrido reabre la cancion donde iba (por ffmpeg) y se cuenta
+    /// en el estado; el metronomo se enciende sin rejilla y va libre, y con
+    /// rejilla sigue la cancion. Todo sin que la cancion deje de sonar.
+    #[test]
+    fn pitch_and_metronome_ride_along_with_the_song() {
+        if !has_sample() || ffmpeg().is_none() {
+            return;
+        }
+        let (m, _rx) = handle();
+        wait_ms(250);
+        if !m.state().has_output {
+            return;
+        }
+        m.send(Command::Play { path: sample(), duration: 0.0 }).unwrap();
+        wait_ms(600);
+        m.send(Command::Seek(20.0)).unwrap();
+        wait_ms(400);
+        m.send(Command::Pitch(2)).unwrap();
+        wait_ms(800);
+        let s = m.state();
+        assert_eq!(s.pitch, 2);
+        assert!(s.playing, "con el tono corrido tiene que seguir sonando");
+        assert!((18.0..25.0).contains(&s.position), "se reabrio donde iba: {}", s.position);
+
+        let settings = MetronomeSettings { on: true, bpm: None, meter: None, shift: 0, mult: 0, volume: 0.5 };
+        m.send(Command::Metronome { settings: settings.clone(), grid: None }).unwrap();
+        wait_ms(300);
+        let s = m.state();
+        assert!(s.metronome.on && s.metronome.free && !s.metronome.has_grid);
+        assert_eq!(s.metronome.bpm, 100.0, "sin rejilla ni tempo a mano, 100");
+
+        let grid = Arc::new(BeatGrid {
+            bpm: 120.0,
+            meter: 4,
+            beats: (0..600).map(|i| i as f64 * 0.5).collect(),
+            first_downbeat: 0,
+            phase3: 0,
+            phase4: 0,
+            confidence: 0.9,
+        });
+        m.send(Command::Metronome { settings: settings.clone(), grid: Some((sample(), grid)) }).unwrap();
+        wait_ms(300);
+        let s = m.state();
+        assert!(s.metronome.has_grid && !s.metronome.free, "con rejilla sigue la cancion");
+        assert_eq!(s.metronome.bpm, 120.0);
+        // el doble de pulsos y el compas a 3 se reflejan
+        m.send(Command::Metronome {
+            settings: MetronomeSettings { meter: Some(3), mult: 1, ..settings.clone() },
+            grid: None,
+        })
+        .unwrap();
+        wait_ms(300);
+        let s = m.state();
+        assert_eq!((s.metronome.bpm, s.metronome.meter, s.metronome.mult), (240.0, 3, 1));
+        // tempo a mano: va libre a ese tempo
+        m.send(Command::Metronome {
+            settings: MetronomeSettings { bpm: Some(90.0), ..settings },
+            grid: None,
+        })
+        .unwrap();
+        wait_ms(300);
+        let s = m.state();
+        assert!(s.metronome.free && s.metronome.has_grid);
+        assert_eq!(s.metronome.bpm, 90.0);
+        assert!(m.state().playing);
+        m.send(Command::Stop).unwrap();
     }
 
     /// En pausa no hay tick de posicion, asi que un salto tiene que avisar

@@ -32,6 +32,9 @@ symphonia = { version = "0.5", default-features = false, features = ["ogg"] }
 # Reproduccion en el sistema (MPRIS en Linux, SMTC en Windows, Now Playing en
 # macOS): teclas multimedia, pantalla de bloqueo y el reproductor del escritorio.
 souvlaki = "0.8"
+# Para detectar el pulso y el compas de una cancion (el metronomo del modo
+# estudio): la envolvente de ataques sale de una FFT por trama.
+rustfft = "6.2"
 
 [target.'cfg(unix)'.dependencies]
 # El nucleo escucha en un socket Unix 0600. En Windows no existe (ni uvicorn

@@ -20,7 +20,9 @@ import Player from '../src/components/Player.vue'
 import { resetPlayback, usePlayback } from '../src/composables/usePlayback.js'
 import { song } from './support/backend.js'
 
-const base = { index: 0, length: 1, duration: 200, has_previous: false, has_next: false, error: '', has_output: true, loop_a: 0, loop_b: 0, pitch_preserved: true, speed: 1 }
+const base = { index: 0, length: 1, duration: 200, has_previous: false, has_next: false, error: '', has_output: true,
+  loop_a: 0, loop_b: 0, pitch_preserved: true, speed: 1, pitch: 0, path: '/musica/mi-gozo.mp3',
+  metronome: { on: false, bpm: 100, meter: 4, shift: 0, mult: 0, volume: 0.8, has_grid: false, free: true, confidence: 0 } }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -46,7 +48,7 @@ afterEach(() => {
     try { w.unmount() } catch { /* ya estaba desmontada */ }
   }
 })
-const boton = (w, text) => w.findAll('button').find((b) => b.text().includes(text))
+const boton = (w, text, nth = 0) => w.findAll('button').filter((b) => b.text().includes(text))[nth]
 
 describe('la barra de estudio', () => {
   // jsdom no maqueta: la caja de la onda dice que va de x=0 a x=400
@@ -86,8 +88,8 @@ describe('la barra de estudio', () => {
     expect(tramo.attributes('style')).toContain('width: 25%')
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenCalledWith(7, { loop: [50, 100] })
-    // el chip lo quita
-    await boton(w, 'quitar').trigger('click')
+    // el boton lo quita
+    await boton(w, 'Quitar').trigger('click')
     await flushPromises()
     expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
     expect(w.find('.tl-loop').exists()).toBe(false)
@@ -273,16 +275,20 @@ describe('la barra de estudio', () => {
     expect(boton(w, 'Guardar tramo')).toBeTruthy()
     await boton(w, 'Guardar tramo').trigger('click')
     await flushPromises()
-    // queda elegido: tramo entero, y con su cajita de notas
+    // queda elegido: tramo entero, y sus notas abiertas en su pestaña
     const chip = w.find('.study-marker')
     expect(chip.classes()).toContain('on')
     expect(chip.text()).toContain('0:50 – 1:40')
     expect(chip.text()).toContain('Tramo 1')
     expect(boton(w, 'Guardar tramo'), 'ya guardado: no se ofrece otra vez').toBeUndefined()
-    const notas = w.findAll('textarea')
-    expect(notas).toHaveLength(2)
-    await notas[0].setValue('entrar tras el redoble')
-    await notas[1].setValue('cejilla en 2')
+    expect(boton(w, 'Guardar como marcador')).toBeUndefined()
+    const tabs = w.findAll('.study-tab')
+    expect(tabs.map((t) => t.text())).toEqual(['La canción', '«Tramo 1»'])
+    expect(tabs[1].classes()).toContain('on')
+    expect(w.findAll('textarea'), 'un solo cuadro de notas').toHaveLength(1)
+    await w.find('textarea').setValue('entrar tras el redoble')
+    await tabs[0].trigger('click')
+    await w.find('textarea').setValue('cejilla en 2')
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenLastCalledWith(7, {
       loop: [50, 100],
@@ -309,8 +315,9 @@ describe('la barra de estudio', () => {
     expect(held.playback.bridge.seek).toHaveBeenCalledWith(30)
     expect(held.playback.bridge.toggle, 'si sonaba, sigue sonando; si no, se queda lista').not.toHaveBeenCalled()
     expect(w.find('.study-marker').classes()).toContain('on')
-    expect(w.text()).toContain('Notas de «Coro»')
-    expect(w.findAll('textarea')[0].element.value).toBe('fuerte')
+    expect(w.findAll('.study-tab').map((t) => t.text())).toContain('«Coro»')
+    expect(w.find('.study-tab.on').text()).toBe('«Coro»')
+    expect(w.find('textarea').element.value).toBe('fuerte')
     expect(w.text()).toContain('0:30 – 0:45')
     // un instante suelto solo lleva alli, sin tocar el bucle
     vi.clearAllMocks()
@@ -388,10 +395,11 @@ describe('la barra de estudio', () => {
     const w = await montar()
     await w.find('.study-pick').trigger('click')
     await flushPromises()
-    expect(w.text()).toContain('Notas de «Coro»')
+    expect(w.find('.study-tab.on').text()).toBe('«Coro»')
     await w.find('.study-marker .field-btn[title="Quitar"]').trigger('click')
     await flushPromises()
-    expect(w.text()).not.toContain('Notas de «Coro»')
+    expect(w.findAll('.study-tab').map((t) => t.text())).not.toContain('«Coro»')
+    expect(w.find('.study-tab.on').text()).toBe('La canción')
     expect(w.findAll('.study-marker')).toHaveLength(0)
   })
 
@@ -407,6 +415,158 @@ describe('la barra de estudio', () => {
     expect(held.playback.bridge.setSpeed).toHaveBeenLastCalledWith(1)
     expect(w.emitted('close')).toBeTruthy()
     w.unmount()
+  })
+})
+
+describe('tono, velocidad fina y metronomo', () => {
+  function conAnchura (w, left = 0, width = 400) {
+    w.find('.tl-box').element.getBoundingClientRect = () =>
+      ({ left, width, right: left + width, top: 0, height: 80, bottom: 80, x: left, y: 0 })
+  }
+  const bridge = () => held.playback.bridge
+
+  it('el tono sube y baja por semitonos, enseña el tono resultante y se guarda', async () => {
+    vi.useFakeTimers()
+    held.playback.emit({ track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200, key: 'G' } })
+    const w = await montar()
+    expect(w.text()).toContain('Tono')
+    await boton(w, '+').trigger('click')
+    await flushPromises()
+    expect(bridge().setPitch).toHaveBeenLastCalledWith(1)
+    await boton(w, '+').trigger('click')
+    await flushPromises()
+    expect(bridge().setPitch).toHaveBeenLastCalledWith(2)
+    expect(w.find('.study-pitch-n').text()).toBe('+2')
+    expect(w.text()).toContain('G → A')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { pitch: 2 })
+    await boton(w, 'original').trigger('click')
+    await flushPromises()
+    expect(bridge().setPitch).toHaveBeenLastCalledWith(0)
+    expect(w.find('.study-pitch-n').text()).toBe('0')
+    vi.useRealTimers()
+  })
+
+  it('el tono guardado se aplica al entrar y se quita al cerrar, como la velocidad', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ pitch: -3, speed: 0.9 }) })]
+    const w = await montar()
+    expect(bridge().setPitch).toHaveBeenCalledWith(-3)
+    expect(bridge().setSpeed).toHaveBeenCalledWith(0.9)
+    await boton(w, 'Cerrar').trigger('click')
+    await flushPromises()
+    expect(bridge().setPitch).toHaveBeenLastCalledWith(0)
+    expect(bridge().setSpeed).toHaveBeenLastCalledWith(1)
+    expect(w.emitted('close')).toBeTruthy()
+  })
+
+  it('la velocidad tiene deslizador fino ademas de los botones', async () => {
+    const w = await montar()
+    const sliders = w.findAll('input[type="range"]')
+    expect(sliders.length).toBeGreaterThanOrEqual(1)
+    await sliders[0].setValue('0.83')
+    await flushPromises()
+    expect(bridge().setSpeed).toHaveBeenLastCalledWith(0.83)
+    expect(w.text()).toContain('83 %')
+  })
+
+  it('al entrar se analiza el compas de la cancion que suena y se pinta la rejilla', async () => {
+    const w = await montar()
+    expect(held.playback.bridge.analyzeBeats).toHaveBeenCalledWith('/musica/mi-gozo.mp3', null)
+    // con la rejilla ya en Rust se vuelven a mandar los ajustes para que el clic la coja
+    expect(bridge().setMetronome).toHaveBeenCalled()
+    expect(w.text()).toContain('sigue la canción')
+    expect(w.text()).toContain('el «1» seguro')
+    w.unmount()
+  })
+
+  it('el clic arranca al compas y se para aparte de la cancion', async () => {
+    const w = await montar()
+    vi.clearAllMocks()
+    await boton(w, 'Clic').trigger('click')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true, bpm: null, meter: null, shift: 0, mult: 0 }))
+    expect(w.find('.study-metro-toggle').classes()).toContain('on')
+    expect(w.find('.study-bpm b').text()).toBe('120')
+    // la cancion sigue: no se ha tocado play ni pausa
+    expect(bridge().toggle).not.toHaveBeenCalled()
+    await boton(w, 'Parar').trigger('click')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: false }))
+    expect(bridge().toggle).not.toHaveBeenCalled()
+  })
+
+  it('a otra velocidad el clic enseña el tempo que se oye', async () => {
+    const w = await montar()
+    held.playback.emit({ speed: 0.5 })
+    await flushPromises()
+    expect(w.find('.study-bpm b').text()).toBe('60')
+  })
+
+  it('subir o bajar los bpm lo pone libre; «el de la cancion» vuelve a seguirla; todo se guarda', async () => {
+    vi.useFakeTimers()
+    const w = await montar()
+    vi.clearAllMocks()
+    await boton(w, '+', 1).trigger('click') // el segundo «+» es el del metronomo
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: 121 }))
+    expect(w.text()).toContain('tempo a mano')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { metronome: { bpm: 121 } })
+    await boton(w, 'el de la canción').trigger('click')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: null }))
+    expect(w.text()).toContain('sigue la canción')
+    // compas, el «1» corrido y el doble de pulsos
+    await boton(w, '4/4').trigger('click')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ meter: 3 }))
+    await boton(w, 'el 1 es el siguiente').trigger('click')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ shift: 1 }))
+    await boton(w, '×2').trigger('click')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ mult: 1 }))
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { metronome: { meter: 3, shift: 1, mult: 1 } })
+    vi.useRealTimers()
+  })
+
+  it('lo ajustado a mano vuelve con la cancion, y al cambiar de cancion se analiza la nueva', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { meter: 3, shift: 2 } }) }),
+                        song(8, { title: 'Otra' })]
+    await montar()
+    expect(bridge().setMetronome).toHaveBeenCalledWith(expect.objectContaining({ meter: 3, shift: 2 }))
+    vi.clearAllMocks()
+    held.playback.emit({ track: { id: 8, title: 'Otra', artist: 'Barak', duration: 100 }, path: '/musica/otra.mp3', position: 0 })
+    await flushPromises(); await flushPromises()
+    expect(held.playback.bridge.analyzeBeats).toHaveBeenCalledWith('/musica/otra.mp3', null)
+    // la nueva no tiene ajustes: se vuelve a lo detectado
+    expect(bridge().setMetronome).toHaveBeenCalledWith(expect.objectContaining({ meter: null, shift: 0 }))
+  })
+
+  it('si no se puede analizar, el clic va libre y lo dice', async () => {
+    held.playback.bridge.analyzeBeats.mockRejectedValueOnce(new Error('no se encuentra un pulso estable'))
+    const w = await montar()
+    expect(w.text()).toContain('sin compás detectado: va libre')
+    vi.clearAllMocks()
+    await boton(w, 'Clic').trigger('click')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
+  })
+
+  it('el volumen del clic tiene su deslizador', async () => {
+    const w = await montar()
+    const vol = w.find('.study-metro-vol input[type="range"]')
+    await vol.setValue('0.35')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ volume: 0.35 }))
+  })
+
+  it('la onda recibe la rejilla y es mas alta', async () => {
+    const w = await montar()
+    conAnchura(w)
+    expect(w.find('.tl').attributes('style')).toContain('--tl-h: 80px')
+    expect(w.findComponent({ name: 'StudyTimeline' }).props('grid')?.bpm).toBe(120)
   })
 })
 

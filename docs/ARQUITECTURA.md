@@ -297,9 +297,36 @@ se pulsa, y la banda no recibe el puntero para poder seguir arrastrando por
 encima.
 
 La barra es una **capa fija** que sube desde el reproductor con una
-transición corta (`<transition name="study">`): no le quita alto a la lista
-de detrás, que antes se recolocaba entera al abrirla y al cerrarla. Queda
-por debajo de la cola del reproductor y por encima del botón flotante.
+transición corta (`<transition name="study">`) y ocupa media pantalla, en
+cuatro columnas (reproducción, metrónomo, marcadores, notas): no le quita
+alto a la lista de detrás, que antes se recolocaba entera al abrirla y al
+cerrarla. Queda por debajo de la cola del reproductor y por encima del
+botón flotante. Las notas van en un solo cuadro con dos pestañas (las de la
+canción y las del marcador elegido).
+
+**Tono.** Se corre en semitonos (−12..12) por el mismo camino que la
+velocidad: ffmpeg reabre la canción donde iba con `rubberband=tempo:pitch`
+(tiempo y tono a la vez, buena calidad; lo traen el ffmpeg de Debian y el
+que va en el paquete de Windows) o, si no está, `asetrate`+`atempo`. Se
+guarda con la canción y se enseña el tono resultante («G → A») si el índice
+sabe el tono original.
+
+**Metrónomo.** Un clic sintetizado en un sink aparte del mezclador de rodio
+(`metronome.rs`): tiene su volumen y su play/pausa, independientes de la
+canción. El pulso y el compás los detecta la propia app en Rust
+(`beats.rs`), sin modelos ni dependencias: envolvente de ataques por FFT
+(flujo espectral), tempo por autocorrelación con un prior alrededor de 120
+(o del bpm del índice), rejilla de pulsos por programación dinámica (Ellis
+2007, lo que hace librosa) afinada a subtrama, y el «1» por dónde caen el
+bombo y los cambios de acorde, probando 4/4 y 3/4. Un par de segundos por
+canción; la rejilla se guarda por ruta durante la sesión y se pinta sobre
+la onda. Sonando con la canción, el clic se reengancha a la rejilla en
+cada play, salto, cambio de velocidad y vuelta del bucle, y sigue la
+velocidad del estudio; con la canción parada sigue solo al mismo tempo. Se
+puede corregir a mano (compás, «el 1 es el siguiente», ×2/÷2, tempo libre)
+y eso se guarda con la canción. Se miró usar madmom (muerto desde 2018),
+Beat This! o Demucs (los dos sobre torch, 200–550 MB): quedan como posible
+«paquete de IA local» opcional más adelante.
 
 La onda la
 calcula el núcleo en Rust recorriendo el archivo por bloques —no hace falta

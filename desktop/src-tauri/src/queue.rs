@@ -11,8 +11,9 @@
 //! sitios decidiendo a la vez que suena. La interfaz manda la lista y las
 //! ordenes; este modulo publica el estado con `danplay://state`.
 use crate::core::{self, Address};
-use crate::player;
+use crate::{beats, player};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
@@ -142,6 +143,13 @@ pub struct PlaybackState {
     /// Bucle A-B en segundos; 0,0 = sin bucle.
     pub loop_a: f64,
     pub loop_b: f64,
+    /// El tono corrido, en semitonos (0 = como esta grabada).
+    pub pitch: i32,
+    /// Como va el metronomo.
+    pub metronome: player::MetronomeState,
+    /// El archivo que suena de verdad (el de `track`, o el que resolvio el
+    /// nucleo). Es la clave de la rejilla del metronomo.
+    pub path: String,
 }
 
 pub enum Command {
@@ -170,6 +178,13 @@ pub enum Command {
     Speed(f32),
     /// Repetir de A a B; None lo quita.
     Loop(Option<(f64, f64)>),
+    /// El tono corrido, en semitonos.
+    Pitch(i32),
+    /// El metronomo, con la rejilla de la cancion que suena si ya se analizo.
+    Metronome {
+        settings: player::MetronomeSettings,
+        grid: Option<(String, Arc<beats::BeatGrid>)>,
+    },
 }
 
 enum Message {
@@ -280,6 +295,9 @@ pub struct Playback {
     commands: Sender<Command>,
     snapshot: Arc<Mutex<PlaybackState>>,
     listing: Arc<Mutex<(Vec<Track>, Option<serde_json::Value>)>>,
+    /// Las rejillas de pulso ya analizadas, por ruta. Analizar son un par de
+    /// segundos: se guarda para toda la sesion.
+    grids: Arc<Mutex<HashMap<String, Arc<beats::BeatGrid>>>>,
 }
 
 impl Playback {
@@ -396,7 +414,13 @@ impl Playback {
             commands: user_tx,
             snapshot,
             listing,
+            grids: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// La rejilla de esa ruta, si ya se analizo.
+    pub fn grid_for(&self, path: &str) -> Option<Arc<beats::BeatGrid>> {
+        self.grids.lock().ok().and_then(|g| g.get(path).cloned())
     }
 
     pub fn send(&self, command: Command) {
@@ -445,6 +469,9 @@ fn compose(inner: &Inner, audio: &player::State) -> PlaybackState {
         pitch_preserved: audio.pitch_preserved,
         loop_a: audio.loop_a,
         loop_b: audio.loop_b,
+        pitch: audio.pitch,
+        metronome: audio.metronome.clone(),
+        path: audio.path.clone(),
         track,
     }
 }
@@ -672,6 +699,12 @@ fn apply(inner: &mut Inner, command: Command, player: &player::Handle, address: 
         Command::Loop(ab) => {
             let _ = player.send(player::Command::Loop(ab));
         }
+        Command::Pitch(n) => {
+            let _ = player.send(player::Command::Pitch(n));
+        }
+        Command::Metronome { settings, grid } => {
+            let _ = player.send(player::Command::Metronome { settings, grid });
+        }
     }
 }
 
@@ -739,6 +772,43 @@ pub fn set_volume(playback: tauri::State<'_, Playback>, value: f32) {
 #[tauri::command]
 pub fn set_speed(playback: tauri::State<'_, Playback>, value: f32) {
     playback.send(Command::Speed(value));
+}
+
+/// El tono corrido, en semitonos (-12..12). Solo hace algo con ffmpeg.
+#[tauri::command]
+pub fn set_pitch(playback: tauri::State<'_, Playback>, semitones: i32) {
+    playback.send(Command::Pitch(semitones.clamp(-12, 12)));
+}
+
+/// Analiza el pulso y el compas de un archivo (un par de segundos) y se
+/// queda con la rejilla para el metronomo. `hint_bpm`: el tempo que ya sepa
+/// el indice, si lo sabe. Se hace fuera del hilo de la interfaz.
+#[tauri::command]
+pub async fn analyze_beats(
+    playback: tauri::State<'_, Playback>,
+    path: String,
+    hint_bpm: Option<f32>,
+) -> Result<beats::BeatGrid, String> {
+    if let Some(grid) = playback.grid_for(&path) {
+        return Ok((*grid).clone());
+    }
+    let for_analysis = path.clone();
+    let grid = tauri::async_runtime::spawn_blocking(move || beats::analyze(&for_analysis, hint_bpm))
+        .await
+        .map_err(|e| format!("el analisis se cayo: {e}"))??;
+    if let Ok(mut g) = playback.grids.lock() {
+        g.insert(path, grid.clone());
+    }
+    Ok((*grid).clone())
+}
+
+/// Los ajustes del metronomo. Va con la rejilla de la cancion que suena, si
+/// ya se analizo; si no, el clic va libre hasta que llegue.
+#[tauri::command]
+pub fn set_metronome(playback: tauri::State<'_, Playback>, settings: player::MetronomeSettings) {
+    let path = playback.state().path;
+    let grid = playback.grid_for(&path).map(|g| (path, g));
+    playback.send(Command::Metronome { settings, grid });
 }
 
 /// Bucle A-B para estudiar un trozo. Sin `a` ni `b` (o con b <= a) se quita.

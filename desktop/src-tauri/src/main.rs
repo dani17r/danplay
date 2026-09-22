@@ -6,9 +6,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod associate;
+mod beats;
 mod core;
 mod dependencies;
 mod media;
+mod metronome;
 mod open;
 mod player;
 mod queue;
@@ -196,6 +198,9 @@ fn main() {
             queue::set_volume,
             queue::set_speed,
             queue::set_loop,
+            queue::set_pitch,
+            queue::set_metronome,
+            queue::analyze_beats,
             queue::playback_state,
             queue::queue_items,
             tray::show_window,

@@ -426,6 +426,15 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
     assert cliente.put(f"/api/song/{c['id']}/study", json={"loop": [30, 10]}).json()["study"] == ""
     assert cliente.put("/api/song/999999/study", json={}).status_code == 404
     assert cliente.put(f"/api/song/{c['id']}/study", json={"raro": 1}).status_code == 422
+    # tono corrido y ajustes del metronomo, saneados
+    d = cliente.put(f"/api/song/{c['id']}/study", json={
+        "pitch": -3, "metronome": {"bpm": 98.26, "meter": 3, "shift": 1, "mult": -1, "raro": 5}}).json()
+    study = json.loads(d["study"])
+    assert study["pitch"] == -3
+    assert study["metronome"] == {"bpm": 98.3, "meter": 3, "shift": 1, "mult": -1}
+    d = cliente.put(f"/api/song/{c['id']}/study", json={"pitch": 0, "metronome": {"meter": 5, "mult": 2}}).json()
+    assert d["study"] == "", "tono 0 y ajustes invalidos: no queda nada"
+    assert cliente.put(f"/api/song/{c['id']}/study", json={"pitch": 13}).status_code == 422
 
 
 def test_waveform_columns_follow_the_sound():

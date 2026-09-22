@@ -1137,7 +1137,7 @@ def brief_by_path() -> dict:
 
 # Lo que se guarda del modo estudio y sus limites: un JSON pequeño y con
 # forma conocida, no lo que mande cualquiera.
-STUDY_KEYS = ("loop", "speed", "markers", "notes")
+STUDY_KEYS = ("loop", "speed", "pitch", "metronome", "markers", "notes")
 
 
 def set_study(cid: int, study: dict | None) -> dict | None:
@@ -1163,6 +1163,36 @@ def set_study(cid: int, study: dict | None) -> dict | None:
                 clean["speed"] = round(speed, 2)
         except (TypeError, ValueError):
             pass
+        # el tono corrido, en semitonos; 0 no se guarda
+        try:
+            pitch = int(study.get("pitch") or 0)
+            if pitch and -12 <= pitch <= 12:
+                clean["pitch"] = pitch
+        except (TypeError, ValueError):
+            pass
+        # el metronomo: solo lo que uno ajusto a mano sobre lo detectado
+        metro = study.get("metronome")
+        if isinstance(metro, dict):
+            m: dict = {}
+            try:
+                if metro.get("bpm") is not None:
+                    bpm = float(metro["bpm"])
+                    if 20 <= bpm <= 300:
+                        m["bpm"] = round(bpm, 1)
+            except (TypeError, ValueError):
+                pass
+            if metro.get("meter") in (3, 4):
+                m["meter"] = int(metro["meter"])
+            try:
+                shift = int(metro.get("shift") or 0)
+                if shift:
+                    m["shift"] = max(-12, min(12, shift))
+            except (TypeError, ValueError):
+                pass
+            if metro.get("mult") in (-1, 1):
+                m["mult"] = int(metro["mult"])
+            if m:
+                clean["metronome"] = m
         # Un marcador es un tramo con nombre ({t, end, label}) y, si se quiere,
         # sus notas; sin `end` es un instante suelto. Un `end` que no vaya
         # detras de `t` se descarta y el marcador queda como instante.

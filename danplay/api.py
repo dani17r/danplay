@@ -215,10 +215,13 @@ class SheetIn(Body_):
 
 
 class StudyIn(Body_):
-    """El modo estudio de una cancion: bucle [a, b], velocidad, marcadores
-    [{t, label}] y notas. Lo que no venga se quita."""
+    """El modo estudio de una cancion: bucle [a, b], velocidad, tono corrido
+    (semitonos), ajustes del metronomo, marcadores [{t, end, label, notes}] y
+    notas. Lo que no venga se quita."""
     loop: list[float] | None = None
     speed: float | None = None
+    pitch: int | None = Field(default=None, ge=-12, le=12)
+    metronome: dict | None = None
     markers: list[dict] | None = None
     notes: str | None = Field(default=None, max_length=4000)
 

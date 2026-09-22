@@ -413,7 +413,10 @@ export function createPlaybackDouble() {
     error: '',
     has_output: true,
     origin: null,
-    revision: 0
+    revision: 0,
+    pitch: 0,
+    path: '',
+    metronome: { on: false, bpm: 100, meter: 4, shift: 0, mult: 0, volume: 0.8, has_grid: false, free: true, confidence: 0 }
   }
   let items = []
   let origin = null
@@ -460,6 +463,17 @@ export function createPlaybackDouble() {
     setVolume: vi.fn(async (value) => emit({ volume: value })),
     setSpeed: vi.fn(async (value) => emit({ speed: value })),
     setLoop: vi.fn(async (a, b) => emit({ loop_a: a == null ? 0 : a, loop_b: b == null ? 0 : b })),
+    setPitch: vi.fn(async (semitones) => emit({ pitch: semitones })),
+    setMetronome: vi.fn(async (settings) =>
+      emit({ metronome: { ...state.metronome, ...settings,
+        bpm: settings.bpm ?? state.metronome.bpm, meter: settings.meter ?? state.metronome.meter,
+        free: settings.bpm != null || !state.metronome.has_grid } })),
+    /** una rejilla de mentira: 120 bpm en 4/4 desde 0,25 s, con la confianza que diga el estado */
+    analyzeBeats: vi.fn(async (path) => {
+      emit({ metronome: { ...state.metronome, has_grid: true, bpm: 120, meter: 4, confidence: 0.8 } })
+      return { bpm: 120, meter: 4, beats: Array.from({ length: 400 }, (_, i) => 0.25 + i * 0.5),
+               first_downbeat: 0, phase3: 0, phase4: 0, confidence: 0.8, path }
+    }),
     state: vi.fn(async () => ({ ...state })),
     queueItems: vi.fn(async () => ({ items, origin })),
     onState: vi.fn(async (fn) => {

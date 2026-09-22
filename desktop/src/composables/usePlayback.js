@@ -37,7 +37,11 @@ const EMPTY = {
   // modo estudio: la velocidad conserva el tono, y el bucle A-B (0,0 = sin bucle)
   pitch_preserved: true,
   loop_a: 0,
-  loop_b: 0
+  loop_b: 0,
+  // el tono corrido (semitonos), el metrónomo y el archivo que suena de verdad
+  pitch: 0,
+  metronome: { on: false, bpm: 100, meter: 4, shift: 0, mult: 0, volume: 0.8, has_grid: false, free: true, confidence: 0 },
+  path: ''
 }
 
 /**
@@ -237,6 +241,21 @@ function createWebBackend() {
       s.loop_b = ok ? b : 0
       push()
     },
+    // El tono corrido y el metrónomo solo suenan dentro de la app (ffmpeg y
+    // el mezclador de Rust). Aquí se apunta el estado para que la interfaz
+    // se comporte igual; no cambia lo que se oye.
+    setPitch: async (semitones) => {
+      s.pitch = clamp(Math.round(Number(semitones) || 0), -12, 12)
+      push()
+    },
+    setMetronome: async (settings) => {
+      s.metronome = { ...s.metronome, ...settings, bpm: settings.bpm ?? s.metronome.bpm,
+                      meter: settings.meter ?? s.metronome.meter, free: true, has_grid: false }
+      push()
+    },
+    analyzeBeats: async () => {
+      throw new Error('el compás solo se analiza dentro de la app')
+    },
     state: async () => snapshot(),
     queueItems: async () => ({ items: q.items.slice(), origin: q.origin }),
     onState: async (fn) => {
@@ -388,6 +407,7 @@ export function resetPlayback() {
   seenRevision = -1
   seekGuard = null
   queue.value = []
+  Object.assign(metronomeSettings, { on: false, bpm: null, meter: null, shift: 0, mult: 0, volume: 0.8 })
   Object.assign(state, { ...EMPTY })
 }
 
@@ -466,6 +486,43 @@ function setSpeed(value) {
   remember(SPEED_KEY, v)
   return send((b) => b.setSpeed(v))
 }
+/** El tono corrido, en semitonos (-12..12). */
+function setPitch(semitones) {
+  const n = clamp(Math.round(Number(semitones) || 0), -12, 12)
+  return send((b) => b.setPitch(n))
+}
+/**
+ * Lo que se le manda al metrónomo, entero cada vez. Vive aquí (y no solo en
+ * Rust) porque el estado de Rust no distingue «lo detectado» de «lo puesto a
+ * mano»: solo sabe lo que suena. `on` y `volume` son de la sesión; tempo,
+ * compás, «1» y doble/mitad son de cada canción y se cambian con
+ * `resetMetronomeOverrides` al cambiar de canción.
+ */
+const metronomeSettings = { on: false, bpm: null, meter: null, shift: 0, mult: 0, volume: 0.8 }
+/**
+ * @param {Partial<import('../api.js').MetronomeSettings>} patch  lo que cambia
+ */
+function setMetronome(patch) {
+  Object.assign(metronomeSettings, patch)
+  return send((b) => b.setMetronome({ ...metronomeSettings }))
+}
+/** Los ajustes por canción (lo guardado con ella, o nada), sin tocar on/volumen. */
+function resetMetronomeOverrides(overrides = {}) {
+  Object.assign(metronomeSettings, { bpm: null, meter: null, shift: 0, mult: 0 }, overrides)
+  return send((b) => b.setMetronome({ ...metronomeSettings }))
+}
+/** Lo que se le mandó al metrónomo la última vez. */
+const metronomeSent = () => ({ ...metronomeSettings })
+/**
+ * Analiza el pulso y el compás del archivo que suena. Rust se queda con la
+ * rejilla; se devuelve para pintarla.
+ * @returns {Promise<import('../api.js').BeatGrid|null>}
+ */
+async function analyzeBeats(hintBpm = null) {
+  await ensureBooted()
+  if (!backend || !state.path) return null
+  return backend.analyzeBeats(state.path, hintBpm)
+}
 function setRepeat(mode) {
   const m = normalizeRepeat(mode)
   remember(REPEAT_KEY, m)
@@ -538,6 +595,13 @@ export function usePlayback() {
     nudge,
     setVolume,
     setSpeed,
+    setPitch,
+    pitch: computed(() => state.pitch),
+    setMetronome,
+    resetMetronomeOverrides,
+    metronomeSent,
+    metronome: computed(() => state.metronome),
+    analyzeBeats,
     setLoop,
     clearLoop,
     loopA: computed(() => state.loop_a),

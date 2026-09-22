@@ -113,7 +113,12 @@ describe('animaciones', () => {
     expect(app.slice(Math.max(0, study - 160), study)).toMatch(/<transition name="study"/)
     expect(CSS).toMatch(/\.study\{[^}]*position:fixed/)
     expect(CSS).toMatch(/\.study\{[^}]*bottom:var\(--player-h\)/)
+    // media pantalla, y las tres columnas
+    expect(CSS).toMatch(/\.study\{[^}]*height:min\(5\dvh/)
+    expect(CSS).toMatch(/\.study-body\{[^}]*grid-template-columns:[^;}]*fr[^;}]*fr[^;}]*fr/)
     expect(CSS).toMatch(/\.study-enter-from[^{]*\{[^}]*translateY/)
+    // y lo de dentro asoma escalonado
+    expect(CSS).toMatch(/\.study-enter-active \.study-col\{[^}]*animation:/)
     // por debajo de la cola del reproductor, que se abre desde un boton suyo
     const z = (sel) => Number((CSS.match(new RegExp(sel.replace(/[.-]/g, '\\$&') + '\\{[^}]*z-index:(\\d+)')) || [])[1])
     expect(z('.study')).toBeLessThan(z('.queue'))
