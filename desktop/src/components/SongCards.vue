@@ -16,8 +16,8 @@ import { ref, watch, nextTick, computed } from 'vue'
 import { useVirtualRows } from '../composables/useVirtualRows.js'
 import { usePlayback } from '../composables/usePlayback.js'
 
-const { startDrag, isDragged } = useDragSong()
-const props = defineProps(['songs','selected','selectedIds','playing','jumpTo'])
+const { startDrag, isDragged, isBefore, isAfter } = useDragSong()
+const props = defineProps(['songs','selected','selectedIds','playing','jumpTo','sortable'])
 const emit = defineEmits(['select','play','setStars','toggleFavorite','context'])
 
 // Sobre la que esta puesta, el boton de la fila es pausa (o reanudar si esta
@@ -27,6 +27,13 @@ const { playing: sounding } = usePlayback()
 // (Ctrl y Mayus al pulsar, decididas por la app).
 const chosen = computed(() => new Set(props.selectedIds || []))
 const picked = (id) => props.selected === id || chosen.value.has(id)
+
+// En un repertorio cada ficha es destino de arrastre (`sort:id`), para poder
+// cambiar el orden. La raya se pinta en la mitad por la que va el puntero,
+// menos sobre la propia ficha que se lleva: ahi no hay nada que marcar.
+const key = (c) => 'sort:' + c.id
+const before = (c) => !!props.sortable && !isDragged(c.id) && isBefore(key(c))
+const after = (c) => !!props.sortable && !isDragged(c.id) && isAfter(key(c))
 
 const rowIcon = (c) => (props.playing === c.id && sounding.value ? 'pause' : 'play')
 const rowTitle = (c) =>
@@ -57,16 +64,19 @@ const fmt = (s) => {
 </script>
 
 <template>
-  <div class="cards" ref="caja">
+  <div class="cards" ref="caja" :data-sort-list="sortable ? '' : null">
     <div v-if="padTop" data-spacer aria-hidden="true"
          :style="{gridColumn: '1 / -1', height: padTop + 'px'}"></div>
     <div v-for="(c,i) in visible" :key="c.id" class="card-song"
          v-memo="[from + i, c.id, c.title, c.file, c.artist, c.album, c.stars,
                   c.favorite, c.duration, c.blur, picked(c.id), playing===c.id,
-                  playing===c.id && sounding, jumpTo===c.id, isDragged(c.id)]"
+                  playing===c.id && sounding, jumpTo===c.id, isDragged(c.id),
+                  !!sortable, before(c), after(c)]"
          :ref="el => { if (el) fichas.set(c.id, el) }"
          :class="{selected: picked(c.id), playing: playing===c.id,
-                  flash: jumpTo===c.id, dragged: isDragged(c.id)}"
+                  flash: jumpTo===c.id, dragged: isDragged(c.id),
+                  'drop-before': before(c), 'drop-after': after(c)}"
+         :data-drop="sortable ? key(c) : null" data-drop-axis="x"
          @pointerdown="startDrag(c, $event)"
          @click="emit('select', c.id, $event)"
          @dblclick="emit('play', c)"

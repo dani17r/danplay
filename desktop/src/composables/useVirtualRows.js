@@ -29,7 +29,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
  * desplaza es un antepasado, pero en la cuadricula el ancla ES la rejilla y
  * ella misma es la que se desplaza.
  */
-function nearestScroller (el) {
+export function nearestScroller (el) {
   let n = el
   while (n && n !== document.body) {
     const o = getComputedStyle(n).overflowY

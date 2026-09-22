@@ -19,9 +19,9 @@ import { ref, watch, nextTick, computed, onUnmounted } from 'vue'
 import { useVirtualRows } from '../composables/useVirtualRows.js'
 import { usePlayback } from '../composables/usePlayback.js'
 
-const { startDrag, isDragged } = useDragSong()
+const { startDrag, isDragged, isBefore, isAfter } = useDragSong()
 const props = defineProps(['songs','selected','selectedIds','playing','sort','desc','noHeader',
-                           'jumpTo'])
+                           'jumpTo','sortable'])
 const emit = defineEmits(['select','play','setStars','toggleFavorite','sortBy','context'])
 
 // Sobre la que esta puesta, el boton de la fila es pausa (o reanudar si esta
@@ -31,6 +31,13 @@ const { playing: sounding } = usePlayback()
 // (Ctrl y Mayus al pulsar, decididas por la app).
 const chosen = computed(() => new Set(props.selectedIds || []))
 const picked = (id) => props.selected === id || chosen.value.has(id)
+
+// En un repertorio cada fila es destino de arrastre (`sort:id`), para poder
+// cambiar el orden. La raya se pinta en la mitad por la que va el puntero,
+// menos sobre la propia fila que se lleva: ahi no hay nada que marcar.
+const key = (c) => 'sort:' + c.id
+const before = (c) => !!props.sortable && !isDragged(c.id) && isBefore(key(c))
+const after = (c) => !!props.sortable && !isDragged(c.id) && isAfter(key(c))
 
 const rowIcon = (c) => (props.playing === c.id && sounding.value ? 'pause' : 'play')
 const rowTitle = (c) =>
@@ -174,7 +181,7 @@ const fmtDuration = (s) => {
 </script>
 
 <template>
-  <div :class="noHeader ? '' : 'table-wrap'">
+  <div :class="noHeader ? '' : 'table-wrap'" :data-sort-list="sortable ? '' : null">
     <table v-if="songs.length" class="song-table" :class="{medida: aMedida}">
       <colgroup v-if="aMedida">
         <col v-for="col in cols" :key="col.k"
@@ -210,10 +217,12 @@ const fmtDuration = (s) => {
             v-memo="[from + i, c.id, c.title, c.file, c.feat, c.artist, c.album, c.stars,
                      c.favorite, c.key, c.bpm, c.duration, c.bitrate,
                      picked(c.id), playing===c.id, playing===c.id && sounding,
-                     jumpTo===c.id, isDragged(c.id)]"
+                     jumpTo===c.id, isDragged(c.id), !!sortable, before(c), after(c)]"
             :ref="el => { if (el) rows.set(c.id, el) }"
             :class="{selected: picked(c.id), playing: playing===c.id,
-                     flash: jumpTo===c.id, dragged: isDragged(c.id)}"
+                     flash: jumpTo===c.id, dragged: isDragged(c.id),
+                     'drop-before': before(c), 'drop-after': after(c)}"
+            :data-drop="sortable ? key(c) : null"
             @pointerdown="startDrag(c, $event)"
             @click="emit('select', c.id, $event)"
             @dblclick="emit('play', c)"

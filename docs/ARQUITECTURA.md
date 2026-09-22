@@ -358,6 +358,30 @@ Si no se puede medir —el panel aún no tiene alto, o un entorno sin maquetaci�
 como las pruebas— se pinta la lista entera. Nunca puede salir vacía por un
 fallo de medida.
 
+## Arrastrar canciones
+
+No se usa el arrastre nativo del navegador: dentro del WebView se comporta
+distinto según el sistema y pinta un fantasma que aquí no sirve. Va con
+eventos de puntero (`useDragSong`), con un umbral de unos píxeles para que un
+clic tembloroso no mueva nada, y sin tocar nada con el dedo, que ahí la lista
+tiene que desplazarse.
+
+Quien recibe no se registra en ningún sitio: basta un `data-drop` en el
+elemento. Los repertorios y Favoritos del menú lateral lo llevan siempre. Las
+filas de un **repertorio** lo llevan también (`sort:id`), y así la misma
+canción se puede dejar sobre otra lista o **recolocar dentro de la suya**: el
+composable mira por qué mitad del destino va el puntero (arriba/abajo en las
+filas, izquierda/derecha en las fichas, que van en cuadrícula) y la app manda
+el orden entero a `POST /playlists/{id}/order`, la misma ruta que ya usaba el
+asistente. La lista se recoloca al momento y vuelve atrás si el núcleo no
+puede. Solo en los repertorios que uno crea: en «Todas» o Favoritos el orden lo
+dan las columnas, y en la lista del reproductor, cuándo se abrió cada archivo.
+
+Mientras se arrastra por el borde de una lista ordenable (`data-sort-list`),
+el panel se desplaza solo, por cuadros de animación y no por eventos: con el
+puntero quieto en el borde no llega ningún `pointermove`, y sin eso no habría
+forma de llevar una canción del final de un repertorio largo al principio.
+
 ## El asistente
 
 23 herramientas sobre el mismo núcleo que usa la interfaz. No hay un camino

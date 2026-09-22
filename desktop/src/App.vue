@@ -94,6 +94,12 @@ const sort = ref('artist')
 // largo primero en una duración).
 const sortDesc = ref(false)
 function sortBy(field, descByDefault = false) {
+  // En un repertorio el orden lo pone uno arrastrando las canciones; las
+  // cabeceras no lo tocan. Antes cambiaban `sort` y no pasaba nada, sin decir
+  // por qué.
+  if (view.value.kind === 'playlist') {
+    return notify('En una lista el orden lo pones tú: arrastra las canciones', 'info')
+  }
   if (sort.value === field) sortDesc.value = !sortDesc.value
   else {
     sort.value = field
@@ -212,6 +218,11 @@ onClickOutside(viewBox, () => {
 const effectiveGroupBy = computed(() =>
   view.value.kind === 'artists' ? groupBy.value || 'artist' : groupBy.value
 )
+// Solo en los repertorios que uno crea se cambia el orden arrastrando: en
+// «Todas», Favoritos o una búsqueda el orden lo dan las columnas, y en la
+// lista del reproductor, el momento en que se abrió cada archivo. Agrupada
+// tampoco: dentro de un grupo no hay un orden de lista que mover.
+const sortable = computed(() => view.value.kind === 'playlist' && !effectiveGroupBy.value)
 
 // Para no recargar en cada aviso: solo cuando el núcleo PASA a estar listo.
 let coreWasReady = false
@@ -700,9 +711,11 @@ function playlistMenu(ev, pl) {
 // Qué hacer cuando se suelta una canción arrastrada. Los destinos se declaran
 // con `data-drop` allí donde estén, así que aquí solo hay que decidir qué
 // significa cada uno.
-onDrop(async (target, song) => {
+onDrop(async (target, song, { after } = {}) => {
   const name = song.title || song.file
-  if (target === 'favorites') {
+  if (target.startsWith('sort:')) {
+    moveInPlaylist(song, Number(target.slice(5)), !!after)
+  } else if (target === 'favorites') {
     if (song.favorite) return notify(`«${name}» ya estaba en favoritos`)
     await toggleFavorite(song)
     notify(`«${name}» a favoritos`, 'ok')
@@ -713,6 +726,33 @@ onDrop(async (target, song) => {
     if (pl) playlistActions.addTo(song, pl)
   }
 })
+
+/**
+ * Mueve una canción dentro del repertorio abierto: la deja justo antes de la
+ * que tiene `targetId`, o justo después si se soltó en su mitad de abajo.
+ * La lista se recoloca al momento y el núcleo confirma el orden; si no
+ * puede, vuelve como estaba.
+ */
+async function moveInPlaylist(song, targetId, after) {
+  if (!sortable.value || song.id === targetId) return
+  const before = songs.value
+  const ids = before.map((s) => s.id)
+  if (!ids.includes(song.id) || !ids.includes(targetId)) return
+  const order = ids.filter((id) => id !== song.id)
+  order.splice(order.indexOf(targetId) + (after ? 1 : 0), 0, song.id)
+  if (order.every((id, i) => id === ids[i])) return // ya estaba ahí
+  const by = new Map(before.map((s) => [s.id, s]))
+  songs.value = order.map((id) => by.get(id))
+  const listId = view.value.id
+  try {
+    const r = await api.reorderPlaylist(listId, order)
+    // si mientras tanto se cambió de vista, lo que llega ya no es esta lista
+    if (view.value.kind === 'playlist' && view.value.id === listId) songs.value = r.songs
+  } catch (e) {
+    if (view.value.kind === 'playlist' && view.value.id === listId) songs.value = before
+    notify('No se pudo cambiar el orden: ' + errorMessage(e))
+  }
+}
 
 /** Borrar una lista puede dejarte mirando una vista que ya no existe. */
 async function deletePlaylist(pl) {
@@ -1189,6 +1229,10 @@ function onUpdated(song) {
             <span v-if="query" class="chip x" @click="query = ''"> «{{ query }}» ×</span>
             <span v-if="shuffle" class="chip on">aleatorio</span>
             <span v-if="repeat !== 'list'" class="chip on">{{ REPEAT_NAMES[repeat] }}</span>
+            <!-- que se sepa que en un repertorio el orden se cambia a mano -->
+            <span v-if="sortable && songs.length > 1" class="sort-hint">
+              arrastra una canción para cambiar el orden
+            </span>
             <template v-if="view.kind === 'player' && songs.length">
               <button class="btn mini" style="margin-left: auto" @click="savePlayerList">
                 <Icon n="save" :t="13" /> Guardar
@@ -1222,6 +1266,7 @@ function onUpdated(song) {
           <SongRows
             v-else-if="layout === 'rows'"
             :songs="songs"
+            :sortable="sortable"
             :selected="selected"
             :selected-ids="selectedIds"
             :playing="playingId"
@@ -1236,6 +1281,7 @@ function onUpdated(song) {
           <SongCards
             v-else-if="layout === 'cards'"
             :songs="songs"
+            :sortable="sortable"
             :selected="selected"
             :selected-ids="selectedIds"
             :playing="playingId"
@@ -1250,6 +1296,7 @@ function onUpdated(song) {
           <SongGrid
             v-else-if="layout === 'grid'"
             :songs="songs"
+            :sortable="sortable"
             :selected="selected"
             :selected-ids="selectedIds"
             :playing="playingId"
@@ -1262,10 +1309,11 @@ function onUpdated(song) {
           <SongTable
             v-else
             :songs="songs"
+            :sortable="sortable"
             :selected="selected"
             :selected-ids="selectedIds"
             :playing="playingId"
-            :sort="sort"
+            :sort="sortable ? '' : sort"
             :desc="sortDesc"
             :jump-to="jumpToSong"
             @select="select"

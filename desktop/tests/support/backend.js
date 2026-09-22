@@ -89,6 +89,8 @@ export function createState() {
       { id: 'viejo', name: 'Viejo', tools: false, cost_in: 1, cost_out: 1, context: 8000, released: '2024-01-01', deprecated: true, known: true }
     ],
     playlists: [],
+    /** las canciones de la lista abierta, en su orden (el doble no distingue listas) */
+    playlistSongs: [],
     addedFolders: [],
     inbox: 0,
     duplicates: { identical: [], similar: [] },
@@ -244,9 +246,14 @@ function answers(state) {
       state.playlists = state.playlists.filter((l) => l.id !== id)
       return { playlists: state.playlists }
     },
-    playlistSongs: async () => ({ songs: [] }),
+    playlistSongs: async () => ({ songs: state.playlistSongs.map((c) => ({ ...c })) }),
     addToPlaylist: async () => ({ added: 1, songs: [] }),
     removeFromPlaylist: async () => ({ songs: [] }),
+    reorderPlaylist: async (id, ids) => {
+      const by = new Map(state.playlistSongs.map((c) => [c.id, c]))
+      state.playlistSongs = ids.map((i) => by.get(i)).filter(Boolean)
+      return { songs: state.playlistSongs.map((c) => ({ ...c })) }
+    },
     exportPlaylist: async () => ({ file: '/musica/Listas/x.m3u8' }),
     inbox: async () => ({ files: [], total: state.inbox }),
     youtube: async () => ({ available: false, reason: 'falta yt-dlp', active: false }),

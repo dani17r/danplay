@@ -55,6 +55,7 @@ beforeEach(() => {
   state.songs = []
   state.addedFolders = []
   state.playlists = []
+  state.playlistSongs = []
   state.status.configured = false
   state.status.stats.total = 0
   cancelDrag()          // que un arrastre a medias no se cuele en la siguiente
@@ -781,6 +782,16 @@ describe('arrastrar una cancion', () => {
     expect(w.find('.sidebar').classes()).not.toContain('drop-ready')
   })
 
+  it('fuera de un repertorio las filas no son destino: soltar sobre otra no cambia nada', async () => {
+    const w = await conLista()
+    expect(fila(w).attributes('data-drop')).toBeUndefined()
+    await puntero(fila(w), 'pointerdown', { clientX: 10, clientY: 10 })
+    await puntero(fila(w, 1), 'pointermove', { clientX: 90, clientY: 200 })
+    await puntero(fila(w, 1), 'pointerup')
+    await flushPromises()
+    expect(api.reorderPlaylist).not.toHaveBeenCalled()
+  })
+
   it('un resto de la disposicion movible no rompe la vista', async () => {
     // aquella opcion guardaba un objeto en la misma clave que el formato
     localStorage.setItem('danplay.layout', '{"topbar":"bottom","player":"top"}')
@@ -795,6 +806,166 @@ describe('arrastrar una cancion', () => {
     expect(w.find('.resizer').exists()).toBe(false)
     expect(w.find('.arrange-bar').exists()).toBe(false)
     expect(w.find('.app').classes()).toEqual(['app'])
+  })
+})
+
+// --------------------------------------------- ordenar un repertorio a mano
+// Dentro de una lista que uno ha creado, las filas son destino ellas mismas:
+// se coge una cancion y se deja encima o debajo de otra. Solo ahi: en
+// «Todas» o en Favoritos el orden lo dan las columnas.
+describe('ordenar un repertorio arrastrando', () => {
+  const tres = () => [
+    { id: 1, title: 'Primera', artist: 'X', album: '', duration: 10, bitrate: 1,
+      stars: 0, favorite: 0, feat: '', folder: 'x', key: '', bpm: 0 },
+    { id: 2, title: 'Segunda', artist: 'X', album: '', duration: 10, bitrate: 1,
+      stars: 0, favorite: 0, feat: '', folder: 'x', key: '', bpm: 0 },
+    { id: 3, title: 'Tercera', artist: 'X', album: '', duration: 10, bitrate: 1,
+      stars: 0, favorite: 0, feat: '', folder: 'x', key: '', bpm: 0 }
+  ]
+  async function enRepertorio (otras = []) {
+    state.status.configured = true
+    state.songs = tres()
+    state.playlistSongs = tres()
+    state.playlists = [{ id: 7, name: 'Domingo', n: 3 }, ...otras]
+    const w = await montar()
+    await w.find('.nav-playlist').trigger('click')
+    await flushPromises(); await flushPromises()
+    return w
+  }
+  const fila = (w, i = 0) => w.findAll('tbody tr')[i]
+  const titulos = (w) => w.findAll('tbody tr td.title').map((td) => td.text().trim())
+  function puntero (el, tipo, resto = {}) {
+    el.element.dispatchEvent(new MouseEvent(tipo, { bubbles: true, cancelable: true, ...resto }))
+    return flushPromises()
+  }
+  // jsdom no maqueta: se le dice a la fila donde esta para poder apuntar a
+  // su mitad de arriba o a la de abajo
+  function colocar (el, top = 100, height = 30) {
+    el.element.getBoundingClientRect = () =>
+      ({ top, height, bottom: top + height, left: 0, width: 600, right: 600, x: 0, y: top })
+  }
+
+  it('las filas de la lista son destino, y se avisa de que se puede ordenar', async () => {
+    const w = await enRepertorio()
+    expect(titulos(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
+    expect(fila(w).attributes('data-drop')).toBe('sort:1')
+    expect(w.find('[data-sort-list]').exists()).toBe(true)
+    expect(w.find('.sort-hint').text()).toContain('arrastra')
+  })
+
+  it('soltarla en la mitad de abajo de otra la deja despues', async () => {
+    const w = await enRepertorio()
+    colocar(fila(w, 2))
+    await puntero(fila(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
+    await puntero(fila(w, 2), 'pointermove', { clientX: 90, clientY: 125 })
+    expect(fila(w, 2).classes()).toContain('drop-after')
+    expect(fila(w, 2).classes()).not.toContain('drop-before')
+    await puntero(fila(w, 2), 'pointerup')
+    await flushPromises()
+    expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 3, 1])
+    expect(titulos(w)).toEqual(['Segunda', 'Tercera', 'Primera'])
+    expect(w.vm.drag.song).toBe(null)
+  })
+
+  it('y en la mitad de arriba, antes', async () => {
+    const w = await enRepertorio()
+    colocar(fila(w, 0))
+    await puntero(fila(w, 2), 'pointerdown', { clientX: 10, clientY: 300 })
+    await puntero(fila(w, 0), 'pointermove', { clientX: 90, clientY: 105 })
+    expect(fila(w, 0).classes()).toContain('drop-before')
+    await puntero(fila(w, 0), 'pointerup')
+    await flushPromises()
+    expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [3, 1, 2])
+    expect(titulos(w)).toEqual(['Tercera', 'Primera', 'Segunda'])
+  })
+
+  it('dejarla donde ya estaba no pide nada al nucleo', async () => {
+    const w = await enRepertorio()
+    colocar(fila(w, 1))
+    // la primera, justo encima de la segunda: es su sitio de siempre
+    await puntero(fila(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
+    await puntero(fila(w, 1), 'pointermove', { clientX: 90, clientY: 105 })
+    await puntero(fila(w, 1), 'pointerup')
+    await flushPromises()
+    expect(api.reorderPlaylist).not.toHaveBeenCalled()
+    expect(titulos(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
+  })
+
+  it('sobre la propia fila que se lleva no se marca nada', async () => {
+    const w = await enRepertorio()
+    colocar(fila(w, 0))
+    await puntero(fila(w, 0), 'pointerdown', { clientX: 10, clientY: 105 })
+    await puntero(fila(w, 0), 'pointermove', { clientX: 90, clientY: 125 })
+    expect(fila(w, 0).classes()).toContain('dragged')
+    expect(fila(w, 0).classes()).not.toContain('drop-after')
+    await puntero(fila(w, 0), 'pointerup')
+    await flushPromises()
+    expect(api.reorderPlaylist).not.toHaveBeenCalled()
+  })
+
+  it('si el nucleo no puede, la lista vuelve como estaba', async () => {
+    const w = await enRepertorio()
+    api.reorderPlaylist.mockRejectedValueOnce(new Error('sin base de datos'))
+    colocar(fila(w, 2))
+    await puntero(fila(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
+    await puntero(fila(w, 2), 'pointermove', { clientX: 90, clientY: 125 })
+    await puntero(fila(w, 2), 'pointerup')
+    await flushPromises(); await flushPromises()
+    expect(titulos(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
+    expect(w.find('.toast').text()).toContain('No se pudo cambiar el orden')
+  })
+
+  it('las cabeceras no ordenan un repertorio: lo dicen y no recargan', async () => {
+    const w = await enRepertorio()
+    expect(w.find('thead th[aria-sort]').exists(), 'no hay columna que mande').toBe(false)
+    const antes = api.playlistSongs.mock.calls.length
+    await w.find('thead th.sortable').trigger('click')
+    await flushPromises()
+    expect(w.find('.toast').text()).toContain('arrastra')
+    expect(api.playlistSongs.mock.calls.length).toBe(antes)
+  })
+
+  it('en la lista fina las filas tambien se ordenan', async () => {
+    const w = await enRepertorio()
+    w.vm.layout = 'rows'
+    await flushPromises()
+    const filas = w.findAll('.rows .row')
+    expect(filas).toHaveLength(3)
+    expect(filas[0].attributes('data-drop')).toBe('sort:1')
+    colocar(filas[2])
+    await puntero(filas[0], 'pointerdown', { clientX: 10, clientY: 10 })
+    await puntero(filas[2], 'pointermove', { clientX: 90, clientY: 125 })
+    await puntero(filas[2], 'pointerup')
+    await flushPromises()
+    expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 3, 1])
+  })
+
+  it('en las fichas se mira la mitad izquierda o derecha', async () => {
+    const w = await enRepertorio()
+    w.vm.layout = 'cards'
+    await flushPromises()
+    const fichas = w.findAll('.card-song')
+    expect(fichas[0].attributes('data-drop-axis')).toBe('x')
+    fichas[2].element.getBoundingClientRect = () =>
+      ({ top: 0, height: 60, bottom: 60, left: 300, width: 200, right: 500, x: 300, y: 0 })
+    await puntero(fichas[0], 'pointerdown', { clientX: 10, clientY: 10 })
+    // a la izquierda de la tercera, aunque sea por su mitad de abajo
+    await puntero(fichas[2], 'pointermove', { clientX: 320, clientY: 55 })
+    expect(fichas[2].classes()).toContain('drop-before')
+    await puntero(fichas[2], 'pointerup')
+    await flushPromises()
+    expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 1, 3])
+  })
+
+  it('de la lista al menu lateral sigue valiendo: se añade a otro repertorio', async () => {
+    const w = await enRepertorio([{ id: 8, name: 'Lunes', n: 0 }])
+    const otro = w.findAll('.nav-playlist')[1]
+    await puntero(fila(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
+    await puntero(otro, 'pointermove', { clientX: 90, clientY: 200 })
+    await puntero(otro, 'pointerup')
+    await flushPromises()
+    expect(api.addToPlaylist).toHaveBeenCalledWith(8, [1])
+    expect(api.reorderPlaylist).not.toHaveBeenCalled()
   })
 })
 

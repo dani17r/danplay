@@ -565,6 +565,14 @@ export const api = {
   addToPlaylist: (id, ids) => POST(`/playlists/${id}/songs`, { ids }),
   removeFromPlaylist: (l, c) => DEL(`/playlists/${l}/songs/${c}`),
   /**
+   * Deja la lista en ese orden: TODOS los ids, tal como tienen que quedar.
+   * Es lo que hay detrás de arrastrar una canción arriba o abajo dentro de
+   * un repertorio. Devuelve la lista ya ordenada.
+   * @param {number} id @param {number[]} ids
+   * @returns {Promise<{songs: Song[]}>}
+   */
+  reorderPlaylist: (id, ids) => POST(`/playlists/${id}/order`, { ids }),
+  /**
    * El modo estudio de una canción: bucle [a, b], velocidad, marcadores
    * [{t, label}] y notas. Se guarda en el índice y en el archivo. Vacío lo quita.
    * @param {number} id @param {{loop?: number[], speed?: number, markers?: {t:number,label:string}[], notes?: string}} study
