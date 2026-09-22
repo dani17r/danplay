@@ -256,6 +256,13 @@ let ready = false
 let stopListening = null
 /** La revisión de cola que ya conocemos. Ver `applyState`. */
 let seenRevision = -1
+/**
+ * El salto que se acaba de pedir: `{ target, until }`. Ver `seek`.
+ * @type {{ target: number, until: number } | null}
+ */
+let seekGuard = null
+/** Cuánto se sostiene la posición pedida si Rust aún no la ha confirmado. */
+const SEEK_GRACE_MS = 800
 
 const isMiniWindow = () =>
   typeof location !== 'undefined' && new URLSearchParams(location.search).has('mini')
@@ -284,6 +291,16 @@ function applyState(s) {
   if (!s || typeof s !== 'object') return
   for (const k of Object.keys(EMPTY)) if (k in s) state[k] = s[k]
   state.repeat = normalizeRepeat(state.repeat)
+  // Tras un salto, un tick que venía en camino traía la posición VIEJA y la
+  // aguja daba un respingo atrás antes de ir a donde se pidió. Hasta que
+  // Rust confirme (o pase el plazo), la posición se queda donde se pidió.
+  if (seekGuard) {
+    if (Date.now() > seekGuard.until || Math.abs(state.position - seekGuard.target) < 1.5) {
+      seekGuard = null
+    } else if ('position' in s) {
+      state.position = seekGuard.target
+    }
+  }
   // La cola la cambió alguien que no es esta ventana: el mini, la bandeja, o
   // el sistema al abrir una canción con DanPlay. Se vuelve a pedir.
   //
@@ -369,6 +386,7 @@ export function resetPlayback() {
   booting = null
   ready = false
   seenRevision = -1
+  seekGuard = null
   queue.value = []
   Object.assign(state, { ...EMPTY })
 }
@@ -402,7 +420,35 @@ const previous = () => send((b) => b.previous())
 const jump = (id) => send((b) => b.jump(id))
 const toggle = () => send((b) => b.toggle())
 const stop = () => send((b) => b.stop())
-const seek = (seconds) => send((b) => b.seek(Math.max(0, Number(seconds) || 0)))
+/**
+ * Ir a ese segundo. La aguja se pinta ya ahí, sin esperar a que Rust lo
+ * cuente: en pausa Rust tardaba en avisar, y sonando el tick de 250 ms que
+ * venía en camino la devolvía un instante a donde estaba.
+ */
+function seek(seconds) {
+  let target = Math.max(0, Number(seconds) || 0)
+  if (state.duration) target = Math.min(target, state.duration)
+  seekGuard = { target, until: Date.now() + SEEK_GRACE_MS }
+  state.position = target
+  return send((b) => b.seek(target))
+}
+/** Al tanto por ciento de la canción (las teclas 1-9). */
+function seekPercent(pct) {
+  if (!state.duration) return Promise.resolve()
+  return seek((state.duration * clamp(Number(pct) || 0, 0, 100)) / 100)
+}
+/**
+ * Desde el principio: vuelve a 0 y, si estaba en pausa, arranca.
+ *
+ * Primero se arranca y luego se salta, no al revés: si la canción había
+ * ACABADO, el salto ya la vuelve a poner en marcha por su cuenta, y un
+ * «reanudar» detrás la habría dejado otra vez en pausa.
+ */
+async function restart() {
+  if (!state.track) return
+  if (!state.playing) await toggle()
+  await seek(0)
+}
 function setVolume(value) {
   const v = clamp(Number(value) || 0, 0, 1)
   remember(VOLUME_KEY, v)
@@ -487,6 +533,8 @@ export function usePlayback() {
     toggle,
     stop,
     seek,
+    seekPercent,
+    restart,
     nudge,
     setVolume,
     setSpeed,

@@ -27,7 +27,7 @@ import {
   VIEW_ICONS,
   GROUPINGS
 } from './composables/usePreferences.js'
-import { useHotkeys } from './composables/useHotkeys.js'
+import { useHotkeys, releaseFocusAfterPointer } from './composables/useHotkeys.js'
 import { useSearch } from './composables/useSearch.js'
 import { usePlaylistActions } from './composables/usePlaylistActions.js'
 import { useDownloads } from './composables/useDownloads.js'
@@ -907,6 +907,7 @@ function goToSettings() {
   detailsOpen.value = false
 }
 
+let stopFocusRelease = null
 function blockContextMenu(e) {
   e.preventDefault()
 }
@@ -922,6 +923,8 @@ onMounted(async () => {
   // suyo con las opciones que tengan sentido ahí.
   window.addEventListener('contextmenu', blockContextMenu)
   window.addEventListener('keydown', onEscape)
+  // que tras pulsar un botón con el ratón el espacio siga pausando la música
+  stopFocusRelease = releaseFocusAfterPointer(window)
   prefs.applyAll()
   await loadStatus()
   await Promise.all([configured.value ? load() : Promise.resolve(), playlistActions.load()])
@@ -1002,6 +1005,7 @@ onUnmounted(() => {
   cancelDrag()
   window.removeEventListener('contextmenu', blockContextMenu)
   window.removeEventListener('keydown', onEscape)
+  stopFocusRelease?.()
 })
 
 /** Una canción cambió: se refresca en la lista, en la ficha y en la cola. */

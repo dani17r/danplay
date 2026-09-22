@@ -42,6 +42,30 @@ export function shouldIgnore(e) {
 }
 
 /**
+ * Con el ratón, un botón no se queda con el foco después de pulsarlo.
+ *
+ * Los atajos se apartan cuando el foco está en un botón (`HOTKEY_IGNORE`),
+ * para que espacio no pulse el botón Y pause la música. Pero un clic de
+ * ratón deja el foco en el botón, así que después de pulsar «Siguiente» o
+ * abrir una lista del menú, el espacio volvía a pulsar ESO en vez de pausar,
+ * y las flechas no movían nada. Se suelta el foco al levantar el puntero.
+ * Solo con puntero: quien va con el teclado necesita saber dónde está. Y no
+ * dentro de un diálogo o un menú, que ahí el foco lo lleva la trampa.
+ *
+ * @param {Window | Document} [target]
+ * @returns {() => void} para dejar de hacerlo
+ */
+export function releaseFocusAfterPointer(target = window) {
+  function release(e) {
+    const el = e.target?.closest?.('button, input[type="range"]')
+    if (!el || el.closest('.modal, .ctx, [role="dialog"], .select-box')) return
+    el.blur()
+  }
+  target.addEventListener('pointerup', release)
+  return () => target.removeEventListener('pointerup', release)
+}
+
+/**
  * @param {Record<string, (e: KeyboardEvent) => any>} bindings  combinación → acción
  * @param {{ global?: boolean, target?: Window | Document }} [options]
  *   global: actúa aunque el foco esté en un control o haya un diálogo

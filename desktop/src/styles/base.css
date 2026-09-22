@@ -289,12 +289,26 @@ tbody tr:hover .row-n{visibility:hidden}
 .pl-play:hover{background:#fff;color:var(--bg)}
 .pl-bar{flex:1;display:flex;align-items:center;gap:10px;min-width:120px}
 .track{flex:1;height:4px;background:color-mix(in srgb,var(--text) 17%,var(--panel));
-  border-radius:3px;position:relative;cursor:pointer}
-.track-fill{height:100%;background:var(--accent);border-radius:3px;position:relative}
-.track:hover .track-fill::after{
-  content:'';position:absolute;right:-5px;top:50%;transform:translateY(-50%);
-  width:10px;height:10px;border-radius:50%;background:#fff;
+  border-radius:3px;position:relative;cursor:pointer;touch-action:none}
+/* La barra se ve fina pero se coge ancha: acertar con 4 px para arrastrar la
+   aguja era cuestion de suerte. El area invisible de alrededor recibe el
+   puntero; la barra de dentro sigue igual de fina a la vista. */
+.track::before{content:'';position:absolute;inset:-8px 0}
+.track-fill{height:100%;background:var(--accent);border-radius:3px;position:relative;
+  pointer-events:none}
+/* la aguja: al pasar por encima, y mientras se arrastra aunque el puntero
+   se salga de la barra */
+.track:hover .track-fill::after,.track.scrubbing .track-fill::after{
+  content:'';position:absolute;right:-6px;top:50%;transform:translateY(-50%);
+  width:12px;height:12px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 4px var(--shadow-soft);
 }
+.track.scrubbing .track-fill::after{transform:translateY(-50%) scale(1.2);background:var(--accent);
+  outline:2px solid #fff}
+body:has(.track.scrubbing){cursor:grabbing;-webkit-user-select:none;user-select:none}
+.pl-restart{width:24px;height:24px;flex-shrink:0}
+.pl-restart:disabled{opacity:.35;cursor:default}
+.pl-restart:disabled:hover{background:none;color:var(--muted)}
 .time{font-family:var(--mono);font-size:11px;color:var(--muted2);width:40px}
 
 /* ---------- ajustes ---------- */

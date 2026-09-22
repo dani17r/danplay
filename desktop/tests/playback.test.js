@@ -189,6 +189,91 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(0)
   })
 
+  // Al pedir un salto, la aguja se pinta ya donde se pidio. Un tick que venia
+  // en camino con la posicion vieja no la devuelve atras; en cuanto Rust
+  // confirma (o pasa el plazo), vuelve a mandar lo que diga Rust.
+  it('un salto se ve al momento y no lo pisa un tick viejo', async () => {
+    const player = usePlayback()
+    await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 200 }], 1, null)
+    await flushPromises()
+    // el doble confirma al instante; aqui interesa lo que pasa ANTES de eso
+    held.playback.bridge.seek.mockImplementationOnce(async () => {})
+    held.playback.emit({ position: 12, playing: true })
+    const p = player.seek(100)
+    expect(player.position.value, 'la aguja no se movio al pedirlo').toBe(100)
+    await p
+    held.playback.emit({ position: 12.3 }) // el tick que ya venia de camino
+    expect(player.position.value).toBe(100)
+    held.playback.emit({ position: 100.4 }) // Rust confirma
+    expect(player.position.value).toBe(100.4)
+    held.playback.emit({ position: 20 }) // y a partir de ahi, lo que diga Rust
+    expect(player.position.value).toBe(20)
+  })
+
+  it('si Rust no confirma el salto, pasado el plazo manda su posicion', async () => {
+    vi.useFakeTimers()
+    try {
+      const player = usePlayback()
+      await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 200 }], 1, null)
+      held.playback.bridge.seek.mockImplementationOnce(async () => {})
+      await player.seek(100)
+      held.playback.emit({ position: 12 })
+      expect(player.position.value).toBe(100)
+      vi.advanceTimersByTime(900)
+      held.playback.emit({ position: 12.5 })
+      expect(player.position.value).toBe(12.5)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('un salto no se sale de la cancion', async () => {
+    const player = usePlayback()
+    await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 200 }], 1, null)
+    await player.seek(999)
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(200)
+    await player.seek(-4)
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(0)
+  })
+
+  it('al tanto por ciento: las teclas 1-9', async () => {
+    const player = usePlayback()
+    await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 200 }], 1, null)
+    await player.seekPercent(50)
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(100)
+    await player.seekPercent(90)
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(180)
+  })
+
+  it('desde el principio: vuelve a 0 y, en pausa, arranca (en ese orden)', async () => {
+    const player = usePlayback()
+    await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 200 }], 1, null)
+    held.playback.emit({ position: 80, playing: true })
+    vi.clearAllMocks()
+    await player.restart()
+    expect(held.playback.bridge.seek).toHaveBeenCalledWith(0)
+    expect(held.playback.bridge.toggle, 'sonando no hay que tocar play').not.toHaveBeenCalled()
+
+    held.playback.emit({ position: 80, playing: false })
+    vi.clearAllMocks()
+    const order = []
+    held.playback.bridge.toggle.mockImplementationOnce(async () => order.push('toggle'))
+    held.playback.bridge.seek.mockImplementationOnce(async () => order.push('seek'))
+    await player.restart()
+    // primero arranca y luego salta: si la cancion habia acabado, el salto ya
+    // la pone en marcha y un «reanudar» detras la dejaria otra vez en pausa
+    expect(order).toEqual(['toggle', 'seek'])
+  })
+
+  it('sin nada cargado, «desde el principio» no manda nada', async () => {
+    const player = usePlayback()
+    await player.ready()
+    vi.clearAllMocks()
+    await player.restart()
+    expect(held.playback.bridge.seek).not.toHaveBeenCalled()
+    expect(held.playback.bridge.toggle).not.toHaveBeenCalled()
+  })
+
   it('cambiar una cancion se ve en lo que suena sin volver a pedir la cola', async () => {
     const player = usePlayback()
     await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 100, stars: 0 }], 1, null)

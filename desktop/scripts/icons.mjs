@@ -3,7 +3,9 @@
 // El archivo generado decía «no editar a mano», pero el programa que lo
 // generaba no existía, así que no había forma de cumplirlo. Esto lo arregla:
 // `scripts/icons.map.json` dice qué icono de heroicons es cada nombre nuestro
-// y este programa vuelve a construir el archivo.
+// y este programa vuelve a construir el archivo. Un glifo que heroicons no
+// tiene (|◀ «desde el principio») va en el mapa con su propio `d`, el svg de
+// dentro ya dibujado, en vez de `file`.
 //
 //   node scripts/icons.mjs            regenera src/icons.js
 //   node scripts/icons.mjs --check    solo dice si está al día (para CI)
@@ -33,8 +35,8 @@ function inner(style, file) {
 
 function build(map) {
   const icons = {}
-  for (const [name, { style, file }] of Object.entries(map)) {
-    icons[name] = { e: style, d: inner(style, file) }
+  for (const [name, { style, file, d }] of Object.entries(map)) {
+    icons[name] = { e: style, d: d ? d.replace(/\s+/g, ' ').trim() : inner(style, file) }
   }
   return (
     '// Generado desde heroicons (MIT) - https://heroicons.com\n' +
@@ -56,12 +58,15 @@ function discover() {
     }
   }
 
+  // los dibujados a mano no están en heroicons: se conservan tal cual
+  const own = existsSync(MAP_FILE) ? JSON.parse(readFileSync(MAP_FILE, 'utf8')) : {}
   const map = {}
   const missing = []
   for (const [name, icon] of Object.entries(icons)) {
     const key = `${icon.e}:${icon.d.replace(/\s+/g, ' ').trim()}`
     const found = index.get(key)
     if (found) map[name] = found
+    else if (own[name]?.d) map[name] = own[name]
     else missing.push(name)
   }
   writeFileSync(MAP_FILE, JSON.stringify(map, null, 2) + '\n')

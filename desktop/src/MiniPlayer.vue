@@ -12,6 +12,7 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { app, mini } from './api.js'
 import { usePlayback } from './composables/usePlayback.js'
+import { useScrub } from './composables/useScrub.js'
 import { formatTime } from './utils/format.js'
 import Icon from './components/Icon.vue'
 import CoverArt from './components/ui/CoverArt.vue'
@@ -21,8 +22,12 @@ const player = usePlayback()
 const { track, playing, position, duration, hasPrevious, hasNext } = player
 
 const loaded = computed(() => !!track.value)
+// La aguja se arrastra igual que en el reproductor grande (ver useScrub):
+// mientras, la barra y la hora siguen al puntero; el salto se pide al soltar.
+const { scrub, start: grabNeedle } = useScrub({ duration, seek: (s) => player.seek(s) })
+const shown = computed(() => (scrub.active ? scrub.value : position.value))
 const percent = computed(() =>
-  duration.value ? Math.min(100, (position.value / duration.value) * 100) : 0
+  duration.value ? Math.min(100, (shown.value / duration.value) * 100) : 0
 )
 
 // Los dos atajos que se esperan en una ventanita así: espacio para pausar y
@@ -54,11 +59,6 @@ onUnmounted(() => {
   window.removeEventListener('storage', onStorage)
 })
 
-function seek(e) {
-  if (!loaded.value || !duration.value) return
-  const r = e.currentTarget.getBoundingClientRect()
-  player.seek(((e.clientX - r.left) / r.width) * duration.value)
-}
 </script>
 
 <template>
@@ -94,14 +94,14 @@ function seek(e) {
 
     <div
       class="mini-seek"
-      :class="{ off: !loaded }"
-      :title="loaded ? 'Ir a un punto' : ''"
-      @click="seek"
+      :class="{ off: !loaded, scrubbing: scrub.active }"
+      :title="loaded ? 'Arrastra la aguja o pincha donde quieras ir' : ''"
+      @pointerdown="grabNeedle"
     >
       <div class="mini-seek-fill" :style="{ width: percent + '%' }"></div>
     </div>
     <div class="mini-times">
-      <span>{{ formatTime(position) }}</span>
+      <span>{{ formatTime(shown) }}</span>
       <span>{{ loaded ? formatTime(duration) : '' }}</span>
     </div>
 

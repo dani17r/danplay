@@ -425,6 +425,8 @@ fn run(
         let wait = if sounding { ACTIVE_MS } else { IDLE_MS };
         let mut failure: Option<String> = None;
         let mut clear_error = false;
+        // Se pidio un salto: la posicion nueva se avisa aunque este en pausa.
+        let mut sought = false;
 
         let next = match carry.pending.take() {
             Some(cmd) => Ok(cmd),
@@ -530,6 +532,7 @@ fn run(
                         failure = Some(reason);
                     }
                     Command::Seek(seconds) => {
+                        sought = true;
                         let exhausted = sink.as_ref().map_or(true, |s| s.empty());
                         if exhausted && !carry.path.is_empty() {
                             match open_sink(
@@ -716,8 +719,11 @@ fn run(
         }
 
         // Se avisa cuando cambia algo que se ve, y mientras suena
-        // tambien cada 250 ms para mover la barra de progreso.
-        let changed = current.playing != last_sent.playing
+        // tambien cada 250 ms para mover la barra de progreso. Y tras un
+        // salto siempre: en pausa no hay tick, y la barra se quedaba donde
+        // estaba aunque hubieras pinchado en otro minuto.
+        let changed = sought
+            || current.playing != last_sent.playing
             || current.path != last_sent.path
             || current.error != last_sent.error
             || current.duration != last_sent.duration
@@ -1022,6 +1028,34 @@ mod tests {
         wait_ms(500);
         let p = m.state().position;
         assert!(p >= 28.0, "no salto a los 30s: {p}");
+    }
+
+    /// En pausa no hay tick de posicion, asi que un salto tiene que avisar
+    /// por si mismo: si no, la barra se quedaba donde estaba.
+    #[test]
+    fn seeking_while_paused_announces_the_new_position() {
+        if !has_sample() {
+            return;
+        }
+        let (m, rx) = handle();
+        wait_ms(250);
+        if !m.state().has_output {
+            return;
+        }
+        m.send(Command::Play {
+            path: sample(),
+            duration: 0.0,
+        })
+        .unwrap();
+        wait_ms(500);
+        m.send(Command::Pause).unwrap();
+        wait_ms(400);
+        while rx.try_recv().is_ok() {}
+        m.send(Command::Seek(30.0)).unwrap();
+        wait_ms(400);
+        let announced = std::iter::from_fn(|| rx.try_recv().ok())
+            .any(|ev| matches!(ev, Event::Changed(s) if s.position >= 28.0 && !s.playing));
+        assert!(announced, "en pausa, el salto no aviso de la posicion nueva");
     }
 
     /// Al acabar una pista se avisa una sola vez: es lo que dispara el paso a

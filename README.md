@@ -210,6 +210,26 @@ Windows: si no hay un `.desktop` instalado, la app escribe el suyo en
 Los reescaneos posteriores no vuelven a abrir los archivos que no han
 cambiado, así que son casi instantáneos.
 
+### Teclado
+
+Con el foco fuera de un campo de texto:
+
+| Tecla | Hace |
+| --- | --- |
+| **Espacio** | Pausa / reanuda |
+| **0** o **Inicio** | Desde el principio (en pausa, además arranca) |
+| **1**–**9** | Al 10 %, 20 %… 90 % de la canción |
+| **←** / **→** | 5 s atrás / adelante |
+| **Ctrl+←** / **Ctrl+→** | 10 s |
+| **Mayús+←** / **Mayús+→** | 30 s |
+| **↑** / **↓** | Volumen |
+| **M** | Silencio |
+| **N** / **P** | Siguiente / anterior |
+| **S** / **R** | Aleatorio / modo de repetición |
+| **Ctrl+Q** | Salir |
+
+La aguja de la barra de tiempo se arrastra; un clic en la barra también vale.
+
 ## La búsqueda
 
 Texto normal, o filtros escritos en la propia caja. Acepta español e inglés

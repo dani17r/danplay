@@ -45,6 +45,7 @@ import { cancelDrag } from '../src/composables/useDragSong.js'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 import { resetPreferences } from '../src/composables/usePreferences.js'
 import { clearNotices } from '../src/composables/useNotices.js'
+import { dialogCancel } from '../src/composables/useDialog.js'
 import { song } from './support/backend.js'
 
 const api = held.api
@@ -62,6 +63,10 @@ beforeEach(() => {
   resetPlayback()
   resetPreferences()
   clearNotices()
+  // El dialogo es uno para toda la app: si una prueba dejo uno abierto (el de
+  // «¿abrir las canciones con DanPlay?» al arrancar), la siguiente lo hereda y
+  // los atajos de teclado se quedan bloqueados sin que se vea por que.
+  dialogCancel()
   playback.reset()
   localStorage.clear()
   vi.clearAllMocks()
@@ -806,6 +811,66 @@ describe('arrastrar una cancion', () => {
     expect(w.find('.resizer').exists()).toBe(false)
     expect(w.find('.arrange-bar').exists()).toBe(false)
     expect(w.find('.app').classes()).toEqual(['app'])
+  })
+})
+
+// ------------------------------------------------- el foco tras un clic
+// Los atajos se apartan con el foco en un boton, para que espacio no pulse
+// el boton Y pause. Pero un clic de raton dejaba el foco en el boton, y el
+// espacio de despues volvia a pulsar «Siguiente» en vez de pausar la musica.
+describe('tras pulsar un boton con el raton', () => {
+  const tecla = (key) => {
+    const target = document.activeElement || window
+    target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    return flushPromises()
+  }
+  async function sonando () {
+    state.status.configured = true
+    state.songs = dosCanciones()
+    // sin el dialogo de «¿abrir las canciones con DanPlay?», que bloquea los atajos
+    localStorage.setItem('danplay.default-player-asked', '1')
+    const w = await montar()
+    playback.emit({ track: { id: 1, title: 'Primera', artist: 'X', duration: 100 }, playing: true,
+      position: 10, duration: 100, index: 0, length: 2 })
+    await flushPromises()
+    return w
+  }
+
+  it('el boton suelta el foco y el espacio vuelve a pausar', async () => {
+    const w = await sonando()
+    const siguiente = w.findAll('.player .pl-btn').find((b) => b.attributes('title')?.startsWith('Siguiente'))
+    siguiente.element.focus()
+    expect(document.activeElement).toBe(siguiente.element)
+    siguiente.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    await flushPromises()
+    expect(document.activeElement).not.toBe(siguiente.element)
+    await tecla(' ')
+    expect(playback.bridge.toggle).toHaveBeenCalledTimes(1)
+    expect(playback.bridge.next).not.toHaveBeenCalled()
+  })
+
+  it('tambien un repertorio del menu lateral', async () => {
+    state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
+    const w = await sonando()
+    const nav = w.find('.nav-playlist')
+    nav.element.focus()
+    nav.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    await flushPromises()
+    expect(document.activeElement).not.toBe(nav.element)
+    await tecla(' ')
+    expect(playback.bridge.toggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('dentro de un dialogo el foco no se toca', async () => {
+    const w = await sonando()
+    await w.find('.nav-playlist, .nav-new').trigger('click') // «Nueva lista» abre un dialogo
+    await flushPromises()
+    const ok = document.querySelector('.modal button')
+    expect(ok, 'no se abrio el dialogo').toBeTruthy()
+    ok.focus()
+    ok.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    await flushPromises()
+    expect(document.activeElement).toBe(ok)
   })
 })
 

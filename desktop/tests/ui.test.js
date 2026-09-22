@@ -131,6 +131,35 @@ describe('Deslizador', () => {
     await w.find('input').setValue('7')
     expect(w.emitted('update:modelValue').at(-1)).toEqual([7])
   })
+
+  // El volumen va a Rust y vuelve un momento despues. Si ese eco, ya viejo,
+  // se escribia en el <input> a mitad de arrastre, la bola saltaba atras.
+  it('mientras se arrastra, un eco viejo del modelo no mueve la bola', async () => {
+    const w = mount(SliderField, { props: { modelValue: 0.5, min: 0, max: 1, step: 0.01 } })
+    const input = w.find('input')
+    await input.trigger('pointerdown')
+    await input.setValue('0.8')
+    expect(w.emitted('update:modelValue').at(-1)).toEqual([0.8])
+    await w.setProps({ modelValue: 0.6 }) // lo que Rust confirma de un valor anterior
+    expect(input.element.value).toBe('0.8')
+    expect(w.find('.slider-track').attributes('style')).toContain('80%')
+    await input.trigger('pointerup')
+    // hasta que confirme lo ultimo enviado, sigue donde se dejo
+    await w.setProps({ modelValue: 0.7 })
+    expect(input.element.value).toBe('0.8')
+    await w.setProps({ modelValue: 0.8 })
+    expect(input.element.value).toBe('0.8')
+    // y a partir de ahi vuelve a obedecer al modelo (otra ventana, un atajo…)
+    await w.setProps({ modelValue: 0.3 })
+    expect(input.element.value).toBe('0.3')
+  })
+
+  it('sin tocarlo, sigue al modelo', async () => {
+    const w = mount(SliderField, { props: { modelValue: 0.5, min: 0, max: 1, step: 0.01 } })
+    await w.setProps({ modelValue: 0.2 })
+    expect(w.find('input').element.value).toBe('0.2')
+    expect(w.find('.slider-track').attributes('style')).toContain('20%')
+  })
 })
 
 describe('Color', () => {

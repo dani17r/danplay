@@ -10,6 +10,7 @@ import { ref, computed, nextTick } from 'vue'
 import { onClickOutside } from '../composables/useClickOutside.js'
 import { usePlayback } from '../composables/usePlayback.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
+import { useScrub } from '../composables/useScrub.js'
 import { formatTime } from '../utils/format.js'
 import { projection } from '../api.js'
 import Icon from './Icon.vue'
@@ -98,10 +99,12 @@ async function togglePlay() {
   if (!track.value) return emit('playSelected')
   await player.toggle()
 }
-function seekTo(e) {
-  const r = e.currentTarget.getBoundingClientRect()
-  player.seek(((e.clientX - r.left) / r.width) * (duration.value || 0))
-}
+// La aguja se arrastra; mientras, la barra y la hora siguen al puntero y el
+// salto se pide al soltar (un clic sin mover también vale). Ver useScrub.
+const { scrub, start: grabNeedle } = useScrub({ duration, seek: (s) => player.seek(s) })
+const shown = computed(() => (scrub.active ? scrub.value : position.value))
+const progress = computed(() => (duration.value ? (shown.value / duration.value) * 100 + '%' : '0%'))
+
 function applyVolume(value) {
   muted.value = false
   player.setVolume(value)
@@ -129,16 +132,26 @@ function cycleSpeed() {
   player.setSpeed(SPEEDS[(i + 1) % SPEEDS.length])
 }
 
-// Atajos de teclado. `useHotkeys` los ignora cuando el foco está en un campo,
-// en un botón o hay un diálogo abierto: antes el espacio con un botón
-// enfocado pausaba la música en vez de pulsar el botón, y las flechas dentro
-// de un desplegable movían el volumen.
+// Atajos de teclado. `useHotkeys` los ignora cuando el foco está en un campo
+// o hay un diálogo abierto. Las combinaciones van con el nombre que da
+// `comboOf` («space», «ctrl+arrowright»): el espacio estaba registrado como
+// ' ' y nunca casaba, y Shift+flecha se miraba dentro de la acción cuando la
+// combinación con shift ni siquiera llegaba a ella.
+const seekBy = (s) => () => player.nudge(s)
 useHotkeys({
-  ' ': togglePlay,
-  ArrowRight: (e) => player.nudge(e.shiftKey ? 30 : 10),
-  ArrowLeft: (e) => player.nudge(e.shiftKey ? -30 : -10),
-  ArrowUp: () => bumpVolume(0.05),
-  ArrowDown: () => bumpVolume(-0.05),
+  space: togglePlay,
+  0: () => player.restart(),
+  home: () => player.restart(),
+  // 1-9: al 10 %, 20 %… de la canción
+  ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [n, () => player.seekPercent(n * 10)])),
+  arrowright: seekBy(5),
+  arrowleft: seekBy(-5),
+  'ctrl+arrowright': seekBy(10),
+  'ctrl+arrowleft': seekBy(-10),
+  'shift+arrowright': seekBy(30),
+  'shift+arrowleft': seekBy(-30),
+  arrowup: () => bumpVolume(0.05),
+  arrowdown: () => bumpVolume(-0.05),
   m: toggleMute,
   s: () => player.toggleShuffle(),
   r: () => player.cycleRepeat(),
@@ -257,13 +270,13 @@ useHotkeys({
       <button class="pl-btn" title="Anterior (P)" @click="player.previous()">
         <Icon n="previous" :t="16" />
       </button>
-      <button class="pl-btn" title="Retroceder 10 s (←)" @click="player.nudge(-10)">
+      <button class="pl-btn" title="Retroceder 10 s (Ctrl+←; ← 5 s, Mayús+← 30 s)" @click="player.nudge(-10)">
         <Icon n="back10" :t="15" />
       </button>
       <button class="pl-btn pl-play" title="Reproducir / pausar (espacio)" @click="togglePlay">
         <Icon :n="playing ? 'pause' : 'play'" :t="16" />
       </button>
-      <button class="pl-btn" title="Avanzar 10 s (→)" @click="player.nudge(10)">
+      <button class="pl-btn" title="Avanzar 10 s (Ctrl+→; → 5 s, Mayús+→ 30 s)" @click="player.nudge(10)">
         <Icon n="forward10" :t="15" />
       </button>
       <button class="pl-btn" title="Siguiente (N)" @click="player.next()">
@@ -281,15 +294,18 @@ useHotkeys({
     </div>
 
     <div class="pl-bar">
-      <span class="time">{{ formatTime(position) }}</span>
-      <div class="track" @click="seekTo">
+      <!-- desde el principio: vuelve a 0:00 y, si estaba en pausa, arranca -->
+      <button class="pl-btn pl-restart" title="Desde el principio (0)" :disabled="!track"
+              @click="player.restart()">
+        <Icon n="restart" :t="14" />
+      </button>
+      <span class="time">{{ formatTime(shown) }}</span>
+      <div class="track" :class="{ scrubbing: scrub.active }" title="Arrastra la aguja o pincha donde quieras ir"
+           @pointerdown="grabNeedle">
         <!-- el tramo del bucle A-B, si lo hay -->
         <div v-if="loopB > loopA && duration" class="track-loop"
              :style="{ left: (loopA / duration) * 100 + '%', width: ((loopB - loopA) / duration) * 100 + '%' }"></div>
-        <div
-          class="track-fill"
-          :style="{ width: duration ? (position / duration) * 100 + '%' : '0%' }"
-        ></div>
+        <div class="track-fill" :style="{ width: progress }"></div>
       </div>
       <span class="time">{{ formatTime(duration) }}</span>
     </div>

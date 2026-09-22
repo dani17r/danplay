@@ -82,7 +82,13 @@ castellano y, si la canción se acabó sola, se prueba con la siguiente.
 
 - al instante en cada cambio (orden recibida, pista que empieza o acaba, error);
 - cada 250 ms mientras suena (para la barra de progreso);
-- nada mientras está parado o en pausa.
+- tras un salto (`seek`) siempre, también en pausa: si no, la aguja se
+  quedaba donde estaba hasta reanudar;
+- nada más mientras está parado o en pausa.
+
+La interfaz pinta el salto donde lo pidió sin esperar a este evento, y
+durante 800 ms no deja que un tick que venía en camino con la posición vieja
+la devuelva atrás (`usePlayback.seek`).
 
 Al acabar una pista, **Rust** aplica el modo de repetición: `list` sigue y
 da la vuelta; `one` repite; `once` se para; `queue` se para al llegar al
