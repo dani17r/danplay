@@ -21,14 +21,18 @@ pub type Analysis = (String, f32, f32, f32, f32);
 /// Decodifica cualquier formato soportado a mono f32.
 /// `max_seconds` limita cuánto audio se lee (0 = todo).
 pub fn decode(path: &Path, max_seconds: u32) -> Result<Pcm, String> {
-    // Muchos archivos mienten en la extensión (.mp3 que en realidad es AAC),
-    // así que si la pista de la extensión falla se reintenta sin ella.
-    let first = match decode_with(path, max_seconds, true) {
-        Ok(pcm) => return Ok(pcm),
+    with_retry(path, |use_extension| decode_with(path, max_seconds, use_extension))
+}
+
+/// Muchos archivos mienten en la extensión (.mp3 que en realidad es AAC),
+/// así que si la pista de la extensión falla se reintenta sin ella.
+fn with_retry<T>(_path: &Path, mut attempt: impl FnMut(bool) -> Result<T, String>) -> Result<T, String> {
+    let first = match attempt(true) {
+        Ok(v) => return Ok(v),
         Err(e) => e,
     };
-    match decode_with(path, max_seconds, false) {
-        Ok(pcm) => Ok(pcm),
+    match attempt(false) {
+        Ok(v) => Ok(v),
         // Mismo motivo en los dos intentos (p. ej. no se pudo abrir): no se repite.
         Err(second) if second == first => Err(first),
         Err(second) => Err(format!("{first}; sin pista de extensión: {second}")),
@@ -36,6 +40,21 @@ pub fn decode(path: &Path, max_seconds: u32) -> Result<Pcm, String> {
 }
 
 fn decode_with(path: &Path, max_seconds: u32, use_extension: bool) -> Result<Pcm, String> {
+    let mut samples: Vec<f32> = Vec::new();
+    let sr = stream_with(path, max_seconds, use_extension, |frames| samples.extend_from_slice(frames))?;
+    Ok(Pcm { samples, sr })
+}
+
+/// Recorre el audio decodificado a mono f32 por trozos, sin guardarlo entero:
+/// `sink` recibe cada paquete ya mezclado a mono. Devuelve la frecuencia de
+/// muestreo. Es lo que hay debajo de `decode` y de `waveform`; la forma de
+/// onda de una canción de diez minutos no necesita cien megas de muestras.
+fn stream_with(
+    path: &Path,
+    max_seconds: u32,
+    use_extension: bool,
+    mut sink: impl FnMut(&[f32]),
+) -> Result<u32, String> {
     let file = std::fs::File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -58,8 +77,9 @@ fn decode_with(path: &Path, max_seconds: u32, use_extension: bool) -> Result<Pcm
         .make(&track.codec_params, &DecoderOptions::default())
         .ok_or_else_err()?;
 
-    let mut samples: Vec<f32> = Vec::new();
     let mut sr = 44100u32;
+    let mut total = 0usize;
+    let mut mono: Vec<f32> = Vec::new();
     // El SampleBuffer se dimensiona con el spec y la capacidad del primer paquete.
     // Si uno posterior trae más tramas (Vorbis alterna bloques cortos y largos) o
     // cambia de canales/frecuencia, `copy_interleaved_ref` hace panic por su
@@ -88,22 +108,104 @@ fn decode_with(path: &Path, max_seconds: u32, use_extension: bool) -> Result<Pcm
         }
         let (_, buf) = buffer.as_mut().expect("buffer recién creado");
         buf.copy_interleaved_ref(decoded);
+        mono.clear();
         for frame in buf.samples().chunks(channels) {
-            samples.push(frame.iter().sum::<f32>() / channels as f32);
+            mono.push(frame.iter().sum::<f32>() / channels as f32);
         }
-        if max_seconds > 0 && samples.len() > (sr as usize) * (max_seconds as usize) {
+        total += mono.len();
+        sink(&mono);
+        if max_seconds > 0 && total > (sr as usize) * (max_seconds as usize) {
             break;
         }
     }
-    if samples.is_empty() {
+    if total == 0 {
         Err(if bad_packets > 0 {
             format!("ningún paquete decodificable ({bad_packets} con error)")
         } else {
             "sin audio decodificable".to_string()
         })
     } else {
-        Ok(Pcm { samples, sr })
+        Ok(sr)
     }
+}
+
+// ---------------------------------------------------------------- forma de onda
+
+/// Muestras por bloque al recorrer la canción. A 44,1 kHz son ~23 ms: de
+/// sobra para pintar, y una canción de diez minutos son 26.000 bloques y no
+/// 26 millones de muestras.
+const WAVE_BLOCK: usize = 1024;
+
+/// Acumula pico y energía de cada bloque mientras se decodifica.
+#[derive(Default)]
+struct WaveBlocks {
+    blocks: Vec<(f32, f32)>, // (pico, suma de cuadrados) por bloque
+    peak: f32,
+    energy: f32,
+    n: usize,
+}
+
+impl WaveBlocks {
+    fn feed(&mut self, frames: &[f32]) {
+        for &s in frames {
+            self.peak = self.peak.max(s.abs());
+            self.energy += s * s;
+            self.n += 1;
+            if self.n == WAVE_BLOCK {
+                self.close();
+            }
+        }
+    }
+    fn close(&mut self) {
+        if self.n > 0 {
+            self.blocks.push((self.peak, self.energy / self.n as f32));
+        }
+        self.peak = 0.0;
+        self.energy = 0.0;
+        self.n = 0;
+    }
+    fn finish(mut self) -> Vec<(f32, f32)> {
+        self.close();
+        self.blocks
+    }
+}
+
+/// La forma de onda para pintar: `buckets` columnas a lo largo de la canción,
+/// cada una con su pico y su RMS, las dos entre 0 y 1 (normalizadas al pico
+/// más alto de la canción). El pico dibuja la silueta; el RMS, que es lo que
+/// se oye como «volumen», deja ver dónde empieza el estribillo.
+pub fn waveform(path: &Path, buckets: usize) -> Result<(Vec<f32>, Vec<f32>), String> {
+    let blocks = with_retry(path, |use_extension| {
+        let mut acc = WaveBlocks::default();
+        stream_with(path, 0, use_extension, |frames| acc.feed(frames))?;
+        Ok(acc.finish())
+    })?;
+    Ok(columns(&blocks, buckets))
+}
+
+/// Reparte los bloques en `buckets` columnas: el pico es el máximo de sus
+/// bloques y el RMS la raíz de la energía media. Con menos bloques que
+/// columnas, cada columna repite el bloque que le toca.
+pub fn columns(blocks: &[(f32, f32)], buckets: usize) -> (Vec<f32>, Vec<f32>) {
+    if blocks.is_empty() || buckets == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let mut peaks = Vec::with_capacity(buckets);
+    let mut rms = Vec::with_capacity(buckets);
+    for i in 0..buckets {
+        let from = i * blocks.len() / buckets;
+        let to = ((i + 1) * blocks.len() / buckets).max(from + 1).min(blocks.len());
+        let slice = &blocks[from..to];
+        peaks.push(slice.iter().fold(0f32, |m, b| m.max(b.0)));
+        rms.push((slice.iter().map(|b| b.1).sum::<f32>() / slice.len() as f32).sqrt());
+    }
+    let top = peaks.iter().cloned().fold(0f32, f32::max);
+    if top > 0.0 {
+        for v in peaks.iter_mut().chain(rms.iter_mut()) {
+            *v = (*v / top).clamp(0.0, 1.0);
+        }
+    }
+    (peaks, rms)
 }
 
 /// Pequeño atajo para que `make()` (que devuelve `symphonia::Error`) se lea

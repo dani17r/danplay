@@ -61,7 +61,7 @@ tus archivos. Si mañana te vas a otro reproductor, tu trabajo se va contigo.
 
 | Si eres… | Esto es lo que te da |
 | --- | --- |
-| **Músico o equipo de alabanza** | Tonos, acordes y transposición con cejilla sugerida. Repertorios en el orden que tú decidas (se arrastran las canciones arriba y abajo), exportables a `.m3u` y como **hoja para el atril** (tono, bpm, cejilla, acordes, letra). Letra dentro del archivo, y con tiempos: la ficha sigue la línea que suena, y la **proyección** la pone en grande para la pantalla. **Modo estudio**: bucle A-B, velocidad sin cambiar el tono, marcadores y notas, guardados con la canción. |
+| **Músico o equipo de alabanza** | Tonos, acordes y transposición con cejilla sugerida. Repertorios en el orden que tú decidas (se arrastran las canciones arriba y abajo), exportables a `.m3u` y como **hoja para el atril** (tono, bpm, cejilla, acordes, letra). Letra dentro del archivo, y con tiempos: la ficha sigue la línea que suena, y la **proyección** la pone en grande para la pantalla. **Modo estudio**: el tramo que se repite se elige arrastrando sobre la forma de onda (con regla de minutos), velocidad sin cambiar el tono, marcadores y notas, guardados con la canción. |
 | **Quien tiene la música en el disco** | Cientos de descargas con nombres imposibles, duplicados y etiquetas rotas. Esto lo ordena. |
 | **Quien no quiere depender de nadie** | Sin cuenta, sin nube, sin telemetría. Funciona con el wifi apagado (salvo lo que por definición necesita internet). |
 | **Quien viene de otro reproductor** | Se lee y se escribe ID3 estándar. Kodi, foobar2000 o Rhythmbox verán tus estrellas y tus letras igual. |
@@ -226,6 +226,7 @@ Con el foco fuera de un campo de texto:
 | **M** | Silencio |
 | **N** / **P** | Siguiente / anterior |
 | **S** / **R** | Aleatorio / modo de repetición |
+| **A** / **B** | En modo estudio: aquí empieza / aquí acaba el tramo que se repite |
 | **Ctrl+Q** | Salir |
 
 La aguja de la barra de tiempo se arrastra; un clic en la barra también vale.

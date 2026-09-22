@@ -580,6 +580,13 @@ export const api = {
    */
   setStudy: (id, study) => PUT(`/song/${id}/study`, study),
   /**
+   * La forma de onda para el modo estudio: `buckets` columnas con el pico y
+   * el RMS entre 0 y 1. Falla con 501 si no hay con qué decodificar.
+   * @param {number} id @param {number} [buckets]
+   * @returns {Promise<{peaks: number[], rms: number[], buckets: number}>}
+   */
+  waveform: (id, buckets = 800) => GET(`/song/${id}/waveform?buckets=${buckets}`),
+  /**
    * La hoja para el atril del repertorio: un HTML en Listas/, para abrir en
    * el navegador e imprimir.
    * @param {number} id @param {boolean} [withLyrics]

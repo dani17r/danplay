@@ -305,6 +305,12 @@ function answers(state) {
                                     total: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
                                     by_provider: [], budget: dollars, over_budget: dollars > 0 && 0.021 > dollars }),
     chatExport: async (id) => ({ markdown: `# conversacion ${id}\n` }),
+    /** una onda de mentira: callada al principio, fuerte al final */
+    waveform: async (id, buckets = 800) => {
+      const n = Math.max(1, Math.min(buckets, 4000))
+      const peaks = Array.from({ length: n }, (_, i) => (i < n / 2 ? 0.1 : 1))
+      return { peaks, rms: peaks.map((p) => p * 0.6), buckets: n }
+    },
     setStudy: async (id, study) => {
       const s = find(id)
       const raw = study && Object.keys(study).length ? JSON.stringify(study) : ''

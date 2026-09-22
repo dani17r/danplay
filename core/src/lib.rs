@@ -186,6 +186,15 @@ fn chromagrams(py: Python<'_>, path: PathBuf, max_seconds: u32) -> Option<([f32;
     publish_one(&path, result)
 }
 
+/// La forma de onda para pintar: (picos, rms), `buckets` valores entre 0 y 1
+/// cada uno. `None` si el archivo no se puede decodificar (ver `last_error`).
+#[pyfunction]
+#[pyo3(signature = (path, buckets = 800))]
+fn waveform(py: Python<'_>, path: PathBuf, buckets: usize) -> Option<(Vec<f32>, Vec<f32>)> {
+    let result = py.detach(|| audio::waveform(&path, buckets.clamp(1, 20_000)));
+    publish_one(&path, result)
+}
+
 #[pymodule]
 fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(partial_hash, m)?)?;
@@ -194,6 +203,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_many, m)?)?;
     m.add_function(wrap_pyfunction!(chromagrams, m)?)?;
+    m.add_function(wrap_pyfunction!(waveform, m)?)?;
     m.add_function(wrap_pyfunction!(last_error, m)?)?;
     Ok(())
 }
@@ -244,6 +254,51 @@ mod tests {
             })
             .collect();
         write_wav(name, sr, &samples)
+    }
+
+    /// Silencio en la primera mitad y un tono en la segunda: las columnas de
+    /// la izquierda tienen que salir a cero y las de la derecha al máximo.
+    #[test]
+    fn waveform_follows_the_sound() {
+        let sr = 8000u32;
+        let n = sr as usize * 2;
+        let samples: Vec<i16> = (0..n)
+            .map(|i| {
+                if i < n / 2 {
+                    0
+                } else {
+                    let t = i as f32 / sr as f32;
+                    ((2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5 * i16::MAX as f32) as i16
+                }
+            })
+            .collect();
+        let path = write_wav("dp_wave.wav", sr, &samples);
+        let (peaks, rms) = audio::waveform(&path, 10).expect("se decodifica");
+        assert_eq!(peaks.len(), 10);
+        assert_eq!(rms.len(), 10);
+        // la columna del medio cae a caballo del cambio (los bloques no
+        // encajan justo con la mitad), asi que se miran las de los lados
+        assert!(peaks[..4].iter().all(|&p| p < 0.01), "la mitad callada suena: {peaks:?}");
+        assert!(peaks[6..].iter().all(|&p| p > 0.95), "el tono no llega al maximo: {peaks:?}");
+        // el RMS de una senoide es el pico partido por raiz de dos
+        assert!(rms[6..].iter().all(|&r| (0.6..0.8).contains(&r)), "rms raro: {rms:?}");
+        assert!(rms[..4].iter().all(|&r| r < 0.01));
+    }
+
+    #[test]
+    fn columns_spread_blocks_and_normalise() {
+        let blocks = vec![(0.2, 0.01), (0.4, 0.04), (0.8, 0.16), (0.4, 0.04)];
+        let (peaks, rms) = audio::columns(&blocks, 2);
+        assert_eq!(peaks, vec![0.5, 1.0]);
+        // energia media de cada mitad, en raiz, partida por el pico mas alto
+        assert!((rms[0] - (0.025f32).sqrt() / 0.8).abs() < 1e-5);
+        assert!((rms[1] - (0.1f32).sqrt() / 0.8).abs() < 1e-5);
+        // mas columnas que bloques: se repiten, no se inventan
+        let (more, _) = audio::columns(&blocks, 8);
+        assert_eq!(more.len(), 8);
+        assert_eq!(more[0], more[1]);
+        assert!(audio::columns(&[], 5).0.is_empty());
+        assert!(audio::columns(&blocks, 0).0.is_empty());
     }
 
     #[test]

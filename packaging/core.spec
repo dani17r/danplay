@@ -20,7 +20,7 @@ hidden = (collect_submodules('uvicorn') + collect_submodules('fastapi')
              'danplay.ingest', 'danplay.enrich', 'danplay.convert',
              'danplay.duplicates', 'danplay.fingerprint', 'danplay.ai',
              'danplay.theory', 'danplay.config', 'danplay.youtube',
-             'danplay.web', 'danplay.chat', 'danplay.providers',
+             'danplay.web', 'danplay.chat', 'danplay.providers', 'danplay.waveform',
              'danplay.model_catalog', 'acoustid', 'rapidfuzz',
              'openai', 'dotenv', 'platformdirs', 'send2trash',
              'watchdog.observers', 'sqlite3',

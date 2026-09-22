@@ -3,7 +3,7 @@
 
 La app de escritorio (Tauri + Vue) habla con esto en localhost.
 """
-import asyncio, hashlib, hmac, logging, mimetypes, os, threading, time
+import asyncio, hashlib, hmac, json, logging, mimetypes, os, threading, time
 from pathlib import Path
 from typing import Literal
 
@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import (ai, chat, chats, config, convert, duplicates, enrich, external,
                fingerprint, ingest, library, model_catalog, playlists,
-               providers, tags, theory, youtube)
+               providers, tags, theory, waveform, youtube)
 
 from . import __version__
 
@@ -730,6 +730,25 @@ def _thumbnail(path: str, size: int) -> tuple[bytes, str] | None:
     except OSError:
         log.warning("no pude guardar la miniatura %s", cached, exc_info=True)
     return made
+
+
+@app.get("/api/song/{cid}/waveform")
+def song_waveform(cid: int, buckets: int = Query(default=waveform.DEFAULT_BUCKETS, ge=1, le=4000)):
+    """La forma de onda para el modo estudio: `buckets` columnas con pico y
+    RMS entre 0 y 1. `resolve`: una cancion abierta desde fuera tambien se
+    estudia. 404 si el archivo no esta; 501 si no hay con que decodificarla
+    (ni el nucleo en Rust ni ffmpeg)."""
+    c = external.resolve(cid)
+    if not c or not os.path.exists(c["path"]):
+        raise HTTPException(404, "archivo no encontrado")
+    made = waveform.compute(c["path"], buckets)
+    if made is None:
+        if not waveform.available():
+            raise HTTPException(501, "hace falta ffmpeg para dibujar la forma de onda")
+        raise HTTPException(422, "no se pudo decodificar el archivo")
+    return Response(content=json.dumps({**made, "buckets": len(made["peaks"])}),
+                    media_type="application/json",
+                    headers={"cache-control": "private, max-age=3600"})
 
 
 @app.get("/api/song/{cid}/cover")

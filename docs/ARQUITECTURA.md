@@ -277,7 +277,22 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
 ## Modo estudio
 
 Para machacar un trozo: **bucle A-B**, **velocidad sin cambiar el tono**,
-marcadores con nombre y notas por canción. La velocidad la aplica ffmpeg
+marcadores con nombre y notas por canción.
+
+El tramo se elige sobre la **forma de onda** (`StudyTimeline.vue`): se
+arrastra de donde a donde, se cogen sus bordes, se lleva entero, o se marca
+con las teclas A y B mientras suena; un clic sin arrastrar va a ese punto,
+y cerca de un marcador el borde se pega a él. Debajo va una regla con los
+minutos (el paso se elige para que quepan ~70 px entre números). La onda la
+calcula el núcleo en Rust recorriendo el archivo por bloques —no hace falta
+tener la canción entera en memoria—, con pico y RMS por columna; sin el
+núcleo compilado (Windows) la saca ffmpeg a PCM crudo y la resume Python. Se
+guarda en disco: la segunda vez es gratis. Para pintarla, el RMS se estira a
+su propio máximo y se le da una curva suave, porque en un mp3 de hoy los
+picos van todos a tope y el RMS ronda el tercio: tal cual, no se
+distinguía el verso del estribillo.
+
+La velocidad la aplica ffmpeg
 (`atempo`) al decodificar —cualquier formato pasa por él cuando no es 1×—,
 así que el tono no se mueve; rodio cuenta entonces en tiempo de salida y el
 reproductor convierte a segundos de la canción en las posiciones, las

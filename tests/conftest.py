@@ -13,12 +13,14 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 FFMPEG = shutil.which("ffmpeg")
 
 
-def make_mp3(path, artist="", title="", album="", seconds=1.0, **extra):
-    """Crea un mp3 real (silencio) en `path` con las etiquetas dadas."""
+def make_mp3(path, artist="", title="", album="", seconds=1.0, tone=None, **extra):
+    """Crea un mp3 real en `path` con las etiquetas dadas: silencio, o un
+    tono de `tone` Hz si se pide (para lo que necesita oir algo)."""
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    source = f"sine=frequency={tone}:sample_rate=44100" if tone else "anullsrc=r=44100:cl=mono"
     subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi",
-                    "-i", f"anullsrc=r=44100:cl=mono", "-t", str(seconds),
+                    "-i", source, "-t", str(seconds),
                     "-codec:a", "libmp3lame", "-b:a", "64k", str(path)],
                    check=True, capture_output=True, timeout=60)
     if artist or title or album or extra:

@@ -394,6 +394,51 @@ tbody tr.flash{animation:destello 1.1s ease-out}
 .study-marker-name{color:var(--text);font-size:11px;padding:0 2px;max-width:140px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;border-bottom:1px dashed var(--border2)}
 .study-marker-name:hover{border-bottom-color:var(--accent)}
+.study-clear{font-size:11px;padding:1px 8px}
+
+/* ---------- la linea de tiempo del estudio ----------
+   La onda va en un canvas; encima, en tantos por ciento, el tramo que se
+   repite (con las sombras de fuera y sus dos asas), los marcadores y la
+   aguja. Debajo, la regla con los minutos. */
+.tl{display:flex;flex-direction:column;user-select:none;-webkit-user-select:none}
+.tl-box{position:relative;height:56px;border-radius:6px;overflow:hidden;cursor:crosshair;
+  background:color-mix(in srgb,var(--text) 5%,var(--panel));touch-action:none}
+.tl-hover-edge .tl-box{cursor:ew-resize}
+.tl-hover-inside .tl-box{cursor:grab}
+.tl-dragging .tl-box{cursor:ew-resize}
+.tl-dragging[data-mode="move"] .tl-box{cursor:grabbing}
+.tl-wave{display:block;width:100%;height:56px}
+.tl-note{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:11px;color:var(--muted2);pointer-events:none}
+/* fuera del tramo se atenua: se ve de un vistazo que trozo da vueltas */
+.tl-shade{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--panel) 62%,transparent);
+  pointer-events:none}
+.tl-loop{position:absolute;top:0;bottom:0;border-left:2px solid var(--accent);border-right:2px solid var(--accent);
+  background:color-mix(in srgb,var(--accent) 12%,transparent);pointer-events:none;box-sizing:border-box}
+/* las asas: se ven como una lengueta arriba de cada borde */
+.tl-handle{position:absolute;top:0;width:8px;height:12px;background:var(--accent);pointer-events:none}
+.tl-handle.a{left:-2px;border-radius:0 0 4px 0}
+.tl-handle.b{right:-2px;border-radius:0 0 0 4px}
+.tl-time{position:absolute;bottom:3px;font-size:10px;padding:1px 5px;border-radius:4px;
+  background:var(--panel);color:var(--text);border:1px solid var(--border2);white-space:nowrap}
+.tl-time.a{left:3px}.tl-time.b{right:3px}
+.tl-head{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--text);
+  pointer-events:none;box-shadow:0 0 4px var(--shadow)}
+/* los marcadores: una banderita arriba con el nombre; se pulsan para ir */
+.tl-marker{position:absolute;top:0;bottom:0;width:1px;margin-left:-.5px;padding:0;
+  background:color-mix(in srgb,var(--amber) 70%,transparent);cursor:pointer;overflow:visible}
+.tl-marker-name{position:absolute;top:2px;left:3px;font-size:9.5px;line-height:1;padding:2px 4px;
+  border-radius:0 4px 4px 0;background:color-mix(in srgb,var(--amber) 22%,var(--panel));
+  color:var(--text);white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis}
+.tl-marker:hover .tl-marker-name{background:var(--amber);color:var(--bg)}
+.tl-ruler{position:relative;height:18px;margin-top:2px}
+.tl-tick{position:absolute;top:0;width:1px;height:4px;background:var(--muted2)}
+.tl-tick.minor{height:2px;opacity:.6}
+.tl-tick.end{right:0}
+.tl-tick-label{position:absolute;top:5px;left:0;transform:translateX(-50%);font-size:9.5px;
+  color:var(--muted2);white-space:nowrap}
+.tl-tick:first-child .tl-tick-label{transform:none}
+.tl-tick.end .tl-tick-label{left:auto;right:0;transform:none}
 .track-loop{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--accent) 22%,transparent);
   border-left:2px solid var(--accent);border-right:2px solid var(--accent);pointer-events:none}
 

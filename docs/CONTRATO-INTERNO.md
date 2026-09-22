@@ -229,6 +229,12 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
 - `PUT /api/song/{id}/study { loop?: [a, b], speed?, markers?: [{t, label}],
   notes? }` → la ficha; lo que no venga se quita. Va al índice (`study`,
   JSON) y a la etiqueta `ESTUDIO` del archivo, y vuelve al escanear.
+- `GET /api/song/{id}/waveform?buckets=800` → `{ peaks, rms, buckets }`: la
+  forma de onda para la línea de tiempo del estudio, `buckets` columnas con
+  pico y RMS entre 0 y 1 (normalizados al pico más alto). Vale para canciones
+  de fuera de la biblioteca. La calcula `danplay_core.waveform` (Rust) o, si
+  no está compilado, ffmpeg a PCM crudo; se guarda en `DATA_DIR/waveforms/`.
+  `404` sin archivo, `501` sin nada con que decodificar, `422` si no se pudo.
 - Reproducción: `set_loop(a, b)` (sin valores, lo quita); el estado trae
   `loop_a`, `loop_b` (0,0 = sin bucle) y `pitch_preserved` (la velocidad
   conserva el tono: ffmpeg `atempo`; `false` = sin ffmpeg, cambia el tono).

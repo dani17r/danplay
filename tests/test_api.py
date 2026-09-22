@@ -423,6 +423,60 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
     assert cliente.put(f"/api/song/{c['id']}/study", json={"raro": 1}).status_code == 422
 
 
+def test_waveform_columns_follow_the_sound():
+    """El reparto en columnas, sin decodificar nada: es el mismo que hace Rust."""
+    from danplay import waveform
+    silence = [0] * 100
+    loud = [30000, -30000] * 50
+    peaks, rms = waveform.columns(silence + loud, 4)
+    assert peaks == [0.0, 0.0, 1.0, 1.0]
+    assert rms[:2] == [0.0, 0.0] and all(0.99 < r <= 1.0 for r in rms[2:]), "una onda cuadrada tiene rms = pico"
+    assert waveform.columns([], 5) == ([], [])
+    assert waveform.columns([1, 2, 3], 0) == ([], [])
+    # mas columnas que muestras: se repiten, no se inventan
+    assert len(waveform.columns([5, 5], 6)[0]) == 6
+
+
+def test_waveform_endpoint_draws_the_song_and_caches_it(cliente, tmp_path):
+    """Un mp3 que suena (tono en la segunda mitad) da columnas callado/alto,
+    con el pico mas alto en 1; la segunda peticion sale de la cache."""
+    from conftest import make_mp3
+    from danplay import config, library, waveform
+    if not waveform.available():
+        pytest.skip("hace falta ffmpeg o el nucleo en Rust")
+    # dos segundos: uno de silencio y uno de tono, pegados con ffmpeg
+    quiet = make_mp3(tmp_path / "callado.mp3", seconds=1.0)
+    tone = make_mp3(tmp_path / "tono.mp3", seconds=1.0, tone=440)
+    target = config.ARTISTS_DIR / "Barak" / "Barak - Onda.mp3"
+    import subprocess
+    subprocess.run([__import__("conftest").FFMPEG, "-y", "-loglevel", "error", "-i", quiet, "-i", tone,
+                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1", "-codec:a", "libmp3lame",
+                    "-b:a", "64k", str(target)], check=True, capture_output=True, timeout=60)
+    library.scan()
+    c = next(x for x in library.search("Onda", limit=5) if x["title"] == "Onda" or "Onda" in x["file"])
+
+    r = cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 10})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["buckets"] == 10 and len(d["peaks"]) == 10 and len(d["rms"]) == 10
+    assert max(d["peaks"]) == 1.0
+    assert all(0 <= v <= 1 for v in d["peaks"] + d["rms"])
+    # el primer tercio calla (el mp3 mete un poco de cola al codificar) y el ultimo suena
+    assert max(d["peaks"][:3]) < 0.1, d["peaks"]
+    assert min(d["peaks"][7:]) > 0.8, d["peaks"]
+    assert "max-age" in r.headers["cache-control"]
+    # cacheada en disco, con el numero de columnas en la clave
+    cached = list((config.DATA_DIR / "waveforms").glob("*.json"))
+    assert cached, "no se guardo"
+    assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 10}).json() == d
+    # el respaldo por ffmpeg da lo mismo que Rust, a grandes rasgos
+    made = waveform._with_ffmpeg(str(target), 10)
+    if made is not None:
+        assert max(made[0][:3]) < 0.1 and min(made[0][7:]) > 0.8
+    assert cliente.get("/api/song/999999/waveform").status_code == 404
+    assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 0}).status_code == 422
+
+
 def test_playlist_sheet_is_written_inside_listas(cliente):
     from danplay import playlists, library, config
     songs = library.search("", limit=2)

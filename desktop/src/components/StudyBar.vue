@@ -2,11 +2,13 @@
 /**
  * El modo estudio: para machacar un trozo de la canción que suena.
  *
- * Bucle A-B (marcar A donde va, marcar B, y da vueltas), velocidad sin
- * cambiar el tono (ffmpeg la ralentiza; sin ffmpeg, Rust avisa de que el
- * tono se mueve), marcadores con nombre para saltar a una sección, y notas.
- * Todo se guarda con la canción —en el índice y en una etiqueta del
- * archivo—, así que al volver a ella está como se dejó.
+ * El tramo que se repite se elige sobre la forma de onda (StudyTimeline):
+ * se arrastra de donde a donde, se cogen sus bordes, o se marca con las
+ * teclas A y B mientras suena. Velocidad sin cambiar el tono (ffmpeg la
+ * ralentiza; sin ffmpeg, Rust avisa de que el tono se mueve), marcadores con
+ * nombre para saltar a una sección, y notas. Todo se guarda con la canción
+ * —en el índice y en una etiqueta del archivo—, así que al volver a ella
+ * está como se dejó.
  *
  * Al abrir la barra se aplican el bucle y la velocidad guardados; al
  * cerrarla se quitan y la canción vuelve a sonar normal.
@@ -16,13 +18,15 @@ import { api, errorMessage } from '../api.js'
 import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'
 import { usePlayback } from '../composables/usePlayback.js'
+import { useHotkeys } from '../composables/useHotkeys.js'
 import { formatTime } from '../utils/format.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
+import StudyTimeline from './StudyTimeline.vue'
 
 const emit = defineEmits(['close'])
 const player = usePlayback()
-const { track, position, speed, loopA, loopB, pitchPreserved } = player
+const { track, position, duration, speed, loopA, loopB, pitchPreserved } = player
 
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
 const study = ref({ loop: null, speed: 1, markers: [], notes: '' })
@@ -69,24 +73,28 @@ async function save () {
   } catch (e) { notify('No se pudo guardar el estudio: ' + errorMessage(e)) } finally { saving.value = false }
 }
 
-// ---- bucle A-B: un boton marca A, el siguiente B, el tercero lo quita
+// ---- el tramo que se repite
+// Lo elige la linea de tiempo (arrastrando) o las teclas A y B. `pendingA`
+// es una A marcada con la tecla a la que aun le falta su B.
 const pendingA = ref(null)
+const hasLoop = computed(() => loopB.value > loopA.value)
 const loopLabel = computed(() => {
-  if (loopB.value > loopA.value) return `${formatTime(loopA.value)} – ${formatTime(loopB.value)}`
-  if (pendingA.value != null) return `A en ${formatTime(pendingA.value)}, marca B`
-  return 'sin bucle'
+  if (hasLoop.value) return `${formatTime(loopA.value)} – ${formatTime(loopB.value)}`
+  if (pendingA.value != null) return `A en ${formatTime(pendingA.value)} · pulsa B donde acabe`
+  return 'arrastra sobre la onda para elegir el tramo, o marca con A y B mientras suena'
 })
-async function markLoop () {
-  if (loopB.value > loopA.value) { await clearLoop(); return }
-  const at = position.value
-  if (pendingA.value == null) { pendingA.value = at; return }
-  const a = Math.min(pendingA.value, at)
-  const b = Math.max(pendingA.value, at)
+const round2 = (v) => Math.round(v * 100) / 100
+
+/**
+ * Deja el bucle en [a, b]. Si la cancion va por fuera del tramo, salta a A:
+ * para eso se eligio.
+ */
+async function applyLoop (a, b) {
+  if (!(b - a >= 0.5)) { notify('El bucle tiene que durar al menos medio segundo'); return }
   pendingA.value = null
-  if (b - a < 0.5) { notify('El bucle tiene que durar al menos medio segundo'); return }
-  study.value.loop = [Math.round(a * 100) / 100, Math.round(b * 100) / 100]
+  study.value.loop = [round2(a), round2(b)]
   await player.setLoop(study.value.loop[0], study.value.loop[1])
-  await player.seek(a)
+  if (position.value < a || position.value > b) await player.seek(a)
   scheduleSave()
 }
 async function clearLoop () {
@@ -95,6 +103,28 @@ async function clearLoop () {
   await player.clearLoop()
   scheduleSave()
 }
+/** Lo que manda la linea de tiempo: un tramo nuevo, un borde movido, o nada. */
+function onLoop (range) {
+  if (!range) return clearLoop()
+  return applyLoop(range[0], range[1])
+}
+/** Tecla A: aqui empieza. Con bucle puesto, mueve su A si cabe. */
+function markA () {
+  if (!track.value) return
+  const at = round2(position.value)
+  if (hasLoop.value && at < loopB.value - 0.5) return applyLoop(at, loopB.value)
+  if (hasLoop.value) clearLoop()
+  pendingA.value = at
+}
+/** Tecla B: aqui acaba. Cierra la A pendiente, mueve la B del bucle, o va desde 0. */
+function markB () {
+  if (!track.value) return
+  const at = round2(position.value)
+  const from = pendingA.value ?? (hasLoop.value ? loopA.value : 0)
+  if (at - from < 0.5) { notify('El bucle tiene que durar al menos medio segundo'); return }
+  return applyLoop(from, at)
+}
+useHotkeys({ a: markA, b: markB })
 
 // ---- velocidad
 async function setSpeed (v) {
@@ -144,14 +174,17 @@ onUnmounted(() => clearTimeout(saveTimer))
       <button class="btn mini" type="button" title="Cerrar el modo estudio (vuelve a sonar normal)" @click="close">
         <Icon n="close" :t="13" /></button>
     </div>
+    <!-- la onda, la regla y el tramo que se repite -->
+    <StudyTimeline :song-id="track?.id ?? null" :duration="duration" :position="position"
+                   :loop="study.loop" :markers="study.markers"
+                   @update:loop="onLoop" @seek="jump" />
     <div class="study-row">
       <div class="study-group">
-        <span class="field-label">Bucle A-B</span>
+        <span class="field-label">Tramo que se repite</span>
         <div class="btn-row">
-          <button class="btn mini" type="button" :class="{on: loopB > loopA || pendingA != null}" :disabled="!track" @click="markLoop">
-            <Icon n="repeat" :t="12" />
-            {{ loopB > loopA ? 'Quitar bucle' : pendingA != null ? 'Marcar B' : 'Marcar A' }}</button>
-          <span class="study-loop mono">{{ loopLabel }}</span>
+          <span class="study-loop" :class="{ mono: hasLoop || pendingA != null }">{{ loopLabel }}</span>
+          <button v-if="hasLoop" class="chip x study-clear" type="button" title="Quitar el bucle" @click="clearLoop">
+            quitar ×</button>
         </div>
       </div>
       <div class="study-group">
