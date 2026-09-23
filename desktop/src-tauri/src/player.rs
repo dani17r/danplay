@@ -233,14 +233,31 @@ fn open_sink(
 }
 
 /// Donde va la cancion, en sus segundos. rodio cuenta en tiempo de salida,
-/// que a otra velocidad (por ffmpeg) no es el mismo.
-fn song_position(sink: &Sink, tempo: f32) -> f64 {
-    sink.get_pos().as_secs_f64() * f64::from(tempo)
+/// que a otra velocidad no es el mismo (ver `clock_of`).
+fn song_position(sink: &Sink, clock: f32) -> f64 {
+    sink.get_pos().as_secs_f64() * f64::from(clock)
+}
+
+/// Cuantos segundos de cancion caben en cada segundo del reloj de rodio.
+///
+/// A velocidad normal, uno. Si la velocidad la pone ffmpeg, el stream ya
+/// llega acelerado y el factor es su `tempo`. Si la pone rodio
+/// (`set_speed`), el factor es la velocidad igualmente: rodio no remuestrea
+/// para acelerar, dice que la fuente va a otra tasa, y cuenta la posicion
+/// *despues* de aplicarla, asi que `get_pos` devuelve tiempo de salida y no
+/// de cancion. Sin esto, a 0,8x sin ffmpeg la aguja —y con ella el clic— se
+/// iba quedando un 20 % atras.
+fn clock_of(tempo: f32, speed: f32) -> f32 {
+    if (tempo - 1.0).abs() > 1e-6 {
+        tempo
+    } else {
+        speed
+    }
 }
 
 /// Ir a un segundo de la cancion, pase por donde pase el audio.
-fn seek_song(sink: &Sink, seconds: f64, tempo: f32) -> Result<(), rodio::source::SeekError> {
-    let out = seconds.max(0.0) / f64::from(tempo.max(0.01));
+fn seek_song(sink: &Sink, seconds: f64, clock: f32) -> Result<(), rodio::source::SeekError> {
+    let out = seconds.max(0.0) / f64::from(clock.max(0.01));
     sink.try_seek(Duration::from_secs_f64(out))
 }
 
@@ -303,6 +320,13 @@ struct Carry {
     pending: Option<Command>,
 }
 
+impl Carry {
+    /// El factor de `clock_of` para la cancion que suena ahora.
+    fn clock(&self) -> f32 {
+        clock_of(self.tempo, self.speed)
+    }
+}
+
 /// El metronomo, visto desde el hilo de audio.
 #[derive(Default)]
 struct Metro {
@@ -350,22 +374,38 @@ impl Metro {
 }
 
 /// Por que se vuelve a planificar el clic.
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 enum Replan {
     /// Cambiaron los ajustes: siempre.
     Settings,
     /// La cancion se movio (play, salto, velocidad, vuelta del bucle): solo
     /// si el clic la sigue; libre no se toca, que iria a trompicones.
     Song,
+    /// De rutina, mientras suena: el clic sigue donde estaba y solo se le
+    /// quita lo que haya podido acumularse. No se oye —el desvio es de
+    /// milisegundos—, pero acota a `RESYNC` cualquier desajuste que venga de
+    /// fuera: un tiron del servidor de sonido, el reloj del decodificador.
+    Resync,
 }
+
+/// Cada cuanto se reengancha el clic a la cancion mientras suena.
+const RESYNC: Duration = Duration::from_secs(2);
+
+/// Cuanto mira hacia atras el reenganche de rutina al buscar el proximo
+/// pulso. Si la cancion acaba de pasar uno que el clic todavia no ha tocado
+/// —van con unos milisegundos de diferencia— hay que apuntar ese y no el
+/// siguiente, que seria comerselo. Repetirlo no puede: la fuente no toca dos
+/// veces el mismo pulso.
+const RESYNC_BACK: f64 = 0.04;
 
 /// Deja el plan del clic para la fuente, segun como va la cancion ahora.
 fn plan_metronome(carry: &Carry, sink: Option<&Sink>, shared: &metronome::Shared, why: Replan) {
-    if why == Replan::Song && !carry.metro.follows() {
+    if why != Replan::Settings && !carry.metro.follows() {
         return;
     }
     let mut p = shared.lock().unwrap_or_else(|e| e.into_inner());
     p.gen += 1;
+    p.smooth = why == Replan::Resync;
     p.volume = carry.metro.settings.volume.clamp(0.0, 1.0);
     let s = &carry.metro.settings;
     if !s.on {
@@ -374,8 +414,9 @@ fn plan_metronome(carry: &Carry, sink: Option<&Sink>, shared: &metronome::Shared
     }
     if carry.metro.follows() {
         let grid = carry.metro.effective.clone().expect("follows() lo garantiza");
-        let pos = sink.map(|s| song_position(s, carry.tempo)).unwrap_or(0.0);
-        let (index, t, _) = grid.next_beat(pos);
+        let pos = sink.map(|s| song_position(s, carry.clock())).unwrap_or(0.0);
+        let from = if why == Replan::Resync { pos - RESYNC_BACK } else { pos };
+        let (index, t, _) = grid.next_beat(from);
         let speed = f64::from(carry.speed.max(0.05));
         p.mode = Mode::Grid { grid, index, delay: ((t - pos) / speed).max(0.0), speed };
     } else {
@@ -389,6 +430,22 @@ fn plan_metronome(carry: &Carry, sink: Option<&Sink>, shared: &metronome::Shared
     }
 }
 
+/// A que tasa va la salida por defecto, que es la que abre rodio.
+///
+/// El clic se genera a esta y no a una fija para que no pase por el conversor
+/// de tasa del mezclador: rodio lo rehace cada vez que una fuente empieza
+/// tramo y se deja dentro la fraccion de muestra que llevaba, que con los
+/// tramos cortos del clic son 77 ms por minuto. Si no se puede averiguar, la
+/// de siempre: el clic pide tramos largos y la perdida es despreciable.
+fn output_rate() -> u32 {
+    use rodio::cpal::traits::{DeviceTrait, HostTrait};
+    rodio::cpal::default_host()
+        .default_output_device()
+        .and_then(|d| d.default_output_config().ok())
+        .map(|c| c.sample_rate().0)
+        .unwrap_or(metronome::DEFAULT_RATE)
+}
+
 /// El sink del clic, creado la primera vez que hace falta. Si no se puede
 /// (sin salida), None: el metronomo se queda mudo y ya.
 fn ensure_click(
@@ -398,7 +455,7 @@ fn ensure_click(
     if click.is_none() {
         let sink = Sink::try_new(handle).ok()?;
         let shared: metronome::Shared = Arc::new(Mutex::new(metronome::Plan::default()));
-        sink.append(metronome::Click::new(shared.clone()));
+        sink.append(metronome::Click::new(shared.clone(), output_rate()));
         sink.play();
         *click = Some((sink, shared));
     }
@@ -580,6 +637,8 @@ fn run(
     let mut was_finished = false;
     let mut last_sent = State::default();
     let mut last_tick = Instant::now();
+    // desde cuando no se reengancha el clic a la cancion
+    let mut last_resync = Instant::now();
     // el vigilante de atasco: donde estaba la aguja y desde cuando no se mueve
     let mut last_pos = -1.0f64;
     let mut stalled_since: Option<Instant> = None;
@@ -737,7 +796,7 @@ fn run(
                             }
                         }
                         if let Some(s) = &sink {
-                            if let Err(e) = seek_song(s, seconds, carry.tempo) {
+                            if let Err(e) = seek_song(s, seconds, carry.clock()) {
                                 failure = Some(format!("no se puede buscar aqui: {e}"));
                             }
                         }
@@ -780,7 +839,7 @@ fn run(
                         let reopen = ffmpeg().is_some() && !carry.path.is_empty();
                         if let Some(s) = &sink {
                             if reopen && !s.empty() {
-                                let at = song_position(s, carry.tempo);
+                                let at = song_position(s, carry.clock());
                                 let paused = s.is_paused();
                                 match open_sink(
                                     &handle,
@@ -791,7 +850,7 @@ fn run(
                                     carry.duration,
                                 ) {
                                     Ok(Opened { sink: fresh, tempo, .. }) => {
-                                        let _ = seek_song(&fresh, at, tempo);
+                                        let _ = seek_song(&fresh, at, clock_of(tempo, carry.speed));
                                         if paused {
                                             fresh.pause();
                                         } else {
@@ -875,15 +934,25 @@ fn run(
         // Al pasar de B se vuelve a A. Sirve para machacar un trozo; es lo
         // primero que pide cualquiera que estudia una cancion.
         if let (Some((a, b)), Some(s)) = (carry.loop_ab, &sink) {
-            if !s.is_paused() && !s.empty() && song_position(s, carry.tempo) >= b {
-                let _ = seek_song(s, a, carry.tempo);
+            if !s.is_paused() && !s.empty() && song_position(s, carry.clock()) >= b {
+                let _ = seek_song(s, a, carry.clock());
                 replan = Some(Replan::Song);
             }
         }
 
         // ------------------------------------------- metronomo
         // Se planifica DESPUES de mover la cancion, con su posicion de ahora.
+        // Y aunque no se haya movido nada, cada RESYNC se reengancha mientras
+        // suena, para que ningun desvio se vaya acumulando.
+        if replan.is_none()
+            && sounding_now
+            && carry.metro.follows()
+            && last_resync.elapsed() >= RESYNC
+        {
+            replan = Some(Replan::Resync);
+        }
         if let Some(why) = replan {
+            last_resync = Instant::now();
             if carry.metro.settings.on || why == Replan::Settings {
                 if let Some(shared) = ensure_click(&handle, &mut click) {
                     plan_metronome(carry, sink.as_ref(), &shared, why);
@@ -903,7 +972,7 @@ fn run(
             match &sink {
                 Some(s) => {
                     e.playing = !s.is_paused() && !s.empty();
-                    e.position = song_position(s, carry.tempo);
+                    e.position = song_position(s, carry.clock());
                 }
                 None => {
                     e.playing = false;
@@ -987,6 +1056,23 @@ mod tests {
         let (tx, rx) = channel();
         (Handle::new(tx), rx)
     }
+
+    /// Los segundos que rodio cuenta no son los de la cancion en cuanto se
+    /// toca la velocidad, y por dos caminos distintos.
+    #[test]
+    fn the_clock_turns_rodio_time_into_song_time() {
+        // a velocidad normal son los mismos
+        assert_eq!(clock_of(1.0, 1.0), 1.0);
+        // con ffmpeg el stream ya llega a 0,8x y rodio cuenta ese tiempo
+        assert_eq!(clock_of(0.8, 0.8), 0.8);
+        // sin ffmpeg la velocidad la pone rodio, que mide la posicion
+        // *despues* de aplicarla: el factor es la velocidad igualmente.
+        // Antes aqui salia 1.0 y la aguja —y con ella el clic— se quedaba
+        // un 20 % atras de la cancion.
+        assert_eq!(clock_of(1.0, 0.8), 0.8);
+    }
+
+
 
     /// La duracion sale del propio archivo al abrirlo, sin decodificarlo
     /// entero otra vez como se hacia antes.

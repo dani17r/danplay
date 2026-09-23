@@ -498,21 +498,80 @@ pub fn analyze_samples(mono: &[f32], hint_bpm: Option<f32>) -> Result<BeatGrid, 
     })
 }
 
+/// Mezcla los canales y remuestrea a `RATE` de una tirada.
+///
+/// Lo mismo hace `UniformSourceIterator`, pero rehace el conversor de tasa en
+/// cada tramo que le entrega el decodificador y al rehacerlo se deja dentro
+/// la fraccion de muestra que llevaba. Con un archivo de 48 kHz eso estiraba
+/// el analisis 91 ms por minuto —una cancion de 392 s se decodificaba en
+/// 392,6—, asi que la rejilla salia sobre una version larga de la cancion y
+/// se iba corriendo respecto a ella: medio segundo a los seis minutos,
+/// aunque el reloj del metronomo fuera fino. Aqui la cuenta de la posicion
+/// es un f64 que no se reinicia nunca.
+///
+/// De paso los canales se promedian en vez de quedarse con el izquierdo,
+/// que es lo que hacia el conversor de canales de rodio: asi cuentan
+/// tambien los golpes que esten abiertos a la derecha.
+fn to_mono<S: rodio::Source<Item = f32>>(mut source: S) -> Vec<f32> {
+    let from = source.sample_rate().max(1);
+    let channels = usize::from(source.channels().max(1));
+    let hint = source
+        .total_duration()
+        .map_or(0, |d| (d.as_secs_f64() * f64::from(RATE)) as usize);
+    // un valor por instante, con los canales mezclados
+    let mut frame = move || {
+        let mut sum = 0.0f32;
+        let mut n = 0;
+        for _ in 0..channels {
+            match source.next() {
+                Some(v) => {
+                    sum += v;
+                    n += 1;
+                }
+                None => break,
+            }
+        }
+        (n > 0).then(|| sum / n as f32)
+    };
+    let mut out: Vec<f32> = Vec::with_capacity(hint);
+    if from == RATE {
+        while let Some(v) = frame() {
+            out.push(v);
+        }
+        return out;
+    }
+    let (Some(mut prev), Some(mut next)) = (frame(), frame()) else {
+        return out;
+    };
+    let step = f64::from(from) / f64::from(RATE);
+    // `at`: en que muestra de la entrada esta `prev`. `pos`: donde cae la
+    // proxima muestra de salida, en muestras de la entrada.
+    let mut at = 0usize;
+    let mut pos = 0.0f64;
+    loop {
+        while pos >= (at + 1) as f64 {
+            let Some(v) = frame() else { return out };
+            prev = next;
+            next = v;
+            at += 1;
+        }
+        out.push(prev + (next - prev) * (pos - at as f64) as f32);
+        pos += step;
+    }
+}
+
 /// Decodifica la cancion a mono `RATE` Hz: por rodio, o por ffmpeg para los
 /// formatos que rodio no sabe (los mismos que en la reproduccion).
 pub fn decode_mono(path: &str) -> Result<Vec<f32>, String> {
-    use rodio::source::UniformSourceIterator;
     use rodio::Source;
     if crate::transcode::is_handled(path) {
         let ffmpeg = crate::player::ffmpeg_path().ok_or_else(|| "hace falta ffmpeg".to_string())?;
         let source = crate::transcode::Transcoded::open_at_tempo(ffmpeg, path, None, 1.0)?;
-        let mono: UniformSourceIterator<_, f32> = UniformSourceIterator::new(source, 1, RATE);
-        return Ok(mono.collect());
+        return Ok(to_mono(source.convert_samples::<f32>()));
     }
     let file = std::fs::File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
     let source = rodio::Decoder::new(std::io::BufReader::new(file)).map_err(|e| e.to_string())?;
-    let mono: UniformSourceIterator<_, f32> = UniformSourceIterator::new(source.convert_samples::<f32>(), 1, RATE);
-    Ok(mono.collect())
+    Ok(to_mono(source.convert_samples::<f32>()))
 }
 
 /// Todo de una vez: abrir, decodificar y analizar.
@@ -693,4 +752,63 @@ mod tests {
         assert_eq!(h.first_downbeat, 0);
         assert!((h.bpm - 60.0).abs() < 1e-6);
     }
+
+    /// Lo que un decodificador entrega: tramos cortos, del tamaño de un
+    /// paquete. Con ellos `UniformSourceIterator` rehacia el conversor de
+    /// tasa ochenta veces por segundo y se dejaba muestras por el camino.
+    struct Chopped {
+        inner: rodio::buffer::SamplesBuffer<f32>,
+        len: usize,
+    }
+
+    impl Iterator for Chopped {
+        type Item = f32;
+        fn next(&mut self) -> Option<f32> {
+            self.inner.next()
+        }
+    }
+
+    impl rodio::Source for Chopped {
+        fn current_frame_len(&self) -> Option<usize> {
+            Some(self.len)
+        }
+        fn channels(&self) -> u16 {
+            self.inner.channels()
+        }
+        fn sample_rate(&self) -> u32 {
+            self.inner.sample_rate()
+        }
+        fn total_duration(&self) -> Option<std::time::Duration> {
+            None
+        }
+    }
+
+    /// Un archivo que no vaya a 44,1 kHz tiene que salir del remuestreo con
+    /// la misma duracion y los golpes en el mismo sitio: si se encoge, la
+    /// rejilla entera se corre y el metronomo se desfasa de la cancion.
+    #[test]
+    fn resampling_keeps_the_song_where_it_was() {
+        for rate in [44_100u32, 48_000] {
+            let n = rate as usize * 60;
+            let mut pcm = vec![0f32; n * 2];
+            let mark = (59.0 * f64::from(rate)) as usize * 2;
+            for v in pcm.iter_mut().skip(mark).take(128) {
+                *v = 1.0;
+            }
+            let source = Chopped {
+                inner: rodio::buffer::SamplesBuffer::new(2, rate, pcm),
+                len: 2048,
+            };
+            let mono = to_mono(source);
+            let seconds = mono.len() as f64 / f64::from(RATE);
+            assert!((seconds - 60.0).abs() < 0.01, "a {rate} Hz duraba {seconds:.3} s");
+            let at = mono.iter().position(|v| *v > 0.5).unwrap_or(0) as f64 / f64::from(RATE);
+            assert!(
+                (at - 59.0).abs() < 0.005,
+                "a {rate} Hz el golpe del segundo 59 salio en {at:.3}"
+            );
+        }
+    }
+
+
 }

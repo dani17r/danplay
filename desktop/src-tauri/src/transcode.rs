@@ -268,8 +268,13 @@ impl Iterator for Transcoded {
 
 impl Source for Transcoded {
     fn current_frame_len(&self) -> Option<usize> {
-        // el formato no cambia a mitad: vale cualquier tamaño
-        None
+        // El formato no cambia a mitad, asi que vale cualquier tamaño, pero
+        // no vale decir que no se sabe: la cola de rodio reparte entonces
+        // tramos de 512 muestras y el mezclador rehace el conversor de tasa
+        // en cada uno, dejandose dentro una fraccion de muestra. Contra una
+        // salida de 48 kHz eso son 77 ms de cancion perdidos por minuto, que
+        // desfasaban el metronomo. Con tramos largos no se nota.
+        Some(32_768)
     }
     fn channels(&self) -> u16 {
         CHANNELS
