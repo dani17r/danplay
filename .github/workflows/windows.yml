@@ -72,13 +72,43 @@ jobs:
           $pyinstaller = (Select-String -Path requirements-dev.txt -Pattern '^pyinstaller==' -CaseSensitive:$false).Line
           pip install $pyinstaller
 
+      # Antes que las pruebas: el nucleo se prueba con las mismas herramientas
+      # que viajan en el instalador (sin ffmpeg, las pruebas que generan una
+      # biblioteca se saltan y la cobertura no llega al minimo).
+      - name: ffmpeg, fpcalc y Deno
+        shell: pwsh
+        run: |
+          $tools = "desktop/src-tauri/tools"
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          function Bajar($url, $sha, $archivo) {
+            Invoke-WebRequest -Uri $url -OutFile $archivo
+            $real = (Get-FileHash $archivo -Algorithm SHA256).Hash.ToLower()
+            if ($real -ne $sha) { throw "$archivo no es lo esperado: $real" }
+          }
+          Bajar $env:FFMPEG_URL $env:FFMPEG_SHA256 ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
+          Get-ChildItem -Recurse ffmpeg-tmp -Include ffmpeg.exe,ffprobe.exe |
+            ForEach-Object { Copy-Item $_.FullName $tools }
+          Bajar $env:FPCALC_URL $env:FPCALC_SHA256 fpcalc.zip
+          Expand-Archive fpcalc.zip -DestinationPath fpcalc-tmp
+          Get-ChildItem -Recurse fpcalc-tmp -Include fpcalc.exe |
+            ForEach-Object { Copy-Item $_.FullName $tools }
+          Bajar $env:DENO_URL $env:DENO_SHA256 deno.zip
+          Expand-Archive deno.zip -DestinationPath deno-tmp
+          Get-ChildItem -Recurse deno-tmp -Include deno.exe |
+            ForEach-Object { Copy-Item $_.FullName $tools }
+          Get-ChildItem $tools
+
       # Las pruebas ANTES de empaquetar: si el nucleo no funciona en Windows,
       # mejor enterarse aqui que dentro de un instalador. Sin el crate de
       # Rust, como viaja en el instalador.
       - name: pruebas del núcleo en Windows
+        shell: pwsh
         env:
           DANPLAY_SIN_RUST: '1'
-        run: pytest
+        run: |
+          $env:PATH = "$(Resolve-Path desktop/src-tauri/tools);$env:PATH"
+          pytest
 
       - name: interfaz
         working-directory: desktop
@@ -126,35 +156,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path desktop/src-tauri/binaries | Out-Null
           Copy-Item dist/core/danplay-core.exe "desktop/src-tauri/binaries/danplay-core-$triple.exe"
 
-      - name: ffmpeg, fpcalc y Deno
-        if: env.CON_HERRAMIENTAS == 'true'
-        shell: pwsh
-        run: |
-          $tools = "desktop/src-tauri/tools"
-          New-Item -ItemType Directory -Force -Path $tools | Out-Null
-          function Bajar($url, $sha, $archivo) {
-            Invoke-WebRequest -Uri $url -OutFile $archivo
-            $real = (Get-FileHash $archivo -Algorithm SHA256).Hash.ToLower()
-            if ($real -ne $sha) { throw "$archivo no es lo esperado: $real" }
-          }
-          Bajar $env:FFMPEG_URL $env:FFMPEG_SHA256 ffmpeg.zip
-          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
-          Get-ChildItem -Recurse ffmpeg-tmp -Include ffmpeg.exe,ffprobe.exe |
-            ForEach-Object { Copy-Item $_.FullName $tools }
-          Bajar $env:FPCALC_URL $env:FPCALC_SHA256 fpcalc.zip
-          Expand-Archive fpcalc.zip -DestinationPath fpcalc-tmp
-          Get-ChildItem -Recurse fpcalc-tmp -Include fpcalc.exe |
-            ForEach-Object { Copy-Item $_.FullName $tools }
-          Bajar $env:DENO_URL $env:DENO_SHA256 deno.zip
-          Expand-Archive deno.zip -DestinationPath deno-tmp
-          Get-ChildItem -Recurse deno-tmp -Include deno.exe |
-            ForEach-Object { Copy-Item $_.FullName $tools }
-          Get-ChildItem $tools
-
+      # Las herramientas ya estan (las usaron las pruebas): sin ellas en el
+      # instalador, la carpeta se queda solo con el aviso.
       - name: sin herramientas, la carpeta vacía igualmente
         if: env.CON_HERRAMIENTAS != 'true'
         shell: pwsh
         run: |
+          Remove-Item -Recurse -Force desktop/src-tauri/tools
           New-Item -ItemType Directory -Force -Path desktop/src-tauri/tools | Out-Null
           Set-Content desktop/src-tauri/tools/LEEME.txt `
             "Aqui van ffmpeg.exe, ffprobe.exe, fpcalc.exe y deno.exe si se quieren dentro del instalador."

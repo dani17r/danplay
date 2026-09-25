@@ -95,16 +95,18 @@ un solo ejecutable en vez del Python embebido:
 
 `.github/workflows/windows.yml` lo hace entero en `windows-latest`:
 
-1. Compila la interfaz.
-2. Ejecuta las pruebas del núcleo **en Windows**.
-3. Empaqueta el núcleo con PyInstaller y **comprueba que arranca y contesta**,
-   y que sin el token no contesta.
-4. Descarga `ffmpeg` 9.0.2, `fpcalc` 1.6.1 y Deno 2.9.7 (el motor de
+1. Descarga `ffmpeg` 9.0.2, `fpcalc` 1.6.1 y Deno 2.9.7 (el motor de
    JavaScript que YouTube exige a yt-dlp), **con versión fija y comprobando
-   su SHA-256**, y los mete dentro. Antes se bajaba «la última» sin comprobar
-   nada: dos instaladores de la misma versión podían llevar un ffmpeg
-   distinto. Para subir una, se cambian la URL y la suma en el propio flujo.
-5. Compila la aplicación y genera el instalador NSIS.
+   su SHA-256**. Antes se bajaba «la última» sin comprobar nada: dos
+   instaladores de la misma versión podían llevar un ffmpeg distinto. Para
+   subir una, se cambian la URL y la suma en el propio flujo.
+2. Ejecuta las pruebas del núcleo **en Windows**, con esas mismas
+   herramientas.
+3. Compila la interfaz.
+4. Empaqueta el núcleo con PyInstaller y **comprueba que arranca y contesta**,
+   y que sin el token no contesta.
+5. Compila la aplicación y genera el instalador NSIS, con las herramientas
+   dentro (salvo que se lance sin ellas).
 6. Lo deja como artefacto descargable; con una etiqueta `v*`, lo publica.
 
 Se lanza a mano desde la pestaña Actions («Run workflow») o subiendo una
