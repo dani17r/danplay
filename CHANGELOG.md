@@ -3,7 +3,11 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
-## Sin publicar
+## 1.14.0 — 2026-09-25
+
+El modo estudio, más cómodo para tocar encima de la canción; la letra con
+tiempos, que se quedaba pegada, arreglada; y el `.deb` de Linux, igual que el
+`.AppImage`.
 
 ### Modo estudio
 
@@ -34,6 +38,20 @@ hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
   se veían puestos (tampoco la velocidad elegida) y la onda seguía pintando
   la rejilla de antes. Ahora doblan también el tempo a mano, se ven
   encendidos y la onda enseña los pulsos tal como suenan.
+
+### Escritorio en Linux
+
+- El `.deb` se ve como el `.AppImage`: en una sesión Wayland, si hay
+  XWayland, la barra de título la pone el escritorio y no GTK (la de GNOME
+  desentonaba en KDE), y la ventanita puede colocarse junto al icono de la
+  bandeja.
+- Las ventanas recuerdan su tamaño y su sitio, pero ya no si estaban
+  abiertas: la proyección que se quedó abierta no vuelve a salir al arrancar,
+  y la ventana principal cerrada a la bandeja no arranca escondida.
+- El DanPlay instalado con el `.deb` quita al arrancar el lanzador suelto (de
+  un `.AppImage` o del binario) que lo tapaba en el menú y al abrir
+  canciones con doble clic, y esas canciones pasan a abrirse con él. La
+  compilación de desarrollo lleva su propio lanzador, «DanPlay (desarrollo)».
 
 ## 1.13.0 — 2026-09-25
 
