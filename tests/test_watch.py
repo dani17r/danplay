@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """La biblioteca sigue al disco: canciones movidas, borradas o renombradas por
 fuera de la app, carpetas que se mueven enteras o desaparecen (un disco sin
 montar) y vuelven, y el vigilante que lo hace sin pulsar nada.
@@ -7,10 +6,14 @@ Cada prueba tiene su biblioteca y su base de datos temporales: aqui se mueven
 y se borran carpetas enteras, y eso no puede tocar la musica de nadie ni la
 biblioteca que comparten las pruebas de la API.
 """
-import os, shutil, sys, time
-import pytest
 
-from conftest import make_mp3
+import os
+import shutil
+import sys
+import time
+
+import pytest
+from conftest import make_mp3, run_job
 
 
 @pytest.fixture
@@ -18,6 +21,7 @@ def lib(configured_library, tmp_path, monkeypatch):
     """La biblioteca sintetica, ya añadida y escaneada, con los datos de la app
     (formas de onda) tambien en el temporal."""
     from danplay import config, library
+
     monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
     (tmp_path / "datos").mkdir()
     root, songs = configured_library
@@ -28,30 +32,36 @@ def lib(configured_library, tmp_path, monkeypatch):
 
 def _ids():
     from danplay import library
+
     return {os.path.basename(s["path"]): s["id"] for s in library.search("", limit=100)}
 
 
 def _row(name):
     from danplay import library
+
     return next(s for s in library.search("", limit=100) if os.path.basename(s["path"]) == name)
 
 
 @pytest.fixture
 def client(lib):
     from fastapi.testclient import TestClient
+
     from danplay import api
+
     return TestClient(api.app)
 
 
 # ------------------------------------------------------------- canciones sueltas
 
+
 def test_a_song_moved_to_another_folder_keeps_its_id_and_its_lists(lib):
     from danplay import library, playlists
+
     root, songs = lib
     before = _ids()
     sunday = playlists.create("Domingo")
     playlists.add(sunday["id"], list(before.values()))
-    library.update(before["Barak - Mi Gozo.mp3"], chords='{"key": "G"}')   # solo en la base
+    library.update(before["Barak - Mi Gozo.mp3"], chords='{"key": "G"}')  # solo en la base
 
     moved = root / "Artistas" / "Otros" / "Barak - Mi Gozo.mp3"
     moved.parent.mkdir(parents=True)
@@ -69,7 +79,8 @@ def test_a_song_moved_to_another_folder_keeps_its_id_and_its_lists(lib):
 def test_a_song_renamed_in_place_keeps_its_id(lib):
     """Renombrar no cambia ni el tamaño ni la fecha: con eso basta."""
     from danplay import library
-    root, songs = lib
+
+    _root, songs = lib
     old_id = _ids()["New Wine - Shekinah.mp3"]
     renamed = os.path.join(os.path.dirname(songs["shekinah"]), "Shekinah (en vivo).mp3")
     os.rename(songs["shekinah"], renamed)
@@ -79,7 +90,8 @@ def test_a_song_renamed_in_place_keeps_its_id(lib):
 
 def test_a_deleted_song_leaves_the_views_and_its_lists(lib):
     from danplay import library, playlists
-    root, songs = lib
+
+    _root, songs = lib
     ids = _ids()
     sunday = playlists.create("Domingo")
     playlists.add(sunday["id"], list(ids.values()))
@@ -97,10 +109,14 @@ def test_a_song_that_comes_back_returns_to_its_place_in_the_list(lib):
     """Borrada por fuera y restaurada (de la papelera, de una copia): vuelve
     con su id y en su puesto de la lista, sin releer el archivo."""
     from danplay import library, playlists
+
     root, songs = lib
     ids = _ids()
-    order = [ids["New Wine - Shekinah.mp3"], ids["Barak - Mi Gozo.mp3"],
-             ids["Barak - Sera Llena La Tierra.mp3"]]
+    order = [
+        ids["New Wine - Shekinah.mp3"],
+        ids["Barak - Mi Gozo.mp3"],
+        ids["Barak - Sera Llena La Tierra.mp3"],
+    ]
     sunday = playlists.create("Domingo")
     playlists.add(sunday["id"], order)
     keep = root.parent / "guardada.mp3"
@@ -118,7 +134,8 @@ def test_new_songs_never_inherit_the_id_of_one_that_left(lib):
     """Regresion: sin AUTOINCREMENT, SQLite daba a la cancion nueva el id de
     la ultima que salio del indice, y con el sus listas."""
     from danplay import library, playlists
-    root, songs = lib
+
+    root, _songs = lib
     ids = _ids()
     last = max(ids.values())
     victim = next(n for n, i in ids.items() if i == last)
@@ -127,8 +144,12 @@ def test_new_songs_never_inherit_the_id_of_one_that_left(lib):
     # lo que hace «a la papelera», sin tocar la papelera de verdad
     os.remove(library.by_id(last)["path"])
     library.forget(last)
-    fresh = make_mp3(root / "Artistas" / "Barak" / "Barak - Nueva.mp3", artist="Barak",
-                     title="Nueva", seconds=2.0)
+    fresh = make_mp3(
+        root / "Artistas" / "Barak" / "Barak - Nueva.mp3",
+        artist="Barak",
+        title="Nueva",
+        seconds=2.0,
+    )
     song = library.index_file(fresh)
     assert song["id"] > last, f"{victim} dejo su id a la nueva"
     assert playlists.playlists_of(song["id"]) == []
@@ -136,12 +157,15 @@ def test_new_songs_never_inherit_the_id_of_one_that_left(lib):
 
 def test_songs_that_never_come_back_are_forgotten_after_a_while(lib):
     from danplay import library
-    root, songs = lib
+
+    _root, songs = lib
     gone_id = _ids()["Barak - Mi Gozo.mp3"]
     os.remove(songs["gozo"])
     library.scan()
     conn = library.connect()
-    assert conn.execute("SELECT COUNT(*) FROM songs_missing WHERE id=?", (gone_id,)).fetchone()[0] == 1
+    assert (
+        conn.execute("SELECT COUNT(*) FROM songs_missing WHERE id=?", (gone_id,)).fetchone()[0] == 1
+    )
     conn.execute("UPDATE songs_missing SET gone_at = gone_at - ?", (40 * 86400,))
     conn.commit()
     assert library._purge_missing(conn) == 1
@@ -153,18 +177,21 @@ def test_a_scan_that_finds_nothing_new_does_not_refresh_the_app(lib):
     """El vigilante escanea cada vez que se toca un archivo; si nada de lo que
     se enseña cambio, la interfaz no tiene que recargar."""
     from danplay import library, playlists
-    root, songs = lib
-    playlists.rate(_ids()["Barak - Mi Gozo.mp3"], 4)       # escribe en el archivo
+
+    _root, _songs = lib
+    playlists.rate(_ids()["Barak - Mi Gozo.mp3"], 4)  # escribe en el archivo
     before = library.revision()
     r = library.scan()
     assert r["updated"] >= 1 and not r["changed"]
     assert library.revision() == before
 
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"),
-                    reason="solo Linux deja nombres que no son UTF-8")
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="solo Linux deja nombres que no son UTF-8"
+)
 def test_a_name_that_is_not_utf8_does_not_stop_the_scan(lib):
     from danplay import library
+
     root, songs = lib
     folder = os.fsencode(str(root / "Artistas" / "Barak"))
     shutil.copy(songs["gozo"], folder + b"/Barak - Canci\xf3n.mp3")
@@ -174,9 +201,11 @@ def test_a_name_that_is_not_utf8_does_not_stop_the_scan(lib):
 
 # ------------------------------------------------------------- carpetas enteras
 
+
 def test_a_folder_that_moved_hides_its_songs_and_says_so(client, lib):
     from danplay import library
-    root, songs = lib
+
+    root, _songs = lib
     shutil.move(str(root), str(root.parent / "movida"))
     assert library.hide_missing_roots() == 3
     d = client.get("/api/status").json()
@@ -192,7 +221,8 @@ def test_choosing_the_moved_folder_brings_everything_back(client, lib):
     """Lo que hace quien movio su musica: elige la carpeta nueva como si la
     importara otra vez. Es la misma: vuelve con ids, listas y notas."""
     from danplay import library, playlists
-    root, songs = lib
+
+    root, _songs = lib
     ids = _ids()
     sunday = playlists.create("Domingo")
     playlists.add(sunday["id"], list(ids.values()))
@@ -205,7 +235,7 @@ def test_choosing_the_moved_folder_brings_everything_back(client, lib):
     assert r["action"] == "relocated"
     assert r["notice"]["other"] == str(root)
     assert [f["path"] for f in r["folders"]] == [str(new)], "la carpeta vieja se quedo"
-    client.post("/api/scan")
+    run_job(client, "/api/scan", "escaneo")
     assert _ids() == ids
     assert all(s["path"].startswith(str(new)) for s in library.search("", limit=10))
     assert len(playlists.songs(sunday["id"])) == 3
@@ -213,7 +243,7 @@ def test_choosing_the_moved_folder_brings_everything_back(client, lib):
 
 
 def test_relocating_by_hand(client, lib):
-    root, songs = lib
+    root, _songs = lib
     ids = _ids()
     new = root.parent / "Otra"
     shutil.move(str(root), str(new))
@@ -227,7 +257,7 @@ def test_relocating_by_hand(client, lib):
 
 
 def test_an_unrelated_folder_is_not_taken_for_the_moved_one(client, lib, tmp_path):
-    root, songs = lib
+    root, _songs = lib
     shutil.move(str(root), str(tmp_path / "lejos"))
     other = tmp_path / "otra-musica"
     make_mp3(other / "Alguien - Algo.mp3", artist="Alguien", title="Algo")
@@ -239,7 +269,8 @@ def test_a_disk_that_comes_back_brings_its_songs_as_they_were(lib):
     """Un disco que no estaba montado al arrancar: al volver, cada cancion
     recupera su id sin releer ningun archivo."""
     from danplay import library
-    root, songs = lib
+
+    root, _songs = lib
     ids = _ids()
     away = root.parent / "desmontado"
     shutil.move(str(root), str(away))
@@ -252,18 +283,19 @@ def test_a_disk_that_comes_back_brings_its_songs_as_they_were(lib):
 
 
 def test_removing_a_folder_and_adding_it_again_keeps_the_ids(client, lib):
-    root, songs = lib
+    root, _songs = lib
     ids = _ids()
     client.delete("/api/folders", params={"path": str(root)})
     assert client.get("/api/status").json()["stats"]["total"] == 0
     client.post("/api/folders", json={"path": str(root)})
-    client.post("/api/scan")
+    run_job(client, "/api/scan", "escaneo")
     assert _ids() == ids
 
 
 def test_locate_says_where_each_song_is_now(client, lib):
     """Lo que usa la cola de Rust para ponerse al dia de una vez."""
     from danplay import library
+
     root, songs = lib
     ids = _ids()
     moved = root / "Movidas" / "Barak - Mi Gozo.mp3"
@@ -271,7 +303,9 @@ def test_locate_says_where_each_song_is_now(client, lib):
     shutil.move(songs["gozo"], moved)
     os.remove(songs["tierra"])
     library.scan()
-    paths = client.post("/api/songs/locate", json={"ids": list(ids.values()) + [999999]}).json()["paths"]
+    paths = client.post("/api/songs/locate", json={"ids": [*list(ids.values()), 999999]}).json()[
+        "paths"
+    ]
     assert paths[str(ids["Barak - Mi Gozo.mp3"])] == str(moved)
     assert paths[str(ids["Barak - Sera Llena La Tierra.mp3"])] is None
     assert paths[str(ids["New Wine - Shekinah.mp3"])] == songs["shekinah"]
@@ -279,6 +313,7 @@ def test_locate_says_where_each_song_is_now(client, lib):
 
 
 # ------------------------------------------------------------- el vigilante
+
 
 def _until(check, timeout=15.0):
     end = time.monotonic() + timeout
@@ -294,13 +329,18 @@ def test_the_watcher_follows_what_happens_on_disk(lib):
     de la app, y la carpeta entera que se va y vuelve."""
     pytest.importorskip("watchdog")
     from danplay import library, watcher
-    root, songs = lib
+
+    root, _songs = lib
     w = watcher.Watcher(quiet=0.2, check_every=0.2, rescan_every=0)
     w.start()
     try:
         assert _until(lambda: w._watches), "no llego a vigilar la carpeta"
-        new = make_mp3(root / "Artistas" / "Barak" / "Barak - Llega.mp3", artist="Barak",
-                       title="Llega", seconds=2.0)
+        new = make_mp3(
+            root / "Artistas" / "Barak" / "Barak - Llega.mp3",
+            artist="Barak",
+            title="Llega",
+            seconds=2.0,
+        )
         assert _until(lambda: "Barak - Llega.mp3" in _ids()), "no vio la cancion nueva"
         new_id = _ids()["Barak - Llega.mp3"]
 
@@ -325,6 +365,7 @@ def test_the_watcher_follows_what_happens_on_disk(lib):
 def test_a_folder_added_in_settings_is_indexed_without_asking(lib, tmp_path):
     """Ajustes añade la carpeta sin analizarla: el vigilante la ve y la indexa."""
     from danplay import library, watcher
+
     w = watcher.Watcher(quiet=0.2, check_every=0.2, rescan_every=0, observe=False)
     w.start()
     try:
@@ -341,7 +382,9 @@ def test_the_watcher_ignores_what_does_not_matter(lib):
     """Leer una cancion (el propio reproductor), un .txt o una carpeta
     excluida no son motivo para escanear."""
     from types import SimpleNamespace as Ev
+
     from danplay import library, watcher
+
     root, songs = lib
     library.add_exclusion("Secuencias")
     w = watcher.Watcher(observe=False)
@@ -352,18 +395,30 @@ def test_the_watcher_ignores_what_does_not_matter(lib):
     events.dispatch(Ev(event_type="closed_no_write", src_path=songs["gozo"], is_directory=False))
     events.dispatch(Ev(event_type="created", src_path=str(root / "notas.txt"), is_directory=False))
     events.dispatch(Ev(event_type="modified", src_path=str(root / "Artistas"), is_directory=True))
-    events.dispatch(Ev(event_type="created", src_path=str(root / "Secuencias" / "click.wav"),
-                       is_directory=False))
+    events.dispatch(
+        Ev(
+            event_type="created",
+            src_path=str(root / "Secuencias" / "click.wav"),
+            is_directory=False,
+        )
+    )
     events.dispatch(Ev(event_type="created", src_path="/en/otro/sitio.mp3", is_directory=False))
     assert w._pending_since is None
 
-    events.dispatch(Ev(event_type="moved", src_path=str(root / "a.part"),
-                       dest_path=str(root / "Artistas" / "Barak" / "b.mp3"), is_directory=False))
+    events.dispatch(
+        Ev(
+            event_type="moved",
+            src_path=str(root / "a.part"),
+            dest_path=str(root / "Artistas" / "Barak" / "b.mp3"),
+            is_directory=False,
+        )
+    )
     assert w._pending_since is not None
 
 
 def test_the_watcher_waits_for_calm_before_scanning():
     from danplay import watcher
+
     w = watcher.Watcher(quiet=2.0, observe=False)
     w.mark()
     start = w._last_event
@@ -379,7 +434,40 @@ def test_the_watcher_waits_for_calm_before_scanning():
 
 def test_prepare_hides_a_missing_folder_before_the_first_answer(lib):
     from danplay import library, watcher
-    root, songs = lib
+
+    root, _songs = lib
     shutil.move(str(root), str(root.parent / "movida"))
     watcher.prepare()
     assert library.stats_of()["total"] == 0
+
+
+def test_nothing_brings_a_moved_folder_back_empty(client, lib):
+    """Regresion: la interfaz pregunta por la Entrada al arrancar, y crearla
+    (con sus carpetas de mas arriba) hacia reaparecer, vacia, la carpeta de
+    musica que se acababa de mover: ya no salia «No encuentro tu musica» y
+    elegir la carpeta en su sitio nuevo no se reconocia como la misma."""
+    from danplay import config, ingest, library, playlists, youtube
+
+    root, _songs = lib
+    assert root / "Entrada" == config.INBOX
+    shutil.move(str(root), str(root.parent / "movida"))
+
+    assert client.get("/api/inbox").json() == {"files": [], "total": 0}
+    assert ingest.process_inbox() == []
+    with pytest.raises(library.FolderGone):
+        library.ensure_folder(config.INBOX)
+    down = youtube.download_one("https://www.youtube.com/watch?v=x")
+    assert not down["ok"]
+    sunday = playlists.create("Domingo")
+    assert client.post(f"/api/playlists/{sunday['id']}/export").status_code == 400
+
+    assert not root.exists(), "la carpeta movida reaparecio vacia"
+    assert client.get("/api/status").json()["missing_folders"] == [str(root)]
+
+
+def test_a_new_inbox_is_still_created_where_nothing_is_missing(lib, tmp_path, monkeypatch):
+    """Lo de siempre sigue igual: sin carpetas que falten, la Entrada se crea."""
+    from danplay import config, library
+
+    monkeypatch.setattr(config, "INBOX", tmp_path / "otra" / "Entrada")
+    assert library.ensure_folder(config.INBOX).is_dir()

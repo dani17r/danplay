@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """La lista del reproductor: lo que has abierto desde fuera de DanPlay.
 
 Abrir un mp3 desde el explorador de archivos **no es importarlo**. El archivo
@@ -24,10 +23,15 @@ Que los ids de fuera sean NEGATIVOS no es un truco: es lo que impide que una
 operacion de biblioteca —borrar, renombrar, escribir etiquetas— caiga por
 error sobre un archivo que no es suyo. `library.by_id` no los encuentra.
 """
-import logging, os, time
-from . import library, tags
 
-log = logging.getLogger("danplay")
+import logging
+import os
+import time
+from typing import Any, cast
+
+from . import config, library, tags
+
+log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS external_songs (
@@ -57,95 +61,158 @@ def _row(r) -> dict:
     # Campos que toda cancion tiene en la interfaz. Una de fuera no los tiene
     # y no los va a tener —no se le escribe nada dentro—, pero es mejor un
     # cero que un hueco que rompe la pantalla.
-    d.update(stars=0, favorite=0, blur=0, external=True,
-             folder="", year="", genre="", key="", bpm=0, bitrate=0, size=0)
+    d.update(
+        stars=0,
+        favorite=0,
+        blur=0,
+        external=True,
+        folder="",
+        year="",
+        genre="",
+        key="",
+        bpm=0,
+        bitrate=0,
+        size=0,
+    )
     return d
+
+
+def by_ids(conn, ids) -> dict[int, dict]:
+    """{id negativo: cancion} de las de fuera con esos ids, en una consulta."""
+    wanted = [-int(i) for i in ids if int(i) < 0]
+    if not wanted:
+        return {}
+    marks = ",".join("?" * len(wanted))
+    return {
+        -r["id"]: _row(r)
+        for r in conn.execute(
+            f"SELECT {','.join(COLUMNS)} FROM external_songs WHERE id IN ({marks})",  # noqa: S608
+            wanted,
+        )
+    }
 
 
 def by_id(cid: int) -> dict | None:
     """La cancion de fuera con ese id (negativo), o None."""
     if cid >= 0:
         return None
-    conn = library.connect()
-    r = conn.execute(f"SELECT {','.join(COLUMNS)} FROM external_songs WHERE id=?",
-                     (-cid,)).fetchone()
-    conn.close()
+    with library.connect() as conn:
+        r = conn.execute(
+            f"SELECT {','.join(COLUMNS)} FROM external_songs WHERE id=?",  # noqa: S608
+            (-cid,),
+        ).fetchone()
     return _row(r) if r else None
 
 
-def resolve(cid: int) -> dict | None:
+def resolve(cid: int) -> dict[str, Any] | None:
     """La cancion con ese id, venga de donde venga.
 
     Es lo que hay que usar en todo sitio que solo necesite REPRODUCIR o
     ENSEÑAR una cancion: la ruta del audio, la portada, una lista. Para
     modificar algo, `library.by_id`, y asi lo de fuera queda fuera de alcance.
     """
-    return library.by_id(cid) if cid > 0 else by_id(cid)
+    if cid > 0:
+        # una fila entera de la biblioteca: quien la enseña le añade cosas
+        # (sus listas, si el archivo sigue ahi)
+        return cast(dict[str, Any] | None, library.by_id(cid))
+    return by_id(cid)
 
 
 def _register(path: str) -> int | None:
     """El id de esa ruta, creando la entrada de fuera si hace falta."""
     song = library.by_path(path)
     if song:
-        return song["id"]                       # ya esta en la biblioteca
-    conn = library.connect()
-    row = conn.execute("SELECT id FROM external_songs WHERE path=?", (path,)).fetchone()
-    if row:
-        rowid = row["id"]
-    else:
-        # Las etiquetas se leen UNA vez, la primera. Esto se llama en cada
-        # play, y abrir el archivo cada vez seria pagar disco por nada.
-        t = tags.read(path)
-        name = os.path.splitext(os.path.basename(path))[0]
-        rowid = conn.execute(
-            "INSERT INTO external_songs (path,file,title,artist,album,duration) "
-            "VALUES (?,?,?,?,?,?)",
-            (path, os.path.basename(path), t.get("title") or name,
-             t.get("artist", ""), t.get("album", ""), tags.duration(path))).lastrowid
-        conn.commit()
-    conn.close()
-    return -rowid
+        return song["id"]  # ya esta en la biblioteca
+    with library.connect() as conn:
+        row = conn.execute("SELECT id FROM external_songs WHERE path=?", (path,)).fetchone()
+        if row:
+            rowid = row["id"]
+        else:
+            # Las etiquetas se leen UNA vez, la primera. Esto se llama en cada
+            # play, y abrir el archivo cada vez seria pagar disco por nada.
+            t = tags.read(path)
+            name = os.path.splitext(os.path.basename(path))[0]
+            rowid = conn.execute(
+                "INSERT INTO external_songs (path,file,title,artist,album,duration) "
+                "VALUES (?,?,?,?,?,?)",
+                (
+                    path,
+                    os.path.basename(path),
+                    t.get("title") or name,
+                    t.get("artist", ""),
+                    t.get("album", ""),
+                    tags.duration(path),
+                ),
+            ).lastrowid
+            conn.commit()
+    return -int(rowid or 0)
+
+
+class NotAudio(ValueError):
+    """Lo que se quiso abrir no es un archivo de audio."""
 
 
 def played(path) -> dict | None:
     """Apunta que esa ruta acaba de sonar y devuelve la cancion.
 
     Si ya estaba en la lista NO se añade otra vez: se le pone la hora nueva y
-    con eso sube al principio.
+    con eso sube al principio. None si el archivo no esta; `NotAudio` si no es
+    audio: antes se aceptaba cualquier archivo y se le pasaba tal cual a Rust
+    para reproducirlo (y a mutagen para leerlo).
     """
     path = os.path.abspath(str(path))
+    if os.path.splitext(path)[1].lower() not in config.EXTENSIONS:
+        raise NotAudio("eso no es un archivo de audio")
     if not os.path.isfile(path):
         return None
     cid = _register(path)
     if cid is None:
         return None
-    conn = library.connect()
-    conn.execute("INSERT INTO recent (song_id, played) VALUES (?,?) "
-                 "ON CONFLICT(song_id) DO UPDATE SET played=excluded.played",
-                 (cid, time.time()))
-    conn.commit()
-    conn.close()
+    with library.connect() as conn:
+        conn.execute(
+            "INSERT INTO recent (song_id, played) VALUES (?,?) "
+            "ON CONFLICT(song_id) DO UPDATE SET played=excluded.played",
+            (cid, time.time()),
+        )
+        conn.commit()
     return resolve(cid)
 
 
-def listing(limit: int = 500) -> list[dict]:
-    """La lista, de lo ultimo que sono a lo mas antiguo."""
-    conn = library.connect()
-    ids = [r["song_id"] for r in conn.execute(
-        "SELECT song_id FROM recent ORDER BY played DESC LIMIT ?", (int(limit),))]
-    conn.close()
+def listing(limit: int = 500, light: bool = False) -> list[dict]:
+    """La lista, de lo ultimo que sono a lo mas antiguo.
+
+    Con una sola conexion y dos consultas: antes se resolvia cancion a
+    cancion, y eran hasta quinientas aperturas de la base por peticion. Con
+    `light`, filas ligeras (ver `library.HEAVY_COLUMNS`), que es lo que da la API.
+    """
+    with library.connect() as conn:
+        ids = [
+            r["song_id"]
+            for r in conn.execute(
+                "SELECT song_id FROM recent ORDER BY played DESC LIMIT ?", (int(limit),)
+            )
+        ]
+        inside = [i for i in ids if i > 0]
+        found: dict[int, dict] = {}
+        if inside:
+            marks = ",".join("?" * len(inside))
+            cols = library.light_columns(conn, "") if light else "*"
+            sql = f"SELECT {cols} FROM songs WHERE id IN ({marks})"  # noqa: S608
+            found.update((r["id"], dict(r)) for r in conn.execute(sql, inside))
+        found.update(by_ids(conn, ids))
+    if light:
+        found = {k: library.light(v) for k, v in found.items()}
     # Lo que ya no se puede resolver no se enseña, pero tampoco se borra: una
     # unidad desconectada no es motivo para olvidar nada.
-    return [s for s in (resolve(cid) for cid in ids) if s]
+    return [found[cid] for cid in ids if cid in found]
 
 
 def forget(cid: int) -> bool:
     """Quita una cancion de la lista. El archivo no se toca."""
-    conn = library.connect()
-    n = conn.execute("DELETE FROM recent WHERE song_id=?", (int(cid),)).rowcount
-    _sweep(conn)
-    conn.commit()
-    conn.close()
+    with library.connect() as conn:
+        n = conn.execute("DELETE FROM recent WHERE song_id=?", (int(cid),)).rowcount
+        _sweep(conn)
+        conn.commit()
     return n > 0
 
 
@@ -156,11 +223,10 @@ def clear() -> int:
     lista de reproduccion sigue ahi y se sigue oyendo: esto solo vacia la
     lista suelta del reproductor.
     """
-    conn = library.connect()
-    n = conn.execute("DELETE FROM recent").rowcount
-    _sweep(conn)
-    conn.commit()
-    conn.close()
+    with library.connect() as conn:
+        n = conn.execute("DELETE FROM recent").rowcount
+        _sweep(conn)
+        conn.commit()
     return n
 
 
@@ -177,7 +243,7 @@ def _sweep(conn) -> None:
     vivas = "SELECT -song_id FROM recent WHERE song_id<0"
     if guardadas:
         vivas += " UNION SELECT -song_id FROM playlist_songs WHERE song_id<0"
-    conn.execute(f"DELETE FROM external_songs WHERE id NOT IN ({vivas})")
+    conn.execute(f"DELETE FROM external_songs WHERE id NOT IN ({vivas})")  # noqa: S608
 
 
 def save_as_playlist(name: str) -> dict:
@@ -187,7 +253,8 @@ def save_as_playlist(name: str) -> dict:
     fuera **no se importan**: la lista las nombra por su id y siguen viviendo
     donde vivian.
     """
-    from . import playlists                     # aqui dentro, para no dar un ciclo
+    from . import playlists  # aqui dentro, para no dar un ciclo
+
     songs = listing()
     if not songs:
         raise ValueError("la lista esta vacia")

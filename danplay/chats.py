@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Las conversaciones con el asistente, guardadas en la base.
 
 Antes el historial vivia en el `localStorage` del WebView: una sola
@@ -10,8 +9,10 @@ la app, si fue narracion…), y se puede buscar en todas.
 Como las descargas, es cosa del programa y no del mp3: el escaneo no la
 toca (solo vacia `songs`).
 """
+
 import json
 import time
+
 from . import library
 
 SCHEMA = """
@@ -41,7 +42,7 @@ _KEEP = ("tools", "app", "event", "hidden", "narrated", "error", "usage", "via",
 def title_from(text: str) -> str:
     """El titulo de una conversacion sale de su primer mensaje."""
     t = " ".join(str(text or "").split())
-    return (t[:TITLE_LENGTH - 1] + "…") if len(t) > TITLE_LENGTH else t or "Conversacion"
+    return (t[: TITLE_LENGTH - 1] + "…") if len(t) > TITLE_LENGTH else t or "Conversacion"
 
 
 def _connect():
@@ -49,40 +50,41 @@ def _connect():
 
 
 def list_all(limit=200) -> list[dict]:
-    conn = _connect()
-    rows = conn.execute(
-        "SELECT c.id, c.title, c.created, c.updated, "
-        "(SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id=c.id) n "
-        "FROM chats c ORDER BY c.updated DESC LIMIT ?", (int(limit),)).fetchall()
-    conn.close()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT c.id, c.title, c.created, c.updated, "
+            "(SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id=c.id) n "
+            "FROM chats c ORDER BY c.updated DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def create(title: str = "") -> dict:
     now = time.time()
-    conn = _connect()
-    cur = conn.execute("INSERT INTO chats (title, created, updated) VALUES (?,?,?)",
-                       (title.strip(), now, now))
-    conn.commit()
-    cid = cur.lastrowid
-    conn.close()
+    with _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO chats (title, created, updated) VALUES (?,?,?)", (title.strip(), now, now)
+        )
+        conn.commit()
+        cid = cur.lastrowid
     return {"id": cid, "title": title.strip(), "created": now, "updated": now, "n": 0}
 
 
 def get(chat_id: int) -> dict | None:
-    conn = _connect()
-    row = conn.execute("SELECT * FROM chats WHERE id=?", (int(chat_id),)).fetchone()
-    if not row:
-        conn.close()
-        return None
-    rows = conn.execute("SELECT id, at, role, text, payload FROM chat_messages "
-                        "WHERE chat_id=? ORDER BY id", (int(chat_id),)).fetchall()
-    conn.close()
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM chats WHERE id=?", (int(chat_id),)).fetchone()
+        if not row:
+            return None
+        rows = conn.execute(
+            "SELECT id, at, role, text, payload FROM chat_messages WHERE chat_id=? ORDER BY id",
+            (int(chat_id),),
+        ).fetchall()
     messages = []
     for r in rows:
         try:
             extra = json.loads(r["payload"] or "{}")
-        except Exception:                                    # noqa: BLE001
+        except Exception:  # noqa: BLE001
             extra = {}
         m = {"id": r["id"], "at": r["at"], "role": r["role"], "text": r["text"]}
         m.update({k: v for k, v in extra.items() if k in _KEEP})
@@ -95,43 +97,46 @@ def get(chat_id: int) -> dict | None:
 def append(chat_id: int, messages: list[dict]) -> int:
     """Añade mensajes al final. El titulo sale del primero del usuario si la
     conversacion aun no tiene."""
-    conn = _connect()
-    row = conn.execute("SELECT title FROM chats WHERE id=?", (int(chat_id),)).fetchone()
-    if not row:
-        conn.close()
-        raise ValueError("no existe esa conversacion")
-    now = time.time()
-    title = row["title"]
-    n = 0
-    for m in messages:
-        if not isinstance(m, dict):
-            continue
-        role = str(m.get("role") or "")
-        text = str(m.get("text") or "")
-        extra = {k: m[k] for k in _KEEP if k in m and m[k] not in (None, False, "", [])}
-        conn.execute("INSERT INTO chat_messages (chat_id, at, role, text, payload) VALUES (?,?,?,?,?)",
-                     (int(chat_id), float(m.get("at") or now), role, text,
-                      json.dumps(extra, ensure_ascii=False)))
-        n += 1
-        if not title and role == "me" and not m.get("hidden") and text.strip():
-            title = title_from(text)
-    conn.execute("UPDATE chats SET updated=?, title=? WHERE id=?", (now, title, int(chat_id)))
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        row = conn.execute("SELECT title FROM chats WHERE id=?", (int(chat_id),)).fetchone()
+        if not row:
+            raise ValueError("no existe esa conversacion")
+        now = time.time()
+        title = row["title"]
+        n = 0
+        for m in messages:
+            if not isinstance(m, dict):
+                continue
+            role = str(m.get("role") or "")
+            text = str(m.get("text") or "")
+            extra = {k: m[k] for k in _KEEP if k in m and m[k] not in (None, False, "", [])}
+            conn.execute(
+                "INSERT INTO chat_messages (chat_id, at, role, text, payload) VALUES (?,?,?,?,?)",
+                (
+                    int(chat_id),
+                    float(m.get("at") or now),
+                    role,
+                    text,
+                    json.dumps(extra, ensure_ascii=False),
+                ),
+            )
+            n += 1
+            if not title and role == "me" and not m.get("hidden") and text.strip():
+                title = title_from(text)
+        conn.execute("UPDATE chats SET updated=?, title=? WHERE id=?", (now, title, int(chat_id)))
     return n
 
 
 def rename(chat_id: int, title: str) -> bool:
-    conn = _connect()
-    cur = conn.execute("UPDATE chats SET title=? WHERE id=?", (title.strip(), int(chat_id)))
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        cur = conn.execute("UPDATE chats SET title=? WHERE id=?", (title.strip(), int(chat_id)))
     return bool(cur.rowcount)
 
 
 def delete(chat_id: int) -> bool:
-    conn = _connect()
-    conn.execute("DELETE FROM chat_messages WHERE chat_id=?", (int(chat_id),))
-    cur = conn.execute("DELETE FROM chats WHERE id=?", (int(chat_id),))
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        conn.execute("DELETE FROM chat_messages WHERE chat_id=?", (int(chat_id),))
+        cur = conn.execute("DELETE FROM chats WHERE id=?", (int(chat_id),))
     return bool(cur.rowcount)
 
 
@@ -141,27 +146,43 @@ def search(query: str, limit=40) -> list[dict]:
     q = " ".join(str(query or "").split())
     if not q:
         return []
-    conn = _connect()
-    rows = conn.execute(
-        "SELECT m.id, m.chat_id, c.title, m.role, m.text, m.at FROM chat_messages m "
-        "JOIN chats c ON c.id=m.chat_id WHERE m.text LIKE ? ESCAPE '\\' AND m.role IN ('me','ai') "
-        "ORDER BY m.id DESC LIMIT ?",
-        ("%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%", int(limit))).fetchall()
-    conn.close()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT m.id, m.chat_id, c.title, m.role, m.text, m.at FROM chat_messages m "
+            "JOIN chats c ON c.id=m.chat_id WHERE m.text LIKE ? ESCAPE '\\' AND m.role IN ('me','ai') "
+            "ORDER BY m.id DESC LIMIT ?",
+            (
+                "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",
+                int(limit),
+            ),
+        ).fetchall()
     out = []
     for r in rows:
         text = r["text"]
         i = text.lower().find(q.lower())
         start = max(0, i - 60)
-        snippet = ("…" if start else "") + text[start:i + len(q) + 80] + ("…" if i + len(q) + 80 < len(text) else "")
-        out.append({"id": r["id"], "chat_id": r["chat_id"], "title": r["title"],
-                    "role": r["role"], "snippet": snippet, "at": r["at"]})
+        snippet = (
+            ("…" if start else "")
+            + text[start : i + len(q) + 80]
+            + ("…" if i + len(q) + 80 < len(text) else "")
+        )
+        out.append(
+            {
+                "id": r["id"],
+                "chat_id": r["chat_id"],
+                "title": r["title"],
+                "role": r["role"],
+                "snippet": snippet,
+                "at": r["at"],
+            }
+        )
     return out
 
 
 def export_markdown(chat_id: int) -> str | None:
     """La conversacion como texto, para llevarsela a otro sitio."""
     import datetime
+
     c = get(chat_id)
     if not c:
         return None
@@ -177,6 +198,8 @@ def export_markdown(chat_id: int) -> str | None:
         tools = m.get("tools") or []
         if tools:
             lines.append("")
-            lines.append("_" + "; ".join(f"{t.get('name')}: {t.get('summary', '')}" for t in tools) + "_")
+            lines.append(
+                "_" + "; ".join(f"{t.get('name')}: {t.get('summary', '')}" for t in tools) + "_"
+            )
         lines.append("")
     return "\n".join(lines).strip() + "\n"

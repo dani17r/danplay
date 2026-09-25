@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """TOON (Token-Oriented Object Notation): lo que devuelven las herramientas,
 en el formato que menos tokens gasta.
 
@@ -25,6 +24,7 @@ cuando hace falta, numeros y booleanos tal cual, `null` para None, listas de
 primitivos en una linea, tablas para listas de objetos iguales y planos, y
 la forma de lista con «- » para lo demas. Solo codifica: no hace falta leerlo.
 """
+
 import math
 import re
 
@@ -47,6 +47,7 @@ def encode(value, delimiter: str = ",") -> str:
 
 
 # ---------------------------------------------------------------- escalares
+
 
 def _primitive(v, delimiter: str) -> str:
     if v is None:
@@ -79,10 +80,7 @@ def _needs_quotes(s: str, delimiter: str) -> bool:
         return True
     if s[0] in "-#":
         return True
-    for ch in s:
-        if ch in ':"\\[]{}' or ch == delimiter or ord(ch) < 32 or ch == "\x7f":
-            return True
-    return False
+    return any(ch in ':"\\[]{}' or ch == delimiter or ord(ch) < 32 or ch == "\x7f" for ch in s)
 
 
 def _escape(s: str) -> str:
@@ -121,6 +119,7 @@ def _delim_mark(delimiter: str) -> str:
 
 # ----------------------------------------------------------------- objetos
 
+
 def _object_lines(obj: dict, depth: int, delimiter: str) -> list[str]:
     pad = _INDENT * depth
     lines: list[str] = []
@@ -137,6 +136,7 @@ def _object_lines(obj: dict, depth: int, delimiter: str) -> list[str]:
 
 
 # ----------------------------------------------------------------- listas
+
 
 def _tabular_fields(items: list) -> list | None:
     """Las columnas si TODOS son objetos planos con las mismas claves."""
@@ -163,11 +163,13 @@ def _array_lines(key: str, items: list, depth: int, delimiter: str) -> list[str]
     fields = _tabular_fields(items)
     if fields:
         header = delimiter.join(_key(f) for f in fields)
-        lines = [f"{pad}{head}[{n}{mark}]{{{header}}}:"]
-        for x in items:
-            lines.append(_INDENT * (depth + 1)
-                         + delimiter.join(_primitive(x[f], delimiter) for f in fields))
-        return lines
+        return [
+            f"{pad}{head}[{n}{mark}]{{{header}}}:",
+            *(
+                _INDENT * (depth + 1) + delimiter.join(_primitive(x[f], delimiter) for f in fields)
+                for x in items
+            ),
+        ]
     # forma de lista: «- » y cada elemento debajo
     lines = [f"{pad}{head}[{n}{mark}]:"]
     for x in items:
@@ -181,9 +183,9 @@ def _list_item(x, depth: int, delimiter: str) -> list[str]:
         return [f"{pad}- {_primitive(x, delimiter)}"]
     if isinstance(x, (list, tuple)):
         inner = _array_lines("", list(x), depth + 1, delimiter)
-        return [pad + "- " + inner[0].lstrip()] + inner[1:]
+        return [pad + "- " + inner[0].lstrip(), *inner[1:]]
     if not x:
         return [f"{pad}-"]
     # el primer campo va en la linea del guion; los demas alineados debajo
     inner = _object_lines(x, depth + 1, delimiter)
-    return [pad + "- " + inner[0].lstrip()] + inner[1:]
+    return [pad + "- " + inner[0].lstrip(), *inner[1:]]

@@ -1,15 +1,20 @@
-# -*- coding: utf-8 -*-
 """Listas de reproduccion, favoritos y valoraciones.
 
 Todo lo que se puede guardar dentro del archivo, se guarda ahi tambien
 (estrellas en POPM, favorito y listas en TXXX), para que la biblioteca
 siga siendo portatil aunque se pierda la base de datos.
 """
-import html, json, logging, os, time
+
+import html
+import json
+import logging
+import os
+import time
 from pathlib import Path
+
 from . import external, library, names, tags, theory
 
-log = logging.getLogger("danplay")
+log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS playlists (
@@ -27,6 +32,9 @@ CREATE TABLE IF NOT EXISTS playlist_songs (
     PRIMARY KEY (playlist_id, song_id)
 );
 CREATE INDEX IF NOT EXISTS i_lc ON playlist_songs(playlist_id, position);
+-- «¿en que listas esta esta cancion?» (la ficha, las etiquetas LISTAS, el
+-- escaneo): sin esto era recorrer la tabla entera por cada cancion
+CREATE INDEX IF NOT EXISTS i_playlist_songs_song ON playlist_songs(song_id);
 """
 
 
@@ -43,6 +51,7 @@ def _connect():
 
 # ---------------------------------------------------------------- listas
 
+
 def create(name, note="", color="") -> dict:
     """Crea la lista, o devuelve la que ya habia con ese nombre.
 
@@ -51,45 +60,51 @@ def create(name, note="", color="") -> dict:
     asi que el asistente «creaba» una lista y en realidad añadia a otra.
     """
     name = str(name or "").strip()
-    conn = _connect()
-    row = conn.execute("SELECT id FROM playlists WHERE name=?", (name,)).fetchone()
-    if row:
-        conn.close()
-        return {"id": row["id"], "name": name, "created": False}
-    cur = conn.execute("INSERT INTO playlists (name,note,color,created) "
-                       "VALUES (?,?,?,?)", (name, note, color, time.time()))
-    library._touch()
-    lid = cur.lastrowid
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        row = conn.execute("SELECT id FROM playlists WHERE name=?", (name,)).fetchone()
+        if row:
+            return {"id": row["id"], "name": name, "created": False}
+        cur = conn.execute(
+            "INSERT INTO playlists (name,note,color,created) VALUES (?,?,?,?)",
+            (name, note, color, time.time()),
+        )
+        library._touch()
+        lid = cur.lastrowid
     return {"id": lid, "name": name, "created": True}
 
 
 def remove(playlist_id) -> None:
-    conn = _connect()
-    members = [r["song_id"] for r in conn.execute(
-        "SELECT song_id FROM playlist_songs WHERE playlist_id=?", (playlist_id,))]
-    conn.execute("DELETE FROM playlist_songs WHERE playlist_id=?", (playlist_id,))
-    conn.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        members = [
+            r["song_id"]
+            for r in conn.execute(
+                "SELECT song_id FROM playlist_songs WHERE playlist_id=?", (playlist_id,)
+            )
+        ]
+        conn.execute("DELETE FROM playlist_songs WHERE playlist_id=?", (playlist_id,))
+        conn.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
     library._touch()
     # los archivos dejan de nombrar la lista: si no, un reescaneo la resucitaria
     _stamp_playlists_into_files(members)
 
 
 def rename_folder(playlist_id, name) -> None:
-    conn = _connect()
-    conn.execute("UPDATE playlists SET name=? WHERE id=?", (name, playlist_id))
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        conn.execute("UPDATE playlists SET name=? WHERE id=?", (name, playlist_id))
     library._touch()
 
 
 def by_id(playlist_id) -> dict | None:
-    """La lista con ese id, con cuantos temas tiene, o None."""
+    """La lista con ese id, con cuantos temas tiene, o None.
+
+    Solo esa: antes se calculaba `list_all()` entero (con la suma de
+    duraciones de todas las listas) para quedarse con una."""
     try:
         playlist_id = int(playlist_id)
     except (TypeError, ValueError):
         return None
-    return next((l for l in list_all() if l["id"] == playlist_id), None)
+    found = _summaries("WHERE l.id=?", (playlist_id,))
+    return found[0] if found else None
 
 
 def by_name(name: str) -> dict | None:
@@ -101,7 +116,10 @@ def by_name(name: str) -> dict | None:
     key = names._flat(str(name or ""))
     if not key:
         return None
-    return next((l for l in list_all() if names._flat(l["name"]) == key), None)
+    with _connect() as conn:
+        rows = conn.execute("SELECT id, name FROM playlists ORDER BY name").fetchall()
+    match = next((r["id"] for r in rows if names._flat(r["name"]) == key), None)
+    return by_id(match) if match is not None else None
 
 
 def edit(playlist_id, name=None, note=None) -> dict | None:
@@ -111,14 +129,17 @@ def edit(playlist_id, name=None, note=None) -> dict | None:
         return None
     fields, values = [], []
     if name is not None and str(name).strip():
-        fields.append("name=?"); values.append(str(name).strip())
+        fields.append("name=?")
+        values.append(str(name).strip())
     if note is not None:
-        fields.append("note=?"); values.append(str(note))
+        fields.append("note=?")
+        values.append(str(note))
     if fields:
-        conn = _connect()
-        conn.execute(f"UPDATE playlists SET {','.join(fields)} WHERE id=?",
-                     values + [current["id"]])
-        conn.commit(); conn.close()
+        with _connect() as conn:
+            conn.execute(
+                f"UPDATE playlists SET {','.join(fields)} WHERE id=?",  # noqa: S608
+                [*values, current["id"]],
+            )
         library._touch()
         if name is not None:
             # las canciones llevan dentro los nombres de sus listas
@@ -143,7 +164,12 @@ def set_songs(playlist_id, song_ids) -> dict:
 
 
 def list_all() -> list[dict]:
-    conn = _connect()
+    return _summaries()
+
+
+def _summaries(where: str = "", params: tuple = ()) -> list[dict]:
+    """Las listas con cuantos temas tienen y cuanto duran (`where` filtra;
+    lo escribe este modulo, nunca viene de fuera)."""
     # La duracion suma las dos procedencias: las de la biblioteca y las de
     # fuera. Con un solo JOIN a `songs`, una lista guardada desde el
     # reproductor salia con «0 min» aunque tuviera veinte canciones.
@@ -152,16 +178,18 @@ def list_all() -> list[dict]:
     # sigue en `playlist_songs` (para volver a su sitio si el archivo vuelve,
     # ver library._to_missing), pero la lista no la muestra y el numero decia
     # «4» con tres.
-    rows = conn.execute(
-        "SELECT l.*, (SELECT COUNT(*) FROM playlist_songs lc WHERE lc.playlist_id=l.id "
-        " AND (EXISTS (SELECT 1 FROM songs c WHERE c.id=lc.song_id) "
-        "      OR EXISTS (SELECT 1 FROM external_songs e WHERE e.id=-lc.song_id))) n, "
-        "(SELECT COALESCE(SUM(c.duration),0) FROM playlist_songs lc "
-        " JOIN songs c ON c.id=lc.song_id WHERE lc.playlist_id=l.id) "
-        "+ (SELECT COALESCE(SUM(e.duration),0) FROM playlist_songs lc "
-        "   JOIN external_songs e ON e.id=-lc.song_id WHERE lc.playlist_id=l.id) seconds "
-        "FROM playlists l ORDER BY l.name").fetchall()
-    conn.close()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT l.*, (SELECT COUNT(*) FROM playlist_songs lc WHERE lc.playlist_id=l.id "  # noqa: S608
+            " AND (EXISTS (SELECT 1 FROM songs c WHERE c.id=lc.song_id) "
+            "      OR EXISTS (SELECT 1 FROM external_songs e WHERE e.id=-lc.song_id))) n, "
+            "(SELECT COALESCE(SUM(c.duration),0) FROM playlist_songs lc "
+            " JOIN songs c ON c.id=lc.song_id WHERE lc.playlist_id=l.id) "
+            "+ (SELECT COALESCE(SUM(e.duration),0) FROM playlist_songs lc "
+            "   JOIN external_songs e ON e.id=-lc.song_id WHERE lc.playlist_id=l.id) seconds "
+            f"FROM playlists l {where} ORDER BY l.name",
+            params,
+        ).fetchall()
     return [dict(f) for f in rows]
 
 
@@ -179,19 +207,26 @@ def existing_ids(song_ids) -> list[int]:
             continue
     if not wanted:
         return []
-    conn = _connect()
-    found: set = set()
-    inside = [i for i in wanted if i > 0]
-    if inside:
-        found |= {r["id"] for r in conn.execute(
-            f"SELECT id FROM songs WHERE id IN ({','.join('?' * len(inside))})", inside)}
-    outside = [-i for i in wanted if i < 0]
-    if outside and conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='external_songs'").fetchone():
-        found |= {-r["id"] for r in conn.execute(
-            f"SELECT id FROM external_songs WHERE id IN ({','.join('?' * len(outside))})",
-            outside)}
-    conn.close()
+    with _connect() as conn:
+        found: set = set()
+        inside = [i for i in wanted if i > 0]
+        if inside:
+            sql = f"SELECT id FROM songs WHERE id IN ({','.join('?' * len(inside))})"  # noqa: S608
+            found |= {r["id"] for r in conn.execute(sql, inside)}
+        outside = [-i for i in wanted if i < 0]
+        if (
+            outside
+            and conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='external_songs'"
+            ).fetchone()
+        ):
+            found |= {
+                -r["id"]
+                for r in conn.execute(
+                    f"SELECT id FROM external_songs WHERE id IN ({','.join('?' * len(outside))})",  # noqa: S608
+                    outside,
+                )
+            }
     seen: set = set()
     out = []
     for i in wanted:
@@ -210,19 +245,23 @@ def add(playlist_id, song_ids) -> int:
     song_ids = existing_ids(song_ids)
     if not song_ids:
         return 0
-    conn = _connect()
-    row = conn.execute("SELECT COALESCE(MAX(position),-1) m FROM playlist_songs "
-                       "WHERE playlist_id=?", (playlist_id,)).fetchone()
-    sort = row["m"] + 1
-    n = 0
-    for cid in song_ids:
-        cur = conn.execute("INSERT OR IGNORE INTO playlist_songs VALUES (?,?,?,?)",
-                          (playlist_id, cid, sort, time.time()))
-        # las que ya estaban no cuentan: si no, la app decia «Añadida a la
-        # lista» aunque no hubiera añadido nada
-        if cur.rowcount:
-            sort += 1; n += 1
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(position),-1) m FROM playlist_songs WHERE playlist_id=?",
+            (playlist_id,),
+        ).fetchone()
+        sort = row["m"] + 1
+        n = 0
+        for cid in song_ids:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO playlist_songs VALUES (?,?,?,?)",
+                (playlist_id, cid, sort, time.time()),
+            )
+            # las que ya estaban no cuentan: si no, la app decia «Añadida a la
+            # lista» aunque no hubiera añadido nada
+            if cur.rowcount:
+                sort += 1
+                n += 1
     if n:
         library._touch()
     _stamp_playlists_into_files(song_ids)
@@ -232,56 +271,67 @@ def add(playlist_id, song_ids) -> int:
 def remove_song(playlist_id, song_ids) -> None:
     if isinstance(song_ids, int):
         song_ids = [song_ids]
-    conn = _connect()
-    for cid in song_ids:
-        conn.execute("DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?",
-                    (playlist_id, cid))
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        for cid in song_ids:
+            conn.execute(
+                "DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?", (playlist_id, cid)
+            )
     library._touch()
     _stamp_playlists_into_files(song_ids)
 
 
 def reorder(playlist_id, ordered_song_ids) -> None:
-    conn = _connect()
-    for i, cid in enumerate(ordered_song_ids):
-        conn.execute("UPDATE playlist_songs SET position=? WHERE playlist_id=? AND song_id=?",
-                    (i, playlist_id, cid))
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        for i, cid in enumerate(ordered_song_ids):
+            conn.execute(
+                "UPDATE playlist_songs SET position=? WHERE playlist_id=? AND song_id=?",
+                (i, playlist_id, cid),
+            )
     library._touch()
 
 
-def songs(playlist_id) -> list[dict]:
+def songs(playlist_id, light: bool = False) -> list[dict]:
     """Las canciones de la lista, en su orden.
 
     Una lista puede llevar canciones de la biblioteca (id positivo) y
     canciones de fuera de ella (id negativo, ver `external.py`), asi que no
     vale el JOIN con `songs` de toda la vida: las de fuera se caian por el
-    camino sin decir nada.
+    camino sin decir nada. Con `light`, filas ligeras (lo que da la API).
     """
-    conn = _connect()
-    order = conn.execute(
-        "SELECT song_id, position FROM playlist_songs WHERE playlist_id=? "
-        "ORDER BY position", (playlist_id,)).fetchall()
-    inside = {r["id"]: dict(r) for r in conn.execute(
-        "SELECT c.* FROM playlist_songs lc JOIN songs c ON c.id=lc.song_id "
-        "WHERE lc.playlist_id=?", (playlist_id,)).fetchall()}
-    conn.close()
+    with _connect() as conn:
+        order = conn.execute(
+            "SELECT song_id, position FROM playlist_songs WHERE playlist_id=? ORDER BY position",
+            (playlist_id,),
+        ).fetchall()
+        cols = library.light_columns(conn) if light else "c.*"
+        inside = {
+            r["id"]: dict(r)
+            for r in conn.execute(
+                f"SELECT {cols} FROM playlist_songs lc JOIN songs c ON c.id=lc.song_id "  # noqa: S608
+                "WHERE lc.playlist_id=?",
+                (playlist_id,),
+            ).fetchall()
+        }
+        outside = external.by_ids(conn, [r["song_id"] for r in order])
 
     out = []
     for r in order:
         cid = r["song_id"]
-        song = inside.get(cid) if cid > 0 else external.by_id(cid)
-        if song:                       # si el archivo ya no esta, no se enseña
+        song = inside.get(cid) if cid > 0 else outside.get(cid)
+        if song:  # si el archivo ya no esta, no se enseña
+            if light:
+                song = library.light(song)
             out.append({**song, "position": r["position"]})
     return out
 
 
 def playlists_of(song_id) -> list[str]:
-    conn = _connect()
-    rows = conn.execute("SELECT l.name FROM playlist_songs lc JOIN playlists l "
-                        "ON l.id=lc.playlist_id WHERE lc.song_id=? ORDER BY l.name",
-                        (song_id,)).fetchall()
-    conn.close()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT l.name FROM playlist_songs lc JOIN playlists l "
+            "ON l.id=lc.playlist_id WHERE lc.song_id=? ORDER BY l.name",
+            (song_id,),
+        ).fetchall()
     return [f["name"] for f in rows]
 
 
@@ -300,34 +350,33 @@ def _stamp_playlists_into_files(song_ids) -> None:
     if not song_ids:
         return
     placeholders = ",".join("?" * len(song_ids))
-    conn = _connect()
-    paths = {r["id"]: r["path"] for r in conn.execute(
-        f"SELECT id, path FROM songs WHERE id IN ({placeholders})", song_ids)}
-    lists: dict = {}
-    for r in conn.execute(
-            f"SELECT lc.song_id id, l.name name FROM playlist_songs lc "
+    with _connect() as conn:
+        sql = f"SELECT id, path FROM songs WHERE id IN ({placeholders})"  # noqa: S608
+        paths = {r["id"]: r["path"] for r in conn.execute(sql, song_ids)}
+        lists: dict = {}
+        for r in conn.execute(
+            f"SELECT lc.song_id id, l.name name FROM playlist_songs lc "  # noqa: S608
             f"JOIN playlists l ON l.id=lc.playlist_id "
-            f"WHERE lc.song_id IN ({placeholders}) ORDER BY l.name", song_ids):
-        lists.setdefault(r["id"], []).append(r["name"])
-    conn.close()
+            f"WHERE lc.song_id IN ({placeholders}) ORDER BY l.name",
+            song_ids,
+        ):
+            lists.setdefault(r["id"], []).append(r["name"])
     for cid in song_ids:
         path = paths.get(cid)
-        if path and os.path.exists(path):
-            if not tags.set_playlists(path, lists.get(cid, [])):
-                log.warning("no se pudo apuntar las listas dentro de %s", path)
+        if path and os.path.exists(path) and not tags.set_playlists(path, lists.get(cid, [])):
+            log.warning("no se pudo apuntar las listas dentro de %s", path)
 
 
 # ------------------------------------------------------- estrellas y favoritos
+
 
 def rate(song_id, stars: int) -> bool:
     c = library.by_id(song_id)
     if not c:
         return False
     ok = tags.rate(c["path"], stars)
-    conn = _connect()
-    conn.execute("UPDATE songs SET stars=? WHERE id=?",
-                (max(0, min(5, int(stars))), song_id))
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        conn.execute("UPDATE songs SET stars=? WHERE id=?", (max(0, min(5, int(stars))), song_id))
     library._touch()
     return ok
 
@@ -337,25 +386,41 @@ def favorite(song_id, value=True) -> bool:
     if not c:
         return False
     ok = tags.set_favorite(c["path"], value)
-    conn = _connect()
-    conn.execute("UPDATE songs SET favorite=? WHERE id=?", (1 if value else 0, song_id))
-    conn.commit(); conn.close()
+    with _connect() as conn:
+        conn.execute("UPDATE songs SET favorite=? WHERE id=?", (1 if value else 0, song_id))
     library._touch()
     return ok
 
 
 def favorites() -> list[dict]:
-    conn = _connect()
-    rows = conn.execute("SELECT * FROM songs WHERE favorite=1 "
-                        "ORDER BY artist, title").fetchall()
-    conn.close()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM songs WHERE favorite=1 ORDER BY artist, title"
+        ).fetchall()
     return [dict(f) for f in rows]
+
+
+def favorites_count() -> int:
+    """Cuantas favoritas hay. Para el numero del menu no hace falta traerse
+    las filas enteras, con su letra y sus acordes."""
+    with _connect() as conn:
+        return conn.execute("SELECT COUNT(*) FROM songs WHERE favorite=1").fetchone()[0] or 0
 
 
 # ---------------------------------------------------------------- m3u
 
+
 def export_folder() -> Path:
     return library.config.LIBRARY / "Listas"
+
+
+def _listas(folder: Path) -> None:
+    """Crea Listas/ si hace falta; si la carpeta de musica ya no esta (se
+    movio), no la hace reaparecer vacia: se dice (ver library.ensure_folder)."""
+    try:
+        library.ensure_folder(folder)
+    except library.FolderGone as e:
+        raise ValueError(str(e)) from e
 
 
 def export_m3u(playlist_id, target=None) -> str:
@@ -367,9 +432,8 @@ def export_m3u(playlist_id, target=None) -> str:
     Un nombre que no de un archivo valido, o un `target` fuera de la
     carpeta, levantan ValueError.
     """
-    conn = _connect()
-    row = conn.execute("SELECT name FROM playlists WHERE id=?", (playlist_id,)).fetchone()
-    conn.close()
+    with _connect() as conn:
+        row = conn.execute("SELECT name FROM playlists WHERE id=?", (playlist_id,)).fetchone()
     if not row:
         raise ValueError("no existe esa lista")
     folder = export_folder()
@@ -379,7 +443,7 @@ def export_m3u(playlist_id, target=None) -> str:
             raise ValueError("el nombre de la lista no sirve como nombre de archivo")
         target = folder / f"{safe}.m3u8"
     target = Path(target)
-    folder.mkdir(parents=True, exist_ok=True)
+    _listas(folder)
     if not library._inside(target.parent, folder) or target.name in ("", ".", ".."):
         raise ValueError("la lista solo se exporta dentro de la carpeta Listas")
     lines = ["#EXTM3U"]
@@ -392,9 +456,8 @@ def export_m3u(playlist_id, target=None) -> str:
 
 def _sheet_target(playlist_id, suffix) -> tuple[Path, str]:
     """Donde va un archivo exportado de la lista, dentro de Listas/, y su nombre."""
-    conn = _connect()
-    row = conn.execute("SELECT name FROM playlists WHERE id=?", (playlist_id,)).fetchone()
-    conn.close()
+    with _connect() as conn:
+        row = conn.execute("SELECT name FROM playlists WHERE id=?", (playlist_id,)).fetchone()
     if not row:
         raise ValueError("no existe esa lista")
     folder = export_folder()
@@ -402,7 +465,7 @@ def _sheet_target(playlist_id, suffix) -> tuple[Path, str]:
     if not safe or safe in (".", "..") or ".." in safe.split():
         raise ValueError("el nombre de la lista no sirve como nombre de archivo")
     target = folder / f"{safe}{suffix}"
-    folder.mkdir(parents=True, exist_ok=True)
+    _listas(folder)
     if not library._inside(target.parent, folder):
         raise ValueError("la lista solo se exporta dentro de la carpeta Listas")
     return target, str(row["name"])
@@ -413,7 +476,7 @@ def _sheet_chords(c: dict) -> dict:
     raw = c.get("chords") or ""
     try:
         d = json.loads(raw) if raw else {}
-    except Exception:                                        # noqa: BLE001
+    except Exception:  # noqa: BLE001
         d = {}
     return d if isinstance(d, dict) else {}
 
@@ -421,6 +484,24 @@ def _sheet_chords(c: dict) -> dict:
 def _mmss(seconds) -> str:
     m, s = divmod(int(seconds or 0), 60)
     return f"{m}:{s:02d}"
+
+
+# El aspecto de la hoja: legible en pantalla e imprimible (la letra a dos
+# columnas en pantalla, a una en papel).
+_SHEET_CSS = (
+    "body{font-family:system-ui,sans-serif;max-width:800px;margin:24px auto;padding:0 16px;"
+    "color:#111}"
+    "h1{font-size:22px;margin:0 0 4px}.meta{color:#666;font-size:13px;margin-bottom:18px}"
+    "ol{padding-left:22px}li{margin:0 0 14px;page-break-inside:avoid}"
+    ".t{font-weight:600}.k{display:inline-block;margin-left:8px;padding:1px 7px;"
+    "border:1px solid #999;border-radius:4px;font-size:12px}"
+    ".sub{color:#555;font-size:12.5px;margin-top:2px}.chords{font-family:ui-monospace,monospace;"
+    "font-size:12.5px;white-space:pre-wrap;margin:4px 0 0;padding:6px 8px;background:#f4f4f4;"
+    "border-radius:4px}"
+    ".lyrics{white-space:pre-wrap;font-size:12.5px;margin:6px 0 0;column-width:300px;"
+    "column-gap:24px}"
+    "@media print{body{margin:0}.lyrics{column-width:auto}}"
+)
 
 
 def export_sheet(playlist_id, with_lyrics=False) -> str:
@@ -433,42 +514,42 @@ def export_sheet(playlist_id, with_lyrics=False) -> str:
     target, title = _sheet_target(playlist_id, ".html")
     rows = songs(playlist_id)
     e = html.escape
-    parts = [f"<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
-             f"<title>{e(title)}</title><style>"
-             "body{font-family:system-ui,sans-serif;max-width:800px;margin:24px auto;padding:0 16px;color:#111}"
-             "h1{font-size:22px;margin:0 0 4px}.meta{color:#666;font-size:13px;margin-bottom:18px}"
-             "ol{padding-left:22px}li{margin:0 0 14px;page-break-inside:avoid}"
-             ".t{font-weight:600}.k{display:inline-block;margin-left:8px;padding:1px 7px;border:1px solid #999;border-radius:4px;font-size:12px}"
-             ".sub{color:#555;font-size:12.5px;margin-top:2px}.chords{font-family:ui-monospace,monospace;font-size:12.5px;"
-             "white-space:pre-wrap;margin:4px 0 0;padding:6px 8px;background:#f4f4f4;border-radius:4px}"
-             ".lyrics{white-space:pre-wrap;font-size:12.5px;margin:6px 0 0;column-width:300px;column-gap:24px}"
-             "@media print{body{margin:0}.lyrics{column-width:auto}}"
-             "</style></head><body>",
-             f"<h1>{e(title)}</h1><div class=\"meta\">{len(rows)} canciones · "
-             f"{_mmss(sum(float(c.get('duration') or 0) for c in rows))} · "
-             f"{time.strftime('%d/%m/%Y')}</div><ol>"]
+    total = _mmss(sum(float(c.get("duration") or 0) for c in rows))
+    parts = [
+        (
+            f'<!doctype html><html lang="es"><head><meta charset="utf-8">'
+            f"<title>{e(title)}</title><style>{_SHEET_CSS}</style></head><body>"
+        ),
+        (
+            f'<h1>{e(title)}</h1><div class="meta">{len(rows)} canciones · '
+            f"{total} · {time.strftime('%d/%m/%Y')}</div><ol>"
+        ),
+    ]
     for c in rows:
         key = str(c.get("key") or "").strip()
-        head = f"<span class=\"t\">{e(c.get('artist') or '')} - {e(c.get('title') or '')}</span>"
+        head = f'<span class="t">{e(c.get("artist") or "")} - {e(c.get("title") or "")}</span>'
         if key:
-            head += f"<span class=\"k\">{e(key)} · {e(theory.to_latin(key))}</span>"
+            head += f'<span class="k">{e(key)} · {e(theory.to_latin(key))}</span>'
         sub = []
         if c.get("bpm"):
-            sub.append(f"{int(round(float(c['bpm'])))} bpm")
+            sub.append(f"{round(float(c['bpm']))} bpm")
         sub.append(_mmss(c.get("duration")))
         capo = theory.suggested_capo(key) if key else []
         if capo:
             sub.append("cejilla " + ", ".join(f"{f} ({sh})" for f, sh in capo[:3]))
-        item = f"<li>{head}<div class=\"sub\">{e(' · '.join(sub))}</div>"
+        item = f'<li>{head}<div class="sub">{e(" · ".join(sub))}</div>'
         d = _sheet_chords(c)
         sections = d.get("section_chords") or {}
-        lines = [f"{k}: {v}" for k, v in sections.items() if v] if isinstance(sections, dict) else []
+        lines = (
+            [f"{k}: {v}" for k, v in sections.items() if v] if isinstance(sections, dict) else []
+        )
         if not lines and d.get("progression"):
             lines = [str(d["progression"])]
         if lines:
-            item += f"<div class=\"chords\">{e(chr(10).join(lines))}</div>"
+            item += f'<div class="chords">{e(chr(10).join(lines))}</div>'
         if with_lyrics and c.get("lyrics"):
-            item += f"<div class=\"lyrics\">{e(str(c['lyrics']))}</div>"
+            # sin las marcas de tiempo, si el archivo trae una LRC en el USLT
+            item += f'<div class="lyrics">{e(tags.lrc_to_plain(str(c["lyrics"])))}</div>'
         parts.append(item + "</li>")
     parts.append("</ol></body></html>")
     target.write_text("".join(parts), encoding="utf-8")
@@ -481,14 +562,13 @@ def import_m3u(path) -> int:
     lid = create(path.stem)["id"]
     base = path.parent
     ids = []
-    conn = _connect()
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        p = str((base / line).resolve()) if not os.path.isabs(line) else line
-        f = conn.execute("SELECT id FROM songs WHERE path=?", (p,)).fetchone()
-        if f:
-            ids.append(f["id"])
-    conn.close()
+    with _connect() as conn:
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            p = str((base / line).resolve()) if not os.path.isabs(line) else line
+            f = conn.execute("SELECT id FROM songs WHERE path=?", (p,)).fetchone()
+            if f:
+                ids.append(f["id"])
     return add(lid, ids) if ids else 0

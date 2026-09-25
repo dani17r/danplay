@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Enriquecimiento: letra, portada, acordes, metadata y artistas implicados.
 
 Fuentes, en orden de preferencia:
@@ -7,10 +6,18 @@ Fuentes, en orden de preferencia:
   acordes  -> IA (aproximados) + transposicion deterministica
   metadata -> MusicBrainz -> IA
 """
-import json, logging, re, urllib.parse, urllib.request
+
+import json
+import logging
+import re
+import urllib.parse
+import urllib.request
+from collections.abc import Mapping
+from typing import Any
+
 from . import ai, convert, library, tags, theory
 
-log = logging.getLogger("danplay.enrich")
+log = logging.getLogger(__name__)
 
 USER_AGENT = "DanPlay/0.1 (gestor de biblioteca personal)"
 TIMEOUT = 15
@@ -19,9 +26,11 @@ TIMEOUT = 15
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 # Los primeros bytes de cada formato. Una pagina HTML de error devuelta con
 # `Content-Type: image/jpeg` no pasa de aqui.
-MAGIC = ((b"\xff\xd8\xff", "image/jpeg"),
-         (b"\x89PNG\r\n\x1a\n", "image/png"),
-         (b"RIFF", "image/webp"))
+MAGIC = (
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"RIFF", "image/webp"),
+)
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 
 
@@ -52,31 +61,49 @@ def image_type(data: bytes) -> str:
 
 # ---------------------------------------------------------------- letra
 
-def lyrics_lrclib(artist, title, album="", duration=0) -> dict | None:
+# La letra limpia, sin las marcas de un LRC (vive en `tags`, que es donde se
+# decide que va en el USLT).
+lrc_to_plain = tags.lrc_to_plain
+
+
+def _lrclib_result(d) -> dict | None:
+    """Lo que interesa de una respuesta de LRCLIB: la letra limpia y la LRC."""
+    if not isinstance(d, dict):
+        return None
+    synced = str(d.get("syncedLyrics") or "")
+    plain = str(d.get("plainLyrics") or "") or lrc_to_plain(synced)
+    if not plain and not synced:
+        return None
+    return {"lyrics": plain, "synced": synced, "source": "lrclib"}
+
+
+def lyrics_lrclib(artist, title, album="", duration: float = 0) -> dict | None:
     """LRCLIB devuelve letra plana y sincronizada (.lrc). Sin clave de API."""
     p = {"artist_name": artist, "track_name": title}
-    if album:   p["album_name"] = album
-    if duration: p["duration"] = int(duration)
+    if album:
+        p["album_name"] = album
+    if duration:
+        p["duration"] = int(duration)
     try:
-        d = _get("https://lrclib.net/api/get?" + urllib.parse.urlencode(p))
-        if d.get("plainLyrics") or d.get("syncedLyrics"):
-            return {"lyrics": d.get("plainLyrics") or "", "synced": d.get("syncedLyrics") or "",
-                    "source": "lrclib"}
+        found = _lrclib_result(_get("https://lrclib.net/api/get?" + urllib.parse.urlencode(p)))
+        if found:
+            return found
     except Exception:
-        pass
+        log.debug("LRCLIB no tiene %s - %s", artist, title, exc_info=True)
     try:  # busqueda difusa
-        d = _get("https://lrclib.net/api/search?" +
-                 urllib.parse.urlencode({"q": f"{artist} {title}"}))
-        for r in (d or [])[:3]:
-            if r.get("plainLyrics") or r.get("syncedLyrics"):
-                return {"lyrics": r.get("plainLyrics") or "",
-                        "synced": r.get("syncedLyrics") or "", "source": "lrclib"}
+        d = _get(
+            "https://lrclib.net/api/search?" + urllib.parse.urlencode({"q": f"{artist} {title}"})
+        )
+        for r in (d if isinstance(d, list) else [])[:3]:
+            found = _lrclib_result(r)
+            if found:
+                return found
     except Exception:
-        pass
+        log.debug("la busqueda en LRCLIB fallo para %s - %s", artist, title, exc_info=True)
     return None
 
 
-def lyrics(artist, title, album="", duration=0, permitir_ia=True) -> dict | None:
+def lyrics(artist, title, album="", duration: float = 0, permitir_ia=True) -> dict | None:
     r = lyrics_lrclib(artist, title, album, duration)
     if r:
         return r
@@ -84,13 +111,16 @@ def lyrics(artist, title, album="", duration=0, permitir_ia=True) -> dict | None
         d = ai.ask(
             f"Letra completa de la cancion '{title}' de {artist}. "
             "Si no la conoces con certeza, responde exactamente NO_LA_SE. "
-            "Devuelve solo la letra, sin comentarios.", max_tokens=1500)
+            "Devuelve solo la letra, sin comentarios.",
+            max_tokens=1500,
+        )
         if d and "NO_LA_SE" not in d.upper() and len(d) > 80:
             return {"lyrics": d.strip(), "synced": "", "source": "ai"}
     return None
 
 
 # ---------------------------------------------------------------- portada
+
 
 def _cover_queries(artist, title, album) -> list[str]:
     """Consultas a probar, de la mas precisa a la mas suelta.
@@ -121,7 +151,7 @@ def _fetch_image(url: str) -> tuple[bytes, str] | None:
     """
     try:
         data = _get(url, binary=True)
-    except Exception:                                        # noqa: BLE001
+    except Exception:
         log.warning("no pude bajar la caratula %s", url, exc_info=True)
         return None
     kind = image_type(data)
@@ -135,9 +165,11 @@ def cover(artist, title, album="") -> tuple[bytes, str] | None:
     """Busca caratula. iTunes primero (rapido, sin clave), luego Cover Art Archive."""
     for query in _cover_queries(artist, title, album):
         try:
-            d = _get("https://itunes.apple.com/search?" + urllib.parse.urlencode(
-                {"term": query, "entity": "song", "limit": 5}))
-        except Exception:                                    # noqa: BLE001
+            d = _get(
+                "https://itunes.apple.com/search?"
+                + urllib.parse.urlencode({"term": query, "entity": "song", "limit": 5})
+            )
+        except Exception:
             log.warning("iTunes no contesto para %r", query, exc_info=True)
             continue
         for r in d.get("results", []):
@@ -148,10 +180,17 @@ def cover(artist, title, album="") -> tuple[bytes, str] | None:
             if got:
                 return got
     try:
-        d = _get("https://musicbrainz.org/ws/2/release/?" + urllib.parse.urlencode(
-            {"query": f'artist:"{artist}" AND release:"{album or title}"',
-             "fmt": "json", "limit": 3}))
-    except Exception:                                        # noqa: BLE001
+        d = _get(
+            "https://musicbrainz.org/ws/2/release/?"
+            + urllib.parse.urlencode(
+                {
+                    "query": f'artist:"{artist}" AND release:"{album or title}"',
+                    "fmt": "json",
+                    "limit": 3,
+                }
+            )
+        )
+    except Exception:
         log.warning("MusicBrainz no contesto", exc_info=True)
         return None
     for rel in d.get("releases", []):
@@ -166,16 +205,19 @@ def cover(artist, title, album="") -> tuple[bytes, str] | None:
 
 # ---------------------------------------------------------------- IA
 
-def details(song: dict) -> dict | None:
+
+def details(song: Mapping[str, Any]) -> dict | None:
     """Acordes, artistas implicados, album, año, genero y contexto."""
     if not ai.available():
         return None
-    meta = (f"Artista: {song.get('artist','?')}\n"
-             f"Titulo: {song.get('title','?')}\n"
-             f"Album: {song.get('album','') or '?'}\n"
-             f"Duracion: {int(song.get('duration',0)//60)}:{int(song.get('duration',0)%60):02d}\n"
-             f"Tono detectado: {song.get('key','') or 'sin analizar'}\n"
-             f"BPM detectado: {song.get('bpm',0) or 'sin analizar'}")
+    meta = (
+        f"Artista: {song.get('artist', '?')}\n"
+        f"Titulo: {song.get('title', '?')}\n"
+        f"Album: {song.get('album', '') or '?'}\n"
+        f"Duracion: {int(song.get('duration', 0) // 60)}:{int(song.get('duration', 0) % 60):02d}\n"
+        f"Tono detectado: {song.get('key', '') or 'sin analizar'}\n"
+        f"BPM detectado: {song.get('bpm', 0) or 'sin analizar'}"
+    )
     schema = """Devuelve SOLO un JSON con esta forma, con las claves EXACTAS en ingles:
 {
  "album": "", "year": "", "genre": "", "composers": "",
@@ -193,11 +235,12 @@ progression vacia y confidence baja. Nunca inventes datos con confidence alta.
 MUY IMPORTANTE: lo que no sepas va como cadena VACIA "". Nunca escribas
 "desconocido", "n/a", "varios" ni nada parecido: eso ensucia la ficha y hace
 creer que el dato ya esta. El año son cuatro cifras o nada."""
-    return ai.ask_json(f"{schema}\n\nCancion:\n{meta}",
-                       "Eres un musico de sesion y catalogador musical.")
+    return ai.ask_json(
+        f"{schema}\n\nCancion:\n{meta}", "Eres un musico de sesion y catalogador musical."
+    )
 
 
-def cached_details(song: dict) -> dict | None:
+def cached_details(song: Mapping[str, Any]) -> dict | None:
     """La ficha guardada en el archivo, si merece la pena. Una respuesta
     vacia (sin tono ni acordes y con confianza baja) no se reutiliza: la dio
     un modelo que no conocia la cancion, y con otro mejor —o el mismo otro
@@ -207,23 +250,32 @@ def cached_details(song: dict) -> dict | None:
         return None
     try:
         d = json.loads(raw)
-    except Exception:                                        # noqa: BLE001
+    except ValueError:
         return None
     if not isinstance(d, dict):
         return None
-    useful = bool(d.get("progression") or d.get("likely_key")
-                  or float(d.get("confidence") or 0) >= 0.5)
+    useful = bool(d.get("progression") or d.get("likely_key") or _confidence(d) >= 0.5)
     return d if useful else None
 
 
-def details_for(song: dict) -> tuple[dict | None, bool]:
+def _confidence(d: dict) -> float:
+    """La confianza que dio la IA, como numero (a veces llega «alta» o nada)."""
+    try:
+        return float(d.get("confidence") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def details_for(song: Mapping[str, Any]) -> tuple[dict | None, bool]:
     """Los detalles de una cancion: los guardados si valen, y si no, se
     piden a la IA y se guardan. Devuelve (detalles, venian_guardados)."""
     cached = cached_details(song)
     if cached:
         return cached, True
     d = details(song)
-    if d and not d.get("error"):
+    if not isinstance(d, dict):
+        return None, False
+    if not d.get("error"):
         library.update(song["id"], chords=json.dumps(d, ensure_ascii=False))
     return d, False
 
@@ -233,9 +285,26 @@ FILLABLE = ("album", "year", "genre", "key")
 
 # Lo que devuelve un modelo cuando no sabe algo. Guardarlo seria peor que
 # dejarlo vacio: el campo parece relleno y ya nadie vuelve a mirarlo.
-NO_SABE = {"desconocido", "desconocida", "unknown", "n/a", "na", "none",
-           "null", "sin album", "sin genero", "sin datos", "no disponible",
-           "-", "--", "?", "??", "sin especificar", "varios", "no aplica"}
+NO_SABE = {
+    "desconocido",
+    "desconocida",
+    "unknown",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "sin album",
+    "sin genero",
+    "sin datos",
+    "no disponible",
+    "-",
+    "--",
+    "?",
+    "??",
+    "sin especificar",
+    "varios",
+    "no aplica",
+}
 
 
 def _dato_util(campo: str, valor) -> str:
@@ -244,7 +313,7 @@ def _dato_util(campo: str, valor) -> str:
     if not v or v.lower() in NO_SABE:
         return ""
     if campo == "year":
-        m = re.search(r"\b(1[89]\d{2}|20\d{2})\b", v)   # un año de verdad
+        m = re.search(r"\b(1[89]\d{2}|20\d{2})\b", v)  # un año de verdad
         return m.group(0) if m else ""
     return v
 
@@ -257,28 +326,42 @@ def autofill(song_id) -> dict:
     """
     c = library.by_id(song_id)
     if not c:
-        return {"ok": False, "filled": {}, "missing": [],
-                "reason": "no existe esa cancion"}
+        return {"ok": False, "filled": {}, "missing": [], "reason": "no existe esa cancion"}
 
     faltan = [k for k in FILLABLE if not str(c.get(k) or "").strip()]
     if not faltan:
-        return {"ok": True, "filled": {}, "missing": [], "reason": "",
-                "complete": True}
+        return {"ok": True, "filled": {}, "missing": [], "reason": "", "complete": True}
     if not ai.available():
-        return {"ok": False, "filled": {}, "missing": faltan,
-                "reason": f"la IA no esta lista: {ai.unavailable_reason()} (Ajustes)"}
+        return {
+            "ok": False,
+            "filled": {},
+            "missing": faltan,
+            "reason": f"la IA no esta lista: {ai.unavailable_reason()} (Ajustes)",
+        }
     if not str(c["artist"] or "").strip():
-        return {"ok": False, "filled": {}, "missing": faltan,
-                "reason": "esta cancion no tiene artista identificado, "
-                          "asi que la IA no la puede reconocer"}
+        return {
+            "ok": False,
+            "filled": {},
+            "missing": faltan,
+            "reason": "esta cancion no tiene artista identificado, "
+            "asi que la IA no la puede reconocer",
+        }
 
     d = details(c)
-    if not d or d.get("error"):
-        return {"ok": False, "filled": {}, "missing": faltan,
-                "reason": (d or {}).get("error") or "la IA no pudo responder"}
+    if not isinstance(d, dict) or not d or d.get("error"):
+        return {
+            "ok": False,
+            "filled": {},
+            "missing": faltan,
+            "reason": (d.get("error") if isinstance(d, dict) else "") or "la IA no pudo responder",
+        }
 
-    valores = {"album": d.get("album"), "year": d.get("year"),
-               "genre": d.get("genre"), "key": d.get("likely_key")}
+    valores = {
+        "album": d.get("album"),
+        "year": d.get("year"),
+        "genre": d.get("genre"),
+        "key": d.get("likely_key"),
+    }
     nuevos = {k: _dato_util(k, valores.get(k)) for k in faltan}
     nuevos = {k: v for k, v in nuevos.items() if v}
     if nuevos:
@@ -287,12 +370,17 @@ def autofill(song_id) -> dict:
     restantes = [k for k in faltan if k not in nuevos]
     motivo = ""
     if restantes:
-        conf = d.get("confidence") or 0
-        motivo = ("la IA no reconoce bien esta cancion (confianza "
-                  f"{round(conf * 100)}%); no se atreve con: "
-                  + ", ".join(restantes))
-    return {"ok": True, "filled": nuevos, "missing": restantes,
-            "reason": motivo, "complete": not restantes}
+        motivo = (
+            "la IA no reconoce bien esta cancion (confianza "
+            f"{round(_confidence(d) * 100)}%); no se atreve con: " + ", ".join(restantes)
+        )
+    return {
+        "ok": True,
+        "filled": nuevos,
+        "missing": restantes,
+        "reason": motivo,
+        "complete": not restantes,
+    }
 
 
 def transpose_details(details, to_key) -> dict:
@@ -303,8 +391,7 @@ def transpose_details(details, to_key) -> dict:
     out = dict(details)
     out["progression"] = theory.transpose_to(details.get("progression", ""), source_path, to_key)
     sec = details.get("section_chords") or {}
-    out["section_chords"] = {k: theory.transpose_to(v, source_path, to_key)
-                              for k, v in sec.items()}
+    out["section_chords"] = {k: theory.transpose_to(v, source_path, to_key) for k, v in sec.items()}
     out["likely_key"] = to_key
     out["capo"] = theory.suggested_capo(to_key)
     return out
@@ -312,8 +399,10 @@ def transpose_details(details, to_key) -> dict:
 
 # ---------------------------------------------------------------- orquestacion
 
-def enrich(song_id, with_lyrics=True, with_cover=True, with_details=True,
-               save_to_file=True) -> dict:
+
+def enrich(
+    song_id, with_lyrics=True, with_cover=True, with_details=True, save_to_file=True
+) -> dict:
     c = library.by_id(song_id)
     if not c:
         return {"error": "no existe esa cancion"}
@@ -322,32 +411,39 @@ def enrich(song_id, with_lyrics=True, with_cover=True, with_details=True,
     if with_lyrics and not c["lyrics"]:
         r = lyrics(c["artist"], c["title"], c["album"], c["duration"])
         if r:
-            # la letra va al indice y al archivo (lo hace `edit`); la version
-            # con tiempos, que solo da LRCLIB, se queda como cache aparte
-            library.update(song_id, lyrics=r["lyrics"], lyrics_synced=r.get("synced") or "")
+            # La letra LIMPIA va al indice y al USLT del archivo; la version
+            # con tiempos, que solo da LRCLIB, se queda en el indice como cache
+            # aparte. Antes se grababa la LRC en el USLT y, tras reescanear, la
+            # hoja del atril imprimia las marcas delante de cada verso.
+            plain = r["lyrics"] or lrc_to_plain(r.get("synced") or "")
+            library.update(song_id, lyrics=plain, lyrics_synced=r.get("synced") or "")
             if save_to_file:
-                tags.write_lyrics(c["path"], r["synced"] or r["lyrics"])
+                tags.write_lyrics(c["path"], plain)
             done["lyrics"] = r["source"]
 
     if with_cover and not c["cover"]:
         r = cover(c["artist"], c["title"], c["album"])
         if r and save_to_file and tags.write_cover(c["path"], r[0], r[1]):
             library.update(song_id, cover="embedded")
-            done["cover"] = f"{len(r[0])//1024} KB"
+            done["cover"] = f"{len(r[0]) // 1024} KB"
 
     if with_details:
         d = details(c)
-        if d and not d.get("error"):
+        if isinstance(d, dict) and d and not d.get("error"):
             # OJO: por aqui tambien entra lo que dice la IA, asi que pasa por
             # el mismo filtro que `autofill`. Sin el, un «desconocido» del
             # modelo se guardaba como album de verdad.
             album = _dato_util("album", d.get("album")) or c["album"]
             year = _dato_util("year", d.get("year")) or str(c["year"] or "")
             genre = _dato_util("genre", d.get("genre")) or c["genre"]
-            library.update(song_id, chords=json.dumps(d, ensure_ascii=False),
-                         album=album, year=year, genre=genre)
+            library.update(
+                song_id,
+                chords=json.dumps(d, ensure_ascii=False),
+                album=album,
+                year=year,
+                genre=genre,
+            )
             if save_to_file:
                 tags.write(c["path"], album=album, year=year, genre=genre)
-            done["details"] = {k: d.get(k) for k in
-                                 ("likely_key","genre","year","confidence")}
+            done["details"] = {k: d.get(k) for k in ("likely_key", "genre", "year", "confidence")}
     return done

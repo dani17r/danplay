@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """La IA con cualquier proveedor: catalogo, perfiles guardados, el catalogo
 de modelos (models.dev) y las tolerancias del cliente.
 
@@ -6,23 +5,31 @@ Nada de aqui toca la red ni la configuracion real del usuario: los perfiles
 van a un archivo temporal y el «proveedor» es un cliente falso que devuelve
 lo que cada prueba le diga.
 """
+
 import json
 import os
 import pathlib
 import sys
+
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from danplay import ai, config, model_catalog, providers  # noqa: E402
+from danplay import ai, config, model_catalog, providers
 
 
 @pytest.fixture
 def perfiles(tmp_path, monkeypatch):
     """Perfiles en un archivo temporal, sin variables de entorno que manden."""
     monkeypatch.setattr(providers, "PROFILES_FILE", tmp_path / "ai.json")
-    for v in ("DANPLAY_AI_PROVIDER", "DANPLAY_AI_KEY", "DANPLAY_AI_BASE_URL",
-              "DANPLAY_AI_MODEL", "DANPLAY_AI_CHAT_MODEL", "DEEPINFRA_API_KEY"):
+    for v in (
+        "DANPLAY_AI_PROVIDER",
+        "DANPLAY_AI_KEY",
+        "DANPLAY_AI_BASE_URL",
+        "DANPLAY_AI_MODEL",
+        "DANPLAY_AI_CHAT_MODEL",
+        "DEEPINFRA_API_KEY",
+    ):
         monkeypatch.delenv(v, raising=False)
     monkeypatch.setattr(config, "AI_ENABLED", True)
     providers.reload()
@@ -53,18 +60,34 @@ class _FakeClient:
             def create(**kw):
                 outer.calls.append(dict(kw))
                 for param, text in outer.rejects.items():
-                    present = (param in kw) if param != "tool_choice" else kw.get("tool_choice") == "required"
+                    present = (
+                        (param in kw)
+                        if param != "tool_choice"
+                        else kw.get("tool_choice") == "required"
+                    )
                     if present:
                         e = Exception(text)
                         e.status_code = 400
                         raise e
-                return type("r", (), {"choices": [type("c", (), {"message": _Msg(outer.answer)})()]})()
+                return type(
+                    "r", (), {"choices": [type("c", (), {"message": _Msg(outer.answer)})()]}
+                )()
 
         class _Models:
             @staticmethod
             def list():
-                return type("p", (), {"data": [type("m", (), {"id": i, "to_dict": staticmethod(lambda i=i: {"id": i})})()
-                                               for i in outer.model_ids]})()
+                return type(
+                    "p",
+                    (),
+                    {
+                        "data": [
+                            type(
+                                "m", (), {"id": i, "to_dict": staticmethod(lambda i=i: {"id": i})}
+                            )()
+                            for i in outer.model_ids
+                        ]
+                    },
+                )()
 
         self.chat = type("chat", (), {"completions": _Completions})()
         self.models = _Models()
@@ -72,10 +95,22 @@ class _FakeClient:
 
 # ------------------------------------------------------------- catalogo
 
+
 def test_el_catalogo_tiene_los_grupos_y_urls_bien_formadas():
     ids = {p["id"] for p in providers.CATALOG}
-    for wanted in ("openai", "anthropic", "google", "deepinfra", "openrouter", "groq",
-                   "ollama", "lmstudio", "azure", "bedrock", "custom"):
+    for wanted in (
+        "openai",
+        "anthropic",
+        "google",
+        "deepinfra",
+        "openrouter",
+        "groq",
+        "ollama",
+        "lmstudio",
+        "azure",
+        "bedrock",
+        "custom",
+    ):
         assert wanted in ids, wanted
     groups = {g["id"] for g in providers.GROUPS}
     for p in providers.CATALOG:
@@ -84,7 +119,7 @@ def test_el_catalogo_tiene_los_grupos_y_urls_bien_formadas():
         if p["id"] != "custom":
             assert p["base_url"].startswith(("http://", "https://")), p["id"]
         # cada hueco de la URL tiene su campo en el formulario
-        for hole in {h for h in __import__("re").findall(r"\{(\w+)\}", p["base_url"])}:
+        for hole in set(__import__("re").findall(r"\{(\w+)\}", p["base_url"])):
             assert any(f["name"] == hole for f in p["fields"]), f"{p['id']}: falta el campo {hole}"
     assert len(ids) == len(providers.CATALOG), "ids repetidos"
 
@@ -98,6 +133,7 @@ def test_los_locales_no_piden_clave_y_apuntan_a_este_equipo():
 
 # -------------------------------------------------------------- perfiles
 
+
 def test_sin_nada_configurado_la_ia_no_esta_disponible(perfiles):
     assert providers.active() is None
     assert not ai.available()
@@ -105,8 +141,14 @@ def test_sin_nada_configurado_la_ia_no_esta_disponible(perfiles):
 
 
 def test_guardar_un_perfil_lo_activa_y_la_clave_no_vuelve_entera(perfiles):
-    pid = providers.save_profile({"provider": "openrouter", "key": "sk-or-v1-0123456789abcdef",
-                                  "model": "a", "chat_model": "b"})
+    pid = providers.save_profile(
+        {
+            "provider": "openrouter",
+            "key": "sk-or-v1-0123456789abcdef",
+            "model": "a",
+            "chat_model": "b",
+        }
+    )
     assert pid == "openrouter"
     assert providers.active_id() == "openrouter"
     p = providers.active()
@@ -130,9 +172,13 @@ def test_guardar_sin_clave_conserva_la_guardada(perfiles):
 
 
 def test_los_huecos_de_la_url_se_rellenan_con_los_campos(perfiles):
-    providers.save_profile({"provider": "bedrock", "key": "k", "fields": {"region": "eu-west-1"},
-                            "model": "m"})
-    assert providers.active()["base_url"] == "https://bedrock-runtime.eu-west-1.amazonaws.com/openai/v1"
+    providers.save_profile(
+        {"provider": "bedrock", "key": "k", "fields": {"region": "eu-west-1"}, "model": "m"}
+    )
+    assert (
+        providers.active()["base_url"]
+        == "https://bedrock-runtime.eu-west-1.amazonaws.com/openai/v1"
+    )
     # sin rellenar el hueco no hay URL, y por tanto no hay proveedor usable
     providers.save_profile({"provider": "azure", "key": "k", "model": "m"})
     assert providers.active() is None
@@ -140,10 +186,12 @@ def test_los_huecos_de_la_url_se_rellenan_con_los_campos(perfiles):
 
 
 def test_varios_servidores_propios_conviven_y_se_puede_cambiar(perfiles):
-    a = providers.save_profile({"provider": "custom", "name": "Casa", "base_url": "http://casa:8080/v1",
-                                "model": "m"})
-    b = providers.save_profile({"provider": "custom", "name": "Casa", "base_url": "http://otra:8080/v1",
-                                "model": "m"})
+    a = providers.save_profile(
+        {"provider": "custom", "name": "Casa", "base_url": "http://casa:8080/v1", "model": "m"}
+    )
+    b = providers.save_profile(
+        {"provider": "custom", "name": "Casa", "base_url": "http://otra:8080/v1", "model": "m"}
+    )
     assert a != b and a.startswith("custom-") and b.startswith("custom-")
     assert providers.active_id() == b
     providers.activate(a)
@@ -182,16 +230,30 @@ def test_la_clave_de_deepinfra_de_antes_se_migra_sola(perfiles, monkeypatch):
 
 # ------------------------------------------------------ catalogo de modelos
 
+
 def test_el_recorte_del_catalogo_deja_solo_conversacion():
-    raw = {"x": {"name": "X", "models": {
-        "chat-1": {"name": "Chat", "tool_call": True, "cost": {"input": 1, "output": 2},
-                   "limit": {"context": 1000}, "release_date": "2026-01-01",
-                   "modalities": {"input": ["text"], "output": ["text"]}},
-        "embed-1": {"name": "Embed", "modalities": {"input": ["text"], "output": ["embedding"]}},
-        "tts-1": {"name": "Voz", "modalities": {"input": ["text"], "output": ["audio"]}},
-        "whisper-x": {"name": "Whisper"},
-        "old": {"name": "Old", "status": "deprecated", "tool_call": False},
-    }}}
+    raw = {
+        "x": {
+            "name": "X",
+            "models": {
+                "chat-1": {
+                    "name": "Chat",
+                    "tool_call": True,
+                    "cost": {"input": 1, "output": 2},
+                    "limit": {"context": 1000},
+                    "release_date": "2026-01-01",
+                    "modalities": {"input": ["text"], "output": ["text"]},
+                },
+                "embed-1": {
+                    "name": "Embed",
+                    "modalities": {"input": ["text"], "output": ["embedding"]},
+                },
+                "tts-1": {"name": "Voz", "modalities": {"input": ["text"], "output": ["audio"]}},
+                "whisper-x": {"name": "Whisper"},
+                "old": {"name": "Old", "status": "deprecated", "tool_call": False},
+            },
+        }
+    }
     out = model_catalog._trim(raw)
     assert set(out["x"]["models"]) == {"chat-1", "old"}
     m = out["x"]["models"]["chat-1"]
@@ -209,16 +271,51 @@ def test_la_foto_incluida_en_la_app_existe_y_conoce_a_los_grandes():
 
 def test_la_recomendacion_evita_obsoletos_experimentales_y_sin_herramientas():
     models = [
-        {"id": "a-exp", "name": "A exp", "tools": True, "deprecated": False, "released": "2026-09-01",
-         "cost_in": 0.1, "cost_out": 0.4},
-        {"id": "b-flash", "name": "B Flash", "tools": True, "deprecated": False, "released": "2026-08-01",
-         "cost_in": 0.1, "cost_out": 0.4},
-        {"id": "c-big", "name": "C", "tools": True, "deprecated": False, "released": "2026-08-15",
-         "cost_in": 2, "cost_out": 8},
-        {"id": "d-old", "name": "D", "tools": True, "deprecated": True, "released": "2026-09-02",
-         "cost_in": 0.01, "cost_out": 0.02},
-        {"id": "e-notools", "name": "E", "tools": False, "deprecated": False, "released": "2026-09-03",
-         "cost_in": 0.01, "cost_out": 0.02},
+        {
+            "id": "a-exp",
+            "name": "A exp",
+            "tools": True,
+            "deprecated": False,
+            "released": "2026-09-01",
+            "cost_in": 0.1,
+            "cost_out": 0.4,
+        },
+        {
+            "id": "b-flash",
+            "name": "B Flash",
+            "tools": True,
+            "deprecated": False,
+            "released": "2026-08-01",
+            "cost_in": 0.1,
+            "cost_out": 0.4,
+        },
+        {
+            "id": "c-big",
+            "name": "C",
+            "tools": True,
+            "deprecated": False,
+            "released": "2026-08-15",
+            "cost_in": 2,
+            "cost_out": 8,
+        },
+        {
+            "id": "d-old",
+            "name": "D",
+            "tools": True,
+            "deprecated": True,
+            "released": "2026-09-02",
+            "cost_in": 0.01,
+            "cost_out": 0.02,
+        },
+        {
+            "id": "e-notools",
+            "name": "E",
+            "tools": False,
+            "deprecated": False,
+            "released": "2026-09-03",
+            "cost_in": 0.01,
+            "cost_out": 0.02,
+        },
     ]
     r = model_catalog.recommend(models)
     assert r == {"chat": "c-big", "fast": "b-flash"}
@@ -239,6 +336,7 @@ def test_sin_red_el_catalogo_no_rompe_nada(monkeypatch, tmp_path):
 
 # ------------------------------------------------------- el cliente tolera
 
+
 def _fake(monkeypatch, fake):
     monkeypatch.setattr(ai, "_get_client", lambda: fake)
     monkeypatch.setattr(ai, "_build_client", lambda p: fake)
@@ -246,40 +344,54 @@ def _fake(monkeypatch, fake):
 
 def test_si_el_proveedor_rechaza_json_se_reintenta_sin_el_y_se_recuerda(perfiles, monkeypatch):
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
-    fake = _FakeClient(rejects={"response_format": "400: response_format is not supported"},
-                       answer='{"artist": "Barak", "title": "Mi Gozo", "confidence": 0.9}')
+    fake = _FakeClient(
+        rejects={"response_format": "400: response_format is not supported"},
+        answer='{"artist": "Barak", "title": "Mi Gozo", "confidence": 0.9}',
+    )
     _fake(monkeypatch, fake)
     r = ai.resolve("BARAK mi gozo.mp3")
     assert r["artist"] == "Barak" and r["source"] == "ai"
     assert len(fake.calls) == 2 and "response_format" not in fake.calls[1]
     ai.resolve("otra.mp3")
-    assert len(fake.calls) == 3 and "response_format" not in fake.calls[2], "ya no lo vuelve a mandar"
+    assert len(fake.calls) == 3 and "response_format" not in fake.calls[2], (
+        "ya no lo vuelve a mandar"
+    )
 
 
 def test_tool_choice_obligatorio_baja_a_auto_si_no_lo_admiten(perfiles, monkeypatch):
     providers.save_profile({"provider": "lmstudio", "model": "m", "chat_model": "m"})
     fake = _FakeClient(rejects={"tool_choice": "400: tool_choice 'required' is not supported"})
     _fake(monkeypatch, fake)
-    ai.complete([{"role": "user", "content": "hola"}], tools=[{"type": "function"}],
-                tool_choice="required", purpose="chat")
+    ai.complete(
+        [{"role": "user", "content": "hola"}],
+        tools=[{"type": "function"}],
+        tool_choice="required",
+        purpose="chat",
+    )
     assert fake.calls[-1]["tool_choice"] == "auto"
 
 
 def test_un_modelo_sin_herramientas_se_dice_claro(perfiles, monkeypatch):
     providers.save_profile({"provider": "ollama", "model": "gemma", "chat_model": "gemma"})
-    fake = _FakeClient(rejects={"tools": "400: registry.ollama.ai/library/gemma does not support tools"})
+    fake = _FakeClient(
+        rejects={"tools": "400: registry.ollama.ai/library/gemma does not support tools"}
+    )
     _fake(monkeypatch, fake)
     with pytest.raises(ai.ToolsUnsupported):
-        ai.complete([{"role": "user", "content": "hola"}], tools=[{"type": "function"}], purpose="chat")
+        ai.complete(
+            [{"role": "user", "content": "hola"}], tools=[{"type": "function"}], purpose="chat"
+        )
     # y el asistente lo cuenta en castellano en vez de un error seco
     from danplay import chat
+
     r = chat.reply([{"role": "user", "text": "hola"}])
     assert "herramientas" in r["error"] and "gemma" in r["error"]
 
 
 def test_los_razonadores_de_openai_no_reciben_temperatura(perfiles, monkeypatch):
-    providers.save_profile({"provider": "openai", "key": "sk", "model": "gpt-6-astra",
-                            "chat_model": "gpt-6-astra"})
+    providers.save_profile(
+        {"provider": "openai", "key": "sk", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"}
+    )
     fake = _FakeClient(answer="ok")
     _fake(monkeypatch, fake)
     ai.ask("hola")
@@ -287,8 +399,14 @@ def test_los_razonadores_de_openai_no_reciben_temperatura(perfiles, monkeypatch)
 
 
 def test_los_parametros_extra_del_perfil_viajan_en_cada_peticion(perfiles, monkeypatch):
-    providers.save_profile({"provider": "openrouter", "key": "k", "model": "m",
-                            "extra": {"reasoning": {"effort": "low"}}})
+    providers.save_profile(
+        {
+            "provider": "openrouter",
+            "key": "k",
+            "model": "m",
+            "extra": {"reasoning": {"effort": "low"}},
+        }
+    )
     fake = _FakeClient(answer="ok")
     _fake(monkeypatch, fake)
     ai.ask("hola")
@@ -297,12 +415,14 @@ def test_los_parametros_extra_del_perfil_viajan_en_cada_peticion(perfiles, monke
 
 def test_probar_distingue_clave_mala_de_sin_conexion(perfiles, monkeypatch):
     providers.save_profile({"provider": "groq", "key": "k", "model": "m"})
-    bad = Exception("Error code: 401 - invalid api key"); bad.status_code = 401
+    bad = Exception("Error code: 401 - invalid api key")
+    bad.status_code = 401
     fake = _FakeClient(rejects={"model": ""})
     fake.rejects = {}
 
     def boom(**kw):
         raise bad
+
     fake.chat.completions.create = boom
     _fake(monkeypatch, fake)
     r = ai.check()
@@ -318,7 +438,9 @@ def test_probar_distingue_clave_mala_de_sin_conexion(perfiles, monkeypatch):
 
 
 def test_probar_comprueba_que_el_modelo_de_conversacion_usa_herramientas(perfiles, monkeypatch):
-    providers.save_profile({"provider": "groq", "key": "k", "model": "chico", "chat_model": "grande"})
+    providers.save_profile(
+        {"provider": "groq", "key": "k", "model": "chico", "chat_model": "grande"}
+    )
     calls = []
 
     class _Call:
@@ -329,6 +451,7 @@ def test_probar_comprueba_que_el_modelo_de_conversacion_usa_herramientas(perfile
         calls.append(kw)
         msg = _Msg("", [_Call()]) if kw.get("tools") else _Msg("ok")
         return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+
     fake = _FakeClient()
     fake.chat.completions.create = create
     _fake(monkeypatch, fake)
@@ -359,6 +482,7 @@ def test_un_borrador_sin_clave_usa_la_guardada(perfiles):
 
 # --------------------------------------------------------- gratis, sin clave
 
+
 def test_los_gratuitos_van_primero_y_no_exigen_clave():
     assert providers.GROUPS[0]["id"] == "free"
     assert providers.FREE_ORDER and providers.FREE_ORDER[0] == "llm7"
@@ -366,7 +490,9 @@ def test_los_gratuitos_van_primero_y_no_exigen_clave():
         p = providers.BY_ID[pid]
         assert p["group"] == "free" and p["key"] != "required", pid
         assert p["suggest"].get("chat") and p["suggest"].get("fast"), pid
-        assert p["quirks"].get("anon_filter"), f"{pid}: sin filtro, la lista enseñaria modelos de pago"
+        assert p["quirks"].get("anon_filter"), (
+            f"{pid}: sin filtro, la lista enseñaria modelos de pago"
+        )
 
 
 def test_probar_gratis_activa_el_primero_que_responde(perfiles, monkeypatch):
@@ -377,15 +503,20 @@ def test_probar_gratis_activa_el_primero_que_responde(perfiles, monkeypatch):
     def client_for(p):
         fake = _FakeClient()
         if p["id"] == "llm7":
+
             def down(**kw):
                 raise Exception("Connection error.")
+
             fake.chat.completions.create = down
         else:
+
             def create(**kw):
                 msg = _Msg("", [_Call()]) if kw.get("tools") else _Msg("ok")
                 return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+
             fake.chat.completions.create = create
         return fake
+
     monkeypatch.setattr(ai, "_build_client", client_for)
     r = ai.try_free()
     assert r["ok"] and r["chosen"] == "kilo" and r["tools_ok"]
@@ -402,8 +533,10 @@ def test_probar_gratis_sin_ninguno_vivo_lo_dice_y_no_activa_nada(perfiles, monke
 
         def down(**kw):
             raise Exception("Connection error.")
+
         fake.chat.completions.create = down
         return fake
+
     monkeypatch.setattr(ai, "_build_client", client_for)
     r = ai.try_free()
     assert not r["ok"] and len(r["tried"]) == len(providers.FREE_ORDER)
@@ -414,8 +547,28 @@ def test_probar_gratis_sin_ninguno_vivo_lo_dice_y_no_activa_nada(perfiles, monke
 def test_sin_clave_la_lista_solo_enseña_lo_que_sirve_a_anonimos(perfiles, monkeypatch):
     rows = [{"id": "minimax-m2.7", "tier": "turbo"}, {"id": "gpt-6-astra", "tier": "pro"}]
     fake = _FakeClient()
-    fake.models = type("M", (), {"list": staticmethod(lambda: type("p", (), {
-        "data": [type("m", (), {"id": r["id"], "to_dict": staticmethod(lambda r=r: dict(r))})() for r in rows]})())})()
+    fake.models = type(
+        "M",
+        (),
+        {
+            "list": staticmethod(
+                lambda: type(
+                    "p",
+                    (),
+                    {
+                        "data": [
+                            type(
+                                "m",
+                                (),
+                                {"id": r["id"], "to_dict": staticmethod(lambda r=r: dict(r))},
+                            )()
+                            for r in rows
+                        ]
+                    },
+                )()
+            )
+        },
+    )()
     monkeypatch.setattr(ai, "_build_client", lambda p: fake)
     sin = ai.list_models({"provider": "llm7"})
     assert [m["id"] for m in sin["models"]] == ["minimax-m2.7"]
@@ -425,29 +578,56 @@ def test_sin_clave_la_lista_solo_enseña_lo_que_sirve_a_anonimos(perfiles, monke
 
 # ---------------------------------------------------------------------- TOON
 
+
 def test_toon_sigue_la_especificacion():
     from danplay import toon
+
     enc = toon.encode
     assert enc({"user": {"id": 123, "name": "Ada"}}) == "user:\n  id: 123\n  name: Ada"
     assert enc({"tags": ["admin", "ops", "dev"]}) == "tags[3]: admin,ops,dev"
-    assert enc({"items": [{"sku": "A1", "qty": 2, "price": 9.99},
-                          {"sku": "B2", "qty": 1, "price": 14.5}]}) == \
-        "items[2]{sku,qty,price}:\n  A1,2,9.99\n  B2,1,14.5"
+    assert (
+        enc(
+            {
+                "items": [
+                    {"sku": "A1", "qty": 2, "price": 9.99},
+                    {"sku": "B2", "qty": 1, "price": 14.5},
+                ]
+            }
+        )
+        == "items[2]{sku,qty,price}:\n  A1,2,9.99\n  B2,1,14.5"
+    )
     assert enc({"items": [1, {"a": 1}, "text"]}) == "items[3]:\n  - 1\n  - a: 1\n  - text"
     assert enc({"e": [], "o": {}}) == "e: []\no:"
     # numeros, booleanos y nulos tal cual; los flotantes enteros sin «.0»
-    assert enc({"a": 2.0, "b": -3.14, "c": None, "d": True, "e": float("nan")}) == \
-        "a: 2\nb: -3.14\nc: null\nd: true\ne: null"
+    assert (
+        enc({"a": 2.0, "b": -3.14, "c": None, "d": True, "e": float("nan")})
+        == "a: 2\nb: -3.14\nc: null\nd: true\ne: null"
+    )
     # comillas SOLO cuando hace falta, con sus escapes
-    assert enc({"a": "Hello world", "b": "123", "c": "true", "d": " x", "e": "",
-                "f": "a:b", "g": "x,y", "h": "-1x", "i": 'say "hi"', "j": "l1\nl2",
-                "k": "Barak - Mi Gozo (En Vivo)"}) == (
+    assert enc(
+        {
+            "a": "Hello world",
+            "b": "123",
+            "c": "true",
+            "d": " x",
+            "e": "",
+            "f": "a:b",
+            "g": "x,y",
+            "h": "-1x",
+            "i": 'say "hi"',
+            "j": "l1\nl2",
+            "k": "Barak - Mi Gozo (En Vivo)",
+        }
+    ) == (
         'a: Hello world\nb: "123"\nc: "true"\nd: " x"\ne: ""\nf: "a:b"\ng: "x,y"\n'
-        'h: "-1x"\ni: "say \\"hi\\""\nj: "l1\\nl2"\nk: Barak - Mi Gozo (En Vivo)')
+        'h: "-1x"\ni: "say \\"hi\\""\nj: "l1\\nl2"\nk: Barak - Mi Gozo (En Vivo)'
+    )
     assert enc({"my-key": [1, 2, 3]}) == '"my-key"[3]: 1,2,3'
     # una lista de objetos desiguales o anidados va en forma de lista
-    assert enc({"d": [{"ok": True, "m": []}, {"ok": False, "m": [{"id": 1}]}]}) == \
-        "d[2]:\n  - ok: true\n    m: []\n  - ok: false\n    m[1]{id}:\n      1"
+    assert (
+        enc({"d": [{"ok": True, "m": []}, {"ok": False, "m": [{"id": 1}]}]})
+        == "d[2]:\n  - ok: true\n    m: []\n  - ok: false\n    m[1]{id}:\n      1"
+    )
     # otro delimitador se declara en la cabecera y vale en todas partes
     assert enc({"items": [{"sku": "A1", "name": "x,y"}]}, "|") == "items[1|]{sku|name}:\n  A1|x,y"
     with pytest.raises(ValueError):
@@ -456,33 +636,50 @@ def test_toon_sigue_la_especificacion():
 
 def test_las_herramientas_llegan_al_modelo_en_toon_y_pesan_menos(perfiles, monkeypatch):
     from danplay import chat, toon
+
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
-    songs = [{"id": i, "artist": "Barak", "title": f"Tema {i}", "album": "Gozo", "duration": 240,
-              "key": "Bb", "bpm": 120, "stars": 0, "favorite": False} for i in range(1, 21)]
+    songs = [
+        {
+            "id": i,
+            "artist": "Barak",
+            "title": f"Tema {i}",
+            "album": "Gozo",
+            "duration": 240,
+            "key": "Bb",
+            "bpm": 120,
+            "stars": 0,
+            "favorite": False,
+        }
+        for i in range(1, 21)
+    ]
     result = {"total": 20, "songs": songs}
-    monkeypatch.setattr(chat, "run_tool", lambda name, args: result)
+    monkeypatch.setattr(chat.tools, "run_tool", lambda name, args: result)
 
     class _Call:
         id = "1"
         function = type("f", (), {"name": "search_songs", "arguments": '{"query": "barak"}'})()
+
     fake = _FakeClient()
     turns = [_Msg("", [_Call()]), _Msg("Tienes 20 temas de Barak.")]
 
     def create(**kw):
         fake.calls.append(dict(kw))
         return type("r", (), {"choices": [type("c", (), {"message": turns.pop(0)})()]})()
+
     fake.chat.completions.create = create
     _fake(monkeypatch, fake)
     chat.reply([{"role": "user", "text": "¿que tengo de Barak?"}])
     tool_msg = next(m for m in fake.calls[1]["messages"] if m.get("role") == "tool")
     assert tool_msg["content"].startswith("total: 20\nsongs[20]{id,artist,title,")
     assert tool_msg["content"] == toon.encode(result)
-    assert len(tool_msg["content"]) < 0.6 * len(json.dumps(result, ensure_ascii=False)), \
+    assert len(tool_msg["content"]) < 0.6 * len(json.dumps(result, ensure_ascii=False)), (
         "la tabla tiene que pesar bastante menos que el JSON"
+    )
 
 
 def test_una_ficha_de_ia_vacia_no_se_reutiliza(monkeypatch):
     from danplay import enrich
+
     vacia = json.dumps({"likely_key": "", "progression": "", "confidence": 0.2})
     buena = json.dumps({"likely_key": "Bb", "progression": "| Bb | Gm |", "confidence": 0.8})
     assert enrich.cached_details({"chords": vacia}) is None
@@ -491,8 +688,14 @@ def test_una_ficha_de_ia_vacia_no_se_reutiliza(monkeypatch):
     assert enrich.cached_details({"chords": "esto no es json"}) is None
     # con una vacia guardada se vuelve a preguntar, y lo nuevo se guarda
     asked = []
-    monkeypatch.setattr(enrich, "details", lambda song: asked.append(song["id"]) or
-                        {"likely_key": "G", "progression": "| G |", "confidence": 0.7})
+    monkeypatch.setattr(
+        enrich,
+        "details",
+        lambda song: (
+            asked.append(song["id"])
+            or {"likely_key": "G", "progression": "| G |", "confidence": 0.7}
+        ),
+    )
     saved = {}
     monkeypatch.setattr(enrich.library, "update", lambda cid, **f: saved.update(f))
     d, cached = enrich.details_for({"id": 7, "chords": vacia})
@@ -504,9 +707,11 @@ def test_una_ficha_de_ia_vacia_no_se_reutiliza(monkeypatch):
 
 # ------------------------------------------------------- en trozos y respaldo
 
+
 def _chunk(content=None, tool=None, usage=None):
     """Un trozo como los del SDK: delta con texto o con parte de una herramienta."""
     from types import SimpleNamespace as NS
+
     delta = NS(content=content, tool_calls=None)
     if tool:
         idx, tid, name, args = tool
@@ -516,8 +721,11 @@ def _chunk(content=None, tool=None, usage=None):
 
 def test_la_respuesta_en_trozos_se_junta_y_se_va_enseñando():
     from types import SimpleNamespace as NS
+
     seen = []
-    stream = iter([_chunk("Hola"), _chunk(" Dani"), _chunk(usage=NS(prompt_tokens=10, completion_tokens=2))])
+    stream = iter(
+        [_chunk("Hola"), _chunk(" Dani"), _chunk(usage=NS(prompt_tokens=10, completion_tokens=2))]
+    )
     msg, usage = ai._collect(stream, on_text=seen.append)
     assert msg.content == "Hola Dani" and msg.tool_calls is None
     assert seen == ["Hola", "Hola Dani"]
@@ -526,8 +734,14 @@ def test_la_respuesta_en_trozos_se_junta_y_se_va_enseñando():
 
 def test_las_herramientas_en_trozos_se_recomponen_y_el_preambulo_se_retira():
     seen = []
-    stream = iter([_chunk("Voy a buscar"), _chunk(tool=(0, "c1", "search_songs", '{"que')),
-                   _chunk(tool=(0, None, None, 'ry": "x"}')), _chunk(tool=(1, "c2", "list_playlists", "{}"))])
+    stream = iter(
+        [
+            _chunk("Voy a buscar"),
+            _chunk(tool=(0, "c1", "search_songs", '{"que')),
+            _chunk(tool=(0, None, None, 'ry": "x"}')),
+            _chunk(tool=(1, "c2", "list_playlists", "{}")),
+        ]
+    )
     msg, _ = ai._collect(stream, on_text=seen.append)
     assert seen[-1] == "", "lo enseñado era un preambulo: se retira"
     assert [c.function.name for c in msg.tool_calls] == ["search_songs", "list_playlists"]
@@ -548,6 +762,7 @@ def test_el_razonamiento_abierto_no_se_enseña_a_medias():
 
 def test_cancelar_corta_la_respuesta_y_cierra_el_flujo():
     import threading
+
     closed = []
 
     class _Stream:
@@ -557,41 +772,59 @@ def test_cancelar_corta_la_respuesta_y_cierra_el_flujo():
 
         def close(self):
             closed.append(True)
+
     flag = threading.Event()
 
     def on_text(t):
         flag.set()
+
     with pytest.raises(ai.Canceled):
         ai._collect(_Stream(), on_text=on_text, cancel=flag)
     assert closed == [True]
 
 
 def test_si_el_activo_esta_caido_responde_el_respaldo(perfiles, monkeypatch):
-    providers.save_profile({"provider": "openai", "key": "k", "model": "gpt-5.6-luna",
-                            "chat_model": "gpt-5.6-luna"})
-    providers.save_profile({"provider": "groq", "key": "k2", "model": "llama-3.1-8b-instant",
-                            "chat_model": "llama-3.3-70b-versatile", "activate": False})
+    providers.save_profile(
+        {"provider": "openai", "key": "k", "model": "gpt-5.6-luna", "chat_model": "gpt-5.6-luna"}
+    )
+    providers.save_profile(
+        {
+            "provider": "groq",
+            "key": "k2",
+            "model": "llama-3.1-8b-instant",
+            "chat_model": "llama-3.3-70b-versatile",
+            "activate": False,
+        }
+    )
     providers.activate("openai")
     calls = []
 
     def client_for(p):
         fake = _FakeClient(answer=f"desde {p['id']}")
         if p["id"] == "openai":
+
             def down(**kw):
                 calls.append(("openai", kw["model"]))
-                e = Exception("Error code: 503 - service unavailable"); e.status_code = 503
+                e = Exception("Error code: 503 - service unavailable")
+                e.status_code = 503
                 raise e
+
             fake.chat.completions.create = down
         else:
             orig = fake.chat.completions.create
-            fake.chat.completions.create = lambda **kw: calls.append(("groq", kw["model"])) or orig(**kw)
+            fake.chat.completions.create = lambda **kw: (
+                calls.append(("groq", kw["model"])) or orig(**kw)
+            )
         return fake
+
     monkeypatch.setattr(ai, "_build_client", client_for)
     monkeypatch.setattr(ai, "_get_client", lambda: client_for(ai.profile()))
     ai.begin_turn()
     r = ai.complete([{"role": "user", "content": "hola"}], purpose="chat")
     assert ai.message_text(r.message) == "desde groq"
-    assert r.via["fallback"] and r.via["id"] == "groq" and r.via["model"] == "llama-3.3-70b-versatile"
+    assert (
+        r.via["fallback"] and r.via["id"] == "groq" and r.via["model"] == "llama-3.3-70b-versatile"
+    )
     assert calls == [("openai", "gpt-5.6-luna"), ("groq", "llama-3.3-70b-versatile")]
     # mientras el activo siga marcado como caido, se va directo al respaldo
     r = ai.complete([{"role": "user", "content": "otra"}], purpose="fast")
@@ -614,10 +847,13 @@ def test_un_error_del_mensaje_no_dispara_el_respaldo(perfiles, monkeypatch):
 
         def bad(**kw):
             tried.append(p["id"])
-            e = Exception("Error code: 400 - messages must not be empty"); e.status_code = 400
+            e = Exception("Error code: 400 - messages must not be empty")
+            e.status_code = 400
             raise e
+
         fake.chat.completions.create = bad
         return fake
+
     monkeypatch.setattr(ai, "_build_client", client_for)
     monkeypatch.setattr(ai, "_get_client", lambda: client_for(ai.profile()))
     with pytest.raises(Exception, match="400"):
@@ -627,10 +863,13 @@ def test_un_error_del_mensaje_no_dispara_el_respaldo(perfiles, monkeypatch):
 
 def test_el_uso_se_apunta_por_turno_y_en_la_base(perfiles, monkeypatch, tmp_path):
     from types import SimpleNamespace as NS
+
     from danplay import library
+
     monkeypatch.setattr(config, "DATABASE", tmp_path / "uso.db")
-    providers.save_profile({"provider": "openai", "key": "k", "model": "gpt-6-astra",
-                            "chat_model": "gpt-6-astra"})
+    providers.save_profile(
+        {"provider": "openai", "key": "k", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"}
+    )
     fake = _FakeClient(answer="ok")
     orig = fake.chat.completions.create
 
@@ -638,6 +877,7 @@ def test_el_uso_se_apunta_por_turno_y_en_la_base(perfiles, monkeypatch, tmp_path
         r = orig(**kw)
         r.usage = NS(prompt_tokens=1000, completion_tokens=500)
         return r
+
     fake.chat.completions.create = create
     _fake(monkeypatch, fake)
     ai.begin_turn()
@@ -654,10 +894,13 @@ def test_el_uso_se_apunta_por_turno_y_en_la_base(perfiles, monkeypatch, tmp_path
 
 
 def test_la_identificacion_pide_esquema_si_el_modelo_lo_admite(perfiles, monkeypatch):
-    providers.save_profile({"provider": "openai", "key": "k", "model": "gpt-6-astra",
-                            "chat_model": "gpt-6-astra"})
+    providers.save_profile(
+        {"provider": "openai", "key": "k", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"}
+    )
     assert ai.json_format(ai.SONG_SCHEMA)["type"] == "json_schema"
-    fake = _FakeClient(answer='{"artist":"Barak","title":"Mi Gozo","feat":"","extra":"","category":"song","confidence":0.9}')
+    fake = _FakeClient(
+        answer='{"artist":"Barak","title":"Mi Gozo","feat":"","extra":"","category":"song","confidence":0.9}'
+    )
     _fake(monkeypatch, fake)
     r = ai.resolve("BARAK mi gozo.mp3")
     assert r["artist"] == "Barak"
@@ -666,9 +909,13 @@ def test_la_identificacion_pide_esquema_si_el_modelo_lo_admite(perfiles, monkeyp
     providers.save_profile({"provider": "ollama", "model": "raro", "chat_model": "raro"})
     assert ai.json_format(ai.SONG_SCHEMA) == {"type": "json_object"}
     # y si el servidor rechaza el esquema, se baja a json_object antes que quitarlo
-    providers.save_profile({"provider": "openai", "key": "k", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"})
-    fake2 = _FakeClient(rejects={"response_format": "400: json_schema is not supported by this model"},
-                        answer='{"artist":"X","title":"Y","feat":"","extra":"","category":"song","confidence":0.5}')
+    providers.save_profile(
+        {"provider": "openai", "key": "k", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"}
+    )
+    fake2 = _FakeClient(
+        rejects={"response_format": "400: json_schema is not supported by this model"},
+        answer='{"artist":"X","title":"Y","feat":"","extra":"","category":"song","confidence":0.5}',
+    )
     real_create = fake2.chat.completions.create
 
     def create(**kw):
@@ -676,6 +923,7 @@ def test_la_identificacion_pide_esquema_si_el_modelo_lo_admite(perfiles, monkeyp
             fake2.calls.append(dict(kw))
             return type("r", (), {"choices": [type("c", (), {"message": _Msg(fake2.answer)})()]})()
         return real_create(**kw)
+
     fake2.chat.completions.create = create
     _fake(monkeypatch, fake2)
     assert ai.resolve("x.mp3")["artist"] == "X"
@@ -684,13 +932,22 @@ def test_la_identificacion_pide_esquema_si_el_modelo_lo_admite(perfiles, monkeyp
 
 # ------------------------------------------------------- lo que ve el usuario
 
+
 def test_el_estado_real_cuenta_lo_que_ve_selecciona_y_suena():
     from danplay import chat
-    lines = chat._screen_note({
-        "view": {"kind": "playlist", "name": "Domingo"}, "total": 3,
-        "songs": [{"id": 1, "artist": "Barak", "title": "Mi Gozo"}, {"id": 2, "artist": "New Wine", "title": "Shekinah"}],
-        "selected": [{"id": 2, "artist": "New Wine", "title": "Shekinah"}],
-        "playing": {"id": 1, "artist": "Barak", "title": "Mi Gozo", "paused": True}})
+
+    lines = chat._screen_note(
+        {
+            "view": {"kind": "playlist", "name": "Domingo"},
+            "total": 3,
+            "songs": [
+                {"id": 1, "artist": "Barak", "title": "Mi Gozo"},
+                {"id": 2, "artist": "New Wine", "title": "Shekinah"},
+            ],
+            "selected": [{"id": 2, "artist": "New Wine", "title": "Shekinah"}],
+            "playing": {"id": 1, "artist": "Barak", "title": "Mi Gozo", "paused": True},
+        }
+    )
     text = "\n".join(lines)
     assert "«Domingo» (repertorio): 3 canciones" in text
     assert "songs[2]{id,artist,title}:" in text and "1,Barak,Mi Gozo" in text
@@ -701,20 +958,31 @@ def test_el_estado_real_cuenta_lo_que_ve_selecciona_y_suena():
 
 def test_el_contexto_llega_al_modelo_en_el_estado_real(perfiles, monkeypatch):
     from danplay import chat
+
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
     fake = _FakeClient(answer="Vale.")
     _fake(monkeypatch, fake)
-    chat.reply([{"role": "user", "text": "pon la segunda"}],
-               context={"view": {"kind": "all", "name": "Todas"}, "total": 2,
-                        "songs": [{"id": 5, "artist": "A", "title": "Uno"}, {"id": 6, "artist": "B", "title": "Dos"}]})
+    chat.reply(
+        [{"role": "user", "text": "pon la segunda"}],
+        context={
+            "view": {"kind": "all", "name": "Todas"},
+            "total": 2,
+            "songs": [
+                {"id": 5, "artist": "A", "title": "Uno"},
+                {"id": 6, "artist": "B", "title": "Dos"},
+            ],
+        },
+    )
     system_notes = [m["content"] for m in fake.calls[0]["messages"] if m["role"] == "system"]
     assert any("6,B,Dos" in n for n in system_notes)
 
 
 # --------------------------------------------------------- tonos y la hoja
 
+
 def test_los_tonos_vecinos():
     from danplay import theory
+
     r = theory.related_keys("G")
     assert r["relative"] == "Em" and r["neighbors"] == ["D", "C"]
     assert theory.related_keys("F#m")["neighbors"] == ["C#m", "Bm"]
@@ -724,12 +992,22 @@ def test_los_tonos_vecinos():
 
 def test_las_conversaciones_se_guardan_y_se_buscan(monkeypatch, tmp_path):
     from danplay import chats
+
     monkeypatch.setattr(config, "DATABASE", tmp_path / "chats.db")
     c = chats.create()
     assert c["id"] and chats.list_all()[0]["n"] == 0
-    chats.append(c["id"], [{"role": "me", "text": "¿que tengo de Barak?"},
-                           {"role": "ai", "text": "Tienes 18 temas.", "tools": [{"name": "search_songs", "summary": "18"}],
-                            "usage": {"prompt": 10, "completion": 5, "cost": 0.0001}}])
+    chats.append(
+        c["id"],
+        [
+            {"role": "me", "text": "¿que tengo de Barak?"},
+            {
+                "role": "ai",
+                "text": "Tienes 18 temas.",
+                "tools": [{"name": "search_songs", "summary": "18"}],
+                "usage": {"prompt": 10, "completion": 5, "cost": 0.0001},
+            },
+        ],
+    )
     got = chats.get(c["id"])
     assert got["title"] == "¿que tengo de Barak?"
     assert got["messages"][1]["tools"][0]["name"] == "search_songs"
@@ -748,24 +1026,33 @@ def test_una_llamada_escrita_como_texto_se_ejecuta_igual(perfiles, monkeypatch):
     «set_stars id=1 stars=5». Si se entiende, se ejecuta como si la hubiera
     hecho; si no, se le obliga a usar herramientas de verdad."""
     from danplay import chat
+
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
     assert chat.PSEUDO_CALL.match('search_songs query="artist:Barak" sort="duration"')
     assert chat.PSEUDO_CALL.match("play_song(12)") and chat.PSEUDO_CALL.match("list_playlists")
     assert not chat.PSEUDO_CALL.match("Busca con search_songs si quieres.")
     assert not chat.PSEUDO_CALL.match("Tienes 18 canciones de Barak.")
     assert chat.parse_pseudo_call("set_stars id=1 stars=5") == ("set_stars", {"id": 1, "stars": 5})
-    assert chat.parse_pseudo_call('create_playlist name="Domingo" ids=[1, 2]') == \
-        ("create_playlist", {"name": "Domingo", "ids": [1, 2]})
+    assert chat.parse_pseudo_call('create_playlist name="Domingo" ids=[1, 2]') == (
+        "create_playlist",
+        {"name": "Domingo", "ids": [1, 2]},
+    )
     assert chat.parse_pseudo_call("nada que ver") is None
     ran = []
-    monkeypatch.setattr(chat, "run_tool", lambda name, args: ran.append((name, args)) or
-                        {"ok": True, "stars": 5, "song": "Barak - Mi Gozo"})
+    monkeypatch.setattr(
+        chat.tools,
+        "run_tool",
+        lambda name, args: (
+            ran.append((name, args)) or {"ok": True, "stars": 5, "song": "Barak - Mi Gozo"}
+        ),
+    )
     turns = [_Msg("set_stars id=1 stars=5"), _Msg("Listo: **Mi Gozo** con 5 estrellas.")]
     fake = _FakeClient()
 
     def create(**kw):
         fake.calls.append(dict(kw))
         return type("r", (), {"choices": [type("c", (), {"message": turns.pop(0)})()]})()
+
     fake.chat.completions.create = create
     _fake(monkeypatch, fake)
     r = chat.reply([{"role": "user", "text": "ponle 5 estrellas a Mi Gozo"}])
@@ -777,9 +1064,25 @@ def test_una_llamada_escrita_como_texto_se_ejecuta_igual(perfiles, monkeypatch):
     assert fake.calls[1]["messages"][-2]["tool_calls"][0]["function"]["name"] == "set_stars"
     # lo que no se entiende (un JSON roto) sigue el camino de siempre: herramientas obligadas
     assert chat.parse_pseudo_call('set_stars: {"id": 1,') is None
-    turns[:] = [_Msg('set_stars: {"id": 1,'), _Msg("", [type("C", (), {"id": "1", "function": type("f", (), {"name": "search_songs", "arguments": "{}"})()})()]), _Msg("Fin.")]
+    turns[:] = [
+        _Msg('set_stars: {"id": 1,'),
+        _Msg(
+            "",
+            [
+                type(
+                    "C",
+                    (),
+                    {
+                        "id": "1",
+                        "function": type("f", (), {"name": "search_songs", "arguments": "{}"})(),
+                    },
+                )()
+            ],
+        ),
+        _Msg("Fin."),
+    ]
     fake.calls.clear()
-    monkeypatch.setattr(chat, "run_tool", lambda name, args: {"total": 0, "songs": []})
+    monkeypatch.setattr(chat.tools, "run_tool", lambda name, args: {"total": 0, "songs": []})
     chat.reply([{"role": "user", "text": "busca algo"}])
     assert fake.calls[1]["tool_choice"] == "required"
 
@@ -801,9 +1104,10 @@ def test_un_flujo_roto_a_medias_se_repite_entero(perfiles, monkeypatch):
 
     def create(**kw):
         if kw.get("stream"):
-            fake.calls.append(dict(kw))            # el falso de siempre apunta las demas
+            fake.calls.append(dict(kw))  # el falso de siempre apunta las demas
             return _Broken()
         return orig(**kw)
+
     fake.chat.completions.create = create
     _fake(monkeypatch, fake)
     seen = []
@@ -824,6 +1128,7 @@ def test_al_juez_solo_se_le_molesta_si_se_pidio_una_accion(perfiles, monkeypatch
     que decia que si, y venia el toque. En una charla normal no hay accion
     que narrar; el juez es para cuando la persona PIDIO hacer algo."""
     from danplay import chat
+
     assert chat.wants_action("crea una lista con las de Barak")
     assert chat.wants_action("¿puedes marcarla como favorita?")
     assert chat.wants_action("añádela a Domingo") and chat.wants_action("ponle 4")
@@ -834,10 +1139,16 @@ def test_al_juez_solo_se_le_molesta_si_se_pidio_una_accion(perfiles, monkeypatch
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
     # una charla normal con palabras de la app («lista», «repertorio»): sin
     # accion pedida, ni juez ni toque
-    fake = _FakeClient(answer="Un repertorio suele tener entre 4 y 6 canciones; la lista la decides tu.")
+    fake = _FakeClient(
+        answer="Un repertorio suele tener entre 4 y 6 canciones; la lista la decides tu."
+    )
     _fake(monkeypatch, fake)
-    r = chat.reply([{"role": "user", "text": "¿cuantas canciones suele tener un repertorio de alabanza?"}])
-    assert r["text"].startswith("Un repertorio") and len(fake.calls) == 1, "sin peticion de accion, sin juez ni toque"
+    r = chat.reply(
+        [{"role": "user", "text": "¿cuantas canciones suele tener un repertorio de alabanza?"}]
+    )
+    assert r["text"].startswith("Un repertorio") and len(fake.calls) == 1, (
+        "sin peticion de accion, sin juez ni toque"
+    )
     # con una accion pedida y un texto que huele a app, el juez si entra
     fake2 = _FakeClient(answer="Todo en orden con tu repertorio, quedó como pediste.")
     _fake(monkeypatch, fake2)
@@ -850,6 +1161,7 @@ def test_las_herramientas_opcionales_solo_van_cuando_la_charla_lo_pide():
     descargar, las de musico y la de letra+caratula solo se añaden si la
     conversacion (cualquiera de los dos) habla de eso."""
     from danplay import chat
+
     names = lambda t: {h["function"]["name"] for h in t}  # noqa: E731
     base = names(chat.tools_for([{"role": "user", "text": "¿cuantas tengo de Barak?"}]))
     assert "search_songs" in base and "edit_song" in base and "play" in base
@@ -857,17 +1169,26 @@ def test_las_herramientas_opcionales_solo_van_cuando_la_charla_lo_pide():
     with_dl = names(chat.tools_for([{"role": "user", "text": "bájame lo último de Barak"}]))
     assert {"download_music", "search_youtube", "download_status"} <= with_dl
     # lo que dijo el asistente antes tambien cuenta: «¿la bajo?» — «dale»
-    offer = names(chat.tools_for([{"role": "ai", "text": "¿Quieres que la descargue?"}, {"role": "user", "text": "dale"}]))
+    offer = names(
+        chat.tools_for(
+            [{"role": "ai", "text": "¿Quieres que la descargue?"}, {"role": "user", "text": "dale"}]
+        )
+    )
     assert "download_music" in offer
     assert names(chat.tools_for([], everything=True)) == names(chat.TOOLS)
-    music = names(chat.tools_for([{"role": "user", "text": "pásala a Sol y hazme la hoja para el atril"}]))
+    music = names(
+        chat.tools_for([{"role": "user", "text": "pásala a Sol y hazme la hoja para el atril"}])
+    )
     assert {"transpose_chords", "setlist_sheet"} <= music
 
 
 def test_el_presupuesto_solo_avisa(perfiles, monkeypatch, tmp_path):
     from danplay import chat, library
+
     monkeypatch.setattr(config, "DATABASE", tmp_path / "gasto.db")
-    providers.save_profile({"provider": "openai", "key": "k", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"})
+    providers.save_profile(
+        {"provider": "openai", "key": "k", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"}
+    )
     assert providers.budget() == 0.0
     providers.set_budget(0.01)
     assert providers.budget() == 0.01
@@ -886,13 +1207,278 @@ def test_el_presupuesto_solo_avisa(perfiles, monkeypatch, tmp_path):
 
 def test_una_conversacion_se_exporta_como_texto(monkeypatch, tmp_path):
     from danplay import chats
+
     monkeypatch.setattr(config, "DATABASE", tmp_path / "chats.db")
     c = chats.create()
-    chats.append(c["id"], [{"role": "me", "text": "¿en que tono?"},
-                           {"role": "ai", "text": "En **Sol**.", "tools": [{"name": "search_songs", "summary": "1 resultados"}]},
-                           {"role": "me", "text": "[aviso]", "hidden": True}])
+    chats.append(
+        c["id"],
+        [
+            {"role": "me", "text": "¿en que tono?"},
+            {
+                "role": "ai",
+                "text": "En **Sol**.",
+                "tools": [{"name": "search_songs", "summary": "1 resultados"}],
+            },
+            {"role": "me", "text": "[aviso]", "hidden": True},
+        ],
+    )
     md = chats.export_markdown(c["id"])
     assert md.startswith("# ¿en que tono?")
     assert "**Tu**" in md and "**Asistente**" in md and "En **Sol**." in md
     assert "search_songs: 1 resultados" in md and "[aviso]" not in md
     assert chats.export_markdown(999999) is None
+
+
+# ------------------------------------------------ respuestas raras del modelo
+
+
+@pytest.mark.parametrize("text", ["[1, 2]", '"una cadena"', "null", "42", "no es json"])
+def test_solo_un_objeto_json_cuenta_como_respuesta(text):
+    """Un modelo puede contestar una lista, una cadena o `null` (JSON valido):
+    quien llama hace `.get` y eso era un 500 en la ficha."""
+    assert ai._json_from(text) is None
+    assert ai._json_from('Aqui tienes: {"a": 1} y ya') == {"a": 1}
+    assert ai._json_from('```json\n{"a": 2}\n```') == {"a": 2}
+
+
+@pytest.mark.parametrize("answer", [None, [], "texto", 7])
+def test_la_ficha_aguanta_una_respuesta_que_no_es_un_objeto(monkeypatch, answer):
+    from danplay import enrich
+
+    monkeypatch.setattr(enrich, "details", lambda song: answer)
+    monkeypatch.setattr(enrich.library, "update", lambda *a, **k: pytest.fail("no se guarda"))
+    assert enrich.details_for({"id": 1, "chords": ""}) == (None, False)
+    monkeypatch.setattr(
+        enrich.library,
+        "by_id",
+        lambda cid: {
+            "id": 1,
+            "artist": "Barak",
+            "title": "Mi Gozo",
+            "album": "",
+            "year": "",
+            "genre": "",
+            "key": "",
+            "lyrics": "",
+            "cover": "",
+            "path": "/no/existe.mp3",
+            "duration": 0,
+        },
+    )
+    monkeypatch.setattr(enrich.ai, "available", lambda: True)
+    r = enrich.autofill(1)
+    assert r["ok"] is False and r["reason"]
+    assert "error" not in enrich.enrich(1, with_lyrics=False, with_cover=False)
+
+
+def test_una_confianza_que_no_es_numero_no_rompe_nada(monkeypatch):
+    from danplay import enrich
+
+    assert enrich.cached_details({"chords": json.dumps({"confidence": "alta"})}) is None
+    monkeypatch.setattr(enrich, "details", lambda song: {"album": "", "confidence": "alta"})
+    monkeypatch.setattr(
+        enrich.library,
+        "by_id",
+        lambda cid: {
+            "id": 1,
+            "artist": "Barak",
+            "title": "Mi Gozo",
+            "album": "",
+            "year": "",
+            "genre": "",
+            "key": "",
+        },
+    )
+    monkeypatch.setattr(enrich.ai, "available", lambda: True)
+    r = enrich.autofill(1)
+    assert r["ok"] and "0%" in r["reason"]
+
+
+def test_argumentos_null_no_tumban_el_chat(perfiles, monkeypatch):
+    """`"arguments": "null"` dejaba args=None y el dialogo de confirmacion
+    reventaba fuera de todo try: un 500 en vez de una respuesta."""
+    from types import SimpleNamespace as NS
+
+    from danplay import chat
+
+    providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
+    turns = [
+        [NS(id="1", type="function", function=NS(name="delete_song", arguments="null"))],
+        [NS(id="2", type="function", function=NS(name="delete_playlist", arguments="[1]"))],
+        None,
+    ]
+
+    class _Fake:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    calls = turns.pop(0) if turns else None
+                    msg = _Msg("Te lo pregunto." if not calls else "", calls)
+                    return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+
+    _fake(monkeypatch, _Fake())
+    r = chat.reply([{"role": "user", "text": "borra la cancion"}])
+    assert r["confirm"]["tool"] == "delete_song" and r["confirm"]["args"] == {}
+    assert "papelera" in r["confirm"]["summary"]
+    assert chat._describe("delete_song", {"id": "abc"}), "sin excepcion"
+
+
+def test_las_herramientas_tienen_topes(monkeypatch):
+    from danplay import chat, library, web, youtube
+
+    seen = {}
+    monkeypatch.setattr(
+        library, "search", lambda q, f, sort, limit, **k: seen.update(limit=limit) or []
+    )
+    chat.run_tool("search_songs", {"query": "", "limit": -1})
+    assert seen["limit"] == 1, "un limite negativo era «sin limite» para SQLite"
+    chat.run_tool("search_songs", {"query": "", "limit": 10**9})
+    assert seen["limit"] == 200
+    chat.run_tool("search_songs", {"query": "", "limit": "muchas"})
+    assert seen["limit"] == 30
+    monkeypatch.setattr(youtube, "info", lambda q, n: seen.update(yt=n) or {"ok": False})
+    chat.run_tool("search_youtube", {"query": "x", "limit": 500})
+    assert seen["yt"] == 20
+    monkeypatch.setattr(web, "search", lambda q, n: seen.update(web=n) or [])
+    chat.run_tool("search_web", {"query": "x", "limit": 500})
+    assert seen["web"] == 10
+
+
+def test_editar_por_el_asistente_solo_toca_lo_declarado(monkeypatch):
+    """Una clave de mas llegaba a library.update y podia pisar el estudio o
+    los acordes."""
+    from danplay import chat, library
+
+    got = {}
+    monkeypatch.setattr(library, "edit", lambda cid, **f: got.update(f) or {"id": cid})
+    monkeypatch.setattr(
+        library,
+        "by_id",
+        lambda cid: {
+            "id": cid,
+            "artist": "A",
+            "title": "T",
+            "album": "",
+            "duration": 1,
+            "key": "",
+            "bpm": 0,
+            "stars": 0,
+            "favorite": 0,
+        },
+    )
+    r = chat.run_tool(
+        "edit_song", {"id": 3, "title": "Nuevo", "study": "{}", "chords": "x", "lyrics_synced": "y"}
+    )
+    assert r["ok"] and got == {"title": "Nuevo"}
+    assert "error" in chat.run_tool("edit_song", {"id": 3, "study": "{}"})
+
+
+def test_la_letra_con_tiempos_no_llega_al_uslt(monkeypatch):
+    """Se grababa la LRC en el USLT y la hoja del atril imprimia las marcas."""
+    from danplay import enrich
+
+    lrc = "[00:01.00]Mi gozo\n[00:03.00]esta en ti"
+    written, updated = {}, {}
+    monkeypatch.setattr(
+        enrich.library,
+        "by_id",
+        lambda cid: {
+            "id": 1,
+            "artist": "Barak",
+            "title": "Mi Gozo",
+            "album": "",
+            "duration": 3,
+            "lyrics": "",
+            "cover": "x",
+            "path": "/x.mp3",
+        },
+    )
+    monkeypatch.setattr(
+        enrich, "lyrics", lambda *a, **k: {"lyrics": "", "synced": lrc, "source": "lrclib"}
+    )
+    monkeypatch.setattr(enrich.library, "update", lambda cid, **f: updated.update(f))
+    monkeypatch.setattr(
+        enrich.tags, "write_lyrics", lambda path, text: written.update(t=text) or True
+    )
+    enrich.enrich(1, with_cover=False, with_details=False)
+    assert written["t"] == "Mi gozo\nesta en ti"
+    assert updated["lyrics"] == "Mi gozo\nesta en ti" and updated["lyrics_synced"] == lrc
+
+
+# ------------------------------------------------ el registro de herramientas
+
+
+def test_cada_herramienta_declarada_tiene_su_manejador():
+    from danplay import chat
+
+    declared = {t["function"]["name"] for t in chat.TOOLS}
+    assert declared == set(chat.HANDLERS), "declarar una herramienta sin manejador (o al reves)"
+    for old, new in chat.TOOL_ALIASES.items():
+        assert new in chat.HANDLERS, old
+
+
+def test_los_argumentos_que_no_valen_se_dicen_en_castellano():
+    from danplay import chat
+
+    r = chat.run_tool("edit_song", {"title": "x"})
+    assert r["error"] == "argumentos de edit_song que no valen: falta «id»"
+    r = chat.run_tool("music_details", {"id": "la segunda"})
+    assert "«id» tiene que ser un numero" in r["error"]
+    r = chat.run_tool("transpose_chords", {"chords": "| C |"})
+    assert "falta «from_key»" in r["error"] and "falta «to_key»" in r["error"]
+    assert chat.run_tool("no_existe", {})["error"] == "herramienta desconocida: no_existe"
+
+
+def test_los_numeros_como_texto_y_el_año_como_numero_valen(monkeypatch):
+    from danplay import chat, library
+
+    got = {}
+    monkeypatch.setattr(library, "edit", lambda cid, **f: got.update(cid=cid, **f) or {"id": cid})
+    monkeypatch.setattr(
+        library,
+        "by_id",
+        lambda cid: {
+            "id": cid,
+            "artist": "A",
+            "title": "T",
+            "album": "",
+            "duration": 1,
+            "key": "",
+            "bpm": 0,
+            "stars": 0,
+            "favorite": 0,
+        },
+    )
+    r = chat.run_tool("edit_song", {"id": "7", "year": 2018, "bpm": "120"})
+    assert r["ok"] and got == {"cid": 7, "year": "2018", "bpm": 120.0}
+
+
+def test_los_nombres_viejos_siguen_valiendo(monkeypatch):
+    from danplay import chat, enrich, playlists
+
+    rated = []
+    monkeypatch.setattr(playlists, "rate", lambda cid, n: rated.append((cid, n)) or True)
+    monkeypatch.setattr(
+        chat.library,
+        "by_id",
+        lambda cid: {
+            "id": cid,
+            "artist": "A",
+            "title": "T",
+            "album": "",
+            "duration": 1,
+            "key": "",
+            "bpm": 0,
+            "stars": 5,
+            "favorite": 0,
+        },
+    )
+    assert chat.run_tool("set_stars", {"id": 3, "stars": 9})["ok"] and rated == [(3, 5)]
+    monkeypatch.setattr(
+        enrich,
+        "lyrics",
+        lambda artist, title, *a: {"lyrics": f"{artist}/{title}", "source": "lrclib"},
+    )
+    r = chat.run_tool("lyrics_by_name", {"artist": "Barak", "title": "Mi Gozo", "id": 99})
+    assert r["lyrics"] == "Barak/Mi Gozo", "sin id: por artista y titulo"

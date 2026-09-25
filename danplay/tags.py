@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Etiquetas completas: metadata, estrellas, letra, portada, tono, BPM y
 campos propios (favorito, listas, portada difuminada, etiquetas libres).
 
@@ -18,39 +17,67 @@ Tres familias de formato, con el mismo vocabulario de campos:
 Antes solo se sabia escribir ID3: en un flac o un m4a poner una estrella
 «funcionaba» en la app, cambiaba el indice y el archivo se quedaba igual.
 """
+
 import base64
 import logging
 import os
-import mutagen
+import re
 from collections import OrderedDict as _OrderedDict
 from pathlib import Path
 from threading import Lock as _Lock
-from mutagen.id3 import (ID3, ID3NoHeaderError, APIC, USLT, POPM, TXXX, TKEY,
-                         TBPM, TIT2, TPE1, TPE2, TALB, TDRC, TCON, COMM)
-from mutagen.mp3 import MP3
-from mutagen.flac import FLAC, Picture
-from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
-from mutagen.oggvorbis import OggVorbis
-from mutagen.oggopus import OggOpus
 
-log = logging.getLogger("danplay")
+import mutagen
+from mutagen.flac import FLAC, Picture
+from mutagen.id3 import (
+    APIC,
+    COMM,
+    ID3,
+    POPM,
+    TALB,
+    TBPM,
+    TCON,
+    TDRC,
+    TIT2,
+    TKEY,
+    TPE1,
+    TPE2,
+    TXXX,
+    USLT,
+    ID3NoHeaderError,
+)
+from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
+from mutagen.oggopus import OggOpus
+from mutagen.oggvorbis import OggVorbis
+
+log = logging.getLogger(__name__)
 
 # 0-5 estrellas <-> valor POPM (convencion de Windows Media Player / Kodi)
 POPM_STARS = {0: 0, 1: 1, 2: 64, 3: 128, 4: 196, 5: 255}
 POPM_EMAIL = "danplay@local"
 
-MIME_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-        ".webp": "image/webp", ".gif": "image/gif"}
+MIME_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
 
 _NONE = (None, None, None)
 
 
 def _popm_to_stars(v: int) -> int:
-    if v <= 0:   return 0
-    if v <= 31:  return 1
-    if v <= 95:  return 2
-    if v <= 159: return 3
-    if v <= 221: return 4
+    if v <= 0:
+        return 0
+    if v <= 31:
+        return 1
+    if v <= 95:
+        return 2
+    if v <= 159:
+        return 3
+    if v <= 221:
+        return 4
     return 5
 
 
@@ -88,7 +115,31 @@ def _text(frame) -> str:
         return str(frame)
 
 
+# Las marcas de tiempo de un LRC («[01:23.45]») y sus lineas de cabecera
+# («[ar:Barak]», «[length: 3:42]»).
+_LRC_STAMP = re.compile(r"\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\]")
+_LRC_HEADER = re.compile(r"^\s*\[[a-z]{1,8}:[^\]]*\]\s*$", re.IGNORECASE)
+
+
+def lrc_to_plain(text: str) -> str:
+    """La letra sin las marcas de tiempo de un LRC.
+
+    Lo que va en el USLT del archivo y en la hoja del atril es la letra
+    limpia: con las marcas, la hoja imprimia «[00:12.34]» delante de cada
+    verso. Un texto que no es LRC sale tal cual.
+    """
+    if not text or not _LRC_STAMP.search(text):
+        return text or ""
+    lines = []
+    for line in str(text).splitlines():
+        if _LRC_HEADER.match(line):
+            continue
+        lines.append(_LRC_STAMP.sub("", line).strip())
+    return "\n".join(lines).strip()
+
+
 # ---------------------------------------------------------------- apertura
+
 
 def _id3(path, create=False) -> ID3 | None:
     """El ID3 de un mp3, sin parsear el audio (es lo que tarda)."""
@@ -98,25 +149,27 @@ def _id3(path, create=False) -> ID3 | None:
         if not create:
             return None
         try:
-            a = MP3(str(path)); a.add_tags(); a.save()
+            a = MP3(str(path))
+            a.add_tags()
+            a.save()
             return ID3(str(path))
-        except Exception:                                   # noqa: BLE001
+        except Exception:
             log.warning("no se pudo crear el ID3 de %s", path, exc_info=True)
             return None
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("no se pudo leer el ID3 de %s", path, exc_info=True)
         return None
 
 
 _READERS = {
-    ".wav":  ("mutagen.wave", "WAVE"),
-    ".mp3":  ("mutagen.mp3", "MP3"),
+    ".wav": ("mutagen.wave", "WAVE"),
+    ".mp3": ("mutagen.mp3", "MP3"),
     ".flac": ("mutagen.flac", "FLAC"),
-    ".m4a":  ("mutagen.mp4", "MP4"),
-    ".aac":  ("mutagen.aac", "AAC"),
-    ".ogg":  ("mutagen.oggvorbis", "OggVorbis"),
+    ".m4a": ("mutagen.mp4", "MP4"),
+    ".aac": ("mutagen.aac", "AAC"),
+    ".ogg": ("mutagen.oggvorbis", "OggVorbis"),
     ".opus": ("mutagen.oggopus", "OggOpus"),
-    ".wma":  ("mutagen.asf", "ASF"),
+    ".wma": ("mutagen.asf", "ASF"),
     ".aiff": ("mutagen.aiff", "AIFF"),
 }
 
@@ -128,7 +181,7 @@ def _open(path):
         a = mutagen.File(str(path))
         if a is not None:
             return a
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("mutagen no pudo abrir %s", path, exc_info=True)
     ext = Path(path).suffix.lower()
     if ext not in _READERS:
@@ -136,7 +189,7 @@ def _open(path):
     module, cls = _READERS[ext]
     try:
         return getattr(__import__(module, fromlist=[cls]), cls)(str(path))
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("no se pudo abrir %s como %s", path, cls, exc_info=True)
         return None
 
@@ -181,7 +234,7 @@ def _load(path, create=False):
         # mp3 (y cualquier otro con ID3 al principio)
         t = _id3(path, create)
         return ("id3", t, t) if t is not None else _NONE
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("no se pudieron abrir las etiquetas de %s", path, exc_info=True)
         return _NONE
 
@@ -193,12 +246,13 @@ def _save(kind, audio) -> bool:
         else:
             audio.save()
         return True
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("no se pudieron guardar las etiquetas", exc_info=True)
         return False
 
 
 # ---------------------------------------------------------------- lectura
+
 
 def read(path) -> dict:
     """Etiquetas basicas (compatible con la version anterior)."""
@@ -206,22 +260,45 @@ def read(path) -> dict:
         a = mutagen.File(str(path), easy=True)
         if a is None or not a.tags:
             return {}
-        return {c: a.tags[c][0] for c in
-                ("artist","title","album","date","albumartist","genre") if a.tags.get(c)}
-    except Exception:                                       # noqa: BLE001
+        return {
+            c: a.tags[c][0]
+            for c in ("artist", "title", "album", "date", "albumartist", "genre")
+            if a.tags.get(c)
+        }
+    except Exception:
         log.warning("no se pudieron leer las etiquetas de %s", path, exc_info=True)
         return {}
 
 
 def _empty() -> dict:
-    return {"artist":"", "title":"", "album":"", "year":"", "genre":"", "album_artist":"",
-            "stars":0, "play_count":0, "favorite":False, "lyrics":"", "key":"",
-            "bpm":0.0, "cover":False, "comment":"", "duration":0.0, "bitrate":0,
-            "tags":[], "playlists":[], "blur":False, "study":""}
+    return {
+        "artist": "",
+        "title": "",
+        "album": "",
+        "year": "",
+        "genre": "",
+        "album_artist": "",
+        "stars": 0,
+        "play_count": 0,
+        "favorite": False,
+        "lyrics": "",
+        "key": "",
+        "bpm": 0.0,
+        "cover": False,
+        "comment": "",
+        "duration": 0.0,
+        "bitrate": 0,
+        "tags": [],
+        "playlists": [],
+        "blur": False,
+        "study": "",
+    }
 
 
 def _read_id3(t, d: dict) -> None:
-    g = lambda k: (_text(t.get(k)) if t.get(k) else "")
+    def g(k):
+        return _text(t.get(k)) if t.get(k) else ""
+
     d["title"], d["artist"], d["album"] = g("TIT2"), g("TPE1"), g("TALB")
     d["album_artist"], d["year"], d["genre"] = g("TPE2"), g("TDRC"), g("TCON")
     d["key"] = g("TKEY")
@@ -255,18 +332,30 @@ def _read_id3(t, d: dict) -> None:
                 d["study"] = val
 
 
-_VORBIS = {"artist": "ARTIST", "title": "TITLE", "album": "ALBUM", "year": "DATE",
-           "genre": "GENRE", "album_artist": "ALBUMARTIST", "comment": "COMMENT",
-           "lyrics": "LYRICS", "key": "INITIALKEY", "bpm": "BPM",
-           "favorite": "DANPLAY_FAVORITE", "blur": "DANPLAY_BLUR",
-           "tags": "DANPLAY_LABELS", "playlists": "DANPLAY_PLAYLISTS",
-           "study": "DANPLAY_STUDY"}
+_VORBIS = {
+    "artist": "ARTIST",
+    "title": "TITLE",
+    "album": "ALBUM",
+    "year": "DATE",
+    "genre": "GENRE",
+    "album_artist": "ALBUMARTIST",
+    "comment": "COMMENT",
+    "lyrics": "LYRICS",
+    "key": "INITIALKEY",
+    "bpm": "BPM",
+    "favorite": "DANPLAY_FAVORITE",
+    "blur": "DANPLAY_BLUR",
+    "tags": "DANPLAY_LABELS",
+    "playlists": "DANPLAY_PLAYLISTS",
+    "study": "DANPLAY_STUDY",
+}
 
 
 def _read_vorbis(audio, t, d: dict) -> None:
-    g = lambda k: "; ".join(str(x) for x in (t.get(k) or []) if str(x))
-    for field in ("artist", "title", "album", "year", "genre", "album_artist",
-                  "comment", "key"):
+    def g(k):
+        return "; ".join(str(x) for x in (t.get(k) or []) if str(x))
+
+    for field in ("artist", "title", "album", "year", "genre", "album_artist", "comment", "key"):
         d[field] = g(_VORBIS[field])
     d["lyrics"] = g("LYRICS") or g("UNSYNCEDLYRICS")
     d["key"] = d["key"] or g("KEY")
@@ -282,15 +371,25 @@ def _read_vorbis(audio, t, d: dict) -> None:
     d["blur"] = _truthy(g("DANPLAY_BLUR"))
     d["tags"] = _split_list(g("DANPLAY_LABELS"))
     d["playlists"] = _split_list(g("DANPLAY_PLAYLISTS"))
+    # el modo estudio: se escribia en flac/ogg/opus y nunca se leia, asi que
+    # perdida la base no volvia (en mp3, m4a y wav si)
+    d["study"] = g("DANPLAY_STUDY")
     if isinstance(audio, FLAC):
         d["cover"] = bool(audio.pictures)
     else:
         d["cover"] = bool(t.get("METADATA_BLOCK_PICTURE"))
 
 
-_MP4 = {"artist": "\xa9ART", "title": "\xa9nam", "album": "\xa9alb", "year": "\xa9day",
-        "genre": "\xa9gen", "album_artist": "aART", "comment": "\xa9cmt",
-        "lyrics": "\xa9lyr"}
+_MP4 = {
+    "artist": "\xa9ART",
+    "title": "\xa9nam",
+    "album": "\xa9alb",
+    "year": "\xa9day",
+    "genre": "\xa9gen",
+    "album_artist": "aART",
+    "comment": "\xa9cmt",
+    "lyrics": "\xa9lyr",
+}
 
 
 def _ff(name: str) -> str:
@@ -307,6 +406,7 @@ def _read_mp4(t, d: dict) -> None:
             if str(x):
                 out.append(str(x))
         return "; ".join(out)
+
     for field, atom in _MP4.items():
         d[field] = g(atom)
     d["key"] = g(_ff("initialkey"))
@@ -338,7 +438,7 @@ def read_all(path) -> dict:
         if base is not None and base.info:
             d["duration"] = float(getattr(base.info, "length", 0) or 0)
             d["bitrate"] = int(getattr(base.info, "bitrate", 0) or 0)
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("sin duracion para %s", path, exc_info=True)
     t = getattr(base, "tags", None)
     try:
@@ -354,8 +454,8 @@ def read_all(path) -> dict:
             if t is not None:
                 _read_id3(t, d)
             else:
-                d.update({k: v for k, v in read(path).items()})
-    except Exception:                                       # noqa: BLE001
+                d.update(dict(read(path).items()))
+    except Exception:
         log.warning("etiquetas ilegibles en %s", path, exc_info=True)
     return d
 
@@ -364,7 +464,7 @@ def duration(path) -> float:
     a = _open(path)
     try:
         return float(a.info.length) if a is not None and a.info else 0.0
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("sin duracion para %s", path, exc_info=True)
         return 0.0
 
@@ -373,17 +473,29 @@ def bitrate(path) -> int:
     a = _open(path)
     try:
         return int(getattr(a.info, "bitrate", 0)) if a is not None and a.info else 0
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("sin bitrate para %s", path, exc_info=True)
         return 0
 
 
 # ---------------------------------------------------------------- escritura
 
-_ID3_TEXT = {"artist": TPE1, "title": TIT2, "album": TALB, "year": TDRC,
-             "genre": TCON, "album_artist": TPE2, "key": TKEY}
-_ID3_TXXX = {"favorite": "FAVORITO", "blur": "PORTADA_BORROSA",
-             "tags": "ETIQUETAS", "playlists": "LISTAS", "study": "ESTUDIO"}
+_ID3_TEXT = {
+    "artist": TPE1,
+    "title": TIT2,
+    "album": TALB,
+    "year": TDRC,
+    "genre": TCON,
+    "album_artist": TPE2,
+    "key": TKEY,
+}
+_ID3_TXXX = {
+    "favorite": "FAVORITO",
+    "blur": "PORTADA_BORROSA",
+    "tags": "ETIQUETAS",
+    "playlists": "LISTAS",
+    "study": "ESTUDIO",
+}
 
 
 def _apply_id3(t, fields: dict) -> None:
@@ -396,10 +508,13 @@ def _apply_id3(t, fields: dict) -> None:
         for k in list(t.keys()):
             if k.startswith("USLT"):
                 del t[k]
-        t.add(USLT(encoding=3, lang=fields.get("language", "spa"), desc="",
-                   text=str(fields["lyrics"])))
+        t.add(
+            USLT(
+                encoding=3, lang=fields.get("language", "spa"), desc="", text=str(fields["lyrics"])
+            )
+        )
     if "bpm" in fields:
-        t.setall("TBPM", [TBPM(encoding=3, text=str(int(round(float(fields["bpm"])))))])
+        t.setall("TBPM", [TBPM(encoding=3, text=str(round(float(fields["bpm"]))))])
     if "stars" in fields:
         previous = 0
         for k in list(t.keys()):
@@ -407,12 +522,16 @@ def _apply_id3(t, fields: dict) -> None:
                 previous = int(getattr(t[k], "count", 0) or 0)
                 del t[k]
         count = fields.get("play_count")
-        t.add(POPM(email=POPM_EMAIL, rating=POPM_STARS[int(fields["stars"])],
-                   count=previous if count is None else int(count)))
+        t.add(
+            POPM(
+                email=POPM_EMAIL,
+                rating=POPM_STARS[int(fields["stars"])],
+                count=previous if count is None else int(count),
+            )
+        )
     for field, desc in _ID3_TXXX.items():
         if field in fields:
-            t.setall(f"TXXX:{desc}",
-                     [TXXX(encoding=3, desc=desc, text=str(fields[field]))])
+            t.setall(f"TXXX:{desc}", [TXXX(encoding=3, desc=desc, text=str(fields[field]))])
 
 
 def _apply_vorbis(t, fields: dict) -> None:
@@ -420,7 +539,7 @@ def _apply_vorbis(t, fields: dict) -> None:
         if field in fields:
             value = fields[field]
             if field == "bpm":
-                value = int(round(float(value)))
+                value = round(float(value))
             t[key] = [str(value)]
     if "stars" in fields:
         t["RATING"] = [str(int(fields["stars"]) * 20)]
@@ -431,10 +550,15 @@ def _apply_mp4(t, fields: dict) -> None:
         if field in fields:
             t[atom] = [str(fields[field])]
     if "bpm" in fields:
-        t["tmpo"] = [int(round(float(fields["bpm"])))]
-    freeform = {"key": "initialkey", "favorite": "DANPLAY_FAVORITE",
-                "blur": "DANPLAY_BLUR", "tags": "DANPLAY_LABELS",
-                "playlists": "DANPLAY_PLAYLISTS", "study": "DANPLAY_STUDY"}
+        t["tmpo"] = [round(float(fields["bpm"]))]
+    freeform = {
+        "key": "initialkey",
+        "favorite": "DANPLAY_FAVORITE",
+        "blur": "DANPLAY_BLUR",
+        "tags": "DANPLAY_LABELS",
+        "playlists": "DANPLAY_PLAYLISTS",
+        "study": "DANPLAY_STUDY",
+    }
     for field, name in freeform.items():
         if field in fields:
             t[_ff(name)] = [MP4FreeForm(str(fields[field]).encode("utf-8"))]
@@ -450,18 +574,29 @@ def _write_fields(path, fields: dict) -> bool:
         return False
     try:
         {"id3": _apply_id3, "vorbis": _apply_vorbis, "mp4": _apply_mp4}[kind](t, fields)
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("no se pudieron preparar las etiquetas de %s", path, exc_info=True)
         return False
     return _save(kind, audio)
 
 
-def write(path, artist="", title="", album="", year="", genre="",
-          album_artist="", comment="") -> bool:
+def write(
+    path, artist="", title="", album="", year="", genre="", album_artist="", comment=""
+) -> bool:
     """Metadata basica. Solo se tocan los campos con valor: vaciar uno no lo borra."""
-    fields = {k: v for k, v in (("artist", artist), ("title", title), ("album", album),
-                                ("year", year), ("genre", genre),
-                                ("album_artist", album_artist), ("comment", comment)) if v}
+    fields = {
+        k: v
+        for k, v in (
+            ("artist", artist),
+            ("title", title),
+            ("album", album),
+            ("year", year),
+            ("genre", genre),
+            ("album_artist", album_artist),
+            ("comment", comment),
+        )
+        if v
+    }
     return _write_fields(path, fields)
 
 
@@ -505,11 +640,10 @@ def _write_txxx(path, description, value) -> bool:
     if t is None:
         return False
     try:
-        t.setall(f"TXXX:{description}",
-                 [TXXX(encoding=3, desc=description, text=str(value))])
+        t.setall(f"TXXX:{description}", [TXXX(encoding=3, desc=description, text=str(value))])
         t.save(v2_version=3)
         return True
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("no se pudo escribir TXXX:%s en %s", description, path, exc_info=True)
         return False
 
@@ -536,7 +670,7 @@ def write_analysis(path, key="", bpm=0.0) -> bool:
 def _picture(data: bytes, mime: str) -> Picture:
     pic = Picture()
     pic.data = data
-    pic.type = 3                         # portada delantera
+    pic.type = 3  # portada delantera
     pic.mime = mime
     pic.desc = "Cover"
     return pic
@@ -558,11 +692,12 @@ def write_cover(path, data: bytes, mime="image/jpeg") -> bool:
             audio.add_picture(_picture(data, mime))
         elif kind == "vorbis":
             t["METADATA_BLOCK_PICTURE"] = [
-                base64.b64encode(_picture(data, mime).write()).decode("ascii")]
+                base64.b64encode(_picture(data, mime).write()).decode("ascii")
+            ]
         else:
             fmt = MP4Cover.FORMAT_PNG if mime == "image/png" else MP4Cover.FORMAT_JPEG
             t["covr"] = [MP4Cover(data, imageformat=fmt)]
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("no se pudo preparar la portada de %s", path, exc_info=True)
         return False
     if not _save(kind, audio):
@@ -581,8 +716,7 @@ def cover_from_file(audio_path, image_path) -> bool:
     p = Path(image_path)
     if not p.is_file():
         return False
-    return write_cover(audio_path, p.read_bytes(),
-                            MIME_TYPES.get(p.suffix.lower(), "image/jpeg"))
+    return write_cover(audio_path, p.read_bytes(), MIME_TYPES.get(p.suffix.lower(), "image/jpeg"))
 
 
 def extract_cover(path) -> tuple[bytes, str] | None:
@@ -608,10 +742,13 @@ def extract_cover(path) -> tuple[bytes, str] | None:
             covers = t.get("covr") or []
             if covers:
                 c = covers[0]
-                mime = "image/png" if getattr(c, "imageformat", None) == MP4Cover.FORMAT_PNG \
+                mime = (
+                    "image/png"
+                    if getattr(c, "imageformat", None) == MP4Cover.FORMAT_PNG
                     else "image/jpeg"
+                )
                 return bytes(c), mime
-    except Exception:                                       # noqa: BLE001
+    except Exception:
         log.warning("portada ilegible en %s", path, exc_info=True)
     return None
 
@@ -627,7 +764,7 @@ def extract_cover(path) -> tuple[bytes, str] | None:
 # entradas, porque las canciones SIN portada se guardan como None (pesan
 # cero bytes) y sin ese tope nunca se desalojaban: con una biblioteca grande
 # la cache crecia sin fin a base de nadas.
-_COVER_CACHE: "OrderedDict[tuple, tuple[bytes, str] | None]" = _OrderedDict()
+_COVER_CACHE: _OrderedDict[tuple, tuple[bytes, str] | None] = _OrderedDict()
 _COVER_CACHE_MAX_BYTES = 12 * 1024 * 1024
 _COVER_CACHE_MAX_ENTRIES = 512
 _cover_bytes = 0
@@ -652,9 +789,10 @@ def cached_cover(path) -> tuple[bytes, str] | None:
         if key not in _COVER_CACHE:
             _COVER_CACHE[key] = r
             _cover_bytes += size
-            while (len(_COVER_CACHE) > 1 and
-                   (_cover_bytes > _COVER_CACHE_MAX_BYTES
-                    or len(_COVER_CACHE) > _COVER_CACHE_MAX_ENTRIES)):
+            while len(_COVER_CACHE) > 1 and (
+                _cover_bytes > _COVER_CACHE_MAX_BYTES
+                or len(_COVER_CACHE) > _COVER_CACHE_MAX_ENTRIES
+            ):
                 _, old = _COVER_CACHE.popitem(last=False)
                 _cover_bytes -= len(old[0]) if old else 0
     return r

@@ -8,6 +8,7 @@ Los argumentos son los mismos que `danplay serve`:
     danplay-core --uds RUTA          socket Unix (Linux y macOS)
     danplay-core --host H --port N   loopback (Windows), con DANPLAY_TOKEN
 """
+
 import argparse
 import multiprocessing
 import sys
@@ -24,6 +25,7 @@ def main():
     args = parser.parse_args()
 
     from danplay.api import serve
+
     serve(host=args.host, port=args.port, uds=args.uds)
 
 

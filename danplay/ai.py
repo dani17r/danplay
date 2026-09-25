@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """El cerebro: cualquier proveedor compatible con la API de OpenAI.
 
 Aqui vive lo que habla con el modelo. Que proveedor, con que clave y que
@@ -12,21 +11,25 @@ rechazan `tool_choice="required"`, los razonadores de OpenAI no admiten
 `complete()` quita lo que el servidor rechaza, reintenta y se acuerda para la
 proxima vez. Lo que se sabe de antemano por el catalogo ni se manda.
 """
+
 import json
 import logging
 import re
 import threading
 import time
 from types import SimpleNamespace
-from . import config, providers, model_catalog
+from typing import Any
 
-log = logging.getLogger("danplay.ai")
+from . import config, model_catalog, providers
 
-_client = None
-_client_for: tuple | None = None       # con que perfil se construyo
+log = logging.getLogger(__name__)
+
+# el cliente del SDK de OpenAI (o el de mentira de las pruebas)
+_client: Any = None
+_client_for: tuple | None = None  # con que perfil se construyo
 _client_lock = threading.Lock()
 # clientes de los perfiles de respaldo, por su firma
-_clients: dict[tuple, object] = {}
+_clients: dict[tuple, Any] = {}
 
 # Lo que un servidor ya rechazo, por (proveedor, modelo): no se repite.
 _unsupported: dict[tuple[str, str], set[str]] = {}
@@ -66,10 +69,23 @@ class Reply:
 # Sin perfil no hay con quien hablar; `_get_client` lo dice. Este vacio solo
 # sirve para que `complete` monte la peticion igual (las pruebas sustituyen
 # el cliente por uno falso y no tienen ningun proveedor configurado).
-_NO_PROFILE = {"id": "", "provider": "", "name": "", "base_url": "", "key": "",
-               "key_required": False, "headers": {}, "model": "", "chat_model": "",
-               "extra": {}, "timeout": providers.DEFAULT_TIMEOUT, "quirks": {},
-               "models_dev": None, "local": False}
+_NO_PROFILE: providers.Profile = {
+    "id": "",
+    "provider": "",
+    "name": "",
+    "base_url": "",
+    "key": "",
+    "key_required": False,
+    "headers": {},
+    "model": "",
+    "chat_model": "",
+    "extra": {},
+    "timeout": providers.DEFAULT_TIMEOUT,
+    "quirks": {},
+    "models_dev": None,
+    "local": False,
+    "retries": None,
+}
 
 
 INSTRUCTIONS = """Catalogas una biblioteca musical (mucha adoracion cristiana en español, algo de pop/rock). De un nombre de archivo sucio (suele venir de un video) deduce:
@@ -84,7 +100,8 @@ Ejemplos:
 
 # ------------------------------------------------------------------ perfil
 
-def profile() -> dict | None:
+
+def profile() -> providers.Profile | None:
     """El perfil activo resuelto, o None."""
     return providers.active()
 
@@ -141,7 +158,7 @@ def turn_summary() -> tuple[dict | None, dict | None]:
     return getattr(_turn, "usage", None), getattr(_turn, "via", None)
 
 
-def price_of(p: dict | None, model: str, prompt: int, completion: int) -> float | None:
+def price_of(p: providers.Profile | None, model: str, prompt: int, completion: int) -> float | None:
     """Lo que cuestan esos tokens segun el catalogo, o None si no se sabe."""
     if not p or p.get("local"):
         return 0.0 if p and p.get("local") else None
@@ -151,7 +168,7 @@ def price_of(p: dict | None, model: str, prompt: int, completion: int) -> float 
     return prompt / 1e6 * info["cost_in"] + completion / 1e6 * info["cost_out"]
 
 
-def _account(p: dict, model: str, purpose: str, usage) -> None:
+def _account(p: providers.Profile, model: str, purpose: str, usage) -> None:
     """Apunta el gasto de una llamada: en el turno y en la base."""
     if usage is None:
         return
@@ -169,13 +186,15 @@ def _account(p: dict, model: str, purpose: str, usage) -> None:
             acc["cost"] += cost
     try:
         from . import library
+
         library.log_ai_usage(p["id"], model, purpose, prompt, completion, cost)
-    except Exception:                                        # noqa: BLE001
+    except Exception:
         log.debug("no se pudo apuntar el uso de la IA", exc_info=True)
 
 
-def _build_client(p: dict):
+def _build_client(p: providers.Profile):
     from openai import OpenAI
+
     # Los servidores locales no piden clave, pero el SDK exige alguna: un
     # texto cualquiera vale (Ollama documenta justo eso).
     # Reintentar un fallo de conexion tiene sentido con la nube; con un
@@ -183,14 +202,23 @@ def _build_client(p: dict):
     retries = p.get("retries")
     if retries is None:
         retries = 0 if p.get("local") else 2
-    return OpenAI(api_key=p["key"] or "no-key", base_url=p["base_url"],
-                  default_headers=p["headers"] or None,
-                  timeout=p["timeout"], max_retries=int(retries))
+    return OpenAI(
+        api_key=p["key"] or "no-key",
+        base_url=p["base_url"],
+        default_headers=p["headers"] or None,
+        timeout=p["timeout"],
+        max_retries=int(retries),
+    )
 
 
-def _signature(p: dict) -> tuple:
-    return (p["id"], p["base_url"], p["key"], json.dumps(p["headers"], sort_keys=True),
-            p["timeout"])
+def _signature(p: providers.Profile) -> tuple:
+    return (
+        p["id"],
+        p["base_url"],
+        p["key"],
+        json.dumps(p["headers"], sort_keys=True),
+        p["timeout"],
+    )
 
 
 def _get_client():
@@ -207,7 +235,7 @@ def _get_client():
         return _client
 
 
-def _client_for_profile(p: dict):
+def _client_for_profile(p: providers.Profile):
     """El cliente de un perfil de respaldo (se guardan por firma)."""
     signature = _signature(p)
     with _client_lock:
@@ -224,26 +252,46 @@ def _client_for_profile(p: dict):
 # Ollama, llama.cpp, vLLM, OpenRouter y compañia.
 _HINTS = (
     ("json_schema", re.compile(r"json_schema|schema|strict", re.I)),
-    ("response_format", re.compile(r"response_format|json_object|json_schema|json mode|"
-                                   r"structured output", re.I)),
+    (
+        "response_format",
+        re.compile(
+            r"response_format|json_object|json_schema|json mode|"
+            r"structured output",
+            re.I,
+        ),
+    ),
     ("tool_choice", re.compile(r"tool_choice|tool choice", re.I)),
     ("temperature", re.compile(r"temperature", re.I)),
-    ("max_tokens", re.compile(r"max_tokens.*(?:not supported|unsupported|use .?max_completion_tokens)|"
-                              r"max_completion_tokens", re.I)),
+    (
+        "max_tokens",
+        re.compile(
+            r"max_tokens.*(?:not supported|unsupported|use .?max_completion_tokens)|"
+            r"max_completion_tokens",
+            re.I,
+        ),
+    ),
     ("parallel_tool_calls", re.compile(r"parallel_tool_calls", re.I)),
     ("stream_options", re.compile(r"stream_options|include_usage", re.I)),
-    ("stream", re.compile(r"\bstream(?:ing)?\b.{0,40}(?:not supported|unsupported|not available)", re.I)),
+    (
+        "stream",
+        re.compile(r"\bstream(?:ing)?\b.{0,40}(?:not supported|unsupported|not available)", re.I),
+    ),
 )
 # Un fallo que no es del mensaje sino del servicio: caido, sin credito,
 # saturado, clave rechazada. Con eso se pasa al respaldo.
 _DOWN_STATUS = {401, 402, 403, 408, 425, 429, 500, 502, 503, 504}
-_DOWN_TEXT = re.compile(r"connection|timeout|timed out|resolve|network|unreachable|refused|"
-                        r"overloaded|rate limit|insufficient|quota|credit|balance|unauthorized|"
-                        r"invalid api key|authentication|service unavailable", re.I)
-_TOOLS_HINT = re.compile(r"(?:does not support|doesn't support|not support(?:ed)?|unsupported|"
-                         r"no soporta|cannot use|not available).{0,60}(?:tools|function|tool use)|"
-                         r"(?:tools|functions?).{0,60}(?:not support|unsupported|not available)",
-                         re.I | re.S)
+_DOWN_TEXT = re.compile(
+    r"connection|timeout|timed out|resolve|network|unreachable|refused|"
+    r"overloaded|rate limit|insufficient|quota|credit|balance|unauthorized|"
+    r"invalid api key|authentication|service unavailable",
+    re.I,
+)
+_TOOLS_HINT = re.compile(
+    r"(?:does not support|doesn't support|not support(?:ed)?|unsupported|"
+    r"no soporta|cannot use|not available).{0,60}(?:tools|function|tool use)|"
+    r"(?:tools|functions?).{0,60}(?:not support|unsupported|not available)",
+    re.I | re.S,
+)
 
 
 def _strip(kwargs: dict, what: str) -> None:
@@ -278,7 +326,7 @@ def _droppable(kwargs: dict, what: str) -> bool:
     return what in kwargs
 
 
-def _known_limits(p: dict, model: str) -> set[str]:
+def _known_limits(p: providers.Profile, model: str) -> set[str]:
     """Lo que se sabe sin preguntar: por el catalogo y por el proveedor."""
     out = set(_unsupported.get((p["id"], model), set()))
     if p["quirks"].get("json_mode") is False:
@@ -297,9 +345,20 @@ def _is_down(e: Exception) -> bool:
     return status in _DOWN_STATUS or bool(_DOWN_TEXT.search(str(e)))
 
 
-def complete(messages: list[dict], *, model: str = "", tools=None, tool_choice=None,
-             response_format=None, temperature=None, max_tokens=None, timeout=None,
-             purpose: str = "fast", on_text=None, cancel=None) -> Reply:
+def complete(
+    messages: list[dict],
+    *,
+    model: str = "",
+    tools=None,
+    tool_choice=None,
+    response_format=None,
+    temperature=None,
+    max_tokens=None,
+    timeout=None,
+    purpose: str = "fast",
+    on_text=None,
+    cancel=None,
+) -> Reply:
     """Una peticion al modelo, con las tolerancias descritas arriba.
 
     Devuelve un `Reply` con el mensaje entero. Con `on_text` la respuesta se
@@ -324,18 +383,30 @@ def complete(messages: list[dict], *, model: str = "", tools=None, tool_choice=N
             continue
         m = model or (p["chat_model"] if purpose == "chat" else p["model"])
         try:
-            reply = _complete_with(p, m, messages, tools, tool_choice, response_format,
-                                   temperature, max_tokens, timeout, purpose, on_text, cancel,
-                                   active=(i == 0))
+            reply = _complete_with(
+                p,
+                m,
+                messages,
+                tools,
+                tool_choice,
+                response_format,
+                temperature,
+                max_tokens,
+                timeout,
+                purpose,
+                on_text,
+                cancel,
+                active=(i == 0),
+            )
             _down_until.pop(p["id"], None)
             return reply
         except Canceled:
             raise
         except ToolsUnsupported as e:
             errors.append(e)
-        except Exception as e:                               # noqa: BLE001
+        except Exception as e:
             if not _is_down(e):
-                raise                          # es del mensaje, no del servicio
+                raise  # es del mensaje, no del servicio
             _down_until[p["id"]] = now + DOWN_FOR
             log.info("%s no responde (%s); se prueba el respaldo", p["name"], str(e)[:80])
             errors.append(e)
@@ -344,8 +415,21 @@ def complete(messages: list[dict], *, model: str = "", tools=None, tool_choice=N
     raise errors[0] if errors else RuntimeError("no hay proveedor de IA configurado")
 
 
-def _complete_with(p, model, messages, tools, tool_choice, response_format, temperature,
-                   max_tokens, timeout, purpose, on_text, cancel, active=True) -> Reply:
+def _complete_with(
+    p,
+    model,
+    messages,
+    tools,
+    tool_choice,
+    response_format,
+    temperature,
+    max_tokens,
+    timeout,
+    purpose,
+    on_text,
+    cancel,
+    active=True,
+) -> Reply:
     kwargs: dict = {"model": model, "messages": messages}
     if tools:
         kwargs["tools"] = tools
@@ -379,14 +463,18 @@ def _complete_with(p, model, messages, tools, tool_choice, response_format, temp
                 msg, usage = _collect(raw, on_text if streaming else None, cancel)
             except Canceled:
                 raise
-            except Exception as e:                           # noqa: BLE001
+            except Exception as e:
                 # el flujo se rompio a medias (un evento vacio, un corte):
                 # la misma peticion, entera y de una vez
                 if not streaming or attempt == 5:
                     raise
                 n = _stream_failures[key] = _stream_failures.get(key, 0) + 1
-                log.info("%s corto el flujo con %s (%s); se repite sin trozos", p["id"], model,
-                         str(e)[:80])
+                log.info(
+                    "%s corto el flujo con %s (%s); se repite sin trozos",
+                    p["id"],
+                    model,
+                    str(e)[:80],
+                )
                 if n >= STREAM_FAILURES_MAX:
                     _unsupported.setdefault(key, set()).add("stream")
                 _strip(kwargs, "stream")
@@ -400,7 +488,7 @@ def _complete_with(p, model, messages, tools, tool_choice, response_format, temp
             return Reply(msg, usage, _turn.via)
         except Canceled:
             raise
-        except Exception as e:                               # noqa: BLE001
+        except Exception as e:
             status = getattr(e, "status_code", None)
             text = str(e)
             if status not in (400, 404, 422) and not re.match(r"\s*(?:400|404|422)\b", text):
@@ -408,8 +496,9 @@ def _complete_with(p, model, messages, tools, tool_choice, response_format, temp
             # Primero lo que se puede quitar (tool_choice=required, JSON…):
             # un «tool_choice not supported» habla del parametro, no de que
             # el modelo no sepa usar herramientas.
-            dropped = next((w for w, rx in _HINTS if rx.search(text) and _droppable(kwargs, w)),
-                           None)
+            dropped = next(
+                (w for w, rx in _HINTS if rx.search(text) and _droppable(kwargs, w)), None
+            )
             if dropped and attempt < 5:
                 log.info("%s rechaza %s con %s; se reintenta sin el", p["id"], dropped, model)
                 _unsupported.setdefault(key, set()).add(dropped)
@@ -419,7 +508,7 @@ def _complete_with(p, model, messages, tools, tool_choice, response_format, temp
                 _unsupported.setdefault(key, set()).add("tools")
                 raise ToolsUnsupported(model) from e
             raise
-    raise RuntimeError("sin respuesta")            # no se llega: el bucle sale antes
+    raise RuntimeError("sin respuesta")  # no se llega: el bucle sale antes
 
 
 def _thinking_open(text: str) -> bool:
@@ -462,8 +551,9 @@ def _collect(raw, on_text=None, cancel=None):
                     joined = "".join(parts)
                     on_text("" if _thinking_open(joined) else strip_thoughts(joined))
             for tc in getattr(delta, "tool_calls", None) or []:
-                slot = calls.setdefault(getattr(tc, "index", 0) or 0,
-                                        {"id": "", "name": "", "arguments": ""})
+                slot = calls.setdefault(
+                    getattr(tc, "index", 0) or 0, {"id": "", "name": "", "arguments": ""}
+                )
                 if getattr(tc, "id", None):
                     slot["id"] = tc.id
                 fn = getattr(tc, "function", None)
@@ -480,23 +570,29 @@ def _collect(raw, on_text=None, cancel=None):
         if callable(close):
             try:
                 close()
-            except Exception:                                # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 pass
     # una llamada sin argumentos llega con "" y, devuelta asi al servidor en
     # el turno siguiente, es «un documento vacio»: un 400. Siempre JSON.
-    tool_calls = [SimpleNamespace(id=c["id"] or f"call_{i}", type="function",
-                                  function=SimpleNamespace(name=c["name"],
-                                                           arguments=c["arguments"] or "{}"))
-                  for i, c in sorted(calls.items())] or None
+    tool_calls = [
+        SimpleNamespace(
+            id=c["id"] or f"call_{i}",
+            type="function",
+            function=SimpleNamespace(name=c["name"], arguments=c["arguments"] or "{}"),
+        )
+        for i, c in sorted(calls.items())
+    ] or None
     return SimpleNamespace(content="".join(parts), tool_calls=tool_calls), usage
 
 
 def message_text(msg) -> str:
     """El texto de una respuesta, sin el razonamiento que algunos dejan escapar."""
     text = getattr(msg, "content", None) or ""
-    if isinstance(text, list):                     # partes (texto + otras)
-        text = "".join(getattr(x, "text", "") or (x.get("text", "") if isinstance(x, dict) else "")
-                       for x in text)
+    if isinstance(text, list):  # partes (texto + otras)
+        text = "".join(
+            getattr(x, "text", "") or (x.get("text", "") if isinstance(x, dict) else "")
+            for x in text
+        )
     return strip_thoughts(text)
 
 
@@ -509,27 +605,60 @@ def strip_thoughts(t: str) -> str:
 
 # ------------------------------------------------------------------ prueba
 
-def describe_error(e: Exception, p: dict | None = None) -> str:
+
+def describe_error(e: Exception, p: providers.Profile | None = None) -> str:
     """Un fallo del proveedor, en una frase que el usuario entienda."""
     name = (p or {}).get("name") or "el proveedor"
     text = str(e)
     low = text.lower()
     status = getattr(e, "status_code", None)
-    if status in (401, 403) or any(x in low for x in ("401", "403", "unauthorized", "invalid api key",
-                                                        "invalid_api_key", "authentication",
-                                                        "incorrect api key", "permission")):
+    if status in (401, 403) or any(
+        x in low
+        for x in (
+            "401",
+            "403",
+            "unauthorized",
+            "invalid api key",
+            "invalid_api_key",
+            "authentication",
+            "incorrect api key",
+            "permission",
+        )
+    ):
         return f"{name} rechaza la clave"
-    if status == 402 or any(x in low for x in ("402", "insufficient", "credit", "balance", "billing",
-                                               "quota")):
+    if status == 402 or any(
+        x in low for x in ("402", "insufficient", "credit", "balance", "billing", "quota")
+    ):
         return "la clave es valida pero no tiene credito"
     if status == 429 or "429" in low or "rate limit" in low:
         return f"{name} pide esperar (limite de peticiones)"
-    if status == 404 or any(x in low for x in ("404", "not found", "does not exist", "no such model",
-                                               "not_found", "unknown model", "model not")):
+    if status == 404 or any(
+        x in low
+        for x in (
+            "404",
+            "not found",
+            "does not exist",
+            "no such model",
+            "not_found",
+            "unknown model",
+            "model not",
+        )
+    ):
         return "ese modelo no existe en " + name + " (o la URL no es la de la API)"
-    if any(x in low for x in ("connection", "timeout", "timed out", "resolve", "network",
-                              "unreachable", "refused", "nodename")):
-        if (p or {}).get("local"):
+    if any(
+        x in low
+        for x in (
+            "connection",
+            "timeout",
+            "timed out",
+            "resolve",
+            "network",
+            "unreachable",
+            "refused",
+            "nodename",
+        )
+    ):
+        if p is not None and p.get("local"):
             return f"no hay nada escuchando en {p['base_url']}: ¿esta arrancado {name}?"
         return f"no hay conexion con {name}"
     if "ssl" in low or "certificate" in low:
@@ -537,17 +666,16 @@ def describe_error(e: Exception, p: dict | None = None) -> str:
     return text[:180]
 
 
-def _ping(client, model: str, p: dict) -> tuple[bool, str, int]:
+def _ping(client, model: str, p: providers.Profile) -> tuple[bool, str, int]:
     """La llamada mas barata posible: un token. Vale para clave, URL y modelo."""
     t0 = time.monotonic()
     try:
-        kwargs = {"model": model, "messages": [{"role": "user", "content": "ok"}],
-                  "max_tokens": 1}
+        kwargs = {"model": model, "messages": [{"role": "user", "content": "ok"}], "max_tokens": 1}
         if "temperature" not in _known_limits(p, model):
             kwargs["temperature"] = 0
         try:
             client.chat.completions.create(**kwargs)
-        except Exception as e:                               # noqa: BLE001
+        except Exception as e:
             low = str(e).lower()
             if "max_completion_tokens" in low or "temperature" in low:
                 kwargs.pop("temperature", None)
@@ -556,20 +684,35 @@ def _ping(client, model: str, p: dict) -> tuple[bool, str, int]:
             else:
                 raise
         return True, "", int((time.monotonic() - t0) * 1000)
-    except Exception as e:                                   # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return False, describe_error(e, p), int((time.monotonic() - t0) * 1000)
 
 
-_PROBE_TOOL = [{"type": "function", "function": {
-    "name": "saluda", "description": "Saluda al usuario por su nombre.",
-    "parameters": {"type": "object", "properties": {"nombre": {"type": "string"}},
-                   "required": ["nombre"]}}}]
+_PROBE_TOOL = [
+    {
+        "type": "function",
+        "function": {
+            "name": "saluda",
+            "description": "Saluda al usuario por su nombre.",
+            "parameters": {
+                "type": "object",
+                "properties": {"nombre": {"type": "string"}},
+                "required": ["nombre"],
+            },
+        },
+    }
+]
 
 
-def _probe_tools(client, model: str, p: dict) -> tuple[bool, str]:
+def _probe_tools(client, model: str, p: providers.Profile) -> tuple[bool, str]:
     """¿Sabe llamar a una herramienta? Es lo que necesita el asistente."""
-    kwargs = {"model": model, "tools": _PROBE_TOOL, "tool_choice": "auto", "max_tokens": 60,
-              "messages": [{"role": "user", "content": "Saluda a Dani usando la herramienta."}]}
+    kwargs = {
+        "model": model,
+        "tools": _PROBE_TOOL,
+        "tool_choice": "auto",
+        "max_tokens": 60,
+        "messages": [{"role": "user", "content": "Saluda a Dani usando la herramienta."}],
+    }
     for what in _known_limits(p, model):
         _strip(kwargs, what)
     waited = 0
@@ -579,19 +722,24 @@ def _probe_tools(client, model: str, p: dict) -> tuple[bool, str]:
             msg = r.choices[0].message
             if getattr(msg, "tool_calls", None):
                 return True, ""
-            return False, ("responde sin llamar a la herramienta: el asistente puede fallar "
-                           "con este modelo")
-        except Exception as e:                               # noqa: BLE001
+            return False, (
+                "responde sin llamar a la herramienta: el asistente puede fallar con este modelo"
+            )
+        except Exception as e:  # noqa: BLE001
             text = str(e)
             # Los gratuitos admiten una peticion por segundo y esta va justo
             # detras de la prueba de la clave: se espera y se repite.
-            if (getattr(e, "status_code", None) == 429 or "rate limit" in text.lower()
-                    or "too many" in text.lower()) and waited < 2:
+            if (
+                getattr(e, "status_code", None) == 429
+                or "rate limit" in text.lower()
+                or "too many" in text.lower()
+            ) and waited < 2:
                 waited += 1
                 time.sleep(2.5)
                 continue
-            dropped = next((w for w, rx in _HINTS if rx.search(text) and _droppable(kwargs, w)),
-                           None)
+            dropped = next(
+                (w for w, rx in _HINTS if rx.search(text) and _droppable(kwargs, w)), None
+            )
             if dropped:
                 _strip(kwargs, dropped)
                 continue
@@ -617,15 +765,21 @@ def check(draft: dict | None = None) -> dict:
         d = providers.with_saved_key(draft)
         p = providers.resolve(str(d.get("id") or d.get("provider") or ""), d)
     ok, why = providers.usable(p)
-    if not ok:
+    if p is None or not ok:
         return {"ok": False, "reason": why}
     try:
         client = _build_client(p)
-    except Exception as e:                                   # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"ok": False, "reason": describe_error(e, p)}
     ok, reason, ms = _ping(client, p["model"], p)
-    out = {"ok": ok, "reason": reason, "provider": p["name"], "model": p["model"],
-           "chat_model": p["chat_model"], "latency_ms": ms}
+    out = {
+        "ok": ok,
+        "reason": reason,
+        "provider": p["name"],
+        "model": p["model"],
+        "chat_model": p["chat_model"],
+        "latency_ms": ms,
+    }
     if not ok:
         return out
     if p["chat_model"] != p["model"]:
@@ -656,7 +810,7 @@ def list_models(draft: dict | None = None) -> dict:
         client = _build_client(p)
         page = client.models.list()
         raw = list(page.data) if hasattr(page, "data") else list(page)
-    except Exception as e:                                   # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"ok": False, "reason": describe_error(e, p), "models": []}
     # sin clave, solo lo que el servicio sirve a anonimos (LLM7 lo llama
     # «turbo», Kilo marca `isFree`, OpenCode Zen termina en «-free»)
@@ -666,15 +820,16 @@ def list_models(draft: dict | None = None) -> dict:
         mid = getattr(m, "id", None) or (m.get("id") if isinstance(m, dict) else None)
         if not mid:
             continue
-        extra = {}
+        extra: dict = {}
         for getter in ("to_dict", "model_dump"):
             fn = getattr(m, getter, None)
             if callable(fn):
                 try:
-                    extra = fn() or {}
-                    break
-                except Exception:                            # noqa: BLE001
-                    pass
+                    got = fn()
+                except Exception:  # noqa: BLE001
+                    continue
+                extra = got if isinstance(got, dict) else {}
+                break
         if anon and not _anonymous_ok(mid, extra, anon):
             continue
         models.append(_merge(mid, extra, p))
@@ -688,17 +843,23 @@ def _anonymous_ok(mid: str, extra: dict, rule: dict) -> bool:
     return extra.get(rule.get("field")) == rule.get("value")
 
 
-def _merge(mid: str, extra: dict, p: dict) -> dict:
+def _merge(mid: str, extra: dict, p: providers.Profile) -> dict:
     """La ficha de un modelo: lo que dice el proveedor mas lo que sabe el
     catalogo. OpenRouter cuenta precio y parametros en su propio /models."""
     info = model_catalog.lookup(p.get("models_dev"), mid) or {}
-    out = {"id": mid, "name": info.get("name") or str(extra.get("name") or mid),
-           "tools": info.get("tools"), "json": info.get("json"),
-           "reasoning": info.get("reasoning", False),
-           "cost_in": info.get("cost_in"), "cost_out": info.get("cost_out"),
-           "context": info.get("context") or extra.get("context_length"),
-           "released": info.get("released") or "",
-           "deprecated": bool(info.get("deprecated")), "known": bool(info)}
+    out = {
+        "id": mid,
+        "name": info.get("name") or str(extra.get("name") or mid),
+        "tools": info.get("tools"),
+        "json": info.get("json"),
+        "reasoning": info.get("reasoning", False),
+        "cost_in": info.get("cost_in"),
+        "cost_out": info.get("cost_out"),
+        "context": info.get("context") or extra.get("context_length"),
+        "released": info.get("released") or "",
+        "deprecated": bool(info.get("deprecated")),
+        "known": bool(info),
+    }
     params = extra.get("supported_parameters")
     if isinstance(params, list):
         out["tools"] = "tools" in params
@@ -723,25 +884,48 @@ def try_free(order=None, timeout: float = 20) -> dict:
     """«Probar gratis, sin clave»: el primero de los gratuitos que responda
     de verdad se guarda y se activa. Devuelve cual, o por que ninguno."""
     tried = []
-    for pid in (order or providers.FREE_ORDER):
+    for pid in order or providers.FREE_ORDER:
         entry = providers.BY_ID.get(pid)
         if not entry:
             continue
         draft = {"id": pid, "provider": pid, "timeout": timeout, "retries": 0}
         r = check(draft)
-        tried.append({"id": pid, "name": entry["name"], "ok": bool(r.get("ok")),
-                      "reason": r.get("reason") or r.get("tools_reason") or "",
-                      "tools_ok": r.get("tools_ok")})
+        tried.append(
+            {
+                "id": pid,
+                "name": entry["name"],
+                "ok": bool(r.get("ok")),
+                "reason": r.get("reason") or r.get("tools_reason") or "",
+                "tools_ok": r.get("tools_ok"),
+            }
+        )
         if r.get("ok"):
-            providers.save_profile({"id": pid, "provider": pid, "model": r["model"],
-                                    "chat_model": r["chat_model"], "timeout": timeout})
+            providers.save_profile(
+                {
+                    "id": pid,
+                    "provider": pid,
+                    "model": r["model"],
+                    "chat_model": r["chat_model"],
+                    "timeout": timeout,
+                }
+            )
             reset_client()
-            return {"ok": True, "chosen": pid, "name": entry["name"], "model": r["model"],
-                    "chat_model": r["chat_model"], "tools_ok": r.get("tools_ok"),
-                    "tried": tried}
-    return {"ok": False, "chosen": "", "tried": tried,
-            "reason": "ahora mismo ninguno de los servicios gratuitos responde; prueba mas "
-                      "tarde, pon una clave o usa un modelo en tu equipo"}
+            return {
+                "ok": True,
+                "chosen": pid,
+                "name": entry["name"],
+                "model": r["model"],
+                "chat_model": r["chat_model"],
+                "tools_ok": r.get("tools_ok"),
+                "tried": tried,
+            }
+    return {
+        "ok": False,
+        "chosen": "",
+        "tried": tried,
+        "reason": "ahora mismo ninguno de los servicios gratuitos responde; prueba mas "
+        "tarde, pon una clave o usa un modelo en tu equipo",
+    }
 
 
 # ----------------------------------------------------------------- consultas
@@ -750,14 +934,25 @@ def try_free(order=None, timeout: float = 20) -> dict:
 # admite salida con esquema (lo dice el catalogo) se le exige; con los demas
 # se pide «un objeto JSON» y se extrae del texto.
 SONG_SCHEMA = {
-    "name": "song", "strict": True,
-    "schema": {"type": "object", "additionalProperties": False,
-               "properties": {"artist": {"type": "string"}, "title": {"type": "string"},
-                              "feat": {"type": "string"}, "extra": {"type": "string"},
-                              "category": {"type": "string",
-                                           "enum": ["song", "track", "tutorial", "sequence", "unknown"]},
-                              "confidence": {"type": "number"}},
-               "required": ["artist", "title", "feat", "extra", "category", "confidence"]}}
+    "name": "song",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "artist": {"type": "string"},
+            "title": {"type": "string"},
+            "feat": {"type": "string"},
+            "extra": {"type": "string"},
+            "category": {
+                "type": "string",
+                "enum": ["song", "track", "tutorial", "sequence", "unknown"],
+            },
+            "confidence": {"type": "number"},
+        },
+        "required": ["artist", "title", "feat", "extra", "category", "confidence"],
+    },
+}
 
 
 def json_format(schema: dict | None = None) -> dict:
@@ -771,16 +966,26 @@ def json_format(schema: dict | None = None) -> dict:
 
 
 def _json_from(text: str) -> dict | None:
+    """El objeto JSON de una respuesta, o None.
+
+    Solo un OBJETO: un modelo puede contestar una lista, una cadena o `null`
+    (JSON valido las tres), y quien llama hace `.get` sobre lo que recibe;
+    eso era un 500 en la ficha y en «Completar con IA».
+    """
     text = re.sub(r"^```(?:json)?|```$", "", (text or "").strip(), flags=re.MULTILINE).strip()
     try:
-        return json.loads(text)
-    except Exception:                                        # noqa: BLE001
-        m = re.search(r"\{.*\}", text, re.DOTALL)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except Exception:                                # noqa: BLE001
-                return None
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        return data
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        try:
+            data = json.loads(m.group(0))
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
     return None
 
 
@@ -791,55 +996,80 @@ def resolve(file_name: str, known_artists=None, extra_hint="") -> dict | None:
     context = ""
     if known_artists:
         sample = sorted(known_artists)[:120]
-        context = ("\nArtistas que YA existen en la biblioteca (reutiliza el nombre exacto "
-                   "si la cancion es de alguno):\n" + ", ".join(sample))
+        context = (
+            "\nArtistas que YA existen en la biblioteca (reutiliza el nombre exacto "
+            "si la cancion es de alguno):\n" + ", ".join(sample)
+        )
     user_msg = f"Nombre de archivo:\n{file_name}\n{extra_hint}{context}"
     try:
-        r = complete([{"role": "system", "content": INSTRUCTIONS},
-                      {"role": "user", "content": user_msg}],
-                     temperature=0.1, max_tokens=400,
-                     response_format=json_format(SONG_SCHEMA), purpose="identify")
+        r = complete(
+            [{"role": "system", "content": INSTRUCTIONS}, {"role": "user", "content": user_msg}],
+            temperature=0.1,
+            max_tokens=400,
+            response_format=json_format(SONG_SCHEMA),
+            purpose="identify",
+        )
         data = _json_from(message_text(r.message))
-    except Exception as e:                                   # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"error": describe_error(e, profile())}
     if not data:
         return None
+    try:
+        confidence = float(data.get("confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
     return {
-        "artist":   str(data.get("artist", "")).strip(),
-        "title":    str(data.get("title", "")).strip(),
-        "feat":      str(data.get("feat", "")).strip(),
-        "extra":     str(data.get("extra", "")).strip(),
+        "artist": str(data.get("artist", "")).strip(),
+        "title": str(data.get("title", "")).strip(),
+        "feat": str(data.get("feat", "")).strip(),
+        "extra": str(data.get("extra", "")).strip(),
         "category": str(data.get("category", "unknown")).strip().lower(),
-        "confidence": float(data.get("confidence", 0.0) or 0.0),
-        "source":    "ai",
+        "confidence": confidence,
+        "source": "ai",
     }
 
 
-def ask(prompt, system="Eres un asistente musical preciso y conciso.",
-        max_tokens=800, temperature=0.2, purpose="ask") -> str | None:
+def ask(
+    prompt,
+    system="Eres un asistente musical preciso y conciso.",
+    max_tokens=800,
+    temperature=0.2,
+    purpose="ask",
+) -> str | None:
     """Consulta libre en texto plano."""
     if not available():
         return None
     try:
-        r = complete([{"role": "system", "content": system},
-                      {"role": "user", "content": prompt}],
-                     temperature=temperature, max_tokens=max_tokens, purpose=purpose)
+        r = complete(
+            [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            purpose=purpose,
+        )
         return message_text(r.message)
-    except Exception:                                        # noqa: BLE001
+    except Exception:
         log.info("la consulta a la IA fallo", exc_info=True)
         return None
 
 
-def ask_json(prompt, system="Responde solo con JSON valido.",
-             max_tokens=1200, temperature=0.15, schema: dict | None = None,
-             purpose="ask_json") -> dict | None:
+def ask_json(
+    prompt,
+    system="Responde solo con JSON valido.",
+    max_tokens=1200,
+    temperature=0.15,
+    schema: dict | None = None,
+    purpose="ask_json",
+) -> dict | None:
     if not available():
         return None
     try:
-        r = complete([{"role": "system", "content": system},
-                      {"role": "user", "content": prompt}],
-                     temperature=temperature, max_tokens=max_tokens,
-                     response_format=json_format(schema), purpose=purpose)
+        r = complete(
+            [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=json_format(schema),
+            purpose=purpose,
+        )
         return _json_from(message_text(r.message))
-    except Exception as e:                                   # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"error": describe_error(e, profile())}

@@ -1,17 +1,25 @@
-# -*- coding: utf-8 -*-
 """Pruebas del nucleo: nombres, teoria musical, duplicados y etiquetas."""
-import os, pathlib, shutil, sys, tempfile
+
+import os
+import pathlib
+import shutil
+import sys
+import tempfile
+
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from danplay import names as N, theory as M, duplicates as D, tags as E
-
+from danplay import duplicates as D
+from danplay import enrich as EN
+from danplay import names as N
+from danplay import tags as E
+from danplay import theory as M
+from danplay import youtube as Y
 
 # Biblioteca de referencia para las pruebas que necesitan audio de verdad.
 # No se incrusta una ruta personal: se apunta a la tuya con la variable
 # DANPLAY_TEST_MUSIC, y si no existe esas pruebas se saltan solas.
-MUSIC = pathlib.Path(os.environ.get("DANPLAY_TEST_MUSIC")
-                     or pathlib.Path.home() / "Musica")
+MUSIC = pathlib.Path(os.environ.get("DANPLAY_TEST_MUSIC") or pathlib.Path.home() / "Musica")
 
 
 def _muestra(relativa: str) -> str:
@@ -20,37 +28,100 @@ def _muestra(relativa: str) -> str:
 
 # ------------------------------------------------------------------ nombres
 
-@pytest.mark.parametrize("value,expected", [
-    ("Espanol", "Espanol"),
-    ("Español", "Español"),          # la ñ se conserva
-    ("Adoración", "Adoracion"),
-    ("Señor", "Señor"),
-    ("Muñóz", "Muñoz"),
-    ("José Luis", "Jose Luis"),
-])
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("Espanol", "Espanol"),
+        ("Español", "Español"),  # la ñ se conserva
+        ("Adoración", "Adoracion"),
+        ("Señor", "Señor"),
+        ("Muñóz", "Muñoz"),
+        ("José Luis", "Jose Luis"),
+    ],
+)
 def test_strip_accents_keeps_enye(value, expected):
     assert N.strip_accents(value) == expected
 
 
-@pytest.mark.parametrize("value,expected", [
-    ("UPPERROOM", "Upperroom"),
-    ("MIEL SAN MARCOS", "Miel San Marcos"),
-    ("BJ Putnam", "Bj Putnam"),
-    ("Christine D'Clario", "Christine D'Clario"),   # no toca lo mixto
-    ("CeCe Winans", "CeCe Winans"),
-])
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("UPPERROOM", "Upperroom"),
+        ("MIEL SAN MARCOS", "Miel San Marcos"),
+        ("BJ Putnam", "Bj Putnam"),
+        ("Christine D'Clario", "Christine D'Clario"),  # no toca lo mixto
+        ("CeCe Winans", "CeCe Winans"),
+    ],
+)
 def test_capitalize_words(value, expected):
     assert N.capitalize_words(value) == expected
 
 
-@pytest.mark.parametrize("dirty,clean_name", [
-    ("Barak  Mi Gozo VIDEO OFICIAL.mp3", "Barak Mi Gozo"),
-    ("y2mate.com - Es Mi Rey.mp3", "Es Mi Rey"),
-    ("C0080 ERES FIEL (Letras).mp3", "Eres Fiel"),
-    ("Paramore_ Decode [OFFICIAL VIDEO].mp3", "Paramore Decode"),
-])
+@pytest.mark.parametrize(
+    "dirty,clean_name",
+    [
+        ("Barak  Mi Gozo VIDEO OFICIAL.mp3", "Barak Mi Gozo"),
+        ("y2mate.com - Es Mi Rey.mp3", "Es Mi Rey"),
+        ("C0080 ERES FIEL (Letras).mp3", "Eres Fiel"),
+        ("Paramore_ Decode [OFFICIAL VIDEO].mp3", "Paramore Decode"),
+        ("Palisades - Personal (Official Music Video).mp3", "Palisades - Personal"),
+        ("Palisades - Personal (Official Audio).mp3", "Palisades - Personal"),
+        ("Palisades - Personal (Official Lyric Video).mp3", "Palisades - Personal"),
+        ("Palisades - Personal (Music Video).mp3", "Palisades - Personal"),
+        ("Palisades - Personal (Audio).mp3", "Palisades - Personal"),
+        ("Palisades - Personal (Visualizer).mp3", "Palisades - Personal"),
+        ("Music Of The Night.mp3", "Music Of The Night"),
+    ],
+)
 def test_clean_strips_noise(dirty, clean_name):
     assert N.clean(os.path.splitext(dirty)[0]) == clean_name
+
+
+def test_sanitize_quita_los_caracteres_de_control():
+    """Lo decia el docstring y no lo hacia: final_name('X', 'a\\nb') daba
+    un nombre de archivo con un salto de linea dentro."""
+    assert N.final_name("X", "a\nb") == "X - a b.mp3"
+    assert N.sanitize("uno\tdos\x00tres\x1b[31m") == "uno dostres[31m"
+    # los invisibles que dan la vuelta al texto (disfrazan una extension)
+    assert N.sanitize("foto\u202egpj.mp3") == "fotogpj.mp3"
+    assert N.clean("Barak\x07 Mi Gozo") == "Barak Mi Gozo"
+
+
+def test_los_nul_no_se_convierten_en_enye():
+    """strip_accents escondia la ñ tras \\x00 y \\x01: si esos venian en el
+    texto, salian convertidos en ñ."""
+    assert N.clean("Ma\x00ana") == "Maana"
+    assert N.clean("Barak\x01") == "Barak"
+    assert N.strip_accents("Ma\x00ana") == "Ma\x00ana"
+    # la ñ, compuesta o no, se queda; lo demas pierde la tilde
+    assert N.strip_accents("Señor Muñóz") == "Señor Muñoz"
+    assert N.strip_accents("Sen\u0303or") == "Señor"
+    assert N.strip_accents("ÑANDÚ") == "ÑANDU"
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("Palisades - Personal.mp3", ("Palisades", "Personal", "")),
+        ("Palisades - Personal (Official Music Video).mp3", ("Palisades", "Personal", "")),
+        ("PALISADES - PERSONAL [OFFICIAL VIDEO].mp3", ("Palisades", "Personal", "")),
+        ("Palisades - Personal - Live.mp3", ("Palisades", "Personal (Live)", "")),
+        ("Palisades ft. Bryan - Personal.mp3", ("Palisades", "Personal", "Bryan")),
+        ("Palisades - Personal (feat. Bryan).mp3", ("Palisades", "Personal", "Bryan")),
+        ("Barak - Mi Gozo - r2.mp3", ("Barak", "Mi Gozo", "")),
+    ],
+)
+def test_artista_guion_titulo_se_lee_del_nombre(name, expected):
+    r = N.split_artist_title(name)
+    assert (r["artist"], r["title"], r["feat"]) == expected
+
+
+@pytest.mark.parametrize(
+    "name", ["Sin guion.mp3", "01 - Intro.mp3", " - Solo titulo.mp3", "Guion-pegado.mp3"]
+)
+def test_sin_guion_no_hay_artista(name):
+    assert N.split_artist_title(name) is None
 
 
 def test_feat_does_not_eat_titles_starting_with_con():
@@ -59,12 +130,15 @@ def test_feat_does_not_eat_titles_starting_with_con():
     assert base == "Con Poder (Live)" and feat == ""
 
 
-@pytest.mark.parametrize("value,title,feat", [
-    ("Tu Eres Rey (feat. Christine D'Clario)", "Tu Eres Rey", "Christine D'Clario"),
-    ("Mi Pastor (con Julissa)", "Mi Pastor", "Julissa"),
-    ("Vamos A Cantar", "Vamos A Cantar", ""),
-    ("Contigo", "Contigo", ""),
-])
+@pytest.mark.parametrize(
+    "value,title,feat",
+    [
+        ("Tu Eres Rey (feat. Christine D'Clario)", "Tu Eres Rey", "Christine D'Clario"),
+        ("Mi Pastor (con Julissa)", "Mi Pastor", "Julissa"),
+        ("Vamos A Cantar", "Vamos A Cantar", ""),
+        ("Contigo", "Contigo", ""),
+    ],
+)
 def test_extract_feat(value, title, feat):
     b, f = N.extract_feat(value)
     assert (b, f) == (title, feat)
@@ -72,8 +146,10 @@ def test_extract_feat(value, title, feat):
 
 def test_final_name():
     assert N.final_name("Barak", "Mi Gozo") == "Barak - Mi Gozo.mp3"
-    assert N.final_name("Barak", "Shekinah", "Miel San Marcos") == \
-        "Barak - Shekinah (feat. Miel San Marcos).mp3"
+    assert (
+        N.final_name("Barak", "Shekinah", "Miel San Marcos")
+        == "Barak - Shekinah (feat. Miel San Marcos).mp3"
+    )
 
 
 def test_name_without_invalid_chars():
@@ -112,11 +188,15 @@ def test_ambiguous_detection_lowers_confidence():
 
 # ------------------------------------------------------------------ musica
 
-@pytest.mark.parametrize("from_key,to_key,value,expected", [
-    ("Bb", "G",  "| Bb | Gm7 | Eb | F/A |", "| G | Em7 | C | D/F# |"),
-    ("C",  "D",  "| C | Am | F | G |",       "| D | Bm | G | A |"),
-    ("B",  "G",  "| B | G#m | E | F# |",     "| G | Em | C | D |"),
-])
+
+@pytest.mark.parametrize(
+    "from_key,to_key,value,expected",
+    [
+        ("Bb", "G", "| Bb | Gm7 | Eb | F/A |", "| G | Em7 | C | D/F# |"),
+        ("C", "D", "| C | Am | F | G |", "| D | Bm | G | A |"),
+        ("B", "G", "| B | G#m | E | F# |", "| G | Em | C | D |"),
+    ],
+)
 def test_transposition(from_key, to_key, value, expected):
     assert M.transpose_to(value, from_key, to_key) == expected
 
@@ -137,23 +217,31 @@ def test_latin_notation():
 
 
 def test_suggested_capo():
-    capos = dict((f, t) for t, f in M.suggested_capo("Bb"))
-    assert capos.get("G") == 3          # Sib con formas de Sol = capo 3
+    capos = {f: t for t, f in M.suggested_capo("Bb")}
+    assert capos.get("G") == 3  # Sib con formas de Sol = capo 3
 
 
 # ------------------------------------------------------------------ duplicados
 
+
 def test_identical_finds_exact_copies():
     with tempfile.TemporaryDirectory() as d:
-        a = os.path.join(d, "a.mp3"); b = os.path.join(d, "b.mp3")
+        a = os.path.join(d, "a.mp3")
+        b = os.path.join(d, "b.mp3")
         c = os.path.join(d, "c.mp3")
-        with open(a, "wb") as f: f.write(b"X" * 5000)
+        with open(a, "wb") as f:
+            f.write(b"X" * 5000)
         shutil.copy(a, b)
-        with open(c, "wb") as f: f.write(b"Y" * 5000)
+        with open(c, "wb") as f:
+            f.write(b"Y" * 5000)
         groups = D.identical([a, b, c])
         assert len(groups) == 1 and set(groups[0]) == {a, b}
 
 
+@pytest.mark.skipif(
+    os.environ.get("DANPLAY_SIN_RUST") == "1",
+    reason="se prueba el nucleo sin Rust, como viaja en el instalador de Windows",
+)
 def test_rust_is_active():
     assert D.RUST, "el crate de Rust deberia estar compilado"
 
@@ -161,20 +249,26 @@ def test_rust_is_active():
 def test_rust_and_python_hashes_match():
     with tempfile.TemporaryDirectory() as d:
         f = os.path.join(d, "x.mp3")
-        with open(f, "wb") as h: h.write(os.urandom(200000))
+        with open(f, "wb") as h:
+            h.write(os.urandom(200000))
         assert D.hashes([f])[f] == D.partial_hash(f)
 
 
 # ------------------------------------------------------------------ etiquetas
 
+
 @pytest.fixture
-def mp3(tmp_path):
-    source_path = _muestra("Artistas/Barak/Barak - Mi Gozo.mp3")
-    if not os.path.exists(source_path):
-        pytest.skip("no hay biblioteca de prueba")
+def mp3(tmp_path, synthetic_ok):
+    """Un mp3 de verdad: el de tu biblioteca si DANPLAY_TEST_MUSIC la da, si
+    no uno sintetico (antes, sin tu musica, estas pruebas se saltaban)."""
     target = tmp_path / "prueba.mp3"
-    shutil.copy(source_path, target)
-    return str(target)
+    source_path = _muestra("Artistas/Barak/Barak - Mi Gozo.mp3")
+    if os.path.exists(source_path):
+        shutil.copy(source_path, target)
+        return str(target)
+    from conftest import make_mp3
+
+    return make_mp3(target, seconds=2.0)
 
 
 def test_tags_round_trip(mp3):
@@ -195,7 +289,8 @@ def test_tags_round_trip(mp3):
 
 
 def test_zero_stars_read_as_zero(mp3):
-    E.rate(mp3, 5); E.rate(mp3, 0)
+    E.rate(mp3, 5)
+    E.rate(mp3, 0)
     assert E.read_all(mp3)["stars"] == 0
 
 
@@ -205,34 +300,38 @@ def test_extract_cover(mp3):
     assert mime == "image/jpeg" and data.startswith(b"\xff\xd8")
 
 
-@pytest.mark.parametrize("folder", [_muestra("Secuencias")])
-def test_wav_duration_is_not_zero(folder):
+def test_wav_duration_is_not_zero(tmp_path, synthetic_ok):
     """mutagen.File() devuelve None para algunos .wav; debe usarse el lector concreto."""
-    if not os.path.isdir(folder):
-        pytest.skip("no hay carpeta de secuencias")
-    wavs = [os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(".wav")]
-    if not wavs:
-        pytest.skip("no hay wav de prueba")
+    from conftest import make_audio
+
+    folder = _muestra("Secuencias")
+    wavs = (
+        [os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(".wav")]
+        if os.path.isdir(folder)
+        else []
+    )
+    wavs = wavs or [make_audio(tmp_path / "pista.wav", ["-codec:a", "pcm_s16le"], seconds=2)]
     for w in wavs:
         assert E.duration(w) > 1, f"duracion 0 en {os.path.basename(w)}"
 
 
-def test_mp3_duration_still_right():
-    m = _muestra("Artistas/Barak/Barak - Mi Gozo.mp3")
-    if not os.path.exists(m):
-        pytest.skip("sin biblioteca")
-    assert E.duration(m) > 60
+def test_mp3_duration_still_right(mp3):
+    assert E.duration(mp3) > 1.5
 
 
 # ------------------------------------------------------------ resolver duplicados
 
-@pytest.mark.parametrize("value,expected", [
-    ("Barak - Mi Gozo - r.mp3", "Barak - Mi Gozo.mp3"),
-    ("Barak - Mi Gozo - r2.mp3", "Barak - Mi Gozo.mp3"),
-    ("Barak - Mi Gozo - R3.mp3", "Barak - Mi Gozo.mp3"),
-    ("Barak - Mi Gozo.mp3", "Barak - Mi Gozo.mp3"),
-    ("Rey (En Vivo) - r.mp3", "Rey (En Vivo).mp3"),
-])
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("Barak - Mi Gozo - r.mp3", "Barak - Mi Gozo.mp3"),
+        ("Barak - Mi Gozo - r2.mp3", "Barak - Mi Gozo.mp3"),
+        ("Barak - Mi Gozo - R3.mp3", "Barak - Mi Gozo.mp3"),
+        ("Barak - Mi Gozo.mp3", "Barak - Mi Gozo.mp3"),
+        ("Rey (En Vivo) - r.mp3", "Rey (En Vivo).mp3"),
+    ],
+)
 def test_strip_duplicate_suffix(value, expected):
     assert D.name_without_suffix(value) == expected
 
@@ -241,6 +340,7 @@ def test_strip_duplicate_suffix(value, expected):
 def managed_dir(tmp_path, monkeypatch):
     """Una carpeta gestionada de verdad: `resolve` solo toca lo que esta dentro."""
     from danplay import config, library
+
     folder = tmp_path / "Musica"
     folder.mkdir()
     # cada prueba con su propia base: `_prepared` se lleva por ruta, asi que
@@ -319,17 +419,19 @@ def test_resolve_warns_if_kept_is_missing():
 
 # ----------------------------------------------------------------- descargas
 # Todo sin red: se comprueban las decisiones del modulo, no que YouTube conteste.
-from danplay import youtube as Y
 
 
-@pytest.mark.parametrize("value,expected", [
-    ("https://www.youtube.com/watch?v=abc", True),
-    ("https://youtu.be/abc", True),
-    ("https://music.youtube.com/watch?v=abc", True),
-    ("https://ejemplo.com/cancion.mp3", False),
-    ("barak sera llena la tierra", False),
-    ("", False),
-])
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("https://www.youtube.com/watch?v=abc", True),
+        ("https://youtu.be/abc", True),
+        ("https://music.youtube.com/watch?v=abc", True),
+        ("https://ejemplo.com/cancion.mp3", False),
+        ("barak sera llena la tierra", False),
+        ("", False),
+    ],
+)
 def test_recognizes_youtube_urls(value, expected):
     assert Y.is_url(value) is expected
 
@@ -345,8 +447,9 @@ def test_a_url_is_kept_as_is():
 
 def test_provisional_name_is_already_clean():
     """El ruido de YouTube se quita antes de tocar el disco."""
-    n = Y._provisional_name({"title": "BARAK - Sera Llena La Tierra (VIDEO OFICIAL) HD",
-                               "id": "xyz"})
+    n = Y._provisional_name(
+        {"title": "BARAK - Sera Llena La Tierra (VIDEO OFICIAL) HD", "id": "xyz"}
+    )
     assert n == "Barak - Sera Llena La Tierra"
 
 
@@ -365,13 +468,17 @@ def test_never_tags_with_the_channel_name():
     Si se etiquetara con el canal, `_desde_tags` lo aceptaria con 0.95 de
     confianza y archivaria la cancion bajo un artista inventado.
     """
-    assert Y._tag_if_trustworthy("/no/importa.mp3",
-                                     {"artist": "", "track": "", "channel": "Fulanito Music"}) is False
-    assert Y._tag_if_trustworthy("/no/importa.mp3",
-                                     {"artist": "Barak", "track": ""}) is False
+    assert (
+        Y._tag_if_trustworthy(
+            "/no/importa.mp3", {"artist": "", "track": "", "channel": "Fulanito Music"}
+        )
+        is False
+    )
+    assert Y._tag_if_trustworthy("/no/importa.mp3", {"artist": "Barak", "track": ""}) is False
     # "- Topic" es el canal automatico de YouTube Music, no un artista
-    assert Y._tag_if_trustworthy("/no/importa.mp3",
-                                     {"artist": " - Topic", "track": "Algo"}) is False
+    assert (
+        Y._tag_if_trustworthy("/no/importa.mp3", {"artist": " - Topic", "track": "Algo"}) is False
+    )
 
 
 def test_download_state_starts_idle():
@@ -435,6 +542,7 @@ def test_run_many_sin_nada_suelta_el_turno():
 def test_un_fallo_dentro_de_la_descarga_no_deja_el_turno_cogido(monkeypatch):
     def rompe(q, **kw):
         raise RuntimeError("se cayo la red")
+
     monkeypatch.setattr(Y, "download", rompe)
     rs = Y.run_job("x")
     assert not rs[0]["ok"] and "red" in rs[0]["reason"]
@@ -445,13 +553,12 @@ def test_un_fallo_dentro_de_la_descarga_no_deja_el_turno_cogido(monkeypatch):
 # ------------------------------------------------------- busqueda de caratula
 # Los titulos que vienen de descargas llevan ruido y con eso iTunes no encuentra
 # nada. Se prueban variantes cada vez mas limpias.
-from danplay import enrich as EN
 
 
 def test_las_consultas_de_caratula_van_de_precisa_a_suelta():
     qs = EN._cover_queries("Adoracion La Ibi", "Santo Por Siempre (En Vivo) - r", "")
     assert qs[0] == "Adoracion La Ibi Santo Por Siempre (En Vivo)"
-    assert "Adoracion La Ibi Santo Por Siempre" in qs   # sin el parentesis
+    assert "Adoracion La Ibi Santo Por Siempre" in qs  # sin el parentesis
     assert all(" - r" not in q for q in qs), "el sufijo de duplicado no debe ir"
 
 
@@ -475,26 +582,48 @@ def test_un_titulo_vacio_no_genera_consultas_basura():
 # dejarlo vacio: el campo parece relleno y nadie vuelve a mirarlo. Paso de
 # verdad y escribio «desconocido» como album y año de una cancion.
 
-@pytest.mark.parametrize("campo,valor", [
-    ("album", "desconocido"), ("album", "N/A"), ("album", "-"),
-    ("genre", "varios"), ("genre", "sin datos"), ("year", "desconocido"),
-    ("album", ""), ("album", None), ("genre", "   "),
-])
+
+@pytest.mark.parametrize(
+    "campo,valor",
+    [
+        ("album", "desconocido"),
+        ("album", "N/A"),
+        ("album", "-"),
+        ("genre", "varios"),
+        ("genre", "sin datos"),
+        ("year", "desconocido"),
+        ("album", ""),
+        ("album", None),
+        ("genre", "   "),
+    ],
+)
 def test_lo_que_la_ia_no_sabe_no_se_guarda(campo, valor):
     assert EN._dato_util(campo, valor) == ""
 
 
-@pytest.mark.parametrize("valor,esperado", [
-    ("2019", "2019"), ("circa 2019", "2019"), ("1998", "1998"),
-    ("2019-05-01", "2019"), ("siglo XXI", ""), ("19", ""),
-])
+@pytest.mark.parametrize(
+    "valor,esperado",
+    [
+        ("2019", "2019"),
+        ("circa 2019", "2019"),
+        ("1998", "1998"),
+        ("2019-05-01", "2019"),
+        ("siglo XXI", ""),
+        ("19", ""),
+    ],
+)
 def test_el_año_son_cuatro_cifras_o_nada(valor, esperado):
     assert EN._dato_util("year", valor) == esperado
 
 
-@pytest.mark.parametrize("campo,valor", [
-    ("album", "Generacion Radical"), ("genre", "Adoracion"), ("key", "Bb"),
-])
+@pytest.mark.parametrize(
+    "campo,valor",
+    [
+        ("album", "Generacion Radical"),
+        ("genre", "Adoracion"),
+        ("key", "Bb"),
+    ],
+)
 def test_un_dato_de_verdad_si_se_guarda(campo, valor):
     assert EN._dato_util(campo, valor) == valor
 
@@ -503,12 +632,16 @@ def test_un_dato_de_verdad_si_se_guarda(campo, valor):
 # Deteccion de duplicados: el atajo tiene que dar EXACTAMENTE los mismos
 # grupos que comparar todo contra todo. Es lo unico que autoriza el atajo.
 
+
 def _grupos_a_lo_bruto(paths, umbral=0.88):
     """Todos contra todos, sin atajos. La referencia."""
     import os
     from collections import defaultdict
+
     from rapidfuzz import fuzz
+
     from danplay import names
+
     mk = {r: names.match_key(os.path.basename(r)) for r in paths}
     por_clave = defaultdict(list)
     for r, k in mk.items():
@@ -522,7 +655,7 @@ def _grupos_a_lo_bruto(paths, umbral=0.88):
         if a in usados:
             continue
         g = [a]
-        for b in resto[i + 1:]:
+        for b in resto[i + 1 :]:
             if b in usados:
                 continue
             if fuzz.token_set_ratio(mk[a], mk[b]) / 100.0 >= umbral:
@@ -539,25 +672,51 @@ def _normalizar(grupos):
 
 def test_the_shortcut_finds_exactly_the_same_duplicate_groups():
     import random
+
     from danplay import duplicates
+
     casos = {
         # plurales y erratas: NO comparten ninguna palabra, asi que caen por
         # la rama de comparacion simple. Son las que romperia un atajo ingenuo.
-        "plurales": ["/x/gozo mio.mp3", "/x/gozos mios.mp3",
-                     "/x/santo fuego.mp3", "/x/santos fuegos.mp3",
-                     "/x/alabanza nueva.mp3", "/x/alabanzas nuevas.mp3"],
+        "plurales": [
+            "/x/gozo mio.mp3",
+            "/x/gozos mios.mp3",
+            "/x/santo fuego.mp3",
+            "/x/santos fuegos.mp3",
+            "/x/alabanza nueva.mp3",
+            "/x/alabanzas nuevas.mp3",
+        ],
         # uno contenido en otro: la puntuacion de conjuntos da 100
-        "subconjuntos": ["/x/barak gozo.mp3", "/x/barak gozo vivo estudio.mp3",
-                         "/x/barak.mp3", "/x/gozo.mp3", "/x/barak gozo vivo.mp3"],
+        "subconjuntos": [
+            "/x/barak gozo.mp3",
+            "/x/barak gozo vivo estudio.mp3",
+            "/x/barak.mp3",
+            "/x/gozo.mp3",
+            "/x/barak gozo vivo.mp3",
+        ],
         # claves vacias o de una sola letra (match_key las descarta)
         "raros": ["/x/.mp3", "/x/a.mp3", "/x/el la de.mp3", "/x/AAA.mp3", "/x/aaa.mp3"],
     }
     random.seed(4)
-    palabras = ["barak", "gozo", "vivo", "santo", "fuego", "gloria", "rey",
-                "cristo", "amor", "cielo", "paz", "luz"]
-    casos["mezcla"] = ["/x/%s - %s.mp3" % (random.choice(palabras).title(),
-                                           " ".join(random.sample(palabras, 3)))
-                       for _ in range(400)]
+    palabras = [
+        "barak",
+        "gozo",
+        "vivo",
+        "santo",
+        "fuego",
+        "gloria",
+        "rey",
+        "cristo",
+        "amor",
+        "cielo",
+        "paz",
+        "luz",
+    ]
+    casos["mezcla"] = [
+        f"/x/{random.choice(palabras).title()} - "  # noqa: S311
+        f"{' '.join(random.sample(palabras, 3))}.mp3"
+        for _ in range(400)
+    ]
     for nombre, paths in casos.items():
         esperado = _normalizar(_grupos_a_lo_bruto(paths))
         obtenido = _normalizar(duplicates.same_song(paths))
@@ -566,9 +725,13 @@ def test_the_shortcut_finds_exactly_the_same_duplicate_groups():
 
 def test_identical_files_are_grouped_byte_by_byte(tmp_path):
     from danplay import duplicates
-    a = tmp_path / "a.mp3"; a.write_bytes(b"x" * 5000)
-    b = tmp_path / "b.mp3"; b.write_bytes(b"x" * 5000)
-    c = tmp_path / "c.mp3"; c.write_bytes(b"y" * 5000)
+
+    a = tmp_path / "a.mp3"
+    a.write_bytes(b"x" * 5000)
+    b = tmp_path / "b.mp3"
+    b.write_bytes(b"x" * 5000)
+    c = tmp_path / "c.mp3"
+    c.write_bytes(b"y" * 5000)
     grupos = duplicates.identical([str(a), str(b), str(c)])
     assert _normalizar(grupos) == [(str(a), str(b))]
 
@@ -578,35 +741,60 @@ def test_identical_files_are_grouped_byte_by_byte(tmp_path):
 # olvidarse de uno es el fallo tipico, y no se nota hasta que alguien mira el
 # «Acerca de» o el nombre de un paquete.
 
+
 def _raiz():
     return pathlib.Path(__file__).resolve().parent.parent
 
 
 def _versiones() -> dict:
+    """Donde vive la version de DanPlay: cada sitio que la escribe de verdad.
+
+    Los crates de Rust la heredan del workspace (`Cargo.toml` de la raiz), el
+    paquete Python la lee de `danplay/__init__.py`, el del crate PyO3 la toma
+    de Cargo (maturin) y la app de escritorio la de su crate (Tauri): ninguno
+    la repite, y `test_la_version_no_se_repite` vigila que siga asi.
+    """
     import json
     import re
+    import tomllib
+
     raiz = _raiz()
     fuentes = {}
 
     ini = (raiz / "danplay/__init__.py").read_text(encoding="utf-8")
     fuentes["danplay/__init__.py"] = re.search(r'__version__ = "([^"]+)"', ini).group(1)
 
-    for toml in ("core/pyproject.toml", "core/Cargo.toml",
-                 "desktop/src-tauri/Cargo.toml"):
-        txt = (raiz / toml).read_text(encoding="utf-8")
-        fuentes[toml] = re.search(r'^version\s*=\s*"([^"]+)"', txt, re.M).group(1)
+    cargo = tomllib.loads((raiz / "Cargo.toml").read_text(encoding="utf-8"))
+    fuentes["Cargo.toml"] = cargo["workspace"]["package"]["version"]
 
-    for js in ("desktop/package.json", "desktop/src-tauri/tauri.conf.json"):
-        fuentes[js] = json.loads((raiz / js).read_text(encoding="utf-8"))["version"]
+    paquete = json.loads((raiz / "desktop/package.json").read_text(encoding="utf-8"))
+    fuentes["desktop/package.json"] = paquete["version"]
 
     return fuentes
 
 
 def test_all_the_pieces_carry_the_same_version():
     v = _versiones()
-    assert len(set(v.values())) == 1, (
-        "las piezas no van a la misma version:\n  "
-        + "\n  ".join(f"{k}: {x}" for k, x in v.items()))
+    assert len(set(v.values())) == 1, "las piezas no van a la misma version:\n  " + "\n  ".join(
+        f"{k}: {x}" for k, x in v.items()
+    )
+
+
+def test_la_version_no_se_repite():
+    """Los que antes llevaban su propia copia la heredan ahora: subirla en un
+    sitio y olvidarla en otro dejaba el .deb, el instalador y el «Acerca de»
+    con versiones distintas."""
+    import json
+    import tomllib
+
+    raiz = _raiz()
+    for crate in ("core/Cargo.toml", "desktop/src-tauri/Cargo.toml"):
+        paquete = tomllib.loads((raiz / crate).read_text(encoding="utf-8"))["package"]
+        assert paquete["version"] == {"workspace": True}, f"{crate} repite la version"
+    nucleo = tomllib.loads((raiz / "core/pyproject.toml").read_text(encoding="utf-8"))
+    assert "version" in nucleo["project"]["dynamic"], "core/pyproject.toml repite la version"
+    tauri = json.loads((raiz / "desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+    assert "version" not in tauri, "tauri.conf.json repite la version: Tauri la toma de Cargo"
 
 
 def test_el_script_de_version_toca_todos_los_sitios_que_mira_esta_prueba():
@@ -619,12 +807,21 @@ def test_el_script_de_version_toca_todos_los_sitios_que_mira_esta_prueba():
     script = (_raiz() / "scripts/subir-version.sh").read_text(encoding="utf-8")
     for path in _versiones():
         assert path in script, f"scripts/subir-version.sh no toca {path}"
-    for extra in ("pyproject.toml", "README.md", "Cargo.lock", "package-lock.json"):
+    for extra in ("README.md", "Cargo.lock", "package-lock.json"):
         assert extra in script, f"scripts/subir-version.sh no toca {extra}"
     # y la regla esta escrita donde la lee quien contribuye
     guia = (_raiz() / "docs/CONTRIBUIR.md").read_text(encoding="utf-8")
     assert "Cada cambio que se entrega sube la versión" in guia
     assert "subir-version.sh" in guia
+
+
+def test_el_paquete_python_lee_la_version_de_un_solo_sitio():
+    """pyproject.toml no repite la version: la saca de danplay/__init__.py."""
+    import tomllib
+
+    data = tomllib.loads((_raiz() / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "version" not in data["project"] and "version" in data["project"]["dynamic"]
+    assert data["tool"]["setuptools"]["dynamic"]["version"] == {"attr": "danplay.__version__"}
 
 
 def test_the_api_does_not_repeat_the_version():
@@ -633,12 +830,14 @@ def test_the_api_does_not_repeat_the_version():
     Antes estaba escrita a mano en `api.py`, asi que subirla en un sitio y no
     en el otro no daba ningun error: simplemente el «Acerca de» mentia.
     """
-    from danplay import api, __version__
+    from danplay import __version__, api
+
     assert api.app.version == __version__
 
 
 def test_the_version_looks_like_a_version():
     import re
+
     for archivo, v in _versiones().items():
         assert re.fullmatch(r"\d+\.\d+\.\d+", v), f"{archivo} tiene «{v}»"
 
@@ -651,6 +850,7 @@ def test_nothing_hardcodes_the_version_in_a_file_name():
     desaparecia justo cuando mas falta hace.
     """
     from danplay import __version__
+
     for script in ("scripts/build.sh", "scripts/que-version.sh"):
         txt = (_raiz() / script).read_text(encoding="utf-8")
         assert __version__ not in txt, f"{script} lleva la version escrita a mano"
@@ -663,33 +863,40 @@ def test_nothing_hardcodes_the_version_in_a_file_name():
 # separan solos, y cuando se separan el sintoma es «al abrir una cancion no
 # pasa nada», que no apunta a ninguno de los cuatro.
 
+
 def _associations() -> list:
     import json
+
     conf = json.loads((_raiz() / "desktop/src-tauri/tauri.conf.json").read_text("utf-8"))
     return conf["bundle"]["fileAssociations"]
 
 
 def test_the_declared_associations_match_the_library():
     from danplay import config
+
     declared = {f".{a['ext'][0]}" for a in _associations()}
     assert declared == config.EXTENSIONS, (
         "las extensiones de tauri.conf.json y las de la biblioteca no coinciden:\n"
         f"  solo en el empaquetado: {sorted(declared - config.EXTENSIONS)}\n"
-        f"  solo en la biblioteca:  {sorted(config.EXTENSIONS - declared)}")
+        f"  solo en la biblioteca:  {sorted(config.EXTENSIONS - declared)}"
+    )
 
 
 def test_every_association_declares_the_type_the_api_serves():
     from danplay.api import AUDIO_TYPES
+
     for a in _associations():
         ext = f".{a['ext'][0]}"
         assert a["mimeType"] == AUDIO_TYPES[ext], (
             f"{ext} se declara como {a['mimeType']} al sistema pero se sirve "
-            f"como {AUDIO_TYPES[ext]}")
+            f"como {AUDIO_TYPES[ext]}"
+        )
 
 
 def test_rust_knows_the_same_types():
     """La copia de Rust (`associate.rs`) tiene que decir lo mismo."""
     import re
+
     src = (_raiz() / "desktop/src-tauri/src/associate.rs").read_text("utf-8")
     bloque = re.search(r"MIME_TYPES: &\[&str\] = &\[(.*?)\];", src, re.S).group(1)
     tipos = set(re.findall(r'"([^"]+)"', bloque))
@@ -718,6 +925,7 @@ def test_the_desktop_entry_passes_the_file_to_the_app():
 # de verdad corre en Windows lo prueba la integracion continua (hay un trabajo
 # en windows-latest), pero estas cazan los descuidos sin esperar a un push.
 
+
 def test_external_tools_are_looked_up_next_to_the_executable(tmp_path, monkeypatch):
     """En Windows no hay `apt install ffmpeg`: viaja dentro del instalador.
 
@@ -725,6 +933,7 @@ def test_external_tools_are_looked_up_next_to_the_executable(tmp_path, monkeypat
     DANPLAY_TOOLS_DIR, y no solo en el PATH.
     """
     from danplay import config
+
     herramienta = tmp_path / "ffmpeg"
     herramienta.write_text("#!/bin/sh\n")
     herramienta.chmod(0o755)
@@ -736,6 +945,7 @@ def test_external_tools_are_looked_up_next_to_the_executable(tmp_path, monkeypat
 
 def test_on_windows_the_exe_suffix_is_tried(tmp_path, monkeypatch):
     from danplay import config
+
     (tmp_path / "fpcalc.exe").write_text("")
     (tmp_path / "fpcalc.exe").chmod(0o755)
     monkeypatch.setattr(config, "TOOLS_DIR", str(tmp_path))
@@ -770,6 +980,7 @@ def test_being_inside_the_library_is_decided_by_components():
     En Windows ademas la unidad puede venir en mayuscula o minuscula.
     """
     from danplay import library as B
+
     assert B._inside("/musica/artistas/x.mp3", "/musica")
     assert B._inside("/musica", "/musica")
     assert not B._inside("/musica-copia/x.mp3", "/musica")
@@ -788,12 +999,17 @@ def test_being_inside_the_library_is_decided_by_components():
 
 
 def _corpus():
-    import json, pathlib
-    return json.loads((pathlib.Path(__file__).parent / "narracion.json").read_text(encoding="utf-8"))
+    import json
+    import pathlib
+
+    return json.loads(
+        (pathlib.Path(__file__).parent / "narracion.json").read_text(encoding="utf-8")
+    )
 
 
 def test_el_detector_reconoce_todo_el_corpus_de_narraciones():
     from danplay import chat
+
     d = _corpus()
     tolerated = set(d["no_saltan_aunque_afirman"])
     missed = [t for t in d["afirman"] if not chat.claims_action(t) and t not in tolerated]
@@ -803,6 +1019,7 @@ def test_el_detector_reconoce_todo_el_corpus_de_narraciones():
 
 def test_el_detector_no_salta_con_lo_informativo():
     from danplay import chat
+
     d = _corpus()
     tolerated = set(d["saltan_aunque_no_afirman"])
     fps = [t for t in d["no_afirman"] if chat.claims_action(t) and t not in tolerated]
@@ -814,6 +1031,7 @@ def test_lo_tolerado_sigue_siendo_lo_que_se_penso():
     """Si una rama nueva arregla un caso tolerado, hay que quitarlo de la lista
     para que la prueba lo proteja de verdad."""
     from danplay import chat
+
     d = _corpus()
     fixed = [t for t in d["no_saltan_aunque_afirman"] if chat.claims_action(t)]
     assert not fixed, f"ya se detectan, quitalas de la lista: {fixed}"
@@ -827,8 +1045,6 @@ def test_lo_tolerado_sigue_siendo_lo_que_se_penso():
 # cancion. Paso: una «Drum Cam» de «Que se abra el cielo» entro como «Miel San
 # Marcos - Que Se Abra El Cielo», el usuario no la reconocio y se bajo tres
 # veces.
-
-from danplay import names as N
 
 
 def test_la_drum_cam_es_de_quien_la_toca_no_del_artista_original():
@@ -847,7 +1063,9 @@ def test_un_artista_que_ya_tienes_manda_en_cualquier_orden():
 def test_el_canal_dentro_del_titulo_es_el_artista():
     r = N.from_video("I Want Jesus (Live) - @JohnWilds , Bethel Music", "Bethel Music", {})
     assert (r["artist"], r["title"]) == ("Bethel Music", "I Want Jesus (Live)")
-    r = N.from_video("Carol Braga | Ruja O Leão + Que Se Abram Os Céus (Ao Vivo)", "Carol Braga", {})
+    r = N.from_video(
+        "Carol Braga | Ruja O Leão + Que Se Abram Os Céus (Ao Vivo)", "Carol Braga", {}
+    )
     assert r["artist"] == "Carol Braga"
     assert r["title"] == "Ruja O Leao + Que Se Abram Os Ceus (Ao Vivo)"
 
@@ -862,22 +1080,37 @@ def test_artista_guion_titulo_es_el_orden_habitual():
 def test_sin_guion_el_canal_hace_de_artista_y_youtube_music_manda():
     r = N.from_video("Santo Por Siempre (En Vivo)", "Adoracion La Ibi", {})
     assert (r["artist"], r["title"]) == ("Adoracion La Ibi", "Santo Por Siempre (En Vivo)")
-    r = N.from_video("Alfa y Omega", "Kabed - Topic", {}, yt_artist="Kabed", yt_track="Alfa y Omega")
+    r = N.from_video(
+        "Alfa y Omega", "Kabed - Topic", {}, yt_artist="Kabed", yt_track="Alfa y Omega"
+    )
     assert (r["artist"], r["title"], r["source"]) == ("Kabed", "Alfa y Omega", "youtube-music")
     assert N.channel_as_artist("BarakVEVO") == "Barak"
     assert N.channel_as_artist("Ish Melton - Topic") == "Ish Melton"
 
 
-def test_process_con_nombre_conocido_no_pasa_por_la_cascada(configured_library, monkeypatch, tmp_path):
+def test_process_con_nombre_conocido_no_pasa_por_la_cascada(
+    configured_library, monkeypatch, tmp_path
+):
     """Con `known`, ingest archiva con ese nombre y no llama a la huella ni a la IA."""
     from conftest import make_mp3
-    from danplay import ingest, config
+
+    from danplay import config, ingest
+
     called = []
     monkeypatch.setattr(ingest, "_from_fingerprint", lambda p: called.append("fp") or None)
     monkeypatch.setattr(ingest, "_from_ai", lambda p, v: called.append("ai") or None)
     path = make_mp3(config.INBOX / "Que Se Abra El Cielo (Drum Cam).mp3")
-    res = ingest.process(path, {}, known={"artist": "Ish Melton", "title": "Que Se Abra El Cielo (Drum Cam)",
-                                          "feat": "", "source": "youtube", "confidence": 0.85})
+    res = ingest.process(
+        path,
+        {},
+        known={
+            "artist": "Ish Melton",
+            "title": "Que Se Abra El Cielo (Drum Cam)",
+            "feat": "",
+            "source": "youtube",
+            "confidence": 0.85,
+        },
+    )
     assert res.action == "moved" and res.artist == "Ish Melton"
     assert res.target.name == "Ish Melton - Que Se Abra El Cielo (Drum Cam).mp3"
     assert res.target.parent.name == "Ish Melton" and res.source == "youtube"
@@ -898,13 +1131,26 @@ def test_el_instalador_de_windows_actualiza_en_vez_de_duplicar():
     assert nsi.count('"${DESINSTALAR}"') >= 8, "una sola entrada en Aplicaciones instaladas"
     # limpia lo suyo antes de copiar, pieza a pieza, nunca la carpeta a ciegas
     assert "Call LimpiarInstalacionAnterior" in nsi
-    limpiar = nsi[nsi.index("Function LimpiarInstalacionAnterior"):nsi.index("FunctionEnd", nsi.index("Function LimpiarInstalacionAnterior"))]
+    limpiar = nsi[
+        nsi.index("Function LimpiarInstalacionAnterior") : nsi.index(
+            "FunctionEnd", nsi.index("Function LimpiarInstalacionAnterior")
+        )
+    ]
     for piece in ("python", "tools", "${EJECUTABLE}", "danplay-core.exe", "WebView2Loader.dll"):
         assert piece in limpiar, f"la limpieza no quita {piece}"
     assert 'RMDir /r "$INSTDIR"' not in limpiar, "al actualizar no se borra la carpeta entera"
-    assert '${IfNot} ${FileExists} "$INSTDIR\\${EJECUTABLE}"' in limpiar, "solo si ahi hay un DanPlay"
+    assert '${IfNot} ${FileExists} "$INSTDIR\\${EJECUTABLE}"' in limpiar, (
+        "solo si ahi hay un DanPlay"
+    )
     # y la limpieza cubre todo lo que produce la version portatil
-    portable = {"danplay-app.exe", "danplay-core.exe", "LEEME.txt", "python", "tools", "WebView2Loader.dll"}
+    portable = {
+        "danplay-app.exe",
+        "danplay-core.exe",
+        "LEEME.txt",
+        "python",
+        "tools",
+        "WebView2Loader.dll",
+    }
     for item in portable:
         name = "${EJECUTABLE}" if item == "danplay-app.exe" else item
         assert name in limpiar, f"{item} se quedaria huerfano al actualizar"

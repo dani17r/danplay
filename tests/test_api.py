@@ -1,7 +1,14 @@
-# -*- coding: utf-8 -*-
 """Pruebas de todos los endpoints, sobre una biblioteca temporal."""
-import json, os, pathlib, shutil, sys, tempfile
+
+import json
+import os
+import pathlib
+import shutil
+import sys
+import tempfile
+
 import pytest
+from conftest import run_job
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
@@ -23,10 +30,15 @@ ARTISTS = {
 def _build_library(lib):
     """Los mp3 sinteticos, con sus etiquetas puestas."""
     from conftest import make_mp3
+
     for artist, titles in ARTISTS.items():
         for title in titles:
-            make_mp3(os.path.join(lib, "Artistas", artist, f"{artist} - {title}.mp3"),
-                     artist=artist, title=title, album="Pruebas")
+            make_mp3(
+                os.path.join(lib, "Artistas", artist, f"{artist} - {title}.mp3"),
+                artist=artist,
+                title=title,
+                album="Pruebas",
+            )
 
 
 def _copy_library(lib):
@@ -45,7 +57,9 @@ def _copy_library(lib):
 @pytest.fixture(scope="module")
 def cliente():
     from fastapi.testclient import TestClient
+
     from danplay import config
+
     if not shutil.which("ffmpeg") and not SOURCE:
         pytest.skip("hace falta ffmpeg para generar la biblioteca de prueba")
     tmp = tempfile.mkdtemp(prefix="danplay-pruebas-")
@@ -55,24 +69,31 @@ def cliente():
     if not (SOURCE and os.path.isdir(SOURCE) and _copy_library(lib)):
         _build_library(lib)
 
-    config.LIBRARY = __import__("pathlib").Path(lib)
+    before = {
+        k: getattr(config, k) for k in ("LIBRARY", "INBOX", "ARTISTS_DIR", "REVIEW_DIR", "DATABASE")
+    }
+    config.LIBRARY = pathlib.Path(lib)
     config.INBOX = config.LIBRARY / "Entrada"
     config.ARTISTS_DIR = config.LIBRARY / "Artistas"
     config.REVIEW_DIR = config.LIBRARY / "Revisar"
-    config.DATABASE = __import__("pathlib").Path(tmp) / "prueba.db"
+    config.DATABASE = pathlib.Path(tmp) / "prueba.db"
 
-    from danplay import library as B, api as A
+    from danplay import api as A
+    from danplay import library as B
+
     B.add_folder(lib, "prueba")
     B.scan()
     c = TestClient(A.app)
     yield c
+    for k, v in before.items():
+        setattr(config, k, v)
     shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_status(cliente):
     d = cliente.get("/api/status").json()
     assert d["stats"]["total"] > 0
-    assert set(["rust", "ai", "ffmpeg", "fingerprint"]) <= set(d)
+    assert {"rust", "ai", "ffmpeg", "fingerprint"} <= set(d)
 
 
 def test_search_everything(cliente):
@@ -101,16 +122,20 @@ def test_search_ignores_lone_punctuation_and_knows_title_filter(cliente):
     FTS como termino. Y `titulo:`/`title:` no existian como filtro, con lo
     que el asistente (que lo intenta siempre) tampoco encontraba nada."""
     from danplay import library
+
     first = library.search("", limit=1)[0]
     q = f"{first['artist']} - {first['title']}"
     d = cliente.get("/api/search", params={"q": q}).json()
     assert d["total"] >= 1 and any(c["id"] == first["id"] for c in d["songs"])
     d = cliente.get("/api/search", params={"q": f"titulo:{first['title'].split()[0]}"}).json()
     assert any(c["id"] == first["id"] for c in d["songs"])
-    d = cliente.get("/api/search", params={"q": f"artist:{first['artist']} title:{first['title']}"}).json()
+    d = cliente.get(
+        "/api/search", params={"q": f"artist:{first['artist']} title:{first['title']}"}
+    ).json()
     assert any(c["id"] == first["id"] for c in d["songs"])
-    assert cliente.get("/api/search", params={"q": "- & /"}).json()["total"] > 0, \
+    assert cliente.get("/api/search", params={"q": "- & /"}).json()["total"] > 0, (
         "solo puntuacion = sin filtro de texto"
+    )
 
 
 def test_facets(cliente):
@@ -133,7 +158,9 @@ def test_missing_song(cliente):
 def test_stars_and_favorite(cliente):
     cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
     assert cliente.post(f"/api/song/{cid}/stars", json={"stars": 5}).json()["stars"] == 5
-    assert cliente.post(f"/api/song/{cid}/favorite", json={"favorite": True}).json()["favorite"] == 1
+    assert (
+        cliente.post(f"/api/song/{cid}/favorite", json={"favorite": True}).json()["favorite"] == 1
+    )
     d = cliente.get("/api/search", params={"only_favorites": True}).json()
     assert any(c["id"] == cid for c in d["songs"])
 
@@ -185,8 +212,9 @@ def test_adding_missing_folder_gives_400(cliente):
 
 
 def test_transpose_endpoint(cliente):
-    d = cliente.post("/api/transpose",
-                     json={"text": "| Bb | Gm7 |", "from_key": "Bb", "to_key": "G"}).json()
+    d = cliente.post(
+        "/api/transpose", json={"text": "| Bb | Gm7 |", "from_key": "Bb", "to_key": "G"}
+    ).json()
     assert d["text"] == "| G | Em7 |"
     assert d["latin"] == "| Sol | Mim7 |"
 
@@ -199,17 +227,20 @@ def test_inbox_and_convertible(cliente):
 
 def test_dry_run_import_moves_nothing(cliente):
     from danplay import config
+
     source_path = next(iter(cliente.get("/api/search", params={"limit": 1}).json()["songs"]))
     shutil.copy(source_path["path"], config.INBOX / "prueba_import.mp3")
     before = len(os.listdir(config.INBOX))
-    cliente.post("/api/import", json={"dry_run": True})
+    r = run_job(cliente, "/api/import", "importacion", json={"dry_run": True})
+    assert [x["action"] for x in r["results"]] == ["dry_run"]
     assert len(os.listdir(config.INBOX)) == before
     os.remove(config.INBOX / "prueba_import.mp3")
 
 
 def test_duplicates(cliente):
-    d = cliente.get("/api/duplicates").json()
+    d = run_job(cliente, "/api/duplicates/scan", "duplicados")
     assert "identical" in d and "similar" in d
+    assert cliente.get("/api/duplicates").status_code in (404, 405), "la ruta sincrona ya no existe"
 
 
 def test_settings_round_trip(cliente):
@@ -228,20 +259,36 @@ def test_ai_key_is_never_returned_whole(cliente):
 def perfiles_ia(tmp_path, monkeypatch):
     """Los perfiles de IA en un archivo temporal: nada toca los del usuario."""
     from danplay import ai, providers
+
     monkeypatch.setattr(providers, "PROFILES_FILE", tmp_path / "ai.json")
-    for v in ("DANPLAY_AI_PROVIDER", "DANPLAY_AI_KEY", "DANPLAY_AI_MODEL",
-              "DANPLAY_AI_CHAT_MODEL", "DEEPINFRA_API_KEY"):
+    for v in (
+        "DANPLAY_AI_PROVIDER",
+        "DANPLAY_AI_KEY",
+        "DANPLAY_AI_MODEL",
+        "DANPLAY_AI_CHAT_MODEL",
+        "DEEPINFRA_API_KEY",
+    ):
         monkeypatch.delenv(v, raising=False)
-    providers.reload(); ai.reset_client()
+    providers.reload()
+    ai.reset_client()
     yield
-    providers.reload(); ai.reset_client()
+    providers.reload()
+    ai.reset_client()
 
 
 def test_ai_providers_overview(cliente, perfiles_ia):
     d = cliente.get("/api/ai/providers").json()
     ids = {p["id"] for p in d["catalog"]}
     assert {"openai", "anthropic", "google", "deepinfra", "openrouter", "ollama", "custom"} <= ids
-    assert [g["id"] for g in d["groups"]] == ["free", "lab", "platform", "cloud", "asia", "local", "custom"]
+    assert [g["id"] for g in d["groups"]] == [
+        "free",
+        "lab",
+        "platform",
+        "cloud",
+        "asia",
+        "local",
+        "custom",
+    ]
     assert d["active"] == "" and d["active_profile"] is None and not d["ai_ready"]
     assert d["catalog_status"]["models"] > 100, "la foto de models.dev viaja con la app"
     # el catalogo no lleva ningun secreto: son datos publicos
@@ -249,9 +296,15 @@ def test_ai_providers_overview(cliente, perfiles_ia):
 
 
 def test_ai_profile_save_activate_and_delete(cliente, perfiles_ia):
-    r = cliente.post("/api/ai/profile", json={"provider": "openrouter", "key": "sk-or-v1-abcdefghijklmnop",
-                                              "model": "google/gemini-3.5-flash-lite",
-                                              "chat_model": "google/gemini-3.8-flash"})
+    r = cliente.post(
+        "/api/ai/profile",
+        json={
+            "provider": "openrouter",
+            "key": "sk-or-v1-abcdefghijklmnop",
+            "model": "google/gemini-3.5-flash-lite",
+            "chat_model": "google/gemini-3.8-flash",
+        },
+    )
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["saved"] == "openrouter" and d["active"] == "openrouter" and d["ai_ready"]
@@ -265,8 +318,9 @@ def test_ai_profile_save_activate_and_delete(cliente, perfiles_ia):
     assert cliente.get("/api/chat/tools").json()["provider"] == "OpenRouter"
 
     # un segundo proveedor, sin activarlo, no quita el activo
-    d = cliente.post("/api/ai/profile", json={"provider": "ollama", "model": "qwen3:8b",
-                                              "activate": False}).json()
+    d = cliente.post(
+        "/api/ai/profile", json={"provider": "ollama", "model": "qwen3:8b", "activate": False}
+    ).json()
     assert d["active"] == "openrouter" and "ollama" in d["profiles"]
     d = cliente.post("/api/ai/activate", json={"id": "ollama"}).json()
     assert d["active"] == "ollama" and d["active_profile"]["local"]
@@ -275,11 +329,14 @@ def test_ai_profile_save_activate_and_delete(cliente, perfiles_ia):
 
     assert cliente.post("/api/ai/profile", json={"provider": "inventado"}).status_code == 400
     assert cliente.post("/api/ai/activate", json={"id": "inventado"}).status_code == 400
-    assert cliente.post("/api/ai/profile", json={"provider": "openai", "raro": 1}).status_code == 422
+    assert (
+        cliente.post("/api/ai/profile", json={"provider": "openai", "raro": 1}).status_code == 422
+    )
 
 
 def test_ai_check_and_models_with_a_fake_provider(cliente, perfiles_ia, monkeypatch):
     from danplay import ai
+
     calls = []
 
     class _Call:
@@ -291,7 +348,7 @@ def test_ai_check_and_models_with_a_fake_provider(cliente, perfiles_ia, monkeypa
             self.content, self.tool_calls = content, tool_calls
 
     class _Fake:
-        class chat:                                          # noqa: N801
+        class chat:
             class completions:
                 @staticmethod
                 def create(**kw):
@@ -299,14 +356,28 @@ def test_ai_check_and_models_with_a_fake_provider(cliente, perfiles_ia, monkeypa
                     msg = _Msg("", [_Call()]) if kw.get("tools") else _Msg("ok")
                     return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
 
-        class models:                                        # noqa: N801
+        class models:
             @staticmethod
             def list():
-                return type("p", (), {"data": [type("m", (), {"id": "gpt-6-astra"})(),
-                                               type("m", (), {"id": "gpt-5.6-luna"})()]})()
+                return type(
+                    "p",
+                    (),
+                    {
+                        "data": [
+                            type("m", (), {"id": "gpt-6-astra"})(),
+                            type("m", (), {"id": "gpt-5.6-luna"})(),
+                        ]
+                    },
+                )()
+
     monkeypatch.setattr(ai, "_build_client", lambda p: _Fake())
 
-    draft = {"provider": "openai", "key": "sk-prueba", "model": "gpt-5.6-luna", "chat_model": "gpt-6-astra"}
+    draft = {
+        "provider": "openai",
+        "key": "sk-prueba",
+        "model": "gpt-5.6-luna",
+        "chat_model": "gpt-6-astra",
+    }
     d = cliente.post("/api/ai/check", json=draft).json()
     assert d["ok"] and d["tools_ok"] and d["provider"] == "OpenAI", d
     assert [c["model"] for c in calls] == ["gpt-5.6-luna", "gpt-6-astra", "gpt-6-astra"]
@@ -326,7 +397,9 @@ def test_chat_start_poll_and_cancel(cliente, perfiles_ia, monkeypatch):
     """El chat en vivo: se arranca, se pregunta y llega el mismo resultado que
     da /api/chat, con las herramientas segun terminan."""
     import time as _t
+
     from danplay import ai, providers
+
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
 
     class _Call:
@@ -336,19 +409,28 @@ def test_chat_start_poll_and_cancel(cliente, perfiles_ia, monkeypatch):
     class _Msg:
         def __init__(self, content, tool_calls=None):
             self.content, self.tool_calls = content, tool_calls
+
     turns = [_Msg("", [_Call()]), _Msg("No tienes repertorios.")]
 
     class _Fake:
-        class chat:                                          # noqa: N801
+        class chat:
             class completions:
                 @staticmethod
                 def create(**kw):
-                    return type("r", (), {"choices": [type("c", (), {"message": turns.pop(0)})()]})()
+                    return type(
+                        "r", (), {"choices": [type("c", (), {"message": turns.pop(0)})()]}
+                    )()
+
     monkeypatch.setattr(ai, "_get_client", lambda: _Fake())
     monkeypatch.setattr(ai, "_build_client", lambda p: _Fake())
 
-    r = cliente.post("/api/chat/start", json={"messages": [{"role": "user", "text": "¿que listas tengo?"}],
-                                             "context": {"view": {"kind": "all", "name": "Todas"}}})
+    r = cliente.post(
+        "/api/chat/start",
+        json={
+            "messages": [{"role": "user", "text": "¿que listas tengo?"}],
+            "context": {"view": {"kind": "all", "name": "Todas"}},
+        },
+    )
     assert r.status_code == 200, r.text
     job = r.json()["id"]
     for _ in range(100):
@@ -367,10 +449,22 @@ def test_chat_start_poll_and_cancel(cliente, perfiles_ia, monkeypatch):
 def test_chats_are_kept_and_searchable(cliente):
     c = cliente.post("/api/chats", json={}).json()
     assert c["id"]
-    assert cliente.post(f"/api/chats/{c['id']}/messages", json={"messages": [
-        {"role": "me", "text": "armame una lista para el domingo"},
-        {"role": "ai", "text": "Hecho: **Domingo** con 5 temas.", "tools": [{"name": "create_playlist", "summary": "5 temas"}]}
-    ]}).json()["n"] == 2
+    assert (
+        cliente.post(
+            f"/api/chats/{c['id']}/messages",
+            json={
+                "messages": [
+                    {"role": "me", "text": "armame una lista para el domingo"},
+                    {
+                        "role": "ai",
+                        "text": "Hecho: **Domingo** con 5 temas.",
+                        "tools": [{"name": "create_playlist", "summary": "5 temas"}],
+                    },
+                ]
+            },
+        ).json()["n"]
+        == 2
+    )
     got = cliente.get(f"/api/chats/{c['id']}").json()
     assert got["title"] == "armame una lista para el domingo"
     assert got["messages"][1]["tools"][0]["name"] == "create_playlist"
@@ -381,11 +475,17 @@ def test_chats_are_kept_and_searchable(cliente):
     assert cliente.get(f"/api/chats/{c['id']}").json()["title"] == "Set del domingo"
     assert cliente.delete(f"/api/chats/{c['id']}").json()["ok"]
     assert cliente.get(f"/api/chats/{c['id']}").status_code == 404
-    assert cliente.post("/api/chats/999999/messages", json={"messages": [{"role": "me", "text": "x"}]}).status_code == 404
+    assert (
+        cliente.post(
+            "/api/chats/999999/messages", json={"messages": [{"role": "me", "text": "x"}]}
+        ).status_code
+        == 404
+    )
 
 
 def test_ai_usage_and_fallback_settings(cliente, perfiles_ia):
     from danplay import library
+
     library.log_ai_usage("openai", "gpt-6-astra", "chat", 1000, 100, 0.015)
     u = cliente.get("/api/ai/usage").json()
     assert u["today"]["calls"] >= 1 and u["month"]["prompt"] >= 1000 and u["today"]["cost"] >= 0.015
@@ -400,18 +500,30 @@ def test_ai_usage_and_fallback_settings(cliente, perfiles_ia):
 def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
     """Bucle, velocidad, marcadores y notas viajan con el archivo (etiqueta
     ESTUDIO) y vuelven al indice si este se pierde, como las estrellas."""
-    from danplay import library, tags, config
+    from danplay import config, library, tags
+
     c = library.search("", limit=1)[0]
-    body = {"loop": [12.5, 30], "speed": 0.75, "notes": "intro con cejilla 2",
-            "markers": [{"t": 45, "end": 60, "label": "coro", "notes": "entrar tras el redoble"},
-                        {"t": 12.5, "label": "verso", "end": 3, "notes": "  "},
-                        {"t": -1, "label": "no"}]}
+    body = {
+        "loop": [12.5, 30],
+        "speed": 0.75,
+        "notes": "intro con cejilla 2",
+        "markers": [
+            {"t": 45, "end": 60, "label": "coro", "notes": "entrar tras el redoble"},
+            {"t": 12.5, "label": "verso", "end": 3, "notes": "  "},
+            {"t": -1, "label": "no"},
+        ],
+    }
     d = cliente.put(f"/api/song/{c['id']}/study", json=body).json()
     study = json.loads(d["study"])
     assert study["loop"] == [12.5, 30.0] and study["speed"] == 0.75
     assert [m["label"] for m in study["markers"]] == ["verso", "coro"], "ordenados y sin negativos"
     # un marcador es un tramo con sus notas; un fin que no va detras se descarta
-    assert study["markers"][1] == {"t": 45.0, "end": 60.0, "label": "coro", "notes": "entrar tras el redoble"}
+    assert study["markers"][1] == {
+        "t": 45.0,
+        "end": 60.0,
+        "label": "coro",
+        "notes": "entrar tras el redoble",
+    }
     assert study["markers"][0] == {"t": 12.5, "label": "verso"}
     assert study["notes"] == "intro con cejilla 2"
     if config.WRITE_TAGS:
@@ -427,12 +539,19 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
     assert cliente.put("/api/song/999999/study", json={}).status_code == 404
     assert cliente.put(f"/api/song/{c['id']}/study", json={"raro": 1}).status_code == 422
     # tono corrido y ajustes del metronomo, saneados
-    d = cliente.put(f"/api/song/{c['id']}/study", json={
-        "pitch": -3, "metronome": {"bpm": 98.26, "meter": 3, "shift": 1, "mult": -1, "raro": 5}}).json()
+    d = cliente.put(
+        f"/api/song/{c['id']}/study",
+        json={
+            "pitch": -3,
+            "metronome": {"bpm": 98.26, "meter": 3, "shift": 1, "mult": -1, "raro": 5},
+        },
+    ).json()
     study = json.loads(d["study"])
     assert study["pitch"] == -3
     assert study["metronome"] == {"bpm": 98.3, "meter": 3, "shift": 1, "mult": -1}
-    d = cliente.put(f"/api/song/{c['id']}/study", json={"pitch": 0, "metronome": {"meter": 5, "mult": 2}}).json()
+    d = cliente.put(
+        f"/api/song/{c['id']}/study", json={"pitch": 0, "metronome": {"meter": 5, "mult": 2}}
+    ).json()
     assert d["study"] == "", "tono 0 y ajustes invalidos: no queda nada"
     assert cliente.put(f"/api/song/{c['id']}/study", json={"pitch": 13}).status_code == 422
 
@@ -440,11 +559,14 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
 def test_waveform_columns_follow_the_sound():
     """El reparto en columnas, sin decodificar nada: es el mismo que hace Rust."""
     from danplay import waveform
+
     silence = [0] * 100
     loud = [30000, -30000] * 50
     peaks, rms = waveform.columns(silence + loud, 4)
     assert peaks == [0.0, 0.0, 1.0, 1.0]
-    assert rms[:2] == [0.0, 0.0] and all(0.99 < r <= 1.0 for r in rms[2:]), "una onda cuadrada tiene rms = pico"
+    assert rms[:2] == [0.0, 0.0] and all(0.99 < r <= 1.0 for r in rms[2:]), (
+        "una onda cuadrada tiene rms = pico"
+    )
     assert waveform.columns([], 5) == ([], [])
     assert waveform.columns([1, 2, 3], 0) == ([], [])
     # mas columnas que muestras: se repiten, no se inventan
@@ -455,7 +577,9 @@ def test_waveform_endpoint_draws_the_song_and_caches_it(cliente, tmp_path):
     """Un mp3 que suena (tono en la segunda mitad) da columnas callado/alto,
     con el pico mas alto en 1; la segunda peticion sale de la cache."""
     from conftest import make_mp3
+
     from danplay import config, library, waveform
+
     if not waveform.available():
         pytest.skip("hace falta ffmpeg o el nucleo en Rust")
     # dos segundos: uno de silencio y uno de tono, pegados con ffmpeg
@@ -463,11 +587,33 @@ def test_waveform_endpoint_draws_the_song_and_caches_it(cliente, tmp_path):
     tone = make_mp3(tmp_path / "tono.mp3", seconds=1.0, tone=440)
     target = config.ARTISTS_DIR / "Barak" / "Barak - Onda.mp3"
     import subprocess
-    subprocess.run([__import__("conftest").FFMPEG, "-y", "-loglevel", "error", "-i", quiet, "-i", tone,
-                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1", "-codec:a", "libmp3lame",
-                    "-b:a", "64k", str(target)], check=True, capture_output=True, timeout=60)
+
+    subprocess.run(
+        [
+            __import__("conftest").FFMPEG,
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            quiet,
+            "-i",
+            tone,
+            "-filter_complex",
+            "[0:a][1:a]concat=n=2:v=0:a=1",
+            "-codec:a",
+            "libmp3lame",
+            "-b:a",
+            "64k",
+            str(target),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
     library.scan()
-    c = next(x for x in library.search("Onda", limit=5) if x["title"] == "Onda" or "Onda" in x["file"])
+    c = next(
+        x for x in library.search("Onda", limit=5) if x["title"] == "Onda" or "Onda" in x["file"]
+    )
 
     r = cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 10})
     assert r.status_code == 200, r.text
@@ -496,13 +642,19 @@ def test_waveform_cache_goes_away_with_the_song(cliente):
     papelera, y al escanear si desaparecio por fuera. Las huerfanas de otro
     formato tambien caen. Si no, la carpeta crecia sin fin."""
     from conftest import make_mp3
+
     from danplay import config, library, waveform
+
     if not waveform.available():
         pytest.skip("hace falta ffmpeg o el nucleo en Rust")
     folder = config.DATA_DIR / "waveforms"
     # una cancion nueva, solo para esta prueba
-    path = make_mp3(config.ARTISTS_DIR / "Barak" / "Barak - Efimera.mp3", artist="Barak",
-                    title="Efimera", tone=330)
+    path = make_mp3(
+        config.ARTISTS_DIR / "Barak" / "Barak - Efimera.mp3",
+        artist="Barak",
+        title="Efimera",
+        tone=330,
+    )
     library.scan()
     c = next(x for x in library.search("Efimera", limit=5))
     assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 8}).status_code == 200
@@ -511,7 +663,9 @@ def test_waveform_cache_goes_away_with_the_song(cliente):
     saved = json.loads(cached.read_text())
     assert saved["path"] == c["path"] and len(saved["peaks"]) == 8
     # otro numero de columnas se recalcula y sustituye al anterior (un solo archivo por cancion)
-    assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 4}).json()["buckets"] == 4
+    assert (
+        cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 4}).json()["buckets"] == 4
+    )
     assert len(json.loads(cached.read_text())["peaks"]) == 4
     assert waveform._cache_file(c["path"]) == cached
 
@@ -525,14 +679,20 @@ def test_waveform_cache_goes_away_with_the_song(cliente):
     assert not orphan.exists(), "una onda huerfana de otro formato sigue en disco"
     # y las de las canciones que siguen no se tocan
     other = library.search("", limit=1)[0]
-    assert cliente.get(f"/api/song/{other['id']}/waveform", params={"buckets": 4}).status_code == 200
+    assert (
+        cliente.get(f"/api/song/{other['id']}/waveform", params={"buckets": 4}).status_code == 200
+    )
     kept = waveform._cache_file(other["path"])
     library.scan()
     assert kept.is_file()
 
     # a la papelera desde la app: tambien se va
-    path2 = make_mp3(config.ARTISTS_DIR / "Barak" / "Barak - Efimera 2.mp3", artist="Barak",
-                     title="Efimera 2", tone=330)
+    path2 = make_mp3(
+        config.ARTISTS_DIR / "Barak" / "Barak - Efimera 2.mp3",
+        artist="Barak",
+        title="Efimera 2",
+        tone=330,
+    )
     library.scan()
     c2 = next(x for x in library.search("Efimera 2", limit=5) if x["title"] == "Efimera 2")
     cliente.get(f"/api/song/{c2['id']}/waveform", params={"buckets": 4})
@@ -545,12 +705,17 @@ def test_waveform_cache_goes_away_with_the_song(cliente):
 
 
 def test_playlist_sheet_is_written_inside_listas(cliente):
-    from danplay import playlists, library, config
+    from danplay import config, library, playlists
+
     songs = library.search("", limit=2)
     made = playlists.create("Atril")
     playlists.add(made["id"], [c["id"] for c in songs])
-    library.update(songs[0]["id"], key="Bb", bpm=120,
-                   chords=json.dumps({"section_chords": {"coro": "| Bb | Gm |"}}))
+    library.update(
+        songs[0]["id"],
+        key="Bb",
+        bpm=120,
+        chords=json.dumps({"section_chords": {"coro": "| Bb | Gm |"}}),
+    )
     try:
         r = cliente.post(f"/api/playlists/{made['id']}/sheet", json={"with_lyrics": True}).json()
         path = pathlib.Path(r["file"])
@@ -575,12 +740,13 @@ def test_ai_free_activates_a_keyless_provider(cliente, perfiles_ia, monkeypatch)
             self.content, self.tool_calls = content, tool_calls
 
     class _Fake:
-        class chat:                                          # noqa: N801
+        class chat:
             class completions:
                 @staticmethod
                 def create(**kw):
                     msg = _Msg("", [_Call()]) if kw.get("tools") else _Msg("ok")
                     return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+
     monkeypatch.setattr(ai, "_build_client", lambda p: _Fake())
     d = cliente.post("/api/ai/free").json()
     assert d["free"]["ok"] and d["free"]["chosen"] == "llm7"
@@ -591,8 +757,11 @@ def test_ai_free_activates_a_keyless_provider(cliente, perfiles_ia, monkeypatch)
 
 def test_indexes_nothing_without_folders(tmp_path, monkeypatch):
     """Regresion: la app mostraba canciones de ~/Musica sin que nadie lo pidiera."""
-    import importlib, pathlib
-    from danplay import config, library as B
+    import pathlib
+
+    from danplay import config
+    from danplay import library as B
+
     bd_previa, bib_previa = config.DATABASE, config.LIBRARY
     config.DATABASE = pathlib.Path(tmp_path) / "vacia.db"
     config.LIBRARY = pathlib.Path(tmp_path) / "no-usar"
@@ -612,6 +781,7 @@ def test_status_warns_when_no_folders(cliente):
 
 def test_warns_if_folder_is_inside_another(cliente):
     from danplay import config
+
     sub = str(config.ARTISTS_DIR)
     d = cliente.post("/api/check-folder", json={"path": sub}).json()
     assert d["notice"] and d["notice"]["kind"] == "inside"
@@ -619,6 +789,7 @@ def test_warns_if_folder_is_inside_another(cliente):
 
 def test_warns_if_folder_was_already_there(cliente):
     from danplay import config
+
     d = cliente.post("/api/check-folder", json={"path": str(config.LIBRARY)}).json()
     assert d["notice"] and d["notice"]["kind"] == "same"
 
@@ -626,7 +797,9 @@ def test_warns_if_folder_was_already_there(cliente):
 def test_finds_a_copy_of_the_same_music(cliente, tmp_path):
     """El caso real: el original y su respaldo en rutas distintas."""
     import shutil
-    from danplay import config, library as B
+
+    from danplay import config
+
     copy = tmp_path / "respaldo"
     shutil.copytree(config.ARTISTS_DIR, copy)
     d = cliente.post("/api/check-folder", json={"path": str(copy)}).json()
@@ -645,6 +818,7 @@ def test_unrelated_folder_does_not_warn(cliente, tmp_path):
 def test_adding_the_same_folder_twice_does_not_duplicate(cliente):
     """Repetir la misma carpeta debe avisar y dejarlo todo como estaba."""
     from danplay import config
+
     path = str(config.LIBRARY)
     before = len(cliente.get("/api/folders").json()["folders"])
     total_antes = cliente.get("/api/status").json()["stats"]["total"]
@@ -653,12 +827,14 @@ def test_adding_the_same_folder_twice_does_not_duplicate(cliente):
         assert r["action"] == "already_there"
         assert r["notice"]["kind"] == "same"
     assert len(cliente.get("/api/folders").json()["folders"]) == before
-    cliente.post("/api/scan")
+    r = run_job(cliente, "/api/scan", "escaneo")
+    assert r["stats"]["total"] == total_antes
     assert cliente.get("/api/status").json()["stats"]["total"] == total_antes
 
 
 def test_subfolder_of_indexed_is_not_added(cliente):
     from danplay import config
+
     r = cliente.post("/api/folders", json={"path": str(config.ARTISTS_DIR)}).json()
     assert r["action"] == "already_there" and r["notice"]["kind"] == "inside"
     assert all(c["path"] != str(config.ARTISTS_DIR) for c in r["folders"])
@@ -666,7 +842,9 @@ def test_subfolder_of_indexed_is_not_added(cliente):
 
 def test_parent_folder_replaces_inner_one(cliente, tmp_path):
     import shutil
+
     from danplay import config
+
     parent = tmp_path / "coleccion"
     child = parent / "discos"
     child.mkdir(parents=True)
@@ -682,7 +860,9 @@ def test_parent_folder_replaces_inner_one(cliente, tmp_path):
 
 def test_a_copy_asks_for_confirmation_and_can_be_forced(cliente, tmp_path):
     import shutil
+
     from danplay import config
+
     copy = tmp_path / "respaldo2"
     shutil.copytree(config.ARTISTS_DIR, copy)
     r = cliente.post("/api/folders", json={"path": str(copy)}).json()
@@ -696,18 +876,20 @@ def test_a_copy_asks_for_confirmation_and_can_be_forced(cliente, tmp_path):
 def test_exclusions_ignore_case(cliente):
     """Escribir «secuencias» debe excluir la carpeta «Secuencias»."""
     from danplay import config
+
     (config.LIBRARY / "Secuencias").mkdir(exist_ok=True)
     import shutil
+
     source_path = next(config.ARTISTS_DIR.rglob("*.mp3"))
     shutil.copy(source_path, config.LIBRARY / "Secuencias" / "pista.mp3")
-    cliente.post("/api/scan")
+    run_job(cliente, "/api/scan", "escaneo")
     before = cliente.get("/api/status").json()["stats"]["total"]
 
-    cliente.post("/api/exclusions", json={"pattern": "secuencias"})   # en minusculas
-    cliente.post("/api/scan")
+    cliente.post("/api/exclusions", json={"pattern": "secuencias"})  # en minusculas
+    run_job(cliente, "/api/scan", "escaneo")
     after = cliente.get("/api/status").json()["stats"]["total"]
     cliente.delete("/api/exclusions", params={"pattern": "secuencias"})
-    cliente.post("/api/scan")
+    run_job(cliente, "/api/scan", "escaneo")
     assert after < before, "la exclusion en minusculas no surtio efecto"
 
 
@@ -717,12 +899,21 @@ def test_chat_tools_are_declared(cliente):
     # las de siempre
     assert "search_songs" in names and "create_playlist" in names
     # y las nuevas: el chat ya descarga, busca en YouTube y comprueba en la web
-    for n in ("search_youtube", "download_music", "download_status",
-              "search_web", "get_lyrics", "play", "related_keys", "setlist_sheet"):
+    for n in (
+        "search_youtube",
+        "download_music",
+        "download_status",
+        "search_web",
+        "get_lyrics",
+        "play",
+        "related_keys",
+        "setlist_sheet",
+    ):
         assert n in names, f"falta la herramienta {n}"
     # las fusionadas ya no se declaran (cada declaracion cuesta tokens en
     # cada llamada), pero siguen valiendo por su nombre viejo
     from danplay import chat as CH
+
     for viejo in ("set_stars", "set_favorite", "play_song", "play_playlist", "lyrics_by_name"):
         assert viejo not in names and viejo in CH.TOOL_NAMES
     assert all(h["description"] for h in d["tools"]), "todas necesitan descripcion"
@@ -734,13 +925,16 @@ def test_chat_requires_messages(cliente):
 
 def test_chat_search_tool(cliente):
     from danplay import chat as CH
+
     r = CH.run_tool("search_songs", {"query": "artista:barak", "limit": 5})
     assert r["total"] > 0
     assert all("id" in c and "title" in c for c in r["songs"])
 
 
 def test_chat_create_playlist_tool(cliente):
-    from danplay import chat as CH, playlists as L
+    from danplay import chat as CH
+    from danplay import playlists as L
+
     ids = [c["id"] for c in CH.run_tool("search_songs", {"query": "", "limit": 3})["songs"]]
     r = CH.run_tool("create_playlist", {"name": "Prueba del chat", "ids": ids})
     assert r["added"] == len(ids)
@@ -750,18 +944,22 @@ def test_chat_create_playlist_tool(cliente):
 
 def test_chat_transpose_tool(cliente):
     from danplay import chat as CH
+
     r = CH.run_tool("transpose_chords", {"chords": "| Bb | Gm7 |", "from_key": "Bb", "to_key": "G"})
     assert r["chords"] == "| G | Em7 |"
 
 
 def test_unknown_tool_does_not_blow_up(cliente):
     from danplay import chat as CH
+
     assert "error" in CH.run_tool("herramienta_que_no_existe", {"url": "x"})
 
 
 def test_download_without_items_skips_network(cliente):
     """El caso vacio se corta antes de salir a internet."""
-    from danplay import chat as CH, youtube as YT
+    from danplay import chat as CH
+    from danplay import youtube as YT
+
     r = CH.run_tool("download_music", {"items": []})
     assert "error" in r
     assert not YT.STATE["active"], "no deberia haber arrancado ninguna descarga"
@@ -770,6 +968,7 @@ def test_download_without_items_skips_network(cliente):
 def test_system_prompt_only_talks_music(cliente):
     """Lo que no es musica se rechaza; es el limite que pidio el usuario."""
     from danplay import chat as CH
+
     s = CH.SYSTEM_PROMPT.lower()
     assert "solo de musica" in s
     assert "no lo respondas" in s, "debe decirle que NO conteste lo de fuera"
@@ -780,6 +979,7 @@ def test_system_prompt_only_talks_music(cliente):
 def test_system_prompt_never_downloads_alone(cliente):
     """Puede descargar, pero solo si se lo piden: 'que no haga mas de la cuenta'."""
     from danplay import chat as CH
+
     s = CH.SYSTEM_PROMPT.lower()
     assert "solo descargas si te lo piden" in s
     assert "nunca" in s and "iniciativa propia" in s
@@ -791,16 +991,25 @@ def test_system_prompt_never_downloads_alone(cliente):
 # lo puede hacer el nucleo (el audio es de Rust y la cola vive en la interfaz),
 # asi que esas herramientas devuelven una `action` que ejecuta la app.
 
+
 def test_las_herramientas_de_control_estan_declaradas(cliente):
     d = cliente.get("/api/chat/tools").json()
     names = [h["nombre" if "nombre" in h else "name"] for h in d["tools"]]
-    for n in ("play", "player_control", "edit_song", "find_lyrics_and_cover",
-              "delete_song", "remove_from_playlist", "delete_playlist"):
+    for n in (
+        "play",
+        "player_control",
+        "edit_song",
+        "find_lyrics_and_cover",
+        "delete_song",
+        "remove_from_playlist",
+        "delete_playlist",
+    ):
         assert n in names, f"al asistente le falta {n}"
 
 
 def test_reproducir_devuelve_una_orden_para_la_app(cliente):
     from danplay import chat, library
+
     cid = library.search("", limit=1)[0]["id"]
     r = chat.run_tool("play_song", {"id": cid})
     assert r["ok"] and r["action"] == {"kind": "play_song", "song_id": cid}
@@ -812,18 +1021,23 @@ def test_reproducir_devuelve_una_orden_para_la_app(cliente):
 
 def test_reproducir_algo_que_no_existe_no_revienta(cliente):
     from danplay import chat
+
     assert "error" in chat.run_tool("play_song", {"id": 999999})
 
 
 def test_control_del_reproductor_valida_la_orden(cliente):
     from danplay import chat
-    assert chat.run_tool("player_control", {"command": "next"})["action"] == \
-        {"kind": "player", "command": "next"}
+
+    assert chat.run_tool("player_control", {"command": "next"})["action"] == {
+        "kind": "player",
+        "command": "next",
+    }
     assert "error" in chat.run_tool("player_control", {"command": "bailar"})
 
 
 def test_el_asistente_puntua_y_marca_favorito(cliente):
     from danplay import chat, library
+
     cid = library.search("", limit=1)[0]["id"]
     chat.run_tool("set_stars", {"id": cid, "stars": 4})
     chat.run_tool("set_favorite", {"id": cid, "favorite": True})
@@ -837,11 +1051,14 @@ def test_el_asistente_puntua_y_marca_favorito(cliente):
     assert r["ok"] and set(r["changed"]) == {"stars", "favorite", "genre"}
     c = library.by_id(cid)
     assert c["stars"] == 2 and not c["favorite"] and c["genre"] == "Pop"
-    assert chat._summarize("edit_song", r).startswith("2 estrellas; ya no es favorita; cambiado: genre")
+    assert chat._summarize("edit_song", r).startswith(
+        "2 estrellas; ya no es favorita; cambiado: genre"
+    )
 
 
 def test_el_asistente_corrige_datos(cliente):
     from danplay import chat, library
+
     cid = library.search("", limit=1)[0]["id"]
     r = chat.run_tool("edit_song", {"id": cid, "genre": "Adoracion"})
     assert r["ok"] and "genre" in r["changed"]
@@ -853,7 +1070,9 @@ def test_el_asistente_corrige_datos(cliente):
 def test_lo_descargado_entra_en_el_indice_sin_reescanear(cliente):
     """El archivo llegaba a Artistas/ pero no al indice: no salia en la app."""
     import shutil
+
     from danplay import config, library
+
     origen = library.search("", limit=1)[0]["path"]
     destino = config.ARTISTS_DIR / "Barak" / "Barak - Copia De Prueba.mp3"
     shutil.copy(origen, destino)
@@ -861,11 +1080,13 @@ def test_lo_descargado_entra_en_el_indice_sin_reescanear(cliente):
     nueva = library.index_file(str(destino))
     assert nueva and nueva["id"]
     assert library.stats_of()["total"] == antes + 1
-    library.forget(nueva["id"]); destino.unlink()
+    library.forget(nueva["id"])
+    destino.unlink()
 
 
 def test_indexar_algo_fuera_de_las_carpetas_no_hace_nada(cliente):
     from danplay import library
+
     assert library.index_file("/tmp/no-existe-esto.mp3") is None
 
 
@@ -874,8 +1095,10 @@ def test_indexar_algo_fuera_de_las_carpetas_no_hace_nada(cliente):
 # metadata de una cancion, asi que vive en la base y no en el mp3; el escaneo
 # no la toca.
 
+
 def test_el_historial_empieza_vacio_y_acepta_entradas(cliente):
     from danplay import library
+
     library.clear_download_history()
     assert library.download_count() == 0
     library.log_download({"source": "manual", "query": "x", "title": "Una", "ok": True})
@@ -884,6 +1107,7 @@ def test_el_historial_empieza_vacio_y_acepta_entradas(cliente):
 
 def test_distingue_quien_pidio_la_descarga(cliente):
     from danplay import library
+
     library.clear_download_history()
     library.log_download({"source": "manual", "title": "A", "ok": True})
     library.log_download({"source": "assistant", "title": "B", "ok": True})
@@ -893,6 +1117,7 @@ def test_distingue_quien_pidio_la_descarga(cliente):
 
 def test_guarda_los_tres_estados(cliente):
     from danplay import library
+
     library.clear_download_history()
     library.log_download({"title": "ok", "ok": True})
     library.log_download({"title": "repe", "ok": False, "already": True})
@@ -905,6 +1130,7 @@ def test_guarda_los_tres_estados(cliente):
 
 def test_el_historial_sale_de_lo_mas_nuevo_a_lo_mas_viejo(cliente):
     from danplay import library
+
     library.clear_download_history()
     for i, t in enumerate(("vieja", "media", "nueva")):
         library.log_download({"title": t, "ok": True, "at": 1000 + i})
@@ -914,6 +1140,7 @@ def test_el_historial_sale_de_lo_mas_nuevo_a_lo_mas_viejo(cliente):
 def test_el_escaneo_no_borra_el_historial(cliente):
     """El indice se reconstruye desde los archivos; el historial no es del mp3."""
     from danplay import library
+
     library.clear_download_history()
     library.log_download({"title": "sobrevive", "ok": True})
     library.scan()
@@ -922,6 +1149,7 @@ def test_el_escaneo_no_borra_el_historial(cliente):
 
 def test_el_endpoint_devuelve_el_historial(cliente):
     from danplay import library
+
     library.clear_download_history()
     library.log_download({"source": "assistant", "title": "Del chat", "ok": True})
     d = cliente.get("/api/downloads/history").json()
@@ -933,6 +1161,7 @@ def test_el_endpoint_devuelve_el_historial(cliente):
 # ---------------------------------------------------------------------------
 # Lo que se toco al afinar el rendimiento. Cubre el comportamiento, no la
 # implementacion: da igual como se ponga al dia el indice mientras acabe bien.
+
 
 def test_favorites_filter_is_not_cut_off_by_the_limit(cliente):
     """«Favoritos» debe enseñar los favoritos de TODA la biblioteca.
@@ -946,14 +1175,12 @@ def test_favorites_filter_is_not_cut_off_by_the_limit(cliente):
     ultima = todas[-1]
     cliente.post(f"/api/song/{ultima['id']}/favorite", json={"favorite": True})
     try:
-        cuantos = cliente.get("/api/search",
-                              params={"only_favorites": True, "limit": 500}).json()
+        cuantos = cliente.get("/api/search", params={"only_favorites": True, "limit": 500}).json()
         assert ultima["id"] in [c["id"] for c in cuantos["songs"]]
         # pedir exactamente los que hay tiene que devolverlos todos: el limite
         # se aplica a los favoritos, no a la lista entera antes de filtrar
         n = cuantos["total"]
-        ajustado = cliente.get("/api/search",
-                               params={"only_favorites": True, "limit": n}).json()
+        ajustado = cliente.get("/api/search", params={"only_favorites": True, "limit": n}).json()
         assert ajustado["total"] == n
     finally:
         cliente.post(f"/api/song/{ultima['id']}/favorite", json={"favorite": False})
@@ -964,12 +1191,10 @@ def test_min_stars_filter_is_not_cut_off_by_the_limit(cliente):
     ultima = todas[-1]
     cliente.post(f"/api/song/{ultima['id']}/stars", json={"stars": 5})
     try:
-        todos = cliente.get("/api/search",
-                            params={"min_stars": 4, "limit": 500}).json()
+        todos = cliente.get("/api/search", params={"min_stars": 4, "limit": 500}).json()
         assert ultima["id"] in [c["id"] for c in todos["songs"]]
         n = todos["total"]
-        ajustado = cliente.get("/api/search",
-                               params={"min_stars": 4, "limit": n}).json()
+        ajustado = cliente.get("/api/search", params={"min_stars": 4, "limit": n}).json()
         assert ajustado["total"] == n
     finally:
         cliente.post(f"/api/song/{ultima['id']}/stars", json={"stars": 0})
@@ -988,31 +1213,31 @@ def test_resolving_a_duplicate_updates_the_index(cliente):
     Antes esto se resolvia relanzando un escaneo completo; ahora se actualiza
     solo lo que cambio, y el resultado tiene que ser el mismo.
     """
-    from danplay import config
     original = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
     copia = pathlib.Path(original["path"]).with_name("copia duplicada - r.mp3")
     shutil.copy(original["path"], copia)
-    indexada = cliente.get("/api/search", params={"limit": 500}).json()
     from danplay import library as B
+
     B.index_file(str(copia))
 
-    antes = {c["path"] for c in
-             cliente.get("/api/search", params={"limit": 500}).json()["songs"]}
+    antes = {c["path"] for c in cliente.get("/api/search", params={"limit": 500}).json()["songs"]}
     assert str(copia) in antes
 
     # `dry_run` es True por defecto: borrar hay que pedirlo expresamente
-    prueba = cliente.post("/api/duplicates/resolve",
-                          json={"keep": str(copia), "remove": [original["path"]]}).json()
-    assert prueba["dry_run"] and os.path.exists(original["path"]), \
+    prueba = cliente.post(
+        "/api/duplicates/resolve", json={"keep": str(copia), "remove": [original["path"]]}
+    ).json()
+    assert prueba["dry_run"] and os.path.exists(original["path"]), (
         "sin pedirlo, no deberia borrar nada"
+    )
 
-    r = cliente.post("/api/duplicates/resolve",
-                     json={"keep": str(copia), "remove": [original["path"]],
-                           "dry_run": False}).json()
+    r = cliente.post(
+        "/api/duplicates/resolve",
+        json={"keep": str(copia), "remove": [original["path"]], "dry_run": False},
+    ).json()
     assert r["ok"], r
 
-    despues = {c["path"] for c in
-               cliente.get("/api/search", params={"limit": 500}).json()["songs"]}
+    despues = {c["path"] for c in cliente.get("/api/search", params={"limit": 500}).json()["songs"]}
     assert original["path"] not in despues, "la copia borrada sigue en el indice"
     assert r["kept"] in despues, "la que se conserva no quedo indexada"
     assert not os.path.exists(original["path"])
@@ -1026,7 +1251,9 @@ def test_untagged_files_still_report_duration(cliente):
     y se saltaba la duracion y el bitrate: salian a 0 en la lista.
     """
     from mutagen.id3 import ID3
+
     from danplay import tags as T
+
     original = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
     desnudo = pathlib.Path(original["path"]).with_name("sin etiquetas.mp3")
     shutil.copy(original["path"], desnudo)
@@ -1049,9 +1276,11 @@ def test_untagged_files_still_report_duration(cliente):
 # dejaron de funcionar en silencio —un 422 que nadie miraba— hasta que alguien
 # intentaba quitar una carpeta. Esto los compara solos.
 
+
 def _api_js() -> str:
-    return (pathlib.Path(__file__).resolve().parent.parent
-            / "desktop/src/api.js").read_text(encoding="utf-8")
+    return (pathlib.Path(__file__).resolve().parent.parent / "desktop/src/api.js").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_the_interface_uses_the_query_parameters_the_api_expects():
@@ -1063,12 +1292,17 @@ def test_the_interface_uses_the_query_parameters_the_api_expects():
     con URLSearchParams, asi que su nombre no esta escrito en el JS.
     """
     import inspect
+
     from fastapi import params as fastapi_params
     from pydantic_core import PydanticUndefined
+
     from danplay import api as A
+
     js = _api_js()
     faltan = []
-    for route in A.app.routes:
+    routes = list(A.all_routes())
+    assert len(routes) > 80, "se miran las rutas de verdad, no los routers"
+    for route in routes:
         fn = getattr(route, "endpoint", None)
         if fn is None:
             continue
@@ -1078,8 +1312,9 @@ def test_the_interface_uses_the_query_parameters_the_api_expects():
             obligatorio = p.default.default in (PydanticUndefined, Ellipsis)
             if obligatorio and f"{name}=" not in js:
                 faltan.append(f"{sorted(route.methods)} {route.path} -> «{name}»")
-    assert not faltan, ("la interfaz no manda estos parametros de consulta:\n  "
-                        + "\n  ".join(faltan))
+    assert not faltan, "la interfaz no manda estos parametros de consulta:\n  " + "\n  ".join(
+        faltan
+    )
 
 
 def test_the_interface_sends_the_body_fields_the_api_reads(cliente):
@@ -1111,10 +1346,10 @@ def test_rescanning_reuses_files_that_have_not_changed(cliente):
     el atajo es solo para no releer, no para guardar cosas distintas.
     """
     from danplay import library as B
+
     def foto():
         conn = B.connect()
-        d = {r["path"]: tuple(r[k] for k in B.COLUMNS)
-             for r in conn.execute("SELECT * FROM songs")}
+        d = {r["path"]: tuple(r[k] for k in B.COLUMNS) for r in conn.execute("SELECT * FROM songs")}
         conn.close()
         return d
 
@@ -1130,8 +1365,7 @@ def test_rescanning_reuses_files_that_have_not_changed(cliente):
     # siempre (pueden resolverse ahora que hay mas carpetas de artista), asi
     # que tocar uno de esos no cambiaria la cuenta.
     artista_en = B.COLUMNS.index("artist")
-    alguna = next(p for p, fila in antes.items()
-                  if fila[artista_en] and os.path.exists(p))
+    alguna = next(p for p, fila in antes.items() if fila[artista_en] and os.path.exists(p))
     os.utime(alguna, None)
     r2 = B.scan()
     assert r2["total"] == r["total"]
@@ -1144,7 +1378,9 @@ def test_a_lost_database_is_rebuilt_from_the_files(cliente):
     Es la promesa de la app: las estrellas, el favorito y la letra viven
     dentro del mp3, asi que perder el indice no pierde nada.
     """
-    from danplay import config, library as B
+    from danplay import config
+    from danplay import library as B
+
     songs = cliente.get("/api/search", params={"limit": 500}).json()["songs"]
     elegida = songs[0]
     cliente.post(f"/api/song/{elegida['id']}/stars", json={"stars": 4})
@@ -1156,8 +1392,9 @@ def test_a_lost_database_is_rebuilt_from_the_files(cliente):
     r = B.scan()
     assert r["reused"] == 0, "sin base no hay nada que reaprovechar"
 
-    rehecha = {c["path"]: c for c in
-               cliente.get("/api/search", params={"limit": 500}).json()["songs"]}
+    rehecha = {
+        c["path"]: c for c in cliente.get("/api/search", params={"limit": 500}).json()["songs"]
+    }
     assert len(rehecha) == r["total"]
     vuelta = rehecha[elegida["path"]]
     assert vuelta["stars"] == 4, "las estrellas no volvieron del archivo"
@@ -1173,6 +1410,7 @@ def test_the_cover_cache_notices_when_the_file_changes(cliente):
     portada invalida la entrada sola.
     """
     from danplay import tags as T
+
     original = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
     copia = pathlib.Path(original["path"]).with_name("con caratula.mp3")
     shutil.copy(original["path"], copia)
@@ -1181,7 +1419,7 @@ def test_the_cover_cache_notices_when_the_file_changes(cliente):
         otro = b"\xff\xd8\xff\xe0" + b"2" * 900
         assert T.write_cover(str(copia), uno, "image/jpeg")
         assert T.cached_cover(str(copia))[0] == uno
-        assert T.cached_cover(str(copia))[0] == uno        # ahora desde la cache
+        assert T.cached_cover(str(copia))[0] == uno  # ahora desde la cache
         assert T.write_cover(str(copia), otro, "image/jpeg")
         assert T.cached_cover(str(copia))[0] == otro, "devolvio la caratula vieja"
     finally:
@@ -1191,11 +1429,12 @@ def test_the_cover_cache_notices_when_the_file_changes(cliente):
 def test_the_cover_cache_stays_within_its_memory_budget(cliente):
     """No puede crecer sin freno: en un equipo justo eso se nota."""
     from danplay import tags as T
+
     original = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
     copias = []
     try:
         grande = b"\xff\xd8\xff\xe0" + b"x" * (700 * 1024)
-        for i in range(24):                       # 24 x 700 KB = ~16 MB > tope
+        for i in range(24):  # 24 x 700 KB = ~16 MB > tope
             c = pathlib.Path(original["path"]).with_name(f"pesada {i}.mp3")
             shutil.copy(original["path"], c)
             copias.append(c)
@@ -1211,6 +1450,7 @@ def test_the_cover_cache_stays_within_its_memory_budget(cliente):
 # Portadas difuminadas: para las que uno no quiere tener delante. La imagen no
 # se toca; solo se marca como «pintala borrosa».
 
+
 def test_blurring_a_cover_does_not_touch_the_image(cliente):
     """Difuminar es solo como se pinta: el archivo no cambia.
 
@@ -1218,6 +1458,7 @@ def test_blurring_a_cover_does_not_touch_the_image(cliente):
     tenga, para que la prueba no dependa de con que musica se ejecute.
     """
     from danplay import tags as T
+
     elegida = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
     imagen = b"\xff\xd8\xff\xe0" + b"portada de prueba" * 20
     assert T.write_cover(elegida["path"], imagen, "image/jpeg")
@@ -1238,7 +1479,9 @@ def test_blurring_a_cover_does_not_touch_the_image(cliente):
 
 def test_blur_survives_a_lost_database(cliente):
     """Como las estrellas: la marca vive dentro del mp3, no en el indice."""
-    from danplay import config, library as B
+    from danplay import config
+    from danplay import library as B
+
     elegida = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
     cliente.post(f"/api/song/{elegida['id']}/blur", json={"blur": True})
 
@@ -1247,8 +1490,11 @@ def test_blur_survives_a_lost_database(cliente):
     B.add_folder(str(config.LIBRARY), "prueba")
     B.scan()
 
-    vuelta = next(x for x in cliente.get("/api/search", params={"limit": 500}).json()["songs"]
-                  if x["path"] == elegida["path"])
+    vuelta = next(
+        x
+        for x in cliente.get("/api/search", params={"limit": 500}).json()["songs"]
+        if x["path"] == elegida["path"]
+    )
     assert vuelta["blur"] == 1, "el difuminado no volvio del archivo"
     cliente.post(f"/api/song/{vuelta['id']}/blur", json={"blur": False})
 
@@ -1260,15 +1506,22 @@ def test_blurring_an_unknown_song_is_a_404(cliente):
 def test_the_blur_column_is_added_to_an_older_database(tmp_path):
     """Quien ya tenia su base no deberia notar nada: la columna se añade sola."""
     import sqlite3
-    from danplay import config, library as B
+
+    from danplay import config
+    from danplay import library as B
+
     vieja = tmp_path / "vieja.db"
     conn = sqlite3.connect(vieja)
     # una tabla `songs` como la de antes, sin la columna nueva
     sin_blur = [c for c in B.COLUMNS if c != "blur"]
-    conn.execute(f"CREATE TABLE songs (id INTEGER PRIMARY KEY, "
-                 + ",".join(f"{c} TEXT" for c in sin_blur) + ")")
-    conn.execute(f"INSERT INTO songs (path) VALUES ('/x/uno.mp3')")
-    conn.commit(); conn.close()
+    conn.execute(
+        "CREATE TABLE songs (id INTEGER PRIMARY KEY, "
+        + ",".join(f"{c} TEXT" for c in sin_blur)
+        + ")"
+    )
+    conn.execute("INSERT INTO songs (path) VALUES ('/x/uno.mp3')")
+    conn.commit()
+    conn.close()
 
     antes = config.DATABASE
     try:
@@ -1296,6 +1549,7 @@ def test_the_duplicate_report_uses_the_keys_the_interface_reads():
     """
     import inspect
     import re
+
     from danplay import api as A
 
     fuente = inspect.getsource(A.duplicates_report)
@@ -1303,8 +1557,9 @@ def test_the_duplicate_report_uses_the_keys_the_interface_reads():
     for k in ("items", "suggested", "relative", "has_suffix"):
         assert k in claves_grupo, f"el informe ya no devuelve «{k}»"
 
-    vue = (pathlib.Path(__file__).resolve().parent.parent
-           / "desktop/src/components/DuplicateGroup.vue").read_text(encoding="utf-8")
+    vue = (
+        pathlib.Path(__file__).resolve().parent.parent / "desktop/src/components/DuplicateGroup.vue"
+    ).read_text(encoding="utf-8")
     for k in ("suggested", "relative", "has_suffix"):
         assert k in vue, f"la interfaz ya no lee «{k}»"
     # y que no queden nombres del esquema anterior en ninguno de los dos lados
@@ -1318,13 +1573,16 @@ def test_the_duplicate_report_uses_the_keys_the_interface_reads():
 # habla por loopback y ahi el token es lo unico que separa a DanPlay de
 # cualquier otro programa del equipo.
 
+
 def test_with_a_token_nothing_passes_without_it(cliente):
     from danplay import api as A
+
     A._TOKEN = "secreto-de-prueba"
     try:
         assert cliente.get("/api/status").status_code == 401
-        assert cliente.get("/api/status", headers={"Authorization": "Bearer otro"}
-                           ).status_code == 401
+        assert (
+            cliente.get("/api/status", headers={"Authorization": "Bearer otro"}).status_code == 401
+        )
         ok = cliente.get("/api/status", headers={"Authorization": "Bearer secreto-de-prueba"})
         assert ok.status_code == 200
     finally:
@@ -1338,20 +1596,71 @@ def test_in_browser_mode_a_plain_post_is_refused(cliente):
     a /api/scan desde cualquier pestaña abierta arrancaba un escaneo.
     """
     from danplay import api as A
+    from danplay.api import jobs as jobs_mod
+
     A._ENFORCE_HOST = True
-    local = {"Host": "localhost"}       # el TestClient manda «testserver»
+    local = {"Host": "localhost"}  # el TestClient manda «testserver»
+    mine = {**local, "X-DanPlay": "1"}
     try:
         assert cliente.post("/api/scan", headers=local).status_code == 403
-        r = cliente.post("/api/scan", headers={**local, "X-DanPlay": "1"})
-        assert r.status_code in (200, 409)
-        # leer nunca hace nada, asi que no se pide
-        assert cliente.get("/api/status", headers=local).status_code == 200
+        r = cliente.post("/api/scan", headers=mine)
+        assert r.status_code == 202
+        jobs_mod.wait("escaneo")
+        # tambien los GET: hay lecturas con efectos (la ficha de IA gasta)
+        assert cliente.get("/api/status", headers=local).status_code == 403
+        assert cliente.get("/api/status", headers=mine).status_code == 200
+        # salvo lo que el navegador pide solo con <audio> e <img>
+        cid = cliente.get("/api/search", params={"limit": 1}, headers=mine).json()["songs"][0]["id"]
+        assert cliente.get(f"/api/song/{cid}/audio", headers=local).status_code == 200
+        assert cliente.get(f"/api/song/{cid}/cover", headers=local).status_code in (200, 404)
+        assert cliente.get(f"/api/song/{cid}/waveform", headers=local).status_code == 403
+        # y el preflight, que no puede llevar cabeceras propias
+        pre = cliente.options(
+            "/api/status",
+            headers={
+                **local,
+                "Origin": "http://localhost:5273",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "x-danplay",
+            },
+        )
+        assert pre.status_code == 200
     finally:
         A._ENFORCE_HOST = False
 
 
+def test_the_token_compare_does_not_break_with_odd_bytes(cliente):
+    """Una cabecera con bytes no ASCII hacia saltar un TypeError (500) en la
+    comparacion del token."""
+    from danplay import api as A
+
+    A._TOKEN = "secreto-de-prueba"
+    try:
+        r = cliente.get("/api/status", headers={"Authorization": "Bearer señor".encode("latin-1")})
+        assert r.status_code == 401
+    finally:
+        A._TOKEN = ""
+
+
+def test_the_api_does_not_publish_its_schema(cliente):
+    """/docs y /openapi.json quedaban fuera del token."""
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert cliente.get(path).status_code == 404
+
+
+def test_serving_outside_this_machine_needs_a_token(monkeypatch):
+    from danplay import api as A
+
+    monkeypatch.delenv("DANPLAY_TOKEN", raising=False)
+    with pytest.raises(SystemExit):
+        A.serve(host="0.0.0.0", port=1)  # noqa: S104  (se rechaza)
+    assert A._loopback("127.0.0.1") and A._loopback("::1") and A._loopback("localhost")
+    assert not A._loopback("192.168.1.10") and not A._loopback("example.com")
+
+
 def test_an_unknown_host_is_refused(cliente):
     from danplay import api as A
+
     A._ENFORCE_HOST = True
     try:
         r = cliente.get("/api/status", headers={"Host": "malo.example"})
@@ -1379,8 +1688,9 @@ def test_resolving_refuses_paths_outside_the_library(cliente, tmp_path):
     fuera = tmp_path / "fuera.mp3"
     fuera.write_bytes(b"x" * 100)
     dentro = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["path"]
-    r = cliente.post("/api/duplicates/resolve",
-                     json={"keep": dentro, "remove": [str(fuera)], "dry_run": False})
+    r = cliente.post(
+        "/api/duplicates/resolve", json={"keep": dentro, "remove": [str(fuera)], "dry_run": False}
+    )
     assert r.status_code == 400
     assert fuera.exists(), "no deberia haber borrado nada de fuera"
 
@@ -1394,8 +1704,7 @@ def test_a_cover_has_to_be_an_image(cliente, tmp_path):
     assert cliente.post(f"/api/song/{cid}/cover", json={"path": str(secreto)}).status_code == 400
     disfrazado = tmp_path / "disfrazado.jpg"
     disfrazado.write_text("tampoco soy una imagen")
-    assert cliente.post(f"/api/song/{cid}/cover",
-                        json={"path": str(disfrazado)}).status_code == 400
+    assert cliente.post(f"/api/song/{cid}/cover", json={"path": str(disfrazado)}).status_code == 400
 
 
 def test_the_audio_says_its_real_format(cliente):
@@ -1403,6 +1712,7 @@ def test_the_audio_says_its_real_format(cliente):
     r = cliente.get(f"/api/song/{d['id']}/path").json()
     assert r["kind"] == "audio/mpeg"
     from danplay.api import audio_type
+
     assert audio_type("x.flac") == "audio/flac"
     assert audio_type("x.opus") == "audio/opus"
     assert audio_type("x.m4a") == "audio/mp4"
@@ -1416,6 +1726,7 @@ def test_the_assistant_does_not_delete_on_its_own():
     bien puesta en una pagina.
     """
     from danplay import chat
+
     llamadas = []
 
     class _Call:
@@ -1424,17 +1735,21 @@ def test_the_assistant_does_not_delete_on_its_own():
             self.function = type("f", (), {"name": name, "arguments": args})()
 
     class _FakeClient:
-        class chat:                                          # noqa: N801
+        class chat:
             class completions:
                 @staticmethod
                 def create(**kw):
                     llamadas.append(kw)
                     if len(llamadas) == 1:
-                        msg = type("m", (), {"content": "", "tool_calls":
-                                             [_Call("delete_song", '{"id": 1}')]})()
+                        msg = type(
+                            "m",
+                            (),
+                            {"content": "", "tool_calls": [_Call("delete_song", '{"id": 1}')]},
+                        )()
                     else:
-                        msg = type("m", (), {"content": "Te lo pregunto antes.",
-                                             "tool_calls": None})()
+                        msg = type(
+                            "m", (), {"content": "Te lo pregunto antes.", "tool_calls": None}
+                        )()
                     return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
 
     original_get, original_available = chat.ai._get_client, chat.ai.available
@@ -1457,6 +1772,7 @@ def test_the_assistant_does_not_delete_on_its_own():
 
 def test_confirming_is_only_for_the_three_that_need_it():
     from danplay import chat
+
     assert chat.confirm("search_songs", {})["ok"] is False
 
 
@@ -1479,14 +1795,22 @@ def test_the_confirm_endpoint_refuses_anything_else(cliente):
 @pytest.fixture
 def descarga_simulada(monkeypatch):
     import time
+
     from danplay import youtube
+
     llamadas = []
 
     def falsa(query, **kw):
         llamadas.append({"query": query, **kw})
         time.sleep(0.02)
-        return [{"ok": True, "title": query, "url": "https://youtu.be/x",
-                 "forced": bool(kw.get("force"))}]
+        return [
+            {
+                "ok": True,
+                "title": query,
+                "url": "https://youtu.be/x",
+                "forced": bool(kw.get("force")),
+            }
+        ]
 
     monkeypatch.setattr(youtube, "download", falsa)
     monkeypatch.setattr(youtube, "available", lambda: True)
@@ -1498,7 +1822,9 @@ def descarga_simulada(monkeypatch):
 
 def _esperar_a_que_termine(timeout=3.0):
     import time
+
     from danplay import youtube
+
     limite = time.time() + timeout
     while youtube.STATE["active"] and time.time() < limite:
         time.sleep(0.02)
@@ -1507,6 +1833,7 @@ def _esperar_a_que_termine(timeout=3.0):
 
 def test_el_boton_de_descargas_llega_a_descargar_y_suelta_el_turno(cliente, descarga_simulada):
     from danplay import youtube
+
     r = cliente.post("/api/youtube/download", json={"query": "barak mi gozo", "results": 3})
     assert r.status_code == 200, r.text
     _esperar_a_que_termine()
@@ -1523,37 +1850,47 @@ def test_el_boton_de_descargas_llega_a_descargar_y_suelta_el_turno(cliente, desc
 
 def test_dos_descargas_a_la_vez_no_caben(cliente, descarga_simulada):
     from danplay import youtube
+
     assert youtube.claim(), "el turno deberia estar libre"
     try:
         r = cliente.post("/api/youtube/download", json={"query": "x"})
         assert r.status_code == 409
-        r = cliente.post("/api/chat/confirm",
-                         json={"tool": "download_music", "args": {"items": ["x"]}})
+        r = cliente.post(
+            "/api/chat/confirm", json={"tool": "download_music", "args": {"items": ["x"]}}
+        )
         assert r.status_code == 409
     finally:
         youtube.release()
     assert not descarga_simulada, "no deberia haber descargado nada"
 
 
-def test_confirmar_una_descarga_del_asistente_arranca_con_sus_argumentos(cliente, descarga_simulada):
+def test_confirmar_una_descarga_del_asistente_arranca_con_sus_argumentos(
+    cliente, descarga_simulada
+):
     """Los argumentos son los de la herramienta: `items` y `force`, no `query`.
 
     Con `query` la confirmacion acababa SIEMPRE en «400: hace falta algo que
     descargar», aunque la persona acabara de aceptar.
     """
     from danplay import youtube
-    r = cliente.post("/api/chat/confirm", json={
-        "tool": "download_music",
-        "args": {"items": ["I Want Jesus Bethel", "Ruja o Leao Carol Braga"],
-                 "force": True}})
+
+    r = cliente.post(
+        "/api/chat/confirm",
+        json={
+            "tool": "download_music",
+            "args": {"items": ["I Want Jesus Bethel", "Ruja o Leao Carol Braga"], "force": True},
+        },
+    )
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["ok"] and d["result"]["active"]
     assert d["result"]["items"] == ["I Want Jesus Bethel", "Ruja o Leao Carol Braga"]
     assert d["result"]["force"] is True
     _esperar_a_que_termine()
-    assert [c["query"] for c in descarga_simulada] == ["I Want Jesus Bethel",
-                                                       "Ruja o Leao Carol Braga"]
+    assert [c["query"] for c in descarga_simulada] == [
+        "I Want Jesus Bethel",
+        "Ruja o Leao Carol Braga",
+    ]
     for c in descarga_simulada:
         assert c["force"] is True, "el «bajala igual» tiene que llegar a la descarga"
         assert c["results"] == 1, "del chat se coge el primer resultado, no cinco"
@@ -1564,8 +1901,7 @@ def test_confirmar_una_descarga_del_asistente_arranca_con_sus_argumentos(cliente
 
 
 def test_confirmar_sin_nada_que_bajar_es_un_400_claro(cliente, descarga_simulada):
-    r = cliente.post("/api/chat/confirm",
-                     json={"tool": "download_music", "args": {"items": []}})
+    r = cliente.post("/api/chat/confirm", json={"tool": "download_music", "args": {"items": []}})
     assert r.status_code == 400
     assert "descargar" in r.json()["detail"]
     assert not descarga_simulada
@@ -1573,8 +1909,9 @@ def test_confirmar_sin_nada_que_bajar_es_un_400_claro(cliente, descarga_simulada
 
 def test_confirmar_acepta_tambien_query_suelto(cliente, descarga_simulada):
     """Por si el modelo manda `query` en vez de `items`: se baja igual."""
-    r = cliente.post("/api/chat/confirm",
-                     json={"tool": "download_music", "args": {"query": "algo"}})
+    r = cliente.post(
+        "/api/chat/confirm", json={"tool": "download_music", "args": {"query": "algo"}}
+    )
     assert r.status_code == 200, r.text
     _esperar_a_que_termine()
     assert [c["query"] for c in descarga_simulada] == ["algo"]
@@ -1582,8 +1919,10 @@ def test_confirmar_acepta_tambien_query_suelto(cliente, descarga_simulada):
 
 def test_el_plan_de_descarga_sanea_los_argumentos():
     from danplay import chat, config
-    plan = chat.download_plan({"items": [" a ", "A", "", "b"], "quality": "rara",
-                               "file_it": False, "force": "si"})
+
+    plan = chat.download_plan(
+        {"items": [" a ", "A", "", "b"], "quality": "rara", "file_it": False, "force": "si"}
+    )
     assert plan["items"] == ["a", "b"], "sin vacios ni repetidos"
     assert plan["quality"] == config.MP3_QUALITY, "una calidad desconocida cae a la de la app"
     assert plan["file_it"] is False and plan["force"] is True
@@ -1595,6 +1934,7 @@ def test_el_plan_de_descarga_sanea_los_argumentos():
 
 def test_el_dialogo_de_confirmacion_dice_que_se_va_a_bajar():
     from danplay import chat
+
     texto = chat._describe("download_music", {"items": ["Mi Gozo", "Shekinah"]})
     assert "«Mi Gozo»" in texto and "«Shekinah»" in texto
     assert "otra version" not in texto
@@ -1611,11 +1951,13 @@ def test_el_dialogo_de_confirmacion_dice_que_se_va_a_bajar():
 
 def _ids(cliente, n=3):
     from danplay import library
+
     return [c["id"] for c in library.search("", limit=n)]
 
 
 def _limpiar_listas(*nombres):
     from danplay import playlists
+
     for l in playlists.list_all():
         if l["name"] in nombres:
             playlists.remove(l["id"])
@@ -1623,13 +1965,15 @@ def _limpiar_listas(*nombres):
 
 def test_un_id_inventado_no_entra_en_ninguna_lista(cliente):
     from danplay import chat, playlists
+
     _limpiar_listas("Inventada")
     ids = _ids(cliente, 2)
-    r = chat.run_tool("create_playlist", {"name": "Inventada", "ids": ids + [999999]})
+    r = chat.run_tool("create_playlist", {"name": "Inventada", "ids": [*ids, 999999]})
     assert "error" in r and "999999" in r["error"]
     assert "search_songs" in r["error"], "tiene que decirle de donde salen los ids"
-    assert not any(l["name"] == "Inventada" for l in playlists.list_all()), \
+    assert not any(l["name"] == "Inventada" for l in playlists.list_all()), (
         "con un id falso no se crea nada: los demas tampoco son de fiar"
+    )
     # y la base tampoco admite huerfanos aunque se cuele por otro camino
     made = playlists.create("Inventada")
     assert playlists.add(made["id"], [999999, 888888]) == 0
@@ -1639,6 +1983,7 @@ def test_un_id_inventado_no_entra_en_ninguna_lista(cliente):
 
 def test_crear_una_lista_devuelve_lo_que_entro_de_verdad(cliente):
     from danplay import chat
+
     _limpiar_listas("Con nombres")
     ids = _ids(cliente, 2)
     r = chat.run_tool("create_playlist", {"name": "Con nombres", "ids": ids})
@@ -1653,6 +1998,7 @@ def test_crear_una_lista_devuelve_lo_que_entro_de_verdad(cliente):
 
 def test_los_repertorios_se_nombran_por_su_nombre(cliente):
     from danplay import chat, playlists
+
     _limpiar_listas("Herlin", "domingo")
     a = playlists.create("domingo")["id"]
     b = playlists.create("Herlin")["id"]
@@ -1662,7 +2008,9 @@ def test_los_repertorios_se_nombran_por_su_nombre(cliente):
     r = chat.run_tool("playlist_songs", {"name": "herlín"})
     assert r["playlist_id"] == b and r["songs"] == []
     # borrar por nombre borra ESA, no la del id que el modelo se imagine
-    assert chat._describe("delete_playlist", {"name": "Herlin"}).startswith("Borrar el repertorio «Herlin»")
+    assert chat._describe("delete_playlist", {"name": "Herlin"}).startswith(
+        "Borrar el repertorio «Herlin»"
+    )
     r = chat.run_tool("delete_playlist", {"name": "Herlin", "id": a})
     assert r["ok"] and r["name"] == "Herlin"
     assert playlists.by_id(a)["name"] == "domingo", "«domingo» sigue ahi"
@@ -1674,10 +2022,11 @@ def test_los_repertorios_se_nombran_por_su_nombre(cliente):
 
 def test_corregir_una_lista_la_deja_exactamente_como_se_pide(cliente):
     from danplay import chat, playlists
+
     _limpiar_listas("Arreglame")
     ids = _ids(cliente, 4)
     lid = playlists.create("Arreglame")["id"]
-    playlists.add(lid, [ids[0], ids[1]])          # dos que no van
+    playlists.add(lid, [ids[0], ids[1]])  # dos que no van
     r = chat.run_tool("set_playlist_songs", {"name": "Arreglame", "ids": [ids[2], ids[3], ids[1]]})
     assert "error" not in r, r
     assert r["removed"] == 1 and r["added"] == 2 and r["total"] == 3
@@ -1691,13 +2040,16 @@ def test_corregir_una_lista_la_deja_exactamente_como_se_pide(cliente):
 
 def test_quitar_y_renombrar(cliente):
     from danplay import chat, playlists
+
     _limpiar_listas("Vieja", "Nueva")
     ids = _ids(cliente, 3)
     lid = playlists.create("Vieja")["id"]
     playlists.add(lid, ids)
     r = chat.run_tool("remove_from_playlist", {"name": "Vieja", "song_ids": [ids[0], ids[2]]})
     assert r["removed"] == 2 and [c["id"] for c in r["songs"]] == [ids[1]]
-    r = chat.run_tool("rename_playlist", {"name": "Vieja", "new_name": "Nueva", "note": "para el domingo"})
+    r = chat.run_tool(
+        "rename_playlist", {"name": "Vieja", "new_name": "Nueva", "note": "para el domingo"}
+    )
     assert r["ok"] and r["name"] == "Nueva" and r["was"] == "Vieja"
     assert playlists.by_name("nueva")["note"] == "para el domingo"
     assert chat.run_tool("rename_playlist", {"name": "Nueva"})["error"]
@@ -1707,6 +2059,7 @@ def test_quitar_y_renombrar(cliente):
 def test_la_revision_sube_con_cada_cambio_que_se_ensena(cliente):
     """Es lo que Rust vigila para avisar a las ventanas (`danplay://changed`)."""
     from danplay import library, playlists
+
     antes = cliente.get("/api/status").json()["revision"]
     made = playlists.create("Revision")
     r1 = library.revision()
@@ -1749,11 +2102,11 @@ class _Turnos:
 
         outer = self
 
-        class chat:                                          # noqa: N801
+        class chat:
             class completions:
                 @staticmethod
                 def create(**kw):
-                    if kw.get("max_tokens") == 3:            # el juez
+                    if kw.get("max_tokens") == 3:  # el juez
                         outer.judged.append(kw["messages"][-1]["content"])
                         msg = type("m", (), {"content": outer.judge, "tool_calls": None})()
                         return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
@@ -1764,11 +2117,13 @@ class _Turnos:
                     tool_calls = [_Call(n, a) for n, a in calls] if calls else None
                     msg = type("m", (), {"content": text, "tool_calls": tool_calls})()
                     return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
+
         self.chat = chat
 
 
 def _con_cliente(fake, fn):
     from danplay import chat
+
     original_get, original_available = chat.ai._get_client, chat.ai.available
     chat.ai._get_client = lambda: fake
     chat.ai.available = lambda: True
@@ -1780,22 +2135,34 @@ def _con_cliente(fake, fn):
 
 def test_el_detector_de_narracion_reconoce_lo_que_paso():
     from danplay import chat
-    for t in ("Ya la creé: lista **Herlin** con las tres.", "Descarga pedida. La app te avisará.",
-              "Confirmo descarga.", "Voy a descargar las tres canciones",
-              "Las tres canciones ya están en tu biblioteca.", "Ahora sí está en tu repertorio.",
-              "Aquí está tu lista **Herlin**",
-              # las que se colaron la segunda vez
-              "Descargando: 🎵 **\"QUE SE ABRÁ EL CIELO\"**. La app te avisará cuando esté.",
-              "Ya está descargada: (id: 278). Añadida a la lista **\"Herlin\"**. Ahora tiene 5 canciones.",
-              "Lista **Herlin** actualizada con las correctas.", "Añadidas las dos a «domingo».",
-              "Listo: quité Kabed de la lista.", "Hecho. Ya suena Mi Gozo.",
-              "Bajando la de Barak, te aviso cuando termine."):
+
+    for t in (
+        "Ya la creé: lista **Herlin** con las tres.",
+        "Descarga pedida. La app te avisará.",
+        "Confirmo descarga.",
+        "Voy a descargar las tres canciones",
+        "Las tres canciones ya están en tu biblioteca.",
+        "Ahora sí está en tu repertorio.",
+        "Aquí está tu lista **Herlin**",
+        # las que se colaron la segunda vez
+        'Descargando: 🎵 **"QUE SE ABRÁ EL CIELO"**. La app te avisará cuando esté.',
+        'Ya está descargada: (id: 278). Añadida a la lista **"Herlin"**. Ahora tiene 5 canciones.',
+        "Lista **Herlin** actualizada con las correctas.",
+        "Añadidas las dos a «domingo».",
+        "Listo: quité Kabed de la lista.",
+        "Hecho. Ya suena Mi Gozo.",
+        "Bajando la de Barak, te aviso cuando termine.",
+    ):
         assert chat.claims_action(t), t
-    for t in ("Miles Davis grabó Kind of Blue en 1959.", "Tienes 260 canciones.",
-              "¿Quieres que la ponga a sonar?", "Te pido permiso para descargar «Mi Gozo».",
-              "Eso se sale de lo mío: solo llevo temas de música.",
-              "¿Quieres descargar este ritmo y añadirlo a la lista «Herlin»? Sí = lo bajo. No = lo dejo.",
-              "El tono de Mi Gozo es Bb, aproximado."):
+    for t in (
+        "Miles Davis grabó Kind of Blue en 1959.",
+        "Tienes 260 canciones.",
+        "¿Quieres que la ponga a sonar?",
+        "Te pido permiso para descargar «Mi Gozo».",
+        "Eso se sale de lo mío: solo llevo temas de música.",
+        "¿Quieres descargar este ritmo y añadirlo a la lista «Herlin»? Sí = lo bajo. No = lo dejo.",
+        "El tono de Mi Gozo es Bb, aproximado.",
+    ):
         assert not chat.claims_action(t), t
 
 
@@ -1803,27 +2170,39 @@ def test_una_marca_imitada_se_borra_y_cuenta_como_mentira(cliente):
     """Paso: el modelo escribio «[herramientas que usaste en este mensaje:
     download_music (1 item)]» el solo, sin llamar a nada."""
     from danplay import chat
-    fake = _Turnos([
-        ("Descargando. [herramientas que usaste en este mensaje: download_music (1 item)]", None),
-        ("", [("library_summary", "{}")]),
-        ("Tienes canciones.", None),
-    ])
+
+    fake = _Turnos(
+        [
+            (
+                "Descargando. [herramientas que usaste en este mensaje: download_music (1 item)]",
+                None,
+            ),
+            ("", [("library_summary", "{}")]),
+            ("Tienes canciones.", None),
+        ]
+    )
     r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "bajala"}]))
     assert fake.recibido[1]["tool_choice"] == "required", "se le obliga a usar herramientas"
     assert r["text"] == "Tienes canciones."
-    assert "[herramientas" not in "".join(m["content"] for m in fake.recibido[1]["messages"]
-                                        if m["role"] == "assistant"), \
-        "la marca imitada no vuelve a entrar en el historial"
+    assert "[herramientas" not in "".join(
+        m["content"] for m in fake.recibido[1]["messages"] if m["role"] == "assistant"
+    ), "la marca imitada no vuelve a entrar en el historial"
     assert chat.strip_markers("x [Nota de la app: y] z") == "x z"
     assert chat.has_markers("[herramientas que usaste en este mensaje: x]")
 
 
 def test_si_las_frases_no_saltan_decide_el_juez(cliente):
     from danplay import chat
+
     # una narracion con palabras que la lista no conoce; el juez dice que SI
-    fake = _Turnos([("Todo en orden con tu repertorio, quedó como pediste.", None),
-                    ("", [("library_summary", "{}")]),
-                    ("Vale.", None)], judge="SI")
+    fake = _Turnos(
+        [
+            ("Todo en orden con tu repertorio, quedó como pediste.", None),
+            ("", [("library_summary", "{}")]),
+            ("Vale.", None),
+        ],
+        judge="SI",
+    )
     r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "arregla la lista"}]))
     assert fake.judged, "se le pregunto al juez"
     assert fake.recibido[1]["tool_choice"] == "required"
@@ -1838,35 +2217,58 @@ def test_un_si_a_una_pregunta_suya_obliga_a_usar_herramientas(cliente):
     """«¿la bajo?» — «si mejor si descargala» — «Descargando…» sin llamar a
     nada. Ahora la primera vuelta de ese turno va obligada."""
     from danplay import chat
+
     fake = _Turnos([("", [("library_summary", "{}")]), ("Hecho.", None)])
-    _con_cliente(fake, lambda: chat.reply([
-        {"role": "user", "text": "baja esa"},
-        {"role": "ai", "text": "¿Quieres que la descargue y la añada a «Herlin»?"},
-        {"role": "user", "text": "si mejor si descargala"}]))
+    _con_cliente(
+        fake,
+        lambda: chat.reply(
+            [
+                {"role": "user", "text": "baja esa"},
+                {"role": "ai", "text": "¿Quieres que la descargue y la añada a «Herlin»?"},
+                {"role": "user", "text": "si mejor si descargala"},
+            ]
+        ),
+    )
     assert fake.recibido[0]["tool_choice"] == "required"
     assert fake.recibido[1]["tool_choice"] == "auto"
     # la pregunta suya puede tener un mensaje de la app entre medias
-    assert chat._answers_an_offer([
-        {"role": "ai", "text": "¿Quieres descargar este ritmo y añadirlo a «Herlin»?"},
-        {"role": "ai", "text": "Cancelado, no he tocado nada.", "app": True},
-        {"role": "user", "text": "si mejor si descargala"}])
+    assert chat._answers_an_offer(
+        [
+            {"role": "ai", "text": "¿Quieres descargar este ritmo y añadirlo a «Herlin»?"},
+            {"role": "ai", "text": "Cancelado, no he tocado nada.", "app": True},
+            {"role": "user", "text": "si mejor si descargala"},
+        ]
+    )
     # un «no» no obliga a nada; una pregunta de conocimiento tampoco
-    assert not chat._answers_an_offer([{"role": "ai", "text": "¿La bajo?"},
-                                       {"role": "user", "text": "no, dejala"}])
-    assert not chat._answers_an_offer([{"role": "ai", "text": "Kind of Blue es de 1959."},
-                                       {"role": "user", "text": "si"}])
-    assert not chat._answers_an_offer([{"role": "ai", "text": "¿La bajo?"},
-                                       {"role": "user", "text": "¿de qué año es?"}])
+    assert not chat._answers_an_offer(
+        [{"role": "ai", "text": "¿La bajo?"}, {"role": "user", "text": "no, dejala"}]
+    )
+    assert not chat._answers_an_offer(
+        [{"role": "ai", "text": "Kind of Blue es de 1959."}, {"role": "user", "text": "si"}]
+    )
+    assert not chat._answers_an_offer(
+        [{"role": "ai", "text": "¿La bajo?"}, {"role": "user", "text": "¿de qué año es?"}]
+    )
 
 
 def test_las_notas_del_historial_son_de_sistema_no_texto_suyo(cliente):
     from danplay import chat
+
     fake = _Turnos([("ok", None)])
-    _con_cliente(fake, lambda: chat.reply([
-        {"role": "user", "text": "crea la lista"},
-        {"role": "ai", "text": "Lista creada. [herramientas que usaste en este mensaje: create_playlist]",
-         "tools": [{"name": "create_playlist", "summary": "lista «X» con 3 temas"}]},
-        {"role": "user", "text": "gracias"}]))
+    _con_cliente(
+        fake,
+        lambda: chat.reply(
+            [
+                {"role": "user", "text": "crea la lista"},
+                {
+                    "role": "ai",
+                    "text": "Lista creada. [herramientas que usaste en este mensaje: create_playlist]",
+                    "tools": [{"name": "create_playlist", "summary": "lista «X» con 3 temas"}],
+                },
+                {"role": "user", "text": "gracias"},
+            ]
+        ),
+    )
     msgs = fake.recibido[0]["messages"]
     assistant = [m for m in msgs if m["role"] == "assistant"]
     assert assistant[0]["content"] == "Lista creada.", "sin marcas dentro de su texto"
@@ -1879,12 +2281,15 @@ def test_si_dice_que_hizo_algo_sin_herramientas_se_le_obliga_a_hacerlo(cliente):
     """Primera vuelta: «Ya la cree» sin llamar a nada. Se le para y en la
     siguiente TIENE que usar herramientas; la lista se crea de verdad."""
     from danplay import chat, library, playlists
+
     cid = library.search("", limit=1)[0]["id"]
-    fake = _Turnos([
-        ("Ya la creé: lista **Prueba narrada** con tus canciones.", None),
-        ("", [("create_playlist", f'{{"name": "Prueba narrada", "ids": [{cid}]}}')]),
-        ("Ahora sí: lista «Prueba narrada» creada con 1 tema.", None),
-    ])
+    fake = _Turnos(
+        [
+            ("Ya la creé: lista **Prueba narrada** con tus canciones.", None),
+            ("", [("create_playlist", f'{{"name": "Prueba narrada", "ids": [{cid}]}}')]),
+            ("Ahora sí: lista «Prueba narrada» creada con 1 tema.", None),
+        ]
+    )
     try:
         r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "creame la lista"}]))
         assert [h["name"] for h in r["tools"]] == ["create_playlist"]
@@ -1904,23 +2309,32 @@ def test_si_dice_que_hizo_algo_sin_herramientas_se_le_obliga_a_hacerlo(cliente):
 
 def test_solo_se_le_para_una_vez_y_solo_si_no_uso_nada(cliente):
     from danplay import chat
+
     # tras consultar, decir «ya la tienes» es un dato, no una accion: vale
-    fake = _Turnos([("", [("library_summary", "{}")]),
-                    ("Ya la tienes en tu biblioteca.", None)], judge="NO")
+    fake = _Turnos(
+        [("", [("library_summary", "{}")]), ("Ya la tienes en tu biblioteca.", None)], judge="NO"
+    )
     r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿la tengo?"}]))
     assert r["text"] == "Ya la tienes en tu biblioteca."
     assert len(fake.recibido) == 2
     # pero consultar y luego decir «añadida» sin añadir, no: lo pilla el juez
-    fake = _Turnos([("", [("search_songs", '{"query": "gozo"}')]),
-                    ("Añadida a la lista Herlin.", None),
-                    ("", [("library_summary", "{}")]),
-                    ("Vale.", None)], judge="SI")
+    fake = _Turnos(
+        [
+            ("", [("search_songs", '{"query": "gozo"}')]),
+            ("Añadida a la lista Herlin.", None),
+            ("", [("library_summary", "{}")]),
+            ("Vale.", None),
+        ],
+        judge="SI",
+    )
     r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "añadela a Herlin"}]))
     assert fake.recibido[2]["tool_choice"] == "required"
     assert r["text"] == "Vale."
     # y con una herramienta que HACE algo, el texto vale aunque suene a accion
-    fake = _Turnos([("", [("set_stars", '{"id": 1, "stars": 4}')]),
-                    ("Puntuada con 4 estrellas.", None)], judge="SI")
+    fake = _Turnos(
+        [("", [("set_stars", '{"id": 1, "stars": 4}')]), ("Puntuada con 4 estrellas.", None)],
+        judge="SI",
+    )
     r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "ponle 4"}]))
     assert r["text"] == "Puntuada con 4 estrellas." and len(fake.recibido) == 2
     # y si tras el toque sigue narrando, no se insiste (no es un bucle), pero
@@ -1933,6 +2347,7 @@ def test_solo_se_le_para_una_vez_y_solo_si_no_uso_nada(cliente):
 
 def test_una_respuesta_normal_no_se_toca(cliente):
     from danplay import chat
+
     fake = _Turnos([("Kind of Blue es de 1959.", None)])
     r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿de qué año es?"}]))
     assert r["text"] == "Kind of Blue es de 1959."
@@ -1941,13 +2356,20 @@ def test_una_respuesta_normal_no_se_toca(cliente):
 
 def test_cada_turno_lleva_el_estado_real_de_la_app(cliente):
     from danplay import chat, playlists
+
     made = playlists.create("Estado real")
     try:
         fake = _Turnos([("ok", None)])
-        _con_cliente(fake, lambda: chat.reply([
-            {"role": "user", "text": "hola"},
-            {"role": "ai", "text": "Ya la creé."},         # sin herramientas
-            {"role": "user", "text": "no la veo"}]))
+        _con_cliente(
+            fake,
+            lambda: chat.reply(
+                [
+                    {"role": "user", "text": "hola"},
+                    {"role": "ai", "text": "Ya la creé."},  # sin herramientas
+                    {"role": "user", "text": "no la veo"},
+                ]
+            ),
+        )
         msgs = fake.recibido[0]["messages"]
         nota = msgs[-1]
         assert nota["role"] == "system" and nota is not msgs[0]
@@ -1966,32 +2388,51 @@ def test_cada_turno_lleva_el_estado_real_de_la_app(cliente):
 
 def test_los_mensajes_con_herramientas_van_marcados_con_lo_que_hicieron(cliente):
     from danplay import chat
+
     fake = _Turnos([("ok", None)])
-    _con_cliente(fake, lambda: chat.reply([
-        {"role": "user", "text": "crea la lista"},
-        {"role": "ai", "text": "Lista creada.",
-         "tools": [{"name": "create_playlist", "summary": "lista «X» con 3 temas"}]},
-        {"role": "user", "text": "gracias"}]))
+    _con_cliente(
+        fake,
+        lambda: chat.reply(
+            [
+                {"role": "user", "text": "crea la lista"},
+                {
+                    "role": "ai",
+                    "text": "Lista creada.",
+                    "tools": [{"name": "create_playlist", "summary": "lista «X» con 3 temas"}],
+                },
+                {"role": "user", "text": "gracias"},
+            ]
+        ),
+    )
     msgs = fake.recibido[0]["messages"]
     hecho = next(m for m in msgs if m["role"] == "assistant")
     nota = msgs[msgs.index(hecho) + 1]
     assert nota["role"] == "system"
     assert "create_playlist (lista «X» con 3 temas)" in nota["content"]
-    assert "no uso ninguna herramienta" not in msgs[-1]["content"], \
+    assert "no uso ninguna herramienta" not in msgs[-1]["content"], (
         "el ultimo mensaje del asistente SI uso herramientas"
+    )
 
 
 def test_una_herramienta_que_falla_no_cuenta_como_hecho(cliente):
     """add_to_playlist con un id inventado devuelve error; si luego escribe
     «Añadida a Herlin», eso sigue siendo narracion y se le para."""
     from danplay import chat, playlists
+
     _limpiar_listas("Fallida")
     playlists.create("Fallida")
-    fake = _Turnos([("", [("add_to_playlist", '{"name": "Fallida", "ids": [999999]}')]),
-                    ("Añadida a Fallida. Ahora tiene 1 cancion.", None),
-                    ("", [("playlist_songs", '{"name": "Fallida"}')]),
-                    ("No, no la he podido añadir: ese id no existe.", None)], judge="SI")
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "añade la 999999 a Fallida"}]))
+    fake = _Turnos(
+        [
+            ("", [("add_to_playlist", '{"name": "Fallida", "ids": [999999]}')]),
+            ("Añadida a Fallida. Ahora tiene 1 cancion.", None),
+            ("", [("playlist_songs", '{"name": "Fallida"}')]),
+            ("No, no la he podido añadir: ese id no existe.", None),
+        ],
+        judge="SI",
+    )
+    r = _con_cliente(
+        fake, lambda: chat.reply([{"role": "user", "text": "añade la 999999 a Fallida"}])
+    )
     assert fake.recibido[2]["tool_choice"] == "required", "tras el error hay que pararle"
     assert r["text"].startswith("No, no la he podido")
     assert r["tools"][0]["summary"].startswith("error:")
@@ -2003,14 +2444,35 @@ def test_el_aviso_de_fin_de_descarga_no_dispara_el_detector(cliente):
     decir «Ya estan». Eso no es narrar: la descarga ocurrio, y el juez lo
     sabe. La primera vuelta va obligada a herramientas (el remate)."""
     from danplay import chat
-    fake = _Turnos([("", [("list_playlists", "{}")]), ("Ya están en tu biblioteca.", None)], judge="NO")
-    r = _con_cliente(fake, lambda: chat.reply([
-        {"role": "user", "text": "baja estas dos"},
-        {"role": "ai", "text": "Descargando 2 temas.", "app": True,
-         "tools": [{"name": "download_music", "summary": "aceptada, en marcha"}]},
-        {"role": "ai", "text": "**Descargadas (2):** …", "app": True,
-         "tools": [{"name": "download_music", "summary": "2 descargadas"}]},
-        {"role": "user", "text": "[aviso de la app] La descarga ha terminado…", "event": "download_done"}]))
+
+    fake = _Turnos(
+        [("", [("list_playlists", "{}")]), ("Ya están en tu biblioteca.", None)], judge="NO"
+    )
+    r = _con_cliente(
+        fake,
+        lambda: chat.reply(
+            [
+                {"role": "user", "text": "baja estas dos"},
+                {
+                    "role": "ai",
+                    "text": "Descargando 2 temas.",
+                    "app": True,
+                    "tools": [{"name": "download_music", "summary": "aceptada, en marcha"}],
+                },
+                {
+                    "role": "ai",
+                    "text": "**Descargadas (2):** …",
+                    "app": True,
+                    "tools": [{"name": "download_music", "summary": "2 descargadas"}],
+                },
+                {
+                    "role": "user",
+                    "text": "[aviso de la app] La descarga ha terminado…",
+                    "event": "download_done",
+                },
+            ]
+        ),
+    )
     assert fake.recibido[0]["tool_choice"] == "required"
     assert r["text"] == "Ya están en tu biblioteca."
     assert "narrated" not in r
@@ -2023,10 +2485,16 @@ def test_el_aviso_de_fin_de_descarga_no_dispara_el_detector(cliente):
 
 def test_la_segunda_confirmacion_del_turno_se_rechaza_con_claridad(cliente):
     from danplay import chat, playlists
+
     _limpiar_listas("Una", "Otra")
-    a = playlists.create("Una")["id"]; b = playlists.create("Otra")["id"]
-    fake = _Turnos([("", [("delete_playlist", f'{{"id": {a}}}'), ("delete_playlist", f'{{"id": {b}}}')]),
-                    ("Te he pedido confirmacion para borrar «Una»; «Otra» te la pido despues.", None)])
+    a = playlists.create("Una")["id"]
+    b = playlists.create("Otra")["id"]
+    fake = _Turnos(
+        [
+            ("", [("delete_playlist", f'{{"id": {a}}}'), ("delete_playlist", f'{{"id": {b}}}')]),
+            ("Te he pedido confirmacion para borrar «Una»; «Otra» te la pido despues.", None),
+        ]
+    )
     r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "borra Una y Otra"}]))
     assert r["confirm"]["args"]["id"] == a
     assert r["tools"][0]["summary"] == "espera tu visto bueno"
@@ -2036,8 +2504,15 @@ def test_la_segunda_confirmacion_del_turno_se_rechaza_con_claridad(cliente):
 
 def test_si_sigue_narrando_tras_el_toque_se_ve(cliente):
     from danplay import chat
-    fake = _Turnos([("Ya la creé.", None), ("", [("library_summary", "{}")]), ("Ya la creé, de verdad.", None)],
-                   judge="SI")
+
+    fake = _Turnos(
+        [
+            ("Ya la creé.", None),
+            ("", [("library_summary", "{}")]),
+            ("Ya la creé, de verdad.", None),
+        ],
+        judge="SI",
+    )
     r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "crea la lista"}]))
     assert r["narrated"] is True
     assert "Nota de la app" in r["text"]
@@ -2046,6 +2521,7 @@ def test_si_sigue_narrando_tras_el_toque_se_ve(cliente):
 
 def test_el_juez_no_se_molesta_por_conocimiento_musical(cliente):
     from danplay import chat
+
     fake = _Turnos([("Kind of Blue es de 1959 y lo grabo Miles Davis.", None)], judge="SI")
     r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿de que año es?"}]))
     assert r["text"].startswith("Kind of Blue") and not fake.judged
@@ -2058,27 +2534,58 @@ def test_el_juez_no_se_molesta_por_conocimiento_musical(cliente):
 def test_tras_la_descarga_el_remate_va_obligado_y_la_lista_se_hace_de_verdad(cliente):
     """Fue aqui donde «Añadida a la lista (id: 271)» paso sin comprobar: el
     turno del aviso de fin de descarga daba todo por hecho."""
-    from danplay import chat, playlists, library
+    from danplay import chat, library, playlists
+
     _limpiar_listas("Remate")
     playlists.create("Remate")
     cid = library.search("", limit=1)[0]["id"]
-    fake = _Turnos([("", [("add_to_playlist", f'{{"name": "Remate", "ids": [{cid}]}}')]),
-                    ("Añadida a «Remate».", None)], judge="NO")
-    r = _con_cliente(fake, lambda: chat.reply([
-        {"role": "user", "text": "descarga esta y metela en Remate"},
-        {"role": "ai", "text": "**Descargada:** …", "app": True,
-         "tools": [{"name": "download_music", "summary": "1 descargada"}]},
-        {"role": "user", "text": f"[aviso de la app] … pediste «x» → entro como «y» (id {cid}) …",
-         "event": "download_done"}]))
-    assert fake.recibido[0]["tool_choice"] == "required", "el remate va obligado a usar herramientas"
+    fake = _Turnos(
+        [
+            ("", [("add_to_playlist", f'{{"name": "Remate", "ids": [{cid}]}}')]),
+            ("Añadida a «Remate».", None),
+        ],
+        judge="NO",
+    )
+    r = _con_cliente(
+        fake,
+        lambda: chat.reply(
+            [
+                {"role": "user", "text": "descarga esta y metela en Remate"},
+                {
+                    "role": "ai",
+                    "text": "**Descargada:** …",
+                    "app": True,
+                    "tools": [{"name": "download_music", "summary": "1 descargada"}],
+                },
+                {
+                    "role": "user",
+                    "text": f"[aviso de la app] … pediste «x» → entro como «y» (id {cid}) …",
+                    "event": "download_done",
+                },
+            ]
+        ),
+    )
+    assert fake.recibido[0]["tool_choice"] == "required", (
+        "el remate va obligado a usar herramientas"
+    )
     assert [c["id"] for c in playlists.songs(playlists.by_name("Remate")["id"])] == [cid]
     assert "narrated" not in r
     # y si en ese turno solo narra («Añadida») tras consultar, el juez lo pilla
-    fake = _Turnos([("", [("playlist_songs", '{"name": "Remate"}')]),
-                    ("Añadida a «Remate», ahora tiene 2.", None),
-                    ("", [("library_summary", "{}")]), ("Nada que añadir.", None)], judge="SI")
-    _con_cliente(fake, lambda: chat.reply([
-        {"role": "user", "text": "[aviso de la app] …", "event": "download_done"}]))
+    fake = _Turnos(
+        [
+            ("", [("playlist_songs", '{"name": "Remate"}')]),
+            ("Añadida a «Remate», ahora tiene 2.", None),
+            ("", [("library_summary", "{}")]),
+            ("Nada que añadir.", None),
+        ],
+        judge="SI",
+    )
+    _con_cliente(
+        fake,
+        lambda: chat.reply(
+            [{"role": "user", "text": "[aviso de la app] …", "event": "download_done"}]
+        ),
+    )
     assert fake.judged and "YA ocurrio" in fake.judged[0]
     assert fake.recibido[2]["tool_choice"] == "required"
     _limpiar_listas("Remate")
@@ -2086,21 +2593,37 @@ def test_tras_la_descarga_el_remate_va_obligado_y_la_lista_se_hace_de_verdad(cli
 
 def test_un_si_a_algo_que_la_app_ya_hizo_no_obliga_a_repetirlo():
     from danplay import chat
-    assert not chat._answers_an_offer([
-        {"role": "ai", "text": "¿Confirmas que mande «X» a la papelera?"},
-        {"role": "ai", "text": "Listo, esta en la papelera del sistema.", "app": True,
-         "tools": [{"name": "delete_song", "summary": "hecho"}]},
-        {"role": "user", "text": "si"}])
+
+    assert not chat._answers_an_offer(
+        [
+            {"role": "ai", "text": "¿Confirmas que mande «X» a la papelera?"},
+            {
+                "role": "ai",
+                "text": "Listo, esta en la papelera del sistema.",
+                "app": True,
+                "tools": [{"name": "delete_song", "summary": "hecho"}],
+            },
+            {"role": "user", "text": "si"},
+        ]
+    )
 
 
 def test_el_estado_real_cuenta_las_ultimas_descargas_con_su_id(cliente):
     from danplay import chat, library
+
     cid = library.search("", limit=1)[0]["id"]
     library.clear_download_history()
-    library.log_download({"source": "assistant", "query": "https://youtu.be/x", "ok": True,
-                          "title": "QUE SE ABRÁ EL CIELO - ISH MELTON DRUM CAM",
-                          "artist": "Ish Melton", "song": "Que Se Abra El Cielo (Drum Cam)",
-                          "song_id": cid})
+    library.log_download(
+        {
+            "source": "assistant",
+            "query": "https://youtu.be/x",
+            "ok": True,
+            "title": "QUE SE ABRÁ EL CIELO - ISH MELTON DRUM CAM",
+            "artist": "Ish Melton",
+            "song": "Que Se Abra El Cielo (Drum Cam)",
+            "song_id": cid,
+        }
+    )
     nota = chat._context_note([{"role": "user", "text": "hola"}])
     assert "ISH MELTON DRUM CAM" in nota and f"id {cid}" in nota
     assert "No la vuelvas a bajar" in nota
@@ -2109,10 +2632,18 @@ def test_el_estado_real_cuenta_las_ultimas_descargas_con_su_id(cliente):
 
 def test_el_dialogo_avisa_si_esa_direccion_se_bajo_hace_poco(cliente):
     from danplay import chat, library
+
     cid = library.search("", limit=1)[0]["id"]
     library.clear_download_history()
-    library.log_download({"source": "assistant", "query": "https://youtu.be/x", "ok": True,
-                          "title": "x", "song_id": cid})
+    library.log_download(
+        {
+            "source": "assistant",
+            "query": "https://youtu.be/x",
+            "ok": True,
+            "title": "x",
+            "song_id": cid,
+        }
+    )
     texto = chat._describe("download_music", {"items": ["https://youtu.be/x"], "force": True})
     assert "OJO" in texto and "se bajo hace 0 min" in texto and "duplica" in texto
     assert "OJO" not in chat._describe("download_music", {"items": ["https://youtu.be/otra"]})
@@ -2121,6 +2652,7 @@ def test_el_dialogo_avisa_si_esa_direccion_se_bajo_hace_poco(cliente):
 
 def test_el_prompt_deja_las_confirmaciones_a_la_app():
     from danplay import chat
+
     s = chat.SYSTEM_PROMPT
     assert "QUIEN PREGUNTA ES LA APP, NO TU" in s
     assert "sin pedir permiso" in s
@@ -2132,6 +2664,7 @@ def test_lo_que_devolvio_cada_herramienta_viaja_al_turno_siguiente(cliente):
     enseño antes, el modelo no podia entenderlo y volvia a preguntar o a
     inventar. Ahora cada herramienta deja un `detail` y el historial lo lleva."""
     from danplay import chat, library
+
     songs = library.search("", limit=2)
     fake = _Turnos([("", [("search_songs", '{"query": "", "limit": 2}')]), ("Tienes dos.", None)])
     r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿que tengo?"}]))
@@ -2139,22 +2672,36 @@ def test_lo_que_devolvio_cada_herramienta_viaja_al_turno_siguiente(cliente):
     assert f"id {songs[0]['id']}" in detail and songs[0]["title"] in detail
     # y al turno siguiente, la nota de sistema lo trae
     fake = _Turnos([("La segunda es esa.", None)])
-    _con_cliente(fake, lambda: chat.reply([
-        {"role": "user", "text": "¿que tengo?"},
-        {"role": "ai", "text": "Tienes dos.", "tools": r["tools"]},
-        {"role": "user", "text": "pon la segunda"}]))
+    _con_cliente(
+        fake,
+        lambda: chat.reply(
+            [
+                {"role": "user", "text": "¿que tengo?"},
+                {"role": "ai", "text": "Tienes dos.", "tools": r["tools"]},
+                {"role": "user", "text": "pon la segunda"},
+            ]
+        ),
+    )
     notas = [m["content"] for m in fake.recibido[0]["messages"] if m["role"] == "system"]
     assert any(f"id {songs[1]['id']}" in n and songs[1]["title"] in n for n in notas), notas
 
 
 def test_la_ventana_de_historial_empieza_en_el_usuario_y_no_se_come_la_peticion():
     from danplay import chat
+
     msgs = [{"role": "user", "text": "descarga esta y metela en Herlin"}]
     for _ in range(10):
-        msgs += [{"role": "ai", "text": "Descargando.", "app": True},
-                 {"role": "ai", "text": "**Descargada:** …", "app": True},
-                 {"role": "user", "text": "[aviso de la app] …", "hidden": True, "event": "download_done"},
-                 {"role": "ai", "text": "Terminado."}]
+        msgs += [
+            {"role": "ai", "text": "Descargando.", "app": True},
+            {"role": "ai", "text": "**Descargada:** …", "app": True},
+            {
+                "role": "user",
+                "text": "[aviso de la app] …",
+                "hidden": True,
+                "event": "download_done",
+            },
+            {"role": "ai", "text": "Terminado."},
+        ]
     w = chat._window(msgs)
     assert w[0]["role"] == "user" and len(w) <= chat.HISTORY_MESSAGES
     assert len(w) > 24, "la ventana de antes se quedaba corta con los mensajes de la app"
@@ -2165,11 +2712,19 @@ def test_la_ventana_de_historial_empieza_en_el_usuario_y_no_se_come_la_peticion(
 
 def test_brief_resume_con_ids_y_nombres():
     from danplay import chat
-    assert chat._brief("search_songs", {"songs": [{"id": 12, "artist": "Barak", "title": "Mi Gozo"}]}) \
+
+    assert (
+        chat._brief("search_songs", {"songs": [{"id": 12, "artist": "Barak", "title": "Mi Gozo"}]})
         == "id 12 «Barak - Mi Gozo»"
-    assert chat._brief("playlist_songs", {"playlist_id": 2, "name": "Herlin", "songs": []}) == "«Herlin» (id 2): vacia"
-    assert chat._brief("list_playlists", {"playlists": [{"id": 1, "name": "domingo", "items": 2}]}) \
+    )
+    assert (
+        chat._brief("playlist_songs", {"playlist_id": 2, "name": "Herlin", "songs": []})
+        == "«Herlin» (id 2): vacia"
+    )
+    assert (
+        chat._brief("list_playlists", {"playlists": [{"id": 1, "name": "domingo", "items": 2}]})
         == "«domingo» (id 1, 2 temas)"
+    )
     assert chat._brief("search_songs", {"error": "no"}) == ""
     largo = {"songs": [{"id": i, "artist": "A", "title": f"T{i}"} for i in range(15)]}
     assert chat._brief("search_songs", largo).endswith("y 5 mas")
@@ -2179,6 +2734,7 @@ def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
     """La ficha del chat decia «descargo · 0 descargada(s)» cuando en realidad
     estaba esperando el visto bueno. Confundia: parecia que habia fallado."""
     from danplay import chat
+
     llamadas = []
 
     class _Call:
@@ -2187,15 +2743,25 @@ def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
             self.function = type("f", (), {"name": name, "arguments": args})()
 
     class _FakeClient:
-        class chat:                                          # noqa: N801
+        class chat:
             class completions:
                 @staticmethod
                 def create(**kw):
                     llamadas.append(kw)
                     if len(llamadas) == 1:
-                        msg = type("m", (), {"content": "", "tool_calls": [
-                            _Call("download_music",
-                                  '{"items": ["Ruja o Leao Carol Braga"], "force": true}')]})()
+                        msg = type(
+                            "m",
+                            (),
+                            {
+                                "content": "",
+                                "tool_calls": [
+                                    _Call(
+                                        "download_music",
+                                        '{"items": ["Ruja o Leao Carol Braga"], "force": true}',
+                                    )
+                                ],
+                            },
+                        )()
                     else:
                         msg = type("m", (), {"content": "Te lo pido.", "tool_calls": None})()
                     return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
@@ -2216,6 +2782,7 @@ def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
 
 def test_renombrar_una_lista_por_la_api(cliente):
     from danplay import playlists
+
     for l in playlists.list_all():
         if l["name"] in ("Vieja", "Nueva", "Otra"):
             playlists.remove(l["id"])
@@ -2229,7 +2796,8 @@ def test_renombrar_una_lista_por_la_api(cliente):
     assert cliente.patch(f"/api/playlists/{lid}", json={"name": "otra"}).status_code == 409
     assert cliente.patch(f"/api/playlists/{lid}", json={}).status_code == 400
     assert cliente.patch("/api/playlists/999999", json={"name": "x"}).status_code == 404
-    playlists.remove(lid); playlists.remove(other)
+    playlists.remove(lid)
+    playlists.remove(other)
 
 
 # --------------------------------------------- la lista del reproductor
@@ -2240,13 +2808,16 @@ def test_renombrar_una_lista_por_la_api(cliente):
 def _de_fuera(cliente, nombre="suelta.mp3", titulo="Suelta", artista="Nadie"):
     """Un mp3 real FUERA de la biblioteca."""
     from conftest import make_mp3
+
     from danplay import config
+
     fuera = os.path.join(os.path.dirname(str(config.LIBRARY)), "fuera")
     return make_mp3(os.path.join(fuera, nombre), artist=artista, title=titulo)
 
 
 def test_an_outside_song_plays_without_entering_the_library(cliente):
     from danplay import library
+
     antes = library.stats_of()["total"]
     ruta = _de_fuera(cliente)
 
@@ -2322,7 +2893,7 @@ def test_one_song_can_be_dropped_from_the_list(cliente):
     a = _de_fuera(cliente, "q1.mp3", "Q1")
     cliente.post("/api/external/play", json={"path": a})
     cliente.post("/api/external/play", json={"path": _de_fuera(cliente, "q2.mp3", "Q2")})
-    cid = [s for s in cliente.get("/api/external").json()["songs"] if s["title"] == "Q1"][0]["id"]
+    cid = next(s for s in cliente.get("/api/external").json()["songs"] if s["title"] == "Q1")["id"]
     assert cliente.delete(f"/api/external/{cid}").json()["removed"] is True
     assert [s["title"] for s in cliente.get("/api/external").json()["songs"]] == ["Q2"]
 
@@ -2345,3 +2916,42 @@ def test_an_outside_song_can_be_looked_at_but_not_touched(cliente):
     assert cliente.post(f"/api/song/{cid}/stars", json={"stars": 5}).status_code in (404, 422, 500)
     assert cliente.delete(f"/api/song/{cid}").status_code == 404
     assert cliente.get(f"/api/song/{cid}").json()["title"] == "Mirar", "se le cambio el titulo"
+
+
+def test_los_mensajes_del_chat_tienen_forma(cliente):
+    """Lo que usa el asistente tiene su tipo; lo demas que guarda la interfaz
+    (id, at, usage...) pasa tal cual y vuelve igual."""
+    c = cliente.post("/api/chats", json={}).json()
+    ok = cliente.post(
+        f"/api/chats/{c['id']}/messages",
+        json={
+            "messages": [
+                {"role": "me", "text": "hola", "at": 1.5, "id": 7},
+                {"role": "ai", "text": None, "usage": {"calls": 1}, "via": {"id": "x"}},
+            ]
+        },
+    )
+    assert ok.status_code == 200 and ok.json()["n"] == 2
+    got = cliente.get(f"/api/chats/{c['id']}").json()["messages"]
+    assert got[1]["text"] == "" and got[1]["usage"] == {"calls": 1}
+    bad = cliente.post(f"/api/chats/{c['id']}/messages", json={"messages": [{"text": "sin rol"}]})
+    assert bad.status_code == 422
+    assert (
+        cliente.post("/api/chat", json={"messages": [{"role": "user", "tools": "no"}]}).status_code
+        == 422
+    )
+    cliente.delete(f"/api/chats/{c['id']}")
+
+
+def test_los_marcadores_del_estudio_tienen_forma(cliente):
+    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    r = cliente.put(f"/api/song/{cid}/study", json={"markers": [{"t": "no es un numero"}]})
+    assert r.status_code == 422
+    r = cliente.put(
+        f"/api/song/{cid}/study",
+        json={"markers": [{"t": 5, "extra": "fuera"}], "metronome": {"bpm": "90"}},
+    )
+    assert r.status_code == 200
+    study = json.loads(r.json()["study"])
+    assert study["markers"] == [{"t": 5.0, "label": ""}] and study["metronome"] == {"bpm": 90.0}
+    cliente.put(f"/api/song/{cid}/study", json={})

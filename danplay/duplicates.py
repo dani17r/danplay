@@ -1,20 +1,26 @@
-# -*- coding: utf-8 -*-
 """Deteccion de duplicados: identicos byte a byte y misma cancion en otra version."""
-import hashlib, logging, os, re
+
+import hashlib
+import logging
+import os
+import re
 from collections import defaultdict
+
 from . import config, names
 
-log = logging.getLogger("danplay")
+log = logging.getLogger(__name__)
 
 try:
-    import danplay_core as _rust          # crate en Rust: ~9x mas rapido
+    import danplay_core as _rust  # crate en Rust: ~9x mas rapido
+
     RUST = True
 except ImportError:
     _rust, RUST = None, False
 
 
 def partial_hash(path, n=1024 * 1024) -> str:
-    h = hashlib.md5()
+    # md5 para comparar archivos (lo mismo que hace el crate), no para seguridad
+    h = hashlib.md5(usedforsecurity=False)
     try:
         with open(path, "rb") as f:
             h.update(f.read(n))
@@ -25,7 +31,7 @@ def partial_hash(path, n=1024 * 1024) -> str:
 
 def hashes(paths, n=1024 * 1024) -> dict:
     """Hash de muchos archivos a la vez. Usa Rust en paralelo si esta compilado."""
-    if RUST:
+    if _rust is not None:
         return {r: h for r, h in _rust.hashes(list(paths), n) if h}
     return {r: h for r in paths if (h := partial_hash(r, n))}
 
@@ -55,6 +61,7 @@ def identical(paths) -> list[list[str]]:
 def same_song(paths, threshold=0.88) -> list[list[str]]:
     """Grupos que parecen la misma cancion aunque el archivo sea distinto."""
     from rapidfuzz import fuzz
+
     match_keys = {r: names.match_key(os.path.basename(r)) for r in paths}
 
     # primero exactos por clave normalizada
@@ -84,6 +91,7 @@ def same_song(paths, threshold=0.88) -> list[list[str]]:
     remaining = [r for r in paths if r not in taken and match_keys[r]]
     if len(remaining) > 1:
         from rapidfuzz import process
+
         keys = [match_keys[r] for r in remaining]
         words = [frozenset(k.split()) for k in keys]
         by_word = defaultdict(list)
@@ -102,21 +110,22 @@ def same_song(paths, threshold=0.88) -> list[list[str]]:
             share = set()
             for w in words[i]:
                 share.update(j for j in by_word[w] if j > i)
-            for j in share:
-                if remaining[j] not in used and \
-                        fuzz.token_set_ratio(keys[i], keys[j]) >= minimum:
-                    group.append(remaining[j])
+            group.extend(
+                remaining[j]
+                for j in share
+                if remaining[j] not in used and fuzz.token_set_ratio(keys[i], keys[j]) >= minimum
+            )
 
             # 2) sin ninguna palabra en comun: comparacion simple, en C. Solo
             #    contra las claves que vienen DESPUES: las de antes ya se
             #    compararon con esta en su turno, asi que la mitad de las
             #    parejas sobraban. `extract` devuelve la posicion dentro del
             #    trozo, de ahi el desplazamiento.
-            for _, _, k in process.extract(keys[i], keys[i + 1:], scorer=fuzz.ratio,
-                                           score_cutoff=minimum, limit=None):
+            for _, _, k in process.extract(
+                keys[i], keys[i + 1 :], scorer=fuzz.ratio, score_cutoff=minimum, limit=None
+            ):
                 j = i + 1 + k
-                if j not in share and not (words[i] & words[j]) \
-                        and remaining[j] not in used:
+                if j not in share and not (words[i] & words[j]) and remaining[j] not in used:
                     group.append(remaining[j])
 
             if len(group) > 1:
@@ -140,6 +149,7 @@ def name_without_suffix(name: str) -> str:
 def _rejection(path: str) -> str:
     """Por que una ruta no se puede tocar desde aqui, o cadena vacia."""
     from . import library
+
     if os.path.splitext(path)[1].lower() not in config.EXTENSIONS:
         return f"«{os.path.basename(path)}» no es un archivo de audio"
     if not library.within_roots(path):
@@ -159,11 +169,12 @@ def resolve(keep: str, remove: list[str], dry_run=True) -> dict:
     por defecto por lo mismo: borrar solo cuando se pide expresamente.
     """
     from . import library
+
     keep = os.path.abspath(keep)
     remove = [os.path.abspath(b) for b in remove if os.path.abspath(b) != keep]
     if not os.path.isfile(keep):
         return {"ok": False, "reason": "el archivo a conservar no existe"}
-    for path in [keep] + remove:
+    for path in [keep, *remove]:
         why = _rejection(path)
         if why:
             return {"ok": False, "reason": why}
@@ -199,6 +210,12 @@ def resolve(keep: str, remove: list[str], dry_run=True) -> dict:
             else:
                 target, renamed = candidate, True
 
-    return {"ok": not failures, "kept": target, "renamed": renamed,
-            "final_name": os.path.basename(target),
-            "deleted": deleted, "failures": failures, "dry_run": dry_run}
+    return {
+        "ok": not failures,
+        "kept": target,
+        "renamed": renamed,
+        "final_name": os.path.basename(target),
+        "deleted": deleted,
+        "failures": failures,
+        "dry_run": dry_run,
+    }

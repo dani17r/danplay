@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """El catalogo de modelos de todo el mundo, siempre al dia.
 
 Los nombres de modelo caducan en meses (OpenAI cambio toda su nomenclatura,
@@ -23,6 +22,7 @@ La lista de lo que el usuario PUEDE usar de verdad con su clave la da el
 propio proveedor (`ai.list_models`); esto es el mapa completo, con precios y
 capacidades, que se cruza con aquella.
 """
+
 import json
 import logging
 import os
@@ -32,9 +32,10 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
 from . import config
 
-log = logging.getLogger("danplay.models")
+log = logging.getLogger(__name__)
 
 SOURCE = "https://models.dev/api.json"
 CACHE = config.DATA_DIR / "models-catalog.json"
@@ -48,10 +49,12 @@ MIN_INTERVAL = 60
 
 # Lo que no es un modelo de conversacion: embeddings, voz, imagen, moderacion.
 # models.dev trae las modalidades, pero no siempre; el nombre remata.
-_NOT_CHAT = re.compile(r"embed|\btts\b|text-to-speech|whisper|transcri|speech|"
-                       r"\bimage\b|imagen|dall-e|sora|veo\b|lyria|moderation|guard|"
-                       r"rerank|\baudio\b|video|realtime|\bocr\b|colpali|clip\b",
-                       re.IGNORECASE)
+_NOT_CHAT = re.compile(
+    r"embed|\btts\b|text-to-speech|whisper|transcri|speech|"
+    r"\bimage\b|imagen|dall-e|sora|veo\b|lyria|moderation|guard|"
+    r"rerank|\baudio\b|video|realtime|\bocr\b|colpali|clip\b",
+    re.IGNORECASE,
+)
 
 _lock = threading.Lock()
 _loaded: dict | None = None
@@ -59,6 +62,7 @@ _refreshing = False
 
 
 # ------------------------------------------------------------------ recorte
+
 
 def _trim_model(mid: str, m: dict) -> dict | None:
     """Solo lo que la app usa, con nombres cortos y estables."""
@@ -80,18 +84,23 @@ def _trim_model(mid: str, m: dict) -> dict | None:
         except (TypeError, ValueError):
             return None
 
-    return {"id": mid, "name": str(m.get("name") or mid),
-            "tools": bool(m.get("tool_call")),
-            "json": m.get("structured_output"),
-            "temperature": m.get("temperature"),
-            "reasoning": bool(m.get("reasoning")),
-            "cost_in": num(cost.get("input")), "cost_out": num(cost.get("output")),
-            "context": limit.get("context"), "output": limit.get("output"),
-            "released": str(m.get("release_date") or ""),
-            "deprecated": str(m.get("status") or "") == "deprecated",
-            "open": bool(m.get("open_weights")),
-            "input": [x for x in ins if x != "text"],
-            "family": str(m.get("family") or "")}
+    return {
+        "id": mid,
+        "name": str(m.get("name") or mid),
+        "tools": bool(m.get("tool_call")),
+        "json": m.get("structured_output"),
+        "temperature": m.get("temperature"),
+        "reasoning": bool(m.get("reasoning")),
+        "cost_in": num(cost.get("input")),
+        "cost_out": num(cost.get("output")),
+        "context": limit.get("context"),
+        "output": limit.get("output"),
+        "released": str(m.get("release_date") or ""),
+        "deprecated": str(m.get("status") or "") == "deprecated",
+        "open": bool(m.get("open_weights")),
+        "input": [x for x in ins if x != "text"],
+        "family": str(m.get("family") or ""),
+    }
 
 
 def _trim(raw: dict, only: set | None = None) -> dict:
@@ -105,12 +114,17 @@ def _trim(raw: dict, only: set | None = None) -> dict:
             if t:
                 models[mid] = t
         if models:
-            out[pid] = {"name": str(p.get("name") or pid), "doc": p.get("doc") or "",
-                        "api": p.get("api") or "", "models": models}
+            out[pid] = {
+                "name": str(p.get("name") or pid),
+                "doc": p.get("doc") or "",
+                "api": p.get("api") or "",
+                "models": models,
+            }
     return out
 
 
 # ------------------------------------------------------------------- carga
+
 
 def _read_json(path: Path) -> dict | None:
     try:
@@ -128,8 +142,11 @@ def load() -> dict:
     global _loaded
     with _lock:
         if _loaded is None:
-            _loaded = _read_json(CACHE) or _read_json(SNAPSHOT) or \
-                {"source": "none", "providers": {}, "fetched_at": 0, "checked_at": 0}
+            _loaded = (
+                _read_json(CACHE)
+                or _read_json(SNAPSHOT)
+                or {"source": "none", "providers": {}, "fetched_at": 0, "checked_at": 0}
+            )
         return _loaded
 
 
@@ -143,13 +160,19 @@ def forget() -> None:
 def status() -> dict:
     d = load()
     n = sum(len(p["models"]) for p in d["providers"].values())
-    return {"source": d.get("source", "none"), "providers": len(d["providers"]),
-            "models": n, "fetched_at": d.get("fetched_at") or 0,
-            "checked_at": d.get("checked_at") or 0, "error": d.get("error") or "",
-            "refreshing": _refreshing}
+    return {
+        "source": d.get("source", "none"),
+        "providers": len(d["providers"]),
+        "models": n,
+        "fetched_at": d.get("fetched_at") or 0,
+        "checked_at": d.get("checked_at") or 0,
+        "error": d.get("error") or "",
+        "refreshing": _refreshing,
+    }
 
 
 # ----------------------------------------------------------------- descarga
+
 
 def refresh(force: bool = False, timeout: float = 15) -> dict:
     """Consulta models.dev y actualiza la copia. Devuelve `status()`.
@@ -183,13 +206,19 @@ def refresh(force: bool = False, timeout: float = 15) -> dict:
                     current["error"] = ""
                 return status()
             raise
-        data = {"source": "models.dev", "etag": etag, "fetched_at": now, "checked_at": now,
-                "error": "", "providers": _trim(raw)}
+        data = {
+            "source": "models.dev",
+            "etag": etag,
+            "fetched_at": now,
+            "checked_at": now,
+            "error": "",
+            "providers": _trim(raw),
+        }
         with _lock:
             _loaded = data
         _save(data)
         log.info("catalogo de modelos actualizado: %d proveedores", len(data["providers"]))
-    except Exception as e:                                   # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         with _lock:
             current["checked_at"] = now
             current["error"] = _describe(e)
@@ -236,6 +265,7 @@ def refresh_in_background(max_age: float = BACKGROUND_MAX_AGE) -> bool:
 
 # ----------------------------------------------------------------- consulta
 
+
 def models_for(models_dev_id: str | None) -> list[dict]:
     """Los modelos de un proveedor, por fecha (los nuevos primero)."""
     if not models_dev_id:
@@ -267,8 +297,11 @@ _CHEAP_TIER = re.compile(r"flash|lite|mini|nano|small|haiku|instant|turbo|fast",
 _UNSTABLE = re.compile(r"exp\b|experimental|preview|beta|alpha|\brc\b|nightly|dev\b|:free$", re.I)
 # especializados en otra cosa (programar, ver imagenes, matematicas): para
 # hablar de musica hay mejores
-_SPECIALIZED = re.compile(r"code|coder|coding|\bbuild\b|math|vision|\bvl\b|omni|guard|safety|"
-                          r"\bagent|search|research|thinking", re.I)
+_SPECIALIZED = re.compile(
+    r"code|coder|coding|\bbuild\b|math|vision|\bvl\b|omni|guard|safety|"
+    r"\bagent|search|research|thinking",
+    re.I,
+)
 
 
 def recommend(models: list[dict]) -> dict:
@@ -280,13 +313,26 @@ def recommend(models: list[dict]) -> dict:
     nuevo de los que cuestan como mucho el doble que el mas barato. Con
     precios desconocidos (un servidor local) no hay criterio: vacio.
     """
-    ok = [m for m in models if not m["deprecated"] and m["released"] and m["tools"]
-          and m["cost_out"] is not None and not _UNSTABLE.search(m["id"])
-          and not _SPECIALIZED.search(m["id"]) and not _SPECIALIZED.search(m["name"])]
-    recent = sorted((m for m in ok if m["released"] >= _months_ago(18)),
-                    key=lambda m: m["released"], reverse=True)
+    ok = [
+        m
+        for m in models
+        if not m["deprecated"]
+        and m["released"]
+        and m["tools"]
+        and m["cost_out"] is not None
+        and not _UNSTABLE.search(m["id"])
+        and not _SPECIALIZED.search(m["id"])
+        and not _SPECIALIZED.search(m["name"])
+    ]
+    recent = sorted(
+        (m for m in ok if m["released"] >= _months_ago(18)),
+        key=lambda m: m["released"],
+        reverse=True,
+    )
     chat = next((m for m in recent if m["cost_out"] <= 15), None) or (recent[0] if recent else None)
-    cheap = [m for m in recent if _CHEAP_TIER.search(m["id"]) or _CHEAP_TIER.search(m["name"])] or recent
+    cheap = [
+        m for m in recent if _CHEAP_TIER.search(m["id"]) or _CHEAP_TIER.search(m["name"])
+    ] or recent
     fast = None
     if cheap:
         floor = min(m["cost_out"] for m in cheap)
@@ -305,9 +351,14 @@ def build_snapshot(path: Path = SNAPSHOT, only: set | None = None) -> int:
     req = urllib.request.Request(SOURCE, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=60) as r:
         raw = json.loads(r.read().decode("utf-8"))
-    data = {"source": "snapshot", "fetched_at": time.time(), "checked_at": 0,
-            "providers": _trim(raw, only)}
+    data = {
+        "source": "snapshot",
+        "fetched_at": time.time(),
+        "checked_at": 0,
+        "providers": _trim(raw, only),
+    }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n",
-                    encoding="utf-8")
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8"
+    )
     return sum(len(p["models"]) for p in data["providers"].values())

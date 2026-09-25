@@ -1,16 +1,72 @@
 # El nucleo Python de DanPlay. La interfaz y el envoltorio de escritorio
 # viven en desktop/, y el crate que acelera hashes y analisis en core/.
+#
+# Las dependencias se gestionan con uv: `uv sync` deja el .venv como el
+# cerrojo (uv.lock). requirements*.txt siguen existiendo para quien use pip
+# (la CI de Windows, PyInstaller), pero se GENERAN desde el cerrojo: ver
+# scripts/exportar-requisitos.py.
 [project]
 name = "danplay"
-version = "1.12.1"
+dynamic = ["version"]
 description = "Gestor de biblioteca musical: identifica, ordena, etiqueta y reproduce"
 # `theory.py` usa re.NOFLAG (3.11+) y hay sintaxis de 3.10 por todas partes;
 # el proyecto se desarrolla y se empaqueta con 3.13.
 requires-python = ">=3.13"
-dynamic = ["dependencies"]
+# Lo que DanPlay necesita para funcionar, en rangos compatibles. Las fijas,
+# transitivas incluidas, estan en uv.lock.
+dependencies = [
+    "fastapi~=0.141.1",
+    "uvicorn~=0.54.0",
+    "openai>=3.19.2,<4",
+    "mutagen>=1.48.1,<2",
+    "RapidFuzz>=3.14.6,<4",
+    # [default] trae yt-dlp-ejs (los scripts con los que yt-dlp resuelve los
+    # retos de JavaScript de YouTube) y lo demas que usa para bajar bien
+    "yt-dlp[default]>=2026.8.19",
+    "pyacoustid>=1.3.1,<2",
+    "python-dotenv>=1.2.3,<2",
+    "watchdog>=6.0.0,<7",
+    # rutas de datos y papelera del sistema en Linux, Windows y macOS
+    "platformdirs>=4.11.12,<5",
+    "Send2Trash>=2.1.0,<3",
+]
+
+[project.scripts]
+danplay = "danplay.cli:main"
+
+[dependency-groups]
+# Solo lo que usan las pruebas: la CI de Windows prueba el nucleo SIN el crate
+# de Rust, como viaja en el instalador (requirements-test.txt).
+test = [
+    "pytest>=9.1.1,<10",
+    "pytest-cov>=7.1.0,<8",
+    "hypothesis>=6.168.1,<7",
+    # el TestClient de FastAPI habla por httpx
+    "httpx>=0.28.1,<1",
+]
+# Para trabajar en DanPlay: las pruebas, el crate de Rust, el empaquetado y
+# las herramientas de estilo y tipos.
+dev = [
+    { include-group = "test" },
+    # el crate que acelera hashes y analisis de audio (opcional en ejecucion:
+    # sin el, Python tiene su propia version mas lenta)
+    "danplay-core",
+    "maturin>=1.15.0,<2",
+    # el nucleo empaquetado que viaja dentro del .deb / .AppImage / instalador
+    "pyinstaller>=6.22.3,<7",
+    "ruff>=0.16.9,<0.17",
+    "basedpyright>=1.40.1,<2",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.sources]
+danplay-core = { path = "core", editable = true }
 
 [tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
+# la version vive en un solo sitio: danplay/__init__.py
+version = { attr = "danplay.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["danplay*"]
@@ -19,10 +75,56 @@ include = ["danplay*"]
 # la foto del catalogo de modelos de IA (ver danplay/model_catalog.py)
 danplay = ["data/*.json"]
 
+# ---------------------------------------------------------------- pruebas
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# Con cobertura siempre: `pytest` a secas es lo que corre la CI. Para una
+# prueba suelta sin el umbral, `pytest --no-cov tests/...`.
+addopts = "-q --cov --cov-report=term-missing:skip-covered"
 filterwarnings = ["ignore::DeprecationWarning:starlette.*"]
+
+[tool.coverage.run]
+source = ["danplay"]
+# los hilos del vigilante, de los trabajos y del chat tambien cuentan
+concurrency = ["thread"]
+
+[tool.coverage.report]
+fail_under = 70
+skip_empty = true
+
+# ---------------------------------------------------------- estilo y tipos
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = ["desktop", "core", "dist", ".dev"]
+
+[tool.ruff.lint]
+select = ["F", "E4", "E7", "E9", "W", "B", "UP", "SIM", "C4", "PIE", "PERF", "RUF", "S",
+          "BLE", "ASYNC", "LOG", "G", "T10", "PLE", "PLW", "FAST", "I", "ISC"]
+ignore = ["E701", "E702", "E741", "S101", "S603", "S607", "S310", "S110", "S112", "SIM105",
+          "RUF001", "RUF002", "RUF003", "PLW0603", "PLW2901", "G004"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108", "PLW0108"]
+"scripts/**" = ["T201"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Body", "fastapi.Query", "fastapi.Depends"]
+
+[tool.basedpyright]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+include = ["danplay", "tests", "scripts", "packaging/core_entry.py"]
+exclude = ["desktop", "core/target", "dist", ".dev", "**/__pycache__"]
+# los tipos del modulo en Rust (core/danplay_core.pyi); `conftest` para los
+# scripts que montan la biblioteca de prueba
+stubPath = "core"
+extraPaths = ["tests"]
+# `basedpyright` a secas solo falla por errores NUEVOS: los que ya habia
+# estan en .basedpyright/baseline.json (se rehace con --writebaseline)
+reportMissingModuleSource = false
 
 [build-system]
 requires = ["setuptools>=68"]

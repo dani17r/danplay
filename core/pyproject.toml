@@ -4,7 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "danplay_core"
-version = "1.12.1"
+# la del workspace de Cargo (Cargo.toml de la raiz), que maturin lee
+dynamic = ["version"]
 requires-python = ">=3.13"
 
 [tool.maturin]

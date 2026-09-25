@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """La forma de onda de una cancion, para pintarla en el modo estudio.
 
 Son `buckets` columnas a lo largo de la cancion, cada una con su pico y su
@@ -11,16 +10,24 @@ seis minutos). Si no, ffmpeg decodifica a PCM crudo y se resume aqui, mas
 despacio pero sin depender de nada mas. Se guarda en disco: la segunda vez es
 gratis, y la forma de onda no cambia mientras no cambie el archivo.
 """
-import hashlib, json, logging, math, os, subprocess
+
+import hashlib
+import json
+import logging
+import math
+import os
+import subprocess
 from array import array
+
 from . import config, convert
 
-log = logging.getLogger("danplay")
+log = logging.getLogger(__name__)
 
 try:
     import danplay_core as _rust
+
     RUST = True
-except ImportError:                      # pragma: no cover - depende de la compilacion
+except ImportError:  # pragma: no cover - depende de la compilacion
     _rust, RUST = None, False
 
 DEFAULT_BUCKETS = 800
@@ -40,7 +47,9 @@ def _cache_file(path: str):
     puede borrar sabiendo la ruta, sin tener que adivinar mtime ni columnas.
     Dentro van la ruta, el mtime y las columnas con que se calculo, para
     saber si sigue valiendo."""
-    return _folder() / f"{hashlib.sha1(path.encode('utf-8', 'surrogateescape')).hexdigest()}.json"
+    # sha1 como nombre de archivo, no como proteccion de nada
+    key = hashlib.sha1(path.encode("utf-8", "surrogateescape"), usedforsecurity=False)
+    return _folder() / f"{key.hexdigest()}.json"
 
 
 def _mtime(path: str) -> float:
@@ -80,7 +89,7 @@ def prune(known_paths) -> int:
         try:
             path = json.loads(f.read_text(encoding="utf-8")).get("path")
         except (OSError, ValueError, AttributeError):
-            path = None                        # roto o de un formato viejo: fuera
+            path = None  # roto o de un formato viejo: fuera
         if path in known:
             continue
         try:
@@ -119,10 +128,23 @@ def _with_ffmpeg(path: str, buckets: int):
     ffmpeg = convert.tool("ffmpeg")
     if not ffmpeg:
         return None
-    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-i", path,
-           "-f", "s16le", "-ac", "1", "-ar", str(FALLBACK_RATE), "-"]
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        path,
+        "-f",
+        "s16le",
+        "-ac",
+        "1",
+        "-ar",
+        str(FALLBACK_RATE),
+        "-",
+    ]
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=300)
+        r = subprocess.run(cmd, capture_output=True, timeout=300, check=False)
     except (OSError, subprocess.SubprocessError) as e:
         log.warning("ffmpeg no pudo decodificar %s: %s", path, e)
         return None
@@ -143,13 +165,16 @@ def compute(path: str, buckets: int = DEFAULT_BUCKETS) -> dict | None:
     if cached.is_file():
         try:
             saved = json.loads(cached.read_text(encoding="utf-8"))
-            if saved.get("path") == path and saved.get("mtime") == stamp \
-                    and len(saved.get("peaks") or []) == buckets:
+            if (
+                saved.get("path") == path
+                and saved.get("mtime") == stamp
+                and len(saved.get("peaks") or []) == buckets
+            ):
                 return {"peaks": saved["peaks"], "rms": saved["rms"]}
         except (OSError, ValueError, AttributeError, KeyError):
-            pass                               # se recalcula y se sobrescribe
+            pass  # se recalcula y se sobrescribe
     made = None
-    if RUST:
+    if _rust is not None:
         made = _rust.waveform(path, buckets)
         if made is None:
             log.info("el nucleo no pudo con la forma de onda: %s", _rust.last_error())
@@ -158,11 +183,15 @@ def compute(path: str, buckets: int = DEFAULT_BUCKETS) -> dict | None:
     if made is None:
         return None
     # tres decimales: de sobra para pintar, y el json pesa la mitad
-    out = {"peaks": [round(float(v), 3) for v in made[0]],
-           "rms": [round(float(v), 3) for v in made[1]]}
+    out = {
+        "peaks": [round(float(v), 3) for v in made[0]],
+        "rms": [round(float(v), 3) for v in made[1]],
+    }
     try:
-        cached.write_text(json.dumps({"path": path, "mtime": stamp, **out},
-                                     separators=(",", ":")), encoding="utf-8")
+        cached.write_text(
+            json.dumps({"path": path, "mtime": stamp, **out}, separators=(",", ":")),
+            encoding="utf-8",
+        )
     except OSError:
         log.warning("no pude guardar la forma de onda en %s", cached, exc_info=True)
     return out

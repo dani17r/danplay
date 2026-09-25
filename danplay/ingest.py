@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tuberia de importacion.
 
 Orden de resolucion, de mas fiable a menos:
@@ -8,18 +7,24 @@ Orden de resolucion, de mas fiable a menos:
   4. IA (DeepInfra)
   5. si nada funciona -> carpeta Revisar/
 """
-import os, shutil
+
+import logging
+import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from . import config, convert, tags, fingerprint, ai, names
+
+from . import ai, config, convert, fingerprint, names, tags
+
+log = logging.getLogger(__name__)
 
 HEURISTIC_THRESHOLD = 0.80
-AI_THRESHOLD         = 0.55
+AI_THRESHOLD = 0.55
 
 CATEGORY_FOLDER = {
-    "track":     "Pistas",
+    "track": "Pistas",
     "sequence": "Secuencias",
-    "tutorial":  "Tutoriales y Play Along",
+    "tutorial": "Tutoriales y Play Along",
 }
 
 
@@ -33,7 +38,7 @@ class Result:
     extra: str = ""
     source: str = ""
     confidence: float = 0.0
-    action: str = ""            # movido | simulado | revisar | error
+    action: str = ""  # movido | simulado | revisar | error
     note: str = ""
     warnings: list = field(default_factory=list)
 
@@ -41,16 +46,30 @@ class Result:
 def _from_tags(path) -> dict | None:
     t = tags.read(path)
     if t.get("artist") and t.get("title"):
-        return {"artist": t["artist"], "title": t["title"], "feat": "", "extra": "",
-                "category": "song", "confidence": 0.95, "source": "tags"}
+        return {
+            "artist": t["artist"],
+            "title": t["title"],
+            "feat": "",
+            "extra": "",
+            "category": "song",
+            "confidence": 0.95,
+            "source": "tags",
+        }
     return None
 
 
 def _from_fingerprint(path) -> dict | None:
     r = fingerprint.identify(path)
     if r:
-        return {"artist": r["artist"], "title": r["title"], "feat": "", "extra": "",
-                "category": "song", "confidence": r["score"], "source": "fingerprint"}
+        return {
+            "artist": r["artist"],
+            "title": r["title"],
+            "feat": "",
+            "extra": "",
+            "category": "song",
+            "confidence": r["score"],
+            "source": "fingerprint",
+        }
     return None
 
 
@@ -63,7 +82,7 @@ def _from_heuristic(path, vocab) -> dict | None:
 
 def _from_ai(path, vocab) -> dict | None:
     seconds = tags.duration(path)
-    pista = f"Duracion: {int(seconds//60)}:{int(seconds%60):02d}\n" if seconds else ""
+    pista = f"Duracion: {int(seconds // 60)}:{int(seconds % 60):02d}\n" if seconds else ""
     r = ai.resolve(os.path.basename(path), set(vocab.values()), pista)
     if not r or r.get("error"):
         return r
@@ -81,7 +100,7 @@ def _safe(step, *args):
     """
     try:
         return step(*args)
-    except Exception:                                       # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -97,13 +116,20 @@ def resolve(path, vocab) -> dict:
     d = _safe(_from_ai, path, vocab)
     if d and not d.get("error"):
         return d
-    return {"artist": "", "title": names.clean(Path(path).stem), "feat": "",
-            "extra": "", "category": "unknown", "confidence": 0.0,
-            "source": d.get("error", "none") if d else "none"}
+    return {
+        "artist": "",
+        "title": names.clean(Path(path).stem),
+        "feat": "",
+        "extra": "",
+        "category": "unknown",
+        "confidence": 0.0,
+        "source": d.get("error", "none") if d else "none",
+    }
 
 
-def process(path, vocab=None, dry_run=False, escribir_tags=None,
-             convert_mp3=None, known=None) -> Result:
+def process(
+    path, vocab=None, dry_run=False, escribir_tags=None, convert_mp3=None, known=None
+) -> Result:
     """Identifica, renombra y archiva un archivo.
 
     `known` salta la cascada: es {artist, title, feat, source} ya decidido
@@ -121,13 +147,16 @@ def process(path, vocab=None, dry_run=False, escribir_tags=None,
     if convert_mp3 and not dry_run and convert.needs_convert(path):
         c = convert.convert(path, config.MP3_QUALITY, config.KEEP_ORIGINAL)
         if c.get("ok"):
-            pct = c['saved_percent']
-            res.warnings.append("convertido a mp3 (" +
-                (f"{pct}% mas ligero" if pct > 0 else f"{abs(pct)}% mas pesado") + ")")
+            pct = c["saved_percent"]
+            res.warnings.append(
+                "convertido a mp3 ("
+                + (f"{pct}% mas ligero" if pct > 0 else f"{abs(pct)}% mas pesado")
+                + ")"
+            )
             path = Path(c["target"])
             res.source_path = path
         elif not c.get("skipped"):
-            res.warnings.append(f"no se pudo convertir: {c.get('reason','')}")
+            res.warnings.append(f"no se pudo convertir: {c.get('reason', '')}")
     elif convert_mp3 and dry_run and convert.needs_convert(path):
         res.warnings.append("se convertiria a mp3")
 
@@ -138,7 +167,7 @@ def process(path, vocab=None, dry_run=False, escribir_tags=None,
 
     # limpieza final segun las reglas de la casa
     res.artist = names.clean(res.artist) if res.artist else ""
-    res.title  = names.clean(res.title) or path.stem
+    res.title = names.clean(res.title) or path.stem
     ext = path.suffix.lower()
 
     category = d.get("category", "song")
@@ -158,9 +187,11 @@ def process(path, vocab=None, dry_run=False, escribir_tags=None,
 
     folder.mkdir(parents=True, exist_ok=True)
     name = names.free_name(str(folder), name)
-    if name != names.final_name(res.artist, res.title, res.feat, res.extra, ext):
-        if " - r" in Path(name).stem:
-            res.warnings.append("posible duplicado: se guardo con sufijo ' - r'")
+    if (
+        name != names.final_name(res.artist, res.title, res.feat, res.extra, ext)
+        and " - r" in Path(name).stem
+    ):
+        res.warnings.append("posible duplicado: se guardo con sufijo ' - r'")
     res.target = folder / name
 
     if dry_run:
@@ -168,24 +199,40 @@ def process(path, vocab=None, dry_run=False, escribir_tags=None,
         return res
     try:
         shutil.move(str(path), str(res.target))
-        if escribir_tags and res.artist:
-            if not tags.write(res.target, res.artist, res.title):
-                res.warnings.append("no se pudieron escribir las etiquetas")
+        if escribir_tags and res.artist and not tags.write(res.target, res.artist, res.title):
+            res.warnings.append("no se pudieron escribir las etiquetas")
         if res.action != "review":
             res.action = "moved"
         if res.artist and names._flat(res.artist) not in vocab:
             vocab[names._flat(res.artist)] = res.artist
     except Exception as e:
+        # un archivo que no se puede mover no para la importacion: se apunta
+        log.warning("no se pudo archivar %s", path, exc_info=True)
         res.action, res.note = "error", str(e)
     return res
 
 
-def process_inbox(dry_run=False, limit=None, convert_mp3=None) -> list[Result]:
-    """Procesa todo lo que haya en la carpeta Entrada/."""
-    config.INBOX.mkdir(parents=True, exist_ok=True)
+def process_inbox(dry_run=False, limit=None, convert_mp3=None, progress=None) -> list[Result]:
+    """Procesa todo lo que haya en la carpeta Entrada/.
+
+    `progress(hechos, total, nombre)` cuenta el avance (el trabajo «importacion»)."""
+    if not config.INBOX.is_dir():
+        # sin Entrada no hay nada que importar; y crearla aqui podria hacer
+        # reaparecer vacia una carpeta de musica movida (library.ensure_folder)
+        if progress:
+            progress(0, 0, "")
+        return []
     vocab = names.vocabulary(config.ARTISTS_DIR)
-    pendientes = sorted(p for p in config.INBOX.iterdir()
-                        if p.is_file() and p.suffix.lower() in config.EXTENSIONS)
+    pendientes = sorted(
+        p for p in config.INBOX.iterdir() if p.is_file() and p.suffix.lower() in config.EXTENSIONS
+    )
     if limit:
         pendientes = pendientes[:limit]
-    return [process(p, vocab, dry_run, convert_mp3=convert_mp3) for p in pendientes]
+    out = []
+    for i, p in enumerate(pendientes):
+        if progress:
+            progress(i, len(pendientes), p.name)
+        out.append(process(p, vocab, dry_run, convert_mp3=convert_mp3))
+    if progress:
+        progress(len(pendientes), len(pendientes), "")
+    return out

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Descarga de audio desde YouTube.
 
 Baja el mejor audio disponible, lo convierte a mp3, le pega la caratula y lo
@@ -16,13 +15,20 @@ limpio y deciden la huella acustica, el heuristico o la IA.
 yt-dlp es opcional: si no esta instalado la funcion queda desactivada y el
 resto de la app sigue igual.
 """
+
+import logging
 import re
 import shutil
 import tempfile
 import threading
+import time
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any, cast
 
-from . import config, convert, tags, ingest, names
+from . import config, convert, ingest, names, tags, ytdlp
+
+log = logging.getLogger(__name__)
 
 # calidad de la app -> kbps del mp3. "variable" deja que lame elija (V0).
 QUALITY_KBPS = {"high": "320", "medium": "192", "variable": "0", "copy": "256"}
@@ -43,8 +49,16 @@ class Canceled(Exception):
 # Estado de la descarga en curso. Vive aqui y no en la API porque lo comparten
 # la pagina de Descargas y el asistente: una sola descarga a la vez y un solo
 # sitio donde mirar como va.
-STATE: dict = {"active": False, "phase": "", "name": "", "percent": 0.0,
-                "index": 0, "total": 0, "results": [], "error": ""}
+STATE: dict = {
+    "active": False,
+    "phase": "",
+    "name": "",
+    "percent": 0.0,
+    "index": 0,
+    "total": 0,
+    "results": [],
+    "error": "",
+}
 _CANCELAR = {"requested": False}
 # Comprobar que no hay nada en marcha y quedarse el turno van juntos bajo el
 # mismo cerrojo: dos peticiones seguidas arrancaban dos descargas.
@@ -68,8 +82,18 @@ def claim() -> bool:
         if STATE["active"]:
             return False
         _CANCELAR["requested"] = False
-        STATE.update({"active": True, "phase": "starting", "name": "", "percent": 0.0,
-                      "index": 0, "total": 0, "results": [], "error": ""})
+        STATE.update(
+            {
+                "active": True,
+                "phase": "starting",
+                "name": "",
+                "percent": 0.0,
+                "index": 0,
+                "total": 0,
+                "results": [],
+                "error": "",
+            }
+        )
         return True
 
 
@@ -93,11 +117,8 @@ def _publish(p: dict) -> None:
 
 
 def _yt_dlp():
-    try:
-        import yt_dlp
-        return yt_dlp
-    except ImportError:
-        return None
+    """El yt-dlp en uso: el que se bajo al actualizar, o el de la app (ver `ytdlp`)."""
+    return ytdlp.module()
 
 
 def _installed() -> bool:
@@ -106,19 +127,31 @@ def _installed() -> bool:
     Importarlo cuesta un cuarto de segundo, y `available()` la consulta
     `/api/status`, que la app pregunta continuamente: la primera pantalla se
     quedaba esperando a que cargara un modulo que quiza no se use nunca.
-    El import de verdad se hace al bajar algo.
+    El import de verdad se hace al bajar algo. Si no esta, se vuelve a mirar
+    al rato: una actualizacion desde la app lo puede traer.
     """
-    global _INSTALLED
-    if _INSTALLED is None:
-        from importlib.util import find_spec
-        try:
-            _INSTALLED = find_spec("yt_dlp") is not None
-        except (ImportError, ValueError):
-            _INSTALLED = False
+    global _INSTALLED, _CHECKED
+    if _INSTALLED or (_INSTALLED is False and time.monotonic() - _CHECKED < 30):
+        return bool(_INSTALLED)
+    from importlib.util import find_spec
+
+    ytdlp.prepare()
+    try:
+        _INSTALLED = find_spec("yt_dlp") is not None
+    except (ImportError, ValueError):
+        _INSTALLED = False
+    _CHECKED = time.monotonic()
     return _INSTALLED
 
 
-_INSTALLED = None
+_INSTALLED: bool | None = None
+_CHECKED = 0.0
+
+
+def recheck() -> None:
+    """Que la proxima pregunta vuelva a mirar si yt-dlp esta (tras actualizarlo)."""
+    global _INSTALLED
+    _INSTALLED = None
 
 
 def available() -> bool:
@@ -127,7 +160,7 @@ def available() -> bool:
 
 def unavailable_reason() -> str:
     if not _installed():
-        return "falta yt-dlp (pip install yt-dlp)"
+        return "falta yt-dlp: actualizalo desde la pagina de Descargas (o pip install yt-dlp)"
     if not convert.available():
         return "falta ffmpeg"
     return ""
@@ -137,15 +170,22 @@ def unavailable_reason() -> str:
 # alguno, asi que «https://loquesea.example/?youtube.com» contaba como
 # YouTube; y si no era ninguno se le pasaba igual a yt-dlp, cuyo extractor
 # generico descarga de cualquier sitio, incluidas direcciones de la red local.
-ALLOWED_HOSTS = frozenset({
-    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
-    "youtu.be", "www.youtu.be",
-})
+ALLOWED_HOSTS = frozenset(
+    {
+        "youtube.com",
+        "www.youtube.com",
+        "m.youtube.com",
+        "music.youtube.com",
+        "youtu.be",
+        "www.youtu.be",
+    }
+)
 
 
 def host_of(text: str) -> str:
     """El dominio de una direccion, o cadena vacia si no lo es."""
     import urllib.parse
+
     t = (text or "").strip()
     if not t.lower().startswith(("http://", "https://")):
         return ""
@@ -172,7 +212,8 @@ def normalize(inbox: str, results=5) -> str:
     if host_of(e):
         raise NotYouTube(
             f"«{host_of(e)}» no es YouTube. Pega un enlace de YouTube, "
-            "o escribe lo que buscas y lo busco alli.")
+            "o escribe lo que buscas y lo busco alli."
+        )
     return f"ytsearch{max(1, int(results))}:{e}"
 
 
@@ -190,13 +231,20 @@ def wanted(info, *, incomplete=False):
 
 def _base_options(quiet=True) -> dict:
     return {
-        "quiet": quiet, "no_warnings": quiet, "noprogress": True,
-        "ignoreerrors": True, "consoletitle": False,
-        "nocheckcertificate": False, "retries": 3, "socket_timeout": 30,
+        "quiet": quiet,
+        "no_warnings": quiet,
+        "noprogress": True,
+        "ignoreerrors": True,
+        "consoletitle": False,
+        "nocheckcertificate": False,
+        "retries": 3,
+        "socket_timeout": 30,
+        # el motor de JavaScript para los retos de YouTube (deno, node...)
+        **ytdlp.options(),
     }
 
 
-def _pick_fields(d: dict) -> dict:
+def _pick_fields(d: Mapping[str, Any]) -> dict:
     """Los pocos campos que nos interesan de lo que devuelve yt-dlp."""
     return {
         "id": d.get("id") or "",
@@ -214,6 +262,11 @@ def _pick_fields(d: dict) -> dict:
 
 def info(inbox: str, results=5) -> dict:
     """Consulta sin descargar: sirve para enseñar que se va a bajar."""
+    with ytdlp.using():
+        return _info(inbox, results)
+
+
+def _info(inbox: str, results=5) -> dict:
     yt = _yt_dlp()
     if yt is None:
         return {"ok": False, "reason": unavailable_reason(), "items": []}
@@ -224,13 +277,18 @@ def info(inbox: str, results=5) -> dict:
     # `noplaylist` salvo que se haya pegado un enlace de lista a proposito: sin
     # esto, pegar «watch?v=X&list=Y» consultaba la lista entera.
     explicit_list = "list=" in target_url
-    options = {**_base_options(), "extract_flat": "in_playlist", "skip_download": True,
-               "noplaylist": not explicit_list, "playlist_items": PLAYLIST_LIMIT,
-               "match_filter": wanted}
+    options = {
+        **_base_options(),
+        "extract_flat": "in_playlist",
+        "skip_download": True,
+        "noplaylist": not explicit_list,
+        "playlist_items": PLAYLIST_LIMIT,
+        "match_filter": wanted,
+    }
     try:
-        with yt.YoutubeDL(options) as ydl:
+        with yt.YoutubeDL(cast(Any, options)) as ydl:
             data = ydl.extract_info(target_url, download=False)
-    except Exception as e:                                  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"ok": False, "reason": str(e)[:200], "items": []}
     if not data:
         return {"ok": False, "reason": "no se encontro nada", "items": []}
@@ -259,14 +317,16 @@ def _tag_if_trustworthy(path: Path, data: dict) -> bool:
     artist = re.sub(r"\s*-\s*topic\s*$", "", artist, flags=re.IGNORECASE).strip()
     if not artist:
         return False
-    tags.write(path, artist=names.clean(artist),
-                       title=names.clean(track),
-                       album=names.clean(data.get("album", "")))
+    tags.write(
+        path,
+        artist=names.clean(artist),
+        title=names.clean(track),
+        album=names.clean(data.get("album", "")),
+    )
     return True
 
 
-def download_one(target_url, quality="high", folder=None, progress=None,
-                  cancel=None) -> dict:
+def download_one(target_url, quality="high", folder=None, progress=None, cancel=None) -> dict:
     """Baja un video y devuelve el mp3 ya listo en `carpeta` (por defecto Entrada/).
 
     `progress(dict)` recibe {fase, porcentaje, nombre}. `cancelar()` devuelve
@@ -276,8 +336,12 @@ def download_one(target_url, quality="high", folder=None, progress=None,
     if yt is None or not convert.available():
         return {"ok": False, "reason": unavailable_reason()}
 
-    folder = Path(folder) if folder else config.INBOX
-    folder.mkdir(parents=True, exist_ok=True)
+    from . import library  # aqui dentro: library no debe cargar yt-dlp
+
+    try:
+        folder = library.ensure_folder(Path(folder) if folder else config.INBOX)
+    except library.FolderGone as e:
+        return {"ok": False, "reason": str(e)}
     kbps = QUALITY_KBPS.get(quality, QUALITY_KBPS["high"])
 
     def hook(status):
@@ -288,9 +352,13 @@ def download_one(target_url, quality="high", folder=None, progress=None,
         if status.get("status") == "downloading":
             total = status.get("total_bytes") or status.get("total_bytes_estimate") or 0
             done = status.get("downloaded_bytes") or 0
-            progress({"phase": "downloading",
-                      "percent": round(100 * done / total, 1) if total else 0,
-                      "name": Path(status.get("filename") or "").name})
+            progress(
+                {
+                    "phase": "downloading",
+                    "percent": round(100 * done / total, 1) if total else 0,
+                    "name": Path(status.get("filename") or "").name,
+                }
+            )
         elif status.get("status") == "finished":
             progress({"phase": "converting", "percent": 100, "name": ""})
 
@@ -307,24 +375,23 @@ def download_one(target_url, quality="high", folder=None, progress=None,
             "match_filter": wanted,
             "progress_hooks": [hook],
             "postprocessors": [
-                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3",
-                 "preferredquality": kbps},
+                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": kbps},
                 # la caratula si la queremos: es la miniatura del video
                 {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
                 {"key": "EmbedThumbnail", "already_have_thumbnail": False},
             ],
         }
         try:
-            with yt.YoutubeDL(options) as ydl:
+            with yt.YoutubeDL(cast(Any, options)) as ydl:
                 data = ydl.extract_info(target_url, download=True)
         except Canceled:
             return {"ok": False, "reason": "canceled", "canceled": True}
-        except Exception as e:                              # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             return {"ok": False, "reason": str(e)[:200]}
         if not data:
             return {"ok": False, "reason": "no se pudo leer el video"}
-        if data.get("entries"):                            # vino una lista: el primero
-            entries = [e for e in data["entries"] if e]
+        if data.get("entries"):  # vino una lista: el primero
+            entries = [e for e in data.get("entries") or [] if e]
             if not entries:
                 return {"ok": False, "reason": "lista vacia"}
             data = entries[0]
@@ -338,43 +405,76 @@ def download_one(target_url, quality="high", folder=None, progress=None,
         target = folder / names.free_name(str(folder), _provisional_name(d) + ".mp3")
         shutil.move(str(mp3), str(target))
 
-    return {"ok": True, "file": str(target), "tagged": tagged,
-            "title": d["title"], "channel": d["channel"], "duration": d["duration"],
-            "url": d["url"], "id": d["id"], "kbps": kbps}
+    return {
+        "ok": True,
+        "file": str(target),
+        "tagged": tagged,
+        "title": d["title"],
+        "channel": d["channel"],
+        "duration": d["duration"],
+        "url": d["url"],
+        "id": d["id"],
+        "kbps": kbps,
+    }
 
 
 def already_in_library(title: str) -> list[dict]:
     """Lo que ya tienes en la biblioteca y parece esta misma cancion."""
     from . import library
+
     return library.find_by_match_key(names.match_key(names.clean(title or "")))
 
 
 def _log(entry: dict, query: str, source: str, quality: str) -> None:
     """Deja constancia en el historial. Que falle no debe tumbar la descarga."""
     from . import library
+
     try:
-        library.log_download({
-            "source": source, "query": query, "quality": quality,
-            "title": entry.get("title") or entry.get("source") or "",
-            "channel": entry.get("channel", ""), "url": entry.get("url", ""),
-            "ok": entry.get("ok"), "already": entry.get("already_there"),
-            "reason": entry.get("reason", ""), "song_id": entry.get("id"),
-            "artist": entry.get("artist", ""), "song": entry.get("song", ""),
-            "target": entry.get("target", ""), "kbps": entry.get("kbps", ""),
-        })
-    except Exception:                                       # noqa: BLE001
-        pass
+        library.log_download(
+            {
+                "source": source,
+                "query": query,
+                "quality": quality,
+                "title": entry.get("title") or entry.get("source") or "",
+                "channel": entry.get("channel", ""),
+                "url": entry.get("url", ""),
+                "ok": entry.get("ok"),
+                "already": entry.get("already_there"),
+                "reason": entry.get("reason", ""),
+                "song_id": entry.get("id"),
+                "artist": entry.get("artist", ""),
+                "song": entry.get("song", ""),
+                "target": entry.get("target", ""),
+                "kbps": entry.get("kbps", ""),
+            }
+        )
+    except Exception:
+        log.debug("no se pudo apuntar la descarga en el historial", exc_info=True)
 
 
-def download(inbox: str, quality=None, file_it=True, results=5, force=False,
-             source="manual", progress=None, cancel=None) -> list[dict]:
+def download(
+    inbox: str,
+    quality=None,
+    file_it=True,
+    results=5,
+    force=False,
+    source="manual",
+    progress=None,
+    cancel=None,
+) -> list[dict]:
     """Descarga (uno, lista o busqueda) y, si `archivar`, lo pasa por la tuberia.
 
     Archivar significa lo mismo que en Entrada/: identificar, renombrar segun
-    las reglas de la casa y mover a Artistas/<Artista>/.
+    las reglas de la casa y mover a Artistas/<Artista>/. yt-dlp no se cambia
+    por otra version mientras tanto (ver `ytdlp.using`).
     """
+    with ytdlp.using():
+        return _download(inbox, quality, file_it, results, force, source, progress, cancel)
+
+
+def _download(inbox, quality, file_it, results, force, source, progress, cancel) -> list[dict]:
     quality = quality or config.MP3_QUALITY
-    meta = info(inbox, results)
+    meta = _info(inbox, results)
     if not meta["ok"]:
         return [{"ok": False, "reason": meta["reason"]}]
 
@@ -386,26 +486,40 @@ def download(inbox: str, quality=None, file_it=True, results=5, force=False,
             out.append({"ok": False, "reason": "canceled", "canceled": True})
             break
         if progress:
-            progress({"phase": "starting", "index": i, "total": len(items),
-                      "name": t["title"], "percent": 0})
+            progress(
+                {
+                    "phase": "starting",
+                    "index": i,
+                    "total": len(items),
+                    "name": t["title"],
+                    "percent": 0,
+                }
+            )
 
         # Si ya la tienes, no se baja: se avisa y se deja que tu decidas.
         # `force` la baja igualmente y el sufijo « - r» la marca como repetida.
         if not force:
             mine = already_in_library(t["title"])
             if mine:
-                repetida = {"ok": False, "already_there": True, "title": t["title"],
-                            "url": t["url"], "source": t["title"], "requested": inbox,
-                            "reason": "ya la tienes en la biblioteca",
-                            "matches": mine[:5]}
+                repetida = {
+                    "ok": False,
+                    "already_there": True,
+                    "title": t["title"],
+                    "url": t["url"],
+                    "source": t["title"],
+                    "requested": inbox,
+                    "reason": "ya la tienes en la biblioteca",
+                    "matches": mine[:5],
+                }
                 _log(repetida, inbox, source, quality)
                 out.append(repetida)
                 continue
 
         def step(p, _i=i, _t=t):
             if progress:
-                progress({**p, "index": _i, "total": len(items),
-                          "name": p.get("name") or _t["title"]})
+                progress(
+                    {**p, "index": _i, "total": len(items), "name": p.get("name") or _t["title"]}
+                )
 
         # Si se va a archivar, la descarga se posa en un temporal y no en
         # Entrada/. Si cae en Entrada y ya hay una copia, `free_name` le pone
@@ -413,8 +527,9 @@ def download(inbox: str, quality=None, file_it=True, results=5, force=False,
         # queda dentro del titulo para siempre.
         stage = tempfile.mkdtemp(prefix="danplay-stage-") if file_it else None
         try:
-            r = download_one(t["url"] or t["id"], quality, folder=stage,
-                             progress=step, cancel=cancel)
+            r = download_one(
+                t["url"] or t["id"], quality, folder=stage, progress=step, cancel=cancel
+            )
             r["forced"] = bool(force)
             r["source"] = t["title"]
             # lo que se pidio (URL o texto): el chat lo usa para saber si esta
@@ -422,13 +537,24 @@ def download(inbox: str, quality=None, file_it=True, results=5, force=False,
             r["requested"] = inbox
             if r.get("ok") and file_it:
                 if progress:
-                    progress({"phase": "filing", "index": i, "total": len(items),
-                              "name": t["title"], "percent": 100})
+                    progress(
+                        {
+                            "phase": "filing",
+                            "index": i,
+                            "total": len(items),
+                            "name": t["title"],
+                            "percent": 100,
+                        }
+                    )
                 # El nombre lo pone YouTube (limpio), no la huella acustica:
                 # una «Drum Cam» de una cancion no es del artista original.
-                known = names.from_video(r.get("title") or t["title"],
-                                         r.get("channel") or t.get("channel", ""),
-                                         vocab, t.get("artist", ""), t.get("track", ""))
+                known = names.from_video(
+                    r.get("title") or t["title"],
+                    r.get("channel") or t.get("channel", ""),
+                    vocab,
+                    t.get("artist", ""),
+                    t.get("track", ""),
+                )
                 res = ingest.process(r["file"], vocab, convert_mp3=False, known=known)
                 r["action"] = res.action
                 r["artist"] = res.artist
@@ -440,6 +566,7 @@ def download(inbox: str, quality=None, file_it=True, results=5, force=False,
                 # al indice, o la cancion existe en el disco pero no en la app
                 if res.target:
                     from . import library
+
                     nueva = library.index_file(str(res.target))
                     if nueva:
                         r["id"] = nueva["id"]
@@ -456,18 +583,33 @@ def download(inbox: str, quality=None, file_it=True, results=5, force=False,
     return out
 
 
-def run_job(query: str, quality=None, file_it=True, results=5, force=False,
-            source="manual", claimed=False) -> list[dict]:
+def run_job(
+    query: str, quality=None, file_it=True, results=5, force=False, source="manual", claimed=False
+) -> list[dict]:
     """`download` publicando el avance en STATE. Solo una descarga a la vez.
 
     `claimed=True` dice que quien llama ya se quedo el turno con `claim()`.
     """
-    return run_many([query], quality=quality, file_it=file_it, results=results,
-                    force=force, source=source, claimed=claimed)
+    return run_many(
+        [query],
+        quality=quality,
+        file_it=file_it,
+        results=results,
+        force=force,
+        source=source,
+        claimed=claimed,
+    )
 
 
-def run_many(queries: list[str], quality=None, file_it=True, results=1,
-             force=False, source="manual", claimed=False) -> list[dict]:
+def run_many(
+    queries: list[str],
+    quality=None,
+    file_it=True,
+    results=1,
+    force=False,
+    source="manual",
+    claimed=False,
+) -> list[dict]:
     """Varias descargas seguidas bajo un solo turno; el avance en STATE.
 
     Es lo que pide el asistente: «bajame estas tres». Cada elemento va por
@@ -501,13 +643,20 @@ def run_many(queries: list[str], quality=None, file_it=True, results=1,
                     p["total"] = _offset + int(p.get("total") or 0) + _pending
                 _publish(p)
 
-            rs = download(query, quality=quality, file_it=file_it, results=results,
-                          force=force, source=source, progress=step,
-                          cancel=canceled)
+            rs = download(
+                query,
+                quality=quality,
+                file_it=file_it,
+                results=results,
+                force=force,
+                source=source,
+                progress=step,
+                cancel=canceled,
+            )
             done.extend(rs)
             STATE["results"] = list(done)
         return done
-    except Exception as e:                                  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         STATE["error"] = str(e)[:200]
         done.append({"ok": False, "reason": str(e)[:200]})
         STATE["results"] = list(done)

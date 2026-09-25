@@ -1,13 +1,15 @@
-# -*- coding: utf-8 -*-
 """Identificacion por huella acustica: Chromaprint -> AcoustID -> MusicBrainz.
 
 Reconoce la cancion por como suena, no por el nombre del archivo.
 Necesita el binario `fpcalc` (paquete libchromaprint-tools) y una API key gratuita.
 """
-import logging, os
+
+import logging
+import os
+
 from . import config, convert
 
-log = logging.getLogger("danplay")
+log = logging.getLogger(__name__)
 
 
 def available() -> bool:
@@ -50,9 +52,10 @@ def identify(path, minimum=0.75) -> dict | None:
     # la llamada, un error del servicio (clave invalida, cuota, caida) escapa
     # al recorrer y se lleva por delante toda la importacion.
     try:
-        results = list(acoustid.match(config.ACOUSTID_API_KEY, str(path),
-                                      meta="recordings releases"))
-    except Exception:                                       # noqa: BLE001
+        results = list(
+            acoustid.match(config.ACOUSTID_API_KEY, str(path), meta="recordings releases")
+        )
+    except Exception:
         log.warning("AcoustID no respondio para %s", path, exc_info=True)
         return None
 
@@ -63,6 +66,12 @@ def identify(path, minimum=0.75) -> dict | None:
         if score < minimum:
             continue
         if best is None or score > best["score"]:
-            best = {"artist": artist, "title": title, "album": "", "year": "",
-                    "score": round(float(score), 3), "source": "fingerprint"}
+            best = {
+                "artist": artist,
+                "title": title,
+                "album": "",
+                "year": "",
+                "score": round(float(score), 3),
+                "source": "fingerprint",
+            }
     return best

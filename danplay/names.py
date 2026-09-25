@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Limpieza y normalizacion de nombres.
 
 Reglas acordadas con el usuario:
@@ -8,43 +7,112 @@ Reglas acordadas con el usuario:
   - fuera el ruido de descargas (VIDEO OFICIAL, LETRA, y2mate.com, ...)
   - duplicados: sufijo " - r", " - r2", ...
 """
-import logging, os, re, unicodedata
 
-log = logging.getLogger("danplay")
+import logging
+import os
+import re
+import unicodedata
+
+log = logging.getLogger(__name__)
 
 NOISE = [
-    r"lyric\s*video\s*oficial", r"official\s*(lyric\s*)?video", r"videoclip\s*oficial",
-    r"video\s*oficial", r"video\s*lyric", r"video\s*con\s*letras?", r"video\s*sencillo",
-    r"cancion\s*oficial", r"letras?\s*oficiales?", r"con\s*letras?", r"\bletras?\b",
-    r"\bvideoclip\b", r"\bvideo\b", r"\boficial\b", r"\bofficial\b", r"\blyrics?\b",
-    r"m[uú]sica\s*cristiana", r"la\s*mejor\s*musica\s*cristiana",
-    r"\d{2,3}\s*kbps", r"\b\d{3}\s*k\b", r"\bhd\b", r"\bfull\s*hd\b", r"\b4k\b",
-    r"y2mate\.com\s*-*", r"ssvid\.net\s*-*", r"savefrom\.net", r"ceenaija\.com",
-    r"_+m4a_+\d*k_*", r"\bvevo\b", r"\bm4a\b", r"\bmp3\b", r"\bwav\b",
+    # «Official Music Video», «Official Audio», «Official Lyric Video»,
+    # «Official Visualizer», «Music Video»: lo que YouTube pega al titulo. Van
+    # antes que las sueltas («official», «video») para que no quede un
+    # «(Music)» huerfano en el nombre.
+    r"official\s*(?:music\s*|lyrics?\s*|hd\s*)?(?:video|audio|visuali[sz]er)",
+    r"music\s*video",
+    r"\baudio\s*(?:oficial|official)\b",
+    r"\bvisuali[sz]er\b",
+    r"[\(\[]\s*audio\s*[\)\]]",
+    r"lyric\s*video\s*oficial",
+    r"official\s*(lyric\s*)?video",
+    r"videoclip\s*oficial",
+    r"video\s*oficial",
+    r"video\s*lyric",
+    r"video\s*con\s*letras?",
+    r"video\s*sencillo",
+    r"cancion\s*oficial",
+    r"letras?\s*oficiales?",
+    r"con\s*letras?",
+    r"\bletras?\b",
+    r"\bvideoclip\b",
+    r"\bvideo\b",
+    r"\boficial\b",
+    r"\bofficial\b",
+    r"\blyrics?\b",
+    r"m[uú]sica\s*cristiana",
+    r"la\s*mejor\s*musica\s*cristiana",
+    r"\d{2,3}\s*kbps",
+    r"\b\d{3}\s*k\b",
+    r"\bhd\b",
+    r"\bfull\s*hd\b",
+    r"\b4k\b",
+    r"y2mate\.com\s*-*",
+    r"ssvid\.net\s*-*",
+    r"savefrom\.net",
+    r"ceenaija\.com",
+    r"_+m4a_+\d*k_*",
+    r"\bvevo\b",
+    r"\bm4a\b",
+    r"\bmp3\b",
+    r"\bwav\b",
 ]
 SEPARATORS = re.compile(r"\s*[-–—|·:]\s*|\s{2,}")
-INVALID_CHARS   = str.maketrans({c: "" for c in '\\/:*?"<>|'})
-CONTROL_CHARS     = re.compile("[​-‏‪-‮⁦-⁩]")
+INVALID_CHARS = str.maketrans(dict.fromkeys('\\/:*?"<>|', ""))
+# Caracteres de control: los ASCII (y los C1) y los invisibles que cambian la
+# direccion del texto o no ocupan nada (U+200B-U+200F, U+202A-U+202E,
+# U+2066-U+2069). En un nombre de archivo no pintan nada, y los de direccion
+# sirven para disfrazar una extension. Tabuladores y saltos de linea pasan a
+# espacio: «a\nb» es «a b», no «ab».
+CONTROL_CHARS = re.compile("[\x00-\x08\x0e-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069]")
+_SPACE_CONTROLS = re.compile("[\t\n\r\x0b\x0c]")
+
+
+def strip_controls(s: str) -> str:
+    """El texto sin caracteres de control (los saltos, como espacios)."""
+    return CONTROL_CHARS.sub("", _SPACE_CONTROLS.sub(" ", s))
+
+
 # "feat./ft." vale en cualquier sitio; "con" SOLO dentro de parentesis,
 # porque hay titulos legitimos que empiezan por con ("Con Poder", "Con Todo").
-FEAT = re.compile(r"\s*[\(\[]?\s*\b(?:feat|ft|featuring)\b\.?\s+"
-                  r"([^()\[\]]+?)\s*[\)\]]?\s*(?=$|[-–—|(\[])", re.IGNORECASE)
-FEAT_IN_PARENS = re.compile(r"\s*[\(\[]\s*(?:feat|ft|featuring|con|junto\s+a)\b\.?\s+"
-                        r"([^()\[\]]+?)\s*[\)\]]", re.IGNORECASE)
+FEAT = re.compile(
+    r"\s*[\(\[]?\s*\b(?:feat|ft|featuring)\b\.?\s+"
+    r"([^()\[\]]+?)\s*[\)\]]?\s*(?=$|[-–—|(\[])",
+    re.IGNORECASE,
+)
+FEAT_IN_PARENS = re.compile(
+    r"\s*[\(\[]\s*(?:feat|ft|featuring|con|junto\s+a)\b\.?\s+"
+    r"([^()\[\]]+?)\s*[\)\]]",
+    re.IGNORECASE,
+)
 
 
 def strip_accents(s: str) -> str:
-    """Quita tildes y diacriticos pero respeta la ñ."""
-    s = s.replace("ñ", "\x00").replace("Ñ", "\x01")
-    s = "".join(c for c in unicodedata.normalize("NFD", s)
-                if unicodedata.category(c) != "Mn")
-    return s.replace("\x00", "ñ").replace("\x01", "Ñ")
+    """Quita tildes y diacriticos pero respeta la ñ.
+
+    Se descompone cada letra en base + marcas y se tiran las marcas, salvo la
+    virgulilla que va sobre una n. Antes se escondia la ñ tras un «\\x00» y un
+    «\\x01», y esos caracteres, si venian en el texto, salian convertidos en
+    ñ: «Ma\\x00ana» daba «Mañana» y «Barak\\x01», «BarakÑ».
+    """
+    out: list[str] = []
+    for c in unicodedata.normalize("NFD", s):
+        if unicodedata.category(c) == "Mn":
+            if c == "\u0303" and out and out[-1] in "nN":
+                out.append(c)
+            continue
+        out.append(c)
+    return unicodedata.normalize("NFC", "".join(out))
 
 
 def capitalize_words(s: str) -> str:
     """Palabras enteras en MAYUSCULA -> Capitalizadas. Respeta CamelCase."""
-    return re.sub(r"[A-Za-zÑñ]{2,}",
-                  lambda m: m.group(0).capitalize() if m.group(0).isupper() else m.group(0), s)
+    return re.sub(
+        r"[A-Za-zÑñ]{2,}",
+        lambda m: m.group(0).capitalize() if m.group(0).isupper() else m.group(0),
+        s,
+    )
 
 
 def split_glued(s: str) -> str:
@@ -73,7 +141,7 @@ def strip_noise(s: str) -> str:
 
 def clean(s: str) -> str:
     """Pipeline completo sobre un texto sin extension."""
-    s = CONTROL_CHARS.sub("", s)
+    s = strip_controls(s)
     s = s.replace("_", " ").replace("⁄", "-").replace("·", " ")
     s = strip_noise(s)
     s = strip_accents(s)
@@ -94,9 +162,14 @@ def clean(s: str) -> str:
 # extension y sin distinguir mayusculas: «Con» (hay un titulo «Con Poder») o
 # «Aux» darian una carpeta imposible de crear en un disco NTFS. En Linux se
 # aplica igual para que la biblioteca se pueda copiar a un Windows tal cual.
-WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL",
-                    *(f"COM{i}" for i in range(1, 10)),
-                    *(f"LPT{i}" for i in range(1, 10))}
+WINDOWS_RESERVED = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
 
 
 def sanitize(s: str) -> str:
@@ -106,7 +179,7 @@ def sanitize(s: str) -> str:
     (Windows los recorta en silencio y el nombre deja de coincidir) y añade
     «_» a los nombres reservados.
     """
-    s = CONTROL_CHARS.sub("", s).translate(INVALID_CHARS)
+    s = strip_controls(s).translate(INVALID_CHARS)
     s = re.sub(r"\s{2,}", " ", s).strip(" .")
     stem, ext = os.path.splitext(s)
     if stem.upper() in WINDOWS_RESERVED:
@@ -117,17 +190,18 @@ def sanitize(s: str) -> str:
 def extract_feat(text: str) -> tuple[str, str]:
     """Saca el 'feat. X' del texto. Devuelve (texto_sin_feat, invitados)."""
     guests = []
+
     def _cap(m):
         guests.append(m.group(1).strip(" .,-"))
         return " "
+
     base = FEAT_IN_PARENS.sub(_cap, text)
     base = FEAT.sub(_cap, base)
     base = re.sub(r"\s{2,}", " ", base).strip(" -–—,")
     return base, ", ".join(i for i in guests if i)
 
 
-def final_name(artist: str, title: str, feat: str = "",
-                 extra: str = "", ext: str = ".mp3") -> str:
+def final_name(artist: str, title: str, feat: str = "", extra: str = "", ext: str = ".mp3") -> str:
     """Construye 'Artista - Titulo (feat. X) (extra).ext'."""
     artist, title = sanitize(artist), sanitize(title)
     n = f"{artist} - {title}" if artist else title
@@ -144,10 +218,37 @@ def match_key(s: str) -> str:
     """Clave normalizada para comparar canciones (deteccion de duplicados)."""
     s = strip_accents(os.path.splitext(s)[0]).lower()
     s = strip_noise(s)
-    s = s.replace("'", "").replace("\u2019", "")   # D'Clario y DClario son lo mismo
+    s = s.replace("'", "").replace("\u2019", "")  # D'Clario y DClario son lo mismo
     s = re.sub(r"[^\w\s]", " ", s)
-    stopwords = {"en","vivo","live","de","el","la","los","las","del","al","un","una","a",
-              "tu","mi","es","se","que","no","lo","y","feat","ft","con","the","r","r2"}
+    stopwords = {
+        "en",
+        "vivo",
+        "live",
+        "de",
+        "el",
+        "la",
+        "los",
+        "las",
+        "del",
+        "al",
+        "un",
+        "una",
+        "a",
+        "tu",
+        "mi",
+        "es",
+        "se",
+        "que",
+        "no",
+        "lo",
+        "y",
+        "feat",
+        "ft",
+        "con",
+        "the",
+        "r",
+        "r2",
+    }
     return " ".join(sorted({p for p in s.split() if p not in stopwords and len(p) > 2}))
 
 
@@ -162,6 +263,7 @@ def free_name(folder: str, name: str) -> str:
 
 
 # ---------------------------------------------------------------- vocabulario
+
 
 def _flat(s: str) -> str:
     return re.sub(r"[^\w\s]", "", strip_accents(s).lower()).strip()
@@ -195,9 +297,12 @@ def detect_artist(name: str, vocab: dict) -> dict:
         pos = flat.find(k)
         if pos < 0:
             continue
-        if pos == 0:                       score = 0.92   # el nombre empieza por el artista
-        elif pos + len(k) >= len(flat):    score = 0.86   # termina por el artista
-        else:                              score = 0.60   # aparece en medio
+        if pos == 0:
+            score = 0.92  # el nombre empieza por el artista
+        elif pos + len(k) >= len(flat):
+            score = 0.86  # termina por el artista
+        else:
+            score = 0.60  # aparece en medio
         hits.append((score, len(k), real_name, k))
 
     if not hits:
@@ -211,8 +316,9 @@ def detect_artist(name: str, vocab: dict) -> dict:
     if len(distinct) > 1:
         score = min(score, 0.55)
 
-    pattern = re.compile(r"\s*\b" + r"[\s.'\-]*".join(map(re.escape, k.split())) + r"\b\s*",
-                        re.IGNORECASE)
+    pattern = re.compile(
+        r"\s*\b" + r"[\s.'\-]*".join(map(re.escape, k.split())) + r"\b\s*", re.IGNORECASE
+    )
     title = pattern.sub(" ", strip_accents(base))
     title = re.sub(r"^\s*(feat\.?|ft\.?|con|y|&|x)\s+", "", title, flags=re.IGNORECASE)
     title = re.sub(r"\s{2,}", " ", title).strip(" -–—,")
@@ -222,11 +328,42 @@ def detect_artist(name: str, vocab: dict) -> dict:
     return {"artist": artist, "title": title, "feat": feat, "confidence": round(score, 2)}
 
 
+# El sufijo de las copias repetidas (« - r», « - r2»): no es parte del titulo.
+_DUP_SUFFIX = re.compile(r"\s+-\s+r\d*$", re.IGNORECASE)
+# Lo que separa artista y titulo en «Artista - Titulo», la convencion de la casa.
+_ARTIST_SEP = re.compile(r"\s+[-–—|]\s+")
+
+
+def split_artist_title(file_name: str) -> dict | None:
+    """«Artista - Titulo.mp3» → {artist, title, feat}; None si no hay guion.
+
+    Es la convencion de nombres de DanPlay, asi que para un archivo sin
+    etiquetas y fuera de Artistas/ es lo que dice el propio nombre, no una
+    suposicion: «Palisades - Personal (Official Music Video).mp3» es de
+    Palisades. Se limpia como todo lo demas (ruido de descarga, sufijo de
+    copia repetida) y el «feat.» sale de cualquiera de las dos partes. Con
+    varios guiones, lo de despues del segundo va entre parentesis, como en las
+    descargas: «Palisades - Personal - Live» → «Personal (Live)».
+    """
+    base = clean(os.path.splitext(os.path.basename(file_name))[0])
+    base = _DUP_SUFFIX.sub("", base)
+    parts = [x.strip(" -–—,|") for x in _ARTIST_SEP.split(base, maxsplit=1)]
+    if len(parts) != 2 or not all(parts):
+        return None
+    artist, artist_feat = extract_feat(parts[0])
+    title, title_feat = extract_feat(_tail_to_parens(parts[1]))
+    if not artist or not title:
+        return None
+    feat = ", ".join(x for x in (artist_feat, title_feat) if x)
+    return {"artist": artist, "title": title, "feat": feat}
+
+
 # ------------------------------------------------- nombre desde YouTube
 
 # Lo que sobra en el nombre de un canal para que sea un nombre de artista.
-_CHANNEL_NOISE = re.compile(r"\s*(?:-\s*topic|vevo|official|oficial|\(oficial\)|tv|hd)\s*$",
-                            re.IGNORECASE)
+_CHANNEL_NOISE = re.compile(
+    r"\s*(?:-\s*topic|vevo|official|oficial|\(oficial\)|tv|hd)\s*$", re.IGNORECASE
+)
 
 
 def channel_as_artist(channel: str) -> str:
@@ -253,8 +390,9 @@ def _tail_to_parens(title: str) -> str:
     return head
 
 
-def from_video(title: str, channel: str, vocab: dict | None = None,
-               yt_artist: str = "", yt_track: str = "") -> dict:
+def from_video(
+    title: str, channel: str, vocab: dict | None = None, yt_artist: str = "", yt_track: str = ""
+) -> dict:
     """Artista y titulo de una descarga, a partir de lo que dice YouTube.
 
     Regla del usuario: lo que se baja se llama como en YouTube, limpio, y no
@@ -275,33 +413,60 @@ def from_video(title: str, channel: str, vocab: dict | None = None,
         artist = clean(re.sub(r"\s*-\s*topic\s*$", "", yt_artist, flags=re.IGNORECASE))
         base, feat = extract_feat(clean(yt_track))
         if artist:
-            return {"artist": artist, "title": base or clean(title), "feat": feat,
-                    "source": "youtube-music", "confidence": 0.95}
+            return {
+                "artist": artist,
+                "title": base or clean(title),
+                "feat": feat,
+                "source": "youtube-music",
+                "confidence": 0.95,
+            }
 
     base, feat = extract_feat(clean(title))
     base = base.strip(" -–—,|")
 
     known = detect_artist(base, vocab)
     if known["artist"] and known["confidence"] >= 0.8:
-        return {"artist": known["artist"], "title": _tail_to_parens(known["title"]) or base,
-                "feat": known["feat"] or feat, "source": "youtube", "confidence": 0.9}
+        return {
+            "artist": known["artist"],
+            "title": _tail_to_parens(known["title"]) or base,
+            "feat": known["feat"] or feat,
+            "source": "youtube",
+            "confidence": 0.9,
+        }
 
     artist = channel_as_artist(channel)
     flat_base, flat_artist = _flat(base), _flat(artist)
     if artist and len(flat_artist) >= 3 and flat_artist in flat_base:
-        pattern = re.compile(r"\s*\b" + r"[\s.'\-]*".join(map(re.escape, flat_artist.split()))
-                             + r"\b\s*", re.IGNORECASE)
+        pattern = re.compile(
+            r"\s*\b" + r"[\s.'\-]*".join(map(re.escape, flat_artist.split())) + r"\b\s*",
+            re.IGNORECASE,
+        )
         rest = pattern.sub(" ", strip_accents(base))
         rest = re.sub(r"\s{2,}", " ", rest).strip(" -–—,|")
         rest = re.sub(r"^\s*(feat\.?|ft\.?|con|y|&|x|,)\s+", "", rest, flags=re.IGNORECASE)
-        return {"artist": artist, "title": _tail_to_parens(rest) or base, "feat": feat,
-                "source": "youtube", "confidence": 0.85}
+        return {
+            "artist": artist,
+            "title": _tail_to_parens(rest) or base,
+            "feat": feat,
+            "source": "youtube",
+            "confidence": 0.85,
+        }
 
     parts = [x.strip(" -–—,|") for x in re.split(r"\s+[-–—|]\s+", base, maxsplit=1)]
     if len(parts) == 2 and all(parts):
         left, right = parts
-        return {"artist": left, "title": _tail_to_parens(right), "feat": feat,
-                "source": "youtube", "confidence": 0.75}
+        return {
+            "artist": left,
+            "title": _tail_to_parens(right),
+            "feat": feat,
+            "source": "youtube",
+            "confidence": 0.75,
+        }
 
-    return {"artist": artist, "title": _tail_to_parens(base) or base, "feat": feat,
-            "source": "youtube", "confidence": 0.6 if artist else 0.0}
+    return {
+        "artist": artist,
+        "title": _tail_to_parens(base) or base,
+        "feat": feat,
+        "source": "youtube",
+        "confidence": 0.6 if artist else 0.0,
+    }

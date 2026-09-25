@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """La biblioteca se vigila sola: lo que cambia en el disco llega al indice.
 
 Antes el indice solo se ponia al dia al pulsar «Analizar e indexar todo».
@@ -28,12 +27,17 @@ ahi en adelante es el camino de siempre: Rust ve subir `revision` en
 `DANPLAY_WATCH=0` lo apaga entero; `DANPLAY_RESCAN_MINUTES` cambia el repaso
 periodico (0 = sin repaso).
 """
-import logging, os, threading, time
+
+import logging
+import os
+import threading
+import time
 from pathlib import Path
+from typing import Any, cast
 
 from . import config, library
 
-log = logging.getLogger("danplay.watcher")
+log = logging.getLogger(__name__)
 
 # Segundos sin movimiento antes de escanear: copiar una carpeta son cientos de
 # avisos seguidos, y se escanea una vez al final, no cien.
@@ -84,32 +88,30 @@ class _Events:
 
 
 class Watcher:
-    def __init__(self, quiet=QUIET, check_every=CHECK_EVERY, rescan_every=None,
-                 observe=True):
+    def __init__(self, quiet=QUIET, check_every=CHECK_EVERY, rescan_every=None, observe=True):
         self.quiet = quiet
         self.check_every = check_every
         self.rescan_every = _rescan_every() if rescan_every is None else rescan_every
         self.observe = observe
         self._lock = threading.Lock()
-        self._pending_since: float | None = None   # primer aviso aun sin escanear
+        self._pending_since: float | None = None  # primer aviso aun sin escanear
         self._last_event = 0.0
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._observer = None
-        self._watches: dict = {}                    # carpeta -> ObservedWatch
-        self._present: dict[str, bool] = {}        # carpeta -> existia la ultima vez
-        self._known = False                         # ya se miraron las carpetas una vez
+        self._watches: dict = {}  # carpeta -> ObservedWatch
+        self._present: dict[str, bool] = {}  # carpeta -> existia la ultima vez
+        self._known = False  # ya se miraron las carpetas una vez
         self._roots: list[str] = []
         self._exclusions: list = []
         self._last_scan_took = 0.0
-        self._recheck = threading.Event()           # mirar las carpetas ya, sin esperar
+        self._recheck = threading.Event()  # mirar las carpetas ya, sin esperar
 
     # ------------------------------------------------------------ vida
     def start(self) -> None:
         if self._thread is None:
-            self._thread = threading.Thread(target=self._run, name="danplay-watcher",
-                                            daemon=True)
+            self._thread = threading.Thread(target=self._run, name="danplay-watcher", daemon=True)
             self._thread.start()
 
     def stop(self) -> None:
@@ -118,7 +120,7 @@ class Watcher:
         if self._observer is not None:
             try:
                 self._observer.stop()
-            except Exception:                            # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 pass
 
     def _run(self) -> None:
@@ -135,7 +137,7 @@ class Watcher:
                 self._recheck.clear()
                 last_check = now
                 if self.refresh_roots():
-                    self.mark()                         # una carpeta se fue o volvio
+                    self.mark()  # una carpeta se fue o volvio
             if self.due(time.monotonic()):
                 self.scan("cambios en el disco")
                 last_full = time.monotonic()
@@ -148,15 +150,20 @@ class Watcher:
         started = time.monotonic()
         try:
             r = library.scan()
-        except Exception:                                # noqa: BLE001
+        except Exception:
             log.warning("el escaneo automatico (%s) fallo", why, exc_info=True)
             return None
         finally:
             self._last_scan_took = time.monotonic() - started
         if r.get("changed"):
-            log.info("biblioteca al dia (%s): %d nuevas, %d vuelven, %d apartadas, "
-                     "%d releidas", why, r["added_count"], r["back"], r["removed"],
-                     r["updated"])
+            log.info(
+                "biblioteca al dia (%s): %d nuevas, %d vuelven, %d apartadas, %d releidas",
+                why,
+                r["added_count"],
+                r["back"],
+                r["removed"],
+                r["updated"],
+            )
         return r
 
     def folders_changed(self) -> None:
@@ -202,7 +209,7 @@ class Watcher:
         self.mark()
 
     def _root_of(self, path: str) -> str | None:
-        for root in self._roots:                  # la mas larga primero
+        for root in self._roots:  # la mas larga primero
             if path == root or path.startswith(root.rstrip(os.sep) + os.sep):
                 return root
         return None
@@ -224,15 +231,13 @@ class Watcher:
         try:
             roots = library.roots()
             self._exclusions = library.list_exclusions()
-        except Exception:                                # noqa: BLE001
+        except Exception:
             log.warning("no pude leer las carpetas gestionadas", exc_info=True)
             return False
         present = {r: os.path.isdir(r) for r in roots}
-        changed = any(r in self._present and self._present[r] != ok
-                      for r, ok in present.items())
+        changed = any(r in self._present and self._present[r] != ok for r, ok in present.items())
         if self._known:
-            changed = changed or any(ok and r not in self._present
-                                     for r, ok in present.items())
+            changed = changed or any(ok and r not in self._present for r, ok in present.items())
         self._known = True
         self._present = present
         self._roots = sorted(roots, key=len, reverse=True)
@@ -246,8 +251,10 @@ class Watcher:
             try:
                 from watchdog.observers import Observer
             except ImportError:
-                log.warning("sin watchdog: la biblioteca solo se repasa cada %d min",
-                            self.rescan_every // 60)
+                log.warning(
+                    "sin watchdog: la biblioteca solo se repasa cada %d min",
+                    self.rescan_every // 60,
+                )
                 self.observe = False
                 return
             self._observer = Observer()
@@ -257,17 +264,23 @@ class Watcher:
         for root in [r for r in self._watches if r not in wanted]:
             try:
                 self._observer.unschedule(self._watches.pop(root))
-            except Exception:                            # noqa: BLE001
-                pass                      # se habia ido con su carpeta
+            except Exception:  # noqa: BLE001
+                pass  # se habia ido con su carpeta
         for root in wanted - set(self._watches):
             try:
-                self._watches[root] = self._observer.schedule(_Events(self), root,
-                                                              recursive=True)
+                # `_Events` hace de manejador (le basta con `dispatch`) sin
+                # importar watchdog al cargar este modulo
+                handler = cast(Any, _Events(self))
+                self._watches[root] = self._observer.schedule(handler, root, recursive=True)
             except OSError as e:
                 # sin vigilancia en esa carpeta (el tope de inotify, un
                 # sistema de archivos que no avisa): queda el repaso periodico
-                log.warning("no puedo vigilar %s (%s): se repasara cada %d min",
-                            root, e, self.rescan_every // 60)
+                log.warning(
+                    "no puedo vigilar %s (%s): se repasara cada %d min",
+                    root,
+                    e,
+                    self.rescan_every // 60,
+                )
 
 
 _WATCHER: Watcher | None = None
@@ -275,13 +288,15 @@ _WATCHER: Watcher | None = None
 
 def prepare(timeout: float = PREPARE_TIMEOUT) -> None:
     """Aparta ya las canciones de las carpetas que no estan, con tope."""
+
     def hide():
         try:
             n = library.hide_missing_roots()
             if n:
                 log.info("%d canciones apartadas: su carpeta ya no esta", n)
-        except Exception:                                # noqa: BLE001
+        except Exception:
             log.warning("no pude mirar las carpetas al arrancar", exc_info=True)
+
     t = threading.Thread(target=hide, name="danplay-prepare", daemon=True)
     t.start()
     t.join(timeout)
@@ -302,3 +317,11 @@ def start() -> Watcher | None:
         _WATCHER = Watcher()
         _WATCHER.start()
     return _WATCHER
+
+
+def stop() -> None:
+    """Para la vigilancia (al apagar el nucleo). Se puede volver a arrancar."""
+    global _WATCHER
+    if _WATCHER is not None:
+        _WATCHER.stop()
+        _WATCHER = None
