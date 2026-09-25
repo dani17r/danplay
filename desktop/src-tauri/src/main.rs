@@ -50,7 +50,27 @@ fn logs() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     builder.build()
 }
 
+/// En una sesion Wayland, GTK3 pinta su propia barra de titulo (la de GNOME,
+/// que en KDE desentona) porque no sabe pedirle al escritorio la suya. Por
+/// XWayland la pone el escritorio, como en el resto de ventanas, y ademas la
+/// ventanita puede colocarse junto al icono de la bandeja. Es lo que ya hacia
+/// el AppImage (su arranque fija `GDK_BACKEND=x11`), y el .deb se veia
+/// distinto. Solo si hay XWayland y nadie ha elegido otra cosa.
+#[cfg(target_os = "linux")]
+#[expect(unsafe_code, reason = "set_var antes de que exista ningun otro hilo")]
+fn prefer_xwayland() {
+    let set = |name: &str| std::env::var_os(name).is_some_and(|v| !v.is_empty());
+    if set("WAYLAND_DISPLAY") && set("DISPLAY") && !set("GDK_BACKEND") {
+        // SAFETY: es lo primero de `main`: todavia no hay otros hilos que
+        // puedan estar leyendo el entorno a la vez.
+        unsafe { std::env::set_var("GDK_BACKEND", "x11") };
+    }
+}
+
 fn main() {
+    #[cfg(target_os = "linux")]
+    prefer_xwayland();
+
     // OJO: el nucleo NO se arranca aqui. Se arranca dentro de `setup`, que
     // solo corre en la instancia que se queda.
     //
@@ -89,6 +109,13 @@ fn main() {
                 // La ventanita se coloca sola junto al icono: recordar donde
                 // estuvo la ultima vez la pondria en el sitio equivocado.
                 .with_denylist(&[tray::MINI])
+                // Tamaño y sitio si, pero no si estaba abierta: la app abre
+                // su ventana y nada mas. Recordandolo, la proyeccion que se
+                // quedo abierta volvia a salir al arrancar, y la ventana
+                // principal cerrada a la bandeja arrancaba escondida.
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
                 .build(),
         );
     #[cfg(not(target_os = "linux"))]
@@ -191,6 +218,7 @@ fn setup(app: &tauri::App) {
 
     // en segundo plano para no retrasar la ventana
     std::thread::spawn(dependencies::ensure);
+    associate::tidy_launchers();
 
     // «Abrir con DanPlay» sobre la aplicacion cerrada: las canciones vienen
     // en la linea de ordenes. `play` ya espera al nucleo por su cuenta, asi

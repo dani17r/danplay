@@ -62,8 +62,19 @@ mod platform {
 
     /// El que instala el `.deb`.
     const INSTALLED: &str = "/usr/share/applications/DanPlay.desktop";
-    /// El que escribimos nosotros para el AppImage o el binario suelto.
-    const OWN: &str = "danplay.desktop";
+    /// El que escribimos nosotros para el AppImage o el binario suelto. El de
+    /// la compilacion de desarrollo lleva otro nombre: con el mismo, tapaba
+    /// al instalado y el «DanPlay» del menu abria el binario de depuracion.
+    const OWN: &str = if cfg!(debug_assertions) {
+        "danplay-dev.desktop"
+    } else {
+        "danplay.desktop"
+    };
+    const NAME: &str = if cfg!(debug_assertions) {
+        "DanPlay (desarrollo)"
+    } else {
+        "DanPlay"
+    };
 
     fn home() -> Option<PathBuf> {
         std::env::var_os("HOME").map(PathBuf::from)
@@ -107,7 +118,7 @@ mod platform {
         let entry = format!(
             "[Desktop Entry]\n\
              Type=Application\n\
-             Name=DanPlay\n\
+             Name={NAME}\n\
              Comment=Gestor de biblioteca musical\n\
              Exec=\"{target}\" %F\n\
              Icon={icon}\n\
@@ -123,6 +134,40 @@ mod platform {
         // Sin esto el escritorio no se entera hasta el siguiente arranque.
         let _ = tools::command("update-desktop-database").arg(&apps).status();
         Ok(())
+    }
+
+    /// Si este es el DanPlay del `.deb` y queda un `danplay.desktop` nuestro
+    /// en la carpeta del usuario (de un AppImage o de un binario suelto), ese
+    /// tapa al instalado: el «DanPlay» del menu y el doble clic en una cancion
+    /// abren el otro, que puede ya ni existir. Al arrancar se quita, y las
+    /// canciones que se abrian con el pasan al instalado.
+    pub fn tidy() {
+        let installed = std::env::current_exe().is_ok_and(|exe| exe == Path::new("/usr/bin/danplay-app"));
+        if cfg!(debug_assertions) || !installed || !Path::new(INSTALLED).exists() {
+            return;
+        }
+        let Some(apps) = home().map(|h| h.join(".local/share/applications")) else {
+            return;
+        };
+        let own = apps.join(OWN);
+        if !own.exists() {
+            return;
+        }
+        let was_default: Vec<&str> = MIME_TYPES
+            .iter()
+            .copied()
+            .filter(|m| query(m).as_deref() == Some(OWN))
+            .collect();
+        if std::fs::remove_file(&own).is_err() {
+            return;
+        }
+        for mime in was_default {
+            let _ = tools::command("xdg-mime")
+                .args(["default", "DanPlay.desktop", mime])
+                .status();
+        }
+        let _ = tools::command("update-desktop-database").arg(&apps).status();
+        log::info!("quitado {}: tapaba al DanPlay instalado", own.display());
     }
 
     /// Deja el icono donde el escritorio lo busca y devuelve su nombre.
@@ -328,6 +373,15 @@ mod platform {
     pub fn make_default(app: &AppHandle) -> Result<Status, String> {
         Ok(status(app))
     }
+}
+
+// ------------------------------------------------------------ al arrancar
+
+/// Fuera los lanzadores sueltos que tapan al DanPlay instalado (solo Linux).
+/// En segundo plano: son unos cuantos `xdg-mime`, y no deben retrasar nada.
+pub fn tidy_launchers() {
+    #[cfg(target_os = "linux")]
+    std::thread::spawn(platform::tidy);
 }
 
 // ------------------------------------------------------------- para el JS
