@@ -5,12 +5,15 @@ import { readFileSync } from 'node:fs'
 const css = allCss()
 // sin comentarios: si no, se cuelan en la captura del selector
 const limpio = css.replace(/\/\*[\s\S]*?\*\//g, '')
-const reglas = [...limpio.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-  .map(m => ({ sel: m[1].trim(), body: m[2].replace(/\s+/g, '') }))
-const paraSelector = (s) => reglas.filter(r => r.sel.split(',').some(x => x.trim() === s))
+const reglas = [...limpio.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+  sel: m[1].trim(),
+  body: m[2].replace(/\s+/g, '')
+}))
+const paraSelector = (s) => reglas.filter((r) => r.sel.split(',').some((x) => x.trim() === s))
 const ultimoValor = (s, prop) => {
-  const vals = paraSelector(s).flatMap(r =>
-    [...r.body.matchAll(new RegExp(`(?:^|;)${prop}:([^;]+)`, 'g'))].map(m => m[1]))
+  const vals = paraSelector(s).flatMap((r) =>
+    [...r.body.matchAll(new RegExp(`(?:^|;)${prop}:([^;]+)`, 'g'))].map((m) => m[1])
+  )
   return vals.at(-1)
 }
 
@@ -40,7 +43,7 @@ describe('nada debe provocar desplazamiento horizontal', () => {
 
   it('las celdas recortan con puntos suspensivos', () => {
     const th = paraSelector('th').concat(paraSelector('td'))
-    expect(th.some(r => r.body.includes('text-overflow:ellipsis'))).toBe(true)
+    expect(th.some((r) => r.body.includes('text-overflow:ellipsis'))).toBe(true)
   })
 
   it('las zonas principales pueden encogerse', () => {
@@ -55,21 +58,27 @@ describe('nada debe provocar desplazamiento horizontal', () => {
   })
 
   it('hay puntos de ruptura para ventanas estrechas', () => {
-    const medias = [...css.matchAll(/@media\s*\(max-width:\s*(\d+)px\)/g)].map(m => Number(m[1]))
+    const medias = [...css.matchAll(/@media\s*\(max-width:\s*(\d+)px\)/g)].map((m) => Number(m[1]))
     expect(medias.length, 'faltan media queries').toBeGreaterThan(4)
     expect(Math.min(...medias)).toBeLessThanOrEqual(1000)
   })
 
   it('las columnas secundarias se esconden antes que las importantes', () => {
     const sort = ['.col-kbps', '.col-bpm', '.col-key', '.col-stars']
-    const anchos = sort.map(c => {
-      const m = css.match(new RegExp(`@media\\s*\\(max-width:\\s*(\\d+)px\\)\\{\\s*\\${c}\\{display:none`))
+    const anchos = sort.map((c) => {
+      const m = css.match(
+        new RegExp(`@media\\s*\\(max-width:\\s*(\\d+)px\\)\\{\\s*\\${c}\\{display:none`)
+      )
       return m ? Number(m[1]) : null
     })
-    expect(anchos.every(a => a !== null), 'todas deben tener su punto de corte').toBe(true)
+    expect(
+      anchos.every((a) => a !== null),
+      'todas deben tener su punto de corte'
+    ).toBe(true)
     for (let i = 1; i < anchos.length; i++) {
-      expect(anchos[i], `${sort[i]} deberia esconderse despues que ${sort[i - 1]}`)
-        .toBeLessThan(anchos[i - 1])
+      expect(anchos[i], `${sort[i]} deberia esconderse despues que ${sort[i - 1]}`).toBeLessThan(
+        anchos[i - 1]
+      )
     }
   })
 })
@@ -80,10 +89,15 @@ describe('nada debe provocar desplazamiento horizontal', () => {
 // celdas se encogian hasta quedar en una letra. Que no vuelva a pasar.
 describe('las clases de estado de las filas no chocan con los widgets', () => {
   const marcado = ['src/components/SongTable.vue', 'src/components/SongGrid.vue']
-    .map(f => readFileSync(f, 'utf8')).join('\n')
-  const estados = [...new Set(
-    [...marcado.matchAll(/:class="\{([^}]*)\}"/g)]
-      .flatMap(m => [...m[1].matchAll(/([a-zA-Z][\w-]*)\s*:/g)].map(x => x[1])))]
+    .map((f) => readFileSync(f, 'utf8'))
+    .join('\n')
+  const estados = [
+    ...new Set(
+      [...marcado.matchAll(/:class="\{([^}]*)\}"/g)].flatMap((m) =>
+        [...m[1].matchAll(/([a-zA-Z][\w-]*)\s*:/g)].map((x) => x[1])
+      )
+    )
+  ]
 
   it('se encuentran las clases de estado del marcado', () => {
     expect(estados).toContain('selected')
@@ -93,9 +107,10 @@ describe('las clases de estado de las filas no chocan con los widgets', () => {
   it('ninguna se estiliza como si fuera una caja suelta', () => {
     for (const c of estados) {
       for (const prop of ['display', 'height', 'width', 'padding', 'border-radius']) {
-        expect(ultimoValor('.' + c, prop),
-          `.${c} es un estado de fila: una regla global no debe fijarle ${prop}`)
-          .toBeUndefined()
+        expect(
+          ultimoValor('.' + c, prop),
+          `.${c} es un estado de fila: una regla global no debe fijarle ${prop}`
+        ).toBeUndefined()
       }
     }
   })

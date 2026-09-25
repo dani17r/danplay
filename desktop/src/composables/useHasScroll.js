@@ -1,3 +1,4 @@
+// @ts-check
 // ¿El contenido de este panel se sale y hay que desplazarse para verlo?
 //
 // Se usa para no enseñar atajos que no hacen falta: el boton de «ir a lo que
@@ -9,12 +10,12 @@ import { ref, onMounted, onUnmounted, nextTick } from 'vue'
  * @param getEl  funcion que devuelve el elemento con scroll (puede ser null)
  * @param margin cuanto tiene que sobrar para considerarlo «largo», en px
  */
-export function useHasScroll (getEl, margin = 240) {
+export function useHasScroll(getEl, margin = 240) {
   const hasScroll = ref(false)
   let observer = null
   let watched = null
 
-  function check () {
+  function check() {
     const el = getEl()
     hasScroll.value = !!el && el.scrollHeight > el.clientHeight + margin
     // el elemento con scroll cambia al cambiar de vista (tabla, rejilla...)
@@ -26,7 +27,7 @@ export function useHasScroll (getEl, margin = 240) {
   }
 
   /** Vuelve a medir en el siguiente pintado, cuando el DOM ya esta puesto. */
-  async function recheck () {
+  async function recheck() {
     await nextTick()
     check()
   }
@@ -56,32 +57,44 @@ export function useHasScroll (getEl, margin = 240) {
  * el objetivo no esta ni en el DOM (suena algo de otra lista) cuenta como
  * fuera: ahi el atajo es justamente lo que hace falta.
  */
-export function useIsOffscreen (getContainer, getTarget) {
+export function useIsOffscreen(getContainer, getTarget) {
   const offscreen = ref(false)
   let io = null
 
-  function attach () {
-    if (io) { io.disconnect(); io = null }
+  function attach() {
+    if (io) {
+      io.disconnect()
+      io = null
+    }
     const root = getContainer()
     const el = getTarget()
     if (!el) {
-      offscreen.value = !!root      // no esta pintado: hay que ir a buscarlo
+      offscreen.value = !!root // no esta pintado: hay que ir a buscarlo
       return
     }
-    if (typeof IntersectionObserver !== 'function') { offscreen.value = false; return }
+    if (typeof IntersectionObserver !== 'function') {
+      offscreen.value = false
+      return
+    }
     io = new IntersectionObserver(
-      ([entry]) => { offscreen.value = !entry.isIntersecting },
-      { root: root || null, threshold: 0.6 })
+      ([entry]) => {
+        offscreen.value = !entry.isIntersecting
+      },
+      { root: root || null, threshold: 0.6 }
+    )
     io.observe(el)
   }
 
-  async function recheck () {
+  async function recheck() {
     await nextTick()
     attach()
   }
 
   onMounted(recheck)
-  onUnmounted(() => { if (io) io.disconnect(); io = null })
+  onUnmounted(() => {
+    if (io) io.disconnect()
+    io = null
+  })
 
   return { offscreen, recheck }
 }

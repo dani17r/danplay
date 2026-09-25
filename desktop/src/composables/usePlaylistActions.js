@@ -1,3 +1,4 @@
+// @ts-check
 // Lo que se puede hacer con un repertorio: crearlo, añadirle canciones,
 // quitarlas, exportarlo y borrarlo. Estaba dentro de App.vue.
 //
@@ -9,13 +10,12 @@ import { notify } from './useNotices.js'
 import { ask } from './useDialog.js'
 
 /**
- * @param {{
- *   view: import('vue').Ref<any>,
- *   reload: () => any,       vuelve a pedir la lista de la página
- * }} context
+ * @param {{ view: import('vue').Ref<any>, reload: () => any }} context
+ *   view: la vista abierta (para saber de qué lista se quita una canción);
+ *   reload: vuelve a pedir la lista de la página
  */
 export function usePlaylistActions(context) {
-  const playlists = ref([])
+  const playlists = ref(/** @type {any[]} */ ([]))
 
   async function load() {
     playlists.value = (await api.playlists()).playlists
@@ -32,7 +32,10 @@ export function usePlaylistActions(context) {
 
   /** Varias canciones a una lista de una vez. */
   async function addManyTo(list, playlist) {
-    const r = await api.addToPlaylist(playlist.id, list.map((s) => s.id))
+    const r = await api.addToPlaylist(
+      playlist.id,
+      list.map((s) => s.id)
+    )
     notify(
       r.added ? `${r.added} añadidas a «${playlist.name}»` : `Ya estaban en «${playlist.name}»`,
       r.added ? 'ok' : 'info'
@@ -58,7 +61,11 @@ export function usePlaylistActions(context) {
     })
     if (!name) return null
     const r = await api.createPlaylist(name)
-    if (list.length && r?.id) await api.addToPlaylist(r.id, list.map((s) => s.id))
+    if (list.length && r?.id)
+      await api.addToPlaylist(
+        r.id,
+        list.map((s) => s.id)
+      )
     await load()
     // El núcleo devuelve la que ya había si el nombre se repite: decirlo es
     // más honrado que fingir que se ha creado una.
@@ -114,16 +121,26 @@ export function usePlaylistActions(context) {
    */
   async function sheet(playlist) {
     const withLyrics = await ask({
-      kind: 'confirm', title: 'Hoja para el atril',
+      kind: 'confirm',
+      title: 'Hoja para el atril',
       message: `Se escribe «${playlist.name}.html» en la carpeta Listas/ de tu biblioteca, con tono, bpm, cejilla y acordes de cada canción.\n\n¿Con la letra de cada canción también?`,
-      okLabel: 'Con letra', cancelLabel: 'Solo acordes'
+      okLabel: 'Con letra',
+      cancelLabel: 'Solo acordes'
     })
     try {
       const r = await api.playlistSheet(playlist.id, !!withLyrics)
       notify(`Hoja escrita en ${r.file}`, 'ok')
       // se abre con el navegador, que es desde donde se imprime o se guarda
       // como PDF; si no se puede, al menos se enseña donde quedo
-      try { await app.openHtml(r.file) } catch { try { await app.revealInFolder(r.file) } catch { /* fuera de la app */ } }
+      try {
+        await app.openHtml(r.file)
+      } catch {
+        try {
+          await app.revealInFolder(r.file)
+        } catch {
+          /* fuera de la app */
+        }
+      }
     } catch (e) {
       notify('No se pudo escribir la hoja: ' + errorMessage(e))
     }

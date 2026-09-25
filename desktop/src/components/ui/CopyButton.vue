@@ -25,13 +25,15 @@ const listo = ref(false)
 let temporizador = null
 onUnmounted(() => clearTimeout(temporizador))
 
-async function alPortapapeles (texto) {
+async function alPortapapeles(texto) {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(texto)
       return true
     }
-  } catch { /* sin permiso o sin contexto seguro: se prueba lo de abajo */ }
+  } catch {
+    /* sin permiso o sin contexto seguro: se prueba lo de abajo */
+  }
   try {
     const caja = document.createElement('textarea')
     caja.value = texto
@@ -42,14 +44,19 @@ async function alPortapapeles (texto) {
     const ok = document.execCommand('copy')
     caja.remove()
     return ok
-  } catch { return false }
+  } catch {
+    return false
+  }
 }
 
-async function copiar () {
+async function copiar() {
   const texto = String(props.text ?? '').trim()
   if (!texto) return
   const ok = await alPortapapeles(texto)
-  if (!ok) { emit('copied', false, props.what); return }
+  if (!ok) {
+    emit('copied', false, props.what)
+    return
+  }
   listo.value = true
   clearTimeout(temporizador)
   temporizador = setTimeout(() => (listo.value = false), 1400)
@@ -58,11 +65,15 @@ async function copiar () {
 </script>
 
 <template>
-  <button v-if="String(text ?? '').trim()" type="button" class="copy-btn"
-          :class="{done: listo}"
-          :title="listo ? 'Copiado' : (what ? 'Copiar ' + what : 'Copiar')"
-          :aria-label="what ? 'Copiar ' + what : 'Copiar'"
-          @click.stop="copiar">
+  <button
+    v-if="String(text ?? '').trim()"
+    type="button"
+    class="copy-btn"
+    :class="{ done: listo }"
+    :title="listo ? 'Copiado' : what ? 'Copiar ' + what : 'Copiar'"
+    :aria-label="what ? 'Copiar ' + what : 'Copiar'"
+    @click.stop="copiar"
+  >
     <Icon :n="listo ? 'check' : 'copy'" :t="size" />
   </button>
 </template>

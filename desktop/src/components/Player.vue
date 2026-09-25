@@ -6,7 +6,7 @@
  * cuenta Rust. Antes preguntaba el estado cuatro veces por segundo con un
  * temporizador; ahora Rust avisa cuando algo cambia.
  */
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, useTemplateRef } from 'vue'
 import { onClickOutside } from '../composables/useClickOutside.js'
 import { usePlayback } from '../composables/usePlayback.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
@@ -51,13 +51,13 @@ const repeatLook = computed(() => REPEAT_LOOK[repeat.value] || REPEAT_LOOK.list)
 const muted = ref(false)
 const showQueue = ref(false)
 const fullQueue = ref(false)
-const queuePanel = ref(null)
-const queueButton = ref(null)
+const queuePanel = useTemplateRef('queuePanel')
+const queueButton = useTemplateRef('queueButton')
 const currentRow = ref(null)
 const SPEEDS = [0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 2]
 
-const failure = computed(() =>
-  error.value || (hasOutput.value ? '' : 'Este equipo no tiene salida de audio')
+const failure = computed(
+  () => error.value || (hasOutput.value ? '' : 'Este equipo no tiene salida de audio')
 )
 const originLabel = computed(() => origin.value?.label || '')
 
@@ -103,7 +103,9 @@ async function togglePlay() {
 // salto se pide al soltar (un clic sin mover también vale). Ver useScrub.
 const { scrub, start: grabNeedle } = useScrub({ duration, seek: (s) => player.seek(s) })
 const shown = computed(() => (scrub.active ? scrub.value : position.value))
-const progress = computed(() => (duration.value ? (shown.value / duration.value) * 100 + '%' : '0%'))
+const progress = computed(() =>
+  duration.value ? (shown.value / duration.value) * 100 + '%' : '0%'
+)
 
 function applyVolume(value) {
   muted.value = false
@@ -143,7 +145,9 @@ useHotkeys({
   0: () => player.restart(),
   home: () => player.restart(),
   // 1-9: al 10 %, 20 %… de la canción
-  ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [n, () => player.seekPercent(n * 10)])),
+  ...Object.fromEntries(
+    [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [n, () => player.seekPercent(n * 10)])
+  ),
   arrowright: seekBy(5),
   arrowleft: seekBy(-5),
   'ctrl+arrowright': seekBy(10),
@@ -162,25 +166,42 @@ useHotkeys({
 
 <template>
   <transition name="dropdown">
-    <div v-if="showQueue" ref="queuePanel" class="queue" :class="{ full: fullQueue }">
+    <div
+      v-if="showQueue"
+      ref="queuePanel"
+      class="queue"
+      :class="{ full: fullQueue }"
+      role="region"
+      aria-label="Cola de reproducción"
+    >
       <h4>
         Cola
-        <span style="margin-left: auto; color: var(--muted2); text-transform: none; letter-spacing: 0">
+        <span
+          style="margin-left: auto; color: var(--muted2); text-transform: none; letter-spacing: 0"
+        >
           {{ (queue || []).length }} en total</span
         >
-        <button title="Cerrar la cola" @click="showQueue = false"><Icon n="close" :t="14" /></button>
+        <button type="button" title="Cerrar la cola" @click="showQueue = false">
+          <Icon n="close" :t="14" />
+        </button>
       </h4>
 
       <div v-if="!trio.length && !(queue || []).length" class="queue-empty">Nada sonando</div>
 
       <!-- toda la cola -->
       <template v-else-if="fullQueue">
-        <div
+        <button
           v-for="(song, i) in queue"
           :key="song.id"
-          :ref="(el) => { if (el && track?.id === song.id) currentRow = el }"
+          :ref="
+            (el) => {
+              if (el && track?.id === song.id) currentRow = el
+            }
+          "
+          type="button"
           class="queue-row flat"
           :class="{ current: track?.id === song.id }"
+          :aria-current="track?.id === song.id ? 'true' : undefined"
           @click="player.jump(song.id)"
         >
           <span class="queue-n">
@@ -192,16 +213,18 @@ useHotkeys({
             >{{ song.title }}<span class="sub"> · {{ song.artist || '—' }}</span></span
           >
           <span class="mono sub queue-dur">{{ formatTime(song.duration) }}</span>
-        </div>
+        </button>
       </template>
 
       <!-- solo anterior, actual y siguiente -->
       <template v-else>
-        <div
+        <button
           v-for="t in trio"
           :key="t.pos"
+          type="button"
           class="queue-row"
           :class="[t.pos, { act: t.pos === 'now' }]"
+          :disabled="!t.song"
           @click="t.song && player.jump(t.song.id)"
         >
           <span class="queue-label">{{ LABELS[t.pos] }}</span>
@@ -219,7 +242,7 @@ useHotkeys({
             }}</span>
           </template>
           <span v-else class="queue-none">—</span>
-        </div>
+        </button>
       </template>
 
       <div class="queue-foot">
@@ -270,13 +293,21 @@ useHotkeys({
       <button class="pl-btn" title="Anterior (P)" @click="player.previous()">
         <Icon n="previous" :t="16" />
       </button>
-      <button class="pl-btn" title="Retroceder 10 s (Ctrl+←; ← 5 s, Mayús+← 30 s)" @click="player.nudge(-10)">
+      <button
+        class="pl-btn"
+        title="Retroceder 10 s (Ctrl+←; ← 5 s, Mayús+← 30 s)"
+        @click="player.nudge(-10)"
+      >
         <Icon n="back10" :t="15" />
       </button>
       <button class="pl-btn pl-play" title="Reproducir / pausar (espacio)" @click="togglePlay">
         <Icon :n="playing ? 'pause' : 'play'" :t="16" />
       </button>
-      <button class="pl-btn" title="Avanzar 10 s (Ctrl+→; → 5 s, Mayús+→ 30 s)" @click="player.nudge(10)">
+      <button
+        class="pl-btn"
+        title="Avanzar 10 s (Ctrl+→; → 5 s, Mayús+→ 30 s)"
+        @click="player.nudge(10)"
+      >
         <Icon n="forward10" :t="15" />
       </button>
       <button class="pl-btn" title="Siguiente (N)" @click="player.next()">
@@ -295,16 +326,30 @@ useHotkeys({
 
     <div class="pl-bar">
       <!-- desde el principio: vuelve a 0:00 y, si estaba en pausa, arranca -->
-      <button class="pl-btn pl-restart" title="Desde el principio (0)" :disabled="!track"
-              @click="player.restart()">
+      <button
+        class="pl-btn pl-restart"
+        title="Desde el principio (0)"
+        :disabled="!track"
+        @click="player.restart()"
+      >
         <Icon n="restart" :t="14" />
       </button>
       <span class="time">{{ formatTime(shown) }}</span>
-      <div class="track" :class="{ scrubbing: scrub.active }" title="Arrastra la aguja o pincha donde quieras ir"
-           @pointerdown="grabNeedle">
+      <div
+        class="track"
+        :class="{ scrubbing: scrub.active }"
+        title="Arrastra la aguja o pincha donde quieras ir"
+        @pointerdown="grabNeedle"
+      >
         <!-- el tramo del bucle A-B, si lo hay -->
-        <div v-if="loopB > loopA && duration" class="track-loop"
-             :style="{ left: (loopA / duration) * 100 + '%', width: ((loopB - loopA) / duration) * 100 + '%' }"></div>
+        <div
+          v-if="loopB > loopA && duration"
+          class="track-loop"
+          :style="{
+            left: (loopA / duration) * 100 + '%',
+            width: ((loopB - loopA) / duration) * 100 + '%'
+          }"
+        ></div>
         <div class="track-fill" :style="{ width: progress }"></div>
       </div>
       <span class="time">{{ formatTime(duration) }}</span>
@@ -329,25 +374,36 @@ useHotkeys({
         :max="1"
         :step="0.01"
         width="100%"
+        aria-label="Volumen"
+        :value-text="Math.round(volume * 100) + ' %'"
         @update:model-value="applyVolume"
       />
     </div>
 
     <!-- el modo estudio: bucle, velocidad sin cambiar el tono, marcadores, notas -->
-    <button class="pl-btn pl-study" :class="{ on: props.study }" title="Modo estudio: bucle A-B, velocidad sin cambiar el tono, marcadores y notas"
-            @click="emit('toggleStudy')">
+    <button
+      class="pl-btn pl-study"
+      :class="{ on: props.study }"
+      title="Modo estudio: bucle A-B, velocidad sin cambiar el tono, marcadores y notas"
+      @click="emit('toggleStudy')"
+    >
       <Icon n="academic" :t="16" />
     </button>
     <!-- la letra en grande, en su propia ventana: para el proyector -->
-    <button class="pl-btn pl-project" title="Proyectar la letra (ventana aparte, para el proyector)"
-            @click="projection.show()">
+    <button
+      class="pl-btn pl-project"
+      title="Proyectar la letra (ventana aparte, para el proyector)"
+      @click="projection.show()"
+    >
       <Icon n="tv" :t="16" />
     </button>
     <button
       ref="queueButton"
+      type="button"
       class="pl-btn"
       :class="{ on: showQueue }"
       title="Cola de reproducción"
+      :aria-expanded="showQueue"
       @click="toggleQueue"
     >
       <Icon n="queue" :t="16" />

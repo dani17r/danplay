@@ -65,7 +65,9 @@ describe('markdown del asistente: lo que entiende', () => {
   })
 
   it('una lista que no empieza en 1 conserva el numero', () => {
-    expect(renderMarkdown('3. tres\n4. cuatro')).toBe('<ol start="3"><li>tres</li><li>cuatro</li></ol>')
+    expect(renderMarkdown('3. tres\n4. cuatro')).toBe(
+      '<ol start="3"><li>tres</li><li>cuatro</li></ol>'
+    )
   })
 
   it('parrafos: linea en blanco separa, salto simple es <br>', () => {
@@ -105,5 +107,71 @@ describe('markdown del asistente: lo que entiende', () => {
   it('con nada, nada', () => {
     expect(renderMarkdown('')).toBe('')
     expect(renderMarkdown(null)).toBe('')
+  })
+})
+
+// Por el chat entra texto de fuera. Nada de eso puede colgar la ventana: una
+// expresion regular que retrocede tardaba casi dos segundos con 80 KB de
+// negritas sin cerrar, y diez mil «>» seguidos agotaban la pila.
+describe('markdown del asistente: texto hostil', () => {
+  /** Lo ejecuta y comprueba que no tarda; el tope es holgado, antes eran segundos. */
+  const rapido = (fn, ms = 250) => {
+    const t0 = performance.now()
+    const out = fn()
+    expect(performance.now() - t0, 'tarda demasiado').toBeLessThan(ms)
+    return out
+  }
+
+  it('diez mil «>» seguidos no se quedan sin pila', () => {
+    const html = rapido(() => renderMarkdown('>'.repeat(10000)))
+    expect(html.startsWith('<blockquote>')).toBe(true)
+    // las citas se anidan hasta un tope; lo de mas alla se lee como texto
+    expect(html.match(/<blockquote>/g).length).toBeLessThanOrEqual(8)
+    expect(html).toContain('&gt;&gt;&gt;')
+  })
+
+  it('80 KB de negritas sin cerrar se leen en un momento', () => {
+    for (const d of ['**', '__', '~~']) {
+      const html = rapido(() => renderMarkdown(`${d}a `.repeat(20000)))
+      expect(html).not.toMatch(/<(strong|del)>/)
+    }
+  })
+
+  it('y las que si cierran se siguen marcando igual', () => {
+    const t = '**uno** y **dos** '.repeat(2000)
+    const html = rapido(() => renderMarkdown(t))
+    expect(html.match(/<strong>/g)).toHaveLength(4000)
+    expect(inline('***a**')).toBe('<strong>*a</strong>')
+    expect(inline('** no ** es negrita')).toBe('** no ** es negrita')
+  })
+
+  it('una linea llena de corchetes sin cerrar tampoco se atasca', () => {
+    rapido(() => renderMarkdown('['.repeat(80000)))
+    const html = rapido(() => renderMarkdown('[a]'.repeat(20000) + '(http://x.y)'))
+    expect(html.match(/md-link/g)).toHaveLength(1)
+    rapido(() => renderMarkdown('[a](http://'.repeat(20000)))
+  })
+
+  it('ni un titulo con muchos espacios dentro', () => {
+    const html = rapido(() => renderMarkdown('# a' + ' '.repeat(80000) + 'b'))
+    expect(html.startsWith('<h1>a')).toBe(true)
+    expect(html.endsWith('b</h1>')).toBe(true)
+  })
+
+  it('las listas muy anidadas se quedan en un tope', () => {
+    const t = Array.from({ length: 3000 }, (_, i) => ' '.repeat(i * 2) + '- x').join('\n')
+    const html = rapido(() => renderMarkdown(t))
+    expect(html.match(/<ul>/g).length).toBeLessThanOrEqual(10)
+  })
+})
+
+describe('markdown del asistente: titulos', () => {
+  it('el cierre opcional de almohadillas se quita', () => {
+    expect(renderMarkdown('## Hola ##')).toBe('<h2>Hola</h2>')
+  })
+
+  it('un titulo que acaba en sostenido no lo pierde', () => {
+    // «Tono: C#» salia como «Tono: C»
+    expect(renderMarkdown('## Tono: C#')).toBe('<h2>Tono: C#</h2>')
   })
 })

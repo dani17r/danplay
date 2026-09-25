@@ -6,11 +6,11 @@
  * nadie más.
  */
 import { ref } from 'vue'
-import { api, errorMessage } from '../api.js'
+import { api, errorMessage, JOBS } from '../api.js'
 import { notify } from '../composables/useNotices.js'
 import Icon from './Icon.vue'
 import Card from './ui/Card.vue'
-import Loading from './ui/Loading.vue'
+import JobProgress from './ui/JobProgress.vue'
 
 defineProps({
   /** Cuántos archivos esperan. Lo sabe App, que ya consulta el estado. */
@@ -20,11 +20,22 @@ const emit = defineEmits(['changed', 'go'])
 
 const working = ref(false)
 const result = ref(null)
+/** Cómo va la importación, según el núcleo. */
+const job = ref(null)
 
+/**
+ * Importa lo que hay en la Entrada (o, en prueba, dice dónde acabaría cada
+ * archivo). Es una tarea larga del núcleo: identificar cada archivo puede
+ * llevar segundos, y con muchos pasaba del minuto que aguanta el puente.
+ */
 async function run(dryRun) {
   working.value = true
+  job.value = null
   try {
-    result.value = (await api.runImport({ dry_run: dryRun })).results
+    const r = await api.runJob(() => api.runImport({ dry_run: dryRun }), JOBS.import, {
+      onProgress: (j) => (job.value = j)
+    })
+    result.value = r?.results || []
     emit('changed')
   } catch (e) {
     notify('No se pudo importar: ' + errorMessage(e))
@@ -90,8 +101,8 @@ const ACTION_LABEL = { moved: 'archivada', review: 'a revisar', dry_run: 'sería
         <button class="btn" :disabled="working || !waiting" @click="run(true)">
           Probar sin tocar nada
         </button>
-        <Loading v-if="working" text="trabajando…" />
       </div>
+      <JobProgress v-if="working" :job="job" label="identificando y archivando…" />
       <div v-if="waiting" class="hint">
         «Probar sin tocar nada» te enseña dónde acabaría cada archivo, sin moverlo ni renombrarlo.
       </div>

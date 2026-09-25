@@ -1,3 +1,4 @@
+// @ts-check
 // Capa de transporte.
 //
 // En la app de escritorio TODO pasa por Rust (invoke -> socket Unix o TCP
@@ -148,6 +149,21 @@
  * @property {boolean} [canceled]
  * @property {{calls:number, prompt:number, completion:number, cost:number|null}} [usage]
  * @property {{id:string, name:string, model:string, fallback:boolean}} [via]  quién respondió
+ * @property {boolean} [narrated]  dijo haber hecho algo sin llamar a ninguna herramienta
+ * @property {{limit:number, month:number, over:boolean}} [budget]  el tope de gasto, si lo hay
+ */
+
+/**
+ * @typedef {Object} JobSnapshot  Una tarea larga del núcleo, tal como va (contrato A).
+ * @property {string} name
+ * @property {boolean} active     sigue en marcha
+ * @property {number} done
+ * @property {number} total       0 si no se sabe cuánto hay
+ * @property {string} message     qué está haciendo, en castellano
+ * @property {any} result         al acabar, lo que devolvía la ruta cuando era síncrona
+ * @property {string} error       en castellano, o vacío
+ * @property {number} [started]
+ * @property {number} [ended]
  */
 
 /**
@@ -159,7 +175,8 @@
  * @property {{id:number, artist:string, title:string, paused:boolean}|null} [playing]
  */
 
-export const inTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
+export const inTauri =
+  typeof window !== 'undefined' && !!(/** @type {any} */ (window).__TAURI_INTERNALS__)
 
 /** @type {null | ((cmd: string, args?: Object) => Promise<any>)} */
 let invoke = null
@@ -237,13 +254,13 @@ export function fromBridge(e) {
 }
 
 /**
- * @param {'GET'|'POST'|'PATCH'|'DELETE'} method
+ * @param {'GET'|'POST'|'PUT'|'PATCH'|'DELETE'} method
  * @param {string} path  ruta sin el prefijo /api
  * @param {Object} [body]
  * @returns {Promise<any>}
  */
 async function request(method, path, body) {
-  if (inTauri) {
+  if (inTauri && invoke) {
     try {
       const txt = await invoke('api', {
         method,
@@ -255,11 +272,15 @@ async function request(method, path, body) {
       throw fromBridge(e)
     }
   }
+  // En modo desarrollo el núcleo exige esta cabecera en TODAS las peticiones
+  // (§2), también en los GET: hay GET con efectos (los que gastan IA) y una
+  // página cualquiera abierta en el navegador podría lanzarlos. Una cabecera
+  // propia obliga al navegador a preguntar antes (preflight), y ahí CORS
+  // corta. Los medios que pide el propio navegador (<audio>, <img>) no pasan
+  // por aquí: van por `mediaUrl`.
   /** @type {Record<string, string>} */
-  const headers = { 'Content-Type': 'application/json' }
-  // En modo desarrollo el núcleo exige esta cabecera en todo lo que no sea
-  // GET: fuerza un preflight y corta el CSRF de peticiones simples (§2).
-  if (method !== 'GET') headers['X-DanPlay'] = '1'
+  const headers = { 'X-DanPlay': '1' }
+  if (body) headers['Content-Type'] = 'application/json'
   const r = await fetch('/api' + path, {
     method,
     headers,
@@ -275,8 +296,10 @@ const PATCH = (r, c) => request('PATCH', r, c)
 const PUT = (r, c) => request('PUT', r, c)
 const DEL = (r) => request('DELETE', r)
 
-// El audio y la portada no viajan por el puente: los sirve Rust con un protocolo
-// propio (el audio se lee del disco, con soporte de Range).
+// La portada no viaja por el puente: la sirve Rust con un protocolo propio
+// (`danplay://cover/<id>`). El audio, dentro de la app, ni eso: lo reproduce
+// Rust. Solo en el navegador se pide el audio por URL, al núcleo, para el
+// <audio> del reproductor web.
 //
 // OJO: Tauri expone los protocolos propios de forma distinta según el sistema.
 // En Linux y Windows es  http://<esquema>.localhost/...
@@ -427,13 +450,18 @@ export const app = {
    * @param {string} url
    */
   openInBrowser: (url) =>
-    inTauri ? invoke('open_in_browser', { url }) : Promise.resolve(window.open(url, '_blank') && undefined),
+    inTauri
+      ? invoke('open_in_browser', { url })
+      : Promise.resolve(window.open(url, '_blank') && undefined),
   /**
    * Abre un .html de la biblioteca (la hoja para el atril) con el navegador
    * del sistema, para leerlo e imprimirlo. Solo dentro de la app.
    * @param {string} path
    */
-  openHtml: (path) => (inTauri ? invoke('open_html', { path }) : Promise.reject(new Error('Solo en la aplicación de escritorio'))),
+  openHtml: (path) =>
+    inTauri
+      ? invoke('open_html', { path })
+      : Promise.reject(new Error('Solo en la aplicación de escritorio')),
   /**
    * A dónde se puede enviar una canción desde este equipo.
    * @returns {Promise<{telegram: boolean}>}
@@ -481,7 +509,10 @@ export const app = {
  * ventana aparte que se arrastra a la otra pantalla; cerrarla la esconde.
  */
 export const projection = {
-  show: () => (inTauri ? invoke('show_projection') : Promise.resolve(window.open('/?projection=1', 'danplay-projection') && undefined)),
+  show: () =>
+    inTauri
+      ? invoke('show_projection')
+      : Promise.resolve(window.open('/?projection=1', 'danplay-projection') && undefined),
   hide: () => (inTauri ? invoke('hide_projection') : Promise.resolve(window.close())),
   /** Pantalla completa de ESTA ventana (solo dentro de la app). @param {boolean} on */
   fullscreen: async (on) => {
@@ -507,21 +538,157 @@ export const mini = {
   onVisible: inTauri ? (fn) => listen('danplay://mini-visible', (e) => fn(e.payload)) : noListener
 }
 
-/** El núcleo Python, visto desde Rust. */
+/** Cada cuánto mira el navegador si el núcleo ha cambiado (como `core::watch` en Rust). */
+export const WATCH_MS = 2000
+
+/**
+ * Lo que en la app hace Rust (`core::watch`), en el navegador: mirar
+ * `/api/status` cada dos segundos y avisar cuando `revision` cambia (algo de
+ * lo que se enseña cambió en el núcleo, lo hiciera quien lo hiciera: el
+ * vigilante de carpetas, el asistente) o cuando el núcleo pasa de no
+ * contestar a contestar. Sin esto, en `npm run dev` la pantalla no se
+ * enteraba de nada de lo que pasaba por detrás.
+ *
+ * Solo mira mientras alguien escucha. La primera lectura fija el punto de
+ * partida: la página acaba de cargar lo que hay.
+ */
+function createBrowserWatch() {
+  /** @type {Set<(e: {revision: number}) => void>} */
+  const changed = new Set()
+  /** @type {Set<(e: {ready: boolean, message: string}) => void>} */
+  const status = new Set()
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let timer = null
+  /** @type {number|null|undefined} */
+  let revision
+  /** @type {boolean|null} */
+  let ready = null
+
+  async function tick() {
+    timer = null
+    let now
+    try {
+      now = await request('GET', '/status')
+    } catch {
+      now = null
+    }
+    if (!changed.size && !status.size) return
+    const alive = !!now
+    // solo los cambios: de no contestar a contestar (o al revés)
+    if (ready !== null && alive !== ready) {
+      const e = { ready: alive, message: alive ? '' : 'el núcleo no contesta' }
+      for (const fn of status) fn(e)
+    }
+    ready = alive
+    if (now && typeof now.revision === 'number') {
+      if (revision != null && now.revision !== revision) {
+        for (const fn of changed) fn({ revision: now.revision })
+      }
+      revision = now.revision
+    }
+    timer = setTimeout(tick, WATCH_MS)
+  }
+
+  /**
+   * @template T
+   * @param {Set<T>} set
+   * @returns {(fn: T) => Promise<() => void>}
+   */
+  const subscribe = (set) => async (fn) => {
+    set.add(fn)
+    if (!timer) timer = setTimeout(tick, 0)
+    return () => {
+      set.delete(fn)
+      if (!changed.size && !status.size && timer) {
+        clearTimeout(timer)
+        timer = null
+        revision = undefined
+        ready = null
+      }
+    }
+  }
+  return { onChanged: subscribe(changed), onStatus: subscribe(status) }
+}
+const browserWatch = inTauri ? null : createBrowserWatch()
+
+/** El núcleo Python, visto desde Rust (o, en el navegador, sondeando). */
 export const core = {
   /**
    * Avisa cuando el núcleo arranca, muere o se reinicia.
    * @param {(e: {ready: boolean, message: string}) => void} fn
+   * @returns {Promise<() => void>}
    */
-  onStatus: inTauri ? (fn) => listen('danplay://core', (e) => fn(e.payload)) : noListener,
+  onStatus: (fn) =>
+    inTauri && listen
+      ? listen('danplay://core', (e) => fn(e.payload))
+      : (browserWatch?.onStatus(fn) ?? noListener()),
   /**
    * Avisa cuando algo de lo que se enseña ha cambiado en el núcleo (el
    * índice, las listas, las estrellas), venga de donde venga: el asistente,
-   * una descarga que termina, la línea de órdenes. Rust lo detecta por la
-   * `revision` de `/api/status` (§1). Devuelve cómo dejar de escuchar.
+   * una descarga que termina, la línea de órdenes, el vigilante de carpetas.
+   * Rust lo detecta por la `revision` de `/api/status` (§1); en el navegador
+   * se mira aquí mismo. Devuelve cómo dejar de escuchar.
    * @param {(e: {revision: number}) => void} fn
+   * @returns {Promise<() => void>}
    */
-  onChanged: inTauri ? (fn) => listen('danplay://changed', (e) => fn(e.payload)) : noListener
+  onChanged: (fn) =>
+    inTauri && listen
+      ? listen('danplay://changed', (e) => fn(e.payload))
+      : (browserWatch?.onChanged(fn) ?? noListener())
+}
+
+/** Cada cuánto se pregunta por una tarea larga. */
+export const JOB_POLL_MS = 500
+
+/** Los nombres de las tareas largas del núcleo (contrato A). */
+export const JOBS = {
+  scan: 'escaneo',
+  import: 'importacion',
+  convert: 'conversion',
+  duplicates: 'duplicados',
+  ytdlp: 'yt-dlp'
+}
+
+/** @param {number} ms */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Una tarea larga del núcleo, de principio a fin.
+ *
+ * Escanear, importar, convertir o buscar duplicados puede tardar minutos, y
+ * el puente de Rust corta a los 60 s: esperaban dentro de la petición y la
+ * interfaz daba error aunque el trabajo siguiera. Ahora `start` la arranca
+ * (el núcleo contesta al momento con cómo va) y aquí se pregunta cada poco
+ * hasta que acaba, contando el avance a quien quiera enseñarlo. Si ya había
+ * una igual en marcha, se sigue esa.
+ * @param {() => Promise<any>} start  el POST que la arranca
+ * @param {string} name               su nombre en el núcleo (ver `JOBS`)
+ * @param {{ onProgress?: (job: JobSnapshot) => void, interval?: number,
+ *           poll?: (name: string) => Promise<JobSnapshot> }} [options]
+ * @returns {Promise<any>} lo que dejó la tarea (`result`)
+ */
+export async function runJob(start, name, options = {}) {
+  const { onProgress, interval = JOB_POLL_MS, poll = (n) => api.job(n) } = options
+  const first = await start()
+  /** @type {JobSnapshot} */
+  let job = first?.job || (await poll(name))
+  onProgress?.(job)
+  let failures = 0
+  while (job.active) {
+    await sleep(interval)
+    try {
+      job = await poll(name)
+      failures = 0
+    } catch (e) {
+      // un fallo suelto (el núcleo ocupado, un reinicio) no tira la tarea,
+      // que sigue en el núcleo; varios seguidos, sí
+      if (++failures >= 3) throw e
+      continue
+    }
+    onProgress?.(job)
+  }
+  if (job.error) throw new ApiError(job.error)
+  return job.result
 }
 
 export const api = {
@@ -586,12 +753,30 @@ export const api = {
   relocateFolder: (from, to) => POST('/folders/relocate', { from, to }),
   addExclusion: (pattern, kind = 'glob', note = '') => POST('/exclusions', { pattern, kind, note }),
   removeExclusion: (p) => DEL(`/exclusions?pattern=${encodeURIComponent(p)}`),
+
+  /**
+   * Cómo va una tarea larga (ver `runJob`).
+   * @param {string} name
+   * @returns {Promise<JobSnapshot>}
+   */
+  job: (name) => GET(`/jobs/${encodeURIComponent(name)}`),
+  /** @type {typeof runJob} */
+  runJob: (start, name, options) => runJob(start, name, options),
+  /** Arranca el escaneo (tarea «escaneo»): contesta al momento con `{job}`. */
   scan: () => POST('/scan'),
 
-  /** @param {Object<string, any>} p */
+  /**
+   * Una página de la búsqueda. Trae `count` (cuántas cumplen la consulta, sin
+   * límite) y canciones ligeras: sin letra, acordes ni estudio, que se piden
+   * con `song` (en su lugar, `has_lyrics`, `has_chords`…). `limit` hasta
+   * 20000; `from_key` es desde cuál.
+   * @param {Object<string, any>} p
+   * @returns {Promise<{total: number, count?: number, songs: Song[]}>}
+   */
   search: (p) => GET('/search?' + new URLSearchParams(p)),
   // búsqueda suelta para el desplegable: no toca la lista de la página
-  quickSearch: (q, limit = 40) => GET('/search?' + new URLSearchParams({ q, limit })),
+  quickSearch: (q, limit = 40) =>
+    GET('/search?' + new URLSearchParams({ q, limit: String(limit) })),
   facets: () => GET('/facets'),
   /** @param {number} id @returns {Promise<Song>} */
   song: (id) => GET(`/song/${id}`),
@@ -645,7 +830,8 @@ export const api = {
    * @param {number} id @param {boolean} [withLyrics]
    * @returns {Promise<{file: string}>}
    */
-  playlistSheet: (id, withLyrics = false) => POST(`/playlists/${id}/sheet`, { with_lyrics: withLyrics }),
+  playlistSheet: (id, withLyrics = false) =>
+    POST(`/playlists/${id}/sheet`, { with_lyrics: withLyrics }),
   exportPlaylist: (id) => POST(`/playlists/${id}/export`),
 
   // La lista del reproductor: lo que has abierto desde FUERA de DanPlay.
@@ -671,18 +857,31 @@ export const api = {
 
   // descargas de YouTube: la descarga arranca y vuelve enseguida; el avance
   // se consulta con youtube() cada poco.
+  /** El estado de la descarga, y qué yt-dlp hay y con qué motor de JavaScript. */
   youtube: () => GET('/youtube'),
+  /**
+   * Trae el yt-dlp más nuevo (tarea «yt-dlp»); `result`: `{previous, version, updated}`.
+   * YouTube cambia a menudo y el que va dentro de la app se queda viejo.
+   */
+  youtubeUpdate: () => POST('/youtube/update'),
   youtubeInfo: (query, results = 5) => POST('/youtube/info', { query, results }),
   youtubeDownload: (d) => POST('/youtube/download', d),
   youtubeCancel: () => POST('/youtube/cancel'),
-  downloadHistory: (limit = 60, offset = 0) => GET(`/downloads/history?limit=${limit}&offset=${offset}`),
+  downloadHistory: (limit = 60, offset = 0) =>
+    GET(`/downloads/history?limit=${limit}&offset=${offset}`),
   clearDownloadHistory: () => DEL('/downloads/history'),
 
+  /** Importa la Entrada (tarea «importacion»; también en prueba, con `dry_run`). */
   runImport: (d) => POST('/import', d),
   convertible: () => GET('/convertible'),
-  /** @param {{dry_run: boolean, quality: 'high'|'medium'|'variable', keep: boolean}} d */
+  /**
+   * Con `dry_run` contesta al momento con lo que haría; sin él, arranca la
+   * tarea «conversion».
+   * @param {{dry_run: boolean, quality: 'high'|'medium'|'variable', keep: boolean}} d
+   */
   convert: (d) => POST('/convert', d),
-  duplicates: () => GET('/duplicates'),
+  /** Busca duplicados (tarea «duplicados»; `result`: `{identical, similar}`). */
+  duplicatesScan: () => POST('/duplicates/scan'),
   /** @returns {Promise<ChatReply>} */
   /**
    * Una respuesta entera de una vez. `context` es lo que la persona tiene
@@ -699,7 +898,8 @@ export const api = {
    * @param {ChatContext} [context]
    * @returns {Promise<{id: string}>}
    */
-  chatStart: (messages, context = null) => POST('/chat/start', context ? { messages, context } : { messages }),
+  chatStart: (messages, context = null) =>
+    POST('/chat/start', context ? { messages, context } : { messages }),
   /** @param {string} id @returns {Promise<{text: string, tools: Object[], done: boolean, result: ChatReply|null}>} */
   chatPoll: (id) => GET(`/chat/poll/${encodeURIComponent(id)}`),
   /** @param {string} id */
@@ -733,8 +933,12 @@ export const api = {
   resolveDuplicate: (keep, remove, dry_run = false) =>
     POST('/duplicates/resolve', { keep, remove, dry_run }),
 
-  /** @param {number|string} id */
-  audioUrl: (id) => mediaUrl('audio', id),
+  /**
+   * El audio de una canción para el <audio> del navegador. Dentro de la app no
+   * hay URL de audio (lo reproduce Rust): `null`.
+   * @param {number|string} id
+   */
+  audioUrl: (id) => (inTauri ? null : mediaUrl('audio', id)),
   /**
    * Portada. Con `size` (96, 192 o 320) llega una miniatura JPEG cacheada;
    * sin él, la imagen original, que solo hace falta en el panel de detalle.
@@ -742,6 +946,5 @@ export const api = {
    * @param {number} [size]
    */
   coverUrl: (id, size) => mediaUrl('cover', id, coverQuery(size)),
-  audioUrlAlt: (id) => mediaUrlAlt('audio', id),
   coverUrlAlt: (id, size) => mediaUrlAlt('cover', id, coverQuery(size))
 }

@@ -2,14 +2,22 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { api, mediaUrl, mediaUrlAlt, COVER_SIZES, errorMessage, ApiError, fromBridge } from '../src/api.js'
+import {
+  api,
+  mediaUrl,
+  mediaUrlAlt,
+  COVER_SIZES,
+  errorMessage,
+  ApiError,
+  fromBridge
+} from '../src/api.js'
 import { createState, buildApiDouble } from './support/backend.js'
+import { coreSource } from './support/core.js'
 
 // Cinco fallos de la interfaz eran el mismo: un nombre que dejó de existir al
 // pasar el código a inglés y que nadie comparó con el núcleo. Estas pruebas
 // comparan los dos lados de verdad.
 const HERE = dirname(fileURLToPath(import.meta.url))
-const CORE = join(HERE, '..', '..', 'danplay')
 const SRC = join(HERE, '..', 'src')
 const read = (...p) => readFileSync(join(...p), 'utf8')
 
@@ -28,30 +36,11 @@ describe('el doble de las pruebas cubre el api de verdad', () => {
 })
 
 describe('los nombres que la interfaz manda al nucleo', () => {
-  it('la calidad de conversion es la que entiende Python', () => {
-    // config.py: MP3_QUALITY = high | medium | variable. Ajustes ofrecía
-    // «alta» y «media», que el núcleo no conoce: elegir Media acababa en 320k
-    // sin decir nada.
-    const settings = read(SRC, 'components/SettingsPage.vue')
-    const ofrecidas = [...settings.matchAll(/\{v:\s*'(\w+)'\s*,\s*n:\s*'(?:Alta|Media|Variable)'/g)].map(
-      (m) => m[1]
-    )
-    expect(ofrecidas.length, 'no encuentro el selector de calidad').toBeGreaterThan(1)
-    const core = read(CORE, 'convert.py')
-    for (const q of ofrecidas) {
-      expect(core, `el núcleo no conoce la calidad «${q}»`).toMatch(new RegExp(`"${q}"`))
-    }
-  })
+  // que las calidades que ofrece Ajustes son las que entiende el nucleo se
+  // prueba eligiendolas de verdad (settings.test.js)
 
-  it('conservar el original se manda con el nombre que la API lee', () => {
-    // api.py: body.get("keep"). Se mandaba «keepOne», así que la casilla no
-    // hacía nada y los archivos de partida se borraban igual.
-    const settings = read(SRC, 'components/SettingsPage.vue')
-    const llamada = settings.match(/api\.convert\(\{[\s\S]{0,200}?\}\)/)
-    expect(llamada, 'no encuentro la llamada a convertir').toBeTruthy()
-    expect(llamada[0]).toMatch(/\bkeep:/)
-    expect(llamada[0], 'keepOne no existe en la API').not.toMatch(/keepOne/)
-  })
+  // que «conservar el original» viaja como `keep` (y no como `keepOne`, que
+  // el nucleo ignoraba) se prueba pulsando «Convertir ahora» (settings.test.js)
 
   it('el estado de la IA se lee con el nombre que devuelve la API', () => {
     // api.py devuelve "ai"; se leía status.ia, así que la insignia decía
@@ -59,7 +48,7 @@ describe('los nombres que la interfaz manda al nucleo', () => {
     for (const file of ['components/SettingsPage.vue', 'App.vue']) {
       expect(read(SRC, file), `${file} lee status.ia`).not.toMatch(/status\??\.ia\b/)
     }
-    expect(read(CORE, 'api.py')).toMatch(/"ai":/)
+    expect(coreSource()).toMatch(/"ai":/)
   })
 
   it('las acciones al añadir una carpeta son las de la API', () => {
@@ -67,7 +56,7 @@ describe('los nombres que la interfaz manda al nucleo', () => {
     for (const action of ['added', 'already_there', 'replaced', 'confirm']) {
       expect(helper, `falta la acción «${action}»`).toContain(action)
     }
-    const core = read(CORE, 'api.py')
+    const core = coreSource()
     for (const action of ['already_there', 'replaced', 'confirm']) {
       expect(core, `el núcleo no devuelve «${action}»`).toContain(`"${action}"`)
     }
@@ -78,7 +67,7 @@ describe('los nombres que la interfaz manda al nucleo', () => {
   })
 
   it('los campos que se pueden editar de una cancion los admite el nucleo', () => {
-    const core = read(CORE, 'api.py')
+    const core = coreSource()
     expect(core, 'la API deberia limitar que campos se editan').toMatch(/EDITABLE|SongEdit/)
   })
 })
@@ -100,7 +89,7 @@ describe('las direcciones de audio y portada', () => {
   })
 
   it('el nucleo acepta esos mismos tamaños', () => {
-    const core = read(CORE, 'api.py')
+    const core = coreSource()
     for (const size of COVER_SIZES) {
       expect(core, `el núcleo no genera miniaturas de ${size}`).toContain(String(size))
     }

@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { allCss } from './support/css.js'
 import { readFileSync, readdirSync } from 'node:fs'
-import { CATALOG, FIELDS, applyTheme, SIZES, applySize, savedSize, applyDensity } from '../src/themes.js'
+import {
+  CATALOG,
+  FIELDS,
+  applyTheme,
+  SIZES,
+  applySize,
+  savedSize,
+  applyDensity
+} from '../src/themes.js'
 
 const css = allCss()
 
@@ -16,8 +24,8 @@ describe('los colores salen del tema', () => {
       const sinVars = l.replace(/--[\w-]+\s*:\s*#[0-9a-fA-F]{3,8}/g, '')
       for (const m of sinVars.matchAll(/#([0-9a-fA-F]{3,8})\b/g)) {
         const hex = m[1].toLowerCase()
-        const soloCeros = /^0+[0-9a-f]{0,2}$/.test(hex)      // negro con alfa
-        const soloUnos = /^(fff|ffffff)([0-9a-f]{2})?$/.test(hex)  // blanco con alfa
+        const soloCeros = /^0+[0-9a-f]{0,2}$/.test(hex) // negro con alfa
+        const soloUnos = /^(fff|ffffff)([0-9a-f]{2})?$/.test(hex) // blanco con alfa
         if (!soloCeros && !soloUnos) malas.push(`style.css:${n + 1}  ${l.slice(0, 70)}`)
       }
     }
@@ -26,8 +34,10 @@ describe('los colores salen del tema', () => {
 
   it('los componentes .vue tampoco llevan colores fijos', () => {
     const vistas = [
-      ...readdirSync('src/components').filter(f => f.endsWith('.vue')).map(f => 'src/components/' + f),
-      ...readdirSync('src/components/ui').map(f => 'src/components/ui/' + f),
+      ...readdirSync('src/components')
+        .filter((f) => f.endsWith('.vue'))
+        .map((f) => 'src/components/' + f),
+      ...readdirSync('src/components/ui').map((f) => 'src/components/ui/' + f),
       'src/App.vue'
     ]
     const malas = []
@@ -61,7 +71,7 @@ describe('catalogo de temas', () => {
   })
 
   it('hay temas claros y oscuros', () => {
-    const tipos = Object.values(CATALOG).map(t => t.kind)
+    const tipos = Object.values(CATALOG).map((t) => t.kind)
     expect(tipos).toContain('light')
     expect(tipos).toContain('dark')
   })
@@ -72,7 +82,8 @@ describe('catalogo de temas', () => {
       return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255
     }
     for (const [k, t] of Object.entries(CATALOG)) {
-      const lTexto = luz(t.v.text), lFondo = luz(t.v.bg)
+      const lTexto = luz(t.v.text),
+        lFondo = luz(t.v.bg)
       if (t.kind === 'light') {
         expect(lFondo, `${k}: el fondo deberia ser claro`).toBeGreaterThan(0.7)
         expect(lTexto, `${k}: el texto deberia ser oscuro`).toBeLessThan(0.35)
@@ -91,7 +102,10 @@ describe('catalogo de temas', () => {
       return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255
     }
     for (const [k, t] of Object.entries(CATALOG)) {
-      expect(Math.abs(luz(t.v.accent) - luz(t.v.panel)), `${k}: el acento no se ve`).toBeGreaterThan(0.2)
+      expect(
+        Math.abs(luz(t.v.accent) - luz(t.v.panel)),
+        `${k}: el acento no se ve`
+      ).toBeGreaterThan(0.2)
     }
   })
 
@@ -115,7 +129,7 @@ describe('tamaño de la app', () => {
   })
 
   it('van de menor a mayor sin repetirse', () => {
-    const escalas = Object.values(SIZES).map(s => s.scale)
+    const escalas = Object.values(SIZES).map((s) => s.scale)
     expect(escalas).toEqual([...escalas].sort((a, b) => a - b))
     expect(new Set(escalas).size).toBe(escalas.length)
   })
@@ -144,5 +158,33 @@ describe('tamaño de la app', () => {
     // el tamaño no debe pisarla
     applySize('xlarge')
     expect(r.getPropertyValue('--table-font-base')).toBe('12px')
+  })
+})
+
+describe('las preferencias no dependen de quien las pidio primero', () => {
+  it('si el primer componente que las usa se cierra, cambiar el tema sigue aplicandose', async () => {
+    // Sus `watch` vivian en el ambito de ese componente: al cerrarlo (la onda
+    // del modo estudio, por ejemplo) se paraban y el tema ya no se guardaba.
+    const { mount } = await import('@vue/test-utils')
+    const { defineComponent, h, nextTick } = await import('vue')
+    const { usePreferences, resetPreferences } =
+      await import('../src/composables/usePreferences.js')
+    resetPreferences()
+    localStorage.clear()
+    const Primero = defineComponent({
+      setup: () => {
+        usePreferences()
+        return () => h('div')
+      }
+    })
+    mount(Primero).unmount()
+    usePreferences().theme.value = 'ocean'
+    usePreferences().layout.value = 'grid'
+    await nextTick()
+    expect(document.documentElement.dataset.theme).toBe('ocean')
+    expect(localStorage.getItem('danplay.theme')).toBe('ocean')
+    expect(localStorage.getItem('danplay.layout')).toBe('grid')
+    resetPreferences()
+    localStorage.clear()
   })
 })

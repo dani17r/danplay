@@ -8,16 +8,24 @@ import { mount, flushPromises } from '@vue/test-utils'
 const { api, store } = vi.hoisted(() => {
   const store = { chats: [], last: null }
   const api = {
-    chatTools: vi.fn(async () => ({ model: 'Qwen/Qwen3-Next-80B-A3B-Instruct',
-                                           available: true, tools: [] })),
+    chatTools: vi.fn(async () => ({
+      model: 'Qwen/Qwen3-Next-80B-A3B-Instruct',
+      available: true,
+      tools: []
+    })),
     chat: vi.fn(async () => ({ text: 'Tienes 260 canciones.', tools: [] })),
-    chatStart: vi.fn(async (messages, context) => { store.last = { messages, context }; return { id: 'j1' } }),
+    chatStart: vi.fn(async (messages, context) => {
+      store.last = { messages, context }
+      return { id: 'j1' }
+    }),
     chatPoll: vi.fn(async () => {
       const result = await api.chat(store.last.messages, store.last.context)
       return { text: result.text || '', tools: result.tools || [], done: true, result }
     }),
     chatCancel: vi.fn(async () => ({ ok: true })),
-    chats: vi.fn(async () => ({ chats: store.chats.map((c) => ({ id: c.id, title: c.title, n: c.messages.length })) })),
+    chats: vi.fn(async () => ({
+      chats: store.chats.map((c) => ({ id: c.id, title: c.title, n: c.messages.length }))
+    })),
     chatCreate: vi.fn(async (title = '') => {
       const c = { id: store.chats.length + 1, title, messages: [] }
       store.chats.unshift(c)
@@ -33,7 +41,10 @@ const { api, store } = vi.hoisted(() => {
       return { n: messages.length }
     }),
     chatRename: vi.fn(async () => ({ ok: true })),
-    chatDelete: vi.fn(async (id) => { store.chats = store.chats.filter((x) => x.id !== id); return { ok: true } }),
+    chatDelete: vi.fn(async (id) => {
+      store.chats = store.chats.filter((x) => x.id !== id)
+      return { ok: true }
+    }),
     chatSearch: vi.fn(async () => ({ hits: [] })),
     chatConfirm: vi.fn(async () => ({ ok: true, result: {}, text: 'Hecho.' })),
     youtube: vi.fn(async () => ({ available: true, active: false, results: [] }))
@@ -41,14 +52,30 @@ const { api, store } = vi.hoisted(() => {
   return { api, store }
 })
 vi.mock('../src/api.js', () => ({
-  api, native: { available: false },
+  api,
+  native: { available: false },
   errorMessage: (e) => String(e?.message || e)
 }))
 import ChatPage from '../src/components/ChatPage.vue'
 import { dialogOk, dialogCancel, useDialog } from '../src/composables/useDialog.js'
 import { resetDownloads } from '../src/composables/useDownloads.js'
+import { connectChat, resetChat } from '../src/composables/useChat.js'
 
-beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); vi.useRealTimers(); resetDownloads(); store.chats = []; store.last = null })
+// Lo que la app hace por el chat (reproducir, recargar). La conversacion ya
+// no vive en el componente: las ordenes van a quien se conecto, que en la
+// app de verdad es App.vue y no se desmonta nunca.
+const app = { reload: vi.fn(), action: vi.fn() }
+
+beforeEach(() => {
+  localStorage.clear()
+  vi.clearAllMocks()
+  vi.useRealTimers()
+  resetDownloads()
+  resetChat()
+  connectChat(app)
+  store.chats = []
+  store.last = null
+})
 
 const montar = async () => {
   const w = mount(ChatPage, { attachTo: document.body })
@@ -88,7 +115,7 @@ describe('chat', () => {
     await escribir(w, 'hola')
     await escribir(w, 'y ahora?')
     const ultima = api.chat.mock.calls.at(-1)[0]
-    expect(ultima).toHaveLength(3)          // yo, ia, yo
+    expect(ultima).toHaveLength(3) // yo, ia, yo
     expect(ultima[0]).toEqual({ role: 'me', text: 'hola' })
   })
 
@@ -97,20 +124,33 @@ describe('chat', () => {
     // modelo no toma sus propias frases («ya la cree») por hechos, y conserva
     // los ids y nombres que enseño («la segunda», «esa»).
     api.chat.mockResolvedValueOnce({
-      text: 'Lista creada', tools: [{ name: 'create_playlist', summary: '4 temas', args: { x: 1 },
-                                      detail: '«X» (id 3): id 1 «A - B»' }] })
+      text: 'Lista creada',
+      tools: [
+        {
+          name: 'create_playlist',
+          summary: '4 temas',
+          args: { x: 1 },
+          detail: '«X» (id 3): id 1 «A - B»'
+        }
+      ]
+    })
     const w = await montar()
     await escribir(w, 'crea una lista')
     await escribir(w, 'gracias')
     const ultima = api.chat.mock.calls.at(-1)[0]
-    expect(ultima[1]).toEqual({ role: 'ai', text: 'Lista creada',
-                                tools: [{ name: 'create_playlist', summary: '4 temas', detail: '«X» (id 3): id 1 «A - B»' }] })
+    expect(ultima[1]).toEqual({
+      role: 'ai',
+      text: 'Lista creada',
+      tools: [{ name: 'create_playlist', summary: '4 temas', detail: '«X» (id 3): id 1 «A - B»' }]
+    })
     expect(ultima[0]).toEqual({ role: 'me', text: 'crea una lista' })
   })
 
   it('enseña que herramientas uso', async () => {
     api.chat.mockResolvedValueOnce({
-      text: 'Lista creada', tools: [{ name: 'create_playlist', summary: '4 temas' }] })
+      text: 'Lista creada',
+      tools: [{ name: 'create_playlist', summary: '4 temas' }]
+    })
     const w = await montar()
     await escribir(w, 'armame una lista')
     expect(w.find('.chat-tools').text()).toContain('creo una lista')
@@ -119,10 +159,12 @@ describe('chat', () => {
 
   it('avisa a la app cuando la IA crea una lista', async () => {
     api.chat.mockResolvedValueOnce({
-      text: 'ok', tools: [{ name: 'create_playlist', summary: 'x' }] })
+      text: 'ok',
+      tools: [{ name: 'create_playlist', summary: 'x' }]
+    })
     const w = await montar()
     await escribir(w, 'crea una lista')
-    expect(w.emitted('reload')).toBeTruthy()
+    expect(app.reload).toHaveBeenCalled()
   })
 
   it('un error del backend se muestra sin romper el chat', async () => {
@@ -143,8 +185,25 @@ describe('chat', () => {
   it('recuerda la conversacion al reabrir', async () => {
     const w = await montar()
     await escribir(w, 'hola')
+    w.unmount()
+    // como si se abriera la app de nuevo: lo que hay se lee del nucleo
+    resetChat()
     const w2 = await montar()
     expect(w2.text()).toContain('hola')
+  })
+
+  it('el boton de enviar lleva el icono de enviar, no el de «cancion siguiente»', async () => {
+    const w = await montar()
+    const enviar = w.find('.chat-foot button[title="Enviar"]')
+    expect(enviar.exists(), 'no encuentro el boton de enviar').toBe(true)
+    const icono = w
+      .findAllComponents({ name: 'Icon' })
+      .find((i) => enviar.element.contains(i.element))
+    expect(icono.props('n')).toBe('send')
+    await w.find('.chat-foot input').setValue('hola')
+    await enviar.trigger('click')
+    await flushPromises()
+    expect(api.chatStart).toHaveBeenCalled()
   })
 
   it('pulsar una sugerencia la envia', async () => {
@@ -163,38 +222,42 @@ describe('chat', () => {
 describe('ordenes del asistente hacia la app', () => {
   it('reenvia las acciones que llegan del nucleo', async () => {
     api.chat.mockResolvedValueOnce({
-      text: 'Ya suena', tools: [{ name: 'play_song', summary: 'sonando: Barak - Mi Gozo' }],
+      text: 'Ya suena',
+      tools: [{ name: 'play_song', summary: 'sonando: Barak - Mi Gozo' }],
       actions: [{ kind: 'play_song', song_id: 7 }]
     })
     const w = await montar()
     await escribir(w, 'pon Mi Gozo')
-    expect(w.emitted('action')).toBeTruthy()
-    expect(w.emitted('action')[0][0]).toEqual({ kind: 'play_song', song_id: 7 })
+    expect(app.action).toHaveBeenCalledTimes(1)
+    expect(app.action.mock.calls[0][0]).toEqual({ kind: 'play_song', song_id: 7 })
   })
 
   it('sin acciones no emite nada', async () => {
     api.chat.mockResolvedValueOnce({ text: 'Tienes 260 canciones.', tools: [] })
     const w = await montar()
     await escribir(w, '¿cuantas tengo?')
-    expect(w.emitted('action')).toBeFalsy()
+    expect(app.action).not.toHaveBeenCalled()
   })
 
   it('recarga la biblioteca cuando el asistente la cambia', async () => {
     api.chat.mockResolvedValueOnce({
-      text: 'Puntuada', tools: [{ name: 'set_stars', summary: '4 estrellas' }] })
+      text: 'Puntuada',
+      tools: [{ name: 'set_stars', summary: '4 estrellas' }]
+    })
     const w = await montar()
     await escribir(w, 'ponle 4 estrellas')
-    expect(w.emitted('reload')).toBeTruthy()
+    expect(app.reload).toHaveBeenCalled()
   })
 })
-
 
 // El asistente contesta en markdown. Antes se pintaba tal cual, con los
 // asteriscos y las almohadillas a la vista.
 describe('el chat pinta el markdown del asistente', () => {
   it('negritas y listas salen como HTML, no como asteriscos', async () => {
     api.chat.mockResolvedValueOnce({
-      text: 'Tienes dos:\n\n1. **Mi Gozo** – Barak\n2. **Shekinah** – New Wine', tools: [] })
+      text: 'Tienes dos:\n\n1. **Mi Gozo** – Barak\n2. **Shekinah** – New Wine',
+      tools: []
+    })
     const w = await montar()
     await escribir(w, 'que tengo de barak?')
     const bubble = w.find('.chat-msg.ai .chat-bubble')
@@ -214,7 +277,9 @@ describe('el chat pinta el markdown del asistente', () => {
 
   it('un titulo de YouTube con HTML dentro no se cuela', async () => {
     api.chat.mockResolvedValueOnce({
-      text: 'Encontre <img src=x onerror=alert(1)> y **esto**', tools: [] })
+      text: 'Encontre <img src=x onerror=alert(1)> y **esto**',
+      tools: []
+    })
     const w = await montar()
     await escribir(w, 'busca')
     const bubble = w.find('.chat-msg.ai .chat-bubble')
@@ -238,27 +303,35 @@ describe('el chat pinta el markdown del asistente', () => {
 // (force) se perdia por el camino.
 describe('descargas pedidas al asistente', () => {
   const pendiente = {
-    text: 'Te pido permiso.', tools: [{ name: 'download_music', summary: 'espera tu visto bueno' }],
-    confirm: { tool: 'download_music', summary: 'Descargar de YouTube: «Ruja o Leão».',
-               args: { items: ['Ruja o Leao Carol Braga'], force: true } }
+    text: 'Te pido permiso.',
+    tools: [{ name: 'download_music', summary: 'espera tu visto bueno' }],
+    confirm: {
+      tool: 'download_music',
+      summary: 'Descargar de YouTube: «Ruja o Leão».',
+      args: { items: ['Ruja o Leao Carol Braga'], force: true }
+    }
   }
 
   it('al aceptar manda al nucleo los argumentos tal cual, force incluido', async () => {
     api.chat.mockResolvedValueOnce(pendiente)
     api.chatConfirm.mockResolvedValueOnce({
-      ok: true, text: 'Descargando. Te cuento cuando termine.',
-      result: { active: true, items: ['Ruja o Leao Carol Braga'], force: true } })
+      ok: true,
+      text: 'Descargando. Te cuento cuando termine.',
+      result: { active: true, items: ['Ruja o Leao Carol Braga'], force: true }
+    })
     const w = await montar()
     await escribir(w, 'bajala igual')
     expect(useDialog().dialog.value.open).toBe(true)
     expect(useDialog().dialog.value.message).toContain('Ruja o Leão')
     dialogOk()
     await flushPromises()
-    expect(api.chatConfirm).toHaveBeenCalledWith('download_music',
-      { items: ['Ruja o Leao Carol Braga'], force: true })
+    expect(api.chatConfirm).toHaveBeenCalledWith('download_music', {
+      items: ['Ruja o Leao Carol Braga'],
+      force: true
+    })
     expect(w.text()).toContain('Descargando. Te cuento cuando termine.')
     // no hace falta recargar la biblioteca todavia: no ha entrado nada
-    expect(w.emitted('reload')).toBeFalsy()
+    expect(app.reload).not.toHaveBeenCalled()
   })
 
   it('si dices que no, no se llama a nada', async () => {
@@ -275,15 +348,38 @@ describe('descargas pedidas al asistente', () => {
     vi.useFakeTimers()
     api.chat.mockResolvedValueOnce(pendiente)
     api.chatConfirm.mockResolvedValueOnce({
-      ok: true, text: 'Descargando 2 temas.',
-      result: { active: true, items: ['a', 'b'], force: false } })
+      ok: true,
+      text: 'Descargando 2 temas.',
+      result: { active: true, items: ['a', 'b'], force: false }
+    })
     api.youtube
-      .mockResolvedValueOnce({ active: true, phase: 'downloading', name: 'I Want Jesus', percent: 40, index: 1, total: 2 })
-      .mockResolvedValueOnce({ active: false, phase: 'done', results: [
-        { ok: true, id: 267, artist: 'Bethel Music', song: 'I Want Jesus (Live)', title: 'I Want Jesus' },
-        { ok: false, already_there: true, title: 'Ruja o Leão - Carol Braga',
-          matches: [{ id: 3, artist: 'Carol Braga', title: 'Ruja O Leao' }] }
-      ] })
+      .mockResolvedValueOnce({
+        active: true,
+        phase: 'downloading',
+        name: 'I Want Jesus',
+        percent: 40,
+        index: 1,
+        total: 2
+      })
+      .mockResolvedValueOnce({
+        active: false,
+        phase: 'done',
+        results: [
+          {
+            ok: true,
+            id: 267,
+            artist: 'Bethel Music',
+            song: 'I Want Jesus (Live)',
+            title: 'I Want Jesus'
+          },
+          {
+            ok: false,
+            already_there: true,
+            title: 'Ruja o Leão - Carol Braga',
+            matches: [{ id: 3, artist: 'Carol Braga', title: 'Ruja O Leao' }]
+          }
+        ]
+      })
     const w = await montar()
     await escribir(w, 'baja estas dos')
     dialogOk()
@@ -297,10 +393,11 @@ describe('descargas pedidas al asistente', () => {
 
     api.chat.mockResolvedValueOnce({
       text: 'Listo: lista «Herlin» creada con la que entro.',
-      tools: [{ name: 'create_playlist', summary: 'lista «Herlin» con 1 temas' }] })
+      tools: [{ name: 'create_playlist', summary: 'lista «Herlin» con 1 temas' }]
+    })
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.find('.chat-downloading').exists()).toBe(false)
-    const report = w.findAll('.chat-msg.ai').find(m => m.text().includes('Descargada'))
+    const report = w.findAll('.chat-msg.ai').find((m) => m.text().includes('Descargada'))
     expect(report).toBeTruthy()
     expect(report.text()).toContain('Bethel Music - I Want Jesus (Live)')
     // el nombre de YouTube no era el de archivo: se dice, para que nadie crea
@@ -311,7 +408,7 @@ describe('descargas pedidas al asistente', () => {
     expect(report.text()).toContain('otra versión')
     expect(report.find('.chat-tools').text()).toContain('1 descargada, 1 ya la tenías')
     // entro una: la biblioteca tiene que refrescarse
-    expect(w.emitted('reload')).toBeTruthy()
+    expect(app.reload).toHaveBeenCalled()
     // y ya no sigue preguntando
     const llamadas = api.youtube.mock.calls.length
     await vi.advanceTimersByTimeAsync(3000)
@@ -325,46 +422,65 @@ describe('descargas pedidas al asistente', () => {
     expect(sent.at(-1).text).toContain('La descarga ha terminado')
     // con los ids exactos de lo que entro y la correspondencia con lo pedido:
     // sin ellos el modelo se inventaba ids y creia que habia entrado otra cancion
-    expect(sent.at(-1).text).toContain('pediste «I Want Jesus» → entro como «Bethel Music - I Want Jesus (Live)» (id 267)')
+    expect(sent.at(-1).text).toContain(
+      'pediste «I Want Jesus» → entro como «Bethel Music - I Want Jesus (Live)» (id 267)'
+    )
     expect(sent.at(-1).text).toContain('NO la vuelvas a descargar')
     expect(sent.at(-1).text).toContain('añadir a una lista no necesita confirmacion')
     // y cita lo que pediste, para que remate ESO y no lo que le parezca
     expect(sent.at(-1).text).toContain('Lo que te pedi fue: «baja estas dos»')
     // y el historial que recibe el nucleo lleva las herramientas de cada mensaje
-    const withTools = sent.find(m => m.tools?.some(t => t.name === 'download_music'))
+    const withTools = sent.find((m) => m.tools?.some((t) => t.name === 'download_music'))
     expect(withTools).toBeTruthy()
     const bubbles = w.findAll('.chat-msg.me')
-    expect(bubbles.filter(b => b.isVisible()).some(b => b.text().includes('La descarga ha terminado'))).toBe(false)
+    expect(
+      bubbles
+        .filter((b) => b.isVisible())
+        .some((b) => b.text().includes('La descarga ha terminado'))
+    ).toBe(false)
     expect(w.text()).toContain('Listo: lista «Herlin» creada')
   })
 
   it('si cambias de pagina y vuelves, retoma el seguimiento', async () => {
     vi.useFakeTimers()
     localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
-    api.youtube.mockResolvedValueOnce({ active: false, phase: 'done', results: [
-      { ok: true, artist: 'Barak', song: 'Mi Gozo' }] })
+    api.youtube.mockResolvedValueOnce({
+      active: false,
+      phase: 'done',
+      results: [{ ok: true, artist: 'Barak', song: 'Mi Gozo' }]
+    })
     const w = await montar()
     await vi.advanceTimersByTimeAsync(1000)
-    expect(w.findAll('.chat-msg.ai').some(m => m.text().includes('Barak - Mi Gozo'))).toBe(true)
+    expect(w.findAll('.chat-msg.ai').some((m) => m.text().includes('Barak - Mi Gozo'))).toBe(true)
     expect(localStorage.getItem('danplay.chat.download')).toBeNull()
   })
 
   it('el aviso al asistente va etiquetado y con los ids; si el chat estaba ocupado, espera su turno', async () => {
     vi.useFakeTimers()
     localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
-    api.youtube.mockResolvedValueOnce({ active: false, phase: 'done', results: [
-      { ok: true, id: 301, artist: 'Barak', song: 'Mi Gozo', requested: 'x' }] })
+    api.youtube.mockResolvedValueOnce({
+      active: false,
+      phase: 'done',
+      results: [{ ok: true, id: 301, artist: 'Barak', song: 'Mi Gozo', requested: 'x' }]
+    })
     // el chat esta ocupado con otra pregunta cuando termina la descarga
     let release
-    api.chat.mockImplementationOnce(() => new Promise(res => { release = res }))
+    api.chat.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          release = res
+        })
+    )
     const w = await montar()
-    await escribir(w, '¿de que año es Kind of Blue?')      // se queda pensando
-    await vi.advanceTimersByTimeAsync(1000)                 // termina la descarga
+    await escribir(w, '¿de que año es Kind of Blue?') // se queda pensando
+    await vi.advanceTimersByTimeAsync(1000) // termina la descarga
     expect(w.text()).toContain('Barak - Mi Gozo')
-    expect(api.chat).toHaveBeenCalledTimes(1)                // el aviso NO se perdio ni se colo
+    expect(api.chat).toHaveBeenCalledTimes(1) // el aviso NO se perdio ni se colo
     api.chat.mockResolvedValueOnce({ text: 'Terminado.', tools: [] })
     release({ text: 'De 1959.', tools: [] })
-    await flushPromises(); await flushPromises(); await flushPromises()
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
     expect(api.chat).toHaveBeenCalledTimes(2)
     const sent = api.chat.mock.calls.at(-1)[0]
     expect(sent.at(-1).event).toBe('download_done')
@@ -374,9 +490,17 @@ describe('descargas pedidas al asistente', () => {
 
   it('una descarga que no pidio el chat no se cuenta como suya', async () => {
     vi.useFakeTimers()
-    localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['mi gozo barak'], force: false }))
-    api.youtube.mockResolvedValueOnce({ active: false, phase: 'done', results: [
-      { ok: true, id: 9, artist: 'Otro', song: 'Otra', requested: 'https://youtu.be/otra' }] })
+    localStorage.setItem(
+      'danplay.chat.download',
+      JSON.stringify({ items: ['mi gozo barak'], force: false })
+    )
+    api.youtube.mockResolvedValueOnce({
+      active: false,
+      phase: 'done',
+      results: [
+        { ok: true, id: 9, artist: 'Otro', song: 'Otra', requested: 'https://youtu.be/otra' }
+      ]
+    })
     const w = await montar()
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.text()).not.toContain('Otro - Otra')
@@ -386,21 +510,28 @@ describe('descargas pedidas al asistente', () => {
 
   it('lo que escribe la app va marcado y la descarga aceptada lleva su herramienta', async () => {
     api.chat.mockResolvedValueOnce(pendiente)
-    api.chatConfirm.mockResolvedValueOnce({ ok: true, text: 'Descargando.',
-      result: { active: true, items: ['a'], force: false } })
+    api.chatConfirm.mockResolvedValueOnce({
+      ok: true,
+      text: 'Descargando.',
+      result: { active: true, items: ['a'], force: false }
+    })
     const w = await montar()
     await escribir(w, 'baja')
     dialogOk()
     await flushPromises()
     await escribir(w, 'gracias')
     const sent = api.chat.mock.calls.at(-1)[0]
-    const accepted = sent.find(m => m.text === 'Descargando.')
+    const accepted = sent.find((m) => m.text === 'Descargando.')
     expect(accepted.app).toBe(true)
     expect(accepted.tools).toEqual([{ name: 'download_music', summary: 'aceptada, en marcha' }])
   })
 
   it('una respuesta narrada se pinta señalada', async () => {
-    api.chat.mockResolvedValueOnce({ text: 'Ya la creé.\n\n_(Nota de la app: …)_', tools: [], narrated: true })
+    api.chat.mockResolvedValueOnce({
+      text: 'Ya la creé.\n\n_(Nota de la app: …)_',
+      tools: [],
+      narrated: true
+    })
     const w = await montar()
     await escribir(w, 'crea la lista')
     const msg = w.findAll('.chat-msg.ai').at(-1)
@@ -411,8 +542,11 @@ describe('descargas pedidas al asistente', () => {
   it('si no entro nada, no se molesta al asistente', async () => {
     vi.useFakeTimers()
     localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
-    api.youtube.mockResolvedValueOnce({ active: false, phase: 'done', results: [
-      { ok: false, already_there: true, title: 'Mi Gozo', matches: [] }] })
+    api.youtube.mockResolvedValueOnce({
+      active: false,
+      phase: 'done',
+      results: [{ ok: false, already_there: true, title: 'Mi Gozo', matches: [] }]
+    })
     const w = await montar()
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.text()).toContain('Ya la tenías')

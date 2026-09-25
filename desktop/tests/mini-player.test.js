@@ -28,6 +28,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
 
 import MiniPlayer from '../src/MiniPlayer.vue'
 import { resetPlayback } from '../src/composables/usePlayback.js'
+import { allCss } from './support/css.js'
 
 const PLAYING = {
   track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200, blur: false },
@@ -149,5 +150,22 @@ describe('el mini reproductor', () => {
   it('no se puede arrastrar: la coloca la bandeja cada vez', async () => {
     await mountMini(PLAYING)
     expect(w.find('[data-tauri-drag-region]').exists()).toBe(false)
+  })
+})
+
+describe('su nombre y su portada', () => {
+  it('la raiz no se llama como un modificador de boton', async () => {
+    // `.mini` era a la vez la ventanita (height:100vh) y el modificador de los
+    // botones pequeños («btn mini»): ganaba la ultima regla y los botones de
+    // toda la app se volvian columnas de la altura de la pantalla
+    await mountMini(PLAYING)
+    const raiz = w.element.classList[0]
+    expect(raiz).toBe('miniplayer')
+    expect(allCss()).toContain(`.${raiz}{`)
+  })
+
+  it('una portada difuminada tambien se ve difuminada aqui', async () => {
+    await mountMini({ ...PLAYING, track: { ...PLAYING.track, blur: true } })
+    expect(w.find('.cover-art').classes()).toContain('blurred')
   })
 })

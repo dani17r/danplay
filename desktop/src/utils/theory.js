@@ -1,3 +1,4 @@
+// @ts-check
 // Tonos: transponer el nombre de una tonalidad por semitonos.
 //
 // Para el modo estudio: si la canción está en G y se sube 2 semitonos, se
@@ -18,7 +19,9 @@ const SPELL_MINOR = { 1: 'C#', 3: 'Eb', 6: 'F#', 8: 'G#', 10: 'Bb' }
 export function parseKey(key) {
   // la nota, su alteración, «m»/«min»/«menor» si es menor, y lo que sobre
   // (un «/G» del bajo, un «maj7»…); una palabra suelta no es un tono
-  const m = String(key || '').trim().match(/^([A-Ga-g])([#b♯♭]?)\s*(m(?![a-z])|min\b|menor\b|-)?(?![a-z])(.*)$/)
+  const m = String(key || '')
+    .trim()
+    .match(/^([A-Ga-g])([#b♯♭]?)\s*(m(?![a-z])|min\b|menor\b|-)?(?![a-z])(.*)$/)
   if (!m) return null
   let index = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1].toUpperCase()]
   if (m[2] === '#' || m[2] === '♯') index += 1

@@ -1,3 +1,4 @@
+// @ts-check
 // Diálogos propios: `ask()` devuelve una promesa con lo que respondió el usuario.
 //
 // Los `prompt()`, `confirm()` y `alert()` del navegador ignoran el tema, se

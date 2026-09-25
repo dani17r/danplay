@@ -1,3 +1,4 @@
+// @ts-check
 // Avisos flotantes («Añadida a la lista», «No se pudo…»).
 //
 // Es un singleton: antes cada página reemitía `@notice` hacia arriba hasta

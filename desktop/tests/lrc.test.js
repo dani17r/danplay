@@ -3,13 +3,18 @@ import { mount } from '@vue/test-utils'
 import { parseLrc, stripLrc, currentLine } from '../src/utils/lrc.js'
 import SyncedLyrics from '../src/components/ui/SyncedLyrics.vue'
 
-const LRC = '[ar:Barak]\n[00:12.50]Mi gozo\n[00:15.00]es el Señor\n[00:20.25][01:02.00]coro repetido\n\n[00:30.00]'
+const LRC =
+  '[ar:Barak]\n[00:12.50]Mi gozo\n[00:15.00]es el Señor\n[00:20.25][01:02.00]coro repetido\n\n[00:30.00]'
 
 describe('letra con tiempos (LRC)', () => {
   it('se parsea en lineas ordenadas, con las marcas repetidas desdobladas', () => {
     const lines = parseLrc(LRC)
     expect(lines.map((l) => [l.t, l.text])).toEqual([
-      [12.5, 'Mi gozo'], [15, 'es el Señor'], [20.25, 'coro repetido'], [30, ''], [62, 'coro repetido']
+      [12.5, 'Mi gozo'],
+      [15, 'es el Señor'],
+      [20.25, 'coro repetido'],
+      [30, ''],
+      [62, 'coro repetido']
     ])
   })
   it('una letra normal no es LRC', () => {

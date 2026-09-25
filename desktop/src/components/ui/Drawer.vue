@@ -11,19 +11,23 @@
  * si no, vuelve a su sitio. Sin eso, un arrastre a medias deja el panel en
  * una posicion rara.
  */
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, useTemplateRef } from 'vue'
+import { useFocusTrap } from '../../composables/useFocusTrap.js'
 import Icon from '../Icon.vue'
 
 const props = defineProps({
   open: Boolean,
-  side: { type: String, default: 'left' },   // left | right
-  title: String,
+  side: { type: String, default: 'left' }, // left | right
+  title: { type: String, default: '' },
   width: { type: String, default: 'min(320px, 86vw)' }
 })
 const emit = defineEmits(['close'])
 
-const panel = ref(null)
-const dragX = ref(0)          // cuanto se ha arrastrado, en px
+const panel = useTemplateRef('panel')
+// abierto, el foco se queda dentro (encima esta todo lo demas) y al cerrar
+// vuelve al boton que lo abrio
+useFocusTrap(panel, { active: () => props.open })
+const dragX = ref(0) // cuanto se ha arrastrado, en px
 const dragging = ref(false)
 let startX = 0
 let startAt = 0
@@ -37,36 +41,40 @@ const style = computed(() => ({
 
 // immediate: si el panel se monta ya abierto, el watch normal no corre y el
 // fondo se quedaba desplazandose por detras
-watch(() => props.open, (v) => {
-  dragX.value = 0
-  dragging.value = false
-  // el fondo no debe desplazarse mientras hay un panel abierto encima
-  if (typeof document !== 'undefined') {
-    document.body.classList.toggle('drawer-open', !!v)
-  }
-}, { immediate: true })
+watch(
+  () => props.open,
+  (v) => {
+    dragX.value = 0
+    dragging.value = false
+    // el fondo no debe desplazarse mientras hay un panel abierto encima
+    if (typeof document !== 'undefined') {
+      document.body.classList.toggle('drawer-open', !!v)
+    }
+  },
+  { immediate: true }
+)
 onUnmounted(() => {
   if (typeof document !== 'undefined') document.body.classList.remove('drawer-open')
 })
 
-function onDown (e) {
-  if (e.pointerType === 'mouse') return       // con raton se cierra pulsando fuera
+function onDown(e) {
+  if (e.pointerType === 'mouse') return // con raton se cierra pulsando fuera
   dragging.value = true
   startX = e.clientX
   startAt = Date.now()
 }
-function onMove (e) {
+function onMove(e) {
   if (!dragging.value) return
   const dx = e.clientX - startX
   // solo se deja arrastrar hacia el lado por el que se cierra
   dragX.value = closingSign.value < 0 ? Math.min(0, dx) : Math.max(0, dx)
 }
-function onUp () {
+function onUp() {
   if (!dragging.value) return
   const el = panel.value
   const w = el ? el.offsetWidth : 320
   const moved = Math.abs(dragX.value)
-  const speed = moved / Math.max(1, Date.now() - startAt)   // px por ms
+  const speed = moved / Math.max(1, Date.now() - startAt) // px por ms
   dragging.value = false
   if (moved > w / 3 || speed > 0.5) emit('close')
   else dragX.value = 0
@@ -76,16 +84,32 @@ function onUp () {
 <template>
   <teleport to="body">
     <transition name="drawer">
-      <div v-if="open" class="drawer-backdrop" @click.self="emit('close')"
-           @keydown.esc="emit('close')">
-        <aside class="drawer" :class="'drawer-' + side" ref="panel" :style="style"
-               role="dialog" aria-modal="true" :aria-label="title"
-               @pointerdown="onDown" @pointermove="onMove"
-               @pointerup="onUp" @pointercancel="onUp">
+      <!-- el fondo solo sirve para cerrar pulsando fuera; con el teclado se
+           cierra con Escape desde dentro -->
+      <div v-if="open" class="drawer-backdrop" role="presentation" @click.self="emit('close')">
+        <!-- Escape cierra el panel, como cualquier dialogo (es lo que pide la
+             guia de ARIA); la regla no cuenta `dialog` entre los roles que
+             atienden teclas -->
+        <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
+        <aside
+          ref="panel"
+          class="drawer"
+          :class="'drawer-' + side"
+          :style="style"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="title"
+          @keydown.esc="emit('close')"
+          @pointerdown="onDown"
+          @pointermove="onMove"
+          @pointerup="onUp"
+          @pointercancel="onUp"
+        >
           <header v-if="title" class="drawer-head">
             <span>{{ title }}</span>
-            <button class="icon-btn" title="Cerrar" @click="emit('close')">
-              <Icon n="close" :t="15" /></button>
+            <button type="button" class="icon-btn" title="Cerrar" @click="emit('close')">
+              <Icon n="close" :t="15" />
+            </button>
           </header>
           <div class="drawer-grip" aria-hidden="true"></div>
           <div class="drawer-body"><slot /></div>

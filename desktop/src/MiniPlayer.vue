@@ -58,7 +58,6 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('storage', onStorage)
 })
-
 </script>
 
 <template>

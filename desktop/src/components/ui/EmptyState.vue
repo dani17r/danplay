@@ -3,8 +3,8 @@
 import Icon from '../Icon.vue'
 defineProps({
   icon: { type: String, default: 'music' },
-  title: String,
-  hint: String,
+  title: { type: String, default: '' },
+  hint: { type: String, default: '' },
   size: { type: Number, default: 30 }
 })
 </script>

@@ -44,7 +44,10 @@ describe('panel que se abre por un lado', () => {
       attachTo: document.body
     })
 
-  beforeEach(() => { document.body.className = ''; document.body.innerHTML = '' })
+  beforeEach(() => {
+    document.body.className = ''
+    document.body.innerHTML = ''
+  })
 
   it('cerrado no pinta nada', () => {
     montar({ open: false })
@@ -64,8 +67,9 @@ describe('panel que se abre por un lado', () => {
 
   it('pulsar fuera lo cierra', async () => {
     const w = montar()
-    await document.querySelector('.drawer-backdrop').dispatchEvent(
-      Object.assign(new MouseEvent('click', { bubbles: false }), {}))
+    await document
+      .querySelector('.drawer-backdrop')
+      .dispatchEvent(Object.assign(new MouseEvent('click', { bubbles: false }), {}))
     await flushPromises()
     expect(w.emitted('close')).toBeTruthy()
   })

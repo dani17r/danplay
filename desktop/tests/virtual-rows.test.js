@@ -13,16 +13,26 @@ const FILA = 30
 const PANEL = 600
 
 const song = (i) => ({
-  id: i, title: 'Cancion ' + i, artist: 'Artista ' + (i % 50), album: 'Album',
-  duration: 210, bitrate: 320000, stars: 0, favorite: 0, feat: '',
-  folder: 'x', key: 'C', bpm: 120, file: i + '.mp3'
+  id: i,
+  title: 'Cancion ' + i,
+  artist: 'Artista ' + (i % 50),
+  album: 'Album',
+  duration: 210,
+  bitrate: 320000,
+  stars: 0,
+  favorite: 0,
+  feat: '',
+  folder: 'x',
+  key: 'C',
+  bpm: 120,
+  file: i + '.mp3'
 })
 const lista = (n) => Array.from({ length: n }, (_, i) => song(i))
 
 let originales = null
 
 /** Simula que el navegador ha maquetado: filas de 30 px dentro de un panel. */
-function conMaquetacion () {
+function conMaquetacion() {
   originales = {
     offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
     offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop'),
@@ -31,7 +41,7 @@ function conMaquetacion () {
   }
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
     configurable: true,
-    get () {
+    get() {
       // los separadores llevan su alto puesto a mano
       const propio = parseInt(this.style?.height || '', 10)
       if (propio > 0) return propio
@@ -42,7 +52,7 @@ function conMaquetacion () {
   // para saber cuantas caben por linea y cuanto baja de una a otra
   Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
     configurable: true,
-    get () {
+    get() {
       let t = 0
       for (let el = this.previousElementSibling; el; el = el.previousElementSibling) {
         t += el.offsetHeight
@@ -52,14 +62,17 @@ function conMaquetacion () {
   })
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
     configurable: true,
-    get () { return this.classList?.contains('table-wrap') ? PANEL : 0 }
+    get() {
+      return this.classList?.contains('table-wrap') ? PANEL : 0
+    }
   })
   // el panel con scroll es .table-wrap
-  window.getComputedStyle = (el) =>
-    ({ overflowY: el.classList?.contains('table-wrap') ? 'auto' : 'visible' })
+  window.getComputedStyle = (el) => ({
+    overflowY: el.classList?.contains('table-wrap') ? 'auto' : 'visible'
+  })
 }
 
-function sinMaquetacion () {
+function sinMaquetacion() {
   if (!originales) return
   // jsdom no siempre define estas en HTMLElement.prototype: si no habia nada
   // que guardar, se quita lo que pusimos en vez de restaurar «undefined».
@@ -81,20 +94,26 @@ describe('lista larga: solo se pinta lo que se ve', () => {
 
   it('con mil canciones pinta una ventana, no las mil', async () => {
     const songs = lista(1000)
-    const w = mount(SongTable, { props: { songs, selected: null, playing: null },
-                                 attachTo: document.body })
-    await flushPromises(); await nextTick()
+    const w = mount(SongTable, {
+      props: { songs, selected: null, playing: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await nextTick()
     const n = filas(w).length
     expect(n).toBeGreaterThan(10)
-    expect(n).toBeLessThan(200)          // ni de lejos las mil
+    expect(n).toBeLessThan(200) // ni de lejos las mil
     w.unmount()
   })
 
   it('los separadores rellenan justo lo que no se pinta', async () => {
     const songs = lista(1000)
-    const w = mount(SongTable, { props: { songs, selected: null, playing: null },
-                                 attachTo: document.body })
-    await flushPromises(); await nextTick()
+    const w = mount(SongTable, {
+      props: { songs, selected: null, playing: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await nextTick()
     const pintadas = filas(w).length
     const hueco = separadores(w).reduce((t, tr) => t + alto(tr), 0)
     // lo pintado mas los huecos tiene que sumar la lista entera
@@ -103,37 +122,50 @@ describe('lista larga: solo se pinta lo que se ve', () => {
   })
 
   it('empieza por el principio de la lista', async () => {
-    const w = mount(SongTable, { props: { songs: lista(1000), selected: null, playing: null },
-                                 attachTo: document.body })
-    await flushPromises(); await nextTick()
+    const w = mount(SongTable, {
+      props: { songs: lista(1000), selected: null, playing: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await nextTick()
     expect(w.text()).toContain('Cancion 0')
     w.unmount()
   })
 
   it('la numeracion de las filas es la real, no la de la ventana', async () => {
-    const w = mount(SongTable, { props: { songs: lista(1000), selected: null, playing: null },
-                                 attachTo: document.body })
-    await flushPromises(); await nextTick()
+    const w = mount(SongTable, {
+      props: { songs: lista(1000), selected: null, playing: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await nextTick()
     expect(filas(w)[0].find('.row-n').text()).toBe('1')
     w.unmount()
   })
 
   it('«ir a lo que suena» trae a la ventana una fila que no estaba pintada', async () => {
     const songs = lista(1000)
-    const w = mount(SongTable, { props: { songs, selected: null, playing: null, jumpTo: null },
-                                 attachTo: document.body })
-    await flushPromises(); await nextTick()
-    expect(w.text()).not.toContain('Cancion 900')       // aun no esta pintada
+    const w = mount(SongTable, {
+      props: { songs, selected: null, playing: null, jumpTo: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await nextTick()
+    expect(w.text()).not.toContain('Cancion 900') // aun no esta pintada
     await w.setProps({ jumpTo: 900 })
-    await flushPromises(); await nextTick()
+    await flushPromises()
+    await nextTick()
     expect(w.text()).toContain('Cancion 900')
     w.unmount()
   })
 
   it('una lista corta se pinta entera y sin separadores', async () => {
-    const w = mount(SongTable, { props: { songs: lista(20), selected: null, playing: null },
-                                 attachTo: document.body })
-    await flushPromises(); await nextTick()
+    const w = mount(SongTable, {
+      props: { songs: lista(20), selected: null, playing: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await nextTick()
     expect(filas(w).length).toBe(20)
     expect(separadores(w).length).toBe(0)
     w.unmount()
@@ -143,9 +175,12 @@ describe('lista larga: solo se pinta lo que se ve', () => {
 describe('si no se puede medir, se pinta todo', () => {
   it('sin maquetacion (o si el panel aun no tiene alto) no se recorta nada', async () => {
     // sin conMaquetacion(): todo mide cero, como en un primer pintado
-    const w = mount(SongTable, { props: { songs: lista(300), selected: null, playing: null },
-                                 attachTo: document.body })
-    await flushPromises(); await nextTick()
+    const w = mount(SongTable, {
+      props: { songs: lista(300), selected: null, playing: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await nextTick()
     expect(filas(w).length).toBe(300)
     expect(w.text()).toContain('Cancion 299')
     w.unmount()
@@ -161,7 +196,7 @@ import SongGrid from '../src/components/SongGrid.vue'
 const COLS = 4
 const FICHA = 200
 
-function conRejilla () {
+function conRejilla() {
   originales = {
     offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
     offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop'),
@@ -170,7 +205,7 @@ function conRejilla () {
   }
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
     configurable: true,
-    get () {
+    get() {
       const propio = parseInt(this.style?.height || '', 10)
       if (propio > 0) return propio
       return this.classList?.contains('tile') ? FICHA : 0
@@ -178,7 +213,7 @@ function conRejilla () {
   })
   Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
     configurable: true,
-    get () {
+    get() {
       // altura de los separadores que haya antes, mas la linea que le toca
       let hueco = 0
       let indice = 0
@@ -191,10 +226,13 @@ function conRejilla () {
   })
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
     configurable: true,
-    get () { return this.classList?.contains('grid') ? PANEL : 0 }
+    get() {
+      return this.classList?.contains('grid') ? PANEL : 0
+    }
   })
-  window.getComputedStyle = (el) =>
-    ({ overflowY: el.classList?.contains('grid') ? 'auto' : 'visible' })
+  window.getComputedStyle = (el) => ({
+    overflowY: el.classList?.contains('grid') ? 'auto' : 'visible'
+  })
 }
 
 describe('cuadricula: varias fichas por linea', () => {
@@ -202,37 +240,109 @@ describe('cuadricula: varias fichas por linea', () => {
   afterEach(sinMaquetacion)
 
   it('con mil fichas pinta solo unas cuantas lineas', async () => {
-    const w = mount(SongGrid, { props: { songs: lista(1000), selected: null, playing: null },
-                                attachTo: document.body })
-    await flushPromises(); await nextTick()
+    const w = mount(SongGrid, {
+      props: { songs: lista(1000), selected: null, playing: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await nextTick()
     const fichas = w.findAll('.tile').length
-    expect(fichas).toBeGreaterThan(COLS)          // al menos una linea
-    expect(fichas).toBeLessThan(200)              // ni de lejos las mil
-    expect(fichas % COLS).toBe(0)                 // lineas enteras
+    expect(fichas).toBeGreaterThan(COLS) // al menos una linea
+    expect(fichas).toBeLessThan(200) // ni de lejos las mil
+    expect(fichas % COLS).toBe(0) // lineas enteras
     w.unmount()
   })
 
   it('los separadores dejan el alto total correcto', async () => {
     const songs = lista(1000)
-    const w = mount(SongGrid, { props: { songs, selected: null, playing: null },
-                                attachTo: document.body })
-    await flushPromises(); await nextTick()
+    const w = mount(SongGrid, {
+      props: { songs, selected: null, playing: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await nextTick()
     const pintadas = w.findAll('.tile').length
-    const hueco = w.findAll('.grid > [data-spacer]')
-      .reduce((t, d) => t + alto(d), 0)
+    const hueco = w.findAll('.grid > [data-spacer]').reduce((t, d) => t + alto(d), 0)
     const lineasTotales = Math.ceil(songs.length / COLS)
     expect(hueco + (pintadas / COLS) * FICHA).toBe(lineasTotales * FICHA)
     w.unmount()
   })
 
   it('«ir a lo que suena» trae una ficha lejana', async () => {
-    const w = mount(SongGrid, { props: { songs: lista(1000), selected: null, playing: null, jumpTo: null },
-                                attachTo: document.body })
-    await flushPromises(); await nextTick()
+    const w = mount(SongGrid, {
+      props: { songs: lista(1000), selected: null, playing: null, jumpTo: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await nextTick()
     expect(w.text()).not.toContain('Cancion 800')
     await w.setProps({ jumpTo: 800 })
-    await flushPromises(); await nextTick()
+    await flushPromises()
+    await nextTick()
     expect(w.text()).toContain('Cancion 800')
     w.unmount()
   })
+})
+
+// ---------------------------------------------------------------------------
+// Las cuatro vistas comparten el virtualizado: montadas con mil canciones en
+// un panel de 600 px, ninguna pinta las mil.
+import SongRows from '../src/components/SongRows.vue'
+import SongCards from '../src/components/SongCards.vue'
+
+/** Cada fila mide 30 px y va debajo de la anterior; el panel que se desplaza es `caja`. */
+function conPanel(caja) {
+  originales = {
+    offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
+    offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop'),
+    clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
+    overflow: window.getComputedStyle
+  }
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get() {
+      const propio = parseInt(this.style?.height || '', 10)
+      if (propio > 0) return propio
+      return this.hasAttribute?.('data-song-row') ? FILA : 0
+    }
+  })
+  Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
+    configurable: true,
+    get() {
+      let t = 0
+      for (let el = this.previousElementSibling; el; el = el.previousElementSibling)
+        t += el.offsetHeight
+      return t
+    }
+  })
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get() {
+      return this.classList?.contains(caja) ? PANEL : 0
+    }
+  })
+  window.getComputedStyle = (el) => ({
+    overflowY: el.classList?.contains(caja) ? 'auto' : 'visible'
+  })
+}
+
+describe('las cuatro vistas pintan solo lo que se ve', () => {
+  afterEach(sinMaquetacion)
+  for (const [nombre, Vista, caja] of [
+    ['la tabla', SongTable, 'table-wrap'],
+    ['la lista fina', SongRows, 'rows'],
+    ['las fichas', SongCards, 'cards'],
+    ['la cuadricula', SongGrid, 'grid']
+  ]) {
+    it(nombre, async () => {
+      conPanel(caja)
+      const w = mount(Vista, { props: { songs: lista(1000) }, attachTo: document.body })
+      await flushPromises()
+      await nextTick()
+      const pintadas = w.findAll('[data-song-row]').length
+      expect(pintadas, 'no pinta nada').toBeGreaterThan(10)
+      expect(pintadas, 'pinta la lista entera').toBeLessThan(200)
+      w.unmount()
+    })
+  }
 })

@@ -1,3 +1,4 @@
+// @ts-check
 // Atajos de teclado con ámbito.
 //
 // Un atajo global «espacio = pausa» es cómodo hasta que pisa un control: con
@@ -36,7 +37,7 @@ export function comboOf(e) {
 export function shouldIgnore(e) {
   if (e.defaultPrevented) return true
   const t = e.target
-  if (t && typeof t.closest === 'function' && t.closest(HOTKEY_IGNORE)) return true
+  if (t instanceof Element && t.closest(HOTKEY_IGNORE)) return true
   if (typeof document !== 'undefined' && document.querySelector(HOTKEY_BLOCKERS)) return true
   return false
 }
@@ -57,7 +58,9 @@ export function shouldIgnore(e) {
  */
 export function releaseFocusAfterPointer(target = window) {
   function release(e) {
-    const el = e.target?.closest?.('button, input[type="range"]')
+    // las filas de las listas tambien se enfocan al pulsarlas (se recorren
+    // con las flechas); con el raton se sueltan igual que un boton
+    const el = e.target?.closest?.('button, input[type="range"], [data-song-row], [role="slider"]')
     if (!el || el.closest('.modal, .ctx, [role="dialog"], .select-box')) return
     el.blur()
   }
@@ -67,9 +70,10 @@ export function releaseFocusAfterPointer(target = window) {
 
 /**
  * @param {Record<string, (e: KeyboardEvent) => any>} bindings  combinación → acción
- * @param {{ global?: boolean, target?: Window | Document }} [options]
+ * @param {{ global?: boolean, target?: Window | Document, allowRepeat?: boolean }} [options]
  *   global: actúa aunque el foco esté en un control o haya un diálogo
- *   (para cosas como Ctrl+Q).
+ *   (para cosas como Ctrl+Q); allowRepeat: también al dejar pulsada una
+ *   tecla que no es una flecha.
  * @returns {{ handle: (e: KeyboardEvent) => boolean }}
  */
 export function useHotkeys(bindings, options = {}) {

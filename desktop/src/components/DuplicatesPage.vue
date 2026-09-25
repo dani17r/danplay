@@ -7,25 +7,37 @@
  * de la biblioteca; el núcleo lo comprueba otra vez por su cuenta.
  */
 import { ref, computed, onMounted } from 'vue'
-import { api, errorMessage } from '../api.js'
+import { api, errorMessage, JOBS } from '../api.js'
 import { usePlayback } from '../composables/usePlayback.js'
 import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'
 import Card from './ui/Card.vue'
-import Loading from './ui/Loading.vue'
+import JobProgress from './ui/JobProgress.vue'
 import DuplicateGroup from './DuplicateGroup.vue'
 
 const emit = defineEmits(['changed'])
 
 const player = usePlayback()
 const groups = ref(null)
+/** Cómo va la búsqueda, según el núcleo. */
+const job = ref(null)
 const resolving = ref(false)
 const playingId = computed(() => player.track.value?.id ?? null)
+const paused = computed(() => !player.playing.value)
 
+/**
+ * Busca los duplicados. Compara todas las canciones con todas, así que con
+ * una biblioteca grande tarda: es una tarea larga del núcleo y aquí se va
+ * contando cómo va (antes, pasado el minuto, el puente la cortaba).
+ */
 async function load() {
   groups.value = null
+  job.value = null
   try {
-    groups.value = await api.duplicates()
+    const r = await api.runJob(() => api.duplicatesScan(), JOBS.duplicates, {
+      onProgress: (j) => (job.value = j)
+    })
+    groups.value = { identical: r?.identical || [], similar: r?.similar || [] }
   } catch (e) {
     notify('No se pudo analizar: ' + errorMessage(e))
     groups.value = { identical: [], similar: [] }
@@ -33,11 +45,19 @@ async function load() {
 }
 onMounted(load)
 
-/** Suena una de las copias sin salir de la página. */
+/**
+ * Suena una de las copias sin salir de la página. Sobre la que ya suena,
+ * pausa o reanuda: volver a ponerla la reiniciaba.
+ */
 async function playCopy(item) {
   if (!item.id) return
-  const song = await api.song(item.id)
-  player.setQueue([song], song.id, { kind: 'duplicates', label: 'Duplicados' })
+  if (playingId.value === item.id) return player.toggle()
+  try {
+    const song = await api.song(item.id)
+    player.setQueue([song], song.id, { kind: 'duplicates', label: 'Duplicados' })
+  } catch (e) {
+    notify('No se pudo poner: ' + errorMessage(e))
+  }
 }
 
 /** Se queda con una copia y manda las demás a la papelera. */
@@ -84,7 +104,7 @@ async function keepOne(group, chosen) {
       Escúchalas y quédate con la que prefieras. Al conservar una, las demás van a la papelera y si
       la elegida llevaba el sufijo « - r» se le quita.
     </div>
-    <Loading v-if="!groups" text="analizando tu biblioteca…" />
+    <JobProgress v-if="!groups" :job="job" label="buscando duplicados en tu biblioteca…" />
     <template v-else>
       <Card
         v-if="groups.identical.length"
@@ -96,6 +116,7 @@ async function keepOne(group, chosen) {
           :key="'i' + i"
           :group="g"
           :playing="playingId"
+          :paused="paused"
           :busy="resolving"
           @play="playCopy"
           @keep-one="keepOne"
@@ -111,6 +132,7 @@ async function keepOne(group, chosen) {
           :key="'p' + i"
           :group="g"
           :playing="playingId"
+          :paused="paused"
           :busy="resolving"
           @play="playCopy"
           @keep-one="keepOne"

@@ -1,8 +1,10 @@
+// @ts-check
 // Formateadores de texto compartidos.
 //
 // La duración estaba copiada nueve veces por los componentes, cada una con su
-// propio valor para «sin dato» («—», «0:00» o cadena vacía). Aquí vive una
-// sola vez; el valor de reserva lo decide quien la llama.
+// propio valor para «sin dato» («—», «0:00» o cadena vacía), y el «hace
+// cuánto» dos. Aquí vive una sola vez; el valor de reserva lo decide quien
+// la llama.
 
 /**
  * Segundos → «m:ss». Sin dato (0, null, NaN) devuelve `empty`.
@@ -25,6 +27,33 @@ export function formatDuration(seconds, empty = '—') {
  * @returns {string}
  */
 export const formatTime = (seconds) => formatDuration(seconds, '0:00')
+
+/**
+ * Segundos → «4 min» (minutos enteros, hacia abajo): lo que dura un grupo o
+ * una lista entera, donde los segundos sobran.
+ * @param {number|null|undefined} seconds
+ * @returns {string}
+ */
+export function formatMinutes(seconds) {
+  const s = Number(seconds)
+  return `${Number.isFinite(s) && s > 0 ? Math.floor(s / 60) : 0} min`
+}
+
+/**
+ * Hace cuánto, desde una marca de tiempo en segundos: «ahora mismo»,
+ * «hace 5 min», «hace 3 h», «hace 2 días». Sin marca, «nunca».
+ * @param {number|null|undefined} ts
+ * @param {number} [now] ahora, en milisegundos (para las pruebas)
+ * @returns {string}
+ */
+export function formatAgo(ts, now = Date.now()) {
+  if (!ts) return 'nunca'
+  const m = Math.round((now / 1000 - ts) / 60)
+  if (m < 1) return 'ahora mismo'
+  if (m < 60) return `hace ${m} min`
+  const h = Math.round(m / 60)
+  return h < 48 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`
+}
 
 /**
  * Bytes → «1.5 MB».

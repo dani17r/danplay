@@ -1,3 +1,4 @@
+// @ts-check
 // Arrastrar la aguja de una barra de tiempo.
 //
 // La barra solo entendía el clic: para ir a un punto había que acertar con el

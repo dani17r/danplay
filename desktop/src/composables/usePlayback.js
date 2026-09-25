@@ -1,3 +1,4 @@
+// @ts-check
 // Lo que suena y lo que viene, compartido por toda la interfaz.
 //
 // Es un singleton, como useDragSong: el reproductor grande, el mini y la app
@@ -8,7 +9,13 @@
 // que aplica exactamente la misma máquina de estados (playback/queueLogic).
 import { reactive, shallowRef, computed } from 'vue'
 import { api, playback as bridge } from '../api.js'
-import { afterEnd, nextIndex, neighbours, normalizeRepeat, REPEAT_MODES } from '../playback/queueLogic.js'
+import {
+  afterEnd,
+  nextIndex,
+  neighbours,
+  normalizeRepeat,
+  REPEAT_MODES
+} from '../playback/queueLogic.js'
 
 /** @typedef {import('../api.js').PlaybackState} PlaybackState */
 /** @typedef {import('../api.js').Track} Track */
@@ -40,7 +47,17 @@ const EMPTY = {
   loop_b: 0,
   // el tono corrido (semitonos), el metrónomo y el archivo que suena de verdad
   pitch: 0,
-  metronome: { on: false, bpm: 100, meter: 4, shift: 0, mult: 0, volume: 0.8, has_grid: false, free: true, confidence: 0 },
+  metronome: {
+    on: false,
+    bpm: 100,
+    meter: 4,
+    shift: 0,
+    mult: 0,
+    volume: 0.8,
+    has_grid: false,
+    free: true,
+    confidence: 0
+  },
   path: ''
 }
 
@@ -79,11 +96,17 @@ function createWebBackend() {
   audio.preload = 'metadata'
   audio.dataset.danplay = 'audio'
   const listeners = new Set()
-  const q = { items: /** @type {Track[]} */ ([]), index: -1, repeat: 'list', shuffle: false, origin: null }
+  /** @type {{ items: Track[], index: number, repeat: import('../api.js').Repeat, shuffle: boolean, origin: any }} */
+  const q = { items: [], index: -1, repeat: 'list', shuffle: false, origin: null }
   const s = { ...EMPTY }
   let ended = false // la pista acabó y se paró: play la vuelve a empezar
 
-  const logic = () => ({ length: q.items.length, index: q.index, repeat: q.repeat, shuffle: q.shuffle })
+  const logic = () => ({
+    length: q.items.length,
+    index: q.index,
+    repeat: q.repeat,
+    shuffle: q.shuffle
+  })
   function snapshot() {
     return {
       ...s,
@@ -215,7 +238,7 @@ function createWebBackend() {
     },
     toggle: async () => {
       if (!s.track) return
-      if (ended) return seekTo(0), start()
+      if (ended) return (seekTo(0), start())
       if (s.playing) {
         s.playing = false
         audio.pause()
@@ -249,8 +272,14 @@ function createWebBackend() {
       push()
     },
     setMetronome: async (settings) => {
-      s.metronome = { ...s.metronome, ...settings, bpm: settings.bpm ?? s.metronome.bpm,
-                      meter: settings.meter ?? s.metronome.meter, free: true, has_grid: false }
+      s.metronome = {
+        ...s.metronome,
+        ...settings,
+        bpm: settings.bpm ?? s.metronome.bpm,
+        meter: settings.meter ?? s.metronome.meter,
+        free: true,
+        has_grid: false
+      }
       push()
     },
     analyzeBeats: async () => {
@@ -267,13 +296,17 @@ function createWebBackend() {
 
 // ------------------------------------------------------------- estado único
 const state = reactive({ ...EMPTY })
-/** Espejo local de la cola: los objetos completos que se pasaron a setQueue. */
-const queue = shallowRef(/** @type {Array<Track & Record<string, any>>} */ ([]))
+/**
+ * Espejo local de la cola: los objetos completos que se pasaron a setQueue
+ * (canciones del índice, con todo lo que traen) o, si la cambió Rust, sus
+ * `Track`.
+ */
+const queue = shallowRef(/** @type {Array<Record<string, any> & { id: number }>} */ ([]))
 let backend = null
 let booting = null
 let ready = false
 let stopListening = null
-/** La revisión de cola que ya conocemos. Ver `applyState`. */
+/** La revisión de cola que ya conocemos. Ver `applyState`. @type {unknown} */
 let seenRevision = -1
 /**
  * El salto que se acaba de pedir: `{ target, until }`. Ver `seek`.
@@ -283,8 +316,15 @@ let seekGuard = null
 /** Cuánto se sostiene la posición pedida si Rust aún no la ha confirmado. */
 const SEEK_GRACE_MS = 800
 
-const isMiniWindow = () =>
-  typeof location !== 'undefined' && new URLSearchParams(location.search).has('mini')
+/**
+ * La ventana principal: ni el mini ni la proyección (van con `?mini=1` y
+ * `?projection=1`, ver main.js).
+ */
+function isMainWindow() {
+  if (typeof location === 'undefined') return true
+  const params = new URLSearchParams(location.search)
+  return !params.has('mini') && !params.has('projection')
+}
 
 function readNumber(key) {
   try {
@@ -303,12 +343,32 @@ function remember(key, value) {
 }
 
 /**
+ * Las partes del estado que son objetos. Rust manda el estado entero cuatro
+ * veces por segundo mientras suena, y cada vez son objetos NUEVOS aunque
+ * digan lo mismo: reasignarlos tal cual despertaba a todo el que los mira
+ * (la app, la barra lateral, el chat con todo su markdown) en cada tick,
+ * solo porque avanzaba la aguja. Si no han cambiado, se deja el que había.
+ */
+const KEEP_IDENTITY = ['track', 'origin', 'metronome']
+
+/** ¿Dicen lo mismo? Son objetos pequeños y planos: basta con compararlos en JSON. */
+function sameValue(a, b) {
+  if (a === b) return true
+  if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return false
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/**
  * Lo que Rust (o el reproductor web) acaba de contar.
  * @param {PlaybackState} s
  */
 function applyState(s) {
   if (!s || typeof s !== 'object') return
-  for (const k of Object.keys(EMPTY)) if (k in s) state[k] = s[k]
+  for (const k of Object.keys(EMPTY)) {
+    if (!(k in s)) continue
+    if (KEEP_IDENTITY.includes(k) && sameValue(state[k], s[k])) continue
+    state[k] = s[k]
+  }
   state.repeat = normalizeRepeat(state.repeat)
   // Tras un salto, un tick que venía en camino traía la posición VIEJA y la
   // aguja daba un respingo atrás antes de ir a donde se pidió. Hasta que
@@ -366,9 +426,12 @@ async function boot() {
   backend = api.inTauri ? bridge : createWebBackend()
   try {
     stopListening = await backend.onState(applyState)
-    // Lo guardado se aplica solo desde la ventana principal: el mini nace
-    // después y no debe pisar lo que el usuario cambió desde la bandeja.
-    if (!isMiniWindow()) {
+    // Lo guardado se aplica solo desde la ventana principal: el mini y la
+    // proyección nacen después y no deben pisar lo que se cambió mientras
+    // tanto (abrir la proyección devolvía la velocidad a la guardada a mitad
+    // de un ensayo). Así además solo leen: no les hace falta permiso para
+    // cambiar el volumen, la velocidad ni la repetición.
+    if (isMainWindow()) {
       const vol = readNumber(VOLUME_KEY)
       const vel = readNumber(SPEED_KEY)
       let repeat = null
@@ -379,7 +442,7 @@ async function boot() {
       }
       if (vol != null && Number.isFinite(vol)) await backend.setVolume(clamp(vol, 0, 1))
       if (vel != null && Number.isFinite(vel) && vel > 0) await backend.setSpeed(vel)
-      if (REPEAT_MODES.includes(repeat)) await backend.setRepeat(repeat)
+      if (REPEAT_MODES.includes(repeat)) await backend.setRepeat(normalizeRepeat(repeat))
     }
     applyState(await backend.state())
     await refreshQueue()
@@ -407,7 +470,14 @@ export function resetPlayback() {
   seenRevision = -1
   seekGuard = null
   queue.value = []
-  Object.assign(metronomeSettings, { on: false, bpm: null, meter: null, shift: 0, mult: 0, volume: 0.8 })
+  Object.assign(metronomeSettings, {
+    on: false,
+    bpm: null,
+    meter: null,
+    shift: 0,
+    mult: 0,
+    volume: 0.8
+  })
   Object.assign(state, { ...EMPTY })
 }
 

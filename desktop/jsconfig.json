@@ -3,13 +3,13 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "checkJs": true,
     "allowJs": true,
+    "checkJs": false,
     "noEmit": true,
     "strict": false,
-    "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] }
+    "skipLibCheck": true,
+    "types": ["vite/client", "node", "vitest/globals"]
   },
-  "include": ["src/**/*.js", "src/**/*.vue", "tests/**/*.js"],
-  "exclude": ["node_modules", "dist", "src-tauri"]
+  "include": ["src/**/*.js", "src/**/*.vue", "tests/**/*.js", "e2e/**/*.js", "*.config.js"],
+  "exclude": ["node_modules", "dist", "src-tauri", "coverage", "playwright-report", "test-results"]
 }

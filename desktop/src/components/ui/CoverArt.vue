@@ -18,7 +18,7 @@ import { api, COVER_SIZES } from '../../api.js'
 import Icon from '../Icon.vue'
 
 const props = defineProps({
-  id: [Number, String],
+  id: { type: [Number, String], default: null },
   version: { type: Number, default: 0 },
   iconSize: { type: Number, default: 24 },
   alt: { type: String, default: '' },

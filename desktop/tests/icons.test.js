@@ -3,7 +3,9 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { ICONS } from '../src/icons.js'
 
 const files = [
-  ...readdirSync('src/components').filter(f => f.endsWith('.vue')).map(f => 'src/components/' + f),
+  ...readdirSync('src/components')
+    .filter((f) => f.endsWith('.vue'))
+    .map((f) => 'src/components/' + f),
   'src/App.vue'
 ]
 

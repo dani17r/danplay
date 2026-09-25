@@ -1,4 +1,9 @@
 dist
 node_modules
 src-tauri
+coverage
+playwright-report
+test-results
+package-lock.json
+# generado desde heroicons: `npm run icons`
 src/icons.js

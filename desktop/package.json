@@ -11,34 +11,47 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "app": "node scripts/sidecar.mjs && tauri dev --config src-tauri/tauri.dev.conf.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src tests scripts",
+    "e2e": "playwright test",
+    "lint": "eslint src tests e2e scripts \"*.config.js\"",
     "lint:css": "stylelint \"src/**/*.css\"",
-    "format": "prettier --write \"src/**/*.{js,vue,css}\" \"tests/**/*.js\" \"scripts/**/*.mjs\"",
+    "format": "prettier --write \"src/**/*.{js,vue,css}\" \"tests/**/*.js\" \"e2e/**/*.{js,mjs}\" \"scripts/**/*.mjs\" \"*.config.js\" index.html",
+    "format:check": "prettier --check \"src/**/*.{js,vue,css}\" \"tests/**/*.js\" \"e2e/**/*.{js,mjs}\" \"scripts/**/*.mjs\" \"*.config.js\" index.html",
+    "typecheck": "vue-tsc --noEmit -p jsconfig.json",
     "icons": "node scripts/icons.mjs",
-    "check": "npm run lint && npm run lint:css && npm test"
+    "check": "npm run lint && npm run lint:css && npm run format:check && npm test"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
-    "vue": "^3.5.13"
+    "vue": "^3.5.13",
+    "vue-router": "^5.3.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.2.2",
+    "@types/node": "^26.6.2",
     "@vitejs/plugin-vue": "^6.0.8",
-    "@vitest/coverage-v8": "^5.0.0",
+    "@vitest/coverage-v8": "^5.0.2",
     "@vue/test-utils": "^2.5.0",
-    "eslint": "^9.39.5",
-    "eslint-plugin-vue": "^10.11.0",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.11.1",
+    "eslint-plugin-vuejs-accessibility": "^2.6.0",
     "globals": "^17.12.0",
     "heroicons": "^2.2.0",
     "jsdom": "^30.0.1",
     "prettier": "^3.9.6",
     "stylelint": "^17.15.0",
     "stylelint-config-standard": "^40.0.0",
+    "typescript": "^6.0.3",
     "vite": "^8.2.2",
-    "vitest": "^5.0.0"
+    "vite-plugin-vue-devtools": "^8.2.1",
+    "vitest": "^5.0.2",
+    "vue-tsc": "^3.3.11"
   }
 }

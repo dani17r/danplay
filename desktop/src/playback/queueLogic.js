@@ -1,3 +1,4 @@
+// @ts-check
 // La máquina de estados de la cola, sin efectos.
 //
 // En la app de escritorio la cola vive en Rust y esto no se usa: Rust aplica

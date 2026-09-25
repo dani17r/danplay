@@ -20,9 +20,32 @@ import Player from '../src/components/Player.vue'
 import { resetPlayback, usePlayback } from '../src/composables/usePlayback.js'
 import { song } from './support/backend.js'
 
-const base = { index: 0, length: 1, duration: 200, has_previous: false, has_next: false, error: '', has_output: true,
-  loop_a: 0, loop_b: 0, pitch_preserved: true, speed: 1, pitch: 0, path: '/musica/mi-gozo.mp3',
-  metronome: { on: false, bpm: 100, meter: 4, shift: 0, mult: 0, volume: 0.8, has_grid: false, free: true, confidence: 0 } }
+const base = {
+  index: 0,
+  length: 1,
+  duration: 200,
+  has_previous: false,
+  has_next: false,
+  error: '',
+  has_output: true,
+  loop_a: 0,
+  loop_b: 0,
+  pitch_preserved: true,
+  speed: 1,
+  pitch: 0,
+  path: '/musica/mi-gozo.mp3',
+  metronome: {
+    on: false,
+    bpm: 100,
+    meter: 4,
+    shift: 0,
+    mult: 0,
+    volume: 0.8,
+    has_grid: false,
+    free: true,
+    confidence: 0
+  }
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -30,7 +53,12 @@ beforeEach(() => {
   resetPlayback()
   held.playback.reset()
   held.state.songs = [song(7, { title: 'Mi Gozo', study: '' })]
-  held.playback.emit({ track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200 }, playing: true, position: 12, ...base })
+  held.playback.emit({
+    track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200 },
+    playing: true,
+    position: 12,
+    ...base
+  })
 })
 
 // Las barras montadas se desmontan siempre al acabar, aunque la prueba
@@ -40,24 +68,39 @@ const mounted = []
 const montar = async () => {
   const w = mount(StudyBar, { attachTo: document.body })
   mounted.push(w)
-  await flushPromises(); await flushPromises()
+  await flushPromises()
+  await flushPromises()
   return w
 }
 afterEach(() => {
   for (const w of mounted.splice(0)) {
-    try { w.unmount() } catch { /* ya estaba desmontada */ }
+    try {
+      w.unmount()
+    } catch {
+      /* ya estaba desmontada */
+    }
   }
 })
 const boton = (w, text, nth = 0) => w.findAll('button').filter((b) => b.text().includes(text))[nth]
 
 describe('la barra de estudio', () => {
   // jsdom no maqueta: la caja de la onda dice que va de x=0 a x=400
-  function conAnchura (w, left = 0, width = 400) {
-    w.find('.tl-box').element.getBoundingClientRect = () =>
-      ({ left, width, right: left + width, top: 0, height: 56, bottom: 56, x: left, y: 0 })
+  function conAnchura(w, left = 0, width = 400) {
+    w.find('.tl-box').element.getBoundingClientRect = () => ({
+      left,
+      width,
+      right: left + width,
+      top: 0,
+      height: 56,
+      bottom: 56,
+      x: left,
+      y: 0
+    })
   }
-  function puntero (target, tipo, x, extra = {}) {
-    target.dispatchEvent(new MouseEvent(tipo, { bubbles: true, cancelable: true, clientX: x, clientY: 20, ...extra }))
+  function puntero(target, tipo, x, extra = {}) {
+    target.dispatchEvent(
+      new MouseEvent(tipo, { bubbles: true, cancelable: true, clientX: x, clientY: 20, ...extra })
+    )
     return flushPromises()
   }
   const tecla = (key) => {
@@ -178,7 +221,9 @@ describe('la barra de estudio', () => {
   })
 
   it('cerca de un marcador, el borde se pega a el', async () => {
-    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ markers: [{ t: 60, label: 'coro' }] }) })]
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ markers: [{ t: 60, label: 'coro' }] }) })
+    ]
     const w = await montar()
     conAnchura(w)
     expect(w.find('.tl-marker-name').text()).toBe('coro')
@@ -302,8 +347,17 @@ describe('la barra de estudio', () => {
   })
 
   it('pulsar un marcador pone su bucle y coloca la cancion al principio del tramo', async () => {
-    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({
-      markers: [{ t: 30, end: 45, label: 'Coro', notes: 'fuerte' }, { t: 120, label: 'Solo' }] }) })]
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({
+          markers: [
+            { t: 30, end: 45, label: 'Coro', notes: 'fuerte' },
+            { t: 120, label: 'Solo' }
+          ]
+        })
+      })
+    ]
     const w = await montar()
     expect(w.findAll('.study-marker')).toHaveLength(2)
     expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
@@ -313,7 +367,10 @@ describe('la barra de estudio', () => {
     await flushPromises()
     expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(30, 45)
     expect(held.playback.bridge.seek).toHaveBeenCalledWith(30)
-    expect(held.playback.bridge.toggle, 'si sonaba, sigue sonando; si no, se queda lista').not.toHaveBeenCalled()
+    expect(
+      held.playback.bridge.toggle,
+      'si sonaba, sigue sonando; si no, se queda lista'
+    ).not.toHaveBeenCalled()
     expect(w.find('.study-marker').classes()).toContain('on')
     expect(w.findAll('.study-tab').map((t) => t.text())).toContain('«Coro»')
     expect(w.find('.study-tab.on').text()).toBe('«Coro»')
@@ -328,7 +385,12 @@ describe('la barra de estudio', () => {
   })
 
   it('en pausa, elegir un marcador deja la cancion colocada sin arrancarla', async () => {
-    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ markers: [{ t: 30, end: 45, label: 'Coro' }] }) })]
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({ markers: [{ t: 30, end: 45, label: 'Coro' }] })
+      })
+    ]
     held.playback.emit({ playing: false })
     const w = await montar()
     vi.clearAllMocks()
@@ -339,7 +401,12 @@ describe('la barra de estudio', () => {
   })
 
   it('renombrar es otro boton: pulsar el nombre no abre ningun dialogo', async () => {
-    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ markers: [{ t: 30, end: 45, label: 'Coro' }] }) })]
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({ markers: [{ t: 30, end: 45, label: 'Coro' }] })
+      })
+    ]
     const w = await montar()
     await w.find('.study-pick').trigger('click')
     await flushPromises()
@@ -349,7 +416,12 @@ describe('la barra de estudio', () => {
 
   it('con un marcador elegido, mover los bordes del tramo lo cambia a el', async () => {
     vi.useFakeTimers()
-    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 100], markers: [{ t: 50, end: 100, label: 'Coro' }] }) })]
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({ loop: [50, 100], markers: [{ t: 50, end: 100, label: 'Coro' }] })
+      })
+    ]
     const w = await montar()
     // el bucle guardado es el del marcador: entra elegido
     expect(w.find('.study-marker').classes()).toContain('on')
@@ -362,7 +434,9 @@ describe('la barra de estudio', () => {
     expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50, 150)
     expect(w.find('.study-marker').text()).toContain('0:50 – 2:30')
     await vi.advanceTimersByTimeAsync(700)
-    expect(held.api.setStudy.mock.calls.at(-1)[1].markers).toEqual([{ t: 50, end: 150, label: 'Coro' }])
+    expect(held.api.setStudy.mock.calls.at(-1)[1].markers).toEqual([
+      { t: 50, end: 150, label: 'Coro' }
+    ])
     // dibujar un tramo nuevo de cero NO toca el marcador: deja de estar elegido
     await puntero(caja, 'pointerdown', 20)
     await puntero(window, 'pointermove', 60)
@@ -391,7 +465,12 @@ describe('la barra de estudio', () => {
   })
 
   it('quitar el marcador elegido cierra sus notas', async () => {
-    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ markers: [{ t: 30, end: 45, label: 'Coro', notes: 'x' }] }) })]
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({ markers: [{ t: 30, end: 45, label: 'Coro', notes: 'x' }] })
+      })
+    ]
     const w = await montar()
     await w.find('.study-pick').trigger('click')
     await flushPromises()
@@ -404,12 +483,17 @@ describe('la barra de estudio', () => {
   })
 
   it('lo guardado con la cancion se aplica al entrar y se quita al cerrar', async () => {
-    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [30, 40], speed: 0.8, notes: 'cejilla 2' }) })]
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({ loop: [30, 40], speed: 0.8, notes: 'cejilla 2' })
+      })
+    ]
     const w = await montar()
     expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(30, 40)
     expect(held.playback.bridge.setSpeed).toHaveBeenCalledWith(0.8)
     expect(w.find('textarea').element.value).toBe('cejilla 2')
-    await boton(w, '').trigger('click')   // el primer boton de la cabecera es cerrar
+    await boton(w, '').trigger('click') // el primer boton de la cabecera es cerrar
     await flushPromises()
     expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
     expect(held.playback.bridge.setSpeed).toHaveBeenLastCalledWith(1)
@@ -418,16 +502,85 @@ describe('la barra de estudio', () => {
   })
 })
 
+describe('lo que se guarda va a su cancion', () => {
+  it('al abrir con algo ya sonando, lo guardado se lee una sola vez', async () => {
+    // lo normal: el reproductor ya sabe que suena cuando se abre la barra
+    await usePlayback().ready()
+    held.playback.emit({
+      track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200 },
+      playing: true,
+      position: 12,
+      ...base
+    })
+    await flushPromises()
+    vi.clearAllMocks()
+    await montar()
+    expect(held.api.song).toHaveBeenCalledTimes(1)
+    expect(held.api.song).toHaveBeenCalledWith(7)
+  })
+
+  it('si la cancion cambia antes de guardarse, las notas se guardan en la suya', async () => {
+    // El guardado espera 600 ms y leia la cancion y las notas al hacerlo:
+    // si entre medias cambiaba la cancion, las notas de la primera acababan
+    // en la segunda (en el indice y en la etiqueta del archivo).
+    vi.useFakeTimers()
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: '' }),
+      song(8, { title: 'Otra', study: '' })
+    ]
+    const w = await montar()
+    await w.find('textarea').setValue('cejilla en 2')
+    held.playback.emit({
+      track: { id: 8, title: 'Otra', artist: 'Barak', duration: 100 },
+      path: '/musica/otra.mp3',
+      position: 0
+    })
+    await flushPromises()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenCalledWith(7, { notes: 'cejilla en 2' })
+    expect(
+      held.api.setStudy.mock.calls.filter(([id]) => id === 8),
+      'se guardo en la otra'
+    ).toEqual([])
+    // y la nueva empieza con lo suyo, no con lo de la anterior
+    expect(w.find('textarea').element.value).toBe('')
+    vi.useRealTimers()
+  })
+
+  it('al cerrar se guarda lo pendiente sin esperar', async () => {
+    vi.useFakeTimers()
+    const w = await montar()
+    await w.find('textarea').setValue('entrar tras el redoble')
+    await boton(w, 'Cerrar').trigger('click')
+    await flushPromises()
+    expect(held.api.setStudy).toHaveBeenCalledWith(7, { notes: 'entrar tras el redoble' })
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+  })
+})
+
 describe('tono, velocidad fina y metronomo', () => {
-  function conAnchura (w, left = 0, width = 400) {
-    w.find('.tl-box').element.getBoundingClientRect = () =>
-      ({ left, width, right: left + width, top: 0, height: 80, bottom: 80, x: left, y: 0 })
+  function conAnchura(w, left = 0, width = 400) {
+    w.find('.tl-box').element.getBoundingClientRect = () => ({
+      left,
+      width,
+      right: left + width,
+      top: 0,
+      height: 80,
+      bottom: 80,
+      x: left,
+      y: 0
+    })
   }
   const bridge = () => held.playback.bridge
 
   it('el tono sube y baja por semitonos, enseña el tono resultante y se guarda', async () => {
     vi.useFakeTimers()
-    held.playback.emit({ track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200, key: 'G' } })
+    held.playback.emit({
+      track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200, key: 'G' }
+    })
     const w = await montar()
     expect(w.text()).toContain('Tono')
     await boton(w, '+').trigger('click')
@@ -448,7 +601,9 @@ describe('tono, velocidad fina y metronomo', () => {
   })
 
   it('el tono guardado se aplica al entrar y se quita al cerrar, como la velocidad', async () => {
-    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ pitch: -3, speed: 0.9 }) })]
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ pitch: -3, speed: 0.9 }) })
+    ]
     const w = await montar()
     expect(bridge().setPitch).toHaveBeenCalledWith(-3)
     expect(bridge().setSpeed).toHaveBeenCalledWith(0.9)
@@ -484,7 +639,9 @@ describe('tono, velocidad fina y metronomo', () => {
     vi.clearAllMocks()
     await boton(w, 'Clic').trigger('click')
     await flushPromises()
-    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true, bpm: null, meter: null, shift: 0, mult: 0 }))
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(
+      expect.objectContaining({ on: true, bpm: null, meter: null, shift: 0, mult: 0 })
+    )
     expect(w.find('.study-metro-toggle').classes()).toContain('on')
     expect(w.find('.study-bpm b').text()).toBe('120')
     // la cancion sigue: no se ha tocado play ni pausa
@@ -527,25 +684,40 @@ describe('tono, velocidad fina y metronomo', () => {
     await flushPromises()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ mult: 1 }))
     await vi.advanceTimersByTimeAsync(700)
-    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { metronome: { meter: 3, shift: 1, mult: 1 } })
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, {
+      metronome: { meter: 3, shift: 1, mult: 1 }
+    })
     vi.useRealTimers()
   })
 
   it('lo ajustado a mano vuelve con la cancion, y al cambiar de cancion se analiza la nueva', async () => {
-    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { meter: 3, shift: 2 } }) }),
-                        song(8, { title: 'Otra' })]
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { meter: 3, shift: 2 } }) }),
+      song(8, { title: 'Otra' })
+    ]
     await montar()
-    expect(bridge().setMetronome).toHaveBeenCalledWith(expect.objectContaining({ meter: 3, shift: 2 }))
+    expect(bridge().setMetronome).toHaveBeenCalledWith(
+      expect.objectContaining({ meter: 3, shift: 2 })
+    )
     vi.clearAllMocks()
-    held.playback.emit({ track: { id: 8, title: 'Otra', artist: 'Barak', duration: 100 }, path: '/musica/otra.mp3', position: 0 })
-    await flushPromises(); await flushPromises()
+    held.playback.emit({
+      track: { id: 8, title: 'Otra', artist: 'Barak', duration: 100 },
+      path: '/musica/otra.mp3',
+      position: 0
+    })
+    await flushPromises()
+    await flushPromises()
     expect(held.playback.bridge.analyzeBeats).toHaveBeenCalledWith('/musica/otra.mp3', null)
     // la nueva no tiene ajustes: se vuelve a lo detectado
-    expect(bridge().setMetronome).toHaveBeenCalledWith(expect.objectContaining({ meter: null, shift: 0 }))
+    expect(bridge().setMetronome).toHaveBeenCalledWith(
+      expect.objectContaining({ meter: null, shift: 0 })
+    )
   })
 
   it('si no se puede analizar, el clic va libre y lo dice', async () => {
-    held.playback.bridge.analyzeBeats.mockRejectedValueOnce(new Error('no se encuentra un pulso estable'))
+    held.playback.bridge.analyzeBeats.mockRejectedValueOnce(
+      new Error('no se encuentra un pulso estable')
+    )
     const w = await montar()
     expect(w.text()).toContain('sin compás detectado: va libre')
     vi.clearAllMocks()
@@ -559,7 +731,9 @@ describe('tono, velocidad fina y metronomo', () => {
     const vol = w.find('.study-metro-vol input[type="range"]')
     await vol.setValue('0.35')
     await flushPromises()
-    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ volume: 0.35 }))
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(
+      expect.objectContaining({ volume: 0.35 })
+    )
   })
 
   it('la onda recibe la rejilla y es mas alta', async () => {

@@ -8,15 +8,19 @@
    marcha»: congelarlos no es respetar una preferencia, es aparentar que la
    app se ha colgado.
    ============================================================ */
-@media (prefers-reduced-motion:reduce){
-  *,*::before,*::after{
-    animation-duration:.01ms !important;
-    animation-iteration-count:1 !important;
-    transition-duration:.01ms !important;
-    transition-delay:0ms !important;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
   }
-  .spinner,.nav-link .count.live::before,.nav-link .now-dot{
-    animation-duration:1.4s !important;
-    animation-iteration-count:infinite !important;
+  .spinner,
+  .nav-link .count.live::before,
+  .nav-link .now-dot {
+    animation-duration: 1.4s !important;
+    animation-iteration-count: infinite !important;
   }
 }

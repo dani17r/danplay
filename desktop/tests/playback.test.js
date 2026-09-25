@@ -165,6 +165,35 @@ describe('usePlayback', () => {
     expect(localStorage.getItem('danplay.vel')).toBe('1.25')
   })
 
+  it('lo guardado lo aplica la ventana principal, no el mini ni la proyección', async () => {
+    const guardado = () => {
+      localStorage.setItem('danplay.vol', '0.3')
+      localStorage.setItem('danplay.vel', '0.75')
+      localStorage.setItem('danplay.repeat', 'one')
+    }
+    for (const search of ['?mini=1', '?projection=1']) {
+      resetPlayback()
+      held.playback.reset()
+      vi.clearAllMocks()
+      guardado()
+      window.history.replaceState(null, '', '/' + search)
+      await usePlayback().ready()
+      const b = held.playback.bridge
+      expect(b.setVolume, search).not.toHaveBeenCalled()
+      expect(b.setSpeed, search).not.toHaveBeenCalled()
+      expect(b.setRepeat, search).not.toHaveBeenCalled()
+    }
+    resetPlayback()
+    held.playback.reset()
+    vi.clearAllMocks()
+    guardado()
+    window.history.replaceState(null, '', '/')
+    await usePlayback().ready()
+    expect(held.playback.bridge.setVolume).toHaveBeenCalledWith(0.3)
+    expect(held.playback.bridge.setSpeed).toHaveBeenCalledWith(0.75)
+    expect(held.playback.bridge.setRepeat).toHaveBeenCalledWith('one')
+  })
+
   it('el volumen no se sale de su rango', async () => {
     const player = usePlayback()
     await player.setVolume(9)

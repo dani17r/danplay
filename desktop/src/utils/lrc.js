@@ -1,3 +1,4 @@
+// @ts-check
 // Letras con tiempos (LRC): lo que da LRCLIB y lo que algunos mp3 llevan en
 // su USLT. Cada línea va precedida de una o varias marcas `[mm:ss.xx]`.
 //
@@ -46,14 +47,16 @@ export function parseLrc(text) {
  */
 export function stripLrc(text) {
   if (!text) return ''
-  return text
-    .split(/\r?\n/)
-    // fuera las marcas de tiempo y las de cabecera ([ar:…], [ti:…], [offset:…])
-    .filter((l) => !/^\s*\[[a-z]+:[^\]]*\]\s*$/i.test(l))
-    .map((l) => l.replace(/\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/g, '').trim())
-    .filter((l, i, all) => l || (i > 0 && all[i - 1]))
-    .join('\n')
-    .trim()
+  return (
+    text
+      .split(/\r?\n/)
+      // fuera las marcas de tiempo y las de cabecera ([ar:…], [ti:…], [offset:…])
+      .filter((l) => !/^\s*\[[a-z]+:[^\]]*\]\s*$/i.test(l))
+      .map((l) => l.replace(/\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/g, '').trim())
+      .filter((l, i, all) => l || (i > 0 && all[i - 1]))
+      .join('\n')
+      .trim()
+  )
 }
 
 /**

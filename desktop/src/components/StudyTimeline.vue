@@ -13,7 +13,17 @@
  * DOM colocado en tantos por ciento: cuatro veces por segundo no hay que
  * redibujar nada.
  */
-import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import {
+  ref,
+  reactive,
+  computed,
+  watch,
+  onMounted,
+  onUnmounted,
+  nextTick,
+  useTemplateRef,
+  shallowRef
+} from 'vue'
 import { api } from '../api.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { formatTime } from '../utils/format.js'
@@ -49,9 +59,11 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 const round2 = (v) => Math.round(v * 100) / 100
 
 // ------------------------------------------------------------ la onda
-const box = ref(null)
-const canvas = ref(null)
-const wave = ref(null) // {peaks, rms} o null
+const box = useTemplateRef('box')
+const canvas = useTemplateRef('canvas')
+// {peaks, rms} o null. Superficial: son miles de numeros que solo se leen
+// para pintar; hacerlos reactivos uno a uno no aporta nada
+const wave = shallowRef(null)
 const loading = ref(false)
 const failed = ref(false)
 
@@ -160,14 +172,17 @@ function drawGrid(ctx, W, H) {
   for (let i = 0; i < g.beats.length; i++) {
     const x = Math.round((g.beats[i] / props.duration) * W)
     if (x < 0 || x > W) continue
-    const one = ((i - g.first_downbeat) % m + m) % m === 0
+    const one = (((i - g.first_downbeat) % m) + m) % m === 0
     // el «1» cruza la onda entera, tenue; los demas pulsos son marcas abajo
     ctx.globalAlpha = one ? 0.28 : 0.45
     ctx.fillRect(x, one ? 0 : H - 7, 1, one ? H : 7)
   }
   ctx.globalAlpha = 1
 }
-watch(() => props.grid, () => nextTick(draw))
+watch(
+  () => props.grid,
+  () => nextTick(draw)
+)
 
 // Al cambiar el ancho se vuelve a medir la regla y a pintar la onda.
 let observer = null
@@ -204,7 +219,19 @@ function xOf(t) {
 // ------------------------------------------------------------ la regla
 // Paso entre marcas con numero: el mas fino que deje ~70 px entre ellas.
 const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200]
-const MINOR = { 1: 0, 2: 1, 5: 1, 10: 5, 15: 5, 30: 10, 60: 30, 120: 60, 300: 60, 600: 300, 1200: 600 }
+const MINOR = {
+  1: 0,
+  2: 1,
+  5: 1,
+  10: 5,
+  15: 5,
+  30: 10,
+  60: 30,
+  120: 60,
+  300: 60,
+  600: 300,
+  1200: 600
+}
 const width = ref(0)
 function measure() {
   width.value = box.value?.clientWidth || 0
@@ -338,10 +365,22 @@ const dragging = computed(() => !!(drag.mode && drag.moved))
 </script>
 
 <template>
-  <div class="tl" :class="{ 'tl-dragging': dragging, ['tl-hover-' + hover]: hover }"
-       :data-mode="drag.mode || null" :style="{ '--tl-h': WAVE_H + 'px' }">
-    <div ref="box" class="tl-box" :title="duration ? 'Arrastra para elegir el tramo que se repite · clic para ir a un punto' : ''"
-         @pointerdown="onDown" @pointermove="onHover" @pointerleave="hover = ''">
+  <div
+    class="tl"
+    :class="{ 'tl-dragging': dragging, ['tl-hover-' + hover]: hover }"
+    :data-mode="drag.mode || null"
+    :style="{ '--tl-h': WAVE_H + 'px' }"
+  >
+    <div
+      ref="box"
+      class="tl-box"
+      :title="
+        duration ? 'Arrastra para elegir el tramo que se repite · clic para ir a un punto' : ''
+      "
+      @pointerdown="onDown"
+      @pointermove="onHover"
+      @pointerleave="hover = ''"
+    >
       <canvas ref="canvas" class="tl-wave" :height="WAVE_H"></canvas>
       <div v-if="loading" class="tl-note">leyendo la onda…</div>
       <div v-else-if="failed && songId" class="tl-note">sin forma de onda (hace falta ffmpeg)</div>
@@ -362,12 +401,23 @@ const dragging = computed(() => !!(drag.mode && drag.moved))
            puntero: por encima se sigue pudiendo arrastrar), un instante como
            raya; la banderita con el nombre es lo que se pulsa -->
       <template v-for="m in markers" :key="m.t + ':' + (m.end || 0)">
-        <div v-if="m.end > m.t" class="tl-region" :class="{ on: m === selected }"
-             :style="{ left: pct(m.t), width: pct(m.end - m.t) }"></div>
-        <button type="button" class="tl-marker" :class="{ on: m === selected, span: m.end > m.t }"
-                :style="{ left: pct(m.t) }"
-                :title="m.label + ' · ' + formatTime(m.t) + (m.end > m.t ? ' – ' + formatTime(m.end) : '')"
-                @pointerdown.stop @click.stop="emit('marker', m)">
+        <div
+          v-if="m.end > m.t"
+          class="tl-region"
+          :class="{ on: m === selected }"
+          :style="{ left: pct(m.t), width: pct(m.end - m.t) }"
+        ></div>
+        <button
+          type="button"
+          class="tl-marker"
+          :class="{ on: m === selected, span: m.end > m.t }"
+          :style="{ left: pct(m.t) }"
+          :title="
+            m.label + ' · ' + formatTime(m.t) + (m.end > m.t ? ' – ' + formatTime(m.end) : '')
+          "
+          @pointerdown.stop
+          @click.stop="emit('marker', m)"
+        >
           <span class="tl-marker-name">{{ m.label }}</span>
         </button>
       </template>
@@ -377,10 +427,18 @@ const dragging = computed(() => !!(drag.mode && drag.moved))
 
     <!-- la regla: los minutos -->
     <div class="tl-ruler" aria-hidden="true">
-      <span v-for="k in ticks" :key="k.t" class="tl-tick" :class="{ minor: !k.major }" :style="{ left: pct(k.t) }">
+      <span
+        v-for="k in ticks"
+        :key="k.t"
+        class="tl-tick"
+        :class="{ minor: !k.major }"
+        :style="{ left: pct(k.t) }"
+      >
         <span v-if="k.label" class="tl-tick-label mono">{{ k.label }}</span>
       </span>
-      <span v-if="duration" class="tl-tick end"><span class="tl-tick-label mono">{{ formatTime(duration) }}</span></span>
+      <span v-if="duration" class="tl-tick end"
+        ><span class="tl-tick-label mono">{{ formatTime(duration) }}</span></span
+      >
     </div>
   </div>
 </template>

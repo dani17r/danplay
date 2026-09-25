@@ -1,3 +1,4 @@
+// @ts-check
 // Lo que se está bajando, compartido por toda la interfaz.
 //
 // Es un singleton, como usePlayback: la página de Descargas, el chat y la
@@ -23,7 +24,14 @@ const IDLE = {
   index: 0,
   total: 0,
   results: [],
-  error: ''
+  error: '',
+  // qué yt-dlp se usa y cuál trae la app, y con qué motor de JavaScript
+  // (YouTube ya lo exige). `js_runtime` es null si no hay ninguno; sin
+  // definir, si el núcleo no lo dice.
+  version: '',
+  bundled_version: '',
+  js_runtime: undefined,
+  js_runtime_hint: ''
 }
 
 const state = reactive({ ...IDLE, known: false })

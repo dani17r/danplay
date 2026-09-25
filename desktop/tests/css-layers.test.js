@@ -36,7 +36,14 @@ function topLevelRules(text) {
     const c = text[i]
     if (c === '{') {
       if (depth === 0) {
-        selector = text.slice(start, i).trim().split('\n').pop().trim()
+        // el selector entero, aunque venga partido en varias líneas (uno por
+        // línea, como lo deja Prettier) y con comentarios delante
+        selector = text
+          .slice(start, i)
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .trim()
+          .replace(/\s*,\s*/g, ',')
+          .replace(/\s+/g, ' ')
         bodyStart = i + 1
       }
       depth++
@@ -81,9 +88,7 @@ function silentOverrides() {
         (p) => p in now && before.declarations[p] !== now[p]
       )
       if (properties.length) {
-        clashes.push(
-          `${selector}  (${before.file} -> ${file}): ${properties.sort().join(', ')}`
-        )
+        clashes.push(`${selector}  (${before.file} -> ${file}): ${properties.sort().join(', ')}`)
       }
     }
   }

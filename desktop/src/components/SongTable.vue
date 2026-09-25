@@ -10,44 +10,77 @@
  * condicion y en la vista compacta el cuerpo pintaba una celda MAS que la
  * cabecera —kbps no tenia condicion abajo—, asi que las columnas quedaban
  * corridas un sitio.
+ *
+ * Con el teclado es una rejilla: una sola parada del tabulador, las flechas
+ * pasan de fila en fila y Enter la pone a sonar (ver useSongList).
  */
 import StarRating from './StarRating.vue'
 import Icon from './Icon.vue'
+import GroupHead from './GroupHead.vue'
 import EmptyState from './ui/EmptyState.vue'
-import { useDragSong } from '../composables/useDragSong.js'
-import { ref, watch, nextTick, computed, onUnmounted } from 'vue'
-import { useVirtualRows } from '../composables/useVirtualRows.js'
-import { usePlayback } from '../composables/usePlayback.js'
+import { ref, watch, computed, onUnmounted, useTemplateRef } from 'vue'
+import { useSongList } from '../composables/useSongList.js'
+import { formatDuration } from '../utils/format.js'
 
-const { startDrag, isDragged, isBefore, isAfter } = useDragSong()
-const props = defineProps(['songs','selected','selectedIds','playing','sort','desc','noHeader',
-                           'jumpTo','sortable'])
-const emit = defineEmits(['select','play','setStars','toggleFavorite','sortBy','context'])
+const props = defineProps({
+  songs: { type: Array, required: true },
+  // la elegida y la seleccion multiple las lee useSongList (la regla de
+  // props sin usar no ve a traves de la llamada)
+  // eslint-disable-next-line vue/no-unused-properties
+  selected: { type: Number, default: null },
+  // eslint-disable-next-line vue/no-unused-properties
+  selectedIds: { type: Array, default: () => [] },
+  playing: { type: Number, default: null },
+  sort: { type: String, default: '' },
+  desc: Boolean,
+  /** sin la fila de las columnas (la vista agrupada) */
+  noHeader: Boolean,
+  /** los grupos, si la lista va agrupada (ver GroupedSongs) */
+  groups: { type: Array, default: null },
+  jumpTo: { type: Number, default: null },
+  sortable: Boolean,
+  /** como se anuncia la lista */
+  label: { type: String, default: 'Canciones' }
+})
+const emit = defineEmits([
+  'select',
+  'play',
+  'setStars',
+  'toggleFavorite',
+  'sortBy',
+  'context',
+  'toggleGroup'
+])
 
-// Sobre la que esta puesta, el boton de la fila es pausa (o reanudar si esta
-// en pausa); en las demas, reproducir. Lo de «sonando» lo sabe el reproductor.
-const { playing: sounding } = usePlayback()
-// Seleccionada: la principal (la ficha) o cualquiera de la seleccion multiple
-// (Ctrl y Mayus al pulsar, decididas por la app).
-const chosen = computed(() => new Set(props.selectedIds || []))
-const picked = (id) => props.selected === id || chosen.value.has(id)
+const body = useTemplateRef('body')
+const {
+  picked,
+  before,
+  after,
+  dropKey,
+  rowIcon,
+  rowTitle,
+  sounding,
+  isDragged,
+  startDrag,
+  refFor,
+  sections,
+  numberOf,
+  hasRows,
+  padTop,
+  padBottom,
+  tabindex,
+  onKey,
+  onFocus
+} = useSongList(props, emit, { anchor: () => body.value })
 
-// En un repertorio cada fila es destino de arrastre (`sort:id`), para poder
-// cambiar el orden. La raya se pinta en la mitad por la que va el puntero,
-// menos sobre la propia fila que se lleva: ahi no hay nada que marcar.
-const key = (c) => 'sort:' + c.id
-const before = (c) => !!props.sortable && !isDragged(c.id) && isBefore(key(c))
-const after = (c) => !!props.sortable && !isDragged(c.id) && isAfter(key(c))
-
-const rowIcon = (c) => (props.playing === c.id && sounding.value ? 'pause' : 'play')
-const rowTitle = (c) =>
-  props.playing !== c.id ? 'Reproducir' : sounding.value ? 'Pausar' : 'Reanudar'
-
-// Un Map normal, fuera de la reactividad: aqui solo se guardan nodos del DOM
-// para poder hacerles scroll, y nadie los pinta. Se vacia al cambiar la lista
-// porque si no se van acumulando las filas de cada busqueda anterior.
-const rows = new Map()
-watch(() => props.songs, () => rows.clear())
+// Con grupos, la cabecera de cada uno es una fila más de la tabla: cuentan
+// para el número de fila que se anuncia.
+const theadRows = computed(() => (props.noHeader ? 0 : 1))
+const rowCount = computed(() => props.songs.length + (props.groups?.length || 0) + theadRows.value)
+/** El número de la fila de una canción, contando cabeceras. */
+const rowIndex = (sec, i) => sec.from + i + 1 + (sec.group ? sec.index + 1 : 0) + theadRows.value
+const headRowIndex = (sec) => sec.group.start + sec.index + 1 + theadRows.value
 
 // ---------------------------------------------------------------- columnas
 // `sort` es por que campo ordena esa columna; sin el, no se puede ordenar.
@@ -55,23 +88,23 @@ watch(() => props.songs, () => rows.clear())
 // espera de la A a la Z, pero por duracion o estrellas se espera lo mas
 // grande primero.
 const COLS = [
-  { k: 'n',      cls: 'col-n',      label: '#' },
-  { k: 'fav',    cls: 'col-fav',    label: '' },
-  { k: 'title',  cls: 'col-title',  label: 'Titulo',    sort: 'title' },
-  { k: 'artist', cls: 'col-artist', label: 'Artista',   sort: 'artist' },
-  { k: 'album',  cls: 'col-album',  label: 'Album',     sort: 'album' },
-  { k: 'stars',  cls: 'col-stars',  label: 'Estrellas', sort: 'stars', desc: true },
-  { k: 'key',    cls: 'col-key',    label: 'Tono',      sort: 'key' },
-  { k: 'bpm',    cls: 'col-bpm',    label: 'BPM',       sort: 'bpm', desc: true },
-  { k: 'dur',    cls: 'col-dur',    label: 'Dur.',      sort: 'duration', desc: true },
-  { k: 'kbps',   cls: 'col-kbps',   label: 'Kbps',      sort: 'bitrate', desc: true }
+  { k: 'n', cls: 'col-n', label: '#' },
+  { k: 'fav', cls: 'col-fav', label: '', hidden: 'Favorita' },
+  { k: 'title', cls: 'col-title', label: 'Título', sort: 'title' },
+  { k: 'artist', cls: 'col-artist', label: 'Artista', sort: 'artist' },
+  { k: 'album', cls: 'col-album', label: 'Álbum', sort: 'album' },
+  { k: 'stars', cls: 'col-stars', label: 'Estrellas', sort: 'stars', desc: true },
+  { k: 'key', cls: 'col-key', label: 'Tono', sort: 'key' },
+  { k: 'bpm', cls: 'col-bpm', label: 'BPM', sort: 'bpm', desc: true },
+  { k: 'dur', cls: 'col-dur', label: 'Dur.', sort: 'duration', desc: true },
+  { k: 'kbps', cls: 'col-kbps', label: 'Kbps', sort: 'bitrate', desc: true }
 ]
 
 // La tabla enseña todas sus columnas. Hubo un `columns` que venia de la vista
 // para esconder algunas, pero se quedo siempre en null: era codigo muerto que
 // ademas invalidaba el v-memo de cada fila. Se deja `show` porque el marcado
 // lo consulta columna a columna y es donde se volveria a enganchar.
-const show = Object.fromEntries(COLS.map(c => [c.k, true]))
+const show = Object.fromEntries(COLS.map((c) => [c.k, true]))
 const cols = computed(() => COLS)
 
 // ------------------------------------------------------------ anchos
@@ -83,17 +116,27 @@ const cols = computed(() => COLS)
 // eres tu quien se pasa de ancho.
 const CLAVE = 'danplay.colWidths'
 const MINIMO = 38
-function guardados () {
-  try { return JSON.parse(localStorage.getItem(CLAVE) || 'null') || {} } catch { return {} }
+function guardados() {
+  try {
+    return JSON.parse(localStorage.getItem(CLAVE) || 'null') || {}
+  } catch {
+    return {}
+  }
 }
 const widths = ref(guardados())
 const aMedida = computed(() => Object.keys(widths.value).length > 0)
-watch(widths, (v) => {
-  try {
-    if (Object.keys(v).length) localStorage.setItem(CLAVE, JSON.stringify(v))
-    else localStorage.removeItem(CLAVE)
-  } catch { /* modo privado */ }
-}, { deep: true })
+watch(
+  widths,
+  (v) => {
+    try {
+      if (Object.keys(v).length) localStorage.setItem(CLAVE, JSON.stringify(v))
+      else localStorage.removeItem(CLAVE)
+    } catch {
+      /* modo privado */
+    }
+  },
+  { deep: true }
+)
 
 /**
  * Los anchos que se ven ahora mismo, para arrancar desde ahi.
@@ -103,7 +146,7 @@ watch(widths, (v) => {
  * por indice desalineaba los anchos y la primera vez que arrastrabas la
  * columna daba un salto.
  */
-function fotoDeAnchos () {
+function fotoDeAnchos() {
   const tabla = body.value?.closest('table')
   const foto = {}
   for (const th of tabla?.querySelectorAll('thead th[data-col]') || []) {
@@ -114,8 +157,9 @@ function fotoDeAnchos () {
 }
 
 let arrastre = null
-function startResize (col, e) {
-  e.preventDefault(); e.stopPropagation()
+function startResize(col, e) {
+  e.preventDefault()
+  e.stopPropagation()
   // La foto se toma ahora pero NO se aplica todavia: escribir en `widths` aqui
   // repinta la tabla en pleno pointerdown, y con el elemento reemplazado el
   // navegador cancela el puntero y deja de mandar movimientos. Se aplica al
@@ -127,138 +171,213 @@ function startResize (col, e) {
   window.addEventListener('pointercancel', endResize)
   document.body.classList.add('resizing-col')
 }
-function moveResize (e) {
+function moveResize(e) {
   if (!arrastre) return
-  widths.value = { ...arrastre.base,
-    [arrastre.k]: Math.max(MINIMO, arrastre.desde + (e.clientX - arrastre.x)) }
+  widths.value = {
+    ...arrastre.base,
+    [arrastre.k]: Math.max(MINIMO, arrastre.desde + (e.clientX - arrastre.x))
+  }
 }
-function endResize () {
+function endResize() {
   arrastre = null
   window.removeEventListener('pointermove', moveResize)
   window.removeEventListener('pointerup', endResize)
   window.removeEventListener('pointercancel', endResize)
   document.body.classList.remove('resizing-col')
 }
+/** Con el teclado: las flechas ensanchan o estrechan la columna de a 10 px. */
+function keyResize(col, e) {
+  const step = e.key === 'ArrowRight' ? 10 : e.key === 'ArrowLeft' ? -10 : 0
+  if (!step) return
+  e.preventDefault()
+  e.stopPropagation()
+  const base = aMedida.value ? { ...widths.value } : fotoDeAnchos()
+  widths.value = { ...base, [col.k]: Math.max(MINIMO, (base[col.k] || 120) + step) }
+}
 /** Doble clic en el borde: se olvidan los anchos y vuelve el reparto normal. */
-function resetColumn () {
+function resetColumn() {
   widths.value = {}
 }
 defineExpose({ resetColumn })
 onUnmounted(endResize)
 
 // ------------------------------------------------------------ orden
-function clickHeader (col) {
+function clickHeader(col) {
   if (!col.sort) return
   emit('sortBy', col.sort, col.desc === true)
 }
 const sortedBy = (col) => col.sort && props.sort === col.sort
-
-// ------------------------------------------------------------ virtualizado
-const body = ref(null)
-const { from, to, padTop, padBottom, reveal } =
-  useVirtualRows(() => body.value, () => props.songs.length)
-const visible = computed(() => props.songs.slice(from.value, to.value))
-
-watch(() => props.jumpTo, async (id) => {
-  if (!id) return
-  const i = props.songs.findIndex(c => c.id === id)
-  if (i < 0) return
-  const { viewport, rowHeight } = (await reveal(i)) || {}
-  await nextTick()
-  const el = rows.get(id)
-  if (el && typeof el.scrollIntoView === 'function') {
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  } else if (viewport && rowHeight > 0) {
-    viewport.scrollTop = Math.max(0, i * rowHeight - viewport.clientHeight / 2)
-  }
-})
-
-const fmtDuration = (s) => {
-  if (!s) return '—'
-  const m = Math.floor(s / 60), r = Math.floor(s % 60)
-  return `${m}:${String(r).padStart(2, '0')}`
-}
 </script>
 
 <template>
   <div :class="noHeader ? '' : 'table-wrap'" :data-sort-list="sortable ? '' : null">
-    <table v-if="songs.length" class="song-table" :class="{medida: aMedida}">
+    <table
+      v-if="hasRows"
+      class="song-table"
+      :class="{ medida: aMedida }"
+      role="grid"
+      aria-multiselectable="true"
+      :aria-label="label"
+      :aria-rowcount="rowCount"
+    >
       <colgroup v-if="aMedida">
-        <col v-for="col in cols" :key="col.k"
-             :style="widths[col.k] ? {width: widths[col.k] + 'px'} : null" />
+        <col
+          v-for="col in cols"
+          :key="col.k"
+          :style="widths[col.k] ? { width: widths[col.k] + 'px' } : null"
+        />
       </colgroup>
       <thead v-if="!noHeader">
-        <tr>
-          <th v-for="(col, i) in cols" :key="col.k" :data-col="col.k"
-              :class="[col.cls, {sortable: !!col.sort}]"
-              :title="col.sort ? 'Ordenar por ' + (col.label || 'esta columna') : null"
-              :aria-sort="sortedBy(col) ? (desc ? 'descending' : 'ascending') : null"
-              @click="clickHeader(col)">
-            <span class="th-txt">{{ col.label }}</span>
-            <Icon v-if="sortedBy(col)" n="down" :t="11"
-                  class="th-arrow" :class="{up: !desc}" />
-            <!-- el tirador vive en el borde derecho; el ultimo no lleva -->
-            <span v-if="i < cols.length - 1" class="col-resize"
-                  title="Arrastra para cambiar el ancho · doble clic para dejarlo como estaba"
-                  @pointerdown="startResize(col, $event)"
-                  @dblclick.stop="resetColumn()"
-                  @click.stop></span>
+        <tr aria-rowindex="1">
+          <th
+            v-for="(col, i) in cols"
+            :key="col.k"
+            :data-col="col.k"
+            :class="[col.cls, { sortable: !!col.sort }]"
+            :aria-sort="sortedBy(col) ? (desc ? 'descending' : 'ascending') : null"
+          >
+            <!-- la cabecera que ordena es un boton: se alcanza y se pulsa
+                 con el teclado -->
+            <button
+              v-if="col.sort"
+              type="button"
+              class="th-sort"
+              :title="'Ordenar por ' + col.label"
+              @click="clickHeader(col)"
+            >
+              <span class="th-txt">{{ col.label }}</span>
+              <Icon v-if="sortedBy(col)" n="down" :t="11" class="th-arrow" :class="{ up: !desc }" />
+            </button>
+            <span v-else class="th-txt"
+              >{{ col.label }}<span v-if="col.hidden" class="sr-only">{{ col.hidden }}</span></span
+            >
+            <!-- el tirador vive en el borde derecho; el ultimo no lleva. Es un
+                 separador que se mueve con las flechas (el patron de ARIA para
+                 un divisor ajustable); la regla lo cree un elemento estatico -->
+            <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
+            <span
+              v-if="i < cols.length - 1"
+              class="col-resize"
+              role="separator"
+              aria-orientation="vertical"
+              tabindex="-1"
+              :aria-label="'Ancho de la columna ' + (col.label || col.k)"
+              title="Arrastra para cambiar el ancho · doble clic para dejarlo como estaba"
+              @pointerdown="startResize(col, $event)"
+              @dblclick.stop="resetColumn()"
+              @keydown="keyResize(col, $event)"
+            ></span>
           </th>
         </tr>
       </thead>
       <tbody ref="body">
         <!-- separadores: ocupan el hueco de lo que no se pinta, para que la
              barra de desplazamiento siga midiendo lo mismo -->
-        <tr v-if="padTop" data-spacer :style="{height: padTop + 'px'}" aria-hidden="true"></tr>
-        <!-- v-memo: una fila solo se vuelve a pintar si cambia algo de LO QUE
-             ELLA enseña. Sin esto, seleccionar una cancion obligaba a repasar
-             las mil filas de la lista con sus ocho iconos cada una. -->
-        <tr v-for="(c,i) in visible" :key="c.id"
-            v-memo="[from + i, c.id, c.title, c.file, c.feat, c.artist, c.album, c.stars,
-                     c.favorite, c.key, c.bpm, c.duration, c.bitrate,
-                     picked(c.id), playing===c.id, playing===c.id && sounding,
-                     jumpTo===c.id, isDragged(c.id), !!sortable, before(c), after(c)]"
-            :ref="el => { if (el) rows.set(c.id, el) }"
-            :class="{selected: picked(c.id), playing: playing===c.id,
-                     flash: jumpTo===c.id, dragged: isDragged(c.id),
-                     'drop-before': before(c), 'drop-after': after(c)}"
-            :data-drop="sortable ? key(c) : null"
+        <tr v-if="padTop" data-spacer :style="{ height: padTop + 'px' }" aria-hidden="true"></tr>
+        <template v-for="sec in sections" :key="sec.key">
+          <!-- la cabecera del grupo: una fila mas, que se queda arriba
+               mientras se recorre su grupo -->
+          <tr v-if="sec.group" data-group-row class="group-row" :aria-rowindex="headRowIndex(sec)">
+            <th :colspan="cols.length" class="group-cell">
+              <GroupHead :group="sec.group" @toggle="(k) => emit('toggleGroup', k)" />
+            </th>
+          </tr>
+          <!-- Sin v-memo: con la lista recortada a lo que se ve (unas decenas
+               de filas) repintarla es barato, y v-memo no funciona dentro de
+               otro v-for (el de los grupos): todas las filas comparten su
+               memoria y una podia reaprovecharse en el grupo equivocado. -->
+          <tr
+            v-for="(c, i) in sec.songs"
+            :key="c.id"
+            :ref="refFor(c.id)"
+            :class="{
+              selected: picked(c.id),
+              playing: playing === c.id,
+              flash: jumpTo === c.id,
+              dragged: isDragged(c.id),
+              'drop-before': before(c),
+              'drop-after': after(c)
+            }"
+            :data-drop="sortable ? dropKey(c) : null"
+            data-song-row
+            :tabindex="tabindex(c)"
+            :aria-rowindex="rowIndex(sec, i)"
+            :aria-selected="picked(c.id)"
             @pointerdown="startDrag(c, $event)"
             @click="emit('select', c.id, $event)"
             @dblclick="emit('play', c)"
-            @contextmenu.prevent="emit('context', $event, c)">
-          <td v-if="show.n" class="col-n mono">
-            <button class="row-play" :title="rowTitle(c)"
-                    @click.stop="emit('play', c)"><Icon :n="rowIcon(c)" :t="12" /></button>
-            <span class="row-n">
-              <Icon v-if="playing===c.id" :n="sounding ? 'pause' : 'play'" :t="11" style="margin-left:auto" />
-              <template v-else>{{ from + i + 1 }}</template>
-            </span>
-          </td>
-          <td v-if="show.fav" class="col-fav">
-            <span class="heart" :class="{on:c.favorite}"
-                  @click.stop="emit('toggleFavorite', c)">
-              <Icon :n="c.favorite ? 'heartFull' : 'heart'" :t="16" /></span>
-          </td>
-          <td v-if="show.title" class="title">
-            {{ c.title || c.file }}
-            <span class="sub" v-if="c.feat"> · feat. {{ c.feat }}</span>
-          </td>
-          <td v-if="show.artist" class="sub">{{ c.artist || '—' }}</td>
-          <td v-if="show.album" class="sub">{{ c.album || '—' }}</td>
-          <td v-if="show.stars" class="col-stars">
-            <StarRating :value="c.stars||0" :t="15" @change="n=>emit('setStars',c,n)" />
-          </td>
-          <td v-if="show.key" class="col-key mono sub">{{ c.key || '—' }}</td>
-          <td v-if="show.bpm" class="col-bpm mono sub">{{ c.bpm ? Math.round(c.bpm) : '—' }}</td>
-          <td v-if="show.dur" class="col-dur mono sub">{{ fmtDuration(c.duration) }}</td>
-          <td v-if="show.kbps" class="col-kbps mono sub">
-            {{ c.bitrate ? Math.round(c.bitrate/1000) : '—' }}</td>
-        </tr>
-        <tr v-if="padBottom" data-spacer :style="{height: padBottom + 'px'}" aria-hidden="true"></tr>
+            @keydown="onKey($event, c, sec.from + i)"
+            @focus="onFocus(c)"
+            @contextmenu.prevent="emit('context', $event, c)"
+          >
+            <td v-if="show.n" class="col-n mono">
+              <button
+                type="button"
+                class="row-play"
+                tabindex="-1"
+                :title="rowTitle(c)"
+                :aria-label="rowTitle(c) + ': ' + (c.title || c.file)"
+                @click.stop="emit('play', c)"
+              >
+                <Icon :n="rowIcon(c)" :t="12" />
+              </button>
+              <span class="row-n">
+                <Icon
+                  v-if="playing === c.id"
+                  :n="sounding ? 'pause' : 'play'"
+                  :t="11"
+                  style="margin-left: auto"
+                />
+                <template v-else>{{ numberOf(sec, i) }}</template>
+              </span>
+            </td>
+            <td v-if="show.fav" class="col-fav">
+              <button
+                type="button"
+                class="heart"
+                :class="{ on: c.favorite }"
+                tabindex="-1"
+                :aria-pressed="!!c.favorite"
+                :aria-label="c.favorite ? 'Quitar de favoritos' : 'Marcar como favorito'"
+                @click.stop="emit('toggleFavorite', c)"
+              >
+                <Icon :n="c.favorite ? 'heartFull' : 'heart'" :t="16" />
+              </button>
+            </td>
+            <td v-if="show.title" class="title">
+              {{ c.title || c.file }}
+              <span v-if="c.feat" class="sub"> · feat. {{ c.feat }}</span>
+            </td>
+            <td v-if="show.artist" class="sub">{{ c.artist || '—' }}</td>
+            <td v-if="show.album" class="sub">{{ c.album || '—' }}</td>
+            <td v-if="show.stars" class="col-stars">
+              <StarRating
+                :value="c.stars || 0"
+                :t="15"
+                :focusable="false"
+                @change="(n) => emit('setStars', c, n)"
+              />
+            </td>
+            <td v-if="show.key" class="col-key mono sub">{{ c.key || '—' }}</td>
+            <td v-if="show.bpm" class="col-bpm mono sub">{{ c.bpm ? Math.round(c.bpm) : '—' }}</td>
+            <td v-if="show.dur" class="col-dur mono sub">{{ formatDuration(c.duration) }}</td>
+            <td v-if="show.kbps" class="col-kbps mono sub">
+              {{ c.bitrate ? Math.round(c.bitrate / 1000) : '—' }}
+            </td>
+          </tr>
+        </template>
+        <tr
+          v-if="padBottom"
+          data-spacer
+          :style="{ height: padBottom + 'px' }"
+          aria-hidden="true"
+        ></tr>
       </tbody>
     </table>
-    <EmptyState v-else title="Nada por aqui"
-                hint="Prueba con otra busqueda o revisa tus carpetas" />
+    <EmptyState
+      v-else
+      title="Nada por aquí"
+      hint="Prueba con otra búsqueda o revisa tus carpetas"
+    />
   </div>
 </template>

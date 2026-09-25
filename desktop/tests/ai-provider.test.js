@@ -19,7 +19,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
 import AiProviderModal from '../src/components/AiProviderModal.vue'
 import ModelPicker from '../src/components/ui/ModelPicker.vue'
 import SettingsPage from '../src/components/SettingsPage.vue'
-import { dialogOk } from '../src/composables/useDialog.js'
+import { dialogOk, dialogCancel, useDialog } from '../src/composables/useDialog.js'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -29,7 +29,8 @@ beforeEach(() => {
 
 const abrir = async (initial = '') => {
   const w = mount(AiProviderModal, { props: { open: true, initial }, attachTo: document.body })
-  await flushPromises(); await flushPromises()
+  await flushPromises()
+  await flushPromises()
   return w
 }
 const tarjeta = (w, id) => w.findAll('.ai-card').find((c) => c.text().includes(id))
@@ -48,7 +49,18 @@ describe('elegir proveedor', () => {
 
   it('marca los ya configurados y cual esta en uso', async () => {
     held.state.aiProfiles = {
-      openai: { id: 'openai', provider: 'openai', provider_name: 'OpenAI', has_key: true, key: 'sk-a…', model: 'chico', chat_model: 'grande', fields: {}, headers: {}, extra: {} }
+      openai: {
+        id: 'openai',
+        provider: 'openai',
+        provider_name: 'OpenAI',
+        has_key: true,
+        key: 'sk-a…',
+        model: 'chico',
+        chat_model: 'grande',
+        fields: {},
+        headers: {},
+        extra: {}
+      }
     }
     held.state.aiActive = 'openai'
     const w = await abrir()
@@ -108,20 +120,30 @@ describe('elegir proveedor', () => {
     await flushPromises()
     const clave = w.findAll('input').find((i) => i.attributes('type') === 'password')
     await clave.setValue('sk-nueva-clave')
-    await w.findAll('button').find((b) => b.text() === 'Probar').trigger('click')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Probar')
+      .trigger('click')
     await flushPromises()
     expect(held.api.aiCheck).toHaveBeenCalledTimes(1)
     const enviado = held.api.aiCheck.mock.calls[0][0]
     expect(enviado.provider).toBe('openai')
     expect(enviado.key).toBe('sk-nueva-clave')
-    expect(enviado.base_url).toBeUndefined()   // la del catalogo no se repite
+    expect(enviado.base_url).toBeUndefined() // la del catalogo no se repite
     expect(held.api.aiSaveProfile).not.toHaveBeenCalled()
     expect(w.find('.key-state.ok').text()).toContain('Funciona')
 
-    await w.findAll('button').find((b) => b.text() === 'Guardar y usar').trigger('click')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Guardar y usar')
+      .trigger('click')
     await flushPromises()
     expect(held.api.aiSaveProfile).toHaveBeenCalledTimes(1)
-    expect(held.api.aiSaveProfile.mock.calls[0][0]).toMatchObject({ provider: 'openai', key: 'sk-nueva-clave', activate: true })
+    expect(held.api.aiSaveProfile.mock.calls[0][0]).toMatchObject({
+      provider: 'openai',
+      key: 'sk-nueva-clave',
+      activate: true
+    })
     expect(w.emitted('saved')).toBeTruthy()
     expect(w.emitted('close')).toBeTruthy()
     expect(held.state.aiActive).toBe('openai')
@@ -130,7 +152,18 @@ describe('elegir proveedor', () => {
 
   it('con clave guardada la caja llega vacia y se conserva si no se escribe otra', async () => {
     held.state.aiProfiles = {
-      openai: { id: 'openai', provider: 'openai', provider_name: 'OpenAI', has_key: true, key: 'sk-a…', model: 'chico', chat_model: 'grande', fields: {}, headers: {}, extra: {} }
+      openai: {
+        id: 'openai',
+        provider: 'openai',
+        provider_name: 'OpenAI',
+        has_key: true,
+        key: 'sk-a…',
+        model: 'chico',
+        chat_model: 'grande',
+        fields: {},
+        headers: {},
+        extra: {}
+      }
     }
     held.state.aiActive = 'openai'
     const w = await abrir('openai')
@@ -138,7 +171,10 @@ describe('elegir proveedor', () => {
     const clave = w.findAll('input').find((i) => i.attributes('type') === 'password')
     expect(clave.element.value).toBe('')
     expect(clave.attributes('placeholder')).toContain('guardada: sk-a…')
-    await w.findAll('button').find((b) => b.text() === 'Guardar y usar').trigger('click')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Guardar y usar')
+      .trigger('click')
     await flushPromises()
     expect(held.api.aiSaveProfile.mock.calls[0][0].key).toBeUndefined()
     w.unmount()
@@ -149,13 +185,25 @@ describe('elegir proveedor', () => {
     await tarjeta(w, 'Añadir otro servidor').trigger('click')
     await flushPromises()
     expect(w.text()).toContain('falta la URL')
-    const url = w.findAll('input').find((i) => i.attributes('placeholder') === 'https://mi-servidor/v1')
+    const url = w
+      .findAll('input')
+      .find((i) => i.attributes('placeholder') === 'https://mi-servidor/v1')
     await url.setValue('http://casa:8080/v1')
-    await w.findAll('input').find((i) => i.attributes('placeholder') === 'Servidor de la iglesia').setValue('Casa')
+    await w
+      .findAll('input')
+      .find((i) => i.attributes('placeholder') === 'Servidor de la iglesia')
+      .setValue('Casa')
     expect(w.text()).not.toContain('falta la URL')
-    await w.findAll('button').find((b) => b.text() === 'Guardar y usar').trigger('click')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Guardar y usar')
+      .trigger('click')
     await flushPromises()
-    expect(held.api.aiSaveProfile.mock.calls[0][0]).toMatchObject({ provider: 'custom', name: 'Casa', base_url: 'http://casa:8080/v1' })
+    expect(held.api.aiSaveProfile.mock.calls[0][0]).toMatchObject({
+      provider: 'custom',
+      name: 'Casa',
+      base_url: 'http://casa:8080/v1'
+    })
     w.unmount()
   })
 
@@ -166,12 +214,18 @@ describe('elegir proveedor', () => {
     await w.find('.ai-advanced-toggle').trigger('click')
     const extra = w.find('textarea[placeholder^="{"]')
     await extra.setValue('esto no es json')
-    await w.findAll('button').find((b) => b.text() === 'Probar').trigger('click')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Probar')
+      .trigger('click')
     await flushPromises()
     expect(held.api.aiCheck).not.toHaveBeenCalled()
     expect(w.text()).toContain('JSON')
     await extra.setValue('{"reasoning_effort": "low"}')
-    await w.findAll('button').find((b) => b.text() === 'Probar').trigger('click')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Probar')
+      .trigger('click')
     await flushPromises()
     expect(held.api.aiCheck.mock.calls[0][0].extra).toEqual({ reasoning_effort: 'low' })
     w.unmount()
@@ -179,11 +233,25 @@ describe('elegir proveedor', () => {
 
   it('quitar un proveedor pregunta antes', async () => {
     held.state.aiProfiles = {
-      openai: { id: 'openai', provider: 'openai', provider_name: 'OpenAI', has_key: true, key: 'sk-a…', model: 'chico', chat_model: 'grande', fields: {}, headers: {}, extra: {} }
+      openai: {
+        id: 'openai',
+        provider: 'openai',
+        provider_name: 'OpenAI',
+        has_key: true,
+        key: 'sk-a…',
+        model: 'chico',
+        chat_model: 'grande',
+        fields: {},
+        headers: {},
+        extra: {}
+      }
     }
     held.state.aiActive = 'openai'
     const w = await abrir('openai')
-    await w.findAll('button').find((b) => b.text() === 'Quitar').trigger('click')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Quitar')
+      .trigger('click')
     await flushPromises()
     expect(held.api.aiDeleteProfile).not.toHaveBeenCalled()
     dialogOk()
@@ -196,12 +264,56 @@ describe('elegir proveedor', () => {
 
 describe('el selector de modelos', () => {
   const modelos = [
-    { id: 'grande', name: 'Grande', tools: true, cost_in: 1, cost_out: 5, context: 128000, released: '2026-09-01', deprecated: false, known: true },
-    { id: 'chico', name: 'Chico', tools: true, cost_in: 0.1, cost_out: 0.4, context: 32000, released: '2026-08-01', deprecated: false, known: true },
-    { id: 'mudo', name: 'Mudo', tools: false, cost_in: 0.1, cost_out: 0.1, context: 8000, released: '2026-07-01', deprecated: false, known: true },
-    { id: 'viejo', name: 'Viejo', tools: true, cost_in: 1, cost_out: 1, context: 8000, released: '2024-01-01', deprecated: true, known: true }
+    {
+      id: 'grande',
+      name: 'Grande',
+      tools: true,
+      cost_in: 1,
+      cost_out: 5,
+      context: 128000,
+      released: '2026-09-01',
+      deprecated: false,
+      known: true
+    },
+    {
+      id: 'chico',
+      name: 'Chico',
+      tools: true,
+      cost_in: 0.1,
+      cost_out: 0.4,
+      context: 32000,
+      released: '2026-08-01',
+      deprecated: false,
+      known: true
+    },
+    {
+      id: 'mudo',
+      name: 'Mudo',
+      tools: false,
+      cost_in: 0.1,
+      cost_out: 0.1,
+      context: 8000,
+      released: '2026-07-01',
+      deprecated: false,
+      known: true
+    },
+    {
+      id: 'viejo',
+      name: 'Viejo',
+      tools: true,
+      cost_in: 1,
+      cost_out: 1,
+      context: 8000,
+      released: '2024-01-01',
+      deprecated: true,
+      known: true
+    }
   ]
-  const montar = (props = {}) => mount(ModelPicker, { props: { modelValue: '', models: modelos, ...props }, attachTo: document.body })
+  const montar = (props = {}) =>
+    mount(ModelPicker, {
+      props: { modelValue: '', models: modelos, ...props },
+      attachTo: document.body
+    })
 
   it('enseña precio, contexto, herramientas y el recomendado', async () => {
     const w = montar({ suggest: 'chico' })
@@ -240,7 +352,10 @@ describe('el selector de modelos', () => {
   it('elegir una fila emite su id y avisa si no usa herramientas', async () => {
     const w = montar()
     await w.find('input').trigger('focus')
-    await w.findAll('.model-row').find((f) => f.text().includes('Mudo')).trigger('click')
+    await w
+      .findAll('.model-row')
+      .find((f) => f.text().includes('Mudo'))
+      .trigger('click')
     expect(w.emitted('update:modelValue').at(-1)).toEqual(['mudo'])
     await w.setProps({ modelValue: 'mudo' })
     expect(w.find('.model-warn').text()).toBe('sin herramientas')
@@ -251,7 +366,8 @@ describe('el selector de modelos', () => {
 describe('la tarjeta de IA en Ajustes', () => {
   it('sin proveedor lo dice y ofrece elegir uno', async () => {
     const w = mount(SettingsPage, { attachTo: document.body })
-    await flushPromises(); await flushPromises()
+    await flushPromises()
+    await flushPromises()
     expect(w.text()).toContain('Sin proveedor elegido')
     const boton = w.findAll('button').find((b) => b.text() === 'Elegir proveedor…')
     expect(boton).toBeTruthy()
@@ -264,17 +380,43 @@ describe('la tarjeta de IA en Ajustes', () => {
 
   it('con varios configurados se cambia de uno a otro con un clic', async () => {
     held.state.aiProfiles = {
-      openai: { id: 'openai', provider: 'openai', provider_name: 'OpenAI', has_key: true, key: 'sk-a…', model: 'chico', chat_model: 'grande', fields: {}, headers: {}, extra: {} },
-      ollama: { id: 'ollama', provider: 'ollama', provider_name: 'Ollama', has_key: false, key: '', model: 'qwen3:8b', chat_model: 'qwen3:8b', fields: {}, headers: {}, extra: {} }
+      openai: {
+        id: 'openai',
+        provider: 'openai',
+        provider_name: 'OpenAI',
+        has_key: true,
+        key: 'sk-a…',
+        model: 'chico',
+        chat_model: 'grande',
+        fields: {},
+        headers: {},
+        extra: {}
+      },
+      ollama: {
+        id: 'ollama',
+        provider: 'ollama',
+        provider_name: 'Ollama',
+        has_key: false,
+        key: '',
+        model: 'qwen3:8b',
+        chat_model: 'qwen3:8b',
+        fields: {},
+        headers: {},
+        extra: {}
+      }
     }
     held.state.aiActive = 'openai'
     const w = mount(SettingsPage, { attachTo: document.body })
-    await flushPromises(); await flushPromises()
+    await flushPromises()
+    await flushPromises()
     expect(w.find('.ai-current').text()).toContain('OpenAI')
     expect(w.find('.ai-current').text()).toContain('grande')
     const chips = w.findAll('.ai-profile')
     expect(chips).toHaveLength(2)
-    await chips.find((c) => c.text().includes('Ollama')).trigger('click')
+    await chips
+      .find((c) => c.text().includes('Ollama'))
+      .find('.ai-profile-pick')
+      .trigger('click')
     await flushPromises()
     expect(held.api.aiActivate).toHaveBeenCalledWith('ollama')
     expect(w.find('.ai-current').text()).toContain('Ollama')
@@ -285,11 +427,13 @@ describe('la tarjeta de IA en Ajustes', () => {
 describe('probar gratis, sin clave', () => {
   it('desde Ajustes activa el primer gratuito que responde y lo cuenta', async () => {
     const w = mount(SettingsPage, { attachTo: document.body })
-    await flushPromises(); await flushPromises()
+    await flushPromises()
+    await flushPromises()
     const boton = w.findAll('button').find((b) => b.text() === 'Probar gratis, sin clave')
     expect(boton).toBeTruthy()
     await boton.trigger('click')
-    await flushPromises(); await flushPromises()
+    await flushPromises()
+    await flushPromises()
     expect(held.api.aiFree).toHaveBeenCalledTimes(1)
     expect(held.state.aiActive).toBe('llm7')
     expect(w.find('.key-state.ok').text()).toContain('LLM7')
@@ -315,12 +459,35 @@ describe('probar gratis, sin clave', () => {
 describe('respaldo y gasto en Ajustes', () => {
   it('enseña lo gastado y deja apagar el respaldo', async () => {
     held.state.aiProfiles = {
-      openai: { id: 'openai', provider: 'openai', provider_name: 'OpenAI', has_key: true, key: 'sk-a…', model: 'chico', chat_model: 'grande', fields: {}, headers: {}, extra: {} },
-      llm7: { id: 'llm7', provider: 'llm7', provider_name: 'LLM7', has_key: false, key: '', model: 'x', chat_model: 'x', fields: {}, headers: {}, extra: {} }
+      openai: {
+        id: 'openai',
+        provider: 'openai',
+        provider_name: 'OpenAI',
+        has_key: true,
+        key: 'sk-a…',
+        model: 'chico',
+        chat_model: 'grande',
+        fields: {},
+        headers: {},
+        extra: {}
+      },
+      llm7: {
+        id: 'llm7',
+        provider: 'llm7',
+        provider_name: 'LLM7',
+        has_key: false,
+        key: '',
+        model: 'x',
+        chat_model: 'x',
+        fields: {},
+        headers: {},
+        extra: {}
+      }
     }
     held.state.aiActive = 'openai'
     const w = mount(SettingsPage, { attachTo: document.body })
-    await flushPromises(); await flushPromises()
+    await flushPromises()
+    await flushPromises()
     expect(w.find('.ai-usage').text()).toContain('Hoy 2 llamadas · 3,4 k tokens · $0,0021')
     expect(w.find('.ai-usage').text()).toContain('Este mes 20 llamadas')
     const toggle = w.findAll('.toggle').find((t) => t.text().includes('Si el proveedor falla'))
@@ -328,6 +495,53 @@ describe('respaldo y gasto en Ajustes', () => {
     await toggle.find('.toggle-track').trigger('click')
     await flushPromises()
     expect(held.api.aiFallback).toHaveBeenCalledWith(false)
+    w.unmount()
+  })
+})
+
+describe('teclado en la ventana de la IA', () => {
+  it('Escape con una confirmacion encima no cierra tambien la ventana', async () => {
+    // Las dos escuchan el teclado: Escape cerraba la confirmacion Y la
+    // ventana de debajo, y se perdia lo que se estaba configurando.
+    held.state.aiProfiles = {
+      openai: {
+        id: 'openai',
+        provider: 'openai',
+        provider_name: 'OpenAI',
+        has_key: true,
+        key: 'sk-a…',
+        model: 'chico',
+        chat_model: 'grande',
+        fields: {},
+        headers: {},
+        extra: {}
+      }
+    }
+    held.state.aiActive = 'openai'
+    const w = await abrir('openai')
+    expect(w.find('.ai-form').exists()).toBe(true)
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Quitar')
+      .trigger('click')
+    await flushPromises()
+    expect(useDialog().dialog.value.open).toBe(true)
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    )
+    await flushPromises()
+    expect(w.emitted('close')).toBeFalsy()
+    expect(w.find('.ai-form').exists(), 'volvio a la lista por debajo de la confirmacion').toBe(
+      true
+    )
+    dialogCancel()
+    await flushPromises()
+    // sin nada encima, Escape vuelve a ser suyo: del formulario a la lista
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    )
+    await flushPromises()
+    expect(w.find('.ai-form').exists()).toBe(false)
     w.unmount()
   })
 })

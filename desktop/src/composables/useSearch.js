@@ -1,3 +1,4 @@
+// @ts-check
 // El buscador de la barra superior.
 //
 // En «Todas las canciones» filtra la propia lista. En cualquier otro sitio esa
@@ -15,10 +16,8 @@ import { api } from '../api.js'
 export const SEARCH_DELAY = 180
 
 /**
- * @param {{
- *   view: import('vue').Ref<{kind: string}>,
- *   reload: () => any,        vuelve a pedir la lista de la página
- * }} context
+ * @param {{ view: import('vue').Ref<{kind: string}>, reload: () => any }} context
+ *   view: la vista abierta; reload: vuelve a pedir la lista de la página
  */
 export function useSearch(context) {
   const query = ref('')
@@ -26,7 +25,7 @@ export function useSearch(context) {
   const quickLoading = ref(false)
   const quickOpen = ref(false)
   const advanced = ref(false)
-  const facets = ref({})
+  const facets = ref(/** @type {Record<string, any>} */ ({}))
   const onlyFavorites = ref(false)
   const minStars = ref(0)
 

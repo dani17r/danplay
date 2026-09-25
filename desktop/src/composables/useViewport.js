@@ -1,3 +1,4 @@
+// @ts-check
 // Tamaño de ventana, en tres tramos.
 //
 // La app de escritorio y la de movil comparten esta base, asi que en vez de
@@ -14,12 +15,12 @@ const width = ref(typeof window !== 'undefined' ? window.innerWidth : 1400)
 const height = ref(typeof window !== 'undefined' ? window.innerHeight : 900)
 let listeners = 0
 
-function measure () {
+function measure() {
   width.value = window.innerWidth
   height.value = window.innerHeight
 }
 
-export function useViewport () {
+export function useViewport() {
   onMounted(() => {
     if (listeners++ === 0) window.addEventListener('resize', measure, { passive: true })
     measure()
@@ -37,6 +38,9 @@ export function useViewport () {
   return {
     width: readonly(width),
     height: readonly(height),
-    isPhone, isTablet, isCompact, isDesktop
+    isPhone,
+    isTablet,
+    isCompact,
+    isDesktop
   }
 }

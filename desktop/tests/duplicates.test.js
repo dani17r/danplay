@@ -5,14 +5,34 @@ import DuplicateGroup from '../src/components/DuplicateGroup.vue'
 const group = {
   suggested: '/m/Barak - Mi Gozo - r.mp3',
   items: [
-    { id: 1, path: '/m/Barak - Mi Gozo.mp3', relative: 'Barak/Mi Gozo.mp3',
-      file: 'Barak - Mi Gozo.mp3', artist: 'Barak', title: 'Mi Gozo',
-      duration: 200, bitrate: 128000, size: 3200000, stars: 0, favorite: 0,
-      has_suffix: false },
-    { id: 2, path: '/m/Barak - Mi Gozo - r.mp3', relative: 'Barak/Mi Gozo - r.mp3',
-      file: 'Barak - Mi Gozo - r.mp3', artist: 'Barak', title: 'Mi Gozo',
-      duration: 201, bitrate: 320000, size: 8100000, stars: 4, favorite: 1,
-      has_suffix: true }
+    {
+      id: 1,
+      path: '/m/Barak - Mi Gozo.mp3',
+      relative: 'Barak/Mi Gozo.mp3',
+      file: 'Barak - Mi Gozo.mp3',
+      artist: 'Barak',
+      title: 'Mi Gozo',
+      duration: 200,
+      bitrate: 128000,
+      size: 3200000,
+      stars: 0,
+      favorite: 0,
+      has_suffix: false
+    },
+    {
+      id: 2,
+      path: '/m/Barak - Mi Gozo - r.mp3',
+      relative: 'Barak/Mi Gozo - r.mp3',
+      file: 'Barak - Mi Gozo - r.mp3',
+      artist: 'Barak',
+      title: 'Mi Gozo',
+      duration: 201,
+      bitrate: 320000,
+      size: 8100000,
+      stars: 4,
+      favorite: 1,
+      has_suffix: true
+    }
   ]
 }
 
@@ -43,6 +63,22 @@ describe('grupo de duplicados', () => {
   it('marca la que esta sonando', () => {
     const w = mount(DuplicateGroup, { props: { group, playing: 2, busy: false } })
     expect(w.findAll('.dup-row')[1].classes()).toContain('playing')
+  })
+
+  it('sobre la que suena el boton es pausa, y en pausa, reanudar', () => {
+    // Pintaba la pausa y al pulsarla volvia a empezar la copia.
+    const sonando = mount(DuplicateGroup, {
+      props: { group, playing: 2, paused: false, busy: false }
+    })
+    const [otra, esta] = sonando.findAll('.dup-play')
+    expect(esta.attributes('title')).toBe('Pausar')
+    expect(esta.findComponent({ name: 'Icon' }).props('n')).toBe('pause')
+    expect(otra.attributes('title')).toBe('Escuchar')
+    const enPausa = mount(DuplicateGroup, {
+      props: { group, playing: 2, paused: true, busy: false }
+    })
+    expect(enPausa.findAll('.dup-play')[1].attributes('title')).toBe('Reanudar')
+    expect(enPausa.findAll('.dup-play')[1].findComponent({ name: 'Icon' }).props('n')).toBe('play')
   })
 
   it('mantener emite el grupo y la copia elegida', async () => {

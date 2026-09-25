@@ -1,6 +1,7 @@
+// @ts-check
 // Preferencias de presentación: tema, densidad, tamaño, vista, agrupación y
 // tamaño de ficha. Se recuerdan en el navegador y se aplican al arrancar.
-import { ref, watch } from 'vue'
+import { ref, watch, effectScope } from 'vue'
 import {
   applyTheme,
   applyDensity,
@@ -16,8 +17,18 @@ import {
 //   grid   cuadrícula de carátulas
 //   table  tabla con columnas ordenables y ajustables
 export const VIEWS = ['rows', 'cards', 'grid', 'table']
-export const VIEW_NAMES = { rows: 'Lista fina', cards: 'Fichas', grid: 'Cuadrícula', table: 'Tabla' }
-export const VIEW_ICONS = { rows: 'viewCompact', cards: 'viewList', grid: 'viewGrid', table: 'queue' }
+export const VIEW_NAMES = {
+  rows: 'Lista fina',
+  cards: 'Fichas',
+  grid: 'Cuadrícula',
+  table: 'Tabla'
+}
+export const VIEW_ICONS = {
+  rows: 'viewCompact',
+  cards: 'viewList',
+  grid: 'viewGrid',
+  table: 'queue'
+}
 // El nombre viejo «list»/«compact» se traduce solo, para no perder la
 // preferencia de quien ya tenía una elegida.
 export const LEGACY_VIEWS = { list: 'table', compact: 'rows' }
@@ -58,9 +69,24 @@ export function savedLayout() {
 }
 
 let instance = null
+let scope = null
 
+/**
+ * Las preferencias, una sola vez para toda la ventana.
+ *
+ * Sus `watch` viven en un ámbito propio (`effectScope(true)`), no en el del
+ * primer componente que las pide: si ese era, por ejemplo, la línea de tiempo
+ * del modo estudio, al cerrarla se paraban los `watch` y cambiar el tema ya
+ * no se guardaba ni se aplicaba.
+ */
 export function usePreferences() {
   if (instance) return instance
+  scope = effectScope(true)
+  instance = scope.run(createPreferences)
+  return instance
+}
+
+function createPreferences() {
   const theme = ref(savedTheme())
   const density = ref(savedDensity())
   const appSize = ref(savedSize())
@@ -84,11 +110,12 @@ export function usePreferences() {
     applySize(appSize.value)
   }
 
-  instance = { theme, density, appSize, layout, groupBy, cardSize, showDetails, applyAll }
-  return instance
+  return { theme, density, appSize, layout, groupBy, cardSize, showDetails, applyAll }
 }
 
-/** Olvida la instancia. Para pruebas. */
+/** Olvida la instancia (y para sus `watch`). Para pruebas. */
 export function resetPreferences() {
+  scope?.stop()
+  scope = null
   instance = null
 }

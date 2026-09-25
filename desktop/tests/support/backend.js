@@ -31,6 +31,38 @@ export function song(id, extra = {}) {
   }
 }
 
+/**
+ * Una canción como la mandan las LISTAS (contrato C): sin los textos pesados
+ * (letra, acordes, estudio), con `has_*` en su lugar. La ficha completa sigue
+ * en `song`.
+ */
+export function light(s) {
+  const { lyrics, lyrics_synced, chords, study, ...rest } = s
+  return {
+    ...rest,
+    has_lyrics: !!lyrics,
+    has_synced_lyrics: !!lyrics_synced,
+    has_chords: !!chords,
+    has_study: !!study
+  }
+}
+
+/** Una tarea larga ya terminada, como la cuenta `/api/jobs/{name}` (contrato A). */
+export function finishedJob(name, result, extra = {}) {
+  return {
+    name,
+    active: false,
+    done: 1,
+    total: 1,
+    message: '',
+    result,
+    error: '',
+    started: 1,
+    ended: 2,
+    ...extra
+  }
+}
+
 /** Lo que devuelve /api/ai/providers: catálogo corto, perfiles y activo. */
 function aiOverview(state) {
   const active = state.aiProfiles[state.aiActive]
@@ -45,15 +77,32 @@ function aiOverview(state) {
     profiles: JSON.parse(JSON.stringify(state.aiProfiles)),
     active: state.aiActive,
     active_profile: active
-      ? { id: active.id, provider: active.provider, name: active.provider_name, model: active.model,
-          chat_model: active.chat_model, base_url: active.base_url || 'https://x/v1', local: false }
+      ? {
+          id: active.id,
+          provider: active.provider,
+          name: active.provider_name,
+          model: active.model,
+          chat_model: active.chat_model,
+          base_url: active.base_url || 'https://x/v1',
+          local: false
+        }
       : null,
     ai_enabled: true,
     fallback: state.aiFallback !== false,
-    fallbacks: Object.values(state.aiProfiles).filter((p) => p.id !== state.aiActive).map((p) => ({ id: p.id, name: p.provider_name, chat_model: p.chat_model })),
+    fallbacks: Object.values(state.aiProfiles)
+      .filter((p) => p.id !== state.aiActive)
+      .map((p) => ({ id: p.id, name: p.provider_name, chat_model: p.chat_model })),
     ai_ready: !!active,
     ai_reason: active ? '' : 'no hay ningun proveedor de IA elegido',
-    catalog_status: { source: 'snapshot', providers: 1, models: 2, fetched_at: 0, checked_at: 0, error: '', refreshing: false }
+    catalog_status: {
+      source: 'snapshot',
+      providers: 1,
+      models: 2,
+      fetched_at: 0,
+      checked_at: 0,
+      error: '',
+      refreshing: false
+    }
   }
 }
 
@@ -63,20 +112,81 @@ export function createState() {
     songs: [],
     /** proveedores de IA: un catálogo mínimo, sin perfiles guardados */
     aiCatalog: [
-      { id: 'llm7', name: 'LLM7', group: 'free', base_url: 'https://api.llm7.io/v1', key: 'optional', key_url: '',
-        docs: '', models_dev: null, suggest: { fast: 'minimax-m2.7', chat: 'minimax-m2.7' }, fields: [], headers: {},
-        note: 'sin cuenta', quirks: {} },
-      { id: 'openai', name: 'OpenAI', group: 'lab', base_url: 'https://api.openai.com/v1', key: 'required',
-        key_url: 'https://platform.openai.com/api-keys', docs: '', models_dev: 'openai',
-        suggest: { fast: 'chico', chat: 'grande' }, fields: [], headers: {}, note: '', quirks: {} },
-      { id: 'ollama', name: 'Ollama', group: 'local', base_url: 'http://localhost:11434/v1', key: 'none',
-        key_url: '', docs: '', models_dev: null, suggest: {}, fields: [], headers: {}, note: 'sin clave', quirks: {} },
-      { id: 'bedrock', name: 'Amazon Bedrock', group: 'lab', key: 'required', key_url: '', docs: '',
-        base_url: 'https://bedrock-runtime.{region}.amazonaws.com/openai/v1', models_dev: null, suggest: {},
-        fields: [{ name: 'region', label: 'Region', placeholder: 'us-east-1' }], headers: {}, note: '', quirks: {} },
-      { id: 'custom', name: 'Compatible con OpenAI', group: 'custom', base_url: '', key: 'optional', key_url: '',
-        docs: '', models_dev: null, suggest: {}, fields: [{ name: 'name', label: 'Nombre', placeholder: '' }],
-        headers: {}, note: '', quirks: {} }
+      {
+        id: 'llm7',
+        name: 'LLM7',
+        group: 'free',
+        base_url: 'https://api.llm7.io/v1',
+        key: 'optional',
+        key_url: '',
+        docs: '',
+        models_dev: null,
+        suggest: { fast: 'minimax-m2.7', chat: 'minimax-m2.7' },
+        fields: [],
+        headers: {},
+        note: 'sin cuenta',
+        quirks: {}
+      },
+      {
+        id: 'openai',
+        name: 'OpenAI',
+        group: 'lab',
+        base_url: 'https://api.openai.com/v1',
+        key: 'required',
+        key_url: 'https://platform.openai.com/api-keys',
+        docs: '',
+        models_dev: 'openai',
+        suggest: { fast: 'chico', chat: 'grande' },
+        fields: [],
+        headers: {},
+        note: '',
+        quirks: {}
+      },
+      {
+        id: 'ollama',
+        name: 'Ollama',
+        group: 'local',
+        base_url: 'http://localhost:11434/v1',
+        key: 'none',
+        key_url: '',
+        docs: '',
+        models_dev: null,
+        suggest: {},
+        fields: [],
+        headers: {},
+        note: 'sin clave',
+        quirks: {}
+      },
+      {
+        id: 'bedrock',
+        name: 'Amazon Bedrock',
+        group: 'lab',
+        key: 'required',
+        key_url: '',
+        docs: '',
+        base_url: 'https://bedrock-runtime.{region}.amazonaws.com/openai/v1',
+        models_dev: null,
+        suggest: {},
+        fields: [{ name: 'region', label: 'Region', placeholder: 'us-east-1' }],
+        headers: {},
+        note: '',
+        quirks: {}
+      },
+      {
+        id: 'custom',
+        name: 'Compatible con OpenAI',
+        group: 'custom',
+        base_url: '',
+        key: 'optional',
+        key_url: '',
+        docs: '',
+        models_dev: null,
+        suggest: {},
+        fields: [{ name: 'name', label: 'Nombre', placeholder: '' }],
+        headers: {},
+        note: '',
+        quirks: {}
+      }
     ],
     aiProfiles: {},
     aiActive: '',
@@ -84,9 +194,39 @@ export function createState() {
     /** conversaciones guardadas del asistente */
     chats: [],
     aiModels: [
-      { id: 'grande', name: 'Grande', tools: true, cost_in: 1, cost_out: 5, context: 128000, released: '2026-09-01', deprecated: false, known: true },
-      { id: 'chico', name: 'Chico', tools: true, cost_in: 0.1, cost_out: 0.4, context: 32000, released: '2026-08-01', deprecated: false, known: true },
-      { id: 'viejo', name: 'Viejo', tools: false, cost_in: 1, cost_out: 1, context: 8000, released: '2024-01-01', deprecated: true, known: true }
+      {
+        id: 'grande',
+        name: 'Grande',
+        tools: true,
+        cost_in: 1,
+        cost_out: 5,
+        context: 128000,
+        released: '2026-09-01',
+        deprecated: false,
+        known: true
+      },
+      {
+        id: 'chico',
+        name: 'Chico',
+        tools: true,
+        cost_in: 0.1,
+        cost_out: 0.4,
+        context: 32000,
+        released: '2026-08-01',
+        deprecated: false,
+        known: true
+      },
+      {
+        id: 'viejo',
+        name: 'Viejo',
+        tools: false,
+        cost_in: 1,
+        cost_out: 1,
+        context: 8000,
+        released: '2024-01-01',
+        deprecated: true,
+        known: true
+      }
     ],
     playlists: [],
     /** las canciones de la lista abierta, en su orden (el doble no distingue listas) */
@@ -94,6 +234,15 @@ export function createState() {
     addedFolders: [],
     inbox: 0,
     duplicates: { identical: [], similar: [] },
+    /** las tareas largas: la ultima de cada nombre, como en el nucleo */
+    jobs: {},
+    /** yt-dlp: la version que se usa, la que viaja con la app y el motor de JS */
+    ytdlp: {
+      version: '2026.09.01',
+      bundled_version: '2026.09.01',
+      js_runtime: 'deno',
+      js_runtime_hint: ''
+    },
     /** Lo que aparece al escanear una carpeta recien añadida. */
     scanFinds: [song(1, { title: 'Mi Gozo' }), song(2, { title: 'Shekinah' })],
     status: {
@@ -133,6 +282,11 @@ function answers(state) {
     if (s) Object.assign(s, patch)
     return s ? { ...s } : null
   }
+  /** Arranca una tarea: aqui termina al momento y se queda para `job`. */
+  const start = (name, result) => {
+    state.jobs[name] = finishedJob(name, result)
+    return { job: copy(state.jobs[name]) }
+  }
   return {
     status: async () => {
       state.status.stats.total = state.songs.length
@@ -155,12 +309,21 @@ function answers(state) {
     checkAi: async () => ({ ok: true }),
     aiProviders: async () => aiOverview(state),
     aiSaveProfile: async (d) => {
-      const id = d.id || (d.provider === 'custom' ? 'custom-' + (d.name || 'x').toLowerCase() : d.provider)
+      const id =
+        d.id || (d.provider === 'custom' ? 'custom-' + (d.name || 'x').toLowerCase() : d.provider)
       state.aiProfiles[id] = {
-        id, provider: d.provider, provider_name: d.name || d.provider,
-        has_key: !!(d.key || state.aiProfiles[id]?.has_key), key: d.key ? d.key.slice(0, 4) + '…' : '',
-        model: d.model || '', chat_model: d.chat_model || '', base_url: d.base_url || '',
-        fields: d.fields || {}, headers: d.headers || {}, extra: d.extra || {}, timeout: d.timeout || 60
+        id,
+        provider: d.provider,
+        provider_name: d.name || d.provider,
+        has_key: !!(d.key || state.aiProfiles[id]?.has_key),
+        key: d.key ? d.key.slice(0, 4) + '…' : '',
+        model: d.model || '',
+        chat_model: d.chat_model || '',
+        base_url: d.base_url || '',
+        fields: d.fields || {},
+        headers: d.headers || {},
+        extra: d.extra || {},
+        timeout: d.timeout || 60
       }
       if (d.activate !== false) state.aiActive = id
       return { ...aiOverview(state), saved: id }
@@ -174,18 +337,50 @@ function answers(state) {
       state.aiActive = id
       return aiOverview(state)
     },
-    aiCheck: async (d) => ({ ok: true, model: d.model, chat_model: d.chat_model, latency_ms: 120, tools_ok: true, tools_reason: '' }),
+    aiCheck: async (d) => ({
+      ok: true,
+      model: d.model,
+      chat_model: d.chat_model,
+      latency_ms: 120,
+      tools_ok: true,
+      tools_reason: ''
+    }),
     aiFree: async () => {
       state.aiProfiles.llm7 = {
-        id: 'llm7', provider: 'llm7', provider_name: 'LLM7', has_key: false, key: '',
-        model: 'minimax-m2.7', chat_model: 'minimax-m2.7', base_url: '', fields: {}, headers: {}, extra: {}, timeout: 20
+        id: 'llm7',
+        provider: 'llm7',
+        provider_name: 'LLM7',
+        has_key: false,
+        key: '',
+        model: 'minimax-m2.7',
+        chat_model: 'minimax-m2.7',
+        base_url: '',
+        fields: {},
+        headers: {},
+        extra: {},
+        timeout: 20
       }
       state.aiActive = 'llm7'
-      return { ...aiOverview(state), free: { ok: true, chosen: 'llm7', name: 'LLM7', model: 'minimax-m2.7', chat_model: 'minimax-m2.7', tools_ok: true, tried: [{ id: 'llm7', name: 'LLM7', ok: true, reason: '' }] } }
+      return {
+        ...aiOverview(state),
+        free: {
+          ok: true,
+          chosen: 'llm7',
+          name: 'LLM7',
+          model: 'minimax-m2.7',
+          chat_model: 'minimax-m2.7',
+          tools_ok: true,
+          tried: [{ id: 'llm7', name: 'LLM7', ok: true, reason: '' }]
+        }
+      }
     },
     aiModels: async () => ({
-      ok: true, source: 'provider', provider: 'Prueba',
-      models: state.aiModels, catalog: state.aiModels, suggest: { chat: 'grande', fast: 'chico' },
+      ok: true,
+      source: 'provider',
+      provider: 'Prueba',
+      models: state.aiModels,
+      catalog: state.aiModels,
+      suggest: { chat: 'grande', fast: 'chico' },
       catalog_status: { models: 2, providers: 1, checked_at: 0, refreshing: false, error: '' }
     }),
     folders: async () => ({ folders: [], exclusions: [], always_excluded: [] }),
@@ -213,14 +408,31 @@ function answers(state) {
       // escanear encuentra musica: si la prueba no dijo cual, la de siempre
       if (!state.songs.length) state.songs = state.scanFinds.map((s) => ({ ...s }))
       state.status.stats.total = state.songs.length
-      return { job: {}, stats: state.status.stats }
+      return start('escaneo', { stats: { ...state.status.stats } })
     },
-    search: async () => ({ total: state.songs.length, songs: state.songs.map((s) => ({ ...s })) }),
+    job: async (name) => {
+      if (!state.jobs[name]) throw new Error(`404: no hay ninguna tarea «${name}»`)
+      return copy(state.jobs[name])
+    },
+    // por paginas, como el nucleo: `count` es cuantas hay en total
+    search: async (p = {}) => {
+      const from = Number(p.from_key || 0)
+      const limit = Number(p.limit || 200)
+      const page = state.songs.slice(from, from + limit).map(light)
+      return { total: page.length, count: state.songs.length, songs: page }
+    },
     quickSearch: async () => ({
       total: state.songs.length,
       songs: state.songs.map((s) => ({ ...s }))
     }),
-    facets: async () => ({ artists: [], albums: [], genres: [], sorts: [], filters: [], numeric: [] }),
+    facets: async () => ({
+      artists: [],
+      albums: [],
+      genres: [],
+      sorts: [],
+      filters: [],
+      numeric: []
+    }),
     song: async (id) => {
       const s = find(id)
       return s ? { ...s } : null
@@ -252,7 +464,7 @@ function answers(state) {
       state.playlists = state.playlists.filter((l) => l.id !== id)
       return { playlists: state.playlists }
     },
-    playlistSongs: async () => ({ songs: state.playlistSongs.map((c) => ({ ...c })) }),
+    playlistSongs: async () => ({ songs: state.playlistSongs.map(light) }),
     addToPlaylist: async () => ({ added: 1, songs: [] }),
     removeFromPlaylist: async () => ({ songs: [] }),
     reorderPlaylist: async (id, ids) => {
@@ -262,23 +474,58 @@ function answers(state) {
     },
     exportPlaylist: async () => ({ file: '/musica/Listas/x.m3u8' }),
     inbox: async () => ({ files: [], total: state.inbox }),
-    youtube: async () => ({ available: false, reason: 'falta yt-dlp', active: false }),
+    youtube: async () => ({
+      available: false,
+      reason: 'falta yt-dlp',
+      active: false,
+      ...state.ytdlp
+    }),
+    youtubeUpdate: async () => {
+      const previous = state.ytdlp.version
+      state.ytdlp.version = '2026.09.20'
+      return start('yt-dlp', {
+        previous,
+        version: state.ytdlp.version,
+        updated: previous !== state.ytdlp.version
+      })
+    },
     youtubeInfo: async () => ({ ok: false, reason: 'sin red', items: [] }),
     youtubeDownload: async () => ({ ok: true, active: true }),
     youtubeCancel: async () => ({ ok: true }),
     downloadHistory: async () => ({ items: [], total: 0 }),
     clearDownloadHistory: async () => ({ removed: 0 }),
-    runImport: async () => ({ results: [] }),
+    runImport: async () => start('importacion', { results: [] }),
     convertible: async () => ({ total: 0, files: [], protected: [] }),
-    convert: async () => ({ converted: 0, failures: 0 }),
-    duplicates: async () => copy(state.duplicates),
-    resolveDuplicate: async () => ({ ok: true, kept: '/a.mp3', renamed: false, final_name: 'a.mp3', deleted: [] }),
+    // en prueba contesta al momento; de verdad, es una tarea
+    convert: async (d = {}) =>
+      d.dry_run
+        ? { converted: 0, failures: 0, dry_run: true }
+        : start('conversion', { converted: 0, failures: 0 }),
+    duplicatesScan: async () => start('duplicados', copy(state.duplicates)),
+    resolveDuplicate: async () => ({
+      ok: true,
+      kept: '/a.mp3',
+      renamed: false,
+      final_name: 'a.mp3',
+      deleted: []
+    }),
     chat: async () => ({ text: 'hola', tools: [], actions: [], confirm: null }),
     chatStart: async () => ({ id: 'job1' }),
-    chatPoll: async () => ({ text: 'hola', tools: [], done: true,
-                             result: { text: 'hola', tools: [], actions: [], confirm: null } }),
+    chatPoll: async () => ({
+      text: 'hola',
+      tools: [],
+      done: true,
+      result: { text: 'hola', tools: [], actions: [], confirm: null }
+    }),
     chatCancel: async () => ({ ok: true }),
-    chats: async () => ({ chats: state.chats.map((c) => ({ id: c.id, title: c.title, updated: c.updated, n: c.messages.length })) }),
+    chats: async () => ({
+      chats: state.chats.map((c) => ({
+        id: c.id,
+        title: c.title,
+        updated: c.updated,
+        n: c.messages.length
+      }))
+    }),
     chatCreate: async (title = '') => {
       const c = { id: state.chats.length + 1, title, updated: Date.now() / 1000, messages: [] }
       state.chats.unshift(c)
@@ -292,24 +539,46 @@ function answers(state) {
       const c = state.chats.find((x) => x.id === id)
       if (!c) throw new Error('no existe esa conversacion')
       c.messages.push(...messages.map((m) => ({ ...m })))
-      if (!c.title) c.title = (messages.find((m) => m.role === 'me' && !m.hidden)?.text || '').slice(0, 60)
+      if (!c.title)
+        c.title = (messages.find((m) => m.role === 'me' && !m.hidden)?.text || '').slice(0, 60)
       return { n: messages.length }
     },
-    chatRename: async (id, title) => { const c = state.chats.find((x) => x.id === id); if (c) c.title = title; return { ok: true } },
-    chatDelete: async (id) => { state.chats = state.chats.filter((x) => x.id !== id); return { ok: true } },
+    chatRename: async (id, title) => {
+      const c = state.chats.find((x) => x.id === id)
+      if (c) c.title = title
+      return { ok: true }
+    },
+    chatDelete: async (id) => {
+      state.chats = state.chats.filter((x) => x.id !== id)
+      return { ok: true }
+    },
     chatSearch: async (q) => ({
-      hits: state.chats.flatMap((c) => c.messages.filter((m) => (m.text || '').toLowerCase().includes(q.toLowerCase()))
-        .map((m) => ({ chat_id: c.id, title: c.title, role: m.role, snippet: m.text, at: 0 })))
+      hits: state.chats.flatMap((c) =>
+        c.messages
+          .filter((m) => (m.text || '').toLowerCase().includes(q.toLowerCase()))
+          .map((m) => ({ chat_id: c.id, title: c.title, role: m.role, snippet: m.text, at: 0 }))
+      )
     }),
-    aiUsage: async () => ({ today: { calls: 2, prompt: 3000, completion: 400, cost: 0.0021, unpriced: 0 },
-                            month: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
-                            total: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
-                            by_provider: [{ provider: 'openai', calls: 20, tokens: 34000, cost: 0.021 }], budget: 0, over_budget: false }),
-    aiFallback: async (enabled) => { state.aiFallback = enabled; return aiOverview(state) },
-    aiBudget: async (dollars) => ({ today: { calls: 0, prompt: 0, completion: 0, cost: 0, unpriced: 0 },
-                                    month: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
-                                    total: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
-                                    by_provider: [], budget: dollars, over_budget: dollars > 0 && 0.021 > dollars }),
+    aiUsage: async () => ({
+      today: { calls: 2, prompt: 3000, completion: 400, cost: 0.0021, unpriced: 0 },
+      month: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
+      total: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
+      by_provider: [{ provider: 'openai', calls: 20, tokens: 34000, cost: 0.021 }],
+      budget: 0,
+      over_budget: false
+    }),
+    aiFallback: async (enabled) => {
+      state.aiFallback = enabled
+      return aiOverview(state)
+    },
+    aiBudget: async (dollars) => ({
+      today: { calls: 0, prompt: 0, completion: 0, cost: 0, unpriced: 0 },
+      month: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
+      total: { calls: 20, prompt: 30000, completion: 4000, cost: 0.021, unpriced: 0 },
+      by_provider: [],
+      budget: dollars,
+      over_budget: dollars > 0 && 0.021 > dollars
+    }),
     chatExport: async (id) => ({ markdown: `# conversacion ${id}\n` }),
     /** una onda de mentira: callada al principio, fuerte al final */
     waveform: async (id, buckets = 800) => {
@@ -344,7 +613,7 @@ export function buildApiDouble(actual, state) {
     }
     const answer = planned[key]
     double[key] =
-      key === 'coverUrl' || key === 'audioUrl' || key === 'coverUrlAlt' || key === 'audioUrlAlt'
+      key === 'coverUrl' || key === 'audioUrl' || key === 'coverUrlAlt'
         ? vi.fn(value)
         : vi.fn(
             answer ||
@@ -356,6 +625,11 @@ export function buildApiDouble(actual, state) {
           )
   }
   double.inTauri = false
+  // `runJob` es el de verdad (arrancar, preguntar hasta que acaba, devolver
+  // el resultado), pero preguntando al doble y sin esperar entre preguntas.
+  double.runJob = vi.fn((start, name, options = {}) =>
+    actual.runJob(start, name, { interval: 0, ...options, poll: (n) => double.job(n) })
+  )
   // Los escuchadores no son respuestas programables: se guardan para poder
   // dispararlos desde la prueba, como hace Rust.
   double.onExternal = vi.fn(async (fn) => {
@@ -422,13 +696,27 @@ export function createPlaybackDouble() {
     revision: 0,
     pitch: 0,
     path: '',
-    metronome: { on: false, bpm: 100, meter: 4, shift: 0, mult: 0, volume: 0.8, has_grid: false, free: true, confidence: 0 }
+    metronome: {
+      on: false,
+      bpm: 100,
+      meter: 4,
+      shift: 0,
+      mult: 0,
+      volume: 0.8,
+      has_grid: false,
+      free: true,
+      confidence: 0
+    }
   }
   let items = []
   let origin = null
 
+  // Cada emision es una copia entera y nueva, como la que llega de Rust (JSON
+  // por el puente): con `{ ...state }` los objetos de dentro (`track`,
+  // `origin`, el metronomo) eran siempre los mismos, y las pruebas no veian
+  // que la interfaz se repintaba entera en cada tick.
   const push = () => {
-    const snapshot = { ...state }
+    const snapshot = JSON.parse(JSON.stringify(state))
     for (const fn of listeners) fn(snapshot)
   }
   /** Simula lo que Rust contaría. Las pruebas lo llaman para mover el estado. */
@@ -471,14 +759,31 @@ export function createPlaybackDouble() {
     setLoop: vi.fn(async (a, b) => emit({ loop_a: a == null ? 0 : a, loop_b: b == null ? 0 : b })),
     setPitch: vi.fn(async (semitones) => emit({ pitch: semitones })),
     setMetronome: vi.fn(async (settings) =>
-      emit({ metronome: { ...state.metronome, ...settings,
-        bpm: settings.bpm ?? state.metronome.bpm, meter: settings.meter ?? state.metronome.meter,
-        free: settings.bpm != null || !state.metronome.has_grid } })),
+      emit({
+        metronome: {
+          ...state.metronome,
+          ...settings,
+          bpm: settings.bpm ?? state.metronome.bpm,
+          meter: settings.meter ?? state.metronome.meter,
+          free: settings.bpm != null || !state.metronome.has_grid
+        }
+      })
+    ),
     /** una rejilla de mentira: 120 bpm en 4/4 desde 0,25 s, con la confianza que diga el estado */
     analyzeBeats: vi.fn(async (path) => {
-      emit({ metronome: { ...state.metronome, has_grid: true, bpm: 120, meter: 4, confidence: 0.8 } })
-      return { bpm: 120, meter: 4, beats: Array.from({ length: 400 }, (_, i) => 0.25 + i * 0.5),
-               first_downbeat: 0, phase3: 0, phase4: 0, confidence: 0.8, path }
+      emit({
+        metronome: { ...state.metronome, has_grid: true, bpm: 120, meter: 4, confidence: 0.8 }
+      })
+      return {
+        bpm: 120,
+        meter: 4,
+        beats: Array.from({ length: 400 }, (_, i) => 0.25 + i * 0.5),
+        first_downbeat: 0,
+        phase3: 0,
+        phase4: 0,
+        confidence: 0.8,
+        path
+      }
     }),
     state: vi.fn(async () => ({ ...state })),
     queueItems: vi.fn(async () => ({ items, origin })),

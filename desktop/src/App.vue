@@ -4,14 +4,20 @@
  *
  * Lo que antes vivía aquí y ahora vive fuera:
  *   la cola y lo que suena   → composables/usePlayback.js (el estado está en Rust)
+ *   la lista, su orden y el estado del núcleo → composables/useLibrary.js
+ *   la selección y la ficha  → composables/useSelection.js
+ *   los menús de clic derecho y lo que hacen → composables/useSongMenus.js
  *   los avisos               → composables/useNotices.js
  *   los diálogos             → composables/useDialog.js
  *   el menú contextual       → composables/useContextMenu.js
  *   tema, densidad y vistas  → composables/usePreferences.js
  *   bienvenida, entrada y duplicados → sus propios componentes
  */
-import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed, nextTick, useTemplateRef } from 'vue'
 import { api, app as tauriApp, core, errorMessage } from './api.js'
+import { useLibrary, PAGES } from './composables/useLibrary.js'
+import { useSelection } from './composables/useSelection.js'
+import { useSongMenus } from './composables/useSongMenus.js'
 import { onClickOutside } from './composables/useClickOutside.js'
 import { useHasScroll, useIsOffscreen } from './composables/useHasScroll.js'
 import { useViewport } from './composables/useViewport.js'
@@ -19,7 +25,7 @@ import { useDragSong, onDrop } from './composables/useDragSong.js'
 import { usePlayback } from './composables/usePlayback.js'
 import { useNotices, notify } from './composables/useNotices.js'
 import { useDialog, ask } from './composables/useDialog.js'
-import { useContextMenu, openMenu, closeMenu } from './composables/useContextMenu.js'
+import { useContextMenu, closeMenu } from './composables/useContextMenu.js'
 import {
   usePreferences,
   VIEWS,
@@ -28,9 +34,14 @@ import {
   GROUPINGS
 } from './composables/usePreferences.js'
 import { useHotkeys, releaseFocusAfterPointer } from './composables/useHotkeys.js'
+import { useFocusTrap } from './composables/useFocusTrap.js'
 import { useSearch } from './composables/useSearch.js'
 import { usePlaylistActions } from './composables/usePlaylistActions.js'
 import { useDownloads } from './composables/useDownloads.js'
+import { connectChat } from './composables/useChat.js'
+import { groupedOrder } from './utils/groups.js'
+import { useRouter } from 'vue-router'
+import { routeFor } from './router.js'
 import { DENSITIES, SIZES, KIND_LABEL, allThemes } from './themes.js'
 import Drawer from './components/ui/Drawer.vue'
 import CoverArt from './components/ui/CoverArt.vue'
@@ -44,14 +55,9 @@ import SearchResults from './components/SearchResults.vue'
 import GroupedSongs from './components/GroupedSongs.vue'
 import DetailsPanel from './components/DetailsPanel.vue'
 import Player from './components/Player.vue'
-import SettingsPage from './components/SettingsPage.vue'
 import WelcomePage from './components/WelcomePage.vue'
-import InboxPage from './components/InboxPage.vue'
-import DuplicatesPage from './components/DuplicatesPage.vue'
 import Icon from './components/Icon.vue'
-import ChatPage from './components/ChatPage.vue'
 import StudyBar from './components/StudyBar.vue'
-import DownloadsPage from './components/DownloadsPage.vue'
 import TextField from './components/ui/TextField.vue'
 import SelectField from './components/ui/SelectField.vue'
 import ToggleField from './components/ui/ToggleField.vue'
@@ -74,9 +80,18 @@ const view = ref({ kind: 'all' })
 // notas): una barra encima del reproductor. Al cerrarla, todo vuelve a lo
 // normal.
 const studyOpen = ref(false)
-// Los repertorios y sus acciones: crear, añadir, exportar, borrar. Se declara
-// aqui y no arriba porque necesita `view` (para saber de que lista se quita
-// una cancion) y `load` (para volver a pedirla despues).
+// La lista de la vista, su orden y el estado del núcleo. Lo que se busca lo
+// pone el buscador, que se declara más abajo (y a su vez recarga esta lista).
+const library = useLibrary({
+  view,
+  params: () => ({ q: query.value, ...search.filters() })
+})
+const { songs, listCount, loadingMore, loading, stats, status, waiting } = library
+const { configured, missingFolders, sort, sortDesc } = library
+const { sortBy, applySort, load, setSongs, loadStatus } = library
+// Los repertorios y sus acciones: crear, añadir, exportar, borrar. Necesita
+// `view` (para saber de que lista se quita una cancion) y `load` (para
+// volver a pedirla despues).
 const playlistActions = usePlaylistActions({ view, reload: () => load() })
 const { playlists } = playlistActions
 // Lo que se está bajando, para el número de «Descargas» en la barra lateral.
@@ -88,42 +103,32 @@ const nowPlaying = computed(() => {
   if (!o?.kind || !player.track.value) return null
   return { kind: o.kind, id: o.id ?? null, playing: player.state.playing }
 })
-const sort = ref('artist')
-// Hacia dónde ordena. Pulsar la misma cabecera la invierte; pulsar otra
-// empieza por lo que tenga sentido en ese campo (A-Z en un texto, lo más
-// largo primero en una duración).
-const sortDesc = ref(false)
-function sortBy(field, descByDefault = false) {
-  // En un repertorio el orden lo pone uno arrastrando las canciones; las
-  // cabeceras no lo tocan. Antes cambiaban `sort` y no pasaba nada, sin decir
-  // por qué.
-  if (view.value.kind === 'playlist') {
-    return notify('En una lista el orden lo pones tú: arrastra las canciones', 'info')
-  }
-  if (sort.value === field) sortDesc.value = !sortDesc.value
-  else {
-    sort.value = field
-    sortDesc.value = descByDefault
-  }
-}
-const songs = ref([])
-const stats = ref(null)
-const status = ref(null) // /api/status entero: hace falta el flag de IA
-const waiting = ref(0) // archivos en la Entrada
-const selected = ref(null)
-// La selección múltiple: Ctrl (o Cmd) añade o quita; Mayús coge el tramo
-// desde la última pulsada; Ctrl+Mayús suma el tramo a lo que había. Sobre
-// varias, el menú actúa sobre todas (enviar, añadir a una lista, papelera…).
-const selectedIds = ref([])
-let anchor = null
-const detail = ref(null)
+
+// La agrupación que se aplica de verdad: «Artistas» siempre agrupa por
+// artista, pero eso no cambia la preferencia del usuario para las demás.
+const effectiveGroupBy = computed(() =>
+  view.value.kind === 'artists' ? groupBy.value || 'artist' : groupBy.value
+)
+// La lista en el orden en que se ve. Agrupada, los grupos van por orden
+// alfabético y dentro de cada uno el de la lista: Mayús elige el tramo que se
+// ve entre las dos pulsadas y la cola sigue ese orden. Con el de la lista sin
+// agrupar, en «Artistas» ordenada por título Mayús se llevaba canciones de
+// otros grupos y «siguiente» saltaba de un artista a otro.
+const shown = computed(() =>
+  effectiveGroupBy.value ? groupedOrder(songs.value, effectiveGroupBy.value) : songs.value
+)
+// Solo en los repertorios que uno crea se cambia el orden arrastrando: en
+// «Todas», Favoritos o una búsqueda el orden lo dan las columnas, y en la
+// lista del reproductor, el momento en que se abrió cada archivo. Agrupada
+// tampoco: dentro de un grupo no hay un orden de lista que mover.
+const sortable = computed(() => view.value.kind === 'playlist' && !effectiveGroupBy.value)
+
+// Qué está elegido y la ficha de la principal (ver useSelection).
+const selection = useSelection({ shown })
+const { selected, selectedIds, selectedSongs, detail, select } = selection
 const jumpToSong = ref(null)
-const loading = ref(false)
-const configured = ref(true)
-/** Carpetas gestionadas que ya no están donde estaban (se movieron, un disco sin montar). */
-const missingFolders = ref([])
 const viewMenu = ref(false)
-const viewBox = ref(null)
+const viewBox = useTemplateRef('viewBox')
 
 /** El id de lo que suena, que es lo que las listas necesitan para marcarlo. */
 const playingId = computed(() => player.track.value?.id ?? null)
@@ -132,27 +137,47 @@ const playingId = computed(() => player.track.value?.id ?? null)
 // cuando se abre, «lo que el usuario esta viendo» es la lista de antes (que
 // sigue en `songs`). Con eso el asistente entiende «la segunda», «esta» o
 // «las seleccionadas» sin que se lo expliquen.
-const PAGES = ['settings', 'inbox', 'chat', 'downloads', 'duplicates']
 const listView = ref({ kind: 'all' })
-watch(view, (v) => { if (!PAGES.includes(v.kind)) listView.value = { ...v } }, { immediate: true })
+watch(
+  view,
+  (v) => {
+    if (!PAGES.includes(v.kind)) listView.value = { ...v }
+  },
+  { immediate: true }
+)
 const brief = (s) => ({ id: s.id, artist: s.artist || '', title: s.title || '' })
-/** @type {import('vue').ComputedRef<import('./api.js').ChatContext>} */
-const chatContext = computed(() => {
+/**
+ * Lo que la persona tiene delante, para el asistente. Es una función que el
+ * chat llama al mandar cada mensaje, no un `computed` que se le pasa: el
+ * computed dependía de lo que suena, que Rust cuenta cuatro veces por
+ * segundo, y el chat se repintaba entero (con todo su markdown) en cada tick.
+ * @returns {import('./api.js').ChatContext}
+ */
+function chatContext() {
   const t = player.track.value
   const marked = selectedSongs.value.length
     ? selectedSongs.value
-    : songs.value.filter((s) => s.id === selected.value)
-  const names = { all: 'Todas las canciones', favorites: 'Favoritos', artists: 'Artistas', player: 'Reproductor' }
-  const name = listView.value.kind === 'playlist' ? listView.value.name
-    : (query.value.trim() ? `Búsqueda «${query.value.trim()}»` : names[listView.value.kind] || 'la biblioteca')
+    : shown.value.filter((s) => s.id === selected.value)
+  const names = {
+    all: 'Todas las canciones',
+    favorites: 'Favoritos',
+    artists: 'Artistas',
+    player: 'Reproductor'
+  }
+  const name =
+    listView.value.kind === 'playlist'
+      ? listView.value.name
+      : query.value.trim()
+        ? `Búsqueda «${query.value.trim()}»`
+        : names[listView.value.kind] || 'la biblioteca'
   return {
     view: { kind: listView.value.kind, name, id: listView.value.id ?? undefined },
-    songs: songs.value.slice(0, 20).map(brief),
+    songs: shown.value.slice(0, 20).map(brief),
     total: songs.value.length,
     selected: marked.slice(0, 20).map(brief),
     playing: t ? { ...brief(t), paused: !player.state.playing } : null
   }
-})
+}
 
 // La canción que se lleva en la mano, para pintar el fantasma que sigue al
 // puntero. Quien la recibe se declara con `data-drop`; ver useDragSong.
@@ -171,12 +196,30 @@ const WITHOUT_DETAILS = ['settings', 'chat', 'downloads', 'inbox']
 const detailsVisible = computed(
   () => showDetails.value && !WITHOUT_DETAILS.includes(view.value.kind)
 )
+// Las páginas (Ajustes, el asistente, Descargas…) van por el enrutador, que
+// las carga al abrirlas y deja el asistente vivo al salir (ver router.js).
+// Quien manda es `view`: el enrutador lo sigue.
+const router = useRouter()
+const isPage = computed(() => PAGES.includes(view.value.kind))
+watch(view, (v) => {
+  router.push(routeFor(v)).catch((e) => notify('No se pudo abrir la página: ' + errorMessage(e)))
+})
+/** Lo que recibe cada página, además de lo suyo. */
+const pageBindings = computed(
+  () =>
+    ({
+      downloads: { onReload: refreshAll },
+      settings: { onReindexed: refreshAll, onChanged: refreshAll },
+      inbox: { waiting: waiting.value, onChanged: refreshAll, onGo: (v) => (view.value = v) },
+      duplicates: { onChanged: refreshAll }
+    })[view.value.kind] || {}
+)
+
 // al navegar se cierra el panel: en móvil tapa toda la pantalla
 watch(view, () => {
   navOpen.value = false
   detailsOpen.value = false
-  selectedIds.value = []
-  anchor = null
+  selection.clear()
 })
 watch(isCompact, (v) => {
   if (!v) {
@@ -191,18 +234,16 @@ watch(detail, (c) => {
 
 // Atajo para volver a lo que suena. Solo aparece si la lista es larga: con
 // pocas canciones se ve todo y el botón solo estorbaría.
-const centerEl = ref(null)
-const scrollBox = () => centerEl.value?.querySelector('.table-wrap, .grid')
+const centerEl = useTemplateRef('centerEl')
+// el panel que se desplaza, en cualquiera de las cuatro vistas (la lista fina
+// y las fichas no estaban: ahí el atajo no salía nunca)
+const scrollBox = () => centerEl.value?.querySelector('.table-wrap, .grid, .rows, .cards')
 const { hasScroll, recheck: recheckScroll } = useHasScroll(scrollBox)
 const { offscreen, recheck: recheckVisible } = useIsOffscreen(scrollBox, () =>
   centerEl.value?.querySelector('.playing')
 )
 const canJumpToPlaying = computed(
-  () =>
-    !!playingId.value &&
-    hasScroll.value &&
-    offscreen.value &&
-    !['settings', 'chat', 'downloads', 'inbox', 'duplicates'].includes(view.value.kind)
+  () => !!playingId.value && hasScroll.value && offscreen.value && !isPage.value
 )
 
 const REPEAT_NAMES = {
@@ -212,19 +253,9 @@ const REPEAT_NAMES = {
   queue: 'la lista una vez'
 }
 
-// La agrupación que se aplica de verdad: «Artistas» siempre agrupa por
-// artista, pero eso no cambia la preferencia del usuario para las demás.
 onClickOutside(viewBox, () => {
   viewMenu.value = false
 })
-const effectiveGroupBy = computed(() =>
-  view.value.kind === 'artists' ? groupBy.value || 'artist' : groupBy.value
-)
-// Solo en los repertorios que uno crea se cambia el orden arrastrando: en
-// «Todas», Favoritos o una búsqueda el orden lo dan las columnas, y en la
-// lista del reproductor, el momento en que se abrió cada archivo. Agrupada
-// tampoco: dentro de un grupo no hay un orden de lista que mover.
-const sortable = computed(() => view.value.kind === 'playlist' && !effectiveGroupBy.value)
 
 // La bienvenida sale mientras no haya nada que enseñar: sin carpetas, o con
 // la biblioteca vacía porque la música se movió o se borró por fuera (ver
@@ -261,60 +292,6 @@ const title = computed(
 )
 
 // ------------------------------------------------------------------ cargar
-// Las respuestas se numeran: con el retardo del buscador todavía podía llegar
-// la de «bar» después de la de «barak» y pisar la lista con lo que ya no se
-// estaba buscando.
-let request = 0
-/**
- * `quiet`: sin el indicador de carga. Es para los refrescos de fondo, que
- * pasan cada vez que algo cambia en el núcleo; el indicador es para cuando
- * la persona acaba de pedir algo y espera.
- */
-async function load(quiet = false) {
-  const mine = ++request
-  if (!quiet) loading.value = true
-  try {
-    // el estado se relee siempre: si no, `configured` se quedaba congelado
-    // en false y toda la vista central seguía mostrando la bienvenida
-    const e = await api.status()
-    if (mine !== request) return
-    stats.value = e.stats
-    configured.value = e.configured
-    missingFolders.value = e.missing_folders || []
-
-    if (view.value.kind === 'playlist') {
-      const r = await api.playlistSongs(view.value.id)
-      if (mine === request) songs.value = r.songs
-    } else if (view.value.kind === 'player') {
-      // La lista del reproductor no se busca en el índice: es lo que has ido
-      // abriendo desde fuera, en el orden en que lo abriste.
-      const r = await api.externalList()
-      if (mine === request) songs.value = r.songs
-    } else if (['settings', 'inbox', 'chat', 'downloads', 'duplicates'].includes(view.value.kind)) {
-      // páginas propias
-    } else {
-      const p = { q: query.value, sort: sort.value, desc: sortDesc.value, limit: 1000,
-                  ...search.filters() }
-      if (view.value.kind === 'favorites') p.only_favorites = true
-      const r = await api.search(p)
-      if (mine === request) songs.value = r.songs
-    }
-  } catch (e) {
-    if (mine === request) notify('No se pudo cargar: ' + errorMessage(e))
-  } finally {
-    if (mine === request) loading.value = false
-  }
-}
-
-async function loadStatus() {
-  const e = await api.status()
-  status.value = e
-  stats.value = e.stats
-  configured.value = e.configured
-  missingFolders.value = e.missing_folders || []
-  waiting.value = (await api.inbox()).total
-}
-
 /**
  * Recarga TODO lo que la app tiene en memoria: estado y contadores, la lista
  * de la vista, los repertorios, la ficha abierta y los datos de la cola.
@@ -330,15 +307,8 @@ async function refreshAll() {
 
 /** La ficha abierta y la copia de la cola, con lo que diga el núcleo ahora. */
 async function refreshDetail() {
-  const id = detail.value?.id
-  if (id == null || id < 0) return
-  try {
-    const song = await api.song(id)
-    if (detail.value?.id === id) detail.value = song
-    player.patchItem(song)
-  } catch {
-    /* la canción ya no está: la lista recargada lo dirá */
-  }
+  const song = await selection.refreshDetail()
+  if (song) player.patchItem(song)
 }
 
 // Los avisos de cambio llegan cada dos segundos como mucho, y una descarga
@@ -349,44 +319,6 @@ function onCoreChanged() {
   changeTimer = setTimeout(() => refreshAll(), 250)
 }
 
-async function select(id, ev = null) {
-  const mine = ++request
-  const order = songs.value.map((s) => s.id)
-  const ctrl = !!(ev && (ev.ctrlKey || ev.metaKey))
-  const shift = !!(ev && ev.shiftKey)
-  if (shift && anchor != null && order.includes(anchor) && order.includes(id)) {
-    const [a, b] = [order.indexOf(anchor), order.indexOf(id)].sort((x, y) => x - y)
-    const range = order.slice(a, b + 1)
-    const keep = ctrl ? new Set([...selectedIds.value, ...range]) : new Set(range)
-    selectedIds.value = order.filter((x) => keep.has(x))
-  } else if (ctrl) {
-    const keep = new Set(selectedIds.value.length ? selectedIds.value : selected.value != null ? [selected.value] : [])
-    if (keep.has(id)) keep.delete(id)
-    else keep.add(id)
-    selectedIds.value = order.filter((x) => keep.has(x))
-    anchor = id
-    if (!keep.has(id)) {
-      // se ha quitado: la ficha pasa a la última que quede seleccionada
-      selected.value = selectedIds.value.at(-1) ?? null
-      if (selected.value == null) detail.value = null
-      else detail.value = await api.song(selected.value)
-      return
-    }
-  } else {
-    selectedIds.value = [id]
-    anchor = id
-  }
-  selected.value = id
-  const song = await api.song(id)
-  if (mine === request || selected.value === id) detail.value = song
-}
-
-/** Las canciones de la selección múltiple, en el orden de la lista. */
-const selectedSongs = computed(() => {
-  const keep = new Set(selectedIds.value)
-  return keep.size > 1 ? songs.value.filter((s) => keep.has(s.id)) : []
-})
-
 /**
  * Pone a sonar. La cola pasa a ser la lista que se está viendo, salvo que se
  * diga otra cosa: es lo que se espera al pulsar una canción de una lista.
@@ -396,63 +328,21 @@ function play(song, list = null, origin = null) {
   // Sobre la que ya está puesta, el botón de la fila es pausa/reanudar: antes
   // volvía a empezar la canción, y no había forma de pararla desde la lista.
   if (!list && player.track.value?.id === song.id) return player.toggle()
-  player.setQueue(list || songs.value, song.id, origin || { ...view.value, label: title.value })
-  api.song(song.id).then((d) => (detail.value = d))
-}
-
-// A dónde se puede enviar una canción desde este equipo (Telegram, si está
-// instalado). Se mira una vez al arrancar; sin destino, la opción no aparece.
-const shareTargets = ref({ telegram: false })
-
-/** Abre Telegram con los archivos de esas canciones listos para enviar. */
-async function sendToTelegram(list) {
-  const items = [].concat(list)
-  const paths = []
-  for (const song of items) {
-    const path = song?.path || (await api.song(song.id).catch(() => null))?.path
-    if (path) paths.push(path)
-  }
-  if (!paths.length) return notify('No sé dónde están esos archivos')
-  try {
-    await tauriApp.sendToTelegram(paths)
-    notify(
-      paths.length > 1
-        ? `Telegram se ha abierto con ${paths.length} canciones: elige ahí a quién se las mandas`
-        : 'Telegram se ha abierto: elige ahí a quién se la mandas',
-      'ok'
-    )
-  } catch (e) {
-    notify(errorMessage(e))
-  }
-}
-const sendSongToTelegram = (song) => sendToTelegram([song])
-
-/** Un repertorio entero a Telegram: todas sus canciones. */
-async function sendPlaylistToTelegram(pl) {
-  const list = (await api.playlistSongs(pl.id)).songs || []
-  if (!list.length) return notify('Esa lista está vacía')
-  await sendToTelegram(list)
+  player.setQueue(list || shown.value, song.id, origin || { ...view.value, label: title.value })
+  selection.showDetail(song.id)
 }
 
 // La ficha como ventana emergente: cuando el panel lateral está oculto (o
 // en pantallas estrechas, donde es un cajón), «Ver detalles» la abre aquí.
 const detailModal = ref(false)
+const detailModalEl = useTemplateRef('detailModalEl')
+// como un dialogo: el foco se queda dentro y al cerrar vuelve a donde estaba
+useFocusTrap(detailModalEl, { active: detailModal })
 const sidePanelShown = computed(() => detailsVisible.value && !isCompact.value)
 async function showDetailsOf(song) {
   await select(song.id)
   if (isCompact.value && detailsVisible.value) detailsOpen.value = true
   else detailModal.value = true
-}
-
-/** Abre el explorador del sistema señalando el archivo de la canción. */
-async function revealSong(song) {
-  const path = song?.path || (await api.song(song.id).catch(() => null))?.path
-  if (!path) return notify('No sé dónde está ese archivo')
-  try {
-    await tauriApp.revealInFolder(path)
-  } catch (e) {
-    notify(errorMessage(e))
-  }
 }
 
 /** Pone a sonar una lista entera desde el principio. */
@@ -463,7 +353,7 @@ function playList(list, origin) {
 
 /** Play sin nada cargado: suena lo que esté seleccionado en la lista. */
 function playSelected() {
-  const song = songs.value.find((x) => x.id === selected.value) || songs.value[0]
+  const song = shown.value.find((x) => x.id === selected.value) || shown.value[0]
   if (song) play(song)
 }
 
@@ -504,6 +394,10 @@ async function runAction(a) {
   }
 }
 
+// El asistente sigue su conversacion aunque su pagina no se vea: lo que pida
+// (reproducir, recargar) lo hace la app, que no se desmonta nunca.
+const disconnectChat = connectChat({ reload: refreshAll, action: runAction, context: chatContext })
+
 /** Guarda la lista del reproductor como una lista de DanPlay. */
 async function savePlayerList() {
   const name = await ask({
@@ -537,7 +431,7 @@ async function discardPlayerList() {
   if (!ok) return
   try {
     await api.externalClear()
-    songs.value = []
+    setSongs([])
   } catch (e) {
     notify(errorMessage(e))
   }
@@ -559,170 +453,20 @@ async function goToOrigin() {
 }
 
 // -------------------------------------------------------------- acciones
-async function setStars(song, n) {
-  const c = await api.setStars(song.id, n)
-  onUpdated(c)
-}
-async function toggleFavorite(song) {
-  const c = await api.toggleFavorite(song.id, !song.favorite)
-  onUpdated(c)
-}
-
-/** Difumina la portada, o le quita el difuminado. La imagen no se toca. */
-async function toggleBlur(song) {
-  const c = await api.setBlur(song.id, !song.blur)
-  onUpdated(c)
-  notify(c.blur ? 'Portada difuminada' : 'Portada a la vista', 'ok', 3)
-}
-
-/** Las listas a las que se puede mandar la canción, más «crear una nueva». */
-function playlistTargets(songOrList) {
-  const many = Array.isArray(songOrList) ? songOrList : null
-  const song = many ? many[0] : songOrList
-  const kids = playlists.value.map((l) => ({
-    label: l.name,
-    icon: 'list',
-    note: String(l.n ?? ''),
-    action: () => (many ? playlistActions.addManyTo(many, l) : playlistActions.addTo(song, l))
-  }))
-  if (kids.length) kids.push({ separator: true })
-  kids.push({
-    label: 'Nueva lista…',
-    icon: 'plus',
-    action: () => (many ? playlistActions.create(many) : playlistActions.create(song))
-  })
-  return kids
-}
-
-/** El menú sobre varias canciones seleccionadas: actúa sobre todas. */
-function groupMenu(ev, list) {
-  const n = list.length
-  const inPlaylist = view.value.kind === 'playlist'
-  const items = [
-    {
-      label: `Reproducir estas ${n}`,
-      icon: 'play',
-      action: () => play(list[0], list, { ...view.value, label: 'la selección' })
-    },
-    { separator: true },
-    { label: `Añadir ${n} a una lista`, icon: 'list', children: playlistTargets(list) },
-    {
-      label: `Marcar ${n} como favoritas`,
-      icon: 'heart',
-      action: async () => {
-        for (const s of list) if (!s.favorite) onUpdated(await api.toggleFavorite(s.id, true))
-        notify(`${n} favoritas`, 'ok')
-      }
-    }
-  ]
-  if (inPlaylist) {
-    items.push({
-      label: `Quitar ${n} de esta lista`,
-      icon: 'close',
-      action: async () => {
-        for (const s of list) await api.removeFromPlaylist(view.value.id, s.id)
-        notify(`${n} quitadas de la lista`, 'ok')
-        await Promise.all([load(true), playlistActions.load()])
-      }
-    })
-  }
-  items.push({ separator: true })
-  if (shareTargets.value.telegram) {
-    items.push({ label: `Enviar ${n} por Telegram`, icon: 'send', action: () => sendToTelegram(list) })
-  }
-  items.push({
-    label: `Mandar ${n} a la papelera…`,
-    icon: 'trash',
-    danger: true,
-    action: () => trashSongs(list)
-  })
-  openMenu(ev, items, `${n} canciones`)
-}
-
-function songMenu(ev, song) {
-  // Sobre una de las seleccionadas, el menú es el de todas ellas
-  if (selectedSongs.value.length > 1 && selectedIds.value.includes(song.id)) {
-    return groupMenu(ev, selectedSongs.value)
-  }
-  selectedIds.value = [song.id]
-  anchor = song.id
-  const inPlaylist = view.value.kind === 'playlist'
-  const isCurrent = player.track.value?.id === song.id
-  const items = [
-    {
-      label: isCurrent ? (player.state.playing ? 'Pausar' : 'Reanudar') : 'Reproducir',
-      icon: isCurrent && player.state.playing ? 'pause' : 'play',
-      action: () => play(song)
-    },
-    {
-      label: song.favorite ? 'Quitar de favoritos' : 'Marcar como favorito',
-      icon: song.favorite ? 'heartFull' : 'heart',
-      action: () => toggleFavorite(song)
-    },
-    { separator: true },
-    { label: 'Añadir a una lista', icon: 'list', children: playlistTargets(song) }
-  ]
-  if (inPlaylist) {
-    items.push({
-      label: 'Quitar de esta lista',
-      icon: 'close',
-      action: () => playlistActions.removeSong(song)
-    })
-  }
-  items.push({ separator: true })
-  items.push({
-    label: 'Buscar letra y portada',
-    icon: 'lyrics',
-    action: () => enrichSong(song)
-  })
-  items.push({
-    label: song.blur ? 'Ver la portada' : 'Difuminar la portada',
-    icon: song.blur ? 'eye' : 'eyeOff',
-    action: () => toggleBlur(song)
-  })
-  items.push({ label: 'Renombrar…', icon: 'pencil', action: () => renameSong(song) })
-  items.push({ separator: true })
-  // Con el panel lateral a la vista la ficha ya se ve; si no, se ofrece
-  if (!sidePanelShown.value) {
-    items.push({ label: 'Ver detalles', icon: 'eye', action: () => showDetailsOf(song) })
-  }
-  items.push({ label: 'Abrir la carpeta', icon: 'folderOpen', action: () => revealSong(song) })
-  if (shareTargets.value.telegram) {
-    items.push({ label: 'Enviar por Telegram', icon: 'send', action: () => sendSongToTelegram(song) })
-  }
-  items.push({
-    label: 'Mandar a la papelera…',
-    icon: 'trash',
-    danger: true,
-    action: () => trashSong(song)
-  })
-  select(song.id)
-  openMenu(ev, items, song.title || song.file)
-}
-
-function playlistMenu(ev, pl) {
-  openMenu(
-    ev,
-    [
-      {
-        label: 'Abrir',
-        icon: 'list',
-        action: () => {
-          view.value = { kind: 'playlist', id: pl.id, name: pl.name }
-        }
-      },
-      { label: 'Renombrar…', icon: 'pencil', action: () => playlistActions.rename(pl) },
-      { label: 'Exportar a .m3u', icon: 'download', action: () => playlistActions.exportTo(pl) },
-      { label: 'Hoja para el atril…', icon: 'chords', action: () => playlistActions.sheet(pl) },
-      ...(shareTargets.value.telegram
-        ? [{ label: 'Enviar por Telegram', icon: 'send', action: () => sendPlaylistToTelegram(pl) }]
-        : []),
-      { separator: true },
-      { label: 'Borrar la lista…', icon: 'trash', danger: true, action: () => deletePlaylist(pl) }
-    ],
-    pl.name
-  )
-}
+// Los menús de clic derecho y lo que se hace desde ellos (ver useSongMenus).
+const menus = useSongMenus({
+  view,
+  player,
+  playlistActions,
+  selection,
+  play,
+  onUpdated,
+  refreshAll,
+  reload: (quiet) => load(quiet),
+  detailsInView: () => sidePanelShown.value,
+  showDetailsOf
+})
+const { setStars, toggleFavorite, toggleBlur, songMenu, playlistMenu } = menus
 
 // Qué hacer cuando se suelta una canción arrastrada. Los destinos se declaran
 // con `data-drop` allí donde estén, así que aquí solo hay que decidir qué
@@ -730,7 +474,7 @@ function playlistMenu(ev, pl) {
 onDrop(async (target, song, { after } = {}) => {
   const name = song.title || song.file
   if (target.startsWith('sort:')) {
-    moveInPlaylist(song, Number(target.slice(5)), !!after)
+    if (sortable.value) library.moveInPlaylist(song, Number(target.slice(5)), !!after)
   } else if (target === 'favorites') {
     if (song.favorite) return notify(`«${name}» ya estaba en favoritos`)
     await toggleFavorite(song)
@@ -743,120 +487,9 @@ onDrop(async (target, song, { after } = {}) => {
   }
 })
 
-/**
- * Mueve una canción dentro del repertorio abierto: la deja justo antes de la
- * que tiene `targetId`, o justo después si se soltó en su mitad de abajo.
- * La lista se recoloca al momento y el núcleo confirma el orden; si no
- * puede, vuelve como estaba.
- */
-async function moveInPlaylist(song, targetId, after) {
-  if (!sortable.value || song.id === targetId) return
-  const before = songs.value
-  const ids = before.map((s) => s.id)
-  if (!ids.includes(song.id) || !ids.includes(targetId)) return
-  const order = ids.filter((id) => id !== song.id)
-  order.splice(order.indexOf(targetId) + (after ? 1 : 0), 0, song.id)
-  if (order.every((id, i) => id === ids[i])) return // ya estaba ahí
-  const by = new Map(before.map((s) => [s.id, s]))
-  songs.value = order.map((id) => by.get(id))
-  const listId = view.value.id
-  try {
-    const r = await api.reorderPlaylist(listId, order)
-    // si mientras tanto se cambió de vista, lo que llega ya no es esta lista
-    if (view.value.kind === 'playlist' && view.value.id === listId) songs.value = r.songs
-  } catch (e) {
-    if (view.value.kind === 'playlist' && view.value.id === listId) songs.value = before
-    notify('No se pudo cambiar el orden: ' + errorMessage(e))
-  }
-}
-
-/** Borrar una lista puede dejarte mirando una vista que ya no existe. */
-async function deletePlaylist(pl) {
-  const id = await playlistActions.remove(pl)
-  if (id && view.value.id === id) view.value = { kind: 'all' }
-}
-
-async function renameSong(song) {
-  const title = await ask({
-    kind: 'prompt',
-    title: 'Renombrar',
-    message: 'Título de la canción.',
-    value: song.title || '',
-    placeholder: 'Título',
-    okLabel: 'Guardar'
-  })
-  if (!title || title === song.title) return
-  onUpdated(await api.edit(song.id, { title }))
-  notify('Renombrada', 'ok')
-}
-
-async function enrichSong(song) {
-  notify('Buscando letra y portada…', 'info', 3)
-  try {
-    onUpdated((await api.enrich(song.id, { lyrics: true, cover: true, details: false })).song)
-    notify('Listo', 'ok')
-  } catch (e) {
-    notify('No se pudo: ' + errorMessage(e))
-  }
-}
-
-async function trashSong(song) {
-  const ok = await ask({
-    kind: 'confirm',
-    title: 'Mandar a la papelera',
-    danger: true,
-    message:
-      'El archivo va a la papelera del sistema, así que puedes recuperarlo desde ahí. ' +
-      'También sale de la biblioteca.',
-    detail: song.path || song.file,
-    okLabel: 'A la papelera'
-  })
-  if (!ok) return
-  try {
-    const r = await api.deleteSong(song.id)
-    if (playingId.value === song.id) player.stop()
-    notify(`«${r.name}» está en la papelera`, 'ok')
-    await refreshAll()
-  } catch (e) {
-    notify('No se pudo borrar: ' + errorMessage(e))
-  }
-}
-
-/** Varias a la papelera, con una sola confirmación que dice cuántas. */
-async function trashSongs(list) {
-  const n = list.length
-  const ok = await ask({
-    kind: 'confirm',
-    title: `Mandar ${n} canciones a la papelera`,
-    danger: true,
-    message:
-      'Los archivos van a la papelera del sistema, así que puedes recuperarlos desde ahí. ' +
-      'También salen de la biblioteca.',
-    detail: list
-      .slice(0, 6)
-      .map((s) => s.title || s.file)
-      .join('\n') + (n > 6 ? `\n… y ${n - 6} más` : ''),
-    okLabel: `A la papelera (${n})`
-  })
-  if (!ok) return
-  let done = 0
-  for (const s of list) {
-    try {
-      await api.deleteSong(s.id)
-      if (playingId.value === s.id) player.stop()
-      done++
-    } catch (e) {
-      notify(`No se pudo borrar «${s.title || s.file}»: ${errorMessage(e)}`)
-    }
-  }
-  selectedIds.value = []
-  if (done) notify(`${done} en la papelera`, 'ok')
-  await refreshAll()
-}
-
 // --------------------------------------------------------------- buscador
-const searchBox = ref(null)
-const resultsEl = ref(null)
+const searchBox = useTemplateRef('searchBox')
+const resultsEl = useTemplateRef('resultsEl')
 const search = useSearch({ view, reload: () => load() })
 const { query, quick, quickLoading, quickOpen, advanced, facets, onlyFavorites, minStars } = search
 
@@ -887,7 +520,6 @@ function onSearchKey(e) {
 }
 onClickOutside(searchBox, search.close)
 
-watch([sort, sortDesc, view], () => load(), { deep: true })
 // Sin `deep`: solo interesa cuando cambia la LISTA (otra búsqueda, otra vista,
 // otra agrupación), que es lo que altera el alto del scroll. Vigilarla en
 // profundidad obligaba a recorrer las mil canciones y todos sus campos cada
@@ -913,10 +545,6 @@ function toggleAdvanced() {
 function goTo(v) {
   view.value = v
   viewMenu.value = false
-}
-function applySort(field, desc) {
-  sort.value = field
-  sortDesc.value = desc
 }
 function goToSettings() {
   view.value = { kind: 'settings' }
@@ -974,7 +602,7 @@ onMounted(async () => {
   // Cualquier cambio en el núcleo —lo haga quien lo haga— se refleja aquí
   // sin salir y volver a entrar. Rust avisa; esta ventana escucha.
   stopChangeWatch = await core.onChanged(onCoreChanged)
-  tauriApp.shareTargets().then((t) => (shareTargets.value = t || { telegram: false })).catch(() => {})
+  menus.loadShareTargets()
   // y si había una descarga en marcha (un reinicio de la ventana), que se vea
   downloads.refresh()
 })
@@ -1022,6 +650,7 @@ async function offerToBeDefault() {
 
 // si la app se va con algo en la mano, que no queden escuchas sueltas
 onUnmounted(() => {
+  disconnectChat()
   stopCoreWatch?.()
   stopExternalWatch?.()
   stopChangeWatch?.()
@@ -1032,12 +661,17 @@ onUnmounted(() => {
   stopFocusRelease?.()
 })
 
-/** Una canción cambió: se refresca en la lista, en la ficha y en la cola. */
+/**
+ * Una canción cambió: se refresca en la lista, en la ficha y en la cola.
+ *
+ * La ficha solo si es la suya. Las respuestas llegan cuando llegan: «Buscar
+ * letra» de A con B ya elegida devolvía la ficha a A, y poner estrellas en
+ * una fila cambiaba la ficha a esa fila sin haberla elegido.
+ */
 function onUpdated(song) {
   if (!song) return
-  detail.value = song
-  const i = songs.value.findIndex((x) => x.id === song.id)
-  if (i >= 0) songs.value[i] = { ...songs.value[i], ...song }
+  selection.patchDetail(song)
+  library.patchSong(song)
   player.patchItem(song)
 }
 </script>
@@ -1047,6 +681,7 @@ function onUpdated(song) {
     <header class="topbar">
       <button
         v-if="isCompact"
+        type="button"
         class="icon-btn nav-toggle"
         title="Menú"
         @click="navOpen = true"
@@ -1060,6 +695,12 @@ function onUpdated(song) {
           icon="search"
           width="100%"
           placeholder="Buscar…  artista:barak  tono:Bb  bpm>100  duracion>300"
+          aria-label="Buscar en la biblioteca"
+          role="combobox"
+          aria-autocomplete="list"
+          :aria-expanded="quickOpen && !advanced"
+          :aria-controls="quickOpen && !advanced ? resultsEl?.listId : undefined"
+          :aria-activedescendant="quickOpen && !advanced ? resultsEl?.activeId : undefined"
           @keydown="onSearchKey"
         >
           <template #actions>
@@ -1105,12 +746,14 @@ function onUpdated(song) {
         </transition>
       </div>
 
-      <div class="view-switch">
+      <div class="view-switch" role="group" aria-label="Cómo se ve la lista">
         <button
           v-for="v in VIEWS"
           :key="v"
+          type="button"
           :class="{ on: layout === v }"
           :title="VIEW_NAMES[v]"
+          :aria-pressed="layout === v"
           @click="layout = v"
         >
           <Icon :n="VIEW_ICONS[v]" :t="15" />
@@ -1118,7 +761,13 @@ function onUpdated(song) {
       </div>
 
       <div ref="viewBox" style="position: relative">
-        <button class="btn mini" style="gap: 6px" @click="viewMenu = !viewMenu">
+        <button
+          type="button"
+          class="btn mini"
+          style="gap: 6px"
+          :aria-expanded="viewMenu"
+          @click="viewMenu = !viewMenu"
+        >
           <Icon n="viewOptions" :t="14" /> Vista
         </button>
         <transition name="dropdown">
@@ -1178,7 +827,9 @@ function onUpdated(song) {
               <SelectField
                 v-model="appSize"
                 label="Tamaño de la app"
-                :options="Object.entries(SIZES).map(([k, s]) => ({ v: k, n: s.name, note: s.note }))"
+                :options="
+                  Object.entries(SIZES).map(([k, s]) => ({ v: k, n: s.name, note: s.note }))
+                "
               />
               <button class="btn mini mini-open" title="Salir de DanPlay (Ctrl+Q)" @click="quit">
                 <Icon n="close" :t="14" /> Salir de DanPlay
@@ -1226,37 +877,49 @@ function onUpdated(song) {
           @ready="refreshAll"
         />
 
-        <ChatPage v-else-if="view.kind === 'chat'" :context="chatContext" @reload="refreshAll" @action="runAction" />
+        <!-- Las páginas: se cargan al abrirlas, y el asistente se queda vivo
+             al salir (lo que tenías escrito, por dónde ibas del hilo). El
+             RouterView no se quita nunca: con él se iría lo que guarda
+             <KeepAlive> -->
+        <RouterView v-slot="{ Component, route }">
+          <KeepAlive include="ChatPage">
+            <component
+              :is="Component"
+              v-if="!showWelcome && isPage && Component && route.name === view.kind"
+              v-bind="pageBindings"
+            />
+          </KeepAlive>
+        </RouterView>
 
-        <DownloadsPage v-else-if="view.kind === 'downloads'" @reload="refreshAll" />
-
-        <SettingsPage
-          v-else-if="view.kind === 'settings'"
-          @reindexed="refreshAll"
-          @changed="refreshAll"
-        />
-
-        <InboxPage
-          v-else-if="view.kind === 'inbox'"
-          :waiting="waiting"
-          @changed="refreshAll"
-          @go="(v) => (view = v)"
-        />
-
-        <DuplicatesPage v-else-if="view.kind === 'duplicates'" @changed="refreshAll" />
-
-        <template v-else>
+        <template v-if="!showWelcome && !isPage">
           <div class="filters">
             <strong style="font-size: 13px">{{ title }}</strong>
-            <span class="chip">{{ songs.length }}</span>
-            <span
+            <span class="chip" :title="loadingMore ? `llevan ${songs.length}` : undefined">{{
+              listCount || songs.length
+            }}</span>
+            <span v-if="loadingMore" class="sort-hint">cargando el resto…</span>
+            <button
               v-if="groupBy && view.kind !== 'artists'"
+              type="button"
               class="chip x"
+              title="Dejar de agrupar"
+              :aria-label="
+                'Dejar de agrupar (' + GROUPINGS.find((a) => a.v === groupBy)?.n.toLowerCase() + ')'
+              "
               @click="groupBy = ''"
             >
-              {{ GROUPINGS.find((a) => a.v === groupBy)?.n }} ×</span
+              {{ GROUPINGS.find((a) => a.v === groupBy)?.n }} ×
+            </button>
+            <button
+              v-if="query"
+              type="button"
+              class="chip x"
+              title="Quitar la búsqueda"
+              :aria-label="'Quitar la búsqueda «' + query + '»'"
+              @click="query = ''"
             >
-            <span v-if="query" class="chip x" @click="query = ''"> «{{ query }}» ×</span>
+              «{{ query }}» ×
+            </button>
             <span v-if="shuffle" class="chip on">aleatorio</span>
             <span v-if="repeat !== 'list'" class="chip on">{{ REPEAT_NAMES[repeat] }}</span>
             <!-- que se sepa que en un repertorio el orden se cambia a mano -->
@@ -1378,9 +1041,25 @@ function onUpdated(song) {
 
       <Teleport to="body">
         <transition name="fade">
-          <div v-if="detailModal" class="modal-back" @mousedown.self="detailModal = false">
-            <div class="modal details-modal" role="dialog" aria-modal="true" aria-label="Ficha de la canción">
-              <button class="btn mini details-modal-close" title="Cerrar" @click="detailModal = false">
+          <div
+            v-if="detailModal"
+            class="modal-back"
+            role="presentation"
+            @mousedown.self="detailModal = false"
+          >
+            <div
+              ref="detailModalEl"
+              class="modal details-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Ficha de la canción"
+            >
+              <button
+                type="button"
+                class="btn mini details-modal-close"
+                title="Cerrar"
+                @click="detailModal = false"
+              >
                 <Icon n="close" :t="14" />
               </button>
               <DetailsPanel
@@ -1429,11 +1108,7 @@ function onUpdated(song) {
     </transition-group>
 
     <teleport to="body">
-      <div
-        v-if="drag.song"
-        class="drag-ghost"
-        :style="{ left: drag.x + 'px', top: drag.y + 'px' }"
-      >
+      <div v-if="drag.song" class="drag-ghost" :style="{ left: drag.x + 'px', top: drag.y + 'px' }">
         <CoverArt
           :id="drag.song.id"
           :blur="!!drag.song.blur"
@@ -1450,8 +1125,12 @@ function onUpdated(song) {
     <transition name="study">
       <StudyBar v-if="studyOpen" @close="studyOpen = false" />
     </transition>
-    <Player :study="studyOpen" @go-to-origin="goToOrigin" @play-selected="playSelected"
-            @toggle-study="studyOpen = !studyOpen" />
+    <Player
+      :study="studyOpen"
+      @go-to-origin="goToOrigin"
+      @play-selected="playSelected"
+      @toggle-study="studyOpen = !studyOpen"
+    />
 
     <ContextMenu
       :open="menu.open"
@@ -1459,6 +1138,7 @@ function onUpdated(song) {
       :y="menu.y"
       :items="menu.items"
       :title="menu.title"
+      :keyboard="menu.keyboard"
       @close="closeMenu"
     />
 

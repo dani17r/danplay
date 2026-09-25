@@ -12,15 +12,32 @@ vi.mock('../src/api.js', async (importOriginal) => {
   held.api = buildApiDouble(actual, held.state)
   held.api.inTauri = true
   held.playback = createPlaybackDouble()
-  return { ...actual, inTauri: true, api: held.api, playback: held.playback.bridge,
-           projection: { show: vi.fn(async () => {}) } }
+  return {
+    ...actual,
+    inTauri: true,
+    api: held.api,
+    playback: held.playback.bridge,
+    projection: { show: vi.fn(async () => {}) }
+  }
 })
 
 import Player from '../src/components/Player.vue'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 
-const base = { index: 0, length: 1, duration: 200, has_previous: false, has_next: false,
-  error: '', has_output: true, loop_a: 0, loop_b: 0, pitch_preserved: true, speed: 1, volume: 0.9 }
+const base = {
+  index: 0,
+  length: 1,
+  duration: 200,
+  has_previous: false,
+  has_next: false,
+  error: '',
+  has_output: true,
+  loop_a: 0,
+  loop_b: 0,
+  pitch_preserved: true,
+  speed: 1,
+  volume: 0.9
+}
 const TRACK = { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200 }
 
 let w = null
@@ -30,9 +47,12 @@ beforeEach(() => {
   held.playback.reset()
   document.body.innerHTML = ''
 })
-afterEach(() => { w?.unmount(); w = null })
+afterEach(() => {
+  w?.unmount()
+  w = null
+})
 
-async function montar (patch = {}) {
+async function montar(patch = {}) {
   w = mount(Player, { attachTo: document.body })
   await flushPromises()
   held.playback.emit({ track: TRACK, playing: true, position: 40, ...base, ...patch })
@@ -42,16 +62,28 @@ async function montar (patch = {}) {
 const bridge = () => held.playback.bridge
 
 // jsdom no maqueta: la barra dice que va de x=0 a x=400
-function conAnchura (el, left = 0, width = 400) {
-  el.element.getBoundingClientRect = () =>
-    ({ left, width, right: left + width, top: 0, height: 4, bottom: 4, x: left, y: 0 })
+function conAnchura(el, left = 0, width = 400) {
+  el.element.getBoundingClientRect = () => ({
+    left,
+    width,
+    right: left + width,
+    top: 0,
+    height: 4,
+    bottom: 4,
+    x: left,
+    y: 0
+  })
 }
-function puntero (target, tipo, x, extra = {}) {
-  target.dispatchEvent(new MouseEvent(tipo, { bubbles: true, cancelable: true, clientX: x, clientY: 2, ...extra }))
+function puntero(target, tipo, x, extra = {}) {
+  target.dispatchEvent(
+    new MouseEvent(tipo, { bubbles: true, cancelable: true, clientX: x, clientY: 2, ...extra })
+  )
   return flushPromises()
 }
 const tecla = (key, extra = {}) => {
-  window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra }))
+  window.dispatchEvent(
+    new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra })
+  )
   return flushPromises()
 }
 const relleno = () => w.find('.track-fill').attributes('style')
@@ -210,5 +242,19 @@ describe('atajos de teclado', () => {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
     await flushPromises()
     expect(bridge().toggle).not.toHaveBeenCalled()
+  })
+})
+
+describe('la portada de lo que suena', () => {
+  it('si esta difuminada, tambien aqui', async () => {
+    await montar({ track: { ...TRACK, blur: true } })
+    expect(w.find('.pl-cover').classes()).toContain('blurred')
+  })
+
+  it('el volumen tiene nombre para quien no ve la pantalla', async () => {
+    await montar()
+    const vol = w.find('.pl-volume input[type="range"]')
+    expect(vol.attributes('aria-label')).toBe('Volumen')
+    expect(vol.attributes('aria-valuetext')).toBe('90 %')
   })
 })

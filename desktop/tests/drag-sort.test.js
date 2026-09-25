@@ -11,12 +11,14 @@ const PANEL = { top: 100, height: 400 }
 
 let panel, filas, frames, rafOriginal, cafOriginal, csOriginal
 
-function pointer (el, type, x, y) {
-  el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }))
+function pointer(el, type, x, y) {
+  el.dispatchEvent(
+    new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y })
+  )
 }
 
 /** Ejecuta los cuadros de animacion pendientes, uno a uno. */
-function cuadro (n = 1) {
+function cuadro(n = 1) {
   for (let i = 0; i < n; i++) {
     const pendientes = frames.splice(0)
     for (const f of pendientes) f(performance.now())
@@ -28,25 +30,46 @@ beforeEach(() => {
   rafOriginal = window.requestAnimationFrame
   cafOriginal = window.cancelAnimationFrame
   csOriginal = window.getComputedStyle
-  window.requestAnimationFrame = (f) => { frames.push(f); return frames.length }
-  window.cancelAnimationFrame = () => { frames.length = 0 }
+  window.requestAnimationFrame = (f) => {
+    frames.push(f)
+    return frames.length
+  }
+  window.cancelAnimationFrame = () => {
+    frames.length = 0
+  }
   // jsdom no maqueta: el panel dice que se desplaza y donde esta
   window.getComputedStyle = (el) => ({ overflowY: el === panel ? 'auto' : 'visible' })
 
   panel = document.createElement('div')
   panel.setAttribute('data-sort-list', '')
-  panel.getBoundingClientRect = () =>
-    ({ top: PANEL.top, height: PANEL.height, bottom: PANEL.top + PANEL.height, left: 0, width: 500, right: 500 })
+  panel.getBoundingClientRect = () => ({
+    top: PANEL.top,
+    height: PANEL.height,
+    bottom: PANEL.top + PANEL.height,
+    left: 0,
+    width: 500,
+    right: 500
+  })
   // scrollTop de verdad: jsdom lo deja en 0 fijo si no hay alto
   let st = 0
   Object.defineProperty(panel, 'scrollTop', {
-    get: () => st, set: (v) => { st = Math.max(0, Math.min(2000, v)) }, configurable: true
+    get: () => st,
+    set: (v) => {
+      st = Math.max(0, Math.min(2000, v))
+    },
+    configurable: true
   })
   filas = [1, 2, 3].map((id) => {
     const tr = document.createElement('div')
     tr.setAttribute('data-drop', 'sort:' + id)
-    tr.getBoundingClientRect = () =>
-      ({ top: 100 + id * 30, height: 30, bottom: 130 + id * 30, left: 0, width: 500, right: 500 })
+    tr.getBoundingClientRect = () => ({
+      top: 100 + id * 30,
+      height: 30,
+      bottom: 130 + id * 30,
+      left: 0,
+      width: 500,
+      right: 500
+    })
     panel.appendChild(tr)
     return tr
   })

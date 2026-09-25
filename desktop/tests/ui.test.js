@@ -3,13 +3,20 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 // doble del backend. vi.hoisted porque vi.mock se iza al principio del fichero
 const { api, pickImage } = vi.hoisted(() => ({
   api: {
-    edit: vi.fn(), setStars: vi.fn(), toggleFavorite: vi.fn(), setCover: vi.fn(),
-    enrich: vi.fn(), details: vi.fn(), autofill: vi.fn(), transpose: vi.fn(),
-    coverUrl: (id) => '/c/' + id, coverUrlAlt: () => null
+    edit: vi.fn(),
+    setStars: vi.fn(),
+    toggleFavorite: vi.fn(),
+    setCover: vi.fn(),
+    enrich: vi.fn(),
+    details: vi.fn(),
+    autofill: vi.fn(),
+    transpose: vi.fn(),
+    coverUrl: (id) => '/c/' + id,
+    coverUrlAlt: () => null
   },
   pickImage: vi.fn(async () => null)
 }))
-vi.mock('../src/api.js', () => ({ api, pickImage }))
+vi.mock('../src/api.js', () => ({ api, pickImage, errorMessage: (e) => String(e?.message || e) }))
 beforeEach(() => vi.clearAllMocks())
 import { mount, flushPromises } from '@vue/test-utils'
 import DetailsPanel from '../src/components/DetailsPanel.vue'
@@ -59,7 +66,11 @@ describe('Campo', () => {
 })
 
 describe('Selector', () => {
-  const options = [{ v: 'a', n: 'Alfa' }, { v: 'b', n: 'Beta' }, { v: 'c', n: 'Gamma' }]
+  const options = [
+    { v: 'a', n: 'Alfa' },
+    { v: 'b', n: 'Beta' },
+    { v: 'c', n: 'Gamma' }
+  ]
   const montar = (value = 'a') => mount(SelectField, { props: { modelValue: value, options } })
 
   it('muestra la opcion elegida', () => {
@@ -174,15 +185,21 @@ describe('Color', () => {
 
 describe('nada de controles nativos sueltos', () => {
   const vistas = [
-    ...readdirSync('src/components').filter(f => f.endsWith('.vue')).map(f => 'src/components/' + f),
+    ...readdirSync('src/components')
+      .filter((f) => f.endsWith('.vue'))
+      .map((f) => 'src/components/' + f),
     'src/App.vue'
   ]
   it('no hay select, checkbox, range ni color fuera de la libreria', () => {
     const malos = []
     for (const f of vistas) {
       const txt = readFileSync(f, 'utf8')
-      for (const pattern of [/<select[\s>]/, /<input[^>]*type="checkbox"/,
-                            /<input[^>]*type="range"/, /<input[^>]*type="color"/]) {
+      for (const pattern of [
+        /<select[\s>]/,
+        /<input[^>]*type="checkbox"/,
+        /<input[^>]*type="range"/,
+        /<input[^>]*type="color"/
+      ]) {
         if (pattern.test(txt)) malos.push(`${f}: ${pattern}`)
       }
     }
@@ -191,7 +208,8 @@ describe('nada de controles nativos sueltos', () => {
   it('no hay inputs de texto sin envolver', () => {
     const malos = []
     for (const f of vistas) {
-      if (/<input(?![^>]*type="(checkbox|range|color)")/.test(readFileSync(f, 'utf8'))) malos.push(f)
+      if (/<input(?![^>]*type="(checkbox|range|color)")/.test(readFileSync(f, 'utf8')))
+        malos.push(f)
     }
     expect(malos, 'usa TextField.vue: ' + malos.join(', ')).toEqual([])
   })
@@ -203,40 +221,44 @@ describe('nada de controles nativos sueltos', () => {
 // la rejilla se descuadraba cuando una cancion no tenia portada.
 describe('lo repetido vive en un solo componente', () => {
   const vistas = [
-    ...readdirSync('src/components').filter(f => f.endsWith('.vue')).map(f => 'src/components/' + f),
+    ...readdirSync('src/components')
+      .filter((f) => f.endsWith('.vue'))
+      .map((f) => 'src/components/' + f),
     'src/App.vue'
   ]
   const leer = (f) => readFileSync(f, 'utf8')
 
   it('nadie monta la caratula a mano: se usa CoverArt', () => {
-    const malos = vistas.filter(f => /<img[^>]*coverUrl/.test(leer(f)))
+    const malos = vistas.filter((f) => /<img[^>]*coverUrl/.test(leer(f)))
     expect(malos, 'usa ui/CoverArt.vue: ' + malos.join(', ')).toEqual([])
   })
 
   it('nadie sustituye nodos del DOM a mano', () => {
-    const malos = vistas.filter(f => /replaceWith\(|createElement\(/.test(leer(f)))
+    const malos = vistas.filter((f) => /replaceWith\(|createElement\(/.test(leer(f)))
     expect(malos, 'deja que Vue pinte: ' + malos.join(', ')).toEqual([])
   })
 
   it('el girito se pinta con Loading, no suelto', () => {
-    const malos = vistas.filter(f =>
-      /class="spinner"/.test(leer(f)) && !/chat-downloading/.test(leer(f)))
+    const malos = vistas.filter(
+      (f) => /class="spinner"/.test(leer(f)) && !/chat-downloading/.test(leer(f))
+    )
     expect(malos, 'usa ui/Loading.vue: ' + malos.join(', ')).toEqual([])
   })
 
   it('los huecos vacios se pintan con EmptyState', () => {
-    const malos = vistas.filter(f => /<div[^>]*class="empty"/.test(leer(f)))
+    const malos = vistas.filter((f) => /<div[^>]*class="empty"/.test(leer(f)))
     expect(malos, 'usa ui/EmptyState.vue: ' + malos.join(', ')).toEqual([])
   })
 
   it('las tarjetas con titulo se pintan con Card', () => {
-    const malos = vistas.filter(f => /<div class="card"[^>]*>\s*\n\s*<h3/.test(leer(f)))
+    const malos = vistas.filter((f) => /<div class="card"[^>]*>\s*\n\s*<h3/.test(leer(f)))
     expect(malos, 'usa ui/Card.vue: ' + malos.join(', ')).toEqual([])
   })
 
   it('CoverArt es el unico que sabe de portadas que fallan', () => {
-    const fuera = vistas.filter(f => !f.endsWith('CoverArt.vue'))
-      .filter(f => /coverUrlAlt/.test(leer(f)))
+    const fuera = vistas
+      .filter((f) => !f.endsWith('CoverArt.vue'))
+      .filter((f) => /coverUrlAlt/.test(leer(f)))
     expect(fuera, 'el respaldo de URL vive en CoverArt: ' + fuera.join(', ')).toEqual([])
   })
 })
@@ -245,12 +267,11 @@ describe('lo repetido vive en un solo componente', () => {
 // causa es que CSS solo sabe seleccionar hermanos POSTERIORES (`~`), asi que
 // el marcado va 5..1 y el contenedor lo endereza con row-reverse.
 describe('valoracion con estrellas', () => {
-  const montarEstrellas = (props = {}) =>
-    mount(StarRating, { props: { value: 0, ...props } })
+  const montarEstrellas = (props = {}) => mount(StarRating, { props: { value: 0, ...props } })
 
   it('el marcado va del 5 al 1', () => {
     const w = montarEstrellas({ value: 0 })
-    const titulos = w.findAll('.ico').map(i => i.attributes('title'))
+    const titulos = w.findAll('.ico').map((i) => i.attributes('title'))
     expect(titulos).toEqual(['5 de 5', '4 de 5', '3 de 5', '2 de 5', '1 de 5'])
   })
 
@@ -258,23 +279,23 @@ describe('valoracion con estrellas', () => {
     const w = montarEstrellas({ value: 3 })
     const iconos = w.findAll('.ico')
     // el marcado va 5,4,3,2,1: las llenas son las tres ultimas
-    const llenas = iconos.map(i => i.classes().includes('on'))
+    const llenas = iconos.map((i) => i.classes().includes('on'))
     expect(llenas).toEqual([false, false, true, true, true])
     // la de la nota actual ofrece quitarla; las de debajo, ponerse
-    expect(iconos[2].attributes('title')).toBe('Quitar valoracion')
+    expect(iconos[2].attributes('title')).toBe('Quitar valoración')
     expect(iconos[3].attributes('title')).toBe('2 de 5')
   })
 
   it('pulsar una estrella manda su valor, no el del indice', async () => {
     const w = montarEstrellas({ value: 0 })
-    const cuarta = w.findAll('.ico').find(i => i.attributes('title') === '4 de 5')
+    const cuarta = w.findAll('.ico').find((i) => i.attributes('title') === '4 de 5')
     await cuarta.trigger('click')
     expect(w.emitted('change')[0]).toEqual([4])
   })
 
   it('pulsar la nota actual la quita', async () => {
     const w = montarEstrellas({ value: 3 })
-    const tercera = w.findAll('.ico').find(i => i.attributes('title') === 'Quitar valoracion')
+    const tercera = w.findAll('.ico').find((i) => i.attributes('title') === 'Quitar valoración')
     await tercera.trigger('click')
     expect(w.emitted('change')[0]).toEqual([0])
   })
@@ -290,9 +311,22 @@ describe('valoracion con estrellas', () => {
 // solo un indice reconstruible. Estas pruebas fijan las reglas de la edicion.
 describe('editar la ficha de una cancion', () => {
   const cancion = {
-    id: 7, title: 'Mi Gozo', artist: 'Barak', album: '', year: '', genre: '',
-    feat: '', key: '', bpm: 0, lyrics: '', stars: 0, favorite: 0,
-    duration: 200, bitrate: 128000, folder: 'Artistas/Barak', file: 'x.mp3'
+    id: 7,
+    title: 'Mi Gozo',
+    artist: 'Barak',
+    album: '',
+    year: '',
+    genre: '',
+    feat: '',
+    key: '',
+    bpm: 0,
+    lyrics: '',
+    stars: 0,
+    favorite: 0,
+    duration: 200,
+    bitrate: 128000,
+    folder: 'Artistas/Barak',
+    file: 'x.mp3'
   }
   const montar = () => mount(DetailsPanel, { props: { song: { ...cancion }, aiReady: true } })
   const abrirEdicion = async (w) => {
@@ -309,15 +343,15 @@ describe('editar la ficha de una cancion', () => {
 
   it('sin cambios solo se ofrece cancelar', async () => {
     const w = await abrirEdicion(montar())
-    const textos = w.findAll('.edit-actions .btn').map(b => b.text())
+    const textos = w.findAll('.edit-actions .btn').map((b) => b.text())
     expect(textos).toEqual(['Cancelar'])
     expect(w.find('.edit-state').text()).toBe('Sin cambios')
   })
 
   it('al tocar algo aparece guardar y dice cuantos campos', async () => {
     const w = await abrirEdicion(montar())
-    await w.findAll('.edit-form input')[3].setValue('Generacion Radical')  // album
-    const textos = w.findAll('.edit-actions .btn').map(b => b.text())
+    await w.findAll('.edit-form input')[3].setValue('Generacion Radical') // album
+    const textos = w.findAll('.edit-actions .btn').map((b) => b.text())
     expect(textos).toContain('Guardar')
     expect(textos).toContain('Descartar')
     expect(w.find('.edit-state').text()).toBe('1 sin guardar')
@@ -330,7 +364,7 @@ describe('editar la ficha de una cancion', () => {
     expect(w.find('.edit-state').text()).toBe('1 sin guardar')
     await album.setValue('')
     expect(w.find('.edit-state').text()).toBe('Sin cambios')
-    expect(w.findAll('.edit-actions .btn').map(b => b.text())).toEqual(['Cancelar'])
+    expect(w.findAll('.edit-actions .btn').map((b) => b.text())).toEqual(['Cancelar'])
   })
 
   it('Escape cierra sin guardar', async () => {
@@ -356,7 +390,7 @@ describe('editar la ficha de una cancion', () => {
     api.edit.mockResolvedValueOnce({ ...cancion, bpm: 128 })
     const w = await abrirEdicion(montar())
     const campos = w.findAll('.edit-form input')
-    await campos[campos.length - 1].setValue('128')      // bpm es el ultimo input
+    await campos[campos.length - 1].setValue('128') // bpm es el ultimo input
     await w.find('.edit-form').trigger('submit')
     await flushPromises()
     expect(api.edit).toHaveBeenCalledWith(7, { bpm: 128 })
@@ -366,6 +400,87 @@ describe('editar la ficha de una cancion', () => {
     const w = await abrirEdicion(montar())
     await w.setProps({ song: { ...cancion, id: 8, title: 'Otra' } })
     expect(w.find('.edit-form').exists()).toBe(false)
+  })
+})
+
+// Las respuestas llegan cuando llegan. Lo que se pidio para una cancion no
+// se pinta en la ficha de otra que se eligio mientras tanto.
+describe('la ficha y lo que llega tarde', () => {
+  const cancion = {
+    id: 7,
+    title: 'Mi Gozo',
+    artist: 'Barak',
+    album: 'x',
+    year: '2019',
+    genre: 'x',
+    key: 'G',
+    bpm: 0,
+    lyrics: '',
+    stars: 0,
+    favorite: 0,
+    duration: 200,
+    bitrate: 128000,
+    folder: 'x',
+    file: 'x.mp3'
+  }
+  const pendiente = () => {
+    let release
+    const promise = new Promise((r) => {
+      release = r
+    })
+    return { promise, release: (v) => release(v) }
+  }
+  const boton = (w, text) => w.findAll('button').find((b) => b.text().includes(text))
+
+  it('los detalles de IA de A no se pintan en la ficha de B', async () => {
+    const p = pendiente()
+    api.details.mockReturnValueOnce(p.promise)
+    const w = mount(DetailsPanel, { props: { song: { ...cancion }, aiReady: true } })
+    await boton(w, 'Ver detalles IA').trigger('click')
+    await w.setProps({ song: { ...cancion, id: 8, title: 'Otra' } })
+    // la otra no se queda bloqueada esperando lo de la primera
+    expect(boton(w, 'Ver detalles IA').attributes('disabled')).toBeUndefined()
+    p.release({ details: { progression: 'C G Am F', confidence: 0.9 } })
+    await flushPromises()
+    expect(w.text()).not.toContain('C G Am F')
+  })
+
+  it('la transposicion de A no se pinta en la ficha de B', async () => {
+    const chords = JSON.stringify({ progression: 'G D Em C', likely_key: 'G', section_chords: {} })
+    const p = pendiente()
+    api.transpose.mockReturnValueOnce(p.promise)
+    const w = mount(DetailsPanel, { props: { song: { ...cancion, chords }, aiReady: true } })
+    const destino = w.findAll('.field').find((f) => f.text().includes('—'))
+    await destino.find('.select-box').trigger('click')
+    await w
+      .findAll('.select-opt')
+      .find((o) => o.text() === 'A')
+      .trigger('click')
+    await w.setProps({
+      song: {
+        ...cancion,
+        id: 8,
+        chords: JSON.stringify({ progression: 'E B C#m A', likely_key: 'E' })
+      }
+    })
+    p.release({ text: 'A E F#m D', capo: [] })
+    await flushPromises()
+    expect(w.find('.chords').text()).toBe('E B C#m A')
+  })
+
+  it('un fallo de A no aparece en la ficha de B', async () => {
+    const p = pendiente()
+    api.enrich.mockReturnValueOnce(
+      p.promise.then(() => {
+        throw new Error('sin red')
+      })
+    )
+    const w = mount(DetailsPanel, { props: { song: { ...cancion }, aiReady: true } })
+    await boton(w, 'Buscar letra').trigger('click')
+    await w.setProps({ song: { ...cancion, id: 8, title: 'Otra' } })
+    p.release()
+    await flushPromises()
+    expect(w.text()).not.toContain('sin red')
   })
 })
 
