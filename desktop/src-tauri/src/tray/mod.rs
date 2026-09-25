@@ -14,21 +14,25 @@
 //! Lo que el resto del programa ve es lo mismo en los dos casos: `install`,
 //! `update`, `available` y `toggle_popup`.
 use crate::queue::PlaybackState;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-#[cfg(target_os = "linux")]
-mod linux;
 #[cfg(not(target_os = "linux"))]
 mod desktop;
+#[cfg(target_os = "linux")]
+mod linux;
 
 pub const MINI: &str = "mini";
 pub const MINI_EVENT: &str = "danplay://mini-visible";
 
 /// Lo que suena, resumido para el icono y su menu.
 #[derive(Clone, Default, Debug, PartialEq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "cada si o no es un boton del menu que se enciende o no"
+)]
 pub struct NowPlaying {
     pub title: String,
     pub artist: String,
@@ -127,15 +131,13 @@ impl Tray {
         self.available.load(Ordering::Relaxed)
     }
     fn set_available(&self, value: bool) {
-        self.available.store(value, Ordering::Relaxed)
+        self.available.store(value, Ordering::Relaxed);
     }
 }
 
 /// Hay bandeja donde quedarse. Lo consultan el cierre de la ventana y el JS.
 pub fn available(app: &AppHandle) -> bool {
-    app.try_state::<Tray>()
-        .map(|t| t.available())
-        .unwrap_or(false)
+    app.try_state::<Tray>().is_some_and(|t| t.available())
 }
 
 /// Monta el icono. Si no hay bandeja en este escritorio se dice por consola y
@@ -206,7 +208,7 @@ pub fn hide_popup(app: &AppHandle) {
 /// ventana a mano no esta permitido: la pone el escritorio donde considere).
 pub fn toggle_popup(app: &AppHandle, near: Option<(i32, i32)>) {
     let Some(window) = app.get_webview_window(MINI) else {
-        eprintln!("DanPlay: no encuentro la ventana del mini reproductor");
+        log::warn!("no encuentro la ventana del mini reproductor");
         return;
     };
     if window.is_visible().unwrap_or(false) {
@@ -216,10 +218,10 @@ pub fn toggle_popup(app: &AppHandle, near: Option<(i32, i32)>) {
     place(app, &window, near);
     let _ = window.show();
     let _ = window.set_focus();
-    if let Some(tray) = app.try_state::<Tray>() {
-        if let Ok(mut at) = tray.shown_at.lock() {
-            *at = Some(Instant::now());
-        }
+    if let Some(tray) = app.try_state::<Tray>()
+        && let Ok(mut at) = tray.shown_at.lock()
+    {
+        *at = Some(Instant::now());
     }
     let _ = app.emit(MINI_EVENT, serde_json::json!({"visible": true}));
 }
@@ -252,8 +254,7 @@ pub fn watch_popup(app: &AppHandle) {
             let recent = handle
                 .try_state::<Tray>()
                 .and_then(|t| t.shown_at.lock().ok().and_then(|a| *a))
-                .map(|at| at.elapsed() < Duration::from_millis(250))
-                .unwrap_or(false);
+                .is_some_and(|at| at.elapsed() < Duration::from_millis(250));
             if !recent {
                 hide_popup(&handle);
             }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hide-projection"
+description = "Enables the hide_projection command without any pre-configured scope."
+commands.allow = ["hide_projection"]
+
+[[permission]]
+identifier = "deny-hide-projection"
+description = "Denies the hide_projection command without any pre-configured scope."
+commands.deny = ["hide_projection"]

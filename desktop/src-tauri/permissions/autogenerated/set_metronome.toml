@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-metronome"
+description = "Enables the set_metronome command without any pre-configured scope."
+commands.allow = ["set_metronome"]
+
+[[permission]]
+identifier = "deny-set-metronome"
+description = "Denies the set_metronome command without any pre-configured scope."
+commands.deny = ["set_metronome"]

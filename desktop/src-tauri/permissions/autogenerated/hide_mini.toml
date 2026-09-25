@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hide-mini"
+description = "Enables the hide_mini command without any pre-configured scope."
+commands.allow = ["hide_mini"]
+
+[[permission]]
+identifier = "deny-hide-mini"
+description = "Denies the hide_mini command without any pre-configured scope."
+commands.deny = ["hide_mini"]

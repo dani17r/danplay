@@ -25,7 +25,7 @@ use tauri::AppHandle;
 /// Los tipos que DanPlay dice saber abrir.
 ///
 /// Tiene que coincidir con `bundle.fileAssociations` de `tauri.conf.json` y
-/// con `AUDIO_TYPES` de `danplay/api.py`. Hay una prueba que lo comprueba
+/// con `AUDIO_TYPES` de `danplay/api/common.py`. Hay una prueba que lo comprueba
 /// (`tests/test_core.py`), porque son tres sitios y se separan solos.
 pub const MIME_TYPES: &[&str] = &[
     "audio/mpeg",
@@ -55,9 +55,9 @@ pub struct Status {
 
 #[cfg(target_os = "linux")]
 mod platform {
-    use super::{Status, MIME_TYPES};
-    use std::path::PathBuf;
-    use std::process::Command;
+    use super::{MIME_TYPES, Status};
+    use crate::tools;
+    use std::path::{Path, PathBuf};
     use tauri::AppHandle;
 
     /// El que instala el `.deb`.
@@ -77,7 +77,7 @@ mod platform {
     /// usuario apuntando a este mismo ejecutable.
     fn entry() -> Result<String, String> {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        if exe == PathBuf::from("/usr/bin/danplay-app") && PathBuf::from(INSTALLED).exists() {
+        if exe == Path::new("/usr/bin/danplay-app") && Path::new(INSTALLED).exists() {
             // Si antes se uso el AppImage o el binario suelto, quedo un
             // .desktop nuestro apuntando a el. Con DanPlay ya instalado eso
             // seria un segundo «DanPlay» en el menu, y la mitad de las veces
@@ -100,9 +100,7 @@ mod platform {
         // Dentro de un AppImage, `current_exe` apunta al binario extraido en
         // una carpeta temporal que desaparece al cerrar. El que hay que
         // guardar es el .AppImage, y su ruta la deja el propio arranque aqui.
-        let target = std::env::var("APPIMAGE")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| exe.to_path_buf());
+        let target = std::env::var("APPIMAGE").map_or_else(|_| exe.to_path_buf(), PathBuf::from);
         let target = target.to_string_lossy();
 
         let icon = icon_file(&home).unwrap_or_else(|| "audio-x-generic".into());
@@ -120,11 +118,10 @@ mod platform {
              MimeType={};\n",
             MIME_TYPES.join(";")
         );
-        std::fs::write(apps.join(OWN), entry)
-            .map_err(|e| format!("no pude escribir el .desktop: {e}"))?;
+        std::fs::write(apps.join(OWN), entry).map_err(|e| format!("no pude escribir el .desktop: {e}"))?;
 
         // Sin esto el escritorio no se entera hasta el siguiente arranque.
-        let _ = Command::new("update-desktop-database").arg(&apps).status();
+        let _ = tools::command("update-desktop-database").arg(&apps).status();
         Ok(())
     }
 
@@ -138,7 +135,7 @@ mod platform {
     }
 
     fn query(mime: &str) -> Option<String> {
-        let out = Command::new("xdg-mime")
+        let out = tools::command("xdg-mime")
             .args(["query", "default", mime])
             .output()
             .ok()?;
@@ -161,11 +158,10 @@ mod platform {
         let entry = entry()?;
         let mut failed = Vec::new();
         for mime in MIME_TYPES {
-            let ok = Command::new("xdg-mime")
+            let ok = tools::command("xdg-mime")
                 .args(["default", &entry, mime])
                 .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
+                .is_ok_and(|s| s.success());
             if !ok {
                 failed.push(*mime);
             }
@@ -195,7 +191,7 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
-    use super::{Status, MIME_TYPES};
+    use super::{MIME_TYPES, Status};
     use tauri::AppHandle;
 
     /// Las extensiones, en el mismo orden que `MIME_TYPES`.
@@ -214,8 +210,8 @@ mod platform {
     /// resto de usuarios. Es lo mismo que escribe el instalador, asi que la
     /// version portatil queda igual de registrada que la instalada.
     fn register() -> Result<(), String> {
-        use winreg::enums::HKEY_CURRENT_USER;
         use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
         let exe = exe()?;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let classes = hkcu
@@ -230,22 +226,15 @@ mod platform {
             key.set_value("", &format!("Canción {}", ext.to_uppercase()))
                 .map_err(|e| e.to_string())?;
             let (icon, _) = key.create_subkey("DefaultIcon").map_err(|e| e.to_string())?;
-            icon.set_value("", &format!("\"{exe}\",0"))
-                .map_err(|e| e.to_string())?;
-            let (command, _) = key
-                .create_subkey(r"shell\open\command")
-                .map_err(|e| e.to_string())?;
+            icon.set_value("", &format!("\"{exe}\",0")).map_err(|e| e.to_string())?;
+            let (command, _) = key.create_subkey(r"shell\open\command").map_err(|e| e.to_string())?;
             command
                 .set_value("", &format!("\"{exe}\" \"%1\""))
                 .map_err(|e| e.to_string())?;
 
             // «Abrir con»: se AÑADE a la lista, no se reemplaza a nadie.
-            let (dot, _) = classes
-                .create_subkey(format!(".{ext}"))
-                .map_err(|e| e.to_string())?;
-            let (with, _) = dot
-                .create_subkey("OpenWithProgids")
-                .map_err(|e| e.to_string())?;
+            let (dot, _) = classes.create_subkey(format!(".{ext}")).map_err(|e| e.to_string())?;
+            let (with, _) = dot.create_subkey("OpenWithProgids").map_err(|e| e.to_string())?;
             with.set_value(&progid, &"").map_err(|e| e.to_string())?;
 
             // Y en las capacidades, que es de donde saca Windows la lista de
@@ -253,8 +242,7 @@ mod platform {
             let (caps, _) = hkcu
                 .create_subkey(format!(r"{CAPABILITIES}\FileAssociations"))
                 .map_err(|e| e.to_string())?;
-            caps.set_value(format!(".{ext}"), &progid)
-                .map_err(|e| e.to_string())?;
+            caps.set_value(format!(".{ext}"), &progid).map_err(|e| e.to_string())?;
             let _ = mime;
         }
 
@@ -275,12 +263,10 @@ mod platform {
 
     /// Lo que Windows abre hoy con los `.mp3`, segun la eleccion del usuario.
     fn chosen() -> Option<String> {
-        use winreg::enums::HKEY_CURRENT_USER;
         use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
         RegKey::predef(HKEY_CURRENT_USER)
-            .open_subkey(
-                r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.mp3\UserChoice",
-            )
+            .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.mp3\UserChoice")
             .ok()?
             .get_value::<String, _>("ProgId")
             .ok()
@@ -311,18 +297,13 @@ mod platform {
     }
 
     /// Abre Ajustes > Aplicaciones predeterminadas, ya filtrado por DanPlay.
+    /// `ShellExecuteW` sabe abrir las direcciones `ms-settings:` sin pasar
+    /// por `cmd`.
     fn open_settings() {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let _ = std::process::Command::new("cmd")
-            .args([
-                "/c",
-                "start",
-                "",
-                "ms-settings:defaultapps?registeredAppName=DanPlay",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn();
+        if let Err(e) = tauri_plugin_opener::open_url("ms-settings:defaultapps?registeredAppName=DanPlay", None::<&str>)
+        {
+            log::warn!("no pude abrir los ajustes de Windows: {e}");
+        }
     }
 }
 
@@ -351,14 +332,17 @@ mod platform {
 
 // ------------------------------------------------------------- para el JS
 
+/// Preguntar al sistema son unos cuantos procesos (`xdg-mime`) o el
+/// registro: fuera del hilo principal, que un comando normal congela la
+/// ventana mientras dura.
 #[tauri::command]
-pub fn default_player(app: AppHandle) -> Status {
-    platform::status(&app)
+pub async fn default_player(app: AppHandle) -> Result<Status, String> {
+    crate::reveal::off_the_main_thread(move || Ok(platform::status(&app))).await
 }
 
 #[tauri::command]
-pub fn make_default_player(app: AppHandle) -> Result<Status, String> {
-    platform::make_default(&app)
+pub async fn make_default_player(app: AppHandle) -> Result<Status, String> {
+    crate::reveal::off_the_main_thread(move || platform::make_default(&app)).await
 }
 
 #[cfg(test)]

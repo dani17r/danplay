@@ -13,21 +13,42 @@ mod media;
 mod metronome;
 mod open;
 mod player;
+mod protocol;
 mod queue;
 mod reveal;
 mod share;
+mod tools;
 mod transcode;
 mod tray;
 
-use std::io::SeekFrom;
-use tauri::{Emitter, Manager};
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use std::path::Path;
+use tauri::Manager;
 
-/// Cuanto se manda como mucho en una respuesta de audio.
-///
-/// Se lee EXACTAMENTE lo pedido: enviar menos de lo que promete `content-range`
-/// hacia que el cliente reintentara en bucle (y colgaba la maquina).
-const CHUNK: u64 = 1 << 21; // 2 MB
+/// Los avisos de la app, a un archivo en su carpeta de registros (y ademas a
+/// la consola en desarrollo). En Windows, una compilacion de verdad no tiene
+/// consola: todo lo que se escribia con `eprintln!` se perdia, y con ello la
+/// pista de cualquier fallo que alguien contara.
+fn logs() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
+    let mut builder = tauri_plugin_log::Builder::new()
+        .clear_targets()
+        .target(Target::new(TargetKind::LogDir {
+            file_name: Some("danplay".into()),
+        }))
+        .level(log::LevelFilter::Info)
+        // lo de las bibliotecas, solo si es un aviso de verdad
+        .level_for("tao", log::LevelFilter::Warn)
+        .level_for("wry", log::LevelFilter::Warn)
+        .level_for("zbus", log::LevelFilter::Warn)
+        .level_for("tracing", log::LevelFilter::Warn)
+        .max_file_size(1 << 20)
+        .rotation_strategy(RotationStrategy::KeepSome(3))
+        .timezone_strategy(TimezoneStrategy::UseLocal);
+    if cfg!(debug_assertions) {
+        builder = builder.target(Target::new(TargetKind::Stderr));
+    }
+    builder.build()
+}
 
 fn main() {
     // OJO: el nucleo NO se arranca aqui. Se arranca dentro de `setup`, que
@@ -42,23 +63,25 @@ fn main() {
     // buscar, las caratulas y la lista dejaban de funcionar hasta reiniciar.
 
     // `mut` solo se usa fuera de Linux, donde se añade el plugin de posicion
-    #[allow(unused_mut)]
+    #[cfg_attr(target_os = "linux", allow(unused_mut))]
     let mut builder = tauri::Builder::default()
         // El primero de todos, como pide su documentacion: asi corta el
         // arranque antes de que ningun otro plugin toque nada. Sin esto, una
         // segunda instancia borraba el socket de la primera y dejaba dos
         // nucleos sobre la misma base de datos.
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             // Abrir una cancion con DanPlay ya abierto llega por aqui: el
             // sistema arranca un segundo proceso, este le pasa los argumentos
-            // al primero y se va.
-            let files = open::files_in(args.into_iter().skip(1));
+            // al primero y se va. Una ruta relativa es relativa a donde
+            // estaba ese segundo proceso, no a donde esta este.
+            let files = open::files_in(args.into_iter().skip(1).map(Into::into), Some(Path::new(&cwd)));
             if files.is_empty() {
                 tray::show_main(app);
             } else {
                 open::play(app, files);
             }
         }))
+        .plugin(logs())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(
@@ -73,136 +96,34 @@ fn main() {
         builder = builder.plugin(tauri_plugin_positioner::init());
     }
 
-    builder
+    let app = builder
         .manage(tray::Tray::new())
-        .setup(move |app| {
-            let handle = app.handle().clone();
-
-            // Aqui ya no hay duda de que somos la instancia buena: el plugin
-            // de instancia unica corta el arranque antes de llegar a `setup`.
-            let core = core::Core::start();
-            let failure = core
-                .failure
-                .lock()
-                .map(|f| f.clone())
-                .unwrap_or_default();
-            let address = core.address.clone();
-            app.manage(core);
-
-            // La cola vive en Rust: con la ventana escondida, los
-            // temporizadores del WebView se ralentizan y la musica se quedaba
-            // parada entre canciones.
-            app.manage(queue::Playback::new(handle.clone(), address));
-            tray::install(&handle);
-            tray::watch_popup(&handle);
-            media::install(&handle);
-            core::watch(handle.clone());
-
-            // en segundo plano para no retrasar la ventana
-            std::thread::spawn(dependencies::ensure);
-
-            // «Abrir con DanPlay» sobre la aplicacion cerrada: las canciones
-            // vienen en la linea de ordenes. `play` ya espera al nucleo por su
-            // cuenta, asi que esto no retrasa el arranque.
-            let files = open::files_in(std::env::args().skip(1));
-            if files.is_empty() {
-                // Sin canciones que abrir, se vuelve a donde se dejo: la
-                // misma lista y la misma cancion, pero en silencio. Si se
-                // abrio CON una cancion no se restaura nada, que para eso la
-                // has abierto.
-                if let Some(session) = queue::last_session(&handle) {
-                    app.state::<queue::Playback>().send(queue::Command::Restore(session));
-                }
-            } else {
-                open::play(&handle, files);
-            }
-
-            if !failure.is_empty() {
-                use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-                let text = failure.clone();
-                let dialog = handle.clone();
-                std::thread::spawn(move || {
-                    dialog
-                        .dialog()
-                        .message(text)
-                        .title("DanPlay")
-                        .kind(MessageDialogKind::Error)
-                        .blocking_show();
-                });
-            }
-
-            // La ventana de proyeccion: cerrarla la esconde, que si se
-            // destruyera no habria forma de volver a abrirla sin reiniciar.
-            if let Some(projection) = app.get_webview_window(tray::PROJECTION) {
-                let handle = handle.clone();
-                projection.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        tray::hide_projection(handle.clone());
-                    }
-                });
-            }
-
-            // Cerrar la ventana la esconde; se sale desde la bandeja.
-            if let Some(main) = app.get_webview_window("main") {
-                let handle = handle.clone();
-                main.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // Sin bandeja se cierra de verdad: dejar la aplicacion
-                        // viva y sin nada visible seria dejarla sin forma de
-                        // volver a verla ni de salir.
-                        if !tray::available(&handle) {
-                            return;
-                        }
-                        api.prevent_close();
-                        if let Some(window) = handle.get_webview_window("main") {
-                            let _ = window.hide();
-                        }
-                        tray::hide_popup(&handle);
-                        // en macOS, esconderla no la quita del Dock
-                        tray::dock(&handle, false);
-                        first_time_notice(&handle);
-                    }
-                });
-            }
+        .setup(|app| {
+            setup(app);
             Ok(())
         })
-        // danplay://audio/<id>  y  danplay://cover/<id>
-        .register_asynchronous_uri_scheme_protocol("danplay", move |ctx, req, responder| {
-            let core = ctx.app_handle().state::<core::Core>();
-            let address = core.address.clone();
-            let route = req.uri().path().trim_start_matches('/').to_string();
-            let query = req.uri().query().unwrap_or("").to_string();
-            let range_header = req
-                .headers()
-                .get("range")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string());
-
-            tauri::async_runtime::spawn(async move {
-                serve(address, route, query, range_header, responder).await;
-            });
-        })
+        // danplay://cover/<id>
+        .register_asynchronous_uri_scheme_protocol("danplay", protocol::handle)
         .invoke_handler(tauri::generate_handler![
             core::api,
             core::core_ready,
-            queue::set_queue,
-            queue::queue_next,
-            queue::queue_previous,
-            queue::queue_jump,
-            queue::set_repeat,
-            queue::set_shuffle,
-            queue::toggle_pause,
-            queue::stop,
-            queue::seek,
-            queue::set_volume,
-            queue::set_speed,
-            queue::set_loop,
-            queue::set_pitch,
-            queue::set_metronome,
-            queue::analyze_beats,
-            queue::playback_state,
-            queue::queue_items,
+            queue::commands::set_queue,
+            queue::commands::queue_next,
+            queue::commands::queue_previous,
+            queue::commands::queue_jump,
+            queue::commands::set_repeat,
+            queue::commands::set_shuffle,
+            queue::commands::toggle_pause,
+            queue::commands::stop,
+            queue::commands::seek,
+            queue::commands::set_volume,
+            queue::commands::set_speed,
+            queue::commands::set_loop,
+            queue::commands::set_pitch,
+            queue::commands::set_metronome,
+            queue::commands::analyze_beats,
+            queue::commands::playback_state,
+            queue::commands::queue_items,
             tray::show_window,
             tray::hide_mini,
             tray::toggle_mini,
@@ -218,34 +139,126 @@ fn main() {
             share::share_targets,
             share::send_to_telegram,
         ])
-        .build(tauri::generate_context!())
-        .expect("no se pudo arrancar DanPlay")
-        .run(|app, event| match event {
-            // `code: None` es «se cerro la ultima ventana». Salir desde la
-            // bandeja llega con `Some(0)` y ese si termina.
-            tauri::RunEvent::ExitRequested { api, code: None, .. } if tray::available(app) => {
-                api.prevent_exit();
+        .build(tauri::generate_context!());
+    let app = match app {
+        Ok(app) => app,
+        Err(e) => {
+            log::error!("no se pudo arrancar DanPlay: {e}");
+            std::process::exit(1);
+        }
+    };
+    app.run(|app, event| match event {
+        // `code: None` es «se cerro la ultima ventana». Salir desde la
+        // bandeja llega con `Some(0)` y ese si termina.
+        tauri::RunEvent::ExitRequested { api, code: None, .. } if tray::available(app) => {
+            api.prevent_exit();
+        }
+        // Solo aqui se mata el nucleo. Antes tambien se hacia al pedir la
+        // salida, y con `prevent_exit` eso dejaria la aplicacion viva pero
+        // sin nucleo.
+        tauri::RunEvent::Exit => {
+            if let Some(core) = app.try_state::<core::Core>() {
+                core.stop();
             }
-            // Solo aqui se mata el nucleo. Antes tambien se hacia al pedir la
-            // salida, y con `prevent_exit` eso dejaria la aplicacion viva pero
-            // sin nucleo.
-            tauri::RunEvent::Exit => {
-                if let Some(core) = app.try_state::<core::Core>() {
-                    core.stop();
-                }
-            }
-            // macOS: pulsar el icono del Dock con la ventana escondida.
-            #[cfg(target_os = "macos")]
-            tauri::RunEvent::Reopen {
-                has_visible_windows: false,
-                ..
-            } => tray::show_main(app),
-            _ => {}
+        }
+        // macOS: pulsar el icono del Dock con la ventana escondida.
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } => tray::show_main(app),
+        _ => {}
+    });
+}
+
+fn setup(app: &tauri::App) {
+    let handle = app.handle().clone();
+
+    // Aqui ya no hay duda de que somos la instancia buena: el plugin de
+    // instancia unica corta el arranque antes de llegar a `setup`.
+    let core = core::Core::start();
+    let failure = core.failure.lock().map(|f| f.clone()).unwrap_or_default();
+    let address = core.address.clone();
+    app.manage(core);
+
+    // La cola vive en Rust: con la ventana escondida, los temporizadores del
+    // WebView se ralentizan y la musica se quedaba parada entre canciones.
+    app.manage(queue::Playback::new(handle.clone(), address));
+    tray::install(&handle);
+    tray::watch_popup(&handle);
+    media::install(&handle);
+    core::watch(handle.clone());
+
+    // en segundo plano para no retrasar la ventana
+    std::thread::spawn(dependencies::ensure);
+
+    // «Abrir con DanPlay» sobre la aplicacion cerrada: las canciones vienen
+    // en la linea de ordenes. `play` ya espera al nucleo por su cuenta, asi
+    // que esto no retrasa el arranque. Tal cual las da el sistema: un nombre
+    // que no sea UTF-8 no puede impedir que la app arranque.
+    let files = open::files_in(std::env::args_os().skip(1), None);
+    if files.is_empty() {
+        // Sin canciones que abrir, se vuelve a donde se dejo: la misma lista
+        // y la misma cancion, pero en silencio. Si se abrio CON una cancion
+        // no se restaura nada, que para eso la has abierto.
+        if let Some(session) = queue::last_session(&handle) {
+            app.state::<queue::Playback>().send(queue::Command::Restore(session));
+        }
+    } else {
+        open::play(&handle, files);
+    }
+
+    if !failure.is_empty() {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+        let dialog = handle.clone();
+        std::thread::spawn(move || {
+            dialog
+                .dialog()
+                .message(failure)
+                .title("DanPlay")
+                .kind(MessageDialogKind::Error)
+                .blocking_show();
         });
+    }
+
+    // La ventana de proyeccion: cerrarla la esconde, que si se destruyera no
+    // habria forma de volver a abrirla sin reiniciar.
+    if let Some(projection) = app.get_webview_window(tray::PROJECTION) {
+        let handle = handle.clone();
+        projection.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                tray::hide_projection(handle.clone());
+            }
+        });
+    }
+
+    // Cerrar la ventana la esconde; se sale desde la bandeja.
+    if let Some(main) = app.get_webview_window("main") {
+        main.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Sin bandeja se cierra de verdad: dejar la aplicacion viva y
+                // sin nada visible seria dejarla sin forma de volver a verla
+                // ni de salir.
+                if !tray::available(&handle) {
+                    return;
+                }
+                api.prevent_close();
+                if let Some(window) = handle.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+                tray::hide_popup(&handle);
+                // en macOS, esconderla no la quita del Dock
+                tray::dock(&handle, false);
+                first_time_notice(&handle);
+            }
+        });
+    }
 }
 
 /// «DanPlay sigue en la bandeja». Una sola vez en la vida, no en cada cierre.
 fn first_time_notice(app: &tauri::AppHandle) {
+    use tauri_plugin_notification::NotificationExt;
     let Ok(dir) = app.path().app_config_dir() else {
         return;
     };
@@ -255,7 +268,6 @@ fn first_time_notice(app: &tauri::AppHandle) {
     }
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(&mark, b"");
-    use tauri_plugin_notification::NotificationExt;
     let _ = app
         .notification()
         .builder()
@@ -264,150 +276,44 @@ fn first_time_notice(app: &tauri::AppHandle) {
         .show();
 }
 
-// ------------------------------------------------------------ el protocolo
-
-fn not_found(responder: tauri::UriSchemeResponder) {
-    responder.respond(
-        tauri::http::Response::builder()
-            .status(404)
-            .body(Vec::new())
-            .unwrap_or_default(),
-    );
-}
-
-/// Sirve `danplay://audio/<id>` y `danplay://cover/<id>`.
-///
-/// El audio se lee del disco directamente, sin pasar por Python.
-async fn serve(
-    address: core::Address,
-    route: String,
-    query: String,
-    range_header: Option<String>,
-    responder: tauri::UriSchemeResponder,
-) {
-    let parts: Vec<&str> = route.split('/').collect();
-    if parts.len() < 2 {
-        return not_found(responder);
-    }
-    let (kind, id) = (parts[0], parts[1]);
-    // El id se pega dentro de la ruta que se le pide al nucleo, asi que tiene
-    // que ser un numero y nada mas: si no, cualquier cosa con barras se
-    // colaria como trozos de ruta.
-    if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) {
-        return not_found(responder);
-    }
-
-    // OJO: tiene que coincidir EXACTAMENTE con lo que manda api.js
-    // (`coverUrl` -> /cover/<id>). Se quedo en "portada" al pasar el codigo a
-    // ingles y las caratulas dejaron de verse: la peticion caia en la rama de
-    // audio y le metia el mp3 a un <img>.
-    if kind == "cover" {
-        // el tamaño se reenvia tal cual: el nucleo cachea las miniaturas
-        let suffix = if query.is_empty() {
-            String::new()
-        } else {
-            format!("?{query}")
-        };
-        let path = format!("/api/song/{id}/cover{suffix}");
-        match core::request(&address, "GET", &path, None).await {
-            Ok((200, bytes, kind)) => responder.respond(
-                tauri::http::Response::builder()
-                    .status(200)
-                    .header("content-type", kind)
-                    // La caratula de una cancion no cambia sola; si se cambia,
-                    // el nucleo devuelve otra imagen bajo la misma direccion,
-                    // asi que la cache es por sesion, no eterna.
-                    .header("cache-control", "private, max-age=300")
-                    .body(bytes)
-                    .unwrap_or_default(),
-            ),
-            _ => not_found(responder),
+#[cfg(test)]
+mod tests {
+    /// Con los permisos por ventana activos, un comando que no este en
+    /// `build.rs` no lo puede llamar nadie, y uno que no este en el grupo de
+    /// la ventana principal, ella tampoco. Se comprueba aqui en vez de
+    /// descubrirlo con la app abierta.
+    #[test]
+    fn every_command_has_its_permission() {
+        let main = include_str!("main.rs");
+        let build = include_str!("../build.rs");
+        let sets = include_str!("../permissions/ventanas.toml");
+        let handler = main
+            .split("generate_handler![")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("main.rs tiene su generate_handler!");
+        let commands: Vec<&str> = handler
+            .split(',')
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .filter_map(|c| c.rsplit("::").next())
+            .collect();
+        assert!(commands.len() > 30, "se leyeron {} comandos", commands.len());
+        for command in &commands {
+            assert!(
+                build.contains(&format!("\"{command}\",")),
+                "{command} no esta en build.rs"
+            );
+            let permission = format!("\"allow-{}\"", command.replace('_', "-"));
+            assert!(
+                sets.contains(&permission),
+                "{command} no esta en permissions/ventanas.toml"
+            );
         }
-        return;
+        let declared = build
+            .lines()
+            .filter(|l| l.trim_start().starts_with('"') && l.trim_end().ends_with("\","))
+            .count();
+        assert_eq!(declared, commands.len(), "build.rs declara comandos que no existen");
     }
-
-    let Some(info) = core::get_json(&address, &format!("/api/song/{id}/path")).await else {
-        return not_found(responder);
-    };
-    let Some(path) = info.get("path").and_then(|p| p.as_str()) else {
-        return not_found(responder);
-    };
-    // Cada formato con su tipo: un .flac anunciado como audio/mpeg lo rechaza
-    // el propio WebView.
-    let mime = mime_guess::from_path(path)
-        .first_raw()
-        .unwrap_or("application/octet-stream")
-        .to_string();
-
-    let Ok(mut file) = tokio::fs::File::open(path).await else {
-        return not_found(responder);
-    };
-    let total = file.metadata().await.map(|m| m.len()).unwrap_or(0);
-
-    // Siempre por trozos, tambien sin cabecera `Range`: un archivo entero en
-    // memoria son cientos de megas si alguien pide un .wav largo.
-    let (from, to, partial) = match range_header
-        .as_deref()
-        .and_then(|s| s.strip_prefix("bytes="))
-    {
-        Some(spec) => {
-            let last = total.saturating_sub(1);
-            let mut it = spec.splitn(2, '-');
-            let start = it.next().unwrap_or("0").trim();
-            let end = it.next().unwrap_or("").trim();
-            let (from, to) = if start.is_empty() {
-                // "bytes=-500": los ultimos 500 bytes
-                let want: u64 = end.parse().unwrap_or(0);
-                (total.saturating_sub(want), last)
-            } else {
-                let from: u64 = match start.parse() {
-                    Ok(v) => v,
-                    Err(_) => return not_found(responder),
-                };
-                let to = end.parse::<u64>().unwrap_or(last);
-                (from, to)
-            };
-            if from > last {
-                return responder.respond(
-                    tauri::http::Response::builder()
-                        .status(416)
-                        .header("content-range", format!("bytes */{total}"))
-                        .body(Vec::new())
-                        .unwrap_or_default(),
-                );
-            }
-            (from, to.min(last).min(from.saturating_add(CHUNK - 1)), true)
-        }
-        None => (0, total.saturating_sub(1).min(CHUNK - 1), false),
-    };
-
-    let length = to.saturating_sub(from) + 1;
-    if file.seek(SeekFrom::Start(from)).await.is_err() {
-        return not_found(responder);
-    }
-    let mut buffer = vec![0u8; length as usize];
-    if file.read_exact(&mut buffer).await.is_err() {
-        return not_found(responder);
-    }
-
-    let builder = tauri::http::Response::builder()
-        .header("content-type", mime)
-        .header("accept-ranges", "bytes")
-        .header("content-length", length.to_string());
-    let response = if partial || length < total {
-        builder
-            .status(206)
-            .header("content-range", format!("bytes {from}-{to}/{total}"))
-    } else {
-        builder.status(200)
-    };
-    responder.respond(response.body(buffer).unwrap_or_default());
-}
-
-/// Avisa a la interfaz de que el nucleo cambio de estado. Lo usa `core::watch`.
-pub fn notify_core(app: &tauri::AppHandle, ready: bool, message: &str) {
-    let _ = app.emit(
-        core::READY,
-        serde_json::json!({"ready": ready, "message": message}),
-    );
 }

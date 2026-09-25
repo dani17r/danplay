@@ -1,154 +1,69 @@
-//! «Abrir la carpeta»: enseñar un archivo en el explorador del sistema.
+//! «Abrir la carpeta», abrir un enlace o la hoja para el atril: pasarle algo
+//! al sistema para que lo abra con lo suyo.
 //!
-//! Cada sistema tiene su forma de decir «abre la carpeta y señala este
-//! archivo». En Linux es un metodo D-Bus que entienden Dolphin, Nautilus,
-//! Thunar y Nemo (`org.freedesktop.FileManager1.ShowItems`); si no hay quien
-//! lo atienda, se abre la carpeta a secas con `xdg-open`. En Windows es
-//! `explorer /select,` y en macOS `open -R`.
+//! Todo va por `tauri-plugin-opener`, que en cada sistema usa lo que toca:
+//! en Windows, `ShellExecuteW` y `SHOpenFolderAndSelectItems`; en Linux,
+//! `xdg-open` y el metodo D-Bus que entienden Dolphin, Nautilus, Thunar y
+//! Nemo (`org.freedesktop.FileManager1.ShowItems`); en macOS, `open` y el
+//! Finder. Antes, en Windows, se lanzaba `cmd /C start "" <lo que fuera>`, y
+//! cmd interpreta `&`, `|`, `^` y `%` aunque vayan dentro de una ruta: una
+//! URL o el nombre de una lista con `&` (las listas las puede crear el
+//! asistente) ejecutaba lo que viniera detras. Y `explorer /select,` con
+//! espacios en la ruta abria la carpeta sin señalar el archivo.
 //!
-//! Solo se abre lo que existe: la ruta viene de la interfaz, pero no hay por
-//! que pasarle al sistema una cadena cualquiera.
+//! Solo se abre lo que existe y lo que tiene sentido abrir: la ruta viene de
+//! la interfaz, pero no hay por que pasarle al sistema una cadena cualquiera.
+//!
+//! Los comandos son asincronos: uno normal corre en el hilo principal, y
+//! esperar a D-Bus o al sistema congelaba la ventana.
 use std::path::Path;
-use std::process::Command;
 
-/// Enseña `path` en el explorador de archivos. Devuelve el motivo si no pudo.
+/// Enseña `path` en el explorador de archivos, señalandolo. Si es una
+/// carpeta, la abre. Devuelve el motivo si no pudo.
 pub fn reveal(path: &str) -> Result<(), String> {
     let target = Path::new(path);
     if !target.exists() {
         return Err("Ese archivo ya no esta donde estaba.".into());
     }
-    let folder = if target.is_dir() {
-        target.to_path_buf()
-    } else {
-        target
-            .parent()
-            .map(|p| p.to_path_buf())
-            .ok_or_else(|| "No se de que carpeta es.".to_string())?
+    if target.is_dir() {
+        return tauri_plugin_opener::open_path(target, None::<&str>)
+            .map_err(|e| format!("No pude abrir la carpeta: {e}"));
+    }
+    let Some(folder) = target.parent() else {
+        return Err("No se de que carpeta es.".into());
     };
-
-    #[cfg(target_os = "linux")]
-    {
-        // Primero señalando el archivo, que es lo util; si nadie contesta en
-        // D-Bus (una sesion sin explorador que lo hable), la carpeta a secas.
-        let uri = format!("file://{}", percent_encode(&target.to_string_lossy()));
-        let shown = Command::new("dbus-send")
-            .args([
-                "--session",
-                "--print-reply",
-                "--reply-timeout=3000",
-                "--dest=org.freedesktop.FileManager1",
-                "/org/freedesktop/FileManager1",
-                "org.freedesktop.FileManager1.ShowItems",
-            ])
-            .arg(format!("array:string:{uri}"))
-            .arg("string:")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if shown {
-            return Ok(());
-        }
-        return Command::new("xdg-open")
-            .arg(&folder)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| format!("No pude abrir la carpeta: {e}"));
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let arg = if target.is_dir() {
-            folder.to_string_lossy().into_owned()
-        } else {
-            format!("/select,{}", target.to_string_lossy())
-        };
-        return Command::new("explorer")
-            .arg(arg)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| format!("No pude abrir la carpeta: {e}"));
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let mut command = Command::new("open");
-        if target.is_dir() {
-            command.arg(&folder);
-        } else {
-            command.arg("-R").arg(target);
-        }
-        return command
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| format!("No pude abrir la carpeta: {e}"));
-    }
-    #[allow(unreachable_code)]
-    Err("Este sistema no sabe abrir carpetas desde aqui.".into())
+    // Primero señalando el archivo, que es lo util; si el sistema no sabe
+    // (en Linux, una sesion sin explorador que hable FileManager1), la
+    // carpeta a secas.
+    tauri_plugin_opener::reveal_item_in_dir(target)
+        .or_else(|e| {
+            log::info!("no se pudo señalar {path} ({e}); se abre la carpeta");
+            tauri_plugin_opener::open_path(folder, None::<&str>)
+        })
+        .map_err(|e| format!("No pude abrir la carpeta: {e}"))
 }
 
-/// Lo justo para una URI `file://`: se escapa todo lo que no sea seguro,
-/// byte a byte, dejando las barras.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-pub fn percent_encode(path: &str) -> String {
-    let mut out = String::with_capacity(path.len());
-    for b in path.bytes() {
-        let keep = b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.' | b'~');
-        if keep {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
-
-#[tauri::command]
-pub fn reveal_in_folder(path: String) -> Result<(), String> {
-    reveal(&path)
-}
-
-/// Abre una pagina web en el navegador del sistema. Solo http(s): la URL
-/// viene de la interfaz (los enlaces «consigue tu clave» del catalogo de IA),
-/// pero no hay por que pasarle al sistema `file://` ni esquemas raros.
-pub fn open_url(url: &str) -> Result<(), String> {
+/// Solo http(s): la URL viene de la interfaz (los enlaces «consigue tu
+/// clave» del catalogo de IA), pero no hay por que pasarle al sistema
+/// `file://` ni esquemas raros.
+fn web_address(url: &str) -> Result<&str, String> {
     let ok = (url.starts_with("https://") || url.starts_with("http://"))
         && !url.chars().any(|c| c.is_whitespace() || c.is_control());
-    if !ok {
-        return Err("Solo se abren direcciones http(s).".into());
+    if ok {
+        Ok(url)
+    } else {
+        Err("Solo se abren direcciones http(s).".into())
     }
-    #[cfg(target_os = "linux")]
-    let mut command = {
-        let mut c = Command::new("xdg-open");
-        c.arg(url);
-        c
-    };
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        // `start` es interno de cmd; el primer argumento entre comillas es
-        // el titulo de la ventana, por eso va vacio
-        let mut c = Command::new("cmd");
-        c.args(["/C", "start", "", url]);
-        c
-    };
-    #[cfg(target_os = "macos")]
-    let mut command = {
-        let mut c = Command::new("open");
-        c.arg(url);
-        c
-    };
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("No pude abrir el navegador: {e}"))
 }
 
-#[tauri::command]
-pub fn open_in_browser(url: String) -> Result<(), String> {
-    open_url(&url)
+/// Abre una pagina web en el navegador del sistema.
+pub fn open_url(url: &str) -> Result<(), String> {
+    let url = web_address(url)?;
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| format!("No pude abrir el navegador: {e}"))
 }
 
-/// Abre un archivo local con el programa del sistema: solo un `.html` que
-/// exista (la hoja para el atril), para leerlo e imprimirlo desde el
-/// navegador. Nada de ejecutables ni de lo que sea.
-pub fn open_local_html(path: &str) -> Result<(), String> {
+/// Un `.html` que exista (la hoja para el atril), y nada mas.
+fn local_html(path: &str) -> Result<&Path, String> {
     let target = Path::new(path);
     let is_html = target
         .extension()
@@ -157,33 +72,39 @@ pub fn open_local_html(path: &str) -> Result<(), String> {
     if !is_html || !target.is_file() {
         return Err("Solo se abren archivos .html que existan.".into());
     }
-    #[cfg(target_os = "linux")]
-    let mut command = {
-        let mut c = Command::new("xdg-open");
-        c.arg(target);
-        c
-    };
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut c = Command::new("cmd");
-        c.args(["/C", "start", ""]).arg(target);
-        c
-    };
-    #[cfg(target_os = "macos")]
-    let mut command = {
-        let mut c = Command::new("open");
-        c.arg(target);
-        c
-    };
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("No pude abrirlo: {e}"))
+    Ok(target)
+}
+
+/// Abre un archivo local con el programa del sistema: solo un `.html` que
+/// exista, para leerlo e imprimirlo desde el navegador. Nada de
+/// ejecutables ni de lo que sea.
+pub fn open_local_html(path: &str) -> Result<(), String> {
+    let target = local_html(path)?;
+    tauri_plugin_opener::open_path(target, None::<&str>).map_err(|e| format!("No pude abrirlo: {e}"))
+}
+
+/// Corre `work` fuera del hilo principal y espera su respuesta.
+pub async fn off_the_main_thread<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| format!("se cayo por el camino: {e}"))?
 }
 
 #[tauri::command]
-pub fn open_html(path: String) -> Result<(), String> {
-    open_local_html(&path)
+pub async fn reveal_in_folder(path: String) -> Result<(), String> {
+    off_the_main_thread(move || reveal(&path)).await
+}
+
+#[tauri::command]
+pub async fn open_in_browser(url: String) -> Result<(), String> {
+    off_the_main_thread(move || open_url(&url)).await
+}
+
+#[tauri::command]
+pub async fn open_html(path: String) -> Result<(), String> {
+    off_the_main_thread(move || open_local_html(&path)).await
 }
 
 #[cfg(test)]
@@ -204,20 +125,28 @@ mod tests {
         std::fs::write(&bad, "echo no").unwrap();
         assert!(open_local_html(bad.to_str().unwrap()).is_err(), "un .sh no se abre");
         let _ = std::fs::remove_file(&bad);
+        let good = dir.join("danplay-prueba-atril.HTML");
+        std::fs::write(&good, "<p>hoja</p>").unwrap();
+        assert!(local_html(good.to_str().unwrap()).is_ok(), "la hoja si");
+        let _ = std::fs::remove_file(&good);
     }
 
     #[test]
     fn only_web_addresses_reach_the_browser() {
-        for bad in ["file:///etc/passwd", "javascript:alert(1)", "ftp://x", "https://a b", ""] {
+        for bad in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "ftp://x",
+            "https://a b",
+            "",
+        ] {
             let err = open_url(bad).unwrap_err();
             assert!(err.contains("http"), "{bad}: {err}");
         }
-    }
-
-    #[test]
-    fn the_uri_keeps_slashes_and_escapes_the_rest() {
-        assert_eq!(percent_encode("/musica/Barak - Mi Gozo.mp3"), "/musica/Barak%20-%20Mi%20Gozo.mp3");
-        assert_eq!(percent_encode("/a/ñ"), "/a/%C3%B1");
-        assert_eq!(percent_encode("/a/b#c?d"), "/a/b%23c%3Fd");
+        // un & en la direccion ya no es un peligro (no pasa por cmd): se deja
+        assert_eq!(
+            web_address("https://ejemplo.com/?a=1&b=2"),
+            Ok("https://ejemplo.com/?a=1&b=2")
+        );
     }
 }

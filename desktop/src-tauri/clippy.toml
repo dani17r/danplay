@@ -1,0 +1,4 @@
+# En las pruebas, un unwrap que falla es la prueba fallando: es lo que se quiere.
+allow-unwrap-in-tests = true
+# y las que se omiten (sin salida de audio) lo dicen por la consola
+allow-print-in-tests = true

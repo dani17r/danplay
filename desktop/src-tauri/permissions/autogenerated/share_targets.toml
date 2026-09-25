@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-share-targets"
+description = "Enables the share_targets command without any pre-configured scope."
+commands.allow = ["share_targets"]
+
+[[permission]]
+identifier = "deny-share-targets"
+description = "Denies the share_targets command without any pre-configured scope."
+commands.deny = ["share_targets"]

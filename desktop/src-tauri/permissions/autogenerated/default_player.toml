@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-default-player"
+description = "Enables the default_player command without any pre-configured scope."
+commands.allow = ["default_player"]
+
+[[permission]]
+identifier = "deny-default-player"
+description = "Denies the default_player command without any pre-configured scope."
+commands.deny = ["default_player"]

@@ -1,0 +1,55 @@
+# Los dos crates de Rust de DanPlay, en un solo workspace:
+#
+#   core/               el modulo PyO3 del nucleo (hashes en paralelo, forma de onda)
+#   desktop/src-tauri/  la app de escritorio (Tauri): cola, audio, bandeja, MPRIS
+#
+# Un solo Cargo.lock (las dependencias que comparten van a la misma version),
+# una sola carpeta target/ en la raiz, `cargo test --workspace` para todo, y la
+# version de DanPlay en un solo sitio: la de aqui abajo, que heredan los dos
+# crates, que Tauri usa para la app y que `scripts/subir-version.sh` cambia.
+[workspace]
+members = ["core", "desktop/src-tauri"]
+resolver = "3"
+
+[workspace.package]
+version = "1.12.1"
+edition = "2024"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Ruido aqui: el audio y los hashes convierten todo el rato entre muestras,
+# tamaños, segundos y frecuencias, a proposito y sabiendo el rango de cada cosa.
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+# Los comandos de Tauri y las funciones de PyO3 reciben por valor lo que
+# deserializa (o convierte) su marco.
+needless_pass_by_value = "allow"
+# Los errores son `String` en castellano y ya dicen lo que pasa.
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+# Los comentarios hablan de MPRIS, PyO3 o D-Bus sin comillas de codigo.
+doc_markdown = "allow"
+unwrap_used = "warn"
+undocumented_unsafe_blocks = "warn"
+print_stderr = "warn"
+
+# Los perfiles solo cuentan en la raiz de un workspace (en los crates se
+# ignoran). Los dos crates se compilaban ya asi; la app es la que arranca en
+# frio cada vez: menos binario que cargar y codigo mas rapido.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+# Sin `panic = "abort"`: el hilo de audio decodifica archivos de fuera, y un
+# mp3 corrupto que hiciera panic tumbaba la aplicacion entera. Desenrollando,
+# el hilo se cae solo y se puede levantar otra vez. (Y PyO3 convierte un
+# panic en una excepcion de Python, cosa que con abort no podria.)
+panic = "unwind"

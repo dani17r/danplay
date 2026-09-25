@@ -10,8 +10,15 @@
 //! de forma fiable; el «1» acierta la mayoria de las veces y se puede
 //! corregir a mano desde el metronomo. Una cancion en directo con el tempo
 //! bailando se sigue peor: la rejilla es la que es, no un modelo.
-use rustfft::{num_complex::Complex, FftPlanner};
+//!
+//! La cancion se recorre por bloques: cada trama se calcula en cuanto llega
+//! el audio que necesita y el audio ya usado se tira. Antes se decodificaba
+//! entera a memoria, unos 320 MB por hora de audio; lo que se guarda ahora
+//! son los rasgos de cada trama, unos 9 MB por hora.
+use crate::{tools, transcode};
+use rustfft::{Fft, FftPlanner, num_complex::Complex};
 use serde::Serialize;
+use std::path::Path;
 use std::sync::Arc;
 
 /// Frecuencia a la que se analiza: para el pulso sobra, y son la mitad de
@@ -95,7 +102,7 @@ impl BeatGrid {
         for (i, &b) in self.beats.iter().enumerate() {
             beats.push(b);
             let next = self.beats.get(i + 1).copied().unwrap_or(b + self.period());
-            beats.push((b + next) / 2.0);
+            beats.push(f64::midpoint(b, next));
         }
         let mut g = self.clone();
         g.bpm *= 2.0;
@@ -129,76 +136,150 @@ struct Frames {
     chroma: Vec<[f32; 12]>,
 }
 
-fn frames(mono: &[f32]) -> Frames {
-    let n = WINDOW;
-    let half = n / 2;
-    // centrado: la trama i cubre [i*hop - n/2, i*hop + n/2), asi que su
-    // instante es i*hop, como en librosa
-    let total = (mono.len() + HOP - 1) / HOP;
-    let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(n);
-    let hann: Vec<f32> = (0..n)
-        .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / n as f32).cos())
-        .collect();
-    let bin_hz = RATE as f32 / n as f32;
-    // que clase de altura es cada bin (60 Hz–2 kHz), para el croma
-    let classes: Vec<Option<usize>> = (0..half)
-        .map(|k| {
-            let f = k as f32 * bin_hz;
-            if !(60.0..=2000.0).contains(&f) {
-                return None;
-            }
-            let semis = 12.0 * (f / 440.0).log2();
-            Some((semis.round() as i64).rem_euclid(12) as usize)
-        })
-        .collect();
-    let lo_k = (30.0 / bin_hz).ceil() as usize;
-    let bass_k = (160.0 / bin_hz).round() as usize;
-    let hi_k = ((8000.0 / bin_hz).round() as usize).min(half);
+/// Cuanto audio ya usado se deja acumular antes de tirarlo de golpe: tirarlo
+/// muestra a muestra seria mover el resto cada vez.
+const DISCARD_EVERY: usize = 1 << 16;
 
-    let mut buf: Vec<Complex<f32>> = vec![Complex::new(0.0, 0.0); n];
-    let mut prev: Vec<f32> = vec![0.0; half];
-    let mut cur: Vec<f32> = vec![0.0; half];
-    let mut out = Frames {
-        onset: Vec::with_capacity(total),
-        bass: Vec::with_capacity(total),
-        chroma: Vec::with_capacity(total),
-    };
-    for i in 0..total {
-        let center = i * HOP;
-        for (j, slot) in buf.iter_mut().enumerate() {
-            let idx = center as isize + j as isize - half as isize;
-            let s = if idx >= 0 && (idx as usize) < mono.len() { mono[idx as usize] } else { 0.0 };
-            *slot = Complex::new(s * hann[j], 0.0);
+/// Las tramas, calculadas segun va llegando el audio.
+///
+/// La trama `i` esta centrada en la muestra `i*HOP` y cubre
+/// `[i*HOP - WINDOW/2, i*HOP + WINDOW/2)`, como en librosa; fuera de la
+/// cancion cuenta como silencio. Se calcula en cuanto ha llegado su ultima
+/// muestra, y lo que ya no le hace falta a ninguna trama se tira. Da
+/// exactamente lo mismo que calcularlas con la cancion entera en memoria.
+struct FrameAnalyzer {
+    fft: Arc<dyn Fft<f32>>,
+    hann: Vec<f32>,
+    /// Que clase de altura es cada bin (60 Hz–2 kHz), para el croma.
+    classes: Vec<Option<usize>>,
+    lo_k: usize,
+    bass_k: usize,
+    hi_k: usize,
+    buf: Vec<Complex<f32>>,
+    prev: Vec<f32>,
+    cur: Vec<f32>,
+    /// El audio que aun puede hacer falta, desde la muestra `base`.
+    window: Vec<f32>,
+    base: usize,
+    /// Muestras recibidas en total.
+    received: usize,
+    /// La proxima trama por calcular.
+    next: usize,
+    out: Frames,
+}
+
+impl FrameAnalyzer {
+    fn new() -> Self {
+        let n = WINDOW;
+        let half = n / 2;
+        let fft = FftPlanner::<f32>::new().plan_fft_forward(n);
+        let hann: Vec<f32> = (0..n)
+            .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / n as f32).cos())
+            .collect();
+        let bin_hz = RATE as f32 / n as f32;
+        let classes: Vec<Option<usize>> = (0..half)
+            .map(|k| {
+                let f = k as f32 * bin_hz;
+                if !(60.0..=2000.0).contains(&f) {
+                    return None;
+                }
+                let semis = 12.0 * (f / 440.0).log2();
+                Some((semis.round() as i64).rem_euclid(12) as usize)
+            })
+            .collect();
+        Self {
+            fft,
+            hann,
+            classes,
+            lo_k: (30.0 / bin_hz).ceil() as usize,
+            bass_k: (160.0 / bin_hz).round() as usize,
+            hi_k: ((8000.0 / bin_hz).round() as usize).min(half),
+            buf: vec![Complex::new(0.0, 0.0); n],
+            prev: vec![0.0; half],
+            cur: vec![0.0; half],
+            window: Vec::with_capacity(DISCARD_EVERY + n),
+            base: 0,
+            received: 0,
+            next: 0,
+            out: Frames {
+                onset: Vec::new(),
+                bass: Vec::new(),
+                chroma: Vec::new(),
+            },
         }
-        fft.process(&mut buf);
+    }
+
+    fn push(&mut self, sample: f32) {
+        self.window.push(sample);
+        self.received += 1;
+        // la trama esta completa cuando llega la ultima muestra de su ventana
+        while self.next * HOP + WINDOW / 2 <= self.received {
+            self.frame();
+        }
+    }
+
+    /// Calcula las tramas que faltan (la cola, con silencio detras) y
+    /// devuelve todas con cuantas muestras tenia la cancion.
+    fn finish(mut self) -> (Frames, usize) {
+        let total = self.received.div_ceil(HOP);
+        while self.next < total {
+            self.frame();
+        }
+        (self.out, self.received)
+    }
+
+    fn frame(&mut self) {
+        let n = WINDOW;
+        let half = n / 2;
+        let i = self.next;
+        let center = i * HOP;
+        for (j, slot) in self.buf.iter_mut().enumerate() {
+            let idx = center as isize + j as isize - half as isize;
+            let s = if idx >= 0 && (idx as usize) < self.received {
+                self.window[idx as usize - self.base]
+            } else {
+                0.0
+            };
+            *slot = Complex::new(s * self.hann[j], 0.0);
+        }
+        self.fft.process(&mut self.buf);
         let mut chroma = [0f32; 12];
         for k in 0..half {
-            let mag = buf[k].norm() / n as f32;
-            cur[k] = (1.0 + 100.0 * mag).ln();
-            if let Some(c) = classes[k] {
+            let mag = self.buf[k].norm() / n as f32;
+            self.cur[k] = (1.0 + 100.0 * mag).ln();
+            if let Some(c) = self.classes[k] {
                 chroma[c] += mag;
             }
         }
         let mut flux = 0f32;
         let mut bass = 0f32;
-        for k in lo_k..hi_k {
-            let d = (cur[k] - prev[k]).max(0.0);
+        for k in self.lo_k..self.hi_k {
+            let d = (self.cur[k] - self.prev[k]).max(0.0);
             flux += d;
-            if k <= bass_k {
+            if k <= self.bass_k {
                 bass += d;
             }
         }
-        out.onset.push(if i == 0 { 0.0 } else { flux });
-        out.bass.push(if i == 0 { 0.0 } else { bass });
-        out.chroma.push(chroma);
-        std::mem::swap(&mut prev, &mut cur);
+        self.out.onset.push(if i == 0 { 0.0 } else { flux });
+        self.out.bass.push(if i == 0 { 0.0 } else { bass });
+        self.out.chroma.push(chroma);
+        std::mem::swap(&mut self.prev, &mut self.cur);
+        self.next += 1;
+        // lo que queda antes de la ventana de la proxima trama ya no hace falta
+        let keep_from = (self.next * HOP).saturating_sub(half);
+        if keep_from >= self.base + DISCARD_EVERY {
+            self.window.drain(..keep_from - self.base);
+            self.base = keep_from;
+        }
     }
-    out
 }
 
 /// Quita la media local (medio segundo a cada lado) y recorta en cero: lo
 /// que queda son los ataques, no el volumen general.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "la notacion de la formula: senal, ventana y tramo"
+)]
 fn detrend(x: &[f32]) -> Vec<f32> {
     let w = (0.5 * FPS) as usize;
     let n = x.len();
@@ -221,6 +302,10 @@ fn detrend(x: &[f32]) -> Vec<f32> {
 /// Tempo en bpm por autocorrelacion de la envolvente, con un prior
 /// log-normal alrededor de `center` (120 si no se sabe nada; el bpm del
 /// indice si se conoce, un poco mas estrecho).
+#[expect(
+    clippy::many_single_char_names,
+    reason = "la notacion de la autocorrelacion y de la parabola"
+)]
 fn tempo(onset: &[f32], center: f32, width_octaves: f32) -> f32 {
     let n = onset.len();
     let lag_min = (60.0 * FPS / 240.0).floor() as usize; // 240 bpm
@@ -289,7 +374,7 @@ fn track(onset: &[f32], bpm: f32) -> Vec<usize> {
             acc
         })
         .collect();
-    let local_max = local.iter().cloned().fold(0.0, f64::max);
+    let local_max = local.iter().copied().fold(0.0, f64::max);
     let thresh = 0.01 * local_max;
 
     let from = -(2.0 * period).round() as isize; // -2·periodo
@@ -331,19 +416,32 @@ fn track(onset: &[f32], bpm: f32) -> Vec<usize> {
         return Vec::new();
     }
     let mut vals: Vec<f64> = maxes.iter().map(|&i| cum[i]).collect();
-    vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    vals.sort_by(f64::total_cmp);
     let median = vals[vals.len() / 2];
-    let tail = maxes.iter().rev().find(|&&i| cum[i] * 2.0 > median).copied().unwrap_or(maxes[maxes.len() - 1]);
+    let tail = maxes
+        .iter()
+        .rev()
+        .find(|&&i| cum[i] * 2.0 > median)
+        .copied()
+        .unwrap_or(maxes[maxes.len() - 1]);
     let mut beats = vec![tail];
-    while back[*beats.last().unwrap()] >= 0 {
-        let prev = back[*beats.last().unwrap()] as usize;
+    let mut last = tail;
+    while back[last] >= 0 {
+        let prev = back[last] as usize;
         if beats.len() > n {
             break;
         }
         beats.push(prev);
+        last = prev;
     }
     beats.reverse();
-    // se quitan los pulsos flojos de las puntas (silencio al principio o al final)
+    trim_weak_ends(beats, &local)
+}
+
+/// Quita los pulsos flojos de las puntas de la rejilla: el silencio del
+/// principio o del final, donde la programacion dinamica sigue poniendo
+/// pulsos aunque no haya nada que oir.
+fn trim_weak_ends(beats: Vec<usize>, local: &[f64]) -> Vec<usize> {
     let boe: Vec<f64> = beats.iter().map(|&i| local[i]).collect();
     let smooth: Vec<f64> = (0..boe.len())
         .map(|i| {
@@ -371,6 +469,10 @@ fn track(onset: &[f32], bpm: f32) -> Vec<usize> {
 
 /// Por cada pulso, cuanto «parece un 1»: bombo al ataque, cambio de acorde
 /// respecto al pulso anterior, y fuerza del ataque; cada rasgo tipificado.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "tramas, pulsos y croma con sus letras de siempre"
+)]
 fn downbeat_strength(f: &Frames, beats: &[usize]) -> Vec<f64> {
     let n = beats.len();
     if n < 2 {
@@ -382,7 +484,11 @@ fn downbeat_strength(f: &Frames, beats: &[usize]) -> Vec<f64> {
     let mut prev_chroma: Option<[f64; 12]> = None;
     for i in 0..n {
         let a = beats[i];
-        let b = if i + 1 < n { beats[i + 1] } else { (a + (a - beats[i - 1])).min(f.onset.len()) };
+        let b = if i + 1 < n {
+            beats[i + 1]
+        } else {
+            (a + (a - beats[i - 1])).min(f.onset.len())
+        };
         let b = b.max(a + 1).min(f.onset.len());
         let head = (a + ((b - a) / 3).max(1)).min(b);
         // el ataque, en la cabeza del pulso (un poco antes tambien: la trama
@@ -397,7 +503,7 @@ fn downbeat_strength(f: &Frames, beats: &[usize]) -> Vec<f64> {
             }
         }
         let norm = c.iter().map(|v| v * v).sum::<f64>().sqrt().max(1e-9);
-        for v in c.iter_mut() {
+        for v in &mut c {
             *v /= norm;
         }
         chord[i] = match prev_chroma {
@@ -408,7 +514,9 @@ fn downbeat_strength(f: &Frames, beats: &[usize]) -> Vec<f64> {
     }
     let z = |v: &[f64]| -> Vec<f64> {
         let mean = v.iter().sum::<f64>() / v.len() as f64;
-        let std = (v.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / v.len() as f64).sqrt().max(1e-9);
+        let std = (v.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / v.len() as f64)
+            .sqrt()
+            .max(1e-9);
         v.iter().map(|x| (x - mean) / std).collect()
     };
     let (zb, zo, zc) = (z(&bass), z(&onset), z(&chord));
@@ -444,11 +552,21 @@ fn best_phase(strength: &[f64], m: usize) -> (usize, f64) {
 
 /// Analiza muestras mono a `RATE` Hz. `hint_bpm`: el tempo que ya sabe el
 /// indice, si lo sabe (centra el prior); None = alrededor de 120.
+#[cfg(test)]
 pub fn analyze_samples(mono: &[f32], hint_bpm: Option<f32>) -> Result<BeatGrid, String> {
-    if mono.len() < RATE as usize * 4 {
+    let mut frames = FrameAnalyzer::new();
+    for &sample in mono {
+        frames.push(sample);
+    }
+    analyze_frames(frames, hint_bpm)
+}
+
+/// El analisis, con las tramas ya calculadas segun llegaba el audio.
+fn analyze_frames(frames: FrameAnalyzer, hint_bpm: Option<f32>) -> Result<BeatGrid, String> {
+    let (f, length) = frames.finish();
+    if length < RATE as usize * 4 {
         return Err("demasiado corta para sacarle el compas".into());
     }
-    let f = frames(mono);
     let onset = detrend(&f.onset);
     if onset.iter().all(|&v| v <= 0.0) {
         return Err("no se oye ningun ataque".into());
@@ -512,12 +630,12 @@ pub fn analyze_samples(mono: &[f32], hint_bpm: Option<f32>) -> Result<BeatGrid, 
 /// De paso los canales se promedian en vez de quedarse con el izquierdo,
 /// que es lo que hacia el conversor de canales de rodio: asi cuentan
 /// tambien los golpes que esten abiertos a la derecha.
-fn to_mono<S: rodio::Source<Item = f32>>(mut source: S) -> Vec<f32> {
-    let from = source.sample_rate().max(1);
-    let channels = usize::from(source.channels().max(1));
-    let hint = source
-        .total_duration()
-        .map_or(0, |d| (d.as_secs_f64() * f64::from(RATE)) as usize);
+///
+/// Cada muestra mono que sale se le da a `sink` segun se calcula: nada se
+/// guarda entero.
+fn to_mono<S: rodio::Source>(mut source: S, mut sink: impl FnMut(f32)) {
+    let from = source.sample_rate().get();
+    let channels = usize::from(source.channels().get());
     // un valor por instante, con los canales mezclados
     let mut frame = move || {
         let mut sum = 0.0f32;
@@ -533,15 +651,14 @@ fn to_mono<S: rodio::Source<Item = f32>>(mut source: S) -> Vec<f32> {
         }
         (n > 0).then(|| sum / n as f32)
     };
-    let mut out: Vec<f32> = Vec::with_capacity(hint);
     if from == RATE {
         while let Some(v) = frame() {
-            out.push(v);
+            sink(v);
         }
-        return out;
+        return;
     }
     let (Some(mut prev), Some(mut next)) = (frame(), frame()) else {
-        return out;
+        return;
     };
     let step = f64::from(from) / f64::from(RATE);
     // `at`: en que muestra de la entrada esta `prev`. `pos`: donde cae la
@@ -550,34 +667,39 @@ fn to_mono<S: rodio::Source<Item = f32>>(mut source: S) -> Vec<f32> {
     let mut pos = 0.0f64;
     loop {
         while pos >= (at + 1) as f64 {
-            let Some(v) = frame() else { return out };
+            let Some(v) = frame() else { return };
             prev = next;
             next = v;
             at += 1;
         }
-        out.push(prev + (next - prev) * (pos - at as f64) as f32);
+        sink(prev + (next - prev) * (pos - at as f64) as f32);
         pos += step;
     }
 }
 
-/// Decodifica la cancion a mono `RATE` Hz: por rodio, o por ffmpeg para los
+/// Recorre la cancion a mono `RATE` Hz, por rodio o por ffmpeg para los
 /// formatos que rodio no sabe (los mismos que en la reproduccion).
-pub fn decode_mono(path: &str) -> Result<Vec<f32>, String> {
-    use rodio::Source;
-    if crate::transcode::is_handled(path) {
-        let ffmpeg = crate::player::ffmpeg_path().ok_or_else(|| "hace falta ffmpeg".to_string())?;
-        let source = crate::transcode::Transcoded::open_at_tempo(ffmpeg, path, None, 1.0)?;
-        return Ok(to_mono(source.convert_samples::<f32>()));
+fn decode_into(path: &Path, sink: impl FnMut(f32)) -> Result<(), String> {
+    if transcode::is_handled(&path.to_string_lossy()) {
+        let ffmpeg = tools::ffmpeg().ok_or_else(|| "hace falta ffmpeg".to_string())?;
+        let pipe = transcode::Pipe::open(ffmpeg, path)?;
+        to_mono(pipe, sink);
+        return Ok(());
     }
     let file = std::fs::File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
-    let source = rodio::Decoder::new(std::io::BufReader::new(file)).map_err(|e| e.to_string())?;
-    Ok(to_mono(source.convert_samples::<f32>()))
+    let source = rodio::Decoder::try_from(file).map_err(|e| e.to_string())?;
+    to_mono(source, sink);
+    Ok(())
 }
 
-/// Todo de una vez: abrir, decodificar y analizar.
+/// Todo de una vez: abrir, decodificar y analizar. La ruta tiene que ser la
+/// de un archivo que existe: viene de la interfaz, y lo que no sea un
+/// archivo (una URL, un protocolo de ffmpeg) no se le da a nadie.
 pub fn analyze(path: &str, hint_bpm: Option<f32>) -> Result<Arc<BeatGrid>, String> {
-    let mono = decode_mono(path)?;
-    analyze_samples(&mono, hint_bpm).map(Arc::new)
+    let path = tools::existing_file(path)?;
+    let mut frames = FrameAnalyzer::new();
+    decode_into(&path, |sample| frames.push(sample))?;
+    analyze_frames(frames, hint_bpm).map(Arc::new)
 }
 
 #[cfg(test)]
@@ -586,6 +708,10 @@ mod tests {
 
     /// Una «cancion» sintetica: click en cada pulso, mas fuerte y mas grave
     /// en el 1, y un acorde que cambia en cada compas.
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "tiempo, pulso y muestras con sus letras de siempre"
+    )]
     fn song(bpm: f64, meter: usize, seconds: f64, offset: f64) -> Vec<f32> {
         let sr = RATE as f64;
         let n = (sr * seconds) as usize;
@@ -601,8 +727,12 @@ mod tests {
         let mut t = offset;
         while t < seconds {
             let start = (t * sr) as usize;
-            let downbeat = k % meter == 0;
-            let (freq, len, gain) = if downbeat { (90.0, 0.08, 1.0) } else { (1200.0, 0.03, 0.5) };
+            let downbeat = k.is_multiple_of(meter);
+            let (freq, len, gain) = if downbeat {
+                (90.0, 0.08, 1.0)
+            } else {
+                (1200.0, 0.03, 0.5)
+            };
             let len_n = (len * sr) as usize;
             for i in 0..len_n {
                 let idx = start + i;
@@ -616,13 +746,13 @@ mod tests {
             // el acorde del compas, sostenido hasta el siguiente pulso
             let chord = chords[(k / meter) % 4];
             let end = (((t + period) * sr) as usize).min(n);
-            for idx in start..end {
+            for (idx, sample) in out.iter_mut().enumerate().take(end).skip(start) {
                 let x = idx as f64 / sr;
                 let mut v = 0.0;
                 for f in chord {
                     v += (2.0 * std::f64::consts::PI * f * x).sin();
                 }
-                out[idx] += (0.08 * v) as f32;
+                *sample += (0.08 * v) as f32;
             }
             k += 1;
             t += period;
@@ -643,7 +773,11 @@ mod tests {
                 (b - (offset + k * period)).abs() < 0.035
             })
             .count();
-        assert!(near as f64 >= 0.9 * grid.beats.len() as f64, "solo {near} de {} pulsos caen bien", grid.beats.len());
+        assert!(
+            near as f64 >= 0.9 * grid.beats.len() as f64,
+            "solo {near} de {} pulsos caen bien",
+            grid.beats.len()
+        );
         // y el «1» es un 1 de verdad
         let d = grid.beats[grid.first_downbeat];
         let k = ((d - offset) / period).round() as i64;
@@ -676,9 +810,11 @@ mod tests {
     /// beats::real -- --ignored --nocapture`. Imprime tempo, compas y
     /// confianza de cada archivo; sirve para afinar, no para pasar o fallar.
     #[test]
-    #[ignore]
+    #[ignore = "necesita musica de verdad: DANPLAY_BEATS_DIR"]
     fn real_songs_report() {
-        let Ok(dir) = std::env::var("DANPLAY_BEATS_DIR") else { return };
+        let Ok(dir) = std::env::var("DANPLAY_BEATS_DIR") else {
+            return;
+        };
         let mut files: Vec<_> = walk(std::path::Path::new(&dir));
         files.sort();
         for f in files.iter().take(40) {
@@ -687,7 +823,11 @@ mod tests {
             match analyze(&path, None) {
                 Ok(g) => println!(
                     "{:6.1} bpm  {}/4  conf {:.2}  {} pulsos  {:.1}s  {}",
-                    g.bpm, g.meter, g.confidence, g.beats.len(), started.elapsed().as_secs_f64(),
+                    g.bpm,
+                    g.meter,
+                    g.confidence,
+                    g.beats.len(),
+                    started.elapsed().as_secs_f64(),
                     f.file_name().unwrap().to_string_lossy()
                 ),
                 Err(e) => println!("ERROR {e}  {}", f.file_name().unwrap().to_string_lossy()),
@@ -701,7 +841,10 @@ mod tests {
                 let p = e.path();
                 if p.is_dir() {
                     out.extend(walk(&p));
-                } else if matches!(p.extension().and_then(|x| x.to_str()), Some("mp3" | "flac" | "m4a" | "ogg" | "wav")) {
+                } else if matches!(
+                    p.extension().and_then(|x| x.to_str()),
+                    Some("mp3" | "flac" | "m4a" | "ogg" | "wav")
+                ) {
                     out.push(p);
                 }
             }
@@ -717,6 +860,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "una rejilla y sus variantes, de una letra cada una"
+    )]
     fn the_grid_can_be_walked_and_reshaped() {
         let g = BeatGrid {
             bpm: 120.0,
@@ -757,7 +904,7 @@ mod tests {
     /// paquete. Con ellos `UniformSourceIterator` rehacia el conversor de
     /// tasa ochenta veces por segundo y se dejaba muestras por el camino.
     struct Chopped {
-        inner: rodio::buffer::SamplesBuffer<f32>,
+        inner: rodio::buffer::SamplesBuffer,
         len: usize,
     }
 
@@ -769,13 +916,13 @@ mod tests {
     }
 
     impl rodio::Source for Chopped {
-        fn current_frame_len(&self) -> Option<usize> {
+        fn current_span_len(&self) -> Option<usize> {
             Some(self.len)
         }
-        fn channels(&self) -> u16 {
+        fn channels(&self) -> rodio::ChannelCount {
             self.inner.channels()
         }
-        fn sample_rate(&self) -> u32 {
+        fn sample_rate(&self) -> rodio::SampleRate {
             self.inner.sample_rate()
         }
         fn total_duration(&self) -> Option<std::time::Duration> {
@@ -796,10 +943,15 @@ mod tests {
                 *v = 1.0;
             }
             let source = Chopped {
-                inner: rodio::buffer::SamplesBuffer::new(2, rate, pcm),
+                inner: rodio::buffer::SamplesBuffer::new(
+                    rodio::math::nz!(2),
+                    rodio::SampleRate::new(rate).expect("una tasa de verdad"),
+                    pcm,
+                ),
                 len: 2048,
             };
-            let mono = to_mono(source);
+            let mut mono = Vec::new();
+            to_mono(source, |v| mono.push(v));
             let seconds = mono.len() as f64 / f64::from(RATE);
             assert!((seconds - 60.0).abs() < 0.01, "a {rate} Hz duraba {seconds:.3} s");
             let at = mono.iter().position(|v| *v > 0.5).unwrap_or(0) as f64 / f64::from(RATE);
@@ -810,5 +962,123 @@ mod tests {
         }
     }
 
+    /// Las tramas como se calculaban antes, con la cancion entera en memoria.
+    /// Se queda aqui como referencia de lo que tiene que salir.
+    fn frames_at_once(mono: &[f32]) -> Frames {
+        let n = WINDOW;
+        let half = n / 2;
+        let total = mono.len().div_ceil(HOP);
+        let fft = FftPlanner::<f32>::new().plan_fft_forward(n);
+        let hann: Vec<f32> = (0..n)
+            .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / n as f32).cos())
+            .collect();
+        let bin_hz = RATE as f32 / n as f32;
+        let classes: Vec<Option<usize>> = (0..half)
+            .map(|k| {
+                let f = k as f32 * bin_hz;
+                if !(60.0..=2000.0).contains(&f) {
+                    return None;
+                }
+                let semis = 12.0 * (f / 440.0).log2();
+                Some((semis.round() as i64).rem_euclid(12) as usize)
+            })
+            .collect();
+        let lo_k = (30.0 / bin_hz).ceil() as usize;
+        let bass_k = (160.0 / bin_hz).round() as usize;
+        let hi_k = ((8000.0 / bin_hz).round() as usize).min(half);
+        let mut buf = vec![Complex::new(0.0f32, 0.0); n];
+        let mut prev = vec![0f32; half];
+        let mut cur = vec![0f32; half];
+        let mut out = Frames {
+            onset: Vec::new(),
+            bass: Vec::new(),
+            chroma: Vec::new(),
+        };
+        for i in 0..total {
+            let center = i * HOP;
+            for (j, slot) in buf.iter_mut().enumerate() {
+                let idx = center as isize + j as isize - half as isize;
+                let s = if idx >= 0 && (idx as usize) < mono.len() {
+                    mono[idx as usize]
+                } else {
+                    0.0
+                };
+                *slot = Complex::new(s * hann[j], 0.0);
+            }
+            fft.process(&mut buf);
+            let mut chroma = [0f32; 12];
+            for k in 0..half {
+                let mag = buf[k].norm() / n as f32;
+                cur[k] = (1.0 + 100.0 * mag).ln();
+                if let Some(c) = classes[k] {
+                    chroma[c] += mag;
+                }
+            }
+            let (mut flux, mut bass) = (0f32, 0f32);
+            for k in lo_k..hi_k {
+                let d = (cur[k] - prev[k]).max(0.0);
+                flux += d;
+                if k <= bass_k {
+                    bass += d;
+                }
+            }
+            out.onset.push(if i == 0 { 0.0 } else { flux });
+            out.bass.push(if i == 0 { 0.0 } else { bass });
+            out.chroma.push(chroma);
+            std::mem::swap(&mut prev, &mut cur);
+        }
+        out
+    }
 
+    /// Por bloques sale exactamente lo mismo que con la cancion entera: ni
+    /// una trama de mas o de menos, ni un bit distinto. Tambien con una
+    /// longitud que no cae en tramas justas y cruzando varias veces el punto
+    /// en que se tira el audio ya usado.
+    #[test]
+    fn frames_by_blocks_are_the_same_as_all_at_once() {
+        for seconds in [0.01, 3.3, 9.7] {
+            let mono = song(117.0, 4, seconds, 0.1);
+            let reference = frames_at_once(&mono);
+            let mut streaming = FrameAnalyzer::new();
+            for &s in &mono {
+                streaming.push(s);
+            }
+            let (frames, length) = streaming.finish();
+            assert_eq!(length, mono.len());
+            assert_eq!(
+                frames.onset.len(),
+                reference.onset.len(),
+                "{seconds} s: otro numero de tramas"
+            );
+            assert!(
+                frames
+                    .onset
+                    .iter()
+                    .zip(&reference.onset)
+                    .all(|(a, b)| a.to_bits() == b.to_bits())
+            );
+            assert!(
+                frames
+                    .bass
+                    .iter()
+                    .zip(&reference.bass)
+                    .all(|(a, b)| a.to_bits() == b.to_bits())
+            );
+            assert!(frames.chroma == reference.chroma, "{seconds} s: el croma no coincide");
+        }
+    }
+
+    /// Solo se analiza un archivo que existe, con su ruta completa: nada de
+    /// URLs ni de protocolos que ffmpeg sabria abrir.
+    #[test]
+    fn only_existing_files_are_analyzed() {
+        for bad in [
+            "relativa.opus",
+            "https://ejemplo.com/x.opus",
+            "concat:/a.opus|/b.opus",
+            "/no/existe/x.opus",
+        ] {
+            assert!(analyze(bad, None).is_err(), "{bad} no deberia analizarse");
+        }
+    }
 }

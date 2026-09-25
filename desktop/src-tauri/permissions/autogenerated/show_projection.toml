@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-show-projection"
+description = "Enables the show_projection command without any pre-configured scope."
+commands.allow = ["show_projection"]
+
+[[permission]]
+identifier = "deny-show-projection"
+description = "Denies the show_projection command without any pre-configured scope."
+commands.deny = ["show_projection"]

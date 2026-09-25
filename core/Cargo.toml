@@ -1,20 +1,24 @@
 [package]
 name = "danplay_core"
-version = "1.12.1"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+# El minimo de sus dependencias (symphonia 0.6 y md-5 0.11 piden 1.85, que es
+# tambien el de la edicion 2024).
+rust-version = "1.85"
 
 [lib]
 name = "danplay_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.29", features = ["extension-module"] }
+# `extension-module` no va aqui: pyo3 lo da por obsoleto y maturin (>= 1.9.4)
+# ya compila el modulo como extension por su cuenta. Repetido aqui iba
+# tambien a `cargo test`; ahora las pruebas enlazan con libpython, o se
+# lanzan con PYO3_BUILD_EXTENSION_MODULE=1 como hace maturin.
+pyo3 = "0.29"
 rayon = "1.10"
-rustfft = "6.2"
-md-5 = "0.10"
-symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "isomp4", "aac", "ogg", "vorbis"] }
+md-5 = "0.11"
+symphonia = { version = "0.6", features = ["mp3", "wav", "flac", "isomp4", "aac", "ogg", "vorbis"] }
 
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
+[lints]
+workspace = true

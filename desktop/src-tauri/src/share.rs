@@ -10,11 +10,11 @@
 //! flatpak (con el archivo reenviado por el portal de documentos, que es como
 //! una app confinada puede leerlo), y en Windows y macOS sus carpetas de
 //! siempre. Si no aparece, la opcion no se enseña.
+use crate::tools;
 use serde::Serialize;
 use std::path::Path;
 #[cfg(any(windows, target_os = "macos"))]
 use std::path::PathBuf;
-use std::process::Command;
 
 #[derive(Serialize, Clone, Debug, Default, PartialEq)]
 pub struct ShareTargets {
@@ -47,11 +47,12 @@ fn telegram_launcher() -> Option<Vec<String>> {
             return Some(vec![snap.to_string_lossy().into_owned()]);
         }
         // 3) el flatpak: `flatpak info` contesta 0 si esta instalado
-        let installed = Command::new("flatpak")
-            .args(["info", "org.telegram.desktop"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+        let installed = tools::in_path("flatpak")
+            && tools::command("flatpak")
+                .args(["info", "org.telegram.desktop"])
+                .stdin(std::process::Stdio::null())
+                .output()
+                .is_ok_and(|o| o.status.success());
         if installed {
             return Some(vec![
                 "flatpak".into(),
@@ -120,7 +121,7 @@ pub fn to_telegram(paths: &[String]) -> Result<(), String> {
     let Some(launcher) = telegram_launcher() else {
         return Err("No encuentro Telegram Desktop en este equipo.".into());
     };
-    let mut command = Command::new(&launcher[0]);
+    let mut command = tools::command(&launcher[0]);
     command.args(&launcher[1..]);
     if launcher[0] == "flatpak" {
         // el portal de documentos le da acceso a los archivos dentro del sandbox
@@ -132,22 +133,35 @@ pub fn to_telegram(paths: &[String]) -> Result<(), String> {
         // `-sendpath` se queda con todo lo que venga detras
         command.arg("-sendpath").args(&files);
     }
-    command
+    let mut child = command
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
+        .map_err(|e| format!("No pude abrir Telegram: {e}"))?;
+    // Alguien tiene que recogerlo cuando termine, o se queda como proceso
+    // zombi hasta que se cierre DanPlay. Si Telegram ya estaba abierto, este
+    // le pasa los archivos y se va enseguida; si no, es el propio Telegram y
+    // el hilo espera lo que dure, sin hacer nada.
+    std::thread::Builder::new()
+        .name("danplay-telegram".into())
+        .spawn(move || {
+            let _ = child.wait();
+        })
         .map(|_| ())
         .map_err(|e| format!("No pude abrir Telegram: {e}"))
 }
 
+/// Buscar Telegram mira el disco y en Linux pregunta a flatpak: fuera del
+/// hilo principal, que un comando normal congela la ventana mientras dura.
 #[tauri::command]
-pub fn share_targets() -> ShareTargets {
-    targets()
+pub async fn share_targets() -> Result<ShareTargets, String> {
+    crate::reveal::off_the_main_thread(|| Ok(targets())).await
 }
 
 #[tauri::command]
-pub fn send_to_telegram(paths: Vec<String>) -> Result<(), String> {
-    to_telegram(&paths)
+pub async fn send_to_telegram(paths: Vec<String>) -> Result<(), String> {
+    crate::reveal::off_the_main_thread(move || to_telegram(&paths)).await
 }
 
 #[cfg(test)]

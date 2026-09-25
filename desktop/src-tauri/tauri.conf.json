@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DanPlay",
-  "version": "1.12.1",
   "identifier": "local.danplay.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -50,7 +49,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; media-src 'self' danplay: http://danplay.localhost; img-src 'self' danplay: http://danplay.localhost; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'"
+      "csp": "default-src 'self'; script-src 'self'; media-src 'self'; img-src 'self' danplay: http://danplay.localhost; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'"
     }
   },
   "bundle": {

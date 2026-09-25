@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-analyze-beats"
+description = "Enables the analyze_beats command without any pre-configured scope."
+commands.allow = ["analyze_beats"]
+
+[[permission]]
+identifier = "deny-analyze-beats"
+description = "Denies the analyze_beats command without any pre-configured scope."
+commands.deny = ["analyze_beats"]

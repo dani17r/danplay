@@ -3,7 +3,7 @@
 //! Aqui si llegan los clics sobre el icono y ademas el sistema dice donde
 //! esta, asi que la ventanita se pega justo encima. En Linux no se puede
 //! (ver `linux.rs`).
-use super::{labels, NowPlaying};
+use super::{NowPlaying, labels};
 use std::sync::Mutex;
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -25,7 +25,7 @@ struct Menus(Mutex<Option<Items>>);
 pub fn install(app: &AppHandle) {
     app.manage(Menus::default());
     if let Err(e) = build(app) {
-        eprintln!("DanPlay: no pude poner el icono en la bandeja: {e}");
+        log::warn!("no pude poner el icono en la bandeja: {e}");
         super::mark_available(app, false);
     }
 }
@@ -91,15 +91,15 @@ fn build(app: &AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
 
-    if let Some(menus) = app.try_state::<Menus>() {
-        if let Ok(mut guard) = menus.0.lock() {
-            *guard = Some(Items {
-                song,
-                toggle,
-                previous,
-                next,
-            });
-        }
+    if let Some(menus) = app.try_state::<Menus>()
+        && let Ok(mut guard) = menus.0.lock()
+    {
+        *guard = Some(Items {
+            song,
+            toggle,
+            previous,
+            next,
+        });
     }
     super::mark_available(app, true);
     Ok(())

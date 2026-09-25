@@ -15,7 +15,9 @@ use crate::core::{self, Address, Core};
 use crate::queue::{self, Track};
 use crate::tray;
 use serde_json::json;
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 /// «La lista del reproductor ha cambiado».
@@ -27,15 +29,13 @@ use tauri::{AppHandle, Emitter, Manager};
 pub const RECENT_EVENT: &str = "danplay://recent";
 
 /// Las extensiones que reconoce la biblioteca (`danplay/config.py`).
-pub const EXTENSIONS: &[&str] = &[
-    "mp3", "wav", "flac", "m4a", "ogg", "opus", "aac", "wma",
-];
+pub const EXTENSIONS: &[&str] = &["mp3", "wav", "flac", "m4a", "ogg", "opus", "aac", "wma"];
 
-pub fn is_audio(path: &str) -> bool {
-    Path::new(path)
+pub fn is_audio(path: impl AsRef<Path>) -> bool {
+    path.as_ref()
         .extension()
         .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
+        .map(str::to_lowercase)
         .is_some_and(|e| EXTENSIONS.contains(&e.as_str()))
 }
 
@@ -45,15 +45,36 @@ pub fn is_audio(path: &str) -> bool {
 /// sistema y las bibliotecas graficas (`--no-sandbox`, `--gdk-…`), y ponerse a
 /// reproducir cualquier cosa que aparezca seria un fallo con forma de agujero:
 /// solo entra lo que existe, es un archivo y tiene extension de audio.
-pub fn files_in<I: IntoIterator<Item = String>>(args: I) -> Vec<String> {
+///
+/// Los argumentos llegan tal cual los da el sistema (`OsString`): un nombre
+/// en Latin-1 no es UTF-8, y leerlos como `String` hacia panic y la app ni
+/// arrancaba. Una ruta relativa se entiende desde `cwd`, la carpeta de quien
+/// la mando: con DanPlay ya abierto es la de la segunda instancia, no la de
+/// la primera.
+pub fn files_in<I: IntoIterator<Item = OsString>>(args: I, cwd: Option<&Path>) -> Vec<String> {
     args.into_iter()
-        .filter(|a| !a.starts_with('-'))
+        .map(PathBuf::from)
+        .filter(|a| !a.as_os_str().as_encoded_bytes().starts_with(b"-"))
         .filter(|a| is_audio(a))
+        .map(|a| match cwd {
+            Some(dir) if a.is_relative() => dir.join(a),
+            _ => a,
+        })
         // canonicalize hace dos cosas de una: comprueba que existe y deja la
         // ruta en la forma en que la guarda el indice, para poder buscarla
         .filter_map(|a| std::fs::canonicalize(&a).ok())
         .filter(|p| p.is_file())
-        .map(|p| p.to_string_lossy().into_owned())
+        // La cola, el nucleo y la interfaz hablan en texto (JSON): un nombre
+        // que no es UTF-8 no se puede pasar sin cambiarlo, y cambiado ya no
+        // es el archivo. Se dice y se deja fuera, en vez de fallar despues
+        // con un «no encuentro» que no explica nada.
+        .filter_map(|p| match p.into_os_string().into_string() {
+            Ok(path) => Some(path),
+            Err(raw) => {
+                log::warn!("no se puede abrir {}: el nombre no es UTF-8", Path::new(&raw).display());
+                None
+            }
+        })
         .collect()
 }
 
@@ -62,8 +83,7 @@ pub fn files_in<I: IntoIterator<Item = String>>(args: I) -> Vec<String> {
 fn name_of(path: &str) -> String {
     Path::new(path)
         .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string())
+        .map_or_else(|| path.to_string(), |s| s.to_string_lossy().into_owned())
 }
 
 /// Una cancion que no sale de la biblioteca.
@@ -93,13 +113,23 @@ fn loose(path: &str, position: usize) -> Track {
 /// lista del reproductor, que es de donde sale el historial. Ver
 /// `danplay/external.py`.
 async fn describe(address: &Address, paths: &[String]) -> Vec<Track> {
+    // Un solo plazo para todas: con el nucleo colgado, esperar el tope de
+    // cada peticion por cada archivo eran minutos sin sonar nada. Lo que no
+    // llegue a tiempo suena como archivo suelto.
+    let deadline = Instant::now() + core::QUICK;
     let mut items = Vec::with_capacity(paths.len());
     for (position, path) in paths.iter().enumerate() {
-        let found = core::request(
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            items.push(loose(path, position));
+            continue;
+        }
+        let found = core::request_within(
             address,
             "POST",
             "/api/external/play",
             Some(json!({ "path": path }).to_string()),
+            left,
         )
         .await
         .ok()
@@ -112,23 +142,18 @@ async fn describe(address: &Address, paths: &[String]) -> Vec<Track> {
             // el nucleo la conoce: se reproduce con su id de verdad, pero
             // conservando la ruta que nos dieron para no volver a resolverla
             Some(song) => Track {
-                id: song.get("id").and_then(|v| v.as_i64()).unwrap_or(0),
+                id: song.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0),
                 title: song
                     .get("title")
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                     .unwrap_or(&name_of(path))
                     .to_string(),
-                artist: song
-                    .get("artist")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                duration: song.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                artist: song.get("artist").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                duration: song.get("duration").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
                 blur: song
                     .get("blur")
-                    .map(|v| v.as_bool() == Some(true) || v.as_i64() == Some(1))
-                    .unwrap_or(false),
+                    .is_some_and(|v| v.as_bool() == Some(true) || v.as_i64() == Some(1)),
                 path: Some(path.clone()),
             },
             None => loose(path, position),
@@ -142,7 +167,7 @@ async fn describe(address: &Address, paths: &[String]) -> Vec<Track> {
 /// Al arrancar en frio tarda un momento en levantarse. Pasado esto se
 /// reproduce igual: mas vale sonar con el nombre del archivo por titulo que
 /// quedarse callado esperando.
-const WAIT: std::time::Duration = std::time::Duration::from_secs(6);
+const WAIT: Duration = Duration::from_secs(6);
 
 /// Pone a sonar esos archivos y enseña la ventana.
 pub fn play(app: &AppHandle, paths: Vec<String>) {
@@ -157,19 +182,21 @@ pub fn play(app: &AppHandle, paths: Vec<String>) {
         let items = match app.try_state::<Core>() {
             Some(core) => {
                 let address = core.address.clone();
-                let deadline = std::time::Instant::now() + WAIT;
+                let deadline = Instant::now() + WAIT;
                 tauri::async_runtime::block_on(async {
-                    while std::time::Instant::now() < deadline && !core.ready().await {
-                        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                    // cada consulta, como mucho lo que quede del plazo: antes
+                    // una sola podia esperar el minuto entero del puente
+                    loop {
+                        let left = deadline.saturating_duration_since(Instant::now());
+                        if left.is_zero() || tokio::time::timeout(left, core.ready()).await.unwrap_or(false) {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(150).min(left)).await;
                     }
                     describe(&address, &paths).await
                 })
             }
-            None => paths
-                .iter()
-                .enumerate()
-                .map(|(i, p)| loose(p, i))
-                .collect(),
+            None => paths.iter().enumerate().map(|(i, p)| loose(p, i)).collect(),
         };
 
         if let Some(playback) = app.try_state::<queue::Playback>() {
@@ -199,13 +226,16 @@ mod tests {
         let text = dir.join("notas.txt");
         std::fs::write(&text, b"").unwrap();
 
-        let found = files_in(vec![
-            song.to_string_lossy().into_owned(),
-            text.to_string_lossy().into_owned(),
-            dir.join("no-existe.mp3").to_string_lossy().into_owned(),
-            "--no-sandbox".to_string(),
-            dir.to_string_lossy().into_owned(), // una carpeta, no un archivo
-        ]);
+        let found = files_in(
+            vec![
+                song.clone().into_os_string(),
+                text.clone().into_os_string(),
+                dir.join("no-existe.mp3").into_os_string(),
+                "--no-sandbox".into(),
+                dir.clone().into_os_string(), // una carpeta, no un archivo
+            ],
+            None,
+        );
         assert_eq!(found.len(), 1, "solo deberia entrar el mp3 que existe: {found:?}");
         assert!(found[0].ends_with("cancion.mp3"));
 
@@ -216,11 +246,45 @@ mod tests {
     #[test]
     fn an_argument_that_is_a_flag_never_plays() {
         // el sistema y GTK meten los suyos; ninguno debe acabar sonando
-        assert!(files_in(vec![
-            "--gdk-debug=misc".to_string(),
-            "-psn_0_12345".to_string(),
-        ])
-        .is_empty());
+        assert!(files_in(vec!["--gdk-debug=misc".into(), "-psn_0_12345".into()], None).is_empty());
+    }
+
+    /// Una ruta relativa se entiende desde la carpeta de quien la mando (la
+    /// segunda instancia), no desde la de la app que ya estaba abierta.
+    #[test]
+    fn a_relative_path_is_read_from_the_sender_folder() {
+        let dir = std::env::temp_dir().join("danplay-abrir-relativa");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("aqui.mp3"), b"existe").unwrap();
+        let found = files_in(vec!["aqui.mp3".into()], Some(&dir));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].ends_with("aqui.mp3"));
+        assert!(files_in(vec!["aqui.mp3".into()], Some(Path::new("/no/existe"))).is_empty());
+        let _ = std::fs::remove_file(dir.join("aqui.mp3"));
+    }
+
+    /// Un nombre que no es UTF-8 (Latin-1, de un disco viejo) no tumba nada:
+    /// antes, leer los argumentos como texto hacia panic y la app ni
+    /// arrancaba. Se deja fuera (no se puede pasar a la cola sin cambiarlo)
+    /// y lo demas entra igual.
+    #[cfg(unix)]
+    #[test]
+    fn a_name_that_is_not_utf8_does_not_panic() {
+        use std::os::unix::ffi::OsStringExt;
+        let dir = std::env::temp_dir().join("danplay-abrir-latin1");
+        std::fs::create_dir_all(&dir).unwrap();
+        let latin1 = dir.join(OsString::from_vec(b"canci\xf3n.mp3".to_vec()));
+        std::fs::write(&latin1, b"existe").unwrap();
+        let fine = dir.join("cancion.mp3");
+        std::fs::write(&fine, b"existe").unwrap();
+        let found = files_in(
+            vec![latin1.clone().into_os_string(), fine.clone().into_os_string()],
+            None,
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].ends_with("cancion.mp3"));
+        let _ = std::fs::remove_file(&latin1);
+        let _ = std::fs::remove_file(&fine);
     }
 
     #[test]

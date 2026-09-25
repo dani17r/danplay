@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-queue-items"
+description = "Enables the queue_items command without any pre-configured scope."
+commands.allow = ["queue_items"]
+
+[[permission]]
+identifier = "deny-queue-items"
+description = "Denies the queue_items command without any pre-configured scope."
+commands.deny = ["queue_items"]

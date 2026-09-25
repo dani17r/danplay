@@ -1,6 +1,6 @@
 //! El metronomo del modo estudio: un clic sintetizado en una pista aparte.
 //!
-//! Suena en un `Sink` propio sobre la misma salida que la cancion, asi que
+//! Suena en un `Player` propio sobre la misma salida que la cancion, asi que
 //! tiene su volumen y su marcha independientes: se puede parar la cancion y
 //! dejar el clic, o al reves. Cuando la cancion suena, el clic se engancha a
 //! su rejilla de pulsos (`beats::BeatGrid`) y sigue la velocidad del
@@ -19,16 +19,14 @@
 //! son 77 ms por minuto. Donde la salida no abra a 44,1 kHz —en Linux con
 //! ALSA suele abrir ahi, pero en Windows y macOS lo normal son 48— el clic
 //! se iba quedando atras de la cancion, que no pasa por el conversor o lo
-//! pasa en tramos mucho mas largos. Generandolo a la tasa de la salida no
-//! hay conversion; y por si no se pudiera averiguar, `current_frame_len`
-//! pide tramos largos, con los que la perdida baja a milisegundos por hora.
+//! pasa en tramos mucho mas largos. Generandolo a la tasa de la salida (la
+//! que dice la propia salida al abrirla) no hay conversion; y aun asi
+//! `current_span_len` pide tramos largos, con los que la perdida baja a
+//! milisegundos por hora.
 use crate::beats::BeatGrid;
 use rodio::Source;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-/// La tasa del clic cuando no se sabe a cual va la salida.
-pub const DEFAULT_RATE: u32 = 44_100;
 
 /// Lo que la fuente dice que dura su tramo. La cola de rodio reparte 512
 /// muestras cuando una fuente no dice nada, y el conversor de tasa del
@@ -41,17 +39,27 @@ pub enum Mode {
     Off,
     /// Libre, a `period` segundos por pulso, con el «1» cada `meter` pulsos.
     /// El proximo pulso cae a `delay` segundos y es el tiempo `first` del compas.
-    Free { period: f64, meter: u8, delay: f64, first: u8 },
+    Free {
+        period: f64,
+        meter: u8,
+        delay: f64,
+        first: u8,
+    },
     /// Siguiendo la rejilla de la cancion: el pulso `index` cae a `delay`
     /// segundos; los siguientes, segun la rejilla dividida por `speed`.
-    Grid { grid: Arc<BeatGrid>, index: usize, delay: f64, speed: f64 },
+    Grid {
+        grid: Arc<BeatGrid>,
+        index: usize,
+        delay: f64,
+        speed: f64,
+    },
 }
 
-/// Lo que el hilo de audio deja para la fuente. `gen` cambia con cada plan
+/// Lo que el hilo de audio deja para la fuente. `generation` cambia con cada plan
 /// nuevo; el volumen se puede cambiar sin plan nuevo.
 #[derive(Clone, Debug)]
 pub struct Plan {
-    pub gen: u64,
+    pub generation: u64,
     pub mode: Mode,
     pub volume: f32,
     /// Reenganche de rutina: la cancion sigue donde estaba y solo hay que
@@ -63,7 +71,12 @@ pub struct Plan {
 
 impl Default for Plan {
     fn default() -> Self {
-        Plan { gen: 0, mode: Mode::Off, volume: 0.8, smooth: false }
+        Plan {
+            generation: 0,
+            mode: Mode::Off,
+            volume: 0.8,
+            smooth: false,
+        }
     }
 }
 
@@ -75,7 +88,11 @@ const CHECK_EVERY: u64 = 64;
 /// Un golpe de clic: un tono corto con caida exponencial. El «1» es mas
 /// agudo, mas largo y mas fuerte, que es como se distingue de oido.
 fn click_sample(pos: usize, accent: bool, rate: u32) -> f32 {
-    let (hz, len_s, gain) = if accent { (1568.0, 0.035, 1.0) } else { (1046.5, 0.022, 0.65) };
+    let (hz, len_s, gain) = if accent {
+        (1568.0, 0.035, 1.0)
+    } else {
+        (1046.5, 0.022, 0.65)
+    };
     if pos >= click_len(accent, rate) {
         return 0.0;
     }
@@ -130,10 +147,10 @@ impl Click {
     fn refresh(&mut self) {
         let Ok(plan) = self.shared.try_lock() else { return };
         self.volume = plan.volume;
-        if plan.gen == self.seen {
+        if plan.generation == self.seen {
             return;
         }
-        self.seen = plan.gen;
+        self.seen = plan.generation;
         // el candado se suelta antes de tocar nada: al otro lado esta el
         // hilo de audio, que no tiene por que esperar
         let (mode, smooth) = (plan.mode.clone(), plan.smooth);
@@ -160,8 +177,17 @@ impl Click {
     /// sono —el clic iba un pelo por delante— se deja estar. Devuelve si lo
     /// ha resuelto; si no, el plan es un cambio de verdad y se adopta entero.
     fn retune(&mut self, plan: &Mode) -> bool {
-        let (Mode::Grid { grid, index, delay, speed }, Mode::Grid { grid: mine, speed: was, .. }) =
-            (plan, &self.mode)
+        let (
+            Mode::Grid {
+                grid,
+                index,
+                delay,
+                speed,
+            },
+            Mode::Grid {
+                grid: mine, speed: was, ..
+            },
+        ) = (plan, &self.mode)
         else {
             return false;
         };
@@ -207,7 +233,7 @@ impl Iterator for Click {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        if self.count % CHECK_EVERY == 0 {
+        if self.count.is_multiple_of(CHECK_EVERY) {
             self.refresh();
         }
         if !matches!(self.mode, Mode::Off) && self.count as f64 >= self.next {
@@ -228,14 +254,15 @@ impl Iterator for Click {
 }
 
 impl Source for Click {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         Some(FRAME)
     }
-    fn channels(&self) -> u16 {
-        1
+    fn channels(&self) -> rodio::ChannelCount {
+        rodio::ChannelCount::MIN
     }
-    fn sample_rate(&self) -> u32 {
-        self.rate
+    fn sample_rate(&self) -> rodio::SampleRate {
+        // `rate` ya viene recortada a 8.000..384.000: nunca es cero
+        rodio::SampleRate::new(self.rate).unwrap_or(rodio::math::nz!(44_100))
     }
     fn total_duration(&self) -> Option<Duration> {
         None
@@ -246,7 +273,7 @@ impl Source for Click {
 mod tests {
     use super::*;
 
-    const RATE: u32 = DEFAULT_RATE;
+    const RATE: u32 = 44_100;
 
     fn click(shared: Shared) -> Click {
         Click::new(shared, RATE)
@@ -291,8 +318,13 @@ mod tests {
         let mut c = click(shared.clone());
         {
             let mut p = shared.lock().unwrap();
-            p.gen = 1;
-            p.mode = Mode::Free { period: 0.5, meter: 4, delay: 0.25, first: 0 };
+            p.generation = 1;
+            p.mode = Mode::Free {
+                period: 0.5,
+                meter: 4,
+                delay: 0.25,
+                first: 0,
+            };
             p.volume = 1.0;
         }
         let h = hits(&mut c, 3.0);
@@ -300,7 +332,10 @@ mod tests {
         let sr = RATE as f64;
         for (k, (start, accent)) in h.iter().enumerate() {
             let expected = (0.25 + 0.5 * k as f64) * sr;
-            assert!((*start as f64 - expected).abs() <= CHECK_EVERY as f64 + 1.0, "golpe {k} en {start}");
+            assert!(
+                (*start as f64 - expected).abs() <= CHECK_EVERY as f64 + 1.0,
+                "golpe {k} en {start}"
+            );
             assert_eq!(*accent, k % 4 == 0, "acento del golpe {k}");
         }
     }
@@ -324,10 +359,15 @@ mod tests {
         let mut c = click(shared.clone());
         {
             let mut p = shared.lock().unwrap();
-            p.gen = 1;
+            p.generation = 1;
             // la cancion va por 10.3 a mitad de velocidad: el pulso 1 (10.5)
             // cae a (10.5-10.3)/0.5 = 0.4 s, y los siguientes cada 1 s
-            p.mode = Mode::Grid { grid: grid.clone(), index: 1, delay: 0.4, speed: 0.5 };
+            p.mode = Mode::Grid {
+                grid: grid.clone(),
+                index: 1,
+                delay: 0.4,
+                speed: 0.5,
+            };
             p.volume = 1.0;
         }
         let h = hits(&mut c, 3.0);
@@ -349,22 +389,35 @@ mod tests {
         let mut c = click(shared.clone());
         {
             let mut p = shared.lock().unwrap();
-            p.gen = 1;
-            p.mode = Mode::Free { period: 1.0, meter: 1, delay: 0.0, first: 0 };
+            p.generation = 1;
+            p.mode = Mode::Free {
+                period: 1.0,
+                meter: 1,
+                delay: 0.0,
+                first: 0,
+            };
             p.volume = 1.0;
         }
         assert_eq!(hits(&mut c, 1.5).len(), 2);
         {
             let mut p = shared.lock().unwrap();
-            p.gen = 2;
-            p.mode = Mode::Free { period: 1.0, meter: 1, delay: 0.9, first: 0 };
+            p.generation = 2;
+            p.mode = Mode::Free {
+                period: 1.0,
+                meter: 1,
+                delay: 0.9,
+                first: 0,
+            };
         }
         let h = hits(&mut c, 1.0);
         assert_eq!(h.len(), 1);
-        assert!((h[0].0 as f64 - 0.9 * RATE as f64).abs() <= (2 * CHECK_EVERY) as f64 + 1.0, "{h:?}");
+        assert!(
+            (h[0].0 as f64 - 0.9 * RATE as f64).abs() <= (2 * CHECK_EVERY) as f64 + 1.0,
+            "{h:?}"
+        );
         {
             let mut p = shared.lock().unwrap();
-            p.gen = 3;
+            p.generation = 3;
             p.mode = Mode::Off;
         }
         assert!(hits(&mut c, 2.0).is_empty());
@@ -377,9 +430,14 @@ mod tests {
         let grid = grid();
         let shared: Shared = Arc::new(Mutex::new(Plan::default()));
         let mut c = click(shared.clone());
-        let plan = |gen: u64, index: usize, delay: f64, smooth: bool| Plan {
-            gen,
-            mode: Mode::Grid { grid: grid.clone(), index, delay, speed: 1.0 },
+        let plan = |generation: u64, index: usize, delay: f64, smooth: bool| Plan {
+            generation,
+            mode: Mode::Grid {
+                grid: grid.clone(),
+                index,
+                delay,
+                speed: 1.0,
+            },
             volume: 1.0,
             smooth,
         };
@@ -405,7 +463,10 @@ mod tests {
         *shared.lock().unwrap() = plan(4, 4, 0.3, true);
         let h = hits(&mut c, 0.5);
         assert_eq!(h.len(), 1, "{h:?}");
-        assert!((h[0].0 as f64 - 0.3 * RATE as f64).abs() <= (2 * CHECK_EVERY) as f64 + 1.0, "{h:?}");
+        assert!(
+            (h[0].0 as f64 - 0.3 * RATE as f64).abs() <= (2 * CHECK_EVERY) as f64 + 1.0,
+            "{h:?}"
+        );
     }
 
     /// Lo que rodio mete entre la fuente y la tarjeta: la cola del sink parte
@@ -423,14 +484,14 @@ mod tests {
         }
     }
 
-    impl<S: Source<Item = f32>> Source for Chopped<S> {
-        fn current_frame_len(&self) -> Option<usize> {
-            self.inner.current_frame_len().or(Some(self.len))
+    impl<S: Source> Source for Chopped<S> {
+        fn current_span_len(&self) -> Option<usize> {
+            self.inner.current_span_len().or(Some(self.len))
         }
-        fn channels(&self) -> u16 {
+        fn channels(&self) -> rodio::ChannelCount {
             self.inner.channels()
         }
-        fn sample_rate(&self) -> u32 {
+        fn sample_rate(&self) -> rodio::SampleRate {
             self.inner.sample_rate()
         }
         fn total_duration(&self) -> Option<Duration> {
@@ -443,7 +504,11 @@ mod tests {
     fn hits_through_rodio(click: Click, out_rate: u32, seconds: f64) -> Vec<f64> {
         use rodio::source::UniformSourceIterator;
         let chopped = Chopped { inner: click, len: 512 };
-        let mut out: UniformSourceIterator<_, f32> = UniformSourceIterator::new(chopped, 1, out_rate);
+        let mut out = UniformSourceIterator::new(
+            chopped,
+            rodio::ChannelCount::MIN,
+            rodio::SampleRate::new(out_rate).expect("una tasa de verdad"),
+        );
         let n = (seconds * f64::from(out_rate)) as u64;
         let mut hits = Vec::new();
         let mut silent = true;
@@ -468,8 +533,13 @@ mod tests {
             let shared: Shared = Arc::new(Mutex::new(Plan::default()));
             {
                 let mut p = shared.lock().unwrap();
-                p.gen = 1;
-                p.mode = Mode::Free { period: 1.0, meter: 1, delay: 0.0, first: 0 };
+                p.generation = 1;
+                p.mode = Mode::Free {
+                    period: 1.0,
+                    meter: 1,
+                    delay: 0.0,
+                    first: 0,
+                };
                 p.volume = 1.0;
             }
             let h = hits_through_rodio(Click::new(shared, click_rate), out_rate, 120.0);
@@ -479,11 +549,17 @@ mod tests {
         // generando a la tasa de la salida no hay conversion: clavado
         for rate in [44_100u32, 48_000, 96_000] {
             let off = case(rate, rate);
-            assert!(off.abs() < 2.0, "a {rate} Hz el golpe 120 va {off:+.1} ms fuera de sitio");
+            assert!(
+                off.abs() < 2.0,
+                "a {rate} Hz el golpe 120 va {off:+.1} ms fuera de sitio"
+            );
         }
         // y si la tasa no se pudiera averiguar, los tramos largos dejan la
         // perdida en milisegundos por hora
         let off = case(44_100, 48_000);
-        assert!(off.abs() < 10.0, "convirtiendo de 44,1 a 48 kHz va {off:+.1} ms fuera de sitio");
+        assert!(
+            off.abs() < 10.0,
+            "convirtiendo de 44,1 a 48 kHz va {off:+.1} ms fuera de sitio"
+        );
     }
 }

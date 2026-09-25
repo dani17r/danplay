@@ -12,8 +12,9 @@
 //! ahora no, no se vuelve a preguntar.
 #[cfg(target_os = "linux")]
 mod linux {
+    use crate::tools;
     use std::path::PathBuf;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     /// Binarios que necesitamos y el paquete que los trae en cada distro.
     const REQUIRED: &[(&str, &str, &str, &str, &str)] = &[
@@ -29,10 +30,7 @@ mod linux {
     ];
 
     fn has(binary: &str) -> bool {
-        let Some(path) = std::env::var_os("PATH") else {
-            return false;
-        };
-        std::env::split_paths(&path).any(|dir| dir.join(binary).is_file())
+        tools::in_path(binary)
     }
 
     /// (nombre del gestor, indice en REQUIRED, orden de instalacion)
@@ -53,7 +51,7 @@ mod linux {
     fn ask(text: &str) -> bool {
         // zenity o kdialog; si no hay ninguno, no molestamos y no instalamos nada
         if has("zenity") {
-            return Command::new("zenity")
+            return tools::command("zenity")
                 .args([
                     "--question",
                     "--title=DanPlay",
@@ -64,22 +62,20 @@ mod linux {
                     text,
                 ])
                 .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
+                .is_ok_and(|s| s.success());
         }
         if has("kdialog") {
-            return Command::new("kdialog")
+            return tools::command("kdialog")
                 .args(["--title", "DanPlay", "--yesno", text])
                 .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
+                .is_ok_and(|s| s.success());
         }
         false
     }
 
     fn notify(text: &str) {
         if has("zenity") {
-            let _ = Command::new("zenity")
+            let _ = tools::command("zenity")
                 .args(["--info", "--title=DanPlay", "--width=400", "--text", text])
                 .status();
         }
@@ -97,22 +93,19 @@ mod linux {
     /// La aplicacion esta instalada en el sistema: sus dependencias las puso
     /// el gestor de paquetes y no hay nada que ofrecer.
     fn installed_by_the_system() -> bool {
-        std::env::current_exe()
-            .map(|exe| exe.starts_with("/usr") || exe.starts_with("/opt"))
-            .unwrap_or(false)
+        std::env::current_exe().is_ok_and(|exe| exe.starts_with("/usr") || exe.starts_with("/opt"))
     }
 
     pub fn ensure() {
         if installed_by_the_system() {
             return;
         }
-        let missing: Vec<&(&str, &str, &str, &str, &str)> =
-            REQUIRED.iter().filter(|n| !has(n.0)).collect();
+        let missing: Vec<&(&str, &str, &str, &str, &str)> = REQUIRED.iter().filter(|n| !has(n.0)).collect();
         if missing.is_empty() {
             return;
         }
         let mark = declined_mark();
-        if mark.as_ref().map(|m| m.exists()).unwrap_or(false) {
+        if mark.as_ref().is_some_and(|m| m.exists()) {
             return;
         }
         let Some((manager, index, base)) = package_manager() else {
@@ -159,12 +152,12 @@ mod linux {
         // argumentos separados. Asi el dialogo de permisos dice que programa
         // se va a ejecutar de verdad.
         if manager == "apt" {
-            let _ = Command::new("pkexec")
+            let _ = tools::command("pkexec")
                 .args(["apt-get", "update", "-qq"])
                 .stdout(Stdio::null())
                 .status();
         }
-        let mut command = Command::new("pkexec");
+        let mut command = tools::command("pkexec");
         command.args(&base).args(&packages);
         match command.status() {
             Ok(s) if s.success() => notify("Listo. Ya estan disponibles todas las funciones."),

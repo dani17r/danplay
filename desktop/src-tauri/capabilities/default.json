@@ -1,18 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permisos de la ventana principal",
+  "description": "Permisos de la ventana principal: los eventos de Rust, el selector de carpetas e imagenes y todos los comandos propios. Nada de lo que la interfaz no usa (rutas del sistema, datos de la app, notificaciones desde el JS...).",
   "windows": ["main"],
   "permissions": [
-    "core:app:default",
     "core:event:default",
-    "core:path:default",
-    "core:webview:default",
-    "core:window:default",
-    "core:window:allow-hide",
-    "core:window:allow-show",
-    "core:window:allow-set-focus",
     "dialog:allow-open",
-    "notification:default"
+    "ventana-principal"
   ]
 }

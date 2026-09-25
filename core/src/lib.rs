@@ -1,3 +1,9 @@
+//! El núcleo en Rust (PyO3): lo que en Python va lento.
+//!
+//! Desde Python se usan `hashes` (duplicados idénticos), `waveform` (la
+//! forma de onda del modo estudio) y `last_error`. `partial_hash` y
+//! `full_hashes` son de la misma familia y se quedan para la línea de
+//! órdenes y las pruebas.
 pub mod audio;
 
 use md5::{Digest, Md5};
@@ -8,8 +14,6 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
-
-use audio::Analysis;
 
 // ---------------------------------------------------------------- último error
 
@@ -74,6 +78,18 @@ fn publish<T>(results: Vec<(PathBuf, Result<T, String>)>) -> Vec<(OsString, Opti
 
 // ---------------------------------------------------------------------- hashes
 
+/// El md5 en hexadecimal, como lo da `hashlib.md5().hexdigest()`. md-5 ya no
+/// lo formatea solo (`{:x}` no vale sobre el tipo que devuelve desde la 0.11).
+fn hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(char::from(DIGITS[usize::from(b >> 4)]));
+        out.push(char::from(DIGITS[usize::from(b & 0x0f)]));
+    }
+    out
+}
+
 /// md5 de los primeros `bytes` del archivo (detección rápida de duplicados).
 fn partial_hash_one(path: &Path, bytes: usize) -> Result<String, String> {
     let file = File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
@@ -84,7 +100,7 @@ fn partial_hash_one(path: &Path, bytes: usize) -> Result<String, String> {
     file.take(bytes as u64)
         .read_to_end(&mut buf)
         .map_err(|e| format!("error de lectura: {e}"))?;
-    Ok(format!("{:x}", Md5::digest(&buf)))
+    Ok(hex(&Md5::digest(&buf)))
 }
 
 /// md5 del archivo completo, por bloques de 1 MiB para no cargarlo entero.
@@ -97,11 +113,11 @@ fn full_hash_one(path: &Path) -> Result<String, String> {
             Ok(0) => break,
             Ok(n) => hasher.update(&buf[..n]),
             // Una señal puede interrumpir el `read`: se reintenta, no es un fallo.
-            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
             Err(e) => return Err(format!("error de lectura: {e}")),
         }
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex(&hasher.finalize()))
 }
 
 fn partial_hashes(paths: Vec<PathBuf>, bytes: usize) -> Vec<(PathBuf, Result<String, String>)> {
@@ -124,26 +140,16 @@ fn full_hashes_of(paths: Vec<PathBuf>) -> Vec<(PathBuf, Result<String, String>)>
         .collect()
 }
 
-fn analyze_all(paths: Vec<PathBuf>, max_seconds: u32) -> Vec<(PathBuf, Result<Analysis, String>)> {
-    paths
-        .into_par_iter()
-        .map(|path| {
-            let result = audio::analyze_path(&path, max_seconds);
-            (path, result)
-        })
-        .collect()
-}
-
 // ------------------------------------------------------------- API para Python
 //
 // Todas las funciones sueltan el GIL (`py.detach`, antes `allow_threads`)
-// mientras trabajan: si no, la API entera se congela durante todo el hasheo o
-// el análisis de la biblioteca. Es seguro porque las rutas ya se han copiado a
+// mientras trabajan: si no, la API entera se congela durante todo el hasheo de
+// la biblioteca o el cálculo de una forma de onda. Es seguro porque las rutas ya se han copiado a
 // tipos propios de Rust antes de soltarlo. Las rutas se aceptan como `str`,
 // `bytes` u `os.PathLike` (`PathBuf` pasa por `os.fspath`).
 
 #[pyfunction]
-#[pyo3(signature = (path, bytes = 1048576))]
+#[pyo3(signature = (path, bytes = 1_048_576))]
 fn partial_hash(py: Python<'_>, path: PathBuf, bytes: usize) -> Option<String> {
     let result = py.detach(|| partial_hash_one(&path, bytes));
     publish_one(&path, result)
@@ -152,7 +158,7 @@ fn partial_hash(py: Python<'_>, path: PathBuf, bytes: usize) -> Option<String> {
 /// Igual pero sobre muchos archivos y en paralelo (todos los núcleos).
 /// Devuelve `[(ruta, hash | None), ...]` con la ruta tal cual llegó.
 #[pyfunction]
-#[pyo3(signature = (paths, bytes = 1048576))]
+#[pyo3(signature = (paths, bytes = 1_048_576))]
 fn hashes(py: Python<'_>, paths: Vec<PathBuf>, bytes: usize) -> Vec<(OsString, Option<String>)> {
     publish(py.detach(|| partial_hashes(paths, bytes)))
 }
@@ -163,35 +169,17 @@ fn full_hashes(py: Python<'_>, paths: Vec<PathBuf>) -> Vec<(OsString, Option<Str
     publish(py.detach(|| full_hashes_of(paths)))
 }
 
-/// Analiza un archivo: (tonalidad, confianza_tono, bpm, confianza_bpm, duración).
-#[pyfunction]
-#[pyo3(signature = (path, max_seconds = 120))]
-fn analyze(py: Python<'_>, path: PathBuf, max_seconds: u32) -> Option<Analysis> {
-    let result = py.detach(|| audio::analyze_path(&path, max_seconds));
-    publish_one(&path, result)
-}
-
-/// Analiza muchos archivos en paralelo (un hilo por núcleo).
-#[pyfunction]
-#[pyo3(signature = (paths, max_seconds = 120))]
-fn analyze_many(py: Python<'_>, paths: Vec<PathBuf>, max_seconds: u32) -> Vec<(OsString, Option<Analysis>)> {
-    publish(py.detach(|| analyze_all(paths, max_seconds)))
-}
-
-/// Cromagramas crudos: (12 clases completo, 12 clases graves, bpm, afinación).
-#[pyfunction]
-#[pyo3(signature = (path, max_seconds = 150))]
-fn chromagrams(py: Python<'_>, path: PathBuf, max_seconds: u32) -> Option<([f32; 12], [f32; 12], f32, f32)> {
-    let result = py.detach(|| audio::chromagrams(&path, max_seconds));
-    publish_one(&path, result)
-}
-
 /// La forma de onda para pintar: (picos, rms), `buckets` valores entre 0 y 1
 /// cada uno. `None` si el archivo no se puede decodificar (ver `last_error`).
+///
+/// Va dentro de `guarded` como todo lo que decodifica: un archivo raro puede
+/// hacer saltar un panic dentro de symphonia, y en Python eso llegaba como
+/// `PanicException`, que hereda de `BaseException` y no lo captura un
+/// `except Exception`. Así llega como un `None` con su motivo.
 #[pyfunction]
 #[pyo3(signature = (path, buckets = 800))]
 fn waveform(py: Python<'_>, path: PathBuf, buckets: usize) -> Option<(Vec<f32>, Vec<f32>)> {
-    let result = py.detach(|| audio::waveform(&path, buckets.clamp(1, 20_000)));
+    let result = py.detach(|| audio::guarded(|| audio::waveform(&path, buckets.clamp(1, 20_000))));
     publish_one(&path, result)
 }
 
@@ -200,9 +188,6 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(partial_hash, m)?)?;
     m.add_function(wrap_pyfunction!(hashes, m)?)?;
     m.add_function(wrap_pyfunction!(full_hashes, m)?)?;
-    m.add_function(wrap_pyfunction!(analyze, m)?)?;
-    m.add_function(wrap_pyfunction!(analyze_many, m)?)?;
-    m.add_function(wrap_pyfunction!(chromagrams, m)?)?;
     m.add_function(wrap_pyfunction!(waveform, m)?)?;
     m.add_function(wrap_pyfunction!(last_error, m)?)?;
     Ok(())
@@ -219,7 +204,19 @@ mod tests {
     }
 
     fn md5_hex(data: &[u8]) -> String {
-        format!("{:x}", Md5::digest(data))
+        hex(&Md5::digest(data))
+    }
+
+    /// El formato de siempre: 32 cifras en minúsculas, como `hexdigest()`.
+    #[test]
+    fn the_hash_reads_like_hexdigest() {
+        assert_eq!(md5_hex(b""), "d41d8cd98f00b204e9800998ecf8427e");
+        assert_eq!(md5_hex(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(
+            md5_hex(b"The quick brown fox jumps over the lazy dog"),
+            "9e107d9d372bb6826bd81d3542a419d6"
+        );
+        assert_eq!(hex(&[0x00, 0x0f, 0xa0, 0xff]), "000fa0ff");
     }
 
     /// WAV PCM de 16 bits mono, escrito a mano para no depender de archivos externos.
@@ -278,8 +275,14 @@ mod tests {
         assert_eq!(rms.len(), 10);
         // la columna del medio cae a caballo del cambio (los bloques no
         // encajan justo con la mitad), asi que se miran las de los lados
-        assert!(peaks[..4].iter().all(|&p| p < 0.01), "la mitad callada suena: {peaks:?}");
-        assert!(peaks[6..].iter().all(|&p| p > 0.95), "el tono no llega al maximo: {peaks:?}");
+        assert!(
+            peaks[..4].iter().all(|&p| p < 0.01),
+            "la mitad callada suena: {peaks:?}"
+        );
+        assert!(
+            peaks[6..].iter().all(|&p| p > 0.95),
+            "el tono no llega al maximo: {peaks:?}"
+        );
         // el RMS de una senoide es el pico partido por raiz de dos
         assert!(rms[6..].iter().all(|&r| (0.6..0.8).contains(&r)), "rms raro: {rms:?}");
         assert!(rms[..4].iter().all(|&r| r < 0.01));
@@ -296,7 +299,7 @@ mod tests {
         // mas columnas que bloques: se repiten, no se inventan
         let (more, _) = audio::columns(&blocks, 8);
         assert_eq!(more.len(), 8);
-        assert_eq!(more[0], more[1]);
+        assert_eq!(more[0].to_bits(), more[1].to_bits());
         assert!(audio::columns(&[], 5).0.is_empty());
         assert!(audio::columns(&blocks, 0).0.is_empty());
     }
@@ -352,7 +355,7 @@ mod tests {
 
     #[test]
     fn publish_keeps_paths_and_records_last_error() {
-        let a = temp_file("dp_h.bin", &vec![5u8; 128]);
+        let a = temp_file("dp_h.bin", &[5u8; 128]);
         let missing = PathBuf::from("/no/existe/dp_h");
         let out = publish(partial_hashes(vec![a.clone(), missing.clone()], 1 << 20));
         assert_eq!(out[0].0, a.as_os_str());
@@ -373,7 +376,9 @@ mod tests {
         let name = std::ffi::OsStr::from_bytes(b"dp_\xff\xfe.bin");
         let p = temp_file(name.to_str().unwrap_or("dp_fallback.bin"), b"x");
         // `to_str` falla con esos bytes: el archivo se crea con el nombre crudo
-        let p = if p.file_name() == Some(name) { p } else {
+        let p = if p.file_name() == Some(name) {
+            p
+        } else {
             let raw = std::env::temp_dir().join(name);
             std::fs::write(&raw, b"x").unwrap();
             raw
@@ -386,52 +391,29 @@ mod tests {
     #[test]
     fn invalid_file_is_an_error_not_a_panic() {
         let f = temp_file("dp_g.mp3", b"esto no es audio");
-        let err = audio::analyze_path(&f, 10).unwrap_err();
+        let err = audio::waveform(&f, 10).unwrap_err();
         assert!(!err.is_empty());
-        assert_eq!(publish_one(&f, audio::analyze_path(&f, 10)), None);
+        assert_eq!(publish_one(&f, audio::waveform(&f, 10)), None);
         assert!(last_error().unwrap().starts_with(&f.display().to_string()));
     }
 
+    /// Un panic dentro de symphonia no puede llegar a Python como
+    /// `PanicException`: sale como un error con su motivo.
     #[test]
-    fn panic_inside_analysis_becomes_an_error() {
+    fn a_panic_while_decoding_becomes_an_error() {
         let r: Result<(), String> = audio::guarded(|| panic!("boom"));
-        assert_eq!(r.unwrap_err(), "panic durante el análisis: boom");
+        assert_eq!(r.unwrap_err(), "panic al decodificar: boom");
     }
 
+    /// Un archivo que miente en la extensión (un WAV llamado .mp3) se lee
+    /// igual: si la pista de la extensión falla, se prueba sin ella.
     #[test]
-    fn synthetic_wav_is_decoded_and_analyzed() {
-        let f = sine_wav("dp_a440.wav", 440.0, 3.0);
-        let (key, _, _, _, dur) = audio::analyze_path(&f, 10).unwrap();
-        assert!(key.starts_with('A'), "un La puro debería salir en La, salió {key}");
-        assert!((dur - 3.0).abs() < 0.05, "duración {dur}");
-        let (chroma, _bass, _bpm, tuning) = audio::chromagrams(&f, 10).unwrap();
-        let top = (0..12).max_by(|&a, &b| chroma[a].total_cmp(&chroma[b])).unwrap();
-        assert_eq!(top, 9, "la clase dominante debe ser La (9): {chroma:?}");
-        assert!(tuning.abs() < 0.1, "440 Hz exactos no desafinan: {tuning}");
-    }
-
-    #[test]
-    fn max_seconds_truncates_decoding() {
-        let f = sine_wav("dp_long.wav", 220.0, 4.0);
-        let pcm = audio::decode(&f, 1).unwrap();
-        // se para al superar el límite, sin leer los 4 s completos
-        assert!(pcm.samples.len() < 3 * 44100, "{}", pcm.samples.len());
-        assert_eq!(pcm.sr, 44100);
-    }
-
-    #[test]
-    fn key_detection_returns_valid_note() {
-        // cromagrama con Do dominante
-        let mut c = [0.1f32; 12];
-        c[0] = 5.0; c[4] = 3.0; c[7] = 4.0;      // C - E - G
-        let (key, _) = audio::detect_key(&c);
-        assert!(key.starts_with('C'), "esperaba algo en Do, salió {key}");
-    }
-
-    #[test]
-    fn empty_envelope_gives_zero_bpm() {
-        let (bpm, conf) = audio::detect_bpm(&[], 44100);
-        assert_eq!(bpm, 0.0);
-        assert_eq!(conf, 0.0);
+    fn a_file_with_the_wrong_extension_still_draws() {
+        let wav = sine_wav("dp_miente.wav", 440.0, 1.0);
+        let liar = std::env::temp_dir().join("dp_miente.mp3");
+        std::fs::copy(&wav, &liar).unwrap();
+        let (peaks, _) = audio::waveform(&liar, 20).expect("se lee aunque diga que es mp3");
+        assert_eq!(peaks.len(), 20);
+        assert!(peaks.iter().all(|&p| p > 0.9), "una senoide entera: {peaks:?}");
     }
 }

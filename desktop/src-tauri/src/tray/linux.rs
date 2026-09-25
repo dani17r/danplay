@@ -10,11 +10,11 @@
 //! la extension AppIndicator, igual que antes. Si no hay bandeja, `spawn`
 //! falla y la aplicacion se entera (y entonces cerrar la ventana la cierra
 //! del todo, en vez de dejarla escondida y sin forma de volver).
-use super::{labels, NowPlaying};
+use super::{NowPlaying, labels};
 use ksni::menu::{MenuItem, StandardItem};
 use ksni::{Icon, ToolTip, Tray, TrayMethods};
-use std::sync::mpsc::{channel, Sender};
 use std::sync::OnceLock;
+use std::sync::mpsc::{Sender, channel};
 use tauri::{AppHandle, Manager};
 
 static UPDATES: OnceLock<Sender<NowPlaying>> = OnceLock::new();
@@ -27,7 +27,13 @@ struct DanTray {
 
 impl Tray for DanTray {
     fn id(&self) -> String {
-        "danplay".into()
+        // otro icono si conviven la compilacion de desarrollo y la instalada
+        if cfg!(debug_assertions) {
+            "danplay-dev"
+        } else {
+            "danplay"
+        }
+        .into()
     }
 
     fn title(&self) -> String {
@@ -146,8 +152,8 @@ fn icon_of(app: &AppHandle) -> Vec<Icon> {
     };
     let rgba = image.rgba();
     let mut data = Vec::with_capacity(rgba.len());
-    for pixel in rgba.chunks_exact(4) {
-        data.extend_from_slice(&[pixel[3], pixel[0], pixel[1], pixel[2]]);
+    for [r, g, b, a] in rgba.as_chunks::<4>().0 {
+        data.extend_from_slice(&[*a, *r, *g, *b]);
     }
     vec![Icon {
         width: image.width() as i32,
@@ -179,7 +185,7 @@ pub fn install(app: AppHandle) {
                     // No hay bandeja en este escritorio (GNOME sin la
                     // extension, por ejemplo). Se dice y se sigue: sin ella,
                     // cerrar la ventana cierra la aplicacion.
-                    eprintln!("DanPlay: no hay bandeja donde poner el icono: {e}");
+                    log::warn!("no hay bandeja donde poner el icono: {e}");
                     super::mark_available(&app, false);
                     return;
                 }

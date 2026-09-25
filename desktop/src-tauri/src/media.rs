@@ -7,9 +7,12 @@
 //!
 //! Todo lo que llega de aqui son ordenes normales para la cola: quien decide
 //! que es «siguiente» sigue siendo el mismo sitio.
-use crate::queue::{Command, PlaybackState, Playback};
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig, SeekDirection};
+use crate::queue::{Command, Playback, PlaybackState};
+use souvlaki::{
+    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig, SeekDirection,
+};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
@@ -36,37 +39,68 @@ pub fn install(app: &AppHandle) {
     let media = Media::empty();
 
     #[cfg(windows)]
-    let hwnd = app
-        .get_webview_window("main")
-        .and_then(|w| w.hwnd().ok())
-        .map(|h| h.0 as *mut std::ffi::c_void);
+    let hwnd = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map(|h| h.0);
     #[cfg(not(windows))]
     let hwnd = None;
 
+    // La compilacion de desarrollo se anuncia con otro nombre: dos
+    // reproductores no pueden tener el mismo en el bus, y el segundo se
+    // quedaba sin teclas multimedia si DanPlay instalado estaba abierto.
     let config = PlatformConfig {
-        dbus_name: "danplay",
-        display_name: "DanPlay",
+        dbus_name: if cfg!(debug_assertions) {
+            "danplay_dev"
+        } else {
+            "danplay"
+        },
+        display_name: if cfg!(debug_assertions) {
+            "DanPlay (desarrollo)"
+        } else {
+            "DanPlay"
+        },
         hwnd,
     };
 
     match MediaControls::new(config) {
         Ok(mut controls) => {
             let handle = app.clone();
-            let attached = controls.attach(move |event| on_event(&handle, event));
-            if let Err(e) = attached {
-                eprintln!("DanPlay: no pude escuchar las teclas multimedia: {e}");
+            if let Err(e) = controls.attach(move |event| on_event(&handle, event)) {
+                log::warn!("no pude escuchar las teclas multimedia: {e}");
             }
-            if let Ok(mut guard) = media.controls.lock() {
-                *guard = Some(controls);
-            }
+            *media.controls.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(controls);
         }
         Err(e) => {
             // Sin esto la aplicacion funciona igual; solo se pierde el control
             // desde el escritorio.
-            eprintln!("DanPlay: no hay mandos de sistema disponibles: {e}");
+            log::warn!("no hay mandos de sistema disponibles: {e}");
         }
     }
+    // las caratulas de otra sesion ya no las enseña nadie
+    forget_covers(app, None);
     app.manage(media);
+}
+
+/// Quien empieza por esto es una caratula nuestra para el escritorio.
+const COVER_PREFIX: &str = "mpris-cover-";
+
+/// Borra las caratulas guardadas para el escritorio, menos `keep`.
+fn forget_covers(app: &AppHandle, keep: Option<&std::path::Path>) {
+    let Ok(dir) = app.path().app_cache_dir() else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ours = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            // `mpris-cover.jpg` es el de las versiones de antes, uno para todas
+            .is_some_and(|n| n.starts_with(COVER_PREFIX) || n == "mpris-cover.jpg");
+        if ours && Some(path.as_path()) != keep {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
 fn on_event(app: &AppHandle, event: MediaControlEvent) {
@@ -82,16 +116,19 @@ fn on_event(app: &AppHandle, event: MediaControlEvent) {
         MediaControlEvent::Previous => playback.send(Command::Previous),
         MediaControlEvent::Stop => playback.send(Command::Stop),
         MediaControlEvent::Seek(direction) => {
-            let step = if direction == SeekDirection::Forward { 10.0 } else { -10.0 };
+            let step = if direction == SeekDirection::Forward {
+                10.0
+            } else {
+                -10.0
+            };
             playback.send(Command::Seek((position() + step).max(0.0)));
         }
         MediaControlEvent::SeekBy(direction, amount) => {
-            let step = amount.as_secs_f64()
-                * if direction == SeekDirection::Forward { 1.0 } else { -1.0 };
+            let step = amount.as_secs_f64() * if direction == SeekDirection::Forward { 1.0 } else { -1.0 };
             playback.send(Command::Seek((position() + step).max(0.0)));
         }
         MediaControlEvent::SetPosition(MediaPosition(at)) => {
-            playback.send(Command::Seek(at.as_secs_f64()))
+            playback.send(Command::Seek(at.as_secs_f64()));
         }
         MediaControlEvent::SetVolume(value) => playback.send(Command::Volume(value as f32)),
         MediaControlEvent::Raise | MediaControlEvent::OpenUri(_) => crate::tray::show_main(app),
@@ -120,17 +157,13 @@ pub fn update(app: &AppHandle, state: &PlaybackState) {
     };
     let _ = controls.set_playback(playback);
 
-    let id = state.track.as_ref().map(|t| t.id).unwrap_or(-1);
-    let changed = media
-        .last
-        .lock()
-        .map(|mut last| {
-            let now = Some((id, state.playing));
-            let changed = last.map(|l| l.0) != Some(id);
-            *last = now;
-            changed
-        })
-        .unwrap_or(true);
+    let id = state.track.as_ref().map_or(-1, |t| t.id);
+    let changed = media.last.lock().map_or(true, |mut last| {
+        let now = Some((id, state.playing));
+        let changed = last.map(|l| l.0) != Some(id);
+        *last = now;
+        changed
+    });
     if !changed {
         return;
     }
@@ -170,6 +203,10 @@ pub fn update(app: &AppHandle, state: &PlaybackState) {
 /// de bloqueo tarde un segundo en tener la imagen no molesta a nadie, pero
 /// esperar por ella antes de sonar si.
 fn fetch_cover(app: AppHandle, id: i64) {
+    // Un archivo por cancion y por vez: el escritorio guarda la imagen por su
+    // direccion, y con un solo `mpris-cover.jpg` para todas seguia enseñando
+    // la de la cancion anterior.
+    static SERIAL: AtomicU64 = AtomicU64::new(0);
     std::thread::Builder::new()
         .name("danplay-cover".into())
         .spawn(move || {
@@ -190,10 +227,12 @@ fn fetch_cover(app: AppHandle, id: i64) {
                 return;
             };
             let _ = std::fs::create_dir_all(&dir);
-            let file = dir.join("mpris-cover.jpg");
+            let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
+            let file = dir.join(format!("{COVER_PREFIX}{id}-{serial}.jpg"));
             if std::fs::write(&file, bytes).is_err() {
                 return;
             }
+            forget_covers(&app, Some(&file));
             let url = format!("file://{}", file.display());
             if let Some(media) = app.try_state::<Media>() {
                 if let Ok(mut cover) = media.cover.lock() {

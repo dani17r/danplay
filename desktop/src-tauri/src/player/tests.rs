@@ -1,0 +1,651 @@
+//! Pruebas del hilo de audio.
+//!
+//! Las que suenan de verdad necesitan una cancion y una salida de audio. La
+//! cancion la hace ffmpeg al empezar (noventa segundos de silencio en mp3:
+//! lo que se mide es la aguja, no lo que se oye); `DANPLAY_TEST_SAMPLE`
+//! apunta a una de verdad si se quiere. Antes, sin esa variable, once
+//! pruebas volvian sin mirar nada y contaban como aprobadas. Sin salida de
+//! audio (una maquina de CI sin tarjeta) se omiten, y lo dicen.
+//!
+//! Se espera a que pase lo que se busca (`until`), con un tope amplio, y no
+//! un tiempo fijo: con la maquina cargada (la CI, las demas pruebas abriendo
+//! salidas a la vez) una orden tarda a veces algo mas en cumplirse, y una
+//! espera fija la daba por fallida sin estarlo. El tiempo fijo queda solo
+//! donde lo que se mide es el propio paso del tiempo.
+use super::open::{clock_of, no_ffmpeg, readable};
+use super::*;
+use crate::{tools, transcode};
+use std::sync::OnceLock;
+use std::sync::mpsc::{Receiver, channel};
+use std::time::{Duration, Instant};
+
+/// Lo que se espera como mucho a que se cumpla algo que tiene que pasar.
+const PATIENCE: Duration = Duration::from_secs(5);
+
+/// La cancion de las pruebas. Se hace una vez y se reutiliza entre
+/// ejecuciones; se escribe con otro nombre y se renombra, para que dos
+/// ejecuciones a la vez no lean una a medias.
+fn sample() -> String {
+    static SAMPLE: OnceLock<String> = OnceLock::new();
+    SAMPLE
+        .get_or_init(|| {
+            if let Ok(own) = std::env::var("DANPLAY_TEST_SAMPLE") {
+                return own;
+            }
+            let file = std::env::temp_dir().join("danplay-muestra-90s.mp3");
+            if file.is_file() {
+                return file.to_string_lossy().into_owned();
+            }
+            let ffmpeg = tools::ffmpeg().expect("hace falta ffmpeg para generar la cancion de las pruebas");
+            let partial = file.with_extension(format!("{}.mp3", std::process::id()));
+            let made = tools::command(ffmpeg)
+                .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi"])
+                .args(["-i", "anullsrc=r=44100:cl=stereo", "-t", "90"])
+                .args(["-c:a", "libmp3lame", "-b:a", "64k"])
+                .arg(&partial)
+                .status()
+                .is_ok_and(|s| s.success());
+            assert!(made, "ffmpeg no pudo hacer la cancion de las pruebas");
+            std::fs::rename(&partial, &file).expect("no se pudo dejar la cancion de las pruebas");
+            file.to_string_lossy().into_owned()
+        })
+        .clone()
+}
+
+fn wait_ms(ms: u64) {
+    std::thread::sleep(Duration::from_millis(ms));
+}
+
+/// Mira el estado hasta que cumpla `ok` o pase `PATIENCE`, y devuelve el
+/// ultimo que vio: la prueba decide con el si lo que esperaba paso.
+fn until(m: &Handle, ok: impl Fn(&State) -> bool) -> State {
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        let state = m.state();
+        if ok(&state) || Instant::now() >= deadline {
+            return state;
+        }
+        wait_ms(20);
+    }
+}
+
+/// El primer aviso que cumpla `ok`, esperando como mucho `PATIENCE`.
+fn announced(rx: &Receiver<Event>, ok: impl Fn(&Event) -> bool) -> bool {
+    let deadline = Instant::now() + PATIENCE;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(event) if ok(&event) => return true,
+            Ok(_) => {}
+            Err(_) => return false,
+        }
+    }
+    false
+}
+
+fn handle() -> (Handle, Receiver<Event>) {
+    let (tx, rx) = channel();
+    (Handle::new(move |event| tx.send(event).is_ok()), rx)
+}
+
+/// Si hay por donde sonar. Si no, lo dice y la prueba se omite.
+fn has_output(m: &Handle) -> bool {
+    // el hilo lo mira nada mas arrancar; se le da un momento
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while !m.state().has_output && Instant::now() < deadline {
+        wait_ms(20);
+    }
+    let there = m.state().has_output;
+    if !there {
+        eprintln!("sin salida de audio en esta maquina; se omite");
+    }
+    there
+}
+
+/// Un reproductor con la cancion de las pruebas ya sonando, o `None` si no
+/// hay salida.
+fn playing() -> Option<(Handle, Receiver<Event>)> {
+    // la salida primero: sin ella no hace falta ni la cancion (ni ffmpeg)
+    let (m, rx) = handle();
+    if !has_output(&m) {
+        return None;
+    }
+    m.send(Command::Play {
+        path: sample(),
+        duration: 0.0,
+    })
+    .unwrap();
+    let s = until(&m, |s| s.playing || !s.error.is_empty());
+    assert!(
+        s.playing && s.error.is_empty(),
+        "la cancion de las pruebas no suena: {:?}",
+        s.error
+    );
+    Some((m, rx))
+}
+
+/// Los segundos que rodio cuenta no son los de la cancion en cuanto se
+/// toca la velocidad, y por dos caminos distintos.
+#[test]
+fn the_clock_turns_rodio_time_into_song_time() {
+    // a velocidad normal son los mismos
+    assert!((clock_of(1.0, 1.0) - 1.0).abs() < f32::EPSILON);
+    // con ffmpeg el stream ya llega a 0,8x y rodio cuenta ese tiempo
+    assert!((clock_of(0.8, 0.8) - 0.8).abs() < f32::EPSILON);
+    // sin ffmpeg la velocidad la pone rodio, que mide la posicion
+    // *despues* de aplicarla: el factor es la velocidad igualmente.
+    // Antes aqui salia 1.0 y la aguja —y con ella el clic— se quedaba
+    // un 20 % atras de la cancion.
+    assert!((clock_of(1.0, 0.8) - 0.8).abs() < f32::EPSILON);
+}
+
+/// La duracion sale del propio archivo al abrirlo, sin decodificarlo
+/// entero otra vez como se hacia antes.
+#[test]
+fn duration_is_read_when_the_track_loads() {
+    let Some((m, _rx)) = playing() else { return };
+    assert!(m.state().duration > 60.0, "duracion: {}", m.state().duration);
+}
+
+#[test]
+fn non_audio_reports_an_error() {
+    let r = std::env::temp_dir().join("dp_basura.mp3");
+    std::fs::write(&r, b"no soy audio").unwrap();
+    let (m, _rx) = handle();
+    m.send(Command::Play {
+        path: r.to_string_lossy().into(),
+        duration: 0.0,
+    })
+    .unwrap();
+    let s = until(&m, |s| !s.error.is_empty());
+    assert!(!s.error.is_empty());
+}
+
+#[test]
+fn initial_state_is_consistent() {
+    let (m, _rx) = handle();
+    wait_ms(250);
+    let e = m.state();
+    assert!(!e.playing && e.position == 0.0 && e.path.is_empty());
+    assert!((e.speed - 1.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn missing_file_reports_error_without_panic() {
+    let (m, _rx) = handle();
+    m.send(Command::Play {
+        path: "/no/existe/x.mp3".into(),
+        duration: 0.0,
+    })
+    .unwrap();
+    let s = until(&m, |s| !s.error.is_empty());
+    assert!(!s.error.is_empty(), "deberia informar del error");
+}
+
+/// El fallo que dejaba sonando la cancion anterior: si `Play` falla, la
+/// ruta tiene que quedar limpia o el siguiente Toggle revive la de antes.
+#[test]
+fn a_failed_play_forgets_the_previous_track() {
+    let Some((m, _rx)) = playing() else { return };
+    m.send(Command::Play {
+        path: "/no/existe/y.mp3".into(),
+        duration: 0.0,
+    })
+    .unwrap();
+    let s = until(&m, |s| s.path.is_empty() && !s.error.is_empty());
+    assert!(s.path.is_empty(), "no deberia recordar la anterior");
+    m.send(Command::Toggle).unwrap();
+    // que NO arranque: aqui si hay que dejar pasar un rato y mirar
+    wait_ms(400);
+    assert!(!m.state().playing, "no deberia sonar nada");
+}
+
+/// La cola no encontro el archivo: el motivo llega tal cual al estado y
+/// no queda ninguna cancion «puesta» que un play posterior reviva.
+#[test]
+fn a_failure_from_the_queue_is_reported_verbatim() {
+    let (m, rx) = handle();
+    m.send(Command::Fail("No pude localizar «Barak - Mi Gozo».".into()))
+        .unwrap();
+    let e = until(&m, |s| !s.error.is_empty());
+    assert_eq!(e.error, "No pude localizar «Barak - Mi Gozo».");
+    assert!(e.path.is_empty() && !e.playing);
+    // y se avisa, que es como se entera la interfaz
+    let told = announced(&rx, |ev| matches!(ev, Event::Changed(s) if s.error.contains("Mi Gozo")));
+    assert!(told, "deberia haber salido un Changed con el error");
+    // un stop despues limpia el error
+    m.send(Command::Stop).unwrap();
+    assert!(until(&m, |s| s.error.is_empty()).error.is_empty());
+}
+
+/// Las ordenes que no necesitan sonido no se pierden aunque no haya
+/// salida: el volumen que se pide es el que se guarda.
+#[test]
+fn volume_survives_without_output() {
+    let (m, _rx) = handle();
+    m.send(Command::Volume(0.3)).unwrap();
+    let s = until(&m, |s| (s.volume - 0.3).abs() < 1e-6);
+    assert!((s.volume - 0.3).abs() < 1e-6);
+}
+
+#[test]
+fn volume_and_speed_are_clamped() {
+    let (m, _rx) = handle();
+    m.send(Command::Volume(9.0)).unwrap();
+    m.send(Command::Speed(99.0)).unwrap();
+    let e = until(&m, |s| (s.speed - 3.0).abs() < f32::EPSILON);
+    assert!((e.volume - 1.0).abs() < f32::EPSILON);
+    assert!((e.speed - 3.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn nudging_the_volume_stays_in_range() {
+    let (m, _rx) = handle();
+    m.send(Command::Volume(0.98)).unwrap();
+    m.send(Command::NudgeVolume(0.05)).unwrap();
+    let s = until(&m, |s| (s.volume - 1.0).abs() < f32::EPSILON);
+    assert!((s.volume - 1.0).abs() < f32::EPSILON);
+    for _ in 0..30 {
+        m.send(Command::NudgeVolume(-0.05)).unwrap();
+    }
+    let s = until(&m, |s| s.volume.abs() < f32::EPSILON);
+    assert!(s.volume.abs() < f32::EPSILON);
+}
+
+#[test]
+fn really_plays_advances_and_pauses() {
+    let Some((m, _rx)) = playing() else { return };
+    let e = until(&m, |s| s.position > 0.0);
+    assert!(e.error.is_empty(), "error: {}", e.error);
+    assert!(e.playing, "deberia estar sonando");
+    assert!(e.position > 0.0, "la posicion no avanza: {}", e.position);
+    assert!(e.duration > 60.0, "duracion: {}", e.duration);
+
+    m.send(Command::Toggle).unwrap();
+    assert!(!until(&m, |s| !s.playing).playing, "deberia haberse pausado");
+    m.send(Command::Toggle).unwrap();
+    assert!(until(&m, |s| s.playing).playing, "deberia haber reanudado");
+}
+
+/// A media velocidad (por ffmpeg, sin cambiar el tono) la posicion que se
+/// cuenta es la de la cancion: en un segundo de reloj avanza medio. Y el
+/// bucle A-B vuelve a A al pasar de B.
+#[test]
+fn slow_tempo_keeps_song_time_and_the_ab_loop_wraps() {
+    let (m, _rx) = handle();
+    if !has_output(&m) {
+        return;
+    }
+    assert!(tools::ffmpeg().is_some(), "hace falta ffmpeg para esta prueba");
+    let path = sample();
+    m.send(Command::Speed(0.5)).unwrap();
+    m.send(Command::Play { path, duration: 0.0 }).unwrap();
+    assert!(until(&m, |s| s.playing).playing, "no llego a sonar");
+    m.send(Command::Seek(10.0)).unwrap();
+    let start = until(&m, |s| (9.0..12.5).contains(&s.position));
+    assert!(start.pitch_preserved, "con ffmpeg la velocidad conserva el tono");
+    assert!(
+        (9.0..12.5).contains(&start.position),
+        "tras buscar a 10 s: {}",
+        start.position
+    );
+    // lo que se mide aqui es el paso del tiempo
+    wait_ms(1500);
+    let later = m.state();
+    let advanced = later.position - start.position;
+    assert!(
+        (0.4..1.3).contains(&advanced),
+        "a mitad de velocidad avanzo {advanced} s en 1,5 s"
+    );
+
+    // bucle: de 20 a 21,5 s; al pasar de B tiene que volver cerca de A
+    m.send(Command::Loop(Some((20.0, 21.5)))).unwrap();
+    m.send(Command::Speed(1.0)).unwrap();
+    m.send(Command::Seek(21.0)).unwrap();
+    let there = until(&m, |s| {
+        (s.speed - 1.0).abs() < f32::EPSILON && (20.9..21.5).contains(&s.position)
+    });
+    assert!(
+        (20.9..21.5).contains(&there.position),
+        "no llego a 21 s: {}",
+        there.position
+    );
+    // sin bucle, 1,8 s despues iria por 22,8; con el, ha vuelto a A
+    wait_ms(1800);
+    let looped = m.state();
+    assert!(
+        (19.5..21.6).contains(&looped.position),
+        "el bucle no volvio a A: {}",
+        looped.position
+    );
+    assert!((looped.loop_a - 20.0).abs() < 1e-9 && (looped.loop_b - 21.5).abs() < 1e-9);
+    m.send(Command::Loop(None)).unwrap();
+    assert!(until(&m, |s| s.loop_b.abs() < 1e-9).loop_b.abs() < 1e-9);
+    m.send(Command::Stop).unwrap();
+}
+
+/// Cambiar la velocidad con la cancion sonando la deja donde iba. Antes, al
+/// pasar de 1x (decodificador de siempre) a 0,5x (ffmpeg), la posicion se
+/// calculaba con la velocidad nueva y la cancion saltaba a la mitad.
+#[test]
+fn changing_the_speed_keeps_the_song_where_it_was() {
+    let Some((m, _rx)) = playing() else { return };
+    assert!(tools::ffmpeg().is_some(), "hace falta ffmpeg para esta prueba");
+    m.send(Command::Seek(40.0)).unwrap();
+    assert!(
+        until(&m, |s| s.position >= 39.0).position >= 39.0,
+        "no salto a los 40 s"
+    );
+    m.send(Command::Speed(0.5)).unwrap();
+    let s = until(&m, |s| {
+        (s.speed - 0.5).abs() < f32::EPSILON && s.playing && s.pitch_preserved
+    });
+    assert!(s.playing, "tiene que seguir sonando");
+    assert!(
+        (39.0..43.0).contains(&s.position),
+        "se fue a {} y no a los 40 s",
+        s.position
+    );
+    m.send(Command::Stop).unwrap();
+}
+
+/// Pausar y reanudar explicitamente (lo que manda el escritorio por MPRIS)
+/// no puede invertirse: «pausa» sobre algo pausado lo deja pausado.
+#[test]
+fn pause_and_resume_are_not_a_toggle() {
+    let Some((m, _rx)) = playing() else { return };
+    m.send(Command::Pause).unwrap();
+    m.send(Command::Pause).unwrap();
+    until(&m, |s| !s.playing);
+    // y que la segunda no lo haya vuelto a poner: se deja asentar
+    wait_ms(300);
+    assert!(!m.state().playing);
+    m.send(Command::Resume).unwrap();
+    m.send(Command::Resume).unwrap();
+    until(&m, |s| s.playing);
+    wait_ms(300);
+    assert!(m.state().playing);
+}
+
+#[test]
+fn can_seek_inside_the_song() {
+    let Some((m, _rx)) = playing() else { return };
+    m.send(Command::Seek(30.0)).unwrap();
+    let p = until(&m, |s| s.position >= 28.0).position;
+    assert!(p >= 28.0, "no salto a los 30s: {p}");
+}
+
+/// El tono corrido reabre la cancion donde iba (por ffmpeg) y se cuenta
+/// en el estado; el metronomo se enciende sin rejilla y va libre, y con
+/// rejilla sigue la cancion. Todo sin que la cancion deje de sonar.
+#[test]
+fn pitch_and_metronome_ride_along_with_the_song() {
+    let Some((m, _rx)) = playing() else { return };
+    assert!(tools::ffmpeg().is_some(), "hace falta ffmpeg para esta prueba");
+    m.send(Command::Seek(20.0)).unwrap();
+    until(&m, |s| s.position >= 19.0);
+    m.send(Command::Pitch(2)).unwrap();
+    let s = until(&m, |s| s.pitch == 2 && s.playing && s.position >= 18.0);
+    assert_eq!(s.pitch, 2);
+    assert!(s.playing, "con el tono corrido tiene que seguir sonando");
+    assert!(
+        (18.0..25.0).contains(&s.position),
+        "se reabrio donde iba: {}",
+        s.position
+    );
+
+    // el clic, casi mudo: lo que se prueba es el estado, no el oido
+    let settings = MetronomeSettings {
+        on: true,
+        bpm: None,
+        meter: None,
+        shift: 0,
+        mult: 0,
+        volume: 0.01,
+    };
+    m.send(Command::Metronome {
+        settings: settings.clone(),
+        grid: None,
+    })
+    .unwrap();
+    let s = until(&m, |s| s.metronome.on);
+    assert!(s.metronome.on && s.metronome.free && !s.metronome.has_grid);
+    assert!(
+        (s.metronome.bpm - 100.0).abs() < f32::EPSILON,
+        "sin rejilla ni tempo a mano, 100"
+    );
+
+    let grid = Arc::new(BeatGrid {
+        bpm: 120.0,
+        meter: 4,
+        beats: (0..600).map(|i| f64::from(i) * 0.5).collect(),
+        first_downbeat: 0,
+        phase3: 0,
+        phase4: 0,
+        confidence: 0.9,
+    });
+    m.send(Command::Metronome {
+        settings: settings.clone(),
+        grid: Some((sample(), grid)),
+    })
+    .unwrap();
+    let s = until(&m, |s| s.metronome.has_grid);
+    assert!(
+        s.metronome.has_grid && !s.metronome.free,
+        "con rejilla sigue la cancion"
+    );
+    assert!((s.metronome.bpm - 120.0).abs() < f32::EPSILON);
+    // el doble de pulsos y el compas a 3 se reflejan
+    m.send(Command::Metronome {
+        settings: MetronomeSettings {
+            meter: Some(3),
+            mult: 1,
+            ..settings.clone()
+        },
+        grid: None,
+    })
+    .unwrap();
+    let s = until(&m, |s| s.metronome.meter == 3);
+    assert!((s.metronome.bpm - 240.0).abs() < f32::EPSILON);
+    assert_eq!((s.metronome.meter, s.metronome.mult), (3, 1));
+    // tempo a mano: va libre a ese tempo
+    m.send(Command::Metronome {
+        settings: MetronomeSettings {
+            bpm: Some(90.0),
+            ..settings
+        },
+        grid: None,
+    })
+    .unwrap();
+    let s = until(&m, |s| s.metronome.free);
+    assert!(s.metronome.free && s.metronome.has_grid);
+    assert!((s.metronome.bpm - 90.0).abs() < f32::EPSILON);
+    assert!(m.state().playing);
+    m.send(Command::Stop).unwrap();
+}
+
+/// En pausa no hay tick de posicion, asi que un salto tiene que avisar
+/// por si mismo: si no, la barra se quedaba donde estaba.
+#[test]
+fn seeking_while_paused_announces_the_new_position() {
+    let Some((m, rx)) = playing() else { return };
+    m.send(Command::Pause).unwrap();
+    until(&m, |s| !s.playing);
+    wait_ms(300);
+    while rx.try_recv().is_ok() {}
+    m.send(Command::Seek(30.0)).unwrap();
+    let told = announced(
+        &rx,
+        |ev| matches!(ev, Event::Changed(s) if s.position >= 28.0 && !s.playing),
+    );
+    assert!(told, "en pausa, el salto no aviso de la posicion nueva");
+}
+
+/// Al acabar una pista se avisa una sola vez: es lo que dispara el paso a
+/// la siguiente, y avisar dos veces se saltaba una cancion.
+#[test]
+fn the_end_of_a_track_is_announced_once() {
+    let Some((m, rx)) = playing() else { return };
+    let total = m.state().duration;
+    m.send(Command::Seek(total - 0.6)).unwrap();
+    assert!(
+        announced(&rx, |e| matches!(e, Event::Finished)),
+        "no se aviso del fin de pista"
+    );
+    // y no se vuelve a avisar
+    wait_ms(1000);
+    let again = std::iter::from_fn(|| rx.try_recv().ok())
+        .filter(|e| matches!(e, Event::Finished))
+        .count();
+    assert_eq!(again, 0, "se aviso {} veces del fin de pista", again + 1);
+}
+
+/// Lo que va por ffmpeg (un .opus) tambien acaba y lo dice: la cola pasa a
+/// la siguiente con ese aviso, y sin el se quedaria parada al final.
+#[test]
+fn a_song_through_ffmpeg_also_ends() {
+    let (m, rx) = handle();
+    if !has_output(&m) {
+        return;
+    }
+    let ffmpeg = tools::ffmpeg().expect("hace falta ffmpeg para esta prueba");
+    let file = std::env::temp_dir().join(format!("danplay-prueba-fin-{}.opus", std::process::id()));
+    let made = tools::command(ffmpeg)
+        .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi"])
+        .args(["-i", "anullsrc=r=48000:cl=stereo", "-t", "4", "-c:a", "libopus"])
+        .arg(&file)
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(made, "ffmpeg no pudo hacer el .opus de la prueba");
+    m.send(Command::Play {
+        path: file.to_string_lossy().into(),
+        duration: 4.0,
+    })
+    .unwrap();
+    let s = until(&m, |s| s.playing || !s.error.is_empty());
+    assert!(s.playing, "el .opus no suena: {}", s.error);
+    m.send(Command::Seek(3.0)).unwrap();
+    assert!(
+        announced(&rx, |e| matches!(e, Event::Finished)),
+        "el .opus no aviso de que habia acabado"
+    );
+    let _ = std::fs::remove_file(&file);
+}
+
+#[test]
+fn a_finished_track_plays_again_on_toggle() {
+    let Some((m, rx)) = playing() else { return };
+    let total = m.state().duration;
+    m.send(Command::Seek(total - 0.6)).unwrap(); // casi al final
+    assert!(
+        announced(&rx, |e| matches!(e, Event::Finished)),
+        "la cancion no llego a acabar"
+    );
+
+    m.send(Command::Toggle).unwrap();
+    let e = until(&m, |s| s.playing);
+    assert!(e.playing, "tras terminar, play deberia volver a sonar");
+    assert!(e.position < total - 1.0, "deberia empezar de nuevo: {}", e.position);
+}
+
+#[test]
+fn stop_clears_the_state() {
+    let Some((m, _rx)) = playing() else { return };
+    m.send(Command::Stop).unwrap();
+    let e = until(&m, |s| !s.playing && s.path.is_empty());
+    assert!(!e.playing && e.path.is_empty());
+}
+
+/// Tras un rato en pausa la salida se suelta (cpal deja de trabajar), y al
+/// volver a darle la cancion sigue donde se quedo, no desde el principio.
+/// En las pruebas «un rato» son dos segundos.
+#[test]
+fn a_long_pause_lets_go_of_the_output_and_resumes_in_place() {
+    let Some((m, _rx)) = playing() else { return };
+    m.send(Command::Seek(30.0)).unwrap();
+    until(&m, |s| s.position >= 29.0);
+    m.send(Command::Pause).unwrap();
+    until(&m, |s| !s.playing);
+    // lo que se prueba es justo que pase el rato
+    wait_ms(3000);
+    let released = m.state();
+    assert!(!released.playing);
+    assert!(
+        (29.0..32.0).contains(&released.position),
+        "la aguja se fue a {}",
+        released.position
+    );
+    assert!(released.has_output, "soltar la salida no es no tenerla");
+    m.send(Command::Toggle).unwrap();
+    let back = until(&m, |s| s.playing);
+    assert!(back.playing, "no volvio a sonar");
+    assert!(
+        (29.0..33.0).contains(&back.position),
+        "volvio en {} y no donde iba",
+        back.position
+    );
+    m.send(Command::Stop).unwrap();
+}
+
+/// Lo que el decodificador no sabe leer lo dice en castellano, no con un
+/// «Unrecognized format» que no explica nada.
+#[test]
+fn unreadable_files_explain_themselves_in_spanish() {
+    use rodio::decoder::DecoderError;
+    let message = readable(&DecoderError::UnrecognizedFormat, "/musica/cancion.mp3");
+    assert!(message.contains("dañado"), "{message}");
+    assert!(message.contains("mp3"), "deberia decir de que archivo habla: {message}");
+    let other = readable(&DecoderError::UnrecognizedFormat, "/musica/sin-extension");
+    assert!(other.contains("dañado") && other.contains("este archivo"), "{other}");
+    let disk = readable(&DecoderError::IoError("x".into()), "/musica/cancion.flac");
+    assert!(disk.contains(".flac") && disk.contains("disco"), "{disk}");
+}
+
+/// Y lo mismo con un archivo de verdad que no es audio: nada de ingles.
+#[test]
+fn a_file_that_is_not_audio_says_so_in_spanish() {
+    let (m, _rx) = handle();
+    let junk = std::env::temp_dir().join(format!("dp_basura_{}.mp3", std::process::id()));
+    std::fs::write(&junk, b"no soy audio, soy texto").unwrap();
+    m.send(Command::Play {
+        path: junk.to_string_lossy().into(),
+        duration: 0.0,
+    })
+    .unwrap();
+    let s = until(&m, |s| !s.error.is_empty());
+    if s.error == super::engine::NO_OUTPUT {
+        eprintln!("sin salida de audio en esta maquina; se omite");
+        return;
+    }
+    assert!(s.error.contains("dañado"), "{}", s.error);
+    let _ = std::fs::remove_file(&junk);
+}
+
+/// opus y wma ya no dan error: van por ffmpeg. Lo que si tiene que
+/// explicarse es cuando ffmpeg no esta.
+#[test]
+fn formats_that_need_ffmpeg_do_not_go_through_the_decoder() {
+    assert!(transcode::is_handled("/musica/cancion.opus"));
+    assert!(transcode::is_handled("/musica/cancion.wma"));
+    let message = no_ffmpeg("/musica/cancion.opus");
+    assert!(message.contains("opus") && message.contains("ffmpeg"), "{message}");
+}
+
+/// Un .ogg (vorbis) se lee con el decodificador de siempre. rodio 0.20
+/// activaba el codec pero no el demuxer ogg, y un .ogg salia «Unrecognized
+/// format» hasta que se pidio a mano (ver Cargo.toml).
+#[test]
+fn an_ogg_file_is_readable() {
+    let ffmpeg = tools::ffmpeg().expect("hace falta ffmpeg para esta prueba");
+    let file = std::env::temp_dir().join(format!("danplay-prueba-{}.ogg", std::process::id()));
+    let made = tools::command(ffmpeg)
+        .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi"])
+        .args(["-i", "sine=frequency=440:duration=2", "-c:a", "libvorbis"])
+        .arg(&file)
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(made, "ffmpeg no pudo hacer el .ogg de la prueba");
+    let decoder = rodio::Decoder::new(std::io::BufReader::new(std::fs::File::open(&file).unwrap()))
+        .expect("un .ogg tiene que abrirse");
+    assert!(decoder.count() > 44_100, "el .ogg salio vacio");
+    let _ = std::fs::remove_file(&file);
+}

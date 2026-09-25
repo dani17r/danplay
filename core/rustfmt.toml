@@ -1,0 +1,3 @@
+# Las lineas de codigo del proyecto van hasta 120 columnas; los comentarios
+# se cortan a mano mas cortos.
+max_width = 120
