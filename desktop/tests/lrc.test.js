@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
 import { parseLrc, stripLrc, currentLine } from '../src/utils/lrc.js'
 import SyncedLyrics from '../src/components/ui/SyncedLyrics.vue'
 
@@ -46,6 +46,35 @@ describe('la letra que sigue a la cancion', () => {
     expect(rows[2].classes()).not.toContain('current')
     await rows[2].trigger('click')
     expect(w.emitted('seek').at(-1)).toEqual([20.25])
+  })
+  it('sigue la linea moviendo solo la caja de la letra, nunca la ficha entera', async () => {
+    // scrollIntoView movia tambien lo que contiene la letra: en WebKitGTK
+    // subia la ficha entera y la letra se quedaba pegada en medio
+    const vista = vi.fn()
+    Element.prototype.scrollIntoView = vista
+    const many = Array.from({ length: 40 }, (_, i) => ({ t: i * 2, text: 'linea ' + i }))
+    const w = mount(SyncedLyrics, { props: { lines: many, position: 0, active: true } })
+    const box = w.find('.lrc').element
+    Object.defineProperty(box, 'clientHeight', { value: 200, configurable: true })
+    Object.defineProperty(box, 'scrollHeight', { value: 800, configurable: true })
+    box.getBoundingClientRect = () => ({ top: 100, height: 200 })
+    ;[...box.children].forEach((row, i) => {
+      row.getBoundingClientRect = () => ({ top: 100 + i * 20, height: 20 })
+      Object.defineProperty(row, 'offsetHeight', { value: 20, configurable: true })
+    })
+    box.scrollTo = vi.fn()
+    await w.setProps({ position: 30 }) // la linea 15
+    await flushPromises()
+    // de 300 a 320 dentro de la caja: su centro, al 40 % de los 200 de alto
+    expect(box.scrollTo).toHaveBeenLastCalledWith({ top: 230, behavior: 'smooth' })
+    expect(vista).not.toHaveBeenCalled()
+    // quien mueve la letra a mano manda un rato: no se le quita de donde la puso
+    await w.find('.lrc').trigger('wheel')
+    box.scrollTo.mockClear()
+    await w.setProps({ position: 40 })
+    await flushPromises()
+    expect(box.scrollTo).not.toHaveBeenCalled()
+    delete Element.prototype.scrollIntoView
   })
   it('si no es la que suena, no resalta ni salta', async () => {
     const w = mount(SyncedLyrics, { props: { lines, position: 16, active: false } })

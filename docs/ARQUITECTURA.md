@@ -452,7 +452,11 @@ sin saltos, y el asistente lo tiene como herramienta.
 
 La **letra con tiempos** de LRCLIB se guarda en `lyrics_synced` (una
 caché: si se pierde, se vuelve a pedir) y, con la canción sonando, la ficha
-resalta la línea que va y salta al pulsar otra. En el USLT del archivo va la
+resalta la línea que va y salta al pulsar otra. Para tenerla a la vista se
+desplaza **solo la caja de la letra**: con `scrollIntoView`, que mueve todo
+lo que la contiene, WebKitGTK subía la ficha entera línea a línea mientras
+la letra se quedaba parada en medio. Si se mueve la letra a mano, se la deja
+estar unos segundos. En el USLT del archivo va la
 letra limpia: antes iba con las marcas `[01:23.45]`, y tras un escaneo la hoja
 del atril las imprimía (ahora además las quita si le llegan).
 
