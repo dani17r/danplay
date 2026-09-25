@@ -251,10 +251,12 @@ def _scan(progress=None) -> dict:
                 present.extend((path, root) for path in audio_files(root, exclusions))
         on_disk = {path for path, _ in present}
         total = len(present)
-        # lo que ya no esta (o quedo fuera de las carpetas activas)
+        # lo que ya no esta (o quedo fuera de las carpetas activas). Sin commit
+        # aqui: se confirma con la primera tanda, junto con lo que vuelve, asi
+        # que quien lea mientras tanto no ve desaparecer una cancion que solo
+        # cambio de carpeta (en Windows eso llega como borrar + crear).
         gone = [p for p in existing if p not in on_disk]
         removed = _to_missing(conn, gone)
-        conn.commit()
 
         seen: set = set()
         playlists_found: dict = {}

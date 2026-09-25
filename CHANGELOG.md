@@ -81,4 +81,4 @@ herramientas y capas están al día.
 - **Interfaz**: vue-router con carga diferida, composables (`useLibrary`,
   `useSelection`, `useSongMenus`, `useChat`…), una sola lista virtual para
   las vistas agrupadas, ESLint 10 sin avisos, Prettier, vue-tsc, Playwright.
-- 1.426 pruebas (eran 783).
+- 1.427 pruebas (eran 783).

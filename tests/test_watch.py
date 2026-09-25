@@ -37,9 +37,12 @@ def _ids():
 
 
 def _row(name):
+    """La cancion con ese nombre de archivo, o None si ahora mismo no esta."""
     from danplay import library
 
-    return next(s for s in library.search("", limit=100) if os.path.basename(s["path"]) == name)
+    return next(
+        (s for s in library.search("", limit=100) if os.path.basename(s["path"]) == name), None
+    )
 
 
 @pytest.fixture
@@ -71,9 +74,45 @@ def test_a_song_moved_to_another_folder_keeps_its_id_and_its_lists(lib):
     assert r["back"] == 1 and r["added_count"] == 0
     assert _ids() == before, "la cancion movida entro como otra"
     song = _row("Barak - Mi Gozo.mp3")
+    assert song is not None
     assert song["path"] == str(moved)
     assert song["chords"] == '{"key": "G"}', "se perdio lo que solo guarda la base"
     assert [s["id"] for s in playlists.songs(sunday["id"])] == list(before.values())
+
+
+def test_a_moved_song_never_disappears_halfway(lib, monkeypatch):
+    """Quien lee durante el escaneo (la interfaz, la cola) no ve irse una
+    cancion que solo se movio: apartarla y recuperarla se confirman juntas.
+    En Windows, mover entre carpetas llega como borrar + crear, y la prueba
+    del vigilante llego a pillar la cancion a medias."""
+    import sqlite3
+
+    from danplay import config, library, tags
+
+    root, songs = lib
+    song_id = _ids()["Barak - Mi Gozo.mp3"]
+    moved = root / "Artistas" / "Otros" / "Barak - Mi Gozo.mp3"
+    moved.parent.mkdir(parents=True)
+    shutil.move(songs["gozo"], moved)
+
+    # la cancion movida se lee entre apartarla y recuperarla: justo ahi, otra
+    # conexion mira si sigue en la biblioteca
+    seen = []
+    read_all = tags.read_all
+
+    def spy(path):
+        other = sqlite3.connect(config.DATABASE)
+        try:
+            seen.append(other.execute("SELECT 1 FROM songs WHERE id=?", (song_id,)).fetchone())
+        finally:
+            other.close()
+        return read_all(path)
+
+    monkeypatch.setattr(tags, "read_all", spy)
+    assert library.scan()["back"] == 1
+    assert seen, "el escaneo no releyo la cancion movida"
+    assert all(seen), "otra conexion vio desaparecer la cancion a medio escaneo"
+    assert _ids()["Barak - Mi Gozo.mp3"] == song_id
 
 
 def test_a_song_renamed_in_place_keeps_its_id(lib):
@@ -347,7 +386,7 @@ def test_the_watcher_follows_what_happens_on_disk(lib):
         moved = root / "Artistas" / "Otra" / "Barak - Llega.mp3"
         moved.parent.mkdir()
         shutil.move(new, moved)
-        assert _until(lambda: _row("Barak - Llega.mp3")["path"] == str(moved))
+        assert _until(lambda: (r := _row("Barak - Llega.mp3")) and r["path"] == str(moved))
         assert _ids()["Barak - Llega.mp3"] == new_id
 
         os.remove(moved)
