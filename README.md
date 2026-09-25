@@ -13,7 +13,7 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.13.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-783%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-1.426%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -352,16 +352,17 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-1.426 pruebas repartidas así (la CI las pasa todas en cada push):
+1.426 pruebas repartidas así (la CI las pasa todas menos las de humo, que
+necesitan la app ya compilada):
 
 | Tanda | Pruebas |
 | --- | --- |
-| Núcleo Python: nombres. etiquetas (mp3. flac. ogg. m4a…). índice y esquema. duplicados. teoría. la API entera sobre una biblioteca temporal de verdad. el vigilante de carpetas (mover. borrar. renombrar. carpetas que se van y vuelven). IA con cualquier proveedor. asistente. descargas y yt-dlp. CLI. privacidad | 531 |
-| Interfaz: componentes. páginas. reactividad. teclado y accesibilidad. listas grandes y agrupadas. temas. contratos. chat. modo estudio. proyección | 726 |
+| Núcleo Python: nombres, etiquetas (mp3, flac, ogg, m4a…), índice y esquema, duplicados, teoría, la API entera sobre una biblioteca temporal de verdad, el vigilante de carpetas (mover, borrar, renombrar, carpetas que se van y vuelven), IA con cualquier proveedor, asistente, descargas y yt-dlp, CLI, privacidad | 531 |
+| Interfaz: componentes, páginas, reactividad, teclado y accesibilidad, listas grandes y agrupadas, temas, contratos, chat, modo estudio, proyección | 726 |
 | Interfaz: rutas de medios en cada sistema | 7 |
-| Rust: reproductor (con audio de verdad). cola. sesión. bandeja. núcleo. permisos por ventana. metrónomo | 116 |
+| Rust: reproductor (con audio de verdad), cola, sesión, bandeja, núcleo, permisos por ventana, metrónomo | 116 |
 | Rust: hashes y forma de onda | 14 |
-| De punta a punta: la interfaz contra el núcleo de verdad. en Chrome (Playwright) | 12 |
+| De punta a punta: la interfaz contra el núcleo de verdad, en Chrome (Playwright) | 12 |
 | Humo sobre la app **ya compilada** | 20 |
 
 La biblioteca de prueba **se genera**: mp3 de verdad hechos con ffmpeg. Antes
