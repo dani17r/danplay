@@ -159,6 +159,33 @@ describe('lista larga: solo se pinta lo que se ve', () => {
     w.unmount()
   })
 
+  it('una lista que llega después de montarse sigue al desplazamiento', async () => {
+    // Sin canciones no hay tabla, ni ancla desde la que buscar el panel. Antes
+    // solo se escuchaba al panel encontrado al montar: una lista que llegaba
+    // después (el núcleo aún arrancando) medía bien, pero al bajar se quedaba
+    // en blanco. Lo pilló Playwright en la CI, donde todo va más lento.
+    const w = mount(SongTable, {
+      props: { songs: [], selected: null, playing: null },
+      attachTo: document.body
+    })
+    await flushPromises()
+    await w.setProps({ songs: lista(1000) })
+    await flushPromises()
+    await nextTick()
+    expect(w.text()).not.toContain('Cancion 500')
+
+    const panel = w.find('.table-wrap').element
+    Object.defineProperty(panel, 'scrollTop', { configurable: true, value: 500 * FILA })
+    // jsdom no mueve nada al desplazarse: las filas suben lo que baja el panel
+    w.find('tbody').element.getBoundingClientRect = () =>
+      /** @type {DOMRect} */ ({ top: -panel.scrollTop, height: 0 })
+    panel.dispatchEvent(new Event('scroll'))
+    await new Promise((r) => requestAnimationFrame(r))
+    await nextTick()
+    expect(w.text()).toContain('Cancion 500')
+    w.unmount()
+  })
+
   it('una lista corta se pinta entera y sin separadores', async () => {
     const w = mount(SongTable, {
       props: { songs: lista(20), selected: null, playing: null },

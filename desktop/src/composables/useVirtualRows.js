@@ -370,7 +370,7 @@ export function useVirtualRows(getAnchor, getCount, options = {}) {
   function compute() {
     const anchor = getAnchor()
     if (!anchor) return
-    if (!viewport) viewport = nearestScroller(anchor)
+    if (!viewport || !viewport.contains(anchor)) follow(nearestScroller(anchor))
     if (getCount() + (layout.value.heads ? layout.value.list.length : 0) <= minimum) {
       cannotMeasure.value = false
       return
@@ -433,24 +433,40 @@ export function useVirtualRows(getAnchor, getCount, options = {}) {
 
   /** @type {ResizeObserver|null} */
   let observer = null
+
+  /**
+   * Escucha al panel que se desplaza (y a su tamaño). Se busca desde el
+   * ancla, y el ancla puede no estar al montar: sin canciones no se pinta la
+   * tabla. Antes solo se escuchaba lo encontrado al montar, y una lista que se
+   * montaba vacía y se llenaba después (el núcleo aún arrancando, una recarga
+   * a medias) medía bien pero no se enteraba de ningún desplazamiento: al
+   * bajar, todo en blanco.
+   * @param {HTMLElement|null} el
+   */
+  function follow(el) {
+    if (el === viewport) return
+    if (viewport) viewport.removeEventListener('scroll', onScroll)
+    if (observer) observer.disconnect()
+    viewport = el
+    if (!el) return
+    el.addEventListener('scroll', onScroll, { passive: true })
+    if (typeof ResizeObserver === 'function') {
+      observer ??= new ResizeObserver(onScroll)
+      observer.observe(el)
+    }
+  }
+
   onMounted(() => {
     const anchor = getAnchor()
-    viewport = anchor ? nearestScroller(anchor) : null
-    if (viewport) viewport.addEventListener('scroll', onScroll, { passive: true })
+    follow(anchor ? nearestScroller(anchor) : null)
     window.addEventListener('resize', onScroll, { passive: true })
-    if (typeof ResizeObserver === 'function' && viewport) {
-      observer = new ResizeObserver(onScroll)
-      observer.observe(viewport)
-    }
     recompute()
   })
 
   onUnmounted(() => {
-    if (viewport) viewport.removeEventListener('scroll', onScroll)
+    follow(null)
     window.removeEventListener('resize', onScroll)
-    if (observer) observer.disconnect()
     if (frame) cancelAnimationFrame(frame)
-    viewport = null
   })
 
   // Otra lista (otra búsqueda, otra vista, un grupo que se pliega): la
