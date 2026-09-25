@@ -369,9 +369,30 @@ marcadores con nombre y notas por canción.
 
 El tramo se elige sobre la **forma de onda** (`StudyTimeline.vue`): se
 arrastra de donde a donde, se cogen sus bordes, se lleva entero, o se marca
-con las teclas A y B mientras suena; un clic sin arrastrar va a ese punto,
-y cerca de un marcador el borde se pega a él. Debajo va una regla con los
-minutos (el paso se elige para que quepan ~70 px entre números).
+con las teclas A y B mientras suena; un clic sin arrastrar quita el tramo
+(y, si el candado lo deja, lleva la canción a ese punto), y cerca de un
+marcador el borde se pega a él. Debajo va una regla con los minutos (el paso
+se elige para que quepan ~70 px entre números).
+
+**Varios tramos.** Con «varios» puesto (junto al candado), cada arrastre
+añade un tramo en vez de sustituir el que había, y un clic sobre uno lo
+quita. Se repiten seguidos saltándose lo de en medio: al acabar uno, el
+siguiente, y del último vuelta al primero. Rust los lleva en orden y juntando
+los que se pisan, con el índice del que está **armado** (`ab_loop`); el
+`<audio>` del navegador hace lo mismo (`utils/segments.js`). Se guardan con
+la canción como `loops`; uno solo sigue siendo `loop`, que es lo que
+entienden las versiones de antes. Guardados como marcador van juntos: un
+solo marcador con sus `parts`, que al elegirlo los vuelve a poner todos.
+
+**Las opciones de un tramo**, en su botón ⋯ o con el clic derecho en la
+onda: reproducir ahora, **repetir cuando acabe la canción**, ir aquí,
+ajustar los bordes a los pulsos del metrónomo (a la rejilla tal como suena),
+guardarlo como marcador, pasar a varios tramos o volver a uno, y quitar ese
+tramo o todos. Repetir al acabar es `defer` en `set_loop`: la canción sigue
+hasta el final aunque pase por los tramos, y entonces vuelve al primero y ya
+se repiten; saltar a propósito dentro de uno lo arma ya, y mover un borde o
+ajustarlo a los pulsos no lo quita. Las opciones que mueven la canción son
+órdenes a propósito, así que valen también con el candado puesto.
 
 **El candado de la onda.** Arriba a la derecha, puesto de entrada (se
 recuerda en el navegador): mientras suena, un clic en la onda no mueve la
@@ -429,6 +450,17 @@ la onda. Sonando con la canción, el clic se reengancha a la rejilla en
 cada play, salto, cambio de velocidad y vuelta del bucle, y sigue la
 velocidad del estudio; con la canción parada sigue solo al mismo tempo.
 
+La **síncopa 3+3+2**, la de tanta alabanza en directo, engañaba al tempo: el
+golpe cada tres corcheas (pulso y medio) sale casi tan fuerte como el pulso,
+y con el prior en 120 ganaba, así que una canción a 138 salía a 92 y el clic
+iba la mitad del tiempo a contratiempo. Tiene una firma: el compás (lo que
+más se repite entre 1,2 y 4,5 s) mide 4, 8, 16 o 32 **tercios** del periodo
+elegido, y no un número entero de periodos. Solo entonces el tempo pasa a
+dos tercios de ese periodo, en la octava que más se repita. Se probó un
+control más ancho («que el periodo quepa en el compás»): arreglaba estas
+pero, medido con cientos de canciones, doblaba otras en las que el compás
+no sale limpio; el estrecho solo cambia las que tienen esa firma.
+
 Se ajusta a mano, y se guarda con la canción: el compás (2/4, 3/4, 4/4,
 6/8, o **sin acento**: todos los clics iguales; el «1» de los que no salen
 del análisis se saca de donde caía en 3 o en 4), «el 1 es el siguiente», el
@@ -476,8 +508,9 @@ La velocidad la aplica ffmpeg
 así que el tono no se mueve; rodio cuenta entonces en tiempo de salida y el
 reproductor convierte a segundos de la canción en las posiciones, las
 búsquedas y el bucle. Sin ffmpeg, rodio cambia la velocidad a la antigua y
-la barra avisa de que el tono cambia. El bucle vive en el hilo de audio (al
-pasar de B, vuelta a A), y en el navegador lo hace el `<audio>`. Lo que se
+la barra avisa de que el tono cambia. Los tramos viven en el hilo de audio
+(al pasar del final de uno, al principio del siguiente), y en el navegador
+los recorre el `<audio>`. Lo que se
 marca se guarda con la canción, en el índice y en una etiqueta del archivo
 (`ESTUDIO`, JSON), y se recupera al escanear si el índice se pierde, como
 las estrellas y las listas. Al cerrar la barra, la canción vuelve a sonar
@@ -569,7 +602,19 @@ Una vista **agrupada** («Artistas», o agrupar por álbum o por tono) es tambi�
 una sola lista virtual, con las cabeceras de grupo como filas: antes era una
 lista por grupo, y con grupos de menos de ochenta canciones se pintaba todo.
 La selección con Mayús, el orden de la cola y las flechas siguen el orden que
-se ve, grupo a grupo (`utils/groups.js`).
+se ve, grupo a grupo (`utils/groups.js`). La tabla agrupada no lleva cabecera
+y su primera fila es la del grupo, una celda que abarca todas las columnas:
+con `table-layout: fixed` eso las repartía a partes iguales, y el título
+quedaba tan estrecho como el número. Por eso los anchos van en un
+`<colgroup>` con la clase de cada columna, en las dos tablas; y las columnas
+que se esconden al estrechar la ventana se esconden por su clase, para que se
+vaya también su `col`.
+
+En las cuatro vistas cada canción lleva **copiar**: un icono junto al título
+copia el título, y «nombre», al final, el nombre completo tal como el del
+archivo sin la extensión (o «Artista - Título» si no hay archivo), que es lo
+que se pega para buscarla fuera. Van tenues hasta pasar por la fila, no
+eligen la fila ni la ponen a sonar, y un aviso dice qué se copió.
 
 La biblioteca se recorre también **con el teclado**: Tab entra en la lista,
 las flechas se mueven, Enter pone la canción, Mayús+F10 abre su menú. Tras un

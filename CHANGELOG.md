@@ -3,6 +3,46 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.15.0 — 2026-09-25
+
+El metrónomo, a tiempo en las canciones con síncopa; en el modo estudio,
+varios tramos seguidos y opciones para cada uno; y copiar el nombre de una
+canción desde cualquier lista.
+
+### Modo estudio
+
+- **Varios tramos que se repiten seguidos**: con «varios» (junto al candado
+  de la onda) cada arrastre añade un tramo, y al acabar uno la canción salta
+  al siguiente, y del último al primero, saltándose lo de en medio. Un clic
+  sobre un tramo lo quita. Se guardan con la canción y, como marcador, van
+  juntos: un solo marcador que los vuelve a poner todos.
+- **Opciones del tramo**, en su botón ⋯ o con el clic derecho en la onda:
+  reproducir ahora, **repetir cuando acabe la canción** (sigue hasta el
+  final y entonces vuelve al tramo), ir aquí, ajustar los bordes a los
+  pulsos del metrónomo, guardar como marcador, añadir más tramos y quitar
+  ese tramo o todos. «Ahora» y «Al acabar» también están junto al tramo.
+- **Un clic en la onda quita la selección**; sin candado, o en pausa, además
+  lleva la canción a ese punto.
+
+### Listas
+
+- **Copiar el nombre** en las cuatro vistas (tabla, lista fina, fichas y
+  cuadrícula): el icono junto al título copia el título, y «nombre», al
+  final, el nombre completo como el del archivo pero sin el `.mp3` («Barak -
+  Mi Gozo»), para buscarla fuera. Un aviso dice qué se copió.
+
+### Corregido
+
+- **El metrónomo a contratiempo** en canciones con la síncopa 3+3+2 tan
+  marcada de mucha alabanza en directo: el análisis tomaba por pulso el golpe
+  cada tres corcheas, y en una canción a 138 el clic iba a 92, la mitad del
+  tiempo fuera. Ahora reconoce ese patrón y se queda con el pulso de verdad.
+  Es un control estrecho: el resto de canciones da el mismo tempo que antes.
+- **La tabla agrupada** («Artistas», o agrupar por álbum o por tono)
+  repartía el ancho a partes iguales entre todas las columnas, y el título
+  quedaba tan estrecho como el número. Ahora cada columna tiene su ancho,
+  como en la tabla sin agrupar.
+
 ## 1.14.0 — 2026-09-25
 
 El modo estudio, más cómodo para tocar encima de la canción; la letra con

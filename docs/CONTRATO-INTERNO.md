@@ -276,10 +276,16 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   aviso). El resultado de `/api/chat` lleva `budget: { limit, month, over }`
   cuando hay tope: la interfaz avisa, no corta.
 - `GET /api/chats/{id}/export` → `{ markdown }`.
-- `PUT /api/song/{id}/study { loop?: [a, b], speed?, markers?: [{t, end?,
-  label, notes?}], notes? }` → la ficha; lo que no venga se quita. Un
-  marcador es un tramo (`t`–`end`) con nombre y sus notas; sin `end` (o con
-  un `end` que no vaya detrás de `t`) es un instante suelto. Va al índice
+- `PUT /api/song/{id}/study { loop?: [a, b], loops?: [[a, b], …], speed?,
+  markers?: [{t, end?, parts?, label, notes?}], notes? }` → la ficha; lo que
+  no venga se quita. `loops` son varios tramos que se repiten seguidos (hasta
+  64; se guardan hasta 32, en orden, juntando los que se pisan y al
+  centésimo). Un solo tramo se guarda siempre como `loop`, venga como venga:
+  es lo que entienden las versiones de antes. Un marcador es un tramo
+  (`t`–`end`) con nombre y sus notas; sin `end` (o con un `end` que no vaya
+  detrás de `t`) es un instante suelto. Con `parts` (dos o más tramos) es un
+  marcador de varios tramos, y `t`–`end` van del principio del primero al
+  final del último. Va al índice
   (`study`, JSON) y a la etiqueta `ESTUDIO` del archivo, y vuelve al
   escanear. Se va con la canción: la fila del índice se borra al mandarla a
   la papelera o cuando el escaneo la da por desaparecida.
@@ -293,15 +299,27 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   (`library.forget`, `forget_path`, y las que el escaneo da por perdidas) y
   el escaneo poda las que no correspondan a ninguna canción del índice.
   `404` sin archivo, `501` sin nada con que decodificar, `422` si no se pudo.
-- Reproducción: `set_loop(a, b)` (sin valores, lo quita); el estado trae
-  `loop_a`, `loop_b` (0,0 = sin bucle) y `pitch_preserved` (la velocidad
-  conserva el tono: ffmpeg `atempo`; `false` = sin ffmpeg, cambia el tono).
-  `set_loop` no mueve la canción: el tramo se **arma** si la canción está
-  dentro (o cuando entra, o con un `seek` dentro) y solo entonces, al pasar
-  de B, vuelve a A. Con un tramo puesto la canción no se acaba: al final
-  vuelve a A y no se avisa del fin de pista. Quien quiera empezar el tramo ya
-  manda un `seek(a)` detrás (la interfaz lo hace salvo con el candado de la
-  onda puesto).
+- Reproducción: `set_loop(a, b, segments?, defer?)` (sin valores, lo quita);
+  el estado trae `loop_a`, `loop_b` (0,0 = sin bucle), `loops`, `loop_defer`
+  y `pitch_preserved` (la velocidad conserva el tono: ffmpeg `atempo`;
+  `false` = sin ffmpeg, cambia el tono). `set_loop` no mueve la canción: el
+  tramo se **arma** si la canción está dentro (o cuando entra, o con un
+  `seek` dentro) y solo entonces, al pasar de B, vuelve a A. Con un tramo
+  puesto la canción no se acaba: al final vuelve a A y no se avisa del fin de
+  pista. Quien quiera empezar el tramo ya manda un `seek(a)` detrás (la
+  interfaz lo hace salvo con el candado de la onda puesto).
+  - `segments: [[a, b], …]` son **varios tramos** en vez de uno (y entonces
+    `a` y `b` no cuentan): Rust los ordena, junta los que se pisan, descarta
+    los de 0,2 s o menos y se queda con 64 como mucho. Al pasar del final
+    del armado salta al principio del siguiente, y del último al primero. El
+    estado los trae en `loops` (uno solo también), con `loop_a` el principio
+    del primero y `loop_b` el final del último.
+  - `defer: true` es **repetir cuando acabe la canción**: los tramos no se
+    arman aunque la canción pase por ellos; al llegar al final vuelve al
+    primero, `loop_defer` pasa a `false` y ya se repiten. Un `seek` dentro de
+    un tramo también lo quita. Sin tramos, `loop_defer` es siempre `false`.
+  - Los dos son opcionales: `set_loop(a, b)` sigue siendo el bucle de
+    siempre, y así va la interfaz con un solo tramo.
 - `set_pitch(semitones)` (−12..12, con fracciones: 0,5 es un cuarto de
   tono; se redondea al centésimo): el tono corrido, por ffmpeg
   (`rubberband=tempo:pitch` si lo trae, que es lo normal; si no,

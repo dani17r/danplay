@@ -13,7 +13,7 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.14.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-1.456%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-1.481%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -61,8 +61,8 @@ tus archivos. Si mañana te vas a otro reproductor, tu trabajo se va contigo.
 
 | Si eres… | Esto es lo que te da |
 | --- | --- |
-| **Músico o equipo de alabanza** | Tonos, acordes y transposición con cejilla sugerida. Repertorios en el orden que tú decidas (se arrastran las canciones arriba y abajo), exportables a `.m3u` y como **hoja para el atril** (tono, bpm, cejilla, acordes, letra). Letra dentro del archivo, y con tiempos: la ficha sigue la línea que suena, y la **proyección** la pone en grande para la pantalla. **Modo estudio** a media pantalla: el tramo que se repite se elige arrastrando sobre la forma de onda (con regla de minutos y un candado para que, mientras suena, un clic no la mueva) y se guarda como marcador con nombre y notas; **velocidad** sin cambiar el tono, **tono** en tonos (de cuarto, de medio o de uno entero), y un **metrónomo** que detecta solo el pulso y el compás de la canción, entra en el «1» y se para o arranca aparte de ella: se dobla para ir a corcheas, admite el tempo a mano con decimales y otros compases (o ninguno acentuado), y el clic y la canción suben por encima de como vienen sin saturar. Todo guardado con la canción y borrado con ella. |
-| **Quien tiene la música en el disco** | Cientos de descargas con nombres imposibles, duplicados y etiquetas rotas. Esto lo ordena. |
+| **Músico o equipo de alabanza** | Tonos, acordes y transposición con cejilla sugerida. Repertorios en el orden que tú decidas (se arrastran las canciones arriba y abajo), exportables a `.m3u` y como **hoja para el atril** (tono, bpm, cejilla, acordes, letra). Letra dentro del archivo, y con tiempos: la ficha sigue la línea que suena, y la **proyección** la pone en grande para la pantalla. **Modo estudio** a media pantalla: el tramo que se repite se elige arrastrando sobre la forma de onda (con regla de minutos y un candado para que, mientras suena, un clic no la mueva), o varios tramos que se repiten seguidos saltándose lo de en medio; cada tramo tiene sus opciones (sonar ya, repetir cuando acabe la canción, ajustarlo a los pulsos) y se guarda como marcador con nombre y notas; **velocidad** sin cambiar el tono, **tono** en tonos (de cuarto, de medio o de uno entero), y un **metrónomo** que detecta solo el pulso y el compás de la canción, entra en el «1» y se para o arranca aparte de ella: se dobla para ir a corcheas, admite el tempo a mano con decimales y otros compases (o ninguno acentuado), y el clic y la canción suben por encima de como vienen sin saturar. Todo guardado con la canción y borrado con ella. |
+| **Quien tiene la música en el disco** | Cientos de descargas con nombres imposibles, duplicados y etiquetas rotas. Esto lo ordena. Y en cualquier lista, el título o el nombre completo de una canción se copian de un clic, para buscarla fuera. |
 | **Quien no quiere depender de nadie** | Sin cuenta, sin nube, sin telemetría. Funciona con el wifi apagado (salvo lo que por definición necesita internet). |
 | **Quien viene de otro reproductor** | Se lee y se escribe ID3 estándar. Kodi, foobar2000 o Rhythmbox verán tus estrellas y tus letras igual. |
 | **Quien comparte música** | «Enviar por Telegram» desde el menú de una canción, de varias seleccionadas (Ctrl/Mayús) o de un repertorio entero, si Telegram Desktop está instalado (Linux, Windows y macOS): se abre con los archivos listos y eliges el chat allí. |
@@ -352,15 +352,15 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-1.456 pruebas repartidas así (la CI las pasa todas menos las de humo, que
+1.481 pruebas repartidas así (la CI las pasa todas menos las de humo, que
 necesitan la app ya compilada):
 
 | Tanda | Pruebas |
 | --- | --- |
 | Núcleo Python: nombres, etiquetas (mp3, flac, ogg, m4a…), índice y esquema, duplicados, teoría, la API entera sobre una biblioteca temporal de verdad, el vigilante de carpetas (mover, borrar, renombrar, carpetas que se van y vuelven), IA con cualquier proveedor, asistente, descargas y yt-dlp, CLI, privacidad | 533 |
-| Interfaz: componentes, páginas, reactividad, teclado y accesibilidad, listas grandes y agrupadas, temas, contratos, chat, modo estudio, proyección | 747 |
+| Interfaz: componentes, páginas, reactividad, teclado y accesibilidad, listas grandes y agrupadas, temas, contratos, chat, modo estudio, proyección | 769 |
 | Interfaz: rutas de medios en cada sistema | 7 |
-| Rust: reproductor (con audio de verdad), cola, sesión, bandeja, núcleo, permisos por ventana, metrónomo, limitador | 123 |
+| Rust: reproductor (con audio de verdad), cola, sesión, bandeja, núcleo, permisos por ventana, metrónomo, limitador | 126 |
 | Rust: hashes y forma de onda | 14 |
 | De punta a punta: la interfaz contra el núcleo de verdad, en Chrome (Playwright) | 12 |
 | Humo sobre la app **ya compilada** | 20 |
