@@ -9,6 +9,7 @@
 // que aplica exactamente la misma máquina de estados (playback/queueLogic).
 import { reactive, shallowRef, computed } from 'vue'
 import { api, playback as bridge } from '../api.js'
+import { cleanSegments, segmentAt } from '../utils/segments.js'
 import {
   afterEnd,
   nextIndex,
@@ -41,10 +42,14 @@ const EMPTY = {
   error: '',
   has_output: true,
   origin: null,
-  // modo estudio: la velocidad conserva el tono, y el bucle A-B (0,0 = sin bucle)
+  // modo estudio: la velocidad conserva el tono, y el bucle A-B (0,0 = sin
+  // bucle); con varios tramos, `loops` los lleva todos y `loop_defer` dice si
+  // esperan a que acabe la canción
   pitch_preserved: true,
   loop_a: 0,
   loop_b: 0,
+  loops: [],
+  loop_defer: false,
   // el tono corrido (semitonos, con fracciones), el metrónomo y el archivo
   // que suena de verdad
   pitch: 0,
@@ -124,12 +129,14 @@ function createWebBackend() {
   const q = { items: [], index: -1, repeat: 'list', shuffle: false, origin: null }
   const s = { ...EMPTY }
   let ended = false // la pista acabó y se paró: play la vuelve a empezar
-  // El bucle solo vuelve a A si la canción ha estado dentro del tramo, como
-  // en Rust: uno elegido sin saltar a él (la onda con candado) espera a que
-  // la canción llegue.
-  let loopArmed = false
-  const hasLoop = () => s.loop_b > s.loop_a
-  const insideLoop = (t) => hasLoop() && t >= s.loop_a - 0.01 && t < s.loop_b
+  // Los tramos que se repiten, como en Rust: al acabar uno, el siguiente, y
+  // del último al primero; y solo si la canción ha estado dentro de uno (el
+  // que se eligió sin saltar a él, con la onda bloqueada, espera a que la
+  // canción llegue). Con `loop_defer`, esperan al final de la canción.
+  let loopAt = -1
+  const rearm = (t) => {
+    loopAt = s.loop_defer ? -1 : segmentAt(s.loops, t)
+  }
 
   const logic = () => ({
     length: q.items.length,
@@ -168,7 +175,7 @@ function createWebBackend() {
     s.position = 0
     s.duration = item.duration || 0
     s.error = ''
-    loopArmed = insideLoop(0)
+    rearm(0)
     audio.src = api.audioUrl(item.id)
     // el <audio> no sube de 1: por encima, en el navegador suena al 100 %
     audio.volume = Math.min(1, s.volume)
@@ -195,14 +202,17 @@ function createWebBackend() {
       /* sin metadatos aún: se queda en la posición pedida */
     }
     s.position = v
-    loopArmed = insideLoop(v)
+    // saltar a propósito dentro de un tramo lo arma ya
+    if (segmentAt(s.loops, v) >= 0) s.loop_defer = false
+    rearm(v)
     if (v < (s.duration || Infinity)) ended = false
     push()
   }
   function onEnded() {
-    // con un tramo puesto la canción no se acaba: vuelve a A
-    if (hasLoop()) {
-      seekTo(s.loop_a)
+    // con tramos puestos la canción no se acaba: vuelve al primero
+    if (s.loops.length) {
+      s.loop_defer = false
+      seekTo(s.loops[0][0])
       start()
       return
     }
@@ -219,11 +229,14 @@ function createWebBackend() {
 
   audio.addEventListener('timeupdate', () => {
     s.position = audio.currentTime || 0
-    // bucle A-B: al pasar de B, vuelta a A (Rust hace lo mismo en la app)
-    if (!loopArmed && insideLoop(s.position)) loopArmed = true
-    if (loopArmed && hasLoop() && s.position >= s.loop_b) {
-      audio.currentTime = s.loop_a
-      s.position = s.loop_a
+    // los tramos: al pasar del final del tramo en que va, al siguiente
+    // (Rust hace lo mismo en la app)
+    if (s.loops.length && loopAt < 0 && !s.loop_defer) loopAt = segmentAt(s.loops, s.position)
+    if (loopAt >= 0 && s.position >= s.loops[loopAt][1]) {
+      const next = (loopAt + 1) % s.loops.length
+      audio.currentTime = s.loops[next][0]
+      s.position = s.loops[next][0]
+      loopAt = next
     }
     push()
   })
@@ -298,11 +311,13 @@ function createWebBackend() {
       audio.playbackRate = s.speed
       push()
     },
-    setLoop: async (a, b) => {
+    setLoop: async (a, b, opts = {}) => {
       const ok = Number.isFinite(a) && Number.isFinite(b) && b > a
-      s.loop_a = ok ? a : 0
-      s.loop_b = ok ? b : 0
-      loopArmed = insideLoop(audio.currentTime || 0)
+      s.loops = cleanSegments(opts.segments ?? (ok ? [[a, b]] : [])).filter(([x, y]) => y > x + 0.2)
+      s.loop_a = s.loops[0]?.[0] ?? 0
+      s.loop_b = s.loops.at(-1)?.[1] ?? 0
+      s.loop_defer = !!opts.defer && s.loops.length > 0
+      rearm(audio.currentTime || 0)
       push()
     },
     // El tono corrido y el metrónomo solo suenan dentro de la app (ffmpeg y
@@ -391,7 +406,7 @@ function remember(key, value) {
  * (la app, la barra lateral, el chat con todo su markdown) en cada tick,
  * solo porque avanzaba la aguja. Si no han cambiado, se deja el que había.
  */
-const KEEP_IDENTITY = ['track', 'origin', 'metronome']
+const KEEP_IDENTITY = ['track', 'origin', 'metronome', 'loops']
 
 /** ¿Dicen lo mismo? Son objetos pequeños y planos: basta con compararlos en JSON. */
 function sameValue(a, b) {
@@ -592,6 +607,21 @@ function setLoop(a = null, b = null) {
   const ok = Number.isFinite(a) && Number.isFinite(b) && b > a
   return send((bk) => bk.setLoop(ok ? a : null, ok ? b : null))
 }
+/**
+ * Varios tramos que se repiten seguidos: al acabar uno, el siguiente, y del
+ * último al primero. Con `defer`, la canción sigue hasta el final y entonces
+ * empiezan («repetir cuando acabe la canción»). Uno solo, sin esperar, es el
+ * bucle A-B de siempre y va como tal.
+ * @param {ReadonlyArray<ReadonlyArray<number>>} segments
+ * @param {{ defer?: boolean }} [opts]
+ */
+function setLoops(segments, { defer = false } = {}) {
+  const list = cleanSegments(segments)
+  if (list.length <= 1 && !defer) return setLoop(list[0]?.[0] ?? null, list[0]?.[1] ?? null)
+  return send((bk) =>
+    bk.setLoop(list[0]?.[0] ?? null, list.at(-1)?.[1] ?? null, { segments: list, defer })
+  )
+}
 const clearLoop = () => setLoop(null, null)
 
 function setSpeed(value) {
@@ -719,9 +749,14 @@ export function usePlayback() {
     metronome: computed(() => state.metronome),
     analyzeBeats,
     setLoop,
+    setLoops,
     clearLoop,
     loopA: computed(() => state.loop_a),
     loopB: computed(() => state.loop_b),
+    /** los tramos que se repiten, en orden: [[a, b], …] */
+    loops: computed(() => state.loops || []),
+    /** los tramos esperan a que acabe la canción */
+    loopDefer: computed(() => !!state.loop_defer),
     pitchPreserved: computed(() => state.pitch_preserved !== false),
     setRepeat,
     cycleRepeat,

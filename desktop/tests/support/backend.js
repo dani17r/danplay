@@ -758,7 +758,16 @@ export function createPlaybackDouble() {
     seek: vi.fn(async (seconds) => emit({ position: seconds })),
     setVolume: vi.fn(async (value) => emit({ volume: value })),
     setSpeed: vi.fn(async (value) => emit({ speed: value })),
-    setLoop: vi.fn(async (a, b) => emit({ loop_a: a == null ? 0 : a, loop_b: b == null ? 0 : b })),
+    // como Rust: uno solo es el bucle A-B; con `segments`, varios en orden
+    setLoop: vi.fn(async (a, b, opts) => {
+      const loops = opts?.segments ?? (a != null && b != null && b > a ? [[a, b]] : [])
+      emit({
+        loop_a: loops[0]?.[0] ?? 0,
+        loop_b: loops.at(-1)?.[1] ?? 0,
+        loops,
+        loop_defer: !!opts?.defer && loops.length > 0
+      })
+    }),
     setPitch: vi.fn(async (semitones) => emit({ pitch: semitones })),
     // como Rust: el tempo es el puesto a mano o el de la rejilla, y el doble
     // o la mitad valen para los dos

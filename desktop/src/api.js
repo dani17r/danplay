@@ -85,8 +85,11 @@
  *                                fracciones: 0,5 es un cuarto de tono)
  * @property {MetronomeState} metronome
  * @property {string} path        el archivo que suena de verdad (clave de la rejilla del metrónomo)
- * @property {number} loop_a      bucle A-B en segundos; 0,0 = sin bucle
+ * @property {number} loop_a      bucle A-B en segundos; 0,0 = sin bucle (con varios
+ *                                tramos, del principio del primero al final del último)
  * @property {number} loop_b
+ * @property {Array<[number, number]>} [loops]  los tramos que se repiten, en orden
+ * @property {boolean} [loop_defer]  los tramos esperan a que acabe la canción
  */
 
 /**
@@ -412,10 +415,16 @@ export const playback = {
   /**
    * Repetir de A a B (segundos); sin valores, lo quita. No mueve la canción:
    * el tramo entra cuando la canción está (o llega) dentro, y con tramo la
-   * canción no se acaba (al final vuelve a A).
+   * canción no se acaba (al final vuelve a A). Con `segments` son varios
+   * tramos seguidos (del último se vuelve al primero); con `defer`, esperan
+   * a que acabe la canción.
    * @param {number|null} a @param {number|null} b
+   * @param {{ segments?: Array<[number, number]>, defer?: boolean }} [opts]
    */
-  setLoop: (a, b) => invoke('set_loop', { a, b }),
+  setLoop: (a, b, opts) =>
+    opts
+      ? invoke('set_loop', { a, b, segments: opts.segments ?? null, defer: !!opts.defer })
+      : invoke('set_loop', { a, b }),
   /**
    * El tono corrido, en semitonos (-12..12, con fracciones: 0,5 es un cuarto
    * de tono). Solo hace algo con ffmpeg.

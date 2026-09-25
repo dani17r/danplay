@@ -96,6 +96,8 @@ pub(super) fn compose(inner: &Inner, audio: &player::State) -> PlaybackState {
         pitch_preserved: audio.pitch_preserved,
         loop_a: audio.loop_a,
         loop_b: audio.loop_b,
+        loops: audio.loops.clone(),
+        loop_defer: audio.loop_defer,
         pitch: audio.pitch,
         metronome: audio.metronome.clone(),
         path: audio.path.clone(),

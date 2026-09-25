@@ -20,6 +20,10 @@ pub fn nudged_volume(volume: f32, delta: f32) -> f32 {
 }
 
 #[derive(Serialize, Clone, Default, Debug, PartialEq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "lo que publica el reproductor: cada si o no se pinta aparte"
+)]
 pub struct State {
     pub path: String,
     pub playing: bool,
@@ -33,9 +37,14 @@ pub struct State {
     /// La velocidad conserva el tono (ffmpeg `atempo`). Sin ffmpeg, rodio
     /// cambia la velocidad a la antigua, con el tono detras.
     pub pitch_preserved: bool,
-    /// Bucle A-B para estudiar un trozo, en segundos; 0,0 = sin bucle.
+    /// Bucle A-B para estudiar un trozo, en segundos; 0,0 = sin bucle. Con
+    /// varios tramos, del principio del primero al final del ultimo.
     pub loop_a: f64,
     pub loop_b: f64,
+    /// Los tramos que se repiten, en orden (uno solo es el bucle A-B).
+    pub loops: Vec<[f64; 2]>,
+    /// Los tramos esperan a que acabe la cancion para empezar a repetirse.
+    pub loop_defer: bool,
     /// El tono corrido, en semitonos (0 = como esta grabada). Admite medios
     /// semitonos (cuartos de tono) y cualquier fraccion. Solo con ffmpeg.
     pub pitch: f32,

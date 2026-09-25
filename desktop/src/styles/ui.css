@@ -1912,6 +1912,72 @@ tbody tr.flash {
 .tl-time.b {
   right: 3px;
 }
+/* con varios tramos, su numero de orden (abajo a la izquierda) y, en cada
+   uno, el boton de sus opciones (abajo a la derecha: arriba van las
+   banderitas de los marcadores y el candado) */
+.tl-loop-n {
+  position: absolute;
+  left: 4px;
+  bottom: 3px;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 9.5px;
+  line-height: 15px;
+  text-align: center;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+.tl-loop-menu {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 22px;
+  height: 16px;
+  padding: 0;
+  border-radius: 5px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border2));
+  pointer-events: auto;
+  cursor: pointer;
+}
+.tl-loop-menu:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+/* varios tramos: al lado del candado */
+.tl-multi {
+  position: absolute;
+  top: 4px;
+  right: 32px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border: 1px solid var(--border2);
+  transition:
+    color 0.14s,
+    border-color 0.14s;
+}
+.tl-multi:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 40%, var(--border2));
+}
+.tl-multi.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border2));
+  font-weight: 600;
+}
 .tl-head {
   position: absolute;
   top: 0;

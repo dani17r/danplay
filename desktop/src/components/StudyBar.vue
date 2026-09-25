@@ -34,6 +34,15 @@ import { useHotkeys } from '../composables/useHotkeys.js'
 import { formatTime } from '../utils/format.js'
 import { transposeKey, toneLabel, toneUnit } from '../utils/theory.js'
 import { effectiveGrid, formatBpm, parseBpm, multFactor, METERS } from '../utils/beats.js'
+import {
+  cleanSegments,
+  sameSegments,
+  segmentAt,
+  nextSegment,
+  segmentsLength,
+  snapToBeats
+} from '../utils/segments.js'
+import { openMenu } from '../composables/useContextMenu.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import SliderField from './ui/SliderField.vue'
@@ -48,15 +57,15 @@ const {
   speed,
   pitch,
   metronome,
-  loopA,
-  loopB,
+  loopDefer,
   pitchPreserved,
   playing,
   volume
 } = player
 
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
-const blank = () => ({ loop: null, speed: 1, pitch: 0, metronome: {}, markers: [], notes: '' })
+// `loops`: los tramos que se repiten, [[a, b], …] (uno solo es el bucle A-B)
+const blank = () => ({ loops: [], speed: 1, pitch: 0, metronome: {}, markers: [], notes: '' })
 const study = ref(blank())
 const loadedFor = ref(null)
 const saving = ref(false)
@@ -79,7 +88,6 @@ let saveTimer = null
 let pending = null
 
 const round2 = (v) => Math.round(v * 100) / 100
-const near = (x, y) => Math.abs(x - y) < 0.011
 const isSpan = (m) => m.end > m.t
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
@@ -122,8 +130,12 @@ async function loadFor(id) {
   try {
     const s = parse((await api.song(id))?.study)
     if (loadedFor.value !== id) return
+    // varios tramos van en `loops`; uno solo, en `loop` (como siempre)
+    const loops = cleanSegments(
+      Array.isArray(s.loops) && s.loops.length ? s.loops : Array.isArray(s.loop) ? [s.loop] : []
+    )
     study.value = {
-      loop: Array.isArray(s.loop) ? s.loop : null,
+      loops,
       speed: s.speed || 1,
       // en semitonos, con fracciones (un cuarto de tono es medio semitono)
       pitch: Number.isFinite(s.pitch) ? round2(clamp(s.pitch, -12, 12)) : 0,
@@ -131,13 +143,13 @@ async function loadFor(id) {
       markers: (s.markers || []).map((m) => ({ ...m })),
       notes: s.notes || ''
     }
+    multi.value = loops.length > 1
     // lo guardado se aplica al entrar: para eso se guardo
-    if (study.value.loop) await player.setLoop(study.value.loop[0], study.value.loop[1])
-    else await player.clearLoop()
+    await player.setLoops(loops)
     if (study.value.speed !== speed.value) await player.setSpeed(study.value.speed)
     if (study.value.pitch !== pitch.value) await player.setPitch(study.value.pitch)
     await player.resetMetronomeOverrides(study.value.metronome)
-    selected.value = markerOf(study.value.loop)
+    selected.value = markerOf(study.value.loops)
     // el compas se analiza ya, para que el clic entre al momento al pedirlo
     ensureGrid()
   } catch (e) {
@@ -162,6 +174,7 @@ function payload(s) {
   const markers = s.markers.map((m) => ({
     t: m.t,
     ...(isSpan(m) ? { end: m.end } : {}),
+    ...(m.parts?.length > 1 ? { parts: m.parts.map((p) => [...p]) } : {}),
     label: m.label,
     ...(m.notes?.trim() ? { notes: m.notes.trim() } : {})
   }))
@@ -169,7 +182,11 @@ function payload(s) {
     Object.entries(s.metronome || {}).filter(([k, v]) => !isDefault(k, v))
   )
   return {
-    ...(s.loop ? { loop: [...s.loop] } : {}),
+    ...(s.loops.length === 1
+      ? { loop: [...s.loops[0]] }
+      : s.loops.length > 1
+        ? { loops: s.loops.map((x) => [...x]) }
+        : {}),
     ...(s.speed && s.speed !== 1 ? { speed: s.speed } : {}),
     ...(s.pitch ? { pitch: s.pitch } : {}),
     ...(Object.keys(metro).length ? { metronome: metro } : {}),
@@ -211,74 +228,184 @@ watch(locked, (v) => savePref(LOCK_KEY, v))
 /** La onda no puede mover la cancion ahora. */
 const guarded = computed(() => locked.value && playing.value)
 
-// ---- el tramo que se repite
+// ---- los tramos que se repiten: uno (el bucle A-B) o varios seguidos
+/** Varios tramos a la vez: cada arrastre en la onda añade otro. */
+const multi = ref(false)
 const pendingA = ref(null)
-const hasLoop = computed(() => loopB.value > loopA.value)
+const hasLoop = computed(() => study.value.loops.length > 0)
 const loopLabel = computed(() => {
-  if (hasLoop.value) return `${formatTime(loopA.value)} – ${formatTime(loopB.value)}`
+  const list = study.value.loops
+  if (list.length === 1) return `${formatTime(list[0][0])} – ${formatTime(list[0][1])}`
+  if (list.length > 1) return `${list.length} tramos · ${formatTime(segmentsLength(list))}`
   if (pendingA.value != null) return `A en ${formatTime(pendingA.value)} · pulsa B donde acabe`
   return 'sin tramo'
 })
 
 /**
- * Deja el bucle en [a, b]. `jump` dice si la cancion va a A: 'outside' si
- * iba por fuera del tramo (lo de siempre), 'always' para empezar ya el
- * tramo (la tecla B), 'never' para dejarla donde va (la onda con candado).
+ * Deja los tramos. `jump` dice si la cancion va a ellos: 'outside' si va
+ * por fuera de todos (lo de siempre: al siguiente que venga), 'never' para
+ * dejarla donde va (la onda con candado), o un segundo concreto (la tecla
+ * B vuelve a su A). Con `defer`, esperan a que acabe la cancion; si no se
+ * dice, sigue como estaba: mover un borde o ajustarlo a los pulsos no quita
+ * el «al acabar» que uno puso (saltar a un tramo si lo quita, en Rust).
  */
-async function applyLoop(a, b, { jump = 'outside' } = {}) {
-  if (!(b - a >= 0.5)) {
+async function applyLoops(list, { jump = 'outside', defer = loopDefer.value } = {}) {
+  const clean = cleanSegments(list)
+  if (clean.some(([a, b]) => b - a < 0.5)) {
     notify('El bucle tiene que durar al menos medio segundo')
     return
   }
   pendingA.value = null
-  study.value.loop = [round2(a), round2(b)]
-  await player.setLoop(study.value.loop[0], study.value.loop[1])
-  const outside = position.value < a || position.value > b
-  if (jump === 'always' || (jump === 'outside' && outside)) await player.seek(a)
+  study.value.loops = clean
+  await player.setLoops(clean, { defer })
+  if (typeof jump === 'number') await player.seek(jump)
+  else if (jump === 'outside' && clean.length && segmentAt(clean, position.value) < 0) {
+    await player.seek(clean[nextSegment(clean, position.value)][0])
+  }
   scheduleSave()
 }
 async function clearLoop() {
   pendingA.value = null
-  study.value.loop = null
+  study.value.loops = []
   await player.clearLoop()
   scheduleSave()
 }
+/** Los tramos de un marcador: sus partes, su tramo, o nada (un instante). */
+const partsOf = (m) => (m.parts?.length > 1 ? m.parts : isSpan(m) ? [[m.t, m.end]] : [])
+/** Un marcador pasa a ser esos tramos (uno solo, o varios como partes). */
+function setMarkerParts(m, list) {
+  m.t = list[0][0]
+  m.end = list.at(-1)[1]
+  if (list.length > 1) m.parts = list.map((x) => [...x])
+  else delete m.parts
+  study.value.markers = [...study.value.markers].sort((x, y) => x.t - y.t)
+}
 /**
- * Lo que manda la linea de tiempo. Un tramo nuevo dibujado de cero deja de
- * apuntar al marcador que hubiera elegido; mover un borde con un marcador
- * elegido cambia el tramo DEL marcador, que es lo que uno espera al estirarlo.
+ * Lo que manda la linea de tiempo. Un tramo nuevo dibujado de cero (o uno
+ * que se añade o se quita) deja de apuntar al marcador que hubiera elegido;
+ * mover un borde con un marcador elegido cambia el tramo DEL marcador, que es
+ * lo que uno espera al estirarlo.
  */
-function onLoop(range, { mode } = {}) {
-  if (!range) return clearLoop()
+function onLoops(list, { mode } = {}) {
+  if (!list.length) return clearLoop()
   const m = selected.value
-  if (mode === 'edit' && m && isSpan(m)) {
-    m.t = range[0]
-    m.end = range[1]
-    study.value.markers = [...study.value.markers].sort((x, y) => x.t - y.t)
-  } else if (mode === 'select') {
-    selected.value = null
-  }
-  return applyLoop(range[0], range[1], { jump: guarded.value ? 'never' : 'outside' })
+  if (mode === 'edit' && m && partsOf(m).length) setMarkerParts(m, cleanSegments(list))
+  else if (mode === 'select' || mode === 'add' || mode === 'remove') selected.value = null
+  return applyLoops(list, { jump: guarded.value || mode === 'remove' ? 'never' : 'outside' })
 }
 function markA() {
   if (!track.value) return
   const at = round2(position.value)
   selected.value = null
-  if (hasLoop.value && at < loopB.value - 0.5) return applyLoop(at, loopB.value)
-  if (hasLoop.value) clearLoop()
+  const list = study.value.loops
+  // con un solo tramo, A lo acorta por delante
+  if (!multi.value && list.length === 1 && at < list[0][1] - 0.5) {
+    return applyLoops([[at, list[0][1]]])
+  }
+  if (!multi.value && list.length) clearLoop()
   pendingA.value = at
 }
 function markB() {
   if (!track.value) return
   const at = round2(position.value)
-  const from = pendingA.value ?? (hasLoop.value ? loopA.value : 0)
+  const list = study.value.loops
+  const single = !multi.value && list.length === 1
+  const from = pendingA.value ?? (single ? list[0][0] : 0)
   if (at - from < 0.5) {
     notify('El bucle tiene que durar al menos medio segundo')
     return
   }
   selected.value = null
-  // B cierra el tramo donde va la cancion y vuelve a A: es la repeticion A-B
-  return applyLoop(from, at, { jump: 'always' })
+  // B cierra el tramo donde va la cancion y vuelve a A: es la repeticion
+  // A-B. Con «varios», el tramo se añade a los que hubiera.
+  return applyLoops(multi.value ? [...list, [from, at]] : [[from, at]], { jump: from })
+}
+
+// ---- las opciones de un tramo (el boton ⋯ de la onda, o el clic derecho)
+/** Ir ya a ese tramo y que suene. */
+async function playNow(index = 0) {
+  const seg = study.value.loops[index]
+  if (!seg) return
+  if (!playing.value) await player.toggle()
+  await player.seek(seg[0])
+}
+/** Que la cancion siga hasta el final y entonces se repitan los tramos (o no). */
+const deferLoops = (on) => player.setLoops(study.value.loops, { defer: on })
+/** Los bordes de los tramos, al pulso mas cercano: para que entren a tiempo. */
+function snapLoops() {
+  const beats = shownGrid.value?.beats
+  if (!beats?.length || !hasLoop.value) return
+  const snapped = snapToBeats(study.value.loops, beats)
+  const m = selected.value
+  if (m && partsOf(m).length) setMarkerParts(m, snapped)
+  return applyLoops(snapped, { jump: 'never' })
+}
+function removeSegment(index) {
+  return onLoops(
+    study.value.loops.filter((_, i) => i !== index),
+    { mode: 'remove' }
+  )
+}
+/**
+ * Lo que se puede hacer con un tramo de la onda (o, con `index` -1, en ese
+ * punto de ella). Las que mueven la cancion son a proposito, asi que valen
+ * tambien con el candado puesto.
+ */
+function showOptions({ index, t, x, y, event }) {
+  const list = study.value.loops
+  const seg = list[index]
+  const items = []
+  if (seg) {
+    items.push({
+      label: 'Reproducir ahora',
+      icon: 'play',
+      note: formatTime(seg[0]),
+      action: () => playNow(index)
+    })
+    items.push(
+      loopDefer.value
+        ? {
+            label: 'Repetir ya, sin esperar al final',
+            icon: 'repeat',
+            action: () => deferLoops(false)
+          }
+        : {
+            label: 'Repetir cuando acabe la canción',
+            icon: 'repeat',
+            action: () => deferLoops(true)
+          }
+    )
+  }
+  items.push({ label: 'Ir aquí', icon: 'right', note: formatTime(t), action: () => player.seek(t) })
+  if (seg) {
+    items.push({
+      label: 'Ajustar a los pulsos',
+      icon: 'note',
+      disabled: !shownGrid.value?.beats?.length,
+      action: snapLoops
+    })
+    if (!loopSaved.value)
+      items.push({ label: 'Guardar como marcador', icon: 'save', action: saveMarker })
+  }
+  items.push(
+    multi.value
+      ? { label: 'Volver a un solo tramo', icon: 'repeat', action: () => (multi.value = false) }
+      : { label: 'Añadir más tramos', icon: 'plus', action: () => (multi.value = true) }
+  )
+  if (list.length) {
+    items.push({ separator: true })
+    if (seg && list.length > 1) {
+      items.push({ label: 'Quitar este tramo', icon: 'close', action: () => removeSegment(index) })
+    }
+    items.push({
+      label: list.length > 1 ? 'Quitar todos los tramos' : 'Quitar la selección',
+      icon: 'trash',
+      danger: true,
+      action: clearLoop
+    })
+  }
+  const title = seg ? (list.length > 1 ? `Tramo ${index + 1}` : 'El tramo') : 'La onda'
+  openMenu(event ?? { clientX: x, clientY: y }, items, title)
 }
 useHotkeys({ a: markA, b: markB })
 
@@ -479,29 +606,39 @@ const setMetroVolume = (v) => player.setMetronome({ volume: v })
 const setSongVolume = (v) => player.setVolume(v)
 const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
 
-// ---- marcadores: tramos con nombre y notas, o un instante suelto
-function markerOf(range) {
-  if (!range) return null
+// ---- marcadores: tramos con nombre y notas (uno, o varios seguidos), o un
+// instante suelto
+/** El marcador que son exactamente esos tramos, si lo hay. */
+function markerOf(list) {
+  if (!list?.length) return null
   return (
-    study.value.markers.find((m) => isSpan(m) && near(m.t, range[0]) && near(m.end, range[1])) ||
-    null
+    study.value.markers.find((m) => {
+      const parts = partsOf(m)
+      return parts.length > 0 && sameSegments(parts, list)
+    }) || null
   )
 }
-const markerLabel = (m) =>
-  isSpan(m) ? `${formatTime(m.t)} – ${formatTime(m.end)}` : formatTime(m.t)
-const loopSaved = computed(() => hasLoop.value && !!markerOf([loopA.value, loopB.value]))
+function markerLabel(m) {
+  const parts = partsOf(m)
+  if (parts.length > 1) return `${parts.length} tramos · ${formatTime(parts[0][0])}…`
+  return isSpan(m) ? `${formatTime(m.t)} – ${formatTime(m.end)}` : formatTime(m.t)
+}
+const loopSaved = computed(() => hasLoop.value && !!markerOf(study.value.loops))
 
 function saveMarker() {
   if (!track.value) return
   let m
-  if (hasLoop.value) {
-    const dup = markerOf([loopA.value, loopB.value])
+  const list = study.value.loops
+  if (list.length) {
+    const dup = markerOf(list)
     if (dup) {
       selected.value = dup
       return notify(`Ese tramo ya es «${dup.label}»`, 'info')
     }
     const n = study.value.markers.filter(isSpan).length + 1
-    m = { t: round2(loopA.value), end: round2(loopB.value), label: `Tramo ${n}`, notes: '' }
+    m = { t: list[0][0], end: list.at(-1)[1], label: `Tramo ${n}`, notes: '' }
+    // varios tramos se guardan juntos: un solo marcador que los repite seguidos
+    if (list.length > 1) m.parts = list.map((x) => [...x])
   } else {
     const n = study.value.markers.filter((x) => !isSpan(x)).length + 1
     m = { t: round2(position.value), label: `Marca ${n}`, notes: '' }
@@ -512,17 +649,19 @@ function saveMarker() {
   scheduleSave()
 }
 /**
- * Elige un marcador: pone su tramo y, si `jump`, coloca la cancion al
+ * Elige un marcador: pone sus tramos y, si `jump`, coloca la cancion al
  * principio. Desde la onda con candado, sonando, no salta: el tramo entra
  * cuando la cancion llega.
  */
 async function selectMarker(m, { jump = true } = {}) {
   selected.value = m
   notesTab.value = 'marker'
-  if (isSpan(m)) {
+  const parts = partsOf(m)
+  if (parts.length) {
     pendingA.value = null
-    study.value.loop = [m.t, m.end]
-    await player.setLoop(m.t, m.end)
+    if (parts.length > 1) multi.value = true
+    study.value.loops = cleanSegments(parts)
+    await player.setLoops(study.value.loops, { defer: loopDefer.value })
     scheduleSave()
   }
   if (jump) await player.seek(m.t)
@@ -588,12 +727,13 @@ onUnmounted(flushSave)
       </button>
     </div>
 
-    <!-- la onda, la regla, el tramo, los marcadores y la rejilla del compas -->
+    <!-- la onda, la regla, los tramos, los marcadores y la rejilla del compas -->
     <StudyTimeline
       :song-id="track?.id ?? null"
       :duration="duration"
       :position="position"
-      :loop="study.loop"
+      :loops="study.loops"
+      :multi="multi"
       :markers="study.markers"
       :selected="selected"
       :grid="shownGrid"
@@ -601,18 +741,24 @@ onUnmounted(flushSave)
       :locked="locked"
       :playing="playing"
       @update:locked="(v) => (locked = v)"
-      @update:loop="onLoop"
+      @update:multi="(v) => (multi = v)"
+      @update:loops="onLoops"
       @seek="jump"
       @marker="(m) => selectMarker(m, { jump: !guarded })"
+      @options="showOptions"
     />
     <p class="study-hint">
-      <template v-if="locked">
+      <template v-if="multi">
+        Arrastra para añadir tramos: se repiten seguidos, saltándose lo de en medio · clic sobre uno
+        para quitarlo · <b>⋯</b> o clic derecho: opciones
+      </template>
+      <template v-else-if="locked">
         Arrastra sobre la onda para elegir el tramo · con el candado, mientras suena, ni un clic ni
-        el tramo mueven la canción · teclas <b>A</b> y <b>B</b>
+        el tramo mueven la canción · clic para quitarlo · <b>⋯</b> o clic derecho: opciones
       </template>
       <template v-else>
-        Arrastra sobre la onda para elegir el tramo que se repite · clic para ir a un punto · teclas
-        <b>A</b> y <b>B</b> mientras suena
+        Arrastra sobre la onda para elegir el tramo que se repite · clic para ir a un punto (y
+        quitar el tramo) · <b>⋯</b> o clic derecho: opciones · teclas <b>A</b> y <b>B</b>
       </template>
     </p>
 
@@ -623,17 +769,42 @@ onUnmounted(flushSave)
 
         <div class="study-block">
           <div class="study-block-head">
-            <span class="study-block-name"><Icon n="repeat" :t="12" /> Tramo que se repite</span>
-            <span class="study-loop mono" :class="{ off: !hasLoop && pendingA == null }">{{
-              loopLabel
-            }}</span>
+            <span class="study-block-name"
+              ><Icon n="repeat" :t="12" />
+              {{ study.loops.length > 1 ? 'Tramos que se repiten' : 'Tramo que se repite' }}</span
+            >
+            <span class="study-loop mono" :class="{ off: !hasLoop && pendingA == null }"
+              >{{ loopLabel }}<em v-if="hasLoop && loopDefer"> · al acabar</em></span
+            >
           </div>
           <div v-if="hasLoop" class="btn-row">
+            <button
+              class="btn mini"
+              type="button"
+              title="Ir ya al tramo (al primero, si hay varios) y ponerlo a sonar"
+              @click="playNow(0)"
+            >
+              <Icon n="play" :t="11" /> Ahora
+            </button>
+            <button
+              class="btn mini"
+              type="button"
+              :class="{ on: loopDefer }"
+              :aria-pressed="loopDefer"
+              :title="
+                loopDefer
+                  ? 'La canción sigue hasta el final y entonces se repite. Pulsa para repetir ya'
+                  : 'Que la canción siga hasta el final y entonces se repita el tramo'
+              "
+              @click="deferLoops(!loopDefer)"
+            >
+              <Icon n="repeat" :t="11" /> Al acabar
+            </button>
             <button
               v-if="!loopSaved"
               class="btn mini"
               type="button"
-              title="Guardar este tramo como marcador, con nombre y notas"
+              title="Guardar como marcador, con nombre y notas (varios tramos, juntos en uno)"
               @click="saveMarker"
             >
               <Icon n="save" :t="12" /> Guardar como marcador

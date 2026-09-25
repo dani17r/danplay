@@ -326,7 +326,11 @@ fn slow_tempo_keeps_song_time_and_the_ab_loop_wraps() {
     );
 
     // bucle: de 20 a 21,5 s; al pasar de B tiene que volver cerca de A
-    m.send(Command::Loop(Some((20.0, 21.5)))).unwrap();
+    m.send(Command::Loops {
+        segments: vec![(20.0, 21.5)],
+        defer: false,
+    })
+    .unwrap();
     m.send(Command::Speed(1.0)).unwrap();
     m.send(Command::Seek(21.0)).unwrap();
     let there = until(&m, |s| {
@@ -346,7 +350,11 @@ fn slow_tempo_keeps_song_time_and_the_ab_loop_wraps() {
         looped.position
     );
     assert!((looped.loop_a - 20.0).abs() < 1e-9 && (looped.loop_b - 21.5).abs() < 1e-9);
-    m.send(Command::Loop(None)).unwrap();
+    m.send(Command::Loops {
+        segments: vec![],
+        defer: false,
+    })
+    .unwrap();
     assert!(until(&m, |s| s.loop_b.abs() < 1e-9).loop_b.abs() < 1e-9);
     m.send(Command::Stop).unwrap();
 }
@@ -520,14 +528,21 @@ fn a_loop_chosen_behind_the_needle_waits_for_the_song() {
     m.send(Command::Seek(30.0)).unwrap();
     until(&m, |s| s.position >= 29.0);
     // por detras de la aguja: no salta
-    m.send(Command::Loop(Some((10.0, 12.0)))).unwrap();
+    m.send(Command::Loops {
+        segments: vec![(10.0, 12.0)],
+        defer: false,
+    })
+    .unwrap();
     wait_ms(700);
     let s = m.state();
     assert!(s.position >= 30.0, "salto al tramo sin pedirlo: {}", s.position);
     assert!((s.loop_a - 10.0).abs() < 1e-9, "el tramo queda puesto");
     // por delante: la cancion llega, entra y vuelve a A al pasar de B
-    m.send(Command::Loop(Some((s.position + 0.6, s.position + 1.6))))
-        .unwrap();
+    m.send(Command::Loops {
+        segments: vec![(s.position + 0.6, s.position + 1.6)],
+        defer: false,
+    })
+    .unwrap();
     let (a, b) = (s.position + 0.6, s.position + 1.6);
     wait_ms(2600);
     let s = m.state();
@@ -586,7 +601,11 @@ fn with_a_loop_the_song_goes_back_to_a_instead_of_ending() {
     let total = m.state().duration;
     m.send(Command::Seek(total - 0.8)).unwrap();
     until(&m, |s| s.position >= total - 1.0);
-    m.send(Command::Loop(Some((5.0, 8.0)))).unwrap();
+    m.send(Command::Loops {
+        segments: vec![(5.0, 8.0)],
+        defer: false,
+    })
+    .unwrap();
     let s = until(&m, |s| s.playing && (4.9..8.5).contains(&s.position));
     assert!(
         s.playing && (4.9..8.5).contains(&s.position),
@@ -594,6 +613,72 @@ fn with_a_loop_the_song_goes_back_to_a_instead_of_ending() {
         s.position,
         s.playing
     );
+    let ended = std::iter::from_fn(|| rx.try_recv().ok())
+        .filter(|e| matches!(e, Event::Finished))
+        .count();
+    assert_eq!(ended, 0, "con tramo no se acaba");
+    m.send(Command::Stop).unwrap();
+}
+
+/// Varios tramos: se ordenan, al acabar uno se salta al siguiente y del
+/// ultimo se vuelve al primero; lo de entre medias no suena.
+#[test]
+fn several_segments_play_one_after_another() {
+    let Some((m, _rx)) = playing() else { return };
+    m.send(Command::Seek(10.0)).unwrap();
+    until(&m, |s| s.position >= 9.5);
+    m.send(Command::Loops {
+        segments: vec![(30.0, 31.0), (10.0, 11.0)],
+        defer: false,
+    })
+    .unwrap();
+    let s = until(&m, |s| s.loops.len() == 2);
+    assert_eq!(s.loops, vec![[10.0, 11.0], [30.0, 31.0]], "en orden");
+    assert!((s.loop_a - 10.0).abs() < 1e-9 && (s.loop_b - 31.0).abs() < 1e-9);
+    let s = until(&m, |s| (29.9..31.3).contains(&s.position));
+    assert!(
+        (29.9..31.3).contains(&s.position),
+        "no salto al segundo tramo: {}",
+        s.position
+    );
+    let s = until(&m, |s| (9.9..10.9).contains(&s.position));
+    assert!(
+        (9.9..10.9).contains(&s.position),
+        "no volvio al primero: {}",
+        s.position
+    );
+    m.send(Command::Stop).unwrap();
+}
+
+/// «Repetir cuando acabe la cancion»: la cancion atraviesa el tramo sin
+/// repetirlo, y al acabarse vuelve a el en vez de pasar a la siguiente.
+#[test]
+fn a_deferred_loop_waits_for_the_end_of_the_song() {
+    let Some((m, rx)) = playing() else { return };
+    let total = m.state().duration;
+    m.send(Command::Seek(total - 3.0)).unwrap();
+    until(&m, |s| s.position >= total - 3.5);
+    let (a, b) = (total - 2.8, total - 2.0);
+    m.send(Command::Loops {
+        segments: vec![(a, b)],
+        defer: true,
+    })
+    .unwrap();
+    let s = until(&m, |s| s.loop_defer);
+    assert!(s.loop_defer, "tiene que esperar al final");
+    let passed = until(&m, |s| s.position > b + 0.3);
+    assert!(
+        passed.position > b + 0.3,
+        "repitio antes de acabar: {}",
+        passed.position
+    );
+    let back = until(&m, |s| s.playing && (a - 0.1..b).contains(&s.position));
+    assert!(
+        back.playing && (a - 0.1..b).contains(&back.position),
+        "no volvio al tramo al acabar: {}",
+        back.position
+    );
+    assert!(!back.loop_defer, "tras volver, es un bucle normal");
     let ended = std::iter::from_fn(|| rx.try_recv().ok())
         .filter(|e| matches!(e, Event::Finished))
         .count();

@@ -5,8 +5,13 @@
  *
  * El tramo se elige sobre la propia onda: se arrastra de donde a donde, y
  * listo. Los bordes del tramo se cogen y se mueven; el tramo entero también,
- * sin cambiar lo que dura. Un clic sin arrastrar lleva la canción a ese
- * punto. Nada de botones de inicio y fin.
+ * sin cambiar lo que dura. Un clic sin arrastrar quita la selección y lleva
+ * la canción a ese punto. Nada de botones de inicio y fin.
+ *
+ * Con «varios» puesto, cada arrastre añade otro tramo en vez de sustituir el
+ * que hubiera, y un clic sobre un tramo lo quita: se repiten todos seguidos,
+ * saltándose lo de entre medias. Cada tramo lleva un botón de opciones (y el
+ * clic derecho): quien las ofrece es StudyBar.
  *
  * Con el candado (arriba a la derecha, puesto de entrada), mientras suena un
  * clic no mueve la canción: tocando encima de la grabación, un clic sin
@@ -33,14 +38,17 @@ import { api } from '../api.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { formatTime } from '../utils/format.js'
 import { isDownbeat } from '../utils/beats.js'
+import { cleanSegments } from '../utils/segments.js'
 import Icon from './Icon.vue'
 
 const props = defineProps({
   songId: { type: Number, default: null },
   duration: { type: Number, default: 0 },
   position: { type: Number, default: 0 },
-  /** [a, b] en segundos, o null */
-  loop: { type: Array, default: null },
+  /** los tramos que se repiten: [[a, b], …] en segundos (uno solo, el bucle A-B) */
+  loops: { type: Array, default: () => [] },
+  /** varios tramos a la vez: arrastrar añade otro en vez de sustituir */
+  multi: Boolean,
   /** [{t, end?, label, notes?}]: tramos con nombre, o instantes sueltos */
   markers: { type: Array, default: () => [] },
   /** el marcador elegido, para resaltarlo */
@@ -54,11 +62,21 @@ const props = defineProps({
   /** si la canción está sonando (el candado solo cuenta entonces) */
   playing: Boolean
 })
-// `update:loop` lleva el tramo y `{ mode }`: 'select' si es uno nuevo dibujado
-// de cero, 'edit' si se movio un borde o el tramo entero. Quien guarda
-// marcadores necesita distinguirlo: editar el tramo de un marcador elegido lo
-// cambia a el; dibujar otro nuevo, no.
-const emit = defineEmits(['update:loop', 'seek', 'marker', 'update:locked'])
+// `update:loops` lleva los tramos (en orden, los que se pisan juntos) y
+// `{ mode }`: 'select' si se dibujo uno de cero, 'add' si se anadio otro,
+// 'edit' si se movio un borde o un tramo entero, 'remove' si se quito uno y
+// 'clear' si se quitaron todos. Quien guarda marcadores necesita
+// distinguirlo: editar el tramo de un marcador elegido lo cambia a el;
+// dibujar otro nuevo, no. `options` pide las opciones de un tramo (o de un
+// punto de la onda, con `index` -1), con donde abrirlas.
+const emit = defineEmits([
+  'update:loops',
+  'seek',
+  'marker',
+  'update:locked',
+  'update:multi',
+  'options'
+])
 
 const WAVE_H = computed(() => props.height) // alto de la onda, en px
 const MIN_LOOP = 0.5 // menos que esto no es un bucle, es un clic con temblor
@@ -266,19 +284,60 @@ const ticks = computed(() => {
   return out
 })
 
-// ------------------------------------------------------------ el tramo
-// 'select' arrastra un tramo nuevo; 'a' y 'b' mueven un borde; 'move' lleva
-// el tramo entero. Hasta pasar del umbral no es nada: sera un clic.
-const drag = reactive({ mode: null, moved: false, startX: 0, from: 0, a: 0, b: 0, a0: 0, b0: 0 })
-
-/** El tramo que se ve: el que se esta arrastrando, o el guardado. */
-const shown = computed(() => {
-  if (drag.mode && drag.moved) {
-    if (drag.mode === 'select') return [Math.min(drag.from, drag.a), Math.max(drag.from, drag.a)]
-    return [drag.a, drag.b]
-  }
-  return props.loop && props.loop.length === 2 && props.loop[1] > props.loop[0] ? props.loop : null
+// ------------------------------------------------------------ los tramos
+// 'select' arrastra un tramo nuevo; 'a' y 'b' mueven un borde del tramo
+// `index`; 'move' lo lleva entero. Hasta pasar del umbral no es nada: sera
+// un clic.
+const drag = reactive({
+  mode: null,
+  index: -1,
+  moved: false,
+  startX: 0,
+  from: 0,
+  a: 0,
+  b: 0,
+  a0: 0,
+  b0: 0
 })
+
+/** Los tramos guardados, validos. */
+const saved = computed(() =>
+  (props.loops || []).filter((s) => Array.isArray(s) && s.length === 2 && s[1] > s[0])
+)
+
+/**
+ * Los tramos que se ven: los guardados, con el que se esta arrastrando en su
+ * sitio. Uno nuevo sustituye a todos, salvo con «varios», que se anade.
+ */
+const shown = computed(() => {
+  const list = saved.value.map((s) => [s[0], s[1]])
+  if (!drag.mode || !drag.moved) return list
+  if (drag.mode === 'select') {
+    const fresh = [Math.min(drag.from, drag.a), Math.max(drag.from, drag.a)]
+    return props.multi ? [...list, fresh] : [fresh]
+  }
+  if (drag.index >= 0 && drag.index < list.length) list[drag.index] = [drag.a, drag.b]
+  return list
+})
+/** Lo de fuera de los tramos, que se atenua: los huecos entre ellos. */
+const gaps = computed(() => {
+  const list = [...shown.value].sort((x, y) => x[0] - y[0])
+  if (!list.length) return []
+  const out = []
+  let from = 0
+  for (const [a, b] of list) {
+    if (a > from) out.push({ left: pct(from), width: pct(a - from) })
+    from = Math.max(from, b)
+  }
+  out.push({ left: pct(from), right: 0 }) // hasta el final
+  return out
+})
+/** El tramo que se esta arrastrando (el nuevo va el ultimo). */
+const isEditing = (i) =>
+  !!(drag.mode && drag.moved) &&
+  (drag.mode === 'select' ? i === shown.value.length - 1 : i === drag.index)
+/** Los trozos de un marcador: sus partes, su tramo, o nada si es un instante. */
+const partsOf = (m) => (m.parts?.length ? m.parts : m.end > m.t ? [[m.t, m.end]] : [])
 
 /** Cerca del principio o del final de un marcador, el borde se pega a el. */
 function snap(t) {
@@ -289,6 +348,27 @@ function snap(t) {
   return t
 }
 
+/**
+ * Que hay bajo esa x (dentro de la caja): el borde de un tramo, su interior o
+ * nada. Los bordes mandan sobre el interior de otro, y el mas cercano gana.
+ */
+function hitAt(x) {
+  let edge = null
+  saved.value.forEach(([a, b], i) => {
+    for (const [side, t] of [
+      ['a', a],
+      ['b', b]
+    ]) {
+      const d = Math.abs(x - xOf(t))
+      if (d <= HANDLE && (!edge || d < edge.d)) edge = { mode: side, index: i, d }
+    }
+  })
+  if (edge) return edge
+  const inside = saved.value.findIndex(([a, b]) => x > xOf(a) && x < xOf(b))
+  return inside >= 0 ? { mode: 'move', index: inside } : { mode: 'select', index: -1 }
+}
+const xIn = (clientX) => clientX - box.value.getBoundingClientRect().left
+
 function listen(on) {
   const f = on ? window.addEventListener : window.removeEventListener
   f.call(window, 'pointermove', onMove)
@@ -298,16 +378,11 @@ function listen(on) {
 function onDown(e) {
   if (e.button || !props.duration) return
   const t = timeAt(e.clientX)
-  let mode = 'select'
-  const cur = shown.value
-  if (cur) {
-    const x = e.clientX - box.value.getBoundingClientRect().left
-    if (Math.abs(x - xOf(cur[0])) <= HANDLE) mode = 'a'
-    else if (Math.abs(x - xOf(cur[1])) <= HANDLE) mode = 'b'
-    else if (x > xOf(cur[0]) && x < xOf(cur[1])) mode = 'move'
-  }
+  const hit = hitAt(xIn(e.clientX))
+  const cur = hit.index >= 0 ? saved.value[hit.index] : null
   Object.assign(drag, {
-    mode,
+    mode: hit.mode,
+    index: hit.index,
     moved: false,
     startX: e.clientX,
     from: t,
@@ -334,46 +409,92 @@ function onMove(e) {
     drag.b = a + len
   }
 }
+/** Un clic sin arrastrar: quita la seleccion y lleva la cancion ahi. */
+function onClick(e, index) {
+  const list = saved.value
+  const blocked = props.locked && props.playing
+  // con «varios», un clic sobre un tramo quita ese; sin «varios», cualquier
+  // clic quita la seleccion (la que hubiera)
+  if (props.multi && index >= 0) {
+    emit(
+      'update:loops',
+      list.filter((_, i) => i !== index),
+      { mode: 'remove' }
+    )
+    return
+  }
+  if (!props.multi && list.length) emit('update:loops', [], { mode: 'clear' })
+  // con el candado, sonando, el clic no mueve la cancion; si ademas no
+  // habia nada que quitar, el candado avisa de por que no paso nada
+  if (blocked) {
+    if (props.multi || !list.length) nudgeLock()
+    return
+  }
+  emit('seek', round2(timeAt(e.clientX)))
+}
 function onUp(e) {
   const d = { ...drag }
   stopDrag()
   if (!d.mode) return
-  if (!d.moved) {
-    // con el candado, sonando, el clic no mueve nada: el candado lo avisa
-    if (props.locked && props.playing) return nudgeLock()
-    emit('seek', round2(timeAt(e.clientX)))
+  if (!d.moved) return onClick(e, d.mode === 'select' ? -1 : d.index)
+  const list = saved.value.map((s) => [s[0], s[1]])
+  if (d.mode === 'select') {
+    const a = Math.min(d.from, d.a)
+    const b = Math.max(d.from, d.a)
+    if (b - a < MIN_LOOP) return // demasiado corto para ser un bucle
+    const fresh = [round2(a), round2(b)]
+    if (props.multi && list.length) {
+      emit('update:loops', cleanSegments([...list, fresh]), { mode: 'add' })
+    } else {
+      emit('update:loops', [fresh], { mode: 'select' })
+    }
     return
   }
-  let a
-  let b
-  if (d.mode === 'select') {
-    a = Math.min(d.from, d.a)
-    b = Math.max(d.from, d.a)
-    if (b - a < MIN_LOOP) return // demasiado corto para ser un bucle
-  } else {
-    a = d.a
-    b = d.b
-  }
-  emit('update:loop', [round2(a), round2(b)], { mode: d.mode === 'select' ? 'select' : 'edit' })
+  list[d.index] = [round2(d.a), round2(d.b)]
+  emit('update:loops', cleanSegments(list), { mode: 'edit' })
 }
 function stopDrag() {
   drag.mode = null
   drag.moved = false
   listen(false)
 }
+/** El clic derecho: las opciones del tramo de debajo (o de ese punto). */
+function onContext(e) {
+  if (!props.duration) return
+  const hit = hitAt(xIn(e.clientX))
+  emit('options', {
+    index: hit.mode === 'select' ? -1 : hit.index,
+    t: round2(timeAt(e.clientX)),
+    x: e.clientX,
+    y: e.clientY,
+    event: e
+  })
+}
+/**
+ * El boton de opciones de un tramo. Con el raton, el menu sale donde se pulso;
+ * con el teclado (Enter: un clic sin `detail`), debajo del boton, que es lo
+ * que tiene el foco.
+ */
+function optionsOf(e, index) {
+  const r = e.currentTarget?.getBoundingClientRect?.()
+  emit('options', {
+    index,
+    t: saved.value[index]?.[0] ?? 0,
+    x: r ? r.left : e.clientX,
+    y: r ? r.bottom + 4 : e.clientY,
+    event: e.detail ? e : null
+  })
+}
 
 /** Que cursor toca segun lo que hay bajo el puntero (sin arrastre en marcha). */
 const hover = ref('')
 function onHover(e) {
-  if (drag.mode || !props.duration || !shown.value) {
+  if (drag.mode || !props.duration || !saved.value.length) {
     hover.value = ''
     return
   }
-  const x = e.clientX - box.value.getBoundingClientRect().left
-  const [a, b] = shown.value
-  if (Math.abs(x - xOf(a)) <= HANDLE || Math.abs(x - xOf(b)) <= HANDLE) hover.value = 'edge'
-  else if (x > xOf(a) && x < xOf(b)) hover.value = 'inside'
-  else hover.value = ''
+  const hit = hitAt(xIn(e.clientX))
+  hover.value = hit.mode === 'a' || hit.mode === 'b' ? 'edge' : hit.mode === 'move' ? 'inside' : ''
 }
 
 const dragging = computed(() => !!(drag.mode && drag.moved))
@@ -405,45 +526,70 @@ const lockTitle = computed(() =>
     :data-mode="drag.mode || null"
     :style="{ '--tl-h': WAVE_H + 'px' }"
   >
+    <!-- el clic derecho es un atajo de raton: con el teclado, las mismas
+         opciones estan en el boton ⋯ de cada tramo -->
+    <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
     <div
       ref="box"
       class="tl-box"
       :title="
         !duration
           ? ''
-          : locked && playing
-            ? 'Arrastra para elegir el tramo que se repite (la canción sigue donde va)'
-            : 'Arrastra para elegir el tramo que se repite · clic para ir a un punto'
+          : multi
+            ? 'Arrastra para añadir otro tramo · clic sobre un tramo para quitarlo · clic derecho: opciones'
+            : locked && playing
+              ? 'Arrastra para elegir el tramo que se repite (la canción sigue donde va) · clic para quitarlo · clic derecho: opciones'
+              : 'Arrastra para elegir el tramo que se repite · clic para ir a un punto · clic derecho: opciones'
       "
       @pointerdown="onDown"
       @pointermove="onHover"
       @pointerleave="hover = ''"
+      @contextmenu.prevent="onContext"
     >
       <canvas ref="canvas" class="tl-wave" :height="WAVE_H"></canvas>
       <div v-if="loading" class="tl-note">leyendo la onda…</div>
       <div v-else-if="failed && songId" class="tl-note">sin forma de onda (hace falta ffmpeg)</div>
 
-      <!-- fuera del tramo se atenua; el tramo lleva sus dos asas -->
-      <template v-if="shown">
-        <div class="tl-shade" :style="{ left: 0, width: pct(shown[0]) }"></div>
-        <div class="tl-shade" :style="{ left: pct(shown[1]), right: 0 }"></div>
-        <div class="tl-loop" :style="{ left: pct(shown[0]), width: pct(shown[1] - shown[0]) }">
-          <span class="tl-handle a"></span>
-          <span class="tl-handle b"></span>
-          <span v-if="dragging" class="tl-time a mono">{{ formatTime(shown[0]) }}</span>
-          <span v-if="dragging" class="tl-time b mono">{{ formatTime(shown[1]) }}</span>
-        </div>
-      </template>
+      <!-- fuera de los tramos se atenua; cada tramo lleva sus dos asas, su
+           numero (con varios) y su boton de opciones -->
+      <div v-for="(g, i) in gaps" :key="'g' + i" class="tl-shade" :style="g"></div>
+      <div
+        v-for="([a, b], i) in shown"
+        :key="'s' + i"
+        class="tl-loop"
+        :class="{ editing: isEditing(i) }"
+        :style="{ left: pct(a), width: pct(b - a) }"
+      >
+        <span class="tl-handle a"></span>
+        <span class="tl-handle b"></span>
+        <span v-if="shown.length > 1" class="tl-loop-n mono">{{ i + 1 }}</span>
+        <template v-if="isEditing(i)">
+          <span class="tl-time a mono">{{ formatTime(a) }}</span>
+          <span class="tl-time b mono">{{ formatTime(b) }}</span>
+        </template>
+        <button
+          v-else-if="!dragging && i < saved.length"
+          type="button"
+          class="tl-loop-menu"
+          :title="'Opciones del tramo ' + formatTime(a) + ' – ' + formatTime(b)"
+          :aria-label="'Opciones del tramo ' + (i + 1)"
+          @pointerdown.stop
+          @click.stop="optionsOf($event, i)"
+        >
+          ⋯
+        </button>
+      </div>
 
       <!-- los marcadores: un tramo se ve como banda (que no estorba al
            puntero: por encima se sigue pudiendo arrastrar), un instante como
            raya; la banderita con el nombre es lo que se pulsa -->
       <template v-for="m in markers" :key="m.t + ':' + (m.end || 0)">
         <div
-          v-if="m.end > m.t"
+          v-for="([pa, pb], k) in partsOf(m)"
+          :key="k"
           class="tl-region"
           :class="{ on: m === selected }"
-          :style="{ left: pct(m.t), width: pct(m.end - m.t) }"
+          :style="{ left: pct(pa), width: pct(pb - pa) }"
         ></div>
         <button
           type="button"
@@ -461,6 +607,23 @@ const lockTitle = computed(() =>
       </template>
 
       <div v-if="duration" class="tl-head" :style="{ left: pct(position) }"></div>
+
+      <!-- varios tramos a la vez: cada arrastre añade otro -->
+      <button
+        type="button"
+        class="tl-multi"
+        :class="{ on: multi }"
+        :aria-pressed="multi"
+        :title="
+          multi
+            ? 'Varios tramos: cada arrastre añade otro y se repiten seguidos. Pulsa para volver a uno solo'
+            : 'Un solo tramo. Pulsa para elegir varios y repetirlos seguidos, saltándose lo de en medio'
+        "
+        @pointerdown.stop
+        @click.stop="emit('update:multi', !multi)"
+      >
+        <Icon n="plus" :t="10" /> varios
+      </button>
 
       <!-- el candado: puesto, mientras suena la onda no mueve la canción -->
       <button

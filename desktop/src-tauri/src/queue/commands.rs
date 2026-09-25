@@ -103,13 +103,27 @@ pub fn set_metronome(playback: tauri::State<'_, Playback>, settings: player::Met
 }
 
 /// Bucle A-B para estudiar un trozo. Sin `a` ni `b` (o con b <= a) se quita.
+///
+/// Con `segments` son varios tramos en vez de uno: al acabar uno se salta al
+/// siguiente, y del ultimo al primero. Con `defer`, la cancion sigue hasta el
+/// final y entonces empiezan a repetirse. Los dos son opcionales: `set_loop`
+/// con `a` y `b` sigue siendo el bucle de siempre.
 #[tauri::command]
-pub fn set_loop(playback: tauri::State<'_, Playback>, a: Option<f64>, b: Option<f64>) {
-    let ab = match (a, b) {
-        (Some(a), Some(b)) if b > a => Some((a, b)),
-        _ => None,
+pub fn set_loop(
+    playback: tauri::State<'_, Playback>,
+    a: Option<f64>,
+    b: Option<f64>,
+    segments: Option<Vec<[f64; 2]>>,
+    defer: Option<bool>,
+) {
+    let segments: Vec<(f64, f64)> = match segments {
+        Some(list) => list.into_iter().map(|[a, b]| (a, b)).collect(),
+        None => match (a, b) {
+            (Some(a), Some(b)) if b > a => vec![(a, b)],
+            _ => Vec::new(),
+        },
     };
-    playback.send(Command::Loop(ab));
+    playback.send(Command::Loops(segments, defer.unwrap_or(false)));
 }
 
 #[tauri::command]

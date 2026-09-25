@@ -351,8 +351,8 @@ pub(super) fn apply(inner: &mut Inner, command: Command, player: &player::Handle
         Command::Speed(value) => {
             let _ = player.send(player::Command::Speed(value));
         }
-        Command::Loop(ab) => {
-            let _ = player.send(player::Command::Loop(ab));
+        Command::Loops(segments, defer) => {
+            let _ = player.send(player::Command::Loops { segments, defer });
         }
         Command::Pitch(n) => {
             let _ = player.send(player::Command::Pitch(n));

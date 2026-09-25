@@ -18,6 +18,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
 import StudyBar from '../src/components/StudyBar.vue'
 import Player from '../src/components/Player.vue'
 import { resetPlayback, usePlayback } from '../src/composables/usePlayback.js'
+import { useContextMenu } from '../src/composables/useContextMenu.js'
 import { song } from './support/backend.js'
 
 const base = {
@@ -579,6 +580,222 @@ describe('la barra de estudio', () => {
     expect(w.emitted('close')).toBeTruthy()
     w.unmount()
   })
+
+  it('un clic en la onda quita el tramo; con el candado, sonando, sin mover la cancion', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 100] }) })]
+    const w = await montar()
+    vi.clearAllMocks()
+    conAnchura(w)
+    const caja = w.find('.tl-box').element
+    // con el candado (puesto de entrada) y sonando: se quita y la cancion
+    // sigue donde iba; habia algo que quitar, asi que el candado no se queja
+    await puntero(caja, 'pointerdown', 300)
+    await puntero(window, 'pointerup', 300)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
+    expect(w.find('.tl-loop').exists()).toBe(false)
+    expect(held.playback.bridge.seek).not.toHaveBeenCalled()
+    expect(w.find('.tl-lock').classes()).not.toContain('nudged')
+    // sin candado, un clic (tambien dentro del tramo) lo quita y lleva alli
+    await w.find('.tl-lock').trigger('click')
+    await puntero(caja, 'pointerdown', 100)
+    await puntero(window, 'pointermove', 200)
+    await puntero(window, 'pointerup', 200)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50, 100)
+    await puntero(caja, 'pointerdown', 150)
+    await puntero(window, 'pointerup', 150)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(75)
+  })
+
+  it('con «varios», cada arrastre añade un tramo, se repiten seguidos y un clic quita uno', async () => {
+    vi.useFakeTimers()
+    const w = await montar()
+    vi.clearAllMocks()
+    conAnchura(w)
+    const caja = w.find('.tl-box').element
+    expect(w.find('.tl-multi').attributes('aria-pressed')).toBe('false')
+    await w.find('.tl-multi').trigger('click')
+    expect(w.find('.tl-multi').attributes('aria-pressed')).toBe('true')
+    expect(w.find('.study-hint').text()).toContain('Arrastra para añadir tramos')
+    // 0:20-0:40 y 1:40-2:00
+    await puntero(caja, 'pointerdown', 40)
+    await puntero(window, 'pointermove', 80)
+    await puntero(window, 'pointerup', 80)
+    await puntero(caja, 'pointerdown', 200)
+    await puntero(window, 'pointermove', 240)
+    await puntero(window, 'pointerup', 240)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(20, 120, {
+      segments: [
+        [20, 40],
+        [100, 120]
+      ],
+      defer: false
+    })
+    expect(w.findAll('.tl-loop')).toHaveLength(2)
+    expect(w.findAll('.tl-loop-n').map((n) => n.text())).toEqual(['1', '2'])
+    expect(w.find('.study-loop').text()).toContain('2 tramos · 0:40')
+    expect(held.playback.bridge.seek, 'con el candado, sonando, no salta').not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, {
+      loops: [
+        [20, 40],
+        [100, 120]
+      ]
+    })
+    // un clic fuera de los tramos no quita nada (con el candado, lo avisa)...
+    await puntero(caja, 'pointerdown', 150)
+    await puntero(window, 'pointerup', 150)
+    expect(w.findAll('.tl-loop')).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.find('.tl-lock').classes()).toContain('nudged')
+    // ...y uno sobre el primero lo quita; el otro sigue
+    await puntero(caja, 'pointerdown', 60)
+    await puntero(window, 'pointerup', 60)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(100, 120)
+    expect(w.findAll('.tl-loop')).toHaveLength(1)
+    expect(held.playback.bridge.seek).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('varios tramos se guardan como un marcador, y al elegirlo vuelven todos', async () => {
+    vi.useFakeTimers()
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({
+          loops: [
+            [20, 40],
+            [100, 120]
+          ]
+        })
+      })
+    ]
+    const w = await montar()
+    const ambos = {
+      segments: [
+        [20, 40],
+        [100, 120]
+      ],
+      defer: false
+    }
+    expect(held.playback.bridge.setLoop, 'lo guardado se aplica al entrar').toHaveBeenCalledWith(
+      20,
+      120,
+      ambos
+    )
+    expect(w.find('.tl-multi').attributes('aria-pressed'), '«varios» se pone solo').toBe('true')
+    await boton(w, 'Guardar tramo').trigger('click')
+    await flushPromises()
+    const chip = w.find('.study-marker')
+    expect(chip.text()).toContain('2 tramos · 0:20…')
+    expect(chip.text()).toContain('Tramo 1')
+    expect(w.findAll('.tl-region'), 'en la onda, una banda por tramo').toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, {
+      loops: ambos.segments,
+      markers: [{ t: 20, end: 120, parts: ambos.segments, label: 'Tramo 1' }]
+    })
+    // se quitan, y el marcador los vuelve a poner todos
+    await boton(w, 'Quitar').trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
+    await w.find('.study-pick').trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(20, 120, ambos)
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(20)
+    vi.useRealTimers()
+  })
+
+  it('las opciones de un tramo: sonar ya, repetir al acabar, a los pulsos y quitar', async () => {
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50.1, 99.9] }) })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    vi.clearAllMocks()
+    const { menu } = useContextMenu()
+    const opcion = (label) => menu.value.items.find((i) => i.label === label)
+    await w.find('.tl-loop-menu').trigger('click')
+    expect(menu.value.open).toBe(true)
+    expect(menu.value.title).toBe('El tramo')
+    expect(menu.value.items.filter((i) => i.label).map((i) => i.label)).toEqual([
+      'Reproducir ahora',
+      'Repetir cuando acabe la canción',
+      'Ir aquí',
+      'Ajustar a los pulsos',
+      'Guardar como marcador',
+      'Añadir más tramos',
+      'Quitar la selección'
+    ])
+    // sonar ya: arranca y va al principio del tramo
+    await opcion('Reproducir ahora').action()
+    await flushPromises()
+    expect(held.playback.bridge.toggle).toHaveBeenCalledTimes(1)
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(50.1)
+    // al acabar: la cancion sigue hasta el final y entonces se repite
+    await opcion('Repetir cuando acabe la canción').action()
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50.1, 99.9, {
+      segments: [[50.1, 99.9]],
+      defer: true
+    })
+    expect(w.find('.study-loop').text()).toContain('al acabar')
+    await w.find('.tl-loop-menu').trigger('click')
+    expect(opcion('Repetir ya, sin esperar al final')).toBeTruthy()
+    // a los pulsos de la rejilla (uno cada medio segundo desde 0,25), sin
+    // perder el «al acabar»
+    await opcion('Ajustar a los pulsos').action()
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50.25, 99.75, {
+      segments: [[50.25, 99.75]],
+      defer: true
+    })
+    await w.find('.tl-loop-menu').trigger('click')
+    await opcion('Repetir ya, sin esperar al final').action()
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50.25, 99.75)
+    await w.find('.tl-loop-menu').trigger('click')
+    await opcion('Quitar la selección').action()
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
+    expect(w.find('.tl-loop').exists()).toBe(false)
+  })
+
+  it('el clic derecho en la onda ofrece ir ahi y, con varios, quitar solo ese tramo', async () => {
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({
+          loops: [
+            [20, 40],
+            [100, 120]
+          ]
+        })
+      })
+    ]
+    const w = await montar()
+    vi.clearAllMocks()
+    conAnchura(w)
+    const { menu } = useContextMenu()
+    const opcion = (label) => menu.value.items.find((i) => i.label === label)
+    // fuera de los tramos: lo que se puede hacer en ese punto
+    await w.find('.tl-box').trigger('contextmenu', { clientX: 300, clientY: 20 })
+    expect(menu.value.title).toBe('La onda')
+    expect(opcion('Ir aquí').note).toBe('2:30')
+    expect(opcion('Reproducir ahora')).toBeUndefined()
+    await opcion('Ir aquí').action()
+    expect(held.playback.bridge.seek, 'lo pide uno: vale con el candado').toHaveBeenLastCalledWith(
+      150
+    )
+    // sobre el segundo tramo: sus opciones, y quitar solo ese
+    await w.find('.tl-box').trigger('contextmenu', { clientX: 220, clientY: 20 })
+    expect(menu.value.title).toBe('Tramo 2')
+    expect(opcion('Quitar todos los tramos')).toBeTruthy()
+    await opcion('Quitar este tramo').action()
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(20, 40)
+    expect(w.findAll('.tl-loop')).toHaveLength(1)
+  })
 })
 
 describe('lo que se guarda va a su cancion', () => {
@@ -1014,6 +1231,73 @@ describe('el reproductor y el bucle', () => {
     expect(player.playing.value).toBe(true)
     await player.clearLoop()
     expect(player.loopB.value).toBe(0)
+    held.api.inTauri = true
+  })
+
+  it('con varios tramos, el reproductor pinta uno por tramo', async () => {
+    const w = mount(Player, { props: { study: false }, attachTo: document.body })
+    await flushPromises()
+    held.playback.emit({
+      loop_a: 20,
+      loop_b: 120,
+      loops: [
+        [20, 40],
+        [100, 120]
+      ]
+    })
+    await flushPromises()
+    const segs = w.findAll('.track-loop')
+    expect(segs).toHaveLength(2)
+    expect(segs[1].attributes('style')).toContain('left: 50%')
+    expect(segs[1].attributes('style')).toContain('width: 10%')
+    w.unmount()
+  })
+
+  it('en el navegador, varios tramos van seguidos y «al acabar» espera al final', async () => {
+    resetPlayback()
+    held.api.inTauri = false
+    const player = usePlayback()
+    await player.ready()
+    const audio = player.audioElement()
+    const at = async (t) => {
+      Object.defineProperty(audio, 'currentTime', { value: t, writable: true, configurable: true })
+      audio.dispatchEvent(new Event('timeupdate'))
+      await flushPromises()
+    }
+    await player.setLoops([
+      [10, 20],
+      [50, 60]
+    ])
+    await at(15)
+    await at(20.1)
+    expect(audio.currentTime, 'del final del primero, al segundo').toBe(50)
+    await at(60.2)
+    expect(audio.currentTime, 'del ultimo, al primero').toBe(10)
+    // al acabar: la cancion pasa por los tramos sin quedarse, y al terminar
+    // vuelve al primero y ya se repiten
+    await player.setLoops(
+      [
+        [10, 20],
+        [50, 60]
+      ],
+      { defer: true }
+    )
+    expect(player.loopDefer.value).toBe(true)
+    await at(15)
+    await at(21)
+    expect(audio.currentTime).toBe(21)
+    audio.dispatchEvent(new Event('ended'))
+    await flushPromises()
+    expect(audio.currentTime).toBe(10)
+    expect(player.loopDefer.value).toBe(false)
+    await at(20.2)
+    expect(audio.currentTime).toBe(50)
+    // saltar a proposito dentro de un tramo tambien deja de esperar
+    await player.setLoops([[10, 20]], { defer: true })
+    await player.seek(12)
+    expect(player.loopDefer.value).toBe(false)
+    await player.clearLoop()
+    expect(player.loops.value).toEqual([])
     held.api.inTauri = true
   })
 

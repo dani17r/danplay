@@ -234,7 +234,32 @@ def paths_of(ids) -> dict[int, str | None]:
 
 # Lo que se guarda del modo estudio y sus limites: un JSON pequeño y con
 # forma conocida, no lo que mande cualquiera.
-STUDY_KEYS = ("loop", "speed", "pitch", "metronome", "markers", "notes")
+STUDY_KEYS = ("loop", "loops", "speed", "pitch", "metronome", "markers", "notes")
+
+
+def _segments(raw, limit: int = 32) -> list[list[float]]:
+    """Tramos [a, b] validos (0 <= a < b), en orden y juntando los que se
+    pisan: la forma en que el reproductor los recorre uno detras de otro."""
+    out: list[list[float]] = []
+    for v in list(raw or [])[:limit]:
+        if not isinstance(v, (list, tuple)) or len(v) != 2:
+            continue
+        try:
+            a, b = float(v[0]), float(v[1])
+        except (TypeError, ValueError):
+            continue
+        if 0 <= a < b < float("inf"):
+            out.append([round(a, 2), round(b, 2)])
+    out.sort()
+    merged: list[list[float]] = []
+    for a, b in out:
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    return merged
+
+
 # Los compases del metronomo que se pueden poner a mano: 0 es sin acento.
 METERS = (0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 
@@ -249,14 +274,16 @@ def set_study(cid: int, study: dict | None) -> Song | None:
         return None
     clean: dict = {}
     if study:
-        loop = study.get("loop")
-        if isinstance(loop, (list, tuple)) and len(loop) == 2:
-            try:
-                a, b = float(loop[0]), float(loop[1])
-                if 0 <= a < b:
-                    clean["loop"] = [round(a, 2), round(b, 2)]
-            except (TypeError, ValueError):
-                pass
+        # el tramo que se repite; con varios, `loops` (y un solo tramo se
+        # guarda siempre como `loop`, que es lo que entienden las versiones
+        # de antes)
+        loops = _segments(study.get("loops"))
+        if not loops:
+            loops = _segments([study.get("loop")])
+        if len(loops) == 1:
+            clean["loop"] = loops[0]
+        elif loops:
+            clean["loops"] = loops
         try:
             speed = float(study.get("speed") or 1.0)
             if 0.25 <= speed <= 3.0 and abs(speed - 1.0) > 1e-3:
@@ -316,6 +343,12 @@ def set_study(cid: int, study: dict | None) -> Song | None:
                 end = None
             if end is not None and end > t:
                 item["end"] = round(end, 2)
+            # un marcador de varios tramos: `t` y `end` abarcan todos, para
+            # que una version anterior lo vea como un tramo largo
+            parts = _segments(m.get("parts"))
+            if len(parts) > 1:
+                item["parts"] = parts
+                item["t"], item["end"] = parts[0][0], parts[-1][1]
             notes = str(m.get("notes") or "").strip()[:2000]
             if notes:
                 item["notes"] = notes

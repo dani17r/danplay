@@ -79,12 +79,18 @@ pub(super) struct Carry {
     /// El factor que aplica ffmpeg al sink abierto (1.0 si no pasa por el):
     /// rodio cuenta en tiempo de salida y la cancion va en el suyo.
     pub(super) tempo: f32,
-    pub(super) loop_ab: Option<(f64, f64)>,
-    /// El bucle esta armado: la cancion esta (o ha entrado) en el tramo, y al
-    /// pasar de B vuelve a A. Un tramo elegido por detras o por delante de la
-    /// aguja sin saltar a el (la onda con candado) no hace nada hasta que la
-    /// cancion entra en el.
-    pub(super) loop_armed: bool,
+    /// Los tramos que se repiten, en orden y sin pisarse: uno solo es el
+    /// bucle A-B de siempre; con varios, al acabar uno se salta al siguiente
+    /// y del ultimo al primero.
+    pub(super) loops: Vec<(f64, f64)>,
+    /// En que tramo va la cancion, si el bucle esta armado: esta (o ha
+    /// entrado) en el, y al pasar de su final salta al siguiente. Un tramo
+    /// elegido por detras o por delante de la aguja sin saltar a el (la onda
+    /// con candado) no hace nada hasta que la cancion entra en el.
+    pub(super) loop_at: Option<usize>,
+    /// «Repetir cuando acabe la cancion»: aunque la cancion pase por los
+    /// tramos, no se arman; al acabarse, vuelve al primero.
+    pub(super) loop_defer: bool,
     /// El tono corrido, en semitonos (con fracciones).
     pub(super) pitch: f32,
     /// El metronomo: sus ajustes y la rejilla de la cancion que suena.
@@ -108,8 +114,9 @@ impl Carry {
             path: String::new(),
             duration: 0.0,
             tempo: 1.0,
-            loop_ab: None,
-            loop_armed: false,
+            loops: Vec::new(),
+            loop_at: None,
+            loop_defer: false,
             pitch: 0.0,
             metro: Metro::default(),
             pending: None,
@@ -217,7 +224,7 @@ impl Engine<'_> {
     /// mientras tanto.
     fn wait(&self) -> Option<Duration> {
         // una cancion con tramo que se acaba vuelve al tramo: cuanto antes
-        let back_to_loop = self.carry.loop_ab.is_some() && self.song.as_ref().is_some_and(Song::exhausted);
+        let back_to_loop = !self.carry.loops.is_empty() && self.song.as_ref().is_some_and(Song::exhausted);
         if self.sounding() || back_to_loop {
             Some(ACTIVE)
         } else if self.output.is_some() {
@@ -291,10 +298,7 @@ impl Engine<'_> {
                 step.failure = Some(reason);
             }
             Command::Seek(seconds) => self.seek(seconds, step),
-            Command::Loop(ab) => {
-                self.carry.loop_ab = ab.filter(|(a, b)| *b > *a + 0.2 && *a >= 0.0);
-                self.rearm(self.position_now());
-            }
+            Command::Loops { segments, defer } => self.set_loops(segments, defer),
             Command::Metronome { settings, grid } => self.metronome_settings(settings, grid, step),
             Command::Volume(value) => self.volume(value),
             Command::NudgeVolume(delta) => self.volume(nudged_volume(self.carry.volume, delta)),
@@ -448,6 +452,11 @@ impl Engine<'_> {
         step.sought = true;
         step.replan = Some(Replan::Song);
         let seconds = seconds.max(0.0);
+        // saltar a proposito dentro de un tramo («reproducir ahora») lo arma
+        // ya, aunque esperara al final de la cancion
+        if self.segment_at(seconds).is_some() {
+            self.carry.loop_defer = false;
+        }
         self.rearm(seconds);
         let exhausted = self.song.as_ref().is_none_or(Song::exhausted);
         if exhausted && !self.carry.path.is_empty() {
@@ -637,28 +646,66 @@ impl Engine<'_> {
             .unwrap_or(0.0)
     }
 
-    /// Arma el bucle si la cancion esta dentro del tramo en `at`.
-    fn rearm(&mut self, at: f64) {
-        self.carry.loop_armed = self.carry.loop_ab.is_some_and(|(a, b)| at >= a - 0.01 && at < b);
+    /// En que tramo cae `at`, si cae en alguno.
+    fn segment_at(&self, at: f64) -> Option<usize> {
+        self.carry.loops.iter().position(|&(a, b)| at >= a - 0.01 && at < b)
     }
 
-    /// Al pasar de B se vuelve a A. Sirve para machacar un trozo; es lo
-    /// primero que pide cualquiera que estudia una cancion.
+    /// Arma el bucle si la cancion esta dentro de un tramo en `at` (y no
+    /// espera al final de la cancion).
+    fn rearm(&mut self, at: f64) {
+        self.carry.loop_at = if self.carry.loop_defer {
+            None
+        } else {
+            self.segment_at(at)
+        };
+    }
+
+    /// Tramos nuevos: en orden, y los que se pisan, juntos.
+    fn set_loops(&mut self, segments: Vec<(f64, f64)>, defer: bool) {
+        let mut clean: Vec<(f64, f64)> = segments
+            .into_iter()
+            .filter(|&(a, b)| a.is_finite() && b.is_finite() && a >= 0.0 && b > a + 0.2)
+            .take(64)
+            .collect();
+        clean.sort_by(|x, y| x.0.total_cmp(&y.0));
+        let mut merged: Vec<(f64, f64)> = Vec::with_capacity(clean.len());
+        for (a, b) in clean {
+            match merged.last_mut() {
+                Some(last) if a <= last.1 => last.1 = last.1.max(b),
+                _ => merged.push((a, b)),
+            }
+        }
+        self.carry.loops = merged;
+        self.carry.loop_defer = defer && !self.carry.loops.is_empty();
+        self.rearm(self.position_now());
+    }
+
+    /// Al pasar del final del tramo en que va, la cancion salta al principio
+    /// del siguiente (con uno solo, vuelve a A: el bucle A-B). Sirve para
+    /// machacar un trozo, o varios seguidos saltandose lo de entre medias.
     ///
-    /// Solo con el bucle armado: la cancion tiene que haber estado dentro
-    /// del tramo. Uno elegido mientras suena sin saltar a el (la onda con
-    /// candado) espera: si va por delante, entra al llegar la cancion; si
-    /// va por detras, la cancion sigue hasta el final y entonces vuelve a A,
-    /// en vez de pasar a la siguiente.
+    /// Solo con el bucle armado: la cancion tiene que haber estado dentro de
+    /// un tramo. Uno elegido mientras suena sin saltar a el (la onda con
+    /// candado) espera: si va por delante, entra al llegar la cancion; si va
+    /// por detras, la cancion sigue hasta el final y entonces vuelve al
+    /// primero, en vez de pasar a la siguiente. Con `loop_defer` pasa lo
+    /// mismo aunque la cancion atraviese los tramos.
     fn ab_loop(&mut self, step: &mut Step) {
-        let (Some((a, b)), Some(song)) = (self.carry.loop_ab, &self.song) else {
+        if self.carry.loops.is_empty() {
+            return;
+        }
+        let Some(song) = &self.song else {
             return;
         };
         if song.exhausted() {
-            self.seek(a, step);
+            let first = self.carry.loops[0].0;
+            self.carry.loop_defer = false;
+            self.seek(first, step);
             if step.failure.is_some() {
                 // no se pudo volver a abrir: se deja acabar, sin insistir
-                self.carry.loop_ab = None;
+                self.carry.loops.clear();
+                self.carry.loop_at = None;
             }
             return;
         }
@@ -666,19 +713,31 @@ impl Engine<'_> {
             return;
         }
         let position = song.position(self.carry.clock());
-        if !self.carry.loop_armed {
-            if position < a || position >= b {
-                return;
-            }
-            self.carry.loop_armed = true;
-        }
+        let at = match self.carry.loop_at {
+            Some(i) => i,
+            None if self.carry.loop_defer => return,
+            None => match self.segment_at(position) {
+                Some(i) => {
+                    self.carry.loop_at = Some(i);
+                    i
+                }
+                None => return,
+            },
+        };
+        let Some(&(_, end)) = self.carry.loops.get(at) else {
+            self.carry.loop_at = None;
+            return;
+        };
+        let next = (at + 1) % self.carry.loops.len();
+        let start = self.carry.loops[next].0;
         if let Some(control) = &song.ffmpeg
-            && b - position < LOOP_AHEAD
+            && end - position < LOOP_AHEAD
         {
-            control.prepare_soon(a);
+            control.prepare_soon(start);
         }
-        if position >= b {
-            self.seek_song(a, step);
+        if position >= end {
+            self.seek_song(start, step);
+            self.carry.loop_at = Some(next);
             step.replan = Some(Replan::Song);
         }
     }
@@ -765,9 +824,11 @@ impl Engine<'_> {
             e.volume = self.carry.volume;
             e.speed = self.carry.speed;
             e.pitch_preserved = (self.carry.speed - 1.0).abs() < 1e-4 || (self.carry.tempo - 1.0).abs() > 1e-6;
-            let (a, b) = self.carry.loop_ab.unwrap_or((0.0, 0.0));
-            e.loop_a = a;
-            e.loop_b = b;
+            let loops = &self.carry.loops;
+            e.loop_a = loops.first().map_or(0.0, |s| s.0);
+            e.loop_b = loops.last().map_or(0.0, |s| s.1);
+            e.loops = loops.iter().map(|&(a, b)| [a, b]).collect();
+            e.loop_defer = self.carry.loop_defer;
             e.pitch = self.carry.pitch;
             e.metronome = self.carry.metro.state();
             e.clone()
@@ -776,7 +837,7 @@ impl Engine<'_> {
         // Fin de pista: se avisa UNA vez. Quien decide que pasa luego
         // (repetir, avanzar, pararse) es la cola. Con un tramo puesto no se
         // acaba: vuelve a A (ver `ab_loop`).
-        if finished && !self.was_finished && !self.carry.path.is_empty() && self.carry.loop_ab.is_none() {
+        if finished && !self.was_finished && !self.carry.path.is_empty() && self.carry.loops.is_empty() {
             self.was_finished = true;
             if !(self.notify)(Event::Finished) {
                 return false;

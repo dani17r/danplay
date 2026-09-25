@@ -240,6 +240,8 @@ class StudyMarker(BaseModel):
     end: float | None = None
     label: str = ""
     notes: str = ""
+    # varios tramos que se repiten seguidos, como uno solo
+    parts: list[list[float]] | None = Field(default=None, max_length=32)
 
 
 class StudyMetronome(BaseModel):
@@ -259,6 +261,8 @@ class StudyIn(Body_):
     se quita."""
 
     loop: list[float] | None = None
+    # varios tramos que se repiten uno detras de otro
+    loops: list[list[float]] | None = Field(default=None, max_length=64)
     speed: float | None = None
     pitch: float | None = Field(default=None, ge=-12, le=12)
     metronome: StudyMetronome | None = None

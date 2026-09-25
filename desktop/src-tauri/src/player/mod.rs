@@ -69,8 +69,14 @@ pub enum Command {
     Seek(f64),
     Volume(f32),
     NudgeVolume(f32),
-    /// Repetir de A a B (segundos de la cancion); None lo quita.
-    Loop(Option<(f64, f64)>),
+    /// Los tramos que se repiten (segundos de la cancion), en orden: al
+    /// acabar uno se salta al siguiente, y del ultimo al primero. Vacio los
+    /// quita. Con `defer`, la cancion sigue hasta el final y entonces vuelve
+    /// al primero («repetir cuando acabe la cancion»).
+    Loops {
+        segments: Vec<(f64, f64)>,
+        defer: bool,
+    },
     Speed(f32),
     /// El tono corrido, en semitonos (-12..12, con fracciones: medio
     /// semitono es un cuarto de tono). Reabre la cancion donde iba.

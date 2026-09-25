@@ -66,9 +66,14 @@ pub struct PlaybackState {
     pub origin: Option<serde_json::Value>,
     /// La velocidad conserva el tono (ffmpeg); false = cambia el tono (sin ffmpeg).
     pub pitch_preserved: bool,
-    /// Bucle A-B en segundos; 0,0 = sin bucle.
+    /// Bucle A-B en segundos; 0,0 = sin bucle. Con varios tramos, del
+    /// principio del primero al final del ultimo.
     pub loop_a: f64,
     pub loop_b: f64,
+    /// Los tramos que se repiten, en orden.
+    pub loops: Vec<[f64; 2]>,
+    /// Los tramos esperan a que acabe la cancion.
+    pub loop_defer: bool,
     /// El tono corrido, en semitonos (0 = como esta grabada; con fracciones).
     pub pitch: f32,
     /// Como va el metronomo.
@@ -105,8 +110,8 @@ pub enum Command {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     NudgeVolume(f32),
     Speed(f32),
-    /// Repetir de A a B; None lo quita.
-    Loop(Option<(f64, f64)>),
+    /// Los tramos que se repiten (vacio: ninguno) y si esperan al final.
+    Loops(Vec<(f64, f64)>, bool),
     /// El tono corrido, en semitonos (con fracciones).
     Pitch(f32),
     /// El metronomo, con la rejilla de la cancion que suena si ya se analizo.

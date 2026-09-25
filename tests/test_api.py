@@ -564,6 +564,24 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
     assert study["metronome"] == {"bpm": 90.7, "meter": 0}
     d = cliente.put(f"/api/song/{c['id']}/study", json={"pitch": -2.0}).json()
     assert d["study"] == '{"pitch": -2}', "un tono entero se guarda entero"
+    # varios tramos: en orden, juntando los que se pisan y sin los que no valen
+    d = cliente.put(
+        f"/api/song/{c['id']}/study",
+        json={
+            "loops": [[30, 40], [10, 20], [35, 45], [-1, 3], [9, 2]],
+            "markers": [{"t": 0, "label": "partes", "parts": [[50, 60], [10, 20]]}],
+        },
+    ).json()
+    study = json.loads(d["study"])
+    assert study["loops"] == [[10.0, 20.0], [30.0, 45.0]]
+    assert "loop" not in study
+    # el marcador abarca sus partes: una version anterior lo ve como un tramo
+    assert study["markers"] == [
+        {"t": 10.0, "end": 60.0, "label": "partes", "parts": [[10.0, 20.0], [50.0, 60.0]]}
+    ]
+    # un solo tramo se guarda como el bucle de siempre
+    d = cliente.put(f"/api/song/{c['id']}/study", json={"loops": [[5, 8]]}).json()
+    assert json.loads(d["study"]) == {"loop": [5.0, 8.0]}
 
 
 def test_waveform_columns_follow_the_sound():

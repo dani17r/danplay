@@ -35,7 +35,8 @@ const {
   hasOutput,
   origin,
   loopA,
-  loopB
+  loopB,
+  loops
 } = player
 
 // Como se pinta cada modo. El icono dice «lista o canción» y la marca dice
@@ -105,6 +106,11 @@ const { scrub, start: grabNeedle } = useScrub({ duration, seek: (s) => player.se
 const shown = computed(() => (scrub.active ? scrub.value : position.value))
 const progress = computed(() =>
   duration.value ? (shown.value / duration.value) * 100 + '%' : '0%'
+)
+
+/** Los tramos que se repiten; sin la lista (un Rust de antes), el bucle A-B. */
+const segmentsShown = computed(() =>
+  loops.value.length ? loops.value : loopB.value > loopA.value ? [[loopA.value, loopB.value]] : []
 )
 
 function applyVolume(value) {
@@ -341,15 +347,18 @@ useHotkeys({
         title="Arrastra la aguja o pincha donde quieras ir"
         @pointerdown="grabNeedle"
       >
-        <!-- el tramo del bucle A-B, si lo hay -->
-        <div
-          v-if="loopB > loopA && duration"
-          class="track-loop"
-          :style="{
-            left: (loopA / duration) * 100 + '%',
-            width: ((loopB - loopA) / duration) * 100 + '%'
-          }"
-        ></div>
+        <!-- los tramos que se repiten, si los hay (uno: el bucle A-B) -->
+        <template v-if="duration">
+          <div
+            v-for="[a, b] in segmentsShown"
+            :key="a + ':' + b"
+            class="track-loop"
+            :style="{
+              left: (a / duration) * 100 + '%',
+              width: ((b - a) / duration) * 100 + '%'
+            }"
+          ></div>
+        </template>
         <div class="track-fill" :style="{ width: progress }"></div>
       </div>
       <span class="time">{{ formatTime(duration) }}</span>
