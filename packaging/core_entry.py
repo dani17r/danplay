@@ -11,10 +11,24 @@ Los argumentos son los mismos que `danplay serve`:
 
 import argparse
 import multiprocessing
+import os
 import sys
 
 
+def without_console():
+    """En Windows el nucleo va sin consola (no abre una ventana negra detras
+    de la app) y Python deja `sys.stdout` y `sys.stderr` en None. uvicorn
+    pregunta `sys.stdout.isatty()` al configurar sus avisos, asi que el nucleo
+    se caia antes de escuchar, tanto lanzado por la app como a mano. Lo que se
+    escriba ahi no va a ninguna parte; los avisos van al registro
+    (DATA_DIR/logs)."""
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))  # noqa: SIM115
+
+
 def main():
+    without_console()
     multiprocessing.freeze_support()
     parser = argparse.ArgumentParser(prog="danplay-core", add_help=True)
     parser.add_argument("--uds", help="socket Unix (sin puerto TCP)")

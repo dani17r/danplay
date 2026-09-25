@@ -138,7 +138,13 @@ jobs:
                 if ($r.StatusCode -eq 200) { $ok = $true; break }
               } catch { }
             }
-            if (-not $ok) { throw "el nucleo no contesto en 30 s" }
+            if (-not $ok) {
+              # sin consola no se ve nada: lo que quede es su registro
+              if ($p.HasExited) { Write-Host "el nucleo se cerro con el codigo $($p.ExitCode)" }
+              $registro = Join-Path $env:LOCALAPPDATA "danplay\logs\danplay.log"
+              if (Test-Path $registro) { Get-Content $registro -Tail 40 }
+              throw "el nucleo no contesto en 30 s"
+            }
             # y sin el token no deberia contestar
             try {
               Invoke-WebRequest -Uri "http://127.0.0.1:$puerto/api/status" -TimeoutSec 3 | Out-Null

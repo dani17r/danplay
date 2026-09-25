@@ -1154,3 +1154,30 @@ def test_el_instalador_de_windows_actualiza_en_vez_de_duplicar():
     for item in portable:
         name = "${EJECUTABLE}" if item == "danplay-app.exe" else item
         assert name in limpiar, f"{item} se quedaria huerfano al actualizar"
+
+
+def test_el_nucleo_empaquetado_arranca_sin_consola(monkeypatch):
+    """En Windows el nucleo empaquetado va sin consola y Python deja
+    `sys.stdout` en None: uvicorn pregunta `isatty()` al configurar sus avisos
+    y el nucleo se caia antes de escuchar. El instalador nunca llego a
+    arrancar hasta que lo probo la integracion continua."""
+    import importlib.util
+
+    from uvicorn.logging import DefaultFormatter
+
+    spec = importlib.util.spec_from_file_location(
+        "core_entry", _raiz() / "packaging" / "core_entry.py"
+    )
+    assert spec and spec.loader
+    entry = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(entry)
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    entry.without_console()
+    out, err = sys.stdout, sys.stderr
+    assert out is not None and err is not None
+    try:
+        DefaultFormatter()  # lo que tumbaba al nucleo: sys.stdout.isatty()
+    finally:
+        out.close()
+        err.close()
