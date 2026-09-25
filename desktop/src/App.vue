@@ -120,6 +120,8 @@ const detail = ref(null)
 const jumpToSong = ref(null)
 const loading = ref(false)
 const configured = ref(true)
+/** Carpetas gestionadas que ya no están donde estaban (se movieron, un disco sin montar). */
+const missingFolders = ref([])
 const viewMenu = ref(false)
 const viewBox = ref(null)
 
@@ -224,6 +226,18 @@ const effectiveGroupBy = computed(() =>
 // tampoco: dentro de un grupo no hay un orden de lista que mover.
 const sortable = computed(() => view.value.kind === 'playlist' && !effectiveGroupBy.value)
 
+// La bienvenida sale mientras no haya nada que enseñar: sin carpetas, o con
+// la biblioteca vacía porque la música se movió o se borró por fuera (ver
+// WelcomePage). Nunca en Ajustes, que es donde se arregla; y con carpetas
+// pero sin canciones, solo en las vistas de la biblioteca: el chat, las
+// descargas o una lista con archivos de fuera siguen teniendo sentido.
+const LIBRARY_VIEWS = ['all', 'favorites', 'artists']
+const showWelcome = computed(() => {
+  if (view.value.kind === 'settings') return false
+  if (!configured.value) return !songs.value.length
+  return stats.value?.total === 0 && LIBRARY_VIEWS.includes(view.value.kind)
+})
+
 // Para no recargar en cada aviso: solo cuando el núcleo PASA a estar listo.
 let coreWasReady = false
 let stopCoreWatch = null
@@ -266,6 +280,7 @@ async function load(quiet = false) {
     if (mine !== request) return
     stats.value = e.stats
     configured.value = e.configured
+    missingFolders.value = e.missing_folders || []
 
     if (view.value.kind === 'playlist') {
       const r = await api.playlistSongs(view.value.id)
@@ -296,6 +311,7 @@ async function loadStatus() {
   status.value = e
   stats.value = e.stats
   configured.value = e.configured
+  missingFolders.value = e.missing_folders || []
   waiting.value = (await api.inbox()).total
 }
 
@@ -926,19 +942,27 @@ onMounted(async () => {
   // que tras pulsar un botón con el ratón el espacio siga pausando la música
   stopFocusRelease = releaseFocusAfterPointer(window)
   prefs.applyAll()
-  await loadStatus()
-  await Promise.all([configured.value ? load() : Promise.resolve(), playlistActions.load()])
-  offerToBeDefault()
 
   // El núcleo puede tardar un segundo en levantarse, y arrancar la app
   // abriendo una canción desde el explorador es justo cuando más tarda:
   // todo pasa a la vez. Si se carga antes de que conteste, la biblioteca
   // sale vacía —«Nada por aquí»— y ahí se quedaba, porque nadie escuchaba
   // este aviso. Rust ya lo mandaba desde el principio.
+  //
+  // Se escucha ANTES de la primera carga: si el núcleo aún no contesta, esa
+  // carga falla, y antes el fallo cortaba el arranque sin llegar a escuchar
+  // nada. La app se quedaba vacía para siempre.
   stopCoreWatch = await core.onStatus((e) => {
     if (e?.ready && !coreWasReady) refreshAll()
     coreWasReady = !!e?.ready
   })
+  try {
+    await loadStatus()
+    await Promise.all([configured.value ? load() : Promise.resolve(), playlistActions.load()])
+  } catch {
+    /* el núcleo aún no contesta: el aviso de arriba lo carga todo al llegar */
+  }
+  offerToBeDefault()
 
   // Abrir una canción desde el explorador la mete en la lista del
   // reproductor. Si esa lista está delante, tiene que aparecer sola: se
@@ -1196,7 +1220,9 @@ function onUpdated(song) {
 
       <main ref="centerEl" class="center">
         <WelcomePage
-          v-if="!configured && !songs.length && view.kind !== 'settings'"
+          v-if="showWelcome"
+          :missing="missingFolders"
+          :empty="configured"
           @ready="refreshAll"
         />
 

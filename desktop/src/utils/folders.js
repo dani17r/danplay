@@ -8,11 +8,11 @@
 import { api, errorMessage } from '../api.js'
 
 /** Lo que la API responde en `action` (docs/CONTRATO-INTERNO.md §4). */
-export const FOLDER_ACTIONS = ['added', 'already_there', 'replaced', 'confirm']
+export const FOLDER_ACTIONS = ['added', 'already_there', 'replaced', 'confirm', 'relocated']
 
 /**
  * @typedef {Object} FolderOutcome
- * @property {'added'|'already_there'|'replaced'|'confirm'|'error'} action
+ * @property {'added'|'already_there'|'replaced'|'confirm'|'relocated'|'error'} action
  * @property {string} message      qué contarle al usuario
  * @property {'ok'|'info'} [kind]  cómo pintarlo
  * @property {boolean} confirmable si hace falta insistir para añadirla
@@ -52,6 +52,8 @@ export async function addFolder(path, options = {}) {
   const messages = {
     already_there: [`${notice.message} — no hace falta añadirla otra vez`, 'info'],
     replaced: [`${notice.message} — se sustituyó por esta`, 'info'],
+    // era la carpeta de siempre, movida: vuelve todo, con sus listas y notas
+    relocated: ['Encontrada: es tu carpeta de antes. Todo vuelve con sus listas y sus notas', 'ok'],
     added: ['Carpeta añadida. Analizando…', 'ok']
   }
   const [message, kind] = messages[r.action] || ['Carpeta añadida', 'ok']

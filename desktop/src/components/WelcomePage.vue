@@ -1,10 +1,17 @@
 <script setup>
 /**
- * La primera pantalla: todavía no hay ninguna carpeta de música.
+ * La primera pantalla, y la de «no hay nada que enseñar».
+ *
+ * Tres casos, con la misma forma de salir (elegir una carpeta):
+ * - todavía no hay ninguna carpeta de música;
+ * - las carpetas de siempre ya no están donde estaban (`missing`): se
+ *   movieron, o es un disco sin montar. Elegir la carpeta en su sitio nuevo
+ *   la vuelve a enlazar (el núcleo la reconoce) y todo vuelve como estaba;
+ * - las carpetas están, pero no queda ninguna canción (`empty`).
  *
  * Estaba metida dentro de App.vue como 60 líneas de plantilla sueltas.
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { pickFolder } from '../api.js'
 import { addFolder } from '../utils/folders.js'
 import { notify } from '../composables/useNotices.js'
@@ -12,14 +19,23 @@ import Icon from './Icon.vue'
 import Card from './ui/Card.vue'
 import TextField from './ui/TextField.vue'
 
+const props = defineProps({
+  /** Carpetas gestionadas que ya no están donde estaban. */
+  missing: { type: Array, default: () => [] },
+  /** Hay carpetas, pero ninguna canción en ellas. */
+  empty: { type: Boolean, default: false }
+})
 const emit = defineEmits(['ready'])
 
 const path = ref('')
 const preparing = ref(false)
 const notice = ref(null)
 
+const moved = computed(() => props.missing.length > 0)
+const quoted = computed(() => props.missing.map((p) => `«${p}»`).join(', '))
+
 async function browse() {
-  const chosen = await pickFolder()
+  const chosen = await pickFolder(moved.value ? '¿Dónde está ahora tu música?' : undefined)
   if (chosen) {
     path.value = chosen
     await add()
@@ -49,17 +65,36 @@ async function add(force = false) {
   <div class="page" style="display: flex; align-items: center; justify-content: center">
     <div style="max-width: 560px; text-align: center">
       <div style="display: flex; justify-content: center; margin-bottom: 14px; color: var(--accent)">
-        <Icon n="music" :t="46" />
+        <Icon :n="moved ? 'folderOpen' : 'music'" :t="46" />
       </div>
-      <h2 style="font-size: 22px">Bienvenido a DanPlay</h2>
-      <div class="desc" style="margin-bottom: 22px">
-        Todavía no hay ninguna carpeta de música. Elige una o varias y DanPlay las analizará:
-        identifica los temas, limpia los nombres y los organiza por artista.
-      </div>
+      <template v-if="moved">
+        <h2 style="font-size: 22px">No encuentro tu música</h2>
+        <div class="desc" style="margin-bottom: 22px">
+          {{ missing.length > 1 ? 'Las carpetas' : 'La carpeta' }}
+          <b class="missing-folders" style="overflow-wrap: anywhere">{{ quoted }}</b>
+          {{ missing.length > 1 ? 'ya no están donde estaban.' : 'ya no está donde estaba.' }}
+          Si la moviste, dime dónde está ahora: vuelve todo como estaba, con tus listas,
+          estrellas y notas. Si es un disco, en cuanto lo conectes aparecerá sola.
+        </div>
+      </template>
+      <template v-else-if="empty">
+        <h2 style="font-size: 22px">Tu biblioteca está vacía</h2>
+        <div class="desc" style="margin-bottom: 22px">
+          No queda ninguna canción en tus carpetas. Si moviste tu música a otro sitio, elígelo
+          aquí; si la estás copiando, irá apareciendo sola.
+        </div>
+      </template>
+      <template v-else>
+        <h2 style="font-size: 22px">Bienvenido a DanPlay</h2>
+        <div class="desc" style="margin-bottom: 22px">
+          Todavía no hay ninguna carpeta de música. Elige una o varias y DanPlay las analizará:
+          identifica los temas, limpia los nombres y los organiza por artista.
+        </div>
+      </template>
       <Card
         style="text-align: left"
-        title="Elegir carpeta de música"
-        note="Puedes añadir más carpetas después, en Ajustes."
+        :title="moved ? '¿Dónde está ahora?' : 'Elegir carpeta de música'"
+        :note="moved ? 'O elige otra carpeta cualquiera.' : 'Puedes añadir más carpetas después, en Ajustes.'"
       >
         <div style="display: flex; gap: 8px">
           <button class="btn primary" :disabled="preparing" style="gap: 7px" @click="browse">

@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import (ai, chat, chats, config, convert, duplicates, enrich, external,
                fingerprint, ingest, library, model_catalog, playlists,
-               providers, tags, theory, waveform, youtube)
+               providers, tags, theory, watcher, waveform, youtube)
 
 from . import __version__
 
@@ -73,6 +73,17 @@ class FolderIn(Body_):
 
 class PathIn(Body_):
     path: str = Field(min_length=1, max_length=4096)
+
+
+class RelocateIn(Body_):
+    """Una carpeta gestionada que se movio (`from`) y donde esta ahora (`to`)."""
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    old: str = Field(alias="from", min_length=1, max_length=4096)
+    new: str = Field(alias="to", min_length=1, max_length=4096)
+
+
+class IdsIn(Body_):
+    ids: list[int] = Field(default_factory=list, max_length=20000)
 
 
 class PlaylistName(Body_):
@@ -334,6 +345,10 @@ def status():
     e = library.stats_of()
     folders = library.list_folders()
     return {"configured": bool(folders), "folders": len(folders),
+            # carpetas gestionadas que ya no estan donde estaban (se movieron,
+            # o un disco sin montar): sus canciones estan apartadas, y la
+            # interfaz lo dice en vez de enseñar una biblioteca vacia sin mas
+            "missing_folders": [f["path"] for f in folders if f["active"] and not f["exists"]],
             "library": str(config.LIBRARY), "inbox": str(config.INBOX),
             "model": ai.fast_model(), "provider": ai.provider_name(), "ai": ai.available(),
             "fingerprint": not fingerprint.unavailable_reason(),
@@ -569,6 +584,19 @@ def add_folder(body: FolderIn = Body(...)):
     if not os.path.isdir(os.path.expanduser(path)):
         raise HTTPException(400, "esa ruta no existe")
 
+    # ¿Es una carpeta gestionada que se movio? Entonces no es una nueva: es
+    # la misma en otro sitio, y sus canciones vuelven con su id, sus listas y
+    # sus notas. Es lo que pasa cuando alguien mueve su musica y la «vuelve a
+    # importar» desde la bienvenida.
+    moved_from = library.relocation_for(path)
+    if moved_from:
+        r = library.relocate_folder(moved_from, path)
+        watcher.folders_changed()
+        notice = {"kind": "relocated", "other": moved_from, "back": r["back"],
+                  "message": f"es «{moved_from}», que se habia movido: sus canciones "
+                             "vuelven con sus listas y sus notas"}
+        return {"action": "relocated", "notice": notice, **folders()}
+
     notice = library.check_overlap(path)
     kind = (notice or {}).get("kind")
 
@@ -578,6 +606,7 @@ def add_folder(body: FolderIn = Body(...)):
     if kind == "contains":
         library.remove_folder(notice["other"])
         library.add_folder(path, body.label)
+        watcher.folders_changed()
         return {"action": "replaced", "notice": notice, **folders()}
 
     if kind == "copy" and not body.force:
@@ -585,13 +614,29 @@ def add_folder(body: FolderIn = Body(...)):
 
     if not library.add_folder(path, body.label):
         raise HTTPException(400, "esa ruta no existe")
+    watcher.folders_changed()
     return {"action": "added", "notice": notice, **folders()}
 
 
 @app.delete("/api/folders")
 def remove_folder(path: str = Query(...)):
     library.remove_folder(path)
+    watcher.folders_changed()
     return folders()
+
+
+@app.post("/api/folders/relocate")
+def relocate_folder(body: RelocateIn = Body(...)):
+    """Una carpeta gestionada que ya no esta, en su sitio nuevo. Sus canciones
+    vuelven con su id; despues conviene un escaneo para lo que haya cambiado."""
+    if not os.path.isdir(os.path.expanduser(body.new)):
+        raise HTTPException(400, "esa ruta no existe")
+    try:
+        r = library.relocate_folder(body.old, body.new)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    watcher.folders_changed()
+    return {**r, **folders()}
 
 
 @app.post("/api/exclusions")
@@ -1311,6 +1356,22 @@ def external_save(body: PlaylistName = Body(...)):
         raise HTTPException(400, str(e)) from e
 
 
+@app.post("/api/songs/locate")
+def locate_songs(body: IdsIn = Body(...)):
+    """Donde esta ahora cada cancion: `{paths: {id: ruta | null}}`.
+
+    La usa la cola de Rust cuando cambia la biblioteca, de una vez para toda
+    la cola: una cancion movida sigue sonando desde su sitio nuevo y la que ya
+    no esta (null) sale de la cola. Los ids negativos son archivos abiertos
+    desde fuera de la biblioteca.
+    """
+    found = library.paths_of(i for i in body.ids if i > 0)
+    for cid in (i for i in body.ids if i < 0):
+        c = external.resolve(cid)
+        found[cid] = c["path"] if c and os.path.isfile(c["path"]) else None
+    return {"paths": {str(k): v for k, v in found.items()}}
+
+
 @app.get("/api/song/{cid}/path")
 def audio_path(cid: int):
     """Devuelve la ruta en disco. La usa Rust para servir el audio sin pasar por Python.
@@ -1426,6 +1487,8 @@ def serve(host="127.0.0.1", port=8730, uds=None):
     import uvicorn
     logging.basicConfig(level=logging.INFO, format="danplay: %(message)s")
     _watch_parent()
+    # La biblioteca se vigila sola (watcher.py): lo que se mueve, se borra o
+    # llega por fuera de la app entra en el indice sin pulsar nada.
     # El catalogo de modelos se pone al dia al arrancar (en segundo plano y
     # solo si hace horas de la ultima vez): asi el apartado de IA abre ya
     # con la lista de hoy aunque no se pulse nada.
@@ -1451,6 +1514,11 @@ def serve(host="127.0.0.1", port=8730, uds=None):
             os.umask(previous)
         os.chmod(p, 0o600)
         sock.listen(128)
+        # Con el socket ya escuchando (las peticiones esperan en cola en vez
+        # de rebotar) y antes de contestar la primera: que la interfaz nunca
+        # vea canciones de una carpeta que ya no esta.
+        watcher.prepare()
+        watcher.start()
         log.info("escuchando en %s", p)
         try:
             uvicorn.run(app, fd=sock.fileno(), log_level="warning")
@@ -1460,6 +1528,8 @@ def serve(host="127.0.0.1", port=8730, uds=None):
                 p.unlink()
         return
 
+    watcher.prepare()
+    watcher.start()
     log.info("escuchando en http://%s:%s%s", host, port,
              " (con token)" if _TOKEN else "")
     uvicorn.run(app, host=host, port=port, log_level="warning")

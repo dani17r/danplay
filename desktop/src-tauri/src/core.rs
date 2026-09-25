@@ -548,18 +548,36 @@ pub fn watch(app: AppHandle) {
                             .unwrap_or_default()
                     };
                     let _ = app.emit(READY, serde_json::json!({"ready": ready, "message": message}));
+                    if ready {
+                        // la cola que se restauro sin nucleo: ahora ya se puede
+                        // preguntar por lo que no se sabia donde estaba
+                        prune_queue(&app);
+                    }
                 }
                 if let Some(revision) = status {
-                    // La primera lectura solo fija el punto de partida: al
-                    // arrancar, la interfaz ya carga todo por su cuenta.
-                    if seen.is_some_and(|s| s != revision) {
+                    // La primera lectura fija el punto de partida: al arrancar,
+                    // la interfaz ya carga todo por su cuenta. Salvo que el
+                    // nucleo ya haya cambiado algo nada mas levantarse (apartar
+                    // las canciones de una carpeta que se movio, su primer
+                    // escaneo): si la interfaz cargo antes, no lo habria visto.
+                    if seen.map_or(revision > 0, |s| s != revision) {
                         let _ = app.emit(CHANGED, serde_json::json!({"revision": revision}));
+                        prune_queue(&app);
                     }
                     seen = Some(revision);
                 }
             }
         })
         .ok();
+}
+
+/// Que la cola se ponga al dia con la biblioteca (ver `queue::prune`): una
+/// cancion que se movio sigue sonando desde su sitio nuevo, y la que se borro
+/// sale de la cola.
+fn prune_queue(app: &AppHandle) {
+    if let Some(playback) = app.try_state::<crate::queue::Playback>() {
+        playback.send(crate::queue::Command::Prune);
+    }
 }
 
 #[cfg(test)]

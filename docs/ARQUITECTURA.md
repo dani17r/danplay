@@ -203,6 +203,74 @@ desde la última vez. Escribir etiquetas cambia la fecha, así que eso siempre s
 relee; y los archivos sin artista también, porque pueden resolverse ahora que
 hay más carpetas de artista que antes.
 
+Los ids de las canciones **no se reutilizan nunca**. Sin `AUTOINCREMENT`,
+SQLite da a una fila nueva el id más alto que haya *ahora* más uno: si la
+última canción salía del índice, la siguiente heredaba su id y, con él, las
+listas en las que estaba. El tope histórico vive en `meta` (lo sube un
+trigger) y todo id nuevo sale de ahí (`_next_song_id`).
+
+## La biblioteca sigue al disco
+
+Lo que pasa por fuera de la app —mover la carpeta de música, mover o borrar
+una canción desde el gestor de archivos, un disco que se desmonta— se refleja
+solo, sin pulsar «Analizar». Lo lleva `watcher.py`, un hilo del núcleo:
+
+- **Al arrancar**, antes de contestar la primera petición, las carpetas que
+  ya no existen apartan sus canciones (solo mira si cada carpeta existe: es
+  instantáneo). Así la interfaz nunca enseña canciones de una carpeta que se
+  movió. Después, en segundo plano, un escaneo incremental pone al día el
+  resto.
+- **Mientras corre**, `watchdog` (inotify en Linux) avisa de cada cambio
+  dentro de las carpetas. Cuando deja de haber movimiento un par de segundos
+  —copiar una carpeta son cientos de avisos— se escanea. Abrir o leer un
+  archivo no cuenta: el propio reproductor lo hace con cada canción.
+- **Cada pocos segundos** se mira si alguna carpeta apareció o desapareció, y
+  una carpeta recién añadida en Ajustes se indexa sola. **Cada diez minutos**,
+  un escaneo completo por si algún aviso se perdió (unidades de red, un
+  desbordamiento de inotify). `DANPLAY_RESCAN_MINUTES` lo cambia (0 = nunca) y
+  `DANPLAY_WATCH=0` apaga la vigilancia entera.
+
+El escaneo solo sube `revision` si algo de lo que se enseña cambió: la
+mayoría de los avisos (una estrella que la propia app escribió en el archivo)
+no cambian nada, y la interfaz no tiene por qué recargar.
+
+**Lo que se va no se borra: se aparta.** Una canción cuyo archivo desaparece
+sale de `songs` —de toda la app— y espera en `songs_missing` con su id y la
+fila entera. Sus filas en las listas se quedan donde estaban (las listas solo
+enseñan lo que está en `songs`). Si el archivo vuelve, la canción recupera
+su id y, con él, sus listas en su puesto, los acordes, el análisis y el modo
+estudio:
+
+| Qué pasó | Cómo se reconoce |
+| --- | --- |
+| Vuelve a su sitio (el disco se monta otra vez, se restaura de la papelera) | misma ruta; si además tiene el mismo tamaño y fecha, entra sin releer el archivo |
+| Se movió de carpeta | mismo tamaño y mismo nombre |
+| Se renombró en su sitio | mismo tamaño y misma fecha (renombrar no la cambia) |
+| Se movió la carpeta entera | ver abajo |
+
+El escaneo mira primero qué hay en el disco, aparta lo que se fue y solo
+después mete lo nuevo: en ese orden, un archivo movido encuentra su fila ya
+apartada y recupera el id en la misma pasada. Pasado un mes sin volver, lo
+apartado se olvida del todo (con sus filas en las listas).
+
+**Una carpeta que se mueve entera.** Si todas las canciones de la biblioteca
+estaban en ella, la biblioteca queda vacía y la interfaz enseña «No encuentro
+tu música» en vez de una lista vacía sin más. Elegir la carpeta en su sitio
+nuevo, como quien vuelve a importar, basta: si al menos la mitad de una
+muestra de sus canciones aparece allí con la misma ruta relativa
+(`Artistas/Barak/…`), el núcleo entiende que es la misma carpeta
+(`relocation_for`), cambia su ruta en vez de añadir otra y devuelve cada
+canción con su id sin releer nada. Ajustes marca la carpeta como «no está» y
+tiene el mismo gesto a mano («¿Dónde está?»).
+
+**La cola también se entera.** Al abrir la app, la sesión guardada vuelve sin
+las canciones cuyo archivo ya no está, también la última que sonaba; si no
+queda ninguna, el reproductor arranca vacío. Con la app abierta, cada cambio
+del núcleo pone la cola al día (`queue::prune`): Rust pregunta de una vez por
+las canciones que no están donde creía (`POST /api/songs/locate`); la que se
+movió sigue con su ruta nueva y la que se fue sale. La que está sonando se
+deja terminar: el sistema sigue leyendo un archivo abierto aunque se mueva.
+
 ## La cascada de identificación
 
 ```text
@@ -602,6 +670,7 @@ castellano y, si la canción se acabó sola, se pasa a la siguiente.
 ```text
 danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   providers.py    catálogo de proveedores de IA y perfiles guardados
+  watcher.py      vigila las carpetas y mantiene el índice al día solo
   toon.py         resultados de herramientas en TOON: la mitad de tokens que JSON
   chats.py        las conversaciones con el asistente, guardadas y buscables
   model_catalog.py  el catálogo de modelos (models.dev), siempre al día

@@ -15,13 +15,16 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 hidden = (collect_submodules('uvicorn') + collect_submodules('fastapi')
           + collect_submodules('yt_dlp')
           + collect_submodules('mutagen') + collect_submodules('anyio')
+          # el vigilante de carpetas: watchdog elige su observador (inotify,
+          # Windows, macOS) al importarse, y sin esto podia no viajar
+          + collect_submodules('watchdog')
           + ['danplay_core', 'danplay.api', 'danplay.cli', 'danplay.library',
              'danplay.names', 'danplay.tags', 'danplay.playlists',
              'danplay.ingest', 'danplay.enrich', 'danplay.convert',
              'danplay.duplicates', 'danplay.fingerprint', 'danplay.ai',
              'danplay.theory', 'danplay.config', 'danplay.youtube',
              'danplay.web', 'danplay.chat', 'danplay.providers', 'danplay.waveform',
-             'danplay.model_catalog', 'acoustid', 'rapidfuzz',
+             'danplay.model_catalog', 'danplay.watcher', 'acoustid', 'rapidfuzz',
              'openai', 'dotenv', 'platformdirs', 'send2trash',
              'watchdog.observers', 'sqlite3',
              'uvicorn.logging', 'uvicorn.protocols.http.h11_impl',

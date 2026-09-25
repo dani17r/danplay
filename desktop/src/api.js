@@ -568,7 +568,8 @@ export const api = {
   /** @param {string} path */
   checkFolder: (path) => POST('/check-folder', { path }),
   /**
-   * Respuesta: `action` es `added | already_there | replaced | confirm` (§4).
+   * Respuesta: `action` es `added | already_there | replaced | confirm |
+   * relocated` (§4). `relocated`: era una carpeta gestionada que se movió.
    * @param {string} path
    * @param {string} [label]
    * @param {boolean} [force]
@@ -576,6 +577,13 @@ export const api = {
   addFolder: (path, label = '', force = false) => POST('/folders', { path, label, force }),
   /** @param {string} r */
   removeFolder: (r) => DEL(`/folders?path=${encodeURIComponent(r)}`),
+  /**
+   * Una carpeta gestionada que ya no está (`from`), en su sitio nuevo (`to`):
+   * sus canciones vuelven con su id, sus listas y sus notas.
+   * @param {string} from
+   * @param {string} to
+   */
+  relocateFolder: (from, to) => POST('/folders/relocate', { from, to }),
   addExclusion: (pattern, kind = 'glob', note = '') => POST('/exclusions', { pattern, kind, note }),
   removeExclusion: (p) => DEL(`/exclusions?pattern=${encodeURIComponent(p)}`),
   scan: () => POST('/scan'),

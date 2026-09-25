@@ -99,6 +99,8 @@ export function createState() {
     status: {
       configured: false,
       folders: 0,
+      // carpetas gestionadas que ya no están donde estaban
+      missing_folders: [],
       stats: { total: 0, bytes: 0, seconds: 0 },
       library: '/musica',
       inbox: '/musica/Entrada',
@@ -201,6 +203,10 @@ function answers(state) {
       return { action: 'added', notice: null, folders: [] }
     },
     removeFolder: async () => ({ folders: [], exclusions: [], always_excluded: [] }),
+    relocateFolder: async (from, to) => {
+      state.status.missing_folders = state.status.missing_folders.filter((p) => p !== from)
+      return { from, to, back: 0, folders: [], exclusions: [], always_excluded: [] }
+    },
     addExclusion: async () => ({ folders: [], exclusions: [], always_excluded: [] }),
     removeExclusion: async () => ({ folders: [], exclusions: [], always_excluded: [] }),
     scan: async () => {

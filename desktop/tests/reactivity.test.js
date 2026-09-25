@@ -59,6 +59,7 @@ beforeEach(() => {
   state.playlistSongs = []
   state.status.configured = false
   state.status.stats.total = 0
+  state.status.missing_folders = []
   cancelDrag()          // que un arrastre a medias no se cuele en la siguiente
   resetPlayback()
   resetPreferences()
@@ -102,21 +103,23 @@ describe('el nucleo llega tarde', () => {
   it('la biblioteca se llena sola cuando el nucleo arranca', async () => {
     // Abrir DanPlay con una cancion desde el explorador es cuando mas tarda
     // el nucleo: todo pasa a la vez. Si la interfaz carga antes de que
-    // conteste, la biblioteca sale vacia; y antes se quedaba asi para
-    // siempre, porque nadie escuchaba el aviso de «ya estoy».
+    // conteste, la primera carga FALLA; y antes ese fallo cortaba el
+    // arranque antes de escuchar el aviso de «ya estoy», asi que la
+    // biblioteca se quedaba vacia para siempre.
+    held.coreListener = null
     state.status.configured = true
-    state.status.stats.total = 0
-    state.songs = []
+    api.status.mockRejectedValueOnce(new Error('el nucleo no contesta'))
     const w = await montar()
-    expect(w.text()).toContain('Nada por aqui')
+    expect(api.search).not.toHaveBeenCalled()
+    expect(w.text()).not.toContain('Bienvenido a DanPlay')
+    expect(held.coreListener, 'no llego a escuchar el aviso del nucleo').toBeTypeOf('function')
 
     // el nucleo termina de arrancar y avisa
-    state.status.stats.total = 3
     state.songs = [song(1), song(2), song(3)]
-    held.coreListener?.({ ready: true, message: '' })
+    held.coreListener({ ready: true, message: '' })
     await flushPromises(); await flushPromises()
 
-    expect(w.text()).not.toContain('Nada por aqui')
+    expect(w.text()).toContain(song(3).title)
   })
 
   it('los avisos siguientes no recargan por nada', async () => {
@@ -128,6 +131,74 @@ describe('el nucleo llega tarde', () => {
     held.coreListener?.({ ready: true, message: 'sigue en pie' })
     await flushPromises()
     expect(api.search).not.toHaveBeenCalled()
+  })
+})
+
+// La musica se movio o se borro por fuera (el gestor de archivos, un disco que
+// no esta): el nucleo aparta lo que ya no esta, y si no queda nada, la app no
+// enseña una lista vacia sin mas, sino la pantalla para volver a importar.
+describe('la musica ya no esta donde estaba', () => {
+  it('si la carpeta se movio, lo dice y pregunta donde esta ahora', async () => {
+    state.status.configured = true
+    state.status.missing_folders = ['/home/ana/Musica']
+    const w = await montar()
+    expect(w.text()).toContain('No encuentro tu música')
+    expect(w.text()).toContain('/home/ana/Musica')
+    expect(w.text()).toContain('¿Dónde está ahora?')
+  })
+
+  it('al elegirla en su sitio nuevo vuelve todo, sin mas preguntas', async () => {
+    state.status.configured = true
+    state.status.missing_folders = ['/home/ana/Musica']
+    api.addFolder.mockImplementationOnce(async () => {
+      state.status.missing_folders = []
+      return { action: 'relocated', notice: { kind: 'relocated', other: '/home/ana/Musica' }, folders: [] }
+    })
+    const w = await montar()
+    await w.find('.page input[type="text"], .page input:not([type])').setValue('/disco/Musica')
+    await w.findAll('button').find((b) => b.text().includes('Analizar')).trigger('click')
+    await flushPromises(); await flushPromises(); await flushPromises()
+
+    expect(api.addFolder).toHaveBeenCalledWith('/disco/Musica', '', false)
+    expect(w.find('.toast').text()).toContain('tu carpeta de antes')
+    expect(w.text()).not.toContain('No encuentro tu música')
+    expect(w.text()).toContain('Mi Gozo')
+  })
+
+  it('si se vacia con la app abierta, aparece sola la pantalla de importar', async () => {
+    vi.useFakeTimers()
+    state.status.configured = true
+    state.songs = [song(1)]
+    const w = await montar()
+    expect(w.text()).toContain(song(1).title)
+
+    // la carpeta se movio por fuera: el nucleo aparta sus canciones y avisa
+    state.songs = []
+    state.status.missing_folders = ['/musica']
+    held.changeListener?.({ revision: 9 })
+    await vi.advanceTimersByTimeAsync(400)
+    await flushPromises(); await flushPromises()
+
+    expect(w.text()).toContain('No encuentro tu música')
+    expect(w.text()).not.toContain(song(1).title)
+    vi.useRealTimers()
+  })
+
+  it('con las carpetas en su sitio pero sin canciones, invita a elegir otra', async () => {
+    state.status.configured = true
+    const w = await montar()
+    expect(w.text()).toContain('Tu biblioteca está vacía')
+    expect(w.text()).not.toContain('No encuentro tu música')
+  })
+
+  it('en Ajustes no tapa nada: es donde se arregla', async () => {
+    state.status.configured = true
+    state.status.missing_folders = ['/musica']
+    const w = await montar()
+    await w.findAll('.nav-link').find((b) => b.text().includes('Ajustes')).trigger('click')
+    await flushPromises(); await flushPromises()
+    expect(w.text()).not.toContain('No encuentro tu música')
+    expect(w.text()).toContain('Carpetas gestionadas')
   })
 })
 

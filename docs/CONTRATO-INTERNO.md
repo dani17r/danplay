@@ -50,11 +50,14 @@ castellano y, si la canción se acabó sola, se prueba con la siguiente.
 - `danplay://core` → `{ ready, message }`: el núcleo arrancó, murió o se
   reinició.
 - `danplay://changed` → `{ revision }`: algo de lo que se enseña ha cambiado
-  en el núcleo (índice, listas, estrellas), lo haya hecho quien lo haya hecho.
+  en el núcleo (índice, listas, estrellas), lo haya hecho quien lo haya hecho:
+  también el vigilante de carpetas, cuando algo se mueve o se borra por fuera.
   Rust lo detecta comparando `revision` de `GET /api/status` en su vigilancia
   (cada 2 s); la interfaz responde con un refresco completo (lista de la
-  vista, repertorios, estado, ficha abierta, cola). Un núcleo sin `revision`
-  nunca lo emite.
+  vista, repertorios, estado, ficha abierta, cola). La primera lectura solo
+  fija el punto de partida, salvo que `revision` ya no sea 0 (el núcleo cambió
+  algo nada más arrancar: entonces se emite). Un núcleo sin `revision` nunca
+  lo emite. Con cada cambio, Rust además pone la cola al día (ver abajo).
 - `danplay://recent` → la lista del reproductor cambió (se abrió algo desde
   fuera).
 
@@ -93,6 +96,16 @@ la devuelva atrás (`usePlayback.seek`).
 Al acabar una pista, **Rust** aplica el modo de repetición: `list` sigue y
 da la vuelta; `one` repite; `once` se para; `queue` se para al llegar al
 final. Con `shuffle` elige otra al azar distinta de la actual.
+
+**Canciones que ya no están.** Al abrir, la sesión guardada vuelve sin las
+canciones cuyo archivo ya no está donde estaba (también la actual); si no
+queda ninguna, la cola arranca vacía y `track` es `null`. Con la app
+abierta, cuando el núcleo avisa de un cambio (o arranca), Rust pregunta por
+las canciones de la cola que no están donde creía (`POST /api/songs/locate`):
+las movidas siguen con su ruta nueva y las que ya no existen salen de la
+cola (`revision` de la cola sube). La actual no se quita mientras suena; si
+se quita estando parada, la siguiente que quede pasa a ser la actual, cargada
+en silencio. Sin núcleo no se quita nada.
 
 ### Ventana mini y bandeja (Rust → Vue)
 
@@ -141,6 +154,9 @@ Rutas nuevas o cambiadas (Python):
 - `GET /api/song/{id}/path` → `{ path, kind, bytes }` donde `kind` es el MIME
   real por extensión (`audio/mpeg`, `audio/flac`, `audio/ogg`, `audio/mp4`,
   `audio/wav`, `audio/x-ms-wma`, `audio/opus`).
+- `POST /api/songs/locate` `{ ids }` → `{ paths: { "<id>": ruta | null } }`:
+  dónde está ahora cada canción (`null` si su archivo ya no está). Ids
+  negativos: archivos abiertos desde fuera. Lo usa la cola de Rust.
 - `POST /api/duplicates/resolve` → `dry_run` es `true` por defecto; solo rutas
   dentro de las carpetas gestionadas y con extensión de audio; borrar = papelera.
 - `PATCH /api/song/{id}` → solo `artist, title, album, year, genre, key, bpm,
@@ -271,9 +287,19 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
 
 ## 4. Ajustes (Python ↔ Vue), nombres correctos
 
-- `/api/status`: `ai` (no `ia`).
+- `/api/status`: `ai` (no `ia`). `missing_folders`: rutas de las carpetas
+  gestionadas que ya no están donde estaban (sus canciones están apartadas).
+  `configured` sigue siendo «hay alguna carpeta dada de alta», exista o no.
 - `/api/convert` body: `{ dry_run, quality, keep }`.
-- `/api/folders` respuesta `action`: `added | already_there | replaced | confirm`.
+- `/api/folders` respuesta `action`: `added | already_there | replaced | confirm |
+  relocated`. `relocated`: la carpeta era una gestionada que se movió; se
+  cambia su ruta en vez de añadir otra y sus canciones vuelven con su id
+  (`notice.other` es la ruta de antes).
+- `GET /api/folders`: cada carpeta lleva `exists` (si sigue en su sitio).
+- `POST /api/folders/relocate` `{ from, to }` → lo mismo a mano: `from` es una
+  carpeta gestionada que ya no existe y `to` dónde está ahora. Devuelve
+  `{ from, to, back, folders, exclusions, always_excluded }` (`back`: cuántas
+  canciones volvieron). `400` si `from` sigue existiendo o `to` no existe.
 - Calidad: `high | medium | variable`.
 
 ## 5. Proveedor de IA (Python ↔ Vue)

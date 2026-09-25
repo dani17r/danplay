@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Indice SQLite con busqueda de texto completo (FTS5) y carpetas gestionadas."""
-import logging, os, shutil, sqlite3, subprocess, sys, time
+import json, logging, os, shutil, sqlite3, subprocess, sys, threading, time
 from pathlib import Path
 from . import config, tags, names
 
@@ -53,6 +53,41 @@ CREATE TABLE IF NOT EXISTS songs (
 CREATE INDEX IF NOT EXISTS i_artist ON songs(artist);
 CREATE INDEX IF NOT EXISTS i_match_key   ON songs(match_key);
 CREATE INDEX IF NOT EXISTS i_root    ON songs(root);
+
+-- Canciones cuyo archivo se fue por fuera de la app: se movio, se borro o su
+-- disco no esta montado. No se enseñan en ningun sitio (no estan en `songs`),
+-- pero se guardan un tiempo CON SU ID: si el archivo vuelve a su sitio o
+-- aparece en otro, la cancion recupera el id y, con el, las listas en las que
+-- estaba, los acordes, el analisis y el modo estudio. Pasado un mes sin
+-- volver se olvidan del todo (`_purge_missing`).
+CREATE TABLE IF NOT EXISTS songs_missing (
+    id       INTEGER PRIMARY KEY,
+    path     TEXT,
+    root     TEXT,
+    file     TEXT,
+    size     INTEGER,
+    mtime    REAL,
+    gone_at  REAL,
+    data     TEXT              -- la fila entera, en JSON
+);
+CREATE INDEX IF NOT EXISTS i_missing_path ON songs_missing(path);
+CREATE INDEX IF NOT EXISTS i_missing_size ON songs_missing(size);
+CREATE INDEX IF NOT EXISTS i_missing_root ON songs_missing(root);
+
+-- Valores sueltos del propio indice.
+CREATE TABLE IF NOT EXISTS meta (
+    key    TEXT PRIMARY KEY,
+    value
+);
+
+-- El id mas alto que ha tenido nunca una cancion. Sin AUTOINCREMENT, SQLite
+-- da a una fila nueva el id mas alto que haya AHORA mas uno: si la ultima
+-- cancion salia del indice, la siguiente heredaba su id y, con el, las listas
+-- en las que estaba. Los ids nuevos salen de aqui (`_next_song_id`).
+CREATE TRIGGER IF NOT EXISTS songs_hwm AFTER INSERT ON songs BEGIN
+    INSERT OR REPLACE INTO meta (key, value) VALUES ('song_id_hwm',
+        MAX(new.id, COALESCE((SELECT value FROM meta WHERE key='song_id_hwm'), 0)));
+END;
 
 -- Lo que gasta la IA: cada llamada con su proveedor, modelo y tokens, y el
 -- coste si el catalogo conocia el precio. Para enseñar «este mes: X».
@@ -235,6 +270,38 @@ def _prepare(conn) -> None:
         conn.executescript(extra)
     _add_missing_columns(conn)
     _migrate_from_spanish(conn)
+    _raise_hwm(conn)
+
+
+def _raise_hwm(conn) -> None:
+    """Sube el tope de ids por encima de cualquier id que se este usando.
+
+    Hace falta en las bases de antes del tope: una cancion borrada pudo dejar
+    su id en una lista, en el historial de descargas o en los recientes, y el
+    siguiente id nuevo no debe coincidir con ninguno.
+    """
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    used = [("songs", "id"), ("songs_missing", "id"), ("playlist_songs", "song_id"),
+            ("recent", "song_id"), ("downloads", "song_id")]
+    top = max((conn.execute(f"SELECT MAX({column}) FROM {table}").fetchone()[0] or 0)
+              for table, column in used if table in tables)
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('song_id_hwm', "
+                 "MAX(?, COALESCE((SELECT value FROM meta WHERE key='song_id_hwm'), 0)))",
+                 (top,))
+    conn.commit()
+
+
+def _next_song_id(conn) -> int:
+    """El id de una cancion nueva: nunca uno que ya haya tenido otra.
+
+    Todo INSERT en `songs` pasa por aqui (o reutiliza a proposito el id de
+    una cancion que vuelve, ver `_add`).
+    """
+    top = conn.execute(
+        "SELECT MAX(COALESCE((SELECT value FROM meta WHERE key='song_id_hwm'), 0),"
+        "           COALESCE((SELECT MAX(id) FROM songs), 0),"
+        "           COALESCE((SELECT MAX(id) FROM songs_missing), 0))").fetchone()[0]
+    return int(top) + 1
 
 
 def connect():
@@ -356,11 +423,16 @@ def add_folder(path, label="", role="library") -> bool:
 
 
 def remove_folder(path) -> None:
+    """Deja de gestionar la carpeta. Sus canciones se apartan, no se borran:
+    si se vuelve a añadir (se quito sin querer, era un disco que volvera),
+    cada una recupera su id, sus listas y sus notas."""
     path = str(Path(path).expanduser().resolve())
-    conn = connect()
-    conn.execute("DELETE FROM folders WHERE path=?", (path,))
-    conn.execute("DELETE FROM songs WHERE root=?", (path,))
-    conn.commit(); conn.close()
+    with _SCAN_LOCK:
+        conn = connect()
+        conn.execute("DELETE FROM folders WHERE path=?", (path,))
+        _to_missing(conn, [r["path"] for r in conn.execute(
+            "SELECT path FROM songs WHERE root=?", (path,))])
+        conn.commit(); conn.close()
     _touch()
 
 
@@ -369,7 +441,122 @@ def list_folders() -> list[dict]:
     rows = conn.execute("SELECT c.*, (SELECT COUNT(*) FROM songs s WHERE s.root=c.path) n "
                         "FROM folders c ORDER BY c.label").fetchall()
     conn.close()
-    return [dict(f) for f in rows]
+    # `exists`: la carpeta sigue en su sitio. Si no (se movio, o es un disco
+    # sin montar), sus canciones estan apartadas y la interfaz lo dice.
+    return [{**dict(f), "exists": os.path.isdir(f["path"])} for f in rows]
+
+
+def missing_roots() -> list[str]:
+    """Las carpetas gestionadas que ya no estan donde estaban."""
+    return [r for r in _roots() if not os.path.isdir(r)]
+
+
+def hide_missing_roots() -> int:
+    """Aparta las canciones de las carpetas que ya no estan. Devuelve cuantas.
+
+    Es rapido a proposito (no recorre nada: solo mira si cada carpeta existe)
+    porque es lo primero que hace el nucleo al arrancar, antes de que la
+    interfaz pregunte: asi nunca enseña canciones de una carpeta que se movio.
+    El escaneo completo, que viene despues, pone al dia el resto.
+    """
+    with _SCAN_LOCK:
+        gone = missing_roots()
+        if not gone:
+            return 0
+        conn = connect()
+        marks = ",".join("?" * len(gone))
+        n = _to_missing(conn, [r["path"] for r in conn.execute(
+            f"SELECT path FROM songs WHERE root IN ({marks})", gone)])
+        conn.commit(); conn.close()
+    if n:
+        _touch()
+    return n
+
+
+def _songs_of_root(conn, root, limit=None) -> list[str]:
+    """Las rutas que tenia una carpeta: las del indice y las apartadas."""
+    sql = ("SELECT path FROM songs WHERE root=? UNION "
+           "SELECT path FROM songs_missing WHERE root=?")
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    return [r[0] for r in conn.execute(sql, (root, root))]
+
+
+def relocation_for(path) -> str | None:
+    """Si `path` es una carpeta que se movio, la ruta donde estaba antes.
+
+    Se mira cada carpeta gestionada que ya no esta: si al menos la mitad de
+    una muestra de sus canciones aparece en `path` con la misma ruta relativa
+    (Artistas/Barak/…), es la misma carpeta en otro sitio. Es lo que permite
+    «volver a importar» sin perder nada: quien la elige en la bienvenida no
+    tiene por que saber que es otra cosa que añadir una carpeta.
+    """
+    new = os.path.realpath(os.path.expanduser(str(path)))
+    if not os.path.isdir(new):
+        return None
+    candidates = missing_roots()
+    if not candidates:
+        return None
+    conn = connect()
+    try:
+        for old in candidates:
+            sample = _songs_of_root(conn, old, limit=40)
+            if not sample:
+                continue
+            hits = sum(os.path.isfile(os.path.join(new, os.path.relpath(p, old)))
+                       for p in sample)
+            if hits * 2 >= len(sample):
+                return old
+    finally:
+        conn.close()
+    return None
+
+
+def relocate_folder(old, new) -> dict:
+    """La carpeta `old` se movio a `new`: la misma entrada, en su sitio nuevo.
+
+    Cada cancion que esta en `new` con la misma ruta relativa vuelve con su
+    id (y sus listas, notas, acordes…) sin releer el archivo; si el archivo
+    cambio por el camino, se marca para que el siguiente escaneo lo relea.
+    Lo que no aparezca sigue apartado, por si vuelve.
+    """
+    old = os.path.normpath(str(old))
+    new = os.path.realpath(os.path.expanduser(str(new)))
+    if not os.path.isdir(new):
+        raise ValueError("esa carpeta no existe")
+    if os.path.isdir(old):
+        raise ValueError("la carpeta de antes sigue en su sitio")
+    with _SCAN_LOCK:
+        conn = connect()
+        # lo que el indice aun enseñaba de ella: su archivo ya no esta ahi
+        _to_missing(conn, [r["path"] for r in conn.execute(
+            "SELECT path FROM songs WHERE root=?", (old,))])
+        if conn.execute("SELECT 1 FROM folders WHERE path=?", (new,)).fetchone():
+            conn.execute("DELETE FROM folders WHERE path=?", (old,))
+        else:
+            conn.execute("UPDATE folders SET path=?, label=CASE WHEN label=? THEN ? "
+                         "ELSE label END WHERE path=?",
+                         (new, os.path.basename(old), os.path.basename(new), old))
+        back = 0
+        for r in conn.execute("SELECT * FROM songs_missing WHERE root=?", (old,)).fetchall():
+            target = os.path.join(new, os.path.relpath(r["path"], old))
+            try:
+                st = os.stat(target)
+            except OSError:
+                continue
+            if conn.execute("SELECT 1 FROM songs WHERE path=?", (target,)).fetchone():
+                continue
+            data = json.loads(r["data"])
+            data.update(path=target, root=new,
+                        folder=os.path.relpath(os.path.dirname(target), new))
+            if st.st_size != data.get("size") or st.st_mtime != data.get("mtime"):
+                data["mtime"] = -1              # cambio por el camino: que se relea
+            _insert_row(conn, data)
+            conn.execute("DELETE FROM songs_missing WHERE id=?", (r["id"],))
+            back += 1
+        conn.commit(); conn.close()
+    _touch()
+    return {"from": old, "to": new, "back": back}
 
 
 def _roots() -> list[str]:
@@ -445,7 +632,32 @@ def audio_files(root, exclusions=None):
         dn[:] = [d for d in dn if not _excluded(dp, d, exclusions)]
         for fn in fns:
             if Path(fn).suffix.lower() in config.EXTENSIONS:
-                yield os.path.join(dp, fn)
+                path = os.path.join(dp, fn)
+                if _storable(path):
+                    yield path
+
+
+# Rutas ya avisadas: el escaneo corre solo cada pocos minutos, y repetir el
+# mismo aviso cada vez llenaria el registro.
+_UNSTORABLE: set = set()
+
+
+def _storable(path: str) -> bool:
+    """False si la ruta no se puede guardar en la base.
+
+    Un nombre que no es UTF-8 valido (un disco que viene de Windows o de un
+    FAT viejo) llega de `os.walk` con caracteres sustitutos, y SQLite los
+    rechaza: uno solo tumbaba el escaneo entero y no se indexaba nada.
+    """
+    try:
+        path.encode("utf-8")
+        return True
+    except UnicodeEncodeError:
+        if path not in _UNSTORABLE:
+            _UNSTORABLE.add(path)
+            log.warning("se salta %r: el nombre no es UTF-8 valido; renombralo para "
+                        "que DanPlay lo vea", path)
+        return False
 
 
 def _artist_from_folder(path, root) -> str:
@@ -505,16 +717,146 @@ def _row(path, root, vocab=None, tag=None) -> tuple:
 # una estrella mientras tanto fallaba con «database is locked».
 SCAN_BATCH = 500
 
-_INSERT_SQL = (f"INSERT INTO songs ({','.join(COLUMNS)}) "
-               f"VALUES ({','.join('?' * len(COLUMNS))})")
+# Un escaneo a la vez. Ahora no solo los lanza el boton: tambien el vigilante
+# de carpetas (watcher.py), al arrancar y cada vez que algo cambia en el
+# disco. Dos a la vez veian el mismo archivo nuevo y el segundo reventaba al
+# insertarlo.
+_SCAN_LOCK = threading.RLock()
+
+# Cuanto se guarda una cancion apartada esperando a que su archivo vuelva.
+MISSING_DAYS = 30
+
+# Si el archivo que vuelve no trae estos datos (etiquetas desactivadas, un
+# formato donde no se escriben) pero el indice si los tenia, se quedan los del
+# indice: son cosas que puso la persona y no deben perderse por un traslado.
+_KEEP_IF_EMPTY = ("stars", "favorite", "blur", "key", "bpm", "lyrics")
+
+_INSERT_SQL = (f"INSERT INTO songs (id,{','.join(COLUMNS)}) "
+               f"VALUES (?,{','.join('?' * len(COLUMNS))})")
 _UPDATE_SQL = f"UPDATE songs SET {','.join(f'{c}=?' for c in COLUMNS)} WHERE id=?"
+
+
+def _song_columns(conn) -> list[str]:
+    return [r[1] for r in conn.execute("PRAGMA table_info(songs)")]
+
+
+def _insert_row(conn, data: dict, columns=None) -> None:
+    """Mete una fila completa (id incluido) con las columnas que existan hoy."""
+    columns = columns or _song_columns(conn)
+    keys = [c for c in columns if c in data]
+    conn.execute(f"INSERT INTO songs ({','.join(keys)}) VALUES ({','.join('?' * len(keys))})",
+                 [data[k] for k in keys])
+
+
+def _to_missing(conn, paths) -> int:
+    """Aparta esas canciones: salen de `songs` (de toda la app) y esperan en
+    `songs_missing` con su id. Sus filas en las listas se quedan: las listas
+    solo enseñan lo que esta en `songs`, y si la cancion vuelve reaparece en
+    su sitio. No hace commit."""
+    paths = list(paths)
+    moved, now = 0, time.time()
+    for i in range(0, len(paths), SCAN_BATCH):
+        chunk = paths[i:i + SCAN_BATCH]
+        marks = ",".join("?" * len(chunk))
+        rows = conn.execute(f"SELECT * FROM songs WHERE path IN ({marks})", chunk).fetchall()
+        conn.executemany(
+            "INSERT OR REPLACE INTO songs_missing (id, path, root, file, size, mtime, gone_at, data) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            [(r["id"], r["path"], r["root"], r["file"], r["size"], r["mtime"], now,
+              json.dumps(dict(r), ensure_ascii=False)) for r in rows])
+        conn.execute(f"DELETE FROM songs WHERE path IN ({marks})", chunk)
+        moved += len(rows)
+    return moved
+
+
+def _find_missing(conn, path, file, size, mtime):
+    """La cancion apartada que es este archivo, si la hay.
+
+    Primero la que estaba en esta misma ruta (un disco que se vuelve a montar,
+    algo que se restaura de la papelera). Si no, la del mismo tamaño y con el
+    mismo nombre o la misma fecha: el mismo archivo movido de carpeta, o
+    renombrado en el sitio (mover y renombrar no cambian la fecha).
+    """
+    r = conn.execute("SELECT * FROM songs_missing WHERE path=? ORDER BY gone_at DESC LIMIT 1",
+                     (path,)).fetchone()
+    if r is not None:
+        return r
+    return conn.execute(
+        "SELECT * FROM songs_missing WHERE size=? AND (file=? OR mtime=?) "
+        "ORDER BY (file=?) DESC, (mtime=?) DESC, gone_at DESC LIMIT 1",
+        (size, file, mtime, file, mtime)).fetchone()
+
+
+def _add(conn, row: tuple) -> tuple[str, int]:
+    """Mete en el indice un archivo que no estaba. Devuelve ("added"|"back", id).
+
+    Si es una cancion apartada que vuelve (a su sitio o a otro), recupera su
+    id y lo que solo guarda la base (acordes, analisis, estudio, letra con
+    tiempos); lo del archivo se toma del archivo. Si no, id nuevo. No hace
+    commit.
+    """
+    fresh = dict(zip(COLUMNS, row, strict=True))
+    old = _find_missing(conn, fresh["path"], fresh["file"], fresh["size"], fresh["mtime"])
+    if old is None:
+        cid = _next_song_id(conn)
+        conn.execute(_INSERT_SQL, (cid, *row))
+        return "added", cid
+    data = json.loads(old["data"])
+    merged = {**data, **fresh}
+    for k in _KEEP_IF_EMPTY:
+        if not fresh.get(k) and data.get(k):
+            merged[k] = data[k]
+    merged["id"] = old["id"]
+    _insert_row(conn, merged)
+    conn.execute("DELETE FROM songs_missing WHERE id=?", (old["id"],))
+    return "back", old["id"]
+
+
+def _back_in_place(conn, path, st, columns) -> bool:
+    """Una cancion apartada que vuelve EXACTAMENTE como se fue (misma ruta,
+    tamaño y fecha): un disco que se vuelve a montar. Entra tal cual estaba,
+    sin releer el archivo; con toda una biblioteca, releerla costaba minutos."""
+    r = conn.execute("SELECT * FROM songs_missing WHERE path=? AND size=? AND mtime=? "
+                     "ORDER BY gone_at DESC LIMIT 1",
+                     (path, st.st_size, st.st_mtime)).fetchone()
+    if r is None:
+        return False
+    data = json.loads(r["data"])
+    data["id"] = r["id"]
+    _insert_row(conn, data, columns)
+    conn.execute("DELETE FROM songs_missing WHERE id=?", (r["id"],))
+    return True
+
+
+def _purge_missing(conn, days=None) -> int:
+    """Olvida del todo las canciones apartadas hace mas de `days` dias, y sus
+    filas en las listas y en los recientes. Devuelve cuantas."""
+    days = MISSING_DAYS if days is None else days
+    cutoff = time.time() - days * 86400
+    ids = [r[0] for r in conn.execute("SELECT id FROM songs_missing WHERE gone_at < ?",
+                                      (cutoff,))]
+    if not ids:
+        return 0
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    for i in range(0, len(ids), SCAN_BATCH):
+        chunk = ids[i:i + SCAN_BATCH]
+        marks = ",".join("?" * len(chunk))
+        conn.execute(f"DELETE FROM songs_missing WHERE id IN ({marks})", chunk)
+        for table in ("playlist_songs", "recent"):
+            if table in tables:
+                conn.execute(f"DELETE FROM {table} WHERE song_id IN ({marks}) "
+                             f"AND song_id NOT IN (SELECT id FROM songs)", chunk)
+    conn.commit()
+    return len(ids)
 
 
 def scan(progress=None) -> dict:
     """Pone el indice al dia con lo que hay en las carpetas gestionadas.
 
     Incremental y por ruta: lo nuevo se inserta, lo que cambio se actualiza
-    y lo que ya no esta en el disco se borra. Los ids NO cambian nunca.
+    y lo que ya no esta en el disco se aparta (`_to_missing`). Los ids NO
+    cambian nunca: ni al reescanear, ni cuando un archivo se mueve de carpeta
+    o se renombra por fuera, ni cuando su carpeta entera se va y vuelve.
     Antes se vaciaba la tabla y se reinsertaba todo: los ids volvian a
     empezar en 1 en el orden del disco, y un archivo nuevo desplazaba a todos
     los siguientes, con lo que las listas (que guardan ids) pasaban a
@@ -526,71 +868,111 @@ def scan(progress=None) -> dict:
     listas se recrean al final desde la etiqueta LISTAS de cada archivo.
 
     No se reconstruye el indice de busqueda: los triggers lo mantienen fila
-    a fila, y solo para las filas que de verdad cambian.
+    a fila, y solo para las filas que de verdad cambian. Y solo se avisa a la
+    interfaz (`_touch`) si algo de lo que enseña ha cambiado: el vigilante
+    escanea cada vez que se toca un archivo, y la mayoria no cambia nada.
     """
+    with _SCAN_LOCK:
+        return _scan(progress)
+
+
+def _scan(progress=None) -> dict:
     conn = connect()
+    columns = _song_columns(conn)
     existing = {r["path"]: r for r in conn.execute(
         "SELECT id, path, artist, mtime, size FROM songs")}
     vocab = names.vocabulary(config.ARTISTS_DIR)
     exclusions = list_exclusions()
+
+    # Primero, que hay en el disco; luego se aparta lo que ya no esta; y solo
+    # despues se mete lo nuevo. En ese orden, un archivo que simplemente se ha
+    # movido de carpeta encuentra su fila ya apartada y recupera el id en esta
+    # misma pasada, en vez de entrar como cancion nueva.
+    present = []
+    for root in _roots():
+        if os.path.isdir(root):
+            present.extend((path, root) for path in audio_files(root, exclusions))
+    on_disk = {path for path, _ in present}
+    # lo que ya no esta (o quedo fuera de las carpetas activas)
+    gone = [p for p in existing if p not in on_disk]
+    removed = _to_missing(conn, gone)
+    conn.commit()
+
     seen: set = set()
     playlists_found: dict = {}
     study_found: dict = {}
-    n = added_count = reused = updated = pending = 0
-    for root in _roots():
-        if not os.path.isdir(root):
-            continue
-        for path in audio_files(root, exclusions):
-            v = existing.get(path)
-            # Si el archivo no se ha tocado desde el ultimo escaneo, sus
-            # etiquetas no pueden haber cambiado: se deja la fila como esta
-            # en vez de volver a abrirlo y parsearlo. Es lo que hace que un
-            # reescaneo sea casi instantaneo. Escribir etiquetas (estrellas,
-            # favorito, un titulo corregido) cambia la fecha del archivo, asi
-            # que eso siempre se relee. Los que no tienen artista tambien:
-            # pueden resolverse ahora que hay mas carpetas de artista.
-            if v is not None and v["artist"]:
-                try:
-                    st = os.stat(path)
-                except OSError:
-                    continue                 # desaparecio: se borra al final
-                if st.st_mtime == v["mtime"] and st.st_size == v["size"]:
-                    seen.add(path)
-                    reused += 1; n += 1
-                    if progress and n % 50 == 0:
-                        progress(n)
-                    continue
+    n = added_count = reused = updated = back = pending = 0
+    changed = removed > 0
+    for path, root in present:
+        v = existing.get(path)
+        # Si el archivo no se ha tocado desde el ultimo escaneo, sus
+        # etiquetas no pueden haber cambiado: se deja la fila como esta en
+        # vez de volver a abrirlo y parsearlo. Es lo que hace que un
+        # reescaneo sea casi instantaneo. Escribir etiquetas (estrellas,
+        # favorito, un titulo corregido) cambia la fecha del archivo, asi
+        # que eso siempre se relee. Los que no tienen artista tambien:
+        # pueden resolverse ahora que hay mas carpetas de artista.
+        if v is None or v["artist"]:
             try:
-                tag = tags.read_all(path)
-                row = _row(path, root, vocab, tag)
+                st = os.stat(path)
             except OSError:
-                log.warning("no se pudo indexar %s", path, exc_info=True)
+                continue                 # se fue mientras tanto: el siguiente la aparta
+            if v is not None and st.st_mtime == v["mtime"] and st.st_size == v["size"]:
+                seen.add(path)
+                reused += 1; n += 1
+                if progress and n % 50 == 0:
+                    progress(n)
                 continue
-            seen.add(path)
-            if tag.get("playlists"):
-                playlists_found[path] = tag["playlists"]
-            if tag.get("study"):
-                study_found[path] = tag["study"]
+            if v is None and _back_in_place(conn, path, st, columns):
+                seen.add(path)
+                back += 1; n += 1; pending += 1
+                changed = True
+                if pending >= SCAN_BATCH:
+                    conn.commit(); pending = 0
+                if progress and n % 50 == 0:
+                    progress(n)
+                continue
+        try:
+            tag = tags.read_all(path)
+            row = _row(path, root, vocab, tag)
+        except OSError:
+            log.warning("no se pudo indexar %s", path, exc_info=True)
+            continue
+        try:
             if v is None:
-                conn.execute(_INSERT_SQL, row)
-                added_count += 1
+                kind, _ = _add(conn, row)
+                if kind == "back":
+                    back += 1
+                else:
+                    added_count += 1
+                changed = True
             else:
+                before = conn.execute("SELECT * FROM songs WHERE id=?", (v["id"],)).fetchone()
                 conn.execute(_UPDATE_SQL, row + (v["id"],))
                 updated += 1
-            n += 1; pending += 1
-            if pending >= SCAN_BATCH:
-                conn.commit(); pending = 0
-            if progress and n % 50 == 0:
-                progress(n)
-    # lo que ya no esta en el disco (o quedo fuera de las carpetas activas)
-    gone = [p for p in existing if p not in seen]
-    for i in range(0, len(gone), SCAN_BATCH):
-        chunk = gone[i:i + SCAN_BATCH]
-        conn.execute(f"DELETE FROM songs WHERE path IN ({','.join('?' * len(chunk))})",
-                     chunk)
-        conn.commit()
-    conn.commit(); conn.close()
-    _touch()
+                # releer un archivo no es cambiarlo: si solo se movio la fecha
+                # (la app acaba de escribirle una estrella), no hay que avisar
+                if before is None or any(before[c] != row[i] for i, c in enumerate(COLUMNS)
+                                         if c not in ("mtime", "size")):
+                    changed = True
+        except sqlite3.Error:
+            # un archivo que otro camino (una descarga) acaba de indexar a la
+            # vez, o una ruta que SQLite no acepta: se salta, no se para todo
+            log.warning("no se pudo indexar %s", path, exc_info=True)
+            continue
+        seen.add(path)
+        if tag.get("playlists"):
+            playlists_found[path] = tag["playlists"]
+        if tag.get("study"):
+            study_found[path] = tag["study"]
+        n += 1; pending += 1
+        if pending >= SCAN_BATCH:
+            conn.commit(); pending = 0
+        if progress and n % 50 == 0:
+            progress(n)
+    conn.commit()
+    _purge_missing(conn)
+    conn.close()
     # Con la fila se va el estudio (bucle, marcadores, notas: es una columna).
     # La forma de onda vive en disco, aparte: se borra la de cada cancion que
     # ya no esta, y de paso las que se hubieran quedado huerfanas por otro
@@ -600,8 +982,11 @@ def scan(progress=None) -> dict:
     _waveform.prune(set(seen))
     restored = restore_playlists_from_tags(playlists_found)
     restore_study_from_tags(study_found)
+    if changed or restored:
+        _touch()
     return {"total": n, "added_count": added_count, "reused": reused,
-            "updated": updated, "removed": len(gone), "playlists_restored": restored}
+            "updated": updated, "removed": removed, "back": back,
+            "changed": bool(changed or restored), "playlists_restored": restored}
 
 
 def restore_study_from_tags(found: dict) -> int:
@@ -912,14 +1297,20 @@ def index_file(path: str, roots=None, vocab=None) -> dict | None:
         log.warning("no se pudo indexar %s", path, exc_info=True)
         return None
     conn = connect()
-    # si ya estaba, se actualiza en sitio: un INSERT OR REPLACE le daria un
-    # id nuevo y las listas que lo tuvieran lo perderian
-    old = conn.execute("SELECT id FROM songs WHERE path=?", (path,)).fetchone()
-    if old:
-        conn.execute(_UPDATE_SQL, row + (old["id"],))
-    else:
-        conn.execute(_INSERT_SQL, row)
-    conn.commit()
+    try:
+        # si ya estaba, se actualiza en sitio: un INSERT OR REPLACE le daria un
+        # id nuevo y las listas que lo tuvieran lo perderian
+        old = conn.execute("SELECT id FROM songs WHERE path=?", (path,)).fetchone()
+        if old:
+            conn.execute(_UPDATE_SQL, row + (old["id"],))
+        else:
+            # una cancion apartada que vuelve (restaurada de la papelera, la
+            # copia que queda al resolver duplicados) recupera su id
+            _add(conn, row)
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # el vigilante la acaba de indexar a la vez: vale la suya
+        conn.rollback()
     r = conn.execute("SELECT * FROM songs WHERE path=?", (path,)).fetchone()
     conn.close()
     _touch()
@@ -975,12 +1366,15 @@ def trash(cid: int) -> dict:
 def forget(cid: int) -> None:
     """Quita la cancion del indice. No toca el archivo.
 
-    Con la fila se va su estudio; la forma de onda cacheada se borra aqui.
+    Se aparta, no se borra (`_to_missing`): si el archivo vuelve —se restaura
+    de la papelera— recupera su id y sus listas. La forma de onda cacheada se
+    borra aqui.
     """
     from . import waveform as _waveform
     conn = connect()
     row = conn.execute("SELECT path FROM songs WHERE id=?", (cid,)).fetchone()
-    conn.execute("DELETE FROM songs WHERE id=?", (cid,))
+    if row:
+        _to_missing(conn, [row["path"]])
     conn.commit(); conn.close()
     if row:
         _waveform.forget(row["path"])
@@ -991,15 +1385,38 @@ def forget_path(path: str) -> int:
     """Saca del indice el archivo que estaba en esa ruta. No toca el disco.
 
     Para cuando el archivo ya no esta ahi (se borro o se renombro) y solo hay
-    que ponerse al dia. Devuelve cuantas filas se quitaron.
+    que ponerse al dia. Se aparta, como en `forget`. Devuelve cuantas filas
+    se quitaron.
     """
     from . import waveform as _waveform
     conn = connect()
-    cur = conn.execute("DELETE FROM songs WHERE path=?", (os.path.abspath(path),))
+    n = _to_missing(conn, [os.path.abspath(path)])
     conn.commit(); conn.close()
     _waveform.forget(os.path.abspath(path))
     _touch()
-    return cur.rowcount or 0
+    return n
+
+
+def paths_of(ids) -> dict[int, str | None]:
+    """Donde esta ahora cada una de esas canciones de la biblioteca, o None si
+    su archivo no esta (ya no es del indice, o se fue y aun no se escaneo).
+
+    Lo usa la cola de Rust para ponerse al dia de una vez cuando cambia la
+    biblioteca: una cancion movida sigue sonando desde su sitio nuevo, y la
+    que ya no esta sale de la cola.
+    """
+    ids = [int(i) for i in ids if int(i) > 0]
+    out: dict[int, str | None] = dict.fromkeys(ids)
+    if not ids:
+        return out
+    conn = connect()
+    for i in range(0, len(ids), SCAN_BATCH):
+        chunk = ids[i:i + SCAN_BATCH]
+        marks = ",".join("?" * len(chunk))
+        for r in conn.execute(f"SELECT id, path FROM songs WHERE id IN ({marks})", chunk):
+            out[r["id"]] = r["path"] if os.path.isfile(r["path"]) else None
+    conn.close()
+    return out
 
 
 # ---------------------------------------------------------- historial

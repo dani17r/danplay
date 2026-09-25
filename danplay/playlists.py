@@ -147,8 +147,15 @@ def list_all() -> list[dict]:
     # La duracion suma las dos procedencias: las de la biblioteca y las de
     # fuera. Con un solo JOIN a `songs`, una lista guardada desde el
     # reproductor salia con «0 min» aunque tuviera veinte canciones.
+    #
+    # Y se cuenta solo lo que se enseña: una cancion cuyo archivo se fue
+    # sigue en `playlist_songs` (para volver a su sitio si el archivo vuelve,
+    # ver library._to_missing), pero la lista no la muestra y el numero decia
+    # «4» con tres.
     rows = conn.execute(
-        "SELECT l.*, (SELECT COUNT(*) FROM playlist_songs lc WHERE lc.playlist_id=l.id) n, "
+        "SELECT l.*, (SELECT COUNT(*) FROM playlist_songs lc WHERE lc.playlist_id=l.id "
+        " AND (EXISTS (SELECT 1 FROM songs c WHERE c.id=lc.song_id) "
+        "      OR EXISTS (SELECT 1 FROM external_songs e WHERE e.id=-lc.song_id))) n, "
         "(SELECT COALESCE(SUM(c.duration),0) FROM playlist_songs lc "
         " JOIN songs c ON c.id=lc.song_id WHERE lc.playlist_id=l.id) "
         "+ (SELECT COALESCE(SUM(e.duration),0) FROM playlist_songs lc "

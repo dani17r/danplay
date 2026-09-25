@@ -160,6 +160,9 @@ pub enum Command {
     },
     /// Vuelve a poner la cola de la sesion anterior, SIN empezar a sonar.
     Restore(Session),
+    /// La biblioteca cambio: se pone la cola al dia (ver `prune`). La manda
+    /// `core::watch` cuando el nucleo avisa de un cambio.
+    Prune,
     Next,
     Previous,
     Jump(i64),
@@ -355,6 +358,9 @@ impl Playback {
                         Message::Audio(player::Event::Changed(state)) => audio = state,
                         Message::Audio(player::Event::Finished) => {
                             advance(&mut inner, &player, &address);
+                        }
+                        Message::User(Command::Prune) => {
+                            prune(&mut inner, audio.playing, &player, &address);
                         }
                         Message::User(command) => {
                             apply(&mut inner, command, &player, &address);
@@ -612,12 +618,30 @@ fn apply(inner: &mut Inner, command: Command, player: &player::Handle, address: 
                 start(inner, index, player, address);
             }
         }
-        Command::Restore(session) => {
-            if session.items.is_empty() {
+        Command::Restore(mut session) => {
+            // Lo que ya no esta donde estaba no vuelve: si la musica se movio o
+            // se borro con la app cerrada, al abrir no aparece una cola de
+            // canciones que no suenan, ni la ultima puesta en el reproductor.
+            // Si no queda ninguna, se empieza vacio.
+            let current = session.index.min(session.items.len().saturating_sub(1));
+            let gone: Vec<bool> = session
+                .items
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    let resolved = (i == current).then_some(session.current_path.as_str());
+                    is_gone(t, resolved)
+                })
+                .collect();
+            let (items, index) = without(std::mem::take(&mut session.items), current, &gone);
+            let Some(index) = index else {
                 return;
+            };
+            if gone.get(current).copied().unwrap_or(false) {
+                session.current_path.clear(); // la actual es otra: se resuelve la suya
             }
-            inner.index = session.index.min(session.items.len() - 1);
-            inner.items = session.items;
+            inner.index = index;
+            inner.items = items;
             inner.origin = session.origin;
             inner.repeat = session.repeat;
             inner.shuffle = session.shuffle;
@@ -705,7 +729,166 @@ fn apply(inner: &mut Inner, command: Command, player: &player::Handle, address: 
         Command::Metronome { settings, grid } => {
             let _ = player.send(player::Command::Metronome { settings, grid });
         }
+        // La atiende el hilo de la cola antes de llegar aqui: necesita saber
+        // si algo suena, y eso lo sabe el audio.
+        Command::Prune => {}
     }
+}
+
+/// Si ya se sabe que el archivo de esa cancion no esta. `resolved` es la ruta
+/// con la que se puso a sonar, si es la actual. Sin ninguna ruta no se sabe
+/// (lo dira el nucleo): no cuenta como ida.
+fn is_gone(track: &Track, resolved: Option<&str>) -> bool {
+    let own = track.path.as_deref().filter(|p| !p.is_empty());
+    let resolved = resolved.filter(|p| !p.is_empty());
+    if own.is_none() && resolved.is_none() {
+        return false;
+    }
+    let here = |p: &str| std::path::Path::new(p).is_file();
+    !(own.is_some_and(here) || resolved.is_some_and(here))
+}
+
+/// La cola sin las canciones marcadas en `gone`, y la posicion de la que
+/// queda como actual: la misma si sigue, y si no, la siguiente que quede
+/// (dando la vuelta). `None` si no queda ninguna.
+pub fn without(items: Vec<Track>, index: usize, gone: &[bool]) -> (Vec<Track>, Option<usize>) {
+    let length = items.len();
+    let mut place = vec![None; length];
+    let mut kept = Vec::with_capacity(length);
+    for (i, track) in items.into_iter().enumerate() {
+        if !gone.get(i).copied().unwrap_or(false) {
+            place[i] = Some(kept.len());
+            kept.push(track);
+        }
+    }
+    let current = (0..length).find_map(|step| place[(index + step) % length]);
+    (kept, current)
+}
+
+/// Lo que dice el nucleo de las canciones que no estaban donde se creia:
+/// `found[id]` es su ruta de ahora, o `None` si ya no estan. Pone al dia las
+/// rutas (devuelve si alguna cambio) y marca las que hay que quitar. La
+/// actual no se quita mientras suena: el sistema deja terminar de leer un
+/// archivo abierto aunque se mueva o se borre.
+fn reconcile(
+    items: &mut [Track],
+    current: usize,
+    playing: bool,
+    found: &HashMap<i64, Option<String>>,
+) -> (Vec<bool>, bool) {
+    let mut gone = vec![false; items.len()];
+    let mut moved = false;
+    for (i, track) in items.iter_mut().enumerate() {
+        match found.get(&track.id) {
+            Some(Some(path)) => {
+                if track.path.as_deref() != Some(path.as_str()) {
+                    track.path = Some(path.clone());
+                    moved = true;
+                }
+            }
+            Some(None) => gone[i] = !(i == current && playing),
+            None => {} // el nucleo no dijo nada de ella: se queda como estaba
+        }
+    }
+    (gone, moved)
+}
+
+/// La biblioteca cambio (se movio, borro o renombro algo por fuera): la cola
+/// se pone al dia.
+///
+/// Solo se pregunta por las canciones cuyo archivo no esta donde se creia, y
+/// de una vez (`POST /api/songs/locate`). La que se movio sigue en la cola
+/// con su ruta nueva; la que ya no esta, sale. Si la que se va es la actual
+/// (y no suena), pasa a ser la actual la siguiente que quede, puesta en
+/// silencio como al abrir la app; si no queda ninguna, el reproductor se
+/// vacia. Sin nucleo no se quita nada: no saber donde esta no es que no este.
+fn prune(inner: &mut Inner, playing: bool, player: &player::Handle, address: &Address) {
+    let current = inner.index;
+    let lost: Vec<i64> = inner
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(i, t)| {
+            // las que no estan donde se creia, y las que no traen ruta (de
+            // una sesion vieja): de esas no se sabe nada sin preguntar
+            let resolved = (*i == current).then_some(inner.current_path.as_str());
+            let unknown = t.path.as_deref().is_none_or(str::is_empty)
+                && resolved.is_none_or(str::is_empty);
+            unknown || is_gone(t, resolved)
+        })
+        .map(|(_, t)| t.id)
+        .collect();
+    if lost.is_empty() {
+        return;
+    }
+    let Some(found) = locate(address, &lost) else {
+        return;
+    };
+    let (gone, moved) = reconcile(&mut inner.items, current, playing, &found);
+    let here = |p: &str| std::path::Path::new(p).is_file();
+    if !gone.iter().any(|g| *g) {
+        if moved {
+            // la actual se movio: su ruta nueva, para la sesion y el metronomo
+            if let Some(path) = inner.current().and_then(|t| t.path.clone()) {
+                if !here(&inner.current_path) {
+                    inner.current_path = path;
+                }
+            }
+            inner.revision = inner.revision.wrapping_add(1);
+        }
+        return;
+    }
+    let current_gone = gone.get(current).copied().unwrap_or(false);
+    let (items, index) = without(std::mem::take(&mut inner.items), current, &gone);
+    inner.items = items;
+    inner.history.clear();
+    inner.revision = inner.revision.wrapping_add(1);
+    let Some(index) = index else {
+        inner.index = 0;
+        inner.current_path.clear();
+        let _ = player.send(player::Command::Stop);
+        return;
+    };
+    inner.index = index;
+    if current_gone {
+        inner.current_path.clear();
+        match inner.current().cloned() {
+            Some(track) if track.path.as_deref().is_some_and(here) => {
+                let path = track.path.unwrap_or_default();
+                inner.current_path = path.clone();
+                let _ = player.send(player::Command::Load {
+                    path,
+                    duration: track.duration,
+                });
+            }
+            _ => {
+                let _ = player.send(player::Command::Stop);
+            }
+        }
+    }
+}
+
+/// Donde estan ahora esas canciones, segun el nucleo. `None` si no contesta.
+fn locate(address: &Address, ids: &[i64]) -> Option<HashMap<i64, Option<String>>> {
+    let body = serde_json::json!({ "ids": ids }).to_string();
+    let answer = tauri::async_runtime::block_on(core::request_within(
+        address,
+        "POST",
+        "/api/songs/locate",
+        Some(body),
+        core::QUICK,
+    ));
+    let Ok((200, bytes, _)) = answer else {
+        return None;
+    };
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let paths = value.get("paths")?.as_object()?;
+    Some(
+        paths
+            .iter()
+            .filter_map(|(id, path)| Some((id.parse().ok()?, path.as_str().map(String::from))))
+            .collect(),
+    )
 }
 
 // -------------------------------------------------------------- para el JS
@@ -968,13 +1151,14 @@ mod tests {
     fn restoring_puts_the_queue_back_without_playing() {
         let (player, _events) = silent_player();
         let mut inner = inner_with(vec![], 0);
+        let eight = a_real_file("dp_sesion_ocho.mp3");
         let session = Session {
             items: vec![track(7), track(8)],
             index: 1,
             origin: None,
             repeat: Repeat::One,
             shuffle: true,
-            current_path: "/musica/ocho.mp3".into(),
+            current_path: eight.clone(),
         };
         apply(&mut inner, Command::Restore(session), &player, &nowhere());
 
@@ -982,7 +1166,7 @@ mod tests {
         assert_eq!(inner.index, 1, "vuelve a la cancion en la que se quedo");
         assert_eq!(inner.repeat, Repeat::One);
         assert!(inner.shuffle);
-        assert_eq!(inner.current_path, "/musica/ocho.mp3");
+        assert_eq!(inner.current_path, eight);
         // y el reproductor no esta sonando: solo se le mando cargar
         assert!(!player.state().playing, "no debe arrancar sola");
     }
@@ -996,13 +1180,134 @@ mod tests {
             Command::Restore(Session {
                 items: vec![track(1)],
                 index: 40,                       // la lista encogio
-                current_path: "/musica/una.mp3".into(),
+                current_path: a_real_file("dp_sesion_una.mp3"),
                 ..Default::default()
             }),
             &player,
             &nowhere(),
         );
+        assert_eq!(inner.items.len(), 1);
         assert_eq!(inner.index, 0);
+    }
+
+    fn with_path(id: i64, path: &str) -> Track {
+        Track {
+            path: Some(path.into()),
+            ..track(id)
+        }
+    }
+
+    #[test]
+    fn restoring_leaves_out_what_is_no_longer_there() {
+        // la musica se movio con la app cerrada: al abrir no vuelven ni la
+        // que sonaba ni las demas que ya no estan; la actual pasa a ser la
+        // siguiente que queda, puesta en silencio
+        let (player, _events) = silent_player();
+        let mut inner = inner_with(vec![], 0);
+        let one = a_real_file("dp_sesion_quedan_1.mp3");
+        let three = a_real_file("dp_sesion_quedan_3.mp3");
+        let session = Session {
+            items: vec![
+                with_path(1, &one),
+                with_path(2, "/ya/no/esta/dos.mp3"),
+                with_path(3, &three),
+                with_path(4, "/ya/no/esta/cuatro.mp3"),
+            ],
+            index: 1,
+            current_path: "/ya/no/esta/dos.mp3".into(),
+            ..Default::default()
+        };
+        apply(&mut inner, Command::Restore(session), &player, &nowhere());
+        let ids: Vec<i64> = inner.items.iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![1, 3]);
+        assert_eq!(inner.current().map(|t| t.id), Some(3));
+        assert_eq!(inner.current_path, three, "no se quedo la ruta de la que se fue");
+    }
+
+    #[test]
+    fn restoring_when_nothing_is_left_starts_empty() {
+        let (player, _events) = silent_player();
+        let mut inner = inner_with(vec![], 0);
+        let session = Session {
+            items: vec![with_path(1, "/ya/no/esta/a.mp3"), with_path(2, "/ya/no/esta/b.mp3")],
+            index: 0,
+            current_path: "/ya/no/esta/a.mp3".into(),
+            ..Default::default()
+        };
+        apply(&mut inner, Command::Restore(session), &player, &nowhere());
+        assert!(inner.items.is_empty());
+        assert!(inner.current_path.is_empty());
+        let state = compose(&inner, &player::State::default());
+        assert!(state.track.is_none(), "el reproductor enseña una cancion que ya no esta");
+    }
+
+    #[test]
+    fn restoring_keeps_songs_whose_place_is_not_known_yet() {
+        // sin ruta no se sabe si estan: eso lo dira el nucleo cuando conteste
+        let (player, _events) = silent_player();
+        let mut inner = inner_with(vec![], 0);
+        let session = Session {
+            items: vec![track(1), with_path(2, "/ya/no/esta/b.mp3")],
+            index: 0,
+            ..Default::default()
+        };
+        apply(&mut inner, Command::Restore(session), &player, &nowhere());
+        let ids: Vec<i64> = inner.items.iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![1]);
+    }
+
+    // ------------------------------------------- la biblioteca cambia por fuera
+    #[test]
+    fn without_keeps_the_current_one_or_moves_on_to_the_next() {
+        let four = || vec![track(1), track(2), track(3), track(4)];
+        let ids = |v: &[Track]| v.iter().map(|t| t.id).collect::<Vec<_>>();
+
+        let (left, index) = without(four(), 2, &[true, false, false, false]);
+        assert_eq!((ids(&left), index), (vec![2, 3, 4], Some(1)), "la actual sigue");
+
+        let (left, index) = without(four(), 1, &[false, true, false, false]);
+        assert_eq!((ids(&left), index), (vec![1, 3, 4], Some(1)), "la siguiente");
+
+        let (left, index) = without(four(), 3, &[false, false, false, true]);
+        assert_eq!((ids(&left), index), (vec![1, 2, 3], Some(0)), "da la vuelta");
+
+        let (left, index) = without(four(), 0, &[true; 4]);
+        assert!(left.is_empty() && index.is_none());
+
+        let (left, index) = without(Vec::new(), 0, &[]);
+        assert!(left.is_empty() && index.is_none());
+    }
+
+    #[test]
+    fn what_the_core_says_updates_moved_songs_and_marks_the_gone() {
+        let mut items = vec![with_path(1, "/antes/a.mp3"), with_path(2, "/antes/b.mp3"), track(3)];
+        let found: HashMap<i64, Option<String>> =
+            [(1, Some("/ahora/a.mp3".to_string())), (2, None)].into_iter().collect();
+        let (gone, moved) = reconcile(&mut items, 0, false, &found);
+        assert_eq!(gone, vec![false, true, false]);
+        assert!(moved);
+        assert_eq!(items[0].path.as_deref(), Some("/ahora/a.mp3"));
+        assert!(items[2].path.is_none(), "de la que no se pregunto no se toca nada");
+    }
+
+    #[test]
+    fn the_song_that_is_playing_stays_until_it_ends() {
+        let mut items = vec![with_path(1, "/antes/a.mp3"), with_path(2, "/antes/b.mp3")];
+        let found: HashMap<i64, Option<String>> = [(1, None), (2, None)].into_iter().collect();
+        let (gone, _) = reconcile(&mut items, 0, true, &found);
+        assert_eq!(gone, vec![false, true], "se quito la que estaba sonando");
+        let (gone, _) = reconcile(&mut items, 0, false, &found);
+        assert_eq!(gone, vec![true, true]);
+    }
+
+    #[test]
+    fn without_the_core_nothing_leaves_the_queue() {
+        // no saber donde esta no es que no este
+        let (player, _events) = silent_player();
+        let mut inner = inner_with(vec![with_path(1, "/ya/no/esta/a.mp3"), track(2)], 0);
+        prune(&mut inner, false, &player, &nowhere());
+        assert_eq!(inner.items.len(), 2);
+        assert_eq!(inner.revision, 0);
     }
 
     #[test]

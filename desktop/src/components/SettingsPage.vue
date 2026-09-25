@@ -189,6 +189,24 @@ async function addNewFolder (force = false) {
   } finally { busy.value = '' }
 }
 
+// Una carpeta que ya no está (se movió, o es un disco sin conectar): se le
+// dice dónde está ahora y sus canciones vuelven con su id, sus listas y sus
+// notas. Quitarla y añadir la nueva también funciona, pero esto lo dice claro.
+async function relocate (from) {
+  const to = await pickFolder('¿Dónde está ahora esta carpeta?')
+  if (!to) return
+  busy.value = 'folder'
+  try {
+    const r = await api.relocateFolder(from, to)
+    folders.value = { folders: r.folders, exclusions: r.exclusions, always_excluded: r.always_excluded }
+    notify(r.back ? `Encontrada: vuelven ${r.back} canciones con sus listas y sus notas`
+                  : 'Carpeta cambiada de sitio', 'ok')
+    emit('changed')
+  } catch (e) {
+    notify('No se pudo: ' + errorMessage(e))
+  } finally { busy.value = '' }
+}
+
 async function scan () {
   busy.value = 'scan'
   try { const r = await api.scan(); status.value = await api.status(); emit('reindexed', r) }
@@ -274,7 +292,14 @@ const gb = formatGigabytes
       </div>
       <div v-for="c in folders.folders" :key="c.path" class="path-row">
         <span class="path" :title="c.path">{{ c.path }}</span>
-        <span class="badge">{{ c.n }} temas</span>
+        <span v-if="c.exists === false" class="badge" style="color:var(--amber)"
+              title="Ya no está donde estaba: sus canciones quedan apartadas hasta que vuelva o le digas dónde está ahora">
+          no está</span>
+        <span v-else class="badge">{{ c.n }} temas</span>
+        <button v-if="c.exists === false" class="btn mini" :disabled="busy==='folder'"
+                @click="relocate(c.path)">
+          ¿Dónde está?
+        </button>
         <button class="btn mini" @click="api.removeFolder(c.path).then(r=>{folders=r; emit('changed')})">Quitar</button>
       </div>
       <div style="display:flex;gap:8px;margin-top:10px">
