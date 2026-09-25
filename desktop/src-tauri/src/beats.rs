@@ -321,13 +321,42 @@ fn detrend(x: &[f32]) -> Vec<f32> {
 
 // ------------------------------------------------------------ tempo
 
+/// Cuantas subdivisiones de un compas binario caben en el, contadas en
+/// tercios: si el compas mide n/3 del periodo elegido (con n una de estas),
+/// ese periodo son tres subdivisiones de una rejilla que va de dos en dos. Es
+/// una sincopa (3+3+2), no un pulso.
+const THIRDS: [f64; 4] = [4.0, 8.0, 16.0, 32.0];
+
+/// El pico de `y` en `l`, afinado con la parabola de sus vecinos. Sin salir
+/// de media trama a cada lado: si `l` no es un maximo, la parabola se iria
+/// lejos (asi salio una vez un tempo de 1,5 bpm).
+fn refine(y: &[f64], l: usize) -> f64 {
+    if l == 0 || l + 1 >= y.len() {
+        return l as f64;
+    }
+    let (before, here, after) = (y[l - 1], y[l], y[l + 1]);
+    let denom = before - 2.0 * here + after;
+    if denom.abs() < 1e-12 || here < before || here < after {
+        return l as f64;
+    }
+    l as f64 + (0.5 * (before - after) / denom).clamp(-0.5, 0.5)
+}
+
 /// Tempo en bpm por autocorrelacion de la envolvente, con un prior
 /// log-normal alrededor de `center` (120 si no se sabe nada; el bpm del
 /// indice si se conoce, un poco mas estrecho).
-#[expect(
-    clippy::many_single_char_names,
-    reason = "la notacion de la autocorrelacion y de la parabola"
-)]
+///
+/// Y un control mas, estrecho a proposito. En una cancion con una sincopa
+/// marcada —el 3+3+2 de tanta alabanza en directo— el golpe cada tres
+/// subdivisiones (pulso y medio) sale casi tan fuerte como el pulso, y con
+/// el prior en 120 ganaba: una cancion a 138 salia a 92, y el clic iba la
+/// mitad del tiempo a contratiempo. Eso tiene una firma: el compas (lo que
+/// mas se repite entre 1,2 y 4,5 s) mide 4, 8, 16 o 32 tercios del periodo,
+/// no un numero entero de periodos. Solo entonces se cambia, y al pulso de
+/// verdad: dos tercios del periodo, en la octava que mas se repita. En
+/// cualquier otro caso el tempo es el de siempre: medido con cientos de
+/// canciones de verdad, un control mas ancho («que quepa en el compas»)
+/// acertaba en estas pero estropeaba otras donde el compas no sale limpio.
 fn tempo(onset: &[f32], center: f32, width_octaves: f32) -> f32 {
     let n = onset.len();
     let lag_min = (60.0 * FPS / 240.0).floor() as usize; // 240 bpm
@@ -338,27 +367,59 @@ fn tempo(onset: &[f32], center: f32, width_octaves: f32) -> f32 {
     let mean = onset.iter().map(|&v| f64::from(v)).sum::<f64>() / n as f64;
     let x: Vec<f64> = onset.iter().map(|&v| f64::from(v) - mean).collect();
     let ac0: f64 = x.iter().map(|v| v * v).sum::<f64>().max(1e-9);
-    let mut best = (lag_min, f64::MIN);
+    // la autocorrelacion hasta el compas mas largo, sin pasar de media cancion
+    let bar_lo = (1.2 * FPS) as usize;
+    let bar_hi = ((4.5 * FPS) as usize).min(n / 2);
+    let top = lag_max.max(bar_hi) + 1;
+    let ac: Vec<f64> = (0..=top)
+        .map(|lag| {
+            if lag >= n {
+                return 0.0;
+            }
+            (0..n - lag).map(|i| x[i] * x[i + lag]).sum::<f64>() / ac0
+        })
+        .collect();
     let mut scores = vec![0f64; lag_max + 2];
-    for lag in lag_min..=lag_max {
-        let ac: f64 = (0..n - lag).map(|i| x[i] * x[i + lag]).sum::<f64>() / ac0;
+    for (lag, score) in scores.iter_mut().enumerate().take(lag_max + 1).skip(lag_min) {
         let bpm = 60.0 * FPS / lag as f64;
         let prior = (-0.5 * ((bpm / f64::from(center)).log2() / f64::from(width_octaves)).powi(2)).exp();
-        let score = ac * prior;
-        scores[lag] = score;
-        if score > best.1 {
-            best = (lag, score);
-        }
+        *score = ac[lag] * prior;
     }
+    let peak = |near: &dyn Fn(usize) -> bool| -> Option<usize> {
+        (lag_min..=lag_max)
+            .filter(|&l| near(l))
+            .max_by(|&a, &b| scores[a].total_cmp(&scores[b]))
+    };
     // interpolacion parabolica alrededor del pico: la trama son 23 ms y a
     // 120 bpm eso son 3 bpm de resolucion, demasiado gordo
-    let l = best.0;
-    let mut lag = l as f64;
-    if l > lag_min && l < lag_max {
-        let (a, b, c) = (scores[l - 1], scores[l], scores[l + 1]);
-        let denom = a - 2.0 * b + c;
-        if denom.abs() > 1e-12 {
-            lag += 0.5 * (a - c) / denom;
+    let refined = |l: usize| {
+        if l > lag_min && l < lag_max {
+            refine(&scores, l)
+        } else {
+            l as f64
+        }
+    };
+    let best = peak(&|_| true).unwrap_or(lag_min);
+    let mut lag = refined(best);
+    if bar_hi > bar_lo {
+        let b = (bar_lo..=bar_hi)
+            .max_by(|&a, &b| ac[a].total_cmp(&ac[b]))
+            .unwrap_or(bar_lo);
+        let fits = refine(&ac, b) / lag;
+        if THIRDS.iter().any(|&t| (fits / (t / 3.0) - 1.0).abs() <= 0.03) {
+            let mut pick: Option<usize> = None;
+            for octave in [0.5, 1.0, 2.0, 4.0] {
+                let target = lag * 2.0 / 3.0 * octave;
+                let Some(l) = peak(&|l| (l as f64 / target - 1.0).abs() <= 0.03) else {
+                    continue;
+                };
+                if pick.is_none_or(|p| scores[l] > scores[p]) {
+                    pick = Some(l);
+                }
+            }
+            if let Some(l) = pick.filter(|&l| scores[l] > 0.0) {
+                lag = refined(l);
+            }
         }
     }
     (60.0 * FPS / lag) as f32
@@ -821,6 +882,67 @@ mod tests {
         check(&grid, 96.0, 3, 0.2);
     }
 
+    /// Una cancion binaria con la sincopa 3+3+2 muy marcada: acordes fuertes
+    /// en las corcheas 0, 3 y 6 de cada compas, un bombo flojo en cada pulso
+    /// y un charles suave en cada corchea. Asi va mucha alabanza en directo.
+    fn syncopated(bpm: f64, seconds: f64, offset: f64) -> Vec<f32> {
+        let sr = f64::from(RATE);
+        let n = (sr * seconds) as usize;
+        let mut out = vec![0f32; n];
+        let eighth = 30.0 / bpm;
+        let mut hit = |t: f64, freqs: &[f64], len: f64, gain: f64| {
+            let start = (t * sr) as usize;
+            for i in 0..(len * sr) as usize {
+                let Some(sample) = out.get_mut(start + i) else { break };
+                let x = i as f64 / sr;
+                let env = (-x / (len / 4.0)).exp();
+                let v: f64 = freqs.iter().map(|f| (2.0 * std::f64::consts::PI * f * x).sin()).sum();
+                *sample += (gain * env * v / freqs.len() as f64) as f32;
+            }
+        };
+        let mut k = 0usize;
+        let mut t = offset;
+        while t < seconds {
+            let pos = k % 8;
+            hit(t, &[5200.0, 7300.0], 0.02, 0.12);
+            if pos.is_multiple_of(2) {
+                hit(t, &[70.0], 0.06, 0.25);
+            }
+            if matches!(pos, 0 | 3 | 6) {
+                hit(t, &[196.0, 247.0, 294.0, 392.0, 587.0], 0.18, 1.0);
+            }
+            k += 1;
+            t += eighth;
+        }
+        out
+    }
+
+    /// La sincopa 3+3+2 no es el pulso: aunque el golpe cada tres corcheas
+    /// suene mucho mas fuerte que los pulsos, el tempo es el de la cancion (o
+    /// su mitad), y no el de pulso y medio, que dejaba el clic a contratiempo.
+    #[test]
+    fn a_three_three_two_syncopation_is_not_the_beat() {
+        let mono = syncopated(138.0, 40.0, 0.3);
+        let grid = analyze_samples(&mono, None).expect("analiza");
+        let bpm = f64::from(grid.bpm);
+        let near = |target: f64| (bpm / target - 1.0).abs() < 0.03;
+        assert!(near(138.0) || near(69.0), "tempo {bpm}: el de la sincopa seria 92");
+        let beat = if near(138.0) { 60.0 / 138.0 } else { 120.0 / 138.0 };
+        let on_beat = grid
+            .beats
+            .iter()
+            .filter(|&&b| {
+                let k = ((b - 0.3) / beat).round();
+                (b - (0.3 + k * beat)).abs() < 0.04
+            })
+            .count();
+        assert!(
+            on_beat as f64 >= 0.85 * grid.beats.len() as f64,
+            "solo {on_beat} de {} pulsos caen en pulsos de verdad",
+            grid.beats.len()
+        );
+    }
+
     #[test]
     fn a_slow_song_does_not_double() {
         let mono = song(72.0, 4, 40.0, 0.5);
@@ -830,7 +952,7 @@ mod tests {
 
     /// Con musica de verdad: `DANPLAY_BEATS_DIR=~/Musica cargo test --release
     /// beats::real -- --ignored --nocapture`. Imprime tempo, compas y
-    /// confianza de cada archivo; sirve para afinar, no para pasar o fallar.
+    /// confianza de cada archivo; sirve para refined, no para pasar o fallar.
     #[test]
     #[ignore = "necesita musica de verdad: DANPLAY_BEATS_DIR"]
     fn real_songs_report() {
@@ -839,7 +961,11 @@ mod tests {
         };
         let mut files: Vec<_> = walk(std::path::Path::new(&dir));
         files.sort();
-        for f in files.iter().take(40) {
+        let limit = std::env::var("DANPLAY_BEATS_LIMIT")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(40);
+        for f in files.iter().take(limit) {
             let path = f.to_string_lossy().into_owned();
             let started = std::time::Instant::now();
             match analyze(&path, None) {
@@ -855,6 +981,19 @@ mod tests {
                 Err(e) => println!("ERROR {e}  {}", f.file_name().unwrap().to_string_lossy()),
             }
         }
+    }
+    /// La rejilla de una cancion de verdad, entera, en JSON: para mirar a
+    /// mano por que el clic no encaja en una cancion concreta.
+    /// `DANPLAY_BEATS_FILE=cancion.mp3 DANPLAY_BEATS_OUT=rejilla.json`.
+    #[test]
+    #[ignore = "necesita una cancion de verdad: DANPLAY_BEATS_FILE"]
+    fn dump_one_grid() {
+        let (Ok(file), Ok(out)) = (std::env::var("DANPLAY_BEATS_FILE"), std::env::var("DANPLAY_BEATS_OUT")) else {
+            return;
+        };
+        let hint = std::env::var("DANPLAY_BEATS_HINT").ok().and_then(|h| h.parse().ok());
+        let g = analyze(&file, hint).expect("no se pudo analizar");
+        std::fs::write(&out, serde_json::to_string(&*g).expect("json")).expect("no se pudo escribir");
     }
     fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
         let mut out = Vec::new();
