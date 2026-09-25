@@ -18,9 +18,11 @@ import StarRating from './StarRating.vue'
 import Icon from './Icon.vue'
 import GroupHead from './GroupHead.vue'
 import EmptyState from './ui/EmptyState.vue'
+import CopyButton from './ui/CopyButton.vue'
 import { ref, watch, computed, onUnmounted, useTemplateRef } from 'vue'
 import { useSongList } from '../composables/useSongList.js'
-import { formatDuration } from '../utils/format.js'
+import { notifyCopied } from '../composables/useNotices.js'
+import { formatDuration, fullName } from '../utils/format.js'
 
 const props = defineProps({
   songs: { type: Array, required: true },
@@ -97,7 +99,8 @@ const COLS = [
   { k: 'key', cls: 'col-key', label: 'Tono', sort: 'key' },
   { k: 'bpm', cls: 'col-bpm', label: 'BPM', sort: 'bpm', desc: true },
   { k: 'dur', cls: 'col-dur', label: 'Dur.', sort: 'duration', desc: true },
-  { k: 'kbps', cls: 'col-kbps', label: 'Kbps', sort: 'bitrate', desc: true }
+  { k: 'kbps', cls: 'col-kbps', label: 'Kbps', sort: 'bitrate', desc: true },
+  { k: 'copy', cls: 'col-copy', label: '', hidden: 'Copiar el nombre completo' }
 ]
 
 // La tabla enseña todas sus columnas. Hubo un `columns` que venia de la vista
@@ -345,8 +348,18 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
               </button>
             </td>
             <td v-if="show.title" class="title">
-              {{ c.title || c.file }}
-              <span v-if="c.feat" class="sub"> · feat. {{ c.feat }}</span>
+              <!-- el texto se recorta; el copiar se queda siempre a la vista -->
+              <span class="cell-copiable"
+                ><span class="cell-text"
+                  >{{ c.title || c.file
+                  }}<span v-if="c.feat" class="sub"> · feat. {{ c.feat }}</span></span
+                ><CopyButton
+                  class="list-copy"
+                  :text="c.title || c.file"
+                  what="el título"
+                  :size="12"
+                  @copied="(ok) => notifyCopied(ok, c.title || c.file)"
+              /></span>
             </td>
             <td v-if="show.artist" class="sub">{{ c.artist || '—' }}</td>
             <td v-if="show.album" class="sub">{{ c.album || '—' }}</td>
@@ -363,6 +376,16 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
             <td v-if="show.dur" class="col-dur mono sub">{{ formatDuration(c.duration) }}</td>
             <td v-if="show.kbps" class="col-kbps mono sub">
               {{ c.bitrate ? Math.round(c.bitrate / 1000) : '—' }}
+            </td>
+            <td v-if="show.copy" class="col-copy">
+              <CopyButton
+                class="list-copy"
+                :text="fullName(c)"
+                what="el nombre completo"
+                label="nombre"
+                :size="11"
+                @copied="(ok) => notifyCopied(ok, fullName(c))"
+              />
             </td>
           </tr>
         </template>

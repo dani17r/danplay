@@ -10,9 +10,11 @@ import Icon from './Icon.vue'
 import GroupHead from './GroupHead.vue'
 import StarRating from './StarRating.vue'
 import EmptyState from './ui/EmptyState.vue'
+import CopyButton from './ui/CopyButton.vue'
 import { useTemplateRef } from 'vue'
 import { useSongList } from '../composables/useSongList.js'
-import { formatDuration } from '../utils/format.js'
+import { notifyCopied } from '../composables/useNotices.js'
+import { formatDuration, fullName } from '../utils/format.js'
 
 const props = defineProps({
   songs: { type: Array, required: true },
@@ -127,6 +129,13 @@ const {
           <Icon :n="rowIcon(c)" :t="12" />
         </button>
         <span class="row-title">{{ c.title || c.file }}</span>
+        <CopyButton
+          class="list-copy"
+          :text="c.title || c.file"
+          what="el título"
+          :size="12"
+          @copied="(ok) => notifyCopied(ok, c.title || c.file)"
+        />
         <span class="row-artist sub">{{ c.artist || '—' }}</span>
         <span class="row-extra sub mono">{{ c.key || '' }}</span>
         <StarRating
@@ -148,6 +157,14 @@ const {
           <Icon :n="c.favorite ? 'heartFull' : 'heart'" :t="14" />
         </button>
         <span class="row-dur sub mono">{{ formatDuration(c.duration) }}</span>
+        <CopyButton
+          class="list-copy"
+          :text="fullName(c)"
+          what="el nombre completo"
+          label="nombre"
+          :size="11"
+          @copied="(ok) => notifyCopied(ok, fullName(c))"
+        />
       </div>
     </div>
     <div

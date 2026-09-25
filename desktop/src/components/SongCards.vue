@@ -12,9 +12,11 @@ import GroupHead from './GroupHead.vue'
 import StarRating from './StarRating.vue'
 import CoverArt from './ui/CoverArt.vue'
 import EmptyState from './ui/EmptyState.vue'
+import CopyButton from './ui/CopyButton.vue'
 import { useTemplateRef } from 'vue'
 import { useSongList } from '../composables/useSongList.js'
-import { formatDuration } from '../utils/format.js'
+import { notifyCopied } from '../composables/useNotices.js'
+import { formatDuration, fullName } from '../utils/format.js'
 
 const props = defineProps({
   songs: { type: Array, required: true },
@@ -142,7 +144,16 @@ const {
           </button>
         </div>
         <div class="card-txt">
-          <div class="card-title">{{ c.title || c.file }}</div>
+          <div class="card-title-row">
+            <div class="card-title">{{ c.title || c.file }}</div>
+            <CopyButton
+              class="list-copy"
+              :text="c.title || c.file"
+              what="el título"
+              :size="11"
+              @copied="(ok) => notifyCopied(ok, c.title || c.file)"
+            />
+          </div>
           <div class="card-sub sub">
             {{ c.artist || '—' }}<template v-if="c.album"> · {{ c.album }}</template>
           </div>
@@ -165,6 +176,14 @@ const {
               <Icon :n="c.favorite ? 'heartFull' : 'heart'" :t="13" />
             </button>
             <span class="sub mono card-dur">{{ formatDuration(c.duration) }}</span>
+            <CopyButton
+              class="list-copy"
+              :text="fullName(c)"
+              what="el nombre completo"
+              label="nombre"
+              :size="10"
+              @copied="(ok) => notifyCopied(ok, fullName(c))"
+            />
           </div>
         </div>
       </div>

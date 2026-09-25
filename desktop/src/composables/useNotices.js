@@ -28,6 +28,15 @@ export function notify(message, kind = 'info', seconds = 6) {
   return id
 }
 
+/**
+ * El aviso de «copiado», con lo que se copió (el portapapeles no se ve, y
+ * así se sabe qué va dentro), o de que no se pudo.
+ * @param {boolean} ok @param {string} text
+ */
+export function notifyCopied(ok, text) {
+  notify(ok ? `Copiado: ${text}` : 'No se pudo copiar', ok ? 'ok' : 'info', ok ? 3 : 6)
+}
+
 /** @param {number} id */
 export function dismiss(id) {
   clearTimeout(timers.get(id))

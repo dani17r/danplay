@@ -70,3 +70,19 @@ export function formatMegabytes(bytes) {
  * @returns {string}
  */
 export const formatGigabytes = (bytes) => (bytes / 1073741824).toFixed(2)
+
+/**
+ * El nombre completo de una canción, como el de su archivo pero sin la
+ * extensión: «Barak - Mi Gozo (feat. …)». Es lo que se copia para buscarla;
+ * sin archivo, «Artista - Título».
+ * @param {{ file?: string, title?: string, artist?: string }|null|undefined} song
+ * @returns {string}
+ */
+export function fullName(song) {
+  const file = String(song?.file || '')
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .trim()
+  if (file) return file
+  const title = String(song?.title || '').trim()
+  return song?.artist ? `${song.artist} - ${title}` : title
+}

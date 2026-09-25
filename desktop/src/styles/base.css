@@ -555,13 +555,37 @@ td {
 .col-kbps {
   width: 70px;
 }
+/* copiar el nombre completo: el ultimo, sin cabecera. Lo justo para la
+   pildora «nombre» (66px) con poco relleno: el sitio es del titulo */
+.col-copy {
+  width: 78px;
+  text-overflow: clip;
+}
+td.col-copy {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+/* una celda con texto que se recorta y un boton que no */
+.cell-copiable {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.cell-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* las columnas estrechas no pueden gastar 20px en relleno */
 thead th.col-key,
 thead th.col-bpm,
 thead th.col-dur,
 thead th.col-kbps,
 thead th.col-n,
-thead th.col-fav {
+thead th.col-fav,
+thead th.col-copy {
   padding-left: 6px;
   padding-right: 6px;
 }

@@ -235,6 +235,34 @@ body.dragging-song .search-results {
   opacity: 1;
   color: var(--accent);
 }
+/* con una palabra al lado (el «nombre» de las listas), para no confundirlo
+   con el copiar del titulo, que va cerca */
+.copy-btn.with-label {
+  width: auto;
+  height: 20px;
+  gap: 3px;
+  padding: 0 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border2);
+}
+.copy-label {
+  font-size: 10.5px;
+  line-height: 1;
+}
+/* en las listas: copiar el titulo y el nombre completo de cada cancion. Se
+   ven tenues siempre (hay que saber que estan) y enteros al pasar por la
+   fila; con el teclado tambien */
+.copy-btn.list-copy {
+  opacity: 0.35;
+}
+.row:hover .copy-btn.list-copy,
+tr:hover .copy-btn.list-copy,
+.card-song:hover .copy-btn.list-copy,
+.tile:hover .copy-btn.list-copy,
+.copy-btn.list-copy:focus-visible,
+.copy-btn.list-copy.done {
+  opacity: 1;
+}
 .copiable {
   display: flex;
   align-items: center;

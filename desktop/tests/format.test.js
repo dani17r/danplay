@@ -7,7 +7,8 @@ import {
   formatMinutes,
   formatAgo,
   formatMegabytes,
-  formatGigabytes
+  formatGigabytes,
+  fullName
 } from '../src/utils/format.js'
 import { groupKey, groupSongs, groupedOrder } from '../src/utils/groups.js'
 import { song } from './support/backend.js'
@@ -81,5 +82,23 @@ describe('agrupar', () => {
     expect(groupKey(vacia, 'initial')).toBe('X')
     expect(groupKey({ ...vacia, folder: '' }, 'folder')).toBe('(raíz)')
     expect(groupKey(vacia, 'otra cosa')).toBe('—')
+  })
+})
+
+describe('el nombre completo de una cancion', () => {
+  it('es el de su archivo sin la extension', () => {
+    expect(
+      fullName({
+        file: 'New Wine - A Una Voz + Shekinah (En Vivo, Version Larga).mp3',
+        title: 'A Una Voz + Shekinah',
+        artist: 'New Wine'
+      })
+    ).toBe('New Wine - A Una Voz + Shekinah (En Vivo, Version Larga)')
+    expect(fullName({ file: 'Barak - Mi Gozo.flac' })).toBe('Barak - Mi Gozo')
+  })
+  it('sin archivo, «Artista - Titulo»', () => {
+    expect(fullName({ title: 'Mi Gozo', artist: 'Barak' })).toBe('Barak - Mi Gozo')
+    expect(fullName({ title: 'Mi Gozo' })).toBe('Mi Gozo')
+    expect(fullName(null)).toBe('')
   })
 })

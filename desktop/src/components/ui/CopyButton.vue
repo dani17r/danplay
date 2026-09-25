@@ -17,7 +17,9 @@ const props = defineProps({
   text: { type: [String, Number], default: '' },
   /** Que se copio, para el aviso: «Titulo copiado». */
   what: { type: String, default: '' },
-  size: { type: Number, default: 13 }
+  size: { type: Number, default: 13 },
+  /** Una palabra al lado del icono, para distinguirlo de otro «copiar» cerca. */
+  label: { type: String, default: '' }
 })
 const emit = defineEmits(['copied'])
 
@@ -69,11 +71,13 @@ async function copiar() {
     v-if="String(text ?? '').trim()"
     type="button"
     class="copy-btn"
-    :class="{ done: listo }"
+    :class="{ done: listo, 'with-label': !!label }"
     :title="listo ? 'Copiado' : what ? 'Copiar ' + what : 'Copiar'"
     :aria-label="what ? 'Copiar ' + what : 'Copiar'"
     @click.stop="copiar"
+    @dblclick.stop
   >
     <Icon :n="listo ? 'check' : 'copy'" :t="size" />
+    <span v-if="label" class="copy-label">{{ label }}</span>
   </button>
 </template>

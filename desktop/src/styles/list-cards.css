@@ -77,7 +77,14 @@
   flex-direction: column;
   gap: 2px;
 }
+.card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
 .card-title {
+  min-width: 0;
   font-size: 12.5px;
   font-weight: 500;
   overflow: hidden;
@@ -202,6 +209,12 @@ td {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.tile .tile-copy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
 }
 .tile .sub2 {
   font-size: 11.5px;

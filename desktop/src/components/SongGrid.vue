@@ -9,8 +9,11 @@ import Icon from './Icon.vue'
 import GroupHead from './GroupHead.vue'
 import CoverArt from './ui/CoverArt.vue'
 import EmptyState from './ui/EmptyState.vue'
+import CopyButton from './ui/CopyButton.vue'
 import { useTemplateRef } from 'vue'
 import { useSongList } from '../composables/useSongList.js'
+import { notifyCopied } from '../composables/useNotices.js'
+import { fullName } from '../utils/format.js'
 
 const props = defineProps({
   songs: { type: Array, required: true },
@@ -151,6 +154,23 @@ const {
           />{{ c.title || c.file }}
         </div>
         <div class="sub2">{{ c.artist || '—' }}</div>
+        <div class="tile-copy">
+          <CopyButton
+            class="list-copy"
+            :text="c.title || c.file"
+            what="el título"
+            :size="11"
+            @copied="(ok) => notifyCopied(ok, c.title || c.file)"
+          />
+          <CopyButton
+            class="list-copy"
+            :text="fullName(c)"
+            what="el nombre completo"
+            label="nombre"
+            :size="10"
+            @copied="(ok) => notifyCopied(ok, fullName(c))"
+          />
+        </div>
         <div
           v-if="c.stars"
           class="sub2"

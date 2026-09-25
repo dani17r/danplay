@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import SongTable from '../src/components/SongTable.vue'
 import SongRows from '../src/components/SongRows.vue'
 import SongCards from '../src/components/SongCards.vue'
 import SongGrid from '../src/components/SongGrid.vue'
 import GroupedSongs from '../src/components/GroupedSongs.vue'
+import { useNotices } from '../src/composables/useNotices.js'
 
 // Lo que se puede hacer con una fila es lo mismo en las cuatro vistas, y
 // tambien agrupadas: al agrupar se perdia por el camino el evento del clic (y
@@ -88,6 +89,33 @@ for (const agrupada of [false, true]) {
             expect(emitido(w, 'select'), 'marcar no deberia elegir la fila').toBeFalsy()
           })
         }
+
+        it('copia el titulo y el nombre completo sin elegir ni poner a sonar la fila', async () => {
+          const escrito = []
+          Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { writeText: async (t) => escrito.push(t) }
+          })
+          const { notices, clearNotices } = useNotices()
+          clearNotices()
+          const songs = [song(1), song(2, { file: 'Barak - Cancion 2 (En Vivo).mp3' }), song(3)]
+          const w = montar(Vista, layout, agrupada, { songs })
+          const fila = w.findAll('[data-song-row]').find((f) => f.text().includes('Cancion 2'))
+          const titulo = fila.find('button[aria-label="Copiar el título"]')
+          const completo = fila.find('button[aria-label="Copiar el nombre completo"]')
+          expect(completo.text(), 'el de al final dice que es el nombre').toContain('nombre')
+          await titulo.trigger('click')
+          await completo.trigger('click')
+          await completo.trigger('dblclick')
+          await flushPromises()
+          expect(escrito).toEqual(['Cancion 2', 'Barak - Cancion 2 (En Vivo)'])
+          expect(notices.value.map((n) => n.message)).toContain(
+            'Copiado: Barak - Cancion 2 (En Vivo)'
+          )
+          expect(emitido(w, 'select'), 'copiar no elige la fila').toBeFalsy()
+          expect(emitido(w, 'play'), 'ni el doble clic en el boton la pone a sonar').toBeFalsy()
+          clearNotices()
+        })
 
         it('la duracion se lee en minutos, igual en todas', () => {
           const w = montar(Vista, layout, agrupada)
