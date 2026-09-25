@@ -19,19 +19,27 @@ prueban las cosas y en qué se puede ayudar.
 ```bash
 git clone https://github.com/dani17r/danplay.git && cd danplay
 
-python3 -m venv .venv
-# `requirements-dev.txt` trae también pytest, maturin y PyInstaller
-.venv/bin/python -m pip install -r requirements-dev.txt
+# el .venv con TODO lo del cerrojo (uv.lock): el núcleo, las pruebas, las
+# herramientas de estilo y tipos, PyInstaller y el crate de Rust que usa
+# Python (hashes y forma de onda), compilado y editable
+uv sync
 
-# el crate de Rust que usa Python (hashes y análisis de audio)
-.venv/bin/maturin develop --release -m core/Cargo.toml
-
-cd desktop && npm install && cd ..
+cd desktop && npm ci && cd ..
 cp .env.example .env
 ```
 
-Para usar DanPlay sin tocarlo basta con `requirements.txt`, que solo lleva lo
-necesario para ejecutarlo (sin compilador de Rust).
+Las dependencias de Python se gestionan con [uv](https://docs.astral.sh/uv/):
+`pyproject.toml` dice qué hace falta, en rangos, y `uv.lock` fija la versión
+exacta de todo, también de lo que arrastran. Añadir o subir una:
+`uv add paquete` / `uv lock --upgrade-package paquete`, y luego
+`.venv/bin/python scripts/exportar-requisitos.py`, que regenera los
+`requirements*.txt` (con hashes) para quien use pip:
+
+```bash
+pip install -r requirements.txt                          # solo ejecutarlo
+pip install -r requirements.txt -r requirements-test.txt # y probarlo, sin Rust
+pip install -r requirements-dev.txt                      # todo, como uv sync
+```
 
 Opcional, para la huella acústica y la conversión de formatos:
 
@@ -44,13 +52,39 @@ y diciéndolo en Ajustes.
 
 ## Ejecutar
 
+Mientras desarrollas, la app entera en modo desarrollo:
+
+```bash
+./scripts/dev.sh                   # con tus datos de siempre
+./scripts/dev.sh --prueba ~/Musica # con datos aparte y una COPIA de esas canciones
+```
+
+Es la app de escritorio de verdad (Tauri) con la interfaz servida por Vite:
+lo que cambias en `desktop/src` se ve al momento, y el núcleo Python se
+arranca **desde el código del proyecto** (su `.venv`), no desde el binario
+empaquetado, así que un cambio en `danplay/` se ve al volver a abrirla. La
+compilación de desarrollo usa su propio identificador, su socket y su nombre
+en MPRIS y en la bandeja: convive con DanPlay instalado sin pisarle nada.
+
+`--prueba` guarda ajustes, base e índice en `.dev/prueba/` (fuera de git) y
+copia allí las canciones que le des: la app escribe etiquetas y la importación
+mueve archivos, y así tu música no se toca. Sin carpeta, genera unas
+canciones con ffmpeg. `--prueba --limpia` empieza de cero.
+
+En un clon recién hecho no hay núcleo empaquetado, y Tauri exige que exista
+para compilar: `npm run app` (lo que lanza `dev.sh`) deja uno de relleno
+(`desktop/scripts/sidecar.mjs`) que la app reconoce e ignora.
+`DANPLAY_CORE=fuente|empaquetado` elige a mano de dónde sale el núcleo.
+
+Para la versión que se instala:
+
 ```bash
 ./scripts/build.sh     # compila las cuatro capas, en orden
-./danplay-app.sh       # la app de escritorio
+./danplay-app.sh       # la app de escritorio compilada
 ./danplay.sh status    # la línea de comandos
 ```
 
-Para trastear solo con la interfaz, sin recompilar Rust:
+Y solo la interfaz en el navegador, sin Rust:
 
 ```bash
 .venv/bin/python -m danplay.cli serve      # API en el puerto 8730
@@ -63,27 +97,30 @@ cd desktop && npm run dev                  # Vite en el 5273, con proxy
 ./scripts/test.sh
 ```
 
-Son siete tandas y todas tienen que pasar:
+Es lo mismo que comprueba la CI en cada push, y todo tiene que pasar:
 
 | Tanda | Qué cubre |
 | --- | --- |
-| Núcleo Python | nombres, etiquetas, duplicados, teoría musical, índice |
-| API | los endpoints sobre una biblioteca temporal de verdad |
-| Frontend (URLs) | cómo se construyen las rutas de medios en cada sistema |
-| Frontend (estilo) | ESLint y stylelint |
-| Frontend (vitest) | componentes, reactividad, temas, listas grandes, contratos |
-| Rust | hashes, análisis de audio, reproductor, cola y bandeja |
+| Núcleo Python | ruff (estilo y formato), basedpyright (tipos) y pytest con cobertura (mínimo 70 %): nombres, etiquetas, índice, API sobre una biblioteca temporal de verdad, IA, descargas, vigilante de carpetas |
+| Interfaz | ESLint, stylelint, Prettier, vue-tsc (tipos) y Vitest: componentes, reactividad, contratos, listas grandes |
+| Interfaz (URLs) | cómo se construyen las rutas de medios en cada sistema |
+| Rust | rustfmt, clippy sin avisos y las pruebas del workspace: hashes, forma de onda, reproductor, cola, bandeja, permisos por ventana |
+| e2e | la interfaz de verdad contra el núcleo de verdad, en Chrome (Playwright) |
 | Humo | la app **ya compilada**: socket, permisos, bandeja, ciclo de vida |
 
-`./scripts/test.sh --rapido` se salta las de humo, que arrancan la aplicación
-de verdad.
+`./scripts/test.sh --rapido` se salta las e2e y las de humo.
+
+Las pruebas de Python **nunca tocan tus datos**: `tests/conftest.py` pone
+HOME y las carpetas XDG en un temporal y corta la red antes de importar nada.
 
 Una tanda suelta, mientras trabajas:
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-cd desktop && npm run check      # lint + css + pruebas
-cd core && cargo test --release
+.venv/bin/python -m pytest                       # todo el núcleo, con cobertura
+.venv/bin/python -m pytest tests/test_watch.py --no-cov
+cd desktop && npm run check                      # lint + css + formato + pruebas
+cd desktop && npm run e2e                        # los flujos en Chrome
+PYO3_BUILD_EXTENSION_MODULE=1 cargo test --workspace --release
 ```
 
 ### Cómo se escriben aquí las pruebas
@@ -150,16 +187,20 @@ Cuánto se sube lo decide quien hace el cambio, con versionado semántico
 
 Si un mismo bloque de cambios mezcla arreglos y funciones, manda el mayor.
 
-La versión vive en ocho archivos y no se toca a mano:
+La versión se escribe en tres sitios (`danplay/__init__.py`, el `Cargo.toml`
+de la raíz, que heredan los dos crates y del que la toman Tauri y maturin, y
+`desktop/package.json`) y no se toca a mano:
 
 ```bash
 ./scripts/subir-version.sh 1.3.0
 ```
 
-Eso deja los ocho iguales (y los cerrojos de Cargo y npm). Después,
-`./scripts/test.sh --rapido` —hay una prueba que falla si alguno se queda
-atrás—, un **commit propio** (`chore: subir a 1.3.0`, sin mezclarlo con el
-cambio) y se reconstruyen los paquetes, que llevan el número en el nombre.
+Eso los deja iguales, con los cerrojos (Cargo, npm y uv) y la insignia del
+README. Después, `./scripts/test.sh --rapido` —hay una prueba que falla si
+alguno se queda atrás—, un **commit propio** (`chore: subir a 1.3.0`, sin
+mezclarlo con el cambio) y, para publicarla, una etiqueta:
+`git tag v1.3.0 && git push --tags`. Con ella la CI construye el `.deb`, el
+`.AppImage` y el instalador de Windows y los deja en esa versión de GitHub.
 
 ## Estilo
 
@@ -169,6 +210,9 @@ cambio) y se reconstruyen los paquetes, que llevan el número en el nombre.
 - Los comentarios explican **por qué**, no qué. Si algo está hecho de una forma
   rara, el comentario cuenta qué pasó cuando se hizo de la forma normal.
 - Sin acentos en nombres de archivo generados. La ñ se conserva.
+- El formato no se discute: lo ponen `ruff format` (Python), `cargo fmt`
+  (Rust) y Prettier (interfaz), y la CI falla si algo no está formateado.
+  `.editorconfig` hace que cualquier editor empiece bien.
 
 ## Dónde se puede ayudar
 

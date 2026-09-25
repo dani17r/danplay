@@ -3,11 +3,12 @@
 #
 #   ./scripts/subir-version.sh 1.2.0
 #
-# La version esta escrita en ocho archivos (Python, dos crates de Rust, el
-# empaquetador, la interfaz, sus cerrojos y la insignia del README). Subirla a
-# mano en unos y no en otros es lo que pasaba; hay una prueba que falla si no
-# coinciden (test_all_the_pieces_carry_the_same_version), pero mejor no darle
-# la ocasion.
+# La version se escribe en tres sitios: el nucleo Python (danplay/__init__.py,
+# de donde la lee pyproject.toml), el workspace de Cargo (Cargo.toml de la
+# raiz, que heredan los dos crates; Tauri y maturin la toman de ahi) y la
+# interfaz (desktop/package.json). Ademas la repiten los cerrojos y la
+# insignia del README. Hay una prueba que falla si no coinciden
+# (test_all_the_pieces_carry_the_same_version), pero mejor no darle la ocasion.
 #
 # Regla de la casa: CADA cambio que se entrega sube la version (ver
 # docs/CONTRIBUIR.md, «La version»). Sin subirla, `apt install` con el mismo
@@ -30,24 +31,19 @@ fi
 # Solo la linea que toca en cada archivo: la version del paquete, nunca la de
 # una dependencia que casualmente lleve el mismo numero.
 sed -i "s/^__version__ = \"$actual\"/__version__ = \"$nueva\"/" danplay/__init__.py
-sed -i "0,/^version = \"$actual\"/s//version = \"$nueva\"/" pyproject.toml
-sed -i "0,/^version = \"$actual\"/s//version = \"$nueva\"/" core/pyproject.toml
-sed -i "0,/^version = \"$actual\"/s//version = \"$nueva\"/" core/Cargo.toml
-sed -i "0,/^version = \"$actual\"/s//version = \"$nueva\"/" desktop/src-tauri/Cargo.toml
-sed -i "0,/\"version\": \"$actual\"/s//\"version\": \"$nueva\"/" desktop/src-tauri/tauri.conf.json
+sed -i "0,/^version = \"$actual\"/s//version = \"$nueva\"/" Cargo.toml
 sed -i "0,/\"version\": \"$actual\"/s//\"version\": \"$nueva\"/" desktop/package.json
 sed -i "s|badge/version-$actual-|badge/version-$nueva-|" README.md
 
-# Los cerrojos de Cargo llevan la version del propio crate: si no se tocan,
-# el siguiente `cargo build` los reescribe y el arbol queda sucio.
-for lock in core/Cargo.lock desktop/src-tauri/Cargo.lock; do
-    [ -f "$lock" ] || continue
+# El cerrojo de Cargo lleva la version de los dos crates del workspace: si no
+# se toca, el siguiente `cargo build` lo reescribe y el arbol queda sucio.
+if [ -f Cargo.lock ]; then
     awk -v a="$actual" -v n="$nueva" '
         /^name = "danplay/ { mine = 1; print; next }
         mine && /^version = / { sub("\"" a "\"", "\"" n "\""); mine = 0 }
-        { print }' "$lock" > "$lock.tmp" && mv "$lock.tmp" "$lock"
-done
-# y el de npm, que repite la version dos veces (raiz y paquete "")
+        { print }' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock
+fi
+# el de npm, que repite la version dos veces (raiz y paquete "")
 if [ -f desktop/package-lock.json ]; then
     python3 - "$nueva" <<'EOF'
 import json, sys, pathlib
@@ -59,12 +55,16 @@ if "" in d.get("packages", {}):
 p.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 EOF
 fi
+# y el de uv, que apunta la version del propio paquete y la del crate
+if command -v uv >/dev/null 2>&1 && [ -f uv.lock ]; then
+    uv lock --quiet || echo "  (uv lock no pudo: ejecutalo tu antes del commit)" >&2
+else
+    echo "  sin uv: ejecuta «uv lock» antes del commit para poner al dia uv.lock" >&2
+fi
 
 echo "version: $actual -> $nueva"
-grep -rn --include='*.toml' --include='*.json' --include='*.py' --include='README.md' \
-    -e "\"$nueva\"" -e "version-$nueva-" \
-    danplay/__init__.py pyproject.toml core/pyproject.toml core/Cargo.toml \
-    desktop/src-tauri/Cargo.toml desktop/src-tauri/tauri.conf.json desktop/package.json README.md \
-    | sed 's/^/  /'
+grep -n -e "\"$nueva\"" -e "version-$nueva-" \
+    danplay/__init__.py Cargo.toml desktop/package.json README.md | sed 's/^/  /'
 echo
-echo "Ahora: ./scripts/test.sh --rapido, commit propio («chore: subir a $nueva») y reconstruir los paquetes."
+echo "Ahora: ./scripts/test.sh --rapido, commit propio («chore: subir a $nueva»),"
+echo "y para publicarla: git tag v$nueva && git push --tags (la CI construye los paquetes)."

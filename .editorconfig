@@ -1,0 +1,21 @@
+# Lo basico para que cualquier editor escriba como el resto del proyecto.
+# El formato fino lo ponen ruff (Python), rustfmt (Rust) y Prettier (interfaz).
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{js,mjs,vue,css,json,jsonc,yml,yaml,html}]
+indent_size = 2
+
+[*.md]
+# dos espacios al final de una linea son un salto de linea en Markdown
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

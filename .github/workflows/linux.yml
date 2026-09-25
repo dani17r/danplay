@@ -1,0 +1,101 @@
+# Los paquetes de Linux (.deb y .AppImage), como hace `scripts/build.sh
+# --package` en tu equipo pero en una maquina limpia.
+#
+# En Ubuntu 22.04 a proposito: lo que se compila contra una glibc nueva no
+# arranca en una vieja, y al reves si. Asi el .AppImage y el nucleo
+# empaquetado funcionan tambien en distribuciones de hace unos años.
+#
+# Con una etiqueta de version (`git tag v1.13.0 && git push --tags`) los
+# publica en esa version, junto al instalador de Windows (`windows.yml`).
+name: linux
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write     # publicar los paquetes en la version
+
+jobs:
+  paquetes:
+    name: .deb y .AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: dependencias de Tauri
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            patchelf libasound2-dev libdbus-1-dev libayatana-appindicator3-dev file
+
+      - name: núcleo empaquetado
+        run: |
+          python -m pip install --upgrade pip
+          # con hashes (salen de uv.lock); PyInstaller aparte, que en una orden
+          # con hashes no se puede mezclar uno sin ellos
+          pip install -r requirements.txt
+          pip install "$(grep -i '^pyinstaller==' requirements-dev.txt)"
+          # la foto del catalogo de modelos de IA, la de hoy (sin red se queda la que hay)
+          python scripts/actualizar-modelos.py || true
+          pyinstaller --noconfirm --clean --distpath dist/core packaging/core.spec
+          test -x dist/core/danplay-core
+
+      - name: el núcleo arranca y responde
+        run: |
+          sock=$(mktemp -u)
+          dist/core/danplay-core --uds "$sock" &
+          pid=$!
+          for i in $(seq 1 30); do
+            curl -sf --unix-socket "$sock" http://x/api/status > /dev/null && break
+            sleep 1
+          done
+          curl -sf --unix-socket "$sock" http://x/api/status > /dev/null
+          kill $pid
+
+      - name: el núcleo, junto a la app
+        run: |
+          triple=$(rustc -vV | awk '/^host:/{print $2}')
+          mkdir -p desktop/src-tauri/binaries
+          cp dist/core/danplay-core "desktop/src-tauri/binaries/danplay-core-$triple"
+
+      - name: paquetes
+        working-directory: desktop
+        env:
+          # linuxdeploy es a su vez un AppImage, y en la maquina de CI no hay FUSE
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: |
+          npm ci
+          npx tauri build --bundles deb,appimage
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: danplay-linux
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+      - name: publicar en la versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage

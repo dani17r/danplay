@@ -3,7 +3,7 @@
 # la seguridad y el ciclo de vida, y la cierra.
 set -u
 RAIZ=$(cd "$(dirname "$0")/.." && pwd)
-APP="${1:-$RAIZ/desktop/src-tauri/target/release/danplay-app}"
+APP="${1:-$RAIZ/target/release/danplay-app}"
 # El socket vive en un directorio propio con permisos 0700. Antes estaba
 # suelto en $XDG_RUNTIME_DIR (o, sin el, en /tmp, que es de todos).
 BASE="${XDG_RUNTIME_DIR:-$HOME/.cache}"
@@ -15,6 +15,29 @@ pasa () { echo "  ok    $1"; ok=$((ok+1)); }
 falla () { echo "  FALLA $1"; mal=$((mal+1)); }
 
 [ -x "$APP" ] || { echo "no encuentro la app en $APP"; exit 2; }
+command -v ffmpeg >/dev/null 2>&1 || { echo "hace falta ffmpeg para la biblioteca de prueba"; exit 2; }
+
+# Todo aparte: ajustes, base, indice y una biblioteca propia, en un temporal.
+# Antes la prueba usaba los datos de quien la lanzara (y fallaba si su
+# biblioteca estaba vacia); ahora no toca nada tuyo y da lo mismo en
+# cualquier equipo.
+PRUEBA=$(mktemp -d)
+trap 'rm -rf "$PRUEBA"' EXIT
+export XDG_CONFIG_HOME="$PRUEBA/config" XDG_DATA_HOME="$PRUEBA/datos" XDG_CACHE_HOME="$PRUEBA/cache"
+export DANPLAY_PROJECT_ENV=0 DANPLAY_LIBRARY="$PRUEBA/Musica"
+mkdir -p "$PRUEBA/Musica/Artistas/Prueba"
+# una con caratula (para las miniaturas) y otra sin ella. En dos pasos: con la
+# imagen como segunda entrada, ffmpeg cierra la salida al acabarse su unico
+# fotograma y el audio se quedaba en 0,05 s.
+A="$PRUEBA/Musica/Artistas/Prueba"
+ffmpeg -loglevel error -f lavfi -i "sine=frequency=440:duration=3" -c:a libmp3lame -b:a 128k \
+    "$PRUEBA/tono.mp3" || { echo "ffmpeg no pudo"; exit 2; }
+ffmpeg -loglevel error -f lavfi -i "color=c=teal:s=600x600" -frames:v 1 "$PRUEBA/portada.jpg"
+ffmpeg -loglevel error -i "$PRUEBA/tono.mp3" -i "$PRUEBA/portada.jpg" -map 0 -map 1 -c copy \
+    -disposition:v attached_pic -metadata artist=Prueba -metadata title="Con portada" \
+    "$A/Prueba - Con portada.mp3"
+ffmpeg -loglevel error -i "$PRUEBA/tono.mp3" -c copy \
+    -metadata artist=Prueba -metadata title="Sin portada" "$A/Prueba - Sin portada.mp3"
 rm -f "$SOCK"
 # se lanza en su propio grupo y se sigue SOLO a este proceso: si hay otras
 # instancias abiertas (la del usuario, por ejemplo) no deben confundir la prueba
@@ -54,18 +77,30 @@ if command -v busctl >/dev/null 2>&1 && [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; 
 fi
 
 pide () { curl -s --unix-socket "$SOCK" "http://localhost$1"; }
+envia () { curl -s --unix-socket "$SOCK" -X POST -H 'content-type: application/json' -d "$2" "http://localhost$1"; }
 pide /api/status | grep -q '"stats"' && pasa "responde /api/status" || falla "/api/status"
+
+# la biblioteca de prueba: se da de alta y se escanea (una tarea larga: se
+# espera a que acabe consultando /api/jobs)
+envia /api/folders "{\"path\": \"$PRUEBA/Musica\"}" | grep -q '"added"' \
+  && pasa "da de alta una carpeta" || falla "no dio de alta la carpeta"
+envia /api/scan '{}' >/dev/null
+i=0; while [ $i -lt 30 ]; do
+  pide /api/jobs/escaneo | grep -q '"active":false' && break; i=$((i+1)); sleep 1
+done
+pide /api/status | grep -q '"total":2' && pasa "escanea en segundo plano (2 canciones)" \
+  || falla "el escaneo no indexo las 2 canciones"
 pide /api/facets | grep -q '"artists"' && pasa "responde /api/facets" || falla "/api/facets"
 pide "/api/search?limit=1" | grep -q '"songs"' && pasa "responde /api/search" || falla "/api/search"
 pide /api/playlists | grep -q '"playlists"' && pasa "responde /api/playlists" || falla "/api/playlists"
 pide /api/folders | grep -q '"folders"' && pasa "responde /api/folders" || falla "/api/folders"
 
-CID=$(pide "/api/search?limit=1" | "$PY" -c "import json,sys;d=json.load(sys.stdin)['songs'];print(d[0]['id'] if d else '')" 2>/dev/null)
+CID=$(pide "/api/search?q=portada&limit=5" | "$PY" -c "import json,sys;d=[s for s in json.load(sys.stdin)['songs'] if s['title']=='Con portada'];print(d[0]['id'] if d else '')" 2>/dev/null)
 if [ -n "$CID" ]; then
   pide "/api/song/$CID/path" | grep -q '"path"' \
     && pasa "Rust puede obtener la ruta del audio" || falla "/api/song/N/path"
   N=$(pide "/api/song/$CID/audio" | wc -c)
-  [ "$N" -gt 1000 ] && pasa "el audio se sirve ($((N/1024)) KB)" || falla "audio vacio"
+  [ "$N" -gt 20000 ] && pasa "el audio se sirve ($((N/1024)) KB)" || falla "audio vacio"
   # una miniatura no puede pesar mas que la portada entera
   GRANDE=$(pide "/api/song/$CID/cover" | wc -c)
   CHICA=$(pide "/api/song/$CID/cover?size=96" | wc -c)

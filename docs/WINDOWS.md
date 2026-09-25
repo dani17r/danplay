@@ -27,7 +27,7 @@ asociaciones de archivo y el desinstalador.
 | **Accesos directos** | ninguno | menú Inicio y escritorio (se puede desmarcar) |
 | **«Abrir con DanPlay»** | lo activa la propia app desde Ajustes | lo deja puesto el instalador |
 | **Desinstalador** | borrar la carpeta | sí, y sale en «Aplicaciones instaladas» |
-| **ffmpeg y fpcalc** | solo con `--herramientas` | siempre |
+| **ffmpeg, fpcalc y Deno** | solo con `--herramientas` | siempre (el de la CI; ver abajo) |
 | **Tamaño** | 273 MB (98 MB comprimido) con herramientas; 74 MB (25 MB) sin ellas | 71 MB |
 
 ## Actualizar
@@ -99,7 +99,11 @@ un solo ejecutable en vez del Python embebido:
 2. Ejecuta las pruebas del núcleo **en Windows**.
 3. Empaqueta el núcleo con PyInstaller y **comprueba que arranca y contesta**,
    y que sin el token no contesta.
-4. Descarga `ffmpeg` y `fpcalc` y los mete dentro.
+4. Descarga `ffmpeg` 9.0.2, `fpcalc` 1.6.1 y Deno 2.9.7 (el motor de
+   JavaScript que YouTube exige a yt-dlp), **con versión fija y comprobando
+   su SHA-256**, y los mete dentro. Antes se bajaba «la última» sin comprobar
+   nada: dos instaladores de la misma versión podían llevar un ffmpeg
+   distinto. Para subir una, se cambian la URL y la suma en el propio flujo.
 5. Compila la aplicación y genera el instalador NSIS.
 6. Lo deja como artefacto descargable; con una etiqueta `v*`, lo publica.
 
@@ -127,7 +131,8 @@ Hace lo mismo que el flujo de arriba. Necesita Python 3.13, Node 24, Rust
 | **Que el núcleo muera con la app** | `PR_SET_PDEATHSIG` | Job Object con `KILL_ON_JOB_CLOSE` |
 | **Dónde van los datos** | `~/.local/share/danplay`, `~/.config/danplay` | `%LOCALAPPDATA%\danplay`, `%APPDATA%\danplay` (lo decide `platformdirs`) |
 | **Papelera** | `send2trash`, y `gio trash` si falla | `send2trash` |
-| **ffmpeg y fpcalc** | los instala el gestor de paquetes; el `.deb` los declara | van **dentro** del instalador, en `tools\`; la app se lo dice al núcleo con `DANPLAY_TOOLS_DIR` |
+| **ffmpeg, fpcalc y el motor de JS** | ffmpeg y fpcalc los instala el gestor de paquetes (el `.deb` los declara); para YouTube, Deno o Node ≥ 22 si están | van **dentro** del instalador, en `tools\` (Deno incluido); la app se lo dice al núcleo con `DANPLAY_TOOLS_DIR` |
+| **Que el núcleo se apague si la app muere** | además del `PDEATHSIG`, vigila el PID que le pasa la app (`DANPLAY_PARENT_PID`) | Job Object, también para un núcleo revivido, y el mismo PID vigilado con la API de procesos de Windows |
 | **Bandeja** | protocolo D-Bus propio (`ksni`), porque la de Tauri no entrega clics | la de Tauri, que ahí sí los entrega y además dice dónde está el icono |
 | **Mini reproductor** | lo coloca el escritorio en Wayland | pegado al icono, con `tauri-plugin-positioner` |
 | **Mandos del sistema** | MPRIS | SMTC (los dos con `souvlaki`) |

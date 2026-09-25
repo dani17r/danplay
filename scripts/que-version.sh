@@ -16,7 +16,7 @@ gris=$(printf '\033[90m'); fin=$(printf '\033[0m')
 fecha () { [ -e "$1" ] && date -r "$1" +"%d-%b %H:%M" || echo "no existe"; }
 epoca () { [ -e "$1" ] && date -r "$1" +%s || echo 0; }
 
-APP=desktop/src-tauri/target/release/danplay-app
+APP=target/release/danplay-app
 WEB=desktop/dist/index.html
 NUCLEO=dist/core/danplay-core
 # Sin la version en el nombre: al subirla, estas lineas se quedaban apuntando

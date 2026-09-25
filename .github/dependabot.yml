@@ -1,0 +1,42 @@
+# Dependabot abre un pull request cuando sale una version nueva de algo que usa
+# DanPlay. Semanal y agrupado: un PR por ecosistema con todos los parches y
+# versiones menores, y uno aparte por cada salto de version mayor (esos pueden
+# romper y hay que mirarlos uno a uno). Las pruebas de `pruebas.yml` corren en
+# cada PR, asi que se ve al momento si algo se rompe.
+version: 2
+
+updates:
+  # el nucleo (pyproject.toml + uv.lock; los requirements*.txt salen del lock)
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule:
+      interval: weekly
+    groups:
+      interfaz:
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directories:
+      - /core
+      - /desktop/src-tauri
+    schedule:
+      interval: weekly
+    groups:
+      rust:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      acciones:
+        patterns: ['*']

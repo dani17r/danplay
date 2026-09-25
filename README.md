@@ -124,20 +124,23 @@ modelo en tu propio equipo.
 
 ## Instalación
 
-Se construye desde el código. Son cuatro comandos y un script:
+Se construye desde el código. Hacen falta [uv](https://docs.astral.sh/uv/)
+(Python), Node 24 y Rust:
 
 ```bash
 git clone https://github.com/dani17r/danplay.git && cd danplay
 
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/maturin develop --release -m core/Cargo.toml   # el crate de Rust
-cd desktop && npm install && cd ..
+uv sync                     # el .venv, con el crate de Rust ya compilado
+cd desktop && npm ci && cd ..
 
 cp .env.example .env        # y rellena las claves que quieras usar
 ./scripts/build.sh          # interfaz + núcleo + app
 ./danplay-app.sh
 ```
+
+Para probarla sin compilar la versión final, `./scripts/dev.sh` la abre en
+modo desarrollo (y `--prueba CARPETA`, con una copia de esas canciones y sin
+tocar tus datos): ver [Contribuir](docs/CONTRIBUIR.md).
 
 Para la conversión de formatos y la huella acústica hacen falta dos programas
 del sistema. Si te faltan, la app lo dice y sigue funcionando sin esas dos
@@ -272,18 +275,19 @@ Cuatro capas, cada una en lo que mejor se le da:
         │  socket Unix     0600; sin puerto TCP
    Python                  identificación, índice, IA, etiquetas
         │
-   Rust (PyO3)             hashes en paralelo y análisis de audio
+   Rust (PyO3)             hashes en paralelo y forma de onda
 ```
 
 - **Vue 3** para la interfaz: temas claros y oscuros, densidad ajustable,
   responsive hasta tamaño móvil.
 - **Rust (Tauri)** para el proceso principal: la cola de reproducción, el
-  icono de la bandeja, el mini reproductor y los mandos del sistema. Sirve el
-  audio leyendo del disco con soporte de rangos, y lo reproduce nativamente.
+  icono de la bandeja, el mini reproductor y los mandos del sistema. Reproduce
+  el audio nativamente (rodio), y detecta el pulso para el metrónomo.
 - **Python** para el núcleo: la cascada de identificación, el índice SQLite con
-  búsqueda de texto completo (FTS5), la IA y las etiquetas.
+  búsqueda de texto completo (FTS5), la IA, las etiquetas, y el vigilante que
+  mantiene el índice al día con lo que cambia en el disco.
 - **Rust (PyO3)** para lo que Python hace lento: hashes en paralelo con rayon y
-  análisis de audio (BPM y tono) con FFT.
+  la forma de onda.
 
 El código está en inglés; los comentarios y todo lo que ve el usuario, en
 castellano.
@@ -339,6 +343,8 @@ Prefiero decirlo aquí que en un issue:
 | [Contrato interno](docs/CONTRATO-INTERNO.md) | Qué se dicen las capas: comandos, eventos y nombres de cada campo. |
 | [Windows](docs/WINDOWS.md) | Las dos formas (portátil e instalador), cómo se construyen desde Linux y qué cambia respecto a Linux. |
 | [Contribuir](docs/CONTRIBUIR.md) | Cómo montar el entorno, ejecutar las pruebas y en qué se puede ayudar. |
+| [Cambios](CHANGELOG.md) | Qué trae cada versión. |
+| [Dependencias](docs/DEPENDENCIAS.md) | Qué usa DanPlay de otros y con qué licencia. |
 
 ## Pruebas
 
@@ -346,31 +352,32 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-783 pruebas repartidas así:
+1.426 pruebas repartidas así (la CI las pasa todas en cada push):
 
 | Tanda | Pruebas |
 | --- | --- |
-| Núcleo Python (nombres, etiquetas, duplicados, teoría, índice, descargas, corpus de narración del asistente, nombres de YouTube, versión, Windows, asociaciones) | 119 |
-| IA con cualquier proveedor: catálogo, perfiles y claves, models.dev, recomendación de modelos, tolerancia a lo que cada servidor rechaza, prueba gratuita sin clave, TOON, respuesta en trozos, respaldo, gasto y presupuesto, contexto, conversaciones, llamadas escritas como texto, herramientas opcionales, tonos vecinos | 48 |
-| API sobre una biblioteca temporal de verdad | 139 |
-| Interfaz: componentes, reactividad, temas, listas grandes, contratos, markdown del chat, descargas, menú, selección múltiple, selector de IA, prueba gratuita, chat en vivo, conversaciones, letra sincronizada, proyección, modo estudio | 370 |
+| Núcleo Python: nombres. etiquetas (mp3. flac. ogg. m4a…). índice y esquema. duplicados. teoría. la API entera sobre una biblioteca temporal de verdad. el vigilante de carpetas (mover. borrar. renombrar. carpetas que se van y vuelven). IA con cualquier proveedor. asistente. descargas y yt-dlp. CLI. privacidad | 531 |
+| Interfaz: componentes. páginas. reactividad. teclado y accesibilidad. listas grandes y agrupadas. temas. contratos. chat. modo estudio. proyección | 726 |
 | Interfaz: rutas de medios en cada sistema | 7 |
-| Rust: hashes y análisis de audio | 14 |
-| Rust: reproductor, cola, bandeja, sesión, núcleo, abrir carpeta, enlaces, Telegram, archivos abiertos desde fuera, tempo sin cambiar el tono y bucle A-B | 68 |
-| Humo sobre la app **ya compilada** | 18 |
+| Rust: reproductor (con audio de verdad). cola. sesión. bandeja. núcleo. permisos por ventana. metrónomo | 116 |
+| Rust: hashes y forma de onda | 14 |
+| De punta a punta: la interfaz contra el núcleo de verdad. en Chrome (Playwright) | 12 |
+| Humo sobre la app **ya compilada** | 20 |
 
 La biblioteca de prueba **se genera**: mp3 de verdad hechos con ffmpeg. Antes
 hacía falta la música de quien ejecutara las pruebas y en cualquier otra
 máquina la mitad se saltaban solas.
 
-Las de humo arrancan la app de verdad y comprueban, entre otras cosas, que el
-socket es privado (`0600`), que no queda ningún puerto TCP abierto, que el
-icono se registra en la bandeja del escritorio y que el núcleo muere con la
-app sin dejar procesos huérfanos.
+Las de humo arrancan la app de verdad, con sus datos aparte y una biblioteca
+generada, y comprueban, entre otras cosas, que el socket es privado (`0600`),
+que no queda ningún puerto TCP abierto, que el icono se registra en la bandeja
+del escritorio y que el núcleo muere con la app sin dejar procesos huérfanos.
 
-También hay `npm run lint`, `npm run lint:css` y una comprobación de que
-`src/icons.js` sigue siendo lo que genera `npm run icons`; todo eso corre en
-cada push.
+Además, en cada push: estilo y formato (ruff, ESLint, stylelint, Prettier,
+rustfmt, clippy sin avisos), tipos (basedpyright, vue-tsc), cobertura mínima
+(núcleo 70 %, interfaz 84 %), que el código solo-Windows compila, que
+`src/icons.js` sigue siendo lo que genera `npm run icons` y los avisos de
+seguridad de todas las dependencias.
 
 ## Licencia
 

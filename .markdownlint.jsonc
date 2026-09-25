@@ -1,0 +1,9 @@
+// Reglas de markdownlint para la documentacion (la extension del editor y
+// `npx markdownlint-cli2` las leen de aqui).
+{
+  // Los parrafos se cortan a 80, pero una fila de tabla es una sola linea y
+  // un comando o una URL no se pueden partir.
+  "MD013": { "line_length": 80, "tables": false, "code_blocks": false, "headings": false },
+  // La portada del README (titulo, insignias, capturas) solo se centra con HTML.
+  "MD033": { "allowed_elements": ["h1", "p", "strong", "br", "img", "a", "sub", "sup", "details", "summary"] }
+}

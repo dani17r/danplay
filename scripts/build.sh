@@ -22,12 +22,13 @@ paso "1/4  interfaz (Vite)"
 ( cd desktop && npx vite build )
 
 paso "2/4  nucleo empaquetado (PyInstaller)"
-# La foto del catalogo de modelos de IA se pone al dia en cada compilacion,
-# para que ningun paquete salga con una lista de hace meses. Sin internet se
-# queda la que hay (el script lo dice y no falla).
-"$PY" scripts/actualizar-modelos.py || true
+# La foto del catalogo de modelos de IA se saca al dia en cada compilacion,
+# para que ningun paquete salga con una lista de hace meses, pero en el
+# temporal: la del repositorio no se toca (antes se reescribia y cada
+# compilacion dejaba el arbol sucio). Sin internet viaja la del repositorio.
+"$PY" scripts/actualizar-modelos.py "$TRABAJO/models-snapshot.json" || true
 # --workpath a un temporal: asi no se crea build/ en la raiz del proyecto
-"$PY" -m PyInstaller --noconfirm --clean \
+DANPLAY_SNAPSHOT="$TRABAJO/models-snapshot.json" "$PY" -m PyInstaller --noconfirm --clean \
     --workpath "$TRABAJO/work" --distpath dist/core \
     packaging/core.spec
 
@@ -42,11 +43,12 @@ mkdir -p desktop/src-tauri/binaries
 cp dist/core/danplay-core "desktop/src-tauri/binaries/danplay-core-$TRIPLE"
 
 paso "4/4  app de escritorio (Tauri)"
-( cd desktop/src-tauri && cargo build --release )
+# workspace de Cargo: sale en target/ de la raiz
+cargo build --release -p danplay-app
 
 if [ "${1:-}" = "--package" ]; then
     paso "extra  paquetes .deb y .AppImage"
-    BUNDLE=desktop/src-tauri/target/release/bundle
+    BUNDLE=target/release/bundle
 
     # Se vacia ANTES de empaquetar. Tauri no limpia lo suyo: el nombre lleva
     # la version dentro, asi que al subirla el paquete nuevo se pone AL LADO
@@ -65,9 +67,9 @@ if [ "${1:-}" = "--package" ]; then
     # Y fuera tambien los de la version anterior en el destino, por lo mismo.
     rm -f dist/installers/*.deb dist/installers/*.AppImage
 
-    # La version que se acaba de construir, para comprobar lo que sale.
-    VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' \
-              desktop/src-tauri/tauri.conf.json | head -1)
+    # La version que se acaba de construir, para comprobar lo que sale
+    # (la misma en todas partes: la prueba de versiones lo vigila).
+    VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
 
     for f in $(find "$BUNDLE" -type f \( -name '*.deb' -o -name '*.AppImage' \)); do
         # Cinturon: si por lo que sea aparece un paquete que no es de esta
@@ -88,7 +90,7 @@ if [ "${1:-}" = "--package" ]; then
 fi
 
 printf '\n\033[32mLISTO\033[0m\n'
-printf '  app     : %s\n' "desktop/src-tauri/target/release/danplay-app"
+printf '  app     : %s\n' "target/release/danplay-app"
 printf '  nucleo  : %s\n' "dist/core/danplay-core"
 [ "${1:-}" = "--package" ] && printf '  paquetes: %s\n' "dist/installers/"
 printf '\nArrancala con  ./danplay-app.sh\n'

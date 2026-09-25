@@ -1,0 +1,26 @@
+# Finales de linea: LF en el repositorio y en la copia de trabajo, tambien en
+# Windows. Un .sh con CRLF no arranca («/bin/sh^M: bad interpreter»), y un
+# archivo que cambia de final de linea sale entero en el diff. (PowerShell y
+# NSIS leen LF sin problema.)
+* text=auto eol=lf
+
+# binarios: ni finales de linea ni diffs de texto
+*.png binary
+*.ico binary
+*.icns binary
+*.jpg binary
+*.jpeg binary
+*.mp3 binary
+*.flac binary
+*.ogg binary
+*.wav binary
+
+# Generados: GitHub los pliega en los diffs y no cuentan en las estadisticas
+# del lenguaje. Se regeneran, no se editan a mano.
+desktop/src-tauri/gen/** linguist-generated=true
+desktop/src/icons.js linguist-generated=true
+danplay/data/models-snapshot.json linguist-generated=true
+desktop/package-lock.json linguist-generated=true
+**/Cargo.lock linguist-generated=true
+uv.lock linguist-generated=true
+requirements*.txt linguist-generated=true

@@ -103,11 +103,18 @@ nosotros con los permisos correctos y se lo pasamos ya escuchando.
 Para desarrollo (`danplay serve` sin `--uds`) sí hay puerto TCP, y ahí se
 aplican tres protecciones de navegador: CORS restringido a los orígenes de
 Vite, validación de la cabecera `Host` contra el reenlace de DNS, y una
-cabecera propia (`X-DanPlay: 1`) en todo lo que no sea `GET`. Esto último
-porque CORS impide **leer** la respuesta pero no evita el efecto: un `POST`
-sin cuerpo a `/api/scan` desde cualquier pestaña abierta arrancaba un escaneo.
-Exigir una cabecera propia obliga al navegador a preguntar antes, y ahí CORS
-sí corta.
+cabecera propia (`X-DanPlay: 1`) en **todas** las peticiones a `/api/`,
+también los `GET`. Esto último porque CORS impide **leer** la respuesta pero
+no evita el efecto: un `POST` sin cuerpo a `/api/scan` desde cualquier
+pestaña abierta arrancaba un escaneo, y hay `GET` que gastan IA. Exigir una
+cabecera propia obliga al navegador a preguntar antes, y ahí CORS sí corta.
+Solo se libran el audio y las carátulas, que el navegador pide por su cuenta
+desde `<audio>` e `<img>` y no pueden llevarla.
+
+Y dos cosas más en ese modo: `danplay serve --host` con una dirección que no
+sea de loopback se niega a arrancar si no hay token (sería abrir la API a la
+red), y no existen `/docs`, `/redoc` ni `/openapi.json`, que quedaban fuera de
+la comprobación del token y contaban a cualquiera todo lo que sabe hacer.
 
 En Windows no hay sockets Unix que uvicorn sepa escuchar, así que allí la
 aplicación levanta el núcleo en `127.0.0.1` con un puerto libre y un secreto
@@ -123,10 +130,11 @@ Cuando pulsas play, la interfaz pide la ruta del archivo a Python y se la
 manda a Rust. Rust lo decodifica (`rodio` + `symphonia`) y lo saca a la tarjeta
 de sonido desde un hilo dedicado. El WebView no toca el audio en ningún momento.
 
-Hay además un protocolo propio (`danplay://audio/<id>`) que sirve el archivo
-con soporte de rangos de bytes, para el modo navegador. Lee exactamente lo que
-se le pide: enviar menos bytes de los que promete `content-range` hacía que el
-cliente reintentara en bucle.
+Las carátulas sí llegan al WebView, por un protocolo propio
+(`danplay://cover/<id>?size=N`, en `protocol.rs`) que se las pide al núcleo
+sin pasar por el JS. Había también una rama `audio` con rangos de bytes, pero
+dentro de Tauri el audio lo suena Rust y nadie la usaba: se quitó. En el modo
+navegador, el `<audio>` lee `/api/song/{id}/audio` por el proxy de Vite.
 
 > **Ojo con el protocolo.** Tauri lo expone de forma distinta según el sistema:
 > en Linux y Windows es `http://<esquema>.localhost/...`, y solo en macOS/iOS
@@ -208,6 +216,13 @@ SQLite da a una fila nueva el id más alto que haya *ahora* más uno: si la
 última canción salía del índice, la siguiente heredaba su id y, con él, las
 listas en las que estaba. El tope histórico vive en `meta` (lo sube un
 trigger) y todo id nuevo sale de ahí (`_next_song_id`).
+
+**El esquema tiene versión** (`PRAGMA user_version`): cada cambio de tablas es
+una migración numerada que corre una sola vez y dentro de `BEGIN IMMEDIATE`,
+así que si algo falla no queda nada a medias. Una base nueva nace ya en la
+última versión. Y la base y las carpetas de datos y de ajustes nacen solo para
+tu usuario (`0600`/`0700`): el historial del asistente y las claves de IA no
+los lee nadie más en el equipo.
 
 ## La biblioteca sigue al disco
 
@@ -304,7 +319,12 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
   (0600), uno por proveedor configurado, con uno activo. Se recuerdan todos
   para poder saltar de Ollama a OpenRouter y volver sin pegar claves otra
   vez. Las variables `DANPLAY_AI_*` mandan sobre el archivo (línea de
-  órdenes, pruebas), y la `DEEPINFRA_API_KEY` de antes se migra sola.
+  órdenes, pruebas), y la `DEEPINFRA_API_KEY` de antes se migra sola. El
+  archivo se escribe de golpe (un temporal que nace `0600` y se renombra):
+  cortado a medias, antes quedaba vacío y el siguiente guardado pisaba las
+  claves. Una clave guardada solo viaja a **la URL con la que se guardó**:
+  «Probar» con otra dirección en el formulario no la manda a ese servidor. Y
+  las cabeceras y campos extra salen enmascarados, como la clave.
 - `model_catalog.py`: **qué modelos existen**, sin escribirlos en el código.
   Los nombres caducan en meses (OpenAI cambió toda su nomenclatura, Mistral
   retiró los alias `-latest`), así que se consulta
@@ -431,20 +451,28 @@ tonos vecinos de uno (relativo, dominante, subdominante) para armar un set
 sin saltos, y el asistente lo tiene como herramienta.
 
 La **letra con tiempos** de LRCLIB se guarda en `lyrics_synced` (una
-caché: si se pierde, se vuelve a pedir; el mp3 lleva en su USLT la versión
-con marcas, que la ficha también entiende) y, con la canción sonando, la
-ficha resalta la línea que va y salta al pulsar otra.
+caché: si se pierde, se vuelve a pedir) y, con la canción sonando, la ficha
+resalta la línea que va y salta al pulsar otra. En el USLT del archivo va la
+letra limpia: antes iba con las marcas `[01:23.45]`, y tras un escaneo la hoja
+del atril las imprimía (ahora además las quita si le llegan).
 
 ## Reglas de nombres
 
 - Sin acentos. Única excepción: la **ñ** se conserva.
 - Nada en MAYÚSCULA SOSTENIDA.
 - Formato `Artista - Titulo (feat. X).mp3`
-- Duplicados: sufijo ` - r`, ` - r2`, para compararlos y borrar a mano.
+- Duplicados: el nombre acaba en `- r`, `- r2`… (`Artista - Titulo - r.mp3`),
+  para compararlos y borrar a mano.
 
 La limpieza quita el ruido típico de las descargas («VIDEO OFICIAL», «LETRA»,
-`y2mate.com`, `320kbps`) con una sola expresión regular compilada, y separa
-palabras pegadas (`VERSIONButterflyFull` → `VERSION Butterfly Full`).
+«Official Music Video», «(Audio)», «Visualizer», `y2mate.com`, `320kbps`) con
+una sola expresión regular compilada, quita los caracteres de control, y
+separa palabras pegadas (`VERSIONButterflyFull` → `VERSION Butterfly Full`).
+
+Y al revés, al escanear: un archivo que ya sigue la convención («Palisades -
+Personal.mp3») pero no trae etiquetas ni cuelga de `Artistas/` entra en el
+índice con ese artista. No es inventar: es lo que dice su nombre. El archivo
+no se toca.
 
 ## Detección de duplicados
 
@@ -487,7 +515,28 @@ ella misma.
 
 Si no se puede medir —el panel aún no tiene alto, o un entorno sin maquetación
 como las pruebas— se pinta la lista entera. Nunca puede salir vacía por un
-fallo de medida.
+fallo de medida. Y se mide con decimales: con posiciones enteras, el redondeo
+se acumulaba en una lista larga y las últimas filas no se alcanzaban nunca.
+
+Una vista **agrupada** («Artistas», o agrupar por álbum o por tono) es también
+una sola lista virtual, con las cabeceras de grupo como filas: antes era una
+lista por grupo, y con grupos de menos de ochenta canciones se pintaba todo.
+La selección con Mayús, el orden de la cola y las flechas siguen el orden que
+se ve, grupo a grupo (`utils/groups.js`).
+
+La biblioteca se recorre también **con el teclado**: Tab entra en la lista,
+las flechas se mueven, Enter pone la canción, Mayús+F10 abre su menú. Tras un
+clic con el ratón la fila suelta el foco, para que el espacio y las flechas
+sigan siendo del reproductor. Los diálogos atrapan el foco y lo devuelven al
+cerrarse, y Enter con el foco en «Cancelar» cancela (antes aceptaba: con
+«Mandar a la papelera» delante).
+
+Y la lista llega **entera y ligera**. `/api/search` dice cuántas canciones
+cumplen la consulta (`count`) y la interfaz trae una primera página rápida y
+el resto por detrás: antes se cortaba en 1000 sin avisar. Las filas no llevan
+la letra, los acordes ni el modo estudio (con mil canciones eran megas que no
+pintaba nadie), sino `has_lyrics`, `has_chords`… para los iconos; la ficha
+entera sale de `/api/song/{id}` al abrirla.
 
 ## Arrastrar canciones
 
@@ -601,23 +650,23 @@ respuesta enseña sus tokens y su coste, y Ajustes lo de hoy y lo del mes.
 título, y se busca en todas. Lo que había en el `localStorage` de versiones
 anteriores pasa a la base una vez.
 
-**Cada token se paga, y el prompt viaja en cada llamada.** El texto del
-sistema se escribe una regla por fallo real y sin adornos (1.305 tokens; era
-2.077), las herramientas se declaran con una fábrica que no repite el
-andamiaje y describe cada una en una frase; las que hacían lo mismo se
-fusionaron (`edit_song` puntúa y marca favorito; `get_lyrics` vale por id o
-por nombre; `play` pone una canción o un repertorio; los nombres viejos
-siguen valiendo como alias), y las de descargar, las de músico y la de
-letra+carátula solo se declaran cuando la conversación habla de eso (un
-turno normal lleva 17 herramientas, unos 1.700 tokens; eran 2.764), y **los resultados de las herramientas
-van en TOON** (`toon.py`), no en JSON: una lista de canciones se manda como
-tabla, con las claves una sola vez en la cabecera y una fila por canción.
-Medido sobre resultados reales, la mitad de tokens en una búsqueda (54 %) y
-un 47 % en conjunto. El modelo recibe una explicación de dos líneas del
+**Cada token se paga, y el prompt viaja en cada llamada.** El texto del sistema
+se escribe una regla por fallo real y sin adornos (1.305 tokens; era 2.077),
+las herramientas se declaran con una fábrica que no repite el andamiaje y
+describe cada una en una frase; las que hacían lo mismo se fusionaron
+(`edit_song` puntúa y marca favorito; `get_lyrics` vale por id o por nombre;
+`play` pone una canción o un repertorio; los nombres viejos siguen valiendo
+como alias), y las de descargar, las de músico y la de letra+carátula solo se
+declaran cuando la conversación habla de eso (un turno normal lleva 17
+herramientas, unos 1.700 tokens; eran 2.764), y **los resultados de las
+herramientas van en TOON** (`toon.py`), no en JSON: una lista de canciones se
+manda como tabla, con las claves una sola vez en la cabecera y una fila por
+canción. Medido sobre resultados reales, la mitad de tokens en una búsqueda
+(54 %) y un 47 % en conjunto. El modelo recibe una explicación de dos líneas del
 formato; lo que él devuelve sigue siendo JSON, que es lo que garantizan los
-modos JSON de los proveedores. Y una ficha de IA guardada sin tono ni
-acordes (la dio un modelo que no conocía la canción) no se reutiliza: se
-vuelve a preguntar, que con otro modelo puede salir.
+modos JSON de los proveedores. Y una ficha de IA guardada sin tono ni acordes
+(la dio un modelo que no conocía la canción) no se reutiliza: se vuelve a
+preguntar, que con otro modelo puede salir.
 
 **Descargar se pide, no se espera.** Una descarga tarda minutos y la
 conversación no puede quedarse colgada: al aprobarla, el núcleo la arranca en
@@ -635,18 +684,54 @@ lleva un contador (`revision`) que sube con cada cambio del índice, de las
 listas o de las estrellas; Rust, que ya consulta `/api/status` cada dos
 segundos para vigilar que el núcleo vive, emite `danplay://changed` cuando
 se mueve, y la ventana refresca todo lo que tiene en memoria. Los cambios que
-hace la propia ventana siguen refrescando al momento; esto cubre el resto.
+hace la propia ventana siguen refrescando al momento; esto cubre el resto. En
+el modo navegador, sin Rust, la interfaz hace lo mismo por su cuenta: consulta
+`/api/status` cada dos segundos y compara `revision`.
+
+**El asistente no se pierde al cambiar de página.** La conversación en curso
+vive en un composable (`useChat`), no en la página del chat: si le pides «pon
+la lista X» y te vas a otra pantalla mientras contesta, la orden llega igual
+(antes Vue descartaba lo que emitía una página ya desmontada).
 
 Las descargas tienen un solo seguimiento (`useDownloads`) que comparten la
 página de Descargas, el chat y la barra lateral, donde «Descargas» lleva el
 número (`2/3`) mientras algo baja. Y la entrada de la que salió lo que suena
 —una lista, Todas las canciones, Favoritos— lleva un punto que late.
 
+## Las tareas largas no esperan
+
+Escanear, importar, convertir y buscar duplicados pueden tardar minutos, y el
+puente de Rust corta una petición al minuto: antes la interfaz daba error
+mientras el trabajo seguía (y una conversión seguía borrando originales). Ahora
+arrancan en un hilo (`api/jobs.py`) y la petición contesta al momento (`202`)
+con el trabajo; la interfaz consulta `GET /api/jobs/{nombre}` cada medio
+segundo y enseña cuánto lleva (`done`/`total`/`message`) hasta tener el
+resultado. Pedir otra vez uno que ya está en marcha no arranca otro: devuelve
+el que corre. Una conversión de prueba (`dry_run`) sigue siendo inmediata.
+
+## yt-dlp al día
+
+YouTube cambia a menudo y yt-dlp saca versión cada pocas semanas; la que viaja
+dentro del núcleo empaquetado se quedaba congelada hasta la siguiente versión
+de DanPlay. «Actualizar yt-dlp» (Descargas) baja de PyPI la última rueda
+universal y la de `yt-dlp-ejs` que esa versión pide, comprueba su `sha256`, la
+deja en la carpeta de datos y desde ahí se usa (`ytdlp.py`): un buscador propio
+al principio de `sys.meta_path` hace que se carguen ella y sus submódulos
+también dentro del binario de PyInstaller, donde el importador congelado va
+antes que `sys.path`. Si la descargada no importa, se vuelve a la empaquetada;
+y no se cambia de versión a mitad de una descarga.
+
+YouTube exige además un **motor de JavaScript** para resolver sus retos (sin él
+yt-dlp avisa de que «faltarán formatos»). Se busca, con las versiones mínimas
+que pide yt-dlp, Deno, Node, QuickJS o Bun, en la carpeta de herramientas y en
+el `PATH`, y se le pasa a yt-dlp; si no hay ninguno, Descargas dice qué
+instalar. El instalador de Windows lleva Deno dentro, como ffmpeg.
+
 ## El hilo de audio no se rinde
 
 El hilo que decodifica y saca el sonido es uno solo, y si se cae no hay
-música. Tres cosas lo dejaban mudo hasta reiniciar DanPlay, y las tres se
-tratan ahora dentro del propio hilo (`player.rs`):
+música. Cuatro cosas lo dejaban mudo hasta reiniciar DanPlay, y las cuatro se
+tratan ahora dentro del propio reproductor (`player/`):
 
 - **Un archivo que hace *panic* al decodificarse.** El bucle corre bajo
   `catch_unwind`: se avisa de qué archivo era y se vuelve a empezar con el
@@ -657,10 +742,23 @@ tratan ahora dentro del propio hilo (`player.rs`):
   ahora, cada vez que alguien pide sonido, se vuelve a intentar abrirla.
 - **La salida muere sonando** (se cae el servidor, desaparece el aparato).
   cpal deja de pedir muestras sin avisar y la canción se queda «sonando»
-  quieta. Un vigilante mira la aguja: si lleva cuatro segundos sin moverse
-  con la pista en marcha, se rehace la salida y se sigue donde estaba.
+  quieta. En el mezclador hay una fuente muda que cuenta cada vez que la
+  salida pide muestras (el **latido**), y un vigilante lo mira también en
+  pausa: si deja de latir, se rehace la salida y se sigue donde estaba.
+- **Saltar con la salida muerta.** Buscar en rodio espera la respuesta del
+  hilo de audio sin tope: con un DAC USB desenchufado, arrastrar la barra
+  colgaba el reproductor para siempre. Ahora se mira el latido antes de
+  buscar y la búsqueda va en un hilo aparte con plazo; si no contesta, se
+  rehace la salida.
 
-Y la cola (`queue.rs`) ya no depende del núcleo para empezar a sonar: la
+La salida se abre al primer play y se suelta tras un minuto sin sonar (con la
+app en la bandeja, cpal no trabaja para nada); al volver, sigue donde iba. Si
+ninguna salida llega a sonar tras tres intentos, se dice en vez de insistir.
+El audio que decodifica ffmpeg (opus, wma, velocidad y tono) llega por una
+tubería que lee otro hilo y deja en un anillo sin candados: antes se leía
+dentro del propio callback de audio, y un tirón de disco era un corte.
+
+Y la cola (`queue/`) ya no depende del núcleo para empezar a sonar: la
 interfaz manda la ruta con cada canción, y solo si el archivo no está ahí se
 le pregunta al núcleo. Cuando ni así se localiza, el error se dice en
 castellano y, si la canción se acabó sola, se pasa a la siguiente.
@@ -669,28 +767,46 @@ castellano y, si la canción se acabó sola, se pasa a la siguiente.
 
 ```text
 danplay/        núcleo Python (índice, IA, etiquetas, descargas)
+  api/            la API: app, guardia y arranque; routes/ (un router por
+                  dominio), models.py (los cuerpos), jobs.py (tareas largas)
+  library/        el índice: db (conexión, esquema y migraciones), scan,
+                  search, songs, folders (carpetas, las que se mueven), history
+  chat/           el asistente: tools (una por herramienta), loop, context,
+                  narration (el detector de acciones narradas)
   providers.py    catálogo de proveedores de IA y perfiles guardados
   watcher.py      vigila las carpetas y mantiene el índice al día solo
+  ytdlp.py        yt-dlp: el motor de JavaScript y la actualización en caliente
+  thumbnails.py   las miniaturas de las carátulas, con tope y poda
+  logs.py         el registro (a un archivo rotativo al servir)
   toon.py         resultados de herramientas en TOON: la mitad de tokens que JSON
   chats.py        las conversaciones con el asistente, guardadas y buscables
   model_catalog.py  el catálogo de modelos (models.dev), siempre al día
   data/           la foto del catálogo que viaja con la app
-core/           crate Rust (PyO3): hashes en paralelo y análisis de audio
+core/           crate Rust (PyO3): hashes en paralelo y forma de onda
 desktop/        interfaz Vue 3 + envoltorio Tauri
   src/
-    composables/  estado compartido (reproducción, avisos, diálogos, ajustes)
+    App.vue       la ventana principal (la ventanita y la proyección, aparte)
+    router.js     las páginas (Ajustes, Asistente, Descargas, Entrada,
+                  Duplicados), con carga diferida y el chat en <KeepAlive>
+    composables/  estado compartido: useLibrary (lista y estado), useSelection,
+                  useSongMenus, useSongList, usePlayback, useChat, useDownloads…
     playback/     la máquina de estados de la cola, en JS y sin dependencias
-    components/   la interfaz, una página por archivo
+    components/   la interfaz, una página por archivo; ui/ los controles base
     styles/       los estilos, por áreas (base, listas, ui, responsive…)
-    utils/        formato, teclas, carpetas
+    utils/        formato, teclas, grupos, carpetas, markdown del chat
+  tests/        pruebas de la interfaz (Vitest, con dobles del núcleo y de Rust)
+  e2e/          los flujos enteros en Chrome contra el núcleo de verdad
   src-tauri/src/
     core.rs       arrancar, vigilar y hablar con el núcleo Python
-    queue.rs      la cola: qué suena y qué viene
-    player.rs     el hilo de audio
+    queue/        la cola: qué suena y qué viene (model, session, logic,
+                  resolve, worker, commands)
+    player/       el audio (engine, output con el latido, open, metro, state)
+    protocol.rs   danplay://cover, las carátulas
+    tools.rs      dónde están ffmpeg y los demás programas
     tray/         bandeja: linux.rs (ksni) y desktop.rs (Windows/macOS)
     media.rs      MPRIS / SMTC
-  tests/        pruebas de la interfaz
-tests/          pruebas de Python, del frontend y de humo
+  src-tauri/permissions/  qué comandos puede invocar cada ventana
+tests/          pruebas de Python, de las rutas de medios y de humo
 packaging/      receta de PyInstaller para el núcleo empaquetado
 scripts/        build.sh, test.sh e icons.mjs
 docs/           esta documentación
@@ -710,16 +826,26 @@ la versión vieja y no se nota. Por eso hay un script y no cuatro comandos.
 ./scripts/build.sh --package    # además el .deb y el .AppImage
 ```
 
-## Precisión del análisis de audio
+Los dos crates de Rust son un **workspace** (`Cargo.toml` de la raíz): un solo
+`Cargo.lock`, una sola carpeta `target/` y la versión de DanPlay en un solo
+sitio, que heredan los dos y que Tauri y maturin leen de ahí.
 
-Medido contra valores conocidos, con 8 canciones:
+Para desarrollar no hace falta nada de eso: `./scripts/dev.sh` abre la app
+entera con la interfaz en caliente y el núcleo desde el código (ver
+[Contribuir](CONTRIBUIR.md)).
 
-- **BPM**: 5 de 8 aceptando errores de octava. Usable.
-- **Tono**: 2 de 8. **No es fiable.** Se probaron 60 combinaciones de perfiles
-  y ponderaciones y todas se estancan ahí. El tono que muestra la app viene de
-  la IA, que sí conoce las canciones; el del DSP queda como pista secundaria
-  con su confianza a la vista. Se puede corregir a mano y queda guardado en el
-  `TKEY` del archivo.
+## El tono y el tempo
 
-Es una limitación honesta, no un `TODO`. Si alguien sabe de detección de
-tonalidad, es probablemente el sitio donde más se agradecería ayuda.
+El tono y los bpm de una canción salen de sus etiquetas (`TKEY`, `TBPM`), de
+la ficha de la IA, que sí conoce las canciones, o de lo que corrijas a mano,
+que se guarda en el archivo.
+
+El crate del núcleo llegó a estimarlos por señal (cromagramas y FFT), pero
+medido contra valores conocidos acertaba el tono en 2 de 8 canciones y el
+tempo en 5 de 8, y ya nadie lo usaba: se quitó, y con él `rustfft` del crate.
+Lo que sí se analiza por señal es **el pulso** para el metrónomo del modo
+estudio (`beats.rs`, en la app de escritorio): por bloques, sin cargar la
+canción entera en memoria (unos 9 MB por hora de audio; antes 320).
+
+Si alguien sabe de detección de tonalidad, sigue siendo probablemente el sitio
+donde más se agradecería ayuda.

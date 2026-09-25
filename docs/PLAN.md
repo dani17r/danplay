@@ -73,8 +73,6 @@ Lo que **no** se hizo, y por qué:
 
 ---
 
-
-
 Cuatro bloques, en el orden en que los pediste:
 
 | Bloque | Qué resuelve | Veredicto corto |
@@ -728,6 +726,7 @@ contra una biblioteca temporal en un directorio de trabajo, sin tocar el repo.
 
 Y cinco más, pequeños de arreglar y con efecto visible:
 
+<!-- markdownlint-disable MD029 -- sigue la numeración de la lista de arriba -->
 4. **La ventanita sin *capability*** (2.1): `capabilities/mini.json`.
 5. **«Conservar el archivo original» se ignora al convertir.**
    `SettingsPage.vue:98` manda `keepOne` y la API lee `body.get("keep", False)`
@@ -757,6 +756,7 @@ Y cinco más, pequeños de arreglar y con efecto visible:
    `player.rs:117-128` hace `sink.take()` pero deja `path`/`duration` de la
    pista de antes; `Toggle`/`Seek` ven «agotada con ruta» y la reabren.
    Actualizar o vaciar `path` en el error.
+<!-- markdownlint-enable MD029 -->
 
 ### 5.2 Seguridad
 
@@ -986,17 +986,17 @@ pista se simula emitiendo `trackEnded` a mano), y `api.js`, `SearchPanel`
 bandeja nueva, una prueba de integración con ventana real (`tauri-driver`) es
 lo único que habría detectado el problema de la *capability*.
 
-Python: las suites dependen de `~/Musica/Artistas/Barak` o `DANPLAY_TEST_MUSIC`: en CI
-se saltarían casi todas. Generar mp3 sintéticos con `ffmpeg -f lavfi -i
-anullsrc` en un fixture las hace fiables en cualquier máquina. Y faltan pruebas
-para lo crítico: ids estables tras reescanear (habría cazado 5.1.1),
-contención de rutas en `/duplicates/resolve` y `/song/{id}/cover`, saneado en
-`export_m3u`, el 421 del `Host` y el comportamiento sin cuerpo en modo TCP,
-`chat.reply` con un cliente OpenAI falso (bucle de herramientas, argumentos
-malformados), topes de `youtube.download` e `enrich.cover` con red simulada,
-escritura de etiquetas en no-mp3, `names.sanitize` con nombres reservados de
-Windows. `test_api.py:92` pide `/api/cancion/999999` (ruta que ya no existe):
-el 404 no prueba nada.
+Python: las suites dependen de `~/Musica/Artistas/Barak` o
+`DANPLAY_TEST_MUSIC`: en CI se saltarían casi todas. Generar mp3 sintéticos con
+`ffmpeg -f lavfi -i anullsrc` en un fixture las hace fiables en cualquier
+máquina. Y faltan pruebas para lo crítico: ids estables tras reescanear (habría
+cazado 5.1.1), contención de rutas en `/duplicates/resolve` y
+`/song/{id}/cover`, saneado en `export_m3u`, el 421 del `Host` y el
+comportamiento sin cuerpo en modo TCP, `chat.reply` con un cliente OpenAI falso
+(bucle de herramientas, argumentos malformados), topes de `youtube.download` e
+`enrich.cover` con red simulada, escritura de etiquetas en no-mp3,
+`names.sanitize` con nombres reservados de Windows. `test_api.py:92` pide
+`/api/cancion/999999` (ruta que ya no existe): el 404 no prueba nada.
 
 ## 6. Orden propuesto
 
@@ -1038,7 +1038,8 @@ en Linux; cambiar a GTK4 o a otro framework.
 - Tauri, bandeja: <https://v2.tauri.app/learn/system-tray/> («Linux: unsupported»)
 - tray-icon#104, clics en Linux: <https://github.com/tauri-apps/tray-icon/issues/104>
 - tray-icon#336, Plasma 6/Wayland: <https://github.com/tauri-apps/tray-icon/issues/336>
-- PR `linux-ksni` (abierto): <https://github.com/tauri-apps/tauri/pull/12319> · issue <https://github.com/tauri-apps/tauri/issues/11293>
+- PR `linux-ksni` (abierto): <https://github.com/tauri-apps/tauri/pull/12319> ·
+  issue <https://github.com/tauri-apps/tauri/issues/11293>
 - `ksni` 0.3.6: <https://docs.rs/ksni/latest/ksni/> · <https://github.com/iovxw/ksni>
 - Wayland sin posicionamiento: <https://github.com/tauri-apps/tauri/issues/14913>
 - AppImage fuerza X11: <https://github.com/tauri-apps/tauri/issues/15781>
@@ -1046,12 +1047,19 @@ en Linux; cambiar a GTK4 o a otro framework.
 - single-instance: <https://v2.tauri.app/plugin/single-instance/>
 - positioner: <https://docs.rs/crate/tauri-plugin-positioner/latest>
 - `souvlaki`: <https://docs.rs/souvlaki> · `tauri-plugin-media`: <https://github.com/Taiizor/tauri-plugin-media>
-- Throttling de temporizadores en Chromium: <https://developer.chrome.com/blog/timer-throttling-in-chrome-88> · <https://chromestatus.com/feature/5580139453743104>
-- Sidecar no disponible en móvil: <https://github.com/tauri-apps/tauri/issues/9774> · <https://github.com/orgs/tauri-apps/discussions/11454>
-- Requisitos Android: <https://v2.tauri.app/start/prerequisites/> · Google Play/16 KB: <https://v2.tauri.app/distribute/google-play/>
+- Throttling de temporizadores en Chromium:
+  <https://developer.chrome.com/blog/timer-throttling-in-chrome-88> ·
+  <https://chromestatus.com/feature/5580139453743104>
+- Sidecar no disponible en móvil:
+  <https://github.com/tauri-apps/tauri/issues/9774> ·
+  <https://github.com/orgs/tauri-apps/discussions/11454>
+- Requisitos Android: <https://v2.tauri.app/start/prerequisites/> ·
+  Google Play/16 KB: <https://v2.tauri.app/distribute/google-play/>
 - Tabla de plugins por plataforma: <https://v2.tauri.app/plugin/>
 - `tauri-plugin-native-audio`: <https://github.com/uvarov-frontend/tauri-plugin-native-audio>
-- MediaStore en Android: <https://lib.rs/crates/tauri-plugin-android-mediastore> · <https://github.com/aiueo13/tauri-plugin-android-fs>
+- MediaStore en Android:
+  <https://lib.rs/crates/tauri-plugin-android-mediastore> ·
+  <https://github.com/aiueo13/tauri-plugin-android-fs>
 - Windows desde Linux (experimental): <https://v2.tauri.app/distribute/windows-installer/>
 - `hyperlocal` (solo Unix): <https://github.com/softprops/hyperlocal>
 - `lofty` 0.25: <https://docs.rs/lofty> · `rusqlite`: <https://github.com/rusqlite/rusqlite>

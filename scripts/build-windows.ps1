@@ -86,24 +86,38 @@ $triple = ((rustc -vV | Select-String '^host:') -split ' ')[1]
 New-Item -ItemType Directory -Force -Path desktop/src-tauri/binaries | Out-Null
 Copy-Item dist/core/danplay-core.exe "desktop/src-tauri/binaries/danplay-core-$triple.exe" -Force
 
-# --- ffmpeg y fpcalc ---------------------------------------------------------
+# --- ffmpeg, fpcalc y Deno --------------------------------------------------
+# Con version fija y su SHA-256, las mismas que el instalador de la CI
+# (.github/workflows/windows.yml): antes se bajaba «la ultima» sin comprobar
+# nada. Deno es el motor de JavaScript que YouTube exige a yt-dlp.
+$herramientas = @(
+    @{ Url = 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip'
+       Sha = '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba'
+       Exes = @('ffmpeg.exe', 'ffprobe.exe') },
+    @{ Url = 'https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-windows-x86_64.zip'
+       Sha = '735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e'
+       Exes = @('fpcalc.exe') },
+    @{ Url = 'https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-pc-windows-msvc.zip'
+       Sha = 'a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238'
+       Exes = @('deno.exe') }
+)
 $tools = 'desktop/src-tauri/tools'
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
-if (-not $SinHerramientas -and -not (Test-Path "$tools/ffmpeg.exe")) {
-    Paso '4b/5  ffmpeg y fpcalc (van dentro del instalador)'
+if (-not $SinHerramientas -and -not (Test-Path "$tools/deno.exe")) {
+    Paso '4b/5  ffmpeg, fpcalc y Deno (van dentro del instalador)'
     $tmp = Join-Path $env:TEMP "danplay-tools-$PID"
     New-Item -ItemType Directory -Force -Path $tmp | Out-Null
     try {
-        Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' `
-                          -OutFile "$tmp/ffmpeg.zip"
-        Expand-Archive "$tmp/ffmpeg.zip" -DestinationPath "$tmp/ffmpeg"
-        Get-ChildItem -Recurse "$tmp/ffmpeg" -Include ffmpeg.exe, ffprobe.exe |
-            ForEach-Object { Copy-Item $_.FullName $tools -Force }
-        Invoke-WebRequest -Uri 'https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-windows-x86_64.zip' `
-                          -OutFile "$tmp/fpcalc.zip"
-        Expand-Archive "$tmp/fpcalc.zip" -DestinationPath "$tmp/fpcalc"
-        Get-ChildItem -Recurse "$tmp/fpcalc" -Include fpcalc.exe |
-            ForEach-Object { Copy-Item $_.FullName $tools -Force }
+        foreach ($h in $herramientas) {
+            $zip = Join-Path $tmp ([IO.Path]::GetFileName($h.Url))
+            Invoke-WebRequest -Uri $h.Url -OutFile $zip
+            $real = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+            if ($real -ne $h.Sha) { throw "$([IO.Path]::GetFileName($zip)) no es lo esperado: $real" }
+            $dir = "$zip.d"
+            Expand-Archive $zip -DestinationPath $dir
+            Get-ChildItem -Recurse $dir -Include $h.Exes |
+                ForEach-Object { Copy-Item $_.FullName $tools -Force }
+        }
     } catch {
         Write-Host "   no se pudieron bajar; se sigue sin ellas: $_" -ForegroundColor Yellow
     } finally {
@@ -114,13 +128,13 @@ if (-not $SinHerramientas -and -not (Test-Path "$tools/ffmpeg.exe")) {
 # --- la aplicacion -----------------------------------------------------------
 Paso '5/5  aplicacion de escritorio (Tauri)'
 Push-Location desktop
-if ($Instalador) { npx tauri build --bundles nsis } else { cargo build --release --manifest-path src-tauri/Cargo.toml }
+if ($Instalador) { npx tauri build --bundles nsis } else { cargo build --release -p danplay-app }
 Pop-Location
 
 Write-Host "`nLISTO" -ForegroundColor Green
-Write-Host "  app     : desktop\src-tauri\target\release\danplay-app.exe"
+Write-Host "  app     : target\release\danplay-app.exe"
 Write-Host "  nucleo  : dist\core\danplay-core.exe"
 if ($Instalador) {
-    $nsis = Get-ChildItem -Recurse desktop/src-tauri/target/release/bundle -Include *-setup.exe -ErrorAction SilentlyContinue
+    $nsis = Get-ChildItem -Recurse target/release/bundle -Include *-setup.exe -ErrorAction SilentlyContinue
     foreach ($f in $nsis) { Write-Host "  instalador: $($f.FullName)" }
 }
