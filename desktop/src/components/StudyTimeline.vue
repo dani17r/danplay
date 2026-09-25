@@ -8,6 +8,11 @@
  * sin cambiar lo que dura. Un clic sin arrastrar lleva la canción a ese
  * punto. Nada de botones de inicio y fin.
  *
+ * Con el candado (arriba a la derecha, puesto de entrada), mientras suena un
+ * clic no mueve la canción: tocando encima de la grabación, un clic sin
+ * querer la mandaba a otro sitio. Elegir un tramo sí se puede; quien lo
+ * recibe decide no saltar a él (StudyBar).
+ *
  * La onda la pinta un canvas y solo se vuelve a pintar cuando cambian los
  * datos, el ancho o el tema. Lo que se mueve (aguja, tramo, marcadores) es
  * DOM colocado en tantos por ciento: cuatro veces por segundo no hay que
@@ -27,6 +32,8 @@ import {
 import { api } from '../api.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { formatTime } from '../utils/format.js'
+import { isDownbeat } from '../utils/beats.js'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   songId: { type: Number, default: null },
@@ -38,16 +45,20 @@ const props = defineProps({
   markers: { type: Array, default: () => [] },
   /** el marcador elegido, para resaltarlo */
   selected: { type: Object, default: null },
-  /** la rejilla de pulsos del metrónomo, para pintarla sobre la onda */
+  /** la rejilla de pulsos del metrónomo tal como suena, para pintarla sobre la onda */
   grid: { type: Object, default: null },
   /** alto de la onda en px */
-  height: { type: Number, default: 56 }
+  height: { type: Number, default: 56 },
+  /** el candado: sonando, un clic no mueve la canción */
+  locked: Boolean,
+  /** si la canción está sonando (el candado solo cuenta entonces) */
+  playing: Boolean
 })
 // `update:loop` lleva el tramo y `{ mode }`: 'select' si es uno nuevo dibujado
 // de cero, 'edit' si se movio un borde o el tramo entero. Quien guarda
 // marcadores necesita distinguirlo: editar el tramo de un marcador elegido lo
 // cambia a el; dibujar otro nuevo, no.
-const emit = defineEmits(['update:loop', 'seek', 'marker'])
+const emit = defineEmits(['update:loop', 'seek', 'marker', 'update:locked'])
 
 const WAVE_H = computed(() => props.height) // alto de la onda, en px
 const MIN_LOOP = 0.5 // menos que esto no es un bucle, es un clic con temblor
@@ -161,18 +172,20 @@ function draw() {
   drawGrid(ctx, W, H)
 }
 
-/** La rejilla del metrónomo: una raya por pulso abajo; el «1», más alta. */
+/**
+ * La rejilla del metrónomo: una raya por pulso abajo; el «1», más alta (sin
+ * acento, ninguno).
+ */
 function drawGrid(ctx, W, H) {
   const g = props.grid
   if (!g || !g.beats?.length || !props.duration) return
   const styles = getComputedStyle(canvas.value)
   const text = styles.getPropertyValue('--text').trim() || styles.color || 'gray'
   ctx.fillStyle = text
-  const m = Math.max(1, g.meter || 4)
   for (let i = 0; i < g.beats.length; i++) {
     const x = Math.round((g.beats[i] / props.duration) * W)
     if (x < 0 || x > W) continue
-    const one = (((i - g.first_downbeat) % m) + m) % m === 0
+    const one = isDownbeat(g, i)
     // el «1» cruza la onda entera, tenue; los demas pulsos son marcas abajo
     ctx.globalAlpha = one ? 0.28 : 0.45
     ctx.fillRect(x, one ? 0 : H - 7, 1, one ? H : 7)
@@ -326,6 +339,8 @@ function onUp(e) {
   stopDrag()
   if (!d.mode) return
   if (!d.moved) {
+    // con el candado, sonando, el clic no mueve nada: el candado lo avisa
+    if (props.locked && props.playing) return nudgeLock()
     emit('seek', round2(timeAt(e.clientX)))
     return
   }
@@ -362,6 +377,25 @@ function onHover(e) {
 }
 
 const dragging = computed(() => !!(drag.mode && drag.moved))
+
+// ------------------------------------------------------------ el candado
+/** Un clic que el candado paró: el candado se mueve un momento para decirlo. */
+const nudged = ref(false)
+let nudgeTimer = null
+function nudgeLock() {
+  nudged.value = false
+  clearTimeout(nudgeTimer)
+  nextTick(() => {
+    nudged.value = true
+    nudgeTimer = setTimeout(() => (nudged.value = false), 700)
+  })
+}
+onUnmounted(() => clearTimeout(nudgeTimer))
+const lockTitle = computed(() =>
+  props.locked
+    ? 'Onda bloqueada: mientras suena, un clic no mueve la canción y elegir un tramo no salta a él (entra cuando la canción llega). Pulsa para desbloquear'
+    : 'Onda desbloqueada: un clic lleva la canción ahí y elegir un tramo salta a él. Pulsa para bloquear'
+)
 </script>
 
 <template>
@@ -375,7 +409,11 @@ const dragging = computed(() => !!(drag.mode && drag.moved))
       ref="box"
       class="tl-box"
       :title="
-        duration ? 'Arrastra para elegir el tramo que se repite · clic para ir a un punto' : ''
+        !duration
+          ? ''
+          : locked && playing
+            ? 'Arrastra para elegir el tramo que se repite (la canción sigue donde va)'
+            : 'Arrastra para elegir el tramo que se repite · clic para ir a un punto'
       "
       @pointerdown="onDown"
       @pointermove="onHover"
@@ -423,6 +461,20 @@ const dragging = computed(() => !!(drag.mode && drag.moved))
       </template>
 
       <div v-if="duration" class="tl-head" :style="{ left: pct(position) }"></div>
+
+      <!-- el candado: puesto, mientras suena la onda no mueve la canción -->
+      <button
+        type="button"
+        class="tl-lock"
+        :class="{ on: locked, nudged }"
+        :aria-pressed="locked"
+        :aria-label="locked ? 'Desbloquear la onda' : 'Bloquear la onda'"
+        :title="lockTitle"
+        @pointerdown.stop
+        @click.stop="emit('update:locked', !locked)"
+      >
+        <Icon :n="locked ? 'lockClosed' : 'lockOpen'" :t="12" />
+      </button>
     </div>
 
     <!-- la regla: los minutos -->

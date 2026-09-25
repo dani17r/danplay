@@ -254,12 +254,13 @@ class StudyMetronome(BaseModel):
 
 class StudyIn(Body_):
     """El modo estudio de una cancion: bucle [a, b], velocidad, tono corrido
-    (semitonos), ajustes del metronomo, marcadores [{t, end, label, notes}] y
-    notas. Lo que no venga se quita."""
+    (semitonos, con fracciones: 0.5 es un cuarto de tono), ajustes del
+    metronomo, marcadores [{t, end, label, notes}] y notas. Lo que no venga
+    se quita."""
 
     loop: list[float] | None = None
     speed: float | None = None
-    pitch: int | None = Field(default=None, ge=-12, le=12)
+    pitch: float | None = Field(default=None, ge=-12, le=12)
     metronome: StudyMetronome | None = None
     markers: list[StudyMarker] | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=4000)

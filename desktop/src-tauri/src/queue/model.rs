@@ -69,8 +69,8 @@ pub struct PlaybackState {
     /// Bucle A-B en segundos; 0,0 = sin bucle.
     pub loop_a: f64,
     pub loop_b: f64,
-    /// El tono corrido, en semitonos (0 = como esta grabada).
-    pub pitch: i32,
+    /// El tono corrido, en semitonos (0 = como esta grabada; con fracciones).
+    pub pitch: f32,
     /// Como va el metronomo.
     pub metronome: player::MetronomeState,
     /// El archivo que suena de verdad (el de `track`, o el que resolvio el
@@ -107,8 +107,8 @@ pub enum Command {
     Speed(f32),
     /// Repetir de A a B; None lo quita.
     Loop(Option<(f64, f64)>),
-    /// El tono corrido, en semitonos.
-    Pitch(i32),
+    /// El tono corrido, en semitonos (con fracciones).
+    Pitch(f32),
     /// El metronomo, con la rejilla de la cancion que suena si ya se analizo.
     Metronome {
         settings: player::MetronomeSettings,

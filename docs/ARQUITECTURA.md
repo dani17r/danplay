@@ -373,6 +373,18 @@ con las teclas A y B mientras suena; un clic sin arrastrar va a ese punto,
 y cerca de un marcador el borde se pega a él. Debajo va una regla con los
 minutos (el paso se elige para que quepan ~70 px entre números).
 
+**El candado de la onda.** Arriba a la derecha, puesto de entrada (se
+recuerda en el navegador): mientras suena, un clic en la onda no mueve la
+canción —tocando encima de la grabación, uno sin querer la mandaba a otro
+sitio— y elegir un tramo, o pulsar la banderita de un marcador, no salta a
+él. El tramo queda puesto y Rust lo **arma** cuando la canción entra en él
+(`ab_loop`): si va por delante, al llegar; si va por detrás, la canción
+sigue y al acabarse vuelve a A en vez de pasar a la siguiente (con un tramo
+puesto la canción no se acaba). Un clic parado sacude el candado para decir
+por qué no pasó nada. Las teclas A y B y la lista de marcadores sí mueven
+la canción, que son órdenes a propósito; y en pausa la onda coloca como
+siempre. El reproductor del navegador sigue la misma regla.
+
 Un **marcador** es un tramo guardado con nombre (inicio Y final) y sus
 propias notas, aparte de las notas generales de la canción; también puede
 ser un instante suelto. Pulsarlo vuelve a poner ese bucle y coloca la
@@ -392,12 +404,17 @@ cerrarla. Queda por debajo de la cola del reproductor y por encima del
 botón flotante. Las notas van en un solo cuadro con dos pestañas (las de la
 canción y las del marcador elegido).
 
-**Tono.** Se corre en semitonos (−12..12) por el mismo camino que la
+**Tono.** Se cuenta en tonos, como lo cuenta un músico —medio tono es un
+semitono— y se corre de cuarto en cuarto de tono, de medio en medio o de
+tono en tono, hasta una octava arriba o abajo. El cuarto de tono (medio
+semitono) sirve para ponerse a la par de una grabación que no está afinada
+a 440. Va a Rust en semitonos con fracciones y por el mismo camino que la
 velocidad: ffmpeg reabre la canción donde iba con `rubberband=tempo:pitch`
 (tiempo y tono a la vez, buena calidad; lo traen el ffmpeg de Debian y el
-que va en el paquete de Windows) o, si no está, `asetrate`+`atempo`. Se
-guarda con la canción y se enseña el tono resultante («G → A») si el índice
-sabe el tono original.
+que va en el paquete de Windows) o, si no está, `asetrate`+`atempo`; los
+dos admiten cualquier factor. Se guarda con la canción y se enseña el tono
+resultante («G → A») si el índice sabe el tono original; con un cuarto de
+tono no hay nombre de tonalidad y se dice de cuál se parte, «G +¼».
 
 **Metrónomo.** Un clic sintetizado en un sink aparte del mezclador de rodio
 (`metronome.rs`): tiene su volumen y su play/pausa, independientes de la
@@ -410,11 +427,37 @@ bombo y los cambios de acorde, probando 4/4 y 3/4. Un par de segundos por
 canción; la rejilla se guarda por ruta durante la sesión y se pinta sobre
 la onda. Sonando con la canción, el clic se reengancha a la rejilla en
 cada play, salto, cambio de velocidad y vuelta del bucle, y sigue la
-velocidad del estudio; con la canción parada sigue solo al mismo tempo. Se
-puede corregir a mano (compás, «el 1 es el siguiente», ×2/÷2, tempo libre)
-y eso se guarda con la canción. Se miró usar madmom (muerto desde 2018),
-Beat This! o Demucs (los dos sobre torch, 200–550 MB): quedan como posible
-«paquete de IA local» opcional más adelante.
+velocidad del estudio; con la canción parada sigue solo al mismo tempo.
+
+Se ajusta a mano, y se guarda con la canción: el compás (2/4, 3/4, 4/4,
+6/8, o **sin acento**: todos los clics iguales; el «1» de los que no salen
+del análisis se saca de donde caía en 3 o en 4), «el 1 es el siguiente», el
+**doble o la mitad** de clics (una lenta a corcheas: 68 → 136) y el **tempo
+a mano, con decimales** (90.7). El doble y la mitad valen también sobre el
+tempo a mano: antes solo cambiaban la rejilla y, con un tempo puesto, ×2 no
+hacía nada (y, como el botón no se veía puesto ni la onda cambiaba, parecía
+roto). Con tempo a mano el clic va a su aire, pero entra con la canción: al
+ponerlo y cada vez que la canción se mueve (play, salto, vuelta del bucle)
+su primer golpe cae en el siguiente pulso de la rejilla y en su tiempo del
+compás (`metro::plan`); así un tempo ajustado con decimales se queda con la
+canción y en un bucle entra igual en cada vuelta. La onda pinta la rejilla
+tal como suena —con el doble, el compás y el «1» corrido—, que la interfaz
+rehace igual que Rust (`utils/beats.js`).
+
+**Volumen.** La canción sube hasta un 150 % (también desde el reproductor)
+y el clic hasta el doble: para las grabaciones flojas y para oír el clic
+por encima de una mezcla cargada. Todo lo que suena pasa por un
+**limitador** (`player/output.rs`: la canción y el clic van a un mezclador
+propio que sale por el `Limit` de rodio): con el umbral pegado al tope, a
+volumen normal no toca ni una muestra; lo que se pasaría baja en esa misma
+muestra en vez de recortarse en seco en la salida, y se recupera en 80 ms,
+así que con el clic al doble la canción cede un instante en cada golpe. La
+rueda de la bandeja y las flechas se paran en el 100 %: pasar de ahí es a
+propósito.
+
+Se miró usar madmom (muerto desde 2018), Beat This! o Demucs (los dos sobre
+torch, 200–550 MB): quedan como posible «paquete de IA local» opcional más
+adelante.
 
 La onda la
 calcula el núcleo en Rust recorriendo el archivo por bloques —no hace falta

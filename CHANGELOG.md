@@ -3,6 +3,38 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## Sin publicar
+
+### Modo estudio
+
+- **La onda con candado**, puesto de entrada: mientras suena, un clic en la
+  onda no mueve la canción y elegir un tramo (o la banderita de un marcador)
+  no salta a él. El tramo entra cuando la canción llega; si va por detrás,
+  la canción sigue y al acabarse vuelve a él en vez de pasar a la siguiente.
+  En pausa, la onda coloca como siempre; las teclas A y B y la lista de
+  marcadores siguen moviendo la canción.
+- **El tono en tonos**, como lo cuenta un músico (medio tono es un
+  semitono): de cuarto en cuarto de tono, de medio en medio o de tono en
+  tono. El cuarto de tono sirve para ponerse a la par de una grabación que
+  no está afinada a 440 («G +¼»).
+- **Metrónomo**: el tempo se escribe a mano con decimales (90.7) y las
+  flechas lo mueven de décima en décima; con la canción sonando, el clic a
+  mano entra en su pulso. Compases 2/4, 3/4, 4/4, 6/8 y **sin acento**
+  (todos los clics iguales). El clic sube hasta el doble y la canción hasta
+  un 150 %, sin saturar: todo pasa por un limitador que a volumen normal no
+  toca nada.
+
+### Corregido
+
+- **Letra con tiempos**: al seguir la canción, la ficha entera iba subiendo
+  línea a línea mientras la letra se quedaba parada en medio (y con las dos
+  cosas moviéndose se llegaba a ver letra sobre letra). Ahora solo se mueve
+  la caja de la letra, y si se mueve a mano se la deja estar un momento.
+- **×2 y ÷2 del metrónomo**: con un tempo puesto a mano no hacían nada, no
+  se veían puestos (tampoco la velocidad elegida) y la onda seguía pintando
+  la rejilla de antes. Ahora doblan también el tempo a mano, se ven
+  encendidos y la onda enseña los pulsos tal como suenan.
+
 ## 1.13.0 — 2026-09-25
 
 Una revisión entera del proyecto: la biblioteca sigue al disco, el modo

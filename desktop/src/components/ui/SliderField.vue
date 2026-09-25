@@ -19,7 +19,12 @@ const props = defineProps({
   width: { type: String, default: '' },
   valueText: { type: String, default: '' },
   /** el nombre que se lee cuando no hay etiqueta a la vista (el volumen) */
-  ariaLabel: { type: String, default: '' }
+  ariaLabel: { type: String, default: '' },
+  /**
+   * Una muesca en ese valor, y lo que pase de ahí en otro color: el 100 %
+   * de un volumen que puede subir más de como viene.
+   */
+  mark: { type: Number, default: null }
 })
 
 // Cuanto se espera, tras soltar, a que el modelo confirme lo ultimo enviado.
@@ -49,8 +54,12 @@ function drop() {
   if (!sent) shown.value = model.value
 }
 
-const pct = computed(() =>
-  Math.max(0, Math.min(100, ((shown.value - props.min) / (props.max - props.min)) * 100))
+const toPct = (v) => Math.max(0, Math.min(100, ((v - props.min) / (props.max - props.min)) * 100))
+const pct = computed(() => toPct(shown.value))
+const markPct = computed(() => (props.mark == null ? null : toPct(props.mark)))
+/** Lo que pasa de la muesca: se pinta aparte. */
+const over = computed(() =>
+  markPct.value != null && pct.value > markPct.value ? pct.value - markPct.value : 0
 )
 </script>
 
@@ -59,7 +68,22 @@ const pct = computed(() =>
     <span v-if="label" class="field-label">
       {{ label }}<em v-if="valueText">{{ valueText }}</em></span
     >
-    <span class="slider-track" :style="{ '--pct': pct + '%' }">
+    <span
+      class="slider-track"
+      :style="{ '--pct': (markPct == null ? pct : Math.min(pct, markPct)) + '%' }"
+    >
+      <span
+        v-if="markPct != null"
+        class="slider-mark"
+        :style="{ left: markPct + '%' }"
+        aria-hidden="true"
+      ></span>
+      <span
+        v-if="over"
+        class="slider-over"
+        :style="{ left: markPct + '%', width: over + '%' }"
+        aria-hidden="true"
+      ></span>
       <input
         type="range"
         :min="min"

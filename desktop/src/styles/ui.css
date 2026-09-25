@@ -375,6 +375,25 @@
 .slider-track input:hover::-moz-range-thumb {
   background: var(--accent);
 }
+/* la muesca del 100 % en un volumen que puede subir más, y lo que pasa de
+   ella en ámbar: se ve de un vistazo que la canción va más alta de como viene */
+.slider-mark {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--muted2);
+  pointer-events: none;
+}
+.slider-over {
+  position: absolute;
+  height: 4px;
+  border-radius: 0 3px 3px 0;
+  background: var(--amber);
+  pointer-events: none;
+}
 
 /* --- color --- */
 .color-row {
@@ -1526,11 +1545,30 @@ tbody tr.flash {
 .study-loop.off {
   color: var(--muted2);
 }
-.study-speeds .btn.mini {
+.study-speeds .btn.mini,
+.study-steps .btn.mini,
+.study-meters .btn.mini,
+.study-mult {
   padding: 3px 7px;
+}
+/* un boton de la barra que esta puesto (la velocidad elegida, ×2, el
+   compas, el paso del tono). Antes no se distinguia de los demas, y ×2 o
+   ÷2 parecian no hacer nada. */
+.study .btn.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel2));
+  font-weight: 600;
 }
 .study-pitch {
   align-items: center;
+}
+/* de cuanto en cuanto se corre el tono: ¼, ½ o 1 */
+.study-steps {
+  display: inline-flex;
+  gap: 2px;
+  padding-left: 7px;
+  border-left: 1px solid var(--border);
 }
 .study-pitch-n {
   min-width: 34px;
@@ -1569,7 +1607,7 @@ tbody tr.flash {
   gap: 6px;
   flex-wrap: wrap;
 }
-.study-metro-toggle.on {
+.study .study-metro-toggle.on {
   background: var(--accent);
   color: var(--bg);
   border-color: var(--accent);
@@ -1580,24 +1618,48 @@ tbody tr.flash {
   gap: 5px;
   font-size: 12px;
 }
-.study-bpm b {
-  min-width: 34px;
+/* el tempo se escribe ahi mismo, con decimales */
+.study-bpm-input {
+  flex: none;
+  width: 76px;
+}
+.study-bpm-input .field-box {
+  gap: 2px;
+  height: 26px;
+  padding: 0 4px;
+}
+.study-bpm-input input {
+  width: 100%;
+  min-width: 0;
   text-align: center;
-  font-size: 15px;
-  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--mono);
 }
 .study-bpm small {
   color: var(--muted2);
 }
-.study-metro-vol {
+.study-metro-label {
+  flex-shrink: 0;
+  min-width: 46px;
+  font-size: 10.5px;
+  color: var(--muted2);
+}
+.study-metro-vol,
+.study-song-vol {
+  flex-wrap: nowrap;
   gap: 8px;
 }
-.study-metro-vol .ico {
-  color: var(--muted2);
-  flex-shrink: 0;
-}
-.study-metro-vol .slider {
+.study-metro-vol .slider,
+.study-song-vol .slider {
   flex: 1;
+}
+.study-vol-n {
+  flex-shrink: 0;
+  min-width: 38px;
+  text-align: right;
+  font-size: 10.5px;
+  color: var(--muted);
 }
 
 /* los marcadores: una lista con scroll */
@@ -1912,6 +1974,59 @@ tbody tr.flash {
 .tl-marker.on .tl-marker-name {
   background: var(--accent);
   color: var(--bg);
+}
+/* el candado de la onda, arriba a la derecha: puesto, mientras suena un clic
+   no mueve la canción. Si para un clic, se sacude para decir por qué no pasó
+   nada. */
+.tl-lock {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  padding: 0;
+  border-radius: 5px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border: 1px solid var(--border2);
+  transition:
+    color 0.14s,
+    border-color 0.14s,
+    box-shadow 0.2s;
+}
+.tl-lock:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 40%, var(--border2));
+}
+.tl-lock.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border2));
+}
+.tl-lock.nudged {
+  animation: tl-lock-nudge 0.6s ease;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+@keyframes tl-lock-nudge {
+  0%,
+  100% {
+    transform: none;
+  }
+  20% {
+    transform: translateX(-3px) rotate(-8deg);
+  }
+  40% {
+    transform: translateX(3px) rotate(8deg);
+  }
+  60% {
+    transform: translateX(-2px) rotate(-4deg);
+  }
+  80% {
+    transform: translateX(2px) rotate(4deg);
+  }
 }
 .tl-ruler {
   position: relative;

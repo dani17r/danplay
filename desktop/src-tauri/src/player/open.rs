@@ -107,8 +107,8 @@ pub(super) struct Recipe<'a> {
     pub(super) path: &'a str,
     pub(super) volume: f32,
     pub(super) speed: f32,
-    /// El tono corrido, en semitonos.
-    pub(super) pitch: i32,
+    /// El tono corrido, en semitonos (con fracciones).
+    pub(super) pitch: f32,
     /// La duracion que sabe el indice; solo se usa para los formatos que
     /// pasan por ffmpeg, donde no hay de donde sacarla.
     pub(super) hint: f64,
@@ -137,7 +137,7 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
     sink.pause();
     sink.set_volume(volume);
     let slowed = (speed - 1.0).abs() > 1e-4;
-    let pitched = pitch != 0;
+    let pitched = pitch.abs() > transcode::NO_PITCH;
 
     // A otra velocidad, ffmpeg (`atempo`) la cambia SIN mover el tono, que
     // es lo que se quiere para estudiar un trozo: pasa por el cualquier

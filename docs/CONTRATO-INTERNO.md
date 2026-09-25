@@ -25,7 +25,7 @@ type PlaybackState = {
   playing: boolean,
   position: number,         // segundos
   duration: number,         // segundos (de Rust si la sabe, si no la del indice)
-  volume: number,           // 0..1
+  volume: number,           // 0..1.5 (por encima de 1, más alta de como viene)
   speed: number,            // 0.25..3
   repeat: Repeat,
   shuffle: boolean,
@@ -74,7 +74,7 @@ castellano y, si la canción se acabó sola, se prueba con la siguiente.
 | `toggle_pause` | — | Pausa o sigue. Si la pista acabó, la vuelve a poner. |
 | `stop` | — | Para y vacía «lo que suena» (la cola se conserva). |
 | `seek` | `{ seconds }` | |
-| `set_volume` | `{ value }` | 0..1 |
+| `set_volume` | `{ value }` | 0..1,5. Por encima de 1 la canción suena más alta de como viene; lo que se pase de la salida lo recoge el limitador. |
 | `set_speed` | `{ value }` | |
 | `playback_state` | — | Devuelve `PlaybackState` (para pintar nada más montar). |
 | `queue_items` | — | Devuelve `{ items: Track[], origin }`. |
@@ -296,7 +296,14 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
 - Reproducción: `set_loop(a, b)` (sin valores, lo quita); el estado trae
   `loop_a`, `loop_b` (0,0 = sin bucle) y `pitch_preserved` (la velocidad
   conserva el tono: ffmpeg `atempo`; `false` = sin ffmpeg, cambia el tono).
-- `set_pitch(semitones)` (−12..12): el tono corrido, por ffmpeg
+  `set_loop` no mueve la canción: el tramo se **arma** si la canción está
+  dentro (o cuando entra, o con un `seek` dentro) y solo entonces, al pasar
+  de B, vuelve a A. Con un tramo puesto la canción no se acaba: al final
+  vuelve a A y no se avisa del fin de pista. Quien quiera empezar el tramo ya
+  manda un `seek(a)` detrás (la interfaz lo hace salvo con el candado de la
+  onda puesto).
+- `set_pitch(semitones)` (−12..12, con fracciones: 0,5 es un cuarto de
+  tono; se redondea al centésimo): el tono corrido, por ffmpeg
   (`rubberband=tempo:pitch` si lo trae, que es lo normal; si no,
   `asetrate`+`aresample`+`atempo`). Reabre la canción donde iba, como la
   velocidad. El estado trae `pitch`. Sin ffmpeg no hace nada.
@@ -307,17 +314,23 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   bombo y cambios de acorde). Un par de segundos; Rust guarda la rejilla
   por ruta durante la sesión y el metrónomo la usa.
 - `set_metronome({ on, bpm, meter, shift, mult, volume })`: se manda
-  entero. `bpm`/`meter` en null = lo detectado; con `bpm` a mano el clic va
-  libre. `shift` corre el «1» tantos pulsos; `mult` −1/0/1 = mitad/tal
-  cual/doble de pulsos. El clic es un sink aparte del mezclador (su volumen
-  y su marcha, independientes de la canción); sonando con la canción se
-  reengancha a su rejilla en cada play, salto, cambio de velocidad y vuelta
-  del bucle, y sigue la velocidad del estudio. El estado trae `metronome
-  { on, bpm, meter, shift, mult, volume, has_grid, free, confidence }` y
-  `path` (el archivo que suena de verdad: la clave de la rejilla).
-- `PUT /api/song/{id}/study` admite además `pitch` (−12..12, 0 no se
-  guarda) y `metronome { bpm?, meter?, shift?, mult? }` (solo lo ajustado a
-  mano sobre lo detectado).
+  entero. `bpm`/`meter` en null = lo detectado. `bpm` a mano admite
+  decimales y el clic va a su aire, pero con la canción sonando y rejilla su
+  primer golpe cae en el siguiente pulso de ella (al ponerlo y en cada play,
+  salto o vuelta del bucle). `meter` a mano: 0 = sin acento, o de 2 a 12 (el
+  «1» sale de las fases de 3 o de 4). `shift` corre el «1» tantos pulsos;
+  `mult` −1/0/1 = mitad/tal cual/doble de clics, sobre la rejilla y también
+  sobre el tempo a mano. `volume` 0..2. El clic es un sink aparte del
+  mezclador (su volumen y su marcha, independientes de la canción); sonando
+  con la canción se reengancha a su rejilla en cada play, salto, cambio de
+  velocidad y vuelta del bucle, y sigue la velocidad del estudio. El estado
+  trae `metronome { on, bpm, meter, shift, mult, volume, has_grid, free,
+  confidence }` (`bpm` ya con el doble o la mitad) y `path` (el archivo que
+  suena de verdad: la clave de la rejilla).
+- `PUT /api/song/{id}/study` admite además `pitch` (−12..12 semitonos, con
+  fracciones al centésimo; 0 no se guarda y uno entero se guarda entero) y
+  `metronome { bpm?, meter?, shift?, mult? }` (solo lo ajustado a mano sobre
+  lo detectado: `bpm` 20..300 con dos decimales, `meter` 0 o 2..12).
 
 ## 4. Ajustes (Python ↔ Vue), nombres correctos
 

@@ -235,6 +235,8 @@ def paths_of(ids) -> dict[int, str | None]:
 # Lo que se guarda del modo estudio y sus limites: un JSON pequeño y con
 # forma conocida, no lo que mande cualquiera.
 STUDY_KEYS = ("loop", "speed", "pitch", "metronome", "markers", "notes")
+# Los compases del metronomo que se pueden poner a mano: 0 es sin acento.
+METERS = (0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
 
 
 def set_study(cid: int, study: dict | None) -> Song | None:
@@ -261,12 +263,13 @@ def set_study(cid: int, study: dict | None) -> Song | None:
                 clean["speed"] = round(speed, 2)
         except (TypeError, ValueError):
             pass
-        # el tono corrido, en semitonos; 0 no se guarda
+        # el tono corrido, en semitonos (al centesimo: medio semitono es un
+        # cuarto de tono); 0 no se guarda, y uno entero se guarda entero
         try:
-            pitch = int(study.get("pitch") or 0)
+            pitch = round(float(study.get("pitch") or 0), 2)
             if pitch and -12 <= pitch <= 12:
-                clean["pitch"] = pitch
-        except (TypeError, ValueError):
+                clean["pitch"] = int(pitch) if pitch.is_integer() else pitch
+        except (TypeError, ValueError, OverflowError):
             pass
         # el metronomo: solo lo que uno ajusto a mano sobre lo detectado
         metro = study.get("metronome")
@@ -276,10 +279,11 @@ def set_study(cid: int, study: dict | None) -> Song | None:
                 if metro.get("bpm") is not None:
                     bpm = float(metro["bpm"])
                     if 20 <= bpm <= 300:
-                        m["bpm"] = round(bpm, 1)
+                        m["bpm"] = round(bpm, 2)
             except (TypeError, ValueError):
                 pass
-            if metro.get("meter") in (3, 4):
+            # el compas: 0 es sin acento (todos los clics iguales)
+            if metro.get("meter") in METERS:
                 m["meter"] = int(metro["meter"])
             try:
                 shift = int(metro.get("shift") or 0)

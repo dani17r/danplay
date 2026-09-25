@@ -13,6 +13,7 @@
 //! espera fija la daba por fallida sin estarlo. El tiempo fijo queda solo
 //! donde lo que se mide es el propio paso del tiempo.
 use super::open::{clock_of, no_ffmpeg, readable};
+use super::state::MAX_VOLUME;
 use super::*;
 use crate::{tools, transcode};
 use std::sync::OnceLock;
@@ -233,17 +234,44 @@ fn volume_and_speed_are_clamped() {
     m.send(Command::Volume(9.0)).unwrap();
     m.send(Command::Speed(99.0)).unwrap();
     let e = until(&m, |s| (s.speed - 3.0).abs() < f32::EPSILON);
-    assert!((e.volume - 1.0).abs() < f32::EPSILON);
+    assert!(
+        (e.volume - MAX_VOLUME).abs() < f32::EPSILON,
+        "hasta un 50 % mas: {}",
+        e.volume
+    );
     assert!((e.speed - 3.0).abs() < f32::EPSILON);
+    // lo que no es un numero no toca nada
+    m.send(Command::Volume(f32::NAN)).unwrap();
+    m.send(Command::Speed(1.0)).unwrap();
+    let e = until(&m, |s| (s.speed - 1.0).abs() < f32::EPSILON);
+    assert!((e.volume - MAX_VOLUME).abs() < f32::EPSILON);
 }
 
+/// La rueda sube y baja de a poco, sin salirse; y al cruzar el 100 % se
+/// para en el: pasar de como viene la cancion es a proposito.
 #[test]
 fn nudging_the_volume_stays_in_range() {
     let (m, _rx) = handle();
     m.send(Command::Volume(0.98)).unwrap();
     m.send(Command::NudgeVolume(0.05)).unwrap();
     let s = until(&m, |s| (s.volume - 1.0).abs() < f32::EPSILON);
-    assert!((s.volume - 1.0).abs() < f32::EPSILON);
+    assert!(
+        (s.volume - 1.0).abs() < f32::EPSILON,
+        "se para en el 100 %: {}",
+        s.volume
+    );
+    m.send(Command::NudgeVolume(0.05)).unwrap();
+    let s = until(&m, |s| (s.volume - 1.05).abs() < 1e-6);
+    assert!((s.volume - 1.05).abs() < 1e-6, "y desde ahi sigue: {}", s.volume);
+    for _ in 0..30 {
+        m.send(Command::NudgeVolume(0.05)).unwrap();
+    }
+    let s = until(&m, |s| (s.volume - MAX_VOLUME).abs() < 1e-6);
+    assert!((s.volume - MAX_VOLUME).abs() < 1e-6);
+    m.send(Command::Volume(1.02)).unwrap();
+    m.send(Command::NudgeVolume(-0.05)).unwrap();
+    let s = until(&m, |s| (s.volume - 1.0).abs() < 1e-6);
+    assert!((s.volume - 1.0).abs() < 1e-6, "bajando tambien se para: {}", s.volume);
     for _ in 0..30 {
         m.send(Command::NudgeVolume(-0.05)).unwrap();
     }
@@ -383,9 +411,10 @@ fn pitch_and_metronome_ride_along_with_the_song() {
     assert!(tools::ffmpeg().is_some(), "hace falta ffmpeg para esta prueba");
     m.send(Command::Seek(20.0)).unwrap();
     until(&m, |s| s.position >= 19.0);
-    m.send(Command::Pitch(2)).unwrap();
-    let s = until(&m, |s| s.pitch == 2 && s.playing && s.position >= 18.0);
-    assert_eq!(s.pitch, 2);
+    // un tono y un cuarto: 2,5 semitonos
+    m.send(Command::Pitch(2.5)).unwrap();
+    let s = until(&m, |s| (s.pitch - 2.5).abs() < 1e-6 && s.playing && s.position >= 18.0);
+    assert!((s.pitch - 2.5).abs() < 1e-6, "tono {}", s.pitch);
     assert!(s.playing, "con el tono corrido tiene que seguir sonando");
     assert!(
         (18.0..25.0).contains(&s.position),
@@ -447,19 +476,66 @@ fn pitch_and_metronome_ride_along_with_the_song() {
     let s = until(&m, |s| s.metronome.meter == 3);
     assert!((s.metronome.bpm - 240.0).abs() < f32::EPSILON);
     assert_eq!((s.metronome.meter, s.metronome.mult), (3, 1));
-    // tempo a mano: va libre a ese tempo
+    // tempo a mano, con decimales: va a su aire a ese tempo
     m.send(Command::Metronome {
         settings: MetronomeSettings {
-            bpm: Some(90.0),
-            ..settings
+            bpm: Some(90.7),
+            ..settings.clone()
         },
         grid: None,
     })
     .unwrap();
     let s = until(&m, |s| s.metronome.free);
     assert!(s.metronome.free && s.metronome.has_grid);
-    assert!((s.metronome.bpm - 90.0).abs() < f32::EPSILON);
+    assert!((s.metronome.bpm - 90.7).abs() < 1e-4);
+    // y el doble vale tambien con el tempo a mano (antes no hacia nada),
+    // y sin acento
+    m.send(Command::Metronome {
+        settings: MetronomeSettings {
+            bpm: Some(68.0),
+            mult: 1,
+            meter: Some(0),
+            ..settings
+        },
+        grid: None,
+    })
+    .unwrap();
+    let s = until(&m, |s| (s.metronome.bpm - 136.0).abs() < 1e-4);
+    assert!(
+        (s.metronome.bpm - 136.0).abs() < 1e-4,
+        "68 al doble: {}",
+        s.metronome.bpm
+    );
+    assert_eq!(s.metronome.meter, 0);
     assert!(m.state().playing);
+    m.send(Command::Stop).unwrap();
+}
+
+/// Un tramo elegido sin saltar a el (la onda con candado) no mueve la
+/// cancion: si va por detras, la cancion sigue; si la cancion entra en el,
+/// al pasar de B vuelve a A.
+#[test]
+fn a_loop_chosen_behind_the_needle_waits_for_the_song() {
+    let Some((m, _rx)) = playing() else { return };
+    m.send(Command::Seek(30.0)).unwrap();
+    until(&m, |s| s.position >= 29.0);
+    // por detras de la aguja: no salta
+    m.send(Command::Loop(Some((10.0, 12.0)))).unwrap();
+    wait_ms(700);
+    let s = m.state();
+    assert!(s.position >= 30.0, "salto al tramo sin pedirlo: {}", s.position);
+    assert!((s.loop_a - 10.0).abs() < 1e-9, "el tramo queda puesto");
+    // por delante: la cancion llega, entra y vuelve a A al pasar de B
+    m.send(Command::Loop(Some((s.position + 0.6, s.position + 1.6))))
+        .unwrap();
+    let (a, b) = (s.position + 0.6, s.position + 1.6);
+    wait_ms(2600);
+    let s = m.state();
+    assert!(
+        (a - 0.2..b + 0.4).contains(&s.position),
+        "tendria que dar vueltas entre {a:.1} y {b:.1}: {}",
+        s.position
+    );
     m.send(Command::Stop).unwrap();
 }
 
@@ -501,6 +577,30 @@ fn the_end_of_a_track_is_announced_once() {
 
 /// Lo que va por ffmpeg (un .opus) tambien acaba y lo dice: la cola pasa a
 /// la siguiente con ese aviso, y sin el se quedaria parada al final.
+/// Con un tramo puesto la cancion no se acaba: si iba por detras de B (un
+/// tramo elegido con la onda bloqueada), al llegar al final vuelve a A en
+/// vez de pasar a la siguiente.
+#[test]
+fn with_a_loop_the_song_goes_back_to_a_instead_of_ending() {
+    let Some((m, rx)) = playing() else { return };
+    let total = m.state().duration;
+    m.send(Command::Seek(total - 0.8)).unwrap();
+    until(&m, |s| s.position >= total - 1.0);
+    m.send(Command::Loop(Some((5.0, 8.0)))).unwrap();
+    let s = until(&m, |s| s.playing && (4.9..8.5).contains(&s.position));
+    assert!(
+        s.playing && (4.9..8.5).contains(&s.position),
+        "tendria que haber vuelto al tramo: {} (sonando: {})",
+        s.position,
+        s.playing
+    );
+    let ended = std::iter::from_fn(|| rx.try_recv().ok())
+        .filter(|e| matches!(e, Event::Finished))
+        .count();
+    assert_eq!(ended, 0, "con tramo no se acaba");
+    m.send(Command::Stop).unwrap();
+}
+
 #[test]
 fn a_song_through_ffmpeg_also_ends() {
     let (m, rx) = handle();

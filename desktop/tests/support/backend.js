@@ -710,6 +710,8 @@ export function createPlaybackDouble() {
   }
   let items = []
   let origin = null
+  /** lo que dio el último análisis del compás (lo que Rust guarda por ruta) */
+  let grid = { bpm: 120, meter: 4 }
 
   // Cada emision es una copia entera y nueva, como la que llega de Rust (JSON
   // por el puente): con `{ ...state }` los objetos de dentro (`track`,
@@ -758,19 +760,24 @@ export function createPlaybackDouble() {
     setSpeed: vi.fn(async (value) => emit({ speed: value })),
     setLoop: vi.fn(async (a, b) => emit({ loop_a: a == null ? 0 : a, loop_b: b == null ? 0 : b })),
     setPitch: vi.fn(async (semitones) => emit({ pitch: semitones })),
-    setMetronome: vi.fn(async (settings) =>
+    // como Rust: el tempo es el puesto a mano o el de la rejilla, y el doble
+    // o la mitad valen para los dos
+    setMetronome: vi.fn(async (settings) => {
+      const factor = settings.mult === 1 ? 2 : settings.mult === -1 ? 0.5 : 1
+      const hasGrid = state.metronome.has_grid
       emit({
         metronome: {
           ...state.metronome,
           ...settings,
-          bpm: settings.bpm ?? state.metronome.bpm,
-          meter: settings.meter ?? state.metronome.meter,
-          free: settings.bpm != null || !state.metronome.has_grid
+          bpm: (settings.bpm ?? (hasGrid ? grid.bpm : 100)) * factor,
+          meter: settings.meter ?? (hasGrid ? grid.meter : 4),
+          free: settings.bpm != null || !hasGrid
         }
       })
-    ),
+    }),
     /** una rejilla de mentira: 120 bpm en 4/4 desde 0,25 s, con la confianza que diga el estado */
     analyzeBeats: vi.fn(async (path) => {
+      grid = { bpm: 120, meter: 4 }
       emit({
         metronome: { ...state.metronome, has_grid: true, bpm: 120, meter: 4, confidence: 0.8 }
       })

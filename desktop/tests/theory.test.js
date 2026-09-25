@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseKey, transposeKey, semitoneLabel } from '../src/utils/theory.js'
+import { parseKey, transposeKey, semitoneLabel, toneLabel, toneUnit } from '../src/utils/theory.js'
 
 describe('transponer el nombre del tono', () => {
   it('entiende mayores, menores, sostenidos y bemoles', () => {
@@ -32,5 +32,29 @@ describe('transponer el nombre del tono', () => {
     expect(semitoneLabel(0)).toBe('0')
     expect(semitoneLabel(2)).toBe('+2')
     expect(semitoneLabel(-3)).toBe('−3')
+  })
+  it('cuenta el corrimiento en tonos: medio tono es un semitono', () => {
+    expect(toneLabel(0)).toBe('0')
+    expect(toneLabel(1)).toBe('+½')
+    expect(toneLabel(2)).toBe('+1')
+    expect(toneLabel(3)).toBe('+1½')
+    expect(toneLabel(-2)).toBe('−1')
+    // un cuarto de tono es medio semitono
+    expect(toneLabel(0.5)).toBe('+¼')
+    expect(toneLabel(1.5)).toBe('+¾')
+    expect(toneLabel(-2.5)).toBe('−1¼')
+    expect(toneLabel(12)).toBe('+6')
+    // lo que no es un cuarto se dice con decimales
+    expect(toneLabel(0.3)).toBe('+0.15')
+    expect(toneUnit(1)).toBe('tono')
+    expect(toneUnit(-2)).toBe('tono')
+    expect(toneUnit(3)).toBe('tonos')
+  })
+  it('con un cuarto de tono dice de que tono parte y cuanto se corre', () => {
+    expect(transposeKey('G', 0.5)).toBe('G +¼')
+    expect(transposeKey('G', 1.5)).toBe('Ab +¼')
+    expect(transposeKey('G', -0.5)).toBe('G −¼')
+    expect(transposeKey('Am', -1.5)).toBe('G#m −¼')
+    expect(transposeKey('G', 2)).toBe('A')
   })
 })

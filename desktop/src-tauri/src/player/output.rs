@@ -15,8 +15,15 @@
 //! mira el latido; y el salto en si se pide desde un hilo desechable con un
 //! tope, por si la salida muriera justo entre mirar y pedir. Y cuando cpal
 //! si avisa (el aparato ya no esta), no hace falta esperar al latido.
+//!
+//! Y todo lo que suena (la cancion y el clic) pasa por un **limitador**
+//! antes de llegar a la salida. A volumen normal no toca nada; existe para
+//! lo que se sube a proposito —la cancion hasta un 150 %, el clic hasta el
+//! doble— y para la suma de los dos, que antes se recortaba en seco al pasar
+//! de la escala y se oia roto.
 use rodio::cpal::traits::{DeviceTrait, HostTrait};
-use rodio::mixer::Mixer;
+use rodio::mixer::{Mixer, MixerSource};
+use rodio::source::{Limit, LimitSettings, Zero};
 use rodio::{ChannelCount, DeviceSinkBuilder, MixerDeviceSink, Player, SampleRate, Source};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -124,10 +131,39 @@ impl Source for Heartbeat {
     }
 }
 
+/// Como limita lo que suena.
+///
+/// El umbral esta pegado al tope (-0,1 dB, con un codo de 0,2): lo que no
+/// pasa de -0,2 dBFS sale tal cual, muestra a muestra, y una cancion a su
+/// volumen no llega a notarlo. Sin ataque: cada muestra que se pasaria baja
+/// ya en esa muestra, asi que nada llega a recortarse en la salida. Lo que
+/// baja se recupera en 80 ms: con el clic al doble, la cancion cede un
+/// instante en cada golpe, que es justo lo que hace que el clic se oiga.
+fn limiter() -> LimitSettings {
+    LimitSettings::default()
+        .with_threshold(-0.1)
+        .with_knee_width(0.2)
+        .with_attack(Duration::ZERO)
+        .with_release(Duration::from_millis(80))
+}
+
+/// El mezclador donde se conectan la cancion y el clic, y lo que sale de el
+/// ya limitado, para darselo a la salida.
+fn submix(channels: ChannelCount, rate: SampleRate) -> (Mixer, Limit<MixerSource>) {
+    let (mix, mixed) = rodio::mixer::mixer(channels, rate);
+    // Un mezclador vacio se acaba, y el de la salida lo soltaria antes de
+    // que llegara la primera cancion: el silencio lo mantiene vivo.
+    mix.add(Zero::new(channels, rate));
+    (mix, mixed.limit(limiter()))
+}
+
 /// La salida abierta, con su latido.
 pub(super) struct Output {
-    /// Mientras viva esto, suena: dentro van el flujo de cpal y el mezclador.
-    sink: MixerDeviceSink,
+    /// Mientras viva esto, suena: dentro van el flujo de cpal y el mezclador
+    /// de la salida (el latido y lo que sale del limitador).
+    _sink: MixerDeviceSink,
+    /// Donde se conectan la cancion y el clic: sale por el limitador.
+    mix: Mixer,
     /// A la que abrio: el clic se genera a esta para no pasar por el
     /// conversor de tasa del mezclador.
     pub(super) rate: u32,
@@ -183,16 +219,22 @@ impl Output {
             rate,
             count: 0,
         });
+        // a la misma tasa y con los mismos canales que la salida: ni el clic
+        // ni la cancion pasan por ningun conversor de mas
+        let (mix, limited) = submix(sink.config().channel_count(), rate);
+        sink.mixer().add(limited);
         Ok(Self {
-            sink,
+            _sink: sink,
+            mix,
             rate: rate.get(),
             pulse: Pulse::new(beat),
             lost,
         })
     }
 
+    /// Donde se conectan la cancion y el clic.
     pub(super) fn mixer(&self) -> &Mixer {
-        self.sink.mixer()
+        &self.mix
     }
 
     /// cpal ya dijo que esta salida no vale.
@@ -222,6 +264,44 @@ pub(super) fn seek_within(sink: &Arc<Player>, pos: Duration, within: Duration) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rodio::buffer::SamplesBuffer;
+
+    /// Un tono de `hz` a esa amplitud, `n` muestras a 48 kHz en mono.
+    fn tone(hz: f32, amplitude: f32, n: usize) -> Vec<f32> {
+        (0..n)
+            .map(|i| amplitude * (2.0 * std::f32::consts::PI * hz * i as f32 / 48_000.0).sin())
+            .collect()
+    }
+
+    /// A su volumen, lo que suena sale tal cual; subido de mas (la cancion
+    /// al 150 % mas el clic al doble), sale entero pero sin pasar de la
+    /// escala, que antes se recortaba en seco.
+    #[test]
+    fn what_sounds_is_limited_only_when_it_would_clip() {
+        let rate = SampleRate::new(48_000).expect("una tasa de verdad");
+        let (mix, mut out) = submix(ChannelCount::MIN, rate);
+        let quiet = tone(440.0, 0.9, 4_800);
+        mix.add(SamplesBuffer::new(ChannelCount::MIN, rate, quiet.clone()));
+        let heard: Vec<f32> = (0..4_800).map(|_| out.next().expect("no se acaba")).collect();
+        let worst = quiet
+            .iter()
+            .zip(&heard)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        assert!(worst < 1e-6, "a su volumen lo cambio en {worst}");
+
+        // la cancion al 150 % y un clic al doble por encima
+        mix.add(SamplesBuffer::new(ChannelCount::MIN, rate, tone(440.0, 1.5, 9_600)));
+        mix.add(SamplesBuffer::new(ChannelCount::MIN, rate, tone(1_568.0, 2.0, 2_400)));
+        let loud: Vec<f32> = (0..9_600).map(|_| out.next().expect("no se acaba")).collect();
+        let peak = loud.iter().fold(0f32, |m, v| m.max(v.abs()));
+        assert!(peak <= 1.0, "se paso de la escala: {peak}");
+        assert!(peak > 0.9, "tiene que seguir sonando fuerte: {peak}");
+        // y lo que no se paso ya no se toca (se recupera)
+        mix.add(SamplesBuffer::new(ChannelCount::MIN, rate, quiet.clone()));
+        let _settle: Vec<f32> = (0..48_000).map(|_| out.next().expect("no se acaba")).collect();
+        assert!(out.next().is_some(), "el silencio lo mantiene vivo");
+    }
 
     /// Con la salida parada, el latido no se mueve y se nota; latiendo, si.
     #[test]

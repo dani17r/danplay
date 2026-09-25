@@ -548,12 +548,22 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
     ).json()
     study = json.loads(d["study"])
     assert study["pitch"] == -3
-    assert study["metronome"] == {"bpm": 98.3, "meter": 3, "shift": 1, "mult": -1}
+    assert study["metronome"] == {"bpm": 98.26, "meter": 3, "shift": 1, "mult": -1}
     d = cliente.put(
-        f"/api/song/{c['id']}/study", json={"pitch": 0, "metronome": {"meter": 5, "mult": 2}}
+        f"/api/song/{c['id']}/study", json={"pitch": 0, "metronome": {"meter": 1, "mult": 2}}
     ).json()
     assert d["study"] == "", "tono 0 y ajustes invalidos: no queda nada"
     assert cliente.put(f"/api/song/{c['id']}/study", json={"pitch": 13}).status_code == 422
+    # un cuarto de tono (medio semitono), tempo con decimales y sin acento
+    d = cliente.put(
+        f"/api/song/{c['id']}/study",
+        json={"pitch": 0.5, "metronome": {"bpm": 90.7, "meter": 0}},
+    ).json()
+    study = json.loads(d["study"])
+    assert study["pitch"] == 0.5
+    assert study["metronome"] == {"bpm": 90.7, "meter": 0}
+    d = cliente.put(f"/api/song/{c['id']}/study", json={"pitch": -2.0}).json()
+    assert d["study"] == '{"pitch": -2}', "un tono entero se guarda entero"
 
 
 def test_waveform_columns_follow_the_sound():

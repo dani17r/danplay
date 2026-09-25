@@ -5,5 +5,8 @@
   // un comando o una URL no se pueden partir.
   "MD013": { "line_length": 80, "tables": false, "code_blocks": false, "headings": false },
   // La portada del README (titulo, insignias, capturas) solo se centra con HTML.
-  "MD033": { "allowed_elements": ["h1", "p", "strong", "br", "img", "a", "sub", "sup", "details", "summary"] }
+  "MD033": { "allowed_elements": ["h1", "p", "strong", "br", "img", "a", "sub", "sup", "details", "summary"] },
+  // En el CHANGELOG cada version tiene su «Corregido»: lo que no vale es
+  // repetir un titulo dentro de la misma seccion.
+  "MD024": { "siblings_only": true }
 }

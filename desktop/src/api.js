@@ -34,17 +34,18 @@
 /**
  * @typedef {Object} MetronomeSettings  Lo que se le manda al metrónomo.
  * @property {boolean} on
- * @property {number|null} bpm    tempo a mano (el clic va libre); null = el de la canción
- * @property {number|null} meter  3 o 4 a mano; null = el detectado
+ * @property {number|null} bpm    tempo a mano, con decimales (el clic va a su aire, pero
+ *                                entra con el pulso de la canción); null = el de la canción
+ * @property {number|null} meter  a mano: 0 sin acento, o de 2 a 12; null = el detectado
  * @property {number} shift       correr el «1» tantos pulsos
- * @property {number} mult        -1 mitad de pulsos, 0 tal cual, 1 el doble
- * @property {number} volume      0..1
+ * @property {number} mult        -1 mitad de clics, 0 tal cual, 1 el doble (también a mano)
+ * @property {number} volume      0..2: hasta el doble de fuerte
  */
 /**
  * @typedef {Object} MetronomeState  Cómo va el metrónomo, según Rust.
  * @property {boolean} on
- * @property {number} bpm         tempo nominal (rejilla ajustada, o a mano)
- * @property {number} meter
+ * @property {number} bpm         tempo nominal (rejilla ajustada, o a mano), con el doble o la mitad
+ * @property {number} meter       0 = sin acento
  * @property {number} shift
  * @property {number} mult
  * @property {number} volume
@@ -55,7 +56,7 @@
 /**
  * @typedef {Object} BeatGrid  El pulso y el compás de una canción.
  * @property {number} bpm
- * @property {number} meter        pulsos por compás (3 o 4)
+ * @property {number} meter        pulsos por compás (3 o 4; a mano, 0 sin acento o 2..12)
  * @property {number[]} beats      segundos de cada pulso
  * @property {number} first_downbeat  índice en `beats` del primer «1»
  * @property {number} phase3
@@ -70,7 +71,7 @@
  * @property {boolean} playing
  * @property {number} position    segundos
  * @property {number} duration    segundos
- * @property {number} volume      0..1
+ * @property {number} volume      0..1,5: por encima de 1, más alta de como viene
  * @property {number} speed       0.25..3
  * @property {Repeat} repeat
  * @property {boolean} shuffle
@@ -80,7 +81,8 @@
  * @property {boolean} has_output false = este equipo no tiene salida de audio
  * @property {any} origin         lo que la interfaz pasó en set_queue
  * @property {boolean} pitch_preserved  la velocidad conserva el tono (ffmpeg)
- * @property {number} pitch       el tono corrido, en semitonos (0 = como está grabada)
+ * @property {number} pitch       el tono corrido, en semitonos (0 = como está grabada; con
+ *                                fracciones: 0,5 es un cuarto de tono)
  * @property {MetronomeState} metronome
  * @property {string} path        el archivo que suena de verdad (clave de la rejilla del metrónomo)
  * @property {number} loop_a      bucle A-B en segundos; 0,0 = sin bucle
@@ -403,13 +405,21 @@ export const playback = {
   stop: () => invoke('stop'),
   /** @param {number} seconds */
   seek: (seconds) => invoke('seek', { seconds }),
-  /** @param {number} value 0..1 */
+  /** @param {number} value 0..1,5 (por encima de 1, más alta de como viene) */
   setVolume: (value) => invoke('set_volume', { value }),
   /** @param {number} value */
   setSpeed: (value) => invoke('set_speed', { value }),
-  /** Repetir de A a B (segundos); sin valores, lo quita. @param {number|null} a @param {number|null} b */
+  /**
+   * Repetir de A a B (segundos); sin valores, lo quita. No mueve la canción:
+   * el tramo entra cuando la canción está (o llega) dentro, y con tramo la
+   * canción no se acaba (al final vuelve a A).
+   * @param {number|null} a @param {number|null} b
+   */
   setLoop: (a, b) => invoke('set_loop', { a, b }),
-  /** El tono corrido, en semitonos (-12..12). Solo hace algo con ffmpeg. */
+  /**
+   * El tono corrido, en semitonos (-12..12, con fracciones: 0,5 es un cuarto
+   * de tono). Solo hace algo con ffmpeg.
+   */
   setPitch: (semitones) => invoke('set_pitch', { semitones }),
   /** @param {MetronomeSettings} settings */
   setMetronome: (settings) => invoke('set_metronome', { settings }),

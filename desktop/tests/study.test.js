@@ -50,6 +50,7 @@ const base = {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.useRealTimers()
+  localStorage.clear() // el candado de la onda y el paso del tono, como de fabrica
   resetPlayback()
   held.playback.reset()
   held.state.songs = [song(7, { title: 'Mi Gozo', study: '' })]
@@ -123,8 +124,9 @@ describe('la barra de estudio', () => {
     await puntero(window, 'pointermove', 200)
     await puntero(window, 'pointerup', 200)
     expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(50, 100)
-    // la cancion iba por 0:12, fuera del tramo: salta a A
-    expect(held.playback.bridge.seek).toHaveBeenCalledWith(50)
+    // con el candado (puesto de entrada) y sonando, no salta al tramo: la
+    // cancion sigue por 0:12 y el tramo entra cuando llegue
+    expect(held.playback.bridge.seek).not.toHaveBeenCalled()
     expect(w.text()).toContain('0:50 – 1:40')
     const tramo = w.find('.tl-loop')
     expect(tramo.attributes('style')).toContain('left: 25%')
@@ -151,15 +153,62 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('un clic sin arrastrar lleva la cancion ahi y no toca el bucle', async () => {
+  it('un clic sin arrastrar lleva la cancion ahi y no toca el bucle (sin candado)', async () => {
     const w = await montar()
     vi.clearAllMocks() // al entrar se aplica lo guardado (sin bucle): eso no cuenta
     conAnchura(w)
+    await w.find('.tl-lock').trigger('click')
     const caja = w.find('.tl-box').element
     await puntero(caja, 'pointerdown', 300)
     await puntero(window, 'pointerup', 301)
     expect(held.playback.bridge.seek).toHaveBeenCalledWith(150.5)
     expect(held.playback.bridge.setLoop).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('con el candado, sonando, un clic no mueve la cancion y el candado lo avisa', async () => {
+    vi.useFakeTimers()
+    const w = await montar()
+    vi.clearAllMocks()
+    conAnchura(w)
+    const candado = w.find('.tl-lock')
+    expect(candado.classes(), 'puesto de entrada').toContain('on')
+    expect(candado.attributes('aria-pressed')).toBe('true')
+    expect(w.find('.study-hint').text()).toContain('con el candado')
+    const caja = w.find('.tl-box').element
+    await puntero(caja, 'pointerdown', 300)
+    await puntero(window, 'pointerup', 301)
+    expect(held.playback.bridge.seek).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.find('.tl-lock').classes(), 'se sacude para decir por que').toContain('nudged')
+    await vi.advanceTimersByTimeAsync(800)
+    expect(w.find('.tl-lock').classes()).not.toContain('nudged')
+    // en pausa no hay nada que estropear: el clic coloca la cancion
+    held.playback.emit({ playing: false })
+    await flushPromises()
+    await puntero(caja, 'pointerdown', 100)
+    await puntero(window, 'pointerup', 100)
+    expect(held.playback.bridge.seek).toHaveBeenCalledWith(50)
+    // quitarlo se recuerda para la proxima vez
+    await w.find('.tl-lock').trigger('click')
+    expect(w.find('.tl-lock').classes()).not.toContain('on')
+    expect(localStorage.getItem('danplay.study.lock')).toBe('false')
+    vi.useRealTimers()
+    w.unmount()
+  })
+
+  it('sin candado, elegir un tramo por fuera de donde va salta a A', async () => {
+    localStorage.setItem('danplay.study.lock', 'false')
+    const w = await montar()
+    vi.clearAllMocks()
+    conAnchura(w)
+    const caja = w.find('.tl-box').element
+    await puntero(caja, 'pointerdown', 100)
+    await puntero(window, 'pointermove', 200)
+    await puntero(window, 'pointerup', 200)
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(50, 100)
+    // la cancion iba por 0:12, fuera del tramo: salta a A
+    expect(held.playback.bridge.seek).toHaveBeenCalledWith(50)
     w.unmount()
   })
 
@@ -233,9 +282,37 @@ describe('la barra de estudio', () => {
     await puntero(window, 'pointermove', 124)
     await puntero(window, 'pointerup', 124)
     expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(25, 60)
-    // y pulsar el marcador lleva alli
+    // con el candado, sonando, pulsar el marcador en la onda lo elige sin mover la cancion
+    held.playback.bridge.seek.mockClear()
     await w.find('.tl-marker').trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.seek).not.toHaveBeenCalled()
+    expect(w.find('.study-marker').classes()).toContain('on')
+    // en pausa, pulsarlo lleva alli
+    held.playback.emit({ playing: false })
+    await flushPromises()
+    await w.find('.tl-marker').trigger('click')
+    await flushPromises()
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(60)
+    w.unmount()
+  })
+
+  it('con el candado, un tramo de la onda se pone sin saltar; desde la lista si salta', async () => {
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({ markers: [{ t: 30, end: 45, label: 'Coro' }] })
+      })
+    ]
+    const w = await montar()
+    vi.clearAllMocks()
+    await w.find('.tl-marker').trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(30, 45)
+    expect(held.playback.bridge.seek).not.toHaveBeenCalled()
+    await w.find('.study-pick').trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.seek).toHaveBeenCalledWith(30)
     w.unmount()
   })
 
@@ -248,6 +325,8 @@ describe('la barra de estudio', () => {
     await flushPromises()
     await tecla('b')
     expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(12, 20)
+    // B cierra el tramo y vuelve a A, con candado o sin el: es la repeticion A-B
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(12)
     expect(w.text()).toContain('0:12 – 0:20')
     // con el bucle puesto, A lo acorta por delante y B lo alarga por detras
     held.playback.emit({ position: 15 })
@@ -576,20 +655,22 @@ describe('tono, velocidad fina y metronomo', () => {
   }
   const bridge = () => held.playback.bridge
 
-  it('el tono sube y baja por semitonos, enseña el tono resultante y se guarda', async () => {
+  it('el tono se cuenta en tonos: de medio en medio (un semitono), enseña el tono resultante y se guarda', async () => {
     vi.useFakeTimers()
     held.playback.emit({
       track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200, key: 'G' }
     })
     const w = await montar()
     expect(w.text()).toContain('Tono')
-    await boton(w, '+').trigger('click')
+    expect(w.find('.study-step.on').text(), 'de entrada, de medio en medio').toBe('½')
+    await w.find('.study-pitch-up').trigger('click')
     await flushPromises()
     expect(bridge().setPitch).toHaveBeenLastCalledWith(1)
-    await boton(w, '+').trigger('click')
+    expect(w.find('.study-pitch-n').text()).toBe('+½')
+    await w.find('.study-pitch-up').trigger('click')
     await flushPromises()
     expect(bridge().setPitch).toHaveBeenLastCalledWith(2)
-    expect(w.find('.study-pitch-n').text()).toBe('+2')
+    expect(w.find('.study-pitch-n').text(), 'dos semitonos son un tono').toBe('+1')
     expect(w.text()).toContain('G → A')
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { pitch: 2 })
@@ -598,6 +679,40 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(bridge().setPitch).toHaveBeenLastCalledWith(0)
     expect(w.find('.study-pitch-n').text()).toBe('0')
     vi.useRealTimers()
+  })
+
+  it('el tono va tambien de cuarto en cuarto de tono y de tono en tono', async () => {
+    vi.useFakeTimers()
+    held.playback.emit({
+      track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200, key: 'G' }
+    })
+    const w = await montar()
+    const paso = (n) => w.findAll('.study-step').find((b) => b.text() === n)
+    await paso('¼').trigger('click')
+    await w.find('.study-pitch-up').trigger('click')
+    await flushPromises()
+    // un cuarto de tono es medio semitono: no tiene nombre de tonalidad
+    expect(bridge().setPitch).toHaveBeenLastCalledWith(0.5)
+    expect(w.find('.study-pitch-n').text()).toBe('+¼')
+    expect(w.text()).toContain('G → G +¼')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { pitch: 0.5 })
+    await paso('1').trigger('click')
+    await w.find('.study-pitch-down').trigger('click')
+    await w.find('.study-pitch-down').trigger('click')
+    await flushPromises()
+    expect(bridge().setPitch).toHaveBeenLastCalledWith(-3.5)
+    expect(w.find('.study-pitch-n').text()).toBe('−1¾')
+    // el paso elegido se recuerda
+    expect(localStorage.getItem('danplay.study.pitchStep')).toBe('2')
+    vi.useRealTimers()
+  })
+
+  it('un tono guardado con cuartos vuelve con la cancion', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ pitch: -0.5 }) })]
+    const w = await montar()
+    expect(bridge().setPitch).toHaveBeenCalledWith(-0.5)
+    expect(w.find('.study-pitch-n').text()).toBe('−¼')
   })
 
   it('el tono guardado se aplica al entrar y se quita al cerrar, como la velocidad', async () => {
@@ -643,7 +758,7 @@ describe('tono, velocidad fina y metronomo', () => {
       expect.objectContaining({ on: true, bpm: null, meter: null, shift: 0, mult: 0 })
     )
     expect(w.find('.study-metro-toggle').classes()).toContain('on')
-    expect(w.find('.study-bpm b').text()).toBe('120')
+    expect(w.find('.study-bpm-input input').element.value).toBe('120')
     // la cancion sigue: no se ha tocado play ni pausa
     expect(bridge().toggle).not.toHaveBeenCalled()
     await boton(w, 'Parar').trigger('click')
@@ -652,11 +767,14 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(bridge().toggle).not.toHaveBeenCalled()
   })
 
-  it('a otra velocidad el clic enseña el tempo que se oye', async () => {
+  it('a otra velocidad el clic enseña el tempo que se oye, con su decimal', async () => {
     const w = await montar()
     held.playback.emit({ speed: 0.5 })
     await flushPromises()
-    expect(w.find('.study-bpm b').text()).toBe('60')
+    expect(w.find('.study-bpm-input input').element.value).toBe('60')
+    held.playback.emit({ speed: 0.83 })
+    await flushPromises()
+    expect(w.find('.study-bpm-input input').element.value).toBe('99.6')
   })
 
   it('subir o bajar los bpm lo pone libre; «el de la cancion» vuelve a seguirla; todo se guarda', async () => {
@@ -674,19 +792,108 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: null }))
     expect(w.text()).toContain('sigue la canción')
     // compas, el «1» corrido y el doble de pulsos
-    await boton(w, '4/4').trigger('click')
+    expect(w.find('.study-meters .btn.on').text(), 'el detectado').toBe('4/4')
+    await boton(w, '3/4').trigger('click')
     await flushPromises()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ meter: 3 }))
+    expect(w.find('.study-meters .btn.on').text()).toBe('3/4')
     await boton(w, 'el 1 es el siguiente').trigger('click')
     await flushPromises()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ shift: 1 }))
     await boton(w, '×2').trigger('click')
     await flushPromises()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ mult: 1 }))
+    expect(boton(w, '×2').classes(), 'se ve puesto').toContain('on')
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenLastCalledWith(7, {
       metronome: { meter: 3, shift: 1, mult: 1 }
     })
+    vi.useRealTimers()
+  })
+
+  it('el tempo se escribe con decimales, y las flechas lo mueven de decima en decima', async () => {
+    vi.useFakeTimers()
+    const w = await montar()
+    vi.clearAllMocks()
+    const tempo = w.find('.study-bpm-input input')
+    await tempo.trigger('focus')
+    await tempo.setValue('90,7')
+    await tempo.trigger('keydown', { key: 'Enter' })
+    await tempo.trigger('blur')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: 90.7 }))
+    expect(tempo.element.value).toBe('90.7')
+    expect(w.text()).toContain('tempo a mano')
+    await tempo.trigger('focus')
+    await tempo.trigger('keydown', { key: 'ArrowUp' })
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: 90.8 }))
+    await tempo.trigger('keydown', { key: 'ArrowDown', shiftKey: true })
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: 89.8 }))
+    // Escape deja el que habia; lo que no es un numero, tambien
+    await tempo.setValue('rapido')
+    await tempo.trigger('keydown', { key: 'Escape' })
+    await tempo.trigger('blur')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: 89.8 }))
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { metronome: { bpm: 89.8 } })
+    // la «x» del campo, que solo sale con tempo a mano, vuelve al de la cancion
+    await w.find('.study-bpm-input .field-btn').trigger('click')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: null }))
+    expect(w.text()).toContain('sigue la canción')
+    expect(w.find('.study-bpm-input .field-btn').exists()).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('×2 dobla tambien el tempo puesto a mano, y la onda pinta el doble de pulsos', async () => {
+    const w = await montar()
+    const tempo = w.find('.study-bpm-input input')
+    await tempo.trigger('focus')
+    await tempo.setValue('68')
+    await tempo.trigger('blur')
+    await flushPromises()
+    expect(tempo.element.value).toBe('68')
+    const onda = () => w.findComponent({ name: 'StudyTimeline' }).props('grid')
+    const antes = onda().beats.length
+    await boton(w, '×2').trigger('click')
+    await flushPromises()
+    // antes el tempo a mano se quedaba y ×2 no hacia nada
+    expect(tempo.element.value).toBe('136')
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(
+      expect.objectContaining({ bpm: 68, mult: 1 })
+    )
+    expect(onda().beats.length).toBe(antes * 2)
+    // escribir con el doble puesto guarda el tempo sin el: al quitarlo vuelve
+    await tempo.trigger('focus')
+    await tempo.setValue('140')
+    await tempo.trigger('blur')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: 70 }))
+    await boton(w, '×2').trigger('click')
+    await flushPromises()
+    expect(tempo.element.value).toBe('70')
+    expect(boton(w, '×2').classes()).not.toContain('on')
+  })
+
+  it('sin acento: el compas 0 se guarda y la onda no marca ningun «1»', async () => {
+    vi.useFakeTimers()
+    const w = await montar()
+    await boton(w, 'sin acento').trigger('click')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ meter: 0 }))
+    expect(w.findComponent({ name: 'StudyTimeline' }).props('grid').meter).toBe(0)
+    expect(boton(w, 'el 1 es el siguiente').attributes('disabled')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { metronome: { meter: 0 } })
+    // volver al detectado no se guarda como ajuste
+    await boton(w, '4/4').trigger('click')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ meter: null }))
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, {})
     vi.useRealTimers()
   })
 
@@ -726,14 +933,31 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
   })
 
-  it('el volumen del clic tiene su deslizador', async () => {
+  it('el volumen del clic tiene su deslizador, hasta el doble', async () => {
     const w = await montar()
     const vol = w.find('.study-metro-vol input[type="range"]')
+    expect(vol.attributes('max')).toBe('2')
     await vol.setValue('0.35')
     await flushPromises()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(
       expect.objectContaining({ volume: 0.35 })
     )
+    await vol.setValue('1.8')
+    await flushPromises()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ volume: 1.8 }))
+    expect(w.find('.study-metro-vol').text()).toContain('180 %')
+  })
+
+  it('la cancion tambien se puede subir, hasta un 50 % mas', async () => {
+    const w = await montar()
+    const vol = w.find('.study-song-vol input[type="range"]')
+    expect(vol.attributes('max')).toBe('1.5')
+    await vol.setValue('1.3')
+    await flushPromises()
+    expect(bridge().setVolume).toHaveBeenLastCalledWith(1.3)
+    expect(w.find('.study-song-vol').text()).toContain('130 %')
+    // lo que pasa del 100 % se pinta aparte
+    expect(w.find('.study-song-vol .slider-over').exists()).toBe(true)
   })
 
   it('la onda recibe la rejilla y es mas alta', async () => {
@@ -760,20 +984,58 @@ describe('el reproductor y el bucle', () => {
     w.unmount()
   })
 
-  it('en el navegador el bucle vuelve a A al pasar de B', async () => {
+  it('en el navegador el bucle vuelve a A al pasar de B, como en Rust', async () => {
     resetPlayback()
     held.api.inTauri = false
     const player = usePlayback()
     await player.ready()
     const audio = player.audioElement()
+    const at = async (t) => {
+      Object.defineProperty(audio, 'currentTime', { value: t, writable: true, configurable: true })
+      audio.dispatchEvent(new Event('timeupdate'))
+      await flushPromises()
+    }
     await player.setLoop(10, 20)
-    Object.defineProperty(audio, 'currentTime', { value: 21, writable: true, configurable: true })
-    audio.dispatchEvent(new Event('timeupdate'))
-    await flushPromises()
+    // un tramo por delante de la aguja no hace nada hasta que la cancion entra
+    await at(5)
+    expect(audio.currentTime).toBe(5)
+    await at(15)
+    await at(21)
     expect(audio.currentTime).toBe(10)
     expect(player.loopA.value).toBe(10)
+    // uno elegido por detras (la onda con candado) no la mueve...
+    await player.setLoop(1, 3)
+    await at(12)
+    expect(audio.currentTime).toBe(12)
+    // ...y al acabarse la cancion vuelve a el en vez de pasar a la siguiente
+    audio.dispatchEvent(new Event('ended'))
+    await flushPromises()
+    expect(audio.currentTime).toBe(1)
+    expect(player.playing.value).toBe(true)
     await player.clearLoop()
     expect(player.loopB.value).toBe(0)
     held.api.inTauri = true
+  })
+
+  it('el volumen del reproductor sube hasta el 150 % y las flechas paran en el 100 %', async () => {
+    const w = mount(Player, { props: { study: false }, attachTo: document.body })
+    await flushPromises()
+    const vol = w.find('.pl-volume input[type="range"]')
+    expect(vol.attributes('max')).toBe('1.5')
+    await vol.setValue('1.2')
+    await flushPromises()
+    expect(held.playback.bridge.setVolume).toHaveBeenLastCalledWith(1.2)
+    expect(w.find('.pl-volume .slider-over').exists(), 'lo que pasa del 100 %, aparte').toBe(true)
+    held.playback.emit({ volume: 0.97 })
+    await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    await flushPromises()
+    expect(held.playback.bridge.setVolume).toHaveBeenLastCalledWith(1)
+    held.playback.emit({ volume: 1 })
+    await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    await flushPromises()
+    expect(held.playback.bridge.setVolume).toHaveBeenLastCalledWith(1.05)
+    w.unmount()
   })
 })

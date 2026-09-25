@@ -55,6 +55,7 @@ pub fn seek(playback: tauri::State<'_, Playback>, seconds: f64) {
     playback.send(Command::Seek(seconds));
 }
 
+/// 0..1,5: por encima de 1 la cancion suena mas alta de como viene.
 #[tauri::command]
 pub fn set_volume(playback: tauri::State<'_, Playback>, value: f32) {
     playback.send(Command::Volume(value));
@@ -65,10 +66,11 @@ pub fn set_speed(playback: tauri::State<'_, Playback>, value: f32) {
     playback.send(Command::Speed(value));
 }
 
-/// El tono corrido, en semitonos (-12..12). Solo hace algo con ffmpeg.
+/// El tono corrido, en semitonos (-12..12, con fracciones: 0,5 es un cuarto
+/// de tono). Solo hace algo con ffmpeg.
 #[tauri::command]
-pub fn set_pitch(playback: tauri::State<'_, Playback>, semitones: i32) {
-    playback.send(Command::Pitch(semitones.clamp(-12, 12)));
+pub fn set_pitch(playback: tauri::State<'_, Playback>, semitones: f32) {
+    playback.send(Command::Pitch(semitones));
 }
 
 /// Analiza el pulso y el compas de un archivo (un par de segundos) y se

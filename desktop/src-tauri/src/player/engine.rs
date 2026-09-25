@@ -10,7 +10,7 @@
 use super::metro::{self, Click, Metro, Replan};
 use super::open::{self, Recipe, Song};
 use super::output::{self, Output};
-use super::state::{State, lock};
+use super::state::{MAX_VOLUME, State, lock, nudged_volume};
 use super::{Command, Event, Notify};
 use crate::{beats::BeatGrid, tools, transcode};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -49,6 +49,15 @@ const IDLE_RELEASE: Duration = Duration::from_secs(2);
 /// cancion pasa por ffmpeg: asi, al llegar a B, el salto es instantaneo.
 const LOOP_AHEAD: f64 = 1.5;
 
+/// El tono corrido: una octava arriba o abajo como mucho, al centesimo de
+/// semitono (un cent). Lo que no sea un numero, tal cual.
+pub(super) fn clean_pitch(semitones: f32) -> f32 {
+    if !semitones.is_finite() {
+        return 0.0;
+    }
+    (semitones.clamp(-12.0, 12.0) * 100.0).round() / 100.0
+}
+
 /// Cada cuanto se mira el reloj si no llega ninguna orden. Sonando hace falta
 /// a menudo (de ahi sale la barra de progreso); parado no se mueve nada, asi
 /// que despertar ocho veces por segundo para ver lo mismo solo gasta bateria.
@@ -71,8 +80,13 @@ pub(super) struct Carry {
     /// rodio cuenta en tiempo de salida y la cancion va en el suyo.
     pub(super) tempo: f32,
     pub(super) loop_ab: Option<(f64, f64)>,
-    /// El tono corrido, en semitonos.
-    pub(super) pitch: i32,
+    /// El bucle esta armado: la cancion esta (o ha entrado) en el tramo, y al
+    /// pasar de B vuelve a A. Un tramo elegido por detras o por delante de la
+    /// aguja sin saltar a el (la onda con candado) no hace nada hasta que la
+    /// cancion entra en el.
+    pub(super) loop_armed: bool,
+    /// El tono corrido, en semitonos (con fracciones).
+    pub(super) pitch: f32,
     /// El metronomo: sus ajustes y la rejilla de la cancion que suena.
     pub(super) metro: Metro,
     /// Una orden que llego mientras no habia salida de audio. Se atiende en
@@ -95,7 +109,8 @@ impl Carry {
             duration: 0.0,
             tempo: 1.0,
             loop_ab: None,
-            pitch: 0,
+            loop_armed: false,
+            pitch: 0.0,
             metro: Metro::default(),
             pending: None,
             resume_at: None,
@@ -201,7 +216,9 @@ impl Engine<'_> {
     /// Cuanto esperar a la siguiente orden; `None` si no hay nada que mirar
     /// mientras tanto.
     fn wait(&self) -> Option<Duration> {
-        if self.sounding() {
+        // una cancion con tramo que se acaba vuelve al tramo: cuanto antes
+        let back_to_loop = self.carry.loop_ab.is_some() && self.song.as_ref().is_some_and(Song::exhausted);
+        if self.sounding() || back_to_loop {
             Some(ACTIVE)
         } else if self.output.is_some() {
             Some(IDLE)
@@ -274,10 +291,13 @@ impl Engine<'_> {
                 step.failure = Some(reason);
             }
             Command::Seek(seconds) => self.seek(seconds, step),
-            Command::Loop(ab) => self.carry.loop_ab = ab.filter(|(a, b)| *b > *a + 0.2 && *a >= 0.0),
+            Command::Loop(ab) => {
+                self.carry.loop_ab = ab.filter(|(a, b)| *b > *a + 0.2 && *a >= 0.0);
+                self.rearm(self.position_now());
+            }
             Command::Metronome { settings, grid } => self.metronome_settings(settings, grid, step),
             Command::Volume(value) => self.volume(value),
-            Command::NudgeVolume(delta) => self.volume(self.carry.volume + delta),
+            Command::NudgeVolume(delta) => self.volume(nudged_volume(self.carry.volume, delta)),
             Command::Speed(value) => {
                 let clock = self.carry.clock();
                 self.carry.speed = value.clamp(0.25, 3.0);
@@ -285,7 +305,7 @@ impl Engine<'_> {
             }
             Command::Pitch(semitones) => {
                 let clock = self.carry.clock();
-                self.carry.pitch = semitones.clamp(-12, 12);
+                self.carry.pitch = clean_pitch(semitones);
                 self.retune(clock, step);
             }
         }
@@ -354,6 +374,7 @@ impl Engine<'_> {
                     self.carry.duration = song.announced.unwrap_or(0.0);
                 }
                 self.adopt(song, true);
+                self.rearm(0.0);
                 // otra cancion: su rejilla, o ninguna
                 let path = self.carry.path.clone();
                 self.carry.metro.rebuild(&path);
@@ -379,6 +400,7 @@ impl Engine<'_> {
         self.carry.duration = hint;
         self.carry.resume_at = None;
         self.was_finished = false;
+        self.rearm(0.0);
     }
 
     /// Stop, o la cola que no encontro el archivo: nada puesto.
@@ -404,6 +426,7 @@ impl Engine<'_> {
             match self.open_current(from) {
                 Ok(song) => {
                     self.adopt(song, true);
+                    self.rearm(from);
                     step.replan = Some(Replan::Song);
                 }
                 Err(e) => {
@@ -425,6 +448,7 @@ impl Engine<'_> {
         step.sought = true;
         step.replan = Some(Replan::Song);
         let seconds = seconds.max(0.0);
+        self.rearm(seconds);
         let exhausted = self.song.as_ref().is_none_or(Song::exhausted);
         if exhausted && !self.carry.path.is_empty() {
             // Nada abierto: la pista acabo (se vuelve a abrir y suena, como
@@ -528,7 +552,11 @@ impl Engine<'_> {
     }
 
     fn volume(&mut self, value: f32) {
-        self.carry.volume = value.clamp(0.0, 1.0);
+        self.carry.volume = if value.is_finite() {
+            value.clamp(0.0, MAX_VOLUME)
+        } else {
+            self.carry.volume
+        };
         if let Some(song) = &self.song {
             song.sink.set_volume(self.carry.volume);
         }
@@ -598,16 +626,52 @@ impl Engine<'_> {
     }
 
     // ------------------------------------------- bucle A-B
+    /// Donde va la cancion ahora (o donde se quedo), en sus segundos.
+    fn position_now(&self) -> f64 {
+        let clock = self.carry.clock();
+        self.song
+            .as_ref()
+            .filter(|s| !s.exhausted())
+            .map(|s| s.position(clock))
+            .or(self.carry.resume_at)
+            .unwrap_or(0.0)
+    }
+
+    /// Arma el bucle si la cancion esta dentro del tramo en `at`.
+    fn rearm(&mut self, at: f64) {
+        self.carry.loop_armed = self.carry.loop_ab.is_some_and(|(a, b)| at >= a - 0.01 && at < b);
+    }
+
     /// Al pasar de B se vuelve a A. Sirve para machacar un trozo; es lo
     /// primero que pide cualquiera que estudia una cancion.
+    ///
+    /// Solo con el bucle armado: la cancion tiene que haber estado dentro
+    /// del tramo. Uno elegido mientras suena sin saltar a el (la onda con
+    /// candado) espera: si va por delante, entra al llegar la cancion; si
+    /// va por detras, la cancion sigue hasta el final y entonces vuelve a A,
+    /// en vez de pasar a la siguiente.
     fn ab_loop(&mut self, step: &mut Step) {
         let (Some((a, b)), Some(song)) = (self.carry.loop_ab, &self.song) else {
             return;
         };
+        if song.exhausted() {
+            self.seek(a, step);
+            if step.failure.is_some() {
+                // no se pudo volver a abrir: se deja acabar, sin insistir
+                self.carry.loop_ab = None;
+            }
+            return;
+        }
         if !song.playing() {
             return;
         }
         let position = song.position(self.carry.clock());
+        if !self.carry.loop_armed {
+            if position < a || position >= b {
+                return;
+            }
+            self.carry.loop_armed = true;
+        }
         if let Some(control) = &song.ffmpeg
             && b - position < LOOP_AHEAD
         {
@@ -643,7 +707,8 @@ impl Engine<'_> {
         };
         if let Some(shared) = metro::ensure_click(output, &mut self.click) {
             let position = self.song.as_ref().map_or(0.0, |s| s.position(self.carry.clock()));
-            metro::plan(&self.carry.metro, self.carry.speed, position, &shared, why);
+            let playing = self.sounding();
+            metro::plan(&self.carry.metro, self.carry.speed, position, playing, &shared, why);
         }
     }
 
@@ -709,8 +774,9 @@ impl Engine<'_> {
         };
 
         // Fin de pista: se avisa UNA vez. Quien decide que pasa luego
-        // (repetir, avanzar, pararse) es la cola.
-        if finished && !self.was_finished && !self.carry.path.is_empty() {
+        // (repetir, avanzar, pararse) es la cola. Con un tramo puesto no se
+        // acaba: vuelve a A (ver `ab_loop`).
+        if finished && !self.was_finished && !self.carry.path.is_empty() && self.carry.loop_ab.is_none() {
             self.was_finished = true;
             if !(self.notify)(Event::Finished) {
                 return false;

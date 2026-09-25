@@ -37,8 +37,9 @@ const FRAME: usize = 32_768;
 #[derive(Clone, Debug)]
 pub enum Mode {
     Off,
-    /// Libre, a `period` segundos por pulso, con el «1» cada `meter` pulsos.
-    /// El proximo pulso cae a `delay` segundos y es el tiempo `first` del compas.
+    /// Libre, a `period` segundos por pulso, con el «1» cada `meter` pulsos
+    /// (0: sin acento, todos iguales). El proximo pulso cae a `delay`
+    /// segundos y es el tiempo `first` del compas.
     Free {
         period: f64,
         meter: u8,
@@ -61,6 +62,9 @@ pub enum Mode {
 pub struct Plan {
     pub generation: u64,
     pub mode: Mode,
+    /// 0..2: por encima de 1 el golpe pasa del tope de la salida, y es el
+    /// limitador del mezclador quien lo deja entrar (bajando un instante la
+    /// cancion, que es lo que hace que el clic se oiga por encima).
     pub volume: f32,
     /// Reenganche de rutina: la cancion sigue donde estaba y solo hay que
     /// quitar lo que se haya ido acumulando. La fuente lo aplica sin repetir
@@ -211,7 +215,7 @@ impl Click {
         match self.mode.clone() {
             Mode::Off => {}
             Mode::Free { period, meter, .. } => {
-                let accent = self.beat_in_bar == 0;
+                let accent = meter > 0 && self.beat_in_bar == 0;
                 self.voice = Some((0, accent));
                 self.beat_in_bar = (self.beat_in_bar + 1) % meter.max(1);
                 self.next += period.max(0.05) * f64::from(self.rate);
@@ -338,6 +342,32 @@ mod tests {
             );
             assert_eq!(*accent, k % 4 == 0, "acento del golpe {k}");
         }
+    }
+
+    /// Sin acento (compas 0) todos los golpes son iguales. Y el volumen pasa
+    /// de 1 si se pide: lo que sobre lo recoge el limitador de la salida.
+    #[test]
+    fn free_mode_without_accent_and_a_louder_click() {
+        let shared: Shared = Arc::new(Mutex::new(Plan::default()));
+        let mut c = click(shared.clone());
+        {
+            let mut p = shared.lock().unwrap();
+            p.generation = 1;
+            p.mode = Mode::Free {
+                period: 0.5,
+                meter: 0,
+                delay: 0.0,
+                first: 0,
+            };
+            p.volume = 1.0;
+        }
+        let h = hits(&mut c, 2.2);
+        assert_eq!(h.len(), 5, "{h:?}");
+        assert!(h.iter().all(|(_, accent)| !accent), "sin acento: {h:?}");
+        // al doble, el golpe normal (0,65 de pico) pasa de 1
+        shared.lock().unwrap().volume = 2.0;
+        let peak = (0..RATE).map(|_| c.next().unwrap().abs()).fold(0f32, f32::max);
+        assert!(peak > 1.0, "pico {peak}");
     }
 
     fn grid() -> Arc<BeatGrid> {

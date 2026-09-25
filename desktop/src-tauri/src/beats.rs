@@ -36,7 +36,8 @@ const TIGHTNESS: f64 = 100.0;
 pub struct BeatGrid {
     /// Pulsos por minuto (mediana de los intervalos de la rejilla).
     pub bpm: f32,
-    /// Pulsos por compas: 3 o 4.
+    /// Pulsos por compas: 3 o 4 al analizar. A mano, de 2 a 12, o 0: sin
+    /// acento (todos los pulsos iguales).
     pub meter: u8,
     /// Segundos de cada pulso, de principio a fin.
     pub beats: Vec<f64>,
@@ -50,10 +51,16 @@ pub struct BeatGrid {
 }
 
 impl BeatGrid {
-    /// ¿Es el «1» el pulso `i`?
+    /// ¿Es el «1» el pulso `i`? Sin acento (compas 0), ninguno lo es.
     pub fn is_downbeat(&self, i: usize) -> bool {
-        let m = self.meter.max(1) as isize;
-        (i as isize - self.first_downbeat as isize).rem_euclid(m) == 0
+        self.meter > 0 && self.beat_in_bar(i) == 0
+    }
+
+    /// Que tiempo del compas es el pulso `i` (0 = el «1»). Sin acento, 0.
+    pub fn beat_in_bar(&self, i: usize) -> u8 {
+        let m = isize::from(self.meter.max(1));
+        // cabe: el resto es menor que el compas, que es un u8
+        (i as isize - self.first_downbeat as isize).rem_euclid(m) as u8
     }
 
     /// El primer pulso que cae en `t` o despues: (indice, segundos, ¿es el 1?).
@@ -80,17 +87,25 @@ impl BeatGrid {
     }
 
     /// Otro compas: el mismo pulso, el «1» donde tocaba para ese compas.
+    ///
+    /// El analisis solo sabe donde cae el «1» en 3 y en 4. Los demas salen
+    /// de ahi: un 2/4 es medio 4/4, un 6/8 son dos grupos de tres, y uno
+    /// raro (5, 7) empieza donde el 4/4 y se corrige con «el 1 es el
+    /// siguiente». 0 (o 1) es sin acento; mas de 12 no es un compas.
     pub fn with_meter(&self, meter: u8) -> BeatGrid {
         let mut g = self.clone();
-        g.meter = if meter == 3 { 3 } else { 4 };
-        g.first_downbeat = if g.meter == 3 { g.phase3 } else { g.phase4 };
+        g.meter = normal_meter(meter);
+        if g.meter > 0 {
+            let phase = if g.meter.is_multiple_of(3) { g.phase3 } else { g.phase4 };
+            g.first_downbeat = phase % usize::from(g.meter);
+        }
         g
     }
 
     /// El «1» corrido `shift` pulsos (positivo: el siguiente pulso pasa a ser el 1).
     pub fn shifted(&self, shift: i32) -> BeatGrid {
         let mut g = self.clone();
-        let m = g.meter.max(1) as i64;
+        let m = i64::from(g.meter.max(1));
         g.first_downbeat = (g.first_downbeat as i64 + i64::from(shift)).rem_euclid(m) as usize;
         g
     }
@@ -125,6 +140,13 @@ impl BeatGrid {
         g.phase4 = (self.phase4.saturating_sub(start)) / 2;
         g
     }
+}
+
+/// Un compas que se pueda tocar: de 2 a 12 pulsos, o 0 (sin acento). Un
+/// compas de 1 es un acento en cada pulso, que al oido es lo mismo que
+/// ninguno.
+pub fn normal_meter(meter: u8) -> u8 {
+    if meter < 2 { 0 } else { meter.min(12) }
 }
 
 // ------------------------------------------------------------ envolvente
@@ -898,6 +920,43 @@ mod tests {
         assert!((h.beats[0] - 0.75).abs() < 1e-9, "empieza en el 1");
         assert_eq!(h.first_downbeat, 0);
         assert!((h.bpm - 60.0).abs() < 1e-6);
+    }
+
+    /// Los compases que no salen del analisis: sin acento, 2/4, 6/8 y los
+    /// raros. El «1» sale de donde caia en 3 o en 4.
+    #[test]
+    fn other_meters_take_the_one_from_three_or_four() {
+        let g = BeatGrid {
+            bpm: 120.0,
+            meter: 4,
+            beats: (0..24).map(|i| 0.5 * f64::from(i)).collect(),
+            first_downbeat: 3,
+            phase3: 2,
+            phase4: 3,
+            confidence: 1.0,
+        };
+        // sin acento: ningun pulso es el «1», y correrlo no cambia nada
+        let none = g.with_meter(0);
+        assert_eq!(none.meter, 0);
+        assert!((0..24).all(|i| !none.is_downbeat(i)));
+        assert!((0..24).all(|i| !none.shifted(1).is_downbeat(i)));
+        assert_eq!(g.with_meter(1).meter, 0, "un acento en cada pulso es ninguno");
+        // 2/4: medio 4/4, el «1» cada dos desde donde caia en 4
+        let two = g.with_meter(2);
+        assert_eq!((two.meter, two.first_downbeat), (2, 1));
+        assert!(two.is_downbeat(3) && !two.is_downbeat(4) && two.is_downbeat(5));
+        assert_eq!(two.beat_in_bar(4), 1);
+        // 6/8: dos grupos de tres, el «1» donde caia en 3
+        let six = g.with_meter(6);
+        assert_eq!((six.meter, six.first_downbeat), (6, 2));
+        assert!(six.is_downbeat(8) && !six.is_downbeat(5));
+        // los raros empiezan donde el 4/4 y el tope es 12
+        assert_eq!(g.with_meter(5).first_downbeat, 3);
+        assert_eq!(g.with_meter(40).meter, 12);
+        // y el doble de pulsos mantiene el compas elegido
+        let d = g.with_meter(2).doubled();
+        assert_eq!(d.meter, 2);
+        assert!(d.is_downbeat(2) && d.is_downbeat(4));
     }
 
     /// Lo que un decodificador entrega: tramos cortos, del tamaño de un

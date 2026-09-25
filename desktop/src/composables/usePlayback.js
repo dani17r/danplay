@@ -45,7 +45,8 @@ const EMPTY = {
   pitch_preserved: true,
   loop_a: 0,
   loop_b: 0,
-  // el tono corrido (semitonos), el metrónomo y el archivo que suena de verdad
+  // el tono corrido (semitonos, con fracciones), el metrónomo y el archivo
+  // que suena de verdad
   pitch: 0,
   metronome: {
     on: false,
@@ -86,6 +87,29 @@ export function toTrack(s) {
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
+/**
+ * Hasta dónde sube el volumen de la canción: un 50 % por encima de como
+ * viene, para las grabaciones flojas. En la app, lo que se pase de la salida
+ * lo recoge un limitador en vez de saturar (Rust, `player/output.rs`).
+ */
+export const MAX_VOLUME = 1.5
+
+/**
+ * El volumen tras un paso de las flechas o de la rueda. Al cruzar el 100 %
+ * se para en él: subir por encima de como viene la canción tiene que ser a
+ * propósito (Rust hace lo mismo con la rueda de la bandeja).
+ * @param {number} volume @param {number} delta
+ */
+export function nudgedVolume(volume, delta) {
+  const from = Number(volume) || 0
+  const to = Math.round((from + delta) * 100) / 100
+  if ((from < 1 && to > 1) || (from > 1 && to < 1)) return 1
+  return clamp(to, 0, MAX_VOLUME)
+}
+
+/** El tono corrido: una octava arriba o abajo, al centésimo de semitono. */
+const cleanPitch = (semitones) => Math.round(clamp(Number(semitones) || 0, -12, 12) * 100) / 100
+
 // ------------------------------------------------------------ reproductor web
 /**
  * El mismo contrato que Rust, con un <audio> del navegador. Solo se usa
@@ -100,6 +124,12 @@ function createWebBackend() {
   const q = { items: [], index: -1, repeat: 'list', shuffle: false, origin: null }
   const s = { ...EMPTY }
   let ended = false // la pista acabó y se paró: play la vuelve a empezar
+  // El bucle solo vuelve a A si la canción ha estado dentro del tramo, como
+  // en Rust: uno elegido sin saltar a él (la onda con candado) espera a que
+  // la canción llegue.
+  let loopArmed = false
+  const hasLoop = () => s.loop_b > s.loop_a
+  const insideLoop = (t) => hasLoop() && t >= s.loop_a - 0.01 && t < s.loop_b
 
   const logic = () => ({
     length: q.items.length,
@@ -138,8 +168,10 @@ function createWebBackend() {
     s.position = 0
     s.duration = item.duration || 0
     s.error = ''
+    loopArmed = insideLoop(0)
     audio.src = api.audioUrl(item.id)
-    audio.volume = s.volume
+    // el <audio> no sube de 1: por encima, en el navegador suena al 100 %
+    audio.volume = Math.min(1, s.volume)
     audio.playbackRate = s.speed
     if (play) start()
     else push()
@@ -163,10 +195,17 @@ function createWebBackend() {
       /* sin metadatos aún: se queda en la posición pedida */
     }
     s.position = v
+    loopArmed = insideLoop(v)
     if (v < (s.duration || Infinity)) ended = false
     push()
   }
   function onEnded() {
+    // con un tramo puesto la canción no se acaba: vuelve a A
+    if (hasLoop()) {
+      seekTo(s.loop_a)
+      start()
+      return
+    }
     const next = afterEnd(logic())
     if (next < 0) {
       ended = true
@@ -181,7 +220,8 @@ function createWebBackend() {
   audio.addEventListener('timeupdate', () => {
     s.position = audio.currentTime || 0
     // bucle A-B: al pasar de B, vuelta a A (Rust hace lo mismo en la app)
-    if (s.loop_b > s.loop_a && s.position >= s.loop_b) {
+    if (!loopArmed && insideLoop(s.position)) loopArmed = true
+    if (loopArmed && hasLoop() && s.position >= s.loop_b) {
       audio.currentTime = s.loop_a
       s.position = s.loop_a
     }
@@ -248,8 +288,8 @@ function createWebBackend() {
     stop: async () => stop(),
     seek: async (seconds) => seekTo(seconds),
     setVolume: async (value) => {
-      s.volume = clamp(Number(value) || 0, 0, 1)
-      audio.volume = s.volume
+      s.volume = clamp(Number(value) || 0, 0, MAX_VOLUME)
+      audio.volume = Math.min(1, s.volume)
       push()
     },
     setSpeed: async (value) => {
@@ -262,21 +302,23 @@ function createWebBackend() {
       const ok = Number.isFinite(a) && Number.isFinite(b) && b > a
       s.loop_a = ok ? a : 0
       s.loop_b = ok ? b : 0
+      loopArmed = insideLoop(audio.currentTime || 0)
       push()
     },
     // El tono corrido y el metrónomo solo suenan dentro de la app (ffmpeg y
     // el mezclador de Rust). Aquí se apunta el estado para que la interfaz
     // se comporte igual; no cambia lo que se oye.
     setPitch: async (semitones) => {
-      s.pitch = clamp(Math.round(Number(semitones) || 0), -12, 12)
+      s.pitch = cleanPitch(semitones)
       push()
     },
     setMetronome: async (settings) => {
+      const factor = settings.mult === 1 ? 2 : settings.mult === -1 ? 0.5 : 1
       s.metronome = {
         ...s.metronome,
         ...settings,
-        bpm: settings.bpm ?? s.metronome.bpm,
-        meter: settings.meter ?? s.metronome.meter,
+        bpm: (settings.bpm ?? 100) * factor,
+        meter: settings.meter ?? 4,
         free: true,
         has_grid: false
       }
@@ -440,7 +482,7 @@ async function boot() {
       } catch {
         /* sin almacenamiento */
       }
-      if (vol != null && Number.isFinite(vol)) await backend.setVolume(clamp(vol, 0, 1))
+      if (vol != null && Number.isFinite(vol)) await backend.setVolume(clamp(vol, 0, MAX_VOLUME))
       if (vel != null && Number.isFinite(vel) && vel > 0) await backend.setSpeed(vel)
       if (REPEAT_MODES.includes(repeat)) await backend.setRepeat(normalizeRepeat(repeat))
     }
@@ -539,8 +581,9 @@ async function restart() {
   if (!state.playing) await toggle()
   await seek(0)
 }
+/** 0..1,5: por encima de 1 la canción suena más alta de como viene. */
 function setVolume(value) {
-  const v = clamp(Number(value) || 0, 0, 1)
+  const v = clamp(Number(value) || 0, 0, MAX_VOLUME)
   remember(VOLUME_KEY, v)
   return send((b) => b.setVolume(v))
 }
@@ -556,9 +599,12 @@ function setSpeed(value) {
   remember(SPEED_KEY, v)
   return send((b) => b.setSpeed(v))
 }
-/** El tono corrido, en semitonos (-12..12). */
+/**
+ * El tono corrido, en semitonos (-12..12). Con fracciones: medio semitono es
+ * un cuarto de tono.
+ */
 function setPitch(semitones) {
-  const n = clamp(Math.round(Number(semitones) || 0), -12, 12)
+  const n = cleanPitch(semitones)
   return send((b) => b.setPitch(n))
 }
 /**

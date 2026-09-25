@@ -72,8 +72,9 @@ pub enum Command {
     /// Repetir de A a B (segundos de la cancion); None lo quita.
     Loop(Option<(f64, f64)>),
     Speed(f32),
-    /// El tono corrido, en semitonos (-12..12). Reabre la cancion donde iba.
-    Pitch(i32),
+    /// El tono corrido, en semitonos (-12..12, con fracciones: medio
+    /// semitono es un cuarto de tono). Reabre la cancion donde iba.
+    Pitch(f32),
     /// Ajustes del metronomo, y la rejilla de la cancion `path` si se conoce.
     Metronome {
         settings: MetronomeSettings,

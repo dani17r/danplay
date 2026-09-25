@@ -57,9 +57,14 @@ pub fn tempo_filter(tempo: f32) -> String {
     parts.join(",")
 }
 
-/// Semitonos → factor de frecuencia (12 semitonos = el doble).
-pub fn pitch_factor(semitones: i32) -> f64 {
-    2f64.powf(f64::from(semitones.clamp(-12, 12)) / 12.0)
+/// Menos que esto (en semitonos) es no tocar el tono: ni se oye ni merece
+/// pasar por el filtro.
+pub const NO_PITCH: f32 = 1e-3;
+
+/// Semitonos → factor de frecuencia (12 semitonos = el doble). Con
+/// fracciones: medio semitono es un cuarto de tono.
+pub fn pitch_factor(semitones: f32) -> f64 {
+    2f64.powf(f64::from(semitones.clamp(-12.0, 12.0)) / 12.0)
 }
 
 /// La cadena de filtros para velocidad y tono a la vez.
@@ -69,10 +74,9 @@ pub fn pitch_factor(semitones: i32) -> f64 {
 /// filtro y suena limpio. Sin el, el tono se mueve cambiando la frecuencia
 /// de muestreo (`asetrate`, que tambien cambia la velocidad) y `atempo`
 /// compensa: suena algo mas metalico, pero sirve para estudiar.
-pub fn audio_filter(tempo: f32, semitones: i32, rubberband: bool) -> String {
+pub fn audio_filter(tempo: f32, semitones: f32, rubberband: bool) -> String {
     let tempo = f64::from(tempo.clamp(0.25, 3.0));
-    let semitones = semitones.clamp(-12, 12);
-    if semitones == 0 {
+    if !semitones.is_finite() || semitones.abs() <= NO_PITCH {
         return tempo_filter(tempo as f32);
     }
     let factor = pitch_factor(semitones);
@@ -145,8 +149,8 @@ struct Recipe {
     path: PathBuf,
     /// Velocidad sin cambiar el tono (1.0 = tal cual).
     tempo: f32,
-    /// El tono corrido, en semitonos (0 = tal cual).
-    semitones: i32,
+    /// El tono corrido, en semitonos (0 = tal cual; admite fracciones).
+    semitones: f32,
 }
 
 impl Recipe {
@@ -160,7 +164,7 @@ impl Recipe {
             command.arg("-ss").arg(format!("{from:.3}"));
         }
         command.arg("-i").arg(tools::ffmpeg_input(&self.path)).arg("-vn"); // nada de la caratula
-        if (self.tempo - 1.0).abs() > 1e-4 || self.semitones != 0 {
+        if (self.tempo - 1.0).abs() > 1e-4 || self.semitones.abs() > NO_PITCH {
             command
                 .arg("-af")
                 .arg(audio_filter(self.tempo, self.semitones, has_rubberband(&self.ffmpeg)));
@@ -440,14 +444,18 @@ impl Transcoded {
         path: &Path,
         duration: Option<f64>,
         tempo: f32,
-        semitones: i32,
+        semitones: f32,
         from: f64,
     ) -> Result<(Self, Control), String> {
         let recipe = Recipe {
             ffmpeg: ffmpeg.to_path_buf(),
             path: path.to_path_buf(),
             tempo: tempo.clamp(0.25, 3.0),
-            semitones: semitones.clamp(-12, 12),
+            semitones: if semitones.is_finite() {
+                semitones.clamp(-12.0, 12.0)
+            } else {
+                0.0
+            },
         };
         let feed = recipe.start(from.max(0.0))?;
         if feed.wait_ready(READY_WITHIN)? == Ready::Empty && from <= 0.0 {
@@ -479,7 +487,7 @@ impl Transcoded {
     /// Desde el principio, a velocidad normal y sin tocar el tono.
     #[cfg(test)]
     pub fn open(ffmpeg: &Path, path: &Path, duration: Option<f64>) -> Result<Self, String> {
-        Self::open_with(ffmpeg, path, duration, 1.0, 0, 0.0).map(|(s, _)| s.patient())
+        Self::open_with(ffmpeg, path, duration, 1.0, 0.0, 0.0).map(|(s, _)| s.patient())
     }
 
     /// Que espere al audio en vez de rellenar con silencio (ver `patient`).
@@ -661,7 +669,7 @@ impl Pipe {
             ffmpeg: ffmpeg.to_path_buf(),
             path: path.to_path_buf(),
             tempo: 1.0,
-            semitones: 0,
+            semitones: 0.0,
         };
         let mut child = recipe
             .command(0.0)
@@ -744,27 +752,34 @@ mod tests {
     #[test]
     fn the_pitch_goes_through_rubberband_or_the_asetrate_fallback() {
         assert_eq!(
-            audio_filter(1.0, 0, true),
+            audio_filter(1.0, 0.0, true),
             "atempo=1.0000",
             "sin tono se queda como estaba"
         );
-        assert_eq!(audio_filter(0.8, 2, true), "rubberband=tempo=0.8000:pitch=1.12246");
-        assert_eq!(audio_filter(1.0, -12, true), "rubberband=tempo=1.0000:pitch=0.50000");
+        assert_eq!(audio_filter(0.8, 2.0, true), "rubberband=tempo=0.8000:pitch=1.12246");
+        assert_eq!(audio_filter(1.0, -12.0, true), "rubberband=tempo=1.0000:pitch=0.50000");
+        // un cuarto de tono (medio semitono): 2^(0,5/12)
+        assert_eq!(audio_filter(1.0, 0.5, true), "rubberband=tempo=1.0000:pitch=1.02930");
+        assert_eq!(audio_filter(1.0, f32::NAN, true), "atempo=1.0000");
         // sin rubberband: asetrate mueve el tono (y la velocidad) y atempo compensa
         assert_eq!(
-            audio_filter(1.0, 12, false),
+            audio_filter(1.0, 12.0, false),
             "asetrate=44100*2.00000,aresample=44100,atempo=0.5000"
         );
         assert_eq!(
-            audio_filter(0.5, 12, false),
+            audio_filter(0.5, 12.0, false),
             "asetrate=44100*2.00000,aresample=44100,atempo=0.5,atempo=0.5000"
         );
         assert_eq!(
-            audio_filter(1.0, -12, false),
+            audio_filter(1.0, -12.0, false),
             "asetrate=44100*0.50000,aresample=44100,atempo=2.0000"
         );
-        assert!((pitch_factor(7) - 1.4983).abs() < 1e-3, "una quinta");
-        assert!((pitch_factor(30) - 2.0).abs() < f64::EPSILON, "se recorta a una octava");
+        assert!((pitch_factor(7.0) - 1.4983).abs() < 1e-3, "una quinta");
+        assert!(
+            (pitch_factor(30.0) - 2.0).abs() < f64::EPSILON,
+            "se recorta a una octava"
+        );
+        assert!((pitch_factor(-0.5) - 0.97153).abs() < 1e-4, "un cuarto de tono abajo");
     }
 
     #[test]
@@ -815,7 +830,7 @@ mod tests {
             ],
         );
         let normal = Transcoded::open(ffmpeg(), &file, Some(1.0)).unwrap().count();
-        let (slow, _) = Transcoded::open_with(ffmpeg(), &file, Some(1.0), 0.5, 0, 0.0).unwrap();
+        let (slow, _) = Transcoded::open_with(ffmpeg(), &file, Some(1.0), 0.5, 0.0, 0.0).unwrap();
         let slow = slow.patient();
         assert!((slow.tempo() - 0.5).abs() < f32::EPSILON);
         assert_eq!(
@@ -869,7 +884,7 @@ mod tests {
                 "2",
             ],
         );
-        let (mut source, control) = Transcoded::open_with(ffmpeg(), &file, Some(4.0), 1.0, 0, 0.0).unwrap();
+        let (mut source, control) = Transcoded::open_with(ffmpeg(), &file, Some(4.0), 1.0, 0.0, 0.0).unwrap();
         assert_eq!(source.by_ref().take(4410).count(), 4410);
         control.prepare(2.0, READY_WITHIN).expect("se prepara");
         source.try_seek(Duration::from_secs(2)).unwrap();

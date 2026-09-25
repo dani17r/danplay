@@ -8,7 +8,7 @@
  */
 import { ref, computed, nextTick, useTemplateRef } from 'vue'
 import { onClickOutside } from '../composables/useClickOutside.js'
-import { usePlayback } from '../composables/usePlayback.js'
+import { usePlayback, MAX_VOLUME, nudgedVolume } from '../composables/usePlayback.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
 import { useScrub } from '../composables/useScrub.js'
 import { formatTime } from '../utils/format.js'
@@ -112,7 +112,7 @@ function applyVolume(value) {
   player.setVolume(value)
 }
 function bumpVolume(delta) {
-  applyVolume(Math.min(1, Math.max(0, +(volume.value + delta).toFixed(2))))
+  applyVolume(nudgedVolume(volume.value, delta))
 }
 let volumeBeforeMute = 0.9
 function toggleMute() {
@@ -368,14 +368,23 @@ useHotkeys({
       >
         <Icon :n="muted || !volume ? 'mute' : 'volume'" :t="15" />
       </button>
+      <!-- hasta 150 %: por encima de la muesca, más alta de como viene -->
       <SliderField
         :model-value="volume"
         :min="0"
-        :max="1"
+        :max="MAX_VOLUME"
         :step="0.01"
+        :mark="1"
         width="100%"
         aria-label="Volumen"
         :value-text="Math.round(volume * 100) + ' %'"
+        :title="
+          volume > 1
+            ? 'Volumen: ' + Math.round(volume * 100) + ' % (más alto de como viene la canción)'
+            : 'Volumen: ' +
+              Math.round(volume * 100) +
+              ' % · por encima del 100 % sube las grabaciones flojas'
+        "
         @update:model-value="applyVolume"
       />
     </div>

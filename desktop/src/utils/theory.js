@@ -1,7 +1,8 @@
 // @ts-check
-// Tonos: transponer el nombre de una tonalidad por semitonos.
+// Tonos: transponer el nombre de una tonalidad por semitonos, y contar el
+// corrimiento en tonos como lo dice un músico (medio tono, un tono y medio).
 //
-// Para el modo estudio: si la canción está en G y se sube 2 semitonos, se
+// Para el modo estudio: si la canción está en G y se sube un tono, se
 // enseña «G → A». Solo el nombre; los acordes de la ficha los transpone el
 // núcleo (`api.transpose`), que sabe de cejillas y grados.
 
@@ -31,24 +32,59 @@ export function parseKey(key) {
 
 /**
  * El tono corrido `semitones` (positivo sube). Devuelve '' si no se entiende.
+ *
+ * Con un cuarto de tono (medio semitono) no hay nombre de tonalidad: se dice
+ * de cuál se parte y cuánto se corre, «G +¼» o «F# −¼».
  * @param {string} key @param {number} semitones
  */
 export function transposeKey(key, semitones) {
   const parsed = parseKey(key)
   if (!parsed) return ''
   const [index, minor, rest] = parsed
-  const target = (((index + Math.round(semitones)) % 12) + 12) % 12
+  const n = Math.round((Number(semitones) || 0) * 100) / 100
+  const whole = Math.trunc(n)
+  const target = (((index + whole) % 12) + 12) % 12
   const flatish = /b|♭/.test(String(key))
   const sharpish = /#|♯/.test(String(key))
   let name
   if (flatish) name = FLATS[target]
   else if (sharpish) name = SHARPS[target]
   else name = (minor ? SPELL_MINOR : SPELL_MAJOR)[target] || SHARPS[target]
-  return name + (minor ? 'm' : '') + (rest ? ' ' + rest : '')
+  const off = n - whole
+  return (
+    name +
+    (minor ? 'm' : '') +
+    (rest ? ' ' + rest : '') +
+    (Math.abs(off) >= 0.01 ? ' ' + toneLabel(off) : '')
+  )
 }
 
 /** «+2» / «−3» / «0», para enseñar el corrimiento. */
 export function semitoneLabel(n) {
   if (!n) return '0'
   return (n > 0 ? '+' : '−') + Math.abs(n)
+}
+
+// Las fracciones de tono que tienen su signo.
+const FRACTIONS = { 25: '¼', 50: '½', 75: '¾' }
+
+/**
+ * El corrimiento en tonos, como lo cuenta un músico: medio tono es un
+ * semitono y un tono son dos. «+½», «−1», «+1½», «+¼», «0».
+ * @param {number} semitones
+ */
+export function toneLabel(semitones) {
+  const hundredths = Math.round(Math.abs(Number(semitones) || 0) * 50) // tonos × 100
+  if (!hundredths) return '0'
+  const sign = Number(semitones) > 0 ? '+' : '−'
+  const whole = Math.floor(hundredths / 100)
+  const part = hundredths % 100
+  if (!part) return sign + whole
+  if (FRACTIONS[part]) return sign + (whole || '') + FRACTIONS[part]
+  return sign + hundredths / 100
+}
+
+/** «tono» o «tonos»: hasta uno, en singular (medio tono, un tono). */
+export function toneUnit(semitones) {
+  return Math.abs(Number(semitones) || 0) > 2 ? 'tonos' : 'tono'
 }

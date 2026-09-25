@@ -5,11 +5,17 @@
  * Es una capa que sube desde el reproductor y ocupa media pantalla, sin
  * recolocar la lista de detrás. Arriba, la forma de onda con la regla de
  * minutos: ahí se elige el tramo que se repite (arrastrando, cogiendo los
- * bordes, o con las teclas A y B mientras suena). Debajo, tres columnas:
+ * bordes, o con las teclas A y B mientras suena). Con el candado de la onda
+ * puesto, que es como empieza, mientras suena un clic no mueve la canción y
+ * elegir un tramo no salta a él: entra cuando la canción llega. Debajo,
+ * cuatro columnas:
  *
- * - Reproducción: el tramo, la velocidad (sin cambiar el tono), el tono
- *   corrido en semitonos, y el metrónomo, que detecta solo el pulso y el
- *   compás de la canción y entra en el «1».
+ * - Reproducción: el tramo, la velocidad (sin cambiar el tono) y el tono
+ *   corrido, contado en tonos: de cuarto, de medio o de uno entero.
+ * - Metrónomo: detecta solo el pulso y el compás de la canción y entra en
+ *   el «1». Se puede doblar (una lenta a corcheas), poner el tempo a mano
+ *   con decimales, cambiar el compás (o dejar todos los clics iguales) y
+ *   subir el clic y la canción por encima de como vienen.
  * - Marcadores: tramos guardados con nombre (inicio Y final) y sus notas;
  *   pulsar uno vuelve a poner ese bucle y coloca la canción al principio.
  * - Notas: un solo cuadro con dos pestañas, las de la canción y las del
@@ -23,10 +29,11 @@ import { ref, computed, watch, onUnmounted, shallowRef } from 'vue'
 import { api, errorMessage } from '../api.js'
 import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'
-import { usePlayback } from '../composables/usePlayback.js'
+import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
 import { formatTime } from '../utils/format.js'
-import { transposeKey, semitoneLabel } from '../utils/theory.js'
+import { transposeKey, toneLabel, toneUnit } from '../utils/theory.js'
+import { effectiveGrid, formatBpm, parseBpm, multFactor, METERS } from '../utils/beats.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import SliderField from './ui/SliderField.vue'
@@ -34,7 +41,19 @@ import StudyTimeline from './StudyTimeline.vue'
 
 const emit = defineEmits(['close'])
 const player = usePlayback()
-const { track, position, duration, speed, pitch, metronome, loopA, loopB, pitchPreserved } = player
+const {
+  track,
+  position,
+  duration,
+  speed,
+  pitch,
+  metronome,
+  loopA,
+  loopB,
+  pitchPreserved,
+  playing,
+  volume
+} = player
 
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
 const blank = () => ({ loop: null, speed: 1, pitch: 0, metronome: {}, markers: [], notes: '' })
@@ -43,7 +62,7 @@ const loadedFor = ref(null)
 const saving = ref(false)
 /** El marcador elegido (uno de `study.markers`), o null. */
 const selected = ref(null)
-/** La rejilla de pulsos de la cancion que suena (la pinta la onda), o null. */
+/** La rejilla de pulsos de la cancion que suena, tal como la dio el analisis, o null. */
 const grid = shallowRef(null)
 const analyzing = ref(false)
 const gridError = ref('')
@@ -62,6 +81,24 @@ let pending = null
 const round2 = (v) => Math.round(v * 100) / 100
 const near = (x, y) => Math.abs(x - y) < 0.011
 const isSpan = (m) => m.end > m.t
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
+
+/** Lo que esta barra recuerda en el navegador (el candado, el paso del tono). */
+function readPref(key, fallback) {
+  try {
+    const v = localStorage.getItem(key)
+    return v == null ? fallback : JSON.parse(v)
+  } catch {
+    return fallback
+  }
+}
+function savePref(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* modo privado */
+  }
+}
 
 /** Lo guardado con la canción, si lo hay. */
 function parse(raw) {
@@ -88,7 +125,8 @@ async function loadFor(id) {
     study.value = {
       loop: Array.isArray(s.loop) ? s.loop : null,
       speed: s.speed || 1,
-      pitch: Number.isInteger(s.pitch) ? s.pitch : 0,
+      // en semitonos, con fracciones (un cuarto de tono es medio semitono)
+      pitch: Number.isFinite(s.pitch) ? round2(clamp(s.pitch, -12, 12)) : 0,
       metronome: typeof s.metronome === 'object' && s.metronome ? { ...s.metronome } : {},
       markers: (s.markers || []).map((m) => ({ ...m })),
       notes: s.notes || ''
@@ -112,6 +150,13 @@ watch(
   { immediate: true }
 )
 
+/**
+ * Lo que vale cada ajuste del metrónomo cuando no se ha tocado. El compás
+ * 0 (sin acento) SÍ es un ajuste: lo que no se ha tocado es null.
+ */
+const METRO_DEFAULTS = { bpm: null, meter: null, shift: 0, mult: 0 }
+const isDefault = (k, v) => v == null || v === METRO_DEFAULTS[k]
+
 /** Lo que se guarda: solo lo que no es lo de siempre, como lo espera el nucleo. */
 function payload(s) {
   const markers = s.markers.map((m) => ({
@@ -121,7 +166,7 @@ function payload(s) {
     ...(m.notes?.trim() ? { notes: m.notes.trim() } : {})
   }))
   const metro = Object.fromEntries(
-    Object.entries(s.metronome || {}).filter(([, v]) => v != null && v !== 0)
+    Object.entries(s.metronome || {}).filter(([k, v]) => !isDefault(k, v))
   )
   return {
     ...(s.loop ? { loop: [...s.loop] } : {}),
@@ -156,6 +201,16 @@ async function flushSave() {
   }
 }
 
+// ---- el candado de la onda
+// Puesto (lo normal), mientras suena un clic en la onda no mueve la cancion
+// y elegir un tramo no salta a el: el tramo entra cuando la cancion llega
+// (Rust lo espera; ver `ab_loop`). En pausa, la onda coloca como siempre.
+const LOCK_KEY = 'danplay.study.lock'
+const locked = ref(readPref(LOCK_KEY, true) !== false)
+watch(locked, (v) => savePref(LOCK_KEY, v))
+/** La onda no puede mover la cancion ahora. */
+const guarded = computed(() => locked.value && playing.value)
+
 // ---- el tramo que se repite
 const pendingA = ref(null)
 const hasLoop = computed(() => loopB.value > loopA.value)
@@ -165,8 +220,12 @@ const loopLabel = computed(() => {
   return 'sin tramo'
 })
 
-/** Deja el bucle en [a, b]. Si la cancion va por fuera del tramo, salta a A. */
-async function applyLoop(a, b) {
+/**
+ * Deja el bucle en [a, b]. `jump` dice si la cancion va a A: 'outside' si
+ * iba por fuera del tramo (lo de siempre), 'always' para empezar ya el
+ * tramo (la tecla B), 'never' para dejarla donde va (la onda con candado).
+ */
+async function applyLoop(a, b, { jump = 'outside' } = {}) {
   if (!(b - a >= 0.5)) {
     notify('El bucle tiene que durar al menos medio segundo')
     return
@@ -174,7 +233,8 @@ async function applyLoop(a, b) {
   pendingA.value = null
   study.value.loop = [round2(a), round2(b)]
   await player.setLoop(study.value.loop[0], study.value.loop[1])
-  if (position.value < a || position.value > b) await player.seek(a)
+  const outside = position.value < a || position.value > b
+  if (jump === 'always' || (jump === 'outside' && outside)) await player.seek(a)
   scheduleSave()
 }
 async function clearLoop() {
@@ -198,7 +258,7 @@ function onLoop(range, { mode } = {}) {
   } else if (mode === 'select') {
     selected.value = null
   }
-  return applyLoop(range[0], range[1])
+  return applyLoop(range[0], range[1], { jump: guarded.value ? 'never' : 'outside' })
 }
 function markA() {
   if (!track.value) return
@@ -217,7 +277,8 @@ function markB() {
     return
   }
   selected.value = null
-  return applyLoop(from, at)
+  // B cierra el tramo donde va la cancion y vuelve a A: es la repeticion A-B
+  return applyLoop(from, at, { jump: 'always' })
 }
 useHotkeys({ a: markA, b: markB })
 
@@ -230,11 +291,29 @@ async function setSpeed(v) {
 }
 const speedPercent = computed(() => Math.round(speed.value * 100))
 
-// ---- tono
-const pitchLabel = computed(() => semitoneLabel(pitch.value))
+// ---- tono, contado como lo cuenta un musico: medio tono es un semitono.
+// El cuarto de tono (medio semitono) sirve para ponerse a la par de una
+// grabacion que no esta afinada a 440.
+const PITCH_STEPS = [
+  { v: 0.5, n: '¼', name: 'un cuarto de tono', title: 'De cuarto en cuarto de tono' },
+  { v: 1, n: '½', name: 'medio tono', title: 'De medio en medio tono (un semitono)' },
+  { v: 2, n: '1', name: 'un tono', title: 'De tono en tono' }
+]
+const PITCH_STEP_KEY = 'danplay.study.pitchStep'
+const savedStep = readPref(PITCH_STEP_KEY, 1)
+/** De cuánto en cuánto se mueve el tono, en semitonos. */
+const pitchStep = ref(PITCH_STEPS.some((s) => s.v === savedStep) ? savedStep : 1)
+watch(pitchStep, (v) => savePref(PITCH_STEP_KEY, v))
+const stepName = computed(() => PITCH_STEPS.find((s) => s.v === pitchStep.value)?.name || '')
+const pitchLabel = computed(() => toneLabel(pitch.value))
+const pitchTitle = computed(() =>
+  pitch.value
+    ? `${toneLabel(pitch.value)} ${toneUnit(pitch.value)} (${round2(pitch.value)} semitonos)`
+    : 'Como está grabada'
+)
 const keyNow = computed(() => (track.value?.key ? transposeKey(track.value.key, pitch.value) : ''))
 async function setPitch(n) {
-  const p = Math.max(-12, Math.min(12, Math.round(n)))
+  const p = round2(clamp(Number(n) || 0, -12, 12))
   study.value.pitch = p
   await player.setPitch(p)
   scheduleSave()
@@ -276,27 +355,42 @@ watch(
     }
   }
 )
+/**
+ * La rejilla tal como suena, para la onda: con el doble o la mitad, el
+ * compas y el «1» corrido. Antes se pintaba la del analisis tal cual, y al
+ * pulsar ×2 no se veia cambiar nada.
+ */
+const shownGrid = computed(() => {
+  const m = study.value.metronome || {}
+  return effectiveGrid(grid.value, {
+    mult: m.mult || 0,
+    meter: m.meter ?? null,
+    shift: m.shift || 0
+  })
+})
 
-/** El tempo que se oye: el nominal por la velocidad, si sigue la cancion. */
-const bpmShown = computed(() => {
+/** El tempo que se oye: siguiendo la cancion, el suyo por la velocidad; a mano, el puesto. */
+const bpmHeard = computed(() => {
   const m = metronome.value
   const base = m.bpm || 0
-  return Math.round(m.free ? base : base * speed.value)
+  return m.free ? base : base * speed.value
 })
-const meterShown = computed(() => (metronome.value.meter === 3 ? '3/4' : '4/4'))
+const bpmShown = computed(() => (bpmHeard.value ? formatBpm(bpmHeard.value) : '—'))
+/** Lo que se esta escribiendo en el tempo (o null: se enseña el que va). */
+const bpmDraft = ref(null)
 const metroStatus = computed(() => {
   const m = metronome.value
   if (analyzing.value) return 'buscando el pulso y el compás…'
   if (gridError.value) return 'sin compás detectado: va libre'
   if (!m.has_grid) return 'sin compás: va libre'
-  if (m.free) return 'tempo a mano: va libre (vuelve al de la canción para que la siga)'
+  if (m.free) return 'tempo a mano: entra con el pulso de la canción y va a su aire'
   const sure = m.confidence >= 0.6 ? 'seguro' : m.confidence >= 0.3 ? 'probable' : 'dudoso'
   return `sigue la canción · el «1» ${sure}`
 })
 function metroPatch(patch) {
   const m = { ...(study.value.metronome || {}) }
   for (const [k, v] of Object.entries(patch)) {
-    if (v == null || v === 0) delete m[k]
+    if (isDefault(k, v)) delete m[k]
     else m[k] = v
   }
   study.value.metronome = m
@@ -309,16 +403,81 @@ async function toggleMetronome() {
   if (on && !grid.value && !gridError.value) await ensureGrid()
   await player.setMetronome({ on })
 }
+/**
+ * Pone a mano el tempo que se oye, con decimales. Con el doble o la mitad
+ * puestos se guarda el tempo sin ellos: al quitarlos, vuelve al que era.
+ */
+function setBpm(heard) {
+  const base = heard / multFactor(metronome.value.mult)
+  return metroPatch({ bpm: round2(clamp(base, 20, 300)) })
+}
 function bumpBpm(delta) {
-  const now = bpmShown.value || 100
-  metroPatch({ bpm: Math.max(20, Math.min(300, now + delta)) })
+  const now = Math.round((bpmHeard.value || 100) * 10) / 10
+  return setBpm(now + delta)
+}
+/** El campo del tempo, para saber si lo que llega se esta escribiendo en el. */
+let bpmInput = null
+function onBpmFocus(e) {
+  bpmInput = e.target
+  bpmDraft.value = bpmHeard.value ? bpmShown.value : ''
+  e.target.select?.()
+}
+/**
+ * Lo que llega del campo del tempo. Vacio sin estar escribiendo en el es la
+ * «x» del campo, que solo sale con tempo a mano: vuelve al de la cancion.
+ */
+function onBpmInput(v) {
+  if (v === '' && document.activeElement !== bpmInput) {
+    bpmDraft.value = null
+    followSong()
+    return
+  }
+  bpmDraft.value = v
+}
+function commitBpm() {
+  const v = parseBpm(bpmDraft.value)
+  bpmDraft.value = null
+  if (v != null && Math.abs(v - bpmHeard.value) >= 0.05) setBpm(v)
+}
+/** En el tempo: Enter lo pone, Escape lo deja; las flechas lo mueven de décima en décima. */
+function onBpmKey(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    e.target.blur()
+  } else if (e.key === 'Escape') {
+    bpmDraft.value = null
+    e.target.blur()
+  } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault()
+    const step = (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 1 : 0.1)
+    const from = parseBpm(bpmDraft.value) ?? Math.round(bpmHeard.value * 10) / 10
+    const to = Math.round(clamp(from + step, 10, 600) * 10) / 10
+    bpmDraft.value = formatBpm(to)
+    setBpm(to)
+  }
 }
 const followSong = () => metroPatch({ bpm: null })
-const toggleMeter = () => metroPatch({ meter: metronome.value.meter === 3 ? 4 : 3 })
+/**
+ * Otro compas. El que detecto el analisis no se guarda como ajuste: si otro
+ * dia se analiza mejor, que mande el analisis. El «1» corrido se olvida: el
+ * de otro compas se saca otra vez de donde caia.
+ */
+const setMeter = (v) => metroPatch({ meter: grid.value?.meter === v ? null : v, shift: 0 })
 const shiftOne = () =>
   metroPatch({ shift: ((metronome.value.shift || 0) + 1) % (metronome.value.meter || 4) })
 const setMult = (mult) => metroPatch({ mult: metronome.value.mult === mult ? 0 : mult })
+/** Lo que dice ×2 o ÷2, con los bpm de verdad: «68 → 136». */
+function multTitle(mult) {
+  const plain = bpmHeard.value / multFactor(metronome.value.mult)
+  if (metronome.value.mult === mult) return `Quitar: volver a ${formatBpm(plain)} bpm`
+  const to = `${formatBpm(plain)} → ${formatBpm(plain * multFactor(mult))} bpm`
+  return mult === 1
+    ? `El doble de clics (${to}): para ir a corcheas en una lenta, o si el tempo salió a la mitad`
+    : `La mitad de clics (${to})`
+}
 const setMetroVolume = (v) => player.setMetronome({ volume: v })
+const setSongVolume = (v) => player.setVolume(v)
+const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
 
 // ---- marcadores: tramos con nombre y notas, o un instante suelto
 function markerOf(range) {
@@ -352,7 +511,12 @@ function saveMarker() {
   notesTab.value = 'marker'
   scheduleSave()
 }
-async function selectMarker(m) {
+/**
+ * Elige un marcador: pone su tramo y, si `jump`, coloca la cancion al
+ * principio. Desde la onda con candado, sonando, no salta: el tramo entra
+ * cuando la cancion llega.
+ */
+async function selectMarker(m, { jump = true } = {}) {
   selected.value = m
   notesTab.value = 'marker'
   if (isSpan(m)) {
@@ -361,7 +525,7 @@ async function selectMarker(m) {
     await player.setLoop(m.t, m.end)
     scheduleSave()
   }
-  await player.seek(m.t)
+  if (jump) await player.seek(m.t)
 }
 function removeMarker(m) {
   if (selected.value === m) {
@@ -432,15 +596,24 @@ onUnmounted(flushSave)
       :loop="study.loop"
       :markers="study.markers"
       :selected="selected"
-      :grid="grid"
+      :grid="shownGrid"
       :height="80"
+      :locked="locked"
+      :playing="playing"
+      @update:locked="(v) => (locked = v)"
       @update:loop="onLoop"
       @seek="jump"
-      @marker="selectMarker"
+      @marker="(m) => selectMarker(m, { jump: !guarded })"
     />
     <p class="study-hint">
-      Arrastra sobre la onda para elegir el tramo que se repite · clic para ir a un punto · teclas
-      <b>A</b> y <b>B</b> mientras suena
+      <template v-if="locked">
+        Arrastra sobre la onda para elegir el tramo · con el candado, mientras suena, ni un clic ni
+        el tramo mueven la canción · teclas <b>A</b> y <b>B</b>
+      </template>
+      <template v-else>
+        Arrastra sobre la onda para elegir el tramo que se repite · clic para ir a un punto · teclas
+        <b>A</b> y <b>B</b> mientras suena
+      </template>
     </p>
 
     <div class="study-body">
@@ -494,6 +667,7 @@ onUnmounted(flushSave)
               class="btn mini"
               type="button"
               :class="{ on: Math.abs(speed - v) < 0.005 }"
+              :aria-pressed="Math.abs(speed - v) < 0.005"
               :disabled="!track"
               @click="setSpeed(v)"
             >
@@ -520,29 +694,50 @@ onUnmounted(flushSave)
                   → <b>{{ keyNow }}</b></template
                 ></template
               >
-              <template v-else>{{ pitchLabel }} semitonos</template>
+              <template v-else-if="pitch">{{ pitchLabel }} {{ toneUnit(pitch) }}</template>
+              <template v-else>como está grabada</template>
             </span>
           </div>
           <div class="btn-row study-pitch">
             <button
-              class="btn mini"
+              class="btn mini study-pitch-down"
               type="button"
-              title="Bajar un semitono"
+              :title="'Bajar ' + stepName"
               :disabled="!track || pitch <= -12"
-              @click="setPitch(pitch - 1)"
+              @click="setPitch(pitch - pitchStep)"
             >
               −
             </button>
-            <span class="study-pitch-n mono" :class="{ on: pitch !== 0 }">{{ pitchLabel }}</span>
+            <span class="study-pitch-n mono" :class="{ on: pitch !== 0 }" :title="pitchTitle">{{
+              pitchLabel
+            }}</span>
             <button
-              class="btn mini"
+              class="btn mini study-pitch-up"
               type="button"
-              title="Subir un semitono"
+              :title="'Subir ' + stepName"
               :disabled="!track || pitch >= 12"
-              @click="setPitch(pitch + 1)"
+              @click="setPitch(pitch + pitchStep)"
             >
               +
             </button>
+            <span
+              class="study-steps"
+              role="group"
+              aria-label="De cuánto en cuánto se corre el tono"
+            >
+              <button
+                v-for="s in PITCH_STEPS"
+                :key="s.v"
+                type="button"
+                class="btn mini study-step"
+                :class="{ on: pitchStep === s.v }"
+                :aria-pressed="pitchStep === s.v"
+                :title="s.title"
+                @click="pitchStep = s.v"
+              >
+                {{ s.n }}
+              </button>
+            </span>
             <button
               v-if="pitch !== 0"
               class="btn mini"
@@ -580,25 +775,63 @@ onUnmounted(flushSave)
             </button>
             <span class="study-bpm">
               <button
-                class="btn mini"
+                class="btn mini study-bpm-step"
                 type="button"
-                title="Un pulso menos por minuto (el clic pasa a ir libre)"
+                title="Un pulso menos por minuto (el clic pasa a tempo a mano)"
                 :disabled="!track"
                 @click="bumpBpm(-1)"
               >
                 −
               </button>
-              <b class="mono">{{ bpmShown || '—' }}</b> <small>bpm</small>
+              <!-- la «x» (con tempo a mano) lo vacia: vuelve al de la cancion -->
+              <TextField
+                class="study-bpm-input mono"
+                compact
+                :clearable="metronome.free && metronome.has_grid"
+                :model-value="bpmDraft ?? bpmShown"
+                :disabled="!track"
+                aria-label="Tempo del clic, en pulsos por minuto"
+                title="Escribe el tempo (admite decimales: 90.7) · ↑ ↓ lo mueven de décima en décima, con Mayús de uno en uno"
+                @update:model-value="onBpmInput"
+                @focus="onBpmFocus"
+                @keydown="onBpmKey"
+                @blur="commitBpm"
+              />
+              <small>bpm</small>
               <button
-                class="btn mini"
+                class="btn mini study-bpm-step"
                 type="button"
-                title="Un pulso más por minuto (el clic pasa a ir libre)"
+                title="Un pulso más por minuto (el clic pasa a tempo a mano)"
                 :disabled="!track"
                 @click="bumpBpm(1)"
               >
                 +
               </button>
             </span>
+          </div>
+          <div class="study-metro-row">
+            <button
+              class="btn mini study-mult"
+              type="button"
+              :class="{ on: metronome.mult === 1 }"
+              :aria-pressed="metronome.mult === 1"
+              :title="multTitle(1)"
+              :disabled="!track"
+              @click="setMult(1)"
+            >
+              ×2
+            </button>
+            <button
+              class="btn mini study-mult"
+              type="button"
+              :class="{ on: metronome.mult === -1 }"
+              :aria-pressed="metronome.mult === -1"
+              :title="multTitle(-1)"
+              :disabled="!track"
+              @click="setMult(-1)"
+            >
+              ÷2
+            </button>
             <button
               v-if="metronome.free && metronome.has_grid"
               class="btn mini"
@@ -609,56 +842,64 @@ onUnmounted(flushSave)
               <Icon n="refresh" :t="11" /> el de la canción
             </button>
           </div>
+          <div class="study-metro-row study-meters" role="group" aria-label="Compás">
+            <span class="study-metro-label">Compás</span>
+            <button
+              v-for="m in METERS"
+              :key="m.v"
+              class="btn mini"
+              type="button"
+              :class="{ on: metronome.meter === m.v }"
+              :aria-pressed="metronome.meter === m.v"
+              :title="m.title + (grid && grid.meter === m.v ? ' · el que detectó DanPlay' : '')"
+              :disabled="!track"
+              @click="setMeter(m.v)"
+            >
+              {{ m.n }}
+            </button>
+          </div>
           <div class="study-metro-row">
             <button
               class="btn mini"
               type="button"
-              :title="'Compás: ' + meterShown + ' (pulsa para cambiar)'"
-              :disabled="!track"
-              @click="toggleMeter"
-            >
-              {{ meterShown }}
-            </button>
-            <button
-              class="btn mini"
-              type="button"
               title="Si el acento no cae en el 1: el siguiente pulso pasa a ser el 1"
-              :disabled="!metronome.has_grid"
+              :disabled="!metronome.has_grid || metronome.meter === 0"
               @click="shiftOne"
             >
               el 1 es el siguiente
             </button>
-            <button
-              class="btn mini"
-              type="button"
-              :class="{ on: metronome.mult === 1 }"
-              title="El doble de pulsos (si el tempo salió a la mitad)"
-              :disabled="!metronome.has_grid"
-              @click="setMult(1)"
-            >
-              ×2
-            </button>
-            <button
-              class="btn mini"
-              type="button"
-              :class="{ on: metronome.mult === -1 }"
-              title="La mitad de pulsos"
-              :disabled="!metronome.has_grid"
-              @click="setMult(-1)"
-            >
-              ÷2
-            </button>
           </div>
           <div class="study-metro-row study-metro-vol">
-            <Icon n="volume" :t="12" />
+            <span class="study-metro-label">Clic</span>
             <SliderField
               :model-value="metronome.volume"
               :min="0"
-              :max="1"
+              :max="2"
               :step="0.05"
+              :mark="1"
               width="100%"
+              aria-label="Volumen del clic"
+              :value-text="pctText(metronome.volume)"
+              title="El volumen del clic: hasta el doble de fuerte"
               @update:model-value="setMetroVolume"
             />
+            <span class="study-vol-n mono">{{ pctText(metronome.volume) }}</span>
+          </div>
+          <div class="study-metro-row study-song-vol">
+            <span class="study-metro-label">Canción</span>
+            <SliderField
+              :model-value="volume"
+              :min="0"
+              :max="MAX_VOLUME"
+              :step="0.01"
+              :mark="1"
+              width="100%"
+              aria-label="Volumen de la canción"
+              :value-text="pctText(volume)"
+              title="El volumen de la canción: hasta un 50 % más de como viene"
+              @update:model-value="setSongVolume"
+            />
+            <span class="study-vol-n mono">{{ pctText(volume) }}</span>
           </div>
         </div>
         <p class="study-empty">

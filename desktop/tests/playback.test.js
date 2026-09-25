@@ -194,11 +194,11 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.setRepeat).toHaveBeenCalledWith('one')
   })
 
-  it('el volumen no se sale de su rango', async () => {
+  it('el volumen no se sale de su rango: hasta un 50 % por encima de como viene', async () => {
     const player = usePlayback()
     await player.setVolume(9)
     await flushPromises()
-    expect(player.volume.value).toBe(1)
+    expect(player.volume.value).toBe(1.5)
     await player.setVolume(-3)
     await flushPromises()
     expect(player.volume.value).toBe(0)
