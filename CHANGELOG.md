@@ -42,7 +42,9 @@ herramientas y capas están al día.
   fuera del Job Object; un argumento que no es UTF-8 impedía arrancar; siete
   comandos congelaban la ventana; la transcodificación leía la tubería dentro
   del callback de audio (cortes); el pulso del metrónomo cargaba la canción
-  entera en memoria (320 MB por hora; ahora 9).
+  entera en memoria (320 MB por hora; ahora 9); y en Windows el núcleo
+  empaquetado se caía nada más arrancar (sin consola, uvicorn no podía
+  configurar sus avisos): el instalador no llegaba a funcionar.
 - **Interfaz**: el arranque con el núcleo lento dejaba la app vacía para
   siempre; pulsar una fila mientras cargaba descartaba la lista; las notas del
   estudio podían guardarse en otra canción; Enter en «Cancelar» confirmaba
@@ -81,4 +83,4 @@ herramientas y capas están al día.
 - **Interfaz**: vue-router con carga diferida, composables (`useLibrary`,
   `useSelection`, `useSongMenus`, `useChat`…), una sola lista virtual para
   las vistas agrupadas, ESLint 10 sin avisos, Prettier, vue-tsc, Playwright.
-- 1.427 pruebas (eran 783).
+- 1.429 pruebas (eran 783).
