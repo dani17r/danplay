@@ -223,11 +223,17 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
       :aria-label="label"
       :aria-rowcount="rowCount"
     >
-      <colgroup v-if="aMedida">
+      <!-- El ancho de cada columna (su clase, o el tuyo si la arrastraste).
+           Va aqui y no solo en la cabecera: la tabla agrupada no la lleva, su
+           primera fila es la del grupo (una celda que las abarca todas) y con
+           `table-layout: fixed` las repartia a partes iguales, con el titulo
+           tan estrecho como el numero. -->
+      <colgroup>
         <col
           v-for="col in cols"
           :key="col.k"
-          :style="widths[col.k] ? { width: widths[col.k] + 'px' } : null"
+          :class="col.cls"
+          :style="aMedida && widths[col.k] ? { width: widths[col.k] + 'px' } : null"
         />
       </colgroup>
       <thead v-if="!noHeader">
@@ -362,7 +368,7 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
               /></span>
             </td>
             <td v-if="show.artist" class="sub">{{ c.artist || '—' }}</td>
-            <td v-if="show.album" class="sub">{{ c.album || '—' }}</td>
+            <td v-if="show.album" class="sub col-album">{{ c.album || '—' }}</td>
             <td v-if="show.stars" class="col-stars">
               <StarRating
                 :value="c.stars || 0"

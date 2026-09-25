@@ -503,9 +503,15 @@ describe('columnas ajustables', () => {
   const puntero = (target, tipo, x) =>
     target.dispatchEvent(new MouseEvent(tipo, { bubbles: true, cancelable: true, clientX: x }))
 
+  /** Los anchos puestos a mano: los `col` con estilo propio. */
+  const aMano = (w) => w.findAll('col').filter((c) => c.attributes('style'))
+
   it('sin tocarlas no se fija ningun ancho: la tabla se reparte sola', () => {
     const w = mount(SongTable, { props: { songs: [song(1)] } })
-    expect(w.find('colgroup').exists()).toBe(false)
+    // los `col` estan siempre (llevan la clase de su columna, con el ancho
+    // de fabrica), pero ninguno con un ancho propio
+    expect(w.findAll('col').map((c) => c.classes()[0])).toContain('col-title')
+    expect(aMano(w)).toHaveLength(0)
     expect(w.find('table').classes()).not.toContain('medida')
   })
 
@@ -521,10 +527,11 @@ describe('columnas ajustables', () => {
     expect(w.find('col:nth-child(3)').attributes('style')).toContain('width: 160px')
     // al volver, siguen como se dejaron
     const otra = mount(SongTable, { props: { songs: [song(1)] } })
-    expect(otra.find('colgroup').exists()).toBe(true)
+    expect(otra.find('col:nth-child(3)').attributes('style')).toContain('width: 160px')
     // doble clic en el borde: vuelve el reparto de siempre
     await w.find('th[data-col="title"] .col-resize').trigger('dblclick')
-    expect(w.find('colgroup').exists()).toBe(false)
+    expect(aMano(w)).toHaveLength(0)
+    expect(w.find('table').classes()).not.toContain('medida')
     expect(localStorage.getItem('danplay.colWidths')).toBeNull()
   })
 

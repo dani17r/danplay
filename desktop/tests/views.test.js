@@ -159,4 +159,15 @@ describe('la vista agrupada', () => {
     const w = mount(GroupedSongs, { props: { songs: [], by: 'artist', layout: 'table' } })
     expect(w.text()).toContain('Nada por aquí')
   })
+
+  it('la tabla agrupada, sin cabecera, lleva el ancho de cada columna', () => {
+    // su primera fila es la del grupo, una celda que abarca todas: sin los
+    // `col`, `table-layout: fixed` las dejaba todas iguales y el titulo se
+    // quedaba en «Mi …»
+    const w = mount(GroupedSongs, { props: { songs: tres(), by: 'artist', layout: 'table' } })
+    expect(w.find('thead').exists()).toBe(false)
+    const cols = w.findAll('colgroup col').map((c) => c.classes()[0])
+    expect(cols).toContain('col-title')
+    expect(cols).toHaveLength(w.find('[data-song-row]').findAll('td').length)
+  })
 })
