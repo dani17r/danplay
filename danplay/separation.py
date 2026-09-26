@@ -393,69 +393,260 @@ class Waves:
         self.peaks[:, span] = np.maximum(self.peaks[:, span], peaks)
         self.energy[:, span] += energy
 
-    def result(self) -> dict:
+    def result(self, sources: list[str] | None = None) -> dict:
+        """Las de `sources` (todas si no se dice), a la escala de la mas alta de ellas."""
+        rows = [self.sources.index(s) for s in (self.sources if sources is None else sources)]
         counts = np.maximum(1, np.diff(self.edges)).astype(np.float64)
         rms = np.sqrt(self.energy / counts)
-        top = float(self.peaks.max()) or 1.0
+        top = float(self.peaks[rows].max()) if rows else 0.0
+        top = top or 1.0
         return {
             "buckets": self.buckets,
             "tracks": {
-                source: {
+                self.sources[i]: {
                     "peaks": [round(float(v), 3) for v in np.minimum(1, self.peaks[i] / top)],
                     "rms": [round(float(v), 3) for v in np.minimum(1, rms[i] / top)],
                 }
-                for i, source in enumerate(self.sources)
+                for i in rows
             },
         }
 
 
-def run(job: dict) -> dict:
-    """Separa `job["input"]` y deja una pista por fuente en `job["output"]`,
-    y su forma de onda en `job["waves"]` si se pide.
+# ------------------------------------------------------------ que pistas se quedan
 
-    `job`: input, output (carpeta), files ({fuente: nombre de archivo}),
-    graph, manifest, weights, ffmpeg y, opcionales, waves y threads.
+# Una fuente que la red no encuentra en la cancion no sale callada: sale con
+# lo que se le cuela de las demas, muy por debajo de la mezcla. Se queda si en
+# conjunto suena a mas de QUIET_DB de la cancion, o si llega a LOUD_DB de ella
+# en al menos ACTIVE de lo que suena (un piano que solo entra en el puente).
+# Medido con scripts/evaluar-separador.py --presencia: en canciones de verdad
+# lo que no esta sale de -44 a -63 dB y lo que esta, por encima de -20.
+QUIET_DB = -30.0
+LOUD_DB = -15.0
+ACTIVE = 0.02
+# los tramos en que se mira: un cuarto de segundo, sea larga o corta la cancion
+METER = RATE // 4
+
+
+def meter(sources: list[str], length: int) -> "Waves":
+    """Lo que suena cada una por tramos de un cuarto de segundo (`presence`)."""
+    return Waves(sources, length, buckets=max(1, length // METER))
+
+
+def presence(energy: np.ndarray, mix: np.ndarray) -> dict:
+    """Cuanto suena una fuente en la cancion, por tramos (`Waves.energy`):
+    `db`, su energia frente a la de la mezcla; `active`, la parte de lo que
+    suena de la cancion en que la fuente llega a LOUD_DB de ella."""
+    total = float(mix.sum())
+    if total <= 0:
+        return {"db": -120.0, "active": 0.0}
+    db = 10 * math.log10(max(float(energy.sum()), total * 1e-12) / total)
+    audible = mix > total / mix.size * 1e-3  # los silencios no cuentan
+    loud = energy > mix * 10 ** (LOUD_DB / 10)
+    active = float((loud & audible).sum()) / max(1, int(audible.sum()))
+    return {"db": round(db, 1), "active": round(active, 3)}
+
+
+def keeps(level: dict) -> bool:
+    """Si una fuente con ese `presence` es un instrumento que esta de verdad."""
+    return level["db"] > QUIET_DB or level["active"] >= ACTIVE
+
+
+# ------------------------------------------------------------ el trabajo
+
+CHUNK = 10 * RATE  # de cuanto en cuanto se leen las pistas al juntarlas
+
+
+def _reader(ffmpeg: str, path) -> subprocess.Popen:
+    """Un ffmpeg que da una pista ya guardada, cruda, para leerla por trozos."""
+    return subprocess.Popen(
+        [
+            *(ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(path)),
+            *("-f", "f32le", "-ac", "2", "-ar", str(RATE), "-"),
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _read(reader: subprocess.Popen, n: int) -> np.ndarray:
+    """Las siguientes `n` muestras (2, n); con ceros si la pista acaba antes."""
+    assert reader.stdout is not None
+    raw = reader.stdout.read(n * 8)
+    data = np.frombuffer(raw[: len(raw) // 8 * 8], dtype=np.float32).reshape(-1, 2).T
+    if data.shape[-1] < n:
+        data = np.pad(data, [(0, 0), (0, n - data.shape[-1])])
+    return data
+
+
+def _close(procs: dict[str, subprocess.Popen], what: str) -> None:
+    """Cierra los ffmpeg y falla diciendo cual si alguno fallo."""
+    for proc in procs.values():
+        if proc.stdin:
+            proc.stdin.close()
+        if proc.stdout:
+            proc.stdout.close()
+    failed = []
+    for name, proc in procs.items():
+        err = proc.stderr.read() if proc.stderr else b""
+        if proc.wait() != 0:
+            failed.append(f"{name}: {err.decode('utf-8', 'replace').strip()[-200:]}")
+    if failed:
+        raise RuntimeError(f"ffmpeg no pudo {what}: " + "; ".join(failed))
+
+
+def _write(proc: subprocess.Popen, block: np.ndarray) -> None:
+    assert proc.stdin is not None
+    proc.stdin.write(np.ascontiguousarray(block.T, dtype=np.float32).tobytes())
+
+
+def _to_opus(ffmpeg: str, source: Path) -> Path:
+    """La pista en Opus, en su lugar: a 128 kbps, unas cuatro veces menos que en
+    FLAC (medido con pistas de verdad; a 96 serian cinco, pero una pista sola
+    deja oir mas lo que el codec quita que la cancion entera)."""
+    target = source.with_suffix(".opus")
+    r = subprocess.run(
+        [
+            *(ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", str(source)),
+            *("-c:a", "libopus", "-b:a", "128k", "-ar", "48000", str(target)),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if r.returncode != 0:
+        detail = r.stderr.decode("utf-8", "replace").strip()[-200:]
+        raise RuntimeError(f"ffmpeg no pudo pasar {source.name} a Opus: {detail}")
+    source.unlink()
+    return target
+
+
+def run(job: dict, open_net=open_session) -> dict:
+    """Pasa la cancion por las redes del trabajo y deja sus pistas en
+    `job["output"]`, con su forma de onda en `job["waves"]`.
+
+    - input, ffmpeg, output, waves y, opcionales, threads y format ("opus");
+    - files: {fuente: nombre de su archivo .flac}, en el orden de las pistas;
+    - nets: [{graph, manifest, weights, take: [fuentes]}], las redes por las
+      que pasa, en orden, y que fuentes se quedan de cada una;
+    - carry: {fuente: ruta}, pistas ya hechas que entran tal cual;
+    - keep: las fuentes que se quedan. Sin el, las decide lo que suena cada
+      una en la primera red (`presence`): la que no esta en la cancion no
+      llega a ser pista;
+    - rest: la fuente que es «lo que queda»: la cancion menos todas las
+      demas, asi que juntas suenan exactamente como la cancion.
+
+    Devuelve las pistas que salen ({fuente: archivo}) y lo que suena cada una.
     """
     started = time.monotonic()
-    manifest = json.loads(Path(job["manifest"]).read_text(encoding="utf-8"))
-    sources = manifest["sources"]
-    _say(step="load")
-    session = open_session(job["graph"], manifest, job["weights"], job.get("threads"))
-    _say(step="decode")
-    wav = _decode(job["ffmpeg"], job["input"])
-    seconds = wav.shape[-1] / RATE
+    ffmpeg = job["ffmpeg"]
     out = Path(job["output"])
     out.mkdir(parents=True, exist_ok=True)
-    files = job.get("files") or {s: f"{s}.flac" for s in sources}
-    encoders = {s: _encoder(job["ffmpeg"], out / files[s]) for s in sources}
-    waves = Waves(sources, wav.shape[-1])
+    files: dict[str, str] = job["files"]
+    rest = job.get("rest", "other")
+    carry = {s: Path(p) for s, p in (job.get("carry") or {}).items()}
+    nets = job.get("nets") or []
+    _say(step="decode")
+    wav = _decode(ffmpeg, job["input"])
+    length = wav.shape[-1]
+    segments = len(range(0, length, STRIDE)) or 1
+    made: dict[str, Path] = {}
+    heard: dict[str, dict] = {}
+    _say(step="separate", seconds=round(length / RATE, 2))
+    for n, net in enumerate(nets):
+        _say(step="load", net=n + 1, nets=len(nets))
+        manifest = json.loads(Path(net["manifest"]).read_text(encoding="utf-8"))
+        session = open_net(net["graph"], manifest, net["weights"], job.get("threads"))
+        take = [s for s in net["take"] if s in manifest["sources"]]
+        index = [manifest["sources"].index(s) for s in take]
+        levels = meter([*take, "mix"], length)
+        encoders = {s: _encoder(ffmpeg, out / files[s]) for s in take}
+        at = 0
 
-    def emit(block: np.ndarray) -> None:
-        waves.add(block)
-        for i, source in enumerate(sources):
-            pipe = encoders[source].stdin
-            assert pipe is not None
-            pipe.write(np.ascontiguousarray(block[i].T, dtype=np.float32).tobytes())
+        def emit(block: np.ndarray, _index=index, _take=take, _levels=levels, _enc=encoders):
+            nonlocal at
+            size = block.shape[-1]
+            kept = block[_index]
+            _levels.add(np.concatenate([kept, wav[None, :, at : at + size]]))
+            at += size
+            for i, source in enumerate(_take):
+                _write(_enc[source], kept[i])
 
-    _say(step="separate", seconds=round(seconds, 2))
+        base = n * segments
+        try:
+            # una copia: la red la normaliza en su sitio, y la cancion hace
+            # falta entera para la siguiente y para sacar lo que queda
+            separate(
+                session,
+                wav.copy(),
+                emit,
+                lambda d, _t, _base=base: _say(done=_base + d, total=segments * len(nets)),
+            )
+        finally:
+            _close(encoders, "guardar las pistas")
+        del session
+        made.update({s: out / files[s] for s in take})
+        if n == 0:
+            heard.update(
+                {s: presence(levels.energy[i], levels.energy[-1]) for i, s in enumerate(take)}
+            )
+
+    keep = job.get("keep")
+
+    def stays(source: str) -> bool:
+        if keep is not None:
+            return source in keep
+        # lo que llega hecho (`carry`) ya se decidio en su dia
+        return source not in heard or keeps(heard[source])
+
+    parts = [s for s in files if s != rest and (s in made or s in carry) and stays(s)]
+    for source, path in made.items():
+        if source not in parts:
+            path.unlink(missing_ok=True)
+
+    # lo que queda: la cancion menos las pistas que se quedan, tal y como
+    # quedaron guardadas (asi la suma es exacta)
+    _say(step="compose")
+    inputs = {s: made.get(s) or carry[s] for s in parts}
+    final = Waves([*parts, rest], length)
+    stats = meter([rest, "mix"], length)
+    readers = {s: _reader(ffmpeg, path) for s, path in inputs.items()}
+    left = {rest: _encoder(ffmpeg, out / files[rest])}
     try:
-        separate(session, wav, emit, lambda d, t: _say(done=d, total=t))
-    finally:
-        for encoder in encoders.values():
-            if encoder.stdin:
-                encoder.stdin.close()
-    failed = []
-    for source, encoder in encoders.items():
-        err = encoder.stderr.read() if encoder.stderr else b""
-        if encoder.wait() != 0:
-            failed.append(f"{source}: {err.decode('utf-8', 'replace').strip()[-200:]}")
-    if failed:
-        raise RuntimeError("ffmpeg no pudo guardar las pistas: " + "; ".join(failed))
+        for a in range(0, length, CHUNK):
+            size = min(CHUNK, length - a)
+            mix = wav[:, a : a + size]
+            got = [_read(readers[s], size) for s in parts]
+            remainder = mix - sum(got, np.zeros_like(mix))
+            _write(left[rest], remainder)
+            final.add(np.stack([*got, remainder]))
+            stats.add(np.stack([remainder, mix]))
+    except BaseException:
+        for proc in [*readers.values(), *left.values()]:
+            proc.kill()  # lo que fallo es lo que cuenta, no que se cortaran
+        raise
+    for reader in readers.values():
+        assert reader.stdout is not None
+        reader.stdout.read()  # lo que sobre, que no se quede a medias
+    _close(readers, "leer las pistas")
+    _close(left, "guardar lo que queda")
+    heard[rest] = presence(stats.energy[0], stats.energy[1])
+    if not stays(rest):
+        (out / files[rest]).unlink(missing_ok=True)
+    order = [s for s in files if s in parts or (s == rest and stays(rest))]
     if job.get("waves"):
         Path(job["waves"]).write_text(
-            json.dumps(waves.result(), separators=(",", ":")), encoding="utf-8"
+            json.dumps(final.result(order), separators=(",", ":")), encoding="utf-8"
         )
-    return {"seconds": round(seconds, 2), "took": round(time.monotonic() - started, 1)}
+    written = {s: out / files[s] for s in order}
+    if job.get("format") == "opus":
+        _say(step="encode")
+        written = {s: _to_opus(ffmpeg, path) for s, path in written.items()}
+    return {
+        "seconds": round(length / RATE, 2),
+        "took": round(time.monotonic() - started, 1),
+        "tracks": {s: written[s].name for s in order},
+        "levels": heard,
+    }
 
 
 def _orphan_guard() -> None:

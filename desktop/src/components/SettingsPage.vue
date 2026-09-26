@@ -160,24 +160,29 @@ const { theme, density } = usePreferences()
 // ---- separar en pistas: si se puede, lo bajado de cada modelo y la cola
 const separation = useSeparation()
 const sep = separation.state
-/** Borra lo bajado de un modelo: se vuelve a bajar la próxima vez que se use. */
-async function removeSeparationModel(m) {
+/** Borra lo bajado del separador: se vuelve a bajar la próxima vez que se use. */
+async function removeSeparator() {
   const ok = await ask({
     kind: 'confirm',
-    title: `Borrar el separador de ${m.label}`,
+    title: 'Borrar el separador',
     message:
-      `Libera ${separation.megas(m.bytes)}. Las pistas ya separadas no se tocan; ` +
-      'si vuelves a separar con él, se baja otra vez.',
+      `Libera ${separation.megas(sep.bytes)}. Las pistas ya separadas no se tocan; ` +
+      'si vuelves a separar, se baja otra vez.',
     okLabel: 'Borrar'
   })
   if (!ok) return
   try {
-    await api.removeSeparationModel(m.id)
+    await api.removeSeparator()
     await separation.refresh()
     notify('Separador borrado', 'ok')
   } catch (e) {
     notify('No se pudo borrar: ' + errorMessage(e))
   }
+}
+/** En qué se guardan las pistas desde ahora (las ya separadas no cambian). */
+async function saveStemsFormat(v) {
+  await save('stems_format', v)
+  await separation.refresh()
 }
 function afterSave(key) {
   catalog.value = allThemes()
@@ -872,27 +877,43 @@ const gb = formatGigabytes
           No se puede separar en este equipo: {{ sep.reason }}.
         </div>
         <template v-else>
-          <div v-for="m in sep.models" :key="m.id" class="path-row">
-            <span class="path">{{ m.label }} · {{ m.detail }}</span>
-            <span class="badge" :class="m.installed ? 'ok' : ''">
-              {{ m.installed ? 'bajado' : 'sin bajar' }} · {{ separation.megas(m.bytes) }}</span
+          <div class="path-row">
+            <span class="path">Separador · Demucs v4, en dos pasadas</span>
+            <span class="badge" :class="sep.installed ? 'ok' : ''">
+              {{ sep.installed ? 'bajado' : 'sin bajar' }} · {{ separation.megas(sep.bytes) }}</span
             >
             <button
-              v-if="m.installed"
+              v-if="sep.bytes > sep.pending"
               type="button"
               class="btn mini"
               :disabled="separation.busy.value"
-              :title="'Borrar lo bajado de ' + m.label + ' (se baja otra vez al usarlo)'"
-              @click="removeSeparationModel(m)"
+              title="Borrar lo bajado del separador (se baja otra vez al usarlo)"
+              @click="removeSeparator"
             >
               Borrar
             </button>
           </div>
+          <div style="margin-top: 11px">
+            <SelectField
+              :model-value="settings.stems_format || 'flac'"
+              width="240px"
+              label="Guardar las pistas en"
+              :options="[
+                { v: 'flac', n: 'FLAC', note: 'sin pérdida' },
+                {
+                  v: 'opus',
+                  n: 'Opus',
+                  note: sep.opus ? 'unas 4 veces menos' : 'este ffmpeg no sabe hacerlo'
+                }
+              ]"
+              @update:model-value="saveStemsFormat"
+            />
+          </div>
           <div class="hint">
             Se separa en tu equipo, sin internet (el separador se baja una vez, la primera que se
-            usa). Tarda en torno a lo que dura la canción. Las pistas quedan en
-            <b>{{ sep.folder }}/</b> dentro de tu biblioteca, en FLAC: se abren con cualquier
-            programa.
+            usa). En unos minutos tienes las pistas; después se mejoran la batería y el bajo, sin
+            cortar lo que suena. Solo salen las que están en la canción. Quedan en
+            <b>{{ sep.folder }}/</b> dentro de tu biblioteca: se abren con cualquier programa.
           </div>
           <div v-if="separation.busy.value" class="btn-row" style="margin-top: 8px">
             <span class="hint" style="margin: 0">

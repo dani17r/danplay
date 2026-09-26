@@ -772,7 +772,9 @@ async function loadStems(id) {
   }
   await sendMix()
 }
-// al acabar de separarse la canción que se estudia, sus pistas
+// al acabar cada pasada de la canción que se estudia, sus pistas: las
+// rápidas en cuanto están, y luego las buenas (con los mismos nombres: el
+// reproductor ve que cambiaron y las reabre donde iba)
 const stopListening = separation.onSeparated((ids) => {
   const id = loadedFor.value
   if (id != null && ids.includes(id)) loadStems(id)
@@ -809,32 +811,28 @@ async function resetMix() {
   scheduleSave()
   await sendMix()
 }
-/** Separa la canción que se estudia (con el modelo de 6 o el de 4 pistas). */
-async function separateThis(model) {
+/** Separa la canción que se estudia, con la mejor calidad. */
+async function separateThis() {
   const t = track.value
   if (!t) return
-  if (await separation.request([{ id: t.id, title: t.title, file: songFile.value }], model)) {
+  if (await separation.request([{ id: t.id, title: t.title, file: songFile.value }])) {
     wantStems = t.id
   }
-}
-function separateMenu(ev) {
-  const items = separation.state.models.map((m) => ({
-    label: `En ${m.label}`,
-    icon: 'mixer',
-    note: m.installed === false ? `bajar ${separation.megas(m.bytes)}` : m.detail,
-    action: () => separateThis(m.id)
-  }))
-  openMenu(ev, items, 'Separar en pistas')
 }
 const progressText = computed(() => {
   const p = progress.value
   if (!p) return ''
-  if (p.waiting) return `en la cola (${p.place}.º)`
+  const verb = p.stage === 'refine' ? 'mejorando' : 'separando'
+  if (p.waiting) {
+    return p.stage === 'refine'
+      ? `en la cola para mejorar (${p.place}.º)`
+      : `en la cola (${p.place}.º)`
+  }
   if (p.step === 'download') return `bajando el separador · ${Math.round(p.fraction * 100)} %`
-  if (!p.fraction) return 'preparando…'
+  if (!p.fraction) return p.stage === 'refine' ? 'mejorando…' : 'preparando…'
   const left = separation.remaining()
   const eta = left == null ? '' : ` · quedan ~${formatTime(left)}`
-  return `separando · ${Math.round(p.fraction * 100)} %${eta}`
+  return `${verb} · ${Math.round(p.fraction * 100)} %${eta}`
 })
 
 /** Guarda en un archivo lo que suena ahora de las pistas. */
@@ -920,11 +918,20 @@ function stemsMenu(ev) {
     { label: 'Que suenen todas, como vienen', icon: 'refresh', action: resetMix },
     { label: 'Abrir la carpeta de las pistas', icon: 'folderOpen', action: revealStems },
     { separator: true },
-    ...separation.state.models.map((m) => ({
-      label: `Separar otra vez en ${m.label}`,
-      icon: 'mixer',
-      action: () => separateThis(m.id)
-    })),
+    ...(progress.value
+      ? []
+      : [
+          {
+            label: stems.value?.best ? 'Separar otra vez' : 'Separar otra vez con la mejor calidad',
+            icon: 'mixer',
+            note: stems.value?.best
+              ? ''
+              : stems.value?.quality === 'rapida'
+                ? 'solo se mejoran'
+                : 'se hicieron con una versión anterior',
+            action: separateThis
+          }
+        ]),
     { separator: true },
     { label: 'Borrar las pistas…', icon: 'trash', danger: true, action: deleteStems }
   ]
@@ -1031,12 +1038,12 @@ onUnmounted(flushSave)
           type="button"
           class="btn mini study-stems-separate"
           title="Separar la canción en pistas (batería, voces, bajo…) para callar o dejar sola cada una"
-          @click="separateMenu"
+          @click="separateThis"
         >
-          <Icon n="mixer" :t="12" /> Separar en pistas
+          <Icon n="mixer" :t="12" /> Separar pistas
         </button>
         <span class="study-stems-note">
-          batería, voces, bajo… cada una aparte · tarda en torno a lo que dura la canción
+          batería, voces, bajo… cada una aparte · en unos minutos, y luego se mejoran
         </span>
       </template>
     </div>

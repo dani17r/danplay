@@ -345,27 +345,40 @@ describe('temas', () => {
 })
 
 describe('las pistas separadas', () => {
-  it('dice qué separadores hay bajados y deja borrarlos', async () => {
+  it('dice si el separador está bajado y deja borrarlo', async () => {
     const { resetSeparation, useSeparation } = await import('../src/composables/useSeparation.js')
     resetSeparation()
     await useSeparation().refresh()
     await montar()
     const card = w.findAll('.card').find((c) => c.text().includes('Pistas separadas'))
-    expect(card.text()).toContain('6 pistas')
-    expect(card.text()).toContain('bajado · 55 MB')
-    expect(card.text()).toContain('sin bajar · 84 MB')
+    // uno solo, sin elegir modelo
+    expect(card.text()).not.toContain('6 pistas')
+    expect(card.text()).toContain('bajado · 307 MB')
     expect(card.text()).toContain('Separadas/')
-    // solo el bajado se puede borrar
     const borrar = card.findAll('button').filter((b) => b.text() === 'Borrar')
     expect(borrar).toHaveLength(1)
     await borrar[0].trigger('click')
     await flushPromises()
-    expect(useDialog().dialog.value.message).toContain('55 MB')
+    expect(useDialog().dialog.value.message).toContain('307 MB')
     dialogOk()
     await flushPromises()
     await flushPromises()
-    expect(api().removeSeparationModel).toHaveBeenCalledWith('6')
-    expect(card.text()).toContain('sin bajar · 55 MB')
+    expect(api().removeSeparator).toHaveBeenCalled()
+    expect(card.text()).toContain('sin bajar · 307 MB')
+    // sin nada bajado, no hay nada que borrar
+    expect(card.findAll('button').filter((b) => b.text() === 'Borrar')).toHaveLength(0)
+    held.state.separation.pending = 0
+    held.state.separation.installed = true
+  })
+
+  it('las pistas se guardan en FLAC, o en Opus si se elige', async () => {
+    const { resetSeparation, useSeparation } = await import('../src/composables/useSeparation.js')
+    resetSeparation()
+    await useSeparation().refresh()
+    await montar()
+    const card = w.findAll('.card').find((c) => c.text().includes('Pistas separadas'))
+    expect(card.text()).toContain('Guardar las pistas en')
+    expect(card.text()).toContain('FLAC')
   })
 
   it('si en este equipo no se puede, dice por qué', async () => {

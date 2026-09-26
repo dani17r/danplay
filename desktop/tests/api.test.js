@@ -278,10 +278,10 @@ describe('lo que cada metodo pide al nucleo', () => {
     setStudy: [[7, { notes: 'x' }], 'PUT', '/api/song/7/study', { notes: 'x' }],
     waveform: [[7], 'GET', '/api/song/7/waveform?buckets=800'],
     separation: [[], 'GET', '/api/separate'],
-    separate: [[7, '4'], 'POST', '/api/song/7/separate', { model: '4' }],
+    separate: [[7], 'POST', '/api/song/7/separate'],
     cancelSeparation: [[], 'DELETE', '/api/separate'],
     unqueueSeparation: [[7], 'DELETE', '/api/separate/queue/7'],
-    removeSeparationModel: [['6'], 'DELETE', '/api/separate/models/6'],
+    removeSeparator: [[], 'DELETE', '/api/separate/weights'],
     stems: [[7], 'GET', '/api/song/7/stems'],
     deleteStems: [[7], 'DELETE', '/api/song/7/stems'],
     exportMix: [

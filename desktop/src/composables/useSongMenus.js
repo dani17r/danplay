@@ -216,45 +216,59 @@ export function useSongMenus(ctx) {
   }
 
   /**
-   * Separar en pistas: un submenú con los modelos (6 o 4 pistas). Nada si
-   * en este equipo no se puede.
+   * Separar en pistas, con la mejor calidad. Nada si en este equipo no se
+   * puede.
    * @param {Song[]} list
    * @param {string} label
    * @returns {MenuItem[]}
    */
   function separateItems(list, label) {
     if (!separation.state.ok) return []
-    return [
-      {
-        label,
-        icon: 'mixer',
-        children: separation.state.models.map((m) => ({
-          label: `En ${m.label}`,
-          note: m.installed === false ? `bajar ${separation.megas(m.bytes)}` : '',
-          action: () => separation.request(list, m.id)
-        }))
-      }
-    ]
+    const note = separation.state.pending
+      ? `bajar ${separation.megas(separation.state.pending)}`
+      : ''
+    return [{ label, icon: 'mixer', note, action: () => separation.request(list) }]
   }
 
   /** Lo de las pistas de una canción: separarla, o lo que se hace con las suyas. @param {Song} song */
   function stemsItems(song) {
     const queued = separation.progressOf(song.id)
     if (queued) {
+      const what = queued.stage === 'refine' ? 'mejorar' : 'separar'
       return [
         {
-          label: queued.waiting ? 'Quitar de la cola de separar' : 'Parar la separación',
+          label: queued.waiting ? `Quitar de la cola de ${what}` : 'Parar la separación',
           icon: 'mixer',
           action: () => (queued.waiting ? separation.unqueue(song.id) : separation.cancel())
         }
       ]
     }
-    if (!song.has_stems) return separateItems([song], 'Separar en pistas')
+    if (!song.has_stems) return separateItems([song], 'Separar pistas')
     return [
       { label: 'Abrir la carpeta de sus pistas', icon: 'mixer', action: () => revealStems(song) },
-      ...separateItems([song], 'Separar otra vez'),
+      ...separateItems(
+        [song],
+        song.stems_best ? 'Separar otra vez' : 'Separar otra vez con la mejor calidad'
+      ),
       { label: 'Borrar sus pistas…', icon: 'trash', action: () => deleteStems(song) }
     ]
+  }
+
+  /**
+   * Todas las canciones de un repertorio a la cola de separar: las que ya
+   * tienen las mejores pistas no se repiten. @param {{id: number}} pl
+   */
+  async function separatePlaylist(pl) {
+    let list
+    try {
+      list = (await api.playlistSongs(pl.id)).songs || []
+    } catch (e) {
+      return notify(errorMessage(e))
+    }
+    const todo = list.filter((s) => !s.has_stems || !s.stems_best)
+    if (!list.length) return notify('Esa lista está vacía')
+    if (!todo.length) return notify('Todas las canciones de esa lista ya tienen sus pistas', 'ok')
+    await separation.request(todo)
   }
 
   /** Borrar una lista puede dejarte mirando una vista que ya no existe. @param {any} pl */
@@ -327,7 +341,7 @@ export function useSongMenus(ctx) {
         }
       })
     }
-    items.push(...separateItems(list, `Separar ${n} en pistas`))
+    items.push(...separateItems(list, `Separar las pistas de ${n}`))
     items.push({ separator: true })
     if (shareTargets.value.telegram) {
       items.push({
@@ -442,6 +456,15 @@ export function useSongMenus(ctx) {
         { label: 'Renombrar…', icon: 'pencil', action: () => playlistActions.rename(pl) },
         { label: 'Exportar a .m3u', icon: 'download', action: () => playlistActions.exportTo(pl) },
         { label: 'Hoja para el atril…', icon: 'chords', action: () => playlistActions.sheet(pl) },
+        ...(separation.state.ok
+          ? [
+              {
+                label: 'Separar las pistas del repertorio',
+                icon: 'mixer',
+                action: () => separatePlaylist(pl)
+              }
+            ]
+          : []),
         ...(shareTargets.value.telegram
           ? [
               {

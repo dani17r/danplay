@@ -55,6 +55,7 @@ def settings():
         "convert_mp3": config.CONVERT_TO_MP3,
         "quality": config.MP3_QUALITY,
         "keep_original": config.KEEP_ORIGINAL,
+        "stems_format": config.STEMS_FORMAT,
         "write_tags": config.WRITE_TAGS,
         "ai_enabled": config.AI_ENABLED,
         "model": ai.fast_model(),
@@ -83,6 +84,7 @@ def save_settings(body: Annotated[SettingsIn, Body()]):
     }
     texts = {
         "quality": ("MP3_QUALITY", "DANPLAY_QUALITY"),
+        "stems_format": ("STEMS_FORMAT", "DANPLAY_STEMS_FORMAT"),
         "fingerprint_key": ("ACOUSTID_API_KEY", "ACOUSTID_API_KEY"),
     }
     save = {}

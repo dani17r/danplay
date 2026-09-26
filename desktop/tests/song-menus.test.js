@@ -78,6 +78,8 @@ beforeEach(async () => {
   resetSeparation()
   held.state.separation.current = null
   held.state.separation.queue = []
+  held.state.separation.events = []
+  held.state.separation.pending = 0
   held.state.stems = {}
   await useSeparation().refresh()
   held.state.songs = [song(1), song(2, { title: 'Otra' }), song(3, { title: 'Tercera' })]
@@ -101,7 +103,7 @@ describe('el menú de una canción', () => {
       'Buscar letra y portada',
       'Difuminar la portada',
       'Renombrar…',
-      'Separar en pistas',
+      'Separar pistas',
       'Abrir la carpeta',
       'Mandar a la papelera…'
     ])
@@ -228,7 +230,7 @@ describe('el menú de varias', () => {
       'Añadir 3 a una lista',
       'Marcar 3 como favoritas',
       'Quitar 3 de esta lista',
-      'Separar 3 en pistas',
+      'Separar las pistas de 3',
       'Enviar 3 por Telegram',
       'Mandar 3 a la papelera…'
     ])
@@ -290,6 +292,7 @@ describe('el menú de un repertorio', () => {
       'Renombrar…',
       'Exportar a .m3u',
       'Hoja para el atril…',
+      'Separar las pistas del repertorio',
       'Enviar por Telegram',
       'Borrar la lista…'
     ])
@@ -324,36 +327,28 @@ describe('el menú de un repertorio', () => {
 })
 
 describe('las pistas separadas', () => {
-  const submenu = (label) => item(label)?.children?.map((c) => c.label)
-  const pickIn = async (label, child) => {
-    const it = item(label)?.children?.find((c) => c.label === child)
-    expect(it, `no hay «${child}» en «${label}»`).toBeTruthy()
-    closeMenu()
-    await it.action()
-    await flushPromises()
-  }
-
-  it('una sin pistas se separa con el modelo que se elija', async () => {
+  it('una sin pistas se separa con un solo clic, sin elegir nada', async () => {
     const { menus } = preparar()
     menus.songMenu(ev, held.state.songs[0])
-    expect(submenu('Separar en pistas')).toEqual(['En 6 pistas', 'En 4 pistas'])
-    // el de 4 aún no está bajado: se dice cuánto pesa
-    expect(item('Separar en pistas').children[1].note).toBe('bajar 84 MB')
-    await pickIn('Separar en pistas', 'En 6 pistas')
-    expect(api().separate).toHaveBeenCalledWith(1, '6')
+    expect(item('Separar pistas').children).toBeUndefined()
+    await pick('Separar pistas')
+    expect(api().separate).toHaveBeenCalledWith(1)
     expect(dialog.value.open).toBeFalsy()
   })
 
-  it('bajar un modelo se pregunta antes, con lo que pesa', async () => {
+  it('bajar el separador se pregunta antes, con lo que pesa', async () => {
+    held.state.separation.pending = 307000000
+    await useSeparation().refresh()
     const { menus } = preparar()
     menus.songMenu(ev, held.state.songs[0])
-    const asked = pickIn('Separar en pistas', 'En 4 pistas')
+    expect(item('Separar pistas').note).toBe('bajar 307 MB')
+    const asked = pick('Separar pistas')
     await flushPromises()
     expect(dialog.value.open).toBe(true)
-    expect(dialog.value.message).toContain('84 MB')
+    expect(dialog.value.message).toContain('307 MB')
     dialogCancel()
     await asked
-    expect(api().separate).not.toHaveBeenCalledWith(1, '4')
+    expect(api().separate).not.toHaveBeenCalled()
   })
 
   it('varias a la vez van a la cola', async () => {
@@ -361,14 +356,37 @@ describe('las pistas separadas', () => {
     await ctx.selection.select(1)
     await ctx.selection.select(3, { shiftKey: true })
     menus.songMenu(ev, held.state.songs[0])
-    await pickIn('Separar 3 en pistas', 'En 6 pistas')
+    await pick('Separar las pistas de 3')
     expect(api().separate.mock.calls.map((c) => c[0])).toEqual([1, 2, 3])
     expect(useSeparation().state.queue.map((q) => q.id)).toEqual([2, 3])
   })
 
+  it('el repertorio entero, sin repetir las que ya tienen las mejores', async () => {
+    const { menus } = preparar()
+    held.state.playlistSongs[1] = {
+      ...held.state.playlistSongs[1],
+      has_stems: true,
+      stems_best: true
+    }
+    held.state.playlistSongs[2] = { ...held.state.playlistSongs[2], has_stems: true }
+    menus.playlistMenu(ev, { id: 7, name: 'Domingo' })
+    await pick('Separar las pistas del repertorio')
+    expect(api().separate.mock.calls.map((c) => c[0])).toEqual([1, 3])
+    held.state.playlistSongs = held.state.playlistSongs.map((s) => ({
+      ...s,
+      has_stems: true,
+      stems_best: true
+    }))
+    menus.playlistMenu(ev, { id: 7, name: 'Domingo' })
+    await pick('Separar las pistas del repertorio')
+    expect(notices.value.at(-1).message).toBe(
+      'Todas las canciones de esa lista ya tienen sus pistas'
+    )
+  })
+
   it('la que se está separando o espera se puede parar o quitar', async () => {
     const { menus } = preparar()
-    await useSeparation().request([held.state.songs[0], held.state.songs[1]], '6')
+    await useSeparation().request([held.state.songs[0], held.state.songs[1]])
     menus.songMenu(ev, held.state.songs[1])
     await pick('Quitar de la cola de separar')
     expect(api().unqueueSeparation).toHaveBeenCalledWith(2)
@@ -380,10 +398,14 @@ describe('las pistas separadas', () => {
   it('con pistas: abrir su carpeta, separarla otra vez o borrarlas', async () => {
     const { menus, ctx } = preparar()
     held.state.stems[1] = stemsOf(1)
-    const withStems = { ...held.state.songs[0], has_stems: true }
+    const withStems = { ...held.state.songs[0], has_stems: true, stems_best: true }
     menus.songMenu(ev, withStems)
     expect(labels()).toContain('Separar otra vez')
-    expect(labels()).not.toContain('Separar en pistas')
+    expect(labels()).not.toContain('Separar pistas')
+    // las rápidas, o las de antes, se ofrecen hacer con la mejor calidad
+    menus.songMenu(ev, { ...withStems, stems_best: false })
+    expect(labels()).toContain('Separar otra vez con la mejor calidad')
+    closeMenu()
     await pick('Abrir la carpeta de sus pistas')
     expect(held.app.revealInFolder).toHaveBeenCalledWith('/musica/Separadas/cancion-1/Bateria.flac')
     menus.songMenu(ev, withStems)

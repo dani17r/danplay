@@ -6,25 +6,40 @@ Las pistas de una cancion van en una carpeta con su nombre, dentro de
 
     Separadas/Miel San Marcos - Que Se Abra El Cielo/
         Bateria.flac  Voces.flac  Bajo.flac  Guitarra.flac  Piano.flac  Otros.flac
-        .danplay-pistas.json   de que cancion son, con que modelo, que hay
+        .danplay-pistas.json   de que cancion son, con que redes, que hay
         .danplay-ondas.json    la forma de onda de cada pista
 
 Son archivos normales: se abren con cualquier programa (un DAW, Ableton, el
 reproductor del sistema). Dentro de DanPlay suenan juntas en el modo
 estudio, cada una con su volumen, y se pueden callar o dejar solas.
 
+Solo salen las que estan: una cancion sin piano no tiene pista de piano (lo
+poco que la red le atribuya va a «Otros»). Y «Otros» es la cancion menos
+todas las demas, asi que juntas suenan exactamente como la cancion.
+
+Se separa en dos pasadas, con Demucs v4 y ONNX Runtime (`separation.py`), en
+un proceso aparte y con prioridad baja:
+
+1. la rapida (htdemucs_6s): una red que saca las seis fuentes de una vez. En
+   unos minutos las pistas ya estan y se pueden usar;
+2. la buena: la bateria y el bajo otra vez, cada uno con su especialista
+   (htdemucs_ft, una red afinada para esa sola fuente). Tarda el doble que
+   la rapida y los cambia por otros mas limpios, sin cortar lo que suena.
+   La voz no: su especialista no la saca mejor que la rapida. Lo medido,
+   con scripts/evaluar-separador.py, en docs/ARQUITECTURA.md.
+
+Va en una cola: se pueden pedir varias y se separan una detras de otra
+mientras se sigue usando la app. Las rapidas de todas van antes que
+cualquier mejora: un repertorio entero se puede ensayar cuanto antes.
+
 Como todo lo que el usuario crea, no depende de la base: la carpeta dice de
 que cancion es (`.danplay-pistas.json`), y un escaneo vuelve a unirlas si el
 indice se pierde. El escaneo no mete estas pistas en la biblioteca como
 canciones sueltas: una carpeta con ese archivo se salta.
-
-La separacion es Demucs v4 con ONNX Runtime (`separation.py`), en un proceso
-aparte y con prioridad baja. Tarda en torno a lo que dura la cancion en un
-portatil corriente, asi que va en una cola: se pueden pedir varias y se
-separan una detras de otra mientras se sigue usando la app.
 """
 
 import contextlib
+import functools
 import hashlib
 import importlib.util
 import json
@@ -63,22 +78,22 @@ SOURCES = {
     "piano": ("Piano", "Piano"),
     "other": ("Otros", "Otros"),
 }
+REST = "other"  # la que es «lo que queda»: la cancion menos las demas
 
-# Los modelos que se ofrecen. El de seis separa tambien guitarra y piano; el
-# de cuatro deja esos dos en «Otros» y es algo mas limpio en lo demas.
-MODELS = {
-    "6": {
-        "graph": "htdemucs_6s",
-        "label": "6 pistas",
-        "detail": "batería, voces, bajo, guitarra, piano y el resto",
-    },
-    "4": {
-        "graph": "htdemucs",
-        "label": "4 pistas",
-        "detail": "batería, voces, bajo y el resto (algo más limpias)",
-    },
-}
-DEFAULT_MODEL = "6"
+# La pasada rapida, y la red de los especialistas de la buena con las fuentes
+# que mejoran. Medido en MUSDB18 (SDR): bateria 9,2 → 9,5 dB, bajo 7,7 →
+# 8,8; la voz, 8,5 con los dos, asi que se queda la de la rapida. La
+# guitarra y el piano no tienen especialista: tambien de la rapida.
+FAST = "htdemucs_6s"
+BEST = "htdemucs"
+REFINE = ("drums", "bass")
+
+# Como estan las pistas de una cancion (en su manifiesto): de la rapida, que
+# se mejora luego, o ya de la buena. Las de 1.16.0 no lo dicen: se hicieron
+# con una sola red, de seis o de cuatro, y se pueden separar otra vez.
+QUICK, FINAL = "rapida", "mejor"
+
+FORMATS = ("flac", "opus")
 
 USER_AGENT = "DanPlay (+https://github.com/dani17r/danplay)"
 TIMEOUT = 60
@@ -91,25 +106,36 @@ class SeparateError(jobs.JobError):
 # ------------------------------------------------------------ el motor
 
 
-def _manifest_of(model: str) -> dict:
-    graph = MODELS[model]["graph"]
-    return json.loads((GRAPHS / f"{graph}.json").read_text(encoding="utf-8"))
+@functools.cache
+def _graph(name: str) -> dict:
+    """La receta de un grafo (`<nombre>.json`): sus fuentes y sus pesos."""
+    return json.loads((GRAPHS / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def parts() -> dict[str, dict]:
+    """Cada archivo de pesos que usa el separador, por nombre: el de la
+    pasada rapida y el de cada especialista. Con su grafo, su URL, su sha256
+    y lo que pesa."""
+    out = {FAST: {"graph": FAST, **_graph(FAST)["weights"]}}
+    specialists = _graph(BEST).get("specialists") or {}
+    for source in REFINE:
+        out[source] = {"graph": BEST, **specialists[source]}
+    return out
 
 
 def _weights_dir() -> Path:
     return config.DATA_DIR / "separador"
 
 
-def weights_path(model: str) -> Path:
-    return _weights_dir() / _manifest_of(model)["weights"]["file"]
+def weights_path(part: str) -> Path:
+    return _weights_dir() / parts()[part]["file"]
 
 
-def installed(model: str) -> bool:
-    """Los pesos de ese modelo ya estan bajados (y enteros: se comprobo su
+def installed(part: str) -> bool:
+    """Los pesos de esa parte ya estan bajados (y enteros: se comprobo su
     sha256 al bajarlos, y aqui el tamaño)."""
     try:
-        want = _manifest_of(model)["weights"]["bytes"]
-        return weights_path(model).stat().st_size == want
+        return weights_path(part).stat().st_size == parts()[part]["bytes"]
     except (OSError, KeyError, ValueError):
         return False
 
@@ -121,34 +147,63 @@ def missing() -> str:
             return f"falta {module} en esta instalación de DanPlay"
     if not convert.tool("ffmpeg"):
         return "hace falta ffmpeg"
-    if not all((GRAPHS / f"{m['graph']}.onnx").is_file() for m in MODELS.values()):
+    try:
+        known = parts()
+    except (OSError, ValueError, KeyError):
+        return "faltan los archivos del separador en esta instalación"
+    if not all((GRAPHS / f"{p['graph']}.onnx").is_file() for p in known.values()):
         return "faltan los archivos del separador en esta instalación"
     return ""
 
 
+@functools.cache
+def _has_opus(ffmpeg: str) -> bool:
+    try:
+        r = subprocess.run(
+            [ffmpeg, "-hide_banner", "-encoders"], capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return False
+    return " libopus " in r.stdout
+
+
+def stems_format() -> str:
+    """En que se guardan las pistas: FLAC (sin perdida) u Opus, si se eligio
+    y este ffmpeg lo sabe hacer."""
+    chosen = config.STEMS_FORMAT if config.STEMS_FORMAT in FORMATS else "flac"
+    ffmpeg = convert.tool("ffmpeg")
+    if chosen == "opus" and not (ffmpeg and _has_opus(ffmpeg)):
+        return "flac"
+    return chosen
+
+
 def status() -> dict:
-    """Si se puede separar, que modelos hay (y si ya estan bajados), y la cola."""
+    """Si se puede separar, lo que pesa el separador (y lo que falta por
+    bajar), en que se guardan las pistas, la cola y lo ultimo que acabo."""
     reason = missing()
-    models = []
-    for key, m in MODELS.items():
-        item: dict[str, Any] = {"id": key, "label": m["label"], "detail": m["detail"]}
-        with contextlib.suppress(OSError, ValueError, KeyError):
-            manifest = _manifest_of(key)
-            item["sources"] = [s for s in SOURCES if s in manifest["sources"]]
-            item["bytes"] = manifest["weights"]["bytes"]
-            item["installed"] = installed(key)
-        models.append(item)
+    total = pending = 0
+    with contextlib.suppress(OSError, ValueError, KeyError):
+        for key, part in parts().items():
+            total += part["bytes"]
+            if not installed(key):
+                pending += part["bytes"]
+    ffmpeg = convert.tool("ffmpeg")
     with _lock:
         queue = [dict(q) for q in _queue]
         current = dict(_current) if _current else None
+        events = [dict(e) for e in _events]
     return {
         "ok": not reason,
         "reason": reason,
-        "models": models,
-        "default": DEFAULT_MODEL,
+        "bytes": total,
+        "pending": pending,
+        "installed": bool(total) and not pending,
         "folder": FOLDER,
+        "format": stems_format(),
+        "opus": bool(ffmpeg and _has_opus(ffmpeg)),
         "current": current,
         "queue": queue,
+        "events": events,
     }
 
 
@@ -164,24 +219,25 @@ def _why(e: Exception) -> str:
     return str(e)[:160]
 
 
-def download(model: str, progress=None, cancelled=None) -> Path:
-    """Baja los pesos del modelo del autor (HuggingFace), una sola vez.
+def download(part: str, progress=None, cancelled=None) -> Path:
+    """Baja los pesos de una parte del separador (del autor, en HuggingFace),
+    una sola vez.
 
     Se comprueba el sha256 que viaja con la app: un archivo cambiado o a
     medias no se usa. Se escribe a un temporal y se pone en su sitio al
     final, asi que cortarlo no deja nada roto.
     """
-    if installed(model):
-        return weights_path(model)
-    info = _manifest_of(model)["weights"]
-    target = weights_path(model)
+    if installed(part):
+        return weights_path(part)
+    info = parts()[part]
+    target = weights_path(part)
     target.parent.mkdir(parents=True, exist_ok=True)
-    part = target.with_suffix(".part")
+    tmp = target.with_suffix(".part")
     digest = hashlib.sha256()
     got = 0
     req = urllib.request.Request(info["url"], headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r, open(part, "wb") as f:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r, open(tmp, "wb") as f:
             while True:
                 if cancelled and cancelled():
                     raise SeparateError("cancelado")
@@ -196,25 +252,51 @@ def download(model: str, progress=None, cancelled=None) -> Path:
                 if progress:
                     progress(got, info["bytes"])
     except SeparateError:
-        part.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)
         raise
     except Exception as e:
-        part.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)
         raise SeparateError(f"no se pudo bajar el separador ({_why(e)})") from e
     if digest.hexdigest() != info["sha256"]:
-        part.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)
         raise SeparateError("el separador bajado no es el que debe (sha256 distinto): no se usa")
-    os.replace(part, target)
+    os.replace(tmp, target)
     return target
 
 
-def remove_weights(model: str) -> bool:
-    """Borra los pesos bajados de ese modelo (se vuelven a bajar si hacen falta)."""
-    try:
-        weights_path(model).unlink()
-        return True
-    except FileNotFoundError:
-        return False
+def _fetch(needed: list[str], progress) -> None:
+    """Baja lo que falte de esas partes, contando el total como una descarga.
+    Y quita lo que ya no usa ninguna (los pesos de 1.16.0 de cuatro pistas)."""
+    todo = [p for p in needed if not installed(p)]
+    if not todo:
+        return
+    known = {part["file"] for part in parts().values()}
+    with contextlib.suppress(OSError):
+        for old in _weights_dir().glob("*.safetensors"):
+            if old.name not in known:
+                old.unlink()
+    sizes = {p: parts()[p]["bytes"] for p in todo}
+    total, before = sum(sizes.values()), 0
+    progress(step="download")
+    for p in todo:
+        download(
+            p,
+            lambda got, _t, _b=before: progress(_b + got, total, step="download"),
+            _cancel.is_set,
+        )
+        before += sizes[p]
+
+
+def remove_weights() -> int:
+    """Borra todo lo bajado del separador (se vuelve a bajar al separar).
+    Devuelve cuantos archivos quito."""
+    n = 0
+    with contextlib.suppress(OSError):
+        for f in _weights_dir().iterdir():
+            if f.suffix in (".safetensors", ".part"):
+                f.unlink()
+                n += 1
+    return n
 
 
 # ------------------------------------------------------------ la carpeta
@@ -274,11 +356,17 @@ def info(song: Mapping[str, Any]) -> dict | None:
                 "wave": (waves.get("tracks") or {}).get(source),
             }
         )
+    quality = manifest.get("quality") or ""
     return {
         "folder": str(folder),
         "model": manifest.get("model", ""),
         "created": manifest.get("created"),
+        # rapida (se esta mejorando, o se quedo a medias), mejor, o vacio
+        # si se separaron antes de que hubiera dos pasadas (1.16.0)
+        "quality": quality,
+        "best": quality == FINAL,
         "tracks": tracks,
+        "dropped": [s for s in manifest.get("dropped") or [] if s in SOURCES],
         "complete": bool(tracks) and all(t["exists"] for t in tracks),
     }
 
@@ -319,7 +407,9 @@ def is_stems_dir(path) -> bool:
 # ------------------------------------------------------------ separar
 
 _lock = threading.Lock()
-_queue: list[dict] = []  # [{id, title, model}] lo que espera
+# Lo que espera: [{id, title, stage}]. `stage` es "separate" (la pasada
+# rapida, y detras la buena) o "refine" (solo la buena, sobre las rapidas).
+_queue: list[dict] = []
 _current: dict | None = None  # lo que se esta separando ahora
 _child: subprocess.Popen | None = None
 _cancel = threading.Event()
@@ -327,6 +417,13 @@ _cancel = threading.Event()
 # la cola: asi una cancion que se pide justo cuando la cola decide que ha
 # acabado no se queda esperando para siempre.
 _draining = False
+# Lo ultimo que acabo, bien o mal: [{seq, id, title, stage, ok, error}]. La
+# interfaz se queda con el `seq` mas alto que vio y avisa de lo nuevo: asi se
+# entera de que una cancion ya tiene sus pistas aunque siga en la cola (para
+# mejorarlas).
+_events: list[dict] = []
+_seq = 0
+EVENTS = 50
 
 
 def _command(job_file: str) -> list[str]:
@@ -410,14 +507,20 @@ def _run_child(job: dict, progress) -> dict:
         return result
 
 
-def _write_manifest(folder: Path, song: Mapping[str, Any], model: str, sources: list[str]) -> None:
+def _write_manifest(
+    folder: Path, song: Mapping[str, Any], result: dict, quality: str, created: float
+) -> None:
     from . import __version__
 
+    tracks = result.get("tracks") or {}
+    levels = result.get("levels") or {}
     manifest = {
-        "version": 1,
+        "version": 2,
         "app": f"DanPlay {__version__}",
-        "model": MODELS[model]["graph"],
-        "created": round(time.time(), 1),
+        "model": FAST if quality == QUICK else f"{FAST}+htdemucs_ft",
+        "quality": quality,
+        "created": round(created, 1),
+        "updated": round(time.time(), 1),
         "source": {
             "file": song["file"],
             "folder": song.get("folder") or "",
@@ -427,10 +530,12 @@ def _write_manifest(folder: Path, song: Mapping[str, Any], model: str, sources: 
             "title": song.get("title") or "",
         },
         "tracks": [
-            {"source": s, "file": f"{SOURCES[s][0]}.flac", "name": SOURCES[s][1]}
-            for s in SOURCES
-            if s in sources
+            {"source": s, "file": tracks[s], "name": SOURCES[s][1]} for s in SOURCES if s in tracks
         ],
+        # las que la red casi no encontro y no llegaron a pista (su poco va
+        # en «Otros»), y lo que sonaba cada una: por que se quedo o no
+        "dropped": [s for s in SOURCES if s in levels and s not in tracks],
+        "levels": {s: levels[s] for s in SOURCES if s in levels},
     }
     (folder / MANIFEST).write_text(
         json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
@@ -440,13 +545,75 @@ def _write_manifest(folder: Path, song: Mapping[str, Any], model: str, sources: 
 def _sweep(folder: Path) -> None:
     """Quita lo que dejo a medias una separacion que no acabo (la app se
     cerro, se fue la luz): la cola es una, asi que si ahora empieza otra,
-    cualquier carpeta de trabajo que quede es de una que ya no sigue."""
-    for leftover in folder.glob(".separando-*"):
-        shutil.rmtree(leftover, ignore_errors=True)
+    cualquier carpeta de trabajo que quede es de una que ya no sigue. Y las
+    pistas rapidas que ya se cambiaron por las buenas, si no se pudieron
+    borrar en su momento."""
+    for pattern in (".separando-*", ".rapidas-*"):
+        for leftover in folder.glob(pattern):
+            shutil.rmtree(leftover, ignore_errors=True)
 
 
-def separate_song(cid: int, model: str = DEFAULT_MODEL, progress=None) -> dict:
-    """Separa una cancion de la biblioteca y deja sus pistas en su carpeta.
+def _song_for(cid: int) -> dict:
+    from . import library
+
+    song = library.by_id(cid)
+    if not song:
+        raise SeparateError("esa canción ya no está en la biblioteca")
+    if not os.path.isfile(song["path"]):
+        raise SeparateError(f"no encuentro «{song['file']}»")
+    reason = missing()
+    if reason:
+        raise SeparateError(f"no se puede separar: {reason}")
+    return dict(song)
+
+
+def _flac_names() -> dict[str, str]:
+    return {s: f"{SOURCES[s][0]}.flac" for s in SOURCES}
+
+
+def _job(song: Mapping[str, Any], work: Path, nets: list[dict], **extra) -> dict:
+    return {
+        "input": song["path"],
+        "output": str(work),
+        "files": _flac_names(),
+        "rest": REST,
+        "nets": nets,
+        "ffmpeg": convert.tool("ffmpeg"),
+        "waves": str(work / WAVES),
+        **extra,
+    }
+
+
+def _net(part: str, take: list[str]) -> dict:
+    graph = parts()[part]["graph"]
+    return {
+        "graph": str(GRAPHS / f"{graph}.onnx"),
+        "manifest": str(GRAPHS / f"{graph}.json"),
+        "weights": str(weights_path(part)),
+        "take": take,
+    }
+
+
+def _publish(work: Path, target: Path, old_prefix: str) -> Path | None:
+    """Pone la carpeta nueva en el sitio de la de antes, de golpe. Devuelve
+    donde quedo la de antes (oculta), si habia."""
+    old = None
+    if target.exists():
+        old = target.with_name(f"{old_prefix}-{target.name}-{int(time.time())}")
+        os.replace(target, old)
+    os.replace(work, target)
+    return old
+
+
+def _needs_refine(tracks: dict) -> bool:
+    """Si hay algo que mejorar: alguna de las que tienen especialista, o
+    pasarlas a Opus (que se hace al final, con todas ya buenas)."""
+    return any(s in tracks for s in REFINE) or stems_format() != "flac"
+
+
+def separate_song(cid: int, progress=None) -> dict:
+    """La pasada rapida: separa una cancion de la biblioteca y deja sus pistas
+    en su carpeta, ya para usar. Devuelve si hay que mejorarlas (`refine`).
 
     Se separa en una carpeta oculta junto a la de destino (el escaneo se
     salta las ocultas, asi que nunca ve pistas a medias) y al terminar se
@@ -456,76 +623,120 @@ def separate_song(cid: int, model: str = DEFAULT_MODEL, progress=None) -> dict:
     from . import library
 
     progress = progress or (lambda *a, **k: None)
-    song = library.by_id(cid)
-    if not song:
-        raise SeparateError("esa canción ya no está en la biblioteca")
-    if not os.path.isfile(song["path"]):
-        raise SeparateError(f"no encuentro «{song['file']}»")
-    if model not in MODELS:
-        raise SeparateError(f"no hay un separador «{model}»")
-    reason = missing()
-    if reason:
-        raise SeparateError(f"no se puede separar: {reason}")
-    manifest = _manifest_of(model)
-    if not installed(model):
-        progress(step="download")
-        download(model, lambda got, total: progress(got, total, step="download"), _cancel.is_set)
+    song = _song_for(cid)
+    _fetch([FAST], progress)
     target = _target_for(song)
     target.parent.mkdir(parents=True, exist_ok=True)
     _sweep(target.parent)
     work = Path(tempfile.mkdtemp(prefix=".separando-", dir=target.parent))
     try:
-        job = {
-            "input": song["path"],
-            "output": str(work),
-            "files": {s: f"{SOURCES[s][0]}.flac" for s in manifest["sources"]},
-            "graph": str(GRAPHS / f"{MODELS[model]['graph']}.onnx"),
-            "manifest": str(GRAPHS / f"{MODELS[model]['graph']}.json"),
-            "weights": str(weights_path(model)),
-            "ffmpeg": convert.tool("ffmpeg"),
-            "waves": str(work / WAVES),
-        }
-        result = _run_child(job, progress)
-        _write_manifest(work, song, model, manifest["sources"])
-        old = None
-        if target.exists():
-            old = target.with_name(f".antes-{target.name}-{int(time.time())}")
-            os.replace(target, old)
-        os.replace(work, target)
+        take = [s for s in _graph(FAST)["sources"] if s != REST]
+        result = _run_child(_job(song, work, [_net(FAST, take)]), progress)
+        refine = _needs_refine(result["tracks"])
+        quality = QUICK if refine else FINAL
+        _write_manifest(work, song, result, quality, time.time())
+        old = _publish(work, target, ".antes")
     except BaseException:
         shutil.rmtree(work, ignore_errors=True)
         raise
     if old is not None:
-        # las pistas de antes (otro modelo, otra version): a la papelera
+        # las pistas de antes (otra version, otra separacion): a la papelera
         r = library.trash_path(old)
         if not r["ok"]:
             log.warning("no pude mandar a la papelera las pistas viejas %s", old)
     rel = os.path.relpath(target, song["root"])
-    library.update(cid, stems=json.dumps({"folder": rel, "model": MODELS[model]["graph"]}))
+    library.update(cid, stems=json.dumps({"folder": rel, "model": FAST, "quality": quality}))
+    return {"id": cid, "title": _title(song), "folder": str(target), "refine": refine, **result}
+
+
+def refine_song(cid: int, progress=None) -> dict:
+    """La pasada buena, sobre las pistas rapidas de la cancion: la bateria y
+    el bajo, cada uno con su especialista; «Otros», otra vez lo que queda. La
+    voz, la guitarra y el piano se quedan como estaban.
+
+    Tambien se hace aparte y se pone en su sitio de golpe. Las rapidas no van
+    a la papelera: son un paso intermedio, no algo que el usuario hiciera.
+    """
+    from . import library
+
+    progress = progress or (lambda *a, **k: None)
+    song = _song_for(cid)
+    target = folder_of(song)
+    manifest = read_manifest(target) if target else None
+    if target is None or manifest is None:
+        raise SeparateError("esta canción ya no tiene sus pistas separadas")
+    stamp = manifest.get("updated") or manifest.get("created")
+    have = {t["source"]: t["file"] for t in manifest.get("tracks") or []}
+    if manifest.get("quality") != QUICK or not all((target / f).is_file() for f in have.values()):
+        raise SeparateError("sus pistas no son las de la pasada rápida: sepárala otra vez")
+    better = [s for s in REFINE if s in have]
+    _fetch(better, progress)
+    _sweep(target.parent)
+    work = Path(tempfile.mkdtemp(prefix=".separando-", dir=target.parent))
+    try:
+        # las que no se tocan van tal cual a la carpeta nueva
+        carry = {}
+        for source, name in have.items():
+            if source not in better and source != REST:
+                shutil.copy2(target / name, work / name)
+                carry[source] = str(work / name)
+        nets = [_net(s, [s]) for s in better]
+        job = _job(song, work, nets, carry=carry, keep=list(have), format=stems_format())
+        result = _run_child(job, progress)
+        # por si mientras tanto se borraron o se separo otra vez
+        now = read_manifest(target)
+        if now is None or (now.get("updated") or now.get("created")) != stamp:
+            raise SeparateError("sus pistas cambiaron mientras se mejoraban")
+        levels = {**(manifest.get("levels") or {}), **(result.get("levels") or {})}
+        result = {**result, "levels": levels}
+        _write_manifest(work, song, result, FINAL, manifest.get("created") or time.time())
+        old = _publish(work, target, ".rapidas")
+    except BaseException:
+        shutil.rmtree(work, ignore_errors=True)
+        raise
+    if old is not None:
+        shutil.rmtree(old, ignore_errors=True)  # si algo las tiene abiertas, `_sweep`
+    rel = os.path.relpath(target, song["root"])
+    model = f"{FAST}+htdemucs_ft"
+    library.update(cid, stems=json.dumps({"folder": rel, "model": model, "quality": FINAL}))
     return {"id": cid, "title": _title(song), "folder": str(target), **result}
 
 
-def request(cid: int, model: str = DEFAULT_MODEL) -> dict:
+def _stage_for(song: Mapping[str, Any]) -> str:
+    """Lo que hay que hacer para que la cancion tenga las mejores pistas: si
+    ya tiene las rapidas enteras, mejorarlas; si no, separarla."""
+    data = info(song)
+    if data and data["complete"] and data["quality"] == QUICK:
+        return "refine"
+    return "separate"
+
+
+def request(cid: int) -> dict:
     """Pide separar una cancion: a la cola, y la cola a andar si no lo esta.
 
-    Devuelve el estado (`status`). Pedir otra vez una que ya espera o se
-    esta separando no la repite.
+    Si ya tiene las pistas rapidas, solo se mejoran. Devuelve el estado
+    (`status`). Pedir otra vez una que ya espera o se esta separando no la
+    repite.
     """
     from . import library
 
     song = library.by_id(cid)
     if not song:
         raise SeparateError("esa canción ya no está en la biblioteca")
-    if model not in MODELS:
-        raise SeparateError(f"no hay un separador «{model}»")
     reason = missing()
     if reason:
         raise SeparateError(f"no se puede separar: {reason}")
+    _enqueue({"id": cid, "title": _title(song), "stage": _stage_for(song)})
+    return status()
+
+
+def _enqueue(item: dict) -> None:
     global _draining
     with _lock:
+        cid = item["id"]
         busy = (_current and _current["id"] == cid) or any(q["id"] == cid for q in _queue)
         if not busy:
-            _queue.append({"id": cid, "title": _title(song), "model": model})
+            _queue.append(item)
         wake = not _draining
         if wake:
             _draining = True
@@ -537,7 +748,6 @@ def request(cid: int, model: str = DEFAULT_MODEL) -> dict:
         while jobs.active(JOB) and time.monotonic() < limit:
             time.sleep(0.01)
         jobs.start(JOB, _drain, failure="no se pudo separar")
-    return status()
 
 
 def _note(done, total, step) -> None:
@@ -545,6 +755,14 @@ def _note(done, total, step) -> None:
     with _lock:
         if _current is not None:
             _current.update(done=done or 0, total=total or 0, step=step or "separate")
+
+
+def _event(item: dict, ok: bool, error: str = "") -> None:
+    global _seq
+    with _lock:
+        _seq += 1
+        _events.append({"seq": _seq, **item, "ok": ok, "error": error})
+        del _events[:-EVENTS]
 
 
 def _drain(progress) -> dict:
@@ -557,43 +775,71 @@ def _drain(progress) -> dict:
             _draining = False
 
 
+def _next() -> dict | None:
+    """La siguiente: cualquier pasada rapida antes que cualquier mejora."""
+    for i, q in enumerate(_queue):
+        if q["stage"] == "separate":
+            return _queue.pop(i)
+    return _queue.pop(0) if _queue else None
+
+
+MESSAGES = {
+    "download": "Bajando el separador (una sola vez)…",
+    "load": "Preparando «{title}»…",
+    "decode": "Preparando «{title}»…",
+    "separate": "{verb} «{title}»…",
+    "compose": "Terminando «{title}»…",
+    "encode": "Guardando «{title}» en Opus…",
+}
+
+
 def _drain_queue(progress) -> dict:
     global _current, _draining
     done, failed = [], []
     while True:
         with _lock:
-            if not _queue or _cancel.is_set():
+            item = _next() if not _cancel.is_set() else None
+            if item is None:
                 _current = None
                 _queue.clear()
                 _draining = False
                 break
-            _current = _queue.pop(0)
-            item = dict(_current)
+            _current = dict(item)
             left = len(_queue)
         count = len(done) + len(failed) + 1
         total = count + left
         where = f" ({count} de {total})" if total > 1 else ""
+        verb = "Mejorando" if item["stage"] == "refine" else "Separando"
 
-        def report(done_=None, total_=None, step=None, seconds=None, _item=item, _where=where):
-            if step == "download":
-                progress(done_, total_, f"Bajando el separador (una sola vez)…{_where}")
-            elif step in ("load", "decode"):
-                progress(0, 0, f"Preparando «{_item['title']}»…{_where}")
-            elif step == "separate":
-                progress(0, 0, f"Separando «{_item['title']}»…{_where}")
+        def report(done_=None, total_=None, step=None, seconds=None, _i=item, _w=where, _v=verb):
+            if step in MESSAGES:
+                text = MESSAGES[step].format(title=_i["title"], verb=_v) + _w
+                progress(done_ or 0, total_ or 0, text)
             elif done_ is not None:
-                progress(done_, total_, f"Separando «{_item['title']}»{_where}")
+                progress(done_, total_, f"{_v} «{_i['title']}»{_w}")
             _note(done_, total_, step)
 
         try:
-            done.append(separate_song(item["id"], item["model"], report))
+            if item["stage"] == "refine":
+                r = refine_song(item["id"], report)
+            else:
+                r = separate_song(item["id"], report)
+                if r.get("refine"):
+                    # las rapidas ya estan: la mejora, a la cola (detras de
+                    # las rapidas que esperen)
+                    with _lock:
+                        _queue.append({**item, "stage": "refine"})
+            done.append(r)
+            _event(item, True)
         except SeparateError as e:
             if _cancel.is_set():
                 break
             failed.append({**item, "error": str(e)})
+            _event(item, False, str(e))
         except Exception as e:
             log.warning("no se pudo separar %s", item, exc_info=True)
             failed.append({**item, "error": str(e) or e.__class__.__name__})
+            _event(item, False, str(e) or e.__class__.__name__)
     with _lock:
         _current = None
     if _cancel.is_set() and not done:
@@ -628,6 +874,7 @@ def forget(song: Mapping[str, Any]) -> dict:
     """Manda a la papelera las pistas de la cancion y las olvida."""
     from . import library
 
+    unqueue(song["id"])  # si esperaba para mejorarlas, ya no hay nada que mejorar
     folder = folder_of(song)
     if folder is not None and folder.exists():
         if not library.within_roots(folder):
@@ -682,7 +929,11 @@ def relink(found: dict[str, dict]) -> int:
             if row is None:
                 continue
             rel = os.path.relpath(folder, row["root"])
-            data = {"folder": rel, "model": manifest.get("model", "")}
+            data = {
+                "folder": rel,
+                "model": manifest.get("model", ""),
+                "quality": manifest.get("quality", ""),
+            }
             conn.execute("UPDATE songs SET stems=? WHERE id=?", (json.dumps(data), row["id"]))
             linked[folder] = row["id"]
             n += 1

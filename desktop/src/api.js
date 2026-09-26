@@ -120,6 +120,7 @@
  * @property {string} [lyrics_synced]  letra con tiempos (LRC), si la hay
  * @property {string} [study]          modo estudio, como JSON (ver api.setStudy)
  * @property {boolean} [has_stems]     tiene sus pistas separadas (en las listas)
+ * @property {boolean} [stems_best]    y ya son las mejores (no las rápidas ni las de antes)
  */
 
 /**
@@ -870,19 +871,23 @@ export const api = {
    */
   waveform: (id, buckets = 800) => GET(`/song/${id}/waveform?buckets=${buckets}`),
   // ---- separar en pistas (bateria, voces, bajo...)
-  /** Si se puede separar aqui, los modelos (y si ya estan bajados) y la cola. */
+  /**
+   * Si se puede separar aqui, lo que pesa el separador (y lo que falta por
+   * bajar), la cola y lo ultimo que acabo.
+   */
   separation: () => GET('/separate'),
   /**
-   * A la cola de separacion (tarea «separacion»). La primera vez baja el
-   * modelo. @param {number} id @param {'6'|'4'} [model]
+   * A la cola de separacion (tarea «separacion»), con la mejor calidad: si ya
+   * tiene las pistas rapidas, solo se mejoran. La primera vez baja el
+   * separador. @param {number} id
    */
-  separate: (id, model = '6') => POST(`/song/${id}/separate`, { model }),
+  separate: (id) => POST(`/song/${id}/separate`),
   /** Para lo que se este separando y vacia la cola. */
   cancelSeparation: () => DEL('/separate'),
   /** Quita de la cola una cancion que aun espera. @param {number} id */
   unqueueSeparation: (id) => DEL(`/separate/queue/${id}`),
-  /** Borra lo bajado de un modelo (se vuelve a bajar al separar). @param {string} model */
-  removeSeparationModel: (model) => DEL(`/separate/models/${encodeURIComponent(model)}`),
+  /** Borra lo bajado del separador (se vuelve a bajar al separar). */
+  removeSeparator: () => DEL('/separate/weights'),
   /** Las pistas separadas de la cancion, cada una con su ruta y su onda (404 si no tiene). */
   stems: (id) => GET(`/song/${id}/stems`),
   /** Manda a la papelera las pistas separadas de la cancion. @param {number} id */

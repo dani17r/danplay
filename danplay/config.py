@@ -288,6 +288,8 @@ NEVER_CONVERT = set(
 
 # --- comportamiento ---
 WRITE_TAGS = _flag("DANPLAY_TAGS", "1")
+# en que se guardan las pistas separadas: "flac" (sin perdida) u "opus"
+STEMS_FORMAT = env("DANPLAY_STEMS_FORMAT", "flac")
 DUPLICATE_THRESHOLD = float(env("DANPLAY_DUP_THRESHOLD", "0.88"))
 EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".opus", ".aac", ".wma"}
 

@@ -1,6 +1,7 @@
 """Buscar en el indice: texto completo (FTS5), filtros, orden, y las filas
 ligeras que dan las listas de la API."""
 
+import json
 import logging
 
 from . import db
@@ -122,7 +123,23 @@ def light_columns(conn, alias: str = "c") -> str:
         for col, flag in LIGHT_FLAGS.items()
         if col in present
     ]
+    if "stems" in present:
+        # y si sus pistas ya son las mejores: las rapidas, o las de antes de
+        # haber dos pasadas, se pueden separar otra vez mejor
+        cols.append(
+            # con CASE: con AND, sqlite puede mirar el JSON aunque no lo sea
+            f"(CASE WHEN json_valid({prefix}stems)"
+            f" THEN json_extract({prefix}stems, '$.quality') = 'mejor' ELSE 0 END) AS stems_best"
+        )
     return ", ".join(cols)
+
+
+def _best(stems) -> bool:
+    try:
+        data = json.loads(stems or "")
+    except (TypeError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("quality") == "mejor"
 
 
 def light(song: dict) -> dict:
@@ -130,6 +147,9 @@ def light(song: dict) -> dict:
     out = {k: v for k, v in song.items() if k not in HEAVY_COLUMNS}
     for col, flag in LIGHT_FLAGS.items():
         out[flag] = bool(song[flag] if flag in song else song.get(col))
+    out["stems_best"] = bool(
+        song["stems_best"] if "stems_best" in song else _best(song.get("stems"))
+    )
     return out
 
 
@@ -222,7 +242,7 @@ def search(
 
 
 def _flags_as_bool(row: dict) -> dict:
-    for flag in LIGHT_FLAGS.values():
+    for flag in (*LIGHT_FLAGS.values(), "stems_best"):
         if flag in row:
             row[flag] = bool(row[flag])
     return row

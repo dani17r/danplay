@@ -174,3 +174,131 @@ def test_the_real_graph_loads_with_weights_laid_out_like_the_official_ones(tmp_p
     assert inputs == {"mix": [1, 2, S.SEGMENT], "mag": [1, 4, S.FREQS, 336]}
     n = len(manifest["sources"])
     assert outputs == {"spec": [1, n, 4, S.FREQS, 336], "wave": [1, n, 2, S.SEGMENT]}
+
+
+# ------------------------------------------------------------ el trabajo entero
+
+SIX = ["drums", "bass", "other", "vocals", "guitar", "piano"]  # el orden de htdemucs_6s
+FILES = {
+    "drums": "Bateria.flac",
+    "vocals": "Voces.flac",
+    "bass": "Bajo.flac",
+    "guitar": "Guitarra.flac",
+    "piano": "Piano.flac",
+    "other": "Otros.flac",
+}
+
+
+def _song(tmp_path, seconds=9.0):
+    """Una cancion de tonos en WAV, y lo que se lee de ella (lo que usa el motor)."""
+    import shutil
+    import wave
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        pytest.skip("hace falta ffmpeg")
+    x = tones(int(seconds * S.RATE))
+    path = tmp_path / "cancion.wav"
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(S.RATE)
+        w.writeframes((np.clip(x.T, -1, 1) * 32767).astype("<i2").tobytes())
+    return ffmpeg, path, S._decode(ffmpeg, str(path))
+
+
+def _job(tmp_path, ffmpeg, song, nets, **extra) -> dict:
+    manifest = tmp_path / "red.json"
+    manifest.write_text(json.dumps({"sources": SIX}), encoding="utf-8")
+    return {
+        "input": str(song),
+        "output": str(tmp_path / "pistas"),
+        "files": FILES,
+        "rest": "other",
+        "nets": [
+            {"graph": "g", "manifest": str(manifest), "weights": "w", "take": t} for t in nets
+        ],
+        "ffmpeg": ffmpeg,
+        "waves": str(tmp_path / "ondas.json"),
+        **extra,
+    }
+
+
+def test_what_is_not_in_the_song_is_not_a_track_and_all_add_up_to_the_song(tmp_path, capsys):
+    """Sin piano (la red no le da nada): no sale su pista. «Otros» es lo que
+    queda de la cancion, asi que todas juntas son exactamente la cancion."""
+    ffmpeg, song, mix = _song(tmp_path)
+    shares = dict(
+        zip(SIX, (0.3, 0.2, 0.9, 0.3, 0.1, 0.0), strict=True)
+    )  # «other» de la red: ni se mira
+    net = Identity(tuple(shares.values()))
+    job = _job(tmp_path, ffmpeg, song, [["drums", "bass", "vocals", "guitar", "piano"]])
+    r = S.run(job, open_net=lambda *a: net)
+    assert r["tracks"] == {s: FILES[s] for s in ["drums", "vocals", "bass", "guitar", "other"]}
+    out = tmp_path / "pistas"
+    assert not (out / "Piano.flac").exists()
+    assert r["levels"]["piano"]["db"] < S.QUIET_DB and r["levels"]["piano"]["active"] == 0
+    assert r["levels"]["drums"]["db"] == pytest.approx(20 * math.log10(0.3), abs=0.2)
+    back = {s: S._decode(ffmpeg, str(out / name)) for s, name in r["tracks"].items()}
+    # lo que queda: la cancion menos las demas (aqui, una decima parte)
+    np.testing.assert_allclose(back["other"], 0.1 * mix, atol=2e-4)
+    total = sum(back.values())
+    assert np.abs(total - mix).max() < 1e-4
+    waves = json.loads((tmp_path / "ondas.json").read_text())
+    assert set(waves["tracks"]) == set(r["tracks"])
+    # y conto como iba
+    said = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert {m.get("step") for m in said} >= {"decode", "load", "separate", "compose"}
+
+
+def test_the_improvement_keeps_what_was_decided(tmp_path):
+    """La pasada buena: una red por fuente, lo que no se mejora entra tal
+    cual, y salen las mismas pistas que en la rapida aunque ahora alguna suene
+    poco."""
+    ffmpeg, song, mix = _song(tmp_path)
+    carried = tmp_path / "Guitarra.flac"
+    enc = S._encoder(ffmpeg, carried)
+    S._write(enc, 0.25 * mix)
+    S._close({"guitar": enc}, "guardar")
+    nets = iter([Identity((0.5, 0, 0, 0, 0, 0)), Identity((0, 0, 0, 0.001, 0, 0))])
+    job = _job(
+        tmp_path,
+        ffmpeg,
+        song,
+        [["drums"], ["vocals"]],
+        carry={"guitar": str(carried)},
+        keep=["drums", "vocals", "guitar", "other"],
+    )
+    r = S.run(job, open_net=lambda *a: next(nets))
+    # la voz casi no suena, pero la rapida la vio: se queda
+    assert list(r["tracks"]) == ["drums", "vocals", "guitar", "other"]
+    out = tmp_path / "pistas"
+    other = S._decode(ffmpeg, str(out / "Otros.flac"))
+    np.testing.assert_allclose(other, (1 - 0.5 - 0.001 - 0.25) * mix, atol=2e-4)
+
+
+def test_a_source_that_only_plays_a_moment_stays():
+    """Un piano que solo entra en el puente: poco en conjunto, pero fuerte ahi."""
+    mix = np.ones(100)
+    piano = np.zeros(100)
+    piano[40:45] = 0.5  # un 5 % de la cancion, a -3 dB de ella
+    level = S.presence(piano, mix)
+    assert level["db"] < S.QUIET_DB + 20 and level["active"] == pytest.approx(0.05)
+    assert S.keeps(level)
+    bleed = np.full(100, 1e-4)  # lo que se cuela de las demas: siempre muy abajo
+    assert not S.keeps(S.presence(bleed, mix))
+    assert not S.keeps(S.presence(np.zeros(100), mix))
+    assert S.presence(np.zeros(100), np.zeros(100)) == {"db": -120.0, "active": 0.0}
+
+
+def test_the_tracks_can_be_kept_in_opus(tmp_path):
+    from danplay import stems
+
+    ffmpeg, song, _mix = _song(tmp_path, seconds=3.0)
+    if not stems._has_opus(ffmpeg):
+        pytest.skip("este ffmpeg no sabe hacer Opus")
+    job = _job(tmp_path, ffmpeg, song, [["drums"]], format="opus")
+    r = S.run(job, open_net=lambda *a: Identity((0.5, 0, 0, 0, 0, 0)))
+    assert r["tracks"] == {"drums": "Bateria.opus", "other": "Otros.opus"}
+    out = tmp_path / "pistas"
+    assert sorted(p.name for p in out.iterdir()) == ["Bateria.opus", "Otros.opus"]

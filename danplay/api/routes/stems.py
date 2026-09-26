@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from ... import library, stems
 from .. import jobs
 from ..common import _started
-from ..models import SeparateIn, StemMixIn
+from ..models import StemMixIn
 
 log = logging.getLogger(__name__)
 
@@ -19,17 +19,18 @@ router = APIRouter()
 
 @router.get("/api/separate")
 def separate_status():
-    """Si se puede separar aqui, los modelos (y si ya estan bajados) y la cola."""
+    """Si se puede separar aqui, lo que pesa el separador (y si ya esta
+    bajado), la cola y lo ultimo que acabo."""
     return stems.status()
 
 
 @router.post("/api/song/{cid}/separate", status_code=202)
-def separate(cid: int, body: Annotated[SeparateIn | None, Body()] = None):
-    """A la cola de separacion. Tarda: se sigue en GET /api/jobs/separacion
-    (y la cola, en GET /api/separate). La primera vez baja el modelo."""
-    body = body or SeparateIn()
+def separate(cid: int):
+    """A la cola de separacion: que la cancion tenga las mejores pistas (si ya
+    tiene las rapidas, solo se mejoran). Tarda: se sigue en GET
+    /api/separate. La primera vez baja el separador."""
     try:
-        state = stems.request(cid, body.model)
+        state = stems.request(cid)
     except stems.SeparateError as e:
         raise HTTPException(404 if "ya no está" in str(e) else 422, str(e)) from e
     return {**state, "job": jobs.snapshot(stems.JOB)}
@@ -46,14 +47,12 @@ def unqueue(cid: int):
     return stems.unqueue(cid)
 
 
-@router.delete("/api/separate/models/{model}")
-def remove_model(model: str):
-    """Borra los pesos bajados de un modelo (se vuelven a bajar al separar)."""
-    if model not in stems.MODELS:
-        raise HTTPException(404, "no existe ese modelo")
-    if stems.JOB and jobs.active(stems.JOB):
+@router.delete("/api/separate/weights")
+def remove_weights():
+    """Borra lo bajado del separador (se vuelve a bajar al separar)."""
+    if jobs.active(stems.JOB):
         raise HTTPException(409, "hay una separación en marcha")
-    return {"removed": stems.remove_weights(model), **stems.status()}
+    return {"removed": stems.remove_weights(), **stems.status()}
 
 
 @router.get("/api/song/{cid}/stems")

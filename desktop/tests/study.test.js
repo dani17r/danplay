@@ -1340,6 +1340,7 @@ describe('las pistas separadas en el estudio', () => {
     held.state.stems = {}
     held.state.separation.current = null
     held.state.separation.queue = []
+    held.state.separation.events = []
   })
 
   it('sin pistas se ofrece separarla, y al acabar suenan solas', async () => {
@@ -1348,21 +1349,19 @@ describe('las pistas separadas en el estudio', () => {
     const w = await montar()
     await useSeparation().refresh()
     await flushPromises()
-    const separar = boton(w, 'Separar en pistas')
+    // un solo botón: sin elegir modelo ni calidad
+    const separar = boton(w, 'Separar pistas')
     expect(separar).toBeTruthy()
     await separar.trigger('click')
-    const { menu } = useContextMenu()
-    expect(menu.value.items.map((i) => i.label)).toEqual(['En 6 pistas', 'En 4 pistas'])
-    await menu.value.items[0].action()
     await flushPromises()
-    expect(held.api.separate).toHaveBeenCalledWith(7, '6')
+    expect(held.api.separate).toHaveBeenCalledWith(7)
     // mientras se separa, se ve cómo va
     expect(w.find('.study-stems-progress').text()).toMatch(/preparando|separando/)
     finishSeparation(held.state)
     await useSeparation().refresh()
     await flushPromises()
     await flushPromises()
-    // y en cuanto está, suenan sus pistas: un carril por instrumento
+    // en cuanto están las rápidas, suenan sus pistas: un carril por instrumento
     expect(carriles(w)).toEqual(['Batería', 'Voces', 'Bajo', 'Guitarra', 'Piano', 'Otros'])
     const [path, tracks] = mandado()
     expect(path).toBe('/musica/mi-gozo.mp3')
@@ -1376,6 +1375,33 @@ describe('las pistas separadas en el estudio', () => {
     ])
     expect(tracks.every((t) => t.on && t.gain === 1 && t.pan === 0)).toBe(true)
     expect(w.find('.study').classes()).toContain('with-lanes')
+    // y se siguen mejorando sin cortar nada: se ve junto a los carriles
+    expect(w.find('.study-stems-progress').text()).toMatch(/mejorando/)
+    const sent = held.playback.bridge.setStems.mock.calls.length
+    finishSeparation(held.state)
+    await useSeparation().refresh()
+    await flushPromises()
+    await flushPromises()
+    // las buenas se mandan otra vez (el reproductor ve que cambiaron)
+    expect(held.playback.bridge.setStems.mock.calls.length).toBeGreaterThan(sent)
+    expect(carriles(w)).toHaveLength(6)
+    expect(w.find('.study-stems-progress').exists()).toBe(false)
+  })
+
+  it('las rápidas que se quedaron a medias se ofrecen mejorar', async () => {
+    const { stemsOf } = await import('./support/backend.js')
+    await conPistas(JSON.stringify({ mixer: { on: true } }))
+    held.state.stems[7] = stemsOf(7, undefined, 'rapida')
+    const w = await montar()
+    await boton(w, '⋯').trigger('click')
+    const { menu } = useContextMenu()
+    const again = menu.value.items.find((i) => i.label?.startsWith('Separar otra vez'))
+    expect(again?.label).toBe('Separar otra vez con la mejor calidad')
+    expect(again?.note).toBe('solo se mejoran')
+    await again?.action()
+    await flushPromises()
+    expect(held.api.separate).toHaveBeenCalledWith(7)
+    expect(held.state.separation.current).toMatchObject({ id: 7, stage: 'refine' })
   })
 
   it('con pistas: el botón las pone y las quita, y se guarda', async () => {

@@ -357,26 +357,38 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
 
 ### Pistas separadas (Python ↔ Vue, Rust)
 
-- `GET /api/separate` → `{ ok, reason, models: [{ id: '6'|'4', label,
-  detail, sources, bytes, installed }], default, folder, current, queue }`:
-  si se puede separar aquí (`reason` dice por qué no: sin numpy u
-  onnxruntime, sin ffmpeg), qué modelos hay y si ya están bajados, y la
-  cola: la que se separa (`current: { id, title, model, done, total,
-  step }`, con `step` `download | load | decode | separate`) y las que
-  esperan.
-- `POST /api/song/{id}/separate { model: '6'|'4' }` → `202` con lo mismo y
-  `job`: a la cola. La cola es la tarea `separacion`; su `result` es
-  `{ separated: [{ id, title, folder, seconds, took }], failed: [{ id,
-  title, error }], cancelled }`. La primera vez baja el modelo (su sha256
-  viaja con la app). `404` si la canción no está; `422` si no se puede.
+- `GET /api/separate` → `{ ok, reason, bytes, pending, installed, folder,
+  format, opus, current, queue, events }`: si se puede separar aquí
+  (`reason` dice por qué no: sin numpy u onnxruntime, sin ffmpeg), lo que
+  pesa el separador entero y lo que falta por bajar (`pending`), en qué se
+  guardan las pistas (`format`: `flac | opus`; `opus`, si este ffmpeg sabe
+  hacerlo), y la cola: la que va (`current: { id, title, stage, done,
+  total, step }`) y las que esperan. `stage` es `separate` (la pasada
+  rápida; al acabar, la canción ya tiene pistas y su mejora va a la cola) o
+  `refine` (la buena, sobre las rápidas); las rápidas van antes que
+  cualquier mejora. `step`: `download | decode | load | separate | compose
+  | encode`. `events: [{ seq, id, title, stage, ok, error }]` son las
+  últimas pasadas que acabaron (50): la interfaz se queda con el `seq` más
+  alto que vio y avisa de lo nuevo (si baja, el núcleo volvió a arrancar).
+- `POST /api/song/{id}/separate` (sin cuerpo) → `202` con lo mismo y `job`:
+  a la cola, con la mejor calidad. Si la canción ya tiene las pistas
+  rápidas enteras, solo se mejoran. La cola es la tarea `separacion`; su
+  `result` es `{ separated: [{ id, title, folder, seconds, took, tracks,
+  levels }], failed: [{ id, title, stage, error }], cancelled }` (una
+  entrada por pasada). La primera vez baja el separador (su sha256 viaja
+  con la app). `404` si la canción no está; `422` si no se puede.
 - `DELETE /api/separate` para la que se separa y vacía la cola;
   `DELETE /api/separate/queue/{id}` quita una que espera;
-  `DELETE /api/separate/models/{model}` borra lo bajado (`409` separando).
-- `GET /api/song/{id}/stems` → `{ folder, model, created, complete, tracks:
-  [{ source, name, file, path, exists, wave: { peaks, rms } }] }`, en el
-  orden del mezclador (batería, voces, bajo, guitarra, piano, otros). Las
-  ondas, todas a la misma escala. `404` sin pistas (y si su carpeta ya no
-  está, se olvida). `DELETE` las manda a la papelera.
+  `DELETE /api/separate/weights` borra todo lo bajado (`409` separando).
+- `GET /api/song/{id}/stems` → `{ folder, model, created, quality, best,
+  complete, dropped, tracks: [{ source, name, file, path, exists, wave: {
+  peaks, rms } }] }`, en el orden del mezclador (batería, voces, bajo,
+  guitarra, piano, otros), solo las que están en la canción (`dropped`, las
+  que la red casi no encontró). `quality`: `rapida`, `mejor`, o vacío si se
+  separaron con 1.16.0; `best` si ya son las mejores. Las ondas, todas a la
+  misma escala. `404` sin pistas (y si su carpeta ya no está, se olvida).
+  `DELETE` las manda a la papelera.
+- En las listas, cada canción lleva `has_stems` y `stems_best`.
 - `POST /api/song/{id}/stems/mix { tracks: [{ source, gain, pan }], path,
   format?: mp3|flac|wav, speed?, pitch? }` → la tarea `mezcla`, con
   `result: { path, name, id, title }`. Solo las pistas que suenan; `path`
@@ -385,7 +397,10 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
 - Rust: `set_stems(song, tracks | null)`, con `tracks: [{ path, gain, pan,
   on }]`: que suenen esas pistas en vez de la canción `song` (su ruta: si
   ya suena otra, no hace nada). Con las mismas pistas que ya suenan solo
-  cambia la mezcla, al momento; si no, se reabre donde iba. Al pasar a otra
+  cambia la mezcla, al momento; si no, se reabre donde iba. «Las mismas»
+  son las mismas rutas y, además, sin rehacer: al mejorarlas, el separador
+  deja otras con los mismos nombres, y se reabren (se mira la fecha y el
+  tamaño de cada archivo). Al pasar a otra
   canción se sueltan (la misma otra vez, al repetirla, las conserva). El
   estado trae `stems` (si suenan). Sin ffmpeg, o si no se pueden abrir,
   `error` lo dice y sigue sonando la canción.

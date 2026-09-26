@@ -250,6 +250,17 @@ def test_settings_round_trip(cliente):
     cliente.post("/api/settings", json={"convert_mp3": original})
 
 
+def test_the_stems_format_is_a_setting(cliente, monkeypatch):
+    from danplay import config
+
+    monkeypatch.setattr(config, "STEMS_FORMAT", "flac")
+    monkeypatch.setattr(config, "save_env", lambda pairs: None)  # sin tocar el archivo
+    assert cliente.get("/api/settings").json()["stems_format"] == "flac"
+    d = cliente.post("/api/settings", json={"stems_format": "opus"}).json()
+    assert d["stems_format"] == "opus" and config.STEMS_FORMAT == "opus"
+    assert cliente.post("/api/settings", json={"stems_format": "mp3"}).status_code == 422
+
+
 def test_ai_key_is_never_returned_whole(cliente):
     d = cliente.get("/api/settings").json()
     assert "…" in d["ai_key"] or d["ai_key"] == ""

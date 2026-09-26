@@ -2,9 +2,13 @@
 
 El proceso que separa se cambia por uno de mentira que hace lo mismo hacia
 fuera: dice como va por la salida estandar y deja una pista por fuente (un
-tono corto hecho con ffmpeg) y sus ondas. Todo lo demas es de verdad: la
-cola, la carpeta, el manifiesto, el indice, el escaneo, la papelera y la
-mezcla con ffmpeg.
+tono corto hecho con ffmpeg) y sus ondas. Las que la cancion «no tiene» se
+dicen en un archivo junto a ella (`<cancion>.callar`, con comas): esas no
+llegan a pista, como hace el motor de verdad con lo que casi no suena. Lo que
+decide el motor de verdad (que suena, lo que queda) se prueba en
+test_separation.py. Todo lo demas es de verdad: la cola y sus dos pasadas,
+la carpeta, el manifiesto, el indice, el escaneo, la papelera y la mezcla
+con ffmpeg.
 """
 
 import json
@@ -19,24 +23,57 @@ from conftest import run_job
 
 FAKE_ENGINE = textwrap.dedent(
     """
-    import json, subprocess, sys
+    import json, subprocess, sys, time
     from pathlib import Path
     job = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     say = lambda **m: print(json.dumps(m), flush=True)
     if Path(job["input"]).name.startswith("rota"):
         say(error="ffmpeg no pudo leer la cancion")
         sys.exit(1)
-    say(step="load"); say(step="decode"); say(step="separate", seconds=1.0)
+    # la pasada buena espera, si se le pide, a que la prueba la deje seguir
+    hold = Path(job["input"] + ".esperar")
+    if job.get("keep") is not None:
+        while hold.exists():
+            time.sleep(0.02)
+    say(step="decode"); say(step="separate", seconds=1.0)
     out = Path(job["output"]); out.mkdir(parents=True, exist_ok=True)
+    side = Path(job["input"] + ".callar")
+    silent = set(side.read_text().split(",")) if side.exists() else set()
     freqs = {"drums": 110, "vocals": 440, "bass": 55, "guitar": 330, "piano": 660, "other": 880}
-    for i, (source, name) in enumerate(job["files"].items()):
+    def tone(source):
         subprocess.run([job["ffmpeg"], "-v", "error", "-y", "-f", "lavfi", "-i",
                         f"sine=frequency={freqs[source]}:sample_rate=44100:duration=1",
-                        "-ac", "2", "-c:a", "flac", str(out / name)], check=True)
-        say(done=i + 1, total=len(job["files"]))
-    waves = {"buckets": 2, "tracks": {s: {"peaks": [0.5, 1.0], "rms": [0.2, 0.4]} for s in job["files"]}}
+                        "-ac", "2", "-c:a", "flac", str(out / job["files"][source])], check=True)
+    rest, keep, carry = job["rest"], job.get("keep"), job.get("carry") or {}
+    made = [s for net in job["nets"] for s in net["take"]]
+    for i, net in enumerate(job["nets"]):
+        say(step="load")
+        for s in net["take"]:
+            tone(s)
+        say(done=i + 1, total=len(job["nets"]))
+    stays = lambda s: s in keep if keep is not None else s not in silent
+    parts = [s for s in job["files"] if s != rest and (s in made or s in carry) and stays(s)]
+    for s in made:
+        if s not in parts:
+            (out / job["files"][s]).unlink()
+    say(step="compose")
+    tracks = [s for s in job["files"] if s in parts or (s == rest and stays(rest))]
+    if stays(rest):
+        tone(rest)
+    names = {s: job["files"][s] for s in tracks}
+    if job.get("format") == "opus":
+        say(step="encode")
+        for s in tracks:
+            flac = out / names[s]
+            subprocess.run([job["ffmpeg"], "-v", "error", "-y", "-i", str(flac),
+                            "-c:a", "libopus", str(flac.with_suffix(".opus"))], check=True)
+            flac.unlink()
+            names[s] = flac.with_suffix(".opus").name
+    waves = {"buckets": 2, "tracks": {s: {"peaks": [0.5, 1.0], "rms": [0.2, 0.4]} for s in tracks}}
     Path(job["waves"]).write_text(json.dumps(waves))
-    say(ok=True, seconds=1.0, took=0.1)
+    levels = {s: {"db": -45.0 if s in silent else -8.0, "active": 0.0 if s in silent else 0.6}
+              for s in [*made, rest]}
+    say(ok=True, seconds=1.0, took=0.1, tracks=names, levels=levels)
     """
 )
 
@@ -50,7 +87,8 @@ def lib(configured_library, tmp_path, monkeypatch):
     engine = tmp_path / "motor.py"
     engine.write_text(FAKE_ENGINE, encoding="utf-8")
     monkeypatch.setattr(stems, "_command", lambda job_file: [sys.executable, str(engine), job_file])
-    monkeypatch.setattr(stems, "installed", lambda model: True)
+    monkeypatch.setattr(stems, "installed", lambda part: True)
+    monkeypatch.setattr(config, "STEMS_FORMAT", "flac")
     root, songs = configured_library
     library.add_folder(root)
     library.scan()
@@ -84,23 +122,38 @@ def _id(name: str) -> int:
     return next(s["id"] for s in library.search("", limit=100) if s["file"] == name)
 
 
-def _separate(cid: int, model: str = "6") -> dict:
+def _separate(cid: int) -> dict:
+    """Pide separarla y espera a que acabe la cola: las dos pasadas."""
     from danplay import stems
     from danplay.api import jobs
 
-    stems.request(cid, model)
+    stems.request(cid)
     job = jobs.wait(stems.JOB, timeout=60)
     assert job is not None and not job["active"]
     return job
 
 
-def test_a_song_is_separated_into_its_own_folder(lib):
+def _events(since: int = 0) -> list[tuple[int, str, bool]]:
+    from danplay import stems
 
+    return [(e["id"], e["stage"], e["ok"]) for e in stems.status()["events"] if e["seq"] > since]
+
+
+def _last_seq() -> int:
+    from danplay import stems
+
+    return max((e["seq"] for e in stems.status()["events"]), default=0)
+
+
+def test_a_song_is_separated_into_its_own_folder(lib):
     root, _ = lib
     cid = _id("Barak - Mi Gozo.mp3")
+    since = _last_seq()
     job = _separate(cid)
     assert not job["error"], job["error"]
-    assert [s["id"] for s in job["result"]["separated"]] == [cid]
+    # dos pasadas: la rapida y la buena, que la mejora
+    assert [s["id"] for s in job["result"]["separated"]] == [cid, cid]
+    assert _events(since) == [(cid, "separate", True), (cid, "refine", True)]
     folder = root / "Separadas" / "Barak - Mi Gozo"
     names = sorted(p.name for p in folder.iterdir())
     assert names == sorted(
@@ -116,9 +169,10 @@ def test_a_song_is_separated_into_its_own_folder(lib):
         ]
     )
     manifest = json.loads((folder / ".danplay-pistas.json").read_text(encoding="utf-8"))
-    assert manifest["model"] == "htdemucs_6s"
+    assert manifest["quality"] == "mejor" and manifest["model"] == "htdemucs_6s+htdemucs_ft"
     assert manifest["source"]["file"] == "Barak - Mi Gozo.mp3"
     assert manifest["source"]["folder"] == os.path.join("Artistas", "Barak")
+    assert manifest["dropped"] == []
     # en el orden del mezclador, con su nombre en castellano
     assert [t["name"] for t in manifest["tracks"]] == [
         "Batería",
@@ -129,10 +183,120 @@ def test_a_song_is_separated_into_its_own_folder(lib):
         "Otros",
     ]
     info = _info(cid)
-    assert info["complete"] and info["model"] == "htdemucs_6s"
+    assert info["complete"] and info["best"] and info["quality"] == "mejor"
     assert info["tracks"][0]["wave"] == {"peaks": [0.5, 1.0], "rms": [0.2, 0.4]}
-    # no quedan carpetas a medio hacer
+    # no quedan carpetas a medio hacer, ni las rapidas de antes
     assert not [p for p in (root / "Separadas").iterdir() if p.name.startswith(".")]
+
+
+def test_the_quick_stems_can_be_used_while_they_are_improved(lib):
+    """La pasada rapida deja las pistas en su sitio antes de mejorarlas: el
+    estudio las usa ya. La buena las cambia al final, de golpe."""
+    from danplay import stems
+
+    _, songs = lib
+    cid = _id("Barak - Mi Gozo.mp3")
+    hold = Path(songs["gozo"] + ".esperar")
+    hold.write_text("")
+    since = _last_seq()
+    stems.request(cid)
+    limit = time.monotonic() + 30
+    while (stems.status()["current"] or {}).get("stage") != "refine":
+        assert time.monotonic() < limit, stems.status()
+        time.sleep(0.02)
+    info = _info(cid)
+    assert info["complete"] and info["quality"] == "rapida" and not info["best"]
+    assert _events(since) == [(cid, "separate", True)]
+    assert stems.status()["current"]["id"] == cid
+    guitar = Path(info["folder"]) / "Guitarra.flac"
+    before = guitar.read_bytes()
+    hold.unlink()
+    _separate(cid)  # ya esta en marcha: no se repite, solo se espera
+    assert _info(cid)["best"]
+    # la guitarra no tiene especialista: la de la rapida, tal cual (y la voz)
+    assert guitar.read_bytes() == before
+
+
+def test_quick_ones_go_before_any_improvement(lib):
+    """Un repertorio entero: primero todas se pueden usar, luego se mejoran."""
+    from danplay import stems
+    from danplay.api import jobs
+
+    a, b = _id("Barak - Mi Gozo.mp3"), _id("New Wine - Shekinah.mp3")
+    since = _last_seq()
+    stems.request(a)
+    stems.request(b)
+    job = jobs.wait(stems.JOB, timeout=60)
+    assert job is not None and not job["error"]
+    assert _events(since) == [
+        (a, "separate", True),
+        (b, "separate", True),
+        (a, "refine", True),
+        (b, "refine", True),
+    ]
+
+
+def test_what_the_song_does_not_have_is_not_a_track(lib):
+    """Sin piano ni guitarra: esas no salen (lo poco suyo va a «Otros»)."""
+    root, songs = lib
+    Path(songs["gozo"] + ".callar").write_text("piano,guitar")
+    cid = _id("Barak - Mi Gozo.mp3")
+    assert not _separate(cid)["error"]
+    info = _info(cid)
+    assert [t["source"] for t in info["tracks"]] == ["drums", "vocals", "bass", "other"]
+    assert info["dropped"] == ["guitar", "piano"]
+    folder = root / "Separadas" / "Barak - Mi Gozo"
+    assert not (folder / "Piano.flac").exists()
+    manifest = json.loads((folder / ".danplay-pistas.json").read_text(encoding="utf-8"))
+    assert manifest["levels"]["piano"]["db"] < -30
+
+
+def test_quick_stems_left_halfway_are_only_improved(lib, monkeypatch):
+    """Si la app se cerro a mitad de la mejora, pedirla otra vez no vuelve a
+    separar: solo mejora las rapidas que ya estan."""
+    from danplay import stems
+
+    cid = _id("Barak - Mi Gozo.mp3")
+    real = stems.refine_song
+    monkeypatch.setattr(
+        stems, "refine_song", lambda *a, **k: (_ for _ in ()).throw(stems.SeparateError("corte"))
+    )
+    since = _last_seq()
+    _separate(cid)
+    assert _events(since) == [(cid, "separate", True), (cid, "refine", False)]
+    assert _info(cid)["quality"] == "rapida"
+    monkeypatch.setattr(stems, "refine_song", real)
+    since = _last_seq()
+    _separate(cid)
+    assert _events(since) == [(cid, "refine", True)]
+    assert _info(cid)["best"]
+
+
+def test_the_lists_say_whether_the_stems_are_the_best(lib):
+    from danplay import library
+
+    cid = _id("Barak - Mi Gozo.mp3")
+    _separate(cid)
+    rows = {r["id"]: r for r in library.search("", limit=100, light=True)}
+    assert rows[cid]["has_stems"] and rows[cid]["stems_best"] is True
+    library.update(cid, stems=json.dumps({"folder": "x", "model": "htdemucs_6s"}))
+    rows = {r["id"]: r for r in library.search("", limit=100, light=True)}
+    assert rows[cid]["has_stems"] and rows[cid]["stems_best"] is False
+    assert library.light(dict(_song(cid)))["stems_best"] is False
+
+
+def test_the_stems_can_be_kept_in_opus(lib, monkeypatch):
+    from danplay import config, convert, stems
+
+    ffmpeg = convert.tool("ffmpeg")
+    if not (ffmpeg and stems._has_opus(ffmpeg)):
+        pytest.skip("este ffmpeg no sabe hacer Opus")
+    monkeypatch.setattr(config, "STEMS_FORMAT", "opus")
+    cid = _id("Barak - Mi Gozo.mp3")
+    assert not _separate(cid)["error"]
+    info = _info(cid)
+    assert info["complete"] and info["best"]
+    assert {Path(t["path"]).suffix for t in info["tracks"]} == {".opus"}
 
 
 def test_what_a_crash_left_halfway_is_swept_away(lib):
@@ -142,14 +306,6 @@ def test_what_a_crash_left_halfway_is_swept_away(lib):
     (leftover / "Bateria.flac").write_bytes(b"a medias")
     assert not _separate(_id("Barak - Mi Gozo.mp3"))["error"]
     assert not leftover.exists()
-
-
-def test_the_four_track_model_has_no_guitar_nor_piano(lib):
-
-    cid = _id("Barak - Mi Gozo.mp3")
-    assert not _separate(cid, "4")["error"]
-    info = _info(cid)
-    assert [t["source"] for t in info["tracks"]] == ["drums", "vocals", "bass", "other"]
 
 
 def test_the_stems_are_not_songs_of_the_library(lib):
@@ -183,6 +339,9 @@ def test_a_lost_index_finds_the_stems_again(lib):
     library.scan()
     info = _info(cid)
     assert info is not None and info["complete"]
+    # y siguen siendo las mejores: no se ofrece separarla otra vez mejor
+    rows = {r["id"]: r for r in library.search("", limit=100, light=True)}
+    assert rows[cid]["stems_best"]
 
 
 def test_stems_deleted_by_hand_are_forgotten(lib):
@@ -205,8 +364,9 @@ def test_separating_again_replaces_the_old_stems(lib, monkeypatch):
     trashed = []
     monkeypatch.setattr(library, "trash_path", lambda p: trashed.append(str(p)) or {"ok": True})
     cid = _id("Barak - Mi Gozo.mp3")
-    _separate(cid, "6")
-    _separate(cid, "4")
+    _separate(cid)
+    Path(lib[1]["gozo"] + ".callar").write_text("piano,guitar")
+    _separate(cid)
     folder = root / "Separadas" / "Barak - Mi Gozo"
     assert sorted(p.name for p in folder.glob("*.flac")) == [
         "Bajo.flac",
@@ -214,6 +374,7 @@ def test_separating_again_replaces_the_old_stems(lib, monkeypatch):
         "Otros.flac",
         "Voces.flac",
     ]
+    # las de antes, a la papelera; las rapidas de cada vez, no (son un paso)
     assert len(trashed) == 1 and ".antes-Barak - Mi Gozo" in trashed[0]
 
 
@@ -244,7 +405,7 @@ def test_the_queue_separates_one_after_another(lib, monkeypatch):
     assert state["current"] is not None or state["queue"]
     job = jobs.wait(stems.JOB, timeout=60)
     assert job is not None
-    assert {s["id"] for s in job["result"]["separated"]} == {a, b}
+    assert sorted(s["id"] for s in job["result"]["separated"]) == sorted([a, a, b, b])
     assert stems.status()["queue"] == [] and stems.status()["current"] is None
 
 
@@ -262,7 +423,7 @@ def test_a_song_that_fails_does_not_stop_the_queue(lib):
     job = jobs.wait(stems.JOB, timeout=60)
     assert job is not None
     assert [f["error"] for f in job["result"]["failed"]] == ["ffmpeg no pudo leer la cancion"]
-    assert len(job["result"]["separated"]) == 1
+    assert {s["id"] for s in job["result"]["separated"]} == {_id("Barak - Mi Gozo.mp3")}
 
 
 def test_cancelling_stops_and_empties_the_queue(lib, tmp_path, monkeypatch):
@@ -304,24 +465,42 @@ def test_the_weights_are_checked_before_being_used(tmp_path, monkeypatch):
         def __exit__(self, *a):
             return None
 
-    manifest = {
-        "weights": {
-            "file": "w.safetensors",
-            "url": "https://x/w",
-            "bytes": len(good),
-            "sha256": hashlib.sha256(good).hexdigest(),
-        }
+    part = {
+        "graph": "htdemucs",
+        "file": "w.safetensors",
+        "url": "https://x/w",
+        "bytes": len(good),
+        "sha256": hashlib.sha256(good).hexdigest(),
     }
-    monkeypatch.setattr(stems, "_manifest_of", lambda model: manifest)
+    monkeypatch.setattr(stems, "parts", lambda: {"drums": part})
     monkeypatch.setattr(stems.urllib.request, "urlopen", lambda *a, **k: Answer(b"otra cosa" * 10))
     with pytest.raises(stems.SeparateError, match="sha256"):
-        stems.download("6")
+        stems.download("drums")
     assert not list((tmp_path / "separador").iterdir())
     seen = []
     monkeypatch.setattr(stems.urllib.request, "urlopen", lambda *a, **k: Answer(good))
-    path = stems.download("6", lambda got, total: seen.append((got, total)))
-    assert path.read_bytes() == good and stems.installed("6")
+    path = stems.download("drums", lambda got, total: seen.append((got, total)))
+    assert path.read_bytes() == good and stems.installed("drums")
     assert seen[-1] == (len(good), len(good))
+    # y borrarlo lo quita todo (tambien lo de versiones de antes)
+    (tmp_path / "separador" / "955717e8.safetensors").write_bytes(b"de 1.16.0")
+    assert stems.remove_weights() == 2
+    assert not stems.installed("drums")
+
+
+def test_the_separator_is_one_download_with_its_specialists():
+    """Una sola cosa que bajar: la red rapida y un especialista por cada
+    fuente que se mejora, todos de su autor y con su sha256."""
+    from danplay import stems
+
+    parts = stems.parts()
+    assert set(parts) == {"htdemucs_6s", "drums", "bass"}
+    assert {p["graph"] for p in parts.values()} == {"htdemucs_6s", "htdemucs"}
+    for p in parts.values():
+        assert p["url"].startswith("https://huggingface.co/adefossez/")
+        assert len(p["sha256"]) == 64 and p["bytes"] > 50_000_000
+        assert (stems.GRAPHS / f"{p['graph']}.onnx").is_file()
+    assert len({p["file"] for p in parts.values()}) == 3
 
 
 def test_trashing_a_song_takes_its_stems_along(lib, monkeypatch):
@@ -456,16 +635,15 @@ def test_the_api_separates_lists_and_deletes_stems(lib, monkeypatch):
     monkeypatch.setattr(library, "trash_path", lambda p: {"ok": True})
     client = TestClient(api.app)
     status = client.get("/api/separate").json()
-    assert status["ok"] and status["default"] == "6"
-    assert [m["id"] for m in status["models"]] == ["6", "4"]
+    assert status["ok"] and status["bytes"] > 200_000_000 and status["format"] == "flac"
+    assert "models" not in status
     cid = _id("New Wine - Shekinah.mp3")
     assert client.get(f"/api/song/{cid}/stems").status_code == 404
-    r = run_job(client, f"/api/song/{cid}/separate", "separacion", json={"model": "6"})
-    assert r["separated"][0]["id"] == cid
+    r = run_job(client, f"/api/song/{cid}/separate", "separacion")
+    assert [s["id"] for s in r["separated"]] == [cid, cid]
     stems = client.get(f"/api/song/{cid}/stems").json()
     assert [t["file"] for t in stems["tracks"]][:2] == ["Bateria.flac", "Voces.flac"]
     assert all(t["exists"] for t in stems["tracks"])
     assert client.delete(f"/api/song/{cid}/stems").json()["ok"]
     assert client.get(f"/api/song/{cid}/stems").status_code == 404
-    assert client.post("/api/song/999999/separate", json={}).status_code == 404
-    assert client.post(f"/api/song/{cid}/separate", json={"model": "9"}).status_code == 422
+    assert client.post("/api/song/999999/separate").status_code == 404

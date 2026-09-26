@@ -44,7 +44,8 @@ export function light(s) {
     has_synced_lyrics: !!lyrics_synced,
     has_chords: !!chords,
     has_study: !!study,
-    has_stems: !!(stems || rest.has_stems)
+    has_stems: !!(stems || rest.has_stems),
+    stems_best: !!rest.stems_best
   }
 }
 
@@ -52,8 +53,13 @@ export function light(s) {
  * Las pistas separadas de una cancion, como las devuelve /api/song/{id}/stems.
  * @param {number} id
  * @param {string[]} [sources]
+ * @param {''|'rapida'|'mejor'} [quality]  las de la pasada rápida, las buenas o las de 1.16.0
  */
-export function stemsOf(id, sources = ['drums', 'vocals', 'bass', 'guitar', 'piano', 'other']) {
+export function stemsOf(
+  id,
+  sources = ['drums', 'vocals', 'bass', 'guitar', 'piano', 'other'],
+  quality = 'mejor'
+) {
   const names = {
     drums: ['Bateria', 'Batería'],
     vocals: ['Voces', 'Voces'],
@@ -65,8 +71,11 @@ export function stemsOf(id, sources = ['drums', 'vocals', 'bass', 'guitar', 'pia
   const folder = `/musica/Separadas/cancion-${id}`
   return {
     folder,
-    model: sources.length === 6 ? 'htdemucs_6s' : 'htdemucs',
+    model: quality === 'mejor' ? 'htdemucs_6s+htdemucs_ft' : 'htdemucs_6s',
     created: 1,
+    quality,
+    best: quality === 'mejor',
+    dropped: [],
     complete: true,
     tracks: sources.map((source) => ({
       source,
@@ -80,23 +89,40 @@ export function stemsOf(id, sources = ['drums', 'vocals', 'bass', 'guitar', 'pia
 }
 
 /**
- * Acaba la separacion en marcha, como lo haria el nucleo: la cancion ya
- * tiene sus pistas y pasa la siguiente de la cola (o se para).
+ * Acaba la pasada en marcha, como lo haria el nucleo: tras la rapida, la
+ * cancion ya tiene sus pistas y su mejora va a la cola (detras de las
+ * rapidas que esperen); tras la buena, ya son las mejores. Pasa la siguiente
+ * de la cola (o se para) y queda el aviso de lo que acabo.
  * @param {ReturnType<typeof createState>} state
+ * @param {{ok?: boolean, error?: string}} [how]
  */
-export function finishSeparation(state) {
+export function finishSeparation(state, how = {}) {
   const item = state.separation.current
   if (!item) return
-  state.stems[item.id] = stemsOf(
-    item.id,
-    item.model === '4' ? ['drums', 'vocals', 'bass', 'other'] : undefined
-  )
+  const ok = how.ok ?? true
   const s = state.songs.find((x) => x.id === item.id)
-  if (s) s.has_stems = true
-  state.separation.current = state.separation.queue.shift() || null
-  const done = { id: item.id, title: item.title, folder: `/musica/Separadas/cancion-${item.id}` }
+  if (ok) {
+    const quality = item.stage === 'refine' ? 'mejor' : 'rapida'
+    state.stems[item.id] = stemsOf(item.id, undefined, quality)
+    if (s) Object.assign(s, { has_stems: true, stems_best: quality === 'mejor' })
+    if (item.stage !== 'refine') {
+      state.separation.queue.push({ id: item.id, title: item.title, stage: 'refine' })
+    }
+  }
+  const next = state.separation.queue.findIndex((q) => q.stage === 'separate')
+  const at = next >= 0 ? next : 0
+  state.separation.current = state.separation.queue.splice(at, 1)[0] || null
+  const seq = (state.separation.events.at(-1)?.seq || 0) + 1
+  state.separation.events.push({
+    seq,
+    id: item.id,
+    title: item.title,
+    stage: item.stage,
+    ok,
+    error: how.error || ''
+  })
   state.jobs.separacion = {
-    ...finishedJob('separacion', { separated: [done], failed: [], cancelled: false }),
+    ...finishedJob('separacion', { separated: [], failed: [], cancelled: false }),
     active: !!state.separation.current
   }
 }
@@ -291,32 +317,24 @@ export function createState() {
     /** las tareas largas: la ultima de cada nombre, como en el nucleo */
     jobs: {},
     /**
-     * separar en pistas: si se puede, los modelos y la cola (como
-     * /api/separate), y las pistas de cada cancion ya separada, por id
+     * separar en pistas: si se puede, lo que pesa el separador, la cola y
+     * lo que acabo (como /api/separate), y las pistas de cada cancion ya
+     * separada, por id
      */
     separation: {
       ok: true,
       reason: '',
-      default: '6',
+      bytes: 307000000,
+      pending: 0,
+      installed: true,
       folder: 'Separadas',
-      models: [
-        {
-          id: '6',
-          label: '6 pistas',
-          detail: 'batería, voces, bajo, guitarra, piano y el resto',
-          installed: true,
-          bytes: 54885744
-        },
-        {
-          id: '4',
-          label: '4 pistas',
-          detail: 'batería, voces, bajo y el resto',
-          installed: false,
-          bytes: 84025440
-        }
-      ],
+      format: 'flac',
+      opus: true,
       current: null,
-      queue: []
+      /** @type {any[]} */
+      queue: [],
+      /** @type {any[]} */
+      events: []
     },
     /** @type {Record<number, any>} */
     stems: {},
@@ -680,10 +698,12 @@ function answers(state) {
     separation: async () => copy(state.separation),
     // separar tarda: aqui la cancion se queda en marcha hasta que la prueba
     // la acabe (`finishSeparation`)
-    separate: async (id, model = '6') => {
+    separate: async (id) => {
       const s = find(id)
       if (!s) throw new Error('esa canción ya no está en la biblioteca')
-      const item = { id, title: `${s.artist} - ${s.title}`, model, done: 0, total: 0 }
+      const quick = state.stems[id]?.quality === 'rapida'
+      const stage = quick ? 'refine' : 'separate'
+      const item = { id, title: `${s.artist} - ${s.title}`, stage, done: 0, total: 0 }
       if (!state.separation.current) state.separation.current = item
       else state.separation.queue.push(item)
       state.jobs.separacion = { ...finishedJob('separacion', null), active: true }
@@ -699,10 +719,10 @@ function answers(state) {
       state.separation.queue = state.separation.queue.filter((q) => q.id !== id)
       return copy(state.separation)
     },
-    removeSeparationModel: async (model) => {
-      const m = state.separation.models.find((x) => x.id === model)
-      if (m) m.installed = false
-      return { removed: !!m, ...copy(state.separation) }
+    removeSeparator: async () => {
+      state.separation.pending = state.separation.bytes
+      state.separation.installed = false
+      return { removed: 4, ...copy(state.separation) }
     },
     stems: async (id) => {
       const st = state.stems[id]

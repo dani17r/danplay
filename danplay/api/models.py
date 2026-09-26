@@ -136,6 +136,7 @@ class SettingsIn(Body_):
     write_tags: bool | None = None
     ai_enabled: bool | None = None
     quality: Literal["high", "medium", "variable"] | None = None
+    stems_format: Literal["flac", "opus"] | None = None
     # `model` y `ai_key` van al perfil de IA activo (compatibilidad con la
     # interfaz de antes); lo demas de la IA entra por /api/ai/*
     model: str | None = Field(default=None, max_length=200)
@@ -293,12 +294,6 @@ class StudyIn(Body_):
 class ChatConfirmIn(Body_):
     tool: str = Field(min_length=1, max_length=64)
     args: dict = Field(default_factory=dict)
-
-
-class SeparateIn(Body_):
-    """Separar una cancion en pistas: con el modelo de 6 o el de 4."""
-
-    model: Literal["6", "4"] = "6"
 
 
 class StemMixTrack(Body_):
