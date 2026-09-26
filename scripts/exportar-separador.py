@@ -57,6 +57,11 @@ MODELS = {
     "htdemucs": ("adefossez/HTDemucs", "955717e8"),
 }
 
+# Bolsas de especialistas con la misma red que un modelo de arriba: usan su
+# grafo con sus propios pesos. htdemucs_ft son cuatro htdemucs afinados, cada
+# uno para una fuente (bateria, bajo, resto, voces, en ese orden).
+SPECIALISTS = {"htdemucs": ("adefossez/HTDemucs-ft", "htdemucs_ft")}
+
 # Cuantas filas de la atencion se calculan de una vez. ONNX Runtime guarda
 # entera la matriz de la atencion (8 cabezas x 2688 x 2688, 230 MB) donde
 # PyTorch no: por bloques da exactamente lo mismo y la memoria baja.
@@ -169,7 +174,15 @@ def chunked_attention(
 
 
 def origin_of(value: np.ndarray, weights: dict, by_size: dict) -> tuple[str, str] | None:
-    """De que tensor oficial sale este valor: (nombre, "" | "T"), o None."""
+    """De que tensor oficial sale este valor: (nombre, "" | "T" | "R"), o None.
+
+    "R" son los mismos numeros con otra forma: el optimizador pliega el
+    `unsqueeze` de las normas y las escalas pequeñas. Tienen que salir del
+    archivo tambien: el grafo sirve para varios juegos de pesos (los cuatro
+    especialistas de htdemucs_ft usan el de htdemucs), y un peso metido
+    dentro seria el de uno solo.
+    """
+    found = []
     for key in by_size.get(value.size, []):
         w = weights[key]
         # los pesos oficiales van en float16 y la red los usa en float32: el
@@ -179,10 +192,14 @@ def origin_of(value: np.ndarray, weights: dict, by_size: dict) -> tuple[str, str
         elif w.dtype != value.dtype:
             continue
         if w.shape == value.shape and np.array_equal(w, value):
-            return key, ""
-        if w.ndim == 2 and w.T.shape == value.shape and np.array_equal(w.T, value):
-            return key, "T"
-    return None
+            found.append((key, ""))
+        elif w.ndim == 2 and w.T.shape == value.shape and np.array_equal(w.T, value):
+            found.append((key, "T"))
+        elif np.array_equal(w.reshape(value.shape), value):
+            found.append((key, "R"))
+    # dos pesos iguales: con otros pesos dejarian de serlo, y no se sabria cual
+    assert len(found) <= 1, f"un valor del grafo sale de varios pesos: {found}"
+    return found[0] if found else None
 
 
 def export(name: str) -> None:
@@ -198,10 +215,7 @@ def export(name: str) -> None:
     assert model.hop_length == engine.HOP and model.cac
     segment = int(model.segment * model.samplerate)
     assert segment == engine.SEGMENT, segment
-    for module in model.modules():
-        if isinstance(module, torch.nn.MultiheadAttention):
-            module.forward = types.MethodType(chunked_attention, module)
-    core = Core(model).eval()
+    core = Core(chunked(model)).eval()
 
     mix = torch.randn(1, 2, segment) * 0.1
     with torch.no_grad():
@@ -220,23 +234,25 @@ def export(name: str) -> None:
         program.model_proto, input_size_limit=1024, output_size_limit=65536
     )
 
-    recipe, inside = [], 0
+    recipe, inside, used = [], 0, set()
     for tensor in proto.graph.initializer:
         value = onnx.numpy_helper.to_array(tensor)
-        found = origin_of(value, weights, by_size) if value.size > 64 else None
+        found = origin_of(value, weights, by_size) if value.dtype.kind == "f" else None
         if found is None:
             inside += value.nbytes  # una constante del grafo: viaja dentro
             continue
         source, op = found
-        recipe.append(
-            {
-                "name": tensor.name,
-                "source": source,
-                "op": op,
-                "dtype": str(value.dtype),
-                "shape": list(weights[source].shape),
-            }
-        )
+        used.add(source)
+        item = {
+            "name": tensor.name,
+            "source": source,
+            "op": op,
+            "dtype": str(value.dtype),
+            "shape": list(weights[source].shape),
+        }
+        if op == "R":
+            item["reshape"] = list(value.shape)
+        recipe.append(item)
         # sin datos: una referencia externa que la app rellena al cargar
         tensor.ClearField("raw_data")
         tensor.ClearField("float_data")
@@ -250,6 +266,8 @@ def export(name: str) -> None:
             entry = tensor.external_data.add()
             entry.key, entry.value = key, val
     assert inside < 2_000_000, f"demasiadas constantes dentro del grafo: {inside} bytes"
+    unused = sorted(set(weights) - used)
+    assert not unused, f"pesos del archivo que el grafo no toma de el: {unused[:5]}…"
     for node in proto.graph.node:
         del node.metadata_props[:]
         node.doc_string = ""
@@ -273,6 +291,59 @@ def export(name: str) -> None:
     (OUT / f"{name}.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
 
     # la prueba de verdad: con los pesos puestos como los pone la app
+    diff = check(graph, manifest, weights_file, core, mix, mag)
+    print(
+        f"{name}: {graph.stat().st_size // 1024} KB de grafo, {len(recipe)} pesos aparte "
+        f"({inside // 1024} KB de constantes dentro), diferencia {diff:.1e}"
+    )
+    # y con los de los especialistas que comparten la forma de esta red: la
+    # app los baja de su autor como los demas, asi que van en la receta
+    if name in SPECIALISTS:
+        repo, bag_name = SPECIALISTS[name]
+        bag = get_model(bag_name)
+        found = {}
+        for (sig, source), specialist in zip(
+            bag_specialists(repo, bag_name, list(model.sources)), bag.models, strict=True
+        ):
+            wf = Path(hf_hub_download(repo, f"{sig}.safetensors"))
+            diff = check(graph, manifest, wf, Core(chunked(specialist.eval())).eval(), mix, mag)
+            print(f"  {bag_name} {sig} ({source}): diferencia {diff:.1e}")
+            found[source] = {
+                "file": f"{sig}.safetensors",
+                "url": f"https://huggingface.co/{repo}/resolve/main/{sig}.safetensors",
+                "sha256": engine.sha256_of(wf),
+                "bytes": wf.stat().st_size,
+            }
+        manifest["specialists"] = found
+        (OUT / f"{name}.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+
+
+def chunked(model):
+    """El modelo con la atencion por bloques, como se exporta."""
+    for module in model.modules():
+        if isinstance(module, torch.nn.MultiheadAttention):
+            module.forward = types.MethodType(chunked_attention, module)
+    return model
+
+
+def bag_specialists(repo: str, bag_name: str, sources: list[str]) -> list[tuple[str, str]]:
+    """Los modelos de una bolsa de especialistas, en su orden (el del yaml),
+    cada uno con la fuente de la que es: su fila de pesos tiene un 1 ahi y
+    ceros en las demas (si no, no seria un especialista)."""
+    import yaml
+
+    text = Path(hf_hub_download(repo, f"{bag_name}.yaml")).read_text(encoding="utf-8")
+    bag = yaml.safe_load(text)
+    out = []
+    for sig, row in zip(bag["models"], bag["weights"], strict=True):
+        assert sorted(row) == [0.0] * (len(row) - 1) + [1.0], f"{sig} no es especialista: {row}"
+        out.append((sig, sources[row.index(1.0)]))
+    return out
+
+
+def check(graph, manifest, weights_file, core, mix, mag) -> float:
+    """Lo que se aparta el grafo, con esos pesos puestos como los pone la
+    app, del modelo original (o falla si es mas que ruido numerico)."""
     session = engine.open_session(graph, manifest, weights_file)
     with torch.no_grad():
         want_x, want_xt = core(mix, mag)
@@ -281,10 +352,7 @@ def export(name: str) -> None:
         float(np.abs(got_x - want_x.numpy()).max()), float(np.abs(got_xt - want_xt.numpy()).max())
     )
     assert diff < 1e-3, f"el grafo no da lo mismo que el modelo: {diff}"
-    print(
-        f"{name}: {graph.stat().st_size // 1024} KB de grafo, {len(recipe)} pesos aparte "
-        f"({inside // 1024} KB de constantes dentro), diferencia {diff:.1e}"
-    )
+    return diff
 
 
 if __name__ == "__main__":

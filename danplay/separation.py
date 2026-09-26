@@ -85,9 +85,9 @@ def open_session(graph, manifest: dict, weights_file, n_threads: int | None = No
     """La sesion de ONNX Runtime con el grafo y los pesos oficiales puestos.
 
     Cada peso del grafo es una referencia externa; aqui se le da su valor:
-    el tensor del archivo tal cual, o traspuesto (`op` "T"), en el tipo del
-    grafo (los pesos oficiales van en float16 y la red trabaja en float32:
-    el paso es exacto).
+    el tensor del archivo tal cual, traspuesto (`op` "T") o con otra forma
+    ("R"), en el tipo del grafo (los pesos oficiales van en float16 y la red
+    trabaja en float32: el paso es exacto).
     """
     import onnxruntime as ort
 
@@ -97,6 +97,8 @@ def open_session(graph, manifest: dict, weights_file, n_threads: int | None = No
         value = weights[item["source"]].astype(item.get("dtype", "float32"))
         if item.get("op") == "T":
             value = value.T
+        elif item.get("op") == "R":
+            value = value.reshape(item["reshape"])
         names.append(item["name"])
         values.append(ort.OrtValue.ortvalue_from_numpy(np.ascontiguousarray(value)))
     options = ort.SessionOptions()
