@@ -91,10 +91,16 @@ describe('analizar e indexar todo', () => {
     expect(w.find('.job-progress').text()).toContain('10 / 40')
     expect(w.find('.job-progress').text()).toContain('leyendo etiquetas')
     expect(boton('Analizando').attributes('disabled')).toBeDefined()
-    await vi.waitFor(() => expect(seguir).toBeTypeOf('function'))
+    // cada respuesta, a la pregunta que toca: si se contesta antes de que
+    // llegue la siguiente, `seguir` aun es el de la anterior y no hace nada
+    // (en la CI, a veces: la ultima pregunta se quedaba sin respuesta)
+    const pregunta = (n) =>
+      vi.waitFor(() => expect(api().job).toHaveBeenCalledTimes(n), { timeout: 5000 })
+    await pregunta(1)
     seguir()
     await flushPromises()
     await vi.waitFor(() => expect(w.find('.job-progress').text()).toContain('30 / 40'))
+    await pregunta(2)
     seguir()
     await flushPromises()
     await flushPromises()

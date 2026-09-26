@@ -207,7 +207,9 @@ fn a_failure_from_the_queue_is_reported_verbatim() {
     let (m, rx) = handle();
     m.send(Command::Fail("No pude localizar «Barak - Mi Gozo».".into()))
         .unwrap();
-    let e = until(&m, |s| !s.error.is_empty());
+    // el suyo: sin salida de audio (la CI), al arrancar ya hay otro error, y
+    // mirar el primero que hubiera cogia ese antes de que llegara este
+    let e = until(&m, |s| s.error.contains("Mi Gozo"));
     assert_eq!(e.error, "No pude localizar «Barak - Mi Gozo».");
     assert!(e.path.is_empty() && !e.playing);
     // y se avisa, que es como se entera la interfaz
