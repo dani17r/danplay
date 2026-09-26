@@ -57,8 +57,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from . import config, convert
 from .api import jobs
 
@@ -1044,6 +1042,8 @@ def mix_filter(
 def _click_file(click: Mapping[str, Any], length: float, speed: float, folder: Path) -> Path:
     """El clic de la mezcla en un WAV aparte: los pulsos (en segundos de la
     cancion) pasados al tiempo de la mezcla, con su sonido y su volumen."""
+    import numpy as np  # aqui: el nucleo no carga numpy hasta que hace falta
+
     from . import click as clicks
 
     beats = [float(t) / speed for t in click.get("beats") or []]
