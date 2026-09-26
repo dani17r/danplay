@@ -547,6 +547,14 @@ function answers(state) {
     setStars: async (id, n) => update(id, { stars: n }),
     toggleFavorite: async (id, v) => update(id, { favorite: v ? 1 : 0 }),
     setBlur: async (id, v) => update(id, { blur: v ? 1 : 0 }),
+    moveSong: async (id, category) => {
+      const folder = {
+        track: 'Pistas',
+        tutorial: 'Tutoriales y Play Along',
+        sequence: 'Secuencias'
+      }
+      return update(id, { folder: folder[category] })
+    },
     details: async () => ({ details: null }),
     enrich: async (id) => ({ result: {}, song: find(id) ? { ...find(id) } : null }),
     autofill: async (id) => ({ filled: {}, song: find(id) ? { ...find(id) } : null }),

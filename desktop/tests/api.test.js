@@ -261,6 +261,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     setStars: [[7, 4], 'POST', '/api/song/7/stars', { stars: 4 }],
     toggleFavorite: [[7, true], 'POST', '/api/song/7/favorite', { favorite: true }],
     setBlur: [[7, false], 'POST', '/api/song/7/blur', { blur: false }],
+    moveSong: [[7, 'track'], 'POST', '/api/song/7/move', { category: 'track' }],
     details: [[7], 'GET', '/api/song/7/details'],
     enrich: [[7, { lyrics: true }], 'POST', '/api/song/7/enrich', { lyrics: true }],
     autofill: [[7], 'POST', '/api/song/7/autofill'],

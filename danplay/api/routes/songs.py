@@ -11,9 +11,11 @@ from fastapi.responses import FileResponse, Response
 
 from ... import (
     beatgrid,
+    config,
     convert,
     enrich,
     external,
+    ingest,
     library,
     playlists,
     tags,
@@ -22,7 +24,17 @@ from ... import (
     waveform,
 )
 from ..common import audio_type
-from ..models import Blur, EnrichIn, Favorite, PathIn, SongEdit, Stars, StudyIn, TransposeIn
+from ..models import (
+    Blur,
+    EnrichIn,
+    Favorite,
+    MoveIn,
+    PathIn,
+    SongEdit,
+    Stars,
+    StudyIn,
+    TransposeIn,
+)
 
 log = logging.getLogger(__name__)
 
@@ -163,6 +175,21 @@ def favorite(cid: int, body: Annotated[Favorite, Body()]):
         raise HTTPException(404, "no esta en la biblioteca")
     playlists.favorite(cid, body.favorite)
     return library.by_id(cid)
+
+
+@router.post("/api/song/{cid}/move")
+def move_song(cid: int, body: Annotated[MoveIn, Body()]):
+    """A su carpeta: la Drum Cam a Pistas, el tutorial a Tutoriales y Play
+    Along, la secuencia a Secuencias. Es la misma cancion (mismo id)."""
+    if not library.by_id(cid):
+        raise HTTPException(404, "no esta en la biblioteca")
+    try:
+        return library.move_to(cid, config.LIBRARY / ingest.CATEGORY_FOLDER[body.category])
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from None
+    except OSError as e:
+        log.warning("no se pudo mover la cancion %s", cid, exc_info=True)
+        raise HTTPException(409, f"no se pudo mover: {e.strerror or e}") from None
 
 
 @router.post("/api/song/{cid}/blur")

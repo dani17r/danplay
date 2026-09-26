@@ -28,6 +28,11 @@ const preview = ref(null) // lo que se bajaria
 const looking = ref(false)
 const error = ref('')
 const askAgain = ref(null) // la que ya tienes y preguntamos si bajar igual
+// Una Drum Cam, un tutorial, una secuencia: entra en Artistas/ como todas y
+// aqui se ofrece llevarla a su carpeta. Solo se sugiere (`names.video_kind`):
+// el titulo puede engañar, y la persona decide.
+const suggest = ref(null)
+const moving = ref(0) // la que se esta moviendo
 const history = ref([])
 const historyTotal = ref(0)
 // El historial se trae por tandas: la lista tiene scroll a partir de una
@@ -166,6 +171,25 @@ async function startDownload(what = null, force = false) {
   }
 }
 
+function dropSuggestion(r) {
+  const rest = (suggest.value || []).filter((x) => x !== r)
+  suggest.value = rest.length ? rest : null
+}
+
+async function moveTo(r) {
+  moving.value = r.id
+  try {
+    await api.moveSong(r.id, r.kind.category)
+    notify(`Movida a ${r.kind.folder}`, 'ok')
+    dropSuggestion(r)
+    emit('reload')
+  } catch (e) {
+    notify('No se pudo mover: ' + errorMessage(e))
+  } finally {
+    moving.value = 0
+  }
+}
+
 async function cancelDownload() {
   try {
     await api.youtubeCancel()
@@ -220,6 +244,8 @@ const stopFollowing = downloads.onFinished((s) => {
   // si hubo repetidas, se ofrece bajarlas igualmente
   const rep = results.filter((r) => r.already_there && r.url)
   askAgain.value = rep.length ? rep : null
+  const kinds = results.filter((r) => r.ok && r.id && r.kind)
+  suggest.value = kinds.length ? kinds : null
   loadHistory() // el asistente tambien escribe aqui
 })
 
@@ -349,6 +375,23 @@ onUnmounted(stopFollowing)
       <div class="hint">
         La copia se guarda con el sufijo « - r» para que puedas compararlas y borrar la que no
         quieras desde Duplicados.
+      </div>
+    </div>
+
+    <!-- una Drum Cam, un tutorial, una secuencia: ¿a su carpeta? -->
+    <div v-if="suggest && !running" class="card dl-kind">
+      <h3><Icon n="folder" :t="15" /> ¿A su carpeta?</h3>
+      <div v-for="r in suggest" :key="r.id" class="dl-result">
+        <strong>{{ r.artist ? r.artist + ' — ' : '' }}{{ r.song || r.title }}</strong>
+        <div class="hint">Parece {{ r.kind.what }}: ¿moverla a {{ r.kind.folder }}?</div>
+        <div class="btn-row" style="margin-top: 9px">
+          <button class="btn" :disabled="!!moving" @click="moveTo(r)">
+            Mover a {{ r.kind.folder }}
+          </button>
+          <button class="btn mini" :disabled="moving === r.id" @click="dropSuggestion(r)">
+            No, déjala en Artistas
+          </button>
+        </div>
       </div>
     </div>
 

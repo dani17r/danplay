@@ -124,6 +124,61 @@ def test_lo_que_ya_tienes_no_se_baja_salvo_que_se_fuerce(ytdl):
     assert r[0]["ok"] and r[0]["target"].endswith("Palisades - Personal - r.mp3")
 
 
+# una Drum Cam: la toca Ish Melton, no es de Miel San Marcos
+CAM = {
+    "id": "cam",
+    "title": "QUE SE ABRA EL CIELO - ISH MELTON DRUM CAM",
+    "uploader": "Ish Melton",
+    "duration": 300,
+}
+
+
+def test_una_drum_cam_se_archiva_con_su_artista_y_se_sugiere_pistas(ytdl):
+    FakeYDL.videos["https://youtu.be/cam"] = CAM
+    r = youtube.download("https://youtu.be/cam")[0]
+    assert r["ok"] and r["target"].endswith(
+        os.path.join("Artistas", "Ish Melton", "Ish Melton - Que Se Abra El Cielo (Drum Cam).mp3")
+    )
+    assert r["kind"] == {"category": "track", "what": "una Drum Cam", "folder": "Pistas"}
+    # la de siempre no trae sugerencia
+    assert "kind" not in youtube.download("https://youtu.be/uno")[0]
+
+
+def test_moverla_a_pistas_es_la_misma_cancion(ytdl):
+    from fastapi.testclient import TestClient
+
+    from danplay import api, playlists
+
+    FakeYDL.videos["https://youtu.be/cam"] = CAM
+    r = youtube.download("https://youtu.be/cam")[0]
+    cid, old = r["id"], r["target"]
+    playlists.rate(cid, 4)
+    pl = playlists.create("ensayo")
+    playlists.add(pl["id"], [cid])
+    client = TestClient(api.app)
+    got = client.post(f"/api/song/{cid}/move", json={"category": "track"})
+    assert got.status_code == 200, got.text
+    moved = got.json()
+    assert moved["id"] == cid and moved["stars"] == 4 and moved["folder"] == "Pistas"
+    assert moved["path"] == str(ytdl / "Pistas" / os.path.basename(old))
+    assert os.path.isfile(moved["path"]) and not os.path.exists(old)
+    # la carpeta del artista se quedo vacia y se quita; Artistas/ no
+    assert not os.path.exists(os.path.dirname(old)) and (ytdl / "Artistas").is_dir()
+    assert [s["id"] for s in playlists.songs(pl["id"])] == [cid]
+    # un escaneo despues no la ve como nueva ni como perdida
+    library.scan()
+    again = library.by_id(cid)
+    assert again and again["path"] == moved["path"]
+    # lo que no vale
+    assert client.post("/api/song/999999/move", json={"category": "track"}).status_code == 404
+    bad = client.post(f"/api/song/{cid}/move", json={"category": "Artistas/../../etc"})
+    assert bad.status_code == 422
+    # fuera de su carpeta de musica, no: ni se mueve ni se toca el indice
+    with pytest.raises(ValueError):
+        library.move_to(cid, ytdl.parent / "fuera")
+    assert os.path.isfile(moved["path"]) and not (ytdl.parent / "fuera").exists()
+
+
 def test_sin_archivar_se_queda_en_entrada(ytdl):
     from danplay import config
 

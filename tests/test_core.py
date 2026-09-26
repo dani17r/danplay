@@ -1047,6 +1047,35 @@ def test_lo_tolerado_sigue_siendo_lo_que_se_penso():
 # veces.
 
 
+@pytest.mark.parametrize(
+    ("title", "category"),
+    [
+        ("QUE SE ABRÁ EL CIELO - ISH MELTON DRUM CAM", "track"),
+        ("Way Maker (Drumless Backing Track)", "track"),
+        ("Grande Y Fuerte Es Nuestro Dios (Drums tutorial)", "tutorial"),
+        ("Eric Moore - Hosanna (drum cover, Purpose Band)", "tutorial"),
+        ("Yo Ire (Play along, Miel San Marcos)", "tutorial"),
+        ("Hay Libertad | MultiTracks.com", "sequence"),
+        ("Majo y Dan - Fiel Secuencia", "sequence"),
+        ("Nuestro Dios PB (Somos Uno)", "sequence"),
+        ("Playback oficial - Tu Fidelidad", "sequence"),
+        # la cancion sin mas, aunque lo parezca: pistas de un disco, un cover
+        # cantado, una leccion que no es de bateria, «PB» dentro de otra palabra
+        ("15 - La Tierra Canta (Pista)", None),
+        ("Hosanna (Cover)", None),
+        ("Leccion De Amor", None),
+        ("APB - Cancion", None),
+        ("Barak - Mi Gozo (Video Oficial)", None),
+        ("", None),
+    ],
+)
+def test_el_tipo_de_video_sale_de_palabras_inequivocas(title, category):
+    kind = N.video_kind(title)
+    assert (kind or {}).get("category") == category
+    if kind:
+        assert kind["what"]
+
+
 def test_la_drum_cam_es_de_quien_la_toca_no_del_artista_original():
     r = N.from_video("QUE SE ABRÁ EL CIELO - ISH MELTON DRUM CAM", "Ish Melton", {})
     assert (r["artist"], r["title"]) == ("Ish Melton", "Que Se Abra El Cielo (Drum Cam)")

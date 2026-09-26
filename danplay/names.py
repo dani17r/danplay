@@ -470,3 +470,52 @@ def from_video(
         "source": "youtube",
         "confidence": 0.6 if artist else 0.0,
     }
+
+
+# El tipo de video, por las palabras del titulo. Solo lo inequivoco: «(Pista)»
+# no vale, que un disco trae sus pistas y se quedan con el artista; ni
+# «cover» a secas, que casi siempre es otra voz cantandola. `PB` en mayuscula
+# y suelto: es como se llaman las secuencias («Hay Libertad PB»).
+_KINDS = (
+    ("track", re.compile(r"\bdrum\s*-?\s*cam\b", re.I), "una Drum Cam"),
+    (
+        "track",
+        re.compile(r"\bdrumless\b|\bsin\s+bater[ií]a\b|\bno\s+drums\b", re.I),
+        "una pista sin batería",
+    ),
+    (
+        "tutorial",
+        re.compile(
+            r"\btutorial\b|\bdrum\s+lesson\b|\bc[oó]mo\s+tocar\b"
+            r"|\b(?:lecci[oó]n|clase)\s+de\s+bater[ií]a\b",
+            re.I,
+        ),
+        "un tutorial",
+    ),
+    (
+        "tutorial",
+        re.compile(
+            r"\bdrum\s+(?:cover|playthrough)\b|\bcover\s+de\s+bater[ií]a\b|\bbater[ií]a\s+cover\b",
+            re.I,
+        ),
+        "un drum cover",
+    ),
+    ("tutorial", re.compile(r"\bplay\s*-?\s*along\b", re.I), "un play along"),
+    ("sequence", re.compile(r"\bsecuencias?\b|\bmulti\s*-?\s*tracks?\b", re.I), "una secuencia"),
+    ("sequence", re.compile(r"\bplayback\b", re.I), "un playback"),
+    ("sequence", re.compile(r"(?<![\w.])PB(?![\w.])"), "un playback"),
+)
+
+
+def video_kind(title: str) -> dict | None:
+    """Si el titulo dice que no es la cancion sin mas: {"category", "what"}.
+
+    `category` es la de `ingest.CATEGORY_FOLDER` (track, tutorial,
+    sequence); `what`, como se nombra en el aviso («una Drum Cam»). Las
+    descargas no se archivan por esto: la app solo lo sugiere.
+    """
+    t = strip_controls(title or "")
+    for category, rx, what in _KINDS:
+        if rx.search(t):
+            return {"category": category, "what": what}
+    return None

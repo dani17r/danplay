@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
 // La pagina de Descargas: el historial es lo unico que hay que mirar (la
@@ -28,6 +28,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
     song: v.fn(async (id) => ({ id, title: 'Tema ' + id, artist: 'Alguien', duration: 100 })),
     youtubeDownload: v.fn(async () => ({ ok: true, active: true })),
     youtubeCancel: v.fn(async () => ({ ok: true })),
+    moveSong: v.fn(async (id) => ({ id, folder: 'Pistas' })),
     // trae el yt-dlp nuevo: una tarea que aqui ya viene terminada
     youtubeUpdate: v.fn(async () => ({
       job: {
@@ -45,7 +46,8 @@ vi.mock('../src/api.js', async (importOriginal) => {
 })
 
 import DownloadsPage from '../src/components/DownloadsPage.vue'
-import { resetDownloads } from '../src/composables/useDownloads.js'
+import { resetDownloads, useDownloads } from '../src/composables/useDownloads.js'
+import { api } from '../src/api.js'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 import { dialogOk } from '../src/composables/useDialog.js'
 import { clearNotices, useNotices } from '../src/composables/useNotices.js'
@@ -234,5 +236,68 @@ describe('yt-dlp', () => {
         .attributes('disabled')
     ).toBeDefined()
     held.youtube.mockResolvedValue({ available: true, active: false, results: [] })
+  })
+})
+
+describe('lo que parece una Drum Cam', () => {
+  beforeEach(clearNotices)
+
+  const drumCam = {
+    ok: true,
+    id: 7,
+    artist: 'Ish Melton',
+    song: 'Que Se Abra El Cielo (Drum Cam)',
+    title: 'QUE SE ABRA EL CIELO - ISH MELTON DRUM CAM',
+    kind: { category: 'track', what: 'una Drum Cam', folder: 'Pistas' }
+  }
+  const terminar = async (results) => {
+    held.youtube.mockResolvedValue({ available: true, active: true, phase: 'filing', results: [] })
+    const w = await montar()
+    held.youtube.mockResolvedValue({ available: true, active: false, results })
+    await useDownloads().refresh()
+    await flushPromises()
+    return w
+  }
+  afterEach(() => held.youtube.mockResolvedValue({ available: true, active: false, results: [] }))
+
+  it('al terminar ofrece llevarla a su carpeta, y con un clic la mueve', async () => {
+    const w = await terminar([drumCam, { ok: true, id: 8, artist: 'Barak', song: 'Mi Gozo' }])
+    const card = w.find('.dl-kind')
+    expect(card.text()).toContain('Parece una Drum Cam: ¿moverla a Pistas?')
+    // solo la que lo parece: la cancion de siempre no sale
+    expect(card.findAll('.dl-result')).toHaveLength(1)
+    await card
+      .findAll('button')
+      .find((b) => b.text() === 'Mover a Pistas')
+      .trigger('click')
+    await flushPromises()
+    expect(api.moveSong).toHaveBeenCalledWith(7, 'track')
+    expect(w.find('.dl-kind').exists()).toBe(false)
+    expect(w.emitted('reload')).toBeTruthy()
+    const { notices } = useNotices()
+    expect(notices.value.some((n) => n.message === 'Movida a Pistas')).toBe(true)
+  })
+
+  it('«No, déjala en Artistas» la quita sin mover nada', async () => {
+    const w = await terminar([drumCam])
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'No, déjala en Artistas')
+      .trigger('click')
+    expect(w.find('.dl-kind').exists()).toBe(false)
+    expect(api.moveSong).not.toHaveBeenCalled()
+  })
+
+  it('si no se puede mover, lo dice y la sugerencia sigue ahi', async () => {
+    api.moveSong.mockRejectedValueOnce(new Error('su archivo ya no esta donde decia el indice'))
+    const w = await terminar([drumCam])
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Mover a Pistas')
+      .trigger('click')
+    await flushPromises()
+    const { notices } = useNotices()
+    expect(notices.value.some((n) => n.message.startsWith('No se pudo mover'))).toBe(true)
+    expect(w.find('.dl-kind').exists()).toBe(true)
   })
 })

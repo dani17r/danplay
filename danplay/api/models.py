@@ -44,6 +44,13 @@ class Blur(Body_):
     blur: bool = True
 
 
+class MoveIn(Body_):
+    """A que carpeta de la biblioteca va una cancion: una de las de
+    `ingest.CATEGORY_FOLDER` (Pistas, Secuencias, Tutoriales y Play Along)."""
+
+    category: Literal["track", "sequence", "tutorial"]
+
+
 class FolderIn(Body_):
     path: str = Field(min_length=1, max_length=4096)
     label: str = Field(default="", max_length=120)

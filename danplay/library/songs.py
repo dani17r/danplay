@@ -11,7 +11,7 @@ from typing import cast
 
 from .. import config, tags
 from . import db
-from .db import SCAN_BATCH, Song, _to_missing, _touch
+from .db import _SCAN_LOCK, SCAN_BATCH, Song, _to_missing, _touch
 
 log = logging.getLogger(__name__)
 
@@ -219,6 +219,66 @@ def forget_path(path: str) -> int:
     _thumbnails.forget(os.path.abspath(path))
     _touch()
     return n
+
+
+def move_to(cid: int, folder) -> Song:
+    """Lleva el archivo de una cancion a otra carpeta de la biblioteca.
+
+    Sigue siendo la misma cancion: mismo id, y con el sus estrellas, sus
+    listas, su estudio y sus pistas separadas. El nombre del archivo no
+    cambia (salvo el sufijo « - r» si alli ya hay uno igual). Si la carpeta
+    de la que sale se queda vacia, se quita. `ValueError` si la cancion o la
+    carpeta no valen; `OSError` si el disco no deja moverlo.
+    """
+    from .. import names
+    from .. import thumbnails as _thumbnails
+    from .. import waveform as _waveform
+    from .folders import _inside, _roots
+
+    with _SCAN_LOCK:
+        c = by_id(cid)
+        if not c:
+            raise ValueError("no existe esa cancion")
+        src = c["path"]
+        if not os.path.isfile(src):
+            raise ValueError("su archivo ya no esta donde decia el indice")
+        dest_dir = os.path.abspath(folder)
+        root = c["root"]
+        # dentro de su misma carpeta de musica: sus pistas separadas se
+        # apuntan desde ella, y en otra no se encontrarian
+        if not _inside(dest_dir, root) or root not in _roots():
+            raise ValueError("esa carpeta esta fuera de su carpeta de musica")
+        if os.path.normcase(os.path.dirname(src)) == os.path.normcase(dest_dir):
+            return c
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, names.free_name(dest_dir, os.path.basename(src)))
+        shutil.move(src, dest)
+        try:
+            with db.connect() as conn:
+                conn.execute(
+                    "UPDATE songs SET path=?, folder=?, file=?, match_key=? WHERE id=?",
+                    (
+                        dest,
+                        os.path.relpath(dest_dir, root),
+                        os.path.basename(dest),
+                        names.match_key(os.path.basename(dest)),
+                        cid,
+                    ),
+                )
+        except Exception:
+            # sin el indice al dia, el archivo vuelve a donde estaba
+            shutil.move(dest, src)
+            raise
+        _touch()
+    _waveform.forget(src)
+    _thumbnails.forget(src)
+    # la carpeta del artista que se queda vacia (la creo la descarga) no se
+    # deja; Artistas/ misma, nunca
+    parent = os.path.dirname(src)
+    if _inside(parent, config.ARTISTS_DIR) and not _inside(config.ARTISTS_DIR, parent):
+        with contextlib.suppress(OSError):
+            os.rmdir(parent)
+    return by_id(cid) or c
 
 
 def paths_of(ids) -> dict[int, str | None]:

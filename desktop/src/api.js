@@ -846,6 +846,8 @@ export const api = {
   setStars: (id, n) => POST(`/song/${id}/stars`, { stars: n }),
   toggleFavorite: (id, v) => POST(`/song/${id}/favorite`, { favorite: v }),
   setBlur: (id, v) => POST(`/song/${id}/blur`, { blur: v }),
+  /** A su carpeta: `category` es `track` (Pistas), `tutorial` o `sequence`. Mismo id. */
+  moveSong: (id, category) => POST(`/song/${id}/move`, { category }),
   details: (id) => GET(`/song/${id}/details`),
   enrich: (id, o = {}) => POST(`/song/${id}/enrich`, o),
   autofill: (id) => POST(`/song/${id}/autofill`),

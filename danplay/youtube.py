@@ -570,6 +570,12 @@ def _download(inbox, quality, file_it, results, force, source, progress, cancel)
                     nueva = library.index_file(str(res.target))
                     if nueva:
                         r["id"] = nueva["id"]
+                    # Una Drum Cam, un tutorial, una secuencia: se archiva
+                    # como todas, con su artista, y el aviso ofrece llevarla
+                    # a su carpeta. Solo se sugiere: el titulo puede engañar.
+                    kind = names.video_kind(r.get("title") or t["title"])
+                    if kind and nueva and res.target.is_relative_to(config.ARTISTS_DIR):
+                        r["kind"] = {**kind, "folder": ingest.CATEGORY_FOLDER[kind["category"]]}
                 if res.action == "error":
                     r["ok"] = False
                     r["reason"] = res.note

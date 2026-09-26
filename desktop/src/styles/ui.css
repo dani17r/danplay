@@ -1358,6 +1358,15 @@ tbody tr.flash {
   gap: 8px;
   color: var(--amber);
 }
+.dl-kind {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.dl-kind h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+}
 
 /* ---------- modo estudio ---------- */
 /* Una capa que sube desde el reproductor y se queda por encima de la lista:
