@@ -7,6 +7,11 @@ Los argumentos son los mismos que `danplay serve`:
 
     danplay-core --uds RUTA          socket Unix (Linux y macOS)
     danplay-core --host H --port N   loopback (Windows), con DANPLAY_TOKEN
+
+Y uno mas, que no lanza la app sino el propio nucleo: el proceso aparte que
+separa una cancion en pistas (danplay/separation.py).
+
+    danplay-core --separar TRABAJO.json
 """
 
 import argparse
@@ -30,6 +35,11 @@ def without_console():
 def main():
     without_console()
     multiprocessing.freeze_support()
+    if len(sys.argv) == 3 and sys.argv[1] == "--separar":
+        # sin cargar la API ni nada mas: solo el motor, que arranca rapido
+        from danplay.separation import main as separate
+
+        return separate(sys.argv[2:])
     parser = argparse.ArgumentParser(prog="danplay-core", add_help=True)
     parser.add_argument("--uds", help="socket Unix (sin puerto TCP)")
     parser.add_argument("--host", default="127.0.0.1")

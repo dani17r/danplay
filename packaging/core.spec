@@ -24,6 +24,8 @@ hidden = (collect_submodules('uvicorn') + collect_submodules('fastapi')
           # TODO el nucleo, sin lista a mano: la de antes ya no tenia ni la
           # mitad de los modulos nuevos y solo se notaba dentro del .deb
           + collect_submodules('danplay')
+          # el separador de pistas: la red corre en ONNX Runtime
+          + collect_submodules('onnxruntime.capi')
           + ['danplay_core', 'acoustid', 'rapidfuzz', 'openai', 'dotenv', 'platformdirs',
              'send2trash', 'watchdog.observers', 'sqlite3', 'compileall',
              'uvicorn.logging', 'uvicorn.protocols.http.h11_impl',
@@ -46,7 +48,10 @@ a = Analysis(['core_entry.py'],
                     + [(os.environ.get('DANPLAY_SNAPSHOT')
                         if os.path.isfile(os.environ.get('DANPLAY_SNAPSHOT', ''))
                         else os.path.join(ROOT, 'danplay', 'data', 'models-snapshot.json'),
-                        'danplay/data')]),
+                        'danplay/data')]
+                    # los grafos del separador (sin pesos: se bajan al usarlo)
+                    + [(os.path.join(ROOT, 'danplay', 'data', 'separador'),
+                        'danplay/data/separador')]),
              hiddenimports=hidden,
              # `musicbrainzngs` no lo importa nadie y `watchfiles` es para
              # `--reload`, que aqui no se usa.

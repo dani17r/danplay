@@ -1,0 +1,3031 @@
+{
+ "model": "htdemucs_6s",
+ "sources": [
+  "drums",
+  "bass",
+  "other",
+  "vocals",
+  "guitar",
+  "piano"
+ ],
+ "weights": {
+  "file": "5c90dfd2.safetensors",
+  "url": "https://huggingface.co/adefossez/HTDemucs-6s/resolve/main/5c90dfd2.safetensors",
+  "sha256": "d2a1745f0744721f6b8ca5bf469b67c651ea5ed1b52998cab033b2158609d411",
+  "bytes": 54885744
+ },
+ "initializers": [
+  {
+   "name": "m.encoder.0.conv.weight",
+   "source": "encoder.0.conv.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    4,
+    8,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.0.rewrite.weight",
+   "source": "encoder.0.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    48,
+    1,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.0.rewrite.bias",
+   "source": "encoder.0.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.encoder.0.dconv.layers.0.0.weight",
+   "source": "encoder.0.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    6,
+    48,
+    3
+   ]
+  },
+  {
+   "name": "m.encoder.0.dconv.layers.0.3.weight",
+   "source": "encoder.0.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    6,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.0.dconv.layers.0.3.bias",
+   "source": "encoder.0.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.encoder.0.dconv.layers.1.0.weight",
+   "source": "encoder.0.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    6,
+    48,
+    3
+   ]
+  },
+  {
+   "name": "m.encoder.0.dconv.layers.1.3.weight",
+   "source": "encoder.0.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    6,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.0.dconv.layers.1.3.bias",
+   "source": "encoder.0.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.encoder.1.conv.weight",
+   "source": "encoder.1.conv.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    48,
+    8,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.1.conv.bias",
+   "source": "encoder.1.conv.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.encoder.1.rewrite.weight",
+   "source": "encoder.1.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    96,
+    1,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.1.rewrite.bias",
+   "source": "encoder.1.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.encoder.1.dconv.layers.0.0.weight",
+   "source": "encoder.1.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    12,
+    96,
+    3
+   ]
+  },
+  {
+   "name": "m.encoder.1.dconv.layers.0.3.weight",
+   "source": "encoder.1.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    12,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.1.dconv.layers.0.3.bias",
+   "source": "encoder.1.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.encoder.1.dconv.layers.1.0.weight",
+   "source": "encoder.1.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    12,
+    96,
+    3
+   ]
+  },
+  {
+   "name": "m.encoder.1.dconv.layers.1.3.weight",
+   "source": "encoder.1.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    12,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.1.dconv.layers.1.3.bias",
+   "source": "encoder.1.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.encoder.2.conv.weight",
+   "source": "encoder.2.conv.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    96,
+    8,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.2.conv.bias",
+   "source": "encoder.2.conv.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.encoder.2.rewrite.weight",
+   "source": "encoder.2.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    192,
+    1,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.2.rewrite.bias",
+   "source": "encoder.2.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.encoder.2.dconv.layers.0.0.weight",
+   "source": "encoder.2.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    24,
+    192,
+    3
+   ]
+  },
+  {
+   "name": "m.encoder.2.dconv.layers.0.3.weight",
+   "source": "encoder.2.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    24,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.2.dconv.layers.0.3.bias",
+   "source": "encoder.2.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.encoder.2.dconv.layers.1.0.weight",
+   "source": "encoder.2.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    24,
+    192,
+    3
+   ]
+  },
+  {
+   "name": "m.encoder.2.dconv.layers.1.3.weight",
+   "source": "encoder.2.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    24,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.2.dconv.layers.1.3.bias",
+   "source": "encoder.2.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.encoder.3.conv.weight",
+   "source": "encoder.3.conv.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    192,
+    8,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.3.conv.bias",
+   "source": "encoder.3.conv.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.encoder.3.rewrite.weight",
+   "source": "encoder.3.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    384,
+    1,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.3.rewrite.bias",
+   "source": "encoder.3.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.encoder.3.dconv.layers.0.0.weight",
+   "source": "encoder.3.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    384,
+    3
+   ]
+  },
+  {
+   "name": "m.encoder.3.dconv.layers.0.3.weight",
+   "source": "encoder.3.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    48,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.3.dconv.layers.0.3.bias",
+   "source": "encoder.3.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.encoder.3.dconv.layers.1.0.weight",
+   "source": "encoder.3.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    384,
+    3
+   ]
+  },
+  {
+   "name": "m.encoder.3.dconv.layers.1.3.weight",
+   "source": "encoder.3.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    48,
+    1
+   ]
+  },
+  {
+   "name": "m.encoder.3.dconv.layers.1.3.bias",
+   "source": "encoder.3.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.decoder.0.conv_tr.weight",
+   "source": "decoder.0.conv_tr.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    192,
+    8,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.0.conv_tr.bias",
+   "source": "decoder.0.conv_tr.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.decoder.0.rewrite.weight",
+   "source": "decoder.0.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    384,
+    3,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.0.rewrite.bias",
+   "source": "decoder.0.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.decoder.0.dconv.layers.0.0.weight",
+   "source": "decoder.0.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    384,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.0.dconv.layers.0.3.weight",
+   "source": "decoder.0.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    48,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.0.dconv.layers.0.3.bias",
+   "source": "decoder.0.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.decoder.0.dconv.layers.1.0.weight",
+   "source": "decoder.0.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    384,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.0.dconv.layers.1.3.weight",
+   "source": "decoder.0.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    48,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.0.dconv.layers.1.3.bias",
+   "source": "decoder.0.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.decoder.1.conv_tr.weight",
+   "source": "decoder.1.conv_tr.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    96,
+    8,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.1.conv_tr.bias",
+   "source": "decoder.1.conv_tr.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.decoder.1.rewrite.weight",
+   "source": "decoder.1.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    192,
+    3,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.1.rewrite.bias",
+   "source": "decoder.1.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.decoder.1.dconv.layers.0.0.weight",
+   "source": "decoder.1.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    24,
+    192,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.1.dconv.layers.0.3.weight",
+   "source": "decoder.1.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    24,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.1.dconv.layers.0.3.bias",
+   "source": "decoder.1.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.decoder.1.dconv.layers.1.0.weight",
+   "source": "decoder.1.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    24,
+    192,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.1.dconv.layers.1.3.weight",
+   "source": "decoder.1.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    24,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.1.dconv.layers.1.3.bias",
+   "source": "decoder.1.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.decoder.2.conv_tr.weight",
+   "source": "decoder.2.conv_tr.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    48,
+    8,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.2.rewrite.weight",
+   "source": "decoder.2.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    96,
+    3,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.2.rewrite.bias",
+   "source": "decoder.2.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.decoder.2.dconv.layers.0.0.weight",
+   "source": "decoder.2.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    12,
+    96,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.2.dconv.layers.0.3.weight",
+   "source": "decoder.2.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    12,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.2.dconv.layers.0.3.bias",
+   "source": "decoder.2.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.decoder.2.dconv.layers.1.0.weight",
+   "source": "decoder.2.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    12,
+    96,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.2.dconv.layers.1.3.weight",
+   "source": "decoder.2.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    12,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.2.dconv.layers.1.3.bias",
+   "source": "decoder.2.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.decoder.3.conv_tr.weight",
+   "source": "decoder.3.conv_tr.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    24,
+    8,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.3.rewrite.weight",
+   "source": "decoder.3.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    48,
+    3,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.3.rewrite.bias",
+   "source": "decoder.3.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.decoder.3.dconv.layers.0.0.weight",
+   "source": "decoder.3.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    6,
+    48,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.3.dconv.layers.0.3.weight",
+   "source": "decoder.3.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    6,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.3.dconv.layers.0.3.bias",
+   "source": "decoder.3.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.decoder.3.dconv.layers.1.0.weight",
+   "source": "decoder.3.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    6,
+    48,
+    3
+   ]
+  },
+  {
+   "name": "m.decoder.3.dconv.layers.1.3.weight",
+   "source": "decoder.3.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    6,
+    1
+   ]
+  },
+  {
+   "name": "m.decoder.3.dconv.layers.1.3.bias",
+   "source": "decoder.3.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.tencoder.0.conv.weight",
+   "source": "tencoder.0.conv.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    2,
+    8
+   ]
+  },
+  {
+   "name": "m.tencoder.0.rewrite.weight",
+   "source": "tencoder.0.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    48,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.0.rewrite.bias",
+   "source": "tencoder.0.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.tencoder.0.dconv.layers.0.0.weight",
+   "source": "tencoder.0.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    6,
+    48,
+    3
+   ]
+  },
+  {
+   "name": "m.tencoder.0.dconv.layers.0.3.weight",
+   "source": "tencoder.0.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    6,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.0.dconv.layers.0.3.bias",
+   "source": "tencoder.0.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.tencoder.0.dconv.layers.1.0.weight",
+   "source": "tencoder.0.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    6,
+    48,
+    3
+   ]
+  },
+  {
+   "name": "m.tencoder.0.dconv.layers.1.3.weight",
+   "source": "tencoder.0.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    6,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.0.dconv.layers.1.3.bias",
+   "source": "tencoder.0.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.tencoder.1.conv.weight",
+   "source": "tencoder.1.conv.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    48,
+    8
+   ]
+  },
+  {
+   "name": "m.tencoder.1.conv.bias",
+   "source": "tencoder.1.conv.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.tencoder.1.rewrite.weight",
+   "source": "tencoder.1.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    96,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.1.rewrite.bias",
+   "source": "tencoder.1.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.tencoder.1.dconv.layers.0.0.weight",
+   "source": "tencoder.1.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    12,
+    96,
+    3
+   ]
+  },
+  {
+   "name": "m.tencoder.1.dconv.layers.0.3.weight",
+   "source": "tencoder.1.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    12,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.1.dconv.layers.0.3.bias",
+   "source": "tencoder.1.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.tencoder.1.dconv.layers.1.0.weight",
+   "source": "tencoder.1.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    12,
+    96,
+    3
+   ]
+  },
+  {
+   "name": "m.tencoder.1.dconv.layers.1.3.weight",
+   "source": "tencoder.1.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    12,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.1.dconv.layers.1.3.bias",
+   "source": "tencoder.1.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.tencoder.2.conv.weight",
+   "source": "tencoder.2.conv.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    96,
+    8
+   ]
+  },
+  {
+   "name": "m.tencoder.2.conv.bias",
+   "source": "tencoder.2.conv.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.tencoder.2.rewrite.weight",
+   "source": "tencoder.2.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    192,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.2.rewrite.bias",
+   "source": "tencoder.2.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.tencoder.2.dconv.layers.0.0.weight",
+   "source": "tencoder.2.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    24,
+    192,
+    3
+   ]
+  },
+  {
+   "name": "m.tencoder.2.dconv.layers.0.3.weight",
+   "source": "tencoder.2.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    24,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.2.dconv.layers.0.3.bias",
+   "source": "tencoder.2.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.tencoder.2.dconv.layers.1.0.weight",
+   "source": "tencoder.2.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    24,
+    192,
+    3
+   ]
+  },
+  {
+   "name": "m.tencoder.2.dconv.layers.1.3.weight",
+   "source": "tencoder.2.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    24,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.2.dconv.layers.1.3.bias",
+   "source": "tencoder.2.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.tencoder.3.conv.weight",
+   "source": "tencoder.3.conv.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    192,
+    8
+   ]
+  },
+  {
+   "name": "m.tencoder.3.conv.bias",
+   "source": "tencoder.3.conv.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.tencoder.3.rewrite.weight",
+   "source": "tencoder.3.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    384,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.3.rewrite.bias",
+   "source": "tencoder.3.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.tencoder.3.dconv.layers.0.0.weight",
+   "source": "tencoder.3.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    384,
+    3
+   ]
+  },
+  {
+   "name": "m.tencoder.3.dconv.layers.0.3.weight",
+   "source": "tencoder.3.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    48,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.3.dconv.layers.0.3.bias",
+   "source": "tencoder.3.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.tencoder.3.dconv.layers.1.0.weight",
+   "source": "tencoder.3.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    384,
+    3
+   ]
+  },
+  {
+   "name": "m.tencoder.3.dconv.layers.1.3.weight",
+   "source": "tencoder.3.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    48,
+    1
+   ]
+  },
+  {
+   "name": "m.tencoder.3.dconv.layers.1.3.bias",
+   "source": "tencoder.3.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.tdecoder.0.conv_tr.weight",
+   "source": "tdecoder.0.conv_tr.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    192,
+    8
+   ]
+  },
+  {
+   "name": "m.tdecoder.0.conv_tr.bias",
+   "source": "tdecoder.0.conv_tr.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.tdecoder.0.rewrite.weight",
+   "source": "tdecoder.0.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    384,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.0.rewrite.bias",
+   "source": "tdecoder.0.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.tdecoder.0.dconv.layers.0.0.weight",
+   "source": "tdecoder.0.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    384,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.0.dconv.layers.0.3.weight",
+   "source": "tdecoder.0.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    48,
+    1
+   ]
+  },
+  {
+   "name": "m.tdecoder.0.dconv.layers.0.3.bias",
+   "source": "tdecoder.0.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.tdecoder.0.dconv.layers.1.0.weight",
+   "source": "tdecoder.0.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    384,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.0.dconv.layers.1.3.weight",
+   "source": "tdecoder.0.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768,
+    48,
+    1
+   ]
+  },
+  {
+   "name": "m.tdecoder.0.dconv.layers.1.3.bias",
+   "source": "tdecoder.0.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    768
+   ]
+  },
+  {
+   "name": "m.tdecoder.1.conv_tr.weight",
+   "source": "tdecoder.1.conv_tr.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    96,
+    8
+   ]
+  },
+  {
+   "name": "m.tdecoder.1.conv_tr.bias",
+   "source": "tdecoder.1.conv_tr.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.tdecoder.1.rewrite.weight",
+   "source": "tdecoder.1.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    192,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.1.rewrite.bias",
+   "source": "tdecoder.1.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.tdecoder.1.dconv.layers.0.0.weight",
+   "source": "tdecoder.1.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    24,
+    192,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.1.dconv.layers.0.3.weight",
+   "source": "tdecoder.1.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    24,
+    1
+   ]
+  },
+  {
+   "name": "m.tdecoder.1.dconv.layers.0.3.bias",
+   "source": "tdecoder.1.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.tdecoder.1.dconv.layers.1.0.weight",
+   "source": "tdecoder.1.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    24,
+    192,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.1.dconv.layers.1.3.weight",
+   "source": "tdecoder.1.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384,
+    24,
+    1
+   ]
+  },
+  {
+   "name": "m.tdecoder.1.dconv.layers.1.3.bias",
+   "source": "tdecoder.1.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.tdecoder.2.conv_tr.weight",
+   "source": "tdecoder.2.conv_tr.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    48,
+    8
+   ]
+  },
+  {
+   "name": "m.tdecoder.2.rewrite.weight",
+   "source": "tdecoder.2.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    96,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.2.rewrite.bias",
+   "source": "tdecoder.2.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.tdecoder.2.dconv.layers.0.0.weight",
+   "source": "tdecoder.2.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    12,
+    96,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.2.dconv.layers.0.3.weight",
+   "source": "tdecoder.2.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    12,
+    1
+   ]
+  },
+  {
+   "name": "m.tdecoder.2.dconv.layers.0.3.bias",
+   "source": "tdecoder.2.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.tdecoder.2.dconv.layers.1.0.weight",
+   "source": "tdecoder.2.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    12,
+    96,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.2.dconv.layers.1.3.weight",
+   "source": "tdecoder.2.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192,
+    12,
+    1
+   ]
+  },
+  {
+   "name": "m.tdecoder.2.dconv.layers.1.3.bias",
+   "source": "tdecoder.2.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    192
+   ]
+  },
+  {
+   "name": "m.tdecoder.3.conv_tr.weight",
+   "source": "tdecoder.3.conv_tr.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    48,
+    12,
+    8
+   ]
+  },
+  {
+   "name": "m.tdecoder.3.rewrite.weight",
+   "source": "tdecoder.3.rewrite.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    48,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.3.rewrite.bias",
+   "source": "tdecoder.3.rewrite.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.tdecoder.3.dconv.layers.0.0.weight",
+   "source": "tdecoder.3.dconv.layers.0.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    6,
+    48,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.3.dconv.layers.0.3.weight",
+   "source": "tdecoder.3.dconv.layers.0.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    6,
+    1
+   ]
+  },
+  {
+   "name": "m.tdecoder.3.dconv.layers.0.3.bias",
+   "source": "tdecoder.3.dconv.layers.0.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.tdecoder.3.dconv.layers.1.0.weight",
+   "source": "tdecoder.3.dconv.layers.1.0.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    6,
+    48,
+    3
+   ]
+  },
+  {
+   "name": "m.tdecoder.3.dconv.layers.1.3.weight",
+   "source": "tdecoder.3.dconv.layers.1.3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96,
+    6,
+    1
+   ]
+  },
+  {
+   "name": "m.tdecoder.3.dconv.layers.1.3.bias",
+   "source": "tdecoder.3.dconv.layers.1.3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    96
+   ]
+  },
+  {
+   "name": "m.freq_emb.embedding.weight",
+   "source": "freq_emb.embedding.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    512,
+    48
+   ]
+  },
+  {
+   "name": "m.crosstransformer.norm_in.weight",
+   "source": "crosstransformer.norm_in.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.norm_in.bias",
+   "source": "crosstransformer.norm_in.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.norm_in_t.weight",
+   "source": "crosstransformer.norm_in_t.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.norm_in_t.bias",
+   "source": "crosstransformer.norm_in_t.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.self_attn.in_proj_weight",
+   "source": "crosstransformer.layers.0.self_attn.in_proj_weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152,
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.self_attn.in_proj_bias",
+   "source": "crosstransformer.layers.0.self_attn.in_proj_bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.self_attn.out_proj.bias",
+   "source": "crosstransformer.layers.0.self_attn.out_proj.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.linear1.bias",
+   "source": "crosstransformer.layers.0.linear1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1536
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.linear2.bias",
+   "source": "crosstransformer.layers.0.linear2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.norm1.weight",
+   "source": "crosstransformer.layers.0.norm1.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.norm1.bias",
+   "source": "crosstransformer.layers.0.norm1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.norm2.weight",
+   "source": "crosstransformer.layers.0.norm2.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.norm2.bias",
+   "source": "crosstransformer.layers.0.norm2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.gamma_1.scale",
+   "source": "crosstransformer.layers.0.gamma_1.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.0.gamma_2.scale",
+   "source": "crosstransformer.layers.0.gamma_2.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.cross_attn.in_proj_weight",
+   "source": "crosstransformer.layers.1.cross_attn.in_proj_weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152,
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.cross_attn.in_proj_bias",
+   "source": "crosstransformer.layers.1.cross_attn.in_proj_bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.cross_attn.out_proj.bias",
+   "source": "crosstransformer.layers.1.cross_attn.out_proj.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.linear1.bias",
+   "source": "crosstransformer.layers.1.linear1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1536
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.linear2.bias",
+   "source": "crosstransformer.layers.1.linear2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.norm1.weight",
+   "source": "crosstransformer.layers.1.norm1.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.norm1.bias",
+   "source": "crosstransformer.layers.1.norm1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.norm2.weight",
+   "source": "crosstransformer.layers.1.norm2.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.norm2.bias",
+   "source": "crosstransformer.layers.1.norm2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.norm3.weight",
+   "source": "crosstransformer.layers.1.norm3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.norm3.bias",
+   "source": "crosstransformer.layers.1.norm3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.gamma_1.scale",
+   "source": "crosstransformer.layers.1.gamma_1.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.1.gamma_2.scale",
+   "source": "crosstransformer.layers.1.gamma_2.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.self_attn.in_proj_weight",
+   "source": "crosstransformer.layers.2.self_attn.in_proj_weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152,
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.self_attn.in_proj_bias",
+   "source": "crosstransformer.layers.2.self_attn.in_proj_bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.self_attn.out_proj.bias",
+   "source": "crosstransformer.layers.2.self_attn.out_proj.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.linear1.bias",
+   "source": "crosstransformer.layers.2.linear1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1536
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.linear2.bias",
+   "source": "crosstransformer.layers.2.linear2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.norm1.weight",
+   "source": "crosstransformer.layers.2.norm1.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.norm1.bias",
+   "source": "crosstransformer.layers.2.norm1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.norm2.weight",
+   "source": "crosstransformer.layers.2.norm2.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.norm2.bias",
+   "source": "crosstransformer.layers.2.norm2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.gamma_1.scale",
+   "source": "crosstransformer.layers.2.gamma_1.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.2.gamma_2.scale",
+   "source": "crosstransformer.layers.2.gamma_2.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.cross_attn.in_proj_weight",
+   "source": "crosstransformer.layers.3.cross_attn.in_proj_weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152,
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.cross_attn.in_proj_bias",
+   "source": "crosstransformer.layers.3.cross_attn.in_proj_bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.cross_attn.out_proj.bias",
+   "source": "crosstransformer.layers.3.cross_attn.out_proj.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.linear1.bias",
+   "source": "crosstransformer.layers.3.linear1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1536
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.linear2.bias",
+   "source": "crosstransformer.layers.3.linear2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.norm1.weight",
+   "source": "crosstransformer.layers.3.norm1.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.norm1.bias",
+   "source": "crosstransformer.layers.3.norm1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.norm2.weight",
+   "source": "crosstransformer.layers.3.norm2.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.norm2.bias",
+   "source": "crosstransformer.layers.3.norm2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.norm3.weight",
+   "source": "crosstransformer.layers.3.norm3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.norm3.bias",
+   "source": "crosstransformer.layers.3.norm3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.gamma_1.scale",
+   "source": "crosstransformer.layers.3.gamma_1.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.3.gamma_2.scale",
+   "source": "crosstransformer.layers.3.gamma_2.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.self_attn.in_proj_weight",
+   "source": "crosstransformer.layers.4.self_attn.in_proj_weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152,
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.self_attn.in_proj_bias",
+   "source": "crosstransformer.layers.4.self_attn.in_proj_bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.self_attn.out_proj.bias",
+   "source": "crosstransformer.layers.4.self_attn.out_proj.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.linear1.bias",
+   "source": "crosstransformer.layers.4.linear1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1536
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.linear2.bias",
+   "source": "crosstransformer.layers.4.linear2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.norm1.weight",
+   "source": "crosstransformer.layers.4.norm1.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.norm1.bias",
+   "source": "crosstransformer.layers.4.norm1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.norm2.weight",
+   "source": "crosstransformer.layers.4.norm2.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.norm2.bias",
+   "source": "crosstransformer.layers.4.norm2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.gamma_1.scale",
+   "source": "crosstransformer.layers.4.gamma_1.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers.4.gamma_2.scale",
+   "source": "crosstransformer.layers.4.gamma_2.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.self_attn.in_proj_weight",
+   "source": "crosstransformer.layers_t.0.self_attn.in_proj_weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152,
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.self_attn.in_proj_bias",
+   "source": "crosstransformer.layers_t.0.self_attn.in_proj_bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.self_attn.out_proj.bias",
+   "source": "crosstransformer.layers_t.0.self_attn.out_proj.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.linear1.bias",
+   "source": "crosstransformer.layers_t.0.linear1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1536
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.linear2.bias",
+   "source": "crosstransformer.layers_t.0.linear2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.norm1.weight",
+   "source": "crosstransformer.layers_t.0.norm1.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.norm1.bias",
+   "source": "crosstransformer.layers_t.0.norm1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.norm2.weight",
+   "source": "crosstransformer.layers_t.0.norm2.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.norm2.bias",
+   "source": "crosstransformer.layers_t.0.norm2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.gamma_1.scale",
+   "source": "crosstransformer.layers_t.0.gamma_1.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.0.gamma_2.scale",
+   "source": "crosstransformer.layers_t.0.gamma_2.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.cross_attn.in_proj_weight",
+   "source": "crosstransformer.layers_t.1.cross_attn.in_proj_weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152,
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.cross_attn.in_proj_bias",
+   "source": "crosstransformer.layers_t.1.cross_attn.in_proj_bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.cross_attn.out_proj.bias",
+   "source": "crosstransformer.layers_t.1.cross_attn.out_proj.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.linear1.bias",
+   "source": "crosstransformer.layers_t.1.linear1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1536
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.linear2.bias",
+   "source": "crosstransformer.layers_t.1.linear2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.norm1.weight",
+   "source": "crosstransformer.layers_t.1.norm1.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.norm1.bias",
+   "source": "crosstransformer.layers_t.1.norm1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.norm2.weight",
+   "source": "crosstransformer.layers_t.1.norm2.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.norm2.bias",
+   "source": "crosstransformer.layers_t.1.norm2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.norm3.weight",
+   "source": "crosstransformer.layers_t.1.norm3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.norm3.bias",
+   "source": "crosstransformer.layers_t.1.norm3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.gamma_1.scale",
+   "source": "crosstransformer.layers_t.1.gamma_1.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.1.gamma_2.scale",
+   "source": "crosstransformer.layers_t.1.gamma_2.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.self_attn.in_proj_weight",
+   "source": "crosstransformer.layers_t.2.self_attn.in_proj_weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152,
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.self_attn.in_proj_bias",
+   "source": "crosstransformer.layers_t.2.self_attn.in_proj_bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.self_attn.out_proj.bias",
+   "source": "crosstransformer.layers_t.2.self_attn.out_proj.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.linear1.bias",
+   "source": "crosstransformer.layers_t.2.linear1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1536
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.linear2.bias",
+   "source": "crosstransformer.layers_t.2.linear2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.norm1.weight",
+   "source": "crosstransformer.layers_t.2.norm1.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.norm1.bias",
+   "source": "crosstransformer.layers_t.2.norm1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.norm2.weight",
+   "source": "crosstransformer.layers_t.2.norm2.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.norm2.bias",
+   "source": "crosstransformer.layers_t.2.norm2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.gamma_1.scale",
+   "source": "crosstransformer.layers_t.2.gamma_1.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.2.gamma_2.scale",
+   "source": "crosstransformer.layers_t.2.gamma_2.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.cross_attn.in_proj_weight",
+   "source": "crosstransformer.layers_t.3.cross_attn.in_proj_weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152,
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.cross_attn.in_proj_bias",
+   "source": "crosstransformer.layers_t.3.cross_attn.in_proj_bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.cross_attn.out_proj.bias",
+   "source": "crosstransformer.layers_t.3.cross_attn.out_proj.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.linear1.bias",
+   "source": "crosstransformer.layers_t.3.linear1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1536
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.linear2.bias",
+   "source": "crosstransformer.layers_t.3.linear2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.norm1.weight",
+   "source": "crosstransformer.layers_t.3.norm1.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.norm1.bias",
+   "source": "crosstransformer.layers_t.3.norm1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.norm2.weight",
+   "source": "crosstransformer.layers_t.3.norm2.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.norm2.bias",
+   "source": "crosstransformer.layers_t.3.norm2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.norm3.weight",
+   "source": "crosstransformer.layers_t.3.norm3.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.norm3.bias",
+   "source": "crosstransformer.layers_t.3.norm3.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.gamma_1.scale",
+   "source": "crosstransformer.layers_t.3.gamma_1.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.3.gamma_2.scale",
+   "source": "crosstransformer.layers_t.3.gamma_2.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.self_attn.in_proj_weight",
+   "source": "crosstransformer.layers_t.4.self_attn.in_proj_weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152,
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.self_attn.in_proj_bias",
+   "source": "crosstransformer.layers_t.4.self_attn.in_proj_bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1152
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.self_attn.out_proj.bias",
+   "source": "crosstransformer.layers_t.4.self_attn.out_proj.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.linear1.bias",
+   "source": "crosstransformer.layers_t.4.linear1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    1536
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.linear2.bias",
+   "source": "crosstransformer.layers_t.4.linear2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.norm1.weight",
+   "source": "crosstransformer.layers_t.4.norm1.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.norm1.bias",
+   "source": "crosstransformer.layers_t.4.norm1.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.norm2.weight",
+   "source": "crosstransformer.layers_t.4.norm2.weight",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.norm2.bias",
+   "source": "crosstransformer.layers_t.4.norm2.bias",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.gamma_1.scale",
+   "source": "crosstransformer.layers_t.4.gamma_1.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "m.crosstransformer.layers_t.4.gamma_2.scale",
+   "source": "crosstransformer.layers_t.4.gamma_2.scale",
+   "op": "",
+   "dtype": "float32",
+   "shape": [
+    384
+   ]
+  },
+  {
+   "name": "val_1054",
+   "source": "crosstransformer.layers.0.self_attn.out_proj.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    384
+   ]
+  },
+  {
+   "name": "val_1058",
+   "source": "crosstransformer.layers.0.linear1.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    1536,
+    384
+   ]
+  },
+  {
+   "name": "val_1060",
+   "source": "crosstransformer.layers.0.linear2.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    1536
+   ]
+  },
+  {
+   "name": "val_1175",
+   "source": "crosstransformer.layers_t.0.self_attn.out_proj.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    384
+   ]
+  },
+  {
+   "name": "val_1179",
+   "source": "crosstransformer.layers_t.0.linear1.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    1536,
+    384
+   ]
+  },
+  {
+   "name": "val_1181",
+   "source": "crosstransformer.layers_t.0.linear2.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    1536
+   ]
+  },
+  {
+   "name": "val_1298",
+   "source": "crosstransformer.layers.1.cross_attn.out_proj.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    384
+   ]
+  },
+  {
+   "name": "val_1302",
+   "source": "crosstransformer.layers.1.linear1.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    1536,
+    384
+   ]
+  },
+  {
+   "name": "val_1304",
+   "source": "crosstransformer.layers.1.linear2.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    1536
+   ]
+  },
+  {
+   "name": "val_1421",
+   "source": "crosstransformer.layers_t.1.cross_attn.out_proj.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    384
+   ]
+  },
+  {
+   "name": "val_1425",
+   "source": "crosstransformer.layers_t.1.linear1.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    1536,
+    384
+   ]
+  },
+  {
+   "name": "val_1427",
+   "source": "crosstransformer.layers_t.1.linear2.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    1536
+   ]
+  },
+  {
+   "name": "val_1542",
+   "source": "crosstransformer.layers.2.self_attn.out_proj.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    384
+   ]
+  },
+  {
+   "name": "val_1546",
+   "source": "crosstransformer.layers.2.linear1.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    1536,
+    384
+   ]
+  },
+  {
+   "name": "val_1548",
+   "source": "crosstransformer.layers.2.linear2.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    1536
+   ]
+  },
+  {
+   "name": "val_1663",
+   "source": "crosstransformer.layers_t.2.self_attn.out_proj.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    384
+   ]
+  },
+  {
+   "name": "val_1667",
+   "source": "crosstransformer.layers_t.2.linear1.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    1536,
+    384
+   ]
+  },
+  {
+   "name": "val_1669",
+   "source": "crosstransformer.layers_t.2.linear2.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    1536
+   ]
+  },
+  {
+   "name": "val_1786",
+   "source": "crosstransformer.layers.3.cross_attn.out_proj.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    384
+   ]
+  },
+  {
+   "name": "val_1790",
+   "source": "crosstransformer.layers.3.linear1.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    1536,
+    384
+   ]
+  },
+  {
+   "name": "val_1792",
+   "source": "crosstransformer.layers.3.linear2.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    1536
+   ]
+  },
+  {
+   "name": "val_1909",
+   "source": "crosstransformer.layers_t.3.cross_attn.out_proj.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    384
+   ]
+  },
+  {
+   "name": "val_1913",
+   "source": "crosstransformer.layers_t.3.linear1.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    1536,
+    384
+   ]
+  },
+  {
+   "name": "val_1915",
+   "source": "crosstransformer.layers_t.3.linear2.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    1536
+   ]
+  },
+  {
+   "name": "val_2030",
+   "source": "crosstransformer.layers.4.self_attn.out_proj.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    384
+   ]
+  },
+  {
+   "name": "val_2034",
+   "source": "crosstransformer.layers.4.linear1.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    1536,
+    384
+   ]
+  },
+  {
+   "name": "val_2036",
+   "source": "crosstransformer.layers.4.linear2.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    1536
+   ]
+  },
+  {
+   "name": "val_2151",
+   "source": "crosstransformer.layers_t.4.self_attn.out_proj.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    384
+   ]
+  },
+  {
+   "name": "val_2155",
+   "source": "crosstransformer.layers_t.4.linear1.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    1536,
+    384
+   ]
+  },
+  {
+   "name": "val_2157",
+   "source": "crosstransformer.layers_t.4.linear2.weight",
+   "op": "T",
+   "dtype": "float32",
+   "shape": [
+    384,
+    1536
+   ]
+  }
+ ]
+}

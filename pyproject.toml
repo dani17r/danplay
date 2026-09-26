@@ -29,6 +29,10 @@ dependencies = [
     # rutas de datos y papelera del sistema en Linux, Windows y macOS
     "platformdirs>=4.11.12,<5",
     "Send2Trash>=2.1.0,<3",
+    # separar canciones en pistas (Demucs v4 sin PyTorch): la red corre en
+    # ONNX Runtime y el espectrograma alrededor, con numpy
+    "numpy>=2.3,<3",
+    "onnxruntime>=1.30,<2",
 ]
 
 [project.scripts]
@@ -117,7 +121,16 @@ extend-immutable-calls = ["fastapi.Body", "fastapi.Query", "fastapi.Depends"]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
 include = ["danplay", "tests", "scripts", "packaging/core_entry.py"]
-exclude = ["desktop", "core/target", "dist", ".dev", "**/__pycache__"]
+# exportar-separador usa PyTorch y Demucs, que la app no lleva: se ejecuta
+# aparte (ver el propio script)
+exclude = [
+    "desktop",
+    "core/target",
+    "dist",
+    ".dev",
+    "**/__pycache__",
+    "scripts/exportar-separador.py",
+]
 # los tipos del modulo en Rust (core/danplay_core.pyi); `conftest` para los
 # scripts que montan la biblioteca de prueba
 stubPath = "core"
