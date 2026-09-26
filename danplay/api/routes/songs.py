@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
 from ... import (
+    beatgrid,
     convert,
     enrich,
     external,
@@ -80,6 +81,24 @@ def audio(cid: int):
 
 # Tamaños de miniatura que se generan y se guardan (ver `thumbnails`).
 THUMBNAIL_SIZES = thumbnails.SIZES
+
+
+@router.get("/api/song/{cid}/beats")
+def song_beats(cid: int):
+    """El pulso y el «1» de la cancion para el metronomo, con Beat This!: la
+    rejilla que entiende la app de escritorio (`BeatGrid`), con el «1» de cada
+    compas en `bars`. La primera vez tarda unos segundos; luego sale de lo
+    guardado. 404 si el archivo no esta; 503 si aqui no se puede (y la app
+    sigue con su analisis de siempre); 422 si la cancion no tiene pulso."""
+    c = external.resolve(cid)
+    if not c or not os.path.exists(c["path"]):
+        raise HTTPException(404, "archivo no encontrado")
+    if beatgrid.available() and not beatgrid.cached(c["path"]):
+        raise HTTPException(503, beatgrid.available())
+    try:
+        return beatgrid.grid_of(c["path"])
+    except beatgrid.BeatsError as e:
+        raise HTTPException(422, str(e)) from e
 
 
 @router.get("/api/song/{cid}/waveform")

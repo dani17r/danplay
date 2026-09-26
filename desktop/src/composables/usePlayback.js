@@ -344,6 +344,7 @@ function createWebBackend() {
     analyzeBeats: async () => {
       throw new Error('el compás solo se analiza dentro de la app')
     },
+    setBeatGrid: async (_path, grid) => grid,
     // Las pistas separadas solo suenan juntas dentro de la app (las junta
     // ffmpeg y las mezcla Rust): aquí se apunta, como el tono.
     setStems: async (song, tracks) => {
@@ -689,6 +690,16 @@ async function analyzeBeats(hintBpm = null) {
   if (!backend || !state.path) return null
   return backend.analyzeBeats(state.path, hintBpm)
 }
+/**
+ * Le da a Rust una rejilla calculada fuera (Beat This!, en el núcleo) para
+ * el archivo que suena; se queda con ella para el metrónomo.
+ * @param {import('../api.js').BeatGrid} grid
+ */
+async function setBeatGrid(grid) {
+  await ensureBooted()
+  if (!backend || !state.path) return null
+  return backend.setBeatGrid(state.path, grid)
+}
 function setRepeat(mode) {
   const m = normalizeRepeat(mode)
   remember(REPEAT_KEY, m)
@@ -768,6 +779,7 @@ export function usePlayback() {
     metronomeSent,
     metronome: computed(() => state.metronome),
     analyzeBeats,
+    setBeatGrid,
     setStems,
     /** suenan las pistas separadas de la canción en vez de ella */
     stems: computed(() => !!state.stems),

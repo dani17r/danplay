@@ -93,6 +93,20 @@ pub async fn analyze_beats(
     Ok((*grid).clone())
 }
 
+/// La rejilla de un archivo calculada fuera (Beat This!, en el nucleo): se
+/// queda como si la hubiera analizado `analyze_beats`, y el metronomo la
+/// sigue. Se revisa antes (`BeatGrid::checked`): viene de otro proceso.
+#[tauri::command]
+pub fn set_beat_grid(
+    playback: tauri::State<'_, Playback>,
+    path: String,
+    grid: beats::BeatGrid,
+) -> Result<beats::BeatGrid, String> {
+    let grid = grid.checked()?;
+    playback.keep_grid(path, std::sync::Arc::new(grid.clone()));
+    Ok(grid)
+}
+
 /// Los ajustes del metronomo. Va con la rejilla de la cancion que suena, si
 /// ya se analizo; si no, el clic va libre hasta que llegue.
 #[tauri::command]

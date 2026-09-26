@@ -59,6 +59,8 @@
  * @property {number} meter        pulsos por compás (3 o 4; a mano, 0 sin acento o 2..12)
  * @property {number[]} beats      segundos de cada pulso
  * @property {number} first_downbeat  índice en `beats` del primer «1»
+ * @property {number[]} [bars]     con Beat This!: el índice de cada «1», compás a compás
+ *                                 (con compases irregulares, si los hay)
  * @property {number} phase3
  * @property {number} phase4
  * @property {number} confidence
@@ -457,6 +459,13 @@ export const playback = {
    * @param {Array<{path: string, gain: number, pan: number, on: boolean}>|null} tracks
    */
   setStems: (song, tracks) => invoke('set_stems', { song, tracks }),
+  /**
+   * La rejilla de un archivo calculada fuera (Beat This!, en el núcleo):
+   * Rust se queda con ella para el metrónomo, como si la hubiera analizado.
+   * @param {string} path @param {BeatGrid} grid
+   * @returns {Promise<BeatGrid>}
+   */
+  setBeatGrid: (path, grid) => invoke('set_beat_grid', { path, grid }),
   /**
    * Analiza el pulso y el compás del archivo (un par de segundos; Rust se
    * queda con la rejilla para el metrónomo).
@@ -870,6 +879,13 @@ export const api = {
    * @returns {Promise<{peaks: number[], rms: number[], buckets: number}>}
    */
   waveform: (id, buckets = 800) => GET(`/song/${id}/waveform?buckets=${buckets}`),
+  /**
+   * El pulso y el «1» de la canción con Beat This! (la primera vez, unos
+   * segundos). 503 si aquí no se puede: la app sigue con su análisis.
+   * @param {number} id
+   * @returns {Promise<BeatGrid>}
+   */
+  beatGrid: (id) => GET(`/song/${id}/beats`),
   // ---- separar en pistas (bateria, voces, bajo...)
   /**
    * Si se puede separar aqui, lo que pesa el separador (y lo que falta por

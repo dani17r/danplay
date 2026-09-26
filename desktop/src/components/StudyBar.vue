@@ -505,9 +505,11 @@ async function setPitch(n) {
 }
 
 // ---- metronomo
-// El pulso y el compas los detecta Rust (`analyzeBeats`); la rejilla se
-// pinta sobre la onda y el clic la sigue. Lo que uno ajuste a mano (tempo,
-// compas, «1», doble/mitad) se guarda con la cancion en `study.metronome`.
+// El pulso y el compas los detecta Beat This! en el nucleo (`api.beatGrid`),
+// y se le pasan a Rust; si el nucleo no puede, los detecta Rust con su
+// analisis de siempre (`analyzeBeats`). La rejilla se pinta sobre la onda y
+// el clic la sigue. Lo que uno ajuste a mano (tempo, compas, «1»,
+// doble/mitad) se guarda con la cancion en `study.metronome`.
 async function ensureGrid() {
   const path = player.state.path
   const id = loadedFor.value
@@ -516,7 +518,15 @@ async function ensureGrid() {
   analyzing.value = true
   gridError.value = ''
   try {
-    const g = await player.analyzeBeats(track.value?.bpm || null)
+    let g = null
+    try {
+      const found = await api.beatGrid(id)
+      if (loadedFor.value !== id) return null
+      g = await player.setBeatGrid(found)
+    } catch {
+      /* aqui no hay Beat This!, o la cancion no le dio pulso: el de siempre */
+    }
+    if (!g) g = await player.analyzeBeats(track.value?.bpm || null)
     if (loadedFor.value !== id) return null
     grid.value = g
     // con la rejilla ya en Rust, se vuelven a mandar los ajustes para que

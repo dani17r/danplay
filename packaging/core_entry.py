@@ -8,10 +8,12 @@ Los argumentos son los mismos que `danplay serve`:
     danplay-core --uds RUTA          socket Unix (Linux y macOS)
     danplay-core --host H --port N   loopback (Windows), con DANPLAY_TOKEN
 
-Y uno mas, que no lanza la app sino el propio nucleo: el proceso aparte que
-separa una cancion en pistas (danplay/separation.py).
+Y dos mas, que no lanzan la app sino el propio nucleo: los procesos aparte
+que separan una cancion en pistas (danplay/separation.py) y que buscan su
+pulso y su «1» (danplay/pulse.py).
 
     danplay-core --separar TRABAJO.json
+    danplay-core --pulso GRAFO FFMPEG ARCHIVO
 """
 
 import argparse
@@ -40,6 +42,10 @@ def main():
         from danplay.separation import main as separate
 
         return separate(sys.argv[2:])
+    if len(sys.argv) == 5 and sys.argv[1] == "--pulso":
+        from danplay.pulse import main as pulse
+
+        return pulse(sys.argv[2:])
     parser = argparse.ArgumentParser(prog="danplay-core", add_help=True)
     parser.add_argument("--uds", help="socket Unix (sin puerto TCP)")
     parser.add_argument("--host", default="127.0.0.1")

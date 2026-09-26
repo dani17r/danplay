@@ -283,6 +283,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     unqueueSeparation: [[7], 'DELETE', '/api/separate/queue/7'],
     removeSeparator: [[], 'DELETE', '/api/separate/weights'],
     stems: [[7], 'GET', '/api/song/7/stems'],
+    beatGrid: [[7], 'GET', '/api/song/7/beats'],
     deleteStems: [[7], 'DELETE', '/api/song/7/stems'],
     exportMix: [
       [7, { tracks: [{ source: 'vocals' }], path: '/m/x.mp3' }],

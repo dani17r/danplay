@@ -338,6 +338,9 @@ export function createState() {
     },
     /** @type {Record<number, any>} */
     stems: {},
+    /** el pulso de Beat This! que da el nucleo, o null: aqui no se puede */
+    /** @type {any} */
+    beatGrid: null,
     /** yt-dlp: la version que se usa, la que viaja con la app y el motor de JS */
     ytdlp: {
       version: '2026.09.01',
@@ -682,6 +685,12 @@ function answers(state) {
       over_budget: dollars > 0 && 0.021 > dollars
     }),
     chatExport: async (id) => ({ markdown: `# conversacion ${id}\n` }),
+    // el pulso de Beat This!: sin `state.beatGrid`, como un nucleo que no
+    // puede (503), y la barra de estudio sigue con el analisis de Rust
+    beatGrid: async () => {
+      if (!state.beatGrid) throw new Error('falta el detector de pulso en esta instalación')
+      return copy(state.beatGrid)
+    },
     /** una onda de mentira: callada al principio, fuerte al final */
     waveform: async (id, buckets = 800) => {
       const n = Math.max(1, Math.min(buckets, 4000))
@@ -960,6 +969,20 @@ export function createPlaybackDouble() {
         confidence: 0.8,
         path
       }
+    }),
+    // como Rust: se queda con la rejilla que le dan (la de Beat This!)
+    setBeatGrid: vi.fn(async (path, g) => {
+      grid = { bpm: g.bpm, meter: g.meter }
+      emit({
+        metronome: {
+          ...state.metronome,
+          has_grid: true,
+          bpm: g.bpm,
+          meter: g.meter,
+          confidence: g.confidence
+        }
+      })
+      return { ...g }
     }),
     state: vi.fn(async () => ({ ...state })),
     queueItems: vi.fn(async () => ({ items, origin })),

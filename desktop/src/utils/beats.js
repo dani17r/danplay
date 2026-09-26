@@ -47,7 +47,8 @@ export function doubled(g) {
     beats,
     first_downbeat: g.first_downbeat * 2,
     phase3: g.phase3 * 2,
-    phase4: g.phase4 * 2
+    phase4: g.phase4 * 2,
+    ...(g.bars?.length ? { bars: g.bars.map((b) => b * 2) } : {})
   }
 }
 
@@ -64,7 +65,14 @@ export function halved(g) {
     beats: g.beats.filter((_, i) => i >= start && (i - start) % 2 === 0),
     first_downbeat: (g.first_downbeat - start) / 2,
     phase3: Math.floor(Math.max(0, g.phase3 - start) / 2),
-    phase4: Math.floor(Math.max(0, g.phase4 - start) / 2)
+    phase4: Math.floor(Math.max(0, g.phase4 - start) / 2),
+    ...(g.bars?.length
+      ? {
+          bars: g.bars
+            .filter((b) => b >= start && (b - start) % 2 === 0)
+            .map((b) => (b - start) / 2)
+        }
+      : {})
   }
 }
 
@@ -77,9 +85,12 @@ export function halved(g) {
  */
 export function withMeter(g, meter) {
   const m = normalMeter(meter)
-  if (!m) return { ...g, meter: 0 }
+  // el mismo: se quedan los «1» como estaban (con Beat This!, compás a compás)
+  if (m === g.meter) return g
+  const { bars: _bars, ...regular } = g
+  if (!m) return { ...regular, meter: 0 }
   const phase = m % 3 === 0 ? g.phase3 : g.phase4
-  return { ...g, meter: m, first_downbeat: phase % m }
+  return { ...regular, meter: m, first_downbeat: phase % m }
 }
 
 /**
@@ -89,7 +100,11 @@ export function withMeter(g, meter) {
  * @returns {BeatGrid}
  */
 export function shifted(g, shift) {
-  return { ...g, first_downbeat: mod(g.first_downbeat + (shift || 0), Math.max(1, g.meter)) }
+  const out = { ...g, first_downbeat: mod(g.first_downbeat + (shift || 0), Math.max(1, g.meter)) }
+  if (g.bars?.length && shift) {
+    out.bars = g.bars.map((b) => b + shift).filter((b) => b >= 0 && b < g.beats.length)
+  }
+  return out
 }
 
 /**
@@ -107,11 +122,21 @@ export function effectiveGrid(base, { mult = 0, meter = null, shift = 0 } = {}) 
 }
 
 /**
- * ¿Es el «1» el pulso `i`? Sin acento, ninguno.
+ * ¿Es el «1» el pulso `i`? Sin acento, ninguno. Con `bars` (Beat This!),
+ * contando desde el último «1» antes de `i`, como Rust (`beat_in_bar`).
  * @param {BeatGrid} g @param {number} i
  */
 export function isDownbeat(g, i) {
-  return g.meter > 0 && mod(i - g.first_downbeat, g.meter) === 0
+  if (!(g.meter > 0)) return false
+  let from = g.first_downbeat
+  if (g.bars?.length) {
+    from = g.bars[0]
+    for (const b of g.bars) {
+      if (b > i) break
+      from = b
+    }
+  }
+  return mod(i - from, g.meter) === 0
 }
 
 /** El factor del doble o la mitad. */

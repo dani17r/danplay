@@ -121,8 +121,9 @@ extend-immutable-calls = ["fastapi.Body", "fastapi.Query", "fastapi.Depends"]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
 include = ["danplay", "tests", "scripts", "packaging/core_entry.py"]
-# exportar-separador usa PyTorch y Demucs, y evaluar-separador MUSDB18, que
-# la app no lleva: se ejecutan aparte (ver cada script)
+# exportar-separador y exportar-pulso usan PyTorch (y Demucs, Beat This!), y
+# evaluar-separador y evaluar-pulso, MUSDB18 y mir_eval, que la app no lleva:
+# se ejecutan aparte (ver cada script)
 exclude = [
     "desktop",
     "core/target",
@@ -131,6 +132,8 @@ exclude = [
     "**/__pycache__",
     "scripts/exportar-separador.py",
     "scripts/evaluar-separador.py",
+    "scripts/exportar-pulso.py",
+    "scripts/evaluar-pulso.py",
 ]
 # los tipos del modulo en Rust (core/danplay_core.pyi); `conftest` para los
 # scripts que montan la biblioteca de prueba

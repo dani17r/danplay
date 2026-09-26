@@ -86,3 +86,32 @@ describe('el tempo escrito a mano', () => {
     expect(multFactor(0)).toBe(1)
   })
 })
+
+describe('los «1» de Beat This!, compás a compás, como en Rust', () => {
+  // la misma que la prueba de Rust `the_bars_of_beat_this_are_followed_as_heard`
+  const irregular = () => ({
+    bpm: 120,
+    meter: 4,
+    beats: Array.from({ length: 16 }, (_, i) => 0.5 * i),
+    first_downbeat: 0,
+    phase3: 0,
+    phase4: 0,
+    confidence: 0.9,
+    bars: [0, 4, 8, 10, 14]
+  })
+  const ones = (g, n = 20) => Array.from({ length: n }, (_, i) => i).filter((i) => isDownbeat(g, i))
+
+  it('el compás irregular se respeta, y lo que sigue va con el compás de la canción', () => {
+    expect(ones(irregular())).toEqual([0, 4, 8, 10, 14, 18])
+  })
+  it('correr el «1», el doble, la mitad y otro compás, igual que Rust', () => {
+    const g = irregular()
+    expect(shifted(g, 1).bars).toEqual([1, 5, 9, 11, 15])
+    expect(doubled(g).bars).toEqual([0, 8, 16, 20, 28])
+    expect(halved(g).bars).toEqual([0, 2, 4, 5, 7])
+    expect(withMeter(g, 4)).toBe(g)
+    const waltz = withMeter(g, 3)
+    expect(waltz.bars).toBeUndefined()
+    expect(ones(waltz, 9)).toHaveLength(3)
+  })
+})

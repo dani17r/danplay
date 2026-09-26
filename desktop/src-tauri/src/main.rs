@@ -150,6 +150,7 @@ fn main() {
             queue::commands::set_metronome,
             queue::commands::set_stems,
             queue::commands::analyze_beats,
+            queue::commands::set_beat_grid,
             queue::commands::playback_state,
             queue::commands::queue_items,
             tray::show_window,

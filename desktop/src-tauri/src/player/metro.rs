@@ -208,6 +208,7 @@ mod tests {
             phase3: 0,
             phase4: 0,
             confidence: 0.9,
+            bars: Vec::new(),
         });
         let mut m = Metro::default();
         m.set(settings, Some(("cancion.mp3".into(), grid)), "cancion.mp3");

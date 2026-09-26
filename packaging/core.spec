@@ -51,7 +51,10 @@ a = Analysis(['core_entry.py'],
                         'danplay/data')]
                     # los grafos del separador (sin pesos: se bajan al usarlo)
                     + [(os.path.join(ROOT, 'danplay', 'data', 'separador'),
-                        'danplay/data/separador')]),
+                        'danplay/data/separador')]
+                    # el detector de pulso (Beat This!, con sus pesos)
+                    + [(os.path.join(ROOT, 'danplay', 'data', 'pulso'),
+                        'danplay/data/pulso')]),
              hiddenimports=hidden,
              # `musicbrainzngs` no lo importa nadie y `watchfiles` es para
              # `--reload`, que aqui no se usa.

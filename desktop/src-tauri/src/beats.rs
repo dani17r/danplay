@@ -17,7 +17,7 @@
 //! son los rasgos de cada trama, unos 9 MB por hora.
 use crate::{tools, transcode};
 use rustfft::{Fft, FftPlanner, num_complex::Complex};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -31,8 +31,9 @@ const FPS: f64 = RATE as f64 / HOP as f64;
 /// Cuanto se castiga apartarse del periodo al enlazar pulsos (librosa: 100).
 const TIGHTNESS: f64 = 100.0;
 
-/// La rejilla de una cancion.
-#[derive(Clone, Debug, Serialize, PartialEq)]
+/// La rejilla de una cancion: la de aqui, o la de Beat This! que calcula el
+/// nucleo (`checked` la revisa antes de usarla).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BeatGrid {
     /// Pulsos por minuto (mediana de los intervalos de la rejilla).
     pub bpm: f32,
@@ -48,19 +49,65 @@ pub struct BeatGrid {
     pub phase4: usize,
     /// Cuanto destaca el «1» sobre los demas tiempos: 0 = ni idea, 1 = clarisimo.
     pub confidence: f32,
+    /// Con Beat This!: el indice de cada «1», compas a compas, como los oye
+    /// la red (con los compases irregulares que tenga la cancion: el 2/4
+    /// antes del coro). Vacio: un «1» cada `meter` pulsos desde
+    /// `first_downbeat`, como en el analisis de aqui. Medido en GTZAN, el «1»
+    /// acierta mas asi que forzando un compas regular.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bars: Vec<usize>,
 }
 
 impl BeatGrid {
+    /// Una rejilla que viene de fuera, lista para usar, o por que no vale:
+    /// pulsos que avanzan (y no una lista vacia ni infinita), un tempo que se
+    /// pueda tocar, el compas dentro de lo que se sabe tocar y los indices
+    /// dentro de la lista.
+    pub fn checked(mut self) -> Result<BeatGrid, String> {
+        const MAX_BEATS: usize = 100_000;
+        if self.beats.len() < 2 || self.beats.len() > MAX_BEATS {
+            return Err("una rejilla sin pulsos".into());
+        }
+        if !self.beats.iter().all(|b| b.is_finite() && *b >= 0.0) || !self.beats.windows(2).all(|w| w[1] > w[0]) {
+            return Err("los pulsos de la rejilla no van en orden".into());
+        }
+        if !self.bpm.is_finite() || !(10.0..=600.0).contains(&self.bpm) {
+            return Err(format!("un tempo que no se puede tocar: {}", self.bpm));
+        }
+        self.meter = normal_meter(self.meter);
+        let last = self.beats.len() - 1;
+        self.first_downbeat = self.first_downbeat.min(last);
+        self.phase3 %= 3;
+        self.phase4 %= 4;
+        self.bars.retain(|&b| b <= last);
+        self.bars.sort_unstable();
+        self.bars.dedup();
+        self.confidence = if self.confidence.is_finite() {
+            self.confidence.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        Ok(self)
+    }
+
     /// ¿Es el «1» el pulso `i`? Sin acento (compas 0), ninguno lo es.
     pub fn is_downbeat(&self, i: usize) -> bool {
         self.meter > 0 && self.beat_in_bar(i) == 0
     }
 
     /// Que tiempo del compas es el pulso `i` (0 = el «1»). Sin acento, 0.
+    ///
+    /// Con `bars`, contando desde el ultimo «1» antes de `i` (y antes del
+    /// primero, hacia atras con el compas): un compas mas largo de lo normal
+    /// (la red no oyo su «1») se completa con el compas de la cancion.
     pub fn beat_in_bar(&self, i: usize) -> u8 {
         let m = isize::from(self.meter.max(1));
+        let from = match self.bars.partition_point(|&b| b <= i) {
+            0 => self.bars.first().copied().unwrap_or(self.first_downbeat),
+            k => self.bars[k - 1],
+        };
         // cabe: el resto es menor que el compas, que es un u8
-        (i as isize - self.first_downbeat as isize).rem_euclid(m) as u8
+        (i as isize - from as isize).rem_euclid(m) as u8
     }
 
     /// El primer pulso que cae en `t` o despues: (indice, segundos, ¿es el 1?).
@@ -94,6 +141,11 @@ impl BeatGrid {
     /// siguiente». 0 (o 1) es sin acento; mas de 12 no es un compas.
     pub fn with_meter(&self, meter: u8) -> BeatGrid {
         let mut g = self.clone();
+        if normal_meter(meter) == g.meter {
+            return g; // el mismo: se quedan los «1» como estaban
+        }
+        // otro compas puesto a mano: regular, desde donde caeria en 3 o en 4
+        g.bars.clear();
         g.meter = normal_meter(meter);
         if g.meter > 0 {
             let phase = if g.meter.is_multiple_of(3) { g.phase3 } else { g.phase4 };
@@ -107,6 +159,16 @@ impl BeatGrid {
         let mut g = self.clone();
         let m = i64::from(g.meter.max(1));
         g.first_downbeat = (g.first_downbeat as i64 + i64::from(shift)).rem_euclid(m) as usize;
+        if !g.bars.is_empty() {
+            let len = g.beats.len() as i64;
+            g.bars = self
+                .bars
+                .iter()
+                .map(|&b| b as i64 + i64::from(shift))
+                .filter(|b| (0..len).contains(b))
+                .map(|b| b as usize)
+                .collect();
+        }
         g
     }
 
@@ -125,6 +187,7 @@ impl BeatGrid {
         g.first_downbeat *= 2;
         g.phase3 *= 2;
         g.phase4 *= 2;
+        g.bars = self.bars.iter().map(|&b| b * 2).collect();
         g
     }
 
@@ -138,6 +201,13 @@ impl BeatGrid {
         g.first_downbeat = (self.first_downbeat - start) / 2;
         g.phase3 = (self.phase3.saturating_sub(start)) / 2;
         g.phase4 = (self.phase4.saturating_sub(start)) / 2;
+        // los «1» que caen en un pulso de los que se quedan
+        g.bars = self
+            .bars
+            .iter()
+            .filter(|&&b| b >= start && (b - start).is_multiple_of(2))
+            .map(|&b| (b - start) / 2)
+            .collect();
         g
     }
 }
@@ -696,6 +766,7 @@ fn analyze_frames(frames: FrameAnalyzer, hint_bpm: Option<f32>) -> Result<BeatGr
         phase3,
         phase4,
         confidence: ((contrast - 0.5) / 1.5).clamp(0.0, 1.0) as f32,
+        bars: Vec::new(),
     })
 }
 
@@ -1034,6 +1105,7 @@ mod tests {
             phase3: 2,
             phase4: 1,
             confidence: 1.0,
+            bars: Vec::new(),
         };
         assert_eq!(g.next_beat(0.0), (0, 0.25, false));
         assert_eq!(g.next_beat(0.75), (1, 0.75, true));
@@ -1073,6 +1145,7 @@ mod tests {
             phase3: 2,
             phase4: 3,
             confidence: 1.0,
+            bars: Vec::new(),
         };
         // sin acento: ningun pulso es el «1», y correrlo no cambia nada
         let none = g.with_meter(0);
@@ -1266,6 +1339,82 @@ mod tests {
         }
     }
 
+    /// Una rejilla de Beat This! con un compas de dos en medio (el 2/4 antes
+    /// del coro): 16 pulsos, los «1» en 0, 4, 8, 10 y 14.
+    fn irregular() -> BeatGrid {
+        BeatGrid {
+            bpm: 120.0,
+            meter: 4,
+            beats: (0..16).map(|i| 0.5 * f64::from(i)).collect(),
+            first_downbeat: 0,
+            phase3: 0,
+            phase4: 0,
+            confidence: 0.9,
+            bars: vec![0, 4, 8, 10, 14],
+        }
+    }
+
+    /// El «1» va donde lo oyo la red, compas irregular incluido; un compas
+    /// sin su «1» (despues del ultimo) sigue con el compas de la cancion.
+    #[test]
+    fn the_bars_of_beat_this_are_followed_as_heard() {
+        let g = irregular();
+        let ones: Vec<usize> = (0..20).filter(|&i| g.is_downbeat(i)).collect();
+        assert_eq!(ones, [0, 4, 8, 10, 14, 18]);
+        assert_eq!(g.beat_in_bar(9), 1);
+        assert_eq!(g.beat_in_bar(13), 3);
+        // correr el «1» mueve todos; el doble y la mitad los llevan consigo
+        let s = g.shifted(1);
+        assert_eq!(s.bars, [1, 5, 9, 11, 15]);
+        assert!(s.is_downbeat(11) && !s.is_downbeat(10));
+        assert_eq!(g.doubled().bars, [0, 8, 16, 20, 28]);
+        assert_eq!(g.halved().bars, [0, 2, 4, 5, 7]);
+        // el mismo compas no cambia nada; otro, puesto a mano, es regular
+        assert_eq!(g.with_meter(4), g);
+        let waltz = g.with_meter(3);
+        assert!(waltz.bars.is_empty());
+        assert_eq!((0..9).filter(|&i| waltz.is_downbeat(i)).count(), 3);
+    }
+
+    /// Lo que llega de fuera se revisa: pulsos en orden, un tempo tocable, y
+    /// los indices dentro de la lista.
+    #[test]
+    fn a_grid_from_outside_is_checked() {
+        let g = BeatGrid {
+            phase3: 7,
+            first_downbeat: 99,
+            bars: vec![14, 3, 3, 40],
+            confidence: f32::NAN,
+            ..irregular()
+        }
+        .checked()
+        .expect("vale");
+        assert_eq!((g.first_downbeat, g.phase3), (15, 1));
+        assert_eq!(g.bars, [3, 14]);
+        assert!(g.confidence.abs() < f32::EPSILON);
+        let unordered = BeatGrid {
+            beats: vec![1.0, 0.5, 2.0],
+            ..irregular()
+        };
+        assert!(unordered.checked().is_err());
+        assert!(
+            BeatGrid {
+                bpm: 3000.0,
+                ..irregular()
+            }
+            .checked()
+            .is_err()
+        );
+        assert!(
+            BeatGrid {
+                beats: vec![1.0],
+                ..irregular()
+            }
+            .checked()
+            .is_err()
+        );
+    }
+
     /// Solo se analiza un archivo que existe, con su ruta completa: nada de
     /// URLs ni de protocolos que ffmpeg sabria abrir.
     #[test]
@@ -1277,6 +1426,39 @@ mod tests {
             "/no/existe/x.opus",
         ] {
             assert!(analyze(bad, None).is_err(), "{bad} no deberia analizarse");
+        }
+    }
+    /// No es una prueba: lo que usa `scripts/evaluar-pulso.py` para medir
+    /// este analisis frente a otros sobre canciones anotadas. Lee las rutas
+    /// de `DANPLAY_PULSO_LISTA` (una por linea) y deja en
+    /// `DANPLAY_PULSO_SALIDA` una linea JSON por cancion: sus pulsos, sus
+    /// «1», el tempo y el compas, o el error.
+    ///
+    ///     cargo test --release -p danplay-app beats::tests::measure -- --ignored
+    #[test]
+    #[ignore = "herramienta de medida, no una prueba"]
+    fn measure() {
+        use std::io::Write;
+        let (Ok(list), Ok(out)) = (
+            std::env::var("DANPLAY_PULSO_LISTA"),
+            std::env::var("DANPLAY_PULSO_SALIDA"),
+        ) else {
+            return;
+        };
+        let paths = std::fs::read_to_string(list).expect("la lista");
+        let mut file = std::fs::File::create(out).expect("la salida");
+        for path in paths.lines().filter(|l| !l.trim().is_empty()) {
+            let line = match analyze(path, None) {
+                Ok(g) => serde_json::json!({
+                    "path": path,
+                    "bpm": g.bpm,
+                    "meter": g.meter,
+                    "beats": g.beats,
+                    "downbeats": (0..g.beats.len()).filter(|&i| g.is_downbeat(i)).map(|i| g.beats[i]).collect::<Vec<_>>(),
+                }),
+                Err(e) => serde_json::json!({ "path": path, "error": e }),
+            };
+            writeln!(file, "{line}").expect("escribir");
         }
     }
 }

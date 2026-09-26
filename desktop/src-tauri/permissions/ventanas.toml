@@ -27,6 +27,7 @@ permissions = [
   "allow-set-metronome",
   "allow-set-stems",
   "allow-analyze-beats",
+  "allow-set-beat-grid",
   "allow-playback-state",
   "allow-queue-items",
   "allow-show-window",

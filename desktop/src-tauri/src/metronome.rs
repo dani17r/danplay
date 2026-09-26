@@ -379,6 +379,7 @@ mod tests {
             phase3: 0,
             phase4: 2,
             confidence: 1.0,
+            bars: Vec::new(),
         })
     }
 
