@@ -360,6 +360,9 @@ pub(super) fn apply(inner: &mut Inner, command: Command, player: &player::Handle
         Command::Metronome { settings, grid } => {
             let _ = player.send(player::Command::Metronome { settings, grid });
         }
+        Command::Stems { song, tracks } => {
+            let _ = player.send(player::Command::Stems { song, tracks });
+        }
         // La atiende el hilo de la cola antes de llegar aqui: necesita saber
         // si algo suena, y eso lo sabe el audio.
         Command::Prune => {}

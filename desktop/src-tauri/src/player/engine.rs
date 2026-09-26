@@ -8,6 +8,7 @@
 //! metronomo durante `IDLE_RELEASE`, se suelta; la cancion en pausa se
 //! recuerda donde iba y, al volver a darle, se abre ahi.
 use super::metro::{self, Click, Metro, Replan};
+use super::mix::{Gains, StemSet, StemTrack};
 use super::open::{self, Recipe, Song};
 use super::output::{self, Output};
 use super::state::{MAX_VOLUME, State, lock, nudged_volume};
@@ -95,6 +96,8 @@ pub(super) struct Carry {
     pub(super) pitch: f32,
     /// El metronomo: sus ajustes y la rejilla de la cancion que suena.
     pub(super) metro: Metro,
+    /// Las pistas separadas de la cancion que suena, si suenan ellas.
+    pub(super) stems: Option<StemSet>,
     /// Una orden que llego mientras no habia salida de audio. Se atiende en
     /// cuanto la haya, en vez de perderse.
     pub(super) pending: Option<Command>,
@@ -119,6 +122,7 @@ impl Carry {
             loop_defer: false,
             pitch: 0.0,
             metro: Metro::default(),
+            stems: None,
             pending: None,
             resume_at: None,
             has_output: false,
@@ -300,6 +304,7 @@ impl Engine<'_> {
             Command::Seek(seconds) => self.seek(seconds, step),
             Command::Loops { segments, defer } => self.set_loops(segments, defer),
             Command::Metronome { settings, grid } => self.metronome_settings(settings, grid, step),
+            Command::Stems { song, tracks } => self.set_stems(&song, tracks, step),
             Command::Volume(value) => self.volume(value),
             Command::NudgeVolume(delta) => self.volume(nudged_volume(self.carry.volume, delta)),
             Command::Speed(value) => {
@@ -332,6 +337,7 @@ impl Engine<'_> {
             pitch: self.carry.pitch,
             hint: self.carry.duration,
             from,
+            stems: self.carry.stems.as_ref(),
         };
         let song = open::open_song(output.mixer(), &recipe)?;
         if from > 0.0 {
@@ -367,6 +373,11 @@ impl Engine<'_> {
         if let Some(old) = self.song.take() {
             old.sink.stop();
         }
+        // las pistas eran de la cancion de antes (la misma otra vez, como
+        // al repetirla, sigue con las suyas)
+        if path != self.carry.path {
+            self.carry.stems = None;
+        }
         self.carry.path = path;
         self.carry.duration = hint;
         self.carry.resume_at = None;
@@ -400,6 +411,9 @@ impl Engine<'_> {
         if let Some(old) = self.song.take() {
             old.sink.stop();
         }
+        if path != self.carry.path {
+            self.carry.stems = None;
+        }
         self.carry.path = path;
         self.carry.duration = hint;
         self.carry.resume_at = None;
@@ -412,6 +426,7 @@ impl Engine<'_> {
         if let Some(old) = self.song.take() {
             old.sink.stop();
         }
+        self.carry.stems = None;
         self.carry.path.clear();
         self.carry.duration = 0.0;
         self.carry.resume_at = None;
@@ -557,6 +572,55 @@ impl Engine<'_> {
         // el clic puede sonar solo, sin cancion: necesita la salida
         if on {
             let _ = self.ensure_output(step);
+        }
+    }
+
+    /// Las pistas separadas en vez de la cancion, o la cancion otra vez.
+    ///
+    /// Si ya sonaban esas mismas pistas, solo cambia el volumen de cada una:
+    /// lo lee el mezclador sobre la marcha, sin reabrir nada. Si no, se
+    /// reabre donde iba, sonando o en pausa como estaba. Si las pistas no se
+    /// pueden abrir, sigue sonando lo que sonaba y se dice por que.
+    fn set_stems(&mut self, song: &str, tracks: Option<Vec<StemTrack>>, step: &mut Step) {
+        if song != self.carry.path {
+            return; // eran de otra cancion: la que suena ya ha cambiado
+        }
+        let tracks = tracks.map(|list| list.into_iter().take(crate::transcode::MAX_INPUTS).collect::<Vec<_>>());
+        match (&self.carry.stems, &tracks) {
+            (None, None) => return,
+            (Some(now), Some(list))
+                if now.gains.len() == list.len()
+                    && now
+                        .paths
+                        .iter()
+                        .zip(list)
+                        .all(|(p, t)| p.as_os_str() == t.path.as_str()) =>
+            {
+                now.gains.set(list);
+                return;
+            }
+            _ => {}
+        }
+        let before = self.carry.stems.take();
+        self.carry.stems = tracks.filter(|list| !list.is_empty()).map(|list| StemSet {
+            paths: list.iter().map(|t| std::path::PathBuf::from(&t.path)).collect(),
+            gains: Gains::new(&list),
+        });
+        let clock = self.carry.clock();
+        let Some(song) = self.song.as_ref().filter(|s| !s.exhausted()) else {
+            return; // nada abierto: se abrira con ellas al darle a play
+        };
+        let at = song.position(clock);
+        let playing = !song.sink.is_paused();
+        match self.open_current(at) {
+            Ok(fresh) => {
+                self.adopt(fresh, playing);
+                step.replan = Some(Replan::Song);
+            }
+            Err(e) => {
+                self.carry.stems = before;
+                step.failure = Some(e);
+            }
         }
     }
 
@@ -831,6 +895,7 @@ impl Engine<'_> {
             e.loop_defer = self.carry.loop_defer;
             e.pitch = self.carry.pitch;
             e.metronome = self.carry.metro.state();
+            e.stems = self.carry.stems.is_some();
             e.clone()
         };
 

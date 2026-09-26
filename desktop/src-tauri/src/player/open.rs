@@ -1,5 +1,6 @@
 //! Abrir una cancion: el sink con su fuente, por el decodificador de
 //! siempre o por ffmpeg.
+use super::mix::{StemMix, StemSet};
 use crate::{tools, transcode};
 use rodio::mixer::Mixer;
 use rodio::{Decoder, Player, Source};
@@ -115,6 +116,8 @@ pub(super) struct Recipe<'a> {
     /// Desde donde se abre, en segundos de cancion. ffmpeg arranca ya ahi;
     /// al decodificador de siempre se le pide el salto despues.
     pub(super) from: f64,
+    /// Las pistas separadas que suenan en vez del archivo, si las hay.
+    pub(super) stems: Option<&'a StemSet>,
 }
 
 /// Abre el archivo y deja un sink **en pausa**, listo para sonar: nada se
@@ -130,6 +133,7 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
         pitch,
         hint,
         from,
+        stems,
     } = *recipe;
     let sink = Player::connect_new(mixer);
     // antes de darle la fuente: asi no se le escapa ni una muestra de donde
@@ -138,6 +142,30 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
     sink.set_volume(volume);
     let slowed = (speed - 1.0).abs() > 1e-4;
     let pitched = pitch.abs() > transcode::NO_PITCH;
+
+    // Las pistas separadas van siempre por ffmpeg, que las lee todas a la
+    // vez y juntas: asi no se desfasan (ver `mix`).
+    if let Some(stems) = stems {
+        let Some(ffmpeg) = tools::ffmpeg() else {
+            return Err("Para oír las pistas separadas hace falta ffmpeg, y no lo encuentro.".into());
+        };
+        for file in &stems.paths {
+            std::fs::metadata(file).map_err(|e| unreachable_file(&file.to_string_lossy(), &e))?;
+        }
+        let tempo = if slowed { speed } else { 1.0 };
+        let (source, control) =
+            transcode::Transcoded::open_inputs(ffmpeg, &stems.paths, Some(hint), tempo, pitch, from)?;
+        let announced = source
+            .total_duration()
+            .map(|d| d.as_secs_f64() * f64::from(source.tempo()));
+        sink.append(StemMix::new(source, std::sync::Arc::clone(&stems.gains)));
+        return Ok(Song {
+            sink: Arc::new(sink),
+            ffmpeg: Some(control),
+            tempo,
+            announced,
+        });
+    }
 
     // A otra velocidad, ffmpeg (`atempo`) la cambia SIN mover el tono, que
     // es lo que se quiere para estudiar un trozo: pasa por el cualquier

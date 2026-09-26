@@ -78,6 +78,8 @@ pub struct PlaybackState {
     pub pitch: f32,
     /// Como va el metronomo.
     pub metronome: player::MetronomeState,
+    /// Suenan las pistas separadas de la cancion en vez de ella.
+    pub stems: bool,
     /// El archivo que suena de verdad (el de `track`, o el que resolvio el
     /// nucleo). Es la clave de la rejilla del metronomo.
     pub path: String,
@@ -114,6 +116,11 @@ pub enum Command {
     Loops(Vec<(f64, f64)>, bool),
     /// El tono corrido, en semitonos (con fracciones).
     Pitch(f32),
+    /// Las pistas separadas de la cancion `song` en vez de ella, o nada.
+    Stems {
+        song: String,
+        tracks: Option<Vec<player::StemTrack>>,
+    },
     /// El metronomo, con la rejilla de la cancion que suena si ya se analizo.
     Metronome {
         settings: player::MetronomeSettings,

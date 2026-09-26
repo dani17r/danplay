@@ -384,6 +384,147 @@ fn changing_the_speed_keeps_the_song_where_it_was() {
     m.send(Command::Stop).unwrap();
 }
 
+/// Las pistas de las pruebas: noventa segundos de silencio en FLAC, como
+/// las que deja el separador (lo que se mide es la aguja).
+fn stems() -> Vec<String> {
+    static STEMS: OnceLock<Vec<String>> = OnceLock::new();
+    STEMS
+        .get_or_init(|| {
+            let ffmpeg = tools::ffmpeg().expect("hace falta ffmpeg para las pistas de las pruebas");
+            ["bateria", "voces"]
+                .iter()
+                .map(|name| {
+                    let file = std::env::temp_dir().join(format!("danplay-pista-90s-{name}.flac"));
+                    if !file.is_file() {
+                        let partial = file.with_extension(format!("{}.flac", std::process::id()));
+                        let made = tools::command(ffmpeg)
+                            .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi"])
+                            .args(["-i", "anullsrc=r=44100:cl=stereo", "-t", "90", "-c:a", "flac"])
+                            .arg(&partial)
+                            .status()
+                            .is_ok_and(|s| s.success());
+                        assert!(made, "ffmpeg no pudo hacer las pistas de las pruebas");
+                        std::fs::rename(&partial, &file).expect("no se pudo dejar la pista");
+                    }
+                    file.to_string_lossy().into_owned()
+                })
+                .collect()
+        })
+        .clone()
+}
+
+fn stem_tracks(on: bool) -> Vec<StemTrack> {
+    stems()
+        .into_iter()
+        .map(|path| StemTrack {
+            path,
+            gain: 1.0,
+            pan: 0.0,
+            on,
+        })
+        .collect()
+}
+
+/// Pasar a las pistas separadas deja la cancion donde iba, y sonando; cambiar
+/// solo la mezcla no la reabre; y al quitarlas vuelve la cancion. Unas
+/// pistas pedidas para otra cancion no hacen nada, y al pasar a otra
+/// cancion se sueltan.
+#[test]
+fn the_separated_stems_take_over_where_the_song_was() {
+    let Some((m, _rx)) = playing() else { return };
+    assert!(tools::ffmpeg().is_some(), "hace falta ffmpeg para esta prueba");
+    let song = sample();
+    m.send(Command::Seek(30.0)).unwrap();
+    assert!(
+        until(&m, |s| s.position >= 29.0).position >= 29.0,
+        "no salto a los 30 s"
+    );
+
+    m.send(Command::Stems {
+        song: "/otra/cancion.mp3".into(),
+        tracks: Some(stem_tracks(true)),
+    })
+    .unwrap();
+    wait_ms(300);
+    assert!(!m.state().stems, "eran para otra cancion");
+
+    m.send(Command::Stems {
+        song: song.clone(),
+        tracks: Some(stem_tracks(true)),
+    })
+    .unwrap();
+    let s = until(&m, |s| s.stems && s.playing);
+    assert!(s.stems && s.playing, "con las pistas tiene que seguir sonando: {s:?}");
+    assert!(
+        (29.0..33.5).contains(&s.position),
+        "se fue a {} y no a los 30 s",
+        s.position
+    );
+    assert!(s.error.is_empty(), "{}", s.error);
+
+    // solo la mezcla: sigue igual, sin saltar
+    let before = m.state().position;
+    m.send(Command::Stems {
+        song: song.clone(),
+        tracks: Some(stem_tracks(false)),
+    })
+    .unwrap();
+    wait_ms(400);
+    let after = m.state();
+    assert!(after.stems && after.playing);
+    assert!(after.position >= before, "cambiar la mezcla no la mueve");
+
+    // y con velocidad y tono, las pistas siguen
+    m.send(Command::Speed(0.8)).unwrap();
+    let s = until(&m, |s| (s.speed - 0.8).abs() < f32::EPSILON && s.playing);
+    assert!(s.stems && s.pitch_preserved, "las pistas van por ffmpeg: {s:?}");
+
+    m.send(Command::Stems {
+        song: song.clone(),
+        tracks: None,
+    })
+    .unwrap();
+    let s = until(&m, |s| !s.stems && s.playing);
+    assert!(!s.stems && s.playing, "vuelve la cancion y sigue sonando");
+
+    // otra cancion: las pistas no la acompañan
+    m.send(Command::Stems {
+        song: song.clone(),
+        tracks: Some(stem_tracks(true)),
+    })
+    .unwrap();
+    assert!(until(&m, |s| s.stems).stems);
+    m.send(Command::Play {
+        path: stems()[0].clone(),
+        duration: 0.0,
+    })
+    .unwrap();
+    let s = until(&m, |s| !s.stems && s.playing);
+    assert!(!s.stems, "las pistas eran de la cancion de antes");
+    m.send(Command::Stop).unwrap();
+}
+
+/// Unas pistas que no se pueden abrir no cortan lo que suena: se dice.
+#[test]
+fn stems_that_cannot_be_opened_leave_the_song_playing() {
+    let Some((m, _rx)) = playing() else { return };
+    let song = sample();
+    m.send(Command::Stems {
+        song,
+        tracks: Some(vec![StemTrack {
+            path: "/no/existe/Bateria.flac".into(),
+            gain: 1.0,
+            pan: 0.0,
+            on: true,
+        }]),
+    })
+    .unwrap();
+    let s = until(&m, |s| !s.error.is_empty());
+    assert!(s.error.contains("Bateria.flac"), "{}", s.error);
+    assert!(s.playing && !s.stems, "tiene que seguir sonando la cancion");
+    m.send(Command::Stop).unwrap();
+}
+
 /// Pausar y reanudar explicitamente (lo que manda el escritorio por MPRIS)
 /// no puede invertirse: «pausa» sobre algo pausado lo deja pausado.
 #[test]

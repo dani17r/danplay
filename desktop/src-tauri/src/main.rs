@@ -148,6 +148,7 @@ fn main() {
             queue::commands::set_loop,
             queue::commands::set_pitch,
             queue::commands::set_metronome,
+            queue::commands::set_stems,
             queue::commands::analyze_beats,
             queue::commands::playback_state,
             queue::commands::queue_items,

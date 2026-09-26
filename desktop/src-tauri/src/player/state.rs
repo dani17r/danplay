@@ -50,6 +50,9 @@ pub struct State {
     pub pitch: f32,
     /// Como va el metronomo.
     pub metronome: MetronomeState,
+    /// Suenan las pistas separadas de la cancion (con su mezclador) en vez
+    /// de la cancion tal cual.
+    pub stems: bool,
 }
 
 impl State {

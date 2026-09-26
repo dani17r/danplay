@@ -351,10 +351,10 @@
           "markdownDescription": "La letra en grande para el proyector: lo que suena, pausar con el espacio y leer la ficha de la cancion (la letra) del nucleo. Lo guardado (volumen, velocidad, repeticion) lo aplica solo la ventana principal.\n#### This permission set includes:\n\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-toggle-pause`\n- `allow-api`"
         },
         {
-          "description": "Todo: la ventana principal es la aplicacion entera.\n#### This permission set includes:\n\n- `allow-api`\n- `allow-core-ready`\n- `allow-set-queue`\n- `allow-queue-next`\n- `allow-queue-previous`\n- `allow-queue-jump`\n- `allow-set-repeat`\n- `allow-set-shuffle`\n- `allow-toggle-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-volume`\n- `allow-set-speed`\n- `allow-set-loop`\n- `allow-set-pitch`\n- `allow-set-metronome`\n- `allow-analyze-beats`\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-show-window`\n- `allow-hide-mini`\n- `allow-toggle-mini`\n- `allow-tray-available`\n- `allow-show-projection`\n- `allow-hide-projection`\n- `allow-quit-app`\n- `allow-default-player`\n- `allow-make-default-player`\n- `allow-reveal-in-folder`\n- `allow-open-in-browser`\n- `allow-open-html`\n- `allow-share-targets`\n- `allow-send-to-telegram`",
+          "description": "Todo: la ventana principal es la aplicacion entera.\n#### This permission set includes:\n\n- `allow-api`\n- `allow-core-ready`\n- `allow-set-queue`\n- `allow-queue-next`\n- `allow-queue-previous`\n- `allow-queue-jump`\n- `allow-set-repeat`\n- `allow-set-shuffle`\n- `allow-toggle-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-volume`\n- `allow-set-speed`\n- `allow-set-loop`\n- `allow-set-pitch`\n- `allow-set-metronome`\n- `allow-set-stems`\n- `allow-analyze-beats`\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-show-window`\n- `allow-hide-mini`\n- `allow-toggle-mini`\n- `allow-tray-available`\n- `allow-show-projection`\n- `allow-hide-projection`\n- `allow-quit-app`\n- `allow-default-player`\n- `allow-make-default-player`\n- `allow-reveal-in-folder`\n- `allow-open-in-browser`\n- `allow-open-html`\n- `allow-share-targets`\n- `allow-send-to-telegram`",
           "type": "string",
           "const": "ventana-principal",
-          "markdownDescription": "Todo: la ventana principal es la aplicacion entera.\n#### This permission set includes:\n\n- `allow-api`\n- `allow-core-ready`\n- `allow-set-queue`\n- `allow-queue-next`\n- `allow-queue-previous`\n- `allow-queue-jump`\n- `allow-set-repeat`\n- `allow-set-shuffle`\n- `allow-toggle-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-volume`\n- `allow-set-speed`\n- `allow-set-loop`\n- `allow-set-pitch`\n- `allow-set-metronome`\n- `allow-analyze-beats`\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-show-window`\n- `allow-hide-mini`\n- `allow-toggle-mini`\n- `allow-tray-available`\n- `allow-show-projection`\n- `allow-hide-projection`\n- `allow-quit-app`\n- `allow-default-player`\n- `allow-make-default-player`\n- `allow-reveal-in-folder`\n- `allow-open-in-browser`\n- `allow-open-html`\n- `allow-share-targets`\n- `allow-send-to-telegram`"
+          "markdownDescription": "Todo: la ventana principal es la aplicacion entera.\n#### This permission set includes:\n\n- `allow-api`\n- `allow-core-ready`\n- `allow-set-queue`\n- `allow-queue-next`\n- `allow-queue-previous`\n- `allow-queue-jump`\n- `allow-set-repeat`\n- `allow-set-shuffle`\n- `allow-toggle-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-volume`\n- `allow-set-speed`\n- `allow-set-loop`\n- `allow-set-pitch`\n- `allow-set-metronome`\n- `allow-set-stems`\n- `allow-analyze-beats`\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-show-window`\n- `allow-hide-mini`\n- `allow-toggle-mini`\n- `allow-tray-available`\n- `allow-show-projection`\n- `allow-hide-projection`\n- `allow-quit-app`\n- `allow-default-player`\n- `allow-make-default-player`\n- `allow-reveal-in-folder`\n- `allow-open-in-browser`\n- `allow-open-html`\n- `allow-share-targets`\n- `allow-send-to-telegram`"
         },
         {
           "description": "El mini reproductor de la bandeja: lo que suena, los mandos (anterior, pausa, siguiente, la aguja), volver a la ventana grande y esconderse.\n#### This permission set includes:\n\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-toggle-pause`\n- `allow-queue-previous`\n- `allow-queue-next`\n- `allow-seek`\n- `allow-show-window`\n- `allow-hide-mini`",
@@ -511,6 +511,12 @@
           "type": "string",
           "const": "allow-set-speed",
           "markdownDescription": "Enables the set_speed command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_stems command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-stems",
+          "markdownDescription": "Enables the set_stems command without any pre-configured scope."
         },
         {
           "description": "Enables the set_volume command without any pre-configured scope.",
@@ -709,6 +715,12 @@
           "type": "string",
           "const": "deny-set-speed",
           "markdownDescription": "Denies the set_speed command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_stems command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-stems",
+          "markdownDescription": "Denies the set_stems command without any pre-configured scope."
         },
         {
           "description": "Denies the set_volume command without any pre-configured scope.",

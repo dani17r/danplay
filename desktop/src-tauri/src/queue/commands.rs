@@ -126,6 +126,29 @@ pub fn set_loop(
     playback.send(Command::Loops(segments, defer.unwrap_or(false)));
 }
 
+/// Que suenen las pistas separadas de la cancion `song` (su ruta, la que
+/// suena) en vez de ella, cada una con su volumen, su panorama y si suena; o
+/// sin `tracks`, la cancion otra vez. Con las mismas pistas que ya suenan
+/// solo cambia la mezcla, al momento.
+#[tauri::command]
+pub fn set_stems(
+    playback: tauri::State<'_, Playback>,
+    song: String,
+    tracks: Option<Vec<player::StemTrack>>,
+) -> Result<(), String> {
+    if let Some(list) = &tracks {
+        if list.len() > crate::transcode::MAX_INPUTS {
+            return Err("demasiadas pistas".into());
+        }
+        // solo archivos que existen: esto se le da a ffmpeg para leer
+        for track in list {
+            crate::tools::existing_file(&track.path)?;
+        }
+    }
+    playback.send(Command::Stems { song, tracks });
+    Ok(())
+}
+
 #[tauri::command]
 pub fn playback_state(playback: tauri::State<'_, Playback>) -> PlaybackState {
     playback.state()

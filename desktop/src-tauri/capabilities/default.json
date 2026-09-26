@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permisos de la ventana principal: los eventos de Rust, el selector de carpetas e imagenes y todos los comandos propios. Nada de lo que la interfaz no usa (rutas del sistema, datos de la app, notificaciones desde el JS...).",
+  "description": "Permisos de la ventana principal: los eventos de Rust, el selector de carpetas e imagenes, el de donde guardar una mezcla y todos los comandos propios. Nada de lo que la interfaz no usa (rutas del sistema, datos de la app, notificaciones desde el JS...).",
   "windows": ["main"],
   "permissions": [
     "core:event:default",
     "dialog:allow-open",
+    "dialog:allow-save",
     "ventana-principal"
   ]
 }

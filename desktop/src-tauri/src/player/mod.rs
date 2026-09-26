@@ -14,16 +14,19 @@
 //!   engine.rs   el bucle: una funcion por orden, el vigilante, el bucle A-B
 //!   output.rs   la salida de audio, su latido y los saltos con tope
 //!   open.rs     abrir una cancion (decodificador de siempre o ffmpeg)
+//!   mix.rs      las pistas separadas de una cancion, sonando juntas
 //!   metro.rs    el metronomo visto desde aqui
 //!   state.rs    lo que se cuenta hacia fuera
 mod engine;
 mod metro;
+mod mix;
 mod open;
 mod output;
 mod state;
 #[cfg(test)]
 mod tests;
 
+pub use mix::StemTrack;
 pub use state::{MetronomeSettings, MetronomeState, State};
 
 use crate::beats::BeatGrid;
@@ -81,6 +84,14 @@ pub enum Command {
     /// El tono corrido, en semitonos (-12..12, con fracciones: medio
     /// semitono es un cuarto de tono). Reabre la cancion donde iba.
     Pitch(f32),
+    /// Que suenen las pistas separadas de la cancion `song` en vez de ella
+    /// (o, con `None`, la cancion otra vez). Si las pistas son las mismas
+    /// que ya suenan, solo cambia el volumen de cada una, sin reabrir nada.
+    /// Si la cancion que suena ya es otra, no hace nada: eran para aquella.
+    Stems {
+        song: String,
+        tracks: Option<Vec<StemTrack>>,
+    },
     /// Ajustes del metronomo, y la rejilla de la cancion `path` si se conoce.
     Metronome {
         settings: MetronomeSettings,
@@ -154,6 +165,7 @@ impl Handle {
 /// Devuelve false si ya no escucha nadie.
 fn after_a_panic(carry: &mut engine::Carry, shared: &Arc<Mutex<State>>, notify: &Notify) -> bool {
     let bad = std::mem::take(&mut carry.path);
+    carry.stems = None;
     carry.duration = 0.0;
     carry.resume_at = None;
     let name = std::path::Path::new(&bad)

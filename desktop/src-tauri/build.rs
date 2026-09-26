@@ -24,6 +24,7 @@ const COMMANDS: &[&str] = &[
     "set_loop",
     "set_pitch",
     "set_metronome",
+    "set_stems",
     "analyze_beats",
     "playback_state",
     "queue_items",

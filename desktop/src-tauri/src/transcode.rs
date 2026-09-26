@@ -21,9 +21,16 @@
 //! nueva la prepara el hilo de audio **antes** de pedir el salto
 //! (`Control::prepare`): cuando el mezclador lo atiende, el audio ya esta
 //! ahi y el cambio es instantaneo.
+//!
+//! **Varias pistas a la vez.** Las pistas separadas de una cancion (bateria,
+//! voces...) se leen con un solo ffmpeg que las junta (`amerge`) en un flujo
+//! de dos canales por pista: todas empiezan en la misma muestra y la
+//! velocidad y el tono les pasan a todas por igual, asi que no se pueden
+//! desfasar. Quien las mezcla, con el volumen de cada una, es `player::mix`.
 use crate::tools;
 use rodio::source::SeekError;
 use rodio::{ChannelCount, SampleRate, Source};
+use std::fmt::Write as _;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, Stdio};
@@ -116,22 +123,29 @@ pub const CHANNELS: u16 = 2;
 /// Lo mismo, como lo quiere rodio.
 const RODIO_RATE: SampleRate = rodio::math::nz!(44_100);
 const RODIO_CHANNELS: ChannelCount = rodio::math::nz!(2);
+/// Cuantas pistas se juntan como mucho (las de Demucs son seis).
+pub const MAX_INPUTS: usize = 8;
 
 /// Una muestra de 16 bits como la quiere rodio, que desde la 0.21 solo
 /// mezcla `f32`: la misma cuenta que hacia su conversor.
 fn to_float(sample: i16) -> f32 {
     f32::from(sample) / 32_768.0
 }
-/// Muestras por instante (una por canal), para no partir nunca un instante.
+/// Muestras por instante de una cancion normal (una por canal). Con varias
+/// pistas juntas son dos por pista; nunca se parte un instante.
 const FRAME: usize = CHANNELS as usize;
 /// Cuanto audio cabe en el anillo: dos segundos. ffmpeg decodifica mucho mas
 /// deprisa que el tiempo real, asi que va casi siempre lleno y un tiron del
 /// disco o de la maquina no llega a oirse.
-const RING: usize = RATE as usize * FRAME * 2;
+const fn ring_for(frame: usize) -> usize {
+    RATE as usize * frame * 2
+}
 /// Cuanto tiene que haber en el anillo para darlo por listo: un cuarto de
 /// segundo. Con menos, el mezclador lo vaciaria antes de que ffmpeg coja
 /// ritmo.
-const PREFILL: usize = RATE as usize * FRAME / 4;
+const fn prefill_for(frame: usize) -> usize {
+    RATE as usize * frame / 4
+}
 /// Cuanto se lee de la tuberia de una vez, en bytes.
 const READ: usize = 16 * 1024;
 /// Muestras que el mezclador saca del anillo de golpe: menos operaciones
@@ -141,12 +155,13 @@ const LOCAL: usize = 1024;
 /// un filtro caro (rubberband a 3x) tardan; mas de esto es que algo va mal.
 pub const READY_WITHIN: Duration = Duration::from_secs(8);
 
-/// Como se lanza ffmpeg para una cancion: que archivo, a que velocidad y
-/// con que tono.
+/// Como se lanza ffmpeg para una cancion: que archivo (o que pistas, que se
+/// juntan), a que velocidad y con que tono.
 #[derive(Clone, Debug)]
 struct Recipe {
     ffmpeg: PathBuf,
-    path: PathBuf,
+    /// Un archivo, o las pistas separadas de una cancion.
+    inputs: Vec<PathBuf>,
     /// Velocidad sin cambiar el tono (1.0 = tal cual).
     tempo: f32,
     /// El tono corrido, en semitonos (0 = tal cual; admite fracciones).
@@ -154,24 +169,40 @@ struct Recipe {
 }
 
 impl Recipe {
+    /// Muestras por instante de lo que sale: dos canales por archivo.
+    fn frame(&self) -> usize {
+        FRAME * self.inputs.len().max(1)
+    }
+
     /// La orden de ffmpeg desde el segundo `from` de la cancion.
     fn command(&self, from: f64) -> Command {
         let mut command = tools::command(&self.ffmpeg);
         command.args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
-        if from > 0.0 {
-            // antes de -i: asi ffmpeg salta por el indice del archivo en vez
-            // de decodificar todo lo anterior y tirarlo
-            command.arg("-ss").arg(format!("{from:.3}"));
+        for input in &self.inputs {
+            if from > 0.0 {
+                // antes de cada -i: asi ffmpeg salta por el indice del archivo
+                // en vez de decodificar todo lo anterior y tirarlo
+                command.arg("-ss").arg(format!("{from:.3}"));
+            }
+            command.arg("-i").arg(tools::ffmpeg_input(input));
         }
-        command.arg("-i").arg(tools::ffmpeg_input(&self.path)).arg("-vn"); // nada de la caratula
-        if (self.tempo - 1.0).abs() > 1e-4 || self.semitones.abs() > NO_PITCH {
+        command.arg("-vn"); // nada de la caratula
+        let tune = ((self.tempo - 1.0).abs() > 1e-4 || self.semitones.abs() > NO_PITCH)
+            .then(|| audio_filter(self.tempo, self.semitones, has_rubberband(&self.ffmpeg)));
+        if self.inputs.len() > 1 {
             command
-                .arg("-af")
-                .arg(audio_filter(self.tempo, self.semitones, has_rubberband(&self.ffmpeg)));
+                .arg("-filter_complex")
+                .arg(merge_filter(self.inputs.len(), tune.as_deref()))
+                .args(["-map", "[out]"]);
+        } else if let Some(tune) = tune {
+            command.arg("-af").arg(tune);
+        }
+        command.args(["-f", "s16le", "-acodec", "pcm_s16le", "-ar", &RATE.to_string()]); // PCM crudo, 16 bits
+        if self.inputs.len() <= 1 {
+            command.args(["-ac", &CHANNELS.to_string()]);
         }
         command
-            .args(["-f", "s16le", "-acodec", "pcm_s16le"]) // PCM crudo, 16 bits
-            .args(["-ar", &RATE.to_string(), "-ac", &CHANNELS.to_string(), "-"])
+            .arg("-")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -190,33 +221,52 @@ impl Recipe {
             let _ = child.wait();
             return Err("ffmpeg no dio por donde leer".into());
         };
-        let (producer, consumer) = rtrb::RingBuffer::new(RING);
+        let frame = self.frame();
+        let (producer, consumer) = rtrb::RingBuffer::new(ring_for(frame));
         let done = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&done);
         std::thread::Builder::new()
             .name("danplay-ffmpeg".into())
-            .spawn(move || pump(child, output, producer, &flag))
+            .spawn(move || pump(child, output, producer, &flag, frame))
             .map_err(|e| format!("no se pudo leer lo que da ffmpeg: {e}"))?;
         Ok(Feed {
             from,
             samples: consumer,
             done,
             taken: 0,
+            frame,
         })
     }
 }
 
+/// El filtro que junta `n` pistas en un flujo: cada una pasa a estereo a
+/// 44,1 kHz (por si alguna viene en mono) y se ponen una detras de otra,
+/// dos canales cada una, en el orden en que se dieron. La velocidad y el
+/// tono, si se piden, despues: a todas por igual.
+pub fn merge_filter(n: usize, tune: Option<&str>) -> String {
+    let mut parts: Vec<String> = (0..n)
+        .map(|i| format!("[{i}:a]aresample={RATE},aformat=channel_layouts=stereo[s{i}]"))
+        .collect();
+    let joined = (0..n).fold(String::new(), |mut all, i| {
+        let _ = write!(all, "[s{i}]");
+        all
+    });
+    let tail = tune.unwrap_or("anull");
+    parts.push(format!("{joined}amerge=inputs={n},{tail}[out]"));
+    parts.join(";")
+}
+
 /// Lee la tuberia de ffmpeg y deja el audio en el anillo, siempre por
-/// instantes enteros (las dos muestras de cada uno juntas): si el mezclador
-/// tuviera que rellenar con silencio a mitad de uno, los canales se
-/// cruzarian el resto de la cancion.
+/// instantes enteros (las muestras de todos los canales juntas): si el
+/// mezclador tuviera que rellenar con silencio a mitad de uno, los canales
+/// se cruzarian el resto de la cancion.
 ///
 /// Termina cuando ffmpeg acaba o cuando nadie escucha ya (se busco en otro
 /// sitio, se cambio de cancion): entonces se lleva a ffmpeg por delante y
 /// lo recoge, que no quede ningun proceso zombi.
-fn pump(mut child: Child, mut output: ChildStdout, mut ring: rtrb::Producer<i16>, done: &AtomicBool) {
+fn pump(mut child: Child, mut output: ChildStdout, mut ring: rtrb::Producer<i16>, done: &AtomicBool, frame: usize) {
     let mut raw = vec![0u8; READ];
-    let mut pcm: Vec<i16> = Vec::with_capacity(READ / 2 + FRAME);
+    let mut pcm: Vec<i16> = Vec::with_capacity(READ / 2 + frame);
     // un byte suelto de una lectura que partio una muestra por la mitad
     let mut odd: Option<u8> = None;
     'reading: loop {
@@ -240,10 +290,10 @@ fn pump(mut child: Child, mut output: ChildStdout, mut ring: rtrb::Producer<i16>
         }
         pcm.extend(pairs.iter().map(|pair| i16::from_le_bytes(*pair)));
         // solo instantes enteros; lo que sobra espera a la siguiente lectura
-        let whole = pcm.len() - pcm.len() % FRAME;
+        let whole = pcm.len() - pcm.len() % frame;
         let mut pending = &pcm[..whole];
         while !pending.is_empty() {
-            let room = ring.slots() / FRAME * FRAME;
+            let room = ring.slots() / frame * frame;
             if room == 0 {
                 if ring.is_abandoned() {
                     break 'reading;
@@ -274,6 +324,8 @@ struct Feed {
     done: Arc<AtomicBool>,
     /// Muestras ya sacadas. Una tirada sin estrenar vale para buscar su `from`.
     taken: u64,
+    /// Muestras por instante (dos por pista).
+    frame: usize,
 }
 
 /// Lo que dio de si una tirada al esperarla.
@@ -289,13 +341,14 @@ impl Feed {
     /// Una tirada ya terminada y sin nada: lo que queda cuando ffmpeg no pudo
     /// arrancar desde donde se pidio. La fuente la encuentra y se acaba, en
     /// vez de sonar silencio para siempre.
-    fn finished(from: f64) -> Self {
-        let (_, samples) = rtrb::RingBuffer::new(FRAME);
+    fn finished(from: f64, frame: usize) -> Self {
+        let (_, samples) = rtrb::RingBuffer::new(frame);
         Self {
             from,
             samples,
             done: Arc::new(AtomicBool::new(true)),
             taken: 0,
+            frame,
         }
     }
 
@@ -303,7 +356,7 @@ impl Feed {
     fn wait_ready(&self, within: Duration) -> Result<Ready, String> {
         let started = Instant::now();
         loop {
-            if self.samples.slots() >= PREFILL {
+            if self.samples.slots() >= prefill_for(self.frame) {
                 return Ok(Ready::Audio);
             }
             if self.done.load(Ordering::Acquire) {
@@ -414,6 +467,8 @@ pub struct Transcoded {
     len: usize,
     at: usize,
     duration: Option<Duration>,
+    /// Muestras por instante: dos por pista.
+    frame: usize,
     /// Velocidad sin cambiar el tono (1.0 = tal cual). Con 0.5, un segundo
     /// de cancion son dos de salida: por eso las posiciones de rodio (en
     /// tiempo de salida) se convierten multiplicando por esto.
@@ -447,9 +502,25 @@ impl Transcoded {
         semitones: f32,
         from: f64,
     ) -> Result<(Self, Control), String> {
+        Self::open_inputs(ffmpeg, &[path.to_path_buf()], duration, tempo, semitones, from)
+    }
+
+    /// Lo mismo con varias pistas a la vez (las separadas de una cancion):
+    /// salen juntas, dos canales por pista y en el orden dado.
+    pub fn open_inputs(
+        ffmpeg: &Path,
+        inputs: &[PathBuf],
+        duration: Option<f64>,
+        tempo: f32,
+        semitones: f32,
+        from: f64,
+    ) -> Result<(Self, Control), String> {
+        if inputs.is_empty() || inputs.len() > MAX_INPUTS {
+            return Err(format!("se pueden juntar de 1 a {MAX_INPUTS} pistas"));
+        }
         let recipe = Recipe {
             ffmpeg: ffmpeg.to_path_buf(),
-            path: path.to_path_buf(),
+            inputs: inputs.to_vec(),
             tempo: tempo.clamp(0.25, 3.0),
             semitones: if semitones.is_finite() {
                 semitones.clamp(-12.0, 12.0)
@@ -459,12 +530,18 @@ impl Transcoded {
         };
         let feed = recipe.start(from.max(0.0))?;
         if feed.wait_ready(READY_WITHIN)? == Ready::Empty && from <= 0.0 {
+            let path = &inputs[0];
             let name = path
                 .file_name()
                 .map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
-            return Err(format!("No se pudo leer «{name}»: puede estar dañado."));
+            return Err(if inputs.len() > 1 {
+                format!("No se pudieron leer las pistas de «{name}»: puede que falte alguna.")
+            } else {
+                format!("No se pudo leer «{name}»: puede estar dañado.")
+            });
         }
         let tempo = recipe.tempo;
+        let frame = recipe.frame();
         let shared = Arc::new(Shared {
             recipe,
             prepared: Mutex::new(None),
@@ -478,6 +555,7 @@ impl Transcoded {
             len: 0,
             at: 0,
             duration: duration.filter(|d| *d > 0.0).map(Duration::from_secs_f64),
+            frame,
             tempo,
             patient: false,
         };
@@ -499,6 +577,11 @@ impl Transcoded {
 
     pub fn tempo(&self) -> f32 {
         self.tempo
+    }
+
+    /// Muestras por instante: dos por pista (dos, en una cancion normal).
+    pub fn frame(&self) -> usize {
+        self.frame
     }
 
     /// La tirada preparada para `from`, si esta y si el candado esta libre:
@@ -535,13 +618,14 @@ impl Transcoded {
             return Refill::End;
         };
         // solo instantes enteros: el lector los deja asi y asi se sacan
-        let available = feed.samples.slots().min(LOCAL) / FRAME * FRAME;
+        let frame = self.frame;
+        let available = feed.samples.slots().min(LOCAL) / frame * frame;
         if available == 0 {
             if !feed.done.load(Ordering::Acquire) {
                 return Refill::Starved;
             }
             // el lector pudo dejar lo ultimo justo antes de terminar
-            if feed.samples.slots() < FRAME {
+            if feed.samples.slots() < frame {
                 return Refill::End;
             }
             return self.refill();
@@ -574,8 +658,8 @@ impl Iterator for Transcoded {
                     // Un instante de silencio: el mezclador no puede esperar.
                     // Solo pasa si ffmpeg va mas lento que el tiempo real o
                     // tras una busqueda que nadie preparo.
-                    self.local[..FRAME].fill(0);
-                    self.len = FRAME;
+                    self.local[..self.frame].fill(0);
+                    self.len = self.frame;
                     self.at = 0;
                 }
             }
@@ -593,7 +677,7 @@ impl Source for Transcoded {
             && self
                 .feed
                 .as_ref()
-                .is_none_or(|f| f.done.load(Ordering::Acquire) && f.samples.slots() < FRAME);
+                .is_none_or(|f| f.done.load(Ordering::Acquire) && f.samples.slots() < self.frame);
         if finished {
             return Some(0);
         }
@@ -606,7 +690,10 @@ impl Source for Transcoded {
         Some(32_768)
     }
     fn channels(&self) -> ChannelCount {
-        RODIO_CHANNELS
+        u16::try_from(self.frame)
+            .ok()
+            .and_then(ChannelCount::new)
+            .unwrap_or(RODIO_CHANNELS)
     }
     fn sample_rate(&self) -> SampleRate {
         RODIO_RATE
@@ -644,7 +731,8 @@ impl Source for Transcoded {
             .spawn(move || {
                 if let Err(e) = shared.prepare(from, READY_WITHIN) {
                     log::warn!("no se pudo buscar en la cancion: {e}");
-                    *lock(&shared.prepared) = Some(Feed::finished(from));
+                    let frame = shared.recipe.frame();
+                    *lock(&shared.prepared) = Some(Feed::finished(from, frame));
                 }
             })
             .map(|_| ())
@@ -667,7 +755,7 @@ impl Pipe {
     pub fn open(ffmpeg: &Path, path: &Path) -> Result<Self, String> {
         let recipe = Recipe {
             ffmpeg: ffmpeg.to_path_buf(),
-            path: path.to_path_buf(),
+            inputs: vec![path.to_path_buf()],
             tempo: 1.0,
             semitones: 0.0,
         };
@@ -899,6 +987,61 @@ mod tests {
         let seconds = rest as f64 / f64::from(RATE) / 2.0;
         assert!((1.9..2.1).contains(&seconds), "quedaban {seconds} s");
         let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn the_merge_filter_keeps_the_order_and_tunes_them_all_alike() {
+        assert_eq!(
+            merge_filter(2, None),
+            "[0:a]aresample=44100,aformat=channel_layouts=stereo[s0];\
+             [1:a]aresample=44100,aformat=channel_layouts=stereo[s1];\
+             [s0][s1]amerge=inputs=2,anull[out]"
+        );
+        assert!(merge_filter(3, Some("atempo=0.8000")).ends_with("amerge=inputs=3,atempo=0.8000[out]"));
+    }
+
+    /// Dos pistas juntas: cuatro canales, los de la primera delante, y cada
+    /// una con lo suyo. Una en mono tambien entra (se pasa a estereo).
+    #[test]
+    fn several_stems_come_out_together_in_order() {
+        let loud = made_with_ffmpeg(
+            "danplay-prueba-pista-a.flac",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=1:sample_rate=44100",
+                "-ac",
+                "2",
+            ],
+        );
+        let quiet = made_with_ffmpeg(
+            "danplay-prueba-pista-b.wav",
+            &["-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "1"],
+        );
+        let (source, _) =
+            Transcoded::open_inputs(ffmpeg(), &[loud.clone(), quiet.clone()], Some(1.0), 1.0, 0.0, 0.0).unwrap();
+        let source = source.patient();
+        assert_eq!(source.channels().get(), 4);
+        assert_eq!(source.frame(), 4);
+        let samples: Vec<f32> = source.collect();
+        assert_eq!(samples.len(), 44_100 * 4, "un segundo, cuatro canales");
+        let energy = |channel: usize| samples.iter().skip(channel).step_by(4).map(|v| v * v).sum::<f32>();
+        assert!(
+            energy(0) > 10.0 && energy(1) > 10.0,
+            "la primera suena por sus dos canales"
+        );
+        assert!(energy(2) < 1e-6 && energy(3) < 1e-6, "la segunda es silencio");
+        for file in [loud, quiet] {
+            let _ = std::fs::remove_file(file);
+        }
+    }
+
+    #[test]
+    fn no_stems_or_too_many_is_an_error() {
+        let many = vec![PathBuf::from("/x.flac"); MAX_INPUTS + 1];
+        assert!(Transcoded::open_inputs(ffmpeg(), &many, None, 1.0, 0.0, 0.0).is_err());
+        assert!(Transcoded::open_inputs(ffmpeg(), &[], None, 1.0, 0.0, 0.0).is_err());
     }
 
     /// Un archivo que ffmpeg no sabe leer no se da por bueno: se dice.

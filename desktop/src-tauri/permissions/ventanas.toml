@@ -25,6 +25,7 @@ permissions = [
   "allow-set-loop",
   "allow-set-pitch",
   "allow-set-metronome",
+  "allow-set-stems",
   "allow-analyze-beats",
   "allow-playback-state",
   "allow-queue-items",
