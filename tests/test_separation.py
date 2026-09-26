@@ -66,7 +66,8 @@ def test_the_pieces_are_joined_back_into_the_whole_song(seconds):
     x = tones(int(seconds * S.RATE))
     blocks, progress = [], []
     net = Identity()
-    S.separate(net, x, blocks.append, lambda d, t: progress.append((d, t)))
+    # se le da una copia: la normaliza en su sitio
+    S.separate(net, x.copy(), blocks.append, lambda d, t: progress.append((d, t)))
     out = np.concatenate(blocks, axis=-1)
     # tantos trozos como hacen falta, y cada tramo emitido una sola vez
     assert out.shape == (2, 2, x.shape[-1])
@@ -82,7 +83,7 @@ def test_a_song_with_an_offset_and_a_loud_mix_comes_back_the_same():
     y se deshace despues: una señal alta y descentrada vuelve igual."""
     x = tones(int(9 * S.RATE)) * 2.5 + 0.05
     blocks = []
-    S.separate(Identity((1.0,)), x, blocks.append)
+    S.separate(Identity((1.0,)), x.copy(), blocks.append)
     out = np.concatenate(blocks, axis=-1)[0]
     np.testing.assert_allclose(out, x, atol=1e-4)
 

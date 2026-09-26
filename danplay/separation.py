@@ -201,11 +201,17 @@ def separate(
 
     Mientras la red calcula un trozo (sin el GIL), un hilo deshace el
     espectrograma del anterior y lo funde: un diez por ciento menos.
+
+    La mezcla se normaliza en su sitio si es float32: `wav` no se vuelve a
+    usar, y una cancion de cinco minutos son 100 MB que no hace falta copiar.
     """
     reference = wav.mean(0)
     mean = float(reference.mean())
     std = float(reference.std(ddof=1)) + 1e-8 if reference.size > 1 else 1.0
-    mix = ((wav - mean) / std).astype(np.float32)
+    del reference
+    mix = wav if wav.dtype == np.float32 and wav.flags.writeable else wav.astype(np.float32)
+    mix -= mean
+    mix /= std
     length = mix.shape[-1]
     weight = _triangle()
     offsets = list(range(0, length, STRIDE)) or [0]
