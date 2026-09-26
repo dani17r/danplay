@@ -178,9 +178,15 @@ Alexandre Défossez), **MIT**. Viajan con la app los grafos de la red
 exportados a ONNX (`danplay/data/separador/`, generados con
 `scripts/exportar-separador.py` a partir del código de Demucs), **sin los
 pesos**: esos se bajan del repositorio del autor en HuggingFace
-(`adefossez/HTDemucs-6s`, `adefossez/HTDemucs`) la primera vez que se separa
-algo, y se comprueba su SHA-256. PyTorch y el paquete `demucs` solo hacen
-falta para regenerar los grafos, no para usar la app.
+(`adefossez/HTDemucs-6s`, y los especialistas de batería y bajo de
+`adefossez/HTDemucs-ft`) la primera vez que se separa algo, y se comprueba
+su SHA-256. PyTorch y el paquete `demucs` solo hacen falta para regenerar
+los grafos, no para usar la app.
+
+Para medir qué redes separan mejor, `scripts/evaluar-separador.py` usa las
+muestras de 7 segundos de **MUSDB18** (Rafii et al., SigSep), que baja el
+paquete `musdb` la primera vez. Solo sirven para medir en la máquina de
+quien desarrolla: la app no las lleva ni las usa.
 
 ## Servicios que se consultan
 

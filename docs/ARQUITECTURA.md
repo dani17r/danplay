@@ -519,9 +519,9 @@ normal.
 ## Separar en pistas
 
 Una canción se separa en sus instrumentos —batería, voces, bajo, guitarra,
-piano y el resto, o en cuatro sin guitarra ni piano— y en el modo estudio
-suenan ellas en vez de la canción, cada una con su volumen, su panorama, y
-callada o sola. Es lo que hacen las webs de *stems*, pero en el equipo: sin
+piano y el resto, los que tenga— y en el modo estudio suenan ellas en vez de
+la canción, cada una con su volumen, su panorama, y callada o sola. Un solo
+botón: sin elegir modelo ni calidad, sale siempre lo mejor que se ha medido. Es lo que hacen las webs de *stems*, pero en el equipo: sin
 subir nada, sin límites ni trozos de quince segundos, y con el bucle, la
 velocidad, el tono y el metrónomo de siempre encima.
 
@@ -538,13 +538,73 @@ numérico (de 57 a 85 dB por debajo de cada pista).
 
 **Los grafos viajan sin pesos.** Cada peso del grafo es una referencia
 externa, y un pequeño manifiesto dice de qué tensor del archivo oficial sale
-(tal cual, o traspuesto: el exportador guarda así los de las capas
-lineales). El archivo oficial es el del autor en HuggingFace, en float16; se
-baja la primera vez que se separa algo (55 MB el de seis pistas, 84 el de
-cuatro), se comprueba su sha256 y se le da a ONNX Runtime al cargar
-(`add_external_initializers`), pasado a float32, que es exacto. Así la app
-no reparte 140 MB de pesos que la mayoría no usará, y el repositorio no
-carga con ellos.
+(tal cual, traspuesto —el exportador guarda así los de las capas lineales—
+o con otra forma: el optimizador pliega el `unsqueeze` de las normas y las
+escalas). Todos, también los pequeños: así un mismo grafo sirve para varios
+juegos de pesos, y el de htdemucs es también el de sus cuatro especialistas
+afinados (htdemucs_ft), que el exportador comprueba uno por uno contra
+Demucs. Los archivos oficiales son los del autor en HuggingFace, en
+float16; se bajan la primera vez que se separa algo (223 MB: la red rápida,
+55, y los especialistas de batería y bajo, 84 cada uno), se comprueba su
+sha256 y se le dan a ONNX Runtime al cargar (`add_external_initializers`),
+pasados a float32, que es exacto. Así la app no reparte pesos que no todos
+usarán, y el repositorio no carga con ellos.
+
+**Qué redes, medido.** `scripts/evaluar-separador.py` separa con las mismas
+piezas que la app las 50 canciones de prueba de MUSDB18 (sus muestras de 7
+segundos, que ningún modelo de Demucs vio al entrenar; solo para medir, la
+app no las lleva) y da el SDR de cada fuente: lo que se parece la pista a
+la de verdad, en dB. Y el de la canción «sin batería», que es lo que oye un
+baterista al callarla. En este portátil:
+
+| Combinación | Batería | Bajo | Voces | Sin batería | Sin voces | × canción |
+| --- | --- | --- | --- | --- | --- | --- |
+| htdemucs_6s (1.16.0) | 9,21 | 7,66 | 8,52 | 12,38 | 12,05 | 0,57 |
+| htdemucs_6s, «Otros» lo que queda | 9,21 | 7,66 | 8,52 | 13,44 | 13,26 | 0,57 |
+| htdemucs (el de cuatro), igual | 9,55 | 8,40 | 8,38 | 13,78 | 13,12 | 0,61 |
+| los especialistas de batería, bajo y voz | 9,54 | 8,84 | 8,51 | 13,77 | 13,26 | 1,71 |
+| **la de la app**: la de seis, y batería y bajo de sus especialistas | 9,54 | 8,84 | 8,52 | 13,77 | 13,26 | 1,71 |
+
+(`× canción`: lo que tarda por segundo de canción.) De ahí sale todo lo
+demás: que «Otros» sea lo que queda gana más de un dB en lo que suena al
+callar una pista; los especialistas sacan mejor la batería y sobre todo el
+bajo; el de la voz no mejora a la red de seis, así que no se usa (un tercio
+menos de tiempo). Cuantizar las redes a 8 bits no cambia el SDR pero solo
+ahorra un 5 % del tiempo: el trabajo está repartido entre convoluciones,
+multiplicaciones y operaciones elemento a elemento, y no compensa llevar
+otro grafo.
+
+**Dos pasadas.** La mejor combinación pasa tres redes por la canción: de
+punta a punta, unos diez minutos para una de 4:31 en este portátil. Pero su
+primera red es la de seis, que hace falta igual (la guitarra y el piano
+solo los saca ella): con lo que da ya se escriben todas las pistas y se
+pueden usar, a los tres minutos. La mejora se lleva los otros seis y medio. Luego los especialistas rehacen la batería y el
+bajo (y «Otros») y se cambian de golpe, con los mismos nombres; el
+reproductor ve que cambiaron (fecha y tamaño de cada archivo) y las reabre
+donde iba, sin cortar. En la cola, las pasadas rápidas van antes que
+cualquier mejora: un repertorio entero se puede ensayar cuanto antes. Si la
+app se cierra a mitad de una mejora, las pistas se quedan en «rápidas» y
+pedir la canción otra vez solo las mejora.
+
+**Solo lo que está.** Una fuente que la red no encuentra no sale callada:
+sale con lo poco que se le cuela de las demás. Con la red rápida se mide lo
+que suena cada una frente a la canción, por tramos de un cuarto de segundo:
+se queda si en conjunto está a menos de 30 dB de la canción, o si en al
+menos un 2 % de lo que suena llega a 15 dB de ella (un piano que solo entra
+en el puente). Si no, no llega a pista, y lo suyo acaba en «Otros». El
+manifiesto guarda lo medido de cada una y cuáles se quitaron. Medido con
+`evaluar-separador.py --presencia`: en canciones de verdad, lo que no está
+sale de −44 a −63 dB (el piano de una canción sin piano, el bajo de una
+pista de acompañamiento que lo deja para el bajista, la batería y la voz de
+un preludio de piano) y lo que está, por encima de −20; el umbral queda en
+medio, con margen. En MUSDB18 se quitaron 2 de 150 fuentes que sí sonaban:
+la red rápida no las encontró (−49 y −36 dB), y los especialistas tampoco
+(−55 y −68), así que decidirlo con la rápida no pierde nada.
+
+**«Otros» es lo que queda.** No es la salida de la red para «el resto»,
+sino la canción menos todas las demás pistas tal y como quedaron guardadas:
+juntas suenan exactamente como la canción, y al callar una, lo demás está
+entero. Se calcula al final, leyendo las pistas ya escritas por tramos.
 
 **La atención, por bloques.** ONNX Runtime guarda entera la matriz de la
 atención del transformer (8 cabezas × 2688 × 2688, 230 MB) donde PyTorch
@@ -562,14 +622,19 @@ FLAC según sale (seis pistas de cinco minutos en memoria serían 640 MB),
 con su forma de onda: todas a la misma escala, para que en el mezclador se
 vea qué instrumento suena más y dónde entra cada uno.
 
-**Tarda en torno a lo que dura la canción** en un portátil corriente (un
-Ryzen 7 de 15 W: unos tres minutos para una de cuatro y media). Por eso hay
-una cola: se piden varias (del menú de una canción, o de varias elegidas) y
-se separan una detrás de otra mientras se sigue usando la app.
+**Tarda**, en un portátil corriente (un Ryzen 7 de 15 W), unos tres minutos
+hasta tener las pistas de una canción de cuatro y media, y unos seis y
+medio más hasta mejorarlas. Por eso hay una cola: se piden varias (del menú
+de una canción, de varias elegidas o de un repertorio) y se separan una
+detrás de otra mientras se sigue usando la app.
 
 **Dónde quedan.** En `Separadas/<nombre del archivo>/` dentro de la carpeta
 de la biblioteca de la que cuelga la canción: `Bateria.flac`, `Voces.flac`…
-archivos normales que abre cualquier programa. Se separa en una carpeta
+archivos normales que abre cualquier programa. En FLAC, o en Opus a 128
+kbps si se elige en Ajustes (cuatro veces menos; a 96 serían cinco, pero una
+pista sola deja oír más lo que quita el códec). El Opus se hace al final de
+la mejora: hasta entonces todo va en FLAC, para que «Otros» salga de pistas
+sin pérdida. Se separa en una carpeta
 oculta al lado (el escaneo se salta las ocultas) y al acabar se pone en su
 sitio de golpe; si la app se cerró a mitad, la siguiente separación limpia
 lo que quedó. Junto a las pistas va `.danplay-pistas.json`, que dice de qué

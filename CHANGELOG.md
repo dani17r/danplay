@@ -3,6 +3,49 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.17.0 — 2026-09-26
+
+Separar en pistas con la mejor calidad que se ha medido, y con un solo
+botón: solo salen los instrumentos que tiene la canción, y juntos suenan
+exactamente como ella.
+
+### Pistas separadas
+
+- **Un solo botón, «Separar pistas»**, en el modo estudio y en los menús:
+  ya no se elige entre seis o cuatro pistas ni en Ajustes. Sale siempre la
+  mejor combinación de separadores, medida (ver abajo).
+- **En dos pasadas.** En unos minutos ya tienes las pistas y puedes usarlas
+  (unos tres para una canción de cuatro y media); luego la batería y
+  el bajo se vuelven a sacar, cada uno con un separador especializado en
+  él, y se cambian solos sin cortar lo que suena. El bajo sale más de un dB
+  más limpio, y la batería un tercio de dB.
+- **Solo lo que está**: una canción sin piano (o sin voz, como una pista de
+  acompañamiento) no trae esa pista; lo poco que la red le atribuía va a
+  «Otros».
+- **«Otros» es lo que queda de la canción**, así que todas juntas suenan
+  exactamente como ella: callar la batería deja lo demás entero (más de un
+  dB mejor que antes, medido).
+- **Un repertorio entero**, desde su menú: «Separar las pistas del
+  repertorio» (sin repetir las que ya tienen las mejores). En la cola van
+  primero las pasadas rápidas de todas y luego las mejoras, para poder
+  ensayarlo cuanto antes.
+- **Las separadas con 1.16.0** siguen sonando igual; su menú ofrece
+  «Separar otra vez con la mejor calidad». Las que se quedaron sin mejorar
+  (la app se cerró a mitad) solo se mejoran.
+- **En Opus**, si lo eliges en Ajustes: cuatro veces menos que en FLAC.
+- La primera vez se baja más: 223 MB (la red rápida y los dos
+  especialistas, de su autor y comprobados). Ajustes lo enseña como un solo
+  separador, que se puede borrar.
+
+### Por dentro
+
+- `scripts/evaluar-separador.py` mide cada combinación de separadores con
+  las muestras de MUSDB18 (lo que se parece cada pista a la de verdad, y lo
+  que tarda); de ahí salen las decisiones de arriba. Cuantizar las redes a 8
+  bits se midió y no compensa.
+- El reproductor reabre las pistas cuando se rehacen con los mismos nombres
+  (al mejorarlas o al separar otra vez), donde iban.
+
 ## 1.16.0 — 2026-09-26
 
 Separar una canción en pistas —batería, voces, bajo, guitarra, piano y el

@@ -304,12 +304,19 @@ igual que las estrellas.
 
 ## Separar una canción en pistas
 
-En el modo estudio, **Separar en pistas** parte la canción en sus
-instrumentos: batería, voces, bajo, guitarra, piano y el resto (o en cuatro,
-sin guitarra ni piano, algo más limpias). Lo hace **Demucs**, el separador
-de Meta, en tu equipo: no se sube nada, no hay límite de canciones ni trozos
-de quince segundos. La primera vez se baja el separador (55 MB) del
-repositorio de su autor, y ya no hace falta internet.
+En el modo estudio, **Separar pistas** parte la canción en sus
+instrumentos: batería, voces, bajo, guitarra, piano y el resto. Solo salen
+los que tiene (una canción sin piano no trae pista de piano), y «Otros» es
+lo que queda de la canción, así que todas juntas suenan exactamente como
+ella: callar la batería deja lo demás intacto. Lo hace **Demucs**, el
+separador de Meta, en tu equipo: no se sube nada, no hay límite de canciones
+ni trozos de quince segundos. La primera vez se baja el separador (223 MB)
+del repositorio de su autor, y ya no hace falta internet.
+
+Va en dos pasadas, sin que elijas nada: en unos minutos ya tienes las
+pistas y puedes usarlas; luego la batería y el bajo se vuelven a sacar, cada
+uno con un separador especializado en él, más limpios, y se cambian solos
+sin cortar lo que suena.
 
 Luego suenan las pistas en vez de la canción, cada una en su carril con su
 onda: **M** la calla, **S** la deja sola (o varias), y cada una tiene su
@@ -323,15 +330,17 @@ Separadas/
     Bateria.flac  Voces.flac  Bajo.flac  Guitarra.flac  Piano.flac  Otros.flac
 ```
 
-Las pistas quedan en `Separadas/`, dentro de tu biblioteca, en FLAC:
-archivos normales que abre cualquier programa (un DAW, Ableton, el
-reproductor del sistema). No aparecen como canciones sueltas, y si pierdes
+Las pistas quedan en `Separadas/`, dentro de tu biblioteca, en FLAC (o en
+Opus, cuatro veces menos, si lo eliges en Ajustes): archivos normales que
+abre cualquier programa (un DAW, Ableton, el reproductor del sistema). No aparecen como canciones sueltas, y si pierdes
 el índice un escaneo las vuelve a unir con su canción. La mezcla que suena
 se guarda en mp3, flac o wav —la canción sin batería, para practicar con el
 móvil—, tal cual o a la velocidad y el tono a los que la estás oyendo.
 
-Se pueden separar varias de una vez desde el menú de clic derecho: van a una
-cola y se separan una detrás de otra mientras sigues usando la app.
+Se pueden separar varias de una vez desde el menú de clic derecho, o un
+repertorio entero desde el suyo: van a una cola y se separan una detrás de
+otra mientras sigues usando la app. Primero la pasada rápida de todas, así
+el repertorio se puede ensayar cuanto antes, y luego las mejoras.
 
 ## Formatos
 
@@ -365,11 +374,12 @@ Prefiero decirlo aquí que en un issue:
   pegado al icono de la bandeja. En Wayland lo coloca el escritorio: no existen
   las coordenadas globales y una aplicación no puede situar sus ventanas.
 - **Separar en pistas tarda.** Va por el procesador, no por la gráfica: en
-  un portátil corriente, en torno a lo que dura la canción (unos tres
-  minutos para una de cuatro y media, en un Ryzen 7 de 15 W), y usa unos
-  hasta 3 GB de memoria mientras tanto. Y es un separador, no los multitracks
-  del estudio: se cuela algo de un instrumento en otro, y el **piano** es la
-  pista más floja (lo que no reconoce acaba en «Otros»).
+  un portátil corriente (un Ryzen 7 de 15 W), unos tres minutos hasta tener
+  las pistas de una canción de cuatro y media, y unos seis y medio más hasta
+  que la batería y el bajo quedan mejorados; usa hasta 3 GB de memoria
+  mientras tanto. Y es un separador, no los multitracks del estudio: se
+  cuela algo de un instrumento en otro, y el **piano** es la pista más floja
+  (lo que no reconoce acaba en «Otros»).
 - **Un solo usuario, una sola máquina.** No hay sincronización entre equipos.
 
 ## Documentación
