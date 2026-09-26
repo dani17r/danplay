@@ -439,16 +439,63 @@ tono no hay nombre de tonalidad y se dice de cuál se parte, «G +¼».
 
 **Metrónomo.** Un clic sintetizado en un sink aparte del mezclador de rodio
 (`metronome.rs`): tiene su volumen y su play/pausa, independientes de la
-canción. El pulso y el compás los detecta la propia app en Rust
-(`beats.rs`), sin modelos ni dependencias: envolvente de ataques por FFT
-(flujo espectral), tempo por autocorrelación con un prior alrededor de 120
-(o del bpm del índice), rejilla de pulsos por programación dinámica (Ellis
-2007, lo que hace librosa) afinada a subtrama, y el «1» por dónde caen el
-bombo y los cambios de acorde, probando 4/4 y 3/4. Un par de segundos por
-canción; la rejilla se guarda por ruta durante la sesión y se pinta sobre
-la onda. Sonando con la canción, el clic se reengancha a la rejilla en
-cada play, salto, cambio de velocidad y vuelta del bucle, y sigue la
-velocidad del estudio; con la canción parada sigue solo al mismo tempo.
+canción. El pulso y el «1» los saca **Beat This!** (CPJKU, 2024, MIT) en el
+núcleo (`pulse.py`, `beatgrid.py`): una red que mira el espectrograma y dice,
+cada 50 avos de segundo, lo probable que es un pulso y que sea el «1». Va
+en ONNX Runtime como Demucs, sin PyTorch: el grafo con sus pesos en float16
+viaja con la app (42 MB), y el espectrograma, los trozos de 30 s y los
+máximos se hacen con numpy, igual que su código (`exportar-pulso.py` lo
+comprueba: los mismos pulsos). Unos segundos la primera vez, en un proceso
+aparte con prioridad baja; se guarda en `DATA_DIR/pulso/` y luego sale al
+momento. La interfaz se la pasa a Rust (`set_beat_grid`), que la usa como
+la suya. Si el núcleo no puede, Rust la saca con lo de siempre
+(`beats.rs`, abajo).
+
+Medido con `scripts/evaluar-pulso.py` en 300 fragmentos de GTZAN (diez
+estilos, pulso y compás anotados a mano, y que Beat This! no vio al
+entrenar), la F del MIREX (un pulso cuenta si cae a menos de 70 ms del
+anotado):
+
+| | Pulso | «1» | Pulso (pop, rock, country, disco) | «1» (ídem) |
+| --- | --- | --- | --- | --- |
+| `beats.rs` | 0,779 | 0,388 | 0,879 | 0,559 |
+| Beat This! pequeño (2 M de parámetros) | 0,854 | 0,701 | 0,931 | 0,868 |
+| **Beat This! (20 M), el de la app** | **0,862** | **0,721** | **0,940** | **0,881** |
+
+El «1» casi se duplica. La rejilla que usa la app no deja huecos (donde la
+red no oye pulso, en una parte sin ritmo, se rellena al tempo de alrededor:
+el clic no puede callarse ahí) y lleva **el «1» de cada compás** tal como lo
+oye la red (`bars`): el 2/4 antes del coro sale como tal. Medido, así
+acierta más el «1» (0,701) que forzando un compás regular (0,677).
+
+El análisis de reserva, en Rust (`beats.rs`), sin modelos: envolvente de
+ataques por FFT (flujo espectral), tempo por autocorrelación con un prior
+alrededor de 120 (o del bpm del índice), rejilla de pulsos por programación
+dinámica (Ellis 2007, lo que hace librosa) afinada a subtrama, y el «1» por
+dónde caen el bombo y los cambios de acorde, probando 4/4 y 3/4. Un par de
+segundos por canción. La rejilla se guarda por ruta durante la sesión y se
+pinta sobre la onda. Sonando con la canción, el clic se reengancha a la
+rejilla en cada play, salto, cambio de velocidad y vuelta del bucle, y sigue
+la velocidad del estudio; con la canción parada sigue solo al mismo tempo.
+
+**La cuenta.** Con uno o dos compases de cuenta puestos, play con la canción
+en pausa no la arranca: el clic cuenta esos compases al tempo y en el compás
+de la rejilla, y la canción entra justo donde caería el golpe siguiente, que
+es su próximo pulso (así, parada a mitad de compás, la cuenta va «3, 4, 1, 2»
+y entra en el 3). El clic va a su tiempo de muestra en el mezclador; la
+canción la arranca el hilo de audio cuando toca, con unos milisegundos de
+margen, y en cuanto suena el clic se reengancha a ella. Pausa en plena
+cuenta la deja en pausa. Es cosa del estudio: al cerrarlo, play vuelve a ser
+play.
+
+**Cuatro sonidos**: clásico (un pitido), madera, baqueta (corto y brillante,
+se cuela entre platos) y cencerro (se oye aunque la banda suene fuerte).
+Cada uno son unos pocos parciales con su caída (`metronome.rs`, `Sound`), y
+el «1» va más fuerte. La misma tabla está en `danplay/click.py`, que pone
+el clic en la **mezcla que se guarda** «como suena»: los golpes de la
+rejilla tal como suena (o del tempo a mano), pasados al tiempo de la mezcla
+y sumados después de la velocidad y el tono (que si no lo estirarían). Las
+pruebas de los dos lados comprueban las mismas muestras.
 
 La **síncopa 3+3+2**, la de tanta alabanza en directo, engañaba al tempo: el
 golpe cada tres corcheas (pulso y medio) sale casi tan fuerte como el pulso,
@@ -487,9 +534,9 @@ así que con el clic al doble la canción cede un instante en cada golpe. La
 rueda de la bandeja y las flechas se paran en el 100 %: pasar de ahí es a
 propósito.
 
-Para el pulso se miró usar madmom (muerto desde 2018) o Beat This! (sobre
-torch, 200–550 MB): se quedó en lo propio. Demucs sí entró, sin torch, para
-separar las pistas (ver «Separar en pistas»).
+Para el pulso se miró primero madmom (muerto desde 2018) y Beat This! sobre
+PyTorch (200–550 MB), y se quedó en lo propio. Con Demucs ya en ONNX Runtime
+para separar las pistas, Beat This! entró igual, sin PyTorch, y medido.
 
 La onda la
 calcula el núcleo en Rust recorriendo el archivo por bloques —no hace falta
@@ -1016,6 +1063,10 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   separation.py   el separador por dentro (Demucs con numpy y ONNX Runtime),
                   en un proceso aparte
   data/separador/ los grafos del separador, sin pesos
+  beatgrid.py     el pulso y el «1» del metrónomo: la cache y el proceso aparte
+  pulse.py        Beat This! por dentro (espectrograma y trozos con numpy, ONNX)
+  data/pulso/     el grafo de Beat This!, con sus pesos
+  click.py        el clic del metrónomo en la mezcla que se guarda
   thumbnails.py   las miniaturas de las carátulas, con tope y poda
   logs.py         el registro (a un archivo rotativo al servir)
   toon.py         resultados de herramientas en TOON: la mitad de tokens que JSON

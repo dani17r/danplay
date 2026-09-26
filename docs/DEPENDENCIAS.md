@@ -183,6 +183,23 @@ pesos**: esos se bajan del repositorio del autor en HuggingFace
 su SHA-256. PyTorch y el paquete `demucs` solo hacen falta para regenerar
 los grafos, no para usar la app.
 
+## El detector de pulso: Beat This!
+
+El pulso y el «1» del metrónomo los saca **Beat This!** (Foscarin, Schlüter
+y Widmer, CPJKU, Universidad Johannes Kepler de Linz, 2024), **MIT** el
+código y los pesos. Viaja con la app el modelo `final0` exportado a ONNX
+(`danplay/data/pulso/beat_this.onnx`, generado con
+`scripts/exportar-pulso.py`), **con sus pesos** en float16 (42 MB): la
+licencia lo permite, y así funciona sin internet desde el primer día. El
+original está en `cloud.cp.jku.at` (el sha256 del checkpoint del que sale va
+en `beat_this.json`). PyTorch, torchaudio y el paquete `beat_this` solo hacen
+falta para regenerarlo.
+
+Para medir qué detector acierta más, `scripts/evaluar-pulso.py` usa **GTZAN**
+(Tzanetakis y Cook, 2002; lo baja de HuggingFace) con las anotaciones de
+pulso y compás de **GTZAN-Rhythm** (Marchand y Peeters, 2015). Solo para
+medir: la app no los lleva ni los usa.
+
 Para medir qué redes separan mejor, `scripts/evaluar-separador.py` usa las
 muestras de 7 segundos de **MUSDB18** (Rafii et al., SigSep), que baja el
 paquete `musdb` la primera vez. Solo sirven para medir en la máquina de

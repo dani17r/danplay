@@ -77,6 +77,7 @@ castellano y, si la canción se acabó sola, se prueba con la siguiente.
 | `set_volume` | `{ value }` | 0..1,5. Por encima de 1 la canción suena más alta de como viene; lo que se pase de la salida lo recoge el limitador. |
 | `set_speed` | `{ value }` | |
 | `set_stems` | `{ song, tracks \| null }` | Las pistas separadas en vez de la canción (ver «Pistas separadas», §3). |
+| `set_beat_grid` | `{ path, grid }` | La rejilla de Beat This! que da el núcleo, para el metrónomo (ver el metrónomo, §3). |
 | `playback_state` | — | Devuelve `PlaybackState` (para pintar nada más montar). |
 | `queue_items` | — | Devuelve `{ items: Track[], origin }`. |
 
@@ -332,8 +333,12 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   archivo, calculados en Rust (`beats.rs`: envolvente de ataques por FFT,
   tempo por autocorrelación, rejilla por programación dinámica, el «1» por
   bombo y cambios de acorde). Un par de segundos; Rust guarda la rejilla
-  por ruta durante la sesión y el metrónomo la usa.
-- `set_metronome({ on, bpm, meter, shift, mult, volume })`: se manda
+  por ruta durante la sesión y el metrónomo la usa. Es lo de reserva: la
+  interfaz pide antes la de Beat This! al núcleo (`/api/song/{id}/beats`) y
+  se la da con `set_beat_grid`. Con `bars` (de Beat This!), el «1» de cada
+  compás es el de la lista, y un compás más largo se completa con `meter`;
+  el compás puesto a mano (otro que el suyo) vuelve a un «1» regular.
+- `set_metronome({ on, bpm, meter, shift, mult, volume, sound, count_in })`: se manda
   entero. `bpm`/`meter` en null = lo detectado. `bpm` a mano admite
   decimales y el clic va a su aire, pero con la canción sonando y rejilla su
   primer golpe cae en el siguiente pulso de ella (al ponerlo y en cada play,
@@ -343,10 +348,16 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   sobre el tempo a mano. `volume` 0..2. El clic es un sink aparte del
   mezclador (su volumen y su marcha, independientes de la canción); sonando
   con la canción se reengancha a su rejilla en cada play, salto, cambio de
-  velocidad y vuelta del bucle, y sigue la velocidad del estudio. El estado
-  trae `metronome { on, bpm, meter, shift, mult, volume, has_grid, free,
-  confidence }` (`bpm` ya con el doble o la mitad) y `path` (el archivo que
-  suena de verdad: la clave de la rejilla).
+  velocidad y vuelta del bucle, y sigue la velocidad del estudio. `sound`:
+  `clasico | madera | baqueta | cencerro` (el mismo que `danplay/click.py`
+  pone en la mezcla). `count_in` 0..2: con la canción en pausa, play cuenta
+  esos compases al tempo y en el compás de la rejilla y la canción entra
+  donde caería el golpe siguiente (su próximo pulso); pausa en plena cuenta
+  la deja en pausa. El modo estudio lo pone al abrirse y lo quita al
+  cerrarse. El estado trae `metronome { on, bpm, meter, shift, mult, volume,
+  has_grid, free, confidence, sound, count_in }` (`bpm` ya con el doble o la
+  mitad), `counting_in` (se está contando) y `path` (el archivo que suena de
+  verdad: la clave de la rejilla).
 - `PUT /api/song/{id}/study` admite además `pitch` (−12..12 semitonos, con
   fracciones al centésimo; 0 no se guarda y uno entero se guarda entero),
   `metronome { bpm?, meter?, shift?, mult? }` (solo lo ajustado a mano sobre
@@ -389,11 +400,25 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   misma escala. `404` sin pistas (y si su carpeta ya no está, se olvida).
   `DELETE` las manda a la papelera.
 - En las listas, cada canción lleva `has_stems` y `stems_best`.
+- `GET /api/song/{id}/beats` → la rejilla del metrónomo con Beat This!
+  (`BeatGrid`: `{ bpm, meter, beats, first_downbeat, phase3, phase4,
+  confidence, bars }`, con `bars` el índice de cada «1», compás a compás).
+  La primera vez tarda unos segundos (un proceso aparte); luego sale de lo
+  guardado en `DATA_DIR/pulso/`. `404` sin archivo; `503` si aquí no se puede
+  (sin el grafo, sin ffmpeg): la interfaz sigue con `analyze_beats` de Rust;
+  `422` si la canción no tiene pulso.
+- Rust: `set_beat_grid(path, grid)` se queda con esa rejilla para el
+  metrónomo, como si la hubiera analizado `analyze_beats` (la revisa antes:
+  pulsos en orden, tempo tocable, índices dentro).
 - `POST /api/song/{id}/stems/mix { tracks: [{ source, gain, pan }], path,
-  format?: mp3|flac|wav, speed?, pitch? }` → la tarea `mezcla`, con
+  format?: mp3|flac|wav, speed?, pitch?, click? }` → la tarea `mezcla`, con
   `result: { path, name, id, title }`. Solo las pistas que suenan; `path`
   dentro de la biblioteca y sin ser una canción suya; `id` es la canción
-  nueva si entra en la biblioteca (fuera de una carpeta de pistas).
+  nueva si entra en la biblioteca (fuera de una carpeta de pistas). `click:
+  { beats, accents, sound, volume }` suma el clic del metrónomo (los pulsos
+  en segundos de la canción y cuáles son el «1»; `sound`: `clasico | madera
+  | baqueta | cencerro`), después de la velocidad y el tono; el título dice
+  «con clic».
 - Rust: `set_stems(song, tracks | null)`, con `tracks: [{ path, gain, pan,
   on }]`: que suenen esas pistas en vez de la canción `song` (su ruta: si
   ya suena otra, no hace nada). Con las mismas pistas que ya suenan solo

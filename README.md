@@ -13,7 +13,7 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
   <img alt="Version" src="https://img.shields.io/badge/version-1.17.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-1.551%20en%20verde-2ea043">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-1.602%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -61,7 +61,7 @@ tus archivos. Si mañana te vas a otro reproductor, tu trabajo se va contigo.
 
 | Si eres… | Esto es lo que te da |
 | --- | --- |
-| **Músico o equipo de alabanza** | Tonos, acordes y transposición con cejilla sugerida. Repertorios en el orden que tú decidas (se arrastran las canciones arriba y abajo), exportables a `.m3u` y como **hoja para el atril** (tono, bpm, cejilla, acordes, letra). Letra dentro del archivo, y con tiempos: la ficha sigue la línea que suena, y la **proyección** la pone en grande para la pantalla. **Modo estudio** a media pantalla: el tramo que se repite se elige arrastrando sobre la forma de onda (con regla de minutos y un candado para que, mientras suena, un clic no la mueva), o varios tramos que se repiten seguidos saltándose lo de en medio; cada tramo tiene sus opciones (sonar ya, repetir cuando acabe la canción, ajustarlo a los pulsos) y se guarda como marcador con nombre y notas; **velocidad** sin cambiar el tono, **tono** en tonos (de cuarto, de medio o de uno entero), y un **metrónomo** que detecta solo el pulso y el compás de la canción, entra en el «1» y se para o arranca aparte de ella: se dobla para ir a corcheas, admite el tempo a mano con decimales y otros compases (o ninguno acentuado), y el clic y la canción suben por encima de como vienen sin saturar. **Pistas separadas**: la canción se separa en batería, voces, bajo, guitarra, piano y el resto (en tu equipo, sin subir nada), y en el modo estudio suenan ellas, con un carril por instrumento: callar la batería para tocarla tú, dejar solo el bajo, subir la voz, llevar cada una a un lado; con el bucle, la velocidad, el tono y el metrónomo encima. La mezcla se guarda en mp3 («sin batería», para el móvil). Todo guardado con la canción y borrado con ella. |
+| **Músico o equipo de alabanza** | Tonos, acordes y transposición con cejilla sugerida. Repertorios en el orden que tú decidas (se arrastran las canciones arriba y abajo), exportables a `.m3u` y como **hoja para el atril** (tono, bpm, cejilla, acordes, letra). Letra dentro del archivo, y con tiempos: la ficha sigue la línea que suena, y la **proyección** la pone en grande para la pantalla. **Modo estudio** a media pantalla: el tramo que se repite se elige arrastrando sobre la forma de onda (con regla de minutos y un candado para que, mientras suena, un clic no la mueva), o varios tramos que se repiten seguidos saltándose lo de en medio; cada tramo tiene sus opciones (sonar ya, repetir cuando acabe la canción, ajustarlo a los pulsos) y se guarda como marcador con nombre y notas; **velocidad** sin cambiar el tono, **tono** en tonos (de cuarto, de medio o de uno entero), y un **metrónomo** que detecta solo el pulso y el «1» de cada compás (con Beat This!, una red que los oye como un músico, compases irregulares incluidos), entra en el «1» y se para o arranca aparte de ella: se dobla para ir a corcheas, admite el tempo a mano con decimales y otros compases (o ninguno acentuado), tiene cuatro sonidos (clásico, madera, baqueta, cencerro), **cuenta uno o dos compases** antes de que entre la canción, y el clic y la canción suben por encima de como vienen sin saturar. **Pistas separadas**: la canción se separa en batería, voces, bajo, guitarra, piano y el resto (en tu equipo, sin subir nada), y en el modo estudio suenan ellas, con un carril por instrumento: callar la batería para tocarla tú, dejar solo el bajo, subir la voz, llevar cada una a un lado; con el bucle, la velocidad, el tono y el metrónomo encima. La mezcla se guarda en mp3 («sin batería», para el móvil), y si quieres con el clic encima. Todo guardado con la canción y borrado con ella. |
 | **Quien tiene la música en el disco** | Cientos de descargas con nombres imposibles, duplicados y etiquetas rotas. Esto lo ordena. Y en cualquier lista, el título o el nombre completo de una canción se copian de un clic, para buscarla fuera. |
 | **Quien no quiere depender de nadie** | Sin cuenta, sin nube, sin telemetría. Funciona con el wifi apagado (salvo lo que por definición necesita internet). |
 | **Quien viene de otro reproductor** | Se lee y se escribe ID3 estándar. Kodi, foobar2000 o Rhythmbox verán tus estrellas y tus letras igual. |
@@ -282,10 +282,13 @@ Cuatro capas, cada una en lo que mejor se le da:
   responsive hasta tamaño móvil.
 - **Rust (Tauri)** para el proceso principal: la cola de reproducción, el
   icono de la bandeja, el mini reproductor y los mandos del sistema. Reproduce
-  el audio nativamente (rodio), y detecta el pulso para el metrónomo.
+  el audio nativamente (rodio), con el metrónomo encima (y su propio
+  detector de pulso, por si el del núcleo no está).
 - **Python** para el núcleo: la cascada de identificación, el índice SQLite con
   búsqueda de texto completo (FTS5), la IA, las etiquetas, y el vigilante que
-  mantiene el índice al día con lo que cambia en el disco.
+  mantiene el índice al día con lo que cambia en el disco. Y dos redes con
+  ONNX Runtime, sin PyTorch: Demucs, que separa las pistas, y Beat This!, que
+  saca el pulso y el «1» para el metrónomo.
 - **Rust (PyO3)** para lo que Python hace lento: hashes en paralelo con rayon y
   la forma de onda.
 
@@ -399,15 +402,15 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-1.551 pruebas repartidas así (la CI las pasa todas menos las de humo, que
+1.602 pruebas repartidas así (la CI las pasa todas menos las de humo, que
 necesitan la app ya compilada):
 
 | Tanda | Pruebas |
 | --- | --- |
-| Núcleo Python: nombres, etiquetas (mp3, flac, ogg, m4a…), índice y esquema, duplicados, teoría, la API entera sobre una biblioteca temporal de verdad, el vigilante de carpetas (mover, borrar, renombrar, carpetas que se van y vuelven), IA con cualquier proveedor, asistente, descargas y yt-dlp, separar en pistas (el motor contra una red de mentira, la cola, las carpetas, la mezcla), CLI, privacidad | 564 |
-| Interfaz: componentes, páginas, reactividad, teclado y accesibilidad, listas grandes y agrupadas, temas, contratos, chat, modo estudio y su mezclador, proyección | 797 |
+| Núcleo Python: nombres, etiquetas (mp3, flac, ogg, m4a…), índice y esquema, duplicados, teoría, la API entera sobre una biblioteca temporal de verdad, el vigilante de carpetas (mover, borrar, renombrar, carpetas que se van y vuelven), IA con cualquier proveedor, asistente, descargas y yt-dlp, separar en pistas (el motor contra una red de mentira, la cola, las carpetas, la mezcla), el pulso de Beat This! (también contra una red de mentira) y el clic de la mezcla, CLI, privacidad | 597 |
+| Interfaz: componentes, páginas, reactividad, teclado y accesibilidad, listas grandes y agrupadas, temas, contratos, chat, modo estudio y su mezclador, proyección | 808 |
 | Interfaz: rutas de medios en cada sistema | 7 |
-| Rust: reproductor (con audio de verdad), cola, sesión, bandeja, núcleo, permisos por ventana, metrónomo, limitador, las pistas separadas sonando juntas | 137 |
+| Rust: reproductor (con audio de verdad), cola, sesión, bandeja, núcleo, permisos por ventana, metrónomo (la cuenta y sus sonidos), limitador, las pistas separadas sonando juntas | 144 |
 | Rust: hashes y forma de onda | 14 |
 | De punta a punta: la interfaz contra el núcleo de verdad, en Chrome (Playwright) | 12 |
 | Humo sobre la app **ya compilada** | 20 |

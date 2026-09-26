@@ -3,6 +3,38 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.18.0 — 2026-09-26
+
+El metrónomo del modo estudio, para tocar encima: acierta el «1» casi el
+doble de veces, cuenta antes de que entre la canción, tiene cuatro sonidos
+y va en la mezcla que te llevas.
+
+### Metrónomo
+
+- **El pulso y el «1» los saca Beat This!**, una red que los oye como un
+  músico (de la Universidad de Linz, MIT), en tu equipo y sin internet: viaja
+  con la app. Medido en GTZAN (diez estilos anotados a mano), el «1» acierta
+  0,72 frente a 0,39 del análisis de antes, y en pop y rock 0,88 frente a
+  0,56. Y sigue los compases irregulares (el 2/4 antes del coro). La primera
+  vez que abres una canción tarda unos segundos; luego es al momento. Si
+  algo falla, sigue el análisis de siempre.
+- **La cuenta**: uno o dos compases de clic antes de que entre la canción al
+  darle a play (en el modo estudio, con la canción en pausa), al tempo y en
+  el compás de la canción. Entra justo en su pulso, aunque la pararas a
+  mitad de compás. Pausa en plena cuenta la deja en pausa.
+- **Cuatro sonidos** de clic: clásico, madera, baqueta (corto, se cuela
+  entre los platos) y cencerro (se oye con la banda a tope). Se recuerdan,
+  como la cuenta.
+- **El clic en la mezcla que guardas**: «Guardarla como suena…» lleva el
+  clic si está puesto, con su sonido y su volumen, a la velocidad y en el
+  compás que se oyen. Para ensayar con el móvil como en el estudio.
+
+### Por dentro
+
+- `scripts/evaluar-pulso.py` mide cada detector de pulso sobre GTZAN, y
+  `scripts/exportar-pulso.py` regenera el de la app (comprueba que da los
+  mismos pulsos que el original).
+
 ## 1.17.0 — 2026-09-26
 
 Separar en pistas con la mejor calidad que se ha medido, y con un solo
