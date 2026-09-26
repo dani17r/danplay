@@ -42,7 +42,14 @@ import { stemPlan, mixFileName } from '../utils/stems.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
 import { formatTime } from '../utils/format.js'
 import { transposeKey, toneLabel, toneUnit } from '../utils/theory.js'
-import { effectiveGrid, formatBpm, parseBpm, multFactor, METERS } from '../utils/beats.js'
+import {
+  effectiveGrid,
+  formatBpm,
+  parseBpm,
+  multFactor,
+  clickTimes,
+  METERS
+} from '../utils/beats.js'
 import {
   cleanSegments,
   sameSegments,
@@ -575,6 +582,7 @@ const bpmShown = computed(() => (bpmHeard.value ? formatBpm(bpmHeard.value) : '�
 const bpmDraft = ref(null)
 const metroStatus = computed(() => {
   const m = metronome.value
+  if (player.state.counting_in) return 'contando…'
   if (analyzing.value) return 'buscando el pulso y el compás…'
   if (gridError.value) return 'sin compás detectado: va libre'
   if (!m.has_grid) return 'sin compás: va libre'
@@ -671,6 +679,47 @@ function multTitle(mult) {
     : `La mitad de clics (${to})`
 }
 const setMetroVolume = (v) => player.setMetronome({ volume: v })
+
+// La cuenta y el sonido del clic son de quien toca, no de cada cancion: se
+// recuerdan en el navegador. La cuenta solo vale con el estudio abierto.
+const COUNT_INS = [
+  { v: 0, n: 'no', title: 'Al darle a play, la canción entra sin cuenta' },
+  { v: 1, n: '1 compás', title: 'Al darle a play en pausa, un compás de clic antes de que entre' },
+  {
+    v: 2,
+    n: '2 compases',
+    title: 'Al darle a play en pausa, dos compases de clic antes de que entre'
+  }
+]
+const CLICK_SOUNDS = [
+  { v: 'clasico', n: 'clásico', title: 'Un pitido corto' },
+  { v: 'madera', n: 'madera', title: 'Un bloque de madera: seco' },
+  {
+    v: 'baqueta',
+    n: 'baqueta',
+    title: 'Baqueta contra el aro: corto y brillante, se oye entre platos'
+  },
+  { v: 'cencerro', n: 'cencerro', title: 'Cencerro: se oye aunque la banda suene fuerte' }
+]
+const PREF_COUNT = 'danplay.clic.cuenta'
+const PREF_SOUND = 'danplay.clic.sonido'
+function setCountIn(v) {
+  savePref(PREF_COUNT, v)
+  return player.setMetronome({ count_in: v })
+}
+function setClickSound(v) {
+  savePref(PREF_SOUND, v)
+  return player.setMetronome({ sound: v })
+}
+// al abrir el estudio, lo que quedo elegido
+{
+  const count = Math.min(2, Math.max(0, Math.round(Number(readPref(PREF_COUNT, 0)) || 0)))
+  const sound = readPref(PREF_SOUND, 'clasico')
+  player.setMetronome({
+    count_in: count,
+    sound: CLICK_SOUNDS.some((c) => c.v === sound) ? sound : 'clasico'
+  })
+}
 const setSongVolume = (v) => player.setVolume(v)
 const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
 
@@ -852,7 +901,19 @@ async function saveMix({ asHeard = false } = {}) {
   if (!info || !id) return
   const on = plan.value.filter((t) => t.on)
   if (!on.length) return notify('Todas las pistas están calladas: no hay nada que guardar')
-  const name = mixFileName(songFile.value || track.value?.title || 'Cancion', plan.value)
+  // como suena: con el clic, si va (los golpes que se oyen, con su sonido)
+  const m = metronome.value
+  const click =
+    asHeard && m.on
+      ? {
+          ...clickTimes(shownGrid.value, m, duration.value || 0),
+          sound: m.sound || 'clasico',
+          volume: m.volume
+        }
+      : null
+  const name = mixFileName(songFile.value || track.value?.title || 'Cancion', plan.value, {
+    click: !!click
+  })
   const path = await pickSavePath({
     title: 'Guardar la mezcla',
     defaultPath: `${info.folder}/${name}.mp3`,
@@ -870,7 +931,8 @@ async function saveMix({ asHeard = false } = {}) {
         api.exportMix(id, {
           tracks: on.map((t) => ({ source: t.key, gain: t.gain, pan: t.pan })),
           path,
-          ...(asHeard ? { speed: speed.value, pitch: pitch.value } : {})
+          ...(asHeard ? { speed: speed.value, pitch: pitch.value } : {}),
+          ...(click ? { click } : {})
         }),
       JOBS.mix
     )
@@ -911,7 +973,16 @@ async function deleteStems() {
     notify('No se pudieron borrar: ' + errorMessage(e))
   }
 }
-const heardDiffers = computed(() => speed.value !== 1 || pitch.value !== 0)
+/** Lo que se oye no es la mezcla tal cual: otra velocidad, otro tono, o el clic. */
+const heardDiffers = computed(() => speed.value !== 1 || pitch.value !== 0 || metronome.value.on)
+const heardNote = computed(() => {
+  const bits = []
+  if (speed.value !== 1 || pitch.value !== 0) {
+    bits.push(`${Math.round(speed.value * 100)} %${pitch.value ? ' · ' + pitchLabel.value : ''}`)
+  }
+  if (metronome.value.on) bits.push('con clic')
+  return bits.join(' · ')
+})
 function stemsMenu(ev) {
   const items = [
     { label: 'Guardar esta mezcla…', icon: 'download', action: () => saveMix() },
@@ -920,7 +991,7 @@ function stemsMenu(ev) {
           {
             label: 'Guardarla como suena…',
             icon: 'download',
-            note: `${Math.round(speed.value * 100)} %${pitch.value ? ' · ' + pitchLabel.value : ''}`,
+            note: heardNote.value,
             action: () => saveMix({ asHeard: true })
           }
         ]
@@ -955,13 +1026,17 @@ async function close() {
   await player.clearLoop()
   if (speed.value !== 1) await player.setSpeed(1)
   if (pitch.value !== 0) await player.setPitch(0)
-  if (metronome.value.on) await player.setMetronome({ on: false })
+  // la cuenta es cosa del estudio: fuera de el, play es play
+  await player.setMetronome({ on: false, count_in: 0 })
   emit('close')
 }
 // Lo pendiente no se tira al desmontar: se guarda. (Cargar lo guardado ya lo
 // hace el `watch` inmediato de arriba; aqui se volvia a pedir al montar y la
 // ficha se leia dos veces.)
-onUnmounted(flushSave)
+onUnmounted(() => {
+  flushSave()
+  if (metronome.value.count_in) player.setMetronome({ count_in: 0 })
+})
 </script>
 
 <template>
@@ -1371,6 +1446,36 @@ onUnmounted(flushSave)
               @click="shiftOne"
             >
               el 1 es el siguiente
+            </button>
+          </div>
+          <div class="study-metro-row study-meters" role="group" aria-label="Cuenta al empezar">
+            <span class="study-metro-label">Cuenta</span>
+            <button
+              v-for="c in COUNT_INS"
+              :key="c.v"
+              class="btn mini"
+              type="button"
+              :class="{ on: (metronome.count_in || 0) === c.v }"
+              :aria-pressed="(metronome.count_in || 0) === c.v"
+              :title="c.title"
+              @click="setCountIn(c.v)"
+            >
+              {{ c.n }}
+            </button>
+          </div>
+          <div class="study-metro-row study-meters" role="group" aria-label="Sonido del clic">
+            <span class="study-metro-label">Sonido</span>
+            <button
+              v-for="c in CLICK_SOUNDS"
+              :key="c.v"
+              class="btn mini"
+              type="button"
+              :class="{ on: (metronome.sound || 'clasico') === c.v }"
+              :aria-pressed="(metronome.sound || 'clasico') === c.v"
+              :title="c.title"
+              @click="setClickSound(c.v)"
+            >
+              {{ c.n }}
             </button>
           </div>
           <div class="study-metro-row study-metro-vol">

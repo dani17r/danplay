@@ -164,6 +164,9 @@ struct Engine<'a> {
     idle_since: Option<Instant>,
     /// Salidas rehechas seguidas sin que ninguna llegue a latir.
     recoveries: u32,
+    /// Se esta contando: la cancion sigue en pausa hasta ese instante, en
+    /// que entra donde caeria el golpe siguiente de la cuenta.
+    count_in: Option<Instant>,
 }
 
 /// El bucle del hilo de audio. Vuelve solo cuando se cierra el canal; si hace
@@ -182,6 +185,7 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
         last_resync: Instant::now(),
         idle_since: None,
         recoveries: 0,
+        count_in: None,
     };
     // Se mira si hay salida, pero no se abre: eso se hace al primer play.
     engine.carry.has_output = output::probe();
@@ -209,6 +213,7 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return, // el canal se cerro: fin
         }
+        engine.song_in(&mut step);
         engine.watchdog(&mut step);
         engine.ab_loop(&mut step);
         engine.metronome(&mut step);
@@ -227,6 +232,10 @@ impl Engine<'_> {
     /// Cuanto esperar a la siguiente orden; `None` si no hay nada que mirar
     /// mientras tanto.
     fn wait(&self) -> Option<Duration> {
+        // al acabar la cuenta, la cancion entra: ni un milisegundo tarde
+        if let Some(at) = self.count_in {
+            return Some(at.saturating_duration_since(Instant::now()).min(ACTIVE));
+        }
         // una cancion con tramo que se acaba vuelve al tramo: cuanto antes
         let back_to_loop = !self.carry.loops.is_empty() && self.song.as_ref().is_some_and(Song::exhausted);
         if self.sounding() || back_to_loop {
@@ -286,6 +295,22 @@ impl Engine<'_> {
             self.carry.pending = None;
         }
         step.clear_error = matches!(command, Command::Play { .. } | Command::Load { .. } | Command::Stop);
+        if self.count_in.is_some() {
+            match command {
+                // ya va a sonar
+                Command::Resume => return,
+                // pausa (o play otra vez) en plena cuenta: se deja de contar
+                // y sigue en pausa
+                Command::Toggle | Command::Pause => {
+                    self.cancel_count_in(step);
+                    return;
+                }
+                Command::Play { .. } | Command::Load { .. } | Command::Stop | Command::Fail(_) | Command::Seek(_) => {
+                    self.cancel_count_in(step);
+                }
+                _ => {}
+            }
+        }
         match command {
             Command::Play { path, duration } => self.play(path, duration, step),
             Command::Load { path, duration } => self.load(path, duration),
@@ -440,12 +465,18 @@ impl Engine<'_> {
         let wants_play = want.unwrap_or_else(|| self.song.as_ref().is_none_or(|s| s.sink.is_paused() || s.exhausted()));
         if wants_play && exhausted && !self.carry.path.is_empty() {
             // la pista acabo (o la salida se solto en pausa): se vuelve a
-            // abrir, donde se quedo si se sabe, y suena
+            // abrir, donde se quedo si se sabe, y suena (tras la cuenta, si
+            // la hay)
             let from = self.carry.resume_at.take().unwrap_or(0.0);
             match self.open_current(from) {
                 Ok(song) => {
-                    self.adopt(song, true);
+                    self.adopt(song, false);
                     self.rearm(from);
+                    if !self.start_count_in()
+                        && let Some(song) = &self.song
+                    {
+                        song.sink.play();
+                    }
                     step.replan = Some(Replan::Song);
                 }
                 Err(e) => {
@@ -453,14 +484,58 @@ impl Engine<'_> {
                     step.failure = Some(e);
                 }
             }
-        } else if let Some(song) = &self.song {
+        } else if self.song.is_some() {
             if wants_play {
-                song.sink.play();
-                step.replan = Some(Replan::Song);
-            } else {
+                let paused = self.song.as_ref().is_some_and(|s| s.sink.is_paused());
+                if !(paused && self.start_count_in()) {
+                    if let Some(song) = &self.song {
+                        song.sink.play();
+                    }
+                    step.replan = Some(Replan::Song);
+                }
+            } else if let Some(song) = &self.song {
                 song.sink.pause();
             }
         }
+    }
+
+    /// Si hay que contar antes de que entre la cancion (en pausa), empieza
+    /// la cuenta y devuelve true: la cancion entra al acabar (`song_in`).
+    fn start_count_in(&mut self) -> bool {
+        let (Some(output), Some(song)) = (self.output.as_ref(), self.song.as_ref()) else {
+            return false;
+        };
+        let position = song.position(self.carry.clock());
+        let Some(count) = self.carry.metro.count_in(position, self.carry.speed) else {
+            return false;
+        };
+        let Some(shared) = metro::ensure_click(output, &mut self.click) else {
+            return false;
+        };
+        metro::plan_count_in(&self.carry.metro, &count, &shared);
+        self.count_in = Some(Instant::now() + Duration::from_secs_f64(count.song_in));
+        true
+    }
+
+    /// Acabo la cuenta: entra la cancion.
+    fn song_in(&mut self, step: &mut Step) {
+        let Some(at) = self.count_in else {
+            return;
+        };
+        if Instant::now() < at {
+            return;
+        }
+        self.count_in = None;
+        if let Some(song) = &self.song {
+            song.sink.play();
+            step.replan = Some(Replan::Song);
+        }
+    }
+
+    /// Se deja de contar: el clic vuelve a lo que tuviera (o se calla).
+    fn cancel_count_in(&mut self, step: &mut Step) {
+        self.count_in = None;
+        step.replan = Some(Replan::Settings);
     }
 
     fn seek(&mut self, seconds: f64, step: &mut Step) {
@@ -887,6 +962,7 @@ impl Engine<'_> {
             e.pitch = self.carry.pitch;
             e.metronome = self.carry.metro.state();
             e.stems = self.carry.stems.is_some();
+            e.counting_in = self.count_in.is_some();
             e.clone()
         };
 

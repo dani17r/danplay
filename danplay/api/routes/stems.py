@@ -89,6 +89,7 @@ def export_mix(cid: int, body: Annotated[StemMixIn, Body()]):
     if not song or stems.info(song) is None:
         raise HTTPException(404, "esta canción no tiene pistas separadas")
     tracks = [t.model_dump() for t in body.tracks]
+    click = body.click.model_dump() if body.click else None
 
     def work(progress):
         r = stems.export_mix(
@@ -99,6 +100,7 @@ def export_mix(cid: int, body: Annotated[StemMixIn, Body()]):
             body.speed,
             body.pitch,
             progress=lambda done, total: progress(round(done, 1), round(total, 1)),
+            click=click,
         )
         progress(message=f"Guardada «{r['name']}»")
         return r

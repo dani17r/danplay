@@ -62,11 +62,15 @@ const EMPTY = {
     volume: 0.8,
     has_grid: false,
     free: true,
-    confidence: 0
+    confidence: 0,
+    sound: 'clasico',
+    count_in: 0
   },
   path: '',
   // suenan las pistas separadas de la canción (con su mezcla) en vez de ella
-  stems: false
+  stems: false,
+  // se está contando para que entre la canción
+  counting_in: false
 }
 
 /**
@@ -542,7 +546,9 @@ export function resetPlayback() {
     meter: null,
     shift: 0,
     mult: 0,
-    volume: 0.8
+    volume: 0.8,
+    sound: 'clasico',
+    count_in: 0
   })
   Object.assign(state, { ...EMPTY })
 }
@@ -649,11 +655,21 @@ function setPitch(semitones) {
 /**
  * Lo que se le manda al metrónomo, entero cada vez. Vive aquí (y no solo en
  * Rust) porque el estado de Rust no distingue «lo detectado» de «lo puesto a
- * mano»: solo sabe lo que suena. `on` y `volume` son de la sesión; tempo,
- * compás, «1» y doble/mitad son de cada canción y se cambian con
- * `resetMetronomeOverrides` al cambiar de canción.
+ * mano»: solo sabe lo que suena. `on`, `volume`, `sound` y `count_in` son de
+ * la sesión (el modo estudio pone y quita la cuenta); tempo, compás, «1» y
+ * doble/mitad son de cada canción y se cambian con `resetMetronomeOverrides`
+ * al cambiar de canción.
  */
-const metronomeSettings = { on: false, bpm: null, meter: null, shift: 0, mult: 0, volume: 0.8 }
+const metronomeSettings = {
+  on: false,
+  bpm: null,
+  meter: null,
+  shift: 0,
+  mult: 0,
+  volume: 0.8,
+  sound: /** @type {import('../api.js').ClickSound} */ ('clasico'),
+  count_in: 0
+}
 /**
  * @param {Partial<import('../api.js').MetronomeSettings>} patch  lo que cambia
  */

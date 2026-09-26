@@ -25,6 +25,7 @@
 //! milisegundos por hora.
 use crate::beats::BeatGrid;
 use rodio::Source;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -46,6 +47,16 @@ pub enum Mode {
         delay: f64,
         first: u8,
     },
+    /// La cuenta antes de que entre la cancion: `count` golpes a `period`
+    /// segundos, el primero a `delay` y siendo el tiempo `first` del compas.
+    /// Despues, silencio hasta el siguiente plan (el de cuando entra).
+    CountIn {
+        period: f64,
+        meter: u8,
+        delay: f64,
+        first: u8,
+        count: u32,
+    },
     /// Siguiendo la rejilla de la cancion: el pulso `index` cae a `delay`
     /// segundos; los siguientes, segun la rejilla dividida por `speed`.
     Grid {
@@ -66,6 +77,8 @@ pub struct Plan {
     /// limitador del mezclador quien lo deja entrar (bajando un instante la
     /// cancion, que es lo que hace que el clic se oiga por encima).
     pub volume: f32,
+    /// Como suena. Como el volumen, se cambia sin plan nuevo.
+    pub sound: Sound,
     /// Reenganche de rutina: la cancion sigue donde estaba y solo hay que
     /// quitar lo que se haya ido acumulando. La fuente lo aplica sin repetir
     /// ni saltarse ningun golpe. Los demas planes —play, salto, ajustes— son
@@ -79,6 +92,7 @@ impl Default for Plan {
             generation: 0,
             mode: Mode::Off,
             volume: 0.8,
+            sound: Sound::Classic,
             smooth: false,
         }
     }
@@ -89,26 +103,93 @@ pub type Shared = Arc<Mutex<Plan>>;
 /// Cada cuantas muestras mira la fuente si hay plan nuevo (1,5 ms).
 const CHECK_EVERY: u64 = 64;
 
-/// Un golpe de clic: un tono corto con caida exponencial. El «1» es mas
-/// agudo, mas largo y mas fuerte, que es como se distingue de oido.
-fn click_sample(pos: usize, accent: bool, rate: u32) -> f32 {
-    let (hz, len_s, gain) = if accent {
-        (1568.0, 0.035, 1.0)
-    } else {
-        (1046.5, 0.022, 0.65)
-    };
-    if pos >= click_len(accent, rate) {
-        return 0.0;
-    }
-    let t = pos as f64 / f64::from(rate);
-    let env = (-t / (len_s / 4.5)).exp();
-    // un ataque de medio milisegundo, para que no chasque
-    let attack = (pos as f64 / (0.0005 * f64::from(rate))).min(1.0);
-    (gain * env * attack * (2.0 * std::f64::consts::PI * hz * t).sin()) as f32
+/// Como suena el clic. Se elige en el modo estudio; la mezcla que se
+/// guarda con clic usa el mismo (`danplay/click.py` tiene esta misma tabla).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub enum Sound {
+    /// Un pitido corto, el de siempre.
+    #[default]
+    #[serde(rename = "clasico")]
+    Classic,
+    /// Un bloque de madera: seco, con cuerpo.
+    #[serde(rename = "madera")]
+    Wood,
+    /// Una baqueta contra el aro: muy corto y brillante, se cuela bien entre
+    /// platos.
+    #[serde(rename = "baqueta")]
+    Stick,
+    /// Un cencerro: se oye aunque la banda suene fuerte.
+    #[serde(rename = "cencerro")]
+    Cowbell,
 }
 
-fn click_len(accent: bool, rate: u32) -> usize {
-    ((if accent { 0.035 } else { 0.022 }) * f64::from(rate)) as usize
+/// Un golpe: sus parciales (hz, amplitud, caida en segundos), lo que dura y
+/// lo fuerte que va. El «1» es mas fuerte (y en el clasico, mas agudo y mas
+/// largo), que es como se distingue de oido.
+struct Hit {
+    partials: &'static [(f64, f64, f64)],
+    len: f64,
+    gain: f64,
+}
+
+fn hit(sound: Sound, accent: bool) -> Hit {
+    let (partials, len, gain): (&'static [(f64, f64, f64)], f64, f64) = match (sound, accent) {
+        (Sound::Classic, true) => (&[(1568.0, 1.0, 0.035 / 4.5)], 0.035, 1.0),
+        (Sound::Classic, false) => (&[(1046.5, 1.0, 0.022 / 4.5)], 0.022, 0.65),
+        (Sound::Wood, true) => (&[(1250.0, 0.75, 0.011), (3450.0, 0.25, 0.004)], 0.06, 1.0),
+        (Sound::Wood, false) => (&[(950.0, 0.75, 0.010), (2620.0, 0.25, 0.004)], 0.055, 0.7),
+        (Sound::Stick, true) => (
+            &[
+                (430.0, 0.2, 0.006),
+                (2150.0, 0.35, 0.0025),
+                (3720.0, 0.28, 0.0018),
+                (5310.0, 0.17, 0.0012),
+            ],
+            0.03,
+            1.3,
+        ),
+        (Sound::Stick, false) => (
+            &[
+                (430.0, 0.2, 0.005),
+                (2150.0, 0.35, 0.002),
+                (3720.0, 0.28, 0.0015),
+                (5310.0, 0.17, 0.001),
+            ],
+            0.025,
+            0.8,
+        ),
+        (Sound::Cowbell, true) => (
+            &[(587.0, 0.35, 0.08), (871.0, 0.45, 0.08), (2610.0, 0.2, 0.02)],
+            0.25,
+            1.0,
+        ),
+        (Sound::Cowbell, false) => (
+            &[(540.0, 0.35, 0.06), (800.0, 0.45, 0.06), (2400.0, 0.2, 0.015)],
+            0.2,
+            0.7,
+        ),
+    };
+    Hit { partials, len, gain }
+}
+
+/// La muestra `pos` de un golpe de clic.
+fn click_sample(pos: usize, accent: bool, rate: u32, sound: Sound) -> f32 {
+    if pos >= click_len(accent, rate, sound) {
+        return 0.0;
+    }
+    let h = hit(sound, accent);
+    let t = pos as f64 / f64::from(rate);
+    // un ataque de medio milisegundo, para que no chasque
+    let attack = (pos as f64 / (0.0005 * f64::from(rate))).min(1.0);
+    let mut v = 0.0;
+    for &(hz, amp, decay) in h.partials {
+        v += amp * (-t / decay).exp() * (2.0 * std::f64::consts::PI * hz * t).sin();
+    }
+    (h.gain * attack * v) as f32
+}
+
+fn click_len(accent: bool, rate: u32, sound: Sound) -> usize {
+    (hit(sound, accent).len * f64::from(rate)) as usize
 }
 
 /// La fuente que genera el clic. Infinita: mientras no haya plan, silencio.
@@ -120,14 +201,17 @@ pub struct Click {
     count: u64,
     mode: Mode,
     volume: f32,
+    sound: Sound,
     /// muestra (con decimales) en la que cae el proximo pulso
     next: f64,
     /// para `Free`: que tiempo del compas es el proximo pulso
     beat_in_bar: u8,
     /// para `Grid`: que pulso de la rejilla es el proximo
     index: usize,
-    /// el golpe en curso: (muestra dentro del golpe, ¿acento?)
-    voice: Option<(usize, bool)>,
+    /// el golpe en curso: (muestra dentro del golpe, ¿acento?, como suena)
+    voice: Option<(usize, bool, Sound)>,
+    /// para `CountIn`: cuantos golpes quedan
+    left: u32,
 }
 
 impl Click {
@@ -139,10 +223,12 @@ impl Click {
             count: 0,
             mode: Mode::Off,
             volume: 0.8,
+            sound: Sound::Classic,
             next: 0.0,
             beat_in_bar: 0,
             index: 0,
             voice: None,
+            left: 0,
         }
     }
 
@@ -151,6 +237,7 @@ impl Click {
     fn refresh(&mut self) {
         let Ok(plan) = self.shared.try_lock() else { return };
         self.volume = plan.volume;
+        self.sound = plan.sound;
         if plan.generation == self.seen {
             return;
         }
@@ -172,6 +259,13 @@ impl Click {
             Mode::Grid { index, delay, .. } => {
                 self.next = self.at(*delay);
                 self.index = *index;
+            }
+            Mode::CountIn {
+                delay, first, count, ..
+            } => {
+                self.next = self.at(*delay);
+                self.beat_in_bar = *first;
+                self.left = *count;
             }
         }
     }
@@ -216,13 +310,23 @@ impl Click {
             Mode::Off => {}
             Mode::Free { period, meter, .. } => {
                 let accent = meter > 0 && self.beat_in_bar == 0;
-                self.voice = Some((0, accent));
+                self.voice = Some((0, accent, self.sound));
                 self.beat_in_bar = (self.beat_in_bar + 1) % meter.max(1);
                 self.next += period.max(0.05) * f64::from(self.rate);
             }
+            Mode::CountIn { period, meter, .. } => {
+                let accent = meter > 0 && self.beat_in_bar == 0;
+                self.voice = Some((0, accent, self.sound));
+                self.beat_in_bar = (self.beat_in_bar + 1) % meter.max(1);
+                self.next += period.max(0.05) * f64::from(self.rate);
+                self.left = self.left.saturating_sub(1);
+                if self.left == 0 {
+                    self.mode = Mode::Off; // lo que suene despues, lo dice el plan
+                }
+            }
             Mode::Grid { grid, speed, .. } => {
                 let accent = grid.is_downbeat(self.index);
-                self.voice = Some((0, accent));
+                self.voice = Some((0, accent, self.sound));
                 let t0 = grid.beat_time(self.index);
                 self.index += 1;
                 let t1 = grid.beat_time(self.index);
@@ -244,12 +348,12 @@ impl Iterator for Click {
             self.fire();
         }
         let mut out = 0.0;
-        if let Some((pos, accent)) = self.voice {
-            out = click_sample(pos, accent, self.rate) * self.volume;
-            if pos + 1 >= click_len(accent, self.rate) {
+        if let Some((pos, accent, sound)) = self.voice {
+            out = click_sample(pos, accent, self.rate, sound) * self.volume;
+            if pos + 1 >= click_len(accent, self.rate, sound) {
                 self.voice = None;
             } else {
-                self.voice = Some((pos + 1, accent));
+                self.voice = Some((pos + 1, accent, sound));
             }
         }
         self.count += 1;
@@ -342,6 +446,84 @@ mod tests {
             );
             assert_eq!(*accent, k % 4 == 0, "acento del golpe {k}");
         }
+    }
+
+    /// La cuenta: tantos golpes como se piden, al periodo y con el «1»
+    /// donde toca (aqui empieza en el tiempo 3 de 4), y luego silencio.
+    #[test]
+    fn a_count_in_clicks_its_beats_and_then_stops() {
+        let shared: Shared = Arc::new(Mutex::new(Plan::default()));
+        let mut c = click(shared.clone());
+        {
+            let mut p = shared.lock().unwrap();
+            p.generation = 1;
+            p.mode = Mode::CountIn {
+                period: 0.25,
+                meter: 4,
+                delay: 0.1,
+                first: 2,
+                count: 8,
+            };
+            p.volume = 1.0;
+        }
+        let h = hits(&mut c, 4.0);
+        assert_eq!(h.len(), 8, "{h:?}");
+        let accents: Vec<bool> = h.iter().map(|(_, a)| *a).collect();
+        assert_eq!(accents, [false, false, true, false, false, false, true, false]);
+        let last = h[7].0 as f64 / RATE as f64;
+        assert!((last - (0.1 + 7.0 * 0.25)).abs() < 0.005, "el ultimo en {last}");
+    }
+
+    /// Cada sonido, muestra a muestra: los mismos numeros que comprueba
+    /// tests/test_click.py con `danplay/click.py`, que hace el clic de la
+    /// mezcla que se guarda. Si cambia uno, tiene que cambiar el otro.
+    #[test]
+    fn every_sound_matches_the_one_in_the_saved_mix() {
+        let cases: [(Sound, bool, usize, [f32; 3]); 8] = [
+            (Sound::Classic, true, 1543, [0.347_106, -0.255_526, 0.306_821]),
+            (Sound::Classic, false, 970, [0.280_529, 0.292_624, 0.005_068]),
+            (Sound::Wood, true, 2646, [0.220_936, -0.653_449, 0.304_936]),
+            (Sound::Wood, false, 2425, [0.185_483, 0.308_987, -0.159_989]),
+            (Sound::Stick, true, 1323, [0.038_463, -0.108_205, -0.035_979]),
+            (Sound::Stick, false, 1102, [0.023_202, -0.056_385, -0.015_836]),
+            (Sound::Cowbell, true, 11025, [0.261_085, 0.141_134, -0.069_276]),
+            (Sound::Cowbell, false, 8820, [0.189_158, -0.003_417, 0.068_673]),
+        ];
+        for (sound, accent, len, values) in cases {
+            assert_eq!(click_len(accent, RATE, sound), len, "{sound:?} {accent}");
+            for (pos, want) in [10, 100, 400].into_iter().zip(values) {
+                let got = click_sample(pos, accent, RATE, sound);
+                assert!(
+                    (got - want).abs() < 1e-5,
+                    "{sound:?} {accent} en {pos}: {got} y no {want}"
+                );
+            }
+        }
+    }
+
+    /// El sonido se cambia sin plan nuevo, como el volumen.
+    #[test]
+    fn the_sound_changes_on_the_fly() {
+        let shared: Shared = Arc::new(Mutex::new(Plan::default()));
+        let mut c = click(shared.clone());
+        {
+            let mut p = shared.lock().unwrap();
+            p.generation = 1;
+            p.mode = Mode::Free {
+                period: 1.0,
+                meter: 0,
+                delay: 0.0,
+                first: 0,
+            };
+        }
+        assert_eq!(hits(&mut c, 0.5).len(), 1);
+        shared.lock().unwrap().sound = Sound::Cowbell;
+        // el siguiente golpe (al segundo) ya es de cencerro: dura 0,2 s, no
+        // los 22 ms del pitido
+        let second: Vec<f32> = (0..RATE).map(|_| c.next().unwrap()).collect();
+        let first = second.iter().position(|v| *v != 0.0).expect("un golpe");
+        let last = second.iter().rposition(|v| *v != 0.0).expect("un golpe");
+        assert!(last - first > RATE as usize / 10, "dura {} muestras", last - first);
     }
 
     /// Sin acento (compas 0) todos los golpes son iguales. Y el volumen pasa
@@ -470,6 +652,7 @@ mod tests {
                 speed: 1.0,
             },
             volume: 1.0,
+            sound: Sound::Classic,
             smooth,
         };
         // el pulso 0 a los 0,25 s y luego uno cada 0,5: suenan el 0 y el 1

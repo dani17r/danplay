@@ -9,7 +9,8 @@ import {
   normalMeter,
   formatBpm,
   parseBpm,
-  multFactor
+  multFactor,
+  clickTimes
 } from '../src/utils/beats.js'
 
 // La misma rejilla que las pruebas de Rust (`beats.rs`): 120 bpm, un pulso
@@ -84,6 +85,25 @@ describe('el tempo escrito a mano', () => {
     expect(multFactor(1)).toBe(2)
     expect(multFactor(-1)).toBe(0.5)
     expect(multFactor(0)).toBe(1)
+  })
+})
+
+describe('los golpes del clic para guardarlos en la mezcla', () => {
+  it('siguiendo la canción: los de su rejilla, con el «1» donde suena', () => {
+    const g = effectiveGrid(grid(), {})
+    const { beats, accents } = clickTimes(g, { free: false, bpm: 120, meter: 4 }, 30)
+    expect(beats).toEqual(grid().beats)
+    expect(accents.slice(0, 6)).toEqual([false, true, false, false, false, true])
+  })
+  it('con tempo a mano: uno cada tanto, alineados con el «1» de la canción', () => {
+    const { beats, accents } = clickTimes(grid(), { free: true, bpm: 60, meter: 3 }, 5)
+    // el «1» de la canción cae a 0,75: de ahí hacia atrás y hacia delante
+    expect(beats).toEqual([0.75, 1.75, 2.75, 3.75, 4.75])
+    expect(accents).toEqual([true, false, false, true, false])
+    // sin rejilla, desde el principio; sin acento, ninguno
+    const free = clickTimes(null, { free: true, bpm: 120, meter: 0 }, 1)
+    expect(free.beats).toEqual([0, 0.5, 1])
+    expect(free.accents).toEqual([false, false, false])
   })
 })
 

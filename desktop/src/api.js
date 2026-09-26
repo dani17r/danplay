@@ -40,7 +40,10 @@
  * @property {number} shift       correr el «1» tantos pulsos
  * @property {number} mult        -1 mitad de clics, 0 tal cual, 1 el doble (también a mano)
  * @property {number} volume      0..2: hasta el doble de fuerte
+ * @property {ClickSound} [sound] cómo suena el clic
+ * @property {number} [count_in]  compases de cuenta al darle a play en pausa (0, 1 o 2)
  */
+/** @typedef {'clasico'|'madera'|'baqueta'|'cencerro'} ClickSound */
 /**
  * @typedef {Object} MetronomeState  Cómo va el metrónomo, según Rust.
  * @property {boolean} on
@@ -52,6 +55,8 @@
  * @property {boolean} has_grid   hay rejilla para la canción que suena
  * @property {boolean} free       va libre (sin rejilla o con tempo a mano)
  * @property {number} confidence  cuánto se fía el análisis del «1» (0..1)
+ * @property {ClickSound} [sound]
+ * @property {number} [count_in]
  */
 /**
  * @typedef {Object} BeatGrid  El pulso y el compás de una canción.
@@ -93,6 +98,7 @@
  * @property {Array<[number, number]>} [loops]  los tramos que se repiten, en orden
  * @property {boolean} [loop_defer]  los tramos esperan a que acabe la canción
  * @property {boolean} [stems]    suenan las pistas separadas de la canción, con su mezcla
+ * @property {boolean} [counting_in]  se está contando: la canción entra al acabar la cuenta
  */
 
 /**
@@ -909,10 +915,11 @@ export const api = {
   /** Manda a la papelera las pistas separadas de la cancion. @param {number} id */
   deleteStems: (id) => DEL(`/song/${id}/stems`),
   /**
-   * Guarda una mezcla de las pistas (tarea «mezcla»).
+   * Guarda una mezcla de las pistas (tarea «mezcla»), con el clic si se da.
    * @param {number} id
    * @param {{tracks: Array<{source: string, gain?: number, pan?: number}>, path: string,
-   *          format?: 'mp3'|'flac'|'wav', speed?: number, pitch?: number}} d
+   *          format?: 'mp3'|'flac'|'wav', speed?: number, pitch?: number,
+   *          click?: {beats: number[], accents: boolean[], sound?: ClickSound, volume?: number}}} d
    */
   exportMix: (id, d) => POST(`/song/${id}/stems/mix`, d),
   /**

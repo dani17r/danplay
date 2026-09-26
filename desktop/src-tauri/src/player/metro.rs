@@ -87,8 +87,81 @@ impl Metro {
             has_grid: g.is_some(),
             free: !self.follows(),
             confidence: g.map_or(0.0, |g| g.confidence),
+            sound: s.sound,
+            count_in: s.count_in.min(MAX_COUNT_IN),
         }
     }
+
+    /// La cuenta para que entre la cancion que esta en `position`, si hay
+    /// que contar: los golpes van al tempo y en el compas de la cancion
+    /// (los de su rejilla alrededor de ahi), y acaban justo donde caeria el
+    /// siguiente, que es su proximo pulso. Sin rejilla, al tempo del
+    /// metronomo, y la cancion entra al acabar la cuenta.
+    pub(super) fn count_in(&self, position: f64, speed: f32) -> Option<CountIn> {
+        let bars = u32::from(self.settings.count_in.min(MAX_COUNT_IN));
+        if bars == 0 {
+            return None;
+        }
+        let speed = f64::from(speed.max(0.05));
+        let st = self.state();
+        let (period, meter, first, to_beat) = match &self.effective {
+            Some(grid) => {
+                let (index, t, _) = grid.next_beat(position);
+                let next = grid.beat_time(index + 1);
+                let period = if next > t { next - t } else { grid.period() };
+                (period, grid.meter, grid.beat_in_bar(index), (t - position).max(0.0))
+            }
+            None => (60.0 / f64::from(st.bpm.clamp(MIN_BPM, MAX_BPM)), st.meter, 0, 0.0),
+        };
+        let per_bar = u32::from(if meter == 0 { 4 } else { meter });
+        let count = bars * per_bar;
+        let wall = period.max(0.05) / speed;
+        // hasta el pulso de la cancion hay `to_beat` de cancion: si la cuenta
+        // dura menos (un silencio largo antes de que empiece), entra ya y la
+        // cuenta empieza mas tarde
+        let to_beat = to_beat / speed;
+        let song_in = (f64::from(count) * wall - to_beat).max(0.0);
+        Some(CountIn {
+            period: wall,
+            meter,
+            first,
+            count,
+            delay: song_in + to_beat - f64::from(count) * wall,
+            song_in,
+        })
+    }
+}
+
+/// Hasta cuantos compases de cuenta.
+pub(super) const MAX_COUNT_IN: u8 = 2;
+
+/// Una cuenta: sus golpes (`count`, a `period` segundos de reloj, el primero
+/// a `delay` y siendo el tiempo `first` de un compas de `meter`) y cuando
+/// tiene que empezar a sonar la cancion (`song_in` segundos desde ahora).
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct CountIn {
+    pub(super) period: f64,
+    pub(super) meter: u8,
+    pub(super) first: u8,
+    pub(super) count: u32,
+    pub(super) delay: f64,
+    pub(super) song_in: f64,
+}
+
+/// Deja al clic el plan de la cuenta.
+pub(super) fn plan_count_in(metro: &Metro, count: &CountIn, shared: &metronome::Shared) {
+    let mut p = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    p.generation += 1;
+    p.smooth = false;
+    p.volume = metro.settings.volume.clamp(0.0, MAX_VOLUME);
+    p.sound = metro.settings.sound;
+    p.mode = Mode::CountIn {
+        period: count.period,
+        meter: count.meter,
+        delay: count.delay,
+        first: count.first,
+        count: count.count,
+    };
 }
 
 /// Por que se vuelve a planificar el clic.
@@ -135,6 +208,7 @@ pub(super) fn plan(metro: &Metro, speed: f32, position: f64, playing: bool, shar
     p.generation += 1;
     p.smooth = why == Replan::Resync;
     p.volume = metro.settings.volume.clamp(0.0, MAX_VOLUME);
+    p.sound = metro.settings.sound;
     if !metro.settings.on {
         p.mode = Mode::Off;
         return;
@@ -255,6 +329,59 @@ mod tests {
         assert_eq!(planned(&m, 10.3, true, Replan::Song).0, 1);
         assert_eq!(planned(&m, 10.3, false, Replan::Song).0, 0);
         assert_eq!(planned(&m, 10.3, true, Replan::Resync).0, 0);
+    }
+
+    /// La cuenta sigue a la cancion: al tempo y en el compas de su rejilla,
+    /// y acaba donde caeria su proximo pulso (aqui el tiempo 3, a 0,2 s),
+    /// asi que la cancion entra 0,2 s antes de que acabe la ultima vuelta.
+    #[test]
+    fn the_count_in_leads_into_the_songs_next_beat() {
+        let mut m = metro(MetronomeSettings {
+            count_in: 1,
+            volume: 0.8,
+            ..Default::default()
+        });
+        // 10,55: el pulso siguiente es el de 10,75, el 21 (tiempo 2 del compas)
+        let c = m.count_in(10.55, 1.0).expect("hay cuenta");
+        assert_eq!((c.meter, c.first, c.count), (4, 1, 4));
+        assert!((c.period - 0.5).abs() < 1e-9);
+        assert!(c.delay.abs() < 1e-9, "la cuenta empieza ya: {}", c.delay);
+        assert!((c.song_in - (2.0 - 0.2)).abs() < 1e-9, "entra a {}", c.song_in);
+        // a media velocidad, todo el doble de largo
+        let slow = m.count_in(10.55, 0.5).unwrap();
+        assert!((slow.period - 1.0).abs() < 1e-9 && (slow.song_in - 3.6).abs() < 1e-9);
+        // dos compases de cuenta; y sin cuenta, nada
+        m.settings.count_in = 2;
+        assert_eq!(m.count_in(10.55, 1.0).unwrap().count, 8);
+        m.settings.count_in = 0;
+        assert!(m.count_in(10.55, 1.0).is_none());
+    }
+
+    /// Con un silencio largo antes del primer pulso, la cancion entra ya y la
+    /// cuenta espera para acabar donde el pulso. Sin rejilla, al tempo del
+    /// metronomo, y la cancion entra al acabar.
+    #[test]
+    fn a_count_in_without_grid_or_before_a_long_intro() {
+        let m = metro(MetronomeSettings {
+            count_in: 1,
+            ..Default::default()
+        });
+        // antes de todo: el primer pulso cae a 0,25; desde -3 hay 3,25 s
+        let c = m.count_in(-3.0, 1.0).unwrap();
+        assert!(c.song_in.abs() < 1e-9);
+        assert!((c.delay - (3.25 - 2.0)).abs() < 1e-9, "la cuenta empieza a {}", c.delay);
+        let free = Metro {
+            settings: MetronomeSettings {
+                count_in: 2,
+                bpm: Some(120.0),
+                meter: Some(3),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let c = free.count_in(42.0, 1.0).unwrap();
+        assert_eq!((c.meter, c.first, c.count), (3, 0, 6));
+        assert!((c.song_in - 3.0).abs() < 1e-9 && c.delay.abs() < 1e-9);
     }
 
     /// El doble y la mitad valen tambien con el tempo a mano; sin acento, el

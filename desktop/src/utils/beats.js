@@ -139,6 +139,36 @@ export function isDownbeat(g, i) {
   return mod(i - from, g.meter) === 0
 }
 
+/**
+ * Los golpes del clic a lo largo de la canción, para guardarlos en una
+ * mezcla: los de la rejilla tal como suena, o con tempo a mano, uno cada
+ * tanto desde el primer pulso de la canción (o desde el principio). Y cuáles
+ * son el «1».
+ * @param {BeatGrid|null} grid  la rejilla con lo ajustado a mano (`effectiveGrid`)
+ * @param {{ free: boolean, bpm: number, meter: number }} metro  el metrónomo como va
+ * @param {number} duration  lo que dura la canción, en segundos
+ * @returns {{ beats: number[], accents: boolean[] }}
+ */
+export function clickTimes(grid, metro, duration) {
+  if (grid && !metro.free) {
+    return { beats: [...grid.beats], accents: grid.beats.map((_, i) => isDownbeat(grid, i)) }
+  }
+  const period = 60 / Math.max(10, Number(metro.bpm) || 100)
+  const meter = normalMeter(metro.meter)
+  const start = grid?.beats?.[grid.first_downbeat] ?? 0
+  const beats = []
+  const accents = []
+  let t = start
+  // hacia atrás hasta el principio, y hacia delante hasta el final
+  while (t - period >= 0) t -= period
+  const offset = Math.round((start - t) / period)
+  for (let i = 0; t <= duration && beats.length < 20000; i++, t += period) {
+    beats.push(Math.round(t * 1000) / 1000)
+    accents.push(meter > 0 && mod(i - offset, meter) === 0)
+  }
+  return { beats, accents }
+}
+
 /** El factor del doble o la mitad. */
 export function multFactor(mult) {
   return mult === 1 ? 2 : mult === -1 ? 0.5 : 1

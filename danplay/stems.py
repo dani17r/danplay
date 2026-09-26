@@ -52,9 +52,12 @@ import tempfile
 import threading
 import time
 import urllib.request
+import wave
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from . import config, convert
 from .api import jobs
@@ -1009,11 +1012,17 @@ def gains(gain: float, pan: float) -> tuple[float, float]:
     return gain * min(1.0, 1.0 - pan), gain * min(1.0, 1.0 + pan)
 
 
-def mix_filter(inputs: list[tuple[float, float]], speed=1.0, pitch=0.0, rubberband=True) -> str:
+def mix_filter(
+    inputs: list[tuple[float, float]], speed=1.0, pitch=0.0, rubberband=True, click=False
+) -> str:
     """El filtro de ffmpeg que junta las pistas: cada una con su volumen y su
     panorama, sumadas sin normalizar (como suenan en el reproductor), con un
     limitador al final para que la suma no se recorte, y la velocidad y el
-    tono si se pidieron."""
+    tono si se pidieron.
+
+    Con `click`, la entrada que va detras de las pistas es el clic, ya a la
+    velocidad de la mezcla: se suma despues de la velocidad y el tono, que
+    si no lo estirarian y lo cambiarian de tono tambien."""
     chains = []
     for i, (left, right) in enumerate(inputs):
         chains.append(
@@ -1024,8 +1033,38 @@ def mix_filter(inputs: list[tuple[float, float]], speed=1.0, pitch=0.0, rubberba
     extra = _speed_pitch(speed, pitch, rubberband)
     if extra:
         tail += "," + extra
+    if click:
+        n = len(inputs)
+        chains.append(f"[{n}:a]aformat=channel_layouts=stereo[clic]")
+        tail += "[canto];[canto][clic]amix=inputs=2:normalize=0:duration=first"
     tail += ",alimiter=limit=0.98:level=0[out]"
     return ";".join([*chains, tail])
+
+
+def _click_file(click: Mapping[str, Any], length: float, speed: float, folder: Path) -> Path:
+    """El clic de la mezcla en un WAV aparte: los pulsos (en segundos de la
+    cancion) pasados al tiempo de la mezcla, con su sonido y su volumen."""
+    from . import click as clicks
+
+    beats = [float(t) / speed for t in click.get("beats") or []]
+    accents = [bool(a) for a in click.get("accents") or []]
+    if len(accents) != len(beats):
+        accents = [False] * len(beats)
+    mono = clicks.track(
+        beats,
+        accents,
+        length / speed,
+        str(click.get("sound") or "clasico"),
+        float(click.get("volume", 0.8)),
+    )
+    path = folder / ".clic.wav"
+    pcm = (np.clip(mono, -1, 1) * 32767).astype("<i2")
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(clicks.RATE)
+        w.writeframes(pcm.tobytes())
+    return path
 
 
 def export_mix(
@@ -1036,8 +1075,13 @@ def export_mix(
     speed: float = 1.0,
     pitch: float = 0.0,
     progress=None,
+    click: Mapping[str, Any] | None = None,
 ) -> dict:
     """Guarda en `target` la mezcla de las pistas de la cancion.
+
+    `click`: {beats, accents, sound, volume}, el clic del metronomo que se
+    suma a la mezcla (los pulsos en segundos de la cancion, y cuales son el
+    «1»). Para ensayar con el movil como en el estudio.
 
     `tracks`: [{source, gain, pan}] las que suenan (las calladas no hacen
     falta). Para practicar fuera de DanPlay: la cancion sin bateria para el
@@ -1089,39 +1133,47 @@ def export_mix(
         if t["path"] not in {p for p, _ in chosen}
     ]
     title = song.get("title") or Path(song["file"]).stem
+    what = []
     if muted:
-        title += " (sin " + " ni ".join(muted) + ")" if len(muted) <= 2 else " (mezcla)"
-    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
-    for p, _ in chosen:
-        cmd += ["-i", p]
-    cmd += [
-        "-filter_complex",
-        mix_filter([g for _, g in chosen], speed, pitch, _has_rubberband(ffmpeg)),
-    ]
-    cmd += ["-map", "[out]", "-ar", "44100", *MIX_FORMATS[fmt]]
-    if song.get("artist"):
-        cmd += ["-metadata", f"artist={song['artist']}"]
-    cmd += ["-metadata", f"title={title}", "-progress", "pipe:1", "-nostats"]
+        what.append("sin " + " ni ".join(muted) if len(muted) <= 2 else "mezcla")
+    beats = (click or {}).get("beats") or []
+    if beats:
+        what.append("con clic")
+    if what:
+        title += " (" + ", ".join(what) + ")"
+    length = float(song.get("duration") or 0) or max(beats, default=0.0) + 2.0
     tmp = path.with_name(f".{path.stem}.parte{path.suffix}")
-    cmd.append(str(tmp))
-    total = (song.get("duration") or 0) / speed
-    child = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    assert child.stdout is not None
-    for line in child.stdout:
-        if line.startswith("out_time_us=") and progress and total > 0:
-            with contextlib.suppress(ValueError):
-                progress(min(total, int(line.split("=", 1)[1]) / 1e6), total)
-    err = child.stderr.read() if child.stderr else ""
-    if child.wait() != 0:
-        tmp.unlink(missing_ok=True)
-        raise SeparateError("ffmpeg no pudo guardar la mezcla: " + err.strip()[-200:])
+    with tempfile.TemporaryDirectory(prefix="danplay-mezcla-") as work:
+        cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
+        for p, _ in chosen:
+            cmd += ["-i", p]
+        if beats:
+            cmd += ["-i", str(_click_file(click or {}, length, speed, Path(work)))]
+        graph = mix_filter(
+            [g for _, g in chosen], speed, pitch, _has_rubberband(ffmpeg), bool(beats)
+        )
+        cmd += ["-filter_complex", graph, "-map", "[out]", "-ar", "44100", *MIX_FORMATS[fmt]]
+        if song.get("artist"):
+            cmd += ["-metadata", f"artist={song['artist']}"]
+        cmd += ["-metadata", f"title={title}", "-progress", "pipe:1", "-nostats", str(tmp)]
+        total = length / speed
+        child = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        assert child.stdout is not None
+        for line in child.stdout:
+            if line.startswith("out_time_us=") and progress and total > 0:
+                with contextlib.suppress(ValueError):
+                    progress(min(total, int(line.split("=", 1)[1]) / 1e6), total)
+        err = child.stderr.read() if child.stderr else ""
+        if child.wait() != 0:
+            tmp.unlink(missing_ok=True)
+            raise SeparateError("ffmpeg no pudo guardar la mezcla: " + err.strip()[-200:])
     os.replace(tmp, path)
     indexed = None
     inside_stems = any(is_stems_dir(parent) for parent in path.parents)

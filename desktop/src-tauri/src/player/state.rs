@@ -1,5 +1,6 @@
 //! Lo que el hilo de audio cuenta hacia fuera: el estado de la reproduccion
 //! y los ajustes del metronomo.
+use crate::metronome::Sound;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -53,6 +54,9 @@ pub struct State {
     /// Suenan las pistas separadas de la cancion (con su mezclador) en vez
     /// de la cancion tal cual.
     pub stems: bool,
+    /// Se esta contando para que entre la cancion (esta en pausa hasta que
+    /// acabe la cuenta).
+    pub counting_in: bool,
 }
 
 impl State {
@@ -83,6 +87,13 @@ pub struct MetronomeSettings {
     pub mult: i8,
     /// 0..2: hasta el doble de fuerte.
     pub volume: f32,
+    /// Como suena el clic.
+    #[serde(default)]
+    pub sound: Sound,
+    /// Compases de cuenta al darle a play con la cancion en pausa (0, 1 o
+    /// 2): el clic cuenta y la cancion entra donde caeria el siguiente.
+    #[serde(default)]
+    pub count_in: u8,
 }
 
 /// Como va el metronomo, para la interfaz.
@@ -103,6 +114,8 @@ pub struct MetronomeState {
     pub free: bool,
     /// Cuanto se fia el analisis del «1» (0..1).
     pub confidence: f32,
+    pub sound: Sound,
+    pub count_in: u8,
 }
 
 /// El estado compartido, aunque un panic lo dejara envenenado: solo se

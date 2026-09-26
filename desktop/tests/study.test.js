@@ -984,6 +984,47 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(bridge().toggle).not.toHaveBeenCalled()
   })
 
+  it('la cuenta y el sonido del clic: se eligen, se recuerdan, y la cuenta se quita al cerrar', async () => {
+    localStorage.removeItem('danplay.clic.cuenta')
+    localStorage.removeItem('danplay.clic.sonido')
+    try {
+      const w = await montar()
+      // al abrir, lo recordado: nada todavía (sin cuenta, el clásico)
+      expect(bridge().setMetronome).toHaveBeenCalledWith(
+        expect.objectContaining({ count_in: 0, sound: 'clasico' })
+      )
+      await boton(w, '1 compás').trigger('click')
+      await boton(w, 'cencerro').trigger('click')
+      await flushPromises()
+      expect(bridge().setMetronome).toHaveBeenLastCalledWith(
+        expect.objectContaining({ count_in: 1, sound: 'cencerro' })
+      )
+      expect(boton(w, '1 compás').classes()).toContain('on')
+      expect(boton(w, 'cencerro').classes()).toContain('on')
+      // mientras cuenta, se dice
+      held.playback.emit({ counting_in: true })
+      await flushPromises()
+      expect(w.text()).toContain('contando…')
+      held.playback.emit({ counting_in: false })
+      w.unmount()
+      // la vez siguiente vuelve lo elegido
+      vi.clearAllMocks()
+      const otra = await montar()
+      expect(bridge().setMetronome).toHaveBeenCalledWith(
+        expect.objectContaining({ count_in: 1, sound: 'cencerro' })
+      )
+      // y al cerrar el estudio, play vuelve a ser play: sin cuenta
+      await boton(otra, 'Cerrar').trigger('click')
+      await flushPromises()
+      expect(bridge().setMetronome).toHaveBeenLastCalledWith(
+        expect.objectContaining({ on: false, count_in: 0 })
+      )
+    } finally {
+      localStorage.removeItem('danplay.clic.cuenta')
+      localStorage.removeItem('danplay.clic.sonido')
+    }
+  })
+
   it('a otra velocidad el clic enseña el tempo que se oye, con su decimal', async () => {
     const w = await montar()
     held.playback.emit({ speed: 0.5 })
@@ -1499,5 +1540,16 @@ describe('las pistas separadas en el estudio', () => {
     // fuera de la app no hay diálogo de guardar: no se guarda nada
     expect(await pickSavePath()).toBe(null)
     expect(labels).not.toContain('Guardarla como suena…')
+  })
+
+  it('con el clic sonando, se ofrece guardarla como suena: con el clic', async () => {
+    await conPistas(JSON.stringify({ mixer: { on: true } }))
+    const w = await montar()
+    await boton(w, 'Clic').trigger('click')
+    await flushPromises()
+    await boton(w, '⋯').trigger('click')
+    const { menu } = useContextMenu()
+    const asHeard = menu.value.items.find((i) => i.label === 'Guardarla como suena…')
+    expect(asHeard?.note).toBe('con clic')
   })
 })

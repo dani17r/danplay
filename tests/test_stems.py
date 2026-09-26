@@ -602,6 +602,39 @@ def test_the_mix_without_drums_is_saved_and_joins_the_library(lib):
     assert float(length) == pytest.approx(1.0, abs=0.1)
 
 
+def test_the_mix_can_carry_the_click(lib):
+    """Como suena en el estudio: con el clic encima, despues de la velocidad
+    (que no lo estire), con su «1» y su sonido."""
+    import subprocess
+
+    import numpy as np
+
+    from danplay import stems
+
+    f = stems.mix_filter([(1, 1)], speed=0.8, click=True)
+    assert "[1:a]aformat=channel_layouts=stereo[clic]" in f
+    assert f.index("atempo") < f.index("[canto][clic]amix")
+    root, _ = lib
+    cid = _id("Barak - Mi Gozo.mp3")
+    _separate(cid)
+    target = root / "Barak - Mi Gozo (sin bateria, con clic).wav"
+    click = {"beats": [0.1, 0.4, 0.7], "accents": [True, False, False], "sound": "baqueta"}
+    tracks = [{"source": "bass"}]
+    r = stems.export_mix(cid, tracks, str(target), speed=0.5, click=click)
+    assert r["title"] == "Mi Gozo (mezcla, con clic)"
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(target), "-f", "f32le", "-ac", "1", "-"],
+        capture_output=True,
+        check=True,
+    ).stdout
+    x = np.frombuffer(raw, dtype=np.float32)
+    # a media velocidad, el golpe de 0,4 s cae a 0,8 s de la mezcla: por
+    # encima del bajo (un tono de 55 Hz, suave) se ve el chasquido
+    near = np.abs(np.diff(x[int(0.79 * 44100) : int(0.83 * 44100)])).max()
+    far = np.abs(np.diff(x[int(0.60 * 44100) : int(0.64 * 44100)])).max()
+    assert near > 5 * far, (near, far)
+
+
 def test_a_mix_cannot_go_outside_the_library_nor_over_a_song(lib, tmp_path):
     from fastapi.testclient import TestClient
 

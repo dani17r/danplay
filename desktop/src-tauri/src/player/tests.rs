@@ -581,6 +581,7 @@ fn pitch_and_metronome_ride_along_with_the_song() {
         shift: 0,
         mult: 0,
         volume: 0.01,
+        ..Default::default()
     };
     m.send(Command::Metronome {
         settings: settings.clone(),
@@ -977,4 +978,49 @@ fn an_ogg_file_is_readable() {
         .expect("un .ogg tiene que abrirse");
     assert!(decoder.count() > 44_100, "el .ogg salio vacio");
     let _ = std::fs::remove_file(&file);
+}
+
+/// La cuenta: en pausa, al darle a play cuenta un compas (aqui a 240, un
+/// segundo) con la cancion quieta, y la cancion entra al acabar. Y una pausa
+/// en plena cuenta la deja en pausa: no llega a sonar.
+#[test]
+fn the_count_in_holds_the_song_until_it_ends() {
+    let Some((m, _rx)) = playing() else { return };
+    m.send(Command::Pause).unwrap();
+    until(&m, |s| !s.playing);
+    m.send(Command::Metronome {
+        settings: MetronomeSettings {
+            count_in: 1,
+            bpm: Some(240.0),
+            meter: Some(4),
+            volume: 0.3,
+            ..Default::default()
+        },
+        grid: None,
+    })
+    .unwrap();
+    m.send(Command::Resume).unwrap();
+    let s = until(&m, |s| s.counting_in);
+    assert!(s.counting_in && !s.playing, "tendria que estar contando: {s:?}");
+    let at = s.position;
+    let s = until(&m, |s| s.playing);
+    assert!(s.playing && !s.counting_in, "tendria que haber entrado: {s:?}");
+    assert!(
+        (s.position - at).abs() < 0.5,
+        "entra donde estaba: {} y no {at}",
+        s.position
+    );
+
+    m.send(Command::Pause).unwrap();
+    until(&m, |s| !s.playing);
+    m.send(Command::Resume).unwrap();
+    until(&m, |s| s.counting_in);
+    m.send(Command::Toggle).unwrap();
+    wait_ms(1500);
+    let s = m.state();
+    assert!(
+        !s.playing && !s.counting_in,
+        "la pausa en la cuenta no se respeto: {s:?}"
+    );
+    m.send(Command::Stop).unwrap();
 }

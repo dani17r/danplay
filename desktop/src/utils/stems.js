@@ -60,16 +60,19 @@ function plain(text) {
 /**
  * El nombre de la mezcla que se guarda, sin extensión: el de la canción y
  * lo que le falta («Mi Gozo (sin bateria)», «… (sin bateria ni bajo)»), o lo
- * único que lleva («… (solo voces)»). Con todas sonando, «(mezcla)».
+ * único que lleva («… (solo voces)»). Con todas sonando, «(mezcla)». Con el
+ * clic, «… (sin bateria, con clic)».
  * @param {string} file  el archivo de la canción (o su título)
  * @param {Array<{name: string, on: boolean}>} plan
+ * @param {{ click?: boolean }} [extra]
  */
-export function mixFileName(file, plan) {
+export function mixFileName(file, plan, { click = false } = {}) {
   const base = plain(file.replace(/\.[a-z0-9]{2,4}$/i, '')).trim() || 'Cancion'
   const off = plan.filter((t) => !t.on).map((t) => plain(t.name).toLowerCase())
   const on = plan.filter((t) => t.on).map((t) => plain(t.name).toLowerCase())
   let what = 'mezcla'
   if (off.length && off.length <= 2) what = 'sin ' + off.join(' ni ')
   else if (on.length && on.length <= 2) what = 'solo ' + on.join(' y ')
+  if (click) what += ', con clic'
   return `${base} (${what})`.replace(/[\\/:*?"<>|]/g, '_')
 }

@@ -70,4 +70,10 @@ describe('el nombre de la mezcla', () => {
     )
     expect(mixFileName('', plan({}))).toBe('Cancion (mezcla)')
   })
+
+  it('con el clic, se dice', () => {
+    expect(mixFileName('Mi Gozo.mp3', plan({ drums: { mute: true } }), { click: true })).toBe(
+      'Mi Gozo (sin bateria, con clic)'
+    )
+  })
 })

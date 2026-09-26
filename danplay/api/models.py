@@ -302,6 +302,16 @@ class StemMixTrack(Body_):
     pan: float = Field(default=0.0, ge=-1, le=1)
 
 
+class StemClickIn(Body_):
+    """El clic que va en la mezcla: los pulsos (segundos de la cancion), cuales
+    son el «1», como suena y lo fuerte."""
+
+    beats: list[float] = Field(default_factory=list, max_length=20000)
+    accents: list[bool] = Field(default_factory=list, max_length=20000)
+    sound: Literal["clasico", "madera", "baqueta", "cencerro"] = "clasico"
+    volume: float = Field(default=0.8, ge=0, le=2)
+
+
 class StemMixIn(Body_):
     """Guardar la mezcla de las pistas separadas en un archivo."""
 
@@ -310,3 +320,4 @@ class StemMixIn(Body_):
     format: Literal["mp3", "flac", "wav"] | None = None
     speed: float = Field(default=1.0, ge=0.25, le=3)
     pitch: float = Field(default=0.0, ge=-12, le=12)
+    click: StemClickIn | None = None
