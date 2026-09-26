@@ -3,6 +3,39 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.16.0 — 2026-09-26
+
+Separar una canción en pistas —batería, voces, bajo, guitarra, piano y el
+resto— y oírlas en el modo estudio, cada una con su volumen: callar la
+batería para tocarla tú, dejar solo el bajo, subir la voz.
+
+### Pistas separadas
+
+- **Separar en pistas**, desde el modo estudio o desde el menú de una
+  canción (o de varias elegidas, que van a una cola). Lo hace Demucs, el
+  separador de Meta, en tu equipo: sin subir nada ni límites. Seis pistas
+  (batería, voces, bajo, guitarra, piano y el resto) o cuatro, algo más
+  limpias, sin guitarra ni piano. La primera vez se baja el separador (55 u
+  84 MB, del repositorio de su autor, comprobado); luego no hace falta
+  internet. Tarda en torno a lo que dura la canción, en segundo plano y con
+  poca prioridad, así que se sigue usando la app (y la música no se corta).
+- **El mezclador**: con las pistas sonando, la onda del estudio es un carril
+  por instrumento, cada uno con su onda. **M** calla una pista, **S** la deja
+  sola (o varias a la vez), y cada una tiene su volumen (hasta el doble) y
+  su panorama. Los cambios se oyen al momento y sin clics. El bucle, la
+  velocidad, el tono y el metrónomo van igual que con la canción, y las
+  pistas nunca se desfasan entre sí. Lo que se deja puesto se guarda con la
+  canción y vuelve al abrirla.
+- **Guardar la mezcla** en mp3, flac o wav: la canción sin batería (o solo
+  con la voz y el bajo) para practicar fuera, tal cual o como suena, a otra
+  velocidad y tono. Si la guardas dentro de tu biblioteca, entra como una
+  canción más.
+- **Dónde quedan**: en `Separadas/<canción>/` dentro de tu biblioteca, en
+  FLAC (`Bateria.flac`, `Voces.flac`…), archivos que abre cualquier
+  programa. No aparecen como canciones sueltas, un escaneo las vuelve a unir
+  con su canción si el índice se pierde, y se van a la papelera con ella.
+- **Ajustes** dice qué separadores hay bajados y deja borrarlos.
+
 ## 1.15.0 — 2026-09-25
 
 El metrónomo, a tiempo en las canciones con síncopa; en el modo estudio,

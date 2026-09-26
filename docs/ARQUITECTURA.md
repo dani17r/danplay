@@ -487,9 +487,9 @@ así que con el clic al doble la canción cede un instante en cada golpe. La
 rueda de la bandeja y las flechas se paran en el 100 %: pasar de ahí es a
 propósito.
 
-Se miró usar madmom (muerto desde 2018), Beat This! o Demucs (los dos sobre
-torch, 200–550 MB): quedan como posible «paquete de IA local» opcional más
-adelante.
+Para el pulso se miró usar madmom (muerto desde 2018) o Beat This! (sobre
+torch, 200–550 MB): se quedó en lo propio. Demucs sí entró, sin torch, para
+separar las pistas (ver «Separar en pistas»).
 
 La onda la
 calcula el núcleo en Rust recorriendo el archivo por bloques —no hace falta
@@ -515,6 +515,85 @@ marca se guarda con la canción, en el índice y en una etiqueta del archivo
 (`ESTUDIO`, JSON), y se recupera al escanear si el índice se pierde, como
 las estrellas y las listas. Al cerrar la barra, la canción vuelve a sonar
 normal.
+
+## Separar en pistas
+
+Una canción se separa en sus instrumentos —batería, voces, bajo, guitarra,
+piano y el resto, o en cuatro sin guitarra ni piano— y en el modo estudio
+suenan ellas en vez de la canción, cada una con su volumen, su panorama, y
+callada o sola. Es lo que hacen las webs de *stems*, pero en el equipo: sin
+subir nada, sin límites ni trozos de quince segundos, y con el bucle, la
+velocidad, el tono y el metrónomo de siempre encima.
+
+**El motor es Demucs v4 (HTDemucs) sin PyTorch.** PyTorch pesa cientos de
+megas instalado y no cabe en el paquete; ONNX Runtime pesa 17. La red se
+exporta a ONNX (`scripts/exportar-separador.py`) y todo lo que Demucs hace
+alrededor de ella con PyTorch se hace en `separation.py` con numpy: el
+espectrograma y su inversa (las mismas ventanas, los mismos rellenos, los
+dos marcos que se tiran de cada borde), y la canción en trozos de 7,8 s que
+se solapan un cuarto y se funden con un peso en triángulo. Sin los
+desplazamientos al azar: el mismo archivo da siempre las mismas pistas.
+Medido contra Demucs sobre una canción de verdad, la diferencia es ruido
+numérico (de 57 a 85 dB por debajo de cada pista).
+
+**Los grafos viajan sin pesos.** Cada peso del grafo es una referencia
+externa, y un pequeño manifiesto dice de qué tensor del archivo oficial sale
+(tal cual, o traspuesto: el exportador guarda así los de las capas
+lineales). El archivo oficial es el del autor en HuggingFace, en float16; se
+baja la primera vez que se separa algo (55 MB el de seis pistas, 84 el de
+cuatro), se comprueba su sha256 y se le da a ONNX Runtime al cargar
+(`add_external_initializers`), pasado a float32, que es exacto. Así la app
+no reparte 140 MB de pesos que la mayoría no usará, y el repositorio no
+carga con ellos.
+
+**La atención, por bloques.** ONNX Runtime guarda entera la matriz de la
+atención del transformer (8 cabezas × 2688 × 2688, 230 MB) donde PyTorch
+no; el grafo la calcula por bloques de 512 filas, que da exactamente lo
+mismo. Con eso y sin el plan de memoria de ORT (reserva de golpe todo lo que
+la red tendrá vivo en algún momento), el pico baja de casi 5 GB a menos de 3.
+
+**En un proceso aparte, con prioridad baja** (`danplay-core --separar`, o
+`python -m danplay.separation` en desarrollo). La red usa todos los núcleos
+durante un par de minutos: así la música y la interfaz no lo notan, la
+memoria se devuelve al acabar, y parar es matar el proceso. Si el núcleo se
+muere, el proceso se da cuenta (cambia de padre) y se va. Cuenta cómo va
+por la salida estándar, una línea JSON por aviso, y escribe cada pista en
+FLAC según sale (seis pistas de cinco minutos en memoria serían 640 MB),
+con su forma de onda: todas a la misma escala, para que en el mezclador se
+vea qué instrumento suena más y dónde entra cada uno.
+
+**Tarda en torno a lo que dura la canción** en un portátil corriente (un
+Ryzen 7 de 15 W: unos tres minutos para una de cuatro y media). Por eso hay
+una cola: se piden varias (del menú de una canción, o de varias elegidas) y
+se separan una detrás de otra mientras se sigue usando la app.
+
+**Dónde quedan.** En `Separadas/<nombre del archivo>/` dentro de la carpeta
+de la biblioteca de la que cuelga la canción: `Bateria.flac`, `Voces.flac`…
+archivos normales que abre cualquier programa. Se separa en una carpeta
+oculta al lado (el escaneo se salta las ocultas) y al acabar se pone en su
+sitio de golpe; si la app se cerró a mitad, la siguiente separación limpia
+lo que quedó. Junto a las pistas va `.danplay-pistas.json`, que dice de qué
+canción son: con él, el escaneo no mete las pistas en la biblioteca como
+canciones sueltas y, si el índice se pierde, las vuelve a unir con su
+canción (`stems.relink`). En el índice solo va dónde están (`songs.stems`,
+de la migración 4). Se van a la papelera con la canción.
+
+**Sonar juntas sin desfasarse.** Un solo ffmpeg lee todas las pistas a la
+vez y las junta (`amerge`) en un flujo de dos canales por pista: empiezan en
+la misma muestra, y la velocidad, el tono, los saltos y el bucle les pasan a
+todas por igual, por el mismo camino que a una canción que pasa por ffmpeg.
+El mezclador (`player/mix.rs`) las suma a estéreo con el volumen y el
+panorama de cada una, que viven en atómicos: callar la batería no reabre
+nada, y el cambio se hace en unos milisegundos (en seco se oye un clic). La
+prueba de que no se desfasan es una pista y su contraria, que se anulan del
+todo.
+
+**La mezcla, a un archivo.** Lo que suena se guarda en mp3, flac o wav —la
+canción sin batería para practicar con el móvil—, tal cual o como suena (a
+otra velocidad y tono). El volumen y el panorama se aplican con la misma
+cuenta que el reproductor, y un limitador al final evita que la suma se
+recorte. Solo dentro de la biblioteca y sin pisar una canción suya; si no
+cae dentro de una carpeta de pistas, entra en la biblioteca como una más.
 
 ## Para el atril
 
@@ -868,6 +947,10 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   providers.py    catálogo de proveedores de IA y perfiles guardados
   watcher.py      vigila las carpetas y mantiene el índice al día solo
   ytdlp.py        yt-dlp: el motor de JavaScript y la actualización en caliente
+  stems.py        separar en pistas: la cola, las carpetas, la mezcla
+  separation.py   el separador por dentro (Demucs con numpy y ONNX Runtime),
+                  en un proceso aparte
+  data/separador/ los grafos del separador, sin pesos
   thumbnails.py   las miniaturas de las carátulas, con tope y poda
   logs.py         el registro (a un archivo rotativo al servir)
   toon.py         resultados de herramientas en TOON: la mitad de tokens que JSON
@@ -892,7 +975,8 @@ desktop/        interfaz Vue 3 + envoltorio Tauri
     core.rs       arrancar, vigilar y hablar con el núcleo Python
     queue/        la cola: qué suena y qué viene (model, session, logic,
                   resolve, worker, commands)
-    player/       el audio (engine, output con el latido, open, metro, state)
+    player/       el audio (engine, output con el latido, open, metro, state,
+                  mix: las pistas separadas sonando juntas)
     protocol.rs   danplay://cover, las carátulas
     tools.rs      dónde están ffmpeg y los demás programas
     tray/         bandeja: linux.rs (ksni) y desktop.rs (Windows/macOS)

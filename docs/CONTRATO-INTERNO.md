@@ -76,6 +76,7 @@ castellano y, si la canción se acabó sola, se prueba con la siguiente.
 | `seek` | `{ seconds }` | |
 | `set_volume` | `{ value }` | 0..1,5. Por encima de 1 la canción suena más alta de como viene; lo que se pase de la salida lo recoge el limitador. |
 | `set_speed` | `{ value }` | |
+| `set_stems` | `{ song, tracks \| null }` | Las pistas separadas en vez de la canción (ver «Pistas separadas», §3). |
 | `playback_state` | — | Devuelve `PlaybackState` (para pintar nada más montar). |
 | `queue_items` | — | Devuelve `{ items: Track[], origin }`. |
 
@@ -179,8 +180,9 @@ Rutas nuevas o cambiadas (Python):
   consulta y los filtros sin contar `limit` ni `from_key` (y `limit` admite
   hasta 20000). Las canciones de las listas (`/search`, las de un repertorio,
   `/external`, favoritos) son **ligeras**: sin `lyrics`, `lyrics_synced`,
-  `chords` ni `study`, y con `has_lyrics`, `has_synced_lyrics`, `has_chords`,
-  `has_study`. La ficha entera, en `GET /api/song/{id}`.
+  `chords`, `study` ni `stems`, y con `has_lyrics`, `has_synced_lyrics`,
+  `has_chords`, `has_study`, `has_stems`. La ficha entera, en
+  `GET /api/song/{id}`.
 - `POST /api/duplicates/scan` → la búsqueda de duplicados como tarea larga
   (`duplicados`); su `result` es el informe que antes daba
   `GET /api/duplicates`, que ya no existe.
@@ -346,9 +348,47 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   confidence }` (`bpm` ya con el doble o la mitad) y `path` (el archivo que
   suena de verdad: la clave de la rejilla).
 - `PUT /api/song/{id}/study` admite además `pitch` (−12..12 semitonos, con
-  fracciones al centésimo; 0 no se guarda y uno entero se guarda entero) y
+  fracciones al centésimo; 0 no se guarda y uno entero se guarda entero),
   `metronome { bpm?, meter?, shift?, mult? }` (solo lo ajustado a mano sobre
-  lo detectado: `bpm` 20..300 con dos decimales, `meter` 0 o 2..12).
+  lo detectado: `bpm` 20..300 con dos decimales, `meter` 0 o 2..12) y
+  `mixer { on?, tracks?: { <fuente>: { gain?, pan?, mute?, solo? } } }`: si
+  suenan las pistas separadas y, de cada una, lo que no está como viene
+  (`gain` 0..2, `pan` −1..1).
+
+### Pistas separadas (Python ↔ Vue, Rust)
+
+- `GET /api/separate` → `{ ok, reason, models: [{ id: '6'|'4', label,
+  detail, sources, bytes, installed }], default, folder, current, queue }`:
+  si se puede separar aquí (`reason` dice por qué no: sin numpy u
+  onnxruntime, sin ffmpeg), qué modelos hay y si ya están bajados, y la
+  cola: la que se separa (`current: { id, title, model, done, total,
+  step }`, con `step` `download | load | decode | separate`) y las que
+  esperan.
+- `POST /api/song/{id}/separate { model: '6'|'4' }` → `202` con lo mismo y
+  `job`: a la cola. La cola es la tarea `separacion`; su `result` es
+  `{ separated: [{ id, title, folder, seconds, took }], failed: [{ id,
+  title, error }], cancelled }`. La primera vez baja el modelo (su sha256
+  viaja con la app). `404` si la canción no está; `422` si no se puede.
+- `DELETE /api/separate` para la que se separa y vacía la cola;
+  `DELETE /api/separate/queue/{id}` quita una que espera;
+  `DELETE /api/separate/models/{model}` borra lo bajado (`409` separando).
+- `GET /api/song/{id}/stems` → `{ folder, model, created, complete, tracks:
+  [{ source, name, file, path, exists, wave: { peaks, rms } }] }`, en el
+  orden del mezclador (batería, voces, bajo, guitarra, piano, otros). Las
+  ondas, todas a la misma escala. `404` sin pistas (y si su carpeta ya no
+  está, se olvida). `DELETE` las manda a la papelera.
+- `POST /api/song/{id}/stems/mix { tracks: [{ source, gain, pan }], path,
+  format?: mp3|flac|wav, speed?, pitch? }` → la tarea `mezcla`, con
+  `result: { path, name, id, title }`. Solo las pistas que suenan; `path`
+  dentro de la biblioteca y sin ser una canción suya; `id` es la canción
+  nueva si entra en la biblioteca (fuera de una carpeta de pistas).
+- Rust: `set_stems(song, tracks | null)`, con `tracks: [{ path, gain, pan,
+  on }]`: que suenen esas pistas en vez de la canción `song` (su ruta: si
+  ya suena otra, no hace nada). Con las mismas pistas que ya suenan solo
+  cambia la mezcla, al momento; si no, se reabre donde iba. Al pasar a otra
+  canción se sueltan (la misma otra vez, al repetirla, las conserva). El
+  estado trae `stems` (si suenan). Sin ffmpeg, o si no se pueden abrir,
+  `error` lo dice y sigue sonando la canción.
 
 ## 4. Ajustes (Python ↔ Vue), nombres correctos
 

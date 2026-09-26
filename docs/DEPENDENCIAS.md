@@ -65,6 +65,7 @@ o intérpretes (`cffi`, `brotlicffi`, `pycparser`, `httpx2-jsfetch`).
 | `charset-normalizer` | ? |
 | `click` | BSD-3-Clause |
 | `fastapi` | MIT |
+| `flatbuffers` (lo pide ONNX Runtime) | Apache-2.0 |
 | `h11` | MIT License |
 | `httpcore2` | BSD-3-Clause |
 | `httpx2` | BSD-3-Clause |
@@ -72,8 +73,12 @@ o intérpretes (`cffi`, `brotlicffi`, `pycparser`, `httpx2-jsfetch`).
 | `idna` | BSD-3-Clause |
 | `jiter` | MIT |
 | `mutagen` | GPL-2.0-or-later |
+| `numpy` (el separador de pistas) | BSD-3-Clause (lleva OpenBLAS, BSD-3-Clause) |
+| `onnxruntime` (el separador de pistas) | MIT |
 | `openai` | Apache-2.0 |
+| `packaging` (lo pide ONNX Runtime) | Apache-2.0 OR BSD-2-Clause |
 | `platformdirs` | MIT |
+| `protobuf` (lo pide ONNX Runtime) | BSD-3-Clause |
 | `pyacoustid` | MIT |
 | `pycparser` | BSD-3-Clause |
 | `pycryptodomex` | BSD License |
@@ -166,6 +171,17 @@ dentro** (`tools\`), con versión fija y su SHA-256 comprobado al construirlo.
 > pero sin `librubberband` el cambio de tono del modo estudio caería al método
 > peor (`asetrate`+`atempo`).
 
+## El separador de pistas: Demucs
+
+Separar una canción en pistas usa **Demucs v4** (HTDemucs, de Meta; autor
+Alexandre Défossez), **MIT**. Viajan con la app los grafos de la red
+exportados a ONNX (`danplay/data/separador/`, generados con
+`scripts/exportar-separador.py` a partir del código de Demucs), **sin los
+pesos**: esos se bajan del repositorio del autor en HuggingFace
+(`adefossez/HTDemucs-6s`, `adefossez/HTDemucs`) la primera vez que se separa
+algo, y se comprueba su SHA-256. PyTorch y el paquete `demucs` solo hacen
+falta para regenerar los grafos, no para usar la app.
+
 ## Servicios que se consultan
 
 Ninguno es obligatorio; la app funciona sin todos ellos.
@@ -180,6 +196,7 @@ Ninguno es obligatorio; la app funciona sin todos ellos.
 | iTunes Search / Cover Art Archive | carátulas | no |
 | DuckDuckGo (HTML) | comprobar datos en la web | no |
 | PyPI | «Actualizar yt-dlp»: la última versión, comprobada con su `sha256` | no |
+| HuggingFace (el repositorio del autor de Demucs) | los pesos del separador de pistas, una sola vez y comprobados con su `sha256` | no |
 
 ---
 

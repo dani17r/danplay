@@ -41,6 +41,12 @@ pip install -r requirements.txt -r requirements-test.txt # y probarlo, sin Rust
 pip install -r requirements-dev.txt                      # todo, como uv sync
 ```
 
+Los grafos del separador de pistas (`danplay/data/separador/`) se generan
+con `scripts/exportar-separador.py`, que necesita PyTorch y Demucs (la app
+no: usa ONNX Runtime). Solo hace falta si cambia la red o el modo de
+exportarla; el propio script explica cómo ejecutarlo en un entorno aparte y
+comprueba que el grafo da lo mismo que el modelo original.
+
 Opcional, para la huella acústica y la conversión de formatos:
 
 ```bash
