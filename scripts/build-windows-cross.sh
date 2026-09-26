@@ -108,13 +108,27 @@ site-packages
 
 import site
 EOF
+fi
+# Las dependencias, otra vez cada vez que cambia requirements.txt. Antes se
+# bajaban solo con el Python y se quedaban las de la primera compilacion:
+# sin numpy ni onnxruntime, en Windows no habia separador ni pulso.
+QUIERE=$(sha256sum requirements.txt | cut -d' ' -f1)
+if [ "$(cat "$NUCLEO/requisitos.sha256" 2>/dev/null)" != "$QUIERE" ]; then
+    rm -rf "$NUCLEO/wheels" "$NUCLEO/python/site-packages"
     mkdir -p "$NUCLEO/wheels" "$NUCLEO/python/site-packages"
-    "$RAIZ/.venv/bin/python" -m pip download --quiet \
+    # el .venv de uv no trae pip: si no esta, el de uvx (aparte, sin tocar nada)
+    if "$RAIZ/.venv/bin/python" -m pip --version >/dev/null 2>&1; then
+        PIP=("$RAIZ/.venv/bin/python" -m pip)
+    else
+        PIP=(uvx pip)
+    fi
+    "${PIP[@]}" download --quiet \
         --platform win_amd64 --python-version "$PY_TAG" --only-binary=:all: \
         --dest "$NUCLEO/wheels" -r requirements.txt \
       || morir "alguna dependencia no tiene rueda para Windows"
     for w in "$NUCLEO"/wheels/*.whl; do unzip -oq "$w" -d "$NUCLEO/python/site-packages"; done
     rm -rf "$NUCLEO"/python/site-packages/*.dist-info
+    printf '%s\n' "$QUIERE" > "$NUCLEO/requisitos.sha256"
 fi
 
 # el código propio se copia siempre: cambia en cada compilación
