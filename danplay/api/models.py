@@ -254,6 +254,25 @@ class StudyMetronome(BaseModel):
     mult: int | None = None
 
 
+class StudyTrack(BaseModel):
+    """Una pista separada en el mezclador del estudio."""
+
+    model_config = ConfigDict(extra="ignore")
+    gain: float | None = Field(default=None, ge=0, le=2)
+    pan: float | None = Field(default=None, ge=-1, le=1)
+    mute: bool | None = None
+    solo: bool | None = None
+
+
+class StudyMixer(BaseModel):
+    """El mezclador de las pistas separadas: si suenan ellas en vez de la
+    cancion, y como esta cada una."""
+
+    model_config = ConfigDict(extra="ignore")
+    on: bool | None = None
+    tracks: dict[str, StudyTrack] | None = Field(default=None, max_length=8)
+
+
 class StudyIn(Body_):
     """El modo estudio de una cancion: bucle [a, b], velocidad, tono corrido
     (semitonos, con fracciones: 0.5 es un cuarto de tono), ajustes del
@@ -268,8 +287,31 @@ class StudyIn(Body_):
     metronome: StudyMetronome | None = None
     markers: list[StudyMarker] | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=4000)
+    mixer: StudyMixer | None = None
 
 
 class ChatConfirmIn(Body_):
     tool: str = Field(min_length=1, max_length=64)
     args: dict = Field(default_factory=dict)
+
+
+class SeparateIn(Body_):
+    """Separar una cancion en pistas: con el modelo de 6 o el de 4."""
+
+    model: Literal["6", "4"] = "6"
+
+
+class StemMixTrack(Body_):
+    source: str = Field(min_length=1, max_length=16)
+    gain: float = Field(default=1.0, ge=0, le=2)
+    pan: float = Field(default=0.0, ge=-1, le=1)
+
+
+class StemMixIn(Body_):
+    """Guardar la mezcla de las pistas separadas en un archivo."""
+
+    tracks: list[StemMixTrack] = Field(min_length=1, max_length=8)
+    path: str = Field(min_length=1, max_length=4096)
+    format: Literal["mp3", "flac", "wav"] | None = None
+    speed: float = Field(default=1.0, ge=0.25, le=3)
+    pitch: float = Field(default=0.0, ge=-12, le=12)

@@ -1,6 +1,7 @@
 """Una cancion del indice: leerla, cambiarla (en el indice y en su archivo),
 mandarla a la papelera o sacarla del indice."""
 
+import contextlib
 import logging
 import os
 import shutil
@@ -42,6 +43,7 @@ def update(cid: int, **fields) -> int:
         "favorite",
         "blur",
         "study",
+        "stems",
     }
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
@@ -162,6 +164,13 @@ def trash(cid: int) -> dict:
     r = trash_path(path)
     if not r["ok"]:
         return r
+    # Sus pistas separadas se van con ella, tambien a la papelera: son de
+    # esa cancion y no tiene sentido guardarlas sin ella.
+    stems_gone = False
+    if c.get("stems"):
+        from .. import stems as _stems
+
+        stems_gone = _stems.forget(c).get("ok", False)
     forget(cid)
     return {
         "ok": True,
@@ -170,6 +179,7 @@ def trash(cid: int) -> dict:
         "name": os.path.basename(path),
         "artist": c["artist"],
         "title": c["title"],
+        "stems_trashed": stems_gone,
     }
 
 
@@ -234,7 +244,7 @@ def paths_of(ids) -> dict[int, str | None]:
 
 # Lo que se guarda del modo estudio y sus limites: un JSON pequeño y con
 # forma conocida, no lo que mande cualquiera.
-STUDY_KEYS = ("loop", "loops", "speed", "pitch", "metronome", "markers", "notes")
+STUDY_KEYS = ("loop", "loops", "speed", "pitch", "metronome", "markers", "notes", "mixer")
 
 
 def _segments(raw, limit: int = 32) -> list[list[float]]:
@@ -262,6 +272,38 @@ def _segments(raw, limit: int = 32) -> list[list[float]]:
 
 # Los compases del metronomo que se pueden poner a mano: 0 es sin acento.
 METERS = (0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+
+
+def _mixer(raw) -> dict:
+    """El mezclador de las pistas separadas: si suenan ellas (`on`) y, de
+    cada pista, lo que no esta como viene (volumen, panorama, callada, sola)."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    if raw.get("on"):
+        out["on"] = True
+    tracks = {}
+    for name, t in list((raw.get("tracks") or {}).items())[:8]:
+        if not isinstance(t, dict) or not str(name).isidentifier() or len(str(name)) > 16:
+            continue
+        item: dict = {}
+        with contextlib.suppress(TypeError, ValueError):
+            gain = round(float(t.get("gain", 1.0)), 2)
+            if 0 <= gain <= 2 and gain != 1.0:
+                item["gain"] = gain
+        with contextlib.suppress(TypeError, ValueError):
+            pan = round(float(t.get("pan", 0.0)), 2)
+            if -1 <= pan <= 1 and pan != 0.0:
+                item["pan"] = pan
+        if t.get("mute"):
+            item["mute"] = True
+        if t.get("solo"):
+            item["solo"] = True
+        if item:
+            tracks[str(name)] = item
+    if tracks:
+        out["tracks"] = tracks
+    return out
 
 
 def set_study(cid: int, study: dict | None) -> Song | None:
@@ -358,6 +400,9 @@ def set_study(cid: int, study: dict | None) -> Song | None:
         notes = str(study.get("notes") or "").strip()[:4000]
         if notes:
             clean["notes"] = notes
+        mixer = _mixer(study.get("mixer"))
+        if mixer:
+            clean["mixer"] = mixer
     raw = _json.dumps(clean, ensure_ascii=False) if clean else ""
     update(cid, study=raw)
     if config.WRITE_TAGS and os.path.exists(c["path"]):

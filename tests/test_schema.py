@@ -79,8 +79,32 @@ def test_una_base_de_antes_de_las_versiones_se_pone_al_dia(base):
         assert conn.execute("SELECT COUNT(*) FROM songs").fetchone()[0] == 1
         assert db._next_song_id(conn) == 41, "el id de la lista no se reutiliza"
     assert hwm == 40
-    assert {"blur", "lyrics_synced", "study"} <= _columns(base, "songs")
+    assert {"blur", "lyrics_synced", "study", "stems"} <= _columns(base, "songs")
     assert _version(base) == library.SCHEMA_VERSION
+
+
+def test_una_base_de_la_version_3_gana_las_pistas_separadas(base, monkeypatch):
+    """La de quien tenia la 1.15: su base (version 3) no sabe de pistas
+    separadas; al abrirla se añade la columna y lo demas no se toca."""
+    lines = db.SCHEMA.splitlines(keepends=True)
+    at = next(i for i, line in enumerate(lines) if line.lstrip().startswith("stems "))
+    # la de antes acababa en `study`, sin la coma que ahora le sigue
+    lines[at - 1] = lines[at - 1].replace("DEFAULT '',", "DEFAULT '' ", 1)
+    old = "".join(lines[:at] + lines[at + 1 :])
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA", old)
+        library.connect().close()
+    assert "stems" not in _columns(base, "songs")
+    conn = sqlite3.connect(base)
+    conn.execute("INSERT INTO songs (id, path, title) VALUES (5, '/m/x.mp3', 'X')")
+    conn.execute("PRAGMA user_version = 3")
+    conn.commit()
+    conn.close()
+    library._prepared.discard(str(base))
+    with library.connect() as conn:
+        row = conn.execute("SELECT title, stems FROM songs WHERE id=5").fetchone()
+    assert tuple(row) == ("X", "")
+    assert _version(base) == library.SCHEMA_VERSION >= 4
 
 
 def test_el_esquema_en_castellano_se_migra_entero(base):
@@ -138,28 +162,29 @@ def test_una_base_nueva_no_pasa_por_las_migraciones(base, monkeypatch):
 def test_las_migraciones_se_aplican_una_sola_vez(base, monkeypatch):
     library.connect().close()
     calls = []
+    now = library.SCHEMA_VERSION
+    fresh = now + 1
     monkeypatch.setattr(
         db,
         "MIGRATIONS",
         (
-            (1, "a", lambda c: calls.append(1)),
-            (2, "b", lambda c: calls.append(2)),
-            (3, "c", lambda c: calls.append(3)),
-            (4, "nueva", lambda c: calls.append(4)),
+            *((n, w, lambda c, n=n: calls.append(n)) for n, w, _ in db.MIGRATIONS),
+            (fresh, "nueva", lambda c: calls.append(fresh)),
         ),
     )
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", fresh)
     library._prepared.discard(str(base))
     library.connect().close()
-    assert calls == [4], "solo la que le faltaba"
+    assert calls == [fresh], "solo la que le faltaba"
     library._prepared.discard(str(base))
     library.connect().close()
-    assert calls == [4]
-    assert _version(base) == 4
+    assert calls == [fresh]
+    assert _version(base) == fresh
 
 
 def test_una_migracion_que_falla_no_deja_nada_a_medias(base, monkeypatch):
     library.connect().close()
+    before = library.SCHEMA_VERSION
 
     def half(conn):
         conn.execute("CREATE TABLE a_medias (x)")
@@ -170,7 +195,7 @@ def test_una_migracion_que_falla_no_deja_nada_a_medias(base, monkeypatch):
     library._prepared.discard(str(base))
     with pytest.raises(RuntimeError):
         library.connect()
-    assert _version(base) == 3
+    assert _version(base) == before
     conn = sqlite3.connect(base)
     try:
         assert not conn.execute("SELECT 1 FROM sqlite_master WHERE name='a_medias'").fetchone()

@@ -94,12 +94,12 @@ def _fts_query(words) -> str:
 
 
 # Los textos pesados de una cancion: la letra (con y sin tiempos), la ficha de
-# la IA con los acordes y el modo estudio. Kilobytes por cancion que una
+# la IA con los acordes, el modo estudio y donde estan sus pistas separadas. Kilobytes por cancion que una
 # LISTA no enseña: con la biblioteca entera, eran megas por cada busqueda.
 # Las listas de la API llevan en su lugar si los tiene (`has_*`), y la ficha
 # completa sigue en GET /api/song/{id}. Lo que usa el nucleo por dentro (el
 # asistente, la hoja del atril) sigue leyendo la fila entera.
-HEAVY_COLUMNS = ("lyrics", "lyrics_synced", "chords", "study")
+HEAVY_COLUMNS = ("lyrics", "lyrics_synced", "chords", "study", "stems")
 
 
 LIGHT_FLAGS = {
@@ -107,6 +107,7 @@ LIGHT_FLAGS = {
     "lyrics_synced": "has_synced_lyrics",
     "chords": "has_chords",
     "study": "has_study",
+    "stems": "has_stems",
 }
 
 

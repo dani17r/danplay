@@ -355,10 +355,37 @@ def _excluded(dir_path, dir_name, exclusions) -> bool:
     return False
 
 
-def audio_files(root, exclusions=None):
+# El archivo que marca una carpeta de pistas separadas (ver danplay/stems.py).
+STEMS_MANIFEST = ".danplay-pistas.json"
+
+
+def _stems_folder(dir_path, dir_name, found) -> bool:
+    """True si es una carpeta de pistas separadas: sus pistas son de una
+    cancion, no canciones sueltas, y el escaneo no las mete en la biblioteca.
+    Si se pasa `found`, se apunta su manifiesto para unirla con su cancion."""
+    folder = os.path.join(dir_path, dir_name)
+    manifest = os.path.join(folder, STEMS_MANIFEST)
+    if not os.path.isfile(manifest):
+        return False
+    if found is not None:
+        try:
+            with open(manifest, encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                found[folder] = data
+        except (OSError, ValueError):
+            log.warning("no se pudo leer %s", manifest)
+    return True
+
+
+def audio_files(root, exclusions=None, stems=None):
+    """Los archivos de audio de la carpeta, sin las excluidas ni las de pistas
+    separadas. En `stems` (un dict) se apuntan estas ultimas."""
     exclusions = list_exclusions() if exclusions is None else exclusions
     for dp, dn, fns in os.walk(root):
-        dn[:] = [d for d in dn if not _excluded(dp, d, exclusions)]
+        dn[:] = [
+            d for d in dn if not _excluded(dp, d, exclusions) and not _stems_folder(dp, d, stems)
+        ]
         for fn in fns:
             if Path(fn).suffix.lower() in config.EXTENSIONS:
                 path = os.path.join(dp, fn)

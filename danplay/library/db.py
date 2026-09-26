@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS songs (
     favorite  INTEGER DEFAULT 0,
     blur      INTEGER DEFAULT 0,   -- la portada se pinta difuminada
     lyrics_synced TEXT DEFAULT '', -- la letra con tiempos (LRC) de LRCLIB
-    study     TEXT DEFAULT ''      -- el modo estudio, en JSON
+    study     TEXT DEFAULT '',     -- el modo estudio, en JSON
+    stems     TEXT DEFAULT ''      -- sus pistas separadas: la carpeta y el modelo (JSON)
 );
 CREATE INDEX IF NOT EXISTS i_artist ON songs(artist);
 CREATE INDEX IF NOT EXISTS i_match_key   ON songs(match_key);
@@ -236,6 +237,7 @@ class Song(TypedDict):
     blur: int
     lyrics_synced: str
     study: str
+    stems: str
     # lo añaden `edit`, `set_blur`...: si el archivo se escribio de verdad
     tags_written: NotRequired[bool]
 
@@ -370,8 +372,8 @@ _ADDED_LATER = (
 )
 
 
-def _add_missing_columns(conn) -> None:
-    for table, column, kind in _ADDED_LATER:
+def _add_missing_columns(conn, columns=_ADDED_LATER) -> None:
+    for table, column, kind in columns:
         present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if present and column not in present:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
@@ -420,6 +422,13 @@ def _raise_hwm(conn) -> None:
 # hubiera version estan a 0 y pasan por todos (son idempotentes: en una base
 # que ya los tenia no cambian nada). Un cambio nuevo es una entrada nueva al
 # final, nunca tocar una que ya se reparte.
+def _add_stems_column(conn) -> None:
+    """Las pistas separadas de cada cancion: donde estan y con que modelo.
+    Lo que vale esta en la carpeta (su `.danplay-pistas.json`); esto es el
+    indice, y un escaneo lo rehace (`stems.relink`)."""
+    _add_missing_columns(conn, (("songs", "stems", "TEXT DEFAULT ''"),))
+
+
 MIGRATIONS = (
     (
         1,
@@ -428,6 +437,7 @@ MIGRATIONS = (
     ),
     (2, "del esquema en castellano al de ahora", _migrate_from_spanish),
     (3, "tope historico de ids de cancion", _raise_hwm),
+    (4, "pistas separadas", _add_stems_column),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 

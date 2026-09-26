@@ -246,9 +246,10 @@ def _scan(progress=None) -> dict:
         # movido de carpeta encuentra su fila ya apartada y recupera el id en esta
         # misma pasada, en vez de entrar como cancion nueva.
         present = []
+        stems_found: dict = {}
         for root in _roots():
             if os.path.isdir(root):
-                present.extend((path, root) for path in audio_files(root, exclusions))
+                present.extend((path, root) for path in audio_files(root, exclusions, stems_found))
         on_disk = {path for path, _ in present}
         total = len(present)
         # lo que ya no esta (o quedo fuera de las carpetas activas). Sin commit
@@ -354,17 +355,20 @@ def _scan(progress=None) -> dict:
     # se borran las de cada cancion que ya no esta, y de paso las que se
     # hubieran quedado huerfanas por otro camino. Si no, esas carpetas crecian
     # con canciones que ya no existen.
+    from .. import stems as _stems
     from .. import thumbnails as _thumbnails
     from .. import waveform as _waveform
 
-    known = set(seen) | set(outside)
+    # las pistas separadas, con su cancion (una base nueva no lo sabe)
+    relinked = _stems.relink(stems_found)
+    known = set(seen) | set(outside) | _stems.stem_paths()
     _waveform.forget(*gone)
     _waveform.prune(known)
     _thumbnails.forget(*gone)
     _thumbnails.prune(known)
     restored = restore_playlists_from_tags(playlists_found)
     restore_study_from_tags(study_found)
-    if changed or restored:
+    if changed or restored or relinked:
         _touch()
     return {
         "total": n,

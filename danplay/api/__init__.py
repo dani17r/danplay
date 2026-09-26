@@ -24,7 +24,17 @@ from fastapi.responses import Response
 
 from .. import __version__, logs, model_catalog, watcher, youtube
 from .common import AUDIO_TYPES, audio_type
-from .routes import ai, assistant, downloads, external, library, playlists, songs, system
+from .routes import (
+    ai,
+    assistant,
+    downloads,
+    external,
+    library,
+    playlists,
+    songs,
+    stems,
+    system,
+)
 from .routes.library import duplicates_report
 
 log = logging.getLogger(__name__)
@@ -76,6 +86,7 @@ for _router in (
     assistant.router,
     downloads.router,
     external.router,
+    stems.router,
 ):
     app.include_router(_router)
 
