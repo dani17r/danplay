@@ -437,6 +437,14 @@ def _write_manifest(folder: Path, song: Mapping[str, Any], model: str, sources: 
     )
 
 
+def _sweep(folder: Path) -> None:
+    """Quita lo que dejo a medias una separacion que no acabo (la app se
+    cerro, se fue la luz): la cola es una, asi que si ahora empieza otra,
+    cualquier carpeta de trabajo que quede es de una que ya no sigue."""
+    for leftover in folder.glob(".separando-*"):
+        shutil.rmtree(leftover, ignore_errors=True)
+
+
 def separate_song(cid: int, model: str = DEFAULT_MODEL, progress=None) -> dict:
     """Separa una cancion de la biblioteca y deja sus pistas en su carpeta.
 
@@ -464,6 +472,7 @@ def separate_song(cid: int, model: str = DEFAULT_MODEL, progress=None) -> dict:
         download(model, lambda got, total: progress(got, total, step="download"), _cancel.is_set)
     target = _target_for(song)
     target.parent.mkdir(parents=True, exist_ok=True)
+    _sweep(target.parent)
     work = Path(tempfile.mkdtemp(prefix=".separando-", dir=target.parent))
     try:
         job = {

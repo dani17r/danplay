@@ -254,5 +254,9 @@
   "lockOpen": {
     "style": "o",
     "file": "lock-open.svg"
+  },
+  "mixer": {
+    "style": "o",
+    "file": "adjustments-vertical.svg"
   }
 }

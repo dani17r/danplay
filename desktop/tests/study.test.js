@@ -1323,3 +1323,155 @@ describe('el reproductor y el bucle', () => {
     w.unmount()
   })
 })
+
+describe('las pistas separadas en el estudio', () => {
+  // las de la canción 7: seis pistas, con la ruta de cada una
+  const conPistas = async (study = '') => {
+    const { stemsOf } = await import('./support/backend.js')
+    held.state.stems[7] = stemsOf(7)
+    held.state.songs = [song(7, { title: 'Mi Gozo', study })]
+  }
+  const mandado = () => held.playback.bridge.setStems.mock.calls.at(-1)
+  const carriles = (w) => w.findAll('.tl-lane').map((l) => l.find('.tl-lane-name').text())
+
+  beforeEach(async () => {
+    const { resetSeparation } = await import('../src/composables/useSeparation.js')
+    resetSeparation()
+    held.state.stems = {}
+    held.state.separation.current = null
+    held.state.separation.queue = []
+  })
+
+  it('sin pistas se ofrece separarla, y al acabar suenan solas', async () => {
+    const { finishSeparation } = await import('./support/backend.js')
+    const { useSeparation } = await import('../src/composables/useSeparation.js')
+    const w = await montar()
+    await useSeparation().refresh()
+    await flushPromises()
+    const separar = boton(w, 'Separar en pistas')
+    expect(separar).toBeTruthy()
+    await separar.trigger('click')
+    const { menu } = useContextMenu()
+    expect(menu.value.items.map((i) => i.label)).toEqual(['En 6 pistas', 'En 4 pistas'])
+    await menu.value.items[0].action()
+    await flushPromises()
+    expect(held.api.separate).toHaveBeenCalledWith(7, '6')
+    // mientras se separa, se ve cómo va
+    expect(w.find('.study-stems-progress').text()).toMatch(/preparando|separando/)
+    finishSeparation(held.state)
+    await useSeparation().refresh()
+    await flushPromises()
+    await flushPromises()
+    // y en cuanto está, suenan sus pistas: un carril por instrumento
+    expect(carriles(w)).toEqual(['Batería', 'Voces', 'Bajo', 'Guitarra', 'Piano', 'Otros'])
+    const [path, tracks] = mandado()
+    expect(path).toBe('/musica/mi-gozo.mp3')
+    expect(tracks.map((t) => t.path.split('/').pop())).toEqual([
+      'Bateria.flac',
+      'Voces.flac',
+      'Bajo.flac',
+      'Guitarra.flac',
+      'Piano.flac',
+      'Otros.flac'
+    ])
+    expect(tracks.every((t) => t.on && t.gain === 1 && t.pan === 0)).toBe(true)
+    expect(w.find('.study').classes()).toContain('with-lanes')
+  })
+
+  it('con pistas: el botón las pone y las quita, y se guarda', async () => {
+    await conPistas()
+    const w = await montar()
+    expect(w.find('.tl-lanes').exists()).toBe(false)
+    await boton(w, 'Pistas').trigger('click')
+    await flushPromises()
+    expect(carriles(w)).toHaveLength(6)
+    expect(mandado()[1]).toHaveLength(6)
+    await new Promise((r) => setTimeout(r, 700)) // el guardado va con retraso
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(
+      7,
+      expect.objectContaining({ mixer: { on: true } })
+    )
+    await boton(w, 'Pistas').trigger('click')
+    await flushPromises()
+    expect(w.find('.tl-lanes').exists()).toBe(false)
+    expect(mandado()[1]).toBe(null)
+  })
+
+  it('callar, dejar sola, volumen y panorama llegan a Rust y se guardan', async () => {
+    await conPistas(JSON.stringify({ mixer: { on: true } }))
+    const w = await montar()
+    expect(carriles(w)).toHaveLength(6)
+    const bateria = w.find('[data-lane="drums"]')
+    await bateria.findAll('.tl-lane-btn')[0].trigger('click') // M
+    await flushPromises()
+    let tracks = mandado()[1]
+    expect(tracks[0].on).toBe(false)
+    expect(tracks.slice(1).every((t) => t.on)).toBe(true)
+    expect(bateria.classes()).toContain('off')
+    // solo la voz y el bajo: el resto calla
+    await w.find('[data-lane="vocals"]').findAll('.tl-lane-btn')[1].trigger('click')
+    await w.find('[data-lane="bass"]').findAll('.tl-lane-btn')[1].trigger('click')
+    await flushPromises()
+    tracks = mandado()[1]
+    expect(tracks.map((t) => t.on)).toEqual([false, true, true, false, false, false])
+    // el volumen de la voz y a la izquierda
+    const [gain, pan] = w.find('[data-lane="vocals"]').findAll('input[type="range"]')
+    await gain.setValue('1.5')
+    await pan.setValue('-0.5')
+    await flushPromises()
+    tracks = mandado()[1]
+    expect(tracks[1]).toMatchObject({ gain: 1.5, pan: -0.5, on: true })
+    await new Promise((r) => setTimeout(r, 700))
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(
+      7,
+      expect.objectContaining({
+        mixer: {
+          on: true,
+          tracks: {
+            drums: { mute: true },
+            vocals: { solo: true, gain: 1.5, pan: -0.5 },
+            bass: { solo: true }
+          }
+        }
+      })
+    )
+  })
+
+  it('lo guardado vuelve: la canción suena con sus pistas como se dejaron', async () => {
+    await conPistas(
+      JSON.stringify({
+        mixer: { on: true, tracks: { drums: { mute: true }, piano: { gain: 0.5 } } }
+      })
+    )
+    const w = await montar()
+    expect(carriles(w)).toHaveLength(6)
+    const tracks = mandado()[1]
+    expect(tracks[0].on).toBe(false)
+    expect(tracks[4]).toMatchObject({ gain: 0.5, on: true })
+  })
+
+  it('al cerrar vuelve la canción tal cual', async () => {
+    await conPistas(JSON.stringify({ mixer: { on: true } }))
+    const w = await montar()
+    held.playback.emit({ stems: true })
+    await flushPromises()
+    await boton(w, 'Cerrar').trigger('click')
+    await flushPromises()
+    expect(mandado()[1]).toBe(null)
+  })
+
+  it('las opciones: guardar la mezcla sin batería, abrir la carpeta, borrarlas', async () => {
+    const { pickSavePath } = await import('../src/api.js')
+    await conPistas(JSON.stringify({ mixer: { on: true, tracks: { drums: { mute: true } } } }))
+    const w = await montar()
+    await boton(w, '⋯').trigger('click')
+    const { menu } = useContextMenu()
+    const labels = menu.value.items.filter((i) => !i.separator).map((i) => i.label)
+    expect(labels).toContain('Guardar esta mezcla…')
+    expect(labels).toContain('Abrir la carpeta de las pistas')
+    expect(labels).toContain('Borrar las pistas…')
+    // fuera de la app no hay diálogo de guardar: no se guarda nada
+    expect(await pickSavePath()).toBe(null)
+    expect(labels).not.toContain('Guardarla como suena…')
+  })
+})

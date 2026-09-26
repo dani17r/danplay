@@ -21,15 +21,24 @@
  * - Notas: un solo cuadro con dos pestañas, las de la canción y las del
  *   marcador elegido.
  *
+ * Encima de la onda, las pistas separadas de la canción (batería, voces,
+ * bajo…): si no las tiene, se separa desde aquí; si las tiene, suenan en su
+ * lugar con un carril cada una, y cada una se calla, se deja sola, se sube
+ * o se lleva a un lado. La mezcla se guarda en un archivo (sin batería, para
+ * el móvil). Con el bucle, la velocidad, el tono y el metrónomo, igual que
+ * sobre la canción.
+ *
  * Todo se guarda con la canción —en el índice y en una etiqueta del
  * archivo— y se va con ella si se borra. Al abrir se aplica lo guardado;
  * al cerrar se quita y la canción vuelve a sonar normal.
  */
 import { ref, computed, watch, onUnmounted, shallowRef } from 'vue'
-import { api, errorMessage } from '../api.js'
+import { api, app as tauriApp, errorMessage, pickSavePath, JOBS } from '../api.js'
 import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'
 import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
+import { useSeparation } from '../composables/useSeparation.js'
+import { stemPlan, mixFileName } from '../utils/stems.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
 import { formatTime } from '../utils/format.js'
 import { transposeKey, toneLabel, toneUnit } from '../utils/theory.js'
@@ -64,9 +73,27 @@ const {
 } = player
 
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
-// `loops`: los tramos que se repiten, [[a, b], …] (uno solo es el bucle A-B)
-const blank = () => ({ loops: [], speed: 1, pitch: 0, metronome: {}, markers: [], notes: '' })
+// `loops`: los tramos que se repiten, [[a, b], …] (uno solo es el bucle A-B);
+// `mixer`: las pistas separadas, si suenan (`on`) y cómo va cada una
+const blank = () => ({
+  loops: [],
+  speed: 1,
+  pitch: 0,
+  metronome: {},
+  markers: [],
+  notes: '',
+  mixer: { on: false, tracks: {} }
+})
 const study = ref(blank())
+// las pistas separadas de la canción (ver más abajo): aquí arriba porque las
+// toca `loadFor`, que corre nada más montar
+const separation = useSeparation()
+/** Lo que dice el núcleo de las pistas de la canción, o null si no tiene. */
+const stems = shallowRef(null)
+/** El archivo de la canción, para el nombre de la mezcla que se guarda. */
+const songFile = ref('')
+/** Se pidió separar desde aquí esta canción: al acabar, suenan sus pistas. */
+let wantStems = null
 const loadedFor = ref(null)
 const saving = ref(false)
 /** El marcador elegido (uno de `study.markers`), o null. */
@@ -123,13 +150,16 @@ async function loadFor(id) {
   loadedFor.value = id
   selected.value = null
   grid.value = null
+  stems.value = null
   if (!id) {
     study.value = blank()
     return
   }
   try {
-    const s = parse((await api.song(id))?.study)
+    const song = await api.song(id)
+    const s = parse(song?.study)
     if (loadedFor.value !== id) return
+    songFile.value = song?.file || ''
     // varios tramos van en `loops`; uno solo, en `loop` (como siempre)
     const loops = cleanSegments(
       Array.isArray(s.loops) && s.loops.length ? s.loops : Array.isArray(s.loop) ? [s.loop] : []
@@ -141,7 +171,13 @@ async function loadFor(id) {
       pitch: Number.isFinite(s.pitch) ? round2(clamp(s.pitch, -12, 12)) : 0,
       metronome: typeof s.metronome === 'object' && s.metronome ? { ...s.metronome } : {},
       markers: (s.markers || []).map((m) => ({ ...m })),
-      notes: s.notes || ''
+      notes: s.notes || '',
+      mixer: {
+        on: !!s.mixer?.on,
+        tracks: Object.fromEntries(
+          Object.entries(s.mixer?.tracks || {}).map(([k, v]) => [k, { ...v }])
+        )
+      }
     }
     multi.value = loops.length > 1
     // lo guardado se aplica al entrar: para eso se guardo
@@ -152,6 +188,8 @@ async function loadFor(id) {
     selected.value = markerOf(study.value.loops)
     // el compas se analiza ya, para que el clic entre al momento al pedirlo
     ensureGrid()
+    // y las pistas: si las tiene y se dejaron sonando, vuelven a sonar
+    await loadStems(id)
   } catch (e) {
     notify(errorMessage(e))
   }
@@ -181,7 +219,9 @@ function payload(s) {
   const metro = Object.fromEntries(
     Object.entries(s.metronome || {}).filter(([k, v]) => !isDefault(k, v))
   )
+  const mixer = mixerPayload(s.mixer)
   return {
+    ...(mixer ? { mixer } : {}),
     ...(s.loops.length === 1
       ? { loop: [...s.loops[0]] }
       : s.loops.length > 1
@@ -193,6 +233,24 @@ function payload(s) {
     ...(markers.length ? { markers } : {}),
     ...(s.notes.trim() ? { notes: s.notes.trim() } : {})
   }
+}
+/** Lo que se guarda del mezclador: si suena y lo que no está como viene. */
+function mixerPayload(m) {
+  const tracks = {}
+  for (const [key, t] of Object.entries(m?.tracks || {})) {
+    const kept = {
+      ...(t.gain != null && t.gain !== 1 ? { gain: t.gain } : {}),
+      ...(t.pan ? { pan: t.pan } : {}),
+      ...(t.mute ? { mute: true } : {}),
+      ...(t.solo ? { solo: true } : {})
+    }
+    if (Object.keys(kept).length) tracks[key] = kept
+  }
+  const out = {
+    ...(m?.on ? { on: true } : {}),
+    ...(Object.keys(tracks).length ? { tracks } : {})
+  }
+  return Object.keys(out).length ? out : null
 }
 function scheduleSave() {
   const id = loadedFor.value
@@ -692,9 +750,191 @@ watch(selected, (m) => {
   if (!m) notesTab.value = 'song'
 })
 
+// ---- las pistas separadas: batería, voces, bajo… cada una con su volumen
+const hasStems = computed(() => !!stems.value?.complete)
+const mixerOn = computed(() => hasStems.value && !!study.value.mixer?.on)
+/** Cómo va cada pista (lo guardado, o como viene) y si suena. */
+const plan = computed(() => stemPlan(stems.value?.tracks || [], study.value.mixer?.tracks || {}))
+/** Los carriles de la onda: solo con las pistas sonando. */
+const lanes = computed(() => (mixerOn.value ? plan.value : []))
+const progress = computed(() => separation.progressOf(track.value?.id))
+const canSeparate = computed(() => separation.state.ok)
+
+async function loadStems(id) {
+  // sin pistas (404), o el núcleo no contesta: null
+  const info = await api.stems(id).catch(() => null)
+  if (loadedFor.value !== id) return
+  stems.value = info
+  if (wantStems === id && info?.complete) {
+    wantStems = null
+    study.value.mixer.on = true
+    scheduleSave()
+  }
+  await sendMix()
+}
+// al acabar de separarse la canción que se estudia, sus pistas
+const stopListening = separation.onSeparated((ids) => {
+  const id = loadedFor.value
+  if (id != null && ids.includes(id)) loadStems(id)
+})
+onUnmounted(stopListening)
+
+/** Manda a Rust lo que tiene que sonar: las pistas con su mezcla, o la canción. */
+async function sendMix() {
+  if (mixerOn.value) {
+    await player.setStems(
+      plan.value.map((t) => ({ path: t.path, gain: t.gain, pan: t.pan, on: t.on }))
+    )
+  } else if (player.stems.value) {
+    await player.setStems(null)
+  }
+}
+async function toggleStems() {
+  if (!hasStems.value) return
+  study.value.mixer.on = !study.value.mixer.on
+  scheduleSave()
+  await sendMix()
+}
+/** Un carril cambió: callar, dejar sola, volumen o panorama. */
+async function onLane(key, patch) {
+  const all = study.value.mixer.tracks
+  all[key] = { ...(all[key] || {}), ...patch }
+  study.value.mixer.tracks = { ...all }
+  scheduleSave()
+  await sendMix()
+}
+/** Que vuelvan a sonar todas, como vienen. */
+async function resetMix() {
+  study.value.mixer.tracks = {}
+  scheduleSave()
+  await sendMix()
+}
+/** Separa la canción que se estudia (con el modelo de 6 o el de 4 pistas). */
+async function separateThis(model) {
+  const t = track.value
+  if (!t) return
+  if (await separation.request([{ id: t.id, title: t.title, file: songFile.value }], model)) {
+    wantStems = t.id
+  }
+}
+function separateMenu(ev) {
+  const items = separation.state.models.map((m) => ({
+    label: `En ${m.label}`,
+    icon: 'mixer',
+    note: m.installed === false ? `bajar ${separation.megas(m.bytes)}` : m.detail,
+    action: () => separateThis(m.id)
+  }))
+  openMenu(ev, items, 'Separar en pistas')
+}
+const progressText = computed(() => {
+  const p = progress.value
+  if (!p) return ''
+  if (p.waiting) return `en la cola (${p.place}.º)`
+  if (p.step === 'download') return `bajando el separador · ${Math.round(p.fraction * 100)} %`
+  if (!p.fraction) return 'preparando…'
+  const left = separation.remaining()
+  const eta = left == null ? '' : ` · quedan ~${formatTime(left)}`
+  return `separando · ${Math.round(p.fraction * 100)} %${eta}`
+})
+
+/** Guarda en un archivo lo que suena ahora de las pistas. */
+async function saveMix({ asHeard = false } = {}) {
+  const info = stems.value
+  const id = loadedFor.value
+  if (!info || !id) return
+  const on = plan.value.filter((t) => t.on)
+  if (!on.length) return notify('Todas las pistas están calladas: no hay nada que guardar')
+  const name = mixFileName(songFile.value || track.value?.title || 'Cancion', plan.value)
+  const path = await pickSavePath({
+    title: 'Guardar la mezcla',
+    defaultPath: `${info.folder}/${name}.mp3`,
+    filters: [
+      { name: 'MP3', extensions: ['mp3'] },
+      { name: 'FLAC', extensions: ['flac'] },
+      { name: 'WAV', extensions: ['wav'] }
+    ]
+  })
+  if (!path) return
+  notify('Guardando la mezcla…', 'info', 3)
+  try {
+    const r = await api.runJob(
+      () =>
+        api.exportMix(id, {
+          tracks: on.map((t) => ({ source: t.key, gain: t.gain, pan: t.pan })),
+          path,
+          ...(asHeard ? { speed: speed.value, pitch: pitch.value } : {})
+        }),
+      JOBS.mix
+    )
+    notify(`Guardada «${r.name}»${r.id ? ': ya está en tu biblioteca' : ''}`, 'ok', 6)
+  } catch (e) {
+    notify('No se pudo guardar la mezcla: ' + errorMessage(e))
+  }
+}
+async function revealStems() {
+  const first = stems.value?.tracks?.[0]?.path
+  if (!first) return
+  try {
+    await tauriApp.revealInFolder(first)
+  } catch (e) {
+    notify(errorMessage(e))
+  }
+}
+async function deleteStems() {
+  const id = loadedFor.value
+  if (!id || !stems.value) return
+  const ok = await ask({
+    kind: 'confirm',
+    title: 'Borrar las pistas separadas',
+    danger: true,
+    message: 'Las pistas van a la papelera del sistema. La canción no se toca.',
+    detail: stems.value.folder,
+    okLabel: 'A la papelera'
+  })
+  if (!ok) return
+  try {
+    if (player.stems.value) await player.setStems(null)
+    await api.deleteStems(id)
+    stems.value = null
+    study.value.mixer = { on: false, tracks: {} }
+    scheduleSave()
+    notify('Pistas en la papelera', 'ok')
+  } catch (e) {
+    notify('No se pudieron borrar: ' + errorMessage(e))
+  }
+}
+const heardDiffers = computed(() => speed.value !== 1 || pitch.value !== 0)
+function stemsMenu(ev) {
+  const items = [
+    { label: 'Guardar esta mezcla…', icon: 'download', action: () => saveMix() },
+    ...(heardDiffers.value
+      ? [
+          {
+            label: 'Guardarla como suena…',
+            icon: 'download',
+            note: `${Math.round(speed.value * 100)} %${pitch.value ? ' · ' + pitchLabel.value : ''}`,
+            action: () => saveMix({ asHeard: true })
+          }
+        ]
+      : []),
+    { label: 'Que suenen todas, como vienen', icon: 'refresh', action: resetMix },
+    { label: 'Abrir la carpeta de las pistas', icon: 'folderOpen', action: revealStems },
+    { separator: true },
+    ...separation.state.models.map((m) => ({
+      label: `Separar otra vez en ${m.label}`,
+      icon: 'mixer',
+      action: () => separateThis(m.id)
+    })),
+    { separator: true },
+    { label: 'Borrar las pistas…', icon: 'trash', danger: true, action: deleteStems }
+  ]
+  openMenu(ev, items, 'Las pistas')
+}
+
 /** Al cerrar, la cancion vuelve a sonar normal. */
 async function close() {
   await flushSave()
+  if (player.stems.value) await player.setStems(null)
   await player.clearLoop()
   if (speed.value !== 1) await player.setSpeed(1)
   if (pitch.value !== 0) await player.setPitch(0)
@@ -708,7 +948,12 @@ onUnmounted(flushSave)
 </script>
 
 <template>
-  <div class="study" role="region" aria-label="Modo estudio">
+  <div
+    class="study"
+    :class="{ 'with-lanes': lanes.length }"
+    role="region"
+    aria-label="Modo estudio"
+  >
     <div class="study-head">
       <Icon n="academic" :t="15" /> <strong>Modo estudio</strong>
       <span v-if="track" class="study-song"
@@ -727,6 +972,75 @@ onUnmounted(flushSave)
       </button>
     </div>
 
+    <!-- las pistas separadas: separarla, o que suenen ellas con su mezcla -->
+    <div v-if="track && (hasStems || canSeparate || progress)" class="study-stems">
+      <template v-if="hasStems">
+        <button
+          type="button"
+          class="btn mini study-stems-toggle"
+          :class="{ on: mixerOn }"
+          :aria-pressed="mixerOn"
+          :title="
+            mixerOn
+              ? 'Suenan las pistas separadas: pulsa para volver a la canción tal cual'
+              : 'Que suenen las pistas separadas, cada una con su volumen'
+          "
+          @click="toggleStems"
+        >
+          <Icon n="mixer" :t="12" /> Pistas
+        </button>
+        <span class="study-stems-note">
+          <template v-if="mixerOn">
+            {{ plan.filter((t) => t.on).length }} de {{ plan.length }} suenan · M calla, S deja sola
+          </template>
+          <template v-else>{{ plan.length }} pistas separadas</template>
+        </span>
+        <span v-if="progress" class="study-stems-progress mono">{{ progressText }}</span>
+        <button
+          type="button"
+          class="btn mini study-stems-more"
+          title="Guardar la mezcla, abrir la carpeta, separar otra vez…"
+          aria-label="Opciones de las pistas"
+          @click="stemsMenu"
+        >
+          ⋯
+        </button>
+      </template>
+      <template v-else-if="progress">
+        <Icon n="mixer" :t="12" />
+        <span class="study-stems-progress mono">{{ progressText }}</span>
+        <span
+          class="study-stems-bar"
+          role="progressbar"
+          :aria-valuenow="Math.round(progress.fraction * 100)"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          ><span :style="{ width: progress.fraction * 100 + '%' }"></span
+        ></span>
+        <button
+          type="button"
+          class="btn mini"
+          :title="progress.waiting ? 'Quitarla de la cola' : 'Parar la separación'"
+          @click="progress.waiting ? separation.unqueue(track.id) : separation.cancel()"
+        >
+          <Icon n="close" :t="11" /> {{ progress.waiting ? 'Quitar' : 'Parar' }}
+        </button>
+      </template>
+      <template v-else>
+        <button
+          type="button"
+          class="btn mini study-stems-separate"
+          title="Separar la canción en pistas (batería, voces, bajo…) para callar o dejar sola cada una"
+          @click="separateMenu"
+        >
+          <Icon n="mixer" :t="12" /> Separar en pistas
+        </button>
+        <span class="study-stems-note">
+          batería, voces, bajo… cada una aparte · tarda en torno a lo que dura la canción
+        </span>
+      </template>
+    </div>
+
     <!-- la onda, la regla, los tramos, los marcadores y la rejilla del compas -->
     <StudyTimeline
       :song-id="track?.id ?? null"
@@ -740,6 +1054,8 @@ onUnmounted(flushSave)
       :height="80"
       :locked="locked"
       :playing="playing"
+      :lanes="lanes"
+      @lane="onLane"
       @update:locked="(v) => (locked = v)"
       @update:multi="(v) => (multi = v)"
       @update:loops="onLoops"

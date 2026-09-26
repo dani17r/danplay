@@ -1,13 +1,15 @@
 // @ts-check
 // Los menús de clic derecho (el de una canción, el de varias elegidas y el de
 // un repertorio) y lo que se hace desde ellos con las canciones: valorar,
-// favoritas, difuminar la portada, renombrar, buscar letra, la papelera,
-// abrir su carpeta o mandarlas por Telegram. Estaba dentro de App.vue.
+// favoritas, difuminar la portada, renombrar, buscar letra, separarlas en
+// pistas, la papelera, abrir su carpeta o mandarlas por Telegram. Estaba
+// dentro de App.vue.
 import { ref } from 'vue'
 import { api, app as tauriApp, errorMessage } from '../api.js'
 import { notify } from './useNotices.js'
 import { ask } from './useDialog.js'
 import { openMenu } from './useContextMenu.js'
+import { useSeparation } from './useSeparation.js'
 
 /** @typedef {import('../api.js').Song} Song */
 /** @typedef {import('./useContextMenu.js').MenuItem} MenuItem */
@@ -42,6 +44,7 @@ export function useSongMenus(ctx) {
   }
 
   const isPlaying = (/** @type {Song} */ song) => player.track.value?.id === song.id
+  const separation = useSeparation()
 
   // -------------------------------------------------------------- acciones
   /** @param {Song} song @param {number} n */
@@ -181,6 +184,79 @@ export function useSongMenus(ctx) {
     await sendToTelegram(list)
   }
 
+  /** Abre la carpeta de las pistas separadas de la canción. @param {Song} song */
+  async function revealStems(song) {
+    try {
+      const first = (await api.stems(song.id))?.tracks?.[0]?.path
+      if (!first) return notify('Esa canción ya no tiene sus pistas')
+      await tauriApp.revealInFolder(first)
+    } catch (e) {
+      notify(errorMessage(e))
+    }
+  }
+
+  /** Sus pistas separadas, a la papelera (la canción no se toca). @param {Song} song */
+  async function deleteStems(song) {
+    const ok = await ask({
+      kind: 'confirm',
+      title: 'Borrar las pistas separadas',
+      danger: true,
+      message: 'Las pistas van a la papelera del sistema. La canción no se toca.',
+      detail: song.title || song.file,
+      okLabel: 'A la papelera'
+    })
+    if (!ok) return
+    try {
+      await api.deleteStems(song.id)
+      notify('Pistas en la papelera', 'ok')
+      await ctx.refreshAll()
+    } catch (e) {
+      notify('No se pudieron borrar: ' + errorMessage(e))
+    }
+  }
+
+  /**
+   * Separar en pistas: un submenú con los modelos (6 o 4 pistas). Nada si
+   * en este equipo no se puede.
+   * @param {Song[]} list
+   * @param {string} label
+   * @returns {MenuItem[]}
+   */
+  function separateItems(list, label) {
+    if (!separation.state.ok) return []
+    return [
+      {
+        label,
+        icon: 'mixer',
+        children: separation.state.models.map((m) => ({
+          label: `En ${m.label}`,
+          note: m.installed === false ? `bajar ${separation.megas(m.bytes)}` : '',
+          action: () => separation.request(list, m.id)
+        }))
+      }
+    ]
+  }
+
+  /** Lo de las pistas de una canción: separarla, o lo que se hace con las suyas. @param {Song} song */
+  function stemsItems(song) {
+    const queued = separation.progressOf(song.id)
+    if (queued) {
+      return [
+        {
+          label: queued.waiting ? 'Quitar de la cola de separar' : 'Parar la separación',
+          icon: 'mixer',
+          action: () => (queued.waiting ? separation.unqueue(song.id) : separation.cancel())
+        }
+      ]
+    }
+    if (!song.has_stems) return separateItems([song], 'Separar en pistas')
+    return [
+      { label: 'Abrir la carpeta de sus pistas', icon: 'mixer', action: () => revealStems(song) },
+      ...separateItems([song], 'Separar otra vez'),
+      { label: 'Borrar sus pistas…', icon: 'trash', action: () => deleteStems(song) }
+    ]
+  }
+
   /** Borrar una lista puede dejarte mirando una vista que ya no existe. @param {any} pl */
   async function deletePlaylist(pl) {
     const id = await playlistActions.remove(pl)
@@ -251,6 +327,7 @@ export function useSongMenus(ctx) {
         }
       })
     }
+    items.push(...separateItems(list, `Separar ${n} en pistas`))
     items.push({ separator: true })
     if (shareTargets.value.telegram) {
       items.push({
@@ -322,6 +399,7 @@ export function useSongMenus(ctx) {
       action: () => toggleBlur(song)
     })
     items.push({ label: 'Renombrar…', icon: 'pencil', action: () => renameSong(song) })
+    items.push(...stemsItems(song))
     items.push({ separator: true })
     // Con el panel lateral a la vista la ficha ya se ve; si no, se ofrece
     if (!ctx.detailsInView()) {
@@ -396,6 +474,8 @@ export function useSongMenus(ctx) {
     trashSong,
     trashSongs,
     revealSong,
+    revealStems,
+    deleteStems,
     sendToTelegram,
     deletePlaylist,
     songMenu,

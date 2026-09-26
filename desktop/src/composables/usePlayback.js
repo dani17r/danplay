@@ -64,7 +64,9 @@ const EMPTY = {
     free: true,
     confidence: 0
   },
-  path: ''
+  path: '',
+  // suenan las pistas separadas de la canción (con su mezcla) en vez de ella
+  stems: false
 }
 
 /**
@@ -341,6 +343,12 @@ function createWebBackend() {
     },
     analyzeBeats: async () => {
       throw new Error('el compás solo se analiza dentro de la app')
+    },
+    // Las pistas separadas solo suenan juntas dentro de la app (las junta
+    // ffmpeg y las mezcla Rust): aquí se apunta, como el tono.
+    setStems: async (song, tracks) => {
+      s.stems = !!tracks?.length && !!s.track
+      push()
     },
     state: async () => snapshot(),
     queueItems: async () => ({ items: q.items.slice(), origin: q.origin }),
@@ -657,6 +665,18 @@ function resetMetronomeOverrides(overrides = {}) {
   Object.assign(metronomeSettings, { bpm: null, meter: null, shift: 0, mult: 0 }, overrides)
   return send((b) => b.setMetronome({ ...metronomeSettings }))
 }
+/**
+ * Que suenen las pistas separadas de la canción que suena en vez de ella,
+ * cada una con su mezcla; o, sin `tracks`, la canción otra vez. Se manda con
+ * la ruta de la canción: si mientras tanto ya suena otra, Rust no hace nada.
+ * @param {Array<{path: string, gain: number, pan: number, on: boolean}>|null} tracks
+ * @param {string} [song]  la ruta de la canción de esas pistas (la que suena)
+ */
+function setStems(tracks, song = state.path) {
+  const list = tracks?.length ? tracks.map((t) => ({ ...t })) : null
+  return send((b) => b.setStems(song, list))
+}
+
 /** Lo que se le mandó al metrónomo la última vez. */
 const metronomeSent = () => ({ ...metronomeSettings })
 /**
@@ -748,6 +768,9 @@ export function usePlayback() {
     metronomeSent,
     metronome: computed(() => state.metronome),
     analyzeBeats,
+    setStems,
+    /** suenan las pistas separadas de la canción en vez de ella */
+    stems: computed(() => !!state.stems),
     setLoop,
     setLoops,
     clearLoop,

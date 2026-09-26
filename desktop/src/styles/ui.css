@@ -1778,10 +1778,159 @@ tbody tr.flash {
   font-style: italic;
 }
 
+/* ---------- las pistas separadas en el estudio ----------
+   Una fila encima de la onda: separar la cancion, como va, o el boton que
+   pone a sonar sus pistas. Con ellas sonando la onda es un carril por
+   instrumento y el estudio sube algo mas, para que las columnas de abajo
+   sigan teniendo sitio. */
+.study.with-lanes {
+  height: min(74vh, calc(100vh - var(--player-h) - 48px));
+}
+.study-stems {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  font-size: 11px;
+  color: var(--muted2);
+}
+.study-stems .btn.mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.study-stems-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.study-stems-progress {
+  color: var(--accent);
+  white-space: nowrap;
+}
+.study-stems-bar {
+  flex: 0 1 160px;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 12%, var(--panel));
+}
+.study-stems-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease-out;
+}
+.study-stems-more {
+  margin-left: auto;
+  padding: 1px 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+/* la linea de tiempo con carriles: los mandos a la izquierda, a la altura
+   de su carril; la onda y la regla, a la derecha */
+.tl.tl-has-lanes {
+  display: grid;
+  grid-template-columns: minmax(200px, 250px) minmax(0, 1fr);
+  column-gap: 8px;
+}
+.tl-has-lanes .tl-lanes {
+  grid-column: 1;
+  grid-row: 1;
+}
+.tl-has-lanes .tl-box {
+  grid-column: 2;
+  grid-row: 1;
+}
+.tl-has-lanes .tl-ruler-gap {
+  grid-column: 1;
+  grid-row: 2;
+}
+.tl-has-lanes .tl-ruler {
+  grid-column: 2;
+  grid-row: 2;
+}
+.tl-lanes {
+  display: flex;
+  flex-direction: column;
+  height: var(--tl-h);
+}
+.tl-lane {
+  display: grid;
+  grid-template-columns: minmax(52px, 1fr) auto auto minmax(46px, 1.2fr) minmax(30px, 0.8fr);
+  align-items: center;
+  gap: 4px;
+  height: var(--tl-lane-h);
+  padding: 0 2px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+  font-size: 11px;
+}
+.tl-lane:first-child {
+  border-top: none;
+}
+.tl-lane-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text);
+}
+.tl-lane.off .tl-lane-name {
+  color: var(--muted2);
+  font-weight: 400;
+}
+.tl-lane-btn {
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel2);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.tl-lane-btn:hover {
+  border-color: var(--muted);
+  color: var(--text);
+}
+/* callada: en rojo apagado; sola: en el acento */
+.tl-lane-btn.on {
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 22%, var(--panel2));
+  color: var(--text);
+}
+.tl-lane-btn.solo.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 28%, var(--panel2));
+}
+.tl-lane .slider {
+  min-width: 0;
+}
+/* el panorama no es una cantidad: sin relleno, con una marca en el centro */
+.tl-lane-pan .slider-track::after {
+  display: none;
+}
+.tl-lane-pan .slider-track::before {
+  background: linear-gradient(
+    to right,
+    var(--border2) calc(50% - 1px),
+    var(--muted2) calc(50% - 1px) calc(50% + 1px),
+    var(--border2) calc(50% + 1px)
+  );
+}
+
 /* menos ancho: dos columnas; estrecho: una, y el panel crece con scroll */
 @media (max-width: 1100px) {
   .study-body {
     grid-template-columns: 1fr 1fr;
+  }
+  .tl.tl-has-lanes {
+    grid-template-columns: minmax(170px, 200px) minmax(0, 1fr);
   }
   .study-col:nth-child(3) {
     padding-left: 0;
@@ -1789,9 +1938,17 @@ tbody tr.flash {
   }
 }
 @media (max-width: 700px) {
-  .study {
+  .study,
+  .study.with-lanes {
     height: min(78vh, calc(100vh - var(--player-h) - 40px));
     overflow-y: auto;
+  }
+  /* sin sitio para el panorama: el volumen y los botones */
+  .tl-lane {
+    grid-template-columns: minmax(48px, 1fr) auto auto minmax(40px, 1fr);
+  }
+  .tl-lane-pan {
+    display: none;
   }
   .study-body {
     display: flex;

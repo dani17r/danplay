@@ -21,7 +21,8 @@ import { useSelection } from '../src/composables/useSelection.js'
 import { useContextMenu, closeMenu } from '../src/composables/useContextMenu.js'
 import { useDialog, dialogOk, dialogCancel } from '../src/composables/useDialog.js'
 import { useNotices, clearNotices } from '../src/composables/useNotices.js'
-import { song } from './support/backend.js'
+import { song, stemsOf } from './support/backend.js'
+import { useSeparation, resetSeparation } from '../src/composables/useSeparation.js'
 
 const api = () => held.api
 const { menu } = useContextMenu()
@@ -73,7 +74,12 @@ const pick = async (label) => {
   await flushPromises()
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  resetSeparation()
+  held.state.separation.current = null
+  held.state.separation.queue = []
+  held.state.stems = {}
+  await useSeparation().refresh()
   held.state.songs = [song(1), song(2, { title: 'Otra' }), song(3, { title: 'Tercera' })]
   held.state.playlistSongs = held.state.songs.map((s) => ({ ...s }))
   closeMenu()
@@ -95,6 +101,7 @@ describe('el menú de una canción', () => {
       'Buscar letra y portada',
       'Difuminar la portada',
       'Renombrar…',
+      'Separar en pistas',
       'Abrir la carpeta',
       'Mandar a la papelera…'
     ])
@@ -221,6 +228,7 @@ describe('el menú de varias', () => {
       'Añadir 3 a una lista',
       'Marcar 3 como favoritas',
       'Quitar 3 de esta lista',
+      'Separar 3 en pistas',
       'Enviar 3 por Telegram',
       'Mandar 3 a la papelera…'
     ])
@@ -312,5 +320,89 @@ describe('el menú de un repertorio', () => {
     menus.playlistMenu(ev, { id: 7, name: 'Domingo' })
     await pick('Enviar por Telegram')
     expect(notices.value.at(-1).message).toBe('Esa lista está vacía')
+  })
+})
+
+describe('las pistas separadas', () => {
+  const submenu = (label) => item(label)?.children?.map((c) => c.label)
+  const pickIn = async (label, child) => {
+    const it = item(label)?.children?.find((c) => c.label === child)
+    expect(it, `no hay «${child}» en «${label}»`).toBeTruthy()
+    closeMenu()
+    await it.action()
+    await flushPromises()
+  }
+
+  it('una sin pistas se separa con el modelo que se elija', async () => {
+    const { menus } = preparar()
+    menus.songMenu(ev, held.state.songs[0])
+    expect(submenu('Separar en pistas')).toEqual(['En 6 pistas', 'En 4 pistas'])
+    // el de 4 aún no está bajado: se dice cuánto pesa
+    expect(item('Separar en pistas').children[1].note).toBe('bajar 84 MB')
+    await pickIn('Separar en pistas', 'En 6 pistas')
+    expect(api().separate).toHaveBeenCalledWith(1, '6')
+    expect(dialog.value.open).toBeFalsy()
+  })
+
+  it('bajar un modelo se pregunta antes, con lo que pesa', async () => {
+    const { menus } = preparar()
+    menus.songMenu(ev, held.state.songs[0])
+    const asked = pickIn('Separar en pistas', 'En 4 pistas')
+    await flushPromises()
+    expect(dialog.value.open).toBe(true)
+    expect(dialog.value.message).toContain('84 MB')
+    dialogCancel()
+    await asked
+    expect(api().separate).not.toHaveBeenCalledWith(1, '4')
+  })
+
+  it('varias a la vez van a la cola', async () => {
+    const { menus, ctx } = preparar()
+    await ctx.selection.select(1)
+    await ctx.selection.select(3, { shiftKey: true })
+    menus.songMenu(ev, held.state.songs[0])
+    await pickIn('Separar 3 en pistas', 'En 6 pistas')
+    expect(api().separate.mock.calls.map((c) => c[0])).toEqual([1, 2, 3])
+    expect(useSeparation().state.queue.map((q) => q.id)).toEqual([2, 3])
+  })
+
+  it('la que se está separando o espera se puede parar o quitar', async () => {
+    const { menus } = preparar()
+    await useSeparation().request([held.state.songs[0], held.state.songs[1]], '6')
+    menus.songMenu(ev, held.state.songs[1])
+    await pick('Quitar de la cola de separar')
+    expect(api().unqueueSeparation).toHaveBeenCalledWith(2)
+    menus.songMenu(ev, held.state.songs[0])
+    await pick('Parar la separación')
+    expect(api().cancelSeparation).toHaveBeenCalled()
+  })
+
+  it('con pistas: abrir su carpeta, separarla otra vez o borrarlas', async () => {
+    const { menus, ctx } = preparar()
+    held.state.stems[1] = stemsOf(1)
+    const withStems = { ...held.state.songs[0], has_stems: true }
+    menus.songMenu(ev, withStems)
+    expect(labels()).toContain('Separar otra vez')
+    expect(labels()).not.toContain('Separar en pistas')
+    await pick('Abrir la carpeta de sus pistas')
+    expect(held.app.revealInFolder).toHaveBeenCalledWith('/musica/Separadas/cancion-1/Bateria.flac')
+    menus.songMenu(ev, withStems)
+    const deleting = pick('Borrar sus pistas…')
+    await flushPromises()
+    expect(dialog.value.danger).toBe(true)
+    dialogOk()
+    await deleting
+    expect(api().deleteStems).toHaveBeenCalledWith(1)
+    expect(ctx.refreshAll).toHaveBeenCalled()
+  })
+
+  it('sin separador en este equipo no se ofrece', async () => {
+    held.state.separation.ok = false
+    held.state.separation.reason = 'falta onnxruntime'
+    await useSeparation().refresh()
+    const { menus } = preparar()
+    menus.songMenu(ev, held.state.songs[0])
+    expect(labels().some((l) => l.startsWith('Separar'))).toBe(false)
+    held.state.separation.ok = true
   })
 })

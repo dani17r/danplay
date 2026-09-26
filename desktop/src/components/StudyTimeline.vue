@@ -22,6 +22,11 @@
  * datos, el ancho o el tema. Lo que se mueve (aguja, tramo, marcadores) es
  * DOM colocado en tantos por ciento: cuatro veces por segundo no hay que
  * redibujar nada.
+ *
+ * Con las pistas separadas sonando (`lanes`), la onda es un carril por
+ * instrumento, cada uno con su onda y, a la izquierda, sus mandos: callar,
+ * dejar sola, volumen y panorama. El tramo, los marcadores, el compás y la
+ * aguja cruzan todos los carriles: se elige igual que sobre la canción.
  */
 import {
   ref,
@@ -40,6 +45,7 @@ import { formatTime } from '../utils/format.js'
 import { isDownbeat } from '../utils/beats.js'
 import { cleanSegments } from '../utils/segments.js'
 import Icon from './Icon.vue'
+import SliderField from './ui/SliderField.vue'
 
 const props = defineProps({
   songId: { type: Number, default: null },
@@ -60,7 +66,15 @@ const props = defineProps({
   /** el candado: sonando, un clic no mueve la canción */
   locked: Boolean,
   /** si la canción está sonando (el candado solo cuenta entonces) */
-  playing: Boolean
+  playing: Boolean,
+  /**
+   * las pistas separadas, un carril cada una: [{key, name, wave: {peaks, rms},
+   * on, mute, solo, gain, pan}]. `on` es si suena (ya resuelto lo de callar y
+   * dejar sola). Vacío: la onda de la canción.
+   */
+  lanes: { type: Array, default: () => [] },
+  /** alto de cada carril, en px */
+  laneHeight: { type: Number, default: 34 }
 })
 // `update:loops` lleva los tramos (en orden, los que se pisan juntos) y
 // `{ mode }`: 'select' si se dibujo uno de cero, 'add' si se anadio otro,
@@ -68,17 +82,24 @@ const props = defineProps({
 // 'clear' si se quitaron todos. Quien guarda marcadores necesita
 // distinguirlo: editar el tramo de un marcador elegido lo cambia a el;
 // dibujar otro nuevo, no. `options` pide las opciones de un tramo (o de un
-// punto de la onda, con `index` -1), con donde abrirlas.
+// punto de la onda, con `index` -1), con donde abrirlas. `lane` cambia un
+// carril: (su clave, {mute | solo | gain | pan}).
 const emit = defineEmits([
   'update:loops',
   'seek',
   'marker',
   'update:locked',
   'update:multi',
-  'options'
+  'options',
+  'lane'
 ])
 
-const WAVE_H = computed(() => props.height) // alto de la onda, en px
+/** Con las pistas separadas, un carril por instrumento. */
+const laneMode = computed(() => props.lanes.length > 0)
+// alto de la onda (o de todos los carriles), en px
+const WAVE_H = computed(() =>
+  laneMode.value ? props.lanes.length * props.laneHeight : props.height
+)
 const MIN_LOOP = 0.5 // menos que esto no es un bucle, es un clic con temblor
 const HANDLE = 7 // a estos px de un borde se coge el borde, no se empieza otro tramo
 const THRESHOLD = 4 // px de movimiento a partir de los que un clic pasa a ser arrastre
@@ -140,6 +161,11 @@ function draw() {
   const styles = getComputedStyle(c)
   const text = styles.getPropertyValue('--text').trim() || styles.color || 'gray'
   const accent = styles.getPropertyValue('--accent').trim() || text
+  if (laneMode.value) {
+    drawLanes(ctx, W, text, accent)
+    drawGrid(ctx, W, H)
+    return
+  }
   const mid = H / 2
   const w = wave.value
   if (!w || !w.peaks?.length) {
@@ -188,6 +214,76 @@ function draw() {
   }
   ctx.globalAlpha = 1
   drawGrid(ctx, W, H)
+}
+
+/**
+ * Un carril por pista, todas a la misma escala (el separador las mide juntas):
+ * se ve qué instrumento suena más y dónde entra cada uno. Lo que no suena
+ * (callado, o fuera de un solo) se pinta apagado.
+ */
+function drawLanes(ctx, W, text, accent) {
+  const lh = props.laneHeight
+  let rmsTop = 1e-6
+  for (const lane of props.lanes) {
+    for (const v of lane.wave?.rms || []) if (v > rmsTop) rmsTop = v
+  }
+  const curve = (v) => Math.pow(Math.max(0, Math.min(1, v)), 0.7)
+  props.lanes.forEach((lane, li) => {
+    const top = li * lh
+    const mid = top + lh / 2
+    const room = lh / 2 - 3
+    const dim = lane.on ? 1 : 0.3
+    ctx.fillStyle = text
+    if (li) {
+      ctx.globalAlpha = 0.14
+      ctx.fillRect(0, top, W, 1)
+    }
+    const w = lane.wave
+    const n = w?.peaks?.length || 0
+    if (!n) {
+      ctx.globalAlpha = 0.22 * dim
+      ctx.fillRect(0, mid - 0.5, W, 1)
+      return
+    }
+    const cols = Math.max(1, Math.min(n, Math.floor(W / 2)))
+    const cw = W / cols
+    const bar = cw >= 3 ? cw - 1 : cw
+    for (let i = 0; i < cols; i++) {
+      const from = Math.floor((i * n) / cols)
+      const to = Math.max(from + 1, Math.floor(((i + 1) * n) / cols))
+      let pk = 0
+      let rm = 0
+      for (let j = from; j < to; j++) {
+        pk = Math.max(pk, w.peaks[j] || 0)
+        rm += w.rms?.[j] || 0
+      }
+      rm /= to - from
+      const silhouette = curve(pk)
+      const hp = Math.max(0.5, silhouette * room)
+      const hr = Math.max(0.5, Math.min(silhouette, curve(rm / rmsTop)) * room)
+      ctx.globalAlpha = 0.24 * dim
+      ctx.fillStyle = text
+      ctx.fillRect(i * cw, mid - hp, bar, hp * 2)
+      ctx.globalAlpha = 0.95 * dim
+      ctx.fillStyle = accent
+      ctx.fillRect(i * cw, mid - hr, bar, hr * 2)
+    }
+  })
+  ctx.globalAlpha = 1
+}
+// lo que cambia lo que se pinta de los carriles (y no la aguja ni el volumen)
+const laneLook = computed(() =>
+  props.lanes.map((l) => `${l.key}:${l.on ? 1 : 0}:${l.wave?.peaks?.length || 0}`).join('|')
+)
+watch(laneLook, () => nextTick(draw))
+
+/** El volumen de un carril, para leerlo: «80 %». */
+const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
+/** El panorama de un carril, para leerlo: «centro», «30 % izq.». */
+function panText(v) {
+  const p = Math.round((Number(v) || 0) * 100)
+  if (!p) return 'centro'
+  return `${Math.abs(p)} % ${p < 0 ? 'izq.' : 'der.'}`
 }
 
 /**
@@ -522,10 +618,76 @@ const lockTitle = computed(() =>
 <template>
   <div
     class="tl"
-    :class="{ 'tl-dragging': dragging, ['tl-hover-' + hover]: hover }"
+    :class="{ 'tl-dragging': dragging, ['tl-hover-' + hover]: hover, 'tl-has-lanes': laneMode }"
     :data-mode="drag.mode || null"
-    :style="{ '--tl-h': WAVE_H + 'px' }"
+    :style="{ '--tl-h': WAVE_H + 'px', '--tl-lane-h': laneHeight + 'px' }"
   >
+    <!-- los mandos de cada pista, a la altura de su carril -->
+    <div v-if="laneMode" class="tl-lanes" role="group" aria-label="Las pistas separadas">
+      <div
+        v-for="lane in lanes"
+        :key="lane.key"
+        class="tl-lane"
+        :class="{ off: !lane.on }"
+        :data-lane="lane.key"
+      >
+        <span class="tl-lane-name" :title="lane.name">{{ lane.name }}</span>
+        <button
+          type="button"
+          class="tl-lane-btn"
+          :class="{ on: lane.mute }"
+          :aria-pressed="!!lane.mute"
+          :aria-label="(lane.mute ? 'Que vuelva a sonar ' : 'Callar ') + lane.name"
+          :title="lane.mute ? 'Callada: pulsa para que vuelva a sonar' : 'Callar ' + lane.name"
+          @click="emit('lane', lane.key, { mute: !lane.mute })"
+        >
+          M
+        </button>
+        <button
+          type="button"
+          class="tl-lane-btn solo"
+          :class="{ on: lane.solo }"
+          :aria-pressed="!!lane.solo"
+          :aria-label="(lane.solo ? 'Quitar el solo de ' : 'Dejar sola ') + lane.name"
+          :title="
+            lane.solo
+              ? 'Sola (con las demás que estén en solo): pulsa para quitarlo'
+              : 'Dejar sola ' + lane.name + ' (se pueden dejar varias)'
+          "
+          @click="emit('lane', lane.key, { solo: !lane.solo })"
+        >
+          S
+        </button>
+        <!-- doble clic: vuelve a como viene -->
+        <SliderField
+          class="tl-lane-gain"
+          :model-value="lane.gain ?? 1"
+          :min="0"
+          :max="2"
+          :step="0.05"
+          :mark="1"
+          width="100%"
+          :aria-label="'Volumen de ' + lane.name"
+          :value-text="pctText(lane.gain ?? 1)"
+          :title="'Volumen: ' + pctText(lane.gain ?? 1) + ' · doble clic, como viene'"
+          @update:model-value="(v) => emit('lane', lane.key, { gain: v })"
+          @dblclick="emit('lane', lane.key, { gain: 1 })"
+        />
+        <SliderField
+          class="tl-lane-pan"
+          :model-value="lane.pan ?? 0"
+          :min="-1"
+          :max="1"
+          :step="0.05"
+          width="100%"
+          :aria-label="'Panorama de ' + lane.name"
+          :value-text="panText(lane.pan ?? 0)"
+          :title="'Panorama: ' + panText(lane.pan ?? 0) + ' · doble clic, al centro'"
+          @update:model-value="(v) => emit('lane', lane.key, { pan: v })"
+          @dblclick="emit('lane', lane.key, { pan: 0 })"
+        />
+      </div>
+    </div>
     <!-- el clic derecho es un atajo de raton: con el teclado, las mismas
          opciones estan en el boton ⋯ de cada tramo -->
     <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
@@ -641,6 +803,7 @@ const lockTitle = computed(() =>
     </div>
 
     <!-- la regla: los minutos -->
+    <div v-if="laneMode" class="tl-ruler-gap" aria-hidden="true"></div>
     <div class="tl-ruler" aria-hidden="true">
       <span
         v-for="k in ticks"

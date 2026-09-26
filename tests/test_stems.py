@@ -135,6 +135,15 @@ def test_a_song_is_separated_into_its_own_folder(lib):
     assert not [p for p in (root / "Separadas").iterdir() if p.name.startswith(".")]
 
 
+def test_what_a_crash_left_halfway_is_swept_away(lib):
+    root, _ = lib
+    leftover = root / "Separadas" / ".separando-abc123"
+    leftover.mkdir(parents=True)
+    (leftover / "Bateria.flac").write_bytes(b"a medias")
+    assert not _separate(_id("Barak - Mi Gozo.mp3"))["error"]
+    assert not leftover.exists()
+
+
 def test_the_four_track_model_has_no_guitar_nor_piano(lib):
 
     cid = _id("Barak - Mi Gozo.mp3")

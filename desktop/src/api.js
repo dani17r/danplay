@@ -90,6 +90,7 @@
  * @property {number} loop_b
  * @property {Array<[number, number]>} [loops]  los tramos que se repiten, en orden
  * @property {boolean} [loop_defer]  los tramos esperan a que acabe la canción
+ * @property {boolean} [stems]    suenan las pistas separadas de la canción, con su mezcla
  */
 
 /**
@@ -118,6 +119,7 @@
  * @property {string[]} [playlists]
  * @property {string} [lyrics_synced]  letra con tiempos (LRC), si la hay
  * @property {string} [study]          modo estudio, como JSON (ver api.setStudy)
+ * @property {boolean} [has_stems]     tiene sus pistas separadas (en las listas)
  */
 
 /**
@@ -379,6 +381,19 @@ export async function pickImage(title = 'Elige una imagen para la carátula') {
   return typeof r === 'string' ? r : Array.isArray(r) ? r[0] : null
 }
 
+/**
+ * Abre el diálogo del sistema para elegir dónde guardar un archivo. Devuelve
+ * la ruta o null (cancelado, o fuera de la app).
+ * @param {{ title?: string, defaultPath?: string, filters?: Array<{name: string, extensions: string[]}> }} [options]
+ * @returns {Promise<string|null>}
+ */
+export async function pickSavePath(options = {}) {
+  if (!inTauri) return null
+  const { save } = await import('@tauri-apps/plugin-dialog')
+  const r = await save({ title: 'Guardar', ...options })
+  return typeof r === 'string' && r ? r : null
+}
+
 /** Fuera de la app no hay nada que escuchar: se devuelve un «dejar de escuchar» vacío. */
 const noListener = async () => () => {}
 
@@ -432,6 +447,15 @@ export const playback = {
   setPitch: (semitones) => invoke('set_pitch', { semitones }),
   /** @param {MetronomeSettings} settings */
   setMetronome: (settings) => invoke('set_metronome', { settings }),
+  /**
+   * Que suenen las pistas separadas de la canción `song` (la ruta de la que
+   * suena) en vez de ella: cada una con su volumen, su panorama y si suena.
+   * Sin `tracks`, la canción otra vez. Con las mismas pistas, solo cambia la
+   * mezcla, al momento.
+   * @param {string} song
+   * @param {Array<{path: string, gain: number, pan: number, on: boolean}>|null} tracks
+   */
+  setStems: (song, tracks) => invoke('set_stems', { song, tracks }),
   /**
    * Analiza el pulso y el compás del archivo (un par de segundos; Rust se
    * queda con la rejilla para el metrónomo).
@@ -665,7 +689,9 @@ export const JOBS = {
   import: 'importacion',
   convert: 'conversion',
   duplicates: 'duplicados',
-  ytdlp: 'yt-dlp'
+  ytdlp: 'yt-dlp',
+  separate: 'separacion',
+  mix: 'mezcla'
 }
 
 /** @param {number} ms */
@@ -843,6 +869,31 @@ export const api = {
    * @returns {Promise<{peaks: number[], rms: number[], buckets: number}>}
    */
   waveform: (id, buckets = 800) => GET(`/song/${id}/waveform?buckets=${buckets}`),
+  // ---- separar en pistas (bateria, voces, bajo...)
+  /** Si se puede separar aqui, los modelos (y si ya estan bajados) y la cola. */
+  separation: () => GET('/separate'),
+  /**
+   * A la cola de separacion (tarea «separacion»). La primera vez baja el
+   * modelo. @param {number} id @param {'6'|'4'} [model]
+   */
+  separate: (id, model = '6') => POST(`/song/${id}/separate`, { model }),
+  /** Para lo que se este separando y vacia la cola. */
+  cancelSeparation: () => DEL('/separate'),
+  /** Quita de la cola una cancion que aun espera. @param {number} id */
+  unqueueSeparation: (id) => DEL(`/separate/queue/${id}`),
+  /** Borra lo bajado de un modelo (se vuelve a bajar al separar). @param {string} model */
+  removeSeparationModel: (model) => DEL(`/separate/models/${encodeURIComponent(model)}`),
+  /** Las pistas separadas de la cancion, cada una con su ruta y su onda (404 si no tiene). */
+  stems: (id) => GET(`/song/${id}/stems`),
+  /** Manda a la papelera las pistas separadas de la cancion. @param {number} id */
+  deleteStems: (id) => DEL(`/song/${id}/stems`),
+  /**
+   * Guarda una mezcla de las pistas (tarea «mezcla»).
+   * @param {number} id
+   * @param {{tracks: Array<{source: string, gain?: number, pan?: number}>, path: string,
+   *          format?: 'mp3'|'flac'|'wav', speed?: number, pitch?: number}} d
+   */
+  exportMix: (id, d) => POST(`/song/${id}/stems/mix`, d),
   /**
    * La hoja para el atril del repertorio: un HTML en Listas/, para abrir en
    * el navegador e imprimir.

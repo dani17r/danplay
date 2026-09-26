@@ -37,13 +37,67 @@ export function song(id, extra = {}) {
  * en `song`.
  */
 export function light(s) {
-  const { lyrics, lyrics_synced, chords, study, ...rest } = s
+  const { lyrics, lyrics_synced, chords, study, stems, ...rest } = s
   return {
     ...rest,
     has_lyrics: !!lyrics,
     has_synced_lyrics: !!lyrics_synced,
     has_chords: !!chords,
-    has_study: !!study
+    has_study: !!study,
+    has_stems: !!(stems || rest.has_stems)
+  }
+}
+
+/**
+ * Las pistas separadas de una cancion, como las devuelve /api/song/{id}/stems.
+ * @param {number} id
+ * @param {string[]} [sources]
+ */
+export function stemsOf(id, sources = ['drums', 'vocals', 'bass', 'guitar', 'piano', 'other']) {
+  const names = {
+    drums: ['Bateria', 'Batería'],
+    vocals: ['Voces', 'Voces'],
+    bass: ['Bajo', 'Bajo'],
+    guitar: ['Guitarra', 'Guitarra'],
+    piano: ['Piano', 'Piano'],
+    other: ['Otros', 'Otros']
+  }
+  const folder = `/musica/Separadas/cancion-${id}`
+  return {
+    folder,
+    model: sources.length === 6 ? 'htdemucs_6s' : 'htdemucs',
+    created: 1,
+    complete: true,
+    tracks: sources.map((source) => ({
+      source,
+      name: names[source][1],
+      file: `${names[source][0]}.flac`,
+      path: `${folder}/${names[source][0]}.flac`,
+      exists: true,
+      wave: { peaks: [0.2, 0.8, 0.5], rms: [0.1, 0.4, 0.2] }
+    }))
+  }
+}
+
+/**
+ * Acaba la separacion en marcha, como lo haria el nucleo: la cancion ya
+ * tiene sus pistas y pasa la siguiente de la cola (o se para).
+ * @param {ReturnType<typeof createState>} state
+ */
+export function finishSeparation(state) {
+  const item = state.separation.current
+  if (!item) return
+  state.stems[item.id] = stemsOf(
+    item.id,
+    item.model === '4' ? ['drums', 'vocals', 'bass', 'other'] : undefined
+  )
+  const s = state.songs.find((x) => x.id === item.id)
+  if (s) s.has_stems = true
+  state.separation.current = state.separation.queue.shift() || null
+  const done = { id: item.id, title: item.title, folder: `/musica/Separadas/cancion-${item.id}` }
+  state.jobs.separacion = {
+    ...finishedJob('separacion', { separated: [done], failed: [], cancelled: false }),
+    active: !!state.separation.current
   }
 }
 
@@ -236,6 +290,36 @@ export function createState() {
     duplicates: { identical: [], similar: [] },
     /** las tareas largas: la ultima de cada nombre, como en el nucleo */
     jobs: {},
+    /**
+     * separar en pistas: si se puede, los modelos y la cola (como
+     * /api/separate), y las pistas de cada cancion ya separada, por id
+     */
+    separation: {
+      ok: true,
+      reason: '',
+      default: '6',
+      folder: 'Separadas',
+      models: [
+        {
+          id: '6',
+          label: '6 pistas',
+          detail: 'batería, voces, bajo, guitarra, piano y el resto',
+          installed: true,
+          bytes: 54885744
+        },
+        {
+          id: '4',
+          label: '4 pistas',
+          detail: 'batería, voces, bajo y el resto',
+          installed: false,
+          bytes: 84025440
+        }
+      ],
+      current: null,
+      queue: []
+    },
+    /** @type {Record<number, any>} */
+    stems: {},
     /** yt-dlp: la version que se usa, la que viaja con la app y el motor de JS */
     ytdlp: {
       version: '2026.09.01',
@@ -593,6 +677,56 @@ function answers(state) {
       return s ? { ...s } : null
     },
     playlistSheet: async (id) => ({ file: `/musica/Listas/lista-${id}.html` }),
+    separation: async () => copy(state.separation),
+    // separar tarda: aqui la cancion se queda en marcha hasta que la prueba
+    // la acabe (`finishSeparation`)
+    separate: async (id, model = '6') => {
+      const s = find(id)
+      if (!s) throw new Error('esa canción ya no está en la biblioteca')
+      const item = { id, title: `${s.artist} - ${s.title}`, model, done: 0, total: 0 }
+      if (!state.separation.current) state.separation.current = item
+      else state.separation.queue.push(item)
+      state.jobs.separacion = { ...finishedJob('separacion', null), active: true }
+      return { ...copy(state.separation), job: copy(state.jobs.separacion) }
+    },
+    cancelSeparation: async () => {
+      state.separation.current = null
+      state.separation.queue = []
+      state.jobs.separacion = finishedJob('separacion', null, { error: 'cancelado' })
+      return copy(state.separation)
+    },
+    unqueueSeparation: async (id) => {
+      state.separation.queue = state.separation.queue.filter((q) => q.id !== id)
+      return copy(state.separation)
+    },
+    removeSeparationModel: async (model) => {
+      const m = state.separation.models.find((x) => x.id === model)
+      if (m) m.installed = false
+      return { removed: !!m, ...copy(state.separation) }
+    },
+    stems: async (id) => {
+      const st = state.stems[id]
+      if (!st) {
+        const e = new Error('esta canción no tiene pistas separadas')
+        // @ts-ignore el 404 del nucleo
+        e.status = 404
+        throw e
+      }
+      return copy(st)
+    },
+    deleteStems: async (id) => {
+      delete state.stems[id]
+      const s = find(id)
+      if (s) s.has_stems = false
+      return { ok: true, folder: `/musica/Separadas/cancion-${id}` }
+    },
+    exportMix: async (id, d) =>
+      start('mezcla', {
+        path: d.path,
+        name: d.path.split('/').pop(),
+        id: 99,
+        title: 'mezcla'
+      }),
     chatConfirm: async () => ({ ok: true, result: {}, text: 'hecho' }),
     chatTools: async () => ({ model: 'x', available: false, tools: [] })
   }
@@ -696,6 +830,7 @@ export function createPlaybackDouble() {
     revision: 0,
     pitch: 0,
     path: '',
+    stems: false,
     metronome: {
       on: false,
       bpm: 100,
@@ -769,6 +904,11 @@ export function createPlaybackDouble() {
       })
     }),
     setPitch: vi.fn(async (semitones) => emit({ pitch: semitones })),
+    // como Rust: las pistas eran para la cancion que suena; si ya es otra, nada
+    setStems: vi.fn(async (song, tracks) => {
+      if (song !== state.path) return
+      emit({ stems: !!tracks?.length })
+    }),
     // como Rust: el tempo es el puesto a mano o el de la rejilla, y el doble
     // o la mitad valen para los dos
     setMetronome: vi.fn(async (settings) => {

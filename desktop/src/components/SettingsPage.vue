@@ -5,6 +5,7 @@ import { addFolder } from '../utils/folders.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { notify } from '../composables/useNotices.js'
 import { ask, tell } from '../composables/useDialog.js'
+import { useSeparation } from '../composables/useSeparation.js'
 import { formatAgo, formatGigabytes } from '../utils/format.js'
 import { DENSITIES, KIND_LABEL, allThemes, deleteCustomTheme } from '../themes.js'
 import ThemeEditor from './ThemeEditor.vue'
@@ -155,6 +156,29 @@ const catalog = ref(allThemes())
 // El tema y la densidad viven en las preferencias, no en props que suben y
 // bajan por eventos hasta App.
 const { theme, density } = usePreferences()
+
+// ---- separar en pistas: si se puede, lo bajado de cada modelo y la cola
+const separation = useSeparation()
+const sep = separation.state
+/** Borra lo bajado de un modelo: se vuelve a bajar la próxima vez que se use. */
+async function removeSeparationModel(m) {
+  const ok = await ask({
+    kind: 'confirm',
+    title: `Borrar el separador de ${m.label}`,
+    message:
+      `Libera ${separation.megas(m.bytes)}. Las pistas ya separadas no se tocan; ` +
+      'si vuelves a separar con él, se baja otra vez.',
+    okLabel: 'Borrar'
+  })
+  if (!ok) return
+  try {
+    await api.removeSeparationModel(m.id)
+    await separation.refresh()
+    notify('Separador borrado', 'ok')
+  } catch (e) {
+    notify('No se pudo borrar: ' + errorMessage(e))
+  }
+}
 function afterSave(key) {
   catalog.value = allThemes()
   editor.value = null
@@ -837,6 +861,49 @@ const gb = formatGigabytes
         </button>
       </div>
       <div v-if="player.note" class="hint">{{ player.note }}</div>
+    </Card>
+
+    <Card
+      title="Pistas separadas"
+      note="Batería, voces, bajo… cada una aparte, para callar o dejar sola la que quieras en el modo estudio."
+    >
+      <template v-if="sep.known">
+        <div v-if="!sep.ok" class="hint" style="color: var(--amber)">
+          No se puede separar en este equipo: {{ sep.reason }}.
+        </div>
+        <template v-else>
+          <div v-for="m in sep.models" :key="m.id" class="path-row">
+            <span class="path">{{ m.label }} · {{ m.detail }}</span>
+            <span class="badge" :class="m.installed ? 'ok' : ''">
+              {{ m.installed ? 'bajado' : 'sin bajar' }} · {{ separation.megas(m.bytes) }}</span
+            >
+            <button
+              v-if="m.installed"
+              type="button"
+              class="btn mini"
+              :disabled="separation.busy.value"
+              :title="'Borrar lo bajado de ' + m.label + ' (se baja otra vez al usarlo)'"
+              @click="removeSeparationModel(m)"
+            >
+              Borrar
+            </button>
+          </div>
+          <div class="hint">
+            Se separa en tu equipo, sin internet (el separador se baja una vez, la primera que se
+            usa). Tarda en torno a lo que dura la canción. Las pistas quedan en
+            <b>{{ sep.folder }}/</b> dentro de tu biblioteca, en FLAC: se abren con cualquier
+            programa.
+          </div>
+          <div v-if="separation.busy.value" class="btn-row" style="margin-top: 8px">
+            <span class="hint" style="margin: 0">
+              {{ sep.message || 'Separando…' }}
+              <template v-if="sep.queue.length"> · {{ sep.queue.length }} en la cola</template>
+            </span>
+            <button type="button" class="btn mini" @click="separation.cancel()">Parar</button>
+          </div>
+        </template>
+      </template>
+      <Loading v-else text="mirando el separador…" />
     </Card>
 
     <Card title="Sistema">
