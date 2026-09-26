@@ -198,6 +198,18 @@ Rutas nuevas o cambiadas (Python):
 - `POST /api/external/play` → `400` si el archivo no es de audio.
 - `PATCH /api/song/{id}` → solo `artist, title, album, year, genre, key, bpm,
   lyrics`. Otras claves: `422`.
+- `POST /api/song/{id}/move { category }` → lleva el archivo a su carpeta de
+  la biblioteca: `track` a `Pistas/`, `tutorial` a `Tutoriales y Play Along/`,
+  `sequence` a `Secuencias/` (`ingest.CATEGORY_FOLDER`). Devuelve la ficha: el
+  mismo `id`, con sus estrellas, listas, estudio y pistas separadas; el nombre
+  del archivo no cambia (salvo « - r» si allí ya hay uno igual). `404` si no
+  está en la biblioteca; `409` si su archivo no está o el disco no deja
+  moverlo; `422` con otra categoría.
+- `GET /api/youtube` → cada resultado de una descarga archivada en
+  `Artistas/` cuyo título dice que no es la canción sin más (una Drum Cam, un
+  tutorial, una secuencia…) lleva `kind: { category, what, folder }`
+  (`names.video_kind`): la página de Descargas ofrece moverla con la llamada
+  de arriba. Solo se sugiere; nunca se archiva sola por eso.
 - `PATCH /api/playlists/{id}` → `{ name?, note? }`: renombra la lista o
   cambia su nota. `409` si el nombre ya es de otra; `400` sin nada que cambiar.
 - `POST /api/chat` → ver §3.

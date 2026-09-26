@@ -205,6 +205,12 @@ muestras de 7 segundos de **MUSDB18** (Rafii et al., SigSep), que baja el
 paquete `musdb` la primera vez. Solo sirven para medir en la máquina de
 quien desarrolla: la app no las lleva ni las usa.
 
+Para medir si **Laya** (`convaiinnovations/laya-multilingual`, Convai, 2026,
+**Apache-2.0**) decide mejor que las reglas de la app,
+`scripts/evaluar-laya.py` usa el paquete `laya` con PyTorch. No mejoró nada
+(ver docs/ARQUITECTURA.md, «Laya, medido y descartado»): la app no lo lleva
+ni lo baja.
+
 ## Servicios que se consultan
 
 Ninguno es obligatorio; la app funciona sin todos ellos.

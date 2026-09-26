@@ -3,6 +3,32 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.19.0 — 2026-09-26
+
+Lo que bajas de YouTube y no es la canción sin más —una Drum Cam, un
+tutorial, una secuencia— se ofrece llevarlo a su carpeta.
+
+### Descargas
+
+- **¿A su carpeta?** Si el título de YouTube dice que es una Drum Cam o una
+  pista sin batería, un tutorial, un drum cover o un play along, o una
+  secuencia (multitrack, playback, «PB»), al terminar Descargas pregunta
+  «Parece una Drum Cam: ¿moverla a Pistas?». Con un clic va a Pistas, a
+  Tutoriales y Play Along o a Secuencias, y sigue siendo la misma canción:
+  sus estrellas, sus listas, su estudio y sus pistas separadas van con ella.
+  Si no, se queda en Artistas, como hasta ahora. Solo pregunta cuando el
+  título no deja duda: en una biblioteca real acertó el 97,9 % sin señalar
+  ni una canción normal.
+
+### Por dentro
+
+- **Laya, medido y descartado.** Se probó Laya, un modelo que contesta
+  preguntas cerradas en tu equipo, en cuatro de los juicios pequeños de la
+  app: si el asistente dice haber hecho algo sin hacerlo, el tipo de vídeo,
+  el «sí» a una oferta y las órdenes escondidas en letras y páginas. Sin
+  afinar no mejora nada de lo que ya funciona, y pesaría 680 MB: no entra.
+  El script que lo mide queda en `scripts/evaluar-laya.py`.
+
 ## 1.18.0 — 2026-09-26
 
 El metrónomo del modo estudio, para tocar encima: acierta el «1» casi el

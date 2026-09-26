@@ -171,6 +171,20 @@ y sin guion, el título entero con el canal de artista. `ingest.process`
 recibe ese nombre ya decidido (`known`) y no llama ni a la huella ni a la IA.
 El aviso de fin de descarga dice «pediste X → entró como Y (id N)».
 
+**Su carpeta, sugerida.** Todo lo descargado entra en `Artistas/<artista>/`,
+también una Drum Cam o un tutorial, que la persona guarda en `Pistas/` o en
+`Tutoriales y Play Along/`. Si el título de YouTube lo dice con palabras que
+no dejan duda (`names.video_kind`: Drum Cam, drumless, tutorial, drum cover,
+play along, secuencia, multitrack, playback, «PB» suelto y en mayúscula), el
+resultado lleva `kind` y la página de Descargas pregunta «Parece una Drum
+Cam: ¿moverla a Pistas?». Solo se sugiere: «(Pista)» no cuenta (un disco
+trae sus pistas y se quedan con el artista), ni «cover» a secas (casi
+siempre es otra voz cantándola). En 288 títulos de una biblioteca real
+acierta el 97,9 % sin sacar de su sitio ninguna canción; lo que se le
+escapa son secuencias sin la palabra en el nombre. Moverla
+(`library.move_to`) cambia la ruta en el índice y deja todo lo demás:
+mismo id, estrellas, listas, estudio y pistas separadas.
+
 ## La base de datos es desechable
 
 Esta es la decisión de diseño que gobierna todo lo demás.
@@ -958,6 +972,33 @@ vez, reservado con `youtube.claim()`), y el chat la sigue y cuenta el
 resultado cuando acaba. Si algo ya estaba en la biblioteca no se baja, se
 dice; y si el usuario la quiere igualmente como otra versión, el asistente
 repite la petición con `force`.
+
+## Laya, medido y descartado
+
+Laya (Convai, 2026, Apache-2.0) es un modelo de decisiones: se le da un
+texto y una pregunta cerrada —sí o no, una opción entre varias— y contesta
+con probabilidades en una pasada, sin generar texto. Parecía hecho para los
+juicios pequeños que hoy hacen reglas o una llamada a la IA: el juez de
+narración (§ El asistente), el «sí» a una oferta, marcar órdenes escondidas
+en textos de fuera, el tipo de vídeo de una descarga. Se midió
+`laya-multilingual` (mmBERT, 322 M de parámetros, 644 MB; unos 100 ms por
+pregunta en la CPU) tal como sale, con `scripts/evaluar-laya.py`:
+
+| Juicio | Lo de hoy | Laya |
+| --- | --- | --- |
+| Narración (`tests/narracion.json`, 327 frases) | reglas + la IA | AUC 0,49–0,65 en cinco formas de preguntarlo |
+| Tipo de vídeo (288 títulos) | `names.video_kind`: 97,9 % | 87,2 %; 0 de 19 secuencias |
+| «Sí» a una oferta (40 respuestas) | `_YES`: 87,5 % | AUC 0,63 |
+| Órdenes escondidas (40 textos) | nada | AUC 0,93 |
+
+Sin afinar es casi tirar una moneda en lo que la app ya resuelve; su propia
+ficha lo avisa (0,34 en decisiones tipadas, frente a 0,32 al azar). Solo da
+señal con las órdenes escondidas, y ahí los 40 ejemplos los escribió quien
+medía: no basta para fiarse, y lo que protege de verdad ya está (lo que no
+tiene vuelta atrás lo confirma la persona). No compensa bajar 680 MB y
+tener 1 GB de memoria ocupado para eso. Afinarlo pediría ejemplos
+etiquetados que no hay. Si sale otra versión, el script dice en unos
+minutos si ya gana.
 
 ## La interfaz se entera de todo
 
