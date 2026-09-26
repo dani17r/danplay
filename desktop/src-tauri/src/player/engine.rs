@@ -8,7 +8,7 @@
 //! metronomo durante `IDLE_RELEASE`, se suelta; la cancion en pausa se
 //! recuerda donde iba y, al volver a darle, se abre ahi.
 use super::metro::{self, Click, Metro, Replan};
-use super::mix::{Gains, StemSet, StemTrack};
+use super::mix::{StemSet, StemTrack};
 use super::open::{self, Recipe, Song};
 use super::output::{self, Output};
 use super::state::{MAX_VOLUME, State, lock, nudged_volume};
@@ -578,8 +578,9 @@ impl Engine<'_> {
     /// Las pistas separadas en vez de la cancion, o la cancion otra vez.
     ///
     /// Si ya sonaban esas mismas pistas, solo cambia el volumen de cada una:
-    /// lo lee el mezclador sobre la marcha, sin reabrir nada. Si no, se
-    /// reabre donde iba, sonando o en pausa como estaba. Si las pistas no se
+    /// lo lee el mezclador sobre la marcha, sin reabrir nada. Si no (u otras
+    /// con los mismos nombres: el separador las rehizo), se reabre donde
+    /// iba, sonando o en pausa como estaba. Si las pistas no se
     /// pueden abrir, sigue sonando lo que sonaba y se dice por que.
     fn set_stems(&mut self, song: &str, tracks: Option<Vec<StemTrack>>, step: &mut Step) {
         if song != self.carry.path {
@@ -588,24 +589,14 @@ impl Engine<'_> {
         let tracks = tracks.map(|list| list.into_iter().take(crate::transcode::MAX_INPUTS).collect::<Vec<_>>());
         match (&self.carry.stems, &tracks) {
             (None, None) => return,
-            (Some(now), Some(list))
-                if now.gains.len() == list.len()
-                    && now
-                        .paths
-                        .iter()
-                        .zip(list)
-                        .all(|(p, t)| p.as_os_str() == t.path.as_str()) =>
-            {
+            (Some(now), Some(list)) if now.same(list) => {
                 now.gains.set(list);
                 return;
             }
             _ => {}
         }
         let before = self.carry.stems.take();
-        self.carry.stems = tracks.filter(|list| !list.is_empty()).map(|list| StemSet {
-            paths: list.iter().map(|t| std::path::PathBuf::from(&t.path)).collect(),
-            gains: Gains::new(&list),
-        });
+        self.carry.stems = tracks.filter(|list| !list.is_empty()).map(|list| StemSet::new(&list));
         let clock = self.carry.clock();
         let Some(song) = self.song.as_ref().filter(|s| !s.exhausted()) else {
             return; // nada abierto: se abrira con ellas al darle a play

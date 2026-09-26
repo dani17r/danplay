@@ -112,6 +112,43 @@ impl Gains {
 pub struct StemSet {
     pub paths: Vec<PathBuf>,
     pub gains: Arc<Gains>,
+    /// Como estaba cada archivo al abrirlo (`stamp`): el separador rehace
+    /// las pistas con los mismos nombres (al mejorarlas, o al separar otra
+    /// vez), y entonces hay que reabrirlas aunque las rutas no cambien.
+    pub stamps: Vec<Option<Stamp>>,
+}
+
+/// La fecha de modificacion y el tamaño de un archivo.
+pub type Stamp = (std::time::SystemTime, u64);
+
+/// Como esta ahora el archivo, o None si no se puede mirar.
+pub fn stamp(path: &std::path::Path) -> Option<Stamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
+}
+
+impl StemSet {
+    pub fn new(tracks: &[StemTrack]) -> Self {
+        let paths: Vec<PathBuf> = tracks.iter().map(|t| PathBuf::from(&t.path)).collect();
+        let stamps = paths.iter().map(|p| stamp(p)).collect();
+        Self {
+            paths,
+            gains: Gains::new(tracks),
+            stamps,
+        }
+    }
+
+    /// Son las mismas pistas, en el mismo orden, y nadie las ha rehecho: basta
+    /// con cambiar el volumen de cada una.
+    pub fn same(&self, tracks: &[StemTrack]) -> bool {
+        self.gains.len() == tracks.len()
+            && self
+                .paths
+                .iter()
+                .zip(tracks)
+                .zip(&self.stamps)
+                .all(|((p, t), s)| p.as_os_str() == t.path.as_str() && stamp(p) == *s)
+    }
 }
 
 /// El flujo de ffmpeg con todas las pistas, sumado a estereo.
@@ -311,5 +348,22 @@ mod tests {
         for file in [a, b] {
             let _ = std::fs::remove_file(file);
         }
+    }
+
+    /// Las mismas rutas con otro contenido (el separador rehizo las pistas)
+    /// no son las mismas pistas: hay que reabrirlas. Cambiar solo el volumen
+    /// si lo es.
+    #[test]
+    fn stems_rewritten_in_place_are_not_the_same() {
+        let a = std::env::temp_dir().join(format!("danplay-rehecha-{}.flac", std::process::id()));
+        std::fs::write(&a, b"antes").unwrap();
+        let path = a.to_string_lossy().into_owned();
+        let set = StemSet::new(&[track(&path, 1.0, 0.0, true)]);
+        assert!(set.same(&[track(&path, 0.5, 0.3, false)]), "solo cambio la mezcla");
+        assert!(!set.same(&[track("/otra/Bateria.flac", 1.0, 0.0, true)]));
+        assert!(!set.same(&[]));
+        std::fs::write(&a, b"las pistas mejoradas").unwrap();
+        assert!(!set.same(&[track(&path, 1.0, 0.0, true)]), "se rehizo y no lo vio");
+        let _ = std::fs::remove_file(a);
     }
 }
