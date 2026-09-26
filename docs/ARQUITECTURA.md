@@ -171,6 +171,21 @@ y sin guion, el título entero con el canal de artista. `ingest.process`
 recibe ese nombre ya decidido (`known`) y no llama ni a la huella ni a la IA.
 El aviso de fin de descarga dice «pediste X → entró como Y (id N)».
 
+**La carpeta de descargas se pregunta.** Todo lo descargado va a la carpeta
+de la biblioteca (`config.LIBRARY`). Si nadie la había elegido, era una
+suposición —`~/Musica`, o la de Música del sistema— y lo bajado podía acabar
+en otro disco, fuera de las carpetas que la app mira, sin salir en ningún
+sitio. Ahora, mientras no esté elegida (`config.LIBRARY_CHOSEN`), ya no
+existe o no es de tus carpetas de música, la primera descarga —desde
+Descargas o desde el asistente— pregunta dónde (`utils/downloadFolder.js`),
+proponiendo tu carpeta de música con más canciones. Si la elegida no es de
+tus carpetas de música, se añade (y se analiza) antes. Se guarda en los
+ajustes (`DANPLAY_LIBRARY`), y dentro se usan `Artistas/`, `Pistas/`,
+`Secuencias/`, `Tutoriales y Play Along/` y `Entrada/`: las que ya haya, y
+las que falten se crean. A partir de ahí no se vuelve a preguntar; se ve y
+se cambia en Descargas y en Ajustes. El núcleo rechaza la descarga (`409`)
+si llega sin carpeta, por si algo no pregunta.
+
 **Su carpeta, sugerida.** Todo lo descargado entra en `Artistas/<artista>/`,
 también una Drum Cam o un tutorial, que la persona guarda en `Pistas/` o en
 `Tutoriales y Play Along/`. Si el título de YouTube lo dice con palabras que

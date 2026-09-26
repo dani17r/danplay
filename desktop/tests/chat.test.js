@@ -47,13 +47,21 @@ const { api, store } = vi.hoisted(() => {
     }),
     chatSearch: vi.fn(async () => ({ hits: [] })),
     chatConfirm: vi.fn(async () => ({ ok: true, result: {}, text: 'Hecho.' })),
-    youtube: vi.fn(async () => ({ available: true, active: false, results: [] }))
+    youtube: vi.fn(async () => ({ available: true, active: false, results: [] })),
+    downloadFolder: vi.fn(async () => ({
+      path: '/musica',
+      ready: true,
+      reason: '',
+      suggested: '/musica'
+    }))
   }
   return { api, store }
 })
 vi.mock('../src/api.js', () => ({
   api,
   native: { available: false },
+  inTauri: false,
+  pickFolder: async () => null,
   errorMessage: (e) => String(e?.message || e)
 }))
 import ChatPage from '../src/components/ChatPage.vue'
@@ -332,6 +340,25 @@ describe('descargas pedidas al asistente', () => {
     expect(w.text()).toContain('Descargando. Te cuento cuando termine.')
     // no hace falta recargar la biblioteca todavia: no ha entrado nada
     expect(app.reload).not.toHaveBeenCalled()
+  })
+
+  it('la primera vez pregunta donde guardarla; sin carpeta no se baja', async () => {
+    api.downloadFolder.mockResolvedValueOnce({
+      path: '/home/x/Música',
+      ready: false,
+      reason: 'unset',
+      suggested: '/musica'
+    })
+    api.chat.mockResolvedValueOnce(pendiente)
+    const w = await montar()
+    await escribir(w, 'bajala igual')
+    dialogOk() // el visto bueno a la descarga
+    await flushPromises()
+    expect(useDialog().dialog.value.title).toBe('¿Dónde guardo lo que descargues?')
+    dialogCancel()
+    await flushPromises()
+    expect(api.chatConfirm).not.toHaveBeenCalled()
+    expect(w.text()).toContain('sin carpeta de descargas no he bajado nada')
   })
 
   it('si dices que no, no se llama a nada', async () => {

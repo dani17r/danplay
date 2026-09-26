@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { api, app, pickFolder, errorMessage, JOBS } from '../api.js'
 import { addFolder } from '../utils/folders.js'
+import { chooseDownloadFolder } from '../utils/downloadFolder.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { notify } from '../composables/useNotices.js'
 import { ask, tell } from '../composables/useDialog.js'
@@ -218,8 +219,25 @@ async function load() {
     /* sin nucleo de IA: la tarjeta lo dice */
   }
   loadUsage()
+  loadDownloadFolder()
 }
 onMounted(load)
+
+// Donde va lo descargado: se pregunta la primera vez que se baja algo, y
+// aqui se ve y se cambia (utils/downloadFolder.js).
+const downloadFolder = ref(null)
+async function loadDownloadFolder() {
+  try {
+    downloadFolder.value = await api.downloadFolder()
+  } catch {
+    downloadFolder.value = null
+  }
+}
+async function changeDownloadFolder() {
+  if (!(await chooseDownloadFolder(downloadFolder.value || {}))) return
+  await loadDownloadFolder()
+  folders.value = await api.folders() // si era nueva, ya es de tus carpetas de musica
+}
 
 /** Pide que el sistema abra las canciones con DanPlay. */
 async function claimDefault() {
@@ -642,16 +660,17 @@ const gb = formatGigabytes
       </div>
     </Card>
 
-    <Card title="Biblioteca" note="Donde vive tu musica. DanPlay organiza dentro de esta carpeta.">
-      <div style="display: flex; gap: 8px; align-items: flex-end">
-        <TextField
-          v-model="settings.library"
-          width="100%"
-          icon="folder"
-          placeholder="~/Musica"
-          @enter="save('library', settings.library)"
-        />
-        <button class="btn" @click="save('library', settings.library)">Guardar</button>
+    <Card
+      title="Carpeta de descargas"
+      note="Donde va todo lo que bajas de YouTube, y lo que importas desde su Entrada/. Dentro se usan Artistas, Pistas, Secuencias, Tutoriales y Play Along y Entrada, y se crean las que falten."
+    >
+      <div class="dl-folder" style="margin-top: 0">
+        <Icon n="folder" :t="13" />
+        <span v-if="downloadFolder?.ready" class="mono">{{ downloadFolder.path }}</span>
+        <span v-else>Sin elegir: se pregunta la primera vez que descargues.</span>
+        <button class="btn" @click="changeDownloadFolder">
+          {{ downloadFolder?.ready ? 'Cambiar…' : 'Elegir…' }}
+        </button>
       </div>
     </Card>
 

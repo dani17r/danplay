@@ -104,3 +104,29 @@ describe('el foco no se escapa', () => {
     )
   })
 })
+
+describe('pedir una carpeta', () => {
+  it('«Elegir…» abre el selector y pone lo elegido en el campo, que se puede aceptar', async () => {
+    const w = await abrir({
+      kind: 'prompt',
+      title: '¿Dónde guardo lo que descargues?',
+      value: '/musica',
+      browse: async () => '/mnt/disco/Musica'
+    })
+    boton('Elegir…').click()
+    await flushPromises()
+    expect(document.querySelector('.modal input').value).toBe('/mnt/disco/Musica')
+    boton('Aceptar').click()
+    expect(w.emitted('ok')[0]).toEqual(['/mnt/disco/Musica'])
+  })
+
+  it('si cancelas el selector, el campo se queda como estaba; sin `browse` no hay boton', async () => {
+    await abrir({ kind: 'prompt', value: '/musica', browse: async () => null })
+    boton('Elegir…').click()
+    await flushPromises()
+    expect(document.querySelector('.modal input').value).toBe('/musica')
+    for (const w of montados.splice(0)) w.unmount()
+    await abrir({ kind: 'prompt', value: '/musica' })
+    expect(boton('Elegir…')).toBeUndefined()
+  })
+})

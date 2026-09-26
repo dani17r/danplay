@@ -17,6 +17,7 @@ resto de la app sigue igual.
 """
 
 import logging
+import os
 import re
 import shutil
 import tempfile
@@ -416,6 +417,59 @@ def download_one(target_url, quality="high", folder=None, progress=None, cancel=
         "id": d["id"],
         "kbps": kbps,
     }
+
+
+# Lo que usa lo descargado dentro de su carpeta. Al elegirla se crean las que
+# falten; las que ya estaban se usan tal cual.
+SUBFOLDERS = ("Artistas", *ingest.CATEGORY_FOLDER.values())
+
+
+def folder() -> dict:
+    """Donde se guarda lo que se baja, y si ya se puede bajar ahi.
+
+    `ready` es False hasta que la persona la elige (la interfaz lo pregunta
+    antes de la primera descarga), si ya no esta (un disco sin montar) o si
+    no es de sus carpetas de musica: lo bajado no saldria en la app.
+    `suggested` es la que se le propone: una de sus carpetas de musica.
+    """
+    from . import library
+
+    path = config.LIBRARY
+    managed = [f for f in library.list_folders() if f.get("active") and f.get("exists")]
+    reason = ""
+    if not config.LIBRARY_CHOSEN:
+        reason = "unset"
+    elif not path.is_dir():
+        reason = "gone"
+    elif not library.within_roots(path):
+        reason = "unmanaged"
+    # la de ahora si ya vale; si no, la de musica con mas canciones
+    ours = [f for f in managed if f.get("role") == "library"]
+    if path.is_dir() and any(library._inside(path, f["path"]) for f in managed):
+        suggested = str(path)
+    else:
+        suggested = max(ours, key=lambda f: f.get("n") or 0)["path"] if ours else ""
+    return {"path": str(path), "ready": not reason, "reason": reason, "suggested": suggested}
+
+
+def choose_folder(path) -> dict:
+    """La carpeta donde ira todo lo descargado, elegida por la persona.
+
+    Tiene que existir y ser una de sus carpetas de musica (o estar dentro de
+    una): si no, lo bajado no se veria. Dentro se crean las subcarpetas que
+    falten (`SUBFOLDERS` y Entrada/). `ValueError` si no vale.
+    """
+    from . import library
+
+    chosen = Path(os.path.abspath(os.path.expanduser(str(path))))
+    if not chosen.is_dir():
+        raise ValueError("esa carpeta no existe")
+    if not library.within_roots(chosen):
+        raise ValueError("no es una de tus carpetas de musica: añadela antes")
+    config.set_library(chosen)
+    for sub in (*SUBFOLDERS, config.INBOX.name):
+        (chosen / sub).mkdir(exist_ok=True)
+    return folder()
 
 
 def already_in_library(title: str) -> list[dict]:

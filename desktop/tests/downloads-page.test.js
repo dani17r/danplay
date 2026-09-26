@@ -4,7 +4,13 @@ import { mount, flushPromises } from '@vue/test-utils'
 // La pagina de Descargas: el historial es lo unico que hay que mirar (la
 // tarjeta de «Resultado» decia lo mismo), y desde el se pone a sonar y se para
 // lo descargado.
-const held = vi.hoisted(() => ({ history: [], total: 0, youtube: null, playback: null }))
+const held = vi.hoisted(() => ({
+  history: [],
+  total: 0,
+  youtube: null,
+  playback: null,
+  folder: null
+}))
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -29,6 +35,12 @@ vi.mock('../src/api.js', async (importOriginal) => {
     youtubeDownload: v.fn(async () => ({ ok: true, active: true })),
     youtubeCancel: v.fn(async () => ({ ok: true })),
     moveSong: v.fn(async (id) => ({ id, folder: 'Pistas' })),
+    downloadFolder: v.fn(async () => ({ ...held.folder })),
+    setDownloadFolder: v.fn(async (path) => {
+      held.folder = { path, ready: true, reason: '', suggested: path }
+      return { ...held.folder }
+    }),
+    addFolder: v.fn(async () => ({ action: 'already_there', notice: { message: 'ya esta' } })),
     // trae el yt-dlp nuevo: una tarea que aqui ya viene terminada
     youtubeUpdate: v.fn(async () => ({
       job: {
@@ -49,7 +61,7 @@ import DownloadsPage from '../src/components/DownloadsPage.vue'
 import { resetDownloads, useDownloads } from '../src/composables/useDownloads.js'
 import { api } from '../src/api.js'
 import { resetPlayback } from '../src/composables/usePlayback.js'
-import { dialogOk } from '../src/composables/useDialog.js'
+import { dialogOk, dialogCancel, useDialog } from '../src/composables/useDialog.js'
 import { clearNotices, useNotices } from '../src/composables/useNotices.js'
 
 const row = (id, extra = {}) => ({
@@ -73,6 +85,7 @@ beforeEach(() => {
     row(3, { ok: 0, song_id: null, reason: 'sin red' })
   ]
   held.total = 3
+  held.folder = { path: '/musica', ready: true, reason: '', suggested: '/musica' }
   vi.clearAllMocks()
   resetDownloads()
   resetPlayback()
@@ -299,5 +312,47 @@ describe('lo que parece una Drum Cam', () => {
     const { notices } = useNotices()
     expect(notices.value.some((n) => n.message.startsWith('No se pudo mover'))).toBe(true)
     expect(w.find('.dl-kind').exists()).toBe(true)
+  })
+})
+
+describe('la carpeta de descargas', () => {
+  it('se ve donde se guarda', async () => {
+    const w = await montar()
+    expect(w.find('.dl-folder').text()).toContain('Se guarda en /musica')
+  })
+
+  it('la primera vez pregunta donde, y luego baja ahi', async () => {
+    held.folder = { path: '/home/x/Música', ready: false, reason: 'unset', suggested: '/musica' }
+    const w = await montar()
+    expect(w.find('.dl-folder').text()).toContain('La primera vez que descargues te pregunto')
+    await w.find('input').setValue('barak mi gozo')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Descargar')
+      .trigger('click')
+    await flushPromises()
+    const { dialog } = useDialog()
+    expect(dialog.value.open && dialog.value.title).toBe('¿Dónde guardo lo que descargues?')
+    expect(api.youtubeDownload).not.toHaveBeenCalled()
+    dialogOk('/musica')
+    await flushPromises()
+    await flushPromises()
+    expect(api.setDownloadFolder).toHaveBeenCalledWith('/musica')
+    expect(api.youtubeDownload).toHaveBeenCalledTimes(1)
+    expect(w.find('.dl-folder').text()).toContain('Se guarda en /musica')
+  })
+
+  it('sin carpeta no se baja nada', async () => {
+    held.folder = { path: '', ready: false, reason: 'unset', suggested: '' }
+    const w = await montar()
+    await w.find('input').setValue('barak mi gozo')
+    await w
+      .findAll('button')
+      .find((b) => b.text() === 'Descargar')
+      .trigger('click')
+    await flushPromises()
+    dialogCancel()
+    await flushPromises()
+    expect(api.youtubeDownload).not.toHaveBeenCalled()
   })
 })

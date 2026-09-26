@@ -3,6 +3,25 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.20.0 — 2026-09-26
+
+La primera vez que descargas algo, DanPlay te pregunta dónde guardarlo, y
+a partir de ahí todo lo que bajes va a esa carpeta.
+
+### Descargas
+
+- **¿Dónde guardo lo que descargues?** Antes de la primera descarga, desde
+  Descargas o desde el asistente, se pregunta la carpeta, y propone tu
+  carpeta de música. Dentro van Artistas, Pistas, Secuencias, Tutoriales y
+  Play Along y Entrada: se usan las que ya haya y se crean las que falten.
+  Si no era de tus carpetas de música, se añade, para que lo que bajes salga
+  en la app. No se vuelve a preguntar: la carpeta se ve (y se cambia) en
+  Descargas y en Ajustes → Carpeta de descargas.
+- Antes, sin haberla elegido, lo descargado iba a una carpeta supuesta (la
+  de Música del sistema) que podía estar en otro disco y fuera de tu
+  biblioteca: se bajaba y no aparecía en ningún sitio. Si la carpeta de
+  descargas ya no está (un disco sin conectar), se vuelve a preguntar.
+
 ## 1.19.0 — 2026-09-26
 
 Lo que bajas de YouTube y no es la canción sin más —una Drum Cam, un

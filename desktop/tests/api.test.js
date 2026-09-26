@@ -307,6 +307,8 @@ describe('lo que cada metodo pide al nucleo', () => {
     youtubeCancel: [[], 'POST', '/api/youtube/cancel'],
     downloadHistory: [[30, 60], 'GET', '/api/downloads/history?limit=30&offset=60'],
     clearDownloadHistory: [[], 'DELETE', '/api/downloads/history'],
+    downloadFolder: [[], 'GET', '/api/downloads/folder'],
+    setDownloadFolder: [['/musica'], 'PUT', '/api/downloads/folder', { path: '/musica' }],
     runImport: [[{ dry_run: true }], 'POST', '/api/import', { dry_run: true }],
     convertible: [[], 'GET', '/api/convertible'],
     convert: [

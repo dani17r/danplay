@@ -222,3 +222,69 @@ def test_un_enlace_que_no_es_de_youtube_no_se_pasa_a_yt_dlp(ytdl):
 def test_un_directo_largo_se_rechaza():
     assert youtube.wanted({"duration": 3 * 3600}).startswith("dura 180 minutos")
     assert youtube.wanted({"duration": 200}) is None
+
+
+def test_sin_carpeta_elegida_no_se_baja_nada_y_se_propone_una(ytdl, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from danplay import api, config
+
+    monkeypatch.setattr(config, "LIBRARY_CHOSEN", False)
+    ours = library.list_folders()[0]["path"]
+    got = youtube.folder()
+    assert (got["ready"], got["reason"], got["suggested"]) == (False, "unset", ours)
+    client = TestClient(api.app)
+    r = client.post("/api/youtube/download", json={"query": "https://youtu.be/uno"})
+    assert r.status_code == 409 and "elige antes" in r.json()["detail"]
+    # por el asistente tampoco
+    r = client.post("/api/chat/confirm", json={"tool": "download_music", "args": {"items": ["x"]}})
+    assert r.status_code == 409 and "elige antes" in r.json()["detail"]
+    assert not youtube.STATE["active"]
+
+
+def test_una_carpeta_que_ya_no_esta_o_fuera_de_la_biblioteca_se_vuelve_a_preguntar(
+    ytdl, monkeypatch, tmp_path
+):
+    from danplay import config
+
+    monkeypatch.setattr(config, "LIBRARY", tmp_path / "disco-sin-montar")
+    assert youtube.folder()["reason"] == "gone"
+    fuera = tmp_path / "fuera"
+    fuera.mkdir()
+    monkeypatch.setattr(config, "LIBRARY", fuera)
+    got = youtube.folder()
+    assert got["reason"] == "unmanaged" and got["suggested"] == library.list_folders()[0]["path"]
+
+
+def test_al_elegirla_se_usan_sus_subcarpetas_y_se_crean_las_que_faltan(ytdl, monkeypatch, tmp_path):
+    from dotenv import dotenv_values
+    from fastapi.testclient import TestClient
+
+    from danplay import api, config
+
+    monkeypatch.setattr(config, "LIBRARY_CHOSEN", False)
+    monkeypatch.setattr(config, "ENV_FILE", tmp_path / "danplay.env")
+    (ytdl / "Pistas").mkdir()
+    (ytdl / "Pistas" / "ya estaba.mp3").write_bytes(b"x")
+    client = TestClient(api.app)
+    r = client.put("/api/downloads/folder", json={"path": str(ytdl)})
+    assert r.status_code == 200, r.text
+    assert r.json()["ready"] and r.json()["path"] == str(ytdl)
+    for sub in ("Artistas", "Pistas", "Secuencias", "Tutoriales y Play Along", "Entrada"):
+        assert (ytdl / sub).is_dir(), sub
+    assert (ytdl / "Pistas" / "ya estaba.mp3").read_bytes() == b"x"
+    now = config.ARTISTS_DIR
+    assert config.LIBRARY_CHOSEN and now == ytdl / "Artistas"
+    # se recuerda: la proxima vez que arranque la app ya no se pregunta
+    assert dotenv_values(config.ENV_FILE)["DANPLAY_LIBRARY"] == str(ytdl)
+    # y ya se baja ahi
+    got = youtube.download("https://youtu.be/uno")[0]
+    assert got["ok"] and got["target"].startswith(str(ytdl / "Artistas"))
+    # lo que no vale: una que no es de tus carpetas de musica, o que no existe
+    fuera = tmp_path / "fuera"
+    fuera.mkdir()
+    for path in (fuera, ytdl / "no-existe"):
+        r = client.put("/api/downloads/folder", json={"path": str(path)})
+        assert r.status_code == 409, path
+    now = config.LIBRARY
+    assert now == ytdl and not (fuera / "Artistas").exists()

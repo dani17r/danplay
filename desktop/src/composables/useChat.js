@@ -14,6 +14,7 @@ import { api, errorMessage } from '../api.js'
 import { ask } from './useDialog.js'
 import { notify } from './useNotices.js'
 import { useDownloads } from './useDownloads.js'
+import { ensureDownloadFolder } from '../utils/downloadFolder.js'
 
 /** @typedef {import('../api.js').ChatContext} ChatContext */
 
@@ -417,6 +418,15 @@ async function confirmPending(pending) {
   })
   if (!ok) {
     pushMessage({ role: 'ai', text: 'Cancelado, no he tocado nada.', app: true })
+    return
+  }
+  // la primera vez que se baja algo, dónde guardarlo (utils/downloadFolder.js)
+  if (pending.tool === 'download_music' && !(await ensureDownloadFolder())) {
+    pushMessage({
+      role: 'ai',
+      text: 'Cancelado: sin carpeta de descargas no he bajado nada.',
+      app: true
+    })
     return
   }
   try {

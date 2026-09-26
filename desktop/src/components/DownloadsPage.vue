@@ -6,6 +6,7 @@ import { usePlayback } from '../composables/usePlayback.js'
 import { ask } from '../composables/useDialog.js'
 import { api, errorMessage, JOBS } from '../api.js'
 import { formatDuration } from '../utils/format.js'
+import { chooseDownloadFolder, ensureDownloadFolder } from '../utils/downloadFolder.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import SelectField from './ui/SelectField.vue'
@@ -33,6 +34,19 @@ const askAgain = ref(null) // la que ya tienes y preguntamos si bajar igual
 // el titulo puede engañar, y la persona decide.
 const suggest = ref(null)
 const moving = ref(0) // la que se esta moviendo
+// Donde se guarda lo que se baja: se pregunta la primera vez y aqui se ve
+// (y se cambia).
+const folder = ref(null)
+async function loadFolder() {
+  try {
+    folder.value = await api.downloadFolder()
+  } catch {
+    folder.value = null
+  }
+}
+async function changeFolder() {
+  if (await chooseDownloadFolder(folder.value || {})) await loadFolder()
+}
 const history = ref([])
 const historyTotal = ref(0)
 // El historial se trae por tandas: la lista tiene scroll a partir de una
@@ -151,6 +165,10 @@ async function showPreview() {
 async function startDownload(what = null, force = false) {
   const q = (what ?? query.value).trim()
   if (!q || running.value) return
+  // la primera vez, donde guardarlo; sin carpeta no se baja nada
+  const ready = await ensureDownloadFolder()
+  await loadFolder()
+  if (!ready) return
   error.value = ''
   askAgain.value = null
   localStorage.setItem('danplay.ytQuality', quality.value)
@@ -251,7 +269,7 @@ const stopFollowing = downloads.onFinished((s) => {
 
 onMounted(async () => {
   await downloads.refresh()
-  await loadHistory()
+  await Promise.all([loadHistory(), loadFolder()])
 })
 onUnmounted(stopFollowing)
 </script>
@@ -310,6 +328,17 @@ onUnmounted(stopFollowing)
         hint="Identifica la canción, limpia el nombre y la deja en Artistas/.
                          Si lo apagas, se queda en Entrada/ para que la revises tu."
       />
+
+      <div v-if="folder" class="dl-folder">
+        <Icon n="folder" :t="13" />
+        <span v-if="folder.ready"
+          >Se guarda en <span class="mono">{{ folder.path }}</span></span
+        >
+        <span v-else>La primera vez que descargues te pregunto dónde guardarlo.</span>
+        <button class="btn mini" :disabled="locked" @click="changeFolder">
+          {{ folder.ready ? 'Cambiar' : 'Elegir ahora' }}
+        </button>
+      </div>
 
       <div class="btn-row" style="margin-top: 12px">
         <button

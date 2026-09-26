@@ -1302,6 +1302,18 @@ tbody tr.flash {
   margin-bottom: 14px;
   white-space: pre-line;
 }
+.modal-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.modal-field > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.modal-field > .btn {
+  flex-shrink: 0;
+}
 .modal-detail {
   font-family: var(--mono);
   font-size: 11px;
@@ -1357,6 +1369,20 @@ tbody tr.flash {
   align-items: center;
   gap: 8px;
   color: var(--amber);
+}
+.dl-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.dl-folder .mono {
+  font-family: var(--mono);
+  color: var(--text);
+  overflow-wrap: anywhere;
 }
 .dl-kind {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);

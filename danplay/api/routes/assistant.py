@@ -12,6 +12,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from ... import ai, chat, chats, youtube
 from ..common import _in_background
 from ..models import ChatAppendIn, ChatConfirmIn, ChatCreateIn, ChatIn, ChatRenameIn
+from .downloads import NO_FOLDER
 
 log = logging.getLogger(__name__)
 
@@ -190,6 +191,8 @@ def confirm_tool(body: Annotated[ChatConfirmIn, Body()]):
             raise HTTPException(400, "hace falta algo que descargar")
         if not youtube.available():
             raise HTTPException(503, youtube.unavailable_reason())
+        if not youtube.folder()["ready"]:
+            raise HTTPException(409, NO_FOLDER)
         if not youtube.claim():
             raise HTTPException(409, "ya hay una descarga en marcha")
         _in_background(

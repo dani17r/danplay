@@ -190,6 +190,8 @@ function aiOverview(state) {
 export function createState() {
   return {
     songs: [],
+    /** la carpeta de descargas: ya elegida, como la de quien lleva tiempo con la app */
+    downloadFolder: { path: '/biblioteca', ready: true, reason: '', suggested: '/biblioteca' },
     /** proveedores de IA: un catálogo mínimo, sin perfiles guardados */
     aiCatalog: [
       {
@@ -607,6 +609,11 @@ function answers(state) {
     youtubeCancel: async () => ({ ok: true }),
     downloadHistory: async () => ({ items: [], total: 0 }),
     clearDownloadHistory: async () => ({ removed: 0 }),
+    downloadFolder: async () => ({ ...state.downloadFolder }),
+    setDownloadFolder: async (path) => {
+      state.downloadFolder = { path, ready: true, reason: '', suggested: path }
+      return { ...state.downloadFolder }
+    },
     runImport: async () => start('importacion', { results: [] }),
     convertible: async () => ({ total: 0, files: [], protected: [] }),
     // en prueba contesta al momento; de verdad, es una tarea

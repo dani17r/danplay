@@ -970,6 +970,10 @@ export const api = {
   downloadHistory: (limit = 60, offset = 0) =>
     GET(`/downloads/history?limit=${limit}&offset=${offset}`),
   clearDownloadHistory: () => DEL('/downloads/history'),
+  /** Donde se guarda lo descargado: `{ path, ready, reason, suggested }` (§2). */
+  downloadFolder: () => GET('/downloads/folder'),
+  /** La elegida: una de tus carpetas de música; dentro se crean Artistas/, Pistas/… si faltan. */
+  setDownloadFolder: (path) => PUT('/downloads/folder', { path }),
 
   /** Importa la Entrada (tarea «importacion»; también en prueba, con `dry_run`). */
   runImport: (d) => POST('/import', d),

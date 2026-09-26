@@ -193,6 +193,21 @@ Rutas nuevas o cambiadas (Python):
   yt-dlp que se usa), `bundled_version` (la que viaja con la app),
   `js_runtime` (`deno | node | bun | quickjs | null`) y `js_runtime_hint`
   (qué instalar si es `null`).
+- `GET /api/downloads/folder` → `{ path, ready, reason, suggested }`: dónde se
+  guarda lo descargado (`config.LIBRARY`). `ready` es `false` hasta que la
+  persona la elige (`reason: "unset"`), si ya no está (`"gone"`) o si no es
+  de sus carpetas de música (`"unmanaged"`: lo bajado no saldría).
+  `suggested` es la que se le propone. La interfaz la pregunta antes de la
+  primera descarga (`utils/downloadFolder.js`), desde Descargas y desde el
+  asistente.
+- `PUT /api/downloads/folder { path }` → la elige: tiene que existir y ser
+  (o estar dentro de) una carpeta gestionada; la interfaz la añade antes si
+  no lo era. Se guarda en los ajustes (`DANPLAY_LIBRARY`) y dentro se crean
+  las que falten de `Artistas/`, `Pistas/`, `Secuencias/`, `Tutoriales y Play
+  Along/` y `Entrada/`. Devuelve lo mismo que el `GET`. `409` si no vale.
+- `POST /api/youtube/download` y `POST /api/chat/confirm` con `download_music`
+  → `409` («elige antes dónde guardar lo que descargas») mientras la carpeta
+  de descargas no esté lista.
 - `POST /api/youtube/update` → pone yt-dlp al día como tarea larga (`yt-dlp`),
   con `result: { previous, version, updated }`.
 - `POST /api/external/play` → `400` si el archivo no es de audio.

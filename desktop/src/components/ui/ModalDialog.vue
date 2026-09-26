@@ -21,7 +21,10 @@ const props = defineProps({
   placeholder: { type: String, default: '' },
   okLabel: { type: String, default: 'Aceptar' },
   cancelLabel: { type: String, default: 'Cancelar' },
-  danger: Boolean
+  danger: Boolean,
+  // Para un prompt que pide una carpeta: «Elegir…» abre el selector del
+  // sistema (esta funcion) y lo elegido va al campo, que se puede retocar.
+  browse: { type: Function, default: null }
 })
 const emit = defineEmits(['ok', 'cancel'])
 
@@ -57,6 +60,11 @@ watch(
 onUnmounted(() => document.removeEventListener('keydown', teclas))
 
 const puedeAceptar = () => props.kind !== 'prompt' || !!text.value.trim()
+
+async function elegir() {
+  const path = await props.browse?.()
+  if (path) text.value = path
+}
 
 function aceptar() {
   if (!puedeAceptar()) return
@@ -95,14 +103,18 @@ function teclas(e) {
         </h3>
         <div v-if="message" :id="messageId" class="modal-msg">{{ message }}</div>
 
-        <TextField
-          v-if="kind === 'prompt'"
-          v-model="text"
-          width="100%"
-          :placeholder="placeholder"
-          :aria-label="title || placeholder"
-          @enter="aceptar"
-        />
+        <div v-if="kind === 'prompt'" class="modal-field">
+          <TextField
+            v-model="text"
+            width="100%"
+            :placeholder="placeholder"
+            :aria-label="title || placeholder"
+            @enter="aceptar"
+          />
+          <button v-if="browse" type="button" class="btn" @click="elegir">
+            <Icon n="folderOpen" :t="14" /> Elegir…
+          </button>
+        </div>
 
         <div v-if="detail" class="modal-detail">{{ detail }}</div>
 

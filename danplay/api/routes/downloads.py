@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from ... import config, library, youtube, ytdlp
 from .. import jobs
 from ..common import _in_background, _started
-from ..models import YoutubeIn
+from ..models import PathIn, YoutubeIn
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +81,8 @@ def youtube_download(body: Annotated[YoutubeIn | None, Body()] = None):
         raise HTTPException(400, "hace falta una URL o algo que buscar")
     if not youtube.available():
         raise HTTPException(503, youtube.unavailable_reason())
+    if not youtube.folder()["ready"]:
+        raise HTTPException(409, NO_FOLDER)
     if not youtube.claim():
         raise HTTPException(409, "ya hay una descarga en marcha")
     _in_background(
@@ -95,6 +97,28 @@ def youtube_download(body: Annotated[YoutubeIn | None, Body()] = None):
         ),
     )
     return {"ok": True, "active": True}
+
+
+# Sin carpeta elegida no se baja nada: lo bajado acabaria donde nadie lo
+# busca. La interfaz lo pregunta antes (utils/downloadFolder.js); esto es por
+# si algo llega sin preguntar.
+NO_FOLDER = "elige antes donde guardar lo que descargas"
+
+
+@router.get("/api/downloads/folder")
+def download_folder():
+    """Donde se guarda lo descargado y si ya se puede bajar (`youtube.folder`)."""
+    return youtube.folder()
+
+
+@router.put("/api/downloads/folder")
+def choose_download_folder(body: Annotated[PathIn, Body()]):
+    """La carpeta de descargas, elegida. Tiene que ser una de tus carpetas de
+    musica; dentro se crean Artistas/, Pistas/, Secuencias/... si faltan."""
+    try:
+        return youtube.choose_folder(body.path)
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from None
 
 
 @router.get("/api/downloads/history")

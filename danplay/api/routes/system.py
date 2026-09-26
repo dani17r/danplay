@@ -104,11 +104,7 @@ def save_settings(body: Annotated[SettingsIn, Body()]):
             path = Path(v).expanduser()
             if not path.is_dir():
                 raise HTTPException(400, "esa carpeta no existe")
-            config.LIBRARY = path
-            config.INBOX = path / "Entrada"
-            config.ARTISTS_DIR = path / "Artistas"
-            config.REVIEW_DIR = path / "Revisar"
-            save["DANPLAY_LIBRARY"] = str(path)
+            config.set_library(path)
     if save:
         config.save_env(save)
     if profile_patch:

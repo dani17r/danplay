@@ -17,6 +17,7 @@ import { ref } from 'vue'
  * @property {string} [okLabel]
  * @property {string} [cancelLabel]
  * @property {boolean} [danger]
+ * @property {() => Promise<string|null>} [browse] en un prompt de carpeta, el selector del sistema
  */
 
 const dialog = ref(/** @type {DialogOptions & {open: boolean}} */ ({ open: false }))

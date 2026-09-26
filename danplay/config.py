@@ -262,6 +262,25 @@ LIBRARY = Path(env("DANPLAY_LIBRARY") or _default_library()).expanduser()
 INBOX = LIBRARY / env("DANPLAY_INBOX", "Entrada")
 ARTISTS_DIR = LIBRARY / "Artistas"
 REVIEW_DIR = LIBRARY / "Revisar"  # lo que no se pudo identificar
+# Si la carpeta la eligio la persona (Ajustes, o al bajar algo la primera
+# vez). Sin elegir, LIBRARY es una suposicion (~/Musica, la de Musica del
+# sistema) y lo descargado podia acabar donde nadie lo buscaba: la interfaz
+# pregunta antes de la primera descarga (`youtube.folder`).
+LIBRARY_CHOSEN = bool(env("DANPLAY_LIBRARY"))
+
+
+def set_library(path: Path) -> None:
+    """La carpeta de la biblioteca, elegida: todo lo descargado va aqui
+    (Artistas/, Pistas/, Secuencias/, Entrada/...). Se guarda en los ajustes."""
+    global LIBRARY, INBOX, ARTISTS_DIR, REVIEW_DIR, LIBRARY_CHOSEN
+    LIBRARY = Path(path).expanduser()
+    INBOX = LIBRARY / env("DANPLAY_INBOX", "Entrada")
+    ARTISTS_DIR = LIBRARY / "Artistas"
+    REVIEW_DIR = LIBRARY / "Revisar"
+    LIBRARY_CHOSEN = True
+    save_env({"DANPLAY_LIBRARY": str(LIBRARY)})
+
+
 DATABASE = DATA_DIR / "danplay.db"
 
 # carpetas que no son de artista: se respetan tal cual, nunca se tocan
