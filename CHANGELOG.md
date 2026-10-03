@@ -3,6 +3,21 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.20.2 — 2026-10-03
+
+En Windows ya no se abren ventanas negras al separar pistas, descargar o
+analizar canciones.
+
+### Windows
+
+- **Sin ventanas negras.** Cada vez que DanPlay usaba ffmpeg, fpcalc o
+  yt-dlp por debajo (separar pistas, sacar la onda, convertir, buscar el
+  pulso, descargar), Windows abría una consola negra para ese proceso, y al
+  separar una canción salían varias a la vez. Ahora todos los procesos que
+  lanza el núcleo van sin ventana.
+- En la versión hecha con el Python embebido, también había una consola
+  negra detrás de la app mientras estaba abierta: ya no.
+
 ## 1.20.1 — 2026-10-03
 
 Al elegir el modelo de IA solo salen los que tu clave puede usar de verdad.
