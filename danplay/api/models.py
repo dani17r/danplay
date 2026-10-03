@@ -171,6 +171,8 @@ class AiProfileIn(Body_):
     extra: dict | None = None
     timeout: float | None = Field(default=None, ge=5, le=600)
     activate: bool = True
+    # solo al pedir los modelos: volver a probarlos aunque se sepa de hoy
+    recheck: bool | None = None
 
 
 class AiActivateIn(Body_):

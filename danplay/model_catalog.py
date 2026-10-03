@@ -52,13 +52,22 @@ MIN_INTERVAL = 60
 _NOT_CHAT = re.compile(
     r"embed|\btts\b|text-to-speech|whisper|transcri|speech|"
     r"\bimage\b|imagen|dall-e|sora|veo\b|lyria|moderation|guard|"
-    r"rerank|\baudio\b|video|realtime|\bocr\b|colpali|clip\b",
+    r"rerank|\baudio\b|video|realtime|\bocr\b|colpali|clip\b|"
+    # los de Google que no conversan por chat completions: voz en directo,
+    # robots, manejar el ordenador, investigacion larga, imagen
+    r"\blive\b|robotics|computer-use|deep-research|nano-banana|\baqa\b",
     re.IGNORECASE,
 )
 
 _lock = threading.Lock()
 _loaded: dict | None = None
 _refreshing = False
+
+
+def is_chat(mid: str, name: str = "") -> bool:
+    """Si por el nombre parece un modelo de conversacion (los /models de los
+    proveedores mezclan embeddings, voz, imagen y video)."""
+    return not (_NOT_CHAT.search(mid) or (name and _NOT_CHAT.search(name)))
 
 
 # ------------------------------------------------------------------ recorte
@@ -73,7 +82,7 @@ def _trim_model(mid: str, m: dict) -> dict | None:
         return None
     if ins and "text" not in ins:
         return None
-    if _NOT_CHAT.search(mid) or _NOT_CHAT.search(str(m.get("name") or "")):
+    if not is_chat(mid, str(m.get("name") or "")):
         return None
     cost = m.get("cost") or {}
     limit = m.get("limit") or {}

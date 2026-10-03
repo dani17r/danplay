@@ -4,8 +4,9 @@
  * por si el proveedor no lo lista) con una lista debajo que enseña lo que
  * se sabe de cada uno: si usa herramientas, precio, contexto, fecha, si
  * está obsoleto y cuál se recomienda. La lista viene del proveedor (lo que
- * tu clave puede usar) o del catálogo de models.dev, y se filtra por lo que
- * vas escribiendo.
+ * tu clave puede usar: el servidor prueba cada uno y quita los que no
+ * contestan) o del catálogo de models.dev, y se filtra por lo que vas
+ * escribiendo.
  */
 import { ref, computed, watch, nextTick, useId, useTemplateRef } from 'vue'
 import { onClickOutside } from '../../composables/useClickOutside.js'
@@ -19,6 +20,8 @@ const props = defineProps({
   label: { type: String, default: '' },
   hint: { type: String, default: '' },
   placeholder: { type: String, default: 'escribe o elige un modelo' },
+  /** los que el proveedor lista pero tu clave no puede usar: [{id, reason}] */
+  unavailable: { type: Array, default: () => [] },
   /** el id recomendado para este papel (se marca y va el primero) */
   suggest: { type: String, default: '' },
   /** este papel exige herramientas: se filtran de entrada los que no las usan */
@@ -70,8 +73,15 @@ const shown = computed(() => {
 })
 
 const current = computed(() => props.models.find((m) => m.id === model.value))
+const blocked = computed(() => props.unavailable.find((m) => m.id === model.value))
 const warn = computed(() =>
-  current.value?.tools === false ? 'sin herramientas' : current.value?.deprecated ? 'obsoleto' : ''
+  blocked.value
+    ? `no disponible con tu clave: ${blocked.value.reason}`
+    : current.value?.tools === false
+      ? 'sin herramientas'
+      : current.value?.deprecated
+        ? 'obsoleto'
+        : ''
 )
 
 /** Precio por millón de tokens, corto: «$0.15 → $0.60». */
@@ -246,6 +256,7 @@ onClickOutside(root, () => {
                 <span v-else-if="m.tools === false" class="tag bad">sin herramientas</span>
                 <span v-if="m.reasoning" class="tag">razona</span>
                 <span v-if="m.deprecated" class="tag bad">obsoleto</span>
+                <span v-if="m.note" class="tag" :title="m.note">ocupado</span>
                 <span
                   v-if="m.trains"
                   class="tag bad"

@@ -32,11 +32,14 @@ def perfiles(tmp_path, monkeypatch):
     ):
         monkeypatch.delenv(v, raising=False)
     monkeypatch.setattr(config, "AI_ENABLED", True)
+    monkeypatch.setattr(ai, "VERIFIED_FILE", tmp_path / "models-verified.json")
+    ai.forget_verified()
     providers.reload()
     ai.reset_client()
     yield tmp_path / "ai.json"
     providers.reload()
     ai.reset_client()
+    ai.forget_verified()
 
 
 class _Msg:
@@ -470,6 +473,78 @@ def test_la_lista_de_modelos_cruza_con_el_catalogo(perfiles, monkeypatch):
     by = {m["id"]: m for m in r["models"]}
     assert by["gpt-6-astra"]["known"] and by["gpt-6-astra"]["tools"]
     assert not by["modelo-desconocido"]["known"]
+
+
+def _error(status, text):
+    e = Exception(
+        f"Error code: {status} - [{{'error': {{'code': {status}, 'message': '{text}'}}}}]"
+    )
+    e.status_code = status
+    return e
+
+
+def test_solo_se_enseñan_los_modelos_que_la_clave_puede_usar(perfiles, monkeypatch):
+    """Google lista sesenta modelos a una clave gratuita y muchos no sirven:
+    retirados, sin cuota en ese plan, que no son de chat. Se prueba cada uno
+    y se quitan; el saturado se queda (es pasajero)."""
+    providers.save_profile({"provider": "google", "key": "k", "model": "m"})
+    fallos = {
+        "gemini-2.5-pro": _error(
+            404, "This model models/gemini-2.5-pro is no longer available to new users."
+        ),
+        "gemini-3.1-pro-preview": _error(
+            429, "You exceeded your current quota.\\n* Quota exceeded, limit: 0, model: x"
+        ),
+        "antigravity-preview": _error(400, "This model only supports Interactions API."),
+        "gemini-3.8-flash": _error(429, "Quota exceeded, limit: 20, model: gemini-3.8-flash"),
+        "gemini-3.6-flash": _error(503, "This model is currently experiencing high demand."),
+    }
+    listados = [*fallos, "gemini-3.5-flash", "gemini-embedding-2", "gemini-3.8-flash-tts"]
+    fake = _FakeClient(models=[f"models/{m}" for m in listados])
+    probados = []
+
+    def create(**kw):
+        probados.append(kw["model"])
+        if kw["model"] in fallos:
+            raise fallos[kw["model"]]
+        return type("r", (), {"choices": [type("c", (), {"message": _Msg("ok")})()]})()
+
+    fake.chat.completions.create = create
+    _fake(monkeypatch, fake)
+    r = ai.list_models()
+    assert r["ok"] and r["verified"]
+    assert {m["id"] for m in r["models"]} == {
+        "gemini-3.5-flash",
+        "gemini-3.8-flash",
+        "gemini-3.6-flash",
+    }, "sin el prefijo models/, y sin voz ni embeddings"
+    por_id = {m["id"]: m for m in r["models"]}
+    assert por_id["gemini-3.8-flash"]["note"] and por_id["gemini-3.6-flash"]["note"]
+    assert "note" not in por_id["gemini-3.5-flash"]
+    ocultos = {h["id"]: h["reason"] for h in r["hidden"]}
+    assert set(ocultos) == {"gemini-2.5-pro", "gemini-3.1-pro-preview", "antigravity-preview"}
+    assert "retirado" in ocultos["gemini-2.5-pro"]
+    assert "cuota" in ocultos["gemini-3.1-pro-preview"]
+    assert "embedding" not in " ".join(probados), "lo que no conversa ni se prueba"
+
+    # lo probado se recuerda: abrir el modal otra vez no gasta cuota
+    probados.clear()
+    ai.forget_verified()  # tambien tras reiniciar: esta en disco
+    r2 = ai.list_models()
+    assert probados == [] and {m["id"] for m in r2["models"]} == set(por_id)
+    # con «Cargar la lista» se vuelve a probar todo
+    ai.list_models(recheck=True)
+    assert len(probados) == len(fallos) + 1
+
+
+def test_un_servidor_local_no_se_prueba_modelo_a_modelo(perfiles, monkeypatch):
+    """Lo que lista Ollama es lo descargado; probarlo cargaria cada modelo."""
+    providers.save_profile({"provider": "ollama", "model": "m"})
+    fake = _FakeClient(models=["qwen3:8b", "nomic-embed-text"])
+    _fake(monkeypatch, fake)
+    r = ai.list_models()
+    assert [m["id"] for m in r["models"]] == ["qwen3:8b"] and not r["verified"]
+    assert fake.calls == []
 
 
 def test_un_borrador_sin_clave_usa_la_guardada(perfiles):

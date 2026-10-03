@@ -12,11 +12,13 @@ rechazan `tool_choice="required"`, los razonadores de OpenAI no admiten
 proxima vez. Lo que se sabe de antemano por el catalogo ni se manda.
 """
 
+import hashlib
 import json
 import logging
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any
 
@@ -666,23 +668,28 @@ def describe_error(e: Exception, p: providers.Profile | None = None) -> str:
     return text[:180]
 
 
+def _one_token(client, model: str, p: providers.Profile) -> None:
+    """La llamada mas barata posible: un token. Si falla, lanza el error."""
+    kwargs = {"model": model, "messages": [{"role": "user", "content": "ok"}], "max_tokens": 1}
+    if "temperature" not in _known_limits(p, model):
+        kwargs["temperature"] = 0
+    try:
+        client.chat.completions.create(**kwargs)
+    except Exception as e:
+        low = str(e).lower()
+        if "max_completion_tokens" in low or "temperature" in low:
+            kwargs.pop("temperature", None)
+            kwargs["max_completion_tokens"] = kwargs.pop("max_tokens", 1)
+            client.chat.completions.create(**kwargs)
+        else:
+            raise
+
+
 def _ping(client, model: str, p: providers.Profile) -> tuple[bool, str, int]:
-    """La llamada mas barata posible: un token. Vale para clave, URL y modelo."""
+    """Un token. Vale para clave, URL y modelo."""
     t0 = time.monotonic()
     try:
-        kwargs = {"model": model, "messages": [{"role": "user", "content": "ok"}], "max_tokens": 1}
-        if "temperature" not in _known_limits(p, model):
-            kwargs["temperature"] = 0
-        try:
-            client.chat.completions.create(**kwargs)
-        except Exception as e:
-            low = str(e).lower()
-            if "max_completion_tokens" in low or "temperature" in low:
-                kwargs.pop("temperature", None)
-                kwargs["max_completion_tokens"] = kwargs.pop("max_tokens", 1)
-                client.chat.completions.create(**kwargs)
-            else:
-                raise
+        _one_token(client, model, p)
         return True, "", int((time.monotonic() - t0) * 1000)
     except Exception as e:  # noqa: BLE001
         return False, describe_error(e, p), int((time.monotonic() - t0) * 1000)
@@ -792,9 +799,15 @@ def check(draft: dict | None = None) -> dict:
     return out
 
 
-def list_models(draft: dict | None = None) -> dict:
-    """Los modelos que ofrece el proveedor con ESA clave, cruzados con el
-    catalogo (precio, herramientas, obsoleto). `draft` como en `check`."""
+def list_models(draft: dict | None = None, recheck: bool = False) -> dict:
+    """Los modelos que se pueden usar con ESA clave, cruzados con el catalogo
+    (precio, herramientas, obsoleto). `draft` como en `check`.
+
+    Lo que lista el proveedor no basta: se quitan los que no conversan (voz,
+    imagen, embeddings) y, con clave, se prueba cada uno (`_usable`). Los
+    que no contestan van aparte, en `hidden`, con el motivo. `recheck`
+    vuelve a probarlos aunque se sepa de hace poco.
+    """
     if draft is None:
         p = profile()
     else:
@@ -815,11 +828,19 @@ def list_models(draft: dict | None = None) -> dict:
     # sin clave, solo lo que el servicio sirve a anonimos (LLM7 lo llama
     # «turbo», Kilo marca `isFree`, OpenCode Zen termina en «-free»)
     anon = p["quirks"].get("anon_filter") if not p["key"] else None
+    prefix = p["quirks"].get("strip_prefix") or ""
     models = []
+    seen = set()
     for m in raw:
         mid = getattr(m, "id", None) or (m.get("id") if isinstance(m, dict) else None)
         if not mid:
             continue
+        mid = str(mid)
+        if prefix and mid.startswith(prefix):
+            mid = mid[len(prefix) :]
+        if mid in seen:
+            continue
+        seen.add(mid)
         extra: dict = {}
         for getter in ("to_dict", "model_dump"):
             fn = getattr(m, getter, None)
@@ -832,9 +853,185 @@ def list_models(draft: dict | None = None) -> dict:
                 break
         if anon and not _anonymous_ok(mid, extra, anon):
             continue
+        if not model_catalog.is_chat(mid, str(extra.get("name") or "")):
+            continue
         models.append(_merge(mid, extra, p))
+    models, hidden, verified = _usable(models, p, recheck)
     models.sort(key=lambda x: (x["released"] or "", x["id"]), reverse=True)
-    return {"ok": True, "models": models, "source": "provider", "provider": p["name"]}
+    return {
+        "ok": True,
+        "models": models,
+        "hidden": hidden,
+        "verified": verified,
+        "source": "provider",
+        "provider": p["name"],
+    }
+
+
+# ------------------------------------------------- que modelos sirven de verdad
+
+# Lo que un proveedor lista no es lo que tu clave puede usar. Google enseña
+# a una clave gratuita sesenta modelos, y una buena parte contesta 404 («no
+# longer available to new users»), 429 con «limit: 0» (tu plan no tiene
+# cuota para ese modelo) o 400 («only supports Interactions API»). Asi que
+# se prueba cada uno con un token y se enseñan los que contestan.
+#
+# Lo probado se recuerda un dia en disco, por proveedor y clave (la clave no
+# se guarda, solo una huella): abrir el modal no gasta cuota cada vez, que
+# en los niveles gratuitos se cuenta por peticiones al dia.
+VERIFIED_FILE = config.DATA_DIR / "models-verified.json"
+VERIFY_TTL = 24 * 3600
+# el que no contesto (saturado, lento) se enseña, y se vuelve a probar pronto
+UNSURE_TTL = 15 * 60
+# OpenRouter o DeepInfra listan cientos: probarlos todos cuesta dinero y
+# minutos, y lo que listan con clave es lo que se puede pagar. Ahi no.
+VERIFY_MAX = 80
+VERIFY_WORKERS = 8
+VERIFY_TIMEOUT = 12
+
+_verified: dict[str, dict] | None = None
+_verified_lock = threading.Lock()
+
+_GONE = re.compile(
+    r"no longer available|not found|does not exist|no such model|unknown model|"
+    r"not supported|unsupported|only supports|deprecated|decommissioned|"
+    r"not available|no access|not have access|permission|not allowed",
+    re.I,
+)
+
+
+def _verdict(e: Exception) -> tuple[bool | None, str]:
+    """Que dice un fallo de la prueba: True, se puede usar (solo esta
+    ocupado); False, con esta clave no; None, no se sabe (caido, sin red)."""
+    status = getattr(e, "status_code", None)
+    text = str(e)
+    low = text.lower()
+    if status == 429 or "resource_exhausted" in low or "rate limit" in low:
+        # «limit: 0» es que el plan no incluye ese modelo; otro limite, que
+        # por hoy o por este minuto ya se gasto, pero el modelo es tuyo
+        if re.search(r"limit:\s*0\b", text):
+            return False, "tu plan no tiene cuota para este modelo"
+        return True, "limite de peticiones: ahora mismo esta ocupado"
+    if status == 402:
+        return False, "sin credito para este modelo"
+    if status in (401, 403):
+        return False, "la clave no tiene acceso a este modelo"
+    if status in (400, 404, 405, 410, 422) or (status is None and _GONE.search(text)):
+        return False, _gone_reason(text)
+    return None, "no contesto al probarlo (saturado o lento): puede fallar"
+
+
+def _gone_reason(text: str) -> str:
+    """Por que no sirve, en español si se reconoce; si no, el «message» del
+    error del proveedor sin el resto del volcado."""
+    low = text.lower()
+    if re.search(r"no longer available|deprecated|decommissioned|retired", low):
+        return "retirado: ya no se ofrece a claves nuevas"
+    if re.search(r"only supports|not supported|unsupported", low):
+        return "no funciona por chat (es para otro uso)"
+    if re.search(r"not found|does not exist|no such model|unknown model", low):
+        return "no existe para esta clave"
+    m = re.search(r"""['"]message['"]:\s*['"](.+?)(?:\\n|['"],|['"]\})""", text)
+    t = m.group(1) if m else re.sub(r"^Error code: \d+ - ", "", text)
+    return t.split(". ")[0][:140]
+
+
+def _verify_key(p: providers.Profile, model: str) -> str:
+    fp = hashlib.sha256(p["key"].encode()).hexdigest()[:16]
+    return f"{p['base_url']}|{fp}|{model}"
+
+
+def _load_verified() -> dict[str, dict]:
+    global _verified
+    if _verified is None:
+        try:
+            d = json.loads(VERIFIED_FILE.read_text(encoding="utf-8"))
+            _verified = d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            _verified = {}
+    return _verified
+
+
+def _save_verified() -> None:
+    now = time.time()
+    with _verified_lock:
+        d = {k: v for k, v in _load_verified().items() if now - v.get("at", 0) < VERIFY_TTL}
+    try:
+        VERIFIED_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = VERIFIED_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d), encoding="utf-8")
+        tmp.replace(VERIFIED_FILE)
+    except OSError:
+        log.warning("no se pudo guardar que modelos funcionan", exc_info=True)
+
+
+def forget_verified() -> None:
+    """Olvida lo probado (para las pruebas)."""
+    global _verified
+    with _verified_lock:
+        _verified = None
+
+
+def _usable(models: list[dict], p: providers.Profile, recheck: bool = False):
+    """Separa los que contestan de los que no. Devuelve (los que sirven,
+    los ocultos con su motivo, si se probaron).
+
+    Sin clave no se prueba (los gratuitos admiten una peticion por segundo y
+    ya se filtran por lo que sirven a anonimos), ni en un servidor local (lo
+    que lista es lo descargado, y probar cargaria cada modelo en memoria),
+    ni con listas enormes.
+    """
+    if not models or p.get("local") or not p["key"] or len(models) > VERIFY_MAX:
+        return models, [], False
+    now = time.time()
+    with _verified_lock:
+        known = _load_verified()
+        cached = {
+            m["id"]: known[k]
+            for m in models
+            if (k := _verify_key(p, m["id"])) in known
+            and now - known[k].get("at", 0)
+            < (UNSURE_TTL if known[k].get("ok") is None else VERIFY_TTL)
+            and not recheck
+        }
+    todo = [m["id"] for m in models if m["id"] not in cached]
+    found: dict[str, tuple[bool | None, str]] = {}
+    if todo:
+        client = _build_client(
+            {**p, "retries": 0, "timeout": min(float(p["timeout"]), VERIFY_TIMEOUT)}  # type: ignore[typeddict-item]
+        )
+
+        def probe(mid: str) -> tuple[str, bool | None, str]:
+            try:
+                _one_token(client, mid, p)
+                return mid, True, ""
+            except Exception as e:  # noqa: BLE001
+                return mid, *_verdict(e)
+
+        with ThreadPoolExecutor(max_workers=VERIFY_WORKERS) as pool:
+            for mid, ok, why in pool.map(probe, todo):
+                found[mid] = (ok, why)
+        with _verified_lock:
+            known = _load_verified()
+            for mid, (ok, why) in found.items():
+                # «ocupado» no se recuerda (mañana no lo estara); el que no
+                # contesto, un rato, para no esperarlo en cada apertura
+                known[_verify_key(p, mid)] = {"ok": ok, "why": "" if ok else why, "at": now}
+        _save_verified()
+    usable, hidden = [], []
+    for m in models:
+        if m["id"] in cached:
+            ok, why = cached[m["id"]]["ok"], cached[m["id"]].get("why", "")
+        else:
+            ok, why = found[m["id"]]
+        if ok is False:
+            hidden.append({"id": m["id"], "name": m["name"], "reason": why})
+            continue
+        if why:
+            # ocupado o sin respuesta: se puede elegir, pero se avisa
+            m = {**m, "note": why}
+        usable.append(m)
+    return usable, hidden, True
 
 
 def _anonymous_ok(mid: str, extra: dict, rule: dict) -> bool:

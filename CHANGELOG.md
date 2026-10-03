@@ -3,6 +3,26 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## Sin publicar
+
+Al elegir el modelo de IA solo salen los que tu clave puede usar de verdad.
+
+### Asistente e IA
+
+- **Solo los modelos que funcionan con tu clave.** Lo que lista el proveedor
+  no es lo que tu clave puede usar: Google enseña unos sesenta modelos a una
+  clave gratuita y muchos dan error (retirados para claves nuevas, sin cuota
+  en el nivel gratuito, o que no son de chat). Ahora se prueba cada modelo
+  con una petición de un token y solo salen los que contestan. Los ocultos
+  se cuentan en la nota de la lista, y si tenías elegido uno de ellos, el
+  selector avisa de por qué no sirve. Lo probado se recuerda un día, así que
+  abrir el modal no gasta cuota; «Cargar la lista» vuelve a probarlos.
+- Ya no salen modelos de voz, imagen, vídeo, embeddings o «live» de Google.
+- Lo recomendado se elige entre los modelos que funcionan, no del catálogo.
+- No se prueban modelo a modelo los servidores locales (Ollama: lo que lista
+  es lo descargado) ni las plataformas con cientos de modelos (OpenRouter,
+  DeepInfra).
+
 ## 1.20.0 — 2026-09-26
 
 La primera vez que descargas algo, DanPlay te pregunta dónde guardarlo, y

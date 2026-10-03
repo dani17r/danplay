@@ -74,7 +74,7 @@ def ai_providers(refresh: Annotated[bool, Query()] = False):
 
 @router.post("/api/ai/profile")
 def ai_save_profile(body: Annotated[AiProfileIn, Body()]):
-    data = body.model_dump(exclude_none=True)
+    data = body.model_dump(exclude_none=True, exclude={"recheck"})
     activate = data.pop("activate", True)
     try:
         pid = providers.save_profile(data, activate=activate)
@@ -142,23 +142,31 @@ def ai_fallback(body: Annotated[AiFallbackIn, Body()]):
 def ai_check(body: Annotated[AiProfileIn, Body()]):
     """Prueba lo que hay en el formulario SIN guardarlo: clave, URL, los dos
     modelos y si el de conversacion sabe usar herramientas."""
-    draft = body.model_dump(exclude_none=True)
+    draft = body.model_dump(exclude_none=True, exclude={"recheck"})
     draft.pop("activate", None)
     return ai.check(draft)
 
 
 @router.post("/api/ai/models")
 def ai_models(body: Annotated[AiProfileIn, Body()]):
-    """Los modelos que ofrece ese proveedor con esa clave (su /models), mas
-    los que conoce el catalogo aunque el proveedor no los liste."""
+    """Los modelos que se pueden usar con esa clave (su /models, probados uno
+    a uno), y el catalogo para cuando aun no hay clave. Con `recheck` se
+    vuelven a probar aunque se sepa de hace poco (el boton «Cargar la lista»)."""
     draft = body.model_dump(exclude_none=True)
     draft.pop("activate", None)
-    live = ai.list_models(draft)
+    recheck = bool(draft.pop("recheck", False))
+    live = ai.list_models(draft, recheck=recheck)
     p = providers.BY_ID.get(body.provider) or providers.BY_ID["custom"]
     known = model_catalog.models_for(p["models_dev"])
     live["catalog"] = known
-    live["suggest"] = dict(p["suggest"])
-    recommended = model_catalog.recommend(known)
+    # con la lista del proveedor, se recomienda de lo que contesta: el
+    # catalogo puede sugerir uno que esta clave no puede usar
+    usable = live["models"] if live.get("ok") else None
+    ids = {m["id"] for m in usable or []}
+    live["suggest"] = {
+        k: v for k, v in p["suggest"].items() if usable is None or not ids or v in ids
+    }
+    recommended = model_catalog.recommend(usable or known)
     for k, v in recommended.items():
         if v:
             live["suggest"][k] = v

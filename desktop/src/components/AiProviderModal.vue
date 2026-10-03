@@ -267,7 +267,12 @@ const modelList = computed(
 )
 const listNote = computed(() => {
   const m = models.value
-  if (loadingModels.value) return 'pidiendo la lista al proveedor…'
+  if (loadingModels.value) return 'pidiendo la lista al proveedor y probando qué modelos contestan…'
+  if (m.ok && m.verified)
+    return (
+      `${m.models.length} modelos funcionan con tu clave en ${m.provider || chosen.value?.name}` +
+      (m.hidden?.length ? ` · ${m.hidden.length} ocultos: tu clave no puede usarlos` : '')
+    )
   if (m.ok)
     return `${m.models.length} modelos disponibles con tu clave en ${m.provider || chosen.value?.name}`
   if (m.catalog?.length)
@@ -280,7 +285,8 @@ const listNote = computed(() => {
   return m.reason ? `sin lista: ${m.reason}` : 'sin lista: escribe el nombre del modelo'
 })
 
-async function loadModels(catalogOnly = false) {
+/** `recheck`: volver a probar cada modelo aunque se sepa de hoy (el botón). */
+async function loadModels(catalogOnly = false, recheck = false) {
   loadingModels.value = true
   try {
     let d
@@ -291,6 +297,7 @@ async function loadModels(catalogOnly = false) {
       return
     }
     if (catalogOnly) delete d.key
+    if (recheck) d.recheck = true
     models.value = await api.aiModels(d)
     // sin modelo escrito, el recomendado; y si el proveedor lista lo que hay
     // (Ollama: lo descargado) y lo escrito no está, se avisa dejándolo
@@ -581,7 +588,8 @@ async function tryFree() {
                   class="btn mini"
                   type="button"
                   :disabled="loadingModels"
-                  @click="loadModels()"
+                  title="Vuelve a pedir la lista y a probar qué modelos funcionan con tu clave"
+                  @click="loadModels(false, true)"
                 >
                   <Icon n="refresh" :t="12" /> {{ loadingModels ? 'cargando…' : 'Cargar la lista' }}
                 </button>
@@ -591,6 +599,7 @@ async function tryFree() {
                 label="Para conversar (el asistente)"
                 :models="modelList"
                 :suggest="models.suggest?.chat"
+                :unavailable="models.hidden"
                 need-tools
                 :loading="loadingModels"
                 hint="necesita un modelo que sepa usar herramientas: es como consulta tu biblioteca"
@@ -600,6 +609,7 @@ async function tryFree() {
                 label="Para identificar y rellenar fichas"
                 :models="modelList"
                 :suggest="models.suggest?.fast"
+                :unavailable="models.hidden"
                 :loading="loadingModels"
                 hint="muchas llamadas cortas: aquí compensa el barato y rápido"
               />

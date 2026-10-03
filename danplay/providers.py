@@ -113,7 +113,8 @@ def _p(
 # `key`: required | optional | none.  `fields`: huecos de la URL que el
 # usuario rellena ({resource}, {region}…).  `quirks`: lo que se sabe de
 # antemano que el servicio NO acepta, para no mandarselo y comerse el error;
-# `anon_filter` deja en la lista solo lo que se puede usar sin clave.
+# `anon_filter` deja en la lista solo lo que se puede usar sin clave;
+# `strip_prefix`, lo que sobra delante de los ids que da su /models.
 CATALOG = [
     # --- gratis, sin clave ---
     # Comprobados el 11-09-2026 con peticiones anonimas de verdad (con
@@ -199,6 +200,9 @@ CATALOG = [
         models_dev="google",
         suggest={"fast": "gemini-3.5-flash-lite", "chat": "gemini-3.8-flash"},
         note="Con clave de AI Studio. Tiene nivel gratuito.",
+        # su /models dice «models/gemini-3.8-flash»; acepta los dos, y sin el
+        # prefijo se cruza con el catalogo
+        quirks={"strip_prefix": "models/"},
     ),
     _p(
         "mistral",

@@ -272,6 +272,8 @@ def perfiles_ia(tmp_path, monkeypatch):
     from danplay import ai, providers
 
     monkeypatch.setattr(providers, "PROFILES_FILE", tmp_path / "ai.json")
+    monkeypatch.setattr(ai, "VERIFIED_FILE", tmp_path / "models-verified.json")
+    ai.forget_verified()
     for v in (
         "DANPLAY_AI_PROVIDER",
         "DANPLAY_AI_KEY",
