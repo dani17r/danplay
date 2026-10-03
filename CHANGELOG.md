@@ -3,7 +3,7 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
-## Sin publicar
+## 1.20.1 — 2026-10-03
 
 Al elegir el modelo de IA solo salen los que tu clave puede usar de verdad.
 
