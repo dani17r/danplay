@@ -343,7 +343,8 @@ fn from_source() -> Result<std::process::Command, String> {
          carpeta del proyecto, o instalalo en ~/danplay."
             .to_string()
     })?;
-    let mut c = std::process::Command::new(interpreter(&root));
+    // sin consola en Windows: el python.exe de un venv es de consola
+    let mut c = crate::tools::command(interpreter(&root));
     c.args(["-m", "danplay.cli", "serve"]).current_dir(&root);
     Ok(c)
 }
@@ -394,11 +395,11 @@ fn spawn_core(address: &Address) -> Result<std::process::Child, String> {
     let packaged = if prefer_source() { None } else { sidecar() };
     let mut cmd = match packaged {
         // 1) nucleo empaquetado (app instalada): no necesita Python en el sistema
-        Some(bin) => std::process::Command::new(bin),
+        Some(bin) => crate::tools::command(bin),
         // 2) desarrollo: el proyecto con su venv (y el empaquetado si no lo hay)
         None => match from_source() {
             Ok(c) => c,
-            Err(reason) => sidecar().map(std::process::Command::new).ok_or(reason)?,
+            Err(reason) => sidecar().map(crate::tools::command).ok_or(reason)?,
         },
     };
 

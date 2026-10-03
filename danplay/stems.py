@@ -447,9 +447,7 @@ def _run_child(job: dict, progress) -> dict:
     with tempfile.TemporaryDirectory(prefix="danplay-separar-") as tmp:
         job_file = os.path.join(tmp, "trabajo.json")
         Path(job_file).write_text(json.dumps(job), encoding="utf-8")
-        flags = 0
-        if sys.platform == "win32":  # pragma: no cover - sin ventana de consola
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        # sin ventana de consola en Windows: lo pone `no_console` a todos
         child = subprocess.Popen(
             _command(job_file),
             stdin=subprocess.DEVNULL,
@@ -458,7 +456,6 @@ def _run_child(job: dict, progress) -> dict:
             text=True,
             encoding="utf-8",
             errors="replace",
-            creationflags=flags,
         )
         with _lock:
             _child = child

@@ -17,6 +17,12 @@
  * instante, creeria que el nucleo se ha caido y lo levantaria otra vez, sin
  * parar. Quedandose, el proceso que la aplicacion vigila vive lo que viva
  * Python, y el Job Object se lleva a los dos al cerrar.
+ *
+ * Es un programa de consola, y python.exe tambien. La aplicacion lo lanza con
+ * CREATE_NO_WINDOW (tools::command en Rust): la consola existe pero no se ve,
+ * y Python y lo que el lance (ffmpeg, yt-dlp) heredan esa misma, oculta. No
+ * hay que compilarlo como programa de ventanas: sin consola propia, Windows
+ * le abriria una nueva, visible, a python.exe.
  */
 #include <windows.h>
 #include <process.h>
