@@ -2,7 +2,7 @@
 
 from . import no_console
 
-__version__ = "1.20.3"
+__version__ = "1.21.0"
 
 # antes de lanzar nada: en Windows, ningun ffmpeg ni yt-dlp con ventana negra
 no_console.install()
