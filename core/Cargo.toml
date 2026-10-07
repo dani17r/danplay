@@ -2,9 +2,7 @@
 name = "danplay_core"
 version.workspace = true
 edition.workspace = true
-# El minimo de sus dependencias (symphonia 0.6 y md-5 0.11 piden 1.85, que es
-# tambien el de la edicion 2024).
-rust-version = "1.85"
+rust-version.workspace = true
 
 [lib]
 name = "danplay_core"

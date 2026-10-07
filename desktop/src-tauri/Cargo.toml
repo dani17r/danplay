@@ -2,9 +2,7 @@
 name = "danplay-app"
 version.workspace = true
 edition.workspace = true
-# El minimo de sus dependencias: notify-rust (el de las notificaciones de
-# Linux) pide 1.89; la edicion 2024, 1.85.
-rust-version = "1.89"
+rust-version.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
