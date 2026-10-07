@@ -1,6 +1,7 @@
 """En Windows, los procesos que lanza el nucleo no abren ventanas negras."""
 
 import subprocess
+import sys
 
 from danplay import no_console
 
@@ -38,4 +39,9 @@ def test_en_linux_no_se_toca_nada():
     Popen, _ = _fake_popen()
     assert not no_console.install("linux", Popen)
     assert "creationflags" not in Popen(["ffmpeg"]).kwargs
-    assert not getattr(subprocess.Popen, "_danplay_no_console", False)
+
+
+def test_al_importar_danplay_el_popen_de_verdad_solo_cambia_en_windows():
+    # la CI corre esto tambien en Windows, donde si debe ir instalado
+    instalado = getattr(subprocess.Popen, "_danplay_no_console", False)
+    assert instalado == (sys.platform == "win32")
