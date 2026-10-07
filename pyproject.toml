@@ -15,7 +15,7 @@ requires-python = ">=3.13"
 # Lo que DanPlay necesita para funcionar, en rangos compatibles. Las fijas,
 # transitivas incluidas, estan en uv.lock.
 dependencies = [
-    "fastapi~=0.141.1",
+    "fastapi>=0.141.1,<0.143.0",
     "uvicorn~=0.54.0",
     "openai>=3.19.2,<4",
     "mutagen>=1.48.1,<2",
