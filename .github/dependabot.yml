@@ -14,6 +14,13 @@ updates:
     groups:
       python:
         update-types: [minor, patch]
+    ignore:
+      # La 0.142 solo trae OpenTelemetry automatico (y una dependencia mas),
+      # que una app local no usa: se queda en la 0.141. La 0.143 si se propone
+      - dependency-name: fastapi
+        versions: ['>=0.142, <0.143']
+      # va fijada por pydantic: subirla sola nunca resuelve (PR #3)
+      - dependency-name: pydantic-core
 
   - package-ecosystem: npm
     directory: /desktop

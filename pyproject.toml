@@ -15,6 +15,7 @@ requires-python = ">=3.13"
 # Lo que DanPlay necesita para funcionar, en rangos compatibles. Las fijas,
 # transitivas incluidas, estan en uv.lock.
 dependencies = [
+    # sin la 0.142, que solo anade OpenTelemetry (ver .github/dependabot.yml)
     "fastapi~=0.141.1",
     "uvicorn~=0.54.0",
     "openai>=3.19.2,<4",
