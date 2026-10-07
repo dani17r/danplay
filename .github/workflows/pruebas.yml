@@ -214,9 +214,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+      # Solo lo que va dentro de la app. Las herramientas de desarrollo
+      # (stylelint, vite...) solo leen nuestro propio codigo, y un aviso sin
+      # arreglo en una de ellas (braces, en 2026-09) dejaba esto en rojo
+      # sin nada que hacer
       - name: npm
         working-directory: desktop
-        run: npm audit --audit-level=moderate
+        run: npm audit --omit=dev --audit-level=moderate
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'

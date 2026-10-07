@@ -22,11 +22,16 @@ updates:
     groups:
       interfaz:
         update-types: [minor, patch]
+    ignore:
+      # vue-tsc (`npm run typecheck`) no arranca con TypeScript 7: carga
+      # typescript/lib/tsc, que la 7 ya no exporta. Quitar cuando vue-tsc la admita
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
 
+  # un solo workspace (Cargo.toml y Cargo.lock en la raiz): con los dos crates
+  # por separado, Dependabot no podia cargar el workspace y no proponia nada
   - package-ecosystem: cargo
-    directories:
-      - /core
-      - /desktop/src-tauri
+    directory: /
     schedule:
       interval: weekly
     groups:
