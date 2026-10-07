@@ -97,6 +97,30 @@ pub fn audio_filter(tempo: f32, semitones: f32, rubberband: bool) -> String {
     )
 }
 
+/// Cuanto va por delante lo que sale del filtro respecto a donde la app
+/// cree que va la cancion, en segundos de cancion. `atempo` y `rubberband`
+/// estiran el audio por ventanas, y lo que suena sale unos milisegundos
+/// antes de lo que daria la cuenta (lo leido por la velocidad). A la
+/// velocidad normal no hay filtro y no pasa nada; despacio, el clic llegaba
+/// tarde: 20 ms de reloj a 0,5x, que un bateria nota.
+///
+/// Medido pasando por la orden de la app una pista con golpes en instantes
+/// exactos: con `atempo`, unos 7 ms entre 0,7x y 0,95x y unos 11 ms por
+/// debajo; con `rubberband` (tono corrido), unos 13 ms por debajo de 1x y 6
+/// a 1x. Por encima de 1x, casi nada. El filtro baila ±4 ms alrededor: es la
+/// media, no lo exacto.
+pub fn filter_lead(tempo: f32, semitones: f32, rubberband: bool) -> f64 {
+    let pitched = semitones.is_finite() && semitones.abs() > NO_PITCH;
+    let slow = tempo < 0.999;
+    match (pitched && rubberband, slow) {
+        (true, true) => 0.013,
+        (true, false) if (tempo - 1.0).abs() < 1e-3 => 0.006,
+        (false, true) if tempo <= 0.65 => 0.011,
+        (false, true) => 0.007,
+        _ => 0.0,
+    }
+}
+
 /// ¿El ffmpeg que hay trae `rubberband`? Se mira una vez.
 pub fn has_rubberband(ffmpeg: &Path) -> bool {
     use std::sync::OnceLock;
@@ -835,6 +859,19 @@ mod tests {
         assert_eq!(tempo_filter(0.25), "atempo=0.5,atempo=0.5000");
         assert_eq!(tempo_filter(3.0), "atempo=2.0,atempo=1.5000");
         assert_eq!(tempo_filter(0.1), "atempo=0.5,atempo=0.5000", "se recorta a 0.25");
+    }
+
+    /// Despacio, lo que suena va unos milisegundos por delante de la cuenta:
+    /// el clic se adelanta eso para caer con la cancion. A la velocidad
+    /// normal y sin tono no hay filtro, ni nada que corregir.
+    #[test]
+    fn the_filter_lead_is_only_where_there_is_a_filter() {
+        assert!(filter_lead(1.0, 0.0, true).abs() < f64::EPSILON);
+        assert!(filter_lead(1.5, 0.0, false).abs() < f64::EPSILON);
+        assert!((filter_lead(0.8, 0.0, true) - 0.007).abs() < 1e-9);
+        assert!((filter_lead(0.5, 0.0, true) - 0.011).abs() < 1e-9);
+        assert!((filter_lead(0.8, 2.0, true) - 0.013).abs() < 1e-9);
+        assert!((filter_lead(1.0, 2.0, true) - 0.006).abs() < 1e-9);
     }
 
     #[test]

@@ -21,13 +21,17 @@ pub(super) struct Song {
     pub(super) tempo: f32,
     /// La duracion que anuncia el propio archivo, en segundos de cancion.
     pub(super) announced: Option<f64>,
+    /// Lo que va por delante el filtro de velocidad o tono de ffmpeg, en
+    /// segundos de cancion (`transcode::filter_lead`): sin el, el clic iba
+    /// tarde a 0,5x.
+    pub(super) lead: f64,
 }
 
 impl Song {
     /// Donde va la cancion, en sus segundos. rodio cuenta en tiempo de
     /// salida, que a otra velocidad no es el mismo (ver `clock_of`).
     pub(super) fn position(&self, clock: f32) -> f64 {
-        self.sink.get_pos().as_secs_f64() * f64::from(clock)
+        self.sink.get_pos().as_secs_f64() * f64::from(clock) + self.lead
     }
     pub(super) fn playing(&self) -> bool {
         !self.sink.is_paused() && !self.sink.empty()
@@ -164,6 +168,7 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
             ffmpeg: Some(control),
             tempo,
             announced,
+            lead: transcode::filter_lead(tempo, pitch, transcode::has_rubberband(ffmpeg)),
         });
     }
 
@@ -190,6 +195,7 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
             ffmpeg: Some(control),
             tempo,
             announced,
+            lead: transcode::filter_lead(tempo, pitch, transcode::has_rubberband(ffmpeg)),
         });
     }
     sink.set_speed(speed);
@@ -205,5 +211,6 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
         ffmpeg: None,
         tempo: 1.0,
         announced,
+        lead: 0.0,
     })
 }
