@@ -12,7 +12,7 @@ members = ["core", "desktop/src-tauri"]
 resolver = "3"
 
 [workspace.package]
-version = "1.20.2"
+version = "1.20.3"
 edition = "2024"
 # Uno para los dos: Cargo resuelve el Cargo.lock con el mas bajo de los
 # miembros, y con 1.85 en el nucleo se quedaba en tauri 2.11 aunque la app

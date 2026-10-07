@@ -3,6 +3,29 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.20.3 — 2026-10-07
+
+Mantenimiento: las dependencias al día y las pruebas en verde otra vez. No
+cambia nada de lo que ves.
+
+### Por dentro
+
+- **Tauri 2.12** y sus plugins (diálogos, notificaciones, bandeja, registro).
+  La interfaz y la parte de Rust van en la misma versión, como pide Tauri, y
+  Rust necesita como mínimo la 1.90.
+- **Python**: el SDK de OpenAI 3.26, platformdirs, python-dotenv y
+  charset-normalizer al día. FastAPI se queda en la 0.141: la 0.142 solo
+  añade OpenTelemetry, que una app local no usa, y necesitó dos arreglos
+  seguidos.
+- **Interfaz**: vite, vitest, eslint, stylelint, vue-tsc y jsdom al día, y
+  `source-map-js` 1.2.2 por un aviso de seguridad.
+- **Pruebas y CI**: la CI fallaba desde la 1.20.1 por dos pruebas mal
+  tipadas y por una regla nueva de Rust 1.99. Además, la prueba de las
+  consolas de Windows daba por hecho que corría en Linux. Dependabot vuelve a
+  proponer las actualizaciones de Rust, ya no propone TypeScript 7 (vue-tsc
+  todavía no lo admite), y la auditoría de npm mira lo que va dentro de la
+  app.
+
 ## 1.20.2 — 2026-10-03
 
 En Windows ya no se abren ventanas negras al separar pistas, descargar o
