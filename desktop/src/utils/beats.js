@@ -27,52 +27,68 @@ export function normalMeter(meter) {
 
 const mod = (a, n) => ((a % n) + n) % n
 
+/** A partir de cuántos pulsos sin nada es un hueco sin clic (`GAP` de beats.rs). */
+const GAP = 1.4
+
 /**
  * El doble de pulsos (a mitad de camino de cada par). El «1» se queda donde
- * estaba.
+ * estaba. Un hueco sin pulso sigue sin clic, y después del último de una
+ * rejilla cerrada no hay nada (como `doubled` de beats.rs).
  * @param {BeatGrid} g
  * @returns {BeatGrid}
  */
 export function doubled(g) {
   const period = 60 / Math.max(1, g.bpm)
   const beats = []
+  const moved = []
   g.beats.forEach((b, i) => {
+    moved.push(beats.length)
     beats.push(b)
-    const next = g.beats[i + 1] ?? b + period
-    beats.push((b + next) / 2)
+    const next = g.beats[i + 1] ?? (g.closed ? null : b + period)
+    if (next != null && next - b <= GAP * period) beats.push((b + next) / 2)
   })
+  const at = (i) => moved[i] ?? i * 2
   return {
     ...g,
     bpm: g.bpm * 2,
     beats,
-    first_downbeat: g.first_downbeat * 2,
+    first_downbeat: at(g.first_downbeat),
     phase3: g.phase3 * 2,
     phase4: g.phase4 * 2,
-    ...(g.bars?.length ? { bars: g.bars.map((b) => b * 2) } : {})
+    ...(g.bars?.length ? { bars: g.bars.map(at) } : {})
   }
 }
 
 /**
- * La mitad de pulsos: uno de cada dos, empezando por el «1».
+ * La mitad de pulsos: uno de cada dos contando desde el «1» de cada compás
+ * (el 1 y el 3 en un 4/4); en un compás impar, uno de cada dos desde el
+ * primer «1» (como `halved` de beats.rs).
  * @param {BeatGrid} g
  * @returns {BeatGrid}
  */
 export function halved(g) {
-  const start = g.first_downbeat % 2
+  const keep = []
+  if (g.meter > 0 && g.meter % 2 === 0 && g.bars?.length) {
+    g.beats.forEach((_, i) => {
+      if (beatInBar(g, i) % 2 === 0) keep.push(i)
+    })
+  } else {
+    for (let i = g.first_downbeat % 2; i < g.beats.length; i += 2) keep.push(i)
+  }
+  const position = (i) => {
+    let k = 0
+    while (k < keep.length && keep[k] < i) k++
+    return k
+  }
+  const kept = new Set(keep)
   return {
     ...g,
     bpm: g.bpm / 2,
-    beats: g.beats.filter((_, i) => i >= start && (i - start) % 2 === 0),
-    first_downbeat: (g.first_downbeat - start) / 2,
-    phase3: Math.floor(Math.max(0, g.phase3 - start) / 2),
-    phase4: Math.floor(Math.max(0, g.phase4 - start) / 2),
-    ...(g.bars?.length
-      ? {
-          bars: g.bars
-            .filter((b) => b >= start && (b - start) % 2 === 0)
-            .map((b) => (b - start) / 2)
-        }
-      : {})
+    beats: keep.map((i) => g.beats[i]),
+    first_downbeat: position(g.first_downbeat),
+    phase3: Math.floor(g.phase3 / 2),
+    phase4: Math.floor(g.phase4 / 2),
+    ...(g.bars?.length ? { bars: g.bars.filter((b) => kept.has(b)).map(position) } : {})
   }
 }
 
@@ -122,12 +138,11 @@ export function effectiveGrid(base, { mult = 0, meter = null, shift = 0 } = {}) 
 }
 
 /**
- * ¿Es el «1» el pulso `i`? Sin acento, ninguno. Con `bars` (Beat This!),
- * contando desde el último «1» antes de `i`, como Rust (`beat_in_bar`).
+ * Qué tiempo del compás es el pulso `i` (0 = el «1»). Con `bars` (Beat
+ * This!), contando desde el último «1» antes de `i`, como Rust (`beat_in_bar`).
  * @param {BeatGrid} g @param {number} i
  */
-export function isDownbeat(g, i) {
-  if (!(g.meter > 0)) return false
+export function beatInBar(g, i) {
   let from = g.first_downbeat
   if (g.bars?.length) {
     from = g.bars[0]
@@ -136,7 +151,15 @@ export function isDownbeat(g, i) {
       from = b
     }
   }
-  return mod(i - from, g.meter) === 0
+  return mod(i - from, Math.max(1, g.meter))
+}
+
+/**
+ * ¿Es el «1» el pulso `i`? Sin acento, ninguno.
+ * @param {BeatGrid} g @param {number} i
+ */
+export function isDownbeat(g, i) {
+  return g.meter > 0 && beatInBar(g, i) === 0
 }
 
 /**

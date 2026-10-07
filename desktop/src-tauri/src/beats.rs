@@ -30,6 +30,9 @@ const HOP: usize = 512;
 const FPS: f64 = RATE as f64 / HOP as f64;
 /// Cuanto se castiga apartarse del periodo al enlazar pulsos (librosa: 100).
 const TIGHTNESS: f64 = 100.0;
+/// A partir de cuantos pulsos sin nada es un hueco sin clic (y no un pulso
+/// que se alarga un poco): los que la rejilla deja asi no se rellenan.
+const GAP: f64 = 1.4;
 
 /// La rejilla de una cancion: la de aqui, o la de Beat This! que calcula el
 /// nucleo (`checked` la revisa antes de usarla).
@@ -56,6 +59,12 @@ pub struct BeatGrid {
     /// acierta mas asi que forzando un compas regular.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bars: Vec<usize>,
+    /// La rejilla acaba en su ultimo pulso y no sigue: lo que queda de
+    /// cancion (un acorde que se apaga, un final libre) va sin clic. Las de
+    /// antes llegaban hasta el final de la cancion y, pasado el ultimo
+    /// pulso, se sigue al tempo.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
 }
 
 impl BeatGrid {
@@ -120,10 +129,14 @@ impl BeatGrid {
         (i, self.beat_time(i), self.is_downbeat(i))
     }
 
-    /// Segundos del pulso `i`, extrapolando mas alla del ultimo.
+    /// Segundos del pulso `i`, extrapolando mas alla del ultimo (en una
+    /// rejilla cerrada no hay mas: infinito, y el clic se calla).
     pub fn beat_time(&self, i: usize) -> f64 {
         if i < self.beats.len() {
             return self.beats[i];
+        }
+        if self.closed {
+            return f64::INFINITY;
         }
         let last = *self.beats.last().unwrap_or(&0.0);
         last + (i + 1 - self.beats.len()) as f64 * self.period()
@@ -174,39 +187,64 @@ impl BeatGrid {
 
     /// El doble de pulsos (a mitad de camino de cada par): para cuando el
     /// tempo salio a la mitad. El «1» se queda donde estaba.
+    ///
+    /// Un hueco sin pulso (mas de `GAP` pulsos seguidos sin nada, que la
+    /// rejilla deja sin clic) sigue sin clic: un golpe en medio no seria de
+    /// ningun tempo. Ni despues del ultimo de una rejilla cerrada.
     pub fn doubled(&self) -> BeatGrid {
+        let period = self.period();
         let mut beats = Vec::with_capacity(self.beats.len() * 2);
+        // el indice de cada pulso de antes en la rejilla nueva, para los «1»
+        let mut moved = Vec::with_capacity(self.beats.len());
         for (i, &b) in self.beats.iter().enumerate() {
+            moved.push(beats.len());
             beats.push(b);
-            let next = self.beats.get(i + 1).copied().unwrap_or(b + self.period());
-            beats.push(f64::midpoint(b, next));
+            let next = match self.beats.get(i + 1) {
+                Some(&n) => n,
+                None if self.closed => continue,
+                None => b + period,
+            };
+            if next - b <= GAP * period {
+                beats.push(f64::midpoint(b, next));
+            }
         }
+        let at = |i: usize| moved.get(i).copied().unwrap_or(i * 2);
         let mut g = self.clone();
         g.bpm *= 2.0;
         g.beats = beats;
-        g.first_downbeat *= 2;
+        g.first_downbeat = at(self.first_downbeat);
         g.phase3 *= 2;
         g.phase4 *= 2;
-        g.bars = self.bars.iter().map(|&b| b * 2).collect();
+        g.bars = self.bars.iter().map(|&b| at(b)).collect();
         g
     }
 
-    /// La mitad de pulsos (uno de cada dos, empezando por el «1»).
+    /// La mitad de pulsos: uno de cada dos, contando desde el «1» de cada
+    /// compas (el 1 y el 3 en un 4/4). Contando a ciegas desde el principio,
+    /// un compas de tres o un hueco cambiaban la cuenta y el «1» se perdia.
     pub fn halved(&self) -> BeatGrid {
-        let start = self.first_downbeat % 2;
-        let beats: Vec<f64> = self.beats.iter().skip(start).step_by(2).copied().collect();
+        // en un compas impar, uno de cada dos no cae parejo: como siempre
+        let keep: Vec<usize> = if self.meter > 0 && self.meter.is_multiple_of(2) && !self.bars.is_empty() {
+            (0..self.beats.len())
+                .filter(|&i| self.beat_in_bar(i).is_multiple_of(2))
+                .collect()
+        } else {
+            let start = self.first_downbeat % 2;
+            (start..self.beats.len()).step_by(2).collect()
+        };
+        let position = |i: usize| keep.partition_point(|&k| k < i);
         let mut g = self.clone();
         g.bpm /= 2.0;
-        g.beats = beats;
-        g.first_downbeat = (self.first_downbeat - start) / 2;
-        g.phase3 = (self.phase3.saturating_sub(start)) / 2;
-        g.phase4 = (self.phase4.saturating_sub(start)) / 2;
+        g.beats = keep.iter().map(|&i| self.beats[i]).collect();
+        g.first_downbeat = position(self.first_downbeat);
+        g.phase3 = self.phase3 / 2;
+        g.phase4 = self.phase4 / 2;
         // los «1» que caen en un pulso de los que se quedan
         g.bars = self
             .bars
             .iter()
-            .filter(|&&b| b >= start && (b - start).is_multiple_of(2))
-            .map(|&b| (b - start) / 2)
+            .filter(|&&b| keep.binary_search(&b).is_ok())
+            .map(|&b| position(b))
             .collect();
         g
     }
@@ -767,6 +805,7 @@ fn analyze_frames(frames: FrameAnalyzer, hint_bpm: Option<f32>) -> Result<BeatGr
         phase4,
         confidence: ((contrast - 0.5) / 1.5).clamp(0.0, 1.0) as f32,
         bars: Vec::new(),
+        closed: false,
     })
 }
 
@@ -1106,6 +1145,7 @@ mod tests {
             phase4: 1,
             confidence: 1.0,
             bars: Vec::new(),
+            closed: false,
         };
         assert_eq!(g.next_beat(0.0), (0, 0.25, false));
         assert_eq!(g.next_beat(0.75), (1, 0.75, true));
@@ -1146,6 +1186,7 @@ mod tests {
             phase4: 3,
             confidence: 1.0,
             bars: Vec::new(),
+            closed: false,
         };
         // sin acento: ningun pulso es el «1», y correrlo no cambia nada
         let none = g.with_meter(0);
@@ -1351,6 +1392,7 @@ mod tests {
             phase4: 0,
             confidence: 0.9,
             bars: vec![0, 4, 8, 10, 14],
+            closed: false,
         }
     }
 
@@ -1374,6 +1416,47 @@ mod tests {
         let waltz = g.with_meter(3);
         assert_eq!(waltz.bars, [0usize; 0]);
         assert_eq!((0..9).filter(|&i| waltz.is_downbeat(i)).count(), 3);
+    }
+
+    /// Un tramo sin pulso (una parte libre) y lo que queda despues del ultimo
+    /// pulso de una rejilla cerrada van sin clic: ni el doble mete golpes en
+    /// el hueco, ni se sigue al tempo pasado el final.
+    #[test]
+    fn a_hole_and_a_closed_end_stay_silent() {
+        let mut beats: Vec<f64> = (0..8).map(|i| 0.5 * f64::from(i)).collect();
+        beats.extend((0..8).map(|i| 6.2 + 0.5 * f64::from(i)));
+        let g = BeatGrid {
+            beats,
+            bars: vec![0, 4, 8, 12],
+            closed: true,
+            ..irregular()
+        };
+        assert!(g.beat_time(16).is_infinite());
+        assert!(g.next_beat(9.9).1.is_infinite(), "despues del ultimo, nada");
+        let d = g.doubled();
+        assert!(!d.beats.iter().any(|&b| b > 3.6 && b < 6.1), "nada en el hueco");
+        assert_eq!(d.beats.len(), 30, "ni despues del ultimo");
+        assert_eq!(d.bars, [0, 8, 15, 23]);
+        assert!(d.beat_time(30).is_infinite());
+        // abierta, como las de antes: pasado el ultimo, al tempo
+        let open = BeatGrid { closed: false, ..g };
+        assert!((open.beat_time(16) - 10.2).abs() < 1e-9);
+    }
+
+    /// La mitad se queda con el 1 y el 3 de cada compas: con un compas de
+    /// tres en medio, contar uno de cada dos desde el principio perdia todos
+    /// los «1» de despues.
+    #[test]
+    fn halving_keeps_every_one() {
+        let g = BeatGrid {
+            bars: vec![0, 4, 7, 11],
+            ..irregular()
+        };
+        let h = g.halved();
+        assert_eq!(h.bars.len(), g.bars.len());
+        let ones: Vec<f64> = h.bars.iter().map(|&b| h.beats[b]).collect();
+        let before: Vec<f64> = g.bars.iter().map(|&b| g.beats[b]).collect();
+        assert_eq!(ones, before);
     }
 
     /// Lo que llega de fuera se revisa: pulsos en orden, un tempo tocable, y

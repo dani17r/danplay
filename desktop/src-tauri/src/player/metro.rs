@@ -104,11 +104,19 @@ impl Metro {
         }
         let speed = f64::from(speed.max(0.05));
         let st = self.state();
-        let (period, meter, first, to_beat) = match &self.effective {
-            Some(grid) => {
-                let (index, t, _) = grid.next_beat(position);
+        let next_in_grid = self.effective.as_ref().and_then(|grid| {
+            let (index, t, _) = grid.next_beat(position);
+            // pasado el ultimo pulso de una rejilla cerrada no hay siguiente
+            t.is_finite().then_some((grid, index, t))
+        });
+        let (period, meter, first, to_beat) = match next_in_grid {
+            Some((grid, index, t)) => {
                 let next = grid.beat_time(index + 1);
-                let period = if next > t { next - t } else { grid.period() };
+                let period = if next.is_finite() && next > t {
+                    next - t
+                } else {
+                    grid.period()
+                };
                 (period, grid.meter, grid.beat_in_bar(index), (t - position).max(0.0))
             }
             None => (60.0 / f64::from(st.bpm.clamp(MIN_BPM, MAX_BPM)), st.meter, 0, 0.0),
@@ -232,10 +240,15 @@ pub(super) fn plan(metro: &Metro, speed: f32, position: f64, playing: bool, shar
         let (delay, first) = match &metro.effective {
             Some(grid) if aligns => {
                 let (index, t, _) = grid.next_beat(position);
-                (
-                    ((t - position) / f64::from(speed.max(0.05))).max(0.0),
-                    grid.beat_in_bar(index),
-                )
+                // pasado el ultimo pulso de una rejilla cerrada: a su aire, ya
+                if t.is_finite() {
+                    (
+                        ((t - position) / f64::from(speed.max(0.05))).max(0.0),
+                        grid.beat_in_bar(index),
+                    )
+                } else {
+                    (0.0, 0)
+                }
             }
             _ => (0.0, 0),
         };
@@ -283,6 +296,7 @@ mod tests {
             phase4: 0,
             confidence: 0.9,
             bars: Vec::new(),
+            closed: false,
         });
         let mut m = Metro::default();
         m.set(settings, Some(("cancion.mp3".into(), grid)), "cancion.mp3");
@@ -329,6 +343,45 @@ mod tests {
         assert_eq!(planned(&m, 10.3, true, Replan::Song).0, 1);
         assert_eq!(planned(&m, 10.3, false, Replan::Song).0, 0);
         assert_eq!(planned(&m, 10.3, true, Replan::Resync).0, 0);
+    }
+
+    /// Pasado el ultimo pulso de una rejilla cerrada (un final sin pulso) no
+    /// hay con que alinearse: el tempo a mano suena ya, a su aire, y la
+    /// cuenta va al tempo de la rejilla y la cancion entra al acabar.
+    #[test]
+    fn past_a_closed_grid_the_hand_tempo_and_the_count_still_sound() {
+        let grid = Arc::new(BeatGrid {
+            bpm: 120.0,
+            meter: 4,
+            beats: (0..40).map(|i| 0.25 + 0.5 * f64::from(i)).collect(),
+            first_downbeat: 0,
+            phase3: 0,
+            phase4: 0,
+            confidence: 0.9,
+            bars: Vec::new(),
+            closed: true,
+        });
+        let mut m = Metro::default();
+        let hand = MetronomeSettings {
+            on: true,
+            bpm: Some(90.0),
+            volume: 0.8,
+            count_in: 1,
+            ..Default::default()
+        };
+        m.set(hand, Some(("cancion.mp3".into(), grid)), "cancion.mp3");
+        let (_, mode) = planned(&m, 30.0, true, Replan::Settings);
+        assert!(
+            matches!(mode, Mode::Free { delay, first: 0, .. } if delay.abs() < 1e-9),
+            "{mode:?}"
+        );
+        let c = m.count_in(30.0, 1.0).expect("hay cuenta");
+        assert!(c.delay.is_finite() && c.song_in.is_finite(), "{c:?}");
+        assert!(
+            (c.song_in - 4.0 * 60.0 / 90.0).abs() < 1e-9,
+            "entra al acabar: {}",
+            c.song_in
+        );
     }
 
     /// La cuenta sigue a la cancion: al tempo y en el compas de su rejilla,

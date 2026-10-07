@@ -604,6 +604,7 @@ fn pitch_and_metronome_ride_along_with_the_song() {
         phase4: 0,
         confidence: 0.9,
         bars: Vec::new(),
+        closed: false,
     });
     m.send(Command::Metronome {
         settings: settings.clone(),

@@ -134,4 +134,20 @@ describe('los «1» de Beat This!, compás a compás, como en Rust', () => {
     expect(waltz.bars).toBeUndefined()
     expect(ones(waltz, 9)).toHaveLength(3)
   })
+  // las mismas que `a_hole_and_a_closed_end_stay_silent` y `halving_keeps_every_one`
+  it('el doble no mete golpes en un hueco sin pulso ni después del final', () => {
+    const beats = [
+      ...Array.from({ length: 8 }, (_, i) => 0.5 * i),
+      ...Array.from({ length: 8 }, (_, i) => 6.2 + 0.5 * i)
+    ]
+    const d = doubled({ ...irregular(), beats, bars: [0, 4, 8, 12], closed: true })
+    expect(d.beats.some((b) => b > 3.6 && b < 6.1)).toBe(false)
+    expect(d.beats).toHaveLength(30)
+    expect(d.bars).toEqual([0, 8, 15, 23])
+  })
+  it('la mitad se queda con todos los «1», aunque haya un compás de tres', () => {
+    const g = { ...irregular(), bars: [0, 4, 7, 11] }
+    const h = halved(g)
+    expect(h.bars.map((b) => h.beats[b])).toEqual(g.bars.map((b) => g.beats[b]))
+  })
 })

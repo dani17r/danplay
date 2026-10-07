@@ -69,6 +69,7 @@
  * @property {number} phase3
  * @property {number} phase4
  * @property {number} confidence
+ * @property {boolean} [closed]    acaba en su último pulso: después no hay clic
  */
 /**
  * @typedef {Object} PlaybackState  Lo que Rust cuenta en `danplay://state`.
