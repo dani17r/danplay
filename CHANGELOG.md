@@ -3,6 +3,34 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.22.0 — 2026-10-07
+
+El metrónomo, revisado canción por canción sobre una biblioteca de verdad:
+ya no se acelera a ratos, no mete golpes donde no van, el «1» cae donde
+toca y el clic está más sentado.
+
+### Metrónomo
+
+- **Un solo pulso de principio a fin.** La red que saca el pulso lo oía, a
+  tramos, al doble (el «y» de cada tiempo) o a la mitad, y el clic iba a 68
+  y de pronto a 136 dentro de la misma canción; con ×2 encima, esos tramos
+  iban a cuatro veces el tempo. Ahora se elige el pulso que se mantiene
+  estable, y los golpes sueltos de más o de menos desaparecen.
+- **El «1» donde toca.** Los compases salían de 1, 2, 5 u 8 tiempos cuando
+  la red no oía un «1»; ahora el compás se mantiene, y solo cambia (el 2/4
+  antes del coro) si la canción lo marca de verdad. El acento vuelve a
+  servir.
+- **Más preciso.** Cada clic caía hasta 10 ms antes o después de su sitio (la
+  red mira cada 20 ms); ahora, a 1–2 ms.
+- **Sin clic donde no hay pulso**: una intro libre, un final en vivo sin
+  tempo o un acorde que se apaga ya no llevan clics a trompicones. Un trozo a
+  tempo en el que la banda calla sigue con clic.
+- **A otra velocidad, a tiempo.** Despacio (y con el tono corrido), el clic
+  llegaba tarde: unos 20 ms a 0,5×. Corregido.
+- Las rejillas guardadas se vuelven a calcular solas la próxima vez.
+- `scripts/revisar-metronomo.py` pasa por toda tu biblioteca y dice, canción
+  por canción, qué hace mal la red y cómo queda el clic.
+
 ## 1.21.0 — 2026-10-07
 
 Los acordes y el tono salen de cifrados publicados por músicos, con su

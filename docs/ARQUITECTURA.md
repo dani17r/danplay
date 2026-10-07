@@ -491,11 +491,73 @@ anotado):
 | Beat This! pequeño (2 M de parámetros) | 0,854 | 0,701 | 0,931 | 0,868 |
 | **Beat This! (20 M), el de la app** | **0,862** | **0,721** | **0,940** | **0,881** |
 
-El «1» casi se duplica. La rejilla que usa la app no deja huecos (donde la
-red no oye pulso, en una parte sin ritmo, se rellena al tempo de alrededor:
-el clic no puede callarse ahí) y lleva **el «1» de cada compás** tal como lo
-oye la red (`bars`): el 2/4 antes del coro sale como tal. Medido, así
-acierta más el «1» (0,701) que forzando un compás regular (0,677).
+El «1» casi se duplica.
+
+**La rejilla que suena** (`pulse.grid`, desde 1.22) no es lo que dice la red
+tal cual. Pasando la red canción por canción por una biblioteca de alabanza
+de verdad (`scripts/revisar-metronomo.py`), en tres de cada cuatro canciones
+la red oye el pulso **a otro nivel durante unos compases** (el «y» de cada
+tiempo, o la mitad) y deja golpes sueltos de más o de menos; la rejilla de
+antes los llevaba tal cual, rellenaba los huecos con el tempo de toda la
+canción (que, con tramos al doble, salía al doble) y el clic se aceleraba
+y frenaba dentro de la canción. Con ×2 encima, esos tramos iban a cuatro
+veces el tempo. Además la red mira cada 20 ms, y el clic bailaba ±10 ms de
+golpe a golpe (un tempo de 148 salía a ratos 143 y 157), y el «1» salía en
+compases de 1, 2, 5 u 8 tiempos: quien lo usaba acababa quitando el acento o
+poniendo el tempo a mano. Ahora:
+
+- **Un solo nivel de pulso.** Entre los máximos de la red (también los
+  flojos, de más del 20 %) se elige por programación dinámica la cadena con
+  más probabilidad y menos tirones respecto al tempo de alrededor (llevado
+  al nivel del dominante, así que acelerar o un popurrí cambian el tempo y
+  no el nivel; hasta un 28 %, que es un popurrí de 87 a 111: más lejos es la
+  red confundiendo un tresillo). Saltarse un candidato no cuesta; un pulso
+  que falta, sí; después de un hueco largo se puede empezar otra cadena. Dos
+  pasadas: el tempo de alrededor de la segunda sale de la primera cadena, que
+  ya va en un nivel (con el de la red tal cual, un popurrí que empezaba más
+  rápido que el resto se quedaba con un tempo atrasado y la rejilla
+  inventaba los pulsos en vez de seguir los de la red). El tempo dominante
+  es el que más se repite, intervalo a intervalo, como la mediana de antes:
+  ante la duda, el nivel rápido, y el ×2 que ya hubiera puesto alguien sigue
+  valiendo lo mismo.
+- **Afinado.** Cada pulso en el vértice de la parábola por su trama y las
+  dos de al lado, y alisado con la recta de sus cuatro vecinos de cada lado
+  donde el tramo va regular: en golpes sintéticos a instantes exactos, de
+  ±6,3 ms a ±1,1 ms. (La red llega unos 5 ms tarde a esos golpes, pero
+  corregirlo empeora frente a las anotaciones de GTZAN: no se corrige.)
+- **El «1» con un modelo de compás** (Viterbi): el tiempo del compás como
+  estado; cortar un compás o alargarlo un tiempo cuesta, así que solo pasa
+  si los «1» de la red lo piden una y otra vez (el 2/4 antes del coro sigue
+  saliendo). Un «1» que la red no oye ya no rompe el compás. 4/4 salvo que el
+  3 cuadre claramente mejor.
+- **Sin clic donde no hay pulso**: antes del primero (una intro libre),
+  después del último (un final en vivo, un acorde que se apaga: la rejilla
+  va `closed` y Rust no sigue al tempo) y en un hueco que no es un número
+  entero de pulsos (una parte libre). Un hueco a tempo (un puente en el que
+  la banda calla) se rellena. El doble no mete golpes en los huecos y la
+  mitad se queda con el 1 y el 3 de cada compás, en Rust y en
+  `utils/beats.js`.
+
+Medido otra vez con `evaluar-pulso.py` en los mismos 300 fragmentos de GTZAN
+(con ±25 ms, lo fino; CMLt y AMLt, la continuidad: que el pulso siga en el
+mismo nivel):
+
+| | Pulso | ±25 ms | CMLt | AMLt | «1» |
+| --- | --- | --- | --- | --- | --- |
+| La rejilla de antes | 0,861 | 0,681 | 0,760 | 0,893 | 0,721 |
+| **La de 1.22** | 0,858 | **0,702** | **0,762** | **0,905** | 0,720 |
+
+En fragmentos de 30 s hay pocos cambios de nivel y el silencio de los
+extremos cuenta en contra (los fragmentos se cortan en mitad de la
+canción); donde se nota es en canciones enteras. En las 280 de la biblioteca
+(31,8 horas): los tramos a otro nivel pasan del 72 % de las canciones al
+10 % (lo que queda son cambios de tempo de verdad, popurrís y finales en
+vivo: un 1,5 % del audio, y se siguen), los golpes sueltos del 76 % al 5 %,
+los compases irregulares del 70 % al 1 % y el baile del clic de 5,9 a 1,5 ms. Aflojar la cadena (menos castigo a los tirones)
+daba +0,004 en GTZAN y doblaba los tramos a otro nivel en la biblioteca: no.
+Contra los golpes de la propia música (el flujo espectral, calibrado con
+golpes sintéticos) el clic cae a −1 ms de mediana: no había un retraso
+general.
 
 El análisis de reserva, en Rust (`beats.rs`), sin modelos: envolvente de
 ataques por FFT (flujo espectral), tempo por autocorrelación con un prior
@@ -583,7 +645,12 @@ La velocidad la aplica ffmpeg
 (`atempo`) al decodificar —cualquier formato pasa por él cuando no es 1×—,
 así que el tono no se mueve; rodio cuenta entonces en tiempo de salida y el
 reproductor convierte a segundos de la canción en las posiciones, las
-búsquedas y el bucle. Sin ffmpeg, rodio cambia la velocidad a la antigua y
+búsquedas y el bucle. `atempo` y `rubberband` estiran por ventanas y lo que
+suena sale unos milisegundos antes de esa cuenta: medido con golpes a
+instantes exactos, unos 7 ms de canción entre 0,7× y 0,95×, 11 ms más
+despacio y 13 ms con el tono corrido. El clic llegaba tarde (20 ms de reloj
+a 0,5×); la posición suma ese adelanto (`transcode::filter_lead`). A 1× la
+canción va por rodio y coincide muestra a muestra con lo que se analizó. Sin ffmpeg, rodio cambia la velocidad a la antigua y
 la barra avisa de que el tono cambia. Los tramos viven en el hilo de audio
 (al pasar del final de uno, al principio del siguiente), y en el navegador
 los recorre el `<audio>`. Lo que se
