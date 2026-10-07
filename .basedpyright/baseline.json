@@ -20,14 +20,6 @@
         ],
         "./tests/test_ai.py": [
             {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 26,
-                    "endColumn": 37,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 11,
@@ -180,30 +172,6 @@
                 }
             },
             {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 14,
-                    "endColumn": 25,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 26,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 14,
-                    "endColumn": 25,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 11,
@@ -220,22 +188,6 @@
                 }
             },
             {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 22,
-                    "endColumn": 33,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 22,
-                    "endColumn": 33,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 11,
@@ -246,24 +198,8 @@
             {
                 "code": "reportAttributeAccessIssue",
                 "range": {
-                    "startColumn": 18,
-                    "endColumn": 29,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
                     "startColumn": 9,
                     "endColumn": 15,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 14,
-                    "endColumn": 25,
                     "lineCount": 1
                 }
             },
@@ -288,54 +224,6 @@
                 "range": {
                     "startColumn": 18,
                     "endColumn": 29,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 22,
-                    "endColumn": 33,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 29,
-                    "endColumn": 40,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 22,
-                    "endColumn": 33,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 14,
-                    "endColumn": 25,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 18,
-                    "endColumn": 29,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 21,
-                    "endColumn": 32,
                     "lineCount": 1
                 }
             },
@@ -420,22 +308,6 @@
                 }
             },
             {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 29,
-                    "endColumn": 40,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 26,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 11,
@@ -512,30 +384,6 @@
                 "range": {
                     "startColumn": 48,
                     "endColumn": 66,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 14,
-                    "endColumn": 25,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 21,
-                    "endColumn": 32,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 14,
-                    "endColumn": 25,
                     "lineCount": 1
                 }
             },

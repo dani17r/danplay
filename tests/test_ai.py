@@ -10,6 +10,7 @@ import json
 import os
 import pathlib
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -47,6 +48,14 @@ class _Msg:
         self.content, self.tool_calls = content, tool_calls
 
 
+class _ApiError(Exception):
+    """Lo que lanza el SDK de openai: el texto y el codigo HTTP."""
+
+    def __init__(self, text, status_code):
+        super().__init__(text)
+        self.status_code = status_code
+
+
 class _FakeClient:
     """Un proveedor de mentira: `rejects` dice que parametros rechaza (con el
     texto de error que daria), `answers` lo que contesta."""
@@ -69,9 +78,7 @@ class _FakeClient:
                         else kw.get("tool_choice") == "required"
                     )
                     if present:
-                        e = Exception(text)
-                        e.status_code = 400
-                        raise e
+                        raise _ApiError(text, 400)
                 return type(
                     "r", (), {"choices": [type("c", (), {"message": _Msg(outer.answer)})()]}
                 )()
@@ -92,7 +99,7 @@ class _FakeClient:
                     },
                 )()
 
-        self.chat = type("chat", (), {"completions": _Completions})()
+        self.chat = SimpleNamespace(completions=_Completions)
         self.models = _Models()
 
 
@@ -476,11 +483,10 @@ def test_la_lista_de_modelos_cruza_con_el_catalogo(perfiles, monkeypatch):
 
 
 def _error(status, text):
-    e = Exception(
-        f"Error code: {status} - [{{'error': {{'code': {status}, 'message': '{text}'}}}}]"
+    return _ApiError(
+        f"Error code: {status} - [{{'error': {{'code': {status}, 'message': '{text}'}}}}]",
+        status,
     )
-    e.status_code = status
-    return e
 
 
 def test_solo_se_enseñan_los_modelos_que_la_clave_puede_usar(perfiles, monkeypatch):
