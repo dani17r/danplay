@@ -417,7 +417,7 @@ mod tests {
     fn silent_without_a_plan() {
         let shared: Shared = Arc::new(Mutex::new(Plan::default()));
         let mut c = click(shared);
-        assert!(hits(&mut c, 2.0).is_empty());
+        assert_eq!(hits(&mut c, 2.0), []);
     }
 
     #[test]
@@ -633,7 +633,7 @@ mod tests {
             p.generation = 3;
             p.mode = Mode::Off;
         }
-        assert!(hits(&mut c, 2.0).is_empty());
+        assert_eq!(hits(&mut c, 2.0), []);
     }
 
     /// El reenganche de rutina afina donde cae el proximo pulso, pero no

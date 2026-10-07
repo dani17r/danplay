@@ -248,7 +248,8 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::float_cmp, reason = "son cuentas exactas: 1 por 1, la mitad de 1")]
+    // `allow` y no `expect`: clippy 1.99 ya no avisa aqui y el 1.98 si
+    #[allow(clippy::float_cmp, reason = "son cuentas exactas: 1 por 1, la mitad de 1")]
     fn the_balance_matches_what_the_core_saves() {
         assert_eq!(balance(1.0, 0.0, true), [1.0, 1.0]);
         assert_eq!(balance(0.5, -1.0, true), [0.5, 0.0]);

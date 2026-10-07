@@ -300,8 +300,8 @@ mod tests {
         let (more, _) = audio::columns(&blocks, 8);
         assert_eq!(more.len(), 8);
         assert_eq!(more[0].to_bits(), more[1].to_bits());
-        assert!(audio::columns(&[], 5).0.is_empty());
-        assert!(audio::columns(&blocks, 0).0.is_empty());
+        assert_eq!(audio::columns(&[], 5).0, [0.0f32; 0]);
+        assert_eq!(audio::columns(&blocks, 0).0, [0.0f32; 0]);
     }
 
     #[test]
@@ -392,7 +392,7 @@ mod tests {
     fn invalid_file_is_an_error_not_a_panic() {
         let f = temp_file("dp_g.mp3", b"esto no es audio");
         let err = audio::waveform(&f, 10).unwrap_err();
-        assert!(!err.is_empty());
+        assert_ne!(err, "");
         assert_eq!(publish_one(&f, audio::waveform(&f, 10)), None);
         assert!(last_error().unwrap().starts_with(&f.display().to_string()));
     }

@@ -246,7 +246,10 @@ mod tests {
     #[test]
     fn an_argument_that_is_a_flag_never_plays() {
         // el sistema y GTK meten los suyos; ninguno debe acabar sonando
-        assert!(files_in(vec!["--gdk-debug=misc".into(), "-psn_0_12345".into()], None).is_empty());
+        assert_eq!(
+            files_in(vec!["--gdk-debug=misc".into(), "-psn_0_12345".into()], None),
+            Vec::<String>::new()
+        );
     }
 
     /// Una ruta relativa se entiende desde la carpeta de quien la mando (la
@@ -259,7 +262,10 @@ mod tests {
         let found = files_in(vec!["aqui.mp3".into()], Some(&dir));
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].ends_with("aqui.mp3"));
-        assert!(files_in(vec!["aqui.mp3".into()], Some(Path::new("/no/existe"))).is_empty());
+        assert_eq!(
+            files_in(vec!["aqui.mp3".into()], Some(Path::new("/no/existe"))),
+            Vec::<String>::new()
+        );
         let _ = std::fs::remove_file(dir.join("aqui.mp3"));
     }
 

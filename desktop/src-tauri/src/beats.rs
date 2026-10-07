@@ -1372,7 +1372,7 @@ mod tests {
         // el mismo compas no cambia nada; otro, puesto a mano, es regular
         assert_eq!(g.with_meter(4), g);
         let waltz = g.with_meter(3);
-        assert!(waltz.bars.is_empty());
+        assert_eq!(waltz.bars, [0usize; 0]);
         assert_eq!((0..9).filter(|&i| waltz.is_downbeat(i)).count(), 3);
     }
 

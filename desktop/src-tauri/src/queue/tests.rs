@@ -132,7 +132,7 @@ fn a_session_from_an_older_version_does_not_stop_the_app() {
     // limpio: perder la cola no puede impedir abrir DanPlay.
     let back: Result<Session, _> = serde_json::from_slice(b"{\"items\":[]}");
     assert!(back.is_ok(), "un json incompleto deberia dar una sesion vacia");
-    assert!(back.unwrap().items.is_empty());
+    assert_eq!(back.unwrap().items, []);
 }
 
 #[test]
@@ -223,8 +223,8 @@ fn restoring_when_nothing_is_left_starts_empty() {
         ..Default::default()
     };
     apply(&mut inner, Command::Restore(session), &player, &nowhere());
-    assert!(inner.items.is_empty());
-    assert!(inner.current_path.is_empty());
+    assert_eq!(inner.items, []);
+    assert_eq!(inner.current_path, "");
     let state = compose(&inner, &player::State::default());
     assert!(
         state.track.is_none(),
@@ -364,7 +364,7 @@ fn a_failed_start_tells_the_player_why_instead_of_playing_nothing() {
     let mut inner = inner_with(vec![track(1), track(2)], 0);
     assert!(!start(&mut inner, 1, &player, &nowhere()));
     assert_eq!(inner.index, 1, "la posicion se mueve igual: es la que se pidio");
-    assert!(inner.current_path.is_empty());
+    assert_eq!(inner.current_path, "");
     std::thread::sleep(std::time::Duration::from_millis(300));
     let state = player.state();
     assert!(
@@ -385,7 +385,7 @@ fn advancing_skips_what_cannot_be_located() {
     let mut inner = inner_with(vec![track(1), track(2), good], 0);
     advance(&mut inner, &player, &nowhere());
     assert_eq!(inner.index, 2, "deberia haber saltado la que no se encuentra");
-    assert!(!inner.current_path.is_empty());
+    assert_ne!(inner.current_path, "");
 }
 
 #[test]
@@ -396,7 +396,7 @@ fn advancing_gives_up_after_one_full_round() {
     advance(&mut inner, &player, &nowhere()); // ninguna se localiza
     // no se queda en bucle: vuelve, y el reproductor tiene el motivo
     std::thread::sleep(std::time::Duration::from_millis(300));
-    assert!(!player.state().error.is_empty());
+    assert_ne!(player.state().error, "");
 }
 
 /// Un nucleo que acepta la conexion y no contesta nunca (colgado).

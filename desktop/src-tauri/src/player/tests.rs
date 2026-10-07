@@ -158,7 +158,7 @@ fn non_audio_reports_an_error() {
     })
     .unwrap();
     let s = until(&m, |s| !s.error.is_empty());
-    assert!(!s.error.is_empty());
+    assert_ne!(s.error, "");
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn a_failure_from_the_queue_is_reported_verbatim() {
     assert!(told, "deberia haber salido un Changed con el error");
     // un stop despues limpia el error
     m.send(Command::Stop).unwrap();
-    assert!(until(&m, |s| s.error.is_empty()).error.is_empty());
+    assert_eq!(until(&m, |s| s.error.is_empty()).error, "");
 }
 
 /// Las ordenes que no necesitan sonido no se pierden aunque no haya
