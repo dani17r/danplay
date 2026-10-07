@@ -3,6 +3,46 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.21.0 — 2026-10-07
+
+Los acordes y el tono salen de cifrados publicados por músicos, con su
+enlace, y no de la memoria de la IA. Si no se encuentran, se dice.
+
+### Acordes
+
+- **Buscar acordes**, en la ficha de la canción: se buscan a la vez en
+  Ultimate Guitar y en LaCuerda, cada una con su propio buscador (sin claves,
+  y sin buscadores generales, que cortan si se les pregunta seguido). Tarda
+  unos 5 segundos y no necesita IA.
+- **Leídos tal cual.** Los acordes son los que la página marca como acordes,
+  por partes (intro, verso, coro…). Con **Cifrado entero** se ven sobre la
+  letra. Siempre se dice de dónde salen («De Ultimate Guitar: … · 157
+  votos»), y un clic abre la página para comprobarlo.
+- **El tono, solo si el cifrado lo dice.** Si no lo dice, pone «El cifrado
+  no dice el tono» y se puede subir o bajar por semitonos. Con tono, se
+  transpone a otro como antes. Entre varias versiones de la misma canción
+  gana la que dice su tono y han votado otros.
+- **Si no está, no se inventa.** «No hay cifrado de esta canción en Ultimate
+  Guitar ni LaCuerda», y **Buscar otra vez** cuando quieras. Las versiones de
+  otros, las drum cams y los popurrís no se buscan: no se sabe de quién es la
+  original.
+- Medido en 80 canciones de una biblioteca de alabanza: encuentra 58 (72 %;
+  82 % sin versiones ni popurrís), todas la canción correcta, y 28 traen su
+  tono. `scripts/evaluar-acordes.py` lo mide sobre la tuya.
+
+### Asistente e IA
+
+- La IA **ya no da tono ni acordes**: antes los decía de memoria, como
+  aproximación. «Ver detalles IA» queda para el álbum, los artistas y el
+  contexto.
+- El asistente tiene `get_chords`: busca el cifrado, da la fuente y el enlace,
+  y si no lo encuentra tiene dicho que no los saque de memoria.
+- **Rellenar información** pone el tono desde el cifrado, solo si lo dice y se
+  toca sin cejilla (con cejilla, lo escrito no es lo que suena). Eso ya no
+  necesita IA.
+- La hoja para el atril lleva los acordes del cifrado por partes, y de dónde
+  salen.
+
 ## 1.20.3 — 2026-10-07
 
 Mantenimiento: las dependencias al día y las pruebas en verde otra vez. No

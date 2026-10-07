@@ -740,7 +740,7 @@ cae dentro de una carpeta de pistas, entra en la biblioteca como una más.
 
 Un repertorio se exporta también como **hoja para el atril**: un HTML en
 `Listas/` con cada canción, su tono (americano y latino), bpm, cejilla
-sugerida y los acordes por secciones si la IA los dio, y la letra si se
+sugerida y los acordes por partes si se encontró su cifrado (con la fuente), y la letra si se
 pide. Se abre con el navegador y se imprime o se guarda como PDF desde ahí:
 sin ninguna librería de PDF que empaquetar. `theory.related_keys` da los
 tonos vecinos de uno (relativo, dominante, subdominante) para armar un set
@@ -976,9 +976,10 @@ manda como tabla, con las claves una sola vez en la cabecera y una fila por
 canción. Medido sobre resultados reales, la mitad de tokens en una búsqueda
 (54 %) y un 47 % en conjunto. El modelo recibe una explicación de dos líneas del
 formato; lo que él devuelve sigue siendo JSON, que es lo que garantizan los
-modos JSON de los proveedores. Y una ficha de IA guardada sin tono ni acordes
+modos JSON de los proveedores. Y una ficha de IA guardada con confianza baja
 (la dio un modelo que no conocía la canción) no se reutiliza: se vuelve a
-preguntar, que con otro modelo puede salir.
+preguntar, que con otro modelo puede salir. El tono y los acordes no se le
+preguntan a la IA (§ Acordes y tono, de un cifrado publicado).
 
 **Descargar se pide, no se espera.** Una descarga tarda minutos y la
 conversación no puede quedarse colgada: al aprobarla, el núcleo la arranca en
@@ -987,6 +988,66 @@ vez, reservado con `youtube.claim()`), y el chat la sigue y cuenta el
 resultado cuando acaba. Si algo ya estaba en la biblioteca no se baja, se
 dice; y si el usuario la quiere igualmente como otra versión, el asistente
 repite la petición con `force`.
+
+## Acordes y tono, de un cifrado publicado
+
+Hasta 1.20 la IA daba el tono y los acordes de memoria, como «aproximación».
+Desde 1.21 salen de cifrados que alguien publicó (`cifrados.py`), y si no se
+encuentran no hay. La IA no escribe ni un acorde.
+
+**Las fuentes, cada una con su buscador.** Los buscadores generales gratuitos
+cortan si se les pregunta seguido (DuckDuckGo devolvía 0 resultados a la
+segunda consulta), y no hay ninguno sin límites que no pida clave. Así que se
+pregunta a las páginas de acordes directamente, las dos a la vez:
+
+- **Ultimate Guitar**: `search.php` y la página del cifrado. Los datos van en
+  JSON dentro de la página (`js-store`): el tono que puso quien lo escribió
+  (`tonality_name`), la cejilla, los votos, las partes (`[Coro]`) y cada
+  acorde marcado (`[ch]G[/ch]`). Su buscador responde 404 cuando no hay nada:
+  eso es «no está», no una caída, y se prueba con el título solo. Solo los
+  cifrados de acordes públicos (no los «Pro» ni los «Official», de pago).
+- **LaCuerda**: la página del artista lista todas sus canciones; cada versión
+  marca los acordes con `<A>`, y la primera de la lista es la mejor valorada.
+  No guarda el tono.
+
+Cifra Club tiene buscador abierto pero bloquea las páginas a lo que no sea un
+navegador (Akamai), y AcordesWeb no guarda el tono: no están.
+
+**Qué se lee.** Los acordes son los que la página marca como acordes; las
+partes, sus corchetes o una línea que es solo «Coro:», «VERSO 2» o «Pre-Coro»
+(«Coro de ángeles» es letra). El tono, de los datos de la fuente o de una
+línea «Tono: A» en la cabecera del propio texto, y solo si es un tono que se
+puede transponer. Entre versiones gana la que dice su tono y han votado al
+menos tres; si no, la más votada. Cada línea guarda si es de acordes, porque al
+transponer solo se tocan esas: en la letra, «Dios» no es un Re.
+
+**Qué cuenta como la misma canción** (`same_song`). El título, con las mismas
+palabras exactas, sin ruido («en Español», «Live», lo que va entre paréntesis)
+y sin el artista que los canales meten delante: «Hay libertad» no es «Hay
+libertad en la casa de Dios». El artista, si comparte una palabra, si se
+escribe igual sin espacios («SovereignGraceMusic») o si va dentro del título.
+Una versión de otro («(cover)»), una drum cam o un popurrí no se buscan: no se
+sabe de quién es la original, y el mismo título de otro artista suele ser otra
+canción.
+
+**Medido** con `scripts/evaluar-acordes.py` sobre 80 canciones al azar de una
+biblioteca de alabanza (solo lectura, un segundo entre una y otra):
+
+| | |
+| --- | --- |
+| Encontradas | 58 de 80 (72 %); 58 de 71 sin versiones, drum cams ni popurrís (82 %) |
+| La canción equivocada | 0 de 58, revisadas a mano |
+| Con tono de la fuente | 28 de 80 (35 %) |
+| De dónde | 50 de Ultimate Guitar, 8 de LaCuerda |
+| Tiempo | mediana 5,3 s, peor 9,3 s |
+
+**Se guarda** en la columna `chords`, junto a la ficha de la IA y sin pisarla
+(`sheet`, `sheet_checked`, `sheet_tried`). Que no esté también se guarda (no
+se vuelve a buscar sola cada vez que se abre la ficha); que una fuente no
+respondiera, no, porque es la red y no la canción. `has_chords` es que hay un
+cifrado, no que la columna tenga algo. «Rellenar información» pone el tono de
+la ficha desde el cifrado solo si lo dice y se toca sin cejilla: con cejilla
+lo escrito no es lo que suena.
 
 ## Laya, medido y descartado
 
