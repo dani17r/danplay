@@ -25,7 +25,7 @@ audioop-lts==0.2.2
     #   standard-sunau
 audioread==3.1.0
     # via pyacoustid
-basedpyright==1.40.1
+basedpyright==1.40.2
 brotli==1.2.0 ; implementation_name == 'cpython' and sys_platform != 'ios'
     # via yt-dlp
 brotlicffi==1.2.0.2 ; implementation_name != 'cpython'
@@ -46,7 +46,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via pytest
 coverage==7.16.2
     # via pytest-cov
-fastapi==0.141.1
+fastapi==0.142.2
     # via danplay
 flatbuffers==25.12.19
     # via onnxruntime
@@ -118,7 +118,7 @@ pydantic==2.13.5
     # via
     #   fastapi
     #   openai
-pydantic-core==2.46.5
+pydantic-core==2.49.0
     # via pydantic
 pygments==2.21.0
     # via pytest
@@ -179,7 +179,7 @@ uvicorn==0.54.0
     # via danplay
 watchdog==6.0.0
     # via danplay
-websockets==17.1
+websockets==17.2
     # via yt-dlp
 yt-dlp==2026.8.19
     # via danplay
