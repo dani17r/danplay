@@ -224,36 +224,52 @@ def test_enriquecer_guarda_letra_caratula_y_ficha(configured_library, monkeypatc
             "album": "desconocido",
             "year": "grabado en 2018",
             "genre": "Adoracion",
-            "likely_key": "Bb",
+            "likely_key": "Bb",  # un modelo de antes: el tono de memoria no se guarda
             "confidence": 0.8,
         },
     )
+    # un cifrado ya encontrado: lo de la IA se guarda a su lado sin pisarlo
+    library.update(song["id"], chords=json.dumps({"sheet": {"key": "G"}}))
     r = enrich.enrich(song["id"])
-    assert (
-        r["lyrics"] == "lrclib" and r["cover"].endswith("KB") and r["details"]["likely_key"] == "Bb"
-    )
+    assert r["lyrics"] == "lrclib" and r["cover"].endswith("KB") and r["details"]["genre"]
     c = library.by_id(song["id"])
+    assert c is not None
     assert c["lyrics"] == "Mi gozo" and c["cover"] == "embedded"
     assert c["album"] == "Gozo", "«desconocido» no pisa el album de verdad"
     assert c["year"] == "2018" and c["genre"] == "Adoracion"
-    assert json.loads(c["chords"])["likely_key"] == "Bb"
+    saved = json.loads(c["chords"])
+    assert saved["confidence"] == 0.8 and saved["sheet"] == {"key": "G"}
+    assert "likely_key" not in saved
     d = tags.read_all(song["path"])
     assert d["lyrics"] == "Mi gozo" and d["cover"] and d["genre"] == "Adoracion"
     assert enrich.enrich(999999) == {"error": "no existe esa cancion"}
 
 
-def test_transponer_la_ficha():
-    d = enrich.transpose_details(
-        {
-            "likely_key": "Bb",
-            "progression": "| Bb | Gm |",
-            "section_chords": {"coro": "| Eb | F |"},
-        },
-        "G",
-    )
-    assert d["progression"] == "| G | Em |" and d["section_chords"]["coro"] == "| C | D |"
-    assert d["likely_key"] == "G" and d["capo"]
-    assert enrich.transpose_details(None, "G") == {}
+def _sheet(key="Bb"):
+    return {
+        "key": key,
+        "sections": [
+            {
+                "name": "Coro",
+                "chords": ["Bb", "Gm"],
+                "lines": [{"t": "Bb      Gm", "c": True}, {"t": "Dios es bueno", "c": False}],
+            }
+        ],
+    }
+
+
+def test_transponer_el_cifrado_toca_solo_los_acordes():
+    d = enrich.transpose_sheet(_sheet(), to_key="G")
+    sec = d["sections"][0]
+    assert sec["chords"] == ["G", "Em"] and sec["lines"][0]["t"].split() == ["G", "Em"]
+    assert sec["lines"][1]["t"] == "Dios es bueno", "en la letra, «Dios» no es un Re"
+    assert d["key"] == "G" and d["capo_hint"]
+
+
+def test_sin_tono_se_transpone_por_semitonos():
+    d = enrich.transpose_sheet(_sheet(key=""), semitones=2)
+    assert d["sections"][0]["chords"] == ["C", "Am"] and d["key"] == ""
+    assert enrich.transpose_sheet(_sheet(), semitones=-1)["key"] == "A"
 
 
 # ------------------------------------------------------------------ la web

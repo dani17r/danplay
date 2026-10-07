@@ -741,7 +741,14 @@ describe('copiar textos', () => {
   })
 
   it('está donde hay texto que copiar: título, artista, letra y acordes', () => {
-    const chords = JSON.stringify({ progression: 'G D Em C', confidence: 0.9 })
+    const chords = JSON.stringify({
+      sheet: {
+        source: 'LaCuerda',
+        url: 'https://lc.example/x',
+        key: 'G',
+        sections: [{ name: '', chords: ['G', 'D'], lines: [] }]
+      }
+    })
     const w = mount(DetailsPanel, {
       props: { song: song(1, { lyrics: 'Mi gozo', chords }), aiReady: true }
     })

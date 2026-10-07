@@ -26,10 +26,12 @@ from ... import (
 from ..common import audio_type
 from ..models import (
     Blur,
+    ChordsIn,
     EnrichIn,
     Favorite,
     MoveIn,
     PathIn,
+    SheetTransposeIn,
     SongEdit,
     Stars,
     StudyIn,
@@ -264,6 +266,31 @@ def details(cid: int):
         raise HTTPException(404, "no existe")
     d, cached = enrich.details_for(c)
     return {"details": d, "cached": cached}
+
+
+@router.post("/api/song/{cid}/chords")
+def song_chords(cid: int, body: Annotated[ChordsIn | None, Body()] = None):
+    """El cifrado de la cancion, sacado de una pagina de acordes publicada y
+    con su enlace (nunca inventado). Lo guardado, o se busca si no se habia
+    buscado; con `refresh`, se busca otra vez."""
+    c = library.by_id(cid)
+    if not c:
+        raise HTTPException(404, "no existe")
+    r = enrich.chords(c, refresh=(body or ChordsIn()).refresh)
+    return {**r, "song": library.by_id(cid)}
+
+
+@router.post("/api/song/{cid}/chords/transposed")
+def song_chords_transposed(cid: int, body: Annotated[SheetTransposeIn, Body()]):
+    """El cifrado guardado, en otro tono (o subido o bajado unos semitonos si
+    el cifrado no dice el suyo). Lo guardado no cambia."""
+    c = library.by_id(cid)
+    if not c:
+        raise HTTPException(404, "no existe")
+    sheet = enrich.stored_sheet(c)
+    if not sheet:
+        raise HTTPException(404, "esta cancion no tiene cifrado")
+    return {"sheet": enrich.transpose_sheet(sheet, body.semitones, body.to_key)}
 
 
 @router.put("/api/song/{cid}/study")

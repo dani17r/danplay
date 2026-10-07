@@ -761,10 +761,14 @@ def test_las_herramientas_llegan_al_modelo_en_toon_y_pesan_menos(perfiles, monke
 def test_una_ficha_de_ia_vacia_no_se_reutiliza(monkeypatch):
     from danplay import enrich
 
-    vacia = json.dumps({"likely_key": "", "progression": "", "confidence": 0.2})
-    buena = json.dumps({"likely_key": "Bb", "progression": "| Bb | Gm |", "confidence": 0.8})
+    vacia = json.dumps({"album": "", "confidence": 0.2})
+    # de antes de 1.21: con el tono y los acordes que la IA decia de memoria
+    buena = json.dumps(
+        {"album": "Gozo", "likely_key": "Bb", "progression": "| Bb | Gm |", "confidence": 0.8}
+    )
     assert enrich.cached_details({"chords": vacia}) is None
-    assert enrich.cached_details({"chords": buena})["likely_key"] == "Bb"
+    assert enrich.cached_details({"chords": buena})["album"] == "Gozo"
+    assert "likely_key" not in (enrich.cached_details({"chords": buena}) or {}), "ya no se enseña"
     assert enrich.cached_details({"chords": ""}) is None
     assert enrich.cached_details({"chords": "esto no es json"}) is None
     # con una vacia guardada se vuelve a preguntar, y lo nuevo se guarda
@@ -773,15 +777,14 @@ def test_una_ficha_de_ia_vacia_no_se_reutiliza(monkeypatch):
         enrich,
         "details",
         lambda song: (
-            asked.append(song["id"])
-            or {"likely_key": "G", "progression": "| G |", "confidence": 0.7}
+            asked.append(song["id"]) or {"album": "Gozo", "likely_key": "G", "confidence": 0.7}
         ),
     )
     saved = {}
     monkeypatch.setattr(enrich.library, "update", lambda cid, **f: saved.update(f))
     d, cached = enrich.details_for({"id": 7, "chords": vacia})
-    assert asked == [7] and not cached and d["likely_key"] == "G"
-    assert json.loads(saved["chords"])["likely_key"] == "G"
+    assert asked == [7] and not cached and d["album"] == "Gozo"
+    assert json.loads(saved["chords"]) == {"album": "Gozo", "confidence": 0.7}
     d, cached = enrich.details_for({"id": 8, "chords": buena})
     assert cached and asked == [7], "la buena se reutiliza sin preguntar"
 
@@ -1371,8 +1374,11 @@ def test_una_confianza_que_no_es_numero_no_rompe_nada(monkeypatch):
         },
     )
     monkeypatch.setattr(enrich.ai, "available", lambda: True)
+    monkeypatch.setattr(
+        enrich, "chords", lambda c: {"sheet": None, "tried": ["LaCuerda"], "failed": []}
+    )
     r = enrich.autofill(1)
-    assert r["ok"] and "0%" in r["reason"]
+    assert r["ok"] and "0%" in r["reason"] and "LaCuerda" in r["reason"]
 
 
 def test_argumentos_null_no_tumban_el_chat(perfiles, monkeypatch):

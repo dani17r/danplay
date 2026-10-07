@@ -751,19 +751,20 @@ def test_playlist_sheet_is_written_inside_listas(cliente):
     songs = library.search("", limit=2)
     made = playlists.create("Atril")
     playlists.add(made["id"], [c["id"] for c in songs])
-    library.update(
-        songs[0]["id"],
-        key="Bb",
-        bpm=120,
-        chords=json.dumps({"section_chords": {"coro": "| Bb | Gm |"}}),
-    )
+    sheet = {"source": "LaCuerda", "key": "G", "capo": 0}
+    sheet["sections"] = [{"name": "Coro", "chords": ["Bb", "Gm"], "lines": []}]
+    library.update(songs[0]["id"], key="Bb", bpm=120, chords=json.dumps({"sheet": sheet}))
+    # sin tono en la ficha: el que dice su cifrado
+    library.update(songs[1]["id"], key="", chords=json.dumps({"sheet": {**sheet, "key": "D"}}))
     try:
         r = cliente.post(f"/api/playlists/{made['id']}/sheet", json={"with_lyrics": True}).json()
         path = pathlib.Path(r["file"])
         assert path.is_file() and path.parent == config.LIBRARY / "Listas"
         page = path.read_text(encoding="utf-8")
-        assert "Atril" in page and songs[0]["title"] in page and "| Bb | Gm |" in page
+        assert "Atril" in page and songs[0]["title"] in page and "Coro: Bb Gm" in page
+        assert "(de LaCuerda)" in page, "se dice de donde salen los acordes"
         assert "Sib" in page, "el tono tambien en latino"
+        assert "D · Re" in page
         assert cliente.post("/api/playlists/999999/sheet", json={}).status_code == 400
     finally:
         playlists.remove(made["id"])
@@ -988,6 +989,73 @@ def test_chat_transpose_tool(cliente):
 
     r = CH.run_tool("transpose_chords", {"chords": "| Bb | Gm7 |", "from_key": "Bb", "to_key": "G"})
     assert r["chords"] == "| G | Em7 |"
+
+
+def test_chat_chords_tool_says_where_they_come_from(cliente, monkeypatch):
+    from danplay import chat as CH
+    from danplay import cifrados, library
+
+    sheet = {
+        "source": "Ultimate Guitar",
+        "url": "https://tabs.example/1",
+        "artist": "Barak",
+        "title": "Mi Gozo",
+        "key": "",
+        "capo": 0,
+        "votes": 9,
+        "sections": [{"name": "Coro", "chords": ["D", "A"], "lines": []}],
+    }
+    found = {"sheet": sheet, "tried": ["Ultimate Guitar", "LaCuerda"], "failed": []}
+    monkeypatch.setattr(cifrados, "find", lambda a, t: found)
+    r = CH.run_tool("get_chords", {"artist": "Barak", "title": "Mi Gozo"})
+    assert r["url"] == sheet["url"] and r["key"] == "el cifrado no dice el tono"
+    assert r["sections"] == [{"name": "Coro", "chords": "D A"}]
+    found["sheet"] = None
+    r = CH.run_tool("get_chords", {"artist": "Barak", "title": "Otra"})
+    assert "No des acordes ni tono de memoria" in r["error"] and "LaCuerda" in r["error"]
+    # por id: se guarda en la cancion
+    c = library.search("", limit=1)[0]
+    library.update(c["id"], chords="")  # otras pruebas le dejan su cifrado
+    found["sheet"] = sheet
+    assert CH.run_tool("get_chords", {"id": c["id"]})["source"] == "Ultimate Guitar"
+    saved = library.by_id(c["id"])
+    assert saved and "sheet" in saved["chords"]
+    library.update(c["id"], chords="")
+
+
+def test_chords_endpoints(cliente, monkeypatch):
+    from danplay import cifrados, library
+
+    c = library.search("", limit=1)[0]
+    library.update(c["id"], chords="")
+    sheet = {
+        "source": "LaCuerda",
+        "url": "https://lc.example/x.shtml",
+        "artist": c["artist"],
+        "title": c["title"],
+        "key": "Bb",
+        "capo": 0,
+        "votes": 0,
+        "sections": [
+            {"name": "Coro", "chords": ["Bb", "Gm"], "lines": [{"t": "Bb   Gm", "c": True}]}
+        ],
+    }
+    calls = []
+    monkeypatch.setattr(
+        cifrados,
+        "find",
+        lambda a, t: calls.append(t) or {"sheet": sheet, "tried": ["LaCuerda"], "failed": []},
+    )
+    url = f"/api/song/{c['id']}/chords"
+    assert cliente.post(f"{url}/transposed", json={"to_key": "G"}).status_code == 404
+    r = cliente.post(url, json={}).json()
+    assert r["sheet"]["key"] == "Bb" and not r["cached"] and "sheet" in r["song"]["chords"]
+    assert cliente.post(url).json()["cached"] and len(calls) == 1
+    assert not cliente.post(url, json={"refresh": True}).json()["cached"] and len(calls) == 2
+    t = cliente.post(f"{url}/transposed", json={"to_key": "G"}).json()["sheet"]
+    assert t["key"] == "G" and t["sections"][0]["chords"] == ["G", "Em"]
+    assert cliente.post("/api/song/999999/chords", json={}).status_code == 404
+    library.update(c["id"], chords="")
 
 
 def test_unknown_tool_does_not_blow_up(cliente):

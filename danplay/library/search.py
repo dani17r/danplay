@@ -121,8 +121,16 @@ def light_columns(conn, alias: str = "c") -> str:
     cols += [
         f"(COALESCE({prefix}{col}, '') != '') AS {flag}"
         for col, flag in LIGHT_FLAGS.items()
-        if col in present
+        if col in present and col != "chords"
     ]
+    if "chords" in present:
+        # con acordes = con un cifrado encontrado. La columna guarda tambien
+        # la ficha de la IA y el «se busco y no estaba», que no son acordes
+        cols.append(
+            f"(CASE WHEN json_valid({prefix}chords)"
+            f" THEN COALESCE(json_type({prefix}chords, '$.sheet') = 'object', 0) ELSE 0 END)"
+            " AS has_chords"
+        )
     if "stems" in present:
         # y si sus pistas ya son las mejores: las rapidas, o las de antes de
         # haber dos pasadas, se pueden separar otra vez mejor

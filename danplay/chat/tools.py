@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError
 
-from .. import config, enrich, library, playlists, theory, web, youtube
+from .. import cifrados, config, enrich, library, playlists, theory, web, youtube
 
 log = logging.getLogger(__name__)
 
@@ -335,9 +335,16 @@ TOOLS = [
         {"id": _INT, "artist": _STR, "title": _STR},
     ),
     _t(
+        "get_chords",
+        "Tono y acordes de una cancion, leidos de un cifrado publicado (Ultimate "
+        "Guitar, LaCuerda), con el enlace: por id si esta en la biblioteca, o por "
+        "artista y titulo si no. El tono solo si el cifrado lo dice.",
+        {"id": _INT, "artist": _STR, "title": _STR},
+    ),
+    _t(
         "music_details",
-        "Tono probable, acordes, año, genero y artistas de una cancion de la "
-        "biblioteca. Aproximados.",
+        "Album, año, genero, artistas implicados y contexto de una cancion de la "
+        "biblioteca, segun la IA (aproximados). Para tono y acordes, get_chords.",
         {"id": _INT},
         ["id"],
     ),
@@ -490,6 +497,7 @@ OPTIONAL_TOOLS = {
     "download_music": r"youtube|descarg|b[aá]j|bajar|https?://|url|enlace|v[ií]deo",
     "search_youtube": r"youtube|descarg|b[aá]j|bajar|https?://|url|enlace|v[ií]deo|nuev[oa]s? de|[uú]ltimo",
     "download_status": r"youtube|descarg|b[aá]j|bajar",
+    "get_chords": r"acorde|tono|tonalidad|cejilla|capo|cifrado|transp|chord|key\b",
     "transpose_chords": r"acorde|transp|tono|tonalidad|cejilla|capo|cifrado|p[aá]sal[ao]|semiton|"
     r"\b(?:do|re|mi|fa|sol|si)\s*(?:#|sostenido|bemol|mayor|menor)\b|"
     r"\b(?:en|a) (?:do|re|mi|fa|sol|si)\b",
@@ -812,6 +820,45 @@ def _get_lyrics(a: GetLyricsArgs) -> dict:
         library.update(c["id"], lyrics=r["lyrics"], lyrics_synced=r.get("synced") or "")
         return {"source": r["source"], "lyrics": r["lyrics"][:4000]}
     return {"error": "no se encontro la letra"}
+
+
+def _sheet_for_chat(r: dict) -> dict:
+    """Lo que el asistente necesita del cifrado: de donde sale y los acordes
+    por secciones (sin la letra, que ya da get_lyrics)."""
+    s = r.get("sheet")
+    if not s:
+        if r.get("failed"):
+            return {"error": "no se pudo consultar " + " ni ".join(r["failed"]) + "; prueba luego"}
+        return {
+            "error": "no hay cifrado publicado de esta cancion en "
+            + " ni ".join(r.get("tried") or ["las paginas de acordes"])
+            + ". No des acordes ni tono de memoria."
+        }
+    return {
+        "source": s.get("source", ""),
+        "url": s.get("url", ""),
+        "song": f"{s.get('artist', '')} - {s.get('title', '')}",
+        "key": s.get("key") or "el cifrado no dice el tono",
+        "capo": s.get("capo", 0),
+        "votes": s.get("votes", 0),
+        "sections": [
+            {"name": sec.get("name") or "-", "chords": " ".join(sec.get("chords") or [])}
+            for sec in s.get("sections") or []
+            if sec.get("chords")
+        ][:14],
+    }
+
+
+@tool("get_chords", GetLyricsArgs)
+def _get_chords(a: GetLyricsArgs) -> dict:
+    if not a.id:  # sin id, por artista y titulo, sin guardar nada
+        if not (a.title or "").strip():
+            return {"error": "hace falta el titulo (y mejor el artista)"}
+        return _sheet_for_chat(cifrados.find(a.artist or "", a.title or ""))
+    c = library.by_id(a.id)
+    if not c:
+        return {"error": "no existe esa cancion"}
+    return _sheet_for_chat(enrich.chords(c))
 
 
 @tool("music_details", SongRef)

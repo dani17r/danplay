@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { notify } from '../composables/useNotices.js'
-import { api, pickImage, projection, errorMessage } from '../api.js'
+import { api, app, pickImage, projection, errorMessage } from '../api.js'
 import StarRating from './StarRating.vue'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
@@ -184,9 +184,14 @@ async function autofill() {
     if (isCurrent(id)) loading.value = ''
   }
 }
-const tonoDestino = ref('')
+/** el cifrado en otro tono; lo guardado no cambia */
 const transpuesto = ref(null)
+/** el tono pedido, o los semitonos si el cifrado no dice el suyo */
+const tonoDestino = ref('')
+/** el cifrado entero (acordes sobre la letra) en vez de solo los acordes */
+const entero = ref(false)
 const TONOS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+const SEMITONOS = [-5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6]
 
 watch(
   () => props.song?.id,
@@ -194,6 +199,7 @@ watch(
     details.value = null
     transpuesto.value = null
     tonoDestino.value = ''
+    entero.value = false
     failure.value = ''
     coverVersion.value = 0
     // lo que siga en marcha es de la otra cancion: no bloquea esta
@@ -201,30 +207,71 @@ watch(
   }
 )
 
-const acordesJson = computed(() => {
-  if (details.value) return details.value
+/** La columna `chords`: lo que dijo la IA y el cifrado que se encontro en la web. */
+const doc = computed(() => {
   if (!props.song?.chords) return null
   try {
-    return JSON.parse(props.song.chords)
+    const d = JSON.parse(props.song.chords)
+    return d && typeof d === 'object' ? d : null
   } catch {
     return null
   }
 })
-
-const progression = computed(
-  () => transpuesto.value?.progression ?? acordesJson.value?.progression ?? ''
+/** Album, artistas y contexto segun la IA: lo pedido ahora o lo guardado. */
+const aiInfo = computed(() => details.value || doc.value)
+/** El cifrado: un objeto, `null` si se busco y no esta, `undefined` si no se ha buscado. */
+const sheet = computed(() => doc.value?.sheet)
+const shown = computed(() => transpuesto.value || sheet.value)
+const conAcordes = computed(() => (shown.value?.sections || []).filter((x) => x.chords?.length))
+const buscadoEn = computed(
+  () => (doc.value?.sheet_tried || []).join(' ni ') || 'las páginas de acordes'
 )
 /** Los acordes en texto plano, con sus secciones, listos para pegar. */
 const acordesParaCopiar = computed(() => {
-  const trozos = []
-  if (progression.value) trozos.push(progression.value)
-  for (const [k, v] of Object.entries(secciones.value || {})) trozos.push(`${k}: ${v}`)
-  return trozos.join('\n')
+  const s = shown.value
+  if (!s) return ''
+  const head = [
+    `${s.artist} - ${s.title}`,
+    s.key ? `Tono: ${s.key}` : '',
+    s.capo ? `Cejilla: ${s.capo}` : ''
+  ]
+  const body = entero.value
+    ? (s.sections || []).flatMap((x) => [
+        x.name ? `[${x.name}]` : '',
+        ...x.lines.map((l) => l.t),
+        ''
+      ])
+    : conAcordes.value.map((x) => (x.name ? `${x.name}: ` : '') + x.chords.join(' '))
+  return [...head.filter(Boolean), '', ...body, `(${s.source}: ${s.url})`].join('\n')
 })
 
-const secciones = computed(
-  () => transpuesto.value?.section_chords ?? acordesJson.value?.section_chords ?? null
-)
+/** Busca el cifrado en la web (o lo busca otra vez). Nunca lo inventa: si no esta, lo dice. */
+async function buscarAcordes(refresh = false) {
+  const id = props.song.id
+  const name = props.song.title || props.song.file
+  loading.value = 'chords'
+  failure.value = ''
+  try {
+    const r = await api.chords(id, refresh)
+    emit('updated', r.song)
+    const here = isCurrent(id)
+    if (here) {
+      transpuesto.value = null
+      tonoDestino.value = ''
+    }
+    const s = r.sheet
+    const msg = s
+      ? `Acordes de ${s.source}` + (s.key ? ` · tono ${s.key}` : ' · sin tono')
+      : r.failed?.length
+        ? `No se pudo consultar ${r.failed.join(' ni ')}`
+        : `No hay cifrado en ${(r.tried || []).join(' ni ')}`
+    notify((here ? '' : `«${name}»: `) + msg, s ? 'ok' : 'info')
+  } catch (e) {
+    if (isCurrent(id)) failure.value = errorMessage(e)
+  } finally {
+    if (isCurrent(id)) loading.value = ''
+  }
+}
 
 async function loadDetails() {
   const id = props.song.id
@@ -279,23 +326,18 @@ async function enrich(opts) {
   }
 }
 async function transponer() {
-  const base = acordesJson.value
   const id = props.song?.id
   const to = tonoDestino.value
-  if (!base || !to) return
+  if (!sheet.value || to === '') {
+    transpuesto.value = null
+    return
+  }
   try {
-    const r = await api.transpose({
-      text: base.progression || '',
-      from_key: base.likely_key || props.song.key,
-      to_key: to
-    })
-    const sec = {}
-    for (const [k, v] of Object.entries(base.section_chords || {})) {
-      sec[k] = (await api.transpose({ text: v, from_key: base.likely_key, to_key: to })).text
-    }
+    const body = sheet.value.key ? { to_key: to } : { semitones: Number(to) }
+    const r = await api.chordsTransposed(id, body)
     // otra cancion, u otro tono pedido mientras tanto: esto ya no vale
     if (!isCurrent(id) || tonoDestino.value !== to) return
-    transpuesto.value = { progression: r.text, section_chords: sec, capo: r.capo }
+    transpuesto.value = r.sheet
   } catch (e) {
     if (isCurrent(id)) failure.value = errorMessage(e)
   }
@@ -486,10 +528,21 @@ async function transponer() {
           Rellenar informacion con IA
         </button>
         <button
+          v-if="sheet === undefined"
+          class="btn mini"
+          :disabled="!!loading"
+          title="Se buscan en Ultimate Guitar y LaCuerda: los acordes y el tono de un cifrado publicado, con su enlace. Si no está, no se inventan"
+          @click="buscarAcordes(false)"
+        >
+          Buscar acordes
+        </button>
+        <button
           class="btn mini"
           :disabled="!!loading || !aiReady"
           :title="
-            aiReady ? 'Tono, acordes y contexto, con IA' : 'Hace falta configurar la IA en Ajustes'
+            aiReady
+              ? 'Álbum, artistas y contexto, con IA (los acordes no: esos de un cifrado)'
+              : 'Hace falta configurar la IA en Ajustes'
           "
           @click="loadDetails"
         >
@@ -500,9 +553,13 @@ async function transponer() {
         <Icon n="warning" :t="13" /> {{ blocked.reason }}
       </div>
       <div v-else-if="missingInfo.length" class="hint">Sin rellenar: {{ missingText }}</div>
-      <Loading v-if="loading" text="consultando…" style="margin-top: 9px" />
+      <Loading
+        v-if="loading"
+        :text="loading === 'chords' ? 'buscando en Ultimate Guitar y LaCuerda…' : 'consultando…'"
+        style="margin-top: 9px"
+      />
       <div v-else-if="!aiReady" class="hint" style="margin-top: 8px">
-        Sin IA configurada solo se busca en LRCLIB y en las caratulas publicas.
+        Sin IA configurada se buscan letra, portada y acordes en sus páginas.
         <button type="button" class="link" @click="emit('goSettings')">
           Elegir la IA en Ajustes
         </button>
@@ -512,12 +569,9 @@ async function transponer() {
       </div>
     </div>
 
-    <div v-if="acordesJson" class="section copiable-section">
+    <div v-if="sheet" class="section copiable-section">
       <h4>
         Acordes
-        <span v-if="acordesJson.confidence" class="badge">
-          confianza {{ Math.round(acordesJson.confidence * 100) }}%</span
-        >
         <CopyButton
           :text="acordesParaCopiar"
           what="los acordes"
@@ -526,29 +580,57 @@ async function transponer() {
             (ok) => notify(ok ? 'Acordes copiados' : 'No se pudo copiar', ok ? 'ok' : 'info')
           "
         />
+        <button
+          type="button"
+          class="btn mini"
+          style="margin-left: auto"
+          :title="entero ? 'Solo los acordes de cada parte' : 'Los acordes sobre la letra'"
+          @click="entero = !entero"
+        >
+          {{ entero ? 'Solo acordes' : 'Cifrado entero' }}
+        </button>
       </h4>
-      <div v-if="progression" class="chords">{{ progression }}</div>
-      <div v-if="secciones" style="margin-top: 9px">
-        <div v-for="(v, k) in secciones" :key="k" style="margin-bottom: 7px">
-          <div
-            style="
-              font-size: 10px;
-              text-transform: uppercase;
-              color: var(--muted2);
-              letter-spacing: 1px;
-            "
-          >
-            {{ k }}
-          </div>
-          <div class="chords">{{ v }}</div>
+      <div class="sheet-facts">
+        <span v-if="shown.key"
+          >Tono <b>{{ shown.key }}</b></span
+        >
+        <span v-else title="Solo se pone el tono que dice el cifrado"
+          >El cifrado no dice el tono</span
+        >
+        <span v-if="sheet.capo"> · cejilla en el traste {{ sheet.capo }}</span>
+      </div>
+      <div v-if="!entero" style="margin-top: 9px">
+        <div v-for="(sec, i) in conAcordes" :key="i" style="margin-bottom: 7px">
+          <div v-if="sec.name" class="sheet-section">{{ sec.name }}</div>
+          <div class="chords">{{ sec.chords.join('   ') }}</div>
         </div>
       </div>
+      <div v-else class="chords sheet-full">
+        <template v-for="(sec, i) in shown.sections" :key="i">
+          <div v-if="sec.name" class="sheet-section">{{ sec.name }}</div>
+          <div v-for="(ln, j) in sec.lines" :key="j" :class="ln.c ? 'chord-line' : 'lyric-line'">
+            {{ ln.t || ' ' }}
+          </div>
+        </template>
+      </div>
       <div style="margin-top: 11px; display: flex; gap: 7px; align-items: center">
-        <span style="font-size: 11px; color: var(--muted2)">Transponer a</span>
+        <span style="font-size: 11px; color: var(--muted2)">{{
+          sheet.key ? 'Transponer a' : 'Subir o bajar'
+        }}</span>
         <SelectField
           :model-value="tonoDestino"
           width="112px"
-          :options="[{ v: '', n: '—' }, ...TONOS.map((t) => ({ v: t, n: t }))]"
+          :options="
+            sheet.key
+              ? [{ v: '', n: '—' }, ...TONOS.map((t) => ({ v: t, n: t }))]
+              : [
+                  { v: '', n: 'como está' },
+                  ...SEMITONOS.map((n) => ({
+                    v: String(n),
+                    n: `${n > 0 ? '+' : ''}${n} ${Math.abs(n) === 1 ? 'semitono' : 'semitonos'}`
+                  }))
+                ]
+          "
           @update:model-value="
             (v) => {
               tonoDestino = v
@@ -557,26 +639,49 @@ async function transponer() {
           "
         />
       </div>
-      <div v-if="transpuesto?.capo?.length" class="hint">
+      <div v-if="transpuesto?.capo_hint?.length" class="hint">
         Cejilla:
-        {{ transpuesto.capo.map((c) => `traste ${c[0]} con formas de ${c[1]}`).join(' · ') }}
+        {{ transpuesto.capo_hint.map((c) => `traste ${c[0]} con formas de ${c[1]}`).join(' · ') }}
       </div>
-      <div v-if="acordesJson.confidence < 0.7" class="hint">
-        Acordes aproximados, generados por IA. Verificalos antes de tocar.
+      <div class="hint">
+        De
+        <button type="button" class="link" :title="sheet.url" @click="app.openInBrowser(sheet.url)">
+          {{ sheet.source }}</button
+        >: «{{ sheet.artist }} - {{ sheet.title }}»<span v-if="sheet.votes">
+          · {{ sheet.votes }} votos</span
+        >. Lo escribió alguien que la toca: compruébalo con la grabación.
+        <button
+          type="button"
+          class="link"
+          :disabled="!!loading"
+          title="Volver a buscarlo, por si hay una versión mejor"
+          @click="buscarAcordes(true)"
+        >
+          Buscar otra vez
+        </button>
+      </div>
+    </div>
+    <div v-else-if="sheet === null" class="section">
+      <h4>Acordes</h4>
+      <div class="hint">
+        No hay cifrado de esta canción en {{ buscadoEn }}. No se inventan.
+        <button type="button" class="link" :disabled="!!loading" @click="buscarAcordes(true)">
+          Buscar otra vez
+        </button>
       </div>
     </div>
 
-    <div v-if="acordesJson?.involved_artists?.length" class="section">
+    <div v-if="aiInfo?.involved_artists?.length" class="section">
       <h4>Artistas implicados</h4>
       <div style="display: flex; gap: 6px; flex-wrap: wrap">
-        <span v-for="a in acordesJson.involved_artists" :key="a" class="chip">{{ a }}</span>
+        <span v-for="a in aiInfo.involved_artists" :key="a" class="chip">{{ a }}</span>
       </div>
     </div>
 
-    <div v-if="acordesJson?.about_the_song" class="section">
+    <div v-if="aiInfo?.about_the_song" class="section">
       <h4>Sobre la canción</h4>
       <div style="font-size: 12.5px; color: var(--muted); line-height: 1.6">
-        {{ acordesJson.about_the_song }}
+        {{ aiInfo.about_the_song }}
       </div>
     </div>
 

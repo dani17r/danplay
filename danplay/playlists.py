@@ -12,7 +12,7 @@ import os
 import time
 from pathlib import Path
 
-from . import external, library, names, tags, theory
+from . import cifrados, external, library, names, tags, theory
 
 log = logging.getLogger(__name__)
 
@@ -471,14 +471,15 @@ def _sheet_target(playlist_id, suffix) -> tuple[Path, str]:
     return target, str(row["name"])
 
 
-def _sheet_chords(c: dict) -> dict:
-    """Los acordes guardados de una cancion (los de la IA), si los hay."""
+def _sheet_chords(c: dict) -> dict | None:
+    """El cifrado guardado de una cancion (de una pagina de acordes), si lo hay."""
     raw = c.get("chords") or ""
     try:
         d = json.loads(raw) if raw else {}
     except Exception:  # noqa: BLE001
         d = {}
-    return d if isinstance(d, dict) else {}
+    sheet = d.get("sheet") if isinstance(d, dict) else None
+    return sheet if isinstance(sheet, dict) else None
 
 
 def _mmss(seconds) -> str:
@@ -507,7 +508,8 @@ _SHEET_CSS = (
 def export_sheet(playlist_id, with_lyrics=False) -> str:
     """Escribe la hoja para el atril: un HTML en Listas/ con las canciones
     del repertorio en orden, tono (americano y latino), bpm, cejilla
-    sugerida, acordes por secciones si la IA los dio, y la letra si se pide.
+    sugerida, acordes por secciones si se encontro su cifrado (con la
+    fuente), y la letra si se pide.
     Se abre con el navegador y se imprime (o se guarda como PDF) desde ahi:
     no hace falta ninguna libreria, y queda al lado del .m3u de siempre.
     """
@@ -526,7 +528,8 @@ def export_sheet(playlist_id, with_lyrics=False) -> str:
         ),
     ]
     for c in rows:
-        key = str(c.get("key") or "").strip()
+        sheet = _sheet_chords(c)
+        key = str(c.get("key") or "").strip() or cifrados.sheet_key(sheet)
         head = f'<span class="t">{e(c.get("artist") or "")} - {e(c.get("title") or "")}</span>'
         if key:
             head += f'<span class="k">{e(key)} · {e(theory.to_latin(key))}</span>'
@@ -538,14 +541,13 @@ def export_sheet(playlist_id, with_lyrics=False) -> str:
         if capo:
             sub.append("cejilla " + ", ".join(f"{f} ({sh})" for f, sh in capo[:3]))
         item = f'<li>{head}<div class="sub">{e(" · ".join(sub))}</div>'
-        d = _sheet_chords(c)
-        sections = d.get("section_chords") or {}
-        lines = (
-            [f"{k}: {v}" for k, v in sections.items() if v] if isinstance(sections, dict) else []
-        )
-        if not lines and d.get("progression"):
-            lines = [str(d["progression"])]
+        lines = [
+            (f"{s['name']}: " if s.get("name") else "") + " ".join(s["chords"])
+            for s in (sheet or {}).get("sections") or []
+            if s.get("chords")
+        ]
         if lines:
+            lines.append(f"(de {sheet['source']})")  # type: ignore[index]
             item += f'<div class="chords">{e(chr(10).join(lines))}</div>'
         if with_lyrics and c.get("lyrics"):
             # sin las marcas de tiempo, si el archivo trae una LRC en el USLT

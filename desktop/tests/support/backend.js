@@ -562,6 +562,13 @@ function answers(state) {
     autofill: async (id) => ({ filled: {}, song: find(id) ? { ...find(id) } : null }),
     setCover: async (id) => ({ ok: true, kb: 12, song: find(id) ? { ...find(id) } : null }),
     transpose: async () => ({ text: '', latin: '', capo: [], keys: [] }),
+    chords: async (id) => ({
+      sheet: null,
+      tried: ['Ultimate Guitar', 'LaCuerda'],
+      failed: [],
+      song: find(id) ? { ...find(id) } : null
+    }),
+    chordsTransposed: async () => ({ sheet: null }),
     deleteSong: async (id) => {
       const s = find(id)
       state.songs = state.songs.filter((x) => x.id !== id)

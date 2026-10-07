@@ -87,7 +87,7 @@ def test_la_busqueda_de_la_api_es_ligera_y_cuenta(client, lib):
     from danplay import library
 
     c = library.search("", limit=1)[0]
-    library.update(c["id"], lyrics="una letra larga", chords='{"likely_key": "G"}')
+    library.update(c["id"], lyrics="una letra larga", chords='{"sheet": {"key": "G"}}')
     d = client.get("/api/search", params={"limit": 1}).json()
     assert d["count"] == library.stats_of()["total"] and d["total"] == 1
     song = d["songs"][0]
@@ -101,6 +101,11 @@ def test_la_busqueda_de_la_api_es_ligera_y_cuenta(client, lib):
     )
     assert row["has_lyrics"] is True and row["has_chords"] is True
     assert row["has_study"] is False
+    # la ficha de la IA, o el «se busco y no estaba», no son acordes
+    for doc in ('{"album": "Gozo"}', '{"sheet": null}', "no es json"):
+        library.update(c["id"], chords=doc)
+        flags = client.get("/api/search", params={"limit": 50}).json()["songs"]
+        assert next(s for s in flags if s["id"] == c["id"])["has_chords"] is False, doc
     # la ficha completa sigue en /api/song/{id}
     assert client.get(f"/api/song/{c['id']}").json()["lyrics"] == "una letra larga"
     # el asistente sigue viendo la fila entera

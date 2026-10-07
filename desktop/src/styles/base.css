@@ -800,6 +800,32 @@ tbody tr:hover .row-n {
   user-select: text;
   line-height: 1.8;
 }
+/* el cifrado de la web en la ficha: las partes y, entero, acordes sobre la letra */
+.sheet-facts {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.sheet-section {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--muted2);
+  letter-spacing: 1px;
+}
+.sheet-full {
+  white-space: normal;
+  overflow-x: auto;
+  line-height: 1.45;
+  margin-top: 9px;
+}
+.sheet-full > div {
+  white-space: pre;
+}
+.sheet-full .sheet-section {
+  margin-top: 10px;
+}
+.sheet-full .lyric-line {
+  color: var(--text);
+}
 .hint {
   font-size: 11px;
   color: var(--muted2);

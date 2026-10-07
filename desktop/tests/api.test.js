@@ -265,6 +265,13 @@ describe('lo que cada metodo pide al nucleo', () => {
     details: [[7], 'GET', '/api/song/7/details'],
     enrich: [[7, { lyrics: true }], 'POST', '/api/song/7/enrich', { lyrics: true }],
     autofill: [[7], 'POST', '/api/song/7/autofill'],
+    chords: [[7, true], 'POST', '/api/song/7/chords', { refresh: true }],
+    chordsTransposed: [
+      [7, { semitones: 2 }],
+      'POST',
+      '/api/song/7/chords/transposed',
+      { semitones: 2 }
+    ],
     setCover: [[7, '/img.jpg'], 'POST', '/api/song/7/cover', { path: '/img.jpg' }],
     transpose: [[{ text: 'G', to_key: 'A' }], 'POST', '/api/transpose', { text: 'G', to_key: 'A' }],
     deleteSong: [[7], 'DELETE', '/api/song/7'],

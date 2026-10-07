@@ -108,6 +108,16 @@ class EnrichIn(Body_):
     details: bool = True
 
 
+class ChordsIn(Body_):
+    # buscarlo otra vez aunque ya se hubiera buscado (y encontrado o no)
+    refresh: bool = False
+
+
+class SheetTransposeIn(Body_):
+    to_key: str = Field(default="", max_length=12)
+    semitones: int = Field(default=0, ge=-24, le=24)
+
+
 class TransposeIn(Body_):
     text: str = Field(default="", max_length=100_000)
     from_key: str = Field(default="", max_length=12)

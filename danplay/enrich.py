@@ -3,7 +3,8 @@
 Fuentes, en orden de preferencia:
   letra    -> LRCLIB (abierto, gratis, con letra sincronizada) -> IA
   portada  -> iTunes Search (sin clave) -> Cover Art Archive
-  acordes  -> IA (aproximados) + transposicion deterministica
+  acordes  -> un cifrado publicado (Ultimate Guitar, LaCuerda: ver cifrados.py),
+              nunca la IA; el tono, solo si el cifrado lo dice
   metadata -> MusicBrainz -> IA
 """
 
@@ -13,9 +14,10 @@ import re
 import urllib.parse
 import urllib.request
 from collections.abc import Mapping
+from datetime import date
 from typing import Any
 
-from . import ai, convert, library, tags, theory
+from . import ai, cifrados, convert, library, tags, theory
 
 log = logging.getLogger(__name__)
 
@@ -207,30 +209,26 @@ def cover(artist, title, album="") -> tuple[bytes, str] | None:
 
 
 def details(song: Mapping[str, Any]) -> dict | None:
-    """Acordes, artistas implicados, album, año, genero y contexto."""
+    """Artistas implicados, album, año, genero y contexto. El tono y los
+    acordes no: esos salen de un cifrado publicado (`chords`)."""
     if not ai.available():
         return None
     meta = (
         f"Artista: {song.get('artist', '?')}\n"
         f"Titulo: {song.get('title', '?')}\n"
         f"Album: {song.get('album', '') or '?'}\n"
-        f"Duracion: {int(song.get('duration', 0) // 60)}:{int(song.get('duration', 0) % 60):02d}\n"
-        f"Tono detectado: {song.get('key', '') or 'sin analizar'}\n"
-        f"BPM detectado: {song.get('bpm', 0) or 'sin analizar'}"
+        f"Duracion: {int(song.get('duration', 0) // 60)}:{int(song.get('duration', 0) % 60):02d}"
     )
     schema = """Devuelve SOLO un JSON con esta forma, con las claves EXACTAS en ingles:
 {
  "album": "", "year": "", "genre": "", "composers": "",
  "involved_artists": ["nombre1","nombre2"],
- "likely_key": "Bb",
- "progression": "| Bb | Gm7 | Eb | F |",
- "section_chords": {"intro":"| Bb | Gm |","verso":"...","coro":"..."},
  "about_the_song": "dos o tres frases",
  "confidence": 0.0
 }
 Los valores van en español. Reglas: sin tildes salvo la ñ; nada en MAYUSCULA
-SOSTENIDA. Los acordes son una aproximacion: si no conoces la cancion, deja
-progression vacia y confidence baja. Nunca inventes datos con confidence alta.
+SOSTENIDA. Si no conoces la cancion, confidence baja. Nunca inventes datos con
+confidence alta.
 
 MUY IMPORTANTE: lo que no sepas va como cadena VACIA "". Nunca escribas
 "desconocido", "n/a", "varios" ni nada parecido: eso ensucia la ficha y hace
@@ -240,22 +238,47 @@ creer que el dato ya esta. El año son cuatro cifras o nada."""
     )
 
 
-def cached_details(song: Mapping[str, Any]) -> dict | None:
-    """La ficha guardada en el archivo, si merece la pena. Una respuesta
-    vacia (sin tono ni acordes y con confianza baja) no se reutiliza: la dio
-    un modelo que no conocia la cancion, y con otro mejor —o el mismo otro
-    dia— puede salir. Guardarla para siempre era condenar la ficha."""
-    raw = song.get("chords")
-    if not raw:
-        return None
+# Lo que la IA decia de memoria sobre el tono y los acordes antes de 1.21. Ya
+# no se pide, y lo que quede guardado no se enseña: eran aproximaciones.
+_GUESSED = ("likely_key", "progression", "section_chords")
+# lo que va en la columna `chords` y no es de la IA: el cifrado de la web
+_SHEET = ("sheet", "sheet_checked", "sheet_tried")
+
+
+def _doc(song: Mapping[str, Any]) -> dict:
+    """El JSON de la columna `chords`: la ficha de la IA y el cifrado."""
     try:
-        d = json.loads(raw)
+        d = json.loads(song.get("chords") or "{}")
     except ValueError:
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def stored_sheet(song: Mapping[str, Any]) -> dict | None:
+    """El cifrado guardado de una cancion, sin buscar nada."""
+    sheet = _doc(song).get("sheet")
+    return sheet if isinstance(sheet, dict) else None
+
+
+def _save_doc(song_id, doc: dict) -> None:
+    library.update(song_id, chords=json.dumps(doc, ensure_ascii=False))
+
+
+def _save_details(song: Mapping[str, Any], d: dict) -> None:
+    """Guarda lo que dijo la IA sin perder el cifrado que ya hubiera."""
+    keep = {k: v for k, v in _doc(song).items() if k in _SHEET}
+    fresh = {k: v for k, v in d.items() if k not in _GUESSED and k not in _SHEET}
+    _save_doc(song["id"], {**fresh, **keep})
+
+
+def cached_details(song: Mapping[str, Any]) -> dict | None:
+    """La ficha de la IA guardada, si merece la pena. Una respuesta con
+    confianza baja no se reutiliza: la dio un modelo que no conocia la
+    cancion, y con otro mejor —o el mismo otro dia— puede salir."""
+    d = _doc(song)
+    if _confidence(d) < 0.5:
         return None
-    if not isinstance(d, dict):
-        return None
-    useful = bool(d.get("progression") or d.get("likely_key") or _confidence(d) >= 0.5)
-    return d if useful else None
+    return {k: v for k, v in d.items() if k not in _GUESSED and k not in _SHEET}
 
 
 def _confidence(d: dict) -> float:
@@ -276,8 +299,73 @@ def details_for(song: Mapping[str, Any]) -> tuple[dict | None, bool]:
     if not isinstance(d, dict):
         return None, False
     if not d.get("error"):
-        library.update(song["id"], chords=json.dumps(d, ensure_ascii=False))
+        _save_details(song, d)
     return d, False
+
+
+# ---------------------------------------------------------------- acordes
+
+
+def chords(song: Mapping[str, Any], refresh: bool = False) -> dict:
+    """El cifrado de una cancion: el guardado, o el que se encuentre en la
+    web si no se habia buscado (o si se pide otra vez con `refresh`).
+
+    Devuelve {"sheet": cifrado o None, "cached", "checked": cuando se busco,
+    "tried": fuentes consultadas, "failed": las que no respondieron}. Que no
+    este en ninguna se guarda tambien (no se vuelve a buscar sola cada vez);
+    que no respondieran, no: es la red, no la cancion."""
+    doc = _doc(song)
+    if not refresh and "sheet" in doc:
+        return {
+            "sheet": doc["sheet"],
+            "cached": True,
+            "checked": doc.get("sheet_checked", ""),
+            "tried": doc.get("sheet_tried", []),
+            "failed": [],
+        }
+    if not str(song.get("title") or "").strip():
+        return {
+            "sheet": None,
+            "cached": False,
+            "checked": "",
+            "tried": [],
+            "failed": [],
+            "error": "la cancion no tiene titulo",
+        }
+    r = cifrados.find(str(song.get("artist") or ""), str(song.get("title") or ""))
+    today = date.today().isoformat()
+    if r["sheet"] or not r["failed"]:
+        doc.update(sheet=r["sheet"], sheet_checked=today, sheet_tried=r["tried"])
+        _save_doc(song["id"], doc)
+    return {**r, "cached": False, "checked": today}
+
+
+def transpose_sheet(sheet: Mapping[str, Any], semitones: int = 0, to_key: str = "") -> dict:
+    """El cifrado en otro tono: solo se tocan las lineas de acordes (en una
+    de letra, «Dios» no es un Re)."""
+    from_key = str(sheet.get("key") or "")
+    if to_key and from_key:
+        n = theory.distance(from_key, to_key) or 0
+        flats = to_key in theory.FLAT_KEYS
+    else:
+        n, flats = semitones % 12, None
+        to_key = theory.transpose(from_key, n) if from_key else ""
+    out = dict(sheet)
+    out["sections"] = [
+        {
+            **s,
+            "chords": [theory.transpose(c, n, flats) for c in s.get("chords") or []],
+            "lines": [
+                {**ln, "t": theory.transpose(ln["t"], n, flats)} if ln.get("c") else ln
+                for ln in s.get("lines") or []
+            ],
+        }
+        for s in sheet.get("sections") or []
+    ]
+    out["key"] = to_key
+    out["semitones"] = n
+    out["capo_hint"] = theory.suggested_capo(to_key) if to_key else []
+    return out
 
 
 # campos de ficha que la IA puede rellenar
@@ -319,7 +407,10 @@ def _dato_util(campo: str, valor) -> str:
 
 
 def autofill(song_id) -> dict:
-    """Rellena album, año, genero y tono con IA, solo lo que este vacio.
+    """Rellena album, año, genero y tono, solo lo que este vacio.
+
+    El tono sale del cifrado publicado de la cancion (y solo si lo dice), no
+    de la IA: eso no necesita IA. Album, año y genero, de la IA.
 
     Devuelve que se relleno, que sigue faltando y por que, para que la interfaz
     pueda decirlo en vez de dejar al usuario adivinando.
@@ -331,70 +422,62 @@ def autofill(song_id) -> dict:
     faltan = [k for k in FILLABLE if not str(c.get(k) or "").strip()]
     if not faltan:
         return {"ok": True, "filled": {}, "missing": [], "reason": "", "complete": True}
-    if not ai.available():
-        return {
-            "ok": False,
-            "filled": {},
-            "missing": faltan,
-            "reason": f"la IA no esta lista: {ai.unavailable_reason()} (Ajustes)",
-        }
     if not str(c["artist"] or "").strip():
         return {
             "ok": False,
             "filled": {},
             "missing": faltan,
-            "reason": "esta cancion no tiene artista identificado, "
-            "asi que la IA no la puede reconocer",
+            "reason": "esta cancion no tiene artista identificado, asi que no se puede reconocer",
         }
 
-    d = details(c)
-    if not isinstance(d, dict) or not d or d.get("error"):
-        return {
-            "ok": False,
-            "filled": {},
-            "missing": faltan,
-            "reason": (d.get("error") if isinstance(d, dict) else "") or "la IA no pudo responder",
-        }
+    nuevos: dict[str, str] = {}
+    motivos: list[str] = []
+    # lo que impidio preguntar (la IA sin configurar, la red), no que no lo sepan
+    fallos = 0
+    if "key" in faltan:
+        r = chords(c)
+        if key := cifrados.sheet_key(r["sheet"]):
+            nuevos["key"] = key
+        elif r["sheet"] and r["sheet"].get("key"):
+            motivos.append("el cifrado va con cejilla: su tono no es el que suena")
+        elif r["sheet"]:
+            motivos.append(f"el cifrado de {r['sheet']['source']} no dice el tono")
+        elif r["failed"]:
+            fallos += 1
+            motivos.append("no se pudo consultar " + " ni ".join(r["failed"]))
+        else:
+            motivos.append("no hay cifrado publicado en " + " ni ".join(r["tried"]))
 
-    valores = {
-        "album": d.get("album"),
-        "year": d.get("year"),
-        "genre": d.get("genre"),
-        "key": d.get("likely_key"),
-    }
-    nuevos = {k: _dato_util(k, valores.get(k)) for k in faltan}
-    nuevos = {k: v for k, v in nuevos.items() if v}
+    pide_ia = [k for k in faltan if k != "key"]
+    if pide_ia and not ai.available():
+        fallos += 1
+        motivos.append(f"la IA no esta lista: {ai.unavailable_reason()} (Ajustes)")
+    elif pide_ia:
+        d = details(c)
+        if not isinstance(d, dict) or not d or d.get("error"):
+            fallos += 1
+            motivos.append(
+                (d.get("error") if isinstance(d, dict) else "") or "la IA no pudo responder"
+            )
+        else:
+            for k in pide_ia:
+                if v := _dato_util(k, d.get(k)):
+                    nuevos[k] = v
+            if any(k not in nuevos for k in pide_ia):
+                motivos.append(
+                    f"la IA no reconoce bien esta cancion (confianza {round(_confidence(d) * 100)}%)"
+                )
     if nuevos:
         library.edit(song_id, **nuevos)
 
     restantes = [k for k in faltan if k not in nuevos]
-    motivo = ""
-    if restantes:
-        motivo = (
-            "la IA no reconoce bien esta cancion (confianza "
-            f"{round(_confidence(d) * 100)}%); no se atreve con: " + ", ".join(restantes)
-        )
     return {
-        "ok": True,
+        "ok": bool(nuevos) or not fallos,
         "filled": nuevos,
         "missing": restantes,
-        "reason": motivo,
+        "reason": "; ".join(motivos) if restantes else "",
         "complete": not restantes,
     }
-
-
-def transpose_details(details, to_key) -> dict:
-    """Aplica transposicion deterministica a lo que devolvio la IA."""
-    if not details:
-        return {}
-    source_path = details.get("likely_key", "")
-    out = dict(details)
-    out["progression"] = theory.transpose_to(details.get("progression", ""), source_path, to_key)
-    sec = details.get("section_chords") or {}
-    out["section_chords"] = {k: theory.transpose_to(v, source_path, to_key) for k, v in sec.items()}
-    out["likely_key"] = to_key
-    out["capo"] = theory.suggested_capo(to_key)
-    return out
 
 
 # ---------------------------------------------------------------- orquestacion
@@ -436,14 +519,9 @@ def enrich(
             album = _dato_util("album", d.get("album")) or c["album"]
             year = _dato_util("year", d.get("year")) or str(c["year"] or "")
             genre = _dato_util("genre", d.get("genre")) or c["genre"]
-            library.update(
-                song_id,
-                chords=json.dumps(d, ensure_ascii=False),
-                album=album,
-                year=year,
-                genre=genre,
-            )
+            _save_details(c, d)
+            library.update(song_id, album=album, year=year, genre=genre)
             if save_to_file:
                 tags.write(c["path"], album=album, year=year, genre=genre)
-            done["details"] = {k: d.get(k) for k in ("likely_key", "genre", "year", "confidence")}
+            done["details"] = {k: d.get(k) for k in ("genre", "year", "confidence")}
     return done

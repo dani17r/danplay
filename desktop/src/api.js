@@ -851,6 +851,14 @@ export const api = {
   details: (id) => GET(`/song/${id}/details`),
   enrich: (id, o = {}) => POST(`/song/${id}/enrich`, o),
   autofill: (id) => POST(`/song/${id}/autofill`),
+  /**
+   * El cifrado de la cancion, de una pagina de acordes (Ultimate Guitar,
+   * LaCuerda) y con su enlace. Lo guardado, o se busca; `refresh` lo busca otra vez.
+   * @returns {Promise<{sheet: object|null, tried: string[], failed: string[], song: object}>}
+   */
+  chords: (id, refresh = false) => POST(`/song/${id}/chords`, { refresh }),
+  /** @param {{to_key?: string, semitones?: number}} d el tono, o los semitonos si no lo dice */
+  chordsTransposed: (id, d) => POST(`/song/${id}/chords/transposed`, d),
   setCover: (id, path) => POST(`/song/${id}/cover`, { path }),
   /** @param {{text:string, from_key?:string, to_key?:string, semitones?:number}} d */
   transpose: (d) => POST('/transpose', d),

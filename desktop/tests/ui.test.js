@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 // doble del backend. vi.hoisted porque vi.mock se iza al principio del fichero
-const { api, pickImage } = vi.hoisted(() => ({
+const { api, app, pickImage } = vi.hoisted(() => ({
+  app: { openInBrowser: vi.fn(async () => {}) },
   api: {
     edit: vi.fn(),
     setStars: vi.fn(),
@@ -11,12 +12,19 @@ const { api, pickImage } = vi.hoisted(() => ({
     details: vi.fn(),
     autofill: vi.fn(),
     transpose: vi.fn(),
+    chords: vi.fn(),
+    chordsTransposed: vi.fn(),
     coverUrl: (id) => '/c/' + id,
     coverUrlAlt: () => null
   },
   pickImage: vi.fn(async () => null)
 }))
-vi.mock('../src/api.js', () => ({ api, pickImage, errorMessage: (e) => String(e?.message || e) }))
+vi.mock('../src/api.js', () => ({
+  api,
+  app,
+  pickImage,
+  errorMessage: (e) => String(e?.message || e)
+}))
 beforeEach(() => vi.clearAllMocks())
 import { mount, flushPromises } from '@vue/test-utils'
 import DetailsPanel from '../src/components/DetailsPanel.vue'
@@ -431,6 +439,82 @@ describe('la ficha y lo que llega tarde', () => {
     return { promise, release: (v) => release(v) }
   }
   const boton = (w, text) => w.findAll('button').find((b) => b.text().includes(text))
+  /** un cifrado como los que guarda el nucleo */
+  const cifrado = (key, chords, extra = {}) => ({
+    source: 'Ultimate Guitar',
+    url: 'https://tabs.example/1',
+    artist: 'Barak',
+    title: 'Mi Gozo',
+    key,
+    capo: 0,
+    votes: 12,
+    sections: [
+      {
+        name: 'Coro',
+        chords,
+        lines: [
+          { t: chords.join('   '), c: true },
+          { t: 'Mi gozo esta en ti', c: false }
+        ]
+      }
+    ],
+    ...extra
+  })
+
+  it('los acordes se buscan en la web y se dice de donde salen', async () => {
+    api.chords.mockResolvedValueOnce({
+      sheet: cifrado('D', ['D', 'A']),
+      tried: ['Ultimate Guitar', 'LaCuerda'],
+      failed: [],
+      song: { ...cancion, chords: JSON.stringify({ sheet: cifrado('D', ['D', 'A']) }) }
+    })
+    const w = mount(DetailsPanel, { props: { song: { ...cancion }, aiReady: false } })
+    await boton(w, 'Buscar acordes').trigger('click')
+    expect(api.chords).toHaveBeenCalledWith(7, false)
+    await flushPromises()
+    const nueva = w.emitted('updated').at(-1)[0]
+    await w.setProps({ song: nueva })
+    expect(w.text()).toContain('Tono D')
+    expect(w.text()).toContain('12 votos')
+    expect(boton(w, 'Buscar acordes')).toBeUndefined()
+    await boton(w, 'Ultimate Guitar').trigger('click')
+    expect(app.openInBrowser).toHaveBeenCalledWith('https://tabs.example/1')
+  })
+
+  it('si no hay cifrado lo dice, y se puede buscar otra vez', async () => {
+    const chords = JSON.stringify({ sheet: null, sheet_tried: ['Ultimate Guitar', 'LaCuerda'] })
+    api.chords.mockResolvedValueOnce({ sheet: null, tried: [], failed: [], song: null })
+    const w = mount(DetailsPanel, { props: { song: { ...cancion, chords }, aiReady: true } })
+    expect(w.text()).toContain('No hay cifrado de esta canción en Ultimate Guitar ni LaCuerda')
+    expect(w.find('.chords').exists()).toBe(false)
+    await boton(w, 'Buscar otra vez').trigger('click')
+    expect(api.chords).toHaveBeenCalledWith(7, true)
+  })
+
+  it('sin tono en el cifrado no se pone uno: se sube o se baja por semitonos', async () => {
+    const chords = JSON.stringify({ sheet: cifrado('', ['C', 'G']) })
+    api.chordsTransposed.mockResolvedValueOnce({ sheet: cifrado('', ['D', 'A']) })
+    const w = mount(DetailsPanel, { props: { song: { ...cancion, chords }, aiReady: true } })
+    expect(w.text()).toContain('El cifrado no dice el tono')
+    const campo = w.findAll('.field').find((f) => f.text().includes('como está'))
+    await campo.find('.select-box').trigger('click')
+    await w
+      .findAll('.select-opt')
+      .find((o) => o.text() === '+2 semitonos')
+      .trigger('click')
+    await flushPromises()
+    expect(api.chordsTransposed).toHaveBeenCalledWith(7, { semitones: 2 })
+    expect(w.find('.chords').text()).toBe('D   A')
+  })
+
+  it('el cifrado entero pone los acordes sobre la letra', async () => {
+    const chords = JSON.stringify({ sheet: cifrado('G', ['G', 'C']) })
+    const w = mount(DetailsPanel, { props: { song: { ...cancion, chords }, aiReady: true } })
+    expect(w.text()).not.toContain('Mi gozo esta en ti')
+    await boton(w, 'Cifrado entero').trigger('click')
+    expect(w.find('.sheet-full .lyric-line').text()).toBe('Mi gozo esta en ti')
+    expect(w.find('.sheet-full .chord-line').text()).toBe('G   C')
+  })
 
   it('los detalles de IA de A no se pintan en la ficha de B', async () => {
     const p = pendiente()
@@ -440,15 +524,15 @@ describe('la ficha y lo que llega tarde', () => {
     await w.setProps({ song: { ...cancion, id: 8, title: 'Otra' } })
     // la otra no se queda bloqueada esperando lo de la primera
     expect(boton(w, 'Ver detalles IA').attributes('disabled')).toBeUndefined()
-    p.release({ details: { progression: 'C G Am F', confidence: 0.9 } })
+    p.release({ details: { about_the_song: 'Habla del gozo', confidence: 0.9 } })
     await flushPromises()
-    expect(w.text()).not.toContain('C G Am F')
+    expect(w.text()).not.toContain('Habla del gozo')
   })
 
   it('la transposicion de A no se pinta en la ficha de B', async () => {
-    const chords = JSON.stringify({ progression: 'G D Em C', likely_key: 'G', section_chords: {} })
+    const chords = JSON.stringify({ sheet: cifrado('G', ['G', 'D', 'Em', 'C']) })
     const p = pendiente()
-    api.transpose.mockReturnValueOnce(p.promise)
+    api.chordsTransposed.mockReturnValueOnce(p.promise)
     const w = mount(DetailsPanel, { props: { song: { ...cancion, chords }, aiReady: true } })
     const destino = w.findAll('.field').find((f) => f.text().includes('—'))
     await destino.find('.select-box').trigger('click')
@@ -460,12 +544,12 @@ describe('la ficha y lo que llega tarde', () => {
       song: {
         ...cancion,
         id: 8,
-        chords: JSON.stringify({ progression: 'E B C#m A', likely_key: 'E' })
+        chords: JSON.stringify({ sheet: cifrado('E', ['E', 'B', 'C#m', 'A']) })
       }
     })
-    p.release({ text: 'A E F#m D', capo: [] })
+    p.release({ sheet: cifrado('A', ['A', 'E', 'F#m', 'D']) })
     await flushPromises()
-    expect(w.find('.chords').text()).toBe('E B C#m A')
+    expect(w.find('.chords').text()).toBe('E   B   C#m   A')
   })
 
   it('un fallo de A no aparece en la ficha de B', async () => {
