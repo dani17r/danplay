@@ -21,8 +21,10 @@ log = logging.getLogger(__name__)
 
 GRAPH = Path(__file__).resolve().parent / "data" / "pulso" / "beat_this.onnx"
 # Lo que se guarda cambia si cambia la red o la forma de sacar la rejilla:
-# con otro numero, lo guardado no vale y se calcula otra vez.
-VERSION = 1
+# con otro numero, lo guardado no vale y se calcula otra vez. 2: un solo nivel
+# de pulso, afinado entre tramas, el «1» con modelo de compas y sin clic
+# donde no hay pulso (ver pulse.grid).
+VERSION = 2
 TIMEOUT = 600
 
 

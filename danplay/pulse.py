@@ -17,10 +17,20 @@ de alrededor se hace aqui con numpy, igual que en su codigo:
 - los pulsos: los maximos de la probabilidad en ±70 ms que pasan del 50 %,
   y cada «1» llevado al pulso mas cercano.
 
-Y lo que la app necesita encima (`grid`): una rejilla sin huecos (donde la
-red no oye pulso, en una parte sin ritmo, se rellena al tempo de alrededor:
-el clic no se puede callar ahi) y el «1» de cada compas tal como lo oye,
-compases irregulares incluidos (el 2/4 antes del coro).
+Y lo que la app necesita encima (`grid`), medido canción a canción sobre
+una biblioteca de alabanza (`scripts/revisar-metronomo.py`) y contra GTZAN:
+
+- un solo nivel de pulso de principio a fin. La red, por tramos, oye el pulso
+  al doble (el «y» de cada tiempo) o a la mitad, y el clic se aceleraba y
+  frenaba dentro de la canción. Entre los candidatos de la red se elige la
+  cadena de tempo estable (programacion dinamica) y lo que falta se rellena;
+- cada pulso afinado entre tramas (una parabola sobre la red: la red mira
+  cada 20 ms y el clic bailaba ±10 ms) y suavizado con el tempo de alrededor;
+- el «1» con un modelo de compas: un compas irregular solo si los «1» de la
+  red lo piden de verdad (antes salian compases de 1, 2, 5 y 8 tiempos);
+- sin clic donde no hay pulso: antes del primero y despues del ultimo (una
+  intro libre, un final que se apaga) y en un hueco que no es un numero
+  entero de tiempos (una parte libre). Un hueco a tempo se rellena.
 
 Corre en un proceso aparte (`main`), con prioridad baja, como el separador:
 son unos segundos de todos los nucleos.
@@ -177,61 +187,238 @@ def beats_of(beat_logits: np.ndarray, down_logits: np.ndarray) -> tuple[np.ndarr
 
 # ------------------------------------------------------------ la rejilla
 
+# Cuanto cuesta, al elegir la cadena de pulsos: apartarse del tempo de
+# alrededor (por el cuadrado del log2 del cociente), un pulso que falta y
+# empezar otra cadena despues de un hueco. Medidos sobre GTZAN y sobre una
+# biblioteca de alabanza: con menos, vuelven los tramos al doble.
+TEMPO_COST = 240.0
+MISSING_COST = 0.6
+RESTART_COST = 3.0
+# A partir de que probabilidad un maximo de la red es candidato a pulso: por
+# debajo del 50 % (el umbral de `beats_of`) para no perder los flojos de una
+# parte suave; la cadena ya descarta los que no cuadran.
+CANDIDATE = 0.2
+# Un hueco se rellena si cabe un numero entero de pulsos (± esto de pulso).
+WHOLE = 0.25
+# Cuantos vecinos a cada lado alisan cada pulso.
+SMOOTH = 4
+# Lo que cuesta un compas irregular (cortado o con un tiempo de mas).
+IRREGULAR_BAR = 0.004
 
-def grid(beats: np.ndarray, downs: np.ndarray, duration: float, down_logits=None) -> dict:
-    """La rejilla que usa la app (`BeatGrid` de beats.rs) a partir de los pulsos
-    y los «1» de la red.
 
-    - Sin huecos: donde entre dos pulsos cabe mas de uno y medio del tempo de
-      alrededor, se ponen los que faltan, repartidos. Y antes del primero y
-      despues del ultimo, hasta el principio y el final de la cancion.
-    - El compas, el mas comun entre «1» y «1»; y cada «1» donde lo oye la red
-      (`bars`), aunque algun compas sea mas corto o mas largo.
-    """
-    beats = np.asarray(beats, dtype=np.float64)
+def _sigmoid(x) -> np.ndarray:
+    return 1.0 / (1.0 + np.exp(-np.asarray(x, dtype=np.float64)))
+
+
+def candidates(beat_logits: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Los maximos (±3 tramas) de la probabilidad de pulso que pasan de
+    `CANDIDATE`, cada uno en su instante afinado entre tramas (el vertice de
+    la parabola por la trama y sus dos vecinas), con su probabilidad."""
+    lg = np.asarray(beat_logits, dtype=np.float64)
+    p = _sigmoid(lg)
+    padded = np.pad(lg, 3, constant_values=-np.inf)
+    window = np.lib.stride_tricks.sliding_window_view(padded, 7).max(axis=1)
+    frames: list[int] = []
+    for f in np.flatnonzero((lg == window) & (p > CANDIDATE)):
+        if not frames or f - frames[-1] > 1:  # una meseta: uno
+            frames.append(int(f))
+    idx = np.array(frames, dtype=np.int64)
+    times = idx.astype(np.float64)
+    inner = (idx > 0) & (idx < lg.size - 1)
+    a, b, c = lg[idx[inner] - 1], lg[idx[inner]], lg[idx[inner] + 1]
+    den = a - 2 * b + c
+    frac = np.divide(0.5 * (a - c), den, out=np.zeros_like(den), where=den != 0)
+    times[inner] += np.clip(frac, -0.5, 0.5)
+    return times / FPS, p[idx]
+
+
+def _dominant_period(times: np.ndarray, probs: np.ndarray) -> float:
+    """El periodo que mas se repite entre los pulsos claros: cada intervalo,
+    un voto, como la mediana de antes (ante la duda, el nivel rapido)."""
+    strong = times[probs > 0.5]
+    ibi = np.diff(strong if strong.size >= 4 else times)
+    ibi = ibi[(ibi > 0.15) & (ibi < 3.0)]
+    if ibi.size == 0:
+        raise ValueError("la cancion no tiene pulso claro")
+    hist, edges = np.histogram(np.log2(ibi), bins=np.linspace(np.log2(0.15), np.log2(3.0), 160))
+    k = int(np.argmax(np.convolve(hist, [1, 2, 1], mode="same")))
+    guess = 2 ** ((edges[k] + edges[k + 1]) / 2)
+    near = ibi[np.abs(np.log2(ibi / guess)) < 0.1]
+    return float(np.median(near)) if near.size else float(guess)
+
+
+def _local_period(beats: np.ndarray, period: float, half: int = 7):
+    """El periodo de alrededor de cada instante, en el nivel del dominante:
+    un intervalo al doble o a la mitad cuenta como el suyo. Asi una cancion
+    que acelera o un popurri cambian de tempo, pero no de nivel. Hasta un 28 %
+    del dominante (un popurri de 87 a 111): mas lejos, a un tercio de otro
+    nivel, es la red confundiendo un tresillo, no la cancion."""
+    ibi = np.diff(beats)
+    mid = (beats[1:] + beats[:-1]) / 2
+    folded = ibi * 2.0 ** np.clip(np.round(np.log2(period / ibi)), -2, 2)
+    ok = np.abs(np.log2(folded / period)) < 0.36
+    folded, mid = folded[ok], mid[ok]
+    if folded.size < 3:
+        return lambda t: np.full_like(np.asarray(t, dtype=np.float64), period)
+    smooth = np.array(
+        [np.median(folded[max(0, i - half) : i + half + 1]) for i in range(folded.size)]
+    )
+    return lambda t: np.interp(t, mid, smooth)
+
+
+def _chain(times: np.ndarray, probs: np.ndarray, local) -> np.ndarray:
+    """Los candidatos que forman la cadena de pulsos con mas probabilidad y
+    menos tirones de tempo (programacion dinamica). Saltarse uno sale gratis
+    (no suma); uno que falta en medio cuesta `MISSING_COST`; despues de un
+    hueco largo se puede empezar otra cadena por `RESTART_COST`."""
+    n = times.size
+    score = np.full(n, -np.inf)
+    back = np.full(n, -1, dtype=np.int64)
+    best = np.full(n, -np.inf)  # la mejor cadena que acaba en <= i
+    best_at = np.full(n, -1, dtype=np.int64)
+    for j in range(n):
+        tj, pl = times[j], float(local(times[j]))
+        far = int(np.searchsorted(times, tj - 4.5 * pl))
+        near = int(np.searchsorted(times, tj - 0.55 * pl))
+        # empezar aqui: el primero de la cancion no paga; despues de un hueco, si
+        s_j, b_j = probs[j], -1
+        if far > 0 and best[far - 1] > -np.inf:
+            s_j, b_j = best[far - 1] + probs[j] - RESTART_COST, int(best_at[far - 1])
+            if s_j < probs[j] - RESTART_COST:
+                s_j, b_j = probs[j], -1
+        for i in range(far, near):
+            d = tj - times[i]
+            k = max(1, round(d / pl))
+            dev = math.log2(d / (k * pl))
+            s = score[i] + probs[j] - TEMPO_COST * dev * dev - MISSING_COST * (k - 1)
+            if s > s_j:
+                s_j, b_j = s, i
+        score[j], back[j] = s_j, b_j
+        if j > 0 and best[j - 1] >= s_j:
+            best[j], best_at[j] = best[j - 1], best_at[j - 1]
+        else:
+            best[j], best_at[j] = s_j, j
+    chain = []
+    at = int(best_at[n - 1])
+    while at != -1:
+        chain.append(at)
+        at = int(back[at])
+    return np.array(chain[::-1], dtype=np.int64)
+
+
+def _fill(beats: np.ndarray, local) -> np.ndarray:
+    """Los pulsos que faltan dentro de la cadena: un hueco en el que cabe un
+    numero entero de pulsos (±`WHOLE`) se reparte; uno que no (una parte
+    libre, un ritardando) se queda sin clic."""
+    out = [float(beats[0])]
+    for b in beats[1:]:
+        gap = b - out[-1]
+        n = gap / float(local((b + out[-1]) / 2))
+        k = round(n)
+        if k >= 2 and abs(n - k) <= WHOLE * (1 if k <= 8 else 2):
+            out += [out[-1] + gap * i / k for i in range(1, k)]
+        out.append(float(b))
+    return np.array(out)
+
+
+def _smooth(beats: np.ndarray) -> np.ndarray:
+    """Cada pulso en la recta de sus `SMOOTH` vecinos de cada lado, si el
+    tramo va regular; donde el tempo cambia de golpe, como estaba."""
+    out = beats.copy()
+    for i in range(beats.size):
+        lo, hi = max(0, i - SMOOTH), min(beats.size, i + SMOOTH + 1)
+        seg = beats[lo:hi]
+        ibi = np.diff(seg)
+        if seg.size < 5:
+            continue
+        med = np.median(ibi)
+        if ibi.max() > 1.25 * med or ibi.min() < 0.8 * med:
+            continue
+        idx = np.arange(lo, hi)
+        slope, icept = np.polyfit(idx, seg, 1)
+        out[i] = slope * i + icept
+    for i in range(1, out.size):  # sin cruzarse nunca
+        if out[i] <= out[i - 1]:
+            out[i] = beats[i]
+    return out
+
+
+def _bars(down_p: np.ndarray, meter: int) -> tuple[np.ndarray, float]:
+    """El «1» de cada compas (Viterbi): los estados son el tiempo del compas
+    (0..meter-1) y uno mas para un compas con un tiempo de mas; lo normal es
+    pasar al siguiente, y cortar o alargar un compas cuesta `IRREGULAR_BAR`.
+    Devuelve los indices de los «1» y lo bien que cuadra."""
+    m, n = meter, down_p.size
+    states = m + 1
+    lp = np.log(np.clip(down_p, 1e-4, 1 - 1e-4))
+    lq = np.log(np.clip(1 - down_p, 1e-4, 1 - 1e-4))
+    emit = np.empty((n, states))
+    emit[:, 0] = lp
+    emit[:, 1:] = lq[:, None]
+    trans = np.full((states, states), -np.inf)
+    odd, keep = math.log(IRREGULAR_BAR), math.log(1 - 2 * IRREGULAR_BAR)
+    for s in range(m):
+        trans[s, (s + 1) % m] = keep
+        if 1 <= s < m - 1:
+            trans[s, 0] = odd  # compas cortado
+    trans[m - 1, m] = odd  # un tiempo de mas
+    trans[m, 0] = 0.0
+    delta = np.full(states, -np.inf)
+    delta[:m] = emit[0, :m] - math.log(m)
+    psi = np.zeros((n, states), dtype=np.int64)
+    for t in range(1, n):
+        cand = delta[:, None] + trans
+        psi[t] = np.argmax(cand, axis=0)
+        delta = cand[psi[t], np.arange(states)] + emit[t]
+    state = int(np.argmax(delta))
+    fit = float(delta[state])
+    path = np.empty(n, dtype=np.int64)
+    for t in range(n - 1, -1, -1):
+        path[t] = state
+        state = int(psi[t, state])
+    return np.flatnonzero(path == 0), fit
+
+
+def grid(beat_logits: np.ndarray, down_logits: np.ndarray) -> dict:
+    """La rejilla que usa la app (`BeatGrid` de beats.rs) a partir de lo que
+    dice la red trama a trama (ver el principio del archivo).
+
+    `closed`: acaba en su ultimo pulso; despues no hay clic."""
+    times, probs = candidates(beat_logits)
+    if times.size < 4:
+        raise ValueError("la cancion no tiene pulso claro")
+    period = _dominant_period(times, probs)
+    strong = times[probs > 0.5]
+    local = _local_period(strong if strong.size >= 4 else times, period)
+    # dos pasadas: la primera cadena ya va en un solo nivel, y el tempo de
+    # alrededor que sale de ella (sin los golpes sueltos de la red) es fiable
+    first = times[_chain(times, probs, local)]
+    local = _local_period(first, period, half=4)
+    beats = _smooth(_fill(times[_chain(times, probs, local)], local))
     if beats.size < 4:
         raise ValueError("la cancion no tiene pulso claro")
-    period = float(np.median(np.diff(beats)))
-    filled = [float(beats[0])]
-    for b in beats[1:]:
-        gap = b - filled[-1]
-        local = period
-        n = round(gap / local)
-        if gap > 1.5 * local and n >= 2:
-            filled += [filled[-1] + gap * k / n for k in range(1, n)]
-        filled.append(float(b))
-    while filled[0] - period >= 0:
-        filled.insert(0, filled[0] - period)
-    while filled[-1] + period <= duration:
-        filled.append(filled[-1] + period)
-    full = np.array(filled)
-    # cada «1» en su pulso de la rejilla ya rellena
-    bars = sorted({int(np.abs(full - d).argmin()) for d in np.asarray(downs, dtype=np.float64)})
-    counts = np.diff(bars)
-    counts = counts[(counts >= 2) & (counts <= 12)]
-    meter = int(np.bincount(counts).argmax()) if counts.size else 4
-    first = bars[0] if bars else 0
-    # donde caeria el «1» si fuera un 3/4 o un 4/4 regular (para cambiarlo a mano)
-    phases = {}
-    for m in (3, 4):
-        votes = (
-            np.bincount(np.array(bars, dtype=np.int64) % m, minlength=m) if bars else np.zeros(m)
-        )
-        phases[m] = int(np.argmax(votes))
-    confidence = 0.0
-    if down_logits is not None and bars:
-        frames = np.clip((full[bars] * FPS).round().astype(int), 0, len(down_logits) - 1)
-        confidence = float(np.mean(1 / (1 + np.exp(-np.asarray(down_logits)[frames]))))
-    intervals = np.diff(full)
+    # la probabilidad de «1» en cada pulso (la mejor de su trama y las de al lado)
+    dp = _sigmoid(down_logits)
+    f = np.clip(np.round(beats * FPS).astype(int), 0, dp.size - 1)
+    down_p = np.maximum.reduce([dp[np.clip(f + o, 0, dp.size - 1)] for o in (-1, 0, 1)])
+    fits = {m: _bars(down_p, m) for m in (3, 4)}
+    # 4 salvo que el 3 cuadre claramente mejor
+    meter = 3 if fits[3][1] > fits[4][1] + 0.05 * beats.size else 4
+    bars = fits[meter][0]
+    phases = {
+        m: int(np.bincount(fits[m][0] % m, minlength=m).argmax()) if fits[m][0].size else 0
+        for m in (3, 4)
+    }
     return {
-        "bpm": round(float(60.0 / np.median(intervals)), 2),
+        "bpm": round(float(60.0 / np.median(np.diff(beats))), 2),
         "meter": meter,
-        "beats": [round(float(t), 4) for t in full],
-        "first_downbeat": int(first),
+        "beats": [round(float(t), 4) for t in beats],
+        "first_downbeat": int(bars[0]) if bars.size else 0,
         "phase3": phases[3],
         "phase4": phases[4],
-        "confidence": round(confidence, 3),
+        "confidence": round(float(np.mean(down_p[bars])) if bars.size else 0.0, 3),
         "bars": [int(b) for b in bars],
+        "closed": True,
     }
 
 
@@ -267,8 +454,7 @@ def analyze(ffmpeg: str, path: str, graph) -> dict:
     mono = _decode(ffmpeg, path)
     session = open_session(graph)
     beat, down = logits(session, spectrogram(mono))
-    beats, downs = beats_of(beat, down)
-    return grid(beats, downs, mono.size / RATE, down)
+    return grid(beat, down)
 
 
 def key_of(path) -> str:

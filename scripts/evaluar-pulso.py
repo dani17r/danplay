@@ -13,13 +13,15 @@ medir: la app no los lleva ni los usa.
 - `app`: el analisis de siempre de la app de escritorio (`beats.rs`), con
   la herramienta de medida de sus pruebas (`cargo test ... measure`);
 - `beat this`: `danplay.pulse` con el grafo que viaja con la app, tal cual
-  sale de la red (`crudo`), con la rejilla que usa la app (sin huecos y con
-  el «1» de cada compas, `compases`), o forzando un compas regular
-  (`regular`).
+  sale de la red (`crudo`) o con la rejilla que usa la app (`rejilla`: un
+  solo nivel de pulso, afinado y con el «1» de su modelo de compas).
 
 La medida es la F del MIREX: un pulso cuenta si cae a menos de 70 ms de uno
-anotado; `F «1»`, lo mismo con los «1». Aparte, las de pop, rock, country y
-disco, lo mas parecido a la musica de alabanza.
+anotado; `F «1»`, lo mismo con los «1». Con ±25 ms, lo fino (un clic que
+baila diez milisegundos ya no cuenta). CMLt y AMLt, la continuidad: que el
+pulso siga en el mismo nivel de principio a fin (AMLt admite el doble o la
+mitad, CMLt no). Aparte, las de pop, rock, country y disco, lo mas parecido a
+la musica de alabanza.
 
 Con `--bateria CARPETA` (una pista de bateria por fragmento, con su mismo
 nombre, hecha con el separador de la app) mide tambien sobre la bateria sola,
@@ -133,16 +135,13 @@ def run_beat_this(files: list[Path]) -> tuple[dict, float]:
         took += time.perf_counter() - start
         b, d = pulse.beats_of(beat, down)
         variants = {"crudo": (b, d)}
-        if len(b) >= 4:
-            g = pulse.grid(b, d, mono.size / pulse.RATE, down)
+        try:
+            g = pulse.grid(beat, down)
+        except ValueError:  # sin pulso claro
+            g = None
+        if g:
             full = np.array(g["beats"])
-            variants["compases"] = (full, full[g["bars"]] if g["bars"] else np.array([]))
-            m = g["meter"]
-            phase = g["phase3"] if m % 3 == 0 else g["phase4"]
-            variants["regular"] = (
-                full,
-                full[[i for i in range(len(full)) if (i - phase) % m == 0]],
-            )
+            variants["rejilla"] = (full, full[g["bars"]] if g["bars"] else np.array([]))
         got[str(f)] = variants
         print(f"\r  beat this: {i + 1}/{len(files)}", end="", flush=True)
     print()
@@ -152,21 +151,34 @@ def run_beat_this(files: list[Path]) -> tuple[dict, float]:
 def score(data, got, label, into):
     import mir_eval
 
-    def f(ref, est):
-        ref = mir_eval.beat.trim_beats(np.asarray(ref, float))
-        est = mir_eval.beat.trim_beats(np.asarray(est, float))
-        return mir_eval.beat.f_measure(ref, est) if len(ref) else np.nan
+    def trim(x):
+        return mir_eval.beat.trim_beats(np.asarray(x, float))
+
+    def f(ref, est, window=0.07):
+        ref, est = trim(ref), trim(est)
+        return mir_eval.beat.f_measure(ref, est, f_measure_threshold=window) if len(ref) else np.nan
+
+    def cml(ref, est):
+        """Continuidad (CMLt, AMLt): si el pulso sigue en el mismo nivel de
+        principio a fin, que es lo que falla cuando el clic se acelera."""
+        ref, est = trim(ref), trim(est)
+        if len(ref) < 2 or len(est) < 2:
+            return np.nan, np.nan
+        c = mir_eval.beat.continuity(ref, est)
+        return c[1], c[3]
 
     rows: dict[str, list] = {}
     for genre, audio, ann in data:
         ref_b, ref_d = reference(ann)
         for variant, (b, d) in got.get(str(audio), {}).items():
-            rows.setdefault(variant, []).append((genre, f(ref_b, b), f(ref_d, d)))
+            rows.setdefault(variant, []).append(
+                (genre, f(ref_b, b), f(ref_d, d), f(ref_b, b, 0.025), *cml(ref_b, b))
+            )
     for variant, r in rows.items():
         allr = np.array([x[1:] for x in r], dtype=float)
         pop = np.array([x[1:] for x in r if x[0] in POP], dtype=float)
         m, p = np.nanmean(allr, axis=0), np.nanmean(pop, axis=0)
-        into.append((f"{label} · {variant}", m[0], m[1], p[0], p[1], len(r)))
+        into.append((f"{label} · {variant}", *m, p[0], p[1], len(r)))
 
 
 def main() -> int:
@@ -194,10 +206,15 @@ def main() -> int:
         score(items, run_app(files, work), f"app ({label})", rows)
         got, speed = run_beat_this(files)
         score(items, got, f"beat this ({label})", rows)
-    print("\nF de MIREX (±70 ms), media de los fragmentos; más es mejor\n")
-    print(f"{'':32s}{'pulso':>8s}{'«1»':>8s}   {'pop/rock…':>10s}{'«1»':>8s}")
-    for label, fb, fd, pb, pd, n in rows:
-        print(f"{label:32s}{fb:8.3f}{fd:8.3f}   {pb:10.3f}{pd:8.3f}   ({n})")
+    print("\nF de MIREX (±70 ms y ±25 ms) y continuidad, media de los fragmentos; más es mejor\n")
+    print(
+        f"{'':32s}{'pulso':>8s}{'«1»':>8s}{'±25 ms':>8s}{'CMLt':>8s}{'AMLt':>8s}"
+        f"   {'pop/rock…':>10s}{'«1»':>8s}"
+    )
+    for label, fb, fd, f25, cmlt, amlt, pb, pd, n in rows:
+        print(
+            f"{label:32s}{fb:8.3f}{fd:8.3f}{f25:8.3f}{cmlt:8.3f}{amlt:8.3f}   {pb:10.3f}{pd:8.3f}   ({n})"
+        )
     print(f"\nBeat This!: {speed:.2f} s de red por fragmento de 30 s en esta máquina")
     return 0
 

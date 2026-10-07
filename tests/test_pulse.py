@@ -86,21 +86,78 @@ def test_the_beats_are_the_peaks_and_each_one_goes_to_its_beat():
     np.testing.assert_allclose(downs, [1.0, 3.0])
 
 
-def test_the_grid_has_no_holes_and_keeps_every_bar_as_heard():
+def _net(beats, downs, seconds=60.0):
+    """Lo que diria la red: un pico de pulso en cada `beats` (en segundos,
+    con la fraccion de trama que haga falta) y uno de «1» en cada `downs`."""
+    frames = int(seconds * pulse.FPS)
+    t = np.arange(frames) / pulse.FPS
+    beat = np.full(frames, -6.0)
+    down = np.full(frames, -6.0)
+    for b in beats:
+        beat = np.maximum(beat, 4.0 - 0.5 * ((t - b) * pulse.FPS) ** 2)
+    for d in downs:
+        down = np.maximum(down, 4.0 - 0.5 * ((t - d) * pulse.FPS) ** 2)
+    return beat, down
+
+
+def test_the_grid_keeps_one_level_from_start_to_end():
+    """Lo que paso en canciones de verdad: un tramo en que la red oye el pulso
+    al doble (el «y» de cada tiempo), un golpe suelto de mas y un pulso que
+    no oye. El clic sigue a un solo tempo, entero, y sin el golpe de mas."""
+    period = 0.6
+    beats = [1.0 + period * i for i in range(60)]
+    heard = [b for i, b in enumerate(beats) if i != 20]  # uno que no oye
+    heard += [b + period / 2 for b in beats[30:42]]  # al doble en un tramo
+    heard.append(beats[50] + 0.17)  # un golpe de mas
+    g = pulse.grid(*_net(sorted(heard), beats[::4]))
+    got = np.array(g["beats"])
+    np.testing.assert_allclose(got, beats, atol=0.004)
+    assert g["bpm"] == pytest.approx(100.0, abs=0.2)
+    assert g["meter"] == 4 and g["bars"] == list(range(0, 60, 4))
+    assert g["closed"] and g["first_downbeat"] == 0
+
+
+def test_each_beat_falls_between_frames_where_it_is():
+    """La red mira cada 20 ms; el clic no baila con ella."""
+    period = 60 / 97  # no cae en tramas enteras
+    beats = [0.5 + period * i for i in range(80)]
+    got = np.array(pulse.grid(*_net(beats, beats[::4]))["beats"])
+    assert np.abs(got - beats).max() < 0.002
+
+
+def test_a_free_part_has_no_click_and_a_hole_in_tempo_is_filled():
     period = 0.5
-    beats = np.array([1.0 + period * i for i in range(20) if i not in (8, 9, 10)])  # un hueco
-    downs = beats[[0, 4, 7]]  # un compas de 4, uno de 3... (se lo dice la red)
-    g = pulse.grid(beats, downs, duration=12.0)
-    full = np.array(g["beats"])
-    np.testing.assert_allclose(np.diff(full), period, atol=1e-9)
-    assert full[0] == pytest.approx(0.0) and full[-1] <= 12.0 < full[-1] + period
-    assert g["bpm"] == pytest.approx(120.0)
-    # el compas es el mas comun; los «1», donde los oye la red
-    assert g["meter"] == 4 or g["meter"] == 3
-    assert [full[i] for i in g["bars"]] == pytest.approx(list(downs))
-    assert g["first_downbeat"] == g["bars"][0]
+    first = [1.0 + period * i for i in range(24)]  # hasta 12,5
+    hole = first[-1] + 4 * period  # cuatro pulsos sin nada, a tempo
+    second = [hole + period * i for i in range(24)]  # hasta 25,5
+    free = second[-1] + 3.3  # una parte libre: no es un numero entero de pulsos
+    third = [free + period * i for i in range(24)]
+    g = pulse.grid(*_net(first + second + third, (first + second + third)[::4]))
+    got = np.array(g["beats"])
+    # el hueco a tempo, relleno; la parte libre, sin nada
+    assert sum(1 for b in got if first[-1] < b < second[0]) == 3
+    assert not any(second[-1] < b < third[0] for b in got)
+    # sin clic antes del primero ni despues del ultimo
+    assert got[0] == pytest.approx(first[0], abs=0.004)
+    assert got[-1] == pytest.approx(third[-1], abs=0.004)
     with pytest.raises(ValueError):
-        pulse.grid(np.array([1.0, 2.0]), np.array([]), 3.0)
+        pulse.grid(*_net([1.0, 2.0], []))
+
+
+def test_the_one_stays_put_unless_the_song_says_otherwise():
+    """Un «1» que la red se salta no rompe el compas (antes salian compases
+    de 8); un compas de dos que la red oye una y otra vez, si."""
+    period = 0.5
+    beats = [1.0 + period * i for i in range(64)]
+    downs = beats[::4]
+    missing = downs[:5] + downs[6:]
+    g = pulse.grid(*_net(beats, missing))
+    assert g["bars"] == list(range(0, 64, 4))
+    # un compas de dos (el 2/4 antes del coro): los «1» de despues se oyen
+    # dos tiempos antes de donde tocaban, una y otra vez
+    shifted = list(beats[:32:4]) + [beats[34 + 4 * k] for k in range(8)]
+    bars = pulse.grid(*_net(beats, shifted))["bars"]
+    assert bars[bars.index(32) + 1] == 34 and bars[-1] == 62
 
 
 # ------------------------------------------------------------ el nucleo
