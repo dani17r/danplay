@@ -173,8 +173,8 @@ describe('desde el principio', () => {
     await b.trigger('click')
     await flushPromises()
     expect(bridge().seek).toHaveBeenCalledWith(0)
-    // la cola sigue siendo el ultimo boton del reproductor
-    expect(w.findAll('.player .pl-btn').at(-1).attributes('title')).toContain('Cola')
+    // la cola sigue en la barra, con los de la derecha
+    expect(w.find('.player .pl-extra button[title="Cola de reproducción"]').exists()).toBe(true)
   })
 
   it('sin cancion el boton esta apagado', async () => {

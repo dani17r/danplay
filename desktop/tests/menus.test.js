@@ -74,7 +74,7 @@ describe('la lista completa sigue visible al reproducir', () => {
     await w.findAll('tbody tr')[1].trigger('dblclick')
     await flushPromises()
     // abrir la cola
-    const queueButton = w.findAll('.player .pl-btn').at(-1)
+    const queueButton = w.find('.player button[title="Cola de reproducción"]')
     await queueButton.trigger('click')
     await flushPromises()
     expect(w.findAll('.queue-row')).toHaveLength(3) // antes, ahora, luego
@@ -151,7 +151,7 @@ describe('los menus se cierran al pulsar fuera', () => {
     const w = await montar()
     await w.findAll('tbody tr')[0].trigger('dblclick')
     await flushPromises()
-    await w.findAll('.player .pl-btn').at(-1).trigger('click')
+    await w.find('.player button[title="Cola de reproducción"]').trigger('click')
     await flushPromises()
     expect(w.findAll('.queue')).toHaveLength(1)
     await fueraClic()

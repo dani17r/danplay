@@ -65,31 +65,82 @@ td {
   }
 }
 
-/* columnas que se retiran cuando falta anchura */
+/* columnas que se retiran cuando falta anchura. Su <col> va tambien a
+   ancho 0: WebKitGTK (el motor de la app en Linux) le seguia guardando el
+   ancho aunque estuviera escondida, y dejaba un hueco */
 @media (max-width: 1460px) {
   .col-kbps {
     display: none;
+  }
+  col.col-kbps {
+    width: 0;
   }
 }
 @media (max-width: 1330px) {
   .col-bpm {
     display: none;
   }
+  col.col-bpm {
+    width: 0;
+  }
 }
 @media (max-width: 1230px) {
   .col-key {
     display: none;
+  }
+  col.col-key {
+    width: 0;
   }
 }
 @media (max-width: 1120px) {
   .col-stars {
     display: none;
   }
+  col.col-stars {
+    width: 0;
+  }
 }
 /* por su clase, y no por ser la quinta: asi se va tambien su `col`, y las
    columnas no se desalinean de sus anchos */
 @media (max-width: 1000px) {
   .col-album {
+    display: none;
+  }
+  col.col-album {
+    width: 0;
+  }
+}
+
+/* «copiar el nombre» ocupa una columna entera; en estrecho el titulo ya
+   tiene su boton de copiar al lado */
+@media (max-width: 760px) {
+  .col-copy {
+    display: none;
+  }
+  /* con pocas columnas, lo que sobra se lo lleva el titulo: con su 34 % se
+     repartia tambien al numero, que se quedaba con un hueco de 90 px */
+  .col-title {
+    width: auto;
+  }
+  col.col-copy {
+    width: 0;
+  }
+}
+/* muy estrecho: el artista va en la linea del titulo, en gris, y su columna
+   se va: dos columnas a medias cortaban los dos. Va pintado (::after) y no
+   en el texto: copiar el titulo sigue copiando solo el titulo */
+@media (max-width: 560px) {
+  .col-artist {
+    display: none;
+  }
+  col.col-artist {
+    width: 0;
+  }
+  .cell-text[data-artist]::after {
+    content: attr(data-artist);
+    color: var(--muted2);
+  }
+  .btn-label {
     display: none;
   }
 }

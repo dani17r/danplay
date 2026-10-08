@@ -356,7 +356,9 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
             <td v-if="show.title" class="title">
               <!-- el texto se recorta; el copiar se queda siempre a la vista -->
               <span class="cell-copiable"
-                ><span class="cell-text"
+                ><span
+                  class="cell-text"
+                  :data-artist="show.artist && c.artist ? ' · ' + c.artist : null"
                   >{{ c.title || c.file
                   }}<span v-if="c.feat" class="sub"> · feat. {{ c.feat }}</span></span
                 ><CopyButton
@@ -367,7 +369,7 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
                   @copied="(ok) => notifyCopied(ok, c.title || c.file)"
               /></span>
             </td>
-            <td v-if="show.artist" class="sub">{{ c.artist || '—' }}</td>
+            <td v-if="show.artist" class="sub col-artist">{{ c.artist || '—' }}</td>
             <td v-if="show.album" class="sub col-album">{{ c.album || '—' }}</td>
             <td v-if="show.stars" class="col-stars">
               <StarRating

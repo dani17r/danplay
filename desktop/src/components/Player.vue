@@ -13,6 +13,8 @@ import { useHotkeys } from '../composables/useHotkeys.js'
 import { useScrub } from '../composables/useScrub.js'
 import { formatTime } from '../utils/format.js'
 import { projection } from '../api.js'
+import { openMenu } from '../composables/useContextMenu.js'
+import { useWindowShape } from '../composables/useWindowShape.js'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
 import SliderField from './ui/SliderField.vue'
@@ -138,6 +140,80 @@ function goToOrigin() {
 function cycleSpeed() {
   const i = SPEEDS.indexOf(speed.value)
   player.setSpeed(SPEEDS[(i + 1) % SPEEDS.length])
+}
+
+// ------------------------------------------------------- menús de la barra
+const windowShape = useWindowShape()
+/** Donde abrir un menú pulsado: el clic, o (con el teclado) el propio botón. */
+function at(e) {
+  if (e.detail !== 0) return e
+  const r = e.currentTarget.getBoundingClientRect()
+  return { clientX: r.left, clientY: r.top }
+}
+function openShapes(e) {
+  openMenu(at(e), windowShape.menuItems(), 'Forma de la ventana')
+}
+const VOLUMES = [0.25, 0.5, 0.75, 1, 1.25, MAX_VOLUME]
+/** En estrecho, lo que no cabe en la barra: todo a mano, y sin perder nada. */
+function openMore(e) {
+  const pct = (v) => Math.round(v * 100) + ' %'
+  openMenu(
+    at(e),
+    [
+      {
+        label: shuffle.value ? 'Quitar el aleatorio' : 'Aleatorio',
+        icon: 'shuffle',
+        note: 'S',
+        action: () => player.toggleShuffle()
+      },
+      {
+        label: repeatLook.value.title,
+        icon: repeatLook.value.icon,
+        note: 'R',
+        action: () => player.cycleRepeat()
+      },
+      { label: 'Retroceder 10 s', icon: 'back10', action: () => player.nudge(-10) },
+      { label: 'Avanzar 10 s', icon: 'forward10', action: () => player.nudge(10) },
+      {
+        label: 'Velocidad',
+        note: speed.value + '×',
+        children: SPEEDS.map((s) => ({
+          label: s + '×',
+          icon: s === speed.value ? 'check' : undefined,
+          action: () => player.setSpeed(s)
+        }))
+      },
+      {
+        label: 'Volumen',
+        icon: muted.value || !volume.value ? 'mute' : 'volume',
+        note: pct(volume.value),
+        children: [
+          ...VOLUMES.map((v) => ({
+            label: pct(v),
+            icon: Math.abs(v - volume.value) < 0.005 ? 'check' : undefined,
+            note: v > 1 ? 'más alto de como viene' : undefined,
+            action: () => applyVolume(v)
+          })),
+          { separator: true },
+          {
+            label: muted.value ? 'Quitar el silencio' : 'Silenciar',
+            icon: 'mute',
+            action: toggleMute
+          }
+        ]
+      },
+      { separator: true },
+      {
+        label: props.study ? 'Cerrar el modo estudio' : 'Modo estudio',
+        icon: 'academic',
+        action: () => emit('toggleStudy')
+      },
+      { label: 'Proyectar la letra', icon: 'tv', action: () => projection.show() },
+      { label: 'Cola de reproducción', icon: 'queue', action: toggleQueue },
+      { label: 'Forma de la ventana', icon: 'shapes', children: windowShape.menuItems() }
+    ],
+    track.value?.title || 'Reproductor'
+  )
 }
 
 // Atajos de teclado. `useHotkeys` los ignora cuando el foco está en un campo
@@ -274,10 +350,18 @@ useHotkeys({
     />
 
     <div class="pl-info">
-      <div class="title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+      <div
+        class="title"
+        :title="track?.title || undefined"
+        style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
+      >
         {{ track?.title || 'Nada sonando' }}
       </div>
-      <div class="sub" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+      <div
+        class="sub"
+        :title="failure || track?.artist || undefined"
+        style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
+      >
         <span v-if="failure" style="color: var(--red)">{{ failure }}</span>
         <template v-else>
           {{ track?.artist || '—' }}
@@ -289,7 +373,7 @@ useHotkeys({
 
     <div class="pl-controls">
       <button
-        class="pl-btn"
+        class="pl-btn pl-secondary"
         :class="{ on: shuffle }"
         title="Aleatorio (S)"
         @click="player.toggleShuffle()"
@@ -300,7 +384,7 @@ useHotkeys({
         <Icon n="previous" :t="16" />
       </button>
       <button
-        class="pl-btn"
+        class="pl-btn pl-secondary pl-skip"
         title="Retroceder 10 s (Ctrl+←; ← 5 s, Mayús+← 30 s)"
         @click="player.nudge(-10)"
       >
@@ -310,7 +394,7 @@ useHotkeys({
         <Icon :n="playing ? 'pause' : 'play'" :t="16" />
       </button>
       <button
-        class="pl-btn"
+        class="pl-btn pl-secondary pl-skip"
         title="Avanzar 10 s (Ctrl+→; → 5 s, Mayús+→ 30 s)"
         @click="player.nudge(10)"
       >
@@ -320,7 +404,7 @@ useHotkeys({
         <Icon n="next" :t="16" />
       </button>
       <button
-        class="pl-btn repeat-btn"
+        class="pl-btn repeat-btn pl-secondary"
         :class="{ on: repeatLook.on }"
         :title="repeatLook.title + '  (R)'"
         @click="player.cycleRepeat()"
@@ -398,33 +482,55 @@ useHotkeys({
       />
     </div>
 
-    <!-- el modo estudio: bucle, velocidad sin cambiar el tono, marcadores, notas -->
+    <div class="pl-extra">
+      <!-- el modo estudio: bucle, velocidad sin cambiar el tono, marcadores, notas -->
+      <button
+        class="pl-btn pl-study"
+        :class="{ on: props.study }"
+        title="Modo estudio: bucle A-B, velocidad sin cambiar el tono, marcadores y notas"
+        @click="emit('toggleStudy')"
+      >
+        <Icon n="academic" :t="16" />
+      </button>
+      <!-- la letra en grande, en su propia ventana: para el proyector -->
+      <button
+        class="pl-btn pl-project"
+        title="Proyectar la letra (ventana aparte, para el proyector)"
+        @click="projection.show()"
+      >
+        <Icon n="tv" :t="16" />
+      </button>
+      <button
+        ref="queueButton"
+        type="button"
+        class="pl-btn"
+        :class="{ on: showQueue }"
+        title="Cola de reproducción"
+        :aria-expanded="showQueue"
+        @click="toggleQueue"
+      >
+        <Icon n="queue" :t="16" />
+      </button>
+      <!-- la forma de la ventana: completa, media pantalla, cuadrito, barra... -->
+      <button
+        type="button"
+        class="pl-btn"
+        title="Forma de la ventana (F11: pantalla completa)"
+        aria-label="Forma de la ventana"
+        @click="openShapes"
+      >
+        <Icon n="shapes" :t="16" />
+      </button>
+    </div>
+    <!-- en estrecho, lo que no cabe en la barra -->
     <button
-      class="pl-btn pl-study"
-      :class="{ on: props.study }"
-      title="Modo estudio: bucle A-B, velocidad sin cambiar el tono, marcadores y notas"
-      @click="emit('toggleStudy')"
-    >
-      <Icon n="academic" :t="16" />
-    </button>
-    <!-- la letra en grande, en su propia ventana: para el proyector -->
-    <button
-      class="pl-btn pl-project"
-      title="Proyectar la letra (ventana aparte, para el proyector)"
-      @click="projection.show()"
-    >
-      <Icon n="tv" :t="16" />
-    </button>
-    <button
-      ref="queueButton"
       type="button"
-      class="pl-btn"
-      :class="{ on: showQueue }"
-      title="Cola de reproducción"
-      :aria-expanded="showQueue"
-      @click="toggleQueue"
+      class="pl-btn pl-more"
+      title="Más: aleatorio, repetir, velocidad, volumen, estudio, cola, forma de la ventana"
+      aria-label="Más opciones del reproductor"
+      @click="openMore"
     >
-      <Icon n="queue" :t="16" />
+      <Icon n="more" :t="18" />
     </button>
   </div>
 </template>
