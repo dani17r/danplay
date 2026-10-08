@@ -14,13 +14,14 @@
  *   bienvenida, entrada y duplicados → sus propios componentes
  */
 import { ref, onMounted, onUnmounted, watch, computed, nextTick, useTemplateRef } from 'vue'
-import { api, app as tauriApp, core, errorMessage } from './api.js'
+import { api, app as tauriApp, core, errorMessage, inTauri } from './api.js'
 import { useLibrary, PAGES } from './composables/useLibrary.js'
 import { useSelection } from './composables/useSelection.js'
 import { useSongMenus } from './composables/useSongMenus.js'
 import { onClickOutside } from './composables/useClickOutside.js'
 import { useHasScroll, useIsOffscreen } from './composables/useHasScroll.js'
 import { useViewport } from './composables/useViewport.js'
+import { useWindowShape, SHAPES } from './composables/useWindowShape.js'
 import { useDragSong, onDrop } from './composables/useDragSong.js'
 import { usePlayback } from './composables/usePlayback.js'
 import { useNotices, notify } from './composables/useNotices.js'
@@ -55,6 +56,7 @@ import SearchResults from './components/SearchResults.vue'
 import GroupedSongs from './components/GroupedSongs.vue'
 import DetailsPanel from './components/DetailsPanel.vue'
 import Player from './components/Player.vue'
+import CompactPlayer from './components/CompactPlayer.vue'
 import WelcomePage from './components/WelcomePage.vue'
 import Icon from './components/Icon.vue'
 import StudyBar from './components/StudyBar.vue'
@@ -185,7 +187,9 @@ const { drag, cancelDrag } = useDragSong()
 // En estrecho los laterales no caben: pasan a abrirse encima del contenido.
 // La decisión vive aquí y no repartida en media queries porque cambia el
 // COMPORTAMIENTO, no solo el aspecto.
-const { isPhone, isCompact } = useViewport()
+const { isPhone, isCompact, pocket, width } = useViewport()
+// la forma de la ventana (normal, completa, columna, cuadrito, barra...)
+const windowShape = useWindowShape()
 const navOpen = ref(false)
 const detailsOpen = ref(false)
 
@@ -227,9 +231,17 @@ watch(isCompact, (v) => {
     detailsOpen.value = false
   }
 })
+// solo el reproductor (cuadrito, barra): los cajones se cierran; abiertos,
+// tapaban el reproductor entero
+watch(pocket, (p) => {
+  if (p) {
+    navOpen.value = false
+    detailsOpen.value = false
+  }
+})
 // tocar una canción en móvil abre su ficha: es lo que se espera
 watch(detail, (c) => {
-  if (c && isPhone.value && showDetails.value) detailsOpen.value = true
+  if (c && isPhone.value && showDetails.value && !pocket.value) detailsOpen.value = true
 })
 
 // Atajo para volver a lo que suena. Solo aparece si la lista es larga: con
@@ -341,7 +353,7 @@ useFocusTrap(detailModalEl, { active: detailModal })
 const sidePanelShown = computed(() => detailsVisible.value && !isCompact.value)
 async function showDetailsOf(song) {
   await select(song.id)
-  if (isCompact.value && detailsVisible.value) detailsOpen.value = true
+  if (isCompact.value && detailsVisible.value && !pocket.value) detailsOpen.value = true
   else detailModal.value = true
 }
 
@@ -536,7 +548,7 @@ async function quit() {
   viewMenu.value = false
   await tauriApp.quit()
 }
-useHotkeys({ 'ctrl+q': quit }, { global: true })
+useHotkeys({ 'ctrl+q': quit, f11: () => windowShape.toggleFullscreen() }, { global: true })
 
 function toggleAdvanced() {
   advanced.value = !advanced.value
@@ -677,7 +689,7 @@ function onUpdated(song) {
 </script>
 
 <template>
-  <div class="app">
+  <div class="app" :class="{ pocketed: !!pocket }">
     <header class="topbar">
       <button
         v-if="isCompact"
@@ -688,7 +700,7 @@ function onUpdated(song) {
       >
         <Icon n="viewList" :t="17" />
       </button>
-      <div class="brand"><span class="brand-dot"></span> DANPLAY</div>
+      <div class="brand"><span class="brand-dot"></span> <span>DANPLAY</span></div>
       <div ref="searchBox" class="search-box">
         <TextField
           v-model="query"
@@ -768,7 +780,7 @@ function onUpdated(song) {
           :aria-expanded="viewMenu"
           @click="viewMenu = !viewMenu"
         >
-          <Icon n="viewOptions" :t="14" /> Vista
+          <Icon n="viewOptions" :t="14" /> <span class="btn-label">Vista</span>
         </button>
         <transition name="dropdown">
           <div v-if="viewMenu" class="card view-menu">
@@ -830,6 +842,25 @@ function onUpdated(song) {
                 :options="
                   Object.entries(SIZES).map(([k, s]) => ({ v: k, n: s.name, note: s.note }))
                 "
+              />
+              <SelectField
+                :model-value="windowShape.shape.value"
+                label="Forma de la ventana"
+                :options="
+                  SHAPES.filter((s) => inTauri || !s.only).map((s) => ({
+                    v: s.v,
+                    n: s.n,
+                    note: s.note
+                  }))
+                "
+                @update:model-value="(v) => windowShape.setShape(v)"
+              />
+              <ToggleField
+                v-if="inTauri"
+                :model-value="windowShape.onTop.value"
+                title="Siempre encima"
+                hint="Por delante de las demás ventanas, en cualquier forma"
+                @update:model-value="windowShape.toggleOnTop()"
               />
               <button class="btn mini mini-open" title="Salir de DanPlay (Ctrl+Q)" @click="quit">
                 <Icon n="close" :t="14" /> Salir de DanPlay
@@ -1130,6 +1161,14 @@ function onUpdated(song) {
       @go-to-origin="goToOrigin"
       @play-selected="playSelected"
       @toggle-study="studyOpen = !studyOpen"
+    />
+
+    <!-- tan pequeña que no cabe la biblioteca: solo el reproductor -->
+    <CompactPlayer
+      v-if="pocket"
+      :variant="pocket"
+      :roomy="width >= 560"
+      @play-selected="playSelected"
     />
 
     <ContextMenu

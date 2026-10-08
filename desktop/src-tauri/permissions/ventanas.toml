@@ -44,6 +44,9 @@ permissions = [
   "allow-open-html",
   "allow-share-targets",
   "allow-send-to-telegram",
+  "allow-set-window-shape",
+  "allow-window-shape",
+  "allow-set-window-on-top",
 ]
 
 [[set]]

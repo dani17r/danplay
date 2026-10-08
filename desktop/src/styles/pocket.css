@@ -1,0 +1,320 @@
+/* ============================================================
+   EL REPRODUCTOR SOLO: la «barra» y el «cuadrito»
+   La ventana es tan pequeña que la biblioteca no cabe (las formas barra y
+   cuadrito, o encogida a mano). Sin marco: se arrastra desde lo que no es
+   un boton (data-tauri-drag-region).
+   ============================================================ */
+.pocket {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+.pocket-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  position: relative;
+}
+.pocket-art {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border: 1px solid var(--border2);
+  background: var(--panel2);
+}
+.pocket-text {
+  flex: 1;
+  min-width: 0;
+}
+.pocket-title,
+.pocket-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pocket-title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.pocket-artist {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pocket-window {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+.pocket-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--muted2);
+}
+.pocket-icon:hover {
+  background: var(--panel2);
+  color: var(--text);
+}
+
+/* la aguja: fina a la vista, ancha para cogerla */
+.pocket-seek-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+.pocket-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted2);
+  min-width: 30px;
+}
+.pocket-time:last-child {
+  text-align: right;
+}
+.pocket-seek {
+  flex: 1;
+  height: 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text) 17%, var(--panel));
+  position: relative;
+  cursor: pointer;
+  touch-action: none;
+}
+.pocket-seek::before {
+  content: '';
+  position: absolute;
+  inset: -8px 0;
+}
+.pocket-seek.off {
+  cursor: default;
+  opacity: 0.5;
+}
+.pocket-seek-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.pocket-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  position: relative;
+}
+.pocket-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.pocket-btn:hover:not(:disabled) {
+  background: var(--panel2);
+  color: var(--text);
+}
+.pocket-btn:disabled {
+  opacity: 0.35;
+}
+.pocket-play {
+  width: 42px;
+  height: 42px;
+  background: var(--text);
+  color: var(--bg);
+}
+.pocket-play:hover:not(:disabled) {
+  background: #fff;
+  color: var(--bg);
+}
+.pocket-volume {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 130px;
+  margin-left: 10px;
+  color: var(--muted2);
+}
+
+/* ---------- la barra: todo en una tira ---------- */
+.pocket-barra {
+  display: grid;
+  grid-template:
+    'top controls' auto
+    'seek seek' auto / minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 6px 12px 8px;
+}
+.pocket-barra .pocket-top {
+  grid-area: top;
+}
+.pocket-barra .pocket-controls {
+  grid-area: controls;
+  justify-content: flex-end;
+}
+.pocket-barra .pocket-seek-row {
+  grid-area: seek;
+}
+.pocket-barra .pocket-window {
+  align-self: center;
+}
+/* tan baja que no caben dos pisos: la aguja se va y queda lo justo */
+@media (max-height: 72px) {
+  .pocket-barra {
+    grid-template-rows: auto;
+    grid-template-areas: 'top controls';
+    padding: 4px 10px;
+  }
+  .pocket-barra .pocket-seek-row {
+    display: none;
+  }
+  .pocket-barra .pocket-art {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+/* ---------- el cuadrito: la caratula manda ---------- */
+.pocket-cuadro {
+  justify-content: flex-end;
+  padding: 10px 14px 12px;
+}
+.pocket-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pocket-backdrop-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.35;
+}
+.pocket-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 0%, var(--panel) 78%);
+}
+.pocket-cuadro .pocket-top {
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.pocket-cuadro .pocket-art {
+  width: min(42vw, 42vh, 150px);
+  height: min(42vw, 42vh, 150px);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px var(--shadow);
+}
+.pocket-cuadro .pocket-text {
+  flex: 0 0 auto;
+  width: 100%;
+}
+/* en el cuadrito hay sitio para dos lineas de titulo */
+.pocket-cuadro .pocket-title {
+  font-size: 15px;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.pocket-cuadro .pocket-window {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+.pocket-cuadro .pocket-controls {
+  justify-content: space-between;
+  gap: 2px;
+}
+/* muy pequeño: los saltos de 10 s sobran */
+@media (max-width: 230px) {
+  .pocket-cuadro .pocket-btn:first-child,
+  .pocket-cuadro .pocket-btn:last-child {
+    display: none;
+  }
+  .pocket-cuadro .pocket-controls {
+    justify-content: center;
+  }
+}
+
+/* lo demas sigue montado (la lista, lo buscado, el estudio) pero no se ve */
+.app.pocketed > .topbar,
+.app.pocketed > .main,
+.app.pocketed > .player,
+.app.pocketed > .queue,
+.app.pocketed > .toasts,
+.app.pocketed > .study {
+  display: none;
+}
+
+/* las formas, en un panel que tapa el reproductor */
+.pocket-shapes {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: var(--panel);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  align-content: center;
+  gap: 4px;
+  padding: 8px;
+  overflow-y: auto;
+}
+.pocket-shape {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+.pocket-shape:hover {
+  background: var(--panel2);
+  color: var(--text);
+}
+.pocket-shape.on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+/* en la barra, una fila de iconos; el nombre, al pasar por encima */
+.pocket-barra .pocket-shapes {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(34px, 1fr);
+  padding: 4px 8px;
+}
+.pocket-barra .pocket-shape span {
+  display: none;
+}
+/* y los cajones (menu, ficha), que van fuera de .app */
+body:has(.app.pocketed) .drawer-backdrop {
+  display: none;
+}

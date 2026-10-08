@@ -496,6 +496,33 @@ export const app = {
   /** Trae la ventana principal al frente (y la muestra si estaba oculta). */
   showWindow: () => (inTauri ? invoke('show_window') : Promise.resolve()),
   /**
+   * La forma de la ventana (`shape.rs`): `normal`, `completa`, `maximizada`,
+   * `izquierda`, `derecha`, `columna`, `cuadrito` o `barra`. Devuelve la que
+   * queda. Fuera de la app solo hay pantalla completa (la del navegador).
+   * @param {string} shape
+   * @returns {Promise<string>}
+   */
+  setWindowShape: (shape) => {
+    if (inTauri) return invoke('set_window_shape', { shape })
+    if (shape === 'completa') {
+      return document.documentElement.requestFullscreen().then(() => 'completa')
+    }
+    if (shape === 'normal' && document.fullscreenElement) {
+      return document.exitFullscreen().then(() => 'normal')
+    }
+    return Promise.reject(new Error('Solo en la aplicación de escritorio'))
+  },
+  /** @returns {Promise<[string, boolean]>} la forma de ahora y si va siempre encima */
+  windowShape: () =>
+    inTauri
+      ? invoke('window_shape')
+      : Promise.resolve([document.fullscreenElement ? 'completa' : 'normal', false]),
+  /** «Siempre encima», en cualquier forma. @param {boolean} on */
+  setWindowOnTop: (on) =>
+    inTauri
+      ? invoke('set_window_on_top', { on })
+      : Promise.reject(new Error('Solo en la aplicación de escritorio')),
+  /**
    * Abre el explorador de archivos del sistema señalando ese archivo (o esa
    * carpeta). Fuera de la app no hay explorador que abrir.
    * @param {string} path

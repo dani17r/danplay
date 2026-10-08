@@ -14,8 +14,8 @@
         "title": "DanPlay",
         "width": 1440,
         "height": 900,
-        "minWidth": 800,
-        "minHeight": 600,
+        "minWidth": 260,
+        "minHeight": 90,
         "resizable": true,
         "theme": "Dark",
         "label": "main"

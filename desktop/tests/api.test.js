@@ -397,6 +397,12 @@ describe('lo que cada metodo pide al nucleo', () => {
     )
     expect(await app.shareTargets()).toEqual({ telegram: false })
     expect(await app.trayAvailable()).toBe(false)
+    // las formas de la ventana: solo la pantalla completa existe en el navegador
+    expect(await app.windowShape()).toEqual(['normal', false])
+    await expect(app.setWindowShape('cuadrito')).rejects.toThrow(
+      'Solo en la aplicación de escritorio'
+    )
+    await expect(app.setWindowOnTop(true)).rejects.toThrow('Solo en la aplicación de escritorio')
     expect((await app.defaultPlayer()).supported).toBe(false)
     expect(await app.makeDefaultPlayer()).toBe(null)
     await app.showWindow()

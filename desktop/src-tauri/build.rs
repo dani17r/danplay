@@ -43,6 +43,9 @@ const COMMANDS: &[&str] = &[
     "open_html",
     "share_targets",
     "send_to_telegram",
+    "set_window_shape",
+    "window_shape",
+    "set_window_on_top",
 ];
 
 fn main() {

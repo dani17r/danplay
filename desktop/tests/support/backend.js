@@ -835,6 +835,9 @@ export function createAppDouble(over = {}) {
   return {
     showWindow: vi.fn(async () => {}),
     quit: vi.fn(async () => {}),
+    windowShape: vi.fn(async () => ['normal', false]),
+    setWindowShape: vi.fn(async (shape) => shape),
+    setWindowOnTop: vi.fn(async (on) => on),
     trayAvailable: vi.fn(async () => false),
     shareTargets: vi.fn(async () => ({ telegram: true })),
     sendToTelegram: vi.fn(async () => {}),

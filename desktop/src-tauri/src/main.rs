@@ -16,6 +16,7 @@ mod player;
 mod protocol;
 mod queue;
 mod reveal;
+mod shape;
 mod share;
 mod tools;
 mod transcode;
@@ -167,6 +168,9 @@ fn main() {
             reveal::open_html,
             share::share_targets,
             share::send_to_telegram,
+            shape::set_window_shape,
+            shape::window_shape,
+            shape::set_window_on_top,
         ])
         .build(tauri::generate_context!());
     let app = match app {

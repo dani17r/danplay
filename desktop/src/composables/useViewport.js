@@ -10,6 +10,11 @@ import { ref, computed, onMounted, onUnmounted, readonly } from 'vue'
 
 export const PHONE_MAX = 700
 export const TABLET_MAX = 1000
+/** Mas baja que esto, solo cabe el reproductor en una tira: la «barra». */
+export const BAR_MAX_H = 200
+/** Mas pequeña que esto por los dos lados, solo el reproductor: el «cuadrito». */
+export const SQUARE_MAX_W = 440
+export const SQUARE_MAX_H = 460
 
 const width = ref(typeof window !== 'undefined' ? window.innerWidth : 1400)
 const height = ref(typeof window !== 'undefined' ? window.innerHeight : 900)
@@ -34,6 +39,13 @@ export function useViewport() {
   // «compacto» = los laterales estorban y pasan a abrirse encima
   const isCompact = computed(() => width.value <= TABLET_MAX)
   const isDesktop = computed(() => width.value > TABLET_MAX)
+  // Tan pequeña que la biblioteca no cabe: solo el reproductor. Se llega
+  // con las formas «barra» y «cuadrito», o encogiendo la ventana a mano.
+  const pocket = computed(() => {
+    if (height.value <= BAR_MAX_H) return 'barra'
+    if (width.value <= SQUARE_MAX_W && height.value <= SQUARE_MAX_H) return 'cuadro'
+    return null
+  })
 
   return {
     width: readonly(width),
@@ -41,6 +53,7 @@ export function useViewport() {
     isPhone,
     isTablet,
     isCompact,
-    isDesktop
+    isDesktop,
+    pocket
   }
 }

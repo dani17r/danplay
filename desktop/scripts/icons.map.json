@@ -258,5 +258,45 @@
   "mixer": {
     "style": "o",
     "file": "adjustments-vertical.svg"
+  },
+  "shapeNormal": {
+    "style": "o",
+    "file": "window.svg"
+  },
+  "fullscreen": {
+    "style": "o",
+    "file": "arrows-pointing-out.svg"
+  },
+  "maximize": {
+    "style": "o",
+    "file": "computer-desktop.svg"
+  },
+  "half": {
+    "style": "o",
+    "file": "view-columns.svg"
+  },
+  "column": {
+    "style": "o",
+    "file": "device-phone-mobile.svg"
+  },
+  "square": {
+    "style": "o",
+    "file": "stop.svg"
+  },
+  "bar": {
+    "style": "o",
+    "file": "minus.svg"
+  },
+  "pin": {
+    "style": "o",
+    "file": "map-pin.svg"
+  },
+  "more": {
+    "style": "o",
+    "file": "ellipsis-horizontal.svg"
+  },
+  "shapes": {
+    "style": "o",
+    "file": "square-2-stack.svg"
   }
 }
