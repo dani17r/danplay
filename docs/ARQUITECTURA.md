@@ -868,6 +868,52 @@ prueba que lo verifica con casos adversos (plurales, subconjuntos, claves
 vacías). Sigue creciendo con el cuadrado del número de canciones: por eso el
 informe es una página que se abre a propósito, no algo que corra solo.
 
+## La ventana a cualquier tamaño
+
+La ventana se puede hacer tan pequeña como se quiera (260×90 como mínimo;
+antes 800×600) y la interfaz cambia de diseño según lo que queda, en
+píxeles de la interfaz (con el «tamaño de la app» al 125 %, una ventana de
+820 son 656):
+
+- **ancho** (más de 1.100): todo en una línea, como siempre;
+- **mediano** (hasta 1.100): la barra del reproductor en dos pisos, la aguja
+  arriba a todo lo ancho; por debajo de 900 se van la velocidad y los saltos
+  de 10 s (siguen en el estudio y en las flechas);
+- **estrecho** (hasta 700, el lateral y la ficha ya se abren encima): la
+  aguja arriba y debajo la canción, anterior, play, siguiente y «⋯», que
+  lleva todo lo demás (aleatorio, repetir, ±10 s, velocidad, volumen,
+  estudio, proyectar, cola, forma de la ventana); en la lista se van la
+  columna «nombre» y, por debajo de 560, la del artista, que pasa a la línea
+  del título en gris;
+- **columna** (hasta 460): el reproductor en tres pisos, como en un móvil:
+  la canción a todo lo ancho, la aguja y los mandos;
+- **barra** (menos de 200 de alto) y **cuadrito** (menos de 440×460): solo el
+  reproductor (`CompactPlayer.vue`), la biblioteca escondida pero montada.
+
+Antes, por debajo de 700 la aguja se colocaba encima de todo y se pisaban la
+hora, el título y los botones; entre 700 y 1.000 la aguja se quedaba sin
+ancho y los botones de la derecha se salían. Lo largo (títulos, artistas,
+repertorios) se corta con «…» y se lee entero al pasar por encima; en la
+ficha y en el encabezado de un repertorio, en varias líneas. Con poco alto
+el lateral se desplaza entero (los repertorios se montaban encima de
+«Gestión»). Un detalle de WebKitGTK: una columna escondida le sigue
+guardando el ancho a su `<col>`; van a ancho 0. Probado en el motor de verdad
+(WebKitGTK sin ventana) a diez tamaños, con un título de 130 caracteres,
+buscando lo que se pisa o se sale.
+
+**Las formas** (`shape.rs`, en el menú Vista, en el botón de la barra o en
+«⋯»): normal (como estaba), pantalla completa (F11), maximizada, media
+pantalla izquierda o derecha, columna (estrecha y alta, a la derecha),
+cuadrito (en una esquina) y barra (abajo). Cada una es un tamaño y un sitio
+en la zona útil de la pantalla donde está la ventana (sin la barra de
+tareas), y el tamaño activa su diseño. El cuadrito y la barra van sin marco
+y siempre encima, para dejarlos a un lado mientras se toca; se arrastran
+desde el propio reproductor (`data-tauri-drag-region`) y llevan un panel con
+las formas, porque en una barra de cien píxeles un menú de diez opciones no
+cabe. «Siempre encima» se puede poner en cualquiera. Al salir de la normal
+se apunta dónde estaba y «normal» la deja igual. En Wayland el compositor no
+deja colocar ventanas: el tamaño cambia, pero el sitio lo decide él.
+
 ## La interfaz con listas grandes
 
 La tabla y la cuadrícula pintan solo lo que se ve. El resto del alto lo ocupan

@@ -3,6 +3,33 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.23.0 — 2026-10-07
+
+La ventana se adapta a cualquier tamaño, y el reproductor tiene formas:
+pantalla completa, media pantalla, columna, cuadrito y barra.
+
+### Ventana
+
+- **Cualquier tamaño.** La ventana ya se puede hacer pequeña de verdad, y
+  cada tamaño tiene su diseño en vez de apretar el de siempre. En estrecho la
+  barra de abajo se pisaba (la hora encima del título, la aguja cruzando los
+  botones) y en mediano la aguja se quedaba sin sitio y los botones de la
+  derecha se salían: ahora la aguja va arriba a todo lo ancho y, cuando no
+  cabe todo, lo que falta está en **⋯**.
+- **Estrecho, como en el móvil**: la canción a todo lo ancho, la aguja y
+  los mandos debajo. En la lista, el artista va en la línea del título, en
+  gris.
+- **Formas de la ventana**, en Vista, en el botón de la barra o en ⋯:
+  normal, pantalla completa (**F11**), maximizada, media pantalla izquierda
+  o derecha, **columna** (estrecha y alta, a la derecha), **cuadrito**
+  (la carátula y los mandos en una esquina) y **barra** (el reproductor en
+  una tira abajo). El cuadrito y la barra van sin marco y siempre encima, y
+  se arrastran desde el propio reproductor. **Siempre encima** se puede
+  poner en cualquier forma. «Normal» la deja como estaba.
+- Lo largo (títulos, artistas, repertorios) se corta con «…» y se lee
+  entero al pasar por encima. Con la ventana baja, el menú de la izquierda
+  se desplaza entero: los repertorios ya no se montan encima de «Gestión».
+
 ## 1.22.0 — 2026-10-07
 
 El metrónomo, revisado canción por canción sobre una biblioteca de verdad:
