@@ -14,15 +14,23 @@ from .tools import TOOL_NAMES
 
 # Una llamada escrita como texto en vez de hecha: «search_songs query="x"»,
 # «play_song(12)», «list_playlists: {}». Se reconoce por el nombre de una
-# herramienta al principio seguido de argumentos.
-
-
+# herramienta al principio seguido de argumentos. Delante puede llevar lo que
+# algun modelo le pone: una viñeta, comillas invertidas o una etiqueta
+# («búsqueda: search_songs …», «llamada: …», «tool: …»); ocho respuestas de
+# una conversacion real fueron solo «búsqueda: search_songs query="…"».
+_PSEUDO_PREFIX = (
+    r"(?:[-*•>]\s*)?`*\s*"
+    r"(?:(?:b[uú]squeda|llamada|tool|herramienta|funci[oó]n|call|acci[oó]n)\s*:\s*`*\s*)?"
+)
 PSEUDO_CALL = _re.compile(
-    r"^\s*`?(?:"
+    r"^\s*"
+    + _PSEUDO_PREFIX
+    + r"(?:"
     + "|".join(_re.escape(n) for n in sorted(TOOL_NAMES))
     + r")\b\s*(?:\(|\{|:|\w+\s*[:=]|$)",
     _re.IGNORECASE,
 )
+_PSEUDO_LEAD = _re.compile(r"^\s*" + _PSEUDO_PREFIX, _re.IGNORECASE)
 _PSEUDO_ARG = _re.compile(r"(\w+)\s*[:=]\s*(\"[^\"]*\"|'[^']*'|\[[^\]]*\]|\{[^}]*\}|[^\s,)]+)")
 
 
@@ -34,7 +42,7 @@ def parse_pseudo_call(text: str) -> tuple[str, dict] | None:
     primera linea; lo que no se entienda, None (y se le pide que la haga de
     verdad).
     """
-    first = (text or "").strip().split("\n", 1)[0].strip().strip("`")
+    first = _PSEUDO_LEAD.sub("", (text or "").strip().split("\n", 1)[0]).strip().strip("`")
     m = _re.match(r"^([A-Za-z_]+)\b\s*(.*)$", first, _re.S)
     if not m or m.group(1).lower() not in TOOL_NAMES:
         return None

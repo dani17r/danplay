@@ -14,13 +14,11 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError
 
-from .. import cifrados, config, enrich, library, playlists, theory, web, youtube
+from .. import cifrados, config, enrich, library, names, playlists, theory, web, youtube
+from . import intake, resolve, setlist
+from .plan import MAX_DOWNLOADS
 
 log = logging.getLogger(__name__)
-
-
-# tope por si el modelo se emociona con una lista larga
-MAX_DOWNLOADS = 25
 
 
 # Lo que no tiene vuelta atras NO lo hace el modelo por su cuenta.
@@ -216,26 +214,91 @@ def download_plan(args: dict | None) -> dict:
         raw = [raw]
     elif not isinstance(raw, (list, tuple)):
         raw = []
-    items = [str(x).strip() for x in raw if str(x).strip()]
+    # Un texto de mas de 300 caracteres no es una cancion; con eso basta para
+    # buscarla y no se le manda a YouTube un pegote entero.
+    items = [str(x).strip()[:300] for x in raw[:200] if str(x).strip()]
     if not items and args.get("query"):
-        items = [str(args["query"]).strip()]
+        items = [str(args["query"]).strip()[:300]]
     seen: set = set()
     unique = []
     for x in items:
-        if x.lower() not in seen:
-            seen.add(x.lower())
+        if youtube.host_of(x):
+            # el enlace en su forma canonica (sin el parametro de quien lo
+            # compartio ni la lista de la que salio); y SIN minusculas: el id de
+            # un video las distingue
+            x = intake.clean_youtube_url(x) or x
+            key = x
+        else:
+            key = names.search_form(x) or x.lower()
+        if key not in seen:
+            seen.add(key)
             unique.append(x)
     trimmed = len(unique) > MAX_DOWNLOADS
+    dropped = max(0, len(unique) - MAX_DOWNLOADS)
     quality = args.get("quality")
     if quality not in ("high", "medium", "variable"):
         quality = config.MP3_QUALITY
     return {
         "items": unique[:MAX_DOWNLOADS],
         "trimmed": trimmed,
+        "dropped": dropped,
         "quality": quality,
         "file_it": args.get("file_it", True) is not False,
         "force": bool(args.get("force", False)),
     }
+
+
+def check_downloads(args: dict | None) -> dict:
+    """Biblioteca primero: lo que de verdad hay que pedir permiso para bajar.
+
+    Antes de enseñar la tarjeta de una descarga pedida («baja esto»), cada
+    texto se busca en la biblioteca y cada enlace en el historial de descargas
+    (si sigue siendo esa cancion). Lo que ya esta no se propone: se dice donde
+    esta. Con `force` (la quiere como otra version) no se mira nada.
+
+    Devuelve el plan de `download_plan` con `items` = lo que falta, `already`
+    = [{item, song}] y `rows` = las filas de la tarjeta.
+    """
+    plan = download_plan(args)
+    keep: list[str] = []
+    already: list[dict] = []
+    rows: list[dict] = []
+    for item in plan["items"]:
+        res = None
+        if not plan["force"]:
+            try:
+                if youtube.host_of(item):
+                    res = resolve.match_song("", url=item)
+                else:
+                    res = resolve.match_song(item)
+            except Exception:
+                log.warning("no se pudo mirar en la biblioteca: %r", item[:80], exc_info=True)
+        if (
+            res is not None
+            and res.song
+            and res.status in ("found", "ambiguous")
+            and not res.other_version
+        ):
+            # la misma forma que `_song_brief` (ver `resolve._light`)
+            already.append({"item": item, "song": dict(res.song)})
+            continue
+        keep.append(item)
+        doubt = res.song if res is not None and res.status == "probable" else None
+        # la forma de `plan.register`
+        rows.append(
+            {
+                "n": len(rows) + 1,
+                "item": item,
+                "label": item,
+                "note": (
+                    f"¿ya la tienes? Se parece a «{doubt.get('artist')} - {doubt.get('title')}»"
+                    if doubt
+                    else ""
+                ),
+                "checked": True,
+            }
+        )
+    return {**plan, "items": keep, "already": already, "rows": rows}
 
 
 def wrap_external(text: str) -> str:
@@ -278,6 +341,60 @@ _LIST = {"name": _STR, "playlist_id": _INT}
 
 
 TOOLS = [
+    _t(
+        "fill_playlist",
+        "Mete canciones en un repertorio, o lo comprueba, de una vez: busca cada una en la "
+        "biblioteca, añade las que hay en el orden de la lista y, para las que faltan, la app "
+        "le enseña al usuario una tarjeta para decidir si bajarlas (no lo preguntes tu). Si el "
+        "usuario pego una lista, la app ya la leyo: NO copies las canciones, llamala solo con "
+        "playlist. El informe lo da la app.",
+        {
+            "playlist": {"type": "string", "description": "nombre de la lista"},
+            "mode": {
+                "type": "string",
+                "enum": ["add", "check", "set"],
+                "description": "add: añadir (por defecto). check: solo comprobar («verifica»). "
+                "set: dejarla EXACTAMENTE con estas, solo si el usuario lo dijo",
+            },
+            "items": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "solo si NO pego una lista: «Titulo», «Artista - Titulo» o un enlace",
+            },
+            "only": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "numeros de la lista pegada a los que limitarse",
+            },
+            "overrides": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"n": _INT, "id": _INT},
+                    "required": ["n", "id"],
+                },
+                "description": "la cancion n de la lista es la del id (otra version que eligio)",
+            },
+            "create": {"type": "boolean", "description": "true solo si pidio una lista NUEVA"},
+            "download_missing": {
+                "type": "boolean",
+                "description": "por defecto true: la app ofrece bajar lo que falte",
+            },
+        },
+    ),
+    _t(
+        "find_songs",
+        "¿Estan en la biblioteca? Varias canciones de una vez, con erratas, sin tildes, con o "
+        "sin artista. Si el usuario pego una lista, llamala sin items (la app ya la leyo). "
+        "Devuelve por cancion su id, si esta, y las dudas con alternativas. No cambia nada.",
+        {
+            "items": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "«Titulo», «Artista - Titulo» o un enlace",
+            }
+        },
+    ),
     _t(
         "search_songs",
         "Busca en la biblioteca. Texto libre (titulo, artista) y filtros: artista:barak, "
@@ -488,6 +605,13 @@ TOOL_ALIASES = {
 TOOL_NAMES = frozenset(h["function"]["name"] for h in TOOLS) | frozenset(TOOL_ALIASES)
 
 
+# Lo que suena a «meter canciones en una lista» o a comprobarla.
+_SETLIST_WORDS = (
+    r"lista|repertorio|playlist|setlist|canciones|temas|domingo|ensayo|culto|servicio|"
+    r"verific|comprueb|revis|agreg|añad|a[ñn]ad|m[eé]te|arm[aá]"
+)
+
+
 # Las herramientas se declaran en cada llamada y cada una cuesta tokens.
 # Las de descargar, las de musico y la de letra+caratula solo hacen falta
 # cuando la conversacion va de eso: se añaden si la ventana de historial
@@ -504,16 +628,30 @@ OPTIONAL_TOOLS = {
     "related_keys": r"tono|vecin|salto|set\b|cejilla|armadura",
     "setlist_sheet": r"atril|hoja|imprim|pdf|papel",
     "find_lyrics_and_cover": r"letra|car[aá]tula|portada|imagen",
+    # las de listas de canciones: con una lista pegada van siempre (`tools_for`)
+    "fill_playlist": _SETLIST_WORDS,
+    "find_songs": _SETLIST_WORDS + r"|tenemos|tengo|tienes|est[aá]n?\b",
 }
 
 
 _OPTIONAL_RX = {name: re.compile(rx, re.IGNORECASE) for name, rx in OPTIONAL_TOOLS.items()}
 
 
-def tools_for(recent: list[dict], everything: bool = False) -> list[dict]:
-    """Las herramientas que se declaran en este turno."""
+def tools_for(recent: list[dict], everything: bool = False, setlist: bool = False) -> list[dict]:
+    """Las herramientas que se declaran en este turno. Con una lista pegada
+    (`setlist`), las de listas de canciones van aunque no se nombren."""
     if everything:
         return TOOLS
+    if setlist:
+        forced = {"fill_playlist", "find_songs"}
+        text = "\n".join(str(m.get("text") or "") for m in recent)
+        return [
+            h
+            for h in TOOLS
+            if h["function"]["name"] in forced
+            or h["function"]["name"] not in _OPTIONAL_RX
+            or _OPTIONAL_RX[h["function"]["name"]].search(text)
+        ]
     text = "\n".join(str(m.get("text") or "") for m in recent)
     return [
         h
@@ -689,18 +827,53 @@ class SheetArgs(PlaylistRef):
     with_lyrics: bool = False
 
 
-Handler = Callable[[Any], dict]
+class FillPlaylistArgs(Args):
+    playlist: LooseText = ""
+    name: LooseText = ""
+    mode: LooseText = None
+    items: Any = None
+    only: Any = None
+    overrides: Any = None
+    create: bool = False
+    download_missing: bool | None = None
+
+
+class FindSongsArgs(Args):
+    items: Any = None
+
+
+Handler = Callable[..., dict]
 HANDLERS: dict[str, tuple[type[Args], Handler]] = {}
+# Las que necesitan saber del turno (la lista pegada, lo que pidio la persona
+# con sus palabras): reciben el `setlist.Turn` como segundo argumento.
+_WITH_TURN: set[str] = set()
 
 
-def tool(name: str, model: type[Args] = Args):
+def tool(name: str, model: type[Args] = Args, *, turn: bool = False):
     """Registra el manejador de una herramienta con el modelo de sus argumentos."""
 
     def register(fn: Handler) -> Handler:
         HANDLERS[name] = (model, fn)
+        if turn:
+            _WITH_TURN.add(name)
         return fn
 
     return register
+
+
+# Una busqueda con filtros (artista:x, bpm>100) es exacta a proposito: si no
+# da nada, no se cambia por una aproximada.
+_FILTERS = re.compile(r"\w:\S|[<>=]\s*\d")
+
+
+@tool("fill_playlist", FillPlaylistArgs, turn=True)
+def _fill_playlist(a: FillPlaylistArgs, turn: setlist.Turn) -> dict:
+    return setlist.fill(a.model_dump(), turn)
+
+
+@tool("find_songs", FindSongsArgs, turn=True)
+def _find_songs(a: FindSongsArgs, turn: setlist.Turn) -> dict:
+    return setlist.find(a.items, turn)
 
 
 @tool("search_songs", SearchSongsArgs)
@@ -711,7 +884,22 @@ def _search_songs(a: SearchSongsArgs) -> dict:
     rows = library.search(
         a.query or "", None, a.sort or "artist", _clamp(a.limit, 30, 1, 200), desc=a.desc
     )
-    return {"total": len(rows), "songs": [_song_brief(c) for c in rows]}
+    if rows or not (a.query or "").strip() or _FILTERS.search(a.query or ""):
+        return {"total": len(rows), "songs": [_song_brief(c) for c in rows]}
+    # Sin resultados con todas las palabras («Digno De Adorar» con el nombre de quien la canta no
+    # daba nada aunque la cancion estaba): se prueba el emparejador, que no
+    # exige todas y tolera erratas.
+    res = resolve.match_song(a.query or "", limit=_clamp(a.limit, 5, 1, 10))
+    if res.status == "missing":
+        return {"total": 0, "songs": []}
+    found = [library.by_id(c.song["id"]) for c in res.candidates]
+    songs = [_song_brief(c) for c in found if c]
+    return {
+        "total": len(songs),
+        "songs": songs,
+        "relaxed": True,
+        "note": "ninguna tenia todas las palabras; estas son las que mas se parecen",
+    }
 
 
 @tool("library_summary")
@@ -880,7 +1068,12 @@ def _transpose_chords(a: TransposeArgs) -> dict:
 
 @tool("search_youtube", QueryArgs)
 def _search_youtube(a: QueryArgs) -> dict:
-    f = youtube.info(a.query or "", _clamp(a.limit, 5, 1, 20))
+    query = (a.query or "").strip()[:300]
+    if not youtube.host_of(query):
+        # el texto, en la forma de buscar de la casa (sin emojis, asteriscos
+        # ni tildes, con la ñ); un enlace se queda tal cual
+        query = names.search_form(query) or query
+    f = youtube.info(query, _clamp(a.limit, 5, 1, 20))
     if not f.get("ok"):
         return {"error": f.get("reason", "no se pudo consultar YouTube")}
     return {
@@ -1127,10 +1320,14 @@ def _explain(name: str, error: ValidationError) -> str:
     return f"argumentos de {name} que no valen: " + "; ".join(parts)
 
 
-def run_tool(name, args) -> dict:
+def run_tool(name, args, turn: setlist.Turn | None = None) -> dict:
     """Ejecuta una herramienta y devuelve el resultado (un dict; al modelo le
     llega en TOON, ver `reply`). Nunca levanta: lo que falle vuelve como
-    `{"error": ...}` y el modelo lo cuenta."""
+    `{"error": ...}` y el modelo lo cuenta.
+
+    `turn` es lo que el bucle sabe del turno (la lista pegada, lo que pidio la
+    persona con sus palabras): lo usan `fill_playlist` y `find_songs`. Sin el,
+    como si no hubiera lista ni pedido nada especial."""
     name, args = _alias(str(name or ""), args if isinstance(args, dict) else {})
     entry = HANDLERS.get(name)
     if entry is None:
@@ -1141,6 +1338,8 @@ def run_tool(name, args) -> dict:
     except ValidationError as e:
         return {"error": _explain(name, e)}
     try:
+        if name in _WITH_TURN:
+            return handler(parsed, turn if turn is not None else setlist.Turn())
         return handler(parsed)
     except Exception as e:
         # lo que falle aqui se le cuenta al modelo como un error de la
@@ -1175,6 +1374,19 @@ def _summarize(name, res) -> str:
         return "error: " + str(res["error"])[:80]
     if name == "search_songs":
         return f"{res.get('total', 0)} resultados"
+    if name == "fill_playlist":
+        pl = res.get("playlist")
+        if res.get("mode") == "check":
+            return f"comprobada «{pl}»"
+        missing = len(res.get("missing") or [])
+        tail = f", faltan {missing}" if missing else ""
+        if res.get("mode") == "set" and res.get("applied"):
+            return (
+                f"«{pl}» exacta: entran {res.get('added', 0)}, salen {res.get('removed', 0)}{tail}"
+            )
+        return f"{res.get('added', 0)} añadidas a «{pl}»{tail}"
+    if name == "find_songs":
+        return f"{res.get('found', 0)} de {res.get('total', 0)} en la biblioteca"
     if name == "setlist_sheet":
         return f"hoja de «{res.get('name')}» escrita"
     if name == "related_keys":

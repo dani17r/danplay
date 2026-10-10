@@ -734,7 +734,7 @@ def test_las_herramientas_llegan_al_modelo_en_toon_y_pesan_menos(perfiles, monke
         for i in range(1, 21)
     ]
     result = {"total": 20, "songs": songs}
-    monkeypatch.setattr(chat.tools, "run_tool", lambda name, args: result)
+    monkeypatch.setattr(chat.tools, "run_tool", lambda name, args, turn=None: result)
 
     class _Call:
         id = "1"
@@ -1110,8 +1110,11 @@ def test_las_conversaciones_se_guardan_y_se_buscan(monkeypatch, tmp_path):
 
 def test_una_llamada_escrita_como_texto_se_ejecuta_igual(perfiles, monkeypatch):
     """Algun modelo, en vez de llamar a la herramienta, escribe la llamada:
-    «set_stars id=1 stars=5». Si se entiende, se ejecuta como si la hubiera
-    hecho; si no, se le obliga a usar herramientas de verdad."""
+    «búsqueda: search_songs query="rey infinito"». Si es solo eso, se entiende
+    y es una consulta, se ejecuta como si la hubiera hecho; si no se entiende,
+    o es algo que cambia la biblioteca (puntuar, borrar, bajar, crear), se le
+    obliga a usar herramientas de verdad: una orden escrita en un texto no
+    hace nada por si sola."""
     from danplay import chat
 
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
@@ -1125,15 +1128,21 @@ def test_una_llamada_escrita_como_texto_se_ejecuta_igual(perfiles, monkeypatch):
         {"name": "Domingo", "ids": [1, 2]},
     )
     assert chat.parse_pseudo_call("nada que ver") is None
+    # con lo que le ponen delante algunos modelos
+    assert chat.parse_pseudo_call('búsqueda: search_songs query="rey infinito"') == (
+        "search_songs",
+        {"query": "rey infinito"},
+    )
+    assert chat.PSEUDO_CALL.match('- `search_songs query="x"`')
     ran = []
     monkeypatch.setattr(
         chat.tools,
         "run_tool",
-        lambda name, args: (
-            ran.append((name, args)) or {"ok": True, "stars": 5, "song": "Barak - Mi Gozo"}
+        lambda name, args, turn=None: (
+            ran.append((name, args)) or {"total": 1, "songs": [{"id": 1, "title": "Mi Gozo"}]}
         ),
     )
-    turns = [_Msg("set_stars id=1 stars=5"), _Msg("Listo: **Mi Gozo** con 5 estrellas.")]
+    turns = [_Msg('búsqueda: search_songs query="mi gozo"'), _Msg("Tienes **Mi Gozo**.")]
     fake = _FakeClient()
 
     def create(**kw):
@@ -1142,13 +1151,21 @@ def test_una_llamada_escrita_como_texto_se_ejecuta_igual(perfiles, monkeypatch):
 
     fake.chat.completions.create = create
     _fake(monkeypatch, fake)
-    r = chat.reply([{"role": "user", "text": "ponle 5 estrellas a Mi Gozo"}])
-    assert ran == [("set_stars", {"id": 1, "stars": 5})]
-    assert r["text"] == "Listo: **Mi Gozo** con 5 estrellas."
-    assert [t["name"] for t in r["tools"]] == ["set_stars"] and not r.get("narrated")
+    r = chat.reply([{"role": "user", "text": "¿tengo Mi Gozo?"}])
+    assert ran == [("search_songs", {"query": "mi gozo"})]
+    assert r["text"] == "Tienes **Mi Gozo**."
+    assert [t["name"] for t in r["tools"]] == ["search_songs"] and not r.get("narrated")
     # y el historial del turno siguiente lleva la llamada como hecha de verdad
     assert fake.calls[1]["messages"][-1]["role"] == "tool"
-    assert fake.calls[1]["messages"][-2]["tool_calls"][0]["function"]["name"] == "set_stars"
+    assert fake.calls[1]["messages"][-2]["tool_calls"][0]["function"]["name"] == "search_songs"
+    # lo que cambia la biblioteca, escrito como texto, NO se ejecuta: se le
+    # obliga a hacerlo con una llamada de verdad
+    ran.clear()
+    fake.calls.clear()
+    turns[:] = [_Msg("set_stars id=1 stars=5"), _Msg("No lo hice.")]
+    chat.reply([{"role": "user", "text": "ponle 5 estrellas a Mi Gozo"}])
+    assert ran == [], "una llamada escrita que cambia algo no se ejecuta"
+    assert fake.calls[1]["tool_choice"] == "required"
     # lo que no se entiende (un JSON roto) sigue el camino de siempre: herramientas obligadas
     assert chat.parse_pseudo_call('set_stars: {"id": 1,') is None
     turns[:] = [
@@ -1169,7 +1186,9 @@ def test_una_llamada_escrita_como_texto_se_ejecuta_igual(perfiles, monkeypatch):
         _Msg("Fin."),
     ]
     fake.calls.clear()
-    monkeypatch.setattr(chat.tools, "run_tool", lambda name, args: {"total": 0, "songs": []})
+    monkeypatch.setattr(
+        chat.tools, "run_tool", lambda name, args, turn=None: {"total": 0, "songs": []}
+    )
     chat.reply([{"role": "user", "text": "busca algo"}])
     assert fake.calls[1]["tool_choice"] == "required"
 
@@ -1386,7 +1405,9 @@ def test_una_confianza_que_no_es_numero_no_rompe_nada(monkeypatch):
 
 def test_argumentos_null_no_tumban_el_chat(perfiles, monkeypatch):
     """`"arguments": "null"` dejaba args=None y el dialogo de confirmacion
-    reventaba fuera de todo try: un 500 en vez de una respuesta."""
+    reventaba fuera de todo try: un 500 en vez de una respuesta. Ahora, ademas,
+    una confirmacion sin nada que confirmar no se pide: el modelo recibe el
+    error y la persona no ve un dialogo de «borrar la cancion None»."""
     from types import SimpleNamespace as NS
 
     from danplay import chat
@@ -1409,8 +1430,11 @@ def test_argumentos_null_no_tumban_el_chat(perfiles, monkeypatch):
 
     _fake(monkeypatch, _Fake())
     r = chat.reply([{"role": "user", "text": "borra la cancion"}])
-    assert r["confirm"]["tool"] == "delete_song" and r["confirm"]["args"] == {}
-    assert "papelera" in r["confirm"]["summary"]
+    assert r["text"] == "Te lo pregunto." and r["confirm"] is None
+    assert [t["summary"] for t in r["tools"]] == [
+        "error: no se pudo pedir: no existe esa canción",
+        "error: no se pudo pedir: no existe esa lista",
+    ]
     assert chat._describe("delete_song", {"id": "abc"}), "sin excepcion"
 
 

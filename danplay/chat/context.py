@@ -2,6 +2,8 @@
 historial, las notas de lo que hizo de verdad en los anteriores y el estado
 real de la app (lo que hay, lo que la persona tiene delante)."""
 
+import os
+
 from .. import library, playlists, toon, youtube
 from .narration import claims_action, has_markers
 
@@ -59,6 +61,11 @@ def _brief(name: str, res: dict, limit=10) -> str:
         if songs:
             return head + ", ".join(song(c) for c in songs[:limit]) + more
         return head + "vacia" if head else ""
+    if name in ("fill_playlist", "find_songs"):
+        # una fila por cancion de la lista, con su numero: «la tercera», «la
+        # de Mission Musica» o «cambia la 14» se resuelven con esto
+        head = f"«{res.get('playlist')}» ({res.get('mode')}): " if res.get("playlist") else ""
+        return head + str(res.get("rows") or "")
     if name == "list_playlists":
         return ", ".join(
             f"«{l['name']}» (id {l['id']}, {l['items']} temas)"
@@ -91,7 +98,9 @@ def _tool_note(text: str, tools, app=False) -> str:
                 continue
             piece = f"{t['name']} ({t['summary']})" if t.get("summary") else str(t["name"])
             if t.get("detail"):
-                piece += f": {str(t['detail'])[:600]}"
+                # la tabla de una lista entera cabe; lo demas, en corto
+                cap = LIST_DETAIL if t["name"] in ("fill_playlist", "find_songs") else 600
+                piece += f": {str(t['detail'])[:cap]}"
             parts.append(piece)
         return "Nota de la app: en el mensaje anterior usaste " + "; ".join(parts) + "."
     if app:
@@ -102,6 +111,11 @@ def _tool_note(text: str, tools, app=False) -> str:
             "que dice haber hecho o estar haciendo NO ocurrio."
         )
     return ""
+
+
+# Lo que se recuerda de la tabla de una lista (una fila por cancion): con 600
+# caracteres, una lista de 16 temas se olvidaba a partir de la decima.
+LIST_DETAIL = 1800
 
 
 # Cuantas canciones de la vista se le enseñan al modelo: «pon la segunda»
@@ -160,6 +174,25 @@ def _screen_note(context: dict | None) -> list[str]:
     return lines
 
 
+def _still_there(h: dict) -> dict | None:
+    """La cancion de una descarga del historial, si sigue siendo ESA.
+
+    Los ids de cancion se reutilizan cuando se borra la ultima: el id de una
+    descarga de hace una semana puede ser hoy otra cancion. Vale solo si su
+    archivo es el que dejo la descarga (o se llama igual: se pudo mover)."""
+    try:
+        song = library.by_id(int(h["song_id"])) if h.get("song_id") else None
+    except (TypeError, ValueError):
+        return None
+    if not song:
+        return None
+    target = str(h.get("target") or "")
+    path = str(song.get("path") or "")
+    if not target or path == target or os.path.basename(path) == os.path.basename(target):
+        return dict(song)
+    return None
+
+
 def _context_note(messages: list[dict], context: dict | None = None) -> str:
     """El estado real de la app, para el turno que empieza.
 
@@ -214,7 +247,7 @@ def _context_note(messages: list[dict], context: dict | None = None) -> str:
             parts = []
             for h in recent_downloads:
                 minutes = max(0, int((_t.time() - float(h.get("at") or 0)) // 60))
-                song = library.by_id(int(h["song_id"])) if h.get("song_id") else None
+                song = _still_there(h)
                 where = (
                     f"id {h['song_id']} «{h.get('artist')} - {h.get('song')}»"
                     if song
