@@ -106,6 +106,43 @@ def strip_accents(s: str) -> str:
     return unicodedata.normalize("NFC", "".join(out))
 
 
+# Los apostrofes se quitan sin dejar hueco: D'Clario y DClario son lo mismo.
+_APOSTROPHES = dict.fromkeys(map(ord, "'’‘ʼ´`"), None)
+
+
+def search_form(text) -> str:
+    """La forma en que se compara un nombre al buscar (regla del usuario).
+
+    Minusculas, sin tildes ni dieresis PERO CON LA ñ, y sin caracteres
+    extraños: todo lo que no sea una letra, un digito o un espacio (emojis,
+    asteriscos, guiones, comillas, simbolos de WhatsApp…) pasa a espacio, el
+    apostrofo desaparece sin dejar hueco y los espacios se juntan. Se aplica
+    a LOS DOS LADOS de toda comparacion (lo que se pide y lo que hay en la
+    biblioteca) y a lo que el asistente manda a buscar a YouTube:
+
+        «*3.-De Gloria en Gloria* ✅🙏🏻»   →  «3 de gloria en gloria»
+        «Cuán Grande Es Dios»               →  «cuan grande es dios»
+        «Cena Del Señor»                    →  «cena del señor»   (la ñ se queda)
+
+    Se pasa a minusculas ANTES de quitar las marcas: «İ» baja a «i» + un punto
+    combinado, y ese punto tiene que caer con las demas marcas.
+    """
+    s = strip_accents(str(text or "").lower()).translate(_APOSTROPHES)
+    return " ".join("".join(c if c.isalnum() else " " for c in s).split())
+
+
+def search_tokens(text) -> list[str]:
+    """Las palabras de `search_form(text)`."""
+    return search_form(text).split()
+
+
+def fold_enye(form: str) -> str:
+    """La ñ como n. Solo para la segunda pasada, tolerante, de una busqueda
+    («senor» tiene que encontrar «señor»): la forma normal CONSERVA la ñ, y
+    «mañana» no es «manana»."""
+    return form.replace("ñ", "n")
+
+
 def capitalize_words(s: str) -> str:
     """Palabras enteras en MAYUSCULA -> Capitalizadas. Respeta CamelCase."""
     return re.sub(
