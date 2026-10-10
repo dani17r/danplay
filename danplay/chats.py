@@ -35,8 +35,24 @@ CREATE INDEX IF NOT EXISTS i_chat_messages ON chat_messages(chat_id, id);
 library.register_schema(SCHEMA)
 
 TITLE_LENGTH = 60
-# lo que se guarda de cada mensaje ademas del texto (lo que pinta la interfaz)
-_KEEP = ("tools", "app", "event", "hidden", "narrated", "error", "usage", "via", "canceled")
+# lo que se guarda de cada mensaje ademas del texto (lo que pinta la interfaz):
+# tambien la tarjeta de permiso (`confirm`), la tabla de una lista (`setlist`)
+# y, en los mensajes de la app que cambian una tarjeta, a cual se refieren
+# (`ref`). Solo se añade: un mensaje guardado antes se lee igual.
+_KEEP = (
+    "tools",
+    "app",
+    "event",
+    "hidden",
+    "narrated",
+    "error",
+    "usage",
+    "via",
+    "canceled",
+    "confirm",
+    "setlist",
+    "ref",
+)
 
 
 def title_from(text: str) -> str:
