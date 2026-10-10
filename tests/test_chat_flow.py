@@ -555,3 +555,13 @@ def test_entre_versiones_gana_la_que_ya_esta_en_una_lista(lib, asked):
         "fill_playlist", {"playlist": "domingo", "only": [1], "mode": "check"}, turn_for(DOMINGO)
     )
     assert res["_ui"]["setlist"]["rows"][0]["song"]["id"] == otra
+
+
+def test_una_respuesta_vacia_tras_herramientas_dice_lo_que_se_hizo(lib, model):
+    playlists.create("domingo")
+    model([("", [("list_playlists", {})]), ("", None)])
+    r = CH.reply([{"role": "me", "text": "¿qué listas tengo?"}])
+    assert r["text"] == "Hecho: 1 listas."
+    model([("", None)])
+    r = CH.reply([{"role": "me", "text": "hola"}])
+    assert r["text"].startswith("No me ha salido ninguna respuesta")

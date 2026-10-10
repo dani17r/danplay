@@ -442,6 +442,18 @@ def reply(
                 if on_text:
                     on_text("")  # lo enseñado no valia: se retira
                 continue
+            if not text.strip():
+                # Algun modelo contesta vacio tras usar herramientas: la
+                # burbuja salia en blanco. Se dice lo que se hizo (o que no
+                # hubo respuesta), nunca nada.
+                done = "; ".join(u["summary"] for u in used if u.get("summary"))
+                text = (
+                    f"Hecho: {done}."
+                    if done
+                    else "No me ha salido ninguna respuesta. ¿Me lo dices de otra forma?"
+                )
+                if on_text:
+                    on_text(text)
             out: dict = {"text": text}
             if suspicious:
                 # Ya se le paro una vez y sigue narrando: no se insiste (seria
