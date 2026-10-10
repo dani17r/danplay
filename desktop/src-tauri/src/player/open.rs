@@ -42,8 +42,13 @@ pub(super) struct Song {
 impl Song {
     /// Donde va la cancion, en sus segundos. rodio cuenta en tiempo de
     /// salida, que a otra velocidad no es el mismo (ver `clock_of`).
+    ///
+    /// El silencio que mete ffmpeg cuando no llega a tiempo no cuenta: rodio
+    /// lo cuenta como si fuera cancion, y la aguja —y con ella el clic— se
+    /// iba quedando por delante de lo que se oye.
     pub(super) fn position(&self, clock: f32) -> f64 {
-        self.sink.get_pos().as_secs_f64() * f64::from(clock) + self.lead
+        let filler = self.ffmpeg.as_ref().map_or(Duration::ZERO, transcode::Control::filler);
+        self.sink.get_pos().saturating_sub(filler).as_secs_f64() * f64::from(clock) + self.lead
     }
 
     /// Antes de saltar a `from` (segundos de cancion), al reabrirla o dentro
@@ -399,6 +404,44 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(10));
         }
+        let _ = std::fs::remove_file(&song);
+    }
+
+    /// Cuando ffmpeg no llega a tiempo (aqui, un salto que nadie preparo) la
+    /// fuente mete silencio. La cancion no avanza mientras tanto: la
+    /// posicion se queda donde el salto, y el clic con ella.
+    #[test]
+    fn the_silence_while_ffmpeg_catches_up_does_not_move_the_song() {
+        let song = made("danplay-prueba-relleno.wma", &["-c:a", "wmav2"]);
+        let (mix, mut out) = mixer();
+        let opened = open_song(&mix, &recipe(&song)).expect("el .wma se abre por ffmpeg");
+        assert!(opened.ffmpeg.is_some(), "tiene que ir por ffmpeg");
+        opened.sink.play();
+        pull(&mut out, 8_820);
+        // el salto lo atiende quien tira del mezclador: aqui, la prueba
+        let sink = Arc::clone(&opened.sink);
+        let seeker = std::thread::spawn(move || sink.try_seek(Duration::from_secs(4)));
+        while !seeker.is_finished() {
+            pull(&mut out, 64);
+        }
+        seeker.join().unwrap().expect("el salto se atiende");
+        // ffmpeg tarda en arrancar mas de lo que se tarda en sacar esto: es
+        // todo silencio de relleno (unos 100 ms de salida)
+        pull(&mut out, 8_820);
+        let filler = opened
+            .ffmpeg
+            .as_ref()
+            .map(transcode::Control::filler)
+            .unwrap_or_default();
+        assert!(
+            filler >= Duration::from_millis(90),
+            "no se apunto el silencio: {filler:?}"
+        );
+        assert!(opened.sink.get_pos() >= Duration::from_millis(4_090), "rodio lo cuenta");
+        // rodio apunta su posicion cada 5 ms: hasta ahi de holgura
+        let at = opened.position(1.0);
+        assert!((3.99..4.01).contains(&at), "la cancion avanzo sin sonar: {at}");
+        drop(opened);
         let _ = std::fs::remove_file(&song);
     }
 }

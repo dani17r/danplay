@@ -34,7 +34,7 @@ use std::fmt::Write as _;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -158,11 +158,18 @@ fn to_float(sample: i16) -> f32 {
 /// Muestras por instante de una cancion normal (una por canal). Con varias
 /// pistas juntas son dos por pista; nunca se parte un instante.
 const FRAME: usize = CHANNELS as usize;
-/// Cuanto audio cabe en el anillo: dos segundos. ffmpeg decodifica mucho mas
-/// deprisa que el tiempo real, asi que va casi siempre lleno y un tiron del
-/// disco o de la maquina no llega a oirse.
+/// Cuanto audio cabe en el anillo: ocho segundos. ffmpeg decodifica mucho
+/// mas deprisa que el tiempo real, asi que va casi siempre lleno y un tiron
+/// del disco o de la maquina no llega a oirse. Con dos segundos no bastaba:
+/// con el disco de la musica ocupado (la separacion de pistas, un analisis,
+/// una copia), una lectura llega a tardar casi dos segundos.
+///
+/// Lo que ocupa, a 16 bits: 1,4 MB una cancion, 8,5 MB seis pistas (Demucs)
+/// y 11,3 MB el maximo de ocho. Puede haber dos a la vez (la que suena y la
+/// preparada para un salto o la vuelta del bucle). La memoria se pide sin
+/// rellenar: solo cuenta lo que ffmpeg llega a escribir.
 const fn ring_for(frame: usize) -> usize {
-    RATE as usize * frame * 2
+    RATE as usize * frame * 8
 }
 /// Cuanto tiene que haber en el anillo para darlo por listo: un cuarto de
 /// segundo. Con menos, el mezclador lo vaciaria antes de que ffmpeg coja
@@ -412,6 +419,9 @@ struct Shared {
     prepared: Mutex<Option<Feed>>,
     /// Desde donde se esta preparando una por detras (`prepare_soon`).
     preparing: Mutex<Option<f64>>,
+    /// Instantes de silencio que ha metido la fuente desde el ultimo salto
+    /// porque ffmpeg no llegaba (ver `Control::filler`).
+    filler: AtomicU64,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -449,6 +459,15 @@ impl Control {
     /// esperar a nadie.
     pub fn prepare(&self, from: f64, within: Duration) -> Result<(), String> {
         self.shared.prepare(from, within)
+    }
+
+    /// El silencio que ha metido la fuente desde el ultimo salto porque
+    /// ffmpeg no llegaba a tiempo (un disco parado, una maquina cargada, un
+    /// salto que nadie preparo), en tiempo de salida. rodio lo cuenta como
+    /// cancion; quien quiera saber donde va de verdad se lo resta.
+    pub fn filler(&self) -> Duration {
+        let instants = self.shared.filler.load(Ordering::Relaxed);
+        Duration::from_secs_f64(instants as f64 / f64::from(RATE))
     }
 
     /// Lo mismo, por detras y sin esperar: para tener la vuelta del bucle
@@ -570,6 +589,7 @@ impl Transcoded {
             recipe,
             prepared: Mutex::new(None),
             preparing: Mutex::new(None),
+            filler: AtomicU64::new(0),
         });
         let source = Self {
             shared: Arc::clone(&shared),
@@ -681,10 +701,12 @@ impl Iterator for Transcoded {
                 Refill::Starved => {
                     // Un instante de silencio: el mezclador no puede esperar.
                     // Solo pasa si ffmpeg va mas lento que el tiempo real o
-                    // tras una busqueda que nadie preparo.
+                    // tras una busqueda que nadie preparo. Se apunta: la
+                    // cancion no ha avanzado, aunque rodio lo cuente.
                     self.local[..self.frame].fill(0);
                     self.len = self.frame;
                     self.at = 0;
+                    self.shared.filler.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
@@ -730,6 +752,8 @@ impl Source for Transcoded {
     fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
         // `pos` viene en tiempo de salida; ffmpeg quiere el de la cancion
         let from = pos.as_secs_f64() * f64::from(self.tempo);
+        // rodio pone la posicion en `pos`: el silencio de antes ya no cuenta
+        self.shared.filler.store(0, Ordering::Relaxed);
         // la tirada que suena ya empieza ahi y no se ha tocado (se acaba de
         // abrir en ese punto): no hay nada que hacer
         if self
@@ -1023,6 +1047,53 @@ mod tests {
         let rest = source.patient().count() + 2048;
         let seconds = rest as f64 / f64::from(RATE) / 2.0;
         assert!((1.9..2.1).contains(&seconds), "quedaban {seconds} s");
+        let _ = std::fs::remove_file(&file);
+    }
+
+    /// El silencio que mete la fuente mientras ffmpeg no llega se apunta, lo
+    /// que suena de verdad no, y un salto lo vuelve a poner a cero: es lo
+    /// que el reproductor le resta a la posicion.
+    #[test]
+    fn the_filler_counts_only_the_silence_since_the_last_seek() {
+        let file = made_with_ffmpeg(
+            "danplay-prueba-relleno.wav",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=4",
+                "-ar",
+                "44100",
+                "-ac",
+                "2",
+            ],
+        );
+        let (mut source, control) = Transcoded::open_with(ffmpeg(), &file, Some(4.0), 1.0, 0.0, 0.0).unwrap();
+        assert_eq!(source.by_ref().take(4410).count(), 4410);
+        assert_eq!(control.filler(), Duration::ZERO, "habia audio de sobra");
+        // un salto que nadie preparo: mientras arranca ffmpeg, silencio
+        source.try_seek(Duration::from_secs(2)).unwrap();
+        let silent: Vec<f32> = source.by_ref().take(2000).collect();
+        assert!(silent.iter().all(|s| *s == 0.0));
+        let counted = control.filler();
+        assert_eq!(counted, Duration::from_secs_f64(1000.0 / f64::from(RATE)));
+        // cuando llega, lo que suena no se apunta
+        let deadline = Instant::now() + READY_WITHIN;
+        while source.waiting.is_some() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+            let _ = source.next();
+        }
+        let heard = control.filler();
+        let after: Vec<f32> = source.by_ref().take(4410).collect();
+        assert!(
+            after.iter().filter(|s| s.abs() > 0.0).count() > 2000,
+            "no llego el audio"
+        );
+        assert_eq!(control.filler(), heard, "conto como silencio lo que sonaba");
+        // y un salto (preparado o no) empieza de cero
+        control.prepare(1.0, READY_WITHIN).unwrap();
+        source.try_seek(Duration::from_secs(1)).unwrap();
+        assert_eq!(control.filler(), Duration::ZERO);
         let _ = std::fs::remove_file(&file);
     }
 
