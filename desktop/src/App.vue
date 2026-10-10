@@ -34,7 +34,12 @@ import {
   VIEW_ICONS,
   GROUPINGS
 } from './composables/usePreferences.js'
-import { useHotkeys, releaseFocusAfterPointer } from './composables/useHotkeys.js'
+import {
+  useHotkeys,
+  releaseFocusAfterPointer,
+  comboOf,
+  shouldIgnore
+} from './composables/useHotkeys.js'
 import { useFocusTrap } from './composables/useFocusTrap.js'
 import { useSearch } from './composables/useSearch.js'
 import { usePlaylistActions } from './composables/usePlaylistActions.js'
@@ -54,6 +59,7 @@ import SongCards from './components/SongCards.vue'
 import SearchPanel from './components/SearchPanel.vue'
 import SearchResults from './components/SearchResults.vue'
 import GroupedSongs from './components/GroupedSongs.vue'
+import SelectionBar from './components/SelectionBar.vue'
 import DetailsPanel from './components/DetailsPanel.vue'
 import Player from './components/Player.vue'
 import CompactPlayer from './components/CompactPlayer.vue'
@@ -128,6 +134,8 @@ const sortable = computed(() => view.value.kind === 'playlist' && !effectiveGrou
 // Qué está elegido y la ficha de la principal (ver useSelection).
 const selection = useSelection({ shown })
 const { selected, selectedIds, selectedSongs, detail, select } = selection
+// el modo «Seleccionar» (casillas) y lo elegido, también si es una sola
+const { selectMode, chosenSongs, allSelected } = selection
 const jumpToSong = ref(null)
 const viewMenu = ref(false)
 const viewBox = useTemplateRef('viewBox')
@@ -219,11 +227,13 @@ const pageBindings = computed(
     })[view.value.kind] || {}
 )
 
-// al navegar se cierra el panel: en móvil tapa toda la pantalla
+// al navegar se cierra el panel: en móvil tapa toda la pantalla. Y se sale
+// del modo «Seleccionar»: lo elegido era de la otra lista
 watch(view, () => {
   navOpen.value = false
   detailsOpen.value = false
   selection.clear()
+  selection.setMode(false)
 })
 watch(isCompact, (v) => {
   if (!v) {
@@ -239,9 +249,12 @@ watch(pocket, (p) => {
     detailsOpen.value = false
   }
 })
-// tocar una canción en móvil abre su ficha: es lo que se espera
+// tocar una canción en móvil abre su ficha: es lo que se espera. En el modo
+// «Seleccionar» no: tocar es marcar, y la ficha taparía la lista a cada toque
 watch(detail, (c) => {
-  if (c && isPhone.value && showDetails.value && !pocket.value) detailsOpen.value = true
+  if (c && isPhone.value && showDetails.value && !pocket.value && !selectMode.value) {
+    detailsOpen.value = true
+  }
 })
 
 // Atajo para volver a lo que suena. Solo aparece si la lista es larga: con
@@ -336,7 +349,8 @@ function onCoreChanged() {
  * diga otra cosa: es lo que se espera al pulsar una canción de una lista.
  */
 function play(song, list = null, origin = null) {
-  selected.value = song.id
+  // pasa a ser la principal sin desordenar lo elegido a mano (ver `follow`)
+  selection.follow(song.id)
   // Sobre la que ya está puesta, el botón de la fila es pausa/reanudar: antes
   // volvía a empezar la canción, y no había forma de pararla desde la lista.
   if (!list && player.track.value?.id === song.id) return player.toggle()
@@ -459,7 +473,7 @@ async function goToOrigin() {
     view.value = target
     await nextTick()
   }
-  selected.value = playingId.value
+  if (playingId.value != null) selection.follow(playingId.value)
   jumpToSong.value = playingId.value
   setTimeout(() => (jumpToSong.value = null), 1200)
 }
@@ -479,10 +493,103 @@ const menus = useSongMenus({
   showDetailsOf,
   // «Ver detalles» de un resultado con el panel a la vista: solo se elige, sin ventana
   previewSong: (song) => select(song.id),
-  // a la papelera: la canción sale también del desplegable del buscador
-  onRemoved: (ids) => forgetResults(ids)
+  // a la papelera: la canción sale también del desplegable del buscador y de
+  // lo elegido
+  onRemoved: (ids) => {
+    forgetResults(ids)
+    selection.forget(ids)
+  }
 })
 const { setStars, toggleFavorite, toggleBlur, songMenu, playlistMenu } = menus
+
+// ------------------------------------------------------ selección múltiple
+// El botón «Seleccionar», la barra con lo que se hace con las elegidas y las
+// teclas (Ctrl+A, Supr, Escape). Lo que se hace sale de useSongMenus: lo
+// mismo que el menú de clic derecho sobre varias.
+const selectToggle = useTemplateRef('selectToggle')
+/** La barra se ve con el modo puesto o con dos o más elegidas (Ctrl, Mayús, Ctrl+A). */
+const showSelectionBar = computed(() => selectMode.value || chosenSongs.value.length > 1)
+const chosenAllFavorite = computed(
+  () => chosenSongs.value.length > 0 && chosenSongs.value.every((s) => s.favorite)
+)
+
+/**
+ * Todas las que se ven. Solo las cargadas: si el resto aún llega, se dice.
+ * Desde la casilla de la cabecera de la tabla (sin `toggle: false`), con
+ * todas ya elegidas, es «ninguna».
+ * @param {{ toggle?: boolean }} [opts]
+ */
+function selectAllSongs(opts) {
+  if (opts?.toggle !== false && allSelected.value) return selection.selectNone()
+  selection.selectAll()
+  if (loadingMore.value && chosenSongs.value.length) {
+    notify(
+      `Elegidas las ${chosenSongs.value.length} que ya han llegado; el resto sigue cargando`,
+      'info'
+    )
+  }
+}
+
+/**
+ * Supr: en un repertorio, las elegidas salen DE LA LISTA (los archivos no se
+ * tocan); en las demás vistas van a la papelera con la confirmación de
+ * siempre. En la lista del reproductor no: son archivos de fuera, que ni
+ * están en la biblioteca.
+ */
+function removeChosen() {
+  const list = chosenSongs.value
+  if (!list.length || view.value.kind === 'player') return
+  if (view.value.kind === 'playlist') return menus.removeFromView(list)
+  return menus.trash(list)
+}
+
+/**
+ * «Listo» y Escape: fuera del modo y nada elegido. Con el teclado la barra
+ * desaparece con el foco dentro: vuelve al botón «Seleccionar», que sigue
+ * ahí. Con el ratón no (el foco se suelta solo al levantar el puntero).
+ * @param {Event} [ev]
+ */
+async function finishSelecting(ev) {
+  const fromBar = !!(ev?.target instanceof Element && ev.target.closest('.sel-bar'))
+  const keyboard = ev instanceof KeyboardEvent || (ev instanceof MouseEvent && ev.detail === 0)
+  selection.finish()
+  if (!fromBar || !keyboard) return
+  await nextTick()
+  if (!document.activeElement || document.activeElement === document.body) {
+    selectToggle.value?.focus()
+  }
+}
+
+/** El botón «Seleccionar»: pone el modo, o termina como «Listo». */
+function toggleSelectMode() {
+  if (selectMode.value) finishSelecting()
+  else selection.setMode(true)
+}
+
+/**
+ * Ctrl+A, Supr y Escape con el foco fuera de la lista (en el <body> tras un
+ * clic, que suelta el foco). Con el foco en una fila los trata la propia
+ * lista (useSongList); en un campo de texto, un botón, un menú o un diálogo
+ * no se tocan (las reglas de useHotkeys). Solo en las vistas de canciones.
+ * @param {KeyboardEvent} e
+ * @returns {boolean} si la tecla era suya
+ */
+function onSelectionKey(e) {
+  const combo = comboOf(e)
+  if (combo !== 'ctrl+a' && combo !== 'delete' && combo !== 'escape') return false
+  if (showWelcome.value || isPage.value || pocket.value || shouldIgnore(e)) return false
+  if (combo === 'escape') {
+    // sin nada que soltar (ni modo ni barra), Escape no es de la selección
+    if (!showSelectionBar.value) return false
+    selection.finish()
+  } else if (combo === 'ctrl+a') {
+    selectAllSongs({ toggle: false })
+  } else if (!e.repeat) {
+    removeChosen()
+  }
+  e.preventDefault()
+  return true
+}
 
 // Qué hacer cuando se suelta una canción arrastrada. Los destinos se declaran
 // con `data-drop` allí donde estén, así que aquí solo hay que decidir qué
@@ -625,10 +732,15 @@ let stopFocusRelease = null
 function blockContextMenu(e) {
   e.preventDefault()
 }
-function onEscape(e) {
-  if (e.key !== 'Escape') return
-  if (drag.song) cancelDrag()
-  if (detailModal.value) detailModal.value = false
+function onWindowKey(e) {
+  // Escape cancela un arrastre o cierra la ficha en ventana; solo si no había
+  // nada de eso suelta la selección
+  if (e.key === 'Escape' && (drag.song || detailModal.value)) {
+    if (drag.song) cancelDrag()
+    if (detailModal.value) detailModal.value = false
+    return
+  }
+  onSelectionKey(e)
 }
 
 onMounted(async () => {
@@ -636,7 +748,7 @@ onMounted(async () => {
   // En una app de escritorio no pinta nada: se bloquea y cada sitio pone el
   // suyo con las opciones que tengan sentido ahí.
   window.addEventListener('contextmenu', blockContextMenu)
-  window.addEventListener('keydown', onEscape)
+  window.addEventListener('keydown', onWindowKey)
   // que tras pulsar un botón con el ratón el espacio siga pausando la música
   stopFocusRelease = releaseFocusAfterPointer(window)
   prefs.applyAll()
@@ -727,7 +839,7 @@ onUnmounted(() => {
   clearTimeout(changeTimer)
   cancelDrag()
   window.removeEventListener('contextmenu', blockContextMenu)
-  window.removeEventListener('keydown', onEscape)
+  window.removeEventListener('keydown', onWindowKey)
   stopFocusRelease?.()
 })
 
@@ -1022,16 +1134,56 @@ function onUpdated(song) {
             <span v-if="sortable && songs.length > 1" class="sort-hint">
               arrastra una canción para cambiar el orden
             </span>
+            <!-- el modo con casillas, para elegir varias sin teclado. Va a la
+                 derecha; lo que sigue (Guardar, el indicador de carga) a su lado -->
+            <button
+              v-if="songs.length || selectMode"
+              ref="selectToggle"
+              type="button"
+              class="btn mini select-toggle"
+              :class="{ on: selectMode }"
+              :aria-pressed="selectMode"
+              aria-label="Seleccionar"
+              title="Seleccionar varias canciones con casillas"
+              @click="toggleSelectMode"
+            >
+              <Icon n="check" :t="13" /> <span class="btn-label">Seleccionar</span>
+            </button>
             <template v-if="view.kind === 'player' && songs.length">
-              <button class="btn mini" style="margin-left: auto" @click="savePlayerList">
+              <button class="btn mini" @click="savePlayerList">
                 <Icon n="save" :t="13" /> Guardar
               </button>
               <button class="btn mini" @click="discardPlayerList">
                 <Icon n="trash" :t="13" /> Descartar
               </button>
             </template>
-            <Loading v-if="loading" text="" inline style="margin-left: auto" />
+            <Loading
+              v-if="loading"
+              text=""
+              inline
+              :style="songs.length || selectMode ? undefined : 'margin-left: auto'"
+            />
           </div>
+
+          <SelectionBar
+            v-if="showSelectionBar"
+            :count="chosenSongs.length"
+            :all-selected="allSelected"
+            :playlist="view.kind === 'playlist' ? view.name || 'la lista' : ''"
+            :telegram="menus.shareTargets.value.telegram"
+            :all-favorite="chosenAllFavorite"
+            :loading="loadingMore"
+            :library="view.kind !== 'player'"
+            @select-all="selectAllSongs({ toggle: false })"
+            @select-none="selection.selectNone()"
+            @add-to-list="(ev) => menus.addToList(ev, chosenSongs)"
+            @favorites="menus.favorites(chosenSongs)"
+            @telegram="menus.sendTelegram(chosenSongs)"
+            @remove-from-list="menus.removeFromView(chosenSongs)"
+            @trash="menus.trash(chosenSongs)"
+            @more="(ev) => menus.groupMenu(ev, chosenSongs)"
+            @done="finishSelecting"
+          />
 
           <GroupedSongs
             v-if="effectiveGroupBy"
@@ -1042,11 +1194,15 @@ function onUpdated(song) {
             :desc="sortDesc"
             :selected="selected"
             :selected-ids="selectedIds"
+            :select-mode="selectMode"
             :playing="playingId"
             :size="cardSize"
             :jump-to="jumpToSong"
             @sort-by="sortBy"
             @select="select"
+            @select-all="selectAllSongs"
+            @remove="removeChosen"
+            @clear-selection="finishSelecting"
             @play="play"
             @context="songMenu"
             @set-stars="setStars"
@@ -1058,9 +1214,13 @@ function onUpdated(song) {
             :sortable="sortable"
             :selected="selected"
             :selected-ids="selectedIds"
+            :select-mode="selectMode"
             :playing="playingId"
             :jump-to="jumpToSong"
             @select="select"
+            @select-all="selectAllSongs"
+            @remove="removeChosen"
+            @clear-selection="finishSelecting"
             @play="play"
             @set-stars="setStars"
             @toggle-favorite="toggleFavorite"
@@ -1073,9 +1233,13 @@ function onUpdated(song) {
             :sortable="sortable"
             :selected="selected"
             :selected-ids="selectedIds"
+            :select-mode="selectMode"
             :playing="playingId"
             :jump-to="jumpToSong"
             @select="select"
+            @select-all="selectAllSongs"
+            @remove="removeChosen"
+            @clear-selection="finishSelecting"
             @play="play"
             @set-stars="setStars"
             @toggle-favorite="toggleFavorite"
@@ -1088,10 +1252,14 @@ function onUpdated(song) {
             :sortable="sortable"
             :selected="selected"
             :selected-ids="selectedIds"
+            :select-mode="selectMode"
             :playing="playingId"
             :size="cardSize"
             :jump-to="jumpToSong"
             @select="select"
+            @select-all="selectAllSongs"
+            @remove="removeChosen"
+            @clear-selection="finishSelecting"
             @play="play"
             @context="songMenu"
           />
@@ -1101,11 +1269,15 @@ function onUpdated(song) {
             :sortable="sortable"
             :selected="selected"
             :selected-ids="selectedIds"
+            :select-mode="selectMode"
             :playing="playingId"
             :sort="sortable ? '' : sort"
             :desc="sortDesc"
             :jump-to="jumpToSong"
             @select="select"
+            @select-all="selectAllSongs"
+            @remove="removeChosen"
+            @clear-selection="finishSelecting"
             @play="play"
             @context="songMenu"
             @set-stars="setStars"

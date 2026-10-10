@@ -1,0 +1,216 @@
+/* La barra de la seleccion multiple (SelectionBar.vue): el contador y las
+   acciones sobre lo elegido, bajo la fila de la lista (.filters). Y el boton
+   «Seleccionar» de esa fila, que pone el modo con casillas. Va tras ui.css;
+   las reglas por tamaño (ancho > 1100, medio, estrecho, columna) van aqui
+   mismo, al final, con los mismos cortes que el resto de la app.
+
+   Todo sale de las variables del tema (claro u oscuro). Nada se mueve
+   aparte de los cambios de color de .btn, que motion.css ya apaga para
+   quien pide menos movimiento. */
+
+/* ---------- el boton «Seleccionar» ---------- */
+/* a la derecha de la fila; lo que venga detras (Guardar de la lista del
+   reproductor, el indicador de carga) se pone a su lado */
+.filters .select-toggle {
+  margin-left: auto;
+}
+.select-toggle.on {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel2));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border2));
+  color: var(--accent);
+}
+
+/* ---------- la barra ---------- */
+/* Una franja a todo lo ancho que no se encoge ni empuja: la lista de debajo
+   cede su alto. Si en la ventana mas estrecha no caben los botones, la barra
+   se desplaza en horizontal (el ultimo recurso): nunca se sale ni tapa la
+   lista o el reproductor. */
+.sel-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  overflow: auto hidden;
+  scrollbar-width: thin;
+}
+
+/* el contador: se anuncia al cambiar (aria-live). Si falta sitio cede el
+   texto con «…», nunca el numero */
+.sel-status {
+  flex: 0 1 auto;
+  min-width: 2.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.sel-count {
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sel-hint,
+.sel-note {
+  color: var(--muted);
+}
+.sel-note {
+  font-size: 11px;
+}
+
+.sel-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.sel-btn {
+  flex: none;
+  gap: 5px;
+  min-height: 26px;
+  white-space: nowrap;
+}
+.sel-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* la casilla de «todas» dentro del boton, la misma de las filas
+   (selection.css): vacia, a medias o (en «Ninguna») vacia otra vez */
+.sel-btn .pick-box {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+}
+.sel-btn.on {
+  color: var(--accent);
+}
+.sel-btn[aria-disabled='true'] {
+  cursor: default;
+}
+/* la papelera avisa con el color, sin el relleno rojo de .btn.danger: es
+   una opcion mas de la barra, y antes de borrar nada sale la confirmacion */
+.sel-btn.sel-danger {
+  color: var(--red);
+}
+.sel-btn.sel-danger:hover:not(:disabled) {
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, var(--panel2));
+}
+.sel-caret {
+  opacity: 0.7;
+  margin-left: -2px;
+}
+.sel-sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--border2);
+}
+.sel-short {
+  display: none;
+}
+/* «Listo», al otro extremo */
+.sel-bar .sel-done {
+  margin-left: auto;
+}
+
+/* ---------- por tamaños ----------
+   Dos cosas deciden cuanto se aprieta la barra. Los tramos de la ventana
+   (medio, estrecho, columna) ponen el minimo. Y la propia barra se mide
+   (SelectionBar.vue): con el panel de la ficha abierto la lista es mas
+   estrecha que la ventana, y con Telegram y «Quitar de la lista» hay mas
+   botones; si no cabe, se pone `fit-short` (etiquetas cortas), luego
+   `fit-icons` (solo iconos) y `fit-tight` (solo el numero). Son las mismas
+   reglas en los dos casos. */
+
+/* cortas; la nota de «el resto sigue cargando», para el lector de pantalla
+   (el aviso flotante ya lo dice a la vista) */
+.fit-short .sel-long {
+  display: none;
+}
+.fit-short .sel-short {
+  display: inline;
+}
+/* solo iconos: cada boton conserva su nombre (aria-label) */
+.fit-icons .sel-label,
+.fit-icons .sel-caret,
+.fit-icons .sel-sep {
+  display: none;
+}
+.fit-icons .sel-btn {
+  justify-content: center;
+}
+/* fuera de la vista pero dentro del arbol, como .sr-only */
+.fit-short .sel-note,
+.fit-tight .sel-word {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* medio: las etiquetas cortas */
+@media (max-width: 1100px) {
+  .sel-long {
+    display: none;
+  }
+  .sel-short {
+    display: inline;
+  }
+}
+/* estrecho: solo iconos y el contador; los botones crecen para el dedo. El
+   boton «Seleccionar» se queda en su icono (su nombre lo lleva aria-label) */
+@media (max-width: 700px) {
+  .sel-bar {
+    gap: 6px;
+    padding: 4px 10px;
+  }
+  .sel-label,
+  .sel-caret,
+  .sel-sep,
+  .select-toggle .btn-label {
+    display: none;
+  }
+  .sel-btn {
+    min-width: 34px;
+    min-height: 32px;
+    padding: 4px 8px;
+    justify-content: center;
+  }
+}
+/* columna: solo el numero a la vista; la palabra y la nota, para el lector
+   de pantalla */
+@media (max-width: 460px) {
+  .sel-bar {
+    gap: 4px;
+    padding: 4px 8px;
+  }
+  .sel-actions {
+    gap: 2px;
+  }
+  .sel-btn {
+    min-width: 32px;
+    padding: 4px 6px;
+  }
+  .sel-status {
+    min-width: 0;
+  }
+  .sel-word,
+  .sel-note {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

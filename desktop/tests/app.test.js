@@ -525,3 +525,230 @@ describe('valorar con el teclado', () => {
     expect(api.setStars).toHaveBeenCalledWith(1, 4)
   })
 })
+
+// La selección múltiple: el botón «Seleccionar» (casillas), la barra con lo
+// que se hace con las elegidas y las teclas con el foco en el <body> (tras un
+// clic el foco se suelta solo). Lo de dentro de cada lista (las casillas, la
+// de «todas» de la cabecera) se prueba aparte.
+describe('seleccionar varias', () => {
+  const filas = (w) => w.findAll('tbody tr')
+  const marcadas = (w) => filas(w).filter((f) => f.classes().includes('selected')).length
+  const barra = (w) => w.find('.sel-bar')
+  const boton = (w) => w.find('.filters .select-toggle')
+  const tecla = async (key, extra = {}, target = document.body) => {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra })
+    )
+    await flushPromises()
+  }
+  const elegir = async (w, texto) => {
+    const item = w.findAll('.ctx-item').find((b) => b.text().includes(texto))
+    expect(item, `falta «${texto}» en el menu`).toBeTruthy()
+    await item.trigger('mousedown')
+    await item.trigger('click')
+    await flushPromises()
+  }
+
+  it('el botón pone el modo: cada clic en una fila la marca o desmarca, y la barra las cuenta', async () => {
+    const w = await montar()
+    expect(barra(w).exists()).toBe(false)
+    expect(boton(w).attributes('aria-pressed')).toBe('false')
+    await boton(w).trigger('click')
+    expect(boton(w).attributes('aria-pressed')).toBe('true')
+    expect(barra(w).find('.sel-status').text()).toBe('Elige canciones')
+    // las casillas, una por fila
+    expect(w.findAll('tbody .pick-box')).toHaveLength(3)
+    await filas(w)[0].trigger('click')
+    await filas(w)[2].trigger('click')
+    await flushPromises()
+    expect(marcadas(w)).toBe(2)
+    expect(barra(w).find('.sel-status').text()).toBe('2 seleccionadas')
+    await filas(w)[0].trigger('click') // la desmarca, sin soltar la otra
+    await flushPromises()
+    expect(marcadas(w)).toBe(1)
+    expect(barra(w).find('.sel-status').text()).toBe('1 seleccionada')
+    // «Listo» lo termina todo
+    await barra(w).find('[data-act="done"]').trigger('click')
+    expect(barra(w).exists()).toBe(false)
+    expect(boton(w).attributes('aria-pressed')).toBe('false')
+    expect(marcadas(w)).toBe(0)
+  })
+
+  it('añadir dos a una lista desde la barra manda las dos de una vez', async () => {
+    state.playlists = [
+      { id: 7, name: 'Domingo', n: 0 },
+      { id: 8, name: 'Ensayo', n: 2 }
+    ]
+    const w = await montar()
+    await boton(w).trigger('click')
+    await filas(w)[0].trigger('click')
+    await filas(w)[2].trigger('click')
+    await flushPromises()
+    await barra(w).find('[data-act="list"]').trigger('click')
+    await flushPromises()
+    expect(w.find('.ctx-head').text()).toBe('Añadir 2 a una lista')
+    await elegir(w, 'Ensayo')
+    expect(api.addToPlaylist).toHaveBeenCalledWith(8, [1, 3])
+    expect(barra(w).exists(), 'se pueden seguir haciendo cosas con ellas').toBe(true)
+  })
+
+  it('Telegram desde la barra abre Telegram con sus archivos', async () => {
+    const w = await montar()
+    await boton(w).trigger('click')
+    await filas(w)[1].trigger('click')
+    await filas(w)[2].trigger('click')
+    await flushPromises()
+    await barra(w).find('[data-act="telegram"]').trigger('click')
+    await flushPromises()
+    const { app } = await import('../src/api.js')
+    expect(app.sendToTelegram).toHaveBeenCalledWith([
+      '/musica/cancion-2.mp3',
+      '/musica/cancion-3.mp3'
+    ])
+  })
+
+  it('Ctrl+A elige todas las cargadas y la barra lo cuenta, sin el modo', async () => {
+    const w = await montar()
+    await tecla('a', { ctrlKey: true })
+    expect(marcadas(w)).toBe(3)
+    expect(barra(w).find('.sel-status').text()).toBe('3 seleccionadas')
+    expect(barra(w).find('[data-act="none"]').exists(), 'ya están todas: «Ninguna»').toBe(true)
+    await barra(w).find('[data-act="none"]').trigger('click')
+    expect(marcadas(w)).toBe(0)
+    expect(barra(w).exists()).toBe(false)
+  })
+
+  it('Supr en la biblioteca pregunta por la papelera; cancelar no borra nada', async () => {
+    const w = await montar()
+    await tecla('a', { ctrlKey: true })
+    await tecla('Delete')
+    const { dialog } = useDialog()
+    expect(dialog.value.open).toBe(true)
+    expect(dialog.value.title).toBe('Mandar 3 canciones a la papelera')
+    dialogCancel()
+    await flushPromises()
+    expect(api.deleteSong).not.toHaveBeenCalled()
+    expect(marcadas(w), 'cancelar no suelta lo elegido').toBe(3)
+  })
+
+  it('Supr con una sola elegida (sin modo) pregunta por esa, con su archivo', async () => {
+    const w = await montar()
+    await filas(w)[1].trigger('click')
+    await flushPromises()
+    await tecla('Delete')
+    const { dialog } = useDialog()
+    expect(dialog.value.title).toBe('Mandar a la papelera')
+    dialogCancel()
+    await flushPromises()
+    expect(api.deleteSong).not.toHaveBeenCalled()
+  })
+
+  it('Supr en un repertorio quita de la lista (sin tocar archivos ni preguntar)', async () => {
+    state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
+    state.playlistSongs = [song(1), song(2), song(3)]
+    const w = await montar()
+    await w.find('.nav-playlist').trigger('click')
+    await settle()
+    await boton(w).trigger('click')
+    await filas(w)[0].trigger('click')
+    await filas(w)[1].trigger('click')
+    await flushPromises()
+    expect(barra(w).find('[data-act="remove"]').attributes('aria-label')).toBe(
+      'Quitar de «Domingo»'
+    )
+    await tecla('Delete')
+    const { dialog } = useDialog()
+    expect(dialog.value.open).toBe(false)
+    expect(api.removeFromPlaylist.mock.calls).toEqual([
+      [7, 1],
+      [7, 2]
+    ])
+    expect(api.deleteSong).not.toHaveBeenCalled()
+    expect(w.findAll('.toast').at(-1).text()).toContain('2 quitadas de «Domingo»')
+  })
+
+  it('Escape suelta la selección y sale del modo; sin nada elegido no hace nada', async () => {
+    const w = await montar()
+    await boton(w).trigger('click')
+    await filas(w)[0].trigger('click')
+    await filas(w)[1].trigger('click')
+    await flushPromises()
+    await tecla('Escape')
+    expect(barra(w).exists()).toBe(false)
+    expect(boton(w).attributes('aria-pressed')).toBe('false')
+    expect(marcadas(w)).toBe(0)
+    // nada que soltar: Escape no se toca (es de quien cierre otra cosa)
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    document.body.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(false)
+  })
+
+  it('con el foco en la caja de búsqueda nada de esto se dispara', async () => {
+    const w = await montar()
+    await boton(w).trigger('click')
+    await filas(w)[0].trigger('click')
+    await flushPromises()
+    const caja = w.find('.topbar input').element
+    caja.focus()
+    await tecla('a', { ctrlKey: true }, caja)
+    expect(marcadas(w), 'Ctrl+A es del texto de la caja').toBe(1)
+    await tecla('Delete', {}, caja)
+    expect(useDialog().dialog.value.open).toBe(false)
+    await tecla('Escape', {}, caja)
+    expect(boton(w).attributes('aria-pressed'), 'Escape en la caja es de la caja').toBe('true')
+    expect(barra(w).exists()).toBe(true)
+  })
+
+  it('con el foco en una fila, las teclas las trata la lista y llegan igual', async () => {
+    const w = await montar()
+    await filas(w)[0].trigger('keydown', { key: 'a', ctrlKey: true })
+    await flushPromises()
+    expect(marcadas(w)).toBe(3)
+    await filas(w)[0].trigger('keydown', { key: 'Escape' })
+    await flushPromises()
+    expect(barra(w).exists()).toBe(false)
+  })
+
+  it('al cambiar de vista se sale del modo', async () => {
+    const w = await montar()
+    await boton(w).trigger('click')
+    await filas(w)[0].trigger('click')
+    await flushPromises()
+    await pulsar(w, 'Favoritos')
+    expect(barra(w).exists()).toBe(false)
+    expect(boton(w).attributes('aria-pressed')).toBe('false')
+  })
+
+  it('en el móvil, tocar en el modo marca sin abrir la ficha encima de la lista', async () => {
+    const ancho = window.innerWidth
+    window.innerWidth = 400
+    window.dispatchEvent(new Event('resize'))
+    try {
+      const w = await montar()
+      await boton(w).trigger('click')
+      await filas(w)[1].trigger('click')
+      await flushPromises()
+      expect(marcadas(w)).toBe(1)
+      expect(document.querySelector('.drawer'), 'la ficha taparía la lista a cada toque').toBe(null)
+      // fuera del modo, tocar una canción sí abre su ficha (como siempre)
+      await barra(w).find('[data-act="done"]').trigger('click')
+      await filas(w)[2].trigger('click')
+      await flushPromises()
+      expect(document.querySelector('.drawer')).not.toBe(null)
+    } finally {
+      window.innerWidth = ancho
+      window.dispatchEvent(new Event('resize'))
+    }
+  })
+
+  it('en el modo, poner una a sonar con su botón no la marca', async () => {
+    const w = await montar()
+    await boton(w).trigger('click')
+    await filas(w)[0].trigger('click')
+    await flushPromises()
+    await filas(w)[2].find('.row-play').trigger('click')
+    await flushPromises()
+    expect(marcadas(w)).toBe(1)
+    expect(barra(w).find('.sel-status').text()).toBe('1 seleccionada')
+  })
+})

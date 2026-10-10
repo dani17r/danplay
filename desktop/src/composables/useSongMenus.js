@@ -3,7 +3,8 @@
 // un repertorio) y lo que se hace desde ellos con las canciones: valorar,
 // favoritas, difuminar la portada, renombrar, buscar letra, separarlas en
 // pistas, la papelera, abrir su carpeta o mandarlas por Telegram. Estaba
-// dentro de App.vue.
+// dentro de App.vue. Las acciones sobre varias (`groupItems`) son también las
+// de la barra de la selección (SelectionBar).
 import { ref } from 'vue'
 import { api, app as tauriApp, errorMessage } from '../api.js'
 import { notify } from './useNotices.js'
@@ -181,6 +182,136 @@ export function useSongMenus(ctx) {
     }
   }
 
+  // --------------------------------------------- sobre varias (o una) a la vez
+  // Lo que hacen el menú de grupo y la barra de la selección: las dos cosas
+  // salen de aquí para no repetir la lógica (ni los avisos).
+
+  /** El nombre con el que se nombra una canción en un aviso. @param {Song} s */
+  const nameOf = (s) => s.title || s.file || 'la canción'
+
+  /**
+   * Las que no lo eran, a favoritas. Un solo aviso para todas.
+   * @param {Song[]} list
+   */
+  async function favorites(list) {
+    const todo = list.filter((s) => !s.favorite)
+    if (!todo.length) {
+      return notify(list.length === 1 ? 'Ya era favorita' : 'Ya eran todas favoritas', 'info')
+    }
+    let done = 0
+    for (const s of todo) {
+      try {
+        ctx.onUpdated(await api.toggleFavorite(s.id, true))
+        done++
+      } catch (e) {
+        notify(`No se pudo marcar «${nameOf(s)}»: ${errorMessage(e)}`)
+      }
+    }
+    if (done) {
+      notify(
+        done === 1 ? `«${nameOf(todo[0])}» a favoritos` : `${done} marcadas como favoritas`,
+        'ok'
+      )
+    }
+  }
+
+  /** Las que eran favoritas dejan de serlo. @param {Song[]} list */
+  async function unfavorite(list) {
+    const todo = list.filter((s) => s.favorite)
+    let done = 0
+    for (const s of todo) {
+      try {
+        ctx.onUpdated(await api.toggleFavorite(s.id, false))
+        done++
+      } catch (e) {
+        notify(`No se pudo quitar «${nameOf(s)}»: ${errorMessage(e)}`)
+      }
+    }
+    if (done) {
+      notify(
+        done === 1 ? `«${nameOf(todo[0])}» ya no es favorita` : `${done} quitadas de favoritas`,
+        'ok'
+      )
+    }
+  }
+
+  /**
+   * A la papelera con la confirmación de siempre: la de una (que enseña la
+   * ruta del archivo) si es una, la de varias (que dice cuántas) si son más.
+   * @param {Song[]} list
+   */
+  function trash(list) {
+    if (!list.length) return
+    return list.length === 1 ? trashSong(list[0]) : trashSongs(list)
+  }
+
+  /**
+   * Fuera del repertorio que se está viendo. Los archivos no se tocan, así
+   * que no se pregunta: se avisa de cuántas y de qué lista.
+   * @param {Song[]} list
+   */
+  async function removeFromView(list) {
+    const v = view.value
+    if (v.kind !== 'playlist' || !list.length) return
+    const listId = /** @type {number} */ (v.id)
+    const listName = v.name || 'la lista'
+    const gone = []
+    for (const s of list) {
+      try {
+        await api.removeFromPlaylist(listId, s.id)
+        gone.push(s.id)
+      } catch (e) {
+        notify(`No se pudo quitar «${nameOf(s)}»: ${errorMessage(e)}`)
+      }
+    }
+    if (gone.length) {
+      selection.forget(gone)
+      notify(
+        gone.length === 1
+          ? `«${nameOf(list.find((s) => s.id === gone[0]) || list[0])}» quitada de «${listName}»`
+          : `${gone.length} quitadas de «${listName}»`,
+        'ok'
+      )
+    }
+    await Promise.all([ctx.reload(true), playlistActions.load()])
+  }
+
+  /** Por Telegram (si está instalado: `shareTargets.telegram`). @param {Song[]} list */
+  const sendTelegram = (list) => sendToTelegram(list)
+
+  /**
+   * Dónde abrir un menú que sale de un botón: debajo de él, alineado a su
+   * izquierda, y no donde cayó el puntero. Solo para un clic (con el ratón o
+   * con Enter); un clic derecho o un sitio que ya viene dado se quedan como
+   * están. Sigue siendo un MouseEvent con su `detail`: así el menú sabe si
+   * se abrió con el teclado (y entonces le da el foco y lo devuelve).
+   * @param {MouseEvent|{clientX: number, clientY: number}} ev
+   */
+  function below(ev) {
+    if (!(ev instanceof MouseEvent) || ev.type !== 'click') return ev
+    const target = /** @type {any} */ (ev.currentTarget || ev.target)
+    const button = target?.closest?.('button')
+    if (!button) return ev
+    const r = button.getBoundingClientRect()
+    return new MouseEvent('click', { clientX: r.left, clientY: r.bottom + 4, detail: ev.detail })
+  }
+
+  /**
+   * El menú de las listas para esas canciones, debajo del botón que lo abre
+   * («Añadir a una lista ▾» de la barra de la selección).
+   * @param {MouseEvent|{clientX: number, clientY: number}} ev
+   * @param {Song[]} list
+   */
+  function addToList(ev, list) {
+    if (!list.length) return
+    const n = list.length
+    openMenu(
+      below(ev),
+      playlistTargets(list),
+      n === 1 ? 'Añadir a una lista' : `Añadir ${n} a una lista`
+    )
+  }
+
   /** Un repertorio entero a Telegram: todas sus canciones. @param {{id: number}} pl */
   async function sendPlaylistToTelegram(pl) {
     const list = (await api.playlistSongs(pl.id)).songs || []
@@ -288,8 +419,9 @@ export function useSongMenus(ctx) {
    * @returns {MenuItem[]}
    */
   function playlistTargets(songOrList) {
-    const many = Array.isArray(songOrList) ? songOrList : null
-    const song = many ? many[0] : /** @type {Song} */ (songOrList)
+    // una lista de una sola es esa canción: su aviso habla de ella, no de «1 añadidas»
+    const many = Array.isArray(songOrList) && songOrList.length > 1 ? songOrList : null
+    const song = Array.isArray(songOrList) ? songOrList[0] : songOrList
     /** @type {MenuItem[]} */
     const kids = playlists.value.map((l) => ({
       label: l.name,
@@ -307,60 +439,87 @@ export function useSongMenus(ctx) {
   }
 
   /**
-   * El menú sobre varias canciones seleccionadas: actúa sobre todas.
-   * @param {MouseEvent|{clientX: number, clientY: number}} ev
+   * Las opciones sobre varias canciones (o una, la elegida en el modo
+   * «Seleccionar»): actúan sobre todas. Son las del menú de grupo y las del
+   * «⋯» de la barra de la selección.
+   *
+   * Con `fromSearch` son las de lo elegido en el desplegable del buscador:
+   * no se ofrece «quitar de esta lista» (habla de otra lista) y «Reproducir»
+   * lo decide quien llama (`play`), que sabe qué cola le toca.
    * @param {Song[]} list
+   * @param {{fromSearch?: boolean, play?: (list: Song[]) => any}} [opts]
+   * @returns {MenuItem[]}
    */
-  function groupMenu(ev, list) {
+  function groupItems(list, opts = {}) {
     const n = list.length
+    const one = n === 1
+    /** @param {string} single @param {string} several */
+    const say = (single, several) => (one ? single : several)
+    const allFavorite = list.every((s) => s.favorite)
     /** @type {MenuItem[]} */
     const items = [
       {
-        label: `Reproducir estas ${n}`,
+        label: say('Reproducir', `Reproducir estas ${n}`),
         icon: 'play',
-        action: () => ctx.play(list[0], list, { ...view.value, label: 'la selección' })
+        action: () =>
+          opts.play
+            ? opts.play(list)
+            : ctx.play(list[0], list, { ...view.value, label: 'la selección' })
       },
       { separator: true },
-      { label: `Añadir ${n} a una lista`, icon: 'list', children: playlistTargets(list) },
       {
-        label: `Marcar ${n} como favoritas`,
-        icon: 'heart',
-        action: async () => {
-          for (const s of list) {
-            if (!s.favorite) ctx.onUpdated(await api.toggleFavorite(s.id, true))
+        label: say('Añadir a una lista', `Añadir ${n} a una lista`),
+        icon: 'list',
+        children: playlistTargets(list)
+      },
+      allFavorite
+        ? {
+            label: say('Quitar de favoritas', `Quitar ${n} de favoritas`),
+            icon: 'heartFull',
+            action: () => unfavorite(list)
           }
-          notify(`${n} favoritas`, 'ok')
-        }
-      }
+        : {
+            label: say('Marcar como favorita', `Marcar ${n} como favoritas`),
+            icon: 'heart',
+            action: () => favorites(list)
+          }
     ]
-    if (view.value.kind === 'playlist') {
-      const listId = /** @type {number} */ (view.value.id)
+    if (view.value.kind === 'playlist' && !opts.fromSearch) {
       items.push({
-        label: `Quitar ${n} de esta lista`,
+        label: say('Quitar de esta lista', `Quitar ${n} de esta lista`),
         icon: 'close',
-        action: async () => {
-          for (const s of list) await api.removeFromPlaylist(listId, s.id)
-          notify(`${n} quitadas de la lista`, 'ok')
-          await Promise.all([ctx.reload(true), playlistActions.load()])
-        }
+        action: () => removeFromView(list)
       })
     }
-    items.push(...separateItems(list, `Separar las pistas de ${n}`))
+    items.push(...separateItems(list, say('Separar pistas', `Separar las pistas de ${n}`)))
     items.push({ separator: true })
     if (shareTargets.value.telegram) {
       items.push({
-        label: `Enviar ${n} por Telegram`,
+        label: say('Enviar por Telegram', `Enviar ${n} por Telegram`),
         icon: 'send',
-        action: () => sendToTelegram(list)
+        action: () => sendTelegram(list)
       })
     }
     items.push({
-      label: `Mandar ${n} a la papelera…`,
+      label: say('Mandar a la papelera…', `Mandar ${n} a la papelera…`),
       icon: 'trash',
       danger: true,
-      action: () => trashSongs(list)
+      action: () => trash(list)
     })
-    openMenu(ev, items, `${n} canciones`)
+    return items
+  }
+
+  /**
+   * El menú sobre las canciones elegidas: actúa sobre todas. Desde un botón
+   * (el «⋯» de la barra) se abre debajo de él.
+   * @param {MouseEvent|{clientX: number, clientY: number}} ev
+   * @param {Song[]} list
+   * @param {{fromSearch?: boolean, play?: (list: Song[]) => any}} [opts]
+   */
+  function groupMenu(ev, list, opts = {}) {
+    if (!list.length) return
+    const n = list.length
+    openMenu(below(ev), groupItems(list, opts), n === 1 ? nameOf(list[0]) : `${n} canciones`)
   }
 
   /**
@@ -377,7 +536,14 @@ export function useSongMenus(ctx) {
    */
   function songMenu(ev, song, opts = {}) {
     const fromSearch = !!opts.fromSearch
-    if (!fromSearch) {
+    // En el modo «Seleccionar» el menú no toca la selección (la que se marcó
+    // a mano no se suelta por abrir un menú): sobre una elegida es el de las
+    // elegidas, aunque sea una sola; sobre otra, el de esa sin elegirla.
+    const mode = !fromSearch && selection.selectMode.value
+    if (mode) {
+      const chosen = selection.chosenSongs.value
+      if (chosen.some((s) => s.id === song.id)) return groupMenu(ev, chosen)
+    } else if (!fromSearch) {
       const chosen = selection.selectedSongs.value
       if (chosen.length > 1 && selection.selectedIds.value.includes(song.id)) {
         return groupMenu(ev, chosen)
@@ -451,7 +617,7 @@ export function useSongMenus(ctx) {
       danger: true,
       action: () => trashSong(song)
     })
-    if (!fromSearch) selection.select(song.id)
+    if (!fromSearch && !mode) selection.select(song.id)
     openMenu(ev, items, song.title || song.file)
   }
 
@@ -521,6 +687,15 @@ export function useSongMenus(ctx) {
     deletePlaylist,
     songMenu,
     groupMenu,
-    playlistMenu
+    groupItems,
+    playlistMenu,
+    playlistTargets,
+    // lo que hace la barra de la selección (y el menú de grupo)
+    addToList,
+    favorites,
+    unfavorite,
+    trash,
+    sendTelegram,
+    removeFromView
   }
 }
