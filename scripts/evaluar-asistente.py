@@ -44,9 +44,31 @@ SONGS = [
 GREEN, RED, DIM, RESET = "\033[32m", "\033[31m", "\033[2m", "\033[0m"
 
 
+def _make_mp3():
+    """`make_mp3` de las pruebas, sin lo que su modulo hace al importarse.
+
+    `tests/conftest.py` aisla a pytest nada mas cargarse: apunta HOME y los
+    ajustes a un temporal, quita las claves del entorno y corta la red. Aqui se
+    habla con un modelo DE VERDAD, con los ajustes de verdad: al importarlo sin
+    deshacer eso, cada llamada al modelo fallaba con «las pruebas no salen a
+    internet» y el banco entero daba error sin preguntar nada a nadie.
+    """
+    import socket
+
+    saved = dict(os.environ)
+    import conftest
+
+    os.environ.clear()
+    os.environ.update(saved)
+    socket.socket.connect = conftest._real_connect
+    socket.socket.connect_ex = conftest._real_connect_ex
+    socket.getaddrinfo = conftest._real_getaddrinfo
+    return conftest.make_mp3
+
+
 def build_library(tmp: pathlib.Path) -> dict:
     """Crea la biblioteca temporal, la indexa y devuelve {"Artista - Titulo": id}."""
-    from conftest import make_mp3
+    make_mp3 = _make_mp3()
 
     from danplay import config, library
 
