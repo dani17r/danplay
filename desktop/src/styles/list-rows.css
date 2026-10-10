@@ -90,8 +90,12 @@
     display: none;
   }
 }
+/* `.row .row-stars` y no `.row-stars` a secas: las estrellas son tambien
+   `.stars`, y su `display: inline-flex` (list-cards.css, que va despues) le
+   ganaba a esta regla. No se escondian nunca: en la columna (≤ 460) el titulo
+   se quedaba en 80 px */
 @media (max-width: 820px) {
-  .row-stars {
+  .row .row-stars {
     display: none;
   }
 }
