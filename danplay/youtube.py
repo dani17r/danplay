@@ -16,6 +16,7 @@ yt-dlp es opcional: si no esta instalado la funcion queda desactivada y el
 resto de la app sigue igual.
 """
 
+import json
 import logging
 import os
 import re
@@ -23,7 +24,8 @@ import shutil
 import tempfile
 import threading
 import time
-from collections.abc import Mapping
+from collections import deque
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -50,6 +52,9 @@ class Canceled(Exception):
 # Estado de la descarga en curso. Vive aqui y no en la API porque lo comparten
 # la pagina de Descargas y el asistente: una sola descarga a la vez y un solo
 # sitio donde mirar como va.
+#
+# `active` en False quiere decir «TODO hecho»: tambien lo que se pidio hacer al
+# terminar (`on_done` de `run_many`) y su resultado en `after`.
 STATE: dict = {
     "active": False,
     "phase": "",
@@ -59,6 +64,16 @@ STATE: dict = {
     "total": 0,
     "results": [],
     "error": "",
+    # Lo que paso con lo que se pidio hacer AL TERMINAR la descarga (`on_done`
+    # de `run_many`, p. ej. completar una lista): None si no se pidio nada o
+    # aun no se sabe; si no, el dict que devolvio quien lo pidio (con `job`),
+    # o {"state": "error", "error": ...} si fallo. Se publica SIEMPRE antes de
+    # soltar el turno: con `active` en False ya esta.
+    "after": None,
+    # El turno de ahora: un contador que sube con cada `claim()` (es su
+    # token). Solo escribe en STATE quien lo tiene (ver `_put`): una descarga
+    # vieja que acaba tarde no pisa el estado de la nueva.
+    "job": 0,
 }
 _CANCELAR = {"requested": False}
 # Comprobar que no hay nada en marcha y quedarse el turno van juntos bajo el
@@ -66,13 +81,19 @@ _CANCELAR = {"requested": False}
 _TURN = threading.Lock()
 
 
-def claim() -> bool:
-    """Se queda el turno de descarga. False si ya hay una en marcha.
+def claim() -> int:
+    """Se queda el turno de descarga. 0 si ya hay una en marcha.
 
-    Quien lo consigue tiene que llamar a `run_job`/`run_many` con
-    `claimed=True` (o a `release`): el turno no se suelta solo. La API lo usa
-    para contestar «ya hay una en marcha» al momento y arrancar la descarga
-    en segundo plano sin que nadie se cuele entre medias.
+    Si lo consigue devuelve el token del turno, un entero >= 1 que tambien es
+    `STATE["job"]`; para quien solo pregunta «¿lo tengo?» es verdadero, como
+    el booleano de antes. Quien lo consigue tiene que llamar a
+    `run_job`/`run_many` con `claimed=True` (o a `release`): el turno no se
+    suelta solo. La API lo usa para contestar «ya hay una en marcha» al
+    momento y arrancar la descarga en segundo plano sin que nadie se cuele
+    entre medias.
+
+    Un turno nuevo empieza con `after` en None: lo de la descarga anterior no
+    se hereda.
 
     Antes la API ponia `STATE["active"] = True` a mano y luego llamaba a
     `run_job`, que al ver `active` contestaba «ya hay una descarga en marcha»
@@ -81,8 +102,9 @@ def claim() -> bool:
     """
     with _TURN:
         if STATE["active"]:
-            return False
+            return 0
         _CANCELAR["requested"] = False
+        STATE["job"] += 1
         STATE.update(
             {
                 "active": True,
@@ -93,14 +115,22 @@ def claim() -> bool:
                 "total": 0,
                 "results": [],
                 "error": "",
+                "after": None,
             }
         )
-        return True
+        return STATE["job"]
 
 
-def release() -> None:
-    """Suelta el turno sin haber descargado (la descarga no llego a arrancar)."""
+def release(job: int | None = None) -> None:
+    """Suelta el turno.
+
+    Sin `job`, el que sea: la descarga no llego a arrancar. Con `job` (el
+    token de `claim`), solo si sigue siendo ese: una descarga vieja que acaba
+    tarde no suelta el turno de la nueva.
+    """
     with _TURN:
+        if job is not None and STATE["job"] != job:
+            return
         STATE["active"] = False
         STATE["phase"] = "canceled" if _CANCELAR["requested"] else "done"
 
@@ -113,8 +143,30 @@ def canceled() -> bool:
     return _CANCELAR["requested"]
 
 
-def _publish(p: dict) -> None:
-    STATE.update({k: v for k, v in p.items() if k in STATE})
+def _put(job: int, **fields) -> bool:
+    """Escribe en STATE solo si `job` sigue siendo el turno vigente.
+
+    Si no, la descarga ya no es la de ahora (se solto el turno y otra empezo)
+    y lo suyo ya no le toca a nadie: no se pisa el estado de la nueva.
+    """
+    with _TURN:
+        if STATE["job"] != job:
+            return False
+        STATE.update(fields)
+        return True
+
+
+# Lo unico que publica el avance de una descarga (lo demas de STATE tiene
+# dueno: `results`, `error`, `after`...).
+_PROGRESS = ("phase", "name", "percent", "index", "total")
+
+
+def _publish(p: dict, job: int | None = None) -> None:
+    fields = {k: v for k, v in p.items() if k in _PROGRESS}
+    if job is None:
+        STATE.update(fields)
+    else:
+        _put(job, **fields)
 
 
 def _yt_dlp():
@@ -183,17 +235,34 @@ ALLOWED_HOSTS = frozenset(
 )
 
 
+# Lo unico que puede ir entre «https://» y la primera barra de una direccion de
+# YouTube: el nombre y, si acaso, el puerto.
+_PLAIN_AUTHORITY = re.compile(r"[A-Za-z0-9.-]+(?::[0-9]{0,5})?")
+
+
 def host_of(text: str) -> str:
-    """El dominio de una direccion, o cadena vacia si no lo es."""
+    """El dominio de una direccion, o cadena vacia si no lo es.
+
+    Una direccion cuyo «sitio» trae algo mas que un nombre (una barra invertida,
+    un usuario@, espacios...) NO es de YouTube aunque lo nombre: cada libreria
+    de red la lee a su manera (Python ve `youtube.com` en
+    `https://malo.example\\@youtube.com`, y urllib3, que es lo que usa yt-dlp,
+    ve `malo.example`) y las de YouTube de verdad se escriben sin nada de eso.
+    Esas devuelven su «sitio» tal cual, que nunca esta en `ALLOWED_HOSTS`.
+    """
     import urllib.parse
 
     t = (text or "").strip()
     if not t.lower().startswith(("http://", "https://")):
         return ""
     try:
-        return (urllib.parse.urlsplit(t).hostname or "").lower()
+        parts = urllib.parse.urlsplit(t)
+        host = (parts.hostname or "").lower()
     except ValueError:
         return ""
+    if parts.netloc and not _PLAIN_AUTHORITY.fullmatch(parts.netloc):
+        return parts.netloc.lower()
+    return host
 
 
 def is_url(text: str) -> bool:
@@ -261,13 +330,131 @@ def _pick_fields(d: Mapping[str, Any]) -> dict:
     }
 
 
-def info(inbox: str, results=5) -> dict:
-    """Consulta sin descargar: sirve para enseñar que se va a bajar."""
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+# Lo que dice yt-dlp cuando la red falla (no cuando un video no existe).
+_NETWORK_SIGNS = (
+    "timed out",
+    "timeout",
+    "name resolution",
+    "name or service not known",
+    "nodename nor servname",
+    "getaddrinfo",
+    "network is unreachable",
+    "no route to host",
+    "connection refused",
+    "connection reset",
+    "connection aborted",
+    "failed to establish",
+    "remote end closed",
+)
+
+
+def _plain(message) -> str:
+    """Un mensaje de yt-dlp en una linea, sin colores ni el «ERROR:» del principio."""
+    text = " ".join(_ANSI.sub("", str(message)).split())
+    return re.sub(r"^(?:ERROR|WARNING):\s*", "", text)
+
+
+def failure_kind(reason: str) -> str:
+    """De que tipo es un fallo de YouTube, por el `reason` que dio `info`.
+
+    "bot": pide verificar que no eres un robot. "rate": 429, demasiadas
+    peticiones. "network": sin red o tiempo agotado. "": cualquier otro (un
+    video no disponible, un enlace malo...). Sirve para dejar de insistir:
+    seguir preguntando cuando YouTube ya ha dicho que no solo empeora las cosas.
+    """
+    low = str(reason or "").lower()
+    if "not a bot" in low or "sign in to confirm" in low:
+        return "bot"
+    if "http error 429" in low or "too many requests" in low or "rate limit" in low:
+        return "rate"
+    if any(sign in low for sign in _NETWORK_SIGNS):
+        return "network"
+    return ""
+
+
+class _Seen:
+    """El `logger` de yt-dlp en las consultas: apunta lo que sale mal.
+
+    Con `ignoreerrors` (que se usa siempre aqui) yt-dlp no levanta nada
+    cuando YouTube pide verificar que no eres un robot, contesta 429 o no hay
+    red: escribe el motivo en su salida de errores y devuelve `None`. Sin
+    recogerlo, todo eso salia como un «no se encontro nada» que no dice nada.
+    """
+
+    def __init__(self):
+        self.errors: deque[str] = deque(maxlen=20)
+        self.warnings: deque[str] = deque(maxlen=20)
+
+    def debug(self, message):
+        pass
+
+    def info(self, message):
+        pass
+
+    def warning(self, message):
+        self.warnings.append(_plain(message))
+
+    def error(self, message):
+        self.errors.append(_plain(message))
+
+    def reason(self) -> str:
+        """El ultimo error; si no hubo, el ultimo aviso que sea de bloqueo o de red."""
+        if self.errors:
+            return self.errors[-1][:200]
+        for w in reversed(self.warnings):
+            if failure_kind(w):
+                return w[:200]
+        return ""
+
+
+def _is_list_url(url: str) -> bool:
+    """Si el enlace es de una LISTA a proposito, y no de un video suelto.
+
+    Lo que da compartir un video desde dentro de una lista o de un mix
+    (`watch?v=ID&list=RD...`, `youtu.be/ID?list=...`) es UN video: con la
+    lista, `_info` bajaba hasta 50. Manda el video (`v=`, o el id en el camino
+    de youtu.be, shorts, live...); `list=` solo cuenta cuando no hay video:
+    `/playlist?list=...` o `watch?list=...`.
+    """
+    import urllib.parse
+
+    if not host_of(url):  # «ytsearchN:texto»: no es un enlace
+        return False
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    query = urllib.parse.parse_qs(parts.query)
+    if not query.get("list") or query.get("v"):
+        return False
+    path = [p for p in parts.path.split("/") if p]
+    if (parts.hostname or "").lower() in ("youtu.be", "www.youtu.be"):
+        return not path  # youtu.be/ID?list=...: el id va en el camino
+    if len(path) > 1 and path[0] in ("shorts", "live", "v"):
+        return False
+    return not (len(path) > 1 and path[0] == "embed" and path[1] != "videoseries")
+
+
+def info(inbox: str, results=5, *, timeout=None) -> dict:
+    """Consulta sin descargar: sirve para enseñar que se va a bajar.
+
+    Con `timeout` (segundos) es una consulta LIGERA, de las que se lanzan por
+    docenas: espera como mucho eso por cada respuesta de la red y no reintenta
+    (`retries` y `extractor_retries` a 0), asi que un YouTube lento o que pide
+    verificar no la deja colgada. Sin `timeout` es la de siempre (30 s y tres
+    reintentos). El tiempo es por respuesta, no del total.
+
+    Si falla, `reason` dice POR QUE (YouTube pide verificar que no eres un
+    robot, 429, sin red...; ver `failure_kind`) y no un «no se encontro nada»
+    generico. Un enlace que no es de YouTube se rechaza sin consultar nada.
+    """
     with ytdlp.using():
-        return _info(inbox, results)
+        return _info(inbox, results, timeout=timeout)
 
 
-def _info(inbox: str, results=5) -> dict:
+def _info(inbox: str, results=5, timeout=None) -> dict:
     yt = _yt_dlp()
     if yt is None:
         return {"ok": False, "reason": unavailable_reason(), "items": []}
@@ -275,24 +462,29 @@ def _info(inbox: str, results=5) -> dict:
         target_url = normalize(inbox, results)
     except NotYouTube as e:
         return {"ok": False, "reason": str(e), "items": []}
-    # `noplaylist` salvo que se haya pegado un enlace de lista a proposito: sin
-    # esto, pegar «watch?v=X&list=Y» consultaba la lista entera.
-    explicit_list = "list=" in target_url
+    # `noplaylist` salvo que se haya pegado un enlace de LISTA a proposito
+    # (`/playlist?list=`): con un video delante, `list=` no cuenta (ver
+    # `_is_list_url`). Sin esto, «watch?v=X&list=Y» consultaba la lista entera.
+    seen = _Seen()
     options = {
         **_base_options(),
         "extract_flat": "in_playlist",
         "skip_download": True,
-        "noplaylist": not explicit_list,
+        "noplaylist": not _is_list_url(target_url),
         "playlist_items": PLAYLIST_LIMIT,
         "match_filter": wanted,
+        "logger": seen,
     }
+    if timeout is not None:
+        options.update(socket_timeout=float(timeout), retries=0, extractor_retries=0)
     try:
         with yt.YoutubeDL(cast(Any, options)) as ydl:
             data = ydl.extract_info(target_url, download=False)
     except Exception as e:  # noqa: BLE001
-        return {"ok": False, "reason": str(e)[:200], "items": []}
+        reason = _plain(e) or seen.reason() or type(e).__name__
+        return {"ok": False, "reason": reason[:200], "items": []}
     if not data:
-        return {"ok": False, "reason": "no se encontro nada", "items": []}
+        return {"ok": False, "reason": seen.reason() or "no se encontro nada", "items": []}
 
     entries = [e for e in (data.get("entries") or []) if e] if "entries" in data else [data]
     return {
@@ -484,6 +676,13 @@ def _log(entry: dict, query: str, source: str, quality: str) -> None:
     from . import library
 
     try:
+        song_id, target = entry.get("id"), entry.get("target", "")
+        if song_id is None and entry.get("already_there"):
+            # La que ya tenias: se apunta CUAL (y donde esta), para que la
+            # proxima vez que llegue este enlace se sepa sin volver a
+            # consultarlo, y sea la misma cancion mientras siga ahi.
+            mine = (entry.get("matches") or [{}])[0]
+            song_id, target = mine.get("id"), target or mine.get("path", "")
         library.log_download(
             {
                 "source": source,
@@ -495,10 +694,10 @@ def _log(entry: dict, query: str, source: str, quality: str) -> None:
                 "ok": entry.get("ok"),
                 "already": entry.get("already_there"),
                 "reason": entry.get("reason", ""),
-                "song_id": entry.get("id"),
+                "song_id": song_id,
                 "artist": entry.get("artist", ""),
                 "song": entry.get("song", ""),
-                "target": entry.get("target", ""),
+                "target": target,
                 "kbps": entry.get("kbps", ""),
             }
         )
@@ -530,14 +729,16 @@ def _download(inbox, quality, file_it, results, force, source, progress, cancel)
     quality = quality or config.MP3_QUALITY
     meta = _info(inbox, results)
     if not meta["ok"]:
-        return [{"ok": False, "reason": meta["reason"]}]
+        # `requested` en TODO resultado, tambien en los que fallan: quien
+        # completa una lista al terminar casa cada resultado con lo que pidio
+        return [{"ok": False, "reason": meta["reason"], "requested": inbox}]
 
     items = meta["items"]
     vocab = names.vocabulary(config.ARTISTS_DIR) if file_it else {}
     out = []
     for i, t in enumerate(items, 1):
         if cancel and cancel():
-            out.append({"ok": False, "reason": "canceled", "canceled": True})
+            out.append({"ok": False, "reason": "canceled", "canceled": True, "requested": inbox})
             break
         if progress:
             progress(
@@ -661,6 +862,11 @@ def run_job(
     )
 
 
+def _short(e: BaseException) -> str:
+    """El motivo de un fallo en una linea corta (para enseñarlo, no para depurar)."""
+    return (" ".join(str(e).split()) or type(e).__name__)[:200]
+
+
 def run_many(
     queries: list[str],
     quality=None,
@@ -669,6 +875,8 @@ def run_many(
     force=False,
     source="manual",
     claimed=False,
+    on_done: Callable[[list[dict]], dict | None] | None = None,
+    job: int | None = None,
 ) -> list[dict]:
     """Varias descargas seguidas bajo un solo turno; el avance en STATE.
 
@@ -681,45 +889,107 @@ def run_many(
     uno; una lista, lo que traiga. Como no se sabe de antemano cuantos trae
     cada elemento, el total se estima suponiendo uno por elemento pendiente y
     se corrige sobre la marcha.
+
+    Todos los resultados llevan `requested`: lo que se pidio (la consulta),
+    tambien los que fallan o se cancelan, para casar cada uno con su peticion.
+
+    `on_done(resultados)` es lo que hay que hacer AL TERMINAR (p. ej. meter lo
+    bajado en su sitio de una lista). Corre aqui mismo, tras la ultima
+    descarga y ANTES de soltar el turno: `STATE["phase"]` pasa a «listing»
+    con `active` aun en True, y `active` en False quiere decir «todo hecho».
+    Corre tambien si se cancelo o si una descarga fallo (con lo que se llego a
+    bajar; `canceled()` dice si fue cancelada). Debe devolver un dict (o None).
+    Si lanza, la descarga no se tumba. En `STATE["after"]` queda, SIEMPRE
+    antes de soltar el turno: None si no hubo `on_done` (o devolvio None); lo
+    que devolvio, con `job` añadido; o {"state": "error", "error": <motivo
+    corto>, "job"} si lanzo o devolvio otra cosa que un dict.
+
+    `job` es el token del turno (el que dio `claim`): con `claimed=True` y sin
+    `job` se toma `STATE["job"]`. Solo el dueño del turno escribe en STATE: si
+    la descarga acaba cuando ya hay otra (se solto el turno por fuera), no
+    pisa a la nueva ni le suelta el turno.
     """
     queries = [str(q).strip() for q in (queries or []) if str(q).strip()]
-    if not claimed and not claim():
-        return [{"ok": False, "reason": "ya hay una descarga en marcha"}]
+    if not claimed:
+        turn = claim()
+        if not turn:
+            return [{"ok": False, "reason": "ya hay una descarga en marcha"}]
+    else:
+        turn = STATE["job"] if job is None else job
     done: list[dict] = []
+    after: dict | None = None
     try:
-        if not queries:
-            return done
-        for position, query in enumerate(queries):
-            if canceled():
-                break
-            offset = len(done)
-            pending_after = len(queries) - position - 1
+        current = ""
+        try:
+            for position, query in enumerate(queries):
+                if canceled():
+                    break
+                current = query
+                offset = len(done)
+                pending_after = len(queries) - position - 1
 
-            def step(p, _offset=offset, _pending=pending_after):
-                p = dict(p)
-                if "index" in p:
-                    p["index"] = _offset + int(p.get("index") or 0)
-                if "total" in p:
-                    p["total"] = _offset + int(p.get("total") or 0) + _pending
-                _publish(p)
+                def step(p, _offset=offset, _pending=pending_after):
+                    p = dict(p)
+                    if "index" in p:
+                        p["index"] = _offset + int(p.get("index") or 0)
+                    if "total" in p:
+                        p["total"] = _offset + int(p.get("total") or 0) + _pending
+                    _publish(p, turn)
 
-            rs = download(
-                query,
-                quality=quality,
-                file_it=file_it,
-                results=results,
-                force=force,
-                source=source,
-                progress=step,
-                cancel=canceled,
-            )
-            done.extend(rs)
-            STATE["results"] = list(done)
-        return done
-    except Exception as e:  # noqa: BLE001
-        STATE["error"] = str(e)[:200]
-        done.append({"ok": False, "reason": str(e)[:200]})
-        STATE["results"] = list(done)
+                rs = download(
+                    query,
+                    quality=quality,
+                    file_it=file_it,
+                    results=results,
+                    force=force,
+                    source=source,
+                    progress=step,
+                    cancel=canceled,
+                )
+                for r in rs:
+                    r.setdefault("requested", query)
+                done.extend(rs)
+                _put(turn, results=list(done))
+        except Exception as e:  # noqa: BLE001
+            _put(turn, error=str(e)[:200])
+            failure = {"ok": False, "reason": str(e)[:200]}
+            if current:
+                failure["requested"] = current
+            done.append(failure)
+            _put(turn, results=list(done))
+        if on_done is not None:
+            _put(turn, phase="listing")
+            after = _after(on_done, done, turn)
         return done
     finally:
-        release()
+        # lo ultimo antes de soltar el turno: quien vea `active` en False ya
+        # tiene `after` (y una descarga que acabe tarde no pisa a la nueva)
+        _put(turn, after=after)
+        release(turn)
+
+
+def _after(on_done: Callable[[list[dict]], dict | None], done: list[dict], job: int) -> dict | None:
+    """Corre `on_done` y deja su resultado en la forma de `STATE["after"]`.
+
+    Lo que lance NO se propaga: la descarga ya esta hecha y lo que falle aqui
+    se cuenta (`state: "error"`), no se la lleva por delante.
+    """
+    try:
+        result = on_done(list(done))
+    except Exception as e:
+        log.warning("lo que se hacia al terminar la descarga fallo", exc_info=True)
+        return {"state": "error", "error": _short(e), "job": job}
+    if result is None:
+        return None
+    if isinstance(result, dict):
+        try:
+            # una copia de datos sueltos: se publica tal cual en /api/youtube, y
+            # quien lo hizo no puede cambiarlo despues
+            plain = json.loads(json.dumps(result, default=str, allow_nan=False))
+        except (TypeError, ValueError):
+            log.warning("lo que se hacia al terminar la descarga no se puede publicar")
+        else:
+            return {**plain, "job": job}
+    else:
+        log.warning("lo que se hacia al terminar la descarga devolvio %s", type(result).__name__)
+    return {"state": "error", "error": "no devolvió un resultado válido", "job": job}
