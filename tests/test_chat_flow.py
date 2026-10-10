@@ -175,13 +175,13 @@ def test_la_lista_pegada_entra_en_su_orden_y_lo_que_falta_se_ofrece(lib, asked):
     assert card["tool"] == "download_music"
     assert card["args"]["items"] == [
         "https://www.youtube.com/watch?v=AAAAAAAAAA1",
-        "cena del señor",
+        "cena del señor cancion",  # sin artista, para que no salgan predicaciones
     ]
     assert [r["checked"] for r in card["plan"]["rows"]] == [False, True]
     # y al terminar, cada una en su sitio: los huecos van en el orden de la lista
     slots = card["after"]["slots"]
     assert [s["n"] for s in slots] == [1, 2, 3, 4, 5]
-    assert slots[3] == {"n": 4, "item": "cena del señor"}
+    assert slots[3] == {"n": 4, "item": "cena del señor cancion"}
     assert card["after"]["playlist"]["name"] == "domingo"
     assert res["_ui"]["confirm"]["id"] == "conf1"
     # el informe, en pasado y con nombres, y solo promete la tarjeta que hay

@@ -496,9 +496,17 @@ def _order_differs(rows: list[dict], final: list[int]) -> bool:
 
 def _youtube_query(item: dict) -> str:
     """Lo que se busca en YouTube por una cancion sin enlace: en la forma de
-    buscar de la casa (sin tildes ni simbolos, con la ñ). Nunca una URL."""
+    buscar de la casa (sin tildes ni simbolos, con la ñ). Nunca una URL.
+
+    Sin artista se le añade «cancion»: un titulo suelto como «Cena Del Señor»
+    daba de primero predicaciones de veinte minutos, y con la palabra salen
+    canciones. En los titulos que ya daban la cancion, el primer resultado es
+    el mismo (medido con YouTube de verdad)."""
     text = " ".join(x for x in (item.get("artist"), item.get("title")) if x)
-    return names.search_form(text)[:200]
+    form = names.search_form(text)[:190]
+    if form and not item.get("artist"):
+        form += " cancion"
+    return form
 
 
 def fill(args: dict, turn: Turn) -> dict:
