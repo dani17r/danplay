@@ -110,6 +110,27 @@ const COLS = [
 const show = Object.fromEntries(COLS.map((c) => [c.k, true]))
 const cols = computed(() => COLS)
 
+// La celda de la cabecera de un grupo abarca las columnas que SE VEN, no
+// todas. Las media queries esconden algunas (y su <col>), y cada columna de
+// más que abarcase la celda nacía como columna fantasma, sin <col> y con su
+// parte del ancho: medido en WebKitGTK, en estrecho el título se quedaba en
+// 38 px y en medio sobraba un hueco de 224 px a la derecha de las filas. Se
+// cuentan al aparecer la tabla, al cambiar sus columnas y al cambiar el
+// tamaño de la ventana, que es lo que mueve las media queries. Sin grupos no
+// hace falta: no hay celda que abarque nada.
+const shownCols = ref(0)
+function countCols() {
+  const tabla = body.value?.closest('table')
+  if (!tabla || !props.groups) return
+  const vistas = [...tabla.querySelectorAll('col')].filter(
+    (c) => getComputedStyle(c).display !== 'none'
+  )
+  shownCols.value = vistas.length
+}
+watch([cols, body], countCols, { flush: 'post' })
+window.addEventListener('resize', countCols)
+onUnmounted(() => window.removeEventListener('resize', countCols))
+
 // ------------------------------------------------------------ anchos
 //
 // Mientras nadie toque nada NO se fija ningun ancho: la tabla se reparte como
@@ -287,7 +308,7 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
           <!-- la cabecera del grupo: una fila mas, que se queda arriba
                mientras se recorre su grupo -->
           <tr v-if="sec.group" data-group-row class="group-row" :aria-rowindex="headRowIndex(sec)">
-            <th :colspan="cols.length" class="group-cell">
+            <th :colspan="shownCols || cols.length" class="group-cell">
               <GroupHead :group="sec.group" @toggle="(k) => emit('toggleGroup', k)" />
             </th>
           </tr>
