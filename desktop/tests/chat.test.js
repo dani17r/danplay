@@ -67,7 +67,7 @@ vi.mock('../src/api.js', () => ({
 import ChatPage from '../src/components/ChatPage.vue'
 import { dialogOk, dialogCancel, useDialog } from '../src/composables/useDialog.js'
 import { resetDownloads } from '../src/composables/useDownloads.js'
-import { connectChat, resetChat } from '../src/composables/useChat.js'
+import { connectChat, resetChat, titleFrom } from '../src/composables/useChat.js'
 
 // Lo que la app hace por el chat (reproducir, recargar). La conversacion ya
 // no vive en el componente: las ordenes van a quien se conecto, que en la
@@ -591,5 +591,15 @@ describe('descargas pedidas al asistente', () => {
     dialogOk()
     await flushPromises()
     expect(w.find('.chat-msg.error').text()).toContain('ya hay una descarga en marcha')
+  })
+})
+
+describe('el título de una conversación', () => {
+  it('sale de la primera línea con texto, sin las marcas de WhatsApp', () => {
+    const pegada = '\n  \nagrégame esto a la lista:\n*Domingo*✅\n*1.- Mi Gozo*'
+    expect(titleFrom(pegada)).toBe('agrégame esto a la lista:')
+    expect(titleFrom('*Domingo* _ensayo_ ~viejo~')).toBe('Domingo ensayo viejo')
+    expect(titleFrom('x'.repeat(100))).toHaveLength(60)
+    expect(titleFrom('   ')).toBe('Conversación')
   })
 })

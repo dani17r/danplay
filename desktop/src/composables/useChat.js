@@ -156,6 +156,26 @@ const INVISIBLE =
  * @param {unknown} text
  * @param {number} [n]  cuántos caracteres como mucho
  */
+/**
+ * El título de una conversación a partir de su primer mensaje, como lo pone
+ * el núcleo (`chats.title_from`): la primera línea con texto, sin las marcas
+ * de markdown y de WhatsApp, en 60 letras. Con la lista del domingo pegada
+ * salía «agrégame esto…: *Domingo*✅ *1.- Mi…».
+ * @param {string} text
+ */
+export function titleFrom(text) {
+  const first =
+    String(text || '')
+      .split('\n')
+      .find((l) => l.trim()) || ''
+  const t = first
+    .replace(/[*_~`#>]+/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ')
+  return t.length > 60 ? t.slice(0, 59) + '…' : t || 'Conversación'
+}
+
 export function datum(text, n = 160) {
   const t = String(text ?? '')
     .replace(INVISIBLE, ' ')
@@ -872,7 +892,7 @@ async function deliver(t, hidden, event) {
     // quién contestó y si el elegido falla: la franja bajo la cabecera
     refreshInfo()
     const c = chats.value.find((x) => x.id === chatId.value)
-    if (c && !c.title && !hidden) c.title = t.slice(0, 60)
+    if (c && !c.title && !hidden) c.title = titleFrom(t)
   } catch (e) {
     if (!reached && !hidden) {
       unsend(mine, e)
