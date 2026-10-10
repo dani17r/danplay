@@ -68,12 +68,14 @@ tr.dragged,
    Las filas de la lista son destino ellas mismas, y una raya marca por donde
    va a quedar la cancion: encima o debajo de la fila en la tabla y en las
    filas; a la izquierda o a la derecha en las fichas, que van en cuadricula.
-   Va con `inset` en las filas para que no se pierda entre dos que se tocan. */
-tr.drop-before,
+   Va con `inset` en las filas para que no se pierda entre dos que se tocan.
+   En la tabla va en las celdas y no en el <tr>: WebKit (el motor de la app
+   en Linux) no pinta la sombra de una fila de tabla, y la raya no salia. */
+tr.drop-before > td,
 .row.drop-before {
   box-shadow: inset 0 2px 0 var(--accent);
 }
-tr.drop-after,
+tr.drop-after > td,
 .row.drop-after {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
