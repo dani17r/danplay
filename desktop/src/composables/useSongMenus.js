@@ -144,7 +144,9 @@ export function useSongMenus(ctx) {
         notify(`No se pudo borrar «${s.title || s.file}»: ${errorMessage(e)}`)
       }
     }
-    selection.clear()
+    // solo salen de la selección las que se fueron: borrar varias desde el
+    // desplegable del buscador no tiene por qué soltar lo elegido en la lista
+    selection.forget(list.map((s) => s.id))
     if (done) notify(`${done} en la papelera`, 'ok')
     ctx.onRemoved?.(list.map((s) => s.id))
     await ctx.refreshAll()

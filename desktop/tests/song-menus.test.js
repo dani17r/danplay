@@ -262,6 +262,19 @@ describe('el menú de varias', () => {
     expect(ctx.selection.selectedIds.value).toEqual([])
   })
 
+  it('la papelera desde el buscador no suelta lo elegido en la lista', async () => {
+    const { menus, ctx } = preparar()
+    const [a, b, c] = held.state.songs
+    ctx.selection.selectedIds.value = [c.id]
+    menus.groupMenu(ev, [a, b], { fromSearch: true })
+    const papelera = pick('Mandar 2 a la papelera…')
+    await flushPromises()
+    dialogOk()
+    await papelera
+    expect(api().deleteSong).toHaveBeenCalledTimes(2)
+    expect(ctx.selection.selectedIds.value).toEqual([c.id])
+  })
+
   it('las listas a las que mandarlas, y una nueva', async () => {
     const { menus, ctx } = preparar()
     const dos = held.state.songs.slice(0, 2)
