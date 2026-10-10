@@ -191,6 +191,13 @@ def test_playlist_lifecycle(cliente):
     assert len(r["songs"]) == len(ids)
     cliente.post(f"/api/playlists/{lid}/order", json={"ids": list(reversed(ids))})
     assert cliente.get(f"/api/playlists/{lid}/songs").json()["songs"][0]["id"] == ids[-1]
+    # dejarla exacta de una vez («Dejar solo estas», «Deshacer»)
+    r = cliente.put(f"/api/playlists/{lid}/songs", json={"ids": [ids[1], ids[0]]}).json()
+    assert [c["id"] for c in r["songs"]] == [ids[1], ids[0]] and r["removed"] == len(ids) - 2
+    r = cliente.put(f"/api/playlists/{lid}/songs", json={"ids": ids}).json()
+    assert [c["id"] for c in r["songs"]] == ids and r["added"] == len(ids) - 2
+    assert cliente.put(f"/api/playlists/{lid}/songs", json={"ids": []}).status_code == 400
+    assert cliente.put("/api/playlists/999999/songs", json={"ids": ids}).status_code == 404
     cliente.delete(f"/api/playlists/{lid}/songs/{ids[0]}")
     assert len(cliente.get(f"/api/playlists/{lid}/songs").json()["songs"]) == len(ids) - 1
     assert cliente.post(f"/api/playlists/{lid}/export").json()["file"].endswith(".m3u8")

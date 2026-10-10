@@ -60,6 +60,23 @@ def add_to_playlist(lid: int, body: Annotated[SongsIn, Body()]):
     return {"added": added, "songs": playlists.songs(lid, light=True)}
 
 
+@router.put("/api/playlists/{lid}/songs")
+def set_playlist_songs(lid: int, body: Annotated[OrderIn, Body()]):
+    """Deja la lista EXACTAMENTE con esas canciones y en ese orden, de una vez.
+
+    Lo usan «Dejar solo estas» y «Deshacer» de la tabla de una lista en el
+    chat: quitar, añadir y ordenar en una sola transaccion (`set_songs`, bajo
+    el cerrojo de las listas), sin que nadie vea la lista a medias. Una lista
+    vacia no se acepta por aqui (400): para vaciarla se quitan las canciones.
+    `404` si la lista no existe."""
+    if not playlists.by_id(lid):
+        raise HTTPException(404, "no existe esa lista")
+    if not body.ids:
+        raise HTTPException(400, "hacen falta canciones: una lista no se vacia por aqui")
+    r = playlists.set_songs(lid, body.ids)
+    return {**r, "songs": playlists.songs(lid, light=True)}
+
+
 @router.delete("/api/playlists/{lid}/songs/{cid}")
 def remove_from_playlist(lid: int, cid: int):
     playlists.remove_song(lid, cid)

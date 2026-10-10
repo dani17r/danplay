@@ -227,6 +227,11 @@ Rutas nuevas o cambiadas (Python):
   de arriba. Solo se sugiere; nunca se archiva sola por eso.
 - `PATCH /api/playlists/{id}` → `{ name?, note? }`: renombra la lista o
   cambia su nota. `409` si el nombre ya es de otra; `400` sin nada que cambiar.
+- `PUT /api/playlists/{id}/songs { ids }` → `{ removed, added, total, songs }`:
+  deja la lista EXACTAMENTE con esas canciones y en ese orden, en una sola
+  transacción (lo usan «Dejar solo estas» y «Deshacer» de la tabla de una lista
+  en el chat). `400` con `ids` vacío (una lista no se vacía por aquí), `404` si
+  la lista no existe.
 - `POST /api/chat` → ver §3.
 
 ## 3. Asistente: confirmaciones (Python ↔ Vue)
