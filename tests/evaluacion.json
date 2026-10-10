@@ -290,11 +290,137 @@
       }
     ],
     "expect": {
-      "tools_include": [
-        "search_songs"
-      ],
       "playlist_absent_or_empty": "Vacia",
+      "no_narration": true,
+      "tools_any": [
+        "search_songs",
+        "find_songs"
+      ]
+    }
+  },
+  {
+    "id": "lista-pegada",
+    "que": "la lista de WhatsApp: entra lo que hay en su orden, lo que falta se ofrece, las @menciones no son artistas, una llamada",
+    "setup": {
+      "playlist": {
+        "name": "domingo",
+        "songs": []
+      }
+    },
+    "messages": [
+      {
+        "role": "user",
+        "text": "agrégame esto a la lista de los domingo:\n*Domingo*✅\n*1.- Que se abra el cielo* @Ana Torres Voz\n*2.- Mi Gozo* @Luis Mora\n*3.- Rey Infinito*\n*4.- Shekinah* @Ana Torres"
+      }
+    ],
+    "expect": {
+      "tools_include": [
+        "fill_playlist"
+      ],
+      "tools_exclude": [
+        "download_music",
+        "set_playlist_songs"
+      ],
+      "playlist": {
+        "name": "domingo",
+        "titles": [
+          "Que Se Abra El Cielo",
+          "Mi Gozo",
+          "Shekinah"
+        ]
+      },
+      "confirm": "download_music",
+      "max_calls": 2,
       "no_narration": true
+    }
+  },
+  {
+    "id": "lista-verificar",
+    "que": "«verifica» compara y no cambia nada",
+    "setup": {
+      "playlist": {
+        "name": "domingo",
+        "songs": [
+          "Barak - Mi Gozo",
+          "Barak - Vivo Estas"
+        ]
+      }
+    },
+    "messages": [
+      {
+        "role": "user",
+        "text": "verifica que la lista del domingo esté así:\n1. Mi Gozo\n2. Shekinah"
+      }
+    ],
+    "expect": {
+      "tools_include": [
+        "fill_playlist"
+      ],
+      "tools_exclude": [
+        "set_playlist_songs",
+        "add_to_playlist",
+        "remove_from_playlist"
+      ],
+      "playlist": {
+        "name": "domingo",
+        "titles": [
+          "Mi Gozo",
+          "Vivo Estas"
+        ]
+      },
+      "confirm": null,
+      "max_calls": 2
+    }
+  },
+  {
+    "id": "lista-exacta",
+    "que": "«déjala exactamente así» deja la lista con esas y en ese orden",
+    "setup": {
+      "playlist": {
+        "name": "domingo",
+        "songs": [
+          "Barak - Vivo Estas",
+          "Barak - Mi Gozo"
+        ]
+      }
+    },
+    "messages": [
+      {
+        "role": "user",
+        "text": "déjala exactamente así la lista del domingo:\n1. Shekinah\n2. Mi Gozo"
+      }
+    ],
+    "expect": {
+      "playlist": {
+        "name": "domingo",
+        "titles": [
+          "Shekinah",
+          "Mi Gozo"
+        ]
+      },
+      "max_calls": 3,
+      "no_narration": true
+    }
+  },
+  {
+    "id": "bajar-lo-que-ya-hay",
+    "que": "biblioteca primero: no pide permiso para bajar lo que ya está",
+    "messages": [
+      {
+        "role": "user",
+        "text": "descárgame Mi Gozo de Barak"
+      }
+    ],
+    "expect": {
+      "confirm": null,
+      "text_any": [
+        "ya la tienes",
+        "ya está",
+        "ya esta",
+        "ya tienes",
+        "en tu biblioteca"
+      ],
+      "max_calls": 3
     }
   }
 ]

@@ -141,6 +141,11 @@ def check(case: dict, result: dict, ids: dict) -> list[str]:
     problems.extend(
         f"uso {name} y no debia" for name in exp.get("tools_exclude", []) if name in used
     )
+    if "tools_any" in exp and not set(exp["tools_any"]) & set(used):
+        problems.append(f"no uso ninguna de {exp['tools_any']} (uso {used})")
+    calls = (result.get("usage") or {}).get("calls", 0)
+    if "max_calls" in exp and calls > exp["max_calls"]:
+        problems.append(f"{calls} llamadas al modelo (como mucho {exp['max_calls']})")
     if exp.get("no_narration") and result.get("narrated"):
         problems.append("narro: dijo haber hecho algo sin hacerlo")
     if "text_any" in exp and not any(x.lower() in text.lower() for x in exp["text_any"]):
