@@ -26,6 +26,8 @@ import { useSeparation } from './useSeparation.js'
  * @property {(quiet?: boolean) => Promise<any>} reload  la lista de la vista
  * @property {() => boolean} detailsInView  la ficha ya se ve en el panel lateral
  * @property {(song: Song) => any} showDetailsOf  abre la ficha (en el cajón o en una ventana)
+ * @property {(song: Song) => any} [previewSong]  elige la canción para que su ficha se vea en el panel de al lado (sin ventana)
+ * @property {(ids: number[]) => void} [onRemoved]  esas canciones ya no están (a la papelera)
  */
 
 /** @param {SongMenusContext} ctx */
@@ -106,6 +108,7 @@ export function useSongMenus(ctx) {
       const r = await api.deleteSong(song.id)
       if (isPlaying(song)) player.stop()
       notify(`«${r.name}» está en la papelera`, 'ok')
+      ctx.onRemoved?.([song.id])
       await ctx.refreshAll()
     } catch (e) {
       notify('No se pudo borrar: ' + errorMessage(e))
@@ -142,6 +145,7 @@ export function useSongMenus(ctx) {
     }
     selection.clear()
     if (done) notify(`${done} en la papelera`, 'ok')
+    ctx.onRemoved?.(list.map((s) => s.id))
     await ctx.refreshAll()
   }
 
@@ -361,22 +365,32 @@ export function useSongMenus(ctx) {
 
   /**
    * El menú de una canción (o el de todas, si es una de las elegidas).
+   *
+   * Con `fromSearch` es el de un resultado del desplegable del buscador: ahí
+   * la canción no es una fila de la lista que se ve, así que no toca la
+   * selección ni la ficha de al lado (ni se ofrece «quitar de esta lista», que
+   * habla de otra cosa), y «Reproducir» lo decide quien llama (`play`), que
+   * es quien sabe qué cola le toca a lo encontrado.
    * @param {MouseEvent|{clientX: number, clientY: number}} ev
    * @param {Song} song
+   * @param {{fromSearch?: boolean, play?: () => any}} [opts]
    */
-  function songMenu(ev, song) {
-    const chosen = selection.selectedSongs.value
-    if (chosen.length > 1 && selection.selectedIds.value.includes(song.id)) {
-      return groupMenu(ev, chosen)
+  function songMenu(ev, song, opts = {}) {
+    const fromSearch = !!opts.fromSearch
+    if (!fromSearch) {
+      const chosen = selection.selectedSongs.value
+      if (chosen.length > 1 && selection.selectedIds.value.includes(song.id)) {
+        return groupMenu(ev, chosen)
+      }
+      selection.only(song.id)
     }
-    selection.only(song.id)
     const current = isPlaying(song)
     /** @type {MenuItem[]} */
     const items = [
       {
         label: current ? (player.state.playing ? 'Pausar' : 'Reanudar') : 'Reproducir',
         icon: current && player.state.playing ? 'pause' : 'play',
-        action: () => ctx.play(song)
+        action: () => (opts.play ? opts.play() : ctx.play(song))
       },
       {
         label: song.favorite ? 'Quitar de favoritos' : 'Marcar como favorito',
@@ -398,7 +412,7 @@ export function useSongMenus(ctx) {
       { separator: true },
       { label: 'Añadir a una lista', icon: 'list', children: playlistTargets(song) }
     ]
-    if (view.value.kind === 'playlist') {
+    if (view.value.kind === 'playlist' && !fromSearch) {
       items.push({
         label: 'Quitar de esta lista',
         icon: 'close',
@@ -415,9 +429,13 @@ export function useSongMenus(ctx) {
     items.push({ label: 'Renombrar…', icon: 'pencil', action: () => renameSong(song) })
     items.push(...stemsItems(song))
     items.push({ separator: true })
-    // Con el panel lateral a la vista la ficha ya se ve; si no, se ofrece
+    // Con el panel lateral a la vista la ficha ya se ve; si no, se ofrece. Desde
+    // un resultado del desplegable el panel enseña OTRA canción (no se elige la
+    // fila): ahí «Ver detalles» solo la elige, sin abrir una ventana encima.
     if (!ctx.detailsInView()) {
       items.push({ label: 'Ver detalles', icon: 'eye', action: () => ctx.showDetailsOf(song) })
+    } else if (fromSearch && ctx.previewSong) {
+      items.push({ label: 'Ver detalles', icon: 'eye', action: () => ctx.previewSong?.(song) })
     }
     items.push({ label: 'Abrir la carpeta', icon: 'folderOpen', action: () => revealSong(song) })
     if (shareTargets.value.telegram) {
@@ -433,7 +451,7 @@ export function useSongMenus(ctx) {
       danger: true,
       action: () => trashSong(song)
     })
-    selection.select(song.id)
+    if (!fromSearch) selection.select(song.id)
     openMenu(ev, items, song.title || song.file)
   }
 

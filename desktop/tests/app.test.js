@@ -33,7 +33,7 @@ import { song } from './support/backend.js'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 import { resetPreferences } from '../src/composables/usePreferences.js'
 import { resetChat } from '../src/composables/useChat.js'
-import { dialogCancel } from '../src/composables/useDialog.js'
+import { dialogCancel, dialogOk, useDialog } from '../src/composables/useDialog.js'
 import { clearNotices, notify } from '../src/composables/useNotices.js'
 import { allCss } from './support/css.js'
 import { SEARCH_DELAY } from '../src/composables/useSearch.js'
@@ -230,6 +230,240 @@ describe('el buscador', () => {
     expect(boton.exists(), 'el boton no va dentro del campo').toBe(true)
     await boton.trigger('click')
     expect(w.find('.search-panel').exists()).toBe(true)
+  })
+
+  // Las opciones de un resultado del desplegable: antes el clic derecho no
+  // hacia nada, y un menu abierto fuera del desplegable lo cerraba al pulsar
+  // en el (el clic cae «fuera» de la caja de busqueda).
+  describe('las opciones de un resultado', () => {
+    const preparar = async () => {
+      const w = await montar()
+      await pulsar(w, 'Favoritos')
+      await buscar(w, 'barak')
+      expect(w.find('.search-results').exists()).toBe(true)
+      return w
+    }
+    const abrirOpciones = async (w, fila) => {
+      await w.findAll('.sr-row')[fila].trigger('contextmenu')
+      await flushPromises()
+    }
+    // como lo hace el raton: se pulsa (mousedown) y se suelta (click)
+    const elegir = async (w, texto) => {
+      const item = w.findAll('.ctx-item').find((b) => b.text().includes(texto))
+      expect(item, `falta «${texto}» en el menu`).toBeTruthy()
+      await item.trigger('mousedown')
+      await item.trigger('click')
+      await flushPromises()
+    }
+
+    it('dejan añadir varios resultados a repertorios sin cerrar el desplegable', async () => {
+      state.playlists = [
+        { id: 7, name: 'Domingo', n: 0 },
+        { id: 8, name: 'Ensayo', n: 2 }
+      ]
+      const w = await montar()
+      await pulsar(w, 'Favoritos')
+      await buscar(w, 'barak')
+      await abrirOpciones(w, 1)
+      await elegir(w, 'Añadir a una lista')
+      await elegir(w, 'Ensayo')
+      expect(api.addToPlaylist).toHaveBeenCalledWith(8, [2])
+      expect(w.find('.ctx').exists(), 'el menu se cierra al elegir').toBe(false)
+      expect(w.find('.search-results').exists(), 'el desplegable sigue ahi').toBe(true)
+      // y se puede seguir: otra cancion, otro repertorio
+      await abrirOpciones(w, 0)
+      await elegir(w, 'Añadir a una lista')
+      await elegir(w, 'Domingo')
+      expect(api.addToPlaylist).toHaveBeenLastCalledWith(7, [1])
+      expect(w.find('.search-results').exists()).toBe(true)
+    })
+
+    it('el «⋯» de la fila abre las mismas opciones, sin elegirla ni cerrar nada', async () => {
+      const w = await preparar()
+      api.song.mockClear()
+      await w.findAll('.sr-more')[1].trigger('click')
+      await flushPromises()
+      expect(w.find('.ctx').exists()).toBe(true)
+      expect(w.find('.ctx-head').text()).toContain('Shekinah')
+      expect(w.find('.search-results').exists()).toBe(true)
+      // no es la lista: la ficha de al lado no cambia a esa cancion
+      expect(api.song).not.toHaveBeenCalled()
+      // y lo suyo (no lo de una fila de la lista) esta en el menu
+      const textos = w.findAll('.ctx-item').map((b) => b.text())
+      expect(textos.some((t) => t.includes('Añadir a una lista'))).toBe(true)
+      expect(textos.some((t) => t.includes('Quitar de esta lista'))).toBe(false)
+    })
+
+    it('Reproducir desde el menu pone lo encontrado como cola, como el boton de la fila', async () => {
+      const w = await preparar()
+      await abrirOpciones(w, 1)
+      await elegir(w, 'Reproducir')
+      await flushPromises()
+      const [items, start, origin] = playback.bridge.setQueue.mock.calls.at(-1)
+      expect(items.map((t) => t.id)).toEqual([1, 2, 3])
+      expect(start).toBe(2)
+      expect(origin.label).toContain('barak')
+    })
+
+    it('marcar una favorita desde ahi se nota en su propio menu la proxima vez', async () => {
+      const w = await preparar()
+      await abrirOpciones(w, 0)
+      await elegir(w, 'Marcar como favorito')
+      expect(api.toggleFavorite).toHaveBeenCalledWith(1, true)
+      await abrirOpciones(w, 0)
+      const textos = w.findAll('.ctx-item').map((b) => b.text())
+      expect(textos.some((t) => t.includes('Quitar de favoritos'))).toBe(true)
+    })
+
+    it('Escape cierra el menu y no el desplegable; con el menu cerrado, el desplegable', async () => {
+      const w = await preparar()
+      await abrirOpciones(w, 0)
+      expect(w.find('.ctx').exists()).toBe(true)
+      const escape = () =>
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+        )
+      escape()
+      await flushPromises()
+      expect(w.find('.ctx').exists()).toBe(false)
+      expect(w.find('.search-results').exists(), 'Escape era para el menu').toBe(true)
+      escape()
+      await flushPromises()
+      expect(w.find('.search-results').exists()).toBe(false)
+    })
+
+    it('un clic en cualquier otro sitio lo cierra todo', async () => {
+      const w = await preparar()
+      await abrirOpciones(w, 0)
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      await flushPromises()
+      expect(w.find('.ctx').exists()).toBe(false)
+      expect(w.find('.search-results').exists()).toBe(false)
+    })
+
+    it('con el teclado: la tecla de menu en la caja abre las opciones del resaltado', async () => {
+      const w = await preparar()
+      const caja = w.find('.topbar input')
+      await caja.trigger('keydown', { key: 'ArrowDown' })
+      await caja.trigger('keydown', { key: 'ContextMenu' })
+      await flushPromises()
+      expect(w.find('.ctx').exists()).toBe(true)
+      expect(w.find('.ctx-head').text()).toContain('Shekinah')
+    })
+
+    it('sobre la que suena el menu pausa: no la reinicia ni cambia la cola', async () => {
+      const w = await preparar()
+      await w.findAll('.sr-play')[1].trigger('click') // suena «Shekinah»
+      await flushPromises()
+      await flushPromises()
+      // reproducir cierra el desplegable: se busca otra vez
+      await buscar(w, 'barak otra vez')
+      playback.bridge.setQueue.mockClear()
+      playback.bridge.toggle.mockClear()
+      await abrirOpciones(w, 1)
+      const textos = w.findAll('.ctx-item').map((b) => b.text())
+      expect(textos.some((t) => t.startsWith('Pausar'))).toBe(true)
+      await elegir(w, 'Pausar')
+      expect(playback.bridge.toggle).toHaveBeenCalledTimes(1)
+      expect(
+        playback.bridge.setQueue,
+        'pausar no es poner la cancion otra vez'
+      ).not.toHaveBeenCalled()
+      expect(w.find('.search-results').exists()).toBe(true)
+    })
+
+    it('marcar una favorita no mueve la fila resaltada (el teclado sigue donde estaba)', async () => {
+      const w = await preparar()
+      const caja = w.find('.topbar input')
+      await caja.trigger('keydown', { key: 'ArrowDown' })
+      await caja.trigger('keydown', { key: 'ArrowDown' })
+      expect(w.find('.sr-row.on').text()).toContain('Cancion 3')
+      await caja.trigger('keydown', { key: 'ContextMenu' })
+      await flushPromises()
+      await elegir(w, 'Marcar como favorito')
+      expect(api.toggleFavorite).toHaveBeenCalledWith(3, true)
+      // se parchea en sitio: con un array nuevo se volvia a resaltar la primera
+      expect(w.find('.sr-row.on').text()).toContain('Cancion 3')
+    })
+
+    it('un dialogo abierto desde el menu no cierra el desplegable (Nueva lista… → Crear)', async () => {
+      const w = await preparar()
+      await abrirOpciones(w, 0)
+      await elegir(w, 'Añadir a una lista')
+      await elegir(w, 'Nueva lista')
+      expect(useDialog().dialog.value.open).toBe(true)
+      // el primer clic dentro del dialogo cae «fuera» de la caja de busqueda
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      await flushPromises()
+      expect(w.find('.search-results').exists(), 'pulsar en el dialogo no es pulsar fuera').toBe(
+        true
+      )
+      // Escape cancela el dialogo, no el desplegable
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      )
+      await flushPromises()
+      expect(useDialog().dialog.value.open).toBe(false)
+      expect(w.find('.search-results').exists(), 'Escape era para el dialogo').toBe(true)
+      // y se puede seguir: otra vez, esta vez aceptando
+      await abrirOpciones(w, 0)
+      await elegir(w, 'Añadir a una lista')
+      await elegir(w, 'Nueva lista')
+      dialogOk('Mi lista')
+      await flushPromises()
+      await flushPromises()
+      expect(api.addToPlaylist).toHaveBeenCalledWith(expect.any(Number), [1])
+      expect(w.find('.search-results').exists()).toBe(true)
+    })
+
+    it('elegir una opcion con el raton devuelve el foco a la caja', async () => {
+      // sin esto el foco se perdia en el <body>: lo escrito no llegaba a la caja y
+      // la flecha abajo bajaba el volumen del reproductor
+      const w = await preparar()
+      await abrirOpciones(w, 0)
+      await elegir(w, 'Marcar como favorito')
+      await flushPromises()
+      expect(document.activeElement).toBe(w.find('.topbar input').element)
+      // pero si la opcion abre un dialogo, el foco es del dialogo
+      await abrirOpciones(w, 0)
+      await elegir(w, 'Añadir a una lista')
+      await elegir(w, 'Nueva lista')
+      await flushPromises()
+      expect(document.activeElement).not.toBe(w.find('.topbar input').element)
+      dialogCancel()
+      await flushPromises()
+    })
+
+    it('mandar a la papelera quita la fila del desplegable (no deja una cancion fantasma)', async () => {
+      const w = await preparar()
+      expect(w.findAll('.sr-row')).toHaveLength(3)
+      await abrirOpciones(w, 0)
+      await elegir(w, 'Mandar a la papelera')
+      expect(useDialog().dialog.value.open).toBe(true)
+      dialogOk()
+      await flushPromises()
+      await flushPromises()
+      expect(api.deleteSong).toHaveBeenCalledWith(1)
+      expect(w.findAll('.sr-row')).toHaveLength(2)
+      expect(w.find('.search-results').exists()).toBe(true)
+    })
+
+    it('«Ver detalles» de un resultado elige la cancion en el panel, sin abrir una ventana', async () => {
+      const w = await preparar()
+      api.song.mockClear()
+      await abrirOpciones(w, 1)
+      await elegir(w, 'Ver detalles')
+      await flushPromises()
+      expect(api.song).toHaveBeenCalledWith(2)
+      expect(w.find('.search-results').exists()).toBe(true)
+    })
+
+    it('el doble clic en el «⋯» no reproduce ni cambia la cola', async () => {
+      const w = await preparar()
+      playback.bridge.setQueue.mockClear()
+      await w.findAll('.sr-more')[0].trigger('dblclick')
+      expect(playback.bridge.setQueue).not.toHaveBeenCalled()
+    })
   })
 })
 

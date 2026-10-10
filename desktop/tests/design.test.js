@@ -594,6 +594,89 @@ describe('los resultados del buscador', () => {
     expect(w.emitted('pick'), 'reproducir no es elegir').toBeFalsy()
   })
 
+  it('el clic derecho y el «⋯» abren las opciones de esa fila, sin elegirla ni reproducirla', async () => {
+    // antes no hacian nada: no se podia añadir un resultado a un repertorio
+    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+    await w.findAll('.sr-row')[2].trigger('contextmenu')
+    expect(w.emitted('menu')).toHaveLength(1)
+    expect(w.emitted('menu')[0][0].id).toBe(3)
+    expect(w.emitted('menu')[0][1]).toBeInstanceOf(MouseEvent)
+    // la fila queda resaltada: es sobre la que actua el menu
+    expect(w.find('.sr-row.on').text()).toContain('Cancion 3')
+
+    const mas = w.findAll('.sr-more')[5]
+    // dentro de un «option» sus hijos son presentacionales: el nombre ya lo dice la opcion
+    expect(mas.attributes('aria-hidden')).toBe('true')
+    expect(mas.attributes('title')).toBe('Opciones')
+    await mas.trigger('click')
+    expect(w.emitted('menu')).toHaveLength(2)
+    expect(w.emitted('menu')[1][0].id).toBe(6)
+    expect(w.emitted('pick'), 'abrir las opciones no es elegir la fila').toBeFalsy()
+    expect(w.emitted('play'), 'ni reproducirla').toBeFalsy()
+  })
+
+  it('la tecla de menu o Mayus+F10 abren las opciones de la fila resaltada', async () => {
+    // el foco se queda en la caja de busqueda: el menu sale bajo el «⋯» de la fila
+    const w = mount(SearchResults, {
+      props: { songs: ocho(), query: 'x' },
+      attachTo: document.body
+    })
+    const tecla = (init) => w.vm.onKey(new KeyboardEvent('keydown', { cancelable: true, ...init }))
+    w.vm.onKey(new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true }))
+    await flushPromises()
+    expect(tecla({ key: 'ContextMenu' })).toBe(true)
+    const [song, donde] = w.emitted('menu')[0]
+    expect(song.id).toBe(2)
+    // un sitio, no un evento de raton: el menu sabe que viene del teclado
+    expect(donde).not.toBeInstanceOf(MouseEvent)
+    expect(donde).toEqual({ clientX: expect.any(Number), clientY: expect.any(Number) })
+    expect(tecla({ key: 'F10', shiftKey: true })).toBe(true)
+    expect(w.emitted('menu')).toHaveLength(2)
+    // F10 a secas no es el menu
+    expect(tecla({ key: 'F10' })).toBe(false)
+  })
+
+  it('el doble clic en el «⋯» o en reproducir no llega a la fila (que lo toma por reproducir)', async () => {
+    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+    await w.findAll('.sr-more')[2].trigger('dblclick')
+    await w.findAll('.sr-play')[3].trigger('dblclick')
+    expect(w.emitted('play'), 'un doble clic en un boton de la fila no reproduce').toBeFalsy()
+    // en la propia fila sigue valiendo
+    await w.findAll('.sr-row')[1].trigger('dblclick')
+    expect(w.emitted('play')).toHaveLength(1)
+  })
+
+  it('mientras carga no hay fila sobre la que actuar: ni Enter ni la tecla de menu', () => {
+    // la lista no se pinta pero `songs` conserva la busqueda anterior: la tecla
+    // de menu abria las opciones de una cancion que no se ve, en la esquina
+    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x', loading: true } })
+    const tecla = (init) => w.vm.onKey(new KeyboardEvent('keydown', { cancelable: true, ...init }))
+    expect(tecla({ key: 'ContextMenu' })).toBe(false)
+    expect(tecla({ key: 'F10', shiftKey: true })).toBe(false)
+    expect(tecla({ key: 'Enter' })).toBe(false)
+    expect(w.emitted('menu')).toBeFalsy()
+    expect(w.emitted('pick')).toBeFalsy()
+  })
+
+  it('la cabecera no parte el recuento y el aviso es corto; en estrecho cuelga de la ventana', async () => {
+    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+    expect(w.find('.sr-head .sr-count').text()).toContain('8 resultados')
+    expect(w.find('.sr-tip').text()).toBe('arrástrala a un repertorio · clic derecho: opciones')
+    expect(CSS).toMatch(/\.sr-count\{[^}]*flex-shrink:0[^}]*white-space:nowrap/)
+    // sin raton, «clic derecho» no dice nada
+    expect(CSS).toMatch(/@media \(hover:none\)\{[^@]*\.sr-tip\{display:none/)
+    // con la caja a ~59 px del borde, 94vw se salia por la derecha y el «⋯» quedaba medio fuera
+    expect(CSS).toMatch(
+      /@media \(max-width:700px\)\{\.search-results\{position:fixed;top:56px;left:8px;right:8px;width:auto/
+    )
+  })
+
+  it('el «⋯» se ve con el puntero encima, en la fila resaltada y donde no hay puntero', () => {
+    expect(CSS).toMatch(/\.sr-more\{[^}]*opacity:0/)
+    expect(CSS).toMatch(/\.sr-row\.on \.sr-more[^{]*\{[^}]*opacity:1/)
+    expect(CSS).toMatch(/@media \(hover:none\)\{\.sr-more\{opacity:1/)
+  })
+
   it('se pueden arrastrar a un repertorio', async () => {
     // una fila-boton nunca podria arrastrarse: el arrastre se aparta de los
     // botones (ahi el clic tiene otra cosa que hacer)

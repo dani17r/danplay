@@ -10,15 +10,21 @@ import { notify } from './useNotices.js'
 import { ask } from './useDialog.js'
 
 /**
- * @param {{ view: import('vue').Ref<any>, reload: () => any }} context
+ * @param {{ view: import('vue').Ref<any>, reload: (quiet?: boolean) => any }} context
  *   view: la vista abierta (para saber de qué lista se quita una canción);
- *   reload: vuelve a pedir la lista de la página
+ *   reload: vuelve a pedir la lista de la página (en silencio con `true`)
  */
 export function usePlaylistActions(context) {
   const playlists = ref(/** @type {any[]} */ ([]))
 
   async function load() {
     playlists.value = (await api.playlists()).playlists
+  }
+
+  /** Si lo añadido va a la lista que se está viendo, esa lista se pone al día ya, no cuando lo note el vigilante. */
+  function refreshIfOpen(playlist, added) {
+    const v = context.view.value
+    if (added && v?.kind === 'playlist' && v.id === playlist.id) context.reload(true)
   }
 
   async function addTo(song, playlist) {
@@ -28,6 +34,7 @@ export function usePlaylistActions(context) {
       r.added ? 'ok' : 'info'
     )
     load()
+    refreshIfOpen(playlist, r.added)
   }
 
   /** Varias canciones a una lista de una vez. */
@@ -41,6 +48,7 @@ export function usePlaylistActions(context) {
       r.added ? 'ok' : 'info'
     )
     load()
+    refreshIfOpen(playlist, r.added)
   }
 
   /** Crea una lista, y si se pasa una canción (o varias) las mete dentro. */

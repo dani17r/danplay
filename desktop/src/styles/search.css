@@ -94,6 +94,11 @@
   color: var(--muted2);
   border-bottom: 1px solid var(--border);
 }
+/* El recuento no se parte en dos lineas: es el aviso, a su lado, el que cede. */
+.sr-count {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .sr-tip {
   margin-left: auto;
   opacity: 0.75;
@@ -185,6 +190,55 @@ body.dragging-song .search-results {
 .sr-dur {
   font-size: 11px;
   flex-shrink: 0;
+}
+/* El «⋯» de cada resultado: las opciones de la cancion. Aparece con el
+   puntero encima o en la fila resaltada, y siempre donde no hay puntero
+   (tactil) o lo lleva el teclado. */
+.sr-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  margin-right: -4px;
+  border-radius: 6px;
+  color: var(--muted);
+  opacity: 0;
+  transition:
+    opacity 0.14s,
+    background 0.14s,
+    color 0.14s;
+}
+.sr-row:hover .sr-more,
+.sr-row.on .sr-more,
+.sr-more:focus-visible {
+  opacity: 1;
+}
+.sr-more:hover {
+  color: var(--text);
+  background: var(--panel);
+}
+@media (hover: none) {
+  .sr-more {
+    opacity: 1;
+  }
+  /* «clic derecho» no dice nada donde no hay raton */
+  .sr-tip {
+    display: none;
+  }
+}
+/* Con la ventana estrecha la caja de busqueda empieza a ~59 px del borde y el
+   desplegable (94vw) se salia por la derecha, con el «⋯» medio fuera. Cuelga de
+   la ventana, bajo la barra superior (52 px en este tramo). */
+@media (max-width: 700px) {
+  .search-results {
+    position: fixed;
+    top: 56px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
 }
 .sr-foot {
   display: flex;

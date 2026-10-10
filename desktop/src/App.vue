@@ -94,7 +94,7 @@ const { sortBy, applySort, load, setSongs, loadStatus } = library
 // Los repertorios y sus acciones: crear, añadir, exportar, borrar. Necesita
 // `view` (para saber de que lista se quita una cancion) y `load` (para
 // volver a pedirla despues).
-const playlistActions = usePlaylistActions({ view, reload: () => load() })
+const playlistActions = usePlaylistActions({ view, reload: (quiet) => load(quiet) })
 const { playlists } = playlistActions
 // Lo que se está bajando, para el número de «Descargas» en la barra lateral.
 const downloads = useDownloads()
@@ -476,7 +476,11 @@ const menus = useSongMenus({
   refreshAll,
   reload: (quiet) => load(quiet),
   detailsInView: () => sidePanelShown.value,
-  showDetailsOf
+  showDetailsOf,
+  // «Ver detalles» de un resultado con el panel a la vista: solo se elige, sin ventana
+  previewSong: (song) => select(song.id),
+  // a la papelera: la canción sale también del desplegable del buscador
+  onRemoved: (ids) => forgetResults(ids)
 })
 const { setStars, toggleFavorite, toggleBlur, songMenu, playlistMenu } = menus
 
@@ -521,6 +525,52 @@ function playResult(song) {
   quickOpen.value = false
   play(song, quick.value, { kind: 'all', label: `Búsqueda «${query.value.trim()}»` })
 }
+/**
+ * Las opciones de un resultado (clic derecho, el «⋯» o la tecla de menú): las
+ * mismas que en una fila de la lista —añadir a un repertorio, favorita,
+ * estrellas…—, y el desplegable no se cierra: se pueden hacer varias cosas.
+ */
+function searchMenu(song, ev) {
+  menuFromSearch = true
+  songMenu(ev, song, {
+    fromSearch: true,
+    // la que suena se pausa o se reanuda (el menú ya lo dice así); las demás se
+    // ponen con lo encontrado como cola, como el botón de la fila
+    play: () => (player.track.value?.id === song.id ? player.toggle() : playResult(song))
+  })
+}
+/** Las canciones que ya no están (a la papelera): salen también del desplegable. */
+function forgetResults(ids) {
+  if (quick.value.some((c) => ids.includes(c.id))) {
+    quick.value = quick.value.filter((c) => !ids.includes(c.id))
+  }
+}
+// Elegida una opción del menú de un resultado con el ratón, el foco se perdía en
+// el <body>: la caja dejaba de recibir lo que se escribe y las teclas pasaban a
+// los atajos del reproductor (la flecha abajo bajaba el volumen). Si el
+// desplegable sigue ahí y no se abrió un diálogo, el foco vuelve a la caja.
+let menuFromSearch = false
+function focusSearchBox() {
+  searchBox.value?.querySelector('input')?.focus()
+}
+watch(
+  () => menu.value.open,
+  (open) => {
+    if (open) return
+    const mine = menuFromSearch
+    menuFromSearch = false
+    if (mine && quickOpen.value && !dialog.value.open) focusSearchBox()
+  }
+)
+// y al cerrarse un diálogo que se abrió desde ahí (Nueva lista…, Renombrar…)
+watch(
+  () => dialog.value.open,
+  async (open) => {
+    if (open || !quickOpen.value) return
+    await nextTick()
+    if (!document.activeElement || document.activeElement === document.body) focusSearchBox()
+  }
+)
 /** «Verlos todos»: se va a la biblioteca con la misma búsqueda puesta. */
 function seeAllResults() {
   quickOpen.value = false
@@ -530,7 +580,15 @@ function onSearchKey(e) {
   if (quickOpen.value && resultsEl.value?.onKey(e)) return
   if (e.key === 'Escape') search.close()
 }
-onClickOutside(searchBox, search.close)
+// El menu de opciones de un resultado cuelga del cuerpo, fuera de la caja del
+// buscador: pulsar en él no es «pulsar fuera», y Escape con el menu abierto
+// cierra el menu, no el desplegable (que sigue ahi para hacer otra cosa con
+// lo encontrado). Lo mismo con un diálogo abierto desde ese menú (Nueva lista…,
+// Renombrar…, la papelera): pulsar «Crear» o Escape no cierra el desplegable.
+// Un clic en cualquier otro sitio lo cierra todo.
+onClickOutside(searchBox, () => {
+  if (!menu.value.open && !dialog.value.open) search.close()
+})
 
 // Sin `deep`: solo interesa cuando cambia la LISTA (otra búsqueda, otra vista,
 // otra agrupación), que es lo que altera el alto del scroll. Vigilarla en
@@ -685,6 +743,12 @@ function onUpdated(song) {
   selection.patchDetail(song)
   library.patchSong(song)
   player.patchItem(song)
+  // el desplegable del buscador tiene sus propias copias: sin esto, tras
+  // marcar una favorita desde ahí su menú seguiría diciendo «Marcar como favorito».
+  // Se parchea EN SITIO: con un array nuevo, SearchResults cree que es otra
+  // búsqueda y vuelve a resaltar la primera fila.
+  const hit = quick.value.find((c) => c.id === song.id)
+  if (hit) Object.assign(hit, song)
 }
 </script>
 
@@ -752,6 +816,7 @@ function onUpdated(song) {
             :query="query"
             @pick="pickResult"
             @play="playResult"
+            @menu="searchMenu"
             @see-all="seeAllResults"
             @close="quickOpen = false"
           />
