@@ -238,7 +238,7 @@ def requested(items: Any, turn: Turn) -> tuple[list[dict], dict]:
         return out, {
             "source": "pegada",
             "truncated": sl.truncated,
-            "ignored": [safe.datum(x, 80) for x in sl.extras[:10]],
+            "ignored": [safe.datum(x, 80) for x in sl.extras if not _is_request(x)][:10],
         }
     out = []
     for raw in model_items[:MAX_ITEMS]:
@@ -252,6 +252,41 @@ def requested(items: Any, turn: Turn) -> tuple[list[dict], dict]:
         "truncated": max(0, len(model_items) - MAX_ITEMS),
         "ignored": [],
     }
+
+
+# Las palabras con las que se pide algo: «agrégame esto a la lista…»,
+# «verifica…». Esa linea es lo que la persona dice, no una seccion de la lista.
+_ASK_STEMS = (
+    "agreg",
+    "anad",
+    "añad",
+    "mete",
+    "met",
+    "pon",
+    "verific",
+    "comprueb",
+    "revis",
+    "crea",
+    "arma",
+    "descarg",
+    "baj",
+    "dej",
+    "orden",
+    "quit",
+    "pasa",
+)
+
+
+def _is_request(line: str) -> bool:
+    """Si una linea que no es cancion es lo que se pide y no una seccion
+    («Banda: …», «Ensayo: …»), que si merece decirse que se dejo fuera."""
+    words = names.search_tokens(line)
+    if not words:
+        return False
+    if words[0].startswith(_ASK_STEMS):
+        return True
+    asks = any(w.startswith(_ASK_STEMS) for w in words[:3])
+    return asks and (str(line).rstrip().endswith(":") or "lista" in words)
 
 
 def _resolve(items: list[dict], *, prefer: list[int], overrides: Any, strict: bool) -> list:

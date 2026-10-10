@@ -525,12 +525,15 @@ def test_la_tarjeta_de_verdad_acepta_lo_que_propone_la_lista(lib, monkeypatch):
     confirm = res["_ui"]["confirm"]
     assert confirm and confirm["tool"] == "download_music"
     assert confirm["effect"].startswith("Al terminar")
+    # el hilo de la tarjeta carga yt-dlp antes de buscar: en un disco lento,
+    # segundos
     view = None
-    for _ in range(200):
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
         view = plan.plan_view(confirm["id"])
         if view and view["state"] != "buscando":
             break
-        time.sleep(0.02)
+        time.sleep(0.05)
     assert view and view["state"] in ("listo", "parcial")
     plan._reset()
 
@@ -565,3 +568,15 @@ def test_una_respuesta_vacia_tras_herramientas_dice_lo_que_se_hizo(lib, model):
     model([("", None)])
     r = CH.reply([{"role": "me", "text": "hola"}])
     assert r["text"].startswith("No me ha salido ninguna respuesta")
+
+
+def test_lo_que_se_pide_no_sale_como_linea_ignorada(lib, asked):
+    """«No tomé por canción: agrégame esto a la lista…» contaba la propia
+    peticion como una linea dejada fuera; las secciones si se dicen."""
+    playlists.create("domingo")
+    turn = turn_for("agrégame esto a la lista de los domingo:\n" + DOMINGO + "\nBanda: Luis y Ana")
+    res = T.run_tool("fill_playlist", {"playlist": "domingo"}, turn)
+    ui = res["_ui"]["setlist"]
+    assert ui["ignored"] == ["Banda: Luis y Ana"]
+    text = setlist.report(ui, res["_ui"]["confirm"])
+    assert "agrégame" not in text and "No tomé por canción: Banda: Luis y Ana." in text
