@@ -159,4 +159,61 @@ describe('desplazamiento automatico al ordenar', () => {
     expect(recibido).toEqual([['sort:3', 1, true]])
     expect(drag.song).toBe(null)
   })
+
+  it('con una sola, `songs` llega como [song]: lo de antes sigue valiendo', () => {
+    const recibido = []
+    onDrop((target, song, extra) => recibido.push([target, extra.songs.map((s) => s.id)]))
+    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: filas[0] })
+    pointer(filas[2], 'pointermove', 10, 195)
+    pointer(filas[2], 'pointerup', 10, 195)
+    expect(recibido).toEqual([['sort:3', [1]]])
+  })
+})
+
+// Varias elegidas se ordenan como un bloque: el arrastre las lleva todas y
+// la app decide dónde dejarlas. Aquí, lo que es del composable: que el
+// bloque llega entero, en su orden, con la mitad del destino, y que el
+// desplazamiento por el borde funciona igual que con una.
+describe('ordenar un bloque', () => {
+  const bloque = () => [{ id: 1 }, { id: 2 }]
+
+  it('se entrega entero, en su orden y con la mitad del destino', () => {
+    const recibido = []
+    onDrop((target, song, extra) =>
+      recibido.push([target, song.id, extra.songs.map((s) => s.id), extra.after])
+    )
+    const { drag, isDragged } = useDragSong()
+    const b = bloque()
+    startDrag(b[1], { clientX: 10, clientY: 175, button: 0, target: filas[1] }, b)
+    pointer(filas[2], 'pointermove', 10, 215)
+    expect(drag.over).toBe('sort:3')
+    expect(drag.after).toBe(true)
+    // las dos van en la mano; la tercera, no
+    expect([1, 2, 3].map(isDragged)).toEqual([true, true, false])
+    pointer(filas[2], 'pointerup', 10, 215)
+    expect(recibido).toEqual([['sort:3', 2, [1, 2], true]])
+    expect(drag.songs).toEqual([])
+  })
+
+  it('cerca del borde la lista también baja sola con el bloque en la mano', () => {
+    const b = bloque()
+    startDrag(b[0], { clientX: 10, clientY: 140, button: 0, target: filas[0] }, b)
+    pointer(filas[2], 'pointermove', 10, PANEL.top + PANEL.height - 10)
+    cuadro(2)
+    expect(panel.scrollTop).toBeGreaterThan(0)
+    cancelDrag()
+    expect(frames.length).toBe(0)
+  })
+
+  it('cancelarlo suelta el bloque entero', () => {
+    const { drag, isDragged } = useDragSong()
+    const b = bloque()
+    startDrag(b[0], { clientX: 10, clientY: 140, button: 0, target: filas[0] }, b)
+    pointer(filas[1], 'pointermove', 10, 300)
+    expect(drag.songs).toHaveLength(2)
+    cancelDrag()
+    expect(drag.song).toBe(null)
+    expect(drag.songs).toEqual([])
+    expect([1, 2].map(isDragged)).toEqual([false, false])
+  })
 })

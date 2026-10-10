@@ -44,6 +44,61 @@ body.dragging-song * {
   white-space: nowrap;
 }
 
+/* VARIAS A LA VEZ
+   Si se agarra una de las elegidas van todas: detras asoman dos fichas, como
+   una pila, y en la esquina una insignia dice cuantas son. La pila son
+   sombras sin difuminar (relleno encima, borde debajo): una sombra se pinta
+   siempre detras y fuera de la caja, asi que no tapa ni el titulo ni la
+   portada. Todo de las variables del tema; el movimiento reducido se queda
+   sin la entrada de la pila. */
+.drag-ghost.many {
+  --ghost-stack: color-mix(in srgb, var(--accent) 50%, var(--border2));
+  padding-right: 20px;
+  box-shadow:
+    4px 4px 0 -1px var(--panel),
+    4px 4px 0 0 var(--ghost-stack),
+    8px 8px 0 -1px var(--panel2),
+    8px 8px 0 0 var(--ghost-stack),
+    0 12px 28px var(--shadow);
+  animation: ghost-stack 0.14s ease-out;
+}
+@keyframes ghost-stack {
+  from {
+    box-shadow:
+      0 0 0 -1px var(--panel),
+      0 0 0 0 var(--ghost-stack),
+      0 0 0 -1px var(--panel2),
+      0 0 0 0 var(--ghost-stack),
+      0 12px 28px var(--shadow);
+  }
+}
+.drag-ghost .ghost-count {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  /* el color del fondo sobre el acento, como el check de las casillas; el
+     aro del panel la despega de la ficha y de lo que haya debajo */
+  color: var(--bg);
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+@media (prefers-reduced-motion: reduce) {
+  .drag-ghost.many {
+    animation: none;
+  }
+}
+
 .sidebar.drop-ready .nav-link[data-drop] {
   outline: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: -2px;

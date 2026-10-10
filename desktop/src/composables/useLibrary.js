@@ -200,33 +200,55 @@ export function useLibrary(context) {
     songs.value = next
   }
 
+  // Los cambios de orden van al núcleo de uno en uno y, de sus respuestas,
+  // solo manda la del último (ver moveInPlaylist).
+  let reorderQueue = /** @type {Promise<unknown>} */ (Promise.resolve())
+  let reorderRequest = 0
+
   /**
-   * Mueve una canción dentro del repertorio abierto: la deja justo antes de
-   * la que tiene `targetId`, o justo después si se soltó en su mitad de
-   * abajo. La lista se recoloca al momento y el núcleo confirma el orden; si
-   * no puede, vuelve como estaba.
-   * @param {Song} song
+   * Mueve una canción, o un bloque de varias (las elegidas), dentro del
+   * repertorio abierto: las deja justo antes de la que tiene `targetId`, o
+   * justo después si se soltó en su mitad de abajo. El bloque queda junto y
+   * en el orden que tenía en la lista, aunque estuviera salteado. Soltarlo
+   * sobre una del propio bloque no hace nada. La lista se recoloca al momento
+   * y el núcleo confirma el orden; si no puede, vuelve como estaba.
+   *
+   * Cada cambio manda el orden ENTERO de una vez (nada de mover una a una).
+   * Dos arrastres seguidos no se cruzan: el segundo sale del orden que dejó
+   * el primero, las peticiones salen en fila, y una respuesta que llega
+   * cuando ya hay otro cambio detrás no pisa la lista.
+   * @param {Song|Song[]} moving
    * @param {number} targetId
    * @param {boolean} after
    */
-  async function moveInPlaylist(song, targetId, after) {
-    if (view.value.kind !== 'playlist' || song.id === targetId) return
+  async function moveInPlaylist(moving, targetId, after) {
+    if (view.value.kind !== 'playlist') return
+    const wanted = new Set((Array.isArray(moving) ? moving : [moving]).map((s) => s.id))
+    if (!wanted.size || wanted.has(targetId)) return
     const before = songs.value
     const ids = before.map((s) => s.id)
-    if (!ids.includes(song.id) || !ids.includes(targetId)) return
-    const order = ids.filter((id) => id !== song.id)
-    order.splice(order.indexOf(targetId) + (after ? 1 : 0), 0, song.id)
+    // el bloque, en el orden de la lista; si alguna no es de esta lista, no
+    // es cambiar el orden
+    const block = ids.filter((id) => wanted.has(id))
+    if (block.length !== wanted.size || !ids.includes(targetId)) return
+    const order = ids.filter((id) => !wanted.has(id))
+    order.splice(order.indexOf(targetId) + (after ? 1 : 0), 0, ...block)
     if (order.every((id, i) => id === ids[i])) return // ya estaba ahí
     const by = new Map(before.map((s) => [s.id, s]))
     songs.value = order.map((id) => /** @type {Song} */ (by.get(id)))
     const listId = /** @type {number} */ (view.value.id)
-    const stillHere = () => view.value.kind === 'playlist' && view.value.id === listId
+    const mine = ++reorderRequest
+    // si mientras tanto se cambió de vista, lo que llega ya no es esta
+    // lista; si se movió algo después, manda lo de después
+    const current = () =>
+      mine === reorderRequest && view.value.kind === 'playlist' && view.value.id === listId
+    const sent = reorderQueue.then(() => api.reorderPlaylist(listId, order))
+    reorderQueue = sent.catch(() => {})
     try {
-      const r = await api.reorderPlaylist(listId, order)
-      // si mientras tanto se cambió de vista, lo que llega ya no es esta lista
-      if (stillHere()) songs.value = r.songs
+      const r = await sent
+      if (current()) songs.value = r.songs
     } catch (e) {
-      if (stillHere()) songs.value = before
+      if (current()) songs.value = before
       notify('No se pudo cambiar el orden: ' + errorMessage(e))
     }
   }

@@ -423,6 +423,7 @@ async function runAction(a) {
 // El asistente sigue su conversacion aunque su pagina no se vea: lo que pida
 // (reproducir, recargar) lo hace la app, que no se desmonta nunca.
 const disconnectChat = connectChat({ reload: refreshAll, action: runAction, context: chatContext })
+connectChat({ go: goTo }) // «Ajustes de IA» en la franja del asistente (se suelta con lo de arriba)
 
 /** Guarda la lista del reproductor como una lista de DanPlay. */
 async function savePlayerList() {
@@ -591,22 +592,31 @@ function onSelectionKey(e) {
   return true
 }
 
-// Qué hacer cuando se suelta una canción arrastrada. Los destinos se declaran
-// con `data-drop` allí donde estén, así que aquí solo hay que decidir qué
-// significa cada uno.
-onDrop(async (target, song, { after } = {}) => {
+// Qué hacer cuando se suelta lo arrastrado: una canción, o todas las elegidas
+// si se agarró una de ellas (`songs`, en el orden en que se ven; con una sola
+// es `[song]`). Los destinos se declaran con `data-drop` allí donde estén, así
+// que aquí solo hay que decidir qué significa cada uno. Con varias, un solo
+// aviso para todas.
+onDrop(async (target, song, { after, songs } = {}) => {
+  const many = (songs?.length ?? 0) > 1
   const name = song.title || song.file
   if (target.startsWith('sort:')) {
-    if (sortable.value) library.moveInPlaylist(song, Number(target.slice(5)), !!after)
+    // el bloque entero, en su orden; soltarlo sobre una de las suyas no hace nada
+    if (sortable.value)
+      library.moveInPlaylist(many ? songs : song, Number(target.slice(5)), !!after)
   } else if (target === 'favorites') {
+    // las que no lo eran (lo mismo que «Favoritas» en la barra de la selección)
+    if (many) return menus.favorites(songs)
     if (song.favorite) return notify(`«${name}» ya estaba en favoritos`)
     await toggleFavorite(song)
     notify(`«${name}» a favoritos`, 'ok')
   } else if (target === 'new-playlist') {
-    playlistActions.create(song)
+    playlistActions.create(many ? songs : song)
   } else if (target.startsWith('playlist:')) {
     const pl = playlists.value.find((l) => String(l.id) === target.slice(9))
-    if (pl) playlistActions.addTo(song, pl)
+    if (!pl) return
+    if (many) playlistActions.addManyTo(songs, pl)
+    else playlistActions.addTo(song, pl)
   }
 })
 
@@ -1376,7 +1386,13 @@ function onUpdated(song) {
     </transition-group>
 
     <teleport to="body">
-      <div v-if="drag.song" class="drag-ghost" :style="{ left: drag.x + 'px', top: drag.y + 'px' }">
+      <!-- con varias en la mano: una pila detrás y cuántas son (drag.css) -->
+      <div
+        v-if="drag.song"
+        class="drag-ghost"
+        :class="{ many: drag.songs.length > 1 }"
+        :style="{ left: drag.x + 'px', top: drag.y + 'px' }"
+      >
         <CoverArt
           :id="drag.song.id"
           :blur="!!drag.song.blur"
@@ -1386,6 +1402,7 @@ function onUpdated(song) {
           :alt="drag.song.title || drag.song.file"
         />
         <span class="ghost-name">{{ drag.song.title || drag.song.file }}</span>
+        <span v-if="drag.songs.length > 1" class="ghost-count">{{ drag.songs.length }}</span>
       </div>
     </teleport>
 

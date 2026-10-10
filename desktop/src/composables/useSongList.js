@@ -246,7 +246,10 @@ export function useSongList(props, emit, options) {
     rowTitle,
     sounding,
     isDragged,
-    startDrag,
+    // Agarrar una de las elegidas se lleva todas las que se ven marcadas, en
+    // el orden de la lista; agarrar otra, solo esa (lo decide useDragSong).
+    startDrag: (/** @type {Song} */ c, /** @type {PointerEvent} */ e) =>
+      startDrag(c, e, picked(c.id) ? props.songs.filter((s) => picked(s.id)) : null),
     refFor,
     sections,
     numberOf,

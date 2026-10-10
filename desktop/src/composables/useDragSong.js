@@ -16,7 +16,12 @@
 // lista que se ordena lleva `data-sort-list` en su caja, y mientras se
 // arrastra por sus bordes se desplaza sola: si no, en un repertorio largo no
 // habria forma de llevar una cancion del final al principio.
-import { reactive, computed } from 'vue'
+//
+// Varias a la vez: si la canción que se agarra es una de las elegidas (y son
+// dos o más), van todas, en el orden en que se ven. Quien llama a
+// `startDrag` las pasa; este composable no sabe nada de la selección. Si se
+// agarra una que no está entre ellas, va sola y la selección no se toca.
+import { reactive, computed, markRaw, toRaw } from 'vue'
 import { nearestScroller } from './useVirtualRows.js'
 
 // Cuanto hay que mover antes de que esto sea un arrastre y no un clic. Sin
@@ -28,8 +33,15 @@ const THRESHOLD = 6
 const EDGE = 44
 const SPEED = 14
 
+/** @typedef {import('../api.js').Song} Song */
+
+// Nada en la mano. Sin proxy: es una lista que se sustituye entera y nunca se
+// toca por dentro (con Ctrl+A puede llevar miles de canciones).
+const NOTHING = markRaw(/** @type {Song[]} */ ([]))
+
 const drag = reactive({
-  song: null, // la cancion que va en la mano; null si no hay arrastre
+  song: /** @type {Song|null} */ (null), // la que se agarró; null si no hay arrastre
+  songs: NOTHING, // todo lo que va en la mano, en el orden en que se ve: [song] o las elegidas
   x: 0,
   y: 0, // donde esta el puntero, para pintar el fantasma
   over: null, // el `data-drop` del destino que hay debajo, si hay alguno
@@ -40,6 +52,12 @@ let handler = null // que hacer al soltar; lo pone la app
 let pending = null // arrastre armado, todavia sin pasar del umbral
 let scroller = null // el panel de la lista ordenable por la que se arrastra
 let frame = 0 // el cuadro del desplazamiento automatico
+let origin = null // la fila de la que salió el arrastre
+let unswallow = null // deja de tragarse el clic de después de soltar
+
+// Los ids de lo que va en la mano, para marcar sus filas sin recorrer la
+// lista por cada una.
+const carriedIds = computed(() => new Set(drag.songs.map((s) => s.id)))
 
 /**
  * Apunta que destino hay bajo el puntero, a partir del elemento que lo
@@ -129,6 +147,8 @@ function move(e) {
     const d = Math.abs(e.clientX - pending.x) + Math.abs(e.clientY - pending.y)
     if (d < THRESHOLD) return
     drag.song = pending.song
+    drag.songs = pending.songs
+    origin = pending.from
     pending = null
     document.body.classList.add('dragging-song')
     // Por si el motor alcanzo a marcar algo en los primeros pixeles, antes
@@ -147,19 +167,52 @@ function move(e) {
 }
 
 function drop() {
-  const song = drag.song
+  // la misma canción que va en `songs`, no su proxy: así se puede buscar en ella
+  const song = drag.song && toRaw(drag.song)
+  const songs = drag.songs
   const target = drag.over
   const after = drag.after
+  const from = origin
   cancelDrag()
-  if (song && target && handler) handler(target, song, { after })
+  if (!song) return // solo era un clic: que siga siendo un clic
+  swallowClick(from)
+  if (target && handler) handler(target, song, { after, songs: songs.length ? songs : [song] })
+}
+
+/**
+ * Al soltar sobre la misma fila de la que salió el arrastre, el navegador
+ * lanza además un clic en ella. No lo es: elegiría esa fila y soltaría las
+ * demás elegidas (o, en el modo «Seleccionar», la quitaría de ellas). Ese
+ * clic llega en el mismo instante que el `pointerup`, así que se escucha
+ * solo hasta la siguiente vuelta del bucle de eventos, y solo sobre esa fila.
+ * @param {Element|null} from
+ */
+function swallowClick(from) {
+  if (!from || typeof window === 'undefined') return
+  /** @param {Event} ev */
+  const stop = (ev) => {
+    if (!(ev.target instanceof Node) || !from.contains(ev.target)) return
+    ev.preventDefault()
+    ev.stopPropagation()
+  }
+  window.addEventListener('click', stop, true)
+  const timer = setTimeout(() => unswallow?.(), 0)
+  unswallow = () => {
+    clearTimeout(timer)
+    window.removeEventListener('click', stop, true)
+    unswallow = null
+  }
 }
 
 /** Suelta lo que se lleve sin hacer nada con ello. */
 export function cancelDrag() {
   pending = null
   drag.song = null
+  drag.songs = NOTHING
   drag.over = null
   drag.after = false
+  origin = null
+  unswallow?.()
   scroller = null
   if (frame) {
     cancelAnimationFrame(frame)
@@ -170,11 +223,31 @@ export function cancelDrag() {
 }
 
 /**
+ * Lo que va en la mano: el grupo entero si la agarrada es una de él y son dos
+ * o más; si no, ella sola.
+ * @param {Song} song
+ * @param {Song[]|null|undefined} songs
+ * @returns {Song[]}
+ */
+function carried(song, songs) {
+  if (!Array.isArray(songs) || songs.length < 2) return markRaw([song])
+  if (!songs.some((s) => s?.id === song.id)) return markRaw([song])
+  return markRaw(songs.slice())
+}
+
+/**
  * Empieza a arrastrar `song`. Va en el `pointerdown` de la fila o la ficha;
  * hasta que el puntero no se mueve de verdad no pasa nada, asi que un clic
  * normal sigue siendo un clic.
+ *
+ * `songs`: las elegidas, en el orden en que se ven, si `song` es una de ellas.
+ * Con dos o más (y `song` dentro) el arrastre las lleva todas; si no, solo a
+ * `song`. Lo pasa quien llama (useSongList): la selección no es cosa de aquí.
+ * @param {Song} song
+ * @param {any} e  el `pointerdown` (o algo con su forma)
+ * @param {Song[]|null} [songs]
  */
-export function startDrag(song, e) {
+export function startDrag(song, e, songs = null) {
   // Con el dedo no: arrastrar una fila chocaria con desplazar la lista. En
   // tactil se sigue usando el menu de opciones de la cancion.
   if (e.pointerType === 'touch') return
@@ -183,14 +256,23 @@ export function startDrag(song, e) {
   // tienen lo suyo que hacer.
   if (e.target?.closest?.('button, .heart, .stars, input, a')) return
   cancelDrag()
-  pending = { song, x: e.clientX, y: e.clientY }
+  pending = {
+    song,
+    songs: carried(song, songs),
+    from: e.currentTarget instanceof Element ? e.currentTarget : e.target || null,
+    x: e.clientX,
+    y: e.clientY
+  }
   listen(true)
 }
 
 /**
- * Que hacer cuando se suelta algo. Solo hay uno: lo pone la app.
- * Recibe el destino, la cancion y `{ after }`: si se solto en la segunda
- * mitad del destino (debajo, o a la derecha en una cuadricula).
+ * Qué hacer cuando se suelta algo. Solo hay uno: lo pone la app.
+ * Recibe el destino, la canción agarrada y `{ after, songs }`: `after`, si se
+ * soltó en la segunda mitad del destino (debajo, o a la derecha en una
+ * cuadrícula); `songs`, todo lo que iba en la mano en el orden en que se ve
+ * (siempre al menos `[song]`).
+ * @param {(target: string, song: Song, extra: { after: boolean, songs: Song[] }) => any} fn
  */
 export function onDrop(fn) {
   handler = fn
@@ -207,8 +289,8 @@ export function useDragSong() {
     isBefore: (key) => drag.over === key && !drag.after,
     /** Sobre este destino y en su segunda mitad: lo que se suelte va DESPUES. */
     isAfter: (key) => drag.over === key && drag.after,
-    /** ¿Es esta la cancion que se esta arrastrando? */
-    isDragged: (id) => drag.song?.id === id,
+    /** ¿Va esta canción en la mano (sola o con las demás elegidas)? */
+    isDragged: (/** @type {number} */ id) => carriedIds.value.has(id),
     startDrag,
     cancelDrag,
     onDrop
