@@ -9,6 +9,7 @@ import html
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -49,6 +50,129 @@ def _connect():
     return library.connect()
 
 
+# Un solo escritor de listas a la vez DENTRO del proceso. Casi todo lo que se
+# hace con una lista es leer, calcular y escribir (insertar donde toca,
+# renumerar, dejarla exacta), y la tocan a la vez el turno de descarga, el
+# turno del chat y arrastrar una cancion en la interfaz: leian la misma foto
+# de la lista y se pisaban, con posiciones repetidas y canciones perdidas. Es
+# un RLock porque unas operaciones se apoyan en otras (`set_songs`) y porque
+# quien necesite leer y escribir sin que nadie se cuele puede envolverlo todo
+# en `with playlists.LOCK:`. Frente a OTROS escritores de la base (el
+# escaneo, otro proceso) vale la transaccion de `_begin`.
+LOCK = threading.RLock()
+
+# Variables por consulta: las SQLite viejas admiten 999.
+_CHUNK = 500
+
+
+def _begin():
+    """Una conexion con la transaccion de escritura ya abierta.
+
+    `BEGIN IMMEDIATE` pide el permiso de escribir ANTES de leer: lo leido no
+    cambia hasta confirmar. Con `with`, confirma al salir (o deshace si algo
+    fallo) y cierra.
+    """
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
+def _ints(values) -> list[int]:
+    """Los valores que son un entero, en su orden; lo demas se descarta."""
+    out = []
+    for v in values or ():
+        try:
+            out.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _unique(values) -> list:
+    """Sin repetidos, dejando cada valor donde aparece por primera vez."""
+    return list(dict.fromkeys(values))
+
+
+def _alive(conn, ids) -> set[int]:
+    """De esos ids, los que son una cancion de verdad.
+
+    Positivos: la biblioteca. Negativos: archivos abiertos desde fuera
+    (`external.py`), si esa tabla existe.
+    """
+    found: set[int] = set()
+    inside = [i for i in ids if i > 0]
+    outside = [-i for i in ids if i < 0]
+    for k in range(0, len(inside), _CHUNK):
+        part = inside[k : k + _CHUNK]
+        marks = ",".join("?" * len(part))
+        sql = f"SELECT id FROM songs WHERE id IN ({marks})"  # noqa: S608
+        found |= {r["id"] for r in conn.execute(sql, part)}
+    if (
+        outside
+        and conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='external_songs'"
+        ).fetchone()
+    ):
+        for k in range(0, len(outside), _CHUNK):
+            part = outside[k : k + _CHUNK]
+            marks = ",".join("?" * len(part))
+            sql = f"SELECT id FROM external_songs WHERE id IN ({marks})"  # noqa: S608
+            found |= {-r["id"] for r in conn.execute(sql, part)}
+    return found
+
+
+def _rows(conn, playlist_id) -> list[tuple[int, int]]:
+    """(cancion, posicion) de TODAS las filas de la lista, en su orden.
+
+    Tambien las de canciones cuyo archivo se fue: siguen aqui para volver a su
+    sitio (ver library._to_missing). Si dos empatan en posicion, va antes la
+    fila mas vieja, que es el orden en que las enseña `songs`.
+    """
+    return [
+        (r["song_id"], r["position"])
+        for r in conn.execute(
+            "SELECT song_id, position FROM playlist_songs WHERE playlist_id=? "
+            "ORDER BY position, rowid",
+            (playlist_id,),
+        )
+    ]
+
+
+def _settle(conn, playlist_id, head, rows) -> tuple[list[int], list[int], int]:
+    """Deja las filas de la lista en las posiciones 0..n-1, sin repetir ninguna.
+
+    Primero `head`, en ese orden (las que no estaban se insertan); detras, las
+    que ya habia y `head` no nombra, en el orden que tenian. `rows` es lo que
+    devolvio `_rows`. Solo se escribe lo que cambia. Devuelve (el orden final,
+    las insertadas, cuantas filas se movieron). No confirma.
+    """
+    have = dict(rows)
+    named = set(head)
+    final = [*head, *(song for song, _ in rows if song not in named)]
+    now = time.time()
+    moves: list[tuple[int, int, int]] = []
+    new: list[tuple[int, int, int, float]] = []
+    for pos, song in enumerate(final):
+        if song not in have:
+            new.append((playlist_id, song, pos, now))
+        elif have[song] != pos:
+            moves.append((pos, playlist_id, song))
+    if moves:
+        conn.executemany(
+            "UPDATE playlist_songs SET position=? WHERE playlist_id=? AND song_id=?", moves
+        )
+    if new:
+        conn.executemany(
+            "INSERT INTO playlist_songs (playlist_id, song_id, position, added) VALUES (?,?,?,?)",
+            new,
+        )
+    return final, [song for _, song, _, _ in new], len(moves)
+
+
 # ---------------------------------------------------------------- listas
 
 
@@ -60,38 +184,43 @@ def create(name, note="", color="") -> dict:
     asi que el asistente «creaba» una lista y en realidad añadia a otra.
     """
     name = str(name or "").strip()
-    with _connect() as conn:
-        row = conn.execute("SELECT id FROM playlists WHERE name=?", (name,)).fetchone()
-        if row:
-            return {"id": row["id"], "name": name, "created": False}
-        cur = conn.execute(
-            "INSERT INTO playlists (name,note,color,created) VALUES (?,?,?,?)",
-            (name, note, color, time.time()),
-        )
+    with LOCK:
+        # sin pedir el permiso de escribir de antemano: si la lista ya esta no
+        # se escribe nada, y no tiene que esperar a un escaneo en marcha
+        with _connect() as conn:
+            row = conn.execute("SELECT id FROM playlists WHERE name=?", (name,)).fetchone()
+            if row:
+                return {"id": row["id"], "name": name, "created": False}
+            cur = conn.execute(
+                "INSERT INTO playlists (name,note,color,created) VALUES (?,?,?,?)",
+                (name, note, color, time.time()),
+            )
+            lid = cur.lastrowid
         library._touch()
-        lid = cur.lastrowid
     return {"id": lid, "name": name, "created": True}
 
 
 def remove(playlist_id) -> None:
-    with _connect() as conn:
-        members = [
-            r["song_id"]
-            for r in conn.execute(
-                "SELECT song_id FROM playlist_songs WHERE playlist_id=?", (playlist_id,)
-            )
-        ]
-        conn.execute("DELETE FROM playlist_songs WHERE playlist_id=?", (playlist_id,))
-        conn.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
-    library._touch()
-    # los archivos dejan de nombrar la lista: si no, un reescaneo la resucitaria
-    _stamp_playlists_into_files(members)
+    with LOCK:
+        with _begin() as conn:
+            members = [
+                r["song_id"]
+                for r in conn.execute(
+                    "SELECT song_id FROM playlist_songs WHERE playlist_id=?", (playlist_id,)
+                )
+            ]
+            conn.execute("DELETE FROM playlist_songs WHERE playlist_id=?", (playlist_id,))
+            conn.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
+        library._touch()
+        # los archivos dejan de nombrar la lista: si no, un reescaneo la resucitaria
+        _stamp_playlists_into_files(members)
 
 
 def rename_folder(playlist_id, name) -> None:
-    with _connect() as conn:
-        conn.execute("UPDATE playlists SET name=? WHERE id=?", (name, playlist_id))
-    library._touch()
+    with LOCK:
+        with _connect() as conn:
+            conn.execute("UPDATE playlists SET name=? WHERE id=?", (name, playlist_id))
+        library._touch()
 
 
 def by_id(playlist_id) -> dict | None:
@@ -124,27 +253,28 @@ def by_name(name: str) -> dict | None:
 
 def edit(playlist_id, name=None, note=None) -> dict | None:
     """Cambia el nombre o la nota. Devuelve la lista ya cambiada, o None."""
-    current = by_id(playlist_id)
-    if not current:
-        return None
-    fields, values = [], []
-    if name is not None and str(name).strip():
-        fields.append("name=?")
-        values.append(str(name).strip())
-    if note is not None:
-        fields.append("note=?")
-        values.append(str(note))
-    if fields:
-        with _connect() as conn:
-            conn.execute(
-                f"UPDATE playlists SET {','.join(fields)} WHERE id=?",  # noqa: S608
-                [*values, current["id"]],
-            )
-        library._touch()
-        if name is not None:
-            # las canciones llevan dentro los nombres de sus listas
-            _stamp_playlists_into_files([s["id"] for s in songs(current["id"])])
-    return by_id(current["id"])
+    with LOCK:
+        current = by_id(playlist_id)
+        if not current:
+            return None
+        fields, values = [], []
+        if name is not None and str(name).strip():
+            fields.append("name=?")
+            values.append(str(name).strip())
+        if note is not None:
+            fields.append("note=?")
+            values.append(str(note))
+        if fields:
+            with _connect() as conn:
+                conn.execute(
+                    f"UPDATE playlists SET {','.join(fields)} WHERE id=?",  # noqa: S608
+                    [*values, current["id"]],
+                )
+            library._touch()
+            if name is not None:
+                # las canciones llevan dentro los nombres de sus listas
+                _stamp_playlists_into_files([s["id"] for s in songs(current["id"])])
+        return by_id(current["id"])
 
 
 def set_songs(playlist_id, song_ids) -> dict:
@@ -152,15 +282,34 @@ def set_songs(playlist_id, song_ids) -> dict:
 
     Es «corrige la lista»: lo que sobra se quita, lo que falta se añade, y lo
     que ya estaba se queda. Devuelve cuantas se quitaron y cuantas entraron.
+
+    Todo en UNA transaccion y bajo `LOCK` (antes eran tres, `remove_song`,
+    `add` y `reorder`, con la lista a medias a la vista de quien mirase en
+    medio) y con UN solo sellado de etiquetas al final. Las filas de canciones
+    cuyo archivo se fue no se tocan: se quedan detras, para volver a su sitio.
     """
-    wanted = existing_ids(song_ids)
-    current = [s["id"] for s in songs(playlist_id)]
-    gone = [i for i in current if i not in wanted]
-    if gone:
-        remove_song(playlist_id, gone)
-    added = add(playlist_id, [i for i in wanted if i not in current])
-    reorder(playlist_id, wanted)
-    return {"removed": len(gone), "added": added, "total": len(wanted)}
+    with LOCK:
+        with _begin() as conn:
+            ints = _ints(song_ids)
+            alive = _alive(conn, ints)
+            wanted = _unique(i for i in ints if i in alive)
+            rows = _rows(conn, playlist_id)
+            shown = _alive(conn, [song for song, _ in rows])
+            keep = set(wanted)
+            gone = [song for song, _ in rows if song in shown and song not in keep]
+            for song in gone:
+                conn.execute(
+                    "DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?",
+                    (playlist_id, song),
+                )
+            removed = set(gone)
+            left = [(song, pos) for song, pos in rows if song not in removed]
+            _, added, moved = _settle(conn, playlist_id, wanted, left)
+        if gone or added or moved:
+            library._touch()
+        if gone or added:
+            _stamp_playlists_into_files([*gone, *added])
+    return {"removed": len(gone), "added": len(added), "total": len(wanted)}
 
 
 def list_all() -> list[dict]:
@@ -199,95 +348,129 @@ def existing_ids(song_ids) -> list[int]:
     Positivos: la biblioteca. Negativos: archivos abiertos desde fuera
     (`external.py`), si esa tabla existe. Lo que no este, fuera.
     """
-    wanted = []
-    for i in song_ids:
-        try:
-            wanted.append(int(i))
-        except (TypeError, ValueError):
-            continue
+    wanted = _ints(song_ids)
     if not wanted:
         return []
     with _connect() as conn:
-        found: set = set()
-        inside = [i for i in wanted if i > 0]
-        if inside:
-            sql = f"SELECT id FROM songs WHERE id IN ({','.join('?' * len(inside))})"  # noqa: S608
-            found |= {r["id"] for r in conn.execute(sql, inside)}
-        outside = [-i for i in wanted if i < 0]
-        if (
-            outside
-            and conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='external_songs'"
-            ).fetchone()
-        ):
-            found |= {
-                -r["id"]
-                for r in conn.execute(
-                    f"SELECT id FROM external_songs WHERE id IN ({','.join('?' * len(outside))})",  # noqa: S608
-                    outside,
-                )
-            }
-    seen: set = set()
-    out = []
-    for i in wanted:
-        if i in found and i not in seen:
-            seen.add(i)
-            out.append(i)
-    return out
+        found = _alive(conn, wanted)
+    return _unique(i for i in wanted if i in found)
 
 
 def add(playlist_id, song_ids) -> int:
     if isinstance(song_ids, int):
         song_ids = [song_ids]
-    # Solo lo que existe. Un id que no es ninguna cancion (el asistente se los
-    # inventaba) dejaba una fila huerfana: la lista decia «6 temas» y
-    # enseñaba cuatro.
-    song_ids = existing_ids(song_ids)
-    if not song_ids:
+    if not _ints(song_ids):
         return 0
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT COALESCE(MAX(position),-1) m FROM playlist_songs WHERE playlist_id=?",
-            (playlist_id,),
-        ).fetchone()
-        sort = row["m"] + 1
-        n = 0
-        for cid in song_ids:
-            cur = conn.execute(
-                "INSERT OR IGNORE INTO playlist_songs VALUES (?,?,?,?)",
-                (playlist_id, cid, sort, time.time()),
-            )
-            # las que ya estaban no cuentan: si no, la app decia «Añadida a la
-            # lista» aunque no hubiera añadido nada
-            if cur.rowcount:
-                sort += 1
-                n += 1
-    if n:
-        library._touch()
-    _stamp_playlists_into_files(song_ids)
-    return n
+    with LOCK:
+        with _begin() as conn:
+            # Solo lo que existe. Un id que no es ninguna cancion (el asistente
+            # se los inventaba) dejaba una fila huerfana: la lista decia «6
+            # temas» y enseñaba cuatro. Se mira DENTRO de la transaccion, para
+            # que no se borre la cancion entre mirarlo e insertarla.
+            ints = _ints(song_ids)
+            alive = _alive(conn, ints)
+            song_ids = _unique(i for i in ints if i in alive)
+            if not song_ids:
+                return 0
+            row = conn.execute(
+                "SELECT COALESCE(MAX(position),-1) m FROM playlist_songs WHERE playlist_id=?",
+                (playlist_id,),
+            ).fetchone()
+            sort = row["m"] + 1
+            n = 0
+            for cid in song_ids:
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO playlist_songs VALUES (?,?,?,?)",
+                    (playlist_id, cid, sort, time.time()),
+                )
+                # las que ya estaban no cuentan: si no, la app decia «Añadida a
+                # la lista» aunque no hubiera añadido nada
+                if cur.rowcount:
+                    sort += 1
+                    n += 1
+        if n:
+            library._touch()
+        _stamp_playlists_into_files(song_ids)
+        return n
 
 
 def remove_song(playlist_id, song_ids) -> None:
     if isinstance(song_ids, int):
         song_ids = [song_ids]
-    with _connect() as conn:
-        for cid in song_ids:
-            conn.execute(
-                "DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?", (playlist_id, cid)
-            )
-    library._touch()
-    _stamp_playlists_into_files(song_ids)
+    with LOCK:
+        with _begin() as conn:
+            for cid in song_ids:
+                conn.execute(
+                    "DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?",
+                    (playlist_id, cid),
+                )
+        library._touch()
+        _stamp_playlists_into_files(song_ids)
 
 
 def reorder(playlist_id, ordered_song_ids) -> None:
-    with _connect() as conn:
-        for i, cid in enumerate(ordered_song_ids):
-            conn.execute(
-                "UPDATE playlist_songs SET position=? WHERE playlist_id=? AND song_id=?",
-                (i, playlist_id, cid),
-            )
-    library._touch()
+    """Pone las canciones en ese orden.
+
+    Lo que la lista no tiene se ignora (no se inserta: eso es `place`). Lo que
+    la lista tiene y no se nombra se queda detras, en su orden: antes
+    conservaba su posicion de antes y repetia la de otra. Siempre queda en
+    0..n-1.
+    """
+    wanted = _ints(ordered_song_ids)
+    with LOCK:
+        with _begin() as conn:
+            rows = _rows(conn, playlist_id)
+            have = {song for song, _ in rows}
+            head = _unique(i for i in wanted if i in have)
+            _settle(conn, playlist_id, head, rows)
+        library._touch()
+
+
+def place(playlist_id, ordered_ids) -> dict:
+    """Pone esas canciones en la lista, en ese orden, de una sola vez.
+
+    Es lo que necesita quien completa una lista con lo que acaba de bajar
+    («esta nueva va justo despues de aquella»): `add` solo sabe poner al
+    final, y `add` + `reorder` eran dos pasos con la lista a la vista de
+    cualquiera entre medias. Aqui, en UNA transaccion y bajo `LOCK`:
+
+    - se insertan las que falten; lo que no es una cancion (`existing_ids`:
+      ni de la biblioteca ni de fuera) y lo repetido se ignora;
+    - se renumeran 0..n-1 TODAS las filas de la lista: primero `ordered_ids`,
+      en ese orden, y detras, en el orden que tenian, las que no se nombran
+      (tambien las de fuera de la biblioteca, ids negativos: no se pierden);
+    - las etiquetas de los archivos (LISTAS) se escriben UNA vez al final, solo
+      de las que acaban de entrar (lo demas no cambia de lista).
+
+    Idempotente: repetirla con lo mismo no cambia nada ni toca ningun archivo.
+    Devuelve {"added": cuantas entraron, "total": cuantas canciones enseña la
+    lista, "order": sus ids en el orden final, igual que daria `songs`}.
+    `ValueError` si la lista no existe (nada se escribe).
+    """
+    try:
+        playlist_id = int(playlist_id)
+    except (TypeError, ValueError):
+        raise ValueError("no existe esa lista") from None
+    if isinstance(ordered_ids, int):
+        ordered_ids = [ordered_ids]
+    wanted = _ints(ordered_ids)
+    with LOCK:
+        with _begin() as conn:
+            if not conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone():
+                raise ValueError("no existe esa lista")
+            alive = _alive(conn, wanted)
+            head = _unique(i for i in wanted if i in alive)
+            rows = _rows(conn, playlist_id)
+            final, added, moved = _settle(conn, playlist_id, head, rows)
+            # solo cuenta lo que enseña la lista: las filas de canciones cuyo
+            # archivo se fue siguen ahi, detras, pero no salen
+            shown = _alive(conn, final)
+            order = [song for song in final if song in shown]
+        if added or moved:
+            library._touch()
+        if added:
+            _stamp_playlists_into_files(added)
+    return {"added": len(added), "total": len(order), "order": order}
 
 
 def songs(playlist_id, light: bool = False) -> list[dict]:
@@ -299,8 +482,11 @@ def songs(playlist_id, light: bool = False) -> list[dict]:
     camino sin decir nada. Con `light`, filas ligeras (lo que da la API).
     """
     with _connect() as conn:
+        # si dos empatan en posicion (listas de antes del cerrojo), la fila mas
+        # vieja primero: el mismo orden que usa `place` al renumerar
         order = conn.execute(
-            "SELECT song_id, position FROM playlist_songs WHERE playlist_id=? ORDER BY position",
+            "SELECT song_id, position FROM playlist_songs WHERE playlist_id=? "
+            "ORDER BY position, rowid",
             (playlist_id,),
         ).fetchall()
         cols = library.light_columns(conn) if light else "c.*"
