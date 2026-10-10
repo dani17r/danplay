@@ -342,6 +342,12 @@ _DAYS = _vocab("lunes martes miercoles jueves viernes sabado domingo")
 _CONNECTORS = _vocab("de del la el los las para")
 _PARTICLES = _vocab("de del la las los da di van von")
 _CONJUNCTIONS = _vocab("y e o u con and")
+# Lo que hace alguien en la cancion, escrito pegado a su mencion («@Ana Torres
+# Voz»): con mayuscula no es un apellido, es su papel, y va a la nota.
+_ROLE_WORDS = _vocab(
+    "voz voces coro coros corista coristas solista guitarra guitarras bateria bajo "
+    "piano teclado teclados teclas acordeon violin saxo trompeta director directora"
+)
 # el texto de un enlace de markdown que no es el titulo («[Ver video](url)»)
 _LINK_WORDS = _vocab(
     "ver video videoclip link enlace aqui aca click clic youtube escuchar escucha oir "
@@ -654,6 +660,8 @@ def _mention(s: str, at: int) -> tuple[str, str, int] | None:
         if w.isdigit() and s[m.end() : m.end() + 1] in (".", ")", "-", "–", "—"):
             break  # «@Ana 2) Titulo»: el 2 es la numeracion de la siguiente
         if _is_cap(w):
+            if _fold(w) in _ROLE_WORDS:
+                break  # «@Ana Torres Voz»: «Voz» es su papel (la nota), no un apellido
             words.append(w)
             pos = m.end()
             continue
@@ -682,7 +690,7 @@ def _mention(s: str, at: int) -> tuple[str, str, int] | None:
         stop = _HAND_STOP.search(s, j, j + _HAND_WINDOW)
         e = stop.start() if stop else min(n, j + _HAND_WINDOW)
         text = s[j:e].strip()
-        if text and text[0].islower():
+        if text and (text[0].islower() or _fold(text.split()[0]) in _ROLE_WORDS):
             hand, end = text, e
     if hand:
         words_h = hand.split()

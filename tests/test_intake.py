@@ -271,6 +271,22 @@ def test_rarezas_que_tumbaban_o_colaban_una_lista(text, titles):
     assert (None if not got.is_setlist else [i.title for i in got.items]) == titles
 
 
+def test_el_papel_pegado_a_la_mencion_es_la_nota_y_no_un_apellido():
+    """«@Ana Torres Voz»: «Voz» (con mayuscula) es lo que hace en la cancion,
+    no parte de su nombre; con «voz principal» detras, igual."""
+    p = intake.parse_setlist(
+        "*1.- Digno De Adorar* @Ana Torres Voz\n"
+        "*2.- Rey Infinito* @Luis Mora Guitarra\n"
+        "*3.- Sublime Gracia* @Ana Torres Voz principal"
+    )
+    assert p.people == ["Ana Torres", "Luis Mora"]
+    assert [(i.people, i.note) for i in p.items] == [
+        (["Ana Torres"], "Voz"),
+        (["Luis Mora"], "Guitarra"),
+        (["Ana Torres"], "Voz principal"),
+    ]
+
+
 def test_lo_que_no_es_texto_no_es_lista():
     for value in (None, 12, b"1. A\n2. B", ["1. A", "2. B"], "", "   \n\t "):
         assert parse_setlist(value) == SetlistParse()  # pyright: ignore[reportArgumentType]
