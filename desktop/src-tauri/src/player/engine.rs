@@ -367,7 +367,9 @@ impl Engine<'_> {
         let song = open::open_song(output.mixer(), &recipe)?;
         if from > 0.0 {
             // ffmpeg ya arranco ahi y el salto no cuesta nada; al
-            // decodificador de siempre se lo pide ahora, sin que se oiga
+            // decodificador de siempre se lo pide ahora, sin que se oiga, y
+            // con lo que hay que leer para llegar ahi ya en memoria
+            song.preload(from, self.carry.duration);
             if !output.pulse.responds(RESPONDS_WITHIN) {
                 return Err("La salida de audio no responde.".into());
             }
@@ -577,7 +579,11 @@ impl Engine<'_> {
             self.recover(Some(target), step);
             return;
         }
-        // 2) ffmpeg: la tirada nueva, lista antes de pedir el salto.
+        // 2) ffmpeg: la tirada nueva, lista antes de pedir el salto. El
+        //    decodificador de siempre: lo que hay que leer para llegar ahi,
+        //    ya en memoria (solo espera si la cancion acaba de empezar a
+        //    leerse); mientras, sigue sonando lo que sonaba.
+        song.preload(target, self.carry.duration);
         if let Some(control) = &song.ffmpeg
             && let Err(e) = control.prepare(target, transcode::READY_WITHIN)
         {

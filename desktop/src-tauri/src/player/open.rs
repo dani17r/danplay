@@ -1,5 +1,7 @@
 //! Abrir una cancion: el sink con su fuente, por el decodificador de
-//! siempre o por ffmpeg.
+//! siempre (leyendo el archivo a memoria por delante, ver `ahead`) o por
+//! ffmpeg.
+use super::ahead::{self, Ahead, Gauge};
 use super::mix::{StemMix, StemSet};
 use crate::{tools, transcode};
 use rodio::mixer::Mixer;
@@ -7,6 +9,13 @@ use rodio::{Decoder, Player, Source};
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
+
+/// Cuanto se espera, antes de un salto, a tener en memoria lo que hace falta
+/// para llegar ahi (ver `Song::preload`). Mas, y una pausa pedida mientras
+/// tanto tardaria en notarse; si no llega, el salto espera a lo que falte
+/// como antes esperaba al disco.
+const PRELOAD_WITHIN: Duration = Duration::from_secs(2);
 
 /// Una cancion abierta: su sink y lo que hace falta saber de su fuente.
 pub(super) struct Song {
@@ -25,6 +34,9 @@ pub(super) struct Song {
     /// segundos de cancion (`transcode::filter_lead`): sin el, el clic iba
     /// tarde a 0,5x.
     pub(super) lead: f64,
+    /// Como va la lectura a memoria, si la cancion va por el decodificador
+    /// de siempre y cabe (ver `ahead`).
+    pub(super) reading: Option<Gauge>,
 }
 
 impl Song {
@@ -32,6 +44,23 @@ impl Song {
     /// salida, que a otra velocidad no es el mismo (ver `clock_of`).
     pub(super) fn position(&self, clock: f32) -> f64 {
         self.sink.get_pos().as_secs_f64() * f64::from(clock) + self.lead
+    }
+
+    /// Antes de saltar a `from` (segundos de cancion), al reabrirla o dentro
+    /// de la que suena: espera, con tope, a que este en memoria lo que hay
+    /// que leer para llegar ahi (el mp3 se recorre trama a trama hasta el
+    /// punto). El salto lo hace el callback de la tarjeta, y asi no espera al
+    /// disco; mientras, lo que suena sigue sonando. Con la cancion ya leida,
+    /// no espera nada. `duration` es la que se sepa (0 si ninguna).
+    pub(super) fn preload(&self, from: f64, duration: f64) {
+        let Some(reading) = &self.reading else {
+            return;
+        };
+        let total = self.announced.filter(|d| *d > 0.0).unwrap_or(duration);
+        let share = if total > 0.0 { from / total } else { 1.0 };
+        if !reading.wait_for_share(share, PRELOAD_WITHIN) {
+            log::info!("el disco va lento: el salto a {from:.1} s esperara a lo que falte");
+        }
     }
     pub(super) fn playing(&self) -> bool {
         !self.sink.is_paused() && !self.sink.empty()
@@ -169,6 +198,7 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
             tempo,
             announced,
             lead: transcode::filter_lead(tempo, pitch, transcode::has_rubberband(ffmpeg)),
+            reading: None,
         });
     }
 
@@ -196,21 +226,179 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
             tempo,
             announced,
             lead: transcode::filter_lead(tempo, pitch, transcode::has_rubberband(ffmpeg)),
+            reading: None,
         });
     }
     sink.set_speed(speed);
-
-    let file = File::open(path).map_err(|e| unreachable_file(path, &e))?;
-    // con el tamaño del archivo, symphonia calcula bien la duracion y busca
-    // por el indice (lo que hace `try_from`)
-    let source = Decoder::try_from(file).map_err(|e| readable(&e, path))?;
-    let announced = source.total_duration().map(|d| d.as_secs_f64());
-    sink.append(source);
+    let (announced, reading) = native(&sink, path)?;
     Ok(Song {
         sink: Arc::new(sink),
         ffmpeg: None,
         tempo: 1.0,
         announced,
         lead: 0.0,
+        reading,
     })
+}
+
+/// El decodificador de siempre para `path`, en el sink. Devuelve la duracion
+/// que anuncia el archivo y, si se lee a memoria, como va esa lectura.
+///
+/// El decodificador lee de la memoria que va llenando un hilo (ver `ahead`):
+/// el callback de la tarjeta no toca el disco. Lo que no cabe (mas de
+/// `ahead::MAX_LEN`), o si no se puede crear el hilo, como siempre: del
+/// archivo. Los errores son los de siempre.
+fn native(sink: &Player, path: &str) -> Result<(Option<f64>, Option<Gauge>), String> {
+    let file = File::open(path).map_err(|e| unreachable_file(path, &e))?;
+    // con el tamaño del archivo, symphonia calcula bien la duracion y busca
+    // por el indice (lo que hace `Decoder::try_from` con un `File`)
+    let len = file
+        .metadata()
+        .map_err(|e| readable(&rodio::decoder::DecoderError::IoError(e.to_string()), path))?
+        .len();
+    if len <= ahead::MAX_LEN {
+        match Ahead::start(file, len) {
+            Ok(reader) => {
+                let gauge = reader.gauge();
+                let source = Decoder::builder()
+                    .with_data(reader)
+                    .with_byte_len(len)
+                    .with_seekable(true)
+                    .build()
+                    .map_err(|e| readable(&e, path))?;
+                let announced = source.total_duration().map(|d| d.as_secs_f64());
+                sink.append(source);
+                return Ok((announced, Some(gauge)));
+            }
+            Err(e) => log::warn!("no se pudo leer «{}» por delante: {e}", name_of(path)),
+        }
+    }
+    let file = File::open(path).map_err(|e| unreachable_file(path, &e))?;
+    let source = Decoder::try_from(file).map_err(|e| readable(&e, path))?;
+    let announced = source.total_duration().map(|d| d.as_secs_f64());
+    sink.append(source);
+    Ok((announced, None))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rodio::mixer::MixerSource;
+    use rodio::{ChannelCount, SampleRate};
+    use std::time::Instant;
+
+    /// Un mezclador del que tira la prueba, sin tarjeta de sonido.
+    fn mixer() -> (Mixer, MixerSource) {
+        rodio::mixer::mixer(
+            ChannelCount::new(2).expect("dos canales"),
+            SampleRate::new(44_100).expect("una tasa de verdad"),
+        )
+    }
+
+    fn pull(out: &mut MixerSource, samples: usize) {
+        for _ in 0..samples {
+            let _ = out.next();
+        }
+    }
+
+    fn recipe(path: &str) -> Recipe<'_> {
+        Recipe {
+            path,
+            volume: 1.0,
+            speed: 1.0,
+            pitch: 0.0,
+            hint: 0.0,
+            from: 0.0,
+            stems: None,
+        }
+    }
+
+    /// Un archivo de prueba hecho con ffmpeg, en la carpeta temporal.
+    fn made(name: &str, codec: &[&str]) -> String {
+        let file = std::env::temp_dir().join(format!("{}-{name}", std::process::id()));
+        let ffmpeg = tools::ffmpeg().expect("hace falta ffmpeg para esta prueba");
+        let ok = tools::command(ffmpeg)
+            .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi"])
+            .args(["-i", "sine=frequency=440:duration=8:sample_rate=44100", "-ac", "2"])
+            .args(codec)
+            .arg(&file)
+            .status()
+            .is_ok_and(|s| s.success());
+        assert!(ok, "ffmpeg no pudo hacer {name}");
+        file.to_string_lossy().into_owned()
+    }
+
+    /// Lo que decia antes `open_song` de un archivo que no se puede leer.
+    fn as_before(path: &str) -> String {
+        match File::open(path) {
+            Err(e) => unreachable_file(path, &e),
+            Ok(file) => Decoder::try_from(file).map_or_else(|e| readable(&e, path), |_| String::new()),
+        }
+    }
+
+    /// Un archivo que no esta, que no se puede abrir o que no es audio da el
+    /// mismo error que antes de leerlo a memoria.
+    #[test]
+    fn unreadable_files_give_the_same_errors_as_before() {
+        let dir = std::env::temp_dir().join(format!("danplay-prueba-errores-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let junk = dir.join("texto.mp3");
+        std::fs::write(&junk, b"no soy audio, soy texto").unwrap();
+        let empty = dir.join("vacio.flac");
+        std::fs::write(&empty, b"").unwrap();
+        let folder = dir.join("carpeta.mp3");
+        std::fs::create_dir_all(&folder).unwrap();
+        let mut cases = vec![dir.join("no-esta.mp3"), junk.clone(), empty.clone(), folder.clone()];
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let locked = dir.join("cerrado.mp3");
+            std::fs::write(&locked, b"ID3").unwrap();
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            cases.push(locked);
+        }
+        let (mix, _out) = mixer();
+        for case in &cases {
+            let path = case.to_string_lossy();
+            let expected = as_before(&path);
+            assert!(!expected.is_empty(), "{path} se podia leer");
+            let got = open_song(&mix, &recipe(&path)).err();
+            assert_eq!(got.as_deref(), Some(expected.as_str()), "{path}");
+        }
+        assert!(
+            as_before(&cases[0].to_string_lossy()).starts_with("No encuentro «no-esta.mp3»"),
+            "el que no esta lo dice asi"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Cien cambios de cancion seguidos: cada una se suelta y su lectura
+    /// termina, sin dejar hilos ni memoria.
+    #[test]
+    fn a_hundred_song_changes_leave_no_reading_behind() {
+        let song = made("danplay-prueba-cambios.mp3", &["-c:a", "libmp3lame", "-b:a", "128k"]);
+        let (mix, mut out) = mixer();
+        let mut gauges = Vec::new();
+        for _ in 0..100 {
+            let opened = open_song(&mix, &recipe(&song)).expect("la cancion de la prueba se abre");
+            assert!(opened.announced.is_some_and(|d| (d - 8.0).abs() < 0.2));
+            gauges.push(opened.reading.clone().expect("se lee a memoria"));
+            opened.sink.play();
+            // suena un poco y se cambia de cancion: el mezclador la suelta
+            pull(&mut out, 4_410);
+            opened.sink.stop();
+            drop(opened);
+            pull(&mut out, 4_410);
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while gauges.iter().any(|g| !g.released()) {
+            assert!(
+                Instant::now() < deadline,
+                "quedan {} lecturas vivas",
+                gauges.iter().filter(|g| !g.released()).count()
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_file(&song);
+    }
 }
