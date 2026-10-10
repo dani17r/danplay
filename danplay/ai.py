@@ -140,6 +140,34 @@ def available() -> bool:
     return ok
 
 
+def warm_in_background(delay: float = 2.0) -> threading.Thread | None:
+    """Carga el SDK de OpenAI en segundo plano, si hay IA configurada.
+
+    Importarlo es lo mas caro de la primera respuesta del chat: miles de
+    modulos de tipos (medido: 49 s en un disco lento por FUSE; en uno normal,
+    segundos). Lo pagaba el primer mensaje de la persona, que esperaba con la
+    pantalla quieta. Se hace un poco despues de arrancar, para no competir con
+    la primera pantalla. Sin IA configurada no se carga nada.
+    """
+    try:
+        if not available():
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+
+    def run() -> None:
+        time.sleep(delay)
+        try:
+            import openai  # noqa: F401
+            from openai.resources.chat import completions  # noqa: F401
+        except Exception:
+            log.debug("no se pudo precargar el SDK de openai", exc_info=True)
+
+    t = threading.Thread(target=run, name="danplay-ia-precarga", daemon=True)
+    t.start()
+    return t
+
+
 def unavailable_reason() -> str:
     """Por que no se puede usar la IA ahora mismo, en castellano. "" si se puede."""
     if not config.AI_ENABLED:

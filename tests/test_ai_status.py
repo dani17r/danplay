@@ -1114,3 +1114,18 @@ def test_sanitize_no_lanza_con_lo_que_sea(perfiles):
     assert f(Roto()) == "Roto"
     assert f(ValueError("algo " + "x" * 50_000)).startswith("algo xxx")
     assert f("https://[::1") == "[url]", "una URL rota no tumba nada"
+
+
+def test_el_sdk_se_precarga_en_segundo_plano_solo_con_ia(monkeypatch):
+    """Importar el SDK de openai es lo mas caro de la primera respuesta: se
+    hace al arrancar, en segundo plano, y solo si hay IA configurada."""
+    monkeypatch.setattr(ai, "available", lambda: False)
+    assert ai.warm_in_background(delay=0) is None
+    monkeypatch.setattr(ai, "available", lambda: True)
+    t = ai.warm_in_background(delay=0)
+    assert t is not None and t.daemon and t.name == "danplay-ia-precarga"
+    t.join(timeout=120)
+    assert not t.is_alive()
+    import sys
+
+    assert "openai" in sys.modules

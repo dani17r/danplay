@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from .. import __version__, logs, model_catalog, watcher, youtube
+from .. import ai as ai_core
 from .common import AUDIO_TYPES, audio_type
 from .routes import (
     ai,
@@ -52,13 +53,16 @@ async def lifespan(_app: FastAPI):
     carpetas que ya no estan —que la interfaz nunca vea canciones de una
     carpeta que se movio— y arranca el vigilante de carpetas. El catalogo de
     modelos se pone al dia en segundo plano, solo si hace horas de la ultima
-    vez: asi el apartado de IA abre ya con la lista de hoy.
+    vez: asi el apartado de IA abre ya con la lista de hoy. Y, si hay IA
+    configurada, se precarga su SDK, para que el primer mensaje del chat no
+    espere a importarlo (`ai.warm_in_background`).
 
     Al apagar, se para el vigilante y se corta la descarga que hubiera.
     """
     watcher.prepare()
     watcher.start()
     model_catalog.refresh_in_background()
+    ai_core.warm_in_background()
     try:
         yield
     finally:
