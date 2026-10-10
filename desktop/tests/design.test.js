@@ -658,11 +658,15 @@ describe('los resultados del buscador', () => {
     expect(w.emitted('pick')).toBeFalsy()
   })
 
-  it('la cabecera no parte el recuento y el aviso es corto; en estrecho cuelga de la ventana', async () => {
+  it('la cabecera es corta y no se parte: el recuento, un aviso corto y «Seleccionar»; en estrecho cuelga de la ventana', async () => {
+    // «8 resultados en toda la biblioteca» y el aviso largo no cabian a 460 px
+    // con el boton: el recuento se partia y el aviso se cortaba con «…»
     const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
-    expect(w.find('.sr-head .sr-count').text()).toContain('8 resultados')
-    expect(w.find('.sr-tip').text()).toBe('arrástrala a un repertorio · clic derecho: opciones')
+    expect(w.find('.sr-head .sr-count').text()).toBe('8 resultados')
+    expect(w.find('.sr-tip').text()).toBe('clic derecho: opciones')
+    expect(w.find('.sr-head .sr-select').text()).toBe('Seleccionar')
     expect(CSS).toMatch(/\.sr-count\{[^}]*flex-shrink:0[^}]*white-space:nowrap/)
+    expect(CSS).toMatch(/\.sr-tools\{[^}]*white-space:nowrap/)
     // sin raton, «clic derecho» no dice nada
     expect(CSS).toMatch(/@media \(hover:none\)\{[^@]*\.sr-tip\{display:none/)
     // con la caja a ~59 px del borde, 94vw se salia por la derecha y el «⋯» quedaba medio fuera
@@ -693,6 +697,246 @@ describe('los resultados del buscador', () => {
     expect(useDragSong().drag.song?.id).toBe(2)
     // y mientras se arrastra, el desplegable no tapa el lateral
     expect(CSS).toMatch(/body\.dragging-song \.search-results\{[^}]*pointer-events:none/)
+  })
+
+  // ------------------------------------------------- varios a la vez
+  describe('elegir varios', () => {
+    /** Los ids de las filas elegidas, en el orden en que se ven. */
+    const elegidas = (w) =>
+      w.findAll('.sr-row').flatMap((f, i) => (f.classes().includes('picked') ? [i + 1] : []))
+    const filas = (w) => w.findAll('.sr-row')
+    const boton = (w, label) => w.find(`.sr-head button[aria-label="${label}"]`)
+    const tecla = (w, key, extra = {}) => {
+      const e = new KeyboardEvent('keydown', { key, cancelable: true, ...extra })
+      return { handled: w.vm.onKey(e), prevented: e.defaultPrevented }
+    }
+
+    it('«Seleccionar» pone una casilla en cada fila y el clic las marca en vez de abrir la ficha', async () => {
+      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      const modo = () => w.find('.sr-select')
+      expect(modo().attributes('aria-pressed')).toBe('false')
+      expect(w.findAll('.sr-row .pick-box')).toHaveLength(0)
+      expect(w.find('[role="listbox"]').attributes('aria-multiselectable')).toBeUndefined()
+
+      await modo().trigger('click')
+      expect(modo().attributes('aria-pressed')).toBe('true')
+      expect(w.findAll('.sr-row .pick-box')).toHaveLength(8)
+      // decorativas: la verdad, para el lector de pantalla, es el aria-selected
+      // de cada fila en una lista de eleccion multiple
+      expect(w.find('.sr-row .pick-box').attributes('aria-hidden')).toBe('true')
+      expect(w.find('[role="listbox"]').attributes('aria-multiselectable')).toBe('true')
+      expect(w.find('.sr-tip').text()).toBe('marca los que quieras')
+
+      await filas(w)[1].trigger('click')
+      await filas(w)[4].trigger('click')
+      expect(w.emitted('pick'), 'en el modo un clic no abre la ficha').toBeFalsy()
+      expect(elegidas(w)).toEqual([2, 5])
+      expect(w.findAll('.pick-box.on')).toHaveLength(2)
+      expect(filas(w).map((f) => f.attributes('aria-selected'))).toEqual([
+        'false',
+        'true',
+        'false',
+        'false',
+        'true',
+        'false',
+        'false',
+        'false'
+      ])
+      await filas(w)[1].trigger('click') // la desmarca, sin soltar la otra
+      expect(elegidas(w)).toEqual([5])
+      // marcar y desmarcar deprisa en la casilla no pone la cancion
+      await w.findAll('.pick-box')[2].trigger('dblclick')
+      expect(w.emitted('play')).toBeFalsy()
+      expect(CSS).toMatch(/\.sr-select\.on\{[^}]*var\(--accent\)/)
+    })
+
+    it('sin el modo: Ctrl+clic pone o quita uno y Mayús+clic coge el tramo; el clic a secas abre la ficha', async () => {
+      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      await filas(w)[1].trigger('click', { ctrlKey: true })
+      await filas(w)[3].trigger('click', { metaKey: true }) // Cmd, en el Mac
+      expect(elegidas(w)).toEqual([2, 4])
+      // Mayús: el tramo desde la ultima pulsada, solo
+      await filas(w)[6].trigger('click', { shiftKey: true })
+      expect(elegidas(w)).toEqual([4, 5, 6, 7])
+      // Ctrl+Mayús: el tramo se suma a lo que habia
+      await filas(w)[1].trigger('click', { ctrlKey: true, shiftKey: true })
+      expect(elegidas(w)).toEqual([2, 3, 4, 5, 6, 7])
+      await filas(w)[3].trigger('click', { ctrlKey: true })
+      expect(elegidas(w)).toEqual([2, 3, 5, 6, 7])
+      expect(w.emitted('pick'), 'Ctrl y Mayús no abren la ficha').toBeFalsy()
+      // sin modo no hay casillas: lo elegido se ve por el color de la fila
+      expect(w.findAll('.pick-box')).toHaveLength(0)
+      expect(CSS).toMatch(/\.sr-row\.picked\{[^}]*var\(--accent\)/)
+      // el clic normal sigue siendo elegir la cancion (su ficha)
+      await filas(w)[0].trigger('click')
+      expect(w.emitted('pick')[0][0].id).toBe(1)
+    })
+
+    it('desde la caja: Ctrl+Espacio pone o quita la resaltada y Mayús+flechas amplían o encogen', async () => {
+      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      tecla(w, 'ArrowDown') // la segunda
+      expect(tecla(w, ' ', { ctrlKey: true })).toEqual({ handled: true, prevented: true })
+      await flushPromises()
+      expect(elegidas(w)).toEqual([2])
+      tecla(w, 'ArrowDown')
+      tecla(w, 'ArrowDown') // la cuarta
+      // amplía desde donde esta, sin soltar lo de antes; la caja no selecciona texto
+      expect(tecla(w, 'ArrowDown', { shiftKey: true })).toEqual({ handled: true, prevented: true })
+      tecla(w, 'ArrowDown', { shiftKey: true })
+      await flushPromises()
+      expect(elegidas(w)).toEqual([2, 4, 5, 6])
+      tecla(w, 'ArrowUp', { shiftKey: true }) // encoge el tramo, no lo de antes
+      await flushPromises()
+      expect(elegidas(w)).toEqual([2, 4, 5])
+      expect(w.find('.sr-row.on').text()).toContain('Cancion 5')
+      tecla(w, ' ', { ctrlKey: true }) // quita la resaltada
+      await flushPromises()
+      expect(elegidas(w)).toEqual([2, 4])
+      // el espacio a secas se escribe en la caja
+      expect(tecla(w, ' ').handled).toBe(false)
+      expect(w.emitted('pick')).toBeFalsy()
+    })
+
+    it('Ctrl+A en la caja es de su texto: no elige resultados', async () => {
+      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      expect(tecla(w, 'a', { ctrlKey: true })).toEqual({ handled: false, prevented: false })
+      expect(tecla(w, 'A', { metaKey: true }).handled).toBe(false)
+      await flushPromises()
+      expect(elegidas(w)).toEqual([])
+      expect(w.find('.sr-picking').exists()).toBe(false)
+    })
+
+    it('con alguno elegido la cabecera es una barra: cuántos, añadir a una lista, «⋯» y Ninguno', async () => {
+      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      await filas(w)[4].trigger('click', { ctrlKey: true })
+      expect(w.find('.sr-count').text()).toBe('1 seleccionado')
+      await filas(w)[1].trigger('click', { ctrlKey: true })
+      const cabecera = w.find('.sr-head')
+      expect(cabecera.classes()).toContain('sr-picking')
+      // el lector de pantalla anuncia la cuenta al cambiar
+      expect(w.find('.sr-count').text()).toBe('2 seleccionados')
+      expect(w.find('.sr-count').attributes('aria-live')).toBe('polite')
+      expect(w.find('.sr-select').exists(), 'la barra ocupa el sitio del boton').toBe(false)
+      expect(w.find('.sr-tip').exists()).toBe(false)
+
+      // los elegidos van en el orden de los resultados, no en el de los clics
+      await boton(w, 'Añadir a una lista').trigger('click')
+      const [lista, donde] = w.emitted('addToList')[0]
+      expect(lista.map((c) => c.id)).toEqual([2, 5])
+      expect(donde).toBeInstanceOf(MouseEvent)
+      expect(boton(w, 'Añadir a una lista').attributes('aria-haspopup')).toBe('menu')
+      await boton(w, 'Más opciones').trigger('click')
+      expect(w.emitted('groupMenu')[0][0].map((c) => c.id)).toEqual([2, 5])
+      expect(w.emitted('pick'), 'nada de esto cierra ni elige').toBeFalsy()
+
+      // «Ninguno»: vuelve la cabecera de siempre
+      await boton(w, 'No seleccionar ninguno').trigger('click')
+      expect(elegidas(w)).toEqual([])
+      expect(w.find('.sr-count').text()).toBe('8 resultados')
+      expect(w.find('.sr-select').exists()).toBe(true)
+      // y la barra no se parte: si falta sitio cede la palabra, no el numero
+      expect(CSS).toMatch(/\.sr-picking \.sr-count\{[^}]*text-overflow:ellipsis/)
+      expect(CSS).toMatch(
+        /@media \(max-width:460px\)\{\.sr-long\{display:none\}\s*\.sr-short\{display:inline/
+      )
+    })
+
+    it('sus botones no se quedan el foco al pulsarlos: el teclado sigue en la caja', async () => {
+      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      const mousedown = (el) => {
+        const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+        el.element.dispatchEvent(e)
+        return e.defaultPrevented
+      }
+      expect(mousedown(w.find('.sr-select'))).toBe(true)
+      expect(mousedown(filas(w)[2])).toBe(true)
+      await filas(w)[2].trigger('click', { ctrlKey: true })
+      for (const label of ['Añadir a una lista', 'Más opciones', 'No seleccionar ninguno']) {
+        expect(mousedown(boton(w, label)), label).toBe(true)
+      }
+    })
+
+    it('el clic derecho, el «⋯» y la tecla de menú sobre una elegida son las opciones de todas; sobre otra, las suyas', async () => {
+      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      await filas(w)[2].trigger('click', { ctrlKey: true })
+      await filas(w)[5].trigger('click', { ctrlKey: true })
+      await filas(w)[5].trigger('contextmenu')
+      expect(w.emitted('groupMenu')[0][0].map((c) => c.id)).toEqual([3, 6])
+      expect(w.emitted('menu')).toBeFalsy()
+      await w.findAll('.sr-more')[2].trigger('click')
+      expect(w.emitted('groupMenu')).toHaveLength(2)
+      // sobre una que no esta elegida: la de esa, como siempre
+      await filas(w)[0].trigger('contextmenu')
+      expect(w.emitted('menu')[0][0].id).toBe(1)
+      expect(elegidas(w), 'abrir un menu no cambia lo elegido').toEqual([3, 6])
+      // con el teclado, sobre la resaltada
+      tecla(w, 'ArrowDown')
+      tecla(w, 'ArrowDown') // la tercera, elegida
+      expect(tecla(w, 'ContextMenu').handled).toBe(true)
+      const [lista, donde] = w.emitted('groupMenu')[2]
+      expect(lista.map((c) => c.id)).toEqual([3, 6])
+      expect(donde).toEqual({ clientX: expect.any(Number), clientY: expect.any(Number) })
+    })
+
+    it('Escape suelta lo elegido (y el modo) antes de cerrar', async () => {
+      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      await w.find('.sr-select').trigger('click')
+      await filas(w)[3].trigger('click')
+      const e = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+      const stop = vi.spyOn(e, 'stopPropagation')
+      expect(w.vm.onKey(e)).toBe(true)
+      // el «Escape cierra» del documento no se entera
+      expect(stop).toHaveBeenCalled()
+      await flushPromises()
+      expect(w.emitted('close')).toBeFalsy()
+      expect(elegidas(w)).toEqual([])
+      expect(w.find('.sr-select').attributes('aria-pressed')).toBe('false')
+      // con nada que soltar, Escape cierra
+      expect(tecla(w, 'Escape').handled).toBe(true)
+      expect(w.emitted('close')).toHaveLength(1)
+    })
+
+    it('otra búsqueda olvida lo elegido (el modo sigue); lo que se va de los resultados se suelta', async () => {
+      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      await w.find('.sr-select').trigger('click')
+      await filas(w)[1].trigger('click')
+      await filas(w)[2].trigger('click')
+      await filas(w)[3].trigger('click')
+      // la misma busqueda pierde una fila (a la papelera): las demas siguen elegidas
+      await w.setProps({ songs: ocho().filter((c) => c.id !== 3) })
+      await flushPromises()
+      expect(w.find('.sr-count').text()).toBe('2 seleccionados')
+      // otra consulta: nada elegido, pero quien puso el modo sigue eligiendo
+      await w.setProps({ query: 'xy' })
+      await flushPromises()
+      expect(w.findAll('.sr-row.picked')).toHaveLength(0)
+      expect(w.find('.sr-select').attributes('aria-pressed')).toBe('true')
+    })
+
+    it('arrastrar una de las elegidas lleva todas, en su orden; una sin elegir va sola', async () => {
+      const w = mount(SearchResults, {
+        props: { songs: ocho(), query: 'x' },
+        attachTo: document.body
+      })
+      await filas(w)[4].trigger('click', { ctrlKey: true })
+      await filas(w)[1].trigger('click', { ctrlKey: true })
+      const arrastrar = (i) => {
+        filas(w)[i].element.dispatchEvent(
+          new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 5, clientY: 5 })
+        )
+        window.dispatchEvent(
+          new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 90 })
+        )
+      }
+      arrastrar(4)
+      expect(useDragSong().drag.songs.map((c) => c.id)).toEqual([2, 5])
+      await flushPromises()
+      expect(w.findAll('.sr-row.dragged')).toHaveLength(2)
+      cancelDrag()
+      arrastrar(6)
+      expect(useDragSong().drag.songs.map((c) => c.id)).toEqual([7])
+      expect(elegidas(w), 'arrastrar otra no cambia lo elegido').toEqual([2, 5])
+    })
   })
 })
 

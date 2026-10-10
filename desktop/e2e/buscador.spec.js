@@ -410,3 +410,129 @@ test('«Reproducir» en el menú de un resultado pone esa canción y deja lo enc
     .click()
   await expect(page.locator('.player .title')).toHaveText(segunda)
 })
+
+// ------------------------------------------------- varios resultados a la vez
+// El botón «Seleccionar» del desplegable (casillas), Ctrl/Mayús + clic y, desde
+// la caja, Ctrl+Espacio y Mayús+flechas. Con alguno elegido la cabecera es una
+// barra pequeña: cuántos, «Añadir a una lista ▾», «⋯» y «Ninguno».
+const TODAS = ['Mi Gozo', 'Sera Llena La Tierra', 'Shekinah', 'A Una Voz', 'Que Se Abra El Cielo']
+/** Los títulos de los resultados elegidos, en el orden en que se ven. */
+const elegidos = (page) => page.locator('.sr-row.picked .sr-title')
+const cuenta = (page) => page.locator('.search-results .sr-count')
+const botonDe = (page, name) =>
+  page.locator('.search-results .sr-head').getByRole('button', { name, exact: true })
+
+test('con «Seleccionar» y las casillas, dos resultados a un repertorio de una vez, sin cerrar el desplegable', async ({
+  page,
+  request
+}) => {
+  const domingo = await crearLista(request, 'Domingo')
+  await abrir(page, { listas: 1 })
+  await escribir(page, 'a', TODAS)
+
+  const modo = botonDe(page, 'Seleccionar resultados')
+  await expect(modo).toHaveAttribute('aria-pressed', 'false')
+  await modo.click()
+  await expect(modo).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.sr-row .pick-box')).toHaveCount(5)
+  // el clic en una fila la marca (no abre su ficha ni cierra), y el foco sigue en la caja
+  await resultado(page, 'Shekinah').click()
+  await resultado(page, 'Mi Gozo').locator('.pick-box').click()
+  await expect(cuenta(page)).toHaveText('2 seleccionados')
+  await expect(caja(page)).toBeFocused()
+  const orden = await elegidos(page).allTextContents()
+  expect([...orden].sort()).toEqual(['Mi Gozo', 'Shekinah'])
+
+  await botonDe(page, 'Añadir a una lista').click()
+  await expect(menu(page)).toHaveAccessibleName('Añadir 2 a una lista')
+  await elegirLista(page, 'Domingo')
+  await expect.poll(() => titulosDe(request, domingo)).toEqual(['Mi Gozo', 'Shekinah'])
+  await expect(page.locator('.toast', { hasText: '2 añadidas a «Domingo e2e»' })).toBeVisible()
+  // el desplegable sigue, con lo elegido, y lo que se escriba llega a la caja
+  await expect(desplegable(page)).toBeVisible()
+  await expect(elegidos(page)).toHaveText(orden)
+  await expect(caja(page)).toBeFocused()
+
+  // «Ninguno» suelta lo elegido; el modo sigue hasta quitarlo
+  await botonDe(page, 'No seleccionar ninguno').click()
+  await expect(elegidos(page)).toHaveCount(0)
+  await expect(modo).toHaveAttribute('aria-pressed', 'true')
+  await modo.click()
+  await expect(page.locator('.sr-row .pick-box')).toHaveCount(0)
+})
+
+test('Ctrl+clic y Mayús+clic sin el modo; la papelera desde «⋯» pide confirmación y, cancelada, no borra', async ({
+  page,
+  request
+}) => {
+  await abrir(page)
+  await escribir(page, 'a', TODAS)
+  const filas = await page.locator('.sr-row .sr-title').allTextContents()
+
+  await resultado(page, filas[0]).click({ modifiers: ['ControlOrMeta'] })
+  await resultado(page, filas[2]).click({ modifiers: ['Shift'] })
+  await expect(elegidos(page)).toHaveText(filas.slice(0, 3))
+  await expect(cuenta(page)).toHaveText('3 seleccionados')
+  // el clic derecho sobre una elegida: las opciones de las tres
+  await resultado(page, filas[1]).click({ button: 'right' })
+  await expect(page.getByRole('menu', { name: '3 canciones' })).toBeVisible()
+  await expect(opcion(page, /^Quitar .* de esta lista/)).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(menu(page)).toHaveCount(0)
+
+  await botonDe(page, 'Más opciones').click()
+  await expect(page.getByRole('menu', { name: '3 canciones' })).toBeVisible()
+  await opcion(page, 'Mandar 3 a la papelera…').click()
+  const dialogo = page.getByRole('dialog', { name: 'Mandar 3 canciones a la papelera' })
+  await expect(dialogo).toBeVisible()
+  await dialogo.getByRole('button', { name: 'Cancelar' }).click()
+  await expect(dialogo).toHaveCount(0)
+  // nada se ha borrado: ni en el núcleo ni en el desplegable, y lo elegido sigue
+  const { songs } = await core(request, 'GET', '/search?q=a&limit=60')
+  expect(songs.map((s) => s.title).sort()).toEqual([...TODAS].sort())
+  await expect(desplegable(page)).toBeVisible()
+  await expect(page.locator('.sr-row')).toHaveCount(5)
+  await expect(elegidos(page)).toHaveCount(3)
+
+  // Escape suelta lo elegido; otro Escape cierra el desplegable
+  await caja(page).press('Escape')
+  await expect(elegidos(page)).toHaveCount(0)
+  await expect(desplegable(page)).toBeVisible()
+  await caja(page).press('Escape')
+  await expect(desplegable(page)).toHaveCount(0)
+})
+
+test('desde la caja: Ctrl+A es del texto; Ctrl+Espacio y Mayús+flechas eligen, y «Reproducir estas 2» las pone de cola', async ({
+  page
+}) => {
+  await abrir(page)
+  await escribir(page, 'a', TODAS)
+  const filas = await page.locator('.sr-row .sr-title').allTextContents()
+
+  // Ctrl+A selecciona lo escrito, no los resultados
+  await caja(page).press('ControlOrMeta+a')
+  expect(
+    await caja(page).evaluate((el) => [el.selectionStart, el.selectionEnd, el.value.length])
+  ).toEqual([0, 1, 1])
+  await expect(elegidos(page)).toHaveCount(0)
+  await caja(page).press('End')
+
+  await caja(page).press('ArrowDown') // la segunda
+  await caja(page).press('Control+Space')
+  await expect(elegidos(page)).toHaveText([filas[1]])
+  await caja(page).press('Shift+ArrowDown')
+  await expect(elegidos(page)).toHaveText([filas[1], filas[2]])
+  await expect(caja(page)).toHaveValue('a')
+
+  // la tecla de menú sobre la resaltada (elegida): las opciones de las dos
+  await caja(page).press('ContextMenu')
+  await expect(page.getByRole('menu', { name: '2 canciones' })).toBeVisible()
+  await opcion(page, 'Reproducir estas 2').click()
+  await expect(page.locator('.player .title')).toHaveText(filas[1])
+  // «siguiente» recorre las elegidas: la cola son ellas
+  await page
+    .locator('.player')
+    .getByRole('button', { name: /^Siguiente/ })
+    .click()
+  await expect(page.locator('.player .title')).toHaveText(filas[2])
+})

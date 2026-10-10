@@ -109,6 +109,84 @@
 .sr-empty {
   border-bottom: none;
 }
+
+/* ---------- la cabecera con botones ----------
+   Con resultados lleva el boton «Seleccionar» y, con alguno elegido, la
+   barra pequeña (cuantos, «Añadir a una lista ▾», «⋯», «Ninguno»). Siempre en
+   una linea: cabe a 460 px (el desplegable nunca es mas ancho) y por debajo
+   las etiquetas se acortan y luego se van, quedando los iconos. Menos relleno
+   arriba y abajo: con los botones dentro mide lo mismo que sin ellos. */
+.sr-tools {
+  gap: 8px;
+  min-height: 34px;
+  padding: 3px 8px 3px 12px;
+  white-space: nowrap;
+}
+.sr-tools .sr-tip {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.sr-act {
+  flex: none;
+  gap: 5px;
+  min-height: 26px;
+}
+.sr-act:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.sr-select.on {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel2));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border2));
+  color: var(--accent);
+}
+.sr-short {
+  display: none;
+}
+.sr-caret {
+  opacity: 0.7;
+  margin-left: -2px;
+}
+/* con alguno elegido: el tono de la barra de la seleccion de la lista */
+.sr-picking {
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+/* la cuenta: si falta sitio cede la palabra con «…», nunca el numero */
+.sr-picking .sr-count {
+  flex: 0 1 auto;
+  min-width: 2.6em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 12px;
+}
+.sr-n {
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sr-acts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+}
+@media (max-width: 460px) {
+  .sr-long {
+    display: none;
+  }
+  .sr-short {
+    display: inline;
+  }
+}
+/* una ventana estrechisima: solo los iconos (cada boton lleva su nombre entero
+   para el lector de pantalla y en el `title`) */
+@media (max-width: 360px) {
+  .sr-tools .sr-label {
+    display: none;
+  }
+}
 /* Solo esta parte se desplaza: la cabecera y el pie se quedan quietos. */
 .sr-list {
   overflow-y: auto;
@@ -127,6 +205,20 @@
 }
 .sr-row.on {
   background: var(--panel2);
+}
+/* elegida (Ctrl+clic, Mayús, la casilla): como una fila elegida de la lista;
+   la resaltada entre ellas, un punto mas, para que el teclado se vea */
+.sr-row.picked {
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel2));
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.sr-row.on.picked {
+  background: color-mix(in srgb, var(--accent) 21%, var(--panel2));
+}
+/* la casilla del modo «Seleccionar» (.pick-box, en selection.css): al pasar
+   por la fila avisa de que se puede marcar, como en la lista */
+.sr-row:hover .pick-box:not(.on) {
+  border-color: var(--accent);
 }
 .sr-row.dragged {
   opacity: 0.4;

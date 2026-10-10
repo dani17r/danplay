@@ -656,6 +656,28 @@ function searchMenu(song, ev) {
     play: () => (player.track.value?.id === song.id ? player.toggle() : playResult(song))
   })
 }
+/**
+ * Lo elegido en el desplegable (Ctrl/Mayús + clic, las casillas, Ctrl+Espacio):
+ * el menú de grupo (el «⋯» de su barra, o el clic derecho sobre una elegida) y
+ * «Añadir a una lista ▾». Lo mismo que sobre varias de la lista, pero sin
+ * «quitar de esta lista» (`fromSearch`), y el desplegable no se cierra.
+ * «Reproducir» pone esas, en el orden de los resultados, como cola, y ese sí
+ * lo cierra (como reproducir una sola desde su fila o su menú).
+ */
+function searchGroupMenu(list, ev) {
+  menuFromSearch = true
+  menus.groupMenu(ev, list, {
+    fromSearch: true,
+    play: (chosen) => {
+      quickOpen.value = false
+      play(chosen[0], chosen, { kind: 'all', label: `Búsqueda «${query.value.trim()}»` })
+    }
+  })
+}
+function searchAddToList(list, ev) {
+  menuFromSearch = true
+  menus.addToList(ev, list)
+}
 /** Las canciones que ya no están (a la papelera): salen también del desplegable. */
 function forgetResults(ids) {
   if (quick.value.some((c) => ids.includes(c.id))) {
@@ -939,6 +961,8 @@ function onUpdated(song) {
             @pick="pickResult"
             @play="playResult"
             @menu="searchMenu"
+            @group-menu="searchGroupMenu"
+            @add-to-list="searchAddToList"
             @see-all="seeAllResults"
             @close="quickOpen = false"
           />

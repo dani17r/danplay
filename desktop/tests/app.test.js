@@ -465,6 +465,183 @@ describe('el buscador', () => {
       expect(playback.bridge.setQueue).not.toHaveBeenCalled()
     })
   })
+
+  // Varios resultados a la vez (el botón «Seleccionar» del desplegable, Ctrl o
+  // Mayús + clic, Ctrl+Espacio): lo mismo que con varias canciones de la lista,
+  // sin cerrar el desplegable.
+  describe('varios resultados a la vez', () => {
+    const preparar = async () => {
+      const w = await montar()
+      await pulsar(w, 'Favoritos')
+      await buscar(w, 'barak')
+      expect(w.findAll('.sr-row')).toHaveLength(3)
+      return w
+    }
+    const filas = (w) => w.findAll('.sr-row')
+    const elegidas = (w) =>
+      filas(w).flatMap((f, i) => (f.classes().includes('picked') ? [i + 1] : []))
+    const boton = (w, label) => w.find(`.sr-head button[aria-label="${label}"]`)
+    const caja = (w) => w.find('.topbar input')
+    const elegir = async (w, texto) => {
+      const item = w.findAll('.ctx-item').find((b) => b.text().includes(texto))
+      expect(item, `falta «${texto}» en el menu`).toBeTruthy()
+      await item.trigger('mousedown')
+      await item.trigger('click')
+      await flushPromises()
+    }
+
+    it('dos resultados a una lista con «Añadir a una lista ▾»: una sola petición y el desplegable sigue', async () => {
+      state.playlists = [
+        { id: 7, name: 'Domingo', n: 0 },
+        { id: 8, name: 'Ensayo', n: 2 }
+      ]
+      const w = await preparar()
+      await w.find('.sr-select').trigger('click')
+      await filas(w)[0].trigger('click')
+      await filas(w)[2].trigger('click')
+      expect(w.find('.sr-count').text()).toBe('2 seleccionados')
+      await boton(w, 'Añadir a una lista').trigger('click')
+      await flushPromises()
+      expect(w.find('.ctx-head').text()).toBe('Añadir 2 a una lista')
+      await elegir(w, 'Ensayo')
+      expect(api.addToPlaylist).toHaveBeenCalledTimes(1)
+      expect(api.addToPlaylist).toHaveBeenCalledWith(8, [1, 3])
+      expect(w.find('.ctx').exists()).toBe(false)
+      expect(w.find('.search-results').exists(), 'el desplegable sigue ahi').toBe(true)
+      expect(elegidas(w), 'y lo elegido, para seguir haciendo cosas').toEqual([1, 3])
+      // el foco vuelve a la caja: lo que se escriba sigue llegando
+      expect(document.activeElement).toBe(caja(w).element)
+      // la ficha de al lado no se ha movido a ninguna
+      expect(w.findAll('[data-song-row].selected')).toHaveLength(0)
+    })
+
+    it('con Ctrl+clic y el «⋯» de la barra: las opciones de todas, sin «quitar de esta lista»', async () => {
+      state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
+      state.playlistSongs = [song(1), song(2), song(3)]
+      const w = await montar()
+      await w.find('.nav-playlist').trigger('click')
+      await settle()
+      await buscar(w, 'barak')
+      api.song.mockClear()
+      await filas(w)[1].trigger('click', { ctrlKey: true })
+      await filas(w)[2].trigger('click', { ctrlKey: true })
+      await flushPromises()
+      expect(api.song, 'Ctrl+clic no abre la ficha').not.toHaveBeenCalled()
+      await boton(w, 'Más opciones').trigger('click')
+      await flushPromises()
+      expect(w.find('.ctx-head').text()).toBe('2 canciones')
+      const textos = w.findAll('.ctx-item').map((b) => b.text())
+      expect(textos.some((t) => t.startsWith('Reproducir estas 2'))).toBe(true)
+      expect(textos.some((t) => t.startsWith('Enviar 2 por Telegram'))).toBe(true)
+      // habla de la lista abierta, no de lo encontrado
+      expect(textos.some((t) => t.includes('de esta lista'))).toBe(false)
+      await elegir(w, 'Añadir 2 a una lista')
+      await elegir(w, 'Domingo')
+      expect(api.addToPlaylist).toHaveBeenCalledWith(7, [2, 3])
+      expect(w.find('.search-results').exists()).toBe(true)
+    })
+
+    it('el clic derecho sobre una elegida es el menú de todas; sobre otra, el suyo', async () => {
+      const w = await preparar()
+      await filas(w)[0].trigger('click', { ctrlKey: true })
+      await filas(w)[1].trigger('click', { ctrlKey: true })
+      await filas(w)[1].trigger('contextmenu')
+      await flushPromises()
+      expect(w.find('.ctx-head').text()).toBe('2 canciones')
+      await filas(w)[2].trigger('contextmenu')
+      await flushPromises()
+      expect(w.find('.ctx-head').text()).toContain('Cancion 3')
+      expect(elegidas(w)).toEqual([1, 2])
+    })
+
+    it('«Reproducir estas 2» pone de cola las elegidas, en el orden de los resultados', async () => {
+      const w = await preparar()
+      await filas(w)[2].trigger('click', { ctrlKey: true })
+      await filas(w)[0].trigger('click', { ctrlKey: true })
+      await boton(w, 'Más opciones').trigger('click')
+      await flushPromises()
+      await elegir(w, 'Reproducir estas 2')
+      await flushPromises()
+      const [items, start, origin] = playback.bridge.setQueue.mock.calls.at(-1)
+      expect(items.map((t) => t.id)).toEqual([1, 3])
+      expect(start).toBe(1)
+      expect(origin.label).toContain('barak')
+    })
+
+    it('la papelera pide confirmación: cancelada no borra nada; aceptada, se van del desplegable', async () => {
+      const w = await preparar()
+      await filas(w)[0].trigger('click', { ctrlKey: true })
+      await filas(w)[1].trigger('click', { shiftKey: true })
+      expect(elegidas(w)).toEqual([1, 2])
+      const papelera = async () => {
+        await boton(w, 'Más opciones').trigger('click')
+        await flushPromises()
+        await elegir(w, 'Mandar 2 a la papelera')
+        expect(useDialog().dialog.value.open).toBe(true)
+        expect(useDialog().dialog.value.title).toBe('Mandar 2 canciones a la papelera')
+      }
+      await papelera()
+      dialogCancel()
+      await flushPromises()
+      await flushPromises()
+      expect(api.deleteSong).not.toHaveBeenCalled()
+      expect(filas(w)).toHaveLength(3)
+      expect(elegidas(w)).toEqual([1, 2])
+      expect(w.find('.search-results').exists()).toBe(true)
+
+      await papelera()
+      dialogOk()
+      await flushPromises()
+      await flushPromises()
+      expect(api.deleteSong.mock.calls).toEqual([[1], [2]])
+      expect(filas(w)).toHaveLength(1)
+      expect(w.find('.sr-picking').exists(), 'lo que ya no esta, no esta elegido').toBe(false)
+      expect(w.find('.search-results').exists()).toBe(true)
+    })
+
+    it('desde la caja: Ctrl+Espacio, Mayús+flechas, y Escape suelta lo elegido antes de cerrar', async () => {
+      const w = await preparar()
+      await caja(w).trigger('keydown', { key: ' ', ctrlKey: true }) // la primera
+      await caja(w).trigger('keydown', { key: 'ArrowDown', shiftKey: true })
+      expect(elegidas(w)).toEqual([1, 2])
+      await caja(w).trigger('keydown', { key: 'Escape' })
+      await flushPromises()
+      expect(elegidas(w)).toEqual([])
+      expect(w.find('.search-results').exists(), 'Escape era para lo elegido').toBe(true)
+      await caja(w).trigger('keydown', { key: 'Escape' })
+      await flushPromises()
+      expect(w.find('.search-results').exists()).toBe(false)
+    })
+
+    it('Ctrl+A en la caja es del texto: no elige resultados ni canciones de la lista', async () => {
+      const w = await preparar()
+      const e = new KeyboardEvent('keydown', {
+        key: 'a',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+      caja(w).element.dispatchEvent(e)
+      await flushPromises()
+      expect(e.defaultPrevented, 'el navegador selecciona el texto').toBe(false)
+      expect(elegidas(w)).toEqual([])
+      expect(w.find('.sel-bar').exists()).toBe(false)
+      expect(w.findAll('[data-song-row].selected')).toHaveLength(0)
+    })
+
+    it('otra búsqueda o cerrar el desplegable olvida lo elegido', async () => {
+      const w = await preparar()
+      await filas(w)[0].trigger('click', { ctrlKey: true })
+      await buscar(w, 'barak otra vez')
+      expect(elegidas(w)).toEqual([])
+      await filas(w)[1].trigger('click', { ctrlKey: true })
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      await flushPromises()
+      expect(w.find('.search-results').exists()).toBe(false)
+      await buscar(w, 'barak')
+      expect(elegidas(w)).toEqual([])
+    })
+  })
 })
 
 describe('portadas difuminadas', () => {
