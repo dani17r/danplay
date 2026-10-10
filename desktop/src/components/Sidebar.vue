@@ -29,7 +29,15 @@ const emit = defineEmits(['go', 'newPlaylist', 'playlistMenu'])
 // Aqui se sueltan las canciones que se arrastran desde la lista. Cada destino
 // solo tiene que decir quien es con `data-drop`; de lo que pasa al soltar se
 // encarga la app.
-const { dragging, isOver } = useDragSong()
+const { drag, dragging, isOver } = useDragSong()
+
+/** Lo que se dice al pasar con canciones en la mano por encima de una lista. */
+function dropHint(/** @type {string} */ name) {
+  const n = drag.songs.length
+  return n > 1
+    ? `Soltar aquí para añadir las ${n} a «${name}»`
+    : `Soltar aquí para añadirla a «${name}»`
+}
 
 const filter = ref('')
 
@@ -203,11 +211,7 @@ const shown = computed(() => {
               'drop-over': isOver('playlist:' + l.id)
             }"
             :aria-current="view.kind === 'playlist' && view.id === l.id ? 'page' : undefined"
-            :title="
-              dragging
-                ? 'Soltar aquí para añadirla a «' + l.name + '»'
-                : l.name + '  ·  clic derecho para más opciones'
-            "
+            :title="dragging ? dropHint(l.name) : l.name + '  ·  clic derecho para más opciones'"
             @click="emit('go', { kind: 'playlist', id: l.id, name: l.name })"
             @contextmenu.prevent="emit('playlistMenu', $event, l)"
           >
