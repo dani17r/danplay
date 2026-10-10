@@ -138,6 +138,15 @@ def ai_fallback(body: Annotated[AiFallbackIn, Body()]):
     return _ai_overview()
 
 
+@router.post("/api/ai/recheck")
+def ai_recheck():
+    """«Reintentar con el principal»: olvida que el proveedor activo fallo (sin
+    saldo, clave rechazada, saturado…) para que el siguiente mensaje del chat
+    se pruebe con el y no con el respaldo. No cambia ningun ajuste. Devuelve
+    el estado, igual que `ai.status()`: `{primary, answering}`."""
+    return ai.recheck()
+
+
 @router.post("/api/ai/check")
 def ai_check(body: Annotated[AiProfileIn, Body()]):
     """Prueba lo que hay en el formulario SIN guardarlo: clave, URL, los dos

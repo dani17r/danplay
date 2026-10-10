@@ -909,10 +909,12 @@ def test_si_el_activo_esta_caido_responde_el_respaldo(perfiles, monkeypatch):
     assert (
         r.via["fallback"] and r.via["id"] == "groq" and r.via["model"] == "llama-3.3-70b-versatile"
     )
+    assert r.via["reason"] == "down", "un 503: el tipo de fallo que provoco el respaldo"
     assert calls == [("openai", "gpt-5.6-luna"), ("groq", "llama-3.3-70b-versatile")]
     # mientras el activo siga marcado como caido, se va directo al respaldo
     r = ai.complete([{"role": "user", "content": "otra"}], purpose="fast")
     assert calls[-1] == ("groq", "llama-3.1-8b-instant") and len(calls) == 3
+    assert r.via["reason"] == "down", "tambien cuando ni se le llamo: lo dice la marca"
     # sin respaldo activado, el fallo se cuenta tal cual
     providers.set_fallback(False)
     ai.reset_client()
@@ -965,13 +967,14 @@ def test_el_uso_se_apunta_por_turno_y_en_la_base(perfiles, monkeypatch, tmp_path
     fake.chat.completions.create = create
     _fake(monkeypatch, fake)
     ai.begin_turn()
-    ai.ask("hola")
-    ai.ask("otra")
+    ai.ask("hola", purpose="chat")
+    ai.ask("otra")  # el juez, una identificacion…: gasta, pero no cambia el `via`
     usage, via = ai.turn_summary()
+    assert via is not None
     assert usage["calls"] == 2 and usage["prompt"] == 2000 and usage["completion"] == 1000
     # gpt-6-astra: 10 $/M entrada y 50 $/M salida en el catalogo
     assert usage["priced"] and abs(usage["cost"] - (2000 / 1e6 * 10 + 1000 / 1e6 * 50)) < 1e-9
-    assert via["model"] == "gpt-6-astra" and not via["fallback"]
+    assert via["model"] == "gpt-6-astra" and not via["fallback"] and via["reason"] == ""
     s = library.ai_usage_summary()
     assert s["today"]["calls"] == 2 and s["month"]["prompt"] == 2000
     assert abs(s["today"]["cost"] - usage["cost"]) < 1e-6

@@ -226,11 +226,17 @@ def confirm_tool(body: Annotated[ChatConfirmIn, Body()]):
 
 @router.get("/api/chat/tools")
 def chat_tools():
+    # El estado del proveedor para la franja del chat: por que el principal no
+    # contesta (o None) y quien contesto la ultima vez (o None). Sin ningun
+    # texto del proveedor: solo tipo, codigo HTTP y hora (ver `ai.status`).
+    st = ai.status()
     return {
         "model": ai.chat_model(),
         "provider": ai.provider_name(),
         "available": ai.available(),
         "reason": ai.unavailable_reason(),
+        "primary_problem": st["primary"]["problem"],
+        "answering": st["answering"],
         "tools": [
             {"name": h["function"]["name"], "description": h["function"]["description"]}
             for h in chat.TOOLS

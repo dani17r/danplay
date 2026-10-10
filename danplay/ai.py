@@ -10,6 +10,12 @@ rechazan `tool_choice="required"`, los razonadores de OpenAI no admiten
 `temperature` y quieren `max_completion_tokens`. En vez de fallar en seco,
 `complete()` quita lo que el servidor rechaza, reintenta y se acuerda para la
 proxima vez. Lo que se sabe de antemano por el catalogo ni se manda.
+
+Y cuando el proveedor elegido falla, no lo calla: apunta POR QUE (sin saldo,
+clave rechazada, limite de peticiones, caido: `classify_failure`) y quien
+contesto en su lugar. `status()` lo cuenta a la interfaz sin repetir ni una
+palabra del proveedor, que puede llevar fragmentos de la clave
+(`sanitize_provider_message`).
 """
 
 import hashlib
@@ -21,6 +27,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import urlsplit
 
 from . import config, model_catalog, providers
 
@@ -36,10 +43,25 @@ _clients: dict[tuple, Any] = {}
 # Lo que un servidor ya rechazo, por (proveedor, modelo): no se repite.
 _unsupported: dict[tuple[str, str], set[str]] = {}
 
-# Un proveedor que no responde se da por caido un rato: en ese rato se va
-# directo al respaldo, sin esperar otra vez el tiempo limite.
+# Un proveedor que falla se da por caido un rato: en ese rato se va directo al
+# respaldo, sin gastar otra llamada (y su tiempo limite) en el. Cuanto dura
+# depende de POR QUE fallo (`classify_failure`): lo que se arregla solo, poco;
+# lo que necesita a la persona (recargar saldo, cambiar la clave), mucho. Con
+# 60 s para todo, un principal sin saldo costaba una llamada fallida cada
+# minuto de charla.
 _down_until: dict[str, float] = {}
-DOWN_FOR = 60
+DOWN_FOR = 60  # sin respuesta, saturado, o un 403 que no dice por que
+RATE_FOR = 120  # limite de peticiones (por minuto): pasa solo
+LONG_FOR = 20 * 60  # sin saldo o clave rechazada: no pasa solo
+
+# Lo que se sabe de por que fallo cada proveedor y quien contesto la ultima
+# vez en el chat. Lo lee `status()`, que llama OTRO hilo (la ruta que alimenta
+# la franja de la interfaz): por eso es un registro global con cerrojo y no
+# algo por hilo como `_turn`. NO guarda el texto del proveedor (puede repetir
+# trozos de la clave): solo el tipo de fallo, el codigo HTTP y cuando.
+_status_lock = threading.Lock()
+_problems: dict[str, dict] = {}  # id -> {"kind", "code", "at"}
+_last_chat_via: dict | None = None
 
 # Flujos que se rompieron a medias, por (proveedor, modelo). Algun servicio
 # manda de vez en cuando un evento vacio que el SDK no traga: la peticion se
@@ -48,7 +70,10 @@ DOWN_FOR = 60
 _stream_failures: dict[tuple[str, str], int] = {}
 STREAM_FAILURES_MAX = 3
 
-# Lo gastado en el turno en curso (por hilo: cada conversacion va en el suyo)
+# Lo gastado en el turno en curso (por hilo: cada conversacion va en el suyo).
+# Cuenta TODAS las llamadas (la conversacion, el juez...); `via`, solo la
+# ultima de conversacion: lo que la interfaz enseña como «quien contesto» no
+# puede cambiar porque el juez haya pasado por otro modelo.
 _turn = threading.local()
 
 
@@ -139,24 +164,50 @@ def provider_name() -> str:
 
 
 def reset_client() -> None:
-    """Olvida el cliente: se vuelve a crear con el perfil actual."""
-    global _client, _client_for
+    """Olvida el cliente: se vuelve a crear con el perfil actual. Y con el, lo
+    que se sabia de quien fallaba y de quien contestaba: si cambia el perfil o
+    sus ajustes (o la persona recarga el saldo y lo guarda), lo de antes ya no
+    vale."""
+    global _client, _client_for, _last_chat_via
     with _client_lock:
         _client, _client_for = None, None
         _clients.clear()
     _unsupported.clear()
-    _down_until.clear()
+    with _status_lock:
+        _down_until.clear()
+        _problems.clear()
+        _last_chat_via = None
 
 
 def begin_turn() -> None:
     """Empieza a contar lo que gasta un turno (varias llamadas: las vueltas
     con herramientas, el juez…). Por hilo."""
-    _turn.usage = {"calls": 0, "prompt": 0, "completion": 0, "cost": 0.0, "priced": True}
+    _turn.usage = {
+        "calls": 0,
+        "prompt": 0,
+        "completion": 0,
+        "cost": 0.0,
+        "priced": True,
+        "requests": 0,
+    }
     _turn.via = None
 
 
+def turn_requests() -> int:
+    """Cuantas veces se ha llamado a `complete` en el turno en curso (0 sin
+    turno): cada vuelta, reintento, empujon y consulta al juez, salgan bien o
+    mal y pasen por cuantos proveedores pasen. A diferencia de `calls` (solo
+    las que devolvieron lo gastado), no se escapa ninguna: es lo que mide el
+    presupuesto de llamadas de un turno."""
+    acc = getattr(_turn, "usage", None)
+    return int(acc.get("requests", 0)) if acc else 0
+
+
 def turn_summary() -> tuple[dict | None, dict | None]:
-    """(uso del turno, quien respondio la ultima vez), o (None, None)."""
+    """(uso del turno, quien respondio en su ultima llamada de CONVERSACION), o
+    (None, None). El uso suma todas las llamadas; `via`, solo las de
+    `purpose="chat"`: el juez o la identificacion de un archivo no cambian
+    quien se dice que ha contestado."""
     return getattr(_turn, "usage", None), getattr(_turn, "via", None)
 
 
@@ -280,12 +331,13 @@ _HINTS = (
     ),
 )
 # Un fallo que no es del mensaje sino del servicio: caido, sin credito,
-# saturado, clave rechazada. Con eso se pasa al respaldo.
-_DOWN_STATUS = {401, 402, 403, 408, 425, 429, 500, 502, 503, 504}
+# saturado, clave rechazada. Con eso se pasa al respaldo. (Y todo 5xx: ver
+# `classify_failure`, que ademas mira el texto para el dinero, los limites y las
+# claves; aqui solo lo que habla de la conexion.)
+_DOWN_STATUS = {401, 402, 403, 408, 425, 429}
 _DOWN_TEXT = re.compile(
-    r"connection|timeout|timed out|resolve|network|unreachable|refused|"
-    r"overloaded|rate limit|insufficient|quota|credit|balance|unauthorized|"
-    r"invalid api key|authentication|service unavailable",
+    r"connection|timeout|timed out|resolve (?:host|name)|name resolution|nodename|"
+    r"getaddrinfo|network|unreachable|refused|overloaded|service unavailable",
     re.I,
 )
 _TOOLS_HINT = re.compile(
@@ -342,9 +394,199 @@ def _known_limits(p: providers.Profile, model: str) -> set[str]:
     return out
 
 
+# ----------------------------------------------- por que falla un proveedor
+
+# Cuatro tipos de fallo del SERVICIO. Lo que dice el TEXTO sin lugar a dudas
+# manda sobre el codigo HTTP, porque el codigo engaña: OpenAI manda
+# `insufficient_quota` (sin saldo) con un 429 (que casi siempre es «espera un
+# poco»), Gemini manda con un 429 tanto «limite por minuto» como «tu plan no
+# tiene cuota para este modelo», y OpenRouter contesta un 403 cuando modera UN
+# mensaje, no porque la clave este mal.
+#   billing  sin saldo o sin cuota en el plan: lo arregla la persona
+#   auth     clave rechazada: lo arregla la persona
+#   rate     demasiadas peticiones: pasa solo
+#   down     caido, saturado, sin conexion, tiempo agotado, o un 403 sin motivo
+KINDS = ("billing", "auth", "rate", "down")
+
+# falta dinero, dicho sin rodeos (el «billing» suelto no vale: Gemini lo repite
+# en sus avisos de limite por minuto)
+_BILLING_TEXT = re.compile(
+    r"credit balance|insufficient[_ ](?:quota|credits?|funds|balance)|"
+    r"not enough (?:credits?|funds|balance)|(?:out of|no more|no remaining) credits?|"
+    r"(?:used|exhausted) (?:up )?(?:all )?(?:of )?(?:your |the )?(?:available )?credits?|"
+    r"payment[_ ]required|plans? & billing|billing[_ ](?:(?:hard[_ ])?limit|not[_ ]active)|"
+    r"account is not active|"
+    r"spending limit|key limit exceeded|(?:purchase|add) (?:more )?credits?|"
+    r"limit:\s*0(?!\d|\.\d)",
+    re.I,
+)
+# demasiadas peticiones (y cualquier otra cosa que hable de cuota o de esperar)
+_RATE_TEXT = re.compile(
+    r"rate[_ ]?limit|too many requests|\bquotas?\b|resource[_ ]exhausted|"
+    r"(?:requests|tokens|queries) per (?:min|minute|second|sec|day)|"
+    r"\bper[ _](?:minute|second)\b|(?:retry|try again) in \d|slow down|throttl",
+    re.I,
+)
+# la clave no vale
+_AUTH_TEXT = re.compile(
+    r"invalid[_ ](?:x-)?api[_ -]?key|incorrect api key|reported as leaked|"
+    r"api[_ -]?key (?:is |was )?(?:not valid|invalid|expired|revoked|disabled|suspended)|"
+    r"unauthori[sz]ed|authentication|permission[_ ]denied|permission_error|"
+    r"does not have permission|not authorized|invalid[_ ]credentials|no auth credentials",
+    re.I,
+)
+# solo dinero, de pasada: con un 400 o sin codigo vale, con un 403 no (un 403
+# repite el mensaje de quien lo moderaba) ni con un 5xx
+_BILLING_WEAK = re.compile(r"\bbilling\b|\bcredits?\b|\bbalance\b", re.I)
+_CODE_IN_TEXT = re.compile(r"\s*(?:error code:\s*)?(\d{3})\b", re.I)
+
+
+def _error_text(e: object) -> str:
+    try:
+        return str(e)
+    except Exception:  # noqa: BLE001
+        return type(e).__name__
+
+
+def _http_code(e: object, text: str) -> int | None:
+    """El codigo HTTP del fallo: el del SDK o, si no lo trae, el que abre el
+    texto («Error code: 429 - …», «503 Service Unavailable»)."""
+    code = getattr(e, "status_code", None)
+    if isinstance(code, int) and not isinstance(code, bool):
+        return code
+    m = _CODE_IN_TEXT.match(text)
+    if m and 100 <= int(m.group(1)) <= 599:
+        return int(m.group(1))
+    return None
+
+
+def classify_failure(e: BaseException) -> tuple[str, int | None]:
+    """(tipo, codigo HTTP) de un fallo del SERVICIO. Tipo "" si el fallo es del
+    mensaje (parametros que no valen, un modelo que no existe…) y probar con
+    otro proveedor no lo arreglaria. Ver `KINDS` para los tipos."""
+    text = _error_text(e)
+    code = _http_code(e, text)
+    low = text.lower()
+    if _BILLING_TEXT.search(low) or code == 402:
+        kind = "billing"
+    elif code is not None and code >= 500:
+        kind = "down"  # el cuerpo de un 5xx (una pagina de error…) no dice nada mas
+    elif code == 429 or _RATE_TEXT.search(low):
+        kind = "rate"
+    elif code == 401 or _AUTH_TEXT.search(low):
+        kind = "auth"
+    elif code in (None, 400) and _BILLING_WEAK.search(low):
+        kind = "billing"
+    elif code in _DOWN_STATUS or _DOWN_TEXT.search(low):
+        kind = "down"  # incluye el 403 que no dice por que
+    else:
+        kind = ""
+    return kind, code
+
+
 def _is_down(e: Exception) -> bool:
-    status = getattr(e, "status_code", None)
-    return status in _DOWN_STATUS or bool(_DOWN_TEXT.search(str(e)))
+    """Si el fallo es del servicio y no del mensaje: toca probar el respaldo."""
+    return bool(classify_failure(e)[0])
+
+
+def _hold_for(kind: str) -> float:
+    """Cuanto se da por caido un proveedor segun por que ha fallado."""
+    if kind in ("billing", "auth"):
+        return LONG_FOR
+    return RATE_FOR if kind == "rate" else DOWN_FOR
+
+
+def _now() -> float:
+    return time.time()
+
+
+def _held_kind(pid: str) -> str:
+    """El tipo de fallo por el que `pid` esta dado por caido ahora, o ""."""
+    with _status_lock:
+        if _down_until.get(pid, 0) <= _now():
+            return ""
+        return (_problems.get(pid) or {}).get("kind") or "down"
+
+
+def _note_failure(pid: str, kind: str, code: int | None) -> None:
+    """Apunta que `pid` ha fallado por `kind`. El plazo cuenta desde ESTE
+    instante, el del fallo, y no desde antes de la llamada: con un tiempo
+    limite de 60 s y los reintentos del SDK, un proveedor caido tarda minutos
+    en fallar, y una marca puesta con la hora de antes nacia ya caducada (el
+    turno siguiente volvia a esperarle)."""
+    now = _now()
+    with _status_lock:
+        _down_until[pid] = now + _hold_for(kind)
+        _problems[pid] = {"kind": kind, "code": code, "at": now}
+
+
+def _note_success(pid: str, purpose: str, via: dict) -> None:
+    """Apunta que `pid` ha contestado: ya no esta caido. Y, si era la
+    conversacion, que ha sido el quien ha contestado (solo ella: ver
+    `_turn`)."""
+    global _last_chat_via
+    with _status_lock:
+        _down_until.pop(pid, None)
+        _problems.pop(pid, None)
+        if purpose == "chat":
+            _last_chat_via = dict(via)
+    if purpose == "chat":
+        _turn.via = via
+
+
+def _forget_problem(pid: str) -> None:
+    """Olvida lo que se sabia del fallo de `pid`, porque la persona ha
+    comprobado que responde o quiere volver a probarlo. Si la ultima respuesta
+    del chat fue de un respaldo, tambien se olvida: ya no dice nada de lo que
+    pasara en el siguiente mensaje."""
+    global _last_chat_via
+    with _status_lock:
+        _down_until.pop(pid, None)
+        _problems.pop(pid, None)
+        if _last_chat_via and _last_chat_via.get("fallback"):
+            _last_chat_via = None
+
+
+def status() -> dict:
+    """El estado del proveedor para la interfaz (la franja bajo la cabecera del
+    chat), sin ningun texto del proveedor:
+
+        {"primary": {"id", "name", "model", "problem": {"kind", "code", "at"} | None},
+         "answering": {"id", "name", "model", "fallback", "reason"} | None}
+
+    `primary` es el perfil activo y su modelo de conversacion; `problem`, por
+    que no se le esta llamando ahora (tipo, codigo HTTP o None y cuando; solo
+    mientras dure la marca: pasado el plazo se vuelve a probar). `answering`,
+    quien contesto la ultima respuesta del chat (`reason` es el tipo de fallo
+    que provoco el respaldo, o "tools" si el modelo del principal no usa
+    herramientas), o None si aun no ha contestado nadie."""
+    p = profile()
+    problem = None
+    with _status_lock:
+        if p and _down_until.get(p["id"], 0) > _now():
+            hit = _problems.get(p["id"])
+            if hit:
+                problem = {"kind": hit["kind"], "code": hit["code"], "at": hit["at"]}
+        answering = dict(_last_chat_via) if _last_chat_via else None
+    return {
+        "primary": {
+            "id": p["id"] if p else "",
+            "name": p["name"] if p else "",
+            "model": p["chat_model"] if p else "",
+            "problem": problem,
+        },
+        "answering": answering,
+    }
+
+
+def recheck() -> dict:
+    """«Reintentar con el principal»: olvida que el activo fallo (y que un
+    respaldo contesto la ultima vez) para que el siguiente mensaje se pruebe
+    con el. Devuelve `status()`."""
+    p = profile()
+    if p:
+        _forget_problem(p["id"])
+    return status()
 
 
 def complete(
@@ -370,18 +612,28 @@ def complete(
 
     Si el proveedor activo esta caido, sin credito o saturado, se prueba con
     los demas configurados (si el respaldo esta activado), cada uno con su
-    modelo. `ToolsUnsupported` si se pidieron herramientas y ningun modelo
-    las admite; cualquier otro fallo sale como la excepcion del SDK.
+    modelo. Al que falla se le apunta por que (`classify_failure`) y se le da
+    por caido un rato, contado desde el instante del fallo: las llamadas
+    siguientes van directas al respaldo. `Reply.via` dice quien contesto y, si
+    fue un respaldo, en `reason` el tipo de fallo que lo provoco.
+    `ToolsUnsupported` si se pidieron herramientas y ningun modelo las admite;
+    cualquier otro fallo sale como la excepcion del SDK.
     """
+    acc = getattr(_turn, "usage", None)
+    if acc is not None:
+        acc["requests"] = acc.get("requests", 0) + 1
     active = profile() or _NO_PROFILE
     candidates = [active]
     if providers.fallback_enabled():
         candidates += providers.fallbacks(active["id"])
-    now = time.time()
     errors: list[Exception] = []
+    # por que no contesto el elegido: es el `reason` de quien lo sustituya
+    cause = ""
     for i, p in enumerate(candidates):
         last = i == len(candidates) - 1
-        if _down_until.get(p["id"], 0) > now and not last:
+        held = _held_kind(p["id"])
+        if held and not last:
+            cause = cause or held
             continue
         m = model or (p["chat_model"] if purpose == "chat" else p["model"])
         try:
@@ -399,19 +651,29 @@ def complete(
                 on_text,
                 cancel,
                 active=(i == 0),
+                reason=cause if i else "",
             )
-            _down_until.pop(p["id"], None)
-            return reply
         except Canceled:
             raise
         except ToolsUnsupported as e:
+            cause = cause or "tools"
             errors.append(e)
         except Exception as e:
-            if not _is_down(e):
+            kind, code = classify_failure(e)
+            if not kind:
                 raise  # es del mensaje, no del servicio
-            _down_until[p["id"]] = now + DOWN_FOR
-            log.info("%s no responde (%s); se prueba el respaldo", p["name"], str(e)[:80])
+            _note_failure(p["id"], kind, code)
+            cause = cause or kind
+            log.info(
+                "%s no responde (%s: %s); se prueba el respaldo",
+                p["name"],
+                kind,
+                sanitize_provider_message(e, p)[:80],
+            )
             errors.append(e)
+        else:
+            _note_success(p["id"], purpose, reply.via)
+            return reply
     # el error que se cuenta es el del proveedor elegido, que es el que
     # el usuario tiene que arreglar
     raise errors[0] if errors else RuntimeError("no hay proveedor de IA configurado")
@@ -431,6 +693,7 @@ def _complete_with(
     on_text,
     cancel,
     active=True,
+    reason="",
 ) -> Reply:
     kwargs: dict = {"model": model, "messages": messages}
     if tools:
@@ -475,7 +738,7 @@ def _complete_with(
                     "%s corto el flujo con %s (%s); se repite sin trozos",
                     p["id"],
                     model,
-                    str(e)[:80],
+                    sanitize_provider_message(e, p)[:80],
                 )
                 if n >= STREAM_FAILURES_MAX:
                     _unsupported.setdefault(key, set()).add("stream")
@@ -486,8 +749,14 @@ def _complete_with(
             if streaming:
                 _stream_failures.pop(key, None)
             _account(p, model, purpose, usage)
-            _turn.via = {"id": p["id"], "name": p["name"], "model": model, "fallback": not active}
-            return Reply(msg, usage, _turn.via)
+            via = {
+                "id": p["id"],
+                "name": p["name"],
+                "model": model,
+                "fallback": not active,
+                "reason": reason,
+            }
+            return Reply(msg, usage, via)
         except Canceled:
             raise
         except Exception as e:
@@ -608,12 +877,151 @@ def strip_thoughts(t: str) -> str:
 # ------------------------------------------------------------------ prueba
 
 
+# Lo que dice un proveedor en un error no es de fiar: algunos repiten la clave
+# entera o por trozos («Incorrect API key provided: sk-…abcd»), las cabeceras o
+# la URL con `?key=`. Ese texto acaba en la pantalla, en el registro y en la
+# conversacion guardada, asi que antes pasa por `sanitize_provider_message`.
+MAX_PROVIDER_MESSAGE = 160
+_SCAN_MAX = 20_000  # de un volcado enorme no se mira mas
+_MIN_SECRET = 8  # una clave de verdad es mas larga; un valor corto («low») no es secreto
+
+_URL_RX = re.compile(r"\b[A-Za-z][A-Za-z0-9+.\-]*://[^\s'\"<>]+")
+_BEARER_RX = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=*\-]+", re.I)
+# claves con la forma de las de los proveedores (tambien las enmascaradas con *)
+_KEY_RX = re.compile(
+    r"\b(?:(?:sk|rk|gsk|xai|csk|pplx|nvapi|hf|fw)[-_][A-Za-z0-9][A-Za-z0-9_*\-]{7,}|"
+    r"AIza[0-9A-Za-z_\-]{10,})"
+)
+# «Authorization: Bearer …» / «Authorization: Basic …»: el esquema y la credencial
+_AUTH_HEADER_RX = re.compile(
+    r"(?<![A-Za-z0-9_])(authorization['\"]?\s*[:=]\s*['\"]?)(?:[A-Za-z]+ )?[^\s,;&'\")\]}]+", re.I
+)
+# «clave=valor» (en una URL, una cabecera, un volcado) y «clave: valor» solo
+# para los nombres que no son palabras de uso corriente
+_KV_EQ_RX = re.compile(
+    r"(?<![A-Za-z0-9_])((?:x-)?api[_-]?key|apikey|(?:access|auth|refresh|session)[_-]?token|"
+    r"token|client[_-]?secret|secret|password|passwd|pwd|key)=[^\s&;,'\")\]}]+",
+    re.I,
+)
+_KV_COLON_RX = re.compile(
+    r"(?<![A-Za-z0-9_])((?:x-)?api[_-]?key|apikey|(?:access|auth|refresh|session)[_-]?token|"
+    r"client[_-]?secret|secret|password|passwd)(['\"]?\s*:\s*['\"]?)[^\s,;&'\")\]}]+",
+    re.I,
+)
+_CONTROL_RX = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# ceros de ancho, marcas y cambios de sentido de escritura: un texto con ellos
+# puede parecer otra cosa de lo que dice
+_INVISIBLE_RX = re.compile(
+    "["
+    + "".join(
+        chr(c)
+        for c in (*range(0x200B, 0x2010), *range(0x202A, 0x202F), *range(0x2066, 0x206A), 0xFEFF)
+    )
+    + "]"
+)
+
+
+def _url_to_host(m: re.Match) -> str:
+    """Una URL, solo con su servidor (y puerto): sin usuario:clave@, sin ruta
+    ni parametros, que es donde viajan las claves."""
+    raw, tail = m.group(0), ""
+    while raw and raw[-1] in ".,;:!?)]}":
+        raw, tail = raw[:-1], raw[-1] + tail
+    try:
+        parts = urlsplit(raw)
+        host, port = parts.hostname or "", parts.port
+    except ValueError:
+        return "[url]" + tail
+    if not host:
+        return "[url]" + tail
+    return host + (f":{port}" if port else "") + tail
+
+
+def _walk_strings(value: object, out: set[str], depth: int = 0) -> None:
+    if depth > 4:
+        return
+    if isinstance(value, str):
+        out.add(value)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _walk_strings(v, out, depth + 1)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _walk_strings(v, out, depth + 1)
+
+
+def _known_secrets(p: providers.Profile | None) -> list[str]:
+    """Lo que no debe salir NUNCA en un texto: la clave y los valores de las
+    cabeceras y de los parametros extra (ahi tambien va un «Authorization» o un
+    «api-key») del perfil que se pasa, del activo y de los de respaldo."""
+    found: set[str] = set()
+    profiles: list[providers.Profile | None] = [p]
+    try:
+        active = profile()
+        profiles.append(active)
+        if active:
+            profiles += providers.fallbacks(active["id"])
+    except Exception:
+        log.debug("no se pudieron leer los perfiles para limpiar un texto", exc_info=True)
+    for prof in profiles:
+        if not prof:
+            continue
+        key = prof.get("key")
+        if isinstance(key, str):
+            found.add(key)
+        _walk_strings(prof.get("headers"), found)
+        _walk_strings(prof.get("extra"), found)
+    return sorted((s for s in found if len(s) >= _MIN_SECRET), key=len, reverse=True)
+
+
+def sanitize_provider_message(text: object, p: providers.Profile | None = None) -> str:
+    """Lo que dice un proveedor (o una excepcion), apto para enseñarlo y para el
+    registro: sin secretos y en UNA linea de 160 caracteres como mucho.
+
+    Quita la clave y los valores de cabeceras y extras del perfil `p` (y del
+    activo y los de respaldo), las claves con forma de clave (`sk-…`, `AIza…`),
+    `Bearer …`, `clave=valor` y `Authorization: …`; y deja cada URL en su
+    servidor, sin `usuario:clave@`, ruta ni parametros. Nunca lanza: esto corre
+    justo cuando algo ya ha ido mal.
+    """
+    if text is None:
+        return ""
+    try:
+        s = (text if isinstance(text, str) else _error_text(text))[:_SCAN_MAX]
+        for secret in _known_secrets(p):
+            s = s.replace(secret, "***")
+        s = _URL_RX.sub(_url_to_host, s)
+        s = _BEARER_RX.sub("Bearer ***", s)
+        s = _KEY_RX.sub("***", s)
+        s = _AUTH_HEADER_RX.sub(r"\1***", s)
+        s = _KV_EQ_RX.sub(r"\1=***", s)
+        s = _KV_COLON_RX.sub(r"\1\2***", s)
+        s = " ".join(_CONTROL_RX.sub(" ", _INVISIBLE_RX.sub("", s)).split())
+    except Exception:  # noqa: BLE001
+        return "error del proveedor"
+    if len(s) <= MAX_PROVIDER_MESSAGE:
+        return s
+    return s[: MAX_PROVIDER_MESSAGE - 1].rstrip() + "…"
+
+
 def describe_error(e: Exception, p: providers.Profile | None = None) -> str:
     """Un fallo del proveedor, en una frase que el usuario entienda."""
     name = (p or {}).get("name") or "el proveedor"
-    text = str(e)
+    text = _error_text(e)
     low = text.lower()
-    status = getattr(e, "status_code", None)
+    # primero lo que dice el texto sin dudas y despues el codigo (ver
+    # `classify_failure`): un 429 de OpenAI sin saldo no es «espera», un 429 de
+    # Gemini por minuto no es «sin credito» y un 403 de moderacion no es una
+    # clave mala
+    kind, status = classify_failure(e)
+    if kind == "auth":
+        return f"{name} rechaza la clave"
+    if kind == "billing":
+        return "la clave es valida pero no tiene credito"
+    if kind == "rate":
+        return f"{name} pide esperar (limite de peticiones)"
+    if status == 403:
+        return f"{name} ha rechazado esta petición (403); si se repite, revisa la clave y el modelo"
     if status in (401, 403) or any(
         x in low
         for x in (
@@ -665,7 +1073,7 @@ def describe_error(e: Exception, p: providers.Profile | None = None) -> str:
         return f"no hay conexion con {name}"
     if "ssl" in low or "certificate" in low:
         return "fallo de certificado al conectar (¿URL con https correcta?)"
-    return text[:180]
+    return sanitize_provider_message(text, p)
 
 
 def _one_token(client, model: str, p: providers.Profile) -> None:
@@ -796,6 +1204,9 @@ def check(draft: dict | None = None) -> dict:
             return out
     tools_ok, tools_reason = _probe_tools(client, p["chat_model"], p)
     out.update(tools_ok=tools_ok, tools_reason=tools_reason)
+    if draft is None:
+        # el activo responde: lo que se sabia de su fallo ya no vale
+        _forget_problem(p["id"])
     return out
 
 
@@ -933,7 +1344,7 @@ def _gone_reason(text: str) -> str:
         return "no existe para esta clave"
     m = re.search(r"""['"]message['"]:\s*['"](.+?)(?:\\n|['"],|['"]\})""", text)
     t = m.group(1) if m else re.sub(r"^Error code: \d+ - ", "", text)
-    return t.split(". ")[0][:140]
+    return sanitize_provider_message(t.split(". ")[0])[:140]
 
 
 def _verify_key(p: providers.Profile, model: str) -> str:
@@ -1244,8 +1655,12 @@ def ask(
             purpose=purpose,
         )
         return message_text(r.message)
-    except Exception:
-        log.info("la consulta a la IA fallo", exc_info=True)
+    except Exception as e:  # noqa: BLE001
+        # sin `exc_info`: el traceback repite el texto del proveedor, con lo que
+        # lleve dentro (ver `sanitize_provider_message`)
+        log.info(
+            "la consulta a la IA fallo (%s): %s", type(e).__name__, sanitize_provider_message(e)
+        )
         return None
 
 
