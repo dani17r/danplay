@@ -238,32 +238,67 @@ Rutas nuevas o cambiadas (Python):
 
 Las herramientas destructivas (`delete_song`, `delete_playlist`,
 `download_music`) **nunca se ejecutan dentro de la conversación**. Cuando el
-modelo las llama, el núcleo le devuelve `{"needs_confirmation": true,
-"summary": "..."}` y la respuesta HTTP lleva:
+modelo las llama (o `fill_playlist` propone bajar lo que falta de una lista),
+el núcleo **registra la propuesta** (`danplay/chat/plan.py`) y la respuesta
+HTTP lleva:
 
 ```json
 { "text": "...", "tools": [...], "actions": [...],
-  "confirm": { "id": "c1", "tool": "delete_song", "args": {"id": 12},
-               "summary": "Mandar a la papelera «Barak - Mi Gozo.mp3»" } }
+  "confirm": { "id": "kq3V…", "tool": "download_music",
+               "summary": "Descargar 2 temas de YouTube",
+               "effect": "Al terminar: añado 2 a «domingo»",
+               "plan_state": "buscando", "args": {...} },
+  "setlist": { ... } }
 ```
 
-`confirm` es `null` si no hay nada pendiente (como mucho una por respuesta).
-La interfaz muestra un diálogo con `summary`; si el usuario acepta, llama a
+- El **id lo genera el servidor**, y `summary` y `effect` los escribe él.
+  `confirm` es `null` si no hay nada pendiente (como mucho una por respuesta);
+  una propuesta nueva de la misma herramienta deja sin valor la anterior, y
+  caduca a los 30 minutos (o al reiniciar el núcleo: vive en memoria).
+- `args` va solo por compatibilidad con una interfaz antigua: la de ahora
+  **confirma por id** y no manda argumentos.
+- Antes de proponer una descarga, el núcleo mira la biblioteca: lo que ya está
+  no se propone (y se le dice al modelo dónde está).
 
-`POST /api/chat/confirm` con `{ "tool": "...", "args": {...} }` → ejecuta la
-herramienta y devuelve `{ "ok": true, "result": {...}, "text": "resumen en
-castellano" }`. Si rechaza, no se llama a nada.
+Rutas:
 
-`download_music` es la excepción: tarda minutos, así que el confirm la
-**arranca en segundo plano** y vuelve al momento con
-`result: { active: true, items: [...], force: bool }`. Los `args` son los de
-la herramienta tal cual (`items`, `quality`, `file_it`, `force`); la
-interfaz no los toca. A partir de ahí el chat sigue la descarga por
-`GET /api/youtube` (el mismo estado que la página de Descargas: `active`,
-`phase`, `index`, `total`, `results`) y, cuando `active` pasa a `false`,
-cuenta en la conversación qué entró, qué ya estaba (`already_there`, con sus
-`matches`) y qué falló. `409` si ya hay una descarga en marcha; `400` si
-no hay nada que bajar; `503` si falta yt-dlp o ffmpeg.
+- `POST /api/chat/confirm { id, selection? }`: la ejecuta desde el REGISTRO,
+  nunca desde lo que mande el cliente. `selection` son los índices (`i`) de las
+  filas marcadas de la tarjeta. Con `id` no se aceptan `tool` ni `args` (422).
+  - Descarga → `{ ok, result: { active, id, job, items, force, trimmed,
+    playlist: {id, name} | null, skipped }, text }`, arrancada en segundo
+    plano. Si la propuesta venía de una lista, al terminar la descarga y antes
+    de soltar el turno se meten las bajadas en su sitio (`plan.apply_after`,
+    una sola escritura).
+  - `delete_*` → lo que devuelve la herramienta (`{ ok, result, text }`).
+  - `410` si ya no vale (usada, sustituida, caducada o desconocida, o lo que
+    se iba a borrar ya no es lo mismo); `409` si hay otra descarga en marcha o
+    falta la carpeta; `503` sin yt-dlp; `400` si con esas casillas no queda
+    nada. En `409`, `503` y `400` la propuesta sigue viva.
+- Forma antigua, por compatibilidad: `POST /api/chat/confirm { tool, args }`
+  ejecuta esa herramienta como antes (un `after` metido en `args` se ignora).
+- `GET /api/chat/confirm/{id}` → `{ state: live | used | superseded | expired
+  | unknown, tool, summary }`: la tarjeta solo habilita sus botones con `live`.
+- `GET /api/chat/plan/{id}` → `{ state: buscando | listo | parcial | error,
+  items: [{ i, n, query, kind, url, title, channel, duration, state, checked,
+  badge, note }], already: [{ n, title, song }], unresolved: [...], effect,
+  trimmed, reason }`: las filas de la tarjeta según el núcleo busca en YouTube
+  lo que falta (dos consultas a la vez como mucho, sin reintentos, con caché
+  de 10 min). `404` si esa propuesta no tiene plan.
+- `POST /api/chat/plan/{id}/cancel` → deja de buscar; la propuesta sigue viva.
+- `GET /api/youtube` → además de `active`, `phase` (también `listing`: metiendo
+  lo bajado en la lista), `results`…, trae `job` (el turno de la descarga) y
+  `after`: `{ state: done | error, playlist, added, failed: [{n, item, label,
+  reason}], skipped, order, job }` o `null`. `active: false` quiere decir que
+  está TODO hecho, también la lista.
+
+`setlist` es la tabla de una lista metida o comprobada con `fill_playlist`:
+`{ playlist: {id, name, created}, mode: add | check | set, applied, rows: [{
+n, title, status: found | other_version | ambiguous | probable | missing,
+song: {id, artist, title} | null, alts, note, link: {url} | null, in_list,
+kind }], added, already_in, removed, extras_in_list, order_differs, previous
+| null, ignored, truncated }`. `previous` (el orden de antes) solo si se quitó
+o se reordenó algo, para «Deshacer» (`PUT /api/playlists/{id}/songs`).
 
 Las burbujas del asistente se pintan como **markdown** (negritas, listas,
 títulos, tablas, código) con un conversor propio que escapa todo el HTML
@@ -288,14 +323,23 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   250 ms por el puente de siempre; no hay flujo abierto ni cambios en Rust.
 - El resultado lleva además `usage: { calls, prompt, completion, cost |
   null }` (el coste según el catálogo; `null` si el precio no se conoce) y
-  `via: { id, name, model, fallback }`: quién respondió y si fue un
-  respaldo porque el activo falló.
+  `via: { id, name, model, fallback, reason }`: quién respondió en la última
+  llamada de conversación (el juez no cuenta), si fue un respaldo y por qué
+  falló el elegido (`billing`, `auth`, `rate`, `down`, o `tools` si su modelo
+  no usa herramientas).
+- `GET /api/chat/tools` trae además `primary_problem` (`{ kind, code, at }` o
+  `null`: por qué no se está llamando al proveedor elegido, mientras dure la
+  marca) y `answering` (el `via` de la última respuesta, o `null`). Nunca
+  lleva texto del proveedor (puede repetir trozos de la clave): la interfaz
+  compone la frase por `kind`. `POST /api/ai/recheck` olvida el fallo del
+  elegido para volver a probarlo y devuelve `{ primary, answering }`.
 - Conversaciones guardadas: `GET /api/chats` → `{ chats: [{id, title,
   updated, n}] }`; `POST /api/chats {title?}` → la nueva; `GET
   /api/chats/{id}` → `{ id, title, messages }` con cada mensaje como lo pinta
   la interfaz (`role, text, tools?, app?, event?, hidden?, narrated?,
-  error?, usage?, via?, canceled?`); `POST /api/chats/{id}/messages
-  {messages}` añade al final (el título sale del primer mensaje del usuario
+  error?, usage?, via?, canceled?, confirm?, setlist?, ref?`; `ref` es el id de
+  la tarjeta a la que se refiere un mensaje de la app que la cambia); `POST
+  /api/chats/{id}/messages {messages}` añade al final (el título sale del primer mensaje del usuario
   si no tenía); `PATCH /api/chats/{id} {title}`; `DELETE /api/chats/{id}`;
   `GET /api/chats/search?q=` → `{ hits: [{chat_id, title, role, snippet,
   at}] }`.

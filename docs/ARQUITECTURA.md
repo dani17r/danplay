@@ -989,9 +989,57 @@ forma de llevar una canción del final de un repertorio largo al principio.
 
 ## El asistente
 
-23 herramientas sobre el mismo núcleo que usa la interfaz. No hay un camino
+27 herramientas sobre el mismo núcleo que usa la interfaz. No hay un camino
 paralelo: cuando el asistente corrige un título, llama a la misma función que
 el botón de renombrar.
+
+**Biblioteca primero, y lo mecánico lo hace el código.** Cada semana llega por
+WhatsApp la lista del domingo (negritas, emojis, @menciones de quien canta,
+«Voz», enlaces de YouTube) y se le pega al asistente. Con el modelo haciéndolo
+todo, eran 3–6 llamadas y 20 s por mensaje: tomaba las @menciones por
+artistas, buscaba con todas las palabras obligatorias (y no encontraba lo que
+había), bajaba canciones que ya estaban y reescribía la lista cuando solo se le
+pedía verificarla. Ahora:
+
+- `chat/intake.py` lee la lista pegada por código (`parse_setlist`): título,
+  número, enlace de un vídeo en forma canónica, las personas aparte (nunca son
+  el artista) y lo que no es una canción («Banda:», «Ensayo:»), para poder
+  decirlo. `read_intent` lee lo que la persona pide con sus palabras: verificar,
+  no descargar, dejarla exacta, una lista nueva, esa versión.
+- `chat/resolve.py` empareja cada canción con la biblioteca en la forma de
+  buscar de la casa (`names.search_form`, en los dos lados), por cobertura de
+  palabras, con erratas, ñ≈n como segunda pasada y el artista solo sumando.
+  Un enlace ya bajado manda si la canción sigue siendo esa; entre varias
+  versiones gana la que ya está en alguna lista.
+- `chat/setlist.py` es lo que hay detrás de `fill_playlist` y `find_songs`:
+  mete lo encontrado de una vez y en el orden de la lista pegada
+  (`playlists.place`, bajo el cerrojo de las listas), y lo que falta lo propone
+  en **una** tarjeta de permiso que sabe meter cada descarga en su sitio al
+  terminar. Las guardas son de las palabras de la persona, no del modelo:
+  «verifica» nunca cambia nada; dejar la lista exacta solo si lo dijo (y con lo
+  de antes para «Deshacer»); una lista nueva solo si la pidió.
+- Si en una vuelta todo fue meter o comprobar listas y salió bien, **el informe
+  lo escribe la app** (en pasado, con nombres, y prometiendo solo la tarjeta
+  que de verdad hay): una lista pegada cuesta una llamada al modelo y 1–2 s.
+- El modelo ve la lista ya leída en una nota de sistema, **como datos**
+  (`safe.data_block`): un título de vídeo o una línea pegada con forma de orden
+  no se lee como una orden.
+- Tope de 8 llamadas al modelo por turno (vueltas, reintentos, el empujón y el
+  juez); al agotarse contesta la app con lo que llevaba hecho.
+
+**En la interfaz nada bloquea.** La caja de escribir es un textarea (Enter
+envía, Shift+Enter baja de línea, pegar conserva las líneas) y lo que se
+escribe mientras el asistente responde queda en cola. El permiso para
+descargar es una **tarjeta en línea** bajo la respuesta, no un diálogo dentro
+del turno: filas con lo pedido junto a lo encontrado, casillas, «Descargar» y
+«No»; confirma por id (`POST /api/chat/confirm {id, selection}`) y su estado
+(aceptada, rechazada, sustituida, caducada) se deduce de los mensajes de la
+app que llevan su `ref`, y de `GET /api/chat/confirm/{id}` al reabrir. Un «sí»
+o un «no» corto escrito contesta la tarjeta viva sin llamar al modelo. Borrar
+sigue preguntando en un diálogo, fuera del turno, y los diálogos van en cola.
+La tabla de una lista trae «Dejar solo estas», «Ordenar como mi lista» y
+«Deshacer», que van directos a la lista. Una franja bajo la cabecera dice
+cuándo el proveedor elegido falla y quién contesta en su lugar.
 
 **Reproducir no lo puede hacer él.** El audio y la cola los maneja Rust, así
 que las herramientas de reproducción devuelven una `action` que la app ejecuta
@@ -1003,6 +1051,12 @@ núcleo devuelve lo que *iba* a hacer y la interfaz lo pregunta. El texto del
 sistema ya pedía consultar antes, pero un texto no es una barrera: por la
 búsqueda web, por los títulos de YouTube y por las letras entra contenido que
 escribe cualquiera, y bastaría una línea bien puesta para disparar un borrado.
+La propuesta se **registra en el servidor** (`chat/plan.py`) con un id que
+genera él; la interfaz solo puede decir que sí a ese id, y lo que se ejecuta
+sale del registro, no de lo que mande el cliente ni de lo que escriba el
+modelo. Una llamada escrita como texto en vez de hecha («búsqueda:
+search_songs …») solo se ejecuta si es una consulta o meter/comprobar una
+lista: nunca borrar, bajar, crear ni dejar una lista exacta.
 
 **El texto de fuera es un dato, no una instrucción.** Lo que devuelven la
 búsqueda web, los títulos de YouTube y las letras lo escriben terceros. Las
@@ -1043,9 +1097,13 @@ app añadía al historial. Las defensas, en `chat.reply`:
 - **Un sí a una pregunta suya** («¿la bajo?» — «dale») fuerza herramientas
   en la primera vuelta: es donde más narraba.
 
-Cuando termina una descarga pedida desde el chat, la app le pasa el turno
-para que remate lo que quedara («…y ármame una lista»), con los ids exactos
-de lo que entró.
+Cuando termina una descarga que se propuso desde una lista, el propio turno
+de descarga mete cada canción en su sitio antes de soltarse
+(`youtube.run_many(on_done=…)` → `plan.apply_after`, una sola escritura, sin
+duplicar y comprobando que la lista sigue siendo esa), y la interfaz cuenta lo
+que entró sin llamar al modelo. Solo si eso no llega (una descarga pedida
+suelta, o un fallo), la app le pasa el turno al modelo para que remate lo que
+quedara, con los ids exactos de lo que entró.
 
 **El asistente ve lo que tú ves.** Con cada mensaje viaja lo que hay en
 pantalla (la vista y sus primeras veinte canciones en orden, la selección,
@@ -1061,11 +1119,19 @@ interfaz lo lee sondeando `/api/chat/poll` cada 250 ms por el puente de
 siempre: sin flujo abierto ni cambios en Rust, y vale igual en el
 navegador. «Parar» corta el flujo y deja lo escrito, señalado.
 
-**Si el proveedor falla, responde otro.** Caído, sin crédito, saturado o
-con la clave rechazada, `ai.complete` pasa al siguiente perfil configurado
-(cada uno con su modelo), marca al caído durante un minuto para no volver a
-esperar su tiempo límite, y la respuesta dice quién contestó (`via`). Un
-error del mensaje (un 400) no dispara el respaldo: no lo arreglaría.
+**Si el proveedor falla, responde otro, y se dice.** Caído, sin crédito,
+saturado o con la clave rechazada, `ai.complete` pasa al siguiente perfil
+configurado (cada uno con su modelo) y la respuesta dice quién contestó y por
+qué (`via.reason`). `classify_failure` mira primero el texto inequívoco y
+después el código (un 429 de OpenAI sin saldo no es «espera»; un 403 de
+moderación no es una clave mala), y el elegido se da por caído según el motivo,
+contado desde el fallo: 20 min sin saldo o con la clave mala (no se arregla
+solo), 2 min por límite de peticiones, 1 min caído. Así, un principal sin
+saldo cuesta una llamada fallida y no una por mensaje. `ai.status()` lo cuenta
+a la franja del chat sin repetir ni una palabra del proveedor (puede llevar
+trozos de la clave: `sanitize_provider_message` limpia todo lo que va a
+pantalla o al registro). Un error del mensaje no dispara el respaldo: no lo
+arreglaría.
 
 **Lo que cuesta, a la vista.** Cada llamada se apunta en `ai_usage`
 (proveedor, modelo, tokens y el coste según el precio del catálogo); cada
@@ -1076,7 +1142,8 @@ título, y se busca en todas. Lo que había en el `localStorage` de versiones
 anteriores pasa a la base una vez.
 
 **Cada token se paga, y el prompt viaja en cada llamada.** El texto del sistema
-se escribe una regla por fallo real y sin adornos (1.305 tokens; era 2.077),
+se escribe una regla por fallo real y sin adornos (unos 1.250 tokens; era
+2.077),
 las herramientas se declaran con una fábrica que no repite el andamiaje y
 describe cada una en una frase; las que hacían lo mismo se fusionaron
 (`edit_song` puntúa y marca favorito; `get_lyrics` vale por id o por nombre;
@@ -1094,12 +1161,17 @@ modos JSON de los proveedores. Y una ficha de IA guardada con confianza baja
 preguntar, que con otro modelo puede salir. El tono y los acordes no se le
 preguntan a la IA (§ Acordes y tono, de un cifrado publicado).
 
-**Descargar se pide, no se espera.** Una descarga tarda minutos y la
-conversación no puede quedarse colgada: al aprobarla, el núcleo la arranca en
-segundo plano bajo el mismo turno que usa la página de Descargas (una a la
-vez, reservado con `youtube.claim()`), y el chat la sigue y cuenta el
-resultado cuando acaba. Si algo ya estaba en la biblioteca no se baja, se
-dice; y si el usuario la quiere igualmente como otra versión, el asistente
+**Descargar se pide, no se espera.** Antes de pedir permiso, el núcleo mira
+la biblioteca: lo que ya está no se propone, se dice dónde está. La tarjeta
+sale al momento y sus filas se rellenan solas: un hilo aparte busca en YouTube
+lo que falta (dos consultas a la vez como mucho en toda la app, sin
+reintentos, con caché de 10 min, cortando a la primera señal de bloqueo o de
+red); lo dudoso (no se parece, duración rara, una lista entera) sale sin
+marcar o rechazado. Una descarga tarda minutos y la conversación no puede
+quedarse colgada: al aprobarla, el núcleo la arranca en segundo plano bajo el
+mismo turno que usa la página de Descargas (una a la vez, reservado con
+`youtube.claim()`, que devuelve un token para que una descarga vieja no pise a
+la nueva). Si el usuario la quiere igualmente como otra versión, el asistente
 repite la petición con `force`.
 
 ## Acordes y tono, de un cifrado publicado
