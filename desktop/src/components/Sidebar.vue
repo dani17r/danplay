@@ -11,6 +11,7 @@ import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import { useDragSong } from '../composables/useDragSong.js'
+import { useChat } from '../composables/useChat.js'
 
 const props = defineProps({
   /** la vista abierta: {kind, id?, name?} */
@@ -30,6 +31,10 @@ const emit = defineEmits(['go', 'newPlaylist', 'playlistMenu'])
 // solo tiene que decir quien es con `data-drop`; de lo que pasa al soltar se
 // encarga la app.
 const { drag, dragging, isOver } = useDragSong()
+
+// Una propuesta del asistente (bajar lo que falta de una lista) espera tu
+// respuesta y estás en otra página: el «Asistente» lo dice, como las descargas.
+const { attention } = useChat()
 
 /** Lo que se dice al pasar con canciones en la mano por encima de una lista. */
 function dropHint(/** @type {string} */ name) {
@@ -166,9 +171,11 @@ const shown = computed(() => {
         class="nav-link"
         :class="{ active: view.kind === 'chat' }"
         :aria-current="view.kind === 'chat' ? 'page' : undefined"
+        :title="attention ? 'El asistente espera tu respuesta' : undefined"
         @click="emit('go', { kind: 'chat' })"
       >
         <span class="nav-icon"><Icon n="ai" /></span> Asistente
+        <span v-if="attention" class="count live">1</span>
       </button>
     </nav>
 

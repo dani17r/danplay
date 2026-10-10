@@ -37,6 +37,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
 })
 
 import ChatPage from '../src/components/ChatPage.vue'
+import Sidebar from '../src/components/Sidebar.vue'
 import { dialogOk, dialogCancel, ask, useDialog } from '../src/composables/useDialog.js'
 import { resetDownloads } from '../src/composables/useDownloads.js'
 import { clearNotices, useNotices } from '../src/composables/useNotices.js'
@@ -1084,6 +1085,12 @@ describe('lo que cambia la biblioteca y lo que se ve fuera del chat', () => {
     w.unmount()
     await flushPromises()
     expect(useChat().attention.value).toBe(true)
+    // y el «Asistente» del lateral lleva su insignia
+    const lateral = mount(Sidebar, { props: { view: { kind: 'all' } } })
+    const asistente = lateral.findAll('.nav-link').find((b) => b.text().includes('Asistente'))
+    expect(asistente?.find('.count.live').text()).toBe('1')
+    expect(asistente?.attributes('title')).toBe('El asistente espera tu respuesta')
+    lateral.unmount()
     const avisos = () =>
       useNotices().notices.value.filter((n) => n.message.includes('espera tu visto bueno'))
     expect(avisos()).toHaveLength(1)
