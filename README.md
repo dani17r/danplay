@@ -65,7 +65,7 @@ tus archivos. Si mañana te vas a otro reproductor, tu trabajo se va contigo.
 | **Quien tiene la música en el disco** | Cientos de descargas con nombres imposibles, duplicados y etiquetas rotas. Esto lo ordena. Y en cualquier lista, el título o el nombre completo de una canción se copian de un clic, para buscarla fuera. |
 | **Quien no quiere depender de nadie** | Sin cuenta, sin nube, sin telemetría. Funciona con el wifi apagado (salvo lo que por definición necesita internet). |
 | **Quien viene de otro reproductor** | Se lee y se escribe ID3 estándar. Kodi, foobar2000 o Rhythmbox verán tus estrellas y tus letras igual. |
-| **Quien comparte música** | «Enviar por Telegram» desde el menú de una canción, de varias seleccionadas (Ctrl/Mayús) o de un repertorio entero, si Telegram Desktop está instalado (Linux, Windows y macOS): se abre con los archivos listos y eliges el chat allí. |
+| **Quien comparte música** | «Enviar por Telegram» desde el menú de una canción, de varias seleccionadas (con el botón «Seleccionar» y sus casillas, o con Ctrl/Mayús) o de un repertorio entero, si Telegram Desktop está instalado (Linux, Windows y macOS): se abre con los archivos listos y eliges el chat allí. |
 
 ## Cómo identifica una canción
 
@@ -111,16 +111,20 @@ tarjeta de sonido. El WebView no lo toca en ningún momento.
 igual que tengas 500 canciones o 20.000, siempre son unos 900 nodos en pantalla
 y el mismo tiempo de dibujado.
 
-**Un asistente que solo habla de música.** 28 herramientas: consultar la
+**Un asistente que solo habla de música.** 27 herramientas: consultar la
 biblioteca, armar repertorios, buscar letras, transponer acordes, descargar de
 YouTube, comprobar datos en la web, sacar los tonos vecinos para un set sin
-saltos, escribir la hoja para el atril. Si le preguntas de política te dice
-que eso no es lo suyo. Solo descarga si se lo pides. Ve lo que tú ves («pon
-la segunda», «añade las seleccionadas»), responde en vivo y se puede parar,
-guarda las conversaciones y se buscan, enseña lo que cuesta cada respuesta,
-y si su proveedor falla responde otro de los que tengas configurados. Corre
-con la IA que tú elijas: OpenAI, Claude, Gemini, DeepInfra, OpenRouter… o un
-modelo en tu propio equipo.
+saltos, escribir la hoja para el atril. **Pégale la lista del domingo tal como
+llega por WhatsApp** y la mete en tu repertorio con lo que ya tienes, en su
+orden, mientras te pide permiso en una tarjeta para bajar lo que falta (que al
+terminar entra solo en su sitio); «verifica» compara sin tocar nada. Mira
+siempre primero tu biblioteca. Si le preguntas de política te dice que eso no
+es lo suyo. Solo descarga si se lo pides. Ve lo que tú ves («pon la segunda»,
+«añade las seleccionadas»), responde en vivo y se puede parar, guarda las
+conversaciones y se buscan, enseña lo que cuesta cada respuesta, y si su
+proveedor falla responde otro de los que tengas configurados y te lo dice.
+Corre con la IA que tú elijas: OpenAI, Claude, Gemini, DeepInfra,
+OpenRouter… o un modelo en tu propio equipo.
 
 ## Instalación
 
@@ -230,6 +234,9 @@ Con el foco fuera de un campo de texto:
 | **N** / **P** | Siguiente / anterior |
 | **S** / **R** | Aleatorio / modo de repetición |
 | **A** / **B** | En modo estudio: aquí empieza / aquí acaba el tramo que se repite |
+| **Ctrl+A** | En una lista: elegir todas las canciones |
+| **Supr** | En una lista: quitar las elegidas del repertorio, o mandarlas a la papelera (con confirmación) |
+| **Escape** | Soltar las elegidas |
 | **Ctrl+Q** | Salir |
 
 La aguja de la barra de tiempo se arrastra; un clic en la barra también vale.

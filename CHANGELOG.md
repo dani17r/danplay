@@ -3,6 +3,102 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.24.0 — 2026-10-10
+
+El asistente mira primero tu biblioteca y entiende la lista del domingo tal
+como llega por WhatsApp; elegir varias canciones a la vez tiene botón,
+casillas y barra; y el reproductor ya no se corta cuando el disco está
+ocupado.
+
+### Asistente
+
+- **Entiende la lista de WhatsApp.** Pégala tal cual (negritas, emojis,
+  @menciones, «Voz», enlaces de YouTube) y la app la lee por su cuenta: las
+  @menciones son quien canta o toca, nunca el artista, y el orden numerado
+  manda. «Banda:» o «Ensayo:» no se toman por canciones (y te lo dice).
+- **Biblioteca primero, siempre.** Cada canción se busca en tu biblioteca
+  antes de pensar en YouTube, sin tildes ni mayúsculas, con erratas y aunque
+  le sobre el nombre de quien la canta. Si la tienes en varias versiones, usa
+  la que ya está en tus listas. Pedir bajar algo que ya tienes no pide
+  permiso: te dice dónde está.
+- **Arma la lista con lo que hay mientras te pide permiso para lo demás.** Lo
+  que tienes entra al momento, en el orden de tu lista; lo que falta aparece
+  en una **tarjeta** bajo la respuesta, con lo que encontró en YouTube (se va
+  rellenando sola), casillas y «Descargar». Al terminar, cada canción entra
+  en su sitio de la lista, sin que tengas que pedirlo otra vez. Nada se queda
+  esperando: puedes seguir escribiendo.
+- **Más rápido.** Meter la lista del domingo es una sola llamada al modelo y
+  1–2 segundos (con tu conversación real: antes, unas 6 llamadas y 20 s, y a
+  veces «Me he enredado»). El primer mensaje tras abrir la app ya no espera
+  a cargar la IA.
+- **Hace lo que pides, y nada más.** «Verifica» compara y no cambia nada;
+  dejar la lista exacta (quitando lo que sobra) solo si lo dices; una lista
+  nueva solo si la pides. La tabla de la lista trae «Dejar solo estas»,
+  «Ordenar como mi lista» y «Deshacer».
+- **Un «sí» o un «no»** escrito contesta la tarjeta, como el botón.
+- **Escribir.** La caja es de varias líneas (Shift+Enter baja de línea, pegar
+  conserva las líneas), tus mensajes se ven con su formato (negritas, listas)
+  y lo que escribes mientras responde queda en cola.
+- **Quién contesta, a la vista.** Si la IA que elegiste falla (sin saldo,
+  clave rechazada, saturada), una franja lo dice y quién contesta en su lugar,
+  con «Reintentar con el principal» y «Usar el respaldo como principal» (que
+  pregunta antes de cambiar nada). Una IA sin saldo ya no gasta una llamada
+  fallida en cada mensaje.
+- Una insignia en «Asistente» cuando una propuesta espera tu respuesta y
+  estás en otra página.
+
+### Elegir varias canciones
+
+- **Botón «Seleccionar»**: casillas en cada canción, en todas las vistas (y
+  la de «todas» en la cabecera de la tabla).
+- **Barra** con cuántas son y qué hacer con ellas: añadir a una lista,
+  favoritas, Telegram, quitar de la lista, papelera y el menú completo.
+- **Ctrl+A** elige todas, **Supr** quita de la lista (en un repertorio) o
+  manda a la papelera (con confirmación), y **Escape** suelta la selección.
+- **Arrastrar varias** a la vez a un repertorio, o reordenar un bloque dentro
+  de uno.
+- **En el buscador** también: «Seleccionar» en el desplegable, Ctrl/Mayús +
+  clic y Ctrl+Espacio desde la caja; añadir a una lista sin que se cierre.
+
+### Buscar
+
+- La búsqueda trata los nombres sin tildes ni símbolos y en minúsculas, y la
+  ñ se respeta.
+- Cada resultado del desplegable tiene sus opciones (clic derecho o «⋯»):
+  añadir a una lista, favorita, letra, papelera… y el desplegable sigue
+  abierto para hacer varias cosas seguidas.
+
+### Reproductor
+
+- **Ya no se corta cuando el disco está ocupado.** La canción se lee a
+  memoria por delante mientras suena: separar pistas, analizar, descargar o
+  escribir etiquetas a la vez ya no la interrumpe (medido: de cortes de hasta
+  1,4 s a ninguno).
+- Con velocidad, tono o pistas separadas, más colchón (8 s), y si ffmpeg se
+  retrasa, la aguja y el clic esperan en vez de adelantarse.
+
+### Arreglos
+
+- Las listas ya no se pisan cuando se tocan a la vez (el asistente, una
+  descarga y un arrastre): sin posiciones repetidas ni canciones perdidas.
+- Una descarga que falla dice por qué (YouTube pide verificar, demasiadas
+  peticiones, sin red). Un enlace compartido desde un mix ya no consulta la
+  lista entera.
+- En WebKit (la app en Linux) no se veían la raya de dónde cae una canción
+  arrastrada ni la marca de la fila elegida en la tabla.
+- La cabecera de un grupo en la tabla agrupada ya no deja columnas fantasma;
+  las estrellas de la lista fina se esconden en ventanas estrechas.
+- Un Enter pulsado fuera de un campo ya no acepta el diálogo que se abre.
+- El título de una conversación sale sin el formato de lo pegado.
+
+### Para quien desarrolla
+
+- `macos.yml`: el paquete de macOS (Apple Silicon e Intel) desde la
+  integración continua, sin firma de Apple.
+- El banco del asistente con un modelo de verdad vuelve a funcionar y tiene
+  los casos de la lista del domingo; las pruebas tienen además un servidor
+  OpenAI de mentira para el chat con el SDK real.
+
 ## 1.23.0 — 2026-10-07
 
 La ventana se adapta a cualquier tamaño, y el reproductor tiene formas:
