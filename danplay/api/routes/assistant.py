@@ -7,9 +7,10 @@ import threading
 import time
 from typing import Annotated
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Path, Query
 
 from ... import ai, chat, chats, youtube
+from ...chat import plan
 from ..common import _in_background
 from ..models import ChatAppendIn, ChatConfirmIn, ChatCreateIn, ChatIn, ChatRenameIn
 from .downloads import NO_FOLDER
@@ -175,19 +176,29 @@ def confirm_tool(body: Annotated[ChatConfirmIn, Body()]):
 
     Lo que no tiene vuelta atras no lo hace el modelo por su cuenta: devuelve
     lo que iba a hacer y hasta que no pasa por aqui no ocurre nada.
+
+    Forma nueva `{id, selection?}`: el id es el de una propuesta registrada
+    (`chat.plan.register`) y lo que se ejecuta sale del REGISTRO, no del
+    cliente (que no puede mandar `tool` ni `args`). 410 si ya no esta viva,
+    409 si hay otra descarga en marcha (sin gastarla). Forma antigua
+    `{tool, args}`: la de siempre, por compatibilidad.
     """
-    if body.tool not in chat.NEEDS_CONFIRMATION:
+    if body.id is not None:
+        return _confirm_registered(body.id, body.selection)
+    tool = body.tool or ""
+    if tool not in chat.NEEDS_CONFIRMATION:
         raise HTTPException(400, "eso no necesita confirmacion")
+    args = body.args or {}
     # Descargar tarda minutos: se arranca y se contesta enseguida, igual que
     # el boton de Descargas. Antes bloqueaba la peticion del chat.
-    if body.tool == "download_music":
+    if tool == "download_music":
         # Los argumentos son los de la herramienta tal y como los declara
         # `chat.TOOLS`: `items` (lista), `quality`, `file_it` y `force`.
         # Aqui se leia `query`, que la herramienta no tiene, asi que TODA
         # confirmacion de descarga acababa en «hace falta algo que
         # descargar» aunque la persona acabara de decir que si.
-        plan = chat.download_plan(body.args)
-        if not plan["items"]:
+        wanted = chat.download_plan(args)
+        if not wanted["items"]:
             raise HTTPException(400, "hace falta algo que descargar")
         if not youtube.available():
             raise HTTPException(503, youtube.unavailable_reason())
@@ -198,30 +209,136 @@ def confirm_tool(body: Annotated[ChatConfirmIn, Body()]):
         _in_background(
             "danplay-download",
             lambda: youtube.run_many(
-                plan["items"],
-                quality=plan["quality"],
-                file_it=plan["file_it"],
+                wanted["items"],
+                quality=wanted["quality"],
+                file_it=wanted["file_it"],
                 results=1,
-                force=plan["force"],
+                force=wanted["force"],
                 source="assistant",
                 claimed=True,
             ),
         )
-        n = len(plan["items"])
+        n = len(wanted["items"])
         return {
             "ok": True,
             "result": {
                 "active": True,
-                "items": plan["items"],
-                "force": plan["force"],
-                "trimmed": plan["trimmed"],
+                "items": wanted["items"],
+                "force": wanted["force"],
+                "trimmed": wanted["trimmed"],
             },
             "text": (
                 "Descargando" + (f" {n} temas" if n > 1 else "") + ". Te cuento cuando termine."
             ),
         }
 
-    return chat.confirm(body.tool, body.args)
+    return chat.confirm(tool, args)
+
+
+def _confirm_registered(entry_id: str, selection: list[int] | None) -> dict:
+    """Atiende una propuesta registrada por su id (`chat.plan`).
+
+    Nada sale del cliente salvo las casillas: herramienta, argumentos y lo que
+    se hace al terminar los pone el registro. La descarga primero se queda el
+    turno (`youtube.claim`) y SOLO despues gasta la propuesta: si hay otra en
+    marcha, 409 y la propuesta sigue viva; si la propuesta ya no vale, se
+    suelta el turno y 410.
+    """
+    st = plan.status(entry_id)
+    if st["state"] != "live":
+        raise HTTPException(410, plan.GONE_TEXT.get(st["state"], plan.GONE_TEXT["unknown"]))
+    if st["tool"] != "download_music":
+        try:
+            entry = plan.claim(entry_id)
+        except plan.Gone as e:
+            raise HTTPException(410, str(e)) from e
+        return chat.confirm(entry.tool, entry.args)
+
+    if not youtube.available():
+        raise HTTPException(503, youtube.unavailable_reason())
+    if not youtube.folder()["ready"]:
+        raise HTTPException(409, NO_FOLDER)
+    token = youtube.claim()
+    if not token:
+        raise HTTPException(409, "ya hay una descarga en marcha")
+    try:
+        entry = plan.claim(entry_id, selection)
+    except plan.Gone as e:
+        youtube.release(token)
+        raise HTTPException(410, str(e)) from e
+    except plan.NothingSelected as e:
+        youtube.release(token)
+        raise HTTPException(400, str(e)) from e
+    except BaseException:
+        youtube.release(token)
+        raise
+    args, after = entry.args, entry.after
+    items = list(args["items"])
+
+    def finish(results: list[dict]) -> dict:
+        # lo de completar la lista sale del registro, nunca del cliente
+        return plan.apply_after(after, results)
+
+    _in_background(
+        "danplay-download",
+        lambda: youtube.run_many(
+            items,
+            quality=args.get("quality"),
+            file_it=args.get("file_it", True),
+            results=1,
+            force=args.get("force", False),
+            source="assistant",
+            claimed=True,
+            job=token,
+            on_done=finish if after else None,
+        ),
+    )
+    n = len(items)
+    text = "Descargando" + (f" {n} temas" if n > 1 else "") + ". Te cuento cuando termine."
+    target = after["playlist"] if after else None
+    if target:
+        text += f" Al terminar {'la' if n == 1 else 'las'} añado a «{target['name']}»."
+    return {
+        "ok": True,
+        "result": {
+            "active": True,
+            "id": entry.id,
+            "job": token,
+            "items": items,
+            "force": bool(args.get("force")),
+            "trimmed": entry.trimmed > 0,
+            "playlist": target,
+            "skipped": len(after["skipped"]) if after else 0,
+        },
+        "text": text,
+    }
+
+
+@router.get("/api/chat/confirm/{entry_id}")
+def chat_confirm_status(entry_id: Annotated[str, Path(max_length=40)]):
+    """Si la propuesta se puede aceptar: {state: live|used|superseded|expired|unknown,
+    tool, summary}. La tarjeta solo habilita sus botones con `live`."""
+    return plan.status(entry_id)
+
+
+@router.get("/api/chat/plan/{entry_id}")
+def chat_plan(entry_id: Annotated[str, Path(max_length=40)]):
+    """Las filas de la tarjeta de descarga segun se van resolviendo (ver
+    `chat.plan.plan_view`). 404 si esa propuesta no tiene plan."""
+    view = plan.plan_view(entry_id)
+    if view is None:
+        raise HTTPException(404, "esa propuesta no tiene plan")
+    return view
+
+
+@router.post("/api/chat/plan/{entry_id}/cancel")
+def chat_plan_cancel(entry_id: Annotated[str, Path(max_length=40)]):
+    """Deja de buscar en YouTube. La propuesta sigue viva: «Descargar» vale
+    con lo ya resuelto. 404 si esa propuesta no tiene plan."""
+    done = plan.cancel(entry_id)
+    if done is None:
+        raise HTTPException(404, "esa propuesta no tiene plan")
+    return done
 
 
 @router.get("/api/chat/tools")

@@ -1,8 +1,8 @@
 """Los cuerpos de las peticiones: lo que se espera y nada mas."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Body_(BaseModel):
@@ -311,8 +311,33 @@ class StudyIn(Body_):
 
 
 class ChatConfirmIn(Body_):
-    tool: str = Field(min_length=1, max_length=64)
-    args: dict = Field(default_factory=dict)
+    """Aceptar lo que el asistente propuso.
+
+    Forma nueva: `{id, selection?}`. El `id` es el de una propuesta registrada
+    en el servidor (`chat.plan`) y `selection`, los indices de las filas
+    marcadas en la tarjeta. Con `id` no se aceptan `tool` ni `args`: lo que se
+    ejecuta lo pone el registro, nunca el cliente (revisor S1).
+
+    Forma antigua (compatibilidad): `{tool, args}`.
+    """
+
+    id: str | None = Field(default=None, min_length=1, max_length=40)
+    selection: list[Annotated[int, Field(ge=0, strict=True)]] | None = Field(
+        default=None, max_length=60
+    )
+    tool: str | None = Field(default=None, min_length=1, max_length=64)
+    args: dict | None = None
+
+    @model_validator(mode="after")
+    def _one_way(self):
+        if self.id is not None:
+            if self.tool is not None or self.args is not None:
+                raise ValueError("con id no se mandan tool ni args: los pone el servidor")
+        elif self.tool is None:
+            raise ValueError("falta id (o tool y args)")
+        elif self.selection is not None:
+            raise ValueError("selection solo va con id")
+        return self
 
 
 class StemMixTrack(Body_):
