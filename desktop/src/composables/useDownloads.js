@@ -25,6 +25,15 @@ const IDLE = {
   total: 0,
   results: [],
   error: '',
+  // Lo que se hizo AL TERMINAR la descarga (completar la lista pedida desde el
+  // chat): `{job, state: 'done'|'error', playlist, added, failed, skipped,
+  // order}`, o null si no se pidió nada. Mientras se hace, `phase` es
+  // «listing» y `active` sigue en true: `active` en false quiere decir «todo
+  // hecho», también la lista, y es entonces cuando se avisa (`onFinished`).
+  after: null,
+  // el turno de la descarga (el que dio `claim()` en el núcleo): con él, quien
+  // la pidió sabe si la que acaba es la suya
+  job: 0,
   // qué yt-dlp se usa y cuál trae la app, y con qué motor de JavaScript
   // (YouTube ya lo exige). `js_runtime` es null si no hay ninguno; sin
   // definir, si el núcleo no lo dice.
@@ -130,7 +139,7 @@ export function resetDownloads() {
   armed = false
   failures = 0
   finished.clear()
-  Object.assign(state, IDLE, { known: false, results: [] })
+  Object.assign(state, IDLE, { known: false, results: [], after: null })
 }
 
 export function useDownloads() {

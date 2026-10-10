@@ -234,6 +234,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     aiCheck: [[ai], 'POST', '/api/ai/check', ai],
     aiFree: [[], 'POST', '/api/ai/free'],
     aiModels: [[ai], 'POST', '/api/ai/models', ai],
+    aiRecheck: [[], 'POST', '/api/ai/recheck'],
     folders: [[], 'GET', '/api/folders'],
     checkFolder: [['/m'], 'POST', '/api/check-folder', { path: '/m' }],
     addFolder: [
@@ -283,6 +284,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     addToPlaylist: [[3, [1, 2]], 'POST', '/api/playlists/3/songs', { ids: [1, 2] }],
     removeFromPlaylist: [[3, 7], 'DELETE', '/api/playlists/3/songs/7'],
     reorderPlaylist: [[3, [2, 1]], 'POST', '/api/playlists/3/order', { ids: [2, 1] }],
+    setPlaylistSongs: [[3, [5, 1]], 'PUT', '/api/playlists/3/songs', { ids: [5, 1] }],
     setStudy: [[7, { notes: 'x' }], 'PUT', '/api/song/7/study', { notes: 'x' }],
     waveform: [[7], 'GET', '/api/song/7/waveform?buckets=800'],
     separation: [[], 'GET', '/api/separate'],
@@ -353,12 +355,16 @@ describe('lo que cada metodo pide al nucleo', () => {
     chatSearch: [['mi gozo'], 'GET', '/api/chats/search?q=mi%20gozo'],
     chatExport: [[4], 'GET', '/api/chats/4/export'],
     chatTools: [[], 'GET', '/api/chat/tools'],
+    // la forma nueva: el id de la propuesta y las casillas; nada de tool ni args
     chatConfirm: [
-      ['delete_song', { id: 7 }],
+      [{ id: 'kq3V', selection: [0, 2] }],
       'POST',
       '/api/chat/confirm',
-      { tool: 'delete_song', args: { id: 7 } }
+      { id: 'kq3V', selection: [0, 2] }
     ],
+    chatConfirmStatus: [['a/b'], 'GET', '/api/chat/confirm/a%2Fb'],
+    chatPlan: [['kq3V'], 'GET', '/api/chat/plan/kq3V'],
+    chatPlanCancel: [['kq3V'], 'POST', '/api/chat/plan/kq3V/cancel'],
     resolveDuplicate: [
       ['/a.mp3', ['/b.mp3']],
       'POST',
@@ -384,6 +390,16 @@ describe('lo que cada metodo pide al nucleo', () => {
       expect(calls[0].body === undefined ? undefined : JSON.parse(calls[0].body)).toEqual(cuerpo)
     })
   }
+
+  it('confirmar por id sin casillas manda solo el id; un núcleo antiguo, (tool, args)', async () => {
+    await api.chatConfirm({ id: 'kq3V' })
+    await api.chatConfirm('delete_song', { id: 7 })
+    expect(calls.map((c) => JSON.parse(c.body))).toEqual([
+      { id: 'kq3V' },
+      { tool: 'delete_song', args: { id: 7 } }
+    ])
+    expect(calls.every((c) => c.method === 'POST' && c.url === '/api/chat/confirm')).toBe(true)
+  })
 
   it('fuera de la app, lo que solo existe dentro dice que no, sin romper nada', async () => {
     const { app, projection, mini, playback } = await import('../src/api.js')

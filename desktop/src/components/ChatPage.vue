@@ -13,6 +13,7 @@ import {
   nextTick,
   onMounted,
   onActivated,
+  onDeactivated,
   onUnmounted,
   useTemplateRef
 } from 'vue'
@@ -22,6 +23,9 @@ import { renderMarkdown } from '../utils/markdown.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import ChatComposer from './ChatComposer.vue'
+import ChatConfirmCard from './ChatConfirmCard.vue'
+import ChatSetlistCard from './ChatSetlistCard.vue'
+import ProviderBanner from './ProviderBanner.vue'
 
 const chat = useChat()
 const {
@@ -36,7 +40,8 @@ const {
   chatTitle,
   downloading,
   tryingFree,
-  freeNote
+  freeNote,
+  provider
 } = chat
 
 // las mismas que publica el nucleo en youtube.STATE
@@ -45,6 +50,8 @@ const PHASES = {
   downloading: 'Bajando',
   converting: 'Convirtiendo a mp3',
   filing: 'Identificando y archivando',
+  // la descarga pedida para una lista: metiendo cada una en su sitio
+  listing: 'Metiendo en la lista',
   done: 'Terminado',
   canceled: 'Cancelado'
 }
@@ -78,7 +85,9 @@ const TOOL_LABELS = {
   edit_song: 'corrijo los datos',
   delete_song: 'mando a la papelera',
   related_keys: 'miro los tonos vecinos',
-  setlist_sheet: 'escribo la hoja del repertorio'
+  setlist_sheet: 'escribo la hoja del repertorio',
+  fill_playlist: 'reviso la lista',
+  find_songs: 'miro si las tienes'
 }
 const toolLabel = (n) => TOOL_LABELS[n] || n.replace(/_/g, ' ')
 
@@ -135,6 +144,15 @@ function keepBottom(delta) {
   if (!t || delta <= 0) return
   if (t.scrollHeight - t.scrollTop - t.clientHeight <= delta + 24) t.scrollTop = t.scrollHeight
 }
+
+// ------------------------------------------------- tarjetas y tablas
+// Bajo la respuesta que la trae: la tabla de la lista metida o comprobada y la
+// tarjeta de permiso para descargar (en línea, sin diálogo que pare el chat).
+/** @param {any} m */
+const hasDownloadCard = (m) =>
+  m.role === 'ai' && m.confirm?.id && m.confirm.tool === 'download_music'
+/** @param {any} m */
+const hasSetlist = (m) => m.role === 'ai' && !!m.setlist?.rows
 
 /** Tokens y coste de una respuesta, en corto: «3,2k tokens · $0,002». */
 function costLine(m) {
@@ -199,6 +217,7 @@ watch(
 )
 
 async function appear() {
+  chat.setVisible(true)
   await chat.show()
   scrollToBottom()
 }
@@ -211,7 +230,12 @@ onActivated(() => {
   if (firstActivation) firstActivation = false
   else appear()
 })
-onUnmounted(() => clearTimeout(searchTimer))
+// fuera de la vista, una tarjeta que espera se avisa (useChat.attention)
+onDeactivated(() => chat.setVisible(false))
+onUnmounted(() => {
+  clearTimeout(searchTimer)
+  chat.setVisible(false)
+})
 </script>
 
 <template>
@@ -273,6 +297,15 @@ onUnmounted(() => clearTimeout(searchTimer))
         <Icon n="trash" :t="13" />
       </button>
     </div>
+
+    <!-- quién contesta, si no es la IA elegida (sin saldo, caída…) -->
+    <ProviderBanner
+      v-if="provider"
+      :state="provider"
+      @settings="chat.openAiSettings()"
+      @recheck="chat.recheckPrimary()"
+      @promote="chat.promoteFallback()"
+    />
 
     <!-- las conversaciones guardadas: lista y busqueda en todas -->
     <div v-if="showChats" class="chat-list">
@@ -369,7 +402,10 @@ onUnmounted(() => clearTimeout(searchTimer))
         v-show="!m.hidden"
         :key="i"
         class="chat-msg"
-        :class="[m.role, { error: m.error, narrated: m.narrated }]"
+        :class="[
+          m.role,
+          { error: m.error, narrated: m.narrated, 'has-card': hasSetlist(m) || hasDownloadCard(m) }
+        ]"
         :title="
           m.narrated
             ? 'El asistente dice haber hecho algo, pero ninguna herramienta lo hizo'
@@ -415,6 +451,8 @@ onUnmounted(() => clearTimeout(searchTimer))
           </button>
         </template>
         <div v-else class="chat-bubble">{{ m.text }}</div>
+        <ChatSetlistCard v-if="hasSetlist(m)" :msg="m" />
+        <ChatConfirmCard v-if="hasDownloadCard(m)" :msg="m" />
         <div
           v-if="m.role === 'ai' && costLine(m)"
           class="chat-cost mono"

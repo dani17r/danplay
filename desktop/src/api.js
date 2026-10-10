@@ -149,25 +149,125 @@
  */
 
 /**
- * @typedef {Object} ChatConfirm  Una herramienta destructiva pendiente (§3).
- * @property {string} id
- * @property {string} tool
- * @property {Object<string, any>} args
+ * @typedef {Object} ChatPlanRow  Una fila de la tarjeta de descarga: lo pedido y lo encontrado.
+ * @property {number} i            su índice: es lo que va en `selection`
+ * @property {number|null} n       su número en la lista pegada
+ * @property {string} query        lo pedido
+ * @property {string} kind         `video`, `lista`, `texto`…
+ * @property {string} url          SOLO la URL canónica de un vídeo (o vacía)
+ * @property {string} title        lo encontrado en YouTube
+ * @property {string} channel
+ * @property {number} duration     en segundos
+ * @property {string} state        buscando | encontrada | dudosa | no_encontrada | rechazada | sin_buscar
+ * @property {boolean} checked     marcada por defecto
+ * @property {string} badge        «no se parece», «ya la tienes»…
+ * @property {string} note
+ */
+
+/**
+ * @typedef {Object} ChatPlan  Lo que pinta la tarjeta de descarga (`GET /api/chat/plan/{id}`).
+ * @property {'buscando'|'listo'|'parcial'|'error'} state
+ * @property {ChatPlanRow[]} items
+ * @property {{n:number|null, title:string, song:{id:number, artist:string, title:string}|null}[]} already
+ * @property {{i:number, n:number|null, query:string, reason:string}[]} [unresolved]
+ * @property {string} effect       «Al terminar: añado 2 a «domingo»»
+ * @property {number} trimmed      cuántas se quedaron fuera por el tope
+ * @property {string} [reason]     por qué se dejó de buscar
+ */
+
+/**
+ * @typedef {Object} ChatConfirm  Lo que el asistente propone y espera tu visto bueno (§3, §5).
+ * El servidor lo registra y le da `id`; la interfaz confirma SOLO con ese id
+ * (y las casillas): `args` es para una interfaz antigua y no se usa ni se guarda.
+ * @property {string} [id]          sin id, un núcleo antiguo: se confirma con `(tool, args)`
+ * @property {'download_music'|'delete_song'|'delete_playlist'} tool
  * @property {string} summary
+ * @property {string} [effect]      lo que pasará al terminar
+ * @property {string} [plan_state]  si trae plan: buscando | listo | parcial | error
+ * @property {ChatPlan} [plan]      las filas, según llegan (solo en la interfaz)
+ * @property {Object<string, any>} [args]
+ */
+
+/**
+ * @typedef {Object} ChatSetlistSong
+ * @property {number} id
+ * @property {string} artist
+ * @property {string} title
+ */
+
+/**
+ * @typedef {Object} ChatSetlistRow  Una canción de la lista pegada contra la biblioteca.
+ * @property {number|null} n
+ * @property {string} title         lo pedido
+ * @property {'found'|'other_version'|'ambiguous'|'probable'|'missing'|'ignored'} status
+ * @property {ChatSetlistSong|null} song   la elegida
+ * @property {ChatSetlistSong[]} alts
+ * @property {string} note
+ * @property {{url:string}|null} link
+ * @property {boolean} in_list
+ * @property {string} kind
+ */
+
+/**
+ * @typedef {Object} ChatSetlist  La tabla de una lista metida o comprobada (`fill_playlist`).
+ * @property {{id:number, name:string, created:boolean}} playlist
+ * @property {'add'|'set'|'check'} mode
+ * @property {boolean} applied
+ * @property {ChatSetlistRow[]} rows
+ * @property {number[]} added
+ * @property {number[]} already_in
+ * @property {ChatSetlistSong[]} removed
+ * @property {ChatSetlistSong[]} extras_in_list
+ * @property {boolean} order_differs
+ * @property {number[]|null} previous   lo que había antes, para «Deshacer»
+ * @property {string[]} ignored
+ * @property {number} truncated
+ * @property {string} [mode_note]
+ * @property {string} [ask_note]
+ */
+
+/**
+ * @typedef {Object} ChatVia  Quién contestó.
+ * @property {string} id
+ * @property {string} name
+ * @property {string} model
+ * @property {boolean} fallback    un respaldo, no el elegido
+ * @property {string} [reason]     por qué el elegido no: billing | auth | rate | down | tools
  */
 
 /**
  * @typedef {Object} ChatReply
  * @property {string} [text]
  * @property {string} [error]
- * @property {{name:string, summary:string}[]} [tools]
+ * @property {{name:string, summary:string, detail?:string}[]} [tools]
  * @property {{kind:string, [k:string]: any}[]} [actions]
  * @property {ChatConfirm|null} [confirm]
+ * @property {ChatSetlist|null} [setlist]
  * @property {boolean} [canceled]
  * @property {{calls:number, prompt:number, completion:number, cost:number|null}} [usage]
- * @property {{id:string, name:string, model:string, fallback:boolean}} [via]  quién respondió
+ * @property {ChatVia} [via]  quién respondió
  * @property {boolean} [narrated]  dijo haber hecho algo sin llamar a ninguna herramienta
  * @property {{limit:number, month:number, over:boolean}} [budget]  el tope de gasto, si lo hay
+ */
+
+/**
+ * Un mensaje del chat tal como se pinta y se guarda.
+ * @typedef {Object} ChatMessage
+ * @property {'me'|'ai'} role
+ * @property {string} text
+ * @property {{name: string, summary: string, detail?: string}[]} [tools]
+ * @property {boolean} [app]       lo escribió la app, no el modelo
+ * @property {string} [event]      un aviso estructural: download_done, confirm_accepted,
+ *                                 confirm_declined, confirm_failed
+ * @property {string} [ref]        el id de la tarjeta a la que se refiere ese aviso
+ * @property {ChatConfirm} [confirm]  la tarjeta de permiso que trajo esta respuesta
+ * @property {ChatSetlist} [setlist]  la tabla de la lista que trajo esta respuesta
+ * @property {boolean} [hidden]    va al núcleo pero no se pinta
+ * @property {boolean} [narrated]  dice haber hecho algo sin herramienta
+ * @property {boolean} [error]
+ * @property {any} [usage]
+ * @property {ChatVia|null} [via]
+ * @property {boolean} [canceled]
  */
 
 /**
@@ -819,6 +919,12 @@ export const api = {
   aiFree: () => POST('/ai/free'),
   /** @param {AiProfile} d  los modelos de ese proveedor con esa clave */
   aiModels: (d) => POST('/ai/models', d),
+  /**
+   * «Reintentar con el principal»: el núcleo olvida que el proveedor activo
+   * falló y el siguiente mensaje se prueba con él. No cambia ningún ajuste.
+   * @returns {Promise<{primary: {id:string, name:string, model:string, problem: {kind:string, code:number|null, at:number}|null}, answering: ChatVia|null}>}
+   */
+  aiRecheck: () => POST('/ai/recheck'),
 
   folders: () => GET('/folders'),
   /** @param {string} path */
@@ -909,6 +1015,14 @@ export const api = {
    * @returns {Promise<{songs: Song[]}>}
    */
   reorderPlaylist: (id, ids) => POST(`/playlists/${id}/order`, { ids }),
+  /**
+   * Deja la lista EXACTAMENTE con esas canciones y en ese orden, de una vez (lo
+   * que sobra sale, lo que falta entra). Lo usan «Dejar solo estas» y
+   * «Deshacer» de la tabla de una lista en el chat. Una lista vacía da 400.
+   * @param {number} id @param {number[]} ids
+   * @returns {Promise<{songs: Song[]}>}
+   */
+  setPlaylistSongs: (id, ids) => PUT(`/playlists/${id}/songs`, { ids }),
   /**
    * El modo estudio de una canción: bucle [a, b], velocidad, marcadores
    * [{t, label}] y notas. Se guarda en el índice y en el archivo. Vacío lo quita.
@@ -1063,12 +1177,47 @@ export const api = {
   chatExport: (id) => GET(`/chats/${id}/export`),
   chatTools: () => GET('/chat/tools'),
   /**
-   * Ejecuta una herramienta que el asistente dejó pendiente de confirmar (§3).
-   * @param {string} tool
-   * @param {Object<string, any>} args
+   * Acepta lo que el asistente propuso (§3, §5). Con `{id, selection?}`: el id
+   * de la propuesta registrada en el servidor y los índices (`i`) de las filas
+   * marcadas; lo que se ejecuta lo pone el servidor, nunca esto. 410 si ya no
+   * vale, 409 si hay otra descarga o falta la carpeta (la propuesta sigue
+   * viva), 503 sin yt-dlp, 400 si con esas casillas no queda nada.
+   *
+   * Por compatibilidad con un núcleo antiguo (una propuesta sin id):
+   * `chatConfirm(tool, args)`.
+   * @param {{id: string, selection?: number[]} | string} arg
+   * @param {Object<string, any>} [args]
    * @returns {Promise<{ok: boolean, result: any, text: string}>}
    */
-  chatConfirm: (tool, args) => POST('/chat/confirm', { tool, args }),
+  chatConfirm: (arg, args) =>
+    POST(
+      '/chat/confirm',
+      typeof arg === 'string'
+        ? { tool: arg, args }
+        : Array.isArray(arg.selection)
+          ? { id: arg.id, selection: arg.selection }
+          : { id: arg.id }
+    ),
+  /**
+   * Si una propuesta se puede aceptar todavía. La tarjeta solo habilita sus
+   * botones con `live`.
+   * @param {string} id
+   * @returns {Promise<{state: 'live'|'used'|'superseded'|'expired'|'unknown', tool: string, summary: string}>}
+   */
+  chatConfirmStatus: (id) => GET(`/chat/confirm/${encodeURIComponent(id)}`),
+  /**
+   * Las filas de la tarjeta de descarga según se resuelven en YouTube. 404 si
+   * esa propuesta no tiene plan.
+   * @param {string} id
+   * @returns {Promise<ChatPlan>}
+   */
+  chatPlan: (id) => GET(`/chat/plan/${encodeURIComponent(id)}`),
+  /**
+   * Deja de buscar en YouTube las filas que faltan. La propuesta sigue viva:
+   * «Descargar» vale con lo resuelto.
+   * @param {string} id
+   */
+  chatPlanCancel: (id) => POST(`/chat/plan/${encodeURIComponent(id)}/cancel`),
   /** `dry_run` es true por defecto en el núcleo: hay que pedir el borrado a propósito (§2). */
   resolveDuplicate: (keep, remove, dry_run = false) =>
     POST('/duplicates/resolve', { keep, remove, dry_run }),

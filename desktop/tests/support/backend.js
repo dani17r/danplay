@@ -275,6 +275,10 @@ export function createState() {
     aiFallback: true,
     /** conversaciones guardadas del asistente */
     chats: [],
+    /** las propuestas del asistente: id -> estado (live, used, superseded, expired) */
+    chatConfirms: {},
+    /** sus planes de descarga: id -> lo que devuelve /api/chat/plan/{id} */
+    chatPlans: {},
     aiModels: [
       {
         id: 'grande',
@@ -444,6 +448,11 @@ function answers(state) {
       state.aiActive = id
       return aiOverview(state)
     },
+    // olvida el fallo del principal: no cambia ningún ajuste
+    aiRecheck: async () => ({
+      primary: { id: state.aiActive, name: '', model: '', problem: null },
+      answering: null
+    }),
     aiCheck: async (d) => ({
       ok: true,
       model: d.model,
@@ -594,12 +603,20 @@ function answers(state) {
       state.playlistSongs = ids.map((i) => by.get(i)).filter(Boolean)
       return { songs: state.playlistSongs.map((c) => ({ ...c })) }
     },
+    // la lista exacta, de una vez: lo que no está en la biblioteca se ignora
+    setPlaylistSongs: async (id, ids) => {
+      state.playlistSongs = ids.map((i) => find(i)).filter(Boolean)
+      return { songs: state.playlistSongs.map(light) }
+    },
     exportPlaylist: async () => ({ file: '/musica/Listas/x.m3u8' }),
     inbox: async () => ({ files: [], total: state.inbox }),
     youtube: async () => ({
       available: false,
       reason: 'falta yt-dlp',
       active: false,
+      // lo que se hizo al terminar (completar una lista) y el turno de la descarga
+      after: null,
+      job: 0,
       ...state.ytdlp
     }),
     youtubeUpdate: async () => {
@@ -778,7 +795,38 @@ function answers(state) {
         id: 99,
         title: 'mezcla'
       }),
-    chatConfirm: async () => ({ ok: true, result: {}, text: 'hecho' }),
+    // la forma nueva confirma por id (y gasta la propuesta); la antigua, (tool, args)
+    chatConfirm: async (arg) => {
+      if (arg && typeof arg === 'object') {
+        if ((state.chatConfirms[arg.id] || 'unknown') !== 'live') {
+          throw Object.assign(new Error('Esa propuesta caducó: pídemela otra vez.'), {
+            status: 410
+          })
+        }
+        state.chatConfirms[arg.id] = 'used'
+      }
+      return { ok: true, result: {}, text: 'hecho' }
+    },
+    chatConfirmStatus: async (id) => ({
+      state: state.chatConfirms[id] || 'unknown',
+      tool: '',
+      summary: ''
+    }),
+    chatPlan: async (id) => {
+      const plan = state.chatPlans[id]
+      if (!plan) {
+        throw Object.assign(new Error('esa propuesta no tiene plan'), { status: 404 })
+      }
+      return copy(plan)
+    },
+    chatPlanCancel: async (id) => {
+      const plan = state.chatPlans[id]
+      if (!plan) {
+        throw Object.assign(new Error('esa propuesta no tiene plan'), { status: 404 })
+      }
+      if (plan.state === 'buscando') plan.state = 'parcial'
+      return { ok: true, state: plan.state }
+    },
     chatTools: async () => ({ model: 'x', available: false, tools: [] })
   }
 }
