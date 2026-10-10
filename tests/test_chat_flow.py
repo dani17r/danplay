@@ -533,3 +533,25 @@ def test_la_tarjeta_de_verdad_acepta_lo_que_propone_la_lista(lib, monkeypatch):
         time.sleep(0.02)
     assert view and view["state"] in ("listo", "parcial")
     plan._reset()
+
+
+def test_entre_versiones_gana_la_que_ya_esta_en_una_lista(lib, asked):
+    """«Digno De Adorar» esta en dos versiones igual de buenas: la que ya se
+    toco en otro repertorio es la que se elige."""
+    otra = lib.add("Banda Horizonte", "Digno De Adorar")
+    playlists.create("domingo")
+    res = T.run_tool("fill_playlist", {"playlist": "domingo", "only": [1]}, turn_for(DOMINGO))
+    first = res["_ui"]["setlist"]["rows"][0]
+    assert first["status"] == "ambiguous"
+    ensayo = playlists.create("ensayo")["id"]
+    playlists.add(ensayo, [lib.ids["digno"]])
+    pl = playlists.by_name("domingo")
+    assert pl
+    playlists.set_songs(pl["id"], [lib.ids["rey"]])
+    res = T.run_tool("fill_playlist", {"playlist": "domingo", "only": [1]}, turn_for(DOMINGO))
+    assert res["_ui"]["setlist"]["rows"][0]["song"]["id"] == lib.ids["digno"]
+    playlists.set_songs(ensayo, [otra])
+    res = T.run_tool(
+        "fill_playlist", {"playlist": "domingo", "only": [1], "mode": "check"}, turn_for(DOMINGO)
+    )
+    assert res["_ui"]["setlist"]["rows"][0]["song"]["id"] == otra

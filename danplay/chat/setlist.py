@@ -273,6 +273,23 @@ def _resolve(items: list[dict], *, prefer: list[int], overrides: Any, strict: bo
     )
 
 
+def _in_lists(exclude: int | None = None) -> list[int]:
+    """Las canciones que ya estan en alguna lista.
+
+    Cuando una cancion esta en varias versiones (en vivo, de otro artista), la
+    que ya se uso en un repertorio es la que la persona toca: gana el empate
+    (`resolve`, `prefer_ids`). La de la propia lista va delante (la pasa quien
+    llama)."""
+    out: list[int] = []
+    try:
+        for p in playlists.list_all():
+            if p["id"] != exclude:
+                out.extend(s["id"] for s in playlists.songs(p["id"], light=True))
+    except Exception:
+        log.warning("no se pudieron leer las listas para desempatar", exc_info=True)
+    return list(dict.fromkeys(out))
+
+
 def _overrides(raw: Any) -> list[dict]:
     out = []
     for o in raw or ():
@@ -375,7 +392,9 @@ def find(items: Any, turn: Turn) -> dict:
     wanted, origin = requested(items, turn)
     if not wanted:
         return {"error": "no hay canciones que buscar: pasa los titulos en items"}
-    resolved = _resolve(wanted, prefer=[], overrides=None, strict=turn.intent.strict_version)
+    resolved = _resolve(
+        wanted, prefer=_in_lists(), overrides=None, strict=turn.intent.strict_version
+    )
     rows = [_row(it, res) for it, res in zip(wanted, resolved, strict=True)]
     found = sum(1 for r in rows if r["status"] in ADDABLE)
     return {
@@ -504,7 +523,7 @@ def fill(args: dict, turn: Turn) -> dict:
         before = [s["id"] for s in playlists.songs(pl["id"], light=True)]
         resolved = _resolve(
             wanted,
-            prefer=before,
+            prefer=before + _in_lists(exclude=pl["id"]),
             overrides=args.get("overrides"),
             strict=turn.intent.strict_version,
         )
