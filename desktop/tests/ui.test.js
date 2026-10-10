@@ -68,8 +68,22 @@ describe('Campo', () => {
   })
   it('avisa al pulsar Enter', async () => {
     const w = mount(TextField, { props: { modelValue: 'x' } })
+    await w.find('input').trigger('keydown.enter')
     await w.find('input').trigger('keyup.enter')
-    expect(w.emitted('enter')).toBeTruthy()
+    expect(w.emitted('enter')).toHaveLength(1)
+  })
+  it('un Enter que se pulso fuera y se suelta dentro no cuenta', async () => {
+    // El Enter que activa un boton o una opcion de menu se SUELTA ya dentro del
+    // campo de un dialogo que se abre con texto puesto (Renombrar…): lo
+    // aceptaba al instante, sin que nadie lo hubiera pulsado ahi.
+    const w = mount(TextField, { props: { modelValue: 'x' } })
+    await w.find('input').trigger('keyup.enter')
+    expect(w.emitted('enter')).toBeFalsy()
+    // y perder el foco entre la pulsacion y la suelta tampoco lo deja a medias
+    await w.find('input').trigger('keydown.enter')
+    await w.find('input').trigger('blur')
+    await w.find('input').trigger('keyup.enter')
+    expect(w.emitted('enter')).toBeFalsy()
   })
 })
 

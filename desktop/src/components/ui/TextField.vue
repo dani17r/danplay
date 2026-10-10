@@ -30,6 +30,21 @@ const props = defineProps({
 })
 const emit = defineEmits(['enter'])
 const attrs = useAttrs()
+// El Enter que activó un botón o una opción de menú se SUELTA ya dentro del
+// campo de un diálogo que se abre con texto puesto (Renombrar…), y `keyup`
+// lo aceptaba al instante sin que nadie lo hubiera pulsado ahí. Solo cuenta un
+// Enter cuya pulsación también fue dentro del campo.
+let enterDown = false
+const onEnterDown = () => (enterDown = true)
+function onBlur() {
+  focused.value = false
+  enterDown = false
+}
+function onEnterUp() {
+  const mine = enterDown
+  enterDown = false
+  if (mine) emit('enter')
+}
 const focused = ref(false)
 const showKey = ref(false)
 const realType = computed(() =>
@@ -83,8 +98,9 @@ const inner = computed(() => {
         :aria-invalid="error ? 'true' : undefined"
         @input="model = $event.target.value"
         @focus="focused = true"
-        @blur="focused = false"
-        @keyup.enter="emit('enter')"
+        @blur="onBlur"
+        @keydown.enter="onEnterDown"
+        @keyup.enter="onEnterUp"
       />
       <button
         v-if="!multiline && type === 'password'"
