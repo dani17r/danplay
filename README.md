@@ -372,8 +372,9 @@ Prefiero decirlo aquí que en un issue:
 - **Solo Linux probado.** Para Windows salen las dos formas desde Linux
   (`scripts/build-windows-cross.sh --zip --instalador`) y también desde la
   integración continua, pero **nadie las ha ejecutado todavía en un Windows de
-  verdad**: hasta el primer arranque, es un «debería funcionar». macOS ni
-  siquiera se ha compilado. Los detalles, en
+  verdad**: hasta el primer arranque, es un «debería funcionar». macOS se
+  compila en la integración continua (`macos.yml`) pero tampoco se ha abierto
+  en un Mac de verdad. Los detalles, en
   [docs/WINDOWS.md](docs/WINDOWS.md).
 - **El mini reproductor aparece donde puede.** Con X11 y con el AppImage sale
   pegado al icono de la bandeja. En Wayland lo coloca el escritorio: no existen

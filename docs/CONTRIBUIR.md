@@ -243,8 +243,11 @@ accesos directos y el «Abrir con» donde debe. Los detalles están en
 
 **macOS.** Sin probar. El transporte por socket Unix vale tal cual y la
 política de activación ya está puesta (`tray::dock`: al esconderse pasa a
-`Accessory` y sale del Dock, al volver a `Regular`), pero **nadie lo ha
-compilado ahí**. Falta ver si la bandeja de Tauri entrega el clic como en
+`Accessory` y sale del Dock, al volver a `Regular`). El paquete sale de la
+integración continua (`gh workflow run macos.yml --ref main`: un `.dmg` y la
+`.app` en `.zip`, para Apple Silicon y para Intel, con ffmpeg, fpcalc y Deno
+dentro y firmado solo «ad hoc»), pero **nadie lo ha abierto todavía en un Mac
+de verdad**. Falta ver si la bandeja de Tauri entrega el clic como en
 Windows, si la ventanita queda bien pegada al icono de la barra y si el
 cambio de política no deja la aplicación sin foco al reaparecer.
 

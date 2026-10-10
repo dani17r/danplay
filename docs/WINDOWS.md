@@ -168,9 +168,11 @@ Cosas que solo se ven al abrirlo de verdad:
 
 ## Lo que no está preparado
 
-- **macOS.** Sin compilar ni probar. El transporte por socket vale y la
-  aplicación ya sale del Dock al esconderse (`ActivationPolicy::Accessory`);
-  falta que alguien con un Mac compruebe la bandeja.
+- **macOS.** Se compila en la integración continua (`macos.yml`, a mano: un
+  `.dmg` para Apple Silicon y otro para Intel, sin firma de Apple), pero sin
+  probar en un Mac de verdad. El transporte por socket vale y la aplicación ya
+  sale del Dock al esconderse (`ActivationPolicy::Accessory`); falta que
+  alguien con un Mac compruebe la bandeja.
 - **Reproducir `.opus` y `.wma` sin ffmpeg.** El decodificador no los conoce,
   así que se pasan por ffmpeg. En Windows va dentro del instalador, pero si
   alguien monta la versión portátil sin él, esos dos formatos no sonarán y la

@@ -1,0 +1,167 @@
+# El paquete de macOS (.dmg y la .app en un .zip).
+#
+# Por que aqui y no en el equipo de nadie: ni Tauri ni PyInstaller compilan
+# para macOS desde Linux (hace falta el SDK de Apple y un Mac). Salen dos, uno
+# por procesador: Apple Silicon (M1 en adelante) e Intel.
+#
+# SIN FIRMA DE APPLE NI NOTARIZACION (no hay cuenta de desarrollador): va
+# firmado «ad hoc», que es lo minimo para que un Mac con Apple Silicon lo deje
+# arrancar. La primera vez macOS dira que no puede comprobar quien lo hizo:
+# se abre igual desde Ajustes del Sistema > Privacidad y seguridad > «Abrir
+# igualmente», o quitando la cuarentena:
+#   xattr -dr com.apple.quarantine /Applications/DanPlay.app
+#
+# Nadie lo ha probado todavia en un Mac de verdad (ver docs/CONTRIBUIR.md):
+# por eso solo se lanza a mano y no se publica con las versiones.
+name: macos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paquete:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # que uno falle no tumba el otro: son procesadores distintos
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+            # Lo que se mete dentro, con version fija y su suma SHA-256 (las
+            # mismas versiones que en Windows). En macOS tampoco hay gestor de
+            # paquetes que ponga ffmpeg, y una app abierta desde el Finder no
+            # ve el PATH de Homebrew.
+            ffmpeg_url: https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2
+            ffmpeg_sha256: c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924
+            ffprobe_sha256: fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6
+            deno: deno-aarch64-apple-darwin
+            deno_sha256: 5cd46d6268f6f78f5d88bdc7159d20bd44cdaa4b3303474839f87ec6fe7ae25c
+          - runner: macos-15-intel
+            arch: x86_64
+            ffmpeg_url: https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2
+            ffmpeg_sha256: 7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4
+            ffprobe_sha256: 2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd
+            deno: deno-x86_64-apple-darwin
+            deno_sha256: 95daaff11c116a52ad54785e7914c8e9c9cdcaba793c5ed929c74ca2d8e6259a
+    env:
+      # fpcalc trae un unico binario para los dos procesadores
+      FPCALC_URL: https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-macos-universal.tar.gz
+      FPCALC_SHA256: 240aeb5a8c8205af458e3625cb7487b826b711a999e491ef00111f3cebd76f00
+      DENO_VERSION: v2.9.7
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: ffmpeg, ffprobe, fpcalc y Deno
+        run: |
+          set -euo pipefail
+          tools=desktop/src-tauri/tools
+          mkdir -p "$tools" tmp-herramientas
+          cd tmp-herramientas
+          bajar() {  # url  suma  archivo
+            curl -fsSL --retry 3 -o "$3" "$1"
+            echo "$2  $3" | shasum -a 256 -c -
+          }
+          bajar "${{ matrix.ffmpeg_url }}/ffmpeg.zip" "${{ matrix.ffmpeg_sha256 }}" ffmpeg.zip
+          bajar "${{ matrix.ffmpeg_url }}/ffprobe.zip" "${{ matrix.ffprobe_sha256 }}" ffprobe.zip
+          bajar "https://github.com/denoland/deno/releases/download/$DENO_VERSION/${{ matrix.deno }}.zip" \
+                "${{ matrix.deno_sha256 }}" deno.zip
+          bajar "$FPCALC_URL" "$FPCALC_SHA256" fpcalc.tar.gz
+          unzip -o -q ffmpeg.zip -d ../"$tools"
+          unzip -o -q ffprobe.zip -d ../"$tools"
+          unzip -o -q deno.zip -d ../"$tools"
+          tar xzf fpcalc.tar.gz
+          cp chromaprint-fpcalc-*/fpcalc ../"$tools"/
+          cd ..
+          rm -rf tmp-herramientas
+          chmod +x "$tools"/*
+          ls -la "$tools"
+          "$tools/ffmpeg" -hide_banner -version | head -1
+          "$tools/fpcalc" -version
+
+      - name: dependencias de Python
+        run: |
+          python -m pip install --upgrade pip
+          # con hashes (salen de uv.lock); PyInstaller aparte, que en una orden
+          # con hashes no se puede mezclar uno sin ellos
+          pip install -r requirements.txt -r requirements-test.txt
+          pip install "$(grep -i '^pyinstaller==' requirements-dev.txt)"
+
+      # Nunca se han pasado en un Mac: se ejecutan para saber que falla, pero
+      # no paran el paquete (el amigo que lo prueba es justo quien lo dira).
+      - name: pruebas del núcleo en macOS
+        continue-on-error: true
+        env:
+          DANPLAY_SIN_RUST: '1'
+        run: |
+          export PATH="$PWD/desktop/src-tauri/tools:$PATH"
+          pytest
+
+      - name: núcleo empaquetado
+        run: |
+          # la foto del catalogo de modelos de IA, la de hoy (sin red se queda la que hay)
+          python scripts/actualizar-modelos.py || true
+          pyinstaller --noconfirm --clean --distpath dist/core packaging/core.spec
+          test -x dist/core/danplay-core
+
+      - name: el núcleo arranca y responde
+        run: |
+          sock=$(mktemp -u)
+          dist/core/danplay-core --uds "$sock" &
+          pid=$!
+          for i in $(seq 1 30); do
+            curl -sf --unix-socket "$sock" http://x/api/status > /dev/null && break
+            sleep 1
+          done
+          curl -sf --unix-socket "$sock" http://x/api/status > /dev/null
+          kill $pid
+
+      - name: el núcleo, junto a la app
+        run: |
+          triple=$(rustc -vV | awk '/^host:/{print $2}')
+          mkdir -p desktop/src-tauri/binaries
+          cp dist/core/danplay-core "desktop/src-tauri/binaries/danplay-core-$triple"
+
+      # Firma «ad hoc» (`-`) y sin «hardened runtime»: con el, macOS solo deja
+      # cargar bibliotecas firmadas por el mismo equipo de desarrollo, y el
+      # nucleo de PyInstaller descomprime las suyas al arrancar (sin firma de
+      # equipo): no arrancaria.
+      - name: paquete
+        working-directory: desktop
+        run: |
+          npm ci
+          npx tauri build --bundles app,dmg \
+            --config '{"bundle":{"macOS":{"signingIdentity":"-","hardenedRuntime":false}}}'
+
+      - name: la .app en un .zip
+        run: |
+          cd target/release/bundle/macos
+          ditto -c -k --keepParent DanPlay.app "DanPlay-macos-${{ matrix.arch }}.zip"
+          ls -la
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: danplay-macos-${{ matrix.arch }}
+          path: |
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/macos/*.zip
+          if-no-files-found: error
