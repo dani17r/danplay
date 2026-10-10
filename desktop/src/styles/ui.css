@@ -2711,6 +2711,60 @@ tbody tr.flash {
   color: var(--muted2);
   overflow-wrap: anywhere;
 }
+/* tu burbuja también lleva markdown, pero sobre el acento: lo que arriba
+   toma los colores del panel aquí hereda el de la burbuja */
+.chat-mine {
+  max-width: 100%;
+}
+.chat-mine h1,
+.chat-mine h2,
+.chat-mine h3,
+.chat-mine h4,
+.chat-mine h5,
+.chat-mine h6,
+.chat-mine blockquote,
+.chat-mine .md-url {
+  color: inherit;
+}
+.chat-mine .md-url {
+  opacity: 0.85;
+}
+.chat-mine code,
+.chat-mine pre {
+  background: color-mix(in srgb, var(--bg) 16%, transparent);
+}
+.chat-mine blockquote {
+  border-left-color: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.chat-mine hr,
+.chat-mine th,
+.chat-mine td {
+  border-color: color-mix(in srgb, var(--bg) 35%, transparent);
+}
+.chat-mine th {
+  background: color-mix(in srgb, var(--bg) 10%, transparent);
+}
+/* más de 12 líneas: plegada, con «Ver más» debajo */
+.chat-folded {
+  max-height: calc(12 * 1.62em + 22px);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 3em), transparent);
+}
+.chat-more {
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chat-more:hover {
+  background: var(--panel2);
+}
+.chat-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .chat-tools {
   display: flex;
   flex-wrap: wrap;
@@ -2769,17 +2823,164 @@ tbody tr.flash {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* la caja de escribir (ChatComposer.vue): la cola, el textarea con sus
+   botones y una línea de ayuda */
 .chat-foot {
-  display: flex;
-  gap: 9px;
-  align-items: flex-end;
-  padding: 13px 18px;
+  padding: 10px 18px 8px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  min-width: 0;
 }
 .chat-foot .btn {
   height: 36px;
   flex-shrink: 0;
+}
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  min-width: 0;
+}
+.composer-field {
+  flex: 1;
+}
+/* crece con el texto: la caja de un campo normal mide 36 px fijos */
+.composer-box {
+  height: auto;
+  min-height: 36px;
+  align-items: flex-end;
+  padding: 8px 10px;
+}
+.composer-box:focus-within {
+  border-color: var(--accent);
+  background: var(--bg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.composer-input {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  /* nunca en horizontal: todo se parte en líneas. Sin esto WebKitGTK ponía
+     una barra horizontal sobre el texto de ejemplo de la caja vacía (en
+     vertical, el componente pone `auto` cuando ya no cabe) */
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  /* unas 8 líneas (8 × 1,5em) y nunca más del 35 % del alto de la ventana;
+     pasado eso se desplaza por dentro (el alto justo lo pone el componente) */
+  max-height: min(35vh, 12em);
+}
+.composer-input::placeholder {
+  color: var(--muted2);
+}
+/* la cola llena: el botón de enviar se apaga y la caja lo dice */
+.composer-full .composer-box {
+  border-color: color-mix(in srgb, var(--amber) 55%, transparent);
+}
+.composer-queue {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.composer-queue-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted2);
+}
+.composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.composer-chip {
+  max-width: 100%;
+  min-width: 0;
+  gap: 3px;
+  padding: 2px 3px 2px 9px;
+  color: var(--text);
+}
+.composer-chip-txt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-chip-x {
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: 50%;
+}
+.composer-help {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0 2px;
+  font-size: 10.5px;
+  color: var(--muted2);
+}
+.composer-help kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 0 4px;
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  background: var(--panel2);
+}
+.composer-count {
+  flex-shrink: 0;
+}
+/* en una ventana baja la ayuda sobra: el alto es para la conversación (y
+   quien usa un lector la sigue teniendo: el textarea la cita). Y la caja
+   crece menos: con 8 líneas y la cola, del hilo quedaba una rendija */
+@media (max-height: 520px) {
+  .composer-help {
+    display: none;
+  }
+  .composer-input {
+    max-height: min(25vh, 12em);
+  }
+}
+@media (max-width: 700px) {
+  .chat-foot {
+    padding: 8px 10px 6px;
+  }
+}
+/* columna: «Parar» se queda en su icono (su nombre lo lleva aria-label) */
+@media (max-width: 460px) {
+  .composer-row {
+    gap: 6px;
+  }
+  .composer-stop-txt {
+    display: none;
+  }
 }
 
 /* ---------- menu de Vista ---------- */

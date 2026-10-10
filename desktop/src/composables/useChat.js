@@ -9,9 +9,9 @@
 // contar). Ahora la conversación sigue aunque no se vea, y lo que le toca
 // hacer a la app (reproducir, recargar) lo hace quien se conectó con
 // `connectChat`, que es la app y no se desmonta nunca.
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { api, errorMessage } from '../api.js'
-import { ask } from './useDialog.js'
+import { ask, useDialog } from './useDialog.js'
 import { notify } from './useNotices.js'
 import { useDownloads } from './useDownloads.js'
 import { ensureDownloadFolder } from '../utils/downloadFolder.js'
@@ -40,6 +40,19 @@ export const POLL_MS = 250
 /** Lo pedido desde aquí, para retomar el seguimiento al volver. */
 const FOLLOW_KEY = 'danplay.chat.download'
 
+/** Cuántos mensajes tuyos esperan su turno como mucho mientras el asistente responde. */
+export const QUEUE_MAX = 3
+
+/**
+ * Cuántos mensajes del historial se mandan al núcleo en cada turno. El núcleo
+ * ya recorta a 48 (y por tamaño) y `ChatIn` rechaza más de 200: sin este tope,
+ * una conversación larga acababa con cada envío fallando para siempre.
+ */
+export const CORE_MESSAGES = 60
+
+/** Lo más largo que se deja escribir en la caja (su `maxlength`). */
+export const DRAFT_MAX = 50000
+
 /**
  * Lo que la app hace por el chat. Por defecto nada: sin app conectada (las
  * pruebas del componente suelto) el chat funciona igual.
@@ -50,6 +63,12 @@ const hooks = { reload: () => {}, action: () => {}, context: () => null }
 const messages = ref(/** @type {ChatMessage[]} */ ([]))
 /** Lo escrito en la caja: se conserva al cambiar de página. */
 const draft = ref('')
+/**
+ * Lo que escribiste mientras el asistente respondía: sale solo, en orden, al
+ * acabar el turno y sin ningún diálogo abierto. Hasta `QUEUE_MAX` mensajes.
+ */
+const queue = ref(/** @type {{id: number, text: string}[]} */ ([]))
+let queueSeq = 0
 const thinking = ref(false)
 /** La respuesta que está llegando: el texto según sale y las herramientas según terminan. */
 const live = ref(/** @type {{text: string, tools: any[]} | null} */ (null))
@@ -66,8 +85,10 @@ const freeNote = ref('')
 
 let jobId = /** @type {string|null} */ (null)
 // El aviso de fin de descarga que no se pudo mandar porque el chat estaba
-// ocupado: se manda en cuanto termine ese turno, no se pierde.
+// ocupado: se manda en cuanto termine ese turno, no se pierde. Va SIEMPRE
+// delante de lo que haya en `queue` (ver `drain`).
 let queued = /** @type {{text: string, event: string} | null} */ (null)
+const { dialog } = useDialog()
 // el tope de gasto se avisa una vez por sesión, no en cada respuesta
 let warnedBudget = false
 /** @type {Promise<void> | null} */
@@ -140,9 +161,27 @@ function forCore(m) {
   return out
 }
 
+/**
+ * El historial que se manda al núcleo: los últimos `CORE_MESSAGES` y
+ * empezando por uno tuyo, como lo recorta el propio núcleo (que descarta las
+ * respuestas del asistente que queden al principio). Copia: el historial
+ * sigue creciendo mientras se espera la respuesta.
+ */
+function historyForCore() {
+  const recent = messages.value.slice(-CORE_MESSAGES)
+  let from = 0
+  while (from < recent.length - 1 && recent[from].role !== 'me') from++
+  return recent.slice(from).map(forCore)
+}
+
 /** Añade un mensaje y lo guarda en la conversación abierta. @param {ChatMessage} m */
 async function pushMessage(m) {
   messages.value.push(m)
+  await saveShown(m)
+}
+
+/** Guarda en la conversación abierta un mensaje que ya está a la vista. @param {ChatMessage} m */
+async function saveShown(m) {
   if (!chatId.value) return
   try {
     await api.chatAppend(chatId.value, [forStore(m)])
@@ -179,12 +218,14 @@ async function openChat(id) {
   if (thinking.value) return
   const c = await api.chatGet(id)
   if (!c) return
+  queue.value = []
   chatId.value = c.id
   messages.value = c.messages || []
 }
 
 function newChat() {
   if (thinking.value) return
+  queue.value = []
   chatId.value = null
   messages.value = []
   draft.value = ''
@@ -217,6 +258,7 @@ async function deleteChat(c) {
   await api.chatDelete(c.id)
   chats.value = chats.value.filter((x) => x.id !== c.id)
   if (chatId.value === c.id) {
+    queue.value = []
     chatId.value = null
     messages.value = []
   }
@@ -240,6 +282,7 @@ async function clearChat() {
     }
     chats.value = chats.value.filter((x) => x.id !== chatId.value)
   }
+  queue.value = []
   chatId.value = null
   messages.value = []
 }
@@ -295,34 +338,142 @@ const CHANGES_LIBRARY = [
   'setlist_sheet'
 ]
 
+// ------------------------------------------------------ la cola de mensajes
+// Mientras el asistente responde se puede seguir escribiendo: lo que mandas
+// queda «en cola» (hasta QUEUE_MAX, en orden) y sale solo al acabar el turno.
+// No sale con un diálogo abierto —uno de la app podría traer otro y pisarlo—
+// ni delante del aviso de fin de descarga (`queued`), que va siempre primero.
+
+/** ¿Ahora no se puede mandar nada? Respondiendo, o con un diálogo abierto. */
+const busy = () => thinking.value || !!dialog.value.open
+
 /**
- * Manda un mensaje y va leyendo la respuesta en vivo hasta que termina.
+ * Deja un mensaje esperando su turno.
+ * @param {string} text
+ * @returns {boolean} si cupo; con la cola llena no se pierde nada: se queda en la caja
+ */
+function enqueue(text) {
+  if (queue.value.length >= QUEUE_MAX) {
+    notify(`Ya hay ${QUEUE_MAX} mensajes en cola: espera a que acabe la respuesta.`)
+    return false
+  }
+  queue.value.push({ id: ++queueSeq, text })
+  return true
+}
+
+/** Quita un mensaje de la cola antes de que salga. @param {number} id */
+function unqueue(id) {
+  queue.value = queue.value.filter((q) => q.id !== id)
+}
+
+/**
+ * Manda lo siguiente que toque, si se puede: primero el aviso de la app
+ * (`queued`) y luego la cola, en el orden en que se escribió. Se llama al
+ * acabar cada turno y cuando se cierra un diálogo.
+ */
+function drain() {
+  if (busy()) return
+  if (queued) {
+    const q = queued
+    queued = null
+    deliver(q.text, true, q.event)
+    return
+  }
+  const next = queue.value.shift()
+  if (next) deliver(next.text, false, null)
+}
+
+// al cerrarse un diálogo puede salir lo que esperaba por él
+watch(
+  () => dialog.value.open,
+  (open) => {
+    if (!open) drain()
+  }
+)
+
+/**
+ * El mensaje no llegó al núcleo (apagado, reiniciándose, un 4xx): no cuenta
+ * como enviado. Lo escrito vuelve a la caja —con lo que esperaba en la cola, en
+ * su orden, y sin pisar lo que se haya escrito mientras tanto—: una lista de
+ * cuarenta líneas pegada no puede perderse por un fallo de la conexión.
+ * @param {ChatMessage} m
+ * @param {unknown} e
+ */
+function unsend(m, e) {
+  const i = messages.value.indexOf(m)
+  if (i >= 0) messages.value.splice(i, 1)
+  const back = [m.text, ...queue.value.map((q) => q.text)]
+  queue.value = []
+  if (draft.value.trim()) back.push(draft.value)
+  draft.value = back.join('\n\n')
+  notify(
+    'No se pudo enviar el mensaje: ' +
+      errorMessage(e) +
+      '. Sigue en la caja para que lo reintentes.'
+  )
+}
+
+/**
+ * Manda un mensaje: la puerta de entrada de todo lo que se dice al asistente.
+ *
+ * Si está respondiendo (o hay un diálogo abierto, o ya hay otros esperando),
+ * el mensaje se pone en la cola y sale solo, en su turno. Si no, empieza el
+ * turno (`deliver`). La caja se vacía en cuanto se acepta, antes de hablar con
+ * el núcleo: si no llega, `unsend` lo devuelve.
  *
  * `hidden`: un mensaje que manda la propia app en nombre del usuario (al
  * terminar una descarga, para que el asistente remate lo que quedaba). Va al
  * núcleo como cualquier otro, pero no se pinta como si lo hubieras escrito.
- * `event` lo etiqueta para el núcleo («download_done»).
+ * `event` lo etiqueta para el núcleo («download_done»). Ocupado, ese aviso no
+ * entra en la cola: espera en su hueco (`queued`) y sale el primero.
  * @param {string|null} [text]  sin texto, lo que haya escrito en la caja
  * @param {boolean} [hidden]
  * @param {string|null} [event]
  */
 async function send(text = null, hidden = false, event = null) {
+  const fromBox = text === null
   const t = (text ?? draft.value).trim()
-  if (!t || thinking.value) return
-  if (!hidden) draft.value = ''
+  if (!t) return
+  if (busy() || (!hidden && queue.value.length)) {
+    if (hidden) {
+      queued = { text: t, event: event || '' }
+      return
+    }
+    if (!enqueue(t)) return
+    if (fromBox) draft.value = ''
+    drain()
+    return
+  }
+  if (fromBox) draft.value = ''
+  await deliver(t, hidden, event)
+}
+
+/**
+ * Un turno entero: el mensaje al núcleo y la respuesta en vivo hasta que
+ * termina. Solo lo llaman `send` (la puerta) y `drain` (lo que esperaba).
+ * @param {string} t  ya recortado y no vacío
+ * @param {boolean} hidden
+ * @param {string|null} event
+ */
+async function deliver(t, hidden, event) {
   /** @type {ChatMessage} */
   const mine = { role: 'me', text: t }
   if (hidden) mine.hidden = true
   if (event) mine.event = event
   thinking.value = true
   live.value = { text: '', tools: [] }
+  // ¿Lo tiene ya el núcleo? Hasta entonces, todo se puede deshacer.
+  let reached = false
   try {
     await ensureChat()
-    await pushMessage(mine)
-    // copia: el historial sigue creciendo mientras esperamos la respuesta
-    const history = messages.value.map(forCore)
-    const { id } = await api.chatStart(history, hooks.context())
+    // Lo que escribes se ve al instante y se guarda cuando el núcleo lo acepta;
+    // el aviso de la app, como siempre, se guarda antes.
+    if (hidden) await pushMessage(mine)
+    else messages.value.push(mine)
+    const { id } = await api.chatStart(historyForCore(), hooks.context())
+    reached = true
     jobId = id
+    if (!hidden) await saveShown(mine)
     let r = null
     for (;;) {
       const d = await api.chatPoll(id)
@@ -371,21 +522,22 @@ async function send(text = null, hidden = false, event = null) {
     const c = chats.value.find((x) => x.id === chatId.value)
     if (c && !c.title && !hidden) c.title = t.slice(0, 60)
   } catch (e) {
-    pushMessage({
-      role: 'ai',
-      text: 'No pude responder: ' + errorMessage(e),
-      error: true,
-      app: true
-    })
+    if (!reached && !hidden) {
+      unsend(mine, e)
+    } else {
+      pushMessage({
+        role: 'ai',
+        text: 'No pude responder: ' + errorMessage(e),
+        error: true,
+        app: true
+      })
+    }
   } finally {
     thinking.value = false
     live.value = null
     jobId = null
-    if (queued) {
-      const q = queued
-      queued = null
-      send(q.text, true, q.event)
-    }
+    // lo que esperaba su turno: primero el aviso de la app, luego la cola
+    drain()
   }
 }
 
@@ -674,6 +826,8 @@ export function resetChat() {
   started = null
   jobId = null
   queued = null
+  queue.value = []
+  queueSeq = 0
   warnedBudget = false
   messages.value = []
   draft.value = ''
@@ -692,6 +846,7 @@ export function useChat() {
   return {
     messages,
     draft,
+    queue,
     thinking,
     live,
     info,
@@ -705,6 +860,7 @@ export function useChat() {
     start,
     show,
     send,
+    unqueue,
     cancel,
     openChat,
     newChat,

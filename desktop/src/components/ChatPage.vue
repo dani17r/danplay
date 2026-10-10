@@ -6,17 +6,28 @@
  * aunque esta página no se vea (si sales mientras responde, lo que pidió se
  * hace igual). Aquí solo se pinta y se escribe.
  */
-import { ref, watch, nextTick, onMounted, onActivated, onUnmounted, useTemplateRef } from 'vue'
+import {
+  ref,
+  reactive,
+  watch,
+  nextTick,
+  onMounted,
+  onActivated,
+  onUnmounted,
+  useTemplateRef
+} from 'vue'
 import { api } from '../api.js'
-import { useChat } from '../composables/useChat.js'
+import { useChat, DRAFT_MAX, QUEUE_MAX } from '../composables/useChat.js'
 import { renderMarkdown } from '../utils/markdown.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
+import ChatComposer from './ChatComposer.vue'
 
 const chat = useChat()
 const {
   messages,
   draft,
+  queue,
   thinking,
   live,
   info,
@@ -85,7 +96,12 @@ const SUGGESTIONS = [
 // sonaba algo eso era cuatro veces por segundo.
 const html = new Map()
 const HTML_KEEP = 400
+// Un texto enorme (una lista pegada de 50 KB) no se guarda: 400 de esos son
+// decenas de MB en la caché, como clave y como HTML. Se vuelve a pasar cuando
+// el chat se repinta, que no es en cada tick.
+const HTML_CACHE_MAX = 20 * 1024
 function md(text) {
+  if (text.length > HTML_CACHE_MAX) return renderMarkdown(text)
   let out = html.get(text)
   if (out === undefined) {
     out = renderMarkdown(text)
@@ -93,6 +109,31 @@ function md(text) {
     if (html.size > HTML_KEEP) html.delete(html.keys().next().value)
   }
   return out
+}
+
+// ------------------------------------------------- la burbuja del usuario
+// Lo que escribes también va en markdown y con sus saltos de línea. Un
+// mensaje largo (la lista del domingo pegada) se pliega para no empujar la
+// conversación fuera de la vista; «Ver más» lo abre entero.
+const FOLD_LINES = 12
+// una sola línea larguísima también ocupa mucho alto al partirse
+const FOLD_CHARS = 1200
+/** @param {string} text */
+const isLong = (text) => text.length > FOLD_CHARS || text.split('\n').length > FOLD_LINES
+// los mensajes abiertos, por el propio mensaje: al cambiar de conversación
+// se olvidan solos
+const unfolded = reactive(new WeakSet())
+function toggleFold(m) {
+  if (unfolded.has(m)) unfolded.delete(m)
+  else unfolded.add(m)
+}
+
+// La caja crece (varias líneas, los chips de la cola) y el hilo encoge por
+// abajo: si estabas leyendo lo último, lo último sigue a la vista.
+function keepBottom(delta) {
+  const t = thread.value
+  if (!t || delta <= 0) return
+  if (t.scrollHeight - t.scrollTop - t.clientHeight <= delta + 24) t.scrollTop = t.scrollHeight
 }
 
 /** Tokens y coste de una respuesta, en corto: «3,2k tokens · $0,002». */
@@ -340,9 +381,9 @@ onUnmounted(() => clearTimeout(searchTimer))
             <Icon n="check" :t="11" /> {{ toolLabel(h.name) }} · {{ h.summary }}
           </span>
         </div>
-        <!-- Lo del asistente viene en markdown y se pinta como tal. Lo tuyo y
-             los errores van tal cual: son texto plano. `renderMarkdown`
-             escapa todo antes de marcar nada (ver utils/markdown.js). -->
+        <!-- Lo del asistente viene en markdown y se pinta como tal. Los
+             errores van tal cual: son texto plano. `renderMarkdown` escapa
+             todo antes de marcar nada (ver utils/markdown.js). -->
         <!-- eslint-disable vue/no-v-html -->
         <div
           v-if="m.role === 'ai' && !m.error"
@@ -350,6 +391,29 @@ onUnmounted(() => clearTimeout(searchTimer))
           v-html="md(m.text)"
         ></div>
         <!-- eslint-enable vue/no-v-html -->
+        <!-- La burbuja del usuario: también markdown ya escapado (asteriscos,
+             almohadillas, listas) y con cada salto de línea; plegada si es
+             larga. -->
+        <template v-else-if="m.role === 'me'">
+          <!-- eslint-disable vue/no-v-html -->
+          <div
+            :id="'chat-me-' + i"
+            class="chat-bubble chat-md chat-mine"
+            :class="{ 'chat-folded': isLong(m.text) && !unfolded.has(m) }"
+            v-html="md(m.text)"
+          ></div>
+          <!-- eslint-enable vue/no-v-html -->
+          <button
+            v-if="isLong(m.text)"
+            type="button"
+            class="chat-more"
+            :aria-expanded="unfolded.has(m) ? 'true' : 'false'"
+            :aria-controls="'chat-me-' + i"
+            @click="toggleFold(m)"
+          >
+            {{ unfolded.has(m) ? 'Ver menos' : 'Ver más' }}
+          </button>
+        </template>
         <div v-else class="chat-bubble">{{ m.text }}</div>
         <div
           v-if="m.role === 'ai' && costLine(m)"
@@ -396,34 +460,20 @@ onUnmounted(() => clearTimeout(searchTimer))
       </div>
     </div>
 
+    <!-- la caja de escribir (ChatComposer.vue): textarea, enviar, parar y
+         la cola de lo que escribes mientras responde -->
     <div class="chat-foot">
-      <TextField
+      <ChatComposer
         v-model="draft"
-        width="100%"
-        aria-label="Mensaje para el asistente"
-        placeholder="Escribe lo que necesites…"
-        @enter="chat.send()"
+        :thinking="thinking"
+        :queue="queue"
+        :queue-max="QUEUE_MAX"
+        :maxlength="DRAFT_MAX"
+        @send="chat.send()"
+        @stop="chat.cancel()"
+        @unqueue="chat.unqueue"
+        @resize="keepBottom"
       />
-      <!-- `next` es el icono de «cancion siguiente» del reproductor; aqui
-           lo que se hace es enviar, no saltar de pista. -->
-      <button
-        class="btn primary"
-        type="button"
-        title="Enviar"
-        :disabled="thinking || !draft.trim()"
-        @click="chat.send()"
-      >
-        <Icon n="send" :t="15" />
-      </button>
-      <button
-        v-if="thinking"
-        class="btn chat-cancel"
-        type="button"
-        title="Parar la respuesta"
-        @click="chat.cancel()"
-      >
-        <Icon n="close" :t="14" /> Parar
-      </button>
     </div>
   </div>
 </template>

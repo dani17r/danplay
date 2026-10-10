@@ -91,7 +91,7 @@ const montar = async () => {
   return w
 }
 const escribir = async (w, t) => {
-  await w.find('.chat-foot input').setValue(t)
+  await w.find('.chat-foot textarea').setValue(t)
   await w.find('.chat-foot .btn').trigger('click')
   await flushPromises()
 }
@@ -184,7 +184,7 @@ describe('chat', () => {
 
   it('no envia mensajes vacios', async () => {
     const w = await montar()
-    await w.find('.chat-foot input').setValue('   ')
+    await w.find('.chat-foot textarea').setValue('   ')
     await w.find('.chat-foot .btn').trigger('click')
     await flushPromises()
     expect(api.chat).not.toHaveBeenCalled()
@@ -208,7 +208,7 @@ describe('chat', () => {
       .findAllComponents({ name: 'Icon' })
       .find((i) => enviar.element.contains(i.element))
     expect(icono.props('n')).toBe('send')
-    await w.find('.chat-foot input').setValue('hola')
+    await w.find('.chat-foot textarea').setValue('hola')
     await enviar.trigger('click')
     await flushPromises()
     expect(api.chatStart).toHaveBeenCalled()
@@ -275,12 +275,15 @@ describe('el chat pinta el markdown del asistente', () => {
     expect(bubble.text()).not.toContain('**')
   })
 
-  it('lo que escribes tu va tal cual, sin interpretar', async () => {
+  it('lo que escribes tu tambien se pinta en markdown, y al nucleo va tal cual', async () => {
+    // lo pidio el usuario: asteriscos, almohadillas y saltos de linea a la
+    // vista; mas casos en chat-composer.test.js
     const w = await montar()
     await escribir(w, 'busca **esto** literal')
     const mine = w.find('.chat-msg.me .chat-bubble')
-    expect(mine.classes()).not.toContain('chat-md')
-    expect(mine.text()).toContain('**esto**')
+    expect(mine.classes()).toContain('chat-md')
+    expect(mine.find('strong').text()).toBe('esto')
+    expect(api.chat.mock.calls.at(-1)[0].at(-1).text).toBe('busca **esto** literal')
   })
 
   it('un titulo de YouTube con HTML dentro no se cuela', async () => {

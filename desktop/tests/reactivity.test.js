@@ -516,7 +516,10 @@ describe('cambiar de vista desde el lateral', () => {
     await flushPromises()
     await flushPromises()
     await pulsar(w, 'Asistente')
-    await w.find('.chat-foot input').setValue('pon la segunda')
+    // la pregunta del primer arranque (abrir las canciones con DanPlay) es un
+    // diálogo modal: con él abierto, lo que se escribe espera en la cola
+    dialogCancel()
+    await w.find('.chat-foot textarea').setValue('pon la segunda')
     await w.find('.chat-foot .btn').trigger('click')
     await flushPromises()
     await flushPromises()
@@ -1595,7 +1598,9 @@ describe('respuestas que llegan tarde', () => {
           release = r
         })
     )
-    await w.find('.chat-foot input').setValue('pon la lista Domingo')
+    // la pregunta del primer arranque es un diálogo modal: se contesta antes
+    dialogCancel()
+    await w.find('.chat-foot textarea').setValue('pon la lista Domingo')
     await w.find('.chat-foot .btn').trigger('click')
     await flushPromises()
     await pulsarNav(w, 'Todas las canciones')

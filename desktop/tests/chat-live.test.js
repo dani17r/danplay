@@ -51,7 +51,7 @@ const montar = async () => {
   return w
 }
 const escribir = async (w, t) => {
-  await w.find('.chat-foot input').setValue(t)
+  await w.find('.chat-foot textarea').setValue(t)
   await w.find('.chat-foot .btn').trigger('click')
   await flushPromises()
   await flushPromises()
@@ -88,7 +88,7 @@ describe('la respuesta en vivo', () => {
       }
     ]
     const w = await montar()
-    await w.find('.chat-foot input').setValue('¿que tengo?')
+    await w.find('.chat-foot textarea').setValue('¿que tengo?')
     await w.find('.chat-foot .btn').trigger('click')
     await flushPromises()
     await flushPromises()
@@ -123,7 +123,7 @@ describe('la respuesta en vivo', () => {
       }
     ]
     const w = await montar()
-    await w.find('.chat-foot input').setValue('cuentame')
+    await w.find('.chat-foot textarea').setValue('cuentame')
     await w.find('.chat-foot .btn').trigger('click')
     await flushPromises()
     await flushPromises()
