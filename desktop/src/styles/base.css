@@ -520,7 +520,22 @@ tbody tr:hover {
 }
 tbody tr.selected {
   background: color-mix(in srgb, var(--accent) 13%, var(--panel2));
+}
+/* La marca de la izquierda de la elegida, en su primera celda y no en el <tr>:
+   WebKit (el motor de la app en Linux) no pinta la sombra de una fila de
+   tabla, y no salia. Con la raya de soltar encima (drag.css), las dos. */
+tbody tr.selected > td:first-child {
   box-shadow: inset 2px 0 0 var(--accent);
+}
+tbody tr.selected.drop-before > td:first-child {
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset 0 2px 0 var(--accent);
+}
+tbody tr.selected.drop-after > td:first-child {
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset 0 -2px 0 var(--accent);
 }
 tbody tr.playing {
   color: var(--accent);
