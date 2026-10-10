@@ -1106,6 +1106,10 @@ def test_las_conversaciones_se_guardan_y_se_buscan(monkeypatch, tmp_path):
     assert chats.rename(c["id"], "Domingo") and chats.get(c["id"])["title"] == "Domingo"
     assert chats.delete(c["id"]) and chats.get(c["id"]) is None
     assert chats.title_from("x" * 100).endswith("…")
+    # la lista pegada: la primera linea con texto, sin las marcas de WhatsApp
+    pegada = "\n  \nagrégame esto a la lista:\n*Domingo*✅\n*1.- Mi Gozo*"
+    assert chats.title_from(pegada) == "agrégame esto a la lista:"
+    assert chats.title_from("*Domingo* _ensayo_ ~viejo~") == "Domingo ensayo viejo"
 
 
 def test_una_llamada_escrita_como_texto_se_ejecuta_igual(perfiles, monkeypatch):

@@ -11,6 +11,7 @@ toca (solo vacia `songs`).
 """
 
 import json
+import re
 import time
 
 from . import library
@@ -55,9 +56,17 @@ _KEEP = (
 )
 
 
+# Las marcas de markdown y de WhatsApp (*negrita*, _cursiva_, ~tachado~, #):
+# en un titulo solo estorban.
+_MARKS = re.compile(r"[*_~`#>]+")
+
+
 def title_from(text: str) -> str:
-    """El titulo de una conversacion sale de su primer mensaje."""
-    t = " ".join(str(text or "").split())
+    """El titulo de una conversacion sale de su primer mensaje: de su primera
+    linea con texto y sin marcas. Con la lista del domingo pegada, el titulo
+    era «agrégame esto…: *Domingo*✅ *1.- Mi…», con todo el formato."""
+    first = next((line for line in str(text or "").splitlines() if line.strip()), "")
+    t = " ".join(_MARKS.sub("", first).split())
     return (t[: TITLE_LENGTH - 1] + "…") if len(t) > TITLE_LENGTH else t or "Conversacion"
 
 
