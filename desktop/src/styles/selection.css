@@ -1,0 +1,102 @@
+/* Las casillas de la seleccion multiple (el boton «Seleccionar»): una en cada
+   fila, ficha o carátula mientras dura el modo. Va tras list-cards.css. */
+
+/* ---------- la casilla ----------
+   Decorativa (aria-hidden): para un lector de pantalla la verdad es el
+   aria-selected de la fila, y un clic en ella cae en la fila, que ya decide.
+   Solo la de la cabecera de la tabla (.pick-all) es un control. Todo sale de
+   las variables del tema, claro u oscuro; el movimiento reducido apaga la
+   transicion de color (motion.css). Va fuera de los textos que se recortan:
+   no se encoge, asi que quien cede sitio con «…» es siempre el titulo. */
+.pick-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  /* --border2 reforzado con el texto: solo, apenas se ve sobre la fila (1,1 a 1
+     de contraste en casi todos los temas); asi llega a 3 a 1 en todos */
+  border: 1px solid color-mix(in srgb, var(--text) 50%, var(--border2));
+  background: var(--bg);
+  /* el check, y la raya de «algunas», del color del fondo sobre el acento */
+  color: var(--bg);
+  line-height: 0;
+  vertical-align: middle;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.pick-box.on,
+.pick-box.mixed {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.pick-box.mixed::before {
+  content: '';
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentcolor;
+}
+/* al acercarse a una fila, ficha o a la casilla de la cabecera, el contorno
+   avisa de que se puede marcar */
+:is(.row, .card-song, .tile, tbody tr, .pick-all):hover .pick-box:not(.on, .mixed) {
+  border-color: var(--accent);
+}
+
+/* ---------- tabla: la columna de las casillas ----------
+   Solo existe con el modo puesto (SongTable la añade a `cols`). Es fija —no
+   se ensancha— y no se esconde en ningun tramo: no esta en ninguna media
+   query, porque es la forma de elegir sin teclado. Con los rellenos de los
+   lados a cero la casilla queda centrada en sus 34 px. */
+.col-check {
+  width: 34px;
+  text-align: center;
+}
+thead th.col-check,
+td.col-check {
+  padding-left: 0;
+  padding-right: 0;
+}
+td.col-check {
+  text-overflow: clip;
+}
+/* La casilla de «todas»: un boton que llena la celda de la cabecera (ya es
+   `position: sticky`, asi que le sirve de referencia). Sin estirar la
+   fila de cabecera, y mas facil de acertar que los 16 px de la casilla. El
+   foco va por dentro: la celda recorta lo que se salga. */
+.pick-all {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 6px;
+}
+.pick-all:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+/* ---------- fichas y cuadricula: en la esquina de la caratula ----------
+   Va tras el boton de reproducir y la caratula en el marcado, asi que queda
+   por encima sin necesitar z-index (con uno, se colaria por encima de la
+   cabecera de un grupo, que se queda pegada arriba al desplazar). La sombra
+   la separa de cualquier portada. */
+.card-art > .pick-box,
+.tile > .pick-box {
+  position: absolute;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+/* a caballo de la esquina de la caratula de 46 px, dentro del relleno de la ficha */
+.card-art > .pick-box {
+  top: -5px;
+  left: -5px;
+}
+.tile > .pick-box {
+  top: 7px;
+  left: 7px;
+}

@@ -5,6 +5,9 @@
  * Es la vista para recorrer mucho con poco sitio: nada de columnas, solo el
  * titulo con su artista al lado y lo justo a la derecha. Al ser una sola caja
  * por fila se adapta sola a cualquier ancho, sin columnas que descuadrar.
+ *
+ * Con `selectMode` (el botón «Seleccionar») cada fila lleva su casilla, la
+ * primera de la línea.
  */
 import Icon from './Icon.vue'
 import GroupHead from './GroupHead.vue'
@@ -31,9 +34,22 @@ const props = defineProps({
   label: { type: String, default: 'Canciones' },
   /** los grupos, si la lista va agrupada (ver GroupedSongs) */
   // eslint-disable-next-line vue/no-unused-properties
-  groups: { type: Array, default: null }
+  groups: { type: Array, default: null },
+  /** el modo «Seleccionar»: una casilla en cada fila */
+  selectMode: Boolean
 })
-const emit = defineEmits(['select', 'play', 'setStars', 'toggleFavorite', 'context', 'toggleGroup'])
+const emit = defineEmits([
+  'select',
+  'play',
+  'setStars',
+  'toggleFavorite',
+  'context',
+  'toggleGroup',
+  // con el teclado (Ctrl+A, Supr y Escape) los emite useSongList; la app decide
+  'selectAll',
+  'remove',
+  'clearSelection'
+])
 
 const caja = useTemplateRef('caja')
 const {
@@ -117,6 +133,19 @@ const {
         @focus="onFocus(c)"
         @contextmenu.prevent="emit('context', $event, c)"
       >
+        <!-- la casilla: decorativa (aria-hidden). Un clic en ella cae en la
+             fila, que ya emite `select`; la app decide si alterna. El doble
+             clic se queda en ella: marcar y desmarcar deprisa no pone la
+             canción (en el resto de la fila, sí) -->
+        <span
+          v-if="selectMode"
+          class="pick-box"
+          :class="{ on: picked(c.id) }"
+          aria-hidden="true"
+          @dblclick.stop
+        >
+          <Icon v-if="picked(c.id)" n="check" :t="12" :grosor="2.4" />
+        </span>
         <span class="row-num mono">{{ numberOf(sec, i) }}</span>
         <button
           type="button"

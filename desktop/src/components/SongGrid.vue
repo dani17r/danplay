@@ -4,6 +4,9 @@
  *
  * Una ficha se puede coger y soltar en un repertorio del menu lateral, y con
  * el teclado las flechas se mueven en las dos direcciones.
+ *
+ * Con `selectMode` (el botón «Seleccionar») cada ficha lleva su casilla en la
+ * esquina superior izquierda de la carátula, siempre a la vista.
  */
 import Icon from './Icon.vue'
 import GroupHead from './GroupHead.vue'
@@ -32,9 +35,20 @@ const props = defineProps({
   label: { type: String, default: 'Canciones' },
   /** los grupos, si la lista va agrupada (ver GroupedSongs) */
   // eslint-disable-next-line vue/no-unused-properties
-  groups: { type: Array, default: null }
+  groups: { type: Array, default: null },
+  /** el modo «Seleccionar»: una casilla en cada ficha */
+  selectMode: Boolean
 })
-const emit = defineEmits(['select', 'play', 'context', 'toggleGroup'])
+const emit = defineEmits([
+  'select',
+  'play',
+  'context',
+  'toggleGroup',
+  // con el teclado (Ctrl+A, Supr y Escape) los emite useSongList; la app decide
+  'selectAll',
+  'remove',
+  'clearSelection'
+])
 
 // Igual que en la tabla: solo se pintan las fichas que se ven. Cuantas caben
 // por linea no hace falta calcularlo del css: se mira cuantas de las ya
@@ -145,6 +159,19 @@ const {
         >
           <Icon :n="rowIcon(c)" :t="15" />
         </button>
+        <!-- la casilla, tras el botón y la carátula para quedar por encima. Es
+             decorativa (aria-hidden): un clic en ella cae en la ficha, que ya
+             emite `select`; la app decide si alterna. El doble clic se queda
+             en ella: marcar y desmarcar deprisa no pone la canción -->
+        <span
+          v-if="selectMode"
+          class="pick-box"
+          :class="{ on: picked(c.id) }"
+          aria-hidden="true"
+          @dblclick.stop
+        >
+          <Icon v-if="picked(c.id)" n="check" :t="12" :grosor="2.4" />
+        </span>
         <div class="name" :title="c.title">
           <Icon
             v-if="playing === c.id"

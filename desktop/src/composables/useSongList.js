@@ -46,6 +46,7 @@ import { songKey, targetIndex } from '../utils/keys.js'
  * @property {number|null} [jumpTo]       a la que hay que ir
  * @property {boolean} [sortable]         se ordena arrastrando (un repertorio)
  * @property {SongGroup[]|null} [groups]  los grupos, si la lista va agrupada
+ * @property {boolean} [selectMode]       el modo «Seleccionar» está puesto (con casillas)
  */
 
 /**
@@ -56,7 +57,7 @@ import { songKey, targetIndex } from '../utils/keys.js'
  *   grid: van en cuadrícula, varias por línea
  */
 export function useSongList(props, emit, options) {
-  const { startDrag, isDragged, isBefore, isAfter } = useDragSong()
+  const { startDrag, isDragged, isBefore, isAfter, dragging } = useDragSong()
   // Sobre la que está puesta, el botón de la fila es pausa (o reanudar si
   // está en pausa); en las demás, reproducir. Lo de «sonando» lo sabe el
   // reproductor.
@@ -187,10 +188,26 @@ export function useSongList(props, emit, options) {
   async function onKey(e, c, index) {
     // la tecla era de un botón de dentro de la fila (el corazón, reproducir)
     if (e.target !== e.currentTarget) return
-    const key = songKey(e, { grid: !!options.grid, columns: virtual.columns.value })
+    // Escape suelta la selección solo si hay algo que soltar: el modo puesto o
+    // varias elegidas. Y no en mitad de un arrastre: ese Escape es de quien lo
+    // cancela (App), y aquí se lo tragaría la fila al parar la propagación.
+    const selecting =
+      !dragging.value && (!!props.selectMode || (props.selectedIds?.length ?? 0) > 1)
+    const key = songKey(e, {
+      grid: !!options.grid,
+      columns: virtual.columns.value,
+      selecting
+    })
     if (!key) return
     e.preventDefault()
     e.stopPropagation()
+    // Ctrl+A, Supr y Escape: la lista no sabe qué hay elegido ni de qué vista
+    // es (un repertorio quita de la lista, lo demás va a la papelera); lo
+    // dice a la app, que lo decide. Ctrl+A es «poner todas», no alternar como
+    // la casilla de la cabecera de la tabla.
+    if (key.kind === 'selectAll') return emit('selectAll', { toggle: false })
+    if (key.kind === 'remove') return emit('remove')
+    if (key.kind === 'clear') return emit('clearSelection')
     if (key.kind === 'play') return emit('play', c)
     if (key.kind === 'toggle') {
       // espacio pausa o sigue, como en el resto de la app; sin nada cargado,
@@ -209,8 +226,12 @@ export function useSongList(props, emit, options) {
     focusId.value = next.id
     const el = await revealRow(to)
     el?.focus()
-    // con Ctrl solo se mueve el foco; con Mayús se amplía la selección
-    if (!(e.ctrlKey || e.metaKey)) emit('select', next.id, { shiftKey: e.shiftKey })
+    // con Ctrl solo se mueve el foco; con Mayús se amplía la selección. En el
+    // modo «Seleccionar» moverse tampoco elige (ahí elegir es alternar, y cada
+    // flecha pondría o quitaría la fila por la que pasa): se marca con
+    // Ctrl+espacio, y Mayús sigue sumando el tramo.
+    if (e.ctrlKey || e.metaKey || (props.selectMode && !e.shiftKey)) return
+    emit('select', next.id, { shiftKey: e.shiftKey })
   }
 
   /** @param {Song} c */

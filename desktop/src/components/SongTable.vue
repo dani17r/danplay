@@ -13,6 +13,9 @@
  *
  * Con el teclado es una rejilla: una sola parada del tabulador, las flechas
  * pasan de fila en fila y Enter la pone a sonar (ver useSongList).
+ *
+ * Con `selectMode` (el botón «Seleccionar») nace una columna más, la primera,
+ * con la casilla de cada fila y, en la cabecera, la de «seleccionar todas».
  */
 import StarRating from './StarRating.vue'
 import Icon from './Icon.vue'
@@ -42,7 +45,9 @@ const props = defineProps({
   jumpTo: { type: Number, default: null },
   sortable: Boolean,
   /** como se anuncia la lista */
-  label: { type: String, default: 'Canciones' }
+  label: { type: String, default: 'Canciones' },
+  /** el modo «Seleccionar»: una casilla en cada fila (y la de todas, en la cabecera) */
+  selectMode: Boolean
 })
 const emit = defineEmits([
   'select',
@@ -51,7 +56,12 @@ const emit = defineEmits([
   'toggleFavorite',
   'sortBy',
   'context',
-  'toggleGroup'
+  'toggleGroup',
+  // «todas» desde la casilla de la cabecera; y, con el teclado, Ctrl+A, Supr y
+  // Escape, que emite useSongList. La app decide qué hacer con ellos.
+  'selectAll',
+  'remove',
+  'clearSelection'
 ])
 
 const body = useTemplateRef('body')
@@ -84,6 +94,20 @@ const rowCount = computed(() => props.songs.length + (props.groups?.length || 0)
 const rowIndex = (sec, i) => sec.from + i + 1 + (sec.group ? sec.index + 1 : 0) + theadRows.value
 const headRowIndex = (sec) => sec.group.start + sec.index + 1 + theadRows.value
 
+/**
+ * El estado de la casilla de la cabecera, el de un `role="checkbox"` de tres
+ * estados: 'true' si están elegidas todas las de la lista, 'mixed' si solo
+ * algunas y 'false' si ninguna. Cuenta lo MISMO que pinta cada fila
+ * (`picked`: la elegida y la selección múltiple), así que la cabecera y las
+ * casillas nunca discrepan. Fuera del modo no se calcula.
+ */
+const pickState = computed(() => {
+  if (!props.selectMode || !props.songs.length) return 'false'
+  let n = 0
+  for (const c of props.songs) if (picked(c.id)) n++
+  return n === 0 ? 'false' : n === props.songs.length ? 'true' : 'mixed'
+})
+
 // ---------------------------------------------------------------- columnas
 // `sort` es por que campo ordena esa columna; sin el, no se puede ordenar.
 // `desc` es hacia donde ordena la PRIMERA vez que la pulsas: por artista se
@@ -103,21 +127,29 @@ const COLS = [
   { k: 'copy', cls: 'col-copy', label: '', hidden: 'Copiar el nombre completo' }
 ]
 
-// La tabla enseña todas sus columnas. Hubo un `columns` que venia de la vista
-// para esconder algunas, pero se quedo siempre en null: era codigo muerto que
-// ademas invalidaba el v-memo de cada fila. Se deja `show` porque el marcado
-// lo consulta columna a columna y es donde se volveria a enganchar.
-const show = Object.fromEntries(COLS.map((c) => [c.k, true]))
-const cols = computed(() => COLS)
+// La casilla del modo «Seleccionar»: la primera columna, y solo con el modo
+// puesto. Fuera de él no hay ni columna ni `<col>` (WebKitGTK conserva el
+// ancho de una `<col>` escondida), así que no cuesta nada ni descuadra nada.
+// Es fija: no se ensancha, y por eso no lleva tirador ni se guarda su ancho.
+const CHECK = { k: 'check', cls: 'col-check', label: '' }
+
+// Las columnas que hay se deciden AQUÍ, en un solo sitio: de `cols` beben el
+// <colgroup>, la cabecera y lo que abarca la celda de un grupo, y de `show`
+// las celdas. Hubo un `columns` que venía de la vista para esconder algunas,
+// pero se quedó siempre en null: era código muerto que además invalidaba el
+// v-memo de cada fila. `show` se deriva de `cols` para que no puedan
+// discrepar (la cabecera y el cuerpo corridos un sitio, ya vivido).
+const cols = computed(() => (props.selectMode ? [CHECK, ...COLS] : COLS))
+const show = computed(() => Object.fromEntries(cols.value.map((c) => [c.k, true])))
 
 // La celda de la cabecera de un grupo abarca las columnas que SE VEN, no
 // todas. Las media queries esconden algunas (y su <col>), y cada columna de
 // más que abarcase la celda nacía como columna fantasma, sin <col> y con su
 // parte del ancho: medido en WebKitGTK, en estrecho el título se quedaba en
 // 38 px y en medio sobraba un hueco de 224 px a la derecha de las filas. Se
-// cuentan al aparecer la tabla, al cambiar sus columnas y al cambiar el
-// tamaño de la ventana, que es lo que mueve las media queries. Sin grupos no
-// hace falta: no hay celda que abarque nada.
+// cuentan al aparecer la tabla, al cambiar sus columnas (el modo
+// «Seleccionar») y al cambiar el tamaño de la ventana, que es lo que mueve las
+// media queries. Sin grupos no hace falta: no hay celda que abarque nada.
 const shownCols = ref(0)
 function countCols() {
   const tabla = body.value?.closest('table')
@@ -175,7 +207,8 @@ function fotoDeAnchos() {
   const foto = {}
   for (const th of tabla?.querySelectorAll('thead th[data-col]') || []) {
     const w = th.getBoundingClientRect().width
-    if (w > 0) foto[th.dataset.col] = Math.round(w)
+    // la casilla es fija y no se ensancha: su ancho no se guarda
+    if (w > 0 && th.dataset.col !== CHECK.k) foto[th.dataset.col] = Math.round(w)
   }
   return foto
 }
@@ -266,10 +299,33 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
             :class="[col.cls, { sortable: !!col.sort }]"
             :aria-sort="sortedBy(col) ? (desc ? 'descending' : 'ascending') : null"
           >
+            <!-- la casilla de «todas»: un checkbox de tres estados (todas,
+                 algunas, ninguna). Es el único control de la columna: las de
+                 las filas son decorativas, la verdad de cada fila es su
+                 aria-selected. ALTERNA (`toggle: true`): con todas puestas
+                 las quita; Ctrl+A (useSongList) manda `toggle: false` -->
+            <button
+              v-if="col.k === CHECK.k"
+              type="button"
+              class="pick-all"
+              role="checkbox"
+              :aria-checked="pickState"
+              aria-label="Seleccionar todas"
+              :title="pickState === 'true' ? 'Quitar la selección' : 'Seleccionar todas'"
+              @click="emit('selectAll', { toggle: true })"
+            >
+              <span
+                class="pick-box"
+                :class="{ on: pickState === 'true', mixed: pickState === 'mixed' }"
+                aria-hidden="true"
+              >
+                <Icon v-if="pickState === 'true'" n="check" :t="12" :grosor="2.4" />
+              </span>
+            </button>
             <!-- la cabecera que ordena es un boton: se alcanza y se pulsa
                  con el teclado -->
             <button
-              v-if="col.sort"
+              v-else-if="col.sort"
               type="button"
               class="th-sort"
               :title="'Ordenar por ' + col.label"
@@ -286,7 +342,7 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
                  un divisor ajustable); la regla lo cree un elemento estatico -->
             <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
             <span
-              v-if="i < cols.length - 1"
+              v-if="i < cols.length - 1 && col.k !== CHECK.k"
               class="col-resize"
               role="separator"
               aria-orientation="vertical"
@@ -340,6 +396,15 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
             @focus="onFocus(c)"
             @contextmenu.prevent="emit('context', $event, c)"
           >
+            <!-- la casilla: decorativa (aria-hidden). Un clic en ella cae en
+                 la fila, que ya emite `select`; la app decide si alterna. El
+                 doble clic se queda en la celda: marcar y desmarcar deprisa
+                 no pone la canción (en el resto de la fila, sí) -->
+            <td v-if="show.check" class="col-check" @dblclick.stop>
+              <span class="pick-box" :class="{ on: picked(c.id) }" aria-hidden="true">
+                <Icon v-if="picked(c.id)" n="check" :t="12" :grosor="2.4" />
+              </span>
+            </td>
             <td v-if="show.n" class="col-n mono">
               <button
                 type="button"

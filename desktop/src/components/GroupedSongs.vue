@@ -27,9 +27,23 @@ const props = defineProps({
   size: { type: Number, default: 164 },
   jumpTo: { type: Number, default: null },
   sort: { type: String, default: '' },
-  desc: Boolean
+  desc: Boolean,
+  /** el modo «Seleccionar»: se lo pasa a la vista, que pinta las casillas */
+  selectMode: Boolean
 })
-const emit = defineEmits(['select', 'play', 'setStars', 'toggleFavorite', 'sortBy', 'context'])
+const emit = defineEmits([
+  'select',
+  'play',
+  'setStars',
+  'toggleFavorite',
+  'sortBy',
+  'context',
+  // de la casilla de la cabecera de la tabla y del teclado (Ctrl+A, Supr y
+  // Escape), que salen de la vista tal cual
+  'selectAll',
+  'remove',
+  'clearSelection'
+])
 const collapsed = ref(new Set())
 
 // Los mismos grupos, en el mismo orden, que usa la app para elegir con Mayús
@@ -74,10 +88,15 @@ const bindings = computed(() => {
     selectedIds: props.selectedIds,
     playing: props.playing,
     jumpTo: props.jumpTo,
+    selectMode: props.selectMode,
     onSelect: (id, ev) => emit('select', id, ev),
     onPlay: (c) => emit('play', c),
     onContext: (ev, c) => emit('context', ev, c),
-    onToggleGroup: toggleGroup
+    onToggleGroup: toggleGroup,
+    // las cuatro vistas los declaran; salen hacia la app sin cambiar nada
+    onSelectAll: (...args) => emit('selectAll', ...args),
+    onRemove: (...args) => emit('remove', ...args),
+    onClearSelection: (...args) => emit('clearSelection', ...args)
   }
   if (props.layout === 'grid') return { ...common, size: props.size }
   const rated = {

@@ -341,3 +341,69 @@ describe('el panel lateral', () => {
     expect(w.emitted('close')).toBeTruthy()
   })
 })
+
+// La selección múltiple con el teclado: Ctrl+A elige todas, Supr quita (o
+// manda a la papelera) las elegidas y Escape las suelta. Qué se hace lo
+// decide la app; la lista solo lo dice.
+describe('la seleccion con el teclado', () => {
+  it('Ctrl+A es elegir todas; con Mayus o Alt, no', () => {
+    expect(songKey({ key: 'a', ctrlKey: true })).toEqual({ kind: 'selectAll' })
+    expect(songKey({ key: 'A', ctrlKey: true })).toEqual({ kind: 'selectAll' }) // con Bloq Mayús
+    expect(songKey({ key: 'a', metaKey: true })).toEqual({ kind: 'selectAll' })
+    expect(songKey({ key: 'a', ctrlKey: true, shiftKey: true })).toBe(null)
+    expect(songKey({ key: 'a', ctrlKey: true, altKey: true })).toBe(null)
+  })
+
+  it('Supr sola es quitar; con Ctrl o Mayus no', () => {
+    expect(songKey({ key: 'Delete' })).toEqual({ kind: 'remove' })
+    expect(songKey({ key: 'Delete', ctrlKey: true })).toBe(null)
+    expect(songKey({ key: 'Delete', shiftKey: true })).toBe(null)
+  })
+
+  it('Escape suelta solo si hay algo que soltar; si no, se deja pasar', () => {
+    expect(songKey({ key: 'Escape' })).toBe(null)
+    expect(songKey({ key: 'Escape' }, { selecting: true })).toEqual({ kind: 'clear' })
+  })
+
+  const filas = (w) => w.findAll('[data-song-row]')
+
+  it('la fila con el foco lo dice a la app: selectAll, remove y clearSelection', async () => {
+    for (const vista of [SongTable, SongRows, SongGrid]) {
+      const w = montar(vista, { props: { songs: tres(), selected: 1, selectMode: true } })
+      await tecla(filas(w)[0], 'a', { ctrlKey: true })
+      await tecla(filas(w)[0], 'Delete')
+      await tecla(filas(w)[0], 'Escape')
+      expect(w.emitted('selectAll'), vista.__name).toEqual([[{ toggle: false }]])
+      expect(w.emitted('remove'), vista.__name).toHaveLength(1)
+      expect(w.emitted('clearSelection'), vista.__name).toHaveLength(1)
+    }
+  })
+
+  it('sin modo y con una sola elegida, Escape no es de la lista (sigue su camino)', async () => {
+    const w = montar(SongRows, { props: { songs: tres(), selected: 1, selectedIds: [1] } })
+    const fuera = []
+    const escucha = (e) => fuera.push(e.key)
+    window.addEventListener('keydown', escucha)
+    await tecla(filas(w)[0], 'Escape')
+    window.removeEventListener('keydown', escucha)
+    expect(w.emitted('clearSelection')).toBeFalsy()
+    expect(fuera, 'Escape debe llegar a quien cierre lo que haya abierto').toEqual(['Escape'])
+    // con varias elegidas, sí
+    await w.setProps({ selectedIds: [1, 2] })
+    await tecla(filas(w)[0], 'Escape')
+    expect(w.emitted('clearSelection')).toHaveLength(1)
+  })
+
+  it('en el modo, las flechas solo mueven el foco (no marcan al pasar); Mayus suma el tramo', async () => {
+    const w = montar(SongTable, { props: { songs: tres(), selected: 1, selectMode: true } })
+    filas(w)[0].element.focus()
+    await tecla(filas(w)[0], 'ArrowDown')
+    expect(document.activeElement).toBe(filas(w)[1].element)
+    expect(w.emitted('select')).toBeFalsy()
+    await tecla(filas(w)[1], 'ArrowDown', { shiftKey: true })
+    expect(w.emitted('select')).toEqual([[3, { shiftKey: true }]])
+    // y Ctrl+espacio marca la que tiene el foco
+    await tecla(filas(w)[2], ' ', { ctrlKey: true })
+    expect(w.emitted('select').at(-1)).toEqual([3, { ctrlKey: true }])
+  })
+})

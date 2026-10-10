@@ -6,6 +6,9 @@
  * que ayuda a reconocer un tema de un vistazo, pero sigue habiendo sitio para
  * el titulo entero y los datos. Las fichas se acoplan en varias columnas
  * cuando hay ancho de sobra y pasan a una sola cuando no.
+ *
+ * Con `selectMode` (el botón «Seleccionar») cada ficha lleva su casilla en la
+ * esquina superior izquierda de la carátula.
  */
 import Icon from './Icon.vue'
 import GroupHead from './GroupHead.vue'
@@ -33,9 +36,22 @@ const props = defineProps({
   label: { type: String, default: 'Canciones' },
   /** los grupos, si la lista va agrupada (ver GroupedSongs) */
   // eslint-disable-next-line vue/no-unused-properties
-  groups: { type: Array, default: null }
+  groups: { type: Array, default: null },
+  /** el modo «Seleccionar»: una casilla en cada ficha */
+  selectMode: Boolean
 })
-const emit = defineEmits(['select', 'play', 'setStars', 'toggleFavorite', 'context', 'toggleGroup'])
+const emit = defineEmits([
+  'select',
+  'play',
+  'setStars',
+  'toggleFavorite',
+  'context',
+  'toggleGroup',
+  // con el teclado (Ctrl+A, Supr y Escape) los emite useSongList; la app decide
+  'selectAll',
+  'remove',
+  'clearSelection'
+])
 
 const caja = useTemplateRef('caja')
 const {
@@ -142,6 +158,19 @@ const {
           >
             <Icon :n="rowIcon(c)" :t="13" />
           </button>
+          <!-- la casilla, tras el botón para quedar por encima de él. Es
+               decorativa (aria-hidden): un clic en ella cae en la ficha, que
+               ya emite `select`; la app decide si alterna. El doble clic se
+               queda en ella: marcar y desmarcar deprisa no pone la canción -->
+          <span
+            v-if="selectMode"
+            class="pick-box"
+            :class="{ on: picked(c.id) }"
+            aria-hidden="true"
+            @dblclick.stop
+          >
+            <Icon v-if="picked(c.id)" n="check" :t="12" :grosor="2.4" />
+          </span>
         </div>
         <div class="card-txt">
           <div class="card-title-row">
