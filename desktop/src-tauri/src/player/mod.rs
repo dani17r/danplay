@@ -16,11 +16,14 @@
 //!   open.rs     abrir una cancion (decodificador de siempre o ffmpeg)
 //!   ahead.rs    la cancion leida a memoria por delante: el callback no
 //!               toca el disco
+//!   fade.rs     el volumen de cada cancion, muestra a muestra: fundidos
+//!               entre canciones y el paso sin cortes a sus pistas
 //!   mix.rs      las pistas separadas de una cancion, sonando juntas
 //!   metro.rs    el metronomo visto desde aqui
 //!   state.rs    lo que se cuenta hacia fuera
 mod ahead;
 mod engine;
+mod fade;
 mod metro;
 mod mix;
 mod open;

@@ -7,6 +7,7 @@
 //! en la bandeja sin sonar nada. Ahora, si no suena ni la cancion ni el
 //! metronomo durante `IDLE_RELEASE`, se suelta; la cancion en pausa se
 //! recuerda donde iba y, al volver a darle, se abre ahi.
+use super::fade::Shape;
 use super::metro::{self, Click, Metro, Replan};
 use super::mix::{StemSet, StemTrack};
 use super::open::{self, Recipe, Song};
@@ -49,6 +50,17 @@ const IDLE_RELEASE: Duration = Duration::from_secs(2);
 /// Con cuanta antelacion se prepara la vuelta del bucle A-B cuando la
 /// cancion pasa por ffmpeg: asi, al llegar a B, el salto es instantaneo.
 const LOOP_AHEAD: f64 = 1.5;
+
+/// Al pasar a otra version de la cancion que suena (sus pistas, o ella otra
+/// vez; otra velocidad o tono), cuanto se cruzan las dos. Son la misma
+/// musica en el mismo punto: con muy poco basta para que no se oiga un clic.
+const HANDOFF: f32 = 0.15;
+
+/// Con cuanta antelacion (en tiempo de verdad) se abre esa version nueva:
+/// lo que tarde en abrirse (ffmpeg arranca y llena su anillo; las pistas son
+/// varios archivos), la que suena lo sigue sonando. Si tarda mas, la nueva
+/// se pone a la par saltandose lo que sobra (ver `fade`).
+const HANDOFF_AHEAD: f64 = 0.6;
 
 /// El tono corrido: una octava arriba o abajo como mucho, al centesimo de
 /// semitono (un cent). Lo que no sea un numero, tal cual.
@@ -153,6 +165,9 @@ struct Engine<'a> {
     /// `None` mientras no haga falta, o desde que se solto.
     output: Option<Output>,
     song: Option<Song>,
+    /// Las que se van bajando (un fundido, el paso a las pistas): siguen
+    /// sonando aparte hasta callarse, y entonces se sueltan.
+    fading: Vec<Song>,
     /// El clic del metronomo: su propio sink, creado cuando haga falta.
     click: Option<Click>,
     was_finished: bool,
@@ -178,6 +193,7 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
         carry,
         output: None,
         song: None,
+        fading: Vec::new(),
         click: None,
         was_finished: false,
         last_sent: State::default(),
@@ -214,6 +230,7 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
             Err(RecvTimeoutError::Disconnected) => return, // el canal se cerro: fin
         }
         engine.song_in(&mut step);
+        engine.reap_fading();
         engine.watchdog(&mut step);
         engine.ab_loop(&mut step);
         engine.metronome(&mut step);
@@ -238,7 +255,7 @@ impl Engine<'_> {
         }
         // una cancion con tramo que se acaba vuelve al tramo: cuanto antes
         let back_to_loop = !self.carry.loops.is_empty() && self.song.as_ref().is_some_and(Song::exhausted);
-        if self.sounding() || back_to_loop {
+        if self.sounding() || back_to_loop || !self.fading.is_empty() {
             Some(ACTIVE)
         } else if self.output.is_some() {
             Some(IDLE)
@@ -396,7 +413,59 @@ impl Engine<'_> {
         self.was_finished = false;
     }
 
+    // ------------------------------------------- fundidos
+    /// Las que se iban, fuera ya (pausa, salto, stop...).
+    fn drop_fading(&mut self) {
+        for song in self.fading.drain(..) {
+            song.fade.finish();
+            song.sink.stop();
+        }
+    }
+
+    /// Las que ya se han callado, fuera.
+    fn reap_fading(&mut self) {
+        self.fading.retain(|song| {
+            let gone = song.fade.quiet() || song.exhausted();
+            if gone {
+                song.fade.finish();
+                song.sink.stop();
+            }
+            !gone
+        });
+    }
+
+    /// Pasa a otra version de la que suena (sus pistas, o ella otra vez;
+    /// otra velocidad o tono) sin que se oiga el cambio: la nueva se abre un
+    /// poco por delante y entra, cruzandose, justo cuando la que suena llega
+    /// ahi (ver «La puerta» en `fade`). En pausa, en plena cuenta o casi al
+    /// final, se reabre sin mas, como antes. `clock` es el de la que suena.
+    fn hand_over(&mut self, clock: f32) -> Result<(), String> {
+        let Some(old) = self.song.as_ref().filter(|s| !s.exhausted()) else {
+            return Ok(());
+        };
+        let at = old.position(clock);
+        let playing = !old.sink.is_paused();
+        let ahead = HANDOFF_AHEAD * f64::from(clock);
+        let near_end = self.carry.duration > 0.0 && at + ahead + 0.5 >= self.carry.duration;
+        if !playing || near_end || self.count_in.is_some() {
+            let fresh = self.open_current(at)?;
+            self.adopt(fresh, playing);
+            return Ok(());
+        }
+        let fresh = self.open_current(at + ahead)?;
+        if let Some(old) = self.song.take() {
+            // la vieja baja justo cuando la nueva entra: en el segundo en que
+            // esta se abrio (se lee antes de `follow`, que lo cambia)
+            old.fade.ramp_at(0.0, HANDOFF, Shape::Linear, fresh.fade.at());
+            fresh.fade.follow(Arc::clone(&old.fade), HANDOFF);
+            self.fading.push(old);
+        }
+        self.adopt(fresh, true);
+        Ok(())
+    }
+
     fn play(&mut self, path: String, hint: f64, step: &mut Step) {
+        self.drop_fading();
         if let Some(old) = self.song.take() {
             old.sink.stop();
         }
@@ -435,6 +504,7 @@ impl Engine<'_> {
 
     /// Deja una cancion preparada pero en silencio (ver `Command::Load`).
     fn load(&mut self, path: String, hint: f64) {
+        self.drop_fading();
         if let Some(old) = self.song.take() {
             old.sink.stop();
         }
@@ -450,6 +520,7 @@ impl Engine<'_> {
 
     /// Stop, o la cola que no encontro el archivo: nada puesto.
     fn forget_song(&mut self) {
+        self.drop_fading();
         if let Some(old) = self.song.take() {
             old.sink.stop();
         }
@@ -497,6 +568,7 @@ impl Engine<'_> {
                 }
             } else if let Some(song) = &self.song {
                 song.sink.pause();
+                self.drop_fading();
             }
         }
     }
@@ -541,6 +613,7 @@ impl Engine<'_> {
     }
 
     fn seek(&mut self, seconds: f64, step: &mut Step) {
+        self.drop_fading();
         step.sought = true;
         step.replan = Some(Replan::Song);
         let seconds = seconds.max(0.0);
@@ -602,6 +675,7 @@ impl Engine<'_> {
     /// La salida no responde: se rehace y la cancion sigue donde iba (o
     /// donde se pidio), sonando o en pausa como estaba.
     fn recover(&mut self, at: Option<f64>, step: &mut Step) {
+        self.drop_fading();
         let clock = self.carry.clock();
         let resume = self
             .song
@@ -679,16 +753,12 @@ impl Engine<'_> {
         let before = self.carry.stems.take();
         self.carry.stems = tracks.filter(|list| !list.is_empty()).map(|list| StemSet::new(&list));
         let clock = self.carry.clock();
-        let Some(song) = self.song.as_ref().filter(|s| !s.exhausted()) else {
+        if self.song.as_ref().is_none_or(Song::exhausted) {
             return; // nada abierto: se abrira con ellas al darle a play
-        };
-        let at = song.position(clock);
-        let playing = !song.sink.is_paused();
-        match self.open_current(at) {
-            Ok(fresh) => {
-                self.adopt(fresh, playing);
-                step.replan = Some(Replan::Song);
-            }
+        }
+        // sin corte: la cancion sigue hasta que entran las pistas, a la par
+        match self.hand_over(clock) {
+            Ok(()) => step.replan = Some(Replan::Song),
             Err(e) => {
                 self.carry.stems = before;
                 step.failure = Some(e);
@@ -703,6 +773,9 @@ impl Engine<'_> {
             self.carry.volume
         };
         if let Some(song) = &self.song {
+            song.sink.set_volume(self.carry.volume);
+        }
+        for song in &self.fading {
             song.sink.set_volume(self.carry.volume);
         }
     }
@@ -725,11 +798,9 @@ impl Engine<'_> {
             song.sink.set_speed(self.carry.speed);
             return;
         }
-        let at = song.position(clock);
-        let playing = !song.sink.is_paused();
-        match self.open_current(at) {
-            Ok(fresh) => self.adopt(fresh, playing),
-            Err(e) => step.failure = Some(e),
+        // sin corte, como el paso a las pistas
+        if let Err(e) = self.hand_over(clock) {
+            step.failure = Some(e);
         }
     }
 
@@ -909,7 +980,7 @@ impl Engine<'_> {
 
     // ------------------------------------------- soltar la salida
     fn release_when_idle(&mut self) {
-        let busy = self.sounding() || self.carry.metro.settings.on;
+        let busy = self.sounding() || self.carry.metro.settings.on || !self.fading.is_empty();
         if busy || self.output.is_none() {
             self.idle_since = None;
             return;

@@ -2,6 +2,7 @@
 //! siempre (leyendo el archivo a memoria por delante, ver `ahead`) o por
 //! ffmpeg.
 use super::ahead::{self, Ahead, Gauge};
+use super::fade::{FadeCtl, Faded};
 use super::mix::{StemMix, StemSet};
 use crate::{tools, transcode};
 use rodio::mixer::Mixer;
@@ -37,6 +38,9 @@ pub(super) struct Song {
     /// Como va la lectura a memoria, si la cancion va por el decodificador
     /// de siempre y cabe (ver `ahead`).
     pub(super) reading: Option<Gauge>,
+    /// Su volumen muestra a muestra: los fundidos y el paso sin cortes a
+    /// otra version de ella (ver `fade`).
+    pub(super) fade: Arc<FadeCtl>,
 }
 
 impl Song {
@@ -47,8 +51,21 @@ impl Song {
     /// lo cuenta como si fuera cancion, y la aguja —y con ella el clic— se
     /// iba quedando por delante de lo que se oye.
     pub(super) fn position(&self, clock: f32) -> f64 {
+        // callada esperando a la version que sustituye (ver `fade`): lo que
+        // se oye es aquella, y la nueva sabe por donde va
+        if self.fade.waiting() {
+            return self.fade.at();
+        }
         let filler = self.ffmpeg.as_ref().map_or(Duration::ZERO, transcode::Control::filler);
-        self.sink.get_pos().saturating_sub(filler).as_secs_f64() * f64::from(clock) + self.lead
+        // ni lo que espero callada a la version que sustituye (ver `fade`)
+        let waited = self.fade.waited();
+        self.sink
+            .get_pos()
+            .saturating_sub(filler)
+            .saturating_sub(waited)
+            .as_secs_f64()
+            * f64::from(clock)
+            + self.lead
     }
 
     /// Antes de saltar a `from` (segundos de cancion), al reabrirla o dentro
@@ -178,6 +195,7 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
     // no era, y un salto pendiente se atiende sin que se oiga
     sink.pause();
     sink.set_volume(volume);
+    let fade = Arc::new(FadeCtl::default());
     let slowed = (speed - 1.0).abs() > 1e-4;
     let pitched = pitch.abs() > transcode::NO_PITCH;
 
@@ -196,14 +214,17 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
         let announced = source
             .total_duration()
             .map(|d| d.as_secs_f64() * f64::from(source.tempo()));
-        sink.append(StemMix::new(source, std::sync::Arc::clone(&stems.gains)));
+        let lead = transcode::filter_lead(tempo, pitch, transcode::has_rubberband(ffmpeg));
+        let blend = StemMix::new(source, std::sync::Arc::clone(&stems.gains));
+        sink.append(Faded::new(blend, Arc::clone(&fade), tempo, lead));
         return Ok(Song {
             sink: Arc::new(sink),
             ffmpeg: Some(control),
             tempo,
             announced,
-            lead: transcode::filter_lead(tempo, pitch, transcode::has_rubberband(ffmpeg)),
+            lead,
             reading: None,
+            fade,
         });
     }
 
@@ -224,18 +245,20 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
         let announced = source
             .total_duration()
             .map(|d| d.as_secs_f64() * f64::from(source.tempo()));
-        sink.append(source);
+        let lead = transcode::filter_lead(tempo, pitch, transcode::has_rubberband(ffmpeg));
+        sink.append(Faded::new(source, Arc::clone(&fade), tempo, lead));
         return Ok(Song {
             sink: Arc::new(sink),
             ffmpeg: Some(control),
             tempo,
             announced,
-            lead: transcode::filter_lead(tempo, pitch, transcode::has_rubberband(ffmpeg)),
+            lead,
             reading: None,
+            fade,
         });
     }
     sink.set_speed(speed);
-    let (announced, reading) = native(&sink, path)?;
+    let (announced, reading) = native(&sink, path, &fade)?;
     Ok(Song {
         sink: Arc::new(sink),
         ffmpeg: None,
@@ -243,6 +266,7 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
         announced,
         lead: 0.0,
         reading,
+        fade,
     })
 }
 
@@ -253,7 +277,7 @@ pub(super) fn open_song(mixer: &Mixer, recipe: &Recipe<'_>) -> Result<Song, Stri
 /// el callback de la tarjeta no toca el disco. Lo que no cabe (mas de
 /// `ahead::MAX_LEN`), o si no se puede crear el hilo, como siempre: del
 /// archivo. Los errores son los de siempre.
-fn native(sink: &Player, path: &str) -> Result<(Option<f64>, Option<Gauge>), String> {
+fn native(sink: &Player, path: &str, fade: &Arc<FadeCtl>) -> Result<(Option<f64>, Option<Gauge>), String> {
     let file = File::open(path).map_err(|e| unreachable_file(path, &e))?;
     // con el tamaño del archivo, symphonia calcula bien la duracion y busca
     // por el indice (lo que hace `Decoder::try_from` con un `File`)
@@ -272,7 +296,7 @@ fn native(sink: &Player, path: &str) -> Result<(Option<f64>, Option<Gauge>), Str
                     .build()
                     .map_err(|e| readable(&e, path))?;
                 let announced = source.total_duration().map(|d| d.as_secs_f64());
-                sink.append(source);
+                sink.append(Faded::new(source, Arc::clone(fade), 1.0, 0.0));
                 return Ok((announced, Some(gauge)));
             }
             Err(e) => log::warn!("no se pudo leer «{}» por delante: {e}", name_of(path)),
@@ -281,7 +305,7 @@ fn native(sink: &Player, path: &str) -> Result<(Option<f64>, Option<Gauge>), Str
     let file = File::open(path).map_err(|e| unreachable_file(path, &e))?;
     let source = Decoder::try_from(file).map_err(|e| readable(&e, path))?;
     let announced = source.total_duration().map(|d| d.as_secs_f64());
-    sink.append(source);
+    sink.append(Faded::new(source, Arc::clone(fade), 1.0, 0.0));
     Ok((announced, None))
 }
 
