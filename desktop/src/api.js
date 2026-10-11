@@ -1052,6 +1052,10 @@ export const api = {
   beatGridNow: (id) => GET(`/song/${id}/beats?wait=false`),
   /** deja calculándose la de una canción que vendrá después */
   beatGridPrepare: (id) => POST(`/song/${id}/beats/prepare`),
+  /** «Transformar»: lo que no está en su sitio o con su nombre (las seguras primero) */
+  tidyList: () => GET('/tidy'),
+  /** «Transformar» una canción: `{artist, title, tags}` o `{to}` (deshacer) */
+  tidy: (id, body) => POST(`/song/${id}/tidy`, body),
   // ---- separar en pistas (bateria, voces, bajo...)
   /**
    * Si se puede separar aqui, lo que pesa el separador (y lo que falta por

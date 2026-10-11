@@ -67,6 +67,7 @@ import CompactPlayer from './components/CompactPlayer.vue'
 import WelcomePage from './components/WelcomePage.vue'
 import Icon from './components/Icon.vue'
 import StudyBar from './components/StudyBar.vue'
+import TransformPanel from './components/TransformPanel.vue'
 import TextField from './components/ui/TextField.vue'
 import SelectField from './components/ui/SelectField.vue'
 import ToggleField from './components/ui/ToggleField.vue'
@@ -91,6 +92,8 @@ const view = ref({ kind: 'all' })
 // notas): una barra encima del reproductor. Al cerrarla, todo vuelve a lo
 // normal.
 const studyOpen = ref(false)
+// «Transformar»: cada canción en su sitio y con su nombre, una a una
+const tidyOpen = ref(false)
 // La lista de la vista, su orden y el estado del núcleo. Lo que se busca lo
 // pone el buscador, que se declara más abajo (y a su vez recarga esta lista).
 const library = useLibrary({
@@ -986,6 +989,16 @@ function onUpdated(song) {
         </button>
       </div>
 
+      <button
+        type="button"
+        class="btn mini tidy-open"
+        style="gap: 6px"
+        title="Transformar: cada canción en su sitio y con su nombre, una a una"
+        @click="tidyOpen = true"
+      >
+        <Icon n="sparkles" :t="14" /> <span class="btn-label">Transformar</span>
+      </button>
+
       <div ref="viewBox" style="position: relative">
         <button
           type="button"
@@ -1432,6 +1445,8 @@ function onUpdated(song) {
         <span v-if="drag.songs.length > 1" class="ghost-count">{{ drag.songs.length }}</span>
       </div>
     </teleport>
+
+    <TransformPanel :open="tidyOpen" @close="tidyOpen = false" @changed="refreshAll" />
 
     <!-- el estudio sube por encima de la lista, sin recolocar nada detrás -->
     <transition name="study">

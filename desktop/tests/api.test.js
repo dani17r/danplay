@@ -296,6 +296,8 @@ describe('lo que cada metodo pide al nucleo', () => {
     beatGrid: [[7], 'GET', '/api/song/7/beats'],
     beatGridNow: [[7], 'GET', '/api/song/7/beats?wait=false'],
     beatGridPrepare: [[7], 'POST', '/api/song/7/beats/prepare'],
+    tidyList: [[], 'GET', '/api/tidy'],
+    tidy: [[7, { to: 'Pistas/x.mp3' }], 'POST', '/api/song/7/tidy', { to: 'Pistas/x.mp3' }],
     deleteStems: [[7], 'DELETE', '/api/song/7/stems'],
     exportMix: [
       [7, { tracks: [{ source: 'vocals' }], path: '/m/x.mp3' }],

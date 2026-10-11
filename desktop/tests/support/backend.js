@@ -350,6 +350,10 @@ export function createState() {
     /** lo que va diciendo mientras se calcula (0..1, uno por pregunta), o vacío: ya está */
     /** @type {number[]} */
     beatGridPending: [],
+    /** las propuestas de «Transformar» */
+    /** @type {any[]} */
+    tidy: [],
+    tidyError: '',
     /** yt-dlp: la version que se usa, la que viaja con la app y el motor de JS */
     ytdlp: {
       version: '2026.09.01',
@@ -743,6 +747,20 @@ function answers(state) {
       return copy(state.beatGrid)
     }),
     beatGridPrepare: vi.fn(async () => ({ queued: !!state.beatGrid })),
+    // «Transformar»: las propuestas de `state.tidy`; aplicar una la quita y
+    // devuelve la ficha con su ruta nueva (o el error de `state.tidyError`)
+    tidyList: vi.fn(async () => ({ items: copy(state.tidy), looked: 9, total: 9 })),
+    tidy: vi.fn(async (id, body) => {
+      if (state.tidyError) throw new Error(state.tidyError)
+      const p = state.tidy.find((x) => x.id === id)
+      state.tidy = state.tidy.filter((x) => x.id !== id)
+      const to = body.to || p?.to || ''
+      return {
+        song: { id, title: body.title || p?.title || '', artist: body.artist || '', file: to },
+        from: '/musica/' + (p?.from || ''),
+        to: '/musica/' + to
+      }
+    }),
     /** una onda de mentira: callada al principio, fuerte al final */
     waveform: async (id, buckets = 800) => {
       const n = Math.max(1, Math.min(buckets, 4000))
