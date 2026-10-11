@@ -1093,12 +1093,24 @@ def test_las_conversaciones_se_guardan_y_se_buscan(monkeypatch, tmp_path):
                 "tools": [{"name": "search_songs", "summary": "18"}],
                 "usage": {"prompt": 10, "completion": 5, "cost": 0.0001},
             },
+            {
+                "role": "ai",
+                "text": "Entró en «domingo».",
+                "app": True,
+                "ref": "k1",
+                "event": "download_done",
+                "filled": [{"n": 4, "song": {"id": 7, "artist": "A", "title": "T"}}],
+            },
         ],
     )
     got = chats.get(c["id"])
     assert got["title"] == "¿que tengo de Barak?"
     assert got["messages"][1]["tools"][0]["name"] == "search_songs"
     assert got["messages"][1]["usage"]["prompt"] == 10
+    # las filas que completo la descarga vuelven con el aviso (la tabla las usa)
+    assert got["messages"][2]["filled"] == [
+        {"n": 4, "song": {"id": 7, "artist": "A", "title": "T"}}
+    ]
     assert "hidden" not in got["messages"][0]
     hits = chats.search("barak")
     assert hits and hits[0]["chat_id"] == c["id"] and "Barak" in hits[0]["snippet"]

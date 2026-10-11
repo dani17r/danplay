@@ -206,6 +206,7 @@
  * @property {{url:string}|null} link
  * @property {boolean} in_list
  * @property {string} kind
+ * @property {boolean} [downloaded]  se bajó desde la tarjeta y ya está en la lista
  */
 
 /**
@@ -260,6 +261,8 @@
  * @property {string} [event]      un aviso estructural: download_done, confirm_accepted,
  *                                 confirm_declined, confirm_failed
  * @property {string} [ref]        el id de la tarjeta a la que se refiere ese aviso
+ * @property {{n: number, song: ChatSetlistSong}[]} [filled]  al terminar la descarga:
+ *   qué fila de la tabla de esa tarjeta quedó con qué canción
  * @property {ChatConfirm} [confirm]  la tarjeta de permiso que trajo esta respuesta
  * @property {ChatSetlist} [setlist]  la tabla de la lista que trajo esta respuesta
  * @property {boolean} [hidden]    va al núcleo pero no se pinta

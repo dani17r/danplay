@@ -288,9 +288,11 @@ Rutas:
 - `POST /api/chat/plan/{id}/cancel` → deja de buscar; la propuesta sigue viva.
 - `GET /api/youtube` → además de `active`, `phase` (también `listing`: metiendo
   lo bajado en la lista), `results`…, trae `job` (el turno de la descarga) y
-  `after`: `{ state: done | error, playlist, added, failed: [{n, item, label,
-  reason}], skipped, order, job }` o `null`. `active: false` quiere decir que
-  está TODO hecho, también la lista.
+  `after`: `{ state: done | error, playlist, added, placed: [{n, id}], failed:
+  [{n, item, label, reason}], skipped, order, job }` o `null`. `placed` dice qué
+  fila de la tabla quedó con qué canción (el aviso `download_done` lo guarda
+  como `filled` y la tabla deja de decir «falta»). `active: false` quiere
+  decir que está TODO hecho, también la lista.
 
 `setlist` es la tabla de una lista metida o comprobada con `fill_playlist`:
 `{ playlist: {id, name, created}, mode: add | check | set, applied, rows: [{

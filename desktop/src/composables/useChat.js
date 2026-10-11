@@ -323,8 +323,17 @@ function forStore(m) {
   // propuesta sin id es de un núcleo antiguo: no hay tarjeta que guardar)
   if (m.confirm?.id) out.confirm = storedConfirm(m.confirm)
   if (m.setlist) out.setlist = slimSetlist(m.setlist)
+  const filled = slimFilled(m.filled)
+  if (filled.length) out.filled = filled
   return out
 }
+
+/** Las filas que completó una descarga, como se guardan. @param {any} v */
+const slimFilled = (v) =>
+  (Array.isArray(v) ? v : [])
+    .slice(0, STORE_SETLIST_ROWS)
+    .map((/** @type {any} */ f) => ({ n: num(f?.n, -1), song: slimSong(f?.song) }))
+    .filter((f) => f.n >= 0 && !!f.song?.id)
 
 /**
  * Lo que se manda al núcleo de cada mensaje. Las herramientas que usó el
@@ -502,6 +511,7 @@ async function openChat(id) {
   queue.value = []
   chatId.value = c.id
   messages.value = c.messages || []
+  fillSheets(messages.value)
   // las tarjetas que quedaron sin desenlace: ¿siguen en pie? (tras reiniciar
   // la app o pasados 30 minutos, no: caducadas)
   checkCards()
@@ -1628,6 +1638,33 @@ function settleSheet(s, songs) {
 }
 
 /**
+ * Lo bajado desde la tarjeta de una tabla, en su fila: deja de decir «falta»
+ * y pasa a «bajada, en la lista» con su canción. Sale de los avisos de fin de
+ * descarga (`filled`, con el `ref` de la tarjeta), así que vale igual en vivo
+ * que al reabrir la conversación; repetirlo no cambia nada.
+ * @param {ChatMessage[]} list
+ */
+function fillSheets(list) {
+  for (const x of list) {
+    if (x.event !== 'download_done' || !x.ref) continue
+    const filled = slimFilled(x.filled)
+    if (!filled.length) continue
+    const s = list.find((y) => y.confirm?.id === x.ref)?.setlist
+    if (!s) continue
+    for (const f of filled) {
+      const r = s.rows.find((y) => y.n === f.n && y.status !== 'ignored')
+      if (!r || r.downloaded) continue
+      Object.assign(r, {
+        status: 'found',
+        song: f.song?.title ? f.song : { ...f.song, title: r.title },
+        in_list: true,
+        downloaded: true
+      })
+    }
+  }
+}
+
+/**
  * Lo que se puede hacer con la tabla ahora: {keep, order, undo}.
  * @param {ChatMessage} m
  */
@@ -1888,11 +1925,26 @@ async function reportIntoList(e, after, asked) {
   const results = e.results || []
   /** @type {Map<number, string>} */
   const names = new Map()
+  /** @type {Map<number, any>} */
+  const songs = new Map()
   for (const r of results) {
-    if (r.ok && r.id) names.set(r.id, describe(r))
+    if (r.ok && r.id) {
+      names.set(r.id, describe(r))
+      songs.set(r.id, { id: r.id, artist: r.artist || '', title: r.song || r.title || '' })
+    }
     const m = r.already_there ? r.matches?.[0] : null
-    if (m?.id && !names.has(m.id)) names.set(m.id, songName(m))
+    if (m?.id && !names.has(m.id)) {
+      names.set(m.id, songName(m))
+      songs.set(m.id, m)
+    }
   }
+  // qué fila de la tabla quedó con qué canción (la tabla deja de decir «falta»)
+  const filled = slimFilled(
+    (Array.isArray(after.placed) ? after.placed : []).map((/** @type {any} */ p) => ({
+      n: p?.n,
+      song: songs.get(p?.id) || { id: p?.id }
+    }))
+  )
   const pl = datum(after.playlist?.name || asked.playlist?.name || 'la lista', 120)
   const added = Array.isArray(after.added) ? after.added : []
   const known = added.map((/** @type {number} */ id) => names.get(id)).filter(Boolean)
@@ -1948,7 +2000,9 @@ async function reportIntoList(e, after, asked) {
     tools: [{ name: 'download_music', summary: parts.join(', '), detail }]
   }
   if (asked.id) Object.assign(report, { ref: asked.id, event: 'download_done' })
+  if (asked.id && filled.length) report.filled = filled
   const here = await postApp(report, asked.chatId)
+  if (here) fillSheets(messages.value)
   if (added.length || ok.length) hooks.reload()
   if (!here) notify(`La descarga terminó: te lo cuento en «${titleOf(asked.chatId)}».`, 'info', 10)
 }

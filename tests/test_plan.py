@@ -932,6 +932,7 @@ def test_cada_bajada_va_tras_su_hueco_anterior(db, stamps, spy_place):
         "state": "done",
         "playlist": {"id": lid, "name": "domingo"},
         "added": [x, y],
+        "placed": [{"n": 2, "id": x}, {"n": 4, "id": y}],
         "failed": [],
         "skipped": [],
         "order": [a, x, b, y, c],
@@ -980,6 +981,10 @@ def test_es_idempotente_y_no_duplica(db, stamps, spy_place):
     assert first["added"] == [x] and second["added"] == []
     assert first["order"] == second["order"] == [a, x] == order(lid)
     assert len(spy_place) == 1, "la segunda vez no escribe"
+    # pero las dos veces cada fila sabe que su cancion esta en la lista: la
+    # tabla del chat la deja de marcar como «falta» aunque no se escribiera
+    placed = [{"n": 2, "id": x}, {"n": 3, "id": a}]
+    assert first["placed"] == second["placed"] == placed
 
 
 def test_lo_que_ya_tenias_entra_por_su_cancion(db, stamps):
@@ -1004,6 +1009,7 @@ def test_lista_borrada_o_renombrada_no_se_escribe(db, stamps):
     playlists.edit(lid, name="Sábado")
     res = plan.apply_after(after, [ok("X", x)])
     assert res["state"] == "error" and "cambió de nombre" in res["error"]
+    assert res["placed"] == []
     assert res["failed"] == [{"n": 2, "item": "X", "label": "X", "reason": res["error"]}]
     assert order(lid) == [a]
 
@@ -1053,6 +1059,7 @@ def test_cancelada_a_medias_y_fallos_con_su_motivo(db, stamps):
     ]
     res = plan.apply_after(after, results)
     assert res["state"] == "done" and res["added"] == [x]
+    assert res["placed"] == [{"n": 1, "id": x}], "lo que fallo no se da por puesto"
     assert [(f["item"], f["reason"]) for f in res["failed"]] == [
         ("Y", "Video unavailable (otra linea)"),
         ("Z", "cancelada"),

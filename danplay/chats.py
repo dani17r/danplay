@@ -39,7 +39,8 @@ TITLE_LENGTH = 60
 # lo que se guarda de cada mensaje ademas del texto (lo que pinta la interfaz):
 # tambien la tarjeta de permiso (`confirm`), la tabla de una lista (`setlist`)
 # y, en los mensajes de la app que cambian una tarjeta, a cual se refieren
-# (`ref`). Solo se añade: un mensaje guardado antes se lee igual.
+# (`ref`) y que filas de su tabla quedaron con que cancion (`filled`). Solo se
+# añade: un mensaje guardado antes se lee igual.
 _KEEP = (
     "tools",
     "app",
@@ -53,6 +54,7 @@ _KEEP = (
     "confirm",
     "setlist",
     "ref",
+    "filled",
 )
 
 

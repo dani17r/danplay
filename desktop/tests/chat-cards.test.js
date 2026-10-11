@@ -1048,6 +1048,54 @@ describe('el informe al acabar la descarga', () => {
     expect(useNotices().notices.value.some((n) => n.message.includes('te lo cuento en'))).toBe(true)
   })
 
+  it('la fila que faltaba deja de decir «falta» al entrar en la lista, también al reabrir', async () => {
+    held.replies.push(conTarjeta(propuesta(), { setlist: lista() }))
+    const w = await montar()
+    await escribir(w, 'mete esta lista')
+    const fourth = () => w.findAll('.cs-row')[3]
+    expect(fourth().text()).toContain('falta')
+    expect(w.find('.cs-count.missing').exists()).toBe(true)
+    held.yt = [
+      {
+        available: true,
+        active: false,
+        phase: 'done',
+        job: 5,
+        results: [{ ok: true, id: 267, artist: 'Autor', song: 'Cena Del Señor', requested: URL1 }],
+        after: {
+          job: 5,
+          state: 'done',
+          playlist: { id: 7, name: 'domingo' },
+          added: [267],
+          placed: [{ n: 4, id: 267 }],
+          failed: [],
+          skipped: [],
+          order: [1, 2, 3, 267]
+        }
+      }
+    ]
+    await aceptada(w)
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+    expect(fourth().text()).toContain('bajada, en la lista')
+    expect(fourth().text()).toContain('→ Autor - Cena Del Señor')
+    expect(w.find('.cs-count.missing').exists()).toBe(false)
+
+    // se guarda con el aviso, no en la tabla: al reabrir sale de ahí
+    const from = useChat().chatId.value
+    const stored = held.state.chats.find((c) => c.id === from).messages
+    expect(stored.find((m) => m.setlist).setlist.rows[3].status).toBe('missing')
+    expect(stored.find((m) => m.event === 'download_done').filled).toEqual([
+      { n: 4, song: { id: 267, artist: 'Autor', title: 'Cena Del Señor' } }
+    ])
+    useChat().newChat()
+    await flushPromises()
+    await useChat().openChat(from)
+    await flushPromises()
+    expect(fourth().text()).toContain('bajada, en la lista')
+    expect(w.find('.cs-count.missing').exists()).toBe(false)
+  })
+
   it('una descarga de otro turno no se cuenta como la nuestra', async () => {
     held.replies.push(conTarjeta(propuesta()))
     const w = await montar()

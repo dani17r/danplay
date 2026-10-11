@@ -1131,8 +1131,10 @@ def apply_after(after, results) -> dict:
     llamada a `playlists.place`, bajo `playlists.LOCK`. Idempotente.
 
     Devuelve {"state": "done"|"error", "playlist": {id, name}, "added": [ids],
-    "failed": [{n, item, label, reason}], "skipped": [{n, item, label}],
-    "order": [ids]} (y "error" si `state` es "error").
+    "placed": [{n, id}], "failed": [{n, item, label, reason}], "skipped":
+    [{n, item, label}], "order": [ids]} (y "error" si `state` es "error").
+    `placed` es cada hueco bajado que queda en la lista con su cancion, tambien
+    si ya estaba: con eso la tabla del chat deja de decir «falta» en esa fila.
     """
     try:
         spec = _after_spec(after)
@@ -1142,6 +1144,7 @@ def apply_after(after, results) -> dict:
             "error": str(e),
             "playlist": None,
             "added": [],
+            "placed": [],
             "failed": [],
             "skipped": [],
             "order": [],
@@ -1151,6 +1154,7 @@ def apply_after(after, results) -> dict:
         "state": "done",
         "playlist": {"id": pl["id"], "name": pl["name"]},
         "added": [],
+        "placed": [],
         "failed": list(spec["failed"]),
         "skipped": list(spec["skipped"]),
         "order": [],
@@ -1207,13 +1211,14 @@ def apply_after(after, results) -> dict:
                 final.insert(_anchor(k, slots, slot_song, final, in_list), song)
                 in_list.add(song)
                 out["added"].append(song)
-            if out["added"]:
-                placed = playlists.place(pl["id"], final)
-                out["order"] = placed["order"]
-                shown = set(placed["order"])
-                out["added"] = [song for song in out["added"] if song in shown]
-            else:
-                out["order"] = current
+            out["order"] = playlists.place(pl["id"], final)["order"] if out["added"] else current
+            shown = set(out["order"])
+            out["added"] = [song for song in out["added"] if song in shown]
+            out["placed"] = [
+                {"n": s["n"], "id": slot_song[k]}
+                for k, s in enumerate(slots)
+                if "item" in s and k in slot_song and slot_song[k] in shown
+            ]
     except Exception as e:
         log.warning("no pude completar la lista al terminar la descarga", exc_info=True)
         out["state"], out["error"] = "error", _short(e)

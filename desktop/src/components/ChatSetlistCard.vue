@@ -42,6 +42,7 @@ const songName = (x) => (x?.artist ? `${x.artist} - ${x.title}` : x?.title || ''
  */
 function mark(r) {
   const listed = r.in_list
+  if (r.downloaded && listed) return { icon: 'check', label: 'bajada, en la lista', tone: 'ok' }
   if (r.status === 'found') {
     return listed
       ? { icon: 'check', label: 'en la lista', tone: 'ok' }
