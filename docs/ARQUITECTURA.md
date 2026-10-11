@@ -474,11 +474,25 @@ cada 50 avos de segundo, lo probable que es un pulso y que sea el «1». Va
 en ONNX Runtime como Demucs, sin PyTorch: el grafo con sus pesos en float16
 viaja con la app (42 MB), y el espectrograma, los trozos de 30 s y los
 máximos se hacen con numpy, igual que su código (`exportar-pulso.py` lo
-comprueba: los mismos pulsos). Unos segundos la primera vez, en un proceso
-aparte con prioridad baja; se guarda en `DATA_DIR/pulso/` y luego sale al
-momento. La interfaz se la pasa a Rust (`set_beat_grid`), que la usa como
-la suya. Si el núcleo no puede, Rust la saca con lo de siempre
-(`beats.rs`, abajo).
+comprueba: los mismos pulsos). La primera vez tarda (15-20 s por canción en
+un portátil: casi todo es la red), en un proceso aparte con prioridad baja
+y cuatro hilos; se guarda en `DATA_DIR/pulso/` y luego sale al momento. La
+interfaz se la pasa a Rust (`set_beat_grid`), que la usa como la suya. Si el
+núcleo no puede, Rust la saca con lo de siempre (`beats.rs`, abajo).
+
+Esa espera es la que se notaba («el clic tarda en cargar»), así que nadie
+la hace a ciegas. El núcleo la calcula en un hilo propio (`?wait=false`
+contesta al momento; lo que se pide para ya va delante, lo de después
+detrás) y dice por dónde va. Con **«Clic automático»** (`useClick`, que vive
+fuera del panel de estudio), cada canción trae su clic y sus ajustes;
+mientras carga, el clic no suena (si venía sonando, se calla), su botón no
+deja ponerlo y la onda se va encendiendo con lo que lleva; al llegar, vuelve
+solo. Con el clic puesto se preparan las tres siguientes de la cola. A mano,
+un tempo para todas, que sigue igual al pasar de canción. Y lo guardado no
+se pierde: se reconocía por la fecha del archivo, y DanPlay la cambiaba él
+mismo al escribir cualquier etiqueta (el estudio guarda a menudo): ahora,
+al reescribir una etiqueta o mover el archivo, la rejilla y la onda pasan a
+la clave nueva (`tags._retagged`, `library.relocate`).
 
 Medido con `scripts/evaluar-pulso.py` en 300 fragmentos de GTZAN (diez
 estilos, pulso y compás anotados a mano, y que Beat This! no vio al
@@ -840,6 +854,18 @@ Y al revés, al escanear: un archivo que ya sigue la convención («Palisades -
 Personal.mp3») pero no trae etiquetas ni cuelga de `Artistas/` entra en el
 índice con ese artista. No es inventar: es lo que dice su nombre. El archivo
 no se toca.
+
+**«Transformar»** (`library/tidy.py`) aplica estas reglas a lo que ya está
+en la biblioteca, de una en una y solo cuando se pide. Se midió primero en
+una biblioteca de verdad (281 canciones): con el artista y el título de las
+etiquetas, 118 «no seguían la regla», pero renombrarlas así las dejaba peor
+muchas veces (canales de YouTube como artista, webs pegadas al título, el
+«(ft. X)» perdido). Así que el nombre que ya tiene la forma «Artista -
+Título» manda, una canción de `Artistas/<X>/` es de X, lo que solo dicen las
+etiquetas va para revisar, y solo se mira lo suelto en la raíz y
+`Artistas/` (las carpetas propias, nunca). Salen 19, todas con sentido. Es
+la misma canción (`library.relocate`: mismo id, con todo lo suyo) y, si es
+la que suena, sigue sonando: la cola le dice al reproductor su ruta nueva.
 
 ## Detección de duplicados
 
@@ -1312,6 +1338,24 @@ que pide yt-dlp, Deno, Node, QuickJS o Bun, en la carpeta de herramientas y en
 el `PATH`, y se le pasa a yt-dlp; si no hay ninguno, Descargas dice qué
 instalar. El instalador de Windows lleva Deno dentro, como ffmpeg.
 
+## Fundidos y cambios sin corte
+
+Cada canción que se abre pasa por `player/fade.rs`, que lleva su volumen
+muestra a muestra: el motor deja órdenes (bajar a 0 en 3 s, subir cuando
+la otra llegue a tal segundo) y el hilo de audio las recoge sin esperar
+nunca. Con eso:
+
+- **Entre canciones**, la que se va baja mientras sube la siguiente, con la
+  misma potencia (en recta, a mitad se oiría un bache). Al acabarse sola,
+  Rust avisa lo que dura el fundido antes (`Ending`) y la cola manda ya la
+  siguiente; a mano, como mucho 2 s. Con el clic, la cuenta o tramos
+  puestos, no se funden.
+- **De la canción a sus pistas** (o al revés, o a otra velocidad o tono) no
+  hay corte: la versión nueva se abre 0,6 s por delante y se queda callada
+  hasta que la que suena llega ahí. El mezclador tira de las dos a la vez,
+  así que la nueva sabe en cada instante por dónde va la otra y entra a la
+  par; si llega tarde, se salta lo que sobra. Se cruzan en 0,15 s.
+
 ## El hilo de audio no se rinde
 
 El hilo que decodifica y saca el sonido es uno solo, y si se cae no hay
@@ -1355,7 +1399,8 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   api/            la API: app, guardia y arranque; routes/ (un router por
                   dominio), models.py (los cuerpos), jobs.py (tareas largas)
   library/        el índice: db (conexión, esquema y migraciones), scan,
-                  search, songs, folders (carpetas, las que se mueven), history
+                  search, songs, folders (carpetas, las que se mueven), history,
+                  tidy («Transformar»: cada canción en su sitio, una a una)
   chat/           el asistente: tools (una por herramienta), loop, context,
                   narration (el detector de acciones narradas)
   providers.py    catálogo de proveedores de IA y perfiles guardados
@@ -1382,7 +1427,8 @@ desktop/        interfaz Vue 3 + envoltorio Tauri
     router.js     las páginas (Ajustes, Asistente, Descargas, Entrada,
                   Duplicados), con carga diferida y el chat en <KeepAlive>
     composables/  estado compartido: useLibrary (lista y estado), useSelection,
-                  useSongMenus, useSongList, usePlayback, useChat, useDownloads…
+                  useSongMenus, useSongList, usePlayback, useClick (el clic de
+                  cada canción, con el estudio abierto o cerrado), useChat…
     playback/     la máquina de estados de la cola, en JS y sin dependencias
     components/   la interfaz, una página por archivo; ui/ los controles base
     styles/       los estilos, por áreas (base, listas, ui, responsive…)
@@ -1394,7 +1440,8 @@ desktop/        interfaz Vue 3 + envoltorio Tauri
     queue/        la cola: qué suena y qué viene (model, session, logic,
                   resolve, worker, commands)
     player/       el audio (engine, output con el latido, open, metro, state,
-                  mix: las pistas separadas sonando juntas)
+                  mix: las pistas separadas sonando juntas, fade: el volumen
+                  muestra a muestra para fundidos y cambios sin corte)
     protocol.rs   danplay://cover, las carátulas
     tools.rs      dónde están ffmpeg y los demás programas
     tray/         bandeja: linux.rs (ksni) y desktop.rs (Windows/macOS)
