@@ -476,9 +476,10 @@ def analyze(ffmpeg: str, path: str, graph, progress=None) -> dict:
     return grid(beat, down)
 
 
-def key_of(path) -> str:
-    """Como se reconoce un archivo en la cache: ruta, tamaño y fecha."""
-    st = os.stat(path)
+def key_of(path, st=None) -> str:
+    """Como se reconoce un archivo en la cache: ruta, tamaño y fecha (los de
+    `st`, si se dan: los de antes de reescribir su etiqueta)."""
+    st = st or os.stat(path)
     raw = f"{os.path.abspath(path)}|{st.st_size}|{int(st.st_mtime)}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()  # noqa: S324 - no es seguridad
 

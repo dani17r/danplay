@@ -59,6 +59,26 @@ def _mtime(path: str) -> float:
         return 0.0
 
 
+def retag(path: str, before, after) -> bool:
+    """El archivo cambio solo de etiqueta (lo escribio DanPlay): la onda
+    guardada sigue valiendo con la fecha nueva. True si se apunto."""
+    cached = _cache_file(path)
+    try:
+        saved = json.loads(cached.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(saved, dict) or saved.get("path") != path:
+        return False
+    if saved.get("mtime") != before.st_mtime:
+        return False
+    saved["mtime"] = after.st_mtime
+    try:
+        cached.write_text(json.dumps(saved), encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
 def forget(*paths: str) -> int:
     """Borra la forma de onda guardada de esas canciones. Devuelve cuantas."""
     n = 0

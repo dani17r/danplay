@@ -138,6 +138,38 @@ def lrc_to_plain(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+# ---------------------------------------------------------------- lo calculado
+# Escribir una etiqueta cambia la fecha (y a veces el tamaño) del archivo,
+# pero no su sonido. Lo que se calcula del sonido y se guarda por archivo (la
+# rejilla del clic, la forma de onda) se reconoce por esa fecha: sin esto, se
+# perdia cada vez que DanPlay guardaba algo en la cancion (el modo estudio
+# lo hace a menudo) y el clic volvia a tardar 15-20 s.
+
+
+def _stamp(path):
+    try:
+        return os.stat(path) if path else None
+    except OSError:
+        return None
+
+
+def _retagged(path, before) -> None:
+    """Tras reescribir la etiqueta de `path`: lo calculado de su sonido
+    sigue valiendo con la fecha nueva."""
+    after = _stamp(path)
+    if before is None or after is None:
+        return
+    if (before.st_size, before.st_mtime) == (after.st_size, after.st_mtime):
+        return
+    from . import beatgrid, waveform
+
+    for carry in (beatgrid.retag, waveform.retag):
+        try:
+            carry(str(path), before, after)
+        except Exception:
+            log.warning("no pude conservar lo calculado de %s", path, exc_info=True)
+
+
 # ---------------------------------------------------------------- apertura
 
 
@@ -151,7 +183,9 @@ def _id3(path, create=False) -> ID3 | None:
         try:
             a = MP3(str(path))
             a.add_tags()
+            before = _stamp(path)
             a.save()
+            _retagged(path, before)
             return ID3(str(path))
         except Exception:
             log.warning("no se pudo crear el ID3 de %s", path, exc_info=True)
@@ -240,11 +274,14 @@ def _load(path, create=False):
 
 
 def _save(kind, audio) -> bool:
+    path = getattr(audio, "filename", None)
+    before = _stamp(path)
     try:
         if kind == "id3":
             audio.save(v2_version=3)
         else:
             audio.save()
+        _retagged(path, before)
         return True
     except Exception:
         log.warning("no se pudieron guardar las etiquetas", exc_info=True)
@@ -641,7 +678,9 @@ def _write_txxx(path, description, value) -> bool:
         return False
     try:
         t.setall(f"TXXX:{description}", [TXXX(encoding=3, desc=description, text=str(value))])
+        before = _stamp(path)
         t.save(v2_version=3)
+        _retagged(path, before)
         return True
     except Exception:
         log.warning("no se pudo escribir TXXX:%s en %s", description, path, exc_info=True)

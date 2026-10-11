@@ -310,6 +310,38 @@ def test_a_failure_is_remembered_until_the_file_changes(detector, tmp_path):
         beatgrid.request(str(tmp_path / "no-esta.mp3"))
 
 
+def test_writing_a_tag_keeps_what_was_worked_out_from_the_sound(synthetic_library, detector):
+    """Guardar algo del modo estudio reescribe la etiqueta (fecha y tamaño
+    nuevos) pero no el sonido: la rejilla del clic y la onda siguen valiendo.
+    Antes se perdian cada vez y el clic volvia a tardar 15-20 s."""
+    import os
+
+    from danplay import beatgrid, config, tags, waveform
+
+    _, songs = synthetic_library
+    path = str(songs["gozo"])
+    # un dia antes: la escritura cae seguro en otro segundo
+    old = os.stat(path).st_mtime - 86400
+    os.utime(path, (old, old))
+    beatgrid.grid_of(path)
+    wave = waveform._cache_file(path)
+    wave.write_text(
+        json.dumps({"path": path, "mtime": os.path.getmtime(path), "peaks": [1], "rms": [1]}),
+        encoding="utf-8",
+    )
+    before = os.stat(path)
+    assert tags.write_study(path, json.dumps({"speed": 0.9}))
+    after = os.stat(path)
+    assert (after.st_size, after.st_mtime) != (before.st_size, before.st_mtime)
+    assert beatgrid.cached(path), "la rejilla tenia que seguir valiendo"
+    beatgrid.grid_of(path)
+    assert len(detector) == 1, "y no volver a calcularse"
+    assert len(list((config.DATA_DIR / "pulso").glob("*.json"))) == 1, "sin dejar la vieja"
+    assert json.loads(wave.read_text(encoding="utf-8"))["mtime"] == os.path.getmtime(path)
+    # otra cancion cambiada por fuera (el sonido puede ser otro): no se toca
+    assert not beatgrid.retag(str(songs["tierra"]), before, after)
+
+
 def test_the_api_gives_the_grid_or_says_it_cannot(configured_library, detector, monkeypatch):
     from fastapi.testclient import TestClient
 

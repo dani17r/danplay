@@ -67,6 +67,24 @@ def _command(path: str) -> list[str]:
     return [sys.executable, "-m", "danplay.pulse", *args]
 
 
+def retag(path: str, before, after) -> bool:
+    """El archivo cambio solo de etiqueta (lo escribio DanPlay): la rejilla
+    guardada con la clave de antes pasa a la de ahora, que el sonido es el
+    mismo. Antes se perdia cada vez que se guardaba algo del modo estudio en
+    la cancion, y el clic volvia a tardar 15-20 s. True si habia que mover."""
+    from .pulse import key_of
+
+    folder = config.DATA_DIR / "pulso"
+    old = folder / f"{key_of(path, before)}.json"
+    new = folder / f"{key_of(path, after)}.json"
+    if old == new or not old.is_file():
+        return False
+    with contextlib.suppress(OSError):
+        os.replace(old, new)
+        return True
+    return False
+
+
 def cached(path: str) -> bool:
     """Si ya hay rejilla guardada para ese archivo (vale aunque aqui no se
     pudiera calcular otra)."""
