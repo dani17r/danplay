@@ -62,18 +62,28 @@ def _mtime(path: str) -> float:
 def retag(path: str, before, after) -> bool:
     """El archivo cambio solo de etiqueta (lo escribio DanPlay): la onda
     guardada sigue valiendo con la fecha nueva. True si se apunto."""
-    cached = _cache_file(path)
+    return moved(path, path, before, after)
+
+
+def moved(old_path: str, new_path: str, before, after) -> bool:
+    """El archivo se movio o se renombro (lo hizo DanPlay), con su etiqueta
+    reescrita o no: la onda guardada pasa a la ruta y la fecha nuevas, que
+    el sonido es el mismo. True si se apunto."""
+    cached = _cache_file(old_path)
     try:
         saved = json.loads(cached.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    if not isinstance(saved, dict) or saved.get("path") != path:
+    if not isinstance(saved, dict) or saved.get("path") != old_path:
         return False
     if saved.get("mtime") != before.st_mtime:
         return False
+    saved["path"] = new_path
     saved["mtime"] = after.st_mtime
     try:
-        cached.write_text(json.dumps(saved), encoding="utf-8")
+        _cache_file(new_path).write_text(json.dumps(saved), encoding="utf-8")
+        if new_path != old_path:
+            cached.unlink()
     except OSError:
         return False
     return True

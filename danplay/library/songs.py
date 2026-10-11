@@ -230,6 +230,16 @@ def move_to(cid: int, folder) -> Song:
     de la que sale se queda vacia, se quita. `ValueError` si la cancion o la
     carpeta no valen; `OSError` si el disco no deja moverlo.
     """
+    return relocate(cid, folder)
+
+
+def relocate(cid: int, folder, name: str | None = None) -> Song:
+    """`move_to`, y con otro nombre de archivo si se da `name` (con su
+    extension): lo que hace «Transformar». La misma cancion (mismo id, con
+    todo lo suyo) y lo calculado de su sonido (la rejilla del clic, la
+    onda), que sigue valiendo en el sitio nuevo. Si alli ya hay otro con
+    ese nombre, « - r». Cambiar solo mayusculas tambien vale."""
+    from .. import beatgrid as _beatgrid
     from .. import names
     from .. import thumbnails as _thumbnails
     from .. import waveform as _waveform
@@ -248,10 +258,20 @@ def move_to(cid: int, folder) -> Song:
         # apuntan desde ella, y en otra no se encontrarian
         if not _inside(dest_dir, root) or root not in _roots():
             raise ValueError("esa carpeta esta fuera de su carpeta de musica")
-        if os.path.normcase(os.path.dirname(src)) == os.path.normcase(dest_dir):
+        name = names.sanitize(name) if name else os.path.basename(src)
+        if not name or name.startswith("."):
+            raise ValueError("ese nombre de archivo no vale")
+        wanted = os.path.join(dest_dir, name)
+        if wanted == src:
             return c
         os.makedirs(dest_dir, exist_ok=True)
-        dest = os.path.join(dest_dir, names.free_name(dest_dir, os.path.basename(src)))
+        # solo cambian mayusculas: en un disco que no las distingue «ya
+        # existe» (es ella misma) y saldria « - r»
+        same_file = os.path.normcase(wanted) == os.path.normcase(src) or (
+            os.path.exists(wanted) and os.path.samefile(wanted, src)
+        )
+        dest = wanted if same_file else os.path.join(dest_dir, names.free_name(dest_dir, name))
+        before = os.stat(src)
         shutil.move(src, dest)
         try:
             with db.connect() as conn:
@@ -270,10 +290,16 @@ def move_to(cid: int, folder) -> Song:
             shutil.move(dest, src)
             raise
         _touch()
-    _waveform.forget(src)
+    with contextlib.suppress(OSError):
+        after = os.stat(dest)
+        for carry in (_beatgrid.moved, _waveform.moved):
+            try:
+                carry(src, dest, before, after)
+            except Exception:
+                log.warning("no pude llevar lo calculado de %s", src, exc_info=True)
     _thumbnails.forget(src)
-    # la carpeta del artista que se queda vacia (la creo la descarga) no se
-    # deja; Artistas/ misma, nunca
+    # la carpeta de la que sale, si se queda vacia (la de un artista que
+    # creo la descarga, la de un disco): no se deja. Artistas/ misma, nunca
     parent = os.path.dirname(src)
     if _inside(parent, config.ARTISTS_DIR) and not _inside(config.ARTISTS_DIR, parent):
         with contextlib.suppress(OSError):

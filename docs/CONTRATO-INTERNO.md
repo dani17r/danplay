@@ -214,6 +214,20 @@ Rutas nuevas o cambiadas (Python):
 - `POST /api/external/play` → `400` si el archivo no es de audio.
 - `PATCH /api/song/{id}` → solo `artist, title, album, year, genre, key, bpm,
   lyrics`. Otras claves: `422`.
+- `GET /api/tidy` → «Transformar»: `{items: [{id, from, to, artist, title,
+  why: [...], sure}], looked, total}`, lo que no está en su sitio o con su
+  nombre (`Artistas/<Artista>/<Artista - Título>.ext`), las seguras
+  primero. Solo mira lo suelto en la raíz de la biblioteca y lo de
+  `Artistas/`; las carpetas propias y las demás carpetas de música, no. El
+  nombre «Artista - Título» manda sobre las etiquetas; lo que solo sale de
+  ellas va como no seguro. No toca nada.
+- `POST /api/song/{id}/tidy { artist, title, tags } | { to }` → la pone en
+  `Artistas/<artist>/<artist - title>.ext` (o en la ruta `to` de la
+  biblioteca: deshacer). Misma canción (mismo id, con todo lo suyo) y la
+  rejilla del clic y la onda la siguen. `tags: true` escribe también artista
+  y título en el archivo (si no, sus etiquetas no se tocan). Devuelve
+  `{song, from, to}`. `409` si algo no vale o el disco no deja (en Windows,
+  una canción abierta por otro programa).
 - `POST /api/song/{id}/move { category }` → lleva el archivo a su carpeta de
   la biblioteca: `track` a `Pistas/`, `tutorial` a `Tutoriales y Play Along/`,
   `sequence` a `Secuencias/` (`ingest.CATEGORY_FOLDER`). Devuelve la ficha: el

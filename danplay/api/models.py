@@ -44,6 +44,17 @@ class Blur(Body_):
     blur: bool = True
 
 
+class TidyIn(Body_):
+    """«Transformar» una cancion: a Artistas/<artist>/<artist - title>, o a
+    la ruta `to` de la biblioteca (deshacer). `tags`: escribir tambien el
+    artista y el titulo en el archivo (los corrigio quien escucha)."""
+
+    artist: str | None = Field(default=None, max_length=200)
+    title: str | None = Field(default=None, max_length=300)
+    to: str | None = Field(default=None, max_length=1000)
+    tags: bool = False
+
+
 class MoveIn(Body_):
     """A que carpeta de la biblioteca va una cancion: una de las de
     `ingest.CATEGORY_FOLDER` (Pistas, Secuencias, Tutoriales y Play Along)."""

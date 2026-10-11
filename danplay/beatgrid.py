@@ -72,15 +72,26 @@ def retag(path: str, before, after) -> bool:
     guardada con la clave de antes pasa a la de ahora, que el sonido es el
     mismo. Antes se perdia cada vez que se guardaba algo del modo estudio en
     la cancion, y el clic volvia a tardar 15-20 s. True si habia que mover."""
+    return moved(path, path, before, after)
+
+
+def moved(old_path: str, new_path: str, before, after) -> bool:
+    """El archivo se movio o se renombro (lo hizo DanPlay: «Transformar»,
+    llevarla a Pistas...), con su etiqueta reescrita o no: su rejilla sigue
+    valiendo en la ruta nueva. `before`/`after`, sus `os.stat` de antes y de
+    despues. True si habia que mover."""
     from .pulse import key_of
 
     folder = config.DATA_DIR / "pulso"
-    old = folder / f"{key_of(path, before)}.json"
-    new = folder / f"{key_of(path, after)}.json"
+    old = folder / f"{key_of(old_path, before)}.json"
+    new = folder / f"{key_of(new_path, after)}.json"
     if old == new or not old.is_file():
         return False
-    with contextlib.suppress(OSError):
-        os.replace(old, new)
+    with contextlib.suppress(OSError, ValueError):
+        saved = json.loads(old.read_text(encoding="utf-8"))
+        saved["path"] = new_path
+        new.write_text(json.dumps(saved, separators=(",", ":")), encoding="utf-8")
+        old.unlink()
         return True
     return False
 

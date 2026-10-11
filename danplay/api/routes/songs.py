@@ -35,6 +35,7 @@ from ..models import (
     SongEdit,
     Stars,
     StudyIn,
+    TidyIn,
     TransposeIn,
 )
 
@@ -196,6 +197,36 @@ def favorite(cid: int, body: Annotated[Favorite, Body()]):
         raise HTTPException(404, "no esta en la biblioteca")
     playlists.favorite(cid, body.favorite)
     return library.by_id(cid)
+
+
+@router.get("/api/tidy")
+def tidy_list():
+    """«Transformar»: lo que no esta en su sitio o con su nombre (las seguras
+    primero), con como quedaria y por que. Nada se toca aqui."""
+    from ...library import tidy
+
+    return tidy.proposals()
+
+
+@router.post("/api/song/{cid}/tidy")
+def tidy_song(cid: int, body: Annotated[TidyIn, Body()]):
+    """«Transformar» una cancion: a su sitio y con su nombre, la misma
+    cancion (mismo id, con todo lo suyo). Devuelve {song, from, to}: si es la
+    que suena, sigue sonando (la tiene en memoria) y Rust se entera de su
+    ruta nueva al ponerse al dia con la biblioteca."""
+    from ...library import tidy
+
+    if not library.by_id(cid):
+        raise HTTPException(404, "no esta en la biblioteca")
+    try:
+        return tidy.apply(
+            cid, artist=body.artist, title=body.title, to=body.to, write_tags=body.tags
+        )
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from None
+    except OSError as e:
+        log.warning("no se pudo transformar la cancion %s", cid, exc_info=True)
+        raise HTTPException(409, f"no se pudo mover: {e.strerror or e}") from None
 
 
 @router.post("/api/song/{cid}/move")
