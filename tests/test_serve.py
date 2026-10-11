@@ -55,9 +55,16 @@ def test_el_nucleo_arranca_por_el_socket_y_contesta(tmp_path):
     if not hasattr(__import__("socket"), "AF_UNIX") or os.name == "nt":
         pytest.skip("sockets Unix")
     import http.client
+    import shutil
     import socket
+    import tempfile
 
-    sock_path = tmp_path / "danplay.sock"
+    # La ruta de un socket Unix tiene un tope (104 caracteres en macOS), y la
+    # carpeta temporal de pytest alli ya lo pasa (/private/var/folders/…): en el
+    # primer Mac de la CI el nucleo no arrancaba con «AF_UNIX path too long». La
+    # app lo deja en ~/.cache/danplay/danplay/, que es corta; aqui, en /tmp.
+    short = pathlib.Path(tempfile.mkdtemp(prefix="dp-", dir="/tmp"))
+    sock_path = short / "danplay.sock"
     env = {
         **os.environ,
         "DANPLAY_PARENT_PID": str(os.getpid()),
@@ -99,7 +106,9 @@ def test_el_nucleo_arranca_por_el_socket_y_contesta(tmp_path):
             proc.wait(timeout=20)
         except subprocess.TimeoutExpired:
             proc.kill()
-    assert not sock_path.exists(), "el socket se borra al salir"
+        gone = not sock_path.exists()
+        shutil.rmtree(short, ignore_errors=True)
+    assert gone, "el socket se borra al salir"
 
 
 def test_al_arrancar_y_al_apagar(monkeypatch):
