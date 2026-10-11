@@ -1047,6 +1047,10 @@ export const api = {
    * @returns {Promise<BeatGrid>}
    */
   beatGrid: (id) => GET(`/song/${id}/beats`),
+  /** sin esperar: la rejilla, o `{pending, progress}` mientras se calcula */
+  beatGridNow: (id) => GET(`/song/${id}/beats?wait=false`),
+  /** deja calculándose la de una canción que vendrá después */
+  beatGridPrepare: (id) => POST(`/song/${id}/beats/prepare`),
   // ---- separar en pistas (bateria, voces, bajo...)
   /**
    * Si se puede separar aqui, lo que pesa el separador (y lo que falta por

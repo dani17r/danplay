@@ -24,6 +24,7 @@ import { useViewport } from './composables/useViewport.js'
 import { useWindowShape, SHAPES } from './composables/useWindowShape.js'
 import { useDragSong, onDrop } from './composables/useDragSong.js'
 import { usePlayback } from './composables/usePlayback.js'
+import { useClick } from './composables/useClick.js'
 import { useNotices, notify } from './composables/useNotices.js'
 import { useDialog, ask } from './composables/useDialog.js'
 import { useContextMenu, closeMenu } from './composables/useContextMenu.js'
@@ -75,6 +76,8 @@ import Loading from './components/ui/Loading.vue'
 import ModalDialog from './components/ui/ModalDialog.vue'
 
 const player = usePlayback()
+// el clic sigue a cada canción aunque el panel de estudio esté cerrado
+useClick()
 // para la plantilla: dentro de un objeto los refs no se desenvuelven solos
 const { shuffle, repeat } = player
 const { notices, dismiss } = useNotices()

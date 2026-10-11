@@ -18,6 +18,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
 import StudyBar from '../src/components/StudyBar.vue'
 import Player from '../src/components/Player.vue'
 import { resetPlayback, usePlayback } from '../src/composables/usePlayback.js'
+import { resetClick } from '../src/composables/useClick.js'
 import { useContextMenu } from '../src/composables/useContextMenu.js'
 import { song } from './support/backend.js'
 
@@ -53,6 +54,7 @@ beforeEach(() => {
   vi.useRealTimers()
   localStorage.clear() // el candado de la onda y el paso del tono, como de fabrica
   resetPlayback()
+  resetClick()
   held.playback.reset()
   held.state.songs = [song(7, { title: 'Mi Gozo', study: '' })]
   held.playback.emit({
@@ -969,7 +971,7 @@ describe('tono, velocidad fina y metronomo', () => {
   it('el clic arranca al compas y se para aparte de la cancion', async () => {
     const w = await montar()
     vi.clearAllMocks()
-    await boton(w, 'Clic').trigger('click')
+    await w.find('.study-metro-toggle').trigger('click')
     await flushPromises()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(
       expect.objectContaining({ on: true, bpm: null, meter: null, shift: 0, mult: 0 })
@@ -1186,7 +1188,7 @@ describe('tono, velocidad fina y metronomo', () => {
     const w = await montar()
     expect(w.text()).toContain('sin compás detectado: va libre')
     vi.clearAllMocks()
-    await boton(w, 'Clic').trigger('click')
+    await w.find('.study-metro-toggle').trigger('click')
     await flushPromises()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
   })
@@ -1545,7 +1547,7 @@ describe('las pistas separadas en el estudio', () => {
   it('con el clic sonando, se ofrece guardarla como suena: con el clic', async () => {
     await conPistas(JSON.stringify({ mixer: { on: true } }))
     const w = await montar()
-    await boton(w, 'Clic').trigger('click')
+    await w.find('.study-metro-toggle').trigger('click')
     await flushPromises()
     await boton(w, '⋯').trigger('click')
     const { menu } = useContextMenu()

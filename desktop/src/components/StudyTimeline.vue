@@ -61,6 +61,11 @@ const props = defineProps({
   selected: { type: Object, default: null },
   /** la rejilla de pulsos del metrónomo tal como suena, para pintarla sobre la onda */
   grid: { type: Object, default: null },
+  /**
+   * lo que lleva (0..1) el clic de la canción mientras se carga, o null si
+   * no carga: una barra del color del tema avanza sobre la onda
+   */
+  clickLoading: { type: Number, default: null },
   /** alto de la onda en px */
   height: { type: Number, default: 56 },
   /** el candado: sonando, un clic no mueve la canción */
@@ -709,6 +714,22 @@ const lockTitle = computed(() =>
       @contextmenu.prevent="onContext"
     >
       <canvas ref="canvas" class="tl-wave" :height="WAVE_H"></canvas>
+      <Transition name="tl-click">
+        <div
+          v-if="clickLoading != null"
+          class="tl-click-load"
+          role="progressbar"
+          aria-label="Cargando el clic de esta canción"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="Math.round(clickLoading * 100)"
+        >
+          <div class="tl-click-fill" :style="{ width: Math.round(clickLoading * 100) + '%' }"></div>
+          <span class="tl-click-text mono"
+            >cargando el clic · {{ Math.round(clickLoading * 100) }} %</span
+          >
+        </div>
+      </Transition>
       <div v-if="loading" class="tl-note">leyendo la onda…</div>
       <div v-else-if="failed && songId" class="tl-note">sin forma de onda (hace falta ffmpeg)</div>
 

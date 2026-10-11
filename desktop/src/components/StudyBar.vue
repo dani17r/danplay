@@ -38,6 +38,7 @@ import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'
 import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
 import { useSeparation } from '../composables/useSeparation.js'
+import { useClick } from '../composables/useClick.js'
 import { stemPlan, mixFileName } from '../utils/stems.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
 import { formatTime } from '../utils/format.js'
@@ -92,6 +93,13 @@ const blank = () => ({
   mixer: { on: false, tracks: {} }
 })
 const study = ref(blank())
+// el clic: su rejilla, si carga, y el modo (automático o a mano). Vive fuera
+// del panel: con él cerrado, al pasar de canción, sigue igual
+const click = useClick()
+onUnmounted(click.watchGrid())
+// para la plantilla (ahí solo se desenvuelven los refs de primer nivel)
+const clickAuto = click.auto
+const clickWanted = click.wanted
 // las pistas separadas de la canción (ver más abajo): aquí arriba porque las
 // toca `loadFor`, que corre nada más montar
 const separation = useSeparation()
@@ -102,14 +110,16 @@ const songFile = ref('')
 /** Se pidió separar desde aquí esta canción: al acabar, suenan sus pistas. */
 let wantStems = null
 const loadedFor = ref(null)
+// al volver a automático, los de esta canción otra vez (a mano iba otro tempo)
+watch(clickAuto, (on) => {
+  if (on && loadedFor.value != null)
+    click.songSettings(loadedFor.value, study.value.metronome, true)
+})
 const saving = ref(false)
 /** El marcador elegido (uno de `study.markers`), o null. */
 const selected = ref(null)
 /** La rejilla de pulsos de la cancion que suena, tal como la dio el analisis, o null. */
-const grid = shallowRef(null)
-const analyzing = ref(false)
-const gridError = ref('')
-let gridFor = null
+const grid = click.grid
 /** La pestaña de notas: las de la cancion o las del marcador elegido. */
 const notesTab = ref('song')
 let saveTimer = null
@@ -156,7 +166,6 @@ async function loadFor(id) {
   flushSave()
   loadedFor.value = id
   selected.value = null
-  grid.value = null
   stems.value = null
   if (!id) {
     study.value = blank()
@@ -191,10 +200,9 @@ async function loadFor(id) {
     await player.setLoops(loops)
     if (study.value.speed !== speed.value) await player.setSpeed(study.value.speed)
     if (study.value.pitch !== pitch.value) await player.setPitch(study.value.pitch)
-    await player.resetMetronomeOverrides(study.value.metronome)
+    // los ajustes del clic de esta canción (su rejilla la pide `useClick`)
+    await click.songSettings(id, study.value.metronome)
     selected.value = markerOf(study.value.loops)
-    // el compas se analiza ya, para que el clic entre al momento al pedirlo
-    ensureGrid()
     // y las pistas: si las tiene y se dejaron sonando, vuelven a sonar
     await loadStems(id)
   } catch (e) {
@@ -512,57 +520,19 @@ async function setPitch(n) {
 }
 
 // ---- metronomo
-// El pulso y el compas los detecta Beat This! en el nucleo (`api.beatGrid`),
-// y se le pasan a Rust; si el nucleo no puede, los detecta Rust con su
-// analisis de siempre (`analyzeBeats`). La rejilla se pinta sobre la onda y
-// el clic la sigue. Lo que uno ajuste a mano (tempo, compas, «1»,
-// doble/mitad) se guarda con la cancion en `study.metronome`.
-async function ensureGrid() {
-  const path = player.state.path
-  const id = loadedFor.value
-  if (!path || !id || gridFor === path) return grid.value
-  gridFor = path
-  analyzing.value = true
-  gridError.value = ''
-  try {
-    let g = null
-    try {
-      const found = await api.beatGrid(id)
-      if (loadedFor.value !== id) return null
-      g = await player.setBeatGrid(found)
-    } catch {
-      /* aqui no hay Beat This!, o la cancion no le dio pulso: el de siempre */
-    }
-    if (!g) g = await player.analyzeBeats(track.value?.bpm || null)
-    if (loadedFor.value !== id) return null
-    grid.value = g
-    // con la rejilla ya en Rust, se vuelven a mandar los ajustes para que
-    // el clic la coja (si esta sonando, entra en el siguiente pulso)
-    await player.setMetronome({})
-    return g
-  } catch (e) {
-    if (loadedFor.value === id) gridError.value = errorMessage(e)
-    return null
-  } finally {
-    if (loadedFor.value === id) analyzing.value = false
-  }
-}
-// la ruta que suena puede llegar despues de la ficha: se vuelve a intentar
-watch(
-  () => player.state.path,
-  () => {
-    if (loadedFor.value && !grid.value) {
-      gridFor = null
-      ensureGrid()
-    }
-  }
-)
+// El pulso y el compas los da `useClick`: con «Clic automático», los de cada
+// cancion (Beat This! en el nucleo, o el analisis de Rust si aqui no se
+// puede); a mano, un tempo para todas. Lo que uno ajuste a una cancion en
+// automatico (tempo, compas, «1», doble/mitad) se guarda con ella en
+// `study.metronome`; lo de a mano, en el navegador (es de quien toca).
 /**
  * La rejilla tal como suena, para la onda: con el doble o la mitad, el
  * compas y el «1» corrido. Antes se pintaba la del analisis tal cual, y al
  * pulsar ×2 no se veia cambiar nada.
  */
 const shownGrid = computed(() => {
+  // a mano el clic no sigue la cancion: su rejilla no pinta nada
+  if (!click.auto.value) return null
   const m = study.value.metronome || {}
   return effectiveGrid(grid.value, {
     mult: m.mult || 0,
@@ -580,17 +550,24 @@ const bpmHeard = computed(() => {
 const bpmShown = computed(() => (bpmHeard.value ? formatBpm(bpmHeard.value) : '—'))
 /** Lo que se esta escribiendo en el tempo (o null: se enseña el que va). */
 const bpmDraft = ref(null)
+/** Lo que lleva la rejilla que carga, en %. */
+const clickPercent = computed(() => Math.round(click.progress.value * 100))
+/** Cargando el clic de esta canción (en automático): no se puede poner aún. */
+const clickLoading = computed(() => click.auto.value && click.loading.value)
 const metroStatus = computed(() => {
   const m = metronome.value
   if (player.state.counting_in) return 'contando…'
-  if (analyzing.value) return 'buscando el pulso y el compás…'
-  if (gridError.value) return 'sin compás detectado: va libre'
+  if (!click.auto.value) return 'a mano: el mismo tempo en todas las canciones'
+  if (clickLoading.value) return `cargando el clic de esta canción… ${clickPercent.value} %`
+  if (click.error.value) return 'sin compás detectado: va libre'
   if (!m.has_grid) return 'sin compás: va libre'
   if (m.free) return 'tempo a mano: entra con el pulso de la canción y va a su aire'
   const sure = m.confidence >= 0.6 ? 'seguro' : m.confidence >= 0.3 ? 'probable' : 'dudoso'
   return `sigue la canción · el «1» ${sure}`
 })
 function metroPatch(patch) {
+  // a mano, el tempo y el compas son de todas las canciones, no de esta
+  if (!click.auto.value) return click.setManual(patch)
   const m = { ...(study.value.metronome || {}) }
   for (const [k, v] of Object.entries(patch)) {
     if (isDefault(k, v)) delete m[k]
@@ -602,15 +579,15 @@ function metroPatch(patch) {
 }
 async function toggleMetronome() {
   if (!track.value) return
-  const on = !metronome.value.on
-  if (on && !grid.value && !gridError.value) await ensureGrid()
-  await player.setMetronome({ on })
+  await click.toggle()
 }
 /**
  * Pone a mano el tempo que se oye, con decimales. Con el doble o la mitad
  * puestos se guarda el tempo sin ellos: al quitarlos, vuelve al que era.
  */
 function setBpm(heard) {
+  // a mano no hay doble ni mitad: el tempo es el que se oye
+  if (!click.auto.value) return click.setManual({ bpm: round2(clamp(heard, 20, 300)) })
   const base = heard / multFactor(metronome.value.mult)
   return metroPatch({ bpm: round2(clamp(base, 20, 300)) })
 }
@@ -665,7 +642,10 @@ const followSong = () => metroPatch({ bpm: null })
  * dia se analiza mejor, que mande el analisis. El «1» corrido se olvida: el
  * de otro compas se saca otra vez de donde caia.
  */
-const setMeter = (v) => metroPatch({ meter: grid.value?.meter === v ? null : v, shift: 0 })
+const setMeter = (v) =>
+  clickAuto.value
+    ? metroPatch({ meter: grid.value?.meter === v ? null : v, shift: 0 })
+    : click.setManual({ meter: v })
 const shiftOne = () =>
   metroPatch({ shift: ((metronome.value.shift || 0) + 1) % (metronome.value.meter || 4) })
 const setMult = (mult) => metroPatch({ mult: metronome.value.mult === mult ? 0 : mult })
@@ -1143,6 +1123,7 @@ onUnmounted(() => {
       :markers="study.markers"
       :selected="selected"
       :grid="shownGrid"
+      :click-loading="clickLoading ? click.progress.value : null"
       :height="80"
       :locked="locked"
       :playing="playing"
@@ -1334,23 +1315,46 @@ onUnmounted(() => {
       <!-- ===================================================== metronomo -->
       <section class="study-col">
         <h5 class="study-col-title"><Icon n="note" :t="12" /> Metrónomo</h5>
-        <div class="study-block study-metro" :class="{ on: metronome.on }">
-          <p class="study-metro-status">{{ metroStatus }}</p>
+        <div class="study-block study-metro" :class="{ on: clickWanted }">
+          <p class="study-metro-status" aria-live="polite">{{ metroStatus }}</p>
+          <div class="study-metro-row">
+            <button
+              class="btn mini study-metro-auto"
+              type="button"
+              role="switch"
+              :aria-checked="clickAuto ? 'true' : 'false'"
+              :class="{ on: clickAuto }"
+              :title="
+                clickAuto
+                  ? 'Cada canción con su clic, detectado solo. Quítalo para poner tú un tempo que siga igual en todas'
+                  : 'El mismo tempo en todas las canciones. Ponlo para que cada una lleve el suyo'
+              "
+              @click="click.setAuto(!clickAuto)"
+            >
+              <Icon :n="clickAuto ? 'check' : 'close'" :t="11" />
+              Clic automático
+            </button>
+          </div>
           <div class="study-metro-row">
             <button
               class="btn mini study-metro-toggle"
               type="button"
-              :class="{ on: metronome.on }"
-              :disabled="!track"
+              :class="{ on: clickWanted, loading: clickLoading }"
+              :aria-pressed="clickWanted ? 'true' : 'false'"
+              :disabled="!track || clickLoading"
               :title="
-                metronome.on
-                  ? 'Parar el metrónomo (la canción sigue)'
-                  : 'Arrancar el metrónomo, al compás de la canción'
+                clickLoading
+                  ? 'Cargando el clic de esta canción: en cuanto esté, se puede poner'
+                  : clickWanted
+                    ? 'Parar el metrónomo (la canción sigue)'
+                    : clickAuto
+                      ? 'Arrancar el metrónomo, al compás de la canción'
+                      : 'Arrancar el metrónomo, al tempo puesto'
               "
               @click="toggleMetronome"
             >
-              <Icon :n="metronome.on ? 'pause' : 'play'" :t="12" />
-              {{ metronome.on ? 'Parar' : 'Clic' }}
+              <Icon :n="clickWanted ? 'pause' : 'play'" :t="12" />
+              {{ clickLoading ? `Cargando… ${clickPercent} %` : clickWanted ? 'Parar' : 'Clic' }}
             </button>
             <span class="study-bpm">
               <button
@@ -1366,7 +1370,7 @@ onUnmounted(() => {
               <TextField
                 class="study-bpm-input mono"
                 compact
-                :clearable="metronome.free && metronome.has_grid"
+                :clearable="clickAuto && metronome.free && metronome.has_grid"
                 :model-value="bpmDraft ?? bpmShown"
                 :disabled="!track"
                 aria-label="Tempo del clic, en pulsos por minuto"
@@ -1388,7 +1392,7 @@ onUnmounted(() => {
               </button>
             </span>
           </div>
-          <div class="study-metro-row">
+          <div v-if="clickAuto" class="study-metro-row">
             <button
               class="btn mini study-mult"
               type="button"
@@ -1437,7 +1441,7 @@ onUnmounted(() => {
               {{ m.n }}
             </button>
           </div>
-          <div class="study-metro-row">
+          <div v-if="clickAuto" class="study-metro-row">
             <button
               class="btn mini"
               type="button"
@@ -1512,8 +1516,10 @@ onUnmounted(() => {
           </div>
         </div>
         <p class="study-empty">
-          El pulso y el «1» los detecta DanPlay al abrir la canción; el clic entra en el compás y
-          sigue la velocidad del estudio. Se puede parar y arrancar sin tocar la canción.
+          Con «Clic automático», el pulso y el «1» de cada canción los detecta DanPlay (la primera
+          vez tarda unos segundos: la barra de la onda dice cuánto lleva) y el clic sigue la
+          velocidad del estudio. Sin él, el tempo que pongas sigue igual en todas. Se puede parar y
+          arrancar sin tocar la canción.
         </p>
       </section>
 

@@ -1647,6 +1647,18 @@ tbody tr.flash {
   color: var(--bg);
   border-color: var(--accent);
 }
+/* cargando el clic de la canción: no se puede poner aún, pero se lee bien */
+.study .study-metro-toggle.loading:disabled {
+  opacity: 1;
+  cursor: progress;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.study .study-metro-auto.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
 .study-bpm {
   display: inline-flex;
   align-items: center;
@@ -2041,6 +2053,63 @@ tbody tr.flash {
   display: block;
   width: 100%;
   height: var(--tl-h);
+}
+/* el clic de la canción, cargando: una barra del color del tema avanza sobre
+   la onda, con un brillo que corre para que se vea que sigue vivo. No tapa
+   el puntero: los tramos se siguen pudiendo marcar mientras tanto */
+.tl-click-load {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-bottom: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.tl-click-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 10%, transparent),
+    color-mix(in srgb, var(--accent) 28%, transparent)
+  );
+  border-right: 2px solid var(--accent);
+  transition: width 0.6s ease-out;
+}
+.tl-click-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 30%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: tl-click-shine 1.4s ease-in-out infinite;
+}
+@keyframes tl-click-shine {
+  to {
+    transform: translateX(100%);
+  }
+}
+.tl-click-text {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+}
+.tl-click-enter-active,
+.tl-click-leave-active {
+  transition: opacity 0.3s ease;
+}
+.tl-click-enter-from,
+.tl-click-leave-to {
+  opacity: 0;
 }
 .tl-note {
   position: absolute;

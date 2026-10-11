@@ -697,24 +697,27 @@ function setStems(tracks, song = state.path) {
 /** Lo que se le mandó al metrónomo la última vez. */
 const metronomeSent = () => ({ ...metronomeSettings })
 /**
- * Analiza el pulso y el compás del archivo que suena. Rust se queda con la
- * rejilla; se devuelve para pintarla.
+ * Analiza el pulso y el compás de un archivo (el que suena, si no se dice).
+ * Rust se queda con la rejilla; se devuelve para pintarla.
+ * @param {number|null} [hintBpm] @param {string} [path]
  * @returns {Promise<import('../api.js').BeatGrid|null>}
  */
-async function analyzeBeats(hintBpm = null) {
+async function analyzeBeats(hintBpm = null, path = state.path) {
   await ensureBooted()
-  if (!backend || !state.path) return null
-  return backend.analyzeBeats(state.path, hintBpm)
+  if (!backend || !path) return null
+  return backend.analyzeBeats(path, hintBpm)
 }
 /**
  * Le da a Rust una rejilla calculada fuera (Beat This!, en el núcleo) para
- * el archivo que suena; se queda con ella para el metrónomo.
- * @param {import('../api.js').BeatGrid} grid
+ * un archivo (el que suena, si no se dice); se queda con ella para el
+ * metrónomo. Con la ruta dicha, la rejilla que llega tarde va a SU canción
+ * aunque ya suene otra.
+ * @param {import('../api.js').BeatGrid} grid @param {string} [path]
  */
-async function setBeatGrid(grid) {
+async function setBeatGrid(grid, path = state.path) {
   await ensureBooted()
-  if (!backend || !state.path) return null
-  return backend.setBeatGrid(state.path, grid)
+  if (!backend || !path) return null
+  return backend.setBeatGrid(path, grid)
 }
 function setRepeat(mode) {
   const m = normalizeRepeat(mode)

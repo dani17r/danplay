@@ -347,6 +347,9 @@ export function createState() {
     /** el pulso de Beat This! que da el nucleo, o null: aqui no se puede */
     /** @type {any} */
     beatGrid: null,
+    /** lo que va diciendo mientras se calcula (0..1, uno por pregunta), o vacío: ya está */
+    /** @type {number[]} */
+    beatGridPending: [],
     /** yt-dlp: la version que se usa, la que viaja con la app y el motor de JS */
     ytdlp: {
       version: '2026.09.01',
@@ -730,6 +733,16 @@ function answers(state) {
       if (!state.beatGrid) throw new Error('falta el detector de pulso en esta instalación')
       return copy(state.beatGrid)
     },
+    // sin esperar: mientras `state.beatGridPending` tenga avances, contesta
+    // «calculándose» con el siguiente; luego, como `beatGrid`
+    beatGridNow: vi.fn(async () => {
+      if (state.beatGridPending?.length) {
+        return { pending: true, progress: state.beatGridPending.shift() }
+      }
+      if (!state.beatGrid) throw new Error('falta el detector de pulso en esta instalación')
+      return copy(state.beatGrid)
+    }),
+    beatGridPrepare: vi.fn(async () => ({ queued: !!state.beatGrid })),
     /** una onda de mentira: callada al principio, fuerte al final */
     waveform: async (id, buckets = 800) => {
       const n = Math.max(1, Math.min(buckets, 4000))
