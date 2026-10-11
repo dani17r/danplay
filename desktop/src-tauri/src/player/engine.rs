@@ -51,6 +51,13 @@ const IDLE_RELEASE: Duration = Duration::from_secs(2);
 /// cancion pasa por ffmpeg: asi, al llegar a B, el salto es instantaneo.
 const LOOP_AHEAD: f64 = 1.5;
 
+/// El fundido mas largo que se puede pedir entre dos canciones, en segundos.
+const MAX_CROSSFADE: f32 = 12.0;
+
+/// Al cambiar de cancion a mano, el fundido no pasa de esto: quien pulsa
+/// «siguiente» quiere oir la otra ya, no dentro de ocho segundos.
+const MANUAL_FADE: f32 = 2.0;
+
 /// Al pasar a otra version de la cancion que suena (sus pistas, o ella otra
 /// vez; otra velocidad o tono), cuanto se cruzan las dos. Son la misma
 /// musica en el mismo punto: con muy poco basta para que no se oiga un clic.
@@ -119,6 +126,8 @@ pub(super) struct Carry {
     pub(super) resume_at: Option<f64>,
     /// Hay salida de audio (o la habia la ultima vez que se miro).
     pub(super) has_output: bool,
+    /// Cuanto se funden dos canciones al pasar de una a otra (0 = nada).
+    pub(super) crossfade: f32,
 }
 
 impl Carry {
@@ -138,6 +147,7 @@ impl Carry {
             pending: None,
             resume_at: None,
             has_output: false,
+            crossfade: 0.0,
         }
     }
 
@@ -168,6 +178,8 @@ struct Engine<'a> {
     /// Las que se van bajando (un fundido, el paso a las pistas): siguen
     /// sonando aparte hasta callarse, y entonces se sueltan.
     fading: Vec<Song>,
+    /// Ya se aviso de que esta cancion se acaba (`Event::Ending`).
+    ending_sent: bool,
     /// El clic del metronomo: su propio sink, creado cuando haga falta.
     click: Option<Click>,
     was_finished: bool,
@@ -194,6 +206,7 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
         output: None,
         song: None,
         fading: Vec::new(),
+        ending_sent: false,
         click: None,
         was_finished: false,
         last_sent: State::default(),
@@ -359,6 +372,13 @@ impl Engine<'_> {
                 self.carry.pitch = clean_pitch(semitones);
                 self.retune(clock, step);
             }
+            Command::Crossfade(seconds) => {
+                self.carry.crossfade = if seconds.is_finite() {
+                    seconds.clamp(0.0, MAX_CROSSFADE)
+                } else {
+                    0.0
+                };
+            }
         }
         // una orden que esperaba a la salida tiene otra oportunidad con cada
         // orden nueva: puede que ya se hayan conectado los auriculares
@@ -411,9 +431,39 @@ impl Engine<'_> {
             old.sink.stop();
         }
         self.was_finished = false;
+        self.ending_sent = false;
     }
 
     // ------------------------------------------- fundidos
+    /// Si la que suena puede fundirse con la siguiente: hay fundido puesto,
+    /// suena, y no se esta estudiando (con tramos, el clic o la cuenta, una
+    /// cancion encima de otra no tiene sentido).
+    fn can_crossfade(&self) -> bool {
+        self.carry.crossfade > 0.0
+            && self.sounding()
+            && self.carry.loops.is_empty()
+            && !self.carry.loop_defer
+            && !self.carry.metro.settings.on
+            && self.count_in.is_none()
+    }
+
+    /// Cuanto dura el fundido con la que suena: el puesto, o un tercio de
+    /// ella si es corta.
+    fn crossfade_len(&self) -> f32 {
+        let duration = self.carry.duration as f32;
+        if duration > 0.0 {
+            self.carry.crossfade.min(duration / 3.0)
+        } else {
+            self.carry.crossfade
+        }
+    }
+
+    /// La que se va, bajando en `secs`: sigue sonando aparte hasta callarse.
+    fn let_go(&mut self, song: Song, secs: f32, shape: Shape) {
+        song.fade.ramp(0.0, secs, shape);
+        self.fading.push(song);
+    }
+
     /// Las que se iban, fuera ya (pausa, salto, stop...).
     fn drop_fading(&mut self) {
         for song in self.fading.drain(..) {
@@ -465,9 +515,26 @@ impl Engine<'_> {
     }
 
     fn play(&mut self, path: String, hint: f64, step: &mut Step) {
-        self.drop_fading();
+        // Con fundido, la que suena no se corta: baja mientras sube la nueva.
+        // Si la mando la cola porque esta se acaba (`Ending`), en lo que le
+        // queda; si es un cambio a mano, en poco.
+        let fade = self.can_crossfade().then(|| {
+            let len = self.crossfade_len();
+            if self.ending_sent {
+                let left = (self.carry.duration - self.position_now()).max(0.0) as f32;
+                left.clamp(0.3, len.max(0.3))
+            } else {
+                len.min(MANUAL_FADE)
+            }
+        });
+        if fade.is_none() {
+            self.drop_fading();
+        }
         if let Some(old) = self.song.take() {
-            old.sink.stop();
+            match fade {
+                Some(secs) => self.let_go(old, secs, Shape::EqualPower),
+                None => old.sink.stop(),
+            }
         }
         // las pistas eran de la cancion de antes (la misma otra vez, como
         // al repetirla, sigue con las suyas)
@@ -483,6 +550,10 @@ impl Engine<'_> {
                 // cabecera Xing la del archivo se inventa
                 if hint <= 0.0 {
                     self.carry.duration = song.announced.unwrap_or(0.0);
+                }
+                if let Some(secs) = fade {
+                    song.fade.set(0.0);
+                    song.fade.ramp(1.0, secs, Shape::EqualPower);
                 }
                 self.adopt(song, true);
                 self.rearm(0.0);
@@ -1054,6 +1125,22 @@ impl Engine<'_> {
         }
         if !finished {
             self.was_finished = false;
+        }
+
+        // Se acaba y hay fundido: se avisa una vez, lo que dura el fundido
+        // antes, para que la cola mande ya la siguiente. Si se vuelve atras
+        // (un salto), se puede avisar otra vez.
+        if self.song.is_some() && self.carry.duration > 0.0 {
+            let len = f64::from(self.crossfade_len());
+            let left = self.carry.duration - current.position;
+            if !self.ending_sent && self.can_crossfade() && left <= len {
+                self.ending_sent = true;
+                if !(self.notify)(Event::Ending) {
+                    return false;
+                }
+            } else if self.ending_sent && left > len + 1.0 {
+                self.ending_sent = false;
+            }
         }
 
         // Se avisa cuando cambia algo que se ve, y mientras suena tambien

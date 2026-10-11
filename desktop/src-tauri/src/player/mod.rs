@@ -47,6 +47,11 @@ pub enum Event {
     /// La pista se acabo sola. Solo una vez por pista: quien decide que suena
     /// despues es la cola, no esto.
     Finished,
+    /// Hay fundido entre canciones y a esta le queda lo que dura: si la cola
+    /// manda ya la siguiente, entra subiendo mientras esta baja. Una vez por
+    /// pista; si la cola no manda nada (fin de la lista, «repetir esta»), la
+    /// cancion acaba sola y llega `Finished` como siempre.
+    Ending,
 }
 
 /// A quien se le cuentan los avisos. Devuelve false cuando ya no escucha
@@ -90,6 +95,9 @@ pub enum Command {
     /// El tono corrido, en semitonos (-12..12, con fracciones: medio
     /// semitono es un cuarto de tono). Reabre la cancion donde iba.
     Pitch(f32),
+    /// Cuanto se funden dos canciones al pasar de una a otra, en segundos
+    /// (0 = sin fundido, hasta 12).
+    Crossfade(f32),
     /// Que suenen las pistas separadas de la cancion `song` en vez de ella
     /// (o, con `None`, la cancion otra vez). Si las pistas son las mismas
     /// que ya suenan, solo cambia el volumen de cada una, sin reabrir nada.

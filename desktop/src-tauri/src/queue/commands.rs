@@ -73,6 +73,14 @@ pub fn set_pitch(playback: tauri::State<'_, Playback>, semitones: f32) {
     playback.send(Command::Pitch(semitones));
 }
 
+/// Cuanto se funden dos canciones al pasar de una a otra, en segundos (0 =
+/// sin fundido; hasta 12). Con el clic, la cuenta o
+/// tramos puestos no se funden.
+#[tauri::command]
+pub fn set_crossfade(playback: tauri::State<'_, Playback>, seconds: f32) {
+    playback.send(Command::Crossfade(seconds));
+}
+
 /// Analiza el pulso y el compas de un archivo (un par de segundos) y se
 /// queda con la rejilla para el metronomo. `hint_bpm`: el tempo que ya sepa
 /// el indice, si lo sabe. Se hace fuera del hilo de la interfaz.

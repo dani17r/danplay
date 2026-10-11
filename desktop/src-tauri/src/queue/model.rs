@@ -116,6 +116,8 @@ pub enum Command {
     Loops(Vec<(f64, f64)>, bool),
     /// El tono corrido, en semitonos (con fracciones).
     Pitch(f32),
+    /// Cuanto se funden dos canciones al pasar de una a otra (0 = nada).
+    Crossfade(f32),
     /// Las pistas separadas de la cancion `song` en vez de ella, o nada.
     Stems {
         song: String,

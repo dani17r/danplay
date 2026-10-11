@@ -1025,3 +1025,73 @@ fn the_count_in_holds_the_song_until_it_ends() {
     );
     m.send(Command::Stop).unwrap();
 }
+
+/// Con fundido, el final se avisa lo que dura el fundido antes (para que la
+/// cola mande ya la siguiente); la que llega entra mientras la otra baja, y
+/// la que se va no avisa de su final: la cola ya paso a la otra.
+#[test]
+fn with_a_crossfade_the_end_is_announced_ahead_and_the_next_comes_in() {
+    let Some((m, rx)) = playing() else { return };
+    m.send(Command::Crossfade(2.0)).unwrap();
+    let total = m.state().duration;
+    m.send(Command::Seek(total - 3.5)).unwrap();
+    assert!(
+        announced(&rx, |e| matches!(e, Event::Ending)),
+        "no se aviso de que se acaba"
+    );
+    let left = total - m.state().position;
+    assert!(left > 1.0 && left <= 2.4, "se aviso a {left:.2} s del final");
+    m.send(Command::Play {
+        path: sample(),
+        duration: 0.0,
+    })
+    .unwrap();
+    let s = until(&m, |s| s.playing && s.position < 5.0);
+    assert!(s.playing && s.position < 5.0, "la siguiente no entro: {s:?}");
+    wait_ms(3000);
+    let ends = std::iter::from_fn(|| rx.try_recv().ok())
+        .filter(|e| matches!(e, Event::Finished | Event::Ending))
+        .count();
+    assert_eq!(ends, 0, "la que se fue no tiene que avisar de nada");
+    assert!(m.state().playing, "la nueva sigue sonando");
+    m.send(Command::Stop).unwrap();
+}
+
+/// Con el clic puesto no hay fundido: una cancion encima de otra con un clic
+/// que solo sigue a una no tiene sentido. Acaba como siempre.
+#[test]
+fn with_the_click_on_songs_do_not_overlap() {
+    let Some((m, rx)) = playing() else { return };
+    m.send(Command::Crossfade(2.0)).unwrap();
+    m.send(Command::Metronome {
+        settings: MetronomeSettings {
+            on: true,
+            volume: 0.01,
+            ..Default::default()
+        },
+        grid: None,
+    })
+    .unwrap();
+    until(&m, |s| s.metronome.on);
+    let total = m.state().duration;
+    m.send(Command::Seek(total - 2.5)).unwrap();
+    let mut saw_ending = false;
+    let finished = {
+        let deadline = Instant::now() + PATIENCE;
+        let mut done = false;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(Event::Ending) => saw_ending = true,
+                Ok(Event::Finished) => {
+                    done = true;
+                    break;
+                }
+                Ok(Event::Changed(_)) => {}
+                Err(_) => break,
+            }
+        }
+        done
+    };
+    assert!(finished, "tenia que acabar como siempre");
+    assert!(!saw_ending, "con el clic no se funde");
+}

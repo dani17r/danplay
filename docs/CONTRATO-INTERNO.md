@@ -76,7 +76,8 @@ castellano y, si la canción se acabó sola, se prueba con la siguiente.
 | `seek` | `{ seconds }` | |
 | `set_volume` | `{ value }` | 0..1,5. Por encima de 1 la canción suena más alta de como viene; lo que se pase de la salida lo recoge el limitador. |
 | `set_speed` | `{ value }` | |
-| `set_stems` | `{ song, tracks \| null }` | Las pistas separadas en vez de la canción (ver «Pistas separadas», §3). |
+| `set_stems` | `{ song, tracks \| null }` | Las pistas separadas en vez de la canción (ver «Pistas separadas», §3). Sin corte: la canción sigue hasta que entran las pistas, a la par, y se cruzan en 0,15 s (igual al quitarlas y al cambiar velocidad o tono). |
+| `set_crossfade` | `{ seconds }` | Cuánto se funden dos canciones al pasar de una a otra (0..12; 0 = sin fundido). Al acercarse el final, Rust lo avisa (`Ending`) y la cola manda ya la siguiente, que sube mientras la otra baja; a mano, como mucho 2 s. Con el clic, la cuenta o tramos puestos no se funden. La interfaz lo guarda (`danplay.fundido`, de fábrica 4) y lo manda al arrancar. |
 | `set_beat_grid` | `{ path, grid }` | La rejilla de Beat This! que da el núcleo, para el metrónomo (ver el metrónomo, §3). |
 | `playback_state` | — | Devuelve `PlaybackState` (para pintar nada más montar). |
 | `queue_items` | — | Devuelve `{ items: Track[], origin }`. |

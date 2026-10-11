@@ -62,6 +62,9 @@ impl Playback {
                         Message::Audio(player::Event::Finished) => {
                             advance(&mut inner, &player, &address);
                         }
+                        Message::Audio(player::Event::Ending) => {
+                            cross_next(&mut inner, &player, &address);
+                        }
                         Message::User(Command::Prune) => {
                             prune(&mut inner, audio.playing, &player, &address);
                         }
@@ -197,13 +200,7 @@ fn start_within(
     let Some(track) = inner.items.get(index).cloned() else {
         return false;
     };
-    if inner.history.last() != Some(&inner.index) {
-        inner.history.push(inner.index);
-        if inner.history.len() > 100 {
-            inner.history.remove(0);
-        }
-    }
-    inner.index = index;
+    move_to(inner, index);
 
     let wait = deadline.saturating_duration_since(std::time::Instant::now());
     match path_of(&track, address, wait) {
@@ -221,6 +218,50 @@ fn start_within(
             false
         }
     }
+}
+
+/// La cola pasa a `index`, y la de antes queda en el historial («anterior»).
+fn move_to(inner: &mut Inner, index: usize) {
+    if inner.history.last() != Some(&inner.index) {
+        inner.history.push(inner.index);
+        if inner.history.len() > 100 {
+            inner.history.remove(0);
+        }
+    }
+    inner.index = index;
+}
+
+/// La que suena se acaba y hay fundido (`Event::Ending`): la siguiente, ya,
+/// para que entre subiendo mientras esta baja.
+///
+/// Solo si hay siguiente y se encuentra su archivo. Si no (fin de la lista,
+/// «repetir esta», un archivo que ya no esta), no se hace nada: la cancion
+/// acaba sola y la cola sigue como siempre (`advance`, con sus avisos). Aqui
+/// no se puede mandar un `Fail`, que pararia en seco la que aun suena.
+pub(super) fn cross_next(inner: &mut Inner, player: &player::Handle, address: &Address) {
+    if inner.repeat == Repeat::One {
+        return;
+    }
+    let next = match after_end(inner.items.len(), inner.index, inner.repeat, inner.shuffle) {
+        Some(_) if inner.shuffle => random_other(inner.items.len(), inner.index),
+        Some(next) => next,
+        None => return,
+    };
+    if next == inner.index {
+        return; // la unica de la lista: que acabe y vuelva a empezar
+    }
+    let Some(track) = inner.items.get(next).cloned() else {
+        return;
+    };
+    let Ok(path) = path_of(&track, address, core::QUICK) else {
+        return;
+    };
+    move_to(inner, next);
+    inner.current_path.clone_from(&path);
+    let _ = player.send(player::Command::Play {
+        path,
+        duration: track.duration,
+    });
 }
 
 /// Vuelve a poner la cola de la sesion anterior, sin empezar a sonar.
@@ -356,6 +397,9 @@ pub(super) fn apply(inner: &mut Inner, command: Command, player: &player::Handle
         }
         Command::Pitch(n) => {
             let _ = player.send(player::Command::Pitch(n));
+        }
+        Command::Crossfade(seconds) => {
+            let _ = player.send(player::Command::Crossfade(seconds));
         }
         Command::Metronome { settings, grid } => {
             let _ = player.send(player::Command::Metronome { settings, grid });

@@ -4,6 +4,7 @@ import { api, app, pickFolder, errorMessage, JOBS } from '../api.js'
 import { addFolder } from '../utils/folders.js'
 import { chooseDownloadFolder } from '../utils/downloadFolder.js'
 import { usePreferences } from '../composables/usePreferences.js'
+import { usePlayback, CROSSFADES } from '../composables/usePlayback.js'
 import { notify } from '../composables/useNotices.js'
 import { ask, tell } from '../composables/useDialog.js'
 import { useSeparation } from '../composables/useSeparation.js'
@@ -410,6 +411,14 @@ async function convert(dry_run) {
   }
 }
 const gb = formatGigabytes
+
+// el fundido entre canciones (se guarda en el navegador y se manda a Rust)
+const playback = usePlayback()
+const crossfade = playback.crossfade
+const CROSSFADE_OPTIONS = CROSSFADES.map((s) => ({
+  v: s,
+  n: s ? `${s} segundos` : 'Sin transición: una detrás de otra'
+}))
 </script>
 
 <template>
@@ -487,6 +496,19 @@ const gb = formatGigabytes
       @close="editor = null"
       @saved="afterSave"
     />
+
+    <Card
+      title="Reproducción"
+      note="Al pasar de una canción a otra, la que se va baja mientras sube la siguiente. Con el clic del metrónomo o tramos puestos no se funden; al cambiar tú de canción, como mucho 2 segundos."
+    >
+      <SelectField
+        :model-value="crossfade"
+        width="260px"
+        label="Transición entre canciones"
+        :options="CROSSFADE_OPTIONS"
+        @update:model-value="(v) => playback.setCrossfade(v)"
+      />
+    </Card>
 
     <Card title="Atajos de teclado">
       <div style="display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: 12px">

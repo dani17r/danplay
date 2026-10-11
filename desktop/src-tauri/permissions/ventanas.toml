@@ -24,6 +24,7 @@ permissions = [
   "allow-set-speed",
   "allow-set-loop",
   "allow-set-pitch",
+  "allow-set-crossfade",
   "allow-set-metronome",
   "allow-set-stems",
   "allow-analyze-beats",

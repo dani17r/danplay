@@ -1019,6 +1019,7 @@ export function createPlaybackDouble() {
       })
     }),
     setPitch: vi.fn(async (semitones) => emit({ pitch: semitones })),
+    setCrossfade: vi.fn(async () => {}),
     // como Rust: las pistas eran para la cancion que suena; si ya es otra, nada
     setStems: vi.fn(async (song, tracks) => {
       if (song !== state.path) return

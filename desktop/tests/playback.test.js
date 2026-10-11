@@ -194,6 +194,29 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.setRepeat).toHaveBeenCalledWith('one')
   })
 
+  it('el fundido entre canciones se elige, se recuerda y se manda al arrancar', async () => {
+    let player = usePlayback()
+    await player.ready()
+    // de fábrica: 4 s, mandado a Rust nada más arrancar
+    expect(player.crossfade.value).toBe(4)
+    expect(held.playback.bridge.setCrossfade).toHaveBeenCalledWith(4)
+    await player.setCrossfade(6)
+    expect(held.playback.bridge.setCrossfade).toHaveBeenLastCalledWith(6)
+    expect(localStorage.getItem('danplay.fundido')).toBe('6')
+    await player.setCrossfade(99)
+    expect(player.crossfade.value, 'hasta 12 s').toBe(12)
+    await player.setCrossfade(0)
+    expect(held.playback.bridge.setCrossfade).toHaveBeenLastCalledWith(0)
+    // la sesión siguiente arranca con el elegido
+    resetPlayback()
+    held.playback.reset()
+    vi.clearAllMocks()
+    player = usePlayback()
+    await player.ready()
+    expect(player.crossfade.value).toBe(0)
+    expect(held.playback.bridge.setCrossfade).toHaveBeenCalledWith(0)
+  })
+
   it('el volumen no se sale de su rango: hasta un 50 % por encima de como viene', async () => {
     const player = usePlayback()
     await player.setVolume(9)

@@ -558,6 +558,7 @@ export const playback = {
    * de tono). Solo hace algo con ffmpeg.
    */
   setPitch: (semitones) => invoke('set_pitch', { semitones }),
+  setCrossfade: (seconds) => invoke('set_crossfade', { seconds }),
   /** @param {MetronomeSettings} settings */
   setMetronome: (settings) => invoke('set_metronome', { settings }),
   /**

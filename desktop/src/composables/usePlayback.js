@@ -7,7 +7,7 @@
 // `danplay://state` (docs/CONTRATO-INTERNO.md §1); aquí no hay ningún sondeo.
 // Fuera de Tauri (navegador y pruebas) hay un reproductor web con <audio>
 // que aplica exactamente la misma máquina de estados (playback/queueLogic).
-import { reactive, shallowRef, computed } from 'vue'
+import { reactive, ref, shallowRef, computed } from 'vue'
 import { api, playback as bridge } from '../api.js'
 import { cleanSegments, segmentAt } from '../utils/segments.js'
 import {
@@ -23,6 +23,11 @@ import {
 
 const VOLUME_KEY = 'danplay.vol'
 const SPEED_KEY = 'danplay.vel'
+const CROSSFADE_KEY = 'danplay.fundido'
+/** Lo que se puede elegir de fundido entre canciones, en segundos (0 = sin él). */
+export const CROSSFADES = [0, 2, 4, 6, 8, 12]
+/** El de fábrica: se nota la transición sin que se pisen mucho. */
+const DEFAULT_CROSSFADE = 4
 const REPEAT_KEY = 'danplay.repeat'
 
 /** @type {PlaybackState} */
@@ -311,6 +316,8 @@ function createWebBackend() {
       audio.volume = Math.min(1, s.volume)
       push()
     },
+    // aquí suena una canción cada vez (un <audio>): sin fundido
+    setCrossfade: async () => {},
     setSpeed: async (value) => {
       s.speed = clamp(Number(value) || 1, 0.25, 3)
       // el navegador conserva el tono al cambiar playbackRate
@@ -404,6 +411,14 @@ function readNumber(key) {
     return null
   }
 }
+/** El fundido guardado (o el de fábrica), en segundos. */
+function savedCrossfade() {
+  const v = readNumber(CROSSFADE_KEY)
+  return v != null && Number.isFinite(v) ? clamp(v, 0, 12) : DEFAULT_CROSSFADE
+}
+/** Cuánto se funden dos canciones al pasar de una a otra (0 = nada). */
+const crossfade = ref(savedCrossfade())
+
 function remember(key, value) {
   try {
     localStorage.setItem(key, String(value))
@@ -512,6 +527,7 @@ async function boot() {
       }
       if (vol != null && Number.isFinite(vol)) await backend.setVolume(clamp(vol, 0, MAX_VOLUME))
       if (vel != null && Number.isFinite(vel) && vel > 0) await backend.setSpeed(vel)
+      await backend.setCrossfade?.(crossfade.value)
       if (REPEAT_MODES.includes(repeat)) await backend.setRepeat(normalizeRepeat(repeat))
     }
     applyState(await backend.state())
@@ -540,6 +556,7 @@ export function resetPlayback() {
   seenRevision = -1
   seekGuard = null
   queue.value = []
+  crossfade.value = savedCrossfade()
   Object.assign(metronomeSettings, {
     on: false,
     bpm: null,
@@ -648,6 +665,17 @@ function setSpeed(value) {
  * El tono corrido, en semitonos (-12..12). Con fracciones: medio semitono es
  * un cuarto de tono.
  */
+/**
+ * Cuánto se funden dos canciones al pasar de una a otra, en segundos (0 =
+ * sin fundido). Con el clic, la cuenta o tramos puestos no se funden.
+ * @param {number} seconds
+ */
+function setCrossfade(seconds) {
+  const v = clamp(Number(seconds) || 0, 0, 12)
+  crossfade.value = v
+  remember(CROSSFADE_KEY, v)
+  return send((b) => b.setCrossfade?.(v))
+}
 function setPitch(semitones) {
   const n = cleanPitch(semitones)
   return send((b) => b.setPitch(n))
@@ -793,6 +821,8 @@ export function usePlayback() {
     setSpeed,
     setPitch,
     pitch: computed(() => state.pitch),
+    setCrossfade,
+    crossfade: computed(() => crossfade.value),
     setMetronome,
     resetMetronomeOverrides,
     metronomeSent,

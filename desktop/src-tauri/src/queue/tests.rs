@@ -4,7 +4,7 @@ use super::logic::{after_end, compose, random_other, reconcile, step_index, with
 use super::model::{Command, Inner, Repeat, Track};
 use super::resolve::path_of;
 use super::session::{Session, write_atomically};
-use super::worker::{advance, advance_within, apply, prune, start};
+use super::worker::{advance, advance_within, apply, cross_next, prune, start};
 use crate::core::{self, Address};
 use crate::player;
 use std::collections::HashMap;
@@ -484,4 +484,43 @@ fn the_duration_falls_back_to_the_index() {
     };
     let state = compose(&inner_with(vec![track(1)], 0), &sounding);
     assert!((state.duration - 187.5).abs() < 1e-9, "{}", state.duration);
+}
+
+/// Con fundido, la siguiente se manda antes de que acabe la que suena
+/// (`Event::Ending`). Solo si se encuentra: si no, no se hace nada (y no se
+/// manda un `Fail`, que pararia en seco la que aun suena); acabara sola y
+/// `advance` hara lo de siempre.
+#[test]
+fn the_next_one_is_sent_early_only_if_it_can_be_found() {
+    let (player, _events) = silent_player();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let mut inner = inner_with(vec![track(1), track(2)], 0);
+    cross_next(&mut inner, &player, &nowhere());
+    assert_eq!(inner.index, 0, "la 2 no se encuentra: se queda donde estaba");
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(player.state().error, "", "y no se le dice nada al reproductor");
+
+    let mut good = track(3);
+    good.path = Some(a_real_file("dp_cola_funde.mp3"));
+    let mut inner = inner_with(vec![track(1), good], 0);
+    cross_next(&mut inner, &player, &nowhere());
+    assert_eq!(inner.index, 1, "la siguiente ya");
+    assert_ne!(inner.current_path, "");
+    assert_eq!(inner.history.last(), Some(&0), "«anterior» vuelve a la que se iba");
+}
+
+#[test]
+fn nothing_is_sent_early_at_the_end_or_repeating_one() {
+    let (player, _events) = silent_player();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let mut good = track(2);
+    good.path = Some(a_real_file("dp_cola_funde_fin.mp3"));
+    let mut inner = inner_with(vec![track(1), good.clone()], 1);
+    inner.repeat = Repeat::Queue;
+    cross_next(&mut inner, &player, &nowhere());
+    assert_eq!(inner.index, 1, "fin de la cola: que acabe sola");
+    let mut inner = inner_with(vec![good, track(3)], 0);
+    inner.repeat = Repeat::One;
+    cross_next(&mut inner, &player, &nowhere());
+    assert_eq!(inner.index, 0, "«repetir esta»: que acabe y vuelva a empezar");
 }
