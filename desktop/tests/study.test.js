@@ -575,7 +575,7 @@ describe('la barra de estudio', () => {
     expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(30, 40)
     expect(held.playback.bridge.setSpeed).toHaveBeenCalledWith(0.8)
     expect(w.find('textarea').element.value).toBe('cejilla 2')
-    await boton(w, '').trigger('click') // el primer boton de la cabecera es cerrar
+    await boton(w, 'Cerrar').trigger('click')
     await flushPromises()
     expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
     expect(held.playback.bridge.setSpeed).toHaveBeenLastCalledWith(1)
@@ -856,6 +856,28 @@ describe('lo que se guarda va a su cancion', () => {
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
+  })
+})
+
+describe('el estudio en grande', () => {
+  it('«Grande» lo sube a todo el alto y, cerrado así, se vuelve a abrir grande', async () => {
+    const w = await montar()
+    const grande = () => w.find('.study-size')
+    expect(w.find('.study').classes()).not.toContain('big')
+    expect(grande().attributes('aria-pressed')).toBe('false')
+    await grande().trigger('click')
+    expect(w.find('.study').classes()).toContain('big')
+    expect(grande().attributes('aria-pressed')).toBe('true')
+    // la onda aprovecha el sitio
+    expect(w.findComponent({ name: 'StudyTimeline' }).props('height')).toBe(150)
+    expect(localStorage.getItem('danplay.study.grande')).toBe('true')
+    w.unmount()
+    const otra = await montar()
+    expect(otra.find('.study').classes(), 'se recuerda').toContain('big')
+    await otra.find('.study-size').trigger('click')
+    expect(otra.find('.study').classes()).not.toContain('big')
+    expect(otra.findComponent({ name: 'StudyTimeline' }).props('height')).toBe(80)
+    expect(localStorage.getItem('danplay.study.grande')).toBe('false')
   })
 })
 

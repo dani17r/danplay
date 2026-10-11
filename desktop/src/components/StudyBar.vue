@@ -500,6 +500,11 @@ const PITCH_STEPS = [
   { v: 2, n: '1', name: 'un tono', title: 'De tono en tono' }
 ]
 const PITCH_STEP_KEY = 'danplay.study.pitchStep'
+// «Grande»: todo el alto que deja el reproductor. Se recuerda: si se cierra
+// grande, se vuelve a abrir grande
+const BIG_KEY = 'danplay.study.grande'
+const big = ref(readPref(BIG_KEY, false) === true)
+watch(big, (v) => savePref(BIG_KEY, v))
 const savedStep = readPref(PITCH_STEP_KEY, 1)
 /** De cuánto en cuánto se mueve el tono, en semitonos. */
 const pitchStep = ref(PITCH_STEPS.some((s) => s.v === savedStep) ? savedStep : 1)
@@ -1022,7 +1027,7 @@ onUnmounted(() => {
 <template>
   <div
     class="study"
-    :class="{ 'with-lanes': lanes.length }"
+    :class="{ 'with-lanes': lanes.length, big }"
     role="region"
     aria-label="Modo estudio"
   >
@@ -1034,6 +1039,20 @@ onUnmounted(() => {
       >
       <span v-else class="study-song">Pon una canción para estudiarla</span>
       <span v-if="saving" class="study-saving">guardando…</span>
+      <button
+        class="btn mini study-size"
+        type="button"
+        :class="{ on: big }"
+        :aria-pressed="big ? 'true' : 'false'"
+        :title="
+          big
+            ? 'Volver al tamaño normal (media pantalla)'
+            : 'Grande: todo el alto, sin tapar el reproductor (se recuerda al volver a abrirlo)'
+        "
+        @click="big = !big"
+      >
+        <Icon n="maximize" :t="12" /> Grande
+      </button>
       <button
         class="btn mini"
         type="button"
@@ -1124,7 +1143,8 @@ onUnmounted(() => {
       :selected="selected"
       :grid="shownGrid"
       :click-loading="clickLoading ? click.progress.value : null"
-      :height="80"
+      :height="big ? 150 : 80"
+      :lane-height="big ? 46 : 34"
       :locked="locked"
       :playing="playing"
       :lanes="lanes"

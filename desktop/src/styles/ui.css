@@ -1415,6 +1415,14 @@ tbody tr.flash {
   gap: 8px;
   overflow: hidden;
   box-shadow: 0 -14px 36px var(--shadow-soft);
+  transition: height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* «Grande»: todo el alto que deja el reproductor, que sigue a la vista.
+   Tambien con pistas y en ventanas estrechas (sus reglas van mas abajo:
+   esta, con una clase mas, les gana) */
+.study.big,
+.study.big.with-lanes {
+  height: calc(100vh - var(--player-h));
 }
 .study-enter-active {
   transition:
@@ -1457,8 +1465,13 @@ tbody tr.flash {
   gap: 8px;
   font-size: 12.5px;
 }
-.study-head .btn {
+.study-head .study-size {
   margin-left: auto;
+}
+.study .study-size.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .study-song {
   color: var(--muted2);
