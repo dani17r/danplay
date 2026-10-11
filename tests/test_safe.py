@@ -14,6 +14,7 @@ import time
 import unicodedata
 
 import pytest
+from conftest import time_limit
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -187,7 +188,7 @@ def test_un_texto_gigante_no_cuesta_mas_que_uno_corto():
     big = ("*" * 1000 + ZWSP + "\n") * 200  # ~200 KB
     t0 = time.perf_counter()
     out = safe.datum(big)
-    assert time.perf_counter() - t0 < 1
+    assert time.perf_counter() - t0 < time_limit(1)
     assert_clean(out, 80)
 
 
@@ -195,7 +196,7 @@ def test_un_texto_gigante_de_solo_invisibles_no_cuelga():
     big = ZWSP * 200_000
     t0 = time.perf_counter()
     assert safe.datum(big) in ("", "…")
-    assert time.perf_counter() - t0 < 1
+    assert time.perf_counter() - t0 < time_limit(1)
 
 
 # ------------------------------------------------------------------ data_block

@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 import pytest
+from conftest import time_limit
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -620,18 +621,18 @@ def test_entrada_hostil_en_menos_de_un_segundo(name, warm):
     t0 = time.perf_counter()
     got = intake._parse(text)  # sin el try de parse_setlist: un fallo no se esconde
     elapsed = time.perf_counter() - t0
-    assert elapsed < 1, f"{name}: {elapsed:.2f} s"
+    assert elapsed < time_limit(1), f"{name}: {elapsed:.2f} s"
     check_contract(got)
     t0 = time.perf_counter()
     read_intent(text)
-    assert time.perf_counter() - t0 < 1
+    assert time.perf_counter() - t0 < time_limit(1)
 
 
 def test_mas_de_200_kb_se_corta_y_no_cuelga(warm):
     text = "1.- Digno De Adorar\n2.- Te Doy Gloria\n" + "x" * 1_000_000
     t0 = time.perf_counter()
     got = parse_setlist(text)
-    assert time.perf_counter() - t0 < 1
+    assert time.perf_counter() - t0 < time_limit(1)
     check_contract(got)
 
 

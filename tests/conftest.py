@@ -145,6 +145,48 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 FFMPEG = shutil.which("ffmpeg")
 
 
+# ------------------------------------------------------- topes de tiempo
+# Algunas pruebas ponen un tope de tiempo (una entrada hostil no puede tardar
+# mas de un segundo): es lo que caza una expresion regular que se vuelve
+# exponencial. Los topes se fijaron en un portatil corriente; el Mac Intel de
+# la CI es una maquina virtual varias veces mas lenta y los pasaba sin que
+# hubiera nada mal. `time_limit` escala el tope por lo lenta que es ESTA
+# maquina con un trabajo de referencia (Python puro, como el de las pruebas),
+# y nunca lo baja.
+_SPEED_REFERENCE = 0.18  # segundos que tarda `_reference_work` donde se fijaron los topes
+_SLOWNESS: list[float] = []
+
+
+def _reference_work() -> None:
+    import re as _re
+
+    acc = 0
+    for i in range(1_500_000):
+        acc += i * i % 7
+    s = " ".join(str(i) for i in range(200_000))
+    s.split()
+    _re.findall(r"\d+", s)
+
+
+def slowness() -> float:
+    """Cuantas veces mas lenta es esta maquina que la de referencia (>= 1)."""
+    if not _SLOWNESS:
+        import time as _time
+
+        took = []
+        for _ in range(3):
+            t0 = _time.perf_counter()
+            _reference_work()
+            took.append(_time.perf_counter() - t0)
+        _SLOWNESS.append(max(1.0, min(took) / _SPEED_REFERENCE))
+    return _SLOWNESS[0]
+
+
+def time_limit(seconds: float) -> float:
+    """El tope de tiempo de una prueba, escalado a la velocidad de la maquina."""
+    return seconds * slowness()
+
+
 def make_audio(path, codec_args, seconds=1.0, tone=None) -> str:
     """Un archivo de audio real hecho con ffmpeg, con el codec que se pida."""
     path = pathlib.Path(path)

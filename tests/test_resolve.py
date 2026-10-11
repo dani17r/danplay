@@ -29,6 +29,7 @@ import warnings
 from types import SimpleNamespace
 
 import pytest
+from conftest import time_limit
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -946,7 +947,7 @@ def test_una_lista_de_60(db):
     assert len(items) == 60
     t0 = time.perf_counter()
     out = within(30, resolve.resolve_items, items)
-    assert time.perf_counter() - t0 < 5.0, "60 items con 60 canciones"
+    assert time.perf_counter() - t0 < time_limit(5.0), "60 items con 60 canciones"
     assert len(out) == 60 and [r.index for r in out] == list(range(60))
     for i, t in enumerate(titulos[:45]):
         assert out[i].status == "found" and out[i].song["id"] == ids[t], t
@@ -1262,7 +1263,7 @@ def test_50000_canciones_con_tope_de_tiempo(db):
     resolve.invalidate()
     snap = resolve.INDEX.snapshot()
     assert snap.large and snap.count == 50_005
-    assert time.perf_counter() - t0 < 60, "montar la base y el indice"
+    assert time.perf_counter() - t0 < time_limit(60), "montar la base y el indice"
 
     pedidas = [
         ("*1.- Zafiro Del Amanecer* ✅🙏🏻 @Ana Lopez Voz (En Su Presencia)", "found"),
@@ -1284,7 +1285,7 @@ def test_50000_canciones_con_tope_de_tiempo(db):
     t0 = time.perf_counter()
     out = resolve.resolve_items([t for t, _ in lista])
     total = time.perf_counter() - t0
-    assert total / len(lista) < 0.3, f"{total / len(lista) * 1000:.0f} ms por item (tope: 300 ms)"
+    assert total / len(lista) < time_limit(0.3), f"{total / len(lista) * 1000:.0f} ms por item"
     assert not any(r.failed for r in out)
     for (texto, estado), r in zip(lista, out, strict=True):
         assert r.status == estado, (texto, r.status)
@@ -1295,4 +1296,4 @@ def test_50000_canciones_con_tope_de_tiempo(db):
     for nombre in ("200 KB de palabras", "sintaxis FTS con comillas", "Tú", "una palabra gigante"):
         t0 = time.perf_counter()
         resolve.match_song(HOSTILES[nombre])
-        assert time.perf_counter() - t0 < 1.5, nombre
+        assert time.perf_counter() - t0 < time_limit(1.5), nombre
