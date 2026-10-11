@@ -148,31 +148,35 @@ FFMPEG = shutil.which("ffmpeg")
 # ------------------------------------------------------- topes de tiempo
 # Algunas pruebas ponen un tope de tiempo (una entrada hostil no puede tardar
 # mas de un segundo): es lo que caza una expresion regular que se vuelve
-# exponencial. Los topes se fijaron en un portatil corriente; el Mac Intel de
-# la CI es una maquina virtual varias veces mas lenta y los pasaba sin que
-# hubiera nada mal. `time_limit` escala el tope por lo lenta que es ESTA
-# maquina con un trabajo de referencia (Python puro, como el de las pruebas),
-# y nunca lo baja.
-_SPEED_REFERENCE = 0.18  # segundos que tarda `_reference_work` donde se fijaron los topes
+# exponencial. Los topes se fijaron en un portatil corriente y sin medir la
+# cobertura; el Mac Intel de la CI es una maquina virtual varias veces mas
+# lenta, y con la cobertura el codigo de DanPlay va unas tres veces mas
+# despacio: los pasaban sin que hubiera nada mal. `time_limit` escala el tope
+# por lo lento que va AQUI un trabajo de referencia con el propio codigo de
+# DanPlay (el lector de listas: la cobertura lo frena igual que a lo que se
+# mide), y nunca lo baja.
+_SPEED_REFERENCE = 0.16  # segundos de `_reference_work` donde se fijaron los topes
 _SLOWNESS: list[float] = []
+_REFERENCE_TEXT = "\n".join(
+    f"*{i}.- Canción Número {i}* ✅ @Ana Torres Voz https://youtu.be/AbCdEfGh{i % 1000:03d}"
+    for i in range(1, 300)
+)
 
 
 def _reference_work() -> None:
-    import re as _re
+    from danplay.chat import intake
 
-    acc = 0
-    for i in range(1_500_000):
-        acc += i * i % 7
-    s = " ".join(str(i) for i in range(200_000))
-    s.split()
-    _re.findall(r"\d+", s)
+    for _ in range(4):
+        intake.parse_setlist(_REFERENCE_TEXT)
+        intake.read_intent(_REFERENCE_TEXT)
 
 
 def slowness() -> float:
-    """Cuantas veces mas lenta es esta maquina que la de referencia (>= 1)."""
+    """Cuantas veces mas lento va esto que donde se fijaron los topes (>= 1)."""
     if not _SLOWNESS:
         import time as _time
 
+        _reference_work()  # lo que se carga la primera vez no cuenta
         took = []
         for _ in range(3):
             t0 = _time.perf_counter()
