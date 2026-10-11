@@ -3,6 +3,30 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.24.1 — 2026-10-11
+
+Dos arreglos del asistente, y los paquetes de Mac, también para Intel.
+
+### Arreglos
+
+- **La tabla de la lista ya no dice «falta» de lo que acaba de entrar.** Al
+  terminar la descarga, cada canción que entró en la lista aparece en su
+  fila como «bajada, en la lista», también al volver a abrir la
+  conversación.
+- **Cuando YouTube frena, se deja de preguntar.** Al primer «demasiadas
+  peticiones» o «no eres un robot», las demás búsquedas de la tarjeta se
+  paran en vez de insistir.
+
+### Para quien desarrolla
+
+- El paquete de Mac Intel lleva onnxruntime 1.23.2, la última versión que
+  existe para ese procesador (los tres modelos cargan con ella).
+- `scripts/build-macos.sh` lanza la compilación de Mac y deja los `.dmg` en
+  `dist/installers/`. El portátil de Windows también sale ahí, con la
+  versión en el nombre: todos los instaladores en una sola carpeta.
+- Las pruebas con tope de tiempo se ajustan a la velocidad de la máquina, y
+  la del socket usa una ruta corta (en macOS se pasaba del límite).
+
 ## 1.24.0 — 2026-10-10
 
 El asistente mira primero tu biblioteca y entiende la lista del domingo tal
