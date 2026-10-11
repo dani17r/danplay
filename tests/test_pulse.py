@@ -273,7 +273,8 @@ def test_without_waiting_it_answers_at_once_and_works_it_out_behind(detector, tm
         assert list(beatgrid._QUEUE) == [str(song_file)], "pedirla dos veces no la duplica"
     assert beatgrid.idle()
     assert detector == [str(song_file)]
-    assert beatgrid.request(str(song_file))["bpm"] == 120.0
+    saved = beatgrid.request(str(song_file))
+    assert saved is not None and saved["bpm"] == 120.0
     assert len(detector) == 1, "ya guardada: no se vuelve a calcular"
 
 

@@ -1104,6 +1104,7 @@ def test_las_conversaciones_se_guardan_y_se_buscan(monkeypatch, tmp_path):
         ],
     )
     got = chats.get(c["id"])
+    assert got is not None
     assert got["title"] == "¿que tengo de Barak?"
     assert got["messages"][1]["tools"][0]["name"] == "search_songs"
     assert got["messages"][1]["usage"]["prompt"] == 10
