@@ -498,7 +498,13 @@ fn the_next_one_is_sent_early_only_if_it_can_be_found() {
     cross_next(&mut inner, &player, &nowhere());
     assert_eq!(inner.index, 0, "la 2 no se encuentra: se queda donde estaba");
     std::thread::sleep(std::time::Duration::from_millis(300));
-    assert_eq!(player.state().error, "", "y no se le dice nada al reproductor");
+    // (sin tarjeta de sonido, como en la CI, el reproductor ya trae su aviso
+    // de que no hay salida: lo que no puede traer es el fallo de la 2)
+    let error = player.state().error;
+    assert!(
+        !error.contains("Cancion 2"),
+        "no se le dice nada al reproductor: {error}"
+    );
 
     let mut good = track(3);
     good.path = Some(a_real_file("dp_cola_funde.mp3"));
