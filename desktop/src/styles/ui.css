@@ -19,6 +19,7 @@
   display: flex;
   gap: 6px;
   align-items: center;
+  transition: color 0.16s;
 }
 .field-label em {
   font-style: normal;
@@ -43,6 +44,10 @@
 }
 .field-box:hover {
   border-color: var(--muted2);
+}
+/* con el foco, la etiqueta toma su color */
+.field.focused .field-label {
+  color: var(--accent);
 }
 .field.focused .field-box {
   border-color: var(--accent);
@@ -201,6 +206,29 @@
   max-height: 264px;
   overflow-y: auto;
   box-shadow: 0 12px 34px var(--shadow);
+  transform-origin: top center;
+}
+/* las opciones, escalonadas al abrirlo */
+.dropdown-enter-active .select-opt {
+  animation: opt-in 0.2s var(--ease-out) backwards;
+}
+.dropdown-enter-active .select-opt:nth-child(2) {
+  animation-delay: 0.02s;
+}
+.dropdown-enter-active .select-opt:nth-child(3) {
+  animation-delay: 0.04s;
+}
+.dropdown-enter-active .select-opt:nth-child(4) {
+  animation-delay: 0.06s;
+}
+.dropdown-enter-active .select-opt:nth-child(n + 5) {
+  animation-delay: 0.08s;
+}
+@keyframes opt-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
 }
 .select-opt {
   display: flex;
@@ -232,16 +260,21 @@
   font-size: 11px;
   color: var(--muted2);
 }
+/* los menus salen de donde se abrieron (cada uno dice su origen) y se
+   cierran algo mas deprisa de lo que se abren */
 .dropdown-enter-active,
 .dropdown-leave-active {
   transition:
-    opacity 0.15s ease,
-    transform 0.15s cubic-bezier(0.32, 0.72, 0.35, 1);
+    opacity 0.16s ease,
+    transform 0.18s var(--ease-out);
+}
+.dropdown-leave-active {
+  transition-duration: 0.12s;
 }
 .dropdown-enter-from,
 .dropdown-leave-to {
   opacity: 0;
-  transform: translateY(-6px) scale(0.98);
+  transform: translateY(-6px) scale(0.96);
 }
 
 /* --- interruptor --- */
@@ -279,11 +312,20 @@
   height: 16px;
   border-radius: 50%;
   background: #fff;
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    transform 0.22s var(--ease-out),
+    width 0.16s ease;
   box-shadow: 0 1px 3px var(--shadow-soft);
 }
 .toggle-track.on .toggle-knob {
   transform: translateX(17px);
+}
+/* mientras se pulsa, el boton se estira hacia donde va a ir */
+.toggle-track:active .toggle-knob {
+  width: 21px;
+}
+.toggle-track.on:active .toggle-knob {
+  transform: translateX(12px);
 }
 .toggle-txt {
   display: flex;
@@ -1133,6 +1175,7 @@ tbody tr.flash {
 .ctx {
   position: fixed;
   z-index: 90;
+  transform-origin: top left;
   min-width: 214px;
   max-width: min(300px, 92vw);
   background: var(--panel);
@@ -1340,12 +1383,38 @@ tbody tr.flash {
 .btn.danger:hover {
   background: color-mix(in srgb, var(--red) 82%, #fff);
 }
+/* las ventanas: el fondo se funde y la ventana sube y crece un poco. Lo de
+   dentro dura lo mismo que el fondo: Vue da la transicion por acabada cuando
+   acaba la del fondo, y cortaria la de la ventana */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.14s;
+  transition:
+    opacity 0.22s ease,
+    backdrop-filter 0.22s ease;
+}
+.fade-leave-active {
+  transition-duration: 0.15s;
 }
 .fade-enter-from,
 .fade-leave-to {
+  opacity: 0;
+}
+.fade-enter-active .modal {
+  transition:
+    transform 0.22s var(--ease-out),
+    opacity 0.22s ease;
+}
+.fade-leave-active .modal {
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
+}
+.fade-enter-from .modal {
+  transform: translateY(12px) scale(0.97);
+  opacity: 0;
+}
+.fade-leave-to .modal {
+  transform: translateY(6px) scale(0.98);
   opacity: 0;
 }
 
@@ -1817,6 +1886,9 @@ tbody tr.flash {
   padding: 5px 10px;
   font-size: 11.5px;
   color: var(--muted);
+  transition:
+    color 0.14s,
+    border-color 0.18s;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   max-width: 60%;

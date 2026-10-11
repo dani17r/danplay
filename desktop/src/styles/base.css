@@ -1,5 +1,7 @@
 /* DanPlay - estetica de estacion de trabajo de audio */
 :root {
+  /* la curva de la casa: arranca rapido y se posa suave */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --bg: #0c0d10;
   --panel: #131519;
   --panel2: #181b21;
@@ -181,6 +183,9 @@ select:focus {
   background: none;
   border: none;
   font-family: inherit;
+  transition:
+    background 0.14s,
+    color 0.14s;
 }
 .nav-link:hover {
   background: var(--panel2);
@@ -880,10 +885,16 @@ tbody tr:hover .row-n {
     background 0.15s,
     border-color 0.15s,
     color 0.15s,
+    box-shadow 0.18s,
     transform 0.1s;
 }
+/* se hunde al pulsarlo; con el teclado, un anillo que se ve */
 .btn:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(1px) scale(0.98);
+}
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .btn:hover {
   background: color-mix(in srgb, var(--text) 8%, var(--panel2));
@@ -897,6 +908,9 @@ tbody tr:hover .row-n {
 }
 .btn.primary:hover {
   background: var(--accent);
+}
+.btn.primary:hover:not(:disabled) {
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 .btn:disabled {
   opacity: 0.45;
@@ -1148,6 +1162,16 @@ body:has(.track.scrubbing) {
   padding: 22px 26px;
   overflow-y: auto;
   flex: 1;
+  /* la pagina nueva aparece en vez de saltar. Solo mientras entra
+     (`backwards`): un transform que se quedara puesto haria de la pagina la
+     referencia de las ventanas fijas que se abren desde ella */
+  animation: page-in 0.24s var(--ease-out) backwards;
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 .page h2 {
   font-size: 17px;
