@@ -7,7 +7,7 @@ import os
 from typing import Annotated
 
 from fastapi import APIRouter, Body, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from ... import (
     beatgrid,
@@ -98,21 +98,40 @@ THUMBNAIL_SIZES = thumbnails.SIZES
 
 
 @router.get("/api/song/{cid}/beats")
-def song_beats(cid: int):
+def song_beats(cid: int, wait: bool = True):
     """El pulso y el «1» de la cancion para el metronomo, con Beat This!: la
     rejilla que entiende la app de escritorio (`BeatGrid`), con el «1» de cada
-    compas en `bars`. La primera vez tarda unos segundos; luego sale de lo
-    guardado. 404 si el archivo no esta; 503 si aqui no se puede (y la app
-    sigue con su analisis de siempre); 422 si la cancion no tiene pulso."""
+    compas en `bars`. La primera vez tarda (15-20 s); luego sale de lo
+    guardado. Con `wait=false` no se espera: si no esta guardada, 202 y se
+    calcula en segundo plano (se vuelve a preguntar). 404 si el archivo no
+    esta; 503 si aqui no se puede (y la app sigue con su analisis de
+    siempre); 422 si la cancion no tiene pulso."""
     c = external.resolve(cid)
     if not c or not os.path.exists(c["path"]):
         raise HTTPException(404, "archivo no encontrado")
     if beatgrid.available() and not beatgrid.cached(c["path"]):
         raise HTTPException(503, beatgrid.available())
     try:
-        return beatgrid.grid_of(c["path"])
+        if wait:
+            return beatgrid.grid_of(c["path"])
+        grid = beatgrid.request(c["path"])
     except beatgrid.BeatsError as e:
         raise HTTPException(422, str(e)) from e
+    if grid is None:
+        done = beatgrid.progress(c["path"]) or 0.0
+        return JSONResponse({"pending": True, "progress": done}, status_code=202)
+    return grid
+
+
+@router.post("/api/song/{cid}/beats/prepare")
+def song_beats_prepare(cid: int):
+    """Deja calculandose, detras de lo que suena, la rejilla de una cancion
+    que vendra despues (la siguiente de la cola con el clic puesto): al
+    pasar a ella, el clic ya la tiene. Nunca espera."""
+    c = external.resolve(cid)
+    if not c or not os.path.exists(c["path"]):
+        raise HTTPException(404, "archivo no encontrado")
+    return {"queued": beatgrid.prepare(c["path"])}
 
 
 @router.get("/api/song/{cid}/waveform")

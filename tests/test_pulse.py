@@ -166,6 +166,8 @@ FAKE = textwrap.dedent(
     """
     import json, sys
     graph, ffmpeg, path = sys.argv[1:]
+    # como el de verdad: el avance, una linea cada vez, antes de la respuesta
+    print(json.dumps({"progress": 0.5}), flush=True)
     if path.endswith("sin-pulso.mp3"):
         print(json.dumps({"error": "la cancion no tiene pulso claro"}))
         sys.exit(1)
@@ -191,7 +193,10 @@ def detector(tmp_path, monkeypatch):
 
     monkeypatch.setattr(beatgrid, "_command", command)
     monkeypatch.setattr(beatgrid, "available", lambda: "")
-    return calls
+    beatgrid._reset()
+    yield calls
+    assert beatgrid.idle(), "la cola de rejillas se quedo trabajando"
+    beatgrid._reset()
 
 
 def test_the_grid_is_worked_out_once_and_kept(detector, tmp_path):
@@ -221,6 +226,90 @@ def test_a_song_without_pulse_says_why(detector, tmp_path):
         beatgrid.grid_of(str(tmp_path / "no-esta.mp3"))
 
 
+def test_the_network_says_how_far_it_has_got():
+    """La barra verde de la app sale de aqui: tras leer la cancion, y luego
+    trozo a trozo, hasta 1."""
+
+    class Session:
+        def run(self, _, feeds):
+            n = feeds["spect"].shape[1]
+            return [np.zeros((1, n), np.float32), np.zeros((1, n), np.float32)]
+
+    seen = []
+    pulse.logits(
+        Session(), np.zeros((pulse.CHUNK * 3, 128), np.float32), lambda d, t: seen.append((d, t))
+    )
+    total = len(pulse._starts(pulse.CHUNK * 3))
+    assert seen == [(k, total) for k in range(1, total + 1)]
+
+
+def test_the_progress_lines_are_not_taken_for_the_answer(detector, tmp_path):
+    from danplay import beatgrid
+
+    song_file = tmp_path / "cancion.mp3"
+    song_file.write_bytes(b"x")
+    assert beatgrid.grid_of(str(song_file))["bpm"] == 120.0
+    assert beatgrid.progress(str(song_file)) is None, "ni en cola ni calculandose"
+    with beatgrid._WAKE:
+        assert beatgrid.request(str(tmp_path / "cancion.mp3")) is not None, "ya guardada"
+        other = tmp_path / "otra.mp3"
+        other.write_bytes(b"y")
+        assert beatgrid.request(str(other)) is None
+        assert beatgrid._PROGRESS == {} and str(other) in beatgrid._QUEUE
+    assert beatgrid.idle()
+    assert beatgrid.progress(str(other)) is None
+
+
+def test_without_waiting_it_answers_at_once_and_works_it_out_behind(detector, tmp_path):
+    """La app no espera los 15-20 s de la red: pide sin esperar, suena con la
+    rejilla rapida de Rust y vuelve a preguntar."""
+    from danplay import beatgrid
+
+    song_file = tmp_path / "cancion.mp3"
+    song_file.write_bytes(b"x")
+    with beatgrid._WAKE:  # el hilo, parado: las dos peticiones caen en cola
+        assert beatgrid.request(str(song_file)) is None
+        assert beatgrid.request(str(song_file)) is None
+        assert list(beatgrid._QUEUE) == [str(song_file)], "pedirla dos veces no la duplica"
+    assert beatgrid.idle()
+    assert detector == [str(song_file)]
+    assert beatgrid.request(str(song_file))["bpm"] == 120.0
+    assert len(detector) == 1, "ya guardada: no se vuelve a calcular"
+
+
+def test_what_is_needed_now_goes_before_what_comes_later(detector, tmp_path, monkeypatch):
+    from danplay import beatgrid
+
+    files = []
+    for name in ("despues.mp3", "luego.mp3", "ahora.mp3"):
+        f = tmp_path / name
+        f.write_bytes(name.encode())
+        files.append(str(f))
+    later, after, now = files
+    # el hilo, parado mientras se llena la cola: se ve el orden tal cual
+    with beatgrid._WAKE:
+        assert beatgrid.prepare(later) and beatgrid.prepare(after)
+        assert beatgrid.request(now) is None
+        assert list(beatgrid._QUEUE) == [now, later, after]
+    assert beatgrid.idle()
+    assert detector == [now, later, after]
+
+
+def test_a_failure_is_remembered_until_the_file_changes(detector, tmp_path):
+    from danplay import beatgrid
+
+    bad = tmp_path / "sin-pulso.mp3"
+    bad.write_bytes(b"x")
+    assert beatgrid.request(str(bad)) is None
+    assert beatgrid.idle()
+    with pytest.raises(beatgrid.BeatsError, match="no tiene pulso"):
+        beatgrid.request(str(bad))
+    assert len(detector) == 1, "lo que fallo no se vuelve a intentar sin mas"
+    assert not beatgrid.prepare(str(bad))
+    with pytest.raises(beatgrid.BeatsError, match="no encuentro"):
+        beatgrid.request(str(tmp_path / "no-esta.mp3"))
+
+
 def test_the_api_gives_the_grid_or_says_it_cannot(configured_library, detector, monkeypatch):
     from fastapi.testclient import TestClient
 
@@ -241,6 +330,29 @@ def test_the_api_gives_the_grid_or_says_it_cannot(configured_library, detector, 
     assert cliente.get(f"/api/song/{other['id']}/beats").status_code == 503
     # lo ya guardado sigue saliendo
     assert cliente.get(f"/api/song/{song_row['id']}/beats").status_code == 200
+
+
+def test_the_api_without_waiting_and_preparing_the_next(configured_library, detector):
+    from fastapi.testclient import TestClient
+
+    from danplay import api, beatgrid, library
+
+    root, _ = configured_library
+    library.add_folder(root)
+    library.scan()
+    cliente = TestClient(api.app)
+    first, second = library.search("", limit=2)
+    r = cliente.get(f"/api/song/{first['id']}/beats", params={"wait": "false"})
+    assert r.status_code == 202 and r.json()["pending"] is True
+    assert 0 <= r.json()["progress"] <= 1
+    assert cliente.post(f"/api/song/{second['id']}/beats/prepare").json() == {"queued": True}
+    assert beatgrid.idle()
+    r = cliente.get(f"/api/song/{first['id']}/beats", params={"wait": "false"})
+    assert r.status_code == 200 and r.json()["meter"] == 4
+    r = cliente.get(f"/api/song/{second['id']}/beats", params={"wait": "false"})
+    assert r.status_code == 200, "la de despues ya estaba hecha al pasar a ella"
+    assert len(detector) == 2
+    assert cliente.post("/api/song/999999/beats/prepare").status_code == 404
 
 
 def test_the_graph_travels_with_the_app():

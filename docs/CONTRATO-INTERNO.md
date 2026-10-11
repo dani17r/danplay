@@ -481,10 +481,15 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
 - `GET /api/song/{id}/beats` → la rejilla del metrónomo con Beat This!
   (`BeatGrid`: `{ bpm, meter, beats, first_downbeat, phase3, phase4,
   confidence, bars }`, con `bars` el índice de cada «1», compás a compás).
-  La primera vez tarda unos segundos (un proceso aparte); luego sale de lo
-  guardado en `DATA_DIR/pulso/`. `404` sin archivo; `503` si aquí no se puede
-  (sin el grafo, sin ffmpeg): la interfaz sigue con `analyze_beats` de Rust;
-  `422` si la canción no tiene pulso.
+  La primera vez tarda (15-20 s, un proceso aparte); luego sale de lo
+  guardado en `DATA_DIR/pulso/`. Con `?wait=false` no espera: si no está
+  guardada, `202 {pending: true}` y se calcula en segundo plano (un hilo,
+  lo pedido así va delante); se vuelve a preguntar. `404` sin archivo; `503`
+  si aquí no se puede (sin el grafo, sin ffmpeg): la interfaz sigue con
+  `analyze_beats` de Rust; `422` si la canción no tiene pulso.
+- `POST /api/song/{id}/beats/prepare` → `{queued}`: deja calculándose,
+  detrás, la rejilla de una canción que vendrá después (la siguiente de la
+  cola con el clic puesto). Nunca espera.
 - Rust: `set_beat_grid(path, grid)` se queda con esa rejilla para el
   metrónomo, como si la hubiera analizado `analyze_beats` (la revisa antes:
   pulsos en orden, tempo tocable, índices dentro).

@@ -5,6 +5,12 @@ en DATA_DIR/pulso/, con la ruta, el tamaño y la fecha del archivo, y la
 siguiente vez sale al momento. Si no se puede (sin el grafo, sin ffmpeg, una
 cancion sin pulso), quien la pide sigue con el analisis de siempre de la app
 de escritorio (`beats.rs`): el metronomo funciona igual, algo peor.
+
+Calcularla tarda: unos 15-20 s por cancion en un portatil (la red, en la
+CPU). Por eso la app no la espera: la pide con `request` (al momento lo que
+haya; si no hay, a la cola de este modulo), suena con la de Rust (medio
+segundo) y se pasa a esta cuando llega. `prepare` deja en cola la que vendra
+despues, para que al pasar de cancion ya este.
 """
 
 import contextlib
@@ -13,6 +19,8 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
+import threading
 from pathlib import Path
 
 from . import config, convert
@@ -79,32 +87,11 @@ def grid_of(path: str) -> dict:
     reason = available()
     if reason:
         raise BeatsError(reason)
-    flags = 0
-    if sys.platform == "win32":  # pragma: no cover - sin ventana de consola
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    try:
-        r = subprocess.run(
-            _command(path),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=TIMEOUT,
-            check=False,
-            creationflags=flags,
-        )
-    except subprocess.TimeoutExpired as e:
-        raise BeatsError("tarda demasiado") from e
-    answer: dict = {}
-    for line in r.stdout.splitlines():
-        with contextlib.suppress(ValueError):
-            answer = json.loads(line)
+    answer, code, errors = _run(path)
     if not answer.get("ok"):
-        if r.stderr.strip():
-            log.warning("el detector de pulso fallo:\n%s", r.stderr.strip()[-2000:])
-        raise BeatsError(
-            answer.get("error") or f"el detector se cerró sin terminar ({r.returncode})"
-        )
+        if errors.strip():
+            log.warning("el detector de pulso fallo:\n%s", errors.strip()[-2000:])
+        raise BeatsError(answer.get("error") or f"el detector se cerró sin terminar ({code})")
     grid = {k: v for k, v in answer.items() if k != "ok"}
     cache.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
@@ -113,3 +100,160 @@ def grid_of(path: str) -> dict:
             encoding="utf-8",
         )
     return grid
+
+
+# --------------------------------------------------------- en segundo plano
+# Un solo hilo: la red ya usa varios nucleos, y dos a la vez solo se
+# estorbarian. La cola es corta: lo que se pide para ya va delante, lo que se
+# prepara para despues, detras; lo que se queda fuera se pedira cuando toque.
+MAX_QUEUE = 6
+_WAKE = threading.Condition()
+_QUEUE: list[str] = []
+_BUSY: list[str] = []  # la que se esta calculando (una, o ninguna)
+_FAILED: dict[str, str] = {}  # clave del archivo -> por que no
+_PROGRESS: dict[str, float] = {}  # la que se calcula -> 0..1
+_WORKER: list[threading.Thread] = []
+
+
+def _run(path: str) -> tuple[dict, int, str]:
+    """El detector en su proceso: (su respuesta, su codigo, lo que dijo por
+    stderr). Lo que va diciendo de avance queda en `_PROGRESS` segun llega."""
+    flags = 0
+    if sys.platform == "win32":  # pragma: no cover - sin ventana de consola
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    answer: dict = {}
+    # stderr a un archivo: por una tuberia que nadie lee, un detector que
+    # hablase mucho se quedaria parado esperando a que se vaciara
+    with tempfile.TemporaryFile() as errors:
+        proc = subprocess.Popen(
+            _command(path),
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=flags,
+        )
+        killed = threading.Event()
+
+        def kill() -> None:
+            killed.set()
+            proc.kill()
+
+        timer = threading.Timer(TIMEOUT, kill)
+        timer.start()
+        try:
+            for line in proc.stdout or ():
+                with contextlib.suppress(ValueError):
+                    said = json.loads(line)
+                    if isinstance(said, dict) and set(said) == {"progress"}:
+                        with _WAKE:
+                            _PROGRESS[path] = float(said["progress"])
+                    elif isinstance(said, dict):
+                        answer = said
+            code = proc.wait()
+        finally:
+            timer.cancel()
+            with _WAKE:
+                _PROGRESS.pop(path, None)
+        if killed.is_set():
+            raise BeatsError("tarda demasiado")
+        errors.seek(0)
+        return answer, code, errors.read().decode("utf-8", "replace")
+
+
+def progress(path: str) -> float | None:
+    """Por donde va (0..1) la rejilla de esa ruta: 0 si espera en cola, None
+    si no esta ni en cola ni calculandose."""
+    with _WAKE:
+        if path in _BUSY:
+            return _PROGRESS.get(path, 0.0)
+        return 0.0 if path in _QUEUE else None
+
+
+def _key(path: str) -> str:
+    """La clave del archivo (cambia si cambia el archivo), o la ruta si no esta."""
+    from .pulse import key_of
+
+    try:
+        return key_of(path)
+    except OSError:
+        return path
+
+
+def request(path: str, *, first: bool = True) -> dict | None:
+    """La rejilla si ya esta guardada; si no, None y queda en cola (delante
+    con `first`, para la que suena; detras sin el, para la que vendra).
+    BeatsError si aqui no se puede o si ya fallo con este mismo archivo:
+    entonces no hay nada que esperar."""
+    if not os.path.isfile(path):
+        raise BeatsError("no encuentro el archivo")
+    with contextlib.suppress(BeatsError):
+        if cached(path):
+            return grid_of(path)
+    reason = available()
+    if reason:
+        raise BeatsError(reason)
+    with _WAKE:
+        failed = _FAILED.get(_key(path))
+        if failed:
+            raise BeatsError(failed)
+        if path not in _BUSY:
+            if path in _QUEUE:
+                _QUEUE.remove(path)
+            if first:
+                _QUEUE.insert(0, path)
+            else:
+                _QUEUE.append(path)
+            del _QUEUE[MAX_QUEUE:]
+        if not _WORKER:
+            t = threading.Thread(target=_work, name="danplay-pulso", daemon=True)
+            _WORKER.append(t)
+            t.start()
+        _WAKE.notify_all()
+    return None
+
+
+def prepare(path: str) -> bool:
+    """Deja en cola, detras, la rejilla de una cancion que sonara despues.
+    True si ya estaba o queda en cola; False si aqui no se puede."""
+    try:
+        request(path, first=False)
+    except BeatsError:
+        return False
+    return True
+
+
+def _work() -> None:
+    while True:
+        with _WAKE:
+            while not _QUEUE:
+                _WAKE.wait()
+            path = _QUEUE.pop(0)
+            _BUSY[:] = [path]
+        try:
+            grid_of(path)
+        except BeatsError as e:
+            with _WAKE:
+                _FAILED[_key(path)] = str(e)
+        except Exception:
+            log.warning("el detector de pulso fallo con %s", path, exc_info=True)
+            with _WAKE:
+                _FAILED[_key(path)] = "el detector de pulso falló"
+        finally:
+            with _WAKE:
+                _BUSY.clear()
+                _WAKE.notify_all()
+
+
+def idle(timeout: float = 30.0) -> bool:
+    """Espera a que no quede nada en cola (para las pruebas)."""
+    with _WAKE:
+        return _WAKE.wait_for(lambda: not _QUEUE and not _BUSY, timeout)
+
+
+def _reset() -> None:
+    """Olvida la cola y los fallos (para las pruebas)."""
+    with _WAKE:
+        _QUEUE.clear()
+        _FAILED.clear()

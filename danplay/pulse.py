@@ -137,14 +137,15 @@ def _starts(frames: int) -> list[int]:
     return starts
 
 
-def logits(session, spect: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """La probabilidad (en logits) de pulso y de «1» en cada trama."""
+def logits(session, spect: np.ndarray, progress=None) -> tuple[np.ndarray, np.ndarray]:
+    """La probabilidad (en logits) de pulso y de «1» en cada trama.
+    `progress(hechos, total)`, si se da, tras cada trozo."""
     frames = spect.shape[0]
     beat = np.full(frames, -1000.0, dtype=np.float32)
     down = np.full(frames, -1000.0, dtype=np.float32)
     starts = _starts(frames)
     # en lo que se pisan manda el primero: se escriben del ultimo al primero
-    for start in reversed(starts):
+    for done, start in enumerate(reversed(starts), 1):
         lo, hi = max(start, 0), min(start + CHUNK, frames)
         chunk = spect[lo:hi]
         chunk = np.pad(chunk, [(lo - start, max(0, min(BORDER, start + CHUNK - frames))), (0, 0)])
@@ -154,6 +155,8 @@ def logits(session, spect: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         keep = slice(max(0, -at), min(n, frames - at))
         beat[at + keep.start : at + keep.stop] = b[keep]
         down[at + keep.start : at + keep.stop] = d[keep]
+        if progress:
+            progress(done, len(starts))
     return beat, down
 
 
@@ -446,14 +449,30 @@ def open_session(graph):
 
     options = ort.SessionOptions()
     options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    # cuatro hilos: con mas no va mas rapido (medido: 11,7 s con 4 y 13,3 con
+    # todos en una cancion de 4 min) y se deja sitio a la musica y a la app
+    options.intra_op_num_threads = min(4, os.cpu_count() or 1)
     return ort.InferenceSession(str(graph), options, providers=["CPUExecutionProvider"])
 
 
-def analyze(ffmpeg: str, path: str, graph) -> dict:
-    """La rejilla de un archivo, de principio a fin."""
+# Cuanto del total es leer la cancion; el resto, la red (medido: 2,5 s de
+# ~18 en una de 4 min, leida de un disco duro).
+READ_SHARE = 0.15
+
+
+def analyze(ffmpeg: str, path: str, graph, progress=None) -> dict:
+    """La rejilla de un archivo, de principio a fin. `progress(0..1)`, si se
+    da, segun avanza: la app enseña una barra mientras espera."""
     mono = _decode(ffmpeg, path)
     session = open_session(graph)
-    beat, down = logits(session, spectrogram(mono))
+    if progress:
+        progress(READ_SHARE)
+    step = (
+        (lambda done, total: progress(READ_SHARE + (1 - READ_SHARE) * done / total))
+        if progress
+        else None
+    )
+    beat, down = logits(session, spectrogram(mono), step)
     return grid(beat, down)
 
 
@@ -476,8 +495,14 @@ def main(argv=None) -> int:
         except OSError:
             pass
     graph, ffmpeg, path = args
+
+    def progress(part: float) -> None:
+        # una linea por paso: el padre las lee segun llegan
+        sys.stdout.write(json.dumps({"progress": round(part, 3)}) + "\n")
+        sys.stdout.flush()
+
     try:
-        result = analyze(ffmpeg, path, graph)
+        result = analyze(ffmpeg, path, graph, progress)
     except Exception as e:  # noqa: BLE001 - se cuenta al proceso padre
         sys.stdout.write(json.dumps({"error": str(e) or e.__class__.__name__}) + "\n")
         return 1
