@@ -724,7 +724,9 @@ const lockTitle = computed(() =>
           aria-valuemax="100"
           :aria-valuenow="Math.round(clickLoading * 100)"
         >
-          <div class="tl-click-fill" :style="{ width: Math.round(clickLoading * 100) + '%' }"></div>
+          <!-- lo que falta, velado; el borde que avanza, del color del tema -->
+          <div class="tl-click-veil" :style="{ left: Math.round(clickLoading * 100) + '%' }"></div>
+          <div class="tl-click-edge" :style="{ left: Math.round(clickLoading * 100) + '%' }"></div>
           <span class="tl-click-text mono"
             >cargando el clic · {{ Math.round(clickLoading * 100) }} %</span
           >
