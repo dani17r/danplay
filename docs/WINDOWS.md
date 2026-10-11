@@ -15,6 +15,10 @@ un Windows de verdad, así que hasta el primer arranque hay que tratarlo como
 ./scripts/build-windows-cross.sh --zip --instalador   # los dos
 ```
 
+Los dos quedan en `dist/installers/` con la versión en el nombre
+(`DanPlay-X.Y.Z-windows-portatil.zip` y `DanPlay-X.Y.Z-instalador.exe`), junto
+al `.deb`, el `.AppImage` y los `.dmg` de Mac.
+
 Salen **de la misma carpeta**, así que no pueden desincronizarse: el
 instalador es esa carpeta comprimida con NSIS, más los accesos directos, las
 asociaciones de archivo y el desinstalador.
@@ -168,11 +172,12 @@ Cosas que solo se ven al abrirlo de verdad:
 
 ## Lo que no está preparado
 
-- **macOS.** Se compila en la integración continua (`macos.yml`, a mano: un
-  `.dmg` para Apple Silicon y otro para Intel, sin firma de Apple), pero sin
-  probar en un Mac de verdad. El transporte por socket vale y la aplicación ya
-  sale del Dock al esconderse (`ActivationPolicy::Accessory`); falta que
-  alguien con un Mac compruebe la bandeja.
+- **macOS.** Se compila en la integración continua (`./scripts/build-macos.sh`
+  la lanza y deja en `dist/installers/` un `.dmg` para Apple Silicon y otro
+  para Intel, sin firma de Apple), pero sin probar en un Mac de verdad. El
+  transporte por socket vale y la aplicación ya sale del Dock al esconderse
+  (`ActivationPolicy::Accessory`); falta que alguien con un Mac compruebe la
+  bandeja.
 - **Reproducir `.opus` y `.wma` sin ffmpeg.** El decodificador no los conoce,
   así que se pasan por ffmpeg. En Windows va dentro del instalador, pero si
   alguien monta la versión portátil sin él, esos dos formatos no sonarán y la

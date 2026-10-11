@@ -6,6 +6,10 @@
 #   ./scripts/build-windows-cross.sh --instalador    además, el .exe instalador
 #   ./scripts/build-windows-cross.sh --herramientas  mete ffmpeg y fpcalc dentro
 #
+# El .zip y el .exe quedan en dist/installers/, con la versión en el nombre,
+# junto al .deb, el .AppImage y los .dmg de Mac: todo lo que se entrega, en
+# una sola carpeta.
+#
 # Las dos formas salen de LA MISMA carpeta, así que no pueden desincronizarse:
 # el instalador es esa carpeta comprimida con NSIS más los accesos directos,
 # las asociaciones de archivo y el desinstalador.
@@ -283,12 +287,18 @@ then fallos=$((fallos+1)); fi
 
 [ "$fallos" -eq 0 ] || morir "$fallos comprobación(es) fallida(s)"
 
+VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
+PORTATIL="dist/installers/DanPlay-$VERSION-windows-portatil.zip"
+
 if [ "$ZIP" = 1 ]; then
     paso "extra  comprimir el portátil"
+    mkdir -p dist/installers
+    # los de versiones anteriores fuera, como hace build.sh con el .deb
+    rm -f dist/installers/DanPlay-*-windows-portatil.zip
     # con python: `zip` no siempre esta instalado y esto ya lo tenemos
-    ( cd dist && rm -f danplay-windows.zip && python3 -c "
-import shutil; shutil.make_archive('danplay-windows', 'zip', '.', 'windows')" )
-    printf '  %s\n' "dist/danplay-windows.zip ($(du -h dist/danplay-windows.zip | cut -f1))"
+    python3 -c "
+import shutil, sys; shutil.make_archive(sys.argv[1], 'zip', 'dist', 'windows')" "${PORTATIL%.zip}"
+    printf '  %s\n' "$PORTATIL ($(du -h "$PORTATIL" | cut -f1))"
 fi
 
 # ---------------------------------------------------------------- instalador
@@ -305,10 +315,9 @@ if [ "$INSTALADOR" = 1 ]; then
         rm -rf "$tmp"
     fi
 
-    VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
     mkdir -p dist/installers
     SALIDA="$RAIZ/dist/installers/DanPlay-$VERSION-instalador.exe"
-    rm -f "$SALIDA"
+    rm -f dist/installers/DanPlay-*-instalador.exe
 
     NSISDIR="$NSIS/usr/share/nsis" "$NSIS/usr/bin/makensis" -V2 -NOCD \
         -DVERSION="$VERSION" \
@@ -331,6 +340,6 @@ fi
 
 printf '\n\033[32mLISTO\033[0m\n'
 printf '  portátil    : %s  (%s)\n' "$DESTINO" "$(du -sh "$DESTINO" | cut -f1)"
-[ "$ZIP" = 1 ] && printf '  comprimido  : %s\n' "dist/danplay-windows.zip"
+[ "$ZIP" = 1 ] && printf '  comprimido  : %s\n' "$PORTATIL"
 [ "$INSTALADOR" = 1 ] && printf '  instalador  : %s\n' "dist/installers/DanPlay-$VERSION-instalador.exe"
 aviso 'Sin probar en Windows: cópialo a uno y ejecútalo.'
