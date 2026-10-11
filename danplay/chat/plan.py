@@ -763,17 +763,30 @@ def _warm() -> str:
     return ""
 
 
-def _lookup(query: str, key: str, cancel: threading.Event) -> dict:
+def _lookup(
+    query: str, key: str, cancel: threading.Event, blocked: threading.Event | None = None
+) -> dict:
     """Una consulta ligera a YouTube (solo `youtube.info`), con cache y con
-    el tope de dos a la vez en toda la app."""
+    el tope de dos a la vez en toda la app.
+
+    `blocked` es la señal del lote: la consulta que recibe un 429, un «no eres
+    un robot» o un fallo de red la levanta ella misma, y las que aun no han
+    preguntado ya no preguntan. Antes solo se enteraba el hilo del plan al
+    recoger el resultado (cada cuarto de segundo), y en un equipo lento el
+    otro hilo ya habia lanzado varias consultas mas: justo lo que no hay que
+    hacer cuando YouTube pide parar."""
     hit = _cache_get(key)
     if hit is not None:
         return hit
+
+    def stop() -> bool:
+        return cancel.is_set() or (blocked is not None and blocked.is_set())
+
     while not _SLOTS.acquire(timeout=0.25):
-        if cancel.is_set():
+        if stop():
             return _SKIPPED
     try:
-        if cancel.is_set():
+        if stop():
             return _SKIPPED
         try:
             res = youtube.info(query, 1, timeout=LOOKUP_TIMEOUT)
@@ -785,6 +798,8 @@ def _lookup(query: str, key: str, cancel: threading.Event) -> dict:
         return {"ok": False, "reason": "YouTube no contestó"}
     if res.get("ok") or not youtube.failure_kind(str(res.get("reason") or "")):
         _cache_put(key, res)
+    elif blocked is not None:
+        blocked.set()
     return res
 
 
@@ -910,8 +925,11 @@ def _work(entry: Entry) -> None:
             (i, r.target, _cache_key(r)) for i, r in enumerate(entry.rows) if r.state == "buscando"
         ]
     pool = ThreadPoolExecutor(max_workers=PARALLEL, thread_name_prefix="danplay-plan")
+    blocked = threading.Event()
     try:
-        futures = {pool.submit(_lookup, query, key, search.cancel): i for i, query, key in todo}
+        futures = {
+            pool.submit(_lookup, query, key, search.cancel, blocked): i for i, query, key in todo
+        }
         pending = set(futures)
         while pending and not search.cancel.is_set():
             done, pending = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)

@@ -645,8 +645,10 @@ def test_corta_el_lote_a_la_primera_senal_de_bloqueo(info, reason, said):
     info.answers["tema 2"] = {"ok": False, "reason": reason, "items": []}
     got = plan.register("download_music", {"items": [f"tema {i}" for i in range(10)]}, plan={})
     view = wait_plan(got["id"])
-    # las dos de antes, la que bloquea, y la que un hilo libre ya empezo
-    assert len(info.calls) <= 6, info.calls
+    # las dos de antes, la que bloquea y, como mucho, las dos que los hilos
+    # libres empezaron a la vez que ella: la que recibe el bloqueo para a las
+    # demas al momento (en un Mac lento de la CI llegaban a preguntarse todas)
+    assert len(info.calls) <= 5, info.calls
     assert said in view["reason"]
     assert view["state"] == "parcial"
     cut = [x for x in view["items"] if x["state"] == "sin_buscar"]
