@@ -53,7 +53,14 @@ estado=$(gh run view "$RUN" --json conclusion --jq .conclusion)
 paso "bajar los paquetes"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-gh run download "$RUN" -D "$tmp" || morir "la ejecución $RUN no dejó paquetes"
+# Son dos archivos de ~200 MB: si la conexión se corta a medias, otra vez
+# (la ejecución ya está hecha, no hace falta repetirla).
+for intento in 1 2 3; do
+    rm -rf "${tmp:?}"/*
+    gh run download "$RUN" -D "$tmp" && break
+    [ "$intento" = 3 ] && morir "no pude bajar los paquetes; vuelve a probar con: $0 $RUN"
+    aviso "  se cortó la descarga; otra vez ($((intento + 1)) de 3)"
+done
 
 mkdir -p dist/installers
 faltan=0
