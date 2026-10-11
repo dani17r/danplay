@@ -1095,3 +1095,46 @@ fn with_the_click_on_songs_do_not_overlap() {
     assert!(finished, "tenia que acabar como siempre");
     assert!(!saw_ending, "con el clic no se funde");
 }
+
+/// La que suena se movio («Transformar»): sigue sonando y lo que la vuelva
+/// a abrir la abre de su sitio nuevo.
+#[test]
+fn a_moved_song_keeps_playing_and_reopens_from_its_new_place() {
+    let (m, _rx) = handle();
+    if !has_output(&m) {
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("dp-movida-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let before = dir.join("antes.mp3");
+    std::fs::copy(sample(), &before).unwrap();
+    let before = before.to_string_lossy().into_owned();
+    m.send(Command::Play {
+        path: before.clone(),
+        duration: 0.0,
+    })
+    .unwrap();
+    assert!(until(&m, |s| s.playing).playing);
+    let after = dir.join("despues.mp3").to_string_lossy().into_owned();
+    std::fs::rename(&before, &after).unwrap();
+    // otra ruta no es esta: no cambia nada
+    m.send(Command::Relocated {
+        from: "/otra/cancion.mp3".into(),
+        to: "/no/importa.mp3".into(),
+    })
+    .unwrap();
+    m.send(Command::Relocated {
+        from: before,
+        to: after.clone(),
+    })
+    .unwrap();
+    let s = until(&m, |s| s.path == after);
+    assert_eq!(s.path, after);
+    assert!(s.playing, "sigue sonando");
+    // y un salto lejos (que la vuelve a leer) va bien
+    m.send(Command::Seek(60.0)).unwrap();
+    let s = until(&m, |s| s.position >= 59.0);
+    assert!(s.position >= 59.0 && s.error.is_empty(), "{s:?}");
+    m.send(Command::Stop).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}

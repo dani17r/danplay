@@ -4,7 +4,7 @@ use super::logic::{after_end, compose, random_other, reconcile, step_index, with
 use super::model::{Command, Inner, Repeat, Track};
 use super::resolve::path_of;
 use super::session::{Session, write_atomically};
-use super::worker::{advance, advance_within, apply, cross_next, prune, start};
+use super::worker::{advance, advance_within, apply, cross_next, follow_current, prune, start};
 use crate::core::{self, Address};
 use crate::player;
 use std::collections::HashMap;
@@ -529,4 +529,26 @@ fn nothing_is_sent_early_at_the_end_or_repeating_one() {
     inner.repeat = Repeat::One;
     cross_next(&mut inner, &player, &nowhere());
     assert_eq!(inner.index, 0, "«repetir esta»: que acabe y vuelva a empezar");
+}
+
+/// La actual se movio y la cola ya lo sabe: su ruta nueva para la sesion
+/// (y el reproductor, que la tiene en memoria, se entera).
+#[test]
+fn a_moved_current_song_takes_its_new_path() {
+    let (player, _events) = silent_player();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let new_place = a_real_file("dp_cola_movida.mp3");
+    let mut moved = track(1);
+    moved.path = Some(new_place.clone());
+    let mut inner = inner_with(vec![moved, track(2)], 0);
+    inner.current_path = "/ya/no/esta/aqui.mp3".into();
+    follow_current(&mut inner, &player);
+    assert_eq!(inner.current_path, new_place);
+    // si la de antes sigue donde estaba, no se toca
+    let mut other = track(3);
+    other.path = Some(a_real_file("dp_cola_otra.mp3"));
+    let mut inner = inner_with(vec![other], 0);
+    inner.current_path.clone_from(&new_place);
+    follow_current(&mut inner, &player);
+    assert_eq!(inner.current_path, new_place);
 }

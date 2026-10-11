@@ -220,6 +220,24 @@ fn start_within(
     }
 }
 
+/// La actual se movio (su ruta en la cola ya es la nueva y la de antes ya no
+/// esta): su ruta nueva para la sesion, y se le dice al reproductor, que la
+/// tiene en memoria y sigue sonando pero la volveria a abrir de la vieja
+/// (un salto con ffmpeg, las pistas, otra velocidad).
+pub(super) fn follow_current(inner: &mut Inner, player: &player::Handle) {
+    let here = |p: &str| std::path::Path::new(p).is_file();
+    let Some(path) = inner.current().and_then(|t| t.path.clone()) else {
+        return;
+    };
+    if path == inner.current_path || here(&inner.current_path) || !here(&path) {
+        return;
+    }
+    let from = std::mem::replace(&mut inner.current_path, path.clone());
+    if !from.is_empty() {
+        let _ = player.send(player::Command::Relocated { from, to: path });
+    }
+}
+
 /// La cola pasa a `index`, y la de antes queda en el historial («anterior»).
 fn move_to(inner: &mut Inner, index: usize) {
     if inner.history.last() != Some(&inner.index) {
@@ -447,12 +465,7 @@ pub(super) fn prune(inner: &mut Inner, playing: bool, player: &player::Handle, a
     let here = |p: &str| std::path::Path::new(p).is_file();
     if !gone.iter().any(|g| *g) {
         if moved {
-            // la actual se movio: su ruta nueva, para la sesion y el metronomo
-            if let Some(path) = inner.current().and_then(|t| t.path.clone())
-                && !here(&inner.current_path)
-            {
-                inner.current_path = path;
-            }
+            follow_current(inner, player);
             inner.revision = inner.revision.wrapping_add(1);
         }
         return;
@@ -484,5 +497,7 @@ pub(super) fn prune(inner: &mut Inner, playing: bool, player: &player::Handle, a
                 let _ = player.send(player::Command::Stop);
             }
         }
+    } else if moved {
+        follow_current(inner, player);
     }
 }

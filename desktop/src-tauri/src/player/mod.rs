@@ -98,6 +98,14 @@ pub enum Command {
     /// Cuanto se funden dos canciones al pasar de una a otra, en segundos
     /// (0 = sin fundido, hasta 12).
     Crossfade(f32),
+    /// El archivo de `from` ahora esta en `to` (se movio o se renombro:
+    /// «Transformar», llevarla a Pistas...). Si es el que suena, sigue
+    /// sonando (lo tiene en memoria) y lo que lo vuelva a abrir (un salto
+    /// con ffmpeg, las pistas, otra velocidad) lo abre de su sitio nuevo.
+    Relocated {
+        from: String,
+        to: String,
+    },
     /// Que suenen las pistas separadas de la cancion `song` en vez de ella
     /// (o, con `None`, la cancion otra vez). Si las pistas son las mismas
     /// que ya suenan, solo cambia el volumen de cada una, sin reabrir nada.

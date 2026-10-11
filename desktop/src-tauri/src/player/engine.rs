@@ -372,6 +372,7 @@ impl Engine<'_> {
                 self.carry.pitch = clean_pitch(semitones);
                 self.retune(clock, step);
             }
+            Command::Relocated { from, to } => self.relocated(&from, to),
             Command::Crossfade(seconds) => {
                 self.carry.crossfade = if seconds.is_finite() {
                     seconds.clamp(0.0, MAX_CROSSFADE)
@@ -432,6 +433,21 @@ impl Engine<'_> {
         }
         self.was_finished = false;
         self.ending_sent = false;
+    }
+
+    /// El archivo de la que suena se movio: su ruta nueva (ver
+    /// `Command::Relocated`). La rejilla del metronomo va con la ruta: la
+    /// suya tambien.
+    fn relocated(&mut self, from: &str, to: String) {
+        if from.is_empty() || self.carry.path != from {
+            return;
+        }
+        if let Some((path, _)) = self.carry.metro.base.as_mut()
+            && path == from
+        {
+            path.clone_from(&to);
+        }
+        self.carry.path = to;
     }
 
     // ------------------------------------------- fundidos
