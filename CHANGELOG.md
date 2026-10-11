@@ -3,6 +3,60 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.25.0 — 2026-10-11
+
+El clic ya no se hace esperar a ciegas y sigue a cada canción, pasar de la
+canción a sus pistas no se nota, las canciones se funden al pasar de una a
+otra, «Transformar» ordena tu carpeta canción por canción, el estudio puede
+ocupar todo el alto y todo se mueve con suavidad.
+
+### Clic
+
+- **«Clic automático».** Cada canción trae su clic y sus ajustes, también al
+  pasar de una a otra y con el estudio cerrado (antes, con el estudio
+  cerrado, seguía el de la anterior, suelto). La primera vez de cada canción
+  tarda unos segundos: mientras tanto el clic no suena (si venía sonando, se
+  calla), su botón no deja ponerlo y la onda se va encendiendo con lo que
+  lleva; al llegar, vuelve solo. Con el clic puesto, las siguientes de la
+  cola se preparan por adelantado.
+- **Sin él, a mano:** el tempo que pongas sigue igual en todas las
+  canciones, sin esperar a nada.
+- **Lo calculado ya no se pierde.** Al guardar algo del estudio en la
+  canción se perdía su clic y había que volver a calcularlo (15-20 s); en tu
+  biblioteca, 11 de los 19 guardados ya no valían. Ahora se conserva, también
+  al mover la canción.
+
+### Reproductor
+
+- **De la canción a sus pistas sin corte**, y al revés, y al cambiar la
+  velocidad o el tono: la nueva entra a la par justo donde iba la otra.
+- **Fundido entre canciones:** la que se va baja mientras sube la siguiente.
+  Se elige en Ajustes › Reproducción (de 0 a 12 s; de fábrica, 4). Al cambiar
+  tú de canción, como mucho 2 s; con el clic o tramos puestos, sin fundido.
+- Si se mueve la canción que suena, sigue sonando y lo que la vuelve a abrir
+  (un salto, las pistas, otra velocidad) la abre de su sitio nuevo.
+
+### Transformar
+
+- Un botón **«Transformar»** en la barra de arriba pone cada canción en su
+  sitio y con su nombre (`Artistas/Artista/Artista - Título`), **una a una**:
+  dónde está, dónde iría y por qué. Se aplica, se corrige el artista o el
+  título antes, se salta o se deshace; «Aplicar las seguras» hace las
+  seguras seguidas. «¿Qué hace?» lo explica.
+- Es la misma canción (estrellas, listas, estudio, pistas y clic van con
+  ella) y, si está sonando, sigue sonando. Tus carpetas propias (Pistas,
+  Tutoriales…) no se tocan, y lo que solo dicen las etiquetas se propone para
+  revisar: en una biblioteca de verdad, fiarse de ellas dejaba peor muchos
+  nombres.
+
+### Estudio e interfaz
+
+- **«Grande»**: el estudio a todo el alto, sin tapar el reproductor; si lo
+  cierras grande, se vuelve a abrir grande.
+- **Movimiento** en ventanas, menús, botones, campos, el interruptor, las
+  pestañas y al cambiar de página, corto y suave (y nada si el sistema pide
+  movimiento reducido).
+
 ## 1.24.1 — 2026-10-11
 
 Dos arreglos del asistente, y los paquetes de Mac, también para Intel.
