@@ -2082,9 +2082,13 @@ tbody tr.flash {
   .tl-lane-pan {
     display: none;
   }
+  /* el cuerpo crece con lo que tiene (y el panel hace scroll): con el
+     `flex: 1; min-height: 0` de arriba se quedaba en el hueco que dejaban
+     las pistas y las secciones se encogian unas encima de otras */
   .study-body {
     display: flex;
     flex-direction: column;
+    flex: none;
   }
   .study-col {
     padding-left: 0;
@@ -2092,6 +2096,8 @@ tbody tr.flash {
     padding-top: 10px;
     border-top: 1px solid var(--border);
     overflow: visible;
+    flex: none;
+    min-height: auto;
   }
   .study-col:first-child {
     padding-top: 0;
