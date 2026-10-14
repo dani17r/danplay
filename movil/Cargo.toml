@@ -1,0 +1,30 @@
+[package]
+name = "danplay-movil"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "DanPlay en el celular: las pistas que se separaron en la PC, para estudiarlas"
+
+# En Android e iOS la app es una biblioteca que carga el sistema; en la PC
+# (para desarrollarla con `tauri dev`) es un ejecutable que la llama.
+[lib]
+name = "danplay_movil_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# Elegir el .danpista que se importa (en Android llega como content://).
+tauri-plugin-dialog = "2"
+# Leer ese content:// en Android: es el plugin quien sabe pedirselo al sistema.
+tauri-plugin-fs = "2"
+danplay-motor = { path = "../motor" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.10"
+log = "0.4"
+
+[lints]
+workspace = true

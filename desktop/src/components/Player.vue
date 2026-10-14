@@ -15,6 +15,7 @@ import { formatTime } from '../utils/format.js'
 import { projection } from '../api.js'
 import { openMenu } from '../composables/useContextMenu.js'
 import { useWindowShape } from '../composables/useWindowShape.js'
+import { isMobileApp } from '../platform.js'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
 import SliderField from './ui/SliderField.vue'
@@ -208,9 +209,14 @@ function openMore(e) {
         icon: 'academic',
         action: () => emit('toggleStudy')
       },
-      { label: 'Proyectar la letra', icon: 'tv', action: () => projection.show() },
+      // en el celular no hay proyector ni ventanas que cambiar de forma
+      ...(isMobileApp
+        ? []
+        : [{ label: 'Proyectar la letra', icon: 'tv', action: () => projection.show() }]),
       { label: 'Cola de reproducción', icon: 'queue', action: toggleQueue },
-      { label: 'Forma de la ventana', icon: 'shapes', children: windowShape.menuItems() }
+      ...(isMobileApp
+        ? []
+        : [{ label: 'Forma de la ventana', icon: 'shapes', children: windowShape.menuItems() }])
     ],
     track.value?.title || 'Reproductor'
   )
@@ -494,6 +500,7 @@ useHotkeys({
       </button>
       <!-- la letra en grande, en su propia ventana: para el proyector -->
       <button
+        v-if="!isMobileApp"
         class="pl-btn pl-project"
         title="Proyectar la letra (ventana aparte, para el proyector)"
         @click="projection.show()"
@@ -513,6 +520,7 @@ useHotkeys({
       </button>
       <!-- la forma de la ventana: completa, media pantalla, cuadrito, barra... -->
       <button
+        v-if="!isMobileApp"
         type="button"
         class="pl-btn"
         title="Forma de la ventana (F11: pantalla completa)"
@@ -526,7 +534,11 @@ useHotkeys({
     <button
       type="button"
       class="pl-btn pl-more"
-      title="Más: aleatorio, repetir, velocidad, volumen, estudio, cola, forma de la ventana"
+      :title="
+        isMobileApp
+          ? 'Más: aleatorio, repetir, velocidad, volumen, estudio, cola'
+          : 'Más: aleatorio, repetir, velocidad, volumen, estudio, cola, forma de la ventana'
+      "
       aria-label="Más opciones del reproductor"
       @click="openMore"
     >

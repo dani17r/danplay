@@ -10,7 +10,7 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 const withDevTools = (command) =>
   command === 'serve' && !process.env.TAURI_ENV_PLATFORM && process.env.DANPLAY_DEVTOOLS !== '0'
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => ({
   plugins: [vue(), withDevTools(command) ? vueDevTools() : null],
   clearScreen: false,
   server: {
@@ -19,5 +19,10 @@ export default defineConfig(({ command }) => ({
     strictPort: true,
     proxy: { '/api': process.env.DANPLAY_API || 'http://127.0.0.1:8730' }
   },
-  build: { target: 'esnext', outDir: 'dist' }
+  // `--mode movil`: la app del celular (movil.html, ver src/movil/), en su
+  // propia carpeta, que es la que empaqueta movil/tauri.conf.json
+  build:
+    mode === 'movil'
+      ? { target: 'esnext', outDir: 'dist-movil', rollupOptions: { input: 'movil.html' } }
+      : { target: 'esnext', outDir: 'dist' }
 }))

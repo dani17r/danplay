@@ -13,6 +13,7 @@ import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
 import { useScrub } from '../composables/useScrub.js'
 import { useWindowShape, SHAPES } from '../composables/useWindowShape.js'
 import { inTauri } from '../api.js'
+import { isMobileApp } from '../platform.js'
 import { formatTime } from '../utils/format.js'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
@@ -81,7 +82,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey, true))
           {{ loaded ? track.artist || 'Sin artista' : 'Elige algo en la lista' }}
         </div>
       </div>
-      <div class="pocket-window">
+      <!-- en el celular no hay ventana que cambiar de forma -->
+      <div v-if="!isMobileApp" class="pocket-window">
         <button
           type="button"
           class="pocket-icon"

@@ -305,6 +305,7 @@ describe('lo que cada metodo pide al nucleo', () => {
       '/api/song/7/stems/mix',
       { tracks: [{ source: 'vocals' }], path: '/m/x.mp3' }
     ],
+    toPhone: [[[7, 8]], 'POST', '/api/celular', { ids: [7, 8] }],
     playlistSheet: [[3, true], 'POST', '/api/playlists/3/sheet', { with_lyrics: true }],
     exportPlaylist: [[3], 'POST', '/api/playlists/3/export'],
     externalList: [[], 'GET', '/api/external'],

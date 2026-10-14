@@ -183,19 +183,21 @@ jobs:
           npm ci
           node scripts/sidecar.mjs
           npx vite build
+          npx vite build --mode movil
       - name: estilo
         run: |
           cargo fmt --all --check
           cargo clippy -p danplay-app --all-targets -- -D warnings
           cargo clippy -p danplay-motor --all-targets -- -D warnings
+          cargo clippy -p danplay-movil --all-targets -- -D warnings
       # Algunas usan ffmpeg de verdad (opus, cambiar el tono); las de sonido
       # se saltan solas y lo dicen, porque la maquina de CI no tiene salida.
       - name: pruebas del reproductor, la cola y la bandeja
         run: cargo test --release -p danplay-app
       # El motor de la app del celular, en Linux: lo mismo que corre en el
       # telefono, sin la salida de audio (las pruebas tiran del render a mano).
-      - name: pruebas del motor del celular
-        run: cargo test --release -p danplay-motor
+      - name: pruebas del motor y de la app del celular
+        run: cargo test --release -p danplay-motor -p danplay-movil
       # El código solo-Windows (Job Object, registro, consola) no se compila
       # nunca en Linux: comprobarlo aquí caza lo que se rompe sin ver Windows.
       # Con el destino gnu, porque Tauri compila los recursos de Windows y

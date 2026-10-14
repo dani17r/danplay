@@ -2,6 +2,7 @@
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { notify } from '../composables/useNotices.js'
 import { api, app, pickImage, projection, errorMessage } from '../api.js'
+import { isMobileApp } from '../platform.js'
 import StarRating from './StarRating.vue'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
@@ -360,6 +361,7 @@ async function transponer() {
              volver a ver cuando se quiera. Por eso esta siempre a mano y no
              escondido tras el modo de edicion. -->
         <button
+          v-if="!isMobileApp"
           type="button"
           class="cover-blur"
           :title="song.blur ? 'Ver la portada como es' : 'Difuminar esta portada'"
@@ -407,7 +409,7 @@ async function transponer() {
           </div>
         </div>
         <button
-          v-if="!editing"
+          v-if="!editing && !isMobileApp"
           class="icon-btn"
           title="Editar la ficha (se guarda en el mp3)"
           @click="startEdit"
@@ -497,7 +499,9 @@ async function transponer() {
       <div class="hint">Escape cancela · Ctrl+Enter guarda</div>
     </form>
 
-    <div class="section">
+    <!-- en el celular no se busca nada: la letra, la portada y el cifrado
+         vienen de la PC con la pista -->
+    <div v-if="!isMobileApp" class="section">
       <div class="btn-row">
         <button
           v-if="needsLyrics"
@@ -645,12 +649,20 @@ async function transponer() {
       </div>
       <div class="hint">
         De
-        <button type="button" class="link" :title="sheet.url" @click="app.openInBrowser(sheet.url)">
+        <span v-if="isMobileApp">{{ sheet.source }}</span>
+        <button
+          v-else
+          type="button"
+          class="link"
+          :title="sheet.url"
+          @click="app.openInBrowser(sheet.url)"
+        >
           {{ sheet.source }}</button
         >: «{{ sheet.artist }} - {{ sheet.title }}»<span v-if="sheet.votes">
           · {{ sheet.votes }} votos</span
         >. Lo escribió alguien que la toca: compruébalo con la grabación.
         <button
+          v-if="!isMobileApp"
           type="button"
           class="link"
           :disabled="!!loading"
@@ -665,7 +677,13 @@ async function transponer() {
       <h4>Acordes</h4>
       <div class="hint">
         No hay cifrado de esta canción en {{ buscadoEn }}. No se inventan.
-        <button type="button" class="link" :disabled="!!loading" @click="buscarAcordes(true)">
+        <button
+          v-if="!isMobileApp"
+          type="button"
+          class="link"
+          :disabled="!!loading"
+          @click="buscarAcordes(true)"
+        >
           Buscar otra vez
         </button>
       </div>
@@ -695,6 +713,7 @@ async function transponer() {
           @copied="(ok) => notify(ok ? 'Letra copiada' : 'No se pudo copiar', ok ? 'ok' : 'info')"
         />
         <button
+          v-if="!isMobileApp"
           class="btn mini"
           type="button"
           title="La letra en grande, en una ventana aparte para el proyector"

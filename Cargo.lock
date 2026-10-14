@@ -888,6 +888,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "danplay-movil"
+version = "1.25.0"
+dependencies = [
+ "danplay-motor",
+ "log",
+ "rand 0.10.3",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+]
+
+[[package]]
 name = "danplay_core"
 version = "1.25.0"
 dependencies = [

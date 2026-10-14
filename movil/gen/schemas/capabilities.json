@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"La unica ventana del celular: los eventos del reproductor y el selector del .danpista que se importa. Los comandos propios no llevan permiso aparte (la app no declara su lista): son los mismos que en la PC mas importar.","local":true,"windows":["main"],"permissions":["core:default","core:event:default","dialog:allow-open"]}}

@@ -40,6 +40,7 @@ import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
 import { useSeparation } from '../composables/useSeparation.js'
 import { useClick } from '../composables/useClick.js'
 import { takeToPhone } from '../composables/usePhone.js'
+import { isMobileApp } from '../platform.js'
 import { stemPlan, mixFileName } from '../utils/stems.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
 import { formatTime } from '../utils/format.js'
@@ -977,6 +978,15 @@ const heardNote = computed(() => {
   return bits.join(' · ')
 })
 function stemsMenu(ev) {
+  // en el celular las pistas vienen hechas: ni se guardan mezclas, ni se
+  // separan otra vez, ni hay carpeta que abrir
+  if (isMobileApp) {
+    return openMenu(
+      ev,
+      [{ label: 'Que suenen todas, como vienen', icon: 'refresh', action: resetMix }],
+      'Las pistas'
+    )
+  }
   const items = [
     { label: 'Guardar esta mezcla…', icon: 'download', action: () => saveMix() },
     ...(heardDiffers.value
@@ -1104,7 +1114,11 @@ onUnmounted(() => {
         <button
           type="button"
           class="btn mini study-stems-more"
-          title="Guardar la mezcla, abrir la carpeta, separar otra vez…"
+          :title="
+            isMobileApp
+              ? 'Que suenen todas, como vienen'
+              : 'Guardar la mezcla, abrir la carpeta, separar otra vez…'
+          "
           aria-label="Opciones de las pistas"
           @click="stemsMenu"
         >
