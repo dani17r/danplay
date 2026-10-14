@@ -124,7 +124,7 @@ fn importing_it_again_replaces_it_and_keeps_what_was_changed_here() {
     assert_eq!(manifest(&folder).expect("m")["lyrics"], "otra letra");
     assert_eq!(read_study(&folder), Some(json!({"speed": 0.8})));
     remove(&library, &first.id).expect("borra");
-    assert!(list(&library).is_empty());
+    assert_eq!(list(&library), Vec::<Summary>::new());
 }
 
 #[test]
@@ -171,7 +171,7 @@ fn what_is_not_a_good_bundle_is_refused_with_a_reason() {
     let e = import(&zip_with(&dir, &missing, &[]), &library);
     assert!(e.expect_err("falta").contains("le falta"));
     // nada se quedo a medias
-    assert!(list(&library).is_empty());
+    assert_eq!(list(&library), Vec::<Summary>::new());
     assert_eq!(fs::read_dir(&library).map_or(0, Iterator::count), 0);
 }
 
