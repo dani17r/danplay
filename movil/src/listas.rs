@@ -63,10 +63,7 @@ impl Listas {
     }
 
     /// Cambia las listas con `f` y las guarda; devuelve lo que diga `f`.
-    fn change<T>(
-        &self,
-        f: impl FnOnce(&mut Vec<Lista>) -> Result<T, String>,
-    ) -> Result<T, String> {
+    fn change<T>(&self, f: impl FnOnce(&mut Vec<Lista>) -> Result<T, String>) -> Result<T, String> {
         let _guard = self.lock.lock().unwrap_or_else(PoisonError::into_inner);
         let mut all = self.read();
         let out = f(&mut all)?;
@@ -192,7 +189,8 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("danplay-listas-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("danplay-listas-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("carpeta");
         dir
@@ -223,7 +221,9 @@ mod tests {
         let dir = temp("faltan");
         let listas = Listas::new(&dir);
         let l = listas.create("Ensayo").expect("crear");
-        listas.add(l.id, &folders(&["a", "fuera", "b"])).expect("añadir");
+        listas
+            .add(l.id, &folders(&["a", "fuera", "b"]))
+            .expect("añadir");
         // la interfaz solo ve a y b (la otra se quitó del celular)
         assert_eq!(listas.set(l.id, folders(&["b", "a"])), Ok(3));
         assert_eq!(listas.get(l.id).expect("sigue").songs, ["b", "a", "fuera"]);
@@ -237,7 +237,10 @@ mod tests {
         let a = listas.create("Uno").expect("uno");
         let b = listas.create("Dos").expect("dos");
         assert_ne!(a.id, b.id);
-        assert_eq!(listas.rename(b.id, "Jueves").expect("renombrar").name, "Jueves");
+        assert_eq!(
+            listas.rename(b.id, "Jueves").expect("renombrar").name,
+            "Jueves"
+        );
         assert!(listas.rename(99, "x").is_err());
         listas.remove(a.id).expect("borrar");
         assert!(listas.remove(a.id).is_err());
