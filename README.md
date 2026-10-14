@@ -12,7 +12,7 @@
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.25.0-4ade80">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.26.0-4ade80">
   <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-1.602%20en%20verde-2ea043">
 </p>
 
@@ -344,13 +344,40 @@ Las pistas quedan en `Separadas/`, dentro de tu biblioteca, en FLAC (o en
 Opus, cuatro veces menos, si lo eliges en Ajustes): archivos normales que
 abre cualquier programa (un DAW, Ableton, el reproductor del sistema). No aparecen como canciones sueltas, y si pierdes
 el índice un escaneo las vuelve a unir con su canción. La mezcla que suena
-se guarda en mp3, flac o wav —la canción sin batería, para practicar con el
-móvil—, tal cual o a la velocidad y el tono a los que la estás oyendo.
+se guarda en mp3, flac o wav —la canción sin batería—, tal cual o a la
+velocidad y el tono a los que la estás oyendo; para estudiarla en el
+teléfono con todo, mejor la app del celular (abajo).
 
 Se pueden separar varias de una vez desde el menú de clic derecho, o un
 repertorio entero desde el suyo: van a una cola y se separan una detrás de
 otra mientras sigues usando la app. Primero la pasada rápida de todas, así
 el repertorio se puede ensayar cuanto antes, y luego las mejoras.
+
+## En el celular: DanPlay Pistas
+
+Lo que separaste se estudia también en el teléfono, con la misma cara de
+DanPlay: cada parte con su volumen (callar la batería para tocar encima,
+dejar sola la voz para aprenderla), el clic en el pulso de la canción con su
+cuenta, la velocidad sin cambiar el tono, el tono, los tramos que se
+repiten, la letra y los acordes. La app del celular **no separa ni ordena
+nada**: trae lo que ya hiciste en la PC.
+
+1. En DanPlay de la PC, en el menú de las pistas de una canción (el «⋯» del
+   estudio, o el clic derecho sobre ella), **Llevar al celular**. Con varias
+   elegidas, se llevan todas: un repertorio para la banda.
+2. Queda un archivo `.danpista` por canción en `Celular/`, junto a
+   `Separadas/` (entre 20 y 50 MB). La carpeta se abre sola.
+3. Mándalo al teléfono como quieras: WhatsApp, Drive, un cable.
+4. En el teléfono, tócalo y elige **DanPlay Pistas**, o ábrelo desde la app
+   con **Importar**.
+
+Viaja todo: las partes, el clic que calculó la PC, lo que dejaste puesto en
+el estudio (la mezcla, los tramos, los marcadores), la letra y el cifrado.
+Lo que cambies en el teléfono se queda en el teléfono, y si vuelves a traer
+la misma canción se actualiza sin perderlo.
+
+Por ahora hay app para **Android** (8 o más nuevo). La de iPhone está
+preparada pero falta compilarla en un Mac y firmarla con Apple.
 
 ## Formatos
 

@@ -3,6 +3,42 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.26.0 — 2026-10-14
+
+Lo que separas en la PC se estudia ahora en el celular: una app nueva para
+Android, **DanPlay Pistas**, con la misma cara que DanPlay y nada de
+convertir ni ordenar. Solo importa las canciones ya separadas y las deja
+estudiar, para ti y para tu banda.
+
+### En el celular
+
+- **Cada parte con su volumen:** callar la batería para tocar encima, dejar
+  sola la voz para aprenderla, subir el bajo. Las mismas M y S que en la PC.
+- **El clic en el pulso de la canción**, el que calculó la PC, con su «1»,
+  su compás y la cuenta para entrar. También a menos velocidad y en la vuelta
+  de un tramo.
+- **Velocidad sin cambiar el tono y tono sin cambiar la velocidad**, los
+  **tramos** que se repiten, la **letra** y los **acordes** (también en otro
+  tono).
+- **Lo que dejaste puesto en el estudio de la PC viaja con la canción**: la
+  mezcla, los tramos, los marcadores. Lo que cambies en el teléfono se queda
+  en el teléfono.
+- **Abrir con DanPlay Pistas:** toca el archivo en WhatsApp, Descargas o
+  Drive y se importa solo; o desde la app, con «Importar» (varios a la vez).
+- Mientras suena, la pantalla no se apaga; y con «atrás» la app pasa a
+  segundo plano sin cortar la música.
+- El APK está en `dist/installers/` (Android 8 o más nuevo). La de iPhone
+  queda preparada: falta compilarla en un Mac y firmarla con Apple.
+
+### En la PC
+
+- **Llevar al celular**, en el menú de las pistas de una canción (el «⋯» del
+  estudio y el clic derecho; con varias elegidas, todas): un archivo
+  `.danpista` por canción en `Celular/`, junto a `Separadas/`, de 20 a 50 MB.
+  La carpeta se abre sola para arrastrarlo a WhatsApp o al teléfono.
+- El modo estudio en una ventana estrecha (700 px o menos) ya no monta las
+  secciones unas encima de otras.
+
 ## 1.25.0 — 2026-10-11
 
 El clic ya no se hace esperar a ciegas y sigue a cada canción, pasar de la

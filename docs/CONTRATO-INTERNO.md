@@ -10,6 +10,12 @@ La cola de reproducción vive en Rust (`desktop/src-tauri/src/queue.rs`). La
 interfaz manda la lista y las órdenes; Rust decide qué suena y lo cuenta por
 un evento. No hay sondeo desde JS.
 
+La app del celular (`movil/src/player.rs`) cumple este mismo contrato sobre el
+motor de pistas, y contesta el puente `api` (§2) con las pistas importadas en
+vez de con Python (`movil/src/api.rs`): así la misma interfaz funciona en los
+dos sitios sin cambios. Los tipos (`Track`, `PlaybackState`, el metrónomo)
+viven en `motor/` y los usan las dos apps.
+
 ### Tipos
 
 ```ts

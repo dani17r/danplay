@@ -1392,6 +1392,138 @@ interfaz manda la ruta con cada canción, y solo si el archivo no está ahí se
 le pregunta al núcleo. Cuando ni así se localiza, el error se dice en
 castellano y, si la canción se acabó sola, se pasa a la siguiente.
 
+## La app del celular
+
+Pedido el 14 de octubre: el reproductor en el teléfono, **sin** convertir,
+separar, organizar ni renombrar; solo importar lo que se separó en la PC y
+estudiarlo (cada parte, el clic, la velocidad, los tramos). Para quien lo
+pidió y para su banda. Android primero; iOS, después (ver abajo).
+
+### Un archivo por canción: `.danpista`
+
+La carpeta de `Separadas/` no basta: ahí solo están las partes. El pulso del
+clic (Beat This!, en la caché de la PC), lo guardado del estudio, la letra y
+el cifrado viven en la base. «Llevar al celular» (`danplay/bundle.py`) arma un
+ZIP con todo, en `Celular/` junto a `Separadas/`:
+
+```text
+pista.json       la canción, sus partes, el pulso, el estudio, la letra,
+                 el cifrado, las ondas de cada parte y la de la canción
+partes/*.ogg     cada parte, en Ogg Vorbis (calidad 6)
+portada.jpg      si la canción la tiene
+```
+
+Por qué Vorbis, medido con el decodificador del celular (symphonia 0.6) sobre
+golpes en muestras conocidas: Vorbis y MP3 (con su cabecera LAME) empiezan en
+la muestra exacta; **AAC llega 1024 muestras tarde** (23 ms: el clic se
+iría). Con una canción de 4:54 y cinco partes: FLAC 86 MB, MP3 a 256 kbps
+45 MB, Vorbis 23 MB; y Vorbis se decodifica antes (1,0 s frente a 1,55 s las
+cinco). Opus queda fuera porque symphonia no lo decodifica. Si el ffmpeg de la
+PC no sabe hacer Vorbis, van en MP3.
+
+### El motor: `motor/`
+
+En la PC, mezclar las partes y cambiar la velocidad sin cambiar el tono lo
+hace ffmpeg, que en el teléfono no existe. El motor es Rust puro, salvo el
+estirador:
+
+- **Decodificar** (`decode.rs`): cada parte desde memoria (los bytes se leen
+  enteros al abrir: nunca se lee del disco en el hilo de audio). Lo que sale se
+  coloca por la **marca de tiempo de cada paquete**: medido, el primer paquete
+  de Vorbis tras un salto no da audio y, contando desde donde dejaba el salto,
+  todo salía 1024 muestras corrido. Y se salta 4096 muestras antes de lo
+  pedido: un MP3 que empezaba justo ahí salía con diferencias de 0,76 en las
+  primeras muestras (su reserva de bits está en los cuadros de antes).
+- **Alimentar** (`feeder.rs`): un hilo decodifica todas las partes a la par
+  en bloques de 1024 muestras, 1,5 s por delante. Los bloques van y vuelven
+  por dos anillos sin candados: el hilo de audio no pide memoria ni espera. Un
+  salto empieza una «generación» nueva y los bloques viejos se tiran. Los
+  tramos se resuelven aquí, **como en la PC**: un tramo nuevo no mueve la
+  canción (entra cuando llega a él) y con tramos la canción no se acaba;
+  4 ms de fundido a cada lado de la costura.
+- **Sonar** (`render.rs`): suma las partes con su volumen y su panorama
+  (rampas a lo largo del trozo), y si la velocidad o el tono no son los
+  normales pasa la suma por **Signalsmith Stretch** (C++, MIT, en
+  `motor/cpp/` con sus enlaces escritos a mano: el envoltorio publicado
+  necesita bindgen y libclang, que no estaban aquí y que en Android e iOS
+  piden apuntar el sysroot a mano). A 1× y sin tono no pasa: suena tal cual.
+  Encima, el clic: cada trozo sabe qué muestras de la canción se oyen
+  (descontando lo que retrasa el estirador y siguiendo los saltos de los
+  tramos), así que el golpe cae en su pulso a 0,7× y en la vuelta del tramo;
+  las pruebas lo miden contra el golpe de la música (a 1×, a 0,8×, a 48 kHz,
+  en un tramo). La cuenta, la envolvente de 3 ms al pausar o saltar y un
+  limitador cierran el camino.
+- **Salir** (`output.rs`): cpal (AAudio en Android, CoreAudio en iOS). Se
+  pide 44,1 kHz: AAudio la acepta y convierte el sistema (el emulador va a
+  48 kHz); si una salida no la acepta, convierte el motor (`resample.rs`,
+  sinc polifase).
+
+Medido con «Dios Poderoso» (cinco partes, 4:54) en un núcleo de la PC:
+decodificar va a 180 veces el tiempo real; mezclar a velocidad normal, a
+2.500 veces; estirando a 0,8×, a 70 veces, y el peor trozo de 11,6 ms tarda 0,34 ms con el cálculo repartido
+de Signalsmith (0,97 ms sin repartir). Un teléfono es varias veces más lento:
+sobra margen.
+
+Lo que la PC y el celular tienen que hacer igual vive también en `motor/`:
+la rejilla del pulso y su análisis de Rust, los ajustes del metrónomo, los
+tipos de la cola y el sonido del clic. La app de escritorio los usa de ahí
+(sin la función `motor`, que trae el resto).
+
+### La misma interfaz
+
+El celular usa **la interfaz de la PC**: los mismos componentes y los mismos
+estilos, con otra entrada (`desktop/movil.html` → `src/movil/`). Un armazón
+pequeño (`MovilApp.vue`) junta la lista, el reproductor, el estudio y la
+ficha; lo que solo se puede en la PC (separar, guardar mezclas, buscar letra o
+acordes, editar el archivo, proyectar, las formas de la ventana) se esconde
+con `platform.js`.
+
+Para no tocar esa interfaz, la app (`movil/`) le contesta lo mismo que la de
+escritorio:
+
+- el **reproductor** con las mismas órdenes y el mismo evento
+  (`danplay://state`, §1 de CONTRATO-INTERNO.md), sobre el motor. En el
+  celular no hay canción entera: «la canción» son todas sus partes a 1 (la
+  suma es la canción: «Otros» es lo que queda) y «las pistas», con la mezcla
+  del estudio;
+- el puente **`api`**, que en la PC lleva a Python, lo contesta Rust
+  (`movil/src/api.rs`) con las pistas importadas, con la misma forma que el
+  núcleo; lo que en el celular no existe contesta 404 con el motivo;
+- el **cambio de tono de los acordes** (`theory.rs`, el de `theory.py` y
+  `enrich.transpose_sheet` con las mismas pruebas);
+- el **pulso**: el de Beat This! que trae el `.danpista`; sin él, el análisis
+  de Rust de la PC sobre la suma de las partes.
+
+### Android
+
+- Desde Android 15 la app se pinta por debajo de las barras del sistema; la
+  actividad aparta el contenido (`MainActivity.kt`).
+- **«Abrir con» y «Compartir con»**: un `.danpista` que llega de WhatsApp,
+  Descargas o Drive (como binario o ZIP: Android no conoce la extensión) se le
+  pasa a la página, que lo importa como con el botón.
+- **«Atrás»** cierra lo abierto (menú, ficha, estudio); si no queda nada, la
+  app pasa a segundo plano y la música sigue.
+- Mientras suena, la pantalla no se apaga (la API Wake Lock del WebView).
+- La versión que se entrega va **firmada siempre con la misma llave**
+  (`~/Android/claves/`, fuera del repositorio): un teléfono solo acepta una
+  actualización firmada como la que tiene. Si se pierde, la banda tendría que
+  desinstalar y volver a instalar.
+
+Probado en el emulador (Pixel 7, Android 15) con siete canciones separadas
+de verdad: importar con el selector del sistema y con «Abrir con», sonar, la
+velocidad (a 0,8× avanza 0,798 s por segundo), un tramo, el clic con el pulso
+de la PC, la ficha, los acordes y su tono, «atrás» y la música en segundo
+plano.
+
+### iOS
+
+El código está listo (cpal tiene CoreAudio y Tauri compila para iOS), pero no
+se ha compilado: hace falta un Mac (en GitHub, como el `.dmg`). Dos cosas
+pendientes: la sesión de audio en «reproducción», para que suene con el
+interruptor de silencio puesto, y la firma. Para la banda, la cuenta de
+desarrollador de Apple con TestFlight; con un Apple ID gratis habría que
+volver a firmarla cada 7 días en cada iPhone.
+
 ## Estructura del proyecto
 
 ```text
@@ -1407,6 +1539,7 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   watcher.py      vigila las carpetas y mantiene el índice al día solo
   ytdlp.py        yt-dlp: el motor de JavaScript y la actualización en caliente
   stems.py        separar en pistas: la cola, las carpetas, la mezcla
+  bundle.py       llevar una canción separada al celular (.danpista)
   separation.py   el separador por dentro (Demucs con numpy y ONNX Runtime),
                   en un proceso aparte
   data/separador/ los grafos del separador, sin pesos
@@ -1421,7 +1554,14 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   model_catalog.py  el catálogo de modelos (models.dev), siempre al día
   data/           la foto del catálogo que viaja con la app
 core/           crate Rust (PyO3): hashes en paralelo y forma de onda
-desktop/        interfaz Vue 3 + envoltorio Tauri
+motor/          el motor de pistas del celular (decode, feeder, render,
+                stretch, output, engine, bundle) y lo que comparte con la
+                PC: beats (el pulso), metro, queue y click; cpp/ Signalsmith
+movil/          la app del celular (Tauri): el reproductor con el contrato de
+                la PC, el puente api sin Python, la biblioteca de pistas;
+                gen/android el proyecto de Android
+desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
+                movil.html y src/movil/)
   src/
     App.vue       la ventana principal (la ventanita y la proyección, aparte)
     router.js     las páginas (Ajustes, Asistente, Descargas, Entrada,

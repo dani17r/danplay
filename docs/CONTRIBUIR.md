@@ -101,6 +101,48 @@ Y solo la interfaz en el navegador, sin Rust:
 cd desktop && npm run dev                  # Vite en el 5273, con proxy
 ```
 
+## La app del celular
+
+`movil/` es la app de Android (e iOS, cuando se compile en un Mac). Su
+interfaz es la de la PC (`desktop/movil.html` → `desktop/src/movil/`), así
+que se prueba con las mismas herramientas: `npm test` en `desktop/` incluye
+`tests/movil.test.js`, y `cargo test -p danplay-motor -p danplay-movil`
+prueba el motor de pistas y lo que la app contesta en vez de Python.
+
+Para compilarla hace falta, en `~/Android`:
+
+- un JDK 17 (`~/Android/jdk-17`);
+- el SDK con `platform-tools`, una plataforma, `build-tools` y el NDK 28 o más
+  nuevo (`sdkmanager "platform-tools" "platforms;android-36"
+  "build-tools;36.1.0" "ndk;29.0.14206865"`); Gradle baja la plataforma que
+  pida el proyecto;
+- los destinos de Rust: `rustup target add aarch64-linux-android
+  armv7-linux-androideabi x86_64-linux-android i686-linux-android`.
+
+```bash
+./scripts/build-android.sh             # el APK firmado, a dist/installers/
+./scripts/build-android.sh --emulador  # el de depuración, para el emulador
+cd movil && npm run tauri -- android dev   # con el teléfono por USB
+```
+
+La **llave de firma** vive fuera del repositorio, en `~/Android/claves/`
+(`danplay-pistas.jks` y `keystore.properties`). Guárdala con las copias de
+seguridad: un teléfono solo acepta una actualización firmada con la misma
+llave, y si se pierde hay que desinstalar la app en cada teléfono.
+
+Para probarla sin teléfono, un emulador sin ventana y sin sonar por los
+altavoces:
+
+```bash
+avdmanager create avd -n danplay -k "system-images;android-35;google_apis;x86_64" -d pixel_7
+emulator -avd danplay -no-window -gpu swiftshader_indirect -audio none &
+adb install -r movil/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+```
+
+La versión de depuración deja inspeccionar la página como en Chrome
+(`chrome://inspect`, o `adb forward tcp:9222
+localabstract:webview_devtools_remote_<pid>` y el protocolo de depuración).
+
 ## Las pruebas
 
 ```bash
