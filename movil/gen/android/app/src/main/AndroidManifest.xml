@@ -1,12 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- la notificación con los mandos de lo que suena (Reproduciendo.kt):
+         un servicio «en primer plano» de reproducción, para que Android no
+         cierre la app mientras suena con la pantalla apagada -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <application
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:appCategory="audio"
         android:label="@string/app_name"
         android:theme="@style/Theme.danplay_movil"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
@@ -22,7 +30,7 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
-            <!-- «Abrir con DanPlay Pistas» y «Compartir con»: un .danpista que
+            <!-- «Abrir con DanPlay» y «Compartir con»: un .danpista que
                  llega de WhatsApp, Descargas o Drive. Android no conoce la
                  extension, asi que llega como binario o como ZIP; la app
                  comprueba dentro que sea una pista (MainActivity.kt). -->
@@ -43,6 +51,11 @@
                 <data android:mimeType="application/x-zip-compressed" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".Reproduciendo"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <provider
           android:name="androidx.core.content.FileProvider"

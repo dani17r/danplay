@@ -16,7 +16,7 @@ import androidx.core.view.WindowInsetsCompat
 import org.json.JSONObject
 
 /**
- * «Abrir con DanPlay Pistas»: un .danpista tocado en WhatsApp, en Descargas
+ * «Abrir con DanPlay»: un .danpista tocado en WhatsApp, en Descargas
  * o en Drive llega aqui como un `content://`, y se le pasa a la pagina, que
  * lo importa igual que con el boton «Importar» (src/movil/importar.js).
  *
@@ -62,6 +62,9 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
+    // la página le cuenta a Android qué suena, para la notificación con los
+    // mandos y la pantalla de bloqueo (Reproduciendo.kt)
+    webView.addJavascriptInterface(Puente(applicationContext), "DanPlayAndroid")
     // «Atras»: primero la pagina cierra lo que tenga abierto (un menu, la
     // ficha, el estudio); si no tenia nada, la app pasa a segundo plano y la
     // musica sigue sonando, como en cualquier reproductor. Se registra aqui,

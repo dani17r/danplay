@@ -17,6 +17,7 @@
 mod api;
 mod library;
 mod listas;
+mod mandos;
 mod player;
 mod theory;
 
@@ -333,6 +334,8 @@ pub fn run() {
             let lib = Arc::new(Library::new(dir));
             app.manage(Player::new(app.handle().clone(), Arc::clone(&lib)));
             app.manage(lib);
+            // la notificación y los auriculares (Android) llegan por aquí
+            mandos::init(app.handle());
             Ok(())
         })
         .register_uri_scheme_protocol("danplay", |ctx, request| {

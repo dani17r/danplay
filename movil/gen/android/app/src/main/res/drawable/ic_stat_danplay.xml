@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- El logo en blanco, para la barra de estado (la notificación de lo que suena). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?android:attr/colorControlNormal">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M2.0,9.68H3.72V14.38H2.0ZM5.05,7.7H6.77V16.37H5.05ZM8.09,5.71H9.81V18.36H8.09ZM11.14,4.05H12.86V20.01H11.14ZM14.19,5.71H15.91V18.36H14.19ZM17.23,7.7H18.95V16.37H17.23ZM20.28,9.68H22.0V14.38H20.28Z" />
+</vector>
