@@ -795,6 +795,13 @@ def test_la_version_no_se_repite():
     assert "version" in nucleo["project"]["dynamic"], "core/pyproject.toml repite la version"
     tauri = json.loads((raiz / "desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
     assert "version" not in tauri, "tauri.conf.json repite la version: Tauri la toma de Cargo"
+    # La del celular la necesita para el APK (sin ella salia «1.0», código 1),
+    # pero apunta a la de la interfaz, que sube el script: nunca un número
+    movil = json.loads((raiz / "movil/tauri.conf.json").read_text(encoding="utf-8"))
+    assert movil["version"] == "../desktop/package.json", "movil/tauri.conf.json repite la version"
+    for crate in ("motor/Cargo.toml", "movil/Cargo.toml"):
+        paquete = tomllib.loads((raiz / crate).read_text(encoding="utf-8"))["package"]
+        assert paquete["version"] == {"workspace": True}, f"{crate} repite la version"
 
 
 def test_el_script_de_version_toca_todos_los_sitios_que_mira_esta_prueba():

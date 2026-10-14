@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DanPlay Pistas",
+  "productName": "DanPlay",
   "identifier": "local.danplay.pistas",
+  "version": "../desktop/package.json",
   "build": {
     "beforeDevCommand": { "script": "npm run dev:movil", "cwd": "../desktop", "wait": false },
     "devUrl": "http://localhost:5274",
@@ -13,7 +14,7 @@
       {
         "label": "main",
         "url": "movil.html",
-        "title": "DanPlay Pistas",
+        "title": "DanPlay",
         "width": 412,
         "height": 860,
         "theme": "Dark"

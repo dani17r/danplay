@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- El logo de DanPlay (las barras de la onda) para el icono adaptable de
+     Android: dentro de la zona segura de 66 dp, para que ningun lanzador lo
+     recorte. Tambien es la capa monocroma de los iconos tematicos. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#4ADE80"
+        android:pathData="M31.0,48.67H34.96V59.48H31.0ZM38.01,44.1H41.97V64.05H38.01ZM45.01,39.53H48.97V68.62H45.01ZM52.02,35.72H55.98V72.43H52.02ZM59.03,39.53H62.99V68.62H59.03ZM66.03,44.1H69.99V64.05H66.03ZM73.04,48.67H77.0V59.48H73.04Z" />
+</vector>

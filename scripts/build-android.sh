@@ -7,7 +7,7 @@
 #                                         (x86_64), sin firma de entrega
 #
 # El APK queda en dist/installers/, junto a los de la PC:
-#   DanPlay-Pistas-X.Y.Z-android.apk
+#   DanPlay-X.Y.Z-android.apk
 #
 # Hace falta, en ~/Android (o donde digan ANDROID_HOME, NDK_HOME, JAVA_HOME):
 # el SDK con su plataforma y build-tools, el NDK y un JDK 17; y en Rust los
@@ -37,7 +37,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 [ -d desktop/node_modules ] || morir "faltan las dependencias de la interfaz: cd desktop && npm ci"
 
 VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
-SALIDA="dist/installers/DanPlay-Pistas-$VERSION-android.apk"
+SALIDA="dist/installers/DanPlay-$VERSION-android.apk"
 APKS=movil/gen/android/app/build/outputs/apk/universal
 
 if [ "${1:-}" = "--emulador" ]; then
@@ -50,7 +50,7 @@ fi
 KEYSTORE="${DANPLAY_KEYSTORE:-$HOME/Android/claves/keystore.properties}"
 [ -f "$KEYSTORE" ] || morir "no está la llave de firma ($KEYSTORE): sin ella el APK no se puede instalar ni actualizar"
 
-paso "APK de DanPlay Pistas $VERSION (arm64 y armv7)"
+paso "APK de DanPlay para Android $VERSION (arm64 y armv7)"
 (cd movil && npm run tauri -- android build --apk --target aarch64 --target armv7)
 APK="$APKS/release/app-universal-release.apk"
 [ -f "$APK" ] || morir "no salió el APK ($APK)"
@@ -60,6 +60,7 @@ APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
 "$APKSIGNER" verify --print-certs "$APK" | grep -E "Signer #1 certificate (DN|SHA-256)"
 
 mkdir -p dist/installers
-rm -f dist/installers/DanPlay-Pistas-*-android.apk
+# (también los de antes de 1.27, que se llamaban DanPlay-Pistas-…)
+rm -f dist/installers/DanPlay-*-android.apk
 cp "$APK" "$SALIDA"
 ls -la "$SALIDA"

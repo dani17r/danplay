@@ -35,6 +35,12 @@ android {
                 keyPassword = keystoreProperties["keyPassword"] as String
                 storeFile = file(keystoreProperties["storeFile"] as String)
                 storePassword = keystoreProperties["storePassword"] as String
+                // las tres firmas: la v1 (JAR) la piden algunos instaladores
+                // de marca para dar la app por firmada, aunque Android 8+
+                // ya mire la v2 y la v3
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
