@@ -37,6 +37,10 @@ rand = "0.10"
 rodio = { version = "0.22", default-features = false, features = [
     "playback", "mp3", "wav", "flac", "vorbis", "mp4", "symphonia-alac", "symphonia-aiff" ] }
 
+# El sonido del clic, el mismo que en la app del celular (solo eso: sin la
+# funcion `motor` no compila nada del motor de pistas).
+danplay-motor = { path = "../../motor", default-features = false }
+
 # Reproduccion en el sistema (MPRIS en Linux, SMTC en Windows, Now Playing en
 # macOS): teclas multimedia, pantalla de bloqueo y el reproductor del escritorio.
 souvlaki = "0.8"

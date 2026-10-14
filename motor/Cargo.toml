@@ -1,0 +1,34 @@
+[package]
+name = "danplay-motor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "El motor de pistas de la app del celular: las partes de una cancion, cada una con su volumen, con velocidad, tono, tramos y clic"
+
+[features]
+default = ["motor"]
+# Todo el motor: abrir el .danpista, decodificar, mezclar, estirar y sonar.
+# Sin ella queda solo el sonido del clic, que es lo que comparte la app de
+# escritorio (asi suena igual en los dos sitios y no compila nada de esto).
+motor = ["dep:symphonia", "dep:cpal", "dep:rtrb", "dep:zip", "dep:serde_json", "dep:cc"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# Solo Vorbis (lo que lleva el .danpista) y MP3 (si el ffmpeg de la PC no
+# sabia hacer Vorbis): los dos empiezan en la muestra exacta. Medido:
+# AAC llega 1024 muestras tarde con symphonia, y el clic se iria.
+symphonia = { version = "0.6", optional = true, default-features = false, features = ["ogg", "vorbis", "mp3"] }
+cpal = { version = "0.17", optional = true }
+rtrb = { version = "0.4", optional = true }
+zip = { version = "8", optional = true, default-features = false, features = ["deflate-flate2-zlib-rs"] }
+serde_json = { version = "1", optional = true }
+
+[build-dependencies]
+cc = { version = "1", optional = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json = "1"
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }

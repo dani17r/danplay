@@ -1,0 +1,340 @@
+//! El render sin hilos: un banco de pruebas llena los bloques a mano entre
+//! trozo y trozo, como haria el hilo que decodifica, y se mira lo que sale.
+//!
+//! El archivo de prueba tiene el canal derecho cambiado de signo: la mitad
+//! de la diferencia de los canales es la musica, y la mitad de la suma es el
+//! clic (que va igual a los dos lados).
+use super::*;
+use crate::decode::Part;
+use crate::feeder::{Feeder, POOL};
+use crate::testing::{MARKS, fixture};
+
+struct Bench {
+    feeder: Feeder,
+    free_rx: rtrb::Consumer<Box<Block>>,
+    full_tx: rtrb::Producer<Box<Block>>,
+    render: Render,
+    controls: Arc<Controls>,
+    shared: Arc<Shared>,
+    out_rate: u32,
+}
+
+impl Bench {
+    fn new(parts: usize, out_rate: u32) -> Bench {
+        let (bytes, _) = fixture("ogg");
+        let parts_v: Vec<Part> = (0..parts)
+            .map(|_| Part::open(Arc::clone(&bytes), "ogg").expect("ogg"))
+            .collect();
+        let shared = Arc::new(Shared::default());
+        let mut feeder = Feeder::new(parts_v, 88_200, Arc::clone(&shared));
+        feeder.seek(0);
+        let (mut free_tx, free_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
+        let (full_tx, full_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
+        for _ in 0..POOL {
+            let _ = free_tx.push(Box::new(Block::new(parts)));
+        }
+        let controls = Arc::new(Controls::default());
+        let mut render = Render::new(44_100, out_rate, Arc::clone(&controls));
+        render.set_ring(Some(Ring {
+            full: full_rx,
+            free: free_tx,
+            parts,
+            shared: Arc::clone(&shared),
+        }));
+        Bench {
+            feeder,
+            free_rx,
+            full_tx,
+            render,
+            controls,
+            shared,
+            out_rate,
+        }
+    }
+
+    fn pump(&mut self) {
+        while !self.feeder.ended() && !self.full_tx.is_full() {
+            let Ok(mut b) = self.free_rx.pop() else { break };
+            self.feeder.fill(&mut b);
+            let _ = self.full_tx.push(b);
+        }
+    }
+
+    /// `frames` muestras de salida, a trozos de 512 como una salida de verdad.
+    fn run(&mut self, frames: usize) -> Vec<f32> {
+        let mut out = vec![0f32; frames * 2];
+        for chunk in out.chunks_mut(1024) {
+            self.pump();
+            self.render.render(chunk);
+        }
+        out
+    }
+
+    fn play(&mut self) {
+        self.controls.playing.store(true, Ordering::Release);
+    }
+
+    fn seek(&mut self, frame: u64) {
+        self.feeder.seek(frame);
+    }
+
+    fn click(&mut self, beats: Vec<f64>, meter: u8) {
+        let accents = beats.iter().enumerate().map(|(i, _)| i % 4 == 0).collect();
+        self.render.set_click(Arc::new(ClickPlan {
+            on: true,
+            beats,
+            accents,
+            meter,
+            bpm: 120.0,
+            volume: 1.0,
+            sound: Sound::Stick,
+        }));
+    }
+}
+
+fn music(x: &[f32]) -> Vec<f32> {
+    x.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|f| 0.5 * (f[0] - f[1]))
+        .collect()
+}
+
+fn click(x: &[f32]) -> Vec<f32> {
+    x.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|f| f32::midpoint(f[0], f[1]))
+        .collect()
+}
+
+/// Donde empieza cada golpe: la primera muestra que pasa de `level` tras
+/// al menos `gap` muestras sin pasar.
+fn onsets(x: &[f32], level: f32, gap: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut quiet = gap;
+    for (i, v) in x.iter().enumerate() {
+        if v.abs() > level {
+            if quiet >= gap {
+                out.push(i);
+            }
+            quiet = 0;
+        } else {
+            quiet += 1;
+        }
+    }
+    out
+}
+
+/// Los golpes de la musica (los destellos de 3 kHz, muy por encima del tono).
+fn music_hits(x: &[f32]) -> Vec<usize> {
+    onsets(&music(x), 0.3, 2_000)
+}
+
+fn set_gain(c: &Controls, part: usize, l: f32, r: f32) {
+    c.gains[part][0].store(l.to_bits(), Ordering::Relaxed);
+    c.gains[part][1].store(r.to_bits(), Ordering::Relaxed);
+}
+
+#[test]
+fn at_normal_speed_the_song_comes_out_as_it_is() {
+    let mut b = Bench::new(1, 44_100);
+    b.play();
+    let out = b.run(88_200);
+    let hits = music_hits(&out);
+    assert_eq!(hits.len(), 3, "{hits:?}");
+    for (h, m) in hits.iter().zip(MARKS) {
+        assert!(h.abs_diff(m) <= 40, "golpe en {h}, se esperaba en {m}");
+    }
+    // y sin clic: la suma de los canales, en silencio
+    let loud = click(&out).iter().fold(0f32, |m, v| m.max(v.abs()));
+    assert!(loud < 0.01, "{loud}");
+}
+
+#[test]
+fn a_muted_part_is_silent_and_a_panned_one_goes_to_its_side() {
+    let mut b = Bench::new(2, 44_100);
+    set_gain(&b.controls, 0, 0.0, 0.0);
+    set_gain(&b.controls, 1, 0.0, 1.0); // toda a la derecha
+    b.play();
+    b.run(2_000); // que pasen las rampas
+    let out = b.run(40_000);
+    let left = out.iter().step_by(2).fold(0f32, |m, v| m.max(v.abs()));
+    let right = out
+        .iter()
+        .skip(1)
+        .step_by(2)
+        .fold(0f32, |m, v| m.max(v.abs()));
+    assert!(left < 1e-4, "{left}");
+    assert!(right > 0.3, "{right}");
+}
+
+#[test]
+fn the_click_falls_on_the_beat_at_normal_speed() {
+    let mut b = Bench::new(1, 44_100);
+    b.click(MARKS.iter().map(|&m| m as f64 / 44_100.0).collect(), 4);
+    b.play();
+    let out = b.run(88_200);
+    let clicks = onsets(&click(&out), 0.05, 2_000);
+    let hits = music_hits(&out);
+    assert_eq!(clicks.len(), 3, "{clicks:?}");
+    for (c, h) in clicks.iter().zip(&hits) {
+        assert!(c.abs_diff(*h) <= 40, "clic en {c}, golpe en {h}");
+    }
+}
+
+#[test]
+fn the_click_falls_on_the_beat_slowed_down() {
+    // a 0,8x la musica pasa por el estirador, que la retrasa: el clic tiene
+    // que caer donde suena el golpe, no donde estaria sin estirar
+    let mut b = Bench::new(1, 44_100);
+    b.controls.speed.store(0.8f32.to_bits(), Ordering::Relaxed);
+    b.click(MARKS.iter().map(|&m| m as f64 / 44_100.0).collect(), 4);
+    b.play();
+    let out = b.run(120_000);
+    let clicks = onsets(&click(&out), 0.05, 2_000);
+    let hits = music_hits(&out);
+    assert!(hits.len() >= 2 && clicks.len() >= 2, "{hits:?} {clicks:?}");
+    for (c, h) in clicks.iter().zip(&hits) {
+        // 3 ms: no se oye
+        assert!(c.abs_diff(*h) <= 132, "clic en {c}, golpe en {h}");
+    }
+    // y los golpes, a la distancia de 0,8x
+    let gap = (hits[1] - hits[0]) as f64;
+    let expected = (MARKS[1] - MARKS[0]) as f64 / 0.8;
+    assert!((gap - expected).abs() < 100.0, "{gap} vs {expected}");
+}
+
+#[test]
+fn at_48k_the_click_still_falls_on_the_beat() {
+    let mut b = Bench::new(1, 48_000);
+    b.click(MARKS.iter().map(|&m| m as f64 / 44_100.0).collect(), 4);
+    b.play();
+    let out = b.run(96_000);
+    let clicks = onsets(&click(&out), 0.05, 2_000);
+    let hits = music_hits(&out);
+    assert_eq!(clicks.len(), 3, "{clicks:?}");
+    for ((c, h), m) in clicks.iter().zip(&hits).zip(MARKS) {
+        assert!(c.abs_diff(*h) <= 40, "clic en {c}, golpe en {h}");
+        let at = m as f64 * 48_000.0 / 44_100.0;
+        assert!(
+            (*h as f64 - at).abs() < 50.0,
+            "golpe en {h}, se esperaba en {at}"
+        );
+    }
+    let _ = b.out_rate;
+}
+
+#[test]
+fn a_seek_fades_and_continues_from_there() {
+    let mut b = Bench::new(1, 44_100);
+    b.play();
+    b.run(10_000);
+    b.seek(MARKS[2] as u64 - 1_000);
+    let out = b.run(20_000);
+    // el golpe de MARKS[2] llega mil muestras despues de que entre lo nuevo,
+    // que tarda lo que baja la envolvente y una vuelta de la salida (aqui el
+    // anillo estaba lleno de lo viejo y se rellena entre llamadas; en la app
+    // lo rellena el hilo que decodifica al momento)
+    let hits = music_hits(&out);
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert!(
+        (1_000..1_000 + 132 + 512 + 256).contains(&hits[0]),
+        "{hits:?}"
+    );
+    let start = music(&out)
+        .iter()
+        .enumerate()
+        .skip(140)
+        .find(|(_, v)| v.abs() > 1e-4)
+        .map(|(i, _)| i);
+    let start = start.expect("vuelve a sonar");
+    assert!(
+        hits[0].abs_diff(start + 1_000) <= 40,
+        "entra en {start}, golpe en {}",
+        hits[0]
+    );
+    // ningun salto brusco entre muestras: baja y sube
+    let m = music(&out);
+    let worst = m[..900]
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0f32, f32::max);
+    assert!(worst < 0.05, "{worst}");
+}
+
+#[test]
+fn pausing_fades_out_and_stays_silent() {
+    let mut b = Bench::new(1, 44_100);
+    b.play();
+    b.run(6_000);
+    b.controls.playing.store(false, Ordering::Release);
+    let out = b.run(4_000);
+    let m = music(&out);
+    assert!(
+        m[..40].iter().any(|v| v.abs() > 0.01),
+        "sigue sonando al principio"
+    );
+    assert!(
+        m[200..].iter().all(|v| v.abs() < 1e-6),
+        "callado tras la envolvente"
+    );
+    let worst = m
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0f32, f32::max);
+    assert!(worst < 0.05, "{worst}");
+}
+
+#[test]
+fn the_count_in_counts_a_bar_and_the_song_enters_on_the_beat() {
+    // pulsos cada medio segundo desde 0,1: desde el principio, cuatro golpes
+    // de cuenta acabando donde caeria el pulso de 0,1 (que ya es cancion)
+    let mut b = Bench::new(1, 44_100);
+    let beats: Vec<f64> = (0..4).map(|k| 0.1 + 0.5 * f64::from(k)).collect();
+    b.click(beats, 4);
+    b.controls.count_in.store(1, Ordering::Release);
+    b.controls.count_request.store(true, Ordering::Release);
+    b.play();
+    let out = b.run(44_100 * 3);
+    let clicks = onsets(&click(&out), 0.05, 2_000);
+    let expected: Vec<usize> = (0..6).map(|k| k * 22_050).collect();
+    assert!(clicks.len() >= 6, "{clicks:?}");
+    for (c, e) in clicks.iter().zip(&expected) {
+        assert!(c.abs_diff(*e) <= 150, "{clicks:?} vs {expected:?}");
+    }
+    // la cancion entra a 1,9 s: su primer golpe (MARKS[0], 0,1 s) cae a los 2 s
+    let hits = music_hits(&out);
+    assert!(hits[0].abs_diff(83_790 + MARKS[0]) <= 200, "{hits:?}");
+}
+
+#[test]
+fn a_segment_loops_and_its_beat_clicks_every_time() {
+    let mut b = Bench::new(1, 44_100);
+    b.click(vec![MARKS[1] as f64 / 44_100.0], 0);
+    b.feeder.set_segments(vec![(20_000, 40_000)]);
+    b.play();
+    let out = b.run(70_000);
+    // tres vueltas y media: el golpe y su clic en cada una
+    let hits = music_hits(&out);
+    let clicks = onsets(&click(&out), 0.05, 2_000);
+    assert!(hits.len() >= 3, "{hits:?}");
+    assert_eq!(hits.len(), clicks.len(), "{hits:?} {clicks:?}");
+    for w in hits.windows(2) {
+        assert!((w[1] - w[0]).abs_diff(20_000) <= 300, "{hits:?}");
+    }
+    for (c, h) in clicks.iter().zip(&hits) {
+        assert!(c.abs_diff(*h) <= 40, "{clicks:?} {hits:?}");
+    }
+}
+
+#[test]
+fn at_the_end_it_stops_by_itself() {
+    let mut b = Bench::new(1, 44_100);
+    b.seek(80_000);
+    b.play();
+    b.run(20_000);
+    assert!(b.controls.ended.load(Ordering::Acquire));
+    assert!(!b.controls.playing.load(Ordering::Acquire));
+    let _ = &b.shared;
+}
