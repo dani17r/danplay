@@ -147,6 +147,11 @@ watch(query, () => {
   searchTimer = setTimeout(load, 200)
 })
 
+// el menú relee las listas y las favoritas al abrirse: que cuente lo de ahora
+watch(menuOpen, (open) => {
+  if (open) loadLists()
+})
+
 function go(v) {
   menuOpen.value = false
   editing.value = false

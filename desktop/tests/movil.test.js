@@ -212,6 +212,8 @@ describe('el menú de lado y las listas', () => {
     await w.find('[aria-label="Abrir el menú"]').trigger('click')
     await flushPromises()
     const nav = document.querySelector('.m-nav')
+    // al abrirse relee las listas (y las favoritas)
+    expect(held.api.playlists).toHaveBeenCalledTimes(2)
     expect(nav.textContent).toContain('Favoritas')
     expect(nav.textContent).toContain('Domingo')
     expect(nav.textContent).toContain('Ajustes')
