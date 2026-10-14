@@ -422,6 +422,7 @@ mod tests {
         let dir = folder("tramo");
         let e = Engine::offline(44_100);
         e.load(&dir).expect("carga");
+        e.seek(0.5);
         e.set_segments(&[(0.5, 1.0)]);
         settle();
         e.play();

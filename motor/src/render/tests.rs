@@ -314,9 +314,12 @@ fn a_segment_loops_and_its_beat_clicks_every_time() {
     b.click(vec![MARKS[1] as f64 / 44_100.0], 0);
     b.feeder.set_segments(vec![(20_000, 40_000)]);
     b.play();
-    let out = b.run(70_000);
-    // tres vueltas y media: el golpe y su clic en cada una
-    let hits = music_hits(&out);
+    let out = b.run(100_000);
+    // llega al tramo sonando (con el primer golpe de la cancion, antes del
+    // tramo y sin clic) y da cuatro vueltas: el golpe y su clic en cada una
+    let all = music_hits(&out);
+    assert!(all[0].abs_diff(MARKS[0]) <= 40, "{all:?}");
+    let hits: Vec<usize> = all.into_iter().filter(|&h| h >= 20_000).collect();
     let clicks = onsets(&click(&out), 0.05, 2_000);
     assert!(hits.len() >= 3, "{hits:?}");
     assert_eq!(hits.len(), clicks.len(), "{hits:?} {clicks:?}");

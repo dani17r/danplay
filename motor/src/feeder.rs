@@ -127,33 +127,32 @@ impl Feeder {
         self.ended = false;
     }
 
-    /// Tramos nuevos. Si lo que ya hay decodificado por delante sigue valiendo
-    /// (va seguido desde lo que suena y no pasa del final del tramo), se
-    /// sigue sin cortar; si no, se salta: a lo que suena si cae dentro de un
-    /// tramo, o al principio del siguiente.
+    /// Tramos nuevos. Como en la PC, no mueven la cancion: un tramo entra
+    /// cuando la cancion esta (o llega) dentro, y con tramos la cancion no se
+    /// acaba (al final vuelve al primero). Si lo que ya hay decodificado por
+    /// delante sigue valiendo (va seguido desde lo que suena y no cruza el
+    /// final de un tramo que ahora salta), se sigue sin cortar; si no, se
+    /// vuelve a decodificar desde lo que suena.
     pub fn set_segments(&mut self, list: Vec<(u64, u64)>) {
-        let list: Vec<(u64, u64)> = list
+        let mut list: Vec<(u64, u64)> = list
             .into_iter()
             .map(|(a, b)| (a.min(self.len), b.min(self.len)))
             .filter(|(a, b)| b > a)
             .collect();
+        list.sort_unstable();
         let played = if self.shared.consumed_gen.load(Ordering::Acquire) == self.generation {
             self.shared.consumed_frame.load(Ordering::Acquire)
         } else {
             self.shared.target.load(Ordering::Acquire)
         };
         self.segments = list;
-        if self.segments.is_empty() {
-            return; // sin tramos: lo decodificado sigue valiendo
-        }
-        match self.segment_at(played) {
-            Some((_, b))
-                if self.contiguous_from <= played && played <= self.pos && self.pos <= b => {}
-            Some(_) => self.seek(played),
-            None => {
-                let next = self.next_segment_start(played);
-                self.seek(next);
-            }
+        let crosses = self
+            .segments
+            .iter()
+            .any(|&(_, b)| self.jump_target(b) != b && played < b && b < self.pos);
+        let ahead_ok = self.contiguous_from <= played && played <= self.pos;
+        if crosses || !ahead_ok || (self.ended && !self.segments.is_empty()) {
+            self.seek(played);
         }
     }
 
@@ -164,15 +163,13 @@ impl Feeder {
             .find(|&(a, b)| a <= frame && frame < b)
     }
 
-    /// El principio del siguiente tramo despues de `frame`, o del primero.
-    fn next_segment_start(&self, frame: u64) -> u64 {
+    /// El principio del siguiente tramo despues de `frame`, si hay.
+    fn next_segment_start(&self, frame: u64) -> Option<u64> {
         self.segments
             .iter()
             .map(|s| s.0)
-            .filter(|&a| a >= frame)
+            .filter(|&a| a > frame)
             .min()
-            .or_else(|| self.segments.first().map(|s| s.0))
-            .unwrap_or(frame)
     }
 
     /// Ya no hay nada que escribir (el final, sin tramos).
@@ -183,19 +180,20 @@ impl Feeder {
     /// Llena el bloque con lo que sigue.
     pub fn fill(&mut self, block: &mut Block) {
         let n_parts = self.parts.len();
-        // dentro de un tramo, hasta su final; fuera de ellos, al siguiente
+        // dentro de un tramo, hasta su final (ahi se salta al siguiente);
+        // fuera de ellos, seguido hasta donde empieza el proximo, que entra
+        // sin saltar
         let mut seam = None;
+        let mut limit = self.len;
         if !self.segments.is_empty() {
             if let Some((_, b)) = self.segment_at(self.pos) {
                 seam = Some(b);
-            } else {
-                let next = self.next_segment_start(self.pos);
-                self.jump(next);
-                self.landed = Some(next);
-                seam = self.segment_at(next).map(|s| s.1);
+                limit = b;
+            } else if let Some(a) = self.next_segment_start(self.pos) {
+                limit = a;
             }
         }
-        let limit = seam.unwrap_or(self.len).min(self.len);
+        let limit = limit.min(self.len);
         let frames = (limit.saturating_sub(self.pos) as usize).min(BLOCK);
         block.generation = self.generation;
         block.start = self.pos;
@@ -247,8 +245,14 @@ impl Feeder {
                 self.landed = Some(next);
             }
         } else if self.pos >= self.len {
-            block.last = true;
-            self.ended = true;
+            // con tramos la cancion no se acaba: al final, al primero
+            if let Some(&(a, _)) = self.segments.first() {
+                self.jump(a);
+                self.landed = Some(a);
+            } else {
+                block.last = true;
+                self.ended = true;
+            }
         }
     }
 
@@ -371,9 +375,12 @@ mod tests {
     fn a_segment_repeats_with_a_fade_at_the_seam() {
         let mut f = feeder(1);
         f.set_segments(vec![(10_000, 20_000)]);
-        // fuera del tramo al pedirlo: salta a su principio
-        let blocks = run_blocks(&mut f, 30);
-        assert_eq!(blocks[0].1, 10_000);
+        // antes del tramo al pedirlo: no salta, llega a el sonando
+        let blocks = run_blocks(&mut f, 40);
+        assert_eq!(blocks[0].1, 0);
+        let entered = blocks.iter().position(|b| b.1 == 10_000).expect("entra");
+        assert!(blocks[..entered].iter().all(|b| b.1 + b.2 as u64 <= 10_000));
+        let blocks = &blocks[entered..];
         let starts: Vec<u64> = blocks.iter().map(|b| b.1).collect();
         // llega al final del tramo y vuelve a empezar, sin pasarse
         assert!(
@@ -396,6 +403,7 @@ mod tests {
     #[test]
     fn segments_in_a_row_play_one_after_the_other() {
         let mut f = feeder(1);
+        f.seek(5_000);
         f.set_segments(vec![(5_000, 8_000), (30_000, 32_000)]);
         let blocks = run_blocks(&mut f, 12);
         let mut ranges: Vec<(u64, u64)> = Vec::new();
@@ -419,9 +427,23 @@ mod tests {
         let generation = f.generation;
         f.set_segments(vec![(0, 60_000)]);
         assert_eq!(f.generation, generation, "no hacia falta saltar");
-        // uno que deja fuera lo ya escrito obliga a saltar a lo que suena
+        // uno que acaba dentro de lo ya escrito obliga a decodificar otra vez
+        // desde lo que suena (lo escrito pasaba de largo su final)
         f.set_segments(vec![(0, 2_000)]);
         assert_eq!(f.generation, generation + 1);
         assert_eq!(f.shared.target.load(Ordering::Acquire), 1_000);
+    }
+
+    #[test]
+    fn past_the_segments_the_song_comes_back_to_the_first_at_the_end() {
+        let mut f = feeder(1);
+        f.seek(80_000);
+        f.set_segments(vec![(10_000, 20_000)]);
+        // sigue sonando lo que sonaba, hasta el final, y vuelve al tramo
+        let blocks = run_blocks(&mut f, 12);
+        assert_eq!(blocks[0].1, 80_000);
+        assert!(blocks.iter().any(|b| b.1 + b.2 as u64 == 88_200));
+        assert!(blocks.iter().any(|b| b.1 == 10_000));
+        assert!(!f.ended());
     }
 }
