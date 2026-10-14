@@ -8,7 +8,7 @@
 //! metronomo durante `IDLE_RELEASE`, se suelta; la cancion en pausa se
 //! recuerda donde iba y, al volver a darle, se abre ahi.
 use super::fade::Shape;
-use super::metro::{self, Click, Metro, Replan};
+use super::metro::{self, Click, CountInExt, Metro, Replan};
 use super::mix::{StemSet, StemTrack};
 use super::open::{self, Recipe, Song};
 use super::output::{self, Output};

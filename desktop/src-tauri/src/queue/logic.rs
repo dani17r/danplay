@@ -3,53 +3,11 @@
 //!
 //! Se saca aparte porque es justo la parte que se puede equivocar y la unica
 //! que se puede probar sin tarjeta de sonido.
-use super::model::{Inner, PlaybackState, Repeat, Track};
+use super::model::{Inner, PlaybackState, Track};
 use crate::player;
 use std::collections::HashMap;
 
-/// A donde lleva pulsar «siguiente» o «anterior» a mano.
-///
-/// A mano siempre se mueve, aunque sea el final: dar la vuelta es mas util
-/// que no responder. Devuelve None solo si la cola esta vacia.
-pub fn step_index(length: usize, index: usize, delta: i32) -> Option<usize> {
-    if length == 0 {
-        return None;
-    }
-    let last = length as i32 - 1;
-    let mut target = index as i32 + delta;
-    if target > last {
-        target = 0;
-    }
-    if target < 0 {
-        target = last;
-    }
-    Some(target as usize)
-}
-
-/// Que suena cuando una cancion se acaba **sola**. `None` = se para.
-///
-/// Pulsar «siguiente» a mano siempre avanza; esto solo gobierna el automatico,
-/// que es donde importan los modos de repeticion.
-pub fn after_end(length: usize, index: usize, repeat: Repeat, shuffle: bool) -> Option<usize> {
-    if length == 0 {
-        return None;
-    }
-    match repeat {
-        Repeat::Once => None,
-        Repeat::One => Some(index),
-        Repeat::List | Repeat::Queue => {
-            if shuffle {
-                return Some(index); // el azar lo resuelve quien llama
-            }
-            let last = length - 1;
-            if index >= last {
-                if repeat == Repeat::Queue { None } else { Some(0) }
-            } else {
-                Some(index + 1)
-            }
-        }
-    }
-}
+pub use danplay_motor::queue::{after_end, step_index};
 
 /// Otra cancion al azar, nunca la que ya suena (salvo que sea la unica).
 pub(super) fn random_other(length: usize, index: usize) -> usize {

@@ -15,9 +15,14 @@
 //! - `output`: la salida de audio (cpal);
 //! - `engine`: todo junto, lo que llama la app.
 //!
-//! Sin la funcion `motor` solo queda `click` (el sonido del clic), que es lo
-//! que usa la app de escritorio.
+//! Sin la funcion `motor` quedan solo `beats` (el pulso y el compas de una
+//! cancion, y su rejilla), `metro` (los ajustes del metronomo y como va),
+//! `queue` (la cola y lo que ve la interfaz) y `click` (el sonido del clic), que son lo que usa tambien la app de
+//! escritorio.
+pub mod beats;
 pub mod click;
+pub mod metro;
+pub mod queue;
 
 #[cfg(feature = "motor")]
 pub mod bundle;

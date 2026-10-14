@@ -1,7 +1,6 @@
 //! Lo que el hilo de audio cuenta hacia fuera: el estado de la reproduccion
 //! y los ajustes del metronomo.
-use crate::metronome::Sound;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Hasta donde sube el volumen de la cancion: un 50 % por encima de como
@@ -69,54 +68,9 @@ impl State {
     }
 }
 
-/// Los ajustes del metronomo que manda la interfaz. Lo que va en `None` lo
-/// decide la rejilla de la cancion; lo demas manda sobre ella.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-pub struct MetronomeSettings {
-    pub on: bool,
-    /// Tempo a mano, con decimales. Con el, el clic va a su aire (no se puede
-    /// seguir la cancion a otro tempo que el suyo), aunque entra a tiempo con
-    /// ella (ver `metro::plan`).
-    pub bpm: Option<f32>,
-    /// Compas a mano: de 2 a 12 pulsos, o 0 para ninguno acentuado.
-    pub meter: Option<u8>,
-    /// Correr el «1» tantos pulsos (positivo: el siguiente pasa a ser el 1).
-    pub shift: i32,
-    /// -1: la mitad de clics; 1: el doble (para ir a corcheas en una lenta, o
-    /// cuando el tempo salio a la mitad). Vale con tempo a mano tambien.
-    pub mult: i8,
-    /// 0..2: hasta el doble de fuerte.
-    pub volume: f32,
-    /// Como suena el clic.
-    #[serde(default)]
-    pub sound: Sound,
-    /// Compases de cuenta al darle a play con la cancion en pausa (0, 1 o
-    /// 2): el clic cuenta y la cancion entra donde caeria el siguiente.
-    #[serde(default)]
-    pub count_in: u8,
-}
-
-/// Como va el metronomo, para la interfaz.
-#[derive(Clone, Debug, Default, Serialize, PartialEq)]
-pub struct MetronomeState {
-    pub on: bool,
-    /// El tempo nominal: el de la rejilla (ya ajustada) o el puesto a mano,
-    /// con el doble o la mitad ya aplicados. Siguiendo la cancion, el que se
-    /// oye es este por la velocidad.
-    pub bpm: f32,
-    pub meter: u8,
-    pub shift: i32,
-    pub mult: i8,
-    pub volume: f32,
-    /// Hay rejilla para la cancion que suena.
-    pub has_grid: bool,
-    /// Va libre: sin rejilla o con tempo a mano. Si no, sigue la cancion.
-    pub free: bool,
-    /// Cuanto se fia el analisis del «1» (0..1).
-    pub confidence: f32,
-    pub sound: Sound,
-    pub count_in: u8,
-}
+// Los ajustes y el estado del metronomo viven en el crate compartido, igual
+// que en la app del celular.
+pub use danplay_motor::metro::{MetronomeSettings, MetronomeState};
 
 /// El estado compartido, aunque un panic lo dejara envenenado: solo se
 /// guardan copias, asi que lo que hay dentro siempre esta entero.

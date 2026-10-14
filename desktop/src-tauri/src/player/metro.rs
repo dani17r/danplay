@@ -1,103 +1,26 @@
 //! El metronomo visto desde el hilo de audio: sus ajustes, la rejilla de la
 //! cancion que suena y el plan que se le deja al clic.
 use super::output::Output;
-use super::state::{MetronomeSettings, MetronomeState};
-use crate::beats::{BeatGrid, normal_meter};
 use crate::metronome::{self, Mode};
 use rodio::Player;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// Hasta donde sube el clic: el doble de lo normal. Lo que la suma con la
-/// cancion se pase de la salida lo recoge el limitador (`output.rs`).
-pub(super) const MAX_VOLUME: f32 = 2.0;
+pub(super) use danplay_motor::metro::{MAX_BPM, MAX_COUNT_IN, MAX_VOLUME, MIN_BPM, Metro};
 
-/// El tempo sin rejilla ni tempo a mano.
-const DEFAULT_BPM: f32 = 100.0;
-
-/// Entre que tempos puede ir el clic, ya con el doble o la mitad.
-const MIN_BPM: f32 = 10.0;
-const MAX_BPM: f32 = 600.0;
-
-#[derive(Default)]
-pub(super) struct Metro {
-    pub(super) settings: MetronomeSettings,
-    /// La rejilla tal cual salio del analisis, y de que archivo es.
-    pub(super) base: Option<(String, Arc<BeatGrid>)>,
-    /// La rejilla con los ajustes puestos (compas, «1» corrido, doble/mitad).
-    effective: Option<Arc<BeatGrid>>,
+/// La cuenta de la PC (sobre rodio): se le pide al metronomo como a un
+/// metodo suyo.
+pub(super) trait CountInExt {
+    fn count_in(&self, position: f64, speed: f32) -> Option<CountIn>;
 }
 
-impl Metro {
-    /// Ajustes nuevos, y la rejilla de `grid` si llega una.
-    pub(super) fn set(&mut self, settings: MetronomeSettings, grid: Option<(String, Arc<BeatGrid>)>, path: &str) {
-        self.settings = settings;
-        if grid.is_some() {
-            self.base = grid;
-        }
-        self.rebuild(path);
-    }
-
-    pub(super) fn rebuild(&mut self, path: &str) {
-        self.effective = self.base.as_ref().filter(|(p, _)| p == path).map(|(_, g)| {
-            let s = &self.settings;
-            let mut g = match s.mult {
-                1 => g.doubled(),
-                -1 => g.halved(),
-                _ => (**g).clone(),
-            };
-            if let Some(m) = s.meter {
-                g = g.with_meter(m);
-            }
-            Arc::new(g.shifted(s.shift))
-        });
-    }
-
-    /// ¿Sigue la cancion, o va libre?
-    pub(super) fn follows(&self) -> bool {
-        self.settings.on && self.settings.bpm.is_none() && self.effective.is_some()
-    }
-
-    /// El doble o la mitad. Vale tambien para el tempo a mano: antes solo
-    /// cambiaba la rejilla, y con un tempo puesto ×2 no hacia nada.
-    fn mult_factor(&self) -> f32 {
-        match self.settings.mult {
-            1 => 2.0,
-            -1 => 0.5,
-            _ => 1.0,
-        }
-    }
-
-    pub(super) fn state(&self) -> MetronomeState {
-        let s = &self.settings;
-        let g = self.effective.as_ref();
-        let bpm = match (s.bpm, g) {
-            (Some(bpm), _) => bpm * self.mult_factor(),
-            // la rejilla ya lleva el doble o la mitad
-            (None, Some(g)) => g.bpm,
-            (None, None) => DEFAULT_BPM * self.mult_factor(),
-        };
-        MetronomeState {
-            on: s.on,
-            bpm,
-            meter: s.meter.map(normal_meter).or(g.map(|g| g.meter)).unwrap_or(4),
-            shift: s.shift,
-            mult: s.mult,
-            volume: s.volume,
-            has_grid: g.is_some(),
-            free: !self.follows(),
-            confidence: g.map_or(0.0, |g| g.confidence),
-            sound: s.sound,
-            count_in: s.count_in.min(MAX_COUNT_IN),
-        }
-    }
-
+impl CountInExt for Metro {
     /// La cuenta para que entre la cancion que esta en `position`, si hay
     /// que contar: los golpes van al tempo y en el compas de la cancion
     /// (los de su rejilla alrededor de ahi), y acaban justo donde caeria el
     /// siguiente, que es su proximo pulso. Sin rejilla, al tempo del
     /// metronomo, y la cancion entra al acabar la cuenta.
-    pub(super) fn count_in(&self, position: f64, speed: f32) -> Option<CountIn> {
+    fn count_in(&self, position: f64, speed: f32) -> Option<CountIn> {
         let bars = u32::from(self.settings.count_in.min(MAX_COUNT_IN));
         if bars == 0 {
             return None;
@@ -139,9 +62,6 @@ impl Metro {
         })
     }
 }
-
-/// Hasta cuantos compases de cuenta.
-pub(super) const MAX_COUNT_IN: u8 = 2;
 
 /// Una cuenta: sus golpes (`count`, a `period` segundos de reloj, el primero
 /// a `delay` y siendo el tiempo `first` de un compas de `meter`) y cuando
@@ -284,6 +204,8 @@ pub(super) fn ensure_click(output: &Output, click: &mut Option<Click>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::beats::BeatGrid;
+    use crate::player::MetronomeSettings;
 
     /// Una rejilla de 120 bpm en 4/4, un pulso cada medio segundo desde 0,25.
     fn metro(settings: MetronomeSettings) -> Metro {

@@ -33,7 +33,7 @@ mod state;
 mod tests;
 
 pub use mix::StemTrack;
-pub use state::{MetronomeSettings, MetronomeState, State};
+pub use state::{MetronomeSettings, State};
 
 use crate::beats::BeatGrid;
 use state::lock;

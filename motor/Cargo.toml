@@ -8,12 +8,17 @@ description = "El motor de pistas de la app del celular: las partes de una canci
 [features]
 default = ["motor"]
 # Todo el motor: abrir el .danpista, decodificar, mezclar, estirar y sonar.
-# Sin ella queda solo el sonido del clic, que es lo que comparte la app de
-# escritorio (asi suena igual en los dos sitios y no compila nada de esto).
-motor = ["dep:symphonia", "dep:cpal", "dep:rtrb", "dep:zip", "dep:serde_json", "dep:cc"]
+# Sin ella queda lo que comparte con la app de escritorio (el pulso y su
+# rejilla, el metronomo, la cola y el sonido del clic): asi la PC y el
+# celular hacen y cuentan lo mismo, y la PC no compila nada del resto.
+motor = ["dep:symphonia", "dep:cpal", "dep:rtrb", "dep:zip", "dep:cc"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+# `origin` del estado de la cola: lo que la interfaz pasa, opaco.
+serde_json = "1"
+# El pulso de una cancion: la envolvente de ataques sale de una FFT por trama.
+rustfft = "6.2"
 # Solo Vorbis (lo que lleva el .danpista) y MP3 (si el ffmpeg de la PC no
 # sabia hacer Vorbis): los dos empiezan en la muestra exacta. Medido:
 # AAC llega 1024 muestras tarde con symphonia, y el clic se iria.
@@ -21,7 +26,6 @@ symphonia = { version = "0.6", optional = true, default-features = false, featur
 cpal = { version = "0.17", optional = true }
 rtrb = { version = "0.4", optional = true }
 zip = { version = "8", optional = true, default-features = false, features = ["deflate-flate2-zlib-rs"] }
-serde_json = { version = "1", optional = true }
 
 [build-dependencies]
 cc = { version = "1", optional = true }
@@ -30,5 +34,4 @@ cc = { version = "1", optional = true }
 workspace = true
 
 [dev-dependencies]
-serde_json = "1"
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
