@@ -9,6 +9,7 @@
 //!
 //! Los ids son numeros, como los de la PC: un resumen estable del nombre de
 //! la carpeta (que ya es estable: la misma cancion, la misma carpeta).
+use crate::listas::Listas;
 use danplay_motor::bundle::{self, Summary};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -25,6 +26,8 @@ pub struct Library {
     index: Mutex<HashMap<i64, String>>,
     /// Cuantas veces ha cambiado (la interfaz refresca al verlo cambiar).
     revision: Mutex<u64>,
+    /// Las listas (el repertorio del domingo...), ver `listas.rs`.
+    pub listas: Listas,
 }
 
 /// El id numerico de una carpeta: FNV-1a, positivo y nunca cero.
@@ -44,6 +47,7 @@ fn text(v: &Value, key: &str) -> String {
 impl Library {
     pub fn new(dir: PathBuf) -> Library {
         let lib = Library {
+            listas: Listas::new(&dir),
             dir,
             index: Mutex::new(HashMap::new()),
             revision: Mutex::new(1),
@@ -65,15 +69,18 @@ impl Library {
         *self.revision.lock().unwrap_or_else(PoisonError::into_inner) += 1;
     }
 
-    /// La carpeta de la pista `id`.
-    pub fn folder(&self, id: i64) -> Option<PathBuf> {
-        let name = self
-            .index
+    /// El nombre de la carpeta de la pista `id` (lo que guardan las listas).
+    pub fn folder_name(&self, id: i64) -> Option<String> {
+        self.index
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(&id)
-            .cloned()?;
-        bundle::folder(&self.dir, &name)
+            .cloned()
+    }
+
+    /// La carpeta de la pista `id`.
+    pub fn folder(&self, id: i64) -> Option<PathBuf> {
+        bundle::folder(&self.dir, &self.folder_name(id)?)
     }
 
     /// Importa un `.danpista` (ver `motor::bundle::import`).
@@ -175,6 +182,9 @@ impl Library {
                     .unwrap_or_default()
             );
             song["study"] = json!(study.map(|v| v.to_string()).unwrap_or_default());
+            if let Some(name) = self.folder_name(id) {
+                song["playlists"] = json!(self.listas.names_with(&name));
+            }
         }
         Some(song)
     }

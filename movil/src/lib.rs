@@ -16,6 +16,7 @@
 //! sin hacer nada o con un «aqui no», y la interfaz lo esconde.
 mod api;
 mod library;
+mod listas;
 mod player;
 mod theory;
 

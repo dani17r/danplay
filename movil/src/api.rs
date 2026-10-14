@@ -11,6 +11,28 @@ use crate::library::Library;
 use crate::theory;
 use serde_json::{Value, json};
 
+/// Las canciones de una lista que están en el celular, en su orden.
+fn list_songs(lib: &Library, folders: &[String]) -> Vec<Value> {
+    folders
+        .iter()
+        .filter_map(|f| lib.song(crate::library::numeric_id(f), true))
+        .collect()
+}
+
+/// Las carpetas de los ids que manda la interfaz (`{"ids": [...]}`), sin las
+/// que ya no están.
+fn folders_of(lib: &Library, body: &Value) -> Vec<String> {
+    body.get("ids")
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_i64)
+                .filter_map(|i| lib.folder_name(i))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Lo que no hay en el celular.
 const NOT_HERE: &str =
     "en el celular no se puede: hazlo en DanPlay de la PC y vuelve a traer la pista";
@@ -122,7 +144,75 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
             Ok(json!({"total": lib.songs().len(), "count": count, "songs": songs}))
         }
         ("GET", ["facets"]) => Ok(json!({"artists": [], "keys": [], "genres": [], "years": []})),
-        ("GET", ["playlists"]) => Ok(json!({"playlists": [], "favorites": 0})),
+        ("GET", ["playlists"]) => {
+            let songs = lib.songs();
+            let favorites = songs.iter().filter(|s| s["favorite"] == json!(true)).count();
+            let lists: Vec<Value> = lib
+                .listas
+                .all()
+                .iter()
+                .map(|l| {
+                    let shown = list_songs(lib, &l.songs);
+                    let duration: f64 = shown
+                        .iter()
+                        .filter_map(|s| s["duration"].as_f64())
+                        .sum();
+                    json!({"id": l.id, "name": l.name, "n": shown.len(), "seconds": duration})
+                })
+                .collect();
+            Ok(json!({"playlists": lists, "favorites": favorites}))
+        }
+        ("POST", ["playlists"]) => {
+            let name = body.get("name").and_then(Value::as_str).unwrap_or("");
+            let l = lib.listas.create(name).map_err(|e| (422, e))?;
+            Ok(json!({"id": l.id, "name": l.name, "created": true}))
+        }
+        ("PATCH", ["playlists", _]) => {
+            let name = body.get("name").and_then(Value::as_str).unwrap_or("");
+            let l = lib
+                .listas
+                .rename(id(1).ok_or_else(missing)?, name)
+                .map_err(|e| (422, e))?;
+            Ok(json!({"id": l.id, "name": l.name, "n": l.songs.len()}))
+        }
+        ("DELETE", ["playlists", _]) => {
+            lib.listas
+                .remove(id(1).ok_or_else(missing)?)
+                .map_err(|e| (404, e))?;
+            Ok(json!({"ok": true}))
+        }
+        ("GET", ["playlists", _, "songs"]) => {
+            let l = lib
+                .listas
+                .get(id(1).ok_or_else(missing)?)
+                .ok_or((404, "esa lista ya no está".to_string()))?;
+            Ok(json!({"id": l.id, "name": l.name, "songs": list_songs(lib, &l.songs)}))
+        }
+        ("POST", ["playlists", _, "songs"]) => {
+            let folders = folders_of(lib, &body);
+            let (added, count) = lib
+                .listas
+                .add(id(1).ok_or_else(missing)?, &folders)
+                .map_err(|e| (404, e))?;
+            Ok(json!({"added": added, "count": count}))
+        }
+        ("PUT", ["playlists", _, "songs"]) | ("POST", ["playlists", _, "order"]) => {
+            let count = lib
+                .listas
+                .set(id(1).ok_or_else(missing)?, folders_of(lib, &body))
+                .map_err(|e| (404, e))?;
+            Ok(json!({"ok": true, "count": count}))
+        }
+        ("DELETE", ["playlists", _, "songs", _]) => {
+            let folder = lib
+                .folder_name(id(3).ok_or_else(missing)?)
+                .ok_or_else(missing)?;
+            let count = lib
+                .listas
+                .take_out(id(1).ok_or_else(missing)?, &folder)
+                .map_err(|e| (404, e))?;
+            Ok(json!({"ok": true, "count": count}))
+        }
         ("GET", ["separate"]) => Ok(json!({
             "ok": false,
             "reason": "en el celular no se separa: se separa en la PC y se trae aquí",
@@ -216,5 +306,31 @@ mod tests {
         let status = handle(&lib, "GET", "/api/status", None).expect("estado");
         assert_eq!(status["stats"]["total"], json!(0));
         assert!(handle(&lib, "GET", "/api/song/123", None).is_err());
+    }
+
+    #[test]
+    fn lists_are_made_filled_and_emptied_through_the_bridge() {
+        let dir = std::env::temp_dir().join(format!("danplay-movil-listas-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("carpeta");
+        let lib = Library::new(dir);
+        let made = handle(&lib, "POST", "/api/playlists", Some(r#"{"name":"Domingo"}"#))
+            .expect("crear");
+        let id = made["id"].as_i64().expect("id");
+        let all = handle(&lib, "GET", "/api/playlists", None).expect("listas");
+        assert_eq!(all["playlists"][0]["name"], json!("Domingo"));
+        assert_eq!(all["playlists"][0]["n"], json!(0));
+        // una pista que no está no entra
+        let added = handle(&lib, "POST", &format!("/api/playlists/{id}/songs"), Some(r#"{"ids":[7]}"#))
+            .expect("añadir");
+        assert_eq!(added["added"], json!(0));
+        let renamed = handle(&lib, "PATCH", &format!("/api/playlists/{id}"), Some(r#"{"name":"Jueves"}"#))
+            .expect("renombrar");
+        assert_eq!(renamed["name"], json!("Jueves"));
+        let songs = handle(&lib, "GET", &format!("/api/playlists/{id}/songs"), None).expect("canciones");
+        assert_eq!(songs["songs"], json!([]));
+        assert!(handle(&lib, "POST", "/api/playlists", Some(r#"{"name":" "}"#)).is_err());
+        handle(&lib, "DELETE", &format!("/api/playlists/{id}"), None).expect("borrar");
+        assert!(handle(&lib, "GET", &format!("/api/playlists/{id}/songs"), None).is_err());
     }
 }
