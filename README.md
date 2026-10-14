@@ -379,6 +379,12 @@ la misma canción se actualiza sin perderlo.
 Por ahora hay app para **Android** (8 o más nuevo). La de iPhone está
 preparada pero falta compilarla en un Mac y firmarla con Apple.
 
+**Instalarla** (también en los teléfonos de la banda): manda
+`DanPlay-Pistas-X.Y.Z-android.apk` por WhatsApp o Drive, tócalo en el
+teléfono y acepta. Android pregunta la primera vez si dejas instalar apps
+desde esa aplicación («Instalar apps desconocidas»): sí, solo para esa. Las
+versiones nuevas se instalan igual, encima, sin perder las pistas.
+
 ## Formatos
 
 Lee, organiza y **reproduce** `.mp3`, `.flac`, `.m4a`, `.wav`, `.ogg`,
