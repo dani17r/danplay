@@ -213,7 +213,7 @@ mod tests {
         assert_eq!(again.get(l.id).expect("sigue").songs, ["c", "a", "b"]);
         assert_eq!(again.names_with("a"), ["Domingo 19"]);
         assert_eq!(again.take_out(l.id, "a"), Ok(2));
-        assert!(again.names_with("a").is_empty());
+        assert_eq!(again.names_with("a"), Vec::<String>::new());
     }
 
     #[test]
