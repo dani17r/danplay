@@ -1471,12 +1471,25 @@ tipos de la cola y el sonido del clic. La app de escritorio los usa de ahí
 
 ### La misma interfaz
 
-El celular usa **la interfaz de la PC**: los mismos componentes y los mismos
-estilos, con otra entrada (`desktop/movil.html` → `src/movil/`). Un armazón
-pequeño (`MovilApp.vue`) junta la lista, el reproductor, el estudio y la
-ficha; lo que solo se puede en la PC (separar, guardar mezclas, buscar letra o
-acordes, editar el archivo, proyectar, las formas de la ventana) se esconde
-con `platform.js`.
+El celular usa **la interfaz de la PC**, con otra entrada
+(`desktop/movil.html` → `src/movil/`) y, desde 1.27, su propio armazón para
+los dedos: la cabecera con el menú de lado (`MovilMenu.vue`), la lista táctil
+(`MovilSongs.vue`: doble toque para sonar, un toque para elegir y enseñar los
+botones, mantener pulsado para las opciones; el doble toque se cuenta a mano
+con los `click`, porque el WebView de Android no siempre manda `dblclick`), el
+reproductor (`MovilPlayer.vue`: la barra baja, que se sube con el dedo para
+abrir el estudio, y el reproductor entero) y los ajustes (`MovilSettings.vue`).
+El estudio (`StudyBar`, `StudyTimeline`) y la ficha (`DetailsPanel`) son los
+de la PC, con ramas `isMobileApp` donde el teléfono cambia el contenido (la
+cabecera del estudio, «varios» y el candado fuera de la onda, el nombre de
+cada pista sobre su carril) y `styles/movil.css`, que solo carga esta app,
+para lo demás. Lo que solo se puede en la PC (separar, guardar mezclas, buscar
+letra o acordes, editar el archivo, proyectar, las formas de la ventana) se
+esconde con `platform.js`.
+
+La interfaz del celular se prueba en Chrome a tamaño de teléfono con un
+puente de Tauri falso (las órdenes del reproductor y el `api` en JS), y al
+final en el emulador con el APK de verdad.
 
 Para no tocar esa interfaz, la app (`movil/`) le contesta lo mismo que la de
 escritorio:
@@ -1489,6 +1502,10 @@ escritorio:
 - el puente **`api`**, que en la PC lleva a Python, lo contesta Rust
   (`movil/src/api.rs`) con las pistas importadas, con la misma forma que el
   núcleo; lo que en el celular no existe contesta 404 con el motivo;
+- las **listas** (`movil/src/listas.rs`): `.listas.json` junto a las pistas,
+  cada lista con las carpetas de sus canciones (estables: una pista que se
+  quita y se vuelve a traer vuelve a su sitio) y las mismas rutas y campos
+  que el núcleo (`n`, `seconds`);
 - el **cambio de tono de los acordes** (`theory.rs`, el de `theory.py` y
   `enrich.transpose_sheet` con las mismas pruebas);
 - el **pulso**: el de Beat This! que trae el `.danpista`; sin él, el análisis
@@ -1503,9 +1520,26 @@ escritorio:
   pasa a la página, que lo importa como con el botón.
 - **«Atrás»** cierra lo abierto (menú, ficha, estudio); si no queda nada, la
   app pasa a segundo plano y la música sigue.
-- Mientras suena, la pantalla no se apaga (la API Wake Lock del WebView).
+- Mientras suena, la pantalla no se apaga (la API Wake Lock del WebView; se
+  puede apagar en Ajustes).
+- **Los mandos de la bandeja** (y de la pantalla de bloqueo, los auriculares
+  y el reloj): una sesión multimedia en un servicio en primer plano de tipo
+  reproducción (`Reproduciendo.kt`). La página le cuenta qué suena por
+  `DanPlayAndroid.update` (`src/movil/mediaSession.js`, solo cuando cambia
+  algo o la posición salta; Android avanza la barra solo). Lo que se pulsa no
+  pasa por la página: va directo al reproductor en Rust por JNI
+  (`movil/src/mandos.rs`), así funciona con el WebView dormido, y la página se
+  entera por `danplay://state`. Quitar la app de recientes para la música y
+  quita la notificación.
+- **El icono** es adaptable: las barras de la onda en vector, dentro de la
+  zona segura de 66 dp, sobre el negro del logo, y la misma capa sirve de
+  icono temático. El tema arranca ya oscuro (sin fogonazo blanco).
+- **La versión** sale de `desktop/package.json` (`version` en
+  `movil/tauri.conf.json`): el código de versión es `mayor·10⁶ + menor·10³ +
+  parche`. Antes el APK decía 1.0 y código 1.
 - La versión que se entrega va **firmada siempre con la misma llave**
-  (`~/Android/claves/`, fuera del repositorio): un teléfono solo acepta una
+  (`~/Android/claves/`, fuera del repositorio) y con las tres firmas, v1, v2
+  y v3 (la v1 la miran algunos instaladores de marca): un teléfono solo acepta una
   actualización firmada como la que tiene. Si se pierde, la banda tendría que
   desinstalar y volver a instalar.
 

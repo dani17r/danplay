@@ -353,7 +353,7 @@ repertorio entero desde el suyo: van a una cola y se separan una detrás de
 otra mientras sigues usando la app. Primero la pasada rápida de todas, así
 el repertorio se puede ensayar cuanto antes, y luego las mejoras.
 
-## En el celular: DanPlay Pistas
+## En el celular
 
 Lo que separaste se estudia también en el teléfono, con la misma cara de
 DanPlay: cada parte con su volumen (callar la batería para tocar encima,
@@ -368,22 +368,33 @@ nada**: trae lo que ya hiciste en la PC.
 2. Queda un archivo `.danpista` por canción en `Celular/`, junto a
    `Separadas/` (entre 20 y 50 MB). La carpeta se abre sola.
 3. Mándalo al teléfono como quieras: WhatsApp, Drive, un cable.
-4. En el teléfono, tócalo y elige **DanPlay Pistas**, o ábrelo desde la app
-   con **Importar**.
+4. En el teléfono, tócalo y elige **DanPlay**, o ábrelo desde la app con
+   **Importar** (en el menú ☰).
 
 Viaja todo: las partes, el clic que calculó la PC, lo que dejaste puesto en
 el estudio (la mezcla, los tramos, los marcadores), la letra y el cifrado.
 Lo que cambies en el teléfono se queda en el teléfono, y si vuelves a traer
 la misma canción se actualiza sin perderlo.
 
+En el teléfono todo va con el dedo: **doble toque** en una canción la pone
+(un toque la elige y abre sus botones grandes), **deslizar hacia arriba** la
+barra del reproductor abre el modo estudio, y en el menú de lado (☰) están
+las favoritas, **tus listas** (la del domingo, en su orden) y los ajustes.
+Mientras suena, los mandos están en la **bandeja de Android** y en la
+pantalla de bloqueo, también con la app en segundo plano.
+
 Por ahora hay app para **Android** (8 o más nuevo). La de iPhone está
 preparada pero falta compilarla en un Mac y firmarla con Apple.
 
 **Instalarla** (también en los teléfonos de la banda): manda
-`DanPlay-Pistas-X.Y.Z-android.apk` por WhatsApp o Drive, tócalo en el
+`DanPlay-X.Y.Z-android.apk` por WhatsApp o Drive, tócalo en el
 teléfono y acepta. Android pregunta la primera vez si dejas instalar apps
 desde esa aplicación («Instalar apps desconocidas»): sí, solo para esa. Las
-versiones nuevas se instalan igual, encima, sin perder las pistas.
+versiones nuevas se instalan igual, encima, sin perder las pistas. Como no
+viene de Google Play, Play Protect puede avisar de que no conoce al
+desarrollador: «Más detalles» › «Instalar de todas formas». La app va
+firmada siempre con la misma llave; ese aviso solo desaparece publicándola
+en Google Play.
 
 ## Formatos
 

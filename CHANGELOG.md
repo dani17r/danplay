@@ -3,6 +3,52 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.27.0 — 2026-10-14
+
+La app del celular se rehace para los dedos: todo un poco más grande y con
+más aire, un menú de lado con tus listas y los ajustes, un reproductor nuevo,
+el modo estudio a la medida de la pantalla y los mandos en la bandeja de
+Android. Y se llama como la de la PC: **DanPlay**. Solo cambia el celular.
+
+### En el celular
+
+- **Poner una canción:** doble toque en ella. Con un toque se elige y abre
+  debajo sus botones grandes (Reproducir, Estudiar, Letra); la carátula
+  también la pone, y mantenerla pulsada (o su ⋮) da el resto de opciones. En
+  Ajustes se puede hacer que un toque baste.
+- **El reproductor:** abajo, una barra baja con la carátula, el título, sonar
+  y la siguiente. Tocándola se abre entero: la carátula grande, la barra de
+  tiempo para el dedo, saltos de 10 s, aleatorio, repetir, y el estudio, la
+  letra y la cola a mano. Se cierra con la flecha, con «atrás» o bajándolo.
+- **El modo estudio, más fácil:** desliza hacia arriba la barra del
+  reproductor y se abre; bájalo por su cabecera y se cierra. Ocupa toda la
+  pantalla, con la onda a todo lo ancho y el nombre de cada instrumento sobre
+  su carril, y debajo cada pista con M, S y su volumen, grandes. «Varios
+  tramos» y el candado van encima de la onda, no sobre ella: ya no tapan el
+  final de la canción. Con el estudio abierto, la barra de abajo lleva la
+  hora, la barra de tiempo y los saltos de 10 s.
+- **El menú de lado (☰):** Mis pistas, Favoritas, **tus listas** (la del
+  domingo, la del ensayo: se crean, se ordenan subiendo y bajando canciones y
+  se tocan en orden o al azar), Importar, Ajustes y cómo traer pistas de la
+  PC.
+- **Los mandos en la bandeja de Android y en la pantalla de bloqueo:** pausa,
+  anterior, siguiente y la barra de tiempo, con la portada. Funcionan con la
+  app en segundo plano, y también los botones de los auriculares.
+- **Ajustes** con botones grandes: el tamaño de la letra, el tema, filas más
+  bajas, el fundido entre canciones y si la pantalla se queda encendida.
+- **Letra y acordes** a pantalla completa y con letra de leer.
+- **Los nombres largos** se cortan con cuidado (dos líneas en el reproductor
+  y en la ficha, una en las listas) y nada queda pegado; probado también en
+  teléfonos de 360 px.
+- Fuera el recuadro azul que Android pintaba al tocar los botones: ahora cada
+  botón responde con un pequeño hundimiento, y las transiciones son solo de
+  movimiento, fluidas en cualquier teléfono.
+- **Al instalarla:** sale el logo de DanPlay (antes, el de Tauri), la versión
+  de verdad (antes decía 1.0) y va firmada con las tres firmas de Android
+  (v1, v2 y v3). La pantalla de arranque ya no da un fogonazo blanco.
+- El APK se llama ahora `DanPlay-X.Y.Z-android.apk`. Se instala encima de la
+  1.26 sin perder las pistas.
+
 ## 1.26.0 — 2026-10-14
 
 Lo que separas en la PC se estudia ahora en el celular: una app nueva para
