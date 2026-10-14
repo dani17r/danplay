@@ -44,6 +44,7 @@ import { usePreferences } from '../composables/usePreferences.js'
 import { formatTime } from '../utils/format.js'
 import { isDownbeat } from '../utils/beats.js'
 import { cleanSegments } from '../utils/segments.js'
+import { isMobileApp } from '../platform.js'
 import Icon from './Icon.vue'
 import SliderField from './ui/SliderField.vue'
 
@@ -693,6 +694,30 @@ const lockTitle = computed(() =>
         />
       </div>
     </div>
+    <!-- en el celular, «varios» y el candado van en su fila, encima de la
+         onda y no sobre ella: así se ve entera y se puede elegir un tramo
+         hasta el final de la canción -->
+    <div v-if="isMobileApp" class="tl-tools">
+      <button
+        type="button"
+        class="tl-tool"
+        :class="{ on: multi }"
+        :aria-pressed="multi"
+        @click="emit('update:multi', !multi)"
+      >
+        <Icon n="plus" :t="14" /> Varios tramos
+      </button>
+      <button
+        type="button"
+        class="tl-tool"
+        :class="{ on: locked, nudged }"
+        :aria-pressed="locked"
+        @click="emit('update:locked', !locked)"
+      >
+        <Icon :n="locked ? 'lockClosed' : 'lockOpen'" :t="14" />
+        {{ locked ? 'Onda bloqueada' : 'Bloquear la onda' }}
+      </button>
+    </div>
     <!-- el clic derecho es un atajo de raton: con el teclado, las mismas
          opciones estan en el boton ⋯ de cada tramo -->
     <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
@@ -714,6 +739,17 @@ const lockTitle = computed(() =>
       @contextmenu.prevent="onContext"
     >
       <canvas ref="canvas" class="tl-wave" :height="WAVE_H"></canvas>
+      <!-- en el celular los mandos van debajo de la onda, no a su lado: el
+           nombre de cada pista va sobre su carril para no perderse -->
+      <div v-if="laneMode && isMobileApp" class="tl-lane-tags" aria-hidden="true">
+        <span
+          v-for="(lane, i) in lanes"
+          :key="lane.key"
+          :class="{ off: !lane.on }"
+          :style="{ top: i * laneHeight + 'px', height: laneHeight + 'px' }"
+          ><b>{{ lane.name }}</b></span
+        >
+      </div>
       <Transition name="tl-click">
         <div
           v-if="clickLoading != null"
@@ -795,6 +831,7 @@ const lockTitle = computed(() =>
 
       <!-- varios tramos a la vez: cada arrastre añade otro -->
       <button
+        v-if="!isMobileApp"
         type="button"
         class="tl-multi"
         :class="{ on: multi }"
@@ -812,6 +849,7 @@ const lockTitle = computed(() =>
 
       <!-- el candado: puesto, mientras suena la onda no mueve la canción -->
       <button
+        v-if="!isMobileApp"
         type="button"
         class="tl-lock"
         :class="{ on: locked, nudged }"

@@ -298,5 +298,25 @@
   "shapes": {
     "style": "o",
     "file": "square-2-stack.svg"
+  },
+  "menu": {
+    "style": "o",
+    "file": "bars-3.svg"
+  },
+  "info": {
+    "style": "o",
+    "file": "information-circle.svg"
+  },
+  "up": {
+    "style": "o",
+    "file": "chevron-up.svg"
+  },
+  "left": {
+    "style": "o",
+    "file": "chevron-left.svg"
+  },
+  "moreVertical": {
+    "style": "o",
+    "file": "ellipsis-vertical.svg"
   }
 }

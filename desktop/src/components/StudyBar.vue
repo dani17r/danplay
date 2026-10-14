@@ -1046,6 +1046,9 @@ onUnmounted(() => {
   flushSave()
   if (metronome.value.count_in) player.setMetronome({ count_in: 0 })
 })
+// el celular lo cierra también con «atrás» y deslizando hacia abajo, y
+// tiene que dejar la canción como el botón «Cerrar»
+defineExpose({ close })
 </script>
 
 <template>
@@ -1055,7 +1058,32 @@ onUnmounted(() => {
     role="region"
     aria-label="Modo estudio"
   >
-    <div class="study-head">
+    <!-- en el celular: «Modo estudio» pequeño encima, el título en grande y
+         el artista debajo, cada uno en su línea (en una sola se amontonaban
+         los nombres largos) -->
+    <div v-if="isMobileApp" class="study-head">
+      <div class="study-head-text">
+        <span class="study-kicker"
+          >Modo estudio<template v-if="saving"> · guardando…</template></span
+        >
+        <strong class="study-head-title">{{
+          track ? track.title : 'Pon una canción para estudiarla'
+        }}</strong>
+        <span v-if="track" class="study-head-artist"
+          >{{ track.artist || '—'
+          }}<span v-if="track.key" class="mono study-key"> · {{ track.key }}</span></span
+        >
+      </div>
+      <button
+        class="btn mini"
+        type="button"
+        title="Cerrar el modo estudio (vuelve a sonar normal)"
+        @click="close"
+      >
+        <Icon n="close" :t="13" /> Cerrar
+      </button>
+    </div>
+    <div v-else class="study-head">
       <Icon n="academic" :t="15" /> <strong>Modo estudio</strong>
       <span v-if="track" class="study-song"
         >{{ track.artist }} — {{ track.title }}
@@ -1171,8 +1199,8 @@ onUnmounted(() => {
       :selected="selected"
       :grid="shownGrid"
       :click-loading="clickLoading ? click.progress.value : null"
-      :height="big ? 150 : 80"
-      :lane-height="big ? 46 : 34"
+      :height="isMobileApp ? 120 : big ? 150 : 80"
+      :lane-height="isMobileApp ? 42 : big ? 46 : 34"
       :locked="locked"
       :playing="playing"
       :lanes="lanes"
@@ -1185,7 +1213,19 @@ onUnmounted(() => {
       @options="showOptions"
     />
     <p class="study-hint">
-      <template v-if="multi">
+      <!-- en el celular se toca, no hay ratón ni teclas -->
+      <template v-if="isMobileApp">
+        <template v-if="multi">
+          Desliza el dedo sobre la onda para añadir tramos · toca uno para quitarlo ·
+          <b>⋯</b> opciones
+        </template>
+        <template v-else>
+          Desliza el dedo sobre la onda para elegir el tramo que se repite ·
+          {{ locked ? 'con el candado, tocar no mueve la canción' : 'toca para ir a un punto' }}
+          · <b>⋯</b> opciones
+        </template>
+      </template>
+      <template v-else-if="multi">
         Arrastra para añadir tramos: se repiten seguidos, saltándose lo de en medio · clic sobre uno
         para quitarlo · <b>⋯</b> o clic derecho: opciones
       </template>
