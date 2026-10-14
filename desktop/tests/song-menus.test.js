@@ -431,6 +431,30 @@ describe('las pistas separadas', () => {
     expect(ctx.refreshAll).toHaveBeenCalled()
   })
 
+  it('al celular: una desde su menú, y de varias solo las que tienen pistas', async () => {
+    const { menus, ctx, songs } = preparar()
+    held.state.stems[1] = stemsOf(1)
+    held.state.stems[3] = stemsOf(3)
+    const withStems = { ...held.state.songs[0], has_stems: true, stems_best: true }
+    menus.songMenu(ev, withStems)
+    await pick('Llevar al celular')
+    expect(api().toPhone).toHaveBeenCalledWith([1])
+    expect(notices.value.at(-1).message).toBe('Lista para el celular: «cancion-1.danpista» (23 MB)')
+    // la carpeta se abre con el archivo marcado: de ahí se arrastra a WhatsApp
+    expect(held.app.revealInFolder).toHaveBeenCalledWith('/musica/Celular/cancion-1.danpista')
+    songs.value[0].has_stems = true
+    songs.value[2].has_stems = true
+    await ctx.selection.select(1)
+    await ctx.selection.select(3, { shiftKey: true })
+    menus.songMenu(ev, held.state.songs[0])
+    expect(item('Llevar 2 al celular').note).toBe('1 sin pistas')
+    await pick('Llevar 2 al celular')
+    expect(api().toPhone).toHaveBeenLastCalledWith([1, 3])
+    expect(notices.value.at(-1).message).toBe(
+      '2 listas para el celular, en la carpeta «Celular»; 1 sin clic'
+    )
+  })
+
   it('sin separador en este equipo no se ofrece', async () => {
     held.state.separation.ok = false
     held.state.separation.reason = 'falta onnxruntime'

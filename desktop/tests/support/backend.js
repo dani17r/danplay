@@ -826,6 +826,25 @@ function answers(state) {
         id: 99,
         title: 'mezcla'
       }),
+    toPhone: async (ids) =>
+      start('celular', {
+        done: ids
+          .filter((id) => state.stems[id])
+          .map((id) => ({
+            id,
+            path: `/musica/Celular/cancion-${id}.danpista`,
+            name: `cancion-${id}.danpista`,
+            size: 23_400_000,
+            click: id !== 3
+          })),
+        failed: ids
+          .filter((id) => !state.stems[id])
+          .map((id) => ({
+            id,
+            title: find(id)?.title || '',
+            error: 'no tiene sus pistas separadas completas'
+          }))
+      }),
     // la forma nueva confirma por id (y gasta la propuesta); la antigua, (tool, args)
     chatConfirm: async (arg) => {
       if (arg && typeof arg === 'object') {

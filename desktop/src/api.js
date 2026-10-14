@@ -839,7 +839,8 @@ export const JOBS = {
   duplicates: 'duplicados',
   ytdlp: 'yt-dlp',
   separate: 'separacion',
-  mix: 'mezcla'
+  mix: 'mezcla',
+  phone: 'celular'
 }
 
 /** @param {number} ms */
@@ -1086,6 +1087,12 @@ export const api = {
    *          click?: {beats: number[], accents: boolean[], sound?: ClickSound, volume?: number}}} d
    */
   exportMix: (id, d) => POST(`/song/${id}/stems/mix`, d),
+  /**
+   * Prepara las canciones para la app del celular, cada una en su `.danpista`
+   * (tarea «celular»): `{done: [{id, path, name, size, click}], failed: [{id, title, error}]}`.
+   * @param {number[]} ids
+   */
+  toPhone: (ids) => POST('/celular', { ids }),
   /**
    * La hoja para el atril del repertorio: un HTML en Listas/, para abrir en
    * el navegador e imprimir.

@@ -39,6 +39,7 @@ import { ask } from '../composables/useDialog.js'
 import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
 import { useSeparation } from '../composables/useSeparation.js'
 import { useClick } from '../composables/useClick.js'
+import { takeToPhone } from '../composables/usePhone.js'
 import { stemPlan, mixFileName } from '../utils/stems.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
 import { formatTime } from '../utils/format.js'
@@ -926,6 +927,13 @@ async function saveMix({ asHeard = false } = {}) {
     notify('No se pudo guardar la mezcla: ' + errorMessage(e))
   }
 }
+/** Al celular, con lo último que se cambió del estudio ya guardado. */
+async function toPhone() {
+  const id = loadedFor.value
+  if (!id) return
+  await flushSave()
+  await takeToPhone([{ id, title: track.value?.title }])
+}
 async function revealStems() {
   const first = stems.value?.tracks?.[0]?.path
   if (!first) return
@@ -981,6 +989,12 @@ function stemsMenu(ev) {
           }
         ]
       : []),
+    {
+      label: 'Llevar al celular',
+      icon: 'send',
+      note: 'con el clic, los tramos, la letra y los acordes',
+      action: toPhone
+    },
     { label: 'Que suenen todas, como vienen', icon: 'refresh', action: resetMix },
     { label: 'Abrir la carpeta de las pistas', icon: 'folderOpen', action: revealStems },
     { separator: true },

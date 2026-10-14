@@ -1,5 +1,6 @@
 """Separar canciones en pistas (bateria, voces, bajo...) y lo que se hace
-con ellas: oirlas en el estudio, guardarlas mezcladas, quitarlas."""
+con ellas: oirlas en el estudio, guardarlas mezcladas, llevarlas al celular,
+quitarlas."""
 
 import logging
 from typing import Annotated
@@ -7,10 +8,10 @@ from typing import Annotated
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse
 
-from ... import library, stems
+from ... import bundle, library, stems
 from .. import jobs
 from ..common import _started
-from ..models import StemMixIn
+from ..models import IdsIn, StemMixIn
 
 log = logging.getLogger(__name__)
 
@@ -106,4 +107,23 @@ def export_mix(cid: int, body: Annotated[StemMixIn, Body()]):
         return r
 
     snap, already = jobs.start(stems.MIX_JOB, work, failure="no se pudo guardar la mezcla")
+    return JSONResponse(_started(snap, already), status_code=202)
+
+
+@router.post("/api/celular", status_code=202)
+def to_phone(body: Annotated[IdsIn, Body()]):
+    """Prepara las canciones para la app del celular, cada una en su
+    `.danpista` dentro de `Celular/` (trabajo «celular»). Las que no tienen
+    sus pistas separadas van en `failed` con el motivo, sin parar a las demas."""
+    if not body.ids:
+        raise HTTPException(422, "no hay canciones que llevar")
+
+    def work(progress):
+        r = bundle.export_many(body.ids, progress=progress)
+        n = len(r["done"])
+        if n:
+            progress(message=f"{n} lista{'s' if n != 1 else ''} para el celular")
+        return r
+
+    snap, already = jobs.start(bundle.JOB, work, failure="no se pudo preparar para el celular")
     return JSONResponse(_started(snap, already), status_code=202)

@@ -657,6 +657,154 @@ def test_a_mix_cannot_go_outside_the_library_nor_over_a_song(lib, tmp_path):
     assert r.status_code == 422
 
 
+# ------------------------------------------------------- llevar al celular
+
+GRID = {
+    "bpm": 120.0,
+    "meter": 4,
+    "beats": [0.1, 0.6],
+    "first_downbeat": 0,
+    "phase3": 0,
+    "phase4": 0,
+    "confidence": 0.9,
+}
+
+
+def _probe(path) -> dict:
+    import subprocess
+
+    out = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_name,sample_rate,channels:format=duration",
+            "-of",
+            "json",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    data = json.loads(out)
+    return {**data["streams"][0], "duration": float(data["format"]["duration"])}
+
+
+def test_a_song_goes_to_the_phone_in_one_file(lib, monkeypatch, tmp_path):
+    """Todo lo de la cancion en un ZIP: las partes en Vorbis, a 44,1 kHz y
+    estereo, y en `pista.json` el pulso, el estudio, la letra y los acordes."""
+    import zipfile
+
+    from danplay import beatgrid, bundle, library
+
+    monkeypatch.setattr(beatgrid, "grid_of", lambda path: GRID)
+    root, _ = lib
+    cid = _id("Barak - Mi Gozo.mp3")
+    _separate(cid)
+    study = {"speed": 0.8, "mixer": {"on": True, "tracks": {"drums": {"mute": True}}}}
+    sheet = {"source": "LaCuerda", "url": "https://x", "key": "G", "sections": []}
+    library.update(
+        cid,
+        study=json.dumps(study),
+        lyrics="Mi gozo",
+        lyrics_synced="[00:00.10]Mi gozo",
+        chords=json.dumps({"sheet": sheet, "style": "de la IA"}),
+        key="G",
+    )
+    steps = []
+    r = bundle.export(cid, progress=lambda d, t: steps.append((d, t)))
+    target = root / "Celular" / "Barak - Mi Gozo.danpista"
+    assert r["path"] == str(target) and r["name"] == target.name and r["click"]
+    assert r["size"] == target.stat().st_size and r["tracks"] == 6
+    tracks = _info(cid)["tracks"]
+    assert steps[-1] == (len(tracks) + 1, len(tracks) + 1)
+    with zipfile.ZipFile(target) as z:
+        names = z.namelist()
+        assert names[0] == "pista.json"
+        data = json.loads(z.read("pista.json"))
+        parts = [n for n in names if n.startswith("partes/")]
+        assert parts == [f"partes/{Path(t['file']).stem}.ogg" for t in tracks]
+        z.extract(parts[0], tmp_path)
+    assert data["format"] == "danpista" and data["version"] == bundle.VERSION
+    assert data["song"]["title"] == "Mi Gozo" and data["song"]["artist"] == "Barak"
+    assert data["song"]["key"] == "G"
+    assert [t["source"] for t in data["tracks"]] == [t["source"] for t in tracks]
+    assert data["tracks"][0] == {"source": "drums", "name": "Batería", "file": parts[0]}
+    assert data["grid"] == GRID and data["study"] == study
+    assert data["lyrics"] == "Mi gozo" and data["lyrics_synced"] == "[00:00.10]Mi gozo"
+    # solo el cifrado de la web: lo que dijo la IA no viaja
+    assert data["chords"] == sheet
+    assert set(data["waves"]["tracks"]) == {t["source"] for t in tracks}
+    part = _probe(tmp_path / parts[0])
+    assert part["codec_name"] == "vorbis" and part["sample_rate"] == "44100"
+    assert part["channels"] == 2 and part["duration"] == pytest.approx(1.0, abs=0.05)
+
+
+def test_taking_it_again_replaces_the_old_one(lib, monkeypatch):
+    import zipfile
+
+    from danplay import beatgrid, bundle, library
+
+    def no_grid(path):
+        raise beatgrid.BeatsError("la canción no tiene pulso")
+
+    monkeypatch.setattr(beatgrid, "grid_of", no_grid)
+    root, _ = lib
+    cid = _id("Barak - Mi Gozo.mp3")
+    _separate(cid)
+    first = bundle.export(cid)
+    assert not first["click"] and first["click_error"] == "la canción no tiene pulso"
+    library.update(cid, lyrics="otra letra")
+    bundle.export(cid)
+    folder = root / "Celular"
+    assert [p.name for p in folder.iterdir()] == ["Barak - Mi Gozo.danpista"]
+    with zipfile.ZipFile(folder / "Barak - Mi Gozo.danpista") as z:
+        data = json.loads(z.read("pista.json"))
+    assert data["lyrics"] == "otra letra" and data["grid"] is None
+
+
+def test_without_vorbis_the_parts_go_in_mp3(lib, monkeypatch):
+    import zipfile
+
+    from danplay import beatgrid, bundle
+
+    monkeypatch.setattr(beatgrid, "grid_of", lambda path: GRID)
+    monkeypatch.setattr(bundle, "_encoders", lambda ffmpeg: " A....D libmp3lame  MP3 ")
+    cid = _id("Barak - Mi Gozo.mp3")
+    _separate(cid)
+    r = bundle.export(cid)
+    with zipfile.ZipFile(r["path"]) as z:
+        data = json.loads(z.read("pista.json"))
+    assert all(t["file"].endswith(".mp3") for t in data["tracks"])
+    monkeypatch.setattr(bundle, "_encoders", lambda ffmpeg: "")
+    with pytest.raises(bundle.BundleError, match="ni Vorbis ni MP3"):
+        bundle.export(cid)
+
+
+def test_a_whole_set_goes_and_the_ones_without_parts_say_why(lib, monkeypatch):
+    """Un repertorio para la banda: las que no estan separadas no paran a
+    las demas. Por la API, como lo pide la interfaz."""
+    from fastapi.testclient import TestClient
+
+    from danplay import api, beatgrid
+
+    monkeypatch.setattr(beatgrid, "grid_of", lambda path: GRID)
+    root, _ = lib
+    cid = _id("Barak - Mi Gozo.mp3")
+    other = _id("New Wine - Shekinah.mp3")
+    _separate(cid)
+    client = TestClient(api.app)
+    r = run_job(client, "/api/celular", "celular", json={"ids": [other, cid, cid]})
+    assert [d["id"] for d in r["done"]] == [cid]
+    assert r["failed"] == [
+        {"id": other, "title": "Shekinah", "error": "no tiene sus pistas separadas completas"}
+    ]
+    assert (root / "Celular" / "Barak - Mi Gozo.danpista").is_file()
+    assert client.post("/api/celular", json={"ids": []}).status_code == 422
+
+
 # ------------------------------------------------------------------ la API
 
 

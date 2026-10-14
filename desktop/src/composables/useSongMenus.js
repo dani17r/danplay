@@ -2,7 +2,7 @@
 // Los menús de clic derecho (el de una canción, el de varias elegidas y el de
 // un repertorio) y lo que se hace desde ellos con las canciones: valorar,
 // favoritas, difuminar la portada, renombrar, buscar letra, separarlas en
-// pistas, la papelera, abrir su carpeta o mandarlas por Telegram. Estaba
+// pistas, llevarlas al celular, la papelera, abrir su carpeta o mandarlas por Telegram. Estaba
 // dentro de App.vue. Las acciones sobre varias (`groupItems`) son también las
 // de la barra de la selección (SelectionBar).
 import { ref } from 'vue'
@@ -11,6 +11,7 @@ import { notify } from './useNotices.js'
 import { ask } from './useDialog.js'
 import { openMenu } from './useContextMenu.js'
 import { useSeparation } from './useSeparation.js'
+import { takeToPhone } from './usePhone.js'
 
 /** @typedef {import('../api.js').Song} Song */
 /** @typedef {import('./useContextMenu.js').MenuItem} MenuItem */
@@ -382,6 +383,7 @@ export function useSongMenus(ctx) {
     }
     if (!song.has_stems) return separateItems([song], 'Separar pistas')
     return [
+      { label: 'Llevar al celular', icon: 'send', action: () => takeToPhone([song]) },
       { label: 'Abrir la carpeta de sus pistas', icon: 'mixer', action: () => revealStems(song) },
       ...separateItems(
         [song],
@@ -494,6 +496,16 @@ export function useSongMenus(ctx) {
       })
     }
     items.push(...separateItems(list, say('Separar pistas', `Separar las pistas de ${n}`)))
+    const separated = list.filter((s) => s.has_stems)
+    if (separated.length) {
+      const k = separated.length
+      items.push({
+        label: k === 1 ? 'Llevar al celular' : `Llevar ${k} al celular`,
+        icon: 'send',
+        note: k < n ? `${n - k} sin pistas` : '',
+        action: () => takeToPhone(separated)
+      })
+    }
     items.push({ separator: true })
     if (shareTargets.value.telegram) {
       items.push({
