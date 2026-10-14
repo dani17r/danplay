@@ -82,6 +82,32 @@ describe('la app del celular', () => {
     w.unmount()
   })
 
+  it('darle a sonar no tapa la lista con la ficha, y «atrás» cierra lo abierto', async () => {
+    const w = mount(MovilApp, { attachTo: document.body })
+    await flushPromises()
+    const row = w.findAll('tr, .row, .card').find((r) => r.text().includes('Mi Gozo'))
+    await row.trigger('contextmenu')
+    const item = (label) => menu.value.items.find((i) => i.label === label)
+    // con el menú abierto, «atrás» lo cierra
+    expect(window.__danplayAtras()).toBe(true)
+    expect(menu.value.open).toBe(false)
+    await row.trigger('contextmenu')
+    const estudiar = item('Estudiar')
+    closeMenu()
+    await estudiar.action()
+    await flushPromises()
+    expect(held.playback.bridge.setQueue).toHaveBeenCalled()
+    expect(w.find('.drawer.open, .drawer-panel.open').exists()).toBe(false)
+    expect(w.findComponent(StudyBar).exists()).toBe(true)
+    // «atrás»: primero el estudio; luego ya no queda nada (la app se va al fondo)
+    expect(window.__danplayAtras()).toBe(true)
+    await flushPromises()
+    expect(w.findComponent(StudyBar).exists()).toBe(false)
+    expect(window.__danplayAtras()).toBe(false)
+    w.unmount()
+    expect(window.__danplayAtras).toBeUndefined()
+  })
+
   it('sin pistas explica cómo traerlas de la PC', async () => {
     held.state.songs = []
     const w = mount(MovilApp, { attachTo: document.body })

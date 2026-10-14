@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "app": "node scripts/sidecar.mjs && tauri dev --config src-tauri/tauri.dev.conf.json",
-    "movil": "TAURI_APP_PATH=../movil TAURI_FRONTEND_PATH=. tauri",
+    "movil": "npm --prefix ../movil run tauri --",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

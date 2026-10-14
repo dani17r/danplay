@@ -21,7 +21,7 @@ import { useSelection } from '../composables/useSelection.js'
 import { useViewport } from '../composables/useViewport.js'
 import { onClickOutside } from '../composables/useClickOutside.js'
 import { DENSITIES, SIZES, KIND_LABEL, allThemes } from '../themes.js'
-import { importBundles } from './importar.js'
+import { importBundles, importUri } from './importar.js'
 import Drawer from '../components/ui/Drawer.vue'
 import SongRows from '../components/SongRows.vue'
 import SongCards from '../components/SongCards.vue'
@@ -85,10 +85,11 @@ async function importar() {
   if (await importBundles()) await load()
 }
 
+// En el teléfono, darle a sonar no abre la ficha encima (en la PC estrecha sí,
+// pero aquí taparía la lista a cada canción): se abre al tocar la canción.
 function play(song) {
   if (player.track.value?.id === song.id) return player.toggle()
   player.setQueue(songs.value, song.id, { kind: 'all', label: 'Mis pistas' })
-  selection.showDetail(song.id)
 }
 
 /** Abre la canción en el estudio (sonando o no). */
@@ -164,12 +165,54 @@ function songMenu(ev, song) {
 }
 
 onMounted(load)
-// lo que se trae de otra forma (abrir un .danpista desde WhatsApp) avisa
-function onImported() {
-  load()
+
+// El botón «atrás» de Android: cierra lo que haya abierto (un menú, la ficha,
+// el estudio). Lo pregunta la app (MainActivity.kt); si aquí no queda nada
+// que cerrar, la app pasa a segundo plano y la música sigue, como en
+// cualquier reproductor.
+window.__danplayAtras = () => {
+  if (menu.value.open) closeMenu()
+  else if (dialog.value.open) dialogCancel()
+  else if (detailsOpen.value) detailsOpen.value = false
+  else if (studyOpen.value) studyOpen.value = false
+  else return false
+  return true
 }
-window.addEventListener('danplay-imported', onImported)
-onUnmounted(() => window.removeEventListener('danplay-imported', onImported))
+onUnmounted(() => delete window.__danplayAtras)
+
+// Mientras suena, la pantalla no se apaga: se toca encima con el teléfono en
+// el atril. Con la API del navegador (el WebView del sistema la tiene); si
+// no, nada.
+let wake = null
+async function keepAwake(on) {
+  try {
+    if (on && !wake && navigator.wakeLock) {
+      wake = await navigator.wakeLock.request('screen')
+      wake.addEventListener?.('release', () => (wake = null))
+    } else if (!on && wake) {
+      await wake.release()
+      wake = null
+    }
+  } catch {
+    /* sin permiso o sin la API: la pantalla hace lo de siempre */
+  }
+}
+watch(
+  () => player.state.playing,
+  (on) => keepAwake(!!on)
+)
+// al volver a la app, el sistema la había soltado
+function onVisible() {
+  if (document.visibilityState === 'visible' && player.state.playing) keepAwake(true)
+}
+document.addEventListener('visibilitychange', onVisible)
+onUnmounted(() => document.removeEventListener('visibilitychange', onVisible))
+// «Abrir con DanPlay Pistas» desde WhatsApp o Descargas: Android le pasa el
+// archivo a la página por aquí (MainActivity.kt) y se importa como con el botón
+window.__danplayAbrir = async (uri) => {
+  if (await importUri(uri)) await load()
+}
+onUnmounted(() => delete window.__danplayAbrir)
 </script>
 
 <template>
