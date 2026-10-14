@@ -11,7 +11,8 @@ clic, lo guardado del modo estudio, la letra y los acordes viven en la base
 y en la cache de esta PC. Por eso se arma un ZIP aparte:
 
     Celular/Adoracion La Ibi - Dios Poderoso.danpista
-        pista.json          que cancion es y todo lo suyo (ver `manifest`)
+        pista.json          que cancion es y todo lo suyo (ver `manifest`): el
+                            pulso, el estudio, la letra, el cifrado, la onda
         partes/Bateria.ogg  cada parte, en Ogg Vorbis
         partes/Voces.ogg    ...
         portada.jpg         si la cancion tiene caratula
@@ -136,6 +137,18 @@ def _grid(path: str) -> tuple[dict | None, str]:
         return None, "no se pudo sacar el pulso"
 
 
+def _song_wave(path: str) -> dict | None:
+    """La onda de la cancion entera, la que pinta el estudio (la de la cache
+    si ya estaba): en el celular se ve la misma."""
+    from . import waveform
+
+    with contextlib.suppress(Exception):
+        made = waveform.compute(path, waveform.DEFAULT_BUCKETS)
+        if made and made.get("peaks"):
+            return {"peaks": made["peaks"], "rms": made.get("rms") or []}
+    return None
+
+
 def _cover(path: str) -> tuple[bytes, str] | None:
     from . import thumbnails
 
@@ -153,6 +166,7 @@ def manifest(
     files: dict[str, str],
     grid: dict | None,
     cover: str | None,
+    song_wave: dict | None = None,
 ) -> dict:
     """Lo que va en `pista.json`. Las claves, en ingles como las del
     manifiesto de `Separadas/`; lo de dentro, tal cual lo guarda la base."""
@@ -192,6 +206,7 @@ def manifest(
         "lyrics_synced": song.get("lyrics_synced") or "",
         "chords": sheet if isinstance(sheet, dict) else None,
         "waves": waves if isinstance(waves, dict) else None,
+        "song_wave": song_wave,
         "cover": cover,
     }
 
@@ -234,6 +249,7 @@ def export(cid: int, progress=None) -> dict:
     grid, why = _grid(song["path"])
     step()
     cover = _cover(song["path"])
+    song_wave = _song_wave(song["path"])
     with tempfile.TemporaryDirectory(prefix="danplay-celular-") as work:
         work_dir = Path(work)
         files = {t["source"]: f"{PARTS}/{Path(t['file']).stem}{ext}" for t in tracks}
@@ -247,7 +263,7 @@ def export(cid: int, progress=None) -> dict:
             # list(): que salte el primer fallo de cualquiera
             list(pool.map(one, tracks))
         cover_name = f"portada{cover[1]}" if cover else None
-        data = manifest(song, info, files, grid, cover_name)
+        data = manifest(song, info, files, grid, cover_name, song_wave)
         tmp = target.with_name(f".{target.stem}.parte{EXTENSION}")
         try:
             with zipfile.ZipFile(tmp, "w") as z:

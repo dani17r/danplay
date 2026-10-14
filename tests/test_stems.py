@@ -737,6 +737,8 @@ def test_a_song_goes_to_the_phone_in_one_file(lib, monkeypatch, tmp_path):
     # solo el cifrado de la web: lo que dijo la IA no viaja
     assert data["chords"] == sheet
     assert set(data["waves"]["tracks"]) == {t["source"] for t in tracks}
+    # la onda de la cancion entera, la que pinta el estudio
+    assert len(data["song_wave"]["peaks"]) == len(data["song_wave"]["rms"]) > 100
     part = _probe(tmp_path / parts[0])
     assert part["codec_name"] == "vorbis" and part["sample_rate"] == "44100"
     assert part["channels"] == 2 and part["duration"] == pytest.approx(1.0, abs=0.05)
