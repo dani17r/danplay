@@ -54,7 +54,11 @@ a = Analysis(['core_entry.py'],
                         'danplay/data/separador')]
                     # el detector de pulso (Beat This!, con sus pesos)
                     + [(os.path.join(ROOT, 'danplay', 'data', 'pulso'),
-                        'danplay/data/pulso')]),
+                        'danplay/data/pulso')]
+                    # el catalogo de voces de las guias habladas (sin las
+                    # voces: se bajan al elegirlas)
+                    + [(os.path.join(ROOT, 'danplay', 'data', 'voces.json'),
+                        'danplay/data')]),
              hiddenimports=hidden,
              # `musicbrainzngs` no lo importa nadie y `watchfiles` es para
              # `--reload`, que aqui no se usa.

@@ -211,6 +211,30 @@ def manifest(
     }
 
 
+# Las guias habladas viajan con la pista, en esta carpeta del .danpista.
+GUIDES = "guias"
+
+
+def guides_of(study: dict | None) -> tuple[dict | None, dict[str, Path]]:
+    """El estudio con cada guia apuntando a su archivo dentro del .danpista
+    (`guias/<nombre>.wav`), y esos archivos: {nombre dentro: archivo}. Solo
+    las de la carpeta de guias de DanPlay; las demas no viajan."""
+    from . import cues
+
+    if not isinstance(study, dict) or not study.get("cues"):
+        return study, {}
+    files: dict[str, Path] = {}
+    out = []
+    for c in study["cues"]:
+        own = cues.own_file(c.get("file"))
+        if not own or not Path(own).is_file():
+            continue
+        name = f"{GUIDES}/{Path(own).name}"
+        files[name] = Path(own)
+        out.append({**c, "file": name})
+    return {**study, "cues": out}, files
+
+
 def target_for(song: Mapping[str, Any]) -> Path:
     """Donde va: `Celular/<nombre del archivo>.danpista` en su biblioteca."""
     return Path(song["root"]) / FOLDER / (stems._safe_name(Path(song["file"]).stem) + EXTENSION)
@@ -264,6 +288,9 @@ def export(cid: int, progress=None) -> dict:
             list(pool.map(one, tracks))
         cover_name = f"portada{cover[1]}" if cover else None
         data = manifest(song, info, files, grid, cover_name, song_wave)
+        data["study"], guides = guides_of(data["study"])
+        if guides:
+            data["guides"] = sorted(guides)
         tmp = target.with_name(f".{target.stem}.parte{EXTENSION}")
         try:
             with zipfile.ZipFile(tmp, "w") as z:
@@ -279,6 +306,9 @@ def export(cid: int, progress=None) -> dict:
                     z.write(work_dir / name, name, compress_type=zipfile.ZIP_STORED)
                 if cover and cover_name:
                     z.writestr(cover_name, cover[0], compress_type=zipfile.ZIP_STORED)
+                # las guias habladas: frases cortas en WAV, comprimidas
+                for name, path in guides.items():
+                    z.write(path, name, compress_type=zipfile.ZIP_DEFLATED)
             os.replace(tmp, target)
         except BaseException:
             tmp.unlink(missing_ok=True)
