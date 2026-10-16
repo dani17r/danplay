@@ -180,11 +180,14 @@ describe('la app del celular', () => {
     expect(w.find('.study-head-title').text()).toBe('Mi Gozo')
     expect(w.find('.study-head-artist').text()).toContain('Barak')
     expect(w.find('.m-app').classes()).toContain('m-studying')
-    // «atrás»: el estudio (y la canción vuelve a sonar normal)
+    // «atrás»: oculta el estudio, sin tocar lo que suena (sigue puesto)
     held.playback.bridge.setSpeed.mockClear()
     expect(window.__danplayAtras()).toBe(true)
     await flushPromises()
-    expect(w.findComponent(StudyBar).exists()).toBe(false)
+    expect(w.findComponent(StudyBar).exists()).toBe(true)
+    expect(w.findComponent(StudyBar).isVisible()).toBe(false)
+    expect(w.find('.m-app').classes()).not.toContain('m-studying')
+    expect(held.playback.bridge.setSpeed, 'nada vuelve a como viene').not.toHaveBeenCalled()
     // luego la canción elegida, y luego ya nada (la app se va al fondo)
     expect(window.__danplayAtras()).toBe(true)
     expect(window.__danplayAtras()).toBe(false)
@@ -197,12 +200,132 @@ describe('la app del celular', () => {
     const w = mount(MovilApp, { attachTo: document.body })
     await flushPromises()
     expect(w.text()).toContain('Todavía no hay pistas en el celular')
-    expect(w.text()).toContain('Llevar al celular')
+    expect(w.text()).toContain('Convertir a DanPista')
+    w.unmount()
+  })
+})
+
+describe('la música del teléfono', () => {
+  const phoneSong = (id, title, artist, path) =>
+    song(id, { title, artist, path, phone: true, has_stems: false, duration: 200 })
+
+  beforeEach(() => {
+    held.state.phone = [
+      phoneSong(-11, 'Coro Uno', 'Grupo', '/sd/Music/Grupo/coro-uno.mp3'),
+      phoneSong(-12, 'Coro Dos', 'Grupo', '/sd/Music/Grupo/coro-dos.mp3'),
+      phoneSong(-13, 'Otra', 'Alguien', '/sd/Download/otra.mp3')
+    ]
+    held.state.phoneFolders = [
+      { path: '/sd/Music/Grupo', name: 'Music/Grupo', songs: 2, on: true },
+      { path: '/sd/Download', name: 'Download', songs: 1, on: true },
+      { path: '/sd/Notas', name: 'Notas', songs: 4, on: false }
+    ]
+  })
+  afterEach(() => {
+    delete window.DanPlayMusica
+    delete window.__danplayPermisoMusica
+  })
+  async function openPhone(w) {
+    await w.find('[aria-label="Abrir el menú"]').trigger('click')
+    await flushPromises()
+    ;[...document.querySelectorAll('.m-nav-item')]
+      .find((b) => b.textContent.includes('Música del teléfono'))
+      .click()
+    await flushPromises()
+  }
+
+  it('se ve desde el menú; al poner una suenan detrás las de su carpeta', async () => {
+    const w = mount(MovilApp, { attachTo: document.body })
+    await flushPromises()
+    await openPhone(w)
+    expect(w.find('.m-top').text()).toContain('Música del teléfono')
+    expect(w.text()).toContain('Coro Uno')
+    expect(w.text()).toContain('Otra')
+    // su menú: sonar y estudiar, sin lo de las pistas traídas
+    await rowOf(w, 'Coro Dos').find('.m-song-more').trigger('click')
+    expect(labels()).toEqual(['Reproducir', 'Estudiar'])
+    await menu.value.items[0].action()
+    await flushPromises()
+    const [items, start] = held.playback.bridge.setQueue.mock.calls.at(-1)
+    expect(items.map((s) => s.title)).toEqual(['Coro Uno', 'Coro Dos'])
+    expect(start).toBe(-12)
+    w.unmount()
+  })
+
+  it('sin permiso lo pide, y con él se ve la música', async () => {
+    let granted = false
+    window.DanPlayMusica = {
+      tiene: () => granted,
+      pedir: () => {
+        granted = true
+        setTimeout(() => window.__danplayPermisoMusica(true), 0)
+      }
+    }
+    const w = mount(MovilApp, { attachTo: document.body })
+    await flushPromises()
+    await openPhone(w)
+    expect(w.text()).toContain('Música y audio')
+    expect(w.text()).not.toContain('Coro Uno')
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('Dar permiso'))
+      .trigger('click')
+    await new Promise((r) => setTimeout(r, 5))
+    await flushPromises()
+    expect(held.api.phoneScan).toHaveBeenCalled()
+    expect(w.text()).toContain('Coro Uno')
+    w.unmount()
+  })
+
+  it('las carpetas se eligen como en la PC', async () => {
+    const w = mount(MovilApp, { attachTo: document.body })
+    await flushPromises()
+    await openPhone(w)
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('Carpetas'))
+      .trigger('click')
+    await flushPromises()
+    const boxes = document.querySelectorAll('.m-folder')
+    expect([...boxes].map((b) => b.getAttribute('aria-checked'))).toEqual(['true', 'true', 'false'])
+    boxes[2].click()
+    boxes[1].click()
+    await flushPromises()
+    expect(document.querySelector('.m-folders-count').textContent).toContain('6 canciones en 2')
+    ;[...document.querySelectorAll('.m-folders button')]
+      .find((b) => b.textContent.includes('Listo'))
+      .click()
+    await flushPromises()
+    expect(held.api.setPhoneFolders).toHaveBeenCalledWith(['/sd/Music/Grupo', '/sd/Notas'])
     w.unmount()
   })
 })
 
 describe('el menú de lado y las listas', () => {
+  it('«Acerca de DanPlay» dice quién lo hizo, cómo escribirle y lo nuevo', async () => {
+    const w = mount(MovilApp, { attachTo: document.body })
+    await flushPromises()
+    await w.find('[aria-label="Abrir el menú"]').trigger('click')
+    await flushPromises()
+    const nav = document.querySelector('.m-nav')
+    expect(nav.querySelector('.m-nav-credit').textContent).toContain('Daniel Rangel')
+    ;[...nav.querySelectorAll('.m-nav-item')]
+      .find((b) => b.textContent.includes('Acerca de DanPlay'))
+      .click()
+    await flushPromises()
+    const about = document.querySelector('.m-about')
+    expect(about.textContent).toContain('DanPlay es obra de Daniel Rangel')
+    expect(about.querySelector('a').getAttribute('href')).toBe('https://t.me/Dani17r')
+    expect(about.textContent).toContain('@Dani17r')
+    expect(about.textContent).toContain('Novedades')
+    expect(about.textContent).toContain('Términos y condiciones')
+    // «atrás» la cierra
+    expect(window.__danplayAtras()).toBe(true)
+    await flushPromises()
+    expect(document.querySelector('.m-about')).toBeNull()
+    w.unmount()
+  })
+
   it('abre con ☰ y lleva a las favoritas y a las listas', async () => {
     held.state.songs[1].favorite = 1
     held.state.playlists = [{ id: 7, name: 'Domingo', n: 1, seconds: 245 }]
@@ -354,6 +477,26 @@ describe('el reproductor del celular', () => {
     w.unmount()
   })
 
+  it('el volumen de la app, a mano y a la vista: se baja, se silencia y vuelve', async () => {
+    sounding()
+    const w = mount(MovilPlayer, { props: { full: true }, attachTo: document.body })
+    await flushPromises()
+    const range = w.find('.m-volume input[type="range"]')
+    expect(range.exists()).toBe(true)
+    expect(w.find('.m-volume-pct').text()).toMatch(/^\d+ %$/)
+    await range.setValue('0.6')
+    expect(held.playback.bridge.setVolume).toHaveBeenLastCalledWith(0.6)
+    held.playback.emit({ volume: 0.6 })
+    await flushPromises()
+    await w.find('[aria-label="Silenciar la app"]').trigger('click')
+    expect(held.playback.bridge.setVolume).toHaveBeenLastCalledWith(0)
+    expect(w.find('.m-volume-pct').text()).toBe('0 %')
+    await flushPromises()
+    await w.find('[aria-label="Volver a oírla"]').trigger('click')
+    expect(held.playback.bridge.setVolume).toHaveBeenLastCalledWith(0.6)
+    w.unmount()
+  })
+
   it('con el estudio abierto, la barra lleva la hora y los saltos de 10 s', async () => {
     sounding()
     const w = mount(MovilPlayer, { props: { study: true }, attachTo: document.body })
@@ -483,6 +626,37 @@ describe('los componentes de la PC, en el celular', () => {
       expect(w.text(), gone).not.toContain(gone)
     }
     expect(w.find('[title="Editar la ficha (se guarda en el mp3)"]').exists()).toBe(false)
+    w.unmount()
+  })
+})
+
+describe('las salidas en el celular', () => {
+  it('el menú del estudio ofrece «Salidas» y manda el reparto al motor del celular', async () => {
+    const { resetRouting } = await import('../src/composables/useRouting.js')
+    resetRouting()
+    held.playback.emit({
+      track: { id: 1, title: 'Mi Gozo', artist: 'Barak', duration: 245, path: '/pistas/mi-gozo' },
+      index: 0,
+      length: 1,
+      duration: 245,
+      position: 30,
+      playing: true,
+      path: '/pistas/mi-gozo'
+    })
+    const w = mount(StudyBar, { attachTo: document.body })
+    await flushPromises()
+    await w.find('[aria-label="Más del modo estudio"]').trigger('click')
+    const salidas = menu.value.items.find((i) => i.label?.startsWith('Salidas'))
+    expect(salidas).toBeTruthy()
+    salidas.action()
+    await flushPromises()
+    const presets = document.querySelectorAll('.outs-preset')
+    expect(presets.length).toBe(4)
+    presets[1].click()
+    await flushPromises()
+    expect(held.playback.bridge.setRouting).toHaveBeenLastCalledWith(
+      expect.objectContaining({ click: 1, cues: 1, song: 0 })
+    )
     w.unmount()
   })
 })

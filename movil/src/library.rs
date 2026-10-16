@@ -10,6 +10,7 @@
 //! Los ids son numeros, como los de la PC: un resumen estable del nombre de
 //! la carpeta (que ya es estable: la misma cancion, la misma carpeta).
 use crate::listas::Listas;
+use crate::musica::Musica;
 use danplay_motor::bundle::{self, Summary};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -28,6 +29,8 @@ pub struct Library {
     revision: Mutex<u64>,
     /// Las listas (el repertorio del domingo...), ver `listas.rs`.
     pub listas: Listas,
+    /// La música del teléfono (cualquier canción, no solo las pistas).
+    pub musica: Musica,
 }
 
 /// El id numerico de una carpeta: FNV-1a, positivo y nunca cero.
@@ -48,6 +51,7 @@ impl Library {
     pub fn new(dir: PathBuf) -> Library {
         let lib = Library {
             listas: Listas::new(&dir),
+            musica: Musica::new(dir.parent().unwrap_or(&dir)),
             dir,
             index: Mutex::new(HashMap::new()),
             revision: Mutex::new(1),

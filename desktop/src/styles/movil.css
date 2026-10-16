@@ -785,6 +785,29 @@ html[data-app='movil'] :focus:not(:focus-visible) {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* el estudio sigue puesto aunque no se vea: se dice sin gritar */
+.m-tile.active {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  color: var(--accent);
+}
+/* el volumen de la app, a mano */
+.m-volume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.m-volume-slider {
+  flex: 1;
+  min-width: 0;
+}
+.m-volume-pct {
+  min-width: 52px;
+  text-align: right;
+  color: var(--muted);
+  font-size: calc(13px * var(--scale));
+}
 
 /* teléfonos bajos: la carátula cede sitio para que todo quepa sin
    desplazar (los botones de abajo quedaban fuera) */
@@ -992,6 +1015,111 @@ html[data-app='movil'] :focus:not(:focus-visible) {
   height: 1px;
   margin: 14px 8px;
   background: var(--border);
+}
+
+/* quién hizo DanPlay, al pie del menú */
+.m-nav-credit {
+  margin: 14px 10px 4px;
+  font-size: calc(12px * var(--scale));
+  color: var(--muted2);
+}
+.m-nav-credit strong {
+  color: var(--muted);
+}
+
+/* --------------------------------------------------- acerca de DanPlay */
+.m-about {
+  padding: 4px 18px 32px;
+  font-size: calc(14px * var(--scale));
+  line-height: 1.55;
+}
+.m-about-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.m-about-head img {
+  border-radius: 50%;
+}
+.m-about-head strong {
+  display: block;
+  font-size: calc(18px * var(--scale));
+}
+.m-about-head span {
+  color: var(--muted);
+  font-size: calc(12.5px * var(--scale));
+}
+.m-about-credit {
+  padding: 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.m-about-credit h3 {
+  margin: 0 0 6px;
+  font-size: calc(16px * var(--scale));
+}
+.m-about-credit p {
+  margin: 0 0 8px;
+}
+.m-about-contact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.m-about-contact a {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: calc(16px * var(--scale));
+}
+.m-about-small {
+  margin: 6px 0 0;
+  font-size: calc(12px * var(--scale));
+  color: var(--muted2);
+  overflow-wrap: anywhere;
+}
+.m-about-title {
+  margin: 20px 0 8px;
+  font-size: calc(15px * var(--scale));
+}
+.m-release {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.m-release header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.m-release header span {
+  color: var(--muted2);
+  font-size: calc(12px * var(--scale));
+}
+.m-release.mine header span {
+  color: var(--accent);
+}
+.m-release p {
+  margin: 2px 0 4px;
+  font-weight: 600;
+}
+.m-release ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.m-about-terms {
+  margin-top: 18px;
+}
+.m-about-terms summary {
+  font-weight: 600;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.m-about-terms h4 {
+  margin: 12px 0 4px;
+}
+.m-about-terms p {
+  margin: 0 0 8px;
 }
 
 /* --------------------------------------------------------- los ajustes */
@@ -1664,4 +1792,68 @@ html[data-app='movil'] .drawer-head span {
 .m-settings .m-sizes {
   display: grid;
   grid-template-columns: 1fr 1fr;
+}
+
+/* ---------- las carpetas con música del teléfono ---------- */
+.m-folders {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px 16px;
+}
+.m-folders-lead {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(13.5px * var(--scale));
+  line-height: 1.45;
+}
+.m-folders-bulk {
+  display: flex;
+  gap: 8px;
+}
+.m-folders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.m-folder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--m-radius);
+  text-align: left;
+  color: var(--muted);
+}
+.m-folder.on {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.m-folder.on .ico {
+  color: var(--accent);
+}
+.m-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.m-folder em {
+  font-style: normal;
+  color: var(--muted);
+}
+.m-folders-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 10px;
+  background: var(--bg);
+}
+.m-folders-count {
+  color: var(--muted);
+  font-size: calc(13px * var(--scale));
 }

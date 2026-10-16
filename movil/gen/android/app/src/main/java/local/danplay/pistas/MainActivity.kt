@@ -65,6 +65,8 @@ class MainActivity : TauriActivity() {
     // la página le cuenta a Android qué suena, para la notificación con los
     // mandos y la pantalla de bloqueo (Reproduciendo.kt)
     webView.addJavascriptInterface(Puente(applicationContext), "DanPlayAndroid")
+    // el permiso de la música del teléfono (PermisoMusica.kt)
+    webView.addJavascriptInterface(PermisoMusica(this), "DanPlayMusica")
     // «Atras»: primero la pagina cierra lo que tenga abierto (un menu, la
     // ficha, el estudio); si no tenia nada, la app pasa a segundo plano y la
     // musica sigue sonando, como en cualquier reproductor. Se registra aqui,
@@ -77,6 +79,15 @@ class MainActivity : TauriActivity() {
       }
     })
     deliver()
+  }
+
+  override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    if (requestCode != PermisoMusica.CODIGO) return
+    val ok = grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
+    webView?.post {
+      webView?.evaluateJavascript("window.__danplayPermisoMusica && window.__danplayPermisoMusica($ok)", null)
+    }
   }
 
   /** El archivo con que se abrio la app, si se abrio con uno. */

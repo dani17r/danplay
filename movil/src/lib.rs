@@ -18,13 +18,14 @@ mod api;
 mod library;
 mod listas;
 mod mandos;
+mod musica;
 mod player;
 mod theory;
 
 use danplay_motor::beats::BeatGrid;
 use danplay_motor::bundle::Summary;
 use danplay_motor::metro::MetronomeSettings;
-use danplay_motor::queue::{Repeat, Track};
+use danplay_motor::queue::{LoopEnd, Repeat, Track};
 use library::Library;
 use player::{Command, Player, StemTrack};
 use serde::Serialize;
@@ -117,7 +118,7 @@ fn set_loop(
     a: Option<f64>,
     b: Option<f64>,
     segments: Option<Vec<[f64; 2]>>,
-    defer: Option<bool>,
+    end: Option<String>,
 ) {
     let list: Vec<(f64, f64)> = match segments {
         Some(list) => list
@@ -130,7 +131,7 @@ fn set_loop(
             _ => Vec::new(),
         },
     };
-    player.send(Command::Loops(list, defer.unwrap_or(false)));
+    player.send(Command::Loops(list, LoopEnd::parse(end.as_deref())));
 }
 
 #[tauri::command]
@@ -155,6 +156,42 @@ fn set_stems(
     Ok(())
 }
 
+/// Por donde sale cada cosa (como en la PC): con unos cascos o una mesa, el
+/// clic y las guias por un lado y la musica por el otro.
+#[tauri::command]
+fn set_routing(player: tauri::State<'_, Player>, routing: danplay_motor::spec::RoutingSpec) {
+    player.send(Command::Routing(routing));
+}
+
+/// Que salida de audio abrir (la del sistema, o una interfaz USB).
+#[tauri::command]
+fn set_output(player: tauri::State<'_, Player>, output: danplay_motor::output::OutputConfig) {
+    player.send(Command::Output(output));
+}
+
+/// Las salidas de audio del telefono.
+#[tauri::command]
+async fn output_devices() -> Vec<danplay_motor::output::DeviceInfo> {
+    tauri::async_runtime::spawn_blocking(danplay_motor::output::devices)
+        .await
+        .unwrap_or_default()
+}
+
+/// Las voces guia de la cancion `song` (la que suena).
+#[tauri::command]
+fn set_cues(
+    player: tauri::State<'_, Player>,
+    song: String,
+    cues: Vec<danplay_motor::spec::CueSpec>,
+    volume: Option<f32>,
+) {
+    player.send(Command::Cues {
+        song,
+        cues,
+        volume: volume.unwrap_or(1.0),
+    });
+}
+
 /// El pulso de la pista con el analisis de la PC, cuando no lo trajo
 /// calculado (Beat This! solo corre en la PC).
 #[tauri::command]
@@ -167,6 +204,7 @@ async fn analyze_beats(
         return Ok((*grid).clone());
     }
     let folder = std::path::PathBuf::from(&path);
+    // una pista traída (carpeta) o una canción del teléfono (archivo)
     let grid = tauri::async_runtime::spawn_blocking(move || player::analyze(&folder, hint_bpm))
         .await
         .map_err(|e| e.to_string())??;
@@ -359,6 +397,10 @@ pub fn run() {
             set_loop,
             set_metronome,
             set_stems,
+            set_routing,
+            set_output,
+            output_devices,
+            set_cues,
             analyze_beats,
             set_beat_grid,
             playback_state,
