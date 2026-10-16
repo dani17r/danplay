@@ -16,6 +16,21 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.28.1',
+    date: '',
+    summary: 'Las guías en sus carriles, exportar con o sin guías y la onda a tu gusto.',
+    items: [
+      'En Linux vuelven la onda y separar en pistas (fallaban con canciones nuevas).',
+      'Los paquetes de Linux traen ffmpeg, fpcalc y Deno: no hay que instalar nada.',
+      'Guías en carriles, hasta seis, cada uno con su volumen y su salida.',
+      'Las guías se ponen, se mueven y se cambian con la canción parada.',
+      'Exporta la canción o las pistas, con las guías o sin ellas.',
+      'Seis estilos para la onda: barras, bloques, rayitas, suave, contorno y reflejo.',
+      'Ctrl + rueda acerca, Mayús + rueda recorre, la rueda sola baja el panel.',
+      'Cada cosa, en estéreo o en mono, y solo las salidas de audio que tienes.'
+    ]
+  },
+  {
     version: '1.28.0',
     date: '2026-10-16',
     summary: 'La pista y el metrónomo, listos para tocar en directo, y tus listas ya no se rompen.',
