@@ -16,7 +16,7 @@ members = ["core", "desktop/src-tauri", "motor", "movil"]
 resolver = "3"
 
 [workspace.package]
-version = "1.27.0"
+version = "1.28.0"
 edition = "2024"
 # DanPlay es obra de Daniel Rangel (https://t.me/Dani17r)
 authors = ["Daniel Rangel"]

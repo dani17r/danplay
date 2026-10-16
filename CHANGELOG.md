@@ -3,7 +3,7 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
-## 1.28.0 — sin publicar
+## 1.28.0 — 2026-10-16
 
 El fuerte de DanPlay, la pista y el metrónomo, rehecho para tocar en directo:
 un motor de audio nuevo sin cortes, el clic arreglado (sin silencios ni

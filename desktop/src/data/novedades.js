@@ -17,7 +17,7 @@
 export const RELEASES = [
   {
     version: '1.28.0',
-    date: '',
+    date: '2026-10-16',
     summary: 'La pista y el metrónomo, listos para tocar en directo, y tus listas ya no se rompen.',
     items: [
       'Motor de audio nuevo: los tramos y el cambio a las pistas, sin cortes.',
