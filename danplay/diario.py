@@ -70,6 +70,11 @@ def _roots() -> list[str]:
     return [r for r in roots() if os.path.isdir(r)]
 
 
+def _rel(path: str, root: str) -> str:
+    """La ruta dentro de su carpeta de musica, con «/» en todos los sistemas."""
+    return os.path.relpath(path, root).replace(os.sep, "/")
+
+
 def _root_of(path: str, roots: list[str]) -> str:
     return next((r for r in roots if path == r or path.startswith(r.rstrip(os.sep) + os.sep)), "")
 
@@ -108,7 +113,9 @@ def snapshot() -> dict:
                 "id": r["id"],
                 "path": r["path"],
                 "root": os.path.basename(root.rstrip(os.sep)) if root else "",
-                "rel": os.path.relpath(r["path"], root) if root else "",
+                # con «/» siempre: el diario viaja con la musica, tambien de
+                # un equipo con Windows a uno con Linux o macOS
+                "rel": _rel(r["path"], root) if root else "",
                 "file": r["file"],
                 "size": r["size"],
                 "artist": r["artist"],
@@ -204,7 +211,7 @@ def _index(rows):
         by_path[r["path"]] = r
         root = r["root"] or _root_of(r["path"], roots)
         if root:
-            by_rel[(os.path.basename(root.rstrip(os.sep)), os.path.relpath(r["path"], root))] = r
+            by_rel[(os.path.basename(root.rstrip(os.sep)), _rel(r["path"], root))] = r
         by_file.setdefault((r["file"], r["size"]), []).append(r)
         by_key.setdefault(reuse.ident(r), []).append(r)
     return by_path, by_rel, by_file, by_key
@@ -223,7 +230,7 @@ def _find(entry: dict, by_path, by_rel, by_file, by_key):
 
     if entry.get("path") in by_path:
         return by_path[entry["path"]]
-    hit = by_rel.get((entry.get("root"), entry.get("rel")))
+    hit = by_rel.get((entry.get("root"), str(entry.get("rel") or "").replace("\\", "/")))
     if hit is not None:
         return hit
     same = by_file.get((entry.get("file"), entry.get("size")), [])

@@ -831,7 +831,9 @@ def load_raw(path) -> dict | None:
     """Lo guardado por `save_raw`, o None. Uno dañado (de antes de guardarse
     asi) se borra: se vuelve a calcular."""
     try:
-        with np.load(path) as z:
+        # el archivo lo abre esta funcion: si numpy falla al leerlo deja el
+        # suyo abierto, y en Windows un archivo abierto no se puede borrar
+        with open(path, "rb") as f, np.load(f) as z:
             return {
                 "beat": z["beat"].astype(np.float32),
                 "down": z["down"].astype(np.float32),
