@@ -276,6 +276,8 @@ describe('lo que cada metodo pide al nucleo', () => {
     setCover: [[7, '/img.jpg'], 'POST', '/api/song/7/cover', { path: '/img.jpg' }],
     transpose: [[{ text: 'G', to_key: 'A' }], 'POST', '/api/transpose', { text: 'G', to_key: 'A' }],
     deleteSong: [[7], 'DELETE', '/api/song/7'],
+    terms: [[], 'GET', '/api/terms'],
+    acceptTerms: [['2026-10-16'], 'POST', '/api/terms/accept', { version: '2026-10-16' }],
     playlists: [[], 'GET', '/api/playlists'],
     createPlaylist: [['Domingo'], 'POST', '/api/playlists', { name: 'Domingo' }],
     deletePlaylist: [[3], 'DELETE', '/api/playlists/3'],
@@ -287,6 +289,32 @@ describe('lo que cada metodo pide al nucleo', () => {
     setPlaylistSongs: [[3, [5, 1]], 'PUT', '/api/playlists/3/songs', { ids: [5, 1] }],
     setStudy: [[7, { notes: 'x' }], 'PUT', '/api/song/7/study', { notes: 'x' }],
     waveform: [[7], 'GET', '/api/song/7/waveform?buckets=800'],
+    waveformRange: [
+      [7, 10, 20, 400],
+      'GET',
+      '/api/song/7/waveform?start=10.000&end=20.000&buckets=400'
+    ],
+    reanalyzeBeats: [
+      [7, { mode: 'repair' }],
+      'POST',
+      '/api/song/7/beats/reanalyze',
+      { mode: 'repair' }
+    ],
+    phoneFolders: [[], 'GET', '/api/phone/folders'],
+    setPhoneFolders: [[['/m']], 'PUT', '/api/phone/folders', { folders: ['/m'] }],
+    phoneScan: [[], 'POST', '/api/phone/scan'],
+    phoneSongs: [[{ q: 'coro' }], 'GET', '/api/phone/songs?q=coro'],
+    phoneFolder: [[-5], 'GET', '/api/phone/folder/-5'],
+    cueVoices: [[], 'GET', '/api/cues/voices'],
+    installCueVoice: [['st-F1'], 'POST', '/api/cues/voices/st-F1/install'],
+    makeCue: [
+      [7, { text: 'Coro', voice: 'v' }],
+      'POST',
+      '/api/song/7/cues',
+      { text: 'Coro', voice: 'v' }
+    ],
+    importCue: [[7, '/tmp/a.wav'], 'POST', '/api/song/7/cues/import', { path: '/tmp/a.wav' }],
+    previewCue: [['/g/a.wav'], 'POST', '/api/cues/audio', { file: '/g/a.wav' }],
     separation: [[], 'GET', '/api/separate'],
     separate: [[7], 'POST', '/api/song/7/separate'],
     cancelSeparation: [[], 'DELETE', '/api/separate'],
@@ -310,6 +338,8 @@ describe('lo que cada metodo pide al nucleo', () => {
     exportPlaylist: [[3], 'POST', '/api/playlists/3/export'],
     externalList: [[], 'GET', '/api/external'],
     externalPlayed: [['/a.mp3'], 'POST', '/api/external/play', { path: '/a.mp3' }],
+    sequenceInfo: [['/d/Mi Cancion'], 'GET', '/api/sequence?path=%2Fd%2FMi%20Cancion'],
+    importSequence: [['/d/x'], 'POST', '/api/sequence/import', { path: '/d/x' }],
     externalClear: [[], 'DELETE', '/api/external'],
     externalForget: [[-2], 'DELETE', '/api/external/-2'],
     externalSave: [['Del reproductor'], 'POST', '/api/external/save', { name: 'Del reproductor' }],
@@ -379,7 +409,15 @@ describe('lo que cada metodo pide al nucleo', () => {
   }
   // no hablan con el nucleo por aqui: el escuchador de Rust, las URL de los
   // medios (las pide el navegador) y `runJob`, que ya tiene sus pruebas
-  const APARTE = ['inTauri', 'onExternal', 'runJob', 'audioUrl', 'coverUrl', 'coverUrlAlt']
+  const APARTE = [
+    'inTauri',
+    'onExternal',
+    'onSequence',
+    'runJob',
+    'audioUrl',
+    'coverUrl',
+    'coverUrlAlt'
+  ]
 
   it('no se queda ningun metodo sin mirar', () => {
     const sinMirar = Object.keys(api).filter((k) => !(k in TABLA) && !APARTE.includes(k))
@@ -395,6 +433,15 @@ describe('lo que cada metodo pide al nucleo', () => {
       expect(calls[0].body === undefined ? undefined : JSON.parse(calls[0].body)).toEqual(cuerpo)
     })
   }
+
+  it('borrar una canción puede sacarla también de sus listas', async () => {
+    await api.deleteSong(7, { fromLists: true })
+    await api.deleteSong(8, { fromLists: false })
+    expect(calls.map((c) => [c.method, c.url])).toEqual([
+      ['DELETE', '/api/song/7?from_lists=true'],
+      ['DELETE', '/api/song/8']
+    ])
+  })
 
   it('confirmar por id sin casillas manda solo el id; un núcleo antiguo, (tool, args)', async () => {
     await api.chatConfirm({ id: 'kq3V' })

@@ -71,6 +71,31 @@
  * @property {number} confidence
  * @property {boolean} [closed]    acaba en su último pulso: después no hay clic
  */
+/** @typedef {'repeat'|'stop'|'continue'} LoopEnd  qué pasa al acabar el último tramo */
+/**
+ * @typedef {Object} OutputStatus  la salida de audio abierta
+ * @property {string} device   su id
+ * @property {string} name
+ * @property {number} channels
+ * @property {number} rate
+ * @property {boolean} fallback  la elegida no está y suena por la del sistema
+ * @property {string|null} error
+ * @property {number} xruns    veces que no llegó a tiempo
+ */
+/**
+ * @typedef {Object} AudioDevice  una salida de audio del equipo
+ * @property {string} id
+ * @property {string} name
+ * @property {number} channels  los que admite como mucho
+ * @property {boolean} default  es la del sistema
+ */
+/**
+ * @typedef {Object} RoutingSpec  a dónde va cada cosa
+ * @property {Array<{left: number, right: number}|null>} buses
+ * @property {number} song
+ * @property {number} click
+ * @property {number} cues
+ */
 /**
  * @typedef {Object} PlaybackState  Lo que Rust cuenta en `danplay://state`.
  * @property {Track|null} track   lo que suena (o lo último cargado)
@@ -97,7 +122,9 @@
  *                                tramos, del principio del primero al final del último)
  * @property {number} loop_b
  * @property {Array<[number, number]>} [loops]  los tramos que se repiten, en orden
- * @property {boolean} [loop_defer]  los tramos esperan a que acabe la canción
+ * @property {LoopEnd} [loop_end]  qué pasa al acabar el último tramo
+ * @property {OutputStatus|null} [output]  la salida de audio abierta (null: aún no, o se soltó)
+ * @property {boolean} [preparing]  la canción se está preparando (un formato que se pasa a FLAC)
  * @property {boolean} [stems]    suenan las pistas separadas de la canción, con su mezcla
  * @property {boolean} [counting_in]  se está contando: la canción entra al acabar la cuenta
  */
@@ -130,6 +157,7 @@
  * @property {string} [study]          modo estudio, como JSON (ver api.setStudy)
  * @property {boolean} [has_stems]     tiene sus pistas separadas (en las listas)
  * @property {boolean} [stems_best]    y ya son las mejores (no las rápidas ni las de antes)
+ * @property {boolean} [ghost]         en una lista: ya no está en la biblioteca («No está»)
  */
 
 /**
@@ -544,15 +572,38 @@ export const playback = {
    * Repetir de A a B (segundos); sin valores, lo quita. No mueve la canción:
    * el tramo entra cuando la canción está (o llega) dentro, y con tramo la
    * canción no se acaba (al final vuelve a A). Con `segments` son varios
-   * tramos seguidos (del último se vuelve al primero); con `defer`, esperan
-   * a que acabe la canción.
+   * tramos seguidos; `end` dice qué pasa al acabar el último: 'repeat'
+   * (vuelta al primero), 'stop' (se para al principio del primero) o
+   * 'continue' (suenan una vez y la canción sigue).
    * @param {number|null} a @param {number|null} b
-   * @param {{ segments?: Array<[number, number]>, defer?: boolean }} [opts]
+   * @param {{ segments?: Array<[number, number]>, end?: LoopEnd }} [opts]
    */
   setLoop: (a, b, opts) =>
     opts
-      ? invoke('set_loop', { a, b, segments: opts.segments ?? null, defer: !!opts.defer })
+      ? invoke('set_loop', { a, b, segments: opts.segments ?? null, end: opts.end ?? 'repeat' })
       : invoke('set_loop', { a, b }),
+  /**
+   * A dónde va cada cosa: los destinos (pares de canales de la salida, o uno
+   * en mono: `{left, right}` con los dos iguales) y el de la canción, el
+   * clic y las voces guía (cada pista lleva el suyo en `setStems`).
+   * @param {RoutingSpec} routing
+   */
+  setRouting: (routing) => invoke('set_routing', { routing }),
+  /**
+   * Qué salida de audio abrir (su id; null, la del sistema) y con cuántos
+   * canales.
+   * @param {{device: string|null, channels: number}} output
+   */
+  setOutput: (output) => invoke('set_output', { output }),
+  /** @returns {Promise<AudioDevice[]>} las salidas del equipo, la del sistema primero */
+  outputDevices: () => invoke('output_devices'),
+  /**
+   * Las voces guía de la canción `song` (la ruta de la que suena): cada una,
+   * un archivo y el segundo en que entra.
+   * @param {string} song @param {Array<{at: number, path: string, gain?: number}>} cues
+   * @param {number} [volume]
+   */
+  setCues: (song, cues, volume = 1) => invoke('set_cues', { song, cues, volume }),
   /**
    * El tono corrido, en semitonos (-12..12, con fracciones: 0,5 es un cuarto
    * de tono). Solo hace algo con ffmpeg.
@@ -626,6 +677,14 @@ export const app = {
     inTauri
       ? invoke('set_window_on_top', { on })
       : Promise.reject(new Error('Solo en la aplicación de escritorio')),
+  /** Se puede grabar con el micrófono (solo en la app de escritorio). */
+  canRecord: inTauri,
+  /** Empieza a grabar con el micrófono del sistema (para una guía). */
+  recordStart: () => invoke('record_start'),
+  /** Cuánto suena lo que entra ahora (0..1), para el vúmetro. @returns {Promise<number>} */
+  recordLevel: () => invoke('record_level'),
+  /** Para de grabar: devuelve el archivo (WAV) que quedó. @returns {Promise<string>} */
+  recordStop: () => invoke('record_stop'),
   /**
    * Abre el explorador de archivos del sistema señalando ese archivo (o esa
    * carpeta). Fuera de la app no hay explorador que abrir.
@@ -840,7 +899,8 @@ export const JOBS = {
   ytdlp: 'yt-dlp',
   separate: 'separacion',
   mix: 'mezcla',
-  phone: 'celular'
+  phone: 'celular',
+  sequence: 'secuencia'
 }
 
 /** @param {number} ms */
@@ -893,6 +953,9 @@ export const api = {
   settings: () => GET('/settings'),
   checkAi: () => POST('/settings/check-ai'),
   saveSettings: (d) => POST('/settings', d),
+  /** Si se aceptaron los términos, cuáles y cuándo (el texto, en data/terminos.js). */
+  terms: () => GET('/terms'),
+  acceptTerms: (version) => POST('/terms/accept', { version }),
 
   /**
    * Proveedores de IA: el catálogo, los perfiles guardados (claves
@@ -1002,7 +1065,10 @@ export const api = {
   /** @param {{text:string, from_key?:string, to_key?:string, semitones?:number}} d */
   transpose: (d) => POST('/transpose', d),
 
-  deleteSong: (id) => DEL(`/song/${id}`),
+  /** A la papelera; con `fromLists`, sale también de sus listas (si no,
+   * se queda en ellas como «No está»). */
+  deleteSong: (id, { fromLists = false } = {}) =>
+    DEL(`/song/${id}${fromLists ? '?from_lists=true' : ''}`),
 
   playlists: () => GET('/playlists'),
   createPlaylist: (name) => POST('/playlists', { name }),
@@ -1043,6 +1109,17 @@ export const api = {
    */
   waveform: (id, buckets = 800) => GET(`/song/${id}/waveform?buckets=${buckets}`),
   /**
+   * La forma de onda de un trozo, con detalle (para la onda acercada): del
+   * segundo `start` al `end`, en `buckets` columnas, a la misma escala que la
+   * de toda la canción. @param {number} id @param {number} start
+   * @param {number} end @param {number} buckets
+   * @returns {Promise<{peaks: number[], rms: number[]}>}
+   */
+  waveformRange: (id, start, end, buckets) =>
+    GET(
+      `/song/${id}/waveform?start=${start.toFixed(3)}&end=${end.toFixed(3)}&buckets=${Math.round(buckets)}`
+    ),
+  /**
    * El pulso y el «1» de la canción con Beat This! (la primera vez, unos
    * segundos). 503 si aquí no se puede: la app sigue con su análisis.
    * @param {number} id
@@ -1053,6 +1130,68 @@ export const api = {
   beatGridNow: (id) => GET(`/song/${id}/beats?wait=false`),
   /** deja calculándose la de una canción que vendrá después */
   beatGridPrepare: (id) => POST(`/song/${id}/beats/prepare`),
+  /**
+   * Vuelve a analizar el clic: de toda la canción o de un tramo, arreglando
+   * los huecos y los saltos de fase ('repair'), a tempo fijo ('steady'),
+   * con la batería separada ('drums') o rellenando los silencios ('fill').
+   * Devuelve la rejilla nueva y lo que se arregló.
+   * @param {number} id
+   * @param {{mode: 'repair'|'steady'|'drums'|'fill', start?: number, end?: number}} opts
+   * @returns {Promise<{grid: BeatGrid, report: {fixed: number, bpm: number, notes: string[]}}>}
+   */
+  reanalyzeBeats: (id, opts) => POST(`/song/${id}/beats/reanalyze`, opts),
+  // ---- las guías habladas
+  /**
+   * Las voces con que se dicen las guías escritas: las que hay (y las que
+   * se pueden bajar, con lo que pesan).
+   * @returns {Promise<{voices: Array<{id: string, name: string, lang: string, gender: string, engine: string, installed: boolean, size: number, progress?: number, error?: string}>, available: string}>}
+   */
+  /**
+   * Lo que hay en una carpeta de secuencia (o en la de ese archivo): título,
+   * artista, tono, tempo, partes y pistas con su papel. 422 si no lo es.
+   * @param {string} path
+   * @returns {Promise<{folder: string, title: string, artist: string, key: string, bpm: number, project: boolean, cover: boolean, sections: string[], tracks: Array<{name: string, role: string}>}>}
+   */
+  sequenceInfo: (path) => GET(`/sequence?path=${encodeURIComponent(path)}`),
+  /** Abrir una secuencia (tarea «secuencia»). @param {string} path */
+  importSequence: (path) => POST('/sequence/import', { path }),
+  // ---- la música del teléfono (solo en la app del celular: movil/src/musica.rs)
+  /** Las carpetas con música, con cuántas canciones y si se indexan. */
+  phoneFolders: () => GET('/phone/folders'),
+  /** Elegir las carpetas que se indexan. @param {string[]} folders */
+  setPhoneFolders: (folders) => PUT('/phone/folders', { folders }),
+  /** Volver a mirar las carpetas (solo se lee lo nuevo). */
+  phoneScan: () => POST('/phone/scan'),
+  /** La música del teléfono. @param {Record<string,string>} [params] */
+  phoneSongs: (params = {}) => GET('/phone/songs?' + new URLSearchParams(params)),
+  /** Las canciones de la carpeta de esa (para la cola). @param {number} id */
+  phoneFolder: (id) => GET(`/phone/folder/${id}`),
+  cueVoices: () => GET('/cues/voices'),
+  /**
+   * Bajar una voz (en segundo plano: se sigue en `cueVoices`).
+   * @param {string} id @returns {Promise<{installed: boolean, progress?: number}>}
+   */
+  installCueVoice: (id) => POST(`/cues/voices/${encodeURIComponent(id)}/install`),
+  /**
+   * Una guía escrita, dicha con una voz: el archivo que se hace (con
+   * `preview`, uno de prueba que no se guarda con la canción).
+   * @param {number} id @param {{text: string, voice: string, preview?: boolean}} body
+   * @returns {Promise<{file: string, seconds: number}>}
+   */
+  makeCue: (id, body) => POST(`/song/${id}/cues`, body),
+  /**
+   * Una guía grabada con el micrófono (el archivo que dejó la app), a su
+   * sitio. @param {number} id @param {string} path
+   * @returns {Promise<{file: string, seconds: number}>}
+   */
+  importCue: (id, path) => POST(`/song/${id}/cues/import`, { path }),
+  /** Escuchar una guía (su archivo). @param {string} file */
+  previewCue: async (file) => {
+    const r = await POST('/cues/audio', { file })
+    if (!r?.data) return
+    const audio = new Audio(`data:${r.mime || 'audio/wav'};base64,${r.data}`)
+    await audio.play()
+  },
   /** «Transformar»: lo que no está en su sitio o con su nombre (las seguras primero) */
   tidyList: () => GET('/tidy'),
   /** «Transformar» una canción: `{artist, title, tags}` o `{to}` (deshacer) */
@@ -1068,7 +1207,7 @@ export const api = {
    * tiene las pistas rapidas, solo se mejoran. La primera vez baja el
    * separador. @param {number} id
    */
-  separate: (id) => POST(`/song/${id}/separate`),
+  separate: (id, opts = {}) => POST(`/song/${id}/separate${opts.max ? '?quality=max' : ''}`),
   /** Para lo que se este separando y vacia la cola. */
   cancelSeparation: () => DEL('/separate'),
   /** Quita de la cola una cancion que aun espera. @param {number} id */
@@ -1121,6 +1260,14 @@ export const api = {
    * @param {() => void} fn
    */
   onExternal: inTauri ? (fn) => listen('danplay://recent', () => fn()) : noListener,
+  /**
+   * Se abrió desde fuera una pista de una secuencia (el «Click Track.wav» de
+   * una carpeta de MultiTracks): llega la carpeta de la secuencia.
+   * @param {(folder: string) => void} fn
+   */
+  onSequence: inTauri
+    ? (fn) => listen('danplay://sequence', (e) => fn(String(e.payload || '')))
+    : noListener,
 
   inbox: () => GET('/inbox'),
 

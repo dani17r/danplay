@@ -443,7 +443,7 @@ describe('el buscador', () => {
       dialogOk()
       await flushPromises()
       await flushPromises()
-      expect(api.deleteSong).toHaveBeenCalledWith(1)
+      expect(api.deleteSong).toHaveBeenCalledWith(1, { fromLists: false })
       expect(w.findAll('.sr-row')).toHaveLength(2)
       expect(w.find('.search-results').exists()).toBe(true)
     })
@@ -593,7 +593,10 @@ describe('el buscador', () => {
       dialogOk()
       await flushPromises()
       await flushPromises()
-      expect(api.deleteSong.mock.calls).toEqual([[1], [2]])
+      expect(api.deleteSong.mock.calls).toEqual([
+        [1, { fromLists: false }],
+        [2, { fromLists: false }]
+      ])
       expect(filas(w)).toHaveLength(1)
       expect(w.find('.sr-picking').exists(), 'lo que ya no esta, no esta elegido').toBe(false)
       expect(w.find('.search-results').exists()).toBe(true)

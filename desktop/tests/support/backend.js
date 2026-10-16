@@ -6,6 +6,7 @@
 // (`quitarCarpeta`, `estadoFalso.ia`), así que las pruebas seguían en verde
 // mientras la app llamaba a cosas que ya no existían.
 import { vi } from 'vitest'
+import { TERMS_VERSION } from '../../src/data/terminos.js'
 
 /** Una canción de mentira con todos los campos que la interfaz espera. */
 export function song(id, extra = {}) {
@@ -315,6 +316,11 @@ export function createState() {
       }
     ],
     playlists: [],
+    /** los términos aceptados (en las pruebas, ya aceptados: ver useTerms) */
+    terms: { accepted: TERMS_VERSION, at: 1, app: '1.0.0' },
+    /** la música del teléfono (app del celular): sus canciones y sus carpetas */
+    phone: [],
+    phoneFolders: [],
     /** las canciones de la lista abierta, en su orden (el doble no distingue listas) */
     playlistSongs: [],
     addedFolders: [],
@@ -544,6 +550,25 @@ function answers(state) {
       const page = state.songs.slice(from, from + limit).map(light)
       return { total: page.length, count: state.songs.length, songs: page }
     },
+    // ---- la música del teléfono (app del celular)
+    phoneSongs: async (p = {}) => {
+      const q = String(p.q || '').toLowerCase()
+      const songs = state.phone.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(q))
+      return { total: state.phone.length, count: songs.length, songs: songs.map((s) => ({ ...s })) }
+    },
+    phoneScan: async () => ({ songs: state.phone.length }),
+    phoneFolders: async () => ({ folders: state.phoneFolders.map((f) => ({ ...f })) }),
+    setPhoneFolders: async (folders) => {
+      for (const f of state.phoneFolders) f.on = folders.includes(f.path)
+      return { songs: state.phone.length }
+    },
+    phoneFolder: async (id) => {
+      const me = state.phone.find((s) => s.id === id)
+      const dir = me ? me.path.slice(0, me.path.lastIndexOf('/')) : ''
+      return {
+        songs: state.phone.filter((s) => s.path.startsWith(dir + '/')).map((s) => ({ ...s }))
+      }
+    },
     quickSearch: async () => ({
       total: state.songs.length,
       songs: state.songs.map((s) => ({ ...s }))
@@ -585,10 +610,20 @@ function answers(state) {
       song: find(id) ? { ...find(id) } : null
     }),
     chordsTransposed: async () => ({ sheet: null }),
-    deleteSong: async (id) => {
+    // como el núcleo: sin `fromLists` se queda en sus listas como «No está»
+    terms: async () => ({ ...state.terms }),
+    acceptTerms: async (version) => {
+      state.terms = { accepted: version, at: 2, app: '1.0.0' }
+      return { ...state.terms }
+    },
+    deleteSong: async (id, { fromLists = false } = {}) => {
       const s = find(id)
       state.songs = state.songs.filter((x) => x.id !== id)
-      return { ok: true, trashed: true, name: s?.file || '' }
+      const listed = state.playlistSongs.some((c) => c.id === id)
+      state.playlistSongs = fromLists
+        ? state.playlistSongs.filter((c) => c.id !== id)
+        : state.playlistSongs.map((c) => (c.id === id ? { ...c, ghost: true } : c))
+      return { ok: true, trashed: true, name: s?.file || '', lists: fromLists && listed ? 1 : 0 }
     },
     playlists: async () => ({ playlists: state.playlists.map((l) => ({ ...l })), favorites: 0 }),
     createPlaylist: async (name) => {
@@ -919,6 +954,10 @@ export function buildApiDouble(actual, state) {
     double.fireExternal = fn
     return () => (double.fireExternal = null)
   })
+  double.onSequence = vi.fn(async (fn) => {
+    double.fireSequence = fn
+    return () => (double.fireSequence = null)
+  })
   return double
 }
 
@@ -940,6 +979,7 @@ export function createAppDouble(over = {}) {
     shareTargets: vi.fn(async () => ({ telegram: true })),
     sendToTelegram: vi.fn(async () => {}),
     revealInFolder: vi.fn(async () => {}),
+    openInBrowser: vi.fn(async () => {}),
     defaultPlayer: vi.fn(async () => ({
       supported: true,
       is_default: false,
@@ -1052,9 +1092,13 @@ export function createPlaybackDouble() {
         loop_a: loops[0]?.[0] ?? 0,
         loop_b: loops.at(-1)?.[1] ?? 0,
         loops,
-        loop_defer: !!opts?.defer && loops.length > 0
+        loop_end: opts?.end ?? 'repeat'
       })
     }),
+    setRouting: vi.fn(async () => {}),
+    setOutput: vi.fn(async () => {}),
+    outputDevices: vi.fn(async () => []),
+    setCues: vi.fn(async () => {}),
     setPitch: vi.fn(async (semitones) => emit({ pitch: semitones })),
     setCrossfade: vi.fn(async () => {}),
     // como Rust: las pistas eran para la cancion que suena; si ya es otra, nada
