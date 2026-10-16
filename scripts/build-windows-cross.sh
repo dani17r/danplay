@@ -51,22 +51,24 @@ morir () { printf '\n\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 mkdir -p "$CACHE"
 
 # --------------------------------------------------------------- herramientas
-# mingw-w64 (enlazador y compilador de recursos) y zig (compila el lanzador).
-# Se extraen de sus paquetes sin instalarlos: el enlazador de zig no sabe usar
-# las bibliotecas de importación de Windows que trae Rust, así que hace falta
-# el de mingw de verdad.
+# mingw-w64 (enlazador, compiladores de C y C++ —el motor de audio lleva el
+# estirado de Signalsmith, en C++— y compilador de recursos) y zig (compila el
+# lanzador). Se extraen de sus paquetes sin instalarlos: el enlazador de zig
+# no sabe usar las bibliotecas de importación de Windows que trae Rust, así
+# que hace falta el de mingw de verdad.
 SYSROOT="$CACHE/mingw"
-if [ ! -x "$SYSROOT/usr/bin/x86_64-w64-mingw32-gcc-win32" ]; then
+if [ ! -x "$SYSROOT/usr/bin/x86_64-w64-mingw32-g++-win32" ]; then
     paso "herramientas de Windows (una vez)"
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     ( cd "$tmp" && apt-get download \
-        binutils-mingw-w64-x86-64 mingw-w64-x86-64-dev \
+        binutils-mingw-w64-x86-64 mingw-w64-x86-64-dev mingw-w64-common \
         gcc-mingw-w64-base gcc-mingw-w64-x86-64-win32-runtime \
-        gcc-mingw-w64-x86-64-win32 >/dev/null ) \
+        gcc-mingw-w64-x86-64-win32 g++-mingw-w64-x86-64-win32 >/dev/null ) \
       || morir "no pude descargar mingw-w64. ¿Hay red y apt configurado?"
     mkdir -p "$SYSROOT"
     for d in "$tmp"/*.deb; do dpkg-deb -x "$d" "$SYSROOT"; done
     ln -sf x86_64-w64-mingw32-gcc-win32 "$SYSROOT/usr/bin/x86_64-w64-mingw32-gcc"
+    ln -sf x86_64-w64-mingw32-g++-win32 "$SYSROOT/usr/bin/x86_64-w64-mingw32-g++"
     rm -rf "$tmp"; trap - EXIT
 fi
 export PATH="$SYSROOT/usr/bin:$PATH"
