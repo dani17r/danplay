@@ -1534,6 +1534,23 @@ van con el clic salvo que se diga otra cosa. La descripción que manda la
 interfaz y cómo se convierte vive en el motor (`motor/src/spec.rs`): la misma
 en la PC y en el celular.
 
+Cada cosa puede ir en **estéreo o en mono**: un destino de dos canales con
+`mono` junta los dos lados y saca lo mismo por los dos (`Target::joins`); por
+un solo canal va en mono siempre. Se guarda por cosa y vale con cualquier
+reparto. La lista de pistas que reparte es una para toda la interfaz: el
+panel de «Salidas» tiene su propio `useRouting()`, y con una lista suya
+mandaba al motor un reparto sin los buses de las pistas.
+
+**Las salidas de audio, las de verdad.** En Linux, ALSA enseña además de las
+tarjetas los complementos (null, jack, oss, pulse, convertidores…) y cada
+salida con muchos nombres (hw, plughw, front, surround51, dmix, hdmi, la
+misma con número). `output::devices` deja solo `hw:CARD=<nombre>,DEV=<n>`
+(una por salida física); la del sistema (PipeWire o PulseAudio) es la
+primera opción de la interfaz. Abrir cada una para contar sus canales dice
+también si está libre: la que el sistema tiene ocupada se marca, y elegida,
+suena por la del sistema (`fallback`) en vez de quedarse callada
+reintentando.
+
 ## Guías habladas
 
 Un punto de la canción dice «Coro» o «Puente, cuatro tiempos»: escrito, y lo
@@ -1550,6 +1567,20 @@ por palabra en un 96-97 % de un corpus normal). Los números y las abreviaturas
 se dicen en palabras antes («x2» es «dos veces»). La misma frase con la misma
 voz es el mismo archivo. Las guías se guardan con el estudio; solo se aceptan
 archivos de la carpeta de guías de DanPlay.
+
+**Los carriles de guías** (1.28.1): hasta seis (`cueLanes` en el estudio:
+clave, nombre, volumen, callado, solo), y cada guía dice el suyo (`lane`; sin
+él, el primero). En la interfaz van debajo de la onda, a su misma escala
+(`StudyTimeline`), con la canción o con sus pistas. El volumen, el callar y
+el solo de cada carril se aplican al mandarlas (`audibleCues`); su salida, en
+«Salidas», como una pista con papel de guía (`guias_<clave>`), y el motor
+manda cada guía por el bus de su carril (`CueSpec.bus`). Se ponen, se mueven
+y se cambian solo con la canción parada.
+
+**Exportar** la canción tal cual (`source: "song"`) o la mezcla de las pistas,
+con las guías o sin ellas: el núcleo monta las que suenan en un WAV aparte
+(cada una en su segundo, al tiempo de la mezcla y sin estirar) y lo suma,
+como el clic, después de la velocidad y el tono (`stems.export_mix`).
 
 ## La app del celular
 
@@ -1853,6 +1884,16 @@ la versión vieja y no se nota. Por eso hay un script y no cuatro comandos.
 ./scripts/build.sh              # interfaz + núcleo + app
 ./scripts/build.sh --package    # además el .deb y el .AppImage
 ```
+
+**Los programas de fuera, dentro de los paquetes.** ffmpeg y ffprobe, fpcalc
+y Deno viajan en la carpeta `tools/` de cada paquete (en Linux los pone
+`scripts/herramientas-linux.sh`, con versiones y sha256 fijados; en Windows y
+macOS, su CI). La app se la pasa al núcleo (`DANPLAY_TOOLS_DIR`), que la mira
+antes que el sistema. Y el núcleo empaquetado de Linux devuelve
+`LD_LIBRARY_PATH` a lo que había antes de PyInstaller (`system_libs.py`): si
+no, cualquier programa del sistema que lance carga las bibliotecas del
+paquete (las de Ubuntu 22.04, donde se compila) y en un sistema más nuevo no
+arranca.
 
 Los dos crates de Rust son un **workspace** (`Cargo.toml` de la raíz): un solo
 `Cargo.lock`, una sola carpeta `target/` y la versión de DanPlay en un solo

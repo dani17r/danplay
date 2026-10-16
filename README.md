@@ -160,9 +160,11 @@ Para probarla sin compilar la versión final, `./scripts/dev.sh` la abre en
 modo desarrollo (y `--prueba CARPETA`, con una copia de esas canciones y sin
 tocar tus datos): ver [Contribuir](docs/CONTRIBUIR.md).
 
-Para la conversión de formatos y la huella acústica hacen falta dos programas
-del sistema. Si te faltan, la app lo dice y sigue funcionando sin esas dos
-funciones:
+Compilada desde el código, para la conversión de formatos y la huella
+acústica hacen falta dos programas del sistema (los paquetes `.deb`,
+`.AppImage`, de Windows y de macOS ya los traen dentro, con Deno para
+descargar de YouTube). Si te faltan, la app lo dice y sigue funcionando sin
+esas dos funciones:
 
 ```bash
 sudo apt install ffmpeg libchromaprint-tools
@@ -386,7 +388,17 @@ por la salida del clic.
 **Las salidas, como una secuencia en directo:** en «Salidas» eliges por dónde
 suena la música, cada pista, el clic y las guías habladas: el clic a la
 izquierda y la música a la derecha con un cable en Y, o cada cosa por una
-salida de tu interfaz. Se cambia sonando, sin cortar.
+salida de tu interfaz, en estéreo o en mono. Se cambia sonando, sin cortar.
+
+**Guías habladas, en sus carriles:** debajo de la onda, hasta seis carriles
+de guías (cada uno con su volumen y su salida: uno a los cascos del
+baterista, otro a la banda). En cada uno pones guías escritas, que dice una
+voz, o grabadas con tu micrófono, con la canción parada. Luego exportas la
+canción o sus pistas, con las guías o sin ellas.
+
+**La onda a tu gusto:** seis estilos (barras, bloques, rayitas, suave,
+contorno, con reflejo), y la rueda como en un editor de música: Ctrl + rueda
+acerca, Mayús + rueda recorre la canción.
 
 ## En el celular
 

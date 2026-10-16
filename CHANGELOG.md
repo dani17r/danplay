@@ -3,6 +3,52 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.28.1 — sin publicar
+
+Arreglos de la 1.28 en Linux, las guías en sus carriles, exportar con o sin
+guías, la onda a tu gusto y las salidas más claras.
+
+### Arreglos
+
+- **En el paquete de Linux no se veía la onda ni se podía separar** («ffmpeg
+  no pudo leer la canción … CXXABI_1.3.15 not found»): el núcleo empaquetado
+  hacía que ffmpeg cargara bibliotecas viejas que lleva dentro. Las ondas y
+  el clic que ya estaban hechos se veían; lo nuevo, no.
+- Sin onda, se dice por qué (antes, siempre «hace falta ffmpeg»).
+- En «Salidas», mandar una pista a su propia salida podía hacerla sonar por
+  la principal.
+- Una mezcla con más de 8 pistas (la calidad máxima, una secuencia) no se
+  podía guardar.
+
+### Todo dentro
+
+- **Los paquetes de Linux traen ffmpeg, fpcalc y Deno**, como ya los de
+  Windows y macOS: no hay que instalar nada aparte, y descargar de YouTube
+  funciona sin más.
+
+### Guías habladas
+
+- **En sus carriles**, debajo de la onda, como las pistas separadas: hasta
+  seis, cada uno con su nombre, callar, solo, volumen y su salida (uno a los
+  cascos del baterista y otro a la banda). Con la canción o con sus pistas.
+- **Solo con la canción parada** se ponen (doble clic en el carril), se
+  mueven (arrastrándolas) y se cambian (pulsándolas).
+- **Exportar** la canción tal cual o las pistas como suenan, con las guías o
+  sin ellas: en el menú del estudio.
+
+### Estudio
+
+- **Seis estilos para la onda:** barras, bloques, rayitas, suave, contorno y
+  con reflejo. En el menú del estudio o con el clic derecho sobre la onda.
+- **La rueda, como en un editor de música:** Ctrl + rueda (o pellizcar)
+  acerca, Mayús + rueda recorre la canción y la rueda sola baja el panel.
+- **Estéreo o mono**, cada cosa en «Salidas» (para una mesa o una sala en
+  mono).
+- **Solo las salidas que tienes:** en Linux salían unas 35 (complementos de
+  ALSA y cada tarjeta con todos sus nombres); ahora, una por salida de
+  verdad. Si el sistema tiene ocupada la elegida, suena por la del sistema
+  y se avisa.
+
 ## 1.28.0 — 2026-10-16
 
 El fuerte de DanPlay, la pista y el metrónomo, rehecho para tocar en directo:
