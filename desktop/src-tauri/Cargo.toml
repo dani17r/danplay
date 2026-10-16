@@ -22,9 +22,6 @@ tauri-plugin-opener = "2"
 # ningun sitio.
 tauri-plugin-log = "2"
 log = "0.4"
-# El audio que decodifica ffmpeg llega por una tuberia; un hilo la lee y lo
-# deja en un anillo sin candados del que tira el hilo del mezclador.
-rtrb = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["time"] }
@@ -32,15 +29,11 @@ hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["client", "client-legacy", "tokio", "http1"] }
 http-body-util = "0.1"
 rand = "0.10"
-# `vorbis` trae tambien el demuxer ogg: con rodio 0.20 habia que pedirlo a
-# symphonia a mano (un .ogg salia «Unrecognized format»); ahora lo pide rodio.
-rodio = { version = "0.22", default-features = false, features = [
-    "playback", "mp3", "wav", "flac", "vorbis", "mp4", "symphonia-alac", "symphonia-aiff" ] }
-
-# Lo que comparte con la app del celular: el pulso y su rejilla, el
-# metronomo, la cola y el sonido del clic (sin la funcion `motor` no compila
-# nada del motor de pistas).
-danplay-motor = { path = "../../motor", default-features = false }
+# El motor de pistas, el mismo que el del celular: decodifica, mezcla la
+# cancion y sus pistas, estira (Signalsmith), pone el clic y las voces guia,
+# y lo saca por los canales que se elijan. Y lo que comparten las dos apps:
+# el pulso y su rejilla, el metronomo y la cola.
+danplay-motor = { path = "../../motor" }
 
 # Reproduccion en el sistema (MPRIS en Linux, SMTC en Windows, Now Playing en
 # macOS): teclas multimedia, pantalla de bloqueo y el reproductor del escritorio.

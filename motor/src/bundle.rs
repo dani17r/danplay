@@ -107,6 +107,22 @@ fn safe_part(name: &str) -> bool {
             .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ' ')
 }
 
+/// Una guia hablada del .danpista: `guias/<nombre>.wav`, con un nombre de
+/// los que pone la PC (nada de subir carpetas).
+fn safe_guide(name: &str) -> bool {
+    let Some(file) = name.strip_prefix("guias/") else {
+        return false;
+    };
+    let Some(stem) = file.strip_suffix(".wav") else {
+        return false;
+    };
+    !stem.is_empty()
+        && stem.len() <= 80
+        && stem
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
 fn safe_cover(name: &str) -> bool {
     matches!(name, "portada.jpg" | "portada.png")
 }
@@ -218,12 +234,28 @@ fn extract(
     if safe_cover(&cover) {
         wanted.push(cover);
     }
+    // las guias habladas (desde 1.28): las que tengan un nombre de los suyos
+    let guides: Vec<String> = manifest["guides"]
+        .as_array()
+        .map(|g| {
+            g.iter()
+                .filter_map(Value::as_str)
+                .filter(|n| safe_guide(n))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !guides.is_empty() {
+        fs::create_dir_all(work.join("guias"))
+            .map_err(|e| format!("no se pudieron guardar las guías: {e}"))?;
+    }
+    wanted.extend(guides);
     let mut total = 0u64;
     for name in &wanted {
         let mut entry = match zip.by_name(name) {
             Ok(e) => e,
-            // la portada es lo unico que puede faltar
-            Err(_) if safe_cover(name) => continue,
+            // la portada y las guias pueden faltar
+            Err(_) if safe_cover(name) || safe_guide(name) => continue,
             Err(_) => return Err(format!("a la pista le falta «{name}»")),
         };
         total += entry.size();

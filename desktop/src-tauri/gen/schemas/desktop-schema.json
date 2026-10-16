@@ -351,10 +351,10 @@
           "markdownDescription": "La letra en grande para el proyector: lo que suena, pausar con el espacio y leer la ficha de la cancion (la letra) del nucleo. Lo guardado (volumen, velocidad, repeticion) lo aplica solo la ventana principal.\n#### This permission set includes:\n\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-toggle-pause`\n- `allow-api`"
         },
         {
-          "description": "Todo: la ventana principal es la aplicacion entera.\n#### This permission set includes:\n\n- `allow-api`\n- `allow-core-ready`\n- `allow-set-queue`\n- `allow-queue-next`\n- `allow-queue-previous`\n- `allow-queue-jump`\n- `allow-set-repeat`\n- `allow-set-shuffle`\n- `allow-toggle-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-volume`\n- `allow-set-speed`\n- `allow-set-loop`\n- `allow-set-pitch`\n- `allow-set-crossfade`\n- `allow-set-metronome`\n- `allow-set-stems`\n- `allow-analyze-beats`\n- `allow-set-beat-grid`\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-show-window`\n- `allow-hide-mini`\n- `allow-toggle-mini`\n- `allow-tray-available`\n- `allow-show-projection`\n- `allow-hide-projection`\n- `allow-quit-app`\n- `allow-default-player`\n- `allow-make-default-player`\n- `allow-reveal-in-folder`\n- `allow-open-in-browser`\n- `allow-open-html`\n- `allow-share-targets`\n- `allow-send-to-telegram`\n- `allow-set-window-shape`\n- `allow-window-shape`\n- `allow-set-window-on-top`",
+          "description": "Todo: la ventana principal es la aplicacion entera.\n#### This permission set includes:\n\n- `allow-api`\n- `allow-core-ready`\n- `allow-set-queue`\n- `allow-queue-next`\n- `allow-queue-previous`\n- `allow-queue-jump`\n- `allow-set-repeat`\n- `allow-set-shuffle`\n- `allow-toggle-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-volume`\n- `allow-set-speed`\n- `allow-set-loop`\n- `allow-set-routing`\n- `allow-set-output`\n- `allow-output-devices`\n- `allow-set-cues`\n- `allow-record-start`\n- `allow-record-level`\n- `allow-record-stop`\n- `allow-set-pitch`\n- `allow-set-crossfade`\n- `allow-set-metronome`\n- `allow-set-stems`\n- `allow-analyze-beats`\n- `allow-set-beat-grid`\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-show-window`\n- `allow-hide-mini`\n- `allow-toggle-mini`\n- `allow-tray-available`\n- `allow-show-projection`\n- `allow-hide-projection`\n- `allow-quit-app`\n- `allow-default-player`\n- `allow-make-default-player`\n- `allow-reveal-in-folder`\n- `allow-open-in-browser`\n- `allow-open-html`\n- `allow-share-targets`\n- `allow-send-to-telegram`\n- `allow-set-window-shape`\n- `allow-window-shape`\n- `allow-set-window-on-top`",
           "type": "string",
           "const": "ventana-principal",
-          "markdownDescription": "Todo: la ventana principal es la aplicacion entera.\n#### This permission set includes:\n\n- `allow-api`\n- `allow-core-ready`\n- `allow-set-queue`\n- `allow-queue-next`\n- `allow-queue-previous`\n- `allow-queue-jump`\n- `allow-set-repeat`\n- `allow-set-shuffle`\n- `allow-toggle-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-volume`\n- `allow-set-speed`\n- `allow-set-loop`\n- `allow-set-pitch`\n- `allow-set-crossfade`\n- `allow-set-metronome`\n- `allow-set-stems`\n- `allow-analyze-beats`\n- `allow-set-beat-grid`\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-show-window`\n- `allow-hide-mini`\n- `allow-toggle-mini`\n- `allow-tray-available`\n- `allow-show-projection`\n- `allow-hide-projection`\n- `allow-quit-app`\n- `allow-default-player`\n- `allow-make-default-player`\n- `allow-reveal-in-folder`\n- `allow-open-in-browser`\n- `allow-open-html`\n- `allow-share-targets`\n- `allow-send-to-telegram`\n- `allow-set-window-shape`\n- `allow-window-shape`\n- `allow-set-window-on-top`"
+          "markdownDescription": "Todo: la ventana principal es la aplicacion entera.\n#### This permission set includes:\n\n- `allow-api`\n- `allow-core-ready`\n- `allow-set-queue`\n- `allow-queue-next`\n- `allow-queue-previous`\n- `allow-queue-jump`\n- `allow-set-repeat`\n- `allow-set-shuffle`\n- `allow-toggle-pause`\n- `allow-stop`\n- `allow-seek`\n- `allow-set-volume`\n- `allow-set-speed`\n- `allow-set-loop`\n- `allow-set-routing`\n- `allow-set-output`\n- `allow-output-devices`\n- `allow-set-cues`\n- `allow-record-start`\n- `allow-record-level`\n- `allow-record-stop`\n- `allow-set-pitch`\n- `allow-set-crossfade`\n- `allow-set-metronome`\n- `allow-set-stems`\n- `allow-analyze-beats`\n- `allow-set-beat-grid`\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-show-window`\n- `allow-hide-mini`\n- `allow-toggle-mini`\n- `allow-tray-available`\n- `allow-show-projection`\n- `allow-hide-projection`\n- `allow-quit-app`\n- `allow-default-player`\n- `allow-make-default-player`\n- `allow-reveal-in-folder`\n- `allow-open-in-browser`\n- `allow-open-html`\n- `allow-share-targets`\n- `allow-send-to-telegram`\n- `allow-set-window-shape`\n- `allow-window-shape`\n- `allow-set-window-on-top`"
         },
         {
           "description": "El mini reproductor de la bandeja: lo que suena, los mandos (anterior, pausa, siguiente, la aguja), volver a la ventana grande y esconderse.\n#### This permission set includes:\n\n- `allow-playback-state`\n- `allow-queue-items`\n- `allow-toggle-pause`\n- `allow-queue-previous`\n- `allow-queue-next`\n- `allow-seek`\n- `allow-show-window`\n- `allow-hide-mini`",
@@ -417,6 +417,12 @@
           "markdownDescription": "Enables the open_in_browser command without any pre-configured scope."
         },
         {
+          "description": "Enables the output_devices command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-output-devices",
+          "markdownDescription": "Enables the output_devices command without any pre-configured scope."
+        },
+        {
           "description": "Enables the playback_state command without any pre-configured scope.",
           "type": "string",
           "const": "allow-playback-state",
@@ -453,6 +459,24 @@
           "markdownDescription": "Enables the quit_app command without any pre-configured scope."
         },
         {
+          "description": "Enables the record_level command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-record-level",
+          "markdownDescription": "Enables the record_level command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the record_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-record-start",
+          "markdownDescription": "Enables the record_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the record_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-record-stop",
+          "markdownDescription": "Enables the record_stop command without any pre-configured scope."
+        },
+        {
           "description": "Enables the reveal_in_folder command without any pre-configured scope.",
           "type": "string",
           "const": "allow-reveal-in-folder",
@@ -483,6 +507,12 @@
           "markdownDescription": "Enables the set_crossfade command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_cues command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-cues",
+          "markdownDescription": "Enables the set_cues command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_loop command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-loop",
@@ -493,6 +523,12 @@
           "type": "string",
           "const": "allow-set-metronome",
           "markdownDescription": "Enables the set_metronome command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_output command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-output",
+          "markdownDescription": "Enables the set_output command without any pre-configured scope."
         },
         {
           "description": "Enables the set_pitch command without any pre-configured scope.",
@@ -511,6 +547,12 @@
           "type": "string",
           "const": "allow-set-repeat",
           "markdownDescription": "Enables the set_repeat command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_routing command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-routing",
+          "markdownDescription": "Enables the set_routing command without any pre-configured scope."
         },
         {
           "description": "Enables the set_shuffle command without any pre-configured scope.",
@@ -651,6 +693,12 @@
           "markdownDescription": "Denies the open_in_browser command without any pre-configured scope."
         },
         {
+          "description": "Denies the output_devices command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-output-devices",
+          "markdownDescription": "Denies the output_devices command without any pre-configured scope."
+        },
+        {
           "description": "Denies the playback_state command without any pre-configured scope.",
           "type": "string",
           "const": "deny-playback-state",
@@ -687,6 +735,24 @@
           "markdownDescription": "Denies the quit_app command without any pre-configured scope."
         },
         {
+          "description": "Denies the record_level command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-record-level",
+          "markdownDescription": "Denies the record_level command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the record_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-record-start",
+          "markdownDescription": "Denies the record_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the record_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-record-stop",
+          "markdownDescription": "Denies the record_stop command without any pre-configured scope."
+        },
+        {
           "description": "Denies the reveal_in_folder command without any pre-configured scope.",
           "type": "string",
           "const": "deny-reveal-in-folder",
@@ -717,6 +783,12 @@
           "markdownDescription": "Denies the set_crossfade command without any pre-configured scope."
         },
         {
+          "description": "Denies the set_cues command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-cues",
+          "markdownDescription": "Denies the set_cues command without any pre-configured scope."
+        },
+        {
           "description": "Denies the set_loop command without any pre-configured scope.",
           "type": "string",
           "const": "deny-set-loop",
@@ -727,6 +799,12 @@
           "type": "string",
           "const": "deny-set-metronome",
           "markdownDescription": "Denies the set_metronome command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_output command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-output",
+          "markdownDescription": "Denies the set_output command without any pre-configured scope."
         },
         {
           "description": "Denies the set_pitch command without any pre-configured scope.",
@@ -745,6 +823,12 @@
           "type": "string",
           "const": "deny-set-repeat",
           "markdownDescription": "Denies the set_repeat command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_routing command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-routing",
+          "markdownDescription": "Denies the set_routing command without any pre-configured scope."
         },
         {
           "description": "Denies the set_shuffle command without any pre-configured scope.",
@@ -3211,48 +3295,6 @@
           "type": "string",
           "const": "opener:deny-reveal-item-in-dir",
           "markdownDescription": "Denies the reveal_item_in_dir command without any pre-configured scope."
-        },
-        {
-          "description": "Allows the moveWindow and handleIconState APIs\n#### This default permission set includes:\n\n- `allow-move-window`\n- `allow-move-window-constrained`\n- `allow-set-tray-icon-state`",
-          "type": "string",
-          "const": "positioner:default",
-          "markdownDescription": "Allows the moveWindow and handleIconState APIs\n#### This default permission set includes:\n\n- `allow-move-window`\n- `allow-move-window-constrained`\n- `allow-set-tray-icon-state`"
-        },
-        {
-          "description": "Enables the move_window command without any pre-configured scope.",
-          "type": "string",
-          "const": "positioner:allow-move-window",
-          "markdownDescription": "Enables the move_window command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the move_window_constrained command without any pre-configured scope.",
-          "type": "string",
-          "const": "positioner:allow-move-window-constrained",
-          "markdownDescription": "Enables the move_window_constrained command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the set_tray_icon_state command without any pre-configured scope.",
-          "type": "string",
-          "const": "positioner:allow-set-tray-icon-state",
-          "markdownDescription": "Enables the set_tray_icon_state command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the move_window command without any pre-configured scope.",
-          "type": "string",
-          "const": "positioner:deny-move-window",
-          "markdownDescription": "Denies the move_window command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the move_window_constrained command without any pre-configured scope.",
-          "type": "string",
-          "const": "positioner:deny-move-window-constrained",
-          "markdownDescription": "Denies the move_window_constrained command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the set_tray_icon_state command without any pre-configured scope.",
-          "type": "string",
-          "const": "positioner:deny-set-tray-icon-state",
-          "markdownDescription": "Denies the set_tray_icon_state command without any pre-configured scope."
         },
         {
           "description": "This permission set configures what kind of\noperations are available from the window state plugin.\n\n#### Granted Permissions\n\nAll operations are enabled by default.\n\n\n#### This default permission set includes:\n\n- `allow-filename`\n- `allow-restore-state`\n- `allow-save-window-state`",

@@ -10,16 +10,15 @@ mod beats;
 mod core;
 mod dependencies;
 mod media;
-mod metronome;
 mod open;
 mod player;
 mod protocol;
 mod queue;
+mod record;
 mod reveal;
 mod shape;
 mod share;
 mod tools;
-mod transcode;
 mod tray;
 
 use std::path::Path;
@@ -68,6 +67,7 @@ fn prefer_xwayland() {
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "el arranque, en orden: partirlo lo esconde")]
 fn main() {
     #[cfg(target_os = "linux")]
     prefer_xwayland();
@@ -126,6 +126,7 @@ fn main() {
 
     let app = builder
         .manage(tray::Tray::new())
+        .manage(record::Recording::default())
         .setup(|app| {
             setup(app);
             Ok(())
@@ -147,6 +148,13 @@ fn main() {
             queue::commands::set_volume,
             queue::commands::set_speed,
             queue::commands::set_loop,
+            queue::commands::set_routing,
+            queue::commands::set_output,
+            queue::commands::output_devices,
+            queue::commands::set_cues,
+            record::record_start,
+            record::record_level,
+            record::record_stop,
             queue::commands::set_pitch,
             queue::commands::set_metronome,
             queue::commands::set_stems,

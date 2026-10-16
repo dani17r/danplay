@@ -127,16 +127,16 @@ pub fn set_metronome(playback: tauri::State<'_, Playback>, settings: player::Met
 /// Bucle A-B para estudiar un trozo. Sin `a` ni `b` (o con b <= a) se quita.
 ///
 /// Con `segments` son varios tramos en vez de uno: al acabar uno se salta al
-/// siguiente, y del ultimo al primero. Con `defer`, la cancion sigue hasta el
-/// final y entonces empiezan a repetirse. Los dos son opcionales: `set_loop`
-/// con `a` y `b` sigue siendo el bucle de siempre.
+/// siguiente. `end` dice que pasa al acabar el ultimo: "repeat" (vuelta al
+/// primero, lo de siempre), "stop" (se para al principio del primero) o
+/// "continue" (suenan una vez y la cancion sigue).
 #[tauri::command]
 pub fn set_loop(
     playback: tauri::State<'_, Playback>,
     a: Option<f64>,
     b: Option<f64>,
     segments: Option<Vec<[f64; 2]>>,
-    defer: Option<bool>,
+    end: Option<String>,
 ) {
     let segments: Vec<(f64, f64)> = match segments {
         Some(list) => list.into_iter().map(|[a, b]| (a, b)).collect(),
@@ -145,7 +145,42 @@ pub fn set_loop(
             _ => Vec::new(),
         },
     };
-    playback.send(Command::Loops(segments, defer.unwrap_or(false)));
+    playback.send(Command::Loops(segments, player::LoopEnd::parse(end.as_deref())));
+}
+
+/// A donde va cada cosa: los destinos (pares de canales de la salida, o uno
+/// solo en mono) y el de la cancion, el clic y las voces guia. Cada pista
+/// lleva el suyo en `set_stems`.
+#[tauri::command]
+pub fn set_routing(playback: tauri::State<'_, Playback>, routing: player::RoutingSpec) {
+    playback.send(Command::Routing(routing));
+}
+
+/// Que salida de audio abrir (su id, o ninguna: la del sistema) y con
+/// cuantos canales.
+#[tauri::command]
+pub fn set_output(playback: tauri::State<'_, Playback>, output: player::OutputConfig) {
+    playback.send(Command::Output(output));
+}
+
+/// Las salidas de audio del equipo, la del sistema primero, con los canales
+/// que tiene cada una.
+#[tauri::command]
+pub async fn output_devices() -> Vec<danplay_motor::output::DeviceInfo> {
+    tauri::async_runtime::spawn_blocking(player::devices)
+        .await
+        .unwrap_or_default()
+}
+
+/// Las voces guia de la cancion `song` (la que suena): cada una, un archivo
+/// y el segundo en que entra.
+#[tauri::command]
+pub fn set_cues(playback: tauri::State<'_, Playback>, song: String, cues: Vec<player::CueSpec>, volume: Option<f32>) {
+    playback.send(Command::Cues {
+        song,
+        cues,
+        volume: volume.unwrap_or(1.0),
+    });
 }
 
 /// Que suenen las pistas separadas de la cancion `song` (su ruta, la que
@@ -159,10 +194,11 @@ pub fn set_stems(
     tracks: Option<Vec<player::StemTrack>>,
 ) -> Result<(), String> {
     if let Some(list) = &tracks {
-        if list.len() > crate::transcode::MAX_INPUTS {
+        // la cancion va delante, en la misma tanda: caben las demas
+        if list.len() >= danplay_motor::render::MAX_PARTS {
             return Err("demasiadas pistas".into());
         }
-        // solo archivos que existen: esto se le da a ffmpeg para leer
+        // solo archivos que existen (lo que no lea el motor se le da a ffmpeg)
         for track in list {
             crate::tools::existing_file(&track.path)?;
         }

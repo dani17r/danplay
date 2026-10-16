@@ -330,6 +330,7 @@ fn restore(inner: &mut Inner, mut session: Session, player: &player::Handle, add
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "una rama por orden: partirla no la hace mas clara")]
 pub(super) fn apply(inner: &mut Inner, command: Command, player: &player::Handle, address: &Address) {
     match command {
         Command::SetQueue {
@@ -410,8 +411,17 @@ pub(super) fn apply(inner: &mut Inner, command: Command, player: &player::Handle
         Command::Speed(value) => {
             let _ = player.send(player::Command::Speed(value));
         }
-        Command::Loops(segments, defer) => {
-            let _ = player.send(player::Command::Loops { segments, defer });
+        Command::Loops(segments, end) => {
+            let _ = player.send(player::Command::Loops { segments, end });
+        }
+        Command::Routing(spec) => {
+            let _ = player.send(player::Command::Routing(spec));
+        }
+        Command::Output(config) => {
+            let _ = player.send(player::Command::Output(config));
+        }
+        Command::Cues { song, cues, volume } => {
+            let _ = player.send(player::Command::Cues { song, cues, volume });
         }
         Command::Pitch(n) => {
             let _ = player.send(player::Command::Pitch(n));

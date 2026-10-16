@@ -11,10 +11,12 @@
 //! *generacion* nueva y el hilo de audio tira los bloques de las anteriores;
 //! al llegar al final de un tramo se salta al principio del siguiente (o del
 //! primero), con un fundido de 4 ms a cada lado de la costura para que no
-//! chasque.
+//! chasque. Al acabar el ultimo, lo que diga `LoopEnd`: volver al primero,
+//! pararse ahi mismo (en la muestra exacta, no un tic despues) o seguir.
 use crate::decode::Part;
+use crate::queue::LoopEnd;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::time::Duration;
 
@@ -52,9 +54,9 @@ impl Block {
 pub enum Order {
     /// Ir a esa muestra de la cancion.
     Seek(u64),
-    /// Los tramos que se repiten, en muestras `[desde, hasta)`. Vacio: sin
-    /// tramos, hasta el final.
-    Segments(Vec<(u64, u64)>),
+    /// Los tramos que se repiten, en muestras `[desde, hasta)`, y que pasa
+    /// al acabar el ultimo. Vacio: sin tramos, hasta el final.
+    Segments(Vec<(u64, u64)>, LoopEnd),
 }
 
 /// Lo que se comparte con el hilo de audio y con quien pregunta como va.
@@ -69,6 +71,9 @@ pub struct Shared {
     /// Lo ultimo que tomo el hilo de audio: de que generacion y que muestra.
     pub consumed_gen: AtomicU64,
     pub consumed_frame: AtomicU64,
+    /// Lo escrito acaba porque se acabaron los tramos con `LoopEnd::Stop`,
+    /// no la cancion: quien lo vea la deja en pausa al principio del primero.
+    pub segments_done: AtomicBool,
 }
 
 pub struct Feeder {
@@ -81,6 +86,8 @@ pub struct Feeder {
     contiguous_from: u64,
     generation: u64,
     segments: Vec<(u64, u64)>,
+    /// Que pasa al acabar el ultimo tramo.
+    end: LoopEnd,
     /// Se acaba de saltar a esa muestra: los primeros `FADE` suben.
     landed: Option<u64>,
     ended: bool,
@@ -98,6 +105,7 @@ impl Feeder {
             contiguous_from: 0,
             generation,
             segments: Vec::new(),
+            end: LoopEnd::Repeat,
             landed: None,
             ended: false,
             scratch: vec![0.0; BLOCK * 2],
@@ -125,15 +133,16 @@ impl Feeder {
         self.pos = frame;
         self.contiguous_from = frame;
         self.ended = false;
+        self.shared.segments_done.store(false, Ordering::Release);
     }
 
     /// Tramos nuevos. Como en la PC, no mueven la cancion: un tramo entra
-    /// cuando la cancion esta (o llega) dentro, y con tramos la cancion no se
-    /// acaba (al final vuelve al primero). Si lo que ya hay decodificado por
-    /// delante sigue valiendo (va seguido desde lo que suena y no cruza el
-    /// final de un tramo que ahora salta), se sigue sin cortar; si no, se
-    /// vuelve a decodificar desde lo que suena.
-    pub fn set_segments(&mut self, list: Vec<(u64, u64)>) {
+    /// cuando la cancion esta (o llega) dentro. Repitiendose, la cancion no
+    /// se acaba (al final vuelve al primero). Si lo que ya hay decodificado
+    /// por delante sigue valiendo (va seguido desde lo que suena y no cruza
+    /// el final de un tramo que ahora salta o para), se sigue sin cortar; si
+    /// no, se vuelve a decodificar desde lo que suena.
+    pub fn set_segments(&mut self, list: Vec<(u64, u64)>, end: LoopEnd) {
         let mut list: Vec<(u64, u64)> = list
             .into_iter()
             .map(|(a, b)| (a.min(self.len), b.min(self.len)))
@@ -146,14 +155,27 @@ impl Feeder {
             self.shared.target.load(Ordering::Acquire)
         };
         self.segments = list;
+        self.end = end;
         let crosses = self
             .segments
             .iter()
-            .any(|&(_, b)| self.jump_target(b) != b && played < b && b < self.pos);
+            .any(|&(_, b)| self.seam_cuts(b) && played < b && b < self.pos);
         let ahead_ok = self.contiguous_from <= played && played <= self.pos;
-        if crosses || !ahead_ok || (self.ended && !self.segments.is_empty()) {
+        let wraps = self.ended && !self.segments.is_empty() && end == LoopEnd::Repeat;
+        if crosses || !ahead_ok || wraps {
             self.seek(played);
         }
+    }
+
+    /// Al final del tramo que acaba en `b` la cancion no sigue de largo:
+    /// salta a otro o se para.
+    fn seam_cuts(&self, b: u64) -> bool {
+        self.jump_target(b) != b || self.stops_at(b)
+    }
+
+    /// El tramo que acaba en `b` es el ultimo y ahi se para.
+    fn stops_at(&self, b: u64) -> bool {
+        self.end == LoopEnd::Stop && self.segments.last().is_some_and(|s| s.1 == b)
     }
 
     fn segment_at(&self, frame: u64) -> Option<(u64, u64)> {
@@ -214,9 +236,9 @@ impl Feeder {
                 data[at + 1] = frame[1];
             }
         }
-        // las costuras: baja al acercarse al final de un tramo que salta, y
-        // sube al empezar el tramo al que se salto
-        let jumps_at = seam.filter(|&b| self.jump_target(b) != b);
+        // las costuras: baja al acercarse al final de un tramo que salta (o
+        // donde se para), y sube al empezar el tramo al que se salto
+        let jumps_at = seam.filter(|&b| self.seam_cuts(b));
         if jumps_at.is_some() || self.landed.is_some() {
             for i in 0..frames {
                 let f = self.pos + i as u64;
@@ -239,31 +261,95 @@ impl Feeder {
             self.landed = None;
         }
         if let Some(b) = seam.filter(|&b| self.pos >= b) {
+            if self.stops_at(b) {
+                self.finish(block, true);
+                return;
+            }
             let next = self.jump_target(b);
             if next != b {
                 self.jump(next);
                 self.landed = Some(next);
             }
         } else if self.pos >= self.len {
-            // con tramos la cancion no se acaba: al final, al primero
-            if let Some(&(a, _)) = self.segments.first() {
-                self.jump(a);
-                self.landed = Some(a);
-            } else {
-                block.last = true;
-                self.ended = true;
+            // repitiendose, la cancion no se acaba: al final, al primero;
+            // parandose, se para igual (y vuelve al primero quien lo vea)
+            match (self.segments.first(), self.end) {
+                (Some(&(a, _)), LoopEnd::Repeat) => {
+                    self.jump(a);
+                    self.landed = Some(a);
+                }
+                (Some(_), LoopEnd::Stop) => self.finish(block, true),
+                _ => self.finish(block, false),
             }
         }
     }
 
-    /// A donde se va al acabar el tramo que termina en `b`.
+    /// Ya no hay mas que escribir: el bloque es el ultimo. `segments`: se
+    /// acaba porque se acabaron los tramos, no la cancion.
+    fn finish(&mut self, block: &mut Block, segments: bool) {
+        block.last = true;
+        self.ended = true;
+        self.shared.segments_done.store(segments, Ordering::Release);
+    }
+
+    /// A donde se va al acabar el tramo que termina en `b` (`b` si a
+    /// ninguno: sigue de largo, o se para).
     fn jump_target(&self, b: u64) -> u64 {
-        let i = self.segments.iter().position(|s| s.1 == b);
-        match i {
-            Some(i) => self.segments[(i + 1) % self.segments.len()].0,
-            None => b,
+        let Some(i) = self.segments.iter().position(|s| s.1 == b) else {
+            return b;
+        };
+        if i + 1 < self.segments.len() {
+            return self.segments[i + 1].0;
+        }
+        match self.end {
+            LoopEnd::Repeat => self.segments[0].0,
+            LoopEnd::Stop | LoopEnd::Continue => b,
         }
     }
+}
+
+/// La muestra de la cancion a la que se llega tras sonar `ahead` muestras
+/// desde `from`, por el camino que siguen los tramos (como `Feeder::fill`):
+/// donde entran las partes de un relevo.
+pub fn advance(segments: &[(u64, u64)], end: LoopEnd, from: u64, ahead: u64, len: u64) -> u64 {
+    let mut pos = from.min(len);
+    let mut left = ahead;
+    for _ in 0..1_000 {
+        if left == 0 {
+            break;
+        }
+        if let Some(i) = segments.iter().position(|&(a, b)| a <= pos && pos < b) {
+            let b = segments[i].1;
+            let room = b - pos;
+            if left < room {
+                return pos + left;
+            }
+            left -= room;
+            pos = if i + 1 < segments.len() {
+                segments[i + 1].0
+            } else {
+                match end {
+                    LoopEnd::Repeat => segments[0].0,
+                    LoopEnd::Stop => return b,
+                    LoopEnd::Continue => b,
+                }
+            };
+        } else {
+            let next = segments
+                .iter()
+                .map(|s| s.0)
+                .filter(|&a| a > pos)
+                .min()
+                .unwrap_or(len);
+            let room = next.saturating_sub(pos);
+            if left < room || next >= len {
+                return (pos + left).min(len);
+            }
+            left -= room;
+            pos = next;
+        }
+    }
+    pos.min(len)
 }
 
 /// El hilo: atiende las ordenes y mantiene llenos los bloques. Acaba cuando
@@ -293,7 +379,7 @@ pub fn run(
         if let Some(order) = order {
             match order {
                 Order::Seek(frame) => feeder.seek(frame),
-                Order::Segments(list) => feeder.set_segments(list),
+                Order::Segments(list, end) => feeder.set_segments(list, end),
             }
             shared.orders_done.fetch_add(1, Ordering::AcqRel);
             continue; // todas las que haya, antes de decodificar nada
@@ -374,7 +460,7 @@ mod tests {
     #[test]
     fn a_segment_repeats_with_a_fade_at_the_seam() {
         let mut f = feeder(1);
-        f.set_segments(vec![(10_000, 20_000)]);
+        f.set_segments(vec![(10_000, 20_000)], LoopEnd::Repeat);
         // antes del tramo al pedirlo: no salta, llega a el sonando
         let blocks = run_blocks(&mut f, 40);
         assert_eq!(blocks[0].1, 0);
@@ -404,7 +490,7 @@ mod tests {
     fn segments_in_a_row_play_one_after_the_other() {
         let mut f = feeder(1);
         f.seek(5_000);
-        f.set_segments(vec![(5_000, 8_000), (30_000, 32_000)]);
+        f.set_segments(vec![(5_000, 8_000), (30_000, 32_000)], LoopEnd::Repeat);
         let blocks = run_blocks(&mut f, 12);
         let mut ranges: Vec<(u64, u64)> = Vec::new();
         for b in &blocks {
@@ -425,11 +511,11 @@ mod tests {
         run_blocks(&mut f, 4); // escrito hasta 4096
         f.shared.consumed_frame.store(1_000, Ordering::Release);
         let generation = f.generation;
-        f.set_segments(vec![(0, 60_000)]);
+        f.set_segments(vec![(0, 60_000)], LoopEnd::Repeat);
         assert_eq!(f.generation, generation, "no hacia falta saltar");
         // uno que acaba dentro de lo ya escrito obliga a decodificar otra vez
         // desde lo que suena (lo escrito pasaba de largo su final)
-        f.set_segments(vec![(0, 2_000)]);
+        f.set_segments(vec![(0, 2_000)], LoopEnd::Repeat);
         assert_eq!(f.generation, generation + 1);
         assert_eq!(f.shared.target.load(Ordering::Acquire), 1_000);
     }
@@ -438,12 +524,93 @@ mod tests {
     fn past_the_segments_the_song_comes_back_to_the_first_at_the_end() {
         let mut f = feeder(1);
         f.seek(80_000);
-        f.set_segments(vec![(10_000, 20_000)]);
+        f.set_segments(vec![(10_000, 20_000)], LoopEnd::Repeat);
         // sigue sonando lo que sonaba, hasta el final, y vuelve al tramo
         let blocks = run_blocks(&mut f, 12);
         assert_eq!(blocks[0].1, 80_000);
         assert!(blocks.iter().any(|b| b.1 + b.2 as u64 == 88_200));
         assert!(blocks.iter().any(|b| b.1 == 10_000));
         assert!(!f.ended());
+    }
+
+    /// Los tramos por los que pasa lo escrito, juntando los bloques seguidos.
+    fn ranges(blocks: &[(u64, u64, usize, Vec<f32>)]) -> Vec<(u64, u64)> {
+        let mut out: Vec<(u64, u64)> = Vec::new();
+        for b in blocks {
+            match out.last_mut() {
+                Some(r) if r.1 == b.1 => r.1 += b.2 as u64,
+                _ => out.push((b.1, b.1 + b.2 as u64)),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn stopping_plays_each_segment_once_and_stops_on_the_sample() {
+        let mut f = feeder(1);
+        f.seek(5_000);
+        f.set_segments(vec![(5_000, 8_000), (30_000, 32_000)], LoopEnd::Stop);
+        let blocks = run_blocks(&mut f, 40);
+        // uno detras de otro, una sola vez, y en la ultima muestra del ultimo
+        assert_eq!(ranges(&blocks), [(5_000, 8_000), (30_000, 32_000)]);
+        assert!(f.ended());
+        assert!(f.shared.segments_done.load(Ordering::Acquire));
+        // la costura del final, bajando: no chasca al pararse
+        let last = blocks.last().expect("bloques");
+        assert!(last.3[(last.2 - 1) * 2].abs() < 0.01);
+    }
+
+    #[test]
+    fn continuing_plays_the_segments_once_and_then_the_rest_of_the_song() {
+        let mut f = feeder(1);
+        f.seek(5_000);
+        f.set_segments(vec![(5_000, 8_000), (30_000, 32_000)], LoopEnd::Continue);
+        let blocks = run_blocks(&mut f, 200);
+        assert_eq!(ranges(&blocks), [(5_000, 8_000), (30_000, 88_200)]);
+        assert!(f.ended(), "la cancion se acaba como siempre");
+        assert!(!f.shared.segments_done.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn stopping_past_the_segments_stops_at_the_end_of_the_song() {
+        let mut f = feeder(1);
+        f.seek(80_000);
+        f.set_segments(vec![(10_000, 20_000)], LoopEnd::Stop);
+        let blocks = run_blocks(&mut f, 12);
+        assert_eq!(ranges(&blocks), [(80_000, 88_200)]);
+        assert!(f.ended());
+        assert!(
+            f.shared.segments_done.load(Ordering::Acquire),
+            "vuelve al primero quien lo vea"
+        );
+    }
+
+    #[test]
+    fn a_seek_after_stopping_plays_again() {
+        let mut f = feeder(1);
+        f.seek(5_000);
+        f.set_segments(vec![(5_000, 8_000)], LoopEnd::Stop);
+        run_blocks(&mut f, 10);
+        assert!(f.ended());
+        f.seek(5_000);
+        assert!(!f.ended());
+        assert!(!f.shared.segments_done.load(Ordering::Acquire));
+        assert_eq!(ranges(&run_blocks(&mut f, 10)), [(5_000, 8_000)]);
+    }
+
+    #[test]
+    fn advancing_follows_the_segments() {
+        let segs = [(100, 200), (500, 600)];
+        // fuera de los tramos, seguido hasta el primero
+        assert_eq!(advance(&segs, LoopEnd::Repeat, 0, 50, 1_000), 50);
+        // dentro de uno, salta al siguiente
+        assert_eq!(advance(&segs, LoopEnd::Repeat, 150, 80, 1_000), 530);
+        // del ultimo, al primero
+        assert_eq!(advance(&segs, LoopEnd::Repeat, 580, 40, 1_000), 120);
+        // o sigue, o se para
+        assert_eq!(advance(&segs, LoopEnd::Continue, 580, 40, 1_000), 620);
+        assert_eq!(advance(&segs, LoopEnd::Stop, 580, 40, 1_000), 600);
+        // sin tramos, hasta el final como mucho
+        assert_eq!(advance(&[], LoopEnd::Repeat, 900, 500, 1_000), 1_000);
     }
 }

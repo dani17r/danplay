@@ -1,14 +1,23 @@
-//! Una parte de la cancion (la bateria, las voces...) decodificada a trozos
-//! desde memoria, en estereo y a su tasa, con saltos a la muestra exacta.
+//! Una parte de la cancion (la bateria, las voces, la cancion entera...)
+//! decodificada a trozos, en estereo y a la tasa del motor, con saltos a la
+//! muestra exacta.
 //!
-//! Los bytes del archivo se leen enteros al abrir la cancion (unos 5 MB por
-//! parte en Vorbis) y el decodificador lee de ahi: nunca del disco mientras
-//! suena. En la PC, leer del disco en el hilo de audio era lo que cortaba la
-//! musica unos segundos (ver docs/ARQUITECTURA.md, «El hilo de audio no se
-//! rinde»); en el celular, con la memoria flash, seria menos, pero no cuesta
-//! nada evitarlo.
+//! Lo pequeño (un .danpista: unos 5 MB por parte en Vorbis) se lee entero al
+//! abrir y el decodificador lee de memoria. Lo grande (una secuencia
+//! descargada: veinte WAV de 40 MB) se lee del disco por trozos de 256 KB:
+//! entero en memoria serian casi mil megas. Ni una cosa ni la otra pasan en
+//! el hilo de audio, sino en el que decodifica, que va 1,5 s por delante
+//! (en la PC, leer del disco en el hilo de audio era lo que cortaba la musica
+//! unos segundos: ver docs/ARQUITECTURA.md, «El hilo de audio no se rinde»).
+//!
+//! Una parte que no va a la tasa del motor (una cancion a 48 kHz junto a sus
+//! pistas, que van a 44,1) se convierte aqui, con el mismo filtro que la
+//! salida (`resample.rs`), contando las muestras en la tasa del motor: los
+//! saltos, los tramos y el clic no se enteran.
+use crate::resample::Resampler;
 use std::collections::VecDeque;
 use std::io::Cursor;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::formats::probe::Hint;
@@ -23,8 +32,179 @@ use symphonia::core::units::Timestamp;
 /// (medido: un MP3 salia con diferencias de 0,76 en las primeras muestras).
 const PREROLL: u64 = 4_096;
 
+/// De donde lee: de memoria o del archivo.
+#[derive(Clone)]
+enum Media {
+    Bytes(Arc<[u8]>),
+    File(PathBuf),
+}
+
+/// Lo que se lee del disco de cada vez.
+const FILE_BUFFER: usize = 256 * 1024;
+
+/// Una parte a la tasa del motor (convertida si hace falta).
 pub struct Part {
-    bytes: Arc<[u8]>,
+    inner: Decoded,
+    conv: Option<Conv>,
+}
+
+/// La conversion de tasa de una parte.
+struct Conv {
+    rs: Resampler,
+    /// Entrada (de la parte) por cada muestra del motor.
+    step: f64,
+    /// La muestra del motor desde la que se convierte (la del ultimo salto)
+    /// y la de la parte a la que corresponde.
+    origin: u64,
+    origin_in: u64,
+    /// Muestras del motor ya dadas desde `origin`.
+    produced: u64,
+    /// Muestras de la parte leidas desde `origin_in`, y donde se acabo.
+    read_in: u64,
+    end_in: Option<u64>,
+}
+
+impl Part {
+    /// `ext`: la extension del archivo («ogg», «mp3»), de pista para
+    /// symphonia. A su tasa: sin convertir.
+    pub fn open(bytes: Arc<[u8]>, ext: &str) -> Result<Part, String> {
+        Ok(Part {
+            inner: Decoded::open(Media::Bytes(bytes), ext)?,
+            conv: None,
+        })
+    }
+
+    /// Del archivo, a `rate` (convirtiendo si la parte va a otra). Lo que
+    /// pesa menos de `in_memory` bytes se lee entero.
+    pub fn open_file(path: &Path, rate: u32, in_memory: u64) -> Result<Part, String> {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let size = std::fs::metadata(path)
+            .map_err(|e| format!("no se puede leer «{}»: {e}", path.display()))?
+            .len();
+        let media = if size <= in_memory {
+            let bytes = std::fs::read(path)
+                .map_err(|e| format!("no se puede leer «{}»: {e}", path.display()))?;
+            Media::Bytes(Arc::from(bytes))
+        } else {
+            Media::File(path.to_path_buf())
+        };
+        let inner = Decoded::open(media, &ext)?;
+        Ok(Part::converted(inner, rate))
+    }
+
+    /// Desde memoria, a `rate`.
+    pub fn open_at(bytes: Arc<[u8]>, ext: &str, rate: u32) -> Result<Part, String> {
+        Ok(Part::converted(
+            Decoded::open(Media::Bytes(bytes), ext)?,
+            rate,
+        ))
+    }
+
+    fn converted(inner: Decoded, rate: u32) -> Part {
+        let conv = (inner.rate != rate && inner.rate > 0).then(|| Conv {
+            rs: Resampler::new(inner.rate, rate),
+            step: f64::from(inner.rate) / f64::from(rate),
+            origin: 0,
+            origin_in: 0,
+            produced: 0,
+            read_in: 0,
+            end_in: None,
+        });
+        Part { inner, conv }
+    }
+
+    /// A la que suena (la del motor si se convierte).
+    pub fn rate(&self) -> u32 {
+        match &self.conv {
+            Some(c) => (f64::from(self.inner.rate) / c.step).round() as u32,
+            None => self.inner.rate,
+        }
+    }
+
+    /// La tasa del archivo.
+    pub fn source_rate(&self) -> u32 {
+        self.inner.rate
+    }
+
+    /// Muestras por canal que dura (a la tasa a la que suena), si el
+    /// contenedor lo dice.
+    pub fn frames(&self) -> Option<u64> {
+        let f = self.inner.frames?;
+        Some(match &self.conv {
+            Some(c) => (f as f64 / c.step).floor() as u64,
+            None => f,
+        })
+    }
+
+    /// Ya no queda nada por leer.
+    pub fn done(&self) -> bool {
+        match &self.conv {
+            Some(c) => c
+                .end_in
+                .is_some_and(|end| (c.origin_in as f64 + c.produced as f64 * c.step) >= end as f64),
+            None => self.inner.done(),
+        }
+    }
+
+    /// Se coloca en la muestra `frame` (por canal, a la tasa a la que suena).
+    pub fn seek(&mut self, frame: u64) {
+        match &mut self.conv {
+            Some(c) => {
+                let at_in = (frame as f64 * c.step).floor() as u64;
+                self.inner.seek(at_in);
+                c.rs.reset();
+                c.origin = frame;
+                c.origin_in = at_in;
+                c.produced = 0;
+                c.read_in = 0;
+                c.end_in = None;
+            }
+            None => self.inner.seek(frame),
+        }
+    }
+
+    /// Llena `out` (estereo intercalado) con lo que sigue. Devuelve cuantas
+    /// muestras por canal puso: menos que las pedidas solo al final.
+    pub fn read(&mut self, out: &mut [f32]) -> usize {
+        let Some(c) = &mut self.conv else {
+            return self.inner.read(out);
+        };
+        let wanted = out.len() / 2;
+        if self.inner.done() && c.end_in.is_none() {
+            c.end_in = Some(c.origin_in + c.read_in);
+        }
+        let inner = &mut self.inner;
+        let (read_in, end_in) = (&mut c.read_in, &mut c.end_in);
+        let origin_in = c.origin_in;
+        c.rs.pull(out, |buf| {
+            let n = inner.read(buf);
+            *read_in += n as u64;
+            if n < buf.len() / 2 {
+                buf[n * 2..].fill(0.0);
+                if end_in.is_none() {
+                    *end_in = Some(origin_in + *read_in);
+                }
+            }
+        });
+        let valid = match c.end_in {
+            Some(end) => {
+                let left = (end.saturating_sub(c.origin_in)) as f64 / c.step - c.produced as f64;
+                (left.ceil().max(0.0) as usize).min(wanted)
+            }
+            None => wanted,
+        };
+        c.produced += valid as u64;
+        valid
+    }
+}
+
+/// Una parte tal cual, a su tasa.
+struct Decoded {
+    media: Media,
     ext: String,
     format: Box<dyn FormatReader>,
     decoder: Box<dyn AudioDecoder>,
@@ -44,12 +224,11 @@ pub struct Part {
     scratch: Vec<f32>,
 }
 
-impl Part {
-    /// `ext`: la extension del archivo («ogg», «mp3»), de pista para symphonia.
-    pub fn open(bytes: Arc<[u8]>, ext: &str) -> Result<Part, String> {
-        let (format, decoder, track_id, rate, frames) = open_reader(&bytes, ext)?;
-        Ok(Part {
-            bytes,
+impl Decoded {
+    fn open(media: Media, ext: &str) -> Result<Decoded, String> {
+        let (format, decoder, track_id, rate, frames) = open_reader(&media, ext)?;
+        Ok(Decoded {
+            media,
             ext: ext.to_string(),
             format,
             decoder,
@@ -63,28 +242,19 @@ impl Part {
         })
     }
 
-    pub fn rate(&self) -> u32 {
-        self.rate
-    }
-
-    /// Muestras por canal que dura, si el contenedor lo dice.
-    pub fn frames(&self) -> Option<u64> {
-        self.frames
-    }
-
     /// Ya no queda nada por leer.
-    pub fn done(&self) -> bool {
+    fn done(&self) -> bool {
         self.eof && self.fifo.is_empty()
     }
 
     /// Se coloca en la muestra `frame` (por canal) de la parte.
-    pub fn seek(&mut self, frame: u64) {
+    fn seek(&mut self, frame: u64) {
         self.fifo.clear();
         self.want = frame as i64;
         self.eof = false;
         if frame == 0 {
             // desde el principio, lo mas seguro: abrirla otra vez
-            if let Ok((format, decoder, ..)) = open_reader(&self.bytes, &self.ext) {
+            if let Ok((format, decoder, ..)) = open_reader(&self.media, &self.ext) {
                 self.format = format;
                 self.decoder = decoder;
                 return;
@@ -99,7 +269,7 @@ impl Part {
             Err(_) => {
                 // no se pudo saltar (mas alla del final, o un contenedor que
                 // no sabe): desde el principio, tirando lo de antes
-                match open_reader(&self.bytes, &self.ext) {
+                match open_reader(&self.media, &self.ext) {
                     Ok((format, decoder, ..)) => {
                         self.format = format;
                         self.decoder = decoder;
@@ -112,7 +282,7 @@ impl Part {
 
     /// Llena `out` (estereo intercalado) con lo que sigue. Devuelve cuantas
     /// muestras por canal puso: menos que las pedidas solo al final.
-    pub fn read(&mut self, out: &mut [f32]) -> usize {
+    fn read(&mut self, out: &mut [f32]) -> usize {
         let wanted = out.len() / 2;
         while self.fifo.len() / 2 < wanted && !self.eof {
             self.decode_packet();
@@ -171,9 +341,23 @@ type Reader = (
     Option<u64>,
 );
 
-fn open_reader(bytes: &Arc<[u8]>, ext: &str) -> Result<Reader, String> {
-    let cursor = Cursor::new(Arc::clone(bytes));
-    let mss = MediaSourceStream::new(Box::new(cursor), MediaSourceStreamOptions::default());
+fn open_reader(media: &Media, ext: &str) -> Result<Reader, String> {
+    let mss = match media {
+        Media::Bytes(bytes) => MediaSourceStream::new(
+            Box::new(Cursor::new(Arc::clone(bytes))),
+            MediaSourceStreamOptions::default(),
+        ),
+        Media::File(path) => {
+            let file = std::fs::File::open(path)
+                .map_err(|e| format!("no se puede abrir «{}»: {e}", path.display()))?;
+            MediaSourceStream::new(
+                Box::new(file),
+                MediaSourceStreamOptions {
+                    buffer_len: FILE_BUFFER,
+                },
+            )
+        }
+    };
     let mut hint = Hint::new();
     hint.with_extension(ext);
     let format = symphonia::default::get_probe()
@@ -292,5 +476,57 @@ mod tests {
         let mut buf = vec![0f32; 100];
         assert_eq!(part.read(&mut buf), 0);
         assert!(part.done());
+    }
+
+    #[test]
+    fn read_from_the_file_it_is_the_same() {
+        let (bytes, _) = fixture("ogg");
+        let path = std::env::temp_dir().join(format!("danplay-parte-{}.ogg", std::process::id()));
+        std::fs::write(&path, &bytes[..]).expect("archivo");
+        let mut memory = Part::open(Arc::clone(&bytes), "ogg").expect("ogg");
+        // con tope 0, del disco
+        let mut file = Part::open_file(&path, 44_100, 0).expect("del disco");
+        assert!(matches!(file.inner.media, Media::File(_)));
+        assert_eq!(all(&mut memory), all(&mut file));
+        file.seek(30_000);
+        memory.seek(30_000);
+        let (mut a, mut b) = (vec![0f32; 2_000], vec![0f32; 2_000]);
+        assert_eq!(file.read(&mut a), memory.read(&mut b));
+        assert_eq!(a, b);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn at_another_rate_the_pulses_stay_in_their_time() {
+        // la parte va a 44,1 kHz y el motor (aqui) a 48: cada golpe sale en
+        // su segundo, contado a 48
+        for ext in ["ogg", "mp3"] {
+            let (bytes, marks) = fixture(ext);
+            let mut part = Part::open_at(bytes, ext, 48_000).expect(ext);
+            assert_eq!(part.rate(), 48_000);
+            assert_eq!(part.source_rate(), 44_100);
+            let pcm = all(&mut part);
+            let expected_len = 88_200.0 * 48_000.0 / 44_100.0;
+            assert!(
+                ((pcm.len() / 2) as f64 - expected_len).abs() < 4.0,
+                "{ext}: {} muestras",
+                pcm.len() / 2
+            );
+            for &m in &marks {
+                let want = (m as f64 * 48_000.0 / 44_100.0).round() as usize;
+                let at = pulse_near(&pcm, want);
+                assert!(
+                    at.abs_diff(want) <= 2,
+                    "{ext}: golpe en {at}, se esperaba en {want}"
+                );
+            }
+            assert!(part.done());
+            // y un salto cae en su sitio
+            let jump = (marks[1] as f64 * 48_000.0 / 44_100.0) as u64 - 600;
+            part.seek(jump);
+            let mut buf = vec![0f32; 4_000];
+            part.read(&mut buf);
+            assert!(pulse_near(&buf, 600).abs_diff(600) <= 2, "{ext}");
+        }
     }
 }

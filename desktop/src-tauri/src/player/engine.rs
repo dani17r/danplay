@@ -1,133 +1,72 @@
-//! El bucle del hilo de audio: atiende las ordenes, vigila la salida, lleva
-//! el bucle A-B y el metronomo, y cuenta lo que pasa.
+//! El hilo de audio: atiende las ordenes de la cola y de la interfaz sobre
+//! el motor (`danplay-motor`) y cuenta como va.
 //!
-//! **La salida se abre al primer play y se suelta tras un rato sin sonar.**
-//! Antes se abria al arrancar y cpal trabajaba sin parar —pidiendo silencio
-//! al mezclador cientos de veces por segundo— aunque DanPlay llevara horas
-//! en la bandeja sin sonar nada. Ahora, si no suena ni la cancion ni el
-//! metronomo durante `IDLE_RELEASE`, se suelta; la cancion en pausa se
-//! recuerda donde iba y, al volver a darle, se abre ahi.
-use super::fade::Shape;
-use super::metro::{self, Click, CountInExt, Metro, Replan};
-use super::mix::{StemSet, StemTrack};
-use super::open::{self, Recipe, Song};
-use super::output::{self, Output};
-use super::state::{MAX_VOLUME, State, lock, nudged_volume};
-use super::{Command, Event, Notify};
-use crate::{beats::BeatGrid, tools, transcode};
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+//! Una cancion en el motor son sus partes: la cancion (la 0) y, si las
+//! tiene y se pidieron, sus pistas separadas detras. Pasar de la cancion a
+//! sus pistas (o al reves) es subir y bajar volumenes; cuando llegan pistas
+//! que no estaban cargadas (se acaban de separar, o se mejoraron), entran a
+//! la par de lo que suena (`handoff_files`), sin corte.
+use super::formats;
+use super::state::{MAX_VOLUME, lock, nudged_volume};
+use super::{Command, CueSpec, Event, LoopEnd, Notify, OutputConfig, RoutingSpec, State, StemTrack, balance};
+use danplay_motor::bundle::PartFile;
+use danplay_motor::metro::{Metro, click_plan};
+use danplay_motor::render::Routing;
+use danplay_motor::spec::Clips;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
-/// Lo que se dice cuando no hay por donde sacar el sonido.
+/// Lo que dice el estado cuando no hay salida de audio en el equipo.
 pub(super) const NO_OUTPUT: &str = "no hay salida de audio en este equipo";
 
-/// Cuanto puede estar la salida sin pedir muestras antes de darla por
-/// muerta. Si el servidor de sonido se cae o el aparato desaparece, cpal
-/// deja de pedir y no avisa: la cancion se queda «sonando» sin sonar y sin
-/// acabarse nunca. Se rehace la salida y se sigue donde estaba.
-const STALL: Duration = Duration::from_secs(4);
-
-/// Cuantas veces seguidas se rehace una salida que no llega a latir antes
-/// de rendirse: si el sistema da una que nunca pide muestras, rehacerla cada
-/// cuatro segundos para siempre no arregla nada.
-const MAX_RECOVERIES: u32 = 3;
-
-/// Cuanto se espera a ver latir la salida antes de pedirle un salto.
-const RESPONDS_WITHIN: Duration = Duration::from_millis(500);
-
-/// Cuanto se espera a que el mezclador atienda un salto. Con la salida viva
-/// son milisegundos; si no llega, es que murio justo ahora.
-const SEEK_WITHIN: Duration = Duration::from_millis(1500);
-
-/// Cuanto tiene que estar todo callado para soltar la salida.
+/// Cuanto tiempo en pausa antes de soltar la salida (que el equipo pueda
+/// dormir y otras aplicaciones usar la tarjeta). Se vuelve a abrir al sonar.
 #[cfg(not(test))]
 const IDLE_RELEASE: Duration = Duration::from_secs(60);
-/// En las pruebas, poco: asi se puede probar que se suelta y se recupera.
 #[cfg(test)]
 const IDLE_RELEASE: Duration = Duration::from_secs(2);
 
-/// Con cuanta antelacion se prepara la vuelta del bucle A-B cuando la
-/// cancion pasa por ffmpeg: asi, al llegar a B, el salto es instantaneo.
-const LOOP_AHEAD: f64 = 1.5;
-
-/// El fundido mas largo que se puede pedir entre dos canciones, en segundos.
+/// Hasta cuanto dura un fundido entre canciones.
 const MAX_CROSSFADE: f32 = 12.0;
-
-/// Al cambiar de cancion a mano, el fundido no pasa de esto: quien pulsa
-/// «siguiente» quiere oir la otra ya, no dentro de ocho segundos.
+/// Un cambio de cancion a mano con fundido, en poco: el que pulsa
+/// «siguiente» quiere oirla ya.
 const MANUAL_FADE: f32 = 2.0;
+/// Lo que tarda el paso de la cancion a sus pistas (o a las mejoradas).
+const HANDOFF: f32 = 0.06;
 
-/// Al pasar a otra version de la cancion que suena (sus pistas, o ella otra
-/// vez; otra velocidad o tono), cuanto se cruzan las dos. Son la misma
-/// musica en el mismo punto: con muy poco basta para que no se oiga un clic.
-const HANDOFF: f32 = 0.15;
-
-/// Con cuanta antelacion (en tiempo de verdad) se abre esa version nueva:
-/// lo que tarde en abrirse (ffmpeg arranca y llena su anillo; las pistas son
-/// varios archivos), la que suena lo sigue sonando. Si tarda mas, la nueva
-/// se pone a la par saltandose lo que sobra (ver `fade`).
-const HANDOFF_AHEAD: f64 = 0.6;
-
-/// El tono corrido: una octava arriba o abajo como mucho, al centesimo de
-/// semitono (un cent). Lo que no sea un numero, tal cual.
-pub(super) fn clean_pitch(semitones: f32) -> f32 {
-    if !semitones.is_finite() {
-        return 0.0;
-    }
-    (semitones.clamp(-12.0, 12.0) * 100.0).round() / 100.0
-}
-
-/// Cada cuanto se mira el reloj si no llega ninguna orden. Sonando hace falta
-/// a menudo (de ahi sale la barra de progreso); parado no se mueve nada, asi
-/// que despertar ocho veces por segundo para ver lo mismo solo gasta bateria.
-const ACTIVE: Duration = Duration::from_millis(100);
+/// Cada cuanto se mira el motor mientras suena, y en reposo.
+const ACTIVE: Duration = Duration::from_millis(40);
 const IDLE: Duration = Duration::from_millis(500);
 /// Cada cuanto se avisa de la posicion mientras suena.
 const TICK: Duration = Duration::from_millis(250);
 
-/// Lo que sobrevive a un reinicio del bucle de audio.
-///
-/// El bucle se cae por cosas que no dependen de nosotros, como un archivo que
-/// hace panic al decodificarlo. Se vuelve a empezar con el mismo volumen y la
-/// misma velocidad, y sin olvidar que habia una cancion puesta.
+/// Lo mas pequeño que es un tramo.
+const MIN_SEGMENT: f64 = 0.2;
+
+/// Lo que sobrevive a que el bucle se caiga (ver `Handle::new`): con que
+/// volumen, velocidad, cancion y ajustes se vuelve a empezar.
 pub(super) struct Carry {
     pub(super) volume: f32,
     pub(super) speed: f32,
+    pub(super) pitch: f32,
+    /// La cancion (su ruta de la biblioteca: la de verdad).
     pub(super) path: String,
     pub(super) duration: f64,
-    /// El factor que aplica ffmpeg al sink abierto (1.0 si no pasa por el):
-    /// rodio cuenta en tiempo de salida y la cancion va en el suyo.
-    pub(super) tempo: f32,
-    /// Los tramos que se repiten, en orden y sin pisarse: uno solo es el
-    /// bucle A-B de siempre; con varios, al acabar uno se salta al siguiente
-    /// y del ultimo al primero.
-    pub(super) loops: Vec<(f64, f64)>,
-    /// En que tramo va la cancion, si el bucle esta armado: esta (o ha
-    /// entrado) en el, y al pasar de su final salta al siguiente. Un tramo
-    /// elegido por detras o por delante de la aguja sin saltar a el (la onda
-    /// con candado) no hace nada hasta que la cancion entra en el.
-    pub(super) loop_at: Option<usize>,
-    /// «Repetir cuando acabe la cancion»: aunque la cancion pase por los
-    /// tramos, no se arman; al acabarse, vuelve al primero.
-    pub(super) loop_defer: bool,
-    /// El tono corrido, en semitonos (con fracciones).
-    pub(super) pitch: f32,
-    /// El metronomo: sus ajustes y la rejilla de la cancion que suena.
-    pub(super) metro: Metro,
-    /// Las pistas separadas de la cancion que suena, si suenan ellas.
-    pub(super) stems: Option<StemSet>,
-    /// Una orden que llego mientras no habia salida de audio. Se atiende en
-    /// cuanto la haya, en vez de perderse.
-    pub(super) pending: Option<Command>,
-    /// Donde iba la cancion cuando se solto la salida (tras un rato en
-    /// pausa, o porque murio y no se pudo rehacer). Al volver a sonar se
-    /// abre ahi.
-    pub(super) resume_at: Option<f64>,
-    /// Hay salida de audio (o la habia la ultima vez que se miro).
-    pub(super) has_output: bool,
-    /// Cuanto se funden dos canciones al pasar de una a otra (0 = nada).
-    pub(super) crossfade: f32,
+    loops: Vec<(f64, f64)>,
+    loop_end: LoopEnd,
+    metro: Metro,
+    /// Las pistas que pide la interfaz para la cancion que suena.
+    stems: Option<Vec<StemTrack>>,
+    crossfade: f32,
+    routing: RoutingSpec,
+    output: OutputConfig,
+    /// Las voces guia (de la cancion que suena) y su volumen.
+    cues: Vec<CueSpec>,
+    cue_volume: f32,
+    /// Donde iba la cancion (para volver a abrirla ahi tras una caida).
+    resume_at: Option<f64>,
 }
 
 impl Carry {
@@ -135,119 +74,148 @@ impl Carry {
         Self {
             volume: 0.9,
             speed: 1.0,
+            pitch: 0.0,
             path: String::new(),
             duration: 0.0,
-            tempo: 1.0,
             loops: Vec::new(),
-            loop_at: None,
-            loop_defer: false,
-            pitch: 0.0,
+            loop_end: LoopEnd::Repeat,
             metro: Metro::default(),
             stems: None,
-            pending: None,
-            resume_at: None,
-            has_output: false,
             crossfade: 0.0,
+            routing: RoutingSpec::default(),
+            output: OutputConfig::default(),
+            cues: Vec::new(),
+            cue_volume: 1.0,
+            resume_at: None,
         }
     }
 
-    /// El factor de `clock_of` para la cancion que suena ahora.
-    fn clock(&self) -> f32 {
-        open::clock_of(self.tempo, self.speed)
+    /// Nada puesto (stop, la cola no encontro el archivo, una caida).
+    pub(super) fn forget_song(&mut self) {
+        self.path.clear();
+        self.duration = 0.0;
+        self.stems = None;
+        self.loops.clear();
+        self.cues.clear();
+        self.resume_at = None;
     }
 }
 
-/// Lo que ha pasado en una vuelta del bucle y hay que contar.
+/// Como estaba un archivo: si cambia (las pistas mejoradas se escriben con
+/// el mismo nombre), hay que volver a abrirlo.
+type Stamp = Option<(u64, SystemTime)>;
+
+fn stamp(path: &Path) -> Stamp {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)))
+}
+
+/// Lo que hay cargado en el motor.
+struct Loaded {
+    /// La cancion (su ruta de la biblioteca) y lo que suena de ella.
+    path: String,
+    playable: PathBuf,
+    /// Las pistas cargadas detras de la cancion, como estaban al abrirlas.
+    stems: Vec<(String, Stamp)>,
+}
+
+/// Lo que se prepara aparte (pasar a FLAC lo que el motor no lee).
+enum Prepared {
+    Ready,
+}
+
+/// Una vuelta del bucle: lo que hay que contar.
 #[derive(Default)]
 struct Step {
     failure: Option<String>,
     clear_error: bool,
     /// Se pidio un salto: la posicion nueva se avisa aunque este en pausa.
     sought: bool,
-    /// La cancion se movio de sitio o de marcha: el clic se reengancha.
-    replan: Option<Replan>,
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "el estado del hilo de audio: cada si o no es una cosa aparte"
+)]
 struct Engine<'a> {
     shared: &'a Arc<Mutex<State>>,
     notify: &'a Notify,
     carry: &'a mut Carry,
-    /// `None` mientras no haga falta, o desde que se solto.
-    output: Option<Output>,
-    song: Option<Song>,
-    /// Las que se van bajando (un fundido, el paso a las pistas): siguen
-    /// sonando aparte hasta callarse, y entonces se sueltan.
-    fading: Vec<Song>,
+    motor: danplay_motor::Engine,
+    loaded: Option<Loaded>,
     /// Ya se aviso de que esta cancion se acaba (`Event::Ending`).
     ending_sent: bool,
-    /// El clic del metronomo: su propio sink, creado cuando haga falta.
-    click: Option<Click>,
     was_finished: bool,
+    /// Ya se recoloco al principio del primer tramo tras pararse en ellos.
+    rewound: bool,
     last_sent: State,
     last_tick: Instant,
-    /// Desde cuando no se reengancha el clic a la cancion.
-    last_resync: Instant,
     /// Desde cuando no suena nada.
     idle_since: Option<Instant>,
-    /// Salidas rehechas seguidas sin que ninguna llegue a latir.
-    recoveries: u32,
-    /// Se esta contando: la cancion sigue en pausa hasta ese instante, en
-    /// que entra donde caeria el golpe siguiente de la cuenta.
-    count_in: Option<Instant>,
+    /// Hay salida de audio en el equipo (mirado al empezar).
+    any_output: bool,
+    /// La orden que espera a que se prepare un archivo (`formats`).
+    waiting: Option<Command>,
+    prepared_tx: Sender<Prepared>,
+    prepared_rx: Receiver<Prepared>,
+    preparing: bool,
+    /// Las voces guia ya leidas, por archivo.
+    clips: Clips,
 }
 
 /// El bucle del hilo de audio. Vuelve solo cuando se cierra el canal; si hace
 /// panic, `Handle::new` lo vuelve a lanzar.
 pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &Notify, carry: &mut Carry) {
+    let (prepared_tx, prepared_rx) = channel();
     let mut engine = Engine {
         shared,
         notify,
         carry,
-        output: None,
-        song: None,
-        fading: Vec::new(),
+        motor: danplay_motor::Engine::new(),
+        loaded: None,
         ending_sent: false,
-        click: None,
         was_finished: false,
+        rewound: false,
         last_sent: State::default(),
         last_tick: Instant::now(),
-        last_resync: Instant::now(),
         idle_since: None,
-        recoveries: 0,
-        count_in: None,
+        any_output: danplay_motor::output::has_default(),
+        waiting: None,
+        prepared_tx,
+        prepared_rx,
+        preparing: false,
+        clips: Clips::default(),
     };
-    // Se mira si hay salida, pero no se abre: eso se hace al primer play.
-    engine.carry.has_output = output::probe();
-    lock(shared).has_output = engine.carry.has_output;
+    engine.apply_session();
     let mut first = Step::default();
-    if !engine.carry.has_output {
+    if !engine.any_output {
         first.failure = Some(NO_OUTPUT.into());
     }
     if !engine.publish(first) {
         return;
     }
-
     loop {
-        let next = match engine.take_pending() {
-            Some(command) => Ok(command),
-            None => match engine.wait() {
-                Some(wait) => rx.recv_timeout(wait),
-                // nada suena ni puede sonar: se duerme hasta la siguiente orden
-                None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
-            },
-        };
+        let wait = if engine.sounding() { ACTIVE } else { IDLE };
         let mut step = Step::default();
-        match next {
-            Ok(command) => engine.handle(command, &mut step),
+        match rx.recv_timeout(wait) {
+            Ok(command) => {
+                engine.handle(command, &mut step);
+                // las que haya en cola, antes de contar nada
+                while let Ok(command) = rx.try_recv() {
+                    engine.handle(command, &mut step);
+                }
+            }
             Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => return, // el canal se cerro: fin
+            Err(RecvTimeoutError::Disconnected) => return,
         }
-        engine.song_in(&mut step);
-        engine.reap_fading();
-        engine.watchdog(&mut step);
-        engine.ab_loop(&mut step);
-        engine.metronome(&mut step);
-        engine.release_when_idle();
+        if engine.prepared_rx.try_recv().is_ok() {
+            engine.preparing = false;
+            if let Some(command) = engine.waiting.take() {
+                engine.handle(command, &mut step);
+            }
+        }
+        engine.watch(&mut step);
         if !engine.publish(step) {
             return;
         }
@@ -256,121 +224,52 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
 
 impl Engine<'_> {
     fn sounding(&self) -> bool {
-        self.song.as_ref().is_some_and(Song::playing)
+        self.loaded.is_some() && self.motor.state().playing
     }
 
-    /// Cuanto esperar a la siguiente orden; `None` si no hay nada que mirar
-    /// mientras tanto.
-    fn wait(&self) -> Option<Duration> {
-        // al acabar la cuenta, la cancion entra: ni un milisegundo tarde
-        if let Some(at) = self.count_in {
-            return Some(at.saturating_duration_since(Instant::now()).min(ACTIVE));
-        }
-        // una cancion con tramo que se acaba vuelve al tramo: cuanto antes
-        let back_to_loop = !self.carry.loops.is_empty() && self.song.as_ref().is_some_and(Song::exhausted);
-        if self.sounding() || back_to_loop || !self.fading.is_empty() {
-            Some(ACTIVE)
-        } else if self.output.is_some() {
-            Some(IDLE)
-        } else {
-            None
-        }
-    }
-
-    /// La orden que esperaba a la salida, si ya la hay.
-    fn take_pending(&mut self) -> Option<Command> {
-        if self.output.is_some() {
-            self.carry.pending.take()
-        } else {
-            None
-        }
-    }
-
-    /// Si la orden necesita la salida abierta para hacer algo.
-    fn needs_output(&self, command: &Command) -> bool {
-        match command {
-            Command::Play { .. } => true,
-            Command::Toggle | Command::Resume | Command::Seek(_) => !self.carry.path.is_empty(),
-            _ => false,
-        }
-    }
-
-    /// Abre la salida si no lo esta. Si no la hay, se dice.
-    fn ensure_output(&mut self, step: &mut Step) -> bool {
-        if self.output.is_some() {
-            return true;
-        }
-        match Output::open() {
-            Ok(opened) => {
-                self.output = Some(opened);
-                self.carry.has_output = true;
-                true
-            }
-            Err(e) => {
-                log::warn!("no se pudo abrir la salida de audio: {e}");
-                self.carry.has_output = false;
-                step.failure = Some(NO_OUTPUT.into());
-                false
-            }
-        }
+    /// Lo de la sesion (tras una caida, o al empezar): velocidad, tono,
+    /// salida y enrutado.
+    fn apply_session(&mut self) {
+        self.motor.set_speed(self.carry.speed);
+        self.motor.set_pitch(self.carry.pitch);
+        self.motor.set_output_config(self.carry.output.clone());
+        self.motor.set_count_in(u32::from(self.carry.metro.settings.count_in));
+        self.motor.set_routing(self.routing());
     }
 
     fn handle(&mut self, command: Command, step: &mut Step) {
-        if self.needs_output(&command) {
-            if !self.ensure_output(step) {
-                // se atiende en cuanto haya salida; la ultima manda
-                self.carry.pending = Some(command);
-                return;
-            }
-            self.carry.pending = None;
-        }
         step.clear_error = matches!(command, Command::Play { .. } | Command::Load { .. } | Command::Stop);
-        if self.count_in.is_some() {
-            match command {
-                // ya va a sonar
-                Command::Resume => return,
-                // pausa (o play otra vez) en plena cuenta: se deja de contar
-                // y sigue en pausa
-                Command::Toggle | Command::Pause => {
-                    self.cancel_count_in(step);
-                    return;
-                }
-                Command::Play { .. } | Command::Load { .. } | Command::Stop | Command::Fail(_) | Command::Seek(_) => {
-                    self.cancel_count_in(step);
-                }
-                _ => {}
-            }
-        }
         match command {
             Command::Play { path, duration } => self.play(path, duration, step),
             Command::Load { path, duration } => self.load(path, duration),
             Command::Toggle => self.toggle(None, step),
             Command::Resume => self.toggle(Some(true), step),
             Command::Pause => self.toggle(Some(false), step),
-            Command::Stop => self.forget_song(),
+            Command::Stop => self.stop(),
             Command::Fail(reason) => {
                 // La cola no pudo ni localizar el archivo: se para lo que
-                // hubiera y se cuenta el motivo. Antes se mandaba un Play con
-                // la ruta vacia y el error que salia era «No such file or
-                // directory (os error 2)».
-                self.forget_song();
+                // hubiera y se cuenta el motivo.
+                self.stop();
                 step.failure = Some(reason);
             }
             Command::Seek(seconds) => self.seek(seconds, step),
-            Command::Loops { segments, defer } => self.set_loops(segments, defer),
-            Command::Metronome { settings, grid } => self.metronome_settings(settings, grid, step),
+            Command::Loops { segments, end } => self.set_loops(segments, end),
+            Command::Metronome { settings, grid } => {
+                let path = self.carry.path.clone();
+                self.carry.metro.set(settings, grid, &path);
+                self.motor.set_count_in(u32::from(self.carry.metro.settings.count_in));
+                self.send_click();
+            }
             Command::Stems { song, tracks } => self.set_stems(&song, tracks, step),
             Command::Volume(value) => self.volume(value),
             Command::NudgeVolume(delta) => self.volume(nudged_volume(self.carry.volume, delta)),
             Command::Speed(value) => {
-                let clock = self.carry.clock();
-                self.carry.speed = value.clamp(0.25, 3.0);
-                self.retune(clock, step);
+                self.carry.speed = if value.is_finite() { value.clamp(0.25, 3.0) } else { 1.0 };
+                self.motor.set_speed(self.carry.speed);
             }
             Command::Pitch(semitones) => {
-                let clock = self.carry.clock();
                 self.carry.pitch = clean_pitch(semitones);
-                self.retune(clock, step);
+                self.motor.set_pitch(self.carry.pitch);
             }
             Command::Relocated { from, to } => self.relocated(&from, to),
             Command::Crossfade(seconds) => {
@@ -380,59 +279,330 @@ impl Engine<'_> {
                     0.0
                 };
             }
-        }
-        // una orden que esperaba a la salida tiene otra oportunidad con cada
-        // orden nueva: puede que ya se hayan conectado los auriculares
-        if self.output.is_none() && self.carry.pending.is_some() {
-            let _ = self.ensure_output(step);
+            Command::Routing(spec) => {
+                self.carry.routing = spec;
+                self.motor.set_routing(self.routing());
+            }
+            Command::Output(config) => {
+                self.carry.output = config.clone();
+                self.motor.set_output_config(config);
+            }
+            Command::Cues { song, cues, volume } => {
+                if song == self.carry.path {
+                    self.carry.cues = cues;
+                    self.carry.cue_volume = if volume.is_finite() {
+                        volume.clamp(0.0, 3.0)
+                    } else {
+                        1.0
+                    };
+                    self.send_cues();
+                }
+            }
         }
     }
 
-    /// Abre la cancion que hay puesta desde `from`, en pausa.
-    fn open_current(&mut self, from: f64) -> Result<Song, String> {
-        let Some(output) = self.output.as_mut() else {
-            return Err(NO_OUTPUT.into());
-        };
-        let recipe = Recipe {
-            path: &self.carry.path,
-            volume: self.carry.volume,
-            speed: self.carry.speed,
-            pitch: self.carry.pitch,
-            hint: self.carry.duration,
-            from,
-            stems: self.carry.stems.as_ref(),
-        };
-        let song = open::open_song(output.mixer(), &recipe)?;
-        if from > 0.0 {
-            // ffmpeg ya arranco ahi y el salto no cuesta nada; al
-            // decodificador de siempre se lo pide ahora, sin que se oiga, y
-            // con lo que hay que leer para llegar ahi ya en memoria
-            song.preload(from, self.carry.duration);
-            if !output.pulse.responds(RESPONDS_WITHIN) {
-                return Err("La salida de audio no responde.".into());
+    // ------------------------------------------- abrir
+
+    /// Lo que suena de `path`: el mismo archivo o su FLAC. Si hay que
+    /// hacerlo, se hace aparte y la orden espera (`waiting`): devuelve None.
+    fn playable(
+        &mut self,
+        paths: &[String],
+        command: impl FnOnce() -> Command,
+    ) -> Result<Option<Vec<PathBuf>>, String> {
+        let mut out = Vec::with_capacity(paths.len());
+        let mut missing = Vec::new();
+        for p in paths {
+            let path = Path::new(p);
+            if !path.is_file() {
+                return Err(format!("«{}» ya no está donde estaba.", file_name(p)));
             }
-            let clock = open::clock_of(song.tempo, self.carry.speed);
-            let pos = Duration::from_secs_f64(from / f64::from(clock.max(0.01)));
-            match output::seek_within(&song.sink, pos, SEEK_WITHIN) {
-                Some(Ok(())) => {}
-                Some(Err(e)) => log::warn!("no se pudo colocar la cancion en {from:.1} s: {e}"),
-                None => return Err("La salida de audio no responde.".into()),
+            if formats::is_native(path) {
+                out.push(path.to_path_buf());
+            } else if let Some(done) = formats::cached(path) {
+                out.push(done);
+            } else {
+                missing.push(path.to_path_buf());
             }
         }
-        Ok(song)
+        if missing.is_empty() {
+            return Ok(Some(out));
+        }
+        if crate::tools::ffmpeg().is_none() {
+            return formats::playable(&missing[0]).map(|_| None);
+        }
+        // aparte: el hilo de audio no se queda esperando a ffmpeg
+        self.waiting = Some(command());
+        self.preparing = true;
+        let tx = self.prepared_tx.clone();
+        let _ = std::thread::Builder::new()
+            .name("danplay-preparar".into())
+            .spawn(move || {
+                for path in missing {
+                    if let Err(e) = formats::playable(&path) {
+                        log::warn!("no se pudo preparar {}: {e}", path.display());
+                    }
+                }
+                let _ = tx.send(Prepared::Ready);
+            });
+        Ok(None)
     }
 
-    /// Pone la cancion abierta como la que suena (y a sonar, si `play`).
-    fn adopt(&mut self, song: Song, play: bool) {
-        if play {
-            song.sink.play();
+    /// Volver a pedir las pistas de la que suena (cuando acaben de
+    /// prepararse).
+    fn stems_retry(&self) -> impl FnOnce() -> Command + use<> {
+        let (song, tracks) = (self.carry.path.clone(), self.carry.stems.clone());
+        move || Command::Stems { song, tracks }
+    }
+
+    /// Las partes de la cancion: ella, y sus pistas detras.
+    fn parts(song: &Path, stems: &[(StemTrack, PathBuf)]) -> Vec<PartFile> {
+        let mut files = vec![PartFile {
+            source: "song".into(),
+            name: "Canción".into(),
+            path: song.to_path_buf(),
+        }];
+        files.extend(stems.iter().enumerate().map(|(i, (t, playable))| PartFile {
+            source: format!("stem{i}"),
+            name: file_name(&t.path),
+            path: playable.clone(),
+        }));
+        files
+    }
+
+    /// Las pistas que pide la interfaz, abiertas o por abrir. `Err` si alguna
+    /// no se puede; `Ok(None)` si hay que esperar a prepararlas.
+    fn stem_files(&mut self, retry: impl FnOnce() -> Command) -> Result<Option<Vec<(StemTrack, PathBuf)>>, String> {
+        let Some(tracks) = self.carry.stems.clone().filter(|t| !t.is_empty()) else {
+            return Ok(Some(Vec::new()));
+        };
+        let paths: Vec<String> = tracks.iter().map(|t| t.path.clone()).collect();
+        Ok(self
+            .playable(&paths, retry)?
+            .map(|files| tracks.into_iter().zip(files).collect()))
+    }
+
+    fn play(&mut self, path: String, hint: f64, step: &mut Step) {
+        // Con fundido, la que suena no se corta: baja mientras sube la nueva.
+        // Si la mando la cola porque esta se acaba (`Ending`), en lo que le
+        // queda; si es un cambio a mano, en poco.
+        let fade = self.can_crossfade().then(|| {
+            let len = self.crossfade_len();
+            if self.ending_sent {
+                let left = (self.carry.duration - self.motor.state().position).max(0.0) as f32;
+                left.clamp(0.3, len.max(0.3))
+            } else {
+                len.min(MANUAL_FADE)
+            }
+        });
+        if path != self.carry.path {
+            // las pistas, los tramos y las voces eran de la cancion de antes
+            // (la misma otra vez, como al repetirla, sigue con los suyos)
+            self.carry.stems = None;
+            self.carry.loops.clear();
+            self.carry.cues.clear();
         }
-        self.carry.tempo = song.tempo;
-        if let Some(old) = self.song.replace(song) {
-            old.sink.stop();
+        self.carry.path.clone_from(&path);
+        self.carry.duration = hint;
+        self.carry.resume_at = None;
+        let retry = {
+            let path = path.clone();
+            move || Command::Play { path, duration: hint }
+        };
+        let song = match self.playable(std::slice::from_ref(&path), retry) {
+            Ok(Some(mut files)) => files.remove(0),
+            Ok(None) => {
+                // se prepara aparte: lo que sonaba, fuera
+                self.motor.unload();
+                self.loaded = None;
+                return;
+            }
+            Err(e) => return self.failed(e, step),
+        };
+        // las pistas que haya que preparar entran luego, a la par; la
+        // cancion no espera por ellas
+        let stems = match self.stem_files(self.stems_retry()) {
+            Ok(Some(s)) => s,
+            Ok(None) => Vec::new(),
+            Err(_) => {
+                self.carry.stems = None;
+                Vec::new()
+            }
+        };
+        let files = Self::parts(&song, &stems);
+        let opened = match fade {
+            Some(secs) => self.motor.crossfade_files(&path, &files, hint, secs),
+            None => self.motor.load_files(&path, &files, hint),
+        };
+        match opened {
+            Ok(loaded) => {
+                // la del indice manda: en mp3 de bitrate variable sin
+                // cabecera Xing la del archivo se inventa
+                if hint <= 0.0 {
+                    self.carry.duration = loaded.duration;
+                }
+                self.loaded = Some(Loaded {
+                    path: path.clone(),
+                    playable: song,
+                    stems: stems.iter().map(|(t, p)| (t.path.clone(), stamp(p))).collect(),
+                });
+                self.after_open();
+                if fade.is_none() {
+                    // la que entra sola en la cola no cuenta
+                    self.motor.play_counting(false);
+                }
+                self.ending_sent = false;
+                self.was_finished = false;
+                self.rewound = false;
+            }
+            Err(e) => self.failed(e, step),
         }
+    }
+
+    /// Lo de la cancion recien abierta: enrutado, volumenes, tramos, clic y
+    /// voces.
+    fn after_open(&mut self) {
+        self.motor.set_routing(self.routing());
+        self.apply_mix();
+        let path = self.carry.path.clone();
+        self.carry.metro.rebuild(&path);
+        self.motor.set_segments(&self.carry.loops, self.carry.loop_end);
+        self.send_click();
+        self.send_cues();
+    }
+
+    /// No se pudo abrir: se dice y se olvida (sin limpiar la ruta, el
+    /// siguiente play reproducia la cancion ANTERIOR).
+    fn failed(&mut self, error: String, step: &mut Step) {
+        self.motor.unload();
+        self.loaded = None;
+        self.carry.forget_song();
+        step.failure = Some(readable(&error));
+    }
+
+    /// Deja una cancion preparada pero en silencio (ver `Command::Load`).
+    fn load(&mut self, path: String, hint: f64) {
+        self.motor.unload();
+        self.loaded = None;
+        if path != self.carry.path {
+            self.carry.stems = None;
+            self.carry.loops.clear();
+            self.carry.cues.clear();
+        }
+        self.carry.path = path;
+        self.carry.duration = hint;
+        self.carry.resume_at = None;
         self.was_finished = false;
-        self.ending_sent = false;
+    }
+
+    /// Abre la cancion puesta (tras `Load`, o tras soltarlo todo) en `from`,
+    /// en pausa. True si quedo abierta.
+    fn reopen(&mut self, from: f64, step: &mut Step) -> bool {
+        let path = self.carry.path.clone();
+        let hint = self.carry.duration;
+        if path.is_empty() {
+            return false;
+        }
+        let song = match self.playable(std::slice::from_ref(&path), || Command::Load {
+            path: path.clone(),
+            duration: hint,
+        }) {
+            Ok(Some(mut files)) => files.remove(0),
+            Ok(None) => return false,
+            Err(e) => {
+                self.failed(e, step);
+                return false;
+            }
+        };
+        let stems = self.stem_files(self.stems_retry()).ok().flatten().unwrap_or_default();
+        let files = Self::parts(&song, &stems);
+        match self.motor.load_files(&path, &files, hint) {
+            Ok(loaded) => {
+                if hint <= 0.0 {
+                    self.carry.duration = loaded.duration;
+                }
+                self.loaded = Some(Loaded {
+                    path,
+                    playable: song,
+                    stems: stems.iter().map(|(t, p)| (t.path.clone(), stamp(p))).collect(),
+                });
+                self.after_open();
+                if from > 0.0 {
+                    self.motor.seek(from);
+                    step.sought = true;
+                }
+                true
+            }
+            Err(e) => {
+                self.failed(e, step);
+                false
+            }
+        }
+    }
+
+    fn stop(&mut self) {
+        self.motor.unload();
+        self.loaded = None;
+        self.carry.forget_song();
+        self.was_finished = false;
+    }
+
+    /// Toggle (`None`), Resume (`Some(true)`) o Pause (`Some(false)`).
+    fn toggle(&mut self, want: Option<bool>, step: &mut Step) {
+        let st = self.motor.state();
+        // en plena cuenta, pausa (o play otra vez) la deja en pausa
+        let counting = st.counting > 0;
+        let wants_play = want.unwrap_or(!st.playing || st.ended) && !(counting && want != Some(true));
+        if !wants_play {
+            self.motor.pause();
+            return;
+        }
+        if self.loaded.is_none() || st.loaded.is_none() {
+            let from = self.carry.resume_at.take().unwrap_or(0.0);
+            if !self.reopen(from, step) {
+                return;
+            }
+        } else if st.ended
+            && st.segments_done
+            && let Some(&(a, _)) = self.carry.loops.first()
+        {
+            // parado al acabar los tramos: desde el primero
+            self.motor.seek(a);
+        }
+        self.rewound = false;
+        self.motor.play();
+    }
+
+    fn seek(&mut self, seconds: f64, step: &mut Step) {
+        let seconds = if seconds.is_finite() { seconds.max(0.0) } else { 0.0 };
+        step.sought = true;
+        if self.loaded.is_none() {
+            // nada abierto (tras `Load`): se abre ahi, en pausa
+            self.reopen(seconds, step);
+            return;
+        }
+        self.rewound = false;
+        self.motor.seek(seconds);
+    }
+
+    fn set_loops(&mut self, segments: Vec<(f64, f64)>, end: LoopEnd) {
+        let mut clean: Vec<(f64, f64)> = segments
+            .into_iter()
+            .filter(|&(a, b)| a.is_finite() && b.is_finite() && a >= 0.0 && b > a + MIN_SEGMENT)
+            .take(64)
+            .collect();
+        clean.sort_by(|x, y| x.0.total_cmp(&y.0));
+        let mut merged: Vec<(f64, f64)> = Vec::with_capacity(clean.len());
+        for (a, b) in clean {
+            match merged.last_mut() {
+                Some(last) if a <= last.1 => last.1 = last.1.max(b),
+                _ => merged.push((a, b)),
+            }
+        }
+        self.carry.loops = merged;
+        self.carry.loop_end = end;
+        self.rewound = false;
+        self.motor.set_segments(&self.carry.loops, end);
     }
 
     /// El archivo de la que suena se movio: su ruta nueva (ver
@@ -447,10 +617,149 @@ impl Engine<'_> {
         {
             path.clone_from(&to);
         }
+        if let Some(l) = self.loaded.as_mut() {
+            l.path.clone_from(&to);
+            if l.playable == Path::new(from) {
+                l.playable = PathBuf::from(&to);
+            }
+        }
         self.carry.path = to;
     }
 
+    // ------------------------------------------- las pistas
+
+    fn set_stems(&mut self, song: &str, tracks: Option<Vec<StemTrack>>, step: &mut Step) {
+        if song != self.carry.path {
+            return; // eran de otra cancion: la que suena ya ha cambiado
+        }
+        let tracks = tracks.filter(|t| !t.is_empty());
+        self.carry.stems.clone_from(&tracks);
+        let Some(loaded) = self.loaded.as_ref() else {
+            return; // nada abierto: se abrira con ellas al darle a play
+        };
+        let Some(wanted) = tracks else {
+            // la cancion otra vez: las pistas siguen cargadas, calladas
+            self.apply_mix();
+            return;
+        };
+        let same = loaded.stems.len() == wanted.len()
+            && loaded
+                .stems
+                .iter()
+                .zip(&wanted)
+                .all(|((p, s), t)| *p == t.path && *s == stamp(Path::new(&t.path)));
+        if same {
+            self.apply_mix();
+            return;
+        }
+        let song = loaded.playable.clone();
+        let path = self.carry.path.clone();
+        let retry = {
+            let (path, wanted) = (path.clone(), wanted.clone());
+            move || Command::Stems {
+                song: path,
+                tracks: Some(wanted),
+            }
+        };
+        let stems = match self.stem_files(retry) {
+            Ok(Some(s)) => s,
+            Ok(None) => return,
+            Err(e) => {
+                // la cancion sigue sonando tal cual
+                self.carry.stems = None;
+                self.apply_mix();
+                step.failure = Some(readable(&e));
+                return;
+            }
+        };
+        let files = Self::parts(&song, &stems);
+        let routing = self.routing_for(stems.len());
+        match self
+            .motor
+            .handoff_files(&path, &files, self.carry.duration, HANDOFF, Some(routing))
+        {
+            Ok(_) => {
+                if let Some(l) = self.loaded.as_mut() {
+                    l.stems = stems.iter().map(|(t, p)| (t.path.clone(), stamp(p))).collect();
+                }
+                self.apply_mix();
+            }
+            Err(e) => {
+                self.carry.stems = None;
+                self.apply_mix();
+                step.failure = Some(readable(&e));
+            }
+        }
+    }
+
+    /// Los volumenes de cada parte: la cancion o sus pistas, por el volumen
+    /// general.
+    fn apply_mix(&self) {
+        let Some(loaded) = self.loaded.as_ref() else {
+            return;
+        };
+        let volume = self.carry.volume.clamp(0.0, MAX_VOLUME);
+        let mut mix = vec![(0.0, 0.0); 1 + loaded.stems.len()];
+        let wanted =
+            self.carry.stems.as_ref().filter(|t| {
+                t.len() == loaded.stems.len() && t.iter().zip(&loaded.stems).all(|(a, (b, _))| a.path == *b)
+            });
+        match wanted {
+            Some(tracks) => {
+                for (i, t) in tracks.iter().enumerate() {
+                    // el balance lo hace el motor con la misma cuenta
+                    // (`balance`): aqui solo lo que suena y cuanto
+                    let [l, r] = balance(t.gain, t.pan, t.on);
+                    let gain = if l.max(r) > 0.0 {
+                        t.gain.min(super::MAX_GAIN)
+                    } else {
+                        0.0
+                    };
+                    mix[1 + i] = (gain * volume, t.pan);
+                }
+            }
+            None => mix[0] = (volume, 0.0),
+        }
+        self.motor.set_mix(&mix);
+    }
+
+    fn volume(&mut self, value: f32) {
+        self.carry.volume = if value.is_finite() {
+            value.clamp(0.0, MAX_VOLUME)
+        } else {
+            self.carry.volume
+        };
+        self.apply_mix();
+    }
+
+    // ------------------------------------------- enrutado, clic y voces
+
+    fn routing(&self) -> Routing {
+        let n = self.loaded.as_ref().map_or(0, |l| l.stems.len());
+        self.routing_for(n)
+    }
+
+    /// El enrutado para la cancion con `stems` pistas detras: cada pista,
+    /// a su bus (o al de la cancion).
+    fn routing_for(&self, stems: usize) -> Routing {
+        let buses = self.carry.stems.as_ref();
+        let mut parts = vec![None];
+        parts.extend((0..stems).map(|i| buses.and_then(|t| t.get(i)).map(|t| t.bus)));
+        self.carry.routing.routing(&parts)
+    }
+
+    fn send_click(&self) {
+        let plan = click_plan(&self.carry.metro, self.carry.duration.max(1.0));
+        self.motor.set_click(plan);
+    }
+
+    fn send_cues(&mut self) {
+        let plan = self.clips.plan(&self.carry.cues, self.carry.cue_volume);
+        self.motor.set_cues(plan);
+    }
+
     // ------------------------------------------- fundidos
+
     /// Si la que suena puede fundirse con la siguiente: hay fundido puesto,
     /// suena, y no se esta estudiando (con tramos, el clic o la cuenta, una
     /// cancion encima de otra no tiene sentido).
@@ -458,9 +767,8 @@ impl Engine<'_> {
         self.carry.crossfade > 0.0
             && self.sounding()
             && self.carry.loops.is_empty()
-            && !self.carry.loop_defer
             && !self.carry.metro.settings.on
-            && self.count_in.is_none()
+            && self.motor.state().counting == 0
     }
 
     /// Cuanto dura el fundido con la que suena: el puesto, o un tercio de
@@ -474,666 +782,78 @@ impl Engine<'_> {
         }
     }
 
-    /// La que se va, bajando en `secs`: sigue sonando aparte hasta callarse.
-    fn let_go(&mut self, song: Song, secs: f32, shape: Shape) {
-        song.fade.ramp(0.0, secs, shape);
-        self.fading.push(song);
-    }
+    // ------------------------------------------- vigilar y contar
 
-    /// Las que se iban, fuera ya (pausa, salto, stop...).
-    fn drop_fading(&mut self) {
-        for song in self.fading.drain(..) {
-            song.fade.finish();
-            song.sink.stop();
-        }
-    }
-
-    /// Las que ya se han callado, fuera.
-    fn reap_fading(&mut self) {
-        self.fading.retain(|song| {
-            let gone = song.fade.quiet() || song.exhausted();
-            if gone {
-                song.fade.finish();
-                song.sink.stop();
-            }
-            !gone
-        });
-    }
-
-    /// Pasa a otra version de la que suena (sus pistas, o ella otra vez;
-    /// otra velocidad o tono) sin que se oiga el cambio: la nueva se abre un
-    /// poco por delante y entra, cruzandose, justo cuando la que suena llega
-    /// ahi (ver «La puerta» en `fade`). En pausa, en plena cuenta o casi al
-    /// final, se reabre sin mas, como antes. `clock` es el de la que suena.
-    fn hand_over(&mut self, clock: f32) -> Result<(), String> {
-        let Some(old) = self.song.as_ref().filter(|s| !s.exhausted()) else {
-            return Ok(());
-        };
-        let at = old.position(clock);
-        let playing = !old.sink.is_paused();
-        let ahead = HANDOFF_AHEAD * f64::from(clock);
-        let near_end = self.carry.duration > 0.0 && at + ahead + 0.5 >= self.carry.duration;
-        if !playing || near_end || self.count_in.is_some() {
-            let fresh = self.open_current(at)?;
-            self.adopt(fresh, playing);
-            return Ok(());
-        }
-        let fresh = self.open_current(at + ahead)?;
-        if let Some(old) = self.song.take() {
-            // la vieja baja justo cuando la nueva entra: en el segundo en que
-            // esta se abrio (se lee antes de `follow`, que lo cambia)
-            old.fade.ramp_at(0.0, HANDOFF, Shape::Linear, fresh.fade.at());
-            fresh.fade.follow(Arc::clone(&old.fade), HANDOFF);
-            self.fading.push(old);
-        }
-        self.adopt(fresh, true);
-        Ok(())
-    }
-
-    fn play(&mut self, path: String, hint: f64, step: &mut Step) {
-        // Con fundido, la que suena no se corta: baja mientras sube la nueva.
-        // Si la mando la cola porque esta se acaba (`Ending`), en lo que le
-        // queda; si es un cambio a mano, en poco.
-        let fade = self.can_crossfade().then(|| {
-            let len = self.crossfade_len();
-            if self.ending_sent {
-                let left = (self.carry.duration - self.position_now()).max(0.0) as f32;
-                left.clamp(0.3, len.max(0.3))
-            } else {
-                len.min(MANUAL_FADE)
-            }
-        });
-        if fade.is_none() {
-            self.drop_fading();
-        }
-        if let Some(old) = self.song.take() {
-            match fade {
-                Some(secs) => self.let_go(old, secs, Shape::EqualPower),
-                None => old.sink.stop(),
+    fn watch(&mut self, step: &mut Step) {
+        let st = self.motor.state();
+        // parado al acabar los tramos: al principio del primero, en pausa
+        if st.ended && st.segments_done && !self.rewound {
+            self.rewound = true;
+            if let Some(&(a, _)) = self.carry.loops.first() {
+                self.motor.seek(a);
+                step.sought = true;
             }
         }
-        // las pistas eran de la cancion de antes (la misma otra vez, como
-        // al repetirla, sigue con las suyas)
-        if path != self.carry.path {
-            self.carry.stems = None;
-        }
-        self.carry.path = path;
-        self.carry.duration = hint;
-        self.carry.resume_at = None;
-        match self.open_current(0.0) {
-            Ok(song) => {
-                // la del indice manda: en mp3 de bitrate variable sin
-                // cabecera Xing la del archivo se inventa
-                if hint <= 0.0 {
-                    self.carry.duration = song.announced.unwrap_or(0.0);
-                }
-                if let Some(secs) = fade {
-                    song.fade.set(0.0);
-                    song.fade.ramp(1.0, secs, Shape::EqualPower);
-                }
-                self.adopt(song, true);
-                self.rearm(0.0);
-                // otra cancion: su rejilla, o ninguna
-                let path = self.carry.path.clone();
-                self.carry.metro.rebuild(&path);
-                step.replan = Some(Replan::Song);
-            }
-            Err(e) => {
-                // Sin limpiar la ruta, el siguiente play o un salto en la
-                // barra reproducian la cancion ANTERIOR, que es de las cosas
-                // mas raras que puede hacer un reproductor.
-                self.carry.path.clear();
-                self.carry.duration = 0.0;
-                step.failure = Some(e);
-            }
-        }
-    }
-
-    /// Deja una cancion preparada pero en silencio (ver `Command::Load`).
-    fn load(&mut self, path: String, hint: f64) {
-        self.drop_fading();
-        if let Some(old) = self.song.take() {
-            old.sink.stop();
-        }
-        if path != self.carry.path {
-            self.carry.stems = None;
-        }
-        self.carry.path = path;
-        self.carry.duration = hint;
-        self.carry.resume_at = None;
-        self.was_finished = false;
-        self.rearm(0.0);
-    }
-
-    /// Stop, o la cola que no encontro el archivo: nada puesto.
-    fn forget_song(&mut self) {
-        self.drop_fading();
-        if let Some(old) = self.song.take() {
-            old.sink.stop();
-        }
-        self.carry.stems = None;
-        self.carry.path.clear();
-        self.carry.duration = 0.0;
-        self.carry.resume_at = None;
-        self.was_finished = false;
-    }
-
-    /// Toggle (`None`), Resume (`Some(true)`) o Pause (`Some(false)`).
-    fn toggle(&mut self, want: Option<bool>, step: &mut Step) {
-        let exhausted = self.song.as_ref().is_none_or(Song::exhausted);
-        // Toggle: lo contrario de lo que hay
-        let wants_play = want.unwrap_or_else(|| self.song.as_ref().is_none_or(|s| s.sink.is_paused() || s.exhausted()));
-        if wants_play && exhausted && !self.carry.path.is_empty() {
-            // la pista acabo (o la salida se solto en pausa): se vuelve a
-            // abrir, donde se quedo si se sabe, y suena (tras la cuenta, si
-            // la hay)
-            let from = self.carry.resume_at.take().unwrap_or(0.0);
-            match self.open_current(from) {
-                Ok(song) => {
-                    self.adopt(song, false);
-                    self.rearm(from);
-                    if !self.start_count_in()
-                        && let Some(song) = &self.song
-                    {
-                        song.sink.play();
-                    }
-                    step.replan = Some(Replan::Song);
-                }
-                Err(e) => {
-                    self.carry.resume_at = Some(from).filter(|f| *f > 0.0);
-                    step.failure = Some(e);
-                }
-            }
-        } else if self.song.is_some() {
-            if wants_play {
-                let paused = self.song.as_ref().is_some_and(|s| s.sink.is_paused());
-                if !(paused && self.start_count_in()) {
-                    if let Some(song) = &self.song {
-                        song.sink.play();
-                    }
-                    step.replan = Some(Replan::Song);
-                }
-            } else if let Some(song) = &self.song {
-                song.sink.pause();
-                self.drop_fading();
-            }
-        }
-    }
-
-    /// Si hay que contar antes de que entre la cancion (en pausa), empieza
-    /// la cuenta y devuelve true: la cancion entra al acabar (`song_in`).
-    fn start_count_in(&mut self) -> bool {
-        let (Some(output), Some(song)) = (self.output.as_ref(), self.song.as_ref()) else {
-            return false;
-        };
-        let position = song.position(self.carry.clock());
-        let Some(count) = self.carry.metro.count_in(position, self.carry.speed) else {
-            return false;
-        };
-        let Some(shared) = metro::ensure_click(output, &mut self.click) else {
-            return false;
-        };
-        metro::plan_count_in(&self.carry.metro, &count, &shared);
-        self.count_in = Some(Instant::now() + Duration::from_secs_f64(count.song_in));
-        true
-    }
-
-    /// Acabo la cuenta: entra la cancion.
-    fn song_in(&mut self, step: &mut Step) {
-        let Some(at) = self.count_in else {
-            return;
-        };
-        if Instant::now() < at {
-            return;
-        }
-        self.count_in = None;
-        if let Some(song) = &self.song {
-            song.sink.play();
-            step.replan = Some(Replan::Song);
-        }
-    }
-
-    /// Se deja de contar: el clic vuelve a lo que tuviera (o se calla).
-    fn cancel_count_in(&mut self, step: &mut Step) {
-        self.count_in = None;
-        step.replan = Some(Replan::Settings);
-    }
-
-    fn seek(&mut self, seconds: f64, step: &mut Step) {
-        self.drop_fading();
-        step.sought = true;
-        step.replan = Some(Replan::Song);
-        let seconds = seconds.max(0.0);
-        // saltar a proposito dentro de un tramo («reproducir ahora») lo arma
-        // ya, aunque esperara al final de la cancion
-        if self.segment_at(seconds).is_some() {
-            self.carry.loop_defer = false;
-        }
-        self.rearm(seconds);
-        let exhausted = self.song.as_ref().is_none_or(Song::exhausted);
-        if exhausted && !self.carry.path.is_empty() {
-            // Nada abierto: la pista acabo (se vuelve a abrir y suena, como
-            // siempre) o la salida se solto en pausa (se abre donde se pide,
-            // pero sigue en pausa: la pausa era de quien escucha).
-            let play = self.carry.resume_at.take().is_none();
-            match self.open_current(seconds) {
-                Ok(song) => self.adopt(song, play),
-                Err(e) => step.failure = Some(e),
-            }
-            return;
-        }
-        if self.song.is_some() {
-            self.seek_song(seconds, step);
-        }
-    }
-
-    /// El salto dentro de la cancion que suena, sin quedarse colgado nunca.
-    fn seek_song(&mut self, target: f64, step: &mut Step) {
-        let clock = self.carry.clock();
-        let (Some(output), Some(song)) = (self.output.as_mut(), self.song.as_ref()) else {
-            return;
-        };
-        // 1) La salida tiene que estar pidiendo muestras: si no, el salto no
-        //    lo atenderia nadie. Se rehace antes.
-        if !output.pulse.responds(RESPONDS_WITHIN) {
-            self.recover(Some(target), step);
-            return;
-        }
-        // 2) ffmpeg: la tirada nueva, lista antes de pedir el salto. El
-        //    decodificador de siempre: lo que hay que leer para llegar ahi,
-        //    ya en memoria (solo espera si la cancion acaba de empezar a
-        //    leerse); mientras, sigue sonando lo que sonaba.
-        song.preload(target, self.carry.duration);
-        if let Some(control) = &song.ffmpeg
-            && let Err(e) = control.prepare(target, transcode::READY_WITHIN)
-        {
-            step.failure = Some(format!("no se puede buscar aqui: {e}"));
-            return;
-        }
-        // 3) El salto, con tope por si la salida muere justo ahora.
-        let pos = Duration::from_secs_f64(target / f64::from(clock.max(0.01)));
-        match output::seek_within(&song.sink, pos, SEEK_WITHIN) {
-            Some(Ok(())) => {}
-            Some(Err(e)) => step.failure = Some(format!("no se puede buscar aqui: {e}")),
-            None => self.recover(Some(target), step),
-        }
-    }
-
-    /// La salida no responde: se rehace y la cancion sigue donde iba (o
-    /// donde se pidio), sonando o en pausa como estaba.
-    fn recover(&mut self, at: Option<f64>, step: &mut Step) {
-        self.drop_fading();
-        let clock = self.carry.clock();
-        let resume = self
-            .song
-            .take()
-            .filter(|s| !s.exhausted())
-            .map(|s| (at.unwrap_or_else(|| s.position(clock)), s.playing()));
-        self.click = None;
-        self.output = None;
-        match Output::open() {
-            Ok(opened) => {
-                log::info!("salida de audio rehecha");
-                self.output = Some(opened);
-                self.carry.has_output = true;
-                // la salida es otra: el clic se rehace en ella
-                step.replan = Some(Replan::Settings);
-                if let Some((from, playing)) = resume.filter(|_| !self.carry.path.is_empty()) {
-                    match self.open_current(from) {
-                        Ok(song) => self.adopt(song, playing),
-                        Err(e) => {
-                            self.carry.resume_at = Some(from);
-                            step.failure = Some(e);
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                log::warn!("la salida de audio murio y no se pudo rehacer: {e}");
-                self.carry.has_output = false;
-                self.carry.resume_at = resume.map(|(from, _)| from);
-                step.failure = Some(
-                    "La salida de audio dejo de responder y no se pudo recuperar. \
-                     Pulsa play para volver a intentarlo."
-                        .into(),
-                );
-            }
-        }
-    }
-
-    fn metronome_settings(
-        &mut self,
-        settings: super::MetronomeSettings,
-        grid: Option<(String, Arc<BeatGrid>)>,
-        step: &mut Step,
-    ) {
-        let on = settings.on;
-        let path = self.carry.path.clone();
-        self.carry.metro.set(settings, grid, &path);
-        step.replan = Some(Replan::Settings);
-        // el clic puede sonar solo, sin cancion: necesita la salida
-        if on {
-            let _ = self.ensure_output(step);
-        }
-    }
-
-    /// Las pistas separadas en vez de la cancion, o la cancion otra vez.
-    ///
-    /// Si ya sonaban esas mismas pistas, solo cambia el volumen de cada una:
-    /// lo lee el mezclador sobre la marcha, sin reabrir nada. Si no (u otras
-    /// con los mismos nombres: el separador las rehizo), se reabre donde
-    /// iba, sonando o en pausa como estaba. Si las pistas no se
-    /// pueden abrir, sigue sonando lo que sonaba y se dice por que.
-    fn set_stems(&mut self, song: &str, tracks: Option<Vec<StemTrack>>, step: &mut Step) {
-        if song != self.carry.path {
-            return; // eran de otra cancion: la que suena ya ha cambiado
-        }
-        let tracks = tracks.map(|list| list.into_iter().take(crate::transcode::MAX_INPUTS).collect::<Vec<_>>());
-        match (&self.carry.stems, &tracks) {
-            (None, None) => return,
-            (Some(now), Some(list)) if now.same(list) => {
-                now.gains.set(list);
-                return;
-            }
-            _ => {}
-        }
-        let before = self.carry.stems.take();
-        self.carry.stems = tracks.filter(|list| !list.is_empty()).map(|list| StemSet::new(&list));
-        let clock = self.carry.clock();
-        if self.song.as_ref().is_none_or(Song::exhausted) {
-            return; // nada abierto: se abrira con ellas al darle a play
-        }
-        // sin corte: la cancion sigue hasta que entran las pistas, a la par
-        match self.hand_over(clock) {
-            Ok(()) => step.replan = Some(Replan::Song),
-            Err(e) => {
-                self.carry.stems = before;
-                step.failure = Some(e);
-            }
-        }
-    }
-
-    fn volume(&mut self, value: f32) {
-        self.carry.volume = if value.is_finite() {
-            value.clamp(0.0, MAX_VOLUME)
-        } else {
-            self.carry.volume
-        };
-        if let Some(song) = &self.song {
-            song.sink.set_volume(self.carry.volume);
-        }
-        for song in &self.fading {
-            song.sink.set_volume(self.carry.volume);
-        }
-    }
-
-    /// La velocidad o el tono cambiaron. `clock` es el factor de antes del
-    /// cambio: la cancion va donde va segun el sink que suena, no segun el
-    /// que se va a abrir (con el nuevo, de 1x a 0,8x la cancion saltaba
-    /// hacia atras un 20 %).
-    fn retune(&mut self, clock: f32, step: &mut Step) {
-        step.replan = Some(Replan::Song);
-        let Some(song) = &self.song else {
-            return;
-        };
-        // Con ffmpeg la velocidad (y el tono) se aplican al decodificar: hay
-        // que reabrir la cancion donde iba. Sin el, rodio cambia la
-        // velocidad al vuelo (y el tono con ella), y el tono corrido no se
-        // puede.
-        let reopen = tools::ffmpeg().is_some() && !self.carry.path.is_empty();
-        if !reopen || song.exhausted() {
-            song.sink.set_speed(self.carry.speed);
-            return;
-        }
-        // sin corte, como el paso a las pistas
-        if let Err(e) = self.hand_over(clock) {
-            step.failure = Some(e);
-        }
-    }
-
-    // ------------------------------------------- vigilante de la salida
-    /// Si la salida lleva STALL sin pedir muestras, ha muerto por debajo: se
-    /// rehace y la cancion sigue donde estaba. Se mira siempre, suene o no:
-    /// en pausa tambien se puede desenchufar el aparato.
-    fn watchdog(&mut self, step: &mut Step) {
-        let Some(output) = self.output.as_mut() else {
-            return;
-        };
-        let silent = output.pulse.silent_for();
-        if silent < STALL && !output.lost() {
-            if silent < Duration::from_secs(1) {
-                self.recoveries = 0;
-            }
-            return;
-        }
-        self.recoveries += 1;
-        if self.recoveries > MAX_RECOVERIES {
-            // Ninguna de las salidas que da el sistema llega a sonar: se
-            // suelta y se dice. Play lo vuelve a intentar desde cero.
-            log::warn!("la salida de audio no llega a sonar tras {MAX_RECOVERIES} intentos: se deja");
-            let clock = self.carry.clock();
-            if let Some(song) = self.song.take()
-                && !song.exhausted()
-            {
-                self.carry.resume_at = Some(song.position(clock));
-            }
-            self.click = None;
-            self.output = None;
-            self.recoveries = 0;
-            self.carry.has_output = false;
-            step.failure = Some(NO_OUTPUT.into());
-            return;
-        }
-        log::warn!("la salida de audio ha dejado de pedir muestras: se rehace");
-        self.recover(None, step);
-    }
-
-    // ------------------------------------------- bucle A-B
-    /// Donde va la cancion ahora (o donde se quedo), en sus segundos.
-    fn position_now(&self) -> f64 {
-        let clock = self.carry.clock();
-        self.song
-            .as_ref()
-            .filter(|s| !s.exhausted())
-            .map(|s| s.position(clock))
-            .or(self.carry.resume_at)
-            .unwrap_or(0.0)
-    }
-
-    /// En que tramo cae `at`, si cae en alguno.
-    fn segment_at(&self, at: f64) -> Option<usize> {
-        self.carry.loops.iter().position(|&(a, b)| at >= a - 0.01 && at < b)
-    }
-
-    /// Arma el bucle si la cancion esta dentro de un tramo en `at` (y no
-    /// espera al final de la cancion).
-    fn rearm(&mut self, at: f64) {
-        self.carry.loop_at = if self.carry.loop_defer {
-            None
-        } else {
-            self.segment_at(at)
-        };
-    }
-
-    /// Tramos nuevos: en orden, y los que se pisan, juntos.
-    fn set_loops(&mut self, segments: Vec<(f64, f64)>, defer: bool) {
-        let mut clean: Vec<(f64, f64)> = segments
-            .into_iter()
-            .filter(|&(a, b)| a.is_finite() && b.is_finite() && a >= 0.0 && b > a + 0.2)
-            .take(64)
-            .collect();
-        clean.sort_by(|x, y| x.0.total_cmp(&y.0));
-        let mut merged: Vec<(f64, f64)> = Vec::with_capacity(clean.len());
-        for (a, b) in clean {
-            match merged.last_mut() {
-                Some(last) if a <= last.1 => last.1 = last.1.max(b),
-                _ => merged.push((a, b)),
-            }
-        }
-        self.carry.loops = merged;
-        self.carry.loop_defer = defer && !self.carry.loops.is_empty();
-        self.rearm(self.position_now());
-    }
-
-    /// Al pasar del final del tramo en que va, la cancion salta al principio
-    /// del siguiente (con uno solo, vuelve a A: el bucle A-B). Sirve para
-    /// machacar un trozo, o varios seguidos saltandose lo de entre medias.
-    ///
-    /// Solo con el bucle armado: la cancion tiene que haber estado dentro de
-    /// un tramo. Uno elegido mientras suena sin saltar a el (la onda con
-    /// candado) espera: si va por delante, entra al llegar la cancion; si va
-    /// por detras, la cancion sigue hasta el final y entonces vuelve al
-    /// primero, en vez de pasar a la siguiente. Con `loop_defer` pasa lo
-    /// mismo aunque la cancion atraviese los tramos.
-    fn ab_loop(&mut self, step: &mut Step) {
-        if self.carry.loops.is_empty() {
-            return;
-        }
-        let Some(song) = &self.song else {
-            return;
-        };
-        if song.exhausted() {
-            let first = self.carry.loops[0].0;
-            self.carry.loop_defer = false;
-            self.seek(first, step);
-            if step.failure.is_some() {
-                // no se pudo volver a abrir: se deja acabar, sin insistir
-                self.carry.loops.clear();
-                self.carry.loop_at = None;
-            }
-            return;
-        }
-        if !song.playing() {
-            return;
-        }
-        let position = song.position(self.carry.clock());
-        let at = match self.carry.loop_at {
-            Some(i) => i,
-            None if self.carry.loop_defer => return,
-            None => match self.segment_at(position) {
-                Some(i) => {
-                    self.carry.loop_at = Some(i);
-                    i
-                }
-                None => return,
-            },
-        };
-        let Some(&(_, end)) = self.carry.loops.get(at) else {
-            self.carry.loop_at = None;
-            return;
-        };
-        let next = (at + 1) % self.carry.loops.len();
-        let start = self.carry.loops[next].0;
-        if let Some(control) = &song.ffmpeg
-            && end - position < LOOP_AHEAD
-        {
-            control.prepare_soon(start);
-        }
-        if position >= end {
-            self.seek_song(start, step);
-            self.carry.loop_at = Some(next);
-            step.replan = Some(Replan::Song);
-        }
-    }
-
-    // ------------------------------------------- metronomo
-    /// Se planifica DESPUES de mover la cancion, con su posicion de ahora.
-    /// Y aunque no se haya movido nada, cada RESYNC se reengancha mientras
-    /// suena, para que ningun desvio se vaya acumulando.
-    fn metronome(&mut self, step: &mut Step) {
-        if step.replan.is_none()
-            && self.sounding()
-            && self.carry.metro.follows()
-            && self.last_resync.elapsed() >= metro::RESYNC
-        {
-            step.replan = Some(Replan::Resync);
-        }
-        let Some(why) = step.replan else {
-            return;
-        };
-        self.last_resync = Instant::now();
-        if !self.carry.metro.settings.on && why != Replan::Settings {
-            return;
-        }
-        let Some(output) = &self.output else {
-            return;
-        };
-        if let Some(shared) = metro::ensure_click(output, &mut self.click) {
-            let position = self.song.as_ref().map_or(0.0, |s| s.position(self.carry.clock()));
-            let playing = self.sounding();
-            metro::plan(&self.carry.metro, self.carry.speed, position, playing, &shared, why);
-        }
-    }
-
-    // ------------------------------------------- soltar la salida
-    fn release_when_idle(&mut self) {
-        let busy = self.sounding() || self.carry.metro.settings.on || !self.fading.is_empty();
-        if busy || self.output.is_none() {
+        // en pausa un rato: la salida, fuera
+        if st.playing || st.counting > 0 || self.preparing {
             self.idle_since = None;
-            return;
-        }
-        let since = *self.idle_since.get_or_insert_with(Instant::now);
-        if since.elapsed() < IDLE_RELEASE {
-            return;
-        }
-        let clock = self.carry.clock();
-        if let Some(song) = self.song.take() {
-            // la que acabo no se recuerda: play la empieza otra vez
-            if !song.exhausted() {
-                self.carry.resume_at = Some(song.position(clock));
+        } else {
+            let since = *self.idle_since.get_or_insert_with(Instant::now);
+            if since.elapsed() >= IDLE_RELEASE && self.motor.output_open() {
+                self.carry.resume_at = Some(st.position);
+                self.motor.release_output();
             }
-            song.sink.stop();
         }
-        self.click = None;
-        self.output = None;
-        self.idle_since = None;
-        log::info!(
-            "salida de audio suelta: nada suena desde hace {} s",
-            IDLE_RELEASE.as_secs()
-        );
     }
 
-    // ------------------------------------------- estado nuevo
-    /// Cuenta lo que haya cambiado. Devuelve false si ya no escucha nadie.
     fn publish(&mut self, step: Step) -> bool {
-        let clock = self.carry.clock();
-        let finished = self.song.as_ref().is_some_and(Song::exhausted);
+        let st = self.motor.state();
+        let output = self.motor.output_status();
+        let finished = self.loaded.is_some() && st.ended && !st.segments_done;
         let current = {
             let mut e = lock(self.shared);
             if let Some(reason) = step.failure {
                 e.error = reason;
-            } else if step.clear_error || (self.carry.has_output && e.error == NO_OUTPUT) {
+            } else if step.clear_error || (e.error == NO_OUTPUT && self.any_output) {
                 e.error.clear();
             }
-            if let Some(song) = &self.song {
-                e.playing = song.playing();
-                e.position = song.position(clock);
-            } else {
-                e.playing = false;
-                e.position = self.carry.resume_at.unwrap_or(0.0);
+            if let Some(err) = output.as_ref().and_then(|o| o.error.clone()) {
+                e.error = format!("La salida de audio falla: {err}");
             }
-            e.has_output = self.carry.has_output;
+            let loaded = self.loaded.is_some();
+            e.playing = loaded && (st.playing || st.counting > 0);
+            e.position = if loaded {
+                st.position
+            } else {
+                self.carry.resume_at.unwrap_or(0.0)
+            };
+            e.has_output = self.any_output && output.as_ref().is_none_or(|o| o.error.is_none());
             e.path.clone_from(&self.carry.path);
-            e.duration = self.carry.duration;
+            e.duration = if self.carry.duration > 0.0 {
+                self.carry.duration
+            } else {
+                st.duration
+            };
             e.volume = self.carry.volume;
             e.speed = self.carry.speed;
-            e.pitch_preserved = (self.carry.speed - 1.0).abs() < 1e-4 || (self.carry.tempo - 1.0).abs() > 1e-6;
+            e.pitch_preserved = true;
             let loops = &self.carry.loops;
             e.loop_a = loops.first().map_or(0.0, |s| s.0);
             e.loop_b = loops.last().map_or(0.0, |s| s.1);
             e.loops = loops.iter().map(|&(a, b)| [a, b]).collect();
-            e.loop_defer = self.carry.loop_defer;
+            e.loop_end = self.carry.loop_end;
             e.pitch = self.carry.pitch;
             e.metronome = self.carry.metro.state();
-            e.stems = self.carry.stems.is_some();
-            e.counting_in = self.count_in.is_some();
+            e.stems = loaded && self.carry.stems.is_some();
+            e.counting_in = st.counting > 0;
+            e.output = output;
+            e.preparing = self.preparing;
             e.clone()
         };
 
         // Fin de pista: se avisa UNA vez. Quien decide que pasa luego
-        // (repetir, avanzar, pararse) es la cola. Con un tramo puesto no se
-        // acaba: vuelve a A (ver `ab_loop`).
-        if finished && !self.was_finished && !self.carry.path.is_empty() && self.carry.loops.is_empty() {
+        // (repetir, avanzar, pararse) es la cola.
+        if finished && !self.was_finished && !self.carry.path.is_empty() {
             self.was_finished = true;
             if !(self.notify)(Event::Finished) {
                 return false;
@@ -1144,11 +864,10 @@ impl Engine<'_> {
         }
 
         // Se acaba y hay fundido: se avisa una vez, lo que dura el fundido
-        // antes, para que la cola mande ya la siguiente. Si se vuelve atras
-        // (un salto), se puede avisar otra vez.
-        if self.song.is_some() && self.carry.duration > 0.0 {
+        // antes, para que la cola mande ya la siguiente.
+        if self.loaded.is_some() && current.duration > 0.0 {
             let len = f64::from(self.crossfade_len());
-            let left = self.carry.duration - current.position;
+            let left = current.duration - current.position;
             if !self.ending_sent && self.can_crossfade() && left <= len {
                 self.ending_sent = true;
                 if !(self.notify)(Event::Ending) {
@@ -1159,10 +878,6 @@ impl Engine<'_> {
             }
         }
 
-        // Se avisa cuando cambia algo que se ve, y mientras suena tambien
-        // cada 250 ms para mover la barra de progreso. Y tras un salto
-        // siempre: en pausa no hay tick, y la barra se quedaba donde estaba
-        // aunque hubieras pinchado en otro minuto.
         let changed = step.sought || current.differs_from(&self.last_sent);
         let due = current.playing && self.last_tick.elapsed() >= TICK;
         if changed || due {
@@ -1174,4 +889,29 @@ impl Engine<'_> {
         }
         true
     }
+}
+
+/// El tono corrido: una octava arriba o abajo, al centesimo de semitono.
+pub(super) fn clean_pitch(semitones: f32) -> f32 {
+    if !semitones.is_finite() {
+        return 0.0;
+    }
+    (semitones.clamp(-12.0, 12.0) * 100.0).round() / 100.0
+}
+
+fn file_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned())
+}
+
+/// Lo que falla al abrir, en castellano y sin jerga.
+fn readable(error: &str) -> String {
+    if error.contains("formato no reconocido") || error.contains("códec no soportado") {
+        return format!("No se pudo leer: no parece un archivo de audio ({error}).");
+    }
+    if error.contains("no se puede abrir") || error.contains("no se puede leer") {
+        return format!("No se pudo abrir el archivo: {error}.");
+    }
+    error.to_string()
 }
