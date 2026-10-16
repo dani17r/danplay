@@ -94,6 +94,7 @@ async function add(force = false) {
       </template>
       <template v-else>
         <h2 style="font-size: 22px">Bienvenido a DanPlay</h2>
+        <p class="welcome-by">Creado y desarrollado por <strong>Daniel Rangel</strong></p>
         <div class="desc" style="margin-bottom: 22px">
           Todavía no hay ninguna carpeta de música. Elige una o varias y DanPlay las analizará:
           identifica los temas, limpia los nombres y los organiza por artista.

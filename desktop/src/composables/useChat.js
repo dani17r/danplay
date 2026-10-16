@@ -13,6 +13,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { api, errorMessage } from '../api.js'
 import { ask, useDialog } from './useDialog.js'
 import { notify } from './useNotices.js'
+import { requireTerms, useTerms } from './useTerms.js'
 import { useDownloads } from './useDownloads.js'
 import { ensureDownloadFolder } from '../utils/downloadFolder.js'
 
@@ -787,6 +788,9 @@ async function send(text = null, hidden = false, event = null) {
   const fromBox = text === null
   const t = (text ?? draft.value).trim()
   if (!t) return
+  // el asistente pide los términos aceptados; los avisos de la app (ocultos)
+  // no abren la ventana: sin términos, simplemente no van
+  if (hidden ? !useTerms().accepted.value : !(await requireTerms('chat'))) return
   // «sí» o «no» a secas con una tarjeta de descarga esperando: lo atiende la
   // app, por el mismo camino que el clic y sin preguntarle al modelo (que
   // antes volvía a preguntar «¿confirmas?»). Antes que la cola: es la

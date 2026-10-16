@@ -16,6 +16,7 @@ import { reactive, computed } from 'vue'
 import { api, errorMessage, JOBS } from '../api.js'
 import { notify } from './useNotices.js'
 import { ask } from './useDialog.js'
+import { requireTerms } from './useTerms.js'
 
 /**
  * @typedef {Object} QueueItem
@@ -201,6 +202,8 @@ function megas(bytes) {
  * @returns {Promise<boolean>} si se pidió
  */
 async function request(songs, opts = {}) {
+  // separar pide los términos aceptados: si faltan, salen y se espera
+  if (!(await requireTerms('separate'))) return false
   if (!state.known) await refresh()
   if (!state.ok) {
     notify('No se puede separar en pistas: ' + (state.reason || 'el núcleo no responde'))
