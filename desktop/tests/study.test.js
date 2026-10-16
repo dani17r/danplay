@@ -760,7 +760,8 @@ describe('la barra de estudio', () => {
       'Ajustar a los pulsos',
       'Guardar como marcador',
       'Añadir más tramos',
-      'Quitar la selección'
+      'Quitar la selección',
+      'Estilo de la onda'
     ])
     // de fábrica, al acabar se para (una vez, y quieto al principio)
     expect(opcion('Al acabar: parar').note).toBe('puesto')
@@ -2148,6 +2149,37 @@ describe('los carriles de las guías', () => {
     expect(spec.buses[baterista.bus]).toEqual({ left: 0, right: 0 })
     localStorage.removeItem('danplay.salidas')
     resetRouting()
+  })
+})
+
+describe('el estilo de la onda', () => {
+  it('se elige en el menú del estudio y se recuerda', async () => {
+    const { resetPreferences, usePreferences } =
+      await import('../src/composables/usePreferences.js')
+    localStorage.removeItem('danplay.ondaEstilo')
+    resetPreferences()
+    const w = await montar()
+    const { menu } = useContextMenu()
+    await w.find('.study-more').trigger('click')
+    const estilo = menu.value.items.find((i) => i.label === 'Estilo de la onda')
+    expect(estilo.note).toBe('barras')
+    expect(estilo.children.map((c) => c.label)).toEqual([
+      'Barras',
+      'Bloques',
+      'Rayitas',
+      'Suave',
+      'Contorno',
+      'Con reflejo'
+    ])
+    estilo.children.find((c) => c.label === 'Suave').action()
+    await flushPromises()
+    expect(usePreferences().waveStyle.value).toBe('suave')
+    expect(localStorage.getItem('danplay.ondaEstilo')).toBe('suave')
+    // y al volver a abrir la app sigue
+    resetPreferences()
+    expect(usePreferences().waveStyle.value).toBe('suave')
+    localStorage.removeItem('danplay.ondaEstilo')
+    resetPreferences()
   })
 })
 

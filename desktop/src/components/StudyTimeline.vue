@@ -65,6 +65,7 @@ import { formatTime } from '../utils/format.js'
 import { isDownbeat } from '../utils/beats.js'
 import { cleanSegments } from '../utils/segments.js'
 import { isMobileApp } from '../platform.js'
+import { columnsFor, paintWave } from '../utils/wavePaint.js'
 import Icon from './Icon.vue'
 import SliderField from './ui/SliderField.vue'
 
@@ -336,8 +337,8 @@ watch(
   }
 )
 
-const { theme } = usePreferences()
-watch(theme, () => nextTick(draw))
+const { theme, waveStyle } = usePreferences()
+watch([theme, waveStyle], () => nextTick(draw))
 
 /**
  * Las columnas de lo que se ve, de una onda de toda la canción (o de su
@@ -406,32 +407,14 @@ function draw() {
   }
   // En un mp3 de hoy los picos van casi todos a tope y el RMS ronda el
   // tercio: el RMS se estira hasta su propio maximo (el de toda la canción,
-  // tambien de cerca) y a los dos se les da una curva suave.
+  // tambien de cerca); el estilo lo elige quien toca (utils/wavePaint.js)
   const rmsTop = Math.max(1e-6, ...(w.rms || [0]))
-  const curve = (v) => Math.pow(Math.max(0, Math.min(1, v)), 0.7)
-  // una columna cada dos pixeles
-  const cols = Math.max(1, Math.floor(W / 2))
+  const style = waveStyle.value
+  const cols = columnsFor(style, W)
   const d = detail.value
   const useDetail = d && d.from <= view.from + 1e-6 && d.to >= view.to - 1e-6
   const data = useDetail ? columnsOf(d, d.from, d.to, cols) : columnsOf(w, 0, props.duration, cols)
-  const cw = W / cols
-  const bar = cw >= 3 ? cw - 1 : cw
-  const room = mid - 2
-  for (let i = 0; i < cols; i++) {
-    const [pk, rm] = data[i]
-    const x = i * cw
-    const silhouette = curve(pk)
-    const band = Math.min(silhouette, curve(rm / rmsTop))
-    const hp = Math.max(1, silhouette * room)
-    const hr = Math.max(1, band * room)
-    ctx.globalAlpha = 0.26
-    ctx.fillStyle = text
-    ctx.fillRect(x, mid - hp, bar, hp * 2)
-    ctx.globalAlpha = 0.95
-    ctx.fillStyle = accent
-    ctx.fillRect(x, mid - hr, bar, hr * 2)
-  }
-  ctx.globalAlpha = 1
+  paintWave(ctx, data, { W, top: 0, h: H, rmsTop, text, accent, style, pad: 2, min: 1 })
   drawGrid(ctx, W, H)
 }
 
@@ -446,14 +429,11 @@ function drawLanes(ctx, W, text, accent) {
   for (const lane of props.lanes) {
     for (const v of lane.wave?.rms || []) if (v > rmsTop) rmsTop = v
   }
-  const curve = (v) => Math.pow(Math.max(0, Math.min(1, v)), 0.7)
-  const cols = Math.max(1, Math.floor(W / 2))
-  const cw = W / cols
-  const bar = cw >= 3 ? cw - 1 : cw
+  const style = waveStyle.value
+  const cols = columnsFor(style, W)
   props.lanes.forEach((lane, li) => {
     const top = li * lh
     const mid = top + lh / 2
-    const room = lh / 2 - 3
     const dim = lane.on ? 1 : 0.3
     ctx.fillStyle = text
     if (li) {
@@ -467,18 +447,7 @@ function drawLanes(ctx, W, text, accent) {
       return
     }
     const data = columnsOf(w, 0, props.duration, cols)
-    for (let i = 0; i < cols; i++) {
-      const [pk, rm] = data[i]
-      const silhouette = curve(pk)
-      const hp = Math.max(0.5, silhouette * room)
-      const hr = Math.max(0.5, Math.min(silhouette, curve(rm / rmsTop)) * room)
-      ctx.globalAlpha = 0.24 * dim
-      ctx.fillStyle = text
-      ctx.fillRect(i * cw, mid - hp, bar, hp * 2)
-      ctx.globalAlpha = 0.95 * dim
-      ctx.fillStyle = accent
-      ctx.fillRect(i * cw, mid - hr, bar, hr * 2)
-    }
+    paintWave(ctx, data, { W, top, h: lh, rmsTop, text, accent, dim, style, pad: 3, min: 0.5 })
   })
   ctx.globalAlpha = 1
 }

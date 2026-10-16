@@ -10,6 +10,7 @@ import {
   savedDensity,
   savedSize
 } from '../themes.js'
+import { waveStyleOf } from '../utils/wavePaint.js'
 
 // Cuatro formas de ver lo mismo, de más apretada a más visual:
 //   rows   una línea por canción, a lo largo
@@ -94,6 +95,8 @@ function createPreferences() {
   const groupBy = ref(read('danplay.groupBy'))
   const cardSize = ref(Number(read('danplay.cardSize', '164')) || 164)
   const showDetails = ref(read('danplay.showDetails', '1') !== '0')
+  /** cómo se pinta la onda del modo estudio (ver utils/wavePaint.js) */
+  const waveStyle = ref(waveStyleOf(read('danplay.ondaEstilo', 'barras')))
 
   watch(theme, (v) => applyTheme(v))
   watch(density, (v) => applyDensity(v))
@@ -102,6 +105,7 @@ function createPreferences() {
   watch(groupBy, (v) => write('danplay.groupBy', v))
   watch(cardSize, (v) => write('danplay.cardSize', v))
   watch(showDetails, (v) => write('danplay.showDetails', v ? '1' : '0'))
+  watch(waveStyle, (v) => write('danplay.ondaEstilo', v))
 
   /** Pinta lo guardado. Se llama una vez, al montar la app. */
   function applyAll() {
@@ -110,7 +114,17 @@ function createPreferences() {
     applySize(appSize.value)
   }
 
-  return { theme, density, appSize, layout, groupBy, cardSize, showDetails, applyAll }
+  return {
+    theme,
+    density,
+    appSize,
+    layout,
+    groupBy,
+    cardSize,
+    showDetails,
+    waveStyle,
+    applyAll
+  }
 }
 
 /** Olvida la instancia (y para sus `watch`). Para pruebas. */
