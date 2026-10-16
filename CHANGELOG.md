@@ -3,7 +3,7 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
-## 1.28.1 — sin publicar
+## 1.28.1 — 2026-10-16
 
 Arreglos de la 1.28 en Linux, las guías en sus carriles, exportar con o sin
 guías, la onda a tu gusto y las salidas más claras.
