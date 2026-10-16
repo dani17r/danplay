@@ -183,6 +183,41 @@ pesos**: esos se bajan del repositorio del autor en HuggingFace
 su SHA-256. PyTorch y el paquete `demucs` solo hacen falta para regenerar
 los grafos, no para usar la app.
 
+## La separación de máxima calidad: Mega53
+
+La calidad «máxima» (percusión aparte, voz principal y coros, guitarras
+eléctrica y acústica, piano, órgano, teclados, cuerdas, metales y vientos)
+usa el **MVSep Mega 53 Stems** (un BS-RoFormer) de **ZFTurbo**, publicado en
+[Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training)
+(release v1.0.21), **MIT** el código y los pesos. Viaja con la app el grafo
+exportado a ONNX con solo las cabezas que usa (`danplay/data/separador/mega53.onnx`,
+generado con `scripts/exportar-mega53.py`), **sin los pesos**: el checkpoint
+original (1,4 GB) se baja de esa release la primera vez y se comprueba su
+SHA-256; los pesos se leen de él sin ejecutar nada de su interior
+(`danplay/torchzip.py`).
+
+## Las voces de las guías habladas
+
+Las guías escritas las dice una voz sintética que funciona en tu equipo. Se
+bajan una vez, cada una cuando se elige, desde una revisión fija de su
+repositorio y con su SHA-256 (`danplay/data/voces.json`):
+
+| Voz | De | Licencia |
+| --- | --- | --- |
+| Supertonic 3 (diez voces) | Supertone, `supertone-oss-archive/supertonic-3` | BigScience OpenRAIL-M |
+| David · España (`es_ES-davefx`) | Piper, `rhasspy/piper-voices` | CC0 |
+| Sharvard · España (`es_ES-sharvard`, dos voces) | Piper | CC BY 3.0 |
+| Carl · España (`es_ES-carlfm`) | Piper | dominio público |
+| Ald · México (`es_MX-ald`) | Piper | Unlicense |
+| Claude · México (`es_MX-claude`) | Piper | Apache-2.0 |
+| Daniela · Argentina (`es_AR-daniela`) | Piper | CC BY-SA 4.0 |
+
+El motor de Piper es MIT. La licencia OpenRAIL-M de Supertonic prohíbe,
+entre otras cosas, usar la voz para suplantar a una persona o para engañar:
+los términos de DanPlay lo recogen. Las voces con CC BY y CC BY-SA piden
+citar su origen: cada una trae su `MODEL_CARD` con sus autores, que se
+guarda junto a ella.
+
 ## El detector de pulso: Beat This!
 
 El pulso y el «1» del metrónomo los saca **Beat This!** (Foscarin, Schlüter
@@ -226,6 +261,8 @@ Ninguno es obligatorio; la app funciona sin todos ellos.
 | DuckDuckGo (HTML) | comprobar datos en la web | no |
 | PyPI | «Actualizar yt-dlp»: la última versión, comprobada con su `sha256` | no |
 | HuggingFace (el repositorio del autor de Demucs) | los pesos del separador de pistas, una sola vez y comprobados con su `sha256` | no |
+| GitHub (la release de ZFTurbo) | los pesos de la separación de máxima calidad, una sola vez y comprobados con su `sha256` | no |
+| HuggingFace (Supertone y Rhasspy) | las voces de las guías habladas, cada una cuando se elige y comprobadas con su `sha256` | no |
 
 ---
 

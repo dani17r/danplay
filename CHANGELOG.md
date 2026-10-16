@@ -3,6 +3,132 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.28.0 — sin publicar
+
+El fuerte de DanPlay, la pista y el metrónomo, rehecho para tocar en directo:
+un motor de audio nuevo sin cortes, el clic arreglado (sin silencios ni
+saltos), las salidas a la mesa como una secuencia, guías habladas, más
+instrumentos separados, abrir secuencias descargadas, listas que no se
+rompen aunque muevas la música, y «Acerca de DanPlay» con las novedades, los
+términos y los créditos.
+
+### El reproductor y el modo estudio
+
+- **Motor nuevo, sin cortes:** los tramos se repiten a la muestra exacta, el
+  clic va pegado a la música a cualquier velocidad, y pasar de la canción a
+  sus pistas (o cambiar una pista) entra a la par, sin salto.
+- **Varios tramos:** se tocan uno detrás de otro hasta el final, o en bucle.
+  «Al acabar: Repetir · Parar · Seguir» funciona (antes se repetían siempre).
+  Quitar «varios» deja uno solo.
+- **Marcadores:** se eligen uno o varios y se tocan en bucle o una vez.
+- **Ocultar el estudio ya no quita nada:** el clic, los tramos, la velocidad
+  y el tono siguen sonando. Solo «Salir del modo estudio» vuelve a la canción
+  tal cual.
+- **El tono en palabras:** «medio tono», «1 tono», «1 tono y medio», «¼ de
+  tono».
+- **La onda se acerca con la rueda del ratón:** se ven los clics y se ponen
+  marcadores y guías donde van.
+- **Diseño del estudio** más ordenado, en pestañas cuando no cabe.
+
+### El metrónomo
+
+- **Más fuerte**, y dos sonidos nuevos: claves y charles.
+- **El clic propio:** los pulsos se mueven a mano sobre la onda y se guardan
+  con la canción. Clic automático, el propio o uno a mano para todas.
+- **Sin silencios ni saltos:** el análisis nuevo repara los saltos de fase
+  (el clic que se iba a contratiempo unos compases), rellena los huecos donde
+  dejaba de sonar y, si la canción se grabó a clic, lo lleva a tempo fijo. Con
+  la batería separada, se apoya en ella.
+- **«Re-analizar…»:** de toda la canción o solo del tramo elegido: arreglar
+  huecos y saltos, tempo fijo, con la batería separada o rellenar silencios.
+  Tarda nada: se guarda lo que oyó la red.
+- Se pasó el análisis nuevo por toda la biblioteca.
+
+### Las salidas: como una secuencia en directo
+
+- **«Salidas»:** por dónde suena la música, cada pista, el clic y las guías.
+  Todo junto; clic y guías a la izquierda y música a la derecha (un cable en
+  Y a la mesa y a los cascos); clic y guías por 1-2 y música por 3-4 (una
+  interfaz de 4 salidas); o cada cosa a medida, en estéreo o en mono. Se
+  cambia en directo, sin cortar. También en el celular.
+
+### Guías habladas
+
+- Un punto de la canción dice «Coro», «Puente, cuatro tiempos», «Sube medio
+  tono»: **escrito** y dicho por una voz (diez voces naturales y voces de
+  España, México y Argentina, en el equipo y sin internet salvo para bajarlas
+  una vez) o **grabado** con tu micrófono. Suena justo ahí, por la salida de
+  las guías, a cualquier velocidad.
+
+### Separar en pistas
+
+- Mientras se separa una canción, la siguiente se pone en la cola y lo dice.
+- **Más instrumentos (máxima calidad):** la percusión aparte de la batería
+  (congas, pandereta…), la voz principal y los coros, guitarra eléctrica y
+  acústica, piano, órgano, teclados, cuerdas, metales y vientos, los que
+  suenen. Es lenta (unos 15-25 min por canción) y pide unos 5 GB de memoria
+  libre; se baja su separador la primera vez (1,4 GB).
+- «Llevar al celular» se llama ahora **«Convertir a DanPista»**.
+
+### Secuencias descargadas
+
+- **«Abrir secuencia»:** la carpeta de una secuencia (MultiTracks, Loop
+  Community: sus pistas, el «Click Track», la «Guide» y el proyecto de
+  Ableton) queda lista para tocar: la canción en «Secuencias», sus pistas en
+  el estudio (el clic y la guía a la salida del clic), sus partes como
+  marcadores y el clic exacto del proyecto. Abrir con DanPlay una de sus
+  pistas también la ofrece.
+
+### Tu música, donde esté
+
+- **Mover la carpeta de música o volver a bajar una canción ya no pierde lo
+  hecho:** se reconoce la misma canción (aunque sea otro archivo) y recupera
+  sus pistas separadas, su clic, sus marcadores y sus listas, corrigiendo lo
+  que traiga de más o de menos la descarga nueva. Lo que ya se había perdido
+  se recupera solo al abrir la app.
+- **Abrir un archivo pone detrás los de su carpeta**, como cualquier
+  reproductor.
+
+### Las listas ya no se rompen
+
+- **Un diario junto a tu música:** tus listas (en su orden, con su nota y su
+  color), las estrellas, las favoritas, lo del modo estudio y los cifrados se
+  guardan también en `.danplay/diario.json`, dentro de tu carpeta de música,
+  unos segundos después de cada cambio. Si mueves la música a otro disco,
+  renombras carpetas o canciones, o la base de DanPlay se pierde, al abrir se
+  compara con lo que hay y todo vuelve a su sitio. Las listas exportadas
+  (`Listas/*.m3u8`) se reescriben con las rutas nuevas.
+- **Una canción que desaparece sigue en su lista** como «No está», en su
+  sitio y con su nombre: su menú la busca en tu biblioteca, la busca para
+  bajarla otra vez o la quita. Si vuelve (con otro nombre o en otra carpeta),
+  la lista la recupera sola. La barra lateral dice cuántas faltan en cada
+  lista.
+- **Al mandar una canción a la papelera desde DanPlay**, se pregunta si sale
+  también de sus listas (marcado por defecto): así no se queda como «No
+  está» si de verdad la querías fuera.
+- Al abrir, un aviso dice lo que se recuperó.
+
+### Acerca de DanPlay
+
+- **Novedades:** lo de cada versión, corto. Tras una actualización, la barra
+  lateral dice «Nuevo» y un aviso lo cuenta al abrir.
+- **Términos y condiciones:** salen la primera vez que se abre DanPlay; para
+  aceptarlos hay que leerlos hasta el final y marcar la casilla. Sin
+  aceptarlos se puede escuchar y ordenar la música, pero no separar en
+  pistas, usar el asistente de IA ni «Transformar»: al intentarlo, salen.
+- **Créditos:** DanPlay es obra de Daniel Rangel, y se dice en la página,
+  en la bienvenida y al pie de la barra lateral, con su Telegram
+  ([@Dani17r](https://t.me/Dani17r)) para quien quiera colaborar.
+
+### En el celular
+
+- **Música del teléfono:** cualquier canción del teléfono (MP3, M4A, FLAC…),
+  no solo las pistas traídas, eligiendo las carpetas como en la PC. Al poner
+  una, siguen las de su carpeta. Con su modo estudio y su clic.
+- **El volumen de la app**, a mano y a la vista en el reproductor.
+- Las salidas y las guías habladas, como en la PC.
+- «Acerca de DanPlay» en el menú: los créditos, las novedades y los términos.
+
 ## 1.27.0 — 2026-10-14
 
 La app del celular se rehace para los dedos: todo un poco más grande y con
