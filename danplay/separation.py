@@ -91,7 +91,13 @@ def open_session(graph, manifest: dict, weights_file, n_threads: int | None = No
     """
     import onnxruntime as ort
 
-    weights = read_safetensors(weights_file)
+    if str(weights_file).endswith((".ckpt", ".pth")):
+        # un checkpoint de PyTorch (el del Mega53): leido sin PyTorch
+        from danplay import torchzip
+
+        weights = torchzip.load(weights_file)
+    else:
+        weights = read_safetensors(weights_file)
     names, values = [], []
     for item in manifest["initializers"]:
         value = weights[item["source"]].astype(item.get("dtype", "float32"))
@@ -106,6 +112,10 @@ def open_session(graph, manifest: dict, weights_file, n_threads: int | None = No
     # Sin el plan de memoria de ORT: reserva de golpe todo lo que la red
     # tendra vivo en algun momento, y con el pico pasaba de 3,5 GB a 2.
     options.enable_mem_pattern = False
+    if manifest.get("lean"):
+        # una red grande (el Mega53): sin la reserva de ORT, que se queda con
+        # todo lo que llego a usar; entre trozo y trozo se devuelve
+        options.enable_cpu_mem_arena = False
     # sin decir cuantos hilos, ORT usa los nucleos de verdad (no los logicos,
     # que comparten unidad de calculo); la prioridad baja del proceso ya deja
     # sitio a lo demas
@@ -649,6 +659,167 @@ def run(job: dict, open_net=open_session) -> dict:
     }
 
 
+def run_max(job: dict, open_net=open_session) -> dict:
+    """La pasada de maxima calidad (`danplay.mega`): reparte la bateria, las
+    voces y lo melodico de las pistas buenas entre mas instrumentos.
+
+    - input, ffmpeg, output, waves, format: como en `run`;
+    - carry: {drums, bass, vocals, …: ruta}, las pistas buenas de antes;
+    - mega: {graph, manifest, weights}, el Mega53;
+    - files: {fuente: nombre .flac} de todas las que pueden salir.
+
+    Cada pista nueva se queda si suena (`presence`). Si la percusion no esta,
+    la bateria queda como estaba; si no hay coros, las voces tambien. «Otros»
+    es la cancion menos todo lo que se queda, como siempre.
+    """
+    from danplay import mega
+
+    started = time.monotonic()
+    ffmpeg = job["ffmpeg"]
+    out = Path(job["output"])
+    out.mkdir(parents=True, exist_ok=True)
+    files: dict[str, str] = job["files"]
+    rest = job.get("rest", "other")
+    carry = {s: Path(p) for s, p in (job.get("carry") or {}).items()}
+    _say(step="decode")
+    wav = _decode(ffmpeg, job["input"])
+    length = wav.shape[-1]
+
+    def whole(path: Path) -> np.ndarray:
+        reader = _reader(ffmpeg, path)
+        try:
+            return _read(reader, length)
+        finally:
+            _close({path.name: reader}, "leer las pistas")
+
+    tracks = {}
+    decoded: dict[str, np.ndarray] = {}
+    melodic = wav.copy()
+    for source in ("drums", "bass", "vocals"):
+        if source in carry:
+            decoded[source] = whole(carry[source])
+            melodic -= decoded[source]
+            if source != "bass":
+                tracks[source] = decoded[source]
+    tracks["melodic"] = melodic
+    net = job["mega"]
+    manifest = json.loads(Path(net["manifest"]).read_text(encoding="utf-8"))
+    _say(step="load", net=1, nets=1)
+    session = open_net(net["graph"], manifest, net["weights"], job.get("threads"))
+    news = [k for k in ("drums", "percussion") if "drums" in tracks]
+    news += [k for k in ("lead", "backing") if "vocals" in tracks]
+    news += list(mega.MELODIC)
+    temp = {k: out / f".nueva-{files[k]}" for k in news}
+    levels = meter([*news, "mix"], length)
+    encoders = {k: _encoder(ffmpeg, temp[k]) for k in news}
+    at = 0
+
+    def emit(parts: dict[str, np.ndarray]) -> None:
+        nonlocal at
+        size = next(iter(parts.values())).shape[-1]
+        levels.add(np.stack([*(parts[k] for k in news), wav[:, at : at + size]]))
+        at += size
+        for k in news:
+            _write(encoders[k], parts[k])
+
+    _say(step="separate", seconds=round(length / RATE, 2))
+    total = mega.chunks_for(length, manifest["chunk"])
+    try:
+        mega.separate(
+            session,
+            manifest["heads"],
+            manifest["chunk"],
+            wav,
+            tracks,
+            emit,
+            lambda d, t: _say(done=d, total=t),
+        )
+    finally:
+        _close(encoders, "guardar las pistas")
+    del session, tracks, melodic
+    heard = {k: presence(levels.energy[i], levels.energy[-1]) for i, k in enumerate(news)}
+    _say(done=total, total=total)
+
+    # lo que se queda de cada reparto: lo nuevo, o la pista de antes tal cual
+    made: dict[str, Path] = {}
+    kept: list[str] = []
+    if "drums" in carry:
+        if "percussion" in heard and keeps(heard["percussion"]):
+            made["drums"], made["percussion"] = temp["drums"], temp["percussion"]
+        else:
+            kept.append("drums")
+    if "bass" in carry:
+        kept.append("bass")
+    if "vocals" in carry:
+        if "backing" in heard and keeps(heard["backing"]) and keeps(heard["lead"]):
+            made["lead"], made["backing"] = temp["lead"], temp["backing"]
+        else:
+            kept.append("vocals")
+    for k in mega.MELODIC:
+        if keeps(heard[k]):
+            made[k] = temp[k]
+    # a su nombre de siempre (sin «.nueva-»), y fuera lo que no se queda
+    final_paths: dict[str, Path] = {}
+    for k, path in made.items():
+        os.replace(path, out / files[k])
+        final_paths[k] = out / files[k]
+    for path in temp.values():
+        path.unlink(missing_ok=True)
+    # las de antes, en FLAC desde lo ya leido (si eran Opus, se pasan una vez)
+    if kept:
+        writers = {k: _encoder(ffmpeg, out / files[k]) for k in kept}
+        try:
+            for k in kept:
+                for a in range(0, length, CHUNK):
+                    _write(writers[k], decoded[k][:, a : a + CHUNK])
+        finally:
+            _close(writers, "guardar las pistas")
+        final_paths.update({k: out / files[k] for k in kept})
+    del decoded
+
+    # «Otros»: la cancion menos todo lo que se queda
+    _say(step="compose")
+    parts = [s for s in files if s != rest and s in final_paths]
+    final = Waves([*parts, rest], length)
+    stats = meter([rest, "mix"], length)
+    readers = {s: _reader(ffmpeg, final_paths[s]) for s in parts}
+    left = {rest: _encoder(ffmpeg, out / files[rest])}
+    try:
+        for a in range(0, length, CHUNK):
+            size = min(CHUNK, length - a)
+            mix = wav[:, a : a + size]
+            got = [_read(readers[s], size) for s in parts]
+            remainder = mix - sum(got, np.zeros_like(mix))
+            _write(left[rest], remainder)
+            final.add(np.stack([*got, remainder]))
+            stats.add(np.stack([remainder, mix]))
+    except BaseException:
+        for proc in [*readers.values(), *left.values()]:
+            proc.kill()
+        raise
+    for reader in readers.values():
+        assert reader.stdout is not None
+        reader.stdout.read()
+    _close(readers, "leer las pistas")
+    _close(left, "guardar lo que queda")
+    heard[rest] = presence(stats.energy[0], stats.energy[1])
+    order = [*parts, rest]
+    if job.get("waves"):
+        Path(job["waves"]).write_text(
+            json.dumps(final.result(order), separators=(",", ":")), encoding="utf-8"
+        )
+    written = {s: out / files[s] for s in order}
+    if job.get("format") == "opus":
+        _say(step="encode")
+        written = {s: _to_opus(ffmpeg, path) for s, path in written.items()}
+    return {
+        "seconds": round(length / RATE, 2),
+        "took": round(time.monotonic() - started, 1),
+        "tracks": {s: written[s].name for s in order},
+        "levels": heard,
+    }
+
+
 def _orphan_guard() -> None:
     """Si el nucleo que lo lanzo se muere, esto no sigue gastando la maquina
     entera para nadie: al quedarse huerfano, el proceso cambia de padre."""
@@ -675,7 +846,7 @@ def main(argv=None) -> int:
     _orphan_guard()
     try:
         job = json.loads(Path(args[0]).read_text(encoding="utf-8"))
-        result = run(job)
+        result = run_max(job) if job.get("mega") else run(job)
     except Exception as e:  # noqa: BLE001 - se cuenta al proceso padre
         _say(error=str(e) or e.__class__.__name__)
         return 1

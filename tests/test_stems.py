@@ -494,6 +494,8 @@ def test_the_separator_is_one_download_with_its_specialists():
     from danplay import stems
 
     parts = stems.parts()
+    # la maxima calidad va aparte: se baja solo si se pide (status: max_pending)
+    big = parts.pop(stems.MAX)
     assert set(parts) == {"htdemucs_6s", "drums", "bass"}
     assert {p["graph"] for p in parts.values()} == {"htdemucs_6s", "htdemucs"}
     for p in parts.values():
@@ -501,6 +503,13 @@ def test_the_separator_is_one_download_with_its_specialists():
         assert len(p["sha256"]) == 64 and p["bytes"] > 50_000_000
         assert (stems.GRAPHS / f"{p['graph']}.onnx").is_file()
     assert len({p["file"] for p in parts.values()}) == 3
+    # el Mega53, el checkpoint de su autor, con su sha256
+    assert big["url"].startswith("https://github.com/ZFTurbo/Music-Source-Separation-Training/")
+    assert len(big["sha256"]) == 64 and big["bytes"] > 1_000_000_000
+    assert (stems.GRAPHS / "mega53.onnx").is_file()
+    state = stems.status()
+    assert state["max"] is True
+    assert state["bytes"] < big["bytes"], "lo normal no cuenta la maxima calidad"
 
 
 def test_trashing_a_song_takes_its_stems_along(lib, monkeypatch):
@@ -742,6 +751,39 @@ def test_a_song_goes_to_the_phone_in_one_file(lib, monkeypatch, tmp_path):
     part = _probe(tmp_path / parts[0])
     assert part["codec_name"] == "vorbis" and part["sample_rate"] == "44100"
     assert part["channels"] == 2 and part["duration"] == pytest.approx(1.0, abs=0.05)
+
+
+def test_the_spoken_guides_travel_with_the_song(lib, monkeypatch, tmp_path):
+    """Las guias habladas van dentro del .danpista (`guias/`), y el estudio
+    apunta a ellas; las que no son de DanPlay no viajan."""
+    import zipfile
+
+    from danplay import beatgrid, bundle, config, cues, library
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
+    monkeypatch.setattr(beatgrid, "grid_of", lambda path: GRID)
+    cid = _id("Barak - Mi Gozo.mp3")
+    _separate(cid)
+    import numpy as np
+
+    guide = cues.folder() / "coro-abc123.wav"
+    cues.write_wav(guide, np.zeros(800, np.float32) + 0.1, 8000)
+    study = {
+        "cues": [
+            {"t": 1.0, "file": str(guide), "text": "Coro"},
+            {"t": 2.0, "file": "/etc/passwd"},
+        ],
+        "metronome": {"own": {"beats": [0.5, 1.0, 1.5], "bars": [0], "meter": 4}},
+    }
+    library.update(cid, study=json.dumps(study))
+    r = bundle.export(cid)
+    with zipfile.ZipFile(r["path"]) as z:
+        data = json.loads(z.read("pista.json"))
+        assert z.read("guias/coro-abc123.wav")[:4] == b"RIFF"
+        assert "etc" not in " ".join(z.namelist())
+    assert data["guides"] == ["guias/coro-abc123.wav"]
+    assert data["study"]["cues"] == [{"t": 1.0, "file": "guias/coro-abc123.wav", "text": "Coro"}]
+    assert data["study"]["metronome"]["own"]["beats"] == [0.5, 1.0, 1.5], "el clic propio va"
 
 
 def test_taking_it_again_replaces_the_old_one(lib, monkeypatch):
