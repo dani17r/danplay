@@ -333,6 +333,20 @@ class StudyCue(BaseModel):
     text: str = Field(default="", max_length=300)
     voice: str = Field(default="", max_length=80)
     gain: float | None = Field(default=None, ge=0, le=3)
+    # su carril (StudyCueLane.key); sin el, el primero
+    lane: str = Field(default="", max_length=12)
+
+
+class StudyCueLane(BaseModel):
+    """Un carril de guias, como los de las pistas separadas: su nombre y como
+    suena (volumen, callado, solo). Cada uno puede ir por su salida."""
+
+    model_config = ConfigDict(extra="ignore")
+    key: str = Field(min_length=1, max_length=12)
+    name: str = Field(default="", max_length=40)
+    gain: float | None = Field(default=None, ge=0, le=2)
+    mute: bool | None = None
+    solo: bool | None = None
 
 
 class StudyTrack(BaseModel):
@@ -370,6 +384,8 @@ class StudyIn(Body_):
     notes: str | None = Field(default=None, max_length=4000)
     mixer: StudyMixer | None = None
     cues: list[StudyCue] | None = Field(default=None, max_length=200)
+    # los carriles de las guias, hasta 6 (la interfaz los manda como cueLanes)
+    cue_lanes: list[StudyCueLane] | None = Field(default=None, max_length=6, alias="cueLanes")
 
 
 class ChatConfirmIn(Body_):

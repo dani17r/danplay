@@ -498,6 +498,7 @@ fn a_cue_speaks_at_its_time_and_is_not_stretched() {
                 at: MARKS[1] as f64 / 44_100.0,
                 clip: burst(4_410),
                 gain: 1.0,
+                bus: None,
             }],
         }));
         b.play();
@@ -519,6 +520,49 @@ fn a_cue_speaks_at_its_time_and_is_not_stretched() {
         let len = end - starts[0];
         assert!(len.abs_diff(4_410) < 20, "{speed}: dura {len}");
     }
+}
+
+#[test]
+fn each_lane_of_cues_goes_out_its_own_way() {
+    // dos carriles de guias: uno a la salida 1 (los cascos del baterista) y
+    // otro a la 2 (la banda); la musica, por la 3-4
+    let mut b = Bench::new(1, 44_100);
+    b.route(Routing {
+        buses: vec![
+            Some(Target::pair(2, 3)),
+            Some(Target::mono(0)),
+            Some(Target::mono(1)),
+        ],
+        parts: vec![0],
+        click: 0,
+        cues: 1,
+    });
+    b.render.set_cues(Arc::new(CuePlan {
+        on: true,
+        volume: 1.0,
+        cues: vec![
+            Cue {
+                at: 0.2,
+                clip: burst(4_410),
+                gain: 1.0,
+                bus: None, // el de las guias: la 1
+            },
+            Cue {
+                at: 1.0,
+                clip: burst(4_410),
+                gain: 1.0,
+                bus: Some(2), // su carril: la 2
+            },
+        ],
+    }));
+    b.play();
+    let out = b.run_channels(80_000, 4);
+    let first = onsets(&channel(&out, 4, 0), 0.05, 10_000);
+    let second = onsets(&channel(&out, 4, 1), 0.05, 10_000);
+    assert_eq!(first.len(), 1, "{first:?}");
+    assert_eq!(second.len(), 1, "{second:?}");
+    assert!(first[0].abs_diff(8_820) <= 140, "{first:?}");
+    assert!(second[0].abs_diff(44_100) <= 140, "{second:?}");
 }
 
 #[test]

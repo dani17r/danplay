@@ -4,6 +4,7 @@ mandarla a la papelera o sacarla del indice."""
 import contextlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -431,6 +432,37 @@ def _own_click(own) -> dict | None:
     return out
 
 
+# la clave de un carril de guias: corta y sin nada raro (va en el JSON del
+# estudio y en la etiqueta del archivo)
+_LANE_KEY = re.compile(r"^[a-z][a-z0-9]{0,11}$")
+MAX_CUE_LANES = 6
+
+
+def _cue_lanes(raw) -> list[dict]:
+    """Los carriles de las guias (hasta 6): su clave, su nombre y lo que no
+    esta como viene (volumen, callado, solo)."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for lane in (raw if isinstance(raw, list) else [])[:MAX_CUE_LANES]:
+        if not isinstance(lane, dict):
+            continue
+        key = str(lane.get("key") or "")
+        if not _LANE_KEY.match(key) or key in seen:
+            continue
+        seen.add(key)
+        item: dict = {"key": key, "name": str(lane.get("name") or "").strip()[:40]}
+        with contextlib.suppress(TypeError, ValueError):
+            gain = round(float(lane.get("gain", 1.0)), 2)
+            if 0 <= gain <= 2 and gain != 1.0:
+                item["gain"] = gain
+        if lane.get("mute"):
+            item["mute"] = True
+        if lane.get("solo"):
+            item["solo"] = True
+        out.append(item)
+    return out
+
+
 def _cues(cues) -> list[dict]:
     """Las guias habladas: en su segundo y con su archivo, que tiene que ser
     de la carpeta de guias de DanPlay (lo demas, ni se toca: la etiqueta de
@@ -455,6 +487,9 @@ def _cues(cues) -> list[dict]:
         voice = str(c.get("voice") or "").strip()[:80]
         if voice:
             item["voice"] = voice
+        lane = str(c.get("lane") or "")
+        if _LANE_KEY.match(lane):
+            item["lane"] = lane
         try:
             gain = float(c.get("gain") or 0) if c.get("gain") is not None else 1.0
             if 0 <= gain <= 3 and abs(gain - 1) > 1e-3:
@@ -568,6 +603,9 @@ def set_study(cid: int, study: dict | None) -> Song | None:
         cues = _cues(study.get("cues"))
         if cues:
             clean["cues"] = cues
+        lanes = _cue_lanes(study.get("cueLanes", study.get("cue_lanes")))
+        if lanes:
+            clean["cueLanes"] = lanes
     raw = _json.dumps(clean, ensure_ascii=False) if clean else ""
     update(cid, study=raw)
     if config.WRITE_TAGS and os.path.exists(c["path"]):

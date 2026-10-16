@@ -148,6 +148,13 @@ function read() {
 }
 
 const prefs = ref(read())
+/**
+ * Las pistas de la canción que suena y los carriles de guías, con su papel
+ * (las pone el estudio). Una sola para todos: el panel de «Salidas» tiene su
+ * propio `useRouting()`, y con una lista suya (vacía) mandaba al motor un
+ * reparto sin los buses de las pistas.
+ */
+const stemList = ref(/** @type {Array<{key: string, role: string}>} */ ([]))
 /** Las salidas del equipo (se piden al abrir el panel). */
 const devices = ref(/** @type {import('../api.js').AudioDevice[]} */ ([]))
 let started = false
@@ -250,8 +257,6 @@ export function buildRouting(p, stemList = []) {
 
 export function useRouting() {
   const player = usePlayback()
-  /** Las pistas de la canción que suena, con su papel (las pone el estudio). */
-  const stemList = ref(/** @type {Array<{key: string, role: string}>} */ ([]))
   const routing = computed(() => buildRouting(prefs.value, stemList.value))
 
   /** Manda al motor la salida y el enrutado. */
@@ -332,6 +337,7 @@ export function useRouting() {
 /** Vuelve a lo de fábrica. Solo para pruebas. */
 export function resetRouting() {
   prefs.value = read()
+  stemList.value = []
   devices.value = []
   started = false
 }
