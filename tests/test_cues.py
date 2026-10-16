@@ -1,0 +1,223 @@
+"""Las guias habladas (danplay/cues.py y danplay/habla.py), sin bajar voces:
+el texto como se dice, los fonemas, el archivo, la seguridad de las rutas
+y la API."""
+
+import json
+import wave
+
+import numpy as np
+import pytest
+
+
+def test_numbers_and_shorthand_are_said_in_words():
+    from danplay import habla
+
+    assert habla.normalize("Puente x2") == "Puente dos veces."
+    assert habla.normalize("4 tiempos") == "cuatro tiempos."
+    assert habla.normalize("Sube 1/2 tono") == "Sube medio tono."
+    assert habla.normalize("a 124 bpm") == "a ciento veinticuatro pulsos por minuto."
+    assert habla.normalize("¿Otra vez?") == "¿Otra vez?"
+    assert habla.normalize("x1") == "una vez."
+    assert habla.normalize("Bridge x2", "en") == "Bridge two times."
+    assert (
+        habla.number(21) == "veintiuno" and habla.number(1999) == "mil novecientos noventa y nueve"
+    )
+
+
+def test_the_phonemes_are_the_ones_the_spanish_voices_learnt():
+    """Como los da espeak-ng (con el que se entrenaron las voces de Piper)."""
+    from danplay import habla
+
+    assert habla.phonemes("Coro, cuatro tiempos") == "kˈoɾo, kwˈatɾo tjˈempos."
+    assert habla.phonemes("Puente") == "pwˈɛnte."
+    # España distingue la z; America, no
+    assert habla.phonemes("Cielo") == "θjˈelo."
+    assert habla.phonemes("Cielo", "es-419") == "sjˈelo."
+    # la b suave entre vocales y la n que se vuelve m
+    assert habla.phonemes("un bajo") == "ˈum bˈaxo."
+    ids = habla.piper_ids("ˈa", {"^": [1], "_": [0], "$": [2], "a": [14], "ˈ": [120]})
+    assert ids == [1, 0, 120, 0, 14, 0, 2]
+
+
+def test_polish_trims_the_silence_and_levels_it():
+    from danplay import cues
+
+    rate = 22050
+    t = np.arange(rate) / rate
+    voice = 0.2 * np.sin(2 * np.pi * 220 * t).astype(np.float32)
+    wav = np.concatenate([np.zeros(rate // 2), voice, np.zeros(rate)]).astype(np.float32)
+    out = cues.polish(wav, rate)
+    # medio segundo de silencio delante: fuera (queda el margen)
+    assert abs(out.size - rate - 2 * int(cues.MARGIN * rate)) < rate // 50
+    assert abs(float(np.max(np.abs(out))) - 10 ** (-1 / 20)) < 0.01
+    assert abs(out[0]) < 1e-3 and abs(out[-1]) < 1e-3, "sin chasquido en los bordes"
+    assert cues.polish(np.zeros(1000, np.float32), rate).size == 0
+
+
+@pytest.fixture
+def guides(tmp_path, monkeypatch):
+    from danplay import config
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
+    return tmp_path
+
+
+def _recording(path, rate=48000, seconds=1.0):
+    t = np.arange(int(rate * seconds)) / rate
+    x = np.concatenate(
+        [np.zeros(rate // 4), 0.3 * np.sin(2 * np.pi * 300 * t), np.zeros(rate // 4)]
+    )
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes((x * 32767).astype("<i2").tobytes())
+
+
+def test_a_recording_becomes_a_guide_and_only_guides_are_read(guides):
+    from danplay import cues
+
+    rec = guides / "danplay-guia-1.wav"
+    _recording(rec)
+    made = cues.import_recording(str(rec))
+    assert cues.own_file(made["file"]) == made["file"]
+    assert 1.0 <= made["seconds"] <= 1.1, "sin el silencio de los lados"
+    assert cues.audio(made["file"])[:4] == b"RIFF"
+    # lo de fuera de la carpeta de guias, ni se lee ni se guarda con la cancion
+    assert cues.own_file(str(rec)) is None
+    assert cues.own_file(str(cues.folder() / ".." / "danplay.db")) is None
+    assert cues.own_file(str(cues.folder() / "x.mp3")) is None
+    with pytest.raises(cues.CueError):
+        cues.audio(str(rec))
+    with pytest.raises(cues.CueError, match="no encuentro"):
+        cues.import_recording(str(guides / "no-esta.wav"))
+    silent = guides / "silencio.wav"
+    with wave.open(str(silent), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(8000)
+        w.writeframes(b"\0\0" * 8000)
+    with pytest.raises(cues.CueError, match="silencio"):
+        cues.import_recording(str(silent))
+
+
+def test_the_voices_and_what_they_weigh(guides):
+    from danplay import cues
+
+    voices = {v["id"]: v for v in cues.voices()}
+    assert len([v for v in voices.values() if v["engine"] == "supertonic"]) == 10
+    assert voices["piper-es_AR-daniela-high"]["lang"] == "Argentina"
+    assert not any(v["installed"] for v in voices.values())
+    st = voices["st-F1"]
+    assert 390e6 < st["size"] < 410e6
+    # cada archivo con su sha256 y su revision fijada
+    for f in cues._find("st-M3")["files"] + cues._find("piper-es_MX-ald-medium")["files"]:
+        assert len(f["sha256"]) == 64 and f["bytes"] > 0
+        assert "/resolve/" in f["url"] and "/main/" not in f["url"]
+    with pytest.raises(cues.CueError, match="no conozco"):
+        cues._find("robot")
+
+
+def test_installing_a_voice_checks_what_arrives(guides, monkeypatch):
+    from danplay import cues
+
+    voice = cues._find("piper-es_ES-carlfm-x_low")
+    good = {f["path"]: b"x" * f["bytes"] for f in voice["files"]}
+
+    class Answer:
+        def __init__(self, data):
+            self.data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n):
+            block, self.data = self.data[:n], self.data[n:]
+            return block
+
+    def urlopen(req, timeout):
+        path = next(p for p in good if req.full_url.endswith(p))
+        return Answer(good[path])
+
+    monkeypatch.setattr(cues.urllib.request, "urlopen", urlopen)
+    # lo que llega no es lo que debe: no se queda nada
+    with pytest.raises(cues.CueError, match="sha256"):
+        cues.install(voice["id"], wait=True)
+    assert not cues.installed(voice["id"])
+    assert not list((cues._voices_dir() / "piper").rglob("*.part"))
+    assert next(v for v in cues.voices() if v["id"] == voice["id"])["error"]
+    # con lo de verdad (aqui, su sha256 cambiado a lo que llega)
+    import hashlib
+
+    for f in voice["files"]:
+        f["sha256"] = hashlib.sha256(good[f["path"]]).hexdigest()
+    monkeypatch.setattr(cues, "_find", lambda vid: voice)
+    with cues._LOCK:
+        cues._INSTALLS.clear()
+    assert cues.install(voice["id"], wait=True) == {"installed": True}
+    assert cues.installed(voice["id"])
+
+
+def test_the_api_for_guides(configured_library, guides, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from danplay import api, cues, library
+
+    root, _ = configured_library
+    library.add_folder(root)
+    library.scan()
+    cliente = TestClient(api.app)
+    c = library.search("", limit=1)[0]
+    r = cliente.get("/api/cues/voices").json()
+    assert len(r["voices"]) == 17 and r["available"] == ""
+    # una voz sin bajar: empieza a bajarse y se dice que espere
+    started = []
+    monkeypatch.setattr(
+        cues, "install", lambda vid, wait=False: started.append(vid) or {"installed": False}
+    )
+    r = cliente.post(f"/api/song/{c['id']}/cues", json={"text": "Coro", "voice": "st-F1"})
+    assert r.status_code == 409 and started == ["st-F1"]
+    # con la voz (aqui, una de mentira) se dice y se guarda
+    monkeypatch.setattr(cues, "installed", lambda vid: True)
+    monkeypatch.setattr(
+        cues, "say", lambda text, vid: (0.3 * np.sin(np.arange(8000) / 5).astype(np.float32), 16000)
+    )
+    r = cliente.post(f"/api/song/{c['id']}/cues", json={"text": "Coro", "voice": "st-F1"})
+    assert r.status_code == 200, r.text
+    made = r.json()
+    assert made["file"].endswith(".wav") and made["seconds"] == 0.5
+    again = cliente.post(
+        f"/api/song/{c['id']}/cues", json={"text": "Coro", "voice": "st-F1"}
+    ).json()
+    assert again["file"] == made["file"], "la misma frase con la misma voz es el mismo archivo"
+    audio = cliente.post("/api/cues/audio", json={"file": made["file"]}).json()
+    assert audio["mime"] == "audio/wav" and audio["data"].startswith("UklGR")
+    assert cliente.post("/api/cues/audio", json={"file": "/etc/passwd"}).status_code == 404
+    # se guarda con el estudio; lo de fuera de la carpeta, no
+    d = cliente.put(
+        f"/api/song/{c['id']}/study",
+        json={
+            "cues": [
+                {"t": 12.345, "file": made["file"], "text": "Coro", "voice": "st-F1"},
+                {"t": 3, "file": "/etc/passwd"},
+                {"t": 5, "file": made["file"], "gain": 1.5},
+            ],
+            "metronome": {
+                "own": {"beats": [1.0, 1.5, 1.5, 2.0, -1], "bars": [0, 2, 9], "meter": 3}
+            },
+        },
+    ).json()
+    study = json.loads(d["study"])
+    assert study["cues"] == [
+        {"t": 5.0, "file": made["file"], "gain": 1.5},
+        {"t": 12.35, "file": made["file"], "text": "Coro", "voice": "st-F1"},
+    ]
+    assert study["metronome"]["own"] == {"beats": [1.0, 1.5, 2.0], "bars": [0, 2], "meter": 3}
+    rec = guides / "danplay-guia-2.wav"
+    _recording(rec, rate=16000)
+    r = cliente.post(f"/api/song/{c['id']}/cues/import", json={"path": str(rec)})
+    assert r.status_code == 200 and "grabada-" in r.json()["file"]
+    assert cliente.post("/api/song/999999/cues/import", json={"path": str(rec)}).status_code == 404

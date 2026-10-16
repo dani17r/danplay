@@ -1,0 +1,346 @@
+{
+ "supertonic": {
+  "name": "Supertonic 3",
+  "licence": "BigScience OpenRAIL-M",
+  "url": "https://huggingface.co/supertone-oss-archive/supertonic-3",
+  "base": "https://huggingface.co/supertone-oss-archive/supertonic-3/resolve/aafc6e32416a594460b32413efc49d7fe4ce6d46/",
+  "files": [
+   {
+    "path": "onnx/duration_predictor.onnx",
+    "bytes": 3700147,
+    "sha256": "c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db"
+   },
+   {
+    "path": "onnx/text_encoder.onnx",
+    "bytes": 36416150,
+    "sha256": "c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff"
+   },
+   {
+    "path": "onnx/vector_estimator.onnx",
+    "bytes": 256534781,
+    "sha256": "883ac868ea0275ef0e991524dc64f16b3c0376efd7c320af6b53f5b780d7c61c"
+   },
+   {
+    "path": "onnx/vocoder.onnx",
+    "bytes": 101424195,
+    "sha256": "085de76dd8e8d5836d6ca66826601f615939218f90e519f70ee8a36ed2a4c4ba"
+   },
+   {
+    "path": "onnx/tts.json",
+    "bytes": 8253,
+    "sha256": "42078d3aef1cd43ab43021f3c54f47d2d75ceb4e75f627f118890128b06a0d09"
+   },
+   {
+    "path": "onnx/unicode_indexer.json",
+    "bytes": 277676,
+    "sha256": "9bf7346e43883a81f8645c81224f786d43c5b57f3641f6e7671a7d6c493cb24f"
+   },
+   {
+    "path": "voice_styles/F1.json",
+    "bytes": 292046,
+    "sha256": "bbdec6ee00231c2c742ad05483df5334cab3b52fda3ba38e6a07059c4563dbc2"
+   },
+   {
+    "path": "voice_styles/F2.json",
+    "bytes": 292423,
+    "sha256": "7c722c6a72707b1a77f035d67f0d1351ba187738e06f7683e8c72b1df3477fc6"
+   },
+   {
+    "path": "voice_styles/F3.json",
+    "bytes": 290794,
+    "sha256": "12f6ef2573baa2defa1128069cb59f203e3ab67c92af77b42df8a0e3a2f7c6ab"
+   },
+   {
+    "path": "voice_styles/F4.json",
+    "bytes": 291808,
+    "sha256": "c2fa764c1225a76dfc3e2c73e8aa4f70d9ee48793860eb34c295fff01c2e032b"
+   },
+   {
+    "path": "voice_styles/F5.json",
+    "bytes": 291479,
+    "sha256": "45966e73316415626cf41a7d1c6f3b4c70dbc1ba2bee5c1978ef0ce33244fc8d"
+   },
+   {
+    "path": "voice_styles/M1.json",
+    "bytes": 291748,
+    "sha256": "e35604687f5d23694b8e91593a93eec0e4eca6c0b02bb8ed69139ab2ea6b0a5b"
+   },
+   {
+    "path": "voice_styles/M2.json",
+    "bytes": 292055,
+    "sha256": "b76cbf62bac707c710cf0ae5aba5e31eea1a6339a9734bfae33ab98499534a50"
+   },
+   {
+    "path": "voice_styles/M3.json",
+    "bytes": 290198,
+    "sha256": "ea1ac35ccb91b0d7ecad533a2fbd0eec10c91513d8951e3b25fbba99954e159b"
+   },
+   {
+    "path": "voice_styles/M4.json",
+    "bytes": 291522,
+    "sha256": "ca8eefad4fcd989c9379032ff3e50738adc547eeb5e221b82593a6d7b3bac303"
+   },
+   {
+    "path": "voice_styles/M5.json",
+    "bytes": 291469,
+    "sha256": "dd22b92740314321f8ae11c5e87f8dd60d060f15dd3a632b5adf77f471f77af2"
+   },
+   {
+    "path": "LICENSE",
+    "bytes": 15007,
+    "sha256": "0d944a9110fed9a9602d60e0423a272903e7bd21ab060490774efc77c2275e9f"
+   }
+  ],
+  "voices": [
+   {
+    "id": "st-F1",
+    "style": "F1",
+    "name": "Mujer 1 · natural",
+    "gender": "mujer"
+   },
+   {
+    "id": "st-F2",
+    "style": "F2",
+    "name": "Mujer 2 · natural",
+    "gender": "mujer"
+   },
+   {
+    "id": "st-F3",
+    "style": "F3",
+    "name": "Mujer 3 · natural",
+    "gender": "mujer"
+   },
+   {
+    "id": "st-F4",
+    "style": "F4",
+    "name": "Mujer 4 · natural",
+    "gender": "mujer"
+   },
+   {
+    "id": "st-F5",
+    "style": "F5",
+    "name": "Mujer 5 · natural",
+    "gender": "mujer"
+   },
+   {
+    "id": "st-M1",
+    "style": "M1",
+    "name": "Hombre 1 · natural",
+    "gender": "hombre"
+   },
+   {
+    "id": "st-M2",
+    "style": "M2",
+    "name": "Hombre 2 · natural",
+    "gender": "hombre"
+   },
+   {
+    "id": "st-M3",
+    "style": "M3",
+    "name": "Hombre 3 · natural",
+    "gender": "hombre"
+   },
+   {
+    "id": "st-M4",
+    "style": "M4",
+    "name": "Hombre 4 · natural",
+    "gender": "hombre"
+   },
+   {
+    "id": "st-M5",
+    "style": "M5",
+    "name": "Hombre 5 · natural",
+    "gender": "hombre"
+   }
+  ]
+ },
+ "piper": {
+  "name": "Piper",
+  "licence_code": "MIT",
+  "base": "https://huggingface.co/rhasspy/piper-voices/resolve/c10ece1aade47bb51c153c893d14e5bf8e5b7117/",
+  "voices": [
+   {
+    "id": "piper-es_ES-davefx-medium",
+    "model": "es_ES-davefx-medium",
+    "name": "David · España",
+    "lang": "es-ES",
+    "speaker": null,
+    "gender": "hombre",
+    "licence": "CC0",
+    "files": [
+     {
+      "path": "es/es_ES/davefx/medium/es_ES-davefx-medium.onnx",
+      "bytes": 63201294,
+      "sha256": "6658b03b1a6c316ee4c265a9896abc1393353c2d9e1bca7d66c2c442e222a917"
+     },
+     {
+      "path": "es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json",
+      "bytes": 4817,
+      "sha256": "0e0dda87c732f6f38771ff274a6380d9252f327dca77aa2963d5fbdf9ec54842"
+     },
+     {
+      "path": "es/es_ES/davefx/medium/MODEL_CARD",
+      "bytes": 276,
+      "sha256": "420703b5d8ea239b729f13d83f31eea9bae5fcb89447de23ebc94aa8a4768f95"
+     }
+    ]
+   },
+   {
+    "id": "piper-es_ES-sharvard-medium-M",
+    "model": "es_ES-sharvard-medium",
+    "name": "Sharvard · España (hombre)",
+    "lang": "es-ES",
+    "speaker": 0,
+    "gender": "hombre",
+    "licence": "CC BY 3.0",
+    "files": [
+     {
+      "path": "es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx",
+      "bytes": 76733615,
+      "sha256": "40febfb1679c69a4505ff311dc136e121e3419a13a290ef264fdf43ddedd0fb1"
+     },
+     {
+      "path": "es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx.json",
+      "bytes": 4903,
+      "sha256": "7438c9b699c72b0c3388dae1b68d3f364dc66a2150fe554a1c11f03372957b2c"
+     },
+     {
+      "path": "es/es_ES/sharvard/medium/MODEL_CARD",
+      "bytes": 392,
+      "sha256": "37655314d08fe8a0900abc628d3bcbee48ffbdd8fad9306b89525a0ada20fefc"
+     }
+    ]
+   },
+   {
+    "id": "piper-es_ES-sharvard-medium-F",
+    "model": "es_ES-sharvard-medium",
+    "name": "Sharvard · España (mujer)",
+    "lang": "es-ES",
+    "speaker": 1,
+    "gender": "mujer",
+    "licence": "CC BY 3.0",
+    "files": [
+     {
+      "path": "es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx",
+      "bytes": 76733615,
+      "sha256": "40febfb1679c69a4505ff311dc136e121e3419a13a290ef264fdf43ddedd0fb1"
+     },
+     {
+      "path": "es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx.json",
+      "bytes": 4903,
+      "sha256": "7438c9b699c72b0c3388dae1b68d3f364dc66a2150fe554a1c11f03372957b2c"
+     },
+     {
+      "path": "es/es_ES/sharvard/medium/MODEL_CARD",
+      "bytes": 392,
+      "sha256": "37655314d08fe8a0900abc628d3bcbee48ffbdd8fad9306b89525a0ada20fefc"
+     }
+    ]
+   },
+   {
+    "id": "piper-es_ES-carlfm-x_low",
+    "model": "es_ES-carlfm-x_low",
+    "name": "Carlos · España (ligera)",
+    "lang": "es-ES",
+    "speaker": null,
+    "gender": "hombre",
+    "licence": "dominio público",
+    "files": [
+     {
+      "path": "es/es_ES/carlfm/x_low/es_ES-carlfm-x_low.onnx",
+      "bytes": 28130791,
+      "sha256": "d69677323a907cd4963f42b29c20a98b5d6bfa7f3e64df339915e4650c00d125"
+     },
+     {
+      "path": "es/es_ES/carlfm/x_low/es_ES-carlfm-x_low.onnx.json",
+      "bytes": 4159,
+      "sha256": "d9bdfa9ff01eb2bc9e62e7d2593939d1e4c4d8eb7cf75f972731539d12399966"
+     },
+     {
+      "path": "es/es_ES/carlfm/x_low/MODEL_CARD",
+      "bytes": 250,
+      "sha256": "a6e62a3d36c37c7702d877f784001208b952e2bf4d17c72a6b5da442fbefb4b3"
+     }
+    ]
+   },
+   {
+    "id": "piper-es_MX-ald-medium",
+    "model": "es_MX-ald-medium",
+    "name": "Ald · México",
+    "lang": "es-MX",
+    "speaker": null,
+    "gender": "hombre",
+    "licence": "Unlicense",
+    "files": [
+     {
+      "path": "es/es_MX/ald/medium/es_MX-ald-medium.onnx",
+      "bytes": 63201294,
+      "sha256": "019b3803293c93e34a206dd2e53a3889209a514e786fd7144f7b70196c579b63"
+     },
+     {
+      "path": "es/es_MX/ald/medium/es_MX-ald-medium.onnx.json",
+      "bytes": 4878,
+      "sha256": "5a71498158e04afc8099bfd019c7e87c68eb9d042505a2b1a87e5c1ac2b1a61d"
+     },
+     {
+      "path": "es/es_MX/ald/medium/MODEL_CARD",
+      "bytes": 320,
+      "sha256": "1f0694ceb3f1e78c1e2ee0e2d5da40f19f965bc638e1b4fb4fca9bdca420d713"
+     }
+    ]
+   },
+   {
+    "id": "piper-es_MX-claude-high",
+    "model": "es_MX-claude-high",
+    "name": "Claude · México",
+    "lang": "es-MX",
+    "speaker": null,
+    "gender": "hombre",
+    "licence": "Apache-2.0",
+    "files": [
+     {
+      "path": "es/es_MX/claude/high/es_MX-claude-high.onnx",
+      "bytes": 63122309,
+      "sha256": "3ef40a71ea63852cd8ab7e6fa7d2ecdcfa67a0b47c9c48e3f10e02ee02083ea0"
+     },
+     {
+      "path": "es/es_MX/claude/high/es_MX-claude-high.onnx.json",
+      "bytes": 4963,
+      "sha256": "1afc81f703c0e4cb3b4d7c0dca096b8b54a98806807f0170cf5eb5557723c12d"
+     },
+     {
+      "path": "es/es_MX/claude/high/MODEL_CARD",
+      "bytes": 247,
+      "sha256": "f03da57c1e945f6d709b01e7699d26018e145570139de52ac7569aaa8962a174"
+     }
+    ]
+   },
+   {
+    "id": "piper-es_AR-daniela-high",
+    "model": "es_AR-daniela-high",
+    "name": "Daniela · Argentina",
+    "lang": "es-AR",
+    "speaker": null,
+    "gender": "mujer",
+    "licence": "CC BY-SA 4.0",
+    "files": [
+     {
+      "path": "es/es_AR/daniela/high/es_AR-daniela-high.onnx",
+      "bytes": 114199011,
+      "sha256": "7ceb1fc0dab349418c5b54a639ae9ee595212d7c9ea422220d8419163d5cc985"
+     },
+     {
+      "path": "es/es_AR/daniela/high/es_AR-daniela-high.onnx.json",
+      "bytes": 7248,
+      "sha256": "aedbf69647e1d754c62ecf8e0366ca5f16af3e768e3c6b5329af6eb6bde3852b"
+     },
+     {
+      "path": "es/es_AR/daniela/high/MODEL_CARD",
+      "bytes": 353,
+      "sha256": "39fda44bb85009b0bd7aabb455b113e50abf1f2a2013f3264c482691105e4e3b"
+     }
+    ]
+   }
+  ]
+ }
+}
