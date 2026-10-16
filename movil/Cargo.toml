@@ -2,6 +2,7 @@
 name = "danplay-movil"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 rust-version.workspace = true
 description = "DanPlay en el celular: las pistas que se separaron en la PC, para estudiarlas"
 
