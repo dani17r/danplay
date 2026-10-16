@@ -9,6 +9,7 @@
 name = "danplay"
 dynamic = ["version"]
 description = "Gestor de biblioteca musical: identifica, ordena, etiqueta y reproduce"
+authors = [{ name = "Daniel Rangel" }]
 # `theory.py` usa re.NOFLAG (3.11+) y hay sintaxis de 3.10 por todas partes;
 # el proyecto se desarrolla y se empaqueta con 3.13.
 requires-python = ">=3.13"

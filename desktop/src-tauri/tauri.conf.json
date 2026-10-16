@@ -54,6 +54,8 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Daniel Rangel",
+    "copyright": "© 2026 Daniel Rangel",
     "targets": [
       "deb",
       "appimage",

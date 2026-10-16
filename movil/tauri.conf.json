@@ -26,6 +26,8 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Daniel Rangel",
+    "copyright": "© 2026 Daniel Rangel",
     "targets": "all",
     "icon": [
       "icons/32x32.png",

@@ -2,6 +2,7 @@
   "name": "danplay-app",
   "private": true,
   "version": "1.27.0",
+  "author": "Daniel Rangel (https://t.me/Dani17r)",
   "type": "module",
   "engines": {
     "node": ">=24.15"
