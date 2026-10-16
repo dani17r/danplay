@@ -12,6 +12,7 @@ gratis, y la forma de onda no cambia mientras no cambie el archivo.
 """
 
 import hashlib
+import itertools
 import json
 import logging
 import math
@@ -225,6 +226,65 @@ def compute(path: str, buckets: int = DEFAULT_BUCKETS) -> dict | None:
     except OSError:
         log.warning("no pude guardar la forma de onda en %s", cached, exc_info=True)
     return out
+
+
+# La onda de un trozo, para la onda acercada del modo estudio: a esta tasa,
+# un pulso de clic (unos ms) ya se ve.
+RANGE_RATE = 22050
+
+
+def compute_range(path: str, start: float, end: float, buckets: int) -> dict | None:
+    """{'peaks', 'rms'} del trozo de `start` a `end` (segundos) en `buckets`
+    columnas, a la escala de la salida (1 = el tope digital: lo que la onda de
+    toda la cancion tiene como pico, en un mp3 de hoy). Sin cache: es un
+    trozo que se pide al acercar y se tira al alejar. None si no se puede."""
+    ffmpeg = convert.tool("ffmpeg")
+    if not ffmpeg or not os.path.exists(path):
+        return None
+    start = max(0.0, float(start))
+    length = float(end) - start
+    if not (length > 0) or length > 3600:
+        return None
+    buckets = max(1, min(int(buckets), 4000))
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{start:.3f}",
+        "-t",
+        f"{length:.3f}",
+        "-i",
+        path,
+        "-f",
+        "s16le",
+        "-ac",
+        "1",
+        "-ar",
+        str(RANGE_RATE),
+        "-",
+    ]
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=60, check=False)
+    except (OSError, subprocess.SubprocessError) as e:
+        log.warning("ffmpeg no pudo leer el trozo de %s: %s", path, e)
+        return None
+    if r.returncode != 0 or len(r.stdout) < 2:
+        return None
+    import numpy as np
+
+    pcm = np.frombuffer(r.stdout[: len(r.stdout) - len(r.stdout) % 2], dtype="<i2")
+    x = np.abs(pcm.astype(np.float32) / 32768.0)
+    # tantas columnas como pide, repartiendo las muestras como `columns`
+    edges = (np.arange(buckets + 1) * len(x)) // buckets
+    peaks, rms = [], []
+    for a, b in itertools.pairwise(edges):
+        b = max(b, a + 1)
+        chunk = x[a:b] if a < len(x) else x[-1:]
+        peaks.append(round(float(chunk.max(initial=0.0)), 3))
+        rms.append(round(float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2))), 3))
+    return {"peaks": peaks, "rms": rms}
 
 
 def available() -> bool:

@@ -12,43 +12,70 @@ import numpy as np
 RATE = 44100
 
 # Cada sonido, para el «1» (acento) y para los demas: sus parciales (hz,
-# amplitud, caida en segundos), lo que dura y lo fuerte que va.
+# amplitud, caida en segundos), lo que dura y lo fuerte que va. Desde 1.28
+# suenan mas (caidas algo mas largas) y hay dos nuevos: claves y charles.
+_HAT = [
+    (6312.0, 0.22, 0.030),
+    (7140.0, 0.20, 0.028),
+    (8256.0, 0.18, 0.025),
+    (9433.0, 0.16, 0.022),
+    (10601.0, 0.14, 0.020),
+    (12105.0, 0.10, 0.018),
+]
+_HAT_SHORT = [
+    (6312.0, 0.22, 0.018),
+    (7140.0, 0.20, 0.017),
+    (8256.0, 0.18, 0.015),
+    (9433.0, 0.16, 0.013),
+    (10601.0, 0.14, 0.012),
+    (12105.0, 0.10, 0.011),
+]
 SOUNDS = {
     "clasico": {
-        True: ([(1568.0, 1.0, 0.035 / 4.5)], 0.035, 1.0),
-        False: ([(1046.5, 1.0, 0.022 / 4.5)], 0.022, 0.65),
+        True: ([(1568.0, 1.0, 0.012), (3136.0, 0.25, 0.006)], 0.06, 1.0),
+        False: ([(1046.5, 1.0, 0.010), (2093.0, 0.25, 0.005)], 0.05, 0.8),
     },
     "madera": {
-        True: ([(1250.0, 0.75, 0.011), (3450.0, 0.25, 0.004)], 0.06, 1.0),
-        False: ([(950.0, 0.75, 0.010), (2620.0, 0.25, 0.004)], 0.055, 0.7),
+        True: ([(1250.0, 0.75, 0.016), (3450.0, 0.25, 0.006)], 0.08, 1.0),
+        False: ([(950.0, 0.75, 0.014), (2620.0, 0.25, 0.005)], 0.07, 0.8),
     },
     "baqueta": {
         True: (
             [
-                (430.0, 0.2, 0.006),
-                (2150.0, 0.35, 0.0025),
-                (3720.0, 0.28, 0.0018),
-                (5310.0, 0.17, 0.0012),
+                (430.0, 0.2, 0.008),
+                (2150.0, 0.35, 0.0033),
+                (3720.0, 0.28, 0.0024),
+                (5310.0, 0.17, 0.0016),
             ],
-            0.03,
-            1.3,
+            0.04,
+            1.5,
         ),
         False: (
             [
-                (430.0, 0.2, 0.005),
-                (2150.0, 0.35, 0.002),
-                (3720.0, 0.28, 0.0015),
-                (5310.0, 0.17, 0.001),
+                (430.0, 0.2, 0.0065),
+                (2150.0, 0.35, 0.0026),
+                (3720.0, 0.28, 0.002),
+                (5310.0, 0.17, 0.0013),
             ],
-            0.025,
-            0.8,
+            0.033,
+            1.1,
         ),
     },
     "cencerro": {
         True: ([(587.0, 0.35, 0.08), (871.0, 0.45, 0.08), (2610.0, 0.2, 0.02)], 0.25, 1.0),
-        False: ([(540.0, 0.35, 0.06), (800.0, 0.45, 0.06), (2400.0, 0.2, 0.015)], 0.2, 0.7),
+        False: ([(540.0, 0.35, 0.06), (800.0, 0.45, 0.06), (2400.0, 0.2, 0.015)], 0.2, 0.8),
+    },
+    "claves": {
+        True: ([(2500.0, 0.85, 0.035), (6830.0, 0.15, 0.008)], 0.12, 1.0),
+        False: ([(2200.0, 0.85, 0.030), (6010.0, 0.15, 0.007)], 0.1, 0.8),
+    },
+    "hihat": {
+        True: (_HAT, 0.09, 1.2),
+        False: (_HAT_SHORT, 0.06, 0.95),
     },
 }
+# Hasta donde sube el clic: el triple de como viene.
+MAX_VOLUME = 3.0
 
 
 def hit(sound: str, accent: bool, rate: int = RATE) -> np.ndarray:
@@ -70,7 +97,7 @@ def track(
     accents: list[bool],
     length: float,
     sound: str = "clasico",
-    volume: float = 0.8,
+    volume: float = 1.0,
     rate: int = RATE,
 ) -> np.ndarray:
     """La pista del clic, en mono: un golpe en cada pulso (en segundos de la
@@ -84,4 +111,4 @@ def track(
         h = cache[bool(accent)]
         end = min(out.size, start + h.size)
         out[start:end] += h[: end - start]
-    return out * np.float32(max(0.0, min(2.0, volume)))
+    return out * np.float32(max(0.0, min(MAX_VOLUME, volume)))

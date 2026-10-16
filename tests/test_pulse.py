@@ -165,12 +165,29 @@ def test_the_one_stays_put_unless_the_song_says_otherwise():
 FAKE = textwrap.dedent(
     """
     import json, sys
-    graph, ffmpeg, path = sys.argv[1:]
+    import numpy as np
+    graph, ffmpeg, path = sys.argv[1:4]
     # como el de verdad: el avance, una linea cada vez, antes de la respuesta
     print(json.dumps({"progress": 0.5}), flush=True)
     if path.endswith("sin-pulso.mp3"):
         print(json.dumps({"error": "la cancion no tiene pulso claro"}))
         sys.exit(1)
+    # lo que oiria la red en 30 s a 120 (en la bateria, 4 ms despues)
+    late = 0.004 if "bateria" in path else 0.0
+    fps, seconds = 50, 30.0
+    t = np.arange(int(seconds * fps)) / fps
+    beat = np.full(t.size, -6.0)
+    down = np.full(t.size, -6.0)
+    for k in range(59):
+        b = 0.5 + 0.5 * k + late
+        beat = np.maximum(beat, 4.0 - 0.5 * ((t - b) * fps) ** 2)
+        if k % 4 == 0:
+            down = np.maximum(down, 4.0 - 0.5 * ((t - b) * fps) ** 2)
+    if len(sys.argv) > 4:
+        np.savez_compressed(sys.argv[4], beat=beat.astype(np.float16),
+                            down=down.astype(np.float16),
+                            low=np.zeros(int(seconds * 100), np.float16),
+                            low_fps=np.float64(100.0), seconds=np.float64(seconds))
     print(json.dumps({"ok": True, "bpm": 120.0, "meter": 4, "beats": [0.5, 1.0, 1.5, 2.0],
                       "first_downbeat": 0, "phase3": 0, "phase4": 0, "confidence": 0.9,
                       "bars": [0]}))
@@ -187,9 +204,9 @@ def detector(tmp_path, monkeypatch):
     fake.write_text(FAKE, encoding="utf-8")
     calls = []
 
-    def command(path):
+    def command(path, raw=None):
         calls.append(path)
-        return [sys.executable, str(fake), "grafo", "ffmpeg", path]
+        return [sys.executable, str(fake), "grafo", "ffmpeg", path, *([str(raw)] if raw else [])]
 
     monkeypatch.setattr(beatgrid, "_command", command)
     monkeypatch.setattr(beatgrid, "available", lambda: "")
@@ -205,7 +222,7 @@ def test_the_grid_is_worked_out_once_and_kept(detector, tmp_path):
     song_file = tmp_path / "cancion.mp3"
     song_file.write_bytes(b"x")
     g = beatgrid.grid_of(str(song_file))
-    assert g["bpm"] == 120.0 and g["bars"] == [0] and "ok" not in g
+    assert g["bpm"] == 120.0 and g["meter"] == 4 and g["bars"][0] == 0 and "ok" not in g
     assert beatgrid.grid_of(str(song_file)) == g
     assert len(detector) == 1, "la segunda vez tenia que salir de lo guardado"
     assert beatgrid.cached(str(song_file))
@@ -395,3 +412,144 @@ def test_the_graph_travels_with_the_app():
     info = json.loads(beatgrid.GRAPH.with_suffix(".json").read_text(encoding="utf-8"))
     assert info["fps"] == pulse.FPS and info["chunk"] == pulse.CHUNK
     assert len(info["sha256"]) == 64
+
+
+# ------------------------------------------------------------ re-analizar
+
+
+def test_what_the_network_heard_is_kept_and_a_new_version_needs_no_network(detector, tmp_path):
+    """Lo que dijo la red se guarda (`.npz`): una version nueva de la forma
+    de sacar la rejilla, o cambiar de modo, sale de ahi en milisegundos."""
+    from danplay import beatgrid
+
+    song_file = tmp_path / "cancion.mp3"
+    song_file.write_bytes(b"x")
+    g = beatgrid.grid_of(str(song_file))
+    assert beatgrid._raw_file(str(song_file)).is_file()
+    # una rejilla de una version de antes: se rehace sin pasar la red
+    cache = beatgrid._cache(str(song_file))
+    saved = json.loads(cache.read_text(encoding="utf-8"))
+    cache.write_text(json.dumps({**saved, "version": 2}), encoding="utf-8")
+    assert not beatgrid.cached(str(song_file))
+    assert beatgrid.grid_of(str(song_file))["beats"] == g["beats"]
+    assert len(detector) == 1, "lo que oyo la red ya estaba guardado"
+
+
+def test_reanalysing_a_stretch_only_touches_that_stretch(detector, tmp_path):
+    """El caso de las canciones con cortes: medio minuto con el clic a
+    contratiempo. Re-analizar ese tramo lo pone en su sitio y deja lo demas
+    tal cual, cosido sin costura."""
+    from danplay import beatgrid
+
+    song_file = tmp_path / "cancion.mp3"
+    song_file.write_bytes(b"x")
+    path = str(song_file)
+    good = beatgrid.grid_of(path)["beats"]
+    # se estropea a mano: de 10 a 16 s, medio pulso tarde
+    cache = beatgrid._cache(path)
+    saved = json.loads(cache.read_text(encoding="utf-8"))
+    bad = [b + 0.25 if 10 <= b <= 16 else b for b in good]
+    saved["grid"]["beats"] = bad
+    cache.write_text(json.dumps(saved), encoding="utf-8")
+    assert beatgrid.grid_of(path)["beats"] == bad
+    g = beatgrid.reanalyze(path, "repair", 9.9, 16.4)
+    np.testing.assert_allclose(g["beats"], good, atol=0.01)
+    assert g["report"]["fixed"] == 1 and g["report"]["joins"] == {"left": True, "right": True}
+    assert len(detector) == 1, "sin pasar la red otra vez"
+    # se queda guardado, con lo que se hizo
+    again = json.loads(cache.read_text(encoding="utf-8"))
+    assert again["grid"]["beats"] == g["beats"]
+    assert again["edits"] == [{"mode": "repair", "start": 9.9, "end": 16.4}]
+
+
+def test_steady_tempo_in_a_stretch_fits_between_its_neighbours(detector, tmp_path):
+    from danplay import beatgrid
+
+    song_file = tmp_path / "cancion.mp3"
+    song_file.write_bytes(b"x")
+    path = str(song_file)
+    good = beatgrid.grid_of(path)["beats"]
+    cache = beatgrid._cache(path)
+    saved = json.loads(cache.read_text(encoding="utf-8"))
+    # un hueco de 4 s sin clic
+    saved["grid"]["beats"] = [b for b in good if not 8 < b < 12]
+    cache.write_text(json.dumps(saved), encoding="utf-8")
+    g = beatgrid.reanalyze(path, "steady", 8.2, 11.8)
+    np.testing.assert_allclose(g["beats"], good, atol=0.01)
+    assert g["report"]["fixed"] == 1
+
+
+def test_the_whole_song_with_the_separated_drums(detector, tmp_path, monkeypatch):
+    from danplay import beatgrid
+
+    song_file = tmp_path / "cancion.mp3"
+    drums = tmp_path / "bateria.flac"
+    song_file.write_bytes(b"x")
+    drums.write_bytes(b"d")
+    with pytest.raises(beatgrid.BeatsError, match="batería separada"):
+        beatgrid.reanalyze(str(song_file), "drums")
+    monkeypatch.setattr(
+        beatgrid, "_drums_of", lambda p: str(drums) if p == str(song_file) else None
+    )
+    g = beatgrid.reanalyze(str(song_file), "drums")
+    assert detector == [str(song_file), str(drums)]
+    assert beatgrid._raw_file(str(drums)).is_file()
+    assert g["bpm"] == pytest.approx(120, abs=0.1)
+    with pytest.raises(beatgrid.BeatsError, match="no sé"):
+        beatgrid.reanalyze(str(song_file), "magia")
+    # mejorar toda la biblioteca: con la bateria ya oida, sin pasar la red
+    assert beatgrid.improve(str(song_file))["bpm"] == pytest.approx(120, abs=0.1)
+    assert len(detector) == 2
+
+
+def test_changes_counts_places_not_beats():
+    from danplay import beatgrid
+
+    beats = [0.5 * k for k in range(100)]
+    assert beatgrid.changes(beats, beats) == 0
+    moved = [b + 0.25 if 10 <= b <= 14 else b for b in beats]
+    holed = [b for b in beats if not 30 < b < 35]
+    assert beatgrid.changes(moved, beats) == 1
+    assert beatgrid.changes(holed, beats) == 1
+    both = [b for b in moved if not 30 < b < 35]
+    assert beatgrid.changes(both, beats) == 2
+
+
+def test_the_api_reanalyses(configured_library, detector):
+    from fastapi.testclient import TestClient
+
+    from danplay import api, library
+
+    root, _ = configured_library
+    library.add_folder(root)
+    library.scan()
+    cliente = TestClient(api.app)
+    song_row = library.search("", limit=1)[0]
+    url = f"/api/song/{song_row['id']}/beats/reanalyze"
+    r = cliente.post(url, json={"mode": "steady"})
+    assert r.status_code == 200, r.text
+    assert r.json()["report"]["fixed"] == 0 and r.json()["grid"]["meter"] == 4
+    assert cliente.post(url, json={"mode": "repair", "start": 5, "end": 3}).status_code == 422
+    assert cliente.post(url, json={"mode": "magia"}).status_code == 422
+    assert cliente.post("/api/song/999999/beats/reanalyze", json={}).status_code == 404
+
+
+def test_what_the_network_heard_survives_a_cut(tmp_path):
+    """Guardarlo va a un temporal: un corte a medias no deja un archivo roto.
+    Y uno roto (de antes) se descarta en vez de tumbar el analisis."""
+    raw = {
+        "beat": np.zeros(100),
+        "down": np.zeros(100),
+        "low": np.zeros(200),
+        "low_fps": 100.0,
+        "seconds": 2.0,
+    }
+    path = tmp_path / "x.npz"
+    pulse.save_raw(path, raw)
+    loaded = pulse.load_raw(path)
+    assert loaded and loaded["seconds"] == 2.0
+    assert not (tmp_path / "x.npz.part").exists()
+    path.write_bytes(path.read_bytes()[:40])  # cortado a medias
+    assert pulse.load_raw(path) is None
+    assert not path.exists(), "el roto se quita: se vuelve a calcular"
+    assert pulse.load_raw(tmp_path / "no-esta.npz") is None
