@@ -17,7 +17,7 @@
 export const RELEASES = [
   {
     version: '1.28.1',
-    date: '',
+    date: '2026-10-16',
     summary: 'Las guías en sus carriles, exportar con o sin guías y la onda a tu gusto.',
     items: [
       'En Linux vuelven la onda y separar en pistas (fallaban con canciones nuevas).',
