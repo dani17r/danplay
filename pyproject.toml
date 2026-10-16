@@ -132,6 +132,7 @@ exclude = [
     ".dev",
     "**/__pycache__",
     "scripts/exportar-separador.py",
+    "scripts/exportar-mega53.py",
     "scripts/evaluar-separador.py",
     "scripts/exportar-pulso.py",
     "scripts/evaluar-pulso.py",

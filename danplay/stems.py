@@ -73,10 +73,22 @@ MIX_JOB = "mezcla"
 # como todos los de la casa) y como se enseña. En el orden del mezclador.
 SOURCES = {
     "drums": ("Bateria", "Batería"),
+    # las de la maxima calidad (danplay/mega.py): la percusion de aparte, la
+    # voz principal y los coros, y mas instrumentos
+    "percussion": ("Percusion", "Percusión"),
     "vocals": ("Voces", "Voces"),
+    "lead": ("Voz", "Voz principal"),
+    "backing": ("Coros", "Coros"),
     "bass": ("Bajo", "Bajo"),
     "guitar": ("Guitarra", "Guitarra"),
+    "eguitar": ("Guitarra-electrica", "Guitarra eléctrica"),
+    "aguitar": ("Guitarra-acustica", "Guitarra acústica"),
     "piano": ("Piano", "Piano"),
+    "organ": ("Organo", "Órgano"),
+    "keys": ("Teclados", "Teclados"),
+    "strings": ("Cuerdas", "Cuerdas"),
+    "brass": ("Metales", "Metales"),
+    "wind": ("Vientos", "Vientos"),
     "other": ("Otros", "Otros"),
 }
 REST = "other"  # la que es «lo que queda»: la cancion menos las demas
@@ -88,11 +100,13 @@ REST = "other"  # la que es «lo que queda»: la cancion menos las demas
 FAST = "htdemucs_6s"
 BEST = "htdemucs"
 REFINE = ("drums", "bass")
+# La maxima calidad, sobre las buenas: el Mega53 (ver danplay/mega.py).
+MAX = "mega53"
 
 # Como estan las pistas de una cancion (en su manifiesto): de la rapida, que
 # se mejora luego, o ya de la buena. Las de 1.16.0 no lo dicen: se hicieron
 # con una sola red, de seis o de cuatro, y se pueden separar otra vez.
-QUICK, FINAL = "rapida", "mejor"
+QUICK, FINAL, MAXIMA = "rapida", "mejor", "maxima"
 
 FORMATS = ("flac", "opus")
 
@@ -121,6 +135,8 @@ def parts() -> dict[str, dict]:
     specialists = _graph(BEST).get("specialists") or {}
     for source in REFINE:
         out[source] = {"graph": BEST, **specialists[source]}
+    if (GRAPHS / f"{MAX}.json").is_file():
+        out[MAX] = {"graph": MAX, **_graph(MAX)["weights"]}
     return out
 
 
@@ -182,9 +198,13 @@ def status() -> dict:
     """Si se puede separar, lo que pesa el separador (y lo que falta por
     bajar), en que se guardan las pistas, la cola y lo ultimo que acabo."""
     reason = missing()
-    total = pending = 0
+    total = pending = max_pending = 0
     with contextlib.suppress(OSError, ValueError, KeyError):
         for key, part in parts().items():
+            if key == MAX:
+                # la maxima calidad se baja aparte, solo si se pide
+                max_pending = 0 if installed(key) else part["bytes"]
+                continue
             total += part["bytes"]
             if not installed(key):
                 pending += part["bytes"]
@@ -199,6 +219,9 @@ def status() -> dict:
         "bytes": total,
         "pending": pending,
         "installed": bool(total) and not pending,
+        # la maxima calidad (mas instrumentos): si se puede y lo que falta bajar
+        "max": MAX in _safe_parts(),
+        "max_pending": max_pending,
         "folder": FOLDER,
         "format": stems_format(),
         "opus": bool(ffmpeg and _has_opus(ffmpeg)),
@@ -206,6 +229,12 @@ def status() -> dict:
         "queue": queue,
         "events": events,
     }
+
+
+def _safe_parts() -> dict:
+    with contextlib.suppress(OSError, ValueError, KeyError):
+        return parts()
+    return {}
 
 
 def _why(e: Exception) -> str:
@@ -355,6 +384,8 @@ def info(song: Mapping[str, Any]) -> dict | None:
                 "path": str(path),
                 "exists": path.is_file(),
                 "wave": (waves.get("tracks") or {}).get(source),
+                # en una secuencia: el clic o la guia (salen por la salida del clic)
+                "role": t.get("role") if t.get("role") in ("click", "guide") else "",
             }
         )
     quality = manifest.get("quality") or ""
@@ -365,10 +396,14 @@ def info(song: Mapping[str, Any]) -> dict | None:
         # rapida (se esta mejorando, o se quedo a medias), mejor, o vacio
         # si se separaron antes de que hubiera dos pasadas (1.16.0)
         "quality": quality,
-        "best": quality == FINAL,
+        "best": quality in (FINAL, MAXIMA),
+        # con mas instrumentos (la maxima calidad)
+        "max": quality == MAXIMA,
         "tracks": tracks,
         "dropped": [s for s in manifest.get("dropped") or [] if s in SOURCES],
         "complete": bool(tracks) and all(t["exists"] for t in tracks),
+        # de una secuencia descargada (con su tempo y sus partes), no separadas
+        "sequence": bool(manifest.get("sequence")),
     }
 
 
@@ -515,7 +550,9 @@ def _write_manifest(
     manifest = {
         "version": 2,
         "app": f"DanPlay {__version__}",
-        "model": FAST if quality == QUICK else f"{FAST}+htdemucs_ft",
+        "model": {QUICK: FAST, MAXIMA: f"{FAST}+htdemucs_ft+{MAX}"}.get(
+            quality, f"{FAST}+htdemucs_ft"
+        ),
         "quality": quality,
         "created": round(created, 1),
         "updated": round(time.time(), 1),
@@ -700,6 +737,115 @@ def refine_song(cid: int, progress=None) -> dict:
     return {"id": cid, "title": _title(song), "folder": str(target), **result}
 
 
+# Lo que necesita la maxima calidad (medido: 4,5 GB de pico en un portatil,
+# con los pesos y un trozo de 5 s en vuelo).
+MAX_MEMORY = 5 * 1024**3
+
+
+def free_memory() -> int | None:
+    """La memoria que queda libre en el equipo (bytes), o None si no se sabe."""
+    if sys.platform == "win32":  # pragma: no cover - solo Windows
+        import ctypes
+
+        class Status(ctypes.Structure):
+            _fields_ = [
+                ("length", ctypes.c_ulong),
+                ("load", ctypes.c_ulong),
+                ("total", ctypes.c_ulonglong),
+                ("avail", ctypes.c_ulonglong),
+                ("total_page", ctypes.c_ulonglong),
+                ("avail_page", ctypes.c_ulonglong),
+                ("total_virtual", ctypes.c_ulonglong),
+                ("avail_virtual", ctypes.c_ulonglong),
+                ("avail_extended", ctypes.c_ulonglong),
+            ]
+
+        st = Status()
+        st.length = ctypes.sizeof(Status)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):  # type: ignore[attr-defined]
+            return int(st.avail)
+        return None
+    with contextlib.suppress(OSError, ValueError):
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    with contextlib.suppress(OSError, ValueError, AttributeError):
+        return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    return None
+
+
+def max_song(cid: int, progress=None) -> dict:
+    """La maxima calidad, sobre las pistas buenas: la bateria en kit y
+    percusion, las voces en principal y coros, y lo melodico entre mas
+    instrumentos (ver danplay/mega.py). Tarda: el Mega53 son unos 3-4 s de
+    calculo por segundo de cancion en un portatil."""
+    from . import library
+
+    progress = progress or (lambda *a, **k: None)
+    song = _song_for(cid)
+    target = folder_of(song)
+    manifest = read_manifest(target) if target else None
+    if target is None or manifest is None:
+        raise SeparateError("esta canción ya no tiene sus pistas separadas")
+    if manifest.get("quality") not in (FINAL, MAXIMA):
+        raise SeparateError("antes hay que tener las pistas buenas")
+    if MAX not in parts():
+        raise SeparateError("falta la separación de máxima calidad en esta instalación")
+    stamp = manifest.get("updated") or manifest.get("created")
+    have = {t["source"]: target / t["file"] for t in manifest.get("tracks") or []}
+    carry = {
+        s: str(have[s]) for s in ("drums", "bass", "vocals") if s in have and have[s].is_file()
+    }
+    if manifest.get("quality") == MAXIMA:
+        # otra vez: de las de antes del reparto no queda la bateria entera
+        raise SeparateError("ya tiene la máxima calidad")
+    _fetch([MAX], progress)
+    free = free_memory()
+    if free is not None and free < MAX_MEMORY:
+        raise SeparateError(
+            f"la máxima calidad necesita unos 5 GB de memoria y quedan {free / 1024**3:.1f}: "
+            "cierra otros programas y vuelve a pedirla"
+        )
+    _sweep(target.parent)
+    work = Path(tempfile.mkdtemp(prefix=".separando-", dir=target.parent))
+    try:
+        job = {
+            "input": song["path"],
+            "output": str(work),
+            "files": _flac_names(),
+            "rest": REST,
+            "carry": carry,
+            "mega": {
+                "graph": str(GRAPHS / f"{MAX}.onnx"),
+                "manifest": str(GRAPHS / f"{MAX}.json"),
+                "weights": str(weights_path(MAX)),
+            },
+            "ffmpeg": convert.tool("ffmpeg"),
+            "waves": str(work / WAVES),
+            "format": stems_format(),
+        }
+        result = _run_child(job, progress)
+        now = read_manifest(target)
+        if now is None or (now.get("updated") or now.get("created")) != stamp:
+            raise SeparateError("sus pistas cambiaron mientras se separaban")
+        levels = {**(manifest.get("levels") or {}), **(result.get("levels") or {})}
+        result = {**result, "levels": levels}
+        _write_manifest(work, song, result, MAXIMA, manifest.get("created") or time.time())
+        old = _publish(work, target, ".mejores")
+    except BaseException:
+        shutil.rmtree(work, ignore_errors=True)
+        raise
+    if old is not None:
+        # las buenas, a la papelera (se pueden recuperar si no gusta el reparto)
+        r = library.trash_path(old)
+        if not r["ok"]:
+            shutil.rmtree(old, ignore_errors=True)
+    rel = os.path.relpath(target, song["root"])
+    model = f"{FAST}+htdemucs_ft+{MAX}"
+    library.update(cid, stems=json.dumps({"folder": rel, "model": model, "quality": MAXIMA}))
+    return {"id": cid, "title": _title(song), "folder": str(target), **result}
+
+
 def _stage_for(song: Mapping[str, Any]) -> str:
     """Lo que hay que hacer para que la cancion tenga las mejores pistas: si
     ya tiene las rapidas enteras, mejorarlas; si no, separarla."""
@@ -709,23 +855,50 @@ def _stage_for(song: Mapping[str, Any]) -> str:
     return "separate"
 
 
-def request(cid: int) -> dict:
+def request(cid: int, maximum: bool = False) -> dict:
     """Pide separar una cancion: a la cola, y la cola a andar si no lo esta.
 
-    Si ya tiene las pistas rapidas, solo se mejoran. Devuelve el estado
-    (`status`). Pedir otra vez una que ya espera o se esta separando no la
-    repite.
+    Si ya tiene las pistas rapidas, solo se mejoran. Con `maximum`, ademas,
+    la maxima calidad (mas instrumentos) cuando esten las buenas. Devuelve el
+    estado (`status`). Pedir otra vez una que ya espera o se esta separando
+    no la repite.
     """
     from . import library
 
     song = library.by_id(cid)
     if not song:
         raise SeparateError("esa canción ya no está en la biblioteca")
+    if info(song) is None and _reuse(cid):
+        # otro archivo de esta misma cancion ya estaba separado (se volvio a
+        # bajar, se movio la carpeta): sus pistas, sin separar de nuevo
+        song = library.by_id(cid) or song
+        _event({"id": cid, "title": _title(song), "stage": "reuse"}, True)
+        if _stage_for(song) != "refine" or missing():
+            return {**status(), "reused": True}
     reason = missing()
     if reason:
         raise SeparateError(f"no se puede separar: {reason}")
-    _enqueue({"id": cid, "title": _title(song), "stage": _stage_for(song)})
+    data = info(song)
+    if maximum and MAX not in parts():
+        raise SeparateError("falta la separación de máxima calidad en esta instalación")
+    if maximum and data and data["complete"] and data.get("max"):
+        raise SeparateError("ya tiene la máxima calidad")
+    if maximum and data and data["complete"] and data["best"]:
+        _enqueue({"id": cid, "title": _title(song), "stage": "max"})
+    else:
+        stage = _stage_for(song)
+        _enqueue({"id": cid, "title": _title(song), "stage": stage, "then_max": maximum})
     return status()
+
+
+def _reuse(cid: int) -> bool:
+    from . import reuse
+
+    try:
+        return bool(reuse.settle(cid).get("stems"))
+    except Exception:
+        log.warning("no se pudo aprovechar las pistas de otra copia", exc_info=True)
+        return False
 
 
 def _enqueue(item: dict) -> None:
@@ -735,6 +908,11 @@ def _enqueue(item: dict) -> None:
         busy = (_current and _current["id"] == cid) or any(q["id"] == cid for q in _queue)
         if not busy:
             _queue.append(item)
+        elif item.get("then_max") or item["stage"] == "max":
+            # ya espera (o se esta separando): que siga hasta la maxima
+            for q in [*_queue, *([_current] if _current else [])]:
+                if q["id"] == cid and q["stage"] != "max":
+                    q["then_max"] = True
         wake = not _draining
         if wake:
             _draining = True
@@ -774,10 +952,12 @@ def _drain(progress) -> dict:
 
 
 def _next() -> dict | None:
-    """La siguiente: cualquier pasada rapida antes que cualquier mejora."""
-    for i, q in enumerate(_queue):
-        if q["stage"] == "separate":
-            return _queue.pop(i)
+    """La siguiente: cualquier pasada rapida antes que cualquier mejora, y
+    las mejoras antes que la maxima calidad (que tarda mucho mas)."""
+    for stage in ("separate", "refine"):
+        for i, q in enumerate(_queue):
+            if q["stage"] == stage:
+                return _queue.pop(i)
     return _queue.pop(0) if _queue else None
 
 
@@ -789,6 +969,14 @@ MESSAGES = {
     "compose": "Terminando «{title}»…",
     "encode": "Guardando «{title}» en Opus…",
 }
+
+
+def _wants_max(item: dict) -> bool:
+    """Si despues de esta pasada va la maxima calidad (se pudo pedir mientras
+    se separaba)."""
+    with _lock:
+        now = _current if _current and _current["id"] == item["id"] else {}
+    return bool(item.get("then_max") or now.get("then_max"))
 
 
 def _drain_queue(progress) -> dict:
@@ -807,7 +995,7 @@ def _drain_queue(progress) -> dict:
         count = len(done) + len(failed) + 1
         total = count + left
         where = f" ({count} de {total})" if total > 1 else ""
-        verb = "Mejorando" if item["stage"] == "refine" else "Separando"
+        verb = {"refine": "Mejorando", "max": "Más instrumentos en"}.get(item["stage"], "Separando")
 
         def report(done_=None, total_=None, step=None, seconds=None, _i=item, _w=where, _v=verb):
             if step in MESSAGES:
@@ -818,8 +1006,13 @@ def _drain_queue(progress) -> dict:
             _note(done_, total_, step)
 
         try:
-            if item["stage"] == "refine":
+            if item["stage"] == "max":
+                r = max_song(item["id"], report)
+            elif item["stage"] == "refine":
                 r = refine_song(item["id"], report)
+                if _wants_max(item):
+                    with _lock:
+                        _queue.append({**item, "stage": "max", "then_max": False})
             else:
                 r = separate_song(item["id"], report)
                 if r.get("refine"):
@@ -827,6 +1020,9 @@ def _drain_queue(progress) -> dict:
                     # las rapidas que esperen)
                     with _lock:
                         _queue.append({**item, "stage": "refine"})
+                elif _wants_max(item):
+                    with _lock:
+                        _queue.append({**item, "stage": "max", "then_max": False})
             done.append(r)
             _event(item, True)
         except SeparateError as e:
