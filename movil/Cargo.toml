@@ -21,6 +21,10 @@ tauri-plugin-dialog = "2"
 # Leer ese content:// en Android: es el plugin quien sabe pedirselo al sistema.
 tauri-plugin-fs = "2"
 danplay-motor = { path = "../motor" }
+# Leer el título, el artista y la duración de la música del teléfono (la
+# misma versión que usa el motor para decodificarla).
+symphonia = { version = "0.6", default-features = false, features = [
+    "ogg", "vorbis", "mp3", "flac", "wav", "aiff", "pcm", "isomp4", "aac", "alac", "id3v2" ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rand = "0.10"

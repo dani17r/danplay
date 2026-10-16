@@ -38,7 +38,10 @@ import Loading from '../components/ui/Loading.vue'
 import MovilSongs from './MovilSongs.vue'
 import MovilPlayer from './MovilPlayer.vue'
 import MovilMenu from './MovilMenu.vue'
+import MovilFolders from './MovilFolders.vue'
+import { hasMusicPermission, askMusicPermission } from './musica.js'
 import MovilSettings from './MovilSettings.vue'
+import MovilAbout from './MovilAbout.vue'
 
 const player = usePlayback()
 // el clic sigue a cada canción aunque el estudio esté cerrado (como en la PC)
@@ -50,9 +53,9 @@ const { dialog, dialogOk, dialogCancel } = useDialog()
 const { menu } = useContextMenu()
 const prefs = usePreferences()
 
-/** Lo que se ve: todas, las favoritas o una lista. */
+/** Lo que se ve: las pistas, las favoritas, una lista o la música del teléfono. */
 const view = ref(
-  /** @type {{kind: 'all'|'favorites'|'list', id?: number, name?: string}} */ ({
+  /** @type {{kind: 'all'|'favorites'|'list'|'phone', id?: number, name?: string}} */ ({
     kind: 'all'
   })
 )
@@ -60,6 +63,10 @@ const songs = ref(/** @type {any[]} */ ([]))
 const lists = ref(/** @type {any[]} */ ([]))
 const total = ref(0)
 const favorites = ref(0)
+/** La música del teléfono: cuántas hay, si falta el permiso, y las carpetas. */
+const phoneTotal = ref(0)
+const needPermission = ref(false)
+const foldersOpen = ref(false)
 const query = ref('')
 const searchOpen = ref(false)
 const loading = ref(false)
@@ -68,7 +75,16 @@ const editing = ref(false)
 
 const menuOpen = ref(false)
 const settingsOpen = ref(false)
+const aboutOpen = ref(false)
+// el estudio puesto (montado) y si se ve: ocultarlo no toca lo que suena
+const studyActive = ref(false)
 const studyOpen = ref(false)
+function toggleStudy() {
+  if (!studyActive.value) {
+    studyActive.value = true
+    studyOpen.value = true
+  } else studyOpen.value = !studyOpen.value
+}
 const fullOpen = ref(false)
 const detailsOpen = ref(false)
 const detail = ref(/** @type {any} */ (null))
@@ -85,11 +101,20 @@ const title = computed(() =>
     ? 'Favoritas'
     : view.value.kind === 'list'
       ? currentList.value?.name || view.value.name || 'Lista'
-      : 'Mis pistas'
+      : view.value.kind === 'phone'
+        ? 'Música del teléfono'
+        : 'Mis pistas'
 )
 const subtitle = computed(() => {
   const n = songs.value.length
-  const what = n === 1 ? '1 pista' : n + ' pistas'
+  const what =
+    view.value.kind === 'phone'
+      ? n === 1
+        ? '1 canción'
+        : n + ' canciones'
+      : n === 1
+        ? '1 pista'
+        : n + ' pistas'
   if (view.value.kind !== 'list' || !n) return what
   const secs = songs.value.reduce((a, s) => a + (Number(s.duration) || 0), 0)
   return what + ' · ' + formatMinutes(secs)
@@ -110,6 +135,22 @@ const plain = (s) =>
 async function load() {
   loading.value = true
   try {
+    if (view.value.kind === 'phone') {
+      needPermission.value = !hasMusicPermission()
+      if (needPermission.value) {
+        songs.value = []
+        return
+      }
+      let r = await api.phoneSongs(query.value ? { q: query.value } : {})
+      // la primera vez: a buscarla
+      if (!r.total && !query.value) {
+        await api.phoneScan()
+        r = await api.phoneSongs({})
+      }
+      phoneTotal.value = r.total || 0
+      songs.value = r.songs || []
+      return
+    }
     if (view.value.kind === 'list') {
       const r = await api.playlistSongs(view.value.id)
       const words = plain(query.value).split(/\s+/).filter(Boolean)
@@ -176,9 +217,50 @@ async function importar() {
 }
 
 // ----------------------------------------------------------- canciones
-function play(song) {
+/**
+ * Lo que va a la cola con esa canción: la lista que se ve; en la música del
+ * teléfono, las de su carpeta (como al abrir un archivo en la PC: siguen las
+ * de al lado).
+ */
+async function queueFor(song) {
+  if (view.value.kind !== 'phone' && !song.phone) return songs.value
+  try {
+    const r = await api.phoneFolder(song.id)
+    if (r?.songs?.length) return r.songs
+  } catch {
+    /* la lista que se ve */
+  }
+  return songs.value
+}
+async function play(song) {
   if (playingId.value === song.id) return player.toggle()
-  player.setQueue(songs.value, song.id, origin.value)
+  player.setQueue(await queueFor(song), song.id, origin.value)
+}
+
+// ------------------------------------------------- la música del teléfono
+async function givePermission() {
+  if (await askMusicPermission()) {
+    needPermission.value = false
+    await api.phoneScan().catch(() => null)
+    await load()
+  } else {
+    notify('Sin el permiso, DanPlay no puede ver la música del teléfono', 'info', 5)
+  }
+}
+async function rescan() {
+  loading.value = true
+  try {
+    const r = await api.phoneScan()
+    notify(`${r?.songs ?? 0} canciones en el teléfono`, 'ok', 3)
+  } catch (e) {
+    notify('No se pudo mirar la música: ' + errorMessage(e))
+  }
+  await load()
+}
+async function foldersDone(n) {
+  foldersOpen.value = false
+  notify(`${n} ${n === 1 ? 'canción' : 'canciones'} en las carpetas elegidas`, 'ok', 3)
+  await load()
 }
 
 function select(song) {
@@ -187,9 +269,9 @@ function select(song) {
 
 // ------------------------------------------------------------ el estudio
 const studyBar = ref(null)
-/** Lo cierra como su botón «Cerrar»: la canción vuelve a sonar normal. */
+/** Lo oculta como su botón «Ocultar»: lo que suena sigue igual. */
 function closeStudy() {
-  if (studyBar.value?.close) studyBar.value.close()
+  if (studyBar.value?.hide) studyBar.value.hide()
   else studyOpen.value = false
 }
 // deslizar la cabecera del estudio hacia abajo lo cierra
@@ -214,6 +296,11 @@ function studyUp() {
   if (dy > 110 || (fast && dy > 30)) {
     el.style.transform = 'translateY(100%)'
     closeStudy()
+    // oculto se queda montado: al volver a verlo, en su sitio
+    setTimeout(() => {
+      el.style.transform = ''
+      el.style.transition = ''
+    }, 300)
   } else {
     el.style.transform = ''
     setTimeout(() => (el.style.transition = ''), 300)
@@ -221,9 +308,10 @@ function studyUp() {
 }
 
 /** Abre la canción en el estudio (sonando o no). */
-function study(song) {
-  if (playingId.value !== song.id) player.setQueue(songs.value, song.id, origin.value)
+async function study(song) {
+  if (playingId.value !== song.id) player.setQueue(await queueFor(song), song.id, origin.value)
   fullOpen.value = false
+  studyActive.value = true
   studyOpen.value = true
 }
 
@@ -408,6 +496,22 @@ function listMenu(ev) {
 function songMenu(ev, song) {
   const sounding = playingId.value === song.id
   const fav = songs.value.find((s) => s.id === song.id)?.favorite ?? song.favorite
+  if (song.phone || view.value.kind === 'phone') {
+    // una canción del teléfono: sonar y estudiar (las listas y las favoritas
+    // son de las pistas traídas)
+    return openMenu(
+      ev,
+      [
+        {
+          label: sounding && player.state.playing ? 'Pausar' : 'Reproducir',
+          icon: sounding && player.state.playing ? 'pause' : 'play',
+          action: () => play(song)
+        },
+        { label: 'Estudiar', icon: 'academic', action: () => study(song) }
+      ],
+      song.title || song.file
+    )
+  }
   openMenu(
     ev,
     [
@@ -451,6 +555,7 @@ function goToOrigin() {
   const o = player.origin.value
   if (o?.kind === 'list' && o.id != null) go({ kind: 'list', id: o.id, name: o.label })
   else if (o?.kind === 'favorites') go({ kind: 'favorites' })
+  else if (o?.kind === 'phone') go({ kind: 'phone' })
   else go({ kind: 'all' })
   const id = playingId.value
   if (id != null) selectedId.value = id
@@ -461,13 +566,18 @@ function openSettings() {
   settingsOpen.value = true
 }
 
+function openAbout() {
+  menuOpen.value = false
+  aboutOpen.value = true
+}
+
 function help() {
   menuOpen.value = false
   ask({
     kind: 'alert',
     title: 'Cómo traer pistas de la PC',
     message:
-      'En DanPlay de la PC, abre el modo estudio de una canción separada y, en el menú ⋯ de las pistas, elige «Llevar al celular». Sale un archivo .danpista en la carpeta «Celular» de tu biblioteca.',
+      'En DanPlay de la PC, abre el modo estudio de una canción separada y, en el menú ⋯ de las pistas, elige «Convertir a DanPista (para el celular)». Sale un archivo .danpista en la carpeta «Celular» de tu biblioteca.',
     detail:
       'Pásalo al teléfono como quieras (WhatsApp, Drive, cable) y tócalo: «Abrir con DanPlay». O aquí, en el menú, «Importar pistas».',
     okLabel: 'Entendido'
@@ -491,6 +601,7 @@ window.__danplayAtras = () => {
   else if (fullOpen.value) fullOpen.value = false
   else if (detailsOpen.value) detailsOpen.value = false
   else if (settingsOpen.value) settingsOpen.value = false
+  else if (aboutOpen.value) aboutOpen.value = false
   else if (menuOpen.value) menuOpen.value = false
   else if (studyOpen.value) closeStudy()
   else if (editing.value) editing.value = false
@@ -609,18 +720,47 @@ onUnmounted(() => delete window.__danplayAbrir)
         </template>
       </div>
 
-      <Loading v-if="loading && !songs.length" text="Leyendo tus pistas…" />
+      <div v-if="view.kind === 'phone' && !needPermission" class="m-list-head">
+        <button type="button" class="m-chip-btn" @click="foldersOpen = true">
+          <Icon n="folderOpen" :t="16" /> Carpetas
+        </button>
+        <button type="button" class="m-chip-btn" @click="rescan">
+          <Icon n="refresh" :t="16" /> Buscar música nueva
+        </button>
+      </div>
+
+      <div v-if="view.kind === 'phone' && needPermission" class="m-empty">
+        <EmptyState
+          icon="music"
+          title="La música de tu teléfono"
+          hint="Para tocar aquí tus canciones (MP3, M4A, FLAC…), Android pide permiso de «Música y audio». DanPlay solo las lee: no sube nada a ningún sitio."
+        />
+        <button type="button" class="m-chip-btn m-primary" @click="givePermission">
+          <Icon n="check" :t="16" /> Dar permiso
+        </button>
+      </div>
+      <Loading v-else-if="loading && !songs.length" text="Leyendo tus pistas…" />
       <EmptyState
         v-else-if="!songs.length && query"
         icon="search"
         title="Nada con eso"
         :hint="'No hay pistas con «' + query + '»'"
       />
+      <div v-else-if="!songs.length && view.kind === 'phone'" class="m-empty">
+        <EmptyState
+          icon="music"
+          title="No hay música en las carpetas elegidas"
+          hint="Elige las carpetas del teléfono donde guardas tu música."
+        />
+        <button type="button" class="m-chip-btn m-primary" @click="foldersOpen = true">
+          <Icon n="folderOpen" :t="16" /> Elegir carpetas
+        </button>
+      </div>
       <div v-else-if="!songs.length && view.kind === 'all'" class="m-empty">
         <EmptyState
           icon="mixer"
           title="Todavía no hay pistas en el celular"
-          hint="En DanPlay de la PC: el menú de las pistas de una canción › «Llevar al celular». Pasa el archivo .danpista al teléfono (WhatsApp, Drive, cable) y tócalo, o tráelo desde aquí."
+          hint="En DanPlay de la PC: el menú de las pistas de una canción › «Convertir a DanPista». Pasa el archivo .danpista al teléfono (WhatsApp, Drive, cable) y tócalo, o tráelo desde aquí."
         />
         <button type="button" class="m-chip-btn m-primary" @click="importar">
           <Icon n="download" :t="16" /> Importar pistas
@@ -673,12 +813,23 @@ onUnmounted(() => delete window.__danplayAbrir)
         :lists="lists"
         :total="total"
         :favorites="favorites"
+        :phone="phoneTotal"
         @go="go"
         @new-list="newList()"
         @import="importar"
         @settings="openSettings"
         @help="help"
+        @about="openAbout"
       />
+    </Drawer>
+    <Drawer
+      :open="foldersOpen"
+      side="right"
+      title="Carpetas con música"
+      width="min(420px, 94vw)"
+      @close="foldersOpen = false"
+    >
+      <MovilFolders v-if="foldersOpen" @done="foldersDone" />
     </Drawer>
     <Drawer
       :open="settingsOpen"
@@ -688,6 +839,15 @@ onUnmounted(() => delete window.__danplayAbrir)
       @close="settingsOpen = false"
     >
       <MovilSettings :total="total" />
+    </Drawer>
+    <Drawer
+      :open="aboutOpen"
+      side="left"
+      title="Acerca de DanPlay"
+      width="min(460px, 100vw)"
+      @close="aboutOpen = false"
+    >
+      <MovilAbout v-if="aboutOpen" />
     </Drawer>
     <Drawer
       :open="detailsOpen"
@@ -716,9 +876,17 @@ onUnmounted(() => delete window.__danplayAbrir)
 
     <transition name="study">
       <StudyBar
-        v-if="studyOpen"
+        v-if="studyActive"
+        v-show="studyOpen"
         ref="studyBar"
-        @close="studyOpen = false"
+        :visible="studyOpen"
+        @hide="studyOpen = false"
+        @exit="
+          () => {
+            studyOpen = false
+            studyActive = false
+          }
+        "
         @pointerdown="studyDown"
         @pointermove="studyMove"
         @pointerup="studyUp"
@@ -729,7 +897,8 @@ onUnmounted(() => delete window.__danplayAbrir)
       v-model:full="fullOpen"
       :study="studyOpen"
       :song="playingSong"
-      @toggle-study="studyOpen = !studyOpen"
+      :study-active="studyActive"
+      @toggle-study="toggleStudy"
       @lyrics="lyrics(playingSong)"
       @favorite="toggleFavorite"
       @go-to-origin="goToOrigin"

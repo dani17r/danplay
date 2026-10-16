@@ -24,9 +24,12 @@ import { openMenu } from '../composables/useContextMenu.js'
 import { formatTime } from '../utils/format.js'
 import Icon from '../components/Icon.vue'
 import CoverArt from '../components/ui/CoverArt.vue'
+import SliderField from '../components/ui/SliderField.vue'
 
 const props = defineProps({
   study: Boolean,
+  /** el estudio sigue puesto aunque no se vea */
+  studyActive: Boolean,
   /** el reproductor entero, abierto */
   full: Boolean,
   /** la canción que suena, como está en la lista (favorita, tono, bpm) */
@@ -137,6 +140,22 @@ const sheetStyle = computed(() =>
     ? { transform: `translateY(${dragY.value}px)`, transition: dragging.value ? 'none' : '' }
     : {}
 )
+
+// ------------------------------------------------------------- el volumen
+// A mano, siempre a la vista en el reproductor entero (antes solo en un
+// menú): bajar la app un poco sin tocar el volumen del teléfono, o subirla
+// de lo que viene cuando la pista está baja.
+const vol = computed({
+  get: () => volume.value,
+  set: (v) => player.setVolume(Math.round(v * 100) / 100)
+})
+let beforeMute = 1
+function toggleMute() {
+  if (volume.value > 0) {
+    beforeMute = volume.value
+    player.setVolume(0)
+  } else player.setVolume(beforeMute || 1)
+}
 
 // ------------------------------------------------------------- menús
 const pctText = (v) => Math.round(v * 100) + ' %'
@@ -451,6 +470,28 @@ function lyricsNow() {
           </button>
         </div>
 
+        <div class="m-volume">
+          <button
+            type="button"
+            class="m-icon"
+            :aria-label="volume > 0 ? 'Silenciar la app' : 'Volver a oírla'"
+            @click="toggleMute"
+          >
+            <Icon :n="volume > 0 ? 'volume' : 'mute'" :t="22" />
+          </button>
+          <SliderField
+            v-model="vol"
+            class="m-volume-slider"
+            :min="0"
+            :max="MAX_VOLUME"
+            :step="0.01"
+            :mark="1"
+            aria-label="Volumen de la app"
+            :value-text="pctText(volume)"
+          />
+          <span class="m-volume-pct mono">{{ pctText(volume) }}</span>
+        </div>
+
         <div class="m-modes">
           <button
             type="button"
@@ -473,7 +514,12 @@ function lyricsNow() {
         </div>
 
         <div class="m-tiles">
-          <button type="button" class="m-tile" :class="{ on: study }" @click="studyNow">
+          <button
+            type="button"
+            class="m-tile"
+            :class="{ on: study, active: studyActive && !study }"
+            @click="studyNow"
+          >
             <Icon n="academic" :t="22" /><span>Estudio</span>
           </button>
           <button type="button" class="m-tile" @click="lyricsNow">

@@ -1,7 +1,8 @@
 <script setup>
 /**
  * El menú de lado del celular (se abre con ☰ arriba a la izquierda):
- * qué se ve en la lista —todas, las favoritas o una lista— y lo demás de la
+ * qué se ve en la lista —las pistas, las favoritas, una lista o la música
+ * del teléfono— y lo demás de la
  * app: traer pistas, los ajustes y la ayuda.
  */
 import Icon from '../components/Icon.vue'
@@ -13,9 +14,11 @@ defineProps({
   view: { type: Object, required: true },
   lists: { type: Array, default: () => [] },
   total: { type: Number, default: 0 },
-  favorites: { type: Number, default: 0 }
+  favorites: { type: Number, default: 0 },
+  /** las canciones del teléfono (0: aún no se miró) */
+  phone: { type: Number, default: 0 }
 })
-const emit = defineEmits(['go', 'newList', 'import', 'settings', 'help'])
+const emit = defineEmits(['go', 'newList', 'import', 'settings', 'help', 'about'])
 </script>
 
 <template>
@@ -45,6 +48,16 @@ const emit = defineEmits(['go', 'newList', 'import', 'settings', 'help'])
       @click="emit('go', { kind: 'favorites' })"
     >
       <Icon n="heartFull" :t="20" /><span>Favoritas</span><em>{{ favorites }}</em>
+    </button>
+    <button
+      type="button"
+      class="m-nav-item"
+      :class="{ on: view.kind === 'phone' }"
+      :aria-current="view.kind === 'phone' ? 'page' : undefined"
+      @click="emit('go', { kind: 'phone' })"
+    >
+      <Icon n="folderOpen" :t="20" /><span>Música del teléfono</span
+      ><em v-if="phone">{{ phone }}</em>
     </button>
 
     <div class="m-nav-title">
@@ -79,5 +92,9 @@ const emit = defineEmits(['go', 'newList', 'import', 'settings', 'help'])
     <button type="button" class="m-nav-item" @click="emit('help')">
       <Icon n="info" :t="20" /><span>Cómo traer pistas de la PC</span>
     </button>
+    <button type="button" class="m-nav-item" @click="emit('about')">
+      <Icon n="music" :t="20" /><span>Acerca de DanPlay</span>
+    </button>
+    <p class="m-nav-credit">DanPlay · por <strong>Daniel Rangel</strong></p>
   </nav>
 </template>

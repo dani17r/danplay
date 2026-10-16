@@ -13,12 +13,15 @@
 //! Un hilo lleva la cola y el motor; las ordenes le llegan por un canal y el
 //! estado sale por el evento al momento y cada 250 ms mientras suena.
 use crate::library::Library;
+use danplay_motor::Engine;
 use danplay_motor::beats::{self, BeatGrid, FrameAnalyzer};
 use danplay_motor::bundle;
 use danplay_motor::decode::Part;
-use danplay_motor::metro::{Metro, MetronomeSettings};
-use danplay_motor::queue::{PlaybackState, Repeat, Track, after_end, step_index};
-use danplay_motor::{ClickPlan, Engine};
+use danplay_motor::metro::{Metro, MetronomeSettings, click_plan};
+use danplay_motor::output::OutputConfig;
+use danplay_motor::queue::{LoopEnd, PlaybackState, Repeat, Track, after_end, step_index};
+use danplay_motor::render::CuePlan;
+use danplay_motor::spec::{Clips, CueSpec, RoutingSpec};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -41,6 +44,9 @@ pub struct StemTrack {
     pub pan: f32,
     #[serde(default = "yes")]
     pub on: bool,
+    /// Por donde sale (el bus del enrutado); sin el, por donde la cancion.
+    #[serde(default)]
+    pub bus: Option<u8>,
 }
 
 const fn one() -> f32 {
@@ -67,11 +73,21 @@ pub enum Command {
     Volume(f32),
     Speed(f32),
     Pitch(f32),
-    Loops(Vec<(f64, f64)>, bool),
+    Loops(Vec<(f64, f64)>, LoopEnd),
     Stems(Option<Vec<StemTrack>>),
     Metronome(MetronomeSettings),
     /// Llego la rejilla de ese archivo (de la PC o del analisis de aqui).
     Grid(String),
+    /// Por donde sale cada cosa (izquierda, derecha, los dos lados...).
+    Routing(RoutingSpec),
+    /// Que salida de audio abrir.
+    Output(OutputConfig),
+    /// Las voces guia de la cancion `song` y su volumen.
+    Cues {
+        song: String,
+        cues: Vec<CueSpec>,
+        volume: f32,
+    },
 }
 
 type Grids = Arc<Mutex<HashMap<String, Arc<BeatGrid>>>>;
@@ -120,11 +136,15 @@ impl Player {
             speed: 1.0,
             pitch: 0.0,
             loops: Vec::new(),
-            defer: false,
+            loop_end: LoopEnd::Repeat,
             stems: None,
             metro: Metro::default(),
             error: String::new(),
             last: None,
+            routing: RoutingSpec::default(),
+            cues: Vec::new(),
+            cue_volume: 1.0,
+            clips: Clips::default(),
         };
         let _ = std::thread::Builder::new()
             .name("danplay-cola".into())
@@ -182,12 +202,18 @@ struct Worker {
     speed: f32,
     pitch: f32,
     loops: Vec<(f64, f64)>,
-    defer: bool,
+    /// Que pasa al acabar el ultimo tramo.
+    loop_end: LoopEnd,
     stems: Option<Vec<StemTrack>>,
     metro: Metro,
     error: String,
     /// Lo ultimo que se conto (para no repetir el evento si nada cambio).
     last: Option<PlaybackState>,
+    /// Por donde sale cada cosa, y las voces guia de la que suena.
+    routing: RoutingSpec,
+    cues: Vec<CueSpec>,
+    cue_volume: f32,
+    clips: Clips,
 }
 
 impl Worker {
@@ -211,6 +237,10 @@ impl Worker {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "una rama corta por orden, como en la PC"
+    )]
     fn handle(&mut self, c: Command) {
         match c {
             Command::SetQueue {
@@ -250,6 +280,9 @@ impl Worker {
                 } else if self.engine.state().playing {
                     self.engine.pause();
                 } else {
+                    // parado al acabar los tramos y aun sin recolocar: desde
+                    // el primero, no desde el principio de la cancion
+                    self.rewind_if_segments_done();
                     self.engine.play();
                 }
             }
@@ -270,15 +303,15 @@ impl Worker {
                 self.pitch = v.clamp(-12.0, 12.0);
                 self.engine.set_pitch(self.pitch);
             }
-            Command::Loops(list, defer) => {
+            Command::Loops(list, end) => {
                 self.loops = list;
-                self.defer = defer;
-                self.engine
-                    .set_segments(if defer { &[] } else { &self.loops });
+                self.loop_end = end;
+                self.engine.set_segments(&self.loops, end);
             }
             Command::Stems(tracks) => {
                 self.stems = tracks;
                 self.apply_mix();
+                self.apply_routing();
             }
             Command::Metronome(settings) => {
                 let path = self.loaded.clone().unwrap_or_default();
@@ -298,7 +331,46 @@ impl Worker {
                     self.apply_click();
                 }
             }
+            Command::Routing(spec) => {
+                self.routing = spec;
+                self.apply_routing();
+            }
+            Command::Output(config) => self.engine.set_output_config(config),
+            Command::Cues { song, cues, volume } => {
+                if self.loaded.as_deref() == Some(song.as_str()) {
+                    // las que vinieron en el .danpista van dentro de su
+                    // carpeta (`guias/…`)
+                    let base = Path::new(&song);
+                    self.cues = cues
+                        .into_iter()
+                        .map(|mut c| {
+                            if Path::new(&c.path).is_relative() && base.is_dir() {
+                                c.path = base.join(&c.path).to_string_lossy().into_owned();
+                            }
+                            c
+                        })
+                        .collect();
+                    self.cue_volume = volume;
+                    let plan = self.clips.plan(&self.cues, self.cue_volume);
+                    self.engine.set_cues(plan);
+                }
+            }
         }
+    }
+
+    /// Por donde sale cada parte: la del estudio (su bus) o la de la cancion.
+    fn apply_routing(&self) {
+        let parts: Vec<Option<u8>> = self
+            .parts
+            .iter()
+            .map(|p| {
+                self.stems
+                    .as_ref()
+                    .and_then(|list| list.iter().find(|t| t.path == *p))
+                    .and_then(|t| t.bus)
+            })
+            .collect();
+        self.engine.set_routing(self.routing.routing(&parts));
     }
 
     /// Pone a sonar (o deja lista) la pista de la cola en `index`.
@@ -309,35 +381,59 @@ impl Worker {
             self.loaded = None;
             return;
         };
+        // una canción del teléfono: el archivo tal cual, como una sola parte
+        let file = track
+            .path
+            .clone()
+            .filter(|p| Path::new(p).is_file())
+            .or_else(|| self.lib.musica.get(track.id).map(|s| s.path));
         let folder = track.path.filter(|p| Path::new(p).is_dir()).or_else(|| {
             self.lib
                 .folder(track.id)
                 .map(|f| f.to_string_lossy().into_owned())
         });
-        let Some(folder) = folder else {
-            self.error = "esa pista ya no está en el celular".into();
+        let Some(folder) = folder.or(file.clone()) else {
+            self.error = "esa canción ya no está en el celular".into();
             self.loaded = None;
             return;
         };
-        match self.engine.load(Path::new(&folder)) {
+        let opened = match &file {
+            Some(path) if !Path::new(&folder).is_dir() => {
+                let part = bundle::PartFile {
+                    source: "song".into(),
+                    name: track.title.clone(),
+                    path: path.into(),
+                };
+                self.engine
+                    .load_files(&track.id.to_string(), &[part], track.duration)
+            }
+            _ => self.engine.load(Path::new(&folder)),
+        };
+        match opened {
             Ok(loaded) => {
                 self.duration = loaded.duration;
-                self.parts = bundle::parts(Path::new(&folder))
-                    .map(|p| {
-                        p.into_iter()
-                            .map(|p| p.path.to_string_lossy().into_owned())
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                self.parts = if Path::new(&folder).is_dir() {
+                    bundle::parts(Path::new(&folder))
+                        .map(|p| {
+                            p.into_iter()
+                                .map(|p| p.path.to_string_lossy().into_owned())
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                } else {
+                    vec![folder.clone()]
+                };
                 self.loaded = Some(folder.clone());
                 self.engine.set_speed(self.speed);
                 self.engine.set_pitch(self.pitch);
-                if !self.defer {
-                    self.engine.set_segments(&self.loops);
-                }
-                // otra cancion: la mezcla del estudio era de la anterior
+                self.engine.set_segments(&self.loops, self.loop_end);
+                // otra cancion: la mezcla del estudio y las guias eran de la
+                // anterior (la interfaz manda las suyas)
                 self.stems = None;
                 self.apply_mix();
+                self.apply_routing();
+                self.cues.clear();
+                self.engine.set_cues(CuePlan::default());
                 let grid = lock(&self.grids)
                     .get(&folder)
                     .map(|g| (folder.clone(), Arc::clone(g)));
@@ -380,18 +476,27 @@ impl Worker {
             .set_click(click_plan(&self.metro, self.duration));
     }
 
-    /// Al acabar sola: los tramos que esperaban al final, o lo que diga la
-    /// repeticion (como en la PC).
+    /// Si se paro porque se acabaron los tramos: a esperar al principio del
+    /// primero, en pausa. True si era eso.
+    fn rewind_if_segments_done(&self) -> bool {
+        let es = self.engine.state();
+        if !(es.ended && es.segments_done) {
+            return false;
+        }
+        if let Some(&(a, _)) = self.loops.first() {
+            self.engine.seek(a);
+        }
+        true
+    }
+
+    /// Al acabar sola: si fueron los tramos (parar al acabar), de vuelta al
+    /// primero y en pausa; si no, lo que diga la repeticion (como en la PC).
     fn check_end(&mut self) {
         let es = self.engine.state();
         if !es.ended || self.loaded.is_none() {
             return;
         }
-        if self.defer && !self.loops.is_empty() {
-            self.defer = false;
-            self.engine.set_segments(&self.loops);
-            self.engine.seek(self.loops[0].0);
-            self.engine.play();
+        if self.rewind_if_segments_done() {
             return;
         }
         if let Some(mut i) = after_end(self.items.len(), self.index, self.repeat, self.shuffle) {
@@ -443,7 +548,7 @@ impl Worker {
             loop_a,
             loop_b,
             loops: self.loops.iter().map(|&(a, b)| [a, b]).collect(),
-            loop_defer: self.defer,
+            loop_end: self.loop_end,
             pitch: self.pitch,
             metronome: self.metro.state(),
             stems: self.stems.is_some(),
@@ -481,68 +586,20 @@ fn random_other(length: usize, index: usize) -> usize {
     }
 }
 
-/// Los golpes del clic a lo largo de la cancion: los de la rejilla ajustada
-/// si la sigue, o al tempo a mano desde su primer «1» (como `clickTimes` de
-/// la interfaz).
-pub fn click_plan(metro: &Metro, duration: f64) -> ClickPlan {
-    let settings = &metro.settings;
-    let st = metro.state();
-    let mut plan = ClickPlan {
-        on: settings.on,
-        meter: st.meter,
-        bpm: st.bpm,
-        volume: settings.volume,
-        sound: settings.sound,
-        ..ClickPlan::default()
-    };
-    if !settings.on {
-        return plan;
-    }
-    match (&metro.effective, metro.follows()) {
-        (Some(g), true) => {
-            let mut i = 0;
-            loop {
-                let t = g.beat_time(i);
-                if !t.is_finite() || t > duration || i > 50_000 {
-                    break;
-                }
-                plan.beats.push(t);
-                plan.accents.push(g.is_downbeat(i));
-                i += 1;
-            }
-        }
-        (grid, _) => {
-            let period = 60.0 / f64::from(st.bpm.clamp(10.0, 600.0));
-            let start = grid
-                .as_ref()
-                .map_or(0.0, |g| g.beat_time(g.first_downbeat).min(duration));
-            let first = start - (start / period).floor() * period;
-            let offset = ((start - first) / period).round() as i64;
-            let meter = i64::from(st.meter);
-            let mut k = 0i64;
-            let mut t = first;
-            while t <= duration && k < 50_000 {
-                plan.beats.push(t);
-                plan.accents
-                    .push(meter > 0 && (k - offset).rem_euclid(meter) == 0);
-                k += 1;
-                t = first + k as f64 * period;
-            }
-        }
-    }
-    plan
-}
-
 /// El pulso de la pista con el analisis de la PC (`beats.rs`), sobre la
 /// suma de sus partes a mono y a `beats::RATE` (la mitad de 44,1 kHz).
 pub fn analyze(folder: &Path, hint_bpm: Option<f32>) -> Result<BeatGrid, String> {
-    let files = bundle::parts(folder)?;
     let mut parts = Vec::new();
-    for f in &files {
-        let bytes =
-            std::fs::read(&f.path).map_err(|e| format!("no se pudo leer «{}»: {e}", f.name))?;
-        let ext = f.path.extension().and_then(|e| e.to_str()).unwrap_or("ogg");
-        parts.push(Part::open(Arc::from(bytes), ext)?);
+    if folder.is_file() {
+        // una canción del teléfono: el archivo entero
+        parts.push(Part::open_file(folder, 44_100, 0)?);
+    } else {
+        for f in &bundle::parts(folder)? {
+            let bytes =
+                std::fs::read(&f.path).map_err(|e| format!("no se pudo leer «{}»: {e}", f.name))?;
+            let ext = f.path.extension().and_then(|e| e.to_str()).unwrap_or("ogg");
+            parts.push(Part::open(Arc::from(bytes), ext)?);
+        }
     }
     let mut frames = FrameAnalyzer::new();
     let mut buf = vec![0f32; 8_192];

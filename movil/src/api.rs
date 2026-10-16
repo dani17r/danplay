@@ -213,6 +213,71 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
                 .map_err(|e| (404, e))?;
             Ok(json!({"ok": true, "count": count}))
         }
+        // ---- la música del teléfono (ver musica.rs)
+        ("GET", ["phone", "folders"]) => Ok(lib.musica.folders()),
+        ("PUT", ["phone", "folders"]) => {
+            let folders = body
+                .get("folders")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            Ok(json!({"songs": lib.musica.set_folders(folders)}))
+        }
+        ("POST", ["phone", "scan"]) => Ok(json!({"songs": lib.musica.scan()})),
+        ("GET", ["phone", "songs"]) => {
+            let words: Vec<String> = query(q, "q")
+                .map(|s| plain(&decode(s)))
+                .unwrap_or_default()
+                .split_whitespace()
+                .map(str::to_string)
+                .collect();
+            let all = lib.musica.songs();
+            let songs: Vec<Value> = all
+                .iter()
+                .filter(|s| {
+                    let hay = plain(&format!("{} {} {}", s.title, s.artist, s.album));
+                    words.iter().all(|w| hay.contains(w.as_str()))
+                })
+                .map(crate::musica::to_json)
+                .collect();
+            Ok(json!({"total": all.len(), "count": songs.len(), "songs": songs}))
+        }
+        ("GET", ["phone", "folder", _]) => {
+            let list: Vec<Value> = lib
+                .musica
+                .folder_of(id(2).ok_or_else(missing)?)
+                .iter()
+                .map(crate::musica::to_json)
+                .collect();
+            Ok(json!({"songs": list}))
+        }
+        ("GET", ["song", n]) if n.starts_with('-') => lib
+            .musica
+            .song(id(1).ok_or_else(missing)?, false)
+            .ok_or_else(missing),
+        ("PUT", ["song", n, "study"]) if n.starts_with('-') => lib
+            .musica
+            .set_study(id(1).ok_or_else(missing)?, &body)
+            .ok_or_else(missing),
+        ("GET", ["song", n, "waveform"]) if n.starts_with('-') => {
+            let buckets = query(q, "buckets")
+                .and_then(|b| b.parse().ok())
+                .unwrap_or(800usize);
+            lib.musica
+                .waveform(id(1).ok_or_else(missing)?, buckets)
+                .ok_or((422, "no se pudo leer esa canción".into()))
+        }
+        ("GET", ["song", n, "beats"]) if n.starts_with('-') => {
+            Err((422, "se calcula aquí (analyze_beats)".into()))
+        }
+        ("GET", ["song", n, "stems"]) if n.starts_with('-') => {
+            Err((404, "esta canción no tiene pistas separadas".into()))
+        }
         ("GET", ["separate"]) => Ok(json!({
             "ok": false,
             "reason": "en el celular no se separa: se separa en la PC y se trae aquí",
