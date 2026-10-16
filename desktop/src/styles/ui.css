@@ -2487,6 +2487,520 @@ tbody tr.flash {
   pointer-events: none;
 }
 
+/* ---------- el estudio, desde 1.28 ----------
+   La barra de los tramos va pegada a la onda en que se eligen (antes vivia
+   en la primera columna, lejos), con «Al acabar: repetir · parar · seguir»
+   a la vista; a la derecha, la guia hablada y el zoom de la onda. */
+.study-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-height: 26px;
+}
+.study-bar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.study-bar .study-loop {
+  margin-left: 0;
+  font-size: 11.5px;
+}
+.study-ends {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+.study-ends-label {
+  font-size: 10.5px;
+  color: var(--muted2);
+  margin-right: 3px;
+}
+.study .study-end {
+  padding: 3px 7px;
+}
+.study-view {
+  margin-left: auto;
+}
+.study .study-zoom {
+  padding: 3px 6px;
+}
+.study-head .study-outputs {
+  margin-left: auto;
+}
+.study-head .study-outputs + .study-size {
+  margin-left: 0;
+}
+.study .study-hide {
+  font-weight: 600;
+}
+/* el tono, dicho en palabras: «medio tono arriba» */
+.study-pitch-now {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.study-pitch-words {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  line-height: 1.2;
+}
+.study-pitch-words .study-pitch-n {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+}
+.study-pitch-now.on .study-pitch-n {
+  color: var(--accent);
+}
+.study-pitch-words small {
+  font-size: 10px;
+  color: var(--muted2);
+}
+.study-pitch-now .btn.mini {
+  min-width: 30px;
+  justify-content: center;
+  font-size: 14px;
+}
+.study-steps .study-metro-label {
+  min-width: 0;
+}
+/* el clic: de dónde sale (automático, propio, a mano) */
+.study-modes {
+  gap: 2px;
+}
+.study .study-mode {
+  flex: 1;
+  justify-content: center;
+}
+.study .study-metro-toggle {
+  min-width: 92px;
+  justify-content: center;
+}
+.study-more-toggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.study-more-toggle:hover {
+  color: var(--text);
+}
+.study .study-edit-beats.on {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+/* marcadores con casilla: varios, seguidos */
+.study-check {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin-right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1.5px solid var(--border2);
+  color: var(--bg);
+}
+.study-check.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.study-marker.checked {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.study-col-foot .study-ends {
+  border: none;
+  padding: 0;
+}
+.study .study-play-checked {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.study-sub {
+  margin: 6px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted2);
+  font-weight: 600;
+}
+.study-cue .study-pick-ico {
+  color: var(--accent);
+}
+
+/* la onda: guías, pulsos para ajustar y la tira de toda la canción */
+.tl-cue {
+  position: absolute;
+  bottom: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 120px;
+  padding: 1px 5px 1px 3px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  line-height: 1.2;
+  color: var(--bg);
+  background: var(--accent);
+  border-left: 2px solid var(--text);
+  transform: translateX(-1px);
+  z-index: 3;
+  cursor: pointer;
+}
+.tl-cue-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-edit-beats .tl-box {
+  cursor: copy;
+}
+.tl-beat {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  margin-left: -4.5px;
+  cursor: ew-resize;
+  z-index: 4;
+}
+.tl-beat::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 30%;
+  bottom: 0;
+  width: 1.5px;
+  background: color-mix(in srgb, var(--text) 70%, transparent);
+}
+.tl-beat.one::before {
+  top: 0;
+  background: var(--accent);
+  width: 2px;
+}
+.tl-beat:hover::before,
+.tl-beat.moving::before {
+  background: var(--amber);
+  width: 3px;
+  left: 3px;
+}
+.tl-overview {
+  position: relative;
+  height: 8px;
+  margin-top: 3px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 8%, var(--panel));
+  cursor: pointer;
+}
+.tl-overview-view {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  border: 1px solid var(--accent);
+}
+.tl-overview-head {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+}
+
+/* el reproductor: el estudio sigue puesto aunque no se vea */
+.pl-study.active {
+  color: var(--accent);
+  position: relative;
+}
+.pl-study.active::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ancho medio: las columnas del estudio, en pestañas */
+.study-panels {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.study-panel-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.study-panel-tab:hover {
+  color: var(--text);
+}
+.study-panel-tab.on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.study-panel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.study-body.tabbed {
+  display: flex;
+  flex-direction: column;
+}
+.study-body.tabbed .study-col {
+  display: none;
+  padding-left: 0;
+  border-left: none;
+}
+.study-body.tabbed .study-col.active {
+  display: flex;
+  flex: 1;
+}
+.study-body.tabbed .study-col-title {
+  display: none;
+}
+
+/* las salidas: por donde suena cada cosa */
+.outs {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 2px 16px;
+}
+.outs-lead,
+.outs-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.outs-hint {
+  font-size: 11px;
+  color: var(--muted2);
+}
+.outs-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.outs-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--muted2);
+}
+.outs-device {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+.outs-now {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.outs-now.warn {
+  color: var(--amber);
+}
+.outs-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.outs-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+.outs-preset:hover {
+  border-color: var(--border2);
+}
+.outs-preset.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.outs-preset-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.outs-preset.on .outs-preset-name {
+  color: var(--accent);
+}
+.outs-preset-note {
+  font-size: 11px;
+  color: var(--muted2);
+  line-height: 1.4;
+}
+.outs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.outs-row-name {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* la guia hablada: escribirla (y una voz) o grabarla */
+.cue-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.cue-card {
+  width: min(460px, 94%);
+  max-height: 96%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  box-shadow: 0 18px 50px var(--shadow-soft);
+}
+.cue-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.cue-head .ico {
+  color: var(--accent);
+}
+.cue-at {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.cue-lead,
+.cue-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.cue-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cue-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cue-chips .chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.cue-chips .chip:hover {
+  color: var(--text);
+  border-color: var(--border2);
+}
+.cue-rec {
+  align-self: flex-start;
+}
+.cue-rec.on {
+  background: var(--red);
+  border-color: var(--red);
+  color: var(--bg);
+}
+.cue-meter {
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+.cue-meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.08s linear;
+}
+.cue-note.warn {
+  color: var(--red);
+}
+.cue-get {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border2);
+  border-radius: 8px;
+}
+.cue-get .btn {
+  align-self: flex-start;
+}
+.cue-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cue-gap {
+  flex: 1;
+}
+
 /* ---------- letra sincronizada ---------- */
 .lrc {
   display: flex;

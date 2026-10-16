@@ -21,7 +21,7 @@ import { ask } from './useDialog.js'
  * @typedef {Object} QueueItem
  * @property {number} id
  * @property {string} title
- * @property {'separate'|'refine'} stage  la pasada rápida (y luego la buena), o solo mejorarlas
+ * @property {'separate'|'refine'|'max'|'reuse'} stage  la pasada rápida (y luego la buena), o solo mejorarlas
  * @property {number} [done]
  * @property {number} [total]
  * @property {string} [step]
@@ -31,7 +31,7 @@ import { ask } from './useDialog.js'
  * @property {number} seq
  * @property {number} id
  * @property {string} title
- * @property {'separate'|'refine'} stage
+ * @property {'separate'|'refine'|'max'|'reuse'} stage  `max`: más instrumentos; `reuse`: pistas de otro archivo
  * @property {boolean} ok
  * @property {string} [error]
  */
@@ -43,6 +43,9 @@ const IDLE = {
   /** lo que pesa el separador entero, y lo que falta por bajar */
   bytes: 0,
   pending: 0,
+  /** si hay máxima calidad (más instrumentos) y lo que falta por bajar de ella */
+  max: false,
+  max_pending: 0,
   installed: false,
   folder: 'Separadas',
   /** en qué se guardan las pistas, y si este ffmpeg sabe hacer Opus */
@@ -83,6 +86,8 @@ function adopt(r) {
     'bytes',
     'pending',
     'installed',
+    'max',
+    'max_pending',
     'folder',
     'format',
     'opus',
@@ -137,10 +142,19 @@ async function told(events) {
   if (!fresh.length) return
   for (const e of fresh) {
     if (!e.ok) {
-      const what = e.stage === 'refine' ? 'mejorar las pistas de' : 'separar'
+      const what =
+        e.stage === 'refine'
+          ? 'mejorar las pistas de'
+          : e.stage === 'max'
+            ? 'separar más instrumentos de'
+            : 'separar'
       notify(`No se pudo ${what} «${e.title}»: ${e.error}`)
     } else if (e.stage === 'refine') {
       notify(`Las pistas de «${e.title}» ya tienen la mejor calidad`, 'ok', 4)
+    } else if (e.stage === 'max') {
+      notify(`«${e.title}» ya tiene más instrumentos separados`, 'ok', 6)
+    } else if (e.stage === 'reuse') {
+      notify(`«${e.title}» ya estaba separada en otro archivo: se aprovechan sus pistas`, 'ok', 6)
     } else {
       notify(`«${e.title}» ya está separada en pistas`, 'ok', 6)
     }
@@ -178,16 +192,42 @@ function megas(bytes) {
 
 /**
  * Separa esas canciones (a la cola), con la mejor calidad: las que ya tienen
- * las pistas rápidas, solo se mejoran. La primera vez se pregunta antes:
- * hay que bajar el separador, y se dice cuánto pesa.
+ * las pistas rápidas, solo se mejoran. Con `max`, además la máxima calidad
+ * (más instrumentos: percusión aparte, guitarra eléctrica y acústica,
+ * teclados, cuerdas…), que tarda bastante más. La primera vez se pregunta
+ * antes: hay que bajar el separador, y se dice cuánto pesa.
  * @param {Array<{id: number, title?: string, file?: string}>} songs
+ * @param {{max?: boolean}} [opts]
  * @returns {Promise<boolean>} si se pidió
  */
-async function request(songs) {
+async function request(songs, opts = {}) {
   if (!state.known) await refresh()
   if (!state.ok) {
     notify('No se puede separar en pistas: ' + (state.reason || 'el núcleo no responde'))
     return false
+  }
+  if (opts.max) {
+    if (!state.max) {
+      notify('Esta instalación no tiene la separación de máxima calidad')
+      return false
+    }
+    const ok = await ask({
+      kind: 'confirm',
+      title: 'Más instrumentos',
+      message:
+        'La máxima calidad separa más: la percusión aparte de la batería (congas, pandereta…), ' +
+        'la voz principal y los coros, guitarra eléctrica y acústica, piano, órgano, teclados, ' +
+        'cuerdas, metales y vientos (los que suenen).',
+      detail:
+        'Es lenta y pesada: unos 15-25 minutos por canción en un portátil, en segundo plano, ' +
+        'y necesita unos 5 GB de memoria libre. ' +
+        (state.max_pending
+          ? `La primera vez se baja su separador (${megas(state.max_pending)}, una sola vez). `
+          : '') +
+        'Mientras, las pistas de ahora siguen sonando.',
+      okLabel: 'Separar con más instrumentos'
+    })
+    if (!ok) return false
   }
   if (state.pending > 0) {
     const ok = await ask({
@@ -207,7 +247,13 @@ async function request(songs) {
   let asked = 0
   for (const song of songs) {
     try {
-      adopt(await api.separate(song.id))
+      const r = opts.max ? await api.separate(song.id, { max: true }) : await api.separate(song.id)
+      adopt(r)
+      // ya tenía sus pistas en otro archivo de la misma canción: listo
+      if (r?.reused) {
+        schedule(100)
+        continue
+      }
       asked++
     } catch (e) {
       notify(`No se pudo pedir «${song.title || song.file}»: ${errorMessage(e)}`)

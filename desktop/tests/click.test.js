@@ -200,14 +200,18 @@ describe('clic automático', () => {
   })
 })
 
+/** El botón de un modo del clic (Automático, Propio, A mano). */
+const modo = (w, name) => w.findAll('.study-mode').find((b) => b.text() === name)
+
 describe('clic a mano', () => {
   it('el tempo puesto sigue igual al pasar de canción, sin esperar a nada', async () => {
     const w = await montar()
     await w.find('.study-metro-toggle').trigger('click')
     await settle()
-    await w.find('.study-metro-auto').trigger('click')
+    await modo(w, 'A mano').trigger('click')
     await settle()
-    expect(w.find('.study-metro-auto').attributes('aria-checked')).toBe('false')
+    expect(modo(w, 'A mano').attributes('aria-checked')).toBe('true')
+    expect(modo(w, 'Automático').attributes('aria-checked')).toBe('false')
     expect(w.text()).toContain('a mano: el mismo tempo en todas las canciones')
     // al pasar a mano se queda el que se oía: el clic no cambia de golpe
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(
@@ -243,11 +247,11 @@ describe('clic a mano', () => {
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { shift: 2 } }) })
     ]
     const w = await montar()
-    await w.find('.study-metro-auto').trigger('click')
+    await modo(w, 'A mano').trigger('click')
     await settle()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ shift: 0 }))
     vi.clearAllMocks()
-    await w.find('.study-metro-auto').trigger('click')
+    await modo(w, 'Automático').trigger('click')
     await settle()
     expect(bridge().setMetronome).toHaveBeenCalledWith(
       expect.objectContaining({ bpm: null, shift: 2 })
