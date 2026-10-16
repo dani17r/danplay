@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, HTTPException
 
 from ... import external
-from ..models import PathIn, PlaylistName
+from ..models import PathIn, PathsIn, PlaylistName
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +35,13 @@ def external_play(body: Annotated[PathIn, Body()]):
     if not song:
         raise HTTPException(404, "ese archivo no esta")
     return {"song": song}
+
+
+@router.post("/api/external/describe")
+def external_describe(body: Annotated[PathsIn, Body()]):
+    """Las canciones de esas rutas, sin apuntarlas como escuchadas (el resto
+    de la carpeta de un archivo abierto, para la cola)."""
+    return {"songs": external.describe(body.paths)}
 
 
 @router.get("/api/external")
