@@ -10,7 +10,14 @@
  * debajo, la manera de repartirlo, y «a medida», cada cosa por su sitio.
  */
 import { computed, onMounted, ref } from 'vue'
-import { useRouting, destinations, destOf, PRESETS } from '../composables/useRouting.js'
+import {
+  useRouting,
+  destinations,
+  destOf,
+  monoOf,
+  isSingle,
+  PRESETS
+} from '../composables/useRouting.js'
 import Icon from './Icon.vue'
 import Drawer from './ui/Drawer.vue'
 import SelectField from './ui/SelectField.vue'
@@ -41,7 +48,10 @@ const deviceOptions = computed(() => [
   ...devices.value.map((d) => ({
     v: d.id,
     n: d.name + (d.default ? ' (la del sistema)' : ''),
-    note: `${d.channels} ${d.channels === 1 ? 'canal' : 'canales'}`
+    // la que usa el sistema ahora no se puede abrir aparte: suena por la del sistema
+    note: d.busy
+      ? 'ocupada: la usa el sistema'
+      : `${d.channels} ${d.channels === 1 ? 'canal' : 'canales'}`
   }))
 ])
 /** Los canales de la salida elegida (o de la abierta). */
@@ -65,6 +75,14 @@ const rows = computed(() => [
 function destFor(row) {
   return destOf(prefs.value, row.kind, row.key, row.role)
 }
+/** Si va por un solo canal (o no suena): entonces el modo no se elige. */
+const fixedMode = (row) => {
+  const d = destFor(row)
+  return d === 'off' || isSingle(d)
+}
+/** Si suena en mono: por un solo canal, o un par con lo mismo por los dos. */
+const monoFor = (row) => isSingle(destFor(row)) || monoOf(prefs.value, row.kind, row.key, row.role)
+
 /** Pasar a «a medida» desde un preset deja cada cosa donde iba. */
 function choose(row, dest) {
   const p = prefs.value
@@ -117,7 +135,7 @@ const short = computed(() => channels.value < Math.max(needs.value, r.routing.va
         <p v-if="output" class="outs-now" :class="{ warn: output.fallback || output.error }">
           <template v-if="output.error">La salida falla: {{ output.error }}</template>
           <template v-else-if="output.fallback">
-            La elegida no está: suena por {{ output.name }}
+            La elegida no está o la usa otro programa: suena por {{ output.name }}
           </template>
           <template v-else>
             Suena por {{ output.name }} · {{ output.channels }}
@@ -159,17 +177,47 @@ const short = computed(() => channels.value < Math.max(needs.value, r.routing.va
         <h4 class="outs-title"><Icon n="list" :t="13" /> Cada cosa</h4>
         <div v-for="row in rows" :key="row.kind + row.key" class="outs-row">
           <span class="outs-row-name">{{ row.name }}</span>
-          <SelectField
-            :model-value="destFor(row)"
-            :options="dests"
-            :label="'Por dónde suena ' + row.name"
-            width="190px"
-            @update:model-value="(v) => choose(row, v)"
-          />
+          <div class="outs-row-pick">
+            <SelectField
+              :model-value="destFor(row)"
+              :options="dests"
+              :label="'Por dónde suena ' + row.name"
+              width="170px"
+              @update:model-value="(v) => choose(row, v)"
+            />
+            <div
+              class="outs-mode"
+              role="group"
+              :aria-label="'Estéreo o mono: ' + row.name"
+              :title="fixedMode(row) ? 'Por un solo canal: va en mono' : ''"
+            >
+              <button
+                type="button"
+                class="outs-mode-btn"
+                :class="{ on: !monoFor(row) }"
+                :aria-pressed="!monoFor(row)"
+                :disabled="fixedMode(row)"
+                @click="r.setMono(row.kind, false, row.key)"
+              >
+                Estéreo
+              </button>
+              <button
+                type="button"
+                class="outs-mode-btn"
+                :class="{ on: monoFor(row) }"
+                :aria-pressed="monoFor(row)"
+                :disabled="fixedMode(row)"
+                @click="r.setMono(row.kind, true, row.key)"
+              >
+                Mono
+              </button>
+            </div>
+          </div>
         </div>
         <p class="outs-hint">
-          «Solo izquierda» y «solo derecha» juntan los dos lados de lo que suena en uno (en mono).
-          Con las pistas separadas sonando, cada una puede ir por su sitio.
+          «Mono» junta los dos lados de lo que suena y lo manda igual por los dos canales (para una
+          mesa o una sala en mono). Por un solo canal («solo izquierda», «salida 3») siempre va en
+          mono. Con las pistas separadas sonando, cada una puede ir por su sitio.
         </p>
       </section>
     </div>

@@ -88,6 +88,7 @@
  * @property {string} name
  * @property {number} channels  los que admite como mucho
  * @property {boolean} default  es la del sistema
+ * @property {boolean} [busy]   ahora no se puede abrir (la usa el sistema u otro programa)
  */
 /**
  * @typedef {Object} RoutingSpec  a dónde va cada cosa

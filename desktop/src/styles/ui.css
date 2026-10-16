@@ -2904,6 +2904,7 @@ tbody tr.flash {
 }
 .outs-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -2913,6 +2914,37 @@ tbody tr.flash {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+}
+.outs-row-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+/* estéreo o mono, de cada cosa */
+.outs-mode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.outs-mode-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.outs-mode-btn + .outs-mode-btn {
+  border-left: 1px solid var(--border);
+}
+.outs-mode-btn.on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  font-weight: 600;
+}
+.outs-mode-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 /* la guia hablada: escribirla (y una voz) o grabarla */

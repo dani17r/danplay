@@ -182,26 +182,56 @@ pub struct CuePlan {
 }
 
 /// A donde va un bus: dos canales de la salida (izquierdo y derecho), o uno
-/// solo si son el mismo (lo que llega se junta en mono).
+/// solo si son el mismo (lo que llega se junta en mono). Con `mono`, por dos
+/// canales pero juntos: lo mismo por los dos (para una mesa o una sala en
+/// mono, que si no se pierde lo que va solo a un lado).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
     pub left: u16,
     pub right: u16,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub mono: bool,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // lo pide serde asi
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Target {
     /// Los dos canales de siempre.
-    pub const MAIN: Target = Target { left: 0, right: 1 };
+    pub const MAIN: Target = Target {
+        left: 0,
+        right: 1,
+        mono: false,
+    };
 
+    /// Dos canales, en estereo.
+    pub fn pair(left: u16, right: u16) -> Target {
+        Target {
+            left,
+            right,
+            mono: false,
+        }
+    }
+
+    /// Un solo canal (ya junta lo que llega: `mono` solo cuenta en un par).
     pub fn mono(channel: u16) -> Target {
         Target {
             left: channel,
             right: channel,
+            mono: false,
         }
     }
 
+    /// Por un solo canal.
     pub fn is_mono(self) -> bool {
         self.left == self.right
+    }
+
+    /// Lo que llega se junta (un canal, o dos con lo mismo).
+    pub fn joins(self) -> bool {
+        self.mono || self.is_mono()
     }
 
     /// El canal mas alto que usa.
@@ -736,6 +766,12 @@ impl Render {
             if t.is_mono() {
                 for (i, f) in buf.as_chunks::<2>().0.iter().enumerate() {
                     out[i * ch + l] += f32::midpoint(f[0], f[1]);
+                }
+            } else if t.joins() {
+                for (i, f) in buf.as_chunks::<2>().0.iter().enumerate() {
+                    let both = f32::midpoint(f[0], f[1]);
+                    out[i * ch + l] += both;
+                    out[i * ch + r] += both;
                 }
             } else {
                 for (i, f) in buf.as_chunks::<2>().0.iter().enumerate() {

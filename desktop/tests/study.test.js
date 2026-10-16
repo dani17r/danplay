@@ -1843,6 +1843,49 @@ describe('las salidas', () => {
     expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 4 })
   })
 
+  it('cada cosa, en estéreo o en mono', async () => {
+    const { resetRouting } = await import('../src/composables/useRouting.js')
+    localStorage.removeItem('danplay.salidas')
+    resetRouting()
+    const w = await montar()
+    await boton(w, 'Salidas').trigger('click')
+    await flushPromises()
+    document.querySelectorAll('.outs-preset')[0].click() // todo junto
+    await flushPromises()
+    const fila = (nombre) =>
+      [...document.querySelectorAll('.outs-row')].find(
+        (r) => r.querySelector('.outs-row-name').textContent === nombre
+      )
+    const modo = (nombre, cual) =>
+      [...fila(nombre).querySelectorAll('.outs-mode-btn')].find(
+        (b) => b.textContent.trim() === cual
+      )
+    expect(modo('La canción', 'Estéreo').getAttribute('aria-pressed')).toBe('true')
+
+    // la música en mono (una mesa en mono); el clic y las guías siguen en estéreo
+    modo('La canción', 'Mono').click()
+    await flushPromises()
+    expect(held.playback.bridge.setRouting).toHaveBeenLastCalledWith({
+      buses: [
+        { left: 0, right: 1, mono: true },
+        { left: 0, right: 1 }
+      ],
+      song: 0,
+      click: 1,
+      cues: 1
+    })
+    expect(modo('La canción', 'Mono').getAttribute('aria-pressed')).toBe('true')
+    expect(JSON.parse(localStorage.getItem('danplay.salidas')).mono.song).toBe(true)
+
+    // por un solo canal va en mono siempre: no se elige
+    document.querySelectorAll('.outs-preset')[1].click() // clic a la izquierda
+    await flushPromises()
+    expect(modo('El clic', 'Mono').disabled).toBe(true)
+    expect(modo('El clic', 'Mono').getAttribute('aria-pressed')).toBe('true')
+    localStorage.removeItem('danplay.salidas')
+    resetRouting()
+  })
+
   it('el clic y la guía de una secuencia van con el clic, salvo que se diga otra cosa', async () => {
     const { buildRouting, destOf } = await import('../src/composables/useRouting.js')
     const left = {
@@ -1872,6 +1915,14 @@ describe('las salidas', () => {
     expect(destOf(custom, 'stem', 'click_track', 'click')).toBe('L')
     expect(destOf(custom, 'stem', 'guide', 'guide')).toBe('main')
     expect(destOf(custom, 'stem', 'bass', '')).toBe('main')
+    // en mono, la guía de la secuencia va como las guías salvo que se diga
+    const { monoOf } = await import('../src/composables/useRouting.js')
+    const mono = { ...custom, mono: { song: false, click: false, cues: true, stems: {} } }
+    expect(monoOf(mono, 'stem', 'guide', 'guide')).toBe(true)
+    expect(monoOf(mono, 'stem', 'bass', '')).toBe(false)
+    expect(
+      monoOf({ ...mono, mono: { ...mono.mono, stems: { guide: false } } }, 'stem', 'guide', 'guide')
+    ).toBe(false)
   })
 })
 

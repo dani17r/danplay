@@ -40,26 +40,28 @@ export function destinations(channels) {
 
 /**
  * El destino como lo entiende el motor: dos canales (o uno, en mono), desde
- * 0; null si no suena.
+ * 0; null si no suena. Con `mono`, un par lleva lo mismo por los dos (lo que
+ * suena junta sus dos lados): para una mesa o una sala en mono.
  * @param {Dest} dest
- * @returns {{left: number, right: number}|null}
+ * @param {boolean} [mono]
+ * @returns {{left: number, right: number, mono?: boolean}|null}
  */
-export function targetOf(dest) {
+export function targetOf(dest, mono = false) {
   if (dest === 'off') return null
   if (dest === 'L') return { left: 0, right: 0 }
   if (dest === 'R') return { left: 1, right: 1 }
-  const pair = /^p(\d+)$/.exec(dest || '')
-  if (pair) {
-    const c = Number(pair[1]) - 1
-    return { left: c, right: c + 1 }
-  }
-  const mono = /^m(\d+)$/.exec(dest || '')
-  if (mono) {
-    const c = Number(mono[1]) - 1
+  const single = /^m(\d+)$/.exec(dest || '')
+  if (single) {
+    const c = Number(single[1]) - 1
     return { left: c, right: c }
   }
-  return { left: 0, right: 1 }
+  const pair = /^p(\d+)$/.exec(dest || '')
+  const c = pair ? Number(pair[1]) - 1 : 0
+  return mono ? { left: c, right: c + 1, mono: true } : { left: c, right: c + 1 }
 }
+
+/** Si el destino es un solo canal (y entonces va en mono, se elija o no). @param {Dest} dest */
+export const isSingle = (dest) => dest === 'L' || dest === 'R' || /^m\d+$/.test(dest || '')
 
 /** Los canales que hacen falta para un destino. @param {Dest} dest */
 function channelsFor(dest) {
@@ -103,6 +105,8 @@ export const PRESETS = [
  * @property {string|null} device   el id de la salida (null: la del sistema)
  * @property {string} preset
  * @property {{song: Dest, click: Dest, cues: Dest, stems: Record<string, Dest>}} custom
+ * @property {{song: boolean, click: boolean, cues: boolean, stems: Record<string, boolean>}} mono
+ *   lo que va en mono por dos canales (vale con cualquier reparto)
  */
 
 /** @returns {Prefs} */
@@ -110,7 +114,8 @@ function defaults() {
   return {
     device: null,
     preset: 'stereo',
-    custom: { song: 'main', click: 'main', cues: 'main', stems: {} }
+    custom: { song: 'main', click: 'main', cues: 'main', stems: {} },
+    mono: { song: false, click: false, cues: false, stems: {} }
   }
 }
 
@@ -127,6 +132,14 @@ function read() {
         ...base.custom,
         ...(raw.custom && typeof raw.custom === 'object' ? raw.custom : {}),
         stems: { ...(raw.custom?.stems || {}) }
+      },
+      mono: {
+        song: raw.mono?.song === true,
+        click: raw.mono?.click === true,
+        cues: raw.mono?.cues === true,
+        stems: Object.fromEntries(
+          Object.entries(raw.mono?.stems || {}).filter(([, v]) => typeof v === 'boolean')
+        )
       }
     }
   } catch {
@@ -175,6 +188,25 @@ export function destOf(p, kind, key, role = '') {
 }
 
 /**
+ * Si eso va en mono (juntando sus dos lados). Una pista con papel va como el
+ * clic o las guías, salvo que se le diga; una sin decir, como la canción.
+ * @param {Prefs} p
+ * @param {string} kind  'song' | 'click' | 'cues' | 'stem'
+ * @param {string} [key]
+ * @param {string} [role]
+ * @returns {boolean}
+ */
+export function monoOf(p, kind, key, role = '') {
+  const m = p.mono || defaults().mono
+  if (kind === 'stem') {
+    const own = m.stems?.[key || '']
+    if (typeof own === 'boolean') return own
+    return monoOf(p, role === 'click' ? 'click' : role === 'guide' ? 'cues' : 'song')
+  }
+  return !!m[/** @type {'song'|'click'|'cues'} */ (kind)]
+}
+
+/**
  * Una pista: su clave y su papel (de una lista de claves o de pistas).
  * @param {string | {key: string, role?: string}} s
  * @returns {{key: string, role: string}}
@@ -188,25 +220,29 @@ const stemOf = (s) =>
  * @param {Array<string | {key: string, role?: string}>} stemList  las pistas de la canción que suena
  */
 export function buildRouting(p, stemList = []) {
-  /** @type {Dest[]} */
+  // un bus por destino y forma (el mismo par en estéreo y en mono son dos)
+  /** @type {Array<{dest: Dest, mono: boolean}>} */
   const used = []
-  const busOf = (/** @type {Dest} */ d) => {
-    let i = used.indexOf(d)
+  const busOf = (/** @type {Dest} */ dest, /** @type {boolean} */ mono) => {
+    const joined = mono && !isSingle(dest) && dest !== 'off'
+    let i = used.findIndex((u) => u.dest === dest && u.mono === joined)
     if (i < 0) {
-      used.push(d)
+      used.push({ dest, mono: joined })
       i = used.length - 1
     }
     return i
   }
-  const song = busOf(destOf(p, 'song'))
+  const of = (/** @type {string} */ kind, key = '', role = '') =>
+    busOf(destOf(p, kind, key, role), monoOf(p, kind, key, role))
+  const song = of('song')
   const stems = Object.fromEntries(
-    stemList.map(stemOf).map((st) => [st.key, busOf(destOf(p, 'stem', st.key, st.role))])
+    stemList.map(stemOf).map((st) => [st.key, of('stem', st.key, st.role)])
   )
-  const click = busOf(destOf(p, 'click'))
-  const cues = busOf(destOf(p, 'cues'))
-  const channels = Math.max(2, ...used.map(channelsFor))
+  const click = of('click')
+  const cues = of('cues')
+  const channels = Math.max(2, ...used.map((u) => channelsFor(u.dest)))
   return {
-    spec: { buses: used.map(targetOf), song, click, cues },
+    spec: { buses: used.map((u) => targetOf(u.dest, u.mono)), song, click, cues },
     stems,
     channels
   }
@@ -246,6 +282,16 @@ export function useRouting() {
       custom: { ...prefs.value.custom, stems: { ...prefs.value.custom.stems, [key]: dest } }
     })
   }
+  /**
+   * En mono o en estéreo (no cambia el reparto: vale con cualquiera).
+   * @param {'song'|'click'|'cues'|'stem'} kind @param {boolean} on @param {string} [key]
+   */
+  function setMono(kind, on, key = '') {
+    const m = prefs.value.mono || defaults().mono
+    return update({
+      mono: kind === 'stem' ? { ...m, stems: { ...m.stems, [key]: on } } : { ...m, [kind]: on }
+    })
+  }
   async function loadDevices() {
     devices.value = await player.outputDevices()
     return devices.value
@@ -273,6 +319,7 @@ export function useRouting() {
     update,
     setCustom,
     setStem,
+    setMono,
     loadDevices,
     busOfStem,
     setStems,
