@@ -49,6 +49,9 @@ pub struct DeviceInfo {
     pub channels: u16,
     /// Es la del sistema.
     pub default: bool,
+    /// Ahora no se puede abrir: la usa el sistema u otro programa (elegida,
+    /// suena por la del sistema hasta que quede libre).
+    pub busy: bool,
 }
 
 /// Como esta la salida, para enseñarlo.
@@ -159,13 +162,6 @@ fn name_of(device: &cpal::Device) -> String {
         .map_or_else(|_| id_of(device), |d| d.name().to_string())
 }
 
-/// Cuantos canales admite como mucho.
-fn max_channels(device: &cpal::Device) -> u16 {
-    device
-        .supported_output_configs()
-        .map_or(2, |cs| cs.map(|c| c.channels()).max().unwrap_or(2))
-}
-
 /// Si hay salida de audio en el equipo (la del sistema), sin recorrer
 /// todas (en Linux, preguntar por cada una despierta todos los complementos
 /// de ALSA, y cada uno que falta lo cuenta por la consola).
@@ -174,27 +170,56 @@ pub fn has_default() -> bool {
 }
 
 /// Las salidas de audio del equipo, la del sistema primero.
+///
+/// En Linux, ALSA enseña además de las tarjetas un montón de complementos
+/// (null, jack, oss, pulse, convertidores...) y cada salida con varios nombres
+/// (hw, plughw, front, surround51, dmix, hdmi, la misma con número...), que
+/// la persona no tiene: solo queda una por cada salida física, por su nombre.
+/// La del sistema (PipeWire o PulseAudio) ya la ofrece la interfaz aparte.
 pub fn devices() -> Vec<DeviceInfo> {
     let host = cpal::default_host();
     let default = host.default_output_device().map(|d| id_of(&d));
-    let mut out: Vec<DeviceInfo> = host
-        .output_devices()
-        .map(|ds| {
-            ds.map(|d| {
-                let id = id_of(&d);
-                DeviceInfo {
-                    default: default.as_deref() == Some(id.as_str()),
-                    name: name_of(&d),
-                    channels: max_channels(&d),
-                    id,
-                }
-            })
-            .filter(|d| !d.id.is_empty())
-            .collect()
-        })
-        .unwrap_or_default();
+    let Ok(all) = host.output_devices() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for d in all {
+        let id = id_of(&d);
+        if id.is_empty()
+            || id
+                .strip_prefix("alsa:")
+                .is_some_and(|pcm| !is_physical(pcm))
+        {
+            continue;
+        }
+        // abrirla para saber cuantos canales tiene dice tambien si esta libre
+        let (channels, busy) = d.supported_output_configs().map_or((2, true), |cs| {
+            (cs.map(|c| c.channels()).max().unwrap_or(2), false)
+        });
+        out.push(DeviceInfo {
+            default: default.as_deref() == Some(id.as_str()),
+            name: name_of(&d),
+            channels,
+            busy,
+            id,
+        });
+    }
     out.sort_by_key(|d| !d.default);
     out
+}
+
+/// Una salida física de ALSA por su nombre de tarjeta: `hw:CARD=Generic,DEV=3`.
+/// No la misma con número de tarjeta (`hw:CARD=0,DEV=3`), ni sus alias, ni
+/// los complementos.
+fn is_physical(pcm: &str) -> bool {
+    pcm.strip_prefix("hw:CARD=")
+        .and_then(|rest| rest.split_once(",DEV="))
+        .is_some_and(|(card, dev)| {
+            !card.is_empty()
+                && !card.bytes().all(|b| b.is_ascii_digit())
+                && !dev.is_empty()
+                && dev.bytes().all(|b| b.is_ascii_digit())
+        })
 }
 
 fn open(
@@ -210,15 +235,20 @@ fn open(
         .device
         .as_deref()
         .and_then(|id| host.output_devices().ok()?.find(|d| id_of(d) == id));
-    let fallback = config.device.is_some() && wanted.is_none();
-    let device = match wanted {
-        Some(d) => d,
-        None => host
-            .default_output_device()
-            .ok_or("no hay salida de audio")?,
-    };
     let need = usize::from(config.channels.max(2)).min(MAX_CHANNELS) as u16;
-    let (stream_config, format) = choose(&device, rate, need)?;
+    // la elegida, si esta y se puede abrir; si no (desenchufada, o la usa el
+    // sistema u otro programa), la del sistema, y se dice
+    let chosen = wanted.and_then(|d| choose(&d, rate, need).ok().map(|c| (d, c)));
+    let fallback = config.device.is_some() && chosen.is_none();
+    let (device, (stream_config, format)) = if let Some(found) = chosen {
+        found
+    } else {
+        let d = host
+            .default_output_device()
+            .ok_or("no hay salida de audio")?;
+        let c = choose(&d, rate, need)?;
+        (d, c)
+    };
     let channels = usize::from(stream_config.channels.max(1));
     for deck in decks {
         lock(deck).set_output(stream_config.sample_rate, channels);
@@ -365,4 +395,38 @@ where
             None,
         )
         .map_err(|e| format!("no se pudo abrir la salida de audio: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_physical;
+
+    #[test]
+    fn only_the_real_outputs_by_their_card_name() {
+        // lo que enseña ALSA en un portátil con PipeWire: dos salidas de verdad
+        let alsa = [
+            "null",
+            "lavrate",
+            "jack",
+            "oss",
+            "pipewire",
+            "pulse",
+            "upmix",
+            "default",
+            "hw:CARD=Generic,DEV=3",
+            "plughw:CARD=Generic,DEV=3",
+            "hdmi:CARD=Generic,DEV=0",
+            "dmix:CARD=Generic,DEV=3",
+            "usbstream:CARD=Generic",
+            "hw:CARD=Generic_1,DEV=0",
+            "sysdefault:CARD=Generic_1",
+            "front:CARD=Generic_1,DEV=0",
+            "surround51:CARD=Generic_1,DEV=0",
+            "hw:CARD=0,DEV=3",
+            "plughw:CARD=1,DEV=0",
+        ];
+        let kept: Vec<&str> = alsa.into_iter().filter(|p| is_physical(p)).collect();
+        assert_eq!(kept, ["hw:CARD=Generic,DEV=3", "hw:CARD=Generic_1,DEV=0"]);
+        assert!(!is_physical("hw:CARD=,DEV=0") && !is_physical("hw:CARD=X,DEV="));
+    }
 }

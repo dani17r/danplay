@@ -384,7 +384,7 @@ fn the_click_goes_to_its_channel_and_the_music_to_its_pair() {
     // cascos) y la musica por la 3-4 (a la mesa)
     let mut b = Bench::new(1, 44_100);
     b.route(Routing {
-        buses: vec![Some(Target { left: 2, right: 3 }), Some(Target::mono(0))],
+        buses: vec![Some(Target::pair(2, 3)), Some(Target::mono(0))],
         parts: vec![0],
         click: 1,
         cues: 1,
@@ -412,7 +412,7 @@ fn each_part_to_its_own_pair_of_outputs() {
     let mut b = Bench::new(2, 44_100);
     set_gain(&b.gains, 1, 0.5, 0.5);
     b.route(Routing {
-        buses: vec![Some(Target::MAIN), Some(Target { left: 2, right: 3 })],
+        buses: vec![Some(Target::MAIN), Some(Target::pair(2, 3))],
         parts: vec![0, 1],
         click: 0,
         cues: 0,
@@ -446,6 +446,28 @@ fn a_mono_output_joins_both_sides() {
     assert!(mono > 0.15 && mono < 0.6, "{mono}");
 }
 
+#[test]
+fn a_pair_in_mono_sends_the_same_to_both() {
+    // para una mesa en mono: lo que va solo por un lado sale por los dos
+    let mut b = Bench::new(1, 44_100);
+    set_gain(&b.gains, 0, 1.0, 0.0); // solo el izquierdo de la parte
+    b.route(Routing {
+        buses: vec![Some(Target {
+            mono: true,
+            ..Target::MAIN
+        })],
+        parts: vec![0],
+        click: 0,
+        cues: 0,
+    });
+    b.play();
+    b.run_channels(2_000, 2);
+    let out = b.run_channels(40_000, 2);
+    let (l, r) = (channel(&out, 2, 0), channel(&out, 2, 1));
+    assert!(peak(&r) > 0.15, "{}", peak(&r));
+    assert!(l.iter().zip(&r).all(|(a, b)| (a - b).abs() < 1e-6));
+}
+
 /// Un destello corto en estereo, para una voz guia.
 fn burst(frames: usize) -> Arc<[f32]> {
     (0..frames)
@@ -463,7 +485,7 @@ fn a_cue_speaks_at_its_time_and_is_not_stretched() {
         let mut b = Bench::new(1, 44_100);
         b.controls.speed.store(speed.to_bits(), Ordering::Relaxed);
         b.route(Routing {
-            buses: vec![Some(Target { left: 2, right: 3 }), Some(Target::mono(0))],
+            buses: vec![Some(Target::pair(2, 3)), Some(Target::mono(0))],
             parts: vec![0],
             click: 1,
             cues: 1,
@@ -548,7 +570,7 @@ fn rerouting_while_playing_moves_the_sound_without_a_jump() {
     b.play();
     b.run_channels(6_000, 4);
     b.route(Routing {
-        buses: vec![Some(Target { left: 2, right: 3 })],
+        buses: vec![Some(Target::pair(2, 3))],
         parts: vec![0],
         click: 0,
         cues: 0,

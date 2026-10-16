@@ -140,6 +140,12 @@ mod tests {
         assert_eq!(r.parts, vec![0, 1, 0]);
         assert_eq!((r.click, r.cues), (1, 1));
         assert_eq!(r.buses[1], Some(Target::mono(0)));
+        // lo que mandaba la interfaz antes (sin «mono») sigue valiendo: estereo
+        let pair: Target = serde_json::from_str(r#"{"left":2,"right":3}"#).expect("par");
+        assert_eq!(pair, Target::pair(2, 3));
+        let joined: Target =
+            serde_json::from_str(r#"{"left":0,"right":1,"mono":true}"#).expect("mono");
+        assert!(joined.joins() && !joined.is_mono());
         assert_eq!(
             RoutingSpec::default().routing(&[]).buses,
             Routing::default().buses
