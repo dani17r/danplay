@@ -7,6 +7,11 @@
 </p>
 
 <p align="center">
+  Creado y desarrollado por <strong>Daniel Rangel</strong> ·
+  <a href="https://t.me/Dani17r">Telegram @Dani17r</a>
+</p>
+
+<p align="center">
   <img alt="Linux" src="https://img.shields.io/badge/Linux-.deb%20%C2%B7%20AppImage-333?logo=linux&logoColor=white">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-portable%20%2B%20instalador-0078d4?logo=windows&logoColor=white">
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white">
@@ -106,6 +111,15 @@ suena, con su carátula.
 
 **El audio no pasa por el navegador.** Lo decodifica Rust y sale directo a la
 tarjeta de sonido. El WebView no lo toca en ningún momento.
+
+**Tus listas no se rompen.** En cualquier reproductor, mover una canción de
+carpeta, renombrarla o volver a bajarla rompe las listas donde estaba. DanPlay
+guarda lo tuyo (las listas en su orden, las estrellas, el estudio, los
+cifrados) también en un diario junto a tu música (`.danplay/diario.json`): si
+mueves la música a otro disco o la base se pierde, al abrir todo vuelve a su
+sitio, y las listas exportadas a `.m3u8` se reescriben con las rutas nuevas.
+Una canción que desaparece se queda en su lista como «No está», para buscarla
+o bajarla otra vez, y vuelve sola a su sitio si aparece.
 
 **Listas de cualquier tamaño.** La lista pinta solo las filas que se ven: da
 igual que tengas 500 canciones o 20.000, siempre son unos 900 nodos en pantalla
@@ -269,6 +283,8 @@ danplay duplicates                   informe (nunca borra solo)
 danplay playlist                     repertorios
 danplay organize rolas               renombrar una carpeta existente
 danplay watch                        procesa Entrada/ según caen archivos
+danplay pulse                        el clic de toda la biblioteca, otra vez
+danplay reuse                        recuperar pistas, clic y listas de otra copia
 ```
 
 ## Cómo está hecho
@@ -289,8 +305,9 @@ Cuatro capas, cada una en lo que mejor se le da:
   responsive hasta tamaño móvil.
 - **Rust (Tauri)** para el proceso principal: la cola de reproducción, el
   icono de la bandeja, el mini reproductor y los mandos del sistema. Reproduce
-  el audio nativamente (rodio), con el metrónomo encima (y su propio
-  detector de pulso, por si el del núcleo no está).
+  el audio con su propio motor (el mismo del celular): tramos a la muestra,
+  el clic y las guías en el pulso, las pistas sin cortes y cada cosa por la
+  salida que elijas.
 - **Python** para el núcleo: la cascada de identificación, el índice SQLite con
   búsqueda de texto completo (FTS5), la IA, las etiquetas, y el vigilante que
   mantiene el índice al día con lo que cambia en el disco. Y dos redes con
@@ -353,6 +370,24 @@ repertorio entero desde el suyo: van a una cola y se separan una detrás de
 otra mientras sigues usando la app. Primero la pasada rápida de todas, así
 el repertorio se puede ensayar cuanto antes, y luego las mejoras.
 
+**Más instrumentos (máxima calidad):** una pasada más, opcional y lenta (unos
+15-25 minutos por canción en un portátil), que saca la **percusión aparte de
+la batería** (congas, pandereta…), la voz principal y los coros, la guitarra
+eléctrica y la acústica, piano, órgano, teclados, cuerdas, metales y vientos,
+los que suenen. La primera vez baja su separador (1,4 GB, el Mega53 de
+ZFTurbo).
+
+**Secuencias descargadas:** «Abrir secuencia» (en la barra de la izquierda)
+abre la carpeta de una secuencia de MultiTracks o Loop Community con su
+proyecto de Ableton: la canción queda en tu biblioteca con todas sus pistas,
+las partes como marcadores, el clic exacto, y el «Click Track» y la «Guide»
+por la salida del clic.
+
+**Las salidas, como una secuencia en directo:** en «Salidas» eliges por dónde
+suena la música, cada pista, el clic y las guías habladas: el clic a la
+izquierda y la música a la derecha con un cable en Y, o cada cosa por una
+salida de tu interfaz. Se cambia sonando, sin cortar.
+
 ## En el celular
 
 Lo que separaste se estudia también en el teléfono, con la misma cara de
@@ -363,7 +398,7 @@ repiten, la letra y los acordes. La app del celular **no separa ni ordena
 nada**: trae lo que ya hiciste en la PC.
 
 1. En DanPlay de la PC, en el menú de las pistas de una canción (el «⋯» del
-   estudio, o el clic derecho sobre ella), **Llevar al celular**. Con varias
+   estudio, o el clic derecho sobre ella), **Convertir a DanPista**. Con varias
    elegidas, se llevan todas: un repertorio para la banda.
 2. Queda un archivo `.danpista` por canción en `Celular/`, junto a
    `Separadas/` (entre 20 y 50 MB). La carpeta se abre sola.
@@ -382,6 +417,10 @@ barra del reproductor abre el modo estudio, y en el menú de lado (☰) están
 las favoritas, **tus listas** (la del domingo, en su orden) y los ajustes.
 Mientras suena, los mandos están en la **bandeja de Android** y en la
 pantalla de bloqueo, también con la app en segundo plano.
+
+Y no solo pistas: en **Música del teléfono** suena cualquier canción que
+tengas en él (MP3, M4A, FLAC…), eligiendo las carpetas, con su modo estudio
+y su clic.
 
 Por ahora hay app para **Android** (8 o más nuevo). La de iPhone está
 preparada pero falta compilarla en un Mac y firmarla con Apple.
@@ -436,7 +475,10 @@ Prefiero decirlo aquí que en un issue:
   que la batería y el bajo quedan mejorados; usa hasta 3 GB de memoria
   mientras tanto. Y es un separador, no los multitracks del estudio: se
   cuela algo de un instrumento en otro, y el **piano** es la pista más floja
-  (lo que no reconoce acaba en «Otros»).
+  (lo que no reconoce acaba en «Otros»). La **máxima calidad** separa más
+  instrumentos, pero en mezclas muy cargadas (varios teclados, pads, loops)
+  la guitarra y los teclados siguen saliendo con algo de lo demás; tarda unos
+  15-25 minutos por canción y usa unos 4,5 GB de memoria.
 - **Un solo usuario, una sola máquina.** No hay sincronización entre equipos.
 
 ## Documentación
@@ -495,8 +537,20 @@ seguridad de todas las dependencias.
 | ❌ | Usarla con fines comerciales |
 | ❌ | Redistribuirla, modificarla o hacer obras derivadas |
 
-Los derechos son del autor. Para cualquier otro uso, incluido el comercial,
-escribe y lo hablamos.
+Los derechos son de su autor, **Daniel Rangel**. Para cualquier otro uso,
+incluido el comercial, escribe y lo hablamos.
+
+Al abrir DanPlay por primera vez se piden los términos y condiciones (están
+también en la app, en «Acerca de DanPlay»): sin aceptarlos se puede escuchar y
+ordenar la música, pero no separar en pistas, usar el asistente ni
+«Transformar».
+
+## Autor y colaboración
+
+DanPlay es obra de **Daniel Rangel**, que lo creó y lo desarrolla. Si quieres
+colaborar —ideas, errores, canciones para probar—, escríbele por Telegram:
+**[@Dani17r](https://t.me/Dani17r)**. Toda colaboración se hace con él y con
+el crédito a su autor.
 
 [Resumen en castellano](docs/LICENCIA-RESUMEN.md) · [Licencias de las
 dependencias](docs/DEPENDENCIAS.md)
@@ -504,5 +558,5 @@ dependencias](docs/DEPENDENCIAS.md)
 ---
 
 <p align="center">
-  Hecho para ordenar una biblioteca de verdad, no para una demo.
+  Hecho por Daniel Rangel para ordenar una biblioteca de verdad, no para una demo.
 </p>

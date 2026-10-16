@@ -127,14 +127,15 @@ La prueba de humo verifica que la app de escritorio no abre ningún puerto.
 ## El audio no pasa por el WebView
 
 Cuando pulsas play, la interfaz pide la ruta del archivo a Python y se la
-manda a Rust. Rust lo decodifica (`rodio` + `symphonia`) y lo saca a la tarjeta
-de sonido desde un hilo dedicado. El WebView no toca el audio en ningún momento.
+manda a Rust. Rust lo decodifica y lo saca a la tarjeta de sonido con el
+**motor de pistas** (`motor/`, el mismo que la app del celular): symphonia
+para decodificar, un render propio muestra a muestra y cpal para la salida.
+El WebView no toca el audio en ningún momento. Ver «El motor» más abajo.
 
 Las carátulas sí llegan al WebView, por un protocolo propio
 (`danplay://cover/<id>?size=N`, en `protocol.rs`) que se las pide al núcleo
-sin pasar por el JS. Había también una rama `audio` con rangos de bytes, pero
-dentro de Tauri el audio lo suena Rust y nadie la usaba: se quitó. En el modo
-navegador, el `<audio>` lee `/api/song/{id}/audio` por el proxy de Vite.
+sin pasar por el JS. En el modo navegador, el `<audio>` lee
+`/api/song/{id}/audio` por el proxy de Vite.
 
 > **Ojo con el protocolo.** Tauri lo expone de forma distinta según el sistema:
 > en Linux y Windows es `http://<esquema>.localhost/...`, y solo en macOS/iOS
@@ -142,18 +143,12 @@ navegador, el `<audio>` lee `/api/song/{id}/audio` por el proxy de Vite.
 
 ## Los formatos que el decodificador no conoce
 
-`symphonia` —lo que usa rodio por debajo— no trae ni opus ni wma, y los dos
-están en la lista de lo que DanPlay organiza. La salida no es pedirle al
-usuario que convierta su archivo para poder oírlo: se le pide a **ffmpeg** que
-lo decodifique y mande el audio crudo por una tubería, y eso se le da a rodio
-como una fuente más (`transcode.rs`).
-
-ffmpeg ya era dependencia del programa (convierte formatos y encoge
-carátulas), así que no se añade nada. Buscar dentro de la canción vuelve a
-lanzar ffmpeg desde el segundo pedido: una tubería no se rebobina.
-
-Todo lo demás sigue yendo por el decodificador nativo, que es más rápido y no
-depende de nada externo.
+El motor lee con symphonia MP3, Vorbis, FLAC, WAV y AIFF, y todos empiezan en
+la muestra exacta: es lo que hace falta para que el clic caiga donde lo
+calculó el núcleo. Opus, WMA y compañía no los lee, y el AAC (M4A) lo lee
+1024 muestras tarde. Esos se pasan a FLAC con **ffmpeg** una vez, a la caché
+(`player/formats.rs`, con tope de 3 GB), y suena el FLAC: la primera vez tarda
+un par de segundos; las demás, nada.
 
 ## Lo descargado se llama como en YouTube
 
@@ -221,7 +216,9 @@ estándar:
 
 La base SQLite es solo un índice para buscar rápido. Si la borras, un escaneo
 la reconstruye entera. Y otros reproductores leen esas etiquetas igual que
-DanPlay.
+DanPlay. Lo que no cabe en las etiquetas (el orden de las listas, sus notas y
+colores, el estudio, los cifrados) va además en el diario, junto a la música
+(ver «Las listas no se rompen»).
 
 ## El índice
 
@@ -280,8 +277,8 @@ no cambian nada, y la interfaz no tiene por qué recargar.
 
 **Lo que se va no se borra: se aparta.** Una canción cuyo archivo desaparece
 sale de `songs` —de toda la app— y espera en `songs_missing` con su id y la
-fila entera. Sus filas en las listas se quedan donde estaban (las listas solo
-enseñan lo que está en `songs`). Si el archivo vuelve, la canción recupera
+fila entera. Sus filas en las listas se quedan donde estaban, y las listas
+la enseñan como «No está» (ver abajo). Si el archivo vuelve, la canción recupera
 su id y, con él, sus listas en su puesto, los acordes, el análisis y el modo
 estudio:
 
@@ -295,7 +292,9 @@ estudio:
 El escaneo mira primero qué hay en el disco, aparta lo que se fue y solo
 después mete lo nuevo: en ese orden, un archivo movido encuentra su fila ya
 apartada y recupera el id en la misma pasada. Pasado un mes sin volver, lo
-apartado se olvida del todo (con sus filas en las listas).
+apartado se olvida, pero no sus filas en las listas: antes de borrarla se
+guarda su ficha (artista, título, duración, nombre y ruta) en `song_cards`, y
+la lista la sigue enseñando como «No está».
 
 **Una carpeta que se mueve entera.** Si todas las canciones de la biblioteca
 estaban en ella, la biblioteca queda vacía y la interfaz enseña «No encuentro
@@ -314,6 +313,79 @@ del núcleo pone la cola al día (`queue::prune`): Rust pregunta de una vez por
 las canciones que no están donde creía (`POST /api/songs/locate`); la que se
 movió sigue con su ruta nueva y la que se fue sale. La que está sonando se
 deja terminar: el sistema sigue leyendo un archivo abierto aunque se mueva.
+
+**Lo hecho sigue a la canción** (`danplay/reuse.py`, desde 1.28). Pasaba:
+se cambiaba la carpeta de música de sitio, o se volvía a bajar una canción
+que ya estaba, y DanPlay la trataba como nueva: separar otra vez, el clic
+otra vez, sin marcadores ni listas. Ahora, al entrar una canción, se busca su
+**gemela**: la misma (artista y título normalizados, o el nombre) y con la
+misma duración (±2 s), en la biblioteca, en las apartadas o en los
+manifiestos de `Separadas/`. Si es una apartada, el escaneo le devuelve su id
+(sus listas). Se mide cuánto está corrido un archivo respecto al otro
+(correlación de los golpes cada 10 ms y luego muestra a muestra; contra el
+archivo de antes, sus pistas sumadas o lo que oyó la red) y se adoptan, ya
+corridos, sus pistas (`adelay`/`atrim` a FLAC), su clic y lo del estudio. Si
+no suenan igual (otra versión con el mismo nombre), no se adopta nada. Las
+canciones que solo cambiaron de sitio se llevan su clic sin medir nada
+(`beatgrid.moved`). Lo que ya se había perdido antes se recupera con una
+pasada por toda la biblioteca, una vez, al arrancar (`reuse.sweep`, o
+`danplay reuse`).
+
+### Las listas no se rompen: las «No está» y el diario
+
+En cualquier reproductor, una lista guarda rutas o ids: si la canción se
+mueve, se renombra, se vuelve a bajar o la base se pierde, la lista se rompe.
+Aquí no, por dos piezas:
+
+**Las «No está»** (`playlists.py`). Una fila de una lista cuya canción ya no
+está en `songs` no se esconde: `playlists.songs()` la devuelve en su sitio
+con `ghost: true` y su ficha (de `songs_missing` o, pasado el mes, de
+`song_cards`), y el resumen de cada lista cuenta cuántas faltan (`missing`).
+La interfaz las pinta apagadas con la etiqueta «No está», nunca entran en la
+cola, y su menú ofrece buscarla en la biblioteca, buscarla para bajarla
+(Descargas, con «artista título» ya puesto) o quitarla. Reordenar la lista
+las respeta (`set_songs` acepta los ids de sus filas). Cuando entra una
+canción nueva, el escaneo mira si es una «No está» que vuelve en otro archivo
+(`relink_ghosts`: la misma identidad que las gemelas de `reuse`, artista y
+título o nombre, y la misma duración ±2 s) y la pone en su sitio, aunque las
+etiquetas del archivo ya la hubieran añadido al final.
+
+Borrar desde DanPlay es distinto de que desaparezca: la papelera pregunta si
+sale también de sus listas (`DELETE /api/song/{id}?from_lists=true`,
+`playlists.take_out_everywhere`). Si sí, no queda ninguna «No está»: se
+quería fuera.
+
+**El diario** (`diario.py`). La base es desechable, pero no todo lo que el
+usuario hace cabe en las etiquetas del archivo: el orden de las listas, sus
+notas y colores, el estudio, los cifrados. Unos segundos después de cada
+cambio (un hilo que mira `library.revision()`), se escribe
+`.danplay/diario.json` dentro de cada carpeta de música (viaja con ella a
+otro disco) y otra copia en los datos de DanPlay. Lleva las listas por ids y
+la ficha de cada canción con algo del usuario o en una lista: ruta, carpeta
+raíz y ruta relativa, nombre, tamaño, artista, título y duración, y sus
+campos (`FIELDS`).
+
+Al arrancar y tras cada escaneo con altas, bajas o vueltas, `reconcile`
+compara el diario más reciente con lo que hay. Cada canción del diario se
+busca: en su ruta, en la misma ruta relativa dentro de su carpeta (la
+carpeta se movió), por nombre y tamaño, o por identidad y duración. Hay dos
+casos:
+
+- **La misma base** (el `library_uid` de `meta` coincide): solo se recupera
+  lo de las canciones que cambiaron de sitio. Lo demás ya está en la base, y
+  lo que no está se quitó a propósito: no se deshace.
+- **Una base nueva** (se perdió, otro equipo): se rehacen las listas enteras,
+  en su orden, con su nota y su color; lo que no se encuentra entra como «No
+  está» con un id nuevo que no es de nadie. Las listas que ya rehízo el
+  escaneo desde las etiquetas de los archivos se completan y se ordenan. Al
+  acabar se reescribe el diario con el `library_uid` nuevo.
+
+De lo de cada canción solo se rellena lo que falta: lo que hay en la base
+manda. Las listas ya exportadas (`Listas/*.m3u8`) se reescriben con las
+rutas de ahora, así que siguen valiendo en otros reproductores. Lo
+recuperado sale en `/api/status` (`diario`) y la interfaz lo cuenta una vez.
+El hilo no escribe hasta que se ha recuperado: una base nueva y vacía no
+puede pisar el diario que la va a rellenar.
 
 ## La cascada de identificación
 
@@ -673,6 +745,34 @@ marca se guarda con la canción, en el índice y en una etiqueta del archivo
 las estrellas y las listas. Al cerrar la barra, la canción vuelve a sonar
 normal.
 
+### El clic sin silencios ni saltos (1.28)
+
+En canciones de verdad el clic tenía dos fallos que se oían: **silencios**
+(segundos o minutos sin clic donde la red no oía el pulso, en las partes
+suaves) y **saltos de fase** (unos compases a contratiempo y vuelta). Medido
+contra la batería separada de esas mismas canciones, los saltos eran tramos
+en que la red se iba al «y» y volvía. Ahora `pulse.grid`:
+
+- **repara los saltos de fase**: un tramo que se desvía medio pulso y vuelve
+  se lleva a la fase de los lados, votando con dónde golpean el bombo y el
+  bajo (el flujo por debajo de 150 Hz, cada 10 ms: el de toda la banda no
+  distingue, los platos van a corcheas);
+- **rellena los huecos** con pulsos anclados a los dos lados (los que quepan
+  enteros, siguiendo a la red donde aún oye algo), sin inventar donde no
+  cabe un número entero de pulsos;
+- **lleva a tempo fijo lo grabado a clic**: si los intervalos casan con un
+  solo tempo (periodograma de Rayleigh) dentro de unos milisegundos, la
+  rejilla es ese tempo exacto de principio a fin;
+- con la **batería separada**, la red se pasa también por ella y en cada
+  instante manda la más segura (`pulse.combine`).
+
+Lo que dijo la red se guarda (`DATA_DIR/pulso/<clave>.npz`, float16, unos
+100 KB), así que cambiar la forma de sacar la rejilla o **re-analizar**
+(`POST /api/song/{id}/beats/reanalyze`: arreglar, tempo fijo, rellenar, con la
+batería; de toda la canción o de un tramo, cosido a lo de los lados) tarda
+milisegundos. Lo re-analizado a mano se guarda y se vuelve a aplicar si
+cambia la versión. `danplay pulse` pasa el análisis por toda la biblioteca.
+
 ## Separar en pistas
 
 Una canción se separa en sus instrumentos —batería, voces, bajo, guitarra,
@@ -804,9 +904,9 @@ de la migración 4). Se van a la papelera con la canción.
 vez y las junta (`amerge`) en un flujo de dos canales por pista: empiezan en
 la misma muestra, y la velocidad, el tono, los saltos y el bucle les pasan a
 todas por igual, por el mismo camino que a una canción que pasa por ffmpeg.
-El mezclador (`player/mix.rs`) las suma a estéreo con el volumen y el
-panorama de cada una, que viven en atómicos: callar la batería no reabre
-nada, y el cambio se hace en unos milisegundos (en seco se oye un clic). La
+El render del motor las suma con el volumen y el panorama de cada una, que
+le llegan por su buzón: callar la batería no reabre nada, y el cambio se hace
+en unos milisegundos (en seco se oye un clic). La
 prueba de que no se desfasan es una pista y su contraria, que se anulan del
 todo.
 
@@ -816,6 +916,54 @@ otra velocidad y tono). El volumen y el panorama se aplican con la misma
 cuenta que el reproductor, y un limitador al final evita que la suma se
 recorte. Solo dentro de la biblioteca y sin pisar una canción suya; si no
 cae dentro de una carpeta de pistas, entra en la biblioteca como una más.
+
+### Más instrumentos: la máxima calidad
+
+Una tercera pasada opcional, lenta, sobre las pistas buenas: el **Mega53**
+(«MVSep Mega 53 Stems», BS-RoFormer de ZFTurbo, MIT) oye 53 instrumentos con
+un cuerpo común y una cabeza por instrumento; DanPlay exporta el cuerpo y 15
+cabezas (`scripts/exportar-mega53.py`) y reparte con máscaras suaves
+(`danplay/mega.py`):
+
+- la **batería** (de los especialistas) en el kit y la **percusión** de
+  aparte (congas, pandereta, shakers): kit y percusión suman exactamente la
+  batería;
+- las **voces** en la principal y los coros;
+- lo **melódico** que queda (la canción menos batería, bajo y voces) entre
+  guitarra eléctrica, guitarra acústica, piano, órgano, teclados (con los
+  sintes), cuerdas, metales y vientos: cada uno, lo que oye su cabeza (con su
+  fase) sin pasar en ningún punto de lo que hay; lo que nadie reclama, a
+  «Otros». Medido contra la verdad de una secuencia de MultiTracks (sus
+  pistas sueltas, `.dev/eval`): en el primer minuto, repartir en proporción
+  daba 1,3 dB en las guitarras y 4,5 en los teclados; así, 2,2 y 5,3. En la
+  canción entera, las guitarras pasan de 0,5 dB (la pista «Guitarra» de
+  siempre) a 2,3, y los teclados de nada (no salía pista) a 2,9. Es una
+  mezcla difícil (cinco teclados, pads, loops): en las pruebas de su autor,
+  la guitarra eléctrica llega a 8.
+
+Solo sale lo que suena (`presence`), y «Otros» sigue siendo la canción menos
+todo lo demás. Los pesos son el checkpoint original del autor (1,4 GB, con su
+sha256), leído **sin PyTorch** por un lector propio que no ejecuta el pickle
+(`danplay/torchzip.py`: solo reconstruye tensores). Trozos de 5 s que se
+solapan un cuarto; la red no reserva memoria de más (sin la *arena* de ORT) y
+antes de empezar se mira que haya memoria libre. Medido en un portátil
+(Ryzen 7 5825U, 14 GB): con trozos de 10 s y 20 cabezas llegaba a 8 GB y el
+sistema mató el proceso; con 5 s y 15 cabezas, 4,5 GB de pico y 14 s por
+trozo (unos 15 minutos para una canción de 4).
+
+## Secuencias descargadas
+
+`danplay/sequence.py` abre la carpeta de una secuencia (MultiTracks, Loop
+Community): las pistas (`MultiTracks/*.wav`), el «Click Track», la «Guide» y
+el proyecto de Ableton (`.als`: XML comprimido, leído sin DTD). Del proyecto
+salen el tempo, los cambios de compás (Ableton guarda el compás como
+`99·log2(denominador) + numerador − 1`) y los localizadores en pulsos; del
+nombre de la carpeta, «Título-Artista-Tono-BPM». Queda: la canción mezclada
+sin clic ni guía en `Secuencias/`, las pistas en FLAC como sus pistas
+separadas con su nombre y su papel (el clic y la guía van a la salida del
+clic), las partes como marcadores y la rejilla **exacta** del tempo del
+proyecto, que no se recalcula aunque cambie la versión del análisis. Abrir con
+DanPlay una pista de una secuencia (`open.rs`) ofrece abrirla entera.
 
 ## Para el atril
 
@@ -1340,57 +1488,68 @@ instalar. El instalador de Windows lleva Deno dentro, como ffmpeg.
 
 ## Fundidos y cambios sin corte
 
-Cada canción que se abre pasa por `player/fade.rs`, que lleva su volumen
-muestra a muestra: el motor deja órdenes (bajar a 0 en 3 s, subir cuando
-la otra llegue a tal segundo) y el hilo de audio las recoge sin esperar
-nunca. Con eso:
+Todo pasa por un solo render (`motor/src/render.rs`), muestra a muestra, con
+un buzón sin candados para las órdenes: el hilo de audio nunca espera.
 
-- **Entre canciones**, la que se va baja mientras sube la siguiente, con la
-  misma potencia (en recta, a mitad se oiría un bache). Al acabarse sola,
-  Rust avisa lo que dura el fundido antes (`Ending`) y la cola manda ya la
-  siguiente; a mano, como mucho 2 s. Con el clic, la cuenta o tramos
-  puestos, no se funden.
-- **De la canción a sus pistas** (o al revés, o a otra velocidad o tono) no
-  hay corte: la versión nueva se abre 0,6 s por delante y se queda callada
-  hasta que la que suena llega ahí. El mezclador tira de las dos a la vez,
-  así que la nueva sabe en cada instante por dónde va la otra y entra a la
-  par; si llega tarde, se salta lo que sobra. Se cruzan en 0,15 s.
+- **Los tramos** saltan en su muestra exacta con un fundido de 4 ms (antes se
+  vigilaban cada 100 ms y se pasaba de largo hasta una décima). Varios tramos
+  van uno detrás de otro; «Al acabar» dice si se repiten, se para o se sigue.
+- **Entre canciones**, dos «decks»: la que se va baja mientras sube la
+  siguiente, con la misma potencia. Con el clic, la cuenta o tramos puestos,
+  no se funden.
+- **De la canción a sus pistas** (o al cambiar una pista): el relevo
+  (`handoff`) abre el conjunto nuevo y lo cruza a la par, en la misma
+  muestra, antes del estirador de tiempo: no hay salto ni eco.
+- **El clic y las guías habladas** se renderizan en tiempo de canción, sin
+  estirar: caen en el pulso también a 0,7× y en la vuelta de un tramo.
 
 ## El hilo de audio no se rinde
 
-El hilo que decodifica y saca el sonido es uno solo, y si se cae no hay
-música. Cuatro cosas lo dejaban mudo hasta reiniciar DanPlay, y las cuatro se
-tratan ahora dentro del propio reproductor (`player/`):
+El hilo que lleva el reproductor es uno solo, y si se cae no hay música:
 
 - **Un archivo que hace *panic* al decodificarse.** El bucle corre bajo
   `catch_unwind`: se avisa de qué archivo era y se vuelve a empezar con el
-  mismo volumen y la misma velocidad. Es para lo que el binario se compila
-  con `panic = "unwind"`.
-- **Sin salida de audio al arrancar** (el servidor de sonido aún no estaba,
-  unos auriculares sin conectar). Antes se tragaba las órdenes para siempre;
-  ahora, cada vez que alguien pide sonido, se vuelve a intentar abrirla.
-- **La salida muere sonando** (se cae el servidor, desaparece el aparato).
-  cpal deja de pedir muestras sin avisar y la canción se queda «sonando»
-  quieta. En el mezclador hay una fuente muda que cuenta cada vez que la
-  salida pide muestras (el **latido**), y un vigilante lo mira también en
-  pausa: si deja de latir, se rehace la salida y se sigue donde estaba.
-- **Saltar con la salida muerta.** Buscar en rodio espera la respuesta del
-  hilo de audio sin tope: con un DAC USB desenchufado, arrastrar la barra
-  colgaba el reproductor para siempre. Ahora se mira el latido antes de
-  buscar y la búsqueda va en un hilo aparte con plazo; si no contesta, se
-  rehace la salida.
+  mismo volumen y la misma velocidad (el binario va con `panic = "unwind"`).
+- **Sin salida de audio, o la elegida desenchufada.** Se intenta abrir cada
+  vez que alguien pide sonido; si la interfaz elegida no está, suena por la
+  del sistema y se dice (en directo, sin sonido es peor que por otro sitio).
+- **La salida muere sonando.** El hilo de la salida (`motor/src/output.rs`)
+  la vuelve a abrir solo, a la tasa que tenga entonces.
 
-La salida se abre al primer play y se suelta tras un minuto sin sonar (con la
-app en la bandeja, cpal no trabaja para nada); al volver, sigue donde iba. Si
-ninguna salida llega a sonar tras tres intentos, se dice en vez de insistir.
-El audio que decodifica ffmpeg (opus, wma, velocidad y tono) llega por una
-tubería que lee otro hilo y deja en un anillo sin candados: antes se leía
-dentro del propio callback de audio, y un tirón de disco era un corte.
+La salida se abre al primer play y se suelta tras un minuto sin sonar; al
+volver, sigue donde iba. Y la cola (`queue/`) no depende del núcleo para
+empezar a sonar: la interfaz manda la ruta con cada canción.
 
-Y la cola (`queue/`) ya no depende del núcleo para empezar a sonar: la
-interfaz manda la ruta con cada canción, y solo si el archivo no está ahí se
-le pregunta al núcleo. Cuando ni así se localiza, el error se dice en
-castellano y, si la canción se acabó sola, se pasa a la siguiente.
+## Las salidas: como una secuencia
+
+«Salidas» (`StudyOutputs.vue`, `useRouting.js`) dice por dónde suena la
+canción, cada pista, el clic y las guías. El motor tiene **buses** (cada uno,
+dos canales de la salida o uno en mono) y cada parte, el clic y las guías van
+a uno; un limitador por pareja de canales evita que se sature. Con tres
+maneras de siempre (todo junto; clic y guías a la izquierda y música a la
+derecha, en mono; clic y guías por 1-2 y música por 3-4 con una interfaz) y
+«a medida». Se cambia en directo, sin cortar, y se recuerda por salida de
+audio. Las pistas con papel (el «Click Track» y la «Guide» de una secuencia)
+van con el clic salvo que se diga otra cosa. La descripción que manda la
+interfaz y cómo se convierte vive en el motor (`motor/src/spec.rs`): la misma
+en la PC y en el celular.
+
+## Guías habladas
+
+Un punto de la canción dice «Coro» o «Puente, cuatro tiempos»: escrito, y lo
+dice una voz, o grabado con el micrófono (`motor/src/record.rs`, cpal de
+entrada, un WAV temporal que el núcleo recorta y nivela).
+
+Las voces (`danplay/cues.py`) corren en el equipo con ONNX Runtime, sin
+PyTorch y sin internet salvo para bajarlas, con sha256 y revisión fijados
+(`danplay/data/voces.json`): **Supertonic 3** (diez voces, OpenRAIL-M, lee el
+texto tal cual) y voces **Piper** de España, México y Argentina, que se
+entrenaron con los fonemas de espeak-ng. espeak es GPL y no viaja: sus reglas
+para el castellano están reescritas en `danplay/habla.py` (coincide palabra
+por palabra en un 96-97 % de un corpus normal). Los números y las abreviaturas
+se dicen en palabras antes («x2» es «dos veces»). La misma frase con la misma
+voz es el mismo archivo. Las guías se guardan con el estudio; solo se aceptan
+archivos de la carpeta de guías de DanPlay.
 
 ## La app del celular
 
@@ -1558,6 +1717,42 @@ interruptor de silencio puesto, y la firma. Para la banda, la cuenta de
 desarrollador de Apple con TestFlight; con un Apple ID gratis habría que
 volver a firmarla cada 7 días en cada iPhone.
 
+### La música del teléfono
+
+Desde 1.28 el celular también toca cualquier canción del teléfono, no solo
+las pistas traídas (`movil/src/musica.rs`): se eligen las carpetas (se buscan
+solas; Música y Descargas vienen elegidas), el índice se guarda y se pone al
+día por tamaño y fecha, y el título, el artista y la duración se leen con
+symphonia. En Android se abren con su ruta: con el permiso de «música y
+audio», que se pide al ir a verla (`PermisoMusica.kt`), el sistema deja leer
+así los archivos de audio. Los ids son negativos, como los archivos sueltos de
+la PC. Al poner una, la cola son las de su carpeta. El motor carga el archivo
+como una sola parte, con su clic, sus tramos y sus salidas.
+
+## Términos, novedades y créditos
+
+DanPlay es obra de Daniel Rangel, y la app lo dice: en «Acerca de DanPlay»
+(`AboutPage.vue`, una página del enrutador con tres pestañas), en la
+bienvenida, al pie de la barra lateral y en el menú del celular, con su
+Telegram para colaborar. Los textos viven en la interfaz:
+`src/data/terminos.js` (los términos, su versión y el autor) y
+`src/data/novedades.js` (lo de cada versión, corto; una prueba comprueba que
+cada versión del CHANGELOG desde la 1.20.0 está, con su fecha).
+
+**Los términos** salen solos la primera vez (y otra vez si sube
+`TERMS_VERSION`). La casilla no se puede marcar hasta bajar al final del
+texto, y «Aceptar» pide la casilla. Lo aceptado lo guarda el núcleo
+(`terms.py`: `terminos.json` en sus datos; `GET /api/terms`, `POST
+/api/terms/accept`), no el WebView. Sin aceptarlos se puede escuchar y
+ordenar la música, pero `requireTerms()` (`useTerms.js`) para tres cosas:
+separar en pistas (`useSeparation.request`), el asistente (`useChat.send`) y
+«Transformar». Al intentarlo sale la ventana con lo que se quería hacer, y la
+acción sigue si se aceptan.
+
+**Las novedades** se marcan como leídas al abrir su pestaña
+(`localStorage`). Tras una actualización, «Acerca de DanPlay» dice «Nuevo» y
+un aviso lo cuenta al arrancar.
+
 ## Estructura del proyecto
 
 ```text
@@ -1575,9 +1770,21 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   stems.py        separar en pistas: la cola, las carpetas, la mezcla
   bundle.py       llevar una canción separada al celular (.danpista)
   separation.py   el separador por dentro (Demucs con numpy y ONNX Runtime),
-                  en un proceso aparte
-  data/separador/ los grafos del separador, sin pesos
-  beatgrid.py     el pulso y el «1» del metrónomo: la cache y el proceso aparte
+                  en un proceso aparte; run_max, la máxima calidad
+  mega.py         la máxima calidad: el Mega53 y el reparto por máscaras
+  torchzip.py     leer un checkpoint de PyTorch sin PyTorch ni pickle
+  data/separador/ los grafos del separador, sin pesos (también el Mega53)
+  reuse.py        lo hecho para otro archivo de la misma canción: gemelas,
+                  desfase, adoptar pistas, clic, estudio y listas
+  sequence.py     abrir una secuencia descargada (MultiTracks + Ableton)
+  diario.py       el diario junto a la música: escribirlo y, al abrir,
+                  recuperar listas, estrellas y estudio de lo que se movió
+  terms.py        si se aceptaron los términos (el texto, en la interfaz)
+  cues.py         las guías habladas: voces, bajarlas, decir, grabaciones
+  habla.py        el texto de una guía: números en palabras y fonemas (G2P)
+  data/voces.json el catálogo de voces, con sha256 y revisión fijados
+  beatgrid.py     el pulso y el «1» del metrónomo: la cache (también lo que
+                  oyó la red), el proceso aparte y re-analizar
   pulse.py        Beat This! por dentro (espectrograma y trozos con numpy, ONNX)
   data/pulso/     el grafo de Beat This!, con sus pesos
   click.py        el clic del metrónomo en la mezcla que se guarda
@@ -1588,18 +1795,23 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   model_catalog.py  el catálogo de modelos (models.dev), siempre al día
   data/           la foto del catálogo que viaja con la app
 core/           crate Rust (PyO3): hashes en paralelo y forma de onda
-motor/          el motor de pistas del celular (decode, feeder, render,
-                stretch, output, engine, bundle) y lo que comparte con la
-                PC: beats (el pulso), metro, queue y click; cpp/ Signalsmith
+motor/          el motor de audio de la PC y del celular (decode, feeder,
+                render, stretch, output, engine, bundle, record: grabar del
+                micrófono, spec: salidas y guías como las manda la interfaz)
+                y beats (el pulso), metro, queue y click; cpp/ Signalsmith
 movil/          la app del celular (Tauri): el reproductor con el contrato de
-                la PC, el puente api sin Python, la biblioteca de pistas;
-                gen/android el proyecto de Android
+                la PC, el puente api sin Python, la biblioteca de pistas, la
+                música del teléfono (musica.rs); gen/android el proyecto de
+                Android
 desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
                 movil.html y src/movil/)
   src/
     App.vue       la ventana principal (la ventanita y la proyección, aparte)
     router.js     las páginas (Ajustes, Asistente, Descargas, Entrada,
-                  Duplicados), con carga diferida y el chat en <KeepAlive>
+                  Duplicados, Acerca de), con carga diferida y el chat en
+                  <KeepAlive>
+    data/         los textos de la app: términos y autor (terminos.js) y las
+                  novedades de cada versión (novedades.js)
     composables/  estado compartido: useLibrary (lista y estado), useSelection,
                   useSongMenus, useSongList, usePlayback, useClick (el clic de
                   cada canción, con el estudio abierto o cerrado), useChat…
@@ -1613,9 +1825,10 @@ desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
     core.rs       arrancar, vigilar y hablar con el núcleo Python
     queue/        la cola: qué suena y qué viene (model, session, logic,
                   resolve, worker, commands)
-    player/       el audio (engine, output con el latido, open, metro, state,
-                  mix: las pistas separadas sonando juntas, fade: el volumen
-                  muestra a muestra para fundidos y cambios sin corte)
+    player/       el audio sobre el motor (engine: una función por orden;
+                  formats: lo que el motor no lee, a FLAC; state)
+    record.rs     grabar una guía hablada con el micrófono
+    open.rs       abrir desde fuera: la carpeta a la cola, las secuencias
     protocol.rs   danplay://cover, las carátulas
     tools.rs      dónde están ffmpeg y los demás programas
     tray/         bandeja: linux.rs (ksni) y desktop.rs (Windows/macOS)
