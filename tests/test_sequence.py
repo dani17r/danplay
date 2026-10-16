@@ -4,6 +4,7 @@ con su proyecto de Ableton, como las de MultiTracks.com."""
 import gzip
 import json
 import wave
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -148,7 +149,7 @@ def test_opening_it_leaves_it_ready_to_play(configured_library, downloaded, tmp_
     r = sequence.import_sequence(downloaded, progress=lambda **k: seen.append(k))
     assert seen[-1]["done"] == seen[-1]["total"]
     song = library.by_id(r["id"])
-    assert song and song["path"].endswith("Secuencias/Grupo - Mi Cancion.flac")
+    assert song and Path(song["path"]).as_posix().endswith("Secuencias/Grupo - Mi Cancion.flac")
     assert (song["artist"], song["title"], song["key"]) == ("Grupo", "Mi Cancion", "G")
     assert abs(song["duration"] - 16.0) < 0.05
     info = stems.info(song)

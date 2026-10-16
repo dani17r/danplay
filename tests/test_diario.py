@@ -183,6 +183,27 @@ def test_the_diary_is_written_next_to_the_music(lib):
     assert diario.write() == 0, "sin cambios no se reescribe"
 
 
+def test_a_diary_written_on_windows_is_understood_anywhere(lib):
+    """La ruta dentro de la carpeta se guarda con «/»; uno escrito con «\\»
+    (en Windows) se reconoce igual."""
+    from danplay import diario, library
+
+    root, _ = lib
+    with library.connect() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM songs")]
+    index = diario._index(rows)
+    gozo = next(r for r in rows if r["file"] == "Barak - Mi Gozo.mp3")
+    entry = {
+        "path": "C:\\Musica\\Artistas\\Barak\\Barak - Mi Gozo.mp3",
+        "root": root.name,
+        "rel": "Artistas\\Barak\\Barak - Mi Gozo.mp3",
+        "file": "otro nombre.mp3",
+        "size": -1,
+    }
+    found = diario._find(entry, *index)
+    assert found and found["id"] == gozo["id"]
+
+
 def test_a_lost_database_is_rebuilt_from_the_diary(lib, tmp_path, monkeypatch):
     """Lo peor: la base se pierde (o es otro equipo). Al escanear, el diario
     rehace las listas en su orden, con sus notas, las estrellas y el estudio;
