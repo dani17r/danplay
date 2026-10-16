@@ -64,7 +64,10 @@ const rows = computed(() => [
   { kind: 'song', name: 'La canción', key: '' },
   ...props.stems.map((s) => ({
     kind: 'stem',
-    name: s.name + (s.role === 'click' ? ' (clic)' : s.role === 'guide' ? ' (guía)' : ''),
+    // un carril de guías ya se llama «Guías: …»; una pista de una secuencia
+    // dice su papel
+    name:
+      s.name + (s.lane ? '' : s.role === 'click' ? ' (clic)' : s.role === 'guide' ? ' (guía)' : ''),
     key: s.key,
     role: s.role || ''
   })),

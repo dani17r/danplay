@@ -999,9 +999,7 @@ describe('tono, velocidad fina y metronomo', () => {
 
   it('la velocidad tiene deslizador fino ademas de los botones', async () => {
     const w = await montar()
-    const sliders = w.findAll('input[type="range"]')
-    expect(sliders.length).toBeGreaterThanOrEqual(1)
-    await sliders[0].setValue('0.83')
+    await w.find('input[aria-label="Velocidad"]').setValue('0.83')
     await flushPromises()
     expect(bridge().setSpeed).toHaveBeenLastCalledWith(0.83)
     expect(w.text()).toContain('83 %')
@@ -1441,7 +1439,7 @@ describe('las pistas separadas en el estudio', () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study })]
   }
   const mandado = () => held.playback.bridge.setStems.mock.calls.at(-1)
-  const carriles = (w) => w.findAll('.tl-lane').map((l) => l.find('.tl-lane-name').text())
+  const carriles = (w) => w.findAll('.tl-lanes .tl-lane').map((l) => l.find('.tl-lane-name').text())
 
   beforeEach(async () => {
     const { resetSeparation } = await import('../src/composables/useSeparation.js')
@@ -1752,22 +1750,32 @@ describe('el estudio de 1.28', () => {
     }
   })
 
-  it('la rueda acerca la onda donde está el ratón, y la regla pasa a décimas', async () => {
+  it('Ctrl + rueda acerca la onda donde está el ratón, y la regla pasa a décimas', async () => {
     const w = await montar()
     conAnchura(w)
     const tl = w.findComponent({ name: 'StudyTimeline' })
     expect(tl.vm.view.to - tl.vm.view.from).toBe(200)
-    // acercar sobre x=100 (0:50) varias veces
-    for (let i = 0; i < 8; i++) {
-      w.find('.tl-box').element.dispatchEvent(
-        new WheelEvent('wheel', { deltaY: -400, clientX: 100, bubbles: true, cancelable: true })
-      )
+    const rueda = (opts) => {
+      const e = new WheelEvent('wheel', { clientX: 100, bubbles: true, cancelable: true, ...opts })
+      w.find('.tl-box').element.dispatchEvent(e)
+      return e
     }
+    // la rueda sola no acerca: sube y baja el panel, como en cualquier sitio
+    expect(rueda({ deltaY: -400 }).defaultPrevented).toBe(false)
+    expect(tl.vm.view.to - tl.vm.view.from).toBe(200)
+    // con Ctrl, acerca sobre x=100 (0:50)
+    for (let i = 0; i < 8; i++) rueda({ deltaY: -400, ctrlKey: true })
     await flushPromises()
     const span = tl.vm.view.to - tl.vm.view.from
     expect(span).toBeLessThan(10)
     // el punto bajo el ratón no se mueve: sigue a un cuarto de la vista
     expect((50 - tl.vm.view.from) / span).toBeCloseTo(0.25, 1)
+    // con Mayús, recorre la canción sin acercar ni alejar
+    const from = tl.vm.view.from
+    expect(rueda({ deltaY: 200, shiftKey: true }).defaultPrevented).toBe(true)
+    await flushPromises()
+    expect(tl.vm.view.from).toBeGreaterThan(from)
+    expect(tl.vm.view.to - tl.vm.view.from).toBeCloseTo(span, 5)
     expect(w.find('.tl-overview').exists(), 'la tira de toda la canción').toBe(true)
     expect(w.findAll('.tl-tick-label').some((l) => l.text().includes('.'))).toBe(true)
     // ver toda la canción
@@ -1969,5 +1977,169 @@ describe('abrir una secuencia', () => {
     expect(api.importSequence).toHaveBeenCalledWith('/d/Mi Cancion-Grupo-G-120.00bpm')
     expect(made).toMatchObject({ id: 9, tracks: 3 })
     expect(seq.state.busy).toBe(false)
+  })
+})
+
+describe('los carriles de las guías', () => {
+  const guia = (t, lane, text = 'Coro') => ({
+    t,
+    file: `/guias/${text}.wav`,
+    text,
+    voice: 'st-F1',
+    ...(lane ? { lane } : {})
+  })
+  /** jsdom no maqueta: los carriles de guías van de x=0 a x=400, como la onda. */
+  function anchoGuias(w, width = 400) {
+    w.find('.tl-guide-tracks').element.getBoundingClientRect = () => ({
+      left: 0,
+      width,
+      right: width,
+      top: 0,
+      bottom: 28,
+      height: 28,
+      x: 0,
+      y: 0
+    })
+  }
+  const botonGuia = (w) => w.findAll('button').find((b) => b.text().trim() === 'Guía')
+  /** Lo último que llegó a Rust de las guías. */
+  const enviadas = () => held.playback.bridge.setCues.mock.calls.at(-1)[1]
+
+  it('solo con la canción parada: doble clic en el carril pone una guía ahí', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo' })]
+    held.playback.emit({ playing: true })
+    const w = await montar()
+    // de fábrica, un carril
+    expect(w.findAll('.tl-guide-track')).toHaveLength(1)
+    expect(w.find('.tl-guide-name').text()).toBe('Guías')
+    // sonando, ni el botón ni el doble clic ni el menú de la onda
+    expect(botonGuia(w).attributes('disabled')).toBeDefined()
+    anchoGuias(w)
+    await w.find('.tl-guide-track').trigger('dblclick', { clientX: 100 })
+    await flushPromises()
+    expect(w.findComponent({ name: 'StudyCue' }).exists()).toBe(false)
+    expect(w.find('.tl-guide-tracks').classes()).not.toContain('editable')
+
+    held.playback.emit({ playing: false })
+    await flushPromises()
+    expect(botonGuia(w).attributes('disabled')).toBeUndefined()
+    await w.find('.tl-guide-track').trigger('dblclick', { clientX: 100 })
+    await flushPromises()
+    const draft = w.findComponent({ name: 'StudyCue' }).props('draft')
+    expect(draft).toMatchObject({ t: 50, lane: 'g1', cue: null })
+  })
+
+  it('cada carril con su nombre, callar, solo y volumen; hasta seis', async () => {
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({
+          cues: [guia(10, 'g1', 'Coro'), guia(20, 'g2', 'Puente'), guia(30, '', 'Final')],
+          cueLanes: [
+            { key: 'g1', name: 'Banda' },
+            { key: 'g2', name: 'Baterista', gain: 1.5 }
+          ]
+        })
+      })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    expect(w.findAll('.tl-guide-name').map((b) => b.text())).toEqual(['Banda', 'Baterista'])
+    // cada guía en su carril (la que no dice, en el primero)
+    const pistas = w.findAll('.tl-guide-track')
+    expect(pistas[0].findAll('.tl-guide-clip').map((c) => c.text())).toEqual(['Coro', 'Final'])
+    expect(pistas[1].findAll('.tl-guide-clip').map((c) => c.text())).toEqual(['Puente'])
+    // a Rust, con el volumen de su carril
+    expect(enviadas().map((c) => [c.at, c.gain])).toEqual([
+      [10, 1],
+      [20, 1.5],
+      [30, 1]
+    ])
+
+    // callar la banda
+    await w.findAll('.tl-guide-lane')[0].findAll('.tl-lane-btn')[0].trigger('click')
+    await flushPromises()
+    expect(enviadas().map((c) => c.at)).toEqual([20])
+    // dejar solo al baterista (y la banda vuelve a sonar: el solo manda)
+    await w.findAll('.tl-guide-lane')[0].findAll('.tl-lane-btn')[0].trigger('click')
+    await w.findAll('.tl-guide-lane')[1].findAll('.tl-lane-btn')[1].trigger('click')
+    await flushPromises()
+    expect(enviadas().map((c) => c.at)).toEqual([20])
+
+    // otro carril, hasta seis
+    for (let i = 0; i < 5; i++) await boton(w, 'Carril de guías').trigger('click')
+    await flushPromises()
+    expect(w.findAll('.tl-guide-track')).toHaveLength(6)
+    expect(boton(w, 'Carril de guías').attributes('disabled')).toBeDefined()
+
+    // y se guarda con la canción (al momento de dejar de tocar)
+    await new Promise((r) => setTimeout(r, 700))
+    await flushPromises()
+    const body = held.api.setStudy.mock.calls.at(-1)[1]
+    expect(body.cueLanes).toHaveLength(6)
+    expect(body.cueLanes[1]).toMatchObject({ key: 'g2', name: 'Baterista', gain: 1.5, solo: true })
+    expect(body.cues.find((c) => c.t === 20).lane).toBe('g2')
+  })
+
+  it('arrastrar una guía la mueve, con la canción parada', async () => {
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ cues: [guia(10, '', 'Coro')] }) })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    anchoGuias(w)
+    const bloque = w.find('.tl-guide-clip').element
+    bloque.dispatchEvent(new PointerEvent('pointerdown', { clientX: 20, button: 0, bubbles: true }))
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 60 }))
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 60 }))
+    await flushPromises()
+    // 40 px de 400 son 20 segundos
+    expect(enviadas().map((c) => c.at)).toEqual([30])
+    expect(w.findComponent({ name: 'StudyCue' }).exists(), 'arrastrar no la abre').toBe(false)
+    // un toque sin arrastrar, sí la abre para cambiarla
+    w.find('.tl-guide-clip').element.dispatchEvent(
+      new PointerEvent('pointerdown', { clientX: 60, button: 0, bubbles: true })
+    )
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 60 }))
+    await flushPromises()
+    expect(w.findComponent({ name: 'StudyCue' }).props('draft')).toMatchObject({
+      t: 30,
+      lane: 'g1'
+    })
+  })
+
+  it('con varios carriles, cada uno tiene su fila en «Salidas» y su salida', async () => {
+    const { resetRouting } = await import('../src/composables/useRouting.js')
+    localStorage.removeItem('danplay.salidas')
+    resetRouting()
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({
+          cues: [guia(10, 'g1', 'Coro'), guia(20, 'g2', 'Puente')],
+          cueLanes: [
+            { key: 'g1', name: 'Banda' },
+            { key: 'g2', name: 'Baterista' }
+          ]
+        })
+      })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    await boton(w, 'Salidas').trigger('click')
+    await flushPromises()
+    const filas = [...document.querySelectorAll('.outs-row-name')].map((n) => n.textContent)
+    expect(filas).toContain('Guías: Banda')
+    expect(filas).toContain('Guías: Baterista')
+    // el baterista, solo por la izquierda (a sus cascos)
+    const { useRouting } = await import('../src/composables/useRouting.js')
+    await useRouting().setStem('guias_g2', 'L')
+    await flushPromises()
+    const [banda, baterista] = enviadas()
+    expect(baterista.bus).not.toBe(banda.bus)
+    const spec = held.playback.bridge.setRouting.mock.calls.at(-1)[0]
+    expect(spec.buses[baterista.bus]).toEqual({ left: 0, right: 0 })
+    localStorage.removeItem('danplay.salidas')
+    resetRouting()
   })
 })

@@ -75,7 +75,8 @@ const { track, position, duration, speed, pitch, metronome, pitchPreserved, play
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
 // `loops`: los tramos que se repiten, [[a, b], …] (uno solo es el bucle A-B);
 // `mixer`: las pistas separadas, si suenan (`on`) y cómo va cada una;
-// `cues`: las guías habladas, [{t, text?, voice?, file, gain?}]
+// `cues`: las guías habladas, [{t, text?, voice?, file, gain?, lane?}];
+// `cueLanes`: sus carriles (hasta 6), [{key, name, gain?, mute?, solo?}]
 const blank = () => ({
   loops: [],
   speed: 1,
@@ -83,10 +84,13 @@ const blank = () => ({
   metronome: {},
   markers: [],
   cues: [],
+  cueLanes: [],
   notes: '',
   mixer: { on: false, tracks: {} }
 })
 const study = ref(blank())
+/** Hasta cuántos carriles de guías (como el núcleo). */
+const MAX_CUE_LANES = 6
 // el clic: su rejilla, si carga, y el modo. Vive fuera del panel: con él
 // cerrado, al pasar de canción, sigue igual
 const click = useClick()
@@ -191,6 +195,16 @@ async function loadFor(id) {
       metronome: typeof s.metronome === 'object' && s.metronome ? { ...s.metronome } : {},
       markers: (s.markers || []).map((m) => ({ ...m })),
       cues: (Array.isArray(s.cues) ? s.cues : []).map((c) => ({ ...c })),
+      cueLanes: (Array.isArray(s.cueLanes) ? s.cueLanes : [])
+        .slice(0, MAX_CUE_LANES)
+        .filter((l) => l && typeof l.key === 'string')
+        .map((l) => ({
+          key: l.key,
+          name: l.name || '',
+          gain: Number.isFinite(l.gain) ? l.gain : 1,
+          mute: !!l.mute,
+          solo: !!l.solo
+        })),
       notes: s.notes || '',
       mixer: {
         on: !!s.mixer?.on,
@@ -246,7 +260,15 @@ function payload(s) {
     file: c.file,
     ...(c.text ? { text: c.text } : {}),
     ...(c.voice ? { voice: c.voice } : {}),
-    ...(c.gain != null && c.gain !== 1 ? { gain: c.gain } : {})
+    ...(c.gain != null && c.gain !== 1 ? { gain: c.gain } : {}),
+    ...(c.lane ? { lane: c.lane } : {})
+  }))
+  const cueLanes = (s.cueLanes || []).map((l) => ({
+    key: l.key,
+    name: l.name || '',
+    ...(l.gain != null && l.gain !== 1 ? { gain: l.gain } : {}),
+    ...(l.mute ? { mute: true } : {}),
+    ...(l.solo ? { solo: true } : {})
   }))
   return {
     ...(mixer ? { mixer } : {}),
@@ -260,6 +282,7 @@ function payload(s) {
     ...(Object.keys(metro).length ? { metronome: metro } : {}),
     ...(markers.length ? { markers } : {}),
     ...(cues.length ? { cues } : {}),
+    ...(cueLanes.length ? { cueLanes } : {}),
     ...(s.notes.trim() ? { notes: s.notes.trim() } : {})
   }
 }
@@ -520,7 +543,8 @@ function showOptions({ index, t, x, y, event }) {
     items.push({
       label: 'Guía hablada aquí…',
       icon: 'mic',
-      note: formatTime(t),
+      note: playing.value ? 'para la canción' : formatTime(t),
+      disabled: playing.value,
       action: () => addCue(t)
     })
   }
@@ -1063,27 +1087,153 @@ watch(cueVolume, (v) => {
   savePref(CUE_VOLUME_KEY, v)
   sendCues()
 })
+/**
+ * Los carriles de las guías: los guardados, o uno («Guías») si no hay.
+ * Como los de las pistas separadas: cada uno con su volumen, callado o solo,
+ * y su salida (en «Salidas», como una pista con papel de guía).
+ */
+const guideLanes = computed(() =>
+  study.value.cueLanes?.length
+    ? study.value.cueLanes
+    : [{ key: 'g1', name: 'Guías', gain: 1, mute: false, solo: false }]
+)
+/** El carril de una guía (sin carril, o uno que ya no está: el primero). */
+const laneOfCue = (c) =>
+  guideLanes.value.some((l) => l.key === c.lane) ? c.lane : guideLanes.value[0].key
+/** Cómo se llama un carril de guías en el reparto (como una pista). */
+const laneRoute = (key) => 'guias_' + key
+/** Lo que reparte «Salidas»: las pistas separadas y los carriles de guías. */
+const routedParts = computed(() => [
+  ...(stems.value?.tracks || []).map((t) => ({ key: t.source, role: t.role || '' })),
+  ...guideLanes.value.map((l) => ({ key: laneRoute(l.key), role: 'guide' }))
+])
+watch(
+  () => JSON.stringify(routedParts.value),
+  () => routing.setStems(routedParts.value)
+)
 function sendCues() {
   const path = player.state.path
   if (!path || !loadedFor.value) return Promise.resolve()
+  const lanes = guideLanes.value
+  const anySolo = lanes.some((l) => l.solo)
+  const live = new Map(lanes.filter((l) => !l.mute && (!anySolo || l.solo)).map((l) => [l.key, l]))
+  const buses = routing.routing.value.stems
   const cues = (study.value.cues || [])
-    .filter((c) => c.file)
-    .map((c) => ({ at: c.t, path: c.file, gain: c.gain ?? 1 }))
+    .filter((c) => c.file && live.has(laneOfCue(c)))
+    .map((c) => {
+      const lane = live.get(laneOfCue(c))
+      const bus = buses[laneRoute(lane.key)]
+      return {
+        at: c.t,
+        path: c.file,
+        gain: (c.gain ?? 1) * (lane.gain ?? 1),
+        ...(bus != null ? { bus } : {})
+      }
+    })
   return player.setCues(cues, cueVolume.value, path)
 }
+// otro reparto (un carril de guías a otra salida): las guías, con su bus nuevo
+watch(
+  () => JSON.stringify(routing.routing.value.stems),
+  () => sendCues()
+)
+/**
+ * Las guías se ponen, se mueven y se cambian con la canción parada: sonando,
+ * un doble clic o un arrastre sin querer movería lo que está sonando.
+ */
+const cueEdit = computed(() => !!track.value && !playing.value)
+const STOP_FIRST = 'Para la canción para poner, mover o cambiar guías'
 /** El diálogo de una guía: el instante, el texto y la voz (o grabar). */
 const cueDraft = ref(null)
-function addCue(t = position.value) {
+function addCue(t = position.value, lane = guideLanes.value[0].key) {
   if (!track.value) return
-  cueDraft.value = { t: round2(t), text: '', voice: readPref('danplay.guias.voz', ''), cue: null }
+  if (playing.value) return notify(STOP_FIRST, 'info')
+  cueDraft.value = {
+    t: round2(t),
+    text: '',
+    voice: readPref('danplay.guias.voz', ''),
+    cue: null,
+    lane
+  }
 }
 function editCue(c) {
-  cueDraft.value = { t: c.t, text: c.text || '', voice: c.voice || '', cue: c }
+  if (playing.value) return notify(STOP_FIRST, 'info')
+  cueDraft.value = { t: c.t, text: c.text || '', voice: c.voice || '', cue: c, lane: laneOfCue(c) }
+}
+/** Arrastrada en su carril: a su sitio nuevo. */
+function moveCue(c, t) {
+  if (playing.value) return
+  c.t = round2(t)
+  study.value.cues = [...(study.value.cues || [])].sort((a, b) => a.t - b.t)
+  scheduleSave()
+  sendCues()
+}
+/** Los carriles se guardan en cuanto se toca uno (el de fábrica pasa a ser de verdad). */
+function ownLanes() {
+  if (!study.value.cueLanes?.length) study.value.cueLanes = guideLanes.value.map((l) => ({ ...l }))
+  return study.value.cueLanes
+}
+function setCueLane(key, patch) {
+  const lane = ownLanes().find((l) => l.key === key)
+  if (!lane) return
+  Object.assign(lane, patch)
+  scheduleSave()
+  sendCues()
+}
+function addCueLane() {
+  const lanes = ownLanes()
+  if (lanes.length >= MAX_CUE_LANES) return
+  let n = 1
+  while (lanes.some((l) => l.key === 'g' + n)) n++
+  lanes.push({
+    key: 'g' + n,
+    name: 'Guías ' + (lanes.length + 1),
+    gain: 1,
+    mute: false,
+    solo: false
+  })
+  scheduleSave()
+}
+async function renameCueLane(key) {
+  const lane = ownLanes().find((l) => l.key === key)
+  if (!lane) return
+  const name = await ask({
+    kind: 'prompt',
+    title: 'Nombre del carril',
+    message: 'Por ejemplo «Baterista», «Banda» o «Coros».',
+    value: lane.name || 'Guías',
+    okLabel: 'Guardar'
+  })
+  if (typeof name !== 'string') return
+  lane.name = name.trim().slice(0, 40)
+  scheduleSave()
+}
+async function removeCueLane(key) {
+  const lanes = ownLanes()
+  if (lanes.length < 2) return
+  const lane = lanes.find((l) => l.key === key)
+  if (!lane) return
+  const mine = (study.value.cues || []).filter((c) => laneOfCue(c) === key)
+  if (mine.length) {
+    const ok = await ask({
+      kind: 'confirm',
+      title: 'Quitar el carril',
+      danger: true,
+      message: `«${lane.name || 'Guías'}» tiene ${mine.length === 1 ? 'una guía' : mine.length + ' guías'}: se quitan con él.`,
+      okLabel: 'Quitar'
+    })
+    if (!ok) return
+  }
+  study.value.cueLanes = lanes.filter((l) => l.key !== key)
+  study.value.cues = (study.value.cues || []).filter((c) => !mine.includes(c))
+  scheduleSave()
+  sendCues()
 }
 /** La guía ya hecha (por el diálogo): a la canción, y a sonar. */
 async function onCueMade({ t, text, voice, file, cue }) {
+  const lane = cueDraft.value?.lane || (cue ? laneOfCue(cue) : guideLanes.value[0].key)
   const list = (study.value.cues || []).filter((c) => c !== cue)
-  list.push({ t: round2(t), text, voice, file })
+  list.push({ t: round2(t), text, voice, file, lane })
   study.value.cues = list.sort((a, b) => a.t - b.t)
   cueDraft.value = null
   if (voice) savePref('danplay.guias.voz', voice)
@@ -1149,7 +1299,7 @@ async function loadStems(id) {
     study.value.mixer.on = true
     scheduleSave()
   }
-  await routing.setStems((info?.tracks || []).map((t) => ({ key: t.source, role: t.role || '' })))
+  await routing.setStems(routedParts.value)
   await sendMix()
 }
 // al acabar cada pasada de la canción que se estudia, sus pistas: las
@@ -1708,8 +1858,14 @@ defineExpose({ close: hide, hide, exit })
         <button
           class="btn mini"
           type="button"
-          :disabled="!track"
-          title="Una guía hablada aquí: escribe lo que se dirá (o grábalo) y sonará al pasar"
+          :disabled="!cueEdit"
+          :title="
+            !track
+              ? ''
+              : cueEdit
+                ? 'Una guía hablada aquí: escribe lo que se dirá (o grábalo) y sonará al pasar'
+                : STOP_FIRST
+          "
           @click="addCue()"
         >
           <Icon n="mic" :t="12" /> Guía
@@ -1717,7 +1873,7 @@ defineExpose({ close: hide, hide, exit })
         <button
           class="btn mini study-zoom"
           type="button"
-          title="Alejar la onda (o la rueda del ratón sobre ella)"
+          title="Alejar la onda (o Ctrl + rueda sobre ella)"
           aria-label="Alejar"
           @click="timeline?.zoomBy?.(0.5)"
         >
@@ -1726,7 +1882,7 @@ defineExpose({ close: hide, hide, exit })
         <button
           class="btn mini study-zoom"
           type="button"
-          title="Acercar la onda (o la rueda del ratón sobre ella)"
+          title="Acercar la onda (o Ctrl + rueda sobre ella)"
           aria-label="Acercar"
           @click="timeline?.zoomBy?.(2)"
         >
@@ -1763,7 +1919,16 @@ defineExpose({ close: hide, hide, exit })
       :locked="locked"
       :playing="playing"
       :lanes="lanes"
+      :guides="!isMobileApp"
+      :cue-lanes="guideLanes"
+      :cue-edit="cueEdit"
       @lane="onLane"
+      @add-cue="(t, lane) => addCue(t, lane)"
+      @move-cue="moveCue"
+      @cue-lane="setCueLane"
+      @add-cue-lane="addCueLane"
+      @remove-cue-lane="removeCueLane"
+      @rename-cue-lane="renameCueLane"
       @update:locked="(v) => (locked = v)"
       @update:multi="(v) => (multi = v)"
       @update:loops="onLoops"
@@ -1858,6 +2023,7 @@ defineExpose({ close: hide, hide, exit })
             :max="1.25"
             :step="0.01"
             width="100%"
+            aria-label="Velocidad"
             @update:model-value="setSpeed"
           />
         </div>
@@ -2404,7 +2570,17 @@ defineExpose({ close: hide, hide, exit })
 
     <StudyOutputs
       :open="outputsOpen"
-      :stems="plan.map((t) => ({ key: t.key, name: t.name, role: t.role }))"
+      :stems="[
+        ...plan.map((t) => ({ key: t.key, name: t.name, role: t.role })),
+        ...(guideLanes.length > 1
+          ? guideLanes.map((l) => ({
+              key: laneRoute(l.key),
+              name: 'Guías: ' + (l.name || 'Guías'),
+              role: 'guide',
+              lane: true
+            }))
+          : [])
+      ]"
       @close="outputsOpen = false"
     />
     <StudyCue

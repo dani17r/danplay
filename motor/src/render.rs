@@ -171,6 +171,8 @@ pub struct Cue {
     pub at: f64,
     pub clip: Arc<[f32]>,
     pub gain: f32,
+    /// El bus de su carril de guías (`None`: el de las guías).
+    pub bus: Option<u8>,
 }
 
 /// Las voces guia de la cancion, en orden.
@@ -1545,8 +1547,6 @@ impl Render {
 
     fn mix_cues(&mut self, n: usize) {
         let volume = self.cues.volume.clamp(0.0, 3.0);
-        let b = self.routing.cue_bus();
-        let buf = &mut self.bus_out[b * CHUNK * 2..][..n * 2];
         for v in &mut self.cue_voices {
             if !v.live {
                 continue;
@@ -1555,6 +1555,11 @@ impl Render {
                 v.live = false;
                 continue;
             };
+            // cada carril de guías por su salida (o todas por la de las guías)
+            let b = cue
+                .bus
+                .map_or_else(|| self.routing.cue_bus(), |b| self.routing.clamp_bus(b));
+            let buf = &mut self.bus_out[b * CHUNK * 2..][..n * 2];
             let frames = cue.clip.len() / 2;
             let gain = cue.gain * volume;
             for f in buf.as_chunks_mut::<2>().0 {

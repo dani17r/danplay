@@ -59,6 +59,10 @@ pub struct CueSpec {
     pub path: String,
     #[serde(default = "one")]
     pub gain: f32,
+    /// El bus de su carril (cada carril de guías puede ir por su salida);
+    /// sin él, el de las guías.
+    #[serde(default)]
+    pub bus: Option<u8>,
 }
 
 const fn one() -> f32 {
@@ -105,6 +109,7 @@ impl Clips {
             };
             out.push(Cue {
                 at: c.at.max(0.0),
+                bus: c.bus,
                 clip,
                 gain: if c.gain.is_finite() {
                     c.gain.clamp(0.0, 3.0)
@@ -160,6 +165,7 @@ mod tests {
                 at: 3.0,
                 path: "/no/esta.wav".into(),
                 gain: 1.0,
+                bus: None,
             }],
             1.0,
         );

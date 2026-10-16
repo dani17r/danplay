@@ -216,6 +216,35 @@ def test_the_api_for_guides(configured_library, guides, monkeypatch):
         {"t": 12.35, "file": made["file"], "text": "Coro", "voice": "st-F1"},
     ]
     assert study["metronome"]["own"] == {"beats": [1.0, 1.5, 2.0], "bars": [0, 2], "meter": 3}
+    # los carriles de las guías (hasta 6), y cada guía en el suyo
+    d = cliente.put(
+        f"/api/song/{c['id']}/study",
+        json={
+            "cues": [
+                {"t": 1, "file": made["file"], "lane": "g2"},
+                {"t": 2, "file": made["file"], "lane": "../x"},
+            ],
+            "cueLanes": [
+                {"key": "g1", "name": "Banda"},
+                {"key": "g2", "name": "Baterista", "gain": 1.4, "mute": True, "solo": False},
+                {"key": "g2", "name": "repetido"},
+                {"key": "Mal Nombre"},
+            ],
+        },
+    ).json()
+    study = json.loads(d["study"])
+    assert study["cues"] == [
+        {"t": 1.0, "file": made["file"], "lane": "g2"},
+        {"t": 2.0, "file": made["file"]},
+    ]
+    assert study["cueLanes"] == [
+        {"key": "g1", "name": "Banda"},
+        {"key": "g2", "name": "Baterista", "gain": 1.4, "mute": True},
+    ]
+    seven = [{"key": f"g{i}"} for i in range(7)]
+    assert cliente.put(f"/api/song/{c['id']}/study", json={"cueLanes": seven}).status_code == 422, (
+        "más de 6 carriles, no"
+    )
     rec = guides / "danplay-guia-2.wav"
     _recording(rec, rate=16000)
     r = cliente.post(f"/api/song/{c['id']}/cues/import", json={"path": str(rec)})

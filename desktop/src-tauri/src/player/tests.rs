@@ -517,6 +517,7 @@ fn routing_and_cues_do_not_stop_the_song() {
             at: 5.0,
             path: stems()[0].clone(),
             gain: 1.0,
+            bus: None,
         }],
         volume: 1.0,
     })
