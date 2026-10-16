@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from ... import bundle, library, stems
 from .. import jobs
 from ..common import _started
-from ..models import IdsIn, StemMixIn
+from ..models import IdsIn, PathIn, StemMixIn
 
 log = logging.getLogger(__name__)
 
@@ -26,12 +26,14 @@ def separate_status():
 
 
 @router.post("/api/song/{cid}/separate", status_code=202)
-def separate(cid: int):
+def separate(cid: int, quality: str = ""):
     """A la cola de separacion: que la cancion tenga las mejores pistas (si ya
-    tiene las rapidas, solo se mejoran). Tarda: se sigue en GET
-    /api/separate. La primera vez baja el separador."""
+    tiene las rapidas, solo se mejoran). Con `quality=max`, ademas la maxima
+    calidad: mas instrumentos (percusion aparte, guitarra electrica y
+    acustica, teclados, cuerdas…). Tarda: se sigue en GET /api/separate. La
+    primera vez baja el separador (y la de maxima calidad, el suyo)."""
     try:
-        state = stems.request(cid)
+        state = stems.request(cid, maximum=quality == "max")
     except stems.SeparateError as e:
         raise HTTPException(404 if "ya no está" in str(e) else 422, str(e)) from e
     return {**state, "job": jobs.snapshot(stems.JOB)}
@@ -127,3 +129,35 @@ def to_phone(body: Annotated[IdsIn, Body()]):
 
     snap, already = jobs.start(bundle.JOB, work, failure="no se pudo preparar para el celular")
     return JSONResponse(_started(snap, already), status_code=202)
+
+
+# ------------------------------------------------------------ secuencias
+
+
+@router.get("/api/sequence")
+def sequence_info(path: str):
+    """Lo que hay en una carpeta de secuencia (o en la de ese archivo): el
+    titulo, el tempo, las partes y las pistas con su papel. 422 si no lo es."""
+    from ... import sequence
+
+    try:
+        return sequence.summary(path)
+    except sequence.SequenceError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@router.post("/api/sequence/import", status_code=202)
+def sequence_import(body: Annotated[PathIn, Body()]):
+    """Abre una secuencia descargada (trabajo «secuencia»): la cancion en
+    Secuencias/, sus pistas como pistas separadas, sus partes y su clic."""
+    from ... import sequence
+
+    try:
+        sequence.find(body.path)
+    except sequence.SequenceError as e:
+        raise HTTPException(422, str(e)) from e
+
+    def work(progress):
+        return sequence.import_sequence(body.path, progress)
+
+    return _started(*jobs.start(sequence.JOB, work, failure="no se pudo abrir la secuencia"))

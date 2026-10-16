@@ -178,6 +178,22 @@ def played(path) -> dict | None:
     return resolve(cid)
 
 
+def describe(paths, limit: int = 1000) -> list[dict | None]:
+    """Las canciones de esas rutas (de la biblioteca, o de fuera con su id
+    negativo), sin apuntarlas como escuchadas: al abrir un archivo, el resto
+    de su carpeta va a la cola, pero solo suena (y sube a la lista) el que
+    se abrio. None para lo que no es audio o ya no esta."""
+    out: list[dict | None] = []
+    for raw in list(paths)[:limit]:
+        path = os.path.abspath(str(raw))
+        if os.path.splitext(path)[1].lower() not in config.EXTENSIONS or not os.path.isfile(path):
+            out.append(None)
+            continue
+        cid = _register(path)
+        out.append(resolve(cid) if cid is not None else None)
+    return out
+
+
 def listing(limit: int = 500, light: bool = False) -> list[dict]:
     """La lista, de lo ultimo que sono a lo mas antiguo.
 
