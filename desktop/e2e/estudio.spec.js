@@ -40,8 +40,9 @@ test('las notas se guardan en su canción aunque se pase a la siguiente', async 
     expect(await notesOf(request, b), 'las notas acabaron en la otra canción').toBe('')
     // y la nueva no hereda lo escrito
     await expect(study.locator('textarea')).toHaveValue('')
-    await study.getByRole('button', { name: 'Cerrar', exact: true }).click()
-    await expect(study).toHaveCount(0)
+    // ocultarlo no quita nada (sigue montado, con lo que suena): solo no se ve
+    await study.getByRole('button', { name: /Ocultar/ }).click()
+    await expect(study).toBeHidden()
   } finally {
     await core(request, 'PUT', `/song/${a}/study`, {})
     await core(request, 'PUT', `/song/${b}/study`, {})

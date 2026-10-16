@@ -84,6 +84,46 @@ export function toneLabel(semitones) {
   return sign + hundredths / 100
 }
 
+/**
+ * Cuánto se corre el tono, dicho como lo dice un músico: «medio tono», «1
+ * tono», «1 tono y medio», «un cuarto de tono», «2 tonos». Con la
+ * dirección, «medio tono arriba» o «1 tono abajo»; sin corrimiento,
+ * «original». Medio tono es un semitono.
+ * @param {number} semitones
+ * @param {{ direction?: boolean }} [opts]
+ */
+export function toneWords(semitones, { direction = true } = {}) {
+  const n = Number(semitones) || 0
+  const hundredths = Math.round(Math.abs(n) * 50) // tonos × 100
+  if (!hundredths) return 'original'
+  const whole = Math.floor(hundredths / 100)
+  const part = hundredths % 100
+  const tones = (k) => (k === 1 ? '1 tono' : `${k} tonos`)
+  const PARTS = { 25: 'cuarto', 50: 'medio', 75: 'tres cuartos' }
+  let text
+  if (!part) text = tones(whole)
+  else if (!whole && part === 25) text = 'un cuarto de tono'
+  else if (!whole && part === 50) text = 'medio tono'
+  else if (!whole && part === 75) text = 'tres cuartos de tono'
+  else if (PARTS[part]) text = `${tones(whole)} y ${PARTS[part]}`
+  else text = `${(hundredths / 100).toLocaleString('es')} tonos`
+  return direction ? `${text} ${n > 0 ? 'arriba' : 'abajo'}` : text
+}
+
+/**
+ * Los semitonos de un corrimiento, para quien los cuenta así: «1 semitono»,
+ * «3 semitonos», «½ semitono».
+ * @param {number} semitones
+ */
+export function semitoneWords(semitones) {
+  const n = Math.abs(Number(semitones) || 0)
+  const rounded = Math.round(n * 100) / 100
+  if (!rounded) return ''
+  if (rounded === 0.5) return '½ semitono'
+  if (rounded === 1) return '1 semitono'
+  return `${rounded.toLocaleString('es')} semitonos`
+}
+
 /** «tono» o «tonos»: hasta uno, en singular (medio tono, un tono). */
 export function toneUnit(semitones) {
   return Math.abs(Number(semitones) || 0) > 2 ? 'tonos' : 'tono'

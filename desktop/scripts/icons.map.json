@@ -318,5 +318,41 @@
   "moreVertical": {
     "style": "o",
     "file": "ellipsis-vertical.svg"
+  },
+  "mic": {
+    "style": "o",
+    "file": "microphone.svg"
+  },
+  "zoomIn": {
+    "style": "o",
+    "file": "magnifying-glass-plus.svg"
+  },
+  "zoomOut": {
+    "style": "o",
+    "file": "magnifying-glass-minus.svg"
+  },
+  "fit": {
+    "style": "o",
+    "file": "arrows-pointing-out.svg"
+  },
+  "stop": {
+    "style": "o",
+    "file": "stop.svg"
+  },
+  "outputs": {
+    "style": "o",
+    "file": "speaker-wave.svg"
+  },
+  "exit": {
+    "style": "o",
+    "file": "arrow-right-start-on-rectangle.svg"
+  },
+  "cursor": {
+    "style": "o",
+    "file": "cursor-arrow-rays.svg"
+  },
+  "checkCircle": {
+    "style": "o",
+    "file": "check-circle.svg"
   }
 }

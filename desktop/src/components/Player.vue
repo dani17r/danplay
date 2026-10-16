@@ -20,7 +20,9 @@ import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
 import SliderField from './ui/SliderField.vue'
 
-const props = defineProps({ study: Boolean })
+// `study`: el modo estudio se ve; `studyActive`: está puesto (aunque oculto,
+// sigue sonando como se dejó: el botón lo dice)
+const props = defineProps({ study: Boolean, studyActive: Boolean })
 const emit = defineEmits(['goToOrigin', 'playSelected', 'toggleStudy'])
 
 const player = usePlayback()
@@ -205,7 +207,11 @@ function openMore(e) {
       },
       { separator: true },
       {
-        label: props.study ? 'Cerrar el modo estudio' : 'Modo estudio',
+        label: props.study
+          ? 'Ocultar el modo estudio'
+          : props.studyActive
+            ? 'Volver al modo estudio'
+            : 'Modo estudio',
         icon: 'academic',
         action: () => emit('toggleStudy')
       },
@@ -492,8 +498,12 @@ useHotkeys({
       <!-- el modo estudio: bucle, velocidad sin cambiar el tono, marcadores, notas -->
       <button
         class="pl-btn pl-study"
-        :class="{ on: props.study }"
-        title="Modo estudio: bucle A-B, velocidad sin cambiar el tono, marcadores y notas"
+        :class="{ on: props.study, active: props.studyActive && !props.study }"
+        :title="
+          props.studyActive && !props.study
+            ? 'El modo estudio sigue puesto (oculto): pulsa para verlo'
+            : 'Modo estudio: tramos, velocidad sin cambiar el tono, clic, marcadores y notas'
+        "
         @click="emit('toggleStudy')"
       >
         <Icon n="academic" :t="16" />

@@ -8,6 +8,7 @@
  * @property {string} name     Batería, Voces…
  * @property {string} path
  * @property {{peaks: number[], rms: number[]}|null} [wave]
+ * @property {string} [role]   en una secuencia: click (a la salida del clic) o guide (a la de las guías)
  */
 /**
  * @typedef {Object} StemSettings  Lo que se tocó de una pista.
@@ -35,6 +36,7 @@ export function stemPlan(tracks, settings) {
     return {
       key: t.source,
       name: t.name,
+      role: t.role || '',
       path: t.path,
       wave: t.wave || null,
       gain,

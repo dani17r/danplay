@@ -1,7 +1,7 @@
 /**
  * El clic del metrónomo, con el panel de estudio abierto o cerrado.
  *
- * Dos modos, con el botón «Clic automático»:
+ * Tres modos:
  *
  * - **Automático** (lo normal): cada canción con su clic. La rejilla la da
  *   Beat This! en el núcleo; la primera vez de cada canción tarda 15-20 s, y
@@ -12,6 +12,9 @@
  *   puesto, las siguientes de la cola se dejan preparadas: al pasar a ellas
  *   ya está. Si aquí no hay Beat This! (o no le sacó pulso), la de Rust, al
  *   momento.
+ * - **Propio**: el de la canción ajustado a mano, pulso a pulso, sobre la
+ *   onda, y guardado con ella (`metronome.own` de su estudio). Si una canción
+ *   aún no tiene el suyo, la automática (y al tocar un pulso pasa a ser suyo).
  * - **A mano**: un tempo para todas, el que se ponga. Al pasar de canción
  *   sigue sonando igual: ni se espera ni se cambia nada aunque llegue la
  *   rejilla de la otra.
@@ -23,8 +26,10 @@
 import { effectScope, ref, shallowRef, watch } from 'vue'
 import { api } from '../api.js'
 import { usePlayback } from './usePlayback.js'
+import { ownToGrid } from '../utils/beats.js'
 
 const AUTO_KEY = 'danplay.clic.auto'
+const MODE_KEY = 'danplay.clic.modo'
 const MANUAL_KEY = 'danplay.clic.mano'
 /** Cada cuánto se pregunta por la rejilla que se está calculando. */
 export const POLL_MS = 700
@@ -65,15 +70,23 @@ function songMetronome(raw) {
   }
 }
 
-/** Automático (cada canción con el suyo) o a mano (uno para todas). */
-const auto = ref(readPref(AUTO_KEY, true) !== false)
+/** El modo guardado (o el de antes: «Clic automático» sí o no). */
+function savedMode() {
+  const m = readPref(MODE_KEY, null)
+  if (m === 'auto' || m === 'own' || m === 'manual') return m
+  return readPref(AUTO_KEY, true) === false ? 'manual' : 'auto'
+}
+/** 'auto' (el de cada canción), 'own' (el ajustado a mano) o 'manual' (uno para todas). */
+const mode = ref(savedMode())
+/** Automático o propio (cada canción con el suyo) frente a a mano (uno para todas). */
+const auto = ref(mode.value !== 'manual')
 /** El tempo y el compás del modo a mano. */
 const manual = ref(cleanManual(readPref(MANUAL_KEY, {})))
 /** El clic pedido. Puede no sonar aún: en automático, mientras carga. */
 const wanted = ref(false)
 /** La rejilla de la canción que suena, ya en Rust (para pintarla). */
 const grid = shallowRef(/** @type {import('../api.js').BeatGrid|null} */ (null))
-/** De dónde salió: 'beat-this', 'rust' o ''. */
+/** De dónde salió: 'beat-this', 'rust', 'own' (el propio) o ''. */
 const source = ref('')
 /** La rejilla de la que suena, en camino (en automático). */
 const loading = ref(false)
@@ -134,6 +147,23 @@ function songSettings(id, saved, again = false) {
   return player().resetMetronomeOverrides({ ...(saved || {}) })
 }
 
+/** Lo guardado con una canción (su estudio), leído hace poco. */
+const studies = new Map()
+async function songStudy(id) {
+  const hit = studies.get(id)
+  if (hit && Date.now() - hit.at < 4000) return hit.study
+  let study
+  try {
+    const raw = (await api.song(id))?.study
+    study = raw ? JSON.parse(raw) : {}
+  } catch {
+    study = {}
+  }
+  studies.set(id, { study, at: Date.now() })
+  if (studies.size > 20) studies.delete(studies.keys().next().value)
+  return study
+}
+
 /**
  * Ya hay rejilla: se queda, y si el clic estaba pedido, suena (entra en el
  * siguiente pulso de la canción).
@@ -161,8 +191,8 @@ async function fromRust(id, path) {
   if (sameSong(id, path)) await settle(g, 'rust')
 }
 
-/** La de Beat This!, a Rust; si no vale, la de Rust. @param {any} found */
-async function adopt(id, path, found) {
+/** La de Beat This! (o la propia), a Rust; si no vale, la de Rust. @param {any} found */
+async function adopt(id, path, found, from = 'beat-this') {
   let g = null
   try {
     g = await player().setBeatGrid(found, path)
@@ -170,7 +200,7 @@ async function adopt(id, path, found) {
     /* no pasó la revisión de Rust: la suya */
   }
   if (!sameSong(id, path)) return
-  if (g) await settle(g, 'beat-this')
+  if (g) await settle(g, from)
   else await fromRust(id, path)
 }
 
@@ -215,6 +245,16 @@ async function load() {
   if (p.metronomeSent().on) await p.setMetronome({ on: false })
   await applySongSettings(id)
   if (!sameSong(id, path)) return
+  // el propio, si la canción lo tiene
+  if (mode.value === 'own') {
+    const own = ownToGrid((await songStudy(id))?.metronome?.own)
+    if (!sameSong(id, path)) return
+    if (own) {
+      await adopt(id, path, own, 'own')
+      if (wanted.value) prepareAhead()
+      return
+    }
+  }
   await ask(id, path)
   if (wanted.value) prepareAhead()
 }
@@ -266,6 +306,13 @@ async function setAuto(on) {
   if (on === auto.value) return
   auto.value = on
   savePref(AUTO_KEY, on)
+  if (!on) {
+    mode.value = 'manual'
+    savePref(MODE_KEY, 'manual')
+  } else if (mode.value === 'manual') {
+    mode.value = 'auto'
+    savePref(MODE_KEY, 'auto')
+  }
   const p = player()
   if (!on) {
     stopPolling()
@@ -294,6 +341,43 @@ function setManual(patch) {
   savePref(MANUAL_KEY, manual.value)
   if (auto.value) return Promise.resolve()
   return player().setMetronome({ bpm: manual.value.bpm, meter: manual.value.meter })
+}
+
+/**
+ * Automático, propio o a mano.
+ * @param {'auto'|'own'|'manual'} m
+ */
+async function setMode(m) {
+  if (!['auto', 'own', 'manual'].includes(m) || m === mode.value) return
+  const was = mode.value
+  mode.value = m
+  savePref(MODE_KEY, m)
+  if (m === 'manual') return setAuto(false)
+  if (was === 'manual') return setAuto(true)
+  // de automático a propio (o al revés): otra rejilla para la misma canción
+  forSong = { id: null, path: '' }
+  grid.value = null
+  await load()
+}
+
+/**
+ * El clic propio de la canción que suena, recién ajustado (o null: se
+ * quitó, y vuelve el automático). Lo guarda quien lo edita, con la canción.
+ * @param {number} id @param {any} own  `{beats, bars, meter}` o null
+ */
+async function applyOwn(id, own) {
+  const p = player()
+  studies.delete(id)
+  if (mode.value !== 'own' || (p.track.value?.id ?? null) !== id) return
+  const g = ownToGrid(own)
+  const path = p.state.path
+  forSong = { id, path }
+  if (g) await adopt(id, path, g, 'own')
+  else {
+    grid.value = null
+    loading.value = true
+    await ask(id, path)
+  }
 }
 
 /** Al cambiar de canción: en automático, la suya; a mano, nada (sigue igual). */
@@ -333,6 +417,9 @@ export function useClick() {
   start()
   return {
     auto,
+    mode,
+    setMode,
+    applyOwn,
     manual,
     wanted,
     grid,
@@ -353,7 +440,9 @@ export function useClick() {
 /** Vuelve al estado inicial. Solo para pruebas. */
 export function resetClick() {
   stopPolling()
-  auto.value = readPref(AUTO_KEY, true) !== false
+  mode.value = savedMode()
+  auto.value = mode.value !== 'manual'
+  studies.clear()
   manual.value = cleanManual(readPref(MANUAL_KEY, {}))
   wanted.value = false
   grid.value = null

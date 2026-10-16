@@ -219,3 +219,63 @@ export function parseBpm(text) {
   )
   return String(text ?? '').trim() && Number.isFinite(v) && v > 0 ? v : null
 }
+
+// ------------------------------------------------------------ el clic propio
+// La rejilla que uno ajusta a mano (moviendo pulsos sobre la onda) se guarda
+// con la canción, en su estudio: `metronome.own = {beats, bars, meter}`, con
+// los segundos a la milésima. De ahí sale una rejilla como las del análisis,
+// que es lo que entiende Rust.
+
+/**
+ * La mediana de los intervalos, en bpm.
+ * @param {ReadonlyArray<number>} beats
+ */
+export function medianBpm(beats) {
+  const gaps = []
+  for (let i = 1; i < beats.length; i++) gaps.push(beats[i] - beats[i - 1])
+  if (!gaps.length) return 120
+  gaps.sort((a, b) => a - b)
+  const mid = gaps[Math.floor(gaps.length / 2)]
+  return mid > 0 ? Math.min(600, Math.max(10, 60 / mid)) : 120
+}
+
+/**
+ * La rejilla de un clic propio guardado, o null si no vale.
+ * @param {any} own  `{beats, bars?, meter?}`
+ * @returns {BeatGrid|null}
+ */
+export function ownToGrid(own) {
+  const beats = Array.isArray(own?.beats)
+    ? own.beats.map(Number).filter((t) => Number.isFinite(t) && t >= 0)
+    : []
+  const clean = []
+  for (const t of beats) if (!clean.length || t > clean.at(-1) + 0.01) clean.push(t)
+  if (clean.length < 2) return null
+  const bars = (Array.isArray(own?.bars) ? own.bars : [])
+    .map(Number)
+    .filter((i) => Number.isInteger(i) && i >= 0 && i < clean.length)
+  const meter = own?.meter == null ? 4 : normalMeter(own.meter)
+  return {
+    bpm: Math.round(medianBpm(clean) * 100) / 100,
+    meter,
+    beats: clean,
+    first_downbeat: bars[0] ?? 0,
+    phase3: 0,
+    phase4: 0,
+    confidence: 1,
+    bars: [...new Set(bars)].sort((a, b) => a - b),
+    closed: true
+  }
+}
+
+/**
+ * Lo que se guarda de una rejilla como clic propio (con su «1» compás a
+ * compás, tal como suena).
+ * @param {BeatGrid} grid
+ */
+export function gridToOwn(grid) {
+  const beats = (grid?.beats || []).map((t) => Math.round(t * 1000) / 1000)
+  const bars = []
+  for (let i = 0; i < beats.length; i++) if (isDownbeat(grid, i)) bars.push(i)
+  return { beats, bars, meter: grid?.meter ?? 4 }
+}

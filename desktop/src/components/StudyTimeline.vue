@@ -1,32 +1,43 @@
 <script setup>
 /**
  * La línea de tiempo del modo estudio: la forma de onda de la canción, una
- * regla con los minutos, el tramo del bucle y la aguja.
+ * regla con los minutos, los tramos, los marcadores, las guías habladas, la
+ * rejilla del clic y la aguja.
  *
  * El tramo se elige sobre la propia onda: se arrastra de donde a donde, y
  * listo. Los bordes del tramo se cogen y se mueven; el tramo entero también,
  * sin cambiar lo que dura. Un clic sin arrastrar quita la selección y lleva
- * la canción a ese punto. Nada de botones de inicio y fin.
+ * la canción a ese punto.
  *
  * Con «varios» puesto, cada arrastre añade otro tramo en vez de sustituir el
- * que hubiera, y un clic sobre un tramo lo quita: se repiten todos seguidos,
+ * que hubiera, y un clic sobre un tramo lo quita: suenan seguidos,
  * saltándose lo de entre medias. Cada tramo lleva un botón de opciones (y el
  * clic derecho): quien las ofrece es StudyBar.
  *
  * Con el candado (arriba a la derecha, puesto de entrada), mientras suena un
- * clic no mueve la canción: tocando encima de la grabación, un clic sin
- * querer la mandaba a otro sitio. Elegir un tramo sí se puede; quien lo
- * recibe decide no saltar a él (StudyBar).
+ * clic no mueve la canción.
+ *
+ * **Zoom.** La rueda del ratón sobre la onda acerca y aleja alrededor de
+ * donde está el ratón (con Mayús, o el gesto lateral del trackpad, se
+ * desplaza). Acercada, la vista sigue a la aguja cuando sale de ella (salvo
+ * que se acabe de mover a mano), y debajo de la regla una tira con toda la
+ * canción enseña qué trozo se ve: se pincha o se arrastra para ir a otro.
+ * Muy cerca, la onda se pide al núcleo con detalle de ese trozo (la de toda
+ * la canción son 800 columnas: a diez segundos en pantalla se veía a
+ * bloques).
+ *
+ * **Ajustar pulsos** (`editBeats`): cada pulso del clic es un asa que se
+ * arrastra (con Mayús, se llevan también todos los de detrás); doble clic en
+ * la onda añade uno; el clic derecho sobre uno lo quita o lo hace el «1».
+ * Lo ajustado se manda entero (`update:grid`): es el clic propio de la
+ * canción.
  *
  * La onda la pinta un canvas y solo se vuelve a pintar cuando cambian los
- * datos, el ancho o el tema. Lo que se mueve (aguja, tramo, marcadores) es
- * DOM colocado en tantos por ciento: cuatro veces por segundo no hay que
- * redibujar nada.
+ * datos, el ancho, la vista o el tema. Lo que se mueve (aguja, tramo,
+ * marcadores) es DOM colocado en tantos por ciento.
  *
  * Con las pistas separadas sonando (`lanes`), la onda es un carril por
- * instrumento, cada uno con su onda y, a la izquierda, sus mandos: callar,
- * dejar sola, volumen y panorama. El tramo, los marcadores, el compás y la
- * aguja cruzan todos los carriles: se elige igual que sobre la canción.
+ * instrumento, cada uno con su onda y, a la izquierda, sus mandos.
  */
 import {
   ref,
@@ -41,6 +52,7 @@ import {
 } from 'vue'
 import { api } from '../api.js'
 import { usePreferences } from '../composables/usePreferences.js'
+import { openMenu } from '../composables/useContextMenu.js'
 import { formatTime } from '../utils/format.js'
 import { isDownbeat } from '../utils/beats.js'
 import { cleanSegments } from '../utils/segments.js'
@@ -58,10 +70,14 @@ const props = defineProps({
   multi: Boolean,
   /** [{t, end?, label, notes?}]: tramos con nombre, o instantes sueltos */
   markers: { type: Array, default: () => [] },
+  /** [{t, text?, file}]: las guías habladas */
+  cues: { type: Array, default: () => [] },
   /** el marcador elegido, para resaltarlo */
   selected: { type: Object, default: null },
   /** la rejilla de pulsos del metrónomo tal como suena, para pintarla sobre la onda */
   grid: { type: Object, default: null },
+  /** ajustando los pulsos a mano (el clic propio) */
+  editBeats: Boolean,
   /**
    * lo que lleva (0..1) el clic de la canción mientras se carga, o null si
    * no carga: una barra del color del tema avanza sobre la onda
@@ -75,25 +91,23 @@ const props = defineProps({
   playing: Boolean,
   /**
    * las pistas separadas, un carril cada una: [{key, name, wave: {peaks, rms},
-   * on, mute, solo, gain, pan}]. `on` es si suena (ya resuelto lo de callar y
-   * dejar sola). Vacío: la onda de la canción.
+   * on, mute, solo, gain, pan}]. Vacío: la onda de la canción.
    */
   lanes: { type: Array, default: () => [] },
   /** alto de cada carril, en px */
   laneHeight: { type: Number, default: 34 }
 })
 // `update:loops` lleva los tramos (en orden, los que se pisan juntos) y
-// `{ mode }`: 'select' si se dibujo uno de cero, 'add' si se anadio otro,
-// 'edit' si se movio un borde o un tramo entero, 'remove' si se quito uno y
-// 'clear' si se quitaron todos. Quien guarda marcadores necesita
-// distinguirlo: editar el tramo de un marcador elegido lo cambia a el;
-// dibujar otro nuevo, no. `options` pide las opciones de un tramo (o de un
-// punto de la onda, con `index` -1), con donde abrirlas. `lane` cambia un
-// carril: (su clave, {mute | solo | gain | pan}).
+// `{ mode, index }`: 'select' si se dibujo uno de cero, 'add' si se anadio
+// otro, 'edit' si se movio un borde o un tramo entero (`index`, cual),
+// 'remove' si se quito uno y 'clear' si se quitaron todos. `update:grid`
+// lleva la rejilla ajustada a mano. `cue`, la guía que se pulsó.
 const emit = defineEmits([
   'update:loops',
+  'update:grid',
   'seek',
   'marker',
+  'cue',
   'update:locked',
   'update:multi',
   'options',
@@ -110,9 +124,86 @@ const MIN_LOOP = 0.5 // menos que esto no es un bucle, es un clic con temblor
 const HANDLE = 7 // a estos px de un borde se coge el borde, no se empieza otro tramo
 const THRESHOLD = 4 // px de movimiento a partir de los que un clic pasa a ser arrastre
 const SNAP = 6 // px: cerca de un marcador, el borde se pega a él
+const MIN_SPAN = 1.5 // segundos a la vista como mucho de cerca
+const FOLLOW_PAUSE = 4000 // ms sin seguir a la aguja tras mover la vista a mano
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 const round2 = (v) => Math.round(v * 100) / 100
+const round3 = (v) => Math.round(v * 1000) / 1000
+
+// ------------------------------------------------------------ la vista
+/** El trozo de la canción que se ve: de `from` a `to`, en segundos. */
+const view = reactive({ from: 0, to: 0 })
+const span = computed(() => Math.max(1e-6, (view.to || props.duration) - view.from))
+const zoomed = computed(() => props.duration > 0 && span.value < props.duration - 0.05)
+watch(
+  () => [props.songId, props.duration],
+  ([, d]) => {
+    view.from = 0
+    view.to = d || 0
+  },
+  { immediate: true }
+)
+/** Cuándo se movió la vista a mano por última vez (para no seguir la aguja). */
+let movedAt = 0
+function setView(from, to, byHand = true) {
+  const d = props.duration
+  if (!d) return
+  let len = clamp(to - from, Math.min(MIN_SPAN, d), d)
+  let a = clamp(from, 0, d - len)
+  view.from = a
+  view.to = a + len
+  if (byHand) movedAt = Date.now()
+}
+/** Acercar (`factor` > 1) o alejar alrededor del segundo `at`. */
+function zoomBy(factor, at = null) {
+  const d = props.duration
+  if (!d) return
+  const center = at ?? (zoomed.value ? (view.from + view.to) / 2 : props.position)
+  const len = clamp(span.value / factor, Math.min(MIN_SPAN, d), d)
+  const rel = span.value > 0 ? (center - view.from) / span.value : 0.5
+  setView(center - rel * len, center - rel * len + len)
+}
+function zoomFit() {
+  setView(0, props.duration)
+}
+/** Lo bastante cerca como para coger los pulsos: unos ocho compases. */
+function zoomToBeats() {
+  const g = props.grid
+  const period = g?.bpm ? 60 / g.bpm : 0.5
+  const len = clamp(period * 32, 6, props.duration || 6)
+  setView(props.position - len * 0.2, props.position - len * 0.2 + len)
+}
+defineExpose({ zoomBy, zoomFit, zoomToBeats, view })
+
+// acercada, la vista sigue a la aguja cuando se va de ella
+watch(
+  () => props.position,
+  (t) => {
+    if (!zoomed.value || drag.mode || beatDrag.index >= 0) return
+    if (Date.now() - movedAt < FOLLOW_PAUSE) return
+    if (t < view.from || t > view.from + span.value * 0.92) {
+      setView(t - span.value * 0.1, t - span.value * 0.1 + span.value, false)
+    }
+  }
+)
+
+/** La rueda: acercar y alejar donde está el ratón; con Mayús (o de lado), desplazar. */
+function onWheel(e) {
+  if (!props.duration) return
+  e.preventDefault()
+  const sideways = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)
+  if (sideways) {
+    const delta = (e.shiftKey ? e.deltaY : e.deltaX) || e.deltaY
+    const r = box.value.getBoundingClientRect()
+    const secs = (delta / Math.max(1, r.width)) * span.value
+    setView(view.from + secs, view.to + secs)
+    return
+  }
+  const step = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
+  const factor = Math.exp(-step * 0.0018)
+  zoomBy(factor, timeAt(e.clientX))
+}
 
 // ------------------------------------------------------------ la onda
 const box = useTemplateRef('box')
@@ -120,11 +211,14 @@ const canvas = useTemplateRef('canvas')
 // {peaks, rms} o null. Superficial: son miles de numeros que solo se leen
 // para pintar; hacerlos reactivos uno a uno no aporta nada
 const wave = shallowRef(null)
+/** La onda con detalle del trozo que se ve: {from, to, peaks, rms} o null. */
+const detail = shallowRef(null)
 const loading = ref(false)
 const failed = ref(false)
 
 async function load(id) {
   wave.value = null
+  detail.value = null
   failed.value = false
   if (!id) {
     draw()
@@ -144,8 +238,99 @@ async function load(id) {
 }
 watch(() => props.songId, load, { immediate: true })
 
+/**
+ * De cerca, la onda de lo que se ve, con su detalle (se pide al núcleo un
+ * poco más ancha que la vista, para desplazarse sin esperar).
+ */
+let detailTimer = null
+function wantDetail() {
+  clearTimeout(detailTimer)
+  const w = wave.value
+  const id = props.songId
+  if (!w || !id || !props.duration || laneMode.value || typeof api.waveformRange !== 'function')
+    return
+  const columns = (span.value / props.duration) * (w.peaks?.length || 0)
+  const W = width.value || 800
+  if (columns >= W / 2) {
+    if (detail.value) {
+      detail.value = null
+      draw()
+    }
+    return
+  }
+  const d = detail.value
+  if (d && d.from <= view.from && d.to >= view.to && (d.to - d.from) / span.value < 2.2) return
+  detailTimer = setTimeout(async () => {
+    const pad = span.value * 0.5
+    const from = Math.max(0, view.from - pad)
+    const to = Math.min(props.duration, view.to + pad)
+    const buckets = clamp(Math.round(((to - from) / span.value) * W), 64, 4000)
+    try {
+      const r = await api.waveformRange(id, from, to, buckets)
+      if (id === props.songId && r?.peaks?.length && wave.value) {
+        // el trozo llega a la escala del tope digital, y la onda entera a la
+        // de su propio pico: se iguala con lo que la entera tiene en ese
+        // trozo, para que acercar no cambie el alto de lo que se ve
+        const full = wave.value.peaks
+        const n = full.length
+        const a = Math.floor((from / props.duration) * n)
+        const b = Math.max(a + 1, Math.ceil((to / props.duration) * n))
+        const fullTop = Math.max(1e-6, ...full.slice(a, b))
+        const partTop = Math.max(1e-6, ...r.peaks)
+        const k = fullTop / partTop
+        detail.value = {
+          from,
+          to,
+          peaks: r.peaks.map((v) => v * k),
+          rms: (r.rms || []).map((v) => v * k)
+        }
+        draw()
+      }
+    } catch {
+      /* se queda la de toda la canción */
+    }
+  }, 120)
+}
+watch(
+  () => [view.from, view.to],
+  () => {
+    draw()
+    wantDetail()
+  }
+)
+
 const { theme } = usePreferences()
 watch(theme, () => nextTick(draw))
+
+/**
+ * Las columnas de lo que se ve, de una onda de toda la canción (o de su
+ * detalle): para cada columna de pantalla, el pico y el RMS medio.
+ */
+function columnsOf(w, wFrom, wTo, cols) {
+  const n = w.peaks.length
+  const per = n / Math.max(1e-6, wTo - wFrom)
+  const out = []
+  for (let i = 0; i < cols; i++) {
+    const t0 = view.from + (i / cols) * span.value
+    const t1 = view.from + ((i + 1) / cols) * span.value
+    let from = Math.floor((t0 - wFrom) * per)
+    let to = Math.ceil((t1 - wFrom) * per)
+    if (to <= 0 || from >= n) {
+      out.push([0, 0])
+      continue
+    }
+    from = clamp(from, 0, n - 1)
+    to = clamp(Math.max(to, from + 1), from + 1, n)
+    let pk = 0
+    let rm = 0
+    for (let j = from; j < to; j++) {
+      pk = Math.max(pk, w.peaks[j] || 0)
+      rm += w.rms?.[j] || 0
+    }
+    out.push([pk, rm / (to - from)])
+  }
+  return out
+}
 
 /** Pinta la onda: el pico en gris claro (la silueta) y el RMS en el acento. */
 function draw() {
@@ -174,7 +359,7 @@ function draw() {
   }
   const mid = H / 2
   const w = wave.value
-  if (!w || !w.peaks?.length) {
+  if (!w || !w.peaks?.length || !props.duration) {
     // sin onda (aun cargando, o no se pudo): la linea del centro, y ya
     ctx.globalAlpha = 0.25
     ctx.fillStyle = text
@@ -182,30 +367,21 @@ function draw() {
     ctx.globalAlpha = 1
     return
   }
-  const n = w.peaks.length
   // En un mp3 de hoy los picos van casi todos a tope y el RMS ronda el
-  // tercio: pintado tal cual, la banda de acento salia aplastada y no se
-  // distinguia el verso del estribillo. El RMS se estira hasta su propio
-  // maximo y a los dos se les da una curva suave, que levanta lo flojo sin
-  // cambiar el orden. La banda nunca sale de la silueta de su columna.
+  // tercio: el RMS se estira hasta su propio maximo (el de toda la canción,
+  // tambien de cerca) y a los dos se les da una curva suave.
   const rmsTop = Math.max(1e-6, ...(w.rms || [0]))
   const curve = (v) => Math.pow(Math.max(0, Math.min(1, v)), 0.7)
-  // una columna cada dos pixeles: si hay mas columnas de datos se funden, y
-  // si hay menos se ensanchan
-  const cols = Math.max(1, Math.min(n, Math.floor(W / 2)))
+  // una columna cada dos pixeles
+  const cols = Math.max(1, Math.floor(W / 2))
+  const d = detail.value
+  const useDetail = d && d.from <= view.from + 1e-6 && d.to >= view.to - 1e-6
+  const data = useDetail ? columnsOf(d, d.from, d.to, cols) : columnsOf(w, 0, props.duration, cols)
   const cw = W / cols
-  const bar = cw >= 3 ? cw - 1 : cw // con sitio, un pixel de aire entre barras
+  const bar = cw >= 3 ? cw - 1 : cw
   const room = mid - 2
   for (let i = 0; i < cols; i++) {
-    const from = Math.floor((i * n) / cols)
-    const to = Math.max(from + 1, Math.floor(((i + 1) * n) / cols))
-    let pk = 0
-    let rm = 0
-    for (let j = from; j < to; j++) {
-      pk = Math.max(pk, w.peaks[j] || 0)
-      rm += w.rms?.[j] || 0
-    }
-    rm /= to - from
+    const [pk, rm] = data[i]
     const x = i * cw
     const silhouette = curve(pk)
     const band = Math.min(silhouette, curve(rm / rmsTop))
@@ -234,6 +410,9 @@ function drawLanes(ctx, W, text, accent) {
     for (const v of lane.wave?.rms || []) if (v > rmsTop) rmsTop = v
   }
   const curve = (v) => Math.pow(Math.max(0, Math.min(1, v)), 0.7)
+  const cols = Math.max(1, Math.floor(W / 2))
+  const cw = W / cols
+  const bar = cw >= 3 ? cw - 1 : cw
   props.lanes.forEach((lane, li) => {
     const top = li * lh
     const mid = top + lh / 2
@@ -245,25 +424,14 @@ function drawLanes(ctx, W, text, accent) {
       ctx.fillRect(0, top, W, 1)
     }
     const w = lane.wave
-    const n = w?.peaks?.length || 0
-    if (!n) {
+    if (!w?.peaks?.length || !props.duration) {
       ctx.globalAlpha = 0.22 * dim
       ctx.fillRect(0, mid - 0.5, W, 1)
       return
     }
-    const cols = Math.max(1, Math.min(n, Math.floor(W / 2)))
-    const cw = W / cols
-    const bar = cw >= 3 ? cw - 1 : cw
+    const data = columnsOf(w, 0, props.duration, cols)
     for (let i = 0; i < cols; i++) {
-      const from = Math.floor((i * n) / cols)
-      const to = Math.max(from + 1, Math.floor(((i + 1) * n) / cols))
-      let pk = 0
-      let rm = 0
-      for (let j = from; j < to; j++) {
-        pk = Math.max(pk, w.peaks[j] || 0)
-        rm += w.rms?.[j] || 0
-      }
-      rm /= to - from
+      const [pk, rm] = data[i]
       const silhouette = curve(pk)
       const hp = Math.max(0.5, silhouette * room)
       const hr = Math.max(0.5, Math.min(silhouette, curve(rm / rmsTop)) * room)
@@ -294,26 +462,29 @@ function panText(v) {
 
 /**
  * La rejilla del metrónomo: una raya por pulso abajo; el «1», más alta (sin
- * acento, ninguno).
+ * acento, ninguno). De cerca, todas más visibles.
  */
 function drawGrid(ctx, W, H) {
   const g = props.grid
-  if (!g || !g.beats?.length || !props.duration) return
+  if (!g || !g.beats?.length || !props.duration || props.editBeats) return
   const styles = getComputedStyle(canvas.value)
   const text = styles.getPropertyValue('--text').trim() || styles.color || 'gray'
   ctx.fillStyle = text
+  const close = (span.value / props.duration) * g.beats.length < W / 6
   for (let i = 0; i < g.beats.length; i++) {
-    const x = Math.round((g.beats[i] / props.duration) * W)
-    if (x < 0 || x > W) continue
+    const t = g.beats[i]
+    if (t < view.from || t > view.to) continue
+    const x = Math.round(((t - view.from) / span.value) * W)
     const one = isDownbeat(g, i)
     // el «1» cruza la onda entera, tenue; los demas pulsos son marcas abajo
-    ctx.globalAlpha = one ? 0.28 : 0.45
-    ctx.fillRect(x, one ? 0 : H - 7, 1, one ? H : 7)
+    ctx.globalAlpha = one ? (close ? 0.45 : 0.28) : close ? 0.6 : 0.45
+    const h = one ? H : close ? 12 : 7
+    ctx.fillRect(x, one ? 0 : H - h, 1, h)
   }
   ctx.globalAlpha = 1
 }
 watch(
-  () => props.grid,
+  () => [props.grid, props.editBeats],
   () => nextTick(draw)
 )
 
@@ -332,27 +503,37 @@ onMounted(() => {
 })
 onUnmounted(() => {
   observer?.disconnect()
+  clearTimeout(detailTimer)
   stopDrag()
+  stopBeatDrag()
 })
 
 // ------------------------------------------------------------ geometria
-const pct = (t) => (props.duration ? clamp(t / props.duration, 0, 1) * 100 + '%' : '0%')
+/** Dónde cae `t` dentro de lo que se ve, en tantos por ciento (puede salirse). */
+const pct = (t) => (props.duration ? ((t - view.from) / span.value) * 100 + '%' : '0%')
+/** Una anchura (de tanto a tanto), en tantos por ciento de lo que se ve. */
+const pctLen = (len) => (props.duration ? (len / span.value) * 100 + '%' : '0%')
+/** Si algo de `a` a `b` se ve. */
+const inView = (a, b = a) => b >= view.from - 1e-6 && a <= view.to + 1e-6
 /** El segundo que cae bajo esa x de pantalla. */
 function timeAt(clientX) {
   const r = box.value.getBoundingClientRect()
   const f = r.width > 0 ? clamp((clientX - r.left) / r.width, 0, 1) : 0
-  return f * props.duration
+  return clamp(view.from + f * span.value, 0, props.duration)
 }
 /** Y al reves: en que x (dentro de la caja) cae ese segundo. */
 function xOf(t) {
   const r = box.value.getBoundingClientRect()
-  return props.duration ? (t / props.duration) * r.width : 0
+  return props.duration ? ((t - view.from) / span.value) * r.width : 0
 }
 
 // ------------------------------------------------------------ la regla
 // Paso entre marcas con numero: el mas fino que deje ~70 px entre ellas.
-const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200]
+const STEPS = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200]
 const MINOR = {
+  0.1: 0,
+  0.25: 0,
+  0.5: 0.1,
   1: 0,
   2: 1,
   5: 1,
@@ -369,19 +550,30 @@ const width = ref(0)
 function measure() {
   width.value = box.value?.clientWidth || 0
 }
+/** «1:23», o con décimas de cerca: «1:23.5». */
+function tickLabel(t, step) {
+  if (step >= 1) return formatTime(t)
+  const whole = Math.floor(t + 1e-6)
+  const frac = Math.round((t - whole) * (step < 0.25 ? 10 : 100))
+  const digits = step < 0.25 ? String(frac) : String(frac).padStart(2, '0')
+  return `${formatTime(whole)}.${digits}`
+}
 const ticks = computed(() => {
   const d = props.duration
   const W = width.value || 800
   if (!d) return []
-  const step = STEPS.find((s) => (s / d) * W >= 70) || STEPS.at(-1)
+  const s = span.value
+  const step = STEPS.find((x) => (x / s) * W >= 70) || STEPS.at(-1)
   const unit = MINOR[step] || step
   const out = []
-  for (let i = 0; i * unit < d; i++) {
-    const t = i * unit
-    const major = (i * unit) % step === 0
+  const first = Math.ceil(view.from / unit - 1e-6)
+  for (let i = first; i * unit <= view.to + 1e-6 && out.length < 400; i++) {
+    const t = round3(i * unit)
+    if (t > d) break
+    const major = Math.abs(t / step - Math.round(t / step)) < 1e-6
     // la ultima con numero no se pisa con la del final
-    if (major && t > 0 && d - t < step * 0.6) continue
-    out.push({ t, major, label: major ? formatTime(t) : '' })
+    if (major && t > 0 && view.to - t < step * 0.6 && Math.abs(view.to - d) < 1e-6) continue
+    out.push({ t, major, label: major ? tickLabel(t, step) : '' })
   }
   return out
 })
@@ -428,10 +620,13 @@ const gaps = computed(() => {
   const out = []
   let from = 0
   for (const [a, b] of list) {
-    if (a > from) out.push({ left: pct(from), width: pct(a - from) })
+    if (a > from) out.push({ left: pct(from), width: pctLen(a - from) })
     from = Math.max(from, b)
   }
-  out.push({ left: pct(from), right: 0 }) // hasta el final
+  out.push({
+    left: pct(from),
+    right: zoomed.value ? `${100 - ((props.duration - view.from) / span.value) * 100}%` : 0
+  })
   return out
 })
 /** El tramo que se esta arrastrando (el nuevo va el ultimo). */
@@ -553,7 +748,7 @@ function onUp(e) {
     return
   }
   list[d.index] = [round2(d.a), round2(d.b)]
-  emit('update:loops', cleanSegments(list), { mode: 'edit' })
+  emit('update:loops', cleanSegments(list), { mode: 'edit', index: d.index })
 }
 function stopDrag() {
   drag.mode = null
@@ -574,8 +769,7 @@ function onContext(e) {
 }
 /**
  * El boton de opciones de un tramo. Con el raton, el menu sale donde se pulso;
- * con el teclado (Enter: un clic sin `detail`), debajo del boton, que es lo
- * que tiene el foco.
+ * con el teclado (Enter: un clic sin `detail`), debajo del boton.
  */
 function optionsOf(e, index) {
   const r = e.currentTarget?.getBoundingClientRect?.()
@@ -601,6 +795,159 @@ function onHover(e) {
 
 const dragging = computed(() => !!(drag.mode && drag.moved))
 
+// ------------------------------------------------------------ ajustar pulsos
+/** Los pulsos que se ven (como mucho 600: más, hay que acercarse). */
+const beatsInView = computed(() => {
+  const g = props.grid
+  if (!props.editBeats || !g?.beats?.length) return []
+  const out = []
+  for (let i = 0; i < g.beats.length; i++) {
+    const t = g.beats[i]
+    if (t < view.from || t > view.to) continue
+    out.push({ i, t, one: isDownbeat(g, i) })
+    if (out.length > 600) return []
+  }
+  return out
+})
+const tooManyBeats = computed(() => {
+  const g = props.grid
+  if (!props.editBeats || !g?.beats?.length) return false
+  return !beatsInView.value.length && g.beats.some((t) => t >= view.from && t <= view.to)
+})
+/** La rejilla que se va ajustando (copia, hasta soltar). */
+const editing = shallowRef(null)
+const beatDrag = reactive({ index: -1, x0: 0, t0: 0, all: false, moved: false })
+const shownBeats = computed(() => {
+  if (!editing.value) return beatsInView.value
+  const g = editing.value
+  return beatsInView.value.map((b) => ({ ...b, t: g.beats[b.i] }))
+})
+function copyGrid() {
+  const g = props.grid
+  return { ...g, beats: [...g.beats], bars: [...(g.bars || [])] }
+}
+function listenBeats(on) {
+  const f = on ? window.addEventListener : window.removeEventListener
+  f.call(window, 'pointermove', onBeatMove)
+  f.call(window, 'pointerup', onBeatUp)
+  f.call(window, 'pointercancel', stopBeatDrag)
+}
+function onBeatDown(e, b) {
+  if (e.button) return
+  e.preventDefault()
+  e.stopPropagation()
+  editing.value = copyGrid()
+  Object.assign(beatDrag, { index: b.i, x0: e.clientX, t0: b.t, all: e.shiftKey, moved: false })
+  listenBeats(true)
+}
+function onBeatMove(e) {
+  if (beatDrag.index < 0 || !editing.value) return
+  if (!beatDrag.moved && Math.abs(e.clientX - beatDrag.x0) < 2) return
+  beatDrag.moved = true
+  const r = box.value.getBoundingClientRect()
+  const dt = ((e.clientX - beatDrag.x0) / Math.max(1, r.width)) * span.value
+  const g = copyGrid()
+  const i = beatDrag.index
+  const beats = g.beats
+  if (beatDrag.all) {
+    // con Mayús, este y todos los de detrás, juntos
+    const prev = i > 0 ? beats[i - 1] + 0.02 : 0
+    const shift = Math.max(prev - props.grid.beats[i], dt)
+    for (let k = i; k < beats.length; k++) beats[k] = round3(props.grid.beats[k] + shift)
+  } else {
+    const lo = i > 0 ? beats[i - 1] + 0.02 : 0
+    const hi = i < beats.length - 1 ? beats[i + 1] - 0.02 : props.duration
+    beats[i] = round3(clamp(beatDrag.t0 + dt, lo, hi))
+  }
+  editing.value = g
+}
+function onBeatUp() {
+  const g = editing.value
+  const moved = beatDrag.moved
+  stopBeatDrag()
+  if (g && moved) emit('update:grid', g)
+}
+function stopBeatDrag() {
+  beatDrag.index = -1
+  beatDrag.moved = false
+  editing.value = null
+  listenBeats(false)
+}
+/** Doble clic en la onda, ajustando: un pulso ahí. */
+function onDouble(e) {
+  if (!props.editBeats || !props.grid?.beats?.length) return
+  const t = round3(timeAt(e.clientX))
+  const g = copyGrid()
+  const i = g.beats.findIndex((b) => b > t)
+  const at = i < 0 ? g.beats.length : i
+  if (g.beats[at - 1] != null && t - g.beats[at - 1] < 0.03) return
+  if (g.beats[at] != null && g.beats[at] - t < 0.03) return
+  g.beats.splice(at, 0, t)
+  g.bars = (g.bars || []).map((b) => (b >= at ? b + 1 : b))
+  emit('update:grid', g)
+}
+/** El clic derecho sobre un pulso: quitarlo, o hacerlo el «1». */
+function onBeatMenu(e, b) {
+  e.preventDefault()
+  e.stopPropagation()
+  const items = [
+    {
+      label: 'Este es el «1»',
+      icon: 'note',
+      action: () => {
+        const g = copyGrid()
+        const meter = g.meter || 4
+        // desde aquí, un «1» cada compás hasta el siguiente que ya hubiera
+        const next = (g.bars || []).find((x) => x > b.i) ?? g.beats.length
+        const kept = (g.bars || []).filter((x) => x < b.i || x >= next)
+        const fresh = []
+        for (let k = b.i; k < next; k += meter) fresh.push(k)
+        g.bars = [...new Set([...kept, ...fresh])].sort((x, y) => x - y)
+        if (!g.bars.length || g.bars[0] > b.i) g.first_downbeat = b.i
+        emit('update:grid', g)
+      }
+    },
+    {
+      label: 'Quitar este pulso',
+      icon: 'close',
+      danger: true,
+      action: () => {
+        const g = copyGrid()
+        if (g.beats.length <= 2) return
+        g.beats.splice(b.i, 1)
+        g.bars = (g.bars || []).filter((x) => x !== b.i).map((x) => (x > b.i ? x - 1 : x))
+        emit('update:grid', g)
+      }
+    }
+  ]
+  openMenu(e, items, `Pulso en ${tickLabel(b.t, 0.1)}`)
+}
+
+// ------------------------------------------------------------ la tira de toda la canción
+const overview = useTemplateRef('overview')
+let overviewDrag = false
+function overviewTo(e) {
+  const r = overview.value?.getBoundingClientRect()
+  if (!r || !r.width || !props.duration) return
+  const t = clamp((e.clientX - r.left) / r.width, 0, 1) * props.duration
+  setView(t - span.value / 2, t + span.value / 2)
+}
+function onOverviewDown(e) {
+  if (e.button) return
+  overviewDrag = true
+  overviewTo(e)
+  window.addEventListener('pointermove', onOverviewMove)
+  window.addEventListener('pointerup', onOverviewUp, { once: true })
+}
+function onOverviewMove(e) {
+  if (overviewDrag) overviewTo(e)
+}
+function onOverviewUp() {
+  overviewDrag = false
+  window.removeEventListener('pointermove', onOverviewMove)
+}
+onUnmounted(onOverviewUp)
+
 // ------------------------------------------------------------ el candado
 /** Un clic que el candado paró: el candado se mueve un momento para decirlo. */
 const nudged = ref(false)
@@ -624,7 +971,13 @@ const lockTitle = computed(() =>
 <template>
   <div
     class="tl"
-    :class="{ 'tl-dragging': dragging, ['tl-hover-' + hover]: hover, 'tl-has-lanes': laneMode }"
+    :class="{
+      'tl-dragging': dragging,
+      ['tl-hover-' + hover]: hover,
+      'tl-has-lanes': laneMode,
+      'tl-zoomed': zoomed,
+      'tl-edit-beats': editBeats
+    }"
     :data-mode="drag.mode || null"
     :style="{ '--tl-h': WAVE_H + 'px', '--tl-lane-h': laneHeight + 'px' }"
   >
@@ -695,8 +1048,7 @@ const lockTitle = computed(() =>
       </div>
     </div>
     <!-- en el celular, «varios» y el candado van en su fila, encima de la
-         onda y no sobre ella: así se ve entera y se puede elegir un tramo
-         hasta el final de la canción -->
+         onda y no sobre ella -->
     <div v-if="isMobileApp" class="tl-tools">
       <button
         type="button"
@@ -727,16 +1079,20 @@ const lockTitle = computed(() =>
       :title="
         !duration
           ? ''
-          : multi
-            ? 'Arrastra para añadir otro tramo · clic sobre un tramo para quitarlo · clic derecho: opciones'
-            : locked && playing
-              ? 'Arrastra para elegir el tramo que se repite (la canción sigue donde va) · clic para quitarlo · clic derecho: opciones'
-              : 'Arrastra para elegir el tramo que se repite · clic para ir a un punto · clic derecho: opciones'
+          : editBeats
+            ? 'Arrastra un pulso para moverlo (con Mayús, también los de detrás) · doble clic: un pulso nuevo · clic derecho sobre uno: quitarlo o hacerlo el «1»'
+            : multi
+              ? 'Arrastra para añadir otro tramo · clic sobre un tramo para quitarlo · rueda: zoom · clic derecho: opciones'
+              : locked && playing
+                ? 'Arrastra para elegir el tramo (la canción sigue donde va) · clic para quitarlo · rueda: zoom · clic derecho: opciones'
+                : 'Arrastra para elegir el tramo · clic para ir a un punto · rueda: zoom · clic derecho: opciones'
       "
       @pointerdown="onDown"
       @pointermove="onHover"
       @pointerleave="hover = ''"
       @contextmenu.prevent="onContext"
+      @wheel="onWheel"
+      @dblclick="onDouble"
     >
       <canvas ref="canvas" class="tl-wave" :height="WAVE_H"></canvas>
       <!-- en el celular los mandos van debajo de la onda, no a su lado: el
@@ -770,16 +1126,20 @@ const lockTitle = computed(() =>
       </Transition>
       <div v-if="loading" class="tl-note">leyendo la onda…</div>
       <div v-else-if="failed && songId" class="tl-note">sin forma de onda (hace falta ffmpeg)</div>
+      <div v-else-if="tooManyBeats" class="tl-note">
+        acerca la onda (rueda) para ajustar los pulsos
+      </div>
 
       <!-- fuera de los tramos se atenua; cada tramo lleva sus dos asas, su
            numero (con varios) y su boton de opciones -->
       <div v-for="(g, i) in gaps" :key="'g' + i" class="tl-shade" :style="g"></div>
       <div
         v-for="([a, b], i) in shown"
+        v-show="inView(a, b)"
         :key="'s' + i"
         class="tl-loop"
         :class="{ editing: isEditing(i) }"
-        :style="{ left: pct(a), width: pct(b - a) }"
+        :style="{ left: pct(a), width: pctLen(b - a) }"
       >
         <span class="tl-handle a"></span>
         <span class="tl-handle b"></span>
@@ -801,18 +1161,19 @@ const lockTitle = computed(() =>
         </button>
       </div>
 
-      <!-- los marcadores: un tramo se ve como banda (que no estorba al
-           puntero: por encima se sigue pudiendo arrastrar), un instante como
-           raya; la banderita con el nombre es lo que se pulsa -->
+      <!-- los marcadores: un tramo se ve como banda, un instante como raya;
+           la banderita con el nombre es lo que se pulsa -->
       <template v-for="m in markers" :key="m.t + ':' + (m.end || 0)">
         <div
           v-for="([pa, pb], k) in partsOf(m)"
+          v-show="inView(pa, pb)"
           :key="k"
           class="tl-region"
           :class="{ on: m === selected }"
-          :style="{ left: pct(pa), width: pct(pb - pa) }"
+          :style="{ left: pct(pa), width: pctLen(pb - pa) }"
         ></div>
         <button
+          v-show="inView(m.t)"
           type="button"
           class="tl-marker"
           :class="{ on: m === selected, span: m.end > m.t }"
@@ -827,7 +1188,42 @@ const lockTitle = computed(() =>
         </button>
       </template>
 
-      <div v-if="duration" class="tl-head" :style="{ left: pct(position) }"></div>
+      <!-- las guías habladas: un micrófono donde suenan -->
+      <button
+        v-for="c in cues"
+        v-show="inView(c.t)"
+        :key="'cue' + c.t + c.file"
+        type="button"
+        class="tl-cue"
+        :style="{ left: pct(c.t) }"
+        :title="'Guía: «' + (c.text || 'tu voz') + '» · ' + formatTime(c.t)"
+        @pointerdown.stop
+        @click.stop="emit('cue', c)"
+      >
+        <Icon n="mic" :t="10" /><span class="tl-cue-text">{{ c.text || 'voz' }}</span>
+      </button>
+
+      <!-- los pulsos, para ajustarlos a mano (con el ratón: el teclado no
+           tiene donde coger un pulso) -->
+      <template v-if="editBeats">
+        <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
+        <span
+          v-for="b in shownBeats"
+          :key="'b' + b.i"
+          class="tl-beat"
+          :class="{ one: b.one, moving: beatDrag.index === b.i }"
+          :style="{ left: pct(b.t) }"
+          :title="(b.one ? '«1» · ' : '') + tickLabel(b.t, 0.1)"
+          @pointerdown="onBeatDown($event, b)"
+          @contextmenu="onBeatMenu($event, b)"
+        ></span>
+      </template>
+
+      <div
+        v-if="duration && inView(position)"
+        class="tl-head"
+        :style="{ left: pct(position) }"
+      ></div>
 
       <!-- varios tramos a la vez: cada arrastre añade otro -->
       <button
@@ -838,8 +1234,8 @@ const lockTitle = computed(() =>
         :aria-pressed="multi"
         :title="
           multi
-            ? 'Varios tramos: cada arrastre añade otro y se repiten seguidos. Pulsa para volver a uno solo'
-            : 'Un solo tramo. Pulsa para elegir varios y repetirlos seguidos, saltándose lo de en medio'
+            ? 'Varios tramos: cada arrastre añade otro y suenan seguidos. Pulsa para volver a uno solo (se queda el último que tocaste)'
+            : 'Un solo tramo. Pulsa para elegir varios y tocarlos seguidos, saltándose lo de en medio'
         "
         @pointerdown.stop
         @click.stop="emit('update:multi', !multi)"
@@ -863,7 +1259,7 @@ const lockTitle = computed(() =>
       </button>
     </div>
 
-    <!-- la regla: los minutos -->
+    <!-- la regla: los minutos (de cerca, con décimas) -->
     <div v-if="laneMode" class="tl-ruler-gap" aria-hidden="true"></div>
     <div class="tl-ruler" aria-hidden="true">
       <span
@@ -875,9 +1271,29 @@ const lockTitle = computed(() =>
       >
         <span v-if="k.label" class="tl-tick-label mono">{{ k.label }}</span>
       </span>
-      <span v-if="duration" class="tl-tick end"
+      <span v-if="duration && !zoomed" class="tl-tick end"
         ><span class="tl-tick-label mono">{{ formatTime(duration) }}</span></span
       >
+    </div>
+    <!-- acercada: toda la canción, con el trozo que se ve; se pincha o se
+         arrastra para ir a otro -->
+    <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
+    <div
+      v-if="zoomed"
+      ref="overview"
+      class="tl-overview"
+      title="Toda la canción: pincha o arrastra para ver otro trozo · doble clic, toda"
+      @pointerdown="onOverviewDown"
+      @dblclick="zoomFit"
+    >
+      <span
+        class="tl-overview-view"
+        :style="{
+          left: (view.from / duration) * 100 + '%',
+          width: (span / duration) * 100 + '%'
+        }"
+      ></span>
+      <span class="tl-overview-head" :style="{ left: (position / duration) * 100 + '%' }"></span>
     </div>
   </div>
 </template>

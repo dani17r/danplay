@@ -58,3 +58,21 @@ describe('transponer el nombre del tono', () => {
     expect(transposeKey('G', 2)).toBe('A')
   })
 })
+
+describe('el tono en palabras', () => {
+  it('lo dice como un músico: medio tono, 1 tono, 1 tono y medio, un cuarto', async () => {
+    const { toneWords, semitoneWords } = await import('../src/utils/theory.js')
+    expect(toneWords(0)).toBe('original')
+    expect(toneWords(1)).toBe('medio tono arriba')
+    expect(toneWords(-2)).toBe('1 tono abajo')
+    expect(toneWords(3)).toBe('1 tono y medio arriba')
+    expect(toneWords(0.5)).toBe('un cuarto de tono arriba')
+    expect(toneWords(-1.5)).toBe('tres cuartos de tono abajo')
+    expect(toneWords(4)).toBe('2 tonos arriba')
+    expect(toneWords(2.5)).toBe('1 tono y cuarto arriba')
+    expect(toneWords(5, { direction: false })).toBe('2 tonos y medio')
+    expect(semitoneWords(1)).toBe('1 semitono')
+    expect(semitoneWords(-3)).toBe('3 semitonos')
+    expect(semitoneWords(0.5)).toBe('½ semitono')
+  })
+})

@@ -86,6 +86,21 @@ afterEach(() => {
   }
 })
 const boton = (w, text, nth = 0) => w.findAll('button').filter((b) => b.text().includes(text))[nth]
+/** Despliega «Compás, cuenta y sonido» del clic. */
+async function masClic(w) {
+  const t = w.find('.study-more-toggle')
+  if (t.attributes('aria-expanded') !== 'true') await t.trigger('click')
+  await flushPromises()
+}
+/** «Salir del modo estudio», desde su ⋯. */
+async function salir(w) {
+  const { menu } = useContextMenu()
+  await w.find('.study-more').trigger('click')
+  await menu.value.items.find((i) => i.label === 'Salir del modo estudio').action()
+  await flushPromises()
+}
+/** Lo que llega a Rust con un tramo: los dos bordes y qué pasa al acabar (de fábrica, parar). */
+const tramo = (a, b, end = 'stop') => [a, b, { segments: [[a, b]], end }]
 
 describe('la barra de estudio', () => {
   // jsdom no maqueta: la caja de la onda dice que va de x=0 a x=400
@@ -126,14 +141,14 @@ describe('la barra de estudio', () => {
     expect(w.findAll('.tl-time').map((t) => t.text())).toEqual(['0:50', '1:15'])
     await puntero(window, 'pointermove', 200)
     await puntero(window, 'pointerup', 200)
-    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(50, 100)
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(...tramo(50, 100))
     // con el candado (puesto de entrada) y sonando, no salta al tramo: la
     // cancion sigue por 0:12 y el tramo entra cuando llegue
     expect(held.playback.bridge.seek).not.toHaveBeenCalled()
     expect(w.text()).toContain('0:50 – 1:40')
-    const tramo = w.find('.tl-loop')
-    expect(tramo.attributes('style')).toContain('left: 25%')
-    expect(tramo.attributes('style')).toContain('width: 25%')
+    const banda = w.find('.tl-loop')
+    expect(banda.attributes('style')).toContain('left: 25%')
+    expect(banda.attributes('style')).toContain('width: 25%')
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenCalledWith(7, { loop: [50, 100] })
     // el boton lo quita
@@ -152,7 +167,7 @@ describe('la barra de estudio', () => {
     await puntero(caja, 'pointerdown', 200)
     await puntero(window, 'pointermove', 100)
     await puntero(window, 'pointerup', 100)
-    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(50, 100)
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(...tramo(50, 100))
     w.unmount()
   })
 
@@ -209,7 +224,7 @@ describe('la barra de estudio', () => {
     await puntero(caja, 'pointerdown', 100)
     await puntero(window, 'pointermove', 200)
     await puntero(window, 'pointerup', 200)
-    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(50, 100)
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(...tramo(50, 100))
     // la cancion iba por 0:12, fuera del tramo: salta a A
     expect(held.playback.bridge.seek).toHaveBeenCalledWith(50)
     w.unmount()
@@ -239,22 +254,22 @@ describe('la barra de estudio', () => {
     await puntero(caja, 'pointerdown', 201)
     await puntero(window, 'pointermove', 300)
     await puntero(window, 'pointerup', 300)
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50, 150)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(50, 150))
     // el borde A (x=100) a x=80 (0:40)
     await puntero(caja, 'pointerdown', 99)
     await puntero(window, 'pointermove', 80)
     await puntero(window, 'pointerup', 80)
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(40, 150)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(40, 150))
     // por dentro (x=150) se arrastra el tramo entero 20 px = 10 s a la derecha
     await puntero(caja, 'pointerdown', 150)
     await puntero(window, 'pointermove', 170)
     await puntero(window, 'pointerup', 170)
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50, 160)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(50, 160))
     // y no se sale de la cancion: 110 s de largo, como mucho hasta 200
     await puntero(caja, 'pointerdown', 250)
     await puntero(window, 'pointermove', 390)
     await puntero(window, 'pointerup', 390)
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(90, 200)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(90, 200))
     w.unmount()
   })
 
@@ -284,7 +299,7 @@ describe('la barra de estudio', () => {
     await puntero(caja, 'pointerdown', 50)
     await puntero(window, 'pointermove', 124)
     await puntero(window, 'pointerup', 124)
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(25, 60)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(25, 60))
     // con el candado, sonando, pulsar el marcador en la onda lo elige sin mover la cancion
     held.playback.bridge.seek.mockClear()
     await w.find('.tl-marker').trigger('click')
@@ -311,7 +326,7 @@ describe('la barra de estudio', () => {
     vi.clearAllMocks()
     await w.find('.tl-marker').trigger('click')
     await flushPromises()
-    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(30, 45)
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(...tramo(30, 45))
     expect(held.playback.bridge.seek).not.toHaveBeenCalled()
     await w.find('.study-pick').trigger('click')
     await flushPromises()
@@ -327,7 +342,7 @@ describe('la barra de estudio', () => {
     held.playback.emit({ position: 20 })
     await flushPromises()
     await tecla('b')
-    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(12, 20)
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(...tramo(12, 20))
     // B cierra el tramo y vuelve a A, con candado o sin el: es la repeticion A-B
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(12)
     expect(w.text()).toContain('0:12 – 0:20')
@@ -335,11 +350,11 @@ describe('la barra de estudio', () => {
     held.playback.emit({ position: 15 })
     await flushPromises()
     await tecla('a')
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(15, 20)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(15, 20))
     held.playback.emit({ position: 30 })
     await flushPromises()
     await tecla('b')
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(15, 30)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(15, 30))
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { loop: [15, 30] })
     vi.useRealTimers()
@@ -364,7 +379,7 @@ describe('la barra de estudio', () => {
     await puntero(caja, 'pointerdown', 100)
     await puntero(window, 'pointermove', 200)
     await puntero(window, 'pointerup', 200)
-    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(50, 100)
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(...tramo(50, 100))
     w.unmount()
   })
 
@@ -447,7 +462,7 @@ describe('la barra de estudio', () => {
     // sonando por 0:12: pulsar «Coro» repite 0:30-0:45 y salta a 0:30 (sigue sonando)
     await w.findAll('.study-pick')[0].trigger('click')
     await flushPromises()
-    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(30, 45)
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(...tramo(30, 45))
     expect(held.playback.bridge.seek).toHaveBeenCalledWith(30)
     expect(
       held.playback.bridge.toggle,
@@ -513,7 +528,7 @@ describe('la barra de estudio', () => {
     await puntero(caja, 'pointerdown', 201)
     await puntero(window, 'pointermove', 300)
     await puntero(window, 'pointerup', 300)
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50, 150)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(50, 150))
     expect(w.find('.study-marker').text()).toContain('0:50 – 2:30')
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy.mock.calls.at(-1)[1].markers).toEqual([
@@ -523,7 +538,7 @@ describe('la barra de estudio', () => {
     await puntero(caja, 'pointerdown', 20)
     await puntero(window, 'pointermove', 60)
     await puntero(window, 'pointerup', 60)
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(10, 30)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(10, 30))
     expect(w.find('.study-marker').classes()).not.toContain('on')
     expect(w.find('.study-marker').text()).toContain('0:50 – 2:30')
     expect(boton(w, 'Guardar tramo')).toBeTruthy()
@@ -572,14 +587,22 @@ describe('la barra de estudio', () => {
       })
     ]
     const w = await montar()
-    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(30, 40)
+    expect(held.playback.bridge.setLoop).toHaveBeenCalledWith(...tramo(30, 40))
     expect(held.playback.bridge.setSpeed).toHaveBeenCalledWith(0.8)
     expect(w.find('textarea').element.value).toBe('cejilla 2')
-    await boton(w, 'Cerrar').trigger('click')
+    // ocultar no toca nada de lo que suena: ni el tramo, ni la velocidad, ni el clic
+    vi.clearAllMocks()
+    await boton(w, 'Ocultar').trigger('click')
     await flushPromises()
+    expect(w.emitted('hide')).toBeTruthy()
+    expect(held.playback.bridge.setLoop).not.toHaveBeenCalled()
+    expect(held.playback.bridge.setSpeed).not.toHaveBeenCalled()
+    expect(held.playback.bridge.setMetronome).not.toHaveBeenCalled()
+    // salir del modo estudio, sí: la canción vuelve a como viene
+    await salir(w)
     expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
     expect(held.playback.bridge.setSpeed).toHaveBeenLastCalledWith(1)
-    expect(w.emitted('close')).toBeTruthy()
+    expect(w.emitted('exit')).toBeTruthy()
     w.unmount()
   })
 
@@ -602,7 +625,7 @@ describe('la barra de estudio', () => {
     await puntero(caja, 'pointerdown', 100)
     await puntero(window, 'pointermove', 200)
     await puntero(window, 'pointerup', 200)
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50, 100)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(50, 100))
     await puntero(caja, 'pointerdown', 150)
     await puntero(window, 'pointerup', 150)
     expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(null, null)
@@ -631,7 +654,7 @@ describe('la barra de estudio', () => {
         [20, 40],
         [100, 120]
       ],
-      defer: false
+      end: 'stop'
     })
     expect(w.findAll('.tl-loop')).toHaveLength(2)
     expect(w.findAll('.tl-loop-n').map((n) => n.text())).toEqual(['1', '2'])
@@ -653,7 +676,7 @@ describe('la barra de estudio', () => {
     // ...y uno sobre el primero lo quita; el otro sigue
     await puntero(caja, 'pointerdown', 60)
     await puntero(window, 'pointerup', 60)
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(100, 120)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(100, 120))
     expect(w.findAll('.tl-loop')).toHaveLength(1)
     expect(held.playback.bridge.seek).not.toHaveBeenCalled()
     vi.useRealTimers()
@@ -678,7 +701,7 @@ describe('la barra de estudio', () => {
         [20, 40],
         [100, 120]
       ],
-      defer: false
+      end: 'stop'
     }
     expect(held.playback.bridge.setLoop, 'lo guardado se aplica al entrar').toHaveBeenCalledWith(
       20,
@@ -722,40 +745,42 @@ describe('la barra de estudio', () => {
     expect(menu.value.title).toBe('El tramo')
     expect(menu.value.items.filter((i) => i.label).map((i) => i.label)).toEqual([
       'Reproducir ahora',
-      'Repetir cuando acabe la canción',
+      'Al acabar: repetir',
+      'Al acabar: parar',
+      'Al acabar: seguir',
       'Ir aquí',
+      'Guía hablada aquí…',
       'Ajustar a los pulsos',
       'Guardar como marcador',
       'Añadir más tramos',
       'Quitar la selección'
     ])
+    // de fábrica, al acabar se para (una vez, y quieto al principio)
+    expect(opcion('Al acabar: parar').note).toBe('puesto')
     // sonar ya: arranca y va al principio del tramo
     await opcion('Reproducir ahora').action()
     await flushPromises()
     expect(held.playback.bridge.toggle).toHaveBeenCalledTimes(1)
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(50.1)
-    // al acabar: la cancion sigue hasta el final y entonces se repite
-    await opcion('Repetir cuando acabe la canción').action()
+    // en bucle: se repite hasta que se quite
+    await opcion('Al acabar: repetir').action()
     await flushPromises()
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50.1, 99.9, {
-      segments: [[50.1, 99.9]],
-      defer: true
-    })
-    expect(w.find('.study-loop').text()).toContain('al acabar')
-    await w.find('.tl-loop-menu').trigger('click')
-    expect(opcion('Repetir ya, sin esperar al final')).toBeTruthy()
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(50.1, 99.9, 'repeat'))
+    expect(w.find('.study-end.on').text()).toBe('Repetir')
     // a los pulsos de la rejilla (uno cada medio segundo desde 0,25), sin
     // perder el «al acabar»
+    await w.find('.tl-loop-menu').trigger('click')
     await opcion('Ajustar a los pulsos').action()
     await flushPromises()
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50.25, 99.75, {
-      segments: [[50.25, 99.75]],
-      defer: true
-    })
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(50.25, 99.75, 'repeat'))
+    // y se recuerda para la próxima vez
+    expect(JSON.parse(localStorage.getItem('danplay.study.alAcabar'))).toBe('repeat')
     await w.find('.tl-loop-menu').trigger('click')
-    await opcion('Repetir ya, sin esperar al final').action()
+    await opcion('Al acabar: seguir').action()
     await flushPromises()
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(50.25, 99.75)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(
+      ...tramo(50.25, 99.75, 'continue')
+    )
     await w.find('.tl-loop-menu').trigger('click')
     await opcion('Quitar la selección').action()
     await flushPromises()
@@ -795,7 +820,7 @@ describe('la barra de estudio', () => {
     expect(opcion('Quitar todos los tramos')).toBeTruthy()
     await opcion('Quitar este tramo').action()
     await flushPromises()
-    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(20, 40)
+    expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(20, 40))
     expect(w.findAll('.tl-loop')).toHaveLength(1)
   })
 })
@@ -846,11 +871,11 @@ describe('lo que se guarda va a su cancion', () => {
     vi.useRealTimers()
   })
 
-  it('al cerrar se guarda lo pendiente sin esperar', async () => {
+  it('al ocultarlo se guarda lo pendiente sin esperar', async () => {
     vi.useFakeTimers()
     const w = await montar()
     await w.find('textarea').setValue('entrar tras el redoble')
-    await boton(w, 'Cerrar').trigger('click')
+    await boton(w, 'Ocultar').trigger('click')
     await flushPromises()
     expect(held.api.setStudy).toHaveBeenCalledWith(7, { notes: 'entrar tras el redoble' })
     await vi.advanceTimersByTimeAsync(700)
@@ -903,22 +928,25 @@ describe('tono, velocidad fina y metronomo', () => {
     })
     const w = await montar()
     expect(w.text()).toContain('Tono')
-    expect(w.find('.study-step.on').text(), 'de entrada, de medio en medio').toBe('½')
+    expect(w.find('.study-step.on').text(), 'de entrada, de medio en medio').toBe('½ tono')
+    expect(w.find('.study-pitch-n').text()).toBe('Como está grabada')
     await w.find('.study-pitch-up').trigger('click')
     await flushPromises()
     expect(bridge().setPitch).toHaveBeenLastCalledWith(1)
-    expect(w.find('.study-pitch-n').text()).toBe('+½')
+    // dicho como lo dice un músico, y con sus semitonos debajo
+    expect(w.find('.study-pitch-n').text()).toBe('medio tono arriba')
+    expect(w.find('.study-pitch-words small').text()).toBe('1 semitono')
     await w.find('.study-pitch-up').trigger('click')
     await flushPromises()
     expect(bridge().setPitch).toHaveBeenLastCalledWith(2)
-    expect(w.find('.study-pitch-n').text(), 'dos semitonos son un tono').toBe('+1')
+    expect(w.find('.study-pitch-n').text(), 'dos semitonos son un tono').toBe('1 tono arriba')
     expect(w.text()).toContain('G → A')
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { pitch: 2 })
     await boton(w, 'original').trigger('click')
     await flushPromises()
     expect(bridge().setPitch).toHaveBeenLastCalledWith(0)
-    expect(w.find('.study-pitch-n').text()).toBe('0')
+    expect(w.find('.study-pitch-n').text()).toBe('Como está grabada')
     vi.useRealTimers()
   })
 
@@ -929,21 +957,21 @@ describe('tono, velocidad fina y metronomo', () => {
     })
     const w = await montar()
     const paso = (n) => w.findAll('.study-step').find((b) => b.text() === n)
-    await paso('¼').trigger('click')
+    await paso('¼ de tono').trigger('click')
     await w.find('.study-pitch-up').trigger('click')
     await flushPromises()
     // un cuarto de tono es medio semitono: no tiene nombre de tonalidad
     expect(bridge().setPitch).toHaveBeenLastCalledWith(0.5)
-    expect(w.find('.study-pitch-n').text()).toBe('+¼')
+    expect(w.find('.study-pitch-n').text()).toBe('un cuarto de tono arriba')
     expect(w.text()).toContain('G → G +¼')
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { pitch: 0.5 })
-    await paso('1').trigger('click')
+    await paso('1 tono').trigger('click')
     await w.find('.study-pitch-down').trigger('click')
     await w.find('.study-pitch-down').trigger('click')
     await flushPromises()
     expect(bridge().setPitch).toHaveBeenLastCalledWith(-3.5)
-    expect(w.find('.study-pitch-n').text()).toBe('−1¾')
+    expect(w.find('.study-pitch-n').text()).toBe('1 tono y tres cuartos abajo')
     // el paso elegido se recuerda
     expect(localStorage.getItem('danplay.study.pitchStep')).toBe('2')
     vi.useRealTimers()
@@ -953,21 +981,20 @@ describe('tono, velocidad fina y metronomo', () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ pitch: -0.5 }) })]
     const w = await montar()
     expect(bridge().setPitch).toHaveBeenCalledWith(-0.5)
-    expect(w.find('.study-pitch-n').text()).toBe('−¼')
+    expect(w.find('.study-pitch-n').text()).toBe('un cuarto de tono abajo')
   })
 
-  it('el tono guardado se aplica al entrar y se quita al cerrar, como la velocidad', async () => {
+  it('el tono guardado se aplica al entrar y se quita al salir del estudio, como la velocidad', async () => {
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ pitch: -3, speed: 0.9 }) })
     ]
     const w = await montar()
     expect(bridge().setPitch).toHaveBeenCalledWith(-3)
     expect(bridge().setSpeed).toHaveBeenCalledWith(0.9)
-    await boton(w, 'Cerrar').trigger('click')
-    await flushPromises()
+    await salir(w)
     expect(bridge().setPitch).toHaveBeenLastCalledWith(0)
     expect(bridge().setSpeed).toHaveBeenLastCalledWith(1)
-    expect(w.emitted('close')).toBeTruthy()
+    expect(w.emitted('exit')).toBeTruthy()
   })
 
   it('la velocidad tiene deslizador fino ademas de los botones', async () => {
@@ -1017,6 +1044,18 @@ describe('tono, velocidad fina y metronomo', () => {
       expect(bridge().setMetronome).toHaveBeenCalledWith(
         expect.objectContaining({ count_in: 0, sound: 'clasico' })
       )
+      // plegado de entrada (son muchos botones): se despliega
+      expect(boton(w, '1 compás')).toBeUndefined()
+      await masClic(w)
+      // los sonidos, con los dos nuevos
+      expect(w.findAll('[aria-label="Sonido del clic"] button').map((b) => b.text())).toEqual([
+        'clásico',
+        'madera',
+        'baqueta',
+        'cencerro',
+        'claves',
+        'charles'
+      ])
       await boton(w, '1 compás').trigger('click')
       await boton(w, 'cencerro').trigger('click')
       await flushPromises()
@@ -1037,9 +1076,8 @@ describe('tono, velocidad fina y metronomo', () => {
       expect(bridge().setMetronome).toHaveBeenCalledWith(
         expect.objectContaining({ count_in: 1, sound: 'cencerro' })
       )
-      // y al cerrar el estudio, play vuelve a ser play: sin cuenta
-      await boton(otra, 'Cerrar').trigger('click')
-      await flushPromises()
+      // y al salir del estudio, play vuelve a ser play: sin cuenta
+      await salir(otra)
       expect(bridge().setMetronome).toHaveBeenLastCalledWith(
         expect.objectContaining({ on: false, count_in: 0 })
       )
@@ -1074,6 +1112,7 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: null }))
     expect(w.text()).toContain('sigue la canción')
     // compas, el «1» corrido y el doble de pulsos
+    await masClic(w)
     expect(w.find('.study-meters .btn.on').text(), 'el detectado').toBe('4/4')
     await boton(w, '3/4').trigger('click')
     await flushPromises()
@@ -1163,6 +1202,7 @@ describe('tono, velocidad fina y metronomo', () => {
   it('sin acento: el compas 0 se guarda y la onda no marca ningun «1»', async () => {
     vi.useFakeTimers()
     const w = await montar()
+    await masClic(w)
     await boton(w, 'sin acento').trigger('click')
     await flushPromises()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ meter: 0 }))
@@ -1215,10 +1255,10 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
   })
 
-  it('el volumen del clic tiene su deslizador, hasta el doble', async () => {
+  it('el volumen del clic tiene su deslizador, hasta el triple', async () => {
     const w = await montar()
     const vol = w.find('.study-metro-vol input[type="range"]')
-    expect(vol.attributes('max')).toBe('2')
+    expect(vol.attributes('max')).toBe('3')
     await vol.setValue('0.35')
     await flushPromises()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(
@@ -1318,52 +1358,56 @@ describe('el reproductor y el bucle', () => {
     w.unmount()
   })
 
-  it('en el navegador, varios tramos van seguidos y «al acabar» espera al final', async () => {
+  it('en el navegador, los tramos van seguidos y al acabar repiten, paran o siguen', async () => {
     resetPlayback()
     held.api.inTauri = false
-    const player = usePlayback()
-    await player.ready()
-    const audio = player.audioElement()
-    const at = async (t) => {
-      Object.defineProperty(audio, 'currentTime', { value: t, writable: true, configurable: true })
-      audio.dispatchEvent(new Event('timeupdate'))
-      await flushPromises()
-    }
-    await player.setLoops([
-      [10, 20],
-      [50, 60]
-    ])
-    await at(15)
-    await at(20.1)
-    expect(audio.currentTime, 'del final del primero, al segundo').toBe(50)
-    await at(60.2)
-    expect(audio.currentTime, 'del ultimo, al primero').toBe(10)
-    // al acabar: la cancion pasa por los tramos sin quedarse, y al terminar
-    // vuelve al primero y ya se repiten
-    await player.setLoops(
-      [
+    try {
+      const player = usePlayback()
+      await player.ready()
+      const audio = player.audioElement()
+      const at = async (t) => {
+        Object.defineProperty(audio, 'currentTime', {
+          value: t,
+          writable: true,
+          configurable: true
+        })
+        audio.dispatchEvent(new Event('timeupdate'))
+        await flushPromises()
+      }
+      const dos = [
         [10, 20],
         [50, 60]
-      ],
-      { defer: true }
-    )
-    expect(player.loopDefer.value).toBe(true)
-    await at(15)
-    await at(21)
-    expect(audio.currentTime).toBe(21)
-    audio.dispatchEvent(new Event('ended'))
-    await flushPromises()
-    expect(audio.currentTime).toBe(10)
-    expect(player.loopDefer.value).toBe(false)
-    await at(20.2)
-    expect(audio.currentTime).toBe(50)
-    // saltar a proposito dentro de un tramo tambien deja de esperar
-    await player.setLoops([[10, 20]], { defer: true })
-    await player.seek(12)
-    expect(player.loopDefer.value).toBe(false)
-    await player.clearLoop()
-    expect(player.loops.value).toEqual([])
-    held.api.inTauri = true
+      ]
+      // repitiendo: del final del primero al segundo, y del último al primero
+      await player.setLoops(dos, { end: 'repeat' })
+      expect(player.loopEnd.value).toBe('repeat')
+      await at(15)
+      await at(20.1)
+      expect(audio.currentTime, 'del final del primero, al segundo').toBe(50)
+      await at(60.2)
+      expect(audio.currentTime, 'del ultimo, al primero').toBe(10)
+      // parando: suenan una vez y se queda al principio del primero
+      await player.setLoops(dos, { end: 'stop' })
+      await at(15)
+      await at(20.1)
+      expect(audio.currentTime).toBe(50)
+      await at(60.2)
+      expect(audio.currentTime, 'quieto al principio del primero').toBe(10)
+      expect(player.playing.value).toBe(false)
+      // siguiendo: suenan una vez y la canción sigue de largo
+      await player.setLoops(dos, { end: 'continue' })
+      await at(15)
+      await at(20.1)
+      expect(audio.currentTime).toBe(50)
+      await at(60.2)
+      expect(audio.currentTime, 'sigue').toBe(60.2)
+      await at(70)
+      expect(audio.currentTime).toBe(70)
+      await player.clearLoop()
+      expect(player.loops.value).toEqual([])
+    } finally {
+      held.api.inTauri = true
+    }
   })
 
   it('el volumen del reproductor sube hasta el 150 % y las flechas paran en el 100 %', async () => {
@@ -1415,7 +1459,7 @@ describe('las pistas separadas en el estudio', () => {
     await useSeparation().refresh()
     await flushPromises()
     // un solo botón: sin elegir modelo ni calidad
-    const separar = boton(w, 'Separar pistas')
+    const separar = boton(w, 'Separar en pistas')
     expect(separar).toBeTruthy()
     await separar.trigger('click')
     await flushPromises()
@@ -1458,7 +1502,7 @@ describe('las pistas separadas en el estudio', () => {
     await conPistas(JSON.stringify({ mixer: { on: true } }))
     held.state.stems[7] = stemsOf(7, undefined, 'rapida')
     const w = await montar()
-    await boton(w, '⋯').trigger('click')
+    await w.find('.study-stems-more').trigger('click')
     const { menu } = useContextMenu()
     const again = menu.value.items.find((i) => i.label?.startsWith('Separar otra vez'))
     expect(again?.label).toBe('Separar otra vez con la mejor calidad')
@@ -1541,12 +1585,12 @@ describe('las pistas separadas en el estudio', () => {
     expect(tracks[4]).toMatchObject({ gain: 0.5, on: true })
   })
 
-  it('al cerrar vuelve la canción tal cual', async () => {
+  it('al salir del estudio vuelve la canción tal cual', async () => {
     await conPistas(JSON.stringify({ mixer: { on: true } }))
     const w = await montar()
     held.playback.emit({ stems: true })
     await flushPromises()
-    await boton(w, 'Cerrar').trigger('click')
+    await salir(w)
     await flushPromises()
     expect(mandado()[1]).toBe(null)
   })
@@ -1555,7 +1599,7 @@ describe('las pistas separadas en el estudio', () => {
     const { pickSavePath } = await import('../src/api.js')
     await conPistas(JSON.stringify({ mixer: { on: true, tracks: { drums: { mute: true } } } }))
     const w = await montar()
-    await boton(w, '⋯').trigger('click')
+    await w.find('.study-stems-more').trigger('click')
     const { menu } = useContextMenu()
     const labels = menu.value.items.filter((i) => !i.separator).map((i) => i.label)
     expect(labels).toContain('Guardar esta mezcla…')
@@ -1571,9 +1615,308 @@ describe('las pistas separadas en el estudio', () => {
     const w = await montar()
     await w.find('.study-metro-toggle').trigger('click')
     await flushPromises()
-    await boton(w, '⋯').trigger('click')
+    await w.find('.study-stems-more').trigger('click')
     const { menu } = useContextMenu()
     const asHeard = menu.value.items.find((i) => i.label === 'Guardarla como suena…')
     expect(asHeard?.note).toBe('con clic')
+  })
+})
+
+describe('el estudio de 1.28', () => {
+  function conAnchura(w, left = 0, width = 400) {
+    w.find('.tl-box').element.getBoundingClientRect = () => ({
+      left,
+      width,
+      right: left + width,
+      top: 0,
+      height: 80,
+      bottom: 80,
+      x: left,
+      y: 0
+    })
+  }
+  const bridge = () => held.playback.bridge
+
+  it('al dejar «varios» se queda un solo tramo: el último que se tocó', async () => {
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({
+          loops: [
+            [20, 40],
+            [100, 120]
+          ]
+        })
+      })
+    ]
+    const w = await montar()
+    conAnchura(w)
+    // se mueve el borde del primero: es el último que se tocó
+    const caja = w.find('.tl-box').element
+    const at = (x, tipo, target = caja) =>
+      target.dispatchEvent(
+        new MouseEvent(tipo, { bubbles: true, cancelable: true, clientX: x, clientY: 20 })
+      )
+    at(80, 'pointerdown') // el borde derecho del primero (40 s = x 80)
+    at(90, 'pointermove', window)
+    at(90, 'pointerup', window)
+    await flushPromises()
+    expect(bridge().setLoop).toHaveBeenLastCalledWith(20, 120, {
+      segments: [
+        [20, 45],
+        [100, 120]
+      ],
+      end: 'stop'
+    })
+    vi.clearAllMocks()
+    await w.find('.tl-multi').trigger('click')
+    await flushPromises()
+    expect(bridge().setLoop).toHaveBeenLastCalledWith(...tramo(20, 45))
+    expect(w.findAll('.tl-loop')).toHaveLength(1)
+  })
+
+  it('los marcadores con su casilla se tocan seguidos, una vez o en bucle', async () => {
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({
+          markers: [
+            { t: 10, end: 20, label: 'Intro' },
+            { t: 50, end: 70, label: 'Coro' },
+            { t: 90, end: 99, label: 'Puente' }
+          ]
+        })
+      })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    vi.clearAllMocks()
+    const casillas = w.findAll('.study-check')
+    expect(casillas).toHaveLength(3)
+    await casillas[0].trigger('click')
+    await casillas[2].trigger('click')
+    expect(casillas[0].attributes('aria-checked')).toBe('true')
+    const tocar = w.find('.study-play-checked')
+    expect(tocar.text()).toContain('Tocar 2 elegidos')
+    await tocar.trigger('click')
+    await flushPromises()
+    // seguidos, saltándose lo de en medio, desde el primero, y a sonar
+    expect(bridge().setLoop).toHaveBeenLastCalledWith(10, 99, {
+      segments: [
+        [10, 20],
+        [90, 99]
+      ],
+      end: 'stop'
+    })
+    expect(bridge().seek).toHaveBeenLastCalledWith(10)
+    expect(bridge().toggle).toHaveBeenCalledTimes(1)
+    // y en bucle, con su botón de al lado
+    const repetir = w.findAll('.study-col-foot .study-end')[0]
+    await repetir.trigger('click')
+    await flushPromises()
+    expect(bridge().setLoop).toHaveBeenLastCalledWith(10, 99, {
+      segments: [
+        [10, 20],
+        [90, 99]
+      ],
+      end: 'repeat'
+    })
+  })
+
+  it('mientras se separa otra canción, esta se pone en la cola y lo dice', async () => {
+    const { useSeparation } = await import('../src/composables/useSeparation.js')
+    // sin pistas (las pruebas de antes separaron esta)
+    delete held.state.stems[7]
+    held.state.separation.queue = []
+    held.state.separation.current = {
+      id: 99,
+      title: 'Otra canción',
+      stage: 'separate',
+      done: 3,
+      total: 10
+    }
+    try {
+      const w = await montar()
+      await useSeparation().refresh()
+      await flushPromises()
+      const poner = boton(w, 'Poner en la cola')
+      expect(poner, 'no dice «Separar» como si empezara ya').toBeTruthy()
+      expect(w.find('.study-stems').text()).toContain('Ahora se separa «Otra canción» (30 %)')
+      await poner.trigger('click')
+      await flushPromises()
+      expect(held.api.separate).toHaveBeenCalledWith(7)
+      expect(w.find('.study-stems-progress').text()).toContain('en la cola')
+    } finally {
+      held.state.separation.current = null
+      held.state.separation.queue = []
+    }
+  })
+
+  it('la rueda acerca la onda donde está el ratón, y la regla pasa a décimas', async () => {
+    const w = await montar()
+    conAnchura(w)
+    const tl = w.findComponent({ name: 'StudyTimeline' })
+    expect(tl.vm.view.to - tl.vm.view.from).toBe(200)
+    // acercar sobre x=100 (0:50) varias veces
+    for (let i = 0; i < 8; i++) {
+      w.find('.tl-box').element.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: -400, clientX: 100, bubbles: true, cancelable: true })
+      )
+    }
+    await flushPromises()
+    const span = tl.vm.view.to - tl.vm.view.from
+    expect(span).toBeLessThan(10)
+    // el punto bajo el ratón no se mueve: sigue a un cuarto de la vista
+    expect((50 - tl.vm.view.from) / span).toBeCloseTo(0.25, 1)
+    expect(w.find('.tl-overview').exists(), 'la tira de toda la canción').toBe(true)
+    expect(w.findAll('.tl-tick-label').some((l) => l.text().includes('.'))).toBe(true)
+    // ver toda la canción
+    await w.find('[aria-label="Ver toda la canción"]').trigger('click')
+    await flushPromises()
+    expect(tl.vm.view.to - tl.vm.view.from).toBe(200)
+  })
+
+  it('ajustar un pulso a mano lo guarda como el clic propio de la canción', async () => {
+    vi.useFakeTimers()
+    const w = await montar()
+    conAnchura(w)
+    await boton(w, 'Ajustar pulsos').trigger('click')
+    await flushPromises()
+    expect(boton(w, 'Listo'), 'se está ajustando').toBeTruthy()
+    expect(w.find('.study-mode.on').text()).toBe('Propio')
+    const pulsos = w.findAll('.tl-beat')
+    expect(pulsos.length).toBeGreaterThan(4)
+    // arrastrar el tercero que se ve 2 px a la derecha
+    const tl = w.findComponent({ name: 'StudyTimeline' })
+    const span = tl.vm.view.to - tl.vm.view.from
+    const x0 = Number(pulsos[2].attributes('style').match(/left: ([\d.]+)%/)[1]) * 4
+    const at = (target, tipo, x) =>
+      target.dispatchEvent(
+        new MouseEvent(tipo, { bubbles: true, cancelable: true, clientX: x, clientY: 20 })
+      )
+    at(pulsos[2].element, 'pointerdown', x0)
+    at(window, 'pointermove', x0 + 4)
+    at(window, 'pointerup', x0 + 4)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(700)
+    const saved = held.api.setStudy.mock.calls.at(-1)[1]
+    expect(saved.metronome.own.beats.length).toBe(400)
+    const moved = saved.metronome.own.beats.find((t, i) => Math.abs(t - (0.25 + i * 0.5)) > 1e-6)
+    expect(moved, 'un pulso movido').toBeDefined()
+    expect(moved - Math.round((moved - 0.25) / 0.5) * 0.5 - 0.25).toBeCloseTo((4 / 400) * span, 2)
+    // y suena ya: Rust tiene la rejilla propia
+    expect(bridge().setBeatGrid).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+})
+
+describe('las salidas', () => {
+  it('clic y guías a la izquierda, música a la derecha', async () => {
+    const { resetRouting } = await import('../src/composables/useRouting.js')
+    resetRouting()
+    const w = await montar()
+    await boton(w, 'Salidas').trigger('click')
+    await flushPromises()
+    const presets = document.querySelectorAll('.outs-preset')
+    expect([...presets].map((p) => p.querySelector('.outs-preset-name').textContent)).toEqual([
+      'Todo junto',
+      'Clic y guías a la izquierda, música a la derecha',
+      'Clic y guías por 1-2, música por 3-4',
+      'A medida'
+    ])
+    presets[1].click()
+    await flushPromises()
+    expect(held.playback.bridge.setRouting).toHaveBeenLastCalledWith({
+      buses: [
+        { left: 1, right: 1 },
+        { left: 0, right: 0 }
+      ],
+      song: 0,
+      click: 1,
+      cues: 1
+    })
+    expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 2 })
+    // y se recuerda
+    expect(JSON.parse(localStorage.getItem('danplay.salidas')).preset).toBe('click-left')
+    presets[2].click()
+    await flushPromises()
+    expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 4 })
+  })
+
+  it('el clic y la guía de una secuencia van con el clic, salvo que se diga otra cosa', async () => {
+    const { buildRouting, destOf } = await import('../src/composables/useRouting.js')
+    const left = {
+      device: null,
+      preset: 'click-left',
+      custom: { song: 'main', click: 'main', cues: 'main', stems: {} }
+    }
+    const pistas = [
+      { key: 'click_track', role: 'click' },
+      { key: 'guide', role: 'guide' },
+      { key: 'bass', role: '' },
+      'drums'
+    ]
+    const r = buildRouting(left, pistas)
+    // la musica a la derecha (bus 0), el clic y la guia a la izquierda (bus 1)
+    expect(r.spec.buses).toEqual([
+      { left: 1, right: 1 },
+      { left: 0, right: 0 }
+    ])
+    expect(r.stems).toEqual({ click_track: 1, guide: 1, bass: 0, drums: 0 })
+    // a medida, lo dicho manda
+    const custom = {
+      ...left,
+      preset: 'custom',
+      custom: { song: 'main', click: 'L', cues: 'R', stems: { guide: 'main' } }
+    }
+    expect(destOf(custom, 'stem', 'click_track', 'click')).toBe('L')
+    expect(destOf(custom, 'stem', 'guide', 'guide')).toBe('main')
+    expect(destOf(custom, 'stem', 'bass', '')).toBe('main')
+  })
+})
+
+describe('abrir una secuencia', () => {
+  it('se ve lo que trae, se abre con su avance y suena en el estudio', async () => {
+    const { useSequence } = await import('../src/composables/useSequence.js')
+    const dialog = await import('../src/composables/useDialog.js')
+    const { api } = await import('../src/api.js')
+    api.sequenceInfo = vi.fn(async () => ({
+      folder: '/d/Mi Cancion-Grupo-G-120.00bpm',
+      title: 'Mi Cancion',
+      artist: 'Grupo',
+      key: 'G',
+      bpm: 120,
+      project: true,
+      cover: true,
+      sections: ['Intro', 'Coro'],
+      tracks: [
+        { name: 'Click Track', role: 'click' },
+        { name: 'Guide', role: 'guide' },
+        { name: 'Bass', role: '' }
+      ]
+    }))
+    api.importSequence = vi.fn(async () => ({
+      job: {
+        name: 'secuencia',
+        active: false,
+        done: 5,
+        total: 5,
+        message: '',
+        error: '',
+        result: { id: 9, title: 'Mi Cancion', artist: 'Grupo', tracks: 3 }
+      }
+    }))
+    const seq = useSequence()
+    const opening = seq.open('/d/Mi Cancion-Grupo-G-120.00bpm/MultiTracks/Bass.wav')
+    await flushPromises()
+    const asked = dialog.useDialog().dialog.value
+    expect(asked.message).toContain('3 pistas (Click Track y Guide van a tus cascos)')
+    expect(asked.message).toContain('120 bpm')
+    expect(asked.detail).toContain('Intro, Coro')
+    dialog.useDialog().dialogOk()
+    const made = await opening
+    expect(api.importSequence).toHaveBeenCalledWith('/d/Mi Cancion-Grupo-G-120.00bpm')
+    expect(made).toMatchObject({ id: 9, tracks: 3 })
+    expect(seq.state.busy).toBe(false)
   })
 })
