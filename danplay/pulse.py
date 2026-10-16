@@ -30,18 +30,35 @@ una biblioteca de alabanza (`scripts/revisar-metronomo.py`) y contra GTZAN:
   red lo piden de verdad (antes salian compases de 1, 2, 5 y 8 tiempos);
 - sin clic donde no hay pulso: antes del primero y despues del ultimo (una
   intro libre, un final que se apaga) y en un hueco que no es un numero
-  entero de tiempos (una parte libre). Un hueco a tempo se rellena.
+  entero de tiempos (una parte libre). Un hueco a tempo se rellena siguiendo
+  a la red (no en linea recta);
+- desde 1.28, los **saltos de fase**: la red, en vivo sobre todo, se pasa a
+  veces medio pulso durante unos compases (oye el «y» con toda seguridad) y
+  la cadena volvia a empezar ahi. Eso eran a la vez los silencios de un
+  compas y los tramos con el clic a contratiempo. Cada trozo de la cadena se
+  vuelve a poner en la fase de la mayoria (por lo que dura, por el
+  «sandwich» —si lo de antes y lo de despues casan entre si, lo de en medio
+  es lo raro— y por donde golpean el bombo y el bajo);
+- las canciones grabadas a clic (estudio, secuencias) se reconocen (un
+  tempo que no se mueve en toda la cancion) y van a tempo fijo exacto;
+- con la bateria separada, la red se pasa tambien por ella y manda la mas
+  segura de las dos en cada instante.
+
+Lo que dice la red se guarda (`raw`): volver a analizar un tramo, o toda la
+cancion de otra manera («Re-analizar el clic»), tarda milisegundos.
 
 Corre en un proceso aparte (`main`), con prioridad baja, como el separador:
 son unos segundos de todos los nucleos.
 """
 
+import contextlib
 import hashlib
 import json
 import math
 import os
 import subprocess
 import sys
+import zipfile
 
 import numpy as np
 
@@ -309,19 +326,236 @@ def _chain(times: np.ndarray, probs: np.ndarray, local) -> np.ndarray:
     return np.array(chain[::-1], dtype=np.int64)
 
 
-def _fill(beats: np.ndarray, local) -> np.ndarray:
+def _fill(beats: np.ndarray, local, beat_logits=None) -> np.ndarray:
     """Los pulsos que faltan dentro de la cadena: un hueco en el que cabe un
-    numero entero de pulsos (±`WHOLE`) se reparte; uno que no (una parte
-    libre, un ritardando) se queda sin clic."""
+    numero entero de pulsos (±`WHOLE`, sea largo o corto) se reparte; uno que
+    no (una parte libre, un ritardando) se queda sin clic. Con lo que dice la
+    red (`beat_logits`), un hueco de cuatro pulsos o mas se rellena siguiendo
+    sus maximos (`anchored`), no en linea recta: antes una intro en vivo de
+    un minuto salia con un clic de metronomo que no iba con nadie."""
     out = [float(beats[0])]
     for b in beats[1:]:
         gap = b - out[-1]
         n = gap / float(local((b + out[-1]) / 2))
         k = round(n)
-        if k >= 2 and abs(n - k) <= WHOLE * (1 if k <= 8 else 2):
-            out += [out[-1] + gap * i / k for i in range(1, k)]
+        if k >= 2 and abs(n - k) <= WHOLE:
+            if beat_logits is not None and k >= 4:
+                out += [float(t) for t in anchored(out[-1], b, k, beat_logits)]
+            else:
+                out += [out[-1] + gap * i / k for i in range(1, k)]
         out.append(float(b))
     return np.array(out)
+
+
+def anchored(a: float, b: float, k: int, beat_logits, slack=0.15, tempo_w=40.0) -> np.ndarray:
+    """Los `k - 1` pulsos que van entre `a` y `b` (que no se mueven): donde
+    la red dice que hay pulso, sin tirones de tempo (programacion dinamica
+    por pulso y trama). Para rellenar un hueco sin descoser los extremos."""
+    lp = np.log(np.clip(_sigmoid(beat_logits), 1e-3, 1.0))
+    fa, fb = a * FPS, b * FPS
+    p = (fb - fa) / k
+    prev_frames = np.array([fa])
+    prev_score = np.array([0.0])
+    prev_ibi = np.array([p])
+    steps: list[tuple[np.ndarray, np.ndarray]] = []  # (candidatos, de cual vienen)
+    for i in range(1, k):
+        c = fa + i * p
+        w = max(2, math.ceil(min(i, k - i) * slack * p))
+        cand = np.arange(int(c) - w, int(c) + w + 1).astype(np.float64)
+        cand = cand[(cand > fa) & (cand < fb)]
+        if cand.size == 0:
+            cand = np.array([c])
+        d = cand[:, None] - prev_frames[None, :]
+        ok = (d > 0.6 * p) & (d < 1.4 * p)
+        tempo = -tempo_w * np.log2(np.where(ok, d, p) / prev_ibi[None, :]) ** 2
+        sc = np.where(ok, prev_score[None, :] + tempo, -np.inf)
+        j = np.argmax(sc, axis=1)
+        best = sc[np.arange(cand.size), j] + lp[np.clip(cand.astype(int), 0, lp.size - 1)]
+        steps.append((cand, j))
+        prev_ibi = np.where(np.isfinite(best), d[np.arange(cand.size), j], p)
+        prev_frames, prev_score = cand, best
+    if not steps:
+        return np.array([])
+    d = fb - prev_frames
+    final = prev_score - tempo_w * np.log2(np.clip(d, 1e-6, None) / prev_ibi) ** 2
+    final[(d <= 0.6 * p) | (d >= 1.4 * p)] = -np.inf
+    if not np.isfinite(final).any():
+        return a + (b - a) * np.arange(1, k) / k  # nada cuadra: en linea recta
+    at = int(np.argmax(final))
+    path = []
+    for cand, back in reversed(steps):
+        path.append(cand[at])
+        at = int(back[at])
+    return np.array(path[::-1]) / FPS
+
+
+# ------------------------------------------------------------ los saltos de fase
+
+# Un salto de fase: un hueco en el que no cabe un numero entero de pulsos.
+PHASE_JUMP = 0.25
+
+
+def _segments(beats: np.ndarray, local) -> tuple[list[np.ndarray], list[float]]:
+    """La cadena partida en los saltos de fase, y lo que salta en cada uno
+    (en pulsos, de -0,5 a 0,5)."""
+    cuts, fracs = [], []
+    for i in range(beats.size - 1):
+        p = float(local((beats[i] + beats[i + 1]) / 2))
+        n = (beats[i + 1] - beats[i]) / p
+        if n >= 1.5 and abs(n - round(n)) > PHASE_JUMP:
+            cuts.append(i + 1)
+            fracs.append(n - round(n))
+    return np.split(beats, cuts), fracs
+
+
+def _low_vote(seg: np.ndarray, local, lowband) -> float:
+    """Lo que dicen el bombo y el bajo de un trozo: cuanto golpean en sus
+    pulsos frente a medio pulso mas alla (>1: en fase; <1: a contratiempo).
+    `lowband`: (envolvente de ataques por debajo de 150 Hz, tramas por s)."""
+    env, fps = lowband
+    if env is None or seg.size < 4:
+        return 1.0
+
+    def at(t):
+        c = np.clip(np.round(np.asarray(t) * fps).astype(int), 3, env.size - 4)
+        return np.maximum.reduce([env[c + o] for o in range(-3, 4)])
+
+    own = float(np.mean(at(seg)))
+    half = float(np.mean(at(seg + local(seg) / 2)))
+    return own / max(1e-9, half)
+
+
+def _wrap(x: float) -> float:
+    """Una fase en pulsos, de -0,5 a 0,5."""
+    return (x + 0.5) % 1.0 - 0.5
+
+
+def repair_flips(beats: np.ndarray, local, lowband=None) -> tuple[np.ndarray, int]:
+    """Los trozos de la cadena que se fueron de fase, de vuelta a su sitio.
+
+    La firma del fallo de la red es una **excursion**: la fase salta y unos
+    compases despues vuelve (lo de antes y lo de despues casan entre si, y lo
+    de en medio va medio pulso, o un tercio, corrido). Eso se corrige siempre:
+    cada trozo de la excursion se corre lo que se fue, por su propio tempo de
+    alrededor (no por el intervalo de al lado: con un hueco al doble dentro,
+    se rompia). Un salto que no vuelve puede ser una parte libre de verdad (y
+    se deja: sin clic en el hueco); solo se corrige si el bombo y el bajo
+    dicen claramente que lo de un lado golpea a contratiempo y es lo corto.
+    Devuelve los pulsos y cuantos trozos se movieron."""
+    segs, fracs = _segments(beats, local)
+    if len(segs) < 2:
+        return beats, 0
+    n = len(segs)
+    off = np.concatenate([[0.0], np.cumsum(fracs)])  # fase de cada trozo, desde el primero
+    shift = np.zeros(n)
+    good = 0  # el ultimo trozo en la fase buena
+    i = 1
+    while i < n:
+        # ¿vuelve a la fase de `good` mas adelante?
+        back = next(
+            (j for j in range(i + 1, n) if abs(_wrap(off[j] - off[good])) < PHASE_JUMP),
+            None,
+        )
+        if abs(_wrap(off[i] - off[good])) < PHASE_JUMP:
+            good = i
+            i += 1
+            continue
+        if back is None:
+            break
+        for k in range(i, back):
+            shift[k] = _wrap(off[k] - off[good])
+        good = back
+        i = back + 1
+    # lo que queda al final (o al principio) en otra fase sin volver: solo con
+    # el bombo y el bajo, y si es lo corto
+    if lowband is not None:
+        total = sum(s.size for s in segs)
+        rest = [
+            k for k in range(n) if abs(_wrap(off[k] - off[good])) >= PHASE_JUMP and not shift[k]
+        ]
+        size = sum(segs[k].size for k in rest)
+        if rest and size < 0.3 * total:
+            votes = [_low_vote(segs[k], local, lowband) for k in rest]
+            if np.median(votes) < 0.8:
+                for k in rest:
+                    shift[k] = _wrap(off[k] - off[good])
+    out, moved = [], 0
+    for s, d in zip(segs, shift, strict=True):
+        if d and s.size >= 2:
+            out.append(s - d * local(s))
+            moved += 1
+        else:
+            out.append(s)
+    fixed = np.sort(np.concatenate(out))
+    keep = np.concatenate([[True], np.diff(fixed) > 0.05])
+    return fixed[keep], moved
+
+
+# ------------------------------------------------------------ tempo fijo
+
+# Lo que tiene que cumplir una cancion para darla por grabada a clic: el
+# tempo de un periodograma de sus pulsos explica casi todos (R), y en ningun
+# medio minuto se va mas de esto.
+STEADY_R = 0.9
+STEADY_DRIFT = 0.015
+STEADY_FLIPPED = 0.15
+
+
+def steady_fit(beats: np.ndarray, weights: np.ndarray, p0: float, span=0.03):
+    """El tempo fijo que mejor explica los pulsos (periodograma de Rayleigh:
+    aguanta trozos a contratiempo, pulsos de mas y de menos) y su fase.
+    Devuelve (periodo, fase, R, lo que se aparta por medio minuto (s),
+    la parte a contratiempo)."""
+    t = np.asarray(beats, dtype=np.float64)
+    w = np.asarray(weights, dtype=np.float64)
+
+    def best(periods):
+        z = (w[None, :] * np.exp(2j * np.pi * t[None, :] / periods[:, None])).sum(1)
+        k = int(np.argmax(np.abs(z)))
+        return periods[k], z[k]
+
+    period, _ = best(p0 * np.exp(np.linspace(-span, span, 2001)))
+    period, z = best(period * np.exp(np.linspace(-span / 500, span / 500, 801)))
+    phase = (np.angle(z) / (2 * np.pi)) * period % period
+    r = float(np.abs(z) / max(1e-9, w.sum()))
+    res = (t - phase + period / 2) % period - period / 2
+    flipped = np.abs(res) > 0.25 * period
+    drift = 0.0
+    for a in range(0, int(t[-1]) + 1, 30):
+        m = (~flipped) & (t >= a) & (t < a + 30)
+        if m.sum() > 10:
+            drift = max(drift, abs(float(np.median(res[m]))))
+    return float(period), float(phase), r, drift, float(flipped.mean())
+
+
+def steady_beats(period: float, phase: float, t0: float, t1: float) -> np.ndarray:
+    """Los pulsos a tempo fijo de `t0` a `t1`."""
+    first = math.ceil((t0 - phase) / period - 1e-9)
+    last = math.floor((t1 - phase) / period + 1e-9)
+    return phase + period * np.arange(first, last + 1)
+
+
+def extend_edges(beats: np.ndarray, local, t0: float, t1: float, beat_logits=None) -> np.ndarray:
+    """La intro y el final, con clic: hacia atras desde el primer pulso y
+    hacia delante desde el ultimo, a su tempo de alrededor (cada uno pegado
+    al maximo de la red de al lado si lo hay, a menos de 60 ms)."""
+    p_first = float(local(beats[0]))
+    p_last = float(local(beats[-1]))
+    before = beats[0] - p_first * np.arange(1, int((beats[0] - t0) / p_first) + 1)
+    after = beats[-1] + p_last * np.arange(1, int((t1 - beats[-1]) / p_last) + 1)
+    extra = np.concatenate([before, after])
+    if beat_logits is not None and extra.size:
+        times, _ = candidates(beat_logits)
+        if times.size:
+            j = np.clip(np.searchsorted(times, extra), 1, times.size - 1)
+            near = np.where(
+                np.abs(times[j] - extra) < np.abs(times[j - 1] - extra), times[j], times[j - 1]
+            )
+            close = np.abs(near - extra) < 0.06
+            extra = np.where(close, near, extra)
+    out = np.sort(np.concatenate([beats, extra[(extra >= t0) & (extra <= t1)]]))
+    keep = np.concatenate([[True], np.diff(out) > 0.05])
+    return out[keep]
 
 
 def _smooth(beats: np.ndarray) -> np.ndarray:
@@ -382,11 +616,42 @@ def _bars(down_p: np.ndarray, meter: int) -> tuple[np.ndarray, float]:
     return np.flatnonzero(path == 0), fit
 
 
-def grid(beat_logits: np.ndarray, down_logits: np.ndarray) -> dict:
+def combine(beat_logits: np.ndarray, *others: np.ndarray) -> np.ndarray:
+    """La red sobre la cancion y sobre sus pistas (la bateria): en cada trama,
+    la mas segura (el maximo de las probabilidades), otra vez como logits.
+    El maximo y no la media: la media perdia la intro (la bateria calla)."""
+    p = _sigmoid(beat_logits)
+    for o in others:
+        q = _sigmoid(o)
+        n = min(p.size, q.size)
+        p = np.concatenate([np.maximum(p[:n], q[:n]), p[n:]])
+    p = np.clip(p, 1e-6, 1 - 1e-6)
+    return np.log(p / (1 - p))
+
+
+MODES = ("auto", "repair", "steady", "fill", "follow")
+
+
+def grid(
+    beat_logits: np.ndarray,
+    down_logits: np.ndarray,
+    *,
+    lowband=None,
+    mode: str = "auto",
+    edges: bool = False,
+    duration: float | None = None,
+    bpm: float | None = None,
+) -> dict:
     """La rejilla que usa la app (`BeatGrid` de beats.rs) a partir de lo que
     dice la red trama a trama (ver el principio del archivo).
 
-    `closed`: acaba en su ultimo pulso; despues no hay clic."""
+    `mode`: 'auto' (reparar los saltos de fase; si la cancion va a clic,
+    tempo fijo), 'repair' (lo mismo, sin pasar a tempo fijo), 'steady'
+    (tempo fijo siempre; `bpm`, si se da), 'fill' (como 'auto' y ademas con
+    clic en la intro y el final: `edges`) o 'follow' (como antes de 1.28:
+    sin reparar nada). `lowband`: la envolvente del bombo y el bajo, para
+    decidir la fase. `closed`: acaba en su ultimo pulso; despues no hay clic.
+    `report` dice lo que se arreglo."""
     times, probs = candidates(beat_logits)
     if times.size < 4:
         raise ValueError("la cancion no tiene pulso claro")
@@ -397,16 +662,56 @@ def grid(beat_logits: np.ndarray, down_logits: np.ndarray) -> dict:
     # alrededor que sale de ella (sin los golpes sueltos de la red) es fiable
     first = times[_chain(times, probs, local)]
     local = _local_period(first, period, half=4)
-    beats = _smooth(_fill(times[_chain(times, probs, local)], local))
+    chain_idx = _chain(times, probs, local)
+    chained = times[chain_idx]
+    report = {"mode": mode, "flips": 0, "holes": 0, "steady": False}
+    _, jumps = _segments(chained, local)
+    report["holes"] = len(jumps)
+    if mode != "follow":
+        chained, report["flips"] = repair_flips(chained, local, lowband)
+    end = float(duration) if duration else float(beat_logits.size / FPS)
+    steady = None
+    if mode in ("auto", "steady", "fill"):
+        w = probs[np.clip(np.searchsorted(times, chained), 0, probs.size - 1)]
+        p0 = 60.0 / bpm if bpm else float(local(np.median(chained)))
+        fit = steady_fit(chained, w, p0, span=0.01 if bpm else 0.03)
+        looks = fit[2] >= STEADY_R and fit[3] <= STEADY_DRIFT and fit[4] <= STEADY_FLIPPED
+        report["regular"] = round(fit[2], 3)
+        report["drift_ms"] = round(fit[3] * 1000, 1)
+        if mode == "steady" or looks:
+            steady = fit
+    if steady is not None:
+        lo, hi = (0.0, end) if edges else (float(chained[0]), float(chained[-1]))
+        beats = steady_beats(steady[0], steady[1], lo, hi)
+        report["steady"] = True
+        report["bpm"] = round(60.0 / steady[0], 3)
+    else:
+        beats = _smooth(_fill(chained, local, beat_logits if mode != "follow" else None))
+        if edges:
+            beats = extend_edges(beats, local, 0.0, end, beat_logits)
     if beats.size < 4:
         raise ValueError("la cancion no tiene pulso claro")
+    # los huecos sin clic que quedan (partes libres de verdad)
+    gaps = np.diff(beats) / np.maximum(1e-6, local((beats[1:] + beats[:-1]) / 2))
+    report["silent"] = round(float(np.sum(np.diff(beats)[gaps > 1.5])), 1)
+    return finish(beats, down_logits, report)
+
+
+def finish(
+    beats: np.ndarray, down_logits: np.ndarray, report: dict, meter: int | None = None
+) -> dict:
+    """La rejilla con sus pulsos ya puestos: el «1» de cada compas (con el
+    compas que se diga, o el que cuadre: 4 salvo que el 3 cuadre claramente
+    mejor), el tempo y lo demas que espera la app."""
+    beats = np.asarray(beats, dtype=np.float64)
     # la probabilidad de «1» en cada pulso (la mejor de su trama y las de al lado)
     dp = _sigmoid(down_logits)
     f = np.clip(np.round(beats * FPS).astype(int), 0, dp.size - 1)
     down_p = np.maximum.reduce([dp[np.clip(f + o, 0, dp.size - 1)] for o in (-1, 0, 1)])
     fits = {m: _bars(down_p, m) for m in (3, 4)}
-    # 4 salvo que el 3 cuadre claramente mejor
-    meter = 3 if fits[3][1] > fits[4][1] + 0.05 * beats.size else 4
+    if meter not in (3, 4):
+        # 4 salvo que el 3 cuadre claramente mejor
+        meter = 3 if fits[3][1] > fits[4][1] + 0.05 * beats.size else 4
     bars = fits[meter][0]
     phases = {
         m: int(np.bincount(fits[m][0] % m, minlength=m).argmax()) if fits[m][0].size else 0
@@ -422,7 +727,31 @@ def grid(beat_logits: np.ndarray, down_logits: np.ndarray) -> dict:
         "confidence": round(float(np.mean(down_p[bars])) if bars.size else 0.0, 3),
         "bars": [int(b) for b in bars],
         "closed": True,
+        "report": report,
     }
+
+
+def lowband(mono: np.ndarray, fmax: float = 150.0) -> tuple[np.ndarray, float]:
+    """Donde golpean el bombo y el bajo: el flujo espectral por debajo de
+    `fmax` Hz, cada 10 ms (para decidir la fase de un trozo: el flujo de toda
+    la banda no distingue, los platos van a corcheas)."""
+    n, hop = 2048, 220
+    win = np.hanning(n).astype(np.float32)
+    k = int(fmax * n / RATE) + 1
+    frames = 1 + max(0, (mono.size - n) // hop)
+    out = np.zeros(frames, np.float32)
+    prev = None
+    for a in range(0, frames, 4096):
+        b = min(frames, a + 4096)
+        idx = np.arange(n)[None, :] + hop * np.arange(a, b)[:, None]
+        mag = np.log1p(100 * np.abs(np.fft.rfft(mono[idx] * win, axis=-1)[:, 1:k]))
+        d = np.diff(mag, axis=0, prepend=(mag[:1] if prev is None else prev[None]))
+        prev = mag[-1]
+        out[a:b] = np.maximum(d, 0).sum(1)
+    # centrado en la ventana: el instante de cada trama es el de su mitad
+    shift = round((n / 2) / hop)
+    out = np.concatenate([np.zeros(shift, np.float32), out])
+    return out, RATE / hop
 
 
 # ------------------------------------------------------------ la cancion
@@ -460,9 +789,11 @@ def open_session(graph):
 READ_SHARE = 0.15
 
 
-def analyze(ffmpeg: str, path: str, graph, progress=None) -> dict:
+def analyze(ffmpeg: str, path: str, graph, progress=None, raw=None) -> dict:
     """La rejilla de un archivo, de principio a fin. `progress(0..1)`, si se
-    da, segun avanza: la app enseña una barra mientras espera."""
+    da, segun avanza: la app enseña una barra mientras espera. Con `raw` (un
+    dict), deja ahi lo que dijo la red y la envolvente del bombo y el bajo,
+    para guardarlo."""
     mono = _decode(ffmpeg, path)
     session = open_session(graph)
     if progress:
@@ -473,7 +804,47 @@ def analyze(ffmpeg: str, path: str, graph, progress=None) -> dict:
         else None
     )
     beat, down = logits(session, spectrogram(mono), step)
-    return grid(beat, down)
+    low = lowband(mono)
+    if raw is not None:
+        raw.update(beat=beat, down=down, low=low[0], low_fps=low[1], seconds=mono.size / RATE)
+    return grid(beat, down, lowband=low, duration=mono.size / RATE)
+
+
+def save_raw(path, raw: dict) -> None:
+    """Lo que dijo la red, en float16 (unos 100 KB para una de 4 min). A un
+    temporal y a su sitio al final: cortado a medias, no queda roto."""
+    path = str(path)
+    tmp = path + ".part"
+    with open(tmp, "wb") as f:
+        np.savez_compressed(
+            f,
+            beat=np.asarray(raw["beat"], np.float16),
+            down=np.asarray(raw["down"], np.float16),
+            low=np.asarray(raw["low"], np.float16),
+            low_fps=np.float64(raw["low_fps"]),
+            seconds=np.float64(raw["seconds"]),
+        )
+    os.replace(tmp, path)
+
+
+def load_raw(path) -> dict | None:
+    """Lo guardado por `save_raw`, o None. Uno dañado (de antes de guardarse
+    asi) se borra: se vuelve a calcular."""
+    try:
+        with np.load(path) as z:
+            return {
+                "beat": z["beat"].astype(np.float32),
+                "down": z["down"].astype(np.float32),
+                "low": z["low"].astype(np.float32),
+                "low_fps": float(z["low_fps"]),
+                "seconds": float(z["seconds"]),
+            }
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
+        with contextlib.suppress(OSError):
+            os.remove(path)
+        return None
 
 
 def key_of(path, st=None) -> str:
@@ -485,17 +856,19 @@ def key_of(path, st=None) -> str:
 
 
 def main(argv=None) -> int:
-    """El proceso hijo: `python -m danplay.pulse GRAFO FFMPEG ARCHIVO` -> JSON."""
+    """El proceso hijo: `python -m danplay.pulse GRAFO FFMPEG ARCHIVO [CRUDO]`
+    -> JSON. Con CRUDO (un .npz), deja ahi lo que dijo la red."""
     args = sys.argv[1:] if argv is None else argv
-    if len(args) != 3:
-        sys.stderr.write("uso: danplay.pulse GRAFO FFMPEG ARCHIVO\n")
+    if len(args) not in (3, 4):
+        sys.stderr.write("uso: danplay.pulse GRAFO FFMPEG ARCHIVO [CRUDO]\n")
         return 2
     if hasattr(os, "nice"):
         try:
             os.nice(10)
         except OSError:
             pass
-    graph, ffmpeg, path = args
+    graph, ffmpeg, path = args[:3]
+    raw_path = args[3] if len(args) == 4 else None
 
     def progress(part: float) -> None:
         # una linea por paso: el padre las lee segun llegan
@@ -503,7 +876,10 @@ def main(argv=None) -> int:
         sys.stdout.flush()
 
     try:
-        result = analyze(ffmpeg, path, graph, progress)
+        raw: dict = {}
+        result = analyze(ffmpeg, path, graph, progress, raw)
+        if raw_path:
+            save_raw(raw_path, raw)
     except Exception as e:  # noqa: BLE001 - se cuenta al proceso padre
         sys.stdout.write(json.dumps({"error": str(e) or e.__class__.__name__}) + "\n")
         return 1

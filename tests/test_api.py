@@ -683,6 +683,19 @@ def test_waveform_endpoint_draws_the_song_and_caches_it(cliente, tmp_path):
         assert max(made[0][:3]) < 0.1 and min(made[0][7:]) > 0.8
     assert cliente.get("/api/song/999999/waveform").status_code == 404
     assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 0}).status_code == 422
+    # de cerca: solo un trozo, con detalle, a la escala del tope digital
+    near = cliente.get(
+        f"/api/song/{c['id']}/waveform", params={"start": 0.8, "end": 1.4, "buckets": 60}
+    )
+    assert near.status_code == 200, near.text
+    n = near.json()
+    assert n["buckets"] == 60 and n["start"] == 0.8
+    # empieza callado y a partir del segundo suena el tono (a la escala del
+    # tope digital: la interfaz la iguala con la de toda la cancion)
+    assert max(n["peaks"][:10]) < 0.01, n["peaks"]
+    assert min(n["peaks"][-20:]) > 0.05, n["peaks"]
+    bad = cliente.get(f"/api/song/{c['id']}/waveform", params={"start": 2, "end": 1})
+    assert bad.status_code == 422
 
 
 def test_waveform_cache_goes_away_with_the_song(cliente):
