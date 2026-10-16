@@ -427,3 +427,9 @@ class StemMixIn(Body_):
     speed: float = Field(default=1.0, ge=0.25, le=3)
     pitch: float = Field(default=0.0, ge=-12, le=12)
     click: StemClickIn | None = None
+
+
+class TermsIn(BaseModel):
+    """Que version de los terminos se acepta (la que enseña la interfaz)."""
+
+    version: str = Field(min_length=1, max_length=32)

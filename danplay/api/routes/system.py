@@ -15,10 +15,11 @@ from ... import (
     fingerprint,
     library,
     providers,
+    terms,
     youtube,
 )
 from .. import jobs
-from ..models import SettingsIn
+from ..models import SettingsIn, TermsIn
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,20 @@ def status():
         # a sus listas...): la interfaz lo cuenta una vez
         "diario": diario.status(),
     }
+
+
+@router.get("/api/terms")
+def terms_status():
+    """Si se aceptaron los terminos y cuales (el texto lo tiene la interfaz)."""
+    return terms.status()
+
+
+@router.post("/api/terms/accept")
+def terms_accept(body: Annotated[TermsIn, Body()]):
+    try:
+        return terms.accept(body.version)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
 
 
 @router.get("/api/settings")

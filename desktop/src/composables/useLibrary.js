@@ -11,7 +11,7 @@ import { diarioMessage } from '../utils/diario.js'
 /** @typedef {{ kind: string, id?: number, name?: string }} View */
 
 /** Las páginas propias, sin lista de canciones. */
-export const PAGES = ['settings', 'inbox', 'chat', 'downloads', 'duplicates']
+export const PAGES = ['settings', 'inbox', 'chat', 'downloads', 'duplicates', 'about']
 
 // La lista entera, sin cortar. Antes se pedían 1000 y ya: «Todas» y
 // «Artistas» se quedaban en las mil primeras sin decir nada. Ahora llega una

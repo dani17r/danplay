@@ -23,6 +23,11 @@ const { api, store } = vi.hoisted(() => {
       return { text: result.text || '', tools: result.tools || [], done: true, result }
     }),
     chatCancel: vi.fn(async () => ({ ok: true })),
+    // los términos, ya aceptados: el asistente los pide (ver useTerms)
+    terms: vi.fn(async () => ({
+      accepted: (await import('../src/data/terminos.js')).TERMS_VERSION,
+      at: 1
+    })),
     chats: vi.fn(async () => ({
       chats: store.chats.map((c) => ({ id: c.id, title: c.title, n: c.messages.length }))
     })),

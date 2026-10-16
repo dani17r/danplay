@@ -1,6 +1,6 @@
 // @ts-check
 // Las páginas de la ventana principal: Ajustes, el asistente, Descargas,
-// Entrada y Duplicados. Van por el enrutador para cargarse al abrirlas (cada
+// Entrada, Duplicados y «Acerca de DanPlay». Van por el enrutador para cargarse al abrirlas (cada
 // una es un trozo aparte del paquete: el arranque no carga Ajustes ni el
 // chat) y para que el asistente se quede vivo en <KeepAlive> al salir de él.
 //
@@ -38,6 +38,11 @@ export const PAGE_ROUTES = [
     path: '/duplicados',
     name: 'duplicates',
     component: () => import('./components/DuplicatesPage.vue')
+  },
+  {
+    path: '/acerca',
+    name: 'about',
+    component: () => import('./components/AboutPage.vue')
   }
 ]
 

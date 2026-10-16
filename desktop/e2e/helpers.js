@@ -5,6 +5,7 @@ import { expect } from '@playwright/test'
 import { existsSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { SONGS } from './songs.js'
+import { TERMS_VERSION } from '../src/data/terminos.js'
 
 /** La carpeta de música de prueba (la genera e2e/server.mjs). */
 export const MUSIC = join(process.env.DANPLAY_E2E_ROOT || '', 'Musica')
@@ -62,6 +63,9 @@ export function putMusicBack() {
  */
 export async function reset(request) {
   putMusicBack()
+  // los términos, aceptados: si no, la ventana de aceptarlos tapa la app al
+  // abrirla (la primera vez sale sola) y separar o el asistente la piden
+  await core(request, 'POST', '/terms/accept', { version: TERMS_VERSION })
   const { folders } = await core(request, 'GET', '/folders')
   for (const f of folders) {
     if (f.path !== MUSIC) {
@@ -98,6 +102,7 @@ export const titleTexts = async (page) => (await titles(page).allInnerTexts()).m
 
 /** Abre la app y espera a que la biblioteca esté pintada entera. */
 export async function openApp(page) {
+  await core(page.request, 'POST', '/terms/accept', { version: TERMS_VERSION })
   await page.goto('/')
   await expect(rows(page)).toHaveCount(SONGS.length)
 }
