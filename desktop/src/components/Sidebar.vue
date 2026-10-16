@@ -23,9 +23,11 @@ const props = defineProps({
   /** lo que se esta bajando (el estado de useDownloads) */
   download: { type: Object, default: null },
   /** de donde sale lo que suena: {kind, id, playing}, o null */
-  nowPlaying: { type: Object, default: null }
+  nowPlaying: { type: Object, default: null },
+  /** DanPlay se actualizó y las novedades aún no se leyeron */
+  newsBadge: Boolean
 })
-const emit = defineEmits(['go', 'newPlaylist', 'playlistMenu'])
+const emit = defineEmits(['go', 'newPlaylist', 'playlistMenu', 'openSequence'])
 
 // Aqui se sueltan las canciones que se arrastran desde la lista. Cada destino
 // solo tiene que decir quien es con `data-drop`; de lo que pasa al soltar se
@@ -287,11 +289,40 @@ const shown = computed(() => {
       <button
         type="button"
         class="nav-link"
+        title="Abrir una secuencia descargada (la carpeta de pistas con su clic, su guía y su proyecto de Ableton)"
+        @click="emit('openSequence')"
+      >
+        <span class="nav-icon"><Icon n="mixer" /></span> Abrir secuencia
+      </button>
+      <button
+        type="button"
+        class="nav-link"
         :class="{ active: view.kind === 'settings' }"
         :aria-current="view.kind === 'settings' ? 'page' : undefined"
         @click="emit('go', { kind: 'settings' })"
       >
         <span class="nav-icon"><Icon n="settings" /></span> Ajustes
+      </button>
+      <button
+        type="button"
+        class="nav-link"
+        :class="{ active: view.kind === 'about' }"
+        :aria-current="view.kind === 'about' ? 'page' : undefined"
+        @click="emit('go', { kind: 'about', tab: newsBadge ? 'news' : 'about' })"
+      >
+        <span class="nav-icon"><Icon n="info" /></span> Acerca de DanPlay
+        <span v-if="newsBadge" class="count live" title="DanPlay se actualizó: mira lo nuevo"
+          >Nuevo</span
+        >
+      </button>
+      <!-- quién hizo DanPlay, siempre a la vista -->
+      <button
+        type="button"
+        class="nav-credit"
+        title="DanPlay es obra de Daniel Rangel"
+        @click="emit('go', { kind: 'about', tab: 'about' })"
+      >
+        DanPlay · por <strong>Daniel Rangel</strong>
       </button>
     </nav>
   </aside>

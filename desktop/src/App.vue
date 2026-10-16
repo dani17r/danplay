@@ -45,6 +45,7 @@ import { useFocusTrap } from './composables/useFocusTrap.js'
 import { useSearch } from './composables/useSearch.js'
 import { usePlaylistActions } from './composables/usePlaylistActions.js'
 import { useDownloads } from './composables/useDownloads.js'
+import { useSequence } from './composables/useSequence.js'
 import { connectChat } from './composables/useChat.js'
 import { groupedOrder } from './utils/groups.js'
 import { useRouter } from 'vue-router'
@@ -68,6 +69,10 @@ import WelcomePage from './components/WelcomePage.vue'
 import Icon from './components/Icon.vue'
 import StudyBar from './components/StudyBar.vue'
 import TransformPanel from './components/TransformPanel.vue'
+import TermsModal from './components/TermsModal.vue'
+import { useTerms } from './composables/useTerms.js'
+import { compareVersions } from './data/novedades.js'
+import { version as appVersion } from '../package.json'
 import TextField from './components/ui/TextField.vue'
 import SelectField from './components/ui/SelectField.vue'
 import ToggleField from './components/ui/ToggleField.vue'
@@ -88,12 +93,82 @@ const prefs = usePreferences()
 const { theme, density, appSize, layout, groupBy, cardSize, showDetails } = prefs
 
 const view = ref({ kind: 'all' })
-// El modo estudio (bucle A-B, velocidad sin cambiar el tono, marcadores,
-// notas): una barra encima del reproductor. Al cerrarla, todo vuelve a lo
-// normal.
+// El modo estudio (tramos, velocidad sin cambiar el tono, clic, marcadores,
+// notas): una barra encima del reproductor. Ocultarla no toca nada de lo que
+// suena (antes «Cerrar» quitaba el clic y lo demás); solo «Salir del modo
+// estudio» devuelve la canción a como viene. `studyActive`: está puesto
+// (montado, aplicando lo de cada canción); `studyOpen`: se ve.
+const studyActive = ref(false)
 const studyOpen = ref(false)
+function toggleStudy() {
+  if (!studyActive.value) {
+    studyActive.value = true
+    studyOpen.value = true
+  } else studyOpen.value = !studyOpen.value
+}
+function exitStudy() {
+  studyOpen.value = false
+  studyActive.value = false
+}
+// Abrir una secuencia descargada (MultiTracks…): al acabar, a sonar en el
+// estudio, con sus pistas, sus partes y su clic
+const sequences = useSequence()
+async function openSequence(path) {
+  const made = await sequences.open(typeof path === 'string' ? path : undefined)
+  if (!made) return
+  await refreshAll()
+  const song = await api.song(made.id).catch(() => null)
+  if (!song) return
+  player.setQueue([song], song.id, { kind: 'all', label: 'Secuencias' })
+  selection.showDetail(song.id)
+  studyActive.value = true
+  studyOpen.value = true
+}
 // «Transformar»: cada canción en su sitio y con su nombre, una a una
 const tidyOpen = ref(false)
+/** «Transformar» pide los términos aceptados (ver useTerms). */
+async function openTransform() {
+  if (await terms.requireTerms('transform')) tidyOpen.value = true
+}
+
+// ------------------------------------------------- acerca de DanPlay
+// Los términos salen solos la primera vez (y si cambian). Las novedades se
+// marcan como leídas al abrir su pestaña; tras una actualización, la barra
+// lateral lo dice («Nuevo») y un aviso al arrancar.
+const terms = useTerms()
+const NEWS_KEY = 'danplay.novedadesVistas'
+function readNewsSeen() {
+  try {
+    return localStorage.getItem(NEWS_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+const newsSeen = ref(readNewsSeen())
+function markNewsSeen() {
+  newsSeen.value = appVersion
+  try {
+    localStorage.setItem(NEWS_KEY, appVersion)
+  } catch {
+    /* sin almacenamiento: el «Nuevo» se irá con la próxima versión */
+  }
+}
+/** DanPlay se actualizó desde la última vez que se miraron las novedades. */
+const unreadNews = computed(
+  () => !!newsSeen.value && compareVersions(newsSeen.value, appVersion) < 0
+)
+/** @param {string} [tab] 'about' | 'news' | 'terms' */
+function openAbout(tab = 'about') {
+  goTo({ kind: 'about', tab })
+}
+let termsChecked = false
+/** Una vez por sesión, en cuanto el núcleo contesta: la primera vez, los términos. */
+async function termsAtStart() {
+  if (termsChecked) return
+  termsChecked = true
+  await terms.showIfFirstTime()
+  if (!terms.state.known) termsChecked = false // el núcleo no contestó: al llegar
+}
 // La lista de la vista, su orden y el estado del núcleo. Lo que se busca lo
 // pone el buscador, que se declara más abajo (y a su vez recarga esta lista).
 const library = useLibrary({
@@ -210,7 +285,7 @@ const detailsOpen = ref(false)
 // Páginas que no tienen ninguna canción que seleccionar: ahí el panel de
 // detalle solo diría «selecciona una canción». En Duplicados SÍ se queda,
 // porque desde ahí se pueden escuchar las copias y la ficha se llena.
-const WITHOUT_DETAILS = ['settings', 'chat', 'downloads', 'inbox']
+const WITHOUT_DETAILS = ['settings', 'chat', 'downloads', 'inbox', 'about']
 const detailsVisible = computed(
   () => showDetails.value && !WITHOUT_DETAILS.includes(view.value.kind)
 )
@@ -226,10 +301,11 @@ watch(view, (v) => {
 const pageBindings = computed(
   () =>
     ({
-      downloads: { onReload: refreshAll },
+      downloads: { onReload: refreshAll, initial: view.value.query || '' },
       settings: { onReindexed: refreshAll, onChanged: refreshAll },
       inbox: { waiting: waiting.value, onChanged: refreshAll, onGo: (v) => (view.value = v) },
-      duplicates: { onChanged: refreshAll }
+      duplicates: { onChanged: refreshAll },
+      about: { tab: view.value.tab || 'about', onTab: openAbout }
     })[view.value.kind] || {}
 )
 
@@ -304,6 +380,7 @@ const showWelcome = computed(() => {
 let coreWasReady = false
 let stopCoreWatch = null
 let stopExternalWatch = null
+let stopSequenceWatch = null
 let stopChangeWatch = null
 
 const title = computed(
@@ -317,6 +394,7 @@ const title = computed(
       duplicates: 'Duplicados',
       chat: 'Asistente',
       downloads: 'Descargas',
+      about: 'Acerca de DanPlay',
       player: 'Reproductor',
       playlist: view.value.name
     })[view.value.kind] || ''
@@ -355,6 +433,14 @@ function onCoreChanged() {
  * diga otra cosa: es lo que se espera al pulsar una canción de una lista.
  */
 function play(song, list = null, origin = null) {
+  // una «No está» de la lista no tiene archivo: su menú dice qué hacer
+  if (song.ghost) {
+    selection.only(song.id)
+    return notify(
+      `«${song.title || song.file}» ya no está en tu biblioteca. ` +
+        'Ábrele el menú para buscarla o bajarla otra vez.'
+    )
+  }
   // pasa a ser la principal sin desordenar lo elegido a mano (ver `follow`)
   selection.follow(song.id)
   // Sobre la que ya está puesta, el botón de la fila es pausa/reanudar: antes
@@ -505,7 +591,9 @@ const menus = useSongMenus({
   onRemoved: (ids) => {
     forgetResults(ids)
     selection.forget(ids)
-  }
+  },
+  findInLibrary,
+  findToDownload
 })
 const { setStars, toggleFavorite, toggleBlur, songMenu, playlistMenu } = menus
 
@@ -631,6 +719,20 @@ const searchBox = useTemplateRef('searchBox')
 const resultsEl = useTemplateRef('resultsEl')
 const search = useSearch({ view, reload: () => load() })
 const { query, quick, quickLoading, quickOpen, advanced, facets, onlyFavorites, minStars } = search
+
+/**
+ * Buscar una «No está» entre lo que ya tienes (quizá con otro nombre): el
+ * buscador de arriba, con su artista y su título.
+ * @param {string} q
+ */
+function findInLibrary(q) {
+  query.value = q
+  nextTick(() => searchBox.value?.querySelector('input')?.focus())
+}
+/** Buscarla para bajarla otra vez: Descargas, con la búsqueda puesta. @param {string} q */
+function findToDownload(q) {
+  goTo({ kind: 'downloads', query: q })
+}
 
 /** Al elegir un resultado: se abre su ficha sin moverte de sitio. */
 async function pickResult(song) {
@@ -758,6 +860,7 @@ function toggleAdvanced() {
   quickOpen.value = false
 }
 function goTo(v) {
+  if (v.kind === 'about' && v.tab === 'news') markNewsSeen()
   view.value = v
   viewMenu.value = false
 }
@@ -801,7 +904,10 @@ onMounted(async () => {
   // carga falla, y antes el fallo cortaba el arranque sin llegar a escuchar
   // nada. La app se quedaba vacía para siempre.
   stopCoreWatch = await core.onStatus((e) => {
-    if (e?.ready && !coreWasReady) refreshAll()
+    if (e?.ready && !coreWasReady) {
+      refreshAll()
+      termsAtStart()
+    }
     coreWasReady = !!e?.ready
   })
   try {
@@ -811,12 +917,27 @@ onMounted(async () => {
     /* el núcleo aún no contesta: el aviso de arriba lo carga todo al llegar */
   }
   offerToBeDefault()
+  termsAtStart()
+  // la primera vez no hay nada que contar; tras actualizar, se avisa una vez
+  if (!newsSeen.value) markNewsSeen()
+  else if (unreadNews.value) {
+    notify(
+      `DanPlay se actualizó a la versión ${appVersion}. ` +
+        'Lo nuevo, en «Acerca de DanPlay» → Novedades.',
+      'ok',
+      12
+    )
+  }
 
   // Abrir una canción desde el explorador la mete en la lista del
   // reproductor. Si esa lista está delante, tiene que aparecer sola: se
   // cargaba al entrar y se quedaba quieta mientras iban llegando canciones.
   stopExternalWatch = await api.onExternal(() => {
     if (view.value.kind === 'player') load(true)
+  })
+  // se abrió desde fuera una pista de una secuencia: abrirla entera
+  stopSequenceWatch = await api.onSequence((folder) => {
+    if (folder) openSequence(folder)
   })
 
   // Cualquier cambio en el núcleo —lo haga quien lo haga— se refleja aquí
@@ -873,6 +994,7 @@ onUnmounted(() => {
   disconnectChat()
   stopCoreWatch?.()
   stopExternalWatch?.()
+  stopSequenceWatch?.()
   stopChangeWatch?.()
   clearTimeout(changeTimer)
   cancelDrag()
@@ -994,7 +1116,7 @@ function onUpdated(song) {
         class="btn mini tidy-open"
         style="gap: 6px"
         title="Transformar: cada canción en su sitio y con su nombre, una a una"
-        @click="tidyOpen = true"
+        @click="openTransform"
       >
         <Icon n="sparkles" :t="14" /> <span class="btn-label">Transformar</span>
       </button>
@@ -1108,7 +1230,9 @@ function onUpdated(song) {
         :entrada="waiting"
         :download="downloads.state"
         :now-playing="nowPlaying"
+        :news-badge="unreadNews"
         @go="goTo"
+        @open-sequence="openSequence()"
         @new-playlist="playlistActions.create()"
         @playlist-menu="playlistMenu"
       />
@@ -1121,7 +1245,9 @@ function onUpdated(song) {
           :entrada="waiting"
           :download="downloads.state"
           :now-playing="nowPlaying"
+          :news-badge="unreadNews"
           @go="goTo"
+          @open-sequence="openSequence()"
           @new-playlist="playlistActions.create()"
           @playlist-menu="playlistMenu"
         />
@@ -1450,13 +1576,20 @@ function onUpdated(song) {
 
     <!-- el estudio sube por encima de la lista, sin recolocar nada detrás -->
     <transition name="study">
-      <StudyBar v-if="studyOpen" @close="studyOpen = false" />
+      <StudyBar
+        v-if="studyActive"
+        v-show="studyOpen"
+        :visible="studyOpen"
+        @hide="studyOpen = false"
+        @exit="exitStudy"
+      />
     </transition>
     <Player
       :study="studyOpen"
+      :study-active="studyActive"
       @go-to-origin="goToOrigin"
       @play-selected="playSelected"
-      @toggle-study="studyOpen = !studyOpen"
+      @toggle-study="toggleStudy"
     />
 
     <!-- tan pequeña que no cabe la biblioteca: solo el reproductor -->
@@ -1477,6 +1610,7 @@ function onUpdated(song) {
       @close="closeMenu"
     />
 
+    <TermsModal />
     <ModalDialog v-bind="dialog" @ok="dialogOk" @cancel="dialogCancel" />
   </div>
 </template>
