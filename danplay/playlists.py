@@ -36,6 +36,18 @@ CREATE INDEX IF NOT EXISTS i_lc ON playlist_songs(playlist_id, position);
 -- «¿en que listas esta esta cancion?» (la ficha, las etiquetas LISTAS, el
 -- escaneo): sin esto era recorrer la tabla entera por cada cancion
 CREATE INDEX IF NOT EXISTS i_playlist_songs_song ON playlist_songs(song_id);
+-- La ficha de una cancion de una lista que ya no esta en la biblioteca (se
+-- borro por fuera, se fue de las carpetas y paso un mes): para que la lista
+-- la siga enseñando («No está»), y para reconocerla si vuelve.
+CREATE TABLE IF NOT EXISTS song_cards (
+    song_id   INTEGER PRIMARY KEY,
+    artist    TEXT DEFAULT '',
+    title     TEXT DEFAULT '',
+    duration  REAL DEFAULT 0,
+    file      TEXT DEFAULT '',
+    path      TEXT DEFAULT '',
+    gone_at   REAL DEFAULT 0
+);
 """
 
 
@@ -291,9 +303,11 @@ def set_songs(playlist_id, song_ids) -> dict:
     with LOCK:
         with _begin() as conn:
             ints = _ints(song_ids)
-            alive = _alive(conn, ints)
-            wanted = _unique(i for i in ints if i in alive)
             rows = _rows(conn, playlist_id)
+            # las «No está» de la lista, si se nombran, se quedan donde se dice
+            listed = {song for song, _ in rows}
+            alive = _alive(conn, ints)
+            wanted = _unique(i for i in ints if i in alive or i in listed)
             shown = _alive(conn, [song for song, _ in rows])
             keep = set(wanted)
             gone = [song for song, _ in rows if song in shown and song not in keep]
@@ -335,7 +349,10 @@ def _summaries(where: str = "", params: tuple = ()) -> list[dict]:
             "(SELECT COALESCE(SUM(c.duration),0) FROM playlist_songs lc "
             " JOIN songs c ON c.id=lc.song_id WHERE lc.playlist_id=l.id) "
             "+ (SELECT COALESCE(SUM(e.duration),0) FROM playlist_songs lc "
-            "   JOIN external_songs e ON e.id=-lc.song_id WHERE lc.playlist_id=l.id) seconds "
+            "   JOIN external_songs e ON e.id=-lc.song_id WHERE lc.playlist_id=l.id) seconds, "
+            # las que no estan: se enseñan aparte («2 no están»)
+            "(SELECT COUNT(*) FROM playlist_songs lc WHERE lc.playlist_id=l.id AND lc.song_id>0 "
+            " AND NOT EXISTS (SELECT 1 FROM songs c WHERE c.id=lc.song_id)) missing "
             f"FROM playlists l {where} ORDER BY l.name",
             params,
         ).fetchall()
@@ -404,6 +421,10 @@ def remove_song(playlist_id, song_ids) -> None:
                     "DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?",
                     (playlist_id, cid),
                 )
+            # la ficha de una «No está» que ya no esta en ninguna lista sobra
+            conn.execute(
+                "DELETE FROM song_cards WHERE song_id NOT IN (SELECT song_id FROM playlist_songs)"
+            )
         library._touch()
         _stamp_playlists_into_files(song_ids)
 
@@ -473,13 +494,72 @@ def place(playlist_id, ordered_ids) -> dict:
     return {"added": len(added), "total": len(order), "order": order}
 
 
-def songs(playlist_id, light: bool = False) -> list[dict]:
+def cards(conn, ids) -> dict[int, dict]:
+    """La ficha de las canciones de esos ids que ya no estan en la biblioteca:
+    de las apartadas (su fila entera, guardada) o, pasado el mes, de
+    `song_cards`."""
+    ids = [i for i in ids if i > 0]
+    out: dict[int, dict] = {}
+    for k in range(0, len(ids), _CHUNK):
+        part = ids[k : k + _CHUNK]
+        marks = ",".join("?" * len(part))
+        for r in conn.execute(
+            f"SELECT id, path, data FROM songs_missing WHERE id IN ({marks})",  # noqa: S608
+            part,
+        ):
+            try:
+                d = json.loads(r["data"])
+            except (TypeError, ValueError):
+                d = {}
+            out[r["id"]] = {
+                "artist": d.get("artist") or "",
+                "title": d.get("title") or "",
+                "duration": d.get("duration") or 0,
+                "file": d.get("file") or os.path.basename(r["path"] or ""),
+                "path": r["path"] or "",
+            }
+        for r in conn.execute(f"SELECT * FROM song_cards WHERE song_id IN ({marks})", part):  # noqa: S608
+            out.setdefault(
+                r["song_id"], {k2: r[k2] for k2 in ("artist", "title", "duration", "file", "path")}
+            )
+    return out
+
+
+def ghost(cid: int, card: dict, position: int) -> dict:
+    """Una cancion de la lista que ya no esta: con su ficha, para enseñarla
+    («No está») y ofrecer buscarla o bajarla."""
+    title = card.get("title") or Path(card.get("file") or "").stem or "Canción"
+    return {
+        "id": cid,
+        "title": title,
+        "artist": card.get("artist") or "",
+        "album": "",
+        "duration": card.get("duration") or 0,
+        "file": card.get("file") or "",
+        "path": card.get("path") or "",
+        "folder": "",
+        "key": "",
+        "bpm": 0,
+        "stars": 0,
+        "favorite": 0,
+        "blur": 0,
+        "cover": "",
+        "ghost": True,
+        "position": position,
+    }
+
+
+def songs(playlist_id, light: bool = False, ghosts: bool = True) -> list[dict]:
     """Las canciones de la lista, en su orden.
 
     Una lista puede llevar canciones de la biblioteca (id positivo) y
     canciones de fuera de ella (id negativo, ver `external.py`), asi que no
     vale el JOIN con `songs` de toda la vida: las de fuera se caian por el
     camino sin decir nada. Con `light`, filas ligeras (lo que da la API).
+
+    Las que ya no estan (se borraron o se movieron por fuera) siguen en su
+    sitio con su ficha y `ghost`: la lista no se rompe y se pueden buscar o
+    volver a bajar (sin `ghosts`, solo las que suenan).
     """
     with _connect() as conn:
         # si dos empatan en posicion (listas de antes del cerrojo), la fila mas
@@ -499,16 +579,104 @@ def songs(playlist_id, light: bool = False) -> list[dict]:
             ).fetchall()
         }
         outside = external.by_ids(conn, [r["song_id"] for r in order])
+        absent = [r["song_id"] for r in order if r["song_id"] > 0 and r["song_id"] not in inside]
+        known = cards(conn, absent) if ghosts and absent else {}
 
     out = []
     for r in order:
         cid = r["song_id"]
         song = inside.get(cid) if cid > 0 else outside.get(cid)
-        if song:  # si el archivo ya no esta, no se enseña
+        if song:
             if light:
                 song = library.light(song)
             out.append({**song, "position": r["position"]})
+        elif cid in known:
+            out.append(ghost(cid, known[cid], r["position"]))
     return out
+
+
+def take_out_everywhere(song_id: int) -> int:
+    """Quita la cancion de todas las listas (se borro a proposito: no tiene
+    que quedar como «No está»). Devuelve de cuantas."""
+    with LOCK, _begin() as conn:
+        n = conn.execute("DELETE FROM playlist_songs WHERE song_id=?", (song_id,)).rowcount
+        conn.execute("DELETE FROM song_cards WHERE song_id=?", (song_id,))
+    if n:
+        library._touch()
+    return n
+
+
+def keep_cards(conn, ids) -> None:
+    """Guarda la ficha de esas canciones apartadas que estan en alguna lista
+    (antes de olvidarlas del todo: la lista la sigue enseñando). No confirma."""
+    listed = [
+        i
+        for i in ids
+        if conn.execute("SELECT 1 FROM playlist_songs WHERE song_id=? LIMIT 1", (i,)).fetchone()
+    ]
+    now = time.time()
+    for cid, card in cards(conn, listed).items():
+        conn.execute(
+            "INSERT OR REPLACE INTO song_cards (song_id, artist, title, duration, file, path, gone_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (cid, card["artist"], card["title"], card["duration"], card["file"], card["path"], now),
+        )
+
+
+def relink_ghosts(new_ids) -> int:
+    """Las canciones que vuelven en otro archivo (se bajaron otra vez, se
+    trajeron de otro sitio): las listas que las tenian como «No está» las
+    recuperan, en su sitio. Se reconocen por artista y titulo (o nombre) y
+    duracion, como las gemelas de `reuse`. Devuelve cuantas filas."""
+    from . import reuse
+
+    new_ids = [int(i) for i in new_ids if int(i) > 0]
+    if not new_ids:
+        return 0
+    n = 0
+    with LOCK, _begin() as conn:
+        absent = [
+            r[0]
+            for r in conn.execute(
+                "SELECT DISTINCT song_id FROM playlist_songs WHERE song_id>0 "
+                "AND song_id NOT IN (SELECT id FROM songs)"
+            )
+        ]
+        if not absent:
+            return 0
+        known = cards(conn, absent)
+        by_key: dict[str, list[tuple[int, float]]] = {}
+        for gid, card in known.items():
+            by_key.setdefault(reuse.ident(card), []).append((gid, float(card["duration"] or 0)))
+        marks = ",".join("?" * len(new_ids))
+        rows = conn.execute(
+            f"SELECT id, artist, title, match_key, file, duration FROM songs WHERE id IN ({marks})",  # noqa: S608
+            new_ids,
+        ).fetchall()
+        moved: list[tuple[int, int]] = []
+        for r in rows:
+            for gid, d in by_key.get(reuse.ident(dict(r)), ()):
+                if reuse._close(d, r["duration"]):
+                    moved.append((gid, r["id"]))
+        for gid, sid in moved:
+            for (pid,) in conn.execute(
+                "SELECT playlist_id FROM playlist_songs WHERE song_id=?", (gid,)
+            ).fetchall():
+                # si la nueva ya entro (al final, por sus etiquetas), manda el
+                # sitio que tenia la de antes
+                conn.execute(
+                    "DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?", (pid, sid)
+                )
+                conn.execute(
+                    "UPDATE playlist_songs SET song_id=? WHERE playlist_id=? AND song_id=?",
+                    (sid, pid, gid),
+                )
+                n += 1
+            conn.execute("DELETE FROM song_cards WHERE song_id=?", (gid,))
+    if n:
+        library._touch()
+        _stamp_playlists_into_files([sid for _, sid in moved])
+    return n
 
 
 def playlists_of(song_id) -> list[str]:

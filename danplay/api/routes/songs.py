@@ -25,6 +25,7 @@ from ... import (
 )
 from ..common import audio_type
 from ..models import (
+    BeatsReanalyzeIn,
     Blur,
     ChordsIn,
     EnrichIn,
@@ -73,14 +74,15 @@ def edit(cid: int, body: Annotated[SongEdit, Body()]):
 
 
 @router.delete("/api/song/{cid}")
-def delete_song(cid: int):
+def delete_song(cid: int, from_lists: bool = False):
     """Manda el archivo a la papelera del sistema y lo saca del indice.
 
     A la papelera y no `unlink`: borrar musica del usuario sin vuelta atras
     por un clic en un menu es demasiado definitivo. Si el escritorio no
-    tiene papelera se avisa y no se borra nada.
+    tiene papelera se avisa y no se borra nada. Con `from_lists`, sale
+    tambien de sus listas; si no, quedan como «No está».
     """
-    r = library.trash(cid)
+    r = library.trash(cid, from_lists=from_lists)
     if not r["ok"]:
         raise HTTPException(404 if "no existe" in r["error"] else 501, r["error"])
     return r
@@ -135,17 +137,46 @@ def song_beats_prepare(cid: int):
     return {"queued": beatgrid.prepare(c["path"])}
 
 
+@router.post("/api/song/{cid}/beats/reanalyze")
+def song_beats_reanalyze(cid: int, body: Annotated[BeatsReanalyzeIn, Body()]):
+    """«Re-analizar el clic»: la rejilla otra vez, de otra manera (ver
+    `beatgrid.reanalyze`), de toda la cancion o de un tramo. Con lo que
+    dijo la red guardado tarda nada; si no, lo de la primera vez. Devuelve
+    la rejilla y, en `report.fixed`, en cuantos sitios cambio el clic."""
+    c = external.resolve(cid)
+    if not c or not os.path.exists(c["path"]):
+        raise HTTPException(404, "archivo no encontrado")
+    if body.start is not None and body.end is not None and body.end <= body.start:
+        raise HTTPException(422, "un tramo necesita su principio y su final")
+    try:
+        grid = beatgrid.reanalyze(c["path"], body.mode, body.start, body.end, body.bpm)
+    except beatgrid.BeatsError as e:
+        raise HTTPException(422, str(e)) from e
+    return {**grid, "grid": grid, "report": grid.get("report") or {}}
+
+
 @router.get("/api/song/{cid}/waveform")
 def song_waveform(
-    cid: int, buckets: Annotated[int, Query(ge=1, le=4000)] = waveform.DEFAULT_BUCKETS
+    cid: int,
+    buckets: Annotated[int, Query(ge=1, le=4000)] = waveform.DEFAULT_BUCKETS,
+    start: Annotated[float | None, Query(ge=0)] = None,
+    end: Annotated[float | None, Query(gt=0)] = None,
 ):
     """La forma de onda para el modo estudio: `buckets` columnas con pico y
     RMS entre 0 y 1. `resolve`: una cancion abierta desde fuera tambien se
     estudia. 404 si el archivo no esta; 501 si no hay con que decodificarla
-    (ni el nucleo en Rust ni ffmpeg)."""
+    (ni el nucleo en Rust ni ffmpeg). Con `start` y `end`, solo ese trozo y
+    con detalle (la onda acercada), sin guardarlo."""
     c = external.resolve(cid)
     if not c or not os.path.exists(c["path"]):
         raise HTTPException(404, "archivo no encontrado")
+    if start is not None or end is not None:
+        if start is None or end is None or end <= start:
+            raise HTTPException(422, "un trozo necesita su principio y su final")
+        part = waveform.compute_range(c["path"], start, end, buckets)
+        if part is None:
+            raise HTTPException(501, "hace falta ffmpeg para ver la onda de cerca")
+        return {**part, "buckets": len(part["peaks"]), "start": start, "end": end}
     made = waveform.compute(c["path"], buckets)
     if made is None:
         if not waveform.available():

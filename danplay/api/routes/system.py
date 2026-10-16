@@ -6,7 +6,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, HTTPException
 
-from ... import ai, config, convert, duplicates, fingerprint, library, providers, youtube
+from ... import (
+    ai,
+    config,
+    convert,
+    diario,
+    duplicates,
+    fingerprint,
+    library,
+    providers,
+    youtube,
+)
 from .. import jobs
 from ..models import SettingsIn
 
@@ -45,6 +55,9 @@ def status():
         # avisa a las ventanas cuando se mueve (`danplay://changed`)
         "revision": library.revision(),
         "jobs": jobs.snapshot_all(),
+        # lo ultimo que el diario recupero solo (canciones movidas que vuelven
+        # a sus listas...): la interfaz lo cuenta una vez
+        "diario": diario.status(),
     }
 
 

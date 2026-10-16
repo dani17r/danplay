@@ -151,11 +151,15 @@ def trash_path(path) -> dict:
     return {"ok": False, "error": "no se pudo mandar a la papelera: " + reason}
 
 
-def trash(cid: int) -> dict:
+def trash(cid: int, from_lists: bool = False) -> dict:
     """Manda el archivo a la papelera del sistema y lo saca del indice.
 
     A la papelera y no `unlink`: borrar musica del usuario sin vuelta atras,
     y menos desde un menu o desde el chat, es demasiado definitivo.
+
+    Con `from_lists`, sale tambien de todas sus listas (se queria borrar de
+    verdad). Sin el, las listas la siguen enseñando como «No está», para
+    buscarla o volver a bajarla.
     """
     c = by_id(cid)
     if not c:
@@ -172,9 +176,15 @@ def trash(cid: int) -> dict:
 
         stems_gone = _stems.forget(c).get("ok", False)
     forget(cid)
+    lists = 0
+    if from_lists:
+        from .. import playlists
+
+        lists = playlists.take_out_everywhere(cid)
     return {
         "ok": True,
         "trashed": True,
+        "lists": lists,
         "path": path,
         "name": os.path.basename(path),
         "artist": c["artist"],
@@ -369,8 +379,9 @@ def _mixer(raw) -> dict:
     if raw.get("on"):
         out["on"] = True
     tracks = {}
-    for name, t in list((raw.get("tracks") or {}).items())[:8]:
-        if not isinstance(t, dict) or not str(name).isidentifier() or len(str(name)) > 16:
+    # hasta 32: una secuencia descargada trae veintitantas
+    for name, t in list((raw.get("tracks") or {}).items())[:32]:
+        if not isinstance(t, dict) or not str(name).isidentifier() or len(str(name)) > 24:
             continue
         item: dict = {}
         with contextlib.suppress(TypeError, ValueError):
@@ -390,6 +401,68 @@ def _mixer(raw) -> dict:
     if tracks:
         out["tracks"] = tracks
     return out
+
+
+def _own_click(own) -> dict | None:
+    """El clic propio (los pulsos ajustados a mano): crecientes, al
+    milisegundo, y los «1» que caigan en ellos. Menos de dos, nada."""
+    if not isinstance(own, dict):
+        return None
+    beats: list[float] = []
+    for t in (own.get("beats") or [])[:8000]:
+        try:
+            t = round(float(t), 3)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if t >= 0 and (not beats or t > beats[-1] + 0.01):
+            beats.append(t)
+    if len(beats) < 2:
+        return None
+    bars = sorted(
+        {
+            int(i)
+            for i in (own.get("bars") or [])[:8000]
+            if isinstance(i, int) and 0 <= i < len(beats)
+        }
+    )
+    out: dict = {"beats": beats, "bars": bars}
+    if own.get("meter") in METERS:
+        out["meter"] = int(own["meter"])
+    return out
+
+
+def _cues(cues) -> list[dict]:
+    """Las guias habladas: en su segundo y con su archivo, que tiene que ser
+    de la carpeta de guias de DanPlay (lo demas, ni se toca: la etiqueta de
+    un archivo de fuera podria apuntar a cualquier sitio)."""
+    from .. import cues as guides
+
+    out = []
+    for c in (cues or [])[:200]:
+        if not isinstance(c, dict):
+            continue
+        try:
+            t = round(float(c.get("t") or 0), 2)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        file = guides.own_file(c.get("file"))
+        if t < 0 or not file:
+            continue
+        item: dict = {"t": t, "file": file}
+        text = str(c.get("text") or "").strip()[:300]
+        if text:
+            item["text"] = text
+        voice = str(c.get("voice") or "").strip()[:80]
+        if voice:
+            item["voice"] = voice
+        try:
+            gain = float(c.get("gain") or 0) if c.get("gain") is not None else 1.0
+            if 0 <= gain <= 3 and abs(gain - 1) > 1e-3:
+                item["gain"] = round(gain, 2)
+        except (TypeError, ValueError):
+            pass
+        out.append(item)
+    return sorted(out, key=lambda c: c["t"])
 
 
 def set_study(cid: int, study: dict | None) -> Song | None:
@@ -448,6 +521,9 @@ def set_study(cid: int, study: dict | None) -> Song | None:
                 pass
             if metro.get("mult") in (-1, 1):
                 m["mult"] = int(metro["mult"])
+            own = _own_click(metro.get("own"))
+            if own:
+                m["own"] = own
             if m:
                 clean["metronome"] = m
         # Un marcador es un tramo con nombre ({t, end, label}) y, si se quiere,
@@ -489,6 +565,9 @@ def set_study(cid: int, study: dict | None) -> Song | None:
         mixer = _mixer(study.get("mixer"))
         if mixer:
             clean["mixer"] = mixer
+        cues = _cues(study.get("cues"))
+        if cues:
+            clean["cues"] = cues
     raw = _json.dumps(clean, ensure_ascii=False) if clean else ""
     update(cid, study=raw)
     if config.WRITE_TAGS and os.path.exists(c["path"]):
