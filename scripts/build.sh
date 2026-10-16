@@ -59,6 +59,9 @@ if [ "${1:-}" = "--package" ]; then
     # construir. (No se pierde nada: es todo salida de compilacion.)
     rm -rf "$BUNDLE/deb" "$BUNDLE/appimage" "$BUNDLE/rpm"
 
+    # ffmpeg, fpcalc y Deno dentro de los paquetes (desktop/src-tauri/tools)
+    ./scripts/herramientas-linux.sh
+
     # Sin `|| true`: si el empaquetado falla hay que enterarse. Antes se lo
     # tragaba y luego se copiaban los paquetes VIEJOS con fecha nueva, que es
     # la peor forma de fallar: parece que funciono y arrancas la app de ayer.
