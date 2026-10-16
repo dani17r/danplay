@@ -89,10 +89,12 @@ def delete_stems(cid: int):
 def export_mix(cid: int, body: Annotated[StemMixIn, Body()]):
     """Guarda la mezcla de las pistas en un archivo (trabajo «mezcla»)."""
     song = library.by_id(cid)
-    if not song or stems.info(song) is None:
+    whole = all(t.source == "song" for t in body.tracks)
+    if not song or (not whole and stems.info(song) is None):
         raise HTTPException(404, "esta canción no tiene pistas separadas")
     tracks = [t.model_dump() for t in body.tracks]
     click = body.click.model_dump() if body.click else None
+    cues = [c.model_dump() for c in body.cues] if body.cues else None
 
     def work(progress):
         r = stems.export_mix(
@@ -104,6 +106,7 @@ def export_mix(cid: int, body: Annotated[StemMixIn, Body()]):
             body.pitch,
             progress=lambda done, total: progress(round(done, 1), round(total, 1)),
             click=click,
+            cues=cues,
         )
         progress(message=f"Guardada «{r['name']}»")
         return r

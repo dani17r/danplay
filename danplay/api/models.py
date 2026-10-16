@@ -419,7 +419,7 @@ class ChatConfirmIn(Body_):
 
 
 class StemMixTrack(Body_):
-    source: str = Field(min_length=1, max_length=16)
+    source: str = Field(min_length=1, max_length=24)
     gain: float = Field(default=1.0, ge=0, le=2)
     pan: float = Field(default=0.0, ge=-1, le=1)
 
@@ -434,15 +434,26 @@ class StemClickIn(Body_):
     volume: float = Field(default=0.8, ge=0, le=2)
 
 
-class StemMixIn(Body_):
-    """Guardar la mezcla de las pistas separadas en un archivo."""
+class StemMixCue(Body_):
+    """Una guia hablada en la mezcla: en que segundo de la cancion, su archivo
+    (de las guias de DanPlay) y su volumen (el de su carril incluido)."""
 
-    tracks: list[StemMixTrack] = Field(min_length=1, max_length=8)
+    at: float = Field(ge=0)
+    file: str = Field(min_length=1, max_length=1024)
+    gain: float = Field(default=1.0, ge=0, le=9)
+
+
+class StemMixIn(Body_):
+    """Guardar la mezcla de las pistas separadas (o la cancion tal cual, con
+    `source: "song"`) en un archivo, con el clic y las guias si se piden."""
+
+    tracks: list[StemMixTrack] = Field(min_length=1, max_length=32)
     path: str = Field(min_length=1, max_length=4096)
     format: Literal["mp3", "flac", "wav"] | None = None
     speed: float = Field(default=1.0, ge=0.25, le=3)
     pitch: float = Field(default=0.0, ge=-12, le=12)
     click: StemClickIn | None = None
+    cues: list[StemMixCue] | None = Field(default=None, max_length=200)
 
 
 class TermsIn(BaseModel):

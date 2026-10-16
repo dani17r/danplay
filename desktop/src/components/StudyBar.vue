@@ -1111,25 +1111,29 @@ watch(
   () => JSON.stringify(routedParts.value),
   () => routing.setStems(routedParts.value)
 )
-function sendCues() {
-  const path = player.state.path
-  if (!path || !loadedFor.value) return Promise.resolve()
+/**
+ * Las guías que suenan: las de los carriles que no están callados (o los
+ * que están en solo), con el volumen de su carril.
+ */
+function audibleCues() {
   const lanes = guideLanes.value
   const anySolo = lanes.some((l) => l.solo)
   const live = new Map(lanes.filter((l) => !l.mute && (!anySolo || l.solo)).map((l) => [l.key, l]))
-  const buses = routing.routing.value.stems
-  const cues = (study.value.cues || [])
+  return (study.value.cues || [])
     .filter((c) => c.file && live.has(laneOfCue(c)))
     .map((c) => {
       const lane = live.get(laneOfCue(c))
-      const bus = buses[laneRoute(lane.key)]
-      return {
-        at: c.t,
-        path: c.file,
-        gain: (c.gain ?? 1) * (lane.gain ?? 1),
-        ...(bus != null ? { bus } : {})
-      }
+      return { at: c.t, file: c.file, gain: (c.gain ?? 1) * (lane.gain ?? 1), lane: lane.key }
     })
+}
+function sendCues() {
+  const path = player.state.path
+  if (!path || !loadedFor.value) return Promise.resolve()
+  const buses = routing.routing.value.stems
+  const cues = audibleCues().map((c) => {
+    const bus = buses[laneRoute(c.lane)]
+    return { at: c.at, path: c.file, gain: c.gain, ...(bus != null ? { bus } : {}) }
+  })
   return player.setCues(cues, cueVolume.value, path)
 }
 // otro reparto (un carril de guías a otra salida): las guías, con su bus nuevo
@@ -1385,13 +1389,40 @@ const progressText = computed(() => {
   return `${verb} · ${Math.round(p.fraction * 100)} %${eta}`
 })
 
-/** Guarda en un archivo lo que suena ahora de las pistas. */
-async function saveMix({ asHeard = false } = {}) {
+/**
+ * Exporta a un archivo la canción (tal cual) o las pistas (como estén
+ * mezcladas), y con las guías habladas si las tiene y se quieren: antes de
+ * elegir dónde, una casilla lo pregunta. `asHeard`: además a la velocidad y
+ * el tono de ahora, y con el clic si suena.
+ * @param {{from?: 'song'|'stems', asHeard?: boolean}} [opts]
+ */
+async function saveMix({ from = 'stems', asHeard = false } = {}) {
   const info = stems.value
   const id = loadedFor.value
-  if (!info || !id) return
-  const on = plan.value.filter((t) => t.on)
-  if (!on.length) return notify('Todas las pistas están calladas: no hay nada que guardar')
+  if (!id || (from === 'stems' && !info)) return
+  const on = from === 'stems' ? plan.value.filter((t) => t.on) : []
+  if (from === 'stems' && !on.length) {
+    return notify('Todas las pistas están calladas: no hay nada que guardar')
+  }
+  const guides = audibleCues()
+  let withGuides = false
+  if (guides.length) {
+    const r = await ask({
+      kind: 'confirm',
+      title: from === 'stems' ? 'Exportar las pistas' : 'Exportar la canción',
+      message:
+        from === 'stems'
+          ? 'La mezcla de las pistas como está, en un archivo.'
+          : 'La canción tal cual, en un archivo.',
+      check: {
+        label: `Con las guías habladas (${guides.length === 1 ? 'una' : guides.length})`,
+        value: true
+      },
+      okLabel: 'Elegir dónde guardarla'
+    })
+    if (!r) return
+    withGuides = !!r.checked
+  }
   // como suena: con el clic, si va (los golpes que se oyen, con su sonido)
   const m = metronome.value
   const clickTrack =
@@ -1402,12 +1433,17 @@ async function saveMix({ asHeard = false } = {}) {
           volume: m.volume
         }
       : null
-  const name = mixFileName(songFile.value || track.value?.title || 'Cancion', plan.value, {
-    click: !!clickTrack
-  })
+  const name = mixFileName(
+    songFile.value || track.value?.title || 'Cancion',
+    from === 'stems' ? plan.value : [],
+    { click: !!clickTrack, guides: withGuides }
+  )
+  // junto a las pistas, o junto a la canción
+  const songDir = (player.state.path || '').replace(/[\\/][^\\/]*$/, '')
+  const folder = from === 'stems' ? info.folder : songDir
   const path = await pickSavePath({
-    title: 'Guardar la mezcla',
-    defaultPath: `${info.folder}/${name}.mp3`,
+    title: from === 'stems' ? 'Guardar la mezcla' : 'Guardar la canción',
+    defaultPath: folder ? `${folder}/${name}.mp3` : `${name}.mp3`,
     filters: [
       { name: 'MP3', extensions: ['mp3'] },
       { name: 'FLAC', extensions: ['flac'] },
@@ -1415,15 +1451,27 @@ async function saveMix({ asHeard = false } = {}) {
     ]
   })
   if (!path) return
-  notify('Guardando la mezcla…', 'info', 3)
+  notify(from === 'stems' ? 'Guardando la mezcla…' : 'Guardando la canción…', 'info', 3)
   try {
     const r = await api.runJob(
       () =>
         api.exportMix(id, {
-          tracks: on.map((t) => ({ source: t.key, gain: t.gain, pan: t.pan })),
+          tracks:
+            from === 'stems'
+              ? on.map((t) => ({ source: t.key, gain: t.gain, pan: t.pan }))
+              : [{ source: 'song', gain: 1, pan: 0 }],
           path,
           ...(asHeard ? { speed: speed.value, pitch: pitch.value } : {}),
-          ...(clickTrack ? { click: clickTrack } : {})
+          ...(clickTrack ? { click: clickTrack } : {}),
+          ...(withGuides
+            ? {
+                cues: guides.map((c) => ({
+                  at: c.at,
+                  file: c.file,
+                  gain: Math.round(c.gain * cueVolume.value * 100) / 100
+                }))
+              }
+            : {})
         }),
       JOBS.mix
     )
@@ -1581,6 +1629,24 @@ function headMenu(ev) {
     ...(isMobileApp
       ? []
       : [
+          {
+            label: 'Exportar la canción…',
+            icon: 'download',
+            note: study.value.cues?.length ? 'con o sin las guías' : 'tal cual',
+            action: () => saveMix({ from: 'song' })
+          },
+          ...(hasStems.value
+            ? [
+                {
+                  label: 'Exportar las pistas…',
+                  icon: 'download',
+                  note: study.value.cues?.length
+                    ? 'como suenan, con o sin las guías'
+                    : 'la mezcla como suena',
+                  action: () => saveMix({ from: 'stems' })
+                }
+              ]
+            : []),
           {
             label: 'Convertir a DanPista (para el celular)',
             icon: 'send',

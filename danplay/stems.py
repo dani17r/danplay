@@ -1204,16 +1204,22 @@ def gains(gain: float, pan: float) -> tuple[float, float]:
 
 
 def mix_filter(
-    inputs: list[tuple[float, float]], speed=1.0, pitch=0.0, rubberband=True, click=False
+    inputs: list[tuple[float, float]],
+    speed=1.0,
+    pitch=0.0,
+    rubberband=True,
+    click=False,
+    guides=False,
 ) -> str:
     """El filtro de ffmpeg que junta las pistas: cada una con su volumen y su
     panorama, sumadas sin normalizar (como suenan en el reproductor), con un
     limitador al final para que la suma no se recorte, y la velocidad y el
     tono si se pidieron.
 
-    Con `click`, la entrada que va detras de las pistas es el clic, ya a la
-    velocidad de la mezcla: se suma despues de la velocidad y el tono, que
-    si no lo estirarian y lo cambiarian de tono tambien."""
+    Con `click` y `guides`, las entradas que van detras de las pistas son el
+    clic y las guias habladas (en ese orden), ya a la velocidad de la mezcla:
+    se suman despues de la velocidad y el tono, que si no las estirarian y
+    les cambiarian el tono tambien (en el reproductor tampoco se estiran)."""
     chains = []
     for i, (left, right) in enumerate(inputs):
         chains.append(
@@ -1224,12 +1230,69 @@ def mix_filter(
     extra = _speed_pitch(speed, pitch, rubberband)
     if extra:
         tail += "," + extra
-    if click:
-        n = len(inputs)
-        chains.append(f"[{n}:a]aformat=channel_layouts=stereo[clic]")
-        tail += "[canto];[canto][clic]amix=inputs=2:normalize=0:duration=first"
+    extras = [name for name, on in (("clic", click), ("guias", guides)) if on]
+    n = len(inputs)
+    for j, name in enumerate(extras):
+        chains.append(f"[{n + j}:a]aformat=channel_layouts=stereo[{name}]")
+    if extras:
+        joined_extras = "".join(f"[{name}]" for name in extras)
+        tail += (
+            f"[canto];[canto]{joined_extras}"
+            f"amix=inputs={1 + len(extras)}:normalize=0:duration=first"
+        )
     tail += ",alimiter=limit=0.98:level=0[out]"
     return ";".join([*chains, tail])
+
+
+GUIDES_RATE = 44100
+
+
+def _guides_file(cues, length: float, speed: float, folder: Path) -> Path | None:
+    """Las guias habladas de la mezcla en un WAV aparte: cada una en su
+    segundo (pasado al tiempo de la mezcla), con su volumen y sin estirar,
+    como suenan en el estudio. Solo las de la carpeta de guias de DanPlay.
+    None si no queda ninguna que leer."""
+    import numpy as np
+
+    from . import cues as guides
+
+    total = max(1, int(length / speed * GUIDES_RATE) + GUIDES_RATE)
+    out = np.zeros(total, dtype=np.float32)
+    used = 0
+    for c in cues or []:
+        own = guides.own_file(c.get("file"))
+        if not own:
+            continue
+        try:
+            with wave.open(own, "rb") as w:
+                rate, width, ch = w.getframerate(), w.getsampwidth(), w.getnchannels()
+                raw = w.readframes(w.getnframes())
+        except (OSError, wave.Error, EOFError):
+            continue
+        if width != 2 or not raw:
+            continue
+        x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+        if ch > 1:
+            x = x.reshape(-1, ch).mean(axis=1)
+        if rate != GUIDES_RATE and len(x) > 1:
+            n = int(len(x) * GUIDES_RATE / rate)
+            x = np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
+        at = int(max(0.0, float(c.get("at") or 0)) / speed * GUIDES_RATE)
+        if at >= total:
+            continue
+        piece = x[: total - at] * float(c.get("gain", 1.0))
+        out[at : at + len(piece)] += piece
+        used += 1
+    if not used:
+        return None
+    path = folder / ".guias.wav"
+    pcm = (np.clip(out, -1, 1) * 32767).astype("<i2")
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(GUIDES_RATE)
+        w.writeframes(pcm.tobytes())
+    return path
 
 
 def _click_file(click: Mapping[str, Any], length: float, speed: float, folder: Path) -> Path:
@@ -1269,6 +1332,7 @@ def export_mix(
     pitch: float = 0.0,
     progress=None,
     click: Mapping[str, Any] | None = None,
+    cues: list[dict] | None = None,
 ) -> dict:
     """Guarda en `target` la mezcla de las pistas de la cancion.
 
@@ -1276,9 +1340,13 @@ def export_mix(
     suma a la mezcla (los pulsos en segundos de la cancion, y cuales son el
     «1»). Para ensayar con el movil como en el estudio.
 
+    `cues`: [{at, file, gain}], las guias habladas que van en la mezcla (las
+    de los carriles que suenan, con su volumen), o ninguna: con ellas o sin.
+
     `tracks`: [{source, gain, pan}] las que suenan (las calladas no hacen
     falta). Para practicar fuera de DanPlay: la cancion sin bateria para el
-    movil, o a menos velocidad.
+    movil, o a menos velocidad. Con `source: "song"`, la cancion tal cual
+    (sin pistas separadas: para llevarla con su clic y sus guias).
 
     Solo dentro de la biblioteca, y sin pisar ninguna cancion de ella: por
     aqui no se puede escribir en cualquier sitio del disco. Si cae fuera de
@@ -1289,18 +1357,24 @@ def export_mix(
     song = library.by_id(cid)
     if not song:
         raise SeparateError("esa canción ya no está en la biblioteca")
-    data = info(song)
-    if not data or not data["complete"]:
-        raise SeparateError("esta canción no tiene sus pistas separadas completas")
-    by_source = {t["source"]: t for t in data["tracks"]}
+    whole = bool(tracks) and all(t.get("source") == "song" for t in tracks)
+    data = None if whole else info(song)
     chosen = []
-    for t in tracks:
-        track = by_source.get(t.get("source"))
-        if track is None:
-            raise SeparateError(f"no hay una pista «{t.get('source')}»")
-        left, right = gains(float(t.get("gain", 1.0)), float(t.get("pan", 0.0)))
-        if left > 1e-4 or right > 1e-4:
-            chosen.append((track["path"], (left, right)))
+    if whole:
+        # la cancion tal cual: su archivo, con el volumen y el panorama pedidos
+        t = tracks[0]
+        chosen.append((song["path"], gains(float(t.get("gain", 1.0)), float(t.get("pan", 0.0)))))
+    else:
+        if not data or not data["complete"]:
+            raise SeparateError("esta canción no tiene sus pistas separadas completas")
+        by_source = {t["source"]: t for t in data["tracks"]}
+        for t in tracks:
+            track = by_source.get(t.get("source"))
+            if track is None:
+                raise SeparateError(f"no hay una pista «{t.get('source')}»")
+            left, right = gains(float(t.get("gain", 1.0)), float(t.get("pan", 0.0)))
+            if left > 1e-4 or right > 1e-4:
+                chosen.append((track["path"], (left, right)))
     if not chosen:
         raise SeparateError("todas las pistas están calladas: no hay nada que guardar")
     path = Path(os.path.abspath(os.path.expanduser(target)))
@@ -1322,7 +1396,7 @@ def export_mix(
     pitch = max(-12.0, min(12.0, float(pitch or 0.0)))
     muted = [
         SOURCES.get(t["source"], ("", t["name"]))[1].lower()
-        for t in data["tracks"]
+        for t in (data["tracks"] if data else [])
         if t["path"] not in {p for p, _ in chosen}
     ]
     title = song.get("title") or Path(song["file"]).stem
@@ -1332,6 +1406,8 @@ def export_mix(
     beats = (click or {}).get("beats") or []
     if beats:
         what.append("con clic")
+    if cues:
+        what.append("con guías")
     if what:
         title += " (" + ", ".join(what) + ")"
     length = float(song.get("duration") or 0) or max(beats, default=0.0) + 2.0
@@ -1342,8 +1418,16 @@ def export_mix(
             cmd += ["-i", p]
         if beats:
             cmd += ["-i", str(_click_file(click or {}, length, speed, Path(work)))]
+        guides_wav = _guides_file(cues, length, speed, Path(work)) if cues else None
+        if guides_wav:
+            cmd += ["-i", str(guides_wav)]
         graph = mix_filter(
-            [g for _, g in chosen], speed, pitch, _has_rubberband(ffmpeg), bool(beats)
+            [g for _, g in chosen],
+            speed,
+            pitch,
+            _has_rubberband(ffmpeg),
+            bool(beats),
+            guides=guides_wav is not None,
         )
         cmd += ["-filter_complex", graph, "-map", "[out]", "-ar", "44100", *MIX_FORMATS[fmt]]
         if song.get("artist"):

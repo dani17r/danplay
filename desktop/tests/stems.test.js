@@ -42,6 +42,16 @@ describe('qué suena de cada pista', () => {
 describe('el nombre de la mezcla', () => {
   const plan = (settings) => stemPlan(tracks, settings)
 
+  it('con las guías lo dice, y la canción sola solo dice lo que lleva', () => {
+    expect(mixFileName('Mi Gozo.mp3', plan({ drums: { mute: true } }), { guides: true })).toBe(
+      'Mi Gozo (sin bateria, con guias)'
+    )
+    expect(mixFileName('Barak - Mi Gozo.mp3', [], { guides: true, click: true })).toBe(
+      'Barak - Mi Gozo (con clic, con guias)'
+    )
+    expect(mixFileName('Barak - Mi Gozo.mp3', [])).toBe('Barak - Mi Gozo')
+  })
+
   it('dice lo que le falta, sin tildes', () => {
     expect(mixFileName('Barak - Mi Gozo.mp3', plan({ drums: { mute: true } }))).toBe(
       'Barak - Mi Gozo (sin bateria)'

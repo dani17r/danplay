@@ -872,3 +872,55 @@ def test_the_api_separates_lists_and_deletes_stems(lib, monkeypatch):
     assert client.delete(f"/api/song/{cid}/stems").json()["ok"]
     assert client.get(f"/api/song/{cid}/stems").status_code == 404
     assert client.post("/api/song/999999/separate").status_code == 404
+
+
+def test_the_mix_carries_the_guides_or_not_also_the_song_alone(lib, tmp_path, monkeypatch):
+    """Con las guías habladas o sin ellas: cada una en su segundo (a la
+    velocidad de la mezcla, sin estirarla), y también la canción sin separar.
+    Lo que no es una guía de DanPlay no entra."""
+    import subprocess
+
+    import numpy as np
+
+    from danplay import config, cues, stems
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
+    f = stems.mix_filter([(1, 1)], speed=0.8, click=True, guides=True)
+    assert "[1:a]aformat=channel_layouts=stereo[clic]" in f
+    assert "[2:a]aformat=channel_layouts=stereo[guias]" in f
+    assert "[canto][clic][guias]amix=inputs=3" in f
+    assert "[guias]" not in stems.mix_filter([(1, 1)], click=True)
+
+    root, _ = lib
+    cid = _id("Barak - Mi Gozo.mp3")
+    # una guía: un pitido de 0,1 s, en la carpeta de las guías
+    t = np.arange(int(0.1 * 22050)) / 22050
+    cues.write_wav(cues.folder() / "coro.wav", (0.8 * np.sin(2 * np.pi * 2000 * t)), 22050)
+    guide = str(cues.folder() / "coro.wav")
+
+    def decoded(path):
+        raw = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", str(path), "-f", "f32le", "-ac", "1", "-"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        return np.frombuffer(raw, dtype=np.float32)
+
+    with_guides = root / "Barak - Mi Gozo (con guias).wav"
+    without = root / "Barak - Mi Gozo (sin guias).wav"
+    r = stems.export_mix(
+        cid,
+        [{"source": "song"}],
+        str(with_guides),
+        speed=0.5,
+        cues=[{"at": 0.3, "file": guide, "gain": 1.0}, {"at": 0.1, "file": "/etc/passwd"}],
+    )
+    assert r["title"] == "Mi Gozo (con guías)"
+    stems.export_mix(cid, [{"source": "song"}], str(without), speed=0.5)
+    a, b = decoded(with_guides), decoded(without)
+    n = min(len(a), len(b))
+    diff = np.abs(a[:n] - b[:n])
+    rate = 44100
+    # a media velocidad, la de 0,3 s suena a los 0,6 s; antes, nada
+    assert diff[int(0.60 * rate) : int(0.70 * rate)].max() > 0.2
+    assert diff[: int(0.55 * rate)].max() < 0.02

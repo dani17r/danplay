@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 
 // El modo estudio: bucle A-B, velocidad sin cambiar el tono, marcadores y
 // notas, guardados con la cancion y aplicados al entrar.
-const held = vi.hoisted(() => ({ playback: null, api: null, state: null }))
+const held = vi.hoisted(() => ({ playback: null, api: null, state: null, savePath: null }))
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -12,7 +12,14 @@ vi.mock('../src/api.js', async (importOriginal) => {
   held.api = buildApiDouble(actual, held.state)
   held.api.inTauri = true
   held.playback = createPlaybackDouble()
-  return { ...actual, inTauri: true, api: held.api, playback: held.playback.bridge }
+  return {
+    ...actual,
+    inTauri: true,
+    api: held.api,
+    playback: held.playback.bridge,
+    // el diálogo de guardar del sistema: lo que diga la prueba (null: cancelado)
+    pickSavePath: async () => held.savePath
+  }
 })
 
 import StudyBar from '../src/components/StudyBar.vue'
@@ -2141,5 +2148,73 @@ describe('los carriles de las guías', () => {
     expect(spec.buses[baterista.bus]).toEqual({ left: 0, right: 0 })
     localStorage.removeItem('danplay.salidas')
     resetRouting()
+  })
+})
+
+describe('exportar', () => {
+  const conGuias = (extra = {}) =>
+    JSON.stringify({
+      cues: [{ t: 12, file: '/guias/coro.wav', text: 'Coro' }],
+      cueLanes: [{ key: 'g1', name: 'Banda', gain: 1.5 }],
+      ...extra
+    })
+  async function exportar(w, cual) {
+    const { menu } = useContextMenu()
+    await w.find('.study-more').trigger('click')
+    const item = menu.value.items.find((i) => i.label === cual)
+    expect(item, cual).toBeTruthy()
+    const hecho = item.action()
+    await flushPromises()
+    // en un objeto: devolver la promesa haría esperar al diálogo
+    return { hecho }
+  }
+  afterEach(() => {
+    held.savePath = null
+  })
+
+  it('la canción tal cual, con sus guías si se quiere', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: conGuias() })]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    held.savePath = '/musica/Mi Gozo (con guias).mp3'
+    const { hecho } = await exportar(w, 'Exportar la canción…')
+    const { dialog, dialogOk } = await import('../src/composables/useDialog.js').then((d) =>
+      d.useDialog()
+    )
+    expect(dialog.value.title).toBe('Exportar la canción')
+    expect(dialog.value.check).toEqual({ label: 'Con las guías habladas (una)', value: true })
+    dialogOk({ checked: true })
+    await hecho
+    await flushPromises()
+    expect(held.api.exportMix).toHaveBeenLastCalledWith(7, {
+      tracks: [{ source: 'song', gain: 1, pan: 0 }],
+      path: '/musica/Mi Gozo (con guias).mp3',
+      cues: [{ at: 12, file: '/guias/coro.wav', gain: 1.5 }]
+    })
+  })
+
+  it('sin la casilla, sin guías; y sin guías hechas, ni se pregunta', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: conGuias() })]
+    held.playback.emit({ playing: false })
+    let w = await montar()
+    held.savePath = '/musica/Mi Gozo.mp3'
+    const { useDialog } = await import('../src/composables/useDialog.js')
+    let { hecho } = await exportar(w, 'Exportar la canción…')
+    useDialog().dialogOk({ checked: false })
+    await hecho
+    await flushPromises()
+    expect(held.api.exportMix.mock.calls.at(-1)[1].cues).toBeUndefined()
+    w.unmount()
+
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: '' })]
+    w = await montar()
+    ;({ hecho } = await exportar(w, 'Exportar la canción…'))
+    expect(useDialog().dialog.value.open, 'sin guías no hay nada que preguntar').toBe(false)
+    await hecho
+    await flushPromises()
+    expect(held.api.exportMix).toHaveBeenLastCalledWith(7, {
+      tracks: [{ source: 'song', gain: 1, pan: 0 }],
+      path: '/musica/Mi Gozo.mp3'
+    })
   })
 })
