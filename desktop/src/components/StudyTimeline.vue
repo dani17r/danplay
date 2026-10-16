@@ -50,7 +50,7 @@ import {
   useTemplateRef,
   shallowRef
 } from 'vue'
-import { api } from '../api.js'
+import { api, errorMessage } from '../api.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { openMenu } from '../composables/useContextMenu.js'
 import { formatTime } from '../utils/format.js'
@@ -214,12 +214,13 @@ const wave = shallowRef(null)
 /** La onda con detalle del trozo que se ve: {from, to, peaks, rms} o null. */
 const detail = shallowRef(null)
 const loading = ref(false)
-const failed = ref(false)
+/** Por qué no hay onda ('' si la hay): lo que dice el núcleo, no una suposición. */
+const failed = ref('')
 
 async function load(id) {
   wave.value = null
   detail.value = null
-  failed.value = false
+  failed.value = ''
   if (!id) {
     draw()
     return
@@ -228,8 +229,8 @@ async function load(id) {
   try {
     const r = await api.waveform(id)
     if (id === props.songId) wave.value = r
-  } catch {
-    if (id === props.songId) failed.value = true
+  } catch (e) {
+    if (id === props.songId) failed.value = errorMessage(e) || 'no se pudo leer la canción'
   } finally {
     if (id === props.songId) loading.value = false
     await nextTick()
@@ -1125,7 +1126,7 @@ const lockTitle = computed(() =>
         </div>
       </Transition>
       <div v-if="loading" class="tl-note">leyendo la onda…</div>
-      <div v-else-if="failed && songId" class="tl-note">sin forma de onda (hace falta ffmpeg)</div>
+      <div v-else-if="failed && songId" class="tl-note">sin forma de onda: {{ failed }}</div>
       <div v-else-if="tooManyBeats" class="tl-note">
         acerca la onda (rueda) para ajustar los pulsos
       </div>
