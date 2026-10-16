@@ -87,8 +87,37 @@ fn handle() -> (Handle, Receiver<Event>) {
     (Handle::new(move |event| tx.send(event).is_ok()), rx)
 }
 
+/// Si de verdad se puede sonar en esta maquina. Que exista el dispositivo
+/// no basta: en la CI esta el «default» de ALSA sin tarjeta detras, y lo que
+/// falla es abrirlo. Se prueba una vez a abrir la salida como lo hara el
+/// reproductor: si en un momento no da error, se puede.
+fn audio_works() -> bool {
+    static WORKS: OnceLock<bool> = OnceLock::new();
+    *WORKS.get_or_init(|| {
+        if !danplay_motor::output::has_default() {
+            return false;
+        }
+        let out = danplay_motor::output::Output::start(Vec::new(), 44_100, OutputConfig::default());
+        let deadline = Instant::now() + Duration::from_millis(700);
+        let mut works = true;
+        while Instant::now() < deadline {
+            if out.error().is_some() {
+                works = false;
+                break;
+            }
+            wait_ms(20);
+        }
+        out.stop();
+        works
+    })
+}
+
 /// Si hay por donde sonar. Si no, lo dice y la prueba se omite.
 fn has_output(m: &Handle) -> bool {
+    if !audio_works() {
+        eprintln!("sin salida de audio en esta maquina; se omite");
+        return false;
+    }
     // el hilo lo mira nada mas arrancar; se le da un momento
     let deadline = Instant::now() + Duration::from_secs(1);
     while !m.state().has_output && Instant::now() < deadline {
