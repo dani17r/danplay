@@ -29,6 +29,8 @@ import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
 import { useSeparation } from '../composables/useSeparation.js'
 import { useClick } from '../composables/useClick.js'
 import { useRouting } from '../composables/useRouting.js'
+import { usePreferences } from '../composables/usePreferences.js'
+import { WAVE_STYLES } from '../utils/wavePaint.js'
 import { takeToPhone } from '../composables/usePhone.js'
 import { isMobileApp } from '../platform.js'
 import { stemPlan, mixFileName } from '../utils/stems.js'
@@ -101,6 +103,19 @@ const clickMode = click.mode
 const clickWanted = click.wanted
 // por dónde suena cada cosa
 const routing = useRouting()
+// cómo se pinta la onda (de quien toca, no de cada canción)
+const { waveStyle } = usePreferences()
+/** El submenú «Estilo de la onda». */
+const waveStyleItem = () => ({
+  label: 'Estilo de la onda',
+  icon: 'palette',
+  note: WAVE_STYLES.find((w) => w.v === waveStyle.value)?.n.toLowerCase() || '',
+  children: WAVE_STYLES.map((w) => ({
+    label: w.n,
+    note: w.v === waveStyle.value ? 'puesto' : w.note,
+    action: () => (waveStyle.value = w.v)
+  }))
+})
 const outputsOpen = ref(false)
 // las pistas separadas de la canción (ver más abajo): aquí arriba porque las
 // toca `loadFor`, que corre nada más montar
@@ -576,6 +591,7 @@ function showOptions({ index, t, x, y, event }) {
     })
   }
   const title = seg ? (list.length > 1 ? `Tramo ${index + 1}` : 'El tramo') : 'La onda'
+  if (!isMobileApp) items.push({ separator: true }, waveStyleItem())
   openMenu(event ?? { clientX: x, clientY: y }, items, title)
 }
 useHotkeys({ a: markA, b: markB })
@@ -1661,7 +1677,8 @@ function headMenu(ev) {
       label: 'Salidas: por dónde suena cada cosa…',
       icon: 'volume',
       action: () => (outputsOpen.value = true)
-    }
+    },
+    waveStyleItem()
   ]
   openMenu(ev, items, 'Modo estudio')
 }
