@@ -30,6 +30,8 @@ import { takeToPhone } from './usePhone.js'
  * @property {(song: Song) => any} showDetailsOf  abre la ficha (en el cajón o en una ventana)
  * @property {(song: Song) => any} [previewSong]  elige la canción para que su ficha se vea en el panel de al lado (sin ventana)
  * @property {(ids: number[]) => void} [onRemoved]  esas canciones ya no están (a la papelera)
+ * @property {(query: string) => any} [findInLibrary]  buscar eso en la biblioteca (el buscador de arriba)
+ * @property {(query: string) => any} [findToDownload]  buscar eso para bajarlo (Descargas)
  */
 
 /** @param {SongMenusContext} ctx */
@@ -93,23 +95,54 @@ export function useSongMenus(ctx) {
     }
   }
 
+  /**
+   * Las listas en las que está: si se borra desde aquí, se pregunta si sale
+   * también de ellas (si no, se quedan con la canción como «No está», para
+   * buscarla o bajarla otra vez). @param {Song} song
+   */
+  async function listsOf(song) {
+    if (Array.isArray(song.playlists)) return song.playlists
+    const full = await Promise.resolve()
+      .then(() => api.song(song.id))
+      .catch(() => null)
+    return Array.isArray(full?.playlists) ? full.playlists : []
+  }
+
+  /** @param {string[]} names */
+  function listsLabel(names) {
+    const shown = names.slice(0, 3).map((n) => `«${n}»`)
+    const more = names.length > 3 ? ` y ${names.length - 3} más` : ''
+    const which = names.length === 1 ? 'de la lista' : `de sus ${names.length} listas`
+    return `Quitarla también ${which} (${shown.join(', ')}${more})`
+  }
+
   /** @param {Song} song */
   async function trashSong(song) {
-    const ok = await ask({
+    const lists = await listsOf(song)
+    const r0 = await ask({
       kind: 'confirm',
       title: 'Mandar a la papelera',
       danger: true,
       message:
         'El archivo va a la papelera del sistema, así que puedes recuperarlo desde ahí. ' +
-        'También sale de la biblioteca.',
+        'También sale de la biblioteca.' +
+        (lists.length
+          ? ' Si la dejas en sus listas, seguirá ahí como «No está», para buscarla o bajarla.'
+          : ''),
       detail: song.path || song.file,
-      okLabel: 'A la papelera'
+      okLabel: 'A la papelera',
+      ...(lists.length ? { check: { label: listsLabel(lists), value: true } } : {})
     })
-    if (!ok) return
+    if (!r0) return
+    const fromLists = !!r0.checked
     try {
-      const r = await api.deleteSong(song.id)
+      const r = await api.deleteSong(song.id, { fromLists })
       if (isPlaying(song)) player.stop()
-      notify(`«${r.name}» está en la papelera`, 'ok')
+      notify(
+        `«${r.name}» está en la papelera` +
+          (r.lists ? ` y fuera de ${r.lists === 1 ? 'su lista' : `${r.lists} listas`}` : ''),
+        'ok'
+      )
       ctx.onRemoved?.([song.id])
       await ctx.refreshAll()
     } catch (e) {
@@ -120,25 +153,28 @@ export function useSongMenus(ctx) {
   /** Varias a la papelera, con una sola confirmación que dice cuántas. @param {Song[]} list */
   async function trashSongs(list) {
     const n = list.length
-    const ok = await ask({
+    const r0 = await ask({
       kind: 'confirm',
       title: `Mandar ${n} canciones a la papelera`,
       danger: true,
       message:
         'Los archivos van a la papelera del sistema, así que puedes recuperarlos desde ahí. ' +
-        'También salen de la biblioteca.',
+        'También salen de la biblioteca. Las que dejes en sus listas seguirán ahí como ' +
+        '«No está», para buscarlas o bajarlas.',
       detail:
         list
           .slice(0, 6)
           .map((s) => s.title || s.file)
           .join('\n') + (n > 6 ? `\n… y ${n - 6} más` : ''),
-      okLabel: `A la papelera (${n})`
+      okLabel: `A la papelera (${n})`,
+      check: { label: 'Quitarlas también de las listas en las que estén', value: true }
     })
-    if (!ok) return
+    if (!r0) return
+    const fromLists = !!r0.checked
     let done = 0
     for (const s of list) {
       try {
-        await api.deleteSong(s.id)
+        await api.deleteSong(s.id, { fromLists })
         if (isPlaying(s)) player.stop()
         done++
       } catch (e) {
@@ -193,10 +229,23 @@ export function useSongMenus(ctx) {
   const nameOf = (s) => s.title || s.file || 'la canción'
 
   /**
+   * Sin las «No está» (canciones de una lista que ya no están en la
+   * biblioteca): con esas no se puede sonar, valorar, separar ni borrar.
+   * @param {Song[]} list
+   */
+  const present = (list) => list.filter((s) => !s.ghost)
+
+  /** Lo que se busca para encontrar una «No está». @param {Song} s */
+  const lookFor = (s) =>
+    [s.artist, s.title].filter(Boolean).join(' ') || (s.file || '').replace(/\.[^.]+$/, '')
+
+  /**
    * Las que no lo eran, a favoritas. Un solo aviso para todas.
    * @param {Song[]} list
    */
   async function favorites(list) {
+    list = present(list)
+    if (!list.length) return
     const todo = list.filter((s) => !s.favorite)
     if (!todo.length) {
       return notify(list.length === 1 ? 'Ya era favorita' : 'Ya eran todas favoritas', 'info')
@@ -220,7 +269,7 @@ export function useSongMenus(ctx) {
 
   /** Las que eran favoritas dejan de serlo. @param {Song[]} list */
   async function unfavorite(list) {
-    const todo = list.filter((s) => s.favorite)
+    const todo = present(list).filter((s) => s.favorite)
     let done = 0
     for (const s of todo) {
       try {
@@ -244,6 +293,7 @@ export function useSongMenus(ctx) {
    * @param {Song[]} list
    */
   function trash(list) {
+    list = present(list)
     if (!list.length) return
     return list.length === 1 ? trashSong(list[0]) : trashSongs(list)
   }
@@ -280,7 +330,7 @@ export function useSongMenus(ctx) {
   }
 
   /** Por Telegram (si está instalado: `shareTargets.telegram`). @param {Song[]} list */
-  const sendTelegram = (list) => sendToTelegram(list)
+  const sendTelegram = (list) => sendToTelegram(present(list))
 
   /**
    * Dónde abrir un menú que sale de un botón: debajo de él, alineado a su
@@ -306,6 +356,7 @@ export function useSongMenus(ctx) {
    * @param {Song[]} list
    */
   function addToList(ev, list) {
+    list = present(list)
     if (!list.length) return
     const n = list.length
     openMenu(
@@ -365,7 +416,15 @@ export function useSongMenus(ctx) {
     const note = separation.state.pending
       ? `bajar ${separation.megas(separation.state.pending)}`
       : ''
-    return [{ label, icon: 'mixer', note, action: () => separation.request(list) }]
+    const items = [{ label, icon: 'mixer', note, action: () => separation.request(list) }]
+    if (separation.state.max)
+      items.push({
+        label: 'Con más instrumentos (máxima calidad)',
+        icon: 'sparkles',
+        note: 'percusión aparte, guitarras, teclados… · tarda',
+        action: () => separation.request(list, { max: true })
+      })
+    return items
   }
 
   /** Lo de las pistas de una canción: separarla, o lo que se hace con las suyas. @param {Song} song */
@@ -383,7 +442,12 @@ export function useSongMenus(ctx) {
     }
     if (!song.has_stems) return separateItems([song], 'Separar pistas')
     return [
-      { label: 'Llevar al celular', icon: 'send', action: () => takeToPhone([song]) },
+      {
+        label: 'Convertir a DanPista (para el celular)',
+        icon: 'send',
+        note: 'un .danpista con las pistas, el clic y los tramos',
+        action: () => takeToPhone([song])
+      },
       { label: 'Abrir la carpeta de sus pistas', icon: 'mixer', action: () => revealStems(song) },
       ...separateItems(
         [song],
@@ -451,7 +515,8 @@ export function useSongMenus(ctx) {
    * no se ofrece «quitar de esta lista» (habla de otra lista) y «Reproducir»
    * lo decide quien llama (`play`), que sabe qué cola le toca.
    * @param {Song[]} list
-   * @param {{fromSearch?: boolean, play?: (list: Song[]) => any}} [opts]
+   * @param {{fromSearch?: boolean, play?: (list: Song[]) => any, everyone?: Song[]}} [opts]
+   *   `everyone`: lo elegido con las «No está», para quitarlas de la lista
    * @returns {MenuItem[]}
    */
   function groupItems(list, opts = {}) {
@@ -490,9 +555,12 @@ export function useSongMenus(ctx) {
     ]
     if (view.value.kind === 'playlist' && !opts.fromSearch) {
       items.push({
-        label: say('Quitar de esta lista', `Quitar ${n} de esta lista`),
+        label:
+          opts.everyone?.length > n
+            ? `Quitar ${opts.everyone.length} de esta lista`
+            : say('Quitar de esta lista', `Quitar ${n} de esta lista`),
         icon: 'close',
-        action: () => removeFromView(list)
+        action: () => removeFromView(opts.everyone || list)
       })
     }
     items.push(...separateItems(list, say('Separar pistas', `Separar las pistas de ${n}`)))
@@ -500,7 +568,10 @@ export function useSongMenus(ctx) {
     if (separated.length) {
       const k = separated.length
       items.push({
-        label: k === 1 ? 'Llevar al celular' : `Llevar ${k} al celular`,
+        label:
+          k === 1
+            ? 'Convertir a DanPista (para el celular)'
+            : `Convertir ${k} a DanPista (para el celular)`,
         icon: 'send',
         note: k < n ? `${n - k} sin pistas` : '',
         action: () => takeToPhone(separated)
@@ -532,8 +603,56 @@ export function useSongMenus(ctx) {
    */
   function groupMenu(ev, list, opts = {}) {
     if (!list.length) return
-    const n = list.length
-    openMenu(below(ev), groupItems(list, opts), n === 1 ? nameOf(list[0]) : `${n} canciones`)
+    const real = present(list)
+    if (!real.length) return openMenu(below(ev), missingItems(list), missingTitle(list))
+    const n = real.length
+    // las «No está» elegidas solo cuentan para quitarlas de la lista
+    const items = groupItems(real, { ...opts, everyone: list })
+    openMenu(below(ev), items, n === 1 ? nameOf(real[0]) : `${n} canciones`)
+  }
+
+  /** @param {Song[]} list */
+  const missingTitle = (list) =>
+    list.length === 1 ? `${nameOf(list[0])} · No está` : `${list.length} que no están`
+
+  /**
+   * El menú de las «No está»: canciones que estaban en la lista y ya no
+   * están en la biblioteca (se borraron o se movieron por fuera). Siguen en
+   * su sitio para buscarlas en lo que ya tienes, bajarlas otra vez o
+   * quitarlas; si vuelven (con otro nombre, en otra carpeta), la lista las
+   * recupera sola.
+   * @param {Song[]} list
+   * @returns {MenuItem[]}
+   */
+  function missingItems(list) {
+    const one = list.length === 1
+    /** @type {MenuItem[]} */
+    const items = []
+    if (one) {
+      const q = lookFor(list[0])
+      items.push(
+        {
+          label: 'Buscar en tu biblioteca',
+          icon: 'search',
+          note: 'con otro nombre',
+          action: () => ctx.findInLibrary?.(q)
+        },
+        {
+          label: 'Buscar y descargar…',
+          icon: 'download',
+          action: () => ctx.findToDownload?.(q)
+        },
+        { separator: true }
+      )
+    }
+    if (view.value.kind === 'playlist') {
+      items.push({
+        label: one ? 'Quitar de esta lista' : `Quitar ${list.length} de esta lista`,
+        icon: 'close',
+        action: () => removeFromView(list)
+      })
+    }
+    return items
   }
 
   /**
@@ -550,6 +669,10 @@ export function useSongMenus(ctx) {
    */
   function songMenu(ev, song, opts = {}) {
     const fromSearch = !!opts.fromSearch
+    if (song.ghost && !selection.selectMode.value) {
+      selection.only(song.id)
+      return openMenu(below(ev), missingItems([song]), missingTitle([song]))
+    }
     // En el modo «Seleccionar» el menú no toca la selección (la que se marcó
     // a mano no se suelta por abrir un menú): sobre una elegida es el de las
     // elegidas, aunque sea una sola; sobre otra, el de esa sin elegirla.
@@ -710,6 +833,7 @@ export function useSongMenus(ctx) {
     unfavorite,
     trash,
     sendTelegram,
-    removeFromView
+    removeFromView,
+    missingItems
   }
 }

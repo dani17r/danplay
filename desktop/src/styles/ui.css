@@ -1370,6 +1370,30 @@ tbody tr.flash {
   border-radius: 7px;
   padding: 9px;
 }
+/* una casilla con su texto (ui/CheckField) */
+.check-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.check-field input {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+  cursor: inherit;
+}
+.check-field.off {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.modal-check {
+  margin-top: 12px;
+}
 .modal-actions {
   justify-content: flex-end;
   margin-top: 18px;

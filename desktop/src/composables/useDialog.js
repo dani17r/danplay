@@ -17,6 +17,8 @@ import { ref } from 'vue'
  * @property {string} [okLabel]
  * @property {string} [cancelLabel]
  * @property {boolean} [danger]
+ * @property {{label: string, value?: boolean}} [check] una casilla: entonces
+ *   aceptar devuelve `{checked}` en vez de `true`
  * @property {() => Promise<string|null>} [browse] en un prompt de carpeta, el selector del sistema
  */
 

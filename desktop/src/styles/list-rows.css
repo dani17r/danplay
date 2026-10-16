@@ -107,3 +107,41 @@
     display: none;
   }
 }
+
+/* Las «No está»: canciones de una lista que ya no están en la biblioteca (se
+   borraron o se movieron por fuera). Siguen en su sitio, apagadas y con su
+   etiqueta, para buscarlas o bajarlas otra vez desde su menú. */
+.row.ghost,
+tr.ghost,
+.card-song.ghost,
+.tile.ghost {
+  color: var(--muted2);
+}
+.row.ghost .row-title,
+tr.ghost .cell-text,
+.card-song.ghost .card-title,
+.tile.ghost .name {
+  font-style: italic;
+  color: var(--muted);
+}
+.card-song.ghost .card-art,
+.tile.ghost .art {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+.ghost-badge {
+  display: inline-block;
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 16px;
+  vertical-align: 1px;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  white-space: nowrap;
+}

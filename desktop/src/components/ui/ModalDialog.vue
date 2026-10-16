@@ -10,6 +10,7 @@ import { ref, watch, onUnmounted, useId, useTemplateRef } from 'vue'
 import { useFocusTrap } from '../../composables/useFocusTrap.js'
 import Icon from '../Icon.vue'
 import TextField from './TextField.vue'
+import CheckField from './CheckField.vue'
 
 const props = defineProps({
   open: Boolean,
@@ -22,6 +23,9 @@ const props = defineProps({
   okLabel: { type: String, default: 'Aceptar' },
   cancelLabel: { type: String, default: 'Cancelar' },
   danger: Boolean,
+  // Una casilla debajo del mensaje ({label, value}): al aceptar se devuelve
+  // `{checked}` en vez de `true`.
+  check: { type: Object, default: null },
   // Para un prompt que pide una carpeta: «Elegir…» abre el selector del
   // sistema (esta funcion) y lo elegido va al campo, que se puede retocar.
   browse: { type: Function, default: null }
@@ -29,6 +33,7 @@ const props = defineProps({
 const emit = defineEmits(['ok', 'cancel'])
 
 const text = ref('')
+const checked = ref(false)
 const box = useTemplateRef('box')
 const titleId = useId()
 const messageId = useId()
@@ -37,7 +42,11 @@ const messageId = useId()
 // vuelta dentro) y al cerrarse vuelve a donde estaba. Al abrir va al campo,
 // para poder escribir y pulsar Enter sin tocar el raton; sin campo, al boton
 // principal, para aceptar o cancelar a teclas.
-useFocusTrap(box, { active: () => props.open, initial: 'input, .modal-actions .btn:last-child' })
+// (la casilla, si la hay, no: se marca a propósito, no por llegar)
+useFocusTrap(box, {
+  active: () => props.open,
+  initial: 'input:not([type="checkbox"]), .modal-actions .btn:last-child'
+})
 
 // Las teclas se escuchan en el documento MIENTRAS esta abierto. Estaban
 // puestas en el div del fondo, que no recibe el foco: en un dialogo de
@@ -53,6 +62,7 @@ watch(
     }
     document.addEventListener('keydown', teclas)
     text.value = props.value || ''
+    checked.value = !!props.check?.value
   },
   { immediate: true }
 ) // por si nace ya abierto
@@ -68,7 +78,8 @@ async function elegir() {
 
 function aceptar() {
   if (!puedeAceptar()) return
-  emit('ok', props.kind === 'prompt' ? text.value.trim() : true)
+  if (props.kind === 'prompt') emit('ok', text.value.trim())
+  else emit('ok', props.check ? { checked: checked.value } : true)
 }
 function teclas(e) {
   if (e.key === 'Escape') {
@@ -117,6 +128,10 @@ function teclas(e) {
         </div>
 
         <div v-if="detail" class="modal-detail">{{ detail }}</div>
+
+        <CheckField v-if="check" v-model="checked" class="modal-check">
+          {{ check.label }}
+        </CheckField>
 
         <div class="btn-row modal-actions">
           <button type="button" class="btn" @click="emit('cancel')">{{ cancelLabel }}</button>

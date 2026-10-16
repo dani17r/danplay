@@ -125,7 +125,8 @@ const {
           flash: jumpTo === c.id,
           dragged: isDragged(c.id),
           'drop-before': before(c),
-          'drop-after': after(c)
+          'drop-after': after(c),
+          ghost: c.ghost
         }"
         :data-drop="sortable ? dropKey(c) : null"
         data-drop-axis="x"
@@ -179,6 +180,9 @@ const {
             :t="11"
             style="display: inline-block; color: var(--accent); margin-right: 3px"
           />{{ c.title || c.file }}
+          <span v-if="c.ghost" class="ghost-badge" title="Ya no está en tu biblioteca"
+            >No está</span
+          >
         </div>
         <div class="sub2">{{ c.artist || '—' }}</div>
         <div class="tile-copy">

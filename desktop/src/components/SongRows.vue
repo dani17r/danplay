@@ -117,7 +117,8 @@ const {
           flash: jumpTo === c.id,
           dragged: isDragged(c.id),
           'drop-before': before(c),
-          'drop-after': after(c)
+          'drop-after': after(c),
+          ghost: c.ghost
         }"
         :data-drop="sortable ? dropKey(c) : null"
         data-song-row
@@ -158,6 +159,7 @@ const {
           <Icon :n="rowIcon(c)" :t="12" />
         </button>
         <span class="row-title">{{ c.title || c.file }}</span>
+        <span v-if="c.ghost" class="ghost-badge" title="Ya no está en tu biblioteca">No está</span>
         <CopyButton
           class="list-copy"
           :text="c.title || c.file"

@@ -382,7 +382,8 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
               flash: jumpTo === c.id,
               dragged: isDragged(c.id),
               'drop-before': before(c),
-              'drop-after': after(c)
+              'drop-after': after(c),
+              ghost: c.ghost
             }"
             :data-drop="sortable ? dropKey(c) : null"
             data-song-row
@@ -446,7 +447,10 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
                   class="cell-text"
                   :data-artist="show.artist && c.artist ? ' · ' + c.artist : null"
                   >{{ c.title || c.file
-                  }}<span v-if="c.feat" class="sub"> · feat. {{ c.feat }}</span></span
+                  }}<span v-if="c.feat" class="sub"> · feat. {{ c.feat }}</span
+                  ><span v-if="c.ghost" class="ghost-badge" title="Ya no está en tu biblioteca"
+                    >No está</span
+                  ></span
                 ><CopyButton
                   class="list-copy"
                   :text="c.title || c.file"

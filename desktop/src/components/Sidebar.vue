@@ -232,6 +232,16 @@ const shown = computed(() => {
               :class="{ paused: !nowPlaying.playing }"
               :title="soundingTitle"
             ></span>
+            <span
+              v-if="l.missing"
+              class="missing-dot"
+              :title="
+                l.missing === 1
+                  ? 'Una canción de esta lista ya no está'
+                  : `${l.missing} canciones de esta lista ya no están`
+              "
+              >{{ l.missing }}</span
+            >
             <span class="count">{{ l.n }}</span>
           </button>
           <button
