@@ -75,6 +75,11 @@ jobs:
           mkdir -p desktop/src-tauri/binaries
           cp dist/core/danplay-core "desktop/src-tauri/binaries/danplay-core-$triple"
 
+      # dentro de los paquetes: sin instalar nada aparte, y sin depender de
+      # las bibliotecas de cada distribucion (ver el script)
+      - name: ffmpeg, fpcalc y Deno dentro
+        run: ./scripts/herramientas-linux.sh
+
       - name: paquetes
         working-directory: desktop
         env:
