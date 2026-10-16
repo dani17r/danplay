@@ -26,7 +26,7 @@ pub struct MetronomeSettings {
     /// -1: la mitad de clics; 1: el doble (para ir a corcheas en una lenta, o
     /// cuando el tempo salio a la mitad). Vale con tempo a mano tambien.
     pub mult: i8,
-    /// 0..2: hasta el doble de fuerte.
+    /// 0..3: hasta el triple de fuerte.
     pub volume: f32,
     /// Como suena el clic.
     #[serde(default)]
@@ -59,9 +59,10 @@ pub struct MetronomeState {
     pub count_in: u8,
 }
 
-/// Hasta donde sube el clic: el doble de lo normal. Lo que la suma con la
-/// cancion se pase de la salida lo recoge el limitador (`output.rs`).
-pub const MAX_VOLUME: f32 = 2.0;
+/// Hasta donde sube el clic: el triple de lo normal. Lo que la suma con la
+/// cancion se pase de la salida lo recoge el limitador (`output.rs`); y si el
+/// clic va por su propia salida (a los cascos), suena entero.
+pub const MAX_VOLUME: f32 = 3.0;
 
 /// El tempo sin rejilla ni tempo a mano.
 pub const DEFAULT_BPM: f32 = 100.0;
@@ -151,6 +152,60 @@ impl Metro {
             count_in: s.count_in.min(MAX_COUNT_IN),
         }
     }
+}
+
+#[cfg(feature = "motor")]
+/// Los golpes del clic a lo largo de la cancion: los de la rejilla ajustada
+/// si la sigue, o al tempo a mano desde su primer «1» (como `clickTimes` de
+/// la interfaz).
+pub fn click_plan(metro: &Metro, duration: f64) -> crate::render::ClickPlan {
+    use crate::render::ClickPlan;
+    let settings = &metro.settings;
+    let st = metro.state();
+    let mut plan = ClickPlan {
+        on: settings.on,
+        meter: st.meter,
+        bpm: st.bpm,
+        volume: settings.volume,
+        sound: settings.sound,
+        ..ClickPlan::default()
+    };
+    if !settings.on {
+        return plan;
+    }
+    match (&metro.effective, metro.follows()) {
+        (Some(g), true) => {
+            let mut i = 0;
+            loop {
+                let t = g.beat_time(i);
+                if !t.is_finite() || t > duration || i > 50_000 {
+                    break;
+                }
+                plan.beats.push(t);
+                plan.accents.push(g.is_downbeat(i));
+                i += 1;
+            }
+        }
+        (grid, _) => {
+            let period = 60.0 / f64::from(st.bpm.clamp(10.0, 600.0));
+            let start = grid
+                .as_ref()
+                .map_or(0.0, |g| g.beat_time(g.first_downbeat).min(duration));
+            let first = start - (start / period).floor() * period;
+            let offset = ((start - first) / period).round() as i64;
+            let meter = i64::from(st.meter);
+            let mut k = 0i64;
+            let mut t = first;
+            while t <= duration && k < 50_000 {
+                plan.beats.push(t);
+                plan.accents
+                    .push(meter > 0 && (k - offset).rem_euclid(meter) == 0);
+                k += 1;
+                t = first + k as f64 * period;
+            }
+        }
+    }
+    plan
 }
 
 /// Hasta cuantos compases de cuenta.

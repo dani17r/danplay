@@ -19,10 +19,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # El pulso de una cancion: la envolvente de ataques sale de una FFT por trama.
 rustfft = "6.2"
-# Solo Vorbis (lo que lleva el .danpista) y MP3 (si el ffmpeg de la PC no
-# sabia hacer Vorbis): los dos empiezan en la muestra exacta. Medido:
-# AAC llega 1024 muestras tarde con symphonia, y el clic se iria.
-symphonia = { version = "0.6", optional = true, default-features = false, features = ["ogg", "vorbis", "mp3"] }
+# Vorbis (lo que lleva el .danpista) y MP3 empiezan en la muestra exacta;
+# FLAC, WAV y AIFF (las pistas separadas y las secuencias que se descargan)
+# tambien. AAC llega 1024 muestras tarde con symphonia: el clic de una
+# cancion en M4A se calcula con el mismo decodificador, asi que coinciden
+# entre si; la PC, que tiene ffmpeg, la pasa a FLAC antes.
+symphonia = { version = "0.6", optional = true, default-features = false, features = [
+    "ogg", "vorbis", "mp3", "flac", "wav", "aiff", "pcm", "isomp4", "aac", "alac", "id3v2" ] }
 cpal = { version = "0.17", optional = true }
 rtrb = { version = "0.4", optional = true }
 zip = { version = "8", optional = true, default-features = false, features = ["deflate-flate2-zlib-rs"] }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-record-level"
+description = "Enables the record_level command without any pre-configured scope."
+commands.allow = ["record_level"]
+
+[[permission]]
+identifier = "deny-record-level"
+description = "Denies the record_level command without any pre-configured scope."
+commands.deny = ["record_level"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-cues"
+description = "Enables the set_cues command without any pre-configured scope."
+commands.allow = ["set_cues"]
+
+[[permission]]
+identifier = "deny-set-cues"
+description = "Denies the set_cues command without any pre-configured scope."
+commands.deny = ["set_cues"]

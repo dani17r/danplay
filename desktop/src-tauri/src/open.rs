@@ -16,6 +16,7 @@ use crate::queue::{self, Track};
 use crate::tray;
 use serde_json::json;
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -78,6 +79,105 @@ pub fn files_in<I: IntoIterator<Item = OsString>>(args: I, cwd: Option<&Path>) -
         .collect()
 }
 
+/// «Se abrio un archivo de una secuencia»: la interfaz ofrece abrirla entera
+/// (sus pistas, su clic, sus partes). Lleva la carpeta.
+pub const SEQUENCE_EVENT: &str = "danplay://sequence";
+
+/// Lo mas que entra en la cola desde una carpeta.
+const MAX_FOLDER: usize = 1000;
+
+/// El orden en que se ven los archivos: sin mayusculas y con los numeros
+/// por su valor («2 Coro» antes que «10 Final»).
+fn natural_key(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 8);
+    let mut digits = String::new();
+    for c in name.to_lowercase().chars() {
+        if c.is_ascii_digit() {
+            digits.push(c);
+            continue;
+        }
+        if !digits.is_empty() {
+            let _ = write!(out, "{digits:0>12}");
+            digits.clear();
+        }
+        out.push(c);
+    }
+    if !digits.is_empty() {
+        let _ = write!(out, "{digits:0>12}");
+    }
+    out
+}
+
+/// Los archivos de audio de una carpeta, en orden.
+fn audio_in(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(String, String)> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && is_audio(p))
+        .filter(|p| {
+            !p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with('.'))
+        })
+        .filter_map(|p| {
+            let key = natural_key(&p.file_name()?.to_string_lossy());
+            Some((key, p.into_os_string().into_string().ok()?))
+        })
+        .collect();
+    found.sort();
+    found.truncate(MAX_FOLDER);
+    found.into_iter().map(|(_, p)| p).collect()
+}
+
+/// Lo que va a la cola al abrir `paths`: con un solo archivo, toda su
+/// carpeta (como cualquier reproductor: abres una y siguen las de al lado),
+/// empezando por ella; con varios, esos. Devuelve la lista y donde empezar.
+pub fn with_folder(paths: Vec<String>) -> (Vec<String>, usize) {
+    if paths.len() != 1 {
+        return (paths, 0);
+    }
+    let Some(dir) = Path::new(&paths[0]).parent() else {
+        return (paths, 0);
+    };
+    let all = audio_in(dir);
+    match all.iter().position(|p| p == &paths[0]) {
+        Some(at) => (all, at),
+        None => (paths, 0),
+    }
+}
+
+/// La carpeta de la secuencia de ese archivo, si es una pista de una: una
+/// carpeta con al menos tres audios y un proyecto de Ableton (al lado o en
+/// la de arriba), o que se llame como las de pistas (MultiTracks, Stems).
+pub fn sequence_of(path: &str) -> Option<String> {
+    let dir = Path::new(path).parent()?;
+    if audio_in(dir).len() < 3 {
+        return None;
+    }
+    let has_project = |d: &Path| {
+        std::fs::read_dir(d).is_ok_and(|mut it| {
+            it.any(|e| {
+                e.ok()
+                    .and_then(|e| e.path().extension().map(|x| x.eq_ignore_ascii_case("als")))
+                    .unwrap_or(false)
+            })
+        })
+    };
+    let name = dir.file_name()?.to_string_lossy().to_lowercase();
+    let tracks_like = ["multitracks", "multitrack", "stems", "tracks", "pistas"].contains(&name.as_str());
+    let song = if has_project(dir) {
+        dir
+    } else if dir.parent().is_some_and(has_project) || tracks_like {
+        dir.parent().unwrap_or(dir)
+    } else {
+        return None;
+    };
+    song.to_str().map(str::to_string)
+}
+
 /// El nombre del archivo, sin carpeta ni extension. Es lo que se enseña
 /// mientras no haya nada mejor.
 fn name_of(path: &str) -> String {
@@ -112,54 +212,69 @@ fn loose(path: &str, position: usize) -> Track {
 /// le lee las etiquetas y le da un id propio. En los dos casos la apunta en la
 /// lista del reproductor, que es de donde sale el historial. Ver
 /// `danplay/external.py`.
-async fn describe(address: &Address, paths: &[String]) -> Vec<Track> {
+fn track_of(song: Option<&serde_json::Value>, path: &str, position: usize) -> Track {
+    match song.filter(|s| !s.is_null()) {
+        // el nucleo la conoce: se reproduce con su id de verdad, pero
+        // conservando la ruta que nos dieron para no volver a resolverla
+        Some(song) => Track {
+            id: song.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0),
+            title: song
+                .get("title")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&name_of(path))
+                .to_string(),
+            artist: song.get("artist").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            duration: song.get("duration").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
+            blur: song
+                .get("blur")
+                .is_some_and(|v| v.as_bool() == Some(true) || v.as_i64() == Some(1)),
+            path: Some(path.to_string()),
+        },
+        None => loose(path, position),
+    }
+}
+
+/// `paths` como canciones para la cola. La de `opened` se apunta como
+/// escuchada (sube a la lista del reproductor); las demas (el resto de su
+/// carpeta) solo se describen, en una sola peticion.
+async fn describe(address: &Address, paths: &[String], opened: usize) -> Vec<Track> {
     // Un solo plazo para todas: con el nucleo colgado, esperar el tope de
     // cada peticion por cada archivo eran minutos sin sonar nada. Lo que no
     // llegue a tiempo suena como archivo suelto.
     let deadline = Instant::now() + core::QUICK;
-    let mut items = Vec::with_capacity(paths.len());
-    for (position, path) in paths.iter().enumerate() {
+    let ask = |route: &'static str, body: serde_json::Value| {
         let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            items.push(loose(path, position));
-            continue;
+        async move {
+            if left.is_zero() {
+                return None;
+            }
+            core::request_within(address, "POST", route, Some(body.to_string()), left)
+                .await
+                .ok()
+                .filter(|(status, ..)| *status == 200)
+                .and_then(|(_, bytes, _)| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         }
-        let found = core::request_within(
-            address,
-            "POST",
-            "/api/external/play",
-            Some(json!({ "path": path }).to_string()),
-            left,
-        )
+    };
+    let first = ask("/api/external/play", json!({ "path": paths[opened] }))
         .await
-        .ok()
-        .filter(|(status, ..)| *status == 200)
-        .and_then(|(_, bytes, _)| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .and_then(|v| v.get("song").cloned())
-        .filter(|s| !s.is_null());
-
-        items.push(match found {
-            // el nucleo la conoce: se reproduce con su id de verdad, pero
-            // conservando la ruta que nos dieron para no volver a resolverla
-            Some(song) => Track {
-                id: song.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0),
-                title: song
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or(&name_of(path))
-                    .to_string(),
-                artist: song.get("artist").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                duration: song.get("duration").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
-                blur: song
-                    .get("blur")
-                    .is_some_and(|v| v.as_bool() == Some(true) || v.as_i64() == Some(1)),
-                path: Some(path.clone()),
-            },
-            None => loose(path, position),
-        });
-    }
-    items
+        .and_then(|v| v.get("song").cloned());
+    let rest = if paths.len() > 1 {
+        ask("/api/external/describe", json!({ "paths": paths }))
+            .await
+            .and_then(|v| v.get("songs").and_then(|s| s.as_array().cloned()))
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    paths
+        .iter()
+        .enumerate()
+        .map(|(i, path)| {
+            let song = if i == opened { first.as_ref() } else { rest.get(i) };
+            track_of(song, path, i)
+        })
+        .collect()
 }
 
 /// Cuanto se espera al nucleo antes de reproducir sin sus datos.
@@ -175,6 +290,15 @@ pub fn play(app: &AppHandle, paths: Vec<String>) {
         return;
     }
     let app = app.clone();
+    // Una pista de una secuencia (el «Click Track.wav» de MultiTracks): suena
+    // sola y la interfaz ofrece abrir la secuencia entera. Si no, con un
+    // archivo, toda su carpeta a la cola.
+    let sequence = if paths.len() == 1 { sequence_of(&paths[0]) } else { None };
+    let (paths, opened) = if sequence.is_some() {
+        (paths, 0)
+    } else {
+        with_folder(paths)
+    };
     // En un hilo aparte: esto se llama desde el arranque y desde el aviso de
     // segunda instancia, y ninguno de los dos puede quedarse esperando al
     // nucleo.
@@ -193,22 +317,26 @@ pub fn play(app: &AppHandle, paths: Vec<String>) {
                         }
                         tokio::time::sleep(Duration::from_millis(150).min(left)).await;
                     }
-                    describe(&address, &paths).await
+                    describe(&address, &paths, opened).await
                 })
             }
             None => paths.iter().enumerate().map(|(i, p)| loose(p, i)).collect(),
         };
+        let start = items.get(opened).map(|t| t.id);
 
         if let Some(playback) = app.try_state::<queue::Playback>() {
             playback.send(queue::Command::SetQueue {
                 items,
-                start: None,
+                start,
                 // El «Ir a» del reproductor lleva a la lista donde se van
                 // acumulando las canciones abiertas desde fuera.
                 origin: Some(json!({ "kind": "player", "label": "el reproductor" })),
             });
         }
         let _ = app.emit(RECENT_EVENT, ());
+        if let Some(folder) = sequence {
+            let _ = app.emit(SEQUENCE_EVENT, folder);
+        }
         tray::show_main(&app);
     });
 }
@@ -301,6 +429,43 @@ mod tests {
         assert_ne!(a.id, b.id, "dos archivos, dos ids");
         assert_eq!(a.title, "Una Cancion", "sin carpeta ni extension");
         assert_eq!(a.path.as_deref(), Some("/musica/Una Cancion.mp3"));
+    }
+
+    #[test]
+    fn opening_one_file_queues_its_whole_folder_in_order() {
+        let dir = std::env::temp_dir().join(format!("danplay-abrir-carpeta-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("carpeta");
+        for name in ["10 Final.mp3", "2 Coro.mp3", "1 Intro.flac", "notas.txt", ".oculta.mp3"] {
+            std::fs::write(dir.join(name), b"existe").expect("archivo");
+        }
+        let coro = dir.join("2 Coro.mp3").to_string_lossy().into_owned();
+        let (list, at) = with_folder(vec![coro.clone()]);
+        let names: Vec<_> = list.iter().map(|p| name_of(p)).collect();
+        assert_eq!(
+            names,
+            ["1 Intro", "2 Coro", "10 Final"],
+            "por su numero, sin lo que no es audio"
+        );
+        assert_eq!(list[at], coro, "empieza por la que se abrio");
+        // varios elegidos a mano: esos y nada mas
+        let two = vec![coro.clone(), dir.join("1 Intro.flac").to_string_lossy().into_owned()];
+        assert_eq!(with_folder(two.clone()), (two, 0));
+        assert_eq!(sequence_of(&coro), None, "una carpeta de canciones no es una secuencia");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_track_of_a_sequence_is_recognised() {
+        let song = std::env::temp_dir().join(format!("danplay-secuencia-{}", std::process::id()));
+        let tracks = song.join("MultiTracks");
+        std::fs::create_dir_all(&tracks).expect("carpeta");
+        for name in ["Click Track.wav", "Guide.wav", "Bass.wav"] {
+            std::fs::write(tracks.join(name), b"existe").expect("pista");
+        }
+        std::fs::write(song.join("MultiTrack.als"), b"gz").expect("proyecto");
+        let click = tracks.join("Click Track.wav").to_string_lossy().into_owned();
+        assert_eq!(sequence_of(&click).as_deref(), song.to_str());
+        let _ = std::fs::remove_dir_all(&song);
     }
 
     #[test]

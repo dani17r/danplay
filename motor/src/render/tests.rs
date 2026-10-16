@@ -16,6 +16,7 @@ struct Bench {
     render: Render,
     controls: Arc<Controls>,
     shared: Arc<Shared>,
+    gains: Arc<Gains>,
     out_rate: u32,
 }
 
@@ -34,12 +35,14 @@ impl Bench {
             let _ = free_tx.push(Box::new(Block::new(parts)));
         }
         let controls = Arc::new(Controls::default());
+        let gains = Arc::new(Gains::default());
         let mut render = Render::new(44_100, out_rate, Arc::clone(&controls));
         render.set_ring(Some(Ring {
             full: full_rx,
             free: free_tx,
             parts,
             shared: Arc::clone(&shared),
+            gains: Arc::clone(&gains),
         }));
         Bench {
             feeder,
@@ -48,6 +51,7 @@ impl Bench {
             render,
             controls,
             shared,
+            gains,
             out_rate,
         }
     }
@@ -131,9 +135,8 @@ fn music_hits(x: &[f32]) -> Vec<usize> {
     onsets(&music(x), 0.3, 2_000)
 }
 
-fn set_gain(c: &Controls, part: usize, l: f32, r: f32) {
-    c.gains[part][0].store(l.to_bits(), Ordering::Relaxed);
-    c.gains[part][1].store(r.to_bits(), Ordering::Relaxed);
+fn set_gain(g: &Gains, part: usize, l: f32, r: f32) {
+    g.set(part, l, r);
 }
 
 #[test]
@@ -154,8 +157,8 @@ fn at_normal_speed_the_song_comes_out_as_it_is() {
 #[test]
 fn a_muted_part_is_silent_and_a_panned_one_goes_to_its_side() {
     let mut b = Bench::new(2, 44_100);
-    set_gain(&b.controls, 0, 0.0, 0.0);
-    set_gain(&b.controls, 1, 0.0, 1.0); // toda a la derecha
+    set_gain(&b.gains, 0, 0.0, 0.0);
+    set_gain(&b.gains, 1, 0.0, 1.0); // toda a la derecha
     b.play();
     b.run(2_000); // que pasen las rampas
     let out = b.run(40_000);
@@ -312,7 +315,8 @@ fn the_count_in_counts_a_bar_and_the_song_enters_on_the_beat() {
 fn a_segment_loops_and_its_beat_clicks_every_time() {
     let mut b = Bench::new(1, 44_100);
     b.click(vec![MARKS[1] as f64 / 44_100.0], 0);
-    b.feeder.set_segments(vec![(20_000, 40_000)]);
+    b.feeder
+        .set_segments(vec![(20_000, 40_000)], crate::queue::LoopEnd::Repeat);
     b.play();
     let out = b.run(100_000);
     // llega al tramo sonando (con el primer golpe de la cancion, antes del
@@ -340,4 +344,227 @@ fn at_the_end_it_stops_by_itself() {
     assert!(b.controls.ended.load(Ordering::Acquire));
     assert!(!b.controls.playing.load(Ordering::Acquire));
     let _ = &b.shared;
+}
+
+impl Bench {
+    /// Como `run`, con `channels` canales y sin limitador (lo que hace la
+    /// salida antes de sumar las canciones de un fundido).
+    fn run_channels(&mut self, frames: usize, channels: usize) -> Vec<f32> {
+        if self.render.channels != channels {
+            self.render.set_output(self.out_rate, channels);
+        }
+        let mut out = vec![0f32; frames * channels];
+        for chunk in out.chunks_mut(512 * channels) {
+            self.pump();
+            self.render.render_into(chunk, channels);
+        }
+        out
+    }
+
+    fn route(&mut self, routing: Routing) {
+        let stretches = (0..routing.bus_count())
+            .map(|_| Stretch::new(44_100))
+            .collect();
+        self.render.set_routing(Arc::new(routing), stretches);
+    }
+}
+
+/// Un canal de una salida de `channels`.
+fn channel(x: &[f32], channels: usize, c: usize) -> Vec<f32> {
+    x.chunks_exact(channels).map(|f| f[c]).collect()
+}
+
+fn peak(x: &[f32]) -> f32 {
+    x.iter().fold(0f32, |m, v| m.max(v.abs()))
+}
+
+#[test]
+fn the_click_goes_to_its_channel_and_the_music_to_its_pair() {
+    // como una secuencia en directo: el clic solo por la salida 1 (a los
+    // cascos) y la musica por la 3-4 (a la mesa)
+    let mut b = Bench::new(1, 44_100);
+    b.route(Routing {
+        buses: vec![Some(Target { left: 2, right: 3 }), Some(Target::mono(0))],
+        parts: vec![0],
+        click: 1,
+        cues: 1,
+    });
+    b.click(MARKS.iter().map(|&m| m as f64 / 44_100.0).collect(), 4);
+    b.play();
+    let out = b.run_channels(88_200, 4);
+    let click_ch = channel(&out, 4, 0);
+    let (l, r) = (channel(&out, 4, 2), channel(&out, 4, 3));
+    // por la 1, solo el clic, en sus golpes
+    let clicks = onsets(&click_ch, 0.05, 2_000);
+    assert_eq!(clicks.len(), 3, "{clicks:?}");
+    for (c, m) in clicks.iter().zip(MARKS) {
+        assert!(c.abs_diff(m) <= 40, "clic en {c}, golpe en {m}");
+    }
+    // la 2, callada; la musica, entera por la 3-4 y sin clic encima
+    assert!(peak(&channel(&out, 4, 1)) < 1e-6);
+    let stereo: Vec<f32> = l.iter().zip(&r).flat_map(|(a, b)| [*a, *b]).collect();
+    assert_eq!(music_hits(&stereo).len(), 3);
+    assert!(peak(&click(&stereo)) < 0.01, "el clic no va por la musica");
+}
+
+#[test]
+fn each_part_to_its_own_pair_of_outputs() {
+    let mut b = Bench::new(2, 44_100);
+    set_gain(&b.gains, 1, 0.5, 0.5);
+    b.route(Routing {
+        buses: vec![Some(Target::MAIN), Some(Target { left: 2, right: 3 })],
+        parts: vec![0, 1],
+        click: 0,
+        cues: 0,
+    });
+    b.play();
+    b.run_channels(2_000, 4);
+    let out = b.run_channels(40_000, 4);
+    let first = peak(&channel(&out, 4, 0));
+    let second = peak(&channel(&out, 4, 2));
+    assert!(first > 0.3, "{first}");
+    // la segunda parte, a la mitad y por su pareja
+    assert!((second / first - 0.5).abs() < 0.02, "{first} {second}");
+}
+
+#[test]
+fn a_mono_output_joins_both_sides() {
+    // una parte que suena igual a los dos lados sale igual de fuerte en mono
+    let mut b = Bench::new(1, 44_100);
+    set_gain(&b.gains, 0, 1.0, 0.0); // solo el izquierdo de la parte
+    b.route(Routing {
+        buses: vec![Some(Target::mono(1))],
+        parts: vec![0],
+        click: 0,
+        cues: 0,
+    });
+    b.play();
+    b.run_channels(2_000, 2);
+    let out = b.run_channels(40_000, 2);
+    assert!(peak(&channel(&out, 2, 0)) < 1e-6);
+    let mono = peak(&channel(&out, 2, 1));
+    assert!(mono > 0.15 && mono < 0.6, "{mono}");
+}
+
+/// Un destello corto en estereo, para una voz guia.
+fn burst(frames: usize) -> Arc<[f32]> {
+    (0..frames)
+        .flat_map(|i| {
+            let v = 0.6 * (i as f32 * 0.3).sin();
+            [v, v]
+        })
+        .collect::<Vec<f32>>()
+        .into()
+}
+
+#[test]
+fn a_cue_speaks_at_its_time_and_is_not_stretched() {
+    for speed in [1.0f32, 0.8] {
+        let mut b = Bench::new(1, 44_100);
+        b.controls.speed.store(speed.to_bits(), Ordering::Relaxed);
+        b.route(Routing {
+            buses: vec![Some(Target { left: 2, right: 3 }), Some(Target::mono(0))],
+            parts: vec![0],
+            click: 1,
+            cues: 1,
+        });
+        // la voz empieza donde la musica da su segundo golpe
+        b.render.set_cues(Arc::new(CuePlan {
+            on: true,
+            volume: 1.0,
+            cues: vec![Cue {
+                at: MARKS[1] as f64 / 44_100.0,
+                clip: burst(4_410),
+                gain: 1.0,
+            }],
+        }));
+        b.play();
+        let out = b.run_channels(110_000, 4);
+        let voice = channel(&out, 4, 0);
+        let (l, r) = (channel(&out, 4, 2), channel(&out, 4, 3));
+        let stereo: Vec<f32> = l.iter().zip(&r).flat_map(|(a, b)| [*a, *b]).collect();
+        let hits = music_hits(&stereo);
+        let starts = onsets(&voice, 0.05, 10_000);
+        assert_eq!(starts.len(), 1, "{speed}: {starts:?}");
+        assert!(
+            starts[0].abs_diff(hits[1]) <= 140,
+            "{speed}: voz en {}, golpe en {}",
+            starts[0],
+            hits[1]
+        );
+        // dura lo que dura, aunque la cancion vaya a 0,8
+        let end = voice.iter().rposition(|v| v.abs() > 0.05).unwrap_or(0);
+        let len = end - starts[0];
+        assert!(len.abs_diff(4_410) < 20, "{speed}: dura {len}");
+    }
+}
+
+#[test]
+fn the_mailbox_changes_the_click_while_it_plays() {
+    let mut b = Bench::new(1, 44_100);
+    let mut mail = b.render.mailbox();
+    b.play();
+    b.run(2_000);
+    let plan = ClickPlan {
+        on: true,
+        beats: MARKS.iter().map(|&m| m as f64 / 44_100.0).collect(),
+        accents: vec![true, false, false],
+        meter: 4,
+        bpm: 120.0,
+        volume: 1.0,
+        sound: Sound::Claves,
+    };
+    assert!(mail.send(Msg::Click(Arc::new(plan))).is_ok());
+    let out = b.run(86_200);
+    let clicks = onsets(&click(&out), 0.05, 2_000);
+    assert_eq!(clicks.len(), 3, "{clicks:?}");
+    // lo de antes vuelve por el otro buzon y se suelta aqui
+    mail.empty();
+}
+
+#[test]
+fn a_fade_takes_the_song_down_smoothly() {
+    let mut b = Bench::new(1, 44_100);
+    b.play();
+    b.run(6_000); // pasado el primer golpe (un destello: salta solo)
+    b.controls.fade_frames.store(4_410, Ordering::Release);
+    b.controls.fade.store(0f32.to_bits(), Ordering::Release);
+    let out = b.run(20_000);
+    let m = music(&out);
+    assert!(peak(&m[..200]) > 0.05, "aun suena al empezar");
+    assert!(peak(&m[5_000..]) < 1e-4, "a los 0,1 s ya no suena");
+    let worst = m[..5_000]
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0f32, f32::max);
+    assert!(worst < 0.05, "{worst}");
+    let now = f32::from_bits(b.controls.fade_now.load(Ordering::Acquire));
+    assert!(now < 1e-6, "{now}");
+}
+
+#[test]
+fn rerouting_while_playing_moves_the_sound_without_a_jump() {
+    let mut b = Bench::new(1, 44_100);
+    b.play();
+    b.run_channels(6_000, 4);
+    b.route(Routing {
+        buses: vec![Some(Target { left: 2, right: 3 })],
+        parts: vec![0],
+        click: 0,
+        cues: 0,
+    });
+    let out = b.run_channels(20_000, 4);
+    let first = channel(&out, 4, 0);
+    let moved = channel(&out, 4, 2);
+    assert!(
+        peak(&first[..60]) > 0.01,
+        "sigue sonando por la 1 al empezar"
+    );
+    assert!(peak(&first[2_000..]) < 1e-6, "y luego ya no");
+    assert!(peak(&moved[2_000..]) > 0.05, "suena por la 3");
+    let worst = first
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0f32, f32::max);
+    assert!(worst < 0.05, "{worst}");
 }

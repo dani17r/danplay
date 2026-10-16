@@ -55,7 +55,7 @@ pub(super) fn compose(inner: &Inner, audio: &player::State) -> PlaybackState {
         loop_a: audio.loop_a,
         loop_b: audio.loop_b,
         loops: audio.loops.clone(),
-        loop_defer: audio.loop_defer,
+        loop_end: audio.loop_end,
         pitch: audio.pitch,
         metronome: audio.metronome.clone(),
         stems: audio.stems,

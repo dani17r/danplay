@@ -34,8 +34,17 @@ pub enum Command {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     NudgeVolume(f32),
     Speed(f32),
-    /// Los tramos que se repiten (vacio: ninguno) y si esperan al final.
-    Loops(Vec<(f64, f64)>, bool),
+    /// Los tramos que se repiten (vacio: ninguno) y que pasa al acabar el
+    /// ultimo.
+    Loops(Vec<(f64, f64)>, player::LoopEnd),
+    /// A donde va cada cosa, que salida de audio y las voces guia.
+    Routing(player::RoutingSpec),
+    Output(player::OutputConfig),
+    Cues {
+        song: String,
+        cues: Vec<player::CueSpec>,
+        volume: f32,
+    },
     /// El tono corrido, en semitonos (con fracciones).
     Pitch(f32),
     /// Cuanto se funden dos canciones al pasar de una a otra (0 = nada).

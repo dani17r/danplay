@@ -1,5 +1,7 @@
 //! Lo que el hilo de audio cuenta hacia fuera: el estado de la reproduccion
 //! y los ajustes del metronomo.
+use danplay_motor::output::OutputStatus;
+use danplay_motor::queue::LoopEnd;
 use serde::Serialize;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -34,8 +36,8 @@ pub struct State {
     pub speed: f32,
     pub error: String,
     pub has_output: bool,
-    /// La velocidad conserva el tono (ffmpeg `atempo`). Sin ffmpeg, rodio
-    /// cambia la velocidad a la antigua, con el tono detras.
+    /// La velocidad conserva el tono. Siempre, desde que estira el motor
+    /// (Signalsmith Stretch); antes, sin ffmpeg, el tono iba detras.
     pub pitch_preserved: bool,
     /// Bucle A-B para estudiar un trozo, en segundos; 0,0 = sin bucle. Con
     /// varios tramos, del principio del primero al final del ultimo.
@@ -43,8 +45,8 @@ pub struct State {
     pub loop_b: f64,
     /// Los tramos que se repiten, en orden (uno solo es el bucle A-B).
     pub loops: Vec<[f64; 2]>,
-    /// Los tramos esperan a que acabe la cancion para empezar a repetirse.
-    pub loop_defer: bool,
+    /// Que pasa al acabar el ultimo tramo: repetir, parar o seguir.
+    pub loop_end: LoopEnd,
     /// El tono corrido, en semitonos (0 = como esta grabada). Admite medios
     /// semitonos (cuartos de tono) y cualquier fraccion. Solo con ffmpeg.
     pub pitch: f32,
@@ -56,6 +58,12 @@ pub struct State {
     /// Se esta contando para que entre la cancion (esta en pausa hasta que
     /// acabe la cuenta).
     pub counting_in: bool,
+    /// La salida de audio abierta: cual, con cuantos canales, si es la del
+    /// sistema porque la elegida no esta, y cuantas veces tropezo.
+    pub output: Option<OutputStatus>,
+    /// Se esta preparando la cancion (pasandola a un formato que se lee
+    /// muestra a muestra: una vez por archivo).
+    pub preparing: bool,
 }
 
 impl State {

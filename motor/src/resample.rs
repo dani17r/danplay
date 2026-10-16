@@ -1,6 +1,8 @@
-//! De la tasa de las partes (44,1 kHz) a la de la salida, cuando la salida no
-//! acepta 44,1. En Android AAudio la acepta y convierte el sistema; en un
-//! iPhone, la salida suele ir a 48 kHz y hay que hacerlo aqui.
+//! De una tasa a otra: de la del motor (44,1 kHz) a la de la salida, cuando
+//! la salida no acepta 44,1 (en un iPhone suele ir a 48 kHz; una interfaz de
+//! audio, a 48 o a 96), y de la de una parte a la del motor (una cancion a 48
+//! kHz junto a sus pistas, que van a 44,1). Con los canales que hagan falta:
+//! dos para una parte, los de la salida (hasta decenas) para ella.
 //!
 //! Un filtro sinc con ventana de Kaiser en tablas polifase (32 coeficientes,
 //! 256 fases, interpolando entre fases): de sobra para musica, y sin pedir
@@ -17,9 +19,11 @@ const CHUNK: usize = 256;
 pub struct Resampler {
     /// Entrada por salida (44.100 / 48.000 = 0,91875).
     step: f64,
+    /// Canales de cada muestra (intercalados).
+    channels: usize,
     /// `PHASES + 1` tablas de `TAPS` coeficientes.
     table: Vec<f32>,
-    /// La entrada pendiente, intercalada en estereo, con la historia que
+    /// La entrada pendiente, intercalada, con la historia que
     /// pide el filtro por detras de la que va. Empieza con `HALF` de silencio
     /// (lo de antes del principio).
     input: Vec<f32>,
@@ -31,7 +35,13 @@ pub struct Resampler {
 }
 
 impl Resampler {
+    /// En estereo.
     pub fn new(rate_in: u32, rate_out: u32) -> Resampler {
+        Resampler::with_channels(rate_in, rate_out, 2)
+    }
+
+    pub fn with_channels(rate_in: u32, rate_out: u32, channels: usize) -> Resampler {
+        let channels = channels.max(1);
         let step = f64::from(rate_in) / f64::from(rate_out);
         // al bajar de tasa, el corte baja con ella (que no se cuele nada por
         // encima de la nueva mitad); con margen para la caida del filtro
@@ -59,34 +69,41 @@ impl Resampler {
         }
         Resampler {
             step,
+            channels,
             table,
-            input: vec![0.0; HALF * 2],
+            input: vec![0.0; HALF * channels],
             pos: HALF as f64,
-            chunk: vec![0.0; CHUNK * 2],
+            chunk: vec![0.0; CHUNK * channels],
         }
+    }
+
+    /// Entrada por cada muestra de salida.
+    pub fn step(&self) -> f64 {
+        self.step
+    }
+
+    pub fn channels(&self) -> usize {
+        self.channels
     }
 
     /// Olvida lo que llevaba (tras un salto).
     pub fn reset(&mut self) {
         self.input.clear();
-        self.input.resize(HALF * 2, 0.0);
+        self.input.resize(HALF * self.channels, 0.0);
         self.pos = HALF as f64;
     }
 
-    /// Llena `out` (estereo intercalado) tirando de `source`, que llena el
-    /// bufer que se le da a la tasa de entrada.
-    #[expect(
-        clippy::many_single_char_names,
-        reason = "l y r son los canales; a y b, las fases vecinas"
-    )]
+    /// Llena `out` (intercalado, con sus canales) tirando de `source`, que
+    /// llena el bufer que se le da a la tasa de entrada.
     pub fn pull(&mut self, out: &mut [f32], mut source: impl FnMut(&mut [f32])) {
-        for frame in out.as_chunks_mut::<2>().0 {
+        let ch = self.channels;
+        for frame in out.chunks_exact_mut(ch) {
             // hacen falta HALF muestras por delante de la que se calcula
-            while (self.pos as usize) + HALF + 1 >= self.input.len() / 2 {
+            while (self.pos as usize) + HALF + 1 >= self.input.len() / ch {
                 // lo ya pasado se tira (dejando la historia que pide el filtro)
                 let keep_from = (self.pos as usize).saturating_sub(HALF);
                 if keep_from > 0 {
-                    self.input.drain(..keep_from * 2);
+                    self.input.drain(..keep_from * ch);
                     self.pos -= keep_from as f64;
                 }
                 self.chunk.fill(0.0);
@@ -102,15 +119,14 @@ impl Resampler {
                 &self.table[(pi + 1) * TAPS..][..TAPS],
             );
             let start = base + 1 - HALF;
-            let (mut l, mut r) = (0f32, 0f32);
+            frame.fill(0.0);
             for k in 0..TAPS {
-                let c = a[k] + (b[k] - a[k]) * pf;
-                let i = (start + k) * 2;
-                l += c * self.input[i];
-                r += c * self.input[i + 1];
+                let coef = a[k] + (b[k] - a[k]) * pf;
+                let row = &self.input[(start + k) * ch..][..ch];
+                for (o, v) in frame.iter_mut().zip(row) {
+                    *o += coef * v;
+                }
             }
-            frame[0] = l;
-            frame[1] = r;
             self.pos += self.step;
         }
     }

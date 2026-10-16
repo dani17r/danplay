@@ -45,6 +45,36 @@ pub enum Repeat {
     Queue,
 }
 
+/// Que pasa cuando la cancion acaba el ultimo de sus tramos.
+///
+/// Antes los tramos se repetian siempre (y el unico ajuste era esperar a que
+/// acabara la cancion), y quien los elegia esperaba oirlos una vez: «suenan
+/// seguidos hasta el final, y se repiten si lo digo».
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LoopEnd {
+    /// Del ultimo, vuelta al primero: el bucle de siempre.
+    #[default]
+    Repeat,
+    /// Se para, con la cancion al principio del primero: play los vuelve a
+    /// tocar.
+    Stop,
+    /// Suenan una vez y la cancion sigue (y acaba) como siempre.
+    Continue,
+}
+
+impl LoopEnd {
+    /// Lo que manda la interfaz: "repeat", "stop" o "continue". Lo que no
+    /// conoce es lo de siempre (repetir).
+    pub fn parse(text: Option<&str>) -> LoopEnd {
+        match text {
+            Some("stop") => LoopEnd::Stop,
+            Some("continue") => LoopEnd::Continue,
+            _ => LoopEnd::Repeat,
+        }
+    }
+}
+
 /// Lo que ve la interfaz (`danplay://state`). Es un contrato con el JS: cada
 /// campo es una cosa que se pinta, y varias son de si o no.
 #[derive(Serialize, Clone, Debug, Default, PartialEq)]
@@ -78,8 +108,8 @@ pub struct PlaybackState {
     pub loop_b: f64,
     /// Los tramos que se repiten, en orden.
     pub loops: Vec<[f64; 2]>,
-    /// Los tramos esperan a que acabe la cancion.
-    pub loop_defer: bool,
+    /// Que pasa al acabar el ultimo tramo.
+    pub loop_end: LoopEnd,
     /// El tono corrido, en semitonos (0 = como esta grabada; con fracciones).
     pub pitch: f32,
     /// Como va el metronomo.

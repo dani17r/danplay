@@ -1,46 +1,53 @@
-//! Reproduccion nativa en Rust.
+//! Reproduccion nativa en Rust, con el motor de pistas (`danplay-motor`), el
+//! mismo que la app del celular.
 //!
 //! El audio se decodifica y sale a la tarjeta de sonido desde el propio
 //! proceso: el WebView no lo toca en ningun momento.
 //!
-//! `OutputStream` de rodio no es Send, asi que vive en un hilo dedicado que
-//! recibe ordenes por un canal. Ese hilo **avisa** de lo que pasa en vez de
-//! esperar a que le pregunten: antes la interfaz consultaba el estado cuatro
-//! veces por segundo, y con la ventana escondida el navegador ralentiza esos
-//! temporizadores hasta una vez por minuto, con lo que el fin de una cancion
-//! podia tardar un minuto en notarse.
+//! Hasta 1.27 aqui sonaba rodio, con ffmpeg para la velocidad, el tono y las
+//! pistas separadas, y el clic en una fuente aparte que se reenganchaba cada
+//! dos segundos. Los tramos se vigilaban cada 100 ms y se saltaba con un
+//! `seek`: el final de un tramo se pasaba de largo hasta una decima y
+//! cortaba en seco. Ahora todo pasa por un solo render, muestra a muestra:
+//! los tramos saltan en su muestra con un fundido de 4 ms, el clic y las
+//! voces guia caen en el pulso tambien a 0,7x y en la vuelta de un tramo, la
+//! cancion y sus pistas van cargadas juntas (pasar de una a otras es subir y
+//! bajar volumenes), y cada cosa sale por el canal que se elija: el clic por
+//! la izquierda y la musica por la derecha, o por las salidas de una
+//! interfaz, como una secuencia en directo.
+//!
+//! El motor tiene sus propios hilos (el que decodifica y el de la salida);
+//! este modulo es un hilo que recibe ordenes por un canal, lleva lo que la
+//! interfaz espera (el estado, los avisos de fin) y **avisa** de lo que pasa
+//! en vez de esperar a que le pregunten: con la ventana escondida el
+//! navegador ralentiza sus temporizadores hasta una vez por minuto.
 //!
 //!   mod.rs      las ordenes, los avisos y el hilo que se levanta solo
-//!   engine.rs   el bucle: una funcion por orden, el vigilante, el bucle A-B
-//!   output.rs   la salida de audio, su latido y los saltos con tope
-//!   open.rs     abrir una cancion (decodificador de siempre o ffmpeg)
-//!   ahead.rs    la cancion leida a memoria por delante: el callback no
-//!               toca el disco
-//!   fade.rs     el volumen de cada cancion, muestra a muestra: fundidos
-//!               entre canciones y el paso sin cortes a sus pistas
-//!   mix.rs      las pistas separadas de una cancion, sonando juntas
-//!   metro.rs    el metronomo visto desde aqui
+//!   engine.rs   el bucle: una funcion por orden, sobre el motor
+//!   formats.rs  lo que el motor no lee, pasado a FLAC con ffmpeg (una vez)
 //!   state.rs    lo que se cuenta hacia fuera
-mod ahead;
 mod engine;
-mod fade;
-mod metro;
-mod mix;
-mod open;
-mod output;
+mod formats;
 mod state;
 #[cfg(test)]
 mod tests;
 
-pub use mix::StemTrack;
+pub use formats::playable;
 pub use state::{MetronomeSettings, State};
 
 use crate::beats::BeatGrid;
+pub use danplay_motor::output::OutputConfig;
+pub use danplay_motor::queue::LoopEnd;
+use serde::{Deserialize, Serialize};
 use state::lock;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 
 /// Lo que el hilo de audio cuenta hacia fuera.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "el estado va entero cuatro veces por segundo: meterlo en una caja no ahorra nada"
+)]
 pub enum Event {
     /// Algo cambio (empezo, se pauso, fallo) o toca refrescar la posicion.
     Changed(State),
@@ -57,6 +64,52 @@ pub enum Event {
 /// A quien se le cuentan los avisos. Devuelve false cuando ya no escucha
 /// nadie: entonces el hilo de audio termina.
 pub type Notify = Box<dyn Fn(Event) -> bool + Send>;
+
+/// Hasta donde sube una pista: el doble de como viene.
+pub const MAX_GAIN: f32 = 2.0;
+
+/// Una pista separada, tal como la manda la interfaz.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct StemTrack {
+    pub path: String,
+    /// 0..`MAX_GAIN`: 1 es como viene.
+    #[serde(default = "one")]
+    pub gain: f32,
+    /// -1 (izquierda) .. 1 (derecha).
+    #[serde(default)]
+    pub pan: f32,
+    /// Si suena: la interfaz ya resolvio aqui lo de callar y dejar sola.
+    #[serde(default = "yes")]
+    pub on: bool,
+    /// Por que salida va (el bus del enrutado; 0, el principal).
+    #[serde(default)]
+    pub bus: u8,
+}
+
+const fn one() -> f32 {
+    1.0
+}
+const fn yes() -> bool {
+    true
+}
+
+/// Lo que se aplica a cada canal de una pista segun su volumen y su
+/// panorama. Es un balance, como el de un equipo de musica: al centro, los
+/// dos canales como vienen; hacia un lado, el otro baja hasta callar. Es la
+/// misma cuenta que hace el nucleo al guardar la mezcla (`stems.gains`), para
+/// que lo guardado suene como lo que se oia.
+pub fn balance(gain: f32, pan: f32, on: bool) -> [f32; 2] {
+    if !on || !gain.is_finite() || gain <= 0.0 {
+        return [0.0, 0.0];
+    }
+    let gain = gain.min(MAX_GAIN);
+    let pan = if pan.is_finite() { pan.clamp(-1.0, 1.0) } else { 0.0 };
+    [gain * (1.0 - pan).min(1.0), gain * (1.0 + pan).min(1.0)]
+}
+
+// A donde va cada cosa y las voces guia, como lo manda la interfaz: en el
+// motor, que es el mismo contrato en la PC y en el celular.
+pub use danplay_motor::spec::{CueSpec, RoutingSpec};
 
 pub enum Command {
     Play {
@@ -77,39 +130,37 @@ pub enum Command {
     Resume,
     Stop,
     /// La cola no pudo localizar el archivo de la cancion: se para lo que
-    /// hubiera y se cuenta el motivo, en castellano. Antes se mandaba un
-    /// `Play` con la ruta vacia y el error que salia era el del sistema.
+    /// hubiera y se cuenta el motivo, en castellano.
     Fail(String),
     Seek(f64),
     Volume(f32),
     NudgeVolume(f32),
-    /// Los tramos que se repiten (segundos de la cancion), en orden: al
-    /// acabar uno se salta al siguiente, y del ultimo al primero. Vacio los
-    /// quita. Con `defer`, la cancion sigue hasta el final y entonces vuelve
-    /// al primero («repetir cuando acabe la cancion»).
+    /// Los tramos que se repiten (segundos de la cancion), en orden, y que
+    /// pasa al acabar el ultimo: volver al primero, pararse o seguir. Vacio
+    /// los quita.
     Loops {
         segments: Vec<(f64, f64)>,
-        defer: bool,
+        end: LoopEnd,
     },
     Speed(f32),
     /// El tono corrido, en semitonos (-12..12, con fracciones: medio
-    /// semitono es un cuarto de tono). Reabre la cancion donde iba.
+    /// semitono es un cuarto de tono).
     Pitch(f32),
     /// Cuanto se funden dos canciones al pasar de una a otra, en segundos
     /// (0 = sin fundido, hasta 12).
     Crossfade(f32),
-    /// El archivo de `from` ahora esta en `to` (se movio o se renombro:
-    /// «Transformar», llevarla a Pistas...). Si es el que suena, sigue
-    /// sonando (lo tiene en memoria) y lo que lo vuelva a abrir (un salto
-    /// con ffmpeg, las pistas, otra velocidad) lo abre de su sitio nuevo.
+    /// El archivo de `from` ahora esta en `to` (se movio o se renombro). Si
+    /// es el que suena, sigue sonando y lo que lo vuelva a abrir lo abre de
+    /// su sitio nuevo.
     Relocated {
         from: String,
         to: String,
     },
     /// Que suenen las pistas separadas de la cancion `song` en vez de ella
-    /// (o, con `None`, la cancion otra vez). Si las pistas son las mismas
-    /// que ya suenan, solo cambia el volumen de cada una, sin reabrir nada.
-    /// Si la cancion que suena ya es otra, no hace nada: eran para aquella.
+    /// (o, con `None`, la cancion otra vez). Si las pistas son las que ya
+    /// estan cargadas, solo cambia el volumen de cada una; si no, entran a la
+    /// par de lo que suena, sin corte. Si la cancion que suena ya es otra, no
+    /// hace nada: eran para aquella.
     Stems {
         song: String,
         tracks: Option<Vec<StemTrack>>,
@@ -118,6 +169,16 @@ pub enum Command {
     Metronome {
         settings: MetronomeSettings,
         grid: Option<(String, Arc<BeatGrid>)>,
+    },
+    /// A donde va cada cosa (la cancion, el clic, las voces).
+    Routing(RoutingSpec),
+    /// Que salida de audio abrir (y cuantos canales).
+    Output(OutputConfig),
+    /// Las voces guia de la cancion `song`, y su volumen.
+    Cues {
+        song: String,
+        cues: Vec<CueSpec>,
+        volume: f32,
     },
 }
 
@@ -183,13 +244,16 @@ impl Handle {
     }
 }
 
+/// Las salidas de audio del equipo, la del sistema primero.
+pub fn devices() -> Vec<danplay_motor::output::DeviceInfo> {
+    danplay_motor::Engine::devices()
+}
+
 /// El bucle se cayo leyendo un archivo: se olvida ese archivo y se cuenta.
 /// Devuelve false si ya no escucha nadie.
 fn after_a_panic(carry: &mut engine::Carry, shared: &Arc<Mutex<State>>, notify: &Notify) -> bool {
     let bad = std::mem::take(&mut carry.path);
-    carry.stems = None;
-    carry.duration = 0.0;
-    carry.resume_at = None;
+    carry.forget_song();
     let name = std::path::Path::new(&bad)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())

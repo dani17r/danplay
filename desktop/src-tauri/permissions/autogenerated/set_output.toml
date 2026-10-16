@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-output"
+description = "Enables the set_output command without any pre-configured scope."
+commands.allow = ["set_output"]
+
+[[permission]]
+identifier = "deny-set-output"
+description = "Denies the set_output command without any pre-configured scope."
+commands.deny = ["set_output"]
