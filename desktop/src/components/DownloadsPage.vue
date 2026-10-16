@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { notify } from '../composables/useNotices.js'
 import { useDownloads } from '../composables/useDownloads.js'
 import { usePlayback } from '../composables/usePlayback.js'
@@ -14,6 +14,10 @@ import ToggleField from './ui/ToggleField.vue'
 import Card from './ui/Card.vue'
 import JobProgress from './ui/JobProgress.vue'
 
+const props = defineProps({
+  /** con qué búsqueda abrir (p. ej. una canción de una lista que ya no está) */
+  initial: { type: String, default: '' }
+})
 const emit = defineEmits(['reload'])
 
 const query = ref('')
@@ -267,8 +271,20 @@ const stopFollowing = downloads.onFinished((s) => {
   loadHistory() // el asistente tambien escribe aqui
 })
 
+/** La búsqueda con la que se abrió: puesta, y ya buscando qué bajar. */
+function lookUp(q) {
+  if (!q || running.value) return
+  query.value = q
+  showPreview()
+}
+watch(
+  () => props.initial,
+  (q) => lookUp(q)
+)
+
 onMounted(async () => {
   await downloads.refresh()
+  lookUp(props.initial)
   await Promise.all([loadHistory(), loadFolder()])
 })
 onUnmounted(stopFollowing)

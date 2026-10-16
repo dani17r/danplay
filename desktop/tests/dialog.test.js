@@ -27,6 +27,28 @@ const tecla = (target, key, extra = {}) => {
 const boton = (text) =>
   [...document.querySelectorAll('.modal button')].find((b) => b.textContent.trim() === text)
 
+describe('la casilla', () => {
+  it('con casilla, aceptar dice si quedó marcada', async () => {
+    const w = await abrir({ check: { label: 'Quitarla también de sus listas', value: true } })
+    const casilla = document.querySelector('.modal-check input')
+    expect(casilla.checked).toBe(true)
+    expect(document.querySelector('.modal-check').textContent).toContain('de sus listas')
+    casilla.click()
+    await flushPromises()
+    boton('Aceptar').click()
+    await flushPromises()
+    expect(w.emitted('ok')[0]).toEqual([{ checked: false }])
+  })
+
+  it('sin casilla, aceptar sigue siendo true', async () => {
+    const w = await abrir()
+    expect(document.querySelector('.modal-check')).toBeNull()
+    boton('Aceptar').click()
+    await flushPromises()
+    expect(w.emitted('ok')[0]).toEqual([true])
+  })
+})
+
 describe('el dialogo se maneja con el teclado', () => {
   it('Escape cierra tambien una confirmacion, no solo los que piden texto', async () => {
     const w = await abrir()

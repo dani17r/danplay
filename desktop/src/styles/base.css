@@ -269,6 +269,19 @@ select:focus {
 .nav-playlist .count {
   margin-left: 0;
 }
+/* cuántas de la lista ya no están (siguen en ella como «No está») */
+.nav-playlist .missing-dot {
+  flex-shrink: 0;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+}
 /* El boton de «mas opciones» va al lado del de la lista, no dentro (un boton
    dentro de otro no se alcanza con el teclado); se coloca encima de su borde
    derecho, que la lista deja libre, y aparece al pasar o al llegar con Tab. */

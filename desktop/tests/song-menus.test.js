@@ -166,10 +166,50 @@ describe('el menú de una canción', () => {
     await flushPromises()
     dialogOk()
     await otra
-    expect(api().deleteSong).toHaveBeenCalledWith(1)
+    expect(api().deleteSong).toHaveBeenCalledWith(1, { fromLists: false })
     // era la que sonaba: se para
     expect(ctx.player.stop).toHaveBeenCalled()
     expect(ctx.refreshAll).toHaveBeenCalled()
+  })
+
+  it('si está en listas, pregunta si sale también de ellas', async () => {
+    const { menus } = preparar()
+    // sin listas, ni se pregunta
+    menus.songMenu(ev, held.state.songs[0])
+    let hecho = pick('Mandar a la papelera…')
+    await flushPromises()
+    expect(dialog.value.check).toBeUndefined()
+    dialogCancel()
+    await hecho
+
+    held.state.songs[0].playlists = ['Domingo', 'Ensayo']
+    held.state.playlistSongs = [held.state.songs[0]]
+    menus.songMenu(ev, held.state.songs[0])
+    hecho = pick('Mandar a la papelera…')
+    await flushPromises()
+    expect(dialog.value.message).toContain('«No está»')
+    expect(dialog.value.check).toEqual({
+      label: 'Quitarla también de sus 2 listas («Domingo», «Ensayo»)',
+      value: true
+    })
+    dialogOk({ checked: true })
+    await hecho
+    expect(api().deleteSong).toHaveBeenCalledWith(1, { fromLists: true })
+    expect(notices.value.at(-1).message).toContain('fuera de su lista')
+  })
+
+  it('dejarla en sus listas la deja como «No está»', async () => {
+    const { menus } = preparar()
+    held.state.songs[0].playlists = ['Domingo']
+    held.state.playlistSongs = [held.state.songs[0]]
+    menus.songMenu(ev, held.state.songs[0])
+    const hecho = pick('Mandar a la papelera…')
+    await flushPromises()
+    expect(dialog.value.check.label).toBe('Quitarla también de la lista («Domingo»)')
+    dialogOk({ checked: false })
+    await hecho
+    expect(api().deleteSong).toHaveBeenCalledWith(1, { fromLists: false })
+    expect(held.state.playlistSongs[0].ghost).toBe(true)
   })
 
   it('renombrar, buscar la letra y difuminar cambian la canción en todas partes', async () => {
@@ -214,6 +254,57 @@ describe('el menú de una canción', () => {
     menus.songMenu(ev, sinRuta)
     await pick('Abrir la carpeta')
     expect(notices.value.at(-1).message).toContain('no hay explorador')
+  })
+})
+
+describe('las «No está» de una lista', () => {
+  const lista = { kind: 'playlist', id: 7, name: 'Domingo' }
+  const ida = () => song(9, { title: 'Se Fue', artist: 'Barak', ghost: true })
+
+  it('tienen su menú: buscarla en lo que tienes, bajarla o quitarla', async () => {
+    const { menus, ctx } = preparar({ view: lista })
+    ctx.findInLibrary = vi.fn()
+    ctx.findToDownload = vi.fn()
+    menus.songMenu(ev, ida())
+    expect(menu.value.title).toBe('Se Fue · No está')
+    expect(labels()).toEqual([
+      'Buscar en tu biblioteca',
+      'Buscar y descargar…',
+      'Quitar de esta lista'
+    ])
+    await pick('Buscar en tu biblioteca')
+    expect(ctx.findInLibrary).toHaveBeenCalledWith('Barak Se Fue')
+    menus.songMenu(ev, ida())
+    await pick('Buscar y descargar…')
+    expect(ctx.findToDownload).toHaveBeenCalledWith('Barak Se Fue')
+    menus.songMenu(ev, ida())
+    await pick('Quitar de esta lista')
+    expect(api().removeFromPlaylist).toHaveBeenCalledWith(7, 9)
+  })
+
+  it('entre varias elegidas, solo cuentan para quitarlas de la lista', async () => {
+    const { menus } = preparar({ view: lista })
+    const varias = [held.state.songs[0], ida()]
+    menus.groupMenu(ev, varias)
+    expect(menu.value.title).toBe('Cancion 1')
+    expect(labels()).toContain('Quitar 2 de esta lista')
+    await pick('Quitar 2 de esta lista')
+    expect(api().removeFromPlaylist.mock.calls).toEqual([
+      [7, 1],
+      [7, 9]
+    ])
+    // la papelera, las favoritas y Telegram no las tocan
+    await menus.trash([ida()])
+    expect(dialog.value.open).toBe(false)
+    await menus.favorites([ida()])
+    expect(api().toggleFavorite).not.toHaveBeenCalled()
+  })
+
+  it('solo «No está» elegidas: solo se pueden quitar', () => {
+    const { menus } = preparar({ view: lista })
+    menus.groupMenu(ev, [ida(), song(10, { ghost: true })])
+    expect(menu.value.title).toBe('2 que no están')
+    expect(labels()).toEqual(['Quitar 2 de esta lista'])
   })
 })
 
@@ -437,7 +528,7 @@ describe('las pistas separadas', () => {
     held.state.stems[3] = stemsOf(3)
     const withStems = { ...held.state.songs[0], has_stems: true, stems_best: true }
     menus.songMenu(ev, withStems)
-    await pick('Llevar al celular')
+    await pick('Convertir a DanPista (para el celular)')
     expect(api().toPhone).toHaveBeenCalledWith([1])
     expect(notices.value.at(-1).message).toBe('Lista para el celular: «cancion-1.danpista» (23 MB)')
     // la carpeta se abre con el archivo marcado: de ahí se arrastra a WhatsApp
@@ -447,8 +538,8 @@ describe('las pistas separadas', () => {
     await ctx.selection.select(1)
     await ctx.selection.select(3, { shiftKey: true })
     menus.songMenu(ev, held.state.songs[0])
-    expect(item('Llevar 2 al celular').note).toBe('1 sin pistas')
-    await pick('Llevar 2 al celular')
+    expect(item('Convertir 2 a DanPista (para el celular)').note).toBe('1 sin pistas')
+    await pick('Convertir 2 a DanPista (para el celular)')
     expect(api().toPhone).toHaveBeenLastCalledWith([1, 3])
     expect(notices.value.at(-1).message).toBe(
       '2 listas para el celular, en la carpeta «Celular»; 1 sin clic'

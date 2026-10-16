@@ -81,10 +81,17 @@ export function useSongList(props, emit, options) {
   const after = (c) => !!props.sortable && !isDragged(c.id) && isAfter(dropKey(c))
 
   /** @param {Song} c */
-  const rowIcon = (c) => (props.playing === c.id && sounding.value ? 'pause' : 'play')
+  const rowIcon = (c) =>
+    c.ghost ? 'warning' : props.playing === c.id && sounding.value ? 'pause' : 'play'
   /** @param {Song} c */
   const rowTitle = (c) =>
-    props.playing !== c.id ? 'Reproducir' : sounding.value ? 'Pausar' : 'Reanudar'
+    c.ghost
+      ? 'No está en tu biblioteca'
+      : props.playing !== c.id
+        ? 'Reproducir'
+        : sounding.value
+          ? 'Pausar'
+          : 'Reanudar'
 
   // Los elementos de cada fila, para desplazarse hasta ellos y darles el
   // foco. Un Map normal, fuera de la reactividad: nadie los pinta. Cada fila

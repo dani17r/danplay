@@ -613,7 +613,8 @@ async function send(fn) {
  * @param {any} [origin]  de dónde salió, para poder volver
  */
 function setQueue(items, startId = null, origin = null) {
-  const list = (items || []).filter((s) => s && s.id != null)
+  // las «No está» de una lista (ya no hay archivo) no entran en la cola
+  const list = (items || []).filter((s) => s && s.id != null && !s.ghost)
   queue.value = list.slice()
   state.origin = origin
   return send((b) => b.setQueue(list.map(toTrack), startId, origin))

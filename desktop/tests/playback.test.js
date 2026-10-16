@@ -139,6 +139,21 @@ describe('usePlayback', () => {
     expect(player.hasNext.value).toBe(true)
   })
 
+  it('las «No está» de una lista no entran en la cola', async () => {
+    const player = usePlayback()
+    await player.setQueue(
+      [
+        { id: 1, title: 'A', artist: 'X', duration: 100 },
+        { id: 9, title: 'Se fue', artist: 'X', duration: 100, ghost: true },
+        { id: 2, title: 'B', artist: 'X', duration: 120 }
+      ],
+      1,
+      { kind: 'playlist', id: 3, label: 'Domingo' }
+    )
+    await flushPromises()
+    expect(player.queue.value.map((s) => s.id)).toEqual([1, 2])
+  })
+
   it('si Rust cambia la cola por otra del mismo tamaño, la interfaz se entera', async () => {
     // El caso de verdad: abrir una canción con DanPlay desde el explorador
     // deja una cola de UNA. Si ya había una cola de una, los dos números
