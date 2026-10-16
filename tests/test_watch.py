@@ -127,7 +127,9 @@ def test_a_song_renamed_in_place_keeps_its_id(lib):
     assert _ids()["Shekinah (en vivo).mp3"] == old_id
 
 
-def test_a_deleted_song_leaves_the_views_and_its_lists(lib):
+def test_a_deleted_song_leaves_the_views_and_stays_in_its_lists_as_missing(lib):
+    """Borrada por fuera: sale de las vistas y del recuento, pero su lista
+    la sigue enseñando, en su sitio, como «No está» (para buscarla o bajarla)."""
     from danplay import library, playlists
 
     _root, songs = lib
@@ -140,8 +142,11 @@ def test_a_deleted_song_leaves_the_views_and_its_lists(lib):
     assert "Barak - Sera Llena La Tierra.mp3" not in _ids()
     assert library.stats_of()["total"] == 2
     lists = {p["name"]: p for p in playlists.list_all()}
-    assert lists["Domingo"]["n"] == 2, "la lista cuenta una cancion que ya no enseña"
-    assert len(playlists.songs(sunday["id"])) == 2
+    assert lists["Domingo"]["n"] == 2, "la lista cuenta una cancion que ya no esta"
+    assert lists["Domingo"]["missing"] == 1
+    assert len(playlists.songs(sunday["id"], ghosts=False)) == 2
+    shown = playlists.songs(sunday["id"])
+    assert [s["file"] for s in shown if s.get("ghost")] == ["Barak - Sera Llena La Tierra.mp3"]
 
 
 def test_a_song_that_comes_back_returns_to_its_place_in_the_list(lib):
@@ -161,7 +166,8 @@ def test_a_song_that_comes_back_returns_to_its_place_in_the_list(lib):
     keep = root.parent / "guardada.mp3"
     shutil.move(songs["gozo"], keep)
     library.scan()
-    assert [s["id"] for s in playlists.songs(sunday["id"])] == [order[0], order[2]]
+    assert [s["id"] for s in playlists.songs(sunday["id"], ghosts=False)] == [order[0], order[2]]
+    assert [bool(s.get("ghost")) for s in playlists.songs(sunday["id"])] == [False, True, False]
 
     shutil.move(keep, songs["gozo"])
     r = library.scan()

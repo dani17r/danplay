@@ -401,6 +401,7 @@ def _raise_hwm(conn) -> None:
         ("songs", "id"),
         ("songs_missing", "id"),
         ("playlist_songs", "song_id"),
+        ("song_cards", "song_id"),
         ("recent", "song_id"),
         ("downloads", "song_id"),
     ]

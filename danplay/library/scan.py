@@ -5,6 +5,7 @@ vuelve, recupera su id. Ver docs/ARQUITECTURA.md, «La biblioteca sigue al
 disco».
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -137,20 +138,76 @@ def _find_missing(conn, path, file, size, mtime):
     ).fetchone()
 
 
-def _add(conn, row: tuple) -> tuple[str, int]:
-    """Mete en el indice un archivo que no estaba. Devuelve ("added"|"back", id).
+def _find_twin(conn, fresh: dict) -> sqlite3.Row | None:
+    """La cancion apartada que es esta misma cancion aunque el archivo sea
+    otro (se volvio a bajar tras mover la carpeta de musica): el mismo
+    artista y titulo (o nombre) y la misma duracion, dos segundos arriba o
+    abajo. Solo si no hay duda: una sola con esa clave, o la de duracion mas
+    parecida si las otras se van mas. Si suenan igual se comprueba despues
+    (`reuse.settle`), sin parar el escaneo."""
+    from .. import reuse
+
+    duration = float(fresh.get("duration") or 0)
+    key = reuse.ident(fresh)
+    if duration <= 0 or not key:
+        return None
+    found = []
+    for gone_id, gone_duration in _twin_index(conn).get(key, ()):
+        gap = abs(gone_duration - duration)
+        if gap <= reuse.DURATION_TOL:
+            r = conn.execute("SELECT * FROM songs_missing WHERE id=?", (gone_id,)).fetchone()
+            if r is not None:
+                found.append((gap, r))
+    if not found:
+        return None
+    found.sort(key=lambda x: x[0])
+    if len(found) > 1 and found[1][0] - found[0][0] < 0.5:
+        return None  # dos igual de parecidas: no se adivina
+    return found[0][1]
+
+
+# Las apartadas por su clave (artista y titulo normalizados): se rehace solo
+# cuando cambian (con una biblioteca entera apartada, leer cada fila por cada
+# archivo nuevo eran millones de lecturas).
+_TWINS: dict = {"stamp": None, "index": {}}
+
+
+def _twin_index(conn) -> dict:
+    from .. import reuse
+
+    stamp = tuple(conn.execute("SELECT COUNT(*), MAX(gone_at) FROM songs_missing").fetchone())
+    if stamp != _TWINS["stamp"]:
+        index: dict = {}
+        for r in conn.execute("SELECT id, data FROM songs_missing"):
+            with contextlib.suppress(TypeError, ValueError):
+                data = json.loads(r["data"])
+                key = reuse.ident(data)
+                if key and float(data.get("duration") or 0) > 0:
+                    index.setdefault(key, []).append((r["id"], float(data["duration"])))
+        _TWINS.update(stamp=stamp, index=index)
+    return _TWINS["index"]
+
+
+def _add(conn, row: tuple) -> tuple[str, int, dict | None]:
+    """Mete en el indice un archivo que no estaba. Devuelve ("added"|"back"|
+    "twin", id, la fila de antes).
 
     Si es una cancion apartada que vuelve (a su sitio o a otro), recupera su
     id y lo que solo guarda la base (acordes, analisis, estudio, letra con
-    tiempos); lo del archivo se toma del archivo. Si no, id nuevo. No hace
-    commit.
+    tiempos); lo del archivo se toma del archivo. Tambien si es otro archivo
+    de la misma cancion («twin»: se volvio a bajar). Si no, id nuevo. No
+    hace commit.
     """
     fresh = dict(zip(COLUMNS, row, strict=True))
     old = _find_missing(conn, fresh["path"], fresh["file"], fresh["size"], fresh["mtime"])
+    kind = "back"
+    if old is None:
+        old = _find_twin(conn, fresh)
+        kind = "twin"
     if old is None:
         cid = _next_song_id(conn)
         conn.execute(_INSERT_SQL, (cid, *row))
-        return "added", cid
+        return "added", cid, None
     data = json.loads(old["data"])
     merged = {**data, **fresh}
     for k in _KEEP_IF_EMPTY:
@@ -159,7 +216,21 @@ def _add(conn, row: tuple) -> tuple[str, int]:
     merged["id"] = old["id"]
     _insert_row(conn, merged)
     conn.execute("DELETE FROM songs_missing WHERE id=?", (old["id"],))
-    return "back", old["id"]
+    if kind == "back" and data.get("path") and data["path"] != fresh["path"]:
+        # el mismo archivo en otro sitio: su clic sigue valiendo (sin esto se
+        # volvia a calcular, 15-20 s por cancion, al mover la carpeta)
+        _carry_grid(data, fresh)
+    return kind, old["id"], {**data, "missing": True}
+
+
+def _carry_grid(old: dict, fresh: dict) -> None:
+    from types import SimpleNamespace
+
+    from .. import beatgrid
+
+    with contextlib.suppress(OSError, KeyError, TypeError, ValueError):
+        before = SimpleNamespace(st_size=int(old["size"]), st_mtime=float(old["mtime"]))
+        beatgrid.moved(old["path"], fresh["path"], before, os.stat(fresh["path"]))
 
 
 def _back_in_place(conn, path, st, columns) -> bool:
@@ -181,19 +252,25 @@ def _back_in_place(conn, path, st, columns) -> bool:
 
 
 def _purge_missing(conn, days=None) -> int:
-    """Olvida del todo las canciones apartadas hace mas de `days` dias, y sus
-    filas en las listas y en los recientes. Devuelve cuantas."""
+    """Olvida del todo las canciones apartadas hace mas de `days` dias y sus
+    recientes. En las listas se quedan, con su ficha (`playlists.keep_cards`):
+    la lista sigue diciendo que estaba ahi («No está») y la recupera si vuelve.
+    Devuelve cuantas."""
     days = MISSING_DAYS if days is None else days
     cutoff = time.time() - days * 86400
     ids = [r[0] for r in conn.execute("SELECT id FROM songs_missing WHERE gone_at < ?", (cutoff,))]
     if not ids:
         return 0
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "song_cards" in tables:
+        from .. import playlists as _playlists
+
+        _playlists.keep_cards(conn, ids)
     for i in range(0, len(ids), SCAN_BATCH):
         chunk = ids[i : i + SCAN_BATCH]
         marks = ",".join("?" * len(chunk))
         conn.execute(f"DELETE FROM songs_missing WHERE id IN ({marks})", chunk)  # noqa: S608
-        for table in ("playlist_songs", "recent"):
+        for table in ("recent",):
             if table in tables:
                 conn.execute(
                     f"DELETE FROM {table} WHERE song_id IN ({marks}) "  # noqa: S608
@@ -260,6 +337,7 @@ def _scan(progress=None) -> dict:
         removed = _to_missing(conn, gone)
 
         seen: set = set()
+        settle: list = []
         playlists_found: dict = {}
         study_found: dict = {}
         n = added_count = reused = updated = back = pending = 0
@@ -305,11 +383,15 @@ def _scan(progress=None) -> dict:
                 continue
             try:
                 if v is None:
-                    kind, _ = _add(conn, row)
-                    if kind == "back":
-                        back += 1
-                    else:
+                    kind, cid, before = _add(conn, row)
+                    if kind == "added":
                         added_count += 1
+                    else:
+                        back += 1
+                    if kind != "back":
+                        # lo hecho para otro archivo de esta cancion (sus
+                        # pistas, su clic, su estudio), cuando acabe el escaneo
+                        settle.append((cid, before))
                     changed = True
                 else:
                     before = conn.execute("SELECT * FROM songs WHERE id=?", (v["id"],)).fetchone()
@@ -368,6 +450,24 @@ def _scan(progress=None) -> dict:
     _thumbnails.prune(known)
     restored = restore_playlists_from_tags(playlists_found)
     restore_study_from_tags(study_found)
+    from .. import reuse as _reuse
+
+    # las que volvieron en otro archivo, siempre; las nuevas, solo si tienen
+    # gemela (en una biblioteca nueva, ninguna: nada que hacer)
+    for cid, before in settle:
+        if before is not None:
+            _reuse.later(cid, before)
+    arrived = [cid for cid, before in settle if before is None]
+    fresh = _reuse.with_twins(arrived)
+    for cid in fresh:
+        _reuse.later(cid)
+    # y las listas que la tenian como «No está» (se borro, paso el mes) la
+    # recuperan en su sitio
+    if arrived:
+        from .. import playlists as _playlists
+
+        if _playlists.relink_ghosts(arrived):
+            changed = True
     if changed or restored or relinked:
         _touch()
     return {
@@ -483,16 +583,29 @@ def index_file(path: str, roots=None, vocab=None) -> dict | None:
             # si ya estaba, se actualiza en sitio: un INSERT OR REPLACE le daria un
             # id nuevo y las listas que lo tuvieran lo perderian
             old = conn.execute("SELECT id FROM songs WHERE path=?", (path,)).fetchone()
+            arrived = None
             if old:
                 conn.execute(_UPDATE_SQL, (*row, old["id"]))
             else:
                 # una cancion apartada que vuelve (restaurada de la papelera, la
                 # copia que queda al resolver duplicados) recupera su id
-                _add(conn, row)
+                kind, cid, before = _add(conn, row)
+                if kind != "back":
+                    arrived = (cid, before)
             conn.commit()
         except sqlite3.IntegrityError:
             # el vigilante la acaba de indexar a la vez: vale la suya
             conn.rollback()
+            arrived = None
         r = conn.execute("SELECT * FROM songs WHERE path=?", (path,)).fetchone()
     _touch()
+    if arrived:
+        # se volvio a bajar una que ya tenia sus pistas o su clic: se aprovechan
+        from .. import playlists, reuse
+
+        if arrived[1] is not None or reuse.with_twins([arrived[0]]):
+            reuse.later(*arrived)
+        # y vuelve a las listas donde estaba como «No está»
+        if arrived[1] is None:
+            playlists.relink_ghosts([arrived[0]])
     return dict(r) if r else None

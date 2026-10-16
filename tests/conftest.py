@@ -312,3 +312,16 @@ def configured_library(synthetic_library, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "WRITE_TAGS", True)
     monkeypatch.setattr(config, "AI_ENABLED", False)
     return lib, songs
+
+
+@pytest.fixture(autouse=True)
+def _nothing_left_in_the_background():
+    """Lo que se aprovecha de otra copia de una cancion va en un hilo
+    (`reuse.later`): que acabe dentro de su prueba y no toque la base de la
+    siguiente."""
+    yield
+    import sys
+
+    reuse = sys.modules.get("danplay.reuse")
+    if reuse is not None:
+        assert reuse.idle(120), "lo de aprovechar se quedo trabajando"

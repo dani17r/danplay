@@ -72,6 +72,10 @@ class PathIn(Body_):
     path: str = Field(min_length=1, max_length=4096)
 
 
+class PathsIn(Body_):
+    paths: list[str] = Field(min_length=1, max_length=1000)
+
+
 class RelocateIn(Body_):
     """Una carpeta gestionada que se movio (`from`) y donde esta ahora (`to`)."""
 
@@ -261,6 +265,29 @@ class SheetIn(Body_):
     with_lyrics: bool = False
 
 
+class CueIn(Body_):
+    """Una guia hablada escrita: lo que se dice y con que voz (con `preview`,
+    una de prueba que no se guarda con la cancion)."""
+
+    text: str = Field(min_length=1, max_length=300)
+    voice: str = Field(min_length=1, max_length=80)
+    preview: bool = False
+
+
+class CueFileIn(Body_):
+    file: str = Field(min_length=1, max_length=1024)
+
+
+class BeatsReanalyzeIn(Body_):
+    """Volver a sacar la rejilla del clic: como (`beatgrid.REANALYZE_MODES`),
+    de toda la cancion o de `start` a `end`, y con un tempo, si se sabe."""
+
+    mode: Literal["repair", "steady", "fill", "drums", "follow"] = "repair"
+    start: float | None = Field(default=None, ge=0)
+    end: float | None = Field(default=None, gt=0)
+    bpm: float | None = Field(default=None, ge=20, le=300)
+
+
 class StudyMarker(BaseModel):
     """Un marcador: un tramo con nombre (`t`-`end`) y sus notas; sin `end`, un
     instante. Lo que no cuadre (un `t` negativo, un `end` antes de `t`) lo
@@ -275,6 +302,16 @@ class StudyMarker(BaseModel):
     parts: list[list[float]] | None = Field(default=None, max_length=32)
 
 
+class StudyOwnClick(BaseModel):
+    """El clic propio: los pulsos ajustados a mano sobre la onda (en
+    segundos), cuales son «1» (sus indices) y el compas."""
+
+    model_config = ConfigDict(extra="ignore")
+    beats: list[float] = Field(default_factory=list, max_length=8000)
+    bars: list[int] = Field(default_factory=list, max_length=8000)
+    meter: int | None = None
+
+
 class StudyMetronome(BaseModel):
     """Lo ajustado a mano del metronomo sobre lo detectado (docs/CONTRATO-INTERNO.md §3)."""
 
@@ -283,6 +320,19 @@ class StudyMetronome(BaseModel):
     meter: int | None = None
     shift: int | None = None
     mult: int | None = None
+    own: StudyOwnClick | None = None
+
+
+class StudyCue(BaseModel):
+    """Una guia hablada: el segundo en que suena, su archivo (de las guias
+    de DanPlay) y, si se escribio, el texto y la voz."""
+
+    model_config = ConfigDict(extra="ignore")
+    t: float = Field(ge=0)
+    file: str = Field(min_length=1, max_length=1024)
+    text: str = Field(default="", max_length=300)
+    voice: str = Field(default="", max_length=80)
+    gain: float | None = Field(default=None, ge=0, le=3)
 
 
 class StudyTrack(BaseModel):
@@ -301,7 +351,7 @@ class StudyMixer(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
     on: bool | None = None
-    tracks: dict[str, StudyTrack] | None = Field(default=None, max_length=8)
+    tracks: dict[str, StudyTrack] | None = Field(default=None, max_length=32)
 
 
 class StudyIn(Body_):
@@ -319,6 +369,7 @@ class StudyIn(Body_):
     markers: list[StudyMarker] | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=4000)
     mixer: StudyMixer | None = None
+    cues: list[StudyCue] | None = Field(default=None, max_length=200)
 
 
 class ChatConfirmIn(Body_):

@@ -330,6 +330,64 @@ def cmd_organize(args):
     print("\n(simulacion; usa --apply para hacerlo de verdad)" if not args.apply else "\nAplicado.")
 
 
+def cmd_reuse(_):
+    """Junta cada cancion con lo hecho para otro archivo de ella (pistas,
+    clic, estudio, listas): lo que se perdio al mover la carpeta de musica."""
+    from . import reuse
+
+    r = reuse.sweep(progress=lambda n, total: print(f"  ... {n}/{total}", end="\r"))
+    print(
+        f"{GREEN}{r['songs']} canciones revisadas{RESET}: {r['stems']} recuperan sus pistas, "
+        f"{r['grid']} su clic, {r['study']} su estudio y {r['lists']} vuelven a sus listas"
+    )
+
+
+def cmd_pulse(args):
+    """El clic de cada cancion, otra vez y con el analisis de ahora: sin los
+    silencios ni los saltos de fase, con la bateria separada si la tiene."""
+    from . import beatgrid
+
+    reason = beatgrid.available()
+    if reason:
+        raise SystemExit(f"{RED}no se puede: {reason}{RESET}")
+    rows = library.search("", limit=1_000_000)
+    if args.song:
+        rows = [r for r in rows if args.song.lower() in (r.get("path") or "").lower()]
+    fixed = failed = 0
+    for i, r in enumerate(rows, 1):
+        path = r["path"]
+        name = os.path.basename(path)
+        try:
+            # la de antes (de esta version o de una anterior), para contar
+            before = (beatgrid._saved(path) or {}).get("grid")
+            grid = beatgrid.improve(path)
+        except beatgrid.BeatsError as e:
+            failed += 1
+            print(f"  [{i}/{len(rows)}] {YELLOW}{name}{RESET}: {e}")
+            continue
+        report = grid.get("report") or {}
+        changed = beatgrid.changes(before.get("beats") or [], grid["beats"]) if before else 0
+        fixed += bool(changed)
+        notes = []
+        if report.get("steady"):
+            notes.append(f"a clic, {report.get('bpm', grid['bpm'])} bpm")
+        if report.get("flips"):
+            notes.append(f"{report['flips']} saltos de fase")
+        if report.get("holes"):
+            notes.append(f"{report['holes']} huecos")
+        if report.get("silent"):
+            notes.append(f"{report['silent']} s sin pulso")
+        if changed:
+            notes.append(f"{GREEN}{changed} cambios{RESET}")
+        print(
+            f"  [{i}/{len(rows)}] {name}: {grid['bpm']} bpm"
+            + (" · " + ", ".join(notes) if notes else "")
+        )
+    print(
+        f"{GREEN}{len(rows) - failed} canciones con su clic{RESET} ({fixed} cambiaron, {failed} sin pulso)"
+    )
+
+
 def cmd_watch(args):
     import time
 
@@ -451,6 +509,13 @@ def main(argv=None):
     o.set_defaults(f=cmd_organize)
 
     sub.add_parser("watch", help="vigilar Entrada/ en segundo plano").set_defaults(f=cmd_watch)
+
+    sub.add_parser(
+        "reuse", help="recuperar pistas, clic, estudio y listas de otra copia de cada cancion"
+    ).set_defaults(f=cmd_reuse)
+    pu = sub.add_parser("pulse", help="volver a analizar el clic de toda la biblioteca")
+    pu.add_argument("song", nargs="?", help="solo las que tengan esto en su ruta")
+    pu.set_defaults(f=cmd_pulse)
 
     sv = sub.add_parser("serve", help="levantar la API para la app de escritorio")
     sv.add_argument("--port", type=int, default=8730)

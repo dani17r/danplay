@@ -22,12 +22,13 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-from .. import __version__, logs, model_catalog, watcher, youtube
+from .. import __version__, diario, logs, model_catalog, reuse, watcher, youtube
 from .. import ai as ai_core
 from .common import AUDIO_TYPES, audio_type
 from .routes import (
     ai,
     assistant,
+    cues,
     downloads,
     external,
     library,
@@ -60,14 +61,25 @@ async def lifespan(_app: FastAPI):
     Al apagar, se para el vigilante y se corta la descarga que hubiera.
     """
     watcher.prepare()
-    watcher.start()
+    if watcher.start() is None:
+        # sin vigilante, el diario se compara igual al arrancar
+        threading.Thread(
+            target=lambda: diario.after_scan(None, first=True), name="danplay-diario-0", daemon=True
+        ).start()
+    # el diario: lo tuyo, escrito junto a tu musica unos segundos despues de
+    # cada cambio
+    diario.start()
     model_catalog.refresh_in_background()
     ai_core.warm_in_background()
+    # una vez: lo hecho para otro archivo de cada cancion (pistas, clic,
+    # listas), por si se movio la carpeta de musica antes de saberlo hacer
+    reuse.sweep_once_in_background()
     try:
         yield
     finally:
         youtube.cancel()
         watcher.stop()
+        diario.stop()
 
 
 # Sin /docs, /redoc ni /openapi.json: quedaban fuera de la comprobacion del
@@ -91,6 +103,7 @@ for _router in (
     downloads.router,
     external.router,
     stems.router,
+    cues.router,
 ):
     app.include_router(_router)
 

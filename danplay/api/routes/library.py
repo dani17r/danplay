@@ -138,7 +138,10 @@ def scan():
     biblioteca grande el escaneo tarda mas."""
 
     def work(progress):
+        from ... import diario
+
         r = library.scan(progress=lambda n, total=None: progress(n, total))
+        diario.after_scan(r)
         progress(message=f"{r['total']} canciones ({r['added_count']} nuevas)")
         return {**r, "stats": library.stats_of()}
 
