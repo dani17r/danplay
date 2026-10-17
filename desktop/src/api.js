@@ -922,6 +922,7 @@ export const JOBS = {
   ytdlp: 'yt-dlp',
   separate: 'separacion',
   mix: 'mezcla',
+  autoGuide: 'guia-automatica',
   phone: 'celular',
   sequence: 'secuencia'
 }
@@ -1233,6 +1234,16 @@ export const api = {
    * @returns {Promise<{file: string, seconds: number}>}
    */
   editCue: (body) => POST('/cues/edit', body),
+  /**
+   * La guía automática (trabajo «guia-automatica»): las partes de la canción
+   * (intro, estrofas, coros, puente, solos…) dichas con esa voz justo antes
+   * de cada una. `bars`: dónde empieza cada compás (los pulsos que se ven);
+   * `beat`: lo que dura un pulso. Al acabar: {sections, cues}.
+   * @param {number} id
+   * @param {{voice: string, bars?: number[], beat?: number,
+   *   sections?: Array<{start: number, label: string}>}} body
+   */
+  autoCues: (id, body) => POST(`/song/${id}/cues/auto`, body),
   /** Escuchar una guía (su archivo). @param {string} file */
   previewCue: async (file) => {
     // en la app la escucha el motor (el WebView no siempre puede: en Linux
