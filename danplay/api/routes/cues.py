@@ -5,11 +5,11 @@ import base64
 import os
 from typing import Annotated
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from ... import cues, external
-from ..models import CueFileIn, CueIn, PathIn
+from ..models import CueEditIn, CueFileIn, CueImportIn, CueIn
 
 router = APIRouter()
 
@@ -56,12 +56,33 @@ def cue_make(cid: int, body: Annotated[CueIn, Body()]):
 
 
 @router.post("/api/song/{cid}/cues/import")
-def cue_import(cid: int, body: Annotated[PathIn, Body()]):
+def cue_import(cid: int, body: Annotated[CueImportIn, Body()]):
     """Una guia grabada (o un audio del equipo) a la carpeta de guias,
-    recortada y a su volumen."""
-    _song(cid)
+    recortada y a su volumen. Con `limit`, hasta lo que dura la cancion."""
+    song = _song(cid)
+    longest = body.limit
+    if longest:
+        longest = min(longest, float(song.get("duration") or longest) + 0.5)
     try:
-        return cues.import_recording(body.path)
+        return cues.import_recording(body.path, longest)
+    except cues.CueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@router.get("/api/cues/wave")
+def cue_wave(file: Annotated[str, Query(min_length=1, max_length=1024)], buckets: int = 96):
+    """La onda de una guia: {seconds, peaks}."""
+    try:
+        return cues.wave_of(file, buckets)
+    except cues.CueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@router.post("/api/cues/edit")
+def cue_edit(body: Annotated[CueEditIn, Body()]):
+    """Una guia nueva recortada y limpia a partir de otra: {file, seconds}."""
+    try:
+        return cues.edit_clip(**body.model_dump())
     except cues.CueError as e:
         raise HTTPException(422, str(e)) from e
 

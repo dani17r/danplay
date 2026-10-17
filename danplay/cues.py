@@ -47,6 +47,10 @@ TIMEOUT = 60
 VERSION = 1
 # Una grabacion de mas de esto no es una guia.
 MAX_SECONDS = 60.0
+# Un audio importado como guía (una cuenta, un aviso, un trozo grabado
+# aparte): hasta lo que dure la canción, y como mucho esto (el motor las
+# guarda enteras en memoria).
+MAX_IMPORT_SECONDS = 300.0
 # Lo que queda alrededor de la voz al recortar el silencio.
 MARGIN = 0.03
 # Tras este rato sin decir nada, se suelta la voz cargada (la de Supertonic
@@ -535,15 +539,18 @@ def make(text: str, voice_id: str, *, preview: bool = False) -> dict:
     return {"file": str(target), "seconds": _seconds(target)}
 
 
-def _decode(path: str):
+def _decode(
+    path: str, longest: float = MAX_SECONDS, too_long: str = "es demasiado largo para una guía"
+):
     """Un archivo de audio a mono: (muestras, frecuencia). WAV directamente;
-    lo demas, con ffmpeg."""
+    lo demas, con ffmpeg (hasta el doble de `longest`, para poder decir que
+    es demasiado largo)."""
     import numpy as np
 
     with contextlib.suppress(wave.Error, EOFError, OSError), wave.open(path, "rb") as w:
         width, channels, rate = w.getsampwidth(), w.getnchannels(), w.getframerate()
-        if w.getnframes() > MAX_SECONDS * rate * 4:
-            raise CueError("la grabación es demasiado larga para una guía")
+        if w.getnframes() > longest * rate * 4:
+            raise CueError(too_long)
         data = w.readframes(w.getnframes())
         if width == 2:
             x = np.frombuffer(data, "<i2").astype(np.float32) / 32768
@@ -568,7 +575,7 @@ def _decode(path: str):
             "-i",
             path,
             "-t",
-            str(MAX_SECONDS * 2),
+            str(longest * 2),
             "-ac",
             "1",
             "-ar",
@@ -586,17 +593,25 @@ def _decode(path: str):
     return np.frombuffer(r.stdout, np.float32), rate
 
 
-def import_recording(path: str) -> dict:
+def import_recording(path: str, longest: float | None = None) -> dict:
     """Una guia grabada (lo que dejo la app al grabar, o un audio del
-    equipo) a su sitio, recortada y a su volumen: {file, seconds}."""
+    equipo) a su sitio, recortada y a su volumen: {file, seconds}.
+    `longest`: lo que dura la cancion (un audio importado no puede durar
+    mas), y como mucho MAX_IMPORT_SECONDS; sin el, un minuto."""
     src = Path(str(path or ""))
     if not src.is_file() or src.suffix.lower() not in AUDIO_EXTS:
-        raise CueError("no encuentro la grabación")
+        raise CueError("no encuentro ese audio")
     if src.stat().st_size > 200 * 1024 * 1024:
-        raise CueError("la grabación es demasiado grande para una guía")
-    wav, rate = _decode(str(src))
-    if wav.size > MAX_SECONDS * rate:
-        raise CueError("la grabación es demasiado larga para una guía (un minuto como mucho)")
+        raise CueError("ese audio es demasiado grande para una guía")
+    limit = MAX_SECONDS if not longest else min(float(longest), MAX_IMPORT_SECONDS)
+    too_long = (
+        "ese audio dura más que la canción"
+        if longest and float(longest) <= MAX_IMPORT_SECONDS
+        else f"es demasiado largo para una guía ({_minutes(limit)} como mucho)"
+    )
+    wav, rate = _decode(str(src), limit, too_long)
+    if wav.size > limit * rate:
+        raise CueError(too_long)
     wav = polish(wav, rate)
     if not wav.size:
         raise CueError("la grabación está en silencio")
@@ -607,6 +622,133 @@ def import_recording(path: str) -> dict:
         with contextlib.suppress(OSError):
             src.unlink()
     return {"file": str(target), "seconds": _seconds(target)}
+
+
+def _minutes(seconds: float) -> str:
+    m = round(seconds / 60)
+    return "un minuto" if m <= 1 else f"{m} minutos"
+
+
+def wave_of(file: str, buckets: int = 96) -> dict:
+    """La onda de una guia, para verla en su bloque y en el editor: {seconds,
+    peaks} (el pico de cada trozo, de 0 a 1, a su escala)."""
+    import numpy as np
+
+    own = own_file(file, previews=True)
+    if not own or not os.path.isfile(own):
+        raise CueError("esa guía no está")
+    x, rate = _decode(own, MAX_IMPORT_SECONDS)
+    buckets = max(8, min(int(buckets), 2000))
+    seconds = round(x.size / max(1, rate), 3)
+    if not x.size:
+        return {"seconds": 0.0, "peaks": [0.0] * buckets}
+    a = np.abs(x)
+    edges = np.linspace(0, a.size, buckets + 1).astype(int)
+    peaks = [float(a[edges[i] : max(edges[i] + 1, edges[i + 1])].max()) for i in range(buckets)]
+    top = max(peaks) or 1.0
+    return {"seconds": seconds, "peaks": [round(p / top, 3) for p in peaks]}
+
+
+# lo que se le puede hacer a una guia grabada o importada, como en un editor
+EDIT_FADE_MAX = 5.0
+
+
+def edit_clip(
+    file: str,
+    *,
+    start: float = 0.0,
+    end: float | None = None,
+    fade_in: float = 0.0,
+    fade_out: float = 0.0,
+    denoise: bool = False,
+    highpass: bool = False,
+    normalize: bool = False,
+    preview: bool = False,
+) -> dict:
+    """Una guia nueva a partir de otra (la de antes no se toca): recortada de
+    `start` a `end` (segundos), con un fundido de entrada y otro de salida,
+    sin el ruido de fondo (`denoise`), sin los graves y golpes de microfono
+    (`highpass`) y a su volumen (`normalize`). {file, seconds}. Con
+    `preview`, en la carpeta de pruebas (para escucharla antes)."""
+    import hashlib
+
+    import numpy as np
+
+    own = own_file(file, previews=True)
+    if not own or not os.path.isfile(own):
+        raise CueError("esa guía no está")
+    x, rate = _decode(own, MAX_IMPORT_SECONDS)
+    total = x.size / max(1, rate)
+    a = max(0.0, min(float(start or 0.0), total))
+    b = total if end is None else max(a, min(float(end), total))
+    if b - a < 0.05:
+        raise CueError("lo que queda es demasiado corto")
+    x = x[int(a * rate) : int(b * rate)]
+    filters = []
+    if highpass:
+        filters.append("highpass=f=100")
+    if denoise:
+        filters.append("afftdn=nf=-25")
+    if filters:
+        x = _ffmpeg_filter(x, rate, ",".join(filters))
+    fi = max(0.0, min(float(fade_in or 0.0), EDIT_FADE_MAX, x.size / rate / 2))
+    fo = max(0.0, min(float(fade_out or 0.0), EDIT_FADE_MAX, x.size / rate / 2))
+    x = np.asarray(x, np.float32).copy()
+    if fi > 0:
+        n = int(fi * rate)
+        x[:n] *= np.linspace(0.0, 1.0, n, dtype=np.float32)
+    if fo > 0:
+        n = int(fo * rate)
+        x[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)
+    if normalize:
+        peak = float(np.max(np.abs(x))) if x.size else 0.0
+        if peak > 1e-6:
+            x = x * (10 ** (-1 / 20) / peak)
+    key = hashlib.sha1(  # noqa: S324 - un nombre, no seguridad
+        f"{own}|{a:.3f}|{b:.3f}|{fi:.3f}|{fo:.3f}|{denoise}|{highpass}|{normalize}".encode()
+    ).hexdigest()[:14]
+    target = (_previews() if preview else folder()) / f"editada-{key}.wav"
+    write_wav(target, x, rate)
+    if preview:
+        sweep_previews()
+    return {"file": str(target), "seconds": _seconds(target)}
+
+
+def _ffmpeg_filter(x, rate: int, chain: str):
+    """Las muestras (mono) por un filtro de ffmpeg (quitar ruido, graves)."""
+    import numpy as np
+
+    ffmpeg = convert.tool("ffmpeg")
+    if not ffmpeg:
+        raise CueError("hace falta ffmpeg para limpiar la guía")
+    r = subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-nostdin",
+            "-f",
+            "f32le",
+            "-ar",
+            str(rate),
+            "-ac",
+            "1",
+            "-i",
+            "-",
+            "-af",
+            chain,
+            "-f",
+            "f32le",
+            "-",
+        ],
+        input=np.asarray(x, np.float32).tobytes(),
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    if r.returncode != 0 or not r.stdout:
+        raise CueError("no se pudo limpiar la guía")
+    return np.frombuffer(r.stdout, np.float32)
 
 
 def _temp_dir() -> str:
