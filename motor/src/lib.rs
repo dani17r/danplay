@@ -35,6 +35,8 @@ pub mod feeder;
 #[cfg(feature = "motor")]
 pub mod output;
 #[cfg(feature = "motor")]
+pub mod preview;
+#[cfg(feature = "motor")]
 pub mod record;
 #[cfg(feature = "motor")]
 pub mod render;

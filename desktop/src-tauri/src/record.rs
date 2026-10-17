@@ -32,6 +32,21 @@ pub fn record_level(recording: tauri::State<'_, Recording>) -> f32 {
         .map_or(0.0, Recorder::level)
 }
 
+/// Escucha un archivo corto (una guía) por la salida del sistema, aparte de
+/// la canción y sin pasar por el WebView. Devuelve cuánto dura.
+#[tauri::command]
+pub async fn preview_clip(path: String) -> Result<f64, String> {
+    tauri::async_runtime::spawn_blocking(move || danplay_motor::preview::play(std::path::Path::new(&path)))
+        .await
+        .map_err(|e| format!("no se pudo escuchar: {e}"))?
+}
+
+/// Calla lo que se esté escuchando.
+#[tauri::command]
+pub fn preview_stop() {
+    danplay_motor::preview::stop();
+}
+
 /// Para y devuelve la ruta del WAV grabado.
 #[tauri::command]
 pub async fn record_stop(recording: tauri::State<'_, Recording>) -> Result<String, String> {

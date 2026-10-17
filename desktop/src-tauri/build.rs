@@ -29,6 +29,8 @@ const COMMANDS: &[&str] = &[
     "record_start",
     "record_level",
     "record_stop",
+    "preview_clip",
+    "preview_stop",
     "set_pitch",
     "set_crossfade",
     "set_metronome",

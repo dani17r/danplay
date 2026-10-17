@@ -1188,11 +1188,16 @@ export const api = {
   importCue: (id, path) => POST(`/song/${id}/cues/import`, { path }),
   /** Escuchar una guía (su archivo). @param {string} file */
   previewCue: async (file) => {
+    // en la app la escucha el motor (el WebView no siempre puede: en Linux
+    // depende de los complementos de GStreamer); en el navegador, un <audio>
+    if (inTauri) return invoke('preview_clip', { path: file })
     const r = await POST('/cues/audio', { file })
     if (!r?.data) return
     const audio = new Audio(`data:${r.mime || 'audio/wav'};base64,${r.data}`)
     await audio.play()
   },
+  /** Calla la guía que se esté escuchando. */
+  stopPreview: () => (inTauri ? invoke('preview_stop') : Promise.resolve()),
   /** «Transformar»: lo que no está en su sitio o con su nombre (las seguras primero) */
   tidyList: () => GET('/tidy'),
   /** «Transformar» una canción: `{artist, title, tags}` o `{to}` (deshacer) */
