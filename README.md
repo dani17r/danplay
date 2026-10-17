@@ -436,9 +436,15 @@ las favoritas, **tus listas** (la del domingo, en su orden) y los ajustes.
 Mientras suena, los mandos están en la **bandeja de Android** y en la
 pantalla de bloqueo, también con la app en segundo plano.
 
+Las guías que hiciste en la PC viajan con la pista: en el teléfono se oyen,
+y cada carril se calla, se deja solo o cambia de volumen. Con **Salidas**
+(en la cabecera del estudio) mandas el clic y las guías a un lado y la
+música al otro, como una secuencia, en estéreo o en mono.
+
 Y no solo pistas: en **Música del teléfono** suena cualquier canción que
-tengas en él (MP3, M4A, FLAC…), eligiendo las carpetas, con su modo estudio
-y su clic.
+tengas en él (MP3, M4A, FLAC…), también en la tarjeta SD o en las carpetas
+de Telegram y WhatsApp, eligiendo las carpetas, con su modo estudio y su
+clic.
 
 Por ahora hay app para **Android** (8 o más nuevo). La de iPhone está
 preparada pero falta compilarla en un Mac y firmarla con Apple.

@@ -16,6 +16,18 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.28.3',
+    date: '2026-10-17',
+    summary: 'El celular: el estudio a la vista, las guías para oírlas y toda tu música.',
+    items: [
+      'Con un tramo, «Al acabar: parar» ya se ve y avisa al pararse (parecía una pausa sola).',
+      'En el teléfono, la cabecera y la barra del tramo ya no se pisan.',
+      '«Salidas» en la cabecera del estudio, con estéreo o mono para cada cosa.',
+      'Las guías de la PC se oyen y se mezclan en el teléfono, carril a carril.',
+      'La música del teléfono, también la de la tarjeta SD y la de Telegram o WhatsApp.'
+    ]
+  },
+  {
     version: '1.28.2',
     date: '2026-10-16',
     summary: 'El modo estudio, más a mano: mandos sobre la onda, iconos y un editor de guías.',
