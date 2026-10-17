@@ -72,7 +72,7 @@ const rows = computed(() => [
     role: s.role || ''
   })),
   { kind: 'click', name: 'El clic', key: '' },
-  { kind: 'cues', name: 'Las guías habladas', key: '' }
+  { kind: 'cues', name: 'Las guías', key: '' }
 ])
 /** Lo que va ahora por cada fila (también con un preset puesto). */
 function destFor(row) {

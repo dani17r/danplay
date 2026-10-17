@@ -3,7 +3,13 @@ import { mount, flushPromises } from '@vue/test-utils'
 
 // El modo estudio: bucle A-B, velocidad sin cambiar el tono, marcadores y
 // notas, guardados con la cancion y aplicados al entrar.
-const held = vi.hoisted(() => ({ playback: null, api: null, state: null, savePath: null }))
+const held = vi.hoisted(() => ({
+  playback: null,
+  api: null,
+  state: null,
+  savePath: null,
+  audioPath: null
+}))
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -18,7 +24,9 @@ vi.mock('../src/api.js', async (importOriginal) => {
     api: held.api,
     playback: held.playback.bridge,
     // el diálogo de guardar del sistema: lo que diga la prueba (null: cancelado)
-    pickSavePath: async () => held.savePath
+    pickSavePath: async () => held.savePath,
+    // el selector de audios del sistema (para importar una guía)
+    pickAudio: async () => held.audioPath
   }
 })
 
@@ -92,7 +100,11 @@ afterEach(() => {
     }
   }
 })
-const boton = (w, text, nth = 0) => w.findAll('button').filter((b) => b.text().includes(text))[nth]
+/** Un botón por lo que dice o, si es solo un icono, por su nombre (aria-label). */
+const boton = (w, text, nth = 0) =>
+  w.findAll('button').filter((b) => b.text().includes(text) || b.attributes('aria-label') === text)[
+    nth
+  ]
 /** Despliega «Compás, cuenta y sonido» del clic. */
 async function masClic(w) {
   const t = w.find('.study-more-toggle')
@@ -199,7 +211,8 @@ describe('la barra de estudio', () => {
     const candado = w.find('.tl-lock')
     expect(candado.classes(), 'puesto de entrada').toContain('on')
     expect(candado.attributes('aria-pressed')).toBe('true')
-    expect(w.find('.study-hint').text()).toContain('con el candado')
+    // lo que se hace con el ratón sobre la onda, en el botón de ayuda (no a la vista)
+    expect(w.find('.study-help').attributes('title')).toContain('con el candado')
     const caja = w.find('.tl-box').element
     await puntero(caja, 'pointerdown', 300)
     await puntero(window, 'pointerup', 301)
@@ -648,7 +661,7 @@ describe('la barra de estudio', () => {
     expect(w.find('.tl-multi').attributes('aria-pressed')).toBe('false')
     await w.find('.tl-multi').trigger('click')
     expect(w.find('.tl-multi').attributes('aria-pressed')).toBe('true')
-    expect(w.find('.study-hint').text()).toContain('Arrastra para añadir tramos')
+    expect(w.find('.study-help').attributes('title')).toContain('Arrastra para añadir tramos')
     // 0:20-0:40 y 1:40-2:00
     await puntero(caja, 'pointerdown', 40)
     await puntero(window, 'pointermove', 80)
@@ -756,7 +769,7 @@ describe('la barra de estudio', () => {
       'Al acabar: parar',
       'Al acabar: seguir',
       'Ir aquí',
-      'Guía hablada aquí…',
+      'Guía aquí…',
       'Ajustar a los pulsos',
       'Guardar como marcador',
       'Añadir más tramos',
@@ -774,7 +787,7 @@ describe('la barra de estudio', () => {
     await opcion('Al acabar: repetir').action()
     await flushPromises()
     expect(held.playback.bridge.setLoop).toHaveBeenLastCalledWith(...tramo(50.1, 99.9, 'repeat'))
-    expect(w.find('.study-end.on').text()).toBe('Repetir')
+    expect(w.find('.study-end.on').attributes('aria-label')).toBe('Repetir')
     // a los pulsos de la rejilla (uno cada medio segundo desde 0,25), sin
     // perder el «al acabar»
     await w.find('.tl-loop-menu').trigger('click')
@@ -1471,7 +1484,8 @@ describe('las pistas separadas en el estudio', () => {
     await flushPromises()
     expect(held.api.separate).toHaveBeenCalledWith(7)
     // mientras se separa, se ve cómo va
-    expect(w.find('.study-stems-progress').text()).toMatch(/preparando|separando/)
+    // en la cabecera, la barra y el %; lo que hace, en su aviso
+    expect(w.find('.study-stems-busy').attributes('title')).toMatch(/preparando|separando/)
     finishSeparation(held.state)
     await useSeparation().refresh()
     await flushPromises()
@@ -1491,7 +1505,7 @@ describe('las pistas separadas en el estudio', () => {
     expect(tracks.every((t) => t.on && t.gain === 1 && t.pan === 0)).toBe(true)
     expect(w.find('.study').classes()).toContain('with-lanes')
     // y se siguen mejorando sin cortar nada: se ve junto a los carriles
-    expect(w.find('.study-stems-progress').text()).toMatch(/mejorando/)
+    expect(w.find('.study-stems-progress').attributes('title')).toMatch(/mejorando/)
     const sent = held.playback.bridge.setStems.mock.calls.length
     finishSeparation(held.state)
     await useSeparation().refresh()
@@ -1747,11 +1761,11 @@ describe('el estudio de 1.28', () => {
       await flushPromises()
       const poner = boton(w, 'Poner en la cola')
       expect(poner, 'no dice «Separar» como si empezara ya').toBeTruthy()
-      expect(w.find('.study-stems').text()).toContain('Ahora se separa «Otra canción» (30 %)')
+      expect(poner.attributes('title')).toContain('Ahora se separa «Otra canción» (30 %)')
       await poner.trigger('click')
       await flushPromises()
       expect(held.api.separate).toHaveBeenCalledWith(7)
-      expect(w.find('.study-stems-progress').text()).toContain('en la cola')
+      expect(w.find('.study-stems-busy').attributes('title')).toContain('en la cola')
     } finally {
       held.state.separation.current = null
       held.state.separation.queue = []
@@ -2075,10 +2089,10 @@ describe('los carriles de las guías', () => {
     expect(enviadas().map((c) => c.at)).toEqual([20])
 
     // otro carril, hasta seis
-    for (let i = 0; i < 5; i++) await boton(w, 'Carril de guías').trigger('click')
+    for (let i = 0; i < 5; i++) await boton(w, 'Otro carril de guías').trigger('click')
     await flushPromises()
     expect(w.findAll('.tl-guide-track')).toHaveLength(6)
-    expect(boton(w, 'Carril de guías').attributes('disabled')).toBeDefined()
+    expect(boton(w, 'Otro carril de guías').attributes('disabled')).toBeDefined()
 
     // y se guarda con la canción (al momento de dejar de tocar)
     await new Promise((r) => setTimeout(r, 700))
@@ -2183,6 +2197,215 @@ describe('el estilo de la onda', () => {
   })
 })
 
+describe('el estudio de 1.28.2', () => {
+  const guia = (t, lane, text = 'Coro', file = `/guias/${text}.wav`) => ({
+    t,
+    file,
+    text,
+    voice: text ? 'st-F1' : '',
+    ...(lane ? { lane } : {})
+  })
+  function anchoGuias(w, width = 400) {
+    w.find('.tl-guide-tracks').element.getBoundingClientRect = () => ({
+      left: 0,
+      width,
+      right: width,
+      top: 0,
+      bottom: 28,
+      height: 28,
+      x: 0,
+      y: 0
+    })
+  }
+  const enviadas = () => held.playback.bridge.setCues.mock.calls.at(-1)[1]
+  const { menu } = useContextMenu()
+  const etiquetas = () => menu.value.items.filter((i) => i.label).map((i) => i.label)
+  const opcion = (label) => menu.value.items.find((i) => i.label === label)
+
+  it('los mandos de la canción, encima de la onda', async () => {
+    const w = await montar()
+    const bar = w.find('.study-transport')
+    expect(bar.find('.study-time').text()).toBe('0:12 / 3:20')
+    await bar.find('[aria-label="Pausar"]').trigger('click')
+    expect(held.playback.bridge.toggle).toHaveBeenCalledTimes(1)
+    await flushPromises()
+    expect(bar.find('[aria-label="Reproducir"]').exists(), 'el icono cambia').toBe(true)
+    await bar.find('[aria-label="5 segundos adelante"]').trigger('click')
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(17)
+    await flushPromises()
+    await bar.find('[aria-label="5 segundos atrás"]').trigger('click')
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(12)
+    await bar.find('[aria-label="Al principio"]').trigger('click')
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(0)
+    // detener: se para (si sonaba) y vuelve al principio
+    held.playback.emit({ playing: true, position: 40 })
+    await flushPromises()
+    vi.clearAllMocks()
+    await bar.find('[aria-label="Detener"]').trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.toggle).toHaveBeenCalledTimes(1)
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(0)
+  })
+
+  it('cada botón de icono dice para qué sirve', async () => {
+    const w = await montar()
+    const sinNombre = w
+      .findAll('.study-head button, .study-bar button')
+      .filter((b) => !b.text().trim() && !b.attributes('aria-label'))
+    expect(sinNombre.map((b) => b.html().slice(0, 80))).toEqual([])
+    const sinAviso = w
+      .findAll('.study-head .icon-btn, .study-bar .icon-btn')
+      .filter((b) => !b.attributes('title'))
+    expect(sinAviso.map((b) => b.attributes('aria-label'))).toEqual([])
+  })
+
+  it('el imán pega las guías a los pulsos del clic al ponerlas y moverlas', async () => {
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ cues: [guia(10, '', 'Coro')] }) })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    await flushPromises()
+    anchoGuias(w)
+    const iman = w.find('.study-magnet')
+    expect(iman.attributes('aria-pressed')).toBe('false')
+    expect(w.find('.tl-guide-beat').exists()).toBe(false)
+    await iman.trigger('click')
+    expect(iman.attributes('aria-pressed')).toBe('true')
+    expect(JSON.parse(localStorage.getItem('danplay.guias.iman'))).toBe(true)
+    // con el imán se ven los pulsos en los carriles
+    expect(w.find('.tl-guide-beat').exists()).toBe(true)
+
+    // doble clic en 50,1 s: la guía cae en el pulso (uno cada medio segundo desde 0,25)
+    await w.find('.tl-guide-track').trigger('dblclick', { clientX: 100.2 })
+    await flushPromises()
+    expect(w.findComponent({ name: 'StudyCue' }).props('draft').t).toBe(50.25)
+    expect(w.findComponent({ name: 'StudyCue' }).props('beats').length).toBeGreaterThan(0)
+    w.findComponent({ name: 'StudyCue' }).vm.$emit('close')
+    await flushPromises()
+
+    // arrastrada a 30,65 s: al pulso de 30,75
+    const bloque = w.find('.tl-guide-clip').element
+    bloque.dispatchEvent(new PointerEvent('pointerdown', { clientX: 20, button: 0, bubbles: true }))
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 61.3 }))
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 61.3 }))
+    await flushPromises()
+    expect(enviadas().map((c) => c.at)).toEqual([30.75])
+  })
+
+  it('las opciones de un carril: una guía aquí, importar un audio corto, renombrar…', async () => {
+    held.state.songs = [song(7, { title: 'Mi Gozo' })]
+    held.playback.emit({ playing: false })
+    held.audioPath = '/home/yo/cuenta.wav'
+    try {
+      const w = await montar()
+      anchoGuias(w)
+      await w.find('.tl-lane-more').trigger('click')
+      expect(menu.value.title).toBe('Guías')
+      expect(etiquetas()).toEqual([
+        'Guía aquí…',
+        'Importar un audio…',
+        'Renombrar…',
+        'Callarlo',
+        'Otro carril de guías'
+      ])
+      // clic derecho en el carril: en ese punto
+      await w.find('.tl-guide-track').trigger('contextmenu', { clientX: 100 })
+      expect(opcion('Guía aquí…').note).toBe('0:50')
+      await opcion('Importar un audio…').action()
+      await flushPromises()
+      expect(held.api.importCue).toHaveBeenCalledWith(7, '/home/yo/cuenta.wav', 200)
+      // se abre en su editor, para recortarlo antes de ponerlo
+      expect(w.findComponent({ name: 'StudyCue' }).props('draft')).toMatchObject({
+        t: 50,
+        lane: 'g1',
+        file: '/guias/importada.wav',
+        seconds: 3
+      })
+      expect(w.findComponent({ name: 'StudyCue' }).props('songLength')).toBe(200)
+    } finally {
+      held.audioPath = null
+    }
+  })
+
+  it('sonando no se ponen guías desde el menú del carril', async () => {
+    const w = await montar()
+    await w.find('.tl-lane-more').trigger('click')
+    expect(opcion('Guía aquí…').disabled).toBe(true)
+    expect(opcion('Importar un audio…').note).toBe('para la canción')
+  })
+
+  it('clic derecho en una guía: escucharla, editarla, pasarla a otro carril o quitarla', async () => {
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({
+          cues: [guia(10, 'g1', '', '/guias/grabada-1.wav')],
+          cueLanes: [
+            { key: 'g1', name: 'Banda' },
+            { key: 'g2', name: 'Baterista' }
+          ]
+        })
+      })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    await w.find('.tl-guide-clip').trigger('contextmenu')
+    expect(etiquetas()).toEqual(['Escuchar', 'Editar…', 'Ir aquí', 'Pasar a otro carril', 'Quitar'])
+    expect(opcion('Editar…').note).toBe('recortar, fundidos, limpiar')
+    await opcion('Escuchar').action()
+    expect(held.api.previewCue).toHaveBeenCalledWith('/guias/grabada-1.wav')
+    opcion('Pasar a otro carril').children[0].action()
+    await flushPromises()
+    const pistas = w.findAll('.tl-guide-track')
+    expect(pistas[1].findAll('.tl-guide-clip')).toHaveLength(1)
+    await pistas[1].find('.tl-guide-clip').trigger('contextmenu')
+    await opcion('Quitar').action()
+    await flushPromises()
+    expect(w.findAll('.tl-guide-clip')).toHaveLength(0)
+  })
+
+  it('la lista de las guías: «Guías», y pulsar una lleva a ella en su carril', async () => {
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({ cues: [guia(150, '', 'Final'), guia(20, '', '', '/guias/g.wav')] })
+      })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    const lista = w.findAll('.study-cue')
+    expect(w.text()).not.toContain('Guías habladas')
+    expect(lista.map((c) => c.find('.study-pick-name').text())).toEqual(['audio', 'Final'])
+    await lista[1].find('.study-pick').trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(150)
+    const final = w.findAll('.tl-guide-clip').find((c) => c.text() === 'Final')
+    expect(final.classes()).toContain('flash')
+    // escucharla desde la lista
+    await lista[1].find('[aria-label="Escucharla"]').trigger('click')
+    expect(held.api.previewCue).toHaveBeenCalledWith('/guias/Final.wav')
+  })
+
+  it('cada guía se ve con su onda y lo que dura de verdad', async () => {
+    held.state.songs = [
+      song(7, {
+        title: 'Mi Gozo',
+        study: JSON.stringify({ cues: [guia(10, '', '', '/guias/larga.wav')] })
+      })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    await flushPromises()
+    expect(held.api.cueWave).toHaveBeenCalledWith('/guias/larga.wav')
+    const bloque = w.find('.tl-guide-clip')
+    // 8 s de 200: el 4 % del ancho
+    expect(bloque.attributes('style')).toContain('width: 4%')
+    expect(bloque.find('.tl-guide-wave path').attributes('d')).toMatch(/^M0,50 L/)
+    expect(bloque.classes()).toContain('waved')
+  })
+})
+
 describe('exportar', () => {
   const conGuias = (extra = {}) =>
     JSON.stringify({
@@ -2214,7 +2437,7 @@ describe('exportar', () => {
       d.useDialog()
     )
     expect(dialog.value.title).toBe('Exportar la canción')
-    expect(dialog.value.check).toEqual({ label: 'Con las guías habladas (una)', value: true })
+    expect(dialog.value.check).toEqual({ label: 'Con las guías (una)', value: true })
     dialogOk({ checked: true })
     await hecho
     await flushPromises()
