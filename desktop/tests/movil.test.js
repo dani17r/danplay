@@ -277,6 +277,35 @@ describe('la música del teléfono', () => {
     w.unmount()
   })
 
+  it('las carpetas y las canciones salen de lo que cuenta Android (con la tarjeta SD)', async () => {
+    const media = [
+      { path: '/storage/1A2B-3C4D/Musica/coro.mp3', title: 'Coro', artist: 'Grupo' },
+      { path: '/storage/emulated/0/Music/Grupo/coro-uno.mp3', title: 'Coro Uno', artist: 'Grupo' }
+    ]
+    window.DanPlayMusica = { tiene: () => true, canciones: () => JSON.stringify(media) }
+    const w = mount(MovilApp, { attachTo: document.body })
+    await flushPromises()
+    await openPhone(w)
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('Carpetas'))
+      .trigger('click')
+    await flushPromises()
+    expect(held.api.phoneMedia).toHaveBeenCalledWith(media)
+    expect(held.api.phoneMedia.mock.invocationCallOrder[0]).toBeLessThan(
+      held.api.phoneFolders.mock.invocationCallOrder.at(-1)
+    )
+    // y antes de volver a mirar la música
+    held.api.phoneMedia.mockClear()
+    const { scanPhone } = await import('../src/movil/musica.js')
+    await scanPhone()
+    expect(held.api.phoneMedia).toHaveBeenCalledTimes(1)
+    expect(held.api.phoneMedia.mock.invocationCallOrder[0]).toBeLessThan(
+      held.api.phoneScan.mock.invocationCallOrder.at(-1)
+    )
+    w.unmount()
+  })
+
   it('las carpetas se eligen como en la PC', async () => {
     const w = mount(MovilApp, { attachTo: document.body })
     await flushPromises()
@@ -568,6 +597,70 @@ describe('los componentes de la PC, en el celular', () => {
     expect(labels()).toEqual(['Que suenen todas, como vienen'])
     // sin «Grande»: en el celular el estudio ya ocupa la pantalla
     expect(w.find('.study-size').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('las guías que trajo de la PC: se oyen y se mezclan, pero no se hacen ni se cambian', async () => {
+    held.state.songs[0].study = JSON.stringify({
+      cues: [
+        { t: 8, file: 'guias/coro-1.wav', text: 'Intro', lane: 'g1' },
+        { t: 52, file: 'guias/grabada-1.wav', lane: 'g2' }
+      ],
+      cueLanes: [
+        { key: 'g1', name: 'Banda' },
+        { key: 'g2', name: 'Baterista', gain: 1.2 }
+      ]
+    })
+    held.playback.emit({
+      track: { id: 1, title: 'Mi Gozo', artist: 'Barak', duration: 200 },
+      index: 0,
+      length: 1,
+      duration: 200,
+      playing: false,
+      path: '/pistas/barak-mi-gozo',
+      metronome: { on: false, bpm: 100, meter: 4, shift: 0, mult: 0, volume: 0.8 }
+    })
+    const w = mount(StudyBar, { attachTo: document.body })
+    await flushPromises()
+    // sus carriles, como los de las pistas: callar, solo y volumen
+    const mix = w.find('.tl-guide-mix')
+    expect(mix.findAll('.tl-lane-name').map((n) => n.text())).toEqual(['Banda', 'Baterista'])
+    const sent = () => held.playback.bridge.setCues.mock.calls.at(-1)
+    // las del .danpista, dentro de la carpeta de la pista
+    expect(sent()[1].map((c) => c.path)).toEqual(['guias/coro-1.wav', 'guias/grabada-1.wav'])
+    await mix.findAll('.tl-lane')[0].find('.tl-lane-btn').trigger('click')
+    await flushPromises()
+    expect(
+      sent()[1].map((c) => c.at),
+      'la banda, callada'
+    ).toEqual([52])
+    // tocar una guía en la onda lleva a ella, sin abrir nada para cambiarla
+    await w.findAll('.tl-cue')[0].trigger('click')
+    await flushPromises()
+    expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(8)
+    expect(w.findComponent({ name: 'StudyCue' }).exists()).toBe(false)
+    // en la lista, solo escucharla: la guía, desde la carpeta de la pista
+    const lista = w.findAll('.study-cue')
+    expect(lista).toHaveLength(2)
+    expect(w.find('.study-cue [aria-label="Cambiarla"]').exists()).toBe(false)
+    expect(w.find('.study-cue [aria-label="Quitarla"]').exists()).toBe(false)
+    await lista[0].find('[aria-label="Escucharla"]').trigger('click')
+    expect(held.api.previewCue).toHaveBeenCalledWith('/pistas/barak-mi-gozo/guias/coro-1.wav')
+    // y nada para poner guías
+    expect(w.find('.study-add-cue').exists()).toBe(false)
+    expect(w.find('.tl-guide-tracks').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('«Salidas» está a la vista en la cabecera del estudio', async () => {
+    const w = mount(StudyBar, { attachTo: document.body })
+    await flushPromises()
+    const salidas = w.find('.study-head [aria-label="Salidas"]')
+    expect(salidas.exists()).toBe(true)
+    await salidas.trigger('click')
+    await flushPromises()
+    expect(document.querySelector('.outs')).not.toBeNull()
+    expect(document.body.textContent).toContain('Estéreo')
     w.unmount()
   })
 

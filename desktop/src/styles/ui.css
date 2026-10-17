@@ -2975,12 +2975,22 @@ tbody tr.flash {
   display: none;
 }
 
-/* las salidas: por donde suena cada cosa */
+/* las salidas: por donde suena cada cosa. El panel no se desplaza: lo hace
+   esto (antes no, y con varias pistas no se llegaba al clic ni a las guías) */
 .outs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 4px 2px 16px;
+  padding: 14px 16px 20px;
+}
+/* el título de la sección ya dice qué es: sin repetirlo encima */
+.outs-device .field-label,
+.outs-row .field-label {
+  display: none;
 }
 .outs-lead,
 .outs-hint {

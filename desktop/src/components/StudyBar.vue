@@ -414,6 +414,24 @@ async function stopHere() {
   toStart()
 }
 /**
+ * «Al acabar: parar» (lo de fábrica) para la canción al final del tramo y la
+ * deja al principio de él. Sin verlo, parece que se pausa sola: se dice.
+ */
+let soundingAt = 0
+watch(position, (p) => {
+  if (playing.value) soundingAt = p
+})
+watch(playing, (now, before) => {
+  if (now || !before || !hasLoop.value || loopEndWanted.value !== 'stop') return
+  const list = study.value.loops
+  if (soundingAt < list[list.length - 1][1] - 1.5) return
+  notify(
+    'Se paró al acabar el tramo («Al acabar: parar»). Para que vuelva a empezar solo, elige «Repetir».',
+    'info',
+    6
+  )
+})
+/**
  * Lo que se puede hacer con el ratón sobre la onda: en el botón de ayuda de
  * la barra (antes, una línea de texto siempre a la vista).
  */
@@ -1473,10 +1491,19 @@ function removeCue(c) {
 }
 async function previewCue(c) {
   try {
-    await api.previewCue(c.file)
+    await api.previewCue(cuePath(c))
   } catch (e) {
     notify(errorMessage(e))
   }
+}
+/**
+ * El archivo de una guía. Las que vinieron de la PC en un .danpista dicen
+ * dónde van dentro de la carpeta de la pista (`guias/…`).
+ */
+function cuePath(c) {
+  const f = String(c.file || '')
+  const base = player.state.path || ''
+  return f && !f.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(f) && base ? base + '/' + f : f
 }
 // ---- notas: un solo cuadro, dos pestañas
 watch(selected, (m) => {
@@ -1947,16 +1974,31 @@ defineExpose({ close: hide, hide, exit })
           }}<span v-if="track.key" class="mono study-key"> · {{ track.key }}</span></span
         >
       </div>
-      <button class="btn mini" type="button" aria-label="Más del modo estudio" @click="headMenu">
-        ⋯
+      <!-- «Salidas», a la vista: el clic y las guías a un lado y la música al
+           otro, como una secuencia, en estéreo o en mono -->
+      <button
+        class="btn mini study-head-icon study-outputs"
+        type="button"
+        aria-label="Salidas"
+        @click="outputsOpen = true"
+      >
+        <Icon n="outputs" :t="20" />
       </button>
       <button
-        class="btn mini"
+        class="btn mini study-head-icon"
         type="button"
-        title="Ocultar el modo estudio (todo sigue sonando igual)"
+        aria-label="Más del modo estudio"
+        @click="headMenu"
+      >
+        <Icon n="more" :t="20" />
+      </button>
+      <button
+        class="btn mini study-head-icon"
+        type="button"
+        aria-label="Ocultar el modo estudio"
         @click="hide"
       >
-        <Icon n="down" :t="13" /> Ocultar
+        <Icon n="down" :t="20" />
       </button>
     </div>
     <div v-else class="study-head">
@@ -2178,7 +2220,12 @@ defineExpose({ close: hide, hide, exit })
 
     <!-- encima de la onda: la canción (sin bajar al reproductor), los tramos y
          la vista -->
-    <div class="study-bar" role="toolbar" aria-label="La canción, los tramos y la vista de la onda">
+    <div
+      v-if="!isMobileApp || hasLoop"
+      class="study-bar"
+      role="toolbar"
+      aria-label="La canción, los tramos y la vista de la onda"
+    >
       <span v-if="!isMobileApp" class="study-bar-group study-transport">
         <button
           class="btn mini icon-btn"
@@ -2253,7 +2300,7 @@ defineExpose({ close: hide, hide, exit })
         <Transition name="fade">
           <span v-if="hasLoop" class="study-loop-tools">
             <span class="study-ends" role="radiogroup" aria-label="Al acabar el tramo">
-              <span v-if="isMobileApp" class="study-ends-label">Al acabar:</span>
+              <span v-if="isMobileApp" class="study-ends-label">Al acabar el tramo</span>
               <button
                 v-for="e in LOOP_ENDS"
                 :key="e.v"
@@ -2281,24 +2328,22 @@ defineExpose({ close: hide, hide, exit })
             </button>
             <button
               v-if="!loopSaved"
-              class="btn mini"
-              :class="{ 'icon-btn': !isMobileApp }"
+              class="btn mini icon-btn study-save-loop"
               type="button"
               aria-label="Guardar"
               title="Guardar como marcador, con nombre y notas (varios tramos, juntos en uno)"
               @click="saveMarker"
             >
-              <Icon n="save" :t="12" /><template v-if="isMobileApp"> Guardar</template>
+              <Icon n="save" :t="12" />
             </button>
             <button
-              class="btn mini study-clear"
-              :class="{ 'icon-btn': !isMobileApp }"
+              class="btn mini icon-btn study-clear"
               type="button"
               aria-label="Quitar"
               title="Quitar el tramo (la canción sigue de largo)"
               @click="clearLoop"
             >
-              <Icon n="close" :t="12" /><template v-if="isMobileApp"> Quitar</template>
+              <Icon n="close" :t="12" />
             </button>
           </span>
         </Transition>
@@ -2389,7 +2434,7 @@ defineExpose({ close: hide, hide, exit })
       :locked="locked"
       :playing="playing"
       :lanes="lanes"
-      :guides="!isMobileApp"
+      guides
       :cue-lanes="guideLanes"
       :cue-edit="cueEdit"
       :cue-waves="cueWaves"
@@ -2409,7 +2454,7 @@ defineExpose({ close: hide, hide, exit })
       @update:grid="onOwnGrid"
       @seek="jump"
       @marker="(m) => selectMarker(m, { jump: !guarded })"
-      @cue="editCue"
+      @cue="(c) => (isMobileApp ? goToCue(c) : editCue(c))"
       @options="showOptions"
     />
     <p v-if="isMobileApp" class="study-hint">
@@ -2916,6 +2961,7 @@ defineExpose({ close: hide, hide, exit })
                   <Icon n="play" :t="11" />
                 </button>
                 <button
+                  v-if="!isMobileApp"
                   type="button"
                   class="field-btn"
                   aria-label="Cambiarla"
@@ -2926,6 +2972,7 @@ defineExpose({ close: hide, hide, exit })
                   <Icon :n="c.text ? 'pencil' : 'cut'" :t="11" />
                 </button>
                 <button
+                  v-if="!isMobileApp"
                   type="button"
                   class="field-btn"
                   aria-label="Quitarla"

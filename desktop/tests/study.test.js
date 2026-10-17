@@ -2247,6 +2247,26 @@ describe('el estudio de 1.28.2', () => {
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(0)
   })
 
+  it('al pararse solo al final del tramo («Al acabar: parar») lo dice', async () => {
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    const { notices } = useNotices()
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 60] }) })]
+    held.playback.emit({ playing: true, position: 51 })
+    await montar()
+    const before = notices.value.length
+    // una pausa a mano, a mitad del tramo: nada que decir
+    held.playback.emit({ playing: false, position: 55 })
+    await flushPromises()
+    expect(notices.value.length).toBe(before)
+    // al acabar el tramo el motor la para y la deja en su principio
+    held.playback.emit({ playing: true, position: 59.6 })
+    await flushPromises()
+    held.playback.emit({ playing: false, position: 50 })
+    await flushPromises()
+    expect(notices.value.at(-1)?.message).toContain('Se paró al acabar el tramo')
+    expect(notices.value.at(-1)?.message).toContain('«Repetir»')
+  })
+
   it('cada botón de icono dice para qué sirve', async () => {
     const w = await montar()
     const sinNombre = w

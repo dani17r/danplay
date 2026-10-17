@@ -1380,13 +1380,19 @@ html[data-app='movil'] .modal-actions .btn {
 .m-app .study-enter-active .study-col {
   animation: none;
 }
+/* nada de arriba se encoge: con más cosas que alto, el panel repartía lo que
+   faltaba entre todas, y la cabecera y la barra del tramo (que tienen un alto
+   mínimo) se aplastaban y se montaban unas sobre otras */
+.m-app .study > * {
+  flex-shrink: 0;
+}
 .m-app .study-head {
   touch-action: none;
   position: sticky;
   top: 0;
   z-index: 5;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   margin: 0 calc(-1 * var(--m-pad));
   padding: 10px 10px 12px var(--m-pad);
   background: var(--panel);
@@ -1426,6 +1432,68 @@ html[data-app='movil'] .modal-actions .btn {
   padding: 0 14px;
   border-radius: 22px;
   font-size: calc(14.5px * var(--scale));
+}
+/* Salidas, más y ocultar: iconos redondos de dedo */
+.m-app .study-head .btn.study-head-icon {
+  width: var(--m-touch);
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+/* el tramo: su tiempo y sus botones arriba; debajo, a todo lo ancho, qué
+   hacer al acabarlo (antes iba todo en una fila que se salía de la pantalla,
+   y «Al acabar: parar» ni se veía) */
+.m-app .study-bar {
+  display: block;
+}
+.m-app .study-loop-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.m-app .study-loop-tools {
+  display: contents;
+}
+.m-app .study-bar .study-loop {
+  justify-self: start;
+  padding: 9px 14px;
+  font-size: calc(15px * var(--scale));
+  font-weight: 600;
+}
+.m-app .study .study-bar .btn.mini.icon-btn {
+  width: var(--m-touch);
+  height: var(--m-touch);
+  border-radius: 50%;
+}
+.m-app .study .study-bar .btn.mini.icon-btn .ico {
+  width: 18px;
+  height: 18px;
+}
+.m-app .study-bar .study-ends {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+}
+.m-app .study-bar .study-ends-label {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--muted2);
+}
+.m-app .study .study-bar .study-end {
+  justify-content: center;
+  min-height: var(--m-touch);
 }
 
 .m-app .study-stems {
@@ -1489,6 +1557,35 @@ html[data-app='movil'] .modal-actions .btn {
 }
 .m-app .tl-lane-pan {
   display: none;
+}
+/* las guías que trajo de la PC: sus carriles, como los de las pistas, debajo */
+.m-app .tl .tl-guide-mix {
+  order: 4;
+  height: auto;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--m-radius);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+.tl-guide-mix-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 14px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--muted2);
+}
+.tl-guide-mix-title .ico {
+  color: var(--accent);
+}
+.tl-guide-mix-note {
+  margin-left: auto;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .m-app .tl-lane-btn {
   width: 46px;
@@ -1665,6 +1762,10 @@ html[data-app='movil'] .modal-actions .btn {
   width: 40px;
   height: 40px;
 }
+.m-app .study-marker .field-btn .ico {
+  width: 16px;
+  height: 16px;
+}
 .m-app .study-markers {
   max-height: none;
 }
@@ -1794,12 +1895,82 @@ html[data-app='movil'] .drawer-head span {
   grid-template-columns: 1fr 1fr;
 }
 
+/* ---------- las salidas, con el dedo ----------
+   Cada cosa en su tarjeta: su nombre y estéreo o mono arriba, por dónde
+   suena debajo y a todo lo ancho (en la fila de la PC no cabía) */
+html[data-app='movil'] .outs {
+  gap: 18px;
+  padding: 16px var(--m-pad) 28px;
+}
+html[data-app='movil'] .outs-lead {
+  font-size: calc(13.5px * var(--scale));
+}
+html[data-app='movil'] .outs-hint {
+  font-size: calc(12.5px * var(--scale));
+}
+html[data-app='movil'] .outs-title {
+  font-size: 11px;
+}
+html[data-app='movil'] .outs-preset {
+  padding: 12px 14px;
+  border-radius: var(--m-radius);
+}
+html[data-app='movil'] .outs-preset-name {
+  font-size: calc(15px * var(--scale));
+}
+html[data-app='movil'] .outs-preset-note {
+  font-size: calc(13px * var(--scale));
+}
+html[data-app='movil'] .outs-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--m-radius);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+html[data-app='movil'] .outs-row-name {
+  font-size: calc(15px * var(--scale));
+  font-weight: 600;
+}
+html[data-app='movil'] .outs-row-pick {
+  display: contents;
+}
+html[data-app='movil'] .outs-row .field {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: 100% !important;
+}
+html[data-app='movil'] .outs-mode {
+  grid-column: 2;
+  grid-row: 1;
+  border-radius: 10px;
+}
+html[data-app='movil'] .outs-mode-btn {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: calc(13.5px * var(--scale));
+}
+html[data-app='movil'] .outs-device .btn {
+  min-width: var(--m-touch);
+  min-height: var(--m-touch);
+  justify-content: center;
+}
+
 /* ---------- las carpetas con música del teléfono ---------- */
+/* el panel no se desplaza: lo hace la lista, con su margen a los lados (antes
+   iba pegada al borde y, con muchas carpetas, no se podía llegar al final) */
 .m-folders {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 4px 2px 16px;
+  gap: 14px;
+  padding: 16px var(--m-pad) 0;
 }
 .m-folders-lead {
   margin: 0;
@@ -1846,12 +2017,14 @@ html[data-app='movil'] .drawer-head span {
 .m-folders-foot {
   position: sticky;
   bottom: 0;
+  margin: auto calc(-1 * var(--m-pad)) 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding-top: 10px;
-  background: var(--bg);
+  gap: 12px;
+  padding: 12px var(--m-pad) 16px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
 }
 .m-folders-count {
   color: var(--muted);
