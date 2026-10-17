@@ -278,6 +278,28 @@ class CueFileIn(Body_):
     file: str = Field(min_length=1, max_length=1024)
 
 
+class CueImportIn(Body_):
+    """Un audio del equipo (o lo grabado) como guía: hasta lo que dura la
+    canción (`limit`, segundos; sin él, un minuto)."""
+
+    path: str = Field(min_length=1, max_length=4096)
+    limit: float | None = Field(default=None, gt=0, le=36000)
+
+
+class CueEditIn(Body_):
+    """Recortar y limpiar una guía grabada o importada (ver cues.edit_clip)."""
+
+    file: str = Field(min_length=1, max_length=1024)
+    start: float = Field(default=0.0, ge=0)
+    end: float | None = Field(default=None, gt=0)
+    fade_in: float = Field(default=0.0, ge=0, le=5)
+    fade_out: float = Field(default=0.0, ge=0, le=5)
+    denoise: bool = False
+    highpass: bool = False
+    normalize: bool = False
+    preview: bool = False
+
+
 class BeatsReanalyzeIn(Body_):
     """Volver a sacar la rejilla del clic: como (`beatgrid.REANALYZE_MODES`),
     de toda la cancion o de `start` a `end`, y con un tempo, si se sabe."""

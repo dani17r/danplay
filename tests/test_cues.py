@@ -3,6 +3,7 @@ el texto como se dice, los fonemas, el archivo, la seguridad de las rutas
 y la API."""
 
 import json
+import os
 import wave
 
 import numpy as np
@@ -99,6 +100,83 @@ def test_a_recording_becomes_a_guide_and_only_guides_are_read(guides):
         w.writeframes(b"\0\0" * 8000)
     with pytest.raises(cues.CueError, match="silencio"):
         cues.import_recording(str(silent))
+
+
+def test_an_imported_audio_lasts_at_most_the_song(guides, monkeypatch):
+    from danplay import cues
+
+    long = guides / "aviso-largo.wav"
+    _recording(long, rate=8000, seconds=70)
+    with pytest.raises(cues.CueError, match="un minuto"):
+        cues.import_recording(str(long))
+    with pytest.raises(cues.CueError, match="más que la canción"):
+        cues.import_recording(str(long), longest=40)
+    made = cues.import_recording(str(long), longest=200)
+    assert 69.9 <= made["seconds"] <= 70.1
+    assert long.exists(), "un audio del equipo no se borra al importarlo"
+    monkeypatch.setattr(cues, "MAX_IMPORT_SECONDS", 50.0)
+    with pytest.raises(cues.CueError, match="como mucho"):
+        cues.import_recording(str(long), longest=30_000)
+
+
+def test_a_guide_is_cut_faded_and_cleaned_into_a_new_one(guides, monkeypatch):
+    from danplay import cues
+
+    rec = guides / "danplay-guia-9.wav"
+    _recording(rec, rate=16000, seconds=2.0)
+    made = cues.import_recording(str(rec))
+    w = cues.wave_of(made["file"], 64)
+    assert len(w["peaks"]) == 64 and max(w["peaks"]) == 1.0
+    assert 2.0 <= w["seconds"] <= 2.1
+    with pytest.raises(cues.CueError):
+        cues.wave_of(str(guides / "fuera.wav"))
+
+    cut = cues.edit_clip(
+        made["file"], start=0.5, end=1.5, fade_in=0.2, fade_out=0.3, normalize=True
+    )
+    assert cut["file"] != made["file"] and cues.own_file(cut["file"]) == cut["file"]
+    assert 0.99 <= cut["seconds"] <= 1.01
+    with wave.open(cut["file"]) as f:
+        x = np.frombuffer(f.readframes(f.getnframes()), "<i2").astype(np.float32) / 32767
+    assert abs(x[0]) < 1e-3 and abs(x[-1]) < 1e-3, "los fundidos, en los bordes"
+    assert abs(float(np.max(np.abs(x))) - 10 ** (-1 / 20)) < 0.01, "a su volumen"
+    assert os.path.exists(made["file"]), "la de antes no se toca"
+    again = cues.edit_clip(
+        made["file"], start=0.5, end=1.5, fade_in=0.2, fade_out=0.3, normalize=True
+    )
+    assert again["file"] == cut["file"], "lo mismo, el mismo archivo"
+
+    trial = cues.edit_clip(made["file"], end=1.0, preview=True)
+    assert "prueba" in trial["file"] and cues.own_file(trial["file"]) is None
+    assert cues.own_file(trial["file"], previews=True) == trial["file"]
+    # una prueba se puede guardar después (editarla otra vez, sin preview)
+    kept = cues.edit_clip(trial["file"])
+    assert cues.own_file(kept["file"]) == kept["file"]
+
+    with pytest.raises(cues.CueError, match="corto"):
+        cues.edit_clip(made["file"], start=1.0, end=1.01)
+    with pytest.raises(cues.CueError):
+        cues.edit_clip("/etc/passwd")
+
+    # quitar el ruido y los graves pasa por ffmpeg con esos filtros
+    seen = []
+    monkeypatch.setattr(cues, "_ffmpeg_filter", lambda x, rate, chain: seen.append(chain) or x)
+    cues.edit_clip(made["file"], denoise=True, highpass=True)
+    assert seen == ["highpass=f=100,afftdn=nf=-25"]
+
+
+def test_cleaning_a_guide_with_ffmpeg(guides):
+    from danplay import convert, cues
+
+    if not convert.tool("ffmpeg"):
+        pytest.skip("sin ffmpeg")
+    rate = 16000
+    t = np.arange(rate) / rate
+    noisy = (
+        0.3 * np.sin(2 * np.pi * 440 * t) + 0.02 * np.random.default_rng(1).standard_normal(rate)
+    ).astype(np.float32)
+    out = cues._ffmpeg_filter(noisy, rate, "highpass=f=100,afftdn=nf=-25")
+    assert abs(out.size - rate) < rate // 100
 
 
 def test_the_voices_and_what_they_weigh(guides):
@@ -250,3 +328,22 @@ def test_the_api_for_guides(configured_library, guides, monkeypatch):
     r = cliente.post(f"/api/song/{c['id']}/cues/import", json={"path": str(rec)})
     assert r.status_code == 200 and "grabada-" in r.json()["file"]
     assert cliente.post("/api/song/999999/cues/import", json={"path": str(rec)}).status_code == 404
+    # un audio del equipo, hasta lo que dura la canción
+    long = guides / "cuenta.wav"
+    _recording(long, rate=8000, seconds=65)
+    r = cliente.post(f"/api/song/{c['id']}/cues/import", json={"path": str(long)})
+    assert r.status_code == 422, "sin decir cuánto dura la canción, un minuto"
+    assert (c["duration"] or 0) < 60
+    r = cliente.post(f"/api/song/{c['id']}/cues/import", json={"path": str(long), "limit": 120})
+    assert r.status_code == 422 and "canción" in r.json()["detail"], (
+        "lo que dice la app, pero nunca más de lo que dura la canción"
+    )
+    # su onda, y una nueva recortada
+    guide = made["file"]
+    w = cliente.get("/api/cues/wave", params={"file": guide, "buckets": 32}).json()
+    assert len(w["peaks"]) == 32 and w["seconds"] == 0.5
+    assert cliente.get("/api/cues/wave", params={"file": "/etc/passwd"}).status_code == 404
+    r = cliente.post("/api/cues/edit", json={"file": guide, "start": 0.1, "fade_out": 0.1})
+    assert r.status_code == 200 and "editada-" in r.json()["file"]
+    assert r.json()["seconds"] == 0.4
+    assert cliente.post("/api/cues/edit", json={"file": guide, "fade_in": 9}).status_code == 422
