@@ -3,6 +3,38 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.28.3 — 2026-10-17
+
+El celular: su modo estudio a la vista, las guías solo para oírlas, las
+salidas a mano y la música del teléfono, también la de la tarjeta SD.
+
+### Arreglos
+
+- **«Se pausa solo»**: con un tramo elegido, «Al acabar» viene en «parar», y
+  al final del tramo la canción se para y vuelve a su principio. En el
+  teléfono esa opción quedaba tapada y no se veía. Ahora está a la vista y,
+  cuando se para así, se dice (también en la PC).
+- **En el teléfono, la cabecera del estudio y la barra del tramo se
+  aplastaban** y se montaban unas sobre otras.
+- **«Salidas» no se podía desplazar**: con varias pistas no se llegaba al
+  clic ni a las guías.
+- **La música del teléfono no encontraba tus carpetas**: solo miraba la
+  memoria interna (sin la tarjeta SD ni las carpetas de Telegram o
+  WhatsApp) y salían los tonos del sistema. Ahora lo dice Android.
+- Escuchar una guía en el teléfono daba error.
+
+### Celular
+
+- **El tramo, en dos filas:** su tiempo con «Ahora», guardar y quitar; debajo,
+  «Al acabar el tramo: repetir · parar · seguir».
+- **«Salidas» en la cabecera del estudio**, junto a «⋯» y ocultar: el clic y
+  las guías a un lado y la música al otro, como una secuencia, cada cosa en
+  estéreo o en mono y en su tarjeta.
+- **Las guías vienen de la PC:** en el teléfono se oyen y cada carril se
+  calla, se deja solo o cambia de volumen, como las pistas; se hacen y se
+  cambian en la PC.
+- Los paneles (carpetas, salidas), con su margen.
+
 ## 1.28.2 — 2026-10-16
 
 El modo estudio del escritorio, más a mano: los mandos encima de la onda,

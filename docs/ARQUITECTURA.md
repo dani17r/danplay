@@ -1789,6 +1789,23 @@ así los archivos de audio. Los ids son negativos, como los archivos sueltos de
 la PC. Al poner una, la cola son las de su carpeta. El motor carga el archivo
 como una sola parte, con su clic, sus tramos y sus salidas.
 
+**Qué hay lo dice Android** (1.28.3). Recorrer la memoria no ve la tarjeta SD
+(`/storage/<tarjeta>`) ni las carpetas de las apps (los audios de Telegram o
+WhatsApp, en `Android/media/<app>/…`, que se saltaban), y sí encuentra los
+tonos del sistema. El índice de música de Android (MediaStore, todas las
+memorias) lo da todo: `DanPlayMusica.canciones()` devuelve cada canción con
+su ruta, título, artista, álbum, duración, tamaño y fecha, sin tonos de
+llamada, avisos, alarmas ni grabaciones; la página se lo pasa a la app
+(`PUT /api/phone/media`) antes de enseñar las carpetas o mirar la música, y
+`Musica` agrupa por carpeta y hace las canciones con eso, sin abrir los
+archivos. Sin esa lista (en la PC, en las pruebas) se recorren las carpetas.
+
+**En el teléfono las guías son de lectura**: se hacen en la PC y viajan en el
+.danpista (`guias/…`, dentro de la pista). El estudio del celular enseña sus
+carriles como filas de mezcla (callar, solo, volumen) y nada para ponerlas o
+cambiarlas; tocar una lleva a ella, y escucharla usa `preview_clip` del
+motor, como en la PC.
+
 ## Términos, novedades y créditos
 
 DanPlay es obra de Daniel Rangel, y la app lo dice: en «Acerca de DanPlay»
