@@ -557,6 +557,7 @@ function answers(state) {
       return { total: state.phone.length, count: songs.length, songs: songs.map((s) => ({ ...s })) }
     },
     phoneScan: async () => ({ songs: state.phone.length }),
+    phoneMedia: async (songs) => ({ songs: songs.length }),
     phoneFolders: async () => ({ folders: state.phoneFolders.map((f) => ({ ...f })) }),
     setPhoneFolders: async (folders) => {
       for (const f of state.phoneFolders) f.on = folders.includes(f.path)

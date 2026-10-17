@@ -1185,6 +1185,13 @@ export const api = {
   setPhoneFolders: (folders) => PUT('/phone/folders', { folders }),
   /** Volver a mirar las carpetas (solo se lee lo nuevo). */
   phoneScan: () => POST('/phone/scan'),
+  /**
+   * Lo que Android cuenta que hay en el teléfono (su índice de música): las
+   * carpetas y las canciones salen de ahí (ver src/movil/musica.js).
+   * @param {Array<{path: string, title?: string, artist?: string, album?: string,
+   *   duration?: number, size?: number, mtime?: number}>} songs
+   */
+  phoneMedia: (songs) => PUT('/phone/media', { songs }),
   /** La música del teléfono. @param {Record<string,string>} [params] */
   phoneSongs: (params = {}) => GET('/phone/songs?' + new URLSearchParams(params)),
   /** Las canciones de la carpeta de esa (para la cola). @param {number} id */

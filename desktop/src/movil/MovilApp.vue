@@ -39,7 +39,7 @@ import MovilSongs from './MovilSongs.vue'
 import MovilPlayer from './MovilPlayer.vue'
 import MovilMenu from './MovilMenu.vue'
 import MovilFolders from './MovilFolders.vue'
-import { hasMusicPermission, askMusicPermission } from './musica.js'
+import { hasMusicPermission, askMusicPermission, scanPhone } from './musica.js'
 import MovilSettings from './MovilSettings.vue'
 import MovilAbout from './MovilAbout.vue'
 
@@ -144,7 +144,7 @@ async function load() {
       let r = await api.phoneSongs(query.value ? { q: query.value } : {})
       // la primera vez: a buscarla
       if (!r.total && !query.value) {
-        await api.phoneScan()
+        await scanPhone()
         r = await api.phoneSongs({})
       }
       phoneTotal.value = r.total || 0
@@ -241,7 +241,7 @@ async function play(song) {
 async function givePermission() {
   if (await askMusicPermission()) {
     needPermission.value = false
-    await api.phoneScan().catch(() => null)
+    await scanPhone().catch(() => null)
     await load()
   } else {
     notify('Sin el permiso, DanPlay no puede ver la música del teléfono', 'info', 5)
@@ -250,7 +250,7 @@ async function givePermission() {
 async function rescan() {
   loading.value = true
   try {
-    const r = await api.phoneScan()
+    const r = await scanPhone()
     notify(`${r?.songs ?? 0} canciones en el teléfono`, 'ok', 3)
   } catch (e) {
     notify('No se pudo mirar la música: ' + errorMessage(e))
