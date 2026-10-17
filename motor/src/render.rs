@@ -701,6 +701,12 @@ impl Render {
 
     /// Llena `out` (estereo intercalado, a la tasa de la salida), con el
     /// limitador. Es lo que hace la salida cuando hay una sola cancion.
+    /// Bloques ya decodificados esperando a sonar (para las pruebas).
+    #[cfg(test)]
+    pub fn blocks_ready(&self) -> usize {
+        self.ring.as_ref().map_or(0, |r| r.full.slots())
+    }
+
     pub fn render(&mut self, out: &mut [f32]) {
         if self.channels != 2 {
             self.set_output(self.output_rate(), 2);
