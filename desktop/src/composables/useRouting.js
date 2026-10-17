@@ -15,8 +15,9 @@ const KEY = 'danplay.salidas'
 
 /**
  * Los destinos, por nombre: 'main' (1-2, estéreo), 'L' y 'R' (un lado, en
- * mono), 'p3' (3-4), 'p5'… (pares de canales) y 'm1', 'm2'… (un canal, en
- * mono), o 'off' (no suena).
+ * mono), 'p3' (3-4), 'p5'… (pares de canales), 'm1', 'm2'… (un canal, en
+ * mono), 'x2-3' (dos canales cualesquiera, el primero a la izquierda) o
+ * 'off' (no suena).
  * @typedef {string} Dest
  */
 
@@ -55,6 +56,12 @@ export function targetOf(dest, mono = false) {
     const c = Number(single[1]) - 1
     return { left: c, right: c }
   }
+  const any = /^x(\d+)-(\d+)$/.exec(dest || '')
+  if (any) {
+    const a = Number(any[1]) - 1
+    const b = Number(any[2]) - 1
+    return mono ? { left: a, right: b, mono: true } : { left: a, right: b }
+  }
   const pair = /^p(\d+)$/.exec(dest || '')
   const c = pair ? Number(pair[1]) - 1 : 0
   return mono ? { left: c, right: c + 1, mono: true } : { left: c, right: c + 1 }
@@ -62,6 +69,51 @@ export function targetOf(dest, mono = false) {
 
 /** Si el destino es un solo canal (y entonces va en mono, se elija o no). @param {Dest} dest */
 export const isSingle = (dest) => dest === 'L' || dest === 'R' || /^m\d+$/.test(dest || '')
+
+/**
+ * Los canales de un destino, contando desde 1 (lo que se enciende en los
+ * botones L y R, o 1, 2, 3… de cada cosa). Ninguno: no suena.
+ * @param {Dest} dest
+ * @returns {number[]}
+ */
+export function channelsOf(dest) {
+  const t = targetOf(dest)
+  if (!t) return []
+  return t.left === t.right ? [t.left + 1] : [t.left + 1, t.right + 1]
+}
+
+/**
+ * Y al revés: el destino de esos canales (uno: en mono por él; dos: el
+ * primero a la izquierda y el segundo a la derecha; ninguno: no suena).
+ * @param {number[]} list
+ * @returns {Dest}
+ */
+export function destOfChannels(list) {
+  const cs = [...new Set(list)]
+    .filter((c) => c >= 1)
+    .sort((a, b) => a - b)
+    .slice(0, 2)
+  if (!cs.length) return 'off'
+  if (cs.length === 1) return cs[0] === 1 ? 'L' : cs[0] === 2 ? 'R' : `m${cs[0]}`
+  const [a, b] = cs
+  if (a === 1 && b === 2) return 'main'
+  if (b === a + 1 && a % 2 === 1) return `p${a}`
+  return `x${a}-${b}`
+}
+
+/**
+ * Por qué lado va en un archivo estéreo (al exportar «con los canales»): los
+ * dos, la izquierda o la derecha (de una interfaz de más salidas, las
+ * impares a la izquierda y las pares a la derecha); null si no suena.
+ * @param {Dest} dest
+ * @returns {'both'|'L'|'R'|null}
+ */
+export function sideOf(dest) {
+  const cs = channelsOf(dest)
+  if (!cs.length) return null
+  if (cs.length === 2 && cs[0] % 2 !== cs[1] % 2) return 'both'
+  return cs[0] % 2 === 1 ? 'L' : 'R'
+}
 
 /** Los canales que hacen falta para un destino. @param {Dest} dest */
 function channelsFor(dest) {
@@ -276,17 +328,82 @@ export function useRouting() {
     save()
     await apply()
   }
+  /**
+   * Lo de ahora, a medida: cada cosa donde suena con el reparto elegido. Al
+   * cambiar una sola desde «Clic y guías a la izquierda» (por ejemplo), las
+   * demás se quedan donde estaban en vez de volver todas a los dos lados.
+   */
+  function asCustom() {
+    const p = prefs.value
+    if (p.preset === 'custom') return p.custom
+    return {
+      song: destOf(p, 'song'),
+      click: destOf(p, 'click'),
+      cues: destOf(p, 'cues'),
+      stems: Object.fromEntries(
+        stemList.value.map((st) => [st.key, destOf(p, 'stem', st.key, st.role)])
+      )
+    }
+  }
   /** @param {'song'|'click'|'cues'} kind @param {Dest} dest */
   function setCustom(kind, dest) {
-    return update({ preset: 'custom', custom: { ...prefs.value.custom, [kind]: dest } })
+    return update({ preset: 'custom', custom: { ...asCustom(), [kind]: dest } })
   }
   /** @param {string} key @param {Dest} dest */
   function setStem(key, dest) {
+    const custom = asCustom()
     return update({
       preset: 'custom',
-      custom: { ...prefs.value.custom, stems: { ...prefs.value.custom.stems, [key]: dest } }
+      custom: { ...custom, stems: { ...custom.stems, [key]: dest } }
     })
   }
+  /**
+   * Por dónde suena una cosa y si en mono: la canción, el clic, las guías o
+   * una pista (`key`, con su papel).
+   * @param {'song'|'click'|'cues'|'stem'} kind @param {string} [key] @param {string} [role]
+   * @returns {{dest: Dest, mono: boolean}}
+   */
+  function routeOf(kind, key = '', role = '') {
+    const roleOf = role || stemList.value.find((st) => st.key === key)?.role || ''
+    return {
+      dest: destOf(prefs.value, kind, key, roleOf),
+      mono: monoOf(prefs.value, kind, key, roleOf)
+    }
+  }
+  /**
+   * Mandar una cosa por esos canales (desde los botones L y R de su carril).
+   * @param {'song'|'click'|'cues'|'stem'} kind @param {string} key @param {Dest} dest
+   */
+  function setRoute(kind, key, dest) {
+    return kind === 'stem' ? setStem(key, dest) : setCustom(kind, dest)
+  }
+  /**
+   * Cómo va en un archivo estéreo al exportar «con los canales»: el lado y
+   * si en mono; null si no suena.
+   * @param {'song'|'click'|'cues'|'stem'} kind @param {string} [key] @param {string} [role]
+   * @returns {{side: 'both'|'L'|'R', mono: boolean}|null}
+   */
+  function exportRoute(kind, key = '', role = '') {
+    const r = routeOf(kind, key, role)
+    const side = sideOf(r.dest)
+    return side ? { side, mono: side === 'both' ? r.mono : true } : null
+  }
+  /** Si algo no suena «por los dos lados, en estéreo» (y exportar con los canales cambia algo). */
+  const routed = computed(() => {
+    const things = [
+      routeOf('song'),
+      routeOf('click'),
+      routeOf('cues'),
+      ...stemList.value.map((st) => routeOf('stem', st.key, st.role))
+    ]
+    return things.some((t) => t.dest !== 'main' || t.mono)
+  })
+  /** Los canales de la salida elegida (2 si no se sabe). */
+  const deviceChannels = computed(() => {
+    const id = prefs.value.device
+    const d = devices.value.find((x) => (id ? x.id === id : x.default))
+    return Math.max(2, Math.min(16, d?.channels || 2))
+  })
   /**
    * En mono o en estéreo (no cambia el reparto: vale con cualquiera).
    * @param {'song'|'click'|'cues'|'stem'} kind @param {boolean} on @param {string} [key]
@@ -325,6 +442,11 @@ export function useRouting() {
     setCustom,
     setStem,
     setMono,
+    routeOf,
+    setRoute,
+    exportRoute,
+    routed,
+    deviceChannels,
     loadDevices,
     busOfStem,
     setStems,

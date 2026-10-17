@@ -68,6 +68,7 @@ import { isMobileApp } from '../platform.js'
 import { columnsFor, paintWave } from '../utils/wavePaint.js'
 import Icon from './Icon.vue'
 import SliderField from './ui/SliderField.vue'
+import ChannelPicker from './ChannelPicker.vue'
 
 const props = defineProps({
   songId: { type: Number, default: null },
@@ -118,7 +119,18 @@ const props = defineProps({
   /** los carriles de las guías: [{key, name, gain, mute, solo}] */
   cueLanes: { type: Array, default: () => [] },
   /** se pueden poner, mover y cambiar guías (con la canción parada) */
-  cueEdit: Boolean
+  cueEdit: Boolean,
+  /** los mandos de la mezcla de cada carril (M, S, volumen, panorama) a la vista */
+  showMix: { type: Boolean, default: true },
+  /** los canales de cada carril (L, R, estéreo o mono) a la vista */
+  showRoutes: { type: Boolean, default: true },
+  /**
+   * el carril del clic ({on, volume}), debajo de la onda con sus golpes, o
+   * null (sin clic que enseñar)
+   */
+  clickLane: { type: Object, default: null },
+  /** con el candado: un clic en la onda lleva igual la canción ahí */
+  seekClick: Boolean
 })
 // `update:loops` lleva los tramos (en orden, los que se pisan juntos) y
 // `{ mode, index }`: 'select' si se dibujo uno de cero, 'add' si se anadio
@@ -147,7 +159,9 @@ const emit = defineEmits([
   'remove-cue-lane',
   'rename-cue-lane',
   'cue-lane-menu',
-  'cue-menu'
+  'cue-menu',
+  'click-lane',
+  'update:seekClick'
 ])
 
 /** Con las pistas separadas, un carril por instrumento. */
@@ -158,8 +172,20 @@ const showGuides = computed(() => props.guides && !isMobileApp && props.cueLanes
 const mobileGuides = computed(
   () => props.guides && isMobileApp && props.cueLanes.length > 0 && props.cues.length > 0
 )
+/**
+ * Lo que mide la columna de las cabeceras: el nombre y, si se ven, los mandos
+ * de la mezcla y los canales. Ocultos los dos, solo el nombre: más onda.
+ */
+const headsWidth = computed(() => {
+  const mix = props.showMix ? (laneMode.value ? 150 : 104) : 0
+  const routes = props.showRoutes ? 84 : 0
+  return (laneMode.value ? 88 : 78) + mix + routes
+})
+/** El carril del clic, debajo de la onda (en el escritorio, con los demás carriles). */
+const showClick = computed(() => !!props.clickLane && headModeBase.value && !isMobileApp)
 /** Cada carril con su cabecera a la izquierda (los de las pistas o los de las guías). */
-const headMode = computed(() => laneMode.value || showGuides.value)
+const headModeBase = computed(() => laneMode.value || showGuides.value)
+const headMode = headModeBase
 /** Hasta cuántos carriles de guías. */
 const MAX_CUE_LANES = 6
 // alto de la onda (o de todos los carriles), en px
@@ -731,6 +757,12 @@ function onMove(e) {
 /** Un clic sin arrastrar: quita la seleccion y lleva la cancion ahi. */
 function onClick(e, index) {
   const list = saved.value
+  // con el candado y «ir con un clic», un clic lleva la canción ahí (sonando
+  // también) sin quitar el tramo: para ir y volver mientras se ensaya
+  if (props.locked && props.seekClick && !(props.multi && index >= 0)) {
+    emit('seek', round2(timeAt(e.clientX)))
+    return
+  }
   const blocked = props.locked && props.playing
   // con «varios», un clic sobre un tramo quita ese; sin «varios», cualquier
   // clic quita la seleccion (la que hubiera)
@@ -1062,6 +1094,18 @@ const guideBeats = computed(() => {
   // de lejos son demasiados: uno de cada cuatro (más o menos, cada compás)
   return all.filter((_, i) => i % 4 === 0).map((t) => ({ t, one: true }))
 })
+/** Los golpes del clic que se ven, en su carril (de lejos, solo el «1»). */
+const clickTicks = computed(() => {
+  const g = props.grid
+  if (!showClick.value || !g?.beats?.length || !props.duration) return []
+  const out = []
+  for (let i = 0; i < g.beats.length; i++) {
+    const t = g.beats[i]
+    if (t < view.from || t > view.to) continue
+    out.push({ t, one: isDownbeat(g, i) })
+  }
+  return out.length > 240 ? out.filter((b) => b.one) : out
+})
 /** La guía que se acaba de buscar desde la lista (un destello para verla). */
 const flashed = ref(null)
 let flashTimer = null
@@ -1136,11 +1180,21 @@ const lockTitle = computed(() =>
       ['tl-hover-' + hover]: hover,
       'tl-has-lanes': headMode,
       'tl-slim': headMode && !laneMode,
+      'tl-no-mix': !showMix,
+      'tl-no-routes': !showRoutes,
+      'tl-with-click': showClick,
+      'tl-desk': !isMobileApp,
+      'tl-locked': locked && !isMobileApp,
       'tl-zoomed': zoomed,
       'tl-edit-beats': editBeats
     }"
     :data-mode="drag.mode || null"
-    :style="{ '--tl-h': WAVE_H + 'px', '--tl-lane-h': laneHeight + 'px', '--tl-guide-h': '28px' }"
+    :style="{
+      '--tl-h': WAVE_H + 'px',
+      '--tl-lane-h': laneHeight + 'px',
+      '--tl-guide-h': '28px',
+      '--tl-heads': headsWidth + 'px'
+    }"
   >
     <!-- los mandos de cada pista, a la altura de su carril -->
     <div v-if="laneMode" class="tl-lanes" role="group" aria-label="Las pistas separadas">
@@ -1152,9 +1206,17 @@ const lockTitle = computed(() =>
         :data-lane="lane.key"
       >
         <span class="tl-lane-name" :title="lane.name">{{ lane.name }}</span>
+        <ChannelPicker
+          v-if="showRoutes && !isMobileApp"
+          kind="stem"
+          :route="lane.key"
+          :part="lane.role || ''"
+          :name="lane.name"
+          class="tl-lane-chans"
+        />
         <button
           type="button"
-          class="tl-lane-btn"
+          class="tl-lane-btn tl-mix"
           :class="{ on: lane.mute }"
           :aria-pressed="!!lane.mute"
           :aria-label="(lane.mute ? 'Que vuelva a sonar ' : 'Callar ') + lane.name"
@@ -1165,7 +1227,7 @@ const lockTitle = computed(() =>
         </button>
         <button
           type="button"
-          class="tl-lane-btn solo"
+          class="tl-lane-btn solo tl-mix"
           :class="{ on: lane.solo }"
           :aria-pressed="!!lane.solo"
           :aria-label="(lane.solo ? 'Quitar el solo de ' : 'Dejar sola ') + lane.name"
@@ -1180,7 +1242,7 @@ const lockTitle = computed(() =>
         </button>
         <!-- doble clic: vuelve a como viene -->
         <SliderField
-          class="tl-lane-gain"
+          class="tl-lane-gain tl-mix"
           :model-value="lane.gain ?? 1"
           :min="0"
           :max="2"
@@ -1194,7 +1256,7 @@ const lockTitle = computed(() =>
           @dblclick="emit('lane', lane.key, { gain: 1 })"
         />
         <SliderField
-          class="tl-lane-pan"
+          class="tl-lane-pan tl-mix"
           :model-value="lane.pan ?? 0"
           :min="-1"
           :max="1"
@@ -1266,6 +1328,49 @@ const lockTitle = computed(() =>
          cabecera, como cualquier pista de un editor -->
     <div v-if="!laneMode && showGuides" class="tl-song-head">
       <Icon n="music" :t="12" /><span>Canción</span>
+      <ChannelPicker v-if="showRoutes" kind="song" name="La canción" class="tl-lane-chans" />
+    </div>
+    <!-- el clic, en su carril: sus golpes, encenderlo, su volumen y sus canales -->
+    <div v-if="showClick" class="tl-lane tl-click-lane" :class="{ off: !clickLane.on }">
+      <span class="tl-lane-name"><Icon n="note" :t="11" /> Clic</span>
+      <ChannelPicker v-if="showRoutes" kind="click" name="El clic" class="tl-lane-chans" />
+      <button
+        type="button"
+        class="tl-lane-btn tl-mix"
+        :class="{ on: !clickLane.on }"
+        :aria-pressed="!clickLane.on"
+        :aria-label="clickLane.on ? 'Callar el clic' : 'Que suene el clic'"
+        :title="clickLane.on ? 'Callar el clic' : 'Que suene el clic'"
+        @click="emit('click-lane', { on: !clickLane.on })"
+      >
+        M
+      </button>
+      <SliderField
+        class="tl-lane-gain tl-mix"
+        :model-value="clickLane.volume ?? 0.8"
+        :min="0"
+        :max="1.5"
+        :step="0.05"
+        width="100%"
+        aria-label="Volumen del clic"
+        :value-text="pctText(clickLane.volume ?? 0.8)"
+        :title="'Volumen del clic: ' + pctText(clickLane.volume ?? 0.8)"
+        @update:model-value="(v) => emit('click-lane', { volume: v })"
+      />
+    </div>
+    <div v-if="showClick" class="tl-click-track" :class="{ off: !clickLane.on }" aria-hidden="true">
+      <span
+        v-for="b in clickTicks"
+        :key="'ct' + b.t"
+        class="tl-click-tick"
+        :class="{ one: b.one }"
+        :style="{ left: pct(b.t) }"
+      ></span>
+      <span
+        v-show="inView(position)"
+        class="tl-guide-needle"
+        :style="{ left: pct(position) }"
+      ></span>
     </div>
     <!-- en el celular, «varios» y el candado van en su fila, encima de la
          onda y no sobre ella -->
@@ -1288,6 +1393,16 @@ const lockTitle = computed(() =>
       >
         <Icon :n="locked ? 'lockClosed' : 'lockOpen'" :t="14" />
         {{ locked ? 'Onda bloqueada' : 'Bloquear la onda' }}
+      </button>
+      <button
+        v-if="locked"
+        type="button"
+        class="tl-tool"
+        :class="{ on: seekClick }"
+        :aria-pressed="seekClick"
+        @click="emit('update:seekClick', !seekClick)"
+      >
+        <Icon n="cursor" :t="14" /> Ir con un toque
       </button>
     </div>
     <!-- el clic derecho es un atajo de raton: con el teclado, las mismas
@@ -1482,6 +1597,26 @@ const lockTitle = computed(() =>
       >
         <Icon :n="locked ? 'lockClosed' : 'lockOpen'" :t="12" />
       </button>
+      <!-- con el candado: «ir con un clic» (un clic lleva la canción ahí igual) -->
+      <Transition name="fade">
+        <button
+          v-if="!isMobileApp && locked"
+          type="button"
+          class="tl-seek"
+          :class="{ on: seekClick }"
+          :aria-pressed="seekClick"
+          aria-label="Ir con un clic"
+          :title="
+            seekClick
+              ? 'Ir con un clic: un clic en la onda lleva la canción ahí, aunque suene (pulsa para quitarlo)'
+              : 'Ir con un clic: con la onda bloqueada, que un clic lleve igual la canción ahí'
+          "
+          @pointerdown.stop
+          @click.stop="emit('update:seekClick', !seekClick)"
+        >
+          <Icon n="cursor" :t="12" />
+        </button>
+      </Transition>
     </div>
 
     <!-- los carriles de las guías: sus mandos a la izquierda, sus bloques
@@ -1506,9 +1641,17 @@ const lockTitle = computed(() =>
         >
           {{ lane.name || 'Guías' }}
         </button>
+        <ChannelPicker
+          v-if="showRoutes"
+          kind="stem"
+          :route="'guias_' + lane.key"
+          part="guide"
+          :name="'Guías: ' + (lane.name || 'Guías')"
+          class="tl-lane-chans"
+        />
         <button
           type="button"
-          class="tl-lane-btn"
+          class="tl-lane-btn tl-mix"
           :class="{ on: lane.mute }"
           :aria-pressed="!!lane.mute"
           :aria-label="
@@ -1522,7 +1665,7 @@ const lockTitle = computed(() =>
         </button>
         <button
           type="button"
-          class="tl-lane-btn solo"
+          class="tl-lane-btn solo tl-mix"
           :class="{ on: lane.solo }"
           :aria-pressed="!!lane.solo"
           :aria-label="(lane.solo ? 'Quitar el solo de ' : 'Dejar solo ') + (lane.name || 'Guías')"
@@ -1532,7 +1675,7 @@ const lockTitle = computed(() =>
           S
         </button>
         <SliderField
-          class="tl-lane-gain"
+          class="tl-lane-gain tl-mix"
           :model-value="lane.gain ?? 1"
           :min="0"
           :max="2"
