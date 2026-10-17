@@ -8,6 +8,12 @@
  * porque estos se cierran solos al mover el raton en diagonal y acaban siendo
  * incomodos.
  *
+ * El nombre de cada opcion se ve siempre entero: lo que se recorta, si no
+ * cabe, es su nota, que sale entera en un aviso al dejar el raton encima
+ * (como `hint`, lo que no cabe en una nota). La opcion puesta (`active`: el
+ * estilo de la onda elegido, por ejemplo) va en el color de la app y con su
+ * marca, en vez de decirlo con una nota que no se ve a simple vista.
+ *
  * Con el teclado (se abre con Mayus+F10 o la tecla de menu sobre una fila):
  * el foco entra en la primera opcion, las flechas recorren, Enter elige,
  * flecha izquierda vuelve del submenu, y Escape cierra devolviendo el foco a
@@ -15,6 +21,7 @@
  */
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, useTemplateRef } from 'vue'
 import { useFocusTrap } from '../../composables/useFocusTrap.js'
+import { vTips } from '../../composables/useTooltips.js'
 import Icon from '../Icon.vue'
 
 const props = defineProps({
@@ -147,6 +154,7 @@ onUnmounted(() => {
     <div
       v-if="open"
       ref="panel"
+      v-tips
       class="ctx"
       role="menu"
       :aria-label="heading || 'Opciones'"
@@ -168,8 +176,10 @@ onUnmounted(() => {
             type="button"
             class="ctx-item"
             role="menuitem"
-            :class="{ danger: it.danger, off: it.disabled }"
+            :class="{ danger: it.danger, off: it.disabled, on: it.active }"
             :disabled="it.disabled"
+            :aria-current="it.active ? 'true' : undefined"
+            :title="it.hint || it.note || undefined"
             :aria-haspopup="it.children?.length ? 'menu' : undefined"
             :data-drill="it.children?.length ? '1' : undefined"
             @click="elegir(it)"
@@ -177,6 +187,7 @@ onUnmounted(() => {
             <span class="ctx-ico"><Icon v-if="it.icon" :n="it.icon" :t="14" /></span>
             <span class="ctx-label">{{ it.label }}</span>
             <span v-if="it.note" class="ctx-note">{{ it.note }}</span>
+            <Icon v-if="it.active" n="check" :t="13" class="ctx-check" />
             <Icon v-if="it.children?.length" n="right" :t="12" class="ctx-more" />
           </button>
         </template>
