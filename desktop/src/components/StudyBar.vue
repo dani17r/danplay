@@ -22,13 +22,14 @@
  * a sonar normal.
  */
 import { ref, computed, watch, onMounted, onUnmounted, shallowRef } from 'vue'
-import { api, app as tauriApp, errorMessage, pickSavePath, JOBS } from '../api.js'
+import { api, app as tauriApp, errorMessage, pickAudio, pickSavePath, JOBS } from '../api.js'
 import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'
 import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
 import { useSeparation } from '../composables/useSeparation.js'
 import { useClick } from '../composables/useClick.js'
 import { useRouting } from '../composables/useRouting.js'
+import { vTips } from '../composables/useTooltips.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { WAVE_STYLES } from '../utils/wavePaint.js'
 import { takeToPhone } from '../composables/usePhone.js'
@@ -44,6 +45,7 @@ import {
   multFactor,
   clickTimes,
   gridToOwn,
+  nearestBeat,
   METERS
 } from '../utils/beats.js'
 import {
@@ -396,6 +398,41 @@ const multi = ref(false)
 const lastTouched = ref(-1)
 const pendingA = ref(null)
 const hasLoop = computed(() => study.value.loops.length > 0)
+// ---- los mandos de la canción, encima de la onda (sin bajar al reproductor)
+/** Al principio: del tramo, si hay, o de la canción. */
+function toStart() {
+  player.seek(hasLoop.value ? study.value.loops[0][0] : 0)
+}
+/** Atrás o adelante unos segundos. @param {number} secs */
+function nudgeTime(secs) {
+  const d = duration.value || 0
+  player.seek(clamp(position.value + secs, 0, Math.max(0, d - 0.05)))
+}
+/** Detener: se para y vuelve al principio (del tramo, si hay). */
+async function stopHere() {
+  if (playing.value) await player.toggle()
+  toStart()
+}
+/**
+ * Lo que se puede hacer con el ratón sobre la onda: en el botón de ayuda de
+ * la barra (antes, una línea de texto siempre a la vista).
+ */
+const waveHelp = computed(() => {
+  if (editingBeats.value) {
+    return 'Ajustando tu clic: arrastra un pulso para moverlo · doble clic añade uno · clic derecho lo quita o lo hace el «1» · Ctrl + rueda acerca'
+  }
+  const pick = multi.value
+    ? 'Arrastra para añadir tramos (suenan seguidos, saltándose lo de en medio) · clic sobre uno para quitarlo'
+    : 'Arrastra sobre la onda para elegir un tramo · ' +
+      (locked.value
+        ? 'con el candado, sonando, un clic no mueve la canción'
+        : 'clic para ir a un punto')
+  return (
+    pick +
+    ' · Ctrl + rueda: acercar · Mayús + rueda: recorrer · clic derecho: opciones · teclas A y B · en las guías: doble clic pone una, arrástralas para moverlas'
+  )
+})
+
 const loopLabel = computed(() => {
   const list = study.value.loops
   if (list.length === 1) return `${formatTime(list[0][0])} – ${formatTime(list[0][1])}`
@@ -556,7 +593,7 @@ function showOptions({ index, t, x, y, event }) {
   items.push({ label: 'Ir aquí', icon: 'right', note: formatTime(t), action: () => player.seek(t) })
   if (!isMobileApp) {
     items.push({
-      label: 'Guía hablada aquí…',
+      label: 'Guía aquí…',
       icon: 'mic',
       note: playing.value ? 'para la canción' : formatTime(t),
       disabled: playing.value,
@@ -1163,13 +1200,59 @@ watch(
  */
 const cueEdit = computed(() => !!track.value && !playing.value)
 const STOP_FIRST = 'Para la canción para poner, mover o cambiar guías'
+/**
+ * El imán: las guías se pegan a los pulsos del clic (los de la canción, que
+ * siguen sus cambios de tempo) al ponerlas o moverlas. De quien toca: se
+ * recuerda.
+ */
+const SNAP_KEY = 'danplay.guias.iman'
+const snapCues = ref(readPref(SNAP_KEY, false) === true)
+watch(snapCues, (v) => savePref(SNAP_KEY, v))
+/**
+ * Los pulsos del clic, los mismos que se ven en la onda: los de la canción
+ * (con el doble o la mitad, y sus cambios de tempo) o, con el tempo a mano,
+ * uno cada tanto. A ellos se pegan las guías con el imán.
+ */
+const clickBeats = computed(() => {
+  if (shownGrid.value?.beats?.length) return shownGrid.value.beats
+  const m = metronome.value
+  return m.free && m.bpm ? clickTimes(null, m, duration.value || 0).beats : []
+})
+/** Los pulsos del imán (vacío: sin imán, o la canción aún sin pulsos). */
+const snapBeats = computed(() => (snapCues.value ? clickBeats.value : []))
+const magnetTitle = computed(() =>
+  !snapCues.value
+    ? 'Imán: que las guías se peguen a los pulsos del clic al ponerlas o moverlas (siguen los cambios de tempo de la canción)'
+    : clickBeats.value.length
+      ? 'Imán puesto: las guías se pegan a los pulsos del clic (pulsa para moverlas libres)'
+      : 'Imán puesto, pero esta canción aún no tiene los pulsos del clic: pon el clic o espera a que cargue'
+)
+/** La onda y lo que dura cada guía (por su archivo), para verlas en sus bloques. */
+const cueWaves = ref({})
+const askedWaves = new Set()
+watch(
+  () => (isMobileApp ? [] : (study.value.cues || []).map((c) => c.file).filter(Boolean)),
+  async (files) => {
+    for (const file of files) {
+      if (askedWaves.has(file)) continue
+      askedWaves.add(file)
+      try {
+        const w = await api.cueWave(file)
+        if (w?.peaks) cueWaves.value = { ...cueWaves.value, [file]: w }
+      } catch {
+        // sin su onda, el bloque se ve igual, con el largo a ojo
+      }
+    }
+  },
+  { immediate: true }
+)
 /** El diálogo de una guía: el instante, el texto y la voz (o grabar). */
 const cueDraft = ref(null)
 function addCue(t = position.value, lane = guideLanes.value[0].key) {
   if (!track.value) return
   if (playing.value) return notify(STOP_FIRST, 'info')
   cueDraft.value = {
-    t: round2(t),
+    t: round2(nearestBeat(snapBeats.value, t)),
     text: '',
     voice: readPref('danplay.guias.voz', ''),
     cue: null,
@@ -1249,11 +1332,134 @@ async function removeCueLane(key) {
   scheduleSave()
   sendCues()
 }
+/**
+ * Un audio corto del equipo como guía en ese punto (no más largo que la
+ * canción): se trae y se abre en su editor, para recortarlo antes de ponerlo.
+ */
+async function importCueAt(t = position.value, lane = guideLanes.value[0].key) {
+  if (!track.value) return
+  if (playing.value) return notify(STOP_FIRST, 'info')
+  const path = await pickAudio()
+  if (!path) return
+  try {
+    const r = await api.importCue(loadedFor.value, path, duration.value || undefined)
+    cueDraft.value = {
+      t: round2(nearestBeat(snapBeats.value, t)),
+      text: '',
+      voice: '',
+      cue: null,
+      lane,
+      file: r.file,
+      seconds: r.seconds
+    }
+  } catch (e) {
+    notify('No se pudo importar: ' + errorMessage(e))
+  }
+}
+/** Las opciones de un carril de guías (su ⋯ o un clic derecho en él, en `t`). */
+function cueLaneMenu(key, ev, t) {
+  const lane = guideLanes.value.find((l) => l.key === key)
+  if (!lane) return
+  const at = t ?? position.value
+  const stopped = cueEdit.value
+  const items = [
+    {
+      label: 'Guía aquí…',
+      icon: 'plus',
+      note: stopped ? formatTime(at) : 'para la canción',
+      disabled: !stopped,
+      action: () => addCue(at, key)
+    },
+    {
+      label: 'Importar un audio…',
+      icon: 'import',
+      note: stopped ? 'hasta ' + formatTime(duration.value || 0) : 'para la canción',
+      disabled: !stopped,
+      action: () => importCueAt(at, key)
+    },
+    { separator: true },
+    { label: 'Renombrar…', icon: 'pencil', action: () => renameCueLane(key) },
+    {
+      label: lane.mute ? 'Que suene' : 'Callarlo',
+      icon: lane.mute ? 'volume' : 'mute',
+      action: () => setCueLane(key, { mute: !lane.mute })
+    },
+    {
+      label: 'Otro carril de guías',
+      icon: 'plus',
+      disabled: guideLanes.value.length >= MAX_CUE_LANES,
+      note: guideLanes.value.length >= MAX_CUE_LANES ? `como mucho ${MAX_CUE_LANES}` : '',
+      action: addCueLane
+    },
+    ...(guideLanes.value.length > 1
+      ? [
+          {
+            label: 'Quitar el carril',
+            icon: 'trash',
+            danger: true,
+            action: () => removeCueLane(key)
+          }
+        ]
+      : [])
+  ]
+  openMenu(ev, items, lane.name || 'Guías')
+}
+/** Las opciones de una guía (clic derecho en su bloque). */
+function cueMenu(c, ev) {
+  const stopped = cueEdit.value
+  const others = guideLanes.value.filter((l) => l.key !== laneOfCue(c))
+  const items = [
+    { label: 'Escuchar', icon: 'play', action: () => previewCue(c) },
+    {
+      label: 'Editar…',
+      icon: c.text ? 'pencil' : 'cut',
+      note: stopped ? (c.text ? '' : 'recortar, fundidos, limpiar') : 'para la canción',
+      disabled: !stopped,
+      action: () => editCue(c)
+    },
+    { label: 'Ir aquí', icon: 'right', note: formatTime(c.t), action: () => jump(c.t) },
+    ...(others.length
+      ? [
+          {
+            label: 'Pasar a otro carril',
+            icon: 'list',
+            disabled: !stopped,
+            children: others.map((l) => ({
+              label: l.name || 'Guías',
+              action: () => {
+                c.lane = l.key
+                study.value.cues = [...study.value.cues]
+                scheduleSave()
+                sendCues()
+              }
+            }))
+          }
+        ]
+      : []),
+    { separator: true },
+    { label: 'Quitar', icon: 'trash', danger: true, disabled: !stopped, action: () => removeCue(c) }
+  ]
+  openMenu(ev, items, c.text ? '«' + c.text + '»' : 'Guía')
+}
+/** Las guías en la lista, por orden (como suenan). */
+const cueList = computed(() => [...(study.value.cues || [])].sort((a, b) => a.t - b.t))
+/** Desde la lista: la canción va ahí y la guía se ve (y destella) en su carril. */
+function goToCue(c) {
+  jump(c.t)
+  timeline.value?.focusCue?.(c)
+}
 /** La guía ya hecha (por el diálogo): a la canción, y a sonar. */
 async function onCueMade({ t, text, voice, file, cue }) {
   const lane = cueDraft.value?.lane || (cue ? laneOfCue(cue) : guideLanes.value[0].key)
   const list = (study.value.cues || []).filter((c) => c !== cue)
-  list.push({ t: round2(t), text, voice, file, lane })
+  list.push({
+    t: round2(t),
+    text,
+    voice,
+    file,
+    lane,
+    ...(cue?.gain != null ? { gain: cue.gain } : {})
+  })
   study.value.cues = list.sort((a, b) => a.t - b.t)
   cueDraft.value = null
   if (voice) savePref('danplay.guias.voz', voice)
@@ -1431,7 +1637,7 @@ async function saveMix({ from = 'stems', asHeard = false } = {}) {
           ? 'La mezcla de las pistas como está, en un archivo.'
           : 'La canción tal cual, en un archivo.',
       check: {
-        label: `Con las guías habladas (${guides.length === 1 ? 'una' : guides.length})`,
+        label: `Con las guías (${guides.length === 1 ? 'una' : guides.length})`,
         value: true
       },
       okLabel: 'Elegir dónde guardarla'
@@ -1720,6 +1926,7 @@ defineExpose({ close: hide, hide, exit })
 <template>
   <div
     ref="root"
+    v-tips
     class="study"
     :class="{ 'with-lanes': lanes.length, big }"
     role="region"
@@ -1753,56 +1960,138 @@ defineExpose({ close: hide, hide, exit })
       </button>
     </div>
     <div v-else class="study-head">
-      <Icon n="academic" :t="15" /> <strong>Modo estudio</strong>
-      <span v-if="track" class="study-song"
+      <Icon n="academic" :t="15" />
+      <strong class="study-head-name">Modo estudio</strong>
+      <span
+        v-if="track"
+        class="study-song"
+        :title="track.artist + ' — ' + track.title + (track.key ? ' · ' + track.key : '')"
         >{{ track.artist }} — {{ track.title }}
         <span v-if="track.key" class="mono study-key">· {{ track.key }}</span></span
       >
       <span v-else class="study-song">Pon una canción para estudiarla</span>
-      <span v-if="saving" class="study-saving">guardando…</span>
-      <button
-        class="btn mini study-outputs"
-        type="button"
-        title="Salidas: por dónde suena la música, cada pista, el clic y las guías (izquierda, derecha, una interfaz…)"
-        @click="outputsOpen = true"
-      >
-        <Icon n="volume" :t="12" /> Salidas
-      </button>
-      <button
-        class="btn mini study-size"
-        type="button"
-        :class="{ on: big }"
-        :aria-pressed="big ? 'true' : 'false'"
-        :title="
-          big
-            ? 'Volver al tamaño normal (media pantalla)'
-            : 'Grande: todo el alto, sin tapar el reproductor (se recuerda al volver a abrirlo)'
-        "
-        @click="big = !big"
-      >
-        <Icon n="maximize" :t="12" /> Grande
-      </button>
-      <button
-        class="btn mini study-hide"
-        type="button"
-        title="Ocultar el modo estudio: todo sigue sonando igual (el clic, los tramos, la velocidad…)"
-        @click="hide"
-      >
-        <Icon n="down" :t="13" /> Ocultar
-      </button>
-      <button
-        class="btn mini study-more"
-        type="button"
-        aria-label="Más del modo estudio"
-        title="Salir del modo estudio, convertir a DanPista…"
-        @click="headMenu"
-      >
-        ⋯
-      </button>
+      <Transition name="fade">
+        <span v-if="saving" class="study-saving" title="Guardando lo que cambiaste"
+          ><Icon n="save" :t="12"
+        /></span>
+      </Transition>
+      <span class="study-head-tools">
+        <!-- las pistas separadas: separarla, o que suenen ellas -->
+        <template v-if="track && hasStems">
+          <button
+            type="button"
+            class="btn mini study-stems-toggle"
+            :class="{ on: mixerOn }"
+            :aria-pressed="mixerOn"
+            :title="
+              mixerOn
+                ? 'Suenan las pistas separadas (M calla una, S la deja sola): pulsa para volver a la canción tal cual'
+                : 'Que suenen las pistas separadas, cada una con su volumen'
+            "
+            @click="toggleStems"
+          >
+            <Icon n="mixer" :t="13" /> Pistas
+            <span v-if="mixerOn" class="study-count mono"
+              >{{ plan.filter((t) => t.on).length }}/{{ plan.length }}</span
+            >
+          </button>
+          <span v-if="progress" class="study-stems-progress mono" :title="progressText"
+            >{{ Math.round((progress.fraction || 0) * 100) }} %</span
+          >
+          <button
+            type="button"
+            class="btn mini icon-btn study-stems-more"
+            aria-label="Opciones de las pistas"
+            title="Exportar, convertir a DanPista, abrir la carpeta, separar otra vez…"
+            @click="stemsMenu"
+          >
+            <Icon n="more" :t="13" />
+          </button>
+        </template>
+        <template v-else-if="track && progress">
+          <span class="study-stems-busy" :title="progressText">
+            <Icon n="mixer" :t="13" />
+            <span
+              class="study-stems-bar"
+              role="progressbar"
+              :aria-valuenow="Math.round(progress.fraction * 100)"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              ><span :style="{ width: progress.fraction * 100 + '%' }"></span
+            ></span>
+            <span class="mono">{{ Math.round((progress.fraction || 0) * 100) }} %</span>
+          </span>
+          <button
+            type="button"
+            class="btn mini icon-btn"
+            :aria-label="progress.waiting ? 'Quitar' : 'Parar'"
+            :title="progress.waiting ? 'Quitarla de la cola' : 'Parar la separación'"
+            @click="progress.waiting ? separation.unqueue(track.id) : separation.cancel()"
+          >
+            <Icon n="close" :t="12" />
+          </button>
+        </template>
+        <button
+          v-else-if="track && canSeparate"
+          type="button"
+          class="btn mini study-stems-separate"
+          :title="
+            busyWith
+              ? `Ahora se separa «${busyWith.title}»${busyWith.pct ? ' (' + busyWith.pct + ' %)' : ''}: esta empieza cuando acabe`
+              : 'Separar la canción en pistas: batería, voces, bajo… cada una aparte, para callarla o dejarla sola. En unos minutos las tienes, y luego se mejoran'
+          "
+          @click="separateThis"
+        >
+          <Icon n="mixer" :t="13" /> {{ busyWith ? 'Poner en la cola' : 'Separar en pistas' }}
+        </button>
+        <span class="study-head-sep" aria-hidden="true"></span>
+        <button
+          class="btn mini icon-btn study-outputs"
+          type="button"
+          aria-label="Salidas"
+          title="Salidas: por dónde suena la música, cada pista, el clic y las guías (izquierda, derecha, una interfaz…)"
+          @click="outputsOpen = true"
+        >
+          <Icon n="outputs" :t="14" />
+        </button>
+        <button
+          class="btn mini icon-btn study-size"
+          type="button"
+          :class="{ on: big }"
+          :aria-pressed="big ? 'true' : 'false'"
+          aria-label="Grande"
+          :title="
+            big
+              ? 'Volver al tamaño normal (media pantalla)'
+              : 'Grande: todo el alto, sin tapar el reproductor (se recuerda)'
+          "
+          @click="big = !big"
+        >
+          <Icon n="maximize" :t="14" />
+        </button>
+        <button
+          class="btn mini icon-btn study-hide"
+          type="button"
+          aria-label="Ocultar"
+          title="Ocultar el modo estudio: todo sigue sonando igual (el clic, los tramos, la velocidad…)"
+          @click="hide"
+        >
+          <Icon n="down" :t="14" />
+        </button>
+        <button
+          class="btn mini icon-btn study-more"
+          type="button"
+          aria-label="Más del modo estudio"
+          title="Exportar, salir del modo estudio, convertir a DanPista, el estilo de la onda…"
+          @click="headMenu"
+        >
+          <Icon n="more" :t="14" />
+        </button>
+      </span>
     </div>
 
     <!-- las pistas separadas: separarla, o que suenen ellas con su mezcla -->
-    <div v-if="track && (hasStems || canSeparate || progress)" class="study-stems">
+    <div v-if="isMobileApp && track && (hasStems || canSeparate || progress)" class="study-stems">
       <template v-if="hasStems">
         <button
           type="button"
@@ -1887,98 +2176,196 @@ defineExpose({ close: hide, hide, exit })
       </template>
     </div>
 
-    <!-- los tramos, junto a la onda en que se eligen; a la derecha, la vista -->
-    <div class="study-bar" role="toolbar" aria-label="Los tramos y la vista de la onda">
-      <span class="study-bar-group">
-        <span class="study-loop mono" :class="{ off: !hasLoop && pendingA == null }">{{
-          loopLabel
-        }}</span>
-        <template v-if="hasLoop">
-          <span class="study-ends" role="radiogroup" aria-label="Al acabar el tramo">
-            <span class="study-ends-label">Al acabar:</span>
+    <!-- encima de la onda: la canción (sin bajar al reproductor), los tramos y
+         la vista -->
+    <div class="study-bar" role="toolbar" aria-label="La canción, los tramos y la vista de la onda">
+      <span v-if="!isMobileApp" class="study-bar-group study-transport">
+        <button
+          class="btn mini icon-btn"
+          type="button"
+          aria-label="Al principio"
+          :title="hasLoop ? 'Al principio del tramo' : 'Al principio de la canción'"
+          :disabled="!track"
+          @click="toStart"
+        >
+          <Icon n="previous" :t="13" />
+        </button>
+        <button
+          class="btn mini icon-btn"
+          type="button"
+          aria-label="5 segundos atrás"
+          title="5 segundos atrás"
+          :disabled="!track"
+          @click="nudgeTime(-5)"
+        >
+          <Icon n="back10" :t="13" />
+        </button>
+        <button
+          class="btn mini icon-btn study-play"
+          type="button"
+          :class="{ on: playing }"
+          :aria-label="playing ? 'Pausar' : 'Reproducir'"
+          :title="playing ? 'Pausar (espacio)' : 'Reproducir (espacio)'"
+          :disabled="!track"
+          @click="player.toggle()"
+        >
+          <!-- en un span: Icon lleva comentarios y la transición no lo animaría -->
+          <Transition name="icon-swap" mode="out-in">
+            <span :key="playing ? 'pausa' : 'play'" class="icon-swap"
+              ><Icon :n="playing ? 'pause' : 'play'" :t="14"
+            /></span>
+          </Transition>
+        </button>
+        <button
+          class="btn mini icon-btn"
+          type="button"
+          aria-label="Detener"
+          :title="
+            hasLoop ? 'Detener y volver al principio del tramo' : 'Detener y volver al principio'
+          "
+          :disabled="!track"
+          @click="stopHere"
+        >
+          <Icon n="stop" :t="13" />
+        </button>
+        <button
+          class="btn mini icon-btn"
+          type="button"
+          aria-label="5 segundos adelante"
+          title="5 segundos adelante"
+          :disabled="!track"
+          @click="nudgeTime(5)"
+        >
+          <Icon n="forward10" :t="13" />
+        </button>
+        <span class="study-time mono" title="Dónde va la canción / lo que dura"
+          >{{ formatTime(position)
+          }}<span class="study-time-total"> / {{ formatTime(duration) }}</span></span
+        >
+      </span>
+      <span class="study-bar-group study-loop-group">
+        <span
+          class="study-loop mono"
+          :class="{ off: !hasLoop && pendingA == null }"
+          :title="hasLoop || pendingA != null ? '' : 'Arrastra sobre la onda para elegir un tramo'"
+          ><Icon v-if="!isMobileApp" n="repeat" :t="11" /> {{ loopLabel }}</span
+        >
+        <Transition name="fade">
+          <span v-if="hasLoop" class="study-loop-tools">
+            <span class="study-ends" role="radiogroup" aria-label="Al acabar el tramo">
+              <span v-if="isMobileApp" class="study-ends-label">Al acabar:</span>
+              <button
+                v-for="e in LOOP_ENDS"
+                :key="e.v"
+                type="button"
+                role="radio"
+                class="btn mini study-end"
+                :class="{ on: loopEndWanted === e.v, 'icon-btn': !isMobileApp }"
+                :aria-checked="loopEndWanted === e.v"
+                :aria-label="e.n"
+                :title="'Al acabar: ' + e.n.toLowerCase() + ' · ' + e.title"
+                @click="setLoopEnd(e.v)"
+              >
+                <Icon :n="e.icon" :t="12" /><template v-if="isMobileApp"> {{ e.n }}</template>
+              </button>
+            </span>
             <button
-              v-for="e in LOOP_ENDS"
-              :key="e.v"
+              class="btn mini"
+              :class="{ 'icon-btn': !isMobileApp }"
               type="button"
-              role="radio"
-              class="btn mini study-end"
-              :class="{ on: loopEndWanted === e.v }"
-              :aria-checked="loopEndWanted === e.v"
-              :title="e.title"
-              @click="setLoopEnd(e.v)"
+              aria-label="Ahora"
+              title="Ir ya al tramo (al primero, si hay varios) y ponerlo a sonar"
+              @click="playNow(0)"
             >
-              <Icon :n="e.icon" :t="11" /> {{ e.n }}
+              <Icon n="play" :t="12" /><template v-if="isMobileApp"> Ahora</template>
+            </button>
+            <button
+              v-if="!loopSaved"
+              class="btn mini"
+              :class="{ 'icon-btn': !isMobileApp }"
+              type="button"
+              aria-label="Guardar"
+              title="Guardar como marcador, con nombre y notas (varios tramos, juntos en uno)"
+              @click="saveMarker"
+            >
+              <Icon n="save" :t="12" /><template v-if="isMobileApp"> Guardar</template>
+            </button>
+            <button
+              class="btn mini study-clear"
+              :class="{ 'icon-btn': !isMobileApp }"
+              type="button"
+              aria-label="Quitar"
+              title="Quitar el tramo (la canción sigue de largo)"
+              @click="clearLoop"
+            >
+              <Icon n="close" :t="12" /><template v-if="isMobileApp"> Quitar</template>
             </button>
           </span>
-          <button
-            class="btn mini"
-            type="button"
-            title="Ir ya al tramo (al primero, si hay varios) y ponerlo a sonar"
-            @click="playNow(0)"
-          >
-            <Icon n="play" :t="11" /> Ahora
-          </button>
-          <button
-            v-if="!loopSaved"
-            class="btn mini"
-            type="button"
-            title="Guardar como marcador, con nombre y notas (varios tramos, juntos en uno)"
-            @click="saveMarker"
-          >
-            <Icon n="save" :t="12" /> Guardar
-          </button>
-          <button
-            class="btn mini study-clear"
-            type="button"
-            title="Quitar el tramo (la canción sigue de largo)"
-            @click="clearLoop"
-          >
-            <Icon n="close" :t="12" /> Quitar
-          </button>
-        </template>
+        </Transition>
       </span>
       <span v-if="!isMobileApp" class="study-bar-group study-view">
         <button
-          class="btn mini"
+          class="btn mini study-add-cue"
           type="button"
           :disabled="!cueEdit"
+          aria-label="Guía"
           :title="
             !track
               ? ''
               : cueEdit
-                ? 'Una guía hablada aquí: escribe lo que se dirá (o grábalo) y sonará al pasar'
+                ? 'Una guía aquí: escríbela (la dice una voz), grábala o importa un audio, y sonará al pasar'
                 : STOP_FIRST
           "
           @click="addCue()"
         >
-          <Icon n="mic" :t="12" /> Guía
+          <Icon n="mic" :t="13" /> Guía
         </button>
         <button
-          class="btn mini study-zoom"
+          class="btn mini icon-btn study-magnet"
           type="button"
-          title="Alejar la onda (o Ctrl + rueda sobre ella)"
+          :class="{ on: snapCues }"
+          :aria-pressed="snapCues"
+          aria-label="Imán"
+          :title="magnetTitle"
+          @click="snapCues = !snapCues"
+        >
+          <Icon n="magnet" :t="14" />
+        </button>
+        <span class="study-head-sep" aria-hidden="true"></span>
+        <button
+          class="btn mini icon-btn study-zoom"
+          type="button"
+          title="Alejar (o Ctrl + rueda sobre la onda)"
           aria-label="Alejar"
           @click="timeline?.zoomBy?.(0.5)"
         >
-          <Icon n="zoomOut" :t="12" />
+          <Icon n="zoomOut" :t="13" />
         </button>
         <button
-          class="btn mini study-zoom"
+          class="btn mini icon-btn study-zoom"
           type="button"
-          title="Acercar la onda (o Ctrl + rueda sobre ella)"
+          title="Acercar (o Ctrl + rueda sobre la onda)"
           aria-label="Acercar"
           @click="timeline?.zoomBy?.(2)"
         >
-          <Icon n="zoomIn" :t="12" />
+          <Icon n="zoomIn" :t="13" />
         </button>
         <button
-          class="btn mini"
+          class="btn mini icon-btn"
           type="button"
           title="Toda la canción a la vista"
           aria-label="Ver toda la canción"
           @click="timeline?.zoomFit?.()"
         >
-          <Icon n="fit" :t="12" />
+          <Icon n="fit" :t="13" />
+        </button>
+        <button
+          class="btn mini icon-btn study-help"
+          type="button"
+          aria-label="Cómo se usa la onda"
+          :title="waveHelp"
+        >
+          <Icon n="help" :t="14" />
         </button>
       </span>
     </div>
@@ -2005,6 +2392,8 @@ defineExpose({ close: hide, hide, exit })
       :guides="!isMobileApp"
       :cue-lanes="guideLanes"
       :cue-edit="cueEdit"
+      :cue-waves="cueWaves"
+      :snap-beats="snapBeats"
       @lane="onLane"
       @add-cue="(t, lane) => addCue(t, lane)"
       @move-cue="moveCue"
@@ -2012,6 +2401,8 @@ defineExpose({ close: hide, hide, exit })
       @add-cue-lane="addCueLane"
       @remove-cue-lane="removeCueLane"
       @rename-cue-lane="renameCueLane"
+      @cue-lane-menu="cueLaneMenu"
+      @cue-menu="cueMenu"
       @update:locked="(v) => (locked = v)"
       @update:multi="(v) => (multi = v)"
       @update:loops="onLoops"
@@ -2021,7 +2412,7 @@ defineExpose({ close: hide, hide, exit })
       @cue="editCue"
       @options="showOptions"
     />
-    <p class="study-hint">
+    <p v-if="isMobileApp" class="study-hint">
       <!-- en el celular se toca, no hay ratón ni teclas -->
       <template v-if="isMobileApp">
         <template v-if="multi">
@@ -2492,28 +2883,60 @@ defineExpose({ close: hide, hide, exit })
             Elige un tramo en la onda y guárdalo: aquí quedan tus partes con nombre y notas.
           </p>
           <template v-if="study.cues?.length">
-            <h6 class="study-sub"><Icon n="mic" :t="11" /> Guías habladas</h6>
-            <div v-for="c in study.cues" :key="'c' + c.t + c.file" class="study-marker study-cue">
-              <button
-                type="button"
-                class="study-pick"
-                :title="'Ir a ' + formatTime(c.t)"
-                @click="jump(c.t)"
-              >
-                <Icon n="mic" :t="11" class="study-pick-ico" />
-                <span class="mono study-pick-time">{{ formatTime(c.t) }}</span>
-                <span class="study-pick-name">{{ c.text || 'tu voz' }}</span>
-              </button>
-              <button type="button" class="field-btn" title="Escucharla" @click="previewCue(c)">
-                <Icon n="play" :t="11" />
-              </button>
-              <button type="button" class="field-btn" title="Cambiarla" @click="editCue(c)">
-                <Icon n="pencil" :t="11" />
-              </button>
-              <button type="button" class="field-btn" title="Quitarla" @click="removeCue(c)">
-                <Icon n="close" :t="11" />
-              </button>
-            </div>
+            <h6 class="study-sub"><Icon n="waveform" :t="11" /> Guías</h6>
+            <TransitionGroup name="study-list" tag="div" class="study-cue-list">
+              <div v-for="c in cueList" :key="'c' + c.t + c.file" class="study-marker study-cue">
+                <button
+                  type="button"
+                  class="study-pick"
+                  :title="'Ir a ' + formatTime(c.t) + ' y verla en su carril'"
+                  @click="goToCue(c)"
+                >
+                  <Icon :n="c.text ? 'speech' : 'mic'" :t="11" class="study-pick-ico" />
+                  <span class="mono study-pick-time">{{ formatTime(c.t) }}</span>
+                  <span class="study-pick-name">{{ c.text || 'audio' }}</span>
+                  <span
+                    v-if="guideLanes.length > 1"
+                    class="study-cue-lane"
+                    :title="
+                      'En el carril «' +
+                      (guideLanes.find((l) => l.key === laneOfCue(c))?.name || 'Guías') +
+                      '»'
+                    "
+                    >{{ guideLanes.find((l) => l.key === laneOfCue(c))?.name || 'Guías' }}</span
+                  >
+                </button>
+                <button
+                  type="button"
+                  class="field-btn"
+                  aria-label="Escucharla"
+                  title="Escucharla"
+                  @click="previewCue(c)"
+                >
+                  <Icon n="play" :t="11" />
+                </button>
+                <button
+                  type="button"
+                  class="field-btn"
+                  aria-label="Cambiarla"
+                  :title="cueEdit ? 'Cambiarla' : STOP_FIRST"
+                  :disabled="!cueEdit"
+                  @click="editCue(c)"
+                >
+                  <Icon :n="c.text ? 'pencil' : 'cut'" :t="11" />
+                </button>
+                <button
+                  type="button"
+                  class="field-btn"
+                  aria-label="Quitarla"
+                  :title="cueEdit ? 'Quitarla' : STOP_FIRST"
+                  :disabled="!cueEdit"
+                  @click="removeCue(c)"
+                >
+                  <Icon n="close" :t="11" />
+                </button>
+              </div>
+            </TransitionGroup>
             <div class="study-metro-row study-metro-vol">
               <span class="study-metro-label">Guías</span>
               <SliderField
@@ -2670,6 +3093,8 @@ defineExpose({ close: hide, hide, exit })
       v-if="cueDraft"
       :draft="cueDraft"
       :song-id="loadedFor"
+      :song-length="duration || 0"
+      :beats="snapBeats"
       @made="onCueMade"
       @remove="
         (c) => {

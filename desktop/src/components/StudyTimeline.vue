@@ -62,7 +62,7 @@ import { api, errorMessage } from '../api.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { openMenu } from '../composables/useContextMenu.js'
 import { formatTime } from '../utils/format.js'
-import { isDownbeat } from '../utils/beats.js'
+import { isDownbeat, nearestBeat } from '../utils/beats.js'
 import { cleanSegments } from '../utils/segments.js'
 import { isMobileApp } from '../platform.js'
 import { columnsFor, paintWave } from '../utils/wavePaint.js'
@@ -79,8 +79,16 @@ const props = defineProps({
   multi: Boolean,
   /** [{t, end?, label, notes?}]: tramos con nombre, o instantes sueltos */
   markers: { type: Array, default: () => [] },
-  /** [{t, text?, file}]: las guías habladas */
+  /** [{t, text?, file}]: las guías */
   cues: { type: Array, default: () => [] },
+  /** la onda y el largo de cada guía, por su archivo: {file: {seconds, peaks}} */
+  cueWaves: { type: Object, default: () => ({}) },
+  /**
+   * el imán: los pulsos del clic (los de la canción, que siguen sus cambios
+   * de tempo) a los que se pegan las guías al ponerlas o moverlas; vacío,
+   * sin imán
+   */
+  snapBeats: { type: Array, default: () => [] },
   /** el marcador elegido, para resaltarlo */
   selected: { type: Object, default: null },
   /** la rejilla de pulsos del metrónomo tal como suena, para pintarla sobre la onda */
@@ -119,7 +127,9 @@ const props = defineProps({
 // lleva la rejilla ajustada a mano. `cue`, la guía que se pulsó. Las de los
 // carriles de guías: `add-cue` (segundo, carril), `move-cue` (guía, segundo),
 // `cue-lane` (carril, cambios), `add-cue-lane`, `remove-cue-lane` y
-// `rename-cue-lane` (carril).
+// `rename-cue-lane` (carril); `cue-lane-menu` (carril, evento, segundo o
+// null), las opciones de un carril (su botón ⋯ o un clic derecho en él), y
+// `cue-menu` (guía, evento), las de una guía (clic derecho en ella).
 const emit = defineEmits([
   'update:loops',
   'update:grid',
@@ -135,7 +145,9 @@ const emit = defineEmits([
   'cue-lane',
   'add-cue-lane',
   'remove-cue-lane',
-  'rename-cue-lane'
+  'rename-cue-lane',
+  'cue-lane-menu',
+  'cue-menu'
 ])
 
 /** Con las pistas separadas, un carril por instrumento. */
@@ -204,7 +216,7 @@ function zoomToBeats() {
   const len = clamp(period * 32, 6, props.duration || 6)
   setView(props.position - len * 0.2, props.position - len * 0.2 + len)
 }
-defineExpose({ zoomBy, zoomFit, zoomToBeats, view })
+defineExpose({ zoomBy, zoomFit, zoomToBeats, view, focusCue: (c) => focusCue(c) })
 
 // acercada, la vista sigue a la aguja cuando se va de ella
 watch(
@@ -935,8 +947,39 @@ function laneOfCue(c) {
   const keys = props.cueLanes.map((l) => l.key)
   return keys.includes(c.lane) ? c.lane : keys[0]
 }
-/** Lo que ocupa un bloque, a ojo: lo que se tarda en decirlo (sin leer el audio). */
-const cueLen = (c) => Math.max(1.2, Math.min(6, (c.text || 'tu voz').length * 0.09 + 0.6))
+/**
+ * Lo que ocupa un bloque: lo que dura su audio (cuando ya se leyó su onda),
+ * o a ojo, lo que se tarda en decirlo.
+ */
+const cueLen = (c) =>
+  props.cueWaves[c.file]?.seconds ||
+  Math.max(1.2, Math.min(6, (c.text || 'audio').length * 0.09 + 0.6))
+/** La onda de una guía dentro de su bloque (una figura de 0 a 100 de ancho). */
+function cueWavePath(c) {
+  const p = props.cueWaves[c.file]?.peaks
+  if (!p?.length) return ''
+  const n = p.length
+  const pts = (sign) =>
+    p.map(
+      (v, i) =>
+        `${(((i + 0.5) / n) * 100).toFixed(2)},${(50 + sign * Math.max(1, v * 44)).toFixed(1)}`
+    )
+  return `M0,50 L${pts(-1).join(' L')} L100,50 L${pts(1).reverse().join(' L')} Z`
+}
+/**
+ * Una clave para cada guía mientras sea la misma (moverla no la cambia): el
+ * bloque solo aparece con su animación al ponerla o al cambiarla. Todas se
+ * pintan (las de fuera de la vista quedan recortadas por el carril).
+ */
+const cueKeys = new WeakMap()
+let lastCueKey = 0
+function cueKey(c) {
+  if (!cueKeys.has(c)) cueKeys.set(c, ++lastCueKey)
+  return cueKeys.get(c)
+}
+/** Con el imán, el pulso más cercano; sin él, tal cual. */
+const snapOn = computed(() => props.snapBeats.length > 0)
+const snapT = (t) => (snapOn.value ? nearestBeat(props.snapBeats, t) : t)
 const cuesByLane = computed(() => {
   /** @type {Record<string, any[]>} */
   const by = Object.fromEntries(props.cueLanes.map((l) => [l.key, []]))
@@ -967,7 +1010,8 @@ function onCueMove(e) {
   if (!cueDrag.moved && Math.abs(dx) < THRESHOLD) return
   cueDrag.moved = true
   const w = guideTracks.value?.getBoundingClientRect().width || 1
-  cueDrag.t = round2(clamp(cueDrag.t0 + (dx / Math.max(1, w)) * span.value, 0, props.duration))
+  const t = clamp(cueDrag.t0 + (dx / Math.max(1, w)) * span.value, 0, props.duration)
+  cueDrag.t = round2(snapT(t))
 }
 function onCueUp() {
   window.removeEventListener('pointermove', onCueMove)
@@ -987,8 +1031,53 @@ const cueAt = (c) => (cueDrag.cue === c ? cueDrag.t : c.t)
 /** Doble clic en un carril: una guía nueva ahí (con la canción parada). */
 function onGuideDouble(e, lane) {
   if (!props.cueEdit || !props.duration) return
-  emit('add-cue', round2(timeAtGuides(e.clientX)), lane.key)
+  emit('add-cue', round2(snapT(timeAtGuides(e.clientX))), lane.key)
 }
+/** Clic derecho en un carril: sus opciones, en ese punto. */
+function onGuideMenu(e, lane) {
+  emit('cue-lane-menu', lane.key, e, props.duration ? round2(snapT(timeAtGuides(e.clientX))) : null)
+}
+/**
+ * Dónde caería una guía nueva bajo el ratón (con el imán, en su pulso): una
+ * raya en el carril, para ponerla sin adivinar.
+ */
+const ghost = reactive({ lane: '', t: 0 })
+function onGuideHover(e, lane) {
+  if (!props.cueEdit || cueDrag.cue || !props.duration || e.target?.closest?.('.tl-guide-clip')) {
+    ghost.lane = ''
+    return
+  }
+  ghost.lane = lane.key
+  ghost.t = snapT(timeAtGuides(e.clientX))
+}
+/** Los pulsos que se ven en los carriles de las guías, con el imán puesto. */
+const guideBeats = computed(() => {
+  if (!snapOn.value || !props.duration) return []
+  const all = props.snapBeats.filter((t) => t >= view.from && t <= view.to)
+  if (all.length <= 160) return all.map((t) => ({ t, one: false }))
+  // de lejos son demasiados: uno de cada cuatro (más o menos, cada compás)
+  return all.filter((_, i) => i % 4 === 0).map((t) => ({ t, one: true }))
+})
+/** La guía que se acaba de buscar desde la lista (un destello para verla). */
+const flashed = ref(null)
+let flashTimer = null
+/**
+ * Llevar la vista a una guía (sin cambiar el zoom, si ya se ve, ni moverla)
+ * y hacerla destellar.
+ */
+function focusCue(c) {
+  if (!c || !props.duration) return
+  const len = cueLen(c)
+  if (!inView(c.t, c.t + len))
+    setView(c.t - span.value * 0.25, c.t - span.value * 0.25 + span.value)
+  flashed.value = null
+  clearTimeout(flashTimer)
+  nextTick(() => {
+    flashed.value = c
+    flashTimer = setTimeout(() => (flashed.value = null), 1400)
+  })
+}
+onUnmounted(() => clearTimeout(flashTimer))
 
 // ------------------------------------------------------------ la tira de toda la canción
 const overview = useTemplateRef('overview')
@@ -1042,6 +1131,7 @@ const lockTitle = computed(() =>
       'tl-dragging': dragging,
       ['tl-hover-' + hover]: hover,
       'tl-has-lanes': headMode,
+      'tl-slim': headMode && !laneMode,
       'tl-zoomed': zoomed,
       'tl-edit-beats': editBeats
     }"
@@ -1116,7 +1206,9 @@ const lockTitle = computed(() =>
     </div>
     <!-- sin pistas separadas pero con carriles de guías: la onda lleva su
          cabecera, como cualquier pista de un editor -->
-    <div v-if="!laneMode && showGuides" class="tl-song-head">La canción</div>
+    <div v-if="!laneMode && showGuides" class="tl-song-head">
+      <Icon n="music" :t="12" /><span>Canción</span>
+    </div>
     <!-- en el celular, «varios» y el candado van en su fila, encima de la
          onda y no sobre ella -->
     <div v-if="isMobileApp" class="tl-tools">
@@ -1392,29 +1484,30 @@ const lockTitle = computed(() =>
           @dblclick="emit('cue-lane', lane.key, { gain: 1 })"
         />
         <button
-          v-if="cueLanes.length > 1"
           type="button"
-          class="tl-lane-btn"
-          :aria-label="'Quitar el carril ' + (lane.name || 'Guías')"
-          title="Quitar este carril (y sus guías)"
-          @click="emit('remove-cue-lane', lane.key)"
+          class="tl-lane-btn tl-lane-more"
+          :aria-label="'Opciones de ' + (lane.name || 'Guías')"
+          title="Una guía aquí, importar un audio, renombrar o quitar el carril"
+          @click="emit('cue-lane-menu', lane.key, $event, null)"
         >
-          <Icon n="close" :t="9" />
+          <Icon n="more" :t="10" />
         </button>
-        <span v-else aria-hidden="true"></span>
       </div>
       <button
         type="button"
         class="tl-guide-add"
         :disabled="cueLanes.length >= MAX_CUE_LANES"
+        :aria-label="'Otro carril de guías'"
         :title="
           cueLanes.length >= MAX_CUE_LANES
             ? 'Como mucho ' + MAX_CUE_LANES + ' carriles de guías'
-            : 'Otro carril de guías: cada uno con su volumen y su salida'
+            : 'Otro carril de guías (hasta ' +
+              MAX_CUE_LANES +
+              '): cada uno con su volumen y su salida, para la banda, el baterista, los coros…'
         "
         @click="emit('add-cue-lane')"
       >
-        <Icon n="plus" :t="10" /> Carril de guías
+        <Icon n="plus" :t="10" /> Carril
       </button>
     </div>
     <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
@@ -1422,9 +1515,19 @@ const lockTitle = computed(() =>
       v-if="showGuides"
       ref="guideTracks"
       class="tl-guide-tracks"
-      :class="{ editable: cueEdit }"
+      :class="{ editable: cueEdit, snapping: snapOn }"
       @wheel="onWheel"
+      @pointerleave="ghost.lane = ''"
     >
+      <!-- con el imán, los pulsos a los que se pegan -->
+      <span
+        v-for="b in guideBeats"
+        :key="'gb' + b.t"
+        class="tl-guide-beat"
+        :class="{ one: b.one }"
+        :style="{ left: pct(b.t) }"
+        aria-hidden="true"
+      ></span>
       <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
       <div
         v-for="lane in cueLanes"
@@ -1434,26 +1537,57 @@ const lockTitle = computed(() =>
         :data-lane="lane.key"
         :title="
           cueEdit
-            ? 'Doble clic: una guía aquí · arrastra una guía para moverla · púlsala para cambiarla'
+            ? 'Doble clic: una guía aquí · arrastra una guía para moverla · púlsala para cambiarla · clic derecho: opciones'
             : 'Para la canción para poner, mover o cambiar guías'
         "
         @dblclick="onGuideDouble($event, lane)"
+        @pointermove="onGuideHover($event, lane)"
+        @contextmenu.prevent="onGuideMenu($event, lane)"
       >
-        <button
-          v-for="c in cuesByLane[lane.key]"
-          v-show="inView(cueAt(c), cueAt(c) + cueLen(c))"
-          :key="'cue' + c.t + c.file"
-          type="button"
-          class="tl-guide-clip"
-          :class="{ moving: cueDrag.cue === c }"
-          :style="{ left: pct(cueAt(c)), width: pctLen(cueLen(c)) }"
-          :title="'Guía: «' + (c.text || 'tu voz') + '» · ' + formatTime(cueAt(c))"
-          @pointerdown="onCueDown($event, c)"
-          @click="onCueKey($event, c)"
-          @dblclick.stop
-        >
-          <Icon n="mic" :t="9" /><span>{{ c.text || 'tu voz' }}</span>
-        </button>
+        <span
+          v-if="ghost.lane === lane.key"
+          class="tl-guide-ghost"
+          :style="{ left: pct(ghost.t) }"
+          aria-hidden="true"
+        ></span>
+        <TransitionGroup name="tl-clip">
+          <button
+            v-for="c in cuesByLane[lane.key]"
+            :key="cueKey(c)"
+            type="button"
+            class="tl-guide-clip"
+            :class="{
+              moving: cueDrag.cue === c,
+              flash: flashed === c,
+              spoken: !!c.text,
+              waved: !!cueWaves[c.file]?.peaks?.length
+            }"
+            :style="{ left: pct(cueAt(c)), width: pctLen(cueLen(c)) }"
+            :title="
+              (c.text ? 'Guía: «' + c.text + '»' : 'Guía grabada o importada') +
+              ' · ' +
+              formatTime(cueAt(c)) +
+              (cueWaves[c.file]?.seconds
+                ? ' · dura ' + cueWaves[c.file].seconds.toFixed(1) + ' s'
+                : '')
+            "
+            @pointerdown="onCueDown($event, c)"
+            @click="onCueKey($event, c)"
+            @dblclick.stop
+            @contextmenu.prevent.stop="emit('cue-menu', c, $event)"
+          >
+            <svg
+              v-if="cueWaves[c.file]?.peaks?.length"
+              class="tl-guide-wave"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <path :d="cueWavePath(c)" />
+            </svg>
+            <Icon :n="c.text ? 'speech' : 'mic'" :t="9" /><span>{{ c.text || 'audio' }}</span>
+          </button>
+        </TransitionGroup>
       </div>
       <span
         v-show="inView(position)"
