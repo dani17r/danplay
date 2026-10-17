@@ -9,6 +9,7 @@ import { api, errorMessage } from '../api.js'
 import { notify } from '../composables/useNotices.js'
 import Icon from '../components/Icon.vue'
 import Loading from '../components/ui/Loading.vue'
+import { syncPhoneMedia } from './musica.js'
 
 const emit = defineEmits(['done'])
 
@@ -20,6 +21,7 @@ const saving = ref(false)
 
 onMounted(async () => {
   try {
+    await syncPhoneMedia()
     folders.value = (await api.phoneFolders())?.folders || []
   } catch (e) {
     notify('No se pudieron leer las carpetas: ' + errorMessage(e))

@@ -10,6 +10,13 @@
 //! de «música y audio» el sistema deja abrir así los archivos de audio. Los
 //! ids son negativos, como los de los archivos sueltos de la PC: no se
 //! confunden con los de las pistas traídas.
+//!
+//! Qué canciones hay lo dice Android (su índice de música, MediaStore: lo
+//! cuenta la página con `set_media`): ahí están también las de la tarjeta SD
+//! y las de las carpetas de las apps (los audios de Telegram o WhatsApp,
+//! dentro de `Android/media`), y no los tonos de llamada ni los avisos.
+//! Recorriendo carpetas solo se veía la memoria del teléfono, sin `Android`.
+//! Sin esa lista (en la PC, en las pruebas) se recorren las carpetas.
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -51,11 +58,32 @@ struct Saved {
     study: HashMap<String, Value>,
 }
 
+/// Una canción tal como la cuenta Android: su ruta y lo que sabe de ella.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct Media {
+    pub path: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub artist: String,
+    #[serde(default)]
+    pub album: String,
+    /// En milisegundos, como la da Android.
+    #[serde(default)]
+    pub duration: f64,
+    #[serde(default)]
+    pub size: u64,
+    #[serde(default)]
+    pub mtime: u64,
+}
+
 pub struct Musica {
     file: PathBuf,
     /// Donde se busca: la memoria del teléfono (o, en la PC, la música).
     root: PathBuf,
     saved: Mutex<Saved>,
+    /// Lo que cuenta Android que hay (None: se recorren las carpetas).
+    media: Mutex<Option<Vec<Media>>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -196,23 +224,67 @@ impl Musica {
             file,
             root,
             saved: Mutex::new(saved),
+            media: Mutex::new(None),
         }
     }
 
-    fn save(&self, saved: &Saved) {
-        if let Ok(text) = serde_json::to_vec(saved) {
-            let tmp = self.file.with_extension("json.part");
-            if fs::write(&tmp, text).is_ok() {
-                let _ = fs::rename(tmp, &self.file);
+    /// Lo que hay en el teléfono según Android (ver arriba). Solo audio.
+    pub fn set_media(&self, list: Vec<Media>) {
+        let list = list
+            .into_iter()
+            .filter(|m| is_audio(Path::new(&m.path)))
+            .collect();
+        *lock(&self.media) = Some(list);
+    }
+
+    /// La raíz de lo que contiene `p`: la memoria del teléfono o, si está en
+    /// otra (`/storage/<tarjeta>/…`), esa; y cómo se llama.
+    fn volume_of(&self, p: &Path) -> (PathBuf, &'static str) {
+        if p.starts_with(&self.root) {
+            return (self.root.clone(), "");
+        }
+        let mut parts = p.components();
+        if let (Some(a), Some(b), Some(c)) = (parts.next(), parts.next(), parts.next())
+            && b.as_os_str() == "storage"
+        {
+            return ([a, b, c].iter().collect(), "Tarjeta SD");
+        }
+        (PathBuf::from("/"), "")
+    }
+
+    /// El nombre de una carpeta, como se enseña: desde su memoria
+    /// («Music/Barak», «Tarjeta SD/Música»). Las de las apps, sin la ruta de
+    /// Android delante («Telegram/Telegram Audio», no
+    /// «Android/media/org.telegram.messenger/Telegram/Telegram Audio»).
+    fn name_of(&self, p: &Path) -> String {
+        let (vol, label) = self.volume_of(p);
+        let mut rel = p.strip_prefix(&vol).unwrap_or(p).to_path_buf();
+        if rel.starts_with("Android/media") {
+            let inside: PathBuf = rel.components().skip(3).collect();
+            if !inside.as_os_str().is_empty() {
+                rel = inside;
             }
         }
+        let rel = rel.to_string_lossy().into_owned();
+        match (label.is_empty(), rel.is_empty()) {
+            (true, _) => rel,
+            (false, true) => label.to_string(),
+            (false, false) => format!("{label}/{rel}"),
+        }
     }
 
-    /// Las carpetas del teléfono que tienen música, con cuántas canciones
-    /// tiene cada una (sin contar las de dentro) y si está elegida. Si aún no
-    /// se eligió nada, se dan por elegidas las de Música y Descargas.
-    pub fn folders(&self) -> Value {
-        let chosen = lock(&self.saved).folders.clone();
+    /// Las carpetas con música y cuántas tiene cada una (sin las de dentro):
+    /// las que cuenta Android o, sin su lista, recorriendo la memoria.
+    fn found(&self) -> Vec<(PathBuf, usize)> {
+        if let Some(media) = lock(&self.media).as_ref() {
+            let mut by = std::collections::BTreeMap::<PathBuf, usize>::default();
+            for m in media {
+                if let Some(dir) = Path::new(&m.path).parent() {
+                    *by.entry(dir.to_path_buf()).or_default() += 1;
+                }
+            }
+            return by.into_iter().collect();
+        }
         let mut found = Vec::new();
         let mut stack = vec![(self.root.clone(), 0usize)];
         while let Some((dir, depth)) = stack.pop() {
@@ -234,8 +306,27 @@ impl Musica {
             }
         }
         found.sort();
+        found
+    }
+
+    fn save(&self, saved: &Saved) {
+        if let Ok(text) = serde_json::to_vec(saved) {
+            let tmp = self.file.with_extension("json.part");
+            if fs::write(&tmp, text).is_ok() {
+                let _ = fs::rename(tmp, &self.file);
+            }
+        }
+    }
+
+    /// Las carpetas del teléfono que tienen música, con cuántas canciones
+    /// tiene cada una (sin contar las de dentro) y si está elegida. Si aún no
+    /// se eligió nada, se dan por elegidas las de Música y Descargas.
+    pub fn folders(&self) -> Value {
+        let chosen = lock(&self.saved).folders.clone();
+        let found = self.found();
         let default = |p: &Path| {
-            let rel = p.strip_prefix(&self.root).unwrap_or(p);
+            let (vol, _) = self.volume_of(p);
+            let rel = p.strip_prefix(&vol).unwrap_or(p);
             let first = rel
                 .components()
                 .next()
@@ -256,7 +347,7 @@ impl Musica {
                 };
                 json!({
                     "path": path,
-                    "name": p.strip_prefix(&self.root).unwrap_or(p).to_string_lossy(),
+                    "name": self.name_of(p),
                     "songs": n,
                     "on": on,
                 })
@@ -299,7 +390,22 @@ impl Musica {
             .collect();
         let mut songs = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        for folder in folders {
+        let media = lock(&self.media).clone();
+        // sin la lista de Android, recorriendo las carpetas
+        let walk = media.is_none();
+        if let Some(media) = media {
+            for m in media {
+                let p = Path::new(&m.path);
+                if !folders.iter().any(|f| p.starts_with(f)) || !seen.insert(m.path.clone()) {
+                    continue;
+                }
+                songs.push(match before.get(&m.path) {
+                    Some(s) if s.size == m.size && s.mtime == m.mtime => s.clone(),
+                    _ => from_media(&m),
+                });
+            }
+        }
+        for folder in folders.into_iter().filter(|_| walk) {
             let mut stack = vec![folder];
             while let Some(dir) = stack.pop() {
                 for p in audio_here(&dir) {
@@ -440,6 +546,53 @@ impl Musica {
     }
 }
 
+/// Una canción con lo que cuenta Android de ella. Lo que no sabe (sin
+/// etiquetas, «<unknown>») sale del nombre, como al leer el archivo.
+fn from_media(m: &Media) -> Song {
+    let unknown = |v: &str| v.trim().is_empty() || v.trim() == "<unknown>";
+    let stem = Path::new(&m.path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut title = if unknown(&m.title) {
+        String::new()
+    } else {
+        m.title.trim().to_string()
+    };
+    let mut artist = if unknown(&m.artist) {
+        String::new()
+    } else {
+        m.artist.trim().to_string()
+    };
+    if (title.is_empty() || title == stem) && artist.is_empty() {
+        // «Artista - Título.mp3», como lo deja DanPlay al descargar
+        match stem.split_once(" - ") {
+            Some((a, t)) => {
+                artist = a.trim().to_string();
+                title = t.trim().to_string();
+            }
+            None => title.clone_from(&stem),
+        }
+    }
+    if title.is_empty() {
+        title = stem;
+    }
+    Song {
+        id: id_of(&m.path),
+        path: m.path.clone(),
+        title,
+        artist,
+        album: if unknown(&m.album) {
+            String::new()
+        } else {
+            m.album.trim().to_string()
+        },
+        duration: m.duration / 1000.0,
+        size: m.size,
+        mtime: m.mtime,
+    }
+}
+
 pub fn to_json(s: &Song) -> Value {
     let folder = Path::new(&s.path)
         .parent()
@@ -510,6 +663,79 @@ mod tests {
         b.resize(b.len() + (n * 2) as usize, 0);
         fs::create_dir_all(path.parent().expect("padre")).expect("carpeta");
         fs::write(path, b).expect("wav");
+    }
+
+    #[test]
+    fn what_android_counts_includes_the_sd_card_and_the_apps_folders() {
+        let app = tmp("android");
+        let m = Musica::with_root(&app, PathBuf::from("/storage/emulated/0"));
+        let item = |path: &str, title: &str, artist: &str| Media {
+            path: path.to_string(),
+            title: title.to_string(),
+            artist: artist.to_string(),
+            album: "<unknown>".to_string(),
+            duration: 245_000.0,
+            size: 10,
+            mtime: 1,
+        };
+        m.set_media(vec![
+            item("/storage/emulated/0/Music/Barak/Mi Gozo.mp3", "Mi Gozo", "Barak"),
+            item("/storage/1A2B-3C4D/Musica/Shekinah.flac", "Shekinah", "New Wine"),
+            item(
+                "/storage/emulated/0/Android/media/org.telegram.messenger/Telegram/Telegram Audio/Barak - Sera Llena.mp3",
+                "Barak - Sera Llena",
+                "<unknown>",
+            ),
+            item("/storage/emulated/0/Notas/nota.txt", "nota", ""),
+        ]);
+        let folders = m.folders();
+        let names: Vec<_> = folders["folders"]
+            .as_array()
+            .expect("lista")
+            .iter()
+            .map(|f| {
+                (
+                    f["name"].as_str().unwrap_or("").to_string(),
+                    f["on"].as_bool(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Tarjeta SD/Musica".to_string(), Some(true)),
+                ("Telegram/Telegram Audio".to_string(), Some(false)),
+                ("Music/Barak".to_string(), Some(true)),
+            ],
+            "la tarjeta y las de las apps también; lo que no es audio, no"
+        );
+        // sin abrir los archivos: con lo que cuenta Android
+        assert_eq!(m.scan(), 2);
+        let all = m.songs();
+        assert!(
+            all.iter()
+                .any(|s| s.title == "Shekinah" && s.artist == "New Wine")
+        );
+        let gozo = all
+            .iter()
+            .find(|s| s.title == "Mi Gozo")
+            .expect("de Música");
+        assert!(
+            (gozo.duration - 245.0).abs() < 1e-9,
+            "Android la da en milisegundos"
+        );
+        assert_eq!(gozo.album, "", "«<unknown>» es que no lo sabe");
+        // elegida también la de Telegram: su nombre sale del archivo
+        let telegram = folders["folders"][1]["path"]
+            .as_str()
+            .expect("ruta")
+            .to_string();
+        assert_eq!(m.set_folders(vec![telegram]), 1);
+        let s = &m.songs()[0];
+        assert_eq!(
+            (s.artist.as_str(), s.title.as_str()),
+            ("Barak", "Sera Llena")
+        );
     }
 
     #[test]

@@ -4,8 +4,39 @@
 // de pedirlo llega por `window.__danplayPermisoMusica`. Fuera de Android (la
 // app de la PC en modo celular, las pruebas) no hace falta: siempre sí.
 
+import { api } from '../api.js'
+
 /** @returns {any} */
 const bridge = () => /** @type {any} */ (window).DanPlayMusica
+
+/**
+ * Las canciones del teléfono según Android (su índice de música, con la
+ * tarjeta SD y las carpetas de las apps, sin los tonos ni las alarmas), o
+ * null fuera de Android o si no lo sabe dar (entonces se recorren carpetas).
+ * @returns {Array<{path: string}> | null}
+ */
+export function phoneMedia() {
+  const b = bridge()
+  if (!b?.canciones) return null
+  try {
+    const list = JSON.parse(b.canciones())
+    return Array.isArray(list) ? list : null
+  } catch {
+    return null
+  }
+}
+
+/** Se lo cuenta a la app antes de mirar las carpetas o la música. */
+export async function syncPhoneMedia() {
+  const list = phoneMedia()
+  if (list) await api.phoneMedia(list).catch(() => null)
+}
+
+/** Poner al día la música del teléfono (con lo que cuenta Android). */
+export async function scanPhone() {
+  await syncPhoneMedia()
+  return api.phoneScan()
+}
 
 /** Si ya se puede leer la música del teléfono. */
 export function hasMusicPermission() {

@@ -303,6 +303,12 @@ describe('lo que cada metodo pide al nucleo', () => {
     phoneFolders: [[], 'GET', '/api/phone/folders'],
     setPhoneFolders: [[['/m']], 'PUT', '/api/phone/folders', { folders: ['/m'] }],
     phoneScan: [[], 'POST', '/api/phone/scan'],
+    phoneMedia: [
+      [[{ path: '/m/a.mp3' }]],
+      'PUT',
+      '/api/phone/media',
+      { songs: [{ path: '/m/a.mp3' }] }
+    ],
     phoneSongs: [[{ q: 'coro' }], 'GET', '/api/phone/songs?q=coro'],
     phoneFolder: [[-5], 'GET', '/api/phone/folder/-5'],
     cueVoices: [[], 'GET', '/api/cues/voices'],

@@ -229,6 +229,18 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
             Ok(json!({"songs": lib.musica.set_folders(folders)}))
         }
         ("POST", ["phone", "scan"]) => Ok(json!({"songs": lib.musica.scan()})),
+        // lo que hay en el teléfono según Android (MediaStore): con la tarjeta
+        // SD y las carpetas de las apps; lo cuenta la página antes de mirar
+        ("PUT", ["phone", "media"]) => {
+            let list: Vec<crate::musica::Media> = body
+                .get("songs")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .ok_or_else(|| (400, "falta la lista de canciones".to_string()))?;
+            let n = list.len();
+            lib.musica.set_media(list);
+            Ok(json!({"songs": n}))
+        }
         ("GET", ["phone", "songs"]) => {
             let words: Vec<String> = query(q, "q")
                 .map(|s| plain(&decode(s)))
