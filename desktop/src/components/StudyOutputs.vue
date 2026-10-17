@@ -7,9 +7,12 @@
  *
  * Arriba la salida de audio (la del sistema o una concreta, que se recuerda
  * aunque se desenchufe: si no está, suena por la del sistema y se avisa);
- * debajo, la manera de repartirlo, y «a medida», cada cosa por su sitio.
+ * debajo, la manera de repartirlo. Cada cosa por su sitio se elige en la
+ * onda, en el carril de cada una (sus botones L y R, estéreo o mono); en el
+ * celular, que no tiene esas cabeceras, aquí debajo, cada cosa en su tarjeta.
  */
 import { computed, onMounted, ref } from 'vue'
+import { isMobileApp } from '../platform.js'
 import {
   useRouting,
   destinations,
@@ -86,22 +89,9 @@ const fixedMode = (row) => {
 /** Si suena en mono: por un solo canal, o un par con lo mismo por los dos. */
 const monoFor = (row) => isSingle(destFor(row)) || monoOf(prefs.value, row.kind, row.key, row.role)
 
-/** Pasar a «a medida» desde un preset deja cada cosa donde iba. */
+/** Pasar a «a medida» desde un preset deja cada cosa donde iba (`useRouting`). */
 function choose(row, dest) {
-  const p = prefs.value
-  if (p.preset !== 'custom') {
-    const custom = {
-      song: destFor({ kind: 'song' }),
-      click: destFor({ kind: 'click' }),
-      cues: destFor({ kind: 'cues' }),
-      stems: Object.fromEntries(
-        props.stems.map((s) => [s.key, destFor({ kind: 'stem', key: s.key, role: s.role })])
-      )
-    }
-    p.custom = custom
-  }
-  if (row.kind === 'stem') return r.setStem(row.key, dest)
-  return r.setCustom(row.kind, dest)
+  return r.setRoute(row.kind, row.key, dest)
 }
 const needs = computed(() => PRESETS.find((p) => p.v === prefs.value.preset)?.channels || 2)
 const short = computed(() => channels.value < Math.max(needs.value, r.routing.value.channels))
@@ -111,8 +101,7 @@ const short = computed(() => channels.value < Math.max(needs.value, r.routing.va
   <Drawer :open="open" side="right" title="Salidas" width="min(440px, 94vw)" @close="emit('close')">
     <div class="outs">
       <p class="outs-lead">
-        Por dónde suena cada cosa. Como una secuencia en directo: el clic y las guías a tus cascos,
-        la música a la mesa.
+        Como una secuencia en directo: el clic y las guías a tus cascos, la música a la mesa.
       </p>
 
       <section class="outs-block">
@@ -176,7 +165,11 @@ const short = computed(() => channels.value < Math.max(needs.value, r.routing.va
         </p>
       </section>
 
-      <section class="outs-block">
+      <p v-if="!isMobileApp" class="outs-hint outs-where">
+        <Icon n="outputs" :t="13" /> Cada cosa por su lado: en la onda, con los botones <b>L</b> y
+        <b>R</b> de su carril (y <b>Est</b> o <b>Mono</b>).
+      </p>
+      <section v-if="isMobileApp" class="outs-block">
         <h4 class="outs-title"><Icon n="list" :t="13" /> Cada cosa</h4>
         <div v-for="row in rows" :key="row.kind + row.key" class="outs-row">
           <span class="outs-row-name">{{ row.name }}</span>
