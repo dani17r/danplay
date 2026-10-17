@@ -30,6 +30,7 @@ import { useSeparation } from '../composables/useSeparation.js'
 import { useClick } from '../composables/useClick.js'
 import { useRouting } from '../composables/useRouting.js'
 import { vTips } from '../composables/useTooltips.js'
+import { startStudyTour, stopStudyTour, tourSeen } from '../composables/useStudyTour.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { WAVE_STYLES } from '../utils/wavePaint.js'
 import { takeToPhone } from '../composables/usePhone.js'
@@ -46,6 +47,7 @@ import {
   clickTimes,
   gridToOwn,
   nearestBeat,
+  isDownbeat,
   METERS
 } from '../utils/beats.js'
 import {
@@ -63,6 +65,8 @@ import SliderField from './ui/SliderField.vue'
 import StudyTimeline from './StudyTimeline.vue'
 import StudyOutputs from './StudyOutputs.vue'
 import StudyCue from './StudyCue.vue'
+import StudyExport from './StudyExport.vue'
+import VoicePicker from './VoicePicker.vue'
 
 const props = defineProps({
   /** Se ve (la capa puede estar oculta y el estudio seguir puesto). */
@@ -80,7 +84,8 @@ const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
 // `loops`: los tramos que se repiten, [[a, b], …] (uno solo es el bucle A-B);
 // `mixer`: las pistas separadas, si suenan (`on`) y cómo va cada una;
 // `cues`: las guías habladas, [{t, text?, voice?, file, gain?, lane?}];
-// `cueLanes`: sus carriles (hasta 6), [{key, name, gain?, mute?, solo?}]
+// `cueLanes`: sus carriles (hasta 6), [{key, name, gain?, mute?, solo?, auto?}]
+// (`auto`: el de la guía automática)
 const blank = () => ({
   loops: [],
   speed: 1,
@@ -114,7 +119,8 @@ const waveStyleItem = () => ({
   note: WAVE_STYLES.find((w) => w.v === waveStyle.value)?.n.toLowerCase() || '',
   children: WAVE_STYLES.map((w) => ({
     label: w.n,
-    note: w.v === waveStyle.value ? 'puesto' : w.note,
+    hint: w.note,
+    active: w.v === waveStyle.value,
     action: () => (waveStyle.value = w.v)
   }))
 })
@@ -155,6 +161,7 @@ let saveTimer = null
 let pending = null
 
 const round2 = (v) => Math.round(v * 100) / 100
+const round3 = (v) => Math.round(v * 1000) / 1000
 const isSpan = (m) => m.end > m.t
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
@@ -220,7 +227,8 @@ async function loadFor(id) {
           name: l.name || '',
           gain: Number.isFinite(l.gain) ? l.gain : 1,
           mute: !!l.mute,
-          solo: !!l.solo
+          solo: !!l.solo,
+          ...(l.auto ? { auto: true } : {})
         })),
       notes: s.notes || '',
       mixer: {
@@ -285,7 +293,9 @@ function payload(s) {
     name: l.name || '',
     ...(l.gain != null && l.gain !== 1 ? { gain: l.gain } : {}),
     ...(l.mute ? { mute: true } : {}),
-    ...(l.solo ? { solo: true } : {})
+    ...(l.solo ? { solo: true } : {}),
+    // el de la guía automática (se rehace con ella)
+    ...(l.auto ? { auto: true } : {})
   }))
   return {
     ...(mixer ? { mixer } : {}),
@@ -603,7 +613,7 @@ function showOptions({ index, t, x, y, event }) {
       items.push({
         label: `Al acabar: ${e.n.toLowerCase()}`,
         icon: e.icon,
-        note: loopEndWanted.value === e.v ? 'puesto' : '',
+        active: loopEndWanted.value === e.v,
         action: () => setLoopEnd(e.v)
       })
     }
@@ -674,6 +684,17 @@ const PITCH_STEP_KEY = 'danplay.study.pitchStep'
 const BIG_KEY = 'danplay.study.grande'
 const big = ref(readPref(BIG_KEY, false) === true)
 watch(big, (v) => savePref(BIG_KEY, v))
+/** A la vista en los carriles: los mandos de la mezcla y los canales (se recuerda). */
+const MIX_KEY = 'danplay.study.verMezcla'
+const ROUTES_KEY = 'danplay.study.verCanales'
+const showMix = ref(readPref(MIX_KEY, true) !== false)
+const showRoutes = ref(readPref(ROUTES_KEY, true) !== false)
+watch(showMix, (v) => savePref(MIX_KEY, v))
+watch(showRoutes, (v) => savePref(ROUTES_KEY, v))
+/** Con el candado, que un clic en la onda lleve igual la canción ahí (se recuerda). */
+const SEEK_KEY = 'danplay.study.irConClic'
+const seekClick = ref(readPref(SEEK_KEY, false) === true)
+watch(seekClick, (v) => savePref(SEEK_KEY, v))
 const savedStep = readPref(PITCH_STEP_KEY, 1)
 /** De cuánto en cuánto se mueve el tono, en semitonos. */
 const pitchStep = ref(PITCH_STEPS.some((s) => s.v === savedStep) ? savedStep : 1)
@@ -778,6 +799,11 @@ function metroPatch(patch) {
 async function toggleMetronome() {
   if (!track.value) return
   await click.toggle()
+}
+/** El carril del clic, en la onda: encenderlo o callarlo, y su volumen. */
+function onClickLane(patch) {
+  if ('on' in patch && !!patch.on !== !!metronome.value.on) toggleMetronome()
+  if (typeof patch.volume === 'number') setMetroVolume(patch.volume)
 }
 /**
  * Pone a mano el tempo que se oye, con decimales. Con el doble o la mitad
@@ -1395,6 +1421,26 @@ function cueLaneMenu(key, ev, t) {
       disabled: !stopped,
       action: () => importCueAt(at, key)
     },
+    ...((study.value.cues || []).some((c) => c.text && laneOfCue(c) === key)
+      ? [
+          {
+            label: 'Cambiar la voz…',
+            icon: 'speech',
+            disabled: !stopped,
+            action: () => changeVoice(key)
+          }
+        ]
+      : []),
+    ...(lane.auto
+      ? [
+          {
+            label: 'Rehacer la guía automática',
+            icon: 'sparkles',
+            disabled: !stopped,
+            action: autoGuide
+          }
+        ]
+      : []),
     { separator: true },
     { label: 'Renombrar…', icon: 'pencil', action: () => renameCueLane(key) },
     {
@@ -1458,6 +1504,169 @@ function cueMenu(c, ev) {
     { label: 'Quitar', icon: 'trash', danger: true, disabled: !stopped, action: () => removeCue(c) }
   ]
   openMenu(ev, items, c.text ? '«' + c.text + '»' : 'Guía')
+}
+// ---- la guía automática y la voz de las guías
+/** El selector de voz abierto: {title, okLabel, current, resolve}, o null. */
+const voicePick = ref(null)
+/** Abre el selector de voz y espera: la voz elegida, o null si se cerró. */
+function chooseVoice({
+  title = 'La voz de las guías',
+  okLabel = 'Usar esta voz',
+  current = ''
+} = {}) {
+  return new Promise((resolve) => {
+    voicePick.value?.resolve(null)
+    voicePick.value = { title, okLabel, current, resolve }
+  })
+}
+function onVoicePicked(id) {
+  const p = voicePick.value
+  voicePick.value = null
+  savePref('danplay.guias.voz', id)
+  p?.resolve(id)
+}
+function onVoiceClosed() {
+  const p = voicePick.value
+  voicePick.value = null
+  p?.resolve(null)
+}
+/** La voz de siempre si ya está bajada; si no, se pregunta (y se recuerda). */
+async function readyVoice(okLabel) {
+  const wanted = readPref('danplay.guias.voz', '')
+  if (wanted) {
+    try {
+      const r = await api.cueVoices()
+      if (r?.voices?.some((v) => v.id === wanted && v.installed)) return wanted
+    } catch {
+      /* se pregunta */
+    }
+  }
+  return chooseVoice({ title: 'La voz de la guía', okLabel, current: wanted })
+}
+/** Dónde empieza cada compás (los «1» que se ven) y lo que dura un pulso. */
+function barsAndBeat() {
+  const g = shownGrid.value
+  let beats = g?.beats || []
+  let ones = beats.filter((_, i) => isDownbeat(g, i))
+  if (!beats.length) {
+    const m = metronome.value
+    if (m.free && m.bpm) {
+      const c = clickTimes(null, m, duration.value || 0)
+      beats = c.beats
+      ones = c.beats.filter((_, i) => c.accents[i])
+    }
+  }
+  if (!ones.length) ones = beats.filter((_, i) => i % 4 === 0)
+  const gaps = beats
+    .slice(1)
+    .map((t, i) => t - beats[i])
+    .sort((a, b) => a - b)
+  const beat = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0
+  return { bars: ones.map(round3), beat: beat > 0.2 && beat < 2 ? round3(beat) : 0 }
+}
+/** Haciendo la guía automática. */
+const autoBusy = ref(false)
+/**
+ * La guía automática: DanPlay busca las partes de la canción (intro,
+ * estrofas, coros, puente, solos…) y las dice con la voz justo antes de
+ * cada una, en su propio carril («Partes»). Otra vez: la rehace.
+ */
+async function autoGuide() {
+  if (!track.value || !loadedFor.value || autoBusy.value) return
+  if (playing.value) return notify(STOP_FIRST, 'info')
+  const voice = await readyVoice('Hacer la guía')
+  if (!voice) return
+  const id = loadedFor.value
+  autoBusy.value = true
+  notify('Buscando las partes de la canción…', 'info', 4)
+  try {
+    const { bars, beat } = barsAndBeat()
+    const r = await api.runJob(
+      () =>
+        api.autoCues(id, {
+          voice,
+          ...(bars.length >= 8 ? { bars } : {}),
+          ...(beat ? { beat } : {})
+        }),
+      JOBS.autoGuide
+    )
+    if (loadedFor.value === id) placeAutoGuide(r, voice)
+  } catch (e) {
+    notify('No se pudo hacer la guía automática: ' + errorMessage(e))
+  } finally {
+    autoBusy.value = false
+  }
+}
+/** Las guías de las partes, a su carril (el de la guía automática, o uno nuevo). */
+function placeAutoGuide(r, voice) {
+  const cues = r?.cues || []
+  if (!cues.length) return notify('No encontré partes que decir en esta canción', 'info')
+  const lanes = ownLanes()
+  let lane = lanes.find((l) => l.auto)
+  const empty = (l) => !(study.value.cues || []).some((c) => laneOfCue(c) === l.key)
+  if (!lane && lanes.length === 1 && empty(lanes[0])) {
+    lane = lanes[0]
+    Object.assign(lane, { name: 'Partes', auto: true })
+  }
+  if (!lane) {
+    if (lanes.length >= MAX_CUE_LANES) {
+      return notify(
+        `Como mucho ${MAX_CUE_LANES} carriles de guías: quita uno para la guía automática`
+      )
+    }
+    let n = 1
+    while (lanes.some((l) => l.key === 'g' + n)) n++
+    lane = { key: 'g' + n, name: 'Partes', gain: 1, mute: false, solo: false, auto: true }
+    lanes.push(lane)
+  }
+  const key = lane.key
+  study.value.cues = [
+    ...(study.value.cues || []).filter((c) => laneOfCue(c) !== key),
+    ...cues.map((c) => ({
+      t: round2(c.t),
+      text: c.text,
+      voice: c.voice || voice,
+      file: c.file,
+      lane: key
+    }))
+  ].sort((a, b) => a.t - b.t)
+  scheduleSave()
+  sendCues()
+  const names = (r.sections || []).map((s) => s.label)
+  notify(`Guía lista: ${names.slice(0, 5).join(', ')}${names.length > 5 ? '…' : ''}`, 'ok', 6)
+}
+/** Decir otra vez con otra voz las guías escritas (de un carril, o todas). */
+async function changeVoice(laneKey = null) {
+  const cues = (study.value.cues || []).filter(
+    (c) => c.text && (laneKey == null || laneOfCue(c) === laneKey)
+  )
+  if (!cues.length) return notify('Aquí no hay guías escritas a las que cambiar la voz', 'info')
+  if (playing.value) return notify(STOP_FIRST, 'info')
+  const voice = await chooseVoice({
+    title: 'Cambiar la voz',
+    okLabel: 'Cambiar la voz',
+    current: cues[0].voice || ''
+  })
+  if (!voice) return
+  const id = loadedFor.value
+  notify(`Diciéndolas con la voz nueva (${cues.length})…`, 'info', 3)
+  let done = 0
+  for (const c of cues) {
+    try {
+      const r = await api.makeCue(id, { text: c.text, voice })
+      c.file = r.file
+      c.voice = voice
+      done++
+    } catch (e) {
+      notify('No se pudo cambiar la voz: ' + errorMessage(e))
+      break
+    }
+  }
+  if (!done) return
+  study.value.cues = [...study.value.cues]
+  scheduleSave()
+  sendCues()
+  notify(`${done === 1 ? 'Una guía' : done + ' guías'} con la voz nueva`, 'ok', 4)
 }
 /** Las guías en la lista, por orden (como suenan). */
 const cueList = computed(() => [...(study.value.cues || [])].sort((a, b) => a.t - b.t))
@@ -1645,7 +1854,27 @@ const progressText = computed(() => {
  * el tono de ahora, y con el clic si suena.
  * @param {{from?: 'song'|'stems', asHeard?: boolean}} [opts]
  */
-async function saveMix({ from = 'stems', asHeard = false } = {}) {
+/** La ventana de exportar: abierta, y con qué se abre elegido ('song' o 'mix'). */
+const exportOpen = ref(false)
+const exportInitial = ref('song')
+function openExport(what = 'song') {
+  exportInitial.value = what
+  exportOpen.value = true
+}
+/**
+ * Guarda en un archivo la canción (`from: 'song'`) o la mezcla de las pistas
+ * (`'stems'`), con lo elegido en la ventana de exportar: las guías, el clic,
+ * la velocidad y el tono (`heard`) y los canales (cada cosa por su lado, en
+ * estéreo o en mono, como suena).
+ */
+async function saveMix({
+  from = 'stems',
+  guides: withGuides = false,
+  click: withClick = false,
+  heard = false,
+  channels = false
+} = {}) {
+  exportOpen.value = false
   const info = stems.value
   const id = loadedFor.value
   if (!id || (from === 'stems' && !info)) return
@@ -1653,39 +1882,48 @@ async function saveMix({ from = 'stems', asHeard = false } = {}) {
   if (from === 'stems' && !on.length) {
     return notify('Todas las pistas están calladas: no hay nada que guardar')
   }
-  const guides = audibleCues()
-  let withGuides = false
-  if (guides.length) {
-    const r = await ask({
-      kind: 'confirm',
-      title: from === 'stems' ? 'Exportar las pistas' : 'Exportar la canción',
-      message:
-        from === 'stems'
-          ? 'La mezcla de las pistas como está, en un archivo.'
-          : 'La canción tal cual, en un archivo.',
-      check: {
-        label: `Con las guías (${guides.length === 1 ? 'una' : guides.length})`,
-        value: true
-      },
-      okLabel: 'Elegir dónde guardarla'
-    })
-    if (!r) return
-    withGuides = !!r.checked
-  }
-  // como suena: con el clic, si va (los golpes que se oyen, con su sonido)
+  /** Por dónde va cada cosa en el archivo, si se pide con los canales. */
+  const side = (kind, key = '', role = '') => (channels ? routing.exportRoute(kind, key, role) : {})
+  const tracks = (
+    from === 'stems'
+      ? on.map((t) => {
+          const r = side('stem', t.key, t.role || '')
+          return r && { source: t.key, gain: t.gain, pan: t.pan, ...r }
+        })
+      : [((r) => r && { source: 'song', gain: 1, pan: 0, ...r })(side('song'))]
+  ).filter(Boolean)
+  if (!tracks.length) return notify('Con esos canales no suena nada: no hay nada que guardar')
+  const guides = withGuides
+    ? audibleCues()
+        .map((c) => {
+          const r = side('stem', laneRoute(c.lane), 'guide')
+          return (
+            r && {
+              at: c.at,
+              file: c.file,
+              gain: Math.round(c.gain * cueVolume.value * 100) / 100,
+              ...(r.side ? { side: r.side } : {})
+            }
+          )
+        })
+        .filter(Boolean)
+    : []
+  // el clic: los golpes que se oyen, con su sonido
   const m = metronome.value
+  const clickSide = side('click')
   const clickTrack =
-    asHeard && m.on
+    withClick && m.on && clickSide
       ? {
           ...clickTimes(shownGrid.value, m, duration.value || 0),
           sound: m.sound || 'clasico',
-          volume: m.volume
+          volume: m.volume,
+          ...(clickSide.side ? { side: clickSide.side } : {})
         }
       : null
   const name = mixFileName(
     songFile.value || track.value?.title || 'Cancion',
     from === 'stems' ? plan.value : [],
-    { click: !!clickTrack, guides: withGuides }
+    { click: !!clickTrack, guides: guides.length > 0 }
   )
   // junto a las pistas, o junto a la canción
   const songDir = (player.state.path || '').replace(/[\\/][^\\/]*$/, '')
@@ -1705,22 +1943,11 @@ async function saveMix({ from = 'stems', asHeard = false } = {}) {
     const r = await api.runJob(
       () =>
         api.exportMix(id, {
-          tracks:
-            from === 'stems'
-              ? on.map((t) => ({ source: t.key, gain: t.gain, pan: t.pan }))
-              : [{ source: 'song', gain: 1, pan: 0 }],
+          tracks,
           path,
-          ...(asHeard ? { speed: speed.value, pitch: pitch.value } : {}),
+          ...(heard ? { speed: speed.value, pitch: pitch.value } : {}),
           ...(clickTrack ? { click: clickTrack } : {}),
-          ...(withGuides
-            ? {
-                cues: guides.map((c) => ({
-                  at: c.at,
-                  file: c.file,
-                  gain: Math.round(c.gain * cueVolume.value * 100) / 100
-                }))
-              }
-            : {})
+          ...(guides.length ? { cues: guides } : {})
         }),
       JOBS.mix
     )
@@ -1768,14 +1995,12 @@ async function deleteStems() {
     notify('No se pudieron borrar: ' + errorMessage(e))
   }
 }
-/** Lo que se oye no es la mezcla tal cual: otra velocidad, otro tono, o el clic. */
-const heardDiffers = computed(() => speed.value !== 1 || pitch.value !== 0 || metronome.value.on)
+/** La velocidad y el tono que se oyen, si no son los de la canción («80 % · medio tono arriba»). */
 const heardNote = computed(() => {
   const bits = []
   if (speed.value !== 1 || pitch.value !== 0) {
     bits.push(`${Math.round(speed.value * 100)} %${pitch.value ? ' · ' + pitchWords.value : ''}`)
   }
-  if (metronome.value.on) bits.push('con clic')
   return bits.join(' · ')
 })
 function stemsMenu(ev) {
@@ -1789,30 +2014,9 @@ function stemsMenu(ev) {
     )
   }
   const items = [
-    { label: 'Guardar esta mezcla…', icon: 'download', action: () => saveMix() },
-    ...(heardDiffers.value
-      ? [
-          {
-            label: 'Guardarla como suena…',
-            icon: 'download',
-            note: heardNote.value,
-            action: () => saveMix({ asHeard: true })
-          }
-        ]
-      : []),
-    {
-      label: 'Convertir a DanPista (para el celular)',
-      icon: 'send',
-      note: 'un archivo .danpista con las pistas, el clic, los tramos, la letra y los acordes',
-      action: toPhone
-    },
+    { label: 'Exportar…', icon: 'download', action: () => openExport('mix') },
     { label: 'Que suenen todas, como vienen', icon: 'refresh', action: resetMix },
-    {
-      label: 'Por dónde suena cada pista…',
-      icon: 'volume',
-      action: () => (outputsOpen.value = true)
-    },
-    { label: 'Abrir la carpeta de las pistas', icon: 'folderOpen', action: revealStems },
+    { label: 'Abrir la carpeta', icon: 'folderOpen', action: revealStems },
     { separator: true },
     ...(progress.value
       ? []
@@ -1820,21 +2024,21 @@ function stemsMenu(ev) {
           ...(stems.value?.best && !stems.value?.max && separation.state.max
             ? [
                 {
-                  label: 'Más instrumentos (máxima calidad)',
+                  label: 'Más instrumentos',
                   icon: 'sparkles',
-                  note: 'percusión aparte, guitarras, teclados, cuerdas… · tarda',
+                  hint: 'Máxima calidad: percusión aparte, guitarras, teclados, cuerdas… (tarda)',
                   action: separateMore
                 }
               ]
             : []),
           {
-            label: stems.value?.best ? 'Separar otra vez' : 'Separar otra vez con la mejor calidad',
+            label: 'Separar otra vez',
             icon: 'mixer',
-            note: stems.value?.best
+            hint: stems.value?.best
               ? ''
               : stems.value?.quality === 'rapida'
-                ? 'solo se mejoran'
-                : 'se hicieron con una versión anterior',
+                ? 'Con la mejor calidad: las de ahora son las rápidas'
+                : 'Con la mejor calidad: se hicieron con una versión anterior',
             action: separateThis
           }
         ]),
@@ -1851,6 +2055,7 @@ function stemsMenu(ev) {
  * solo quería ver la lista se quedaba sin clic.
  */
 async function hide() {
+  stopStudyTour()
   await flushSave()
   emit('hide')
   emit('close')
@@ -1869,49 +2074,35 @@ async function exit() {
 }
 function headMenu(ev) {
   const items = [
-    {
-      label: 'Salir del modo estudio',
-      icon: 'exit',
-      note: 'quita el clic, los tramos, la velocidad y el tono',
-      action: exit
-    },
     ...(isMobileApp
       ? []
       : [
+          { label: 'Exportar…', icon: 'download', action: () => openExport('song') },
           {
-            label: 'Exportar la canción…',
-            icon: 'download',
-            note: study.value.cues?.length ? 'con o sin las guías' : 'tal cual',
-            action: () => saveMix({ from: 'song' })
+            label: 'Guía automática',
+            icon: 'sparkles',
+            hint: 'Las partes de la canción (intro, estrofas, coros, puente, solos…), dichas justo antes de cada una',
+            disabled: !cueEdit.value || autoBusy.value,
+            action: autoGuide
           },
-          ...(hasStems.value
-            ? [
-                {
-                  label: 'Exportar las pistas…',
-                  icon: 'download',
-                  note: study.value.cues?.length
-                    ? 'como suenan, con o sin las guías'
-                    : 'la mezcla como suena',
-                  action: () => saveMix({ from: 'stems' })
-                }
-              ]
-            : []),
-          {
-            label: 'Convertir a DanPista (para el celular)',
-            icon: 'send',
-            note: hasStems.value ? '' : 'hace falta separarla en pistas',
-            disabled: !hasStems.value,
-            action: toPhone
-          }
+          { separator: true }
         ]),
     // también en el celular: con un cable en Y, el clic y las guías a un lado
     // (a los cascos) y la música al otro
     {
-      label: 'Salidas: por dónde suena cada cosa…',
-      icon: 'volume',
+      label: 'Salidas…',
+      icon: 'outputs',
+      hint: 'La salida de audio y los repartos de siempre (el clic y las guías a un lado, la música al otro)',
       action: () => (outputsOpen.value = true)
     },
-    waveStyleItem()
+    ...(isMobileApp ? [] : [waveStyleItem(), { label: 'Cómo se usa', icon: 'help', action: tour }]),
+    { separator: true },
+    {
+      label: 'Salir del modo estudio',
+      icon: 'exit',
+      hint: 'Quita el clic, los tramos, la velocidad y el tono: la canción vuelve a sonar como viene',
+      action: exit
+    }
   ]
   openMenu(ev, items, 'Modo estudio')
 }
@@ -1935,8 +2126,33 @@ const PANELS = [
 const savedPanel = readPref(PANEL_KEY, 'click')
 const panel = ref(PANELS.some((p) => p.v === savedPanel) ? savedPanel : 'click')
 watch(panel, (v) => savePref(PANEL_KEY, v))
+/** El recorrido por el modo estudio (con «?» o desde el menú). */
+function tour() {
+  if (root.value) startStudyTour(root.value)
+}
+// la primera vez que se abre en el escritorio, solo (y ya no más: se recuerda)
+let tourTimer = null
+watch(
+  () => !isMobileApp && props.visible && !!track.value,
+  (on) => {
+    clearTimeout(tourTimer)
+    if (!on || tourSeen()) return
+    tourTimer = setTimeout(() => {
+      // a la vista de verdad (en las pruebas no hay medidas: no sale)
+      if (root.value?.getBoundingClientRect().height > 0 && !tourSeen()) tour()
+    }, 900)
+  },
+  { immediate: true }
+)
+onUnmounted(() => {
+  clearTimeout(tourTimer)
+  stopStudyTour()
+})
 let sizeWatch = null
 onMounted(() => {
+  // cuántos canales tiene la salida: los botones de cada carril son L y R, o
+  // 1, 2, 3… con una interfaz de más salidas
+  if (!isMobileApp) routing.loadDevices?.().catch?.(() => {})
   if (isMobileApp || typeof ResizeObserver !== 'function' || !root.value) return
   sizeWatch = new ResizeObserver(([e]) => {
     const w = e.contentRect.width
@@ -2366,6 +2582,25 @@ defineExpose({ close: hide, hide, exit })
           <Icon n="mic" :t="13" /> Guía
         </button>
         <button
+          class="btn mini icon-btn study-auto-guide"
+          type="button"
+          :class="{ busy: autoBusy }"
+          :disabled="!cueEdit || autoBusy"
+          aria-label="Guía automática"
+          :title="
+            !track
+              ? ''
+              : autoBusy
+                ? 'Buscando las partes de la canción…'
+                : cueEdit
+                  ? 'Guía automática: DanPlay busca las partes (intro, estrofas, coros, puente, solos…) y las dice justo antes de cada una'
+                  : STOP_FIRST
+          "
+          @click="autoGuide"
+        >
+          <Icon n="sparkles" :t="13" />
+        </button>
+        <button
           class="btn mini icon-btn study-magnet"
           type="button"
           :class="{ on: snapCues }"
@@ -2375,6 +2610,37 @@ defineExpose({ close: hide, hide, exit })
           @click="snapCues = !snapCues"
         >
           <Icon n="magnet" :t="14" />
+        </button>
+        <span class="study-head-sep" aria-hidden="true"></span>
+        <button
+          class="btn mini icon-btn study-show-mix"
+          type="button"
+          :class="{ on: showMix }"
+          :aria-pressed="showMix"
+          aria-label="Mezcla"
+          :title="
+            showMix
+              ? 'Ocultar la mezcla de cada carril (M, S, volumen): más sitio para la onda'
+              : 'Ver la mezcla de cada carril: callar, dejar solo y el volumen'
+          "
+          @click="showMix = !showMix"
+        >
+          <Icon n="adjust" :t="13" />
+        </button>
+        <button
+          class="btn mini icon-btn study-show-routes"
+          type="button"
+          :class="{ on: showRoutes }"
+          :aria-pressed="showRoutes"
+          aria-label="Canales"
+          :title="
+            showRoutes
+              ? 'Ocultar los canales de cada carril (L, R, estéreo o mono)'
+              : 'Ver los canales de cada carril: por qué lado sale cada cosa, en estéreo o en mono'
+          "
+          @click="showRoutes = !showRoutes"
+        >
+          <Icon n="outputs" :t="13" />
         </button>
         <span class="study-head-sep" aria-hidden="true"></span>
         <button
@@ -2407,8 +2673,9 @@ defineExpose({ close: hide, hide, exit })
         <button
           class="btn mini icon-btn study-help"
           type="button"
-          aria-label="Cómo se usa la onda"
-          :title="waveHelp"
+          aria-label="Cómo se usa"
+          :title="waveHelp + ' · Pulsa para un recorrido por el modo estudio'"
+          @click="tour"
         >
           <Icon n="help" :t="14" />
         </button>
@@ -2428,6 +2695,12 @@ defineExpose({ close: hide, hide, exit })
       :selected="selected"
       :grid="shownGrid"
       :edit-beats="editingBeats"
+      :show-mix="showMix"
+      :show-routes="showRoutes"
+      :click-lane="
+        !isMobileApp && track ? { on: !!metronome.on, volume: metronome.volume ?? 0.8 } : null
+      "
+      :seek-click="seekClick"
       :click-loading="clickLoading ? click.progress.value : null"
       :height="isMobileApp ? 120 : big ? 150 : 80"
       :lane-height="laneHeight"
@@ -2447,6 +2720,8 @@ defineExpose({ close: hide, hide, exit })
       @remove-cue-lane="removeCueLane"
       @rename-cue-lane="renameCueLane"
       @cue-lane-menu="cueLaneMenu"
+      @click-lane="onClickLane"
+      @update:seek-click="(v) => (seekClick = v)"
       @cue-menu="cueMenu"
       @update:locked="(v) => (locked = v)"
       @update:multi="(v) => (multi = v)"
@@ -3135,6 +3410,33 @@ defineExpose({ close: hide, hide, exit })
           : [])
       ]"
       @close="outputsOpen = false"
+    />
+    <VoicePicker
+      v-if="!isMobileApp"
+      :open="!!voicePick"
+      :title="voicePick?.title"
+      :ok-label="voicePick?.okLabel"
+      :current="voicePick?.current || ''"
+      @pick="onVoicePicked"
+      @close="onVoiceClosed"
+    />
+    <StudyExport
+      v-if="!isMobileApp"
+      :open="exportOpen"
+      :initial="exportInitial"
+      :has-stems="hasStems"
+      :guides="audibleCues().length"
+      :click-on="!!metronome.on"
+      :heard="heardNote"
+      :routed="routing.routed.value"
+      @close="exportOpen = false"
+      @export="saveMix"
+      @phone="
+        () => {
+          exportOpen = false
+          toPhone()
+        }
+      "
     />
     <StudyCue
       v-if="cueDraft"

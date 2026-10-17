@@ -777,7 +777,9 @@ describe('la barra de estudio', () => {
       'Estilo de la onda'
     ])
     // de fábrica, al acabar se para (una vez, y quieto al principio)
-    expect(opcion('Al acabar: parar').note).toBe('puesto')
+    // la puesta, marcada (en el color de la app), no dicha con una nota
+    expect(opcion('Al acabar: parar').active).toBe(true)
+    expect(opcion('Al acabar: repetir').active).toBe(false)
     // sonar ya: arranca y va al principio del tramo
     await opcion('Reproducir ahora').action()
     await flushPromises()
@@ -1525,8 +1527,8 @@ describe('las pistas separadas en el estudio', () => {
     await w.find('.study-stems-more').trigger('click')
     const { menu } = useContextMenu()
     const again = menu.value.items.find((i) => i.label?.startsWith('Separar otra vez'))
-    expect(again?.label).toBe('Separar otra vez con la mejor calidad')
-    expect(again?.note).toBe('solo se mejoran')
+    expect(again?.label).toBe('Separar otra vez')
+    expect(again?.hint).toBe('Con la mejor calidad: las de ahora son las rápidas')
     await again?.action()
     await flushPromises()
     expect(held.api.separate).toHaveBeenCalledWith(7)
@@ -1622,23 +1624,29 @@ describe('las pistas separadas en el estudio', () => {
     await w.find('.study-stems-more').trigger('click')
     const { menu } = useContextMenu()
     const labels = menu.value.items.filter((i) => !i.separator).map((i) => i.label)
-    expect(labels).toContain('Guardar esta mezcla…')
-    expect(labels).toContain('Abrir la carpeta de las pistas')
+    // un solo «Exportar…»: las formas de exportar, en su ventana
+    expect(labels).toContain('Exportar…')
+    expect(labels).toContain('Abrir la carpeta')
     expect(labels).toContain('Borrar las pistas…')
+    expect(labels.filter((l) => /export|guardar/i.test(l))).toEqual(['Exportar…'])
     // fuera de la app no hay diálogo de guardar: no se guarda nada
     expect(await pickSavePath()).toBe(null)
-    expect(labels).not.toContain('Guardarla como suena…')
   })
 
-  it('con el clic sonando, se ofrece guardarla como suena: con el clic', async () => {
+  it('con el clic sonando, exportar ofrece llevar el clic', async () => {
     await conPistas(JSON.stringify({ mixer: { on: true } }))
     const w = await montar()
     await w.find('.study-metro-toggle').trigger('click')
     await flushPromises()
     await w.find('.study-stems-more').trigger('click')
     const { menu } = useContextMenu()
-    const asHeard = menu.value.items.find((i) => i.label === 'Guardarla como suena…')
-    expect(asHeard?.note).toBe('con clic')
+    menu.value.items.find((i) => i.label === 'Exportar…').action()
+    await flushPromises()
+    // se abre con la mezcla de las pistas elegida, y el clic entre lo que puede llevar
+    const kinds = [...document.querySelectorAll('.exp-kind')]
+    expect(kinds.find((k) => k.classList.contains('on')).textContent).toContain('La mezcla')
+    const extras = [...document.querySelectorAll('.exp-extra-name')].map((e) => e.textContent)
+    expect(extras).toContain('El clic')
   })
 })
 
@@ -1873,45 +1881,40 @@ describe('las salidas', () => {
     expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 4 })
   })
 
-  it('cada cosa, en estéreo o en mono', async () => {
+  it('cada cosa, por su lado y en estéreo o en mono, en su carril', async () => {
     const { resetRouting } = await import('../src/composables/useRouting.js')
     localStorage.removeItem('danplay.salidas')
     resetRouting()
     const w = await montar()
-    await boton(w, 'Salidas').trigger('click')
-    await flushPromises()
-    document.querySelectorAll('.outs-preset')[0].click() // todo junto
-    await flushPromises()
-    const fila = (nombre) =>
-      [...document.querySelectorAll('.outs-row')].find(
-        (r) => r.querySelector('.outs-row-name').textContent === nombre
-      )
-    const modo = (nombre, cual) =>
-      [...fila(nombre).querySelectorAll('.outs-mode-btn')].find(
-        (b) => b.textContent.trim() === cual
-      )
-    expect(modo('La canción', 'Estéreo').getAttribute('aria-pressed')).toBe('true')
+    const cancion = w.find('.tl-song-head .chans')
+    const boton = (nombre) => cancion.find(`[aria-label="${nombre}"]`)
+    expect(boton('Izquierda').attributes('aria-pressed')).toBe('true')
+    expect(boton('Derecha').attributes('aria-pressed')).toBe('true')
+    expect(cancion.find('.chan-mode').text()).toBe('Est')
 
     // la música en mono (una mesa en mono); el clic y las guías siguen en estéreo
-    modo('La canción', 'Mono').click()
+    await cancion.find('.chan-mode').trigger('click')
     await flushPromises()
-    expect(held.playback.bridge.setRouting).toHaveBeenLastCalledWith({
-      buses: [
-        { left: 0, right: 1, mono: true },
-        { left: 0, right: 1 }
-      ],
-      song: 0,
-      click: 1,
-      cues: 1
-    })
-    expect(modo('La canción', 'Mono').getAttribute('aria-pressed')).toBe('true')
+    expect(held.playback.bridge.setRouting.mock.calls.at(-1)[0].buses).toEqual([
+      { left: 0, right: 1, mono: true },
+      { left: 0, right: 1 }
+    ])
+    expect(cancion.find('.chan-mode').text()).toBe('Mono')
     expect(JSON.parse(localStorage.getItem('danplay.salidas')).mono.song).toBe(true)
 
-    // por un solo canal va en mono siempre: no se elige
-    document.querySelectorAll('.outs-preset')[1].click() // clic a la izquierda
+    // la canción solo por la derecha: por un canal va en mono, sin elegir
+    await boton('Izquierda').trigger('click')
     await flushPromises()
-    expect(modo('El clic', 'Mono').disabled).toBe(true)
-    expect(modo('El clic', 'Mono').getAttribute('aria-pressed')).toBe('true')
+    const spec = held.playback.bridge.setRouting.mock.calls.at(-1)[0]
+    expect(spec.buses[spec.song]).toEqual({ left: 1, right: 1 })
+    expect(cancion.find('.chan-mode').attributes('disabled')).toBeDefined()
+    // y el clic, en su carril, a la izquierda: lo demás no se mueve
+    const clic = w.find('.tl-click-lane .chans')
+    await clic.find('[aria-label="Derecha"]').trigger('click')
+    await flushPromises()
+    const after = held.playback.bridge.setRouting.mock.calls.at(-1)[0]
+    expect(after.buses[after.click]).toEqual({ left: 0, right: 0 })
+    expect(after.buses[after.song]).toEqual({ left: 1, right: 1 })
     localStorage.removeItem('danplay.salidas')
     resetRouting()
   })
@@ -2130,7 +2133,7 @@ describe('los carriles de las guías', () => {
     })
   })
 
-  it('con varios carriles, cada uno tiene su fila en «Salidas» y su salida', async () => {
+  it('cada carril de guías, por su lado: el del baterista, a la izquierda', async () => {
     const { resetRouting } = await import('../src/composables/useRouting.js')
     localStorage.removeItem('danplay.salidas')
     resetRouting()
@@ -2148,21 +2151,27 @@ describe('los carriles de las guías', () => {
     ]
     held.playback.emit({ playing: false })
     const w = await montar()
-    await boton(w, 'Salidas').trigger('click')
-    await flushPromises()
-    const filas = [...document.querySelectorAll('.outs-row-name')].map((n) => n.textContent)
-    expect(filas).toContain('Guías: Banda')
-    expect(filas).toContain('Guías: Baterista')
+    const carriles = w.findAll('.tl-guide-lane')
+    expect(carriles.map((c) => c.find('.chans').exists())).toEqual([true, true])
     // el baterista, solo por la izquierda (a sus cascos)
-    const { useRouting } = await import('../src/composables/useRouting.js')
-    await useRouting().setStem('guias_g2', 'L')
+    await carriles[1].find('.chans [aria-label="Derecha"]').trigger('click')
     await flushPromises()
     const [banda, baterista] = enviadas()
     expect(baterista.bus).not.toBe(banda.bus)
     const spec = held.playback.bridge.setRouting.mock.calls.at(-1)[0]
     expect(spec.buses[baterista.bus]).toEqual({ left: 0, right: 0 })
+    expect(spec.buses[banda.bus]).toEqual({ left: 0, right: 1 })
     localStorage.removeItem('danplay.salidas')
     resetRouting()
+  })
+
+  it('«Salidas» queda para la salida de audio y los repartos de siempre', async () => {
+    const w = await montar()
+    await boton(w, 'Salidas').trigger('click')
+    await flushPromises()
+    expect(document.querySelectorAll('.outs-preset').length).toBeGreaterThan(0)
+    expect(document.querySelectorAll('.outs-row')).toHaveLength(0)
+    expect(document.querySelector('.outs-where').textContent).toContain('L')
   })
 })
 
@@ -2433,16 +2442,24 @@ describe('exportar', () => {
       cueLanes: [{ key: 'g1', name: 'Banda', gain: 1.5 }],
       ...extra
     })
-  async function exportar(w, cual) {
+  /** Abre «Exportar…» del menú del estudio (la ventana). */
+  async function abrir(w) {
     const { menu } = useContextMenu()
     await w.find('.study-more').trigger('click')
-    const item = menu.value.items.find((i) => i.label === cual)
-    expect(item, cual).toBeTruthy()
-    const hecho = item.action()
+    const item = menu.value.items.find((i) => i.label === 'Exportar…')
+    expect(item, 'un solo «Exportar…»').toBeTruthy()
+    expect(menu.value.items.filter((i) => /export/i.test(i.label || ''))).toHaveLength(1)
+    item.action()
     await flushPromises()
-    // en un objeto: devolver la promesa haría esperar al diálogo
-    return { hecho }
   }
+  const extra = (nombre) =>
+    [...document.querySelectorAll('.exp-extra')].find((e) => e.textContent.includes(nombre))
+  async function guardar() {
+    document.querySelector('.exp-go').click()
+    await flushPromises()
+    await flushPromises()
+  }
+  beforeEach(() => localStorage.removeItem('danplay.exportar'))
   afterEach(() => {
     held.savePath = null
   })
@@ -2452,15 +2469,12 @@ describe('exportar', () => {
     held.playback.emit({ playing: false })
     const w = await montar()
     held.savePath = '/musica/Mi Gozo (con guias).mp3'
-    const { hecho } = await exportar(w, 'Exportar la canción…')
-    const { dialog, dialogOk } = await import('../src/composables/useDialog.js').then((d) =>
-      d.useDialog()
-    )
-    expect(dialog.value.title).toBe('Exportar la canción')
-    expect(dialog.value.check).toEqual({ label: 'Con las guías (una)', value: true })
-    dialogOk({ checked: true })
-    await hecho
-    await flushPromises()
+    await abrir(w)
+    // qué: la canción (sin pistas, lo demás no se puede); con qué: las guías
+    const kinds = [...document.querySelectorAll('.exp-kind')]
+    expect(kinds.map((k) => k.disabled)).toEqual([false, true, true])
+    expect(extra('Las guías').getAttribute('aria-checked')).toBe('true')
+    await guardar()
     expect(held.api.exportMix).toHaveBeenLastCalledWith(7, {
       tracks: [{ source: 'song', gain: 1, pan: 0 }],
       path: '/musica/Mi Gozo (con guias).mp3',
@@ -2468,28 +2482,55 @@ describe('exportar', () => {
     })
   })
 
-  it('sin la casilla, sin guías; y sin guías hechas, ni se pregunta', async () => {
+  it('sin marcar las guías, sin guías; y sin guías hechas, ni se ofrecen', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: conGuias() })]
     held.playback.emit({ playing: false })
     let w = await montar()
     held.savePath = '/musica/Mi Gozo.mp3'
-    const { useDialog } = await import('../src/composables/useDialog.js')
-    let { hecho } = await exportar(w, 'Exportar la canción…')
-    useDialog().dialogOk({ checked: false })
-    await hecho
+    await abrir(w)
+    extra('Las guías').click()
     await flushPromises()
+    await guardar()
     expect(held.api.exportMix.mock.calls.at(-1)[1].cues).toBeUndefined()
+    // y se recuerda para la próxima
+    expect(JSON.parse(localStorage.getItem('danplay.exportar')).guides).toBe(false)
     w.unmount()
 
     held.state.songs = [song(7, { title: 'Mi Gozo', study: '' })]
     w = await montar()
-    ;({ hecho } = await exportar(w, 'Exportar la canción…'))
-    expect(useDialog().dialog.value.open, 'sin guías no hay nada que preguntar').toBe(false)
-    await hecho
-    await flushPromises()
+    await abrir(w)
+    expect(extra('Las guías'), 'sin guías no hay nada que elegir').toBeUndefined()
+    expect(document.querySelector('.exp-none').textContent).toContain('Tal cual')
+    await guardar()
     expect(held.api.exportMix).toHaveBeenLastCalledWith(7, {
       tracks: [{ source: 'song', gain: 1, pan: 0 }],
       path: '/musica/Mi Gozo.mp3'
     })
+  })
+
+  it('con los canales: cada cosa por su lado, como suena', async () => {
+    const { resetRouting, useRouting } = await import('../src/composables/useRouting.js')
+    localStorage.removeItem('danplay.salidas')
+    resetRouting()
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: conGuias() })]
+    held.playback.emit({ playing: false })
+    const w = await montar()
+    // la canción a la derecha y las guías a la izquierda, como una secuencia
+    const r = useRouting()
+    await r.setRoute('song', '', 'R')
+    await r.setRoute('stem', 'guias_g1', 'L')
+    await flushPromises()
+    held.savePath = '/musica/Mi Gozo (secuencia).mp3'
+    await abrir(w)
+    extra('Los canales').click()
+    await flushPromises()
+    await guardar()
+    expect(held.api.exportMix).toHaveBeenLastCalledWith(7, {
+      tracks: [{ source: 'song', gain: 1, pan: 0, side: 'R', mono: true }],
+      path: '/musica/Mi Gozo (secuencia).mp3',
+      cues: [{ at: 12, file: '/guias/coro.wav', gain: 1.5, side: 'L' }]
+    })
+    localStorage.removeItem('danplay.salidas')
+    resetRouting()
   })
 })

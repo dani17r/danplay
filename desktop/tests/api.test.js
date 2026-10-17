@@ -320,6 +320,12 @@ describe('lo que cada metodo pide al nucleo', () => {
       { text: 'Coro', voice: 'v' }
     ],
     importCue: [[7, '/tmp/a.wav'], 'POST', '/api/song/7/cues/import', { path: '/tmp/a.wav' }],
+    autoCues: [
+      [7, { voice: 'st-F1', bars: [0, 2] }],
+      'POST',
+      '/api/song/7/cues/auto',
+      { voice: 'st-F1', bars: [0, 2] }
+    ],
     cueWave: [['/g/a.wav', 64], 'GET', '/api/cues/wave?file=%2Fg%2Fa.wav&buckets=64'],
     editCue: [
       [{ file: '/g/a.wav', start: 0.2, denoise: true }],
