@@ -514,15 +514,28 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
 - Rust: `set_beat_grid(path, grid)` se queda con esa rejilla para el
   metrónomo, como si la hubiera analizado `analyze_beats` (la revisa antes:
   pulsos en orden, tempo tocable, índices dentro).
-- `POST /api/song/{id}/stems/mix { tracks: [{ source, gain, pan }], path,
-  format?: mp3|flac|wav, speed?, pitch?, click? }` → la tarea `mezcla`, con
-  `result: { path, name, id, title }`. Solo las pistas que suenan; `path`
-  dentro de la biblioteca y sin ser una canción suya; `id` es la canción
-  nueva si entra en la biblioteca (fuera de una carpeta de pistas). `click:
-  { beats, accents, sound, volume }` suma el clic del metrónomo (los pulsos
-  en segundos de la canción y cuáles son el «1»; `sound`: `clasico | madera
-  | baqueta | cencerro`), después de la velocidad y el tono; el título dice
-  «con clic».
+- `POST /api/song/{id}/stems/mix { tracks: [{ source, gain, pan, side?,
+  mono? }], path, format?: mp3|flac|wav, speed?, pitch?, click?, cues? }` →
+  la tarea `mezcla`, con `result: { path, name, id, title }`. Solo las
+  pistas que suenan (`source: "song"`: la canción tal cual); `path` dentro
+  de la biblioteca y sin ser una canción suya; `id` es la canción nueva si
+  entra en la biblioteca (fuera de una carpeta de pistas). `click: { beats,
+  accents, sound, volume, side? }` suma el clic del metrónomo (los pulsos en
+  segundos de la canción y cuáles son el «1»; `sound`: `clasico | madera |
+  baqueta | cencerro`), después de la velocidad y el tono; el título dice
+  «con clic». `cues: [{ at, file, gain, side? }]`, las guías. `side`:
+  `both | L | R` (desde 1.30: cada cosa por su lado, como suena con «Salidas»;
+  `mono` junta los dos lados de una pista, como el motor).
+- Las guías: `GET /api/cues/voices`; `POST /api/song/{id}/cues { text,
+  voice, preview? }` → `{ file, seconds }` (409 si la voz se está bajando);
+  `POST /api/song/{id}/cues/import { path, limit? }`; `GET /api/cues/wave?
+  file=&buckets=` → `{ seconds, peaks }`; `POST /api/cues/edit { file,
+  start?, end?, fade_in?, fade_out?, denoise?, highpass?, normalize?,
+  preview? }` → una guía nueva. Desde 1.30, `POST /api/song/{id}/cues/auto
+  { voice, bars?, beat?, sections? }` → la tarea `guia-automatica`, con
+  `result: { sections: [{ start, end, label }], cues: [{ t, text, voice,
+  file, seconds }] }` (`danplay/estructura.py`); 409 si la voz no está
+  bajada (se empieza a bajar).
 - Rust: `set_stems(song, tracks | null)`, con `tracks: [{ path, gain, pan,
   on }]`: que suenen esas pistas en vez de la canción `song` (su ruta: si
   ya suena otra, no hace nada). Con las mismas pistas que ya suenan solo

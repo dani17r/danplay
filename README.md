@@ -385,10 +385,15 @@ proyecto de Ableton: la canción queda en tu biblioteca con todas sus pistas,
 las partes como marcadores, el clic exacto, y el «Click Track» y la «Guide»
 por la salida del clic.
 
-**Las salidas, como una secuencia en directo:** en «Salidas» eliges por dónde
-suena la música, cada pista, el clic y las guías habladas: el clic a la
-izquierda y la música a la derecha con un cable en Y, o cada cosa por una
-salida de tu interfaz, en estéreo o en mono. Se cambia sonando, sin cortar.
+**Como una secuencia en directo:** cada carril (la canción, cada pista, el
+clic y cada carril de guías) tiene sus botones **L** y **R**: el clic y las
+guías a la izquierda y la música a la derecha con un cable en Y, o cada cosa
+por una salida de tu interfaz, en estéreo o en mono. Se cambia sonando, sin
+cortar, y se exporta igual: un archivo que suena como una secuencia.
+
+**La guía automática:** DanPlay busca las partes de la canción (intro,
+estrofas, coros, puente, solos…) y te las anuncia con una voz justo antes de
+cada una, para estudiarla sin perderte. La voz se cambia cuando quieras.
 
 **Guías habladas, en sus carriles:** debajo de la onda, hasta seis carriles
 de guías (cada uno con su volumen y su salida: uno a los cascos del

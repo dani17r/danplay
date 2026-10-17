@@ -16,6 +16,21 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.30.0',
+    date: '2026-10-17',
+    summary: 'Como una secuencia: L y R en cada carril, la guía automática y exportar claro.',
+    items: [
+      'L y R en cada carril (canción, pistas, clic y guías), con Est o Mono.',
+      'El clic tiene su carril debajo de la onda, con su volumen y sus canales.',
+      'Guía automática: anuncia la intro, las estrofas, los coros, el puente y los solos.',
+      'Cambia la voz de las guías de un carril cuando quieras.',
+      'Exportar, en una ventana: la canción, la mezcla o para el celular, con los canales si quieres.',
+      'Con la onda bloqueada, «ir con un clic» para saltar igual.',
+      'Un recorrido con animaciones que enseña el modo estudio.',
+      'Menús cortos, con lo puesto marcado en color.'
+    ]
+  },
+  {
     version: '1.28.3',
     date: '2026-10-17',
     summary: 'El celular: el estudio a la vista, las guías para oírlas y toda tu música.',
