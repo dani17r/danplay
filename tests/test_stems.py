@@ -970,7 +970,9 @@ def test_the_mix_by_sides_sounds_like_a_live_sequence(lib, tmp_path, monkeypatch
         cid,
         [{"source": "bass", "side": "L"}],
         str(target),
-        click={"beats": [0.7], "accents": [True], "side": "L"},
+        # al principio: la mezcla dura lo que la canción de prueba (menos de un
+        # segundo, según el ffmpeg que la hizo)
+        click={"beats": [0.2], "accents": [True], "side": "L"},
         cues=[{"at": 0.3, "file": str(cues.folder() / "coro.wav"), "side": "R"}],
     )
     raw = subprocess.run(
@@ -983,7 +985,7 @@ def test_the_mix_by_sides_sounds_like_a_live_sequence(lib, tmp_path, monkeypatch
     rate = 44100
     # la izquierda: el bajo (un tono de 55 Hz) y el chasquido del clic
     assert np.abs(left[: int(0.25 * rate)]).max() > 0.05
-    assert np.abs(np.diff(left[int(0.69 * rate) : int(0.75 * rate)])).max() > 0.05
+    assert np.abs(np.diff(left[int(0.19 * rate) : int(0.25 * rate)])).max() > 0.05
     # la guía (2 kHz) no está por la izquierda...
     assert np.abs(np.diff(left[int(0.3 * rate) : int(0.4 * rate)])).max() < 0.02
     # ...y la derecha es solo la guía

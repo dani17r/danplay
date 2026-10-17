@@ -833,6 +833,24 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
     }
 
+    /// Como `pull_for`, pero sin adelantarse al que decodifica: antes de cada
+    /// trozo espera (un poco, con tope) a que haya algo decodificado. Aqui se
+    /// tira del motor unas siete veces mas deprisa de lo que suena, y en una
+    /// maquina cargada (la CI) el decodificador se quedaba atras a medias:
+    /// lo que sonaba llegaba tarde y parecia que el relevo movia los golpes.
+    fn pull_steady(e: &Engine, frames: usize) -> Vec<f32> {
+        let mut out = vec![0f32; frames * 2];
+        for chunk in out.chunks_mut(882) {
+            let limit = Instant::now() + Duration::from_millis(150);
+            while lock(&e.deck().render).blocks_ready() == 0 && Instant::now() < limit {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            e.pull(chunk);
+            std::thread::sleep(Duration::from_millis(3));
+        }
+        out
+    }
+
     /// Hasta que lo cargado tiene audio listo para sonar (con un tope): en
     /// pausa el render solo atiende sus avisos y no gasta nada. Con `settle`
     /// a secas, en una máquina cargada (la CI) a veces aún no había nada, y
@@ -1014,12 +1032,12 @@ mod tests {
         e.load_files("cancion", &parts[..1], 0.0).expect("carga");
         settle_on(&e);
         e.play();
-        let mut out = pull_for(&e, 13_230); // 0,3 s
+        let mut out = pull_steady(&e, 13_230); // 0,3 s
         e.handoff_files("cancion", &parts, 0.0, 0.05, None)
             .expect("relevo");
         // de las nuevas, solo la segunda (la MP3)
         e.set_mix(&[(0.0, 0.0), (1.0, 0.0)]);
-        out.extend(pull_for(&e, 66_150)); // hasta 1,8 s: los tres golpes
+        out.extend(pull_steady(&e, 66_150)); // hasta 1,8 s: los tres golpes
         let found = hits(&out);
         assert_eq!(found.len(), 3, "{found:?}");
         for (h, m) in found.iter().zip(MARKS) {
