@@ -75,8 +75,9 @@ const fn one() -> f32 {
 pub struct Clips(HashMap<String, Arc<[f32]>>);
 
 impl Clips {
-    /// Una guia, leida entera a la tasa del motor (como mucho dos minutos:
-    /// una guia, no una cancion). None si no se puede leer.
+    /// Una guia, leida entera a la tasa del motor (como mucho cinco minutos,
+    /// lo mas largo que el nucleo deja importar: una guia, no una cancion).
+    /// None si no se puede leer.
     pub fn get(&mut self, path: &str) -> Option<Arc<[f32]>> {
         if let Some(c) = self.0.get(path) {
             return Some(Arc::clone(c));
@@ -84,7 +85,7 @@ impl Clips {
         let mut part = Part::open_file(Path::new(path), RATE, 64 * 1024 * 1024).ok()?;
         let mut all = Vec::new();
         let mut buf = vec![0f32; 8_192];
-        while all.len() < 2 * 60 * 44_100 * 2 {
+        while all.len() < 5 * 60 * RATE as usize * 2 {
             let n = part.read(&mut buf);
             all.extend_from_slice(&buf[..n * 2]);
             if n < buf.len() / 2 {
