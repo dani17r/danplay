@@ -831,7 +831,7 @@ checksum = "914a755b7c2d4af2bdcff7ce1739e2db9a1b81a9b07123d8015786ae03c0980d"
 
 [[package]]
 name = "danplay-app"
-version = "1.28.1"
+version = "1.28.2"
 dependencies = [
  "danplay-motor",
  "http-body-util",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "danplay-motor"
-version = "1.28.1"
+version = "1.28.2"
 dependencies = [
  "cc",
  "cpal",
@@ -875,7 +875,7 @@ dependencies = [
 
 [[package]]
 name = "danplay-movil"
-version = "1.28.1"
+version = "1.28.2"
 dependencies = [
  "danplay-motor",
  "log",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "danplay_core"
-version = "1.28.1"
+version = "1.28.2"
 dependencies = [
  "md-5",
  "pyo3",
