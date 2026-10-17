@@ -154,6 +154,10 @@ const emit = defineEmits([
 const laneMode = computed(() => props.lanes.length > 0)
 /** Los carriles de las guías, debajo de la onda (en el escritorio). */
 const showGuides = computed(() => props.guides && !isMobileApp && props.cueLanes.length > 0)
+/** En el celular: los carriles de las guías que trajo, para oírlas a su gusto. */
+const mobileGuides = computed(
+  () => props.guides && isMobileApp && props.cueLanes.length > 0 && props.cues.length > 0
+)
 /** Cada carril con su cabecera a la izquierda (los de las pistas o los de las guías). */
 const headMode = computed(() => laneMode.value || showGuides.value)
 /** Hasta cuántos carriles de guías. */
@@ -1204,6 +1208,60 @@ const lockTitle = computed(() =>
         />
       </div>
     </div>
+    <!-- en el celular las guías vienen hechas de la PC: aquí solo se oyen,
+         se callan, se dejan solas o se les cambia el volumen, carril a carril
+         (como las pistas) -->
+    <div v-if="mobileGuides" class="tl-lanes tl-guide-mix" role="group" aria-label="Las guías">
+      <div class="tl-guide-mix-title">
+        <Icon n="waveform" :t="13" /> Guías
+        <span class="tl-guide-mix-note">vienen de la PC</span>
+      </div>
+      <div
+        v-for="lane in cueLanes"
+        :key="lane.key"
+        class="tl-lane"
+        :class="{ off: lane.mute }"
+        :data-lane="lane.key"
+      >
+        <span class="tl-lane-name">{{ lane.name || 'Guías' }}</span>
+        <button
+          type="button"
+          class="tl-lane-btn"
+          :class="{ on: lane.mute }"
+          :aria-pressed="!!lane.mute"
+          :aria-label="
+            (lane.mute ? 'Que vuelvan a sonar las guías de ' : 'Callar las guías de ') +
+            (lane.name || 'Guías')
+          "
+          @click="emit('cue-lane', lane.key, { mute: !lane.mute })"
+        >
+          M
+        </button>
+        <button
+          type="button"
+          class="tl-lane-btn solo"
+          :class="{ on: lane.solo }"
+          :aria-pressed="!!lane.solo"
+          :aria-label="(lane.solo ? 'Quitar el solo de ' : 'Dejar solo ') + (lane.name || 'Guías')"
+          @click="emit('cue-lane', lane.key, { solo: !lane.solo })"
+        >
+          S
+        </button>
+        <SliderField
+          class="tl-lane-gain"
+          :model-value="lane.gain ?? 1"
+          :min="0"
+          :max="2"
+          :step="0.05"
+          :mark="1"
+          width="100%"
+          :aria-label="'Volumen de ' + (lane.name || 'Guías')"
+          :value-text="pctText(lane.gain ?? 1)"
+          @update:model-value="(v) => emit('cue-lane', lane.key, { gain: v })"
+          @dblclick="emit('cue-lane', lane.key, { gain: 1 })"
+        />
+      </div>
+    </div>
     <!-- sin pistas separadas pero con carriles de guías: la onda lleva su
          cabecera, como cualquier pista de un editor -->
     <div v-if="!laneMode && showGuides" class="tl-song-head">
@@ -1359,11 +1417,15 @@ const lockTitle = computed(() =>
         type="button"
         class="tl-cue"
         :style="{ left: pct(c.t) }"
-        :title="'Guía: «' + (c.text || 'tu voz') + '» · ' + formatTime(c.t)"
+        :title="
+          (c.text ? 'Guía: «' + c.text + '»' : 'Guía grabada o importada') + ' · ' + formatTime(c.t)
+        "
         @pointerdown.stop
         @click.stop="emit('cue', c)"
       >
-        <Icon n="mic" :t="10" /><span class="tl-cue-text">{{ c.text || 'voz' }}</span>
+        <Icon :n="c.text ? 'speech' : 'mic'" :t="10" /><span class="tl-cue-text">{{
+          c.text || 'audio'
+        }}</span>
       </button>
 
       <!-- los pulsos, para ajustarlos a mano (con el ratón: el teclado no
