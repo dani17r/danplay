@@ -1,5 +1,7 @@
 """Las guias habladas del modo estudio: las voces (y bajarlas), decir una
-frase, traer una grabacion y escucharlas (ver danplay/cues.py)."""
+frase, traer una grabacion, escucharlas y la guia automatica (las partes de
+la cancion, dichas antes de cada una). Ver danplay/cues.py y
+danplay/estructura.py."""
 
 import base64
 import os
@@ -9,7 +11,9 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from ... import cues, external
-from ..models import CueEditIn, CueFileIn, CueImportIn, CueIn
+from .. import jobs
+from ..common import _started
+from ..models import CueAutoIn, CueEditIn, CueFileIn, CueImportIn, CueIn
 
 router = APIRouter()
 
@@ -38,21 +42,58 @@ def cue_voice_install(voice_id: str):
     return JSONResponse(state, status_code=200 if state.get("installed") else 202)
 
 
+def _voice_ready(voice: str) -> None:
+    """Si la voz aun no esta bajada, empieza a bajarla y contesta 409."""
+    if not cues.installed(voice):
+        try:
+            cues.install(voice)
+        except cues.CueError as e:
+            raise HTTPException(422, str(e)) from e
+        raise HTTPException(409, "esa voz se está bajando: en cuanto acabe se puede usar")
+
+
 @router.post("/api/song/{cid}/cues")
 def cue_make(cid: int, body: Annotated[CueIn, Body()]):
     """La guia escrita, dicha con esa voz: su archivo (y lo que dura). 409
     si la voz aun no esta bajada."""
     _song(cid)
-    if not cues.installed(body.voice):
-        try:
-            cues.install(body.voice)
-        except cues.CueError as e:
-            raise HTTPException(422, str(e)) from e
-        raise HTTPException(409, "esa voz se está bajando: en cuanto acabe se puede usar")
+    _voice_ready(body.voice)
     try:
         return cues.make(body.text, body.voice, preview=body.preview)
     except cues.CueError as e:
         raise HTTPException(422, str(e)) from e
+
+
+@router.post("/api/song/{cid}/cues/auto", status_code=202)
+def cue_auto(cid: int, body: Annotated[CueAutoIn, Body()]):
+    """La guia automatica (trabajo «guia-automatica»): las partes de la
+    cancion (o las de `sections`, tal cual) y una guia hablada con esa voz
+    justo antes de cada una. Su resultado: {sections: [{start, end, label}],
+    cues: [{t, text, voice, file, seconds}]}. 409 si la voz aun no esta
+    bajada."""
+    from ... import estructura
+
+    song = _song(cid)
+    _voice_ready(body.voice)
+    sections = [s.model_dump() for s in body.sections] if body.sections else None
+
+    def work(progress):
+        r = estructura.auto_guide(
+            song,
+            body.voice,
+            bars=body.bars,
+            beat=body.beat,
+            sections=sections,
+            progress=progress,
+        )
+        n = len(r["sections"])
+        progress(message=f"Guía lista: {n} parte{'s' if n != 1 else ''}")
+        return r
+
+    snap, already = jobs.start(
+        estructura.AUTO_JOB, work, failure="no se pudo hacer la guía automática"
+    )
+    return JSONResponse(_started(snap, already), status_code=202)
 
 
 @router.post("/api/song/{cid}/cues/import")

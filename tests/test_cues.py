@@ -303,10 +303,11 @@ def test_the_api_for_guides(configured_library, guides, monkeypatch):
                 {"t": 2, "file": made["file"], "lane": "../x"},
             ],
             "cueLanes": [
-                {"key": "g1", "name": "Banda"},
+                {"key": "g1", "name": "Banda", "auto": False},
                 {"key": "g2", "name": "Baterista", "gain": 1.4, "mute": True, "solo": False},
                 {"key": "g2", "name": "repetido"},
                 {"key": "Mal Nombre"},
+                {"key": "g3", "name": "Guía automática", "auto": True},
             ],
         },
     ).json()
@@ -315,9 +316,11 @@ def test_the_api_for_guides(configured_library, guides, monkeypatch):
         {"t": 1.0, "file": made["file"], "lane": "g2"},
         {"t": 2.0, "file": made["file"]},
     ]
+    # el de la guía automática lo dice (los demás, ni la clave)
     assert study["cueLanes"] == [
         {"key": "g1", "name": "Banda"},
         {"key": "g2", "name": "Baterista", "gain": 1.4, "mute": True},
+        {"key": "g3", "name": "Guía automática", "auto": True},
     ]
     seven = [{"key": f"g{i}"} for i in range(7)]
     assert cliente.put(f"/api/song/{c['id']}/study", json={"cueLanes": seven}).status_code == 422, (
