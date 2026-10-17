@@ -7,7 +7,9 @@ import { ref } from 'vue'
  * @typedef {Object} MenuItem
  * @property {string} [label]
  * @property {string} [icon]
- * @property {string} [note]
+ * @property {string} [note]   corta, a la derecha (si no cabe se recorta y sale en el aviso)
+ * @property {string} [hint]   lo que explica la opción, en el aviso al dejar el ratón
+ * @property {boolean} [active] la puesta ahora (en el color de la app, con su marca)
  * @property {boolean} [danger]
  * @property {boolean} [disabled]
  * @property {boolean} [separator]
