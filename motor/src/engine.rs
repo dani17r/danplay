@@ -833,6 +833,22 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
     }
 
+    /// Hasta que lo cargado tiene audio listo para sonar (con un tope): en
+    /// pausa el render solo atiende sus avisos y no gasta nada. Con `settle`
+    /// a secas, en una máquina cargada (la CI) a veces aún no había nada, y
+    /// lo que sonaba llegaba tarde.
+    fn settle_on(e: &Engine) {
+        let limit = Instant::now() + Duration::from_secs(5);
+        let mut idle = [0f32; 882];
+        while Instant::now() < limit {
+            e.pull(&mut idle);
+            if lock(&e.deck().render).blocks_ready() >= 2 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     fn wait_for(e: &Engine, ok: impl Fn(&State) -> bool) -> State {
         let limit = Instant::now() + Duration::from_secs(5);
         loop {
@@ -996,7 +1012,7 @@ mod tests {
         let (dir, parts) = files("relevo");
         let e = Engine::offline(44_100);
         e.load_files("cancion", &parts[..1], 0.0).expect("carga");
-        settle();
+        settle_on(&e);
         e.play();
         let mut out = pull_for(&e, 13_230); // 0,3 s
         e.handoff_files("cancion", &parts, 0.0, 0.05, None)
