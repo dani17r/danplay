@@ -155,6 +155,8 @@ fn main() {
             record::record_start,
             record::record_level,
             record::record_stop,
+            record::preview_clip,
+            record::preview_stop,
             queue::commands::set_pitch,
             queue::commands::set_metronome,
             queue::commands::set_stems,

@@ -413,6 +413,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     'inTauri',
     'onExternal',
     'onSequence',
+    'stopPreview',
     'runJob',
     'audioUrl',
     'coverUrl',

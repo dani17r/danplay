@@ -30,6 +30,8 @@ permissions = [
   "allow-record-start",
   "allow-record-level",
   "allow-record-stop",
+  "allow-preview-clip",
+  "allow-preview-stop",
   "allow-set-pitch",
   "allow-set-crossfade",
   "allow-set-metronome",
