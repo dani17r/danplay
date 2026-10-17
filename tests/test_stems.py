@@ -924,3 +924,77 @@ def test_the_mix_carries_the_guides_or_not_also_the_song_alone(lib, tmp_path, mo
     # a media velocidad, la de 0,3 s suena a los 0,6 s; antes, nada
     assert diff[int(0.60 * rate) : int(0.70 * rate)].max() > 0.2
     assert diff[: int(0.55 * rate)].max() < 0.02
+
+
+def test_each_track_goes_by_its_side_or_in_mono_like_the_engine():
+    """Como una secuencia en directo: cada pista por los dos lados (con su
+    balance, como siempre), en mono, o por un solo lado. Por un lado o en
+    mono, sus dos canales (ya con su balance, como en el reproductor) juntos
+    a la mitad, como el motor."""
+    from danplay import stems
+
+    assert stems.matrix(1.2, 0.5) == pytest.approx((0.6, 0.0, 0.0, 1.2))
+    assert stems.mix_filter([stems.matrix(1.2, 0.5)]) == stems.mix_filter([(0.6, 1.2)])
+    # todo a la izquierda y en mono: solo su canal izquierdo, a la mitad, a los dos
+    assert stems.matrix(0.8, -1.0, mono=True) == pytest.approx((0.4, 0.0, 0.4, 0.0))
+    # un poco a la derecha, y a la izquierda de la salida: su izquierdo baja
+    assert stems.matrix(1.0, 0.3, "L") == pytest.approx((0.35, 0.5, 0.0, 0.0))
+    assert stems.matrix(1.0, 0.0, "L") == (0.5, 0.5, 0.0, 0.0)
+    assert stems.matrix(1.0, 0.0, "R", mono=True) == (0.0, 0.0, 0.5, 0.5)
+    f = stems.mix_filter(
+        [stems.matrix(1.0, 0.0, "L"), stems.matrix(1.0, 0.0, "R"), stems.matrix(0.8, mono=True)]
+    )
+    stereo = "aformat=channel_layouts=stereo,pan=stereo"
+    assert f"[0:a]{stereo}|c0=0.5000*c0+0.5000*c1|c1=0.0000*c0+0.0000*c1[a0]" in f
+    assert f"[1:a]{stereo}|c0=0.0000*c0+0.0000*c1|c1=0.5000*c0+0.5000*c1[a1]" in f
+    assert f"[2:a]{stereo}|c0=0.4000*c0+0.4000*c1|c1=0.4000*c0+0.4000*c1[a2]" in f
+
+
+def test_the_mix_by_sides_sounds_like_a_live_sequence(lib, tmp_path, monkeypatch):
+    """El bajo y el clic por la izquierda, la guía por la derecha: la derecha
+    queda callada salvo la guía, y la guía no se oye por la izquierda."""
+    import subprocess
+
+    import numpy as np
+
+    from danplay import config, cues, stems
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
+    root, _ = lib
+    cid = _id("Barak - Mi Gozo.mp3")
+    _separate(cid)
+    t = np.arange(int(0.1 * 22050)) / 22050
+    cues.write_wav(cues.folder() / "coro.wav", (0.8 * np.sin(2 * np.pi * 2000 * t)), 22050)
+    target = root / "Barak - Mi Gozo (por lados).wav"
+    stems.export_mix(
+        cid,
+        [{"source": "bass", "side": "L"}],
+        str(target),
+        click={"beats": [0.7], "accents": [True], "side": "L"},
+        cues=[{"at": 0.3, "file": str(cues.folder() / "coro.wav"), "side": "R"}],
+    )
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(target), "-f", "f32le", "-ac", "2", "-"],
+        capture_output=True,
+        check=True,
+    ).stdout
+    x = np.frombuffer(raw, dtype=np.float32).reshape(-1, 2)
+    left, right = x[:, 0], x[:, 1]
+    rate = 44100
+    # la izquierda: el bajo (un tono de 55 Hz) y el chasquido del clic
+    assert np.abs(left[: int(0.25 * rate)]).max() > 0.05
+    assert np.abs(np.diff(left[int(0.69 * rate) : int(0.75 * rate)])).max() > 0.05
+    # la guía (2 kHz) no está por la izquierda...
+    assert np.abs(np.diff(left[int(0.3 * rate) : int(0.4 * rate)])).max() < 0.02
+    # ...y la derecha es solo la guía
+    assert np.abs(right[int(0.3 * rate) : int(0.4 * rate)]).max() > 0.2
+    assert np.abs(right[: int(0.29 * rate)]).max() < 1e-3
+    assert np.abs(right[int(0.45 * rate) :]).max() < 1e-3
+    # por la API: solo los dos lados o los dos
+    from fastapi.testclient import TestClient
+
+    from danplay import api
+
+    client = TestClient(api.app)
+    bad = {"tracks": [{"source": "bass", "side": "C"}], "path": str(root / "x.wav")}
+    assert client.post(f"/api/song/{cid}/stems/mix", json=bad).status_code == 422

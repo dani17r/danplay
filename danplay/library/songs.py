@@ -440,7 +440,7 @@ MAX_CUE_LANES = 6
 
 def _cue_lanes(raw) -> list[dict]:
     """Los carriles de las guias (hasta 6): su clave, su nombre y lo que no
-    esta como viene (volumen, callado, solo)."""
+    esta como viene (volumen, callado, solo, el de la guia automatica)."""
     out: list[dict] = []
     seen: set[str] = set()
     for lane in (raw if isinstance(raw, list) else [])[:MAX_CUE_LANES]:
@@ -459,6 +459,8 @@ def _cue_lanes(raw) -> list[dict]:
             item["mute"] = True
         if lane.get("solo"):
             item["solo"] = True
+        if lane.get("auto"):
+            item["auto"] = True
         out.append(item)
     return out
 

@@ -361,7 +361,8 @@ class StudyCue(BaseModel):
 
 class StudyCueLane(BaseModel):
     """Un carril de guias, como los de las pistas separadas: su nombre y como
-    suena (volumen, callado, solo). Cada uno puede ir por su salida."""
+    suena (volumen, callado, solo). Cada uno puede ir por su salida. `auto`:
+    el de la guia automatica (la app lo encuentra para hacerla otra vez)."""
 
     model_config = ConfigDict(extra="ignore")
     key: str = Field(min_length=1, max_length=12)
@@ -369,6 +370,7 @@ class StudyCueLane(BaseModel):
     gain: float | None = Field(default=None, ge=0, le=2)
     mute: bool | None = None
     solo: bool | None = None
+    auto: bool = False
 
 
 class StudyTrack(BaseModel):
@@ -440,29 +442,43 @@ class ChatConfirmIn(Body_):
         return self
 
 
+# Por donde sale algo en la mezcla guardada: por los dos lados, o por uno
+# solo (como una secuencia en directo: la cancion por un lado, el clic y las
+# guias por el otro).
+Side = Literal["both", "L", "R"]
+
+
 class StemMixTrack(Body_):
+    """Una pista en la mezcla: su volumen y su balance; por que lado sale y
+    si va en mono (sus dos canales juntos)."""
+
     source: str = Field(min_length=1, max_length=24)
     gain: float = Field(default=1.0, ge=0, le=2)
     pan: float = Field(default=0.0, ge=-1, le=1)
+    side: Side = "both"
+    mono: bool = False
 
 
 class StemClickIn(Body_):
     """El clic que va en la mezcla: los pulsos (segundos de la cancion), cuales
-    son el «1», como suena y lo fuerte."""
+    son el «1», como suena, lo fuerte y por que lado sale."""
 
     beats: list[float] = Field(default_factory=list, max_length=20000)
     accents: list[bool] = Field(default_factory=list, max_length=20000)
     sound: Literal["clasico", "madera", "baqueta", "cencerro"] = "clasico"
     volume: float = Field(default=0.8, ge=0, le=2)
+    side: Side = "both"
 
 
 class StemMixCue(Body_):
     """Una guia hablada en la mezcla: en que segundo de la cancion, su archivo
-    (de las guias de DanPlay) y su volumen (el de su carril incluido)."""
+    (de las guias de DanPlay), su volumen (el de su carril incluido) y por
+    que lado sale."""
 
     at: float = Field(ge=0)
     file: str = Field(min_length=1, max_length=1024)
     gain: float = Field(default=1.0, ge=0, le=9)
+    side: Side = "both"
 
 
 class StemMixIn(Body_):
@@ -476,6 +492,25 @@ class StemMixIn(Body_):
     pitch: float = Field(default=0.0, ge=-12, le=12)
     click: StemClickIn | None = None
     cues: list[StemMixCue] | None = Field(default=None, max_length=200)
+
+
+class CueSectionIn(BaseModel):
+    """Una parte de la cancion ya con nombre (un marcador): donde empieza."""
+
+    model_config = ConfigDict(extra="ignore")
+    start: float = Field(ge=0, le=36000)
+    label: str = Field(min_length=1, max_length=80)
+
+
+class CueAutoIn(Body_):
+    """La guia automatica: con que voz se dicen las partes, los compases que
+    enseña la app (segundos en que empieza cada uno), lo que dura un pulso
+    (para dejar uno de aire) y, si ya hay partes con nombre, esas tal cual."""
+
+    voice: str = Field(min_length=1, max_length=80)
+    bars: list[float] | None = Field(default=None, max_length=20000)
+    beat: float | None = Field(default=None, gt=0, le=5)
+    sections: list[CueSectionIn] | None = Field(default=None, max_length=200)
 
 
 class TermsIn(BaseModel):

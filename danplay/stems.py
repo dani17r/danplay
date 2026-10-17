@@ -53,7 +53,7 @@ import threading
 import time
 import urllib.request
 import wave
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -1203,8 +1203,51 @@ def gains(gain: float, pan: float) -> tuple[float, float]:
     return gain * min(1.0, 1.0 - pan), gain * min(1.0, 1.0 + pan)
 
 
+# Por donde sale cada cosa, como en una secuencia en directo (la cancion por
+# la derecha, el clic y las guias por la izquierda): por los dos lados, o por
+# uno solo.
+SIDES = ("both", "L", "R")
+
+
+def matrix(
+    gain: float, pan: float = 0.0, side: str = "both", mono: bool = False
+) -> tuple[float, float, float, float]:
+    """Lo que le llega a cada canal de la mezcla desde los dos de la pista:
+    (izquierdo desde izquierdo, izquierdo desde derecho, derecho desde
+    izquierdo, derecho desde derecho).
+
+    Primero su volumen y su balance (`gains`), como en el reproductor. Por
+    los dos lados y en estereo, tal cual. En mono, o por un solo lado, los
+    dos canales ya con su balance, juntos a la mitad (lo que suena igual a
+    los dos lados sale igual de fuerte): es lo que hace el motor al llevar
+    un bus a un solo canal, o a dos en mono."""
+    left, right = gains(max(0.0, gain), pan)
+    if side in ("L", "R") or mono:
+        to_left = 0.0 if side == "R" else 1.0
+        to_right = 0.0 if side == "L" else 1.0
+        return (
+            0.5 * left * to_left,
+            0.5 * right * to_left,
+            0.5 * left * to_right,
+            0.5 * right * to_right,
+        )
+    return left, 0.0, 0.0, right
+
+
+def _pan(coefs: Sequence[float]) -> str:
+    """Los coeficientes de una pista en el filtro `pan` de ffmpeg: (izq, der)
+    o los cuatro de `matrix`. Sin mezclar los lados, como siempre."""
+    if len(coefs) == 2:
+        ll, lr, rl, rr = coefs[0], 0.0, 0.0, coefs[1]
+    else:
+        ll, lr, rl, rr = coefs
+    if not lr and not rl:
+        return f"pan=stereo|c0={ll:.4f}*c0|c1={rr:.4f}*c1"
+    return f"pan=stereo|c0={ll:.4f}*c0+{lr:.4f}*c1|c1={rl:.4f}*c0+{rr:.4f}*c1"
+
+
 def mix_filter(
-    inputs: list[tuple[float, float]],
+    inputs: Sequence[Sequence[float]],
     speed=1.0,
     pitch=0.0,
     rubberband=True,
@@ -1216,15 +1259,17 @@ def mix_filter(
     limitador al final para que la suma no se recorte, y la velocidad y el
     tono si se pidieron.
 
+    Cada entrada: (izquierdo, derecho), o los cuatro de `matrix` (por un
+    solo lado, o en mono).
+
     Con `click` y `guides`, las entradas que van detras de las pistas son el
     clic y las guias habladas (en ese orden), ya a la velocidad de la mezcla:
     se suman despues de la velocidad y el tono, que si no las estirarian y
     les cambiarian el tono tambien (en el reproductor tampoco se estiran)."""
-    chains = []
-    for i, (left, right) in enumerate(inputs):
-        chains.append(
-            f"[{i}:a]aformat=channel_layouts=stereo,pan=stereo|c0={left:.4f}*c0|c1={right:.4f}*c1[a{i}]"
-        )
+    chains = [
+        f"[{i}:a]aformat=channel_layouts=stereo,{_pan(coefs)}[a{i}]"
+        for i, coefs in enumerate(inputs)
+    ]
     joined = "".join(f"[a{i}]" for i in range(len(inputs)))
     tail = f"{joined}amix=inputs={len(inputs)}:normalize=0:dropout_transition=0"
     extra = _speed_pitch(speed, pitch, rubberband)
@@ -1245,19 +1290,50 @@ def mix_filter(
 
 
 GUIDES_RATE = 44100
+# Lo que ffmpeg deja en cada canal al abrir en estereo un WAV mono (-3 dB):
+# lo que va por un solo lado va a ese nivel, para que suene igual de fuerte
+# que cuando va por los dos.
+SIDE_LEVEL = 0.5**0.5
+
+
+def _write_pcm(path: Path, x, rate: int) -> None:
+    """Muestras a un WAV de 16 bits: mono, o estereo si vienen en dos
+    columnas (izquierda, derecha)."""
+    import numpy as np
+
+    pcm = (np.clip(x, -1, 1) * 32767).astype("<i2")
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2 if pcm.ndim == 2 else 1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm.tobytes())
+
+
+def _on_side(mono, side: str):
+    """Un sonido mono por su lado de la mezcla: tal cual si va por los dos
+    (ffmpeg lo abre en estereo), o en dos canales con el otro callado."""
+    import numpy as np
+
+    if side not in ("L", "R"):
+        return mono
+    out = np.zeros((len(mono), 2), dtype=np.float32)
+    out[:, 0 if side == "L" else 1] = np.asarray(mono, dtype=np.float32) * SIDE_LEVEL
+    return out
 
 
 def _guides_file(cues, length: float, speed: float, folder: Path) -> Path | None:
     """Las guias habladas de la mezcla en un WAV aparte: cada una en su
     segundo (pasado al tiempo de la mezcla), con su volumen y sin estirar,
     como suenan en el estudio. Solo las de la carpeta de guias de DanPlay.
-    None si no queda ninguna que leer."""
+    Si alguna va por un solo lado (`side`), el WAV es estereo y cada una va
+    por el suyo. None si no queda ninguna que leer."""
     import numpy as np
 
     from . import cues as guides
 
     total = max(1, int(length / speed * GUIDES_RATE) + GUIDES_RATE)
-    out = np.zeros(total, dtype=np.float32)
+    sided = any((c.get("side") or "both") in ("L", "R") for c in cues or [])
+    out = np.zeros((total, 2) if sided else total, dtype=np.float32)
     used = 0
     for c in cues or []:
         own = guides.own_file(c.get("file"))
@@ -1281,26 +1357,26 @@ def _guides_file(cues, length: float, speed: float, folder: Path) -> Path | None
         if at >= total:
             continue
         piece = x[: total - at] * float(c.get("gain", 1.0))
-        out[at : at + len(piece)] += piece
+        side = c.get("side") or "both"
+        if not sided:
+            out[at : at + len(piece)] += piece
+        elif side in ("L", "R"):
+            out[at : at + len(piece), 0 if side == "L" else 1] += piece * SIDE_LEVEL
+        else:
+            out[at : at + len(piece)] += (piece * SIDE_LEVEL)[:, None]
         used += 1
     if not used:
         return None
     path = folder / ".guias.wav"
-    pcm = (np.clip(out, -1, 1) * 32767).astype("<i2")
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(GUIDES_RATE)
-        w.writeframes(pcm.tobytes())
+    _write_pcm(path, out, GUIDES_RATE)
     return path
 
 
 def _click_file(click: Mapping[str, Any], length: float, speed: float, folder: Path) -> Path:
     """El clic de la mezcla en un WAV aparte: los pulsos (en segundos de la
-    cancion) pasados al tiempo de la mezcla, con su sonido y su volumen."""
-    import numpy as np  # aqui: el nucleo no carga numpy hasta que hace falta
-
-    from . import click as clicks
+    cancion) pasados al tiempo de la mezcla, con su sonido y su volumen. Por
+    los dos lados, o por el suyo (`side`)."""
+    from . import click as clicks  # aqui: el nucleo no carga numpy hasta que hace falta
 
     beats = [float(t) / speed for t in click.get("beats") or []]
     accents = [bool(a) for a in click.get("accents") or []]
@@ -1314,13 +1390,17 @@ def _click_file(click: Mapping[str, Any], length: float, speed: float, folder: P
         float(click.get("volume", 0.8)),
     )
     path = folder / ".clic.wav"
-    pcm = (np.clip(mono, -1, 1) * 32767).astype("<i2")
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(clicks.RATE)
-        w.writeframes(pcm.tobytes())
+    _write_pcm(path, _on_side(mono, str(click.get("side") or "both")), clicks.RATE)
     return path
+
+
+def _track_matrix(t: Mapping[str, Any]) -> tuple[float, float, float, float]:
+    return matrix(
+        float(t.get("gain", 1.0)),
+        float(t.get("pan", 0.0)),
+        str(t.get("side") or "both"),
+        bool(t.get("mono")),
+    )
 
 
 def export_mix(
@@ -1336,17 +1416,22 @@ def export_mix(
 ) -> dict:
     """Guarda en `target` la mezcla de las pistas de la cancion.
 
-    `click`: {beats, accents, sound, volume}, el clic del metronomo que se
-    suma a la mezcla (los pulsos en segundos de la cancion, y cuales son el
-    «1»). Para ensayar con el movil como en el estudio.
+    `click`: {beats, accents, sound, volume, side}, el clic del metronomo
+    que se suma a la mezcla (los pulsos en segundos de la cancion, y cuales
+    son el «1»). Para ensayar con el movil como en el estudio.
 
-    `cues`: [{at, file, gain}], las guias habladas que van en la mezcla (las
-    de los carriles que suenan, con su volumen), o ninguna: con ellas o sin.
+    `cues`: [{at, file, gain, side}], las guias habladas que van en la mezcla
+    (las de los carriles que suenan, con su volumen), o ninguna: con ellas o
+    sin.
 
-    `tracks`: [{source, gain, pan}] las que suenan (las calladas no hacen
-    falta). Para practicar fuera de DanPlay: la cancion sin bateria para el
-    movil, o a menos velocidad. Con `source: "song"`, la cancion tal cual
-    (sin pistas separadas: para llevarla con su clic y sus guias).
+    `tracks`: [{source, gain, pan, side, mono}] las que suenan (las calladas
+    no hacen falta). Para practicar fuera de DanPlay: la cancion sin bateria
+    para el movil, o a menos velocidad. Con `source: "song"`, la cancion tal
+    cual (sin pistas separadas: para llevarla con su clic y sus guias).
+
+    `side` ("both", "L" o "R") y `mono`: por donde sale cada cosa, como en
+    una secuencia en directo (la cancion por la derecha, el clic y las guias
+    por la izquierda). Lo guardado suena como lo que se oye (ver `matrix`).
 
     Solo dentro de la biblioteca, y sin pisar ninguna cancion de ella: por
     aqui no se puede escribir en cualquier sitio del disco. Si cae fuera de
@@ -1362,8 +1447,7 @@ def export_mix(
     chosen = []
     if whole:
         # la cancion tal cual: su archivo, con el volumen y el panorama pedidos
-        t = tracks[0]
-        chosen.append((song["path"], gains(float(t.get("gain", 1.0)), float(t.get("pan", 0.0)))))
+        chosen.append((song["path"], _track_matrix(tracks[0])))
     else:
         if not data or not data["complete"]:
             raise SeparateError("esta canción no tiene sus pistas separadas completas")
@@ -1372,9 +1456,9 @@ def export_mix(
             track = by_source.get(t.get("source"))
             if track is None:
                 raise SeparateError(f"no hay una pista «{t.get('source')}»")
-            left, right = gains(float(t.get("gain", 1.0)), float(t.get("pan", 0.0)))
-            if left > 1e-4 or right > 1e-4:
-                chosen.append((track["path"], (left, right)))
+            coefs = _track_matrix(t)
+            if any(c > 1e-4 for c in coefs):
+                chosen.append((track["path"], coefs))
     if not chosen:
         raise SeparateError("todas las pistas están calladas: no hay nada que guardar")
     path = Path(os.path.abspath(os.path.expanduser(target)))
