@@ -15,8 +15,9 @@ use std::time::Duration;
 
 /// El turno de la que suena: una nueva (o `stop`) lo cambia y la de antes calla.
 static TURN: AtomicU64 = AtomicU64::new(0);
-/// Lo más largo que se escucha (una guía, no una canción).
-const MAX_SECONDS: u32 = 120;
+/// Lo más largo que se escucha (una guía, no una canción: lo que el núcleo
+/// deja importar).
+const MAX_SECONDS: u32 = 300;
 
 /// Suena `path` una vez. Devuelve cuánto dura (segundos). Si no se puede
 /// leer o no hay salida, el motivo.
