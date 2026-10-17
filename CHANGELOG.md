@@ -3,6 +3,52 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.28.2 — 2026-10-16
+
+El modo estudio del escritorio, más a mano: los mandos encima de la onda,
+iconos con su aviso en vez de textos largos, y las guías con su onda, un
+editor, importar audios y el imán a los pulsos.
+
+### Arreglos
+
+- **Escuchar una guía daba un error** en Linux (y no sonaba): la escuchaba
+  el WebView, que depende de los complementos de GStreamer. Ahora la escucha
+  el motor de audio, por la salida del sistema.
+
+### Estudio
+
+- **Los mandos de la canción encima de la onda:** al principio, 5 s atrás,
+  sonar o pausar, detener, 5 s adelante y dónde va, sin bajar al reproductor.
+- **Menos texto y más iconos:** la cabecera y la barra de la onda son
+  iconos; al dejar el ratón encima un momento sale un aviso con lo que hace
+  cada uno. Lo que se hace con el ratón sobre la onda va en su botón de
+  ayuda.
+- **Más sitio para la onda:** sin pistas separadas, la columna de la
+  izquierda se estrecha y la onda se llama «Canción».
+- Movimiento y transiciones: los iconos que cambian, las guías que
+  aparecen, la tarjeta de la guía y la lista.
+
+### Guías
+
+- **Se llaman «Guías»**: en ellas va cualquier cosa que ayude a tocar la
+  canción, no solo frases habladas.
+- **Importar un audio corto** del equipo (WAV, MP3, FLAC, OGG, M4A…), que no
+  dure más que la canción, como mucho cinco minutos: en el «⋯» de cada carril
+  o con el clic derecho sobre él, y en la tarjeta de la guía.
+- **Un editor para lo grabado o importado:** su onda, recortar los bordes
+  arrastrándolos, fundido de entrada y de salida, quitar el ruido de fondo,
+  quitar los graves y golpes del micrófono e igualar el volumen. Se escucha
+  con los cambios antes de guardar, y se guarda como una guía nueva (la de
+  antes no se toca).
+- **Cada guía con su onda** en su carril, y lo que dura de verdad.
+- **El imán:** con él puesto, las guías se pegan a los pulsos del clic al
+  ponerlas o moverlas (y antes y después van de pulso en pulso). Usa los
+  pulsos de la canción, así que sigue sus cambios de tempo.
+- **Clic derecho en una guía:** escucharla, editarla, ir a ella, pasarla a
+  otro carril o quitarla.
+- **En la lista**, en orden: pulsar una lleva a ella en su carril, que
+  destella.
+
 ## 1.28.1 — 2026-10-16
 
 Arreglos de la 1.28 en Linux, las guías en sus carriles, exportar con o sin

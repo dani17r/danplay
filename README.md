@@ -396,6 +396,12 @@ baterista, otro a la banda). En cada uno pones guías escritas, que dice una
 voz, o grabadas con tu micrófono, con la canción parada. Luego exportas la
 canción o sus pistas, con las guías o sin ellas.
 
+**Un editor para tus guías:** importa un audio corto del equipo o graba tu
+voz, y arréglalo ahí mismo: recorta los bordes, ponle fundidos, quita el
+ruido de fondo y los graves, iguala el volumen. Cada guía se ve con su onda,
+y con el imán se pegan a los pulsos del clic (también si la canción cambia
+de tempo).
+
 **La onda a tu gusto:** seis estilos (barras, bloques, rayitas, suave,
 contorno, con reflejo), y la rueda como en un editor de música: Ctrl + rueda
 acerca, Mayús + rueda recorre la canción.
