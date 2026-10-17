@@ -279,3 +279,38 @@ export function gridToOwn(grid) {
   for (let i = 0; i < beats.length; i++) if (isDownbeat(grid, i)) bars.push(i)
   return { beats, bars, meter: grid?.meter ?? 4 }
 }
+
+/**
+ * El pulso más cercano a `t` (los pulsos, en orden): para pegar algo al
+ * clic, también si la canción cambia de tempo. Sin pulsos, `t` tal cual.
+ * @param {number[]} beats @param {number} t
+ */
+export function nearestBeat(beats, t) {
+  if (!beats?.length) return t
+  let lo = 0
+  let hi = beats.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (beats[mid] < t) lo = mid + 1
+    else hi = mid
+  }
+  return lo > 0 && Math.abs(beats[lo - 1] - t) <= Math.abs(beats[lo] - t)
+    ? beats[lo - 1]
+    : beats[lo]
+}
+
+/**
+ * El pulso de antes (`dir` -1) o el de después (1) de `t`, sin contar uno
+ * que caiga justo en `t`. Sin pulsos por ese lado, null.
+ * @param {number[]} beats @param {number} t @param {-1|1} dir
+ */
+export function stepBeat(beats, t, dir) {
+  if (!beats?.length) return null
+  const eps = 0.005
+  if (dir < 0) {
+    for (let i = beats.length - 1; i >= 0; i--) if (beats[i] < t - eps) return beats[i]
+    return null
+  }
+  for (const b of beats) if (b > t + eps) return b
+  return null
+}

@@ -314,6 +314,13 @@ describe('lo que cada metodo pide al nucleo', () => {
       { text: 'Coro', voice: 'v' }
     ],
     importCue: [[7, '/tmp/a.wav'], 'POST', '/api/song/7/cues/import', { path: '/tmp/a.wav' }],
+    cueWave: [['/g/a.wav', 64], 'GET', '/api/cues/wave?file=%2Fg%2Fa.wav&buckets=64'],
+    editCue: [
+      [{ file: '/g/a.wav', start: 0.2, denoise: true }],
+      'POST',
+      '/api/cues/edit',
+      { file: '/g/a.wav', start: 0.2, denoise: true }
+    ],
     previewCue: [['/g/a.wav'], 'POST', '/api/cues/audio', { file: '/g/a.wav' }],
     separation: [[], 'GET', '/api/separate'],
     separate: [[7], 'POST', '/api/song/7/separate'],

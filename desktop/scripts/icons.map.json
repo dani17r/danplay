@@ -354,5 +354,53 @@
   "checkCircle": {
     "style": "o",
     "file": "check-circle.svg"
+  },
+  "cut": {
+    "style": "o",
+    "file": "scissors.svg"
+  },
+  "import": {
+    "style": "o",
+    "file": "arrow-up-tray.svg"
+  },
+  "adjust": {
+    "style": "o",
+    "file": "adjustments-horizontal.svg"
+  },
+  "filter": {
+    "style": "o",
+    "file": "funnel.svg"
+  },
+  "link": {
+    "style": "o",
+    "file": "link.svg"
+  },
+  "magnet": {
+    "style": "o",
+    "d": "<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M5 4h4v7a3 3 0 0 0 6 0V4h4v7a7 7 0 0 1-14 0V4Zm0 4h4m6 0h4\"/>"
+  },
+  "waveform": {
+    "style": "o",
+    "d": "<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M4 10v4m4-7v10m4-13v16m4-12v8m4-5v2\"/>"
+  },
+  "help": {
+    "style": "o",
+    "file": "question-mark-circle.svg"
+  },
+  "fadeIn": {
+    "style": "o",
+    "d": "<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M3 19 13 6h8M3 19h18\"/>"
+  },
+  "fadeOut": {
+    "style": "o",
+    "d": "<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M3 6h8l10 13M3 19h18\"/>"
+  },
+  "crosshair": {
+    "style": "o",
+    "d": "<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M12 3v4m0 10v4M3 12h4m10 0h4\"/><circle cx=\"12\" cy=\"12\" r=\"5\" />"
+  },
+  "speech": {
+    "style": "o",
+    "file": "chat-bubble-bottom-center-text.svg"
   }
 }
