@@ -802,6 +802,14 @@ function answers(state) {
       const peaks = Array.from({ length: n }, (_, i) => (i < n / 2 ? 0.1 : 1))
       return { peaks, rms: peaks.map((p) => p * 0.6), buckets: n }
     },
+    // las guías: su onda (lo que dure de verdad), traer un audio y escucharla
+    cueWave: async (file) => ({
+      seconds: file.includes('larga') ? 8 : 2,
+      peaks: [0.3, 1, 0.6, 0.2]
+    }),
+    importCue: async () => ({ file: '/guias/importada.wav', seconds: 3 }),
+    previewCue: async () => 1,
+    stopPreview: async () => {},
     setStudy: async (id, study) => {
       const s = find(id)
       const raw = study && Object.keys(study).length ? JSON.stringify(study) : ''

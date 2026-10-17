@@ -524,6 +524,28 @@ export async function pickImage(title = 'Elige una imagen para la carátula') {
 }
 
 /**
+ * Abre el selector de audios del sistema (para importar una guía). Devuelve
+ * la ruta o null.
+ * @param {string} [title]
+ * @returns {Promise<string|null>}
+ */
+export async function pickAudio(title = 'Elige un audio para la guía') {
+  if (!inTauri) return null
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const r = await open({
+    multiple: false,
+    title,
+    filters: [
+      {
+        name: 'Audio',
+        extensions: ['wav', 'mp3', 'flac', 'ogg', 'opus', 'm4a', 'aac', 'webm']
+      }
+    ]
+  })
+  return typeof r === 'string' ? r : Array.isArray(r) ? r[0] : null
+}
+
+/**
  * Abre el diálogo del sistema para elegir dónde guardar un archivo. Devuelve
  * la ruta o null (cancelado, o fuera de la app).
  * @param {{ title?: string, defaultPath?: string, filters?: Array<{name: string, extensions: string[]}> }} [options]
@@ -1181,11 +1203,29 @@ export const api = {
    */
   makeCue: (id, body) => POST(`/song/${id}/cues`, body),
   /**
-   * Una guía grabada con el micrófono (el archivo que dejó la app), a su
-   * sitio. @param {number} id @param {string} path
+   * Una guía grabada con el micrófono (el archivo que dejó la app) o un
+   * audio del equipo, a su sitio. Con `limit` (lo que dura la canción),
+   * puede durar hasta eso; sin él, un minuto.
+   * @param {number} id @param {string} path @param {number} [limit]
    * @returns {Promise<{file: string, seconds: number}>}
    */
-  importCue: (id, path) => POST(`/song/${id}/cues/import`, { path }),
+  importCue: (id, path, limit) =>
+    POST(`/song/${id}/cues/import`, limit ? { path, limit } : { path }),
+  /**
+   * La onda de una guía (para verla en su bloque y en el editor).
+   * @param {string} file @param {number} [buckets]
+   * @returns {Promise<{seconds: number, peaks: number[]}>}
+   */
+  cueWave: (file, buckets = 96) =>
+    GET('/cues/wave?' + new URLSearchParams({ file, buckets: String(buckets) })),
+  /**
+   * Una guía nueva a partir de otra, recortada y limpia (la de antes no se
+   * toca). Con `preview`, una de prueba para escucharla antes de guardarla.
+   * @param {{file: string, start?: number, end?: number, fade_in?: number, fade_out?: number,
+   *   denoise?: boolean, highpass?: boolean, normalize?: boolean, preview?: boolean}} body
+   * @returns {Promise<{file: string, seconds: number}>}
+   */
+  editCue: (body) => POST('/cues/edit', body),
   /** Escuchar una guía (su archivo). @param {string} file */
   previewCue: async (file) => {
     // en la app la escucha el motor (el WebView no siempre puede: en Linux
