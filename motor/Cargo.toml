@@ -29,7 +29,7 @@ symphonia = { version = "0.6", optional = true, default-features = false, featur
     "ogg", "vorbis", "mp3", "flac", "wav", "aiff", "pcm", "isomp4", "aac", "alac", "id3v2" ] }
 cpal = { version = "0.17", optional = true }
 rtrb = { version = "0.4", optional = true }
-zip = { version = "8", optional = true, default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9", optional = true, default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [build-dependencies]
 cc = { version = "1", optional = true }
@@ -38,4 +38,4 @@ cc = { version = "1", optional = true }
 workspace = true
 
 [dev-dependencies]
-zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
