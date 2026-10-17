@@ -3,6 +3,58 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## 1.30.0 — 2026-10-17
+
+El modo estudio como una secuencia: cada cosa por su lado desde su carril,
+la guía automática que anuncia las partes de la canción, exportar en una
+ventana clara y un recorrido que lo enseña todo con animaciones.
+
+### Canales, en cada carril
+
+- **L y R en cada carril** (la canción, cada pista, el clic y cada carril de
+  guías): la canción por la derecha y las guías por la izquierda, o cualquier
+  instrumento a un lado. Con una interfaz de más salidas, un botón por
+  salida (1, 2, 3…). **Est / Mono** al lado: por un solo canal va en mono;
+  por dos, se elige.
+- **El clic tiene su carril** debajo de la onda, con sus golpes, callarlo,
+  su volumen y sus canales.
+- «Salidas» queda para la salida de audio y los repartos de siempre; cada
+  cosa por su sitio se elige en su carril (en el celular, en «Salidas»).
+- **«Mezcla» y «Canales»** en la barra de la onda ocultan esos mandos de los
+  carriles: más sitio para ver la canción y las guías.
+
+### Guías
+
+- **Guía automática** (✨, junto a «Guía»): DanPlay busca las partes de la
+  canción (intro, estrofas, coros, pre coro, puente, solos de guitarra,
+  piano o batería, final) y las dice justo antes de cada una, en su carril
+  «Partes». Con las pistas separadas sabe dónde canta la voz y quién hace un
+  solo. Si ya tienes una voz elegida, la hace sin preguntar; otra vez, la
+  rehace.
+- **Cambiar la voz** de las guías de un carril (en su «⋯»): se vuelven a
+  decir con la voz nueva.
+
+### Exportar
+
+- **Un solo «Exportar…»** que abre una ventana: la canción, la mezcla de las
+  pistas o para el celular, y con qué (las guías, el clic, la velocidad y el
+  tono, los canales), cada cosa explicada. Lo marcado se recuerda.
+- **Con los canales:** el archivo suena como lo oyes, cada cosa por su lado
+  (L o R) y en estéreo o en mono, para usarlo como una secuencia.
+
+### Estudio
+
+- **Con la onda bloqueada, «ir con un clic»** (junto al candado): un clic en
+  la onda lleva la canción ahí, también sonando, sin quitar el tramo.
+- **Un recorrido** por el modo estudio, con animaciones que se mueven solas
+  (arrastrar un tramo, poner una guía, mandar cada cosa a su lado): sale la
+  primera vez y con «?».
+- **Los menús, cortos:** el nombre de cada opción se ve entero, lo largo va
+  en un aviso y la opción puesta (el estilo de la onda, «al acabar») va
+  marcada en color, en vez de decir «puesto».
+- Velocidad y tono, en una columna más estrecha: más sitio para el clic, los
+  marcadores y las notas.
+
 ## 1.28.3 — 2026-10-17
 
 El celular: su modo estudio a la vista, las guías solo para oírlas, las

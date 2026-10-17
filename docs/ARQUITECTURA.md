@@ -1611,6 +1611,58 @@ globo propio al dejar el ratón 450 ms o al llegar con el teclado; mientras
 se ve, el `title` se guarda en `data-tip` para que no salga a la vez el del
 sistema, y vuelve al irse.
 
+### Desde 1.30: cada cosa por su lado, la guía automática
+
+**Los canales, en cada carril.** Cada carril de la onda (la canción, cada
+pista, el clic y cada carril de guías) lleva sus botones de canal
+(`ChannelPicker.vue`): L y R, o 1, 2, 3… con una interfaz de más salidas
+(los canales de la salida elegida, de `output_devices`). Uno encendido: en
+mono por él; dos: el primero a la izquierda y el segundo a la derecha
+(`destOfChannels`, que da los destinos de siempre —`main`, `L`, `p3`, `m3`—
+o `x2-3`, dos cualesquiera); un tercero apaga el más antiguo. «Est / Mono»
+es el `mono` de siempre. Tocar uno desde un reparto de fábrica lo pasa a «a
+medida» con cada cosa donde estaba (`asCustom`), para que no salte todo a
+los dos lados. «Salidas» queda para la salida de audio y los repartos; en
+el celular, que no tiene cabeceras de carril, sigue con cada cosa en su
+tarjeta. El clic tiene su carril (sus golpes, callarlo, su volumen y sus
+canales). «Mezcla» y «Canales» en la barra ocultan esos mandos y la columna
+de las cabeceras se estrecha (`--tl-heads`).
+
+**Exportar con los canales** pasa cada cosa por su lado (`sideOf`: los dos,
+L o R; de una interfaz, las impares a la izquierda y las pares a la
+derecha) al núcleo, que monta la matriz de cada pista como el motor:
+primero su balance y, por un lado o en mono, sus dos canales juntos a la
+mitad (`stems.matrix`). Las guías y el clic van en su lado del WAV aparte.
+
+**La guía automática** (`danplay/estructura.py`, tarea `guia-automatica`)
+encuentra las partes de la canción con numpy y ffmpeg, sin modelos: por
+compás (los «1» que manda la interfaz; sin ellos, ventanas de 2 s), un
+cromagrama y un timbre (bandas log y una DCT), su autosemejanza, la
+novedad con un núcleo de tablero de ajedrez y los picos (mejor si caen cada
+4 compases). Con las pistas separadas sabe dónde canta la voz (y sus
+cambios son fronteras fuertes) y quién lleva un solo. Los trozos se agrupan
+por parecido y se nombran: lo de antes y después de la voz, «Intro» y
+«Final»; lo que más se repite y suena más fuerte, «Coro»; otra cosa que se
+repite, «Estrofa»; un trozo corto justo antes del coro, «Pre coro»; algo
+cantado una sola vez tras un coro, «Puente»; sin voz y con un instrumento
+mandando, «Solo de guitarra» (o el que sea), si no «Instrumental». Cada
+parte se dice con la voz elegida justo antes de que empiece (lo que dura la
+frase y un pulso antes, sin pisar la anterior) y va al carril «Partes»
+(`auto: true`), que se rehace entero. Es aproximado: con las pistas
+separadas y el clic de la canción acierta mucho más.
+
+**Los menús, cortos.** El nombre de una opción se ve siempre entero; lo que
+no cabe es su nota, y lo largo va en `hint` (el aviso al dejar el ratón).
+La opción puesta va con `active` (en el color de la app y su marca), no con
+una nota. Lo que tiene muchas formas (exportar) va en una ventana
+(`WideDialog.vue`), con sitio para explicar cada una.
+
+**El recorrido** (`useStudyTour.js`, driver.js 1.8): cada cosa resaltada
+con una frase y, donde ayuda, una animación de CSS que se mueve sola
+(`tour.css`). Sale la primera vez que se abre el estudio en el escritorio
+(si tiene medidas: en las pruebas no) y con «?». Los pasos sin sitio a la
+vista se saltan.
+
 ## La app del celular
 
 Pedido el 14 de octubre: el reproductor en el teléfono, **sin** convertir,
