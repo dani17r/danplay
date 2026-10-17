@@ -1582,6 +1582,35 @@ con las guías o sin ellas: el núcleo monta las que suenan en un WAV aparte
 (cada una en su segundo, al tiempo de la mezcla y sin estirar) y lo suma,
 como el clic, después de la velocidad y el tono (`stems.export_mix`).
 
+**El editor de guías** (1.28.2). Lo grabado o importado se recorta y se
+limpia en el núcleo (`cues.edit_clip`): de `start` a `end`, por ffmpeg con
+`highpass=f=100` (los graves y golpes del micrófono) y `afftdn=nf=-25` (el
+ruido de fondo), con fundidos lineales y el pico a -1 dBFS si se pide.
+Siempre en un archivo nuevo (`editada-<hash>.wav`, el mismo para los mismos
+cambios), y con `preview` en la carpeta de pruebas, que se barre sola. La
+interfaz pinta la onda con `cues.wave_of` (el pico de cada trozo y lo que
+dura), también en los bloques de los carriles. Un audio del equipo se importa
+si no dura más que la canción (la ruta la recorta a lo que dice la base,
+aunque la app pida más), como mucho cinco minutos: lo que el motor lee entero
+de una guía (`Clips`, `preview`).
+
+**El imán** pega las guías a los pulsos que se ven en la onda (la rejilla
+con el doble o la mitad y el «1» corrido; con el tempo a mano, uno cada
+tanto): `nearestBeat`, el más cercano, al ponerlas y al arrastrarlas, y
+`stepBeat` para antes y después en la tarjeta. Como son los pulsos
+detectados de la canción y no una cuadrícula fija, siguen sus cambios de
+tempo.
+
+**Escuchar una guía** lo hace el motor (`motor/src/preview.rs`, por la
+salida del sistema, en su hilo): el `<audio>` del WebView depende en Linux
+de los complementos de GStreamer y fallaba.
+
+**Los avisos de los iconos** (`useTooltips.js`, directiva `v-tips` en el
+contenedor del estudio): por delegación, cualquier cosa con `title` saca un
+globo propio al dejar el ratón 450 ms o al llegar con el teclado; mientras
+se ve, el `title` se guarda en `data-tip` para que no salga a la vez el del
+sistema, y vuelve al irse.
+
 ## La app del celular
 
 Pedido el 14 de octubre: el reproductor en el teléfono, **sin** convertir,

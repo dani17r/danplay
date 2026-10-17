@@ -16,6 +16,21 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.28.2',
+    date: '2026-10-16',
+    summary: 'El modo estudio, más a mano: mandos sobre la onda, iconos y un editor de guías.',
+    items: [
+      'Escuchar una guía ya funciona en Linux (antes daba un error).',
+      'Sonar, pausar, detener y saltar 5 s, encima de la onda.',
+      'Iconos con su aviso al dejar el ratón encima, en vez de textos largos.',
+      'Importa un audio corto como guía, hasta lo que dura la canción.',
+      'Recorta lo grabado, ponle fundidos, quita el ruido y los graves, iguala el volumen.',
+      'Cada guía se ve con su onda y lo que dura.',
+      'El imán: las guías se pegan a los pulsos del clic, aunque cambie el tempo.',
+      'Pulsa una guía de la lista y te lleva a ella en su carril.'
+    ]
+  },
+  {
     version: '1.28.1',
     date: '2026-10-16',
     summary: 'Las guías en sus carriles, exportar con o sin guías y la onda a tu gusto.',
