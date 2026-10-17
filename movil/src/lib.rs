@@ -192,6 +192,23 @@ fn set_cues(
     });
 }
 
+/// Escuchar una guía sola (la de la lista del estudio): el motor la lee y la
+/// suena por la salida del sistema. Devuelve lo que dura.
+#[tauri::command]
+async fn preview_clip(path: String) -> Result<f64, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        danplay_motor::preview::play(std::path::Path::new(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Calla la guía que se esté escuchando.
+#[tauri::command]
+fn preview_stop() {
+    danplay_motor::preview::stop();
+}
+
 /// El pulso de la pista con el analisis de la PC, cuando no lo trajo
 /// calculado (Beat This! solo corre en la PC).
 #[tauri::command]
@@ -401,6 +418,8 @@ pub fn run() {
             set_output,
             output_devices,
             set_cues,
+            preview_clip,
+            preview_stop,
             analyze_beats,
             set_beat_grid,
             playback_state,
