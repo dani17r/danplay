@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 # ya compila el modulo como extension por su cuenta. Repetido aqui iba
 # tambien a `cargo test`; ahora las pruebas enlazan con libpython, o se
 # lanzan con PYO3_BUILD_EXTENSION_MODULE=1 como hace maturin.
-pyo3 = "0.29"
+pyo3 = "0.30"
 rayon = "1.10"
 md-5 = "0.11"
 symphonia = { version = "0.6", features = ["mp3", "wav", "flac", "isomp4", "aac", "ogg", "vorbis"] }
