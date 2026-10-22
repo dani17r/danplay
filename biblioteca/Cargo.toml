@@ -14,7 +14,13 @@ fancy-regex = "0.19.2"
 # que sustituye a mutagen, que es GPL.
 lofty = "0.25"
 regex = "1.13.1"
+# El índice (SQLite, con FTS5): la copia de SQLite va dentro, la misma en
+# todos los sistemas.
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+# Las filas y los diccionarios que van y vienen (en el orden de sus columnas)
+serde_json = { version = "1", features = ["preserve_order"] }
+# `str.isidentifier()` de Python (py.rs)
+unicode-ident = "1"
 unicode-normalization = "0.1.26"
 unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
 

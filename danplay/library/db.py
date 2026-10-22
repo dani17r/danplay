@@ -9,11 +9,9 @@ una transaccion `BEGIN IMMEDIATE` (si dos procesos abren la base a la vez, el
 segundo espera y ya la encuentra migrada).
 """
 
-import json
 import logging
 import os
 import threading
-import time
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
@@ -501,12 +499,7 @@ def _next_song_id(conn) -> int:
     Todo INSERT en `songs` pasa por aqui (o reutiliza a proposito el id de
     una cancion que vuelve, ver `_add`).
     """
-    top = conn.execute(
-        "SELECT MAX(COALESCE((SELECT value FROM meta WHERE key='song_id_hwm'), 0),"
-        "           COALESCE((SELECT MAX(id) FROM songs), 0),"
-        "           COALESCE((SELECT MAX(id) FROM songs_missing), 0))"
-    ).fetchone()[0]
-    return int(top) + 1
+    return _rust.db_next_song_id(conn)
 
 
 def _private_database(path: Path) -> None:
@@ -582,17 +575,12 @@ _UPDATE_SQL = f"UPDATE songs SET {','.join(f'{c}=?' for c in COLUMNS)} WHERE id=
 
 
 def _song_columns(conn) -> list[str]:
-    return [r[1] for r in conn.execute("PRAGMA table_info(songs)")]
+    return _rust.db_song_columns(conn)
 
 
 def _insert_row(conn, data: dict, columns=None) -> None:
     """Mete una fila completa (id incluido) con las columnas que existan hoy."""
-    columns = columns or _song_columns(conn)
-    keys = [c for c in columns if c in data]
-    conn.execute(
-        f"INSERT INTO songs ({','.join(keys)}) VALUES ({','.join('?' * len(keys))})",  # noqa: S608
-        [data[k] for k in keys],
-    )
+    _rust.db_insert_row(conn, data, columns)
 
 
 def _to_missing(conn, paths) -> int:
@@ -600,42 +588,7 @@ def _to_missing(conn, paths) -> int:
     `songs_missing` con su id. Sus filas en las listas se quedan: las listas
     solo enseñan lo que esta en `songs`, y si la cancion vuelve reaparece en
     su sitio. No hace commit."""
-    paths = list(paths)
-    moved, now = 0, time.time()
-    for i in range(0, len(paths), SCAN_BATCH):
-        chunk = paths[i : i + SCAN_BATCH]
-        marks = ",".join("?" * len(chunk))
-        rows = conn.execute(f"SELECT * FROM songs WHERE path IN ({marks})", chunk).fetchall()  # noqa: S608
-        conn.executemany(
-            "INSERT OR REPLACE INTO songs_missing (id, path, root, file, size, mtime, gone_at, data) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            [
-                (
-                    r["id"],
-                    r["path"],
-                    r["root"],
-                    r["file"],
-                    r["size"],
-                    r["mtime"],
-                    now,
-                    json.dumps(dict(r), ensure_ascii=False),
-                )
-                for r in rows
-            ],
-        )
-        conn.execute(f"DELETE FROM songs WHERE path IN ({marks})", chunk)  # noqa: S608
-        moved += len(rows)
-    return moved
-
-
-# `/api/status` pide las cifras continuamente y calcularlas es un agregado
-# sobre toda la tabla que ademas evalua `lyrics != ''`, la columna mas pesada.
-# Se recuerdan unos segundos, y cualquier escritura en `songs` las olvida al
-# instante con `_touch()`, asi que nunca se enseña un total viejo despues de
-# indexar o borrar algo.
-_STATS_TTL = 5.0
-_stats_cache: dict = {"at": 0.0, "db": "", "rev": -1, "value": None}
-_stats_lock = threading.Lock()
+    return _rust.db_to_missing(conn, list(paths))
 
 
 # Cuantas veces ha cambiado algo que la interfaz enseña: el indice, las
@@ -643,57 +596,26 @@ _stats_lock = threading.Lock()
 # y, si se ha movido, avisa a las ventanas para que se refresquen. Es lo que
 # hace que un cambio hecho «por detras» —una descarga que termina, el
 # asistente, la linea de ordenes— se vea sin tener que salir y volver a entrar.
-_REVISION = {"n": 0}
-
-
+# Lo lleva Rust (`biblioteca::indice::revision`), igual que las cifras
+# recordadas de `stats_of`.
 def revision() -> int:
-    return _REVISION["n"]
+    return _rust.db_revision()
 
 
 def _touch() -> None:
-    """Algo cambio en el indice: la proxima `stats_of` vuelve a contar.
-
-    Bajo cerrojo: `n += 1` son tres pasos y dos hilos (el vigilante y una
-    peticion) podian perder un aviso."""
-    with _stats_lock:
-        _REVISION["n"] += 1
-        _stats_cache["at"] = 0.0
+    """Algo cambio en el indice: la proxima `stats_of` vuelve a contar."""
+    _rust.db_touch()
 
 
 def stats_of() -> dict:
-    """Las cifras de la biblioteca, recordadas unos segundos.
-
-    La cache vale solo para la `revision` con la que se conto: si otro hilo
-    escribe (y llama a `_touch`) mientras se cuenta, lo contado ya nace viejo
-    y no se guarda. Antes se guardaba igual y durante cinco segundos se
-    enseñaba un total de antes del cambio.
-    """
+    """Las cifras de la biblioteca, recordadas unos segundos (y olvidadas en
+    cuanto algo escribe en `songs`: ver `biblioteca::indice::stats`)."""
     key = str(config.DATABASE)
-    with _stats_lock:
-        cached = dict(_stats_cache)
-        rev = _REVISION["n"]
-    if (
-        cached["value"] is not None
-        and cached["db"] == key
-        and cached["rev"] == rev
-        and time.monotonic() - cached["at"] < _STATS_TTL
-    ):
-        return dict(cached["value"])
+    cached = _rust.db_stats_cached(key)
+    if cached is not None:
+        return cached
+    # la revision, ANTES de abrir: si alguien escribe mientras se cuenta, lo
+    # contado no se recuerda
+    rev = revision()
     with connect() as conn:
-        f = conn.execute(
-            "SELECT COUNT(*) n, SUM(size) bytes, SUM(duration) seconds, "
-            "SUM(analyzed>0) analyzed_count, SUM(lyrics!='') with_lyrics, "
-            "SUM(artist='') without_artist FROM songs"
-        ).fetchone()
-    value = {
-        "total": f["n"] or 0,
-        "bytes": f["bytes"] or 0,
-        "seconds": f["seconds"] or 0,
-        "analyzed_count": f["analyzed_count"] or 0,
-        "with_lyrics": f["with_lyrics"] or 0,
-        "without_artist": f["without_artist"] or 0,
-    }
-    with _stats_lock:
-        if _REVISION["n"] == rev:
-            _stats_cache.update(at=time.monotonic(), db=key, rev=rev, value=value)
-    return dict(value)
+        return _rust.db_stats(conn, key, rev)

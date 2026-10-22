@@ -1,14 +1,13 @@
 """Buscar en el indice: texto completo (FTS5), filtros, orden, y las filas
-ligeras que dan las listas de la API."""
+ligeras que dan las listas de la API.
 
-import json
-import logging
+Lo hace Rust (biblioteca/src/indice/busqueda.rs); esto es la puerta de
+Python, con los mismos nombres. Las tablas de aqui son las mismas que alli.
+"""
+
+import danplay_core as _rust
 
 from . import db
-from .db import _song_columns
-
-log = logging.getLogger(__name__)
-
 
 # ------------------------------------------------------------- busqueda
 
@@ -63,35 +62,20 @@ SORT_FIELDS = {
 
 
 def _order_by(sort: str, desc: bool) -> str:
-    """Clausula ORDER BY para un campo y una direccion.
-
-    Dos cosas que no son obvias:
-
-    - Los vacios van SIEMPRE al final, se ordene como se ordene. Una lista que
-      empieza con veinte «sin album» no dice nada de como esta ordenada, y al
-      invertir el orden esos veinte volverian arriba.
-    - Al final se desempata siempre por artista y titulo, para que dos temas
-      con el mismo bpm no se intercambien de sitio entre una consulta y otra.
-    """
-    column, kind = SORT_FIELDS.get(sort) or SORT_FIELDS["artist"]
-    empty = f"{column}=''" if kind == "text" else f"{column} IS NULL OR {column}=0"
-    direction = "DESC" if desc else "ASC"
-    return f"({empty}), {column} {direction}, c.artist, c.title"
+    """Clausula ORDER BY para un campo y una direccion: los vacios siempre al
+    final, y desempate por artista y titulo."""
+    return _rust.search_order_by(sort, bool(desc))
 
 
 def sort_options() -> list[str]:
     """Por que campos se puede ordenar. Lo usa la interfaz para no inventarse."""
-    return list(SORT_FIELDS)
+    return _rust.search_sort_options()
 
 
 def _fts_query(words) -> str:
-    """Consulta FTS5 a partir de las palabras sueltas del usuario.
-
-    Las comillas se escapan doblandolas: sin esto, buscar  rock"n roll  o un
-    apostrofo tipografico rompia la sintaxis de MATCH y la busqueda entera
-    reventaba con un error de sqlite en vez de devolver resultados.
-    """
-    return " AND ".join('"' + p.replace('"', '""') + '"*' for p in words)
+    """Consulta FTS5 a partir de las palabras sueltas del usuario, con las
+    comillas dobladas."""
+    return _rust.search_fts_query([str(w) for w in words])
 
 
 # Los textos pesados de una cancion: la letra (con y sin tiempos), la ficha de
@@ -115,103 +99,20 @@ LIGHT_FLAGS = {
 def light_columns(conn, alias: str = "c") -> str:
     """El SELECT de una fila ligera: todo menos lo pesado, y en su lugar si
     lo tiene. Con `alias` vacio, sin prefijo de tabla."""
-    prefix = f"{alias}." if alias else ""
-    present = _song_columns(conn)
-    cols = [f"{prefix}{c}" for c in present if c not in HEAVY_COLUMNS]
-    cols += [
-        f"(COALESCE({prefix}{col}, '') != '') AS {flag}"
-        for col, flag in LIGHT_FLAGS.items()
-        if col in present and col != "chords"
-    ]
-    if "chords" in present:
-        # con acordes = con un cifrado encontrado. La columna guarda tambien
-        # la ficha de la IA y el «se busco y no estaba», que no son acordes
-        cols.append(
-            f"(CASE WHEN json_valid({prefix}chords)"
-            f" THEN COALESCE(json_type({prefix}chords, '$.sheet') = 'object', 0) ELSE 0 END)"
-            " AS has_chords"
-        )
-    if "stems" in present:
-        # y si sus pistas ya son las mejores: las rapidas, o las de antes de
-        # haber dos pasadas, se pueden separar otra vez mejor
-        cols.append(
-            # con CASE: con AND, sqlite puede mirar el JSON aunque no lo sea
-            f"(CASE WHEN json_valid({prefix}stems)"
-            f" THEN json_extract({prefix}stems, '$.quality') = 'mejor' ELSE 0 END) AS stems_best"
-        )
-    return ", ".join(cols)
-
-
-def _best(stems) -> bool:
-    try:
-        data = json.loads(stems or "")
-    except (TypeError, ValueError):
-        return False
-    return isinstance(data, dict) and data.get("quality") == "mejor"
+    return _rust.search_light_columns(conn, alias)
 
 
 def light(song: dict) -> dict:
     """Una fila (entera o ya ligera) en su forma ligera, con `has_*` booleanos."""
-    out = {k: v for k, v in song.items() if k not in HEAVY_COLUMNS}
-    for col, flag in LIGHT_FLAGS.items():
-        out[flag] = bool(song[flag] if flag in song else song.get(col))
-    out["stems_best"] = bool(
-        song["stems_best"] if "stems_best" in song else _best(song.get("stems"))
-    )
-    return out
+    return _rust.search_light(dict(song))
 
 
 def _search_where(query="", filters=None, only_favorites=False, min_stars=0) -> tuple[str, list]:
     """El WHERE (con sus parametros) de una busqueda: el mismo para la lista
     y para contarla."""
-    filters = dict(filters or {})
-    words = []
-    comparisons = []
-    for tok in (query or "").split():
-        if ":" in tok:
-            c, v = tok.split(":", 1)
-            if c.lower() in FILTER_FIELDS and v:
-                filters[FILTER_FIELDS[c.lower()]] = v
-                continue
-        m = None
-        for op in (">=", "<=", ">", "<"):
-            if op in tok:
-                c, v = tok.split(op, 1)
-                if c.lower() in NUMERIC_FIELDS and v:
-                    m = (NUMERIC_FIELDS[c.lower()], op, v)
-                break
-        if m:
-            comparisons.append(m)
-            continue
-        # Un guion suelto («Barak - Mi Gozo»), un «&» o una barra no son
-        # palabras: en FTS iban como termino y no casaban con nada, asi que
-        # la busqueda mas natural del mundo devolvia cero.
-        if not any(ch.isalnum() for ch in tok):
-            continue
-        words.append(tok)
-
-    where, params = [], []
-    if words:
-        where.append("c.id IN (SELECT rowid FROM search_index WHERE search_index MATCH ?)")
-        params.append(_fts_query(words))
-    if only_favorites:
-        where.append("c.favorite=1")
-    if min_stars:
-        where.append("c.stars >= ?")
-        params.append(int(min_stars))
-    # los nombres de columna salen de listas blancas (FILTER_FIELDS y
-    # NUMERIC_FIELDS), nunca de lo que escribe el usuario
-    for field, value in filters.items():
-        if field in FILTER_FIELDS.values() and value:
-            where.append(f"c.{field} LIKE ?")
-            params.append(f"%{value}%")
-    for field, op, value in comparisons:
-        try:
-            params.append(float(value))
-            where.append(f"c.{field} {op} ?")
-        except ValueError:
-            pass
-    return (" WHERE " + " AND ".join(where) if where else ""), params
+    return _rust.search_where(
+        str(query or ""), dict(filters or {}), bool(only_favorites), int(min_stars or 0)
+    )
 
 
 def search(
@@ -236,37 +137,27 @@ def search(
 
     Con `light`, filas ligeras (ver HEAVY_COLUMNS): es lo que devuelve la API.
     """
-    where, params = _search_where(query, filters, only_favorites, min_stars)
     with db.connect() as conn:
-        cols = light_columns(conn) if light else "c.*"
-        sql = (
-            f"SELECT {cols} FROM songs c{where}"  # noqa: S608
-            f" ORDER BY {_order_by(sort, desc)} LIMIT ? OFFSET ?"
+        return _rust.search_songs(
+            conn,
+            str(query or ""),
+            dict(filters or {}),
+            str(sort),
+            int(limit),
+            int(offset),
+            bool(only_favorites),
+            int(min_stars or 0),
+            bool(desc),
+            bool(light),
         )
-        rows = conn.execute(sql, [*params, limit, offset]).fetchall()
-    if light:
-        return [_flags_as_bool(dict(f)) for f in rows]
-    return [dict(f) for f in rows]
-
-
-def _flags_as_bool(row: dict) -> dict:
-    for flag in (*LIGHT_FLAGS.values(), "stems_best"):
-        if flag in row:
-            row[flag] = bool(row[flag])
-    return row
 
 
 def count(query="", filters=None, only_favorites=False, min_stars=0) -> int:
     """Cuantas canciones cumplen la busqueda, sin limite ni desplazamiento: la
     interfaz sabe asi cuanto le falta por cargar."""
-    where, params = _search_where(query, filters, only_favorites, min_stars)
     with db.connect() as conn:
-        return (
-            conn.execute(
-                f"SELECT COUNT(*) FROM songs c{where}",  # noqa: S608
-                params,
-            ).fetchone()[0]
-            or 0
+        return _rust.search_count(
+            conn, str(query or ""), dict(filters or {}), bool(only_favorites), int(min_stars or 0)
         )
 
 
@@ -280,10 +171,7 @@ def find_by_match_key(key: str) -> list[dict]:
     if not key:
         return []
     with db.connect() as conn:
-        rows = conn.execute(
-            "SELECT id, artist, title, path, file FROM songs WHERE match_key=?", (key,)
-        ).fetchall()
-    return [dict(r) for r in rows]
+        return _rust.search_find_by_match_key(conn, key)
 
 
 # Lo justo que necesita el informe de duplicados. Pedir `SELECT *` traia
@@ -314,52 +202,22 @@ def by_path(path: str) -> dict | None:
     tirar la casa por la ventana.
     """
     with db.connect() as conn:
-        row = conn.execute(
-            "SELECT id,title,artist,duration,blur FROM songs WHERE path=?", (str(path),)
-        ).fetchone()
-    return dict(row) if row else None
+        return _rust.search_by_path(conn, str(path))
 
 
 def brief_by_path() -> dict:
     """{ruta: datos basicos} de toda la biblioteca, sin los campos pesados."""
     with db.connect() as conn:
-        rows = conn.execute(f"SELECT {','.join(BRIEF_COLUMNS)} FROM songs").fetchall()  # noqa: S608
-    return {r["path"]: dict(r) for r in rows}
+        return _rust.search_brief_by_path(conn)
 
 
 def top_artists(limit=12) -> list[dict]:
     """Los artistas con mas canciones: [{value, n}]. Para situar al asistente."""
     with db.connect() as conn:
-        rows = [
-            dict(r)
-            for r in conn.execute(
-                "SELECT artist value, COUNT(*) n FROM songs WHERE artist!='' "
-                "GROUP BY artist ORDER BY n DESC, value LIMIT ?",
-                (int(limit),),
-            ).fetchall()
-        ]
-    return rows
+        return _rust.search_top_artists(conn, int(limit))
 
 
 def facets() -> dict:
     """Valores disponibles para los filtros de la interfaz."""
     with db.connect() as conn:
-
-        def top(col, lim=500):
-            return [
-                dict(r)
-                for r in conn.execute(
-                    f"SELECT {col} value, COUNT(*) n FROM songs WHERE {col}!='' "  # noqa: S608
-                    f"GROUP BY {col} ORDER BY n DESC, value LIMIT ?",
-                    (lim,),
-                ).fetchall()
-            ]
-
-        d = {
-            "artists": top("artist"),
-            "albums": top("album"),
-            "genres": top("genre"),
-            "folders": top("folder"),
-            "keys": top("key"),
-        }
-    return d
+        return _rust.search_facets(conn)

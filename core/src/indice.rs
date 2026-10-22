@@ -276,6 +276,17 @@ impl Connection {
     }
 }
 
+/// Lo que hace `f` con la conexión de Rust que hay dentro de `conn`, con el
+/// GIL suelto; sus errores salen como los de `sqlite3`. Es como lo portado a
+/// Rust usa la conexión que le pasa Python.
+pub fn with_conn<T: Send>(
+    py: Python<'_>,
+    conn: &Bound<'_, Connection>,
+    f: impl FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send,
+) -> PyResult<T> {
+    conn.get().with(py, |c| f(c).map_err(Fallo::Sqlite))
+}
+
 /// La conexión prestada (ver `Connection::lock`).
 pub struct ConnGuard<'a>(MutexGuard<'a, Option<rusqlite::Connection>>);
 

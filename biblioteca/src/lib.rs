@@ -8,8 +8,11 @@
 pub mod etiquetas;
 pub mod indice;
 pub mod nombres;
+pub mod py;
 
 mod asf;
 
-// La misma versión de rusqlite para quien use el índice (core/).
+// Las mismas versiones de rusqlite y serde_json para quien use el índice
+// (core/).
 pub use rusqlite;
+pub use serde_json;
