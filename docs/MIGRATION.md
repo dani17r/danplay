@@ -44,14 +44,16 @@ En Rust (con su puerta de Python):
 | 1 | el índice entero (conexión, esquema y migraciones, búsqueda, carpetas, escaneo, canciones y su estudio, «Transformar», historial), listas, lo de fuera, conversaciones, diario, nombres, etiquetas (lofty), configuración (de momento solo comparada con la de Python) |
 | 1 | convertir, forma de onda, miniaturas, huella, duplicados |
 | 2 | pulso (Beat This! con `ort`), clic, pesos de PyTorch, separar en pistas (Demucs y el Mega53), las pistas separadas, el paquete del celular, las secuencias, la estructura y la guía automática, las guías habladas y sus voces (Supertonic y Piper) |
-| 3 | teoría, cifrados, TOON, los datos de fuera (`chat/safe`), la guía hablada, la web, los proveedores de IA, su catálogo y su cliente, leer listas pegadas, emparejar con la biblioteca, la narración, lo que se le cuenta al modelo en cada turno, la lista contra un repertorio, las confirmaciones con su plan de descarga y las herramientas del asistente |
+| 3 | teoría, cifrados, TOON, los datos de fuera (`chat/safe`), la guía hablada, la web, los proveedores de IA, su catálogo y su cliente, leer listas pegadas, emparejar con la biblioteca, la narración, lo que se le cuenta al modelo en cada turno, la lista contra un repertorio, las confirmaciones con su plan de descarga, las herramientas del asistente y su conversación (el turno entero) |
 
 Siguen en Python: la API (`api/`) y sus trabajos en segundo plano, la
 rejilla del clic (`beatgrid.py`: hay un borrador probado), el resto del
-asistente (`chat/loop.py`), el registro de las confirmaciones
-(`chat/plan.py`: su cerrojo, sus topes y los hilos que buscan en YouTube) y,
-de las herramientas (`chat/tools.py`), la validación de sus argumentos
-(pydantic) y el reparto a cada una,
+asistente que orquesta alrededor de Rust: el registro de las confirmaciones
+(`chat/plan.py`: su cerrojo, sus topes y los hilos que buscan en YouTube), la
+validación de los argumentos de las herramientas (pydantic, en
+`chat/tools.py`) y, del turno (`chat/loop.py`), las llamadas a la IA y al
+juez, leer la lista pegada, lo que se apunta para el visto bueno y el uso del
+mes,
 YouTube y yt-dlp,
 importar y enriquecer, el vigilante de carpetas, la línea de órdenes, y lo
 que orquesta alrededor de Rust (los hilos, los cerrojos, la red).
@@ -86,7 +88,9 @@ Cuando todo lo de arriba esté en Rust:
    que pase cada petición del `TestClient` a `danplay_core`, con la
    configuración de Python de cada prueba. Las que sustituyen funciones de
    Python (clientes de IA falsos, la papelera...) necesitan que esas
-   fronteras sean inyectables también desde Rust.
+   fronteras sean inyectables también desde Rust. Las del asistente ya son
+   rasgos (`plan::Index`, `tools::Io`, `conversation::Chat`): hoy los
+   implementa Python; falta la versión de Rust de cada uno.
 4. **Los paquetes sin Python**: fuera PyInstaller y el núcleo empaquetado;
    la app lleva `libonnxruntime` (hoy sale del paquete `onnxruntime`) y
    yt-dlp como su ejecutable oficial, como ffmpeg y QuickJS. Los procesos

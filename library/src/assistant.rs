@@ -9,6 +9,7 @@
 //! chat/tools.py). Lo que Python reúne (la base, las
 //! listas, la descarga en marcha) llega como dato (`value`).
 pub mod context;
+pub mod conversation;
 pub mod intake;
 pub mod links;
 pub mod matching;

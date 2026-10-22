@@ -926,6 +926,27 @@ def tools_find_playlist(args: Any, modules: dict[str, Any]) -> tuple[dict | None
 def tools_checked_song_ids(raw: Any, modules: dict[str, Any]) -> tuple[list[int], str]: ...
 def tools_run(name: str, args: Any, modules: dict[str, Any]) -> dict: ...
 
+# ---- la conversacion del asistente (library/src/assistant/conversation.rs):
+# ver danplay/chat/loop.py
+
+def conversation_unavailable(reason: str) -> str: ...
+def conversation_constants() -> dict[str, Any]: ...
+def conversation_clip(text_: str, limit: int) -> str: ...
+def conversation_pseudo_ok(name: str, args: Any) -> bool: ...
+def conversation_setlist_note(setlist: Any, fresh: bool, intent: Any) -> str: ...
+def conversation_reply(
+    recent: list[dict],
+    setlist_note: str | None,
+    context_note: str,
+    max_rounds: int,
+    turn: Any,
+    on_text: Callable[[str], Any] | None,
+    on_tool: Callable[[dict], Any] | None,
+    cancel: Any,
+    finish: Callable[..., dict],
+    modules: dict[str, Any],
+) -> dict: ...
+
 # ---- las guias habladas (library/src/cues.rs, analysis/src/cues.rs,
 # analysis/src/voices.rs): ver danplay/cues.py
 

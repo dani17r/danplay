@@ -14,6 +14,7 @@ pub mod chats;
 pub mod chord_sheets;
 pub mod click;
 pub mod compat;
+pub mod conversation;
 pub mod convert;
 pub mod cues;
 pub mod db;
@@ -183,6 +184,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     turn::register(m)?;
     plan::register(m)?;
     tools::register(m)?;
+    conversation::register(m)?;
     speech::register(m)?;
     web::register(m)?;
     convert::register(m)?;
