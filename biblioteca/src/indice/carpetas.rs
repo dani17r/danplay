@@ -370,7 +370,7 @@ pub fn relocate_folder(conn: &Connection, old: &str, new: &str) -> Result<Dic, T
         data.insert("folder".into(), folder.into());
         let size = data.get("size").and_then(Value::as_f64);
         let mtime = data.get("mtime").and_then(Value::as_f64);
-        if size != Some(st.len() as f64) || mtime != Some(mtime_of(&st)) {
+        if size != Some(st.len() as f64) || mtime != Some(py::mtime(&st)) {
             data.insert("mtime".into(), Value::from(-1)); // cambió por el camino: que se relea
         }
         insert_row(conn, &data, &columns)?;
@@ -385,14 +385,6 @@ pub fn relocate_folder(conn: &Connection, old: &str, new: &str) -> Result<Dic, T
     out.insert("to".into(), new.into());
     out.insert("back".into(), Value::from(back));
     Ok(out)
-}
-
-/// La fecha de modificación como la da `os.stat` (segundos con decimales).
-pub fn mtime_of(meta: &std::fs::Metadata) -> f64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0.0, |d| d.as_secs_f64())
 }
 
 fn none<T>(e: rusqlite::Error) -> rusqlite::Result<Option<T>> {

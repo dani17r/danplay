@@ -10,7 +10,7 @@
 # mismo `str` que llego (con `surrogateescape`). Una ruta que falla devuelve
 # None y el motivo queda en `last_error()`, por hilo.
 from os import PathLike
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import Any, Literal, TypeAlias
 
 _Path: TypeAlias = str | bytes | PathLike[str] | PathLike[bytes]
@@ -200,3 +200,20 @@ def folders_excluded(dir_path: str, dir_name: str, exclusions: Iterable[Any]) ->
 def folders_audio_files(
     root: str, exclusions: Iterable[Any], extensions: list[str], limit: int | None = None
 ) -> tuple[list[str], dict, list[str], list[str]]: ...
+def scan_index(
+    conn: Connection,
+    artists_dir: _Path,
+    extensions: list[str],
+    twins: bool = True,
+    progress: Callable[[int, int], object] | None = None,
+) -> dict: ...
+def scan_restore_study(conn: Connection, found: list[tuple[str, str]]) -> int: ...
+def scan_restore_playlists(conn: Connection, found: list[tuple[str, list[str]]]) -> int: ...
+def scan_index_file(
+    conn: Connection,
+    path: str,
+    roots: list[str],
+    artists_dir: _Path,
+    vocab: list[tuple[str, str]] | None = None,
+) -> dict | None: ...
+def scan_ident(row: dict) -> str: ...

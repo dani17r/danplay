@@ -871,6 +871,7 @@ version = "1.30.0"
 dependencies = [
  "fancy-regex",
  "lofty",
+ "rayon",
  "regex",
  "rusqlite",
  "serde_json",

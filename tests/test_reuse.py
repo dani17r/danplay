@@ -313,7 +313,7 @@ def test_what_was_lost_before_comes_back_with_one_pass(home, tmp_path, monkeypat
     first.unlink()
     library.remove_folder(lib)
     # como antes de saber juntarlas: entra como nueva
-    monkeypatch.setattr(scan_module, "_find_twin", lambda conn, fresh: None)
+    monkeypatch.setattr(scan_module, "_JOIN_TWINS", False)
     monkeypatch.setattr(reuse, "later", lambda *a, **k: None)
     monkeypatch.setattr(playlists, "relink_ghosts", lambda ids: 0)
     new_lib = tmp_path / "Otra"

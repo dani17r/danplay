@@ -3,7 +3,7 @@
 //! que abrió Python (`library.connect()`), y escribe dentro de su transacción.
 use crate::indice::{Connection, with_conn};
 use crate::json::{dict, dicts, from_python, to_python};
-use biblioteca::indice::{self, Dic, busqueda, carpetas, historial};
+use biblioteca::indice::{self, Dic, busqueda, carpetas, escaneo, historial};
 use biblioteca::serde_json::Value;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -448,6 +448,138 @@ pub fn folders_audio_files<'py>(
     Ok((found.paths, stems, found.unreadable, found.unstorable))
 }
 
+// ------------------------------------------------------------------ escaneo
+
+fn pairs_list<'py>(py: Python<'py>, rows: &[(Dic, String)]) -> PyResult<Bound<'py, PyList>> {
+    let items: Vec<Bound<'py, PyAny>> = rows
+        .iter()
+        .map(|(d, p)| Ok((dict(py, d)?, p.clone()).into_pyobject(py)?.into_any()))
+        .collect::<PyResult<_>>()?;
+    PyList::new(py, items)
+}
+
+/// El escaneo (ver `escaneo::scan`): sus cifras y lo que necesita Python
+/// para lo de después.
+#[pyfunction]
+#[pyo3(signature = (conn, artists_dir, extensions, twins = true, progress = None))]
+pub fn scan_index<'py>(
+    py: Python<'py>,
+    conn: &Bound<'py, Connection>,
+    artists_dir: std::path::PathBuf,
+    extensions: Vec<String>,
+    twins: bool,
+    progress: Option<Py<PyAny>>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let r = with_conn(py, conn, move |c| {
+        let mut report = |done: usize, total: usize| {
+            if let Some(cb) = &progress {
+                Python::attach(|py| {
+                    if let Err(e) = cb.call1(py, (done, total)) {
+                        e.print(py);
+                    }
+                });
+            }
+        };
+        escaneo::scan(c, &artists_dir, &extensions, twins, &mut report)
+    })?;
+    let out = PyDict::new(py);
+    out.set_item("total", r.total)?;
+    out.set_item("added_count", r.added_count)?;
+    out.set_item("reused", r.reused)?;
+    out.set_item("updated", r.updated)?;
+    out.set_item("removed", r.removed)?;
+    out.set_item("back", r.back)?;
+    out.set_item("changed", r.changed)?;
+    out.set_item("seen", r.seen)?;
+    out.set_item("gone", r.gone)?;
+    let stems = PyDict::new(py);
+    for (folder, data) in &r.walk.stems {
+        stems.set_item(folder, to_python(py, data)?)?;
+    }
+    out.set_item("stems", stems)?;
+    out.set_item("unreadable", r.walk.unreadable)?;
+    out.set_item("unstorable", r.walk.unstorable)?;
+    let playlists = PyDict::new(py);
+    for (path, lists) in &r.playlists_found {
+        playlists.set_item(path, lists)?;
+    }
+    out.set_item("playlists", playlists)?;
+    let study = PyDict::new(py);
+    for (path, s) in &r.study_found {
+        study.set_item(path, s)?;
+    }
+    out.set_item("study", study)?;
+    let settle: Vec<Bound<'py, PyAny>> = r
+        .settle
+        .iter()
+        .map(|(id, before)| {
+            let before = before.as_ref().map(|b| dict(py, b)).transpose()?;
+            Ok((id, before).into_pyobject(py)?.into_any())
+        })
+        .collect::<PyResult<_>>()?;
+    out.set_item("settle", PyList::new(py, settle)?)?;
+    out.set_item("carry", pairs_list(py, &r.carry)?)?;
+    out.set_item("warnings", r.warnings)?;
+    Ok(out)
+}
+
+#[pyfunction]
+pub fn scan_restore_study(
+    py: Python<'_>,
+    conn: &Bound<'_, Connection>,
+    found: Vec<(String, String)>,
+) -> PyResult<usize> {
+    with_conn(py, conn, move |c| escaneo::restore_study_from_tags(c, &found))
+}
+
+#[pyfunction]
+pub fn scan_restore_playlists(
+    py: Python<'_>,
+    conn: &Bound<'_, Connection>,
+    found: Vec<(String, Vec<String>)>,
+) -> PyResult<usize> {
+    with_conn(py, conn, move |c| escaneo::restore_playlists_from_tags(c, &found))
+}
+
+/// `index_file`: `None`, o `{row, arrived: (id, antes) | None, carry: (antes, ruta) | None}`.
+#[pyfunction]
+#[pyo3(signature = (conn, path, roots, artists_dir, vocab = None))]
+pub fn scan_index_file<'py>(
+    py: Python<'py>,
+    conn: &Bound<'py, Connection>,
+    path: String,
+    roots: Vec<String>,
+    artists_dir: std::path::PathBuf,
+    vocab: Option<Vec<(String, String)>>,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let r = with_conn(py, conn, move |c| {
+        escaneo::index_file(c, &path, &roots, vocab.as_deref(), &artists_dir)
+    })?;
+    let Some(r) = r else { return Ok(None) };
+    let out = PyDict::new(py);
+    out.set_item("row", r.row.as_ref().map(|d| dict(py, d)).transpose()?)?;
+    let arrived = match &r.arrived {
+        Some((id, before)) => Some(
+            (id, before.as_ref().map(|b| dict(py, b)).transpose()?)
+                .into_pyobject(py)?
+                .into_any(),
+        ),
+        None => None,
+    };
+    out.set_item("arrived", arrived)?;
+    let carry = match &r.carry {
+        Some((d, p)) => Some((dict(py, d)?, p.clone()).into_pyobject(py)?.into_any()),
+        None => None,
+    };
+    out.set_item("carry", carry)?;
+    Ok(Some(out))
+}
+
+#[pyfunction]
+pub fn scan_ident(row: &Bound<'_, PyAny>) -> PyResult<String> {
+    Ok(escaneo::ident(&as_dic(Some(row))?))
+}
+
 /// Registra las funciones en el módulo.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(db_revision, m)?)?;
@@ -495,5 +627,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(folders_list_exclusions, m)?)?;
     m.add_function(wrap_pyfunction!(folders_excluded, m)?)?;
     m.add_function(wrap_pyfunction!(folders_audio_files, m)?)?;
+    m.add_function(wrap_pyfunction!(scan_index, m)?)?;
+    m.add_function(wrap_pyfunction!(scan_restore_study, m)?)?;
+    m.add_function(wrap_pyfunction!(scan_restore_playlists, m)?)?;
+    m.add_function(wrap_pyfunction!(scan_index_file, m)?)?;
+    m.add_function(wrap_pyfunction!(scan_ident, m)?)?;
     Ok(())
 }

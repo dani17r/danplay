@@ -87,7 +87,7 @@ def test_a_moved_song_never_disappears_halfway(lib, monkeypatch):
     del vigilante llego a pillar la cancion a medias."""
     import sqlite3
 
-    from danplay import config, library, tags
+    from danplay import config, library
 
     root, songs = lib
     song_id = _ids()["Barak - Mi Gozo.mp3"]
@@ -95,31 +95,20 @@ def test_a_moved_song_never_disappears_halfway(lib, monkeypatch):
     moved.parent.mkdir(parents=True)
     shutil.move(songs["gozo"], moved)
 
-    # la cancion movida se lee entre apartarla y recuperarla: justo ahi, otra
+    # entre apartar lo que no esta y recuperar la cancion movida (el escaneo
+    # avisa del avance justo ahi, con el total y aun sin confirmar), otra
     # conexion mira si sigue en la biblioteca
-    # (se lee de una en una o por tandas, `tags.read_many`: las dos se miran)
     seen = []
-    read_all, read_many = tags.read_all, tags.read_many
 
-    def look():
+    def look(done, total):
         other = sqlite3.connect(config.DATABASE)
         try:
             seen.append(other.execute("SELECT 1 FROM songs WHERE id=?", (song_id,)).fetchone())
         finally:
             other.close()
 
-    def spy(path):
-        look()
-        return read_all(path)
-
-    def spy_many(paths):
-        look()
-        return read_many(paths)
-
-    monkeypatch.setattr(tags, "read_all", spy)
-    monkeypatch.setattr(tags, "read_many", spy_many)
-    assert library.scan()["back"] == 1
-    assert seen, "el escaneo no releyo la cancion movida"
+    assert library.scan(progress=look)["back"] == 1
+    assert seen, "el escaneo no aviso a medio camino"
     assert all(seen), "otra conexion vio desaparecer la cancion a medio escaneo"
     assert _ids()["Barak - Mi Gozo.mp3"] == song_id
 

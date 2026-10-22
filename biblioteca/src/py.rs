@@ -818,6 +818,29 @@ pub fn realpath(p: &str) -> String {
     }
 }
 
+/// `os.stat(...).st_mtime`: la fecha de modificación con la MISMA cuenta que
+/// hace Python (`segundos + nanosegundos * 1e-9`, en `double`). La de Rust
+/// (`as_secs_f64`, que divide entre 1e9) puede salir con el último bit
+/// distinto, y entonces una fecha guardada por Python no sería igual a la de
+/// ahora: el escaneo releería todos los archivos.
+#[cfg(unix)]
+pub fn mtime(meta: &std::fs::Metadata) -> f64 {
+    use std::os::unix::fs::MetadataExt;
+    meta.mtime() as f64 + meta.mtime_nsec() as f64 * 1e-9
+}
+
+/// `os.stat(...).st_mtime` en Windows: de la FILETIME (cientos de
+/// nanosegundos desde 1601), como la cuenta CPython.
+#[cfg(windows)]
+pub fn mtime(meta: &std::fs::Metadata) -> f64 {
+    use std::os::windows::fs::MetadataExt;
+    const SECS_BETWEEN_EPOCHS: i64 = 11_644_473_600;
+    let t = meta.last_write_time() as i64;
+    let sec = t.div_euclid(10_000_000) - SECS_BETWEEN_EPOCHS;
+    let nsec = t.rem_euclid(10_000_000) * 100;
+    sec as f64 + nsec as f64 * 1e-9
+}
+
 /// `os.path.samefile`: el mismo archivo en el disco (falso si alguno no está).
 pub fn samefile(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {

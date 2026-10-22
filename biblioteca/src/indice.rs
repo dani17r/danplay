@@ -10,9 +10,11 @@
 //!
 //!   carpetas    las carpetas gestionadas, las exclusiones y qué audio hay dentro
 //!   busqueda    buscar, filtrar, ordenar; las filas ligeras de las listas
+//!   escaneo     poner el índice al día con el disco
 //!   historial   el historial de descargas y lo que gasta la IA
 pub mod busqueda;
 pub mod carpetas;
+pub mod escaneo;
 pub mod historial;
 
 use rusqlite::types::{Value as Sql, ValueRef};
