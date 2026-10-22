@@ -36,6 +36,11 @@ Como todo lo que el usuario crea, no depende de la base: la carpeta dice de
 que cancion es (`.danplay-pistas.json`), y un escaneo vuelve a unirlas si el
 indice se pierde. El escaneo no mete estas pistas en la biblioteca como
 canciones sueltas: una carpeta con ese archivo se salta.
+
+Lo de las carpetas, los manifiestos, unirlas con su cancion y el filtro de
+la mezcla lo hace Rust (biblioteca/src/pistas.rs; el clic y las guias de la
+mezcla, analisis/src/mezcla.rs). Aqui quedan la cola, el proceso que separa,
+bajar los pesos y lanzar ffmpeg.
 """
 
 import contextlib
@@ -52,10 +57,11 @@ import tempfile
 import threading
 import time
 import urllib.request
-import wave
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+import danplay_core as _rust
 
 from . import config, convert
 from .api import jobs
@@ -70,27 +76,9 @@ JOB = "separacion"
 MIX_JOB = "mezcla"
 
 # Cada fuente de Demucs en castellano: como se llama su archivo (sin tildes,
-# como todos los de la casa) y como se enseña. En el orden del mezclador.
-SOURCES = {
-    "drums": ("Bateria", "Batería"),
-    # las de la maxima calidad (danplay/mega.py): la percusion de aparte, la
-    # voz principal y los coros, y mas instrumentos
-    "percussion": ("Percusion", "Percusión"),
-    "vocals": ("Voces", "Voces"),
-    "lead": ("Voz", "Voz principal"),
-    "backing": ("Coros", "Coros"),
-    "bass": ("Bajo", "Bajo"),
-    "guitar": ("Guitarra", "Guitarra"),
-    "eguitar": ("Guitarra-electrica", "Guitarra eléctrica"),
-    "aguitar": ("Guitarra-acustica", "Guitarra acústica"),
-    "piano": ("Piano", "Piano"),
-    "organ": ("Organo", "Órgano"),
-    "keys": ("Teclados", "Teclados"),
-    "strings": ("Cuerdas", "Cuerdas"),
-    "brass": ("Metales", "Metales"),
-    "wind": ("Vientos", "Vientos"),
-    "other": ("Otros", "Otros"),
-}
+# como todos los de la casa) y como se enseña. En el orden del mezclador (la
+# tabla esta en biblioteca/src/pistas.rs).
+SOURCES = {key: (file, name) for key, file, name in _rust.stems_sources()}
 REST = "other"  # la que es «lo que queda»: la cancion menos las demas
 
 # La pasada rapida, y la red de los especialistas de la buena con las fuentes
@@ -332,28 +320,14 @@ def remove_weights() -> int:
 # ------------------------------------------------------------ la carpeta
 
 
-def _stems_of(song: Mapping[str, Any]) -> dict:
-    try:
-        data = json.loads(song.get("stems") or "{}")
-    except (TypeError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def folder_of(song: Mapping[str, Any]) -> Path | None:
     """La carpeta de las pistas de la cancion, si tiene."""
-    rel = _stems_of(song).get("folder")
-    if not rel:
-        return None
-    return Path(song.get("root") or config.LIBRARY) / rel
+    folder = _rust.stems_folder_of(dict(song), str(config.LIBRARY))
+    return Path(folder) if folder else None
 
 
 def read_manifest(folder: Path) -> dict | None:
-    try:
-        data = json.loads((folder / MANIFEST).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
+    return _rust.stems_read_manifest(str(folder))
 
 
 def info(song: Mapping[str, Any]) -> dict | None:
@@ -362,55 +336,11 @@ def info(song: Mapping[str, Any]) -> dict | None:
     Cada pista con su ruta, su nombre y si el archivo sigue ahi; y la onda
     de cada una, si esta. Si la carpeta ya no esta (se borro a mano), None.
     """
-    folder = folder_of(song)
-    if folder is None:
-        return None
-    manifest = read_manifest(folder)
-    if manifest is None:
-        return None
-    try:
-        waves = json.loads((folder / WAVES).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        waves = {}
-    tracks = []
-    for t in manifest.get("tracks") or []:
-        path = folder / str(t.get("file") or "")
-        source = str(t.get("source") or "")
-        tracks.append(
-            {
-                "source": source,
-                "name": t.get("name") or SOURCES.get(source, (source, source))[1],
-                "file": t.get("file"),
-                "path": str(path),
-                "exists": path.is_file(),
-                "wave": (waves.get("tracks") or {}).get(source),
-                # en una secuencia: el clic o la guia (salen por la salida del clic)
-                "role": t.get("role") if t.get("role") in ("click", "guide") else "",
-            }
-        )
-    quality = manifest.get("quality") or ""
-    return {
-        "folder": str(folder),
-        "model": manifest.get("model", ""),
-        "created": manifest.get("created"),
-        # rapida (se esta mejorando, o se quedo a medias), mejor, o vacio
-        # si se separaron antes de que hubiera dos pasadas (1.16.0)
-        "quality": quality,
-        "best": quality in (FINAL, MAXIMA),
-        # con mas instrumentos (la maxima calidad)
-        "max": quality == MAXIMA,
-        "tracks": tracks,
-        "dropped": [s for s in manifest.get("dropped") or [] if s in SOURCES],
-        "complete": bool(tracks) and all(t["exists"] for t in tracks),
-        # de una secuencia descargada (con su tempo y sus partes), no separadas
-        "sequence": bool(manifest.get("sequence")),
-    }
+    return _rust.stems_info(dict(song), str(config.LIBRARY))
 
 
 def _safe_name(text: str) -> str:
-    bad = '<>:"/\\|?*'
-    clean = "".join("_" if c in bad or ord(c) < 32 else c for c in text).strip(" .")
-    return clean[:150] or "Cancion"
+    return _rust.stems_safe_name(str(text))
 
 
 def _target_for(song: Mapping[str, Any]) -> Path:
@@ -419,25 +349,16 @@ def _target_for(song: Mapping[str, Any]) -> Path:
     Si ya hay una carpeta con ese nombre de OTRA cancion (dos archivos que se
     llaman igual en carpetas distintas), se le pone un numero.
     """
-    base = Path(song["root"]) / FOLDER
-    name = _safe_name(Path(song["file"]).stem)
-    candidate, n = base / name, 2
-    while candidate.exists():
-        manifest = read_manifest(candidate)
-        if manifest and _is_source(manifest, song):
-            return candidate
-        candidate, n = base / f"{name} ({n})", n + 1
-    return candidate
+    return Path(_rust.stems_target_for(dict(song)))
 
 
 def _is_source(manifest: dict, song: Mapping[str, Any]) -> bool:
-    src = manifest.get("source") or {}
-    return src.get("file") == song.get("file") and src.get("folder") == song.get("folder")
+    return _rust.stems_is_source(dict(manifest), dict(song))
 
 
 def is_stems_dir(path) -> bool:
     """La carpeta es de pistas separadas (el escaneo no la mete en la biblioteca)."""
-    return os.path.isfile(os.path.join(path, MANIFEST))
+    return _rust.stems_is_dir(os.fspath(path))
 
 
 # ------------------------------------------------------------ separar
@@ -545,47 +466,17 @@ def _write_manifest(
 ) -> None:
     from . import __version__
 
-    tracks = result.get("tracks") or {}
-    levels = result.get("levels") or {}
-    manifest = {
-        "version": 2,
-        "app": f"DanPlay {__version__}",
-        "model": {QUICK: FAST, MAXIMA: f"{FAST}+htdemucs_ft+{MAX}"}.get(
-            quality, f"{FAST}+htdemucs_ft"
-        ),
-        "quality": quality,
-        "created": round(created, 1),
-        "updated": round(time.time(), 1),
-        "source": {
-            "file": song["file"],
-            "folder": song.get("folder") or "",
-            "size": song.get("size") or 0,
-            "duration": song.get("duration") or 0,
-            "artist": song.get("artist") or "",
-            "title": song.get("title") or "",
-        },
-        "tracks": [
-            {"source": s, "file": tracks[s], "name": SOURCES[s][1]} for s in SOURCES if s in tracks
-        ],
-        # las que la red casi no encontro y no llegaron a pista (su poco va
-        # en «Otros»), y lo que sonaba cada una: por que se quedo o no
-        "dropped": [s for s in SOURCES if s in levels and s not in tracks],
-        "levels": {s: levels[s] for s in SOURCES if s in levels},
-    }
-    (folder / MANIFEST).write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+    text = _rust.stems_manifest_text(
+        dict(song), dict(result), quality, created, f"DanPlay {__version__}"
     )
+    (folder / MANIFEST).write_text(text, encoding="utf-8")
 
 
 def _sweep(folder: Path) -> None:
     """Quita lo que dejo a medias una separacion que no acabo (la app se
-    cerro, se fue la luz): la cola es una, asi que si ahora empieza otra,
-    cualquier carpeta de trabajo que quede es de una que ya no sigue. Y las
-    pistas rapidas que ya se cambiaron por las buenas, si no se pudieron
-    borrar en su momento."""
-    for pattern in (".separando-*", ".rapidas-*"):
-        for leftover in folder.glob(pattern):
-            shutil.rmtree(leftover, ignore_errors=True)
+    cerro, se fue la luz) y las pistas rapidas que ya se cambiaron por las
+    buenas, si no se pudieron borrar en su momento."""
+    _rust.stems_sweep(str(folder))
 
 
 def _song_for(cid: int) -> dict:
@@ -632,12 +523,8 @@ def _net(part: str, take: list[str]) -> dict:
 def _publish(work: Path, target: Path, old_prefix: str) -> Path | None:
     """Pone la carpeta nueva en el sitio de la de antes, de golpe. Devuelve
     donde quedo la de antes (oculta), si habia."""
-    old = None
-    if target.exists():
-        old = target.with_name(f"{old_prefix}-{target.name}-{int(time.time())}")
-        os.replace(target, old)
-    os.replace(work, target)
-    return old
+    old = _rust.stems_publish(str(work), str(target), old_prefix)
+    return Path(old) if old else None
 
 
 def _needs_refine(tracks: dict) -> bool:
@@ -1090,48 +977,8 @@ def relink(found: dict[str, dict]) -> int:
     """
     from .library import db
 
-    n = 0
     with db.connect() as conn:
-        linked = {}
-        for r in conn.execute("SELECT id, root, stems FROM songs WHERE COALESCE(stems,'') != ''"):
-            with contextlib.suppress(ValueError, TypeError, AttributeError):
-                rel = json.loads(r["stems"]).get("folder") or ""
-                path = os.path.normpath(os.path.join(r["root"], rel))
-                if rel and os.path.isfile(os.path.join(path, MANIFEST)):
-                    linked[path] = r["id"]
-                    continue
-            conn.execute("UPDATE songs SET stems='' WHERE id=?", (r["id"],))
-            n += 1
-        for folder, manifest in found.items():
-            folder = os.path.normpath(folder)
-            if folder in linked:
-                continue
-            src = manifest.get("source") or {}
-            if not src.get("file"):
-                continue
-            row = conn.execute(
-                "SELECT id, root FROM songs WHERE file=? AND folder=? "
-                "AND COALESCE(stems,'')='' ORDER BY id LIMIT 1",
-                (src["file"], src.get("folder") or ""),
-            ).fetchone()
-            if row is None and src.get("size"):
-                row = conn.execute(
-                    "SELECT id, root FROM songs WHERE file=? AND size=? "
-                    "AND COALESCE(stems,'')='' ORDER BY id LIMIT 1",
-                    (src["file"], src["size"]),
-                ).fetchone()
-            if row is None:
-                continue
-            rel = os.path.relpath(folder, row["root"])
-            data = {
-                "folder": rel,
-                "model": manifest.get("model", ""),
-                "quality": manifest.get("quality", ""),
-            }
-            conn.execute("UPDATE songs SET stems=? WHERE id=?", (json.dumps(data), row["id"]))
-            linked[folder] = row["id"]
-            n += 1
-    return n
+        return _rust.stems_relink(conn, dict(found))
 
 
 def stem_paths() -> set[str]:
@@ -1139,14 +986,8 @@ def stem_paths() -> set[str]:
     forma de onda al escanear)."""
     from .library import db
 
-    out: set[str] = set()
     with db.connect() as conn:
-        for r in conn.execute("SELECT root, stems FROM songs WHERE COALESCE(stems,'') != ''"):
-            with contextlib.suppress(ValueError, TypeError, AttributeError):
-                folder = Path(r["root"]) / json.loads(r["stems"])["folder"]
-                manifest = read_manifest(folder) or {}
-                out.update(str(folder / t["file"]) for t in manifest.get("tracks") or [])
-    return out
+        return _rust.stems_stem_paths(conn)
 
 
 # ------------------------------------------------------------ exportar una mezcla
@@ -1170,25 +1011,12 @@ def _has_rubberband(ffmpeg: str) -> bool:
 
 def _tempo_filter(tempo: float) -> str:
     """atempo solo admite de 0,5 a 2: fuera de eso se encadenan (como Rust)."""
-    parts, left = [], min(3.0, max(0.25, tempo))
-    while left < 0.5 - 1e-6:
-        parts.append("atempo=0.5")
-        left /= 0.5
-    while left > 2.0 + 1e-6:
-        parts.append("atempo=2.0")
-        left /= 2.0
-    parts.append(f"atempo={left:.4f}")
-    return ",".join(parts)
+    return _rust.stems_tempo_filter(float(tempo))
 
 
 def _speed_pitch(speed: float, pitch: float, rubberband: bool) -> str:
     """El mismo filtro que usa el reproductor (transcode.rs) para velocidad y tono."""
-    if abs(pitch) <= 1e-3:
-        return "" if abs(speed - 1) <= 1e-4 else _tempo_filter(speed)
-    factor = 2 ** (max(-12.0, min(12.0, pitch)) / 12)
-    if rubberband:
-        return f"rubberband=tempo={speed:.4f}:pitch={factor:.5f}"
-    return f"asetrate=44100*{factor:.5f},aresample=44100,{_tempo_filter(speed / factor)}"
+    return _rust.stems_speed_pitch(float(speed), float(pitch), bool(rubberband))
 
 
 def gains(gain: float, pan: float) -> tuple[float, float]:
@@ -1198,9 +1026,7 @@ def gains(gain: float, pan: float) -> tuple[float, float]:
     canales tal cual; hacia un lado, el otro baja hasta callar. Es lo mismo
     que hace el reproductor, para que lo exportado suene como lo que se oye.
     """
-    pan = max(-1.0, min(1.0, pan))
-    gain = max(0.0, gain)
-    return gain * min(1.0, 1.0 - pan), gain * min(1.0, 1.0 + pan)
+    return _rust.stems_gains(float(gain), float(pan))
 
 
 # Por donde sale cada cosa, como en una secuencia en directo (la cancion por
@@ -1214,36 +1040,16 @@ def matrix(
 ) -> tuple[float, float, float, float]:
     """Lo que le llega a cada canal de la mezcla desde los dos de la pista:
     (izquierdo desde izquierdo, izquierdo desde derecho, derecho desde
-    izquierdo, derecho desde derecho).
-
-    Primero su volumen y su balance (`gains`), como en el reproductor. Por
-    los dos lados y en estereo, tal cual. En mono, o por un solo lado, los
-    dos canales ya con su balance, juntos a la mitad (lo que suena igual a
-    los dos lados sale igual de fuerte): es lo que hace el motor al llevar
-    un bus a un solo canal, o a dos en mono."""
-    left, right = gains(max(0.0, gain), pan)
-    if side in ("L", "R") or mono:
-        to_left = 0.0 if side == "R" else 1.0
-        to_right = 0.0 if side == "L" else 1.0
-        return (
-            0.5 * left * to_left,
-            0.5 * right * to_left,
-            0.5 * left * to_right,
-            0.5 * right * to_right,
-        )
-    return left, 0.0, 0.0, right
+    izquierdo, derecho desde derecho). Primero su volumen y su balance
+    (`gains`); en mono, o por un solo lado, los dos canales juntos a la mitad
+    (ver `biblioteca::pistas::matrix`)."""
+    return _rust.stems_matrix(float(gain), float(pan), str(side), bool(mono))
 
 
 def _pan(coefs: Sequence[float]) -> str:
     """Los coeficientes de una pista en el filtro `pan` de ffmpeg: (izq, der)
     o los cuatro de `matrix`. Sin mezclar los lados, como siempre."""
-    if len(coefs) == 2:
-        ll, lr, rl, rr = coefs[0], 0.0, 0.0, coefs[1]
-    else:
-        ll, lr, rl, rr = coefs
-    if not lr and not rl:
-        return f"pan=stereo|c0={ll:.4f}*c0|c1={rr:.4f}*c1"
-    return f"pan=stereo|c0={ll:.4f}*c0+{lr:.4f}*c1|c1={rl:.4f}*c0+{rr:.4f}*c1"
+    return _rust.stems_pan([float(c) for c in coefs])
 
 
 def mix_filter(
@@ -1266,59 +1072,17 @@ def mix_filter(
     clic y las guias habladas (en ese orden), ya a la velocidad de la mezcla:
     se suman despues de la velocidad y el tono, que si no las estirarian y
     les cambiarian el tono tambien (en el reproductor tampoco se estiran)."""
-    chains = [
-        f"[{i}:a]aformat=channel_layouts=stereo,{_pan(coefs)}[a{i}]"
-        for i, coefs in enumerate(inputs)
-    ]
-    joined = "".join(f"[a{i}]" for i in range(len(inputs)))
-    tail = f"{joined}amix=inputs={len(inputs)}:normalize=0:dropout_transition=0"
-    extra = _speed_pitch(speed, pitch, rubberband)
-    if extra:
-        tail += "," + extra
-    extras = [name for name, on in (("clic", click), ("guias", guides)) if on]
-    n = len(inputs)
-    for j, name in enumerate(extras):
-        chains.append(f"[{n + j}:a]aformat=channel_layouts=stereo[{name}]")
-    if extras:
-        joined_extras = "".join(f"[{name}]" for name in extras)
-        tail += (
-            f"[canto];[canto]{joined_extras}"
-            f"amix=inputs={1 + len(extras)}:normalize=0:duration=first"
-        )
-    tail += ",alimiter=limit=0.98:level=0[out]"
-    return ";".join([*chains, tail])
+    return _rust.stems_mix_filter(
+        [[float(c) for c in coefs] for coefs in inputs],
+        float(speed),
+        float(pitch),
+        bool(rubberband),
+        bool(click),
+        bool(guides),
+    )
 
 
 GUIDES_RATE = 44100
-# Lo que ffmpeg deja en cada canal al abrir en estereo un WAV mono (-3 dB):
-# lo que va por un solo lado va a ese nivel, para que suene igual de fuerte
-# que cuando va por los dos.
-SIDE_LEVEL = 0.5**0.5
-
-
-def _write_pcm(path: Path, x, rate: int) -> None:
-    """Muestras a un WAV de 16 bits: mono, o estereo si vienen en dos
-    columnas (izquierda, derecha)."""
-    import numpy as np
-
-    pcm = (np.clip(x, -1, 1) * 32767).astype("<i2")
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(2 if pcm.ndim == 2 else 1)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes(pcm.tobytes())
-
-
-def _on_side(mono, side: str):
-    """Un sonido mono por su lado de la mezcla: tal cual si va por los dos
-    (ffmpeg lo abre en estereo), o en dos canales con el otro callado."""
-    import numpy as np
-
-    if side not in ("L", "R"):
-        return mono
-    out = np.zeros((len(mono), 2), dtype=np.float32)
-    out[:, 0 if side == "L" else 1] = np.asarray(mono, dtype=np.float32) * SIDE_LEVEL
-    return out
 
 
 def _guides_file(cues, length: float, speed: float, folder: Path) -> Path | None:
@@ -1327,48 +1091,19 @@ def _guides_file(cues, length: float, speed: float, folder: Path) -> Path | None
     como suenan en el estudio. Solo las de la carpeta de guias de DanPlay.
     Si alguna va por un solo lado (`side`), el WAV es estereo y cada una va
     por el suyo. None si no queda ninguna que leer."""
-    import numpy as np
-
     from . import cues as guides
 
-    total = max(1, int(length / speed * GUIDES_RATE) + GUIDES_RATE)
-    sided = any((c.get("side") or "both") in ("L", "R") for c in cues or [])
-    out = np.zeros((total, 2) if sided else total, dtype=np.float32)
-    used = 0
+    found = []
     for c in cues or []:
+        side = c.get("side") or "both"
         own = guides.own_file(c.get("file"))
         if not own:
+            found.append((None, 0.0, 1.0, side))
             continue
-        try:
-            with wave.open(own, "rb") as w:
-                rate, width, ch = w.getframerate(), w.getsampwidth(), w.getnchannels()
-                raw = w.readframes(w.getnframes())
-        except (OSError, wave.Error, EOFError):
-            continue
-        if width != 2 or not raw:
-            continue
-        x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
-        if ch > 1:
-            x = x.reshape(-1, ch).mean(axis=1)
-        if rate != GUIDES_RATE and len(x) > 1:
-            n = int(len(x) * GUIDES_RATE / rate)
-            x = np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
-        at = int(max(0.0, float(c.get("at") or 0)) / speed * GUIDES_RATE)
-        if at >= total:
-            continue
-        piece = x[: total - at] * float(c.get("gain", 1.0))
-        side = c.get("side") or "both"
-        if not sided:
-            out[at : at + len(piece)] += piece
-        elif side in ("L", "R"):
-            out[at : at + len(piece), 0 if side == "L" else 1] += piece * SIDE_LEVEL
-        else:
-            out[at : at + len(piece)] += (piece * SIDE_LEVEL)[:, None]
-        used += 1
-    if not used:
-        return None
+        found.append((own, float(c.get("at") or 0), float(c.get("gain", 1.0)), side))
     path = folder / ".guias.wav"
-    _write_pcm(path, out, GUIDES_RATE)
+    if not _rust.stems_guides_wav(found, float(length), float(speed), path):
+        return None
     return path
 
 
@@ -1376,21 +1111,17 @@ def _click_file(click: Mapping[str, Any], length: float, speed: float, folder: P
     """El clic de la mezcla en un WAV aparte: los pulsos (en segundos de la
     cancion) pasados al tiempo de la mezcla, con su sonido y su volumen. Por
     los dos lados, o por el suyo (`side`)."""
-    from . import click as clicks  # aqui: el nucleo no carga numpy hasta que hace falta
-
-    beats = [float(t) / speed for t in click.get("beats") or []]
-    accents = [bool(a) for a in click.get("accents") or []]
-    if len(accents) != len(beats):
-        accents = [False] * len(beats)
-    mono = clicks.track(
-        beats,
-        accents,
-        length / speed,
+    path = folder / ".clic.wav"
+    _rust.stems_click_wav(
+        [float(t) for t in click.get("beats") or []],
+        [bool(a) for a in click.get("accents") or []],
+        float(length),
+        float(speed),
         str(click.get("sound") or "clasico"),
         float(click.get("volume", 0.8)),
+        str(click.get("side") or "both"),
+        path,
     )
-    path = folder / ".clic.wav"
-    _write_pcm(path, _on_side(mono, str(click.get("side") or "both")), clicks.RATE)
     return path
 
 

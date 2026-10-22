@@ -889,8 +889,10 @@ version = "1.30.0"
 dependencies = [
  "dirs",
  "fancy-regex",
+ "flate2",
  "lofty",
  "md-5",
+ "quick-xml",
  "rayon",
  "regex",
  "rusqlite",
@@ -903,6 +905,7 @@ dependencies = [
  "unicode-normalization",
  "unicode-properties",
  "ureq",
+ "zip",
 ]
 
 [[package]]

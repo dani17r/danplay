@@ -2,6 +2,7 @@
 //! cada canción, sacado poco a poco del núcleo Python (danplay/click.py,
 //! torchzip.py, pulse.py...).
 //!
+//! - `mezcla`: el clic y las guías habladas de una mezcla guardada, en WAV;
 //! - `clic`: la pista del clic de la mezcla que se guarda (el sonido es el
 //!   del motor, el mismo que suena en el modo estudio);
 //! - `pesos`: leer los pesos de un checkpoint de PyTorch sin PyTorch ni
@@ -18,6 +19,7 @@
 #![allow(clippy::float_cmp)]
 
 pub mod clic;
+pub mod mezcla;
 pub mod pesos;
 pub mod pulso;
 
