@@ -3,6 +3,29 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
+## Sin publicar
+
+El núcleo, pasando a Rust: lo que hacía en Python, ahora en el crate de
+Rust que va dentro (ver [docs/MIGRACION.md](docs/MIGRACION.md)). Por
+fuera todo sigue igual; por dentro va más rápido y gasta menos.
+
+- **El índice en Rust**: la base se abre con SQLite desde Rust, y buscar,
+  recorrer las carpetas, escanear, cada canción, las listas, lo abierto
+  desde fuera, las conversaciones y el diario van en Rust. Recorrer las
+  carpetas, de 1,5 a 4 veces más rápido; leer las etiquetas del escaneo, en
+  paralelo.
+- **El análisis en Rust**: el clic (Beat This!) y separar en pistas (Demucs
+  y el Mega53) corren en ONNX Runtime desde Rust; separar gasta unos 300 MB
+  menos de memoria.
+- **Y más**: los nombres, la teoría y los cifrados, la conversión, la forma
+  de onda, las miniaturas, los duplicados, la guía hablada.
+- **Arreglado**: el segundo intento de convertir un archivo (sin la
+  carátula) no funcionaba nunca; un tiempo «inf» en un marcador se guardaba
+  como algo que la interfaz no podía leer; el núcleo empaquetado no
+  aceptaba el cuarto argumento del pulso.
+- **Para quien compila**: QuickJS-NG en vez de Deno para los retos de
+  YouTube (−93 MB), y el núcleo empaquetado en una carpeta.
+
 ## 1.30.0 — 2026-10-17
 
 El modo estudio como una secuencia: cada cosa por su lado desde su carril,
