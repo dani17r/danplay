@@ -849,6 +849,8 @@ dependencies = [
  "half",
  "ort",
  "realfft",
+ "serde",
+ "serde_json",
  "sha1",
  "zip",
 ]

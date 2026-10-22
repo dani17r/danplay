@@ -7,7 +7,11 @@
 //! - `pesos`: leer los pesos de un checkpoint de PyTorch sin PyTorch ni
 //!   ejecutar nada de lo que traiga;
 //! - `pulso`: el pulso y el «1» con Beat This! (espectrograma, la red en
-//!   ONNX Runtime y la rejilla que usa la app).
+//!   ONNX Runtime y la rejilla que usa la app);
+//! - `separar` y `mega`: separar una canción en pistas (Demucs v4 y, para la
+//!   máxima calidad, el Mega53), con sus espectrogramas, los trozos que se
+//!   funden y el trabajo entero con ffmpeg;
+//! - `onnx`: las redes, en ONNX Runtime (`ort`, cargando la biblioteca).
 //!
 //! Python lo usa a través de `danplay_core` (core/); la app lo usará
 //! directamente cuando el núcleo entero esté en Rust. Aquí no se sabe nada
@@ -18,7 +22,10 @@
 #![allow(clippy::float_cmp)]
 
 pub mod clic;
+pub mod mega;
+pub mod onnx;
 pub mod pesos;
 pub mod pulso;
+pub mod separar;
 
 mod np;
