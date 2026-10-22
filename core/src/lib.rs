@@ -40,6 +40,7 @@ pub mod turn;
 pub mod waveforms;
 pub mod web;
 pub mod weights;
+pub mod youtube;
 pub mod ytdlp;
 
 use pyo3::prelude::*;
@@ -199,6 +200,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     stems::register(m)?;
     ai::register(m)?;
     cues::register(m)?;
+    youtube::register(m)?;
     ytdlp::register(m)?;
     Ok(())
 }
