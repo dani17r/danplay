@@ -191,7 +191,8 @@ def test_isidentifier_como_python(s):
     assert _compat("isidentifier", s) == s.isidentifier()
 
 
-@given(st.characters())
+# sin sustitutos sueltos (Cs): no son texto y no se pueden pasar a Rust
+@given(st.characters(exclude_categories=("Cs",)))
 def test_isprintable_como_python(c):
     assume(_assigned(c))
     assert _compat("isprintable", c) == c.isprintable()

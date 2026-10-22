@@ -1,7 +1,8 @@
 # Los crates de Rust de DanPlay, en un solo workspace:
 #
-#   analisis/           el analisis: el pulso y el «1» (Beat This!, en ONNX
-#                       Runtime), el clic de la mezcla y los pesos de los modelos
+#   analisis/           el analisis: el pulso y el «1» (Beat This!), separar
+#                       en pistas (Demucs, el Mega53), en ONNX Runtime; el clic
+#                       de la mezcla y los pesos de los modelos
 #   core/               el modulo PyO3 del nucleo (hashes en paralelo, forma de onda)
 #   desktop/src-tauri/  la app de escritorio (Tauri): cola, audio, bandeja, MPRIS
 #   motor/              el motor de pistas de la app del celular (y lo que

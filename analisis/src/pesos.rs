@@ -1115,5 +1115,165 @@ pub fn leer(ruta: &Path, clave: Option<&str>) -> Result<Vec<(String, Rc<Tensor>)
     Ok(pesos)
 }
 
+// ------------------------------------------------------------ safetensors
+
+/// Un tensor de un `.safetensors`: dónde están sus números en el archivo
+/// (desde el principio) y su forma.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TensorSt {
+    pub nombre: String,
+    pub tipo: Tipo,
+    pub inicio: u64,
+    pub fin: u64,
+    pub forma: Vec<u64>,
+}
+
+/// Los tensores de un `.safetensors`, sin la biblioteca: una cabecera JSON y
+/// los datos crudos detrás. No se lee ningún número (se mapean después).
+pub fn safetensors(ruta: &Path) -> Result<Vec<TensorSt>, Fallo> {
+    let nombre = ruta
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let no_es = || Fallo::Valor(format!("{nombre} no es un safetensors"));
+    let mut f = File::open(ruta).map_err(|e| Fallo::Archivo(e.kind(), e.to_string()))?;
+    let mut largo = [0u8; 8];
+    let leidos = f
+        .read(&mut largo)
+        .map_err(|e| Fallo::Archivo(e.kind(), e.to_string()))?;
+    let size = u64::from_le_bytes(largo);
+    if leidos < 8 || size == 0 || size > 50_000_000 {
+        return Err(no_es());
+    }
+    let mut cabecera = vec![0u8; size as usize];
+    f.read_exact(&mut cabecera).map_err(|_| no_es())?;
+    let json: serde_json::Value =
+        serde_json::from_slice(&cabecera).map_err(|e| Fallo::Valor(e.to_string()))?;
+    let serde_json::Value::Object(cabecera) = json else {
+        return Err(Fallo::Valor(format!("{nombre} no es un safetensors")));
+    };
+    let datos = 8 + size;
+    let mut out = Vec::new();
+    for (k, meta) in cabecera {
+        if k == "__metadata__" {
+            continue;
+        }
+        let dtype = meta
+            .get("dtype")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let tipo = match dtype {
+            "F32" => Tipo::F32,
+            "F16" => Tipo::F16,
+            "I64" => Tipo::I64,
+            "I32" => Tipo::I32,
+            otro => return Err(Fallo::Valor(format!("tipo {otro} desconocido en {nombre}"))),
+        };
+        let pos: Vec<u64> = meta
+            .get("data_offsets")
+            .and_then(serde_json::Value::as_array)
+            .map(|v| v.iter().filter_map(serde_json::Value::as_u64).collect())
+            .unwrap_or_default();
+        let forma: Vec<u64> = meta
+            .get("shape")
+            .and_then(serde_json::Value::as_array)
+            .map(|v| v.iter().filter_map(serde_json::Value::as_u64).collect())
+            .unwrap_or_default();
+        let [a, z] = pos[..] else { return Err(no_es()) };
+        let cuantos: u64 = forma.iter().product();
+        if z < a || (z - a) != cuantos * tipo.bytes() {
+            return Err(Fallo::Valor(format!(
+                "cannot reshape array of size {} into shape {forma:?}",
+                (z.saturating_sub(a)) / tipo.bytes()
+            )));
+        }
+        out.push(TensorSt {
+            nombre: k,
+            tipo,
+            inicio: datos + a,
+            fin: datos + z,
+            forma,
+        });
+    }
+    Ok(out)
+}
+
+// ------------------------------------------------------------ a float32
+
+fn a_f32(tipo: Tipo, b: &[u8]) -> f32 {
+    match tipo {
+        Tipo::F32 => f32::from_le_bytes([b[0], b[1], b[2], b[3]]),
+        Tipo::F16 => half::f16::from_le_bytes([b[0], b[1]]).to_f32(),
+        Tipo::BF16 => f32::from_bits(u32::from(u16::from_le_bytes([b[0], b[1]])) << 16),
+        Tipo::F64 => f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]) as f32,
+        Tipo::I64 => i64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]) as f32,
+        Tipo::I32 => i32::from_le_bytes([b[0], b[1], b[2], b[3]]) as f32,
+        Tipo::I16 => f32::from(i16::from_le_bytes([b[0], b[1]])),
+        Tipo::I8 => f32::from(b[0] as i8),
+        Tipo::U8 => f32::from(b[0]),
+        Tipo::Bool => f32::from(u8::from(b[0] != 0)),
+    }
+}
+
+fn leer_en(archivo: &mut File, inicio: u64, bytes: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::{Seek, SeekFrom};
+    archivo.seek(SeekFrom::Start(inicio))?;
+    let mut out = vec![0u8; usize::try_from(bytes).map_err(std::io::Error::other)?];
+    archivo.read_exact(&mut out)?;
+    Ok(out)
+}
+
+/// Los números de un tensor de un checkpoint, en float32 y en orden C (como
+/// `astype(float32)` de la vista de numpy): solo se lee lo que ocupa.
+pub fn materializar(archivo: &mut File, t: &Tensor) -> std::io::Result<(Vec<usize>, Vec<f32>)> {
+    let a = &t.almacen;
+    let item = a.tipo.bytes();
+    let forma: Vec<usize> = t.forma.iter().map(|n| *n as usize).collect();
+    let cuantos: usize = forma.iter().product();
+    if cuantos == 0 {
+        return Ok((forma, Vec::new()));
+    }
+    // el tramo del almacén que toca la vista
+    let ultimo = t
+        .forma
+        .iter()
+        .zip(&t.pasos)
+        .map(|(n, p)| (n - 1) * p)
+        .sum::<u64>()
+        + t.desplazamiento;
+    let crudo = leer_en(
+        archivo,
+        a.inicio + t.desplazamiento * item,
+        (ultimo - t.desplazamiento + 1) * item,
+    )?;
+    let mut out = Vec::with_capacity(cuantos);
+    let mut idx = vec![0usize; forma.len()];
+    for _ in 0..cuantos {
+        let pos: u64 = idx.iter().zip(&t.pasos).map(|(i, p)| *i as u64 * p).sum();
+        let b = (pos * item) as usize;
+        out.push(a_f32(a.tipo, &crudo[b..b + item as usize]));
+        // el siguiente índice, el último eje el más rápido
+        for d in (0..idx.len()).rev() {
+            idx[d] += 1;
+            if idx[d] < forma[d] {
+                break;
+            }
+            idx[d] = 0;
+        }
+    }
+    Ok((forma, out))
+}
+
+/// Los números de un tensor de un `.safetensors`, en float32.
+pub fn materializar_st(
+    archivo: &mut File,
+    t: &TensorSt,
+) -> std::io::Result<(Vec<usize>, Vec<f32>)> {
+    let crudo = leer_en(archivo, t.inicio, t.fin - t.inicio)?;
+    let item = t.tipo.bytes() as usize;
+    let datos = crudo.chunks_exact(item).map(|b| a_f32(t.tipo, b)).collect();
+    Ok((t.forma.iter().map(|n| *n as usize).collect(), datos))
+}
+
 #[cfg(test)]
 mod tests;

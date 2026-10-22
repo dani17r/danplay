@@ -73,9 +73,10 @@ pub fn media(a: &[f64]) -> f64 {
     suma(a) / a.len() as f64
 }
 
-/// `np.mean` de un `float32`: la suma en 32 bits y la división también.
+/// `np.mean` de un `float32`: la suma en 32 bits y la división por el
+/// número de elementos (un `intp`) en 64, de vuelta a 32.
 pub fn media32(a: &[f32]) -> f32 {
-    suma32(a) / a.len() as f32
+    (f64::from(suma32(a)) / a.len() as f64) as f32
 }
 
 /// `np.median`: el del medio, o la media de los dos del medio.

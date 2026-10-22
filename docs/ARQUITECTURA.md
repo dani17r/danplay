@@ -812,7 +812,8 @@ velocidad, el tono y el metrónomo de siempre encima.
 **El motor es Demucs v4 (HTDemucs) sin PyTorch.** PyTorch pesa cientos de
 megas instalado y no cabe en el paquete; ONNX Runtime pesa 17. La red se
 exporta a ONNX (`scripts/exportar-separador.py`) y todo lo que Demucs hace
-alrededor de ella con PyTorch se hace en `separation.py` con numpy: el
+alrededor de ella con PyTorch se hace en Rust (`analisis/src/separar.rs`,
+por `separation.py`; antes, con numpy, cuenta a cuenta igual): el
 espectrograma y su inversa (las mismas ventanas, los mismos rellenos, los
 dos marcos que se tiran de cada borde), y la canción en trozos de 7,8 s que
 se solapan un cuarto y se funden con un peso en triángulo. Sin los
@@ -950,7 +951,7 @@ Una tercera pasada opcional, lenta, sobre las pistas buenas: el **Mega53**
 («MVSep Mega 53 Stems», BS-RoFormer de ZFTurbo, MIT) oye 53 instrumentos con
 un cuerpo común y una cabeza por instrumento; DanPlay exporta el cuerpo y 15
 cabezas (`scripts/exportar-mega53.py`) y reparte con máscaras suaves
-(`danplay/mega.py`):
+(`analisis/src/mega.rs`, por `danplay/mega.py`):
 
 - la **batería** (de los especialistas) en el kit y la **percusión** de
   aparte (congas, pandereta, shakers): kit y percusión suman exactamente la
@@ -1929,9 +1930,9 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   ytdlp.py        yt-dlp: el motor de JavaScript y la actualización en caliente
   stems.py        separar en pistas: la cola, las carpetas, la mezcla
   bundle.py       llevar una canción separada al celular (.danpista)
-  separation.py   el separador por dentro (Demucs con numpy y ONNX Runtime),
+  separation.py   el separador por dentro (Demucs y ONNX Runtime, en Rust),
                   en un proceso aparte; run_max, la máxima calidad
-  mega.py         la máxima calidad: el Mega53 y el reparto por máscaras
+  mega.py         la máxima calidad: el Mega53 y el reparto por máscaras (en Rust)
   torchzip.py     leer un checkpoint de PyTorch sin PyTorch ni pickle (en Rust)
   data/separador/ los grafos del separador, sin pesos (también el Mega53)
   reuse.py        lo hecho para otro archivo de la misma canción: gemelas,
@@ -1954,8 +1955,9 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   chats.py        las conversaciones con el asistente, guardadas y buscables
   model_catalog.py  el catálogo de modelos (models.dev), siempre al día
   data/           la foto del catálogo que viaja con la app
-analisis/       crate Rust: el pulso (Beat This!, ONNX Runtime con ort), el clic
-                de la mezcla y los pesos de PyTorch, sin nada de Python
+analisis/       crate Rust: el pulso (Beat This!), el separador (Demucs y el
+                Mega53), las redes en ONNX Runtime (ort), el clic de la mezcla
+                y los pesos de PyTorch y safetensors, sin nada de Python
 biblioteca/     crate Rust: las etiquetas (lofty), sin nada de Python
 core/           crate Rust (PyO3): etiquetas (de biblioteca/), hashes en
                 paralelo y forma de onda
