@@ -986,3 +986,29 @@ def enrich_enrich(
     save_to_file: Any,
 ) -> dict[str, Any]: ...
 
+# ---- importar la carpeta Entrada/ (library/src/ingest.rs, core/src/ingest.rs):
+# la cascada para identificar, el nombre, la carpeta y archivar; ver
+# danplay/ingest.py. `module` es danplay.ingest: lo de fuera se busca en el.
+
+def ingest_constants() -> tuple[float, float, list[tuple[str, str]]]: ...
+def ingest_from_tags(module: Any, path: Any) -> dict[str, Any] | None: ...
+def ingest_from_fingerprint(module: Any, path: Any) -> dict[str, Any] | None: ...
+def ingest_from_heuristic(module: Any, path: Any, vocab: Any) -> dict[str, Any] | None: ...
+def ingest_from_ai(module: Any, path: Any, vocab: Any) -> dict[str, Any] | None: ...
+def ingest_resolve(module: Any, path: Any, vocab: Any) -> dict[str, Any]: ...
+def ingest_process(
+    module: Any,
+    path: Any,
+    vocab: Any,
+    dry_run: Any,
+    write_tags: Any,
+    convert_mp3: Any,
+    known: Any = None,
+) -> dict[str, Any]: ...
+def ingest_process_inbox(
+    module: Any,
+    dry_run: Any = None,
+    limit: Any = None,
+    convert_mp3: Any = None,
+    progress: Any = None,
+) -> list[Any]: ...

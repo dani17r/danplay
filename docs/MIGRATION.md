@@ -44,12 +44,13 @@ En Rust (con su puerta de Python):
 | 1 | el índice entero (conexión, esquema y migraciones, búsqueda, carpetas, escaneo, canciones y su estudio, «Transformar», historial), listas, lo de fuera, conversaciones, diario, nombres, etiquetas (lofty), configuración (de momento solo comparada con la de Python) |
 | 1 | convertir, forma de onda, miniaturas, huella, duplicados |
 | 2 | pulso (Beat This! con `ort`), clic, pesos de PyTorch, separar en pistas (Demucs y el Mega53), las pistas separadas, el paquete del celular, las secuencias, la estructura y la guía automática, las guías habladas y sus voces (Supertonic y Piper), la rejilla del clic (lo guardado, leído y escrito como el `json` de Python, y re-analizar) |
-| 3 | teoría, cifrados, TOON, los datos de fuera (`chat/safe`), la guía hablada, la web, los proveedores de IA, su catálogo y su cliente, leer listas pegadas, emparejar con la biblioteca, la narración, lo que se le cuenta al modelo en cada turno y la lista contra un repertorio |
+| 3 | teoría, cifrados, TOON, los datos de fuera (`chat/safe`), la guía hablada, la web, los proveedores de IA, su catálogo y su cliente, leer listas pegadas, emparejar con la biblioteca, la narración, lo que se le cuenta al modelo en cada turno y la lista contra un repertorio, enriquecer una canción (la letra de LRCLIB, la carátula, la ficha de la IA, su cifrado, transponerlo y rellenar la ficha) e importar la Entrada (la cascada, el nombre, la carpeta y archivar) |
 
 Siguen en Python: la API (`api/`) y sus trabajos en segundo plano, la
 cola de la rejilla del clic (`beatgrid.py`: su hilo, el proceso del detector
 y la batería separada de cada canción), el resto del asistente (`chat/plan.py`, `tools.py`, `loop.py`), YouTube y yt-dlp,
-importar y enriquecer, el vigilante de carpetas, la línea de órdenes, y lo
+la red de enriquecer (`enrich._get`, con urllib), el `Result` de importar y
+lo que toma de `config`, el vigilante de carpetas, la línea de órdenes, y lo
 que orquesta alrededor de Rust (los hilos, los cerrojos, la red).
 
 ## Los nombres, en inglés
@@ -82,7 +83,9 @@ Cuando todo lo de arriba esté en Rust:
    que pase cada petición del `TestClient` a `danplay_core`, con la
    configuración de Python de cada prueba. Las que sustituyen funciones de
    Python (clientes de IA falsos, la papelera...) necesitan que esas
-   fronteras sean inyectables también desde Rust.
+   fronteras sean inyectables también desde Rust. Enriquecer e importar ya
+   las llevan así (`library::enrich::Outside`, `library::ingest::Outside`):
+   hoy las da el módulo de Python; en la fase 4, la versión de Rust.
 4. **Los paquetes sin Python**: fuera PyInstaller y el núcleo empaquetado;
    la app lleva `libonnxruntime` (hoy sale del paquete `onnxruntime`) y
    yt-dlp como su ejecutable oficial, como ffmpeg y QuickJS. Los procesos

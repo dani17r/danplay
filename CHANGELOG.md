@@ -19,8 +19,9 @@ fuera todo sigue igual; por dentro va más rápido y gasta menos.
   menos de memoria.
 - **Y más**: los nombres, la teoría y los cifrados, la conversión, la forma
   de onda, las miniaturas, los duplicados, la guía hablada, la rejilla del
-  clic guardada y «Re-analizar el clic», y enriquecer una canción (la letra,
-  la carátula, la ficha de la IA, su cifrado y rellenar lo que falta).
+  clic guardada y «Re-analizar el clic», enriquecer una canción (la letra,
+  la carátula, la ficha de la IA, su cifrado y rellenar lo que falta) e
+  importar lo que hay en Entrada/.
 - **Arreglado**: el segundo intento de convertir un archivo (sin la
   carátula) no funcionaba nunca; un tiempo «inf» en un marcador se guardaba
   como algo que la interfaz no podía leer; el núcleo empaquetado no

@@ -20,6 +20,7 @@ pub mod external;
 pub mod fingerprint;
 pub mod html;
 pub mod index;
+pub mod ingest;
 pub mod journal;
 pub mod names;
 pub mod net;

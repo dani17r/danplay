@@ -23,6 +23,7 @@ pub mod enrich;
 pub mod external;
 pub mod fingerprint;
 pub mod index;
+pub mod ingest;
 pub mod journal;
 pub mod json;
 pub mod logging;
@@ -204,6 +205,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     cues::register(m)?;
     beatgrid::register(m)?;
     enrich::register(m)?;
+    ingest::register(m)?;
     Ok(())
 }
 

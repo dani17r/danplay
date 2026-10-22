@@ -423,6 +423,12 @@ Un escalón que falla no tumba la cascada: si AcoustID devuelve un error de
 servicio, decide el siguiente. Esto pasó de verdad y dejó la importación
 completamente bloqueada, de ahí el envoltorio `_safe`.
 
+La cascada, el nombre y la carpeta de cada archivo y la Entrada entera van en
+Rust (`library/src/ingest.rs`). `ingest.py` es la puerta: Rust busca en el
+módulo, al usarlo, cada escalón (`_from_tags`, `_from_ai`...), las
+etiquetas, la huella, la IA, convertir y mover el archivo (`shutil.move`),
+así que lo que se cambia desde fuera (las pruebas, las descargas) se usa.
+
 **Por qué no se usa el postprocesador de metadatos de yt-dlp.** Rellena el
 artista con el nombre del canal («Fulanito Music», «… - Topic»). Como las
 etiquetas son el primer escalón de la cascada, se colaría con 0.95 de confianza
