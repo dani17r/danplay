@@ -20,7 +20,6 @@ name: android
 on:
   push:
     tags: ['v*']
-    branches: ['ci/paquetes-en-github']   # TEMPORAL: probarlo antes de fusionar
   workflow_dispatch:
 
 permissions:
