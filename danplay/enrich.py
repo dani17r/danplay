@@ -6,34 +6,52 @@ Fuentes, en orden de preferencia:
   acordes  -> un cifrado publicado (Ultimate Guitar, LaCuerda: ver chord_sheets.py),
               nunca la IA; el tono, solo si el cifrado lo dice
   metadata -> MusicBrainz -> IA
+
+Lo hace el crate de Rust (library/src/enrich.rs, con el puente en
+core/src/enrich.rs), paso a paso como antes. Aqui quedan la red (`_get`, con
+urllib) y la puerta de cada funcion, con los mismos nombres. Rust busca en
+este modulo, en el momento de usarlo, lo de fuera (`_get`, `log`, `ai`,
+`library`, `tags`, `convert`, `chord_sheets`, `date`) y los pasos
+(`lyrics_lrclib`, `lyrics`, `cover`, `details`, `chords`): lo que las pruebas
+cambian se sigue usando.
 """
 
 import json
 import logging
 import re
-import urllib.parse
+import sys
 import urllib.request
 from collections.abc import Mapping
-from datetime import date
+from datetime import date  # noqa: F401  (Rust lo busca aqui: el dia de un cifrado)
 from typing import Any
 
-from . import ai, chord_sheets, convert, library, tags, theory
+import danplay_core as _rust
+
+# los busca Rust aqui, en el momento de usarlos (las pruebas los cambian)
+from . import ai, chord_sheets, convert, library, tags  # noqa: F401
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "DanPlay/0.1 (gestor de biblioteca personal)"
-TIMEOUT = 15
-# Tope de lo que se descarga de una caratula. Sin el, una respuesta grande
-# (o una pagina de error) se incrustaba entera dentro del mp3.
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
+(
+    USER_AGENT,
+    TIMEOUT,
+    # Tope de lo que se descarga de una caratula. Sin el, una respuesta grande
+    # (o una pagina de error) se incrustaba entera dentro del mp3.
+    MAX_IMAGE_BYTES,
+    _magic,
+    _uuid,
+    _guessed,
+    _sheet,
+    _fillable,
+    _unknown,
+) = _rust.enrich_constants()
 # Los primeros bytes de cada formato. Una pagina HTML de error devuelta con
 # `Content-Type: image/jpeg` no pasa de aqui.
-MAGIC = (
-    (b"\xff\xd8\xff", "image/jpeg"),
-    (b"\x89PNG\r\n\x1a\n", "image/png"),
-    (b"RIFF", "image/webp"),
-)
-UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+MAGIC = tuple(_magic)
+UUID = re.compile(_uuid, re.I)
+
+# este modulo: lo de fuera que usa Rust se busca en el cada vez
+_SELF = sys.modules[__name__]
 
 
 def _get(url, headers=None, binary=False):
@@ -53,12 +71,7 @@ def _get(url, headers=None, binary=False):
 
 def image_type(data: bytes) -> str:
     """El tipo real segun los primeros bytes, o cadena vacia si no es imagen."""
-    for magic, kind in MAGIC:
-        if data.startswith(magic):
-            if kind == "image/webp" and data[8:12] != b"WEBP":
-                continue
-            return kind
-    return ""
+    return _rust.enrich_image_type(data)
 
 
 # ---------------------------------------------------------------- letra
@@ -70,55 +83,16 @@ lrc_to_plain = tags.lrc_to_plain
 
 def _lrclib_result(d) -> dict | None:
     """Lo que interesa de una respuesta de LRCLIB: la letra limpia y la LRC."""
-    if not isinstance(d, dict):
-        return None
-    synced = str(d.get("syncedLyrics") or "")
-    plain = str(d.get("plainLyrics") or "") or lrc_to_plain(synced)
-    if not plain and not synced:
-        return None
-    return {"lyrics": plain, "synced": synced, "source": "lrclib"}
+    return _rust.enrich_lrclib_result(d)
 
 
 def lyrics_lrclib(artist, title, album="", duration: float = 0) -> dict | None:
     """LRCLIB devuelve letra plana y sincronizada (.lrc). Sin clave de API."""
-    p = {"artist_name": artist, "track_name": title}
-    if album:
-        p["album_name"] = album
-    if duration:
-        p["duration"] = int(duration)
-    try:
-        found = _lrclib_result(_get("https://lrclib.net/api/get?" + urllib.parse.urlencode(p)))
-        if found:
-            return found
-    except Exception:
-        log.debug("LRCLIB no tiene %s - %s", artist, title, exc_info=True)
-    try:  # busqueda difusa
-        d = _get(
-            "https://lrclib.net/api/search?" + urllib.parse.urlencode({"q": f"{artist} {title}"})
-        )
-        for r in (d if isinstance(d, list) else [])[:3]:
-            found = _lrclib_result(r)
-            if found:
-                return found
-    except Exception:
-        log.debug("la busqueda en LRCLIB fallo para %s - %s", artist, title, exc_info=True)
-    return None
+    return _rust.enrich_lyrics_lrclib(_SELF, artist, title, album, duration)
 
 
 def lyrics(artist, title, album="", duration: float = 0, allow_ai=True) -> dict | None:
-    r = lyrics_lrclib(artist, title, album, duration)
-    if r:
-        return r
-    if allow_ai and ai.available():
-        d = ai.ask(
-            f"Letra completa de la cancion '{title}' de {artist}. "
-            "Si no la conoces con certeza, responde exactamente NO_LA_SE. "
-            "Devuelve solo la letra, sin comentarios.",
-            max_tokens=1500,
-        )
-        if d and "NO_LA_SE" not in d.upper() and len(d) > 80:
-            return {"lyrics": d.strip(), "synced": "", "source": "ai"}
-    return None
+    return _rust.enrich_lyrics(_SELF, artist, title, album, duration, allow_ai)
 
 
 # ---------------------------------------------------------------- portada
@@ -131,78 +105,20 @@ def _cover_queries(artist, title, album) -> list[str]:
     «(cover X)») y con eso iTunes no encuentra nada. Se prueba tambien una
     version limpia, y sin artista cuando no lo hay.
     """
-    cleaned = re.sub(r"\s*-\s*r\d*$", "", title or "").strip()
-    without_parens = re.sub(r"\s*[\(\[][^)\]]*[\)\]]", "", cleaned).strip()
-    output = []
-    for t in (album or "", cleaned, without_parens):
-        if not t:
-            continue
-        for q in (f"{artist} {t}".strip(), t):
-            if q and q not in output:
-                output.append(q)
-    return output[:4]
+    return _rust.enrich_cover_queries(artist, title, album)
 
 
 def _fetch_image(url: str) -> tuple[bytes, str] | None:
-    """Descarga una imagen y la deja lista para incrustar.
-
-    Tres cosas que antes no se hacian: mirar que de verdad sea una imagen (no
-    la pagina de error de un servicio caido), no pasar de 5 MB, y encogerla.
-    Las caratulas que elige el usuario si se encogian; las que se bajan solas
-    no, asi que una portada de 1000x1000 engordaba cada mp3 en dos megas.
-    """
-    try:
-        data = _get(url, binary=True)
-    except Exception:
-        log.warning("no pude bajar la caratula %s", url, exc_info=True)
-        return None
-    kind = image_type(data)
-    if not kind:
-        log.warning("lo que devolvio %s no es una imagen", url)
-        return None
-    return convert.shrink_bytes(data, kind) or (data, kind)
+    """Descarga una imagen y la deja lista para incrustar: que de verdad sea
+    una imagen (no la pagina de error de un servicio caido), sin pasar de
+    5 MB, y encogida (una portada de 1000x1000 engordaba cada mp3 en dos
+    megas)."""
+    return _rust.enrich_fetch_image(_SELF, url)
 
 
 def cover(artist, title, album="") -> tuple[bytes, str] | None:
     """Busca caratula. iTunes primero (rapido, sin clave), luego Cover Art Archive."""
-    for query in _cover_queries(artist, title, album):
-        try:
-            d = _get(
-                "https://itunes.apple.com/search?"
-                + urllib.parse.urlencode({"term": query, "entity": "song", "limit": 5})
-            )
-        except Exception:
-            log.warning("iTunes no contesto para %r", query, exc_info=True)
-            continue
-        for r in d.get("results", []):
-            url = r.get("artworkUrl100") or ""
-            if not url.startswith("https://"):
-                continue
-            got = _fetch_image(url.replace("100x100bb", "1000x1000bb"))
-            if got:
-                return got
-    try:
-        d = _get(
-            "https://musicbrainz.org/ws/2/release/?"
-            + urllib.parse.urlencode(
-                {
-                    "query": f'artist:"{artist}" AND release:"{album or title}"',
-                    "fmt": "json",
-                    "limit": 3,
-                }
-            )
-        )
-    except Exception:
-        log.warning("MusicBrainz no contesto", exc_info=True)
-        return None
-    for rel in d.get("releases", []):
-        # el id se pega dentro de una URL: si no es un UUID, no se usa
-        if not UUID.match(str(rel.get("id", ""))):
-            continue
-        got = _fetch_image(f"https://coverartarchive.org/release/{rel['id']}/front-500")
-        if got:
-            return got
-    return None
+    return _rust.enrich_cover(_SELF, artist, title, album)
 
 
 # ---------------------------------------------------------------- IA
@@ -211,96 +127,51 @@ def cover(artist, title, album="") -> tuple[bytes, str] | None:
 def details(song: Mapping[str, Any]) -> dict | None:
     """Artistas implicados, album, año, genero y contexto. El tono y los
     acordes no: esos salen de un cifrado publicado (`chords`)."""
-    if not ai.available():
-        return None
-    meta = (
-        f"Artista: {song.get('artist', '?')}\n"
-        f"Titulo: {song.get('title', '?')}\n"
-        f"Album: {song.get('album', '') or '?'}\n"
-        f"Duracion: {int(song.get('duration', 0) // 60)}:{int(song.get('duration', 0) % 60):02d}"
-    )
-    schema = """Devuelve SOLO un JSON con esta forma, con las claves EXACTAS en ingles:
-{
- "album": "", "year": "", "genre": "", "composers": "",
- "involved_artists": ["nombre1","nombre2"],
- "about_the_song": "dos o tres frases",
- "confidence": 0.0
-}
-Los valores van en español. Reglas: sin tildes salvo la ñ; nada en MAYUSCULA
-SOSTENIDA. Si no conoces la cancion, confidence baja. Nunca inventes datos con
-confidence alta.
-
-MUY IMPORTANTE: lo que no sepas va como cadena VACIA "". Nunca escribas
-"desconocido", "n/a", "varios" ni nada parecido: eso ensucia la ficha y hace
-creer que el dato ya esta. El año son cuatro cifras o nada."""
-    return ai.ask_json(
-        f"{schema}\n\nCancion:\n{meta}", "Eres un musico de sesion y catalogador musical."
-    )
+    return _rust.enrich_details(_SELF, song)
 
 
 # Lo que la IA decia de memoria sobre el tono y los acordes antes de 1.21. Ya
 # no se pide, y lo que quede guardado no se enseña: eran aproximaciones.
-_GUESSED = ("likely_key", "progression", "section_chords")
+_GUESSED = tuple(_guessed)
 # lo que va en la columna `chords` y no es de la IA: el cifrado de la web
-_SHEET = ("sheet", "sheet_checked", "sheet_tried")
+_SHEET = tuple(_sheet)
 
 
 def _doc(song: Mapping[str, Any]) -> dict:
     """El JSON de la columna `chords`: la ficha de la IA y el cifrado."""
-    try:
-        d = json.loads(song.get("chords") or "{}")
-    except ValueError:
-        return {}
-    return d if isinstance(d, dict) else {}
+    return _rust.enrich_doc(_SELF, song)
 
 
 def stored_sheet(song: Mapping[str, Any]) -> dict | None:
     """El cifrado guardado de una cancion, sin buscar nada."""
-    sheet = _doc(song).get("sheet")
-    return sheet if isinstance(sheet, dict) else None
+    return _rust.enrich_stored_sheet(_SELF, song)
 
 
 def _save_doc(song_id, doc: dict) -> None:
-    library.update(song_id, chords=json.dumps(doc, ensure_ascii=False))
+    _rust.enrich_save_doc(_SELF, song_id, doc)
 
 
 def _save_details(song: Mapping[str, Any], d: dict) -> None:
     """Guarda lo que dijo la IA sin perder el cifrado que ya hubiera."""
-    keep = {k: v for k, v in _doc(song).items() if k in _SHEET}
-    fresh = {k: v for k, v in d.items() if k not in _GUESSED and k not in _SHEET}
-    _save_doc(song["id"], {**fresh, **keep})
+    _rust.enrich_save_details(_SELF, song, d)
 
 
 def cached_details(song: Mapping[str, Any]) -> dict | None:
     """La ficha de la IA guardada, si merece la pena. Una respuesta con
     confianza baja no se reutiliza: la dio un modelo que no conocia la
     cancion, y con otro mejor —o el mismo otro dia— puede salir."""
-    d = _doc(song)
-    if _confidence(d) < 0.5:
-        return None
-    return {k: v for k, v in d.items() if k not in _GUESSED and k not in _SHEET}
+    return _rust.enrich_cached_details(_SELF, song)
 
 
 def _confidence(d: dict) -> float:
     """La confianza que dio la IA, como numero (a veces llega «alta» o nada)."""
-    try:
-        return float(d.get("confidence") or 0)
-    except (TypeError, ValueError):
-        return 0.0
+    return _rust.enrich_confidence(d)
 
 
 def details_for(song: Mapping[str, Any]) -> tuple[dict | None, bool]:
     """Los detalles de una cancion: los guardados si valen, y si no, se
     piden a la IA y se guardan. Devuelve (detalles, venian_guardados)."""
-    cached = cached_details(song)
-    if cached:
-        return cached, True
-    d = details(song)
-    if not isinstance(d, dict):
-        return None, False
-    if not d.get("error"):
-        _save_details(song, d)
-    return d, False
+    return _rust.enrich_details_for(_SELF, song)
 
 
 # ---------------------------------------------------------------- acordes
@@ -314,96 +185,26 @@ def chords(song: Mapping[str, Any], refresh: bool = False) -> dict:
     "tried": fuentes consultadas, "failed": las que no respondieron}. Que no
     este en ninguna se guarda tambien (no se vuelve a buscar sola cada vez);
     que no respondieran, no: es la red, no la cancion."""
-    doc = _doc(song)
-    if not refresh and "sheet" in doc:
-        return {
-            "sheet": doc["sheet"],
-            "cached": True,
-            "checked": doc.get("sheet_checked", ""),
-            "tried": doc.get("sheet_tried", []),
-            "failed": [],
-        }
-    if not str(song.get("title") or "").strip():
-        return {
-            "sheet": None,
-            "cached": False,
-            "checked": "",
-            "tried": [],
-            "failed": [],
-            "error": "la cancion no tiene titulo",
-        }
-    r = chord_sheets.find(str(song.get("artist") or ""), str(song.get("title") or ""))
-    today = date.today().isoformat()
-    if r["sheet"] or not r["failed"]:
-        doc.update(sheet=r["sheet"], sheet_checked=today, sheet_tried=r["tried"])
-        _save_doc(song["id"], doc)
-    return {**r, "cached": False, "checked": today}
+    return _rust.enrich_chords(_SELF, song, refresh)
 
 
 def transpose_sheet(sheet: Mapping[str, Any], semitones: int = 0, to_key: str = "") -> dict:
     """El cifrado en otro tono: solo se tocan las lineas de acordes (en una
     de letra, «Dios» no es un Re)."""
-    from_key = str(sheet.get("key") or "")
-    if to_key and from_key:
-        n = theory.distance(from_key, to_key) or 0
-        flats = to_key in theory.FLAT_KEYS
-    else:
-        n, flats = semitones % 12, None
-        to_key = theory.transpose(from_key, n) if from_key else ""
-    out = dict(sheet)
-    out["sections"] = [
-        {
-            **s,
-            "chords": [theory.transpose(c, n, flats) for c in s.get("chords") or []],
-            "lines": [
-                {**ln, "t": theory.transpose(ln["t"], n, flats)} if ln.get("c") else ln
-                for ln in s.get("lines") or []
-            ],
-        }
-        for s in sheet.get("sections") or []
-    ]
-    out["key"] = to_key
-    out["semitones"] = n
-    out["capo_hint"] = theory.suggested_capo(to_key) if to_key else []
-    return out
+    return _rust.enrich_transpose_sheet(sheet, semitones, to_key)
 
 
 # campos de ficha que la IA puede rellenar
-FILLABLE = ("album", "year", "genre", "key")
+FILLABLE = tuple(_fillable)
 
 # Lo que devuelve un modelo cuando no sabe algo. Guardarlo seria peor que
 # dejarlo vacio: el campo parece relleno y ya nadie vuelve a mirarlo.
-UNKNOWN_VALUES = {
-    "desconocido",
-    "desconocida",
-    "unknown",
-    "n/a",
-    "na",
-    "none",
-    "null",
-    "sin album",
-    "sin genero",
-    "sin datos",
-    "no disponible",
-    "-",
-    "--",
-    "?",
-    "??",
-    "sin especificar",
-    "varios",
-    "no aplica",
-}
+UNKNOWN_VALUES = set(_unknown)
 
 
 def _useful_value(field: str, value) -> str:
     """El valor si sirve, o cadena vacia. Evita guardar «desconocido»."""
-    v = str(value or "").strip()
-    if not v or v.lower() in UNKNOWN_VALUES:
-        return ""
-    if field == "year":
-        m = re.search(r"\b(1[89]\d{2}|20\d{2})\b", v)  # un año de verdad
-        return m.group(0) if m else ""
-    return v
+    return _rust.enrich_useful_value(field, value)
 
 
 def autofill(song_id) -> dict:
@@ -415,69 +216,7 @@ def autofill(song_id) -> dict:
     Devuelve que se relleno, que sigue faltando y por que, para que la interfaz
     pueda decirlo en vez de dejar al usuario adivinando.
     """
-    c = library.by_id(song_id)
-    if not c:
-        return {"ok": False, "filled": {}, "missing": [], "reason": "no existe esa cancion"}
-
-    missing = [k for k in FILLABLE if not str(c.get(k) or "").strip()]
-    if not missing:
-        return {"ok": True, "filled": {}, "missing": [], "reason": "", "complete": True}
-    if not str(c["artist"] or "").strip():
-        return {
-            "ok": False,
-            "filled": {},
-            "missing": missing,
-            "reason": "esta cancion no tiene artista identificado, asi que no se puede reconocer",
-        }
-
-    filled: dict[str, str] = {}
-    reasons: list[str] = []
-    # lo que impidio preguntar (la IA sin configurar, la red), no que no lo sepan
-    failures = 0
-    if "key" in missing:
-        r = chords(c)
-        if key := chord_sheets.sheet_key(r["sheet"]):
-            filled["key"] = key
-        elif r["sheet"] and r["sheet"].get("key"):
-            reasons.append("el cifrado va con cejilla: su tono no es el que suena")
-        elif r["sheet"]:
-            reasons.append(f"el cifrado de {r['sheet']['source']} no dice el tono")
-        elif r["failed"]:
-            failures += 1
-            reasons.append("no se pudo consultar " + " ni ".join(r["failed"]))
-        else:
-            reasons.append("no hay cifrado publicado en " + " ni ".join(r["tried"]))
-
-    ai_fields = [k for k in missing if k != "key"]
-    if ai_fields and not ai.available():
-        failures += 1
-        reasons.append(f"la IA no esta lista: {ai.unavailable_reason()} (Ajustes)")
-    elif ai_fields:
-        d = details(c)
-        if not isinstance(d, dict) or not d or d.get("error"):
-            failures += 1
-            reasons.append(
-                (d.get("error") if isinstance(d, dict) else "") or "la IA no pudo responder"
-            )
-        else:
-            for k in ai_fields:
-                if v := _useful_value(k, d.get(k)):
-                    filled[k] = v
-            if any(k not in filled for k in ai_fields):
-                reasons.append(
-                    f"la IA no reconoce bien esta cancion (confianza {round(_confidence(d) * 100)}%)"
-                )
-    if filled:
-        library.edit(song_id, **filled)
-
-    remaining = [k for k in missing if k not in filled]
-    return {
-        "ok": bool(filled) or not failures,
-        "filled": filled,
-        "missing": remaining,
-        "reason": "; ".join(reasons) if remaining else "",
-        "complete": not remaining,
-    }
+    return _rust.enrich_autofill(_SELF, song_id)
 
 
 # ---------------------------------------------------------------- orquestacion
@@ -486,42 +225,6 @@ def autofill(song_id) -> dict:
 def enrich(
     song_id, with_lyrics=True, with_cover=True, with_details=True, save_to_file=True
 ) -> dict:
-    c = library.by_id(song_id)
-    if not c:
-        return {"error": "no existe esa cancion"}
-    done = {"id": song_id, "artist": c["artist"], "title": c["title"]}
-
-    if with_lyrics and not c["lyrics"]:
-        r = lyrics(c["artist"], c["title"], c["album"], c["duration"])
-        if r:
-            # La letra LIMPIA va al indice y al USLT del archivo; la version
-            # con tiempos, que solo da LRCLIB, se queda en el indice como cache
-            # aparte. Antes se grababa la LRC en el USLT y, tras reescanear, la
-            # hoja del atril imprimia las marcas delante de cada verso.
-            plain = r["lyrics"] or lrc_to_plain(r.get("synced") or "")
-            library.update(song_id, lyrics=plain, lyrics_synced=r.get("synced") or "")
-            if save_to_file:
-                tags.write_lyrics(c["path"], plain)
-            done["lyrics"] = r["source"]
-
-    if with_cover and not c["cover"]:
-        r = cover(c["artist"], c["title"], c["album"])
-        if r and save_to_file and tags.write_cover(c["path"], r[0], r[1]):
-            library.update(song_id, cover="embedded")
-            done["cover"] = f"{len(r[0]) // 1024} KB"
-
-    if with_details:
-        d = details(c)
-        if isinstance(d, dict) and d and not d.get("error"):
-            # OJO: por aqui tambien entra lo que dice la IA, asi que pasa por
-            # el mismo filtro que `autofill`. Sin el, un «desconocido» del
-            # modelo se guardaba como album de verdad.
-            album = _useful_value("album", d.get("album")) or c["album"]
-            year = _useful_value("year", d.get("year")) or str(c["year"] or "")
-            genre = _useful_value("genre", d.get("genre")) or c["genre"]
-            _save_details(c, d)
-            library.update(song_id, album=album, year=year, genre=genre)
-            if save_to_file:
-                tags.write(c["path"], album=album, year=year, genre=genre)
-            done["details"] = {k: d.get(k) for k in ("genre", "year", "confidence")}
-    return done
+    """La letra, la caratula y la ficha de una cancion (lo que falte; la
+    ficha, siempre que se pida), en el indice y en el archivo."""
+    return _rust.enrich_enrich(_SELF, song_id, with_lyrics, with_cover, with_details, save_to_file)

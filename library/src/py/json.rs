@@ -26,8 +26,9 @@ pub const MAX_DEPTH: usize = 1000;
 const MAX_INT_DIGITS: usize = 4300;
 
 /// Un valor como los que da `json.loads` de Python.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum Json {
+    #[default]
     Null,
     Bool(bool),
     /// Un entero que cabe en 64 bits.
@@ -147,6 +148,35 @@ pub fn loads(s: &str) -> Result<Json, LoadError> {
         return Err(p.err("Extra data"));
     }
     Ok(v)
+}
+
+/// `json.loads(s)` de un texto de Python con lo que lleve: un «surrogate»
+/// suelto (en Rust no cabe en un `str`) pasa tal cual a lo que se lee, como
+/// en Python (aparcado mientras se lee: `text::park`). Si no se puede
+/// aparcar, con «�».
+pub fn loads_text(t: &[u32]) -> Result<Json, LoadError> {
+    match super::text::park(t) {
+        super::text::Parked::Plain(s) | super::text::Parked::Lossy(s) => loads(&s),
+        super::text::Parked::Parked(s) => Ok(unpark(loads(&s)?)),
+    }
+}
+
+fn unpark_text(t: Text) -> Text {
+    t.into_iter().map(super::text::unpark_point).collect()
+}
+
+fn unpark(v: Json) -> Json {
+    match v {
+        Json::Str(t) => Json::Str(unpark_text(t)),
+        Json::List(items) => Json::List(items.into_iter().map(unpark).collect()),
+        Json::Dict(items) => Json::Dict(
+            items
+                .into_iter()
+                .map(|(k, x)| (unpark_text(k), unpark(x)))
+                .collect(),
+        ),
+        other => other,
+    }
 }
 
 struct Parser<'a> {
@@ -466,6 +496,71 @@ pub fn dump_into(v: &Json, out: &mut String) {
     }
 }
 
+/// `json.dumps(v, ensure_ascii=False)`: con «, » y «: » entre las piezas, y
+/// lo que no es ASCII tal cual (hasta un «surrogate» suelto, como Python);
+/// solo se escapan las comillas, la barra y lo de control.
+pub fn dumps_unicode(v: &Json) -> Text {
+    let mut out = Text::new();
+    dump_unicode_into(v, &mut out);
+    out
+}
+
+fn push_ascii(out: &mut Text, s: &str) {
+    out.extend(s.bytes().map(u32::from));
+}
+
+fn dump_unicode_text(t: &[u32], out: &mut Text) {
+    out.push(u32::from('"'));
+    for &p in t {
+        match p {
+            0x22 => push_ascii(out, "\\\""),
+            0x5C => push_ascii(out, "\\\\"),
+            0x0A => push_ascii(out, "\\n"),
+            0x0D => push_ascii(out, "\\r"),
+            0x09 => push_ascii(out, "\\t"),
+            0x08 => push_ascii(out, "\\b"),
+            0x0C => push_ascii(out, "\\f"),
+            0..0x20 => push_ascii(out, &format!("\\u{p:04x}")),
+            _ => out.push(p),
+        }
+    }
+    out.push(u32::from('"'));
+}
+
+fn dump_unicode_into(v: &Json, out: &mut Text) {
+    match v {
+        Json::Null => push_ascii(out, "null"),
+        Json::Bool(true) => push_ascii(out, "true"),
+        Json::Bool(false) => push_ascii(out, "false"),
+        Json::Int(i) => push_ascii(out, &i.to_string()),
+        Json::BigInt(digits) => push_ascii(out, digits),
+        Json::Float(x) => push_ascii(out, &float_text(*x)),
+        Json::Str(t) => dump_unicode_text(t, out),
+        Json::List(items) => {
+            out.push(u32::from('['));
+            for (i, x) in items.iter().enumerate() {
+                if i > 0 {
+                    push_ascii(out, ", ");
+                }
+                dump_unicode_into(x, out);
+            }
+            out.push(u32::from(']'));
+        }
+        Json::Dict(items) => {
+            out.push(u32::from('{'));
+            for (i, (k, x)) in items.iter().enumerate() {
+                if i > 0 {
+                    push_ascii(out, ", ");
+                }
+                dump_unicode_text(k, out);
+                push_ascii(out, ": ");
+                dump_unicode_into(x, out);
+            }
+            out.push(u32::from('}'));
+        }
+    }
+}
+
 /// Un real como lo escribe `json.dumps` (también de clave de diccionario).
 pub fn float_text(x: f64) -> String {
     if x.is_nan() {
@@ -622,6 +717,16 @@ mod tests {
         assert_eq!(few_decimals(0.1 + 0.2), None);
         assert_eq!(few_decimals(9e-5), None);
         assert_eq!(few_decimals(0.0), None);
+    }
+
+    #[test]
+    fn writes_unicode_like_python() {
+        let v = loads(r#"{"a": ["ñ", 1.0, NaN, null], "b\n": "\u0001\udcff\"", "c": {}}"#)
+            .expect("se lee");
+        let mut want = text(r#"{"a": ["ñ", 1.0, NaN, null], "b\n": "\u0001"#);
+        want.push(0xDCFF);
+        want.extend(text(r#"\"", "c": {}}"#));
+        assert_eq!(dumps_unicode(&v), want);
     }
 
     #[test]

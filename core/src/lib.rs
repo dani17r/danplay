@@ -20,9 +20,11 @@ pub mod convert;
 pub mod cues;
 pub mod db;
 pub mod duplicates;
+pub mod enrich;
 pub mod external;
 pub mod fingerprint;
 pub mod index;
+pub mod ingest;
 pub mod journal;
 pub mod json;
 pub mod logging;
@@ -30,6 +32,7 @@ pub mod names;
 pub mod plan;
 pub mod playlists;
 pub mod pulse;
+pub mod pyjson;
 pub mod safe;
 pub mod separate;
 pub mod speech;
@@ -175,6 +178,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tags::tags_write_txxx, m)?)?;
     m.add_function(wrap_pyfunction!(tags::cover_read, m)?)?;
     m.add_function(wrap_pyfunction!(tags::cover_write, m)?)?;
+    m.add_function(wrap_pyfunction!(tags::tags_lrc_to_plain, m)?)?;
     names::register(m)?;
     db::register(m)?;
     index::register(m)?;
@@ -210,6 +214,8 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     beatgrid::register(m)?;
     youtube::register(m)?;
     ytdlp::register(m)?;
+    enrich::register(m)?;
+    ingest::register(m)?;
     Ok(())
 }
 

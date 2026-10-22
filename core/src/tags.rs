@@ -8,8 +8,9 @@
 use crate::audio::guarded;
 use crate::{publish_one, set_last_error};
 use library::tags::{self, Changes, Tags};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict};
+use pyo3::types::{PyByteArray, PyBytes, PyDict, PyString};
 use rayon::prelude::*;
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -170,4 +171,30 @@ pub fn cover_read(py: Python<'_>, path: PathBuf) -> Option<(Bound<'_, PyBytes>, 
 pub fn cover_write(py: Python<'_>, path: PathBuf, data: &[u8], mime: String) -> bool {
     let result = py.detach(|| guarded(|| tags::write_cover(&path, data, &mime)));
     publish_one(&path, result).is_some()
+}
+
+/// `tags.lrc_to_plain(text)`: la letra sin las marcas de tiempo de un LRC
+/// (`library::tags::lrc`). Lo vacío, vacío; un texto que no es LRC, el mismo;
+/// lo que no es texto, el `TypeError` que daba la expresión de Python.
+#[pyfunction]
+pub fn tags_lrc_to_plain<'py>(py: Python<'py>, text: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+    if !text.is_truthy()? {
+        return Ok(PyString::new(py, "").into_any());
+    }
+    let Ok(s) = text.cast::<PyString>() else {
+        if text.is_instance_of::<PyBytes>() || text.is_instance_of::<PyByteArray>() {
+            return Err(PyTypeError::new_err(
+                "cannot use a string pattern on a bytes-like object",
+            ));
+        }
+        let name = text.get_type().name()?;
+        return Err(PyTypeError::new_err(format!(
+            "expected string or bytes-like object, got '{name}'"
+        )));
+    };
+    let points = crate::pyjson::points(s)?;
+    if !tags::lrc::has_stamp(&points) {
+        return Ok(text.clone());
+    }
+    Ok(crate::pyjson::py_text(py, &tags::lrc::lrc_to_plain(&points))?.into_any())
 }

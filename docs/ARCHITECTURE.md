@@ -423,6 +423,12 @@ Un escalón que falla no tumba la cascada: si AcoustID devuelve un error de
 servicio, decide el siguiente. Esto pasó de verdad y dejó la importación
 completamente bloqueada, de ahí el envoltorio `_safe`.
 
+La cascada, el nombre y la carpeta de cada archivo y la Entrada entera van en
+Rust (`library/src/ingest.rs`). `ingest.py` es la puerta: Rust busca en el
+módulo, al usarlo, cada escalón (`_from_tags`, `_from_ai`...), las
+etiquetas, la huella, la IA, convertir y mover el archivo (`shutil.move`),
+así que lo que se cambia desde fuera (las pruebas, las descargas) se usa.
+
 **Por qué no se usa el postprocesador de metadatos de yt-dlp.** Rellena el
 artista con el nombre del canal («Fulanito Music», «… - Topic»). Como las
 etiquetas son el primer escalón de la cascada, se colaría con 0.95 de confianza
@@ -1440,6 +1446,12 @@ respondiera, no, porque es la red y no la canción. `has_chords` es que hay un
 cifrado, no que la columna tenga algo. «Rellenar información» pone el tono de
 la ficha desde el cifrado solo si lo dice y se toca sin cejilla: con cejilla
 lo escrito no es lo que suena.
+
+Guardarlo, pasarlo a otro tono y rellenar la ficha van en Rust
+(`library/src/enrich.rs`), con la letra de LRCLIB, la carátula de iTunes o
+Cover Art Archive y la ficha de la IA. `enrich.py` es la puerta: Rust busca
+en el módulo, al usarlo, lo de fuera (la red, la IA, el índice, las
+etiquetas) y cada paso, como hacía Python con sus globales.
 
 ## Laya, medido y descartado
 
