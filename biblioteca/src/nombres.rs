@@ -26,7 +26,7 @@ const PY_WORD: &str = r"\p{L}\p{N}_";
 
 /// La expresión con `\w`, `\b` y `\s` como los de Python (ver `PY_WORD`;
 /// el `\s` de Python cuenta además los separadores U+001C-U+001F).
-fn python_semantics(pattern: &str) -> String {
+pub(crate) fn python_semantics(pattern: &str) -> String {
     let word = format!("[{PY_WORD}]");
     let boundary = format!("(?:(?<={word})(?!{word})|(?<!{word})(?={word}))");
     let mut out = String::with_capacity(pattern.len() * 2);
