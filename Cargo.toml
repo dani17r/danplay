@@ -53,12 +53,16 @@ undocumented_unsafe_blocks = "warn"
 print_stderr = "warn"
 
 # Los perfiles solo cuentan en la raiz de un workspace (en los crates se
-# ignoran). Los dos crates se compilaban ya asi; la app es la que arranca en
-# frio cada vez: menos binario que cargar y codigo mas rapido.
+# ignoran). LTO «thin» y el codigo en varios trozos, y no el LTO completo en
+# uno solo: aquel optimizaba el programa entero de una vez y en un hilo, y era
+# lo que mas tardaba de cada paquete (7:40 de Rust en el de Windows de la
+# 1.30, y lo mismo en cada destino de Android). El thin reparte ese trabajo
+# entre los nucleos y sigue optimizando entre crates; el motor de audio va
+# sobrado igual (el peor trozo de 11,6 ms se hace en 0,34).
 [profile.release]
 opt-level = 3
-lto = true
-codegen-units = 1
+lto = "thin"
+codegen-units = 16
 strip = true
 # Sin `panic = "abort"`: el hilo de audio decodifica archivos de fuera, y un
 # mp3 corrupto que hiciera panic tumbaba la aplicacion entera. Desenrollando,
