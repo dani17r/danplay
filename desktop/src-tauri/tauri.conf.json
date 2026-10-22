@@ -68,9 +68,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": [
-      "binaries/danplay-core"
-    ],
     "linux": {
       "deb": {
         "depends": [
@@ -102,7 +99,8 @@
     "shortDescription": "Gestor de biblioteca musical",
     "longDescription": "Identifica, renombra y organiza tu musica; reproduce, busca letra y acordes, y transpone tonos.",
     "resources": [
-      "tools/*"
+      "tools/*",
+      "nucleo/"
     ],
     "fileAssociations": [
       {

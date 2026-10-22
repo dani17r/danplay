@@ -81,9 +81,9 @@ copia allí las canciones que le des: la app escribe etiquetas y la importación
 mueve archivos, y así tu música no se toca. Sin carpeta, genera unas
 canciones con ffmpeg. `--prueba --limpia` empieza de cero.
 
-En un clon recién hecho no hay núcleo empaquetado, y Tauri exige que exista
-para compilar: `npm run app` (lo que lanza `dev.sh`) deja uno de relleno
-(`desktop/scripts/sidecar.mjs`) que la app reconoce e ignora.
+En un clon recién hecho no hay núcleo empaquetado (`desktop/src-tauri/nucleo/`
+solo trae su LEEME), y no hace falta: la app de desarrollo arranca el núcleo
+desde el código, con el Python del `.venv`.
 `DANPLAY_CORE=fuente|empaquetado` elige a mano de dónde sale el núcleo.
 
 Para la versión que se instala:

@@ -18,7 +18,7 @@ epoca () { [ -e "$1" ] && date -r "$1" +%s || echo 0; }
 
 APP=target/release/danplay-app
 WEB=desktop/dist/index.html
-NUCLEO=dist/core/danplay-core
+NUCLEO=dist/core/danplay-core/danplay-core
 # Sin la version en el nombre: al subirla, estas lineas se quedaban apuntando
 # a un archivo que ya no existe y el aviso de «paquete viejo» dejaba de salir
 # justo cuando mas falta hace.

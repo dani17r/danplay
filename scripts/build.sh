@@ -33,18 +33,23 @@ DANPLAY_SNAPSHOT="$TRABAJO/models-snapshot.json" "$PY" -m PyInstaller --noconfir
     packaging/core.spec
 
 paso "3/4  copiar el nucleo junto a la app"
-# La carpeta no esta en git (pesa 40 MB y se genera aqui mismo), asi que en un
-# clon recien hecho hay que crearla antes de copiar.
-#
-# Tauri quiere el sidecar con el triple del destino en el nombre. Se pregunta
-# a rustc en vez de escribirlo a mano: asi vale para cualquier maquina.
-TRIPLE=$(rustc -vV | awk '/^host:/{print $2}')
-mkdir -p desktop/src-tauri/binaries
-cp dist/core/danplay-core "desktop/src-tauri/binaries/danplay-core-$TRIPLE"
+# Una carpeta entera (onedir, ver packaging/core.spec) entre los recursos de
+# Tauri: desktop/src-tauri/nucleo/, que en git solo tiene su LEEME. Se vacia
+# antes, para que no quede nada de una compilacion anterior.
+find desktop/src-tauri/nucleo -mindepth 1 -maxdepth 1 ! -name LEEME.txt -exec rm -rf {} +
+cp -a dist/core/danplay-core/. desktop/src-tauri/nucleo/
+# el nucleo de un solo archivo de antes (externalBin), si quedo: ya no se usa
+rm -rf desktop/src-tauri/binaries
 
 paso "4/4  app de escritorio (Tauri)"
-# workspace de Cargo: sale en target/ de la raiz
-cargo build --release -p danplay-app
+if [ "${1:-}" = "--package" ]; then
+    # la compila `tauri build` al empaquetar, mas abajo: compilarla tambien
+    # aqui era hacerlo dos veces (Tauri la recompila con su entorno)
+    echo "  la compila el empaquetado"
+else
+    # workspace de Cargo: sale en target/ de la raiz
+    cargo build --release -p danplay-app
+fi
 
 if [ "${1:-}" = "--package" ]; then
     paso "extra  paquetes .deb y .AppImage"
@@ -94,6 +99,6 @@ fi
 
 printf '\n\033[32mLISTO\033[0m\n'
 printf '  app     : %s\n' "target/release/danplay-app"
-printf '  nucleo  : %s\n' "dist/core/danplay-core"
+printf '  nucleo  : %s\n' "dist/core/danplay-core/"
 [ "${1:-}" = "--package" ] && printf '  paquetes: %s\n' "dist/installers/"
 printf '\nArrancala con  ./danplay-app.sh\n'

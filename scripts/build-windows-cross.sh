@@ -148,9 +148,6 @@ find "$NUCLEO/python/danplay" -name __pycache__ -type d -exec rm -rf {} + 2>/dev
 
 # ----------------------------------------------------------- app de escritorio
 paso "3/5  aplicación (Rust, $TRIPLE)"
-# El empaquetador comprueba que el sidecar existe antes de compilar.
-mkdir -p desktop/src-tauri/binaries
-cp "$NUCLEO/danplay-core.exe" "desktop/src-tauri/binaries/danplay-core-$TRIPLE.exe"
 cargo build --release -p danplay-app --target "$TRIPLE"
 
 # ------------------------------------------------------------------- montaje

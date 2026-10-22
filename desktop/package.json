@@ -14,7 +14,7 @@
     "build:movil": "vite build --mode movil",
     "preview": "vite preview",
     "tauri": "tauri",
-    "app": "node scripts/sidecar.mjs && tauri dev --config src-tauri/tauri.dev.conf.json",
+    "app": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "movil": "npm --prefix ../movil run tauri --",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -18,18 +18,24 @@ use std::sync::OnceLock;
 /// Solo existe donde no hay gestor de paquetes que instale `ffmpeg` y
 /// `fpcalc` (Windows, macOS). Si no esta, se tira del PATH como siempre.
 pub fn bundled_dir() -> Option<PathBuf> {
+    bundled("tools")
+}
+
+/// Una carpeta de los recursos que viajan con la app (`bundle.resources` de
+/// tauri.conf.json: `tools/`, `nucleo/`), alli donde la deja cada paquete.
+pub fn bundled(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
     let mut candidates = vec![
-        // Windows (NSIS) y macOS: los recursos van al lado del ejecutable
-        dir.join("tools"),
-        dir.join("resources").join("tools"),
-        // macOS: Contents/MacOS/danplay-app -> Contents/Resources/tools
-        dir.join("..").join("Resources").join("tools"),
+        // Windows (NSIS) y la compilacion (target/release): al lado del ejecutable
+        dir.join(name),
+        dir.join("resources").join(name),
+        // macOS: Contents/MacOS/danplay-app -> Contents/Resources/<name>
+        dir.join("..").join("Resources").join(name),
     ];
-    // .deb: el ejecutable en /usr/bin y los recursos en /usr/lib/DanPlay
+    // .deb y .AppImage: el ejecutable en usr/bin y los recursos en usr/lib/DanPlay
     if let Some(prefix) = dir.parent() {
-        candidates.push(prefix.join("lib").join("DanPlay").join("tools"));
+        candidates.push(prefix.join("lib").join("DanPlay").join(name));
     }
     candidates.into_iter().find(|c| c.is_dir())
 }

@@ -1995,6 +1995,15 @@ no, cualquier programa del sistema que lance carga las bibliotecas del
 paquete (las de Ubuntu 22.04, donde se compila) y en un sistema más nuevo no
 arranca.
 
+**El núcleo empaquetado, en una carpeta.** Viaja también como recurso
+(`desktop/src-tauri/nucleo/`: PyInstaller en modo *onedir*, el ejecutable y
+su `_internal`), y no como un solo archivo. El de un solo archivo se
+descomprimía entero en un temporal cada vez que arrancaba (224 MB, en un
+`/tmp` que en Linux suele ser RAM) y otra vez en cada proceso del pulso y
+del separador: medido, el núcleo tardaba 1,4 s en contestar y ahora 0,6, y
+sacar el pulso de una canción, casi un segundo menos. La app lo busca donde
+cada paquete deja los recursos (`tools::bundled`).
+
 Los dos crates de Rust son un **workspace** (`Cargo.toml` de la raíz): un solo
 `Cargo.lock`, una sola carpeta `target/` y la versión de DanPlay en un solo
 sitio, que heredan los dos y que Tauri y maturin leen de ahí.

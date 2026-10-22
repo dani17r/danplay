@@ -287,9 +287,10 @@ fn interpreter(root: &Path) -> PathBuf {
     PathBuf::from(if cfg!(windows) { "python" } else { "python3" })
 }
 
-/// Lo que escribe `desktop/scripts/sidecar.mjs` cuando aun no hay nucleo
-/// empaquetado: Tauri exige que el archivo exista para compilar, y en un clon
-/// recien hecho (o en CI) no lo hay. No es un nucleo: se ignora.
+/// Lo que dejaba `desktop/scripts/sidecar.mjs` (hasta la 1.30, cuando el
+/// nucleo era un `externalBin` y Tauri exigia que existiera para compilar).
+/// En una carpeta `target/` de antes puede seguir ahi: no es un nucleo, se
+/// ignora.
 const PLACEHOLDER_MARK: &[u8] = b"danplay-core de relleno";
 
 fn is_placeholder(path: &Path) -> bool {
@@ -311,29 +312,24 @@ fn prefer_source() -> bool {
 
 /// El nucleo empaquetado que viaja dentro del .deb / .AppImage / instalador.
 ///
-/// El sufijo con el triple del destino lo pone Tauri al empaquetar, asi que
-/// no se puede escribir a mano: se lee del entorno de compilacion.
+/// Es una carpeta (PyInstaller en modo onedir: el ejecutable y su
+/// `_internal`) que va entre los recursos, `nucleo/` (ver packaging/core.spec:
+/// asi no se descomprime en cada arranque). Al lado del ejecutable queda la
+/// portatil de Windows, cuyo `danplay-core.exe` lanza el Python embebido.
 fn sidecar() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    let suffix = if cfg!(windows) { ".exe" } else { "" };
-    let triple = option_env!("TAURI_ENV_TARGET_TRIPLE").unwrap_or("");
-    let names = [
-        format!("danplay-core{suffix}"),
-        format!("danplay-core-{triple}{suffix}"),
-    ];
-    for name in names {
-        let candidate = dir.join(&name);
-        if candidate.is_file() && !is_placeholder(&candidate) {
-            return Some(candidate);
-        }
-        // PyInstaller en modo onedir: el binario cuelga de su propia carpeta
-        let inner = dir.join("danplay-core").join(&name);
-        if inner.is_file() && !is_placeholder(&inner) {
-            return Some(inner);
-        }
-    }
-    None
+    let name = if cfg!(windows) {
+        "danplay-core.exe"
+    } else {
+        "danplay-core"
+    };
+    let inside = crate::tools::bundled("nucleo").map(|dir| dir.join(name));
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(name)));
+    [inside, beside]
+        .into_iter()
+        .flatten()
+        .find(|candidate| candidate.is_file() && !is_placeholder(candidate))
 }
 
 /// El nucleo desde el codigo del proyecto, con el Python de su `.venv`.

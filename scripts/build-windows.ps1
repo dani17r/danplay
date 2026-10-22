@@ -55,14 +55,14 @@ Paso '2/5  nucleo empaquetado (PyInstaller)'
 $trabajo = Join-Path $env:TEMP "danplay-build-$PID"
 & $py -m PyInstaller --noconfirm --clean --workpath $trabajo --distpath dist/core packaging/core.spec
 Remove-Item -Recurse -Force $trabajo -ErrorAction SilentlyContinue
-if (-not (Test-Path dist/core/danplay-core.exe)) { Fallo 'no se genero dist/core/danplay-core.exe' }
+if (-not (Test-Path dist/core/danplay-core/danplay-core.exe)) { Fallo 'no se genero dist/core/danplay-core/danplay-core.exe' }
 
 # Que arranque de verdad antes de meterlo en un instalador: un núcleo que no
 # levanta solo se descubre al abrir la aplicacion ya instalada.
 Paso '3/5  comprobar que el nucleo arranca'
 $puerto = 8731
 $env:DANPLAY_TOKEN = [guid]::NewGuid().ToString('N')
-$proceso = Start-Process -PassThru -WindowStyle Hidden -FilePath dist/core/danplay-core.exe `
+$proceso = Start-Process -PassThru -WindowStyle Hidden -FilePath dist/core/danplay-core/danplay-core.exe `
            -ArgumentList '--host', '127.0.0.1', '--port', "$puerto"
 try {
     $bien = $false
@@ -82,9 +82,9 @@ try {
 
 # --- el nucleo, junto a la app ----------------------------------------------
 Paso '4/5  copiar el nucleo junto a la app'
-$triple = ((rustc -vV | Select-String '^host:') -split ' ')[1]
-New-Item -ItemType Directory -Force -Path desktop/src-tauri/binaries | Out-Null
-Copy-Item dist/core/danplay-core.exe "desktop/src-tauri/binaries/danplay-core-$triple.exe" -Force
+# una carpeta (onedir) entre los recursos de Tauri, nucleo/ (ver packaging/core.spec)
+Get-ChildItem desktop/src-tauri/nucleo -Exclude LEEME.txt | Remove-Item -Recurse -Force
+Copy-Item -Recurse -Force dist/core/danplay-core/* desktop/src-tauri/nucleo/
 
 # --- ffmpeg, fpcalc y QuickJS -----------------------------------------------
 # Con version fija y su SHA-256, las mismas que el instalador de la CI

@@ -3,11 +3,12 @@
 # El nucleo Python, empaquetado para viajar dentro del .deb, el .AppImage o
 # el instalador de Windows.
 #
-# Sigue siendo **onefile**, y no por gusto: el empaquetador de Tauri copia UN
-# archivo como sidecar (`externalBin`), asi que el modo onedir —un ejecutable
-# con su carpeta `_internal` al lado— no llegaria entero al .deb ni al
-# instalador. El precio es que descomprime en un temporal al arrancar; se
-# mide en menos de un segundo y solo la primera vez de cada sesion.
+# En una carpeta (onedir: `dist/core/danplay-core/`, el ejecutable y su
+# `_internal`), no en un solo archivo. El onefile se descomprimia entero en
+# un temporal cada vez que arrancaba: 224 MB y casi un segundo, en un /tmp que
+# en Linux suele estar en la RAM, y otra vez en cada proceso del pulso y del
+# separador. La carpeta viaja como recurso de Tauri (`nucleo/`, ver
+# tauri.conf.json), no como `externalBin`, que solo sabe copiar un archivo.
 import os
 import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
@@ -72,9 +73,11 @@ a = Analysis(['core_entry.py'],
                        'musicbrainzngs', 'watchfiles', 'yaml', 'hypothesis'],
              noarchive=False)
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, a.binaries, a.datas, [],
+exe = EXE(pyz, a.scripts, [],
+          exclude_binaries=True,
           name='danplay-core',
           debug=False, strip=False, upx=False,
           # En Windows una consola negra detras de la aplicacion no pinta nada.
           console=sys.platform != 'win32',
           disable_windowed_traceback=False, argv_emulation=False)
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='danplay-core')

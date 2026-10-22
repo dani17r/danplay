@@ -115,14 +115,14 @@ jobs:
       - name: núcleo empaquetado
         run: |
           pyinstaller --noconfirm --clean --distpath dist/core packaging/core.spec
-          if (-not (Test-Path dist/core/danplay-core.exe)) { throw "no se genero el nucleo" }
+          if (-not (Test-Path dist/core/danplay-core/danplay-core.exe)) { throw "no se genero el nucleo" }
 
       - name: el núcleo arranca y responde
         shell: pwsh
         run: |
           $puerto = 8731
           $env:DANPLAY_TOKEN = "prueba-de-humo"
-          $p = Start-Process -PassThru -FilePath dist/core/danplay-core.exe `
+          $p = Start-Process -PassThru -FilePath dist/core/danplay-core/danplay-core.exe `
                -ArgumentList "--host","127.0.0.1","--port","$puerto"
           try {
             $ok = $false
@@ -151,12 +151,12 @@ jobs:
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           }
 
+      # una carpeta (onedir) entre los recursos de Tauri, nucleo/: asi no se
+      # descomprime en cada arranque ni hay un cargador aparte del Python de
+      # verdad (ver packaging/core.spec)
       - name: el núcleo, junto a la app
         shell: pwsh
-        run: |
-          $triple = (rustc -vV | Select-String '^host:').ToString().Split(' ')[1]
-          New-Item -ItemType Directory -Force -Path desktop/src-tauri/binaries | Out-Null
-          Copy-Item dist/core/danplay-core.exe "desktop/src-tauri/binaries/danplay-core-$triple.exe"
+        run: Copy-Item -Recurse -Force dist/core/danplay-core/* desktop/src-tauri/nucleo/
 
       # Las herramientas ya estan: sin ellas en el instalador, la carpeta se
       # queda solo con el aviso.
