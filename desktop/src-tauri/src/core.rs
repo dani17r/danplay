@@ -246,7 +246,8 @@ fn address() -> Address {
 fn core_root() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
-    if let Ok(r) = std::env::var("DANPLAY_RAIZ") {
+    // `DANPLAY_RAIZ` es el nombre de antes: puede seguir puesto en alguna consola
+    if let Ok(r) = std::env::var("DANPLAY_ROOT").or_else(|_| std::env::var("DANPLAY_RAIZ")) {
         candidates.push(PathBuf::from(r));
     }
     // junto al ejecutable instalado: /usr/bin/danplay-app -> /usr/lib/danplay
@@ -335,7 +336,7 @@ fn sidecar() -> Option<PathBuf> {
 /// El nucleo desde el codigo del proyecto, con el Python de su `.venv`.
 fn from_source() -> Result<std::process::Command, String> {
     let root = core_root().ok_or_else(|| {
-        "No encuentro el nucleo de DanPlay.\n\nDefine DANPLAY_RAIZ apuntando a la \
+        "No encuentro el nucleo de DanPlay.\n\nDefine DANPLAY_ROOT apuntando a la \
          carpeta del proyecto, o instalalo en ~/danplay."
             .to_string()
     })?;

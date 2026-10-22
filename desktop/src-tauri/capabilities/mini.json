@@ -5,6 +5,6 @@
   "windows": ["mini"],
   "permissions": [
     "core:event:default",
-    "ventanita"
+    "mini-window"
   ]
 }

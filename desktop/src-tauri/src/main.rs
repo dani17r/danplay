@@ -307,7 +307,12 @@ fn first_time_notice(app: &tauri::AppHandle) {
     let Ok(dir) = app.path().app_config_dir() else {
         return;
     };
-    let mark = dir.join("aviso-bandeja");
+    let mark = dir.join("tray-notice");
+    // la marca de antes tenia nombre en español: cuenta igual
+    let old = dir.join("aviso-bandeja");
+    if !mark.exists() && old.exists() {
+        let _ = std::fs::rename(&old, &mark);
+    }
     if mark.exists() {
         return;
     }
@@ -331,7 +336,7 @@ mod tests {
     fn every_command_has_its_permission() {
         let main = include_str!("main.rs");
         let build = include_str!("../build.rs");
-        let sets = include_str!("../permissions/ventanas.toml");
+        let sets = include_str!("../permissions/windows.toml");
         let handler = main
             .split("generate_handler![")
             .nth(1)
@@ -352,7 +357,7 @@ mod tests {
             let permission = format!("\"allow-{}\"", command.replace('_', "-"));
             assert!(
                 sets.contains(&permission),
-                "{command} no esta en permissions/ventanas.toml"
+                "{command} no esta en permissions/windows.toml"
             );
         }
         let declared = build

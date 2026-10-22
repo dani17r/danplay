@@ -388,13 +388,13 @@ mod tests {
         assert_eq!(l.song, "Hay libertad ((Cover Adoracion…  ·  Ivan Pirela y los A…");
         assert!(l.song.chars().count() <= TITLE_CHARS + ARTIST_CHARS + 5);
         // sin artista, el titulo puede estirarse un poco mas
-        let solo = labels(&NowPlaying {
+        let title_only = labels(&NowPlaying {
             title: "Hay libertad ((Cover Adoracion la Ibi & Gracia Soberana Musica)) version larga".into(),
             artist: String::new(),
             ..playing()
         });
-        assert!(solo.song.ends_with('…'));
-        assert!(solo.song.chars().count() <= TITLE_CHARS + ARTIST_CHARS);
+        assert!(title_only.song.ends_with('…'));
+        assert!(title_only.song.chars().count() <= TITLE_CHARS + ARTIST_CHARS);
         // los acentos cuentan como una letra, no como dos bytes
         assert_eq!(shorten("Canción", 7), "Canción");
         assert_eq!(shorten("Canción larguísima", 8), "Canción…");

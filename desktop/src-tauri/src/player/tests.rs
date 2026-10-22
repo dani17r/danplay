@@ -463,7 +463,7 @@ fn stems() -> Vec<String> {
             ["bateria", "voces"]
                 .iter()
                 .map(|name| {
-                    let file = std::env::temp_dir().join(format!("danplay-pista-90s-{name}.flac"));
+                    let file = std::env::temp_dir().join(format!("danplay-track-90s-{name}.flac"));
                     if !file.is_file() {
                         let partial = file.with_extension(format!("{}.flac", std::process::id()));
                         let made = tools::command(ffmpeg)
@@ -600,7 +600,7 @@ fn an_opus_file_is_prepared_and_plays() {
         return;
     }
     let Some(ffmpeg) = tools::ffmpeg() else { return };
-    let src = std::env::temp_dir().join(format!("danplay-prueba-{}.opus", std::process::id()));
+    let src = std::env::temp_dir().join(format!("danplay-test-{}.opus", std::process::id()));
     let ok = tools::command(ffmpeg)
         .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi"])
         .args(["-i", "anullsrc=r=48000:cl=stereo", "-t", "20"])

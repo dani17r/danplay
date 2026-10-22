@@ -87,7 +87,15 @@ mod linux {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-        Some(base.join("danplay").join("no-instalar-dependencias"))
+        let dir = base.join("danplay");
+        let mark = dir.join("skip-dependencies");
+        // la marca de antes tenia nombre en español: se le cambia el nombre
+        // una vez, para no volver a preguntar a quien ya dijo que no
+        let old = dir.join("no-instalar-dependencias");
+        if !mark.exists() && old.exists() {
+            let _ = std::fs::rename(&old, &mark);
+        }
+        Some(mark)
     }
 
     /// La aplicacion esta instalada en el sistema: sus dependencias las puso

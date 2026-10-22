@@ -153,9 +153,9 @@ mod tests {
         let Some(ffmpeg) = tools::ffmpeg() else {
             return; // sin ffmpeg no hay nada que probar
         };
-        let dir = std::env::temp_dir().join(format!("danplay-formatos-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("danplay-formats-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("carpeta");
-        let src = dir.join("tono.opus");
+        let src = dir.join("tone.opus");
         let ok = tools::command(ffmpeg)
             .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i"])
             .arg("sine=frequency=440:duration=1")

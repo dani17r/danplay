@@ -21,17 +21,17 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 pub enum Shape {
     Normal,
     /// Pantalla completa (sin la barra de tareas ni el marco).
-    Completa,
-    Maximizada,
+    Fullscreen,
+    Maximized,
     /// La mitad izquierda o derecha de la pantalla, de arriba abajo.
-    Izquierda,
-    Derecha,
+    Left,
+    Right,
     /// Una columna estrecha y alta pegada a la derecha: la de movil.
-    Columna,
+    Column,
     /// Un cuadrado pequeño en la esquina: la caratula y los mandos.
-    Cuadrito,
+    Square,
     /// Una tira baja abajo: el reproductor en una linea.
-    Barra,
+    Bar,
 }
 
 /// Una zona de la pantalla, en pixeles fisicos.
@@ -67,13 +67,13 @@ pub fn place(shape: Shape, work: Rect, scale: f64) -> Option<Placement> {
     let px = |v: f64| (v * scale).round().max(1.0) as u32;
     let half = work.w / 2;
     match shape {
-        Shape::Normal | Shape::Completa | Shape::Maximizada => None,
-        Shape::Izquierda => Some(Placement {
+        Shape::Normal | Shape::Fullscreen | Shape::Maximized => None,
+        Shape::Left => Some(Placement {
             area: Rect { w: half, ..work },
             decorations: true,
             on_top: false,
         }),
-        Shape::Derecha => Some(Placement {
+        Shape::Right => Some(Placement {
             area: Rect {
                 x: work.x + half as i32,
                 w: work.w - half,
@@ -82,7 +82,7 @@ pub fn place(shape: Shape, work: Rect, scale: f64) -> Option<Placement> {
             decorations: true,
             on_top: false,
         }),
-        Shape::Columna => {
+        Shape::Column => {
             let w = px(COLUMN_W).min(work.w);
             Some(Placement {
                 area: Rect {
@@ -94,7 +94,7 @@ pub fn place(shape: Shape, work: Rect, scale: f64) -> Option<Placement> {
                 on_top: false,
             })
         }
-        Shape::Cuadrito => {
+        Shape::Square => {
             let side = px(SQUARE).min(work.w).min(work.h);
             let m = px(MARGIN);
             Some(Placement {
@@ -108,7 +108,7 @@ pub fn place(shape: Shape, work: Rect, scale: f64) -> Option<Placement> {
                 on_top: true,
             })
         }
-        Shape::Barra => {
+        Shape::Bar => {
             let w = px(BAR_W).min(work.w);
             let h = px(BAR_H).min(work.h);
             Some(Placement {
@@ -178,19 +178,19 @@ fn work_area(window: &WebviewWindow) -> Result<(Rect, f64), String> {
 
 fn apply(window: &WebviewWindow, shape: Shape, pinned: bool) -> Result<(), String> {
     let err = |e: tauri::Error| e.to_string();
-    if window.is_fullscreen().unwrap_or(false) && shape != Shape::Completa {
+    if window.is_fullscreen().unwrap_or(false) && shape != Shape::Fullscreen {
         window.set_fullscreen(false).map_err(err)?;
     }
-    if window.is_maximized().unwrap_or(false) && shape != Shape::Maximizada {
+    if window.is_maximized().unwrap_or(false) && shape != Shape::Maximized {
         window.unmaximize().map_err(err)?;
     }
     match shape {
-        Shape::Completa => {
+        Shape::Fullscreen => {
             window.set_decorations(true).map_err(err)?;
             window.set_always_on_top(false).map_err(err)?;
             window.set_fullscreen(true).map_err(err)?;
         }
-        Shape::Maximizada => {
+        Shape::Maximized => {
             window.set_decorations(true).map_err(err)?;
             window.set_always_on_top(pinned).map_err(err)?;
             window.maximize().map_err(err)?;
@@ -282,9 +282,9 @@ pub fn window_shape(app: AppHandle) -> (Shape, bool) {
         return (shape, pinned);
     };
     let actual = if window.is_fullscreen().unwrap_or(false) {
-        Shape::Completa
+        Shape::Fullscreen
     } else if window.is_maximized().unwrap_or(false) {
-        Shape::Maximizada
+        Shape::Maximized
     } else {
         Shape::Normal
     };
@@ -301,7 +301,7 @@ pub fn set_window_on_top(app: AppHandle, on: bool) -> Result<bool, String> {
         s.pinned = on;
         s.shape
     };
-    let floating = matches!(shape, Shape::Cuadrito | Shape::Barra);
+    let floating = matches!(shape, Shape::Square | Shape::Bar);
     window.set_always_on_top(on || floating).map_err(|e| e.to_string())?;
     Ok(on)
 }
@@ -321,8 +321,8 @@ mod tests {
 
     #[test]
     fn halves_split_the_work_area_from_top_to_bottom() {
-        let left = place(Shape::Izquierda, WORK, 1.25).unwrap().area;
-        let right = place(Shape::Derecha, WORK, 1.25).unwrap().area;
+        let left = place(Shape::Left, WORK, 1.25).unwrap().area;
+        let right = place(Shape::Right, WORK, 1.25).unwrap().area;
         assert_eq!(
             left,
             Rect {
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn the_column_is_tall_and_narrow_on_the_right() {
-        let c = place(Shape::Columna, WORK, 1.25).unwrap();
+        let c = place(Shape::Column, WORK, 1.25).unwrap();
         assert_eq!(
             c.area,
             Rect {
@@ -362,11 +362,11 @@ mod tests {
     /// del borde y sin salirse nunca de la pantalla.
     #[test]
     fn the_square_and_the_bar_float_inside_the_screen() {
-        let sq = place(Shape::Cuadrito, WORK, 1.25).unwrap();
+        let sq = place(Shape::Square, WORK, 1.25).unwrap();
         assert_eq!((sq.area.w, sq.area.h), (425, 425));
         assert_eq!((sq.area.x, sq.area.y), (1920 - 425 - 30, 1040 - 425 - 30));
         assert!(!sq.decorations && sq.on_top);
-        let bar = place(Shape::Barra, WORK, 1.25).unwrap();
+        let bar = place(Shape::Bar, WORK, 1.25).unwrap();
         assert_eq!((bar.area.w, bar.area.h), (1025, 160));
         assert_eq!(bar.area.x, (1920 - 1025) / 2);
         // en una pantalla diminuta, cabe igual
@@ -376,7 +376,7 @@ mod tests {
             w: 300,
             h: 200,
         };
-        for shape in [Shape::Cuadrito, Shape::Barra, Shape::Columna] {
+        for shape in [Shape::Square, Shape::Bar, Shape::Column] {
             let a = place(shape, tiny, 2.0).unwrap().area;
             assert!(a.w <= 300 && a.h <= 200 && a.x >= 0 && a.y >= 0, "{shape:?}: {a:?}");
         }
@@ -384,17 +384,17 @@ mod tests {
 
     #[test]
     fn the_big_ones_are_left_to_the_system() {
-        for shape in [Shape::Normal, Shape::Completa, Shape::Maximizada] {
+        for shape in [Shape::Normal, Shape::Fullscreen, Shape::Maximized] {
             assert!(place(shape, WORK, 1.0).is_none());
         }
     }
 
     #[test]
     fn the_shapes_are_named_as_the_interface_asks_for_them() {
-        let names: Vec<String> = [Shape::Normal, Shape::Izquierda, Shape::Cuadrito, Shape::Barra]
+        let names: Vec<String> = [Shape::Normal, Shape::Left, Shape::Square, Shape::Bar]
             .iter()
             .map(|s| serde_json::to_string(s).unwrap())
             .collect();
-        assert_eq!(names, ["\"normal\"", "\"izquierda\"", "\"cuadrito\"", "\"barra\""]);
+        assert_eq!(names, ["\"normal\"", "\"left\"", "\"square\"", "\"bar\""]);
     }
 }

@@ -153,7 +153,7 @@ mod tests {
         out.extend_from_slice(b"data");
         out.extend_from_slice(&(data.len() as u32).to_le_bytes());
         out.extend_from_slice(&data);
-        let path = std::env::temp_dir().join(format!("danplay-pulso-{rate}-{}.wav", std::process::id()));
+        let path = std::env::temp_dir().join(format!("danplay-beat-{rate}-{}.wav", std::process::id()));
         std::fs::write(&path, out).expect("wav");
         path
     }
@@ -192,10 +192,10 @@ mod tests {
         }
     }
 
-    /// No es una prueba: lo que usa `scripts/evaluar-pulso.py` para medir
+    /// No es una prueba: lo que usa `scripts/evaluate-pulse.py` para medir
     /// este analisis frente a otros sobre canciones anotadas. Lee las rutas
-    /// de `DANPLAY_PULSO_LISTA` (una por linea) y deja en
-    /// `DANPLAY_PULSO_SALIDA` una linea JSON por cancion: sus pulsos, sus
+    /// de `DANPLAY_BEATS_LIST` (una por linea) y deja en
+    /// `DANPLAY_BEATS_RESULTS` una linea JSON por cancion: sus pulsos, sus
     /// «1», el tempo y el compas, o el error.
     ///
     ///     cargo test --release -p danplay-app beats::tests::measure -- --ignored
@@ -204,8 +204,8 @@ mod tests {
     fn measure() {
         use std::io::Write;
         let (Ok(list), Ok(out)) = (
-            std::env::var("DANPLAY_PULSO_LISTA"),
-            std::env::var("DANPLAY_PULSO_SALIDA"),
+            std::env::var("DANPLAY_BEATS_LIST"),
+            std::env::var("DANPLAY_BEATS_RESULTS"),
         ) else {
             return;
         };
