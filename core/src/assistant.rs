@@ -70,12 +70,6 @@ pub fn intake_youtube_video_id(url: &str) -> String {
     links::youtube_video_id(url)
 }
 
-/// `youtube.host_of`.
-#[pyfunction]
-pub fn youtube_host_of(text: &str) -> String {
-    links::host_of(text)
-}
-
 // -------------------------------------------------------------- el emparejador
 
 /// La biblioteca vista por el emparejador (ver `matching::Index`): una por
@@ -285,6 +279,5 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(intake_read_intent, m)?)?;
     m.add_function(wrap_pyfunction!(intake_clean_youtube_url, m)?)?;
     m.add_function(wrap_pyfunction!(intake_youtube_video_id, m)?)?;
-    m.add_function(wrap_pyfunction!(youtube_host_of, m)?)?;
     Ok(())
 }

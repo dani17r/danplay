@@ -14,35 +14,39 @@ limpio y deciden la huella acustica, el heuristico o la IA.
 
 yt-dlp es opcional: si no esta instalado la funcion queda desactivada y el
 resto de la app sigue igual.
+
+Lo que se le pide a yt-dlp y con que opciones, lo que se lee de lo que
+contesta y de su avance, por que fallo, el nombre y las etiquetas de lo
+bajado, donde se guarda y la fila del historial van en Rust
+(library/src/youtube.rs). Aqui quedan las llamadas a yt-dlp (su API de
+Python), el turno de descarga con su cerrojo y su estado, los hilos, y
+archivar con `ingest`.
 """
 
 import json
 import logging
 import os
-import re
 import shutil
 import tempfile
 import threading
 import time
-from collections import deque
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
+
+import danplay_core as _rust
 
 from . import config, convert, ingest, names, tags, ytdlp
 
 log = logging.getLogger(__name__)
 
 # calidad de la app -> kbps del mp3. "variable" deja que lame elija (V0).
-QUALITY_KBPS = {"high": "320", "medium": "192", "variable": "0", "copy": "256"}
+QUALITY_KBPS = _rust.youtube_quality_kbps()
 
-# lo que sabemos bajar. Se acepta pegar la URL con parametros de sobra.
 # Topes de lo que se descarga. Sin ellos, un directo de tres horas llena el
-# temporal y deja a ffmpeg trabajando un buen rato para nada.
-MAX_SECONDS = 30 * 60
-MAX_BYTES = 200 * 1024 * 1024
-# De una lista, como mucho los primeros 50: `download` recorria TODOS.
-PLAYLIST_LIMIT = "1:50"
+# temporal y deja a ffmpeg trabajando un buen rato para nada. De una lista,
+# como mucho los primeros 50: `download` recorria TODOS.
+MAX_SECONDS, MAX_BYTES, PLAYLIST_LIMIT = _rust.youtube_limits()
 
 
 class Canceled(Exception):
@@ -223,21 +227,7 @@ def unavailable_reason() -> str:
 # alguno, asi que «https://loquesea.example/?youtube.com» contaba como
 # YouTube; y si no era ninguno se le pasaba igual a yt-dlp, cuyo extractor
 # generico descarga de cualquier sitio, incluidas direcciones de la red local.
-ALLOWED_HOSTS = frozenset(
-    {
-        "youtube.com",
-        "www.youtube.com",
-        "m.youtube.com",
-        "music.youtube.com",
-        "youtu.be",
-        "www.youtu.be",
-    }
-)
-
-
-# Lo unico que puede ir entre «https://» y la primera barra de una direccion de
-# YouTube: el nombre y, si acaso, el puerto.
-_PLAIN_AUTHORITY = re.compile(r"[A-Za-z0-9.-]+(?::[0-9]{0,5})?")
+ALLOWED_HOSTS = frozenset(_rust.youtube_allowed_hosts())
 
 
 def host_of(text: str) -> str:
@@ -250,24 +240,12 @@ def host_of(text: str) -> str:
     ve `malo.example`) y las de YouTube de verdad se escriben sin nada de eso.
     Esas devuelven su «sitio» tal cual, que nunca esta en `ALLOWED_HOSTS`.
     """
-    import urllib.parse
-
-    t = (text or "").strip()
-    if not t.lower().startswith(("http://", "https://")):
-        return ""
-    try:
-        parts = urllib.parse.urlsplit(t)
-        host = (parts.hostname or "").lower()
-    except ValueError:
-        return ""
-    if parts.netloc and not _PLAIN_AUTHORITY.fullmatch(parts.netloc):
-        return parts.netloc.lower()
-    return host
+    return _rust.youtube_host_of(text)
 
 
 def is_url(text: str) -> bool:
     """Una direccion de YouTube de verdad, mirando el dominio y no el texto."""
-    return host_of(text) in ALLOWED_HOSTS
+    return _rust.youtube_is_url(text)
 
 
 class NotYouTube(ValueError):
@@ -276,15 +254,7 @@ class NotYouTube(ValueError):
 
 def normalize(inbox: str, results=5) -> str:
     """URL de YouTube tal cual, o busqueda si el usuario escribio texto suelto."""
-    e = (inbox or "").strip()
-    if is_url(e):
-        return e
-    if host_of(e):
-        raise NotYouTube(
-            f"«{host_of(e)}» no es YouTube. Pega un enlace de YouTube, "
-            "o escribe lo que buscas y lo busco alli."
-        )
-    return f"ytsearch{max(1, int(results))}:{e}"
+    return _rust.youtube_normalize(inbox, results)
 
 
 def wanted(info, *, incomplete=False):
@@ -293,67 +263,23 @@ def wanted(info, *, incomplete=False):
     Los directos y las recopilaciones de tres horas llenan el temporal y
     dejan a ffmpeg trabajando un buen rato para nada.
     """
-    duration = info.get("duration") or 0
-    if duration and duration > MAX_SECONDS:
-        return f"dura {int(duration // 60)} minutos; el tope son {MAX_SECONDS // 60}"
-    return None
+    return _rust.youtube_wanted(info.get("duration"))
 
 
 def _base_options(quiet=True) -> dict:
-    return {
-        "quiet": quiet,
-        "no_warnings": quiet,
-        "noprogress": True,
-        "ignoreerrors": True,
-        "consoletitle": False,
-        "nocheckcertificate": False,
-        "retries": 3,
-        "socket_timeout": 30,
-        # el motor de JavaScript para los retos de YouTube (deno, node...)
-        **ytdlp.options(),
-    }
+    # con el motor de JavaScript para los retos de YouTube (deno, node...)
+    return _rust.youtube_base_options(quiet, ytdlp.options())
 
 
 def _pick_fields(d: Mapping[str, Any]) -> dict:
-    """Los pocos campos que nos interesan de lo que devuelve yt-dlp."""
-    return {
-        "id": d.get("id") or "",
-        "title": d.get("title") or "",
-        "channel": d.get("uploader") or d.get("channel") or "",
-        "duration": float(d.get("duration") or 0),
-        "url": d.get("webpage_url") or d.get("original_url") or "",
-        "thumbnail": d.get("thumbnail") or "",
-        # solo YouTube Music los trae; son los unicos fiables
-        "artist": (d.get("artist") or "").strip(),
-        "track": (d.get("track") or "").strip(),
-        "album": (d.get("album") or "").strip(),
-    }
-
-
-_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-
-# Lo que dice yt-dlp cuando la red falla (no cuando un video no existe).
-_NETWORK_SIGNS = (
-    "timed out",
-    "timeout",
-    "name resolution",
-    "name or service not known",
-    "nodename nor servname",
-    "getaddrinfo",
-    "network is unreachable",
-    "no route to host",
-    "connection refused",
-    "connection reset",
-    "connection aborted",
-    "failed to establish",
-    "remote end closed",
-)
+    """Los pocos campos que nos interesan de lo que devuelve yt-dlp (`artist`,
+    `track` y `album` solo los trae YouTube Music; son los unicos fiables)."""
+    return _rust.youtube_pick_fields(d)
 
 
 def _plain(message) -> str:
     """Un mensaje de yt-dlp en una linea, sin colores ni el «ERROR:» del principio."""
-    text = " ".join(_ANSI.sub("", str(message)).split())
-    return re.sub(r"^(?:ERROR|WARNING):\s*", "", text)
+    return _rust.youtube_plain(message)
 
 
 def failure_kind(reason: str) -> str:
@@ -364,49 +290,15 @@ def failure_kind(reason: str) -> str:
     video no disponible, un enlace malo...). Sirve para dejar de insistir:
     seguir preguntando cuando YouTube ya ha dicho que no solo empeora las cosas.
     """
-    low = str(reason or "").lower()
-    if "not a bot" in low or "sign in to confirm" in low:
-        return "bot"
-    if "http error 429" in low or "too many requests" in low or "rate limit" in low:
-        return "rate"
-    if any(sign in low for sign in _NETWORK_SIGNS):
-        return "network"
-    return ""
+    return _rust.youtube_failure_kind(reason)
 
 
-class _Seen:
-    """El `logger` de yt-dlp en las consultas: apunta lo que sale mal.
-
-    Con `ignoreerrors` (que se usa siempre aqui) yt-dlp no levanta nada
-    cuando YouTube pide verificar que no eres un robot, contesta 429 o no hay
-    red: escribe el motivo en su salida de errores y devuelve `None`. Sin
-    recogerlo, todo eso salia como un «no se encontro nada» que no dice nada.
-    """
-
-    def __init__(self):
-        self.errors: deque[str] = deque(maxlen=20)
-        self.warnings: deque[str] = deque(maxlen=20)
-
-    def debug(self, message):
-        pass
-
-    def info(self, message):
-        pass
-
-    def warning(self, message):
-        self.warnings.append(_plain(message))
-
-    def error(self, message):
-        self.errors.append(_plain(message))
-
-    def reason(self) -> str:
-        """El ultimo error; si no hubo, el ultimo aviso que sea de bloqueo o de red."""
-        if self.errors:
-            return self.errors[-1][:200]
-        for w in reversed(self.warnings):
-            if failure_kind(w):
-                return w[:200]
-        return ""
+# El `logger` de yt-dlp en las consultas: apunta lo que sale mal. Con
+# `ignoreerrors` (que se usa siempre aqui) yt-dlp no levanta nada cuando
+# YouTube pide verificar que no eres un robot, contesta 429 o no hay red:
+# escribe el motivo en su salida de errores y devuelve `None`. Sin recogerlo,
+# todo eso salia como un «no se encontro nada» que no dice nada.
+_Seen = _rust.YoutubeSeen
 
 
 def _is_list_url(url: str) -> bool:
@@ -418,23 +310,7 @@ def _is_list_url(url: str) -> bool:
     de youtu.be, shorts, live...); `list=` solo cuenta cuando no hay video:
     `/playlist?list=...` o `watch?list=...`.
     """
-    import urllib.parse
-
-    if not host_of(url):  # «ytsearchN:texto»: no es un enlace
-        return False
-    try:
-        parts = urllib.parse.urlsplit(url)
-    except ValueError:
-        return False
-    query = urllib.parse.parse_qs(parts.query)
-    if not query.get("list") or query.get("v"):
-        return False
-    path = [p for p in parts.path.split("/") if p]
-    if (parts.hostname or "").lower() in ("youtu.be", "www.youtu.be"):
-        return not path  # youtu.be/ID?list=...: el id va en el camino
-    if len(path) > 1 and path[0] in ("shorts", "live", "v"):
-        return False
-    return not (len(path) > 1 and path[0] == "embed" and path[1] != "videoseries")
+    return _rust.youtube_is_list_url(url)
 
 
 def info(inbox: str, results=5, *, timeout=None) -> dict:
@@ -466,56 +342,27 @@ def _info(inbox: str, results=5, timeout=None) -> dict:
     # (`/playlist?list=`): con un video delante, `list=` no cuenta (ver
     # `_is_list_url`). Sin esto, «watch?v=X&list=Y» consultaba la lista entera.
     seen = _Seen()
-    options = {
-        **_base_options(),
-        "extract_flat": "in_playlist",
-        "skip_download": True,
-        "noplaylist": not _is_list_url(target_url),
-        "playlist_items": PLAYLIST_LIMIT,
-        "match_filter": wanted,
-        "logger": seen,
-    }
-    if timeout is not None:
-        options.update(socket_timeout=float(timeout), retries=0, extractor_retries=0)
+    options = _rust.youtube_query_options(_base_options(), target_url, timeout, wanted, seen)
     try:
         with yt.YoutubeDL(cast(Any, options)) as ydl:
             data = ydl.extract_info(target_url, download=False)
     except Exception as e:  # noqa: BLE001
-        reason = _plain(e) or seen.reason() or type(e).__name__
-        return {"ok": False, "reason": reason[:200], "items": []}
-    if not data:
-        return {"ok": False, "reason": seen.reason() or "no se encontro nada", "items": []}
-
-    entries = [e for e in (data.get("entries") or []) if e] if "entries" in data else [data]
-    return {
-        "ok": True,
-        "playlist": bool(data.get("entries")),
-        "name": data.get("title") or "",
-        "items": [_pick_fields(e) for e in entries],
-    }
+        return _rust.youtube_query_failed(e, seen)
+    return _rust.youtube_query_result(data, seen)
 
 
 def _provisional_name(data: dict) -> str:
     """Nombre de archivo ya sin el ruido tipico de YouTube."""
-    base = names.clean(data.get("title") or data.get("id") or "descarga")
-    return (names.sanitize(base) or data.get("id") or "descarga")[:120]
+    return _rust.youtube_provisional_name(data)
 
 
 def _tag_if_trustworthy(path: Path, data: dict) -> bool:
-    """Escribe artista/titulo solo si YouTube dio metadatos de musica de verdad."""
-    artist, track = data.get("artist", ""), data.get("track", "")
-    if not (artist and track):
+    """Escribe artista/titulo solo si YouTube dio metadatos de musica de verdad
+    («Fulano - Topic» es el canal automatico de YouTube Music, no el artista)."""
+    trusted = _rust.youtube_trusted_tags(data)
+    if trusted is None:
         return False
-    # "Fulano - Topic" es el canal automatico de YouTube Music, no el artista
-    artist = re.sub(r"\s*-\s*topic\s*$", "", artist, flags=re.IGNORECASE).strip()
-    if not artist:
-        return False
-    tags.write(
-        path,
-        artist=names.clean(artist),
-        title=names.clean(track),
-        album=names.clean(data.get("album", "")),
-    )
+    tags.write(path, **trusted)
     return True
 
 
@@ -542,38 +389,14 @@ def download_one(target_url, quality="high", folder=None, progress=None, cancel=
             raise Canceled()
         if not progress:
             return
-        if status.get("status") == "downloading":
-            total = status.get("total_bytes") or status.get("total_bytes_estimate") or 0
-            done = status.get("downloaded_bytes") or 0
-            progress(
-                {
-                    "phase": "downloading",
-                    "percent": round(100 * done / total, 1) if total else 0,
-                    "name": Path(status.get("filename") or "").name,
-                }
-            )
-        elif status.get("status") == "finished":
-            progress({"phase": "converting", "percent": 100, "name": ""})
+        step = _rust.youtube_progress(status)
+        if step is not None:
+            progress(step)
 
     with tempfile.TemporaryDirectory(prefix="danplay-yt-") as tmp:
-        options = {
-            **_base_options(),
-            "format": "bestaudio/best",
-            "outtmpl": str(Path(tmp) / "%(id)s.%(ext)s"),
-            "noplaylist": True,
-            "writethumbnail": True,
-            # tope de tamaño y de duracion: un directo de tres horas no
-            # deberia poder llenar el disco por accidente
-            "max_filesize": MAX_BYTES,
-            "match_filter": wanted,
-            "progress_hooks": [hook],
-            "postprocessors": [
-                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": kbps},
-                # la caratula si la queremos: es la miniatura del video
-                {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
-                {"key": "EmbedThumbnail", "already_have_thumbnail": False},
-            ],
-        }
+        # el mejor audio, al temporal, con tope de tamaño y de duracion: un
+        # directo de tres horas no deberia poder llenar el disco por accidente
+        options = _rust.youtube_download_options(_base_options(), tmp, kbps, wanted, hook)
         try:
             with yt.YoutubeDL(cast(Any, options)) as ydl:
                 data = ydl.extract_info(target_url, download=True)
@@ -581,13 +404,9 @@ def download_one(target_url, quality="high", folder=None, progress=None, cancel=
             return {"ok": False, "reason": "canceled", "canceled": True}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "reason": str(e)[:200]}
-        if not data:
-            return {"ok": False, "reason": "no se pudo leer el video"}
-        if data.get("entries"):  # vino una lista: el primero
-            entries = [e for e in data.get("entries") or [] if e]
-            if not entries:
-                return {"ok": False, "reason": "lista vacia"}
-            data = entries[0]
+        data, why = _rust.youtube_single(data)  # si vino una lista, el primero
+        if data is None:
+            return {"ok": False, "reason": why}
 
         mp3 = next((p for p in Path(tmp).glob("*.mp3")), None)
         if mp3 is None:
@@ -598,17 +417,7 @@ def download_one(target_url, quality="high", folder=None, progress=None, cancel=
         target = folder / names.free_name(str(folder), _provisional_name(d) + ".mp3")
         shutil.move(str(mp3), str(target))
 
-    return {
-        "ok": True,
-        "file": str(target),
-        "tagged": tagged,
-        "title": d["title"],
-        "channel": d["channel"],
-        "duration": d["duration"],
-        "url": d["url"],
-        "id": d["id"],
-        "kbps": kbps,
-    }
+    return _rust.youtube_downloaded(d, str(target), tagged, kbps)
 
 
 # Lo que usa lo descargado dentro de su carpeta. Al elegirla se crean las que
@@ -627,21 +436,12 @@ def folder() -> dict:
     from . import library
 
     path = config.LIBRARY
-    managed = [f for f in library.list_folders() if f.get("active") and f.get("exists")]
-    reason = ""
-    if not config.LIBRARY_CHOSEN:
-        reason = "unset"
-    elif not path.is_dir():
-        reason = "gone"
-    elif not library.within_roots(path):
-        reason = "unmanaged"
-    # la de ahora si ya vale; si no, la de musica con mas canciones
-    ours = [f for f in managed if f.get("role") == "library"]
-    if path.is_dir() and any(library._inside(path, f["path"]) for f in managed):
-        suggested = str(path)
-    else:
-        suggested = max(ours, key=lambda f: f.get("n") or 0)["path"] if ours else ""
-    return {"path": str(path), "ready": not reason, "reason": reason, "suggested": suggested}
+    return _rust.youtube_folder(
+        str(path),
+        bool(config.LIBRARY_CHOSEN),
+        library.list_folders(),
+        lambda: library.within_roots(path),
+    )
 
 
 def choose_folder(path) -> dict:
@@ -668,7 +468,7 @@ def already_in_library(title: str) -> list[dict]:
     """Lo que ya tienes en la biblioteca y parece esta misma cancion."""
     from . import library
 
-    return library.find_by_match_key(names.match_key(names.clean(title or "")))
+    return library.find_by_match_key(_rust.youtube_title_key(title))
 
 
 def _log(entry: dict, query: str, source: str, quality: str) -> None:
@@ -676,31 +476,10 @@ def _log(entry: dict, query: str, source: str, quality: str) -> None:
     from . import library
 
     try:
-        song_id, target = entry.get("id"), entry.get("target", "")
-        if song_id is None and entry.get("already_there"):
-            # La que ya tenias: se apunta CUAL (y donde esta), para que la
-            # proxima vez que llegue este enlace se sepa sin volver a
-            # consultarlo, y sea la misma cancion mientras siga ahi.
-            mine = (entry.get("matches") or [{}])[0]
-            song_id, target = mine.get("id"), target or mine.get("path", "")
-        library.log_download(
-            {
-                "source": source,
-                "query": query,
-                "quality": quality,
-                "title": entry.get("title") or entry.get("source") or "",
-                "channel": entry.get("channel", ""),
-                "url": entry.get("url", ""),
-                "ok": entry.get("ok"),
-                "already": entry.get("already_there"),
-                "reason": entry.get("reason", ""),
-                "song_id": song_id,
-                "artist": entry.get("artist", ""),
-                "song": entry.get("song", ""),
-                "target": target,
-                "kbps": entry.get("kbps", ""),
-            }
-        )
+        # La que ya tenias: se apunta CUAL (y donde esta), para que la proxima
+        # vez que llegue este enlace se sepa sin volver a consultarlo, y sea la
+        # misma cancion mientras siga ahi.
+        library.log_download(_rust.youtube_history_entry(entry, query, source, quality))
     except Exception:
         log.debug("no se pudo apuntar la descarga en el historial", exc_info=True)
 
@@ -864,7 +643,7 @@ def run_job(
 
 def _short(e: BaseException) -> str:
     """El motivo de un fallo en una linea corta (para enseñarlo, no para depurar)."""
-    return (" ".join(str(e).split()) or type(e).__name__)[:200]
+    return _rust.youtube_short(e)
 
 
 def run_many(

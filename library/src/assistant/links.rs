@@ -310,6 +310,12 @@ pub fn unquote(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Si `urllib.parse.parse_qs(query)` trae `key` (con algún valor que no
+/// esté vacío).
+pub fn parse_qs_has(query: &str, key: &str) -> bool {
+    parse_qs_first(query, key).is_some()
+}
+
 /// El primer valor de `key` según `urllib.parse.parse_qs` (los vacíos no
 /// cuentan; «+» es espacio).
 fn parse_qs_first(query: &str, key: &str) -> Option<String> {
