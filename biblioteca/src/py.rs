@@ -992,5 +992,110 @@ pub fn fnmatch(name: &str, pat: &str) -> bool {
     fnmatchcase(&normcase(name), &normcase(pat))
 }
 
+// ------------------------------------------------------------------ líneas y JSON
+
+/// `str.splitlines()` de Python: corta en todos los finales de línea que
+/// conoce Python (no solo «\n»), y «\r\n» cuenta como uno.
+pub fn splitlines(s: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut chars = s.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if matches!(
+            c,
+            '\n' | '\r'
+                | '\x0b'
+                | '\x0c'
+                | '\x1c'
+                | '\x1d'
+                | '\x1e'
+                | '\u{85}'
+                | '\u{2028}'
+                | '\u{2029}'
+        ) {
+            out.push(&s[start..i]);
+            let mut end = i + c.len_utf8();
+            if c == '\r' && chars.peek().is_some_and(|&(_, n)| n == '\n') {
+                chars.next();
+                end += 1;
+            }
+            start = end;
+        }
+    }
+    if start < s.len() {
+        out.push(&s[start..]);
+    }
+    out
+}
+
+fn dumps_str(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\x08' => out.push_str("\\b"),
+            '\x0c' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+fn dumps_into(v: &Value, out: &mut String) {
+    match v {
+        Value::Null => out.push_str("null"),
+        Value::Bool(true) => out.push_str("true"),
+        Value::Bool(false) => out.push_str("false"),
+        Value::Number(n) => match (n.as_i64(), n.as_u64()) {
+            (Some(i), _) => {
+                let _ = write!(out, "{i}");
+            }
+            (None, Some(u)) => {
+                let _ = write!(out, "{u}");
+            }
+            _ => out.push_str(&repr_float(n.as_f64().unwrap_or(f64::NAN))),
+        },
+        Value::String(s) => dumps_str(s, out),
+        Value::Array(a) => {
+            out.push('[');
+            for (i, x) in a.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                dumps_into(x, out);
+            }
+            out.push(']');
+        }
+        Value::Object(o) => {
+            out.push('{');
+            for (i, (k, x)) in o.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                dumps_str(k, out);
+                out.push_str(": ");
+                dumps_into(x, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
+/// `json.dumps(v, ensure_ascii=False)` de Python: con «, » y «: » entre las
+/// piezas, los reales como su `repr` y lo que no es ASCII tal cual. Lo que
+/// se guarda como JSON en la base sale así igual que lo guardaba Python.
+pub fn dumps(v: &Value) -> String {
+    let mut out = String::new();
+    dumps_into(v, &mut out);
+    out
+}
+
 #[cfg(test)]
 mod tests;

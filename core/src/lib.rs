@@ -8,11 +8,14 @@
 pub mod audio;
 pub mod cifrados;
 pub mod compat;
+pub mod conversaciones;
 pub mod etiquetas;
+pub mod fuera;
 pub mod habla;
 pub mod indice;
 pub mod json;
 pub mod library;
+pub mod listas;
 pub mod nombres;
 pub mod seguro;
 pub mod teoria;
@@ -220,6 +223,9 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     seguro::register(m)?;
     habla::register(m)?;
     web::register(m)?;
+    listas::register(m)?;
+    fuera::register(m)?;
+    conversaciones::register(m)?;
     Ok(())
 }
 

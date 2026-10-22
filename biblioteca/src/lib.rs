@@ -6,10 +6,13 @@
 //! Python lo usa a través de `danplay_core` (core/); la app de escritorio lo
 //! usará directamente cuando el núcleo entero esté en Rust.
 pub mod cifrados;
+pub mod conversaciones;
 pub mod etiquetas;
+pub mod fuera;
 pub mod habla;
 pub mod html;
 pub mod indice;
+pub mod listas;
 pub mod nombres;
 pub mod py;
 pub mod red;
