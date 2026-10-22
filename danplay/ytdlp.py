@@ -23,31 +23,33 @@ pocos meses deja de bajar nada. Por eso:
   busca deno, node, quickjs o bun (en el orden de preferencia de yt-dlp) con
   `config.find_tool` —la carpeta de herramientas de la app y el PATH— y se le
   pasa a yt-dlp con su ruta.
+
+Las versiones, preguntar a los motores (a todos a la vez) y si valen, la
+version descargada que toca usar, la rueda de PyPI con su yt-dlp-ejs y su
+sha256, y descomprimirla van en Rust (library/src/ytdlp.rs); aqui quedan la
+red (pedir a PyPI), el buscador de modulos, los cerrojos y la cache del motor.
 """
 
 import contextlib
-import hashlib
 import importlib.machinery
 import importlib.metadata
-import io
 import json
 import logging
 import os
-import re
 import shutil
-import subprocess
 import sys
 import threading
 import time
 import urllib.request
-import zipfile
 from pathlib import Path
+
+import danplay_core as _rust
 
 from . import config
 
 log = logging.getLogger(__name__)
 
-PACKAGES = ("yt_dlp", "yt_dlp_ejs")
+PACKAGES = tuple(_rust.ytdlp_packages())
 # `DANPLAY_PYPI_URL` apunta a un espejo de PyPI (una red que no deja salir a
 # pypi.org, o las pruebas del binario empaquetado)
 PYPI = os.getenv("DANPLAY_PYPI_URL", "https://pypi.org/pypi").rstrip("/")
@@ -64,7 +66,7 @@ class UpdateError(Exception):
 
 def version_tuple(v: str) -> tuple[int, ...]:
     """«2026.08.19» y «2026.8.19» son la misma: se comparan como numeros."""
-    return tuple(int(x) for x in re.findall(r"\d+", str(v or "")))
+    return _rust.ytdlp_version_tuple(v)
 
 
 # ------------------------------------------------------------ motor de JS
@@ -73,12 +75,8 @@ def version_tuple(v: str) -> tuple[int, ...]:
 # deno >= 2.3.0, node >= 22, quickjs (el binario se llama «qjs») >=
 # 2023-12-09 o cualquier quickjs-ng, bun >= 1.2.11. La clave es la que acepta
 # la opcion `js_runtimes` de YoutubeDL: {nombre: {"path": ruta}}.
-RUNTIMES = (
-    ("deno", "deno", ("--version",), r"^deno (\S+)", (2, 3, 0)),
-    ("node", "node", ("--version",), r"^v(\S+)", (22, 0, 0)),
-    ("quickjs", "qjs", ("--help",), r"^QuickJS(?:-ng)?\s+version\s+(\S+)", (2023, 12, 9)),
-    ("bun", "bun", ("--version",), r"^(\S+)", (1, 2, 11)),
-)
+# (nombre, programa, argumentos, expresion de la version, minimo)
+RUNTIMES = _rust.ytdlp_runtimes()
 # Sin motor se vuelve a mirar cada tanto: instalar deno con la app abierta
 # tiene que notarse sin reiniciarla.
 RUNTIME_RECHECK = 60.0
@@ -87,29 +85,11 @@ _runtime_cache: dict = {"at": -1e9, "value": None, "found": []}
 _runtime_lock = threading.Lock()
 
 
-def _probe(name: str, binary: str, args, pattern: str, minimum) -> dict | None:
-    """Lo que dice un motor de si mismo, o None si no esta."""
-    path = config.find_tool(binary)
-    if not path:
-        return None
-    try:
-        r = subprocess.run([path, *args], capture_output=True, text=True, timeout=15, check=False)
-    except (OSError, subprocess.SubprocessError):
-        log.info("no pude preguntar su version a %s", path, exc_info=True)
-        return None
-    out = (r.stdout or "") + (r.stderr or "")
-    m = re.search(pattern, out, re.MULTILINE)
-    version = m.group(1) if m else ""
-    got = version_tuple(version)
-    ng = name == "quickjs" and "QuickJS-ng" in out
-    supported = bool(got) and (got > (0,) if ng else got >= minimum)
-    return {
-        "name": name,
-        "path": path,
-        "version": version,
-        "supported": supported,
-        "minimum": ".".join(str(x) for x in minimum),
-    }
+def _probe() -> tuple[list[dict], int | None]:
+    """Lo que dice de si mismo cada motor que esta (preguntados todos a la vez),
+    y cual se usara."""
+    found = [(spec[0], path) for spec in RUNTIMES if (path := config.find_tool(spec[1]))]
+    return _rust.ytdlp_probe_all(found)
 
 
 def js_runtime(refresh: bool = False) -> dict | None:
@@ -124,8 +104,8 @@ def js_runtime(refresh: bool = False) -> dict | None:
         cached["value"] is not None or time.monotonic() - cached["at"] < RUNTIME_RECHECK
     ):
         return cached["value"]
-    found = [p for p in (_probe(*spec) for spec in RUNTIMES) if p]
-    chosen = next((p for p in found if p["supported"]), None)
+    found, i = _probe()
+    chosen = found[i] if i is not None else None
     with _runtime_lock:
         _runtime_cache.update(at=time.monotonic(), value=chosen, found=found)
     return chosen
@@ -137,18 +117,7 @@ def js_runtime_hint() -> str:
         return ""
     with _runtime_lock:
         found = list(_runtime_cache["found"])
-    old = next((p for p in found if not p["supported"]), None)
-    if old:
-        return (
-            f"Tu {old['name']} ({old['version'] or 'version desconocida'}) es demasiado "
-            f"antiguo para yt-dlp: hace falta {old['minimum']} o posterior. Actualizalo, "
-            "o instala Deno (https://deno.com)."
-        )
-    return (
-        "YouTube ya exige un motor de JavaScript para descargar bien: sin el pueden "
-        "faltar formatos o no bajar nada. Instala Deno (https://deno.com) o Node.js 22 "
-        "o posterior y vuelve a esta pagina."
-    )
+    return _rust.ytdlp_runtime_hint(found)
 
 
 def options() -> dict:
@@ -263,17 +232,8 @@ def bundled_version() -> str:
 def downloaded() -> tuple[str, Path] | None:
     """(version, carpeta) de la descargada que toca usar: la que dice
     `current`, si esta entera y es mas nueva que la empaquetada."""
-    try:
-        version = _marker().read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    folder = root() / version
-    if not version or not (folder / "yt_dlp" / "__init__.py").is_file():
-        return None
-    bundled = bundled_version()
-    if bundled and version_tuple(version) <= version_tuple(bundled):
-        return None  # la app trae ya una igual o mas nueva
-    return version, folder
+    chosen = _rust.ytdlp_downloaded(str(root()), bundled_version)
+    return (chosen[0], Path(chosen[1])) if chosen else None
 
 
 def _purge() -> None:
@@ -369,10 +329,7 @@ def origin() -> str:
 
 def _discard(folder: Path) -> None:
     """Una version descargada que no sirve: fuera, y que no se vuelva a probar."""
-    with contextlib.suppress(OSError):
-        if _marker().read_text(encoding="utf-8").strip() == folder.name:
-            _marker().unlink()
-    shutil.rmtree(folder, ignore_errors=True)
+    _rust.ytdlp_discard(str(root()), str(folder))
 
 
 # ------------------------------------------------------ actualizar
@@ -402,37 +359,18 @@ def _pypi(project: str, release: str = "") -> dict:
 
 def _why(e: Exception) -> str:
     """Un fallo de red, en una frase que se entienda."""
-    code = getattr(e, "code", None)
-    if isinstance(code, int):
-        return f"el servidor contesto con un error {code}"
-    text = str(e)
-    low = text.lower()
-    if "timed out" in low or "timeout" in low:
-        return "tarda demasiado en responder"
-    if "resolve" in low or "name or service" in low or "getaddrinfo" in low or "nodename" in low:
-        return "sin conexion a internet"
-    return text[:160]
+    return _rust.ytdlp_why(e)
 
 
 def _wheel(data: dict) -> dict:
     """La rueda universal (py3-none-any) de una version de PyPI."""
-    for f in data.get("urls") or []:
-        name = str(f.get("filename") or "")
-        if f.get("packagetype") == "bdist_wheel" and name.endswith("-py3-none-any.whl"):
-            if not (f.get("digests") or {}).get("sha256"):
-                break
-            return f
-    raise UpdateError(f"PyPI no tiene una rueda universal de {data['info'].get('name')}")
+    return (data.get("urls") or [])[_rust.ytdlp_wheel(data)]
 
 
 def _ejs_pin(data: dict) -> str:
     """La version de yt-dlp-ejs que pide esa version de yt-dlp (su extra
     «default»). yt-dlp exige que casen: con otra, no resuelve los retos."""
-    for req in data["info"].get("requires_dist") or []:
-        m = re.match(r"^\s*yt-dlp-ejs\s*==\s*([\w.]+)", str(req))
-        if m and "default" in str(req):
-            return m.group(1)
-    return ""
+    return _rust.ytdlp_ejs_pin(data)
 
 
 def _fetch(wheel: dict) -> bytes:
@@ -443,34 +381,17 @@ def _fetch(wheel: dict) -> bytes:
         raise
     except Exception as e:
         raise UpdateError(f"no se pudo bajar {wheel.get('filename')} ({_why(e)})") from e
-    digest = hashlib.sha256(data).hexdigest()
-    if digest != wheel["digests"]["sha256"]:
-        raise UpdateError(
-            f"{wheel.get('filename')} no coincide con lo que publica PyPI "
-            "(sha256 distinto): no se usa"
-        )
+    _rust.ytdlp_check_sha256(data, wheel)
     return data
 
 
 def _unpack(wheels: list[bytes], target: Path) -> None:
     """Descomprime las ruedas en `target`, sin dejar que un nombre raro
-    escriba fuera («../», rutas absolutas) ni que el total se dispare."""
-    total = 0
-    for data in wheels:
-        with zipfile.ZipFile(io.BytesIO(data)) as z:
-            for info in z.infolist():
-                name = info.filename
-                parts = Path(name).parts
-                if name.startswith(("/", "\\")) or ".." in parts or ":" in name or not parts:
-                    raise UpdateError(f"la rueda trae un archivo que no toca: {name}")
-                # lo de <paquete>.data/ (paginas de manual, autocompletado) no
-                # hace falta para importarlo; ni nada que no sea el paquete
-                if not (parts[0] in PACKAGES or parts[0].endswith(".dist-info")):
-                    continue
-                total += info.file_size
-                if total > MAX_UNPACKED_BYTES:
-                    raise UpdateError("la rueda descomprimida pesa demasiado")
-                z.extract(info, target)
+    escriba fuera («../», rutas absolutas) ni que el total se dispare.
+    De cada rueda solo sale el paquete y su `.dist-info`: lo de
+    <paquete>.data/ (paginas de manual, autocompletado) no hace falta para
+    importarlo."""
+    _rust.ytdlp_unpack(list(wheels), target, MAX_UNPACKED_BYTES)
 
 
 def update(progress=None) -> dict:
@@ -516,9 +437,7 @@ def update(progress=None) -> dict:
     step(3, "probando la version nueva")
     _switch_to(latest, final)
     step(4, "limpiando versiones viejas")
-    for old in root().iterdir():
-        if old.is_dir() and old.name != latest:
-            shutil.rmtree(old, ignore_errors=True)
+    _rust.ytdlp_prune(root(), latest)
     return {"previous": previous, "version": version(), "updated": True}
 
 

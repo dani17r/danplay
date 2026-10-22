@@ -1194,6 +1194,49 @@ pub fn purepath(s: &str) -> String {
     if out.is_empty() { ".".into() } else { out }
 }
 
+/// `Path(path).name`: el último componente ("" si no hay ninguno: «.», «/»).
+pub fn path_name(path: &str) -> String {
+    let p = purepath(path);
+    if p == "." {
+        String::new()
+    } else {
+        basename(&p)
+    }
+}
+
+/// `shutil.rmtree(path, ignore_errors=True)`: la carpeta y todo lo de
+/// dentro, siguiendo aunque algo no se deje borrar. Un enlace simbólico (o
+/// algo que no es una carpeta) no se toca: Python se niega con un error, que
+/// aquí se ignora; dentro de la carpeta, un enlace se borra como enlace, sin
+/// seguirlo.
+pub fn rmtree(path: &Path) {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return;
+    };
+    if !meta.is_dir() {
+        return;
+    }
+    empty_tree(path);
+    let _ = std::fs::remove_dir(path);
+}
+
+fn empty_tree(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let kind = entry.file_type();
+        if kind.as_ref().is_ok_and(std::fs::FileType::is_dir) {
+            empty_tree(&path);
+            let _ = std::fs::remove_dir(&path);
+        } else if std::fs::remove_file(&path).is_err() && kind.is_ok_and(|t| t.is_symlink()) {
+            // en Windows, un enlace a una carpeta se quita como carpeta
+            let _ = std::fs::remove_dir(&path);
+        }
+    }
+}
+
 /// `Path(name).suffix`: lo de después del último punto, si no es el primer
 /// ni el último carácter del nombre.
 pub fn path_suffix(path: &str) -> String {

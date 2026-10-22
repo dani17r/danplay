@@ -38,6 +38,7 @@ pub mod toon;
 pub mod warnings;
 pub mod waveform;
 pub mod web;
+pub mod ytdlp;
 
 mod asf;
 mod patterns;
