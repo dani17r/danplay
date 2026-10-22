@@ -9,6 +9,8 @@ rust-version.workspace = true
 name = "biblioteca"
 
 [dependencies]
+# Las carpetas del sistema en Windows (AppData\Local, Música), como platformdirs
+dirs = "7.0.0"
 fancy-regex = "0.19.2"
 # Leer y escribir las etiquetas (ID3, Vorbis, MP4): MIT o Apache-2.0. Es lo
 # que sustituye a mutagen, que es GPL.

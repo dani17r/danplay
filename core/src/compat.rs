@@ -78,7 +78,53 @@ pub fn compat(py: Python<'_>, name: &str, args: Vec<Bound<'_, PyAny>>) -> PyResu
             let c: char = args[0].extract()?;
             py::isprintable(c).into_pyobject(py)?.to_owned().into_any().unbind()
         }
+        "casefold" => py::casefold(&text(0)?).into_pyobject(py)?.into_any().unbind(),
+        "dumps" => {
+            let v = crate::json::from_python(&args[0])?;
+            py::dumps(&v).into_pyobject(py)?.into_any().unbind()
+        }
+        "dotenv_values" => {
+            // el texto, y el entorno como diccionario
+            let env: std::collections::HashMap<String, String> = args[1].extract()?;
+            let lookup = |n: &str| env.get(n).cloned();
+            let out = biblioteca::config::dotenv::values(&text(0)?, &lookup);
+            out.into_pyobject(py)?.into_any().unbind()
+        }
+        "config" => config(py, args[0].extract()?, args[1].extract()?)?,
+        "dotenv_value" => biblioteca::config::dotenv_value(&text(0)?)
+            .into_pyobject(py)?
+            .into_any()
+            .unbind(),
         other => return Err(PyValueError::new_err(format!("no hay regla «{other}»"))),
     };
     Ok(out)
+}
+
+/// Lo que lee `biblioteca::config::Config`, con los nombres de config.py.
+fn config(py: Python<'_>, frozen: bool, root: std::path::PathBuf) -> PyResult<Py<PyAny>> {
+    let c = biblioteca::config::Config::load(frozen, root);
+    let d = pyo3::types::PyDict::new(py);
+    d.set_item("DATA_DIR", &c.data_dir)?;
+    d.set_item("CONFIG_DIR", &c.config_dir)?;
+    d.set_item("ENV_FILE", &c.env_file)?;
+    d.set_item("USE_PROJECT_ENV", c.use_project_env)?;
+    d.set_item("LIBRARY", &c.library)?;
+    d.set_item("INBOX", &c.inbox)?;
+    d.set_item("ARTISTS_DIR", &c.artists_dir)?;
+    d.set_item("REVIEW_DIR", &c.review_dir)?;
+    d.set_item("LIBRARY_CHOSEN", c.library_chosen)?;
+    d.set_item("DATABASE", &c.database)?;
+    d.set_item("TOOLS_DIR", &c.tools_dir)?;
+    d.set_item("AI_ENABLED", c.ai_enabled)?;
+    d.set_item("ACOUSTID_API_KEY", &c.acoustid_api_key)?;
+    d.set_item("CONVERT_TO_MP3", c.convert_to_mp3)?;
+    d.set_item("MP3_QUALITY", &c.mp3_quality)?;
+    d.set_item("KEEP_ORIGINAL", c.keep_original)?;
+    d.set_item("NEVER_CONVERT", &c.never_convert)?;
+    d.set_item("WRITE_TAGS", c.write_tags)?;
+    d.set_item("STEMS_FORMAT", &c.stems_format)?;
+    d.set_item("DUPLICATE_THRESHOLD", c.duplicate_threshold)?;
+    d.set_item("ffmpeg", c.find_tool("ffmpeg"))?;
+    d.set_item("default_library", biblioteca::config::default_library())?;
+    Ok(d.into_any().unbind())
 }

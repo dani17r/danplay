@@ -7,6 +7,7 @@
 //! usará directamente cuando el núcleo entero esté en Rust.
 pub mod avisos;
 pub mod cifrados;
+pub mod config;
 pub mod convertir;
 pub mod duplicados;
 pub mod etiquetas;

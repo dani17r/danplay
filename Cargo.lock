@@ -869,6 +869,7 @@ dependencies = [
 name = "danplay-biblioteca"
 version = "1.30.0"
 dependencies = [
+ "dirs",
  "fancy-regex",
  "lofty",
  "md-5",
