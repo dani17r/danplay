@@ -15,6 +15,7 @@ pub mod config;
 pub mod convert;
 pub mod cues;
 pub mod duplicates;
+pub mod enrich;
 pub mod external;
 pub mod fingerprint;
 pub mod html;

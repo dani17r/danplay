@@ -1012,5 +1012,7 @@ fn ogg_cover(tag: &VorbisComments) -> Option<(Vec<u8>, String)> {
         .map(|(p, _)| (p.data().to_vec(), mime_of(p)))
 }
 
+pub mod lrc;
+
 #[cfg(test)]
 mod tests;

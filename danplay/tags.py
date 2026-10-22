@@ -99,8 +99,11 @@ def lrc_to_plain(text: str) -> str:
 
     Lo que va en el USLT del archivo y en la hoja del atril es la letra
     limpia: con las marcas, la hoja imprimia «[00:12.34]» delante de cada
-    verso. Un texto que no es LRC sale tal cual.
+    verso. Un texto que no es LRC sale tal cual. Lo hace el crate
+    (library/src/tags/lrc.rs); sin el, estas dos expresiones.
     """
+    if _rust is not None and hasattr(_rust, "tags_lrc_to_plain"):
+        return _rust.tags_lrc_to_plain(text)
     if not text or not _LRC_STAMP.search(text):
         return text or ""
     lines = []

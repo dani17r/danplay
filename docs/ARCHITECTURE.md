@@ -1441,6 +1441,12 @@ cifrado, no que la columna tenga algo. «Rellenar información» pone el tono de
 la ficha desde el cifrado solo si lo dice y se toca sin cejilla: con cejilla
 lo escrito no es lo que suena.
 
+Guardarlo, pasarlo a otro tono y rellenar la ficha van en Rust
+(`library/src/enrich.rs`), con la letra de LRCLIB, la carátula de iTunes o
+Cover Art Archive y la ficha de la IA. `enrich.py` es la puerta: Rust busca
+en el módulo, al usarlo, lo de fuera (la red, la IA, el índice, las
+etiquetas) y cada paso, como hacía Python con sus globales.
+
 ## Laya, medido y descartado
 
 Laya (Convai, 2026, Apache-2.0) es un modelo de decisiones: se le da un
