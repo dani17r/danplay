@@ -226,17 +226,17 @@ fn is_match(re: &Re, text: &str) -> bool {
 
 /// Lo que para Python es espacio (`str.isspace`): el de Unicode y además los
 /// separadores U+001C-U+001F.
-fn is_py_space(c: char) -> bool {
+pub(crate) fn is_py_space(c: char) -> bool {
     c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
 }
 
 /// `str.split()` de Python: las palabras entre espacios.
-fn py_words(s: &str) -> impl Iterator<Item = &str> {
+pub(crate) fn py_words(s: &str) -> impl Iterator<Item = &str> {
     s.split(is_py_space).filter(|w| !w.is_empty())
 }
 
 /// `str.strip()` de Python, sin argumentos.
-fn py_trim(s: &str) -> &str {
+pub(crate) fn py_trim(s: &str) -> &str {
     s.trim_matches(is_py_space)
 }
 

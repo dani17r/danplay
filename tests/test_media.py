@@ -386,7 +386,8 @@ def test_la_huella_elige_la_mejor_coincidencia(monkeypatch):
             ]
         )
     )
-    monkeypatch.setitem(__import__("sys").modules, "acoustid", fake)
+    # la consulta (fpcalc + AcoustID, en Rust) se sustituye por la falsa
+    monkeypatch.setattr(fingerprint, "_match", lambda key, path: fake.match(key, path))
     r = fingerprint.identify("/x.mp3")
     assert r == {
         "artist": "Barak",

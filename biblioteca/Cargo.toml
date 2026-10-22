@@ -13,10 +13,22 @@ fancy-regex = "0.19.2"
 # Leer y escribir las etiquetas (ID3, Vorbis, MP4): MIT o Apache-2.0. Es lo
 # que sustituye a mutagen, que es GPL.
 lofty = "0.25"
+md-5 = "0.11.0"
+rayon = "1.12.0"
 regex = "1.13.1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+# float_roundtrip: los números se leen exactos (el mtime de una caché se
+# compara con `==`, como en Python)
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+sha1 = "0.11.0"
+# Decodificar el audio para la forma de onda, sin ffmpeg (los formatos de
+# siempre; opus y wma van por ffmpeg).
+symphonia = { version = "0.6", features = ["mp3", "wav", "flac", "isomp4", "aac", "ogg", "vorbis"] }
+tempfile = "3.27.0"
 unicode-normalization = "0.1.26"
 unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
+ureq = "3.4.2"
 
 [lints]
 workspace = true
