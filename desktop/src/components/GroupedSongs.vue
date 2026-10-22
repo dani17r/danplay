@@ -112,7 +112,7 @@ const bindings = computed(() => {
     noHeader: true,
     sort: props.sort,
     desc: props.desc,
-    onSortBy: (campo, d) => emit('sortBy', campo, d)
+    onSortBy: (field, d) => emit('sortBy', field, d)
   }
 })
 </script>

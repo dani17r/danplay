@@ -238,8 +238,8 @@ describe('clic a mano', () => {
     }
     expect(w.find('.study-metro-toggle').attributes('disabled')).toBeUndefined()
     // y se recuerda
-    expect(localStorage.getItem('danplay.clic.auto')).toBe('false')
-    expect(JSON.parse(localStorage.getItem('danplay.clic.mano'))).toEqual({ bpm: 140, meter: 4 })
+    expect(localStorage.getItem('danplay.click.auto')).toBe('false')
+    expect(JSON.parse(localStorage.getItem('danplay.click.manual'))).toEqual({ bpm: 140, meter: 4 })
   })
 
   it('al volver a automático, cada canción con el suyo otra vez', async () => {

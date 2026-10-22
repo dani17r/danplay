@@ -373,7 +373,7 @@ const guarded = computed(() => locked.value && playing.value)
  * recuerda. Antes se repetían siempre, y el botón «Al acabar» quería decir
  * otra cosa (esperar al final de la canción): parecía no funcionar.
  */
-const END_KEY = 'danplay.study.alAcabar'
+const END_KEY = 'danplay.study.atEnd'
 const LOOP_ENDS = [
   {
     v: 'repeat',
@@ -681,18 +681,18 @@ const PITCH_STEPS = [
 const PITCH_STEP_KEY = 'danplay.study.pitchStep'
 // «Grande»: todo el alto que deja el reproductor. Se recuerda: si se cierra
 // grande, se vuelve a abrir grande
-const BIG_KEY = 'danplay.study.grande'
+const BIG_KEY = 'danplay.study.large'
 const big = ref(readPref(BIG_KEY, false) === true)
 watch(big, (v) => savePref(BIG_KEY, v))
 /** A la vista en los carriles: los mandos de la mezcla y los canales (se recuerda). */
-const MIX_KEY = 'danplay.study.verMezcla'
-const ROUTES_KEY = 'danplay.study.verCanales'
+const MIX_KEY = 'danplay.study.showMix'
+const ROUTES_KEY = 'danplay.study.showRoutes'
 const showMix = ref(readPref(MIX_KEY, true) !== false)
 const showRoutes = ref(readPref(ROUTES_KEY, true) !== false)
 watch(showMix, (v) => savePref(MIX_KEY, v))
 watch(showRoutes, (v) => savePref(ROUTES_KEY, v))
 /** Con el candado, que un clic en la onda lleve igual la canción ahí (se recuerda). */
-const SEEK_KEY = 'danplay.study.irConClic'
+const SEEK_KEY = 'danplay.study.seekClick'
 const seekClick = ref(readPref(SEEK_KEY, false) === true)
 watch(seekClick, (v) => savePref(SEEK_KEY, v))
 const savedStep = readPref(PITCH_STEP_KEY, 1)
@@ -961,8 +961,8 @@ const CLICK_SOUNDS = [
   { v: 'claves', n: 'claves', title: 'Claves: agudo y con cuerpo, atraviesa cualquier mezcla' },
   { v: 'hihat', n: 'charles', title: 'Un charles cerrado: como el que marca un baterista' }
 ]
-const PREF_COUNT = 'danplay.clic.cuenta'
-const PREF_SOUND = 'danplay.clic.sonido'
+const PREF_COUNT = 'danplay.click.countIn'
+const PREF_SOUND = 'danplay.click.sound'
 function setCountIn(v) {
   savePref(PREF_COUNT, v)
   return player.setMetronome({ count_in: v })
@@ -981,7 +981,7 @@ function setClickSound(v) {
   })
 }
 /** Más ajustes del clic (compás, cuenta, sonido): plegados, que son muchos. */
-const CLICK_MORE_KEY = 'danplay.study.clicMas'
+const CLICK_MORE_KEY = 'danplay.study.clickMore'
 const clickMore = ref(readPref(CLICK_MORE_KEY, false) === true)
 watch(clickMore, (v) => savePref(CLICK_MORE_KEY, v))
 const setSongVolume = (v) => player.setVolume(v)
@@ -1178,7 +1178,7 @@ const jump = (t) => player.seek(t)
 // (escrita, y dicha con una voz, o grabada con el micrófono). Las hace el
 // núcleo (`/api/cues`) y suenan en el motor en su sitio, también a otra
 // velocidad y en la vuelta de un tramo, por la salida de las guías.
-const CUE_VOLUME_KEY = 'danplay.guias.volumen'
+const CUE_VOLUME_KEY = 'danplay.cues.volume'
 const cueVolume = ref(clamp(Number(readPref(CUE_VOLUME_KEY, 1)) || 1, 0, 3))
 watch(cueVolume, (v) => {
   savePref(CUE_VOLUME_KEY, v)
@@ -1198,7 +1198,7 @@ const guideLanes = computed(() =>
 const laneOfCue = (c) =>
   guideLanes.value.some((l) => l.key === c.lane) ? c.lane : guideLanes.value[0].key
 /** Cómo se llama un carril de guías en el reparto (como una pista). */
-const laneRoute = (key) => 'guias_' + key
+const laneRoute = (key) => 'cues_' + key
 /** Lo que reparte «Salidas»: las pistas separadas y los carriles de guías. */
 const routedParts = computed(() => [
   ...(stems.value?.tracks || []).map((t) => ({ key: t.source, role: t.role || '' })),
@@ -1249,7 +1249,7 @@ const STOP_FIRST = 'Para la canción para poner, mover o cambiar guías'
  * siguen sus cambios de tempo) al ponerlas o moverlas. De quien toca: se
  * recuerda.
  */
-const SNAP_KEY = 'danplay.guias.iman'
+const SNAP_KEY = 'danplay.cues.magnet'
 const snapCues = ref(readPref(SNAP_KEY, false) === true)
 watch(snapCues, (v) => savePref(SNAP_KEY, v))
 /**
@@ -1298,7 +1298,7 @@ function addCue(t = position.value, lane = guideLanes.value[0].key) {
   cueDraft.value = {
     t: round2(nearestBeat(snapBeats.value, t)),
     text: '',
-    voice: readPref('danplay.guias.voz', ''),
+    voice: readPref('danplay.cues.voice', ''),
     cue: null,
     lane
   }
@@ -1522,7 +1522,7 @@ function chooseVoice({
 function onVoicePicked(id) {
   const p = voicePick.value
   voicePick.value = null
-  savePref('danplay.guias.voz', id)
+  savePref('danplay.cues.voice', id)
   p?.resolve(id)
 }
 function onVoiceClosed() {
@@ -1532,7 +1532,7 @@ function onVoiceClosed() {
 }
 /** La voz de siempre si ya está bajada; si no, se pregunta (y se recuerda). */
 async function readyVoice(okLabel) {
-  const wanted = readPref('danplay.guias.voz', '')
+  const wanted = readPref('danplay.cues.voice', '')
   if (wanted) {
     try {
       const r = await api.cueVoices()
@@ -1689,7 +1689,7 @@ async function onCueMade({ t, text, voice, file, cue }) {
   })
   study.value.cues = list.sort((a, b) => a.t - b.t)
   cueDraft.value = null
-  if (voice) savePref('danplay.guias.voz', voice)
+  if (voice) savePref('danplay.cues.voice', voice)
   scheduleSave()
   await sendCues()
 }
@@ -2474,7 +2474,7 @@ defineExpose({ close: hide, hide, exit })
         >
           <!-- en un span: Icon lleva comentarios y la transición no lo animaría -->
           <Transition name="icon-swap" mode="out-in">
-            <span :key="playing ? 'pausa' : 'play'" class="icon-swap"
+            <span :key="playing ? 'pause' : 'play'" class="icon-swap"
               ><Icon :n="playing ? 'pause' : 'play'" :t="14"
             /></span>
           </Transition>

@@ -19,10 +19,10 @@ export default defineConfig(({ command, mode }) => ({
     strictPort: true,
     proxy: { '/api': process.env.DANPLAY_API || 'http://127.0.0.1:8730' }
   },
-  // `--mode movil`: la app del celular (movil.html, ver src/movil/), en su
-  // propia carpeta, que es la que empaqueta movil/tauri.conf.json
+  // `--mode mobile`: la app del celular (mobile.html, ver src/mobile/), en su
+  // propia carpeta, que es la que empaqueta mobile/tauri.conf.json
   build:
-    mode === 'movil'
-      ? { target: 'esnext', outDir: 'dist-movil', rollupOptions: { input: 'movil.html' } }
+    mode === 'mobile'
+      ? { target: 'esnext', outDir: 'dist-mobile', rollupOptions: { input: 'mobile.html' } }
       : { target: 'esnext', outDir: 'dist' }
 }))

@@ -96,7 +96,7 @@ function createPreferences() {
   const cardSize = ref(Number(read('danplay.cardSize', '164')) || 164)
   const showDetails = ref(read('danplay.showDetails', '1') !== '0')
   /** cómo se pinta la onda del modo estudio (ver utils/wavePaint.js) */
-  const waveStyle = ref(waveStyleOf(read('danplay.ondaEstilo', 'barras')))
+  const waveStyle = ref(waveStyleOf(read('danplay.waveStyle', 'bars')))
 
   watch(theme, (v) => applyTheme(v))
   watch(density, (v) => applyDensity(v))
@@ -105,7 +105,7 @@ function createPreferences() {
   watch(groupBy, (v) => write('danplay.groupBy', v))
   watch(cardSize, (v) => write('danplay.cardSize', v))
   watch(showDetails, (v) => write('danplay.showDetails', v ? '1' : '0'))
-  watch(waveStyle, (v) => write('danplay.ondaEstilo', v))
+  watch(waveStyle, (v) => write('danplay.waveStyle', v))
 
   /** Pinta lo guardado. Se llama una vez, al montar la app. */
   function applyAll() {

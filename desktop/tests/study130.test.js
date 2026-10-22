@@ -222,7 +222,7 @@ describe('la onda', () => {
     expect(ir.attributes('aria-pressed')).toBe('false')
     // con «ir con un clic», bloqueada y sonando, un clic lleva ahí y el tramo sigue
     await ir.trigger('click')
-    expect(JSON.parse(localStorage.getItem('danplay.study.irConClic'))).toBe(true)
+    expect(JSON.parse(localStorage.getItem('danplay.study.seekClick'))).toBe(true)
     held.playback.bridge.seek.mockClear()
     held.playback.bridge.setLoop.mockClear()
     await tap(w, 100)
@@ -248,8 +248,8 @@ describe('la onda', () => {
     await w.find('.study-show-routes').trigger('click')
     expect(w.find('.chans').exists()).toBe(false)
     expect(tl().attributes('style')).not.toBe(widthWith)
-    expect(JSON.parse(localStorage.getItem('danplay.study.verMezcla'))).toBe(false)
-    expect(JSON.parse(localStorage.getItem('danplay.study.verCanales'))).toBe(false)
+    expect(JSON.parse(localStorage.getItem('danplay.study.showMix'))).toBe(false)
+    expect(JSON.parse(localStorage.getItem('danplay.study.showRoutes'))).toBe(false)
   })
 
   it('el carril del clic: encenderlo y su volumen', async () => {
@@ -356,7 +356,7 @@ describe('la guía automática', () => {
       ],
       available: ''
     }))
-    held.api.autoCues.mockImplementation(async () => ({ job: { name: 'guia-automatica' } }))
+    held.api.autoCues.mockImplementation(async () => ({ job: { name: 'auto-cue' } }))
     held.api.runJob.mockImplementation(async (start) => {
       await start()
       return result
@@ -365,7 +365,7 @@ describe('la guía automática', () => {
 
   it('con la voz ya elegida, la hace sin preguntar, en su carril «Partes»', async () => {
     prepare()
-    localStorage.setItem('danplay.guias.voz', JSON.stringify('st-F1'))
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
     const w = await mountView()
     await w.find('.study-auto-guide').trigger('click')
     await flushPromises()
@@ -400,7 +400,7 @@ describe('la guía automática', () => {
     await flushPromises()
     await flushPromises()
     expect(held.api.autoCues).toHaveBeenCalledWith(7, expect.objectContaining({ voice: 'st-M1' }))
-    expect(JSON.parse(localStorage.getItem('danplay.guias.voz'))).toBe('st-M1')
+    expect(JSON.parse(localStorage.getItem('danplay.cues.voice'))).toBe('st-M1')
     expect(w.findAll('.tl-guide-clip')).toHaveLength(2)
   })
 
@@ -457,7 +457,7 @@ describe('el recorrido', () => {
     expect(pop.textContent).toContain('El modo estudio')
     expect(pop.querySelector('.tour-demo')).not.toBeNull()
     stopStudyTour()
-    expect(localStorage.getItem('danplay.study.recorridoVisto')).toBe('true')
+    expect(localStorage.getItem('danplay.study.tourSeen')).toBe('true')
   })
 
   it('no sale solo en las pruebas (sin medidas), y una vez visto no vuelve a salir solo', async () => {

@@ -155,7 +155,7 @@
 }
 
 /* ---------- la barra: todo en una tira ---------- */
-.pocket-barra {
+.pocket-bar {
   display: grid;
   grid-template:
     'top controls' auto
@@ -164,37 +164,37 @@
   gap: 4px 14px;
   padding: 6px 12px 8px;
 }
-.pocket-barra .pocket-top {
+.pocket-bar .pocket-top {
   grid-area: top;
 }
-.pocket-barra .pocket-controls {
+.pocket-bar .pocket-controls {
   grid-area: controls;
   justify-content: flex-end;
 }
-.pocket-barra .pocket-seek-row {
+.pocket-bar .pocket-seek-row {
   grid-area: seek;
 }
-.pocket-barra .pocket-window {
+.pocket-bar .pocket-window {
   align-self: center;
 }
 /* tan baja que no caben dos pisos: la aguja se va y queda lo justo */
 @media (max-height: 72px) {
-  .pocket-barra {
+  .pocket-bar {
     grid-template-rows: auto;
     grid-template-areas: 'top controls';
     padding: 4px 10px;
   }
-  .pocket-barra .pocket-seek-row {
+  .pocket-bar .pocket-seek-row {
     display: none;
   }
-  .pocket-barra .pocket-art {
+  .pocket-bar .pocket-art {
     width: 36px;
     height: 36px;
   }
 }
 
 /* ---------- el cuadrito: la caratula manda ---------- */
-.pocket-cuadro {
+.pocket-square {
   justify-content: flex-end;
   padding: 10px 14px 12px;
 }
@@ -215,25 +215,25 @@
   inset: 0;
   background: linear-gradient(180deg, transparent 0%, var(--panel) 78%);
 }
-.pocket-cuadro .pocket-top {
+.pocket-square .pocket-top {
   flex-direction: column;
   align-items: flex-start;
   flex: 1;
   justify-content: flex-end;
   gap: 8px;
 }
-.pocket-cuadro .pocket-art {
+.pocket-square .pocket-art {
   width: min(42vw, 42vh, 150px);
   height: min(42vw, 42vh, 150px);
   border-radius: 10px;
   box-shadow: 0 8px 30px var(--shadow);
 }
-.pocket-cuadro .pocket-text {
+.pocket-square .pocket-text {
   flex: 0 0 auto;
   width: 100%;
 }
 /* en el cuadrito hay sitio para dos lineas de titulo */
-.pocket-cuadro .pocket-title {
+.pocket-square .pocket-title {
   font-size: 15px;
   white-space: normal;
   display: -webkit-box;
@@ -241,22 +241,22 @@
   line-clamp: 2;
   -webkit-box-orient: vertical;
 }
-.pocket-cuadro .pocket-window {
+.pocket-square .pocket-window {
   position: absolute;
   top: 0;
   right: 0;
 }
-.pocket-cuadro .pocket-controls {
+.pocket-square .pocket-controls {
   justify-content: space-between;
   gap: 2px;
 }
 /* muy pequeño: los saltos de 10 s sobran */
 @media (max-width: 230px) {
-  .pocket-cuadro .pocket-btn:first-child,
-  .pocket-cuadro .pocket-btn:last-child {
+  .pocket-square .pocket-btn:first-child,
+  .pocket-square .pocket-btn:last-child {
     display: none;
   }
-  .pocket-cuadro .pocket-controls {
+  .pocket-square .pocket-controls {
     justify-content: center;
   }
 }
@@ -305,13 +305,13 @@
   background: color-mix(in srgb, var(--accent) 14%, var(--panel));
 }
 /* en la barra, una fila de iconos; el nombre, al pasar por encima */
-.pocket-barra .pocket-shapes {
+.pocket-bar .pocket-shapes {
   grid-template-columns: none;
   grid-auto-flow: column;
   grid-auto-columns: minmax(34px, 1fr);
   padding: 4px 8px;
 }
-.pocket-barra .pocket-shape span {
+.pocket-bar .pocket-shape span {
   display: none;
 }
 /* y los cajones (menu, ficha), que van fuera de .app */

@@ -25,7 +25,7 @@ const { api, store } = vi.hoisted(() => {
     chatCancel: vi.fn(async () => ({ ok: true })),
     // los términos, ya aceptados: el asistente los pide (ver useTerms)
     terms: vi.fn(async () => ({
-      accepted: (await import('../src/data/terminos.js')).TERMS_VERSION,
+      accepted: (await import('../src/data/terms.js')).TERMS_VERSION,
       at: 1
     })),
     chats: vi.fn(async () => ({

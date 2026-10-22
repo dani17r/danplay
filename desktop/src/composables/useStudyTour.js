@@ -11,7 +11,7 @@
 import { driver } from 'driver.js'
 import 'driver.js/dist/driver.css'
 
-export const TOUR_KEY = 'danplay.study.recorridoVisto'
+export const TOUR_KEY = 'danplay.study.tourSeen'
 
 /** Una onda de mentira (barras), para las animaciones. */
 function wave(n = 28) {

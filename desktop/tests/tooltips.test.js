@@ -9,9 +9,9 @@ import { vTips, TIP_DELAY } from '../src/composables/useTooltips.js'
 const Box = {
   render: () =>
     withDirectives(
-      h('div', { class: 'caja' }, [
-        h('button', { class: 'uno', title: 'Grande: todo el alto' }, [h('span', { class: 'ico' })]),
-        h('button', { class: 'dos' }, 'sin aviso')
+      h('div', { class: 'box' }, [
+        h('button', { class: 'one', title: 'Grande: todo el alto' }, [h('span', { class: 'ico' })]),
+        h('button', { class: 'two' }, 'sin aviso')
       ]),
       [[vTips]]
     )
@@ -34,9 +34,9 @@ afterEach(() => {
 
 describe('los avisos de los iconos', () => {
   it('salen al dejar el ratón un momento, y se van al salir', async () => {
-    const one = w.find('.uno').element
+    const one = w.find('.one').element
     // sobre el icono de dentro: cuenta el botón
-    fire(w.find('.uno .ico').element, 'pointerover')
+    fire(w.find('.one .ico').element, 'pointerover')
     expect(one.hasAttribute('title'), 'sin el aviso del sistema a la vez').toBe(false)
     expect(tip()?.classList.contains('on') ?? false, 'aún no').toBe(false)
     vi.advanceTimersByTime(TIP_DELAY + 5)
@@ -49,7 +49,7 @@ describe('los avisos de los iconos', () => {
   })
 
   it('pulsar o Escape lo quitan; un botón sin aviso no saca nada', async () => {
-    const one = w.find('.uno').element
+    const one = w.find('.one').element
     fire(one, 'pointerover')
     vi.advanceTimersByTime(TIP_DELAY + 5)
     await vi.runAllTimersAsync()
@@ -76,7 +76,7 @@ describe('los avisos de los iconos', () => {
     fire(one, 'pointerout', { relatedTarget: document.body })
 
     const before = tip().textContent
-    fire(w.find('.dos').element, 'pointerover')
+    fire(w.find('.two').element, 'pointerover')
     vi.advanceTimersByTime(TIP_DELAY + 5)
     await vi.runAllTimersAsync()
     expect(tip().classList.contains('on')).toBe(false)
@@ -84,7 +84,7 @@ describe('los avisos de los iconos', () => {
   })
 
   it('al desmontar se quitan sus escuchas', async () => {
-    const one = w.find('.uno').element
+    const one = w.find('.one').element
     w.unmount()
     fire(one, 'pointerover')
     expect(one.getAttribute('title')).toBe('Grande: todo el alto')

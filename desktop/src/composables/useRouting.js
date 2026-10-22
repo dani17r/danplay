@@ -11,7 +11,7 @@
 import { ref, computed } from 'vue'
 import { usePlayback } from './usePlayback.js'
 
-const KEY = 'danplay.salidas'
+const KEY = 'danplay.outputs'
 
 /**
  * Los destinos, por nombre: 'main' (1-2, estéreo), 'L' y 'R' (un lado, en

@@ -53,7 +53,7 @@ describe('analizar e indexar todo', () => {
     // el nucleo contesta al momento y luego se pregunta hasta que acaba
     const round = [
       {
-        name: 'escaneo',
+        name: 'scan',
         active: true,
         done: 10,
         total: 40,
@@ -62,7 +62,7 @@ describe('analizar e indexar todo', () => {
         error: ''
       },
       {
-        name: 'escaneo',
+        name: 'scan',
         active: true,
         done: 30,
         total: 40,
@@ -71,7 +71,7 @@ describe('analizar e indexar todo', () => {
         error: ''
       },
       finishedJob(
-        'escaneo',
+        'scan',
         { stats: { total: 40 } },
         { done: 40, total: 40, message: '40 canciones (2 nuevas)' }
       )
@@ -113,7 +113,7 @@ describe('analizar e indexar todo', () => {
   it('si la tarea falla, lo dice en castellano y el boton vuelve', async () => {
     api().scan.mockResolvedValueOnce({
       job: {
-        name: 'escaneo',
+        name: 'scan',
         active: false,
         done: 0,
         total: 0,
@@ -304,13 +304,13 @@ describe('temas', () => {
   })
 
   it('editar otro tema con el editor abierto lo empieza con sus colores', async () => {
-    saveCustomTheme('propio-rojo', {
+    saveCustomTheme('custom-red', {
       name: 'Rojo',
       kind: 'dark',
       custom: true,
       v: { ...CATALOG.night.v, accent: '#aa0000' }
     })
-    saveCustomTheme('propio-azul', {
+    saveCustomTheme('custom-blue', {
       name: 'Azul',
       kind: 'dark',
       custom: true,
@@ -327,8 +327,8 @@ describe('temas', () => {
     await edit('Azul').trigger('click')
     await flushPromises()
     await button('Guardar tema').trigger('click')
-    expect(customThemes()['propio-azul'].v.accent).toBe('#0000aa')
-    expect(customThemes()['propio-rojo'].v.accent).toBe('#aa0000')
+    expect(customThemes()['custom-blue'].v.accent).toBe('#0000aa')
+    expect(customThemes()['custom-red'].v.accent).toBe('#aa0000')
   })
 
   it('crear uno propio y borrarlo', async () => {
@@ -338,7 +338,7 @@ describe('temas', () => {
     await button('Guardar tema').trigger('click')
     await flushPromises()
     const created = Object.keys(customThemes())[0]
-    expect(created).toMatch(/^propio-/)
+    expect(created).toMatch(/^custom-/)
     expect(usePreferences().theme.value).toBe(created)
     await w
       .findAll('.theme-card')

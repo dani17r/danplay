@@ -3,9 +3,9 @@
 // anterior y siguiente), la pantalla de bloqueo, los auriculares y el reloj.
 //
 // Los dibuja Android con una «sesión multimedia» que lleva la app nativa
-// (Reproduciendo.kt). La página le cuenta qué suena por `DanPlayAndroid`, el
+// (PlaybackService.kt). La página le cuenta qué suena por `DanPlayAndroid`, el
 // objeto que MainActivity pone en el WebView. Lo que se pulsa va de Android
-// directo al motor en Rust (movil/src/mandos.rs), y la página se entera por
+// directo al motor en Rust (mobile/src/controls.rs), y la página se entera por
 // el evento de siempre. Fuera del teléfono no hay ese objeto y esto no hace
 // nada.
 import { watch } from 'vue'

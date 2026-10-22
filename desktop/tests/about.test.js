@@ -1,5 +1,5 @@
 // «Acerca de DanPlay», las novedades y los términos (AboutPage, TermsModal,
-// useTerms, data/novedades.js): quién lo hizo a la vista, los términos que
+// useTerms, data/releases.js): quién lo hizo a la vista, los términos que
 // hay que leer hasta el final para aceptarlos y lo que se bloquea sin ellos.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
@@ -22,8 +22,8 @@ import TermsModal from '../src/components/TermsModal.vue'
 import Sidebar from '../src/components/Sidebar.vue'
 import { useTerms, resetTerms, requireTerms } from '../src/composables/useTerms.js'
 import { useSeparation, resetSeparation } from '../src/composables/useSeparation.js'
-import { AUTHOR, TERMS, TERMS_VERSION } from '../src/data/terminos.js'
-import { RELEASES, compareVersions, newSince } from '../src/data/novedades.js'
+import { AUTHOR, TERMS, TERMS_VERSION } from '../src/data/terms.js'
+import { RELEASES, compareVersions, newSince } from '../src/data/releases.js'
 import { version } from '../package.json'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -124,7 +124,7 @@ describe('la ventana de los términos', () => {
 
   it('si los términos cambian, se vuelven a pedir', async () => {
     held.state.terms = { accepted: '2020-01-01', at: 1, app: '' }
-    localStorage.setItem('danplay.terminosVistos', '2020-01-01')
+    localStorage.setItem('danplay.termsSeen', '2020-01-01')
     expect(await terms.showIfFirstTime()).toBe(true)
     expect(terms.accepted.value).toBe(false)
   })

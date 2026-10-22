@@ -7,7 +7,7 @@
  */
 import Icon from '../components/Icon.vue'
 import { version } from '../../package.json'
-import icono from './icono.png'
+import appIcon from './icon.png'
 
 defineProps({
   /** lo que se ve: { kind: 'all' | 'favorites' | 'list', id? } */
@@ -24,7 +24,7 @@ const emit = defineEmits(['go', 'newList', 'import', 'settings', 'help', 'about'
 <template>
   <nav class="m-nav" aria-label="Menú">
     <div class="m-nav-brand">
-      <img :src="icono" alt="" width="40" height="40" />
+      <img :src="appIcon" alt="" width="40" height="40" />
       <div>
         <strong>DanPlay</strong>
         <span>versión {{ version }}</span>

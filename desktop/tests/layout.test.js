@@ -38,7 +38,7 @@ describe('nada debe provocar desplazamiento horizontal', () => {
     // se quedaban recortadas sin salida.
     expect(lastValue('.table-wrap', 'overflow-x')).toBe('auto')
     // y sin tocar nada la tabla no se pasa: solo crece con anchos a medida
-    expect(css).toMatch(/\.song-table\.medida\{[^}]*width:auto/)
+    expect(css).toMatch(/\.song-table\.sized\{[^}]*width:auto/)
   })
 
   it('las celdas recortan con puntos suspensivos', () => {

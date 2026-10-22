@@ -516,7 +516,7 @@ describe('columnas ajustables', () => {
     // de fabrica), pero ninguno con un ancho propio
     expect(w.findAll('col').map((c) => c.classes()[0])).toContain('col-title')
     expect(manual(w)).toHaveLength(0)
-    expect(w.find('table').classes()).not.toContain('medida')
+    expect(w.find('table').classes()).not.toContain('sized')
   })
 
   it('se ensanchan arrastrando el borde, se recuerdan y el doble clic las olvida', async () => {
@@ -535,7 +535,7 @@ describe('columnas ajustables', () => {
     // doble clic en el borde: vuelve el reparto de siempre
     await w.find('th[data-col="title"] .col-resize').trigger('dblclick')
     expect(manual(w)).toHaveLength(0)
-    expect(w.find('table').classes()).not.toContain('medida')
+    expect(w.find('table').classes()).not.toContain('sized')
     expect(localStorage.getItem('danplay.colWidths')).toBeNull()
   })
 
@@ -985,7 +985,7 @@ describe('la busqueda avanzada', () => {
       .trigger('click')
     expect(w.emitted('update:query').at(-1)).toEqual(['mi gozo artista:NewWine bpm>100'])
     // y lee lo ya escrito: el rango aparece en su casilla
-    const fromInput = w.findAll('.rango')[0].findAll('input')[0]
+    const fromInput = w.findAll('.range')[0].findAll('input')[0]
     expect(fromInput.element.value).toBe('100')
     await fromInput.setValue('90')
     expect(w.emitted('update:query').at(-1)).toEqual(['mi gozo bpm>90'])

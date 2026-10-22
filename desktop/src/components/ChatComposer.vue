@@ -44,8 +44,8 @@ const props = defineProps({
 const emit = defineEmits(['send', 'stop', 'unqueue', 'resize'])
 
 const uid = useId()
-const helpId = `${uid}-ayuda`
-const queueId = `${uid}-cola`
+const helpId = `${uid}-help`
+const queueId = `${uid}-queue`
 const input = useTemplateRef('input')
 const root = useTemplateRef('root')
 

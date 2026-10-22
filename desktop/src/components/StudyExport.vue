@@ -26,7 +26,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'export', 'phone'])
 
-const KEY = 'danplay.exportar'
+const KEY = 'danplay.export'
 /** Lo marcado la última vez (se recuerda en el navegador). */
 function readSaved() {
   try {
@@ -151,7 +151,7 @@ function go() {
       </button>
     </div>
     <Transition name="fade" mode="out-in">
-      <div v-if="what !== 'phone'" key="con" class="exp-extras">
+      <div v-if="what !== 'phone'" key="extras" class="exp-extras">
         <h4 class="exp-title">Con</h4>
         <p v-if="!EXTRAS.length" class="exp-none">
           Tal cual: no hay guías, clic ni cambios que añadir.
@@ -174,7 +174,7 @@ function go() {
           </span>
         </button>
       </div>
-      <p v-else key="cel" class="exp-none">
+      <p v-else key="phone" class="exp-none">
         Se guarda en la carpeta <b>Celular</b> de tu biblioteca: mándalo al teléfono por WhatsApp,
         Drive o un cable y ábrelo con DanPlay.
       </p>

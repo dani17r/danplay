@@ -15,7 +15,7 @@ import { useTerms } from '../composables/useTerms.js'
 import { useFocusTrap } from '../composables/useFocusTrap.js'
 import { notify } from '../composables/useNotices.js'
 import { errorMessage } from '../api.js'
-import { AUTHOR, TERMS, TERMS_VERSION } from '../data/terminos.js'
+import { AUTHOR, TERMS, TERMS_VERSION } from '../data/terms.js'
 
 const terms = useTerms()
 const { state } = terms

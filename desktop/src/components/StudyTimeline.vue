@@ -1644,7 +1644,7 @@ const lockTitle = computed(() =>
         <ChannelPicker
           v-if="showRoutes"
           kind="stem"
-          :route="'guias_' + lane.key"
+          :route="'cues_' + lane.key"
           part="guide"
           :name="'Guías: ' + (lane.name || 'Guías')"
           class="tl-lane-chans"

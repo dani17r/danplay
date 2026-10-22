@@ -28,9 +28,9 @@ import { api } from '../api.js'
 import { usePlayback } from './usePlayback.js'
 import { ownToGrid } from '../utils/beats.js'
 
-const AUTO_KEY = 'danplay.clic.auto'
-const MODE_KEY = 'danplay.clic.modo'
-const MANUAL_KEY = 'danplay.clic.mano'
+const AUTO_KEY = 'danplay.click.auto'
+const MODE_KEY = 'danplay.click.mode'
+const MANUAL_KEY = 'danplay.click.manual'
 /** Cada cuánto se pregunta por la rejilla que se está calculando. */
 export const POLL_MS = 700
 /** Cuántas de las siguientes de la cola se dejan preparadas. */

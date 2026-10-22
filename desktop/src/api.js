@@ -682,8 +682,8 @@ export const app = {
    */
   setWindowShape: (shape) => {
     if (inTauri) return invoke('set_window_shape', { shape })
-    if (shape === 'completa') {
-      return document.documentElement.requestFullscreen().then(() => 'completa')
+    if (shape === 'fullscreen') {
+      return document.documentElement.requestFullscreen().then(() => 'fullscreen')
     }
     if (shape === 'normal' && document.fullscreenElement) {
       return document.exitFullscreen().then(() => 'normal')
@@ -694,7 +694,7 @@ export const app = {
   windowShape: () =>
     inTauri
       ? invoke('window_shape')
-      : Promise.resolve([document.fullscreenElement ? 'completa' : 'normal', false]),
+      : Promise.resolve([document.fullscreenElement ? 'fullscreen' : 'normal', false]),
   /** «Siempre encima», en cualquier forma. @param {boolean} on */
   setWindowOnTop: (on) =>
     inTauri
@@ -915,16 +915,16 @@ export const JOB_POLL_MS = 500
 
 /** Los nombres de las tareas largas del núcleo (contrato A). */
 export const JOBS = {
-  scan: 'escaneo',
-  import: 'importacion',
+  scan: 'scan',
+  import: 'import',
   convert: 'conversion',
-  duplicates: 'duplicados',
+  duplicates: 'duplicates',
   ytdlp: 'yt-dlp',
-  separate: 'separacion',
-  mix: 'mezcla',
-  autoGuide: 'guia-automatica',
-  phone: 'celular',
-  sequence: 'secuencia'
+  separate: 'separation',
+  mix: 'mix',
+  autoGuide: 'auto-cue',
+  phone: 'bundle',
+  sequence: 'sequence'
 }
 
 /** @param {number} ms */
@@ -977,7 +977,7 @@ export const api = {
   settings: () => GET('/settings'),
   checkAi: () => POST('/settings/check-ai'),
   saveSettings: (d) => POST('/settings', d),
-  /** Si se aceptaron los términos, cuáles y cuándo (el texto, en data/terminos.js). */
+  /** Si se aceptaron los términos, cuáles y cuándo (el texto, en data/terms.js). */
   terms: () => GET('/terms'),
   acceptTerms: (version) => POST('/terms/accept', { version }),
 
@@ -1049,7 +1049,7 @@ export const api = {
   job: (name) => GET(`/jobs/${encodeURIComponent(name)}`),
   /** @type {typeof runJob} */
   runJob: (start, name, options) => runJob(start, name, options),
-  /** Arranca el escaneo (tarea «escaneo»): contesta al momento con `{job}`. */
+  /** Arranca el escaneo (tarea «scan»): contesta al momento con `{job}`. */
   scan: () => POST('/scan'),
 
   /**
@@ -1177,9 +1177,9 @@ export const api = {
    * @returns {Promise<{folder: string, title: string, artist: string, key: string, bpm: number, project: boolean, cover: boolean, sections: string[], tracks: Array<{name: string, role: string}>}>}
    */
   sequenceInfo: (path) => GET(`/sequence?path=${encodeURIComponent(path)}`),
-  /** Abrir una secuencia (tarea «secuencia»). @param {string} path */
+  /** Abrir una secuencia (tarea «sequence»). @param {string} path */
   importSequence: (path) => POST('/sequence/import', { path }),
-  // ---- la música del teléfono (solo en la app del celular: movil/src/musica.rs)
+  // ---- la música del teléfono (solo en la app del celular: mobile/src/music.rs)
   /** Las carpetas con música, con cuántas canciones y si se indexan. */
   phoneFolders: () => GET('/phone/folders'),
   /** Elegir las carpetas que se indexan. @param {string[]} folders */
@@ -1188,7 +1188,7 @@ export const api = {
   phoneScan: () => POST('/phone/scan'),
   /**
    * Lo que Android cuenta que hay en el teléfono (su índice de música): las
-   * carpetas y las canciones salen de ahí (ver src/movil/musica.js).
+   * carpetas y las canciones salen de ahí (ver src/mobile/phoneMusic.js).
    * @param {Array<{path: string, title?: string, artist?: string, album?: string,
    *   duration?: number, size?: number, mtime?: number}>} songs
    */
@@ -1235,7 +1235,7 @@ export const api = {
    */
   editCue: (body) => POST('/cues/edit', body),
   /**
-   * La guía automática (trabajo «guia-automatica»): las partes de la canción
+   * La guía automática (trabajo «auto-cue»): las partes de la canción
    * (intro, estrofas, coros, puente, solos…) dichas con esa voz justo antes
    * de cada una. `bars`: dónde empieza cada compás (los pulsos que se ven);
    * `beat`: lo que dura un pulso. Al acabar: {sections, cues}.
@@ -1267,7 +1267,7 @@ export const api = {
    */
   separation: () => GET('/separate'),
   /**
-   * A la cola de separacion (tarea «separacion»), con la mejor calidad: si ya
+   * A la cola de separacion (tarea «separation»), con la mejor calidad: si ya
    * tiene las pistas rapidas, solo se mejoran. La primera vez baja el
    * separador. @param {number} id
    */
@@ -1283,7 +1283,7 @@ export const api = {
   /** Manda a la papelera las pistas separadas de la cancion. @param {number} id */
   deleteStems: (id) => DEL(`/song/${id}/stems`),
   /**
-   * Guarda una mezcla de las pistas (tarea «mezcla»), con el clic si se da.
+   * Guarda una mezcla de las pistas (tarea «mix»), con el clic si se da.
    * @param {number} id
    * @param {{tracks: Array<{source: string, gain?: number, pan?: number}>, path: string,
    *          format?: 'mp3'|'flac'|'wav', speed?: number, pitch?: number,
@@ -1292,10 +1292,10 @@ export const api = {
   exportMix: (id, d) => POST(`/song/${id}/stems/mix`, d),
   /**
    * Prepara las canciones para la app del celular, cada una en su `.danpista`
-   * (tarea «celular»): `{done: [{id, path, name, size, click}], failed: [{id, title, error}]}`.
+   * (tarea «bundle»): `{done: [{id, path, name, size, click}], failed: [{id, title, error}]}`.
    * @param {number[]} ids
    */
-  toPhone: (ids) => POST('/celular', { ids }),
+  toPhone: (ids) => POST('/bundle', { ids }),
   /**
    * La hoja para el atril del repertorio: un HTML en Listas/, para abrir en
    * el navegador e imprimir.
@@ -1355,7 +1355,7 @@ export const api = {
   /** La elegida: una de tus carpetas de música; dentro se crean Artistas/, Pistas/… si faltan. */
   setDownloadFolder: (path) => PUT('/downloads/folder', { path }),
 
-  /** Importa la Entrada (tarea «importacion»; también en prueba, con `dry_run`). */
+  /** Importa la Entrada (tarea «import»; también en prueba, con `dry_run`). */
   runImport: (d) => POST('/import', d),
   convertible: () => GET('/convertible'),
   /**
@@ -1364,7 +1364,7 @@ export const api = {
    * @param {{dry_run: boolean, quality: 'high'|'medium'|'variable', keep: boolean}} d
    */
   convert: (d) => POST('/convert', d),
-  /** Busca duplicados (tarea «duplicados»; `result`: `{identical, similar}`). */
+  /** Busca duplicados (tarea «duplicates»; `result`: `{identical, similar}`). */
   duplicatesScan: () => POST('/duplicates/scan'),
   /** @returns {Promise<ChatReply>} */
   /**

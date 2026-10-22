@@ -32,7 +32,7 @@ const props = defineProps({
   songs: { type: Array, default: () => [] },
   loading: Boolean,
   query: { type: String, default: '' },
-  visibles: { type: Number, default: 5 }
+  visibleRows: { type: Number, default: 5 }
 })
 // groupMenu y addToList llevan los elegidos (en el orden de los resultados) y
 // el evento o el sitio donde abrir el menú; la app hace lo mismo que con
@@ -43,123 +43,125 @@ const emit = defineEmits(['pick', 'play', 'menu', 'groupMenu', 'addToList', 'see
 // que una fila de la lista. Si es uno de los elegidos, van todos.
 const { startDrag, isDragged } = useDragSong()
 
-const caja = useTemplateRef('caja')
-const alto = ref(null)
-const marcada = ref(0)
+const box = useTemplateRef('box')
+const listHeight = ref(null)
+const highlighted = ref(0)
 // La caja de busqueda es un «combobox» que manda en esta lista: estos ids
 // le dicen a quien no ve la pantalla que resultado esta resaltado.
 const uid = useId()
 const listId = `${uid}-list`
 const optionId = (i) => `${uid}-opt-${i}`
-const activeId = computed(() => (props.songs.length ? optionId(marcada.value) : undefined))
+const activeId = computed(() => (props.songs.length ? optionId(highlighted.value) : undefined))
 
-/** Alto para que se vean justo `visibles` filas: se mide una de verdad. */
-async function medir() {
+/** Alto para que se vean justo `visibleRows` filas: se mide una de verdad. */
+async function measure() {
   await nextTick()
-  const fila = caja.value?.querySelector('.sr-row')
-  if (!fila) {
-    alto.value = null
+  const row = box.value?.querySelector('.sr-row')
+  if (!row) {
+    listHeight.value = null
     return
   }
-  const h = fila.getBoundingClientRect().height
-  alto.value = h > 0 && props.songs.length > props.visibles ? Math.round(h * props.visibles) : null
+  const h = row.getBoundingClientRect().height
+  listHeight.value =
+    h > 0 && props.songs.length > props.visibleRows ? Math.round(h * props.visibleRows) : null
 }
 
-const hay = computed(() => props.songs.length > 0)
+const hasResults = computed(() => props.songs.length > 0)
 
 // ------------------------------------------------------- varios a la vez
 /** El modo «Seleccionar»: una casilla en cada fila y el clic que alterna. */
-const modo = ref(false)
+const selectMode = ref(false)
 /** Los ids elegidos, en el orden de los resultados. */
 const ids = ref(/** @type {number[]} */ ([]))
 const idsSet = computed(() => new Set(ids.value))
-const esElegido = (id) => idsSet.value.has(id)
+const isPicked = (id) => idsSet.value.has(id)
 /** Los elegidos, en el orden de los resultados: sobre ellos actúa la barra. */
-const elegidos = computed(() => props.songs.filter((c) => idsSet.value.has(c.id)))
-const cuenta = computed(() => elegidos.value.length)
+const pickedSongs = computed(() => props.songs.filter((c) => idsSet.value.has(c.id)))
+const pickedCount = computed(() => pickedSongs.value.length)
 /**
  * Hay una selección en marcha (el modo o alguno elegido): para quien no ve la
  * pantalla la lista pasa a ser de elección múltiple y «seleccionado» es estar
  * elegido; si no, como siempre, es el resaltado.
  */
-const multiple = computed(() => modo.value || cuenta.value > 0)
+const multiple = computed(() => selectMode.value || pickedCount.value > 0)
 // De dónde sale el tramo de Mayús, y lo que se queda elegido aparte del tramo:
 // Mayús+flechas lo rehacen desde el ancla sumado a eso, así que volver hacia
 // atrás encoge el tramo y no se lleva lo de antes.
-let ancla = null
+let anchor = null
 let base = /** @type {number[]} */ ([])
 
 /** Esos ids, en el orden en que se ven los resultados. @param {Set<number>} set */
-function enOrden(set) {
+function inOrder(set) {
   return props.songs.filter((c) => set.has(c.id)).map((c) => c.id)
 }
 
 /** Pone o quita un resultado (Ctrl+clic, el clic en el modo, Ctrl+Espacio). */
-function alternar(c) {
+function toggle(c) {
   const s = new Set(ids.value)
   if (s.has(c.id)) s.delete(c.id)
   else s.add(c.id)
-  ids.value = enOrden(s)
-  ancla = c.id
+  ids.value = inOrder(s)
+  anchor = c.id
   base = ids.value
 }
 
 /**
- * El tramo desde el ancla hasta la fila `hasta`, sumado a `con` (nada, o lo
+ * El tramo desde el ancla hasta la fila `to`, sumado a `keep` (nada, o lo
  * que ya había). Sin ancla, el tramo empieza (y acaba) en esa fila.
  * @param {number} hasta
  * @param {number[]} con
  */
-function tramo(hasta, con) {
-  const orden = props.songs.map((c) => c.id)
-  if (ancla == null || !orden.includes(ancla)) ancla = orden[hasta]
-  base = con
-  const [a, b] = [orden.indexOf(ancla), hasta].sort((x, y) => x - y)
-  ids.value = enOrden(new Set([...con, ...orden.slice(a, b + 1)]))
+function selectRange(to, keep) {
+  const order = props.songs.map((c) => c.id)
+  if (anchor == null || !order.includes(anchor)) anchor = order[to]
+  base = keep
+  const [a, b] = [order.indexOf(anchor), to].sort((x, y) => x - y)
+  ids.value = inOrder(new Set([...keep, ...order.slice(a, b + 1)]))
 }
 
 /** Mayús+↑/↓: el tramo crece (o encoge) hasta la de al lado, que pasa a ser la resaltada. */
-function ampliar(paso) {
-  if (ancla == null || !props.songs.some((c) => c.id === ancla)) {
-    ancla = props.songs[marcada.value]?.id ?? null
+function extend(step) {
+  if (anchor == null || !props.songs.some((c) => c.id === anchor)) {
+    anchor = props.songs[highlighted.value]?.id ?? null
     base = ids.value
   }
-  mover(paso)
-  tramo(marcada.value, base)
+  move(step)
+  selectRange(highlighted.value, base)
 }
 
 /** «Ninguno»: nada elegido. El modo sigue puesto (el botón «Seleccionar» lo quita). */
-function ninguno() {
+function selectNone() {
   ids.value = []
-  ancla = null
+  anchor = null
   base = []
 }
 
 /** Fuera del modo y nada elegido: el botón «Seleccionar» al quitarlo, y Escape. */
-function terminar() {
-  modo.value = false
-  ninguno()
+function endSelection() {
+  selectMode.value = false
+  selectNone()
 }
 
-function alternarModo() {
-  if (modo.value) terminar()
-  else modo.value = true
+function toggleSelectMode() {
+  if (selectMode.value) endSelection()
+  else selectMode.value = true
 }
 
 /** Lo elegido que ya no está entre los resultados (a la papelera) se suelta. */
-function podar() {
-  const quedan = new Set(props.songs.map((c) => c.id))
-  if (ids.value.some((id) => !quedan.has(id))) ids.value = ids.value.filter((id) => quedan.has(id))
-  base = base.filter((id) => quedan.has(id))
-  if (ancla != null && !quedan.has(ancla)) ancla = null
+function prune() {
+  const remaining = new Set(props.songs.map((c) => c.id))
+  if (ids.value.some((id) => !remaining.has(id)))
+    ids.value = ids.value.filter((id) => remaining.has(id))
+  base = base.filter((id) => remaining.has(id))
+  if (anchor != null && !remaining.has(anchor)) anchor = null
 }
 
 watch(
   () => props.songs,
   () => {
-    marcada.value = 0
-    medir()
-    podar()
+    highlighted.value = 0
+    measure()
+    prune()
   },
   { immediate: true }
 )
@@ -167,25 +169,27 @@ watch(
 // puso sigue eligiendo, ahora entre lo nuevo.
 watch(
   () => props.query,
-  () => ninguno()
+  () => selectNone()
 )
 
-function mover(paso) {
-  if (!hay.value) return
-  marcada.value = Math.max(0, Math.min(props.songs.length - 1, marcada.value + paso))
+function move(step) {
+  if (!hasResults.value) return
+  highlighted.value = Math.max(0, Math.min(props.songs.length - 1, highlighted.value + step))
   nextTick(() =>
-    caja.value?.querySelectorAll('.sr-row')[marcada.value]?.scrollIntoView?.({ block: 'nearest' })
+    box.value
+      ?.querySelectorAll('.sr-row')
+      [highlighted.value]?.scrollIntoView?.({ block: 'nearest' })
   )
 }
 
 /** Un clic en la fila: elegirla (abre su ficha) o, en el modo o con Ctrl/Mayús, ponerla o quitarla. */
 function onClick(c, i, ev) {
-  marcada.value = i
+  highlighted.value = i
   const ctrl = ev.ctrlKey || ev.metaKey
   // Mayús a secas deja solo el tramo; con Ctrl, o en el modo (con casillas
   // nada se suelta sin querer), lo suma a lo que había. Como en la lista.
-  if (ev.shiftKey) return tramo(i, modo.value || ctrl ? ids.value : [])
-  if (ctrl || modo.value) return alternar(c)
+  if (ev.shiftKey) return selectRange(i, selectMode.value || ctrl ? ids.value : [])
+  if (ctrl || selectMode.value) return toggle(c)
   emit('pick', c)
 }
 
@@ -194,8 +198,8 @@ function onClick(c, i, ev) {
  * es una de las elegidas, son las de todas (como en la lista).
  */
 function onMenu(song, i, ev) {
-  marcada.value = i
-  if (esElegido(song.id)) emit('groupMenu', elegidos.value, ev)
+  highlighted.value = i
+  if (isPicked(song.id)) emit('groupMenu', pickedSongs.value, ev)
   else emit('menu', song, ev)
 }
 
@@ -203,26 +207,26 @@ function onMenu(song, i, ev) {
 function onKey(e) {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
-    const paso = e.key === 'ArrowDown' ? 1 : -1
+    const step = e.key === 'ArrowDown' ? 1 : -1
     // con Mayús amplía lo elegido hasta la de al lado; sin ella solo se mueve,
     // y el próximo tramo empieza donde esté
-    if (e.shiftKey && hay.value && !props.loading) ampliar(paso)
+    if (e.shiftKey && hasResults.value && !props.loading) extend(step)
     else {
-      ancla = null
-      mover(paso)
+      anchor = null
+      move(step)
     }
     return true
   }
   // Ctrl+Espacio pone o quita la resaltada; el espacio a secas es de la caja
   if (e.key === ' ' && (e.ctrlKey || e.metaKey) && !e.altKey) {
-    if (!hay.value || props.loading) return false
+    if (!hasResults.value || props.loading) return false
     e.preventDefault()
-    alternar(props.songs[marcada.value])
+    toggle(props.songs[highlighted.value])
     return true
   }
-  if (e.key === 'Enter' && hay.value && !props.loading) {
+  if (e.key === 'Enter' && hasResults.value && !props.loading) {
     e.preventDefault()
-    emit('pick', props.songs[marcada.value])
+    emit('pick', props.songs[highlighted.value])
     return true
   }
   if (e.key === 'Escape') {
@@ -231,7 +235,7 @@ function onKey(e) {
     if (multiple.value) {
       e.preventDefault()
       e.stopPropagation()
-      terminar()
+      endSelection()
       return true
     }
     emit('close')
@@ -240,14 +244,18 @@ function onKey(e) {
   // Las opciones de la fila resaltada, con la tecla de menu o Mayus+F10 (lo
   // que se hace en una fila de la lista). El foco se queda en la caja: aqui
   // solo se dice DONDE abrir el menu, bajo el boton de la fila.
-  if (hay.value && !props.loading && (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))) {
+  if (
+    hasResults.value &&
+    !props.loading &&
+    (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))
+  ) {
     e.preventDefault()
-    const fila = caja.value?.querySelectorAll('.sr-row')[marcada.value]
-    const r = (fila?.querySelector('.sr-more') || fila)?.getBoundingClientRect()
-    const donde = { clientX: r?.left ?? 0, clientY: r?.bottom ?? 0 }
-    const song = props.songs[marcada.value]
-    if (esElegido(song.id)) emit('groupMenu', elegidos.value, donde)
-    else emit('menu', song, donde)
+    const row = box.value?.querySelectorAll('.sr-row')[highlighted.value]
+    const r = (row?.querySelector('.sr-more') || row)?.getBoundingClientRect()
+    const where = { clientX: r?.left ?? 0, clientY: r?.bottom ?? 0 }
+    const song = props.songs[highlighted.value]
+    if (isPicked(song.id)) emit('groupMenu', pickedSongs.value, where)
+    else emit('menu', song, where)
     return true
   }
   return false
@@ -260,25 +268,25 @@ const fmt = (s) => formatDuration(s, '')
 <template>
   <div class="search-results card">
     <div v-if="loading" class="sr-head"><Loading text="buscando…" inline /></div>
-    <template v-else-if="hay">
+    <template v-else-if="hasResults">
       <!-- La cabecera: cuántos hay y el botón «Seleccionar»; con alguno elegido,
            la barra pequeña con lo que se hace con ellos. Siempre en una línea.
            Sus botones no se quedan el foco al pulsarlos con el ratón
            (mousedown.prevent): el teclado sigue en la caja de búsqueda. -->
-      <div class="sr-head sr-tools" :class="{ 'sr-picking': cuenta }">
+      <div class="sr-head sr-tools" :class="{ 'sr-picking': pickedCount }">
         <!-- el mismo elemento en los dos casos: así el lector de pantalla
              anuncia la cuenta al cambiar -->
         <span class="sr-count" aria-live="polite"
-          ><template v-if="cuenta"
-            ><strong class="sr-n">{{ cuenta }}</strong
+          ><template v-if="pickedCount"
+            ><strong class="sr-n">{{ pickedCount }}</strong
             >&#32;<span class="sr-word">{{
-              cuenta === 1 ? 'seleccionado' : 'seleccionados'
+              pickedCount === 1 ? 'seleccionado' : 'seleccionados'
             }}</span></template
           ><template v-else
             >{{ songs.length }} {{ songs.length === 1 ? 'resultado' : 'resultados' }}</template
           ></span
         >
-        <template v-if="cuenta">
+        <template v-if="pickedCount">
           <span class="sr-acts">
             <button
               type="button"
@@ -287,7 +295,7 @@ const fmt = (s) => formatDuration(s, '')
               title="Añadir a una lista"
               aria-haspopup="menu"
               @mousedown.prevent
-              @click="emit('addToList', elegidos, $event)"
+              @click="emit('addToList', pickedSongs, $event)"
             >
               <Icon n="plus" :t="13" />
               <span class="sr-label"
@@ -303,7 +311,7 @@ const fmt = (s) => formatDuration(s, '')
               title="Más opciones: reproducir, favoritas, la papelera…"
               aria-haspopup="menu"
               @mousedown.prevent
-              @click="emit('groupMenu', elegidos, $event)"
+              @click="emit('groupMenu', pickedSongs, $event)"
             >
               <Icon n="more" :t="13" />
             </button>
@@ -313,7 +321,7 @@ const fmt = (s) => formatDuration(s, '')
               aria-label="No seleccionar ninguno"
               title="No seleccionar ninguno (Escape)"
               @mousedown.prevent
-              @click="ninguno"
+              @click="selectNone"
             >
               <Icon n="close" :t="12" />
               <span class="sr-label">Ninguno</span>
@@ -324,17 +332,17 @@ const fmt = (s) => formatDuration(s, '')
           <span
             class="sr-tip"
             title="Arrástralos a un repertorio del lateral · Ctrl o Mayús + clic: varios"
-            >{{ modo ? 'marca los que quieras' : 'clic derecho: opciones' }}</span
+            >{{ selectMode ? 'marca los que quieras' : 'clic derecho: opciones' }}</span
           >
           <button
             type="button"
             class="btn mini sr-act sr-select"
-            :class="{ on: modo }"
-            :aria-pressed="modo"
+            :class="{ on: selectMode }"
+            :aria-pressed="selectMode"
             aria-label="Seleccionar resultados"
             title="Elegir varios con casillas (también con Ctrl o Mayús + clic)"
             @mousedown.prevent
-            @click="alternarModo"
+            @click="toggleSelectMode"
           >
             <Icon n="check" :t="13" />
             <span class="sr-label">Seleccionar</span>
@@ -343,12 +351,12 @@ const fmt = (s) => formatDuration(s, '')
       </div>
       <div
         :id="listId"
-        ref="caja"
+        ref="box"
         class="sr-list"
         role="listbox"
         aria-label="Resultados en toda la biblioteca"
         :aria-multiselectable="multiple ? 'true' : undefined"
-        :style="alto ? { maxHeight: alto + 'px' } : null"
+        :style="listHeight ? { maxHeight: listHeight + 'px' } : null"
       >
         <!-- Un div y no un boton: `startDrag` se aparta de los botones a
              proposito (ahi el clic tiene otra cosa que hacer), asi que dentro
@@ -365,12 +373,12 @@ const fmt = (s) => formatDuration(s, '')
           class="sr-row"
           role="option"
           tabindex="-1"
-          :aria-selected="multiple ? esElegido(c.id) : i === marcada"
-          :class="{ on: i === marcada, picked: esElegido(c.id), dragged: isDragged(c.id) }"
+          :aria-selected="multiple ? isPicked(c.id) : i === highlighted"
+          :class="{ on: i === highlighted, picked: isPicked(c.id), dragged: isDragged(c.id) }"
           @mousedown.prevent
-          @pointerdown="startDrag(c, $event, elegidos)"
-          @mouseenter="marcada = i"
-          @focus="marcada = i"
+          @pointerdown="startDrag(c, $event, pickedSongs)"
+          @mouseenter="highlighted = i"
+          @focus="highlighted = i"
           @click="onClick(c, i, $event)"
           @dblclick="emit('play', c)"
           @contextmenu.prevent="onMenu(c, i, $event)"
@@ -381,13 +389,13 @@ const fmt = (s) => formatDuration(s, '')
                fila, que alterna; el doble clic se queda aquí: marcar y desmarcar
                deprisa no pone la canción -->
           <span
-            v-if="modo"
+            v-if="selectMode"
             class="pick-box"
-            :class="{ on: esElegido(c.id) }"
+            :class="{ on: isPicked(c.id) }"
             aria-hidden="true"
             @dblclick.stop
           >
-            <Icon v-if="esElegido(c.id)" n="check" :t="12" :grosor="2.4" />
+            <Icon v-if="isPicked(c.id)" n="check" :t="12" :weight="2.4" />
           </span>
           <span class="sr-art-wrap">
             <CoverArt

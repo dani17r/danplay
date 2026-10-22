@@ -177,13 +177,13 @@ describe('usePlayback', () => {
     await player.setVolume(0.42)
     await player.setSpeed(1.25)
     expect(localStorage.getItem('danplay.vol')).toBe('0.42')
-    expect(localStorage.getItem('danplay.vel')).toBe('1.25')
+    expect(localStorage.getItem('danplay.speed')).toBe('1.25')
   })
 
   it('lo guardado lo aplica la ventana principal, no el mini ni la proyección', async () => {
     const saved = () => {
       localStorage.setItem('danplay.vol', '0.3')
-      localStorage.setItem('danplay.vel', '0.75')
+      localStorage.setItem('danplay.speed', '0.75')
       localStorage.setItem('danplay.repeat', 'one')
     }
     for (const search of ['?mini=1', '?projection=1']) {
@@ -217,7 +217,7 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.setCrossfade).toHaveBeenCalledWith(4)
     await player.setCrossfade(6)
     expect(held.playback.bridge.setCrossfade).toHaveBeenLastCalledWith(6)
-    expect(localStorage.getItem('danplay.fundido')).toBe('6')
+    expect(localStorage.getItem('danplay.crossfade')).toBe('6')
     await player.setCrossfade(99)
     expect(player.crossfade.value, 'hasta 12 s').toBe(12)
     await player.setCrossfade(0)

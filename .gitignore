@@ -17,7 +17,7 @@ desktop/src-tauri/binaries/
 # artefactos de compilacion
 target/
 dist/
-dist-movil/
+dist-mobile/
 build/
 __pycache__/
 *.pyc

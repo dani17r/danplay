@@ -171,7 +171,7 @@ const {
           aria-hidden="true"
           @dblclick.stop
         >
-          <Icon v-if="picked(c.id)" n="check" :t="12" :grosor="2.4" />
+          <Icon v-if="picked(c.id)" n="check" :t="12" :weight="2.4" />
         </span>
         <div class="name" :title="c.title">
           <Icon

@@ -98,7 +98,7 @@ describe('useDownloads', () => {
 
 const mountView = (props = {}) =>
   mount(Sidebar, {
-    props: { view: { kind: 'all' }, playlists: [], stats: { total: 3 }, entrada: 0, ...props },
+    props: { view: { kind: 'all' }, playlists: [], stats: { total: 3 }, inboxCount: 0, ...props },
     global: { stubs: { TextField: true } }
   })
 

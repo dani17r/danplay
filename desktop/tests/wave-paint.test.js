@@ -53,15 +53,15 @@ const data = Array.from({ length: 60 }, (_, i) => {
 describe('los estilos de la onda', () => {
   it('son seis, y lo desconocido vuelve a las barras', () => {
     expect(WAVE_STYLES.map((s) => s.v)).toEqual([
-      'barras',
-      'bloques',
-      'rayitas',
-      'suave',
-      'contorno',
-      'reflejo'
+      'bars',
+      'blocks',
+      'lines',
+      'smooth',
+      'outline',
+      'mirror'
     ])
-    expect(waveStyleOf('suave')).toBe('suave')
-    expect(waveStyleOf('lo que sea')).toBe('barras')
+    expect(waveStyleOf('smooth')).toBe('smooth')
+    expect(waveStyleOf('lo que sea')).toBe('bars')
   })
 
   it('cada estilo pinta dentro de su franja (un carril de 40 a 80 px)', () => {
@@ -86,9 +86,9 @@ describe('los estilos de la onda', () => {
   })
 
   it('los bloques son más gruesos que las barras; las rayitas, más separadas', () => {
-    expect(columnsFor('barras', 600)).toBe(300)
-    expect(columnsFor('bloques', 600)).toBe(100)
-    expect(columnsFor('rayitas', 600)).toBe(200)
+    expect(columnsFor('bars', 600)).toBe(300)
+    expect(columnsFor('blocks', 600)).toBe(100)
+    expect(columnsFor('lines', 600)).toBe(200)
   })
 
   it('sin columnas no pinta nada', () => {

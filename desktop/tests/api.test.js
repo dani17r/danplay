@@ -90,7 +90,7 @@ describe('las peticiones del navegador', () => {
 
 describe('las tareas largas (runJob)', () => {
   const job = (extra) => ({
-    name: 'escaneo',
+    name: 'scan',
     active: true,
     done: 0,
     total: 0,
@@ -114,23 +114,22 @@ describe('las tareas largas (runJob)', () => {
     })
     expect(r).toEqual({ total: 10 })
     expect(seen).toEqual([1, 5, 10])
-    expect(poll).toHaveBeenCalledWith('escaneo')
+    expect(poll).toHaveBeenCalledWith('scan')
   })
 
   it('si ya habia una en marcha, sigue esa', async () => {
     const poll = vi.fn(async () => job({ active: false, result: 'la de antes' }))
-    const r = await runJob(
-      async () => ({ job: job({ done: 3 }), already_running: true }),
-      'escaneo',
-      { interval: 0, poll }
-    )
+    const r = await runJob(async () => ({ job: job({ done: 3 }), already_running: true }), 'scan', {
+      interval: 0,
+      poll
+    })
     expect(r).toBe('la de antes')
   })
 
   it('un error de la tarea llega en castellano', async () => {
     const e = await runJob(
       async () => ({ job: job({ active: false, error: 'la carpeta ya no existe' }) }),
-      'escaneo',
+      'scan',
       { interval: 0 }
     ).catch((err) => err)
     expect(e).toBeInstanceOf(ApiError)
@@ -143,13 +142,13 @@ describe('las tareas largas (runJob)', () => {
       if (++n === 1) throw new Error('el nucleo tarda')
       return job({ active: false, result: 'ok' })
     })
-    expect(
-      await runJob(async () => ({ job: job() }), 'escaneo', { interval: 0, poll: flaky })
-    ).toBe('ok')
+    expect(await runJob(async () => ({ job: job() }), 'scan', { interval: 0, poll: flaky })).toBe(
+      'ok'
+    )
     const dead = vi.fn(async () => {
       throw new Error('sin nucleo')
     })
-    const e = await runJob(async () => ({ job: job() }), 'escaneo', {
+    const e = await runJob(async () => ({ job: job() }), 'scan', {
       interval: 0,
       poll: dead
     }).catch((err) => err)
@@ -167,7 +166,7 @@ describe('las tareas largas (runJob)', () => {
       body: url.includes('/jobs/') ? job({ active: false, result: 'hecho' }) : {}
     }))
     expect(await api.runJob(() => api.scan(), JOBS.scan, { interval: 0 })).toBe('hecho')
-    expect(calls.map((c) => c.url)).toEqual(['/api/scan', '/api/jobs/escaneo'])
+    expect(calls.map((c) => c.url)).toEqual(['/api/scan', '/api/jobs/scan'])
   })
 })
 
@@ -352,7 +351,7 @@ describe('lo que cada metodo pide al nucleo', () => {
       '/api/song/7/stems/mix',
       { tracks: [{ source: 'vocals' }], path: '/m/x.mp3' }
     ],
-    toPhone: [[[7, 8]], 'POST', '/api/celular', { ids: [7, 8] }],
+    toPhone: [[[7, 8]], 'POST', '/api/bundle', { ids: [7, 8] }],
     playlistSheet: [[3, true], 'POST', '/api/playlists/3/sheet', { with_lyrics: true }],
     exportPlaylist: [[3], 'POST', '/api/playlists/3/export'],
     externalList: [[], 'GET', '/api/external'],
@@ -487,7 +486,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     expect(await app.trayAvailable()).toBe(false)
     // las formas de la ventana: solo la pantalla completa existe en el navegador
     expect(await app.windowShape()).toEqual(['normal', false])
-    await expect(app.setWindowShape('cuadrito')).rejects.toThrow(
+    await expect(app.setWindowShape('square')).rejects.toThrow(
       'Solo en la aplicación de escritorio'
     )
     await expect(app.setWindowOnTop(true)).rejects.toThrow('Solo en la aplicación de escritorio')

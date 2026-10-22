@@ -186,21 +186,21 @@ async function autofill() {
   }
 }
 /** el cifrado en otro tono; lo guardado no cambia */
-const transpuesto = ref(null)
+const transposed = ref(null)
 /** el tono pedido, o los semitonos si el cifrado no dice el suyo */
-const tonoDestino = ref('')
+const targetKey = ref('')
 /** el cifrado entero (acordes sobre la letra) en vez de solo los acordes */
-const entero = ref(false)
-const TONOS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-const SEMITONOS = [-5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6]
+const fullSheet = ref(false)
+const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+const SEMITONES = [-5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6]
 
 watch(
   () => props.song?.id,
   () => {
     details.value = null
-    transpuesto.value = null
-    tonoDestino.value = ''
-    entero.value = false
+    transposed.value = null
+    targetKey.value = ''
+    fullSheet.value = false
     failure.value = ''
     coverVersion.value = 0
     // lo que siga en marcha es de la otra cancion: no bloquea esta
@@ -222,13 +222,13 @@ const doc = computed(() => {
 const aiInfo = computed(() => details.value || doc.value)
 /** El cifrado: un objeto, `null` si se busco y no esta, `undefined` si no se ha buscado. */
 const sheet = computed(() => doc.value?.sheet)
-const shown = computed(() => transpuesto.value || sheet.value)
-const conAcordes = computed(() => (shown.value?.sections || []).filter((x) => x.chords?.length))
-const buscadoEn = computed(
+const shown = computed(() => transposed.value || sheet.value)
+const withChords = computed(() => (shown.value?.sections || []).filter((x) => x.chords?.length))
+const searchedIn = computed(
   () => (doc.value?.sheet_tried || []).join(' ni ') || 'las páginas de acordes'
 )
 /** Los acordes en texto plano, con sus secciones, listos para pegar. */
-const acordesParaCopiar = computed(() => {
+const chordsToCopy = computed(() => {
   const s = shown.value
   if (!s) return ''
   const head = [
@@ -236,18 +236,18 @@ const acordesParaCopiar = computed(() => {
     s.key ? `Tono: ${s.key}` : '',
     s.capo ? `Cejilla: ${s.capo}` : ''
   ]
-  const body = entero.value
+  const body = fullSheet.value
     ? (s.sections || []).flatMap((x) => [
         x.name ? `[${x.name}]` : '',
         ...x.lines.map((l) => l.t),
         ''
       ])
-    : conAcordes.value.map((x) => (x.name ? `${x.name}: ` : '') + x.chords.join(' '))
+    : withChords.value.map((x) => (x.name ? `${x.name}: ` : '') + x.chords.join(' '))
   return [...head.filter(Boolean), '', ...body, `(${s.source}: ${s.url})`].join('\n')
 })
 
 /** Busca el cifrado en la web (o lo busca otra vez). Nunca lo inventa: si no esta, lo dice. */
-async function buscarAcordes(refresh = false) {
+async function findChords(refresh = false) {
   const id = props.song.id
   const name = props.song.title || props.song.file
   loading.value = 'chords'
@@ -257,8 +257,8 @@ async function buscarAcordes(refresh = false) {
     emit('updated', r.song)
     const here = isCurrent(id)
     if (here) {
-      transpuesto.value = null
-      tonoDestino.value = ''
+      transposed.value = null
+      targetKey.value = ''
     }
     const s = r.sheet
     const msg = s
@@ -296,7 +296,7 @@ async function enrich(opts) {
   const name = props.song.title || props.song.file
   loading.value = 'enrich'
   failure.value = ''
-  const antes = { lyrics: !!props.song.lyrics, cover: !!props.song.cover }
+  const before = { lyrics: !!props.song.lyrics, cover: !!props.song.cover }
   try {
     const r = await api.enrich(id, opts)
     // a la app siempre: la lista y la cola se ponen al dia; la ficha solo si
@@ -304,21 +304,21 @@ async function enrich(opts) {
     emit('updated', r.song)
     const here = isCurrent(id)
     if (opts.cover && here) coverVersion.value++ // obliga a pedirla otra vez
-    const hecho = []
+    const done = []
     if (opts.lyrics)
-      hecho.push(
-        r.song?.lyrics && !antes.lyrics
+      done.push(
+        r.song?.lyrics && !before.lyrics
           ? 'letra encontrada'
           : r.song?.lyrics
             ? 'ya tenia letra'
             : 'no se encontro letra'
       )
-    if (opts.cover) hecho.push(r.result?.cover ? 'portada encontrada' : 'no se encontro portada')
+    if (opts.cover) done.push(r.result?.cover ? 'portada encontrada' : 'no se encontro portada')
     // con otra cancion delante, se dice de cual era
-    if (hecho.length)
+    if (done.length)
       notify(
-        (here ? '' : `«${name}»: `) + hecho.join(' · '),
-        hecho.some((h) => h.includes('encontrada')) ? 'ok' : 'info'
+        (here ? '' : `«${name}»: `) + done.join(' · '),
+        done.some((h) => h.includes('encontrada')) ? 'ok' : 'info'
       )
   } catch (e) {
     if (isCurrent(id)) failure.value = errorMessage(e)
@@ -326,19 +326,19 @@ async function enrich(opts) {
     if (isCurrent(id)) loading.value = ''
   }
 }
-async function transponer() {
+async function transpose() {
   const id = props.song?.id
-  const to = tonoDestino.value
+  const to = targetKey.value
   if (!sheet.value || to === '') {
-    transpuesto.value = null
+    transposed.value = null
     return
   }
   try {
     const body = sheet.value.key ? { to_key: to } : { semitones: Number(to) }
     const r = await api.chordsTransposed(id, body)
     // otra cancion, u otro tono pedido mientras tanto: esto ya no vale
-    if (!isCurrent(id) || tonoDestino.value !== to) return
-    transpuesto.value = r.sheet
+    if (!isCurrent(id) || targetKey.value !== to) return
+    transposed.value = r.sheet
   } catch (e) {
     if (isCurrent(id)) failure.value = errorMessage(e)
   }
@@ -383,7 +383,7 @@ async function transponer() {
 
       <div class="details-titlebar">
         <div style="flex: 1; min-width: 0">
-          <div class="copiable">
+          <div class="copyable">
             <div class="details-title">{{ song.title || song.file }}</div>
             <CopyButton
               :text="song.title || song.file"
@@ -393,7 +393,7 @@ async function transponer() {
               "
             />
           </div>
-          <div class="copiable">
+          <div class="copyable">
             <div class="details-artist">{{ song.artist || 'Artista sin identificar' }}</div>
             <CopyButton
               v-if="song.artist"
@@ -536,7 +536,7 @@ async function transponer() {
           class="btn mini"
           :disabled="!!loading"
           title="Se buscan en Ultimate Guitar y LaCuerda: los acordes y el tono de un cifrado publicado, con su enlace. Si no está, no se inventan"
-          @click="buscarAcordes(false)"
+          @click="findChords(false)"
         >
           Buscar acordes
         </button>
@@ -573,11 +573,11 @@ async function transponer() {
       </div>
     </div>
 
-    <div v-if="sheet" class="section copiable-section">
+    <div v-if="sheet" class="section copyable-section">
       <h4>
         Acordes
         <CopyButton
-          :text="acordesParaCopiar"
+          :text="chordsToCopy"
           what="los acordes"
           :size="14"
           @copied="
@@ -588,10 +588,10 @@ async function transponer() {
           type="button"
           class="btn mini"
           style="margin-left: auto"
-          :title="entero ? 'Solo los acordes de cada parte' : 'Los acordes sobre la letra'"
-          @click="entero = !entero"
+          :title="fullSheet ? 'Solo los acordes de cada parte' : 'Los acordes sobre la letra'"
+          @click="fullSheet = !fullSheet"
         >
-          {{ entero ? 'Solo acordes' : 'Cifrado entero' }}
+          {{ fullSheet ? 'Solo acordes' : 'Cifrado entero' }}
         </button>
       </h4>
       <div class="sheet-facts">
@@ -603,8 +603,8 @@ async function transponer() {
         >
         <span v-if="sheet.capo"> · cejilla en el traste {{ sheet.capo }}</span>
       </div>
-      <div v-if="!entero" style="margin-top: 9px">
-        <div v-for="(sec, i) in conAcordes" :key="i" style="margin-bottom: 7px">
+      <div v-if="!fullSheet" style="margin-top: 9px">
+        <div v-for="(sec, i) in withChords" :key="i" style="margin-bottom: 7px">
           <div v-if="sec.name" class="sheet-section">{{ sec.name }}</div>
           <div class="chords">{{ sec.chords.join('   ') }}</div>
         </div>
@@ -622,14 +622,14 @@ async function transponer() {
           sheet.key ? 'Transponer a' : 'Subir o bajar'
         }}</span>
         <SelectField
-          :model-value="tonoDestino"
+          :model-value="targetKey"
           width="112px"
           :options="
             sheet.key
-              ? [{ v: '', n: '—' }, ...TONOS.map((t) => ({ v: t, n: t }))]
+              ? [{ v: '', n: '—' }, ...KEYS.map((t) => ({ v: t, n: t }))]
               : [
                   { v: '', n: 'como está' },
-                  ...SEMITONOS.map((n) => ({
+                  ...SEMITONES.map((n) => ({
                     v: String(n),
                     n: `${n > 0 ? '+' : ''}${n} ${Math.abs(n) === 1 ? 'semitono' : 'semitonos'}`
                   }))
@@ -637,15 +637,15 @@ async function transponer() {
           "
           @update:model-value="
             (v) => {
-              tonoDestino = v
-              transponer()
+              targetKey = v
+              transpose()
             }
           "
         />
       </div>
-      <div v-if="transpuesto?.capo_hint?.length" class="hint">
+      <div v-if="transposed?.capo_hint?.length" class="hint">
         Cejilla:
-        {{ transpuesto.capo_hint.map((c) => `traste ${c[0]} con formas de ${c[1]}`).join(' · ') }}
+        {{ transposed.capo_hint.map((c) => `traste ${c[0]} con formas de ${c[1]}`).join(' · ') }}
       </div>
       <div class="hint">
         De
@@ -667,7 +667,7 @@ async function transponer() {
           class="link"
           :disabled="!!loading"
           title="Volver a buscarlo, por si hay una versión mejor"
-          @click="buscarAcordes(true)"
+          @click="findChords(true)"
         >
           Buscar otra vez
         </button>
@@ -676,13 +676,13 @@ async function transponer() {
     <div v-else-if="sheet === null" class="section">
       <h4>Acordes</h4>
       <div class="hint">
-        No hay cifrado de esta canción en {{ buscadoEn }}. No se inventan.
+        No hay cifrado de esta canción en {{ searchedIn }}. No se inventan.
         <button
           v-if="!isMobileApp"
           type="button"
           class="link"
           :disabled="!!loading"
-          @click="buscarAcordes(true)"
+          @click="findChords(true)"
         >
           Buscar otra vez
         </button>
@@ -703,7 +703,7 @@ async function transponer() {
       </div>
     </div>
 
-    <div v-if="song.lyrics || song.lyrics_synced" class="section copiable-section">
+    <div v-if="song.lyrics || song.lyrics_synced" class="section copyable-section">
       <h4>
         Letra
         <CopyButton

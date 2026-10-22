@@ -187,7 +187,7 @@ function schedule(ms = EVERY) {
 }
 
 /** Lo que pesa algo, para decirlo antes de bajarlo. @param {number} [bytes] */
-function megas(bytes) {
+function megabytes(bytes) {
   return bytes ? `${Math.round(bytes / 1e6)} MB` : ''
 }
 
@@ -225,7 +225,7 @@ async function request(songs, opts = {}) {
         'Es lenta y pesada: unos 15-25 minutos por canción en un portátil, en segundo plano, ' +
         'y necesita unos 5 GB de memoria libre. ' +
         (state.max_pending
-          ? `La primera vez se baja su separador (${megas(state.max_pending)}, una sola vez). `
+          ? `La primera vez se baja su separador (${megabytes(state.max_pending)}, una sola vez). `
           : '') +
         'Mientras, las pistas de ahora siguen sonando.',
       okLabel: 'Separar con más instrumentos'
@@ -237,7 +237,7 @@ async function request(songs, opts = {}) {
       kind: 'confirm',
       title: 'Separar pistas',
       message:
-        `La primera vez hay que bajar el separador (${megas(state.pending)}, una sola vez). ` +
+        `La primera vez hay que bajar el separador (${megabytes(state.pending)}, una sola vez). ` +
         'Luego todo se hace en tu equipo, sin internet.',
       detail:
         'En unos minutos tienes las pistas para usarlas; después se siguen mejorando la ' +
@@ -358,6 +358,6 @@ export function useSeparation() {
     progressOf,
     remaining,
     onSeparated,
-    megas
+    megabytes
   }
 }

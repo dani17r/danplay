@@ -67,14 +67,14 @@ function save() {
   const clean = (name.value || 'Mi tema').trim()
   const key =
     props.editing ||
-    'propio-' +
+    'custom-' +
       clean
         .toLowerCase()
         .normalize('NFD')
         .replace(/[̀-ͯ]/g, '')
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '') ||
-    'propio-' + Date.now()
+    'custom-' + Date.now()
   saveCustomTheme(key, { name: clean, kind: kind.value, v: { ...v.value }, custom: true })
   applyTheme(key)
   emit('saved', key)

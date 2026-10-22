@@ -23,45 +23,45 @@ const props = defineProps({
 })
 const emit = defineEmits(['copied'])
 
-const listo = ref(false)
-let temporizador = null
-onUnmounted(() => clearTimeout(temporizador))
+const done = ref(false)
+let timer = null
+onUnmounted(() => clearTimeout(timer))
 
-async function alPortapapeles(texto) {
+async function toClipboard(value) {
   try {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(texto)
+      await navigator.clipboard.writeText(value)
       return true
     }
   } catch {
     /* sin permiso o sin contexto seguro: se prueba lo de abajo */
   }
   try {
-    const caja = document.createElement('textarea')
-    caja.value = texto
-    caja.setAttribute('readonly', '')
-    caja.style.cssText = 'position:fixed;top:-1000px;opacity:0'
-    document.body.appendChild(caja)
-    caja.select()
+    const area = document.createElement('textarea')
+    area.value = value
+    area.setAttribute('readonly', '')
+    area.style.cssText = 'position:fixed;top:-1000px;opacity:0'
+    document.body.appendChild(area)
+    area.select()
     const ok = document.execCommand('copy')
-    caja.remove()
+    area.remove()
     return ok
   } catch {
     return false
   }
 }
 
-async function copiar() {
-  const texto = String(props.text ?? '').trim()
-  if (!texto) return
-  const ok = await alPortapapeles(texto)
+async function copy() {
+  const value = String(props.text ?? '').trim()
+  if (!value) return
+  const ok = await toClipboard(value)
   if (!ok) {
     emit('copied', false, props.what)
     return
   }
-  listo.value = true
-  clearTimeout(temporizador)
-  temporizador = setTimeout(() => (listo.value = false), 1400)
+  done.value = true
+  clearTimeout(timer)
+  timer = setTimeout(() => (done.value = false), 1400)
   emit('copied', true, props.what)
 }
 </script>
@@ -71,13 +71,13 @@ async function copiar() {
     v-if="String(text ?? '').trim()"
     type="button"
     class="copy-btn"
-    :class="{ done: listo, 'with-label': !!label }"
-    :title="listo ? 'Copiado' : what ? 'Copiar ' + what : 'Copiar'"
+    :class="{ done: done, 'with-label': !!label }"
+    :title="done ? 'Copiado' : what ? 'Copiar ' + what : 'Copiar'"
     :aria-label="what ? 'Copiar ' + what : 'Copiar'"
-    @click.stop="copiar"
+    @click.stop="copy"
     @dblclick.stop
   >
-    <Icon :n="listo ? 'check' : 'copy'" :t="size" />
+    <Icon :n="done ? 'check' : 'copy'" :t="size" />
     <span v-if="label" class="copy-label">{{ label }}</span>
   </button>
 </template>

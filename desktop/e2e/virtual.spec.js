@@ -11,7 +11,7 @@ const TOTAL = SONGS.length + BIG_COUNT
 test.beforeEach(async ({ request }) => {
   await reset(request)
   await core(request, 'POST', '/folders', { path: BIG, label: '', force: false })
-  await runJob(request, '/scan', 'escaneo')
+  await runJob(request, '/scan', 'scan')
 })
 
 test.afterEach(async ({ request }) => {

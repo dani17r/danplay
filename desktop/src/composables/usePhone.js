@@ -41,7 +41,7 @@ export async function takeToPhone(list) {
       const noClick = done.filter((/** @type {any} */ d) => !d.click).length
       notify(
         (done.length === 1
-          ? `Lista para el celular: «${first.name}» (${megas(first.size)})`
+          ? `Lista para el celular: «${first.name}» (${megabytes(first.size)})`
           : `${done.length} listas para el celular, en la carpeta «Celular»`) +
           (noClick ? (done.length === 1 ? ', sin clic automático' : `; ${noClick} sin clic`) : ''),
         'ok',
@@ -58,7 +58,7 @@ export async function takeToPhone(list) {
 }
 
 /** @param {number} bytes */
-function megas(bytes) {
+function megabytes(bytes) {
   const mb = (bytes || 0) / 1_000_000
   return mb >= 10 ? `${Math.round(mb)} MB` : `${mb.toFixed(1).replace('.', ',')} MB`
 }

@@ -225,9 +225,9 @@ select:focus {
   height: 6px;
   border-radius: 50%;
   background: var(--accent);
-  animation: vivo 1.2s ease-in-out infinite;
+  animation: live-pulse 1.2s ease-in-out infinite;
 }
-@keyframes vivo {
+@keyframes live-pulse {
   0%,
   100% {
     opacity: 0.35;
@@ -246,7 +246,7 @@ select:focus {
   background: var(--accent);
   flex-shrink: 0;
   margin-left: 6px;
-  animation: vivo 1.2s ease-in-out infinite;
+  animation: live-pulse 1.2s ease-in-out infinite;
 }
 .nav-link .now-dot.paused {
   animation: none;
@@ -458,7 +458,7 @@ thead th:hover {
    reparte a su gusto y arrastrar el borde no cambia nada. */
 /* Solo cuando hay anchos a medida la tabla puede pasarse del panel. Sin
    tocarla se comporta como siempre: `width:100%` y se adapta. */
-.song-table.medida {
+.song-table.sized {
   min-width: 100%;
   width: auto;
 }
@@ -616,7 +616,7 @@ td.col-copy {
   padding-right: 6px;
 }
 /* una celda con texto que se recorta y un boton que no */
-.cell-copiable {
+.cell-copyable {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1283,9 +1283,9 @@ body:has(.track.scrubbing) {
   border: 2px solid var(--border2);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: giro 0.7s linear infinite;
+  animation: spin 0.7s linear infinite;
 }
-@keyframes giro {
+@keyframes spin {
   to {
     transform: rotate(360deg);
   }

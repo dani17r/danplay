@@ -376,8 +376,8 @@ export function useVirtualRows(getAnchor, getCount, options = {}) {
       return
     }
     const ok = measure()
-    const alto = viewport ? viewport.clientHeight : 0
-    if (!viewport || !ok || alto <= 0) {
+    const viewHeight = viewport ? viewport.clientHeight : 0
+    if (!viewport || !ok || viewHeight <= 0) {
       cannotMeasure.value = true // sin medidas fiables: se pinta todo
       return
     }
@@ -393,13 +393,13 @@ export function useVirtualRows(getAnchor, getCount, options = {}) {
           viewport.getBoundingClientRect().top +
           viewport.scrollTop
     lastAnchorTop = anchorTop
-    windowAt(viewport.scrollTop - anchorTop, alto)
+    windowAt(viewport.scrollTop - anchorTop, viewHeight)
   }
 
-  /** La ventana para lo que se ve desde `top` (en px, desde la primera fila) con alto `alto`. */
-  function windowAt(/** @type {number} */ top, /** @type {number} */ alto) {
+  /** La ventana para lo que se ve desde `top` (en px, desde la primera fila) con alto `viewHeight`. */
+  function windowAt(/** @type {number} */ top, /** @type {number} */ viewHeight) {
     const margin = overscan * rowHeight.value
-    requested.value = spanOfPixels(top - margin, top + alto + margin)
+    requested.value = spanOfPixels(top - margin, top + viewHeight + margin)
   }
 
   /** Se agrupan los avisos de desplazamiento en un solo recálculo por cuadro. */

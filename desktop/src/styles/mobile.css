@@ -1,4 +1,4 @@
-/* La app del celular (src/movil/). Solo la carga movil/main.js: la PC no la
+/* La app del celular (src/mobile/). Solo la carga mobile/main.js: la PC no la
    ve. Todo un poco más grande que en la PC, lo pulsable de 44 px como poco
    (lo que pide Android para un dedo) y la letra de lo que se lee, de 15 a
    16 px. `--scale` es el «Tamaño de la letra» de los Ajustes.
@@ -6,7 +6,7 @@
    Lo de abajo del todo retoca piezas de la PC que el celular usa tal cual
    (el estudio, la ficha, los menús y los paneles). */
 
-html[data-app='movil'] {
+html[data-app='mobile'] {
   --m-pad: 16px;
   --m-touch: 44px;
   --m-radius: 14px;
@@ -16,35 +16,35 @@ html[data-app='movil'] {
 }
 /* Android pinta un recuadro azul en lo que se toca (el «resaltado de
    toque» del WebView): fuera. Cada botón tiene su propia respuesta al dedo. */
-html[data-app='movil'] * {
+html[data-app='mobile'] * {
   -webkit-tap-highlight-color: transparent;
 }
-html[data-app='movil'] body {
+html[data-app='mobile'] body {
   font-size: calc(14.5px * var(--scale));
   -webkit-touch-callout: none;
   overscroll-behavior: none;
 }
-html[data-app='movil'] button {
+html[data-app='mobile'] button {
   touch-action: manipulation;
 }
 /* la barra del reproductor se sube con el dedo: que el navegador no se
    quede el gesto para desplazar (va aquí, con la misma fuerza que la regla
    de arriba, para ganarle) */
-html[data-app='movil'] .m-mini-open {
+html[data-app='mobile'] .m-mini-open {
   touch-action: none;
 }
 /* las barras de desplazamiento de la PC (9 px, siempre a la vista) en el
    teléfono estorban: una raya fina, como las de Android */
-html[data-app='movil'] ::-webkit-scrollbar {
+html[data-app='mobile'] ::-webkit-scrollbar {
   width: 3px;
   height: 3px;
 }
-html[data-app='movil'] ::-webkit-scrollbar-thumb {
+html[data-app='mobile'] ::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--text) 22%, transparent);
   border-radius: 2px;
 }
 /* el anillo de foco, solo con teclado (un toque no lo enciende) */
-html[data-app='movil'] :focus:not(:focus-visible) {
+html[data-app='mobile'] :focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -1250,12 +1250,12 @@ html[data-app='movil'] :focus:not(:focus-visible) {
    ====================================================================== */
 
 /* los paneles de lado: cabecera alta y botón de cerrar a mano */
-html[data-app='movil'] .drawer-head {
+html[data-app='mobile'] .drawer-head {
   min-height: 58px;
   padding: 0 8px 0 18px;
   font-size: calc(17px * var(--scale));
 }
-html[data-app='movil'] .drawer-head .icon-btn {
+html[data-app='mobile'] .drawer-head .icon-btn {
   width: var(--m-touch);
   height: var(--m-touch);
 }
@@ -1316,16 +1316,16 @@ html[data-app='movil'] .drawer-head .icon-btn {
 }
 
 /* los diálogos: botones y campo para el dedo */
-html[data-app='movil'] .modal {
+html[data-app='mobile'] .modal {
   width: calc(100vw - 32px);
   max-width: 440px;
   border-radius: 18px;
 }
-html[data-app='movil'] .modal input {
+html[data-app='mobile'] .modal input {
   min-height: 46px;
   font-size: 16px;
 }
-html[data-app='movil'] .modal-actions .btn {
+html[data-app='mobile'] .modal-actions .btn {
   min-height: 44px;
   padding: 0 18px;
   font-size: 15px;
@@ -1780,22 +1780,22 @@ html[data-app='movil'] .modal-actions .btn {
 }
 
 /* los deslizadores, con un botón que se coge con el dedo */
-html[data-app='movil'] .slider-track {
+html[data-app='mobile'] .slider-track {
   height: 32px;
 }
-html[data-app='movil'] .slider-track input {
+html[data-app='mobile'] .slider-track input {
   height: 32px;
 }
-html[data-app='movil'] .slider-track::before,
-html[data-app='movil'] .slider-track::after {
+html[data-app='mobile'] .slider-track::before,
+html[data-app='mobile'] .slider-track::after {
   height: 6px;
 }
-html[data-app='movil'] .slider-track input::-webkit-slider-thumb {
+html[data-app='mobile'] .slider-track input::-webkit-slider-thumb {
   width: 24px;
   height: 24px;
   border-width: 3px;
 }
-html[data-app='movil'] .slider-track input:active::-webkit-slider-thumb {
+html[data-app='mobile'] .slider-track input:active::-webkit-slider-thumb {
   transform: scale(1.15);
 }
 
@@ -1803,37 +1803,37 @@ html[data-app='movil'] .slider-track input:active::-webkit-slider-thumb {
    Se abre para leer: la carátula pequeña al lado del título, sin la tabla
    de datos (álbum, carpeta…, que en el celular no se usan) y la letra y
    el cifrado con letra de leer, sin cajas con su propio scroll. */
-html[data-app='movil'] .drawer .details {
+html[data-app='mobile'] .drawer .details {
   width: 100%;
   border: none;
 }
 /* la carátula a la izquierda; a su lado, el título y debajo las estrellas */
-html[data-app='movil'] .details-head {
+html[data-app='mobile'] .details-head {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
   align-items: center;
   column-gap: 14px;
   padding: 14px var(--m-pad);
 }
-html[data-app='movil'] .details-head .cover-wrap {
+html[data-app='mobile'] .details-head .cover-wrap {
   grid-row: span 2;
   width: 76px;
 }
-html[data-app='movil'] .details-head > div:last-child {
+html[data-app='mobile'] .details-head > div:last-child {
   margin-top: 4px !important;
 }
-html[data-app='movil'] .details-head .cover {
+html[data-app='mobile'] .details-head .cover {
   border-radius: 10px;
 }
-html[data-app='movil'] .details-head .cover-blur,
-html[data-app='movil'] .details-head .cover-change {
+html[data-app='mobile'] .details-head .cover-blur,
+html[data-app='mobile'] .details-head .cover-change {
   display: none;
 }
-html[data-app='movil'] .details-titlebar {
+html[data-app='mobile'] .details-titlebar {
   min-width: 0;
   margin-top: 0;
 }
-html[data-app='movil'] .details-artist {
+html[data-app='mobile'] .details-artist {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1841,7 +1841,7 @@ html[data-app='movil'] .details-artist {
   overflow: hidden;
   font-size: calc(14.5px * var(--scale));
 }
-html[data-app='movil'] .details-title {
+html[data-app='mobile'] .details-title {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1851,37 +1851,37 @@ html[data-app='movil'] .details-title {
   font-size: calc(18px * var(--scale));
   line-height: 1.25;
 }
-html[data-app='movil'] .details .facts {
+html[data-app='mobile'] .details .facts {
   display: none;
 }
-html[data-app='movil'] .details .section {
+html[data-app='mobile'] .details .section {
   padding: 16px var(--m-pad);
 }
-html[data-app='movil'] .details .section h4 {
+html[data-app='mobile'] .details .section h4 {
   font-size: 12px;
 }
-html[data-app='movil'] .details .lyrics {
+html[data-app='mobile'] .details .lyrics {
   max-height: none;
   overflow: visible;
   font-size: calc(16px * var(--scale));
   line-height: 1.75;
 }
-html[data-app='movil'] .details .chords {
+html[data-app='mobile'] .details .chords {
   font-size: calc(14px * var(--scale));
   padding: 12px;
   border-radius: 10px;
 }
-html[data-app='movil'] .details .btn.mini {
+html[data-app='mobile'] .details .btn.mini {
   min-height: 40px;
   padding: 0 14px;
   font-size: calc(14px * var(--scale));
 }
-html[data-app='movil'] .details .hint {
+html[data-app='mobile'] .details .hint {
   font-size: calc(12.5px * var(--scale));
 }
 
 /* el título de los paneles, como un título y no como una etiqueta */
-html[data-app='movil'] .drawer-head span {
+html[data-app='mobile'] .drawer-head span {
   font-size: calc(17px * var(--scale));
   font-weight: 700;
   letter-spacing: 0;
@@ -1898,30 +1898,30 @@ html[data-app='movil'] .drawer-head span {
 /* ---------- las salidas, con el dedo ----------
    Cada cosa en su tarjeta: su nombre y estéreo o mono arriba, por dónde
    suena debajo y a todo lo ancho (en la fila de la PC no cabía) */
-html[data-app='movil'] .outs {
+html[data-app='mobile'] .outs {
   gap: 18px;
   padding: 16px var(--m-pad) 28px;
 }
-html[data-app='movil'] .outs-lead {
+html[data-app='mobile'] .outs-lead {
   font-size: calc(13.5px * var(--scale));
 }
-html[data-app='movil'] .outs-hint {
+html[data-app='mobile'] .outs-hint {
   font-size: calc(12.5px * var(--scale));
 }
-html[data-app='movil'] .outs-title {
+html[data-app='mobile'] .outs-title {
   font-size: 11px;
 }
-html[data-app='movil'] .outs-preset {
+html[data-app='mobile'] .outs-preset {
   padding: 12px 14px;
   border-radius: var(--m-radius);
 }
-html[data-app='movil'] .outs-preset-name {
+html[data-app='mobile'] .outs-preset-name {
   font-size: calc(15px * var(--scale));
 }
-html[data-app='movil'] .outs-preset-note {
+html[data-app='mobile'] .outs-preset-note {
   font-size: calc(13px * var(--scale));
 }
-html[data-app='movil'] .outs-row {
+html[data-app='mobile'] .outs-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -1931,29 +1931,29 @@ html[data-app='movil'] .outs-row {
   border-radius: var(--m-radius);
   background: color-mix(in srgb, var(--text) 3%, transparent);
 }
-html[data-app='movil'] .outs-row-name {
+html[data-app='mobile'] .outs-row-name {
   font-size: calc(15px * var(--scale));
   font-weight: 600;
 }
-html[data-app='movil'] .outs-row-pick {
+html[data-app='mobile'] .outs-row-pick {
   display: contents;
 }
-html[data-app='movil'] .outs-row .field {
+html[data-app='mobile'] .outs-row .field {
   grid-column: 1 / -1;
   grid-row: 2;
   width: 100% !important;
 }
-html[data-app='movil'] .outs-mode {
+html[data-app='mobile'] .outs-mode {
   grid-column: 2;
   grid-row: 1;
   border-radius: 10px;
 }
-html[data-app='movil'] .outs-mode-btn {
+html[data-app='mobile'] .outs-mode-btn {
   min-height: 36px;
   padding: 0 14px;
   font-size: calc(13.5px * var(--scale));
 }
-html[data-app='movil'] .outs-device .btn {
+html[data-app='mobile'] .outs-device .btn {
   min-width: var(--m-touch);
   min-height: var(--m-touch);
   justify-content: center;

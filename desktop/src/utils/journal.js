@@ -4,7 +4,7 @@
 // rehechas, lo que ya no está.
 
 /**
- * @typedef {Object} DiarioReport
+ * @typedef {Object} JournalReport
  * @property {number} [songs]    canciones que recuperaron lo suyo (estrellas, estudio…)
  * @property {number} [lists]    listas rehechas o puestas en orden
  * @property {number} [entries]  canciones que volvieron a sus listas
@@ -18,9 +18,9 @@ const n = (/** @type {number} */ k, /** @type {string} */ one, /** @type {string
 
 /**
  * El aviso, o '' si no hay nada que contar.
- * @param {DiarioReport|null|undefined} r
+ * @param {JournalReport|null|undefined} r
  */
-export function diarioMessage(r) {
+export function journalMessage(r) {
   if (!r) return ''
   const parts = []
   if (r.entries) {

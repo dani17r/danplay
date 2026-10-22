@@ -84,10 +84,10 @@ function runningJob(name, steps, result) {
 describe('la Entrada', () => {
   it('importar es una tarea: se ve como va y al acabar el resultado', async () => {
     const t = runningJob(
-      'importacion',
+      'import',
       [
         {
-          name: 'importacion',
+          name: 'import',
           active: true,
           done: 1,
           total: 2,
@@ -150,7 +150,7 @@ describe('la Entrada', () => {
 
   it('si falla, lo dice', async () => {
     api().runImport.mockResolvedValueOnce({
-      job: finishedJob('importacion', null, { error: 'la Entrada no existe' })
+      job: finishedJob('import', null, { error: 'la Entrada no existe' })
     })
     await mountView(InboxPage, { waiting: 1 })
     await button('Importar 1 archivo').trigger('click')
@@ -197,10 +197,10 @@ describe('los duplicados', () => {
 
   it('buscarlos es una tarea: se ve como va y luego los grupos', async () => {
     const t = runningJob(
-      'duplicados',
+      'duplicates',
       [
         {
-          name: 'duplicados',
+          name: 'duplicates',
           active: true,
           done: 300,
           total: 900,
@@ -262,10 +262,10 @@ describe('los duplicados', () => {
 describe('la bienvenida', () => {
   it('al elegir la carpeta, el analisis se ve avanzar', async () => {
     const t = runningJob(
-      'escaneo',
+      'scan',
       [
         {
-          name: 'escaneo',
+          name: 'scan',
           active: true,
           done: 120,
           total: 480,
@@ -292,7 +292,7 @@ describe('la bienvenida', () => {
 
   it('si el analisis falla, la carpeta queda añadida y se dice por que', async () => {
     api().scan.mockResolvedValueOnce({
-      job: finishedJob('escaneo', null, { error: 'no se puede leer la carpeta' })
+      job: finishedJob('scan', null, { error: 'no se puede leer la carpeta' })
     })
     await mountView(WelcomePage)
     await w.find('input').setValue('/musica')

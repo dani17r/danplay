@@ -16,8 +16,8 @@ const root = () => document.documentElement
 let w = null
 beforeEach(() => {
   localStorage.clear()
-  saveCustomTheme('propio-rojo', own('#aa0000', 'Rojo'))
-  saveCustomTheme('propio-azul', own('#0000aa', 'Azul'))
+  saveCustomTheme('custom-red', own('#aa0000', 'Rojo'))
+  saveCustomTheme('custom-blue', own('#0000aa', 'Azul'))
   applyTheme('night')
 })
 afterEach(() => {
@@ -37,26 +37,26 @@ const hex = (k) =>
 
 describe('editar un tema propio', () => {
   it('parte de los colores de ese tema y guarda en el', async () => {
-    mountView({ editing: 'propio-rojo' })
+    mountView({ editing: 'custom-red' })
     expect(w.find('h3').text()).toBe('Editar tema')
     expect(hex('Acento').element.value).toBe('#aa0000')
     await hex('Acento').setValue('#bb1111')
     await button('Guardar tema').trigger('click')
-    expect(customThemes()['propio-rojo'].v.accent).toBe('#bb1111')
-    expect(w.emitted('saved')[0]).toEqual(['propio-rojo'])
+    expect(customThemes()['custom-red'].v.accent).toBe('#bb1111')
+    expect(w.emitted('saved')[0]).toEqual(['custom-red'])
   })
 
   it('con el editor abierto, editar otro tema lo empieza con los colores de ese', async () => {
     // Se quedaban los colores del primero y «Guardar» se los escribia al
     // segundo: el azul acababa rojo.
-    mountView({ editing: 'propio-rojo' })
-    await w.setProps({ editing: 'propio-azul' })
+    mountView({ editing: 'custom-red' })
+    await w.setProps({ editing: 'custom-blue' })
     await flushPromises()
     expect(w.find('input').element.value).toBe('Azul')
     expect(hex('Acento').element.value).toBe('#0000aa')
     await button('Guardar tema').trigger('click')
-    expect(customThemes()['propio-azul'].v.accent).toBe('#0000aa')
-    expect(customThemes()['propio-rojo'].v.accent).toBe('#aa0000')
+    expect(customThemes()['custom-blue'].v.accent).toBe('#0000aa')
+    expect(customThemes()['custom-red'].v.accent).toBe('#aa0000')
   })
 })
 
@@ -67,10 +67,10 @@ describe('crear un tema', () => {
     expect(w.find('input').element.value).toBe('Oceano (mío)')
     await w.find('input').setValue('Mi Mar')
     await button('Guardar tema').trigger('click')
-    const saved = customThemes()['propio-mi-mar']
+    const saved = customThemes()['custom-mi-mar']
     expect(saved.name).toBe('Mi Mar')
     expect(saved.v.accent).toBe(CATALOG.ocean.v.accent)
-    expect(root().dataset.theme).toBe('propio-mi-mar')
+    expect(root().dataset.theme).toBe('custom-mi-mar')
   })
 
   it('«Partir de» copia los colores de otro', async () => {
@@ -94,7 +94,7 @@ describe('crear un tema', () => {
     await button('Cancelar').trigger('click')
     expect(root().dataset.theme).toBe('night')
     expect(w.emitted('close')).toBeTruthy()
-    expect(Object.keys(customThemes())).toEqual(['propio-rojo', 'propio-azul'])
+    expect(Object.keys(customThemes())).toEqual(['custom-red', 'custom-blue'])
   })
 
   it('por defecto enseña seis colores y, si se pide, los doce', async () => {

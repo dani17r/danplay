@@ -5,7 +5,7 @@ import { expect } from '@playwright/test'
 import { existsSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { SONGS } from './songs.js'
-import { TERMS_VERSION } from '../src/data/terminos.js'
+import { TERMS_VERSION } from '../src/data/terms.js'
 
 /** La carpeta de música de prueba (la genera e2e/server.mjs). */
 export const MUSIC = join(process.env.DANPLAY_E2E_ROOT || '', 'Musica')
@@ -77,7 +77,7 @@ export async function reset(request) {
   }
   const status = await core(request, 'GET', '/status')
   if (status.stats.total !== SONGS.length || status.missing_folders.length) {
-    await runJob(request, '/scan', 'escaneo')
+    await runJob(request, '/scan', 'scan')
   }
   expect((await core(request, 'GET', '/status')).stats.total).toBe(SONGS.length)
   for (const l of (await core(request, 'GET', '/playlists')).playlists || []) {

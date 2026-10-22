@@ -246,12 +246,12 @@ export function useSongMenus(ctx) {
   async function favorites(list) {
     list = present(list)
     if (!list.length) return
-    const todo = list.filter((s) => !s.favorite)
-    if (!todo.length) {
+    const targets = list.filter((s) => !s.favorite)
+    if (!targets.length) {
       return notify(list.length === 1 ? 'Ya era favorita' : 'Ya eran todas favoritas', 'info')
     }
     let done = 0
-    for (const s of todo) {
+    for (const s of targets) {
       try {
         ctx.onUpdated(await api.toggleFavorite(s.id, true))
         done++
@@ -261,7 +261,7 @@ export function useSongMenus(ctx) {
     }
     if (done) {
       notify(
-        done === 1 ? `«${nameOf(todo[0])}» a favoritos` : `${done} marcadas como favoritas`,
+        done === 1 ? `«${nameOf(targets[0])}» a favoritos` : `${done} marcadas como favoritas`,
         'ok'
       )
     }
@@ -269,9 +269,9 @@ export function useSongMenus(ctx) {
 
   /** Las que eran favoritas dejan de serlo. @param {Song[]} list */
   async function unfavorite(list) {
-    const todo = present(list).filter((s) => s.favorite)
+    const targets = present(list).filter((s) => s.favorite)
     let done = 0
-    for (const s of todo) {
+    for (const s of targets) {
       try {
         ctx.onUpdated(await api.toggleFavorite(s.id, false))
         done++
@@ -281,7 +281,7 @@ export function useSongMenus(ctx) {
     }
     if (done) {
       notify(
-        done === 1 ? `«${nameOf(todo[0])}» ya no es favorita` : `${done} quitadas de favoritas`,
+        done === 1 ? `«${nameOf(targets[0])}» ya no es favorita` : `${done} quitadas de favoritas`,
         'ok'
       )
     }
@@ -414,7 +414,7 @@ export function useSongMenus(ctx) {
   function separateItems(list, label) {
     if (!separation.state.ok) return []
     const note = separation.state.pending
-      ? `bajar ${separation.megas(separation.state.pending)}`
+      ? `bajar ${separation.megabytes(separation.state.pending)}`
       : ''
     const items = [{ label, icon: 'mixer', note, action: () => separation.request(list) }]
     if (separation.state.max)
@@ -468,10 +468,11 @@ export function useSongMenus(ctx) {
     } catch (e) {
       return notify(errorMessage(e))
     }
-    const todo = list.filter((s) => !s.has_stems || !s.stems_best)
+    const targets = list.filter((s) => !s.has_stems || !s.stems_best)
     if (!list.length) return notify('Esa lista está vacía')
-    if (!todo.length) return notify('Todas las canciones de esa lista ya tienen sus pistas', 'ok')
-    await separation.request(todo)
+    if (!targets.length)
+      return notify('Todas las canciones de esa lista ya tienen sus pistas', 'ok')
+    await separation.request(targets)
   }
 
   /** Borrar una lista puede dejarte mirando una vista que ya no existe. @param {any} pl */

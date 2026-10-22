@@ -799,7 +799,7 @@ describe('la barra de estudio', () => {
       ...loopArgs(50.25, 99.75, 'repeat')
     )
     // y se recuerda para la próxima vez
-    expect(JSON.parse(localStorage.getItem('danplay.study.alAcabar'))).toBe('repeat')
+    expect(JSON.parse(localStorage.getItem('danplay.study.atEnd'))).toBe('repeat')
     await w.find('.tl-loop-menu').trigger('click')
     await option('Al acabar: seguir').action()
     await flushPromises()
@@ -920,14 +920,14 @@ describe('el estudio en grande', () => {
     expect(big().attributes('aria-pressed')).toBe('true')
     // la onda aprovecha el sitio
     expect(w.findComponent({ name: 'StudyTimeline' }).props('height')).toBe(150)
-    expect(localStorage.getItem('danplay.study.grande')).toBe('true')
+    expect(localStorage.getItem('danplay.study.large')).toBe('true')
     w.unmount()
     const other = await mountView()
     expect(other.find('.study').classes(), 'se recuerda').toContain('big')
     await other.find('.study-size').trigger('click')
     expect(other.find('.study').classes()).not.toContain('big')
     expect(other.findComponent({ name: 'StudyTimeline' }).props('height')).toBe(80)
-    expect(localStorage.getItem('danplay.study.grande')).toBe('false')
+    expect(localStorage.getItem('danplay.study.large')).toBe('false')
   })
 })
 
@@ -1059,8 +1059,8 @@ describe('tono, velocidad fina y metronomo', () => {
   })
 
   it('la cuenta y el sonido del clic: se eligen, se recuerdan, y la cuenta se quita al cerrar', async () => {
-    localStorage.removeItem('danplay.clic.cuenta')
-    localStorage.removeItem('danplay.clic.sonido')
+    localStorage.removeItem('danplay.click.countIn')
+    localStorage.removeItem('danplay.click.sound')
     try {
       const w = await mountView()
       // al abrir, lo recordado: nada todavía (sin cuenta, el clásico)
@@ -1105,8 +1105,8 @@ describe('tono, velocidad fina y metronomo', () => {
         expect.objectContaining({ on: false, count_in: 0 })
       )
     } finally {
-      localStorage.removeItem('danplay.clic.cuenta')
-      localStorage.removeItem('danplay.clic.sonido')
+      localStorage.removeItem('danplay.click.countIn')
+      localStorage.removeItem('danplay.click.sound')
     }
   })
 
@@ -1877,7 +1877,7 @@ describe('las salidas', () => {
     })
     expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 2 })
     // y se recuerda
-    expect(JSON.parse(localStorage.getItem('danplay.salidas')).preset).toBe('click-left')
+    expect(JSON.parse(localStorage.getItem('danplay.outputs')).preset).toBe('click-left')
     presets[2].click()
     await flushPromises()
     expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 4 })
@@ -1885,7 +1885,7 @@ describe('las salidas', () => {
 
   it('cada cosa, por su lado y en estéreo o en mono, en su carril', async () => {
     const { resetRouting } = await import('../src/composables/useRouting.js')
-    localStorage.removeItem('danplay.salidas')
+    localStorage.removeItem('danplay.outputs')
     resetRouting()
     const w = await mountView()
     const songHead = w.find('.tl-song-head .chans')
@@ -1902,7 +1902,7 @@ describe('las salidas', () => {
       { left: 0, right: 1 }
     ])
     expect(songHead.find('.chan-mode').text()).toBe('Mono')
-    expect(JSON.parse(localStorage.getItem('danplay.salidas')).mono.song).toBe(true)
+    expect(JSON.parse(localStorage.getItem('danplay.outputs')).mono.song).toBe(true)
 
     // la canción solo por la derecha: por un canal va en mono, sin elegir
     await button('Izquierda').trigger('click')
@@ -1917,7 +1917,7 @@ describe('las salidas', () => {
     const after = held.playback.bridge.setRouting.mock.calls.at(-1)[0]
     expect(after.buses[after.click]).toEqual({ left: 0, right: 0 })
     expect(after.buses[after.song]).toEqual({ left: 1, right: 1 })
-    localStorage.removeItem('danplay.salidas')
+    localStorage.removeItem('danplay.outputs')
     resetRouting()
   })
 
@@ -1983,7 +1983,7 @@ describe('abrir una secuencia', () => {
     }))
     api.importSequence = vi.fn(async () => ({
       job: {
-        name: 'secuencia',
+        name: 'sequence',
         active: false,
         done: 5,
         total: 5,
@@ -2137,7 +2137,7 @@ describe('los carriles de las guías', () => {
 
   it('cada carril de guías, por su lado: el del baterista, a la izquierda', async () => {
     const { resetRouting } = await import('../src/composables/useRouting.js')
-    localStorage.removeItem('danplay.salidas')
+    localStorage.removeItem('danplay.outputs')
     resetRouting()
     held.state.songs = [
       song(7, {
@@ -2163,7 +2163,7 @@ describe('los carriles de las guías', () => {
     const spec = held.playback.bridge.setRouting.mock.calls.at(-1)[0]
     expect(spec.buses[drummer.bus]).toEqual({ left: 0, right: 0 })
     expect(spec.buses[loopBand.bus]).toEqual({ left: 0, right: 1 })
-    localStorage.removeItem('danplay.salidas')
+    localStorage.removeItem('danplay.outputs')
     resetRouting()
   })
 
@@ -2181,7 +2181,7 @@ describe('el estilo de la onda', () => {
   it('se elige en el menú del estudio y se recuerda', async () => {
     const { resetPreferences, usePreferences } =
       await import('../src/composables/usePreferences.js')
-    localStorage.removeItem('danplay.ondaEstilo')
+    localStorage.removeItem('danplay.waveStyle')
     resetPreferences()
     const w = await mountView()
     const { menu } = useContextMenu()
@@ -2198,12 +2198,12 @@ describe('el estilo de la onda', () => {
     ])
     style.children.find((c) => c.label === 'Suave').action()
     await flushPromises()
-    expect(usePreferences().waveStyle.value).toBe('suave')
-    expect(localStorage.getItem('danplay.ondaEstilo')).toBe('suave')
+    expect(usePreferences().waveStyle.value).toBe('smooth')
+    expect(localStorage.getItem('danplay.waveStyle')).toBe('smooth')
     // y al volver a abrir la app sigue
     resetPreferences()
-    expect(usePreferences().waveStyle.value).toBe('suave')
-    localStorage.removeItem('danplay.ondaEstilo')
+    expect(usePreferences().waveStyle.value).toBe('smooth')
+    localStorage.removeItem('danplay.waveStyle')
     resetPreferences()
   })
 })
@@ -2303,7 +2303,7 @@ describe('el estudio de 1.28.2', () => {
     expect(w.find('.tl-guide-beat').exists()).toBe(false)
     await magnet.trigger('click')
     expect(magnet.attributes('aria-pressed')).toBe('true')
-    expect(JSON.parse(localStorage.getItem('danplay.guias.iman'))).toBe(true)
+    expect(JSON.parse(localStorage.getItem('danplay.cues.magnet'))).toBe(true)
     // con el imán se ven los pulsos en los carriles
     expect(w.find('.tl-guide-beat').exists()).toBe(true)
 
@@ -2469,7 +2469,7 @@ describe('exportar', () => {
     await flushPromises()
     await flushPromises()
   }
-  beforeEach(() => localStorage.removeItem('danplay.exportar'))
+  beforeEach(() => localStorage.removeItem('danplay.export'))
   afterEach(() => {
     held.savePath = null
   })
@@ -2503,7 +2503,7 @@ describe('exportar', () => {
     await save()
     expect(held.api.exportMix.mock.calls.at(-1)[1].cues).toBeUndefined()
     // y se recuerda para la próxima
-    expect(JSON.parse(localStorage.getItem('danplay.exportar')).guides).toBe(false)
+    expect(JSON.parse(localStorage.getItem('danplay.export')).guides).toBe(false)
     w.unmount()
 
     held.state.songs = [song(7, { title: 'Mi Gozo', study: '' })]
@@ -2520,7 +2520,7 @@ describe('exportar', () => {
 
   it('con los canales: cada cosa por su lado, como suena', async () => {
     const { resetRouting, useRouting } = await import('../src/composables/useRouting.js')
-    localStorage.removeItem('danplay.salidas')
+    localStorage.removeItem('danplay.outputs')
     resetRouting()
     held.state.songs = [song(7, { title: 'Mi Gozo', study: withGuides() })]
     held.playback.emit({ playing: false })
@@ -2528,7 +2528,7 @@ describe('exportar', () => {
     // la canción a la derecha y las guías a la izquierda, como una secuencia
     const r = useRouting()
     await r.setRoute('song', '', 'R')
-    await r.setRoute('stem', 'guias_g1', 'L')
+    await r.setRoute('stem', 'cues_g1', 'L')
     await flushPromises()
     held.savePath = '/musica/Mi Gozo (secuencia).mp3'
     await open(w)
@@ -2540,7 +2540,7 @@ describe('exportar', () => {
       path: '/musica/Mi Gozo (secuencia).mp3',
       cues: [{ at: 12, file: '/guias/coro.wav', gain: 1.5, side: 'L' }]
     })
-    localStorage.removeItem('danplay.salidas')
+    localStorage.removeItem('danplay.outputs')
     resetRouting()
   })
 })

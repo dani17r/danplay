@@ -3,26 +3,26 @@
 // Lo usan todos los menus flotantes para que se comporten igual.
 import { onMounted, onUnmounted, unref } from 'vue'
 
-export function onClickOutside(elementos, close) {
-  const lista = () =>
-    (Array.isArray(elementos) ? elementos : [elementos])
+export function onClickOutside(elements, close) {
+  const all = () =>
+    (Array.isArray(elements) ? elements : [elements])
       .map((e) => unref(e))
       .filter(Boolean)
       .map((e) => e.$el ?? e)
 
-  function fuera(ev) {
-    if (!lista().some((el) => el.contains?.(ev.target))) close()
+  function onOutside(ev) {
+    if (!all().some((el) => el.contains?.(ev.target))) close()
   }
   function escape(ev) {
     if (ev.key === 'Escape') close()
   }
 
   onMounted(() => {
-    document.addEventListener('mousedown', fuera)
+    document.addEventListener('mousedown', onOutside)
     document.addEventListener('keydown', escape)
   })
   onUnmounted(() => {
-    document.removeEventListener('mousedown', fuera)
+    document.removeEventListener('mousedown', onOutside)
     document.removeEventListener('keydown', escape)
   })
 }

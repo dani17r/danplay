@@ -2,7 +2,7 @@
 // Traer al celular un `.danpista` (el archivo que hace «Convertir a DanPista» en
 // la PC). Se elige con el selector del sistema —en Android llega como
 // `content://`, de Descargas, de WhatsApp o de Drive— y Rust lo copia y lo
-// abre (`import_pista`, `motor/src/bundle.rs`).
+// abre (`import_bundle`, `engine/src/bundle.rs`).
 import { inTauri, errorMessage } from '../api.js'
 import { notify } from '../composables/useNotices.js'
 
@@ -23,7 +23,7 @@ export async function importUri(uri) {
   const { invoke } = await import('@tauri-apps/api/core')
   try {
     /** @type {Imported} */
-    const s = await invoke('import_pista', { uri: String(uri) })
+    const s = await invoke('import_bundle', { uri: String(uri) })
     notify(
       `Lista: «${s.title}»${s.artist ? ' · ' + s.artist : ''} (${s.parts.length} partes${s.click ? ', con clic' : ''})`,
       'ok',

@@ -63,7 +63,7 @@ afterEach(() => {
 
 describe('el reproductor solo (cuadrito y barra)', () => {
   it('dice lo que suena, entero al pasar por encima, y se maneja', async () => {
-    w = mount(CompactPlayer, { props: { variant: 'cuadro' }, attachTo: document.body })
+    w = mount(CompactPlayer, { props: { variant: 'square' }, attachTo: document.body })
     await flushPromises()
     const title = w.find('.pocket-title')
     expect(title.text()).toBe(PLAYING.track.title)
@@ -75,13 +75,13 @@ describe('el reproductor solo (cuadrito y barra)', () => {
     // en el cuadrito estan los saltos de 10 s; en la barra no
     expect(w.find('button[title="Avanzar 10 s"]').exists()).toBe(true)
     w.unmount()
-    w = mount(CompactPlayer, { props: { variant: 'barra', roomy: true } })
+    w = mount(CompactPlayer, { props: { variant: 'bar', roomy: true } })
     expect(w.find('button[title="Avanzar 10 s"]').exists()).toBe(false)
     expect(w.find('.pocket-volume').exists()).toBe(true)
   })
 
   it('se arrastra desde lo que no es un boton (va sin marco)', () => {
-    w = mount(CompactPlayer, { props: { variant: 'barra' } })
+    w = mount(CompactPlayer, { props: { variant: 'bar' } })
     expect(w.find('.pocket').attributes('data-tauri-drag-region')).toBeDefined()
     for (const b of w.findAll('button')) {
       expect(b.attributes('data-tauri-drag-region')).toBeUndefined()
@@ -89,7 +89,7 @@ describe('el reproductor solo (cuadrito y barra)', () => {
   })
 
   it('las formas, en un panel que tapa el reproductor: cabe aunque la barra sea baja', async () => {
-    w = mount(CompactPlayer, { props: { variant: 'barra' }, attachTo: document.body })
+    w = mount(CompactPlayer, { props: { variant: 'bar' }, attachTo: document.body })
     await w.find('button[aria-label="Forma de la ventana"]').trigger('click')
     const names = w.findAll('.pocket-shape').map((b) => b.text())
     for (const s of SHAPES) expect(names).toContain(s.n)
@@ -101,7 +101,7 @@ describe('el reproductor solo (cuadrito y barra)', () => {
       .find((b) => b.text() === 'Cuadrito')
       .trigger('click')
     await flushPromises()
-    expect(held.app.setWindowShape).toHaveBeenCalledWith('cuadrito')
+    expect(held.app.setWindowShape).toHaveBeenCalledWith('square')
     expect(w.find('.pocket-shapes').exists()).toBe(false)
     // Escape cierra el panel sin hacer nada mas
     await w.find('button[aria-label="Forma de la ventana"]').trigger('click')
@@ -111,7 +111,7 @@ describe('el reproductor solo (cuadrito y barra)', () => {
   })
 
   it('«volver a la ventana normal» la deja como estaba', async () => {
-    w = mount(CompactPlayer, { props: { variant: 'cuadro' } })
+    w = mount(CompactPlayer, { props: { variant: 'square' } })
     await w.find('button[aria-label="Volver a la ventana normal"]').trigger('click')
     await flushPromises()
     expect(held.app.setWindowShape).toHaveBeenLastCalledWith('normal')
@@ -121,7 +121,7 @@ describe('el reproductor solo (cuadrito y barra)', () => {
 describe('las formas de la ventana', () => {
   it('el menu marca la de ahora, y siempre encima va aparte', async () => {
     const shape = useWindowShape()
-    await shape.setShape('barra')
+    await shape.setShape('bar')
     const items = shape.menuItems()
     const bar = items.find((i) => i.label === 'Barra')
     expect(bar.icon).toBe('check')
@@ -136,7 +136,7 @@ describe('las formas de la ventana', () => {
   it('F11: pantalla completa, y otra vez, como estaba', async () => {
     const shape = useWindowShape()
     await shape.toggleFullscreen()
-    expect(held.app.setWindowShape).toHaveBeenLastCalledWith('completa')
+    expect(held.app.setWindowShape).toHaveBeenLastCalledWith('fullscreen')
     await shape.toggleFullscreen()
     expect(held.app.setWindowShape).toHaveBeenLastCalledWith('normal')
   })
@@ -191,9 +191,9 @@ describe('el tamaño decide el diseño', () => {
     await at(1280, 800)
     expect(w.text()).toBe('biblioteca')
     await at(656, BAR_MAX_H)
-    expect(w.text()).toBe('barra')
+    expect(w.text()).toBe('bar')
     await at(SQUARE_MAX_W, 400)
-    expect(w.text()).toBe('cuadro')
+    expect(w.text()).toBe('square')
     // estrecha pero alta (la columna): la biblioteca, con el diseño de movil
     await at(336, 800)
     expect(w.text()).toBe('biblioteca')

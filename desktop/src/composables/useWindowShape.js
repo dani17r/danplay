@@ -12,13 +12,13 @@ import { errorMessage } from '../api.js'
 /** Las formas, en el orden del menú. `only`: las que no hay fuera de la app. */
 export const SHAPES = [
   { v: 'normal', n: 'Normal', icon: 'shapeNormal', note: 'como estaba' },
-  { v: 'completa', n: 'Pantalla completa', icon: 'fullscreen', note: 'F11' },
-  { v: 'maximizada', n: 'Maximizada', icon: 'maximize', only: true },
-  { v: 'izquierda', n: 'Media pantalla, izquierda', icon: 'half', only: true },
-  { v: 'derecha', n: 'Media pantalla, derecha', icon: 'half', only: true },
-  { v: 'columna', n: 'Columna', icon: 'column', note: 'la lista, estrecha', only: true },
-  { v: 'cuadrito', n: 'Cuadrito', icon: 'square', note: 'siempre encima', only: true },
-  { v: 'barra', n: 'Barra', icon: 'bar', note: 'siempre encima', only: true }
+  { v: 'fullscreen', n: 'Pantalla completa', icon: 'fullscreen', note: 'F11' },
+  { v: 'maximized', n: 'Maximizada', icon: 'maximize', only: true },
+  { v: 'left', n: 'Media pantalla, izquierda', icon: 'half', only: true },
+  { v: 'right', n: 'Media pantalla, derecha', icon: 'half', only: true },
+  { v: 'column', n: 'Columna', icon: 'column', note: 'la lista, estrecha', only: true },
+  { v: 'square', n: 'Cuadrito', icon: 'square', note: 'siempre encima', only: true },
+  { v: 'bar', n: 'Barra', icon: 'bar', note: 'siempre encima', only: true }
 ]
 
 const shape = ref('normal')
@@ -57,7 +57,7 @@ async function toggleOnTop() {
 
 /** Pantalla completa o como estaba (F11). */
 function toggleFullscreen() {
-  return setShape(shape.value === 'completa' ? 'normal' : 'completa')
+  return setShape(shape.value === 'fullscreen' ? 'normal' : 'fullscreen')
 }
 
 /**

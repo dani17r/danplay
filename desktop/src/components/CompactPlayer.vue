@@ -21,7 +21,7 @@ import SliderField from './ui/SliderField.vue'
 
 const props = defineProps({
   /** `barra` o `cuadro` */
-  variant: { type: String, default: 'barra' },
+  variant: { type: String, default: 'bar' },
   /** hay sitio para el volumen */
   roomy: Boolean
 })
@@ -61,7 +61,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey, true))
 
 <template>
   <div class="pocket" :class="'pocket-' + props.variant" data-tauri-drag-region>
-    <div v-if="props.variant === 'cuadro'" class="pocket-backdrop" aria-hidden="true">
+    <div v-if="props.variant === 'square'" class="pocket-backdrop" aria-hidden="true">
       <CoverArt :id="track?.id" :blur="true" class="pocket-backdrop-art" :icon-size="1" />
     </div>
 
@@ -70,8 +70,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey, true))
         :id="track?.id"
         :blur="!!track?.blur"
         class="pocket-art"
-        :icon-size="props.variant === 'cuadro' ? 30 : 20"
-        :size="props.variant === 'cuadro' ? 192 : 96"
+        :icon-size="props.variant === 'square' ? 30 : 20"
+        :size="props.variant === 'square' ? 192 : 96"
         :alt="track?.title || ''"
       />
       <div class="pocket-text" data-tauri-drag-region>
@@ -121,7 +121,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey, true))
 
     <div class="pocket-controls">
       <button
-        v-if="props.variant === 'cuadro'"
+        v-if="props.variant === 'square'"
         type="button"
         class="pocket-btn"
         :disabled="!loaded"
@@ -157,7 +157,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey, true))
         <Icon n="next" :t="16" />
       </button>
       <button
-        v-if="props.variant === 'cuadro'"
+        v-if="props.variant === 'square'"
         type="button"
         class="pocket-btn"
         :disabled="!loaded"
@@ -166,7 +166,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey, true))
       >
         <Icon n="forward10" :t="15" />
       </button>
-      <div v-if="props.variant === 'barra' && props.roomy" class="pocket-volume">
+      <div v-if="props.variant === 'bar' && props.roomy" class="pocket-volume">
         <Icon :n="volume ? 'volume' : 'mute'" :t="14" />
         <SliderField
           :model-value="volume"

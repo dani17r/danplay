@@ -79,9 +79,9 @@ const SOURCE_LABEL = { manual: 'a mano', assistant: 'asistente' }
 const when = (at) => {
   if (!at) return ''
   const d = new Date(at * 1000)
-  const hoy = new Date()
-  const mismoDia = d.toDateString() === hoy.toDateString()
-  return mismoDia
+  const today = new Date()
+  const sameDay = d.toDateString() === today.toDateString()
+  return sameDay
     ? d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleDateString('es', { day: '2-digit', month: 'short' }) +
         ' ' +
@@ -258,11 +258,11 @@ const stopFollowing = downloads.onFinished((s) => {
   const already = results.filter((r) => r.already_there).length
   const failed = results.filter((r) => !r.ok && !r.already_there).length
   if (ok) emit('reload')
-  const partes = []
-  if (ok) partes.push(`${ok} descargada${ok > 1 ? 's' : ''}`)
-  if (already) partes.push(`${already} ya la tenias`)
-  if (failed) partes.push(`${failed} sin suerte`)
-  if (partes.length) notify(partes.join(' · '), ok ? 'ok' : 'info')
+  const parts = []
+  if (ok) parts.push(`${ok} descargada${ok > 1 ? 's' : ''}`)
+  if (already) parts.push(`${already} ya la tenias`)
+  if (failed) parts.push(`${failed} sin suerte`)
+  if (parts.length) notify(parts.join(' · '), ok ? 'ok' : 'info')
   // si hubo repetidas, se ofrece bajarlas igualmente
   const rep = results.filter((r) => r.already_there && r.url)
   askAgain.value = rep.length ? rep : null

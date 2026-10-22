@@ -168,7 +168,7 @@ async function removeSeparator() {
     kind: 'confirm',
     title: 'Borrar el separador',
     message:
-      `Libera ${separation.megas(sep.bytes)}. Las pistas ya separadas no se tocan; ` +
+      `Libera ${separation.megabytes(sep.bytes)}. Las pistas ya separadas no se tocan; ` +
       'si vuelves a separar, se baja otra vez.',
     okLabel: 'Borrar'
   })
@@ -490,7 +490,7 @@ const CROSSFADE_OPTIONS = CROSSFADES.map((s) => ({
          con los colores de ese, en vez de guardarle los del anterior -->
     <ThemeEditor
       v-if="editor !== null"
-      :key="editor || 'nuevo'"
+      :key="editor || 'new'"
       :active-theme="theme"
       :editing="editor || null"
       @close="editor = null"
@@ -921,7 +921,8 @@ const CROSSFADE_OPTIONS = CROSSFADES.map((s) => ({
           <div class="path-row">
             <span class="path">Separador · Demucs v4, en dos pasadas</span>
             <span class="badge" :class="sep.installed ? 'ok' : ''">
-              {{ sep.installed ? 'bajado' : 'sin bajar' }} · {{ separation.megas(sep.bytes) }}</span
+              {{ sep.installed ? 'bajado' : 'sin bajar' }} ·
+              {{ separation.megabytes(sep.bytes) }}</span
             >
             <button
               v-if="sep.bytes > sep.pending"
