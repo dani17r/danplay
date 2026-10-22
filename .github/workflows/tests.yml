@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # setup-uv no publica etiquetas de versión mayor (v10): solo completas.
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: '3.13'
           enable-cache: true
