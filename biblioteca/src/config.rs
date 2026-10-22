@@ -208,7 +208,10 @@ fn key_of(line: &str) -> &str {
 
 /// La configuración de DanPlay.
 #[derive(Debug, Clone)]
-#[allow(clippy::struct_excessive_bools, reason = "los interruptores de config.py, uno a uno")]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "los interruptores de config.py, uno a uno"
+)]
 pub struct Config {
     /// dentro del paquete (.deb, .AppImage, instalador)
     pub frozen: bool,

@@ -11,7 +11,7 @@ use crate::avisos::{self, Avisos};
 use crate::nombres::py_trim;
 use crate::paridad::{con_sufijo, redondear, sufijo};
 use crate::procesos::{self, Fallo};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
@@ -121,50 +121,46 @@ pub fn convertir(
     }
     let out = free_target(destino.map_or_else(|| con_sufijo(ruta, ".mp3"), Path::to_path_buf));
 
-    let mut args: Vec<OsString> = ["-hide_banner", "-loglevel", "error", "-y", "-i"]
-        .iter()
-        .map(OsString::from)
-        .collect();
-    args.push(ruta.as_os_str().to_owned());
-    for a in [
-        "-map",
-        "0:a",
-        "-map",
-        "0:v?",
-        "-c:v",
-        "copy",
-        "-id3v2_version",
-        "3",
-        "-map_metadata",
-        "0",
-    ] {
-        args.push(a.into());
-    }
-    args.extend(["-codec:a", "libmp3lame"].map(OsString::from));
-    args.extend(quality_args(calidad).map(OsString::from));
-    args.push(out.as_os_str().to_owned());
+    // con la carátula (el vídeo de un solo cuadro) o sin ella
+    let command = |with_cover: bool| -> Vec<OsString> {
+        let mut args: Vec<OsString> = ["-hide_banner", "-loglevel", "error", "-y", "-i"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        args.push(ruta.as_os_str().to_owned());
+        args.extend(["-map", "0:a"].map(OsString::from));
+        if with_cover {
+            args.extend(["-map", "0:v?", "-c:v", "copy"].map(OsString::from));
+        }
+        args.extend(["-id3v2_version", "3", "-map_metadata", "0"].map(OsString::from));
+        args.extend(["-codec:a", "libmp3lame"].map(OsString::from));
+        args.extend(quality_args(calidad).map(OsString::from));
+        args.push(out.as_os_str().to_owned());
+        args
+    };
 
     let worked = |r: &procesos::Salida| r.bien() && out.exists();
-    let first = match procesos::ejecutar(&mut procesos::orden(ffmpeg, &args), CONVERT_TIMEOUT) {
+    let first = match procesos::ejecutar(
+        &mut procesos::orden(ffmpeg, &command(true)),
+        CONVERT_TIMEOUT,
+    ) {
         Ok(r) => r,
         Err(Fallo::TiempoAgotado) => return Ok(Convertido::Fallo("tiempo agotado".into())),
         Err(Fallo::NoArranca(e)) => return Err(e),
     };
     if !worked(&first) {
-        // segundo intento sin la portada, que a veces rompe el mapeo. Se
-        // quitan esas palabras allí donde estén, como siempre (también el
-        // «-map» del audio: ver el informe de la migración).
-        let skip = ["-map", "0:v?", "-c:v", "copy"].map(OsStr::new);
-        let second_args: Vec<&OsString> = args
-            .iter()
-            .filter(|a| !skip.contains(&a.as_os_str()))
-            .collect();
-        let second =
-            match procesos::ejecutar(&mut procesos::orden(ffmpeg, &second_args), CONVERT_TIMEOUT) {
-                Ok(r) => r,
-                Err(Fallo::TiempoAgotado) => return Ok(Convertido::Fallo("tiempo agotado".into())),
-                Err(Fallo::NoArranca(e)) => return Err(e),
-            };
+        // segundo intento sin la portada, que a veces rompe el mapeo. Antes
+        // se quitaban también los «-map» del audio, y el «0:a» suelto que
+        // quedaba ffmpeg lo tomaba por el archivo de salida: este segundo
+        // intento no funcionaba nunca.
+        let second = match procesos::ejecutar(
+            &mut procesos::orden(ffmpeg, &command(false)),
+            CONVERT_TIMEOUT,
+        ) {
+            Ok(r) => r,
+            Err(Fallo::TiempoAgotado) => return Ok(Convertido::Fallo("tiempo agotado".into())),
+            Err(Fallo::NoArranca(e)) => return Err(e),
+        };
         if !worked(&second) {
             let reason: String = py_trim(&second.stderr_texto()).chars().take(160).collect();
             return Ok(Convertido::Fallo(reason));

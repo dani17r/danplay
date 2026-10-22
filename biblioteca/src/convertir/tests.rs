@@ -207,3 +207,27 @@ fn una_caratula_grande_se_encoge_y_una_que_vale_no() {
     assert!(avisos.is_empty(), "{avisos:?}");
     std::fs::remove_dir_all(&dir).expect("borrar");
 }
+
+/// Si el primer intento falla por la carátula, el segundo va sin ella pero
+/// con el audio: antes también perdía el «-map 0:a» y no funcionaba nunca.
+#[cfg(unix)]
+#[test]
+fn el_segundo_intento_va_sin_la_caratula_pero_con_el_audio() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch("reintento");
+    // un ffmpeg de mentira: falla con la carátula, y sin ella crea la salida
+    // solo si le llega «-map 0:a»
+    let fake = dir.join("ffmpeg");
+    std::fs::write(
+        &fake,
+        "#!/bin/sh\ncase \"$*\" in *'0:v?'*) exit 1;; esac\ncase \"$*\" in *'-map 0:a'*) ;; *) exit 1;; esac\n\
+         for a; do last=$a; done\n: > \"$last\"\n",
+    )
+    .expect("script");
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).expect("permisos");
+    let song = file(&dir, "cancion.flac", b"no es audio, da igual");
+    let mut avisos = Avisos::default();
+    let r = convertir(&fake, &song, "high", true, None, &[], &mut avisos).expect("convertir");
+    assert!(matches!(r, Convertido::Hecho { .. }), "{r:?}");
+    std::fs::remove_dir_all(&dir).expect("borrar");
+}
