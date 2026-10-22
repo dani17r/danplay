@@ -322,7 +322,7 @@ fn sidecar() -> Option<PathBuf> {
     } else {
         "danplay-core"
     };
-    let inside = crate::tools::bundled("nucleo").map(|dir| dir.join(name));
+    let inside = crate::tools::bundled("core").map(|dir| dir.join(name));
     let beside = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|dir| dir.join(name)));

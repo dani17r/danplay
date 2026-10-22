@@ -3,7 +3,7 @@
 //! crate sin el, solo por el sonido del clic.
 fn main() {
     println!("cargo::rerun-if-changed=cpp");
-    #[cfg(feature = "motor")]
+    #[cfg(feature = "engine")]
     {
         let mut build = cc::Build::new();
         build

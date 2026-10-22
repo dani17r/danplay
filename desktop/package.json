@@ -15,7 +15,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "app": "tauri dev --config src-tauri/tauri.dev.conf.json",
-    "movil": "npm --prefix ../movil run tauri --",
+    "movil": "npm --prefix ../mobile run tauri --",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

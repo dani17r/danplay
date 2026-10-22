@@ -159,12 +159,12 @@ jobs:
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           }
 
-      # una carpeta (onedir) entre los recursos de Tauri, nucleo/: asi no se
+      # una carpeta (onedir) entre los recursos de Tauri, core/: asi no se
       # descomprime en cada arranque ni hay un cargador aparte del Python de
       # verdad (ver packaging/core.spec)
       - name: el núcleo, junto a la app
         shell: pwsh
-        run: Copy-Item -Recurse -Force dist/core/danplay-core/* desktop/src-tauri/nucleo/
+        run: Copy-Item -Recurse -Force dist/core/danplay-core/* desktop/src-tauri/core/
 
       # Las herramientas ya estan: sin ellas en el instalador, la carpeta se
       # queda solo con el aviso.
@@ -197,7 +197,7 @@ jobs:
           $dir = "dist/windows"
           New-Item -ItemType Directory -Force -Path $dir, dist/installers | Out-Null
           Copy-Item target/release/danplay-app.exe $dir
-          Copy-Item -Recurse desktop/src-tauri/nucleo "$dir/nucleo"
+          Copy-Item -Recurse desktop/src-tauri/core "$dir/core"
           Copy-Item -Recurse desktop/src-tauri/tools "$dir/tools"
           Set-Content -Encoding utf8 "$dir/LEEME.txt" @"
           DanPlay para Windows (version portatil)
@@ -205,7 +205,7 @@ jobs:
           No hay que instalar nada: ejecuta danplay-app.exe.
 
             danplay-app.exe   la aplicacion
-            nucleo\           el nucleo de DanPlay
+            core\             el nucleo de DanPlay
             tools\            ffmpeg.exe, fpcalc.exe y qjs.exe: conversion de
                               formatos, reproduccion de .opus y .wma,
                               identificar por el sonido y bajar de YouTube

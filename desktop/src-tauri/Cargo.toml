@@ -34,7 +34,7 @@ rand = "0.10"
 # cancion y sus pistas, estira (Signalsmith), pone el clic y las voces guia,
 # y lo saca por los canales que se elijan. Y lo que comparten las dos apps:
 # el pulso y su rejilla, el metronomo y la cola.
-danplay-motor = { path = "../../motor" }
+danplay-engine = { path = "../../engine" }
 
 # Reproduccion en el sistema (MPRIS en Linux, SMTC en Windows, Now Playing en
 # macOS): teclas multimedia, pantalla de bloqueo y el reproductor del escritorio.

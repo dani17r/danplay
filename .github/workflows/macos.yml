@@ -153,10 +153,10 @@ jobs:
           curl -sf --unix-socket "$sock" http://x/api/status > /dev/null
           kill $pid
 
-      # una carpeta (onedir) entre los recursos de Tauri, nucleo/: asi no se
+      # una carpeta (onedir) entre los recursos de Tauri, core/: asi no se
       # descomprime en cada arranque (ver packaging/core.spec)
       - name: el núcleo, junto a la app
-        run: cp -a dist/core/danplay-core/. desktop/src-tauri/nucleo/
+        run: cp -a dist/core/danplay-core/. desktop/src-tauri/core/
 
       # Firma «ad hoc» (`-`) y sin «hardened runtime»: con el, macOS solo deja
       # cargar bibliotecas firmadas por el mismo equipo de desarrollo, y el

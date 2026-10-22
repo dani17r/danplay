@@ -22,7 +22,7 @@ pub fn bundled_dir() -> Option<PathBuf> {
 }
 
 /// Una carpeta de los recursos que viajan con la app (`bundle.resources` de
-/// tauri.conf.json: `tools/`, `nucleo/`), alli donde la deja cada paquete.
+/// tauri.conf.json: `tools/`, `core/`), alli donde la deja cada paquete.
 pub fn bundled(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;

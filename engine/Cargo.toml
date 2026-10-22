@@ -1,5 +1,5 @@
 [package]
-name = "danplay-motor"
+name = "danplay-engine"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,12 +7,12 @@ rust-version.workspace = true
 description = "El motor de pistas de la app del celular: las partes de una cancion, cada una con su volumen, con velocidad, tono, tramos y clic"
 
 [features]
-default = ["motor"]
+default = ["engine"]
 # Todo el motor: abrir el .danpista, decodificar, mezclar, estirar y sonar.
 # Sin ella queda lo que comparte con la app de escritorio (el pulso y su
 # rejilla, el metronomo, la cola y el sonido del clic): asi la PC y el
 # celular hacen y cuentan lo mismo, y la PC no compila nada del resto.
-motor = ["dep:symphonia", "dep:cpal", "dep:rtrb", "dep:zip", "dep:cc"]
+engine = ["dep:symphonia", "dep:cpal", "dep:rtrb", "dep:zip", "dep:cc"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

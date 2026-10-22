@@ -1,5 +1,5 @@
 //! Velocidad sin cambiar el tono, y tono sin cambiar la velocidad, con
-//! Signalsmith Stretch (C++, MIT; ver `cpp/LEEME.md`).
+//! Signalsmith Stretch (C++, MIT; ver `cpp/README.md`).
 //!
 //! Es lo unico del workspace con `unsafe`: los enlaces con el envoltorio de C
 //! (`cpp/estirar.cpp`), escritos a mano. Cada llamada recibe el puntero que

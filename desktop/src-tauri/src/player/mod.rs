@@ -36,8 +36,8 @@ pub use formats::playable;
 pub use state::{MetronomeSettings, State};
 
 use crate::beats::BeatGrid;
-pub use danplay_motor::output::OutputConfig;
-pub use danplay_motor::queue::LoopEnd;
+pub use danplay_engine::output::OutputConfig;
+pub use danplay_engine::queue::LoopEnd;
 use serde::{Deserialize, Serialize};
 use state::lock;
 use std::sync::mpsc::{Sender, channel};
@@ -109,7 +109,7 @@ pub fn balance(gain: f32, pan: f32, on: bool) -> [f32; 2] {
 
 // A donde va cada cosa y las voces guia, como lo manda la interfaz: en el
 // motor, que es el mismo contrato en la PC y en el celular.
-pub use danplay_motor::spec::{CueSpec, RoutingSpec};
+pub use danplay_engine::spec::{CueSpec, RoutingSpec};
 
 pub enum Command {
     Play {
@@ -245,8 +245,8 @@ impl Handle {
 }
 
 /// Las salidas de audio del equipo, la del sistema primero.
-pub fn devices() -> Vec<danplay_motor::output::DeviceInfo> {
-    danplay_motor::Engine::devices()
+pub fn devices() -> Vec<danplay_engine::output::DeviceInfo> {
+    danplay_engine::Engine::devices()
 }
 
 /// El bucle se cayo leyendo un archivo: se olvida ese archivo y se cuenta.

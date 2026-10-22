@@ -13,15 +13,15 @@
 //! Un hilo lleva la cola y el motor; las ordenes le llegan por un canal y el
 //! estado sale por el evento al momento y cada 250 ms mientras suena.
 use crate::library::Library;
-use danplay_motor::Engine;
-use danplay_motor::beats::{self, BeatGrid, FrameAnalyzer};
-use danplay_motor::bundle;
-use danplay_motor::decode::Part;
-use danplay_motor::metro::{Metro, MetronomeSettings, click_plan};
-use danplay_motor::output::OutputConfig;
-use danplay_motor::queue::{LoopEnd, PlaybackState, Repeat, Track, after_end, step_index};
-use danplay_motor::render::CuePlan;
-use danplay_motor::spec::{Clips, CueSpec, RoutingSpec};
+use danplay_engine::Engine;
+use danplay_engine::beats::{self, BeatGrid, FrameAnalyzer};
+use danplay_engine::bundle;
+use danplay_engine::decode::Part;
+use danplay_engine::metro::{Metro, MetronomeSettings, click_plan};
+use danplay_engine::output::OutputConfig;
+use danplay_engine::queue::{LoopEnd, PlaybackState, Repeat, Track, after_end, step_index};
+use danplay_engine::render::CuePlan;
+use danplay_engine::spec::{Clips, CueSpec, RoutingSpec};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;

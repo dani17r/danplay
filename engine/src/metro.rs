@@ -154,7 +154,7 @@ impl Metro {
     }
 }
 
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 /// Los golpes del clic a lo largo de la cancion: los de la rejilla ajustada
 /// si la sigue, o al tempo a mano desde su primer «1» (como `clickTimes` de
 /// la interfaz).

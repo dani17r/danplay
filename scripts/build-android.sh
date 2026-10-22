@@ -38,11 +38,11 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
 SALIDA="dist/installers/DanPlay-$VERSION-android.apk"
-APKS=movil/gen/android/app/build/outputs/apk/universal
+APKS=mobile/gen/android/app/build/outputs/apk/universal
 
 if [ "${1:-}" = "--emulador" ]; then
     paso "APK de depuración para el emulador (x86_64)"
-    (cd movil && npm run tauri -- android build --debug --target x86_64 --apk)
+    (cd mobile && npm run tauri -- android build --debug --target x86_64 --apk)
     ls -la "$APKS/debug/app-universal-debug.apk"
     exit 0
 fi
@@ -51,7 +51,7 @@ KEYSTORE="${DANPLAY_KEYSTORE:-$HOME/Android/claves/keystore.properties}"
 [ -f "$KEYSTORE" ] || morir "no está la llave de firma ($KEYSTORE): sin ella el APK no se puede instalar ni actualizar"
 
 paso "APK de DanPlay para Android $VERSION (arm64 y armv7)"
-(cd movil && npm run tauri -- android build --apk --target aarch64 --target armv7)
+(cd mobile && npm run tauri -- android build --apk --target aarch64 --target armv7)
 APK="$APKS/release/app-universal-release.apk"
 [ -f "$APK" ] || morir "no salió el APK ($APK)"
 

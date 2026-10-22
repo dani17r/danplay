@@ -21,10 +21,10 @@
 //! de la PC: decodificar la cancion con el mismo motor que la hace sonar (lo
 //! que no lee, pasado a FLAC con ffmpeg: `player::formats`) y pasarla a mono
 //! a `RATE` Hz.
-pub use danplay_motor::beats::*;
+pub use danplay_engine::beats::*;
 
 use crate::tools;
-use danplay_motor::decode::Part;
+use danplay_engine::decode::Part;
 use std::path::Path;
 use std::sync::Arc;
 

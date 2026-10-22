@@ -26,8 +26,8 @@ __pycache__/
 # ffmpeg y fpcalc del instalador de Windows: se descargan al compilar
 desktop/src-tauri/tools/*
 !desktop/src-tauri/tools/LEEME.txt
-desktop/src-tauri/nucleo/*
-!desktop/src-tauri/nucleo/LEEME.txt
+desktop/src-tauri/core/*
+!desktop/src-tauri/core/LEEME.txt
 
 # modo desarrollo con datos de prueba (scripts/dev.sh --prueba)
 .dev/

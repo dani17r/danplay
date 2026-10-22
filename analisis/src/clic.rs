@@ -5,9 +5,9 @@
 //! escritorio y la del celular. Aquí solo se ponen los golpes en su sitio
 //! para hacer una pista entera (antes, con numpy, en danplay/click.py, con
 //! la tabla copiada a mano).
-use danplay_motor::click::{self as golpes, Sound};
+use danplay_engine::click::{self as golpes, Sound};
 
-pub use danplay_motor::click::SOUNDS;
+pub use danplay_engine::click::SOUNDS;
 
 /// La tasa de la mezcla que se guarda.
 pub const TASA: u32 = 44_100;

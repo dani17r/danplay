@@ -22,10 +22,10 @@ mod musica;
 mod player;
 mod theory;
 
-use danplay_motor::beats::BeatGrid;
-use danplay_motor::bundle::Summary;
-use danplay_motor::metro::MetronomeSettings;
-use danplay_motor::queue::{LoopEnd, Repeat, Track};
+use danplay_engine::beats::BeatGrid;
+use danplay_engine::bundle::Summary;
+use danplay_engine::metro::MetronomeSettings;
+use danplay_engine::queue::{LoopEnd, Repeat, Track};
 use library::Library;
 use player::{Command, Player, StemTrack};
 use serde::Serialize;
@@ -148,7 +148,7 @@ fn set_stems(
     let _ = song;
     if tracks
         .as_ref()
-        .is_some_and(|t| t.len() > danplay_motor::render::MAX_PARTS)
+        .is_some_and(|t| t.len() > danplay_engine::render::MAX_PARTS)
     {
         return Err("demasiadas pistas".into());
     }
@@ -159,20 +159,20 @@ fn set_stems(
 /// Por donde sale cada cosa (como en la PC): con unos cascos o una mesa, el
 /// clic y las guias por un lado y la musica por el otro.
 #[tauri::command]
-fn set_routing(player: tauri::State<'_, Player>, routing: danplay_motor::spec::RoutingSpec) {
+fn set_routing(player: tauri::State<'_, Player>, routing: danplay_engine::spec::RoutingSpec) {
     player.send(Command::Routing(routing));
 }
 
 /// Que salida de audio abrir (la del sistema, o una interfaz USB).
 #[tauri::command]
-fn set_output(player: tauri::State<'_, Player>, output: danplay_motor::output::OutputConfig) {
+fn set_output(player: tauri::State<'_, Player>, output: danplay_engine::output::OutputConfig) {
     player.send(Command::Output(output));
 }
 
 /// Las salidas de audio del telefono.
 #[tauri::command]
-async fn output_devices() -> Vec<danplay_motor::output::DeviceInfo> {
-    tauri::async_runtime::spawn_blocking(danplay_motor::output::devices)
+async fn output_devices() -> Vec<danplay_engine::output::DeviceInfo> {
+    tauri::async_runtime::spawn_blocking(danplay_engine::output::devices)
         .await
         .unwrap_or_default()
 }
@@ -182,7 +182,7 @@ async fn output_devices() -> Vec<danplay_motor::output::DeviceInfo> {
 fn set_cues(
     player: tauri::State<'_, Player>,
     song: String,
-    cues: Vec<danplay_motor::spec::CueSpec>,
+    cues: Vec<danplay_engine::spec::CueSpec>,
     volume: Option<f32>,
 ) {
     player.send(Command::Cues {
@@ -197,7 +197,7 @@ fn set_cues(
 #[tauri::command]
 async fn preview_clip(path: String) -> Result<f64, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        danplay_motor::preview::play(std::path::Path::new(&path))
+        danplay_engine::preview::play(std::path::Path::new(&path))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -206,7 +206,7 @@ async fn preview_clip(path: String) -> Result<f64, String> {
 /// Calla la guía que se esté escuchando.
 #[tauri::command]
 fn preview_stop() {
-    danplay_motor::preview::stop();
+    danplay_engine::preview::stop();
 }
 
 /// El pulso de la pista con el analisis de la PC, cuando no lo trajo
@@ -241,7 +241,7 @@ fn set_beat_grid(
 }
 
 #[tauri::command]
-fn playback_state(player: tauri::State<'_, Player>) -> danplay_motor::queue::PlaybackState {
+fn playback_state(player: tauri::State<'_, Player>) -> danplay_engine::queue::PlaybackState {
     player.state()
 }
 

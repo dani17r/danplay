@@ -9,10 +9,10 @@
 use super::formats;
 use super::state::{MAX_VOLUME, lock, nudged_volume};
 use super::{Command, CueSpec, Event, LoopEnd, Notify, OutputConfig, RoutingSpec, State, StemTrack, balance};
-use danplay_motor::bundle::PartFile;
-use danplay_motor::metro::{Metro, click_plan};
-use danplay_motor::render::Routing;
-use danplay_motor::spec::Clips;
+use danplay_engine::bundle::PartFile;
+use danplay_engine::metro::{Metro, click_plan};
+use danplay_engine::render::Routing;
+use danplay_engine::spec::Clips;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -142,7 +142,7 @@ struct Engine<'a> {
     shared: &'a Arc<Mutex<State>>,
     notify: &'a Notify,
     carry: &'a mut Carry,
-    motor: danplay_motor::Engine,
+    motor: danplay_engine::Engine,
     loaded: Option<Loaded>,
     /// Ya se aviso de que esta cancion se acaba (`Event::Ending`).
     ending_sent: bool,
@@ -172,7 +172,7 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
         shared,
         notify,
         carry,
-        motor: danplay_motor::Engine::new(),
+        motor: danplay_engine::Engine::new(),
         loaded: None,
         ending_sent: false,
         was_finished: false,
@@ -180,7 +180,7 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
         last_sent: State::default(),
         last_tick: Instant::now(),
         idle_since: None,
-        any_output: danplay_motor::output::has_default(),
+        any_output: danplay_engine::output::has_default(),
         waiting: None,
         prepared_tx,
         prepared_rx,

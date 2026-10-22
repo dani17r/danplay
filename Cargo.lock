@@ -845,7 +845,7 @@ checksum = "914a755b7c2d4af2bdcff7ce1739e2db9a1b81a9b07123d8015786ae03c0980d"
 name = "danplay-analisis"
 version = "1.30.0"
 dependencies = [
- "danplay-motor",
+ "danplay-engine",
  "half",
  "ort",
  "realfft",
@@ -860,7 +860,7 @@ dependencies = [
 name = "danplay-app"
 version = "1.30.0"
 dependencies = [
- "danplay-motor",
+ "danplay-engine",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -913,7 +913,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "danplay-motor"
+name = "danplay-engine"
 version = "1.30.0"
 dependencies = [
  "cc",
@@ -927,10 +927,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "danplay-movil"
+name = "danplay-mobile"
 version = "1.30.0"
 dependencies = [
- "danplay-motor",
+ "danplay-engine",
  "log",
  "rand 0.10.3",
  "serde",

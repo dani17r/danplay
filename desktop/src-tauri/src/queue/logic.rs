@@ -7,7 +7,7 @@ use super::model::{Inner, PlaybackState, Track};
 use crate::player;
 use std::collections::HashMap;
 
-pub use danplay_motor::queue::{after_end, step_index};
+pub use danplay_engine::queue::{after_end, step_index};
 
 /// Otra cancion al azar, nunca la que ya suena (salvo que sea la unica).
 pub(super) fn random_other(length: usize, index: usize) -> usize {

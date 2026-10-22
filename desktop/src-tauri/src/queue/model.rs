@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 // Lo que es una cancion en la cola, los modos de repeticion y lo que ve la
 // interfaz viven en el crate compartido: la app del celular cuenta lo mismo.
-pub use danplay_motor::queue::{PlaybackState, Repeat, Track};
+pub use danplay_engine::queue::{PlaybackState, Repeat, Track};
 
 pub enum Command {
     SetQueue {

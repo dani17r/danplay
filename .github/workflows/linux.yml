@@ -81,10 +81,10 @@ jobs:
           curl -sf --unix-socket "$sock" http://x/api/status > /dev/null
           kill $pid
 
-      # una carpeta (onedir) entre los recursos de Tauri, nucleo/: asi no se
+      # una carpeta (onedir) entre los recursos de Tauri, core/: asi no se
       # descomprime en cada arranque (ver packaging/core.spec)
       - name: el núcleo, junto a la app
-        run: cp -a dist/core/danplay-core/. desktop/src-tauri/nucleo/
+        run: cp -a dist/core/danplay-core/. desktop/src-tauri/core/
 
       # dentro de los paquetes: sin instalar nada aparte, y sin depender de
       # las bibliotecas de cada distribucion (ver el script)

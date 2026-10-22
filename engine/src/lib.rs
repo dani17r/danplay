@@ -24,33 +24,33 @@ pub mod click;
 pub mod metro;
 pub mod queue;
 
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod bundle;
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod decode;
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod engine;
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod feeder;
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod output;
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod preview;
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod record;
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod render;
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod resample;
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod spec;
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub mod stretch;
 
-#[cfg(all(test, feature = "motor"))]
+#[cfg(all(test, feature = "engine"))]
 mod testing;
 
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub use engine::{Engine, Loaded, State};
-#[cfg(feature = "motor")]
+#[cfg(feature = "engine")]
 pub use render::ClickPlan;

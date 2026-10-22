@@ -494,7 +494,7 @@ impl Musica {
 
     /// La forma de onda (pico y RMS por columna), leyendo el archivo.
     pub fn waveform(&self, id: i64, buckets: usize) -> Option<Value> {
-        use danplay_motor::decode::Part;
+        use danplay_engine::decode::Part;
 
         let s = self.get(id)?;
         let mut part = Part::open_file(Path::new(&s.path), 44_100, 0).ok()?;

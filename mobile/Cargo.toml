@@ -1,5 +1,5 @@
 [package]
-name = "danplay-movil"
+name = "danplay-mobile"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -21,7 +21,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 # Leer ese content:// en Android: es el plugin quien sabe pedirselo al sistema.
 tauri-plugin-fs = "2"
-danplay-motor = { path = "../motor" }
+danplay-engine = { path = "../engine" }
 # Leer el título, el artista y la duración de la música del teléfono (la
 # misma versión que usa el motor para decodificarla).
 symphonia = { version = "0.6", default-features = false, features = [

@@ -83,8 +83,8 @@ try {
 # --- el nucleo, junto a la app ----------------------------------------------
 Paso '4/5  copiar el nucleo junto a la app'
 # una carpeta (onedir) entre los recursos de Tauri, nucleo/ (ver packaging/core.spec)
-Get-ChildItem desktop/src-tauri/nucleo -Exclude LEEME.txt | Remove-Item -Recurse -Force
-Copy-Item -Recurse -Force dist/core/danplay-core/* desktop/src-tauri/nucleo/
+Get-ChildItem desktop/src-tauri/core -Exclude LEEME.txt | Remove-Item -Recurse -Force
+Copy-Item -Recurse -Force dist/core/danplay-core/* desktop/src-tauri/core/
 
 # --- ffmpeg, fpcalc y QuickJS -----------------------------------------------
 # Con version fija y su SHA-256, las mismas que el instalador de la CI

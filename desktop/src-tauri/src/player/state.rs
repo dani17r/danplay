@@ -1,7 +1,7 @@
 //! Lo que el hilo de audio cuenta hacia fuera: el estado de la reproduccion
 //! y los ajustes del metronomo.
-use danplay_motor::output::OutputStatus;
-use danplay_motor::queue::LoopEnd;
+use danplay_engine::output::OutputStatus;
+use danplay_engine::queue::LoopEnd;
 use serde::Serialize;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -78,7 +78,7 @@ impl State {
 
 // Los ajustes y el estado del metronomo viven en el crate compartido, igual
 // que en la app del celular.
-pub use danplay_motor::metro::{MetronomeSettings, MetronomeState};
+pub use danplay_engine::metro::{MetronomeSettings, MetronomeState};
 
 /// El estado compartido, aunque un panic lo dejara envenenado: solo se
 /// guardan copias, asi que lo que hay dentro siempre esta entero.

@@ -2,7 +2,7 @@
 //! nivel para el medidor y parar, que deja un WAV en la carpeta temporal.
 //! El nucleo lo recorta, lo pone a su volumen y lo guarda con las guias
 //! (`POST /api/song/{id}/cues/import`), y borra el temporal.
-use danplay_motor::record::{self, Recorder};
+use danplay_engine::record::{self, Recorder};
 use std::sync::{Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -36,7 +36,7 @@ pub fn record_level(recording: tauri::State<'_, Recording>) -> f32 {
 /// la canción y sin pasar por el WebView. Devuelve cuánto dura.
 #[tauri::command]
 pub async fn preview_clip(path: String) -> Result<f64, String> {
-    tauri::async_runtime::spawn_blocking(move || danplay_motor::preview::play(std::path::Path::new(&path)))
+    tauri::async_runtime::spawn_blocking(move || danplay_engine::preview::play(std::path::Path::new(&path)))
         .await
         .map_err(|e| format!("no se pudo escuchar: {e}"))?
 }
@@ -44,7 +44,7 @@ pub async fn preview_clip(path: String) -> Result<f64, String> {
 /// Calla lo que se esté escuchando.
 #[tauri::command]
 pub fn preview_stop() {
-    danplay_motor::preview::stop();
+    danplay_engine::preview::stop();
 }
 
 /// Para y devuelve la ruta del WAV grabado.

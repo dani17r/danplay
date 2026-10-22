@@ -94,10 +94,10 @@ fn handle() -> (Handle, Receiver<Event>) {
 fn audio_works() -> bool {
     static WORKS: OnceLock<bool> = OnceLock::new();
     *WORKS.get_or_init(|| {
-        if !danplay_motor::output::has_default() {
+        if !danplay_engine::output::has_default() {
             return false;
         }
-        let out = danplay_motor::output::Output::start(Vec::new(), 44_100, OutputConfig::default());
+        let out = danplay_engine::output::Output::start(Vec::new(), 44_100, OutputConfig::default());
         let deadline = Instant::now() + Duration::from_millis(700);
         let mut works = true;
         while Instant::now() < deadline {
@@ -503,8 +503,8 @@ fn routing_and_cues_do_not_stop_the_song() {
     let song = sample();
     m.send(Command::Routing(RoutingSpec {
         buses: vec![
-            Some(danplay_motor::render::Target::mono(1)),
-            Some(danplay_motor::render::Target::mono(0)),
+            Some(danplay_engine::render::Target::mono(1)),
+            Some(danplay_engine::render::Target::mono(0)),
         ],
         song: 0,
         click: 1,

@@ -11,7 +11,7 @@
 //! la carpeta (que ya es estable: la misma cancion, la misma carpeta).
 use crate::listas::Listas;
 use crate::musica::Musica;
-use danplay_motor::bundle::{self, Summary};
+use danplay_engine::bundle::{self, Summary};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;

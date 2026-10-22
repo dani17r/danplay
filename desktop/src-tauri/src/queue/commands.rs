@@ -166,7 +166,7 @@ pub fn set_output(playback: tauri::State<'_, Playback>, output: player::OutputCo
 /// Las salidas de audio del equipo, la del sistema primero, con los canales
 /// que tiene cada una.
 #[tauri::command]
-pub async fn output_devices() -> Vec<danplay_motor::output::DeviceInfo> {
+pub async fn output_devices() -> Vec<danplay_engine::output::DeviceInfo> {
     tauri::async_runtime::spawn_blocking(player::devices)
         .await
         .unwrap_or_default()
@@ -195,7 +195,7 @@ pub fn set_stems(
 ) -> Result<(), String> {
     if let Some(list) = &tracks {
         // la cancion va delante, en la misma tanda: caben las demas
-        if list.len() >= danplay_motor::render::MAX_PARTS {
+        if list.len() >= danplay_engine::render::MAX_PARTS {
             return Err("demasiadas pistas".into());
         }
         // solo archivos que existen (lo que no lea el motor se le da a ffmpeg)

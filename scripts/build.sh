@@ -46,10 +46,10 @@ ls dist/core/danplay-core/_internal/onnxruntime/capi/ | grep -qE '^(libonnxrunti
 
 paso "3/4  copiar el nucleo junto a la app"
 # Una carpeta entera (onedir, ver packaging/core.spec) entre los recursos de
-# Tauri: desktop/src-tauri/nucleo/, que en git solo tiene su LEEME. Se vacia
+# Tauri: desktop/src-tauri/core/, que en git solo tiene su LEEME. Se vacia
 # antes, para que no quede nada de una compilacion anterior.
-find desktop/src-tauri/nucleo -mindepth 1 -maxdepth 1 ! -name LEEME.txt -exec rm -rf {} +
-cp -a dist/core/danplay-core/. desktop/src-tauri/nucleo/
+find desktop/src-tauri/core -mindepth 1 -maxdepth 1 ! -name LEEME.txt -exec rm -rf {} +
+cp -a dist/core/danplay-core/. desktop/src-tauri/core/
 # el nucleo de un solo archivo de antes (externalBin), si quedo: ya no se usa
 rm -rf desktop/src-tauri/binaries
 

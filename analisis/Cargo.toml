@@ -12,7 +12,7 @@ name = "analisis"
 [dependencies]
 # El sonido del clic: el mismo que suena en el modo estudio (sin el motor
 # entero: solo lo que comparte con la app de escritorio).
-danplay-motor = { path = "../motor", default-features = false }
+danplay-engine = { path = "../engine", default-features = false }
 # Lo que dijo la red se guarda en float16, como lo guardaba numpy.
 half = "2.7"
 # Las redes (Beat This!, las voces) en ONNX Runtime. La biblioteca se carga
