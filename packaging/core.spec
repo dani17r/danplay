@@ -11,7 +11,9 @@
 # tauri.conf.json), no como `externalBin`, que solo sabe copiar un archivo.
 import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import (
+    collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata,
+)
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, '..'))
 sys.path.insert(0, ROOT)          # para que collect_submodules encuentre `danplay`
@@ -34,7 +36,13 @@ hidden = (collect_submodules('uvicorn') + collect_submodules('fastapi')
 
 a = Analysis(['core_entry.py'],
              pathex=[ROOT],
-             binaries=[],
+             # La biblioteca de ONNX Runtime (libonnxruntime.so.*, .dylib,
+             # onnxruntime.dll) en su sitio, onnxruntime/capi/: el pulso la
+             # carga desde Rust (`pulse.onnxruntime_library`). El modulo de
+             # Python de onnxruntime no depende de ella (en Linux lleva todo
+             # dentro), asi que PyInstaller no la recogia y en el paquete el
+             # clic se quedaba sin la red.
+             binaries=collect_dynamic_libs('onnxruntime'),
              # La foto del catalogo de modelos (models.dev) viaja dentro: sin
              # ella, el primer arranque sin internet no sabria ni un modelo.
              # Los .js de yt-dlp (sus retos de YouTube, ademas de los de

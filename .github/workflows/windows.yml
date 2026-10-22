@@ -122,6 +122,8 @@ jobs:
           # con el crate de Rust y sin mutagen, que es GPL (ver core.spec)
           if (-not (Test-Path dist/core/danplay-core/_internal/danplay_core)) { throw "el nucleo no lleva el crate de Rust" }
           if (Test-Path dist/core/danplay-core/_internal/mutagen) { throw "se colo mutagen en el nucleo" }
+          # y la biblioteca de ONNX Runtime que carga el pulso desde Rust
+          if (-not (Test-Path dist/core/danplay-core/_internal/onnxruntime/capi/onnxruntime.dll)) { throw "el nucleo no lleva onnxruntime.dll" }
 
       - name: el núcleo arranca y responde
         shell: pwsh

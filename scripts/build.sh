@@ -40,6 +40,9 @@ DANPLAY_SNAPSHOT="$TRABAJO/models-snapshot.json" "$PY" -m PyInstaller --noconfir
   || morir "el nucleo empaquetado no lleva el crate de Rust (danplay_core)"
 [ ! -e dist/core/danplay-core/_internal/mutagen ] \
   || morir "se colo mutagen en el nucleo empaquetado (ver packaging/core.spec)"
+# la biblioteca de ONNX Runtime que carga el pulso desde Rust
+ls dist/core/danplay-core/_internal/onnxruntime/capi/ | grep -qE '^(libonnxruntime\.|onnxruntime\.dll)' \
+  || morir "el nucleo empaquetado no lleva libonnxruntime (ver packaging/core.spec)"
 
 paso "3/4  copiar el nucleo junto a la app"
 # Una carpeta entera (onedir, ver packaging/core.spec) entre los recursos de

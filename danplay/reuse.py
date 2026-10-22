@@ -29,7 +29,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from . import config, convert, names
+import danplay_core as _rust
+
+from . import config, convert
 
 log = logging.getLogger(__name__)
 
@@ -49,13 +51,7 @@ RATE = 8000
 def ident(row) -> str:
     """Como se reconoce una cancion sin mirar el archivo: su artista y su
     titulo (o el nombre del archivo, si no los tiene), normalizados."""
-    artist = str(row.get("artist") or "").strip()
-    title = str(row.get("title") or "").strip()
-    if artist and title:
-        return names.match_key(f"{artist} {title}")
-    if row.get("match_key"):
-        return str(row["match_key"])
-    return names.match_key(str(row.get("file") or ""))
+    return _rust.scan_ident(dict(row))
 
 
 def _close(a, b, tol=DURATION_TOL) -> bool:
@@ -68,28 +64,12 @@ def _close(a, b, tol=DURATION_TOL) -> bool:
 
 def twins(song) -> list[dict]:
     """Las otras filas que son esta misma cancion: de la biblioteca y de las
-    apartadas (con `missing`: True), de la duracion mas parecida a la menos."""
+    apartadas (con `missing`: True), de la duracion mas parecida a la menos.
+    Las busca Rust (biblioteca/src/reaprovechar.rs)."""
     from .library import db
 
-    key = ident(song)
-    if not key or (len(key.split()) < 2 and len(key) < 6):
-        return []
-    duration = float(song.get("duration") or 0)
-    out = []
     with db.connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM songs WHERE id != ? AND duration BETWEEN ? AND ?",
-            (song.get("id") or -1, duration - DURATION_TOL, duration + DURATION_TOL),
-        ).fetchall()
-        out.extend(dict(r) for r in rows if ident(dict(r)) == key)
-        with contextlib.suppress(Exception):
-            for r in conn.execute("SELECT id, data FROM songs_missing"):
-                with contextlib.suppress(ValueError, TypeError):
-                    data = json.loads(r["data"])
-                    if _close(data.get("duration"), duration) and ident(data) == key:
-                        out.append({**data, "id": r["id"], "missing": True})
-    out.sort(key=lambda r: abs(float(r.get("duration") or 0) - duration))
-    return out
+        return _rust.reuse_twins(conn, dict(song))
 
 
 def with_twins(song_ids) -> list[int]:
@@ -98,32 +78,12 @@ def with_twins(song_ids) -> list[int]:
     trabajo de `settle`. Una consulta para todas."""
     from .library import db
 
-    wanted = set(song_ids)
+    wanted = [int(i) for i in song_ids]
     if not wanted:
         return []
-    by_key: dict = {}
+    manifests = {k: [d for d, _ in v] for k, v in _manifest_index().items()}
     with db.connect() as conn:
-        rows = conn.execute(
-            "SELECT id, artist, title, match_key, file, duration FROM songs"
-        ).fetchall()
-    for r in rows:
-        r = dict(r)
-        key = ident(r)
-        if key:
-            by_key.setdefault(key, []).append((r["id"], float(r["duration"] or 0)))
-    manifests = _manifest_index()
-    out = []
-    for r in rows:
-        if r["id"] not in wanted:
-            continue
-        r = dict(r)
-        key = ident(r)
-        mine = float(r["duration"] or 0)
-        if any(i != r["id"] and _close(d, mine) for i, d in by_key.get(key, ())) or any(
-            _close(d, mine) for d, _ in manifests.get(key, ())
-        ):
-            out.append(r["id"])
-    return out
+        return _rust.reuse_with_twins(conn, wanted, manifests)
 
 
 # ------------------------------------------------------------ el desfase
@@ -293,48 +253,7 @@ def shift_study(study: dict, lag: float) -> dict:
     t + lag). Lo que quedaria antes del principio, fuera."""
     if not study or abs(lag) < SMALL_LAG:
         return study
-
-    def at(t):
-        return round(float(t) + lag, 3)
-
-    out = dict(study)
-    if isinstance(study.get("loop"), list) and len(study["loop"]) == 2:
-        a, b = at(study["loop"][0]), at(study["loop"][1])
-        if b > 0:
-            out["loop"] = [max(0.0, a), b]
-        else:
-            out.pop("loop")
-    if isinstance(study.get("loops"), list):
-        out["loops"] = [[max(0.0, at(a)), at(b)] for a, b in study["loops"] if at(b) > 0]
-    markers = []
-    for m in study.get("markers") or []:
-        m = dict(m)
-        if at(m.get("t", 0)) < 0:
-            continue
-        m["t"] = at(m["t"])
-        if m.get("end") is not None:
-            m["end"] = at(m["end"])
-        if m.get("parts"):
-            m["parts"] = [[max(0.0, at(a)), at(b)] for a, b in m["parts"]]
-        markers.append(m)
-    if "markers" in study:
-        out["markers"] = markers
-    if study.get("cues"):
-        out["cues"] = [{**c, "t": at(c["t"])} for c in study["cues"] if at(c["t"]) >= 0]
-    own = (study.get("metronome") or {}).get("own")
-    if own and own.get("beats"):
-        beats = [at(t) for t in own["beats"]]
-        keep = [i for i, t in enumerate(beats) if t >= 0]
-        index = {old: new for new, old in enumerate(keep)}
-        out["metronome"] = {
-            **study["metronome"],
-            "own": {
-                **own,
-                "beats": [beats[i] for i in keep],
-                "bars": [index[b] for b in own.get("bars") or [] if b in index],
-            },
-        }
-    return out
+    return _rust.reuse_shift_study(dict(study), float(lag))
 
 
 def _stems_folder(row) -> Path | None:

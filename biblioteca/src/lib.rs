@@ -25,6 +25,7 @@ pub mod onda;
 pub mod paridad;
 pub mod procesos;
 pub mod py;
+pub mod reaprovechar;
 pub mod red;
 pub mod seguro;
 pub mod teoria;

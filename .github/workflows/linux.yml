@@ -66,6 +66,8 @@ jobs:
           # con el crate de Rust y sin mutagen, que es GPL (ver core.spec)
           test -d dist/core/danplay-core/_internal/danplay_core
           test ! -e dist/core/danplay-core/_internal/mutagen
+          # y la biblioteca de ONNX Runtime que carga el pulso desde Rust
+          ls dist/core/danplay-core/_internal/onnxruntime/capi/libonnxruntime.so.*
 
       - name: el núcleo arranca y responde
         run: |

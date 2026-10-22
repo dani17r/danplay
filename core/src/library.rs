@@ -681,6 +681,39 @@ pub fn terms_accept<'py>(
     dict(py, &d)
 }
 
+// ------------------------------------------------------------- reaprovechar
+
+#[pyfunction]
+pub fn reuse_shift_study<'py>(py: Python<'py>, study: &Bound<'py, PyAny>, lag: f64) -> PyResult<Bound<'py, PyDict>> {
+    let study = as_dic(Some(study))?;
+    dict(py, &biblioteca::reaprovechar::shift_study(&study, lag))
+}
+
+#[pyfunction]
+pub fn reuse_twins<'py>(
+    py: Python<'py>,
+    conn: &Bound<'py, Connection>,
+    song: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyList>> {
+    let song = as_dic(Some(song))?;
+    let rows = with_conn(py, conn, move |c| biblioteca::reaprovechar::twins(c, &song))?;
+    dicts(py, &rows)
+}
+
+/// `manifests`: {clave: [duraciones]} de las carpetas de pistas.
+#[pyfunction]
+#[allow(clippy::implicit_hasher, reason = "un dict de Python")]
+pub fn reuse_with_twins(
+    py: Python<'_>,
+    conn: &Bound<'_, Connection>,
+    ids: Vec<i64>,
+    manifests: std::collections::HashMap<String, Vec<f64>>,
+) -> PyResult<Vec<i64>> {
+    with_conn(py, conn, move |c| {
+        biblioteca::reaprovechar::with_twins(c, &ids, &manifests)
+    })
+}
+
 /// Registra las funciones en el módulo.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(db_revision, m)?)?;
@@ -743,5 +776,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tidy_target_of, m)?)?;
     m.add_function(wrap_pyfunction!(terms_status, m)?)?;
     m.add_function(wrap_pyfunction!(terms_accept, m)?)?;
+    m.add_function(wrap_pyfunction!(reuse_shift_study, m)?)?;
+    m.add_function(wrap_pyfunction!(reuse_twins, m)?)?;
+    m.add_function(wrap_pyfunction!(reuse_with_twins, m)?)?;
     Ok(())
 }
