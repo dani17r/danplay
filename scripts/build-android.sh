@@ -56,8 +56,14 @@ APK="$APKS/release/app-universal-release.apk"
 [ -f "$APK" ] || morir "no salió el APK ($APK)"
 
 paso "comprobar la firma"
-APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-"$APKSIGNER" verify --print-certs "$APK" | grep -E "Signer #1 certificate (DN|SHA-256)"
+# el de las build-tools más nuevas, salvo que se diga cuál (la CI tiene varias)
+APKSIGNER="${APKSIGNER:-$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)}"
+# Si algo falla, lo que dijo apksigner: antes se lo tragaba el grep y moría
+# sin explicar nada.
+firma=$("$APKSIGNER" verify --print-certs "$APK" 2>&1) \
+  || { printf '%s\n' "$firma" >&2; morir "el APK no está bien firmado ($APKSIGNER)"; }
+printf '%s\n' "$firma" | grep -E "Signer #1 certificate (DN|SHA-256)" \
+  || { printf '%s\n' "$firma" >&2; morir "apksigner no dice con qué llave está firmado ($APKSIGNER)"; }
 
 mkdir -p dist/installers
 # (también los de antes de 1.27, que se llamaban DanPlay-Pistas-…)

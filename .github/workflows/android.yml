@@ -33,6 +33,7 @@ jobs:
     env:
       # las mismas versiones que en el equipo de desarrollo
       NDK_VERSION: 29.0.14206865
+      BUILD_TOOLS: 36.1.0
     steps:
       - uses: actions/checkout@v7
 
@@ -52,14 +53,16 @@ jobs:
           targets: aarch64-linux-android, armv7-linux-androideabi
       - uses: Swatinem/rust-cache@v2
 
-      # La imagen de GitHub trae el SDK, pero no este NDK. (La plataforma que
-      # pida el proyecto la baja Gradle.)
+      # La imagen de GitHub trae el SDK, pero no este NDK, y varias
+      # build-tools: se usa la misma que en el equipo de desarrollo. (La
+      # plataforma que pida el proyecto la baja Gradle.)
       - name: NDK de Android
         run: |
           sdkmanager=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
           yes | "$sdkmanager" --licenses > /dev/null || true
-          "$sdkmanager" --install "build-tools;36.1.0" "ndk;$NDK_VERSION" > /dev/null
+          "$sdkmanager" --install "build-tools;$BUILD_TOOLS" "ndk;$NDK_VERSION" > /dev/null
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "APKSIGNER=$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner" >> "$GITHUB_ENV"
 
       - name: la llave de firma
         env:
