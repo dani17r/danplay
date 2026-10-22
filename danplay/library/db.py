@@ -12,11 +12,12 @@ segundo espera y ya la encuentra migrada).
 import json
 import logging
 import os
-import sqlite3
 import threading
 import time
 from pathlib import Path
 from typing import NotRequired, TypedDict
+
+import danplay_core as _rust
 
 from .. import config
 
@@ -525,40 +526,29 @@ def _private_database(path: Path) -> None:
         log.warning("no pude cerrar los permisos de %s", path, exc_info=True)
 
 
-class Connection(sqlite3.Connection):
-    """Una conexion al indice. Con `with`, confirma lo hecho (o lo deshace si
-    algo fallo) y SE CIERRA siempre; la de sqlite3 solo confirma, y con un
-    `close()` al final de cada funcion, cualquier excepcion por medio dejaba
-    la conexion abierta."""
-
-    def __exit__(self, exc_type, exc, tb):
-        try:
-            return super().__exit__(exc_type, exc, tb)
-        finally:
-            self.close()
+# Una conexion al indice: la de Rust (core/src/indice.rs), que imita lo que
+# se usa de `sqlite3` —`execute`, filas por nombre, transacciones implicitas,
+# sus mismas excepciones— y es la misma que usa lo que ya esta en Rust. Con
+# `with`, confirma lo hecho (o lo deshace si algo fallo) y SE CIERRA siempre;
+# la de sqlite3 solo confirmaba, y con un `close()` al final de cada funcion,
+# cualquier excepcion por medio dejaba la conexion abierta.
+Connection = _rust.Connection
+# sus filas: por posicion o por nombre, como `sqlite3.Row`
+Row = _rust.Row
 
 
 def connect() -> Connection:
     """Abre el indice (creandolo o migrandolo la primera vez).
 
-    Mejor con `with connect() as conn:`: confirma y cierra solo.
+    Mejor con `with connect() as conn:`: confirma y cierra solo. Las
+    esperas (hasta cinco segundos si otro escribe) y el `synchronous=NORMAL`
+    los pone Rust al abrir (`biblioteca::indice::abrir`).
     """
     key = str(config.DATABASE)
     if key not in _prepared:
         config.DATABASE.parent.mkdir(parents=True, exist_ok=True)
         _private_database(config.DATABASE)
-    conn = sqlite3.connect(config.DATABASE, factory=Connection)
-    conn.row_factory = sqlite3.Row
-    # Con WAL ya activo, esto evita esperar al disco en cada commit. Se puede
-    # perder la ultima escritura si se va la luz de golpe (no si se cierra la
-    # app), y aqui eso no cuesta nada: la base es solo un indice y un escaneo
-    # la reconstruye entera desde los propios archivos. En un disco duro
-    # normal la diferencia por escritura es grande.
-    conn.execute("PRAGMA synchronous=NORMAL")
-    # Si otra conexion esta escribiendo (el escaneo, por ejemplo), se espera
-    # hasta cinco segundos en vez de fallar al instante con «database is
-    # locked»: puntuar una cancion mientras se escanea tiene que funcionar.
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn = _rust.db_open(config.DATABASE)
     if key not in _prepared:
         with _prepare_lock:
             if key not in _prepared:

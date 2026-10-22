@@ -138,7 +138,7 @@ def _find_missing(conn, path, file, size, mtime):
     ).fetchone()
 
 
-def _find_twin(conn, fresh: dict) -> sqlite3.Row | None:
+def _find_twin(conn, fresh: dict) -> db.Row | None:
     """La cancion apartada que es esta misma cancion aunque el archivo sea
     otro (se volvio a bajar tras mover la carpeta de musica): el mismo
     artista y titulo (o nombre) y la misma duracion, dos segundos arriba o

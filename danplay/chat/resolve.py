@@ -563,7 +563,7 @@ class _Snapshot:
             favorite=song["favorite"],
         )
 
-    def load(self, conn: sqlite3.Connection) -> None:
+    def load(self, conn: library.Connection) -> None:
         self.count = conn.execute("SELECT COUNT(*) FROM songs").fetchone()[0] or 0
         if self.count > FULL_LIMIT:
             self.large = True

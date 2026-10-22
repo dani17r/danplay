@@ -14,6 +14,7 @@ fancy-regex = "0.19.2"
 # que sustituye a mutagen, que es GPL.
 lofty = "0.25"
 regex = "1.13.1"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 unicode-normalization = "0.1.26"
 unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
 

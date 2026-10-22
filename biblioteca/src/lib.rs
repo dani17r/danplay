@@ -6,6 +6,10 @@
 //! Python lo usa a través de `danplay_core` (core/); la app de escritorio lo
 //! usará directamente cuando el núcleo entero esté en Rust.
 pub mod etiquetas;
+pub mod indice;
 pub mod nombres;
 
 mod asf;
+
+// La misma versión de rusqlite para quien use el índice (core/).
+pub use rusqlite;
