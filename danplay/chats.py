@@ -8,11 +8,13 @@ la app, si fue narracion…), y se puede buscar en todas.
 
 Como las descargas, es cosa del programa y no del mp3: el escaneo no la
 toca (solo vacia `songs`).
+
+Lo hace Rust (biblioteca/src/conversaciones.rs); esto es la puerta de
+Python, con los mismos nombres. `export_markdown` sigue aqui: escribe las
+fechas en la hora local.
 """
 
-import json
-import re
-import time
+import danplay_core as _rust
 
 from . import library
 
@@ -40,7 +42,8 @@ TITLE_LENGTH = 60
 # tambien la tarjeta de permiso (`confirm`), la tabla de una lista (`setlist`)
 # y, en los mensajes de la app que cambian una tarjeta, a cual se refieren
 # (`ref`) y que filas de su tabla quedaron con que cancion (`filled`). Solo se
-# añade: un mensaje guardado antes se lee igual.
+# añade: un mensaje guardado antes se lee igual. (La lista de verdad esta en
+# biblioteca/src/conversaciones.rs.)
 _KEEP = (
     "tools",
     "app",
@@ -58,18 +61,11 @@ _KEEP = (
 )
 
 
-# Las marcas de markdown y de WhatsApp (*negrita*, _cursiva_, ~tachado~, #):
-# en un titulo solo estorban.
-_MARKS = re.compile(r"[*_~`#>]+")
-
-
 def title_from(text: str) -> str:
     """El titulo de una conversacion sale de su primer mensaje: de su primera
     linea con texto y sin marcas. Con la lista del domingo pegada, el titulo
     era «agrégame esto…: *Domingo*✅ *1.- Mi…», con todo el formato."""
-    first = next((line for line in str(text or "").splitlines() if line.strip()), "")
-    t = " ".join(_MARKS.sub("", first).split())
-    return (t[: TITLE_LENGTH - 1] + "…") if len(t) > TITLE_LENGTH else t or "Conversacion"
+    return _rust.chats_title_from(str(text or ""))
 
 
 def _connect():
@@ -78,132 +74,44 @@ def _connect():
 
 def list_all(limit=200) -> list[dict]:
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT c.id, c.title, c.created, c.updated, "
-            "(SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id=c.id) n "
-            "FROM chats c ORDER BY c.updated DESC LIMIT ?",
-            (int(limit),),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        return _rust.chats_list_all(conn, int(limit))
 
 
 def create(title: str = "") -> dict:
-    now = time.time()
     with _connect() as conn:
-        cur = conn.execute(
-            "INSERT INTO chats (title, created, updated) VALUES (?,?,?)", (title.strip(), now, now)
-        )
-        conn.commit()
-        cid = cur.lastrowid
-    return {"id": cid, "title": title.strip(), "created": now, "updated": now, "n": 0}
+        return _rust.chats_create(conn, title)
 
 
 def get(chat_id: int) -> dict | None:
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM chats WHERE id=?", (int(chat_id),)).fetchone()
-        if not row:
-            return None
-        rows = conn.execute(
-            "SELECT id, at, role, text, payload FROM chat_messages WHERE chat_id=? ORDER BY id",
-            (int(chat_id),),
-        ).fetchall()
-    messages = []
-    for r in rows:
-        try:
-            extra = json.loads(r["payload"] or "{}")
-        except Exception:  # noqa: BLE001
-            extra = {}
-        m = {"id": r["id"], "at": r["at"], "role": r["role"], "text": r["text"]}
-        m.update({k: v for k, v in extra.items() if k in _KEEP})
-        messages.append(m)
-    out = dict(row)
-    out["messages"] = messages
-    return out
+        return _rust.chats_get(conn, int(chat_id))
 
 
 def append(chat_id: int, messages: list[dict]) -> int:
     """Añade mensajes al final. El titulo sale del primero del usuario si la
     conversacion aun no tiene."""
     with _connect() as conn:
-        row = conn.execute("SELECT title FROM chats WHERE id=?", (int(chat_id),)).fetchone()
-        if not row:
-            raise ValueError("no existe esa conversacion")
-        now = time.time()
-        title = row["title"]
-        n = 0
-        for m in messages:
-            if not isinstance(m, dict):
-                continue
-            role = str(m.get("role") or "")
-            text = str(m.get("text") or "")
-            extra = {k: m[k] for k in _KEEP if k in m and m[k] not in (None, False, "", [])}
-            conn.execute(
-                "INSERT INTO chat_messages (chat_id, at, role, text, payload) VALUES (?,?,?,?,?)",
-                (
-                    int(chat_id),
-                    float(m.get("at") or now),
-                    role,
-                    text,
-                    json.dumps(extra, ensure_ascii=False),
-                ),
-            )
-            n += 1
-            if not title and role == "me" and not m.get("hidden") and text.strip():
-                title = title_from(text)
-        conn.execute("UPDATE chats SET updated=?, title=? WHERE id=?", (now, title, int(chat_id)))
-    return n
+        return _rust.chats_append(conn, int(chat_id), list(messages))
 
 
 def rename(chat_id: int, title: str) -> bool:
     with _connect() as conn:
-        cur = conn.execute("UPDATE chats SET title=? WHERE id=?", (title.strip(), int(chat_id)))
-    return bool(cur.rowcount)
+        return _rust.chats_rename(conn, int(chat_id), title)
 
 
 def delete(chat_id: int) -> bool:
     with _connect() as conn:
-        conn.execute("DELETE FROM chat_messages WHERE chat_id=?", (int(chat_id),))
-        cur = conn.execute("DELETE FROM chats WHERE id=?", (int(chat_id),))
-    return bool(cur.rowcount)
+        return _rust.chats_delete(conn, int(chat_id))
 
 
 def search(query: str, limit=40) -> list[dict]:
     """Mensajes que contienen ese texto, con su conversacion. Sin distinguir
     mayusculas; es un LIKE, que para unos miles de mensajes sobra."""
-    q = " ".join(str(query or "").split())
-    if not q:
+    q = str(query or "")
+    if not q.split():
         return []
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT m.id, m.chat_id, c.title, m.role, m.text, m.at FROM chat_messages m "
-            "JOIN chats c ON c.id=m.chat_id WHERE m.text LIKE ? ESCAPE '\\' AND m.role IN ('me','ai') "
-            "ORDER BY m.id DESC LIMIT ?",
-            (
-                "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",
-                int(limit),
-            ),
-        ).fetchall()
-    out = []
-    for r in rows:
-        text = r["text"]
-        i = text.lower().find(q.lower())
-        start = max(0, i - 60)
-        snippet = (
-            ("…" if start else "")
-            + text[start : i + len(q) + 80]
-            + ("…" if i + len(q) + 80 < len(text) else "")
-        )
-        out.append(
-            {
-                "id": r["id"],
-                "chat_id": r["chat_id"],
-                "title": r["title"],
-                "role": r["role"],
-                "snippet": snippet,
-                "at": r["at"],
-            }
-        )
-    return out
+        return _rust.chats_search(conn, q, int(limit))
 
 
 def export_markdown(chat_id: int) -> str | None:

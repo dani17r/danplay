@@ -8,14 +8,17 @@
 pub mod audio;
 pub mod cifrados;
 pub mod compat;
+pub mod conversaciones;
 pub mod convertir;
 pub mod duplicados;
 pub mod etiquetas;
+pub mod fuera;
 pub mod habla;
 pub mod huella;
 pub mod indice;
 pub mod json;
 pub mod library;
+pub mod listas;
 pub mod miniaturas;
 pub mod nombres;
 pub mod onda;
@@ -170,6 +173,9 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     miniaturas::register(m)?;
     huella::register(m)?;
     duplicados::register(m)?;
+    listas::register(m)?;
+    fuera::register(m)?;
+    conversaciones::register(m)?;
     Ok(())
 }
 

@@ -1096,6 +1096,42 @@ pub fn fnmatch(name: &str, pat: &str) -> bool {
     fnmatchcase(&normcase(name), &normcase(pat))
 }
 
+// ------------------------------------------------------------------ líneas y JSON
+
+/// `str.splitlines()` de Python: corta en todos los finales de línea que
+/// conoce Python (no solo «\n»), y «\r\n» cuenta como uno.
+pub fn splitlines(s: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut chars = s.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if matches!(
+            c,
+            '\n' | '\r'
+                | '\x0b'
+                | '\x0c'
+                | '\x1c'
+                | '\x1d'
+                | '\x1e'
+                | '\u{85}'
+                | '\u{2028}'
+                | '\u{2029}'
+        ) {
+            out.push(&s[start..i]);
+            let mut end = i + c.len_utf8();
+            if c == '\r' && chars.peek().is_some_and(|&(_, n)| n == '\n') {
+                chars.next();
+                end += 1;
+            }
+            start = end;
+        }
+    }
+    if start < s.len() {
+        out.push(&s[start..]);
+    }
+    out
+}
+
 mod casefold;
 
 #[cfg(test)]

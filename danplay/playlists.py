@@ -3,6 +3,11 @@
 Todo lo que se puede guardar dentro del archivo, se guarda ahi tambien
 (estrellas en POPM, favorito y listas en TXXX), para que la biblioteca
 siga siendo portatil aunque se pierda la base de datos.
+
+Lo de la base lo hace Rust (biblioteca/src/listas.rs); esto es la puerta de
+Python, con los mismos nombres. Aqui siguen el cerrojo de las listas
+(`LOCK`), el aviso a la interfaz, escribir dentro de los archivos y lo que se
+exporta a Listas/.
 """
 
 import html
@@ -13,7 +18,16 @@ import threading
 import time
 from pathlib import Path
 
-from . import cifrados, external, library, names, tags, theory
+import danplay_core as _rust
+
+from . import (
+    cifrados,
+    external,  # noqa: F401  (registra su esquema: las listas leen external_songs)
+    library,
+    names,
+    tags,
+    theory,
+)
 
 log = logging.getLogger(__name__)
 
@@ -73,9 +87,6 @@ def _connect():
 # escaneo, otro proceso) vale la transaccion de `_begin`.
 LOCK = threading.RLock()
 
-# Variables por consulta: las SQLite viejas admiten 999.
-_CHUNK = 500
-
 
 def _begin():
     """Una conexion con la transaccion de escritura ya abierta.
@@ -104,87 +115,6 @@ def _ints(values) -> list[int]:
     return out
 
 
-def _unique(values) -> list:
-    """Sin repetidos, dejando cada valor donde aparece por primera vez."""
-    return list(dict.fromkeys(values))
-
-
-def _alive(conn, ids) -> set[int]:
-    """De esos ids, los que son una cancion de verdad.
-
-    Positivos: la biblioteca. Negativos: archivos abiertos desde fuera
-    (`external.py`), si esa tabla existe.
-    """
-    found: set[int] = set()
-    inside = [i for i in ids if i > 0]
-    outside = [-i for i in ids if i < 0]
-    for k in range(0, len(inside), _CHUNK):
-        part = inside[k : k + _CHUNK]
-        marks = ",".join("?" * len(part))
-        sql = f"SELECT id FROM songs WHERE id IN ({marks})"  # noqa: S608
-        found |= {r["id"] for r in conn.execute(sql, part)}
-    if (
-        outside
-        and conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='external_songs'"
-        ).fetchone()
-    ):
-        for k in range(0, len(outside), _CHUNK):
-            part = outside[k : k + _CHUNK]
-            marks = ",".join("?" * len(part))
-            sql = f"SELECT id FROM external_songs WHERE id IN ({marks})"  # noqa: S608
-            found |= {-r["id"] for r in conn.execute(sql, part)}
-    return found
-
-
-def _rows(conn, playlist_id) -> list[tuple[int, int]]:
-    """(cancion, posicion) de TODAS las filas de la lista, en su orden.
-
-    Tambien las de canciones cuyo archivo se fue: siguen aqui para volver a su
-    sitio (ver library._to_missing). Si dos empatan en posicion, va antes la
-    fila mas vieja, que es el orden en que las enseña `songs`.
-    """
-    return [
-        (r["song_id"], r["position"])
-        for r in conn.execute(
-            "SELECT song_id, position FROM playlist_songs WHERE playlist_id=? "
-            "ORDER BY position, rowid",
-            (playlist_id,),
-        )
-    ]
-
-
-def _settle(conn, playlist_id, head, rows) -> tuple[list[int], list[int], int]:
-    """Deja las filas de la lista en las posiciones 0..n-1, sin repetir ninguna.
-
-    Primero `head`, en ese orden (las que no estaban se insertan); detras, las
-    que ya habia y `head` no nombra, en el orden que tenian. `rows` es lo que
-    devolvio `_rows`. Solo se escribe lo que cambia. Devuelve (el orden final,
-    las insertadas, cuantas filas se movieron). No confirma.
-    """
-    have = dict(rows)
-    named = set(head)
-    final = [*head, *(song for song, _ in rows if song not in named)]
-    now = time.time()
-    moves: list[tuple[int, int, int]] = []
-    new: list[tuple[int, int, int, float]] = []
-    for pos, song in enumerate(final):
-        if song not in have:
-            new.append((playlist_id, song, pos, now))
-        elif have[song] != pos:
-            moves.append((pos, playlist_id, song))
-    if moves:
-        conn.executemany(
-            "UPDATE playlist_songs SET position=? WHERE playlist_id=? AND song_id=?", moves
-        )
-    if new:
-        conn.executemany(
-            "INSERT INTO playlist_songs (playlist_id, song_id, position, added) VALUES (?,?,?,?)",
-            new,
-        )
-    return final, [song for _, song, _, _ in new], len(moves)
-
-
 # ---------------------------------------------------------------- listas
 
 
@@ -195,34 +125,25 @@ def create(name, note="", color="") -> dict:
     existia: antes se devolvia solo el id y quien llamaba no podia saberlo,
     asi que el asistente «creaba» una lista y en realidad añadia a otra.
     """
-    name = str(name or "").strip()
     with LOCK:
         # sin pedir el permiso de escribir de antemano: si la lista ya esta no
         # se escribe nada, y no tiene que esperar a un escaneo en marcha
         with _connect() as conn:
-            row = conn.execute("SELECT id FROM playlists WHERE name=?", (name,)).fetchone()
-            if row:
-                return {"id": row["id"], "name": name, "created": False}
-            cur = conn.execute(
-                "INSERT INTO playlists (name,note,color,created) VALUES (?,?,?,?)",
-                (name, note, color, time.time()),
+            out = _rust.playlists_create(
+                conn,
+                str(name or ""),
+                None if note is None else str(note),
+                None if color is None else str(color),
             )
-            lid = cur.lastrowid
-        library._touch()
-    return {"id": lid, "name": name, "created": True}
+        if out["created"]:
+            library._touch()
+    return out
 
 
 def remove(playlist_id) -> None:
     with LOCK:
         with _begin() as conn:
-            members = [
-                r["song_id"]
-                for r in conn.execute(
-                    "SELECT song_id FROM playlist_songs WHERE playlist_id=?", (playlist_id,)
-                )
-            ]
-            conn.execute("DELETE FROM playlist_songs WHERE playlist_id=?", (playlist_id,))
-            conn.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
+            members = _rust.playlists_remove(conn, playlist_id)
         library._touch()
         # los archivos dejan de nombrar la lista: si no, un reescaneo la resucitaria
         _stamp_playlists_into_files(members)
@@ -231,7 +152,7 @@ def remove(playlist_id) -> None:
 def rename_folder(playlist_id, name) -> None:
     with LOCK:
         with _connect() as conn:
-            conn.execute("UPDATE playlists SET name=? WHERE id=?", (name, playlist_id))
+            _rust.playlists_rename_folder(conn, playlist_id, name)
         library._touch()
 
 
@@ -244,8 +165,8 @@ def by_id(playlist_id) -> dict | None:
         playlist_id = int(playlist_id)
     except (TypeError, ValueError):
         return None
-    found = _summaries("WHERE l.id=?", (playlist_id,))
-    return found[0] if found else None
+    with _connect() as conn:
+        return _rust.playlists_by_id(conn, playlist_id)
 
 
 def by_name(name: str) -> dict | None:
@@ -254,34 +175,28 @@ def by_name(name: str) -> dict | None:
     El asistente conoce las listas por su nombre («Herlin»), no por su id; y
     cuando adivinaba el id acababa borrando la lista equivocada.
     """
-    key = names._flat(str(name or ""))
-    if not key:
-        return None
     with _connect() as conn:
-        rows = conn.execute("SELECT id, name FROM playlists ORDER BY name").fetchall()
-    match = next((r["id"] for r in rows if names._flat(r["name"]) == key), None)
-    return by_id(match) if match is not None else None
+        return _rust.playlists_by_name(conn, names._txt(str(name or "")))
 
 
 def edit(playlist_id, name=None, note=None) -> dict | None:
     """Cambia el nombre o la nota. Devuelve la lista ya cambiada, o None."""
+    try:
+        pid = int(playlist_id)
+    except (TypeError, ValueError):
+        return None
     with LOCK:
-        current = by_id(playlist_id)
-        if not current:
+        with _connect() as conn:
+            r = _rust.playlists_edit(
+                conn,
+                pid,
+                None if name is None else str(name),
+                None if note is None else str(note),
+            )
+        if r is None:
             return None
-        fields, values = [], []
-        if name is not None and str(name).strip():
-            fields.append("name=?")
-            values.append(str(name).strip())
-        if note is not None:
-            fields.append("note=?")
-            values.append(str(note))
-        if fields:
-            with _connect() as conn:
-                conn.execute(
-                    f"UPDATE playlists SET {','.join(fields)} WHERE id=?",  # noqa: S608
-                    [*values, current["id"]],
-                )
+        current, changed = r
+        if changed:
             library._touch()
             if name is not None:
                 # las canciones llevan dentro los nombres de sus listas
@@ -302,61 +217,19 @@ def set_songs(playlist_id, song_ids) -> dict:
     """
     with LOCK:
         with _begin() as conn:
-            ints = _ints(song_ids)
-            rows = _rows(conn, playlist_id)
-            # las «No está» de la lista, si se nombran, se quedan donde se dice
-            listed = {song for song, _ in rows}
-            alive = _alive(conn, ints)
-            wanted = _unique(i for i in ints if i in alive or i in listed)
-            shown = _alive(conn, [song for song, _ in rows])
-            keep = set(wanted)
-            gone = [song for song, _ in rows if song in shown and song not in keep]
-            for song in gone:
-                conn.execute(
-                    "DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?",
-                    (playlist_id, song),
-                )
-            removed = set(gone)
-            left = [(song, pos) for song, pos in rows if song not in removed]
-            _, added, moved = _settle(conn, playlist_id, wanted, left)
+            gone, added, moved, total = _rust.playlists_set_songs(
+                conn, playlist_id, _ints(song_ids)
+            )
         if gone or added or moved:
             library._touch()
         if gone or added:
             _stamp_playlists_into_files([*gone, *added])
-    return {"removed": len(gone), "added": len(added), "total": len(wanted)}
+    return {"removed": len(gone), "added": len(added), "total": total}
 
 
 def list_all() -> list[dict]:
-    return _summaries()
-
-
-def _summaries(where: str = "", params: tuple = ()) -> list[dict]:
-    """Las listas con cuantos temas tienen y cuanto duran (`where` filtra;
-    lo escribe este modulo, nunca viene de fuera)."""
-    # La duracion suma las dos procedencias: las de la biblioteca y las de
-    # fuera. Con un solo JOIN a `songs`, una lista guardada desde el
-    # reproductor salia con «0 min» aunque tuviera veinte canciones.
-    #
-    # Y se cuenta solo lo que se enseña: una cancion cuyo archivo se fue
-    # sigue en `playlist_songs` (para volver a su sitio si el archivo vuelve,
-    # ver library._to_missing), pero la lista no la muestra y el numero decia
-    # «4» con tres.
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT l.*, (SELECT COUNT(*) FROM playlist_songs lc WHERE lc.playlist_id=l.id "  # noqa: S608
-            " AND (EXISTS (SELECT 1 FROM songs c WHERE c.id=lc.song_id) "
-            "      OR EXISTS (SELECT 1 FROM external_songs e WHERE e.id=-lc.song_id))) n, "
-            "(SELECT COALESCE(SUM(c.duration),0) FROM playlist_songs lc "
-            " JOIN songs c ON c.id=lc.song_id WHERE lc.playlist_id=l.id) "
-            "+ (SELECT COALESCE(SUM(e.duration),0) FROM playlist_songs lc "
-            "   JOIN external_songs e ON e.id=-lc.song_id WHERE lc.playlist_id=l.id) seconds, "
-            # las que no estan: se enseñan aparte («2 no están»)
-            "(SELECT COUNT(*) FROM playlist_songs lc WHERE lc.playlist_id=l.id AND lc.song_id>0 "
-            " AND NOT EXISTS (SELECT 1 FROM songs c WHERE c.id=lc.song_id)) missing "
-            f"FROM playlists l {where} ORDER BY l.name",
-            params,
-        ).fetchall()
-    return [dict(f) for f in rows]
+        return _rust.playlists_list_all(conn)
 
 
 def existing_ids(song_ids) -> list[int]:
@@ -369,45 +242,26 @@ def existing_ids(song_ids) -> list[int]:
     if not wanted:
         return []
     with _connect() as conn:
-        found = _alive(conn, wanted)
-    return _unique(i for i in wanted if i in found)
+        return _rust.playlists_existing_ids(conn, wanted)
 
 
 def add(playlist_id, song_ids) -> int:
     if isinstance(song_ids, int):
         song_ids = [song_ids]
-    if not _ints(song_ids):
+    ints = _ints(song_ids)
+    if not ints:
         return 0
     with LOCK:
         with _begin() as conn:
-            # Solo lo que existe. Un id que no es ninguna cancion (el asistente
-            # se los inventaba) dejaba una fila huerfana: la lista decia «6
-            # temas» y enseñaba cuatro. Se mira DENTRO de la transaccion, para
-            # que no se borre la cancion entre mirarlo e insertarla.
-            ints = _ints(song_ids)
-            alive = _alive(conn, ints)
-            song_ids = _unique(i for i in ints if i in alive)
-            if not song_ids:
-                return 0
-            row = conn.execute(
-                "SELECT COALESCE(MAX(position),-1) m FROM playlist_songs WHERE playlist_id=?",
-                (playlist_id,),
-            ).fetchone()
-            sort = row["m"] + 1
-            n = 0
-            for cid in song_ids:
-                cur = conn.execute(
-                    "INSERT OR IGNORE INTO playlist_songs VALUES (?,?,?,?)",
-                    (playlist_id, cid, sort, time.time()),
-                )
-                # las que ya estaban no cuentan: si no, la app decia «Añadida a
-                # la lista» aunque no hubiera añadido nada
-                if cur.rowcount:
-                    sort += 1
-                    n += 1
+            # Solo lo que existe, mirado DENTRO de la transaccion: que no se
+            # borre la cancion entre mirarlo e insertarla
+            r = _rust.playlists_add(conn, playlist_id, ints)
+        if r is None:
+            return 0
+        n, wanted = r
         if n:
             library._touch()
-        _stamp_playlists_into_files(song_ids)
+        _stamp_playlists_into_files(wanted)
         return n
 
 
@@ -416,15 +270,7 @@ def remove_song(playlist_id, song_ids) -> None:
         song_ids = [song_ids]
     with LOCK:
         with _begin() as conn:
-            for cid in song_ids:
-                conn.execute(
-                    "DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?",
-                    (playlist_id, cid),
-                )
-            # la ficha de una «No está» que ya no esta en ninguna lista sobra
-            conn.execute(
-                "DELETE FROM song_cards WHERE song_id NOT IN (SELECT song_id FROM playlist_songs)"
-            )
+            _rust.playlists_remove_songs(conn, playlist_id, list(song_ids))
         library._touch()
         _stamp_playlists_into_files(song_ids)
 
@@ -440,10 +286,7 @@ def reorder(playlist_id, ordered_song_ids) -> None:
     wanted = _ints(ordered_song_ids)
     with LOCK:
         with _begin() as conn:
-            rows = _rows(conn, playlist_id)
-            have = {song for song, _ in rows}
-            head = _unique(i for i in wanted if i in have)
-            _settle(conn, playlist_id, head, rows)
+            _rust.playlists_reorder(conn, playlist_id, wanted)
         library._touch()
 
 
@@ -477,16 +320,10 @@ def place(playlist_id, ordered_ids) -> dict:
     wanted = _ints(ordered_ids)
     with LOCK:
         with _begin() as conn:
-            if not conn.execute("SELECT 1 FROM playlists WHERE id=?", (playlist_id,)).fetchone():
+            r = _rust.playlists_place(conn, playlist_id, wanted)
+            if r is None:
                 raise ValueError("no existe esa lista")
-            alive = _alive(conn, wanted)
-            head = _unique(i for i in wanted if i in alive)
-            rows = _rows(conn, playlist_id)
-            final, added, moved = _settle(conn, playlist_id, head, rows)
-            # solo cuenta lo que enseña la lista: las filas de canciones cuyo
-            # archivo se fue siguen ahi, detras, pero no salen
-            shown = _alive(conn, final)
-            order = [song for song in final if song in shown]
+            added, moved, order = r
         if added or moved:
             library._touch()
         if added:
@@ -498,55 +335,13 @@ def cards(conn, ids) -> dict[int, dict]:
     """La ficha de las canciones de esos ids que ya no estan en la biblioteca:
     de las apartadas (su fila entera, guardada) o, pasado el mes, de
     `song_cards`."""
-    ids = [i for i in ids if i > 0]
-    out: dict[int, dict] = {}
-    for k in range(0, len(ids), _CHUNK):
-        part = ids[k : k + _CHUNK]
-        marks = ",".join("?" * len(part))
-        for r in conn.execute(
-            f"SELECT id, path, data FROM songs_missing WHERE id IN ({marks})",  # noqa: S608
-            part,
-        ):
-            try:
-                d = json.loads(r["data"])
-            except (TypeError, ValueError):
-                d = {}
-            out[r["id"]] = {
-                "artist": d.get("artist") or "",
-                "title": d.get("title") or "",
-                "duration": d.get("duration") or 0,
-                "file": d.get("file") or os.path.basename(r["path"] or ""),
-                "path": r["path"] or "",
-            }
-        for r in conn.execute(f"SELECT * FROM song_cards WHERE song_id IN ({marks})", part):  # noqa: S608
-            out.setdefault(
-                r["song_id"], {k2: r[k2] for k2 in ("artist", "title", "duration", "file", "path")}
-            )
-    return out
+    return _rust.playlists_cards(conn, [int(i) for i in ids])
 
 
 def ghost(cid: int, card: dict, position: int) -> dict:
     """Una cancion de la lista que ya no esta: con su ficha, para enseñarla
     («No está») y ofrecer buscarla o bajarla."""
-    title = card.get("title") or Path(card.get("file") or "").stem or "Canción"
-    return {
-        "id": cid,
-        "title": title,
-        "artist": card.get("artist") or "",
-        "album": "",
-        "duration": card.get("duration") or 0,
-        "file": card.get("file") or "",
-        "path": card.get("path") or "",
-        "folder": "",
-        "key": "",
-        "bpm": 0,
-        "stars": 0,
-        "favorite": 0,
-        "blur": 0,
-        "cover": "",
-        "ghost": True,
-        "position": position,
-    }
+    return _rust.playlists_ghost(int(cid), dict(card), position)
 
 
 def songs(playlist_id, light: bool = False, ghosts: bool = True) -> list[dict]:
@@ -562,45 +357,14 @@ def songs(playlist_id, light: bool = False, ghosts: bool = True) -> list[dict]:
     volver a bajar (sin `ghosts`, solo las que suenan).
     """
     with _connect() as conn:
-        # si dos empatan en posicion (listas de antes del cerrojo), la fila mas
-        # vieja primero: el mismo orden que usa `place` al renumerar
-        order = conn.execute(
-            "SELECT song_id, position FROM playlist_songs WHERE playlist_id=? "
-            "ORDER BY position, rowid",
-            (playlist_id,),
-        ).fetchall()
-        cols = library.light_columns(conn) if light else "c.*"
-        inside = {
-            r["id"]: dict(r)
-            for r in conn.execute(
-                f"SELECT {cols} FROM playlist_songs lc JOIN songs c ON c.id=lc.song_id "  # noqa: S608
-                "WHERE lc.playlist_id=?",
-                (playlist_id,),
-            ).fetchall()
-        }
-        outside = external.by_ids(conn, [r["song_id"] for r in order])
-        absent = [r["song_id"] for r in order if r["song_id"] > 0 and r["song_id"] not in inside]
-        known = cards(conn, absent) if ghosts and absent else {}
-
-    out = []
-    for r in order:
-        cid = r["song_id"]
-        song = inside.get(cid) if cid > 0 else outside.get(cid)
-        if song:
-            if light:
-                song = library.light(song)
-            out.append({**song, "position": r["position"]})
-        elif cid in known:
-            out.append(ghost(cid, known[cid], r["position"]))
-    return out
+        return _rust.playlists_songs(conn, playlist_id, bool(light), bool(ghosts))
 
 
 def take_out_everywhere(song_id: int) -> int:
     """Quita la cancion de todas las listas (se borro a proposito: no tiene
     que quedar como «No está»). Devuelve de cuantas."""
     with LOCK, _begin() as conn:
-        n = conn.execute("DELETE FROM playlist_songs WHERE song_id=?", (song_id,)).rowcount
-        conn.execute("DELETE FROM song_cards WHERE song_id=?", (song_id,))
+        n = _rust.playlists_take_out_everywhere(conn, int(song_id))
     if n:
         library._touch()
     return n
@@ -609,18 +373,7 @@ def take_out_everywhere(song_id: int) -> int:
 def keep_cards(conn, ids) -> None:
     """Guarda la ficha de esas canciones apartadas que estan en alguna lista
     (antes de olvidarlas del todo: la lista la sigue enseñando). No confirma."""
-    listed = [
-        i
-        for i in ids
-        if conn.execute("SELECT 1 FROM playlist_songs WHERE song_id=? LIMIT 1", (i,)).fetchone()
-    ]
-    now = time.time()
-    for cid, card in cards(conn, listed).items():
-        conn.execute(
-            "INSERT OR REPLACE INTO song_cards (song_id, artist, title, duration, file, path, gone_at) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (cid, card["artist"], card["title"], card["duration"], card["file"], card["path"], now),
-        )
+    _rust.playlists_keep_cards(conn, [int(i) for i in ids])
 
 
 def relink_ghosts(new_ids) -> int:
@@ -628,93 +381,38 @@ def relink_ghosts(new_ids) -> int:
     trajeron de otro sitio): las listas que las tenian como «No está» las
     recuperan, en su sitio. Se reconocen por artista y titulo (o nombre) y
     duracion, como las gemelas de `reuse`. Devuelve cuantas filas."""
-    from . import reuse
-
     new_ids = [int(i) for i in new_ids if int(i) > 0]
     if not new_ids:
         return 0
-    n = 0
     with LOCK, _begin() as conn:
-        absent = [
-            r[0]
-            for r in conn.execute(
-                "SELECT DISTINCT song_id FROM playlist_songs WHERE song_id>0 "
-                "AND song_id NOT IN (SELECT id FROM songs)"
-            )
-        ]
-        if not absent:
-            return 0
-        known = cards(conn, absent)
-        by_key: dict[str, list[tuple[int, float]]] = {}
-        for gid, card in known.items():
-            by_key.setdefault(reuse.ident(card), []).append((gid, float(card["duration"] or 0)))
-        marks = ",".join("?" * len(new_ids))
-        rows = conn.execute(
-            f"SELECT id, artist, title, match_key, file, duration FROM songs WHERE id IN ({marks})",  # noqa: S608
-            new_ids,
-        ).fetchall()
-        moved: list[tuple[int, int]] = []
-        for r in rows:
-            for gid, d in by_key.get(reuse.ident(dict(r)), ()):
-                if reuse._close(d, r["duration"]):
-                    moved.append((gid, r["id"]))
-        for gid, sid in moved:
-            for (pid,) in conn.execute(
-                "SELECT playlist_id FROM playlist_songs WHERE song_id=?", (gid,)
-            ).fetchall():
-                # si la nueva ya entro (al final, por sus etiquetas), manda el
-                # sitio que tenia la de antes
-                conn.execute(
-                    "DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?", (pid, sid)
-                )
-                conn.execute(
-                    "UPDATE playlist_songs SET song_id=? WHERE playlist_id=? AND song_id=?",
-                    (sid, pid, gid),
-                )
-                n += 1
-            conn.execute("DELETE FROM song_cards WHERE song_id=?", (gid,))
+        n, moved = _rust.playlists_relink_ghosts(conn, new_ids)
     if n:
         library._touch()
-        _stamp_playlists_into_files([sid for _, sid in moved])
+        _stamp_playlists_into_files(moved)
     return n
 
 
 def playlists_of(song_id) -> list[str]:
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT l.name FROM playlist_songs lc JOIN playlists l "
-            "ON l.id=lc.playlist_id WHERE lc.song_id=? ORDER BY l.name",
-            (song_id,),
-        ).fetchall()
-    return [f["name"] for f in rows]
+        return _rust.playlists_of(conn, int(song_id))
 
 
 def _stamp_playlists_into_files(song_ids) -> None:
     """Escribe TXXX:LISTAS dentro del mp3 para que sobreviva a la base de datos.
 
-    Las rutas y los nombres de lista se piden de una vez. Antes se abrian dos
-    conexiones POR CANCION (una para la ruta y otra para sus listas): meter
-    treinta temas en un repertorio eran sesenta aperturas de la base.
+    Las rutas y los nombres de lista se piden de una vez (en Rust). Antes se
+    abrian dos conexiones POR CANCION (una para la ruta y otra para sus
+    listas): meter treinta temas en un repertorio eran sesenta aperturas de la
+    base.
     """
     # Solo las de la biblioteca. Escribir dentro de un archivo de fuera seria
     # justo lo que DanPlay promete no hacer: si lo abriste desde el
-    # explorador, es tuyo y se queda como esta. El `IN (...)` de abajo ya no
-    # los encontraria, pero mas vale decirlo que dejarlo al azar del SQL.
+    # explorador, es tuyo y se queda como esta.
     song_ids = [int(i) for i in song_ids if int(i) > 0]
     if not song_ids:
         return
-    placeholders = ",".join("?" * len(song_ids))
     with _connect() as conn:
-        sql = f"SELECT id, path FROM songs WHERE id IN ({placeholders})"  # noqa: S608
-        paths = {r["id"]: r["path"] for r in conn.execute(sql, song_ids)}
-        lists: dict = {}
-        for r in conn.execute(
-            f"SELECT lc.song_id id, l.name name FROM playlist_songs lc "  # noqa: S608
-            f"JOIN playlists l ON l.id=lc.playlist_id "
-            f"WHERE lc.song_id IN ({placeholders}) ORDER BY l.name",
-            song_ids,
-        ):
-            lists.setdefault(r["id"], []).append(r["name"])
+        paths, lists = _rust.playlists_stamp_targets(conn, song_ids)
     for cid in song_ids:
         path = paths.get(cid)
         if path and os.path.exists(path) and not tags.set_playlists(path, lists.get(cid, [])):
@@ -730,7 +428,7 @@ def rate(song_id, stars: int) -> bool:
         return False
     ok = tags.rate(c["path"], stars)
     with _connect() as conn:
-        conn.execute("UPDATE songs SET stars=? WHERE id=?", (max(0, min(5, int(stars))), song_id))
+        _rust.playlists_set_stars(conn, int(song_id), int(stars))
     library._touch()
     return ok
 
@@ -741,24 +439,21 @@ def favorite(song_id, value=True) -> bool:
         return False
     ok = tags.set_favorite(c["path"], value)
     with _connect() as conn:
-        conn.execute("UPDATE songs SET favorite=? WHERE id=?", (1 if value else 0, song_id))
+        _rust.playlists_set_favorite(conn, int(song_id), bool(value))
     library._touch()
     return ok
 
 
 def favorites() -> list[dict]:
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM songs WHERE favorite=1 ORDER BY artist, title"
-        ).fetchall()
-    return [dict(f) for f in rows]
+        return _rust.playlists_favorites(conn)
 
 
 def favorites_count() -> int:
     """Cuantas favoritas hay. Para el numero del menu no hace falta traerse
     las filas enteras, con su letra y sus acordes."""
     with _connect() as conn:
-        return conn.execute("SELECT COUNT(*) FROM songs WHERE favorite=1").fetchone()[0] or 0
+        return _rust.playlists_favorites_count(conn)
 
 
 # ---------------------------------------------------------------- m3u
@@ -787,12 +482,12 @@ def export_m3u(playlist_id, target=None) -> str:
     carpeta, levantan ValueError.
     """
     with _connect() as conn:
-        row = conn.execute("SELECT name FROM playlists WHERE id=?", (playlist_id,)).fetchone()
-    if not row:
+        name = _rust.playlists_name_of(conn, playlist_id)
+    if name is None:
         raise ValueError("no existe esa lista")
     folder = export_folder()
     if target is None:
-        safe = names.sanitize(str(row["name"]).replace("/", " ").replace("\\", " "))
+        safe = names.sanitize(str(name).replace("/", " ").replace("\\", " "))
         if not safe or safe in (".", "..") or ".." in safe.split():
             raise ValueError("el nombre de la lista no sirve como nombre de archivo")
         target = folder / f"{safe}.m3u8"
@@ -811,18 +506,18 @@ def export_m3u(playlist_id, target=None) -> str:
 def _sheet_target(playlist_id, suffix) -> tuple[Path, str]:
     """Donde va un archivo exportado de la lista, dentro de Listas/, y su nombre."""
     with _connect() as conn:
-        row = conn.execute("SELECT name FROM playlists WHERE id=?", (playlist_id,)).fetchone()
-    if not row:
+        name = _rust.playlists_name_of(conn, playlist_id)
+    if name is None:
         raise ValueError("no existe esa lista")
     folder = export_folder()
-    safe = names.sanitize(str(row["name"]).replace("/", " ").replace("\\", " "))
+    safe = names.sanitize(str(name).replace("/", " ").replace("\\", " "))
     if not safe or safe in (".", "..") or ".." in safe.split():
         raise ValueError("el nombre de la lista no sirve como nombre de archivo")
     target = folder / f"{safe}{suffix}"
     _listas(folder)
     if not library._inside(target.parent, folder):
         raise ValueError("la lista solo se exporta dentro de la carpeta Listas")
-    return target, str(row["name"])
+    return target, str(name)
 
 
 def _sheet_chords(c: dict) -> dict | None:
@@ -917,14 +612,12 @@ def import_m3u(path) -> int:
     path = Path(path)
     lid = create(path.stem)["id"]
     base = path.parent
-    ids = []
+    wanted = []
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        wanted.append(str((base / line).resolve()) if not os.path.isabs(line) else line)
     with _connect() as conn:
-        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            p = str((base / line).resolve()) if not os.path.isabs(line) else line
-            f = conn.execute("SELECT id FROM songs WHERE path=?", (p,)).fetchone()
-            if f:
-                ids.append(f["id"])
+        ids = _rust.playlists_ids_by_path(conn, wanted)
     return add(lid, ids) if ids else 0

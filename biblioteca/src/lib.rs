@@ -8,13 +8,16 @@
 pub mod avisos;
 pub mod cifrados;
 pub mod config;
+pub mod conversaciones;
 pub mod convertir;
 pub mod duplicados;
 pub mod etiquetas;
+pub mod fuera;
 pub mod habla;
 pub mod html;
 pub mod huella;
 pub mod indice;
+pub mod listas;
 pub mod miniaturas;
 pub mod nombres;
 pub mod onda;
