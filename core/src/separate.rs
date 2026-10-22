@@ -133,7 +133,7 @@ enum AnyNet {
 }
 
 impl AnyNet {
-    fn de(obj: &Bound<'_, PyAny>) -> Self {
+    fn from_py(obj: &Bound<'_, PyAny>) -> Self {
         match obj.cast::<OnnxSession>() {
             Ok(s) => Self::Ours(s.clone().unbind()),
             Err(_) => Self::FromPython(obj.clone().unbind()),
@@ -270,7 +270,7 @@ pub fn separation_separate(
     cancelled: Option<Py<PyAny>>,
 ) -> PyResult<()> {
     let data = mixed(&wav)?;
-    let mut net = AnyNet::de(session);
+    let mut net = AnyNet::from_py(session);
     let calls = Callbacks {
         progress,
         is_cancelled: cancelled,
@@ -496,7 +496,7 @@ pub fn separation_run<'py>(
                         let json = py.import("json")?;
                         let m = json.call_method1("loads", (manifest,))?;
                         let r = f.call1(py, (graph, m, weights, threads))?;
-                        Ok(AnyNet::de(r.bind(py)))
+                        Ok(AnyNet::from_py(r.bind(py)))
                     })
                     .map_err(Error::from)?;
                     return Ok(Box::new(net));
@@ -631,7 +631,7 @@ pub fn mega_separate(
     for (k, v) in tracks.iter() {
         stems.push((k.extract::<String>()?, from_numpy(&v)?.data));
     }
-    let mut net = AnyNet::de(session);
+    let mut net = AnyNet::from_py(session);
     let calls = Callbacks {
         progress,
         is_cancelled: cancelled,

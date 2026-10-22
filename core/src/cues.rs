@@ -153,8 +153,8 @@ fn samples(x: &Bound<'_, PyAny>) -> PyResult<Vec<f32>> {
 }
 
 /// `shutil.copyfile`: el contenido, sin los permisos.
-fn copy_file(de: &Path, a: &Path) -> std::io::Result<()> {
-    std::io::copy(&mut std::fs::File::open(de)?, &mut std::fs::File::create(a)?).map(|_| ())
+fn copy_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::io::copy(&mut std::fs::File::open(from)?, &mut std::fs::File::create(to)?).map(|_| ())
 }
 
 // ------------------------------------------------------------ las voces
@@ -532,7 +532,7 @@ pub fn cues_edit_clip<'py>(
     let mut x = x[begin..up_to].to_vec();
     let filters: Vec<&str> = [(highpass, "highpass=f=100"), (denoise, "afftdn=nf=-25")]
         .iter()
-        .filter(|(si, _)| *si)
+        .filter(|(on, _)| *on)
         .map(|(_, f)| *f)
         .collect();
     if !filters.is_empty() {

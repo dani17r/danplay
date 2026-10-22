@@ -278,10 +278,10 @@ def test_whatsapp_decorations_do_not_get_in_the_way(base, text):
 
 
 def test_a_wrong_artist_or_a_mention_does_not_hide_the_song(base):
-    sin = resolve.match_song("Rey Infinito")
+    without = resolve.match_song("Rey Infinito")
     for artist in ("Un Artista Cualquiera", "Trio Faro", "Ana Lopez", "Coro Aurora"):
         r = resolve.match_song("Rey Infinito", artist)
-        assert (r.status, pick(r)) == (sin.status, pick(sin)), artist
+        assert (r.status, pick(r)) == (without.status, pick(without)), artist
     # la @mencion no es el artista: aunque coincida con uno de la biblioteca, no decide
     plain = resolve.match_song("Digno De Adorar")
     with_mention = resolve.match_song("Digno De Adorar @Lucero D'Alba")
@@ -385,8 +385,8 @@ def test_the_second_pass_forgives_enye_at_a_discount(base):
     # tambien a la inversa: la ñ en lo pedido y la n en la biblioteca
     new = resolve.match_song("Año Nuevo")
     assert new.candidates[0].why == "titulo exacto"
-    sin = resolve.match_song("Ano Nuevo")
-    assert pick(sin) == base.ano and sin.candidates[0].why == "enye~n"
+    without = resolve.match_song("Ano Nuevo")
+    assert pick(without) == base.ano and without.candidates[0].why == "enye~n"
     # la ñ cuesta: con otra imperfeccion encima ya no es found
     assert resolve.match_song("Ano Nuevoo").status == "probable"
 
@@ -607,8 +607,8 @@ def test_an_already_downloaded_link_beats_the_title(base, db):
     other = resolve.match_song("Digno De Adorar", "Banda Horizonte", url=URL)
     assert (other.via, pick(other)) == ("enlace", base.dda_acu)
     # y sin titulo
-    sin = resolve.match_song("", url=URL)
-    assert (sin.via, pick(sin)) == ("enlace", base.dda_acu)
+    without = resolve.match_song("", url=URL)
+    assert (without.via, pick(without)) == ("enlace", base.dda_acu)
 
 
 @pytest.mark.parametrize(
@@ -665,8 +665,8 @@ def test_a_reused_id_does_not_count(base, db):
         "se encuentra por el titulo; el enlace queda por bajar"
     )
     # y sin titulo el enlace no lleva a nada
-    sin = resolve.match_song("", url=URL)
-    assert sin.status == "missing" and sin.via == ""
+    without = resolve.match_song("", url=URL)
+    assert without.status == "missing" and without.via == ""
 
 
 def test_history_is_walked_from_newest_to_oldest(base, db):
@@ -860,9 +860,9 @@ def test_title_key_is_stable_and_tells_apart():
     assert resolve.title_key("Mañana") != resolve.title_key("Manana"), (
         "la ñ se conserva, como en toda comparacion"
     )
-    with_extra = resolve.title_key("Digno De Adorar", "Banda Horizonte")
+    with_artist = resolve.title_key("Digno De Adorar", "Banda Horizonte")
     assert (
-        with_extra
+        with_artist
         == resolve.title_key("*1.-Digno De Adorar*", "banda  horizonte")
         != resolve.title_key("Digno De Adorar")
     )

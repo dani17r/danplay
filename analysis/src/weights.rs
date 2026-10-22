@@ -141,7 +141,7 @@ enum Class {
 }
 
 impl Class {
-    fn de(module: &str, name: &str) -> Result<Self, Error> {
+    fn from_names(module: &str, name: &str) -> Result<Self, Error> {
         const STORAGE_TYPES: [&str; 10] = [
             "FloatStorage",
             "HalfStorage",
@@ -908,7 +908,7 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
             b'c' => {
                 let module = l.line()?.to_owned();
                 let name = l.line()?.to_owned();
-                stack.push(V::Class(Class::de(&module, &name)?));
+                stack.push(V::Class(Class::from_names(&module, &name)?));
             }
             0x93 => {
                 let name = pop!();
@@ -916,12 +916,12 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
                 let (V::Text(module), V::Text(name)) = (&module, &name) else {
                     return Err(corrupt("STACK_GLOBAL requires str"));
                 };
-                stack.push(V::Class(Class::de(module, name)?));
+                stack.push(V::Class(Class::from_names(module, name)?));
             }
             b'i' => {
                 let module = l.line()?.to_owned();
                 let name = l.line()?.to_owned();
-                let cls = Class::de(&module, &name)?;
+                let cls = Class::from_names(&module, &name)?;
                 let args = pop_to_mark!();
                 stack.push(call(&V::Class(cls), &args)?);
             }

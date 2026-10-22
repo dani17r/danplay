@@ -651,10 +651,10 @@ def test_without_key_list_only_shows_anonymous_models(temp_profiles, monkeypatch
         },
     )()
     monkeypatch.setattr(ai, "_build_client", lambda p: fake)
-    sin = ai.list_models({"provider": "llm7"})
-    assert [m["id"] for m in sin["models"]] == ["minimax-m2.7"]
-    with_extra = ai.list_models({"provider": "llm7", "key": "token"})
-    assert {m["id"] for m in with_extra["models"]} == {"minimax-m2.7", "gpt-6-astra"}
+    without = ai.list_models({"provider": "llm7"})
+    assert [m["id"] for m in without["models"]] == ["minimax-m2.7"]
+    with_key = ai.list_models({"provider": "llm7", "key": "token"})
+    assert {m["id"] for m in with_key["models"]} == {"minimax-m2.7", "gpt-6-astra"}
 
 
 # ---------------------------------------------------------------------- TOON

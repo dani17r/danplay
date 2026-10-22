@@ -217,8 +217,8 @@ def test_the_server_sets_id_summary_and_effect(db, stamps):
     )
     assert three["summary"] == "Descargar 1 tema de YouTube"
     assert three["effect"] == "Al terminar: la añado a «domingo»"
-    sin = plan.register("download_music", {"items": ["uno"], "file_it": False})
-    assert sin["effect"] == "Al terminar: quedan en Entrada/ sin archivar"
+    without = plan.register("download_music", {"items": ["uno"], "file_it": False})
+    assert without["effect"] == "Al terminar: quedan en Entrada/ sin archivar"
 
 
 def test_model_args_cannot_sneak_in_after_or_plan(db, stamps):

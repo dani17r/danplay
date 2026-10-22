@@ -350,7 +350,7 @@ pub fn anchored(a: f64, b: f64, k: usize, lg: &[f64], slack: f64, tempo_weight: 
             cand = vec![c];
         }
         let mut best = Vec::with_capacity(cand.len());
-        let mut de = Vec::with_capacity(cand.len());
+        let mut from = Vec::with_capacity(cand.len());
         let mut ibis = Vec::with_capacity(cand.len());
         for &cf in &cand {
             let sc: Vec<f64> = prev_frames
@@ -371,13 +371,13 @@ pub fn anchored(a: f64, b: f64, k: usize, lg: &[f64], slack: f64, tempo_weight: 
             let total = sc[best_match] + lp[idx];
             let d = cf - prev_frames[best_match];
             best.push(total);
-            de.push(best_match);
+            from.push(best_match);
             ibis.push(if total.is_finite() { d } else { p });
         }
         prev_frames.clone_from(&cand);
         prev_score = best;
         prev_ibi = ibis;
-        steps.push((cand, de));
+        steps.push((cand, from));
     }
     if steps.is_empty() {
         return Vec::new();
@@ -401,9 +401,9 @@ pub fn anchored(a: f64, b: f64, k: usize, lg: &[f64], slack: f64, tempo_weight: 
     }
     let mut at = np::argmax(&finales);
     let mut path = Vec::with_capacity(steps.len());
-    for (cand, de) in steps.iter().rev() {
+    for (cand, from) in steps.iter().rev() {
         path.push(cand[at]);
-        at = de[at];
+        at = from[at];
     }
     path.reverse();
     path.into_iter().map(|f| f / FPS).collect()

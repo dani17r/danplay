@@ -225,17 +225,17 @@ pub fn reader(program: &str, path: &Path) -> Result<Child, Error> {
 /// Las siguientes `n` muestras (2, n); con ceros si la pista acaba antes.
 pub fn read(reader: &mut Child, n: usize) -> Result<Vec<f32>, Error> {
     let mut raw = vec![0u8; n * 8];
-    let mut hay = 0;
+    let mut filled = 0;
     if let Some(out) = reader.stdout.as_mut() {
-        while hay < raw.len() {
-            let k = out.read(&mut raw[hay..])?;
+        while filled < raw.len() {
+            let k = out.read(&mut raw[filled..])?;
             if k == 0 {
                 break;
             }
-            hay += k;
+            filled += k;
         }
     }
-    let data = unpack(&raw[..hay / 8 * 8]);
+    let data = unpack(&raw[..filled / 8 * 8]);
     let m = data.len() / 2;
     let mut out = vec![0f32; 2 * n];
     out[..m].copy_from_slice(&data[..m]);
@@ -739,7 +739,7 @@ pub fn run_max(
             let mut mix = Vec::with_capacity(2 * size);
             mix.extend_from_slice(&wav_ref[at..at + size]);
             mix.extend_from_slice(&wav_ref[length + at..length + at + size]);
-            let de = |k: &str| {
+            let stem_of = |k: &str| {
                 parts
                     .iter()
                     .find(|(x, _)| x == k)
@@ -747,13 +747,13 @@ pub fn run_max(
             };
             let mut all_items: Vec<&[f32]> = Vec::with_capacity(new_stems_ref.len() + 1);
             for k in new_stems_ref {
-                all_items.push(de(k).ok_or_else(|| Error::from(format!("'{k}'")))?);
+                all_items.push(stem_of(k).ok_or_else(|| Error::from(format!("'{k}'")))?);
             }
             all_items.push(&mix);
             levels_ref.add(&stack(&all_items, size));
             at += size;
             for (k, c) in cods.iter_mut() {
-                write(c, de(k).unwrap_or(&[]), size)?;
+                write(c, stem_of(k).unwrap_or(&[]), size)?;
             }
             Ok(())
         };

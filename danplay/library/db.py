@@ -577,7 +577,7 @@ Row = _rust.Row
 def connect() -> Connection:
     """Abre el indice (creandolo o migrandolo la primera vez).
 
-    Mejor con `with connect() as with_extran:`: confirma y cierra solo. Las
+    Mejor con `with connect() as conn:`: confirma y cierra solo. Las
     esperas (hasta cinco segundos si otro escribe) y el `synchronous=NORMAL`
     los pone Rust al abrir (`library::index::open`).
     """

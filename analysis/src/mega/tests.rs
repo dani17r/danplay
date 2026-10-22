@@ -151,13 +151,13 @@ fn split_adds_up_and_follows_what_the_net_hears() {
         0.25,
     )
     .expect("separa");
-    let de = |k: &str| {
+    let stem_of = |k: &str| {
         got.iter()
             .find(|(x, _)| x == k)
             .map(|(_, v)| v.clone())
             .expect(k)
     };
-    let (kit, perc) = (de("drums"), de("percussion"));
+    let (kit, perc) = (stem_of("drums"), stem_of("percussion"));
     assert_eq!(kit.len(), bat.len());
     assert!(
         kit.iter()
@@ -168,10 +168,10 @@ fn split_adds_up_and_follows_what_the_net_hears() {
     let core = RATE / 2..n - RATE / 2; // lejos de los bordes
     assert!(core.clone().all(|i| (perc[i] - bass[i]).abs() < 0.02));
     assert!(core.clone().all(|i| (kit[i] - high[i]).abs() < 0.02));
-    let eg = de("eguitar");
+    let eg = stem_of("eguitar");
     assert!(core.clone().all(|i| (eg[i] - guitar1[i]).abs() < 0.02));
     assert!(
-        de("piano").iter().all(|v| v.abs() < 1e-3),
+        stem_of("piano").iter().all(|v| v.abs() < 1e-3),
         "lo que la red no oye no se reparte"
     );
 }

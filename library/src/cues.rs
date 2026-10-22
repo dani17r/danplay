@@ -61,10 +61,10 @@ impl Catalog {
     /// La voz por su id (`cues._find`), con su motor y los archivos que
     /// necesita, cada uno con su URL y dónde va («dest», bajo `voices`).
     pub fn voice(&self, voices: &Path, id: &str) -> Option<Map<String, Value>> {
-        let es = |v: &&Value| v.get("id").and_then(Value::as_str) == Some(id);
+        let is_this = |v: &&Value| v.get("id").and_then(Value::as_str) == Some(id);
         let path_value = |p: &Path| Value::String(p.to_string_lossy().into_owned());
         let st = self.0.get("supertonic");
-        if let Some(v) = self.list("supertonic", "voices").iter().find(es) {
+        if let Some(v) = self.list("supertonic", "voices").iter().find(is_this) {
             let st = st.unwrap_or(&Value::Null);
             let files: Vec<Value> = self
                 .list("supertonic", "files")
@@ -96,7 +96,7 @@ impl Catalog {
             return Some(out);
         }
         let pi = self.0.get("piper").unwrap_or(&Value::Null);
-        let v = self.list("piper", "voices").iter().find(es)?;
+        let v = self.list("piper", "voices").iter().find(is_this)?;
         let model = v.get("model").and_then(Value::as_str).unwrap_or("");
         let files: Vec<Value> = v
             .get("files")
@@ -269,12 +269,12 @@ pub fn edited_cue_name(
     highpass: bool,
     normalize: bool,
 ) -> String {
-    let si = |v: bool| if v { "True" } else { "False" };
+    let py_bool = |v: bool| if v { "True" } else { "False" };
     let key = sha1_hex(&format!(
         "{own}|{a:.3}|{b:.3}|{fi:.3}|{fo:.3}|{}|{}|{}",
-        si(denoise),
-        si(highpass),
-        si(normalize)
+        py_bool(denoise),
+        py_bool(highpass),
+        py_bool(normalize)
     ));
     format!("editada-{}.wav", &key[..14])
 }

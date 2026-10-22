@@ -185,8 +185,8 @@ pub fn distribute(
     spectra: &[(String, Stereo)],
 ) -> Result<Vec<(String, Stereo)>, Error> {
     let mut out = Vec::new();
-    let de = |k: &str| spectra.iter().find(|(x, _)| x == k).map(|(_, v)| v);
-    if let Some(bat) = de("drums") {
+    let spectrum_of = |k: &str| spectra.iter().find(|(x, _)| x == k).map(|(_, v)| v);
+    if let Some(bat) = spectrum_of("drums") {
         // `sum(...)`: una tras otra, empezando de cero
         let mut perc: Option<[Vec<f32>; 2]> = None;
         for h in PERCUSSION {
@@ -211,7 +211,7 @@ pub fn distribute(
         out.push(("percussion".to_owned(), percussion));
         out.push(("drums".to_owned(), rest));
     }
-    if let Some(voices) = de("vocals") {
+    if let Some(voices) = spectrum_of("vocals") {
         let lead = energy(estimates, &LEAD)?;
         let back = energy(estimates, &BACKING)?;
         let part = |c: usize, i: usize| back[c][i] / (lead[c][i] + back[c][i] + EPS);
@@ -220,7 +220,7 @@ pub fn distribute(
         out.push(("backing".to_owned(), backing));
         out.push(("lead".to_owned(), primary));
     }
-    if let Some(mel) = de("melodic") {
+    if let Some(mel) = spectrum_of("melodic") {
         // Cada instrumento, lo que oye su cabeza (con su fase), sin pasar en
         // ningún punto de lo que hay en lo melódico. Medido contra la verdad
         // de una secuencia (las pistas de MultiTracks): repartir lo melódico
