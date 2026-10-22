@@ -9,10 +9,12 @@
 //! Por partes, como en danplay/library/:
 //!
 //!   carpetas    las carpetas gestionadas, las exclusiones y qué audio hay dentro
+//!   canciones   una canción: leerla, cambiarla, dónde está, su modo estudio
 //!   busqueda    buscar, filtrar, ordenar; las filas ligeras de las listas
 //!   escaneo     poner el índice al día con el disco
 //!   historial   el historial de descargas y lo que gasta la IA
 pub mod busqueda;
+pub mod canciones;
 pub mod carpetas;
 pub mod escaneo;
 pub mod historial;

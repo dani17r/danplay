@@ -4,15 +4,16 @@ mandarla a la papelera o sacarla del indice."""
 import contextlib
 import logging
 import os
-import re
 import shutil
 import subprocess
 import sys
 from typing import cast
 
+import danplay_core as _rust
+
 from .. import config, tags
 from . import db
-from .db import _SCAN_LOCK, SCAN_BATCH, Song, _to_missing, _touch
+from .db import _SCAN_LOCK, Song, _to_missing, _touch
 
 log = logging.getLogger(__name__)
 
@@ -20,42 +21,20 @@ log = logging.getLogger(__name__)
 def by_id(cid: int) -> Song | None:
     """La cancion de la biblioteca con ese id (la fila entera), o None."""
     with db.connect() as conn:
-        f = conn.execute("SELECT * FROM songs WHERE id=?", (cid,)).fetchone()
-    return cast(Song, dict(f)) if f else None
+        f = _rust.songs_by_id(conn, int(cid))
+    return cast(Song, f) if f else None
 
 
 def update(cid: int, **fields) -> int:
-    """Cambia columnas del indice (solo el indice). Devuelve filas tocadas."""
-    allowed = {
-        "artist",
-        "title",
-        "album",
-        "year",
-        "genre",
-        "feat",
-        "key",
-        "bpm",
-        "cover",
-        "lyrics",
-        "lyrics_synced",
-        "chords",
-        "analyzed",
-        "stars",
-        "favorite",
-        "blur",
-        "study",
-        "stems",
-    }
-    fields = {k: v for k, v in fields.items() if k in allowed}
-    if not fields:
-        return 0
+    """Cambia columnas del indice (solo el indice). Devuelve filas tocadas.
+    Solo las que se pueden cambiar a mano (`biblioteca::indice::canciones::
+    EDITABLE`); lo demas sale del archivo."""
     with db.connect() as conn:
-        cur = conn.execute(
-            f"UPDATE songs SET {','.join(f'{k}=?' for k in fields)} WHERE id=?",  # noqa: S608
-            [*list(fields.values()), cid],
-        )
+        n = _rust.songs_update(conn, int(cid), fields)
+    if n is None:
+        return 0
     _touch()
-    return cur.rowcount or 0
+    return n
 
 
 _METADATA_FIELDS = ("artist", "title", "album", "year", "genre")
@@ -327,288 +306,34 @@ def paths_of(ids) -> dict[int, str | None]:
     que ya no esta sale de la cola.
     """
     ids = [int(i) for i in ids if int(i) > 0]
-    out: dict[int, str | None] = dict.fromkeys(ids)
     if not ids:
-        return out
+        return {}
     with db.connect() as conn:
-        for i in range(0, len(ids), SCAN_BATCH):
-            chunk = ids[i : i + SCAN_BATCH]
-            marks = ",".join("?" * len(chunk))
-            for r in conn.execute(f"SELECT id, path FROM songs WHERE id IN ({marks})", chunk):  # noqa: S608
-                out[r["id"]] = r["path"] if os.path.isfile(r["path"]) else None
-    return out
+        return _rust.songs_paths_of(conn, ids)
 
 
 # Lo que se guarda del modo estudio y sus limites: un JSON pequeño y con
-# forma conocida, no lo que mande cualquiera.
+# forma conocida, no lo que mande cualquiera (lo limpia Rust:
+# `biblioteca::indice::canciones::clean_study`).
 STUDY_KEYS = ("loop", "loops", "speed", "pitch", "metronome", "markers", "notes", "mixer")
-
-
-def _segments(raw, limit: int = 32) -> list[list[float]]:
-    """Tramos [a, b] validos (0 <= a < b), en orden y juntando los que se
-    pisan: la forma en que el reproductor los recorre uno detras de otro."""
-    out: list[list[float]] = []
-    for v in list(raw or [])[:limit]:
-        if not isinstance(v, (list, tuple)) or len(v) != 2:
-            continue
-        try:
-            a, b = float(v[0]), float(v[1])
-        except (TypeError, ValueError):
-            continue
-        if 0 <= a < b < float("inf"):
-            out.append([round(a, 2), round(b, 2)])
-    out.sort()
-    merged: list[list[float]] = []
-    for a, b in out:
-        if merged and a <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], b)
-        else:
-            merged.append([a, b])
-    return merged
-
-
-# Los compases del metronomo que se pueden poner a mano: 0 es sin acento.
-METERS = (0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
-
-
-def _mixer(raw) -> dict:
-    """El mezclador de las pistas separadas: si suenan ellas (`on`) y, de
-    cada pista, lo que no esta como viene (volumen, panorama, callada, sola)."""
-    if not isinstance(raw, dict):
-        return {}
-    out: dict = {}
-    if raw.get("on"):
-        out["on"] = True
-    tracks = {}
-    # hasta 32: una secuencia descargada trae veintitantas
-    for name, t in list((raw.get("tracks") or {}).items())[:32]:
-        if not isinstance(t, dict) or not str(name).isidentifier() or len(str(name)) > 24:
-            continue
-        item: dict = {}
-        with contextlib.suppress(TypeError, ValueError):
-            gain = round(float(t.get("gain", 1.0)), 2)
-            if 0 <= gain <= 2 and gain != 1.0:
-                item["gain"] = gain
-        with contextlib.suppress(TypeError, ValueError):
-            pan = round(float(t.get("pan", 0.0)), 2)
-            if -1 <= pan <= 1 and pan != 0.0:
-                item["pan"] = pan
-        if t.get("mute"):
-            item["mute"] = True
-        if t.get("solo"):
-            item["solo"] = True
-        if item:
-            tracks[str(name)] = item
-    if tracks:
-        out["tracks"] = tracks
-    return out
-
-
-def _own_click(own) -> dict | None:
-    """El clic propio (los pulsos ajustados a mano): crecientes, al
-    milisegundo, y los «1» que caigan en ellos. Menos de dos, nada."""
-    if not isinstance(own, dict):
-        return None
-    beats: list[float] = []
-    for t in (own.get("beats") or [])[:8000]:
-        try:
-            t = round(float(t), 3)
-        except (TypeError, ValueError, OverflowError):
-            continue
-        if t >= 0 and (not beats or t > beats[-1] + 0.01):
-            beats.append(t)
-    if len(beats) < 2:
-        return None
-    bars = sorted(
-        {
-            int(i)
-            for i in (own.get("bars") or [])[:8000]
-            if isinstance(i, int) and 0 <= i < len(beats)
-        }
-    )
-    out: dict = {"beats": beats, "bars": bars}
-    if own.get("meter") in METERS:
-        out["meter"] = int(own["meter"])
-    return out
-
-
-# la clave de un carril de guias: corta y sin nada raro (va en el JSON del
-# estudio y en la etiqueta del archivo)
-_LANE_KEY = re.compile(r"^[a-z][a-z0-9]{0,11}$")
-MAX_CUE_LANES = 6
-
-
-def _cue_lanes(raw) -> list[dict]:
-    """Los carriles de las guias (hasta 6): su clave, su nombre y lo que no
-    esta como viene (volumen, callado, solo, el de la guia automatica)."""
-    out: list[dict] = []
-    seen: set[str] = set()
-    for lane in (raw if isinstance(raw, list) else [])[:MAX_CUE_LANES]:
-        if not isinstance(lane, dict):
-            continue
-        key = str(lane.get("key") or "")
-        if not _LANE_KEY.match(key) or key in seen:
-            continue
-        seen.add(key)
-        item: dict = {"key": key, "name": str(lane.get("name") or "").strip()[:40]}
-        with contextlib.suppress(TypeError, ValueError):
-            gain = round(float(lane.get("gain", 1.0)), 2)
-            if 0 <= gain <= 2 and gain != 1.0:
-                item["gain"] = gain
-        if lane.get("mute"):
-            item["mute"] = True
-        if lane.get("solo"):
-            item["solo"] = True
-        if lane.get("auto"):
-            item["auto"] = True
-        out.append(item)
-    return out
-
-
-def _cues(cues) -> list[dict]:
-    """Las guias habladas: en su segundo y con su archivo, que tiene que ser
-    de la carpeta de guias de DanPlay (lo demas, ni se toca: la etiqueta de
-    un archivo de fuera podria apuntar a cualquier sitio)."""
-    from .. import cues as guides
-
-    out = []
-    for c in (cues or [])[:200]:
-        if not isinstance(c, dict):
-            continue
-        try:
-            t = round(float(c.get("t") or 0), 2)
-        except (TypeError, ValueError, OverflowError):
-            continue
-        file = guides.own_file(c.get("file"))
-        if t < 0 or not file:
-            continue
-        item: dict = {"t": t, "file": file}
-        text = str(c.get("text") or "").strip()[:300]
-        if text:
-            item["text"] = text
-        voice = str(c.get("voice") or "").strip()[:80]
-        if voice:
-            item["voice"] = voice
-        lane = str(c.get("lane") or "")
-        if _LANE_KEY.match(lane):
-            item["lane"] = lane
-        try:
-            gain = float(c.get("gain") or 0) if c.get("gain") is not None else 1.0
-            if 0 <= gain <= 3 and abs(gain - 1) > 1e-3:
-                item["gain"] = round(gain, 2)
-        except (TypeError, ValueError):
-            pass
-        out.append(item)
-    return sorted(out, key=lambda c: c["t"])
 
 
 def set_study(cid: int, study: dict | None) -> Song | None:
     """Guarda el modo estudio de una cancion (indice y etiqueta del archivo).
-    Con None o vacio, lo quita. Devuelve la ficha."""
-    import json as _json
+    Con None o vacio, lo quita. Devuelve la ficha.
+
+    Lo que se guarda, ya limpio: el tramo que se repite (o varios), la
+    velocidad, el tono corrido, lo que se ajusto del metronomo (y el clic
+    propio), los marcadores con sus notas, las notas, el mezclador de las
+    pistas, las guias habladas (solo de la carpeta de guias de DanPlay) y sus
+    carriles.
+    """
+    from .. import cues as guides
 
     c = by_id(cid)
     if not c:
         return None
-    clean: dict = {}
-    if study:
-        # el tramo que se repite; con varios, `loops` (y un solo tramo se
-        # guarda siempre como `loop`, que es lo que entienden las versiones
-        # de antes)
-        loops = _segments(study.get("loops"))
-        if not loops:
-            loops = _segments([study.get("loop")])
-        if len(loops) == 1:
-            clean["loop"] = loops[0]
-        elif loops:
-            clean["loops"] = loops
-        try:
-            speed = float(study.get("speed") or 1.0)
-            if 0.25 <= speed <= 3.0 and abs(speed - 1.0) > 1e-3:
-                clean["speed"] = round(speed, 2)
-        except (TypeError, ValueError):
-            pass
-        # el tono corrido, en semitonos (al centesimo: medio semitono es un
-        # cuarto de tono); 0 no se guarda, y uno entero se guarda entero
-        try:
-            pitch = round(float(study.get("pitch") or 0), 2)
-            if pitch and -12 <= pitch <= 12:
-                clean["pitch"] = int(pitch) if pitch.is_integer() else pitch
-        except (TypeError, ValueError, OverflowError):
-            pass
-        # el metronomo: solo lo que uno ajusto a mano sobre lo detectado
-        metro = study.get("metronome")
-        if isinstance(metro, dict):
-            m: dict = {}
-            try:
-                if metro.get("bpm") is not None:
-                    bpm = float(metro["bpm"])
-                    if 20 <= bpm <= 300:
-                        m["bpm"] = round(bpm, 2)
-            except (TypeError, ValueError):
-                pass
-            # el compas: 0 es sin acento (todos los clics iguales)
-            if metro.get("meter") in METERS:
-                m["meter"] = int(metro["meter"])
-            try:
-                shift = int(metro.get("shift") or 0)
-                if shift:
-                    m["shift"] = max(-12, min(12, shift))
-            except (TypeError, ValueError):
-                pass
-            if metro.get("mult") in (-1, 1):
-                m["mult"] = int(metro["mult"])
-            own = _own_click(metro.get("own"))
-            if own:
-                m["own"] = own
-            if m:
-                clean["metronome"] = m
-        # Un marcador es un tramo con nombre ({t, end, label}) y, si se quiere,
-        # sus notas; sin `end` es un instante suelto. Un `end` que no vaya
-        # detras de `t` se descarta y el marcador queda como instante.
-        markers = []
-        for m in (study.get("markers") or [])[:50]:
-            if not isinstance(m, dict) or m.get("t") is None:
-                continue
-            try:
-                t = float(m["t"])
-            except (TypeError, ValueError):
-                continue
-            if t < 0:
-                continue
-            item = {"t": round(t, 2), "label": str(m.get("label") or "").strip()[:60]}
-            raw_end = m.get("end")
-            try:
-                end = float(raw_end) if raw_end is not None else None
-            except (TypeError, ValueError):
-                end = None
-            if end is not None and end > t:
-                item["end"] = round(end, 2)
-            # un marcador de varios tramos: `t` y `end` abarcan todos, para
-            # que una version anterior lo vea como un tramo largo
-            parts = _segments(m.get("parts"))
-            if len(parts) > 1:
-                item["parts"] = parts
-                item["t"], item["end"] = parts[0][0], parts[-1][1]
-            notes = str(m.get("notes") or "").strip()[:2000]
-            if notes:
-                item["notes"] = notes
-            markers.append(item)
-        if markers:
-            clean["markers"] = sorted(markers, key=lambda m: m["t"])
-        notes = str(study.get("notes") or "").strip()[:4000]
-        if notes:
-            clean["notes"] = notes
-        mixer = _mixer(study.get("mixer"))
-        if mixer:
-            clean["mixer"] = mixer
-        cues = _cues(study.get("cues"))
-        if cues:
-            clean["cues"] = cues
-        lanes = _cue_lanes(study.get("cueLanes", study.get("cue_lanes")))
-        if lanes:
-            clean["cueLanes"] = lanes
-    raw = _json.dumps(clean, ensure_ascii=False) if clean else ""
+    raw = _rust.songs_clean_study(study or {}, str(guides.folder()))
     update(cid, study=raw)
     if config.WRITE_TAGS and os.path.exists(c["path"]):
         tags.write_study(c["path"], raw)

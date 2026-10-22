@@ -213,6 +213,96 @@ pub fn repr(v: &Value) -> String {
     }
 }
 
+/// `json.dumps(v, ensure_ascii=False)` de Python: con «, » y «: » entre
+/// las piezas, los reales como `repr` (`1.0`, `1e-05`) y sin escapar lo que
+/// no es ASCII. Lo que se guarda así (el estudio, en la base y en la
+/// etiqueta) tiene que salir igual que lo escribía Python.
+pub fn dumps(v: &Value) -> String {
+    let mut out = String::new();
+    dump_into(v, &mut out);
+    out
+}
+
+fn dump_into(v: &Value, out: &mut String) {
+    match v {
+        Value::Null => out.push_str("null"),
+        Value::Bool(true) => out.push_str("true"),
+        Value::Bool(false) => out.push_str("false"),
+        Value::Number(n) => match (n.as_i64(), n.as_u64()) {
+            (Some(i), _) => out.push_str(&i.to_string()),
+            (None, Some(u)) => out.push_str(&u.to_string()),
+            _ => out.push_str(&repr_float(n.as_f64().unwrap_or(f64::NAN))),
+        },
+        Value::String(s) => dump_str(s, out),
+        Value::Array(a) => {
+            out.push('[');
+            for (i, x) in a.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                dump_into(x, out);
+            }
+            out.push(']');
+        }
+        Value::Object(o) => {
+            out.push('{');
+            for (i, (k, x)) in o.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                dump_str(k, out);
+                out.push_str(": ");
+                dump_into(x, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
+fn dump_str(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+/// `list(v)` de Python con lo que llega de un JSON (lo vacío, si no es nada:
+/// `list(v or [])`): una lista tal cual, un texto en sus caracteres, un
+/// diccionario en sus claves.
+pub fn list_of(v: &Value) -> Vec<Value> {
+    match v {
+        Value::Array(a) => a.clone(),
+        Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
+        Value::Object(o) => o.keys().map(|k| Value::String(k.clone())).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// `v in (a, b, ...)` de Python con números: un real o un `bool` valen si
+/// son el mismo número (`4.0 in (4,)`, `True in (1,)`).
+#[allow(clippy::float_cmp, reason = "es el `==` de Python")]
+pub fn number_in(v: &Value, options: &[i64]) -> Option<i64> {
+    let x = match v {
+        Value::Bool(b) => f64::from(u8::from(*b)),
+        Value::Number(n) => n.as_f64()?,
+        _ => return None,
+    };
+    options.iter().copied().find(|&o| o as f64 == x)
+}
+
 /// `repr` de un texto en Python: entre comillas simples (o dobles si dentro
 /// hay simples y no dobles), con los invisibles escapados.
 pub fn repr_str(s: &str) -> String {

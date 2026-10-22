@@ -3,7 +3,7 @@
 //! que abrió Python (`library.connect()`), y escribe dentro de su transacción.
 use crate::indice::{Connection, with_conn};
 use crate::json::{dict, dicts, from_python, to_python};
-use biblioteca::indice::{self, Dic, busqueda, carpetas, escaneo, historial};
+use biblioteca::indice::{self, Dic, busqueda, canciones, carpetas, escaneo, historial};
 use biblioteca::serde_json::Value;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -580,6 +580,56 @@ pub fn scan_ident(row: &Bound<'_, PyAny>) -> PyResult<String> {
     Ok(escaneo::ident(&as_dic(Some(row))?))
 }
 
+// ------------------------------------------------------------------ canciones
+
+#[pyfunction]
+pub fn songs_by_id<'py>(
+    py: Python<'py>,
+    conn: &Bound<'py, Connection>,
+    cid: i64,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let row = with_conn(py, conn, move |c| canciones::by_id(c, cid))?;
+    row.map(|r| dict(py, &r)).transpose()
+}
+
+#[pyfunction]
+pub fn songs_update(
+    py: Python<'_>,
+    conn: &Bound<'_, Connection>,
+    cid: i64,
+    fields: &Bound<'_, PyAny>,
+) -> PyResult<Option<usize>> {
+    let fields = as_dic(Some(fields))?;
+    with_conn(py, conn, move |c| canciones::update(c, cid, &fields))
+}
+
+/// {id: ruta, o None si su archivo no está}, en el orden en que llegan.
+#[pyfunction]
+pub fn songs_paths_of<'py>(
+    py: Python<'py>,
+    conn: &Bound<'py, Connection>,
+    ids: Vec<i64>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let found = with_conn(py, conn, move |c| canciones::paths_of(c, &ids))?;
+    let out = PyDict::new(py);
+    for (id, path) in found {
+        out.set_item(id, path)?;
+    }
+    Ok(out)
+}
+
+#[pyfunction]
+pub fn songs_clean_study(study: &Bound<'_, PyAny>, cues_dir: &str) -> PyResult<String> {
+    Ok(canciones::clean_study(&from_python(study)?, cues_dir))
+}
+
+#[pyfunction]
+#[pyo3(signature = (path, base, previews = false))]
+pub fn songs_own_cue_file(path: &Bound<'_, PyAny>, base: &str, previews: bool) -> PyResult<Option<String>> {
+    let path = from_python(path).unwrap_or(Value::Null);
+    Ok(canciones::own_cue_file(Some(&path), base, previews))
+}
+
 /// Registra las funciones en el módulo.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(db_revision, m)?)?;
@@ -632,5 +682,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(scan_restore_playlists, m)?)?;
     m.add_function(wrap_pyfunction!(scan_index_file, m)?)?;
     m.add_function(wrap_pyfunction!(scan_ident, m)?)?;
+    m.add_function(wrap_pyfunction!(songs_by_id, m)?)?;
+    m.add_function(wrap_pyfunction!(songs_update, m)?)?;
+    m.add_function(wrap_pyfunction!(songs_paths_of, m)?)?;
+    m.add_function(wrap_pyfunction!(songs_clean_study, m)?)?;
+    m.add_function(wrap_pyfunction!(songs_own_cue_file, m)?)?;
     Ok(())
 }
