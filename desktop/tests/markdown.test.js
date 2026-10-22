@@ -115,7 +115,7 @@ describe('markdown del asistente: lo que entiende', () => {
 // negritas sin cerrar, y diez mil «>» seguidos agotaban la pila.
 describe('markdown del asistente: texto hostil', () => {
   /** Lo ejecuta y comprueba que no tarda; el tope es holgado, antes eran segundos. */
-  const rapido = (fn, ms = 250) => {
+  const quick = (fn, ms = 250) => {
     const t0 = performance.now()
     const out = fn()
     expect(performance.now() - t0, 'tarda demasiado').toBeLessThan(ms)
@@ -123,7 +123,7 @@ describe('markdown del asistente: texto hostil', () => {
   }
 
   it('diez mil «>» seguidos no se quedan sin pila', () => {
-    const html = rapido(() => renderMarkdown('>'.repeat(10000)))
+    const html = quick(() => renderMarkdown('>'.repeat(10000)))
     expect(html.startsWith('<blockquote>')).toBe(true)
     // las citas se anidan hasta un tope; lo de mas alla se lee como texto
     expect(html.match(/<blockquote>/g).length).toBeLessThanOrEqual(8)
@@ -132,35 +132,35 @@ describe('markdown del asistente: texto hostil', () => {
 
   it('80 KB de negritas sin cerrar se leen en un momento', () => {
     for (const d of ['**', '__', '~~']) {
-      const html = rapido(() => renderMarkdown(`${d}a `.repeat(20000)))
+      const html = quick(() => renderMarkdown(`${d}a `.repeat(20000)))
       expect(html).not.toMatch(/<(strong|del)>/)
     }
   })
 
   it('y las que si cierran se siguen marcando igual', () => {
     const t = '**uno** y **dos** '.repeat(2000)
-    const html = rapido(() => renderMarkdown(t))
+    const html = quick(() => renderMarkdown(t))
     expect(html.match(/<strong>/g)).toHaveLength(4000)
     expect(inline('***a**')).toBe('<strong>*a</strong>')
     expect(inline('** no ** es negrita')).toBe('** no ** es negrita')
   })
 
   it('una linea llena de corchetes sin cerrar tampoco se atasca', () => {
-    rapido(() => renderMarkdown('['.repeat(80000)))
-    const html = rapido(() => renderMarkdown('[a]'.repeat(20000) + '(http://x.y)'))
+    quick(() => renderMarkdown('['.repeat(80000)))
+    const html = quick(() => renderMarkdown('[a]'.repeat(20000) + '(http://x.y)'))
     expect(html.match(/md-link/g)).toHaveLength(1)
-    rapido(() => renderMarkdown('[a](http://'.repeat(20000)))
+    quick(() => renderMarkdown('[a](http://'.repeat(20000)))
   })
 
   it('ni un titulo con muchos espacios dentro', () => {
-    const html = rapido(() => renderMarkdown('# a' + ' '.repeat(80000) + 'b'))
+    const html = quick(() => renderMarkdown('# a' + ' '.repeat(80000) + 'b'))
     expect(html.startsWith('<h1>a')).toBe(true)
     expect(html.endsWith('b</h1>')).toBe(true)
   })
 
   it('las listas muy anidadas se quedan en un tope', () => {
     const t = Array.from({ length: 3000 }, (_, i) => ' '.repeat(i * 2) + '- x').join('\n')
-    const html = rapido(() => renderMarkdown(t))
+    const html = quick(() => renderMarkdown(t))
     expect(html.match(/<ul>/g).length).toBeLessThanOrEqual(10)
   })
 })

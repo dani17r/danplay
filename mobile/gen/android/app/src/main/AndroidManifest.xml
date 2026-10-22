@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- la notificación con los mandos de lo que suena (Reproduciendo.kt):
+    <!-- la notificación con los mandos de lo que suena (PlaybackService.kt):
          un servicio «en primer plano» de reproducción, para que Android no
          cierre la app mientras suena con la pantalla apagada -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- la música del teléfono (musica.rs): leer las canciones con su ruta.
+    <!-- la música del teléfono (music.rs): leer las canciones con su ruta.
          Se pide al ir a verla, no al abrir la app -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
@@ -20,7 +20,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:appCategory="audio"
         android:label="@string/app_name"
-        android:theme="@style/Theme.danplay_movil"
+        android:theme="@style/Theme.danplay_mobile"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
@@ -57,7 +57,7 @@
         </activity>
 
         <service
-            android:name=".Reproduciendo"
+            android:name=".PlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 

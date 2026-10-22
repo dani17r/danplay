@@ -5,18 +5,18 @@
  *
  * DanPlay es obra de Daniel Rangel, y esta página lo dice primero: con su
  * contacto para quien quiera colaborar. Las novedades salen de
- * data/novedades.js (cortas, para quien usa la app) y los términos de
- * data/terminos.js, los mismos que la ventana de aceptarlos.
+ * data/releases.js (cortas, para quien usa la app) y los términos de
+ * data/terms.js, los mismos que la ventana de aceptarlos.
  */
 import { computed } from 'vue'
 import Icon from './Icon.vue'
 import { app as tauriApp } from '../api.js'
 import { useTerms } from '../composables/useTerms.js'
 import { notify } from '../composables/useNotices.js'
-import { AUTHOR, TERMS, TERMS_VERSION } from '../data/terminos.js'
-import { RELEASES, compareVersions } from '../data/novedades.js'
+import { AUTHOR, TERMS, TERMS_VERSION } from '../data/terms.js'
+import { RELEASES, compareVersions } from '../data/releases.js'
 import { version } from '../../package.json'
-import logo from '../movil/icono.png'
+import logo from '../mobile/icon.png'
 
 const props = defineProps({
   /** la pestaña: 'about' | 'news' | 'terms' */

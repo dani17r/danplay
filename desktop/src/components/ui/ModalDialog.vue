@@ -57,31 +57,31 @@ watch(
   () => props.open,
   (v) => {
     if (!v) {
-      document.removeEventListener('keydown', teclas)
+      document.removeEventListener('keydown', onKeydown)
       return
     }
-    document.addEventListener('keydown', teclas)
+    document.addEventListener('keydown', onKeydown)
     text.value = props.value || ''
     checked.value = !!props.check?.value
   },
   { immediate: true }
 ) // por si nace ya abierto
 
-onUnmounted(() => document.removeEventListener('keydown', teclas))
+onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
-const puedeAceptar = () => props.kind !== 'prompt' || !!text.value.trim()
+const canAccept = () => props.kind !== 'prompt' || !!text.value.trim()
 
-async function elegir() {
+async function onBrowse() {
   const path = await props.browse?.()
   if (path) text.value = path
 }
 
-function aceptar() {
-  if (!puedeAceptar()) return
+function accept() {
+  if (!canAccept()) return
   if (props.kind === 'prompt') emit('ok', text.value.trim())
   else emit('ok', props.check ? { checked: checked.value } : true)
 }
-function teclas(e) {
+function onKeydown(e) {
   if (e.key === 'Escape') {
     e.preventDefault()
     emit('cancel')
@@ -93,7 +93,7 @@ function teclas(e) {
   // la cancion a la papelera o borrara la lista.
   if (e.target instanceof Element && e.target.closest('button')) return
   e.preventDefault()
-  aceptar()
+  accept()
 }
 </script>
 
@@ -120,9 +120,9 @@ function teclas(e) {
             width="100%"
             :placeholder="placeholder"
             :aria-label="title || placeholder"
-            @enter="aceptar"
+            @enter="accept"
           />
-          <button v-if="browse" type="button" class="btn" @click="elegir">
+          <button v-if="browse" type="button" class="btn" @click="onBrowse">
             <Icon n="folderOpen" :t="14" /> Elegir…
           </button>
         </div>
@@ -139,8 +139,8 @@ function teclas(e) {
             type="button"
             class="btn"
             :class="danger ? 'danger' : 'primary'"
-            :disabled="!puedeAceptar()"
-            @click="aceptar"
+            :disabled="!canAccept()"
+            @click="accept"
           >
             {{ okLabel }}
           </button>

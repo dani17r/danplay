@@ -55,7 +55,7 @@ impl Recorder {
             let stop = Arc::clone(&stop);
             let level = Arc::clone(&level);
             std::thread::Builder::new()
-                .name("danplay-grabar".into())
+                .name("danplay-record".into())
                 .spawn(move || run(&stop, &level, &ready_tx))
                 .map_err(|e| format!("no se pudo empezar a grabar: {e}"))?
         };
@@ -239,7 +239,7 @@ mod tests {
             samples: vec![0.0, 0.5, -0.5, 1.0, -1.5],
             rate: 16000,
         };
-        let dir = std::env::temp_dir().join(format!("danplay-grabar-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("danplay-record-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("carpeta");
         let path = dir.join("guia.wav");
         write_wav(&path, &take).expect("escribir");

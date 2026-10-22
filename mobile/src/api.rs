@@ -110,7 +110,7 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
             Ok(json!({
                 "stats": {"total": total},
                 "revision": lib.revision(),
-                "movil": true,
+                "mobile": true,
                 "ai": null,
                 "folders": [],
             }))
@@ -129,14 +129,14 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
                 .songs()
                 .into_iter()
                 .filter(|s| {
-                    let hay = plain(&format!(
+                    let haystack = plain(&format!(
                         "{} {} {} {}",
                         s["title"].as_str().unwrap_or(""),
                         s["artist"].as_str().unwrap_or(""),
                         s["album"].as_str().unwrap_or(""),
                         s["key"].as_str().unwrap_or("")
                     ));
-                    words.iter().all(|w| hay.contains(w.as_str()))
+                    words.iter().all(|w| haystack.contains(w.as_str()))
                 })
                 .collect();
             let count = songs.len();
@@ -151,7 +151,7 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
                 .filter(|s| s["favorite"] == json!(true))
                 .count();
             let lists: Vec<Value> = lib
-                .listas
+                .playlists
                 .all()
                 .iter()
                 .map(|l| {
@@ -164,26 +164,26 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
         }
         ("POST", ["playlists"]) => {
             let name = body.get("name").and_then(Value::as_str).unwrap_or("");
-            let l = lib.listas.create(name).map_err(|e| (422, e))?;
+            let l = lib.playlists.create(name).map_err(|e| (422, e))?;
             Ok(json!({"id": l.id, "name": l.name, "created": true}))
         }
         ("PATCH", ["playlists", _]) => {
             let name = body.get("name").and_then(Value::as_str).unwrap_or("");
             let l = lib
-                .listas
+                .playlists
                 .rename(id(1).ok_or_else(missing)?, name)
                 .map_err(|e| (422, e))?;
             Ok(json!({"id": l.id, "name": l.name, "n": l.songs.len()}))
         }
         ("DELETE", ["playlists", _]) => {
-            lib.listas
+            lib.playlists
                 .remove(id(1).ok_or_else(missing)?)
                 .map_err(|e| (404, e))?;
             Ok(json!({"ok": true}))
         }
         ("GET", ["playlists", _, "songs"]) => {
             let l = lib
-                .listas
+                .playlists
                 .get(id(1).ok_or_else(missing)?)
                 .ok_or((404, "esa lista ya no está".to_string()))?;
             Ok(json!({"id": l.id, "name": l.name, "songs": list_songs(lib, &l.songs)}))
@@ -191,14 +191,14 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
         ("POST", ["playlists", _, "songs"]) => {
             let folders = folders_of(lib, &body);
             let (added, count) = lib
-                .listas
+                .playlists
                 .add(id(1).ok_or_else(missing)?, &folders)
                 .map_err(|e| (404, e))?;
             Ok(json!({"added": added, "count": count}))
         }
         ("PUT", ["playlists", _, "songs"]) | ("POST", ["playlists", _, "order"]) => {
             let count = lib
-                .listas
+                .playlists
                 .set(id(1).ok_or_else(missing)?, folders_of(lib, &body))
                 .map_err(|e| (404, e))?;
             Ok(json!({"ok": true, "count": count}))
@@ -208,13 +208,13 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
                 .folder_name(id(3).ok_or_else(missing)?)
                 .ok_or_else(missing)?;
             let count = lib
-                .listas
+                .playlists
                 .take_out(id(1).ok_or_else(missing)?, &folder)
                 .map_err(|e| (404, e))?;
             Ok(json!({"ok": true, "count": count}))
         }
-        // ---- la música del teléfono (ver musica.rs)
-        ("GET", ["phone", "folders"]) => Ok(lib.musica.folders()),
+        // ---- la música del teléfono (ver music.rs)
+        ("GET", ["phone", "folders"]) => Ok(lib.music.folders()),
         ("PUT", ["phone", "folders"]) => {
             let folders = body
                 .get("folders")
@@ -226,19 +226,19 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
                         .collect()
                 })
                 .unwrap_or_default();
-            Ok(json!({"songs": lib.musica.set_folders(folders)}))
+            Ok(json!({"songs": lib.music.set_folders(folders)}))
         }
-        ("POST", ["phone", "scan"]) => Ok(json!({"songs": lib.musica.scan()})),
+        ("POST", ["phone", "scan"]) => Ok(json!({"songs": lib.music.scan()})),
         // lo que hay en el teléfono según Android (MediaStore): con la tarjeta
         // SD y las carpetas de las apps; lo cuenta la página antes de mirar
         ("PUT", ["phone", "media"]) => {
-            let list: Vec<crate::musica::Media> = body
+            let list: Vec<crate::music::Media> = body
                 .get("songs")
                 .cloned()
                 .and_then(|v| serde_json::from_value(v).ok())
                 .ok_or_else(|| (400, "falta la lista de canciones".to_string()))?;
             let n = list.len();
-            lib.musica.set_media(list);
+            lib.music.set_media(list);
             Ok(json!({"songs": n}))
         }
         ("GET", ["phone", "songs"]) => {
@@ -248,39 +248,39 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
                 .split_whitespace()
                 .map(str::to_string)
                 .collect();
-            let all = lib.musica.songs();
+            let all = lib.music.songs();
             let songs: Vec<Value> = all
                 .iter()
                 .filter(|s| {
-                    let hay = plain(&format!("{} {} {}", s.title, s.artist, s.album));
-                    words.iter().all(|w| hay.contains(w.as_str()))
+                    let haystack = plain(&format!("{} {} {}", s.title, s.artist, s.album));
+                    words.iter().all(|w| haystack.contains(w.as_str()))
                 })
-                .map(crate::musica::to_json)
+                .map(crate::music::to_json)
                 .collect();
             Ok(json!({"total": all.len(), "count": songs.len(), "songs": songs}))
         }
         ("GET", ["phone", "folder", _]) => {
             let list: Vec<Value> = lib
-                .musica
+                .music
                 .folder_of(id(2).ok_or_else(missing)?)
                 .iter()
-                .map(crate::musica::to_json)
+                .map(crate::music::to_json)
                 .collect();
             Ok(json!({"songs": list}))
         }
         ("GET", ["song", n]) if n.starts_with('-') => lib
-            .musica
+            .music
             .song(id(1).ok_or_else(missing)?, false)
             .ok_or_else(missing),
         ("PUT", ["song", n, "study"]) if n.starts_with('-') => lib
-            .musica
+            .music
             .set_study(id(1).ok_or_else(missing)?, &body)
             .ok_or_else(missing),
         ("GET", ["song", n, "waveform"]) if n.starts_with('-') => {
             let buckets = query(q, "buckets")
                 .and_then(|b| b.parse().ok())
                 .unwrap_or(800usize);
-            lib.musica
+            lib.music
                 .waveform(id(1).ok_or_else(missing)?, buckets)
                 .ok_or((422, "no se pudo leer esa canción".into()))
         }
@@ -372,7 +372,7 @@ mod tests {
 
     #[test]
     fn what_the_phone_cannot_do_says_why() {
-        let dir = std::env::temp_dir().join(format!("danplay-movil-api-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("danplay-mobile-api-{}", std::process::id()));
         let lib = Library::new(dir);
         let (code, why) =
             handle(&lib, "POST", "/api/song/1/separate", None).expect_err("no se separa");
@@ -387,7 +387,8 @@ mod tests {
 
     #[test]
     fn lists_are_made_filled_and_emptied_through_the_bridge() {
-        let dir = std::env::temp_dir().join(format!("danplay-movil-listas-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("danplay-mobile-playlists-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("carpeta");
         let lib = Library::new(dir);

@@ -96,15 +96,15 @@ describe('useDownloads', () => {
   })
 })
 
-const montar = (props = {}) =>
+const mountView = (props = {}) =>
   mount(Sidebar, {
-    props: { view: { kind: 'all' }, playlists: [], stats: { total: 3 }, entrada: 0, ...props },
+    props: { view: { kind: 'all' }, playlists: [], stats: { total: 3 }, inboxCount: 0, ...props },
     global: { stubs: { TextField: true } }
   })
 
 describe('la barra lateral cuenta lo que pasa', () => {
   it('mientras baja algo, «Descargas» lleva el numero; si no, nada', () => {
-    const w = montar({
+    const w = mountView({
       download: { active: true, index: 2, total: 3, phase: 'downloading', name: 'X', percent: 40 }
     })
     const link = w.findAll('.nav-link').find((b) => b.text().includes('Descargas'))
@@ -112,13 +112,13 @@ describe('la barra lateral cuenta lo que pasa', () => {
     expect(link.attributes('title')).toContain('Bajando')
     expect(link.attributes('title')).toContain('X')
 
-    const quiet = montar({ download: { active: false } })
+    const quiet = mountView({ download: { active: false } })
     const link2 = quiet.findAll('.nav-link').find((b) => b.text().includes('Descargas'))
     expect(link2.find('.count.live').exists()).toBe(false)
   })
 
   it('con una sola cancion el numero es 1', () => {
-    const w = montar({ download: { active: true, index: 1, total: 1, phase: 'filing' } })
+    const w = mountView({ download: { active: true, index: 1, total: 1, phase: 'filing' } })
     const link = w.findAll('.nav-link').find((b) => b.text().includes('Descargas'))
     expect(link.find('.count.live').text()).toBe('1')
   })
@@ -128,7 +128,7 @@ describe('la barra lateral cuenta lo que pasa', () => {
       { id: 1, name: 'domingo', n: 2 },
       { id: 2, name: 'Herlin', n: 3 }
     ]
-    const w = montar({ playlists, nowPlaying: { kind: 'playlist', id: 2, playing: true } })
+    const w = mountView({ playlists, nowPlaying: { kind: 'playlist', id: 2, playing: true } })
     const rows = w.findAll('.nav-playlist')
     expect(rows[0].find('.now-dot').exists()).toBe(false)
     expect(rows[1].find('.now-dot').exists()).toBe(true)
@@ -137,11 +137,11 @@ describe('la barra lateral cuenta lo que pasa', () => {
   })
 
   it('en pausa el punto se queda quieto; sin nada sonando no hay punto', () => {
-    const w = montar({ nowPlaying: { kind: 'all', id: null, playing: false } })
+    const w = mountView({ nowPlaying: { kind: 'all', id: null, playing: false } })
     const all = w.findAll('.nav-link').find((b) => b.text().includes('Todas las canciones'))
     expect(all.find('.now-dot').classes()).toContain('paused')
     expect(all.find('.now-dot').attributes('title')).toBe('En pausa')
-    const none = montar({ nowPlaying: null })
+    const none = mountView({ nowPlaying: null })
     expect(none.find('.now-dot').exists()).toBe(false)
   })
 })

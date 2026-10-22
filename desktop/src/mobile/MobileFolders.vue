@@ -9,7 +9,7 @@ import { api, errorMessage } from '../api.js'
 import { notify } from '../composables/useNotices.js'
 import Icon from '../components/Icon.vue'
 import Loading from '../components/ui/Loading.vue'
-import { syncPhoneMedia } from './musica.js'
+import { syncPhoneMedia } from './phoneMusic.js'
 
 const emit = defineEmits(['done'])
 

@@ -17,7 +17,7 @@ import { useSelection } from '../src/composables/useSelection.js'
 
 const song = (id, extra = {}) => ({ id, title: 'Cancion ' + id, favorite: 0, ...extra })
 /** Cinco canciones en el orden en que se ven. */
-function preparar(ids = [1, 2, 3, 4, 5]) {
+function prepare(ids = [1, 2, 3, 4, 5]) {
   const shown = ref(ids.map((id) => song(id)))
   return { shown, s: useSelection({ shown }) }
 }
@@ -27,7 +27,7 @@ beforeEach(() => vi.clearAllMocks())
 
 describe('sin el modo, como siempre', () => {
   it('un clic deja esa sola; Ctrl suma y quita; Mayús coge el tramo', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     await s.select(2)
     await s.select(4, { ctrlKey: true })
     expect(ids(s)).toEqual([2, 4])
@@ -40,7 +40,7 @@ describe('sin el modo, como siempre', () => {
   })
 
   it('la lista de varias (`selectedSongs`) sigue siendo solo de dos o más', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     await s.select(2)
     expect(s.selectedSongs.value).toEqual([])
     expect(s.chosenSongs.value.map((c) => c.id)).toEqual([2])
@@ -51,7 +51,7 @@ describe('sin el modo, como siempre', () => {
 
 describe('el modo «Seleccionar»', () => {
   it('un clic normal pone o quita esa sin soltar las demás; Ctrl no cambia nada', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     s.toggleMode()
     expect(s.selectMode.value).toBe(true)
     await s.select(2, {})
@@ -65,7 +65,7 @@ describe('el modo «Seleccionar»', () => {
   })
 
   it('Mayús suma el tramo a lo que había', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     s.setMode(true)
     await s.select(1, {})
     await s.select(3, {})
@@ -74,7 +74,7 @@ describe('el modo «Seleccionar»', () => {
   })
 
   it('elegir sin un clic (la ficha de un resultado, «Ver detalles») suma, no deja sola', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     s.setMode(true)
     await s.select(1, {})
     await s.select(3, {})
@@ -84,7 +84,7 @@ describe('el modo «Seleccionar»', () => {
   })
 
   it('quitar el modo con el botón termina (suelta todo); setMode(false) solo quita el modo', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     s.setMode(true)
     await s.select(1, {})
     await s.select(2, {})
@@ -97,7 +97,7 @@ describe('el modo «Seleccionar»', () => {
   })
 
   it('«Listo» (finish) sale del modo y no deja nada elegido; la ficha se queda', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     await s.select(2)
     await flushPromises()
     s.setMode(true)
@@ -111,7 +111,7 @@ describe('el modo «Seleccionar»', () => {
 
 describe('todas y ninguna', () => {
   it('«todas» son las que se ven, sin pedir la ficha de ninguna', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     await s.select(3)
     await flushPromises()
     held.api.song.mockClear()
@@ -125,7 +125,7 @@ describe('todas y ninguna', () => {
   })
 
   it('si la principal no está en la lista, pasa a la primera (sin abrir su ficha)', async () => {
-    const { s, shown } = preparar()
+    const { s, shown } = prepare()
     await s.select(5)
     await flushPromises()
     shown.value = [song(1), song(2)] // otra búsqueda
@@ -137,7 +137,7 @@ describe('todas y ninguna', () => {
   })
 
   it('«ninguna» suelta también la principal, que si no seguiría marcada', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     s.selectAll()
     s.selectNone()
     expect(ids(s)).toEqual([])
@@ -147,7 +147,7 @@ describe('todas y ninguna', () => {
   })
 
   it('cuántas, todas o algunas', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     expect([s.count.value, s.allSelected.value, s.partial.value]).toEqual([0, false, false])
     await s.select(2)
     expect([s.count.value, s.allSelected.value, s.partial.value]).toEqual([1, false, true])
@@ -156,7 +156,7 @@ describe('todas y ninguna', () => {
   })
 
   it('con la lista vacía no están «todas»', () => {
-    const { s } = preparar([])
+    const { s } = prepare([])
     s.selectAll()
     expect(s.allSelected.value).toBe(false)
     expect(s.selected.value).toBe(null)
@@ -165,7 +165,7 @@ describe('todas y ninguna', () => {
 
 describe('las elegidas', () => {
   it('van en el orden en que se ven y solo cuentan las que están en la lista', async () => {
-    const { s, shown } = preparar()
+    const { s, shown } = prepare()
     s.setMode(true)
     await s.select(4, {})
     await s.select(1, {})
@@ -176,7 +176,7 @@ describe('las elegidas', () => {
   })
 
   it('lo que se pinta (el grupo y la principal) es lo que cuenta', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     await s.select(1)
     await s.select(2, { ctrlKey: true })
     s.selected.value = 5 // p. ej. la principal cambió por otro camino
@@ -184,7 +184,7 @@ describe('las elegidas', () => {
   })
 
   it('las que se van (papelera, fuera de la lista) se sueltan', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     s.setMode(true)
     await s.select(1, {})
     await s.select(2, {})
@@ -197,14 +197,14 @@ describe('las elegidas', () => {
 
 describe('la que se pone a sonar (follow)', () => {
   it('sin selección de varias pasa a ser la única elegida', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     await s.select(1)
     s.follow(3)
     expect(ids(s), 'antes quedaban dos pintadas: la de antes y la que suena').toEqual([3])
   })
 
   it('con varias elegidas no las suelta; la principal solo se mueve si es una de ellas', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     await s.select(1)
     await s.select(2, { ctrlKey: true })
     s.follow(5)
@@ -215,7 +215,7 @@ describe('la que se pone a sonar (follow)', () => {
   })
 
   it('en el modo no toca nada: poner una a sonar no es marcarla', async () => {
-    const { s } = preparar()
+    const { s } = prepare()
     s.setMode(true)
     await s.select(2, {})
     s.follow(4)

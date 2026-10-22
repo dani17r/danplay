@@ -44,7 +44,7 @@ const title = (t) =>
         <Icon :n="icon(t)" :t="14" />
       </button>
 
-      <div class="dup-datos">
+      <div class="dup-data">
         <div class="dup-name">
           {{ t.file }}
           <span v-if="t.path === group.suggested" class="badge ok">mejor calidad</span>

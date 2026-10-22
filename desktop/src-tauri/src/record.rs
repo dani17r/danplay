@@ -65,7 +65,7 @@ pub async fn record_stop(recording: tauri::State<'_, Recording>) -> Result<Strin
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or_default();
-        let path = std::env::temp_dir().join(format!("danplay-guia-{stamp}.wav"));
+        let path = std::env::temp_dir().join(format!("danplay-cue-{stamp}.wav"));
         record::write_wav(&path, &take).map_err(|e| format!("no se pudo guardar la grabación: {e}"))?;
         Ok(path.to_string_lossy().into_owned())
     })

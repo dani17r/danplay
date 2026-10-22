@@ -152,12 +152,12 @@ const show = computed(() => Object.fromEntries(cols.value.map((c) => [c.k, true]
 // media queries. Sin grupos no hace falta: no hay celda que abarque nada.
 const shownCols = ref(0)
 function countCols() {
-  const tabla = body.value?.closest('table')
-  if (!tabla || !props.groups) return
-  const vistas = [...tabla.querySelectorAll('col')].filter(
+  const table = body.value?.closest('table')
+  if (!table || !props.groups) return
+  const visibleCols = [...table.querySelectorAll('col')].filter(
     (c) => getComputedStyle(c).display !== 'none'
   )
-  shownCols.value = vistas.length
+  shownCols.value = visibleCols.length
 }
 watch([cols, body], countCols, { flush: 'post' })
 window.addEventListener('resize', countCols)
@@ -170,23 +170,23 @@ onUnmounted(() => window.removeEventListener('resize', countCols))
 // una foto de los anchos que hay en ese momento y a partir de ahi mandas tu.
 // Asi la vista de fabrica sigue cabiendo, y solo aparece barra horizontal si
 // eres tu quien se pasa de ancho.
-const CLAVE = 'danplay.colWidths'
-const MINIMO = 38
-function guardados() {
+const WIDTHS_KEY = 'danplay.colWidths'
+const MIN_WIDTH = 38
+function savedWidths() {
   try {
-    return JSON.parse(localStorage.getItem(CLAVE) || 'null') || {}
+    return JSON.parse(localStorage.getItem(WIDTHS_KEY) || 'null') || {}
   } catch {
     return {}
   }
 }
-const widths = ref(guardados())
-const aMedida = computed(() => Object.keys(widths.value).length > 0)
+const widths = ref(savedWidths())
+const customWidths = computed(() => Object.keys(widths.value).length > 0)
 watch(
   widths,
   (v) => {
     try {
-      if (Object.keys(v).length) localStorage.setItem(CLAVE, JSON.stringify(v))
-      else localStorage.removeItem(CLAVE)
+      if (Object.keys(v).length) localStorage.setItem(WIDTHS_KEY, JSON.stringify(v))
+      else localStorage.removeItem(WIDTHS_KEY)
     } catch {
       /* modo privado */
     }
@@ -202,18 +202,18 @@ watch(
  * por indice desalineaba los anchos y la primera vez que arrastrabas la
  * columna daba un salto.
  */
-function fotoDeAnchos() {
-  const tabla = body.value?.closest('table')
-  const foto = {}
-  for (const th of tabla?.querySelectorAll('thead th[data-col]') || []) {
+function measureWidths() {
+  const table = body.value?.closest('table')
+  const snapshot = {}
+  for (const th of table?.querySelectorAll('thead th[data-col]') || []) {
     const w = th.getBoundingClientRect().width
     // la casilla es fija y no se ensancha: su ancho no se guarda
-    if (w > 0 && th.dataset.col !== CHECK.k) foto[th.dataset.col] = Math.round(w)
+    if (w > 0 && th.dataset.col !== CHECK.k) snapshot[th.dataset.col] = Math.round(w)
   }
-  return foto
+  return snapshot
 }
 
-let arrastre = null
+let drag = null
 function startResize(col, e) {
   e.preventDefault()
   e.stopPropagation()
@@ -221,22 +221,22 @@ function startResize(col, e) {
   // repinta la tabla en pleno pointerdown, y con el elemento reemplazado el
   // navegador cancela el puntero y deja de mandar movimientos. Se aplica al
   // primer movimiento de verdad, que ademas es cuando hace falta.
-  const base = aMedida.value ? { ...widths.value } : fotoDeAnchos()
-  arrastre = { k: col.k, x: e.clientX, base, desde: base[col.k] || 120 }
+  const base = customWidths.value ? { ...widths.value } : measureWidths()
+  drag = { k: col.k, x: e.clientX, base, startWidth: base[col.k] || 120 }
   window.addEventListener('pointermove', moveResize)
   window.addEventListener('pointerup', endResize)
   window.addEventListener('pointercancel', endResize)
   document.body.classList.add('resizing-col')
 }
 function moveResize(e) {
-  if (!arrastre) return
+  if (!drag) return
   widths.value = {
-    ...arrastre.base,
-    [arrastre.k]: Math.max(MINIMO, arrastre.desde + (e.clientX - arrastre.x))
+    ...drag.base,
+    [drag.k]: Math.max(MIN_WIDTH, drag.startWidth + (e.clientX - drag.x))
   }
 }
 function endResize() {
-  arrastre = null
+  drag = null
   window.removeEventListener('pointermove', moveResize)
   window.removeEventListener('pointerup', endResize)
   window.removeEventListener('pointercancel', endResize)
@@ -248,8 +248,8 @@ function keyResize(col, e) {
   if (!step) return
   e.preventDefault()
   e.stopPropagation()
-  const base = aMedida.value ? { ...widths.value } : fotoDeAnchos()
-  widths.value = { ...base, [col.k]: Math.max(MINIMO, (base[col.k] || 120) + step) }
+  const base = customWidths.value ? { ...widths.value } : measureWidths()
+  widths.value = { ...base, [col.k]: Math.max(MIN_WIDTH, (base[col.k] || 120) + step) }
 }
 /** Doble clic en el borde: se olvidan los anchos y vuelve el reparto normal. */
 function resetColumn() {
@@ -271,7 +271,7 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
     <table
       v-if="hasRows"
       class="song-table"
-      :class="{ medida: aMedida }"
+      :class="{ sized: customWidths }"
       role="grid"
       aria-multiselectable="true"
       :aria-label="label"
@@ -287,7 +287,7 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
           v-for="col in cols"
           :key="col.k"
           :class="col.cls"
-          :style="aMedida && widths[col.k] ? { width: widths[col.k] + 'px' } : null"
+          :style="customWidths && widths[col.k] ? { width: widths[col.k] + 'px' } : null"
         />
       </colgroup>
       <thead v-if="!noHeader">
@@ -319,7 +319,7 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
                 :class="{ on: pickState === 'true', mixed: pickState === 'mixed' }"
                 aria-hidden="true"
               >
-                <Icon v-if="pickState === 'true'" n="check" :t="12" :grosor="2.4" />
+                <Icon v-if="pickState === 'true'" n="check" :t="12" :weight="2.4" />
               </span>
             </button>
             <!-- la cabecera que ordena es un boton: se alcanza y se pulsa
@@ -403,7 +403,7 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
                  no pone la canción (en el resto de la fila, sí) -->
             <td v-if="show.check" class="col-check" @dblclick.stop>
               <span class="pick-box" :class="{ on: picked(c.id) }" aria-hidden="true">
-                <Icon v-if="picked(c.id)" n="check" :t="12" :grosor="2.4" />
+                <Icon v-if="picked(c.id)" n="check" :t="12" :weight="2.4" />
               </span>
             </td>
             <td v-if="show.n" class="col-n mono">
@@ -442,7 +442,7 @@ const sortedBy = (col) => col.sort && props.sort === col.sort
             </td>
             <td v-if="show.title" class="title">
               <!-- el texto se recorta; el copiar se queda siempre a la vista -->
-              <span class="cell-copiable"
+              <span class="cell-copyable"
                 ><span
                   class="cell-text"
                   :data-artist="show.artist && c.artist ? ' · ' + c.artist : null"

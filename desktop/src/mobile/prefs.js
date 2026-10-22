@@ -28,8 +28,8 @@ function flag(key, fallback) {
 }
 
 /** Un toque en la canción la pone (si no, la elige y el doble toque la pone). */
-export const tapPlays = flag('danplay.movil.toque', false)
+export const tapPlays = flag('danplay.mobile.tapPlays', false)
 /** Filas más bajas: caben más canciones. */
-export const compactList = flag('danplay.movil.compacta', false)
+export const compactList = flag('danplay.mobile.compact', false)
 /** La pantalla no se apaga mientras suena (el teléfono en el atril). */
-export const keepAwake = flag('danplay.movil.pantalla', true)
+export const keepAwake = flag('danplay.mobile.keepAwake', true)

@@ -65,17 +65,17 @@
   border-color: var(--accent);
   color: var(--accent);
 }
-.rango {
+.range {
   display: flex;
   flex-direction: column;
   gap: 5px;
 }
-.rango-campos {
+.range-fields {
   display: flex;
   align-items: center;
   gap: 7px;
 }
-.rango-sep {
+.range-sep {
   color: var(--muted2);
   flex-shrink: 0;
 }
@@ -373,7 +373,7 @@ body.dragging-song .search-results {
 }
 /* Aparece al acercarse a lo que copia: siempre visible seria ruido en cada
    titulo y cada linea de datos. Con el teclado tambien sale. */
-.copiable:hover .copy-btn,
+.copyable:hover .copy-btn,
 .copy-btn:focus-visible {
   opacity: 1;
 }
@@ -409,23 +409,23 @@ tr:hover .copy-btn.list-copy,
 .copy-btn.list-copy.done {
   opacity: 1;
 }
-.copiable {
+.copyable {
   display: flex;
   align-items: center;
   gap: 5px;
   min-width: 0;
 }
-.copiable > :first-child {
+.copyable > :first-child {
   min-width: 0;
 }
 /* En un bloque entero (la letra, los acordes) el boton vive en su titulo y
    aparece al acercarse a cualquier parte del bloque, no solo al titulo. */
-.copiable-section h4 {
+.copyable-section h4 {
   display: flex;
   align-items: center;
   gap: 7px;
 }
-.copiable-section:hover .copy-btn {
+.copyable-section:hover .copy-btn {
   opacity: 1;
 }
 

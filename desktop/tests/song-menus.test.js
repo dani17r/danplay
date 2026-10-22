@@ -30,7 +30,7 @@ const { dialog } = useDialog()
 const { notices } = useNotices()
 
 /** Los menús con todo lo que necesitan, falso salvo la selección. */
-function preparar({ view = { kind: 'all' }, playing = null, detailsInView = true } = {}) {
+function prepare({ view = { kind: 'all' }, playing = null, detailsInView = true } = {}) {
   const songs = ref([song(1), song(2, { title: 'Otra' }), song(3, { title: 'Tercera' })])
   const selection = useSelection({ shown: songs })
   const ctx = {
@@ -92,7 +92,7 @@ beforeEach(async () => {
 
 describe('el menú de una canción', () => {
   it('ofrece lo de siempre y la elige', async () => {
-    const { menus, ctx } = preparar()
+    const { menus, ctx } = prepare()
     menus.songMenu(ev, held.state.songs[0])
     expect(menu.value.open).toBe(true)
     expect(labels()).toEqual([
@@ -113,7 +113,7 @@ describe('el menú de una canción', () => {
   })
 
   it('sobre la que suena ofrece pausar; en un repertorio, quitarla; sin panel, la ficha', async () => {
-    const { menus, ctx } = preparar({
+    const { menus, ctx } = prepare({
       view: { kind: 'playlist', id: 7, name: 'Domingo' },
       playing: 1,
       detailsInView: false
@@ -132,11 +132,11 @@ describe('el menú de una canción', () => {
   })
 
   it('valorar desde el teclado: un submenú con las estrellas', async () => {
-    const { menus, ctx } = preparar()
+    const { menus, ctx } = prepare()
     menus.songMenu(ev, song(1, { stars: 3 }))
-    const valorar = item('Valorar')
-    expect(valorar.note).toBe('3 de 5')
-    expect(valorar.children.map((c) => c.label)).toEqual([
+    const rate = item('Valorar')
+    expect(rate.note).toBe('3 de 5')
+    expect(rate.children.map((c) => c.label)).toEqual([
       '5 estrellas',
       '4 estrellas',
       '3 estrellas',
@@ -144,28 +144,28 @@ describe('el menú de una canción', () => {
       '1 estrella',
       'Sin valorar'
     ])
-    expect(valorar.children.find((c) => c.note === 'ahora').label).toBe('3 estrellas')
-    await valorar.children[0].action()
+    expect(rate.children.find((c) => c.note === 'ahora').label).toBe('3 estrellas')
+    await rate.children[0].action()
     expect(api().setStars).toHaveBeenCalledWith(1, 5)
     expect(ctx.onUpdated).toHaveBeenCalledWith(expect.objectContaining({ id: 1, stars: 5 }))
   })
 
   it('la papelera pregunta antes, y cancelar no borra nada', async () => {
-    const { menus, ctx } = preparar({ playing: 1 })
+    const { menus, ctx } = prepare({ playing: 1 })
     menus.songMenu(ev, held.state.songs[0])
-    const hecho = pick('Mandar a la papelera…')
+    const done = pick('Mandar a la papelera…')
     await flushPromises()
     expect(dialog.value.open).toBe(true)
     expect(dialog.value.danger).toBe(true)
     dialogCancel()
-    await hecho
+    await done
     expect(api().deleteSong).not.toHaveBeenCalled()
 
     menus.songMenu(ev, held.state.songs[0])
-    const otra = pick('Mandar a la papelera…')
+    const other = pick('Mandar a la papelera…')
     await flushPromises()
     dialogOk()
-    await otra
+    await other
     expect(api().deleteSong).toHaveBeenCalledWith(1, { fromLists: false })
     // era la que sonaba: se para
     expect(ctx.player.stop).toHaveBeenCalled()
@@ -173,19 +173,19 @@ describe('el menú de una canción', () => {
   })
 
   it('si está en listas, pregunta si sale también de ellas', async () => {
-    const { menus } = preparar()
+    const { menus } = prepare()
     // sin listas, ni se pregunta
     menus.songMenu(ev, held.state.songs[0])
-    let hecho = pick('Mandar a la papelera…')
+    let done = pick('Mandar a la papelera…')
     await flushPromises()
     expect(dialog.value.check).toBeUndefined()
     dialogCancel()
-    await hecho
+    await done
 
     held.state.songs[0].playlists = ['Domingo', 'Ensayo']
     held.state.playlistSongs = [held.state.songs[0]]
     menus.songMenu(ev, held.state.songs[0])
-    hecho = pick('Mandar a la papelera…')
+    done = pick('Mandar a la papelera…')
     await flushPromises()
     expect(dialog.value.message).toContain('«No está»')
     expect(dialog.value.check).toEqual({
@@ -193,33 +193,33 @@ describe('el menú de una canción', () => {
       value: true
     })
     dialogOk({ checked: true })
-    await hecho
+    await done
     expect(api().deleteSong).toHaveBeenCalledWith(1, { fromLists: true })
     expect(notices.value.at(-1).message).toContain('fuera de su lista')
   })
 
   it('dejarla en sus listas la deja como «No está»', async () => {
-    const { menus } = preparar()
+    const { menus } = prepare()
     held.state.songs[0].playlists = ['Domingo']
     held.state.playlistSongs = [held.state.songs[0]]
     menus.songMenu(ev, held.state.songs[0])
-    const hecho = pick('Mandar a la papelera…')
+    const done = pick('Mandar a la papelera…')
     await flushPromises()
     expect(dialog.value.check.label).toBe('Quitarla también de la lista («Domingo»)')
     dialogOk({ checked: false })
-    await hecho
+    await done
     expect(api().deleteSong).toHaveBeenCalledWith(1, { fromLists: false })
     expect(held.state.playlistSongs[0].ghost).toBe(true)
   })
 
   it('renombrar, buscar la letra y difuminar cambian la canción en todas partes', async () => {
-    const { menus, ctx } = preparar()
+    const { menus, ctx } = prepare()
     menus.songMenu(ev, held.state.songs[0])
-    const renombrar = pick('Renombrar…')
+    const rename = pick('Renombrar…')
     await flushPromises()
     expect(dialog.value.kind).toBe('prompt')
     dialogOk('Mi Gozo')
-    await renombrar
+    await rename
     expect(api().edit).toHaveBeenCalledWith(1, { title: 'Mi Gozo' })
     expect(ctx.onUpdated).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Mi Gozo' }))
 
@@ -240,32 +240,32 @@ describe('el menú de una canción', () => {
   })
 
   it('abrir la carpeta y enviar por Telegram buscan la ruta si no la tienen', async () => {
-    const { menus } = preparar()
+    const { menus } = prepare()
     await menus.loadShareTargets()
-    const sinRuta = { ...held.state.songs[0], path: '' }
-    menus.songMenu(ev, sinRuta)
+    const noPath = { ...held.state.songs[0], path: '' }
+    menus.songMenu(ev, noPath)
     await pick('Abrir la carpeta')
     expect(held.app.revealInFolder).toHaveBeenCalledWith('/musica/cancion-1.mp3')
-    menus.songMenu(ev, sinRuta)
+    menus.songMenu(ev, noPath)
     await pick('Enviar por Telegram')
     expect(held.app.sendToTelegram).toHaveBeenCalledWith(['/musica/cancion-1.mp3'])
     // si el explorador no se puede abrir, se dice
     held.app.revealInFolder.mockRejectedValueOnce(new Error('no hay explorador'))
-    menus.songMenu(ev, sinRuta)
+    menus.songMenu(ev, noPath)
     await pick('Abrir la carpeta')
     expect(notices.value.at(-1).message).toContain('no hay explorador')
   })
 })
 
 describe('las «No está» de una lista', () => {
-  const lista = { kind: 'playlist', id: 7, name: 'Domingo' }
-  const ida = () => song(9, { title: 'Se Fue', artist: 'Barak', ghost: true })
+  const list = { kind: 'playlist', id: 7, name: 'Domingo' }
+  const gone = () => song(9, { title: 'Se Fue', artist: 'Barak', ghost: true })
 
   it('tienen su menú: buscarla en lo que tienes, bajarla o quitarla', async () => {
-    const { menus, ctx } = preparar({ view: lista })
+    const { menus, ctx } = prepare({ view: list })
     ctx.findInLibrary = vi.fn()
     ctx.findToDownload = vi.fn()
-    menus.songMenu(ev, ida())
+    menus.songMenu(ev, gone())
     expect(menu.value.title).toBe('Se Fue · No está')
     expect(labels()).toEqual([
       'Buscar en tu biblioteca',
@@ -274,18 +274,18 @@ describe('las «No está» de una lista', () => {
     ])
     await pick('Buscar en tu biblioteca')
     expect(ctx.findInLibrary).toHaveBeenCalledWith('Barak Se Fue')
-    menus.songMenu(ev, ida())
+    menus.songMenu(ev, gone())
     await pick('Buscar y descargar…')
     expect(ctx.findToDownload).toHaveBeenCalledWith('Barak Se Fue')
-    menus.songMenu(ev, ida())
+    menus.songMenu(ev, gone())
     await pick('Quitar de esta lista')
     expect(api().removeFromPlaylist).toHaveBeenCalledWith(7, 9)
   })
 
   it('entre varias elegidas, solo cuentan para quitarlas de la lista', async () => {
-    const { menus } = preparar({ view: lista })
-    const varias = [held.state.songs[0], ida()]
-    menus.groupMenu(ev, varias)
+    const { menus } = prepare({ view: list })
+    const several = [held.state.songs[0], gone()]
+    menus.groupMenu(ev, several)
     expect(menu.value.title).toBe('Cancion 1')
     expect(labels()).toContain('Quitar 2 de esta lista')
     await pick('Quitar 2 de esta lista')
@@ -294,15 +294,15 @@ describe('las «No está» de una lista', () => {
       [7, 9]
     ])
     // la papelera, las favoritas y Telegram no las tocan
-    await menus.trash([ida()])
+    await menus.trash([gone()])
     expect(dialog.value.open).toBe(false)
-    await menus.favorites([ida()])
+    await menus.favorites([gone()])
     expect(api().toggleFavorite).not.toHaveBeenCalled()
   })
 
   it('solo «No está» elegidas: solo se pueden quitar', () => {
-    const { menus } = preparar({ view: lista })
-    menus.groupMenu(ev, [ida(), song(10, { ghost: true })])
+    const { menus } = prepare({ view: list })
+    menus.groupMenu(ev, [gone(), song(10, { ghost: true })])
     expect(menu.value.title).toBe('2 que no están')
     expect(labels()).toEqual(['Quitar 2 de esta lista'])
   })
@@ -310,7 +310,7 @@ describe('las «No está» de una lista', () => {
 
 describe('el menú de varias', () => {
   it('sobre una de las elegidas, el menú es el de todas', async () => {
-    const { menus, ctx } = preparar({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
+    const { menus, ctx } = prepare({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
     await menus.loadShareTargets()
     await ctx.selection.select(1)
     await ctx.selection.select(3, { shiftKey: true })
@@ -334,60 +334,60 @@ describe('el menú de varias', () => {
   })
 
   it('favoritas, quitarlas de la lista y la papelera, de una vez', async () => {
-    const { menus, ctx } = preparar({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
-    const tres = held.state.songs.map((s) => ({ ...s }))
-    menus.groupMenu(ev, tres)
+    const { menus, ctx } = prepare({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
+    const three = held.state.songs.map((s) => ({ ...s }))
+    menus.groupMenu(ev, three)
     await pick('Marcar 3 como favoritas')
     expect(api().toggleFavorite).toHaveBeenCalledTimes(3)
-    menus.groupMenu(ev, tres)
+    menus.groupMenu(ev, three)
     await pick('Quitar 3 de esta lista')
     expect(api().removeFromPlaylist).toHaveBeenCalledTimes(3)
     expect(ctx.reload).toHaveBeenCalledWith(true)
-    menus.groupMenu(ev, tres)
-    const papelera = pick('Mandar 3 a la papelera…')
+    menus.groupMenu(ev, three)
+    const trash = pick('Mandar 3 a la papelera…')
     await flushPromises()
     expect(dialog.value.title).toBe('Mandar 3 canciones a la papelera')
     dialogOk()
-    await papelera
+    await trash
     expect(api().deleteSong).toHaveBeenCalledTimes(3)
     expect(ctx.selection.selectedIds.value).toEqual([])
   })
 
   it('la papelera desde el buscador no suelta lo elegido en la lista', async () => {
-    const { menus, ctx } = preparar()
+    const { menus, ctx } = prepare()
     const [a, b, c] = held.state.songs
     ctx.selection.selectedIds.value = [c.id]
     menus.groupMenu(ev, [a, b], { fromSearch: true })
-    const papelera = pick('Mandar 2 a la papelera…')
+    const trash = pick('Mandar 2 a la papelera…')
     await flushPromises()
     dialogOk()
-    await papelera
+    await trash
     expect(api().deleteSong).toHaveBeenCalledTimes(2)
     expect(ctx.selection.selectedIds.value).toEqual([c.id])
   })
 
   it('las listas a las que mandarlas, y una nueva', async () => {
-    const { menus, ctx } = preparar()
-    const dos = held.state.songs.slice(0, 2)
-    menus.groupMenu(ev, dos)
-    const destinos = item('Añadir 2 a una lista').children
-    expect(destinos.filter((d) => !d.separator).map((d) => d.label)).toEqual([
+    const { menus, ctx } = prepare()
+    const two = held.state.songs.slice(0, 2)
+    menus.groupMenu(ev, two)
+    const targets = item('Añadir 2 a una lista').children
+    expect(targets.filter((d) => !d.separator).map((d) => d.label)).toEqual([
       'Domingo',
       'Nueva lista…'
     ])
-    await destinos[0].action()
+    await targets[0].action()
     expect(ctx.playlistActions.addManyTo).toHaveBeenCalledWith(
-      dos,
+      two,
       expect.objectContaining({ id: 7 })
     )
-    await destinos.at(-1).action()
-    expect(ctx.playlistActions.create).toHaveBeenCalledWith(dos)
+    await targets.at(-1).action()
+    expect(ctx.playlistActions.create).toHaveBeenCalledWith(two)
   })
 })
 
 describe('el menú de un repertorio', () => {
   it('abrir, renombrar, exportar, la hoja y borrarlo', async () => {
-    const { menus, ctx } = preparar({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
+    const { menus, ctx } = prepare({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
     const pl = { id: 7, name: 'Domingo' }
     await menus.loadShareTargets()
     menus.playlistMenu(ev, pl)
@@ -418,7 +418,7 @@ describe('el menú de un repertorio', () => {
   })
 
   it('enviarla por Telegram manda todas sus canciones; vacía, lo dice', async () => {
-    const { menus } = preparar()
+    const { menus } = prepare()
     await menus.loadShareTargets()
     menus.playlistMenu(ev, { id: 7, name: 'Domingo' })
     await pick('Enviar por Telegram')
@@ -432,7 +432,7 @@ describe('el menú de un repertorio', () => {
 
 describe('las pistas separadas', () => {
   it('una sin pistas se separa con un solo clic, sin elegir nada', async () => {
-    const { menus } = preparar()
+    const { menus } = prepare()
     menus.songMenu(ev, held.state.songs[0])
     expect(item('Separar pistas').children).toBeUndefined()
     await pick('Separar pistas')
@@ -443,7 +443,7 @@ describe('las pistas separadas', () => {
   it('bajar el separador se pregunta antes, con lo que pesa', async () => {
     held.state.separation.pending = 307000000
     await useSeparation().refresh()
-    const { menus } = preparar()
+    const { menus } = prepare()
     menus.songMenu(ev, held.state.songs[0])
     expect(item('Separar pistas').note).toBe('bajar 307 MB')
     const asked = pick('Separar pistas')
@@ -456,7 +456,7 @@ describe('las pistas separadas', () => {
   })
 
   it('varias a la vez van a la cola', async () => {
-    const { menus, ctx } = preparar()
+    const { menus, ctx } = prepare()
     await ctx.selection.select(1)
     await ctx.selection.select(3, { shiftKey: true })
     menus.songMenu(ev, held.state.songs[0])
@@ -466,7 +466,7 @@ describe('las pistas separadas', () => {
   })
 
   it('el repertorio entero, sin repetir las que ya tienen las mejores', async () => {
-    const { menus } = preparar()
+    const { menus } = prepare()
     held.state.playlistSongs[1] = {
       ...held.state.playlistSongs[1],
       has_stems: true,
@@ -489,7 +489,7 @@ describe('las pistas separadas', () => {
   })
 
   it('la que se está separando o espera se puede parar o quitar', async () => {
-    const { menus } = preparar()
+    const { menus } = prepare()
     await useSeparation().request([held.state.songs[0], held.state.songs[1]])
     menus.songMenu(ev, held.state.songs[1])
     await pick('Quitar de la cola de separar')
@@ -500,7 +500,7 @@ describe('las pistas separadas', () => {
   })
 
   it('con pistas: abrir su carpeta, separarla otra vez o borrarlas', async () => {
-    const { menus, ctx } = preparar()
+    const { menus, ctx } = prepare()
     held.state.stems[1] = stemsOf(1)
     const withStems = { ...held.state.songs[0], has_stems: true, stems_best: true }
     menus.songMenu(ev, withStems)
@@ -523,7 +523,7 @@ describe('las pistas separadas', () => {
   })
 
   it('al celular: una desde su menú, y de varias solo las que tienen pistas', async () => {
-    const { menus, ctx, songs } = preparar()
+    const { menus, ctx, songs } = prepare()
     held.state.stems[1] = stemsOf(1)
     held.state.stems[3] = stemsOf(3)
     const withStems = { ...held.state.songs[0], has_stems: true, stems_best: true }
@@ -550,7 +550,7 @@ describe('las pistas separadas', () => {
     held.state.separation.ok = false
     held.state.separation.reason = 'falta onnxruntime'
     await useSeparation().refresh()
-    const { menus } = preparar()
+    const { menus } = prepare()
     menus.songMenu(ev, held.state.songs[0])
     expect(labels().some((l) => l.startsWith('Separar'))).toBe(false)
     held.state.separation.ok = true

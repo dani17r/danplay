@@ -22,8 +22,8 @@ import {
 /** @typedef {import('../api.js').Track} Track */
 
 const VOLUME_KEY = 'danplay.vol'
-const SPEED_KEY = 'danplay.vel'
-const CROSSFADE_KEY = 'danplay.fundido'
+const SPEED_KEY = 'danplay.speed'
+const CROSSFADE_KEY = 'danplay.crossfade'
 /** Lo que se puede elegir de fundido entre canciones, en segundos (0 = sin él). */
 export const CROSSFADES = [0, 2, 4, 6, 8, 12]
 /** El de fábrica: se nota la transición sin que se pisen mucho. */
@@ -542,7 +542,7 @@ async function boot() {
     // cambiar el volumen, la velocidad ni la repetición.
     if (isMainWindow()) {
       const vol = readNumber(VOLUME_KEY)
-      const vel = readNumber(SPEED_KEY)
+      const savedSpeed = readNumber(SPEED_KEY)
       let repeat = null
       try {
         repeat = localStorage.getItem(REPEAT_KEY)
@@ -550,7 +550,8 @@ async function boot() {
         /* sin almacenamiento */
       }
       if (vol != null && Number.isFinite(vol)) await backend.setVolume(clamp(vol, 0, MAX_VOLUME))
-      if (vel != null && Number.isFinite(vel) && vel > 0) await backend.setSpeed(vel)
+      if (savedSpeed != null && Number.isFinite(savedSpeed) && savedSpeed > 0)
+        await backend.setSpeed(savedSpeed)
       await backend.setCrossfade?.(crossfade.value)
       if (REPEAT_MODES.includes(repeat)) await backend.setRepeat(normalizeRepeat(repeat))
     }

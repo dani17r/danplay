@@ -36,7 +36,7 @@ pub fn play(path: &Path) -> Result<f64, String> {
     let format = supported.sample_format();
     let config: StreamConfig = supported.config();
     std::thread::Builder::new()
-        .name("danplay-escuchar".into())
+        .name("danplay-preview".into())
         .spawn(move || {
             let done = Arc::new(AtomicBool::new(false));
             let stream = match format {
@@ -141,8 +141,7 @@ mod tests {
     fn a_recorded_guide_is_read_whole_in_stereo_at_the_output_rate() {
         // medio segundo de voz grabada en mono a 16 kHz (como el micrófono)
         let samples: Vec<f32> = (0..8_000).map(|i| (i as f32 * 0.05).sin() * 0.5).collect();
-        let path =
-            std::env::temp_dir().join(format!("danplay-escuchar-{}.wav", std::process::id()));
+        let path = std::env::temp_dir().join(format!("danplay-preview-{}.wav", std::process::id()));
         write_wav(
             &path,
             &Take {

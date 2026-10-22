@@ -3,14 +3,15 @@
 //! La interfaz es la de la PC (`desktop/src`): pide canciones, su ficha, sus
 //! pistas separadas, su rejilla y su onda con la misma forma que le da el
 //! nucleo de Python. Aqui no hay Python ni base: cada pista es una carpeta
-//! (`motor::bundle`) y lo que la interfaz espera se arma con lo que trajo de
+//! (`danplay_engine::bundle`) y lo que la interfaz espera se arma con lo que trajo de
 //! la PC (`pista.json`) mas lo que se cambio aqui (`estudio.json`, y las
-//! estrellas y el favorito en `ficha.json`).
+//! estrellas y el favorito en `card.json`, que antes se llamaba `ficha.json`
+//! y cambia de nombre la primera vez que se lee).
 //!
 //! Los ids son numeros, como los de la PC: un resumen estable del nombre de
 //! la carpeta (que ya es estable: la misma cancion, la misma carpeta).
-use crate::listas::Listas;
-use crate::musica::Musica;
+use crate::music::Music;
+use crate::playlists::Playlists;
 use danplay_engine::bundle::{self, Summary};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -19,7 +20,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 /// Lo que se marca en el celular de una pista (estrellas y favorito).
-const CARD: &str = "ficha.json";
+const CARD: &str = "card.json";
+/// El nombre que tenia `CARD` en las versiones anteriores.
+const LEGACY_CARD: &str = "ficha.json";
 
 pub struct Library {
     pub dir: PathBuf,
@@ -27,10 +30,10 @@ pub struct Library {
     index: Mutex<HashMap<i64, String>>,
     /// Cuantas veces ha cambiado (la interfaz refresca al verlo cambiar).
     revision: Mutex<u64>,
-    /// Las listas (el repertorio del domingo...), ver `listas.rs`.
-    pub listas: Listas,
+    /// Las listas (el repertorio del domingo...), ver `playlists.rs`.
+    pub playlists: Playlists,
     /// La música del teléfono (cualquier canción, no solo las pistas).
-    pub musica: Musica,
+    pub music: Music,
 }
 
 /// El id numerico de una carpeta: FNV-1a, positivo y nunca cero.
@@ -50,8 +53,8 @@ fn text(v: &Value, key: &str) -> String {
 impl Library {
     pub fn new(dir: PathBuf) -> Library {
         let lib = Library {
-            listas: Listas::new(&dir),
-            musica: Musica::new(dir.parent().unwrap_or(&dir)),
+            playlists: Playlists::new(&dir),
+            music: Music::new(dir.parent().unwrap_or(&dir)),
             dir,
             index: Mutex::new(HashMap::new()),
             revision: Mutex::new(1),
@@ -87,7 +90,7 @@ impl Library {
         bundle::folder(&self.dir, &self.folder_name(id)?)
     }
 
-    /// Importa un `.danpista` (ver `motor::bundle::import`).
+    /// Importa un `.danpista` (ver `danplay_engine::bundle::import`).
     pub fn import(&self, file: &Path) -> Result<Summary, String> {
         let s = bundle::import(file, &self.dir)?;
         self.reindex();
@@ -115,6 +118,7 @@ impl Library {
     }
 
     fn card(folder: &Path) -> Value {
+        bundle::legacy(&folder.join(CARD), &folder.join(LEGACY_CARD));
         fs::read(folder.join(CARD))
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
@@ -187,7 +191,7 @@ impl Library {
             );
             song["study"] = json!(study.map(|v| v.to_string()).unwrap_or_default());
             if let Some(name) = self.folder_name(id) {
-                song["playlists"] = json!(self.listas.names_with(&name));
+                song["playlists"] = json!(self.playlists.names_with(&name));
             }
         }
         Some(song)

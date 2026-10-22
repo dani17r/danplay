@@ -27,23 +27,23 @@ beforeEach(() => {
   held.state.aiActive = ''
 })
 
-const abrir = async (initial = '') => {
+const open = async (initial = '') => {
   const w = mount(AiProviderModal, { props: { open: true, initial }, attachTo: document.body })
   await flushPromises()
   await flushPromises()
   return w
 }
-const tarjeta = (w, id) => w.findAll('.ai-card').find((c) => c.text().includes(id))
+const card = (w, id) => w.findAll('.ai-card').find((c) => c.text().includes(id))
 
 describe('elegir proveedor', () => {
   it('enseña los proveedores por grupos y filtra al escribir', async () => {
-    const w = await abrir()
+    const w = await open()
     expect(w.text()).toContain('Grandes laboratorios')
     expect(w.text()).toContain('En tu equipo')
     expect(w.findAll('.ai-card').length).toBeGreaterThanOrEqual(4)
     await w.find('input').setValue('olla')
-    const nombres = w.findAll('.ai-card-name').map((c) => c.text())
-    expect(nombres).toEqual(['Ollama'])
+    const names = w.findAll('.ai-card-name').map((c) => c.text())
+    expect(names).toEqual(['Ollama'])
     w.unmount()
   })
 
@@ -63,25 +63,25 @@ describe('elegir proveedor', () => {
       }
     }
     held.state.aiActive = 'openai'
-    const w = await abrir()
-    const c = tarjeta(w, 'OpenAI')
+    const w = await open()
+    const c = card(w, 'OpenAI')
     expect(c.classes()).toContain('configured')
     expect(c.classes()).toContain('active')
     expect(c.text()).toContain('en uso')
-    expect(tarjeta(w, 'Ollama').classes()).not.toContain('configured')
+    expect(card(w, 'Ollama').classes()).not.toContain('configured')
     w.unmount()
   })
 
   it('un proveedor de pago pide la clave y enlaza a donde conseguirla', async () => {
-    const w = await abrir()
-    await tarjeta(w, 'OpenAI').trigger('click')
+    const w = await open()
+    await card(w, 'OpenAI').trigger('click')
     await flushPromises()
     expect(w.text()).toContain('Clave de API')
     expect(w.text()).toContain('Consigue tu clave')
     // sin clave no se puede ni probar ni guardar, y se dice por que
     expect(w.text()).toContain('falta la clave')
-    const guardar = w.findAll('button').find((b) => b.text() === 'Guardar y usar')
-    expect(guardar.attributes('disabled')).toBeDefined()
+    const save = w.findAll('button').find((b) => b.text() === 'Guardar y usar')
+    expect(save.attributes('disabled')).toBeDefined()
     // el catalogo se pide solo, sin molestar al proveedor (no hay clave)
     expect(held.api.aiModels).toHaveBeenCalledTimes(1)
     expect(held.api.aiModels.mock.calls[0][0].key).toBeUndefined()
@@ -89,23 +89,23 @@ describe('elegir proveedor', () => {
   })
 
   it('uno local no pide clave, deja cambiar la URL y pide la lista al entrar', async () => {
-    const w = await abrir()
-    await tarjeta(w, 'Ollama').trigger('click')
+    const w = await open()
+    await card(w, 'Ollama').trigger('click')
     await flushPromises()
     expect(w.text()).not.toContain('Clave de API')
     expect(w.text()).toContain('URL de la API')
     expect(held.api.aiModels).toHaveBeenCalledTimes(1)
     // los modelos sugeridos por el nucleo rellenan lo vacio
-    const cajas = w.findAllComponents(ModelPicker)
-    expect(cajas).toHaveLength(2)
-    expect(cajas[0].props('modelValue')).toBe('grande')
-    expect(cajas[1].props('modelValue')).toBe('chico')
+    const boxes = w.findAllComponents(ModelPicker)
+    expect(boxes).toHaveLength(2)
+    expect(boxes[0].props('modelValue')).toBe('grande')
+    expect(boxes[1].props('modelValue')).toBe('chico')
     w.unmount()
   })
 
   it('los huecos de la URL se rellenan con lo escrito', async () => {
-    const w = await abrir()
-    await tarjeta(w, 'Amazon Bedrock').trigger('click')
+    const w = await open()
+    await card(w, 'Amazon Bedrock').trigger('click')
     await flushPromises()
     expect(w.text()).toContain('falta region')
     const region = w.findAll('input').find((i) => i.attributes('placeholder') === 'us-east-1')
@@ -115,21 +115,21 @@ describe('elegir proveedor', () => {
   })
 
   it('probar manda lo del formulario sin guardar, y guardar lo activa', async () => {
-    const w = await abrir()
-    await tarjeta(w, 'OpenAI').trigger('click')
+    const w = await open()
+    await card(w, 'OpenAI').trigger('click')
     await flushPromises()
-    const clave = w.findAll('input').find((i) => i.attributes('type') === 'password')
-    await clave.setValue('sk-nueva-clave')
+    const key = w.findAll('input').find((i) => i.attributes('type') === 'password')
+    await key.setValue('sk-nueva-clave')
     await w
       .findAll('button')
       .find((b) => b.text() === 'Probar')
       .trigger('click')
     await flushPromises()
     expect(held.api.aiCheck).toHaveBeenCalledTimes(1)
-    const enviado = held.api.aiCheck.mock.calls[0][0]
-    expect(enviado.provider).toBe('openai')
-    expect(enviado.key).toBe('sk-nueva-clave')
-    expect(enviado.base_url).toBeUndefined() // la del catalogo no se repite
+    const sent = held.api.aiCheck.mock.calls[0][0]
+    expect(sent.provider).toBe('openai')
+    expect(sent.key).toBe('sk-nueva-clave')
+    expect(sent.base_url).toBeUndefined() // la del catalogo no se repite
     expect(held.api.aiSaveProfile).not.toHaveBeenCalled()
     expect(w.find('.key-state.ok').text()).toContain('Funciona')
 
@@ -166,11 +166,11 @@ describe('elegir proveedor', () => {
       }
     }
     held.state.aiActive = 'openai'
-    const w = await abrir('openai')
+    const w = await open('openai')
     expect(w.text()).toContain('OpenAI')
-    const clave = w.findAll('input').find((i) => i.attributes('type') === 'password')
-    expect(clave.element.value).toBe('')
-    expect(clave.attributes('placeholder')).toContain('guardada: sk-a…')
+    const key = w.findAll('input').find((i) => i.attributes('type') === 'password')
+    expect(key.element.value).toBe('')
+    expect(key.attributes('placeholder')).toContain('guardada: sk-a…')
     await w
       .findAll('button')
       .find((b) => b.text() === 'Guardar y usar')
@@ -181,8 +181,8 @@ describe('elegir proveedor', () => {
   })
 
   it('un servidor propio pide nombre y URL http(s)', async () => {
-    const w = await abrir()
-    await tarjeta(w, 'Añadir otro servidor').trigger('click')
+    const w = await open()
+    await card(w, 'Añadir otro servidor').trigger('click')
     await flushPromises()
     expect(w.text()).toContain('falta la URL')
     const url = w
@@ -208,8 +208,8 @@ describe('elegir proveedor', () => {
   })
 
   it('los parametros extra tienen que ser JSON', async () => {
-    const w = await abrir()
-    await tarjeta(w, 'Ollama').trigger('click')
+    const w = await open()
+    await card(w, 'Ollama').trigger('click')
     await flushPromises()
     await w.find('.ai-advanced-toggle').trigger('click')
     const extra = w.find('textarea[placeholder^="{"]')
@@ -247,7 +247,7 @@ describe('elegir proveedor', () => {
       }
     }
     held.state.aiActive = 'openai'
-    const w = await abrir('openai')
+    const w = await open('openai')
     await w
       .findAll('button')
       .find((b) => b.text() === 'Quitar')
@@ -263,7 +263,7 @@ describe('elegir proveedor', () => {
 })
 
 describe('el selector de modelos', () => {
-  const modelos = [
+  const models = [
     {
       id: 'grande',
       name: 'Grande',
@@ -309,37 +309,37 @@ describe('el selector de modelos', () => {
       known: true
     }
   ]
-  const montar = (props = {}) =>
+  const mountView = (props = {}) =>
     mount(ModelPicker, {
-      props: { modelValue: '', models: modelos, ...props },
+      props: { modelValue: '', models: models, ...props },
       attachTo: document.body
     })
 
   it('enseña precio, contexto, herramientas y el recomendado', async () => {
-    const w = montar({ suggest: 'chico' })
+    const w = mountView({ suggest: 'chico' })
     await w.find('input').trigger('focus')
-    const filas = w.findAll('.model-row')
-    expect(filas[0].text()).toContain('Chico')
-    expect(filas[0].text()).toContain('recomendado')
-    expect(filas[0].text()).toContain('$0.1 → $0.4')
-    expect(filas[0].text()).toContain('32k ctx')
-    expect(filas.find((f) => f.text().includes('Mudo')).text()).toContain('sin herramientas')
+    const rows = w.findAll('.model-row')
+    expect(rows[0].text()).toContain('Chico')
+    expect(rows[0].text()).toContain('recomendado')
+    expect(rows[0].text()).toContain('$0.1 → $0.4')
+    expect(rows[0].text()).toContain('32k ctx')
+    expect(rows.find((f) => f.text().includes('Mudo')).text()).toContain('sin herramientas')
     // los obsoletos van escondidos de entrada
-    expect(filas.some((f) => f.text().includes('Viejo'))).toBe(false)
+    expect(rows.some((f) => f.text().includes('Viejo'))).toBe(false)
     w.unmount()
   })
 
   it('para conversar filtra de entrada los que no usan herramientas', async () => {
-    const w = montar({ needTools: true })
+    const w = mountView({ needTools: true })
     await w.find('input').trigger('focus')
-    const nombres = w.findAll('.model-name').map((f) => f.text())
-    expect(nombres).toContain('Grande')
-    expect(nombres).not.toContain('Mudo')
+    const names = w.findAll('.model-name').map((f) => f.text())
+    expect(names).toContain('Grande')
+    expect(names).not.toContain('Mudo')
     w.unmount()
   })
 
   it('lo escrito filtra y vale aunque no este en la lista', async () => {
-    const w = montar()
+    const w = mountView()
     await w.find('input').setValue('gra')
     expect(w.findAll('.model-name').map((f) => f.text())).toEqual(['Grande'])
     expect(w.emitted('update:modelValue').at(-1)).toEqual(['gra'])
@@ -350,7 +350,7 @@ describe('el selector de modelos', () => {
   })
 
   it('elegir una fila emite su id y avisa si no usa herramientas', async () => {
-    const w = montar()
+    const w = mountView()
     await w.find('input').trigger('focus')
     await w
       .findAll('.model-row')
@@ -369,9 +369,9 @@ describe('la tarjeta de IA en Ajustes', () => {
     await flushPromises()
     await flushPromises()
     expect(w.text()).toContain('Sin proveedor elegido')
-    const boton = w.findAll('button').find((b) => b.text() === 'Elegir proveedor…')
-    expect(boton).toBeTruthy()
-    await boton.trigger('click')
+    const button = w.findAll('button').find((b) => b.text() === 'Elegir proveedor…')
+    expect(button).toBeTruthy()
+    await button.trigger('click')
     await flushPromises()
     expect(w.find('.ai-modal').exists()).toBe(true)
     expect(w.text()).toContain('¿Qué IA quieres usar?')
@@ -429,9 +429,9 @@ describe('probar gratis, sin clave', () => {
     const w = mount(SettingsPage, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
-    const boton = w.findAll('button').find((b) => b.text() === 'Probar gratis, sin clave')
-    expect(boton).toBeTruthy()
-    await boton.trigger('click')
+    const button = w.findAll('button').find((b) => b.text() === 'Probar gratis, sin clave')
+    expect(button).toBeTruthy()
+    await button.trigger('click')
     await flushPromises()
     await flushPromises()
     expect(held.api.aiFree).toHaveBeenCalledTimes(1)
@@ -445,7 +445,7 @@ describe('probar gratis, sin clave', () => {
   })
 
   it('el modal lo ofrece en el grupo gratuito y se cierra al conseguirlo', async () => {
-    const w = await abrir()
+    const w = await open()
     expect(w.text()).toContain('Gratis, sin clave')
     await w.find('.ai-free-btn').trigger('click')
     await flushPromises()
@@ -518,7 +518,7 @@ describe('teclado en la ventana de la IA', () => {
       }
     }
     held.state.aiActive = 'openai'
-    const w = await abrir('openai')
+    const w = await open('openai')
     expect(w.find('.ai-form').exists()).toBe(true)
     await w
       .findAll('button')

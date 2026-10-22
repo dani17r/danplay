@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn a_program_that_does_not_exist_is_not_found() {
-        assert!(find("danplay-programa-que-no-existe").is_none());
-        assert!(!in_path("danplay-programa-que-no-existe"));
+        assert!(find("danplay-no-such-program").is_none());
+        assert!(!in_path("danplay-no-such-program"));
     }
 }

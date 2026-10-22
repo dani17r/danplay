@@ -9,7 +9,7 @@ import { startDrag, cancelDrag, onDrop, useDragSong } from '../src/composables/u
 
 const PANEL = { top: 100, height: 400 }
 
-let panel, filas, frames, rafOriginal, cafOriginal, csOriginal
+let panel, rows, frames, rafOriginal, cafOriginal, csOriginal
 
 function pointer(el, type, x, y) {
   el.dispatchEvent(
@@ -18,10 +18,10 @@ function pointer(el, type, x, y) {
 }
 
 /** Ejecuta los cuadros de animacion pendientes, uno a uno. */
-function cuadro(n = 1) {
+function frame(n = 1) {
   for (let i = 0; i < n; i++) {
-    const pendientes = frames.splice(0)
-    for (const f of pendientes) f(performance.now())
+    const pending = frames.splice(0)
+    for (const f of pending) f(performance.now())
   }
 }
 
@@ -59,7 +59,7 @@ beforeEach(() => {
     },
     configurable: true
   })
-  filas = [1, 2, 3].map((id) => {
+  rows = [1, 2, 3].map((id) => {
     const tr = document.createElement('div')
     tr.setAttribute('data-drop', 'sort:' + id)
     tr.getBoundingClientRect = () => ({
@@ -87,86 +87,86 @@ afterEach(() => {
 
 describe('desplazamiento automatico al ordenar', () => {
   it('cerca del borde de abajo la lista baja sola, cuadro a cuadro', () => {
-    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: filas[0] })
-    pointer(filas[2], 'pointermove', 10, PANEL.top + PANEL.height - 10)
+    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
+    pointer(rows[2], 'pointermove', 10, PANEL.top + PANEL.height - 10)
     expect(frames.length, 'deberia haber un cuadro programado').toBe(1)
-    cuadro()
-    const tras1 = panel.scrollTop
-    expect(tras1).toBeGreaterThan(0)
-    cuadro()
-    expect(panel.scrollTop).toBeGreaterThan(tras1)
+    frame()
+    const afterOne = panel.scrollTop
+    expect(afterOne).toBeGreaterThan(0)
+    frame()
+    expect(panel.scrollTop).toBeGreaterThan(afterOne)
   })
 
   it('cerca del borde de arriba sube', () => {
     panel.scrollTop = 300
-    startDrag({ id: 3 }, { clientX: 10, clientY: 400, button: 0, target: filas[2] })
-    pointer(filas[0], 'pointermove', 10, PANEL.top + 5)
-    cuadro(3)
+    startDrag({ id: 3 }, { clientX: 10, clientY: 400, button: 0, target: rows[2] })
+    pointer(rows[0], 'pointermove', 10, PANEL.top + 5)
+    frame(3)
     expect(panel.scrollTop).toBeLessThan(300)
   })
 
   it('en medio del panel no se mueve, aunque pasen cuadros', () => {
-    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: filas[0] })
-    pointer(filas[1], 'pointermove', 10, PANEL.top + PANEL.height / 2)
-    cuadro(5)
+    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
+    pointer(rows[1], 'pointermove', 10, PANEL.top + PANEL.height / 2)
+    frame(5)
     expect(panel.scrollTop).toBe(0)
   })
 
   it('cuanto mas al borde, mas rapido', () => {
-    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: filas[0] })
-    pointer(filas[2], 'pointermove', 10, PANEL.top + PANEL.height - 40)
-    cuadro()
-    const suave = panel.scrollTop
+    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
+    pointer(rows[2], 'pointermove', 10, PANEL.top + PANEL.height - 40)
+    frame()
+    const smooth = panel.scrollTop
     panel.scrollTop = 0
-    pointer(filas[2], 'pointermove', 10, PANEL.top + PANEL.height - 2)
-    cuadro()
-    expect(panel.scrollTop).toBeGreaterThan(suave)
+    pointer(rows[2], 'pointermove', 10, PANEL.top + PANEL.height - 2)
+    frame()
+    expect(panel.scrollTop).toBeGreaterThan(smooth)
   })
 
   it('al soltar, o al cancelar, no queda ningun cuadro dando vueltas', () => {
-    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: filas[0] })
-    pointer(filas[2], 'pointermove', 10, PANEL.top + PANEL.height - 10)
-    cuadro()
+    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
+    pointer(rows[2], 'pointermove', 10, PANEL.top + PANEL.height - 10)
+    frame()
     expect(frames.length).toBe(1)
     cancelDrag()
     expect(frames.length).toBe(0)
-    cuadro()
+    frame()
     expect(frames.length).toBe(0)
   })
 
   it('fuera de una lista ordenable no se programa nada', () => {
-    const suelto = document.createElement('div')
-    suelto.setAttribute('data-drop', 'favorites')
-    document.body.appendChild(suelto)
-    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: filas[0] })
-    pointer(suelto, 'pointermove', 10, 900)
+    const loose = document.createElement('div')
+    loose.setAttribute('data-drop', 'favorites')
+    document.body.appendChild(loose)
+    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
+    pointer(loose, 'pointermove', 10, 900)
     expect(frames.length).toBe(0)
-    suelto.remove()
+    loose.remove()
   })
 
   it('la mitad del destino decide antes o despues, y se entrega al soltar', () => {
-    const recibido = []
-    onDrop((target, song, extra) => recibido.push([target, song.id, extra.after]))
+    const received = []
+    onDrop((target, song, extra) => received.push([target, song.id, extra.after]))
     const { drag } = useDragSong()
-    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: filas[0] })
+    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
     // la tercera fila va de 190 a 220: 195 es su mitad de arriba
-    pointer(filas[2], 'pointermove', 10, 195)
+    pointer(rows[2], 'pointermove', 10, 195)
     expect(drag.over).toBe('sort:3')
     expect(drag.after).toBe(false)
-    pointer(filas[2], 'pointermove', 10, 215)
+    pointer(rows[2], 'pointermove', 10, 215)
     expect(drag.after).toBe(true)
-    pointer(filas[2], 'pointerup', 10, 215)
-    expect(recibido).toEqual([['sort:3', 1, true]])
+    pointer(rows[2], 'pointerup', 10, 215)
+    expect(received).toEqual([['sort:3', 1, true]])
     expect(drag.song).toBe(null)
   })
 
   it('con una sola, `songs` llega como [song]: lo de antes sigue valiendo', () => {
-    const recibido = []
-    onDrop((target, song, extra) => recibido.push([target, extra.songs.map((s) => s.id)]))
-    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: filas[0] })
-    pointer(filas[2], 'pointermove', 10, 195)
-    pointer(filas[2], 'pointerup', 10, 195)
-    expect(recibido).toEqual([['sort:3', [1]]])
+    const received = []
+    onDrop((target, song, extra) => received.push([target, extra.songs.map((s) => s.id)]))
+    startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
+    pointer(rows[2], 'pointermove', 10, 195)
+    pointer(rows[2], 'pointerup', 10, 195)
+    expect(received).toEqual([['sort:3', [1]]])
   })
 })
 
@@ -175,31 +175,31 @@ describe('desplazamiento automatico al ordenar', () => {
 // bloque llega entero, en su orden, con la mitad del destino, y que el
 // desplazamiento por el borde funciona igual que con una.
 describe('ordenar un bloque', () => {
-  const bloque = () => [{ id: 1 }, { id: 2 }]
+  const block = () => [{ id: 1 }, { id: 2 }]
 
   it('se entrega entero, en su orden y con la mitad del destino', () => {
-    const recibido = []
+    const received = []
     onDrop((target, song, extra) =>
-      recibido.push([target, song.id, extra.songs.map((s) => s.id), extra.after])
+      received.push([target, song.id, extra.songs.map((s) => s.id), extra.after])
     )
     const { drag, isDragged } = useDragSong()
-    const b = bloque()
-    startDrag(b[1], { clientX: 10, clientY: 175, button: 0, target: filas[1] }, b)
-    pointer(filas[2], 'pointermove', 10, 215)
+    const b = block()
+    startDrag(b[1], { clientX: 10, clientY: 175, button: 0, target: rows[1] }, b)
+    pointer(rows[2], 'pointermove', 10, 215)
     expect(drag.over).toBe('sort:3')
     expect(drag.after).toBe(true)
     // las dos van en la mano; la tercera, no
     expect([1, 2, 3].map(isDragged)).toEqual([true, true, false])
-    pointer(filas[2], 'pointerup', 10, 215)
-    expect(recibido).toEqual([['sort:3', 2, [1, 2], true]])
+    pointer(rows[2], 'pointerup', 10, 215)
+    expect(received).toEqual([['sort:3', 2, [1, 2], true]])
     expect(drag.songs).toEqual([])
   })
 
   it('cerca del borde la lista también baja sola con el bloque en la mano', () => {
-    const b = bloque()
-    startDrag(b[0], { clientX: 10, clientY: 140, button: 0, target: filas[0] }, b)
-    pointer(filas[2], 'pointermove', 10, PANEL.top + PANEL.height - 10)
-    cuadro(2)
+    const b = block()
+    startDrag(b[0], { clientX: 10, clientY: 140, button: 0, target: rows[0] }, b)
+    pointer(rows[2], 'pointermove', 10, PANEL.top + PANEL.height - 10)
+    frame(2)
     expect(panel.scrollTop).toBeGreaterThan(0)
     cancelDrag()
     expect(frames.length).toBe(0)
@@ -207,9 +207,9 @@ describe('ordenar un bloque', () => {
 
   it('cancelarlo suelta el bloque entero', () => {
     const { drag, isDragged } = useDragSong()
-    const b = bloque()
-    startDrag(b[0], { clientX: 10, clientY: 140, button: 0, target: filas[0] }, b)
-    pointer(filas[1], 'pointermove', 10, 300)
+    const b = block()
+    startDrag(b[0], { clientX: 10, clientY: 140, button: 0, target: rows[0] }, b)
+    pointer(rows[1], 'pointermove', 10, 300)
     expect(drag.songs).toHaveLength(2)
     cancelDrag()
     expect(drag.song).toBe(null)

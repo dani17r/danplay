@@ -26,8 +26,8 @@ import { clearNotices, useNotices } from '../src/composables/useNotices.js'
 import { song } from './support/backend.js'
 
 const api = held.api
-const avisos = () => useNotices().notices.value.map((n) => n.message)
-const dialogo = () => useDialog().dialog.value
+const notices = () => useNotices().notices.value.map((n) => n.message)
+const dialog = () => useDialog().dialog.value
 
 let view, reload, actions
 beforeEach(() => {
@@ -44,10 +44,10 @@ beforeEach(() => {
 })
 
 /** Contesta el dialogo que se acaba de abrir. */
-async function responder(valor) {
+async function answer(value) {
   await flushPromises()
-  if (valor === null) dialogCancel()
-  else dialogOk(valor)
+  if (value === null) dialogCancel()
+  else dialogOk(value)
   await flushPromises()
 }
 
@@ -60,58 +60,58 @@ describe('las listas', () => {
   it('añadir una cancion lo dice; si ya estaba, tambien', async () => {
     await actions.addTo(song(7), { id: 2, name: 'Ensayo' })
     expect(api.addToPlaylist).toHaveBeenCalledWith(2, [7])
-    expect(avisos()).toContain('Añadida a «Ensayo»')
+    expect(notices()).toContain('Añadida a «Ensayo»')
     api.addToPlaylist.mockResolvedValueOnce({ added: 0 })
     await actions.addTo(song(7), { id: 2, name: 'Ensayo' })
-    expect(avisos()).toContain('Ya estaba en «Ensayo»')
+    expect(notices()).toContain('Ya estaba en «Ensayo»')
   })
 
   it('varias de una vez cuentan cuantas entraron', async () => {
     api.addToPlaylist.mockResolvedValueOnce({ added: 3 })
     await actions.addManyTo([song(1), song(2), song(3)], { id: 2, name: 'Ensayo' })
     expect(api.addToPlaylist).toHaveBeenCalledWith(2, [1, 2, 3])
-    expect(avisos()).toContain('3 añadidas a «Ensayo»')
+    expect(notices()).toContain('3 añadidas a «Ensayo»')
   })
 })
 
 describe('crear una lista', () => {
   it('pide el nombre y, si viene con canciones, las mete dentro', async () => {
-    const hecho = actions.create([song(4), song(5)])
+    const done = actions.create([song(4), song(5)])
     await flushPromises()
-    expect(dialogo().kind).toBe('prompt')
-    expect(dialogo().message).toContain('2 canciones')
-    await responder('Viernes')
-    const r = await hecho
+    expect(dialog().kind).toBe('prompt')
+    expect(dialog().message).toContain('2 canciones')
+    await answer('Viernes')
+    const r = await done
     expect(api.createPlaylist).toHaveBeenCalledWith('Viernes')
     expect(api.addToPlaylist).toHaveBeenCalledWith(r.id, [4, 5])
-    expect(avisos()).toContain('Lista «Viernes» creada con 2 canciones')
+    expect(notices()).toContain('Lista «Viernes» creada con 2 canciones')
     expect(actions.playlists.value.map((l) => l.name)).toContain('Viernes')
   })
 
   it('con una sola cancion, o con ninguna', async () => {
-    let hecho = actions.create(song(4, { title: 'Mi Gozo' }))
+    let done = actions.create(song(4, { title: 'Mi Gozo' }))
     await flushPromises()
-    expect(dialogo().message).toContain('«Mi Gozo»')
-    await responder('Sabado')
-    await hecho
-    expect(avisos()).toContain('Lista «Sabado» creada con esa canción')
-    hecho = actions.create()
-    await responder('Vacia')
-    await hecho
-    expect(avisos()).toContain('Lista «Vacia» creada')
+    expect(dialog().message).toContain('«Mi Gozo»')
+    await answer('Sabado')
+    await done
+    expect(notices()).toContain('Lista «Sabado» creada con esa canción')
+    done = actions.create()
+    await answer('Vacia')
+    await done
+    expect(notices()).toContain('Lista «Vacia» creada')
   })
 
   it('si el nombre ya existe, se usa esa y se dice', async () => {
-    const hecho = actions.create()
-    await responder('Domingo')
-    await hecho
-    expect(avisos()).toContain('Ya existía una lista «Domingo»: se ha usado esa')
+    const done = actions.create()
+    await answer('Domingo')
+    await done
+    expect(notices()).toContain('Ya existía una lista «Domingo»: se ha usado esa')
   })
 
   it('cancelar no crea nada', async () => {
-    const hecho = actions.create()
-    await responder(null)
-    expect(await hecho).toBe(null)
+    const done = actions.create()
+    await answer(null)
+    expect(await done).toBe(null)
     expect(api.createPlaylist).not.toHaveBeenCalled()
   })
 })
@@ -119,27 +119,27 @@ describe('crear una lista', () => {
 describe('renombrar', () => {
   it('cambia el nombre y, si esta abierta, el titulo la sigue', async () => {
     api.editPlaylist.mockResolvedValueOnce({ playlist: { id: 1, name: 'Domingo 11h' } })
-    const hecho = actions.rename({ id: 1, name: 'Domingo' })
-    await responder(' Domingo 11h ')
-    await hecho
+    const done = actions.rename({ id: 1, name: 'Domingo' })
+    await answer(' Domingo 11h ')
+    await done
     expect(api.editPlaylist).toHaveBeenCalledWith(1, { name: 'Domingo 11h' })
     expect(view.value.name).toBe('Domingo 11h')
-    expect(avisos()).toContain('Ahora se llama «Domingo 11h»')
+    expect(notices()).toContain('Ahora se llama «Domingo 11h»')
   })
 
   it('el mismo nombre no pide nada al nucleo', async () => {
-    const hecho = actions.rename({ id: 1, name: 'Domingo' })
-    await responder('Domingo')
-    await hecho
+    const done = actions.rename({ id: 1, name: 'Domingo' })
+    await answer('Domingo')
+    await done
     expect(api.editPlaylist).not.toHaveBeenCalled()
   })
 
   it('si el nombre ya es de otra, lo dice', async () => {
     api.editPlaylist.mockRejectedValueOnce(new Error('ya hay una lista con ese nombre'))
-    const hecho = actions.rename({ id: 2, name: 'Ensayo' })
-    await responder('Domingo')
-    await hecho
-    expect(avisos()).toContain('No se pudo renombrar: ya hay una lista con ese nombre')
+    const done = actions.rename({ id: 2, name: 'Ensayo' })
+    await answer('Domingo')
+    await done
+    expect(notices()).toContain('No se pudo renombrar: ya hay una lista con ese nombre')
   })
 })
 
@@ -148,61 +148,61 @@ describe('quitar, exportar y la hoja del atril', () => {
     await actions.removeSong(song(3))
     expect(api.removeFromPlaylist).toHaveBeenCalledWith(1, 3)
     expect(reload).toHaveBeenCalled()
-    expect(avisos()).toContain('Quitada de la lista')
+    expect(notices()).toContain('Quitada de la lista')
   })
 
   it('exportar dice donde quedo; si falla, por que', async () => {
     await actions.exportTo({ id: 1, name: 'Domingo' })
-    expect(avisos()).toContain('Exportada a /musica/Listas/x.m3u8')
+    expect(notices()).toContain('Exportada a /musica/Listas/x.m3u8')
     api.exportPlaylist.mockRejectedValueOnce(new Error('sin permiso'))
     await actions.exportTo({ id: 1, name: 'Domingo' })
-    expect(avisos()).toContain('No se pudo exportar: sin permiso')
+    expect(notices()).toContain('No se pudo exportar: sin permiso')
   })
 
   it('la hoja pregunta si lleva letra y se abre en el navegador', async () => {
-    const hecho = actions.sheet({ id: 1, name: 'Domingo' })
+    const done = actions.sheet({ id: 1, name: 'Domingo' })
     await flushPromises()
-    expect(dialogo().okLabel).toBe('Con letra')
-    await responder(true)
-    await hecho
+    expect(dialog().okLabel).toBe('Con letra')
+    await answer(true)
+    await done
     expect(api.playlistSheet).toHaveBeenCalledWith(1, true)
     expect(held.app.openHtml).toHaveBeenCalledWith('/musica/Listas/lista-1.html')
   })
 
   it('«solo acordes» la pide sin letra; si no se puede abrir, se enseña en su carpeta', async () => {
     held.app.openHtml.mockRejectedValueOnce(new Error('sin navegador'))
-    const hecho = actions.sheet({ id: 1, name: 'Domingo' })
-    await responder(null)
-    await hecho
+    const done = actions.sheet({ id: 1, name: 'Domingo' })
+    await answer(null)
+    await done
     expect(api.playlistSheet).toHaveBeenCalledWith(1, false)
     expect(held.app.revealInFolder).toHaveBeenCalledWith('/musica/Listas/lista-1.html')
   })
 
   it('si no se puede escribir la hoja, lo dice', async () => {
     api.playlistSheet.mockRejectedValueOnce(new Error('disco lleno'))
-    const hecho = actions.sheet({ id: 1, name: 'Domingo' })
-    await responder(true)
-    await hecho
-    expect(avisos()).toContain('No se pudo escribir la hoja: disco lleno')
+    const done = actions.sheet({ id: 1, name: 'Domingo' })
+    await answer(true)
+    await done
+    expect(notices()).toContain('No se pudo escribir la hoja: disco lleno')
   })
 })
 
 describe('borrar una lista', () => {
   it('pregunta antes, deja claro que las canciones no se borran y devuelve cual era', async () => {
-    const hecho = actions.remove({ id: 2, name: 'Ensayo' })
+    const done = actions.remove({ id: 2, name: 'Ensayo' })
     await flushPromises()
-    expect(dialogo().danger).toBe(true)
-    expect(dialogo().message).toContain('Las canciones NO se borran')
-    await responder(true)
-    expect(await hecho).toBe(2)
+    expect(dialog().danger).toBe(true)
+    expect(dialog().message).toContain('Las canciones NO se borran')
+    await answer(true)
+    expect(await done).toBe(2)
     expect(api.deletePlaylist).toHaveBeenCalledWith(2)
     expect(actions.playlists.value.map((l) => l.id)).toEqual([1])
   })
 
   it('cancelar no borra nada', async () => {
-    const hecho = actions.remove(1)
-    await responder(null)
-    expect(await hecho).toBe(false)
+    const done = actions.remove(1)
+    await answer(null)
+    expect(await done).toBe(false)
     expect(api.deletePlaylist).not.toHaveBeenCalled()
   })
 })

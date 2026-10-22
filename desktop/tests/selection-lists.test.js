@@ -29,54 +29,54 @@ afterEach(() => {
   localStorage.clear()
 })
 
-const VISTAS = { table: SongTable, rows: SongRows, cards: SongCards, grid: SongGrid }
-const tres = () => [
+const VIEWS = { table: SongTable, rows: SongRows, cards: SongCards, grid: SongGrid }
+const three = () => [
   song(1, { title: 'A Una Voz' }),
   song(2, { title: 'Mi Gozo', favorite: 1 }),
   song(3, { title: 'Shekinah' })
 ]
-const filas = (w) => w.findAll('[data-song-row]')
+const rows = (w) => w.findAll('[data-song-row]')
 /** La casilla de una fila (la de la cabecera de la tabla no es de ninguna). */
-const casilla = (fila) => fila.find('.pick-box')
+const checkbox = (row) => row.find('.pick-box')
 
 describe('las casillas en las cuatro vistas', () => {
-  for (const [nombre, Vista] of Object.entries(VISTAS)) {
-    describe(nombre, () => {
+  for (const [name, View] of Object.entries(VIEWS)) {
+    describe(name, () => {
       it('fuera del modo no hay ninguna casilla', () => {
-        const w = mount(Vista, { props: { songs: tres(), selectedIds: [1, 2] } })
+        const w = mount(View, { props: { songs: three(), selectedIds: [1, 2] } })
         expect(w.findAll('.pick-box')).toHaveLength(0)
         expect(w.findAll('.col-check')).toHaveLength(0)
       })
 
       it('en el modo, una por fila, dentro de la fila y decorativa', () => {
-        const w = mount(Vista, { props: { songs: tres(), selectMode: true } })
-        for (const f of filas(w)) {
+        const w = mount(View, { props: { songs: three(), selectMode: true } })
+        for (const f of rows(w)) {
           expect(f.findAll('.pick-box'), 'una casilla por fila').toHaveLength(1)
-          expect(casilla(f).attributes('aria-hidden')).toBe('true')
+          expect(checkbox(f).attributes('aria-hidden')).toBe('true')
           // ni foco propio ni papel propio: la fila es la que se elige
-          expect(casilla(f).attributes('tabindex')).toBeUndefined()
-          expect(casilla(f).attributes('role')).toBeUndefined()
+          expect(checkbox(f).attributes('tabindex')).toBeUndefined()
+          expect(checkbox(f).attributes('role')).toBeUndefined()
         }
       })
 
       it('marcada la de las elegidas, como su aria-selected', async () => {
-        const w = mount(Vista, {
-          props: { songs: tres(), selectMode: true, selected: 3, selectedIds: [1, 3] }
+        const w = mount(View, {
+          props: { songs: three(), selectMode: true, selected: 3, selectedIds: [1, 3] }
         })
-        const ver = () =>
-          filas(w).map((f) => [
+        const rowStates = () =>
+          rows(w).map((f) => [
             f.attributes('aria-selected'),
-            casilla(f).classes().includes('on'),
-            casilla(f).find('svg').exists()
+            checkbox(f).classes().includes('on'),
+            checkbox(f).find('svg').exists()
           ])
-        expect(ver()).toEqual([
+        expect(rowStates()).toEqual([
           ['true', true, true],
           ['false', false, false],
           ['true', true, true]
         ])
         // cambia la selección: cambian con ella
         await w.setProps({ selected: 2, selectedIds: [2] })
-        expect(ver().map(([sel, on]) => [sel, on])).toEqual([
+        expect(rowStates().map(([sel, on]) => [sel, on])).toEqual([
           ['false', false],
           ['true', true],
           ['false', false]
@@ -84,38 +84,38 @@ describe('las casillas en las cuatro vistas', () => {
       })
 
       it('un clic en la casilla es un clic en la fila: select(id, el evento)', async () => {
-        const w = mount(Vista, { props: { songs: tres(), selectMode: true } })
-        await casilla(filas(w)[1]).trigger('click', { shiftKey: true })
+        const w = mount(View, { props: { songs: three(), selectMode: true } })
+        await checkbox(rows(w)[1]).trigger('click', { shiftKey: true })
         const [id, ev] = w.emitted('select').at(-1)
         expect(id).toBe(2)
         // el evento entero, con sus teclas: Mayús sigue haciendo tramo
         expect(ev).toBeInstanceOf(MouseEvent)
         expect(ev.shiftKey).toBe(true)
-        await filas(w)[2].trigger('click')
+        await rows(w)[2].trigger('click')
         expect(w.emitted('select').at(-1)[0]).toBe(3)
       })
 
       it('el doble clic en la fila sigue poniéndola; en la casilla, no', async () => {
-        const w = mount(Vista, { props: { songs: tres(), selectMode: true } })
+        const w = mount(View, { props: { songs: three(), selectMode: true } })
         // marcar y desmarcar deprisa no tiene que ponerla a sonar
-        await casilla(filas(w)[0]).trigger('dblclick')
+        await checkbox(rows(w)[0]).trigger('dblclick')
         expect(w.emitted('play')).toBeUndefined()
-        await filas(w)[0].trigger('dblclick')
-        expect(w.emitted('play')).toEqual([[tres()[0]]])
+        await rows(w)[0].trigger('dblclick')
+        expect(w.emitted('play')).toEqual([[three()[0]]])
       })
 
       it('el botón de reproducir de la fila sigue a lo suyo, sin elegir', async () => {
-        const w = mount(Vista, { props: { songs: tres(), selectMode: true } })
-        await filas(w)[2].find('.row-play, .row-go, .card-play, .tile-play').trigger('click')
-        expect(w.emitted('play')).toEqual([[tres()[2]]])
+        const w = mount(View, { props: { songs: three(), selectMode: true } })
+        await rows(w)[2].find('.row-play, .row-go, .card-play, .tile-play').trigger('click')
+        expect(w.emitted('play')).toEqual([[three()[2]]])
         expect(w.emitted('select')).toBeUndefined()
       })
 
       it('declara los avisos de la selección (Ctrl+A, Supr y Escape)', () => {
-        const w = mount(Vista, { props: { songs: tres(), selectMode: true } })
+        const w = mount(View, { props: { songs: three(), selectMode: true } })
         // declarados, Vue no los deja caer al elemento raíz como atributos
         for (const ev of ['selectAll', 'remove', 'clearSelection']) {
-          expect(Vista.emits, `${nombre} no declara ${ev}`).toContain(ev)
+          expect(View.emits, `${name} no declara ${ev}`).toContain(ev)
         }
         expect(w.props('selectMode')).toBe(true)
       })
@@ -123,11 +123,11 @@ describe('las casillas en las cuatro vistas', () => {
   }
 
   it('el corazón y las estrellas tampoco eligen la fila', async () => {
-    for (const Vista of [SongTable, SongRows, SongCards]) {
-      const w = mount(Vista, { props: { songs: tres(), selectMode: true } })
-      await filas(w)[1].find('.heart').trigger('click')
+    for (const View of [SongTable, SongRows, SongCards]) {
+      const w = mount(View, { props: { songs: three(), selectMode: true } })
+      await rows(w)[1].find('.heart').trigger('click')
       expect(w.emitted('toggleFavorite')).toHaveLength(1)
-      await filas(w)[1].findAll('.stars .ico').at(0).trigger('click')
+      await rows(w)[1].findAll('.stars .ico').at(0).trigger('click')
       expect(w.emitted('setStars')).toHaveLength(1)
       expect(w.emitted('select')).toBeUndefined()
     }
@@ -135,54 +135,54 @@ describe('las casillas en las cuatro vistas', () => {
 })
 
 describe('la tabla: la columna de las casillas', () => {
-  const columnas = (w) => w.findAll('col').map((c) => c.classes()[0])
+  const columns = (w) => w.findAll('col').map((c) => c.classes()[0])
 
   it('solo existe en el modo, y es la primera en todas partes', async () => {
-    const w = mount(SongTable, { props: { songs: tres() } })
-    const sin = columnas(w)
-    expect(sin).not.toContain('col-check')
+    const w = mount(SongTable, { props: { songs: three() } })
+    const withoutCheck = columns(w)
+    expect(withoutCheck).not.toContain('col-check')
     await w.setProps({ selectMode: true })
     // en el <colgroup>, en la cabecera y en cada fila: los tres beben de `cols`
-    expect(columnas(w)).toEqual(['col-check', ...sin])
+    expect(columns(w)).toEqual(['col-check', ...withoutCheck])
     expect(w.find('thead th').attributes('data-col')).toBe('check')
-    for (const f of filas(w)) {
+    for (const f of rows(w)) {
       expect(f.find('td').classes()).toContain('col-check')
-      expect(f.findAll('td')).toHaveLength(columnas(w).length)
+      expect(f.findAll('td')).toHaveLength(columns(w).length)
     }
-    expect(w.findAll('thead th')).toHaveLength(columnas(w).length)
+    expect(w.findAll('thead th')).toHaveLength(columns(w).length)
     // al salir del modo se va entera: WebKitGTK guarda el ancho de una <col>
     // escondida, así que no basta con ocultarla
     await w.setProps({ selectMode: false })
-    expect(columnas(w)).toEqual(sin)
+    expect(columns(w)).toEqual(withoutCheck)
     expect(w.findAll('.col-check')).toHaveLength(0)
   })
 
   it('no se ensancha: su cabecera no lleva tirador', () => {
-    const w = mount(SongTable, { props: { songs: tres(), selectMode: true } })
+    const w = mount(SongTable, { props: { songs: three(), selectMode: true } })
     expect(w.find('th[data-col="check"] .col-resize').exists()).toBe(false)
     expect(w.find('th[data-col="n"] .col-resize').exists()).toBe(true)
   })
 
   it('la casilla de «todas»: un checkbox de tres estados que sigue a la selección', async () => {
-    const w = mount(SongTable, { props: { songs: tres(), selectMode: true } })
-    const todas = () => w.find('th[data-col="check"] [role="checkbox"]')
-    expect(todas().element.tagName).toBe('BUTTON')
-    expect(todas().attributes('aria-label')).toBe('Seleccionar todas')
-    expect(todas().attributes('aria-checked')).toBe('false')
+    const w = mount(SongTable, { props: { songs: three(), selectMode: true } })
+    const allBox = () => w.find('th[data-col="check"] [role="checkbox"]')
+    expect(allBox().element.tagName).toBe('BUTTON')
+    expect(allBox().attributes('aria-label')).toBe('Seleccionar todas')
+    expect(allBox().attributes('aria-checked')).toBe('false')
     await w.setProps({ selectedIds: [1, 2] })
-    expect(todas().attributes('aria-checked')).toBe('mixed')
-    expect(todas().find('.pick-box').classes()).toContain('mixed')
+    expect(allBox().attributes('aria-checked')).toBe('mixed')
+    expect(allBox().find('.pick-box').classes()).toContain('mixed')
     // la principal (la de la ficha) cuenta, igual que en su fila
     await w.setProps({ selected: 3 })
-    expect(todas().attributes('aria-checked')).toBe('true')
-    expect(todas().find('.pick-box').classes()).toContain('on')
-    expect(todas().find('svg').exists()).toBe(true)
+    expect(allBox().attributes('aria-checked')).toBe('true')
+    expect(allBox().find('.pick-box').classes()).toContain('on')
+    expect(allBox().find('svg').exists()).toBe(true)
     await w.setProps({ selected: null, selectedIds: [] })
-    expect(todas().attributes('aria-checked')).toBe('false')
+    expect(allBox().attributes('aria-checked')).toBe('false')
   })
 
   it('pulsarla avisa a la app con selectAll, que alterna; no elige ninguna fila ni ordena', async () => {
-    const w = mount(SongTable, { props: { songs: tres(), selectMode: true } })
+    const w = mount(SongTable, { props: { songs: three(), selectMode: true } })
     await w.find('.pick-all').trigger('click')
     expect(w.emitted('selectAll')).toEqual([[{ toggle: true }]])
     expect(w.emitted('select')).toBeUndefined()
@@ -192,7 +192,7 @@ describe('la tabla: la columna de las casillas', () => {
   it('agrupada no hay cabecera, pero sí la columna, y el grupo la abarca', () => {
     const w = mount(SongTable, {
       props: {
-        songs: tres(),
+        songs: three(),
         selectMode: true,
         noHeader: true,
         groups: [{ key: 'Barak', start: 0, size: 3, count: 3, seconds: 600, open: true }]
@@ -202,47 +202,47 @@ describe('la tabla: la columna de las casillas', () => {
     expect(w.find('[role="checkbox"]').exists()).toBe(false)
     expect(w.find('col').classes()).toContain('col-check')
     expect(w.find('.group-cell').attributes('colspan')).toBe(String(w.findAll('col').length))
-    expect(filas(w).every((f) => f.find('td.col-check .pick-box').exists())).toBe(true)
+    expect(rows(w).every((f) => f.find('td.col-check .pick-box').exists())).toBe(true)
   })
 
   it('la celda del grupo abarca solo las columnas que se ven (sin columnas fantasma)', async () => {
     // jsdom no aplica las media queries: se dice a mano cuáles esconden
-    const ocultas = new Set(['col-fav', 'col-album', 'col-stars', 'col-key', 'col-bpm', 'col-kbps'])
+    const hidden = new Set(['col-fav', 'col-album', 'col-stars', 'col-key', 'col-bpm', 'col-kbps'])
     const real = window.getComputedStyle
     vi.spyOn(window, 'getComputedStyle').mockImplementation((el, p) => {
       const s = real.call(window, el, p)
-      if (el.tagName !== 'COL' || !ocultas.has(el.className)) return s
+      if (el.tagName !== 'COL' || !hidden.has(el.className)) return s
       return new Proxy(s, {
         get: (t, k) => (k === 'display' ? 'none' : typeof t[k] === 'function' ? t[k].bind(t) : t[k])
       })
     })
-    const grupo = [{ key: 'Barak', start: 0, size: 3, count: 3, seconds: 600, open: true }]
-    const w = mount(SongTable, { props: { songs: tres(), noHeader: true, groups: grupo } })
+    const group = [{ key: 'Barak', start: 0, size: 3, count: 3, seconds: 600, open: true }]
+    const w = mount(SongTable, { props: { songs: three(), noHeader: true, groups: group } })
     await nextTick()
-    const abarca = () => Number(w.find('.group-cell').attributes('colspan'))
+    const span = () => Number(w.find('.group-cell').attributes('colspan'))
     // n, título, artista, duración y copiar: cinco de once
-    expect(abarca()).toBe(5)
+    expect(span()).toBe(5)
     // con el modo, una más (la casilla, que no se esconde nunca)
     await w.setProps({ selectMode: true })
     await nextTick()
-    expect(abarca()).toBe(6)
+    expect(span()).toBe(6)
     // la ventana se estrecha: las media queries esconden más, y se recuenta
-    for (const c of ['col-artist', 'col-dur', 'col-copy']) ocultas.add(c)
+    for (const c of ['col-artist', 'col-dur', 'col-copy']) hidden.add(c)
     window.dispatchEvent(new Event('resize'))
     await nextTick()
-    expect(abarca()).toBe(3)
+    expect(span()).toBe(3)
     // sin grupos ni se mira (no hay celda que abarque nada)
-    const llana = mount(SongTable, { props: { songs: tres() } })
-    expect(llana.find('.group-cell').exists()).toBe(false)
+    const plain = mount(SongTable, { props: { songs: three() } })
+    expect(plain.find('.group-cell').exists()).toBe(false)
   })
 
   it('respeta los anchos guardados, que van por nombre, y el suyo no se guarda', async () => {
     localStorage.setItem('danplay.colWidths', JSON.stringify({ title: 300, artist: 150 }))
-    const w = mount(SongTable, { props: { songs: tres(), selectMode: true } })
-    const ancho = (cls) => w.find(`col.${cls}`).attributes('style') || ''
-    expect(ancho('col-title')).toContain('width: 300px')
-    expect(ancho('col-artist')).toContain('width: 150px')
-    expect(ancho('col-check')).toBe('')
+    const w = mount(SongTable, { props: { songs: three(), selectMode: true } })
+    const width = (cls) => w.find(`col.${cls}`).attributes('style') || ''
+    expect(width('col-title')).toContain('width: 300px')
+    expect(width('col-artist')).toContain('width: 150px')
+    expect(width('col-check')).toBe('')
     // la primera vez que se arrastra se toma la foto de lo que se ve: la
     // casilla, que es fija, se queda fuera
     localStorage.clear()
@@ -250,17 +250,17 @@ describe('la tabla: la columna de las casillas', () => {
       const w = this.tagName === 'TH' ? 100 : 0
       return { width: w, height: 20, top: 0, left: 0, right: w, bottom: 20, x: 0, y: 0 }
     })
-    const otra = mount(SongTable, { props: { songs: tres(), selectMode: true } })
-    await otra.find('th[data-col="album"] .col-resize').trigger('keydown', { key: 'ArrowRight' })
-    const guardado = JSON.parse(localStorage.getItem('danplay.colWidths'))
-    expect(guardado.album).toBe(110)
-    expect(guardado.title).toBe(100)
-    expect(guardado).not.toHaveProperty('check')
+    const other = mount(SongTable, { props: { songs: three(), selectMode: true } })
+    await other.find('th[data-col="album"] .col-resize').trigger('keydown', { key: 'ArrowRight' })
+    const saved = JSON.parse(localStorage.getItem('danplay.colWidths'))
+    expect(saved.album).toBe(110)
+    expect(saved.title).toBe(100)
+    expect(saved).not.toHaveProperty('check')
   })
 })
 
 describe('la agrupada', () => {
-  const cinco = () => [
+  const five = () => [
     song(1, { title: 'A Una Voz', artist: 'New Wine' }),
     song(2, { title: 'Mi Gozo', artist: 'Barak' }),
     song(3, { title: 'Que Se Abra El Cielo', artist: 'Miel San Marcos' }),
@@ -268,31 +268,31 @@ describe('la agrupada', () => {
     song(5, { title: 'Shekinah', artist: 'New Wine' })
   ]
 
-  for (const [layout, Vista] of Object.entries(VISTAS)) {
+  for (const [layout, View] of Object.entries(VIEWS)) {
     it(`${layout}: pasa el modo a la vista y saca sus avisos tal cual`, async () => {
-      const w = mount(GroupedSongs, { props: { songs: cinco(), by: 'artist', layout } })
+      const w = mount(GroupedSongs, { props: { songs: five(), by: 'artist', layout } })
       expect(w.findAll('.pick-box')).toHaveLength(0)
       await w.setProps({ selectMode: true, selectedIds: [2, 4] })
-      expect(w.findComponent(Vista).props('selectMode')).toBe(true)
-      expect(filas(w).every((f) => f.find('.pick-box').exists())).toBe(true)
-      expect(filas(w).filter((f) => f.find('.pick-box.on').exists())).toHaveLength(2)
+      expect(w.findComponent(View).props('selectMode')).toBe(true)
+      expect(rows(w).every((f) => f.find('.pick-box').exists())).toBe(true)
+      expect(rows(w).filter((f) => f.find('.pick-box.on').exists())).toHaveLength(2)
       // la vista avisa; la agrupada lo reenvía sin tocarlo
-      const vista = w.findComponent(Vista)
-      vista.vm.$emit('selectAll', { toggle: false })
-      vista.vm.$emit('remove')
-      vista.vm.$emit('clearSelection')
+      const view = w.findComponent(View)
+      view.vm.$emit('selectAll', { toggle: false })
+      view.vm.$emit('remove')
+      view.vm.$emit('clearSelection')
       expect(w.emitted('selectAll')).toEqual([[{ toggle: false }]])
       expect(w.emitted('remove')).toEqual([[]])
       expect(w.emitted('clearSelection')).toEqual([[]])
       // y el clic en una casilla llega a la app como el de una fila
-      await casilla(filas(w)[0]).trigger('click')
+      await checkbox(rows(w)[0]).trigger('click')
       expect(w.emitted('select').at(-1)[0]).toBe(2)
     })
   }
 
   it('la tabla agrupada, sin la casilla de «todas» (no tiene cabecera)', () => {
     const w = mount(GroupedSongs, {
-      props: { songs: cinco(), by: 'artist', layout: 'table', selectMode: true }
+      props: { songs: five(), by: 'artist', layout: 'table', selectMode: true }
     })
     expect(w.find('thead').exists()).toBe(false)
     expect(w.find('col.col-check').exists()).toBe(true)
@@ -300,16 +300,16 @@ describe('la agrupada', () => {
 
   it('con el teclado: Ctrl+A en una fila sale de la agrupada como selectAll', async () => {
     const w = mount(GroupedSongs, {
-      props: { songs: cinco(), by: 'artist', layout: 'rows', selectMode: true },
+      props: { songs: five(), by: 'artist', layout: 'rows', selectMode: true },
       attachTo: document.body
     })
-    await filas(w)[0].trigger('keydown', { key: 'a', ctrlKey: true })
+    await rows(w)[0].trigger('keydown', { key: 'a', ctrlKey: true })
     expect(w.emitted('selectAll')).toHaveLength(1)
   })
 })
 
 describe('el css de las casillas', () => {
-  const PROPIO = readFileSync(join(STYLES, 'selection.css'), 'utf8')
+  const OWN = readFileSync(join(STYLES, 'selection.css'), 'utf8')
 
   it('va cargado, tras las fichas', () => {
     const index = readFileSync(join(STYLES, 'index.css'), 'utf8')
@@ -317,19 +317,19 @@ describe('el css de las casillas', () => {
   })
 
   it('un cuadrado redondeado de 16 px que no se encoge', () => {
-    const regla = CSS.match(/\n\.pick-box\{([^}]*)\}/)?.[1] || ''
-    expect(regla).toMatch(/width:16px/)
-    expect(regla).toMatch(/height:16px/)
-    expect(regla).toMatch(/border-radius:4px/)
-    expect(regla).toMatch(/flex:0 0 auto/)
-    expect(regla).toMatch(/border:1px solid [^;]*var\(--border2\)/)
+    const rule = CSS.match(/\n\.pick-box\{([^}]*)\}/)?.[1] || ''
+    expect(rule).toMatch(/width:16px/)
+    expect(rule).toMatch(/height:16px/)
+    expect(rule).toMatch(/border-radius:4px/)
+    expect(rule).toMatch(/flex:0 0 auto/)
+    expect(rule).toMatch(/border:1px solid [^;]*var\(--border2\)/)
   })
 
   it('marcada con el acento; nada de colores fijos, para los temas claros y oscuros', () => {
     expect(CSS).toMatch(/\.pick-box\.on,\.pick-box\.mixed\{[^}]*background:var\(--accent\)/)
     // ni #hex, ni rgb(), ni hsl(): todo sale de las variables del tema
-    const sinComentarios = PROPIO.replace(/\/\*[\s\S]*?\*\//g, '')
-    expect(sinComentarios).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i)
+    const noComments = OWN.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(noComments).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i)
   })
 
   it('en fichas y cuadrícula, en la esquina de la carátula y sin z-index', () => {
@@ -337,7 +337,7 @@ describe('el css de las casillas', () => {
     expect(CSS).toMatch(/\.card-art > \.pick-box\{[^}]*top:[^}]*left:/)
     expect(CSS).toMatch(/\.tile > \.pick-box\{[^}]*top:[^}]*left:/)
     // con uno se colaba por encima de la cabecera de grupo pegada arriba
-    expect(PROPIO.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/z-index/)
+    expect(OWN.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/z-index/)
   })
 
   it('la columna de la tabla es fija y ningún tramo la esconde', () => {
@@ -357,11 +357,12 @@ describe('el css de las casillas', () => {
   it('en la lista fina las estrellas se van en estrecho (le dejan sitio al título)', () => {
     // `.stars{display:inline-flex}` va después: con `.row-stars` a secas
     // ganaba él y no se escondían nunca (medido en WebKitGTK)
-    const fuerza = (sel) => sel.split(' ').reduce((n, p) => n + (p.match(/\./g) || []).length, 0)
-    const esconde = CSS.match(/@media \(max-width:\s*820px\)\{([^{]+)\{display:none/)?.[1] || ''
-    const pinta = CSS.match(/\n(\.stars)\{[^}]*display:inline-flex/)?.[1] || ''
-    expect(esconde).toMatch(/\.row-stars/)
-    expect(fuerza(esconde)).toBeGreaterThan(fuerza(pinta))
+    const specificity = (sel) =>
+      sel.split(' ').reduce((n, p) => n + (p.match(/\./g) || []).length, 0)
+    const hides = CSS.match(/@media \(max-width:\s*820px\)\{([^{]+)\{display:none/)?.[1] || ''
+    const shows = CSS.match(/\n(\.stars)\{[^}]*display:inline-flex/)?.[1] || ''
+    expect(hides).toMatch(/\.row-stars/)
+    expect(specificity(hides)).toBeGreaterThan(specificity(shows))
   })
 
   it('el movimiento reducido apaga su transición (la regla general)', () => {

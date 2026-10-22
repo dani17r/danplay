@@ -15,32 +15,32 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 /** Cada página, por su `view.kind`. */
 export const PAGE_ROUTES = [
   {
-    path: '/ajustes',
+    path: '/settings',
     name: 'settings',
     component: () => import('./components/SettingsPage.vue')
   },
   {
-    path: '/asistente',
+    path: '/chat',
     name: 'chat',
     component: () => import('./components/ChatPage.vue')
   },
   {
-    path: '/descargas',
+    path: '/downloads',
     name: 'downloads',
     component: () => import('./components/DownloadsPage.vue')
   },
   {
-    path: '/entrada',
+    path: '/inbox',
     name: 'inbox',
     component: () => import('./components/InboxPage.vue')
   },
   {
-    path: '/duplicados',
+    path: '/duplicates',
     name: 'duplicates',
     component: () => import('./components/DuplicatesPage.vue')
   },
   {
-    path: '/acerca',
+    path: '/about',
     name: 'about',
     component: () => import('./components/AboutPage.vue')
   }

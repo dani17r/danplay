@@ -90,7 +90,7 @@ describe('las peticiones del navegador', () => {
 
 describe('las tareas largas (runJob)', () => {
   const job = (extra) => ({
-    name: 'escaneo',
+    name: 'scan',
     active: true,
     done: 0,
     total: 0,
@@ -114,23 +114,22 @@ describe('las tareas largas (runJob)', () => {
     })
     expect(r).toEqual({ total: 10 })
     expect(seen).toEqual([1, 5, 10])
-    expect(poll).toHaveBeenCalledWith('escaneo')
+    expect(poll).toHaveBeenCalledWith('scan')
   })
 
   it('si ya habia una en marcha, sigue esa', async () => {
     const poll = vi.fn(async () => job({ active: false, result: 'la de antes' }))
-    const r = await runJob(
-      async () => ({ job: job({ done: 3 }), already_running: true }),
-      'escaneo',
-      { interval: 0, poll }
-    )
+    const r = await runJob(async () => ({ job: job({ done: 3 }), already_running: true }), 'scan', {
+      interval: 0,
+      poll
+    })
     expect(r).toBe('la de antes')
   })
 
   it('un error de la tarea llega en castellano', async () => {
     const e = await runJob(
       async () => ({ job: job({ active: false, error: 'la carpeta ya no existe' }) }),
-      'escaneo',
+      'scan',
       { interval: 0 }
     ).catch((err) => err)
     expect(e).toBeInstanceOf(ApiError)
@@ -143,18 +142,18 @@ describe('las tareas largas (runJob)', () => {
       if (++n === 1) throw new Error('el nucleo tarda')
       return job({ active: false, result: 'ok' })
     })
-    expect(
-      await runJob(async () => ({ job: job() }), 'escaneo', { interval: 0, poll: flaky })
-    ).toBe('ok')
-    const muerto = vi.fn(async () => {
+    expect(await runJob(async () => ({ job: job() }), 'scan', { interval: 0, poll: flaky })).toBe(
+      'ok'
+    )
+    const dead = vi.fn(async () => {
       throw new Error('sin nucleo')
     })
-    const e = await runJob(async () => ({ job: job() }), 'escaneo', {
+    const e = await runJob(async () => ({ job: job() }), 'scan', {
       interval: 0,
-      poll: muerto
+      poll: dead
     }).catch((err) => err)
     expect(e.message).toBe('sin nucleo')
-    expect(muerto).toHaveBeenCalledTimes(3)
+    expect(dead).toHaveBeenCalledTimes(3)
   })
 
   it('sin instantanea en la respuesta, pregunta enseguida', async () => {
@@ -167,7 +166,7 @@ describe('las tareas largas (runJob)', () => {
       body: url.includes('/jobs/') ? job({ active: false, result: 'hecho' }) : {}
     }))
     expect(await api.runJob(() => api.scan(), JOBS.scan, { interval: 0 })).toBe('hecho')
-    expect(calls.map((c) => c.url)).toEqual(['/api/scan', '/api/jobs/escaneo'])
+    expect(calls.map((c) => c.url)).toEqual(['/api/scan', '/api/jobs/scan'])
   })
 })
 
@@ -186,23 +185,23 @@ describe('en el navegador, la interfaz se entera de los cambios del nucleo', () 
     await vi.advanceTimersByTimeAsync(WATCH_MS * 3)
     expect(changed).toHaveBeenCalledTimes(1) // sin cambios, sin avisos
     stop()
-    const antes = calls.length
+    const before = calls.length
     await vi.advanceTimersByTimeAsync(WATCH_MS * 3)
-    expect(calls.length).toBe(antes) // sin nadie escuchando, no pregunta
+    expect(calls.length).toBe(before) // sin nadie escuchando, no pregunta
   })
 
   it('avisa cuando el nucleo pasa de no contestar a contestar', async () => {
     vi.useFakeTimers()
-    let vivo = false
-    respond(() => (vivo ? { body: { revision: 1 } } : { status: 502, body: 'Bad Gateway' }))
+    let alive = false
+    respond(() => (alive ? { body: { revision: 1 } } : { status: 502, body: 'Bad Gateway' }))
     const status = vi.fn()
     const stop = await core.onStatus(status)
     await vi.advanceTimersByTimeAsync(10)
     expect(status).not.toHaveBeenCalled()
-    vivo = true
+    alive = true
     await vi.advanceTimersByTimeAsync(WATCH_MS + 10)
     expect(status).toHaveBeenCalledWith({ ready: true, message: '' })
-    vivo = false
+    alive = false
     await vi.advanceTimersByTimeAsync(WATCH_MS + 10)
     expect(status).toHaveBeenLastCalledWith({ ready: false, message: 'el núcleo no contesta' })
     stop()
@@ -218,7 +217,7 @@ describe('en el navegador, la interfaz se entera de los cambios del nucleo', () 
 describe('lo que cada metodo pide al nucleo', () => {
   const ai = { provider: 'openai', model: 'chico' }
   /** metodo -> [argumentos, verbo, ruta, cuerpo (undefined si no lleva)] */
-  const TABLA = {
+  const TABLE = {
     path: [[7], 'GET', '/api/song/7/path'],
     status: [[], 'GET', '/api/status'],
     settings: [[], 'GET', '/api/settings'],
@@ -352,7 +351,7 @@ describe('lo que cada metodo pide al nucleo', () => {
       '/api/song/7/stems/mix',
       { tracks: [{ source: 'vocals' }], path: '/m/x.mp3' }
     ],
-    toPhone: [[[7, 8]], 'POST', '/api/celular', { ids: [7, 8] }],
+    toPhone: [[[7, 8]], 'POST', '/api/bundle', { ids: [7, 8] }],
     playlistSheet: [[3, true], 'POST', '/api/playlists/3/sheet', { with_lyrics: true }],
     exportPlaylist: [[3], 'POST', '/api/playlists/3/export'],
     externalList: [[], 'GET', '/api/external'],
@@ -428,7 +427,7 @@ describe('lo que cada metodo pide al nucleo', () => {
   }
   // no hablan con el nucleo por aqui: el escuchador de Rust, las URL de los
   // medios (las pide el navegador) y `runJob`, que ya tiene sus pruebas
-  const APARTE = [
+  const EXEMPT = [
     'inTauri',
     'onExternal',
     'onSequence',
@@ -440,17 +439,17 @@ describe('lo que cada metodo pide al nucleo', () => {
   ]
 
   it('no se queda ningun metodo sin mirar', () => {
-    const sinMirar = Object.keys(api).filter((k) => !(k in TABLA) && !APARTE.includes(k))
-    expect(sinMirar, 'metodos del api que la tabla no conoce').toEqual([])
+    const unchecked = Object.keys(api).filter((k) => !(k in TABLE) && !EXEMPT.includes(k))
+    expect(unchecked, 'metodos del api que la tabla no conoce').toEqual([])
   })
 
-  for (const [metodo, [args, verbo, ruta, cuerpo]] of Object.entries(TABLA)) {
-    it(`${metodo} → ${verbo} ${ruta}`, async () => {
-      await api[metodo](...args)
+  for (const [method, [args, verb, route, payload]] of Object.entries(TABLE)) {
+    it(`${method} → ${verb} ${route}`, async () => {
+      await api[method](...args)
       expect(calls).toHaveLength(1)
-      expect(calls[0].method).toBe(verbo)
-      expect(calls[0].url).toBe(ruta)
-      expect(calls[0].body === undefined ? undefined : JSON.parse(calls[0].body)).toEqual(cuerpo)
+      expect(calls[0].method).toBe(verb)
+      expect(calls[0].url).toBe(route)
+      expect(calls[0].body === undefined ? undefined : JSON.parse(calls[0].body)).toEqual(payload)
     })
   }
 
@@ -487,7 +486,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     expect(await app.trayAvailable()).toBe(false)
     // las formas de la ventana: solo la pantalla completa existe en el navegador
     expect(await app.windowShape()).toEqual(['normal', false])
-    await expect(app.setWindowShape('cuadrito')).rejects.toThrow(
+    await expect(app.setWindowShape('square')).rejects.toThrow(
       'Solo en la aplicación de escritorio'
     )
     await expect(app.setWindowOnTop(true)).rejects.toThrow('Solo en la aplicación de escritorio')
@@ -502,12 +501,12 @@ describe('lo que cada metodo pide al nucleo', () => {
     expect(await projection.isFullscreen()).toBe(false)
     await projection.fullscreen(true)
     // abrir la proyeccion en el navegador es otra pestaña
-    const abierta = vi.fn(() => ({}))
-    vi.stubGlobal('open', abierta)
+    const opened = vi.fn(() => ({}))
+    vi.stubGlobal('open', opened)
     await projection.show()
-    expect(abierta).toHaveBeenCalledWith('/?projection=1', 'danplay-projection')
+    expect(opened).toHaveBeenCalledWith('/?projection=1', 'danplay-projection')
     await app.openInBrowser('https://danplay.local')
-    expect(abierta).toHaveBeenLastCalledWith('https://danplay.local', '_blank')
+    expect(opened).toHaveBeenLastCalledWith('https://danplay.local', '_blank')
     vi.unstubAllGlobals()
     expect(calls).toEqual([])
   })

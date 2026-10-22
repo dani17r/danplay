@@ -92,7 +92,7 @@ impl Output {
         let st = Arc::clone(&status);
         let xruns = Arc::new(AtomicU64::new(0));
         let thread = std::thread::Builder::new()
-            .name("danplay-salida".into())
+            .name("danplay-output".into())
             .spawn(move || {
                 loop {
                     let broken = Arc::new(AtomicBool::new(false));

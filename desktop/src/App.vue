@@ -71,7 +71,7 @@ import StudyBar from './components/StudyBar.vue'
 import TransformPanel from './components/TransformPanel.vue'
 import TermsModal from './components/TermsModal.vue'
 import { useTerms } from './composables/useTerms.js'
-import { compareVersions } from './data/novedades.js'
+import { compareVersions } from './data/releases.js'
 import { version as appVersion } from '../package.json'
 import TextField from './components/ui/TextField.vue'
 import SelectField from './components/ui/SelectField.vue'
@@ -136,7 +136,7 @@ async function openTransform() {
 // marcan como leídas al abrir su pestaña; tras una actualización, la barra
 // lateral lo dice («Nuevo») y un aviso al arrancar.
 const terms = useTerms()
-const NEWS_KEY = 'danplay.novedadesVistas'
+const NEWS_KEY = 'danplay.releasesSeen'
 function readNewsSeen() {
   try {
     return localStorage.getItem(NEWS_KEY) || ''
@@ -1227,7 +1227,7 @@ function onUpdated(song) {
         :view="view"
         :playlists="playlists"
         :stats="stats"
-        :entrada="waiting"
+        :inbox-count="waiting"
         :download="downloads.state"
         :now-playing="nowPlaying"
         :news-badge="unreadNews"
@@ -1242,7 +1242,7 @@ function onUpdated(song) {
           :view="view"
           :playlists="playlists"
           :stats="stats"
-          :entrada="waiting"
+          :inbox-count="waiting"
           :download="downloads.state"
           :now-playing="nowPlaying"
           :news-badge="unreadNews"

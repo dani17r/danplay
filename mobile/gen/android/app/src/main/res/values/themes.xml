@@ -1,11 +1,11 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- El tema de la app: oscuro desde el primer instante. Con el claro de
          fabrica, al abrirla se veia un fogonazo blanco antes de la pagina. -->
-    <style name="Theme.danplay_movil" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:windowBackground">@color/danplay_fondo</item>
-        <item name="android:statusBarColor">@color/danplay_fondo</item>
-        <item name="android:navigationBarColor">@color/danplay_fondo</item>
+    <style name="Theme.danplay_mobile" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/danplay_background</item>
+        <item name="android:statusBarColor">@color/danplay_background</item>
+        <item name="android:navigationBarColor">@color/danplay_background</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="colorPrimary">@color/danplay_verde</item>
+        <item name="colorPrimary">@color/danplay_green</item>
     </style>
 </resources>

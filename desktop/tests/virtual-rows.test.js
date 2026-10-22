@@ -9,7 +9,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import SongTable from '../src/components/SongTable.vue'
 
-const FILA = 30
+const ROW_H = 30
 const PANEL = 600
 
 const song = (i) => ({
@@ -27,13 +27,13 @@ const song = (i) => ({
   bpm: 120,
   file: i + '.mp3'
 })
-const lista = (n) => Array.from({ length: n }, (_, i) => song(i))
+const list = (n) => Array.from({ length: n }, (_, i) => song(i))
 
-let originales = null
+let originals = null
 
 /** Simula que el navegador ha maquetado: filas de 30 px dentro de un panel. */
-function conMaquetacion() {
-  originales = {
+function withLayout() {
+  originals = {
     offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
     offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop'),
     clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
@@ -43,9 +43,9 @@ function conMaquetacion() {
     configurable: true,
     get() {
       // los separadores llevan su alto puesto a mano
-      const propio = parseInt(this.style?.height || '', 10)
-      if (propio > 0) return propio
-      return this.tagName === 'TR' ? FILA : 0
+      const own = parseInt(this.style?.height || '', 10)
+      if (own > 0) return own
+      return this.tagName === 'TR' ? ROW_H : 0
     }
   })
   // cada fila empieza donde acaba la anterior: es lo que mira el composable
@@ -72,58 +72,58 @@ function conMaquetacion() {
   })
 }
 
-function sinMaquetacion() {
-  if (!originales) return
+function withoutLayout() {
+  if (!originals) return
   // jsdom no siempre define estas en HTMLElement.prototype: si no habia nada
   // que guardar, se quita lo que pusimos en vez de restaurar «undefined».
   for (const prop of ['offsetHeight', 'offsetTop', 'clientHeight']) {
-    if (originales[prop]) Object.defineProperty(HTMLElement.prototype, prop, originales[prop])
+    if (originals[prop]) Object.defineProperty(HTMLElement.prototype, prop, originals[prop])
     else delete HTMLElement.prototype[prop]
   }
-  window.getComputedStyle = originales.overflow
-  originales = null
+  window.getComputedStyle = originals.overflow
+  originals = null
 }
 
-const filas = (w) => w.findAll('tbody tr:not([data-spacer])')
-const separadores = (w) => w.findAll('tbody tr[data-spacer]')
-const alto = (tr) => parseInt(tr.attributes('style')?.match(/height:\s*(\d+)px/)?.[1] || '0', 10)
+const rows = (w) => w.findAll('tbody tr:not([data-spacer])')
+const spacers = (w) => w.findAll('tbody tr[data-spacer]')
+const height = (tr) => parseInt(tr.attributes('style')?.match(/height:\s*(\d+)px/)?.[1] || '0', 10)
 
 describe('lista larga: solo se pinta lo que se ve', () => {
-  beforeEach(conMaquetacion)
-  afterEach(sinMaquetacion)
+  beforeEach(withLayout)
+  afterEach(withoutLayout)
 
   it('con mil canciones pinta una ventana, no las mil', async () => {
-    const songs = lista(1000)
+    const songs = list(1000)
     const w = mount(SongTable, {
       props: { songs, selected: null, playing: null },
       attachTo: document.body
     })
     await flushPromises()
     await nextTick()
-    const n = filas(w).length
+    const n = rows(w).length
     expect(n).toBeGreaterThan(10)
     expect(n).toBeLessThan(200) // ni de lejos las mil
     w.unmount()
   })
 
   it('los separadores rellenan justo lo que no se pinta', async () => {
-    const songs = lista(1000)
+    const songs = list(1000)
     const w = mount(SongTable, {
       props: { songs, selected: null, playing: null },
       attachTo: document.body
     })
     await flushPromises()
     await nextTick()
-    const pintadas = filas(w).length
-    const hueco = separadores(w).reduce((t, tr) => t + alto(tr), 0)
+    const rendered = rows(w).length
+    const gap = spacers(w).reduce((t, tr) => t + height(tr), 0)
     // lo pintado mas los huecos tiene que sumar la lista entera
-    expect(hueco + pintadas * FILA).toBe(songs.length * FILA)
+    expect(gap + rendered * ROW_H).toBe(songs.length * ROW_H)
     w.unmount()
   })
 
   it('empieza por el principio de la lista', async () => {
     const w = mount(SongTable, {
-      props: { songs: lista(1000), selected: null, playing: null },
+      props: { songs: list(1000), selected: null, playing: null },
       attachTo: document.body
     })
     await flushPromises()
@@ -134,17 +134,17 @@ describe('lista larga: solo se pinta lo que se ve', () => {
 
   it('la numeracion de las filas es la real, no la de la ventana', async () => {
     const w = mount(SongTable, {
-      props: { songs: lista(1000), selected: null, playing: null },
+      props: { songs: list(1000), selected: null, playing: null },
       attachTo: document.body
     })
     await flushPromises()
     await nextTick()
-    expect(filas(w)[0].find('.row-n').text()).toBe('1')
+    expect(rows(w)[0].find('.row-n').text()).toBe('1')
     w.unmount()
   })
 
   it('«ir a lo que suena» trae a la ventana una fila que no estaba pintada', async () => {
-    const songs = lista(1000)
+    const songs = list(1000)
     const w = mount(SongTable, {
       props: { songs, selected: null, playing: null, jumpTo: null },
       attachTo: document.body
@@ -169,13 +169,13 @@ describe('lista larga: solo se pinta lo que se ve', () => {
       attachTo: document.body
     })
     await flushPromises()
-    await w.setProps({ songs: lista(1000) })
+    await w.setProps({ songs: list(1000) })
     await flushPromises()
     await nextTick()
     expect(w.text()).not.toContain('Cancion 500')
 
     const panel = w.find('.table-wrap').element
-    Object.defineProperty(panel, 'scrollTop', { configurable: true, value: 500 * FILA })
+    Object.defineProperty(panel, 'scrollTop', { configurable: true, value: 500 * ROW_H })
     // jsdom no mueve nada al desplazarse: las filas suben lo que baja el panel
     w.find('tbody').element.getBoundingClientRect = () =>
       /** @type {DOMRect} */ ({ top: -panel.scrollTop, height: 0 })
@@ -188,13 +188,13 @@ describe('lista larga: solo se pinta lo que se ve', () => {
 
   it('una lista corta se pinta entera y sin separadores', async () => {
     const w = mount(SongTable, {
-      props: { songs: lista(20), selected: null, playing: null },
+      props: { songs: list(20), selected: null, playing: null },
       attachTo: document.body
     })
     await flushPromises()
     await nextTick()
-    expect(filas(w).length).toBe(20)
-    expect(separadores(w).length).toBe(0)
+    expect(rows(w).length).toBe(20)
+    expect(spacers(w).length).toBe(0)
     w.unmount()
   })
 })
@@ -203,12 +203,12 @@ describe('si no se puede medir, se pinta todo', () => {
   it('sin maquetacion (o si el panel aun no tiene alto) no se recorta nada', async () => {
     // sin conMaquetacion(): todo mide cero, como en un primer pintado
     const w = mount(SongTable, {
-      props: { songs: lista(300), selected: null, playing: null },
+      props: { songs: list(300), selected: null, playing: null },
       attachTo: document.body
     })
     await flushPromises()
     await nextTick()
-    expect(filas(w).length).toBe(300)
+    expect(rows(w).length).toBe(300)
     expect(w.text()).toContain('Cancion 299')
     w.unmount()
   })
@@ -221,10 +221,10 @@ describe('si no se puede medir, se pinta todo', () => {
 import SongGrid from '../src/components/SongGrid.vue'
 
 const COLS = 4
-const FICHA = 200
+const TILE_H = 200
 
-function conRejilla() {
-  originales = {
+function withGrid() {
+  originals = {
     offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
     offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop'),
     clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
@@ -233,22 +233,22 @@ function conRejilla() {
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
     configurable: true,
     get() {
-      const propio = parseInt(this.style?.height || '', 10)
-      if (propio > 0) return propio
-      return this.classList?.contains('tile') ? FICHA : 0
+      const own = parseInt(this.style?.height || '', 10)
+      if (own > 0) return own
+      return this.classList?.contains('tile') ? TILE_H : 0
     }
   })
   Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
     configurable: true,
     get() {
       // altura de los separadores que haya antes, mas la linea que le toca
-      let hueco = 0
-      let indice = 0
+      let gap = 0
+      let index = 0
       for (let el = this.previousElementSibling; el; el = el.previousElementSibling) {
-        if (el.dataset && el.dataset.spacer !== undefined) hueco += el.offsetHeight
-        else indice++
+        if (el.dataset && el.dataset.spacer !== undefined) gap += el.offsetHeight
+        else index++
       }
-      return hueco + Math.floor(indice / COLS) * FICHA
+      return gap + Math.floor(index / COLS) * TILE_H
     }
   })
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
@@ -263,41 +263,41 @@ function conRejilla() {
 }
 
 describe('cuadricula: varias fichas por linea', () => {
-  beforeEach(conRejilla)
-  afterEach(sinMaquetacion)
+  beforeEach(withGrid)
+  afterEach(withoutLayout)
 
   it('con mil fichas pinta solo unas cuantas lineas', async () => {
     const w = mount(SongGrid, {
-      props: { songs: lista(1000), selected: null, playing: null },
+      props: { songs: list(1000), selected: null, playing: null },
       attachTo: document.body
     })
     await flushPromises()
     await nextTick()
-    const fichas = w.findAll('.tile').length
-    expect(fichas).toBeGreaterThan(COLS) // al menos una linea
-    expect(fichas).toBeLessThan(200) // ni de lejos las mil
-    expect(fichas % COLS).toBe(0) // lineas enteras
+    const cards = w.findAll('.tile').length
+    expect(cards).toBeGreaterThan(COLS) // al menos una linea
+    expect(cards).toBeLessThan(200) // ni de lejos las mil
+    expect(cards % COLS).toBe(0) // lineas enteras
     w.unmount()
   })
 
   it('los separadores dejan el alto total correcto', async () => {
-    const songs = lista(1000)
+    const songs = list(1000)
     const w = mount(SongGrid, {
       props: { songs, selected: null, playing: null },
       attachTo: document.body
     })
     await flushPromises()
     await nextTick()
-    const pintadas = w.findAll('.tile').length
-    const hueco = w.findAll('.grid > [data-spacer]').reduce((t, d) => t + alto(d), 0)
-    const lineasTotales = Math.ceil(songs.length / COLS)
-    expect(hueco + (pintadas / COLS) * FICHA).toBe(lineasTotales * FICHA)
+    const rendered = w.findAll('.tile').length
+    const gap = w.findAll('.grid > [data-spacer]').reduce((t, d) => t + height(d), 0)
+    const totalLines = Math.ceil(songs.length / COLS)
+    expect(gap + (rendered / COLS) * TILE_H).toBe(totalLines * TILE_H)
     w.unmount()
   })
 
   it('«ir a lo que suena» trae una ficha lejana', async () => {
     const w = mount(SongGrid, {
-      props: { songs: lista(1000), selected: null, playing: null, jumpTo: null },
+      props: { songs: list(1000), selected: null, playing: null, jumpTo: null },
       attachTo: document.body
     })
     await flushPromises()
@@ -318,8 +318,8 @@ import SongRows from '../src/components/SongRows.vue'
 import SongCards from '../src/components/SongCards.vue'
 
 /** Cada fila mide 30 px y va debajo de la anterior; el panel que se desplaza es `caja`. */
-function conPanel(caja) {
-  originales = {
+function withPanel(box) {
+  originals = {
     offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
     offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop'),
     clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
@@ -328,9 +328,9 @@ function conPanel(caja) {
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
     configurable: true,
     get() {
-      const propio = parseInt(this.style?.height || '', 10)
-      if (propio > 0) return propio
-      return this.hasAttribute?.('data-song-row') ? FILA : 0
+      const own = parseInt(this.style?.height || '', 10)
+      if (own > 0) return own
+      return this.hasAttribute?.('data-song-row') ? ROW_H : 0
     }
   })
   Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
@@ -345,30 +345,30 @@ function conPanel(caja) {
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
     configurable: true,
     get() {
-      return this.classList?.contains(caja) ? PANEL : 0
+      return this.classList?.contains(box) ? PANEL : 0
     }
   })
   window.getComputedStyle = (el) => ({
-    overflowY: el.classList?.contains(caja) ? 'auto' : 'visible'
+    overflowY: el.classList?.contains(box) ? 'auto' : 'visible'
   })
 }
 
 describe('las cuatro vistas pintan solo lo que se ve', () => {
-  afterEach(sinMaquetacion)
-  for (const [nombre, Vista, caja] of [
+  afterEach(withoutLayout)
+  for (const [name, View, box] of [
     ['la tabla', SongTable, 'table-wrap'],
     ['la lista fina', SongRows, 'rows'],
     ['las fichas', SongCards, 'cards'],
     ['la cuadricula', SongGrid, 'grid']
   ]) {
-    it(nombre, async () => {
-      conPanel(caja)
-      const w = mount(Vista, { props: { songs: lista(1000) }, attachTo: document.body })
+    it(name, async () => {
+      withPanel(box)
+      const w = mount(View, { props: { songs: list(1000) }, attachTo: document.body })
       await flushPromises()
       await nextTick()
-      const pintadas = w.findAll('[data-song-row]').length
-      expect(pintadas, 'no pinta nada').toBeGreaterThan(10)
-      expect(pintadas, 'pinta la lista entera').toBeLessThan(200)
+      const rendered = w.findAll('[data-song-row]').length
+      expect(rendered, 'no pinta nada').toBeGreaterThan(10)
+      expect(rendered, 'pinta la lista entera').toBeLessThan(200)
       w.unmount()
     })
   }

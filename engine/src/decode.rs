@@ -481,7 +481,7 @@ mod tests {
     #[test]
     fn read_from_the_file_it_is_the_same() {
         let (bytes, _) = fixture("ogg");
-        let path = std::env::temp_dir().join(format!("danplay-parte-{}.ogg", std::process::id()));
+        let path = std::env::temp_dir().join(format!("danplay-part-{}.ogg", std::process::id()));
         std::fs::write(&path, &bytes[..]).expect("archivo");
         let mut memory = Part::open(Arc::clone(&bytes), "ogg").expect("ogg");
         // con tope 0, del disco

@@ -1,4 +1,4 @@
-//! Reproduccion nativa en Rust, con el motor de pistas (`danplay-motor`), el
+//! Reproduccion nativa en Rust, con el motor de pistas (`danplay-engine`), el
 //! mismo que la app del celular.
 //!
 //! El audio se decodifica y sale a la tarjeta de sonido desde el propio

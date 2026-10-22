@@ -83,7 +83,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-async function montar() {
+async function mountView() {
   const w = mount(App, { attachTo: document.body })
   await flushPromises()
   await flushPromises()
@@ -92,13 +92,13 @@ async function montar() {
 
 describe('arranque sin carpetas', () => {
   it('muestra la bienvenida y no pide canciones', async () => {
-    const w = await montar()
+    const w = await mountView()
     expect(w.text()).toContain('Bienvenido a DanPlay')
     expect(api.search).not.toHaveBeenCalled()
   })
 
   it('tras elegir carpeta y analizar, la lista aparece sola', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.find('.page input[type="text"], .page input:not([type])').setValue('/musica')
     await w
       .findAll('button')
@@ -125,7 +125,7 @@ describe('el nucleo llega tarde', () => {
     held.coreListener = null
     state.status.configured = true
     api.status.mockRejectedValueOnce(new Error('el nucleo no contesta'))
-    const w = await montar()
+    const w = await mountView()
     expect(api.search).not.toHaveBeenCalled()
     expect(w.text()).not.toContain('Bienvenido a DanPlay')
     expect(held.coreListener, 'no llego a escuchar el aviso del nucleo').toBeTypeOf('function')
@@ -141,7 +141,7 @@ describe('el nucleo llega tarde', () => {
 
   it('los avisos siguientes no recargan por nada', async () => {
     state.status.configured = true
-    await montar()
+    await mountView()
     held.coreListener?.({ ready: true, message: '' })
     await flushPromises()
     api.search.mockClear()
@@ -158,7 +158,7 @@ describe('la musica ya no esta donde estaba', () => {
   it('si la carpeta se movio, lo dice y pregunta donde esta ahora', async () => {
     state.status.configured = true
     state.status.missing_folders = ['/home/ana/Musica']
-    const w = await montar()
+    const w = await mountView()
     expect(w.text()).toContain('No encuentro tu música')
     expect(w.text()).toContain('/home/ana/Musica')
     expect(w.text()).toContain('¿Dónde está ahora?')
@@ -175,7 +175,7 @@ describe('la musica ya no esta donde estaba', () => {
         folders: []
       }
     })
-    const w = await montar()
+    const w = await mountView()
     await w.find('.page input[type="text"], .page input:not([type])').setValue('/disco/Musica')
     await w
       .findAll('button')
@@ -195,7 +195,7 @@ describe('la musica ya no esta donde estaba', () => {
     vi.useFakeTimers()
     state.status.configured = true
     state.songs = [song(1)]
-    const w = await montar()
+    const w = await mountView()
     expect(w.text()).toContain(song(1).title)
 
     // la carpeta se movio por fuera: el nucleo aparta sus canciones y avisa
@@ -213,7 +213,7 @@ describe('la musica ya no esta donde estaba', () => {
 
   it('con las carpetas en su sitio pero sin canciones, invita a elegir otra', async () => {
     state.status.configured = true
-    const w = await montar()
+    const w = await mountView()
     expect(w.text()).toContain('Tu biblioteca está vacía')
     expect(w.text()).not.toContain('No encuentro tu música')
   })
@@ -221,7 +221,7 @@ describe('la musica ya no esta donde estaba', () => {
   it('en Ajustes no tapa nada: es donde se arregla', async () => {
     state.status.configured = true
     state.status.missing_folders = ['/musica']
-    const w = await montar()
+    const w = await mountView()
     await w
       .findAll('.nav-link')
       .find((b) => b.text().includes('Ajustes'))
@@ -242,7 +242,7 @@ describe('algo cambia en el nucleo por detras', () => {
     state.status.configured = true
     state.status.stats.total = 1
     state.songs = [song(1)]
-    const w = await montar()
+    const w = await mountView()
     expect(w.text()).not.toContain('Herlin')
 
     // el asistente crea una lista y entra una cancion nueva
@@ -265,7 +265,7 @@ describe('algo cambia en el nucleo por detras', () => {
     vi.useFakeTimers()
     state.status.configured = true
     state.songs = [song(1)]
-    await montar()
+    await mountView()
     api.search.mockClear()
     api.playlists.mockClear()
     held.changeListener?.({ revision: 1 })
@@ -282,7 +282,7 @@ describe('algo cambia en el nucleo por detras', () => {
 describe('la lista del reproductor abierta', () => {
   it('se actualiza sola cuando llega una cancion desde fuera', async () => {
     state.status.configured = true
-    const w = await montar()
+    const w = await mountView()
     // se entra a «Reproductor»
     api.externalList.mockResolvedValue({ songs: [song(1, { title: 'La primera' })] })
     await w
@@ -308,7 +308,7 @@ describe('la lista del reproductor abierta', () => {
 
   it('en otra vista no se recarga por nada', async () => {
     state.status.configured = true
-    await montar()
+    await mountView()
     api.externalList.mockClear()
     held.api.fireExternal?.()
     await flushPromises()
@@ -318,7 +318,7 @@ describe('la lista del reproductor abierta', () => {
 
 describe('reindexado desde Ajustes', () => {
   it('al volver a la biblioteca la vista ya trae lo nuevo', async () => {
-    const w = await montar()
+    const w = await mountView()
     // simula que ya habia carpeta y se reindexa desde Ajustes
     state.status.configured = true
     await api.scan()
@@ -352,13 +352,13 @@ describe('reactividad de la tabla', () => {
         bpm: 0
       }
     ]
-    const w = await montar()
+    const w = await mountView()
     await flushPromises()
     // por su etiqueta, no por el indice: las estrellas van al reves en el DOM
     // para poder pintar «esta y las anteriores» al pasar el raton
-    const estrella = w.findAll('.stars .ico').find((i) => i.attributes('title') === '4 de 5')
-    expect(estrella, 'no hay una estrella con titulo «4 de 5»').toBeTruthy()
-    await estrella.trigger('click')
+    const star = w.findAll('.stars .ico').find((i) => i.attributes('title') === '4 de 5')
+    expect(star, 'no hay una estrella con titulo «4 de 5»').toBeTruthy()
+    await star.trigger('click')
     await flushPromises()
     expect(api.setStars).toHaveBeenCalledWith(1, 4)
     // solo las de la fila: la ficha de la derecha tambien las enseña
@@ -383,7 +383,7 @@ describe('reactividad de la tabla', () => {
         bpm: 0
       }
     ]
-    const w = await montar()
+    const w = await mountView()
     await w.find('.heart').trigger('click')
     await flushPromises()
     expect(w.find('.heart').classes()).toContain('on')
@@ -409,7 +409,7 @@ describe('cambio de vista', () => {
         bpm: 0
       }
     ]
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('table').exists()).toBe(true)
     await w.find('.view-switch').findAll('button')[2].trigger('click') // cuadricula
     await flushPromises()
@@ -449,7 +449,7 @@ describe('cambio de vista', () => {
         bpm: 0
       }
     ]
-    const w = await montar()
+    const w = await mountView()
     await w
       .findAll('button')
       .find((b) => b.text().includes('Vista'))
@@ -457,22 +457,22 @@ describe('cambio de vista', () => {
     await flushPromises()
     // Se busca por su etiqueta y no por posicion: el menu tiene varios
     // desplegables y basta con añadir uno arriba para que un indice mienta.
-    const agrupar = w.findAll('.field').find((f) => f.text().includes('Agrupar'))
-    expect(agrupar, 'no encuentro el desplegable de agrupar').toBeTruthy()
-    await agrupar.find('.select-box').trigger('click')
+    const groupField = w.findAll('.field').find((f) => f.text().includes('Agrupar'))
+    expect(groupField, 'no encuentro el desplegable de agrupar').toBeTruthy()
+    await groupField.find('.select-box').trigger('click')
     await flushPromises()
-    const opcion = w.findAll('.select-opt').find((o) => o.text().includes('Por artista'))
-    expect(opcion, 'no encuentro la opcion "Por artista"').toBeTruthy()
-    await opcion.trigger('click')
+    const option = w.findAll('.select-opt').find((o) => o.text().includes('Por artista'))
+    expect(option, 'no encuentro la opcion "Por artista"').toBeTruthy()
+    await option.trigger('click')
     await flushPromises()
-    const cabeceras = w.findAll('.group-head').map((c) => c.text())
-    expect(cabeceras.some((t) => t.includes('Barak'))).toBe(true)
-    expect(cabeceras.some((t) => t.includes('New Wine'))).toBe(true)
+    const headers = w.findAll('.group-head').map((c) => c.text())
+    expect(headers.some((t) => t.includes('Barak'))).toBe(true)
+    expect(headers.some((t) => t.includes('New Wine'))).toBe(true)
   })
 })
 
 describe('cambiar de vista desde el lateral', () => {
-  const unaCancion = () => [
+  const oneSong = () => [
     {
       id: 1,
       title: 'Mi Gozo',
@@ -489,15 +489,15 @@ describe('cambiar de vista desde el lateral', () => {
     }
   ]
 
-  async function conBiblioteca() {
+  async function withLibrary() {
     state.status.configured = true
-    state.songs = unaCancion()
+    state.songs = oneSong()
     const w = mount(App, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
     return w
   }
-  const pulsar = async (w, text) => {
+  const clickButton = async (w, text) => {
     const e = w.findAll('.nav-link').find((x) => x.text().includes(text))
     expect(e, `no encuentro el enlace "${text}"`).toBeTruthy()
     await e.trigger('click')
@@ -508,14 +508,11 @@ describe('cambiar de vista desde el lateral', () => {
     // «pon la segunda», «esta», «las seleccionadas»: sin esto el modelo no
     // sabia a que se referia la persona
     state.status.configured = true
-    state.songs = [
-      ...unaCancion(),
-      { ...unaCancion()[0], id: 2, title: 'Shekinah', artist: 'New Wine' }
-    ]
+    state.songs = [...oneSong(), { ...oneSong()[0], id: 2, title: 'Shekinah', artist: 'New Wine' }]
     const w = mount(App, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
-    await pulsar(w, 'Asistente')
+    await clickButton(w, 'Asistente')
     // la pregunta del primer arranque (abrir las canciones con DanPlay) es un
     // diálogo modal: con él abierto, lo que se escribe espera en la cola
     dialogCancel()
@@ -533,16 +530,16 @@ describe('cambiar de vista desde el lateral', () => {
   })
 
   it('Favoritos cambia el titulo y pide solo favoritos', async () => {
-    const w = await conBiblioteca()
-    await pulsar(w, 'Favoritos')
+    const w = await withLibrary()
+    await clickButton(w, 'Favoritos')
     expect(w.find('.filters').text()).toContain('Favoritos')
-    const ultima = api.search.mock.calls.at(-1)[0]
-    expect(ultima.only_favorites).toBe(true)
+    const last = api.search.mock.calls.at(-1)[0]
+    expect(last.only_favorites).toBe(true)
   })
 
   it('Artistas agrupa por artista', async () => {
-    const w = await conBiblioteca()
-    await pulsar(w, 'Artistas')
+    const w = await withLibrary()
+    await clickButton(w, 'Artistas')
     expect(w.find('.filters').text()).toContain('Artistas')
     expect(w.findAll('.group-head').length).toBeGreaterThan(0)
   })
@@ -550,30 +547,30 @@ describe('cambiar de vista desde el lateral', () => {
   it('el asistente se queda como estaba al salir y volver, y se pone al dia', async () => {
     // Las paginas se cargan al abrirlas; el asistente, ademas, se guarda al
     // salir (<KeepAlive>): lo que tenias abierto en el sigue abierto.
-    const w = await conBiblioteca()
-    await pulsar(w, 'Asistente')
+    const w = await withLibrary()
+    await clickButton(w, 'Asistente')
     await w.find('.chat-head button[aria-expanded]').trigger('click')
     expect(w.find('.chat-list').exists()).toBe(true)
-    const antes = api.chats.mock.calls.length
-    await pulsar(w, 'Todas las canciones')
+    const before = api.chats.mock.calls.length
+    await clickButton(w, 'Todas las canciones')
     expect(w.find('.chat').exists()).toBe(false)
     expect(w.findAll('[data-song-row]').length).toBeGreaterThan(0)
-    await pulsar(w, 'Asistente')
+    await clickButton(w, 'Asistente')
     expect(w.find('.chat-list').exists(), 'la lista de conversaciones se cerro').toBe(true)
     // y al volver se relee lo que haya cambiado mientras tanto
-    expect(api.chats.mock.calls.length).toBeGreaterThan(antes)
+    expect(api.chats.mock.calls.length).toBeGreaterThan(before)
   })
 
   it('Duplicados muestra su propia pagina', async () => {
-    const w = await conBiblioteca()
-    await pulsar(w, 'Duplicados')
+    const w = await withLibrary()
+    await clickButton(w, 'Duplicados')
     expect(w.text()).toContain('Escúchalas y quédate con la que prefieras')
     expect(api.duplicatesScan).toHaveBeenCalled()
   })
 
   it('Entrada muestra su propia pagina', async () => {
-    const w = await conBiblioteca()
-    await pulsar(w, 'Entrada')
+    const w = await withLibrary()
+    await clickButton(w, 'Entrada')
     // se comprueba lo que la pagina hace, no su redaccion exacta
     expect(w.text()).toContain('~/Musica/Entrada')
     expect(w.text()).toContain('Cómo funciona')
@@ -582,25 +579,25 @@ describe('cambiar de vista desde el lateral', () => {
   })
 
   it('Ajustes y vuelta a la biblioteca conserva las canciones', async () => {
-    const w = await conBiblioteca()
-    await pulsar(w, 'Ajustes')
+    const w = await withLibrary()
+    await clickButton(w, 'Ajustes')
     expect(w.text()).toContain('Apariencia')
-    await pulsar(w, 'Todas las canciones')
+    await clickButton(w, 'Todas las canciones')
     expect(w.text()).toContain('Mi Gozo')
   })
 
   it('nunca vuelve a la bienvenida si ya hay canciones', async () => {
-    const w = await conBiblioteca()
+    const w = await withLibrary()
     for (const v of ['Favoritos', 'Artistas', 'Duplicados', 'Todas las canciones']) {
-      await pulsar(w, v)
+      await clickButton(w, v)
       expect(w.text(), `la bienvenida reaparecio en ${v}`).not.toContain('Bienvenido a DanPlay')
     }
   })
 })
 
 describe('añadir la misma carpeta varias veces', () => {
-  const campo = (w) => w.find('.page input[type="text"], .page input:not([type])')
-  const analizar = async (w) => {
+  const field = (w) => w.find('.page input[type="text"], .page input:not([type])')
+  const analyze = async (w) => {
     await w
       .findAll('.page button')
       .find((b) => b.text() === 'Analizar')
@@ -614,8 +611,8 @@ describe('añadir la misma carpeta varias veces', () => {
     const w = mount(App, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
-    await campo(w).setValue('/musica')
-    await analizar(w)
+    await field(w).setValue('/musica')
+    await analyze(w)
     expect(api.addFolder).toHaveBeenCalled()
     expect(w.text()).toContain('Mi Gozo')
   })
@@ -633,8 +630,8 @@ describe('añadir la misma carpeta varias veces', () => {
     const w2 = mount(App, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
-    await campo(w2).setValue('/musica')
-    await analizar(w2)
+    await field(w2).setValue('/musica')
+    await analyze(w2)
     state.status.configured = true
 
     // no se reescanea: si ya estaba indexada, releerla entera es trabajo
@@ -649,11 +646,11 @@ describe('añadir la misma carpeta varias veces', () => {
     const w = mount(App, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
-    await campo(w).setValue('/musica')
-    await analizar(w)
-    const rutas = api.addFolder.mock.calls.map((c) => c[0])
-    const unicas = new Set(rutas)
-    expect(unicas.size).toBe(rutas.length)
+    await field(w).setValue('/musica')
+    await analyze(w)
+    const paths = api.addFolder.mock.calls.map((c) => c[0])
+    const unique = new Set(paths)
+    expect(unique.size).toBe(paths.length)
   })
 })
 
@@ -692,17 +689,17 @@ const twoSongs = () => [
     bpm: 0
   }
 ]
-const dosCanciones = twoSongs
+const songPair = twoSongs
 
 /** Id de la fila marcada como sonando, o null. */
-function sonando(w) {
-  const filas = w.findAll('tbody tr')
-  const i = filas.findIndex((f) => f.classes().includes('playing'))
+function playing(w) {
+  const rows = w.findAll('tbody tr')
+  const i = rows.findIndex((f) => f.classes().includes('playing'))
   return i < 0 ? null : i + 1
 }
 
-async function reproducir(w, indice) {
-  await w.findAll('tbody tr')[indice].find('.row-play').trigger('click')
+async function play(w, index) {
+  await w.findAll('tbody tr')[index].find('.row-play').trigger('click')
   await flushPromises()
 }
 
@@ -710,18 +707,18 @@ describe('el boton de repeticion', () => {
   it('cicla por los cuatro modos y se lo dice a quien tiene la cola', async () => {
     state.status.configured = true
     state.songs = twoSongs()
-    const w = await montar()
-    for (const esperado of ['one', 'once', 'queue', 'list']) {
+    const w = await mountView()
+    for (const expected of ['one', 'once', 'queue', 'list']) {
       await w.find('.repeat-btn').trigger('click')
       await flushPromises()
-      expect(playback.bridge.setRepeat).toHaveBeenLastCalledWith(esperado)
+      expect(playback.bridge.setRepeat).toHaveBeenLastCalledWith(expected)
     }
   })
 
   it('el modo elegido se recuerda entre sesiones', async () => {
     state.status.configured = true
     state.songs = twoSongs()
-    const w = await montar()
+    const w = await mountView()
     await w.find('.repeat-btn').trigger('click')
     await flushPromises()
     expect(localStorage.getItem('danplay.repeat')).toBe('one')
@@ -732,12 +729,12 @@ describe('poner una cancion', () => {
   it('manda la lista entera como cola, empezando por la pulsada', async () => {
     state.status.configured = true
     state.songs = twoSongs()
-    const w = await montar()
-    await reproducir(w, 1)
+    const w = await mountView()
+    await play(w, 1)
     const [items, start] = playback.bridge.setQueue.mock.calls.at(-1)
     expect(items.map((t) => t.id)).toEqual([1, 2])
     expect(start).toBe(2)
-    expect(sonando(w)).toBe(2)
+    expect(playing(w)).toBe(2)
   })
 })
 
@@ -747,19 +744,19 @@ describe('pausar desde la propia fila', () => {
   it('sobre la que suena, el boton pausa y reanuda en vez de reiniciar', async () => {
     state.status.configured = true
     state.songs = twoSongs()
-    const w = await montar()
-    await reproducir(w, 1)
+    const w = await mountView()
+    await play(w, 1)
     expect(playback.bridge.setQueue).toHaveBeenCalledTimes(1)
-    const boton = () => w.findAll('tbody tr')[1].find('.row-play')
-    expect(boton().attributes('title')).toBe('Pausar')
-    expect(boton().find('svg').exists()).toBe(true)
+    const button = () => w.findAll('tbody tr')[1].find('.row-play')
+    expect(button().attributes('title')).toBe('Pausar')
+    expect(button().find('svg').exists()).toBe(true)
 
-    await reproducir(w, 1) // otra vez sobre la misma
+    await play(w, 1) // otra vez sobre la misma
     await flushPromises()
     await flushPromises()
     expect(playback.bridge.toggle).toHaveBeenCalledTimes(1)
     expect(playback.bridge.setQueue).toHaveBeenCalledTimes(1)
-    expect(boton().attributes('title')).toBe('Reanudar')
+    expect(button().attributes('title')).toBe('Reanudar')
     // la otra fila sigue ofreciendo reproducir
     expect(w.findAll('tbody tr')[0].find('.row-play').attributes('title')).toBe('Reproducir')
   })
@@ -767,13 +764,13 @@ describe('pausar desde la propia fila', () => {
   it('el punto de la barra lateral marca de donde sale lo que suena', async () => {
     state.status.configured = true
     state.songs = twoSongs()
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.now-dot').exists()).toBe(false)
-    await reproducir(w, 0)
+    await play(w, 0)
     const all = w.findAll('.nav-link').find((b) => b.text().includes('Todas las canciones'))
     expect(all.find('.now-dot').exists()).toBe(true)
     expect(all.find('.now-dot').classes()).not.toContain('paused')
-    await reproducir(w, 0) // pausa
+    await play(w, 0) // pausa
     expect(all.find('.now-dot').classes()).toContain('paused')
   })
 })
@@ -781,20 +778,20 @@ describe('pausar desde la propia fila', () => {
 // El menu de la cancion: «Enviar por Telegram» solo si Telegram esta en el
 // equipo (lo dice Rust al arrancar), y «Abrir la carpeta» siempre.
 describe('el menu contextual de una cancion', () => {
-  async function abrirMenu() {
+  async function openMenu() {
     state.status.configured = true
     state.songs = [song(1), song(2)] // con su ruta, como las de verdad
-    const w = await montar()
+    const w = await mountView()
     await w.findAll('tbody tr')[0].trigger('contextmenu')
     await flushPromises()
     return w
   }
-  const etiquetas = (w) => w.findAll('.ctx-item .ctx-label').map((b) => b.text())
+  const labels = (w) => w.findAll('.ctx-item .ctx-label').map((b) => b.text())
 
   it('con Telegram instalado ofrece enviar la cancion, y manda su ruta', async () => {
-    const w = await abrirMenu()
-    expect(etiquetas(w)).toContain('Enviar por Telegram')
-    expect(etiquetas(w)).toContain('Abrir la carpeta')
+    const w = await openMenu()
+    expect(labels(w)).toContain('Enviar por Telegram')
+    expect(labels(w)).toContain('Abrir la carpeta')
     await w
       .findAll('.ctx-item')
       .find((b) => b.text().includes('Enviar por Telegram'))
@@ -808,15 +805,15 @@ describe('el menu contextual de una cancion', () => {
 
   it('sin Telegram, la opcion no aparece', async () => {
     held.app.shareTargets.mockResolvedValueOnce({ telegram: false })
-    const w = await abrirMenu()
-    expect(etiquetas(w)).not.toContain('Enviar por Telegram')
-    expect(etiquetas(w)).toContain('Abrir la carpeta')
+    const w = await openMenu()
+    expect(labels(w)).not.toContain('Enviar por Telegram')
+    expect(labels(w)).toContain('Abrir la carpeta')
   })
 
   it('con el panel a la vista no ofrece «Ver detalles»', async () => {
-    const w = await abrirMenu()
+    const w = await openMenu()
     expect(w.find('.details').exists()).toBe(true)
-    expect(etiquetas(w)).not.toContain('Ver detalles')
+    expect(labels(w)).not.toContain('Ver detalles')
   })
 })
 
@@ -824,44 +821,44 @@ describe('el menu contextual de una cancion', () => {
 // sobre todas: enviar, añadir a una lista, papelera (con una confirmacion que
 // dice cuantas).
 describe('seleccion multiple', () => {
-  const tres = () => [song(1), song(2), song(3)]
-  async function lista() {
+  const three = () => [song(1), song(2), song(3)]
+  async function list() {
     state.status.configured = true
-    state.songs = tres()
-    return montar()
+    state.songs = three()
+    return mountView()
   }
-  const filas = (w) => w.findAll('tbody tr')
-  const seleccionadas = (w) => filas(w).filter((f) => f.classes().includes('selected')).length
+  const rows = (w) => w.findAll('tbody tr')
+  const selectedCount = (w) => rows(w).filter((f) => f.classes().includes('selected')).length
 
   it('Ctrl añade y quita; Mayus coge el tramo; Ctrl+Mayus lo suma', async () => {
-    const w = await lista()
-    await filas(w)[0].trigger('click')
-    await filas(w)[2].trigger('click', { ctrlKey: true })
+    const w = await list()
+    await rows(w)[0].trigger('click')
+    await rows(w)[2].trigger('click', { ctrlKey: true })
     await flushPromises()
-    expect(seleccionadas(w)).toBe(2)
-    await filas(w)[2].trigger('click', { ctrlKey: true }) // la quita
+    expect(selectedCount(w)).toBe(2)
+    await rows(w)[2].trigger('click', { ctrlKey: true }) // la quita
     await flushPromises()
-    expect(seleccionadas(w)).toBe(1)
-    await filas(w)[0].trigger('click')
-    await filas(w)[2].trigger('click', { shiftKey: true }) // 1..3
+    expect(selectedCount(w)).toBe(1)
+    await rows(w)[0].trigger('click')
+    await rows(w)[2].trigger('click', { shiftKey: true }) // 1..3
     await flushPromises()
-    expect(seleccionadas(w)).toBe(3)
-    await filas(w)[1].trigger('click') // sin teclas: solo esa
+    expect(selectedCount(w)).toBe(3)
+    await rows(w)[1].trigger('click') // sin teclas: solo esa
     await flushPromises()
-    expect(seleccionadas(w)).toBe(1)
+    expect(selectedCount(w)).toBe(1)
   })
 
   it('el menu sobre la seleccion actua sobre todas', async () => {
-    const w = await lista()
-    await filas(w)[0].trigger('click')
-    await filas(w)[2].trigger('click', { shiftKey: true })
+    const w = await list()
+    await rows(w)[0].trigger('click')
+    await rows(w)[2].trigger('click', { shiftKey: true })
     await flushPromises()
-    await filas(w)[1].trigger('contextmenu')
+    await rows(w)[1].trigger('contextmenu')
     await flushPromises()
-    const etiquetas = w.findAll('.ctx-item .ctx-label').map((b) => b.text())
-    expect(etiquetas).toContain('Enviar 3 por Telegram')
-    expect(etiquetas).toContain('Añadir 3 a una lista')
-    expect(etiquetas).toContain('Mandar 3 a la papelera…')
+    const labels = w.findAll('.ctx-item .ctx-label').map((b) => b.text())
+    expect(labels).toContain('Enviar 3 por Telegram')
+    expect(labels).toContain('Añadir 3 a una lista')
+    expect(labels).toContain('Mandar 3 a la papelera…')
     await w
       .findAll('.ctx-item')
       .find((b) => b.text().includes('Enviar 3 por Telegram'))
@@ -876,11 +873,11 @@ describe('seleccion multiple', () => {
   })
 
   it('la papelera de varias pide confirmacion y dice cuantas', async () => {
-    const w = await lista()
-    await filas(w)[0].trigger('click')
-    await filas(w)[1].trigger('click', { ctrlKey: true })
+    const w = await list()
+    await rows(w)[0].trigger('click')
+    await rows(w)[1].trigger('click', { ctrlKey: true })
     await flushPromises()
-    await filas(w)[0].trigger('contextmenu')
+    await rows(w)[0].trigger('contextmenu')
     await flushPromises()
     await w
       .findAll('.ctx-item')
@@ -898,15 +895,15 @@ describe('seleccion multiple', () => {
   })
 
   it('el menu sobre una que NO esta en la seleccion es el de esa sola', async () => {
-    const w = await lista()
-    await filas(w)[0].trigger('click')
-    await filas(w)[1].trigger('click', { ctrlKey: true })
+    const w = await list()
+    await rows(w)[0].trigger('click')
+    await rows(w)[1].trigger('click', { ctrlKey: true })
     await flushPromises()
-    await filas(w)[2].trigger('contextmenu')
+    await rows(w)[2].trigger('contextmenu')
     await flushPromises()
-    const etiquetas = w.findAll('.ctx-item .ctx-label').map((b) => b.text())
-    expect(etiquetas).toContain('Enviar por Telegram')
-    expect(etiquetas).not.toContain('Enviar 2 por Telegram')
+    const labels = w.findAll('.ctx-item .ctx-label').map((b) => b.text())
+    expect(labels).toContain('Enviar por Telegram')
+    expect(labels).not.toContain('Enviar 2 por Telegram')
   })
 })
 
@@ -915,12 +912,12 @@ describe('el menu de un repertorio', () => {
     state.status.configured = true
     state.songs = [song(1)]
     state.playlists = [{ id: 1, name: 'domingo', n: 1 }]
-    const w = await montar()
+    const w = await mountView()
     await w.find('.nav-playlist').trigger('contextmenu')
     await flushPromises()
-    const etiquetas = w.findAll('.ctx-item .ctx-label').map((b) => b.text())
-    expect(etiquetas).toContain('Renombrar…')
-    expect(etiquetas).toContain('Enviar por Telegram')
+    const labels = w.findAll('.ctx-item .ctx-label').map((b) => b.text())
+    expect(labels).toContain('Renombrar…')
+    expect(labels).toContain('Enviar por Telegram')
   })
 })
 
@@ -930,7 +927,7 @@ describe('el panel de detalles, oculto o a la vista', () => {
     usePreferences().showDetails.value = false
     state.status.configured = true
     state.songs = [song(1)]
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.details').exists()).toBe(false)
     await w.find('tbody tr').trigger('contextmenu')
     await flushPromises()
@@ -951,14 +948,14 @@ describe('el panel de detalles, oculto o a la vista', () => {
 describe('el boton de play usa la seleccion', () => {
   it('sin nada cargado, reproduce la cancion seleccionada', async () => {
     state.status.configured = true
-    state.songs = dosCanciones()
-    const w = await montar()
+    state.songs = songPair()
+    const w = await mountView()
     await w.findAll('tbody tr')[1].trigger('click') // seleccionar la segunda
     await flushPromises()
-    expect(sonando(w), 'seleccionar no reproduce').toBe(null)
+    expect(playing(w), 'seleccionar no reproduce').toBe(null)
     await w.find('.pl-play').trigger('click')
     await flushPromises()
-    expect(sonando(w)).toBe(2)
+    expect(playing(w)).toBe(2)
   })
 })
 
@@ -967,78 +964,78 @@ describe('el boton de play usa la seleccion', () => {
 // Favoritos o en «Nueva lista». Lo que NO puede pasar es que un clic normal
 // acabe moviendo algo sin querer, asi que hay un umbral antes de arrastrar.
 describe('arrastrar una cancion', () => {
-  async function conLista() {
+  async function withPlaylist() {
     state.status.configured = true
-    state.songs = dosCanciones()
+    state.songs = songPair()
     state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
-    return await montar()
+    return await mountView()
   }
-  const fila = (w, i = 0) => w.findAll('tbody tr')[i]
-  const repertorio = (w) => w.find('.nav-playlist')
-  const favoritos = (w) => w.find('[data-drop="favorites"]')
+  const row = (w, i = 0) => w.findAll('tbody tr')[i]
+  const playlistLink = (w) => w.find('.nav-playlist')
+  const favorites = (w) => w.find('[data-drop="favorites"]')
 
   // jsdom no trae PointerEvent, y test-utils no deja poner las coordenadas
   // encima de un MouseEvent ya creado: se lanza a mano.
-  function puntero(el, tipo, { pointerType, ...resto } = {}) {
-    const ev = new MouseEvent(tipo, { bubbles: true, cancelable: true, ...resto })
+  function pointer(el, type, { pointerType, ...rest } = {}) {
+    const ev = new MouseEvent(type, { bubbles: true, cancelable: true, ...rest })
     if (pointerType) Object.defineProperty(ev, 'pointerType', { value: pointerType })
     el.element.dispatchEvent(ev)
     return flushPromises()
   }
 
   it('un clic sin mover el puntero no arrastra nada', async () => {
-    const w = await conLista()
-    await puntero(fila(w), 'pointerdown', { clientX: 10, clientY: 10 })
+    const w = await withPlaylist()
+    await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
     expect(w.vm.drag.song).toBe(null)
-    await puntero(repertorio(w), 'pointerup')
+    await pointer(playlistLink(w), 'pointerup')
     await flushPromises()
     expect(api.addToPlaylist).not.toHaveBeenCalled()
   })
 
   it('al pasar del umbral empieza el arrastre y aparece el fantasma', async () => {
-    const w = await conLista()
-    await puntero(fila(w), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(fila(w), 'pointermove', { clientX: 90, clientY: 200 })
+    const w = await withPlaylist()
+    await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(row(w), 'pointermove', { clientX: 90, clientY: 200 })
     expect(w.vm.drag.song.id).toBe(1)
     expect(document.querySelector('.drag-ghost').textContent).toContain('Primera')
-    expect(fila(w).classes()).toContain('dragged')
-    await puntero(repertorio(w), 'pointerup')
+    expect(row(w).classes()).toContain('dragged')
+    await pointer(playlistLink(w), 'pointerup')
   })
 
   it('soltarla en un repertorio la añade ahi', async () => {
-    const w = await conLista()
-    await puntero(fila(w, 1), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(repertorio(w), 'pointermove', { clientX: 90, clientY: 200 })
-    expect(repertorio(w).classes()).toContain('drop-over')
-    await puntero(repertorio(w), 'pointerup')
+    const w = await withPlaylist()
+    await pointer(row(w, 1), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(playlistLink(w), 'pointermove', { clientX: 90, clientY: 200 })
+    expect(playlistLink(w).classes()).toContain('drop-over')
+    await pointer(playlistLink(w), 'pointerup')
     await flushPromises()
     expect(api.addToPlaylist).toHaveBeenCalledWith(7, [2])
     expect(w.vm.drag.song, 'el arrastre no termino').toBe(null)
   })
 
   it('soltarla en Favoritos la marca como favorita', async () => {
-    const w = await conLista()
-    await puntero(fila(w), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(favoritos(w), 'pointermove', { clientX: 90, clientY: 120 })
-    await puntero(favoritos(w), 'pointerup')
+    const w = await withPlaylist()
+    await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(favorites(w), 'pointermove', { clientX: 90, clientY: 120 })
+    await pointer(favorites(w), 'pointerup')
     await flushPromises()
     expect(api.toggleFavorite).toHaveBeenCalledWith(1, true)
   })
 
   it('soltarla donde no hay destino no hace nada', async () => {
-    const w = await conLista()
-    await puntero(fila(w), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(fila(w, 1), 'pointermove', { clientX: 90, clientY: 200 })
-    await puntero(fila(w, 1), 'pointerup')
+    const w = await withPlaylist()
+    await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(row(w, 1), 'pointermove', { clientX: 90, clientY: 200 })
+    await pointer(row(w, 1), 'pointerup')
     await flushPromises()
     expect(api.addToPlaylist).not.toHaveBeenCalled()
     expect(api.toggleFavorite).not.toHaveBeenCalled()
   })
 
   it('Escape deja caer lo que se lleva sin soltarlo en nada', async () => {
-    const w = await conLista()
-    await puntero(fila(w), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(repertorio(w), 'pointermove', { clientX: 90, clientY: 200 })
+    const w = await withPlaylist()
+    await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(playlistLink(w), 'pointermove', { clientX: 90, clientY: 200 })
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(w.vm.drag.song).toBe(null)
@@ -1047,29 +1044,29 @@ describe('arrastrar una cancion', () => {
   })
 
   it('con el dedo no se arrastra: en tactil la lista se desplaza', async () => {
-    const w = await conLista()
-    await puntero(fila(w), 'pointerdown', { clientX: 10, clientY: 10, pointerType: 'touch' })
-    await puntero(repertorio(w), 'pointermove', { clientX: 90, clientY: 200 })
+    const w = await withPlaylist()
+    await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10, pointerType: 'touch' })
+    await pointer(playlistLink(w), 'pointermove', { clientX: 90, clientY: 200 })
     expect(w.vm.drag.song).toBe(null)
   })
 
   it('los sitios donde soltar solo se marcan mientras hay algo en la mano', async () => {
-    const w = await conLista()
+    const w = await withPlaylist()
     expect(w.find('.sidebar').classes()).not.toContain('drop-ready')
-    await puntero(fila(w), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(fila(w), 'pointermove', { clientX: 90, clientY: 200 })
+    await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(row(w), 'pointermove', { clientX: 90, clientY: 200 })
     expect(w.find('.sidebar').classes()).toContain('drop-ready')
-    await puntero(fila(w), 'pointerup')
+    await pointer(row(w), 'pointerup')
     await flushPromises()
     expect(w.find('.sidebar').classes()).not.toContain('drop-ready')
   })
 
   it('fuera de un repertorio las filas no son destino: soltar sobre otra no cambia nada', async () => {
-    const w = await conLista()
-    expect(fila(w).attributes('data-drop')).toBeUndefined()
-    await puntero(fila(w), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(fila(w, 1), 'pointermove', { clientX: 90, clientY: 200 })
-    await puntero(fila(w, 1), 'pointerup')
+    const w = await withPlaylist()
+    expect(row(w).attributes('data-drop')).toBeUndefined()
+    await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(row(w, 1), 'pointermove', { clientX: 90, clientY: 200 })
+    await pointer(row(w, 1), 'pointerup')
     await flushPromises()
     expect(api.reorderPlaylist).not.toHaveBeenCalled()
   })
@@ -1077,13 +1074,13 @@ describe('arrastrar una cancion', () => {
   it('un resto de la disposicion movible no rompe la vista', async () => {
     // aquella opcion guardaba un objeto en la misma clave que el formato
     localStorage.setItem('danplay.layout', '{"topbar":"bottom","player":"top"}')
-    const w = await conLista()
+    const w = await withPlaylist()
     expect(w.vm.layout).toBe('table')
     expect(w.findAll('tbody tr')).toHaveLength(2)
   })
 
   it('ya no queda nada para mover los paneles de sitio', async () => {
-    const w = await conLista()
+    const w = await withPlaylist()
     expect(w.find('.bar-grip').exists()).toBe(false)
     expect(w.find('.resizer').exists()).toBe(false)
     expect(w.find('.arrange-bar').exists()).toBe(false)
@@ -1096,17 +1093,17 @@ describe('arrastrar una cancion', () => {
 // el boton Y pause. Pero un clic de raton dejaba el foco en el boton, y el
 // espacio de despues volvia a pulsar «Siguiente» en vez de pausar la musica.
 describe('tras pulsar un boton con el raton', () => {
-  const tecla = (key) => {
+  const press = (key) => {
     const target = document.activeElement || window
     target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
     return flushPromises()
   }
-  async function sonando() {
+  async function playing() {
     state.status.configured = true
-    state.songs = dosCanciones()
+    state.songs = songPair()
     // sin el dialogo de «¿abrir las canciones con DanPlay?», que bloquea los atajos
     localStorage.setItem('danplay.default-player-asked', '1')
-    const w = await montar()
+    const w = await mountView()
     playback.emit({
       track: { id: 1, title: 'Primera', artist: 'X', duration: 100 },
       playing: true,
@@ -1120,34 +1117,34 @@ describe('tras pulsar un boton con el raton', () => {
   }
 
   it('el boton suelta el foco y el espacio vuelve a pausar', async () => {
-    const w = await sonando()
-    const siguiente = w
+    const w = await playing()
+    const next = w
       .findAll('.player .pl-btn')
       .find((b) => b.attributes('title')?.startsWith('Siguiente'))
-    siguiente.element.focus()
-    expect(document.activeElement).toBe(siguiente.element)
-    siguiente.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    next.element.focus()
+    expect(document.activeElement).toBe(next.element)
+    next.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
     await flushPromises()
-    expect(document.activeElement).not.toBe(siguiente.element)
-    await tecla(' ')
+    expect(document.activeElement).not.toBe(next.element)
+    await press(' ')
     expect(playback.bridge.toggle).toHaveBeenCalledTimes(1)
     expect(playback.bridge.next).not.toHaveBeenCalled()
   })
 
   it('tambien un repertorio del menu lateral', async () => {
     state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
-    const w = await sonando()
+    const w = await playing()
     const nav = w.find('.nav-playlist')
     nav.element.focus()
     nav.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
     await flushPromises()
     expect(document.activeElement).not.toBe(nav.element)
-    await tecla(' ')
+    await press(' ')
     expect(playback.bridge.toggle).toHaveBeenCalledTimes(1)
   })
 
   it('dentro de un dialogo el foco no se toca', async () => {
-    const w = await sonando()
+    const w = await playing()
     await w.find('.nav-playlist, .nav-new').trigger('click') // «Nueva lista» abre un dialogo
     await flushPromises()
     const ok = document.querySelector('.modal button')
@@ -1164,7 +1161,7 @@ describe('tras pulsar un boton con el raton', () => {
 // se coge una cancion y se deja encima o debajo de otra. Solo ahi: en
 // «Todas» o en Favoritos el orden lo dan las columnas.
 describe('ordenar un repertorio arrastrando', () => {
-  const tres = () => [
+  const three = () => [
     {
       id: 1,
       title: 'Primera',
@@ -1208,26 +1205,26 @@ describe('ordenar un repertorio arrastrando', () => {
       bpm: 0
     }
   ]
-  async function enRepertorio(otras = []) {
+  async function inPlaylist(others = []) {
     state.status.configured = true
-    state.songs = tres()
-    state.playlistSongs = tres()
-    state.playlists = [{ id: 7, name: 'Domingo', n: 3 }, ...otras]
-    const w = await montar()
+    state.songs = three()
+    state.playlistSongs = three()
+    state.playlists = [{ id: 7, name: 'Domingo', n: 3 }, ...others]
+    const w = await mountView()
     await w.find('.nav-playlist').trigger('click')
     await flushPromises()
     await flushPromises()
     return w
   }
-  const fila = (w, i = 0) => w.findAll('tbody tr')[i]
-  const titulos = (w) => w.findAll('tbody tr td.title').map((td) => td.text().trim())
-  function puntero(el, tipo, resto = {}) {
-    el.element.dispatchEvent(new MouseEvent(tipo, { bubbles: true, cancelable: true, ...resto }))
+  const row = (w, i = 0) => w.findAll('tbody tr')[i]
+  const titles = (w) => w.findAll('tbody tr td.title').map((td) => td.text().trim())
+  function pointer(el, type, rest = {}) {
+    el.element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, ...rest }))
     return flushPromises()
   }
   // jsdom no maqueta: se le dice a la fila donde esta para poder apuntar a
   // su mitad de arriba o a la de abajo
-  function colocar(el, top = 100, height = 30) {
+  function place(el, top = 100, height = 30) {
     el.element.getBoundingClientRect = () => ({
       top,
       height,
@@ -1241,108 +1238,108 @@ describe('ordenar un repertorio arrastrando', () => {
   }
 
   it('las filas de la lista son destino, y se avisa de que se puede ordenar', async () => {
-    const w = await enRepertorio()
-    expect(titulos(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
-    expect(fila(w).attributes('data-drop')).toBe('sort:1')
+    const w = await inPlaylist()
+    expect(titles(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
+    expect(row(w).attributes('data-drop')).toBe('sort:1')
     expect(w.find('[data-sort-list]').exists()).toBe(true)
     expect(w.find('.sort-hint').text()).toContain('arrastra')
   })
 
   it('soltarla en la mitad de abajo de otra la deja despues', async () => {
-    const w = await enRepertorio()
-    colocar(fila(w, 2))
-    await puntero(fila(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(fila(w, 2), 'pointermove', { clientX: 90, clientY: 125 })
-    expect(fila(w, 2).classes()).toContain('drop-after')
-    expect(fila(w, 2).classes()).not.toContain('drop-before')
-    await puntero(fila(w, 2), 'pointerup')
+    const w = await inPlaylist()
+    place(row(w, 2))
+    await pointer(row(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(row(w, 2), 'pointermove', { clientX: 90, clientY: 125 })
+    expect(row(w, 2).classes()).toContain('drop-after')
+    expect(row(w, 2).classes()).not.toContain('drop-before')
+    await pointer(row(w, 2), 'pointerup')
     await flushPromises()
     expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 3, 1])
-    expect(titulos(w)).toEqual(['Segunda', 'Tercera', 'Primera'])
+    expect(titles(w)).toEqual(['Segunda', 'Tercera', 'Primera'])
     expect(w.vm.drag.song).toBe(null)
   })
 
   it('y en la mitad de arriba, antes', async () => {
-    const w = await enRepertorio()
-    colocar(fila(w, 0))
-    await puntero(fila(w, 2), 'pointerdown', { clientX: 10, clientY: 300 })
-    await puntero(fila(w, 0), 'pointermove', { clientX: 90, clientY: 105 })
-    expect(fila(w, 0).classes()).toContain('drop-before')
-    await puntero(fila(w, 0), 'pointerup')
+    const w = await inPlaylist()
+    place(row(w, 0))
+    await pointer(row(w, 2), 'pointerdown', { clientX: 10, clientY: 300 })
+    await pointer(row(w, 0), 'pointermove', { clientX: 90, clientY: 105 })
+    expect(row(w, 0).classes()).toContain('drop-before')
+    await pointer(row(w, 0), 'pointerup')
     await flushPromises()
     expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [3, 1, 2])
-    expect(titulos(w)).toEqual(['Tercera', 'Primera', 'Segunda'])
+    expect(titles(w)).toEqual(['Tercera', 'Primera', 'Segunda'])
   })
 
   it('dejarla donde ya estaba no pide nada al nucleo', async () => {
-    const w = await enRepertorio()
-    colocar(fila(w, 1))
+    const w = await inPlaylist()
+    place(row(w, 1))
     // la primera, justo encima de la segunda: es su sitio de siempre
-    await puntero(fila(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(fila(w, 1), 'pointermove', { clientX: 90, clientY: 105 })
-    await puntero(fila(w, 1), 'pointerup')
+    await pointer(row(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(row(w, 1), 'pointermove', { clientX: 90, clientY: 105 })
+    await pointer(row(w, 1), 'pointerup')
     await flushPromises()
     expect(api.reorderPlaylist).not.toHaveBeenCalled()
-    expect(titulos(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
+    expect(titles(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
   })
 
   it('sobre la propia fila que se lleva no se marca nada', async () => {
-    const w = await enRepertorio()
-    colocar(fila(w, 0))
-    await puntero(fila(w, 0), 'pointerdown', { clientX: 10, clientY: 105 })
-    await puntero(fila(w, 0), 'pointermove', { clientX: 90, clientY: 125 })
-    expect(fila(w, 0).classes()).toContain('dragged')
-    expect(fila(w, 0).classes()).not.toContain('drop-after')
-    await puntero(fila(w, 0), 'pointerup')
+    const w = await inPlaylist()
+    place(row(w, 0))
+    await pointer(row(w, 0), 'pointerdown', { clientX: 10, clientY: 105 })
+    await pointer(row(w, 0), 'pointermove', { clientX: 90, clientY: 125 })
+    expect(row(w, 0).classes()).toContain('dragged')
+    expect(row(w, 0).classes()).not.toContain('drop-after')
+    await pointer(row(w, 0), 'pointerup')
     await flushPromises()
     expect(api.reorderPlaylist).not.toHaveBeenCalled()
   })
 
   it('si el nucleo no puede, la lista vuelve como estaba', async () => {
-    const w = await enRepertorio()
+    const w = await inPlaylist()
     api.reorderPlaylist.mockRejectedValueOnce(new Error('sin base de datos'))
-    colocar(fila(w, 2))
-    await puntero(fila(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(fila(w, 2), 'pointermove', { clientX: 90, clientY: 125 })
-    await puntero(fila(w, 2), 'pointerup')
+    place(row(w, 2))
+    await pointer(row(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(row(w, 2), 'pointermove', { clientX: 90, clientY: 125 })
+    await pointer(row(w, 2), 'pointerup')
     await flushPromises()
     await flushPromises()
-    expect(titulos(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
+    expect(titles(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
     expect(w.find('.toast').text()).toContain('No se pudo cambiar el orden')
   })
 
   it('las cabeceras no ordenan un repertorio: lo dicen y no recargan', async () => {
-    const w = await enRepertorio()
+    const w = await inPlaylist()
     expect(w.find('thead th[aria-sort]').exists(), 'no hay columna que mande').toBe(false)
-    const antes = api.playlistSongs.mock.calls.length
+    const before = api.playlistSongs.mock.calls.length
     await w.find('thead th.sortable .th-sort').trigger('click')
     await flushPromises()
     expect(w.find('.toast').text()).toContain('arrastra')
-    expect(api.playlistSongs.mock.calls.length).toBe(antes)
+    expect(api.playlistSongs.mock.calls.length).toBe(before)
   })
 
   it('en la lista fina las filas tambien se ordenan', async () => {
-    const w = await enRepertorio()
+    const w = await inPlaylist()
     w.vm.layout = 'rows'
     await flushPromises()
-    const filas = w.findAll('.rows .row')
-    expect(filas).toHaveLength(3)
-    expect(filas[0].attributes('data-drop')).toBe('sort:1')
-    colocar(filas[2])
-    await puntero(filas[0], 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(filas[2], 'pointermove', { clientX: 90, clientY: 125 })
-    await puntero(filas[2], 'pointerup')
+    const rows = w.findAll('.rows .row')
+    expect(rows).toHaveLength(3)
+    expect(rows[0].attributes('data-drop')).toBe('sort:1')
+    place(rows[2])
+    await pointer(rows[0], 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(rows[2], 'pointermove', { clientX: 90, clientY: 125 })
+    await pointer(rows[2], 'pointerup')
     await flushPromises()
     expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 3, 1])
   })
 
   it('en las fichas se mira la mitad izquierda o derecha', async () => {
-    const w = await enRepertorio()
+    const w = await inPlaylist()
     w.vm.layout = 'cards'
     await flushPromises()
-    const fichas = w.findAll('.card-song')
-    expect(fichas[0].attributes('data-drop-axis')).toBe('x')
-    fichas[2].element.getBoundingClientRect = () => ({
+    const cards = w.findAll('.card-song')
+    expect(cards[0].attributes('data-drop-axis')).toBe('x')
+    cards[2].element.getBoundingClientRect = () => ({
       top: 0,
       height: 60,
       bottom: 60,
@@ -1352,21 +1349,21 @@ describe('ordenar un repertorio arrastrando', () => {
       x: 300,
       y: 0
     })
-    await puntero(fichas[0], 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(cards[0], 'pointerdown', { clientX: 10, clientY: 10 })
     // a la izquierda de la tercera, aunque sea por su mitad de abajo
-    await puntero(fichas[2], 'pointermove', { clientX: 320, clientY: 55 })
-    expect(fichas[2].classes()).toContain('drop-before')
-    await puntero(fichas[2], 'pointerup')
+    await pointer(cards[2], 'pointermove', { clientX: 320, clientY: 55 })
+    expect(cards[2].classes()).toContain('drop-before')
+    await pointer(cards[2], 'pointerup')
     await flushPromises()
     expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 1, 3])
   })
 
   it('de la lista al menu lateral sigue valiendo: se añade a otro repertorio', async () => {
-    const w = await enRepertorio([{ id: 8, name: 'Lunes', n: 0 }])
-    const otro = w.findAll('.nav-playlist')[1]
-    await puntero(fila(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(otro, 'pointermove', { clientX: 90, clientY: 200 })
-    await puntero(otro, 'pointerup')
+    const w = await inPlaylist([{ id: 8, name: 'Lunes', n: 0 }])
+    const other = w.findAll('.nav-playlist')[1]
+    await pointer(row(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(other, 'pointermove', { clientX: 90, clientY: 200 })
+    await pointer(other, 'pointerup')
     await flushPromises()
     expect(api.addToPlaylist).toHaveBeenCalledWith(8, [1])
     expect(api.reorderPlaylist).not.toHaveBeenCalled()
@@ -1381,14 +1378,14 @@ describe('salir de DanPlay', () => {
   it('el menu de Vista ofrece salir', async () => {
     state.status.configured = true
     state.songs = twoSongs()
-    const w = await montar()
+    const w = await mountView()
     await w
       .findAll('button')
       .find((b) => b.text().includes('Vista'))
       .trigger('click')
     await flushPromises()
-    const salir = w.findAll('button').find((b) => b.text().includes('Salir de DanPlay'))
-    expect(salir, 'no encuentro como salir de la aplicacion').toBeTruthy()
+    const quit = w.findAll('button').find((b) => b.text().includes('Salir de DanPlay'))
+    expect(quit, 'no encuentro como salir de la aplicacion').toBeTruthy()
   })
 })
 
@@ -1418,9 +1415,9 @@ describe('escribir en el buscador', () => {
       await flushPromises()
       api.search.mockClear()
 
-      const buscador = w.find('.topbar input')
+      const searchBox = w.find('.topbar input')
       for (const t of ['b', 'ba', 'bar', 'bara', 'barak']) {
-        await buscador.setValue(t)
+        await searchBox.setValue(t)
         await vi.advanceTimersByTimeAsync(40) // se escribe seguido
       }
       expect(api.search, 'no deberia buscar mientras aun escribes').not.toHaveBeenCalled()
@@ -1440,8 +1437,8 @@ describe('escribir en el buscador', () => {
 // Las respuestas del nucleo llegan cuando llegan. Estas pruebas fijan que
 // una respuesta vieja no pisa lo que la persona tiene delante.
 describe('respuestas que llegan tarde', () => {
-  const filas = (w) => w.findAll('tbody tr')
-  const pulsarNav = async (w, text) => {
+  const rows = (w) => w.findAll('tbody tr')
+  const clickNav = async (w, text) => {
     await w
       .findAll('.nav-link')
       .find((x) => x.text().includes(text))
@@ -1454,8 +1451,8 @@ describe('respuestas que llegan tarde', () => {
     // elige) daba la carga por vieja, la tiraba y el indicador no paraba.
     state.status.configured = true
     state.songs = [song(1), song(2), song(3)]
-    const w = await montar()
-    expect(filas(w)).toHaveLength(3)
+    const w = await mountView()
+    expect(rows(w)).toHaveLength(3)
     let release
     api.search.mockImplementationOnce(
       () =>
@@ -1466,20 +1463,20 @@ describe('respuestas que llegan tarde', () => {
     await w.find('thead th.sortable .th-sort').trigger('click') // ordenar: vuelve a pedir la lista
     await flushPromises()
     expect(w.find('.filters .loading').exists(), 'no se ve que carga').toBe(true)
-    await filas(w)[1].trigger('click')
-    await filas(w)[2].trigger('contextmenu')
+    await rows(w)[1].trigger('click')
+    await rows(w)[2].trigger('contextmenu')
     await flushPromises()
     release({ total: 4, count: 4, songs: [song(1), song(2), song(3), song(4)] })
     await flushPromises()
     await flushPromises()
-    expect(filas(w)).toHaveLength(4)
+    expect(rows(w)).toHaveLength(4)
     expect(w.find('.filters .loading').exists(), 'el indicador sigue girando').toBe(false)
   })
 
   it('dos clics seguidos no acaban enseñando la ficha del primero', async () => {
     state.status.configured = true
     state.songs = [song(1, { title: 'Primera' }), song(2, { title: 'Segunda' })]
-    const w = await montar()
+    const w = await mountView()
     let release
     api.song.mockImplementationOnce(
       (id) =>
@@ -1487,8 +1484,8 @@ describe('respuestas que llegan tarde', () => {
           release = () => r(song(id, { title: 'Primera' }))
         })
     )
-    await filas(w)[0].trigger('click')
-    await filas(w)[1].trigger('click')
+    await rows(w)[0].trigger('click')
+    await rows(w)[1].trigger('click')
     await flushPromises()
     expect(w.find('.details-title').text()).toBe('Segunda')
     release()
@@ -1499,8 +1496,8 @@ describe('respuestas que llegan tarde', () => {
   it('la letra de A que llega con B elegida no devuelve la ficha a A', async () => {
     state.status.configured = true
     state.songs = [song(1, { title: 'Primera' }), song(2, { title: 'Segunda' })]
-    const w = await montar()
-    await filas(w)[0].trigger('click')
+    const w = await mountView()
+    await rows(w)[0].trigger('click')
     await flushPromises()
     let release
     api.enrich.mockImplementationOnce(
@@ -1513,7 +1510,7 @@ describe('respuestas que llegan tarde', () => {
       .findAll('.details button')
       .find((b) => b.text().includes('Buscar letra'))
       .trigger('click')
-    await filas(w)[1].trigger('click')
+    await rows(w)[1].trigger('click')
     await flushPromises()
     expect(w.find('.details-title').text()).toBe('Segunda')
     release({ result: {}, song: song(1, { title: 'Primera', lyrics: 'mi gozo' }) })
@@ -1527,20 +1524,20 @@ describe('respuestas que llegan tarde', () => {
     // hacian nada; en «Artistas» pasaba siempre.
     state.status.configured = true
     state.songs = [song(1), song(2), song(3)]
-    const w = await montar()
-    await pulsarNav(w, 'Artistas')
+    const w = await mountView()
+    await clickNav(w, 'Artistas')
     expect(w.findAll('.group-head').length).toBeGreaterThan(0)
     // las cabeceras de los grupos tambien son filas de la tabla
-    const filas = (w) => w.findAll('[data-song-row]')
-    const elegidas = () => filas(w).filter((f) => f.classes().includes('selected')).length
-    await filas(w)[0].trigger('click')
-    await filas(w)[2].trigger('click', { ctrlKey: true })
+    const rows = (w) => w.findAll('[data-song-row]')
+    const picked = () => rows(w).filter((f) => f.classes().includes('selected')).length
+    await rows(w)[0].trigger('click')
+    await rows(w)[2].trigger('click', { ctrlKey: true })
     await flushPromises()
-    expect(elegidas()).toBe(2)
-    await filas(w)[0].trigger('click')
-    await filas(w)[2].trigger('click', { shiftKey: true })
+    expect(picked()).toBe(2)
+    await rows(w)[0].trigger('click')
+    await rows(w)[2].trigger('click', { shiftKey: true })
     await flushPromises()
-    expect(elegidas()).toBe(3)
+    expect(picked()).toBe(3)
   })
 
   it('agrupada, Mayus elige el tramo que se ve y la cola va en ese orden', async () => {
@@ -1555,27 +1552,27 @@ describe('respuestas que llegan tarde', () => {
       song(4, { title: 'Sera Llena La Tierra', artist: 'Barak' }),
       song(5, { title: 'Shekinah', artist: 'New Wine' })
     ]
-    const w = await montar()
-    await pulsarNav(w, 'Artistas')
-    const filas = (w) => w.findAll('[data-song-row]')
-    const vistas = () => filas(w).map((f) => f.find('td.title').text())
-    expect(vistas()).toEqual([
+    const w = await mountView()
+    await clickNav(w, 'Artistas')
+    const rows = (w) => w.findAll('[data-song-row]')
+    const views = () => rows(w).map((f) => f.find('td.title').text())
+    expect(views()).toEqual([
       'Mi Gozo',
       'Sera Llena La Tierra',
       'Que Se Abra El Cielo',
       'A Una Voz',
       'Shekinah'
     ])
-    const elegidas = () =>
-      filas(w)
+    const picked = () =>
+      rows(w)
         .filter((f) => f.classes().includes('selected'))
         .map((f) => f.find('td.title').text())
-    await filas(w)[2].trigger('click')
-    await filas(w)[4].trigger('click', { shiftKey: true })
+    await rows(w)[2].trigger('click')
+    await rows(w)[4].trigger('click', { shiftKey: true })
     await flushPromises()
-    expect(elegidas()).toEqual(['Que Se Abra El Cielo', 'A Una Voz', 'Shekinah'])
+    expect(picked()).toEqual(['Que Se Abra El Cielo', 'A Una Voz', 'Shekinah'])
 
-    await filas(w)[0].trigger('dblclick')
+    await rows(w)[0].trigger('dblclick')
     await flushPromises()
     const [items, start] = playback.bridge.setQueue.mock.calls.at(-1)
     expect(items.map((t) => t.id)).toEqual([2, 4, 3, 1, 5])
@@ -1589,8 +1586,8 @@ describe('respuestas que llegan tarde', () => {
     state.songs = [song(1), song(2)]
     state.playlists = [{ id: 7, name: 'Domingo', n: 2 }]
     state.playlistSongs = [song(2), song(1)]
-    const w = await montar()
-    await pulsarNav(w, 'Asistente')
+    const w = await mountView()
+    await clickNav(w, 'Asistente')
     let release
     api.chatPoll.mockImplementationOnce(
       () =>
@@ -1603,7 +1600,7 @@ describe('respuestas que llegan tarde', () => {
     await w.find('.chat-foot textarea').setValue('pon la lista Domingo')
     await w.find('.chat-foot .btn').trigger('click')
     await flushPromises()
-    await pulsarNav(w, 'Todas las canciones')
+    await clickNav(w, 'Todas las canciones')
     expect(w.find('.chat').exists()).toBe(false)
     release({
       text: 'Pongo Domingo',
@@ -1624,7 +1621,7 @@ describe('respuestas que llegan tarde', () => {
     expect(items.map((t) => t.id)).toEqual([2, 1])
     expect(origin).toMatchObject({ kind: 'playlist', id: 7 })
     // y la respuesta quedo en la conversacion, para cuando se vuelva
-    await pulsarNav(w, 'Asistente')
+    await clickNav(w, 'Asistente')
     expect(w.text()).toContain('Pongo Domingo')
   })
 })
@@ -1633,30 +1630,30 @@ describe('respuestas que llegan tarde', () => {
 // las mil primeras sin decir nada. Aqui se mira lo que llega, no como se pinta:
 // la tabla es un doble (en jsdom no hay maquetacion y pintaria las mil filas).
 describe('la lista entera', () => {
-  const montarLigera = async () => {
+  const mountLight = async () => {
     const w = mount(App, { attachTo: document.body, global: { stubs: { SongTable: true } } })
     await flushPromises()
     await flushPromises()
     await flushPromises()
     return w
   }
-  const enLaTabla = (w) => w.findComponent({ name: 'SongTable' }).props('songs')
+  const inTable = (w) => w.findComponent({ name: 'SongTable' }).props('songs')
 
   it('con mas de mil llegan todas: una pagina enseguida y el resto por detras', async () => {
     state.status.configured = true
     state.songs = Array.from({ length: 1200 }, (_, i) => song(i + 1))
-    const w = await montarLigera()
-    const pedidas = api.search.mock.calls.map(([p]) => [p.limit, p.from_key])
-    expect(pedidas[0]).toEqual([400, 0])
-    expect(pedidas.at(-1)).toEqual([5000, 400])
-    expect(enLaTabla(w)).toHaveLength(1200)
-    expect(enLaTabla(w).at(-1).id).toBe(1200)
+    const w = await mountLight()
+    const requested = api.search.mock.calls.map(([p]) => [p.limit, p.from_key])
+    expect(requested[0]).toEqual([400, 0])
+    expect(requested.at(-1)).toEqual([5000, 400])
+    expect(inTable(w)).toHaveLength(1200)
+    expect(inTable(w).at(-1).id).toBe(1200)
     expect(w.find('.filters .chip').text()).toBe('1200')
     // y llegan ligeras: la letra y lo demas se piden con la ficha
-    const primera = await api.search.mock.results[0].value
-    expect(primera.count).toBe(1200)
-    expect(primera.songs[0]).not.toHaveProperty('lyrics')
-    expect(primera.songs[0]).toHaveProperty('has_lyrics', false)
+    const first = await api.search.mock.results[0].value
+    expect(first.count).toBe(1200)
+    expect(first.songs[0]).not.toHaveProperty('lyrics')
+    expect(first.songs[0]).toHaveProperty('has_lyrics', false)
   })
 
   it('si el nucleo no respetara el desplazamiento, no se repiten canciones', async () => {
@@ -1668,15 +1665,15 @@ describe('la lista entera', () => {
       count: 900,
       songs: state.songs.slice(0, p.limit)
     }))
-    const aviso = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      const w = await montarLigera()
-      const ids = enLaTabla(w).map((s) => s.id)
+      const w = await mountLight()
+      const ids = inTable(w).map((s) => s.id)
       expect(ids).toHaveLength(900)
       expect(new Set(ids).size).toBe(900)
     } finally {
       api.search.mockImplementation(original)
-      aviso.mockRestore()
+      warn.mockRestore()
     }
   })
 
@@ -1685,7 +1682,7 @@ describe('la lista entera', () => {
     state.songs = [song(1)]
     state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
     state.playlistSongs = [song(1), song(2), song(3)]
-    const w = await montar()
+    const w = await mountView()
     await w.find('.nav-playlist').trigger('click')
     await flushPromises()
     await flushPromises()

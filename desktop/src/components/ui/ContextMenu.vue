@@ -58,12 +58,12 @@ watch(
       return
     }
     await nextTick()
-    colocar()
+    place()
   }
 )
 
 /** Que no se salga de la ventana. */
-function colocar() {
+function place() {
   const el = panel.value
   if (!el) return
   const w = el.offsetWidth || 220
@@ -80,30 +80,30 @@ async function focusFirst() {
   panel.value?.querySelector('.ctx-item:not([disabled])')?.focus()
 }
 
-function elegir(it) {
+function choose(it) {
   if (it.disabled || it.separator) return
   if (it.children?.length) {
     drill.value = it
-    nextTick(colocar)
+    nextTick(place)
     focusFirst()
     return
   }
   emit('close')
   it.action?.()
 }
-function volver() {
+function goBack() {
   drill.value = null
   focusFirst()
 }
 
-function fuera(e) {
+function onOutside(e) {
   if (props.open && panel.value && !panel.value.contains(e.target)) emit('close')
 }
-function teclas(e) {
+function onKeydown(e) {
   if (!props.open) return
   if (e.key === 'Escape') {
     e.preventDefault()
-    drill.value ? volver() : emit('close')
+    drill.value ? goBack() : emit('close')
     return
   }
   if (e.key === 'Tab') {
@@ -120,7 +120,7 @@ function teclas(e) {
   else if (e.key === 'End') to = items.length - 1
   else if (e.key === 'ArrowLeft' && drill.value) {
     e.preventDefault()
-    volver()
+    goBack()
     return
   } else if (e.key === 'ArrowRight' && document.activeElement?.dataset?.drill) {
     e.preventDefault()
@@ -133,19 +133,19 @@ function teclas(e) {
 }
 // Con nombre, no una funcion suelta: una arrow anonima no se puede quitar
 // despues, y quedaba escuchando para siempre.
-function alRedimensionar() {
+function onResize() {
   if (props.open) emit('close')
 }
 
 onMounted(() => {
-  window.addEventListener('mousedown', fuera, true)
-  window.addEventListener('keydown', teclas)
-  window.addEventListener('resize', alRedimensionar)
+  window.addEventListener('mousedown', onOutside, true)
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('resize', onResize)
 })
 onUnmounted(() => {
-  window.removeEventListener('mousedown', fuera, true)
-  window.removeEventListener('keydown', teclas)
-  window.removeEventListener('resize', alRedimensionar)
+  window.removeEventListener('mousedown', onOutside, true)
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', onResize)
 })
 </script>
 
@@ -161,7 +161,7 @@ onUnmounted(() => {
       :style="{ left: pos.left + 'px', top: pos.top + 'px' }"
     >
       <div v-if="heading" class="ctx-head">
-        <button v-if="drill" type="button" class="ctx-back" title="Volver" @click="volver">
+        <button v-if="drill" type="button" class="ctx-back" title="Volver" @click="goBack">
           <Icon n="right" :t="12" style="transform: rotate(180deg)" />
         </button>
         <span>{{ heading }}</span>
@@ -182,7 +182,7 @@ onUnmounted(() => {
             :title="it.hint || it.note || undefined"
             :aria-haspopup="it.children?.length ? 'menu' : undefined"
             :data-drill="it.children?.length ? '1' : undefined"
-            @click="elegir(it)"
+            @click="choose(it)"
           >
             <span class="ctx-ico"><Icon v-if="it.icon" :n="it.icon" :t="14" /></span>
             <span class="ctx-label">{{ it.label }}</span>

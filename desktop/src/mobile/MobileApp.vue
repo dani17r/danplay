@@ -4,10 +4,10 @@
  *
  * Tiene su propio armazón, hecho para una pantalla estrecha y para los
  * dedos: una cabecera con el menú de lado (☰), la lista de canciones táctil
- * (MovilSongs), el reproductor del celular (MovilPlayer) y los ajustes. Lo
+ * (MobileSongs), el reproductor del celular (MobilePlayer) y los ajustes. Lo
  * demás es lo mismo que en la PC: el modo estudio (StudyBar), la ficha con
  * la letra y los acordes (DetailsPanel), los menús y los diálogos; sus
- * retoques para el teléfono están en `styles/movil.css`, que solo carga esta
+ * retoques para el teléfono están en `styles/mobile.css`, que solo carga esta
  * app.
  *
  * Las pistas que se trajeron de la PC son la biblioteca. No hay nada de
@@ -23,7 +23,7 @@ import { useDialog, ask } from '../composables/useDialog.js'
 import { useContextMenu, closeMenu, openMenu } from '../composables/useContextMenu.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { formatMinutes } from '../utils/format.js'
-import { importBundles, importUri } from './importar.js'
+import { importBundles, importUri } from './importer.js'
 import { tapPlays, compactList, keepAwake } from './prefs.js'
 import { useMediaSession } from './mediaSession.js'
 import Drawer from '../components/ui/Drawer.vue'
@@ -35,13 +35,13 @@ import ContextMenu from '../components/ui/ContextMenu.vue'
 import ModalDialog from '../components/ui/ModalDialog.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 import Loading from '../components/ui/Loading.vue'
-import MovilSongs from './MovilSongs.vue'
-import MovilPlayer from './MovilPlayer.vue'
-import MovilMenu from './MovilMenu.vue'
-import MovilFolders from './MovilFolders.vue'
-import { hasMusicPermission, askMusicPermission, scanPhone } from './musica.js'
-import MovilSettings from './MovilSettings.vue'
-import MovilAbout from './MovilAbout.vue'
+import MobileSongs from './MobileSongs.vue'
+import MobilePlayer from './MobilePlayer.vue'
+import MobileMenu from './MobileMenu.vue'
+import MobileFolders from './MobileFolders.vue'
+import { hasMusicPermission, askMusicPermission, scanPhone } from './phoneMusic.js'
+import MobileSettings from './MobileSettings.vue'
+import MobileAbout from './MobileAbout.vue'
 
 const player = usePlayback()
 // el clic sigue a cada canción aunque el estudio esté cerrado (como en la PC)
@@ -211,7 +211,7 @@ function toggleSearch() {
   }
 }
 
-async function importar() {
+async function importTracks() {
   menuOpen.value = false
   if (await importBundles()) await refresh()
 }
@@ -595,7 +595,7 @@ onMounted(() => {
 // lo de debajo. Lo pregunta la app (MainActivity.kt); si aquí no queda nada
 // que cerrar, la app pasa a segundo plano y la música sigue, como en
 // cualquier reproductor.
-window.__danplayAtras = () => {
+window.__danplayBack = () => {
   if (menu.value.open) closeMenu()
   else if (dialog.value.open) dialogCancel()
   else if (fullOpen.value) fullOpen.value = false
@@ -611,7 +611,7 @@ window.__danplayAtras = () => {
   else return false
   return true
 }
-onUnmounted(() => delete window.__danplayAtras)
+onUnmounted(() => delete window.__danplayBack)
 
 // Mientras suena, la pantalla no se apaga (si así se quiere en Ajustes): se
 // toca encima con el teléfono en el atril.
@@ -643,10 +643,10 @@ onUnmounted(() => document.removeEventListener('visibilitychange', onVisible))
 
 // «Abrir con DanPlay» desde WhatsApp o Descargas: Android le pasa el
 // archivo a la página por aquí (MainActivity.kt) y se importa como con el botón
-window.__danplayAbrir = async (uri) => {
+window.__danplayOpen = async (uri) => {
   if (await importUri(uri)) await refresh()
 }
-onUnmounted(() => delete window.__danplayAbrir)
+onUnmounted(() => delete window.__danplayOpen)
 </script>
 
 <template>
@@ -676,7 +676,7 @@ onUnmounted(() => delete window.__danplayAbrir)
         type="button"
         class="m-icon"
         aria-label="Importar pistas (.danpista) hechas en DanPlay de la PC"
-        @click="importar"
+        @click="importTracks"
       >
         <Icon n="download" :t="22" />
       </button>
@@ -762,7 +762,7 @@ onUnmounted(() => delete window.__danplayAbrir)
           title="Todavía no hay pistas en el celular"
           hint="En DanPlay de la PC: el menú de las pistas de una canción › «Convertir a DanPista». Pasa el archivo .danpista al teléfono (WhatsApp, Drive, cable) y tócalo, o tráelo desde aquí."
         />
-        <button type="button" class="m-chip-btn m-primary" @click="importar">
+        <button type="button" class="m-chip-btn m-primary" @click="importTracks">
           <Icon n="download" :t="16" /> Importar pistas
         </button>
       </div>
@@ -782,7 +782,7 @@ onUnmounted(() => delete window.__danplayAbrir)
           <Icon n="music" :t="16" /> Ir a Mis pistas
         </button>
       </div>
-      <MovilSongs
+      <MobileSongs
         v-else
         :songs="songs"
         :selected-id="selectedId"
@@ -808,7 +808,7 @@ onUnmounted(() => delete window.__danplayAbrir)
       width="min(320px, 86vw)"
       @close="menuOpen = false"
     >
-      <MovilMenu
+      <MobileMenu
         :view="view"
         :lists="lists"
         :total="total"
@@ -816,7 +816,7 @@ onUnmounted(() => delete window.__danplayAbrir)
         :phone="phoneTotal"
         @go="go"
         @new-list="newList()"
-        @import="importar"
+        @import="importTracks"
         @settings="openSettings"
         @help="help"
         @about="openAbout"
@@ -829,7 +829,7 @@ onUnmounted(() => delete window.__danplayAbrir)
       width="min(420px, 94vw)"
       @close="foldersOpen = false"
     >
-      <MovilFolders v-if="foldersOpen" @done="foldersDone" />
+      <MobileFolders v-if="foldersOpen" @done="foldersDone" />
     </Drawer>
     <Drawer
       :open="settingsOpen"
@@ -838,7 +838,7 @@ onUnmounted(() => delete window.__danplayAbrir)
       width="min(420px, 100vw)"
       @close="settingsOpen = false"
     >
-      <MovilSettings :total="total" />
+      <MobileSettings :total="total" />
     </Drawer>
     <Drawer
       :open="aboutOpen"
@@ -847,7 +847,7 @@ onUnmounted(() => delete window.__danplayAbrir)
       width="min(460px, 100vw)"
       @close="aboutOpen = false"
     >
-      <MovilAbout v-if="aboutOpen" />
+      <MobileAbout v-if="aboutOpen" />
     </Drawer>
     <Drawer
       :open="detailsOpen"
@@ -893,7 +893,7 @@ onUnmounted(() => delete window.__danplayAbrir)
         @pointercancel="studyUp"
       />
     </transition>
-    <MovilPlayer
+    <MobilePlayer
       v-model:full="fullOpen"
       :study="studyOpen"
       :song="playingSong"

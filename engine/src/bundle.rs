@@ -197,7 +197,7 @@ pub fn import(file: &Path, library: &Path) -> Result<Summary, String> {
     let id = id_for(&manifest);
     fs::create_dir_all(library)
         .map_err(|e| format!("no se pudo crear la carpeta de pistas: {e}"))?;
-    let work = library.join(format!(".importando-{id}"));
+    let work = library.join(format!(".importing-{id}"));
     let _ = fs::remove_dir_all(&work);
     fs::create_dir_all(work.join("partes"))
         .map_err(|e| format!("no se pudo preparar la pista: {e}"))?;
@@ -362,6 +362,14 @@ pub fn folder(library: &Path, id: &str) -> Option<PathBuf> {
 /// Lo que se cambio en el celular de esa pista (o nada).
 pub fn read_study(folder: &Path) -> Option<Value> {
     serde_json::from_slice(&fs::read(folder.join(STUDY)).ok()?).ok()
+}
+
+/// Lo que la app del celular guardaba con un nombre en español (`old`) pasa
+/// a llamarse `path`, una sola vez: si ya existe `path`, no se toca nada.
+pub fn legacy(path: &Path, old: &Path) {
+    if !path.exists() && old.exists() {
+        let _ = fs::rename(old, path);
+    }
 }
 
 pub fn write_study(folder: &Path, study: &Value) -> Result<(), String> {

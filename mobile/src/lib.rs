@@ -2,12 +2,12 @@
 //! estudiarlas. Ni separa, ni convierte, ni ordena: importa el `.danpista`
 //! que hace la PC («Llevar al celular») y lo deja estudiar.
 //!
-//! La interfaz es la de la PC (`desktop/src`, con la entrada `movil.html`):
+//! La interfaz es la de la PC (`desktop/src`, con la entrada `mobile.html`):
 //! los mismos componentes, el mismo aspecto. Para que funcione sin tocarla,
 //! esta app le contesta lo mismo que la de escritorio:
 //!
 //! - el reproductor, con sus mismas ordenes y su mismo evento (`player.rs`),
-//!   sobre el motor de pistas (`danplay-motor`);
+//!   sobre el motor de pistas (`danplay-engine`);
 //! - el puente `api`, que en la PC lleva a Python, aqui lo contesta Rust con
 //!   las pistas importadas (`api.rs`, `library.rs`);
 //! - las portadas, por el mismo protocolo `danplay://`.
@@ -15,11 +15,11 @@
 //! Lo que es de la PC (ventanas, bandeja, Telegram, el explorador) contesta
 //! sin hacer nada o con un «aqui no», y la interfaz lo esconde.
 mod api;
+mod controls;
 mod library;
-mod listas;
-mod mandos;
-mod musica;
+mod music;
 mod player;
+mod playlists;
 mod theory;
 
 use danplay_engine::beats::BeatGrid;
@@ -286,12 +286,16 @@ fn core_ready() -> bool {
 
 /// Importa el `.danpista` de esa ruta o de ese `content://` (Android).
 #[tauri::command]
-async fn import_pista(app: tauri::AppHandle, lib: Lib<'_>, uri: String) -> Result<Summary, String> {
+async fn import_bundle(
+    app: tauri::AppHandle,
+    lib: Lib<'_>,
+    uri: String,
+) -> Result<Summary, String> {
     use std::str::FromStr;
     use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
     let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
-    let copy = cache.join("entrante.danpista");
+    let copy = cache.join("incoming.danpista");
     let lib = Arc::clone(&lib);
     let source = FilePath::from_str(&uri).map_err(|_| "esa ruta no se entiende".to_string())?;
     let mut opts = OpenOptions::new();
@@ -384,13 +388,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            let dir = app.path().app_data_dir()?.join("pistas");
+            let data = app.path().app_data_dir()?;
+            let dir = data.join("tracks");
+            // la carpeta de las pistas se llamaba `pistas`
+            danplay_engine::bundle::legacy(&dir, &data.join("pistas"));
             std::fs::create_dir_all(&dir)?;
             let lib = Arc::new(Library::new(dir));
             app.manage(Player::new(app.handle().clone(), Arc::clone(&lib)));
             app.manage(lib);
             // la notificación y los auriculares (Android) llegan por aquí
-            mandos::init(app.handle());
+            controls::init(app.handle());
             Ok(())
         })
         .register_uri_scheme_protocol("danplay", |ctx, request| {
@@ -426,7 +433,7 @@ pub fn run() {
             queue_items,
             api,
             core_ready,
-            import_pista,
+            import_bundle,
             window_shape,
             set_window_shape,
             set_window_on_top,

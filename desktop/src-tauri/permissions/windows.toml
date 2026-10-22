@@ -6,7 +6,7 @@
 # Telegram, ni abrir nada en el sistema.
 
 [[set]]
-identifier = "ventana-principal"
+identifier = "main-window"
 description = "Todo: la ventana principal es la aplicacion entera."
 permissions = [
   "allow-api",
@@ -60,7 +60,7 @@ permissions = [
 ]
 
 [[set]]
-identifier = "ventanita"
+identifier = "mini-window"
 description = "El mini reproductor de la bandeja: lo que suena, los mandos (anterior, pausa, siguiente, la aguja), volver a la ventana grande y esconderse."
 permissions = [
   "allow-playback-state",
@@ -74,7 +74,7 @@ permissions = [
 ]
 
 [[set]]
-identifier = "proyeccion"
+identifier = "projection-window"
 description = "La letra en grande para el proyector: lo que suena, pausar con el espacio y leer la ficha de la cancion (la letra) del nucleo. Lo guardado (volumen, velocidad, repeticion) lo aplica solo la ventana principal."
 permissions = [
   "allow-playback-state",

@@ -191,7 +191,7 @@ function onKey(e) {
       >
         <!-- la casilla de «todas», como la de la cabecera de la tabla: marcada
              (están todas), a medias (algunas) o vacía -->
-        <span class="pick-box on" aria-hidden="true"><Icon n="check" :t="10" :grosor="2.6" /></span>
+        <span class="pick-box on" aria-hidden="true"><Icon n="check" :t="10" :weight="2.6" /></span>
         <span class="sel-label">Ninguna</span>
       </button>
       <button

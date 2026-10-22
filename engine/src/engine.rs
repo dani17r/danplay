@@ -748,7 +748,7 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
     }
     let (orders, rx) = channel();
     let thread = std::thread::Builder::new()
-        .name("danplay-partes".into())
+        .name("danplay-parts".into())
         .spawn(move || feeder::run(feeder, free_rx, full_tx, &rx))
         .ok();
     let gains = Arc::new(Gains::default());
@@ -797,7 +797,8 @@ mod tests {
 
     /// Una pista ya importada, con dos partes (el mismo archivo de prueba).
     fn folder(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("danplay-motor-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("danplay-engine-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("partes")).expect("carpeta");
         let (ogg, _) = fixture("ogg");
@@ -931,8 +932,7 @@ mod tests {
 
     /// Los archivos de prueba, sueltos en una carpeta.
     fn files(name: &str) -> (std::path::PathBuf, Vec<PartFile>) {
-        let dir =
-            std::env::temp_dir().join(format!("danplay-sueltos-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("danplay-loose-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("carpeta");
         let mut out = Vec::new();

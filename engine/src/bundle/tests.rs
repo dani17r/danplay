@@ -8,7 +8,7 @@ use zip::write::SimpleFileOptions;
 fn scratch() -> PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "danplay-motor-{}-{}",
+        "danplay-engine-{}-{}",
         std::process::id(),
         N.fetch_add(1, Ordering::Relaxed)
     ));
@@ -61,7 +61,7 @@ fn a_bundle_is_imported_and_listed() {
         &m,
         &[("partes/Bateria.ogg", &ogg), ("portada.jpg", b"jpg")],
     );
-    let library = dir.join("pistas");
+    let library = dir.join("tracks");
     let s = import(&file, &library).expect("importa");
     assert!(s.id.starts_with("barak-mi-gozo-"), "{}", s.id);
     assert_eq!(
@@ -103,7 +103,7 @@ fn a_bundle_is_imported_and_listed() {
 fn importing_it_again_replaces_it_and_keeps_what_was_changed_here() {
     let dir = scratch();
     let (ogg, _) = fixture("ogg");
-    let library = dir.join("pistas");
+    let library = dir.join("tracks");
     let m = manifest_for("Mi Gozo", &["partes/Bateria.ogg"]);
     let first = import(
         &zip_with(&dir, &m, &[("partes/Bateria.ogg", &ogg)]),
@@ -131,7 +131,7 @@ fn importing_it_again_replaces_it_and_keeps_what_was_changed_here() {
 fn what_is_not_a_good_bundle_is_refused_with_a_reason() {
     let dir = scratch();
     let (ogg, _) = fixture("ogg");
-    let library = dir.join("pistas");
+    let library = dir.join("tracks");
     let plain = dir.join("nota.txt");
     fs::write(&plain, "hola").expect("txt");
     assert!(
@@ -182,7 +182,7 @@ fn ids_are_stable_and_never_paths() {
     assert_eq!(id, id_for(&m.clone()));
     assert!(id.starts_with("barak-el-es-rey-en-vivo-"), "{id}");
     let library = scratch();
-    for bad in ["", "..", "../x", "a/b", ".importando-x", "x\\y"] {
+    for bad in ["", "..", "../x", "a/b", ".importing-x", "x\\y"] {
         assert!(folder(&library, bad).is_none(), "{bad}");
     }
 }

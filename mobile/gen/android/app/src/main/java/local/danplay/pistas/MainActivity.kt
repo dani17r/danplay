@@ -18,10 +18,10 @@ import org.json.JSONObject
 /**
  * «Abrir con DanPlay»: un .danpista tocado en WhatsApp, en Descargas
  * o en Drive llega aqui como un `content://`, y se le pasa a la pagina, que
- * lo importa igual que con el boton «Importar» (src/movil/importar.js).
+ * lo importa igual que con el boton «Importar» (src/mobile/importer.js).
  *
  * La pagina puede no estar lista todavia (la app se abre con el archivo), asi
- * que se le pregunta si ya tiene con que recibirlo (`__danplayAbrir`) y se
+ * que se le pregunta si ya tiene con que recibirlo (`__danplayOpen`) y se
  * vuelve a probar al rato, hasta que lo coja.
  */
 class MainActivity : TauriActivity() {
@@ -63,17 +63,17 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
     // la página le cuenta a Android qué suena, para la notificación con los
-    // mandos y la pantalla de bloqueo (Reproduciendo.kt)
-    webView.addJavascriptInterface(Puente(applicationContext), "DanPlayAndroid")
-    // el permiso de la música del teléfono (PermisoMusica.kt)
-    webView.addJavascriptInterface(PermisoMusica(this), "DanPlayMusica")
+    // mandos y la pantalla de bloqueo (PlaybackService.kt)
+    webView.addJavascriptInterface(AndroidBridge(applicationContext), "DanPlayAndroid")
+    // el permiso de la música del teléfono (MusicPermission.kt)
+    webView.addJavascriptInterface(MusicPermission(this), "DanPlayMusic")
     // «Atras»: primero la pagina cierra lo que tenga abierto (un menu, la
     // ficha, el estudio); si no tenia nada, la app pasa a segundo plano y la
     // musica sigue sonando, como en cualquier reproductor. Se registra aqui,
     // despues de los plugins de Tauri, para que sea la que responde.
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
-        webView.evaluateJavascript("window.__danplayAtras ? window.__danplayAtras() : false") { closed ->
+        webView.evaluateJavascript("window.__danplayBack ? window.__danplayBack() : false") { closed ->
           if (closed != "true") moveTaskToBack(true)
         }
       }
@@ -83,10 +83,10 @@ class MainActivity : TauriActivity() {
 
   override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
     super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-    if (requestCode != PermisoMusica.CODIGO) return
+    if (requestCode != MusicPermission.REQUEST_CODE) return
     val ok = grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
     webView?.post {
-      webView?.evaluateJavascript("window.__danplayPermisoMusica && window.__danplayPermisoMusica($ok)", null)
+      webView?.evaluateJavascript("window.__danplayMusicPermission && window.__danplayMusicPermission($ok)", null)
     }
   }
 
@@ -106,7 +106,7 @@ class MainActivity : TauriActivity() {
   private fun deliver(tries: Int = 0) {
     val view = webView ?: return
     val uri = pending.firstOrNull() ?: return
-    val js = "typeof window.__danplayAbrir === 'function' ? (window.__danplayAbrir(${JSONObject.quote(uri)}), 'ok') : 'no'"
+    val js = "typeof window.__danplayOpen === 'function' ? (window.__danplayOpen(${JSONObject.quote(uri)}), 'ok') : 'no'"
     view.post {
       view.evaluateJavascript(js) { result ->
         if (result == "\"ok\"") {

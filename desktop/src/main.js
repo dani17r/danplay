@@ -1,3 +1,5 @@
+// lo primero: lo guardado con nombres de antes pasa a los de ahora
+import './utils/legacyStorage.js'
 import { createApp } from 'vue'
 import './styles/index.css'
 

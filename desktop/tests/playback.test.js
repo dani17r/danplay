@@ -177,20 +177,20 @@ describe('usePlayback', () => {
     await player.setVolume(0.42)
     await player.setSpeed(1.25)
     expect(localStorage.getItem('danplay.vol')).toBe('0.42')
-    expect(localStorage.getItem('danplay.vel')).toBe('1.25')
+    expect(localStorage.getItem('danplay.speed')).toBe('1.25')
   })
 
   it('lo guardado lo aplica la ventana principal, no el mini ni la proyección', async () => {
-    const guardado = () => {
+    const saved = () => {
       localStorage.setItem('danplay.vol', '0.3')
-      localStorage.setItem('danplay.vel', '0.75')
+      localStorage.setItem('danplay.speed', '0.75')
       localStorage.setItem('danplay.repeat', 'one')
     }
     for (const search of ['?mini=1', '?projection=1']) {
       resetPlayback()
       held.playback.reset()
       vi.clearAllMocks()
-      guardado()
+      saved()
       window.history.replaceState(null, '', '/' + search)
       await usePlayback().ready()
       const b = held.playback.bridge
@@ -201,7 +201,7 @@ describe('usePlayback', () => {
     resetPlayback()
     held.playback.reset()
     vi.clearAllMocks()
-    guardado()
+    saved()
     window.history.replaceState(null, '', '/')
     await usePlayback().ready()
     expect(held.playback.bridge.setVolume).toHaveBeenCalledWith(0.3)
@@ -217,7 +217,7 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.setCrossfade).toHaveBeenCalledWith(4)
     await player.setCrossfade(6)
     expect(held.playback.bridge.setCrossfade).toHaveBeenLastCalledWith(6)
-    expect(localStorage.getItem('danplay.fundido')).toBe('6')
+    expect(localStorage.getItem('danplay.crossfade')).toBe('6')
     await player.setCrossfade(99)
     expect(player.crossfade.value, 'hasta 12 s').toBe(12)
     await player.setCrossfade(0)
@@ -352,10 +352,10 @@ describe('usePlayback', () => {
 
   it('el modo de repeticion cicla en orden', async () => {
     const player = usePlayback()
-    for (const esperado of ['one', 'once', 'queue', 'list']) {
+    for (const expected of ['one', 'once', 'queue', 'list']) {
       await player.cycleRepeat()
       await flushPromises()
-      expect(player.repeat.value).toBe(esperado)
+      expect(player.repeat.value).toBe(expected)
     }
   })
 })

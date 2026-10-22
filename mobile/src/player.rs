@@ -5,7 +5,7 @@
 //! reproductor, el estudio) funcione aqui sin cambiar nada.
 //!
 //! Lo que cambia es lo de debajo: en vez de rodio y ffmpeg, el motor de
-//! pistas (`danplay-motor`). En el celular no hay cancion entera: lo que
+//! pistas (`danplay-engine`). En el celular no hay cancion entera: lo que
 //! suena son siempre sus partes. «La cancion» es todas a la vez y tal cual
 //! (la suma es la cancion: «Otros» es lo que queda); «las pistas», con la
 //! mezcla del estudio.
@@ -147,7 +147,7 @@ impl Player {
             clips: Clips::default(),
         };
         let _ = std::thread::Builder::new()
-            .name("danplay-cola".into())
+            .name("danplay-queue".into())
             .spawn(move || worker.run(&rx));
         Player {
             tx: Mutex::new(tx),
@@ -386,7 +386,7 @@ impl Worker {
             .path
             .clone()
             .filter(|p| Path::new(p).is_file())
-            .or_else(|| self.lib.musica.get(track.id).map(|s| s.path));
+            .or_else(|| self.lib.music.get(track.id).map(|s| s.path));
         let folder = track.path.filter(|p| Path::new(p).is_dir()).or_else(|| {
             self.lib
                 .folder(track.id)
@@ -479,8 +479,8 @@ impl Worker {
     /// Si se paro porque se acabaron los tramos: a esperar al principio del
     /// primero, en pausa. True si era eso.
     fn rewind_if_segments_done(&self) -> bool {
-        let es = self.engine.state();
-        if !(es.ended && es.segments_done) {
+        let engine_state = self.engine.state();
+        if !(engine_state.ended && engine_state.segments_done) {
             return false;
         }
         if let Some(&(a, _)) = self.loops.first() {
@@ -492,8 +492,8 @@ impl Worker {
     /// Al acabar sola: si fueron los tramos (parar al acabar), de vuelta al
     /// primero y en pausa; si no, lo que diga la repeticion (como en la PC).
     fn check_end(&mut self) {
-        let es = self.engine.state();
-        if !es.ended || self.loaded.is_none() {
+        let engine_state = self.engine.state();
+        if !engine_state.ended || self.loaded.is_none() {
             return;
         }
         if self.rewind_if_segments_done() {
@@ -509,7 +509,7 @@ impl Worker {
     }
 
     fn compose(&self) -> PlaybackState {
-        let es = self.engine.state();
+        let engine_state = self.engine.state();
         let track = self
             .loaded
             .as_ref()
@@ -521,15 +521,15 @@ impl Worker {
             _ => (0.0, 0.0),
         };
         PlaybackState {
-            duration: if es.duration > 0.0 {
-                es.duration
+            duration: if engine_state.duration > 0.0 {
+                engine_state.duration
             } else {
                 track.as_ref().map_or(0.0, |t| t.duration)
             },
             index: if loaded { self.index as i32 } else { -1 },
             length,
-            playing: loaded && es.playing,
-            position: if loaded { es.position } else { 0.0 },
+            playing: loaded && engine_state.playing,
+            position: if loaded { engine_state.position } else { 0.0 },
             volume: self.volume,
             speed: self.speed,
             repeat: self.repeat,
@@ -538,11 +538,11 @@ impl Worker {
             has_previous: loaded && length > 1,
             has_next: loaded && length > 1,
             error: if self.error.is_empty() {
-                es.error.clone().unwrap_or_default()
+                engine_state.error.clone().unwrap_or_default()
             } else {
                 self.error.clone()
             },
-            has_output: es.error.is_none(),
+            has_output: engine_state.error.is_none(),
             origin: self.origin.clone(),
             pitch_preserved: true,
             loop_a,

@@ -19,7 +19,7 @@ const props = defineProps({
   playlists: { type: Array, default: () => [] },
   stats: { type: Object, default: null },
   /** cuantos archivos esperan en la Entrada */
-  entrada: { type: Number, default: 0 },
+  inboxCount: { type: Number, default: 0 },
   /** lo que se esta bajando (el estado de useDownloads) */
   download: { type: Object, default: null },
   /** de donde sale lo que suena: {kind, id, playing}, o null */
@@ -273,7 +273,7 @@ const shown = computed(() => {
         @click="emit('go', { kind: 'inbox' })"
       >
         <span class="nav-icon"><Icon n="inbox" /></span> Entrada
-        <span v-if="entrada" class="count">{{ entrada }}</span>
+        <span v-if="inboxCount" class="count">{{ inboxCount }}</span>
       </button>
       <button
         type="button"

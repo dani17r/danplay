@@ -6,10 +6,10 @@
  */
 import CopyButton from '../components/ui/CopyButton.vue'
 import { notifyCopied } from '../composables/useNotices.js'
-import { AUTHOR, TERMS, TERMS_VERSION } from '../data/terminos.js'
-import { RELEASES, compareVersions } from '../data/novedades.js'
+import { AUTHOR, TERMS, TERMS_VERSION } from '../data/terms.js'
+import { RELEASES, compareVersions } from '../data/releases.js'
 import { version } from '../../package.json'
-import icono from './icono.png'
+import appIcon from './icon.png'
 
 const isMine = (r) => compareVersions(r.version, version) === 0
 </script>
@@ -17,7 +17,7 @@ const isMine = (r) => compareVersions(r.version, version) === 0
 <template>
   <div class="m-about">
     <header class="m-about-head">
-      <img :src="icono" alt="" width="56" height="56" />
+      <img :src="appIcon" alt="" width="56" height="56" />
       <div>
         <strong>DanPlay</strong>
         <span>versión {{ version }}</span>

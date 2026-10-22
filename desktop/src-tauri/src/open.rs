@@ -347,7 +347,7 @@ mod tests {
 
     #[test]
     fn only_audio_files_that_exist() {
-        let dir = std::env::temp_dir().join("danplay-abrir");
+        let dir = std::env::temp_dir().join("danplay-open");
         std::fs::create_dir_all(&dir).unwrap();
         let song = dir.join("cancion.mp3");
         std::fs::write(&song, b"no es un mp3 de verdad, pero existe").unwrap();
@@ -384,7 +384,7 @@ mod tests {
     /// segunda instancia), no desde la de la app que ya estaba abierta.
     #[test]
     fn a_relative_path_is_read_from_the_sender_folder() {
-        let dir = std::env::temp_dir().join("danplay-abrir-relativa");
+        let dir = std::env::temp_dir().join("danplay-open-relative");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("aqui.mp3"), b"existe").unwrap();
         let found = files_in(vec!["aqui.mp3".into()], Some(&dir));
@@ -405,7 +405,7 @@ mod tests {
     #[test]
     fn a_name_that_is_not_utf8_does_not_panic() {
         use std::os::unix::ffi::OsStringExt;
-        let dir = std::env::temp_dir().join("danplay-abrir-latin1");
+        let dir = std::env::temp_dir().join("danplay-open-latin1");
         std::fs::create_dir_all(&dir).unwrap();
         let latin1 = dir.join(OsString::from_vec(b"canci\xf3n.mp3".to_vec()));
         std::fs::write(&latin1, b"existe").unwrap();
@@ -433,30 +433,34 @@ mod tests {
 
     #[test]
     fn opening_one_file_queues_its_whole_folder_in_order() {
-        let dir = std::env::temp_dir().join(format!("danplay-abrir-carpeta-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("danplay-open-folder-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("carpeta");
         for name in ["10 Final.mp3", "2 Coro.mp3", "1 Intro.flac", "notas.txt", ".oculta.mp3"] {
             std::fs::write(dir.join(name), b"existe").expect("archivo");
         }
-        let coro = dir.join("2 Coro.mp3").to_string_lossy().into_owned();
-        let (list, at) = with_folder(vec![coro.clone()]);
+        let chorus = dir.join("2 Coro.mp3").to_string_lossy().into_owned();
+        let (list, at) = with_folder(vec![chorus.clone()]);
         let names: Vec<_> = list.iter().map(|p| name_of(p)).collect();
         assert_eq!(
             names,
             ["1 Intro", "2 Coro", "10 Final"],
             "por su numero, sin lo que no es audio"
         );
-        assert_eq!(list[at], coro, "empieza por la que se abrio");
+        assert_eq!(list[at], chorus, "empieza por la que se abrio");
         // varios elegidos a mano: esos y nada mas
-        let two = vec![coro.clone(), dir.join("1 Intro.flac").to_string_lossy().into_owned()];
+        let two = vec![chorus.clone(), dir.join("1 Intro.flac").to_string_lossy().into_owned()];
         assert_eq!(with_folder(two.clone()), (two, 0));
-        assert_eq!(sequence_of(&coro), None, "una carpeta de canciones no es una secuencia");
+        assert_eq!(
+            sequence_of(&chorus),
+            None,
+            "una carpeta de canciones no es una secuencia"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_track_of_a_sequence_is_recognised() {
-        let song = std::env::temp_dir().join(format!("danplay-secuencia-{}", std::process::id()));
+        let song = std::env::temp_dir().join(format!("danplay-sequence-{}", std::process::id()));
         let tracks = song.join("MultiTracks");
         std::fs::create_dir_all(&tracks).expect("carpeta");
         for name in ["Click Track.wav", "Guide.wav", "Bass.wav"] {

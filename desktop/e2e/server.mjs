@@ -203,8 +203,7 @@ async function main() {
   await core('POST', '/api/folders', { path: music, label: '', force: false })
   const started = await core('POST', '/api/scan')
   await waitFor('el análisis', async () => {
-    const job =
-      started?.job?.active === false ? started.job : await core('GET', '/api/jobs/escaneo')
+    const job = started?.job?.active === false ? started.job : await core('GET', '/api/jobs/scan')
     if (job.error) throw new Error(job.error)
     return !job.active
   })

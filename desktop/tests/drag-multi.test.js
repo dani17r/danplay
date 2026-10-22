@@ -53,7 +53,7 @@ const state = held.state
 const playback = held.playback
 const { drag } = useDragSong()
 
-const cuatro = () => [
+const four = () => [
   song(1, { title: 'Uno' }),
   song(2, { title: 'Dos' }),
   song(3, { title: 'Tres' }),
@@ -61,7 +61,7 @@ const cuatro = () => [
 ]
 
 beforeEach(() => {
-  state.songs = cuatro()
+  state.songs = four()
   state.playlists = [{ id: 7, name: 'Domingo', n: 0 }]
   state.playlistSongs = []
   state.status.configured = true
@@ -82,7 +82,7 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-async function montar() {
+async function mountView() {
   const w = mount(App, { attachTo: document.body })
   await flushPromises()
   await flushPromises()
@@ -91,109 +91,114 @@ async function montar() {
 
 // jsdom no trae PointerEvent: se lanza un MouseEvent con ese nombre, con las
 // coordenadas y, si hace falta, el tipo de puntero encima.
-function puntero(el, tipo, { pointerType, ...resto } = {}) {
-  const ev = new MouseEvent(tipo, { bubbles: true, cancelable: true, ...resto })
+function pointer(el, type, { pointerType, ...rest } = {}) {
+  const ev = new MouseEvent(type, { bubbles: true, cancelable: true, ...rest })
   if (pointerType) Object.defineProperty(ev, 'pointerType', { value: pointerType })
   ;(el.element || el).dispatchEvent(ev)
   return flushPromises()
 }
 /** Coge la fila, la lleva hasta `destino` y (si se pide) la suelta ahí. */
-async function arrastrar(fila, destino, { soltar = true, x = 90, y = 200 } = {}) {
-  await puntero(fila, 'pointerdown', { clientX: 10, clientY: 10 })
-  await puntero(destino, 'pointermove', { clientX: x, clientY: y })
-  if (soltar) await puntero(destino, 'pointerup', { clientX: x, clientY: y })
+async function dragTo(row, dropTarget, { release = true, x = 90, y = 200 } = {}) {
+  await pointer(row, 'pointerdown', { clientX: 10, clientY: 10 })
+  await pointer(dropTarget, 'pointermove', { clientX: x, clientY: y })
+  if (release) await pointer(dropTarget, 'pointerup', { clientX: x, clientY: y })
 }
 
-const filas = (w) => w.findAll('tbody tr')
-const titulos = (w) => filas(w).map((f) => f.find('td.title').text().trim())
-const marcadas = (w) =>
-  filas(w)
+const tableRows = (w) => w.findAll('tbody tr')
+const titles = (w) => tableRows(w).map((f) => f.find('td.title').text().trim())
+const selectedCount = (w) =>
+  tableRows(w)
     .filter((f) => f.classes().includes('selected'))
     .map((f) => f.find('td.title').text().trim())
-const boton = (w) => w.find('.filters .select-toggle')
-const repertorio = (w, i = 0) => w.findAll('.nav-playlist')[i]
-const favoritos = (w) => w.find('[data-drop="favorites"]')
-const nuevaLista = (w) => w.find('[data-drop="new-playlist"]')
-const avisos = (w) => w.findAll('.toast').map((t) => t.text())
-const ids = (lista) => lista.map((s) => s.id)
+const button = (w) => w.find('.filters .select-toggle')
+const playlistLink = (w, i = 0) => w.findAll('.nav-playlist')[i]
+const favorites = (w) => w.find('[data-drop="favorites"]')
+const newPlaylist = (w) => w.find('[data-drop="new-playlist"]')
+const notices = (w) => w.findAll('.toast').map((t) => t.text())
+const ids = (list) => list.map((s) => s.id)
 
 /** El modo «Seleccionar» y un clic en cada una de esas filas (por posición). */
-async function elegir(w, ...posiciones) {
-  if (boton(w).attributes('aria-pressed') !== 'true') await boton(w).trigger('click')
-  for (const i of posiciones) await filas(w)[i].trigger('click')
+async function pick(w, ...positions) {
+  if (button(w).attributes('aria-pressed') !== 'true') await button(w).trigger('click')
+  for (const i of positions) await tableRows(w)[i].trigger('click')
   await flushPromises()
 }
 
 describe('con varias elegidas, se arrastran todas', () => {
   it('tres elegidas con las casillas van juntas al repertorio, en su orden y con UN aviso', async () => {
-    const w = await montar()
+    const w = await mountView()
     // marcadas en otro orden que el de la lista: lo que manda es como se ven
-    await elegir(w, 3, 0, 2)
-    expect(marcadas(w)).toEqual(['Uno', 'Tres', 'Cuatro'])
+    await pick(w, 3, 0, 2)
+    expect(selectedCount(w)).toEqual(['Uno', 'Tres', 'Cuatro'])
     api.addToPlaylist.mockResolvedValueOnce({ added: 3, songs: [] })
 
-    await arrastrar(filas(w)[2], repertorio(w), { soltar: false })
+    await dragTo(tableRows(w)[2], playlistLink(w), { release: false })
     expect(drag.song.id, 'la agarrada').toBe(3)
     expect(ids(drag.songs)).toEqual([1, 3, 4])
     // el fantasma: la agarrada, con la insignia y la pila
-    const fantasma = document.querySelector('.drag-ghost')
-    expect(fantasma.classList.contains('many')).toBe(true)
-    expect(fantasma.querySelector('.ghost-name').textContent).toBe('Tres')
-    expect(fantasma.querySelector('.ghost-count').textContent.trim()).toBe('3')
+    const ghost = document.querySelector('.drag-ghost')
+    expect(ghost.classList.contains('many')).toBe(true)
+    expect(ghost.querySelector('.ghost-name').textContent).toBe('Tres')
+    expect(ghost.querySelector('.ghost-count').textContent.trim()).toBe('3')
     // las tres filas de origen se atenúan; la otra no
-    expect(filas(w).map((f) => f.classes().includes('dragged'))).toEqual([true, false, true, true])
-    expect(repertorio(w).classes()).toContain('drop-over')
+    expect(tableRows(w).map((f) => f.classes().includes('dragged'))).toEqual([
+      true,
+      false,
+      true,
+      true
+    ])
+    expect(playlistLink(w).classes()).toContain('drop-over')
 
-    await puntero(repertorio(w), 'pointerup')
+    await pointer(playlistLink(w), 'pointerup')
     await flushPromises()
     expect(api.addToPlaylist).toHaveBeenCalledTimes(1)
     expect(api.addToPlaylist).toHaveBeenCalledWith(7, [1, 3, 4])
-    expect(avisos(w)).toEqual(['3 añadidas a «Domingo»'])
+    expect(notices(w)).toEqual(['3 añadidas a «Domingo»'])
     expect(drag.song, 'el arrastre no terminó').toBe(null)
     expect(drag.songs).toEqual([])
     expect(document.querySelector('.drag-ghost')).toBe(null)
     // soltarlas no suelta la selección: se pueden seguir haciendo cosas con ellas
-    expect(marcadas(w)).toEqual(['Uno', 'Tres', 'Cuatro'])
+    expect(selectedCount(w)).toEqual(['Uno', 'Tres', 'Cuatro'])
     expect(w.find('.sel-bar .sel-status').text()).toBe('3 seleccionadas')
   })
 
   it('también sin el modo: con Ctrl+clic', async () => {
-    const w = await montar()
-    await filas(w)[1].trigger('click', { ctrlKey: true })
-    await filas(w)[3].trigger('click', { ctrlKey: true })
+    const w = await mountView()
+    await tableRows(w)[1].trigger('click', { ctrlKey: true })
+    await tableRows(w)[3].trigger('click', { ctrlKey: true })
     await flushPromises()
-    expect(marcadas(w)).toEqual(['Dos', 'Cuatro'])
-    await arrastrar(filas(w)[3], repertorio(w))
+    expect(selectedCount(w)).toEqual(['Dos', 'Cuatro'])
+    await dragTo(tableRows(w)[3], playlistLink(w))
     await flushPromises()
     expect(api.addToPlaylist).toHaveBeenCalledWith(7, [2, 4])
   })
 
   it('una que NO está elegida se arrastra sola, y la selección no cambia', async () => {
-    const w = await montar()
-    await elegir(w, 0, 2)
-    await arrastrar(filas(w)[1], repertorio(w), { soltar: false })
+    const w = await mountView()
+    await pick(w, 0, 2)
+    await dragTo(tableRows(w)[1], playlistLink(w), { release: false })
     expect(ids(drag.songs)).toEqual([2])
-    const fantasma = document.querySelector('.drag-ghost')
-    expect(fantasma.classList.contains('many')).toBe(false)
-    expect(fantasma.querySelector('.ghost-count')).toBe(null)
-    expect(filas(w).map((f) => f.classes().includes('dragged'))).toEqual([
+    const ghost = document.querySelector('.drag-ghost')
+    expect(ghost.classList.contains('many')).toBe(false)
+    expect(ghost.querySelector('.ghost-count')).toBe(null)
+    expect(tableRows(w).map((f) => f.classes().includes('dragged'))).toEqual([
       false,
       true,
       false,
       false
     ])
-    await puntero(repertorio(w), 'pointerup')
+    await pointer(playlistLink(w), 'pointerup')
     await flushPromises()
     expect(api.addToPlaylist).toHaveBeenCalledWith(7, [2])
-    expect(avisos(w)).toEqual(['Añadida a «Domingo»'])
-    expect(marcadas(w)).toEqual(['Uno', 'Tres'])
+    expect(notices(w)).toEqual(['Añadida a «Domingo»'])
+    expect(selectedCount(w)).toEqual(['Uno', 'Tres'])
   })
 
   it('una sola elegida (la de la ficha) también va sola', async () => {
-    const w = await montar()
-    await filas(w)[2].trigger('click')
+    const w = await mountView()
+    await tableRows(w)[2].trigger('click')
     await flushPromises()
-    await arrastrar(filas(w)[2], repertorio(w))
+    await dragTo(tableRows(w)[2], playlistLink(w))
     await flushPromises()
     expect(api.addToPlaylist).toHaveBeenCalledWith(7, [3])
   })
@@ -205,31 +210,31 @@ describe('con varias elegidas, se arrastran todas', () => {
       song(3, { title: 'Tres' }),
       song(4, { title: 'Cuatro' })
     ]
-    const w = await montar()
-    await elegir(w, 0, 1, 2)
-    await arrastrar(filas(w)[0], favoritos(w))
+    const w = await mountView()
+    await pick(w, 0, 1, 2)
+    await dragTo(tableRows(w)[0], favorites(w))
     await flushPromises()
     expect(api.toggleFavorite.mock.calls).toEqual([
       [2, true],
       [3, true]
     ])
-    expect(avisos(w)).toEqual(['2 marcadas como favoritas'])
+    expect(notices(w)).toEqual(['2 marcadas como favoritas'])
   })
 
   it('y si ya lo eran todas, lo dice y no toca nada', async () => {
-    state.songs = cuatro().map((s) => ({ ...s, favorite: 1 }))
-    const w = await montar()
-    await elegir(w, 1, 2)
-    await arrastrar(filas(w)[1], favoritos(w))
+    state.songs = four().map((s) => ({ ...s, favorite: 1 }))
+    const w = await mountView()
+    await pick(w, 1, 2)
+    await dragTo(tableRows(w)[1], favorites(w))
     await flushPromises()
     expect(api.toggleFavorite).not.toHaveBeenCalled()
-    expect(avisos(w)).toEqual(['Ya eran todas favoritas'])
+    expect(notices(w)).toEqual(['Ya eran todas favoritas'])
   })
 
   it('soltarlas en «Nueva lista» crea la lista con todas', async () => {
-    const w = await montar()
-    await elegir(w, 1, 3)
-    await arrastrar(filas(w)[1], nuevaLista(w))
+    const w = await mountView()
+    await pick(w, 1, 3)
+    await dragTo(tableRows(w)[1], newPlaylist(w))
     const { dialog } = useDialog()
     expect(dialog.value.open).toBe(true)
     expect(dialog.value.message).toBe('Se creará la lista y se añadirán 2 canciones.')
@@ -238,99 +243,103 @@ describe('con varias elegidas, se arrastran todas', () => {
     await flushPromises()
     expect(api.createPlaylist).toHaveBeenCalledWith('Ensayo')
     expect(api.addToPlaylist).toHaveBeenCalledWith(2, [2, 4])
-    expect(avisos(w)).toContain('Lista «Ensayo» creada con 2 canciones')
+    expect(notices(w)).toContain('Lista «Ensayo» creada con 2 canciones')
   })
 
   it('soltar sobre la misma fila de la que salieron no las suelta ni la desmarca', async () => {
     // El navegador lanza un clic al soltar sobre la fila de la que salió el
     // arrastre; en el modo «Seleccionar» ese clic la quitaría de las elegidas
     // y, fuera del modo, dejaría elegida solo esa.
-    const w = await montar()
-    await elegir(w, 0, 1, 2)
-    const fila = filas(w)[0]
-    await puntero(fila, 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(filas(w)[3], 'pointermove', { clientX: 90, clientY: 200 })
-    await puntero(fila, 'pointermove', { clientX: 12, clientY: 12 })
+    const w = await mountView()
+    await pick(w, 0, 1, 2)
+    const row = tableRows(w)[0]
+    await pointer(row, 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(tableRows(w)[3], 'pointermove', { clientX: 90, clientY: 200 })
+    await pointer(row, 'pointermove', { clientX: 12, clientY: 12 })
     // el pointerup y su clic llegan juntos, sin dar una vuelta al bucle
-    fila.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true }))
-    fila.element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    row.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true }))
+    row.element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
     await flushPromises()
-    expect(marcadas(w)).toEqual(['Uno', 'Dos', 'Tres'])
+    expect(selectedCount(w)).toEqual(['Uno', 'Dos', 'Tres'])
     // un clic de verdad, después, sí cuenta
     await new Promise((r) => setTimeout(r, 5))
-    await fila.trigger('click')
+    await row.trigger('click')
     await flushPromises()
-    expect(marcadas(w)).toEqual(['Dos', 'Tres'])
+    expect(selectedCount(w)).toEqual(['Dos', 'Tres'])
   })
 
   it('Escape las deja caer todas sin soltarlas en nada', async () => {
-    const w = await montar()
-    await elegir(w, 0, 1)
-    await arrastrar(filas(w)[0], repertorio(w), { soltar: false })
+    const w = await mountView()
+    await pick(w, 0, 1)
+    await dragTo(tableRows(w)[0], playlistLink(w), { release: false })
     expect(drag.songs).toHaveLength(2)
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(drag.song).toBe(null)
     expect(drag.songs).toEqual([])
-    await puntero(repertorio(w), 'pointerup')
+    await pointer(playlistLink(w), 'pointerup')
     expect(api.addToPlaylist).not.toHaveBeenCalled()
     // ese Escape era del arrastre: la selección sigue
-    expect(marcadas(w)).toEqual(['Uno', 'Dos'])
+    expect(selectedCount(w)).toEqual(['Uno', 'Dos'])
   })
 })
 
 describe('lo que no arrastra, tampoco con varias elegidas', () => {
   it('con el dedo no: en táctil la lista se desplaza', async () => {
-    const w = await montar()
-    await elegir(w, 0, 1)
-    await puntero(filas(w)[0], 'pointerdown', { clientX: 10, clientY: 10, pointerType: 'touch' })
-    await puntero(repertorio(w), 'pointermove', { clientX: 90, clientY: 200 })
+    const w = await mountView()
+    await pick(w, 0, 1)
+    await pointer(tableRows(w)[0], 'pointerdown', {
+      clientX: 10,
+      clientY: 10,
+      pointerType: 'touch'
+    })
+    await pointer(playlistLink(w), 'pointermove', { clientX: 90, clientY: 200 })
     expect(drag.song).toBe(null)
-    await puntero(repertorio(w), 'pointerup')
+    await pointer(playlistLink(w), 'pointerup')
     expect(api.addToPlaylist).not.toHaveBeenCalled()
   })
 
   it('con el botón derecho no: ese es el del menú', async () => {
-    const w = await montar()
-    await elegir(w, 0, 1)
-    await puntero(filas(w)[0], 'pointerdown', { clientX: 10, clientY: 10, button: 2 })
-    await puntero(repertorio(w), 'pointermove', { clientX: 90, clientY: 200 })
+    const w = await mountView()
+    await pick(w, 0, 1)
+    await pointer(tableRows(w)[0], 'pointerdown', { clientX: 10, clientY: 10, button: 2 })
+    await pointer(playlistLink(w), 'pointermove', { clientX: 90, clientY: 200 })
     expect(drag.song).toBe(null)
   })
 
   it('desde un control de la fila (reproducir) no', async () => {
-    const w = await montar()
-    await elegir(w, 0, 1)
-    const reproducir = filas(w)[0].find('.row-play')
-    expect(reproducir.exists()).toBe(true)
-    await puntero(reproducir, 'pointerdown', { clientX: 10, clientY: 10 })
-    await puntero(repertorio(w), 'pointermove', { clientX: 90, clientY: 200 })
+    const w = await mountView()
+    await pick(w, 0, 1)
+    const play = tableRows(w)[0].find('.row-play')
+    expect(play.exists()).toBe(true)
+    await pointer(play, 'pointerdown', { clientX: 10, clientY: 10 })
+    await pointer(playlistLink(w), 'pointermove', { clientX: 90, clientY: 200 })
     expect(drag.song).toBe(null)
   })
 })
 
 describe('reordenar un bloque dentro de un repertorio', () => {
-  const cinco = () => [
+  const five = () => [
     song(1, { title: 'Uno' }),
     song(2, { title: 'Dos' }),
     song(3, { title: 'Tres' }),
     song(4, { title: 'Cuatro' }),
     song(5, { title: 'Cinco' })
   ]
-  async function enRepertorio() {
-    state.songs = cinco()
-    state.playlistSongs = cinco()
+  async function inPlaylist() {
+    state.songs = five()
+    state.playlistSongs = five()
     state.playlists = [{ id: 7, name: 'Domingo', n: 5 }]
-    const w = await montar()
-    await repertorio(w).trigger('click')
+    const w = await mountView()
+    await playlistLink(w).trigger('click')
     await flushPromises()
     await flushPromises()
-    expect(titulos(w)).toEqual(['Uno', 'Dos', 'Tres', 'Cuatro', 'Cinco'])
+    expect(titles(w)).toEqual(['Uno', 'Dos', 'Tres', 'Cuatro', 'Cinco'])
     return w
   }
   // jsdom no maqueta: la fila dice dónde está para apuntar a una de sus mitades
-  function colocar(fila, top = 100, height = 30) {
-    fila.element.getBoundingClientRect = () => ({
+  function place(row, top = 100, height = 30) {
+    row.element.getBoundingClientRect = () => ({
       top,
       height,
       bottom: top + height,
@@ -341,125 +350,125 @@ describe('reordenar un bloque dentro de un repertorio', () => {
       y: top
     })
   }
-  const ARRIBA = 105
-  const ABAJO = 125
+  const ABOVE = 105
+  const BELOW = 125
 
   it('dos salteadas, debajo de la última: van juntas y en su orden', async () => {
-    const w = await enRepertorio()
-    await elegir(w, 0, 2)
-    colocar(filas(w)[4])
-    await arrastrar(filas(w)[2], filas(w)[4], { soltar: false, y: ABAJO })
+    const w = await inPlaylist()
+    await pick(w, 0, 2)
+    place(tableRows(w)[4])
+    await dragTo(tableRows(w)[2], tableRows(w)[4], { release: false, y: BELOW })
     expect(ids(drag.songs)).toEqual([1, 3])
-    expect(filas(w)[4].classes()).toContain('drop-after')
+    expect(tableRows(w)[4].classes()).toContain('drop-after')
     // ninguna raya sobre las que van en la mano
     for (const i of [0, 2]) {
-      expect(filas(w)[i].classes()).not.toContain('drop-before')
-      expect(filas(w)[i].classes()).not.toContain('drop-after')
+      expect(tableRows(w)[i].classes()).not.toContain('drop-before')
+      expect(tableRows(w)[i].classes()).not.toContain('drop-after')
     }
-    await puntero(filas(w)[4], 'pointerup', { clientX: 90, clientY: ABAJO })
+    await pointer(tableRows(w)[4], 'pointerup', { clientX: 90, clientY: BELOW })
     await flushPromises()
     expect(api.reorderPlaylist).toHaveBeenCalledTimes(1)
     expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 4, 5, 1, 3])
-    expect(titulos(w)).toEqual(['Dos', 'Cuatro', 'Cinco', 'Uno', 'Tres'])
+    expect(titles(w)).toEqual(['Dos', 'Cuatro', 'Cinco', 'Uno', 'Tres'])
     // siguen elegidas, ahora en su sitio nuevo
-    expect(marcadas(w)).toEqual(['Uno', 'Tres'])
+    expect(selectedCount(w)).toEqual(['Uno', 'Tres'])
   })
 
   it('encima de la primera: el bloque pasa delante', async () => {
-    const w = await enRepertorio()
-    await elegir(w, 3, 4)
-    colocar(filas(w)[0])
-    await arrastrar(filas(w)[4], filas(w)[0], { y: ARRIBA })
+    const w = await inPlaylist()
+    await pick(w, 3, 4)
+    place(tableRows(w)[0])
+    await dragTo(tableRows(w)[4], tableRows(w)[0], { y: ABOVE })
     await flushPromises()
     expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [4, 5, 1, 2, 3])
-    expect(titulos(w)).toEqual(['Cuatro', 'Cinco', 'Uno', 'Dos', 'Tres'])
+    expect(titles(w)).toEqual(['Cuatro', 'Cinco', 'Uno', 'Dos', 'Tres'])
   })
 
   it('en medio del bloque: el bloque se cierra alrededor de la de destino', async () => {
     // elegidas la 1 y la 4, soltadas debajo de la 2: quedan 2, 1, 4
-    const w = await enRepertorio()
-    await elegir(w, 0, 3)
-    colocar(filas(w)[1])
-    await arrastrar(filas(w)[0], filas(w)[1], { y: ABAJO })
+    const w = await inPlaylist()
+    await pick(w, 0, 3)
+    place(tableRows(w)[1])
+    await dragTo(tableRows(w)[0], tableRows(w)[1], { y: BELOW })
     await flushPromises()
     expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 1, 4, 3, 5])
   })
 
   it('soltarlo sobre una de las suyas no hace nada', async () => {
-    const w = await enRepertorio()
-    await elegir(w, 0, 2)
-    colocar(filas(w)[2])
-    await arrastrar(filas(w)[0], filas(w)[2], { y: ABAJO })
+    const w = await inPlaylist()
+    await pick(w, 0, 2)
+    place(tableRows(w)[2])
+    await dragTo(tableRows(w)[0], tableRows(w)[2], { y: BELOW })
     await flushPromises()
     expect(api.reorderPlaylist).not.toHaveBeenCalled()
-    expect(titulos(w)).toEqual(['Uno', 'Dos', 'Tres', 'Cuatro', 'Cinco'])
+    expect(titles(w)).toEqual(['Uno', 'Dos', 'Tres', 'Cuatro', 'Cinco'])
   })
 
   it('si el bloque ya está ahí, no se pide nada al núcleo', async () => {
-    const w = await enRepertorio()
-    await elegir(w, 1, 2)
-    colocar(filas(w)[3])
+    const w = await inPlaylist()
+    await pick(w, 1, 2)
+    place(tableRows(w)[3])
     // la 2 y la 3, justo encima de la 4: es su sitio
-    await arrastrar(filas(w)[1], filas(w)[3], { y: ARRIBA })
+    await dragTo(tableRows(w)[1], tableRows(w)[3], { y: ABOVE })
     await flushPromises()
     expect(api.reorderPlaylist).not.toHaveBeenCalled()
   })
 
   it('si el núcleo no puede, la lista vuelve como estaba', async () => {
-    const w = await enRepertorio()
+    const w = await inPlaylist()
     api.reorderPlaylist.mockRejectedValueOnce(new Error('sin base de datos'))
-    await elegir(w, 0, 1)
-    colocar(filas(w)[4])
-    await arrastrar(filas(w)[0], filas(w)[4], { y: ABAJO })
+    await pick(w, 0, 1)
+    place(tableRows(w)[4])
+    await dragTo(tableRows(w)[0], tableRows(w)[4], { y: BELOW })
     await flushPromises()
     await flushPromises()
-    expect(titulos(w)).toEqual(['Uno', 'Dos', 'Tres', 'Cuatro', 'Cinco'])
-    expect(avisos(w).join(' ')).toContain('No se pudo cambiar el orden')
+    expect(titles(w)).toEqual(['Uno', 'Dos', 'Tres', 'Cuatro', 'Cinco'])
+    expect(notices(w).join(' ')).toContain('No se pudo cambiar el orden')
   })
 
   it('dos arrastres seguidos no se cruzan: van en fila y manda el último', async () => {
-    const w = await enRepertorio()
-    let primera
-    api.reorderPlaylist.mockImplementationOnce(() => new Promise((resolve) => (primera = resolve)))
+    const w = await inPlaylist()
+    let first
+    api.reorderPlaylist.mockImplementationOnce(() => new Promise((resolve) => (first = resolve)))
     // la 1 debajo de la 3 (el núcleo tarda en contestar)...
-    colocar(filas(w)[2])
-    await arrastrar(filas(w)[0], filas(w)[2], { y: ABAJO })
-    expect(titulos(w)).toEqual(['Dos', 'Tres', 'Uno', 'Cuatro', 'Cinco'])
+    place(tableRows(w)[2])
+    await dragTo(tableRows(w)[0], tableRows(w)[2], { y: BELOW })
+    expect(titles(w)).toEqual(['Dos', 'Tres', 'Uno', 'Cuatro', 'Cinco'])
     // ...y, sin esperar, la 5 encima de la primera que se ve ahora (la 2)
-    colocar(filas(w)[0])
-    await arrastrar(filas(w)[4], filas(w)[0], { y: ARRIBA })
-    expect(titulos(w)).toEqual(['Cinco', 'Dos', 'Tres', 'Uno', 'Cuatro'])
+    place(tableRows(w)[0])
+    await dragTo(tableRows(w)[4], tableRows(w)[0], { y: ABOVE })
+    expect(titles(w)).toEqual(['Cinco', 'Dos', 'Tres', 'Uno', 'Cuatro'])
     expect(api.reorderPlaylist, 'la segunda espera a la primera').toHaveBeenCalledTimes(1)
     // llega la primera: no pisa la lista con su orden, ya viejo
-    primera({ songs: [2, 3, 1, 4, 5].map((id) => cinco().find((s) => s.id === id)) })
+    first({ songs: [2, 3, 1, 4, 5].map((id) => five().find((s) => s.id === id)) })
     await flushPromises()
     await flushPromises()
     expect(api.reorderPlaylist).toHaveBeenCalledTimes(2)
     expect(api.reorderPlaylist.mock.calls[1]).toEqual([7, [5, 2, 3, 1, 4]])
-    expect(titulos(w)).toEqual(['Cinco', 'Dos', 'Tres', 'Uno', 'Cuatro'])
+    expect(titles(w)).toEqual(['Cinco', 'Dos', 'Tres', 'Uno', 'Cuatro'])
   })
 })
 
 describe('las cuatro vistas pasan las elegidas al arrastre', () => {
-  const VISTAS = { table: SongTable, rows: SongRows, cards: SongCards, grid: SongGrid }
-  for (const [nombre, Vista] of Object.entries(VISTAS)) {
-    it(`${nombre}: agarrar una elegida se lleva todas; otra, solo ella`, async () => {
-      const w = mount(Vista, {
-        props: { songs: cuatro(), selected: 4, selectedIds: [2, 4], selectMode: true },
+  const VIEWS = { table: SongTable, rows: SongRows, cards: SongCards, grid: SongGrid }
+  for (const [name, View] of Object.entries(VIEWS)) {
+    it(`${name}: agarrar una elegida se lleva todas; otra, solo ella`, async () => {
+      const w = mount(View, {
+        props: { songs: four(), selected: 4, selectedIds: [2, 4], selectMode: true },
         attachTo: document.body
       })
       const rows = w.findAll('[data-song-row]')
       expect(rows).toHaveLength(4)
-      await puntero(rows[3], 'pointerdown', { clientX: 10, clientY: 10 })
-      await puntero(rows[0], 'pointermove', { clientX: 90, clientY: 200 })
+      await pointer(rows[3], 'pointerdown', { clientX: 10, clientY: 10 })
+      await pointer(rows[0], 'pointermove', { clientX: 90, clientY: 200 })
       expect(drag.song.id).toBe(4)
       expect(ids(drag.songs)).toEqual([2, 4])
       // las dos se atenúan
       await flushPromises()
       expect(rows.map((r) => r.classes().includes('dragged'))).toEqual([false, true, false, true])
       cancelDrag()
-      await puntero(rows[2], 'pointerdown', { clientX: 10, clientY: 10 })
-      await puntero(rows[0], 'pointermove', { clientX: 90, clientY: 200 })
+      await pointer(rows[2], 'pointerdown', { clientX: 10, clientY: 10 })
+      await pointer(rows[0], 'pointermove', { clientX: 90, clientY: 200 })
       expect(ids(drag.songs)).toEqual([3])
       cancelDrag()
       w.unmount()
@@ -468,56 +477,56 @@ describe('las cuatro vistas pasan las elegidas al arrastre', () => {
 })
 
 describe('useDragSong con un grupo', () => {
-  const fila = () => {
+  const row = () => {
     const el = document.createElement('div')
     document.body.appendChild(el)
     return el
   }
   const ev = (target, extra = {}) => ({ clientX: 0, clientY: 0, button: 0, target, ...extra })
-  const mover = (el) =>
+  const move = (el) =>
     el.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
 
   it('el grupo va en el orden en que llega, con la agarrada dentro', () => {
-    const el = fila()
-    const grupo = [{ id: 5 }, { id: 2 }, { id: 9 }]
-    startDrag(grupo[1], ev(el), grupo)
+    const el = row()
+    const group = [{ id: 5 }, { id: 2 }, { id: 9 }]
+    startDrag(group[1], ev(el), group)
     expect(drag.song, 'antes del umbral no hay arrastre').toBe(null)
-    mover(el)
+    move(el)
     expect(drag.song.id).toBe(2)
     expect(ids(drag.songs)).toEqual([5, 2, 9])
     // es una copia: lo que haga quien llamó con su lista no la cambia
-    grupo.pop()
+    group.pop()
     expect(drag.songs).toHaveLength(3)
     const { isDragged } = useDragSong()
     expect([5, 2, 9, 7].map(isDragged)).toEqual([true, true, true, false])
   })
 
   it('si la agarrada no está en el grupo, o el grupo es de una, va sola', () => {
-    const el = fila()
+    const el = row()
     startDrag({ id: 1 }, ev(el), [{ id: 2 }, { id: 3 }])
-    mover(el)
+    move(el)
     expect(ids(drag.songs)).toEqual([1])
     startDrag({ id: 2 }, ev(el), [{ id: 2 }])
-    mover(el)
+    move(el)
     expect(ids(drag.songs)).toEqual([2])
     startDrag({ id: 3 }, ev(el))
-    mover(el)
+    move(el)
     expect(ids(drag.songs)).toEqual([3])
   })
 
   it('al soltar llegan la agarrada y todas, y sin grupo `songs` es [song]', () => {
-    const recibido = []
-    onDrop((target, s, extra) => recibido.push([target, s.id, ids(extra.songs)]))
-    const el = fila()
-    const destino = fila()
-    destino.setAttribute('data-drop', 'playlist:7')
+    const received = []
+    onDrop((target, s, extra) => received.push([target, s.id, ids(extra.songs)]))
+    const el = row()
+    const dropTarget = row()
+    dropTarget.setAttribute('data-drop', 'playlist:7')
     startDrag({ id: 3 }, ev(el), [{ id: 1 }, { id: 3 }])
-    mover(destino)
-    destino.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    move(dropTarget)
+    dropTarget.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
     startDrag({ id: 8 }, ev(el))
-    mover(destino)
-    destino.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
-    expect(recibido).toEqual([
+    move(dropTarget)
+    dropTarget.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    expect(received).toEqual([
       ['playlist:7', 3, [1, 3]],
       ['playlist:7', 8, [8]]
     ])
@@ -526,28 +535,28 @@ describe('useDragSong con un grupo', () => {
   })
 
   it('un clic sin moverse sigue siendo un clic: no se traga nada', () => {
-    const el = fila()
-    let clics = 0
-    el.addEventListener('click', () => clics++)
+    const el = row()
+    let clicks = 0
+    el.addEventListener('click', () => clicks++)
     startDrag({ id: 1 }, ev(el), [{ id: 1 }, { id: 2 }])
     el.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    expect(clics).toBe(1)
+    expect(clicks).toBe(1)
   })
 
   it('táctil, botón derecho y controles no arman nada aunque haya grupo', () => {
-    const el = fila()
-    const grupo = [{ id: 1 }, { id: 2 }]
-    startDrag(grupo[0], ev(el, { pointerType: 'touch' }), grupo)
-    mover(el)
+    const el = row()
+    const group = [{ id: 1 }, { id: 2 }]
+    startDrag(group[0], ev(el, { pointerType: 'touch' }), group)
+    move(el)
     expect(drag.song).toBe(null)
-    startDrag(grupo[0], ev(el, { button: 2 }), grupo)
-    mover(el)
+    startDrag(group[0], ev(el, { button: 2 }), group)
+    move(el)
     expect(drag.song).toBe(null)
-    const corazon = document.createElement('button')
-    el.appendChild(corazon)
-    startDrag(grupo[0], ev(corazon), grupo)
-    mover(el)
+    const heart = document.createElement('button')
+    el.appendChild(heart)
+    startDrag(group[0], ev(heart), group)
+    move(el)
     expect(drag.song).toBe(null)
   })
 })
@@ -555,16 +564,16 @@ describe('useDragSong con un grupo', () => {
 describe('el fantasma con varias (css)', () => {
   const CSS = allCss()
   // `allCss` la compacta: `.sel{prop:valor;...}`
-  const regla = (sel) => {
+  const rule = (sel) => {
     const i = CSS.indexOf('\n' + sel + '{')
     expect(i, `falta ${sel}`).toBeGreaterThanOrEqual(0)
     return CSS.slice(i, CSS.indexOf('}', i))
   }
 
   it('la pila y la insignia salen de las variables del tema, sin colores fijos', () => {
-    const pila = regla('.drag-ghost.many')
-    const insignia = regla('.drag-ghost .ghost-count')
-    for (const r of [pila, insignia]) {
+    const stack = rule('.drag-ghost.many')
+    const insignia = rule('.drag-ghost .ghost-count')
+    for (const r of [stack, insignia]) {
       expect(r).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i)
       expect(r).toMatch(/var\(--/)
     }

@@ -35,14 +35,14 @@ const emit = defineEmits([
 
 // Campo de la caja -> como se escribe. Se usan los nombres en castellano
 // porque son los que ve el usuario en el marcador de posicion.
-const TEXTOS = [
-  { k: 'artista', label: 'Artista', faceta: 'artists' },
-  { k: 'album', label: 'Album', faceta: 'albums' },
-  { k: 'genero', label: 'Genero', faceta: 'genres' },
-  { k: 'tono', label: 'Tono', faceta: 'keys' },
-  { k: 'carpeta', label: 'Carpeta', faceta: 'folders' }
+const TEXT_FIELDS = [
+  { k: 'artista', label: 'Artista', facet: 'artists' },
+  { k: 'album', label: 'Album', facet: 'albums' },
+  { k: 'genero', label: 'Genero', facet: 'genres' },
+  { k: 'tono', label: 'Tono', facet: 'keys' },
+  { k: 'carpeta', label: 'Carpeta', facet: 'folders' }
 ]
-const NUMEROS = [
+const NUMBER_FIELDS = [
   { k: 'bpm', label: 'BPM', hint: 'pulsos por minuto' },
   { k: 'duracion', label: 'Duración (s)', hint: 'en segundos' },
   { k: 'bitrate', label: 'Calidad (bps)', hint: 'p. ej. 320000' },
@@ -66,78 +66,80 @@ const SORTS = [
 ]
 
 /** Lo que hay escrito ahora, partido en filtros, comparaciones y texto libre. */
-const partes = computed(() => {
-  const campos = {}
-  const comparaciones = {}
-  const sueltas = []
+const parts = computed(() => {
+  const fields = {}
+  const comparisons = {}
+  const loose = []
   for (const t of (props.query || '').split(/\s+/).filter(Boolean)) {
-    const dosPuntos = t.indexOf(':')
-    if (dosPuntos > 0) {
-      campos[t.slice(0, dosPuntos).toLowerCase()] = t.slice(dosPuntos + 1)
+    const colon = t.indexOf(':')
+    if (colon > 0) {
+      fields[t.slice(0, colon).toLowerCase()] = t.slice(colon + 1)
       continue
     }
     const m = t.match(/^(\w+)(>=|<=|>|<)(.+)$/)
     if (m) {
-      ;(comparaciones[m[1].toLowerCase()] ||= []).push([m[2], m[3]])
+      ;(comparisons[m[1].toLowerCase()] ||= []).push([m[2], m[3]])
       continue
     }
-    sueltas.push(t)
+    loose.push(t)
   }
-  return { campos, comparaciones, sueltas }
+  return { fields, comparisons, loose }
 })
 
 /** Vuelve a montar la caja a partir de las piezas. */
-function escribir(campos, comparaciones, sueltas) {
-  const trozos = []
-  for (const [k, v] of Object.entries(campos)) if (v) trozos.push(`${k}:${v}`)
-  for (const [k, ops] of Object.entries(comparaciones)) {
-    for (const [op, v] of ops) if (v !== '' && v != null) trozos.push(`${k}${op}${v}`)
+function write(fields, comparisons, loose) {
+  const pieces = []
+  for (const [k, v] of Object.entries(fields)) if (v) pieces.push(`${k}:${v}`)
+  for (const [k, ops] of Object.entries(comparisons)) {
+    for (const [op, v] of ops) if (v !== '' && v != null) pieces.push(`${k}${op}${v}`)
   }
-  emit('update:query', [...sueltas, ...trozos].join(' '))
+  emit('update:query', [...loose, ...pieces].join(' '))
 }
 
-const texto = (k) => partes.value.campos[k] || ''
-function setTexto(k, v) {
-  const { campos, comparaciones, sueltas } = partes.value
-  const nuevos = { ...campos }
-  if (v) nuevos[k] = String(v).replace(/\s+/g, '')
-  else delete nuevos[k]
-  escribir(nuevos, comparaciones, sueltas)
+const textOf = (k) => parts.value.fields[k] || ''
+function setText(k, v) {
+  const { fields, comparisons, loose } = parts.value
+  const nextFields = { ...fields }
+  if (v) nextFields[k] = String(v).replace(/\s+/g, '')
+  else delete nextFields[k]
+  write(nextFields, comparisons, loose)
 }
 
-const numero = (k, op) => {
-  const par = (partes.value.comparaciones[k] || []).find(([o]) => o === op)
-  return par ? par[1] : ''
+const numberOf = (k, op) => {
+  const pair = (parts.value.comparisons[k] || []).find(([o]) => o === op)
+  return pair ? pair[1] : ''
 }
-function setNumero(k, op, v) {
-  const { campos, comparaciones, sueltas } = partes.value
-  const nuevas = { ...comparaciones }
-  const resto = (nuevas[k] || []).filter(([o]) => o !== op)
-  if (v !== '' && v != null) resto.push([op, v])
-  if (resto.length) nuevas[k] = resto
-  else delete nuevas[k]
-  escribir(campos, nuevas, sueltas)
+function setNumber(k, op, v) {
+  const { fields, comparisons, loose } = parts.value
+  const nextComparisons = { ...comparisons }
+  const rest = (nextComparisons[k] || []).filter(([o]) => o !== op)
+  if (v !== '' && v != null) rest.push([op, v])
+  if (rest.length) nextComparisons[k] = rest
+  else delete nextComparisons[k]
+  write(fields, nextComparisons, loose)
 }
 
 /** Texto libre: lo que no es ni filtro ni comparacion. */
-const libre = computed({
-  get: () => partes.value.sueltas.join(' '),
+const freeText = computed({
+  get: () => parts.value.loose.join(' '),
   set: (v) => {
-    const { campos, comparaciones } = partes.value
-    escribir(campos, comparaciones, (v || '').split(/\s+/).filter(Boolean))
+    const { fields, comparisons } = parts.value
+    write(fields, comparisons, (v || '').split(/\s+/).filter(Boolean))
   }
 })
 
-const opciones = (faceta) => [
+const optionsOf = (facet) => [
   { v: '', n: 'Cualquiera' },
-  ...(props.facets[faceta] || [])
+  ...(props.facets[facet] || [])
     .slice(0, 300)
     .map((f) => ({ v: f.value, n: f.value, note: String(f.n) }))
 ]
 
-const hayAlgo = computed(() => !!props.query.trim() || props.onlyFavorites || props.minStars > 0)
+const hasAnything = computed(
+  () => !!props.query.trim() || props.onlyFavorites || props.minStars > 0
+)
 
-function limpiar() {
+function clearAll() {
   emit('update:query', '')
   emit('update:onlyFavorites', false)
   emit('update:minStars', 0)
@@ -150,43 +152,43 @@ function limpiar() {
     <div class="menu-block">
       <div class="menu-head">Buscar</div>
       <TextField
-        :model-value="libre"
+        :model-value="freeText"
         label="Texto"
         width="100%"
         icon="search"
         placeholder="palabras sueltas"
-        @update:model-value="(v) => (libre = v)"
+        @update:model-value="(v) => (freeText = v)"
       />
       <SelectField
-        v-for="t in TEXTOS"
+        v-for="t in TEXT_FIELDS"
         :key="t.k"
         :label="t.label"
         clearable
-        :model-value="texto(t.k)"
-        :options="opciones(t.faceta)"
-        @update:model-value="(v) => setTexto(t.k, v)"
+        :model-value="textOf(t.k)"
+        :options="optionsOf(t.facet)"
+        @update:model-value="(v) => setText(t.k, v)"
       />
     </div>
 
     <div class="menu-block">
       <div class="menu-head">Entre dos valores</div>
-      <div v-for="n in NUMEROS" :key="n.k" class="rango">
+      <div v-for="n in NUMBER_FIELDS" :key="n.k" class="range">
         <span class="field-label">{{ n.label }}</span>
-        <div class="rango-campos">
+        <div class="range-fields">
           <TextField
             type="number"
             placeholder="desde"
             width="100%"
-            :model-value="numero(n.k, '>')"
-            @update:model-value="(v) => setNumero(n.k, '>', v)"
+            :model-value="numberOf(n.k, '>')"
+            @update:model-value="(v) => setNumber(n.k, '>', v)"
           />
-          <span class="rango-sep">—</span>
+          <span class="range-sep">—</span>
           <TextField
             type="number"
             placeholder="hasta"
             width="100%"
-            :model-value="numero(n.k, '<')"
-            @update:model-value="(v) => setNumero(n.k, '<', v)"
+            :model-value="numberOf(n.k, '<')"
+            @update:model-value="(v) => setNumber(n.k, '<', v)"
           />
         </div>
       </div>
@@ -229,7 +231,7 @@ function limpiar() {
     </div>
 
     <div class="btn-row search-panel-foot">
-      <button class="btn mini" :disabled="!hayAlgo" @click="limpiar">Limpiar todo</button>
+      <button class="btn mini" :disabled="!hasAnything" @click="clearAll">Limpiar todo</button>
       <button class="btn mini primary" @click="emit('close')">Listo</button>
     </div>
   </div>

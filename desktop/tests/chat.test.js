@@ -25,7 +25,7 @@ const { api, store } = vi.hoisted(() => {
     chatCancel: vi.fn(async () => ({ ok: true })),
     // los términos, ya aceptados: el asistente los pide (ver useTerms)
     terms: vi.fn(async () => ({
-      accepted: (await import('../src/data/terminos.js')).TERMS_VERSION,
+      accepted: (await import('../src/data/terms.js')).TERMS_VERSION,
       at: 1
     })),
     chats: vi.fn(async () => ({
@@ -90,12 +90,12 @@ beforeEach(() => {
   store.last = null
 })
 
-const montar = async () => {
+const mountView = async () => {
   const w = mount(ChatPage, { attachTo: document.body })
   await flushPromises()
   return w
 }
-const escribir = async (w, t) => {
+const typeText = async (w, t) => {
   await w.find('.chat-foot textarea').setValue(t)
   await w.find('.chat-foot .btn').trigger('click')
   await flushPromises()
@@ -103,7 +103,7 @@ const escribir = async (w, t) => {
 
 describe('chat', () => {
   it('al abrir muestra sugerencias y dice de que habla', async () => {
-    const w = await montar()
+    const w = await mountView()
     expect(w.findAll('.chat-suggest .chip').length).toBeGreaterThan(2)
     // ya si descarga; lo que hay que avisar ahora es que solo lleva musica
     expect(w.text()).toContain('Solo hablo de musica')
@@ -111,25 +111,25 @@ describe('chat', () => {
   })
 
   it('muestra el modelo que usa', async () => {
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.chat-model').text()).toContain('Qwen')
   })
 
   it('enviar pinta tu mensaje y la respuesta', async () => {
-    const w = await montar()
-    await escribir(w, '¿cuantas canciones tengo?')
+    const w = await mountView()
+    await typeText(w, '¿cuantas canciones tengo?')
     expect(w.findAll('.chat-msg.me')).toHaveLength(1)
     expect(w.findAll('.chat-msg.ai')).toHaveLength(1)
     expect(w.text()).toContain('Tienes 260 canciones')
   })
 
   it('manda todo el historial, no solo el ultimo', async () => {
-    const w = await montar()
-    await escribir(w, 'hola')
-    await escribir(w, 'y ahora?')
-    const ultima = api.chat.mock.calls.at(-1)[0]
-    expect(ultima).toHaveLength(3) // yo, ia, yo
-    expect(ultima[0]).toEqual({ role: 'me', text: 'hola' })
+    const w = await mountView()
+    await typeText(w, 'hola')
+    await typeText(w, 'y ahora?')
+    const last = api.chat.mock.calls.at(-1)[0]
+    expect(last).toHaveLength(3) // yo, ia, yo
+    expect(last[0]).toEqual({ role: 'me', text: 'hola' })
   })
 
   it('el historial lleva que herramientas uso cada respuesta y que devolvieron', async () => {
@@ -147,16 +147,16 @@ describe('chat', () => {
         }
       ]
     })
-    const w = await montar()
-    await escribir(w, 'crea una lista')
-    await escribir(w, 'gracias')
-    const ultima = api.chat.mock.calls.at(-1)[0]
-    expect(ultima[1]).toEqual({
+    const w = await mountView()
+    await typeText(w, 'crea una lista')
+    await typeText(w, 'gracias')
+    const last = api.chat.mock.calls.at(-1)[0]
+    expect(last[1]).toEqual({
       role: 'ai',
       text: 'Lista creada',
       tools: [{ name: 'create_playlist', summary: '4 temas', detail: '«X» (id 3): id 1 «A - B»' }]
     })
-    expect(ultima[0]).toEqual({ role: 'me', text: 'crea una lista' })
+    expect(last[0]).toEqual({ role: 'me', text: 'crea una lista' })
   })
 
   it('enseña que herramientas uso', async () => {
@@ -164,8 +164,8 @@ describe('chat', () => {
       text: 'Lista creada',
       tools: [{ name: 'create_playlist', summary: '4 temas' }]
     })
-    const w = await montar()
-    await escribir(w, 'armame una lista')
+    const w = await mountView()
+    await typeText(w, 'armame una lista')
     expect(w.find('.chat-tools').text()).toContain('creo una lista')
     expect(w.find('.chat-tools').text()).toContain('4 temas')
   })
@@ -175,20 +175,20 @@ describe('chat', () => {
       text: 'ok',
       tools: [{ name: 'create_playlist', summary: 'x' }]
     })
-    const w = await montar()
-    await escribir(w, 'crea una lista')
+    const w = await mountView()
+    await typeText(w, 'crea una lista')
     expect(app.reload).toHaveBeenCalled()
   })
 
   it('un error del backend se muestra sin romper el chat', async () => {
     api.chat.mockResolvedValueOnce({ error: 'la IA no esta configurada' })
-    const w = await montar()
-    await escribir(w, 'hola')
+    const w = await mountView()
+    await typeText(w, 'hola')
     expect(w.find('.chat-msg.error').text()).toContain('no esta configurada')
   })
 
   it('no envia mensajes vacios', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.find('.chat-foot textarea').setValue('   ')
     await w.find('.chat-foot .btn').trigger('click')
     await flushPromises()
@@ -196,31 +196,29 @@ describe('chat', () => {
   })
 
   it('recuerda la conversacion al reabrir', async () => {
-    const w = await montar()
-    await escribir(w, 'hola')
+    const w = await mountView()
+    await typeText(w, 'hola')
     w.unmount()
     // como si se abriera la app de nuevo: lo que hay se lee del nucleo
     resetChat()
-    const w2 = await montar()
+    const w2 = await mountView()
     expect(w2.text()).toContain('hola')
   })
 
   it('el boton de enviar lleva el icono de enviar, no el de «cancion siguiente»', async () => {
-    const w = await montar()
-    const enviar = w.find('.chat-foot button[title="Enviar"]')
-    expect(enviar.exists(), 'no encuentro el boton de enviar').toBe(true)
-    const icono = w
-      .findAllComponents({ name: 'Icon' })
-      .find((i) => enviar.element.contains(i.element))
-    expect(icono.props('n')).toBe('send')
+    const w = await mountView()
+    const send = w.find('.chat-foot button[title="Enviar"]')
+    expect(send.exists(), 'no encuentro el boton de enviar').toBe(true)
+    const icon = w.findAllComponents({ name: 'Icon' }).find((i) => send.element.contains(i.element))
+    expect(icon.props('n')).toBe('send')
     await w.find('.chat-foot textarea').setValue('hola')
-    await enviar.trigger('click')
+    await send.trigger('click')
     await flushPromises()
     expect(api.chatStart).toHaveBeenCalled()
   })
 
   it('pulsar una sugerencia la envia', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.findAll('.chat-suggest .chip')[0].trigger('click')
     await flushPromises()
     expect(api.chat).toHaveBeenCalled()
@@ -239,16 +237,16 @@ describe('ordenes del asistente hacia la app', () => {
       tools: [{ name: 'play_song', summary: 'sonando: Barak - Mi Gozo' }],
       actions: [{ kind: 'play_song', song_id: 7 }]
     })
-    const w = await montar()
-    await escribir(w, 'pon Mi Gozo')
+    const w = await mountView()
+    await typeText(w, 'pon Mi Gozo')
     expect(app.action).toHaveBeenCalledTimes(1)
     expect(app.action.mock.calls[0][0]).toEqual({ kind: 'play_song', song_id: 7 })
   })
 
   it('sin acciones no emite nada', async () => {
     api.chat.mockResolvedValueOnce({ text: 'Tienes 260 canciones.', tools: [] })
-    const w = await montar()
-    await escribir(w, '¿cuantas tengo?')
+    const w = await mountView()
+    await typeText(w, '¿cuantas tengo?')
     expect(app.action).not.toHaveBeenCalled()
   })
 
@@ -257,8 +255,8 @@ describe('ordenes del asistente hacia la app', () => {
       text: 'Puntuada',
       tools: [{ name: 'set_stars', summary: '4 estrellas' }]
     })
-    const w = await montar()
-    await escribir(w, 'ponle 4 estrellas')
+    const w = await mountView()
+    await typeText(w, 'ponle 4 estrellas')
     expect(app.reload).toHaveBeenCalled()
   })
 })
@@ -271,8 +269,8 @@ describe('el chat pinta el markdown del asistente', () => {
       text: 'Tienes dos:\n\n1. **Mi Gozo** – Barak\n2. **Shekinah** – New Wine',
       tools: []
     })
-    const w = await montar()
-    await escribir(w, 'que tengo de barak?')
+    const w = await mountView()
+    await typeText(w, 'que tengo de barak?')
     const bubble = w.find('.chat-msg.ai .chat-bubble')
     expect(bubble.classes()).toContain('chat-md')
     expect(bubble.findAll('li')).toHaveLength(2)
@@ -283,8 +281,8 @@ describe('el chat pinta el markdown del asistente', () => {
   it('lo que escribes tu tambien se pinta en markdown, y al nucleo va tal cual', async () => {
     // lo pidio el usuario: asteriscos, almohadillas y saltos de linea a la
     // vista; mas casos en chat-composer.test.js
-    const w = await montar()
-    await escribir(w, 'busca **esto** literal')
+    const w = await mountView()
+    await typeText(w, 'busca **esto** literal')
     const mine = w.find('.chat-msg.me .chat-bubble')
     expect(mine.classes()).toContain('chat-md')
     expect(mine.find('strong').text()).toBe('esto')
@@ -296,8 +294,8 @@ describe('el chat pinta el markdown del asistente', () => {
       text: 'Encontre <img src=x onerror=alert(1)> y **esto**',
       tools: []
     })
-    const w = await montar()
-    await escribir(w, 'busca')
+    const w = await mountView()
+    await typeText(w, 'busca')
     const bubble = w.find('.chat-msg.ai .chat-bubble')
     expect(bubble.find('img').exists()).toBe(false)
     expect(bubble.text()).toContain('<img src=x onerror=alert(1)>')
@@ -306,8 +304,8 @@ describe('el chat pinta el markdown del asistente', () => {
 
   it('los errores del nucleo se ven como texto plano', async () => {
     api.chat.mockResolvedValueOnce({ error: 'la IA **no** esta configurada' })
-    const w = await montar()
-    await escribir(w, 'hola')
+    const w = await mountView()
+    await typeText(w, 'hola')
     expect(w.find('.chat-msg.error .chat-bubble').text()).toContain('**no**')
   })
 })
@@ -318,7 +316,7 @@ describe('el chat pinta el markdown del asistente', () => {
 // cuento en Descargas» y aqui no volvia a saberse nada; y el «bajala igual»
 // (force) se perdia por el camino.
 describe('descargas pedidas al asistente', () => {
-  const pendiente = {
+  const pending = {
     text: 'Te pido permiso.',
     tools: [{ name: 'download_music', summary: 'espera tu visto bueno' }],
     confirm: {
@@ -329,14 +327,14 @@ describe('descargas pedidas al asistente', () => {
   }
 
   it('al aceptar manda al nucleo los argumentos tal cual, force incluido', async () => {
-    api.chat.mockResolvedValueOnce(pendiente)
+    api.chat.mockResolvedValueOnce(pending)
     api.chatConfirm.mockResolvedValueOnce({
       ok: true,
       text: 'Descargando. Te cuento cuando termine.',
       result: { active: true, items: ['Ruja o Leao Carol Braga'], force: true }
     })
-    const w = await montar()
-    await escribir(w, 'bajala igual')
+    const w = await mountView()
+    await typeText(w, 'bajala igual')
     expect(useDialog().dialog.value.open).toBe(true)
     expect(useDialog().dialog.value.message).toContain('Ruja o Leão')
     dialogOk()
@@ -357,9 +355,9 @@ describe('descargas pedidas al asistente', () => {
       reason: 'unset',
       suggested: '/musica'
     })
-    api.chat.mockResolvedValueOnce(pendiente)
-    const w = await montar()
-    await escribir(w, 'bajala igual')
+    api.chat.mockResolvedValueOnce(pending)
+    const w = await mountView()
+    await typeText(w, 'bajala igual')
     dialogOk() // el visto bueno a la descarga
     await flushPromises()
     expect(useDialog().dialog.value.title).toBe('¿Dónde guardo lo que descargues?')
@@ -370,9 +368,9 @@ describe('descargas pedidas al asistente', () => {
   })
 
   it('si dices que no, no se llama a nada', async () => {
-    api.chat.mockResolvedValueOnce(pendiente)
-    const w = await montar()
-    await escribir(w, 'baja eso')
+    api.chat.mockResolvedValueOnce(pending)
+    const w = await mountView()
+    await typeText(w, 'baja eso')
     dialogCancel()
     await flushPromises()
     expect(api.chatConfirm).not.toHaveBeenCalled()
@@ -381,7 +379,7 @@ describe('descargas pedidas al asistente', () => {
 
   it('sigue la descarga y al acabar cuenta que entro y que ya tenias', async () => {
     vi.useFakeTimers()
-    api.chat.mockResolvedValueOnce(pendiente)
+    api.chat.mockResolvedValueOnce(pending)
     api.chatConfirm.mockResolvedValueOnce({
       ok: true,
       text: 'Descargando 2 temas.',
@@ -415,8 +413,8 @@ describe('descargas pedidas al asistente', () => {
           }
         ]
       })
-    const w = await montar()
-    await escribir(w, 'baja estas dos')
+    const w = await mountView()
+    await typeText(w, 'baja estas dos')
     dialogOk()
     await flushPromises()
 
@@ -445,9 +443,9 @@ describe('descargas pedidas al asistente', () => {
     // entro una: la biblioteca tiene que refrescarse
     expect(app.reload).toHaveBeenCalled()
     // y ya no sigue preguntando
-    const llamadas = api.youtube.mock.calls.length
+    const calls = api.youtube.mock.calls.length
     await vi.advanceTimersByTimeAsync(3000)
-    expect(api.youtube.mock.calls.length).toBe(llamadas)
+    expect(api.youtube.mock.calls.length).toBe(calls)
 
     // Al entrar algo, se le pasa el turno al asistente para que remate lo que
     // quedara («y armame una lista»). El aviso va al nucleo como un mensaje
@@ -484,7 +482,7 @@ describe('descargas pedidas al asistente', () => {
       phase: 'done',
       results: [{ ok: true, artist: 'Barak', song: 'Mi Gozo' }]
     })
-    const w = await montar()
+    const w = await mountView()
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.findAll('.chat-msg.ai').some((m) => m.text().includes('Barak - Mi Gozo'))).toBe(true)
     expect(localStorage.getItem('danplay.chat.download')).toBeNull()
@@ -506,8 +504,8 @@ describe('descargas pedidas al asistente', () => {
           release = res
         })
     )
-    const w = await montar()
-    await escribir(w, '¿de que año es Kind of Blue?') // se queda pensando
+    const w = await mountView()
+    await typeText(w, '¿de que año es Kind of Blue?') // se queda pensando
     await vi.advanceTimersByTimeAsync(1000) // termina la descarga
     expect(w.text()).toContain('Barak - Mi Gozo')
     expect(api.chat).toHaveBeenCalledTimes(1) // el aviso NO se perdio ni se colo
@@ -536,7 +534,7 @@ describe('descargas pedidas al asistente', () => {
         { ok: true, id: 9, artist: 'Otro', song: 'Otra', requested: 'https://youtu.be/otra' }
       ]
     })
-    const w = await montar()
+    const w = await mountView()
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.text()).not.toContain('Otro - Otra')
     expect(api.chat).not.toHaveBeenCalled()
@@ -544,17 +542,17 @@ describe('descargas pedidas al asistente', () => {
   })
 
   it('lo que escribe la app va marcado y la descarga aceptada lleva su herramienta', async () => {
-    api.chat.mockResolvedValueOnce(pendiente)
+    api.chat.mockResolvedValueOnce(pending)
     api.chatConfirm.mockResolvedValueOnce({
       ok: true,
       text: 'Descargando.',
       result: { active: true, items: ['a'], force: false }
     })
-    const w = await montar()
-    await escribir(w, 'baja')
+    const w = await mountView()
+    await typeText(w, 'baja')
     dialogOk()
     await flushPromises()
-    await escribir(w, 'gracias')
+    await typeText(w, 'gracias')
     const sent = api.chat.mock.calls.at(-1)[0]
     const accepted = sent.find((m) => m.text === 'Descargando.')
     expect(accepted.app).toBe(true)
@@ -567,8 +565,8 @@ describe('descargas pedidas al asistente', () => {
       tools: [],
       narrated: true
     })
-    const w = await montar()
-    await escribir(w, 'crea la lista')
+    const w = await mountView()
+    await typeText(w, 'crea la lista')
     const msg = w.findAll('.chat-msg.ai').at(-1)
     expect(msg.classes()).toContain('narrated')
     expect(msg.attributes('title')).toContain('ninguna herramienta')
@@ -582,17 +580,17 @@ describe('descargas pedidas al asistente', () => {
       phase: 'done',
       results: [{ ok: false, already_there: true, title: 'Mi Gozo', matches: [] }]
     })
-    const w = await montar()
+    const w = await mountView()
     await vi.advanceTimersByTimeAsync(1000)
     expect(w.text()).toContain('Ya la tenías')
     expect(api.chat).not.toHaveBeenCalled()
   })
 
   it('un fallo al confirmar se enseña sin romper el chat', async () => {
-    api.chat.mockResolvedValueOnce(pendiente)
+    api.chat.mockResolvedValueOnce(pending)
     api.chatConfirm.mockRejectedValueOnce(new Error('409: ya hay una descarga en marcha'))
-    const w = await montar()
-    await escribir(w, 'baja')
+    const w = await mountView()
+    await typeText(w, 'baja')
     dialogOk()
     await flushPromises()
     expect(w.find('.chat-msg.error').text()).toContain('ya hay una descarga en marcha')
@@ -601,8 +599,8 @@ describe('descargas pedidas al asistente', () => {
 
 describe('el título de una conversación', () => {
   it('sale de la primera línea con texto, sin las marcas de WhatsApp', () => {
-    const pegada = '\n  \nagrégame esto a la lista:\n*Domingo*✅\n*1.- Mi Gozo*'
-    expect(titleFrom(pegada)).toBe('agrégame esto a la lista:')
+    const pasted = '\n  \nagrégame esto a la lista:\n*Domingo*✅\n*1.- Mi Gozo*'
+    expect(titleFrom(pasted)).toBe('agrégame esto a la lista:')
     expect(titleFrom('*Domingo* _ensayo_ ~viejo~')).toBe('Domingo ensayo viejo')
     expect(titleFrom('x'.repeat(100))).toHaveLength(60)
     expect(titleFrom('   ')).toBe('Conversación')

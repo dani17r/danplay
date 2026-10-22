@@ -24,14 +24,14 @@ const read = (...p) => readFileSync(join(...p), 'utf8')
 describe('el doble de las pruebas cubre el api de verdad', () => {
   it('no se queda ningun metodo sin programar', () => {
     const double = buildApiDouble({ api }, createState())
-    const faltan = Object.keys(api).filter((k) => !(k in double))
-    expect(faltan, 'metodos del api que el doble no conoce').toEqual([])
+    const missing = Object.keys(api).filter((k) => !(k in double))
+    expect(missing, 'metodos del api que el doble no conoce').toEqual([])
   })
 
   it('y no sobra ninguno inventado', () => {
     const double = buildApiDouble({ api }, createState())
-    const sobran = Object.keys(double).filter((k) => !(k in api))
-    expect(sobran, 'el doble ofrece cosas que el api no tiene').toEqual([])
+    const extra = Object.keys(double).filter((k) => !(k in api))
+    expect(extra, 'el doble ofrece cosas que el api no tiene').toEqual([])
   })
 })
 
@@ -61,8 +61,8 @@ describe('los nombres que la interfaz manda al nucleo', () => {
       expect(core, `el núcleo no devuelve «${action}»`).toContain(`"${action}"`)
     }
     // y nadie compara ya con los nombres viejos
-    for (const viejo of ['confirmar', 'ya_estaba', 'reemplaza']) {
-      expect(read(SRC, 'components/SettingsPage.vue')).not.toContain(`'${viejo}'`)
+    for (const legacy of ['confirmar', 'ya_estaba', 'reemplaza']) {
+      expect(read(SRC, 'components/SettingsPage.vue')).not.toContain(`'${legacy}'`)
     }
   })
 

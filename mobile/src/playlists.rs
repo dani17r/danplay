@@ -1,10 +1,11 @@
 //! Las listas del celular: el repertorio del domingo, el ensayo del jueves.
 //!
-//! Viven en `.listas.json`, junto a las pistas (el punto delante hace que
-//! `motor::bundle::list` no la tome por una pista). Cada lista guarda sus
-//! canciones por el nombre de su carpeta, que es estable: si una pista se
-//! quita del celular y se vuelve a traer de la PC, vuelve a su sitio en las
-//! listas. Mientras falta, la lista simplemente no la enseña.
+//! Viven en `.playlists.json` (antes `.listas.json`), junto a las pistas (el
+//! punto delante hace que `danplay_engine::bundle::list` no la tome por una
+//! pista). Cada lista guarda sus canciones por el nombre de su carpeta, que
+//! es estable: si una pista se quita del celular y se vuelve a traer de la
+//! PC, vuelve a su sitio en las listas. Mientras falta, la lista simplemente
+//! no la enseña.
 //!
 //! Lo que contestan tiene la forma que espera la interfaz
 //! (`api.playlists()`, `api.playlistSongs(id)`...), la misma de la PC.
@@ -13,17 +14,19 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-const FILE: &str = ".listas.json";
+const FILE: &str = ".playlists.json";
+/// El nombre que tenia `FILE` en las versiones anteriores.
+const LEGACY_FILE: &str = ".listas.json";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Lista {
+pub struct Playlist {
     pub id: i64,
     pub name: String,
     /// Las carpetas de sus pistas, en el orden en que suenan.
     pub songs: Vec<String>,
 }
 
-pub struct Listas {
+pub struct Playlists {
     path: PathBuf,
     /// Leer, cambiar y escribir, de una en una.
     lock: Mutex<()>,
@@ -38,22 +41,23 @@ fn clean(name: &str) -> Result<String, String> {
     Ok(name.chars().take(80).collect())
 }
 
-impl Listas {
-    pub fn new(dir: &Path) -> Listas {
-        Listas {
+impl Playlists {
+    pub fn new(dir: &Path) -> Playlists {
+        danplay_engine::bundle::legacy(&dir.join(FILE), &dir.join(LEGACY_FILE));
+        Playlists {
             path: dir.join(FILE),
             lock: Mutex::new(()),
         }
     }
 
-    fn read(&self) -> Vec<Lista> {
+    fn read(&self) -> Vec<Playlist> {
         fs::read(&self.path)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default()
     }
 
-    fn write(&self, all: &[Lista]) -> Result<(), String> {
+    fn write(&self, all: &[Playlist]) -> Result<(), String> {
         let text = serde_json::to_vec_pretty(all).map_err(|e| e.to_string())?;
         // primero a un archivo aparte y luego en su sitio: si el teléfono se
         // apaga a mitad, las listas de antes siguen enteras
@@ -63,7 +67,10 @@ impl Listas {
     }
 
     /// Cambia las listas con `f` y las guarda; devuelve lo que diga `f`.
-    fn change<T>(&self, f: impl FnOnce(&mut Vec<Lista>) -> Result<T, String>) -> Result<T, String> {
+    fn change<T>(
+        &self,
+        f: impl FnOnce(&mut Vec<Playlist>) -> Result<T, String>,
+    ) -> Result<T, String> {
         let _guard = self.lock.lock().unwrap_or_else(PoisonError::into_inner);
         let mut all = self.read();
         let out = f(&mut all)?;
@@ -71,30 +78,30 @@ impl Listas {
         Ok(out)
     }
 
-    pub fn all(&self) -> Vec<Lista> {
+    pub fn all(&self) -> Vec<Playlist> {
         let _guard = self.lock.lock().unwrap_or_else(PoisonError::into_inner);
         self.read()
     }
 
-    pub fn get(&self, id: i64) -> Option<Lista> {
+    pub fn get(&self, id: i64) -> Option<Playlist> {
         self.all().into_iter().find(|l| l.id == id)
     }
 
-    pub fn create(&self, name: &str) -> Result<Lista, String> {
+    pub fn create(&self, name: &str) -> Result<Playlist, String> {
         let name = clean(name)?;
         self.change(|all| {
             let id = all.iter().map(|l| l.id).max().unwrap_or(0) + 1;
-            let lista = Lista {
+            let playlist = Playlist {
                 id,
                 name,
                 songs: Vec::new(),
             };
-            all.push(lista.clone());
-            Ok(lista)
+            all.push(playlist.clone());
+            Ok(playlist)
         })
     }
 
-    pub fn rename(&self, id: i64, name: &str) -> Result<Lista, String> {
+    pub fn rename(&self, id: i64, name: &str) -> Result<Playlist, String> {
         let name = clean(name)?;
         self.change(|all| {
             let l = all
@@ -190,7 +197,7 @@ mod tests {
 
     fn temp(name: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("danplay-listas-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("danplay-playlists-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("carpeta");
         dir
@@ -203,13 +210,13 @@ mod tests {
     #[test]
     fn a_list_keeps_its_songs_in_order_and_survives_a_restart() {
         let dir = temp("orden");
-        let listas = Listas::new(&dir);
-        let l = listas.create("  Domingo   19  ").expect("crear");
+        let playlists = Playlists::new(&dir);
+        let l = playlists.create("  Domingo   19  ").expect("crear");
         assert_eq!(l.name, "Domingo 19");
-        assert_eq!(listas.add(l.id, &folders(&["a", "b", "a"])), Ok((2, 2)));
-        assert_eq!(listas.add(l.id, &folders(&["b", "c"])), Ok((1, 3)));
-        assert_eq!(listas.set(l.id, folders(&["c", "a", "b"])), Ok(3));
-        let again = Listas::new(&dir);
+        assert_eq!(playlists.add(l.id, &folders(&["a", "b", "a"])), Ok((2, 2)));
+        assert_eq!(playlists.add(l.id, &folders(&["b", "c"])), Ok((1, 3)));
+        assert_eq!(playlists.set(l.id, folders(&["c", "a", "b"])), Ok(3));
+        let again = Playlists::new(&dir);
         assert_eq!(again.get(l.id).expect("sigue").songs, ["c", "a", "b"]);
         assert_eq!(again.names_with("a"), ["Domingo 19"]);
         assert_eq!(again.take_out(l.id, "a"), Ok(2));
@@ -219,33 +226,50 @@ mod tests {
     #[test]
     fn reordering_what_is_shown_keeps_what_is_missing() {
         let dir = temp("faltan");
-        let listas = Listas::new(&dir);
-        let l = listas.create("Ensayo").expect("crear");
-        listas
+        let playlists = Playlists::new(&dir);
+        let l = playlists.create("Ensayo").expect("crear");
+        playlists
             .add(l.id, &folders(&["a", "fuera", "b"]))
             .expect("añadir");
         // la interfaz solo ve a y b (la otra se quitó del celular)
-        assert_eq!(listas.set(l.id, folders(&["b", "a"])), Ok(3));
-        assert_eq!(listas.get(l.id).expect("sigue").songs, ["b", "a", "fuera"]);
+        assert_eq!(playlists.set(l.id, folders(&["b", "a"])), Ok(3));
+        assert_eq!(
+            playlists.get(l.id).expect("sigue").songs,
+            ["b", "a", "fuera"]
+        );
     }
 
     #[test]
     fn names_and_ids_are_checked() {
         let dir = temp("nombres");
-        let listas = Listas::new(&dir);
-        assert!(listas.create("   ").is_err());
-        let a = listas.create("Uno").expect("uno");
-        let b = listas.create("Dos").expect("dos");
+        let playlists = Playlists::new(&dir);
+        assert!(playlists.create("   ").is_err());
+        let a = playlists.create("Uno").expect("uno");
+        let b = playlists.create("Dos").expect("dos");
         assert_ne!(a.id, b.id);
         assert_eq!(
-            listas.rename(b.id, "Jueves").expect("renombrar").name,
+            playlists.rename(b.id, "Jueves").expect("renombrar").name,
             "Jueves"
         );
-        assert!(listas.rename(99, "x").is_err());
-        listas.remove(a.id).expect("borrar");
-        assert!(listas.remove(a.id).is_err());
+        assert!(playlists.rename(99, "x").is_err());
+        playlists.remove(a.id).expect("borrar");
+        assert!(playlists.remove(a.id).is_err());
         // un id nuevo no reutiliza el de la que se borró si queda otra mayor
-        let c = listas.create("Tres").expect("tres");
+        let c = playlists.create("Tres").expect("tres");
         assert!(c.id > b.id);
+    }
+
+    #[test]
+    fn the_lists_saved_with_the_old_name_are_kept() {
+        let dir = temp("antes");
+        fs::write(
+            dir.join(LEGACY_FILE),
+            r#"[{"id": 1, "name": "Domingo", "songs": ["a"]}]"#,
+        )
+        .expect("listas de antes");
+        let playlists = Playlists::new(&dir);
+        assert_eq!(playlists.all().len(), 1);
+        assert!(dir.join(FILE).is_file(), "ya con el nombre nuevo");
+        assert!(!dir.join(LEGACY_FILE).exists());
     }
 }

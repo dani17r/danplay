@@ -139,7 +139,7 @@ fn a_session_from_an_older_version_does_not_stop_the_app() {
 fn restoring_puts_the_queue_back_without_playing() {
     let (player, _events) = silent_player();
     let mut inner = inner_with(vec![], 0);
-    let eight = a_real_file("dp_sesion_ocho.mp3");
+    let eight = a_real_file("dp_session_eight.mp3");
     let session = Session {
         items: vec![track(7), track(8)],
         index: 1,
@@ -168,7 +168,7 @@ fn restoring_a_position_that_no_longer_exists_does_not_panic() {
         Command::Restore(Session {
             items: vec![track(1)],
             index: 40, // la lista encogio
-            current_path: a_real_file("dp_sesion_una.mp3"),
+            current_path: a_real_file("dp_session_one.mp3"),
             ..Default::default()
         }),
         &player,
@@ -192,8 +192,8 @@ fn restoring_leaves_out_what_is_no_longer_there() {
     // siguiente que queda, puesta en silencio
     let (player, _events) = silent_player();
     let mut inner = inner_with(vec![], 0);
-    let one = a_real_file("dp_sesion_quedan_1.mp3");
-    let three = a_real_file("dp_sesion_quedan_3.mp3");
+    let one = a_real_file("dp_session_left_1.mp3");
+    let three = a_real_file("dp_session_left_3.mp3");
     let session = Session {
         items: vec![
             with_path(1, &one),
@@ -333,7 +333,7 @@ fn a_real_file(name: &str) -> String {
 
 #[test]
 fn a_track_that_brings_its_path_does_not_ask_the_core() {
-    let path = a_real_file("dp_cola_con_ruta.mp3");
+    let path = a_real_file("dp_queue_with_path.mp3");
     let mut t = track(5);
     t.path = Some(path.clone());
     // `nowhere()` no contesta: si se le preguntara, esto fallaria
@@ -381,7 +381,7 @@ fn advancing_skips_what_cannot_be_located() {
     let (player, _events) = silent_player();
     std::thread::sleep(std::time::Duration::from_millis(250));
     let mut good = track(3);
-    good.path = Some(a_real_file("dp_cola_salta.mp3"));
+    good.path = Some(a_real_file("dp_queue_skips.mp3"));
     let mut inner = inner_with(vec![track(1), track(2), good], 0);
     advance(&mut inner, &player, &nowhere());
     assert_eq!(inner.index, 2, "deberia haber saltado la que no se encuentra");
@@ -433,7 +433,7 @@ fn advancing_with_a_hung_core_has_one_deadline_for_the_whole_round() {
 /// La sesion se escribe entera o no se toca.
 #[test]
 fn the_session_file_is_replaced_in_one_go() {
-    let file = std::env::temp_dir().join("dp_sesion_atomica.json");
+    let file = std::env::temp_dir().join("dp_session_atomic.json");
     write_atomically(&file, b"{\"items\":[]}").unwrap();
     write_atomically(&file, b"{\"index\":3}").unwrap();
     assert_eq!(std::fs::read(&file).unwrap(), b"{\"index\":3}");
@@ -507,7 +507,7 @@ fn the_next_one_is_sent_early_only_if_it_can_be_found() {
     );
 
     let mut good = track(3);
-    good.path = Some(a_real_file("dp_cola_funde.mp3"));
+    good.path = Some(a_real_file("dp_queue_fades.mp3"));
     let mut inner = inner_with(vec![track(1), good], 0);
     cross_next(&mut inner, &player, &nowhere());
     assert_eq!(inner.index, 1, "la siguiente ya");
@@ -520,7 +520,7 @@ fn nothing_is_sent_early_at_the_end_or_repeating_one() {
     let (player, _events) = silent_player();
     std::thread::sleep(std::time::Duration::from_millis(250));
     let mut good = track(2);
-    good.path = Some(a_real_file("dp_cola_funde_fin.mp3"));
+    good.path = Some(a_real_file("dp_queue_fades_end.mp3"));
     let mut inner = inner_with(vec![track(1), good.clone()], 1);
     inner.repeat = Repeat::Queue;
     cross_next(&mut inner, &player, &nowhere());
@@ -537,7 +537,7 @@ fn nothing_is_sent_early_at_the_end_or_repeating_one() {
 fn a_moved_current_song_takes_its_new_path() {
     let (player, _events) = silent_player();
     std::thread::sleep(std::time::Duration::from_millis(250));
-    let new_place = a_real_file("dp_cola_movida.mp3");
+    let new_place = a_real_file("dp_queue_moved.mp3");
     let mut moved = track(1);
     moved.path = Some(new_place.clone());
     let mut inner = inner_with(vec![moved, track(2)], 0);
@@ -546,7 +546,7 @@ fn a_moved_current_song_takes_its_new_path() {
     assert_eq!(inner.current_path, new_place);
     // si la de antes sigue donde estaba, no se toca
     let mut other = track(3);
-    other.path = Some(a_real_file("dp_cola_otra.mp3"));
+    other.path = Some(a_real_file("dp_queue_other.mp3"));
     let mut inner = inner_with(vec![other], 0);
     inner.current_path.clone_from(&new_place);
     follow_current(&mut inner, &player);

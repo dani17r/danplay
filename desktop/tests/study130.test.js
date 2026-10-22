@@ -66,7 +66,7 @@ const base = {
   }
 }
 const { menu } = useContextMenu()
-const opcion = (label) => menu.value.items.find((i) => i.label === label)
+const option = (label) => menu.value.items.find((i) => i.label === label)
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -84,7 +84,7 @@ beforeEach(() => {
   })
 })
 const mounted = []
-const montar = async () => {
+const mountView = async () => {
   const w = mount(StudyBar, { attachTo: document.body })
   mounted.push(w)
   await flushPromises()
@@ -157,11 +157,11 @@ describe('los botones de canal de cada carril', () => {
     onTestFinished(() => {
       held.playback.bridge.outputDevices = before
     })
-    const w = await montar()
+    const w = await mountView()
     await flushPromises()
-    const cancion = w.find('.tl-song-head .chans')
-    const b = (n) => cancion.findAll('.chan').find((x) => x.text() === n)
-    expect(cancion.findAll('.chan:not(.chan-mode)').map((x) => x.text())).toEqual([
+    const songHead = w.find('.tl-song-head .chans')
+    const b = (n) => songHead.findAll('.chan').find((x) => x.text() === n)
+    expect(songHead.findAll('.chan:not(.chan-mode)').map((x) => x.text())).toEqual([
       '1',
       '2',
       '3',
@@ -179,19 +179,19 @@ describe('los botones de canal de cada carril', () => {
   })
 
   it('apagarlos todos la calla en la salida', async () => {
-    const w = await montar()
-    const cancion = () => w.find('.tl-song-head .chans')
-    await cancion().find('[aria-label="Izquierda"]').trigger('click')
+    const w = await mountView()
+    const songHead = () => w.find('.tl-song-head .chans')
+    await songHead().find('[aria-label="Izquierda"]').trigger('click')
     await flushPromises()
-    await cancion().find('[aria-label="Derecha"]').trigger('click')
+    await songHead().find('[aria-label="Derecha"]').trigger('click')
     await flushPromises()
     expect(routing().buses[routing().song]).toBe(null)
-    expect(cancion().attributes('title')).toContain('no suena')
+    expect(songHead().attributes('title')).toContain('no suena')
   })
 })
 
 describe('la onda', () => {
-  function conAnchura(w) {
+  function withWidth(w) {
     w.find('.tl-box').element.getBoundingClientRect = () => ({
       left: 0,
       width: 400,
@@ -203,7 +203,7 @@ describe('la onda', () => {
       y: 0
     })
   }
-  const pulsa = async (w, x) => {
+  const tap = async (w, x) => {
     const box = w.find('.tl-box').element
     box.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: x, clientY: 20 }))
     window.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: x, clientY: 20 }))
@@ -213,8 +213,8 @@ describe('la onda', () => {
   it('con el candado, «ir con un clic» deja saltar sonando sin quitar el tramo', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 60] }) })]
     held.playback.emit({ playing: true })
-    const w = await montar()
-    conAnchura(w)
+    const w = await mountView()
+    withWidth(w)
     // sin el candado puesto no se ofrece
     expect(w.find('.tl-lock').classes()).toContain('on')
     const ir = w.find('.tl-seek')
@@ -222,16 +222,16 @@ describe('la onda', () => {
     expect(ir.attributes('aria-pressed')).toBe('false')
     // con «ir con un clic», bloqueada y sonando, un clic lleva ahí y el tramo sigue
     await ir.trigger('click')
-    expect(JSON.parse(localStorage.getItem('danplay.study.irConClic'))).toBe(true)
+    expect(JSON.parse(localStorage.getItem('danplay.study.seekClick'))).toBe(true)
     held.playback.bridge.seek.mockClear()
     held.playback.bridge.setLoop.mockClear()
-    await pulsa(w, 100)
+    await tap(w, 100)
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(50)
     expect(held.playback.bridge.setLoop, 'el tramo no se quita').not.toHaveBeenCalled()
     // sin él, bloqueada y sonando, un clic no mueve la canción
     await ir.trigger('click')
     held.playback.bridge.seek.mockClear()
-    await pulsa(w, 100)
+    await tap(w, 100)
     expect(held.playback.bridge.seek).not.toHaveBeenCalled()
     // quitar el candado lo esconde
     await w.find('.tl-lock').trigger('click')
@@ -239,24 +239,24 @@ describe('la onda', () => {
   })
 
   it('«Mezcla» y «Canales» ocultan sus mandos de los carriles, y se recuerda', async () => {
-    const w = await montar()
+    const w = await mountView()
     const tl = () => w.find('.tl')
     expect(tl().classes()).not.toContain('tl-no-mix')
-    const anchoCon = tl().attributes('style')
+    const widthWith = tl().attributes('style')
     await w.find('.study-show-mix').trigger('click')
     expect(tl().classes()).toContain('tl-no-mix')
     await w.find('.study-show-routes').trigger('click')
     expect(w.find('.chans').exists()).toBe(false)
-    expect(tl().attributes('style')).not.toBe(anchoCon)
-    expect(JSON.parse(localStorage.getItem('danplay.study.verMezcla'))).toBe(false)
-    expect(JSON.parse(localStorage.getItem('danplay.study.verCanales'))).toBe(false)
+    expect(tl().attributes('style')).not.toBe(widthWith)
+    expect(JSON.parse(localStorage.getItem('danplay.study.showMix'))).toBe(false)
+    expect(JSON.parse(localStorage.getItem('danplay.study.showRoutes'))).toBe(false)
   })
 
   it('el carril del clic: encenderlo y su volumen', async () => {
-    const w = await montar()
-    const clic = w.find('.tl-click-lane')
-    expect(clic.classes()).toContain('off')
-    await clic.find('.tl-lane-btn').trigger('click')
+    const w = await mountView()
+    const click = w.find('.tl-click-lane')
+    expect(click.classes()).toContain('off')
+    await click.find('.tl-lane-btn').trigger('click')
     await flushPromises()
     expect(held.playback.bridge.setMetronome).toHaveBeenCalledWith(
       expect.objectContaining({ on: true })
@@ -287,18 +287,18 @@ describe('los menús', () => {
       attachTo: document.body
     })
     await flushPromises()
-    const [barras, suave] = w.findAll('.ctx-item')
-    expect(barras.classes()).toContain('on')
-    expect(barras.attributes('aria-current')).toBe('true')
-    expect(barras.find('.ctx-check').exists()).toBe(true)
-    expect(barras.attributes('title')).toBe('La de siempre')
-    expect(suave.attributes('title')).toContain('una nota larga')
-    expect(suave.find('.ctx-check').exists()).toBe(false)
+    const [bars, smooth] = w.findAll('.ctx-item')
+    expect(bars.classes()).toContain('on')
+    expect(bars.attributes('aria-current')).toBe('true')
+    expect(bars.find('.ctx-check').exists()).toBe(true)
+    expect(bars.attributes('title')).toBe('La de siempre')
+    expect(smooth.attributes('title')).toContain('una nota larga')
+    expect(smooth.find('.ctx-check').exists()).toBe(false)
     w.unmount()
   })
 
   it('el del estudio: corto, con un solo «Exportar…»', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.find('.study-more').trigger('click')
     const labels = menu.value.items.filter((i) => i.label).map((i) => i.label)
     expect(labels).toEqual([
@@ -309,10 +309,10 @@ describe('los menús', () => {
       'Cómo se usa',
       'Salir del modo estudio'
     ])
-    expect(opcion('Salir del modo estudio').note).toBeUndefined()
-    expect(opcion('Salir del modo estudio').hint).toContain('clic')
+    expect(option('Salir del modo estudio').note).toBeUndefined()
+    expect(option('Salir del modo estudio').hint).toContain('clic')
     // el estilo puesto, marcado
-    expect(opcion('Estilo de la onda').children.filter((c) => c.active)).toHaveLength(1)
+    expect(option('Estilo de la onda').children.filter((c) => c.active)).toHaveLength(1)
   })
 
   it('para el celular, desde la ventana de exportar', async () => {
@@ -321,15 +321,15 @@ describe('los menús', () => {
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ mixer: { on: true } }), has_stems: true })
     ]
     held.state.stems = { 7: stemsOf(7) }
-    const w = await montar()
+    const w = await mountView()
     await w.find('.study-more').trigger('click')
-    opcion('Exportar…').action()
+    option('Exportar…').action()
     await flushPromises()
-    const cel = [...document.querySelectorAll('.exp-kind')].find((k) =>
+    const phone = [...document.querySelectorAll('.exp-kind')].find((k) =>
       k.textContent.includes('Para el celular')
     )
-    expect(cel.disabled).toBe(false)
-    cel.click()
+    expect(phone.disabled).toBe(false)
+    phone.click()
     await flushPromises()
     expect(document.querySelector('.exp-extras')).toBeNull()
     expect(document.querySelector('.exp-go').textContent).toContain('celular')
@@ -337,7 +337,7 @@ describe('los menús', () => {
 })
 
 describe('la guía automática', () => {
-  const resultado = {
+  const result = {
     sections: [
       { start: 0, end: 8, label: 'Intro' },
       { start: 8, end: 40, label: 'Estrofa 1' },
@@ -348,7 +348,7 @@ describe('la guía automática', () => {
       { t: 38.4, text: 'Coro 1', voice: 'st-F1', file: '/guias/coro-1.wav', seconds: 0.8 }
     ]
   }
-  function preparar() {
+  function prepare() {
     held.api.cueVoices.mockImplementation(async () => ({
       voices: [
         { id: 'st-F1', name: 'Mujer 1', engine: 'supertonic', installed: true },
@@ -356,17 +356,17 @@ describe('la guía automática', () => {
       ],
       available: ''
     }))
-    held.api.autoCues.mockImplementation(async () => ({ job: { name: 'guia-automatica' } }))
+    held.api.autoCues.mockImplementation(async () => ({ job: { name: 'auto-cue' } }))
     held.api.runJob.mockImplementation(async (start) => {
       await start()
-      return resultado
+      return result
     })
   }
 
   it('con la voz ya elegida, la hace sin preguntar, en su carril «Partes»', async () => {
-    preparar()
-    localStorage.setItem('danplay.guias.voz', JSON.stringify('st-F1'))
-    const w = await montar()
+    prepare()
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
+    const w = await mountView()
     await w.find('.study-auto-guide').trigger('click')
     await flushPromises()
     expect(document.querySelector('.vp-list'), 'sin preguntar la voz').toBeNull()
@@ -385,34 +385,34 @@ describe('la guía automática', () => {
   })
 
   it('sin voz elegida, pregunta cuál (y se recuerda)', async () => {
-    preparar()
-    const w = await montar()
+    prepare()
+    const w = await mountView()
     await w.find('.study-auto-guide').trigger('click')
     await flushPromises()
-    const voces = [...document.querySelectorAll('.vp-pick')]
-    expect(voces.map((v) => v.textContent)).toEqual([
+    const voices = [...document.querySelectorAll('.vp-pick')]
+    expect(voices.map((v) => v.textContent)).toEqual([
       expect.stringContaining('Mujer 1'),
       expect.stringContaining('Hombre 1')
     ])
-    voces[1].click()
+    voices[1].click()
     await flushPromises()
     document.querySelector('.vp-go').click()
     await flushPromises()
     await flushPromises()
     expect(held.api.autoCues).toHaveBeenCalledWith(7, expect.objectContaining({ voice: 'st-M1' }))
-    expect(JSON.parse(localStorage.getItem('danplay.guias.voz'))).toBe('st-M1')
+    expect(JSON.parse(localStorage.getItem('danplay.cues.voice'))).toBe('st-M1')
     expect(w.findAll('.tl-guide-clip')).toHaveLength(2)
   })
 
   it('sonando no se hace (las guías, con la canción parada)', async () => {
-    preparar()
+    prepare()
     held.playback.emit({ playing: true })
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.study-auto-guide').attributes('disabled')).toBeDefined()
   })
 
   it('«Cambiar la voz…» en un carril: sus guías escritas, dichas con otra', async () => {
-    preparar()
+    prepare()
     held.api.makeCue.mockImplementation(async (id, b) => ({
       file: `/guias/${b.text.toLowerCase()}-${b.voice}.wav`,
       seconds: 1
@@ -429,10 +429,10 @@ describe('la guía automática', () => {
         })
       })
     ]
-    const w = await montar()
+    const w = await mountView()
     await w.find('.tl-lane-more').trigger('click')
-    expect(opcion('Cambiar la voz…')).toBeTruthy()
-    opcion('Cambiar la voz…').action()
+    expect(option('Cambiar la voz…')).toBeTruthy()
+    option('Cambiar la voz…').action()
     await flushPromises()
     ;[...document.querySelectorAll('.vp-pick')][1].click()
     await flushPromises()
@@ -449,7 +449,7 @@ describe('la guía automática', () => {
 
 describe('el recorrido', () => {
   it('«?» lo abre, con sus pasos y sus animaciones', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.find('.study-help').trigger('click')
     await flushPromises()
     const pop = document.querySelector('.driver-popover')
@@ -457,11 +457,11 @@ describe('el recorrido', () => {
     expect(pop.textContent).toContain('El modo estudio')
     expect(pop.querySelector('.tour-demo')).not.toBeNull()
     stopStudyTour()
-    expect(localStorage.getItem('danplay.study.recorridoVisto')).toBe('true')
+    expect(localStorage.getItem('danplay.study.tourSeen')).toBe('true')
   })
 
   it('no sale solo en las pruebas (sin medidas), y una vez visto no vuelve a salir solo', async () => {
-    await montar()
+    await mountView()
     await new Promise((r) => setTimeout(r, 1000))
     expect(document.querySelector('.driver-popover')).toBeNull()
   })

@@ -42,8 +42,8 @@ export function useViewport() {
   // Tan pequeña que la biblioteca no cabe: solo el reproductor. Se llega
   // con las formas «barra» y «cuadrito», o encogiendo la ventana a mano.
   const pocket = computed(() => {
-    if (height.value <= BAR_MAX_H) return 'barra'
-    if (width.value <= SQUARE_MAX_W && height.value <= SQUARE_MAX_H) return 'cuadro'
+    if (height.value <= BAR_MAX_H) return 'bar'
+    if (width.value <= SQUARE_MAX_W && height.value <= SQUARE_MAX_H) return 'square'
     return null
   })
 

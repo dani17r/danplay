@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
-// La app del celular (movil.html → src/movil/): su propio armazón para los
+// La app del celular (mobile.html → src/mobile/): su propio armazón para los
 // dedos (la lista táctil, el reproductor del celular, el menú de lado) y los
 // componentes de la PC donde valen tal cual (el estudio, la ficha). Lo que
 // solo se puede en la PC no aparece.
 const held = vi.hoisted(() => {
-  // lo marca movil.html; platform.js lo lee al cargarse
-  document.documentElement.dataset.app = 'movil'
+  // lo marca mobile.html; platform.js lo lee al cargarse
+  document.documentElement.dataset.app = 'mobile'
   return { playback: null, api: null, state: null }
 })
 
@@ -22,9 +22,9 @@ vi.mock('../src/api.js', async (importOriginal) => {
   return { ...actual, inTauri: true, api: held.api, playback: held.playback.bridge }
 })
 
-import MovilApp from '../src/movil/MovilApp.vue'
-import MovilSongs from '../src/movil/MovilSongs.vue'
-import MovilPlayer from '../src/movil/MovilPlayer.vue'
+import MobileApp from '../src/mobile/MobileApp.vue'
+import MobileSongs from '../src/mobile/MobileSongs.vue'
+import MobilePlayer from '../src/mobile/MobilePlayer.vue'
 import StudyBar from '../src/components/StudyBar.vue'
 import StudyTimeline from '../src/components/StudyTimeline.vue'
 import DetailsPanel from '../src/components/DetailsPanel.vue'
@@ -33,7 +33,7 @@ import { resetPlayback } from '../src/composables/usePlayback.js'
 import { resetClick } from '../src/composables/useClick.js'
 import { useContextMenu, closeMenu } from '../src/composables/useContextMenu.js'
 import { useDialog, dialogOk } from '../src/composables/useDialog.js'
-import { tapPlays } from '../src/movil/prefs.js'
+import { tapPlays } from '../src/mobile/prefs.js'
 import { song, stemsOf } from './support/backend.js'
 
 const { menu } = useContextMenu()
@@ -76,7 +76,7 @@ describe('la app del celular', () => {
   })
 
   it('enseña las pistas traídas y lo que se hace con cada una, sin nada de la PC', async () => {
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     expect(w.find('.m-top').text()).toContain('Mis pistas')
     expect(w.text()).toContain('Mi Gozo')
@@ -110,7 +110,7 @@ describe('la app del celular', () => {
   })
 
   it('un toque elige la canción y enseña sus botones; el doble toque la pone', async () => {
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await rowOf(w, 'Mi Gozo').trigger('click')
     expect(held.playback.bridge.setQueue).not.toHaveBeenCalled()
@@ -132,7 +132,7 @@ describe('la app del celular', () => {
 
   it('con «Un toque pone la canción», basta un toque; y la carátula siempre la pone', async () => {
     tapPlays.value = true
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await rowOf(w, 'Dios Poderoso').trigger('click')
     await flushPromises()
@@ -148,7 +148,7 @@ describe('la app del celular', () => {
   it('mantener pulsada una canción abre sus opciones', async () => {
     vi.useFakeTimers()
     try {
-      const w = mount(MovilApp, { attachTo: document.body })
+      const w = mount(MobileApp, { attachTo: document.body })
       await vi.runOnlyPendingTimersAsync()
       await flushPromises()
       const row = rowOf(w, 'Mi Gozo')
@@ -168,11 +168,11 @@ describe('la app del celular', () => {
   })
 
   it('«Estudiar» abre el estudio, y «atrás» lo cierra como su botón', async () => {
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await rowOf(w, 'Mi Gozo').trigger('click')
-    const estudiar = w.findAll('.m-song-actions button').find((b) => b.text() === 'Estudiar')
-    await estudiar.trigger('click')
+    const study = w.findAll('.m-song-actions button').find((b) => b.text() === 'Estudiar')
+    await study.trigger('click')
     await flushPromises()
     expect(held.playback.bridge.setQueue).toHaveBeenCalled()
     expect(w.findComponent(StudyBar).exists()).toBe(true)
@@ -182,22 +182,22 @@ describe('la app del celular', () => {
     expect(w.find('.m-app').classes()).toContain('m-studying')
     // «atrás»: oculta el estudio, sin tocar lo que suena (sigue puesto)
     held.playback.bridge.setSpeed.mockClear()
-    expect(window.__danplayAtras()).toBe(true)
+    expect(window.__danplayBack()).toBe(true)
     await flushPromises()
     expect(w.findComponent(StudyBar).exists()).toBe(true)
     expect(w.findComponent(StudyBar).isVisible()).toBe(false)
     expect(w.find('.m-app').classes()).not.toContain('m-studying')
     expect(held.playback.bridge.setSpeed, 'nada vuelve a como viene').not.toHaveBeenCalled()
     // luego la canción elegida, y luego ya nada (la app se va al fondo)
-    expect(window.__danplayAtras()).toBe(true)
-    expect(window.__danplayAtras()).toBe(false)
+    expect(window.__danplayBack()).toBe(true)
+    expect(window.__danplayBack()).toBe(false)
     w.unmount()
-    expect(window.__danplayAtras).toBeUndefined()
+    expect(window.__danplayBack).toBeUndefined()
   })
 
   it('sin pistas explica cómo traerlas de la PC', async () => {
     held.state.songs = []
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     expect(w.text()).toContain('Todavía no hay pistas en el celular')
     expect(w.text()).toContain('Convertir a DanPista')
@@ -222,8 +222,8 @@ describe('la música del teléfono', () => {
     ]
   })
   afterEach(() => {
-    delete window.DanPlayMusica
-    delete window.__danplayPermisoMusica
+    delete window.DanPlayMusic
+    delete window.__danplayMusicPermission
   })
   async function openPhone(w) {
     await w.find('[aria-label="Abrir el menú"]').trigger('click')
@@ -235,7 +235,7 @@ describe('la música del teléfono', () => {
   }
 
   it('se ve desde el menú; al poner una suenan detrás las de su carpeta', async () => {
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await openPhone(w)
     expect(w.find('.m-top').text()).toContain('Música del teléfono')
@@ -254,14 +254,14 @@ describe('la música del teléfono', () => {
 
   it('sin permiso lo pide, y con él se ve la música', async () => {
     let granted = false
-    window.DanPlayMusica = {
-      tiene: () => granted,
-      pedir: () => {
+    window.DanPlayMusic = {
+      granted: () => granted,
+      request: () => {
         granted = true
-        setTimeout(() => window.__danplayPermisoMusica(true), 0)
+        setTimeout(() => window.__danplayMusicPermission(true), 0)
       }
     }
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await openPhone(w)
     expect(w.text()).toContain('Música y audio')
@@ -282,8 +282,8 @@ describe('la música del teléfono', () => {
       { path: '/storage/1A2B-3C4D/Musica/coro.mp3', title: 'Coro', artist: 'Grupo' },
       { path: '/storage/emulated/0/Music/Grupo/coro-uno.mp3', title: 'Coro Uno', artist: 'Grupo' }
     ]
-    window.DanPlayMusica = { tiene: () => true, canciones: () => JSON.stringify(media) }
-    const w = mount(MovilApp, { attachTo: document.body })
+    window.DanPlayMusic = { granted: () => true, songs: () => JSON.stringify(media) }
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await openPhone(w)
     await w
@@ -297,7 +297,7 @@ describe('la música del teléfono', () => {
     )
     // y antes de volver a mirar la música
     held.api.phoneMedia.mockClear()
-    const { scanPhone } = await import('../src/movil/musica.js')
+    const { scanPhone } = await import('../src/mobile/phoneMusic.js')
     await scanPhone()
     expect(held.api.phoneMedia).toHaveBeenCalledTimes(1)
     expect(held.api.phoneMedia.mock.invocationCallOrder[0]).toBeLessThan(
@@ -307,7 +307,7 @@ describe('la música del teléfono', () => {
   })
 
   it('las carpetas se eligen como en la PC', async () => {
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await openPhone(w)
     await w
@@ -332,7 +332,7 @@ describe('la música del teléfono', () => {
 
 describe('el menú de lado y las listas', () => {
   it('«Acerca de DanPlay» dice quién lo hizo, cómo escribirle y lo nuevo', async () => {
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await w.find('[aria-label="Abrir el menú"]').trigger('click')
     await flushPromises()
@@ -349,7 +349,7 @@ describe('el menú de lado y las listas', () => {
     expect(about.textContent).toContain('Novedades')
     expect(about.textContent).toContain('Términos y condiciones')
     // «atrás» la cierra
-    expect(window.__danplayAtras()).toBe(true)
+    expect(window.__danplayBack()).toBe(true)
     await flushPromises()
     expect(document.querySelector('.m-about')).toBeNull()
     w.unmount()
@@ -359,7 +359,7 @@ describe('el menú de lado y las listas', () => {
     held.state.songs[1].favorite = 1
     held.state.playlists = [{ id: 7, name: 'Domingo', n: 1, seconds: 245 }]
     held.state.playlistSongs = [held.state.songs[0]]
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await w.find('[aria-label="Abrir el menú"]').trigger('click')
     await flushPromises()
@@ -393,15 +393,15 @@ describe('el menú de lado y las listas', () => {
     expect(start).toBe(1)
     expect(origin).toMatchObject({ kind: 'list', id: 7, label: 'Domingo' })
     // «atrás» desde una lista vuelve a todas (antes cierra el reproductor entero)
-    expect(window.__danplayAtras()).toBe(true)
-    expect(window.__danplayAtras()).toBe(true)
+    expect(window.__danplayBack()).toBe(true)
+    expect(window.__danplayBack()).toBe(true)
     await flushPromises()
     expect(w.find('.m-top').text()).toContain('Mis pistas')
     w.unmount()
   })
 
   it('una lista nueva se pide por su nombre y se abre', async () => {
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await w.find('[aria-label="Abrir el menú"]').trigger('click')
     await flushPromises()
@@ -419,7 +419,7 @@ describe('el menú de lado y las listas', () => {
 
   it('una canción se añade a una lista desde sus opciones', async () => {
     held.state.playlists = [{ id: 3, name: 'Domingo', n: 0, seconds: 0 }]
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await rowOf(w, 'Mi Gozo').find('.m-song-more').trigger('click')
     const add = menu.value.items.find((i) => i.label === 'Añadir a una lista')
@@ -446,7 +446,7 @@ describe('el reproductor del celular', () => {
 
   it('la barra se sube con el dedo para abrir el estudio; un toque abre el reproductor', async () => {
     sounding()
-    const w = mount(MovilPlayer, { props: { full: false }, attachTo: document.body })
+    const w = mount(MobilePlayer, { props: { full: false }, attachTo: document.body })
     await flushPromises()
     const bar = w.find('.m-mini-open')
     await pointer(bar, 'pointerdown', 100, 700)
@@ -466,7 +466,7 @@ describe('el reproductor del celular', () => {
 
   it('subirla poco no abre nada', async () => {
     sounding()
-    const w = mount(MovilPlayer, { props: { full: false }, attachTo: document.body })
+    const w = mount(MobilePlayer, { props: { full: false }, attachTo: document.body })
     await flushPromises()
     const bar = w.find('.m-mini-open')
     await pointer(bar, 'pointerdown', 100, 700)
@@ -479,7 +479,7 @@ describe('el reproductor del celular', () => {
 
   it('el reproductor entero: todo grande, con el estudio, la letra y la cola', async () => {
     sounding()
-    const w = mount(MovilPlayer, {
+    const w = mount(MobilePlayer, {
       props: { full: true, song: { ...song(1), title: 'Mi Gozo', key: 'A', bpm: 140 } },
       attachTo: document.body
     })
@@ -508,7 +508,7 @@ describe('el reproductor del celular', () => {
 
   it('el volumen de la app, a mano y a la vista: se baja, se silencia y vuelve', async () => {
     sounding()
-    const w = mount(MovilPlayer, { props: { full: true }, attachTo: document.body })
+    const w = mount(MobilePlayer, { props: { full: true }, attachTo: document.body })
     await flushPromises()
     const range = w.find('.m-volume input[type="range"]')
     expect(range.exists()).toBe(true)
@@ -528,7 +528,7 @@ describe('el reproductor del celular', () => {
 
   it('con el estudio abierto, la barra lleva la hora y los saltos de 10 s', async () => {
     sounding()
-    const w = mount(MovilPlayer, { props: { study: true }, attachTo: document.body })
+    const w = mount(MobilePlayer, { props: { study: true }, attachTo: document.body })
     await flushPromises()
     expect(w.find('.m-player-study').exists()).toBe(true)
     expect(w.text()).toContain('0:30')
@@ -542,7 +542,7 @@ describe('los mandos de la bandeja de Android', () => {
   it('cuenta a Android lo que suena, y otra vez al pausar', async () => {
     const update = vi.fn()
     window.DanPlayAndroid = { update }
-    const w = mount(MovilApp, { attachTo: document.body })
+    const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     held.playback.emit({
       track: { id: 1, title: 'Mi Gozo', artist: 'Barak', duration: 245, path: '/pistas/mi-gozo' },
@@ -640,11 +640,11 @@ describe('los componentes de la PC, en el celular', () => {
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(8)
     expect(w.findComponent({ name: 'StudyCue' }).exists()).toBe(false)
     // en la lista, solo escucharla: la guía, desde la carpeta de la pista
-    const lista = w.findAll('.study-cue')
-    expect(lista).toHaveLength(2)
+    const list = w.findAll('.study-cue')
+    expect(list).toHaveLength(2)
     expect(w.find('.study-cue [aria-label="Cambiarla"]').exists()).toBe(false)
     expect(w.find('.study-cue [aria-label="Quitarla"]').exists()).toBe(false)
-    await lista[0].find('[aria-label="Escucharla"]').trigger('click')
+    await list[0].find('[aria-label="Escucharla"]').trigger('click')
     expect(held.api.previewCue).toHaveBeenCalledWith('/pistas/barak-mi-gozo/guias/coro-1.wav')
     // y nada para poner guías
     expect(w.find('.study-add-cue').exists()).toBe(false)
@@ -655,9 +655,9 @@ describe('los componentes de la PC, en el celular', () => {
   it('«Salidas» está a la vista en la cabecera del estudio', async () => {
     const w = mount(StudyBar, { attachTo: document.body })
     await flushPromises()
-    const salidas = w.find('.study-head [aria-label="Salidas"]')
-    expect(salidas.exists()).toBe(true)
-    await salidas.trigger('click')
+    const outputs = w.find('.study-head [aria-label="Salidas"]')
+    expect(outputs.exists()).toBe(true)
+    await outputs.trigger('click')
     await flushPromises()
     expect(document.querySelector('.outs')).not.toBeNull()
     expect(document.body.textContent).toContain('Estéreo')
@@ -739,9 +739,9 @@ describe('las salidas en el celular', () => {
     const w = mount(StudyBar, { attachTo: document.body })
     await flushPromises()
     await w.find('[aria-label="Más del modo estudio"]').trigger('click')
-    const salidas = menu.value.items.find((i) => i.label?.startsWith('Salidas'))
-    expect(salidas).toBeTruthy()
-    salidas.action()
+    const outputs = menu.value.items.find((i) => i.label?.startsWith('Salidas'))
+    expect(outputs).toBeTruthy()
+    outputs.action()
     await flushPromises()
     const presets = document.querySelectorAll('.outs-preset')
     expect(presets.length).toBe(4)
@@ -757,7 +757,7 @@ describe('las salidas en el celular', () => {
 describe('la lista táctil, sola', () => {
   it('ordenando una lista, cada fila sube, baja o se quita, y no se pone a sonar', async () => {
     const songs = [song(1, { title: 'Uno' }), song(2, { title: 'Dos' })]
-    const w = mount(MovilSongs, { props: { songs, editing: true } })
+    const w = mount(MobileSongs, { props: { songs, editing: true } })
     const first = w.findAll('.m-song')[0]
     expect(first.find('[aria-label="Subir Uno"]').attributes('disabled')).toBeDefined()
     await first.find('[aria-label="Bajar Uno"]').trigger('click')

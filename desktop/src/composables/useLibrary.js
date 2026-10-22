@@ -5,7 +5,7 @@
 import { ref, shallowRef, watch } from 'vue'
 import { api, errorMessage } from '../api.js'
 import { notify } from './useNotices.js'
-import { diarioMessage } from '../utils/diario.js'
+import { journalMessage } from '../utils/journal.js'
 
 /** @typedef {import('../api.js').Song} Song */
 /** @typedef {{ kind: string, id?: number, name?: string }} View */
@@ -21,23 +21,23 @@ const FIRST_PAGE = 400
 
 // Lo último que el diario recuperó y ya se contó (su hora): se cuenta una
 // vez, también si la ventana se recarga.
-const DIARIO_KEY = 'danplay.diarioContado'
-function diarioTold() {
+const JOURNAL_KEY = 'danplay.journalTold'
+function journalTold() {
   try {
-    return Number(localStorage.getItem(DIARIO_KEY) || 0)
+    return Number(localStorage.getItem(JOURNAL_KEY) || 0)
   } catch {
     return 0
   }
 }
 /** Si el diario recuperó algo desde la última vez, se dice. @param {any} report */
-export function tellDiario(report) {
-  if (!report?.at || report.at <= diarioTold()) return
+export function tellJournal(report) {
+  if (!report?.at || report.at <= journalTold()) return
   try {
-    localStorage.setItem(DIARIO_KEY, String(report.at))
+    localStorage.setItem(JOURNAL_KEY, String(report.at))
   } catch {
     /* sin almacenamiento: se contaría otra vez al recargar, nada más */
   }
-  const text = diarioMessage(report)
+  const text = journalMessage(report)
   if (text) notify(text, 'ok', 12)
 }
 const PAGE = 5000
@@ -121,7 +121,7 @@ export function useLibrary(context) {
       stats.value = e.stats
       configured.value = e.configured
       missingFolders.value = e.missing_folders || []
-      tellDiario(e.diario)
+      tellJournal(e.journal)
 
       const v = view.value
       if (v.kind === 'playlist') {

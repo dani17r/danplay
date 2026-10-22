@@ -11,10 +11,10 @@
 // no se pierde aunque el WebView olvide lo suyo.
 import { reactive, computed } from 'vue'
 import { api } from '../api.js'
-import { GATED, TERMS_VERSION } from '../data/terminos.js'
+import { GATED, TERMS_VERSION } from '../data/terms.js'
 
 /** Ya se enseñaron al abrir (esa versión): no se vuelven a sacar solos. */
-const SEEN_KEY = 'danplay.terminosVistos'
+const SEEN_KEY = 'danplay.termsSeen'
 
 const state = reactive({
   /** ya se sabe lo que dice el núcleo */

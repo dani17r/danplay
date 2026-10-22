@@ -4,16 +4,16 @@
   "identifier": "local.danplay.pistas",
   "version": "../desktop/package.json",
   "build": {
-    "beforeDevCommand": { "script": "npm run dev:movil", "cwd": "../desktop", "wait": false },
+    "beforeDevCommand": { "script": "npm run dev:mobile", "cwd": "../desktop", "wait": false },
     "devUrl": "http://localhost:5274",
-    "beforeBuildCommand": { "script": "npm run build:movil", "cwd": "../desktop" },
-    "frontendDist": "../desktop/dist-movil"
+    "beforeBuildCommand": { "script": "npm run build:mobile", "cwd": "../desktop" },
+    "frontendDist": "../desktop/dist-mobile"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "url": "movil.html",
+        "url": "mobile.html",
         "title": "DanPlay",
         "width": 412,
         "height": 860,

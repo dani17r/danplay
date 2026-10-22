@@ -1,5 +1,5 @@
 //! El hilo de audio: atiende las ordenes de la cola y de la interfaz sobre
-//! el motor (`danplay-motor`) y cuenta como va.
+//! el motor (`danplay-engine`) y cuenta como va.
 //!
 //! Una cancion en el motor son sus partes: la cancion (la 0) y, si las
 //! tiene y se pidieron, sus pistas separadas detras. Pasar de la cancion a
@@ -142,7 +142,7 @@ struct Engine<'a> {
     shared: &'a Arc<Mutex<State>>,
     notify: &'a Notify,
     carry: &'a mut Carry,
-    motor: danplay_engine::Engine,
+    audio: danplay_engine::Engine,
     loaded: Option<Loaded>,
     /// Ya se aviso de que esta cancion se acaba (`Event::Ending`).
     ending_sent: bool,
@@ -172,7 +172,7 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
         shared,
         notify,
         carry,
-        motor: danplay_engine::Engine::new(),
+        audio: danplay_engine::Engine::new(),
         loaded: None,
         ending_sent: false,
         was_finished: false,
@@ -224,17 +224,17 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
 
 impl Engine<'_> {
     fn sounding(&self) -> bool {
-        self.loaded.is_some() && self.motor.state().playing
+        self.loaded.is_some() && self.audio.state().playing
     }
 
     /// Lo de la sesion (tras una caida, o al empezar): velocidad, tono,
     /// salida y enrutado.
     fn apply_session(&mut self) {
-        self.motor.set_speed(self.carry.speed);
-        self.motor.set_pitch(self.carry.pitch);
-        self.motor.set_output_config(self.carry.output.clone());
-        self.motor.set_count_in(u32::from(self.carry.metro.settings.count_in));
-        self.motor.set_routing(self.routing());
+        self.audio.set_speed(self.carry.speed);
+        self.audio.set_pitch(self.carry.pitch);
+        self.audio.set_output_config(self.carry.output.clone());
+        self.audio.set_count_in(u32::from(self.carry.metro.settings.count_in));
+        self.audio.set_routing(self.routing());
     }
 
     fn handle(&mut self, command: Command, step: &mut Step) {
@@ -257,7 +257,7 @@ impl Engine<'_> {
             Command::Metronome { settings, grid } => {
                 let path = self.carry.path.clone();
                 self.carry.metro.set(settings, grid, &path);
-                self.motor.set_count_in(u32::from(self.carry.metro.settings.count_in));
+                self.audio.set_count_in(u32::from(self.carry.metro.settings.count_in));
                 self.send_click();
             }
             Command::Stems { song, tracks } => self.set_stems(&song, tracks, step),
@@ -265,11 +265,11 @@ impl Engine<'_> {
             Command::NudgeVolume(delta) => self.volume(nudged_volume(self.carry.volume, delta)),
             Command::Speed(value) => {
                 self.carry.speed = if value.is_finite() { value.clamp(0.25, 3.0) } else { 1.0 };
-                self.motor.set_speed(self.carry.speed);
+                self.audio.set_speed(self.carry.speed);
             }
             Command::Pitch(semitones) => {
                 self.carry.pitch = clean_pitch(semitones);
-                self.motor.set_pitch(self.carry.pitch);
+                self.audio.set_pitch(self.carry.pitch);
             }
             Command::Relocated { from, to } => self.relocated(&from, to),
             Command::Crossfade(seconds) => {
@@ -281,11 +281,11 @@ impl Engine<'_> {
             }
             Command::Routing(spec) => {
                 self.carry.routing = spec;
-                self.motor.set_routing(self.routing());
+                self.audio.set_routing(self.routing());
             }
             Command::Output(config) => {
                 self.carry.output = config.clone();
-                self.motor.set_output_config(config);
+                self.audio.set_output_config(config);
             }
             Command::Cues { song, cues, volume } => {
                 if song == self.carry.path {
@@ -336,7 +336,7 @@ impl Engine<'_> {
         self.preparing = true;
         let tx = self.prepared_tx.clone();
         let _ = std::thread::Builder::new()
-            .name("danplay-preparar".into())
+            .name("danplay-prepare".into())
             .spawn(move || {
                 for path in missing {
                     if let Err(e) = formats::playable(&path) {
@@ -389,7 +389,7 @@ impl Engine<'_> {
         let fade = self.can_crossfade().then(|| {
             let len = self.crossfade_len();
             if self.ending_sent {
-                let left = (self.carry.duration - self.motor.state().position).max(0.0) as f32;
+                let left = (self.carry.duration - self.audio.state().position).max(0.0) as f32;
                 left.clamp(0.3, len.max(0.3))
             } else {
                 len.min(MANUAL_FADE)
@@ -413,7 +413,7 @@ impl Engine<'_> {
             Ok(Some(mut files)) => files.remove(0),
             Ok(None) => {
                 // se prepara aparte: lo que sonaba, fuera
-                self.motor.unload();
+                self.audio.unload();
                 self.loaded = None;
                 return;
             }
@@ -431,8 +431,8 @@ impl Engine<'_> {
         };
         let files = Self::parts(&song, &stems);
         let opened = match fade {
-            Some(secs) => self.motor.crossfade_files(&path, &files, hint, secs),
-            None => self.motor.load_files(&path, &files, hint),
+            Some(secs) => self.audio.crossfade_files(&path, &files, hint, secs),
+            None => self.audio.load_files(&path, &files, hint),
         };
         match opened {
             Ok(loaded) => {
@@ -449,7 +449,7 @@ impl Engine<'_> {
                 self.after_open();
                 if fade.is_none() {
                     // la que entra sola en la cola no cuenta
-                    self.motor.play_counting(false);
+                    self.audio.play_counting(false);
                 }
                 self.ending_sent = false;
                 self.was_finished = false;
@@ -462,11 +462,11 @@ impl Engine<'_> {
     /// Lo de la cancion recien abierta: enrutado, volumenes, tramos, clic y
     /// voces.
     fn after_open(&mut self) {
-        self.motor.set_routing(self.routing());
+        self.audio.set_routing(self.routing());
         self.apply_mix();
         let path = self.carry.path.clone();
         self.carry.metro.rebuild(&path);
-        self.motor.set_segments(&self.carry.loops, self.carry.loop_end);
+        self.audio.set_segments(&self.carry.loops, self.carry.loop_end);
         self.send_click();
         self.send_cues();
     }
@@ -474,7 +474,7 @@ impl Engine<'_> {
     /// No se pudo abrir: se dice y se olvida (sin limpiar la ruta, el
     /// siguiente play reproducia la cancion ANTERIOR).
     fn failed(&mut self, error: String, step: &mut Step) {
-        self.motor.unload();
+        self.audio.unload();
         self.loaded = None;
         self.carry.forget_song();
         step.failure = Some(readable(&error));
@@ -482,7 +482,7 @@ impl Engine<'_> {
 
     /// Deja una cancion preparada pero en silencio (ver `Command::Load`).
     fn load(&mut self, path: String, hint: f64) {
-        self.motor.unload();
+        self.audio.unload();
         self.loaded = None;
         if path != self.carry.path {
             self.carry.stems = None;
@@ -516,7 +516,7 @@ impl Engine<'_> {
         };
         let stems = self.stem_files(self.stems_retry()).ok().flatten().unwrap_or_default();
         let files = Self::parts(&song, &stems);
-        match self.motor.load_files(&path, &files, hint) {
+        match self.audio.load_files(&path, &files, hint) {
             Ok(loaded) => {
                 if hint <= 0.0 {
                     self.carry.duration = loaded.duration;
@@ -528,7 +528,7 @@ impl Engine<'_> {
                 });
                 self.after_open();
                 if from > 0.0 {
-                    self.motor.seek(from);
+                    self.audio.seek(from);
                     step.sought = true;
                 }
                 true
@@ -541,7 +541,7 @@ impl Engine<'_> {
     }
 
     fn stop(&mut self) {
-        self.motor.unload();
+        self.audio.unload();
         self.loaded = None;
         self.carry.forget_song();
         self.was_finished = false;
@@ -549,12 +549,12 @@ impl Engine<'_> {
 
     /// Toggle (`None`), Resume (`Some(true)`) o Pause (`Some(false)`).
     fn toggle(&mut self, want: Option<bool>, step: &mut Step) {
-        let st = self.motor.state();
+        let st = self.audio.state();
         // en plena cuenta, pausa (o play otra vez) la deja en pausa
         let counting = st.counting > 0;
         let wants_play = want.unwrap_or(!st.playing || st.ended) && !(counting && want != Some(true));
         if !wants_play {
-            self.motor.pause();
+            self.audio.pause();
             return;
         }
         if self.loaded.is_none() || st.loaded.is_none() {
@@ -567,10 +567,10 @@ impl Engine<'_> {
             && let Some(&(a, _)) = self.carry.loops.first()
         {
             // parado al acabar los tramos: desde el primero
-            self.motor.seek(a);
+            self.audio.seek(a);
         }
         self.rewound = false;
-        self.motor.play();
+        self.audio.play();
     }
 
     fn seek(&mut self, seconds: f64, step: &mut Step) {
@@ -582,7 +582,7 @@ impl Engine<'_> {
             return;
         }
         self.rewound = false;
-        self.motor.seek(seconds);
+        self.audio.seek(seconds);
     }
 
     fn set_loops(&mut self, segments: Vec<(f64, f64)>, end: LoopEnd) {
@@ -602,7 +602,7 @@ impl Engine<'_> {
         self.carry.loops = merged;
         self.carry.loop_end = end;
         self.rewound = false;
-        self.motor.set_segments(&self.carry.loops, end);
+        self.audio.set_segments(&self.carry.loops, end);
     }
 
     /// El archivo de la que suena se movio: su ruta nueva (ver
@@ -675,7 +675,7 @@ impl Engine<'_> {
         let files = Self::parts(&song, &stems);
         let routing = self.routing_for(stems.len());
         match self
-            .motor
+            .audio
             .handoff_files(&path, &files, self.carry.duration, HANDOFF, Some(routing))
         {
             Ok(_) => {
@@ -720,7 +720,7 @@ impl Engine<'_> {
             }
             None => mix[0] = (volume, 0.0),
         }
-        self.motor.set_mix(&mix);
+        self.audio.set_mix(&mix);
     }
 
     fn volume(&mut self, value: f32) {
@@ -750,12 +750,12 @@ impl Engine<'_> {
 
     fn send_click(&self) {
         let plan = click_plan(&self.carry.metro, self.carry.duration.max(1.0));
-        self.motor.set_click(plan);
+        self.audio.set_click(plan);
     }
 
     fn send_cues(&mut self) {
         let plan = self.clips.plan(&self.carry.cues, self.carry.cue_volume);
-        self.motor.set_cues(plan);
+        self.audio.set_cues(plan);
     }
 
     // ------------------------------------------- fundidos
@@ -768,7 +768,7 @@ impl Engine<'_> {
             && self.sounding()
             && self.carry.loops.is_empty()
             && !self.carry.metro.settings.on
-            && self.motor.state().counting == 0
+            && self.audio.state().counting == 0
     }
 
     /// Cuanto dura el fundido con la que suena: el puesto, o un tercio de
@@ -785,12 +785,12 @@ impl Engine<'_> {
     // ------------------------------------------- vigilar y contar
 
     fn watch(&mut self, step: &mut Step) {
-        let st = self.motor.state();
+        let st = self.audio.state();
         // parado al acabar los tramos: al principio del primero, en pausa
         if st.ended && st.segments_done && !self.rewound {
             self.rewound = true;
             if let Some(&(a, _)) = self.carry.loops.first() {
-                self.motor.seek(a);
+                self.audio.seek(a);
                 step.sought = true;
             }
         }
@@ -799,16 +799,16 @@ impl Engine<'_> {
             self.idle_since = None;
         } else {
             let since = *self.idle_since.get_or_insert_with(Instant::now);
-            if since.elapsed() >= IDLE_RELEASE && self.motor.output_open() {
+            if since.elapsed() >= IDLE_RELEASE && self.audio.output_open() {
                 self.carry.resume_at = Some(st.position);
-                self.motor.release_output();
+                self.audio.release_output();
             }
         }
     }
 
     fn publish(&mut self, step: Step) -> bool {
-        let st = self.motor.state();
-        let output = self.motor.output_status();
+        let st = self.audio.state();
+        let output = self.audio.output_status();
         let finished = self.loaded.is_some() && st.ended && !st.segments_done;
         let current = {
             let mut e = lock(self.shared);

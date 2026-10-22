@@ -12,38 +12,38 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * La música del teléfono (src/movil, «Música del teléfono»): el permiso de
- * leer «música y audio» para abrir las canciones con su ruta (musica.rs).
+ * La música del teléfono (src/mobile, «Música del teléfono»): el permiso de
+ * leer «música y audio» para abrir las canciones con su ruta (music.rs).
  * Se pide cuando se va a ver esa música, no al abrir la app. La página
- * pregunta con `DanPlayMusica.tiene()` y lo pide con `DanPlayMusica.pedir()`;
- * la respuesta le llega por `window.__danplayPermisoMusica(concedido)`.
+ * pregunta con `DanPlayMusic.granted()` y lo pide con `DanPlayMusic.request()`;
+ * la respuesta le llega por `window.__danplayMusicPermission(concedido)`.
  *
  * Qué canciones hay lo dice el índice de música de Android (MediaStore) con
- * `DanPlayMusica.canciones()`: así salen también las de la tarjeta SD y las
+ * `DanPlayMusic.songs()`: así salen también las de la tarjeta SD y las
  * de las carpetas de las apps (los audios de Telegram o de WhatsApp, dentro
  * de `Android/media`), que recorriendo carpetas no se veían; y no salen los
  * tonos de llamada, los avisos, las alarmas ni las grabaciones de voz.
  */
-class PermisoMusica(private val activity: Activity) {
+class MusicPermission(private val activity: Activity) {
   @JavascriptInterface
-  fun tiene(): Boolean =
-    ContextCompat.checkSelfPermission(activity, PERMISO) == PackageManager.PERMISSION_GRANTED
+  fun granted(): Boolean =
+    ContextCompat.checkSelfPermission(activity, PERMISSION) == PackageManager.PERMISSION_GRANTED
 
   /**
    * Las canciones del teléfono, en JSON: [{path, title, artist, album,
    * duration (ms), size, mtime}]. Sin el permiso, ninguna.
    */
   @JavascriptInterface
-  fun canciones(): String {
+  fun songs(): String {
     val out = JSONArray()
-    if (!tiene()) return out.toString()
+    if (!granted()) return out.toString()
     val uri =
       if (Build.VERSION.SDK_INT >= 29) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
       else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
     @Suppress("DEPRECATION")
-    val ruta = MediaStore.Audio.Media.DATA
-    val columnas = arrayOf(
-      ruta,
+    val pathColumn = MediaStore.Audio.Media.DATA
+    val columns = arrayOf(
+      pathColumn,
       MediaStore.Audio.Media.TITLE,
       MediaStore.Audio.Media.ARTIST,
       MediaStore.Audio.Media.ALBUM,
@@ -51,11 +51,11 @@ class PermisoMusica(private val activity: Activity) {
       MediaStore.Audio.Media.SIZE,
       MediaStore.Audio.Media.DATE_MODIFIED,
     )
-    var donde = "${MediaStore.Audio.Media.IS_RINGTONE} = 0 AND " +
+    var selection = "${MediaStore.Audio.Media.IS_RINGTONE} = 0 AND " +
       "${MediaStore.Audio.Media.IS_NOTIFICATION} = 0 AND ${MediaStore.Audio.Media.IS_ALARM} = 0"
-    if (Build.VERSION.SDK_INT >= 31) donde += " AND ${MediaStore.Audio.Media.IS_RECORDING} = 0"
+    if (Build.VERSION.SDK_INT >= 31) selection += " AND ${MediaStore.Audio.Media.IS_RECORDING} = 0"
     try {
-      activity.contentResolver.query(uri, columnas, donde, null, null)?.use { c ->
+      activity.contentResolver.query(uri, columns, selection, null, null)?.use { c ->
         while (c.moveToNext()) {
           val path = c.getString(0) ?: continue
           out.put(
@@ -78,15 +78,15 @@ class PermisoMusica(private val activity: Activity) {
   }
 
   @JavascriptInterface
-  fun pedir() {
+  fun request() {
     activity.runOnUiThread {
-      ActivityCompat.requestPermissions(activity, arrayOf(PERMISO), CODIGO)
+      ActivityCompat.requestPermissions(activity, arrayOf(PERMISSION), REQUEST_CODE)
     }
   }
 
   companion object {
-    const val CODIGO = 7401
-    val PERMISO: String =
+    const val REQUEST_CODE = 7401
+    val PERMISSION: String =
       if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
       else Manifest.permission.READ_EXTERNAL_STORAGE
   }

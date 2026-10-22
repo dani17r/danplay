@@ -49,20 +49,20 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-const montar = async () => {
+const mountView = async () => {
   const w = mount(App, { attachTo: document.body })
   await flushPromises()
   await flushPromises()
   return w
 }
-const fueraClic = async () => {
+const clickOutside = async () => {
   document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
   await flushPromises()
 }
 
 describe('la lista completa sigue visible al reproducir', () => {
   it('poner una cancion no reduce la lista', async () => {
-    const w = await montar()
+    const w = await mountView()
     expect(w.findAll('tbody tr')).toHaveLength(6)
     await w.findAll('tbody tr')[2].trigger('dblclick')
     await flushPromises()
@@ -70,7 +70,7 @@ describe('la lista completa sigue visible al reproducir', () => {
   })
 
   it('"Ver todo" desde la cola devuelve la lista entera', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.findAll('tbody tr')[1].trigger('dblclick')
     await flushPromises()
     // abrir la cola
@@ -86,7 +86,7 @@ describe('la lista completa sigue visible al reproducir', () => {
 
   it('en un repertorio tambien se ven todas', async () => {
     status.playlists = [{ id: 7, name: 'Domingo', n: 6, seconds: 600 }]
-    const w = await montar()
+    const w = await mountView()
     await w
       .findAll('.nav-link')
       .find((e) => e.text().includes('Domingo'))
@@ -103,7 +103,7 @@ describe('la lista completa sigue visible al reproducir', () => {
 // Estaba todo revuelto: el tema entre «agrupar» y «densidad». Ahora va en dos
 // grupos, lo que cambia la lista que ves y lo que cambia la app entera.
 describe('el menu de Vista', () => {
-  const abrir = async (w) => {
+  const open = async (w) => {
     await w
       .findAll('button')
       .find((b) => b.text().includes('Vista'))
@@ -112,54 +112,54 @@ describe('el menu de Vista', () => {
   }
 
   it('separa lo de la lista de lo de la app', async () => {
-    const w = await montar()
-    await abrir(w)
-    const grupos = w.findAll('.view-menu .menu-block')
-    expect(grupos).toHaveLength(2)
-    expect(grupos[0].text()).toContain('Agrupar')
-    expect(grupos[0].text()).toContain('Densidad')
-    expect(grupos[1].text()).toContain('Tema')
-    expect(grupos[1].text()).toContain('Tamaño de la app')
-    expect(grupos[0].text(), 'el tema no pinta nada entre lo de la lista').not.toContain('Tema')
+    const w = await mountView()
+    await open(w)
+    const groups = w.findAll('.view-menu .menu-block')
+    expect(groups).toHaveLength(2)
+    expect(groups[0].text()).toContain('Agrupar')
+    expect(groups[0].text()).toContain('Densidad')
+    expect(groups[1].text()).toContain('Tema')
+    expect(groups[1].text()).toContain('Tamaño de la app')
+    expect(groups[0].text(), 'el tema no pinta nada entre lo de la lista').not.toContain('Tema')
   })
 
   // El mini reproductor ya no se abre desde aqui: sale al pulsar el icono de
   // la bandeja, que es lo que se pidio. Lo que si tiene que haber es una
   // forma de salir, porque cerrar la ventana ahora solo la esconde.
   it('ofrece salir de la aplicacion', async () => {
-    const w = await montar()
-    await abrir(w)
-    const salir = w.findAll('button').find((b) => b.text().includes('Salir de DanPlay'))
-    expect(salir, 'sin esto no hay forma de cerrar DanPlay desde la ventana').toBeTruthy()
+    const w = await mountView()
+    await open(w)
+    const quit = w.findAll('button').find((b) => b.text().includes('Salir de DanPlay'))
+    expect(quit, 'sin esto no hay forma de cerrar DanPlay desde la ventana').toBeTruthy()
   })
 })
 
 describe('los menus se cierran al pulsar fuera', () => {
   it('el menu de Vista', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w
       .findAll('button')
       .find((b) => b.text().includes('Vista'))
       .trigger('click')
     await flushPromises()
     expect(w.findAll('.view-menu')).toHaveLength(1)
-    await fueraClic()
+    await clickOutside()
     expect(w.findAll('.view-menu'), 'el menu de Vista sigue abierto').toHaveLength(0)
   })
 
   it('la cola del reproductor', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.findAll('tbody tr')[0].trigger('dblclick')
     await flushPromises()
     await w.find('.player button[title="Cola de reproducción"]').trigger('click')
     await flushPromises()
     expect(w.findAll('.queue')).toHaveLength(1)
-    await fueraClic()
+    await clickOutside()
     expect(w.findAll('.queue'), 'la cola sigue abierta').toHaveLength(0)
   })
 
   it('el desplegable de un selector', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w
       .findAll('button')
       .find((b) => b.text().includes('Vista'))
@@ -168,7 +168,7 @@ describe('los menus se cierran al pulsar fuera', () => {
     await w.findAll('.select-box')[0].trigger('click')
     await flushPromises()
     expect(w.findAll('.select-menu')).toHaveLength(1)
-    await fueraClic()
+    await clickOutside()
     expect(w.findAll('.select-menu')).toHaveLength(0)
   })
 })

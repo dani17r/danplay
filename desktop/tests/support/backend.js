@@ -6,7 +6,7 @@
 // (`quitarCarpeta`, `estadoFalso.ia`), así que las pruebas seguían en verde
 // mientras la app llamaba a cosas que ya no existían.
 import { vi } from 'vitest'
-import { TERMS_VERSION } from '../../src/data/terminos.js'
+import { TERMS_VERSION } from '../../src/data/terms.js'
 
 /** Una canción de mentira con todos los campos que la interfaz espera. */
 export function song(id, extra = {}) {
@@ -122,8 +122,8 @@ export function finishSeparation(state, how = {}) {
     ok,
     error: how.error || ''
   })
-  state.jobs.separacion = {
-    ...finishedJob('separacion', { separated: [], failed: [], cancelled: false }),
+  state.jobs.separation = {
+    ...finishedJob('separation', { separated: [], failed: [], cancelled: false }),
     active: !!state.separation.current
   }
 }
@@ -537,7 +537,7 @@ function answers(state) {
       // escanear encuentra musica: si la prueba no dijo cual, la de siempre
       if (!state.songs.length) state.songs = state.scanFinds.map((s) => ({ ...s }))
       state.status.stats.total = state.songs.length
-      return start('escaneo', { stats: { ...state.status.stats } })
+      return start('scan', { stats: { ...state.status.stats } })
     },
     job: async (name) => {
       if (!state.jobs[name]) throw new Error(`404: no hay ninguna tarea «${name}»`)
@@ -681,14 +681,14 @@ function answers(state) {
       state.downloadFolder = { path, ready: true, reason: '', suggested: path }
       return { ...state.downloadFolder }
     },
-    runImport: async () => start('importacion', { results: [] }),
+    runImport: async () => start('import', { results: [] }),
     convertible: async () => ({ total: 0, files: [], protected: [] }),
     // en prueba contesta al momento; de verdad, es una tarea
     convert: async (d = {}) =>
       d.dry_run
         ? { converted: 0, failures: 0, dry_run: true }
         : start('conversion', { converted: 0, failures: 0 }),
-    duplicatesScan: async () => start('duplicados', copy(state.duplicates)),
+    duplicatesScan: async () => start('duplicates', copy(state.duplicates)),
     resolveDuplicate: async () => ({
       ok: true,
       kept: '/a.mp3',
@@ -829,13 +829,13 @@ function answers(state) {
       const item = { id, title: `${s.artist} - ${s.title}`, stage, done: 0, total: 0 }
       if (!state.separation.current) state.separation.current = item
       else state.separation.queue.push(item)
-      state.jobs.separacion = { ...finishedJob('separacion', null), active: true }
-      return { ...copy(state.separation), job: copy(state.jobs.separacion) }
+      state.jobs.separation = { ...finishedJob('separation', null), active: true }
+      return { ...copy(state.separation), job: copy(state.jobs.separation) }
     },
     cancelSeparation: async () => {
       state.separation.current = null
       state.separation.queue = []
-      state.jobs.separacion = finishedJob('separacion', null, { error: 'cancelado' })
+      state.jobs.separation = finishedJob('separation', null, { error: 'cancelado' })
       return copy(state.separation)
     },
     unqueueSeparation: async (id) => {
@@ -864,14 +864,14 @@ function answers(state) {
       return { ok: true, folder: `/musica/Separadas/cancion-${id}` }
     },
     exportMix: async (id, d) =>
-      start('mezcla', {
+      start('mix', {
         path: d.path,
         name: d.path.split('/').pop(),
         id: 99,
-        title: 'mezcla'
+        title: 'mix'
       }),
     toPhone: async (ids) =>
-      start('celular', {
+      start('bundle', {
         done: ids
           .filter((id) => state.stems[id])
           .map((id) => ({

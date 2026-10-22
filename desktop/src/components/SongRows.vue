@@ -51,7 +51,7 @@ const emit = defineEmits([
   'clearSelection'
 ])
 
-const caja = useTemplateRef('caja')
+const box = useTemplateRef('box')
 const {
   picked,
   before,
@@ -71,12 +71,12 @@ const {
   tabindex,
   onKey,
   onFocus
-} = useSongList(props, emit, { anchor: () => caja.value })
+} = useSongList(props, emit, { anchor: () => box.value })
 </script>
 
 <template>
   <div
-    ref="caja"
+    ref="box"
     class="rows"
     :data-sort-list="sortable ? '' : null"
     :role="hasRows ? 'listbox' : null"
@@ -145,7 +145,7 @@ const {
           aria-hidden="true"
           @dblclick.stop
         >
-          <Icon v-if="picked(c.id)" n="check" :t="12" :grosor="2.4" />
+          <Icon v-if="picked(c.id)" n="check" :t="12" :weight="2.4" />
         </span>
         <span class="row-num mono">{{ numberOf(sec, i) }}</span>
         <button

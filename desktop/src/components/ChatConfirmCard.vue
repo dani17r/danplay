@@ -195,7 +195,7 @@ watch(live, (on) => (on ? startPolling() : stopPolling()))
           @click="chat.togglePick(msg, row)"
         >
           <span class="pick-box" :class="{ on: chat.isPicked(msg, row) }" aria-hidden="true">
-            <Icon v-if="chat.isPicked(msg, row)" n="check" :t="11" :grosor="2.4" />
+            <Icon v-if="chat.isPicked(msg, row)" n="check" :t="11" :weight="2.4" />
           </span>
           <span class="cc-what">
             <span class="cc-asked"
