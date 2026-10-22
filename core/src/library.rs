@@ -662,6 +662,25 @@ pub fn tidy_target_of(artist: &str, title: &str, ext: &str, vocab: Vec<(String, 
     ordenar::target_of(artist, title, ext, &vocab).map_err(PyValueError::new_err)
 }
 
+// ------------------------------------------------------------------ términos
+
+#[pyfunction]
+pub fn terms_status(py: Python<'_>, data_dir: std::path::PathBuf) -> PyResult<Bound<'_, PyDict>> {
+    dict(py, &biblioteca::terminos::status(&data_dir))
+}
+
+/// `ValueError` si la versión no vale.
+#[pyfunction]
+pub fn terms_accept<'py>(
+    py: Python<'py>,
+    data_dir: std::path::PathBuf,
+    version: &str,
+    app: &str,
+) -> PyResult<Bound<'py, PyDict>> {
+    let d = biblioteca::terminos::accept(&data_dir, version, app).map_err(PyValueError::new_err)?;
+    dict(py, &d)
+}
+
 /// Registra las funciones en el módulo.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(db_revision, m)?)?;
@@ -722,5 +741,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tidy_propose, m)?)?;
     m.add_function(wrap_pyfunction!(tidy_proposals, m)?)?;
     m.add_function(wrap_pyfunction!(tidy_target_of, m)?)?;
+    m.add_function(wrap_pyfunction!(terms_status, m)?)?;
+    m.add_function(wrap_pyfunction!(terms_accept, m)?)?;
     Ok(())
 }

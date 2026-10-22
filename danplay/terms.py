@@ -9,19 +9,15 @@ Sin aceptarlos, la interfaz no deja separar en pistas, usar el asistente de
 IA ni «Transformar».
 """
 
-import json
 import logging
-import os
-import re
-import time
+
+import danplay_core as _rust
 
 from . import __version__, config
 
 log = logging.getLogger(__name__)
 
 FILE = "terminos.json"
-# una version de los terminos: su fecha (AAAA-MM-DD) o un numero
-_VERSION = re.compile(r"^[0-9][0-9A-Za-z.\-]{0,31}$")
 
 
 def _path():
@@ -29,30 +25,16 @@ def _path():
 
 
 def status() -> dict:
-    """{accepted: version aceptada o "", at: cuando, app: con que DanPlay}."""
-    try:
-        data = json.loads(_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    version = data.get("version")
-    return {
-        "accepted": version if isinstance(version, str) and _VERSION.match(version) else "",
-        "at": data.get("at") if isinstance(data.get("at"), (int, float)) else None,
-        "app": data.get("app") if isinstance(data.get("app"), str) else "",
-    }
+    """{accepted: version aceptada o "", at: cuando, app: con que DanPlay}.
+    Lo lee Rust (biblioteca/src/terminos.rs)."""
+    return _rust.terms_status(config.DATA_DIR)
 
 
 def accept(version: str) -> dict:
-    """Guarda que se aceptaron los terminos de esa version."""
-    if not isinstance(version, str) or not _VERSION.match(version):
+    """Guarda que se aceptaron los terminos de esa version. `ValueError` si
+    la version no vale (una fecha AAAA-MM-DD o un numero)."""
+    if not isinstance(version, str):
         raise ValueError("version de los terminos no valida")
-    path = _path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data = {"version": version, "at": round(time.time()), "app": __version__}
-    tmp = path.with_name(path.name + ".part")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, path)
+    out = _rust.terms_accept(config.DATA_DIR, version, __version__)
     log.info("terminos aceptados (%s)", version)
-    return status()
+    return out

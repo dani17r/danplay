@@ -28,6 +28,7 @@ pub mod py;
 pub mod red;
 pub mod seguro;
 pub mod teoria;
+pub mod terminos;
 pub mod toon;
 pub mod web;
 
