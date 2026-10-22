@@ -6,129 +6,63 @@ Reglas acordadas con el usuario:
   - formato final: "Artista - Titulo (feat. X).mp3"
   - fuera el ruido de descargas (VIDEO OFICIAL, LETRA, y2mate.com, ...)
   - duplicados: sufijo " - r", " - r2", ...
+
+Lo hace el crate de Rust (biblioteca/src/nombres.rs, regla a regla lo que
+antes estaba aqui); esto es la puerta de Python, con los mismos nombres.
 """
 
-import logging
-import os
 import re
-import unicodedata
 
-log = logging.getLogger(__name__)
+import danplay_core as _rust
 
-NOISE = [
-    # «Official Music Video», «Official Audio», «Official Lyric Video»,
-    # «Official Visualizer», «Music Video»: lo que YouTube pega al titulo. Van
-    # antes que las sueltas («official», «video») para que no quede un
-    # «(Music)» huerfano en el nombre.
-    r"official\s*(?:music\s*|lyrics?\s*|hd\s*)?(?:video|audio|visuali[sz]er)",
-    r"music\s*video",
-    r"\baudio\s*(?:oficial|official)\b",
-    r"\bvisuali[sz]er\b",
-    r"[\(\[]\s*audio\s*[\)\]]",
-    r"lyric\s*video\s*oficial",
-    r"official\s*(lyric\s*)?video",
-    r"videoclip\s*oficial",
-    r"video\s*oficial",
-    r"video\s*lyric",
-    r"video\s*con\s*letras?",
-    r"video\s*sencillo",
-    r"cancion\s*oficial",
-    r"letras?\s*oficiales?",
-    r"con\s*letras?",
-    r"\bletras?\b",
-    r"\bvideoclip\b",
-    r"\bvideo\b",
-    r"\boficial\b",
-    r"\bofficial\b",
-    r"\blyrics?\b",
-    r"m[uú]sica\s*cristiana",
-    r"la\s*mejor\s*musica\s*cristiana",
-    r"\d{2,3}\s*kbps",
-    r"\b\d{3}\s*k\b",
-    r"\bhd\b",
-    r"\bfull\s*hd\b",
-    r"\b4k\b",
-    r"y2mate\.com\s*-*",
-    r"ssvid\.net\s*-*",
-    r"savefrom\.net",
-    r"ceenaija\.com",
-    r"_+m4a_+\d*k_*",
-    r"\bvevo\b",
-    r"\bm4a\b",
-    r"\bmp3\b",
-    r"\bwav\b",
-]
-SEPARATORS = re.compile(r"\s*[-–—|·:]\s*|\s{2,}")
-INVALID_CHARS = str.maketrans(dict.fromkeys('\\/:*?"<>|', ""))
-# Caracteres de control: los ASCII (y los C1) y los invisibles que cambian la
-# direccion del texto o no ocupan nada (U+200B-U+200F, U+202A-U+202E,
-# U+2066-U+2069). En un nombre de archivo no pintan nada, y los de direccion
-# sirven para disfrazar una extension. Tabuladores y saltos de linea pasan a
-# espacio: «a\nb» es «a b», no «ab».
+
+def _txt(s) -> str:
+    """Un texto que se pueda pasar a Rust. Un nombre de archivo que no es
+    UTF-8 llega con «surrogates» (`surrogateescape`) y Rust no los admite:
+    se cambian por «�» antes de que un nombre raro pare un escaneo."""
+    s = str(s)
+    try:
+        s.encode("utf-8")
+    except UnicodeEncodeError:
+        return s.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+    return s
+
+
+# las reglas del ruido de las descargas, tambien para quien las combina con
+# las suyas (chat/resolve.py)
+NOISE = list(_rust.names_noise())
+# Lo que `strip_controls` quita (los mismos que en nombres.rs): los de control
+# ASCII y C1 y los invisibles de direccion o anchura cero. Para quien
+# compruebe un nombre (las pruebas).
 CONTROL_CHARS = re.compile("[\x00-\x08\x0e-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069]")
-_SPACE_CONTROLS = re.compile("[\t\n\r\x0b\x0c]")
+# Nombres que Windows no deja usar como archivo ni carpeta (`sanitize` les
+# pone «_» detras)
+WINDOWS_RESERVED = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
 
 
 def strip_controls(s: str) -> str:
     """El texto sin caracteres de control (los saltos, como espacios)."""
-    return CONTROL_CHARS.sub("", _SPACE_CONTROLS.sub(" ", s))
-
-
-# "feat./ft." vale en cualquier sitio; "con" SOLO dentro de parentesis,
-# porque hay titulos legitimos que empiezan por con ("Con Poder", "Con Todo").
-FEAT = re.compile(
-    r"\s*[\(\[]?\s*\b(?:feat|ft|featuring)\b\.?\s+"
-    r"([^()\[\]]+?)\s*[\)\]]?\s*(?=$|[-–—|(\[])",
-    re.IGNORECASE,
-)
-FEAT_IN_PARENS = re.compile(
-    r"\s*[\(\[]\s*(?:feat|ft|featuring|con|junto\s+a)\b\.?\s+"
-    r"([^()\[\]]+?)\s*[\)\]]",
-    re.IGNORECASE,
-)
+    return _rust.names_strip_controls(_txt(s))
 
 
 def strip_accents(s: str) -> str:
-    """Quita tildes y diacriticos pero respeta la ñ.
-
-    Se descompone cada letra en base + marcas y se tiran las marcas, salvo la
-    virgulilla que va sobre una n. Antes se escondia la ñ tras un «\\x00» y un
-    «\\x01», y esos caracteres, si venian en el texto, salian convertidos en
-    ñ: «Ma\\x00ana» daba «Mañana» y «Barak\\x01», «BarakÑ».
-    """
-    out: list[str] = []
-    for c in unicodedata.normalize("NFD", s):
-        if unicodedata.category(c) == "Mn":
-            if c == "\u0303" and out and out[-1] in "nN":
-                out.append(c)
-            continue
-        out.append(c)
-    return unicodedata.normalize("NFC", "".join(out))
-
-
-# Los apostrofes se quitan sin dejar hueco: D'Clario y DClario son lo mismo.
-_APOSTROPHES = dict.fromkeys(map(ord, "'’‘ʼ´`"), None)
+    """Quita tildes y diacriticos pero respeta la ñ."""
+    return _rust.names_strip_accents(_txt(s))
 
 
 def search_form(text) -> str:
-    """La forma en que se compara un nombre al buscar (regla del usuario).
-
-    Minusculas, sin tildes ni dieresis PERO CON LA ñ, y sin caracteres
-    extraños: todo lo que no sea una letra, un digito o un espacio (emojis,
-    asteriscos, guiones, comillas, simbolos de WhatsApp…) pasa a espacio, el
-    apostrofo desaparece sin dejar hueco y los espacios se juntan. Se aplica
-    a LOS DOS LADOS de toda comparacion (lo que se pide y lo que hay en la
-    biblioteca) y a lo que el asistente manda a buscar a YouTube:
-
-        «*3.-De Gloria en Gloria* ✅🙏🏻»   →  «3 de gloria en gloria»
-        «Cuán Grande Es Dios»               →  «cuan grande es dios»
-        «Cena Del Señor»                    →  «cena del señor»   (la ñ se queda)
-
-    Se pasa a minusculas ANTES de quitar las marcas: «İ» baja a «i» + un punto
-    combinado, y ese punto tiene que caer con las demas marcas.
-    """
-    s = strip_accents(str(text or "").lower()).translate(_APOSTROPHES)
-    return " ".join("".join(c if c.isalnum() else " " for c in s).split())
+    """La forma en que se compara un nombre al buscar: minusculas, sin tildes
+    PERO CON LA ñ, y sin nada que no sea letra, digito o espacio
+    («*3.-De Gloria en Gloria* ✅🙏🏻» → «3 de gloria en gloria»). Se aplica a
+    LOS DOS LADOS de toda comparacion."""
+    return _rust.names_search_form(_txt(text or ""))
 
 
 def search_tokens(text) -> list[str]:
@@ -145,403 +79,106 @@ def fold_enye(form: str) -> str:
 
 def capitalize_words(s: str) -> str:
     """Palabras enteras en MAYUSCULA -> Capitalizadas. Respeta CamelCase."""
-    return re.sub(
-        r"[A-Za-zÑñ]{2,}",
-        lambda m: m.group(0).capitalize() if m.group(0).isupper() else m.group(0),
-        s,
-    )
+    return _rust.names_capitalize_words(_txt(s))
 
 
 def split_glued(s: str) -> str:
     """VERSIONButterflyFull -> VERSION Butterfly Full."""
-    s = re.sub(r"(?<=[a-z]{2})(?=[A-Z][a-z])", " ", s)
-    return re.sub(r"(?<=[A-Z]{3})(?=[A-Z][a-z]{2})", " ", s)
-
-
-# Las mismas reglas de NOISE, en UNA sola expresion ya compilada. Antes esto
-# daba treinta pasadas sobre cada nombre; lo llaman el escaneo (una vez por
-# cancion) y la deteccion de duplicados (otra vez por cancion), asi que se
-# nota. El resultado es identico: la alternancia prueba las alternativas de
-# izquierda a derecha en el mismo orden en que estaban.
-_NOISE_RE = re.compile("|".join(NOISE), re.IGNORECASE)
+    return _rust.names_split_glued(_txt(s))
 
 
 def strip_noise(s: str) -> str:
-    s = _NOISE_RE.sub(" ", s)
-    s = re.sub(r"^\s*[a-zA-Z]?\d{3,6}\s+", " ", s)
-    s = re.sub(r"^\s*\d{1,3}\s*[.\-]\s*", " ", s)
-    s = re.sub(r"[\[\{][^\]\}]*[\]\}]", " ", s)
-    s = re.sub(r"@\s*[\w.]+", " ", s)
-    s = re.sub(r"\(\s*\)", " ", s)
-    return s
+    return _rust.names_strip_noise(_txt(s))
 
 
 def clean(s: str) -> str:
     """Pipeline completo sobre un texto sin extension."""
-    s = strip_controls(s)
-    s = s.replace("_", " ").replace("⁄", "-").replace("·", " ")
-    s = strip_noise(s)
-    s = strip_accents(s)
-    s = capitalize_words(s)
-    s = split_glued(s)
-    s = s.translate(INVALID_CHARS)
-    s = re.sub(r"\s*\.\s*(mp3|m4a|wav|flac)\s*$", "", s, flags=re.IGNORECASE)
-    s = re.sub(r"\s*([,;])\s*", r"\1 ", s)
-    # al quitar ruido de dentro de un parentesis quedan huecos: "(4K Remaster)"
-    # se convertia en "( Remaster)". Se cierran y los vacios ya cayeron antes.
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    s = re.sub(r"\s{2,}", " ", s)
-    return s.strip(" .-–—,")
-
-
-# Nombres que Windows no deja usar como archivo ni carpeta, con o sin
-# extension y sin distinguir mayusculas: «Con» (hay un titulo «Con Poder») o
-# «Aux» darian una carpeta imposible de crear en un disco NTFS. En Linux se
-# aplica igual para que la biblioteca se pueda copiar a un Windows tal cual.
-WINDOWS_RESERVED = {
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    *(f"COM{i}" for i in range(1, 10)),
-    *(f"LPT{i}" for i in range(1, 10)),
-}
+    return _rust.names_clean(_txt(s))
 
 
 def sanitize(s: str) -> str:
-    """Nombre valido de archivo o carpeta en cualquier sistema.
-
-    Quita caracteres prohibidos y de control, los puntos y espacios finales
-    (Windows los recorta en silencio y el nombre deja de coincidir) y añade
-    «_» a los nombres reservados.
-    """
-    s = strip_controls(s).translate(INVALID_CHARS)
-    s = re.sub(r"\s{2,}", " ", s).strip(" .")
-    stem, ext = os.path.splitext(s)
-    if stem.upper() in WINDOWS_RESERVED:
-        s = stem + "_" + ext
-    return s
+    """Nombre valido de archivo o carpeta en cualquier sistema: sin caracteres
+    prohibidos ni de control, sin puntos y espacios finales, y con «_» en los
+    nombres que Windows reserva («Con», «Aux»...)."""
+    return _rust.names_sanitize(_txt(s))
 
 
 def extract_feat(text: str) -> tuple[str, str]:
     """Saca el 'feat. X' del texto. Devuelve (texto_sin_feat, invitados)."""
-    guests = []
-
-    def _cap(m):
-        guests.append(m.group(1).strip(" .,-"))
-        return " "
-
-    base = FEAT_IN_PARENS.sub(_cap, text)
-    base = FEAT.sub(_cap, base)
-    base = re.sub(r"\s{2,}", " ", base).strip(" -–—,")
-    return base, ", ".join(i for i in guests if i)
+    return _rust.names_extract_feat(_txt(text))
 
 
 def final_name(artist: str, title: str, feat: str = "", extra: str = "", ext: str = ".mp3") -> str:
     """Construye 'Artista - Titulo (feat. X) (extra).ext'."""
-    artist, title = sanitize(artist), sanitize(title)
-    n = f"{artist} - {title}" if artist else title
-    if feat:
-        n += f" (feat. {sanitize(feat)})"
-    if extra:
-        extra = sanitize(extra)
-        if extra and f"({extra.lower()})" not in n.lower():
-            n += f" ({extra})"
-    return re.sub(r"\s{2,}", " ", n).strip() + ext
+    return _rust.names_final_name(_txt(artist), _txt(title), _txt(feat), _txt(extra), _txt(ext))
 
 
 def match_key(s: str) -> str:
     """Clave normalizada para comparar canciones (deteccion de duplicados)."""
-    s = strip_accents(os.path.splitext(s)[0]).lower()
-    s = strip_noise(s)
-    s = s.replace("'", "").replace("\u2019", "")  # D'Clario y DClario son lo mismo
-    s = re.sub(r"[^\w\s]", " ", s)
-    stopwords = {
-        "en",
-        "vivo",
-        "live",
-        "de",
-        "el",
-        "la",
-        "los",
-        "las",
-        "del",
-        "al",
-        "un",
-        "una",
-        "a",
-        "tu",
-        "mi",
-        "es",
-        "se",
-        "que",
-        "no",
-        "lo",
-        "y",
-        "feat",
-        "ft",
-        "con",
-        "the",
-        "r",
-        "r2",
-    }
-    return " ".join(sorted({p for p in s.split() if p not in stopwords and len(p) > 2}))
+    return _rust.names_match_key(_txt(s))
 
 
 def free_name(folder: str, name: str) -> str:
     """Si ya existe, aplica el sufijo ' - r', ' - r2', ... (regla de duplicados)."""
-    base, ext = os.path.splitext(name)
-    candidate, i = name, 0
-    while os.path.exists(os.path.join(folder, candidate)):
-        i += 1
-        candidate = f"{base} - r{'' if i == 1 else i}{ext}"
-    return candidate
+    return _rust.names_free_name(str(folder), _txt(name))
 
 
 # ---------------------------------------------------------------- vocabulario
 
 
 def _flat(s: str) -> str:
-    return re.sub(r"[^\w\s]", "", strip_accents(s).lower()).strip()
+    return _rust.names_flat(_txt(s))
 
 
 def vocabulary(artists_dir) -> dict:
     """{clave_plana: NombreRealDeCarpeta} a partir de las carpetas existentes."""
-    vocab = {}
-    if not os.path.isdir(artists_dir):
-        return vocab
-    for d in sorted(os.listdir(artists_dir)):
-        if os.path.isdir(os.path.join(artists_dir, d)):
-            vocab[_flat(d)] = d
-    return vocab
+    return dict(_rust.names_vocabulary(str(artists_dir)))
 
 
 def detect_artist(name: str, vocab: dict) -> dict:
     """Intenta resolver artista/titulo usando los artistas ya conocidos.
 
-    Devuelve {'artista','titulo','feat','confianza'}. La confianza dice si el
+    Devuelve {'artist','title','feat','confidence'}. La confianza dice si el
     resultado es fiable (>=0.8) o si conviene preguntarle a la IA.
     """
-    base = clean(os.path.splitext(name)[0])
-    base, feat = extract_feat(base)
-    flat = _flat(base)
-
-    hits = []
-    for k, real_name in vocab.items():
-        if not k or len(k) < 3:
-            continue
-        pos = flat.find(k)
-        if pos < 0:
-            continue
-        if pos == 0:
-            score = 0.92  # el nombre empieza por el artista
-        elif pos + len(k) >= len(flat):
-            score = 0.86  # termina por el artista
-        else:
-            score = 0.60  # aparece en medio
-        hits.append((score, len(k), real_name, k))
-
-    if not hits:
-        return {"artist": "", "title": base, "feat": feat, "confidence": 0.0}
-
-    hits.sort(key=lambda h: (h[0], h[1]), reverse=True)
-    score, _, artist, k = hits[0]
-
-    # varios artistas distintos en el nombre -> ambiguo, que decida la IA
-    distinct = {h[2] for h in hits}
-    if len(distinct) > 1:
-        score = min(score, 0.55)
-
-    pattern = re.compile(
-        r"\s*\b" + r"[\s.'\-]*".join(map(re.escape, k.split())) + r"\b\s*", re.IGNORECASE
-    )
-    title = pattern.sub(" ", strip_accents(base))
-    title = re.sub(r"^\s*(feat\.?|ft\.?|con|y|&|x)\s+", "", title, flags=re.IGNORECASE)
-    title = re.sub(r"\s{2,}", " ", title).strip(" -–—,")
-
-    if not title:
-        title, score = base, min(score, 0.5)
-    return {"artist": artist, "title": title, "feat": feat, "confidence": round(score, 2)}
-
-
-# El sufijo de las copias repetidas (« - r», « - r2»): no es parte del titulo.
-_DUP_SUFFIX = re.compile(r"\s+-\s+r\d*$", re.IGNORECASE)
-# Lo que separa artista y titulo en «Artista - Titulo», la convencion de la casa.
-_ARTIST_SEP = re.compile(r"\s+[-–—|]\s+")
+    return _rust.names_detect_artist(_txt(name), list(vocab.items()))
 
 
 def split_artist_title(file_name: str) -> dict | None:
     """«Artista - Titulo.mp3» → {artist, title, feat}; None si no hay guion.
-
-    Es la convencion de nombres de DanPlay, asi que para un archivo sin
-    etiquetas y fuera de Artistas/ es lo que dice el propio nombre, no una
-    suposicion: «Palisades - Personal (Official Music Video).mp3» es de
-    Palisades. Se limpia como todo lo demas (ruido de descarga, sufijo de
-    copia repetida) y el «feat.» sale de cualquiera de las dos partes. Con
-    varios guiones, lo de despues del segundo va entre parentesis, como en las
-    descargas: «Palisades - Personal - Live» → «Personal (Live)».
-    """
-    base = clean(os.path.splitext(os.path.basename(file_name))[0])
-    base = _DUP_SUFFIX.sub("", base)
-    parts = [x.strip(" -–—,|") for x in _ARTIST_SEP.split(base, maxsplit=1)]
-    if len(parts) != 2 or not all(parts):
-        return None
-    artist, artist_feat = extract_feat(parts[0])
-    title, title_feat = extract_feat(_tail_to_parens(parts[1]))
-    if not artist or not title:
-        return None
-    feat = ", ".join(x for x in (artist_feat, title_feat) if x)
-    return {"artist": artist, "title": title, "feat": feat}
+    Con varios guiones, lo de despues del segundo va entre parentesis:
+    «Palisades - Personal - Live» → «Personal (Live)»."""
+    return _rust.names_split_artist_title(_txt(file_name))
 
 
 # ------------------------------------------------- nombre desde YouTube
 
-# Lo que sobra en el nombre de un canal para que sea un nombre de artista.
-_CHANNEL_NOISE = re.compile(
-    r"\s*(?:-\s*topic|vevo|official|oficial|\(oficial\)|tv|hd)\s*$", re.IGNORECASE
-)
-
 
 def channel_as_artist(channel: str) -> str:
     """El canal como artista: «BarakVEVO» → «Barak», «Ish Melton - Topic» → «Ish Melton»."""
-    c = clean(channel or "")
-    c = re.sub(r"vevo$", "", c, flags=re.IGNORECASE).strip()
-    c = _CHANNEL_NOISE.sub("", c).strip(" -–—,|")
-    return c
+    return _rust.names_channel_as_artist(_txt(channel or ""))
 
 
 def _tail_to_parens(title: str) -> str:
-    """«Que Se Abra El Cielo - Drum Cam» → «Que Se Abra El Cielo (Drum Cam)».
-
-    En la biblioteca el guion separa artista y titulo; uno de mas dentro del
-    titulo confunde a todo lo que lo lee despues.
-    """
-    parts = [x.strip(" -–—,|") for x in re.split(r"\s+[-–—|]\s+", title) if x.strip(" -–—,|")]
-    if not parts:
-        return ""
-    head, *rest = parts
-    for extra in rest:
-        if f"({extra.lower()})" not in head.lower():
-            head += f" ({extra})"
-    return head
+    """«Que Se Abra El Cielo - Drum Cam» → «Que Se Abra El Cielo (Drum Cam)»."""
+    return _rust.names_tail_to_parens(_txt(title))
 
 
 def from_video(
     title: str, channel: str, vocab: dict | None = None, yt_artist: str = "", yt_track: str = ""
 ) -> dict:
-    """Artista y titulo de una descarga, a partir de lo que dice YouTube.
-
-    Regla del usuario: lo que se baja se llama como en YouTube, limpio, y no
-    se le cuelga a otro artista porque la huella acustica diga que suena
-    como su cancion (una «Drum Cam» de «Que se abra el cielo» no es de Miel
-    San Marcos). Por orden:
-
-      1. los datos de YouTube Music (`artist`/`track`), si vienen: son los
-         unicos metadatos de verdad;
-      2. un artista que ya tienes en Artistas/ y aparece en el titulo;
-      3. el canal, si aparece en el titulo («X - Ish Melton Drum Cam»): esa
-         parte es el artista y el resto, el titulo;
-      4. «Artista - Titulo», el orden habitual en YouTube;
-      5. sin guion: el titulo entero, y el canal como artista.
-    """
-    vocab = vocab or {}
-    if yt_artist and yt_track:
-        artist = clean(re.sub(r"\s*-\s*topic\s*$", "", yt_artist, flags=re.IGNORECASE))
-        base, feat = extract_feat(clean(yt_track))
-        if artist:
-            return {
-                "artist": artist,
-                "title": base or clean(title),
-                "feat": feat,
-                "source": "youtube-music",
-                "confidence": 0.95,
-            }
-
-    base, feat = extract_feat(clean(title))
-    base = base.strip(" -–—,|")
-
-    known = detect_artist(base, vocab)
-    if known["artist"] and known["confidence"] >= 0.8:
-        return {
-            "artist": known["artist"],
-            "title": _tail_to_parens(known["title"]) or base,
-            "feat": known["feat"] or feat,
-            "source": "youtube",
-            "confidence": 0.9,
-        }
-
-    artist = channel_as_artist(channel)
-    flat_base, flat_artist = _flat(base), _flat(artist)
-    if artist and len(flat_artist) >= 3 and flat_artist in flat_base:
-        pattern = re.compile(
-            r"\s*\b" + r"[\s.'\-]*".join(map(re.escape, flat_artist.split())) + r"\b\s*",
-            re.IGNORECASE,
-        )
-        rest = pattern.sub(" ", strip_accents(base))
-        rest = re.sub(r"\s{2,}", " ", rest).strip(" -–—,|")
-        rest = re.sub(r"^\s*(feat\.?|ft\.?|con|y|&|x|,)\s+", "", rest, flags=re.IGNORECASE)
-        return {
-            "artist": artist,
-            "title": _tail_to_parens(rest) or base,
-            "feat": feat,
-            "source": "youtube",
-            "confidence": 0.85,
-        }
-
-    parts = [x.strip(" -–—,|") for x in re.split(r"\s+[-–—|]\s+", base, maxsplit=1)]
-    if len(parts) == 2 and all(parts):
-        left, right = parts
-        return {
-            "artist": left,
-            "title": _tail_to_parens(right),
-            "feat": feat,
-            "source": "youtube",
-            "confidence": 0.75,
-        }
-
-    return {
-        "artist": artist,
-        "title": _tail_to_parens(base) or base,
-        "feat": feat,
-        "source": "youtube",
-        "confidence": 0.6 if artist else 0.0,
-    }
-
-
-# El tipo de video, por las palabras del titulo. Solo lo inequivoco: «(Pista)»
-# no vale, que un disco trae sus pistas y se quedan con el artista; ni
-# «cover» a secas, que casi siempre es otra voz cantandola. `PB` en mayuscula
-# y suelto: es como se llaman las secuencias («Hay Libertad PB»).
-_KINDS = (
-    ("track", re.compile(r"\bdrum\s*-?\s*cam\b", re.I), "una Drum Cam"),
-    (
-        "track",
-        re.compile(r"\bdrumless\b|\bsin\s+bater[ií]a\b|\bno\s+drums\b", re.I),
-        "una pista sin batería",
-    ),
-    (
-        "tutorial",
-        re.compile(
-            r"\btutorial\b|\bdrum\s+lesson\b|\bc[oó]mo\s+tocar\b"
-            r"|\b(?:lecci[oó]n|clase)\s+de\s+bater[ií]a\b",
-            re.I,
-        ),
-        "un tutorial",
-    ),
-    (
-        "tutorial",
-        re.compile(
-            r"\bdrum\s+(?:cover|playthrough)\b|\bcover\s+de\s+bater[ií]a\b|\bbater[ií]a\s+cover\b",
-            re.I,
-        ),
-        "un drum cover",
-    ),
-    ("tutorial", re.compile(r"\bplay\s*-?\s*along\b", re.I), "un play along"),
-    ("sequence", re.compile(r"\bsecuencias?\b|\bmulti\s*-?\s*tracks?\b", re.I), "una secuencia"),
-    ("sequence", re.compile(r"\bplayback\b", re.I), "un playback"),
-    ("sequence", re.compile(r"(?<![\w.])PB(?![\w.])"), "un playback"),
-)
+    """Artista y titulo de una descarga, a partir de lo que dice YouTube: los
+    datos de YouTube Music si vienen; un artista que ya tienes y aparece en
+    el titulo; el canal, si aparece en el titulo; «Artista - Titulo»; y si no,
+    el titulo entero con el canal como artista. Lo que se baja se llama como
+    en YouTube, limpio, y no se le cuelga a otro artista."""
+    return _rust.names_from_video(
+        _txt(title or ""),
+        _txt(channel or ""),
+        list((vocab or {}).items()),
+        _txt(yt_artist or ""),
+        _txt(yt_track or ""),
+    )
 
 
 def video_kind(title: str) -> dict | None:
@@ -551,8 +188,4 @@ def video_kind(title: str) -> dict | None:
     sequence); `what`, como se nombra en el aviso («una Drum Cam»). Las
     descargas no se archivan por esto: la app solo lo sugiere.
     """
-    t = strip_controls(title or "")
-    for category, rx, what in _KINDS:
-        if rx.search(t):
-            return {"category": category, "what": what}
-    return None
+    return _rust.names_video_kind(_txt(title or ""))

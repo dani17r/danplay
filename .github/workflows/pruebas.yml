@@ -69,14 +69,11 @@ jobs:
 
   # El núcleo, en Windows. Es la única forma de saber si de verdad funciona
   # allí: las rutas, la papelera y el transporte por loopback con token toman
-  # caminos distintos que en Linux no se ejecutan nunca. Sin el crate de Rust
-  # (las etiquetas, entonces, con mutagen: danplay/tags_mutagen.py), que es
-  # lo que de verdad cambia con el sistema; el crate se prueba en Linux.
+  # caminos distintos que en Linux no se ejecutan nunca. Con el crate de Rust,
+  # que el núcleo necesita (las etiquetas, los nombres...), compilado aquí.
   nucleo-windows:
     name: núcleo Python en Windows
     runs-on: windows-latest
-    env:
-      DANPLAY_SIN_RUST: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -84,12 +81,20 @@ jobs:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: requirements.txt
+      - uses: dtolnay/rust-toolchain@stable
+      # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
+      # clave, se restauraban sin servir y nunca se renovaban
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
       - name: ffmpeg (para generar la biblioteca de prueba)
         run: choco install ffmpeg --no-progress -y
       - name: dependencias
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-test.txt
+          # el crate de Rust del núcleo, compilado con maturin
+          pip install ./core
       - name: pruebas
         run: pytest
       - name: la línea de órdenes arranca

@@ -57,16 +57,18 @@ jobs:
       - name: ffmpeg, ffprobe, fpcalc y QuickJS
         run: ./scripts/herramientas-macos.sh --con-ffprobe
 
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: dependencias de Python
         run: |
           python -m pip install --upgrade pip
           # con hashes (salen de uv.lock); en los Intel, con el onnxruntime
           # que si existe para ellos (ver scripts/requisitos-mac.py)
           pip install -r "$(python scripts/requisitos-mac.py)" -r requirements-test.txt
+          # el crate de Rust del núcleo, compilado con maturin
+          pip install ./core
 
       - name: pruebas
-        env:
-          DANPLAY_SIN_RUST: '1'
         run: |
           export PATH="$PWD/desktop/src-tauri/tools:$PATH"
           pytest

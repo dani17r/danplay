@@ -35,14 +35,16 @@ suena al escritorio.
 etiquetas ID3, la IA, las descargas. Se puede usar solo, sin interfaz, desde
 la línea de comandos.
 
-**Rust (PyO3)** es donde va lo que Python hace lento: las etiquetas de cada
-canción (`biblioteca/`, con lofty: leerlas y escribirlas, y en el escaneo por
-tandas en paralelo), hashes de archivos en paralelo (rayon) y análisis de
-audio con FFT. Los paquetes lo llevan siempre; sin él (en desarrollo o en las
-pruebas sin Rust), Python tiene su propia versión más lenta de cada cosa, y
-las etiquetas van con mutagen (`tags_mutagen.py`, GPL: por eso no viaja).
-Es el principio del núcleo en Rust: `biblioteca/` no sabe nada de Python, y
-la app lo usará directamente.
+**Rust (PyO3)** es donde va pasando el núcleo, de dentro afuera: las
+etiquetas de cada canción (`biblioteca/`, con lofty: leerlas y escribirlas, y
+en el escaneo por tandas en paralelo), la limpieza de nombres, hashes de
+archivos en paralelo (rayon) y análisis de audio con FFT. Python llama al
+crate (`danplay_core`, en `core/`) con la misma API de antes, y sus pruebas
+son el testigo de que nada cambia. El crate es obligatorio: `uv sync` lo
+compila, y lo que ya está en Rust no tiene versión en Python (quedan algunas
+viejas, como las etiquetas con mutagen en `tags_mutagen.py`, GPL: por eso no
+viaja en los paquetes). `biblioteca/` no sabe nada de Python, y la app lo
+usará directamente.
 
 ## Por qué la cola vive en Rust
 

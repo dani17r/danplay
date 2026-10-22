@@ -107,7 +107,9 @@ def test_solo_letras_digitos_y_espacios_simples_en_minuscula(s):
     out = N.search_form(s)
     assert out == out.strip()
     assert "  " not in out
-    assert all(c.isalnum() or c == " " for c in out)
+    # lo que el Unicode de este Python aun no conoce (Cn: un ideograma de la
+    # 16.0, por ejemplo) lo juzga el de Rust, que va por delante
+    assert all(c.isalnum() or c == " " or unicodedata.category(c) == "Cn" for c in out)
     assert out == out.lower()
     # ningun diacritico suelto, salvo la virgulilla de la ñ (que sale compuesta)
     decomposed = unicodedata.normalize("NFD", out).replace(f"n{TILDE}", "n")

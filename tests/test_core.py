@@ -238,10 +238,6 @@ def test_identical_finds_exact_copies():
         assert len(groups) == 1 and set(groups[0]) == {a, b}
 
 
-@pytest.mark.skipif(
-    os.environ.get("DANPLAY_SIN_RUST") == "1",
-    reason="se prueba el nucleo sin Rust, como viaja en el instalador de Windows",
-)
 def test_rust_is_active():
     assert D.RUST, "el crate de Rust deberia estar compilado"
 

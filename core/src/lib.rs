@@ -7,6 +7,7 @@
 //! órdenes y las pruebas.
 pub mod audio;
 pub mod etiquetas;
+pub mod nombres;
 
 use md5::{Digest, Md5};
 use pyo3::prelude::*;
@@ -199,6 +200,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(etiquetas::tags_write_txxx, m)?)?;
     m.add_function(wrap_pyfunction!(etiquetas::cover_read, m)?)?;
     m.add_function(wrap_pyfunction!(etiquetas::cover_write, m)?)?;
+    nombres::register(m)?;
     Ok(())
 }
 

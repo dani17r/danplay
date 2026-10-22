@@ -9,9 +9,13 @@ rust-version.workspace = true
 name = "biblioteca"
 
 [dependencies]
+fancy-regex = "0.19.2"
 # Leer y escribir las etiquetas (ID3, Vorbis, MP4): MIT o Apache-2.0. Es lo
 # que sustituye a mutagen, que es GPL.
 lofty = "0.25"
+regex = "1.13.1"
+unicode-normalization = "0.1.26"
+unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
 
 [lints]
 workspace = true
