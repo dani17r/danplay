@@ -279,6 +279,53 @@ fn dump_str(s: &str, out: &mut String) {
     out.push('"');
 }
 
+/// `json.dumps(v, ensure_ascii=False, indent=n)` de Python: cada pieza en su
+/// línea, con `n` espacios por nivel, «,» al final de cada una y «: » tras
+/// la clave; lo vacío, `{}` y `[]`. Es como se guardan los perfiles de IA.
+pub fn dumps_indent(v: &Value, indent: usize) -> String {
+    let mut out = String::new();
+    dump_indent_into(v, indent, 0, &mut out);
+    out
+}
+
+fn dump_indent_into(v: &Value, indent: usize, level: usize, out: &mut String) {
+    let pad = |out: &mut String, level: usize| {
+        out.push('\n');
+        out.push_str(&" ".repeat(indent * level));
+    };
+    match v {
+        Value::Array(a) if !a.is_empty() => {
+            out.push('[');
+            for (i, x) in a.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                pad(out, level + 1);
+                dump_indent_into(x, indent, level + 1, out);
+            }
+            pad(out, level);
+            out.push(']');
+        }
+        Value::Object(o) if !o.is_empty() => {
+            out.push('{');
+            for (i, (k, x)) in o.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                pad(out, level + 1);
+                dump_str(k, out);
+                out.push_str(": ");
+                dump_indent_into(x, indent, level + 1, out);
+            }
+            pad(out, level);
+            out.push('}');
+        }
+        Value::Array(_) => out.push_str("[]"),
+        Value::Object(_) => out.push_str("{}"),
+        other => dump_into(other, out),
+    }
+}
+
 /// `list(v)` de Python con lo que llega de un JSON (lo vacío, si no es nada:
 /// `list(v or [])`): una lista tal cual, un texto en sus caracteres, un
 /// diccionario en sus claves.

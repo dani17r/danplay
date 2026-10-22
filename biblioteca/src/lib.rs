@@ -14,6 +14,7 @@ pub mod etiquetas;
 pub mod habla;
 pub mod html;
 pub mod huella;
+pub mod ia;
 pub mod indice;
 pub mod miniaturas;
 pub mod nombres;

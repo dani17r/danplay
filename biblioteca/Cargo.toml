@@ -30,6 +30,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 # cambió)
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 sha1 = "0.11.0"
+# La huella de una clave de IA (para recordar qué modelos funcionan con ella
+# sin guardarla)
+sha2 = "0.10.9"
 # Decodificar el audio para la forma de onda, sin ffmpeg (los formatos de
 # siempre; opus y wma van por ffmpeg).
 symphonia = { version = "0.6", features = ["mp3", "wav", "flac", "isomp4", "aac", "ogg", "vorbis"] }
