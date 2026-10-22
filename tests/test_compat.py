@@ -12,6 +12,7 @@ import posixpath
 import unicodedata
 
 import danplay_core as R
+import pytest
 from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
@@ -75,6 +76,10 @@ def test_juntar_y_lo_comun_como_ntpath(a, b):
     assert _compat("nt_commonpath", [a, b]) == expected
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="en Windows realpath se resuelve con el sistema (canonicalize) y ~otro no se expande",
+)
 def test_las_rutas_del_sistema(tmp_path, monkeypatch):
     """realpath, abspath, relpath y expanduser de verdad, con enlaces."""
     (tmp_path / "real" / "sub").mkdir(parents=True)

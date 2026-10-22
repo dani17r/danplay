@@ -93,9 +93,9 @@ fn random_hex() -> String {
 }
 
 fn getrandom(buf: &mut [u8]) -> std::io::Result<()> {
-    use std::io::Read as _;
     #[cfg(unix)]
     {
+        use std::io::Read as _;
         std::fs::File::open("/dev/urandom")?.read_exact(buf)
     }
     #[cfg(not(unix))]
