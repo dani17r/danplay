@@ -5,12 +5,20 @@
 //! cada archivo con lofty (MIT o Apache-2.0) en vez de mutagen, que es GPL.
 //! Python lo usa a través de `danplay_core` (core/); la app de escritorio lo
 //! usará directamente cuando el núcleo entero esté en Rust.
+pub mod avisos;
 pub mod cifrados;
+pub mod convertir;
+pub mod duplicados;
 pub mod etiquetas;
 pub mod habla;
 pub mod html;
+pub mod huella;
 pub mod indice;
+pub mod miniaturas;
 pub mod nombres;
+pub mod onda;
+pub mod paridad;
+pub mod procesos;
 pub mod py;
 pub mod red;
 pub mod seguro;

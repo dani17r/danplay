@@ -8,24 +8,26 @@
 pub mod audio;
 pub mod cifrados;
 pub mod compat;
+pub mod convertir;
+pub mod duplicados;
 pub mod etiquetas;
 pub mod habla;
+pub mod huella;
 pub mod indice;
 pub mod json;
 pub mod library;
+pub mod miniaturas;
 pub mod nombres;
+pub mod onda;
+pub mod registro;
 pub mod seguro;
 pub mod teoria;
 pub mod toon;
 pub mod web;
 
-use md5::{Digest, Md5};
 use pyo3::prelude::*;
-use rayon::prelude::*;
 use std::cell::RefCell;
 use std::ffi::OsString;
-use std::fs::File;
-use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------- último error
@@ -90,68 +92,11 @@ fn publish<T>(results: Vec<(PathBuf, Result<T, String>)>) -> Vec<(OsString, Opti
 }
 
 // ---------------------------------------------------------------------- hashes
-
-/// El md5 en hexadecimal, como lo da `hashlib.md5().hexdigest()`. md-5 ya no
-/// lo formatea solo (`{:x}` no vale sobre el tipo que devuelve desde la 0.11).
-fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        out.push(char::from(DIGITS[usize::from(b >> 4)]));
-        out.push(char::from(DIGITS[usize::from(b & 0x0f)]));
-    }
-    out
-}
-
-/// md5 de los primeros `bytes` del archivo (detección rápida de duplicados).
-fn partial_hash_one(path: &Path, bytes: usize) -> Result<String, String> {
-    let file = File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
-    // `take` + `read_to_end` en vez de un único `read`: un `read` puede
-    // devolver menos bytes de los pedidos (red, tuberías, señales) y el hash
-    // saldría truncado, distinto para dos archivos idénticos.
-    let mut buf = Vec::with_capacity(bytes.min(1 << 20));
-    file.take(bytes as u64)
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("error de lectura: {e}"))?;
-    Ok(hex(&Md5::digest(&buf)))
-}
-
-/// md5 del archivo completo, por bloques de 1 MiB para no cargarlo entero.
-fn full_hash_one(path: &Path) -> Result<String, String> {
-    let mut file = File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
-    let mut hasher = Md5::new();
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        match file.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => hasher.update(&buf[..n]),
-            // Una señal puede interrumpir el `read`: se reintenta, no es un fallo.
-            Err(e) if e.kind() == ErrorKind::Interrupted => {}
-            Err(e) => return Err(format!("error de lectura: {e}")),
-        }
-    }
-    Ok(hex(&hasher.finalize()))
-}
-
-fn partial_hashes(paths: Vec<PathBuf>, bytes: usize) -> Vec<(PathBuf, Result<String, String>)> {
-    paths
-        .into_par_iter()
-        .map(|path| {
-            let result = partial_hash_one(&path, bytes);
-            (path, result)
-        })
-        .collect()
-}
-
-fn full_hashes_of(paths: Vec<PathBuf>) -> Vec<(PathBuf, Result<String, String>)> {
-    paths
-        .into_par_iter()
-        .map(|path| {
-            let result = full_hash_one(&path);
-            (path, result)
-        })
-        .collect()
-}
+//
+// Viven en la biblioteca, con los duplicados (`biblioteca::duplicados`).
+use biblioteca::duplicados::{
+    hash_parcial as partial_hash_one, hashes_completos as full_hashes_of, hashes_parciales as partial_hashes,
+};
 
 // ------------------------------------------------------------- API para Python
 //
@@ -220,12 +165,19 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     seguro::register(m)?;
     habla::register(m)?;
     web::register(m)?;
+    convertir::register(m)?;
+    onda::register(m)?;
+    miniaturas::register(m)?;
+    huella::register(m)?;
+    duplicados::register(m)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use biblioteca::duplicados::{hash_completo as full_hash_one, hex};
+    use md5::{Digest, Md5};
 
     fn temp_file(name: &str, data: &[u8]) -> PathBuf {
         let path = std::env::temp_dir().join(name);

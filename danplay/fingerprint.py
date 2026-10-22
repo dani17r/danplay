@@ -2,10 +2,16 @@
 
 Reconoce la cancion por como suena, no por el nombre del archivo.
 Necesita el binario `fpcalc` (paquete libchromaprint-tools) y una API key gratuita.
+
+La huella y la consulta las hace el crate de Rust (biblioteca/src/huella.rs,
+antes pyacoustid); aqui queda la puerta de Python y lo que depende de
+`config` (la clave, donde esta fpcalc).
 """
 
 import logging
 import os
+
+import danplay_core as _rust
 
 from . import config, convert
 
@@ -34,44 +40,24 @@ def unavailable_reason() -> str:
     return ""
 
 
+def _match(key: str, path) -> list[tuple]:
+    """Lo que AcoustID dice que suena como `path`: [(puntuacion, id, titulo,
+    artista)]. Falla con una excepcion si no hay fpcalc, red o clave buena.
+    Como con pyacoustid, la variable FPCALC manda sobre el que se encuentre
+    (en la app empaquetada vive junto al ejecutable y no en el PATH)."""
+    fpcalc = os.environ.get("FPCALC") or convert.tool("fpcalc") or "fpcalc"
+    return _rust.fingerprint_match(key, fpcalc, os.path.abspath(os.path.expanduser(str(path))))
+
+
 def identify(path, minimum=0.75) -> dict | None:
     """Devuelve {'artist','title','album','year','score','source'} o None."""
     if unavailable_reason():
         return None
-    # pyacoustid lee la variable FPCALC al importarse: si el binario esta
-    # junto al ejecutable y no en el PATH, hay que decirselo antes.
-    fpcalc = convert.tool("fpcalc")
-    if fpcalc and os.path.dirname(fpcalc):
-        os.environ.setdefault("FPCALC", fpcalc)
+    # Un error del servicio (clave invalida, cuota, caida) o de fpcalc no se
+    # lleva por delante la importacion: no hay huella, y ya.
     try:
-        import acoustid
-    except ImportError:
-        return None
-    # OJO: `match` devuelve un GENERADOR. La peticion de red y el parseo de la
-    # respuesta ocurren al recorrerlo, no al llamarlo. Si el try solo envuelve
-    # la llamada, un error del servicio (clave invalida, cuota, caida) escapa
-    # al recorrer y se lleva por delante toda la importacion.
-    try:
-        results = list(
-            acoustid.match(config.ACOUSTID_API_KEY, str(path), meta="recordings releases")
-        )
+        results = list(_match(config.ACOUSTID_API_KEY, path))
     except Exception:
         log.warning("AcoustID no respondio para %s", path, exc_info=True)
         return None
-
-    best = None
-    for score, _rid, title, artist in results:
-        if not title or not artist:
-            continue
-        if score < minimum:
-            continue
-        if best is None or score > best["score"]:
-            best = {
-                "artist": artist,
-                "title": title,
-                "album": "",
-                "year": "",
-                "score": round(float(score), 3),
-                "source": "fingerprint",
-            }
-    return best
+    return _rust.fingerprint_best(results, minimum)

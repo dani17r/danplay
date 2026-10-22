@@ -16,10 +16,12 @@ crate-type = ["cdylib"]
 # lanzan con PYO3_BUILD_EXTENSION_MODULE=1 como hace maturin.
 pyo3 = "0.29"
 rayon = "1.10"
-md-5 = "0.11"
-symphonia = { version = "0.6", features = ["mp3", "wav", "flac", "isomp4", "aac", "ogg", "vorbis"] }
 # las etiquetas de cada canción (lofty), las mismas que usará la app
 danplay-biblioteca = { path = "../biblioteca" }
+
+[dev-dependencies]
+# las pruebas comparan los hashes con el md5 de siempre
+md-5 = "0.11"
 
 [lints]
 workspace = true

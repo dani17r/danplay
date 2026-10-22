@@ -871,10 +871,15 @@ version = "1.30.0"
 dependencies = [
  "fancy-regex",
  "lofty",
+ "md-5",
  "rayon",
  "regex",
  "rusqlite",
+ "serde",
  "serde_json",
+ "sha1",
+ "symphonia",
+ "tempfile",
  "unicode-ident",
  "unicode-normalization",
  "unicode-properties",
@@ -919,7 +924,6 @@ dependencies = [
  "md-5",
  "pyo3",
  "rayon",
- "symphonia",
 ]
 
 [[package]]
@@ -4069,6 +4073,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5395,9 +5410,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "ureq"
-version = "3.5.0"
+version = "3.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cde93ff05758a36a851a398a772b0b79a82fbe3c186a46f2696baaeaf84c966b"
+checksum = "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc"
 dependencies = [
  "base64 0.23.1",
  "flate2",
