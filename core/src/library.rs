@@ -3,7 +3,7 @@
 //! que abrió Python (`library.connect()`), y escribe dentro de su transacción.
 use crate::indice::{Connection, with_conn};
 use crate::json::{dict, dicts, from_python, to_python};
-use biblioteca::indice::{self, Dic, busqueda, canciones, carpetas, escaneo, historial};
+use biblioteca::indice::{self, Dic, busqueda, canciones, carpetas, escaneo, historial, ordenar};
 use biblioteca::serde_json::Value;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -630,6 +630,38 @@ pub fn songs_own_cue_file(path: &Bound<'_, PyAny>, base: &str, previews: bool) -
     Ok(canciones::own_cue_file(Some(&path), base, previews))
 }
 
+// ------------------------------------------------------------------ ordenar
+
+#[pyfunction]
+pub fn tidy_propose<'py>(
+    py: Python<'py>,
+    song: &Bound<'py, PyAny>,
+    vocab: Vec<(String, String)>,
+    library: &str,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let song = as_dic(Some(song))?;
+    ordenar::propose(&song, &vocab, library)
+        .map(|d| dict(py, &d))
+        .transpose()
+}
+
+#[pyfunction]
+pub fn tidy_proposals<'py>(
+    py: Python<'py>,
+    conn: &Bound<'py, Connection>,
+    vocab: Vec<(String, String)>,
+    library: String,
+) -> PyResult<Bound<'py, PyDict>> {
+    let d = with_conn(py, conn, move |c| ordenar::proposals(c, &vocab, &library))?;
+    dict(py, &d)
+}
+
+/// `ValueError` si falta el artista o el título.
+#[pyfunction]
+pub fn tidy_target_of(artist: &str, title: &str, ext: &str, vocab: Vec<(String, String)>) -> PyResult<String> {
+    ordenar::target_of(artist, title, ext, &vocab).map_err(PyValueError::new_err)
+}
+
 /// Registra las funciones en el módulo.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(db_revision, m)?)?;
@@ -687,5 +719,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(songs_paths_of, m)?)?;
     m.add_function(wrap_pyfunction!(songs_clean_study, m)?)?;
     m.add_function(wrap_pyfunction!(songs_own_cue_file, m)?)?;
+    m.add_function(wrap_pyfunction!(tidy_propose, m)?)?;
+    m.add_function(wrap_pyfunction!(tidy_proposals, m)?)?;
+    m.add_function(wrap_pyfunction!(tidy_target_of, m)?)?;
     Ok(())
 }

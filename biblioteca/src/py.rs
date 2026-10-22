@@ -383,6 +383,20 @@ pub fn head(s: &str, n: usize) -> &str {
     s.char_indices().nth(n).map_or(s, |(i, _)| &s[..i])
 }
 
+/// `str.casefold()` de Python: las minúsculas para comparar sin mirar
+/// mayúsculas («ß» es «ss», «ς» es «σ», «ﬁ» es «fi»). Rust no lo trae: es
+/// `lower()` salvo en los caracteres de la tabla, sacada de Python.
+pub fn casefold(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match casefold::CASEFOLD.binary_search_by(|(k, _)| k.cmp(&c)) {
+            Ok(i) => out.push_str(casefold::CASEFOLD[i].1),
+            Err(_) => out.extend(c.to_lowercase()),
+        }
+    }
+    out
+}
+
 /// `str.isidentifier()` de Python.
 pub fn isidentifier(s: &str) -> bool {
     let mut chars = s.chars();
@@ -1081,6 +1095,8 @@ pub fn fnmatchcase(name: &str, pat: &str) -> bool {
 pub fn fnmatch(name: &str, pat: &str) -> bool {
     fnmatchcase(&normcase(name), &normcase(pat))
 }
+
+mod casefold;
 
 #[cfg(test)]
 mod tests;
