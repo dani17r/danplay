@@ -9,6 +9,8 @@
 # en Linux suele estar en la RAM, y otra vez en cada proceso del pulso y del
 # separador. La carpeta viaja como recurso de Tauri (`nucleo/`, ver
 # tauri.conf.json), no como `externalBin`, que solo sabe copiar un archivo.
+import glob
+import importlib.util
 import os
 import sys
 from PyInstaller.utils.hooks import (
@@ -34,6 +36,14 @@ hidden = (collect_submodules('uvicorn') + collect_submodules('fastapi')
              'uvicorn.logging', 'uvicorn.protocols.http.h11_impl',
              'uvicorn.lifespan.on', 'uvicorn.loops.asyncio'])
 
+# La biblioteca de ONNX Runtime (libonnxruntime.so.1.30.0, la .dylib de
+# macOS, onnxruntime.dll), por su nombre: `collect_dynamic_libs` no reconoce
+# un «.so.1.30.0».
+_ORT = os.path.join(os.path.dirname(importlib.util.find_spec('onnxruntime').origin), 'capi')
+ONNXRUNTIME = [(p, 'onnxruntime/capi')
+               for p in sorted(glob.glob(os.path.join(_ORT, 'libonnxruntime*'))
+                               + glob.glob(os.path.join(_ORT, 'onnxruntime*.dll')))]
+
 a = Analysis(['core_entry.py'],
              pathex=[ROOT],
              # La biblioteca de ONNX Runtime (libonnxruntime.so.*, .dylib,
@@ -42,7 +52,7 @@ a = Analysis(['core_entry.py'],
              # Python de onnxruntime no depende de ella (en Linux lleva todo
              # dentro), asi que PyInstaller no la recogia y en el paquete el
              # clic se quedaba sin la red.
-             binaries=collect_dynamic_libs('onnxruntime'),
+             binaries=collect_dynamic_libs('onnxruntime') + ONNXRUNTIME,
              # La foto del catalogo de modelos (models.dev) viaja dentro: sin
              # ella, el primer arranque sin internet no sabria ni un modelo.
              # Los .js de yt-dlp (sus retos de YouTube, ademas de los de
