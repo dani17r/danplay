@@ -41,7 +41,7 @@ def propose(song: dict, vocab: dict | None = None) -> dict | None:
     """Como quedaria `song` (una fila del indice), o None si esta bien o no
     es de las que se tocan. {"id", "from", "to" (rutas dentro de la
     biblioteca), "artist", "title", "why": [...], "sure"}. Lo decide Rust
-    (biblioteca/src/indice/ordenar.rs), con las reglas de arriba."""
+    (library/src/index/tidy.rs), con las reglas de arriba."""
     return _rust.tidy_propose(dict(song), _vocab(vocab), str(config.LIBRARY))
 
 

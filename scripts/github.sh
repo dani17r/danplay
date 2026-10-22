@@ -3,7 +3,7 @@
 # de cada sistema se hacen en la integración continua, y aquí solo se espera
 # (esperar no gasta nada) y se baja el resultado.
 #
-#   ./scripts/github.sh pruebas                  las de pruebas.yml, las mismas
+#   ./scripts/github.sh pruebas                  las de tests.yml, las mismas
 #                                                que ./scripts/test.sh; si algo
 #                                                falla, enseña qué
 #   ./scripts/github.sh paquetes                 los siete de cada versión, a la
@@ -25,7 +25,7 @@
 # rama tiene que estar subido (git push). Si ese commit ya tiene una ejecución
 # en marcha o que salió bien (la del push a main, la de la etiqueta de
 # versión), se espera a esa en vez de lanzar otra igual; la de pruebas, además,
-# cancelaría a la que ya corre (concurrency en pruebas.yml).
+# cancelaría a la que ya corre (concurrency en tests.yml).
 #
 # Hace falta `gh` con sesión iniciada.
 set -euo pipefail
@@ -83,7 +83,7 @@ pruebas () {
     local id estado
     commit_subido
     paso "pruebas de ${SHA:0:7} ($RAMA)"
-    id=$(ejecucion pruebas.yml)
+    id=$(ejecucion tests.yml)
     printf '  %s\n' "$(enlace "$id")"
 
     paso "esperar a que terminen (unos 10 minutos)"

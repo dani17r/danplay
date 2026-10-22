@@ -1,7 +1,7 @@
 """Las carpetas que DanPlay gestiona, lo que se excluye de ellas y que archivos
 de audio hay dentro. Tambien una carpeta que se movio entera y vuelve.
 
-Lo hace Rust (biblioteca/src/indice/carpetas.rs); esto es la puerta de
+Lo hace Rust (library/src/index/folders.rs); esto es la puerta de
 Python, con los mismos nombres. El cerrojo del escaneo (`_SCAN_LOCK`) y el
 aviso a la interfaz (`_touch`) siguen aqui, alrededor de cada llamada.
 """

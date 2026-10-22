@@ -1,10 +1,10 @@
 """El escaneo: poner el indice al dia con lo que hay en el disco.
 
 Incremental y por ruta; lo que se va se aparta (`songs_missing`) y, si
-vuelve, recupera su id. Ver docs/ARQUITECTURA.md, «La biblioteca sigue al
+vuelve, recupera su id. Ver docs/ARCHITECTURE.md, «La biblioteca sigue al
 disco».
 
-El recorrido y el indice los hace Rust (biblioteca/src/indice/escaneo.rs:
+El recorrido y el indice los hace Rust (library/src/index/scan.rs:
 leer las etiquetas por tandas en paralelo, meter, actualizar, recuperar ids);
 aqui queda lo de despues, que aun es de Python: las pistas separadas, las
 ondas y caratulas de lo que se fue, lo que se aprovecha de otro archivo de
@@ -78,7 +78,7 @@ def _purge_missing(conn, days=None) -> int:
 def scan(progress=None) -> dict:
     """Pone el indice al dia con lo que hay en las carpetas gestionadas.
 
-    `progress(hechos, total)` cuenta el avance (el trabajo «escaneo»).
+    `progress(done, total)` cuenta el avance (el trabajo «escaneo»).
 
     Incremental y por ruta: lo nuevo se inserta, lo que cambio se actualiza
     y lo que ya no esta en el disco se aparta (`_to_missing`). Los ids NO

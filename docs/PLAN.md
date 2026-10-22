@@ -69,7 +69,7 @@ Lo que **no** se hizo, y por qué:
   estudio para cuando toque.
 - **Ejecutarlo en Windows y en macOS**: el código está y compila, pero desde
   aquí no hay ninguna de las dos máquinas. Lo que falta comprobar está en
-  [Windows](WINDOWS.md) y en [Contribuir](CONTRIBUIR.md).
+  [Windows](WINDOWS.md) y en [Contribuir](CONTRIBUTING.md).
 
 ---
 
@@ -485,7 +485,7 @@ para poner el popup junto al puntero; en Wayland llega a cero.
 | `desktop/src/components/Player.vue`, `desktop/src/MiniPlayer.vue` | usan `usePlayback`; sin polling |
 | `desktop/src/api.js` | `tray.*` se reduce; `native.*` gana las órdenes de cola |
 | `tests/smoke.sh` | comprobar que el icono se registra: `busctl --user list \| grep StatusNotifierItem-$PID` |
-| `README.md`, `docs/ARQUITECTURA.md` | «mini reproductor en la bandeja» pasa a ser verdad en Linux; explicar Wayland |
+| `README.md`, `docs/ARCHITECTURE.md` | «mini reproductor en la bandeja» pasa a ser verdad en Linux; explicar Wayland |
 
 ### 2.10 Pruebas
 
@@ -578,7 +578,7 @@ En Linux y macOS se queda el socket Unix `0600` tal cual.
 Un workflow con matriz `ubuntu-latest` + `windows-latest`: pruebas Python,
 Vitest, `cargo test`, y en etiquetas de versión los paquetes (`.deb`,
 `.AppImage`, `-setup.exe`). Es la primera aportación que pide
-`docs/CONTRIBUIR.md`.
+`docs/CONTRIBUTING.md`.
 
 ### 3.5 Esfuerzo y riesgos
 
@@ -661,7 +661,7 @@ IA, sin YouTube en el teléfono (o vía el PC, Opción A).
 
 Tiene un efecto colateral valioso: **el mismo núcleo Rust sustituiría a
 `mutagen` en el escritorio** y se acabaría el problema de licencia (GPL dentro
-del binario) que documenta `docs/DEPENDENCIAS.md`. Pero es reescribir la parte
+del binario) que documenta `docs/DEPENDENCIES.md`. Pero es reescribir la parte
 más delicada del proyecto (los 352 líneas de `tags.py` y 856 de `library.py`,
 con sus 162 pruebas como red). Meses, no semanas. Solo después de A y solo si
 quieres ir en esa dirección.
@@ -705,7 +705,7 @@ contra una biblioteca temporal en un directorio de trabajo, sin tocar el repo.
    «Aleluya», reescaneo, la lista contiene «Aleluya». Además `TXXX:LISTAS` se
    escribe en el mp3 (`playlists.py:162`) pero **nadie lo lee** (`tags.py:106-114`),
    así que las listas tampoco sobreviven a perder la base, en contra de lo que
-   promete `docs/ARQUITECTURA.md`. Arreglo: escaneo incremental por `path`
+   promete `docs/ARCHITECTURE.md`. Arreglo: escaneo incremental por `path`
    (`UPDATE` si cambió mtime/tamaño, `INSERT` si es nuevo, `DELETE` de lo que ya
    no está) con ids estables, quitar el `rebuild` de FTS (los triggers ya lo
    mantienen) y restaurar las listas desde `TXXX:LISTAS` al reindexar. Con

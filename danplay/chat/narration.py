@@ -1,11 +1,11 @@
 """Narrar no es hacer: detectar cuando el modelo dice que ha hecho algo que no
-ha hecho (ver docs/ARQUITECTURA.md, «El asistente»).
+ha hecho (ver docs/ARCHITECTURE.md, «El asistente»).
 
 Tres piezas: las llamadas escritas como texto en vez de hechas, las frases
-que afirman una accion (la lista sale de un corpus real, tests/narracion.json)
+que afirman una accion (la lista sale de un corpus real, tests/narration.json)
 y, cuando las frases no bastan, el propio modelo como juez de una palabra.
 
-Las dos primeras las hace Rust (biblioteca/src/asistente/narracion.rs, con
+Las dos primeras las hace Rust (library/src/assistant/narration.rs, con
 las mismas expresiones, rama a rama); esto es la puerta de Python, y la
 pregunta al juez, que necesita la IA.
 """
@@ -40,7 +40,7 @@ class _PseudoCall:
     puede llevar lo que algun modelo le pone: una viñeta, comillas invertidas
     o una etiqueta («búsqueda: search_songs …», «llamada: …», «tool: …»).
 
-    `PSEUDO_CALL.match(texto)` dice si el texto empieza asi (verdadero o
+    `PSEUDO_CALL.match(text)` dice si el texto empieza asi (verdadero o
     None, como `re.match`)."""
 
     def match(self, text) -> bool | None:
@@ -83,7 +83,7 @@ def claims_action(text: str) -> bool:
     condicionales («si dices que si, la app te avisara»), que no son
     afirmaciones. Amplia a proposito: sin herramientas en el turno, un falso
     positivo cuesta una llamada de mas; un falso negativo es una lista que
-    no existe. Los casos que se toleran estan en tests/narracion.json.
+    no existe. Los casos que se toleran estan en tests/narration.json.
     """
     return _rust.narration_claims_action(_txt(text or ""))
 

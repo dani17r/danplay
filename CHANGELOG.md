@@ -1,12 +1,12 @@
 # Cambios
 
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
-hecho así, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
+hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Sin publicar
 
 El núcleo, pasando a Rust: lo que hacía en Python, ahora en el crate de
-Rust que va dentro (ver [docs/MIGRACION.md](docs/MIGRACION.md)). Por
+Rust que va dentro (ver [docs/MIGRATION.md](docs/MIGRATION.md)). Por
 fuera todo sigue igual; por dentro va más rápido y gasta menos.
 
 - **El índice en Rust**: la base se abre con SQLite desde Rust, y buscar,
@@ -636,7 +636,7 @@ toca y el clic está más sentado.
 - **A otra velocidad, a tiempo.** Despacio (y con el tono corrido), el clic
   llegaba tarde: unos 20 ms a 0,5×. Corregido.
 - Las rejillas guardadas se vuelven a calcular solas la próxima vez.
-- `scripts/revisar-metronomo.py` pasa por toda tu biblioteca y dice, canción
+- `scripts/check-metronome.py` pasa por toda tu biblioteca y dice, canción
   por canción, qué hace mal la red y cómo queda el clic.
 
 ## 1.21.0 — 2026-10-07
@@ -664,7 +664,7 @@ enlace, y no de la memoria de la IA. Si no se encuentran, se dice.
   original.
 - Medido en 80 canciones de una biblioteca de alabanza: encuentra 58 (72 %;
   82 % sin versiones ni popurrís), todas la canción correcta, y 28 traen su
-  tono. `scripts/evaluar-acordes.py` lo mide sobre la tuya.
+  tono. `scripts/evaluate-chords.py` lo mide sobre la tuya.
 
 ### Asistente e IA
 
@@ -780,7 +780,7 @@ tutorial, una secuencia— se ofrece llevarlo a su carpeta.
   app: si el asistente dice haber hecho algo sin hacerlo, el tipo de vídeo,
   el «sí» a una oferta y las órdenes escondidas en letras y páginas. Sin
   afinar no mejora nada de lo que ya funciona, y pesaría 680 MB: no entra.
-  El script que lo mide queda en `scripts/evaluar-laya.py`.
+  El script que lo mide queda en `scripts/evaluate-laya.py`.
 
 ## 1.18.0 — 2026-09-26
 
@@ -810,8 +810,8 @@ y va en la mezcla que te llevas.
 
 ### Por dentro
 
-- `scripts/evaluar-pulso.py` mide cada detector de pulso sobre GTZAN, y
-  `scripts/exportar-pulso.py` regenera el de la app (comprueba que da los
+- `scripts/evaluate-pulse.py` mide cada detector de pulso sobre GTZAN, y
+  `scripts/export-pulse.py` regenera el de la app (comprueba que da los
   mismos pulsos que el original).
 
 ## 1.17.0 — 2026-09-26
@@ -850,7 +850,7 @@ exactamente como ella.
 
 ### Por dentro
 
-- `scripts/evaluar-separador.py` mide cada combinación de separadores con
+- `scripts/evaluate-separator.py` mide cada combinación de separadores con
   las muestras de MUSDB18 (lo que se parece cada pista a la de verdad, y lo
   que tarda); de ahí salen las decisiones de arriba. Cuantizar las redes a 8
   bits se midió y no compensa.

@@ -31,7 +31,7 @@ INSERT_SONG = (
 )
 
 # La lista del domingo tal como llega por WhatsApp (nombres inventados)
-DOMINGO = (
+SUNDAY_SETLIST = (
     "*Domingo*✅\n"
     "*1.- Digno De Adorar* @Marta Rojas @Noemi (En Su Presencia) Voz\n"
     "*2.- Te Doy Gloria* https://youtu.be/AAAAAAAAAA1 @Marta Rojas\n"
@@ -132,7 +132,7 @@ def found_id(name: str):
     return pl["id"] if pl else None
 
 
-def test_el_nombre_de_la_lista_se_entiende_como_lo_dice_la_gente(lib):
+def test_playlist_name_is_understood_as_people_say_it(lib):
     a = playlists.create("domingo")["id"]
     e = playlists.create("ensayo domingo")["id"]
     n = playlists.create("Niños")["id"]
@@ -150,9 +150,9 @@ def test_el_nombre_de_la_lista_se_entiende_como_lo_dice_la_gente(lib):
 # --------------------------------------------------- meter la lista pegada
 
 
-def test_la_lista_pegada_entra_en_su_orden_y_lo_que_falta_se_ofrece(lib, asked):
+def test_pasted_setlist_goes_in_order_and_missing_is_offered(lib, asked):
     playlists.create("domingo")
-    turn = turn_for("agrégame esto a la lista de los domingo:\n" + DOMINGO)
+    turn = turn_for("agrégame esto a la lista de los domingo:\n" + SUNDAY_SETLIST)
     assert turn.fresh and turn.setlist and len(turn.setlist.items) == 5
     res = T.run_tool("fill_playlist", {"playlist": "domingo"}, turn)
     ui = res["_ui"]["setlist"]
@@ -190,10 +190,10 @@ def test_la_lista_pegada_entra_en_su_orden_y_lo_que_falta_se_ofrece(lib, asked):
     assert "Abajo te pido permiso" in text
 
 
-def test_verifica_no_cambia_nada(lib, asked):
+def test_check_changes_nothing(lib, asked):
     pl = playlists.create("domingo")["id"]
     playlists.add(pl, [lib.ids["rey"], lib.ids["otra"]])
-    turn = turn_for("verifica que esté bien la lista del domingo:\n" + DOMINGO)
+    turn = turn_for("verifica que esté bien la lista del domingo:\n" + SUNDAY_SETLIST)
     assert turn.intent.check
     # aunque el modelo pida dejarla exacta, «verifica» manda
     res = T.run_tool("fill_playlist", {"playlist": "domingo", "mode": "set"}, turn)
@@ -205,15 +205,17 @@ def test_verifica_no_cambia_nada(lib, asked):
     assert "sobra Sublime Gracia" in text
 
 
-def test_dejarla_exacta_solo_con_sus_palabras(lib, asked):
+def test_set_exactly_only_when_the_user_says_so(lib, asked):
     pl = playlists.create("domingo")["id"]
     playlists.add(pl, [lib.ids["otra"], lib.ids["rey"]])
     # el modelo pide «set» pero la persona no lo dijo: solo se añade
-    res = T.run_tool("fill_playlist", {"playlist": "domingo", "mode": "set"}, turn_for(DOMINGO))
+    res = T.run_tool(
+        "fill_playlist", {"playlist": "domingo", "mode": "set"}, turn_for(SUNDAY_SETLIST)
+    )
     assert res["mode"] == "add" and "note" in res
     assert lib.ids["otra"] in songs_of("domingo"), "no se quito nada"
     # con sus palabras, si: exacta, en su orden, y con lo de antes para deshacer
-    turn = turn_for("déjala exactamente así:\n" + DOMINGO)
+    turn = turn_for("déjala exactamente así:\n" + SUNDAY_SETLIST)
     assert turn.intent.replace
     res = T.run_tool("fill_playlist", {"playlist": "domingo"}, turn)
     ui = res["_ui"]["setlist"]
@@ -224,19 +226,21 @@ def test_dejarla_exacta_solo_con_sus_palabras(lib, asked):
     assert [x["title"] for x in ui["removed"]] == ["Sublime Gracia"]
 
 
-def test_una_lista_nueva_solo_si_la_pidio(lib, asked):
-    res = T.run_tool("fill_playlist", {"playlist": "jueves", "create": True}, turn_for(DOMINGO))
+def test_a_new_playlist_only_if_the_user_asked_for_it(lib, asked):
+    res = T.run_tool(
+        "fill_playlist", {"playlist": "jueves", "create": True}, turn_for(SUNDAY_SETLIST)
+    )
     assert "error" in res and "no existe la lista" in res["error"]
     assert playlists.by_name("jueves") is None
-    turn = turn_for("créame una lista nueva que se llame jueves con estas:\n" + DOMINGO)
+    turn = turn_for("créame una lista nueva que se llame jueves con estas:\n" + SUNDAY_SETLIST)
     assert turn.intent.create
     res = T.run_tool("fill_playlist", {"playlist": "jueves", "create": True}, turn)
     assert res["created"] and res["added"] == 4
 
 
-def test_sin_descargar_si_lo_dijo(lib, asked):
+def test_no_download_if_the_user_said_so(lib, asked):
     playlists.create("domingo")
-    turn = turn_for("agrégalas a domingo, no bajes nada:\n" + DOMINGO)
+    turn = turn_for("agrégalas a domingo, no bajes nada:\n" + SUNDAY_SETLIST)
     assert turn.intent.no_download
     res = T.run_tool("fill_playlist", {"playlist": "domingo"}, turn)
     assert asked == [] and res["_ui"]["confirm"] is None
@@ -244,9 +248,9 @@ def test_sin_descargar_si_lo_dijo(lib, asked):
     assert "No la bajo, como dijiste." in text
 
 
-def test_una_lista_vieja_no_pisa_lo_que_pide_ahora(lib, asked):
+def test_an_old_setlist_does_not_override_the_new_request(lib, asked):
     playlists.create("domingo")
-    before = [{"role": "me", "text": DOMINGO}, {"role": "ai", "text": "Listo."}]
+    before = [{"role": "me", "text": SUNDAY_SETLIST}, {"role": "ai", "text": "Listo."}]
     turn = turn_for("añade Sublime Gracia a domingo", before)
     assert turn.setlist is not None and not turn.fresh
     res = T.run_tool("fill_playlist", {"playlist": "domingo", "items": ["Sublime Gracia"]}, turn)
@@ -256,29 +260,29 @@ def test_una_lista_vieja_no_pisa_lo_que_pide_ahora(lib, asked):
     assert len(res["_ui"]["setlist"]["rows"]) == 5
 
 
-def test_el_modelo_no_puede_colar_items_con_la_lista_pegada(lib, asked):
+def test_model_cannot_sneak_items_into_a_pasted_setlist(lib, asked):
     playlists.create("domingo")
     res = T.run_tool(
         "fill_playlist",
         {"playlist": "domingo", "items": ["Sublime Gracia"]},
-        turn_for(DOMINGO),
+        turn_for(SUNDAY_SETLIST),
     )
     assert lib.ids["otra"] not in songs_of("domingo")
     assert res["added"] == 4
 
 
-def test_otra_version_elegida_por_numero(lib, asked):
+def test_another_version_chosen_by_number(lib, asked):
     playlists.create("domingo")
     res = T.run_tool(
         "fill_playlist",
         {"playlist": "domingo", "overrides": [{"n": 1, "id": lib.ids["marta"]}], "only": [1]},
-        turn_for(DOMINGO),
+        turn_for(SUNDAY_SETLIST),
     )
     assert songs_of("domingo") == [lib.ids["marta"]]
     assert res["_ui"]["setlist"]["rows"][0]["note"] == "la eligió la persona"
 
 
-def test_find_songs_solo_mira(lib):
+def test_find_songs_only_looks(lib):
     res = T.run_tool("find_songs", {"items": ["rey infinito", "Cena del Señor"]}, setlist.Turn())
     assert res["total"] == 2 and res["found"] == 1 and res["missing"] == [2]
     assert "id" + str(lib.ids["rey"]) in res["rows"]
@@ -290,7 +294,7 @@ def test_find_songs_solo_mira(lib):
 # ---------------------------------------------------- descargas: biblioteca primero
 
 
-def test_bajar_algo_que_ya_tenemos_no_pide_permiso(lib, asked):
+def test_downloading_what_we_have_asks_no_permission(lib, asked):
     res, pending = loop._ask(
         "download_music", {"items": ["Rey Infinito", "Te doy gloria"]}, None, setlist.Turn()
     )
@@ -298,7 +302,7 @@ def test_bajar_algo_que_ya_tenemos_no_pide_permiso(lib, asked):
     assert len(res["already_there"]) == 2 and "no hace falta" in res["note"]
 
 
-def test_bajar_solo_lo_que_falta(lib, asked):
+def test_download_only_what_is_missing(lib, asked):
     res, pending = loop._ask(
         "download_music",
         {"items": ["Rey Infinito", "Cena del Señor"], "after": {"x": 1}, "plan": {"y": 2}},
@@ -311,7 +315,7 @@ def test_bajar_solo_lo_que_falta(lib, asked):
     assert res["needs_confirmation"] and res["already_there"][0]["song"]["id"] == lib.ids["rey"]
 
 
-def test_las_urls_no_se_pasan_a_minusculas_ni_se_repiten(lib):
+def test_urls_are_not_lowercased_or_repeated(lib):
     plan = T.download_plan(
         {
             "items": [
@@ -331,7 +335,7 @@ def test_las_urls_no_se_pasan_a_minusculas_ni_se_repiten(lib):
     ]
 
 
-def test_search_songs_prueba_sin_exigir_todas_las_palabras(lib):
+def test_search_songs_retries_without_requiring_all_words(lib):
     # una errata: la busqueda de siempre (todas las palabras, por prefijo) no da nada
     assert library.search("Digno De Adorrar", None, "artist", 5) == []
     r = T.run_tool("search_songs", {"query": "Digno De Adorrar"})
@@ -340,7 +344,7 @@ def test_search_songs_prueba_sin_exigir_todas_las_palabras(lib):
     assert r == {"total": 0, "songs": []}, "con filtros no se aproxima"
 
 
-def test_search_youtube_normaliza_el_texto_pero_no_los_enlaces(monkeypatch):
+def test_search_youtube_normalizes_text_but_not_links(monkeypatch):
     seen = []
     monkeypatch.setattr(youtube, "info", lambda q, n: seen.append(q) or {"ok": False})
     T.run_tool("search_youtube", {"query": "*Cena Del Señor* ✅"})
@@ -395,10 +399,12 @@ def model(monkeypatch):
     return use
 
 
-def test_una_lista_pegada_cuesta_una_llamada_al_modelo(lib, asked, model):
+def test_a_pasted_setlist_costs_one_model_call(lib, asked, model):
     playlists.create("domingo")
     fake = model([("", [("fill_playlist", {"playlist": "domingo"})])])
-    r = CH.reply([{"role": "me", "text": "agrégame esto a la lista de los domingo:\n" + DOMINGO}])
+    r = CH.reply(
+        [{"role": "me", "text": "agrégame esto a la lista de los domingo:\n" + SUNDAY_SETLIST}]
+    )
     assert len(fake.got) == 1, "el informe lo escribe la app, sin otra vuelta"
     assert r["text"].startswith("Añadí a «domingo»")
     assert r["confirm"]["id"] == "conf1" and r["setlist"]["playlist"]["name"] == "domingo"
@@ -414,7 +420,7 @@ def test_una_lista_pegada_cuesta_una_llamada_al_modelo(lib, asked, model):
     assert {"fill_playlist", "find_songs"} <= declared
 
 
-def test_lo_que_el_modelo_ve_de_una_lista_no_lleva_la_tabla_entera(lib, asked, model):
+def test_model_view_of_a_setlist_omits_the_full_table(lib, asked, model):
     playlists.create("domingo")
     fake = model(
         [
@@ -422,14 +428,14 @@ def test_lo_que_el_modelo_ve_de_una_lista_no_lleva_la_tabla_entera(lib, asked, m
             ("Hecho, y tienes una lista.", None),
         ]
     )
-    r = CH.reply([{"role": "me", "text": DOMINGO + "\nagrégalas a domingo"}])
+    r = CH.reply([{"role": "me", "text": SUNDAY_SETLIST + "\nagrégalas a domingo"}])
     assert len(fake.got) == 2, "con otra herramienta en la vuelta, contesta el modelo"
     tool_msgs = [m for m in fake.got[1]["messages"] if m["role"] == "tool"]
     assert "_ui" not in tool_msgs[0]["content"] and "rows:" in tool_msgs[0]["content"]
     assert r["setlist"] and r["confirm"]
 
 
-def test_una_llamada_escrita_no_deja_una_lista_exacta(lib, asked, model):
+def test_a_call_written_as_text_does_not_set_the_playlist(lib, asked, model):
     pl = playlists.create("domingo")["id"]
     playlists.add(pl, [lib.ids["otra"]])
     fake = model(
@@ -438,35 +444,35 @@ def test_una_llamada_escrita_no_deja_una_lista_exacta(lib, asked, model):
             ("No la toco.", None),
         ]
     )
-    CH.reply([{"role": "me", "text": "déjala exactamente así:\n" + DOMINGO}])
+    CH.reply([{"role": "me", "text": "déjala exactamente así:\n" + SUNDAY_SETLIST}])
     assert songs_of("domingo") == [lib.ids["otra"]], "escrita como texto, no se ejecuta"
     assert fake.got[1]["tool_choice"] == "required"
 
 
-def test_el_turno_tiene_un_tope_de_llamadas(lib, model):
+def test_the_turn_has_a_call_cap(lib, model):
     fake = model([("", [("search_songs", {"query": f"x{i}"})]) for i in range(20)])
-    r = CH.reply([{"role": "me", "text": "busca muchas cosas"}], max_vueltas=20)
+    r = CH.reply([{"role": "me", "text": "busca muchas cosas"}], max_rounds=20)
     assert len(fake.got) == loop.MAX_MODEL_CALLS
     assert "No he podido terminar" in r["text"]
 
 
-def test_un_mensaje_enorme_llega_recortado_al_modelo(lib, model):
+def test_a_huge_message_reaches_the_model_trimmed(lib, model):
     fake = model([("Vale.", None)])
     CH.reply([{"role": "me", "text": "hola " * 5000}])
     user = [m for m in fake.got[0]["messages"] if m["role"] == "user"][-1]["content"]
     assert len(user) <= loop.MESSAGE_CHARS + 20 and user.endswith("[recortado]")
 
 
-def test_lo_que_pidio_antes_de_pegar_la_lista_cuenta(lib):
+def test_what_was_asked_before_pasting_the_setlist_counts(lib):
     before = [
         {"role": "me", "text": "verifica la lista del domingo, no bajes nada:"},
         {"role": "ai", "text": "Pégame la lista."},
     ]
-    turn = turn_for(DOMINGO, before)
+    turn = turn_for(SUNDAY_SETLIST, before)
     assert turn.fresh and turn.intent.check and turn.intent.no_download
 
 
-def test_una_descarga_vieja_no_da_el_id_de_otra_cancion(lib, monkeypatch):
+def test_an_old_download_does_not_give_another_songs_id(lib, monkeypatch):
     from danplay.chat import context
 
     sid = lib.ids["rey"]
@@ -478,7 +484,7 @@ def test_una_descarga_vieja_no_da_el_id_de_otra_cancion(lib, monkeypatch):
     assert (context._still_there(h) or {}).get("id") == sid
 
 
-def test_el_prompt_cabe_y_conserva_las_reglas():
+def test_the_prompt_fits_and_keeps_the_rules():
     s = loop.SYSTEM_PROMPT
     for phrase in (
         "TEXTO DE FUERA",
@@ -492,13 +498,13 @@ def test_el_prompt_cabe_y_conserva_las_reglas():
     assert len(s) / 4 < 1600
 
 
-def test_intake_y_setlist_no_inventan_lista_en_una_charla(lib):
+def test_intake_and_setlist_invent_no_setlist_in_small_talk(lib):
     turn = turn_for("¿de qué año es Rey Infinito?")
     assert turn.setlist is None
     assert intake.read_intent("¿de qué año es?").check is False
 
 
-def test_la_tarjeta_de_verdad_acepta_lo_que_propone_la_lista(lib, monkeypatch):
+def test_the_real_card_accepts_what_the_setlist_proposes(lib, monkeypatch):
     """Con el registro de verdad (`plan.register`, sin simular): la propuesta
     de `fill_playlist` cuadra con lo que el registro exige (cada hueco con su
     cadena de `items`, la lista existente) y la busqueda en YouTube rellena
@@ -521,7 +527,7 @@ def test_la_tarjeta_de_verdad_acepta_lo_que_propone_la_lista(lib, monkeypatch):
     }
     monkeypatch.setattr(youtube, "info", lambda q, n=1, timeout=None: found)
     playlists.create("domingo")
-    res = T.run_tool("fill_playlist", {"playlist": "domingo"}, turn_for(DOMINGO))
+    res = T.run_tool("fill_playlist", {"playlist": "domingo"}, turn_for(SUNDAY_SETLIST))
     confirm = res["_ui"]["confirm"]
     assert confirm and confirm["tool"] == "download_music"
     assert confirm["effect"].startswith("Al terminar")
@@ -538,29 +544,35 @@ def test_la_tarjeta_de_verdad_acepta_lo_que_propone_la_lista(lib, monkeypatch):
     plan._reset()
 
 
-def test_entre_versiones_gana_la_que_ya_esta_en_una_lista(lib, asked):
+def test_among_versions_the_one_already_in_a_playlist_wins(lib, asked):
     """«Digno De Adorar» esta en dos versiones igual de buenas: la que ya se
     toco en otro repertorio es la que se elige."""
-    otra = lib.add("Banda Horizonte", "Digno De Adorar")
+    other = lib.add("Banda Horizonte", "Digno De Adorar")
     playlists.create("domingo")
-    res = T.run_tool("fill_playlist", {"playlist": "domingo", "only": [1]}, turn_for(DOMINGO))
+    res = T.run_tool(
+        "fill_playlist", {"playlist": "domingo", "only": [1]}, turn_for(SUNDAY_SETLIST)
+    )
     first = res["_ui"]["setlist"]["rows"][0]
     assert first["status"] == "ambiguous"
-    ensayo = playlists.create("ensayo")["id"]
-    playlists.add(ensayo, [lib.ids["digno"]])
+    rehearsal = playlists.create("ensayo")["id"]
+    playlists.add(rehearsal, [lib.ids["digno"]])
     pl = playlists.by_name("domingo")
     assert pl
     playlists.set_songs(pl["id"], [lib.ids["rey"]])
-    res = T.run_tool("fill_playlist", {"playlist": "domingo", "only": [1]}, turn_for(DOMINGO))
-    assert res["_ui"]["setlist"]["rows"][0]["song"]["id"] == lib.ids["digno"]
-    playlists.set_songs(ensayo, [otra])
     res = T.run_tool(
-        "fill_playlist", {"playlist": "domingo", "only": [1], "mode": "check"}, turn_for(DOMINGO)
+        "fill_playlist", {"playlist": "domingo", "only": [1]}, turn_for(SUNDAY_SETLIST)
     )
-    assert res["_ui"]["setlist"]["rows"][0]["song"]["id"] == otra
+    assert res["_ui"]["setlist"]["rows"][0]["song"]["id"] == lib.ids["digno"]
+    playlists.set_songs(rehearsal, [other])
+    res = T.run_tool(
+        "fill_playlist",
+        {"playlist": "domingo", "only": [1], "mode": "check"},
+        turn_for(SUNDAY_SETLIST),
+    )
+    assert res["_ui"]["setlist"]["rows"][0]["song"]["id"] == other
 
 
-def test_una_respuesta_vacia_tras_herramientas_dice_lo_que_se_hizo(lib, model):
+def test_empty_reply_after_tools_says_what_was_done(lib, model):
     playlists.create("domingo")
     model([("", [("list_playlists", {})]), ("", None)])
     r = CH.reply([{"role": "me", "text": "¿qué listas tengo?"}])
@@ -570,11 +582,13 @@ def test_una_respuesta_vacia_tras_herramientas_dice_lo_que_se_hizo(lib, model):
     assert r["text"].startswith("No me ha salido ninguna respuesta")
 
 
-def test_lo_que_se_pide_no_sale_como_linea_ignorada(lib, asked):
+def test_the_request_is_not_reported_as_an_ignored_line(lib, asked):
     """«No tomé por canción: agrégame esto a la lista…» contaba la propia
     peticion como una linea dejada fuera; las secciones si se dicen."""
     playlists.create("domingo")
-    turn = turn_for("agrégame esto a la lista de los domingo:\n" + DOMINGO + "\nBanda: Luis y Ana")
+    turn = turn_for(
+        "agrégame esto a la lista de los domingo:\n" + SUNDAY_SETLIST + "\nBanda: Luis y Ana"
+    )
     res = T.run_tool("fill_playlist", {"playlist": "domingo"}, turn)
     ui = res["_ui"]["setlist"]
     assert ui["ignored"] == ["Banda: Luis y Ana"]

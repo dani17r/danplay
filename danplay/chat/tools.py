@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError
 
-from .. import cifrados, config, enrich, library, names, playlists, theory, web, youtube
+from .. import chord_sheets, config, enrich, library, names, playlists, theory, web, youtube
 from . import intake, resolve, setlist
 from .plan import MAX_DOWNLOADS
 
@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 # texto que escribe cualquiera, y ahi puede venir algo con forma de orden. En
 # vez de fiarlo a que el modelo se porte bien, estas herramientas devuelven
 # lo que IBAN a hacer y quien decide es la persona, en un dialogo de la app
-# (docs/CONTRATO-INTERNO.md §3).
+# (docs/INTERNAL-CONTRACT.md §3).
 NEEDS_CONFIRMATION = ("delete_song", "delete_playlist", "download_music")
 
 
@@ -1042,7 +1042,7 @@ def _get_chords(a: GetLyricsArgs) -> dict:
     if not a.id:  # sin id, por artista y titulo, sin guardar nada
         if not (a.title or "").strip():
             return {"error": "hace falta el titulo (y mejor el artista)"}
-        return _sheet_for_chat(cifrados.find(a.artist or "", a.title or ""))
+        return _sheet_for_chat(chord_sheets.find(a.artist or "", a.title or ""))
     c = library.by_id(a.id)
     if not c:
         return {"error": "no existe esa cancion"}
@@ -1414,13 +1414,13 @@ def _summarize(name, res) -> str:
         return f"{len(res.get('items', []))} en YouTube"
     if name == "download_music":
         n = res.get("downloaded", 0)
-        ya, f = res.get("already_there", 0), res.get("failures", 0)
-        partes = [f"{n} descargada(s)"]
-        if ya:
-            partes.append(f"{ya} ya la tenias")
+        already_there, f = res.get("already_there", 0), res.get("failures", 0)
+        parts = [f"{n} descargada(s)"]
+        if already_there:
+            parts.append(f"{already_there} ya la tenias")
         if f:
-            partes.append(f"{f} con fallo")
-        return ", ".join(partes)
+            parts.append(f"{f} con fallo")
+        return ", ".join(parts)
     if name == "download_status":
         return res.get("phase") or ("en marcha" if res.get("active") else "parada")
     if name == "search_web":
@@ -1458,8 +1458,8 @@ def _summarize(name, res) -> str:
             parts.append("cambiado: " + ", ".join(changed))
         return "; ".join(parts) or "sin cambios"
     if name == "find_lyrics_and_cover":
-        hechos = [k for k in ("lyrics", "cover") if res.get(k)]
-        return ", ".join(hechos) if hechos else "no se encontro nada"
+        done = [k for k in ("lyrics", "cover") if res.get(k)]
+        return ", ".join(done) if done else "no se encontro nada"
     if name == "delete_song":
         return f"a la papelera: {res.get('name', '')}"[:60]
     if name == "remove_from_playlist":

@@ -30,7 +30,7 @@ def idle():
 
     def reset():
         youtube.STATE.update(active=False, phase="", after=None, error="", results=[])
-        youtube._CANCELAR["requested"] = False
+        youtube._CANCEL["requested"] = False
 
     reset()
     yield
@@ -39,7 +39,7 @@ def idle():
 
 @pytest.fixture
 def downloads(monkeypatch):
-    """`youtube.download` de mentira. `plan[consulta]` es la lista de resultados
+    """`youtube.download` de mentira. `plan[query]` es la lista de resultados
     (o una funcion que los da, o una excepcion que lanzar); sin plan, un
     resultado bueno. `seen` apunta lo que se pidio, en orden."""
     seen = []
@@ -75,7 +75,7 @@ def releases(monkeypatch):
 # ------------------------------------------------------- on_done y el turno
 
 
-def test_on_done_corre_antes_de_soltar_el_turno(downloads):
+def test_on_done_runs_before_releasing_the_turn(downloads):
     seen = {}
 
     def on_done(done):
@@ -101,13 +101,13 @@ def test_on_done_corre_antes_de_soltar_el_turno(downloads):
     assert st["results"] == rs
 
 
-def test_after_esta_publicado_antes_de_soltar_el_turno(downloads, releases):
+def test_after_is_published_before_releasing_the_turn(downloads, releases):
     youtube.run_many(["a"], on_done=lambda done: {"state": "done", "n": len(done)})
     job = youtube.STATE["job"]
     assert releases == [{"active": True, "after": {"state": "done", "n": 1, "job": job}}]
 
 
-def test_sin_on_done_after_es_none_y_no_se_hereda_el_de_antes(downloads, releases):
+def test_without_on_done_after_is_none_and_not_inherited(downloads, releases):
     youtube.run_many(["a"], on_done=lambda done: {"state": "done"})
     assert youtube.STATE["after"]["state"] == "done"
     releases.clear()
@@ -116,13 +116,13 @@ def test_sin_on_done_after_es_none_y_no_se_hereda_el_de_antes(downloads, release
     assert releases == [{"active": True, "after": None}], "tambien None, y antes de soltar"
 
 
-def test_on_done_que_devuelve_none_deja_after_en_none(downloads, releases):
+def test_on_done_returning_none_leaves_after_as_none(downloads, releases):
     youtube.run_many(["a"], on_done=lambda done: None)
     assert youtube.STATE["after"] is None and not youtube.STATE["active"]
     assert releases == [{"active": True, "after": None}]
 
 
-def test_si_on_done_lanza_after_es_un_error_corto_y_la_descarga_sigue_hecha(downloads, releases):
+def test_on_done_raising_is_a_short_error_download_still_done(downloads, releases):
     def on_done(done):
         raise RuntimeError("no se pudo armar la lista\n" + "x" * 500)
 
@@ -137,7 +137,7 @@ def test_si_on_done_lanza_after_es_un_error_corto_y_la_descarga_sigue_hecha(down
     assert youtube.STATE["error"] == "", "el error del remate no es un error de la descarga"
 
 
-def test_una_excepcion_sin_texto_dice_al_menos_su_nombre(downloads):
+def test_an_exception_without_text_says_at_least_its_name(downloads):
     def on_done(done):
         raise KeyError
 
@@ -146,13 +146,13 @@ def test_una_excepcion_sin_texto_dice_al_menos_su_nombre(downloads):
 
 
 @pytest.mark.parametrize("junk", [[1, 2], "listo", 7, True])
-def test_on_done_que_devuelve_algo_que_no_es_un_dict_es_un_error(downloads, junk):
+def test_on_done_returning_a_non_dict_is_an_error(downloads, junk):
     youtube.run_many(["a"], on_done=lambda done: junk)
     after = youtube.STATE["after"]
     assert after["state"] == "error" and after["error"] and after["job"] == youtube.STATE["job"]
 
 
-def test_after_es_una_copia_de_datos_sueltos(downloads):
+def test_after_is_a_copy_of_plain_data(downloads):
     """Se publica tal cual en /api/youtube: tiene que ser JSON, y quien lo hizo
     no puede cambiarlo despues."""
     kept = {}
@@ -190,13 +190,13 @@ def _circular():
         {"state": "done", "n": math.nan},
     ],
 )
-def test_after_que_no_se_puede_publicar_es_un_error(downloads, junk):
+def test_an_after_that_cannot_be_published_is_an_error(downloads, junk):
     youtube.run_many(["a"], on_done=lambda done: junk)
     after = youtube.STATE["after"]
     assert after["state"] == "error" and after["job"] == youtube.STATE["job"]
 
 
-def test_on_done_recibe_una_copia_de_los_resultados(downloads):
+def test_on_done_receives_a_copy_of_the_results(downloads):
     def on_done(done):
         done.clear()
         return {"state": "done"}
@@ -205,7 +205,7 @@ def test_on_done_recibe_una_copia_de_los_resultados(downloads):
     assert len(rs) == 2 and len(youtube.STATE["results"]) == 2
 
 
-def test_cancelar_no_se_salta_el_remate(downloads, releases):
+def test_cancelling_does_not_skip_the_finish(downloads, releases):
     def cancelling(query):
         youtube.cancel()
         return [{"ok": True, "title": query}]
@@ -225,7 +225,7 @@ def test_cancelar_no_se_salta_el_remate(downloads, releases):
     assert releases[-1]["after"] is not None
 
 
-def test_si_una_descarga_revienta_el_remate_corre_con_lo_que_hay(downloads):
+def test_if_a_download_crashes_the_finish_runs_with_what_exists(downloads):
     downloads.plan["mala"] = RuntimeError("se cayo")
     got = []
 
@@ -240,14 +240,14 @@ def test_si_una_descarga_revienta_el_remate_corre_con_lo_que_hay(downloads):
     assert youtube.STATE["error"] == "se cayo"
 
 
-def test_sin_consultas_el_remate_corre_igual_con_nada(downloads):
+def test_with_no_queries_the_finish_still_runs_with_nothing(downloads):
     got = []
     youtube.run_many([], on_done=lambda done: got.append(done) or {"state": "done"})
     assert got == [[]] and youtube.STATE["after"]["state"] == "done"
     assert youtube.run_many([]) == [] and youtube.STATE["after"] is None
 
 
-def test_si_hay_otra_en_marcha_no_se_toca_su_estado(downloads):
+def test_if_another_is_running_its_state_is_left_alone(downloads):
     token = youtube.claim()
     youtube.STATE["after"] = {"state": "pending"}
     called = []
@@ -259,7 +259,7 @@ def test_si_hay_otra_en_marcha_no_se_toca_su_estado(downloads):
     youtube.release()
 
 
-def test_cuando_active_pasa_a_false_la_lista_ya_esta_completa(downloads, tmp_path, monkeypatch):
+def test_when_active_turns_false_the_playlist_is_complete(downloads, tmp_path, monkeypatch):
     """Lo que ve la interfaz: sondea el estado sin parar y, en cuanto `active`
     es False, mira la lista. Con el remate dentro del turno, ya esta entera y
     `after` esta; con el remate DESPUES de soltarlo (como se iba a hacer) la
@@ -316,7 +316,7 @@ def test_cuando_active_pasa_a_false_la_lista_ya_esta_completa(downloads, tmp_pat
 # ----------------------------------------------------------- claim() y el token
 
 
-def test_claim_da_un_token_que_sube_y_es_state_job():
+def test_claim_gives_a_rising_token_that_is_state_job():
     first = youtube.claim()
     assert first >= 1 and youtube.STATE["job"] == first and youtube.STATE["active"]
     assert youtube.claim() == 0, "ocupado: no hay token"
@@ -327,7 +327,7 @@ def test_claim_da_un_token_que_sube_y_es_state_job():
     youtube.release()
 
 
-def test_claim_a_la_vez_lo_consigue_uno_solo():
+def test_concurrent_claims_only_one_wins():
     before = youtube.STATE["job"]
     got = []
     barrier = threading.Barrier(12)
@@ -346,7 +346,7 @@ def test_claim_a_la_vez_lo_consigue_uno_solo():
     youtube.release()
 
 
-def test_un_turno_nuevo_no_hereda_el_after_del_anterior(downloads):
+def test_a_new_turn_does_not_inherit_the_previous_after(downloads):
     youtube.run_many(["a"], on_done=lambda done: {"state": "done", "n": 1})
     assert youtube.STATE["after"]["state"] == "done"
     token = youtube.claim()
@@ -356,7 +356,7 @@ def test_un_turno_nuevo_no_hereda_el_after_del_anterior(downloads):
     assert youtube.STATE["after"] is None, "ni lo recupera al soltar"
 
 
-def test_la_descarga_vieja_no_pisa_a_la_nueva(downloads):
+def test_the_old_download_does_not_overwrite_the_new_one(downloads):
     """Se suelta el turno por fuera (un reinicio, una prueba que limpia) cuando
     la vieja aun esta rematando la lista, y empieza otra: la vieja, al acabar,
     ni escribe su `after` en el estado de la nueva ni le suelta el turno."""
@@ -387,7 +387,7 @@ def test_la_descarga_vieja_no_pisa_a_la_nueva(downloads):
     youtube.release()
 
 
-def test_con_claimed_se_toma_el_token_del_turno_y_job_lo_fija(downloads):
+def test_with_claimed_the_turn_token_is_used_and_job_pins_it(downloads):
     token = youtube.claim()
     youtube.run_many(["a"], claimed=True, on_done=lambda done: {"state": "done"})
     assert youtube.STATE["after"]["job"] == token and not youtube.STATE["active"]
@@ -404,7 +404,7 @@ def test_con_claimed_se_toma_el_token_del_turno_y_job_lo_fija(downloads):
     youtube.release()
 
 
-def test_release_con_token_solo_suelta_su_turno():
+def test_release_with_a_token_only_releases_its_own_turn():
     token = youtube.claim()
     youtube.release(token - 1)
     assert youtube.STATE["active"], "un token viejo no suelta el turno de ahora"
@@ -415,7 +415,7 @@ def test_release_con_token_solo_suelta_su_turno():
     assert not youtube.STATE["active"]
 
 
-def test_el_avance_solo_toca_los_campos_del_avance():
+def test_progress_only_touches_the_progress_fields():
     token = youtube.claim()
     youtube._publish(
         {
@@ -437,7 +437,7 @@ def test_el_avance_solo_toca_los_campos_del_avance():
     youtube.release()
 
 
-def test_la_api_ensena_after_y_job(downloads, monkeypatch):
+def test_the_api_shows_after_and_job(downloads, monkeypatch):
     from fastapi.testclient import TestClient
 
     from danplay import api, ytdlp
@@ -456,7 +456,7 @@ def test_la_api_ensena_after_y_job(downloads, monkeypatch):
 # ------------------------------------------------------------------ requested
 
 
-def test_todo_resultado_de_run_many_lleva_lo_que_se_pidio(downloads):
+def test_every_run_many_result_carries_what_was_requested(downloads):
     downloads.plan["x"] = [{"ok": False, "reason": "no"}]
     downloads.plan["y"] = [{"ok": True, "requested": "otra cosa"}]
     downloads.plan["z"] = [{"ok": True}, {"ok": False, "canceled": True}]
@@ -529,7 +529,7 @@ def failing(message, level="error"):
     return hook
 
 
-def test_info_con_timeout_es_una_consulta_ligera(ydl):
+def test_info_with_timeout_is_a_light_query(ydl):
     youtube.info("https://youtu.be/abc123", 1, timeout=4)
     o = ydl.made[-1]
     assert o["socket_timeout"] == 4 and o["retries"] == 0 and o["extractor_retries"] == 0
@@ -570,7 +570,7 @@ NO_DNS = (
         ("ERROR: [youtube] abc123: Video unavailable", ""),
     ],
 )
-def test_info_dice_por_que_fallo(ydl, message, kind):
+def test_info_says_why_it_failed(ydl, message, kind):
     ydl.hook = failing(message)
     r = youtube.info("https://youtu.be/abc123", 1, timeout=5)
     assert r["ok"] is False and r["items"] == []
@@ -580,7 +580,7 @@ def test_info_dice_por_que_fallo(ydl, message, kind):
     assert youtube.info("https://youtu.be/abc123", 1)["reason"] == r["reason"]
 
 
-def test_info_limpia_el_motivo(ydl):
+def test_info_cleans_up_the_reason(ydl):
     esc = chr(27)
     ydl.hook = failing(f"{esc}[0;31mERROR:{esc}[0m [youtube] abc123:\n  Video   unavailable\n")
     assert (
@@ -590,7 +590,7 @@ def test_info_limpia_el_motivo(ydl):
     assert len(youtube.info("https://youtu.be/abc123")["reason"]) <= 200
 
 
-def test_info_cuenta_el_ultimo_error_y_los_avisos_solo_si_son_de_bloqueo(ydl):
+def test_info_reports_the_last_error_and_only_block_warnings(ydl):
     def two_errors(self, url):
         self.options["logger"].error("ERROR: primero")
         self.options["logger"].error("ERROR: [youtube] abc123: el de verdad")
@@ -607,7 +607,7 @@ def test_info_cuenta_el_ultimo_error_y_los_avisos_solo_si_son_de_bloqueo(ydl):
     assert youtube.info("https://youtu.be/abc123")["reason"] == "no se encontro nada"
 
 
-def test_info_con_una_excepcion_da_su_texto_o_al_menos_su_nombre(ydl):
+def test_info_on_an_exception_gives_its_text_or_its_name(ydl):
     def boom(message, logged=""):
         def hook(self, url):
             if logged:
@@ -624,7 +624,7 @@ def test_info_con_una_excepcion_da_su_texto_o_al_menos_su_nombre(ydl):
     assert youtube.info("https://youtu.be/abc123")["reason"] == "RuntimeError"
 
 
-def test_info_ok_no_cambia(ydl):
+def test_info_ok_does_not_change(ydl):
     ydl.hook = None
     ydl.videos = {
         "https://youtu.be/uno": {"id": "uno", "title": "Una", "uploader": "Canal", "duration": 90}
@@ -635,7 +635,7 @@ def test_info_ok_no_cambia(ydl):
 
 
 @pytest.mark.parametrize("reason", ["", None, "Video unavailable", "algo raro", "HTTP Error 404"])
-def test_failure_kind_de_lo_que_no_es_bloqueo_es_vacio(reason):
+def test_failure_kind_of_a_non_block_is_empty(reason):
     assert youtube.failure_kind(reason) == ""
 
 
@@ -678,7 +678,7 @@ NOT_ADDRESSES = [
 
 
 @pytest.mark.parametrize("url", FOREIGN)
-def test_un_host_ajeno_no_llega_a_yt_dlp(ydl, url):
+def test_a_foreign_host_never_reaches_yt_dlp(ydl, url):
     assert youtube.host_of(url) not in youtube.ALLOWED_HOSTS and not youtube.is_url(url)
     with pytest.raises(youtube.NotYouTube):
         youtube.normalize(url)
@@ -705,19 +705,19 @@ def test_un_host_ajeno_no_llega_a_yt_dlp(ydl, url):
         ("", ""),
     ],
 )
-def test_host_of_sigue_dando_el_dominio_de_las_direcciones_normales(url, host):
+def test_host_of_still_gives_the_domain_of_normal_urls(url, host):
     assert youtube.host_of(url) == host
 
 
 @pytest.mark.parametrize("text", NOT_ADDRESSES)
-def test_lo_que_no_es_una_direccion_solo_se_busca_en_youtube(ydl, text):
+def test_what_is_not_a_url_is_only_searched_on_youtube(ydl, text):
     youtube.info(text, 1)
     youtube.info(text, 1, timeout=2)
     assert ydl.calls == [f"ytsearch1:{text}"] * 2, "una sola busqueda de ese texto, nunca N"
     assert youtube.host_of(ydl.calls[0]) == ""
 
 
-def test_info_nunca_consulta_un_host_que_no_sea_de_youtube(ydl):
+def test_info_never_queries_a_non_youtube_host(ydl):
     for text in [*FOREIGN, *NOT_ADDRESSES, "https://www.youtube.com/watch?v=abc123", "una cancion"]:
         youtube.info(text, 1)
         youtube.info(text, 1, timeout=2)
@@ -749,7 +749,7 @@ LISTS = [
 
 
 @pytest.mark.parametrize("url", VIDEOS)
-def test_un_video_con_list_se_consulta_como_un_video(ydl, url):
+def test_a_video_with_list_is_queried_as_a_video(ydl, url):
     """Compartir un video desde dentro de una lista o de un mix da
     `watch?v=ID&list=RD...`: es UN video. Antes `list=` activaba la lista y se
     bajaban hasta 50."""
@@ -760,7 +760,7 @@ def test_un_video_con_list_se_consulta_como_un_video(ydl, url):
 
 
 @pytest.mark.parametrize("url", LISTS)
-def test_una_lista_a_proposito_si_se_consulta_como_lista(ydl, url):
+def test_a_deliberate_playlist_is_queried_as_a_playlist(ydl, url):
     youtube.info(url, 1)
     o = ydl.made[-1]
     assert o["noplaylist"] is False and o["playlist_items"] == youtube.PLAYLIST_LIMIT
@@ -789,7 +789,7 @@ def _songs(n):
     return ids
 
 
-def test_log_apunta_la_cancion_que_ya_tenias(tmp_path, monkeypatch):
+def test_log_records_the_song_you_already_had(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATABASE", tmp_path / "historial.db")
     url = "https://youtu.be/abc123"
     mine = {"id": 7, "artist": "A", "title": "T", "path": "/no/existe/t.mp3", "file": "t.mp3"}
@@ -822,7 +822,7 @@ def test_log_apunta_la_cancion_que_ya_tenias(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def bajador(configured_library, ydl, monkeypatch, synthetic_ok):
+def downloader(configured_library, ydl, monkeypatch, synthetic_ok):
     """La tuberia entera (archivar, indexar, historial) con un yt-dlp de mentira
     que «baja» un mp3 sintetico. Devuelve (carpeta, {nombre: ruta})."""
     lib, songs = configured_library
@@ -842,8 +842,8 @@ def bajador(configured_library, ydl, monkeypatch, synthetic_ok):
     return lib, songs
 
 
-def test_lo_que_ya_tienes_queda_en_el_historial_con_su_cancion(bajador):
-    lib, _songs = bajador
+def test_what_you_already_have_is_logged_with_its_song(downloader):
+    lib, _songs = downloader
     mine = make_mp3(
         lib / "Artistas" / "Orquesta Inventada" / "Orquesta Inventada - Tema Uno.mp3",
         artist="Orquesta Inventada",
@@ -860,7 +860,7 @@ def test_lo_que_ya_tienes_queda_en_el_historial_con_su_cancion(bajador):
     assert r["requested"] == "https://youtu.be/uno"
 
 
-def test_los_resultados_que_fallan_o_se_cancelan_dicen_que_se_pidio(bajador):
+def test_failed_or_cancelled_results_say_what_was_requested(downloader):
     gone = "https://youtu.be/no-existe"
     got = youtube.download(gone)
     assert len(got) == 1 and not got[0]["ok"] and "unavailable" in got[0]["reason"].lower()
@@ -881,10 +881,10 @@ def test_los_resultados_que_fallan_o_se_cancelan_dicen_que_se_pidio(bajador):
     assert all(r["requested"] == "tema uno" for r in got)
 
 
-def test_bajar_y_completar_la_lista_dentro_del_mismo_turno(bajador):
+def test_download_and_fill_the_playlist_in_the_same_turn(downloader):
     """De punta a punta: una descarga buena y otra que falla, y el remate mete
     lo bajado en su sitio de «domingo» antes de soltar el turno."""
-    _lib, songs = bajador
+    _lib, songs = downloader
     gozo, tierra = song_id(songs["gozo"]), song_id(songs["tierra"])
     lid = playlists.create("domingo")["id"]
     playlists.add(lid, [gozo, tierra])

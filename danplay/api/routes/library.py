@@ -138,10 +138,10 @@ def scan():
     biblioteca grande el escaneo tarda mas."""
 
     def work(progress):
-        from ... import diario
+        from ... import journal
 
         r = library.scan(progress=lambda n, total=None: progress(n, total))
-        diario.after_scan(r)
+        journal.after_scan(r)
         progress(message=f"{r['total']} canciones ({r['added_count']} nuevas)")
         return {**r, "stats": library.stats_of()}
 
@@ -383,7 +383,7 @@ def duplicates_report():
 
 @router.post("/api/songs/locate")
 def locate_songs(body: Annotated[IdsIn, Body()]):
-    """Donde esta ahora cada cancion: `{paths: {id: ruta | null}}`.
+    """Donde esta ahora cada cancion: `{paths: {id: path | null}}`.
 
     La usa la cola de Rust cuando cambia la biblioteca, de una vez para toda
     la cola: una cancion movida sigue sonando desde su sitio nuevo y la que ya

@@ -34,7 +34,7 @@ from . import config, convert
 
 log = logging.getLogger(__name__)
 
-GRAPH = Path(__file__).resolve().parent / "data" / "pulso" / "beat_this.onnx"
+GRAPH = Path(__file__).resolve().parent / "data" / "pulse" / "beat_this.onnx"
 # Lo que se guarda cambia si cambia la red o la forma de sacar la rejilla:
 # con otro numero, lo guardado no vale y se calcula otra vez. 2: un solo nivel
 # de pulso, afinado entre tramas, el «1» con modelo de compas y sin clic
@@ -66,14 +66,14 @@ def available() -> str:
 def _cache(path: str) -> Path:
     from .pulse import key_of
 
-    return config.DATA_DIR / "pulso" / f"{key_of(path)}.json"
+    return config.DATA_DIR / "beats" / f"{key_of(path)}.json"
 
 
 def _raw_file(path: str, st=None) -> Path:
     """Donde va lo que dijo la red de un archivo."""
     from .pulse import key_of
 
-    return config.DATA_DIR / "pulso" / f"{key_of(path, st)}.npz"
+    return config.DATA_DIR / "beats" / f"{key_of(path, st)}.npz"
 
 
 def _command(path: str, raw: Path | None = None) -> list[str]:
@@ -100,7 +100,7 @@ def moved(old_path: str, new_path: str, before, after) -> bool:
     despues. True si habia que mover."""
     from .pulse import key_of
 
-    folder = config.DATA_DIR / "pulso"
+    folder = config.DATA_DIR / "beats"
     old = folder / f"{key_of(old_path, before)}.json"
     new = folder / f"{key_of(new_path, after)}.json"
     # lo que dijo la red va con ella
@@ -172,7 +172,7 @@ def raw_by_key(key: str) -> dict | None:
     """Lo que dijo la red de un archivo por su clave (aunque ya no este)."""
     from . import pulse
 
-    raw_path = config.DATA_DIR / "pulso" / f"{key}.npz"
+    raw_path = config.DATA_DIR / "beats" / f"{key}.npz"
     return pulse.load_raw(raw_path) if raw_path.is_file() else None
 
 

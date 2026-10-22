@@ -335,7 +335,7 @@ class StudyOwnClick(BaseModel):
 
 
 class StudyMetronome(BaseModel):
-    """Lo ajustado a mano del metronomo sobre lo detectado (docs/CONTRATO-INTERNO.md §3)."""
+    """Lo ajustado a mano del metronomo sobre lo detectado (docs/INTERNAL-CONTRACT.md §3)."""
 
     model_config = ConfigDict(extra="ignore")
     bpm: float | None = None

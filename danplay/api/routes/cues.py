@@ -1,7 +1,7 @@
 """Las guias habladas del modo estudio: las voces (y bajarlas), decir una
 frase, traer una grabacion, escucharlas y la guia automatica (las partes de
 la cancion, dichas antes de cada una). Ver danplay/cues.py y
-danplay/estructura.py."""
+danplay/structure.py."""
 
 import base64
 import os
@@ -71,14 +71,14 @@ def cue_auto(cid: int, body: Annotated[CueAutoIn, Body()]):
     justo antes de cada una. Su resultado: {sections: [{start, end, label}],
     cues: [{t, text, voice, file, seconds}]}. 409 si la voz aun no esta
     bajada."""
-    from ... import estructura
+    from ... import structure
 
     song = _song(cid)
     _voice_ready(body.voice)
     sections = [s.model_dump() for s in body.sections] if body.sections else None
 
     def work(progress):
-        r = estructura.auto_guide(
+        r = structure.auto_guide(
             song,
             body.voice,
             bars=body.bars,
@@ -91,7 +91,7 @@ def cue_auto(cid: int, body: Annotated[CueAutoIn, Body()]):
         return r
 
     snap, already = jobs.start(
-        estructura.AUTO_JOB, work, failure="no se pudo hacer la guía automática"
+        structure.AUTO_JOB, work, failure="no se pudo hacer la guía automática"
     )
     return JSONResponse(_started(snap, already), status_code=202)
 

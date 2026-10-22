@@ -5,7 +5,7 @@ RMS entre 0 y 1. El pico da la silueta; el RMS es lo que se oye como volumen
 y deja ver donde empieza el estribillo (en un mp3 moderno los picos van casi
 todos a tope).
 
-La calcula el crate de Rust (biblioteca/src/onda.rs: un tercio de segundo
+La calcula el crate de Rust (library/src/waveform.rs: un tercio de segundo
 para seis minutos); lo que no sabe leer (opus, wma) lo decodifica ffmpeg a
 PCM crudo. Se guarda en disco: la segunda vez es gratis, y la forma de onda
 no cambia mientras no cambie el archivo. Aqui queda la puerta de Python, con

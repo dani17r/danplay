@@ -9,7 +9,7 @@ la app, si fue narracion…), y se puede buscar en todas.
 Como las descargas, es cosa del programa y no del mp3: el escaneo no la
 toca (solo vacia `songs`).
 
-Lo hace Rust (biblioteca/src/conversaciones.rs); esto es la puerta de
+Lo hace Rust (library/src/chats.rs); esto es la puerta de
 Python, con los mismos nombres. `export_markdown` sigue aqui: escribe las
 fechas en la hora local.
 """
@@ -43,7 +43,7 @@ TITLE_LENGTH = 60
 # y, en los mensajes de la app que cambian una tarjeta, a cual se refieren
 # (`ref`) y que filas de su tabla quedaron con que cancion (`filled`). Solo se
 # añade: un mensaje guardado antes se lee igual. (La lista de verdad esta en
-# biblioteca/src/conversaciones.rs.)
+# library/src/chats.rs.)
 _KEEP = (
     "tools",
     "app",

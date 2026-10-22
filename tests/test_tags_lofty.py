@@ -68,7 +68,7 @@ def ext(request, synthetic_ok):
     return request.param
 
 
-def test_lo_que_escribio_mutagen_se_lee_igual(tmp_path, ext):
+def test_what_mutagen_wrote_reads_the_same(tmp_path, ext):
     path = _make(tmp_path, ext, "mutagen")
     assert legacy.write_fields(path, FIELDS)
     assert legacy.write_cover(path, JPEG, "image/jpeg")
@@ -76,7 +76,7 @@ def test_lo_que_escribio_mutagen_se_lee_igual(tmp_path, ext):
     assert tags.extract_cover(path) == legacy.extract_cover(path) == (JPEG, "image/jpeg")
 
 
-def test_lo_que_escribe_lofty_lo_lee_mutagen(tmp_path, ext):
+def test_what_lofty_writes_mutagen_reads(tmp_path, ext):
     path = _make(tmp_path, ext, "lofty")
     assert tags._write_fields(path, FIELDS)
     assert tags.write_cover(path, JPEG, "image/jpeg")
@@ -87,20 +87,20 @@ def test_lo_que_escribe_lofty_lo_lee_mutagen(tmp_path, ext):
     assert legacy.extract_cover(path) == (JPEG, "image/jpeg")
 
 
-def test_lofty_retoca_lo_de_mutagen_sin_duplicar_nada(tmp_path, ext):
+def test_lofty_touches_up_mutagen_tags_without_duplicates(tmp_path, ext):
     """El caso de cada dia: una cancion que ya etiqueto mutagen, a la que
     ahora se le cambian las estrellas y la portada con lofty."""
     path = _make(tmp_path, ext, "mezcla")
     assert legacy.write_fields(path, FIELDS)
     assert legacy.write_cover(path, JPEG, "image/jpeg")
-    otra = b"\x89PNG\r\n\x1a\n" + b"otra" * 50
+    other = b"\x89PNG\r\n\x1a\n" + b"otra" * 50
     assert tags.rate(path, 5)
-    assert tags.write_cover(path, otra, "image/png")
+    assert tags.write_cover(path, other, "image/png")
     after = legacy.read_all(path)
     assert after["stars"] == 5 and after["title"] == FIELDS["title"]
     assert after["study"] == FIELDS["study"] and after["playlists"] == ["Domingo, tarde"]
     cover = legacy.extract_cover(path)
-    assert cover is not None and cover[0] == otra
+    assert cover is not None and cover[0] == other
     _same(tags.read_all(path), after, ext)
     if ext in ("mp3", "wav"):
         from mutagen.id3 import ID3
@@ -119,7 +119,7 @@ def test_lofty_retoca_lo_de_mutagen_sin_duplicar_nada(tmp_path, ext):
         assert len(FLAC(str(path)).pictures) == 1
 
 
-def test_un_frame_raro_no_deja_el_archivo_sin_leer(tmp_path, synthetic_ok):
+def test_an_odd_frame_does_not_leave_the_file_unread(tmp_path, synthetic_ok):
     """Un año que no es fecha («2018/2019», como lo deja algun programa)
     hacia que lofty, en su modo por defecto, no leyera NADA del archivo: ni
     titulo ni duracion. Se lee como mutagen: lo raro se salta."""
@@ -133,7 +133,7 @@ def test_un_frame_raro_no_deja_el_archivo_sin_leer(tmp_path, synthetic_ok):
     assert tags.read_all(path)["year"] == legacy.read_all(path)["year"] == "2019"
 
 
-def test_las_reproducciones_del_popm_se_conservan(tmp_path, synthetic_ok):
+def test_popm_play_counts_are_kept(tmp_path, synthetic_ok):
     path = _make(tmp_path, "mp3", "veces")
     assert legacy.write_fields(path, {"stars": 2, "play_count": 17})
     assert tags.rate(path, 4)
@@ -143,7 +143,7 @@ def test_las_reproducciones_del_popm_se_conservan(tmp_path, synthetic_ok):
     assert legacy.read_all(path)["play_count"] == 3
 
 
-def test_muchas_a_la_vez_dan_lo_mismo_que_una_a_una(tmp_path, synthetic_ok):
+def test_many_at_once_give_the_same_as_one_by_one(tmp_path, synthetic_ok):
     paths = []
     for i, ext in enumerate(FORMATS):
         p = _make(tmp_path, ext, f"lote{i}")

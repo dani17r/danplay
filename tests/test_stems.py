@@ -3,7 +3,7 @@
 El proceso que separa se cambia por uno de mentira que hace lo mismo hacia
 fuera: dice como va por la salida estandar y deja una pista por fuente (un
 tono corto hecho con ffmpeg) y sus ondas. Las que la cancion «no tiene» se
-dicen en un archivo junto a ella (`<cancion>.callar`, con comas): esas no
+dicen en un archivo junto a ella (`<song>.callar`, con comas): esas no
 llegan a pista, como hace el motor de verdad con lo que casi no suena. Lo que
 decide el motor de verdad (que suena, lo que queda) se prueba en
 test_separation.py. Todo lo demas es de verdad: la cola y sus dos pasadas,
@@ -476,14 +476,14 @@ def test_the_weights_are_checked_before_being_used(tmp_path, monkeypatch):
     monkeypatch.setattr(stems.urllib.request, "urlopen", lambda *a, **k: Answer(b"otra cosa" * 10))
     with pytest.raises(stems.SeparateError, match="sha256"):
         stems.download("drums")
-    assert not list((tmp_path / "separador").iterdir())
+    assert not list((tmp_path / "separator").iterdir())
     seen = []
     monkeypatch.setattr(stems.urllib.request, "urlopen", lambda *a, **k: Answer(good))
     path = stems.download("drums", lambda got, total: seen.append((got, total)))
     assert path.read_bytes() == good and stems.installed("drums")
     assert seen[-1] == (len(good), len(good))
     # y borrarlo lo quita todo (tambien lo de versiones de antes)
-    (tmp_path / "separador" / "955717e8.safetensors").write_bytes(b"de 1.16.0")
+    (tmp_path / "separator" / "955717e8.safetensors").write_bytes(b"de 1.16.0")
     assert stems.remove_weights() == 2
     assert not stems.installed("drums")
 
@@ -621,8 +621,8 @@ def test_the_mix_can_carry_the_click(lib):
     from danplay import stems
 
     f = stems.mix_filter([(1, 1)], speed=0.8, click=True)
-    assert "[1:a]aformat=channel_layouts=stereo[clic]" in f
-    assert f.index("atempo") < f.index("[canto][clic]amix")
+    assert "[1:a]aformat=channel_layouts=stereo[click]" in f
+    assert f.index("atempo") < f.index("[song][click]amix")
     root, _ = lib
     cid = _id("Barak - Mi Gozo.mp3")
     _separate(cid)
@@ -886,10 +886,10 @@ def test_the_mix_carries_the_guides_or_not_also_the_song_alone(lib, tmp_path, mo
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
     f = stems.mix_filter([(1, 1)], speed=0.8, click=True, guides=True)
-    assert "[1:a]aformat=channel_layouts=stereo[clic]" in f
-    assert "[2:a]aformat=channel_layouts=stereo[guias]" in f
-    assert "[canto][clic][guias]amix=inputs=3" in f
-    assert "[guias]" not in stems.mix_filter([(1, 1)], click=True)
+    assert "[1:a]aformat=channel_layouts=stereo[click]" in f
+    assert "[2:a]aformat=channel_layouts=stereo[cues]" in f
+    assert "[song][click][cues]amix=inputs=3" in f
+    assert "[cues]" not in stems.mix_filter([(1, 1)], click=True)
 
     root, _ = lib
     cid = _id("Barak - Mi Gozo.mp3")

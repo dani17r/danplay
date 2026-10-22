@@ -30,7 +30,7 @@ uv sync --locked --reinstall-package danplay-core --quiet
 # para que ningun paquete salga con una lista de hace meses, pero en el
 # temporal: la del repositorio no se toca (antes se reescribia y cada
 # compilacion dejaba el arbol sucio). Sin internet viaja la del repositorio.
-"$PY" scripts/actualizar-modelos.py "$TRABAJO/models-snapshot.json" || true
+"$PY" scripts/update-models.py "$TRABAJO/models-snapshot.json" || true
 # --workpath a un temporal: asi no se crea build/ en la raiz del proyecto
 DANPLAY_SNAPSHOT="$TRABAJO/models-snapshot.json" "$PY" -m PyInstaller --noconfirm --clean \
     --workpath "$TRABAJO/work" --distpath dist/core \
@@ -77,7 +77,7 @@ if [ "${1:-}" = "--package" ]; then
     rm -rf "$BUNDLE/deb" "$BUNDLE/appimage" "$BUNDLE/rpm"
 
     # ffmpeg, fpcalc y QuickJS dentro de los paquetes (desktop/src-tauri/tools)
-    ./scripts/herramientas-linux.sh
+    ./scripts/tools-linux.sh
 
     # Sin `|| true`: si el empaquetado falla hay que enterarse. Antes se lo
     # tragaba y luego se copiaban los paquetes VIEJOS con fecha nueva, que es

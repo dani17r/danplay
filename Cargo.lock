@@ -842,7 +842,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "914a755b7c2d4af2bdcff7ce1739e2db9a1b81a9b07123d8015786ae03c0980d"
 
 [[package]]
-name = "danplay-analisis"
+name = "danplay-analysis"
 version = "1.30.0"
 dependencies = [
  "danplay-engine",
@@ -887,7 +887,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "danplay-biblioteca"
+name = "danplay-engine"
+version = "1.30.0"
+dependencies = [
+ "cc",
+ "cpal",
+ "rtrb",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "zip",
+]
+
+[[package]]
+name = "danplay-library"
 version = "1.30.0"
 dependencies = [
  "dirs",
@@ -913,20 +927,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "danplay-engine"
-version = "1.30.0"
-dependencies = [
- "cc",
- "cpal",
- "rtrb",
- "rustfft",
- "serde",
- "serde_json",
- "symphonia",
- "zip",
-]
-
-[[package]]
 name = "danplay-mobile"
 version = "1.30.0"
 dependencies = [
@@ -946,8 +946,8 @@ dependencies = [
 name = "danplay_core"
 version = "1.30.0"
 dependencies = [
- "danplay-analisis",
- "danplay-biblioteca",
+ "danplay-analysis",
+ "danplay-library",
  "md-5",
  "numpy",
  "pyo3",

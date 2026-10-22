@@ -1,7 +1,7 @@
 """Buscar en el indice: texto completo (FTS5), filtros, orden, y las filas
 ligeras que dan las listas de la API.
 
-Lo hace Rust (biblioteca/src/indice/busqueda.rs); esto es la puerta de
+Lo hace Rust (library/src/index/search.rs); esto es la puerta de
 Python, con los mismos nombres. Las tablas de aqui son las mismas que alli.
 """
 

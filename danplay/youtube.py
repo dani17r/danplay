@@ -75,7 +75,7 @@ STATE: dict = {
     # vieja que acaba tarde no pisa el estado de la nueva.
     "job": 0,
 }
-_CANCELAR = {"requested": False}
+_CANCEL = {"requested": False}
 # Comprobar que no hay nada en marcha y quedarse el turno van juntos bajo el
 # mismo cerrojo: dos peticiones seguidas arrancaban dos descargas.
 _TURN = threading.Lock()
@@ -103,7 +103,7 @@ def claim() -> int:
     with _TURN:
         if STATE["active"]:
             return 0
-        _CANCELAR["requested"] = False
+        _CANCEL["requested"] = False
         STATE["job"] += 1
         STATE.update(
             {
@@ -132,15 +132,15 @@ def release(job: int | None = None) -> None:
         if job is not None and STATE["job"] != job:
             return
         STATE["active"] = False
-        STATE["phase"] = "canceled" if _CANCELAR["requested"] else "done"
+        STATE["phase"] = "canceled" if _CANCEL["requested"] else "done"
 
 
 def cancel() -> None:
-    _CANCELAR["requested"] = True
+    _CANCEL["requested"] = True
 
 
 def canceled() -> bool:
-    return _CANCELAR["requested"]
+    return _CANCEL["requested"]
 
 
 def _put(job: int, **fields) -> bool:
@@ -520,7 +520,7 @@ def _tag_if_trustworthy(path: Path, data: dict) -> bool:
 
 
 def download_one(target_url, quality="high", folder=None, progress=None, cancel=None) -> dict:
-    """Baja un video y devuelve el mp3 ya listo en `carpeta` (por defecto Entrada/).
+    """Baja un video y devuelve el mp3 ya listo en `folder` (por defecto Entrada/).
 
     `progress(dict)` recibe {fase, porcentaje, nombre}. `cancelar()` devuelve
     True para abortar.
@@ -756,7 +756,7 @@ def _download(inbox, quality, file_it, results, force, source, progress, cancel)
         if not force:
             mine = already_in_library(t["title"])
             if mine:
-                repetida = {
+                duplicate = {
                     "ok": False,
                     "already_there": True,
                     "title": t["title"],
@@ -766,8 +766,8 @@ def _download(inbox, quality, file_it, results, force, source, progress, cancel)
                     "reason": "ya la tienes en la biblioteca",
                     "matches": mine[:5],
                 }
-                _log(repetida, inbox, source, quality)
-                out.append(repetida)
+                _log(duplicate, inbox, source, quality)
+                out.append(duplicate)
                 continue
 
         def step(p, _i=i, _t=t):
@@ -822,14 +822,14 @@ def _download(inbox, quality, file_it, results, force, source, progress, cancel)
                 if res.target:
                     from . import library
 
-                    nueva = library.index_file(str(res.target))
-                    if nueva:
-                        r["id"] = nueva["id"]
+                    new = library.index_file(str(res.target))
+                    if new:
+                        r["id"] = new["id"]
                     # Una Drum Cam, un tutorial, una secuencia: se archiva
                     # como todas, con su artista, y el aviso ofrece llevarla
                     # a su carpeta. Solo se sugiere: el titulo puede engañar.
                     kind = names.video_kind(r.get("title") or t["title"])
-                    if kind and nueva and res.target.is_relative_to(config.ARTISTS_DIR):
+                    if kind and new and res.target.is_relative_to(config.ARTISTS_DIR):
                         r["kind"] = {**kind, "folder": ingest.CATEGORY_FOLDER[kind["category"]]}
                 if res.action == "error":
                     r["ok"] = False
@@ -893,7 +893,7 @@ def run_many(
     Todos los resultados llevan `requested`: lo que se pidio (la consulta),
     tambien los que fallan o se cancelan, para casar cada uno con su peticion.
 
-    `on_done(resultados)` es lo que hay que hacer AL TERMINAR (p. ej. meter lo
+    `on_done(results)` es lo que hay que hacer AL TERMINAR (p. ej. meter lo
     bajado en su sitio de una lista). Corre aqui mismo, tras la ultima
     descarga y ANTES de soltar el turno: `STATE["phase"]` pasa a «listing»
     con `active` aun en True, y `active` en False quiere decir «todo hecho».

@@ -20,7 +20,7 @@ Sin el `.als` tambien vale: el tempo sale del nombre de la carpeta, y si no,
 del analisis de siempre.
 
 Leer la carpeta y el proyecto, la rejilla, los marcadores y la onda de cada
-pista lo hace Rust (biblioteca/src/secuencias.rs); aqui quedan lanzar ffmpeg y
+pista lo hace Rust (library/src/sequence.rs); aqui quedan lanzar ffmpeg y
 meterla en la biblioteca.
 """
 

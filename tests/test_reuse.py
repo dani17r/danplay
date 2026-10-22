@@ -308,8 +308,8 @@ def test_what_was_lost_before_comes_back_with_one_pass(home, tmp_path, monkeypat
     library.scan()
     row = _row(first)
     _stems(row, lib / "Separadas" / "Grupo - Cuarta", kick, hats)
-    domingo = playlists.create("Domingo")
-    playlists.add(domingo["id"], [row["id"]])
+    sunday = playlists.create("Domingo")
+    playlists.add(sunday["id"], [row["id"]])
     first.unlink()
     library.remove_folder(lib)
     # como antes de saber juntarlas: entra como nueva
@@ -325,11 +325,11 @@ def test_what_was_lost_before_comes_back_with_one_pass(home, tmp_path, monkeypat
     fresh = _row(again)
     assert fresh["id"] != row["id"] and stems.info(fresh) is None
     # en su lista sigue la de antes, como «No está»
-    assert [s["id"] for s in playlists.songs(domingo["id"], ghosts=False)] == []
-    assert [s.get("ghost") for s in playlists.songs(domingo["id"])] == [True]
+    assert [s["id"] for s in playlists.songs(sunday["id"], ghosts=False)] == []
+    assert [s.get("ghost") for s in playlists.songs(sunday["id"])] == [True]
     told = reuse.sweep()
     assert told["lists"] == 1 and told["stems"] == 1
-    assert [s["id"] for s in playlists.songs(domingo["id"])] == [fresh["id"]]
+    assert [s["id"] for s in playlists.songs(sunday["id"])] == [fresh["id"]]
     data = stems.info(_row(again))
     assert data and data["complete"]
     assert reuse.sweep()["stems"] == 0, "la segunda pasada no hace nada"

@@ -1,4 +1,4 @@
-"""Las reglas de Python que el nucleo en Rust imita (biblioteca/src/py.rs),
+"""Las reglas de Python que el nucleo en Rust imita (library/src/py.rs),
 comparadas con las de verdad: `posixpath`, `ntpath`, `fnmatch`, `round`,
 `repr`, `float` e `int`. Si Rust se aparta de Python en una sola, aqui sale
 el caso exacto."""
@@ -34,14 +34,14 @@ def _compat(name, *args):
 @given(PATH2)
 @example("//a//b/../c/.")
 @example("\\\\?\\UNC\\srv\\share\\x")
-def test_las_rutas_posix_como_posixpath(p):
+def test_posix_paths_like_posixpath(p):
     assert _compat("posix_normpath", p) == posixpath.normpath(p)
     assert _compat("posix_split", p) == posixpath.split(p)
 
 
 @settings(max_examples=600)
 @given(PATH2, PATH2)
-def test_juntar_y_lo_comun_como_posixpath(a, b):
+def test_join_and_commonpath_like_posixpath(a, b):
     assert _compat("posix_join", a, b) == posixpath.join(a, b)
     try:
         expected = posixpath.commonpath([a, b])
@@ -57,7 +57,7 @@ def test_juntar_y_lo_comun_como_posixpath(a, b):
 @given(PATH2)
 @example("\\\\?\\UNC\\srv\\share\\x")
 @example("é:x")
-def test_las_rutas_de_windows_como_ntpath(p):
+def test_windows_paths_like_ntpath(p):
     assert _compat("nt_splitroot", p) == ntpath.splitroot(p)
     assert _compat("nt_normpath", p) == ntpath.normpath(p)
     assert _compat("nt_normcase", p) == ntpath.normcase(p)
@@ -67,7 +67,7 @@ def test_las_rutas_de_windows_como_ntpath(p):
 
 @settings(max_examples=600)
 @given(PATH2, PATH2)
-def test_juntar_y_lo_comun_como_ntpath(a, b):
+def test_join_and_commonpath_like_ntpath(a, b):
     assert _compat("nt_join", a, b) == ntpath.join(a, b)
     try:
         expected = ntpath.commonpath([a, b])
@@ -80,7 +80,7 @@ def test_juntar_y_lo_comun_como_ntpath(a, b):
     os.name == "nt",
     reason="en Windows realpath se resuelve con el sistema (canonicalize) y ~otro no se expande",
 )
-def test_las_rutas_del_sistema(tmp_path, monkeypatch):
+def test_real_filesystem_paths(tmp_path, monkeypatch):
     """realpath, abspath, relpath y expanduser de verdad, con enlaces."""
     (tmp_path / "real" / "sub").mkdir(parents=True)
     (tmp_path / "enlace").symlink_to(tmp_path / "real")
@@ -112,7 +112,7 @@ GLOB = st.text(st.sampled_from("ab-z*?[]!^\\.&|~/"), max_size=8)
 @example("-", "[a-]")
 @example("b", "[z-a]")
 @example("^", "[^]")
-def test_fnmatch_como_fnmatchcase(name, pat):
+def test_fnmatch_like_fnmatchcase(name, pat):
     assert _compat("fnmatchcase", name, pat) == fnmatch.fnmatchcase(name, pat), (name, pat)
 
 
@@ -124,7 +124,7 @@ FLOATS = st.floats(allow_nan=False, allow_infinity=False)
 @example(2.675, 2)
 @example(0.125, 2)
 @example(1e300, 3)
-def test_round_como_python(x, n):
+def test_round_like_python(x, n):
     assert _compat("round", x, n) == round(x, n)
 
 
@@ -133,7 +133,7 @@ def test_round_como_python(x, n):
 @example(1e16)
 @example(1e-5)
 @example(123456789012345678.0)
-def test_repr_de_un_float_como_python(x):
+def test_float_repr_like_python(x):
     assert _compat("repr_float", x) == repr(x)
 
 
@@ -145,7 +145,7 @@ NUMERIC = st.text(st.sampled_from("0123456789_.eE+- \tinfaINFAnx"), max_size=10)
 @example("1_000.5")
 @example(" -inf ")
 @example("1__0")
-def test_float_e_int_de_un_texto_como_python(s):
+def test_float_and_int_from_text_like_python(s):
     try:
         f = float(s)
     except ValueError:
@@ -176,7 +176,7 @@ JSONISH = st.recursive(
 
 @settings(max_examples=1000)
 @given(JSONISH)
-def test_repr_como_python(v):
+def test_repr_like_python(v):
     assume(_assigned(json.dumps(v, ensure_ascii=False)))
     assert _compat("repr", v) == repr(v)
 
@@ -186,21 +186,21 @@ def test_repr_como_python(v):
 @example("_x1")
 @example("1x")
 @example("ñandú")
-def test_isidentifier_como_python(s):
+def test_isidentifier_like_python(s):
     assume(_assigned(s))
     assert _compat("isidentifier", s) == s.isidentifier()
 
 
 # sin sustitutos sueltos (Cs): no son texto y no se pueden pasar a Rust
 @given(st.characters(exclude_categories=("Cs",)))
-def test_isprintable_como_python(c):
+def test_isprintable_like_python(c):
     assume(_assigned(c))
     assert _compat("isprintable", c) == c.isprintable()
 
 
 @settings(max_examples=1000)
 @given(JSONISH, st.sampled_from([None, 1, 2]), st.booleans())
-def test_json_dumps_como_python(v, indent, sort_keys):
+def test_json_dumps_like_python(v, indent, sort_keys):
     assume(_assigned(json.dumps(v, ensure_ascii=False)))
     expected = json.dumps(v, ensure_ascii=False, indent=indent, sort_keys=sort_keys)
     assert _compat("dumps", v, indent, sort_keys) == expected

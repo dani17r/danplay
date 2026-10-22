@@ -1,6 +1,6 @@
 """Deteccion de duplicados: identicos byte a byte y misma cancion en otra version.
 
-Los grupos los hace el crate de Rust (biblioteca/src/duplicados.rs, con las
+Los grupos los hace el crate de Rust (library/src/duplicates.rs, con las
 mismas puntuaciones de rapidfuzz que se usaban); resolverlos, que toca la
 papelera y las carpetas de la biblioteca, sigue aqui.
 """
@@ -40,7 +40,7 @@ def same_song(paths, threshold=0.88) -> list[list[str]]:
 
     Primero los de la misma clave (`names.match_key`), luego los parecidos
     (`fuzz.token_set_ratio` si comparten palabras, `fuzz.ratio` si no); ver
-    `misma_cancion` en duplicados.rs. Dentro de cada grupo, en cualquier orden.
+    `same_song` en duplicates.rs. Dentro de cada grupo, en cualquier orden.
     """
     paths = list(paths)
     return [[paths[i] for i in g] for g in _rust.duplicates_same_song(paths, float(threshold))]
@@ -102,11 +102,11 @@ def resolve(keep: str, remove: list[str], dry_run=True) -> dict:
 
     # quitarle el sufijo al que se queda
     folder = os.path.dirname(keep)
-    actual = os.path.basename(keep)
-    clean_name = name_without_suffix(actual)
+    current = os.path.basename(keep)
+    clean_name = name_without_suffix(current)
     target = keep
     renamed = False
-    if clean_name != actual:
+    if clean_name != current:
         candidate = os.path.join(folder, clean_name)
         if not os.path.exists(candidate) or os.path.abspath(candidate) in deleted:
             if not dry_run:

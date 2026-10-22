@@ -33,7 +33,7 @@ INSERT_SONG = (
     "match_key, duration, stars, favorite) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
 )
 
-LISTA = (
+PASTED_SETLIST = (
     "agrégame esto a la lista de los domingo:\n"
     "*1.- Digno De Adorar* @Ana Torres Voz\n"
     "*2.- Rey Infinito*\n"
@@ -224,7 +224,7 @@ def lib(tmp_path, monkeypatch):
     plan._reset()
 
 
-def test_sin_saldo_contesta_el_respaldo_y_el_principal_no_se_vuelve_a_llamar(profiles):
+def test_no_credit_fallback_answers_and_primary_is_not_retried(profiles):
     profiles.answers["a"] = [{"status": 400, "body": BILLING}]
     profiles.answers["b"] = [
         {"message": {"content": "Hola desde el respaldo."}},
@@ -245,7 +245,7 @@ def test_sin_saldo_contesta_el_respaldo_y_el_principal_no_se_vuelve_a_llamar(pro
     assert "credit" not in json.dumps(st) and "sk-prueba" not in json.dumps(st)
 
 
-def test_un_429_se_reintenta_y_luego_pasa_al_respaldo(profiles):
+def test_a_429_is_retried_then_goes_to_the_fallback(profiles):
     busy = {
         "status": 429,
         "body": {"error": {"message": "Rate limit reached for requests per minute"}},
@@ -261,12 +261,14 @@ def test_un_429_se_reintenta_y_luego_pasa_al_respaldo(profiles):
 
 
 @pytest.mark.parametrize("stream", [False, True], ids=["entera", "en-trozos"])
-def test_una_lista_pegada_es_una_sola_peticion_al_modelo(profiles, lib, stream):
+def test_a_pasted_setlist_is_a_single_model_request(profiles, lib, stream):
     profiles.answers["a"] = [
         {"message": {"tool_calls": [call("fill_playlist", {"playlist": "domingo"})]}}
     ]
     seen: list[str] = []
-    r = CH.reply([{"role": "me", "text": LISTA}], on_text=(seen.append if stream else None))
+    r = CH.reply(
+        [{"role": "me", "text": PASTED_SETLIST}], on_text=(seen.append if stream else None)
+    )
     assert len(profiles.got["a"]) == 1, "el informe lo escribe la app"
     assert profiles.got["a"][0].get("stream", False) is stream
     assert r["text"].startswith("Añadí a «domingo»: Digno De Adorar y Rey Infinito.")
@@ -283,7 +285,7 @@ def test_una_lista_pegada_es_una_sola_peticion_al_modelo(profiles, lib, stream):
     assert {"fill_playlist", "find_songs"} <= {t["function"]["name"] for t in sent["tools"]}
 
 
-def test_dos_herramientas_en_un_mensaje_son_una_vuelta_mas(profiles, lib):
+def test_two_tools_in_one_message_take_one_more_round(profiles, lib):
     profiles.answers["a"] = [
         {
             "message": {
@@ -295,7 +297,7 @@ def test_dos_herramientas_en_un_mensaje_son_una_vuelta_mas(profiles, lib):
         },
         {"message": {"content": "Hecho, y tienes una lista."}},
     ]
-    r = CH.reply([{"role": "me", "text": LISTA}])
+    r = CH.reply([{"role": "me", "text": PASTED_SETLIST}])
     assert len(profiles.got["a"]) == 2
     assert r["text"] == "Hecho, y tienes una lista."
     second = profiles.got["a"][1]["messages"]
@@ -304,7 +306,7 @@ def test_dos_herramientas_en_un_mensaje_son_una_vuelta_mas(profiles, lib):
     assert "_ui" not in tool_msgs[0]["content"]
 
 
-def test_contenido_vacio_tras_herramientas_dice_lo_que_se_hizo(profiles, lib):
+def test_empty_content_after_tools_says_what_was_done(profiles, lib):
     profiles.answers["a"] = [
         {"message": {"tool_calls": [call("list_playlists", {})]}},
         {"message": {"content": ""}},

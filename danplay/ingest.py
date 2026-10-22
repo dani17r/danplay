@@ -82,8 +82,8 @@ def _from_heuristic(path, vocab) -> dict | None:
 
 def _from_ai(path, vocab) -> dict | None:
     seconds = tags.duration(path)
-    pista = f"Duracion: {int(seconds // 60)}:{int(seconds % 60):02d}\n" if seconds else ""
-    r = ai.resolve(os.path.basename(path), set(vocab.values()), pista)
+    track = f"Duracion: {int(seconds // 60)}:{int(seconds % 60):02d}\n" if seconds else ""
+    r = ai.resolve(os.path.basename(path), set(vocab.values()), track)
     if not r or r.get("error"):
         return r
     if r["artist"] and r["confidence"] >= AI_THRESHOLD:
@@ -128,7 +128,7 @@ def resolve(path, vocab) -> dict:
 
 
 def process(
-    path, vocab=None, dry_run=False, escribir_tags=None, convert_mp3=None, known=None
+    path, vocab=None, dry_run=False, write_tags=None, convert_mp3=None, known=None
 ) -> Result:
     """Identifica, renombra y archiva un archivo.
 
@@ -140,7 +140,7 @@ def process(
     path = Path(path)
     convert_mp3 = config.CONVERT_TO_MP3 if convert_mp3 is None else convert_mp3
     vocab = vocab if vocab is not None else names.vocabulary(config.ARTISTS_DIR)
-    escribir_tags = config.WRITE_TAGS if escribir_tags is None else escribir_tags
+    write_tags = config.WRITE_TAGS if write_tags is None else write_tags
     res = Result(source_path=path)
 
     # conversion opcional a mp3 (la casilla de la app)
@@ -199,7 +199,7 @@ def process(
         return res
     try:
         shutil.move(str(path), str(res.target))
-        if escribir_tags and res.artist and not tags.write(res.target, res.artist, res.title):
+        if write_tags and res.artist and not tags.write(res.target, res.artist, res.title):
             res.warnings.append("no se pudieron escribir las etiquetas")
         if res.action != "review":
             res.action = "moved"
@@ -215,7 +215,7 @@ def process(
 def process_inbox(dry_run=False, limit=None, convert_mp3=None, progress=None) -> list[Result]:
     """Procesa todo lo que haya en la carpeta Entrada/.
 
-    `progress(hechos, total, nombre)` cuenta el avance (el trabajo «importacion»)."""
+    `progress(done, total, name)` cuenta el avance (el trabajo «importacion»)."""
     if not config.INBOX.is_dir():
         # sin Entrada no hay nada que importar; y crearla aqui podria hacer
         # reaparecer vacia una carpeta de musica movida (library.ensure_folder)
@@ -223,16 +223,16 @@ def process_inbox(dry_run=False, limit=None, convert_mp3=None, progress=None) ->
             progress(0, 0, "")
         return []
     vocab = names.vocabulary(config.ARTISTS_DIR)
-    pendientes = sorted(
+    pending = sorted(
         p for p in config.INBOX.iterdir() if p.is_file() and p.suffix.lower() in config.EXTENSIONS
     )
     if limit:
-        pendientes = pendientes[:limit]
+        pending = pending[:limit]
     out = []
-    for i, p in enumerate(pendientes):
+    for i, p in enumerate(pending):
         if progress:
-            progress(i, len(pendientes), p.name)
+            progress(i, len(pending), p.name)
         out.append(process(p, vocab, dry_run, convert_mp3=convert_mp3))
     if progress:
-        progress(len(pendientes), len(pendientes), "")
+        progress(len(pending), len(pending), "")
     return out

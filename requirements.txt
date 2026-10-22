@@ -1,7 +1,7 @@
 # Lo que DanPlay necesita para funcionar.
 #
 # GENERADO desde uv.lock: no lo edites a mano. Para regenerarlo:
-#   ./.venv/bin/python scripts/exportar-requisitos.py
+#   ./.venv/bin/python scripts/export-requirements.py
 # (que ejecuta: uv export --format requirements-txt --frozen --no-emit-project --no-header --no-dev -o requirements.txt)
 annotated-doc==0.0.5 \
     --hash=sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101 \

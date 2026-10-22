@@ -24,7 +24,7 @@ El resultado va en dos partes: lo que lee el modelo (corto: contadores, ids,
 lo que falta) y `_ui`, la tabla entera y la tarjeta, que el bucle aparta
 antes de mandarle nada al modelo y entrega a la interfaz.
 
-Lo que se decide y se escribe lo hace Rust (biblioteca/src/asistente/setlist.rs);
+Lo que se decide y se escribe lo hace Rust (library/src/assistant/setlist.rs);
 aqui queda lo que toca la base y la red: buscar en la biblioteca, cambiar la
 lista bajo su cerrojo, crear una lista y apuntar la tarjeta.
 """

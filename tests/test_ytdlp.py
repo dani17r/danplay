@@ -41,7 +41,7 @@ def motores(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_el_motor_preferido_es_el_primero_que_sirve(motores):
+def test_the_preferred_runtime_is_the_first_that_works(motores):
     _tool(motores, "node", "v22.3.0")
     _tool(motores, "deno", "deno 2.5.1 (stable, release, x86_64)")
     rt = ytdlp.js_runtime(refresh=True)
@@ -50,7 +50,7 @@ def test_el_motor_preferido_es_el_primero_que_sirve(motores):
     assert ytdlp.js_runtime_hint() == ""
 
 
-def test_uno_viejo_no_vale_y_se_dice(motores):
+def test_an_old_runtime_is_rejected_with_a_hint(motores):
     _tool(motores, "node", "v18.19.0")
     assert ytdlp.js_runtime(refresh=True) is None
     hint = ytdlp.js_runtime_hint()
@@ -58,7 +58,7 @@ def test_uno_viejo_no_vale_y_se_dice(motores):
     assert ytdlp.options() == {}
 
 
-def test_sin_ninguno_se_dice_que_instalar(motores):
+def test_with_none_it_says_what_to_install(motores):
     assert ytdlp.js_runtime(refresh=True) is None
     assert "Deno" in ytdlp.js_runtime_hint() and "Node.js 22" in ytdlp.js_runtime_hint()
 
@@ -71,13 +71,13 @@ def test_sin_ninguno_se_dice_que_instalar(motores):
         ("QuickJS-ng version 0.10.1", True),
     ],
 )
-def test_quickjs_se_llama_qjs_y_se_mira_con_help(motores, output, ok):
+def test_quickjs_is_called_qjs_and_probed_with_help(motores, output, ok):
     _tool(motores, "qjs", output)
     rt = ytdlp.js_runtime(refresh=True)
     assert (rt is not None and rt["name"] == "quickjs") == ok
 
 
-def test_las_opciones_llegan_a_yt_dlp(monkeypatch):
+def test_the_options_reach_yt_dlp(monkeypatch):
     monkeypatch.setattr(
         ytdlp,
         "js_runtime",
@@ -87,7 +87,7 @@ def test_las_opciones_llegan_a_yt_dlp(monkeypatch):
     assert opts["js_runtimes"] == {"node": {"path": "/opt/node/bin/node"}}
 
 
-def test_version_como_numeros():
+def test_version_as_numbers():
     assert ytdlp.version_tuple("2026.08.19") == ytdlp.version_tuple("2026.8.19") == (2026, 8, 19)
     assert ytdlp.version_tuple("2026.9.1") > ytdlp.version_tuple("2026.08.19")
     assert ytdlp.version_tuple("") == ()
@@ -204,7 +204,7 @@ def _publish_good(pypi, version="2099.1.1"):
     )
 
 
-def test_se_actualiza_desde_pypi_y_se_usa_la_nueva(pypi):
+def test_it_updates_from_pypi_and_uses_the_new_one(pypi):
     _publish_good(pypi)
     before = ytdlp.version()
     steps = []
@@ -227,7 +227,7 @@ def test_se_actualiza_desde_pypi_y_se_usa_la_nueva(pypi):
     assert ytdlp.update() == {"previous": "2099.01.01", "version": "2099.01.01", "updated": False}
 
 
-def test_al_arrancar_se_carga_la_descargada(pypi):
+def test_on_startup_the_downloaded_one_is_loaded(pypi):
     _publish_good(pypi)
     ytdlp.update()
     # otro arranque del nucleo: nada cargado, solo la carpeta y su marca
@@ -240,7 +240,7 @@ def test_al_arrancar_se_carga_la_descargada(pypi):
     assert youtube._installed()
 
 
-def test_una_rueda_que_no_coincide_con_pypi_no_se_usa(pypi):
+def test_a_wheel_not_matching_pypi_is_not_used(pypi):
     _publish_good(pypi)
     pypi.publish("yt-dlp", "2099.1.1", _yt_dlp_wheel("2099.01.01"), pin="9.9.0", sha="0" * 64)
     before = ytdlp.version()
@@ -250,7 +250,7 @@ def test_una_rueda_que_no_coincide_con_pypi_no_se_usa(pypi):
     assert not (config.DATA_DIR / "yt-dlp" / "2099.1.1").exists()
 
 
-def test_si_la_nueva_no_carga_se_vuelve_a_la_de_la_app(pypi):
+def test_if_the_new_one_will_not_load_the_bundled_one_is_used(pypi):
     pypi.publish("yt-dlp", "2099.1.1", _yt_dlp_wheel("2099.01.01", broken=True), pin="9.9.0")
     pypi.publish(
         "yt-dlp-ejs",
@@ -268,7 +268,7 @@ def test_si_la_nueva_no_carga_se_vuelve_a_la_de_la_app(pypi):
     assert "2099" not in yt_dlp.version.__version__
 
 
-def test_una_descargada_rota_al_arrancar_se_aparta(pypi):
+def test_a_broken_download_is_set_aside_on_startup(pypi):
     folder = config.DATA_DIR / "yt-dlp" / "2099.1.1"
     (folder / "yt_dlp").mkdir(parents=True)
     (folder / "yt_dlp" / "__init__.py").write_text("raise ImportError('rota')\n")
@@ -281,7 +281,7 @@ def test_una_descargada_rota_al_arrancar_se_aparta(pypi):
     assert not folder.exists() and not (config.DATA_DIR / "yt-dlp" / "current").exists()
 
 
-def test_una_descargada_mas_vieja_que_la_de_la_app_no_se_usa(pypi):
+def test_a_download_older_than_the_bundled_one_is_not_used(pypi):
     folder = config.DATA_DIR / "yt-dlp" / "2001.1.1"
     (folder / "yt_dlp").mkdir(parents=True)
     (folder / "yt_dlp" / "__init__.py").write_text("")
@@ -291,26 +291,26 @@ def test_una_descargada_mas_vieja_que_la_de_la_app_no_se_usa(pypi):
     assert ytdlp.downloaded() is None
 
 
-def test_una_rueda_con_rutas_raras_no_se_descomprime(tmp_path):
+def test_a_wheel_with_odd_paths_is_not_extracted(tmp_path):
     bad = _wheel({"yt_dlp/__init__.py": "", "../../fuera.py": "print('hola')"})
     with pytest.raises(ytdlp.UpdateError):
         ytdlp._unpack([bad], tmp_path / "dentro")
     assert not (tmp_path / "fuera.py").exists()
 
 
-def test_lo_que_pypi_no_tiene_se_dice_en_castellano(pypi):
+def test_what_pypi_lacks_is_reported_in_spanish(pypi):
     pypi.publish("yt-dlp", "2099.1.1", _yt_dlp_wheel("2099.01.01"), pin="9.9.0")
     with pytest.raises(ytdlp.UpdateError, match="error 404"):
         ytdlp.update()  # el yt-dlp-ejs que pide no esta
 
 
-def test_sin_red_se_dice_en_castellano(pypi, monkeypatch):
+def test_without_network_it_says_so_in_spanish(pypi, monkeypatch):
     monkeypatch.setattr(ytdlp, "PYPI", "https://pypi.org/pypi")  # la red esta cortada
     with pytest.raises(ytdlp.UpdateError, match="no se pudo consultar PyPI"):
         ytdlp.update()
 
 
-def test_la_api_cuenta_la_version_y_actualiza_como_trabajo(pypi, monkeypatch):
+def test_the_api_reports_the_version_and_updates_as_a_job(pypi, monkeypatch):
     from fastapi.testclient import TestClient
 
     from danplay import api
@@ -336,7 +336,7 @@ def test_la_api_cuenta_la_version_y_actualiza_como_trabajo(pypi, monkeypatch):
     assert sys.modules["yt_dlp"].version.__version__ == "2099.01.01", "sigue la buena"
 
 
-def test_el_buscador_solo_reconoce_su_carpeta(tmp_path):
+def test_the_finder_only_recognizes_its_folder(tmp_path):
     finder = ytdlp._Prefer(tmp_path / "2099.1.1")
     assert finder._inside(tmp_path / "2099.1.1" / "yt_dlp")
     assert not finder._inside(tmp_path / "2099.1.10" / "yt_dlp")

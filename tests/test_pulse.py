@@ -3,7 +3,7 @@
 Lo de alrededor de la red —el espectrograma, los trozos que se solapan, los
 maximos, la rejilla sin huecos— se prueba con una «red» de mentira que dice
 pulso donde se le manda. Que el espectrograma y el grafo dan lo mismo que
-Beat This! lo comprueba scripts/exportar-pulso.py al generarlo.
+Beat This! lo comprueba scripts/export-pulse.py al generarlo.
 """
 
 import json
@@ -354,7 +354,7 @@ def test_writing_a_tag_keeps_what_was_worked_out_from_the_sound(synthetic_librar
     assert beatgrid.cached(path), "la rejilla tenia que seguir valiendo"
     beatgrid.grid_of(path)
     assert len(detector) == 1, "y no volver a calcularse"
-    assert len(list((config.DATA_DIR / "pulso").glob("*.json"))) == 1, "sin dejar la vieja"
+    assert len(list((config.DATA_DIR / "beats").glob("*.json"))) == 1, "sin dejar la vieja"
     assert json.loads(wave.read_text(encoding="utf-8"))["mtime"] == os.path.getmtime(path)
     # otra cancion cambiada por fuera (el sonido puede ser otro): no se toca
     assert not beatgrid.retag(str(songs["tierra"]), before, after)
@@ -368,18 +368,18 @@ def test_the_api_gives_the_grid_or_says_it_cannot(configured_library, detector, 
     root, _ = configured_library
     library.add_folder(root)
     library.scan()
-    cliente = TestClient(api.app)
+    client = TestClient(api.app)
     song_row = library.search("", limit=1)[0]
-    r = cliente.get(f"/api/song/{song_row['id']}/beats")
+    r = client.get(f"/api/song/{song_row['id']}/beats")
     assert r.status_code == 200, r.text
     assert r.json()["meter"] == 4
-    assert cliente.get("/api/song/999999/beats").status_code == 404
+    assert client.get("/api/song/999999/beats").status_code == 404
     # sin detector aqui, y sin nada guardado para otra cancion: 503
     other = library.search("", limit=2)[1]
     monkeypatch.setattr(beatgrid, "available", lambda: "falta el detector de pulso")
-    assert cliente.get(f"/api/song/{other['id']}/beats").status_code == 503
+    assert client.get(f"/api/song/{other['id']}/beats").status_code == 503
     # lo ya guardado sigue saliendo
-    assert cliente.get(f"/api/song/{song_row['id']}/beats").status_code == 200
+    assert client.get(f"/api/song/{song_row['id']}/beats").status_code == 200
 
 
 def test_the_api_without_waiting_and_preparing_the_next(configured_library, detector):
@@ -390,19 +390,19 @@ def test_the_api_without_waiting_and_preparing_the_next(configured_library, dete
     root, _ = configured_library
     library.add_folder(root)
     library.scan()
-    cliente = TestClient(api.app)
+    client = TestClient(api.app)
     first, second = library.search("", limit=2)
-    r = cliente.get(f"/api/song/{first['id']}/beats", params={"wait": "false"})
+    r = client.get(f"/api/song/{first['id']}/beats", params={"wait": "false"})
     assert r.status_code == 202 and r.json()["pending"] is True
     assert 0 <= r.json()["progress"] <= 1
-    assert cliente.post(f"/api/song/{second['id']}/beats/prepare").json() == {"queued": True}
+    assert client.post(f"/api/song/{second['id']}/beats/prepare").json() == {"queued": True}
     assert beatgrid.idle()
-    r = cliente.get(f"/api/song/{first['id']}/beats", params={"wait": "false"})
+    r = client.get(f"/api/song/{first['id']}/beats", params={"wait": "false"})
     assert r.status_code == 200 and r.json()["meter"] == 4
-    r = cliente.get(f"/api/song/{second['id']}/beats", params={"wait": "false"})
+    r = client.get(f"/api/song/{second['id']}/beats", params={"wait": "false"})
     assert r.status_code == 200, "la de despues ya estaba hecha al pasar a ella"
     assert len(detector) == 2
-    assert cliente.post("/api/song/999999/beats/prepare").status_code == 404
+    assert client.post("/api/song/999999/beats/prepare").status_code == 404
 
 
 def test_the_graph_travels_with_the_app():
@@ -523,15 +523,15 @@ def test_the_api_reanalyses(configured_library, detector):
     root, _ = configured_library
     library.add_folder(root)
     library.scan()
-    cliente = TestClient(api.app)
+    client = TestClient(api.app)
     song_row = library.search("", limit=1)[0]
     url = f"/api/song/{song_row['id']}/beats/reanalyze"
-    r = cliente.post(url, json={"mode": "steady"})
+    r = client.post(url, json={"mode": "steady"})
     assert r.status_code == 200, r.text
     assert r.json()["report"]["fixed"] == 0 and r.json()["grid"]["meter"] == 4
-    assert cliente.post(url, json={"mode": "repair", "start": 5, "end": 3}).status_code == 422
-    assert cliente.post(url, json={"mode": "magia"}).status_code == 422
-    assert cliente.post("/api/song/999999/beats/reanalyze", json={}).status_code == 404
+    assert client.post(url, json={"mode": "repair", "start": 5, "end": 3}).status_code == 422
+    assert client.post(url, json={"mode": "magia"}).status_code == 422
+    assert client.post("/api/song/999999/beats/reanalyze", json={}).status_code == 404
 
 
 def test_what_the_network_heard_survives_a_cut(tmp_path):

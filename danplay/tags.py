@@ -15,7 +15,7 @@ Tres familias de formato, con el mismo vocabulario de campos:
     libres ----:com.apple.iTunes:RATING / initialkey / DANPLAY_*.
 
 Las lee y las escribe el crate de Rust (`danplay_core`, con lofty: ver
-biblioteca/src/etiquetas.rs). Antes era mutagen, que es GPL y chocaba con
+library/src/tags.rs). Antes era mutagen, que es GPL y chocaba con
 la licencia de DanPlay en los paquetes; queda en `tags_mutagen`, solo para
 cuando el crate no esta (desarrollo, las pruebas sin Rust).
 """

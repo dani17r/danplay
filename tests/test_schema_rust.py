@@ -1,4 +1,4 @@
-"""El esquema y las migraciones en Rust (biblioteca/src/indice/esquema.rs)
+"""El esquema y las migraciones en Rust (library/src/index/schema.rs)
 contra los de Python (danplay/library/db.py): partiendo de la misma base
 (nueva, de antes de las versiones, en castellano, de la version 3), las dos
 acaban con las mismas tablas, indices, triggers, version y datos."""
@@ -120,7 +120,7 @@ def _version_3(path):
 
 
 @pytest.mark.parametrize("build", [_empty, _before_versions, _spanish, _version_3])
-def test_rust_deja_la_base_como_python(tmp_path, monkeypatch, build):
+def test_rust_leaves_the_db_like_python(tmp_path, monkeypatch, build):
     a, b = _both(tmp_path, monkeypatch, build)
     assert a["version"] == b["version"] == library.SCHEMA_VERSION == R._compat("schema_version", [])
     assert a["schema"] == b["schema"]
@@ -128,7 +128,7 @@ def test_rust_deja_la_base_como_python(tmp_path, monkeypatch, build):
     assert a["fts"] == b["fts"]
 
 
-def test_una_base_ya_al_dia_no_cambia(tmp_path):
+def test_an_up_to_date_db_does_not_change(tmp_path):
     path = tmp_path / "al-dia.db"
     assert R._compat("db_prepare", [str(path)]) == []
     before = _dump(path)
@@ -136,7 +136,7 @@ def test_una_base_ya_al_dia_no_cambia(tmp_path):
     assert _dump(path) == before
 
 
-def test_una_base_de_un_danplay_mas_nuevo_no_se_toca(tmp_path):
+def test_a_db_from_a_newer_danplay_is_left_alone(tmp_path):
     path = tmp_path / "nueva.db"
     R._compat("db_prepare", [str(path)])
     conn = sqlite3.connect(path)

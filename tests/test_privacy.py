@@ -19,7 +19,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # ------------------------------------------------------------ las pruebas
 
 
-def test_las_pruebas_no_tocan_los_datos_de_verdad():
+def test_the_tests_do_not_touch_the_real_data():
     """Todo lo que cuelga del usuario cae en el temporal de la sesion: la
     base, los ajustes con las claves, los perfiles de IA y las caches."""
     from danplay import config, model_catalog, providers, thumbnails, waveform
@@ -43,7 +43,7 @@ def test_las_pruebas_no_tocan_los_datos_de_verdad():
     assert not config.USE_PROJECT_ENV, "el .env del proyecto lleva claves de verdad"
 
 
-def test_las_pruebas_no_salen_a_internet():
+def test_the_tests_do_not_reach_the_internet():
     with pytest.raises(OSError):
         socket.create_connection(("example.com", 80), timeout=2)
     with pytest.raises(OSError):
@@ -54,7 +54,7 @@ def test_las_pruebas_no_salen_a_internet():
         urllib.request.urlopen("https://models.dev/api.json", timeout=2)
 
 
-def test_localhost_sigue_valiendo():
+def test_localhost_still_works():
     server = socket.socket()
     server.bind(("127.0.0.1", 0))
     server.listen(1)
@@ -68,7 +68,7 @@ def test_localhost_sigue_valiendo():
 
 
 @pytest.mark.skipif(os.name != "posix", reason="permisos POSIX")
-def test_las_carpetas_de_datos_son_solo_del_usuario():
+def test_the_data_folders_are_user_only():
     from danplay import config
 
     for folder in (config.DATA_DIR, config.CONFIG_DIR):
@@ -76,7 +76,7 @@ def test_las_carpetas_de_datos_son_solo_del_usuario():
 
 
 @pytest.mark.skipif(os.name != "posix", reason="permisos POSIX")
-def test_una_carpeta_que_ya_existia_se_cierra(tmp_path):
+def test_an_existing_folder_is_locked_down(tmp_path):
     from danplay import config
 
     folder = tmp_path / "abierta"
@@ -87,7 +87,7 @@ def test_una_carpeta_que_ya_existia_se_cierra(tmp_path):
 
 
 @pytest.mark.skipif(os.name != "posix", reason="permisos POSIX")
-def test_la_base_nace_y_queda_solo_del_usuario(tmp_path, monkeypatch):
+def test_the_db_is_created_and_stays_user_only(tmp_path, monkeypatch):
     """Lleva el historial del chat: con la umask de siempre era legible por
     cualquiera del equipo."""
     from danplay import config, library
@@ -106,7 +106,7 @@ def test_la_base_nace_y_queda_solo_del_usuario(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(os.name != "posix", reason="permisos POSIX")
-def test_los_secretos_se_escriben_atomicos_y_privados(tmp_path):
+def test_secrets_are_written_atomically_and_privately(tmp_path):
     from danplay import config
 
     target = tmp_path / "secreto.json"
@@ -118,17 +118,17 @@ def test_los_secretos_se_escriben_atomicos_y_privados(tmp_path):
     assert [p.name for p in tmp_path.iterdir()] == ["secreto.json"], "sin temporales"
 
 
-def test_un_fallo_a_medias_deja_el_archivo_de_antes(tmp_path, monkeypatch):
+def test_a_failure_midway_leaves_the_previous_file(tmp_path, monkeypatch):
     """Si algo se corta al escribir, queda el archivo entero de antes."""
     from danplay import config
 
     target = tmp_path / "ai.json"
     target.write_text('{"entero": true}')
 
-    def falla(*a, **k):
+    def failing_replace(*a, **k):
         raise OSError("disco lleno")
 
-    monkeypatch.setattr(os, "replace", falla)
+    monkeypatch.setattr(os, "replace", failing_replace)
     with pytest.raises(OSError):
         config.write_private(target, '{"cort')
     assert json.loads(target.read_text()) == {"entero": True}
@@ -152,7 +152,7 @@ def test_un_fallo_a_medias_deja_el_archivo_de_antes(tmp_path, monkeypatch):
         "",
     ],
 )
-def test_los_ajustes_se_releen_igual_que_se_guardaron(tmp_path, monkeypatch, value):
+def test_settings_read_back_as_they_were_saved(tmp_path, monkeypatch, value):
     """`DANPLAY_LIBRARY=/home/ana/Musica #2` se releia como `/home/ana/Musica`:
     sin comillas, lo de detras de « #» es un comentario para python-dotenv."""
     from dotenv import dotenv_values
@@ -169,7 +169,7 @@ def test_los_ajustes_se_releen_igual_que_se_guardaron(tmp_path, monkeypatch, val
     assert env_file.read_text().count("DANPLAY_LIBRARY=") == 1
 
 
-def test_un_valor_con_salto_de_linea_no_inventa_variables(tmp_path, monkeypatch):
+def test_a_value_with_a_newline_does_not_invent_variables(tmp_path, monkeypatch):
     from dotenv import dotenv_values
 
     from danplay import config
@@ -205,7 +205,7 @@ def _import_config(env: dict) -> str:
     not sys.platform.startswith("linux"),
     reason="XDG_* solo cuenta en Linux (Windows y macOS preguntan al sistema)",
 )
-def test_la_migracion_desde_melodia_respeta_xdg(tmp_path):
+def test_the_migration_from_melodia_respects_xdg(tmp_path):
     """Con las rutas fijas de antes (~/.config/melodia), un entorno aislado se
     tragaba las claves del usuario de verdad."""
     home = tmp_path / "home"
@@ -232,7 +232,7 @@ def test_la_migracion_desde_melodia_respeta_xdg(tmp_path):
 
 
 @pytest.fixture
-def perfiles(tmp_path, monkeypatch):
+def temp_profiles(tmp_path, monkeypatch):
     from danplay import ai, providers
 
     monkeypatch.setattr(providers, "PROFILES_FILE", tmp_path / "ai.json")
@@ -244,28 +244,34 @@ def perfiles(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(os.name != "posix", reason="permisos POSIX")
-def test_los_perfiles_se_guardan_solo_para_el_usuario(perfiles):
-    perfiles.save_profile({"provider": "openai", "key": "sk-una-clave-larga"})
-    assert stat.S_IMODE(perfiles.PROFILES_FILE.stat().st_mode) == 0o600
+def test_profiles_are_saved_for_the_user_only(temp_profiles):
+    temp_profiles.save_profile({"provider": "openai", "key": "sk-una-clave-larga"})
+    assert stat.S_IMODE(temp_profiles.PROFILES_FILE.stat().st_mode) == 0o600
 
 
-def test_la_clave_guardada_no_viaja_a_otra_url(perfiles):
+def test_the_saved_key_does_not_travel_to_another_url(temp_profiles):
     """«Probar» con la URL cambiada le mandaba la clave de verdad a ese host."""
-    perfiles.save_profile({"provider": "openai", "key": "sk-de-verdad-1234567890"})
-    same = perfiles.with_saved_key({"provider": "openai"})
+    temp_profiles.save_profile({"provider": "openai", "key": "sk-de-verdad-1234567890"})
+    same = temp_profiles.with_saved_key({"provider": "openai"})
     assert same["key"] == "sk-de-verdad-1234567890", "a la misma URL si va"
-    same = perfiles.with_saved_key({"provider": "openai", "base_url": "https://api.openai.com/v1/"})
+    same = temp_profiles.with_saved_key(
+        {"provider": "openai", "base_url": "https://api.openai.com/v1/"}
+    )
     assert same["key"] == "sk-de-verdad-1234567890", "una barra de mas no es otro sitio"
-    other = perfiles.with_saved_key({"provider": "openai", "base_url": "https://otro.example/v1"})
+    other = temp_profiles.with_saved_key(
+        {"provider": "openai", "base_url": "https://otro.example/v1"}
+    )
     assert not other.get("key"), "la clave no puede salir hacia otro servidor"
-    other = perfiles.with_saved_key({"id": "openai", "provider": "openrouter"})
+    other = temp_profiles.with_saved_key({"id": "openai", "provider": "openrouter"})
     assert not other.get("key")
     # y con el borrador trayendo su propia clave, esa manda
-    assert perfiles.with_saved_key({"provider": "openai", "key": "sk-nueva"})["key"] == "sk-nueva"
+    assert (
+        temp_profiles.with_saved_key({"provider": "openai", "key": "sk-nueva"})["key"] == "sk-nueva"
+    )
 
 
-def test_cabeceras_y_extra_salen_enmascarados_y_vuelven_enteros(perfiles):
-    perfiles.save_profile(
+def test_headers_and_extra_go_out_masked_and_come_back_whole(temp_profiles):
+    temp_profiles.save_profile(
         {
             "provider": "custom",
             "id": "custom-proxy",
@@ -275,12 +281,12 @@ def test_cabeceras_y_extra_salen_enmascarados_y_vuelven_enteros(perfiles):
             "extra": {"api_key": "otro-secreto-456789", "top_k": 5},
         }
     )
-    shown = perfiles.profiles()["custom-proxy"]
+    shown = temp_profiles.profiles()["custom-proxy"]
     blob = json.dumps(shown)
     assert "secreto-de-proxy-123" not in blob and "otro-secreto-456789" not in blob
     assert shown["extra"]["top_k"] == 5, "lo que no es texto se enseña"
     # la interfaz devuelve lo enmascarado tal cual: se conserva lo guardado
-    perfiles.save_profile(
+    temp_profiles.save_profile(
         {
             "provider": "custom",
             "id": "custom-proxy",
@@ -288,11 +294,11 @@ def test_cabeceras_y_extra_salen_enmascarados_y_vuelven_enteros(perfiles):
             "extra": shown["extra"],
         }
     )
-    saved = json.loads(perfiles.PROFILES_FILE.read_text())["profiles"]["custom-proxy"]
+    saved = json.loads(temp_profiles.PROFILES_FILE.read_text())["profiles"]["custom-proxy"]
     assert saved["headers"]["Authorization"] == "Bearer secreto-de-proxy-123"
     assert saved["extra"]["api_key"] == "otro-secreto-456789"
     # y al probar sin guardar, igual (misma URL)
-    draft = perfiles.with_saved_key(
+    draft = temp_profiles.with_saved_key(
         {
             "provider": "custom",
             "id": "custom-proxy",
@@ -302,22 +308,22 @@ def test_cabeceras_y_extra_salen_enmascarados_y_vuelven_enteros(perfiles):
     )
     assert draft["headers"]["Authorization"] == "Bearer secreto-de-proxy-123"
     # cambiar una cabecera de verdad la cambia
-    perfiles.save_profile(
+    temp_profiles.save_profile(
         {"provider": "custom", "id": "custom-proxy", "headers": {"Authorization": "Bearer otra"}}
     )
-    saved = json.loads(perfiles.PROFILES_FILE.read_text())["profiles"]["custom-proxy"]
+    saved = json.loads(temp_profiles.PROFILES_FILE.read_text())["profiles"]["custom-proxy"]
     assert saved["headers"]["Authorization"] == "Bearer otra"
 
 
-def test_un_ai_json_roto_se_aparta_y_no_se_pisa(perfiles):
-    perfiles.PROFILES_FILE.write_text('{"profiles": {"openai": {"key": "sk-que-no-se-pierd')
-    perfiles.reload()
-    perfiles.save_profile({"provider": "ollama"})
-    aside = perfiles.PROFILES_FILE.with_name("ai.json.roto")
+def test_a_broken_ai_json_is_set_aside_not_overwritten(temp_profiles):
+    temp_profiles.PROFILES_FILE.write_text('{"profiles": {"openai": {"key": "sk-que-no-se-pierd')
+    temp_profiles.reload()
+    temp_profiles.save_profile({"provider": "ollama"})
+    aside = temp_profiles.PROFILES_FILE.with_name("ai.json.roto")
     assert aside.is_file() and "sk-que-no-se-pierd" in aside.read_text()
 
 
-def test_guardar_perfiles_a_la_vez_no_pierde_ninguno(perfiles):
+def test_saving_profiles_at_once_loses_none(temp_profiles):
     """Dos guardados a la vez leian el mismo estado y el segundo pisaba al
     primero; y leer mientras se guardaba podia romper con «dictionary
     changed size during iteration»."""
@@ -325,7 +331,7 @@ def test_guardar_perfiles_a_la_vez_no_pierde_ninguno(perfiles):
 
     def save(i):
         try:
-            perfiles.save_profile(
+            temp_profiles.save_profile(
                 {
                     "provider": "custom",
                     "name": f"Servidor {i}",
@@ -333,8 +339,8 @@ def test_guardar_perfiles_a_la_vez_no_pierde_ninguno(perfiles):
                 },
                 activate=False,
             )
-            perfiles.profiles()
-            perfiles.fallbacks("")
+            temp_profiles.profiles()
+            temp_profiles.fallbacks("")
         except Exception as e:  # noqa: BLE001
             errors.append(e)
 
@@ -344,10 +350,10 @@ def test_guardar_perfiles_a_la_vez_no_pierde_ninguno(perfiles):
     for t in threads:
         t.join()
     assert not errors
-    assert len([p for p in perfiles.profiles() if p.startswith("custom-")]) == 20
+    assert len([p for p in temp_profiles.profiles() if p.startswith("custom-")]) == 20
 
 
-def test_las_carpetas_se_pueden_poner_a_mano_y_entonces_no_se_migra_nada(tmp_path):
+def test_folders_set_by_hand_migrate_nothing(tmp_path):
     """DANPLAY_DATA_DIR y DANPLAY_CONFIG_DIR mandan sobre platformdirs (las
     pruebas en Windows y macOS dependen de ello), y un entorno puesto a mano
     no se trae los datos del nombre viejo del programa."""

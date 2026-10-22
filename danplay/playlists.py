@@ -4,7 +4,7 @@ Todo lo que se puede guardar dentro del archivo, se guarda ahi tambien
 (estrellas en POPM, favorito y listas en TXXX), para que la biblioteca
 siga siendo portatil aunque se pierda la base de datos.
 
-Lo de la base lo hace Rust (biblioteca/src/listas.rs); esto es la puerta de
+Lo de la base lo hace Rust (library/src/playlists.rs); esto es la puerta de
 Python, con los mismos nombres. Aqui siguen el cerrojo de las listas
 (`LOCK`), el aviso a la interfaz, escribir dentro de los archivos y lo que se
 exporta a Listas/.
@@ -21,7 +21,7 @@ from pathlib import Path
 import danplay_core as _rust
 
 from . import (
-    cifrados,
+    chord_sheets,
     external,  # noqa: F401  (registra su esquema: las listas leen external_songs)
     library,
     names,
@@ -463,7 +463,7 @@ def export_folder() -> Path:
     return library.config.LIBRARY / "Listas"
 
 
-def _listas(folder: Path) -> None:
+def _ensure_export_folder(folder: Path) -> None:
     """Crea Listas/ si hace falta; si la carpeta de musica ya no esta (se
     movio), no la hace reaparecer vacia: se dice (ver library.ensure_folder)."""
     try:
@@ -492,7 +492,7 @@ def export_m3u(playlist_id, target=None) -> str:
             raise ValueError("el nombre de la lista no sirve como nombre de archivo")
         target = folder / f"{safe}.m3u8"
     target = Path(target)
-    _listas(folder)
+    _ensure_export_folder(folder)
     if not library._inside(target.parent, folder) or target.name in ("", ".", ".."):
         raise ValueError("la lista solo se exporta dentro de la carpeta Listas")
     lines = ["#EXTM3U"]
@@ -514,7 +514,7 @@ def _sheet_target(playlist_id, suffix) -> tuple[Path, str]:
     if not safe or safe in (".", "..") or ".." in safe.split():
         raise ValueError("el nombre de la lista no sirve como nombre de archivo")
     target = folder / f"{safe}{suffix}"
-    _listas(folder)
+    _ensure_export_folder(folder)
     if not library._inside(target.parent, folder):
         raise ValueError("la lista solo se exporta dentro de la carpeta Listas")
     return target, str(name)
@@ -578,7 +578,7 @@ def export_sheet(playlist_id, with_lyrics=False) -> str:
     ]
     for c in rows:
         sheet = _sheet_chords(c)
-        key = str(c.get("key") or "").strip() or cifrados.sheet_key(sheet)
+        key = str(c.get("key") or "").strip() or chord_sheets.sheet_key(sheet)
         head = f'<span class="t">{e(c.get("artist") or "")} - {e(c.get("title") or "")}</span>'
         if key:
             head += f'<span class="k">{e(key)} · {e(theory.to_latin(key))}</span>'

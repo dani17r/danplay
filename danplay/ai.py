@@ -115,7 +115,7 @@ _NO_PROFILE: providers.Profile = {
 
 
 # Lo que se le dice al modelo para identificar un archivo (en Rust:
-# biblioteca/src/ia/peticion.rs)
+# library/src/ai/request.rs)
 INSTRUCTIONS = _rust.ai_instructions()
 
 
@@ -345,7 +345,7 @@ def _droppable(kwargs: dict, what: str) -> bool:
 
 def _first_droppable(kwargs: dict, text: str) -> str | None:
     """El primer parametro que el error dice que sobra y que, quitado, cambia
-    algo (las pistas, en Rust: `peticion::hints`)."""
+    algo (las pistas, en Rust: `request::hints`)."""
     return _rust.ai_first_droppable(_view(kwargs), text)
 
 
@@ -392,7 +392,7 @@ def classify_failure(e: BaseException) -> tuple[str, int | None]:
     """(tipo, codigo HTTP) de un fallo del SERVICIO. Tipo "" si el fallo es del
     mensaje (parametros que no valen, un modelo que no existe…) y probar con
     otro proveedor no lo arreglaria. Ver `KINDS` para los tipos (y las reglas,
-    en Rust: biblioteca/src/ia/fallos.rs)."""
+    en Rust: library/src/ai/failures.rs)."""
     kind, code = _rust.ai_classify(_error_text(e), _status_of(e))
     return kind, code
 
@@ -808,8 +808,8 @@ def sanitize_provider_message(text: object, p: providers.Profile | None = None) 
 
     Quita la clave y los valores de cabeceras y extras del perfil `p` (y del
     activo y los de respaldo), las claves con forma de clave (`sk-…`, `AIza…`),
-    `Bearer …`, `clave=valor` y `Authorization: …`; y deja cada URL en su
-    servidor, sin `usuario:clave@`, ruta ni parametros. Nunca lanza: esto corre
+    `Bearer …`, `key=value` y `Authorization: …`; y deja cada URL en su
+    servidor, sin `usuario:key@`, ruta ni parametros. Nunca lanza: esto corre
     justo cuando algo ya ha ido mal.
     """
     if text is None:
@@ -1113,9 +1113,9 @@ def _usable(models: list[dict], p: providers.Profile, recheck: bool = False):
             < (UNSURE_TTL if known[k].get("ok") is None else VERIFY_TTL)
             and not recheck
         }
-    todo = [m["id"] for m in models if m["id"] not in cached]
+    remaining = [m["id"] for m in models if m["id"] not in cached]
     found: dict[str, tuple[bool | None, str]] = {}
-    if todo:
+    if remaining:
         client = _build_client(
             {**p, "retries": 0, "timeout": min(float(p["timeout"]), VERIFY_TIMEOUT)}  # type: ignore[typeddict-item]
         )
@@ -1128,7 +1128,7 @@ def _usable(models: list[dict], p: providers.Profile, recheck: bool = False):
                 return mid, *_verdict(e)
 
         with ThreadPoolExecutor(max_workers=VERIFY_WORKERS) as pool:
-            for mid, ok, why in pool.map(probe, todo):
+            for mid, ok, why in pool.map(probe, remaining):
                 found[mid] = (ok, why)
         with _verified_lock:
             known = _load_verified()

@@ -39,7 +39,7 @@ def _song(name):
 # ------------------------------------------------- «Artista - Titulo» del nombre
 
 
-def test_sin_etiquetas_el_nombre_da_el_artista(lib):
+def test_without_tags_the_file_name_gives_the_artist(lib):
     """«Palisades - Personal.mp3» sin etiquetas ni carpeta de artista entraba
     con artista vacio y el titulo entero. Es la convencion de la casa."""
     from danplay import library
@@ -54,7 +54,7 @@ def test_sin_etiquetas_el_nombre_da_el_artista(lib):
     assert os.path.exists(path), "ni se mueve"
 
 
-def test_varios_guiones_y_feat(lib):
+def test_several_dashes_and_feat(lib):
     from danplay import library
 
     root, _ = lib
@@ -67,7 +67,7 @@ def test_varios_guiones_y_feat(lib):
     assert c["artist"] == "" and c["title"] == "Sin guion aqui"
 
 
-def test_la_etiqueta_y_la_carpeta_mandan_sobre_el_nombre(lib):
+def test_the_tag_and_folder_win_over_the_file_name(lib):
     from danplay import library
 
     root, _ = lib
@@ -81,7 +81,7 @@ def test_la_etiqueta_y_la_carpeta_mandan_sobre_el_nombre(lib):
 # ------------------------------------------------------------ listas ligeras
 
 
-def test_la_busqueda_de_la_api_es_ligera_y_cuenta(client, lib):
+def test_the_api_search_is_light_and_counts(client, lib):
     """Las listas no traen la letra ni los acordes (kilobytes por cancion):
     traen si los tienen. Y `count` dice cuantas cumplen la busqueda."""
     from danplay import library
@@ -116,7 +116,7 @@ def test_la_busqueda_de_la_api_es_ligera_y_cuenta(client, lib):
     assert client.get("/api/search", params={"limit": 20000}).status_code == 200
 
 
-def test_las_listas_y_el_reproductor_tambien_son_ligeros(client, lib):
+def test_playlists_and_the_player_are_light_too(client, lib):
     from danplay import library, playlists
 
     ids = [s["id"] for s in library.search("", limit=3)]
@@ -132,7 +132,7 @@ def test_las_listas_y_el_reproductor_tambien_son_ligeros(client, lib):
     assert client.get("/api/playlists").json()["favorites"] == 0
 
 
-def test_un_numero_raro_en_la_busqueda_no_rompe_la_consulta(lib):
+def test_an_odd_number_in_a_search_does_not_break_the_query(lib):
     """`bpm>abc` dejaba un «?» sin valor y la busqueda entera fallaba."""
     from danplay import library
 
@@ -142,7 +142,7 @@ def test_un_numero_raro_en_la_busqueda_no_rompe_la_consulta(lib):
 # ---------------------------------------------------------- las cifras
 
 
-def test_las_cifras_no_guardan_un_total_de_antes_del_cambio(lib, monkeypatch):
+def test_the_stats_do_not_keep_a_total_from_before_a_change(lib, monkeypatch):
     """Si alguien escribe mientras se cuenta, lo contado ya nace viejo y no
     se puede quedar en la cache cinco segundos."""
     from danplay import library
@@ -167,7 +167,7 @@ def test_las_cifras_no_guardan_un_total_de_antes_del_cambio(lib, monkeypatch):
     assert calls["n"] == n, "sin cambios, la cache vale"
 
 
-def test_la_revision_no_pierde_avisos_con_varios_hilos(lib):
+def test_the_revision_loses_no_bumps_with_many_threads(lib):
     from danplay import library
 
     start = library.revision()
@@ -187,17 +187,17 @@ def test_la_revision_no_pierde_avisos_con_varios_hilos(lib):
 # --------------------------------------------------- la lista del reproductor
 
 
-def test_solo_se_abre_audio(client, tmp_path):
+def test_only_audio_is_opened(client, tmp_path):
     """Se aceptaba cualquier archivo y se le pasaba a Rust para reproducirlo."""
-    texto = tmp_path / "notas.txt"
-    texto.write_text("no soy musica")
-    r = client.post("/api/external/play", json={"path": str(texto)})
+    text = tmp_path / "notas.txt"
+    text.write_text("no soy musica")
+    r = client.post("/api/external/play", json={"path": str(text)})
     assert r.status_code == 400 and "audio" in r.json()["detail"]
-    falso = tmp_path / "falso.mp3"
-    assert client.post("/api/external/play", json={"path": str(falso)}).status_code == 404
+    missing = tmp_path / "falso.mp3"
+    assert client.post("/api/external/play", json={"path": str(missing)}).status_code == 404
 
 
-def test_la_lista_del_reproductor_mezcla_las_dos_procedencias_en_orden(client, lib, tmp_path):
+def test_the_player_list_mixes_both_sources_in_order(client, lib, tmp_path):
     from danplay import external, library
 
     external.clear()
@@ -215,7 +215,7 @@ def test_la_lista_del_reproductor_mezcla_las_dos_procedencias_en_orden(client, l
 # ------------------------------------------------------ repertorios por nombre
 
 
-def test_buscar_un_repertorio_no_recalcula_todos(lib, monkeypatch):
+def test_finding_one_repertoire_does_not_recompute_all(lib, monkeypatch):
     from danplay import playlists
 
     for name in ("Uno", "Dos", "Herlín"):
@@ -226,7 +226,7 @@ def test_buscar_un_repertorio_no_recalcula_todos(lib, monkeypatch):
     assert playlists.by_name("no existe") is None and playlists.by_id("x") is None
 
 
-def test_el_indice_de_canciones_en_listas_existe(lib):
+def test_the_playlist_songs_index_exists(lib):
     from danplay import library
 
     conn = library.connect()
@@ -245,7 +245,7 @@ def test_el_indice_de_canciones_en_listas_existe(lib):
 # --------------------------------------------------------------- miniaturas
 
 
-def test_las_miniaturas_se_podan_con_el_escaneo(client, lib):
+def test_thumbnails_are_pruned_by_the_scan(client, lib):
     """La carpeta covers/ no se podaba nunca: cada caratula cambiada y cada
     cancion borrada dejaba sus miniaturas para siempre."""
     from danplay import convert, library, tags, thumbnails
@@ -277,7 +277,7 @@ def test_las_miniaturas_se_podan_con_el_escaneo(client, lib):
     assert not list(folder.iterdir())
 
 
-def test_la_cache_de_miniaturas_tiene_tope(lib):
+def test_the_thumbnail_cache_has_a_cap(lib):
     from danplay import thumbnails
 
     folder = thumbnails.folder()

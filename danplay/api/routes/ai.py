@@ -1,5 +1,5 @@
 """Proveedores de IA: el catalogo, los perfiles guardados, probarlos y lo que
-gastan (docs/CONTRATO-INTERNO.md §5)."""
+gastan (docs/INTERNAL-CONTRACT.md §5)."""
 
 import logging
 from typing import Annotated

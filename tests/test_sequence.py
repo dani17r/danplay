@@ -231,11 +231,11 @@ def test_the_api_opens_it(configured_library, downloaded, tmp_path, monkeypatch)
     monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
     lib, _ = configured_library
     library.add_folder(lib)
-    cliente = TestClient(api.app)
-    r = cliente.get("/api/sequence", params={"path": str(downloaded)})
+    client = TestClient(api.app)
+    r = client.get("/api/sequence", params={"path": str(downloaded)})
     assert r.status_code == 200 and r.json()["bpm"] == 120.0
-    assert cliente.get("/api/sequence", params={"path": str(tmp_path)}).status_code == 422
-    result = run_job(cliente, "/api/sequence/import", "secuencia", json={"path": str(downloaded)})
+    assert client.get("/api/sequence", params={"path": str(tmp_path)}).status_code == 422
+    result = run_job(client, "/api/sequence/import", "secuencia", json={"path": str(downloaded)})
     assert result["tracks"] == 4 and library.by_id(result["id"])
-    bad = cliente.post("/api/sequence/import", json={"path": str(tmp_path / "nada")})
+    bad = client.post("/api/sequence/import", json={"path": str(tmp_path / "nada")})
     assert bad.status_code == 422

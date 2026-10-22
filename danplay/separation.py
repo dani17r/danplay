@@ -1,8 +1,8 @@
 """El separador por dentro: Demucs v4 (HTDemucs) con ONNX Runtime.
 
-La red va en un grafo ONNX sin pesos (`danplay/data/separador/`); los pesos
+La red va en un grafo ONNX sin pesos (`danplay/data/separator/`); los pesos
 son el archivo oficial del autor, que se baja la primera vez. Lo que Demucs
-hace con PyTorch alrededor de la red lo hace el crate (analisis/src/separar.rs,
+hace con PyTorch alrededor de la red lo hace el crate (analysis/src/separate.rs,
 cuenta a cuenta lo que antes estaba aqui con numpy):
 
 - el espectrograma de cada trozo y su inversa (`spec`, `ispec`), con las
@@ -184,7 +184,7 @@ def _lower_priority() -> None:
 
 # La forma de onda de cada pista, calculada mientras se escribe: columnas a lo
 # largo de la cancion, con pico y RMS, todas a la escala del pico mas alto (ver
-# analisis/src/separar.rs). `Waves(fuentes, largo, buckets=800)`, `add`,
+# analysis/src/separate.rs). `Waves(sources, length, buckets=800)`, `add`,
 # `result`, y `energy` por columnas.
 Waves = _rust.Waves
 
@@ -194,7 +194,7 @@ Waves = _rust.Waves
 # lo que se le cuela de las demas, muy por debajo de la mezcla. Se queda si en
 # conjunto suena a mas de QUIET_DB de la cancion, o si llega a LOUD_DB de ella
 # en al menos ACTIVE de lo que suena (un piano que solo entra en el puente).
-# Medido con scripts/evaluar-separador.py --presencia: en canciones de verdad
+# Medido con scripts/evaluate-separator.py --presencia: en canciones de verdad
 # lo que no esta sale de -44 a -63 dB y lo que esta, por encima de -20.
 QUIET_DB = -30.0
 LOUD_DB = -15.0
@@ -311,7 +311,7 @@ def _work(job: dict, open_net, max_pass: bool) -> dict:
 def run(job: dict, open_net=open_session) -> dict:
     """Pasa la cancion por las redes del trabajo y deja sus pistas en
     `job["output"]`, con su forma de onda en `job["waves"]` (lo hace el
-    crate: analisis/src/separar/proceso.rs).
+    crate: analysis/src/separate/process.rs).
 
     - input, ffmpeg, output, waves y, opcionales, threads y format ("opus");
     - files: {fuente: nombre de su archivo .flac}, en el orden de las pistas;
@@ -324,7 +324,7 @@ def run(job: dict, open_net=open_session) -> dict:
     - rest: la fuente que es «lo que queda»: la cancion menos todas las
       demas, asi que juntas suenan exactamente como la cancion.
 
-    `open_net(grafo, manifiesto, pesos, hilos)`, si se da, abre cada red (las
+    `open_net(graph, manifest, weights, threads)`, si se da, abre cada red (las
     pruebas pasan unas de mentira). Devuelve las pistas que salen ({fuente:
     archivo}) y lo que suena cada una.
     """

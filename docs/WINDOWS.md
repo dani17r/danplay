@@ -120,7 +120,7 @@ un solo ejecutable en vez del Python embebido:
    dentro (salvo que se lance sin ellas).
 5. Lo deja como artefacto descargable; con una etiqueta `v*`, lo publica.
 
-Las pruebas del núcleo **en Windows** no van ahí: las pasa `pruebas.yml` en
+Las pruebas del núcleo **en Windows** no van ahí: las pasa `tests.yml` en
 cada push (el trabajo «núcleo Python en Windows»), y delante del instalador
 solo lo retrasaban.
 

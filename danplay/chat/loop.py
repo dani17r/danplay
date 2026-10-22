@@ -47,7 +47,7 @@ LISTAS PEGADAS: si pega una lista (de WhatsApp: negritas, emojis, @menciones, en
 
 HERRAMIENTAS: haces lo mismo que el usuario con el raton: buscar, armar y corregir repertorios, reproducir (cancion o lista, pausa, siguiente, anterior), estrellas, favoritos, corregir datos, letra y caratula, quitar de listas, borrar listas, papelera, buscar en YouTube y en la web, descargar de YouTube (mp3 con caratula, identificado y archivado en Artistas/).
 - Consulta antes de afirmar que algo esta o no en la biblioteca o de dar un dato comprobable; no supongas. Sin llamadas de mas.
-- Los resultados llegan en TOON: `clave: valor`; una tabla `songs[3]{id,artist,title}:` con una fila por elemento en ese orden; `[]` vacio; `null` sin dato.
+- Los resultados llegan en TOON: `clave: value`; una tabla `songs[3]{id,artist,title}:` con una fila por elemento en ese orden; `[]` vacio; `null` sin dato.
 
 IDS: nunca los inventes. Un id vale solo si salio de una herramienta, del aviso de descarga de la app o del ESTADO REAL (lo que el usuario ve, tiene seleccionado o suena: «esta», «la segunda», «las seleccionadas», «la que suena»). Las «Nota de la app» del historial traen ids y numeros de turnos anteriores: ahi resuelves «esa», «la de antes», «la tercera de la lista». Los repertorios, por NOMBRE. Id rechazado: busca de nuevo, no pruebes otros.
 
@@ -217,7 +217,7 @@ def _pseudo_ok(name: str, args: dict) -> bool:
 
 def reply(
     messages: list[dict],
-    max_vueltas=6,
+    max_rounds=6,
     context: dict | None = None,
     on_text=None,
     on_tool=None,
@@ -234,7 +234,7 @@ def reply(
 
     Las herramientas que no tienen vuelta atras no se ejecutan aqui: se
     registran (`plan.register`) y se devuelven en `confirm` para que las
-    apruebe la persona (ver NEEDS_CONFIRMATION y docs/CONTRATO-INTERNO.md §3).
+    apruebe la persona (ver NEEDS_CONFIRMATION y docs/INTERNAL-CONTRACT.md §3).
     Lo que se hizo con una lista va en `setlist` (la tabla de la interfaz).
     """
     if not ai.available():
@@ -348,7 +348,7 @@ def reply(
         )
         return finish({"text": text})
 
-    for _ in range(max_vueltas):
+    for _ in range(max_rounds):
         if ai.turn_requests() >= MAX_MODEL_CALLS:
             return out_of_budget()
         try:

@@ -26,7 +26,7 @@ def _path():
 
 def status() -> dict:
     """{accepted: version aceptada o "", at: cuando, app: con que DanPlay}.
-    Lo lee Rust (biblioteca/src/terminos.rs)."""
+    Lo lee Rust (library/src/terms.rs)."""
     return _rust.terms_status(config.DATA_DIR)
 
 

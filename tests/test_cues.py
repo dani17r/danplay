@@ -1,4 +1,4 @@
-"""Las guias habladas (danplay/cues.py y danplay/habla.py), sin bajar voces:
+"""Las guias habladas (danplay/cues.py y danplay/speech.py), sin bajar voces:
 el texto como se dice, los fonemas, el archivo, la seguridad de las rutas
 y la API."""
 
@@ -11,32 +11,33 @@ import pytest
 
 
 def test_numbers_and_shorthand_are_said_in_words():
-    from danplay import habla
+    from danplay import speech
 
-    assert habla.normalize("Puente x2") == "Puente dos veces."
-    assert habla.normalize("4 tiempos") == "cuatro tiempos."
-    assert habla.normalize("Sube 1/2 tono") == "Sube medio tono."
-    assert habla.normalize("a 124 bpm") == "a ciento veinticuatro pulsos por minuto."
-    assert habla.normalize("¿Otra vez?") == "¿Otra vez?"
-    assert habla.normalize("x1") == "una vez."
-    assert habla.normalize("Bridge x2", "en") == "Bridge two times."
+    assert speech.normalize("Puente x2") == "Puente dos veces."
+    assert speech.normalize("4 tiempos") == "cuatro tiempos."
+    assert speech.normalize("Sube 1/2 tono") == "Sube medio tono."
+    assert speech.normalize("a 124 bpm") == "a ciento veinticuatro pulsos por minuto."
+    assert speech.normalize("¿Otra vez?") == "¿Otra vez?"
+    assert speech.normalize("x1") == "una vez."
+    assert speech.normalize("Bridge x2", "en") == "Bridge two times."
     assert (
-        habla.number(21) == "veintiuno" and habla.number(1999) == "mil novecientos noventa y nueve"
+        speech.number(21) == "veintiuno"
+        and speech.number(1999) == "mil novecientos noventa y nueve"
     )
 
 
 def test_the_phonemes_are_the_ones_the_spanish_voices_learnt():
     """Como los da espeak-ng (con el que se entrenaron las voces de Piper)."""
-    from danplay import habla
+    from danplay import speech
 
-    assert habla.phonemes("Coro, cuatro tiempos") == "kˈoɾo, kwˈatɾo tjˈempos."
-    assert habla.phonemes("Puente") == "pwˈɛnte."
+    assert speech.phonemes("Coro, cuatro tiempos") == "kˈoɾo, kwˈatɾo tjˈempos."
+    assert speech.phonemes("Puente") == "pwˈɛnte."
     # España distingue la z; America, no
-    assert habla.phonemes("Cielo") == "θjˈelo."
-    assert habla.phonemes("Cielo", "es-419") == "sjˈelo."
+    assert speech.phonemes("Cielo") == "θjˈelo."
+    assert speech.phonemes("Cielo", "es-419") == "sjˈelo."
     # la b suave entre vocales y la n que se vuelve m
-    assert habla.phonemes("un bajo") == "ˈum bˈaxo."
-    ids = habla.piper_ids("ˈa", {"^": [1], "_": [0], "$": [2], "a": [14], "ˈ": [120]})
+    assert speech.phonemes("un bajo") == "ˈum bˈaxo."
+    ids = speech.piper_ids("ˈa", {"^": [1], "_": [0], "$": [2], "a": [14], "ˈ": [120]})
     assert ids == [1, 0, 120, 0, 14, 0, 2]
 
 
@@ -147,7 +148,7 @@ def test_a_guide_is_cut_faded_and_cleaned_into_a_new_one(guides, monkeypatch):
     assert again["file"] == cut["file"], "lo mismo, el mismo archivo"
 
     trial = cues.edit_clip(made["file"], end=1.0, preview=True)
-    assert "prueba" in trial["file"] and cues.own_file(trial["file"]) is None
+    assert "previews" in trial["file"] and cues.own_file(trial["file"]) is None
     assert cues.own_file(trial["file"], previews=True) == trial["file"]
     # una prueba se puede guardar después (editarla otra vez, sin preview)
     kept = cues.edit_clip(trial["file"])
@@ -247,35 +248,33 @@ def test_the_api_for_guides(configured_library, guides, monkeypatch):
     root, _ = configured_library
     library.add_folder(root)
     library.scan()
-    cliente = TestClient(api.app)
+    client = TestClient(api.app)
     c = library.search("", limit=1)[0]
-    r = cliente.get("/api/cues/voices").json()
+    r = client.get("/api/cues/voices").json()
     assert len(r["voices"]) == 17 and r["available"] == ""
     # una voz sin bajar: empieza a bajarse y se dice que espere
     started = []
     monkeypatch.setattr(
         cues, "install", lambda vid, wait=False: started.append(vid) or {"installed": False}
     )
-    r = cliente.post(f"/api/song/{c['id']}/cues", json={"text": "Coro", "voice": "st-F1"})
+    r = client.post(f"/api/song/{c['id']}/cues", json={"text": "Coro", "voice": "st-F1"})
     assert r.status_code == 409 and started == ["st-F1"]
     # con la voz (aqui, una de mentira) se dice y se guarda
     monkeypatch.setattr(cues, "installed", lambda vid: True)
     monkeypatch.setattr(
         cues, "say", lambda text, vid: (0.3 * np.sin(np.arange(8000) / 5).astype(np.float32), 16000)
     )
-    r = cliente.post(f"/api/song/{c['id']}/cues", json={"text": "Coro", "voice": "st-F1"})
+    r = client.post(f"/api/song/{c['id']}/cues", json={"text": "Coro", "voice": "st-F1"})
     assert r.status_code == 200, r.text
     made = r.json()
     assert made["file"].endswith(".wav") and made["seconds"] == 0.5
-    again = cliente.post(
-        f"/api/song/{c['id']}/cues", json={"text": "Coro", "voice": "st-F1"}
-    ).json()
+    again = client.post(f"/api/song/{c['id']}/cues", json={"text": "Coro", "voice": "st-F1"}).json()
     assert again["file"] == made["file"], "la misma frase con la misma voz es el mismo archivo"
-    audio = cliente.post("/api/cues/audio", json={"file": made["file"]}).json()
+    audio = client.post("/api/cues/audio", json={"file": made["file"]}).json()
     assert audio["mime"] == "audio/wav" and audio["data"].startswith("UklGR")
-    assert cliente.post("/api/cues/audio", json={"file": "/etc/passwd"}).status_code == 404
+    assert client.post("/api/cues/audio", json={"file": "/etc/passwd"}).status_code == 404
     # se guarda con el estudio; lo de fuera de la carpeta, no
-    d = cliente.put(
+    d = client.put(
         f"/api/song/{c['id']}/study",
         json={
             "cues": [
@@ -295,7 +294,7 @@ def test_the_api_for_guides(configured_library, guides, monkeypatch):
     ]
     assert study["metronome"]["own"] == {"beats": [1.0, 1.5, 2.0], "bars": [0, 2], "meter": 3}
     # los carriles de las guías (hasta 6), y cada guía en el suyo
-    d = cliente.put(
+    d = client.put(
         f"/api/song/{c['id']}/study",
         json={
             "cues": [
@@ -323,30 +322,30 @@ def test_the_api_for_guides(configured_library, guides, monkeypatch):
         {"key": "g3", "name": "Guía automática", "auto": True},
     ]
     seven = [{"key": f"g{i}"} for i in range(7)]
-    assert cliente.put(f"/api/song/{c['id']}/study", json={"cueLanes": seven}).status_code == 422, (
+    assert client.put(f"/api/song/{c['id']}/study", json={"cueLanes": seven}).status_code == 422, (
         "más de 6 carriles, no"
     )
     rec = guides / "danplay-guia-2.wav"
     _recording(rec, rate=16000)
-    r = cliente.post(f"/api/song/{c['id']}/cues/import", json={"path": str(rec)})
+    r = client.post(f"/api/song/{c['id']}/cues/import", json={"path": str(rec)})
     assert r.status_code == 200 and "grabada-" in r.json()["file"]
-    assert cliente.post("/api/song/999999/cues/import", json={"path": str(rec)}).status_code == 404
+    assert client.post("/api/song/999999/cues/import", json={"path": str(rec)}).status_code == 404
     # un audio del equipo, hasta lo que dura la canción
     long = guides / "cuenta.wav"
     _recording(long, rate=8000, seconds=65)
-    r = cliente.post(f"/api/song/{c['id']}/cues/import", json={"path": str(long)})
+    r = client.post(f"/api/song/{c['id']}/cues/import", json={"path": str(long)})
     assert r.status_code == 422, "sin decir cuánto dura la canción, un minuto"
     assert (c["duration"] or 0) < 60
-    r = cliente.post(f"/api/song/{c['id']}/cues/import", json={"path": str(long), "limit": 120})
+    r = client.post(f"/api/song/{c['id']}/cues/import", json={"path": str(long), "limit": 120})
     assert r.status_code == 422 and "canción" in r.json()["detail"], (
         "lo que dice la app, pero nunca más de lo que dura la canción"
     )
     # su onda, y una nueva recortada
     guide = made["file"]
-    w = cliente.get("/api/cues/wave", params={"file": guide, "buckets": 32}).json()
+    w = client.get("/api/cues/wave", params={"file": guide, "buckets": 32}).json()
     assert len(w["peaks"]) == 32 and w["seconds"] == 0.5
-    assert cliente.get("/api/cues/wave", params={"file": "/etc/passwd"}).status_code == 404
-    r = cliente.post("/api/cues/edit", json={"file": guide, "start": 0.1, "fade_out": 0.1})
+    assert client.get("/api/cues/wave", params={"file": "/etc/passwd"}).status_code == 404
+    r = client.post("/api/cues/edit", json={"file": guide, "start": 0.1, "fade_out": 0.1})
     assert r.status_code == 200 and "editada-" in r.json()["file"]
     assert r.json()["seconds"] == 0.4
-    assert cliente.post("/api/cues/edit", json={"file": guide, "fade_in": 9}).status_code == 422
+    assert client.post("/api/cues/edit", json={"file": guide, "fade_in": 9}).status_code == 422

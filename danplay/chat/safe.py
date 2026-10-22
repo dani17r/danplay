@@ -12,7 +12,7 @@ para disfrazarse.
 dice que son datos. Las dos son puras (sin red ni base de datos) y de tiempo
 lineal: se llaman con texto de hasta cientos de KB.
 
-Lo hace el crate de Rust (biblioteca/src/seguro.rs); esto es la puerta de
+Lo hace el crate de Rust (library/src/safe.rs); esto es la puerta de
 Python, con los mismos nombres.
 """
 

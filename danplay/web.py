@@ -8,7 +8,7 @@ en vez de inventarselo.
 Si falla, falla en silencio y devuelve una lista vacia: el asistente lo
 interpreta como "no lo he podido comprobar", no como un error de la app.
 
-Leer la pagina lo hace el crate de Rust (biblioteca/src/web.rs); pedirla, de
+Leer la pagina lo hace el crate de Rust (library/src/web.rs); pedirla, de
 momento, urllib (asi las pruebas la cortan o la sustituyen).
 """
 

@@ -2,44 +2,44 @@
 //!
 //! Desde Python se usan `hashes` (duplicados idénticos), `waveform` (la
 //! forma de onda del modo estudio), las etiquetas de cada canción (`tags_*` y
-//! `cover_*`, en `etiquetas`), el análisis (`pulse_*`, `click_*`,
-//! `torchzip_*`, `separation_*` y `mega_*`, del crate `analisis`) y
+//! `cover_*`, en `tags`), el análisis (`pulse_*`, `click_*`,
+//! `torchzip_*`, `separation_*` y `mega_*`, del crate `analysis`) y
 //! `last_error`. `partial_hash` y
 //! `full_hashes` son de la misma familia y se quedan para la línea de
 //! órdenes y las pruebas.
-pub mod asistente;
+pub mod ai;
+pub mod assistant;
 pub mod audio;
-pub mod cifrados;
-pub mod clic;
+pub mod chats;
+pub mod chord_sheets;
+pub mod click;
 pub mod compat;
-pub mod conversaciones;
-pub mod convertir;
-pub mod diario;
-pub mod duplicados;
-pub mod estructura;
-pub mod etiquetas;
-pub mod fuera;
-pub mod guias;
-pub mod habla;
-pub mod huella;
-pub mod ia;
-pub mod indice;
+pub mod convert;
+pub mod cues;
+pub mod db;
+pub mod duplicates;
+pub mod external;
+pub mod fingerprint;
+pub mod index;
+pub mod journal;
 pub mod json;
-pub mod library;
-pub mod listas;
-pub mod miniaturas;
-pub mod nombres;
-pub mod onda;
-pub mod pesos;
-pub mod pistas;
-pub mod pulso;
-pub mod registro;
-pub mod seguro;
-pub mod separar;
-pub mod teoria;
+pub mod logging;
+pub mod names;
+pub mod playlists;
+pub mod pulse;
+pub mod safe;
+pub mod separate;
+pub mod speech;
+pub mod stems;
+pub mod structure;
+pub mod tags;
+pub mod theory;
+pub mod thumbnails;
 pub mod toon;
-pub mod turno;
+pub mod turn;
+pub mod waveforms;
 pub mod web;
+pub mod weights;
 
 use pyo3::prelude::*;
 use std::cell::RefCell;
@@ -109,10 +109,8 @@ fn publish<T>(results: Vec<(PathBuf, Result<T, String>)>) -> Vec<(OsString, Opti
 
 // ---------------------------------------------------------------------- hashes
 //
-// Viven en la biblioteca, con los duplicados (`biblioteca::duplicados`).
-use biblioteca::duplicados::{
-    hash_parcial as partial_hash_one, hashes_completos as full_hashes_of, hashes_parciales as partial_hashes,
-};
+// Viven en la biblioteca, con los duplicados (`library::duplicates`).
+use library::duplicates::{full_hashes as full_hashes_of, partial_hash as partial_hash_one, partial_hashes};
 
 // ------------------------------------------------------------- API para Python
 //
@@ -130,7 +128,7 @@ fn partial_hash(py: Python<'_>, path: PathBuf, bytes: usize) -> Option<String> {
 }
 
 /// Igual pero sobre muchos archivos y en paralelo (todos los núcleos).
-/// Devuelve `[(ruta, hash | None), ...]` con la ruta tal cual llegó.
+/// Devuelve `[(path, hash | None), ...]` con la ruta tal cual llegó.
 #[pyfunction]
 #[pyo3(signature = (paths, bytes = 1_048_576))]
 fn hashes(py: Python<'_>, paths: Vec<PathBuf>, bytes: usize) -> Vec<(OsString, Option<String>)> {
@@ -164,49 +162,49 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(full_hashes, m)?)?;
     m.add_function(wrap_pyfunction!(waveform, m)?)?;
     m.add_function(wrap_pyfunction!(last_error, m)?)?;
-    m.add_function(wrap_pyfunction!(etiquetas::tags_read, m)?)?;
-    m.add_function(wrap_pyfunction!(etiquetas::tags_read_many, m)?)?;
-    m.add_function(wrap_pyfunction!(etiquetas::tags_properties, m)?)?;
-    m.add_function(wrap_pyfunction!(etiquetas::tags_write, m)?)?;
-    m.add_function(wrap_pyfunction!(etiquetas::tags_write_txxx, m)?)?;
-    m.add_function(wrap_pyfunction!(etiquetas::cover_read, m)?)?;
-    m.add_function(wrap_pyfunction!(etiquetas::cover_write, m)?)?;
-    nombres::register(m)?;
-    indice::register(m)?;
-    library::register(m)?;
+    m.add_function(wrap_pyfunction!(tags::tags_read, m)?)?;
+    m.add_function(wrap_pyfunction!(tags::tags_read_many, m)?)?;
+    m.add_function(wrap_pyfunction!(tags::tags_properties, m)?)?;
+    m.add_function(wrap_pyfunction!(tags::tags_write, m)?)?;
+    m.add_function(wrap_pyfunction!(tags::tags_write_txxx, m)?)?;
+    m.add_function(wrap_pyfunction!(tags::cover_read, m)?)?;
+    m.add_function(wrap_pyfunction!(tags::cover_write, m)?)?;
+    names::register(m)?;
+    db::register(m)?;
+    index::register(m)?;
     m.add_function(wrap_pyfunction!(compat::compat, m)?)?;
-    teoria::register(m)?;
-    cifrados::register(m)?;
+    theory::register(m)?;
+    chord_sheets::register(m)?;
     toon::register(m)?;
-    seguro::register(m)?;
-    asistente::register(m)?;
-    turno::register(m)?;
-    habla::register(m)?;
+    safe::register(m)?;
+    assistant::register(m)?;
+    turn::register(m)?;
+    speech::register(m)?;
     web::register(m)?;
-    convertir::register(m)?;
-    onda::register(m)?;
-    miniaturas::register(m)?;
-    huella::register(m)?;
-    duplicados::register(m)?;
-    listas::register(m)?;
-    fuera::register(m)?;
-    conversaciones::register(m)?;
-    diario::register(m)?;
-    clic::register(m)?;
-    pesos::register(m)?;
-    pulso::register(m)?;
-    separar::register(m)?;
-    estructura::register(m)?;
-    pistas::register(m)?;
-    ia::register(m)?;
-    guias::register(m)?;
+    convert::register(m)?;
+    waveforms::register(m)?;
+    thumbnails::register(m)?;
+    fingerprint::register(m)?;
+    duplicates::register(m)?;
+    playlists::register(m)?;
+    external::register(m)?;
+    chats::register(m)?;
+    journal::register(m)?;
+    click::register(m)?;
+    weights::register(m)?;
+    pulse::register(m)?;
+    separate::register(m)?;
+    structure::register(m)?;
+    stems::register(m)?;
+    ai::register(m)?;
+    cues::register(m)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use biblioteca::duplicados::{hash_completo as full_hash_one, hex};
+    use library::duplicates::{full_hash as full_hash_one, hex};
     use md5::{Digest, Md5};
 
     fn temp_file(name: &str, data: &[u8]) -> PathBuf {

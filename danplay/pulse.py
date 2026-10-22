@@ -4,9 +4,9 @@ Beat This! es una red que mira el espectrograma de la cancion y dice, cada
 50 avos de segundo, lo probable que es que ahi haya un pulso y que ese pulso
 sea el «1». Medido en GTZAN (que la red no vio al entrenar), acierta mucho
 mas que el analisis de siempre (`beats.rs` en la app de escritorio), sobre
-todo el «1»: ver scripts/evaluar-pulso.py y docs/ARQUITECTURA.md.
+todo el «1»: ver scripts/evaluate-pulse.py y docs/ARCHITECTURE.md.
 
-Todo lo hace el crate (analisis/src/pulso.rs y pulso/, cuenta a cuenta lo
+Todo lo hace el crate (analysis/src/pulse.rs y pulso/, cuenta a cuenta lo
 que antes estaba aqui con numpy): el espectrograma, la red en ONNX Runtime
 (el de la biblioteca que trae el paquete `onnxruntime`, cargada desde Rust),
 la rejilla que usa la app y lo que se guarda de la red. Esto es la puerta de
@@ -40,7 +40,7 @@ BORDER = 6
 
 WINDOW = (0.5 - 0.5 * np.cos(2 * np.pi * np.arange(NFFT) / NFFT)).astype(np.float64)
 
-# Lo que cuesta cada cosa al sacar la rejilla (ver analisis/src/pulso/rejilla.rs,
+# Lo que cuesta cada cosa al sacar la rejilla (ver analysis/src/pulse/grid.rs,
 # donde se usan): apartarse del tempo, un pulso que falta, empezar otra cadena.
 TEMPO_COST = 240.0
 MISSING_COST = 0.6
@@ -93,7 +93,7 @@ def _starts(frames: int) -> list[int]:
 
 def logits(session, spect: np.ndarray, progress=None) -> tuple[np.ndarray, np.ndarray]:
     """La probabilidad (en logits) de pulso y de «1» en cada trama.
-    `progress(hechos, total)`, si se da, tras cada trozo. `session`, la de
+    `progress(done, total)`, si se da, tras cada trozo. `session`, la de
     `open_session` (todo en Rust) o cualquiera con `run` como las de
     onnxruntime."""
     spect = np.ascontiguousarray(spect, dtype=np.float32)
@@ -150,7 +150,7 @@ def grid(
     bpm: float | None = None,
 ) -> dict:
     """La rejilla que usa la app (`BeatGrid` de beats.rs) a partir de lo que
-    dice la red trama a trama (ver analisis/src/pulso/rejilla.rs).
+    dice la red trama a trama (ver analysis/src/pulse/grid.rs).
 
     `mode`: 'auto' (reparar los saltos de fase; si la cancion va a clic,
     tempo fijo), 'repair' (lo mismo, sin pasar a tempo fijo), 'steady'

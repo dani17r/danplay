@@ -11,15 +11,15 @@ Las voces, en el equipo y sin internet (salvo para bajarlas, una vez):
   Lee el texto tal cual. Unos 400 MB, para todas.
 - Piper (voces de rhasspy/piper-voices, cada una con su licencia): voces de
   España, Mexico y Argentina, de 28 a 115 MB cada una. Se entrenaron con los
-  fonemas de espeak-ng; aqui los saca `habla` (espeak es GPL y no viaja).
+  fonemas de espeak-ng; aqui los saca `speech` (espeak es GPL y no viaja).
 
 Las dos son grafos ONNX que corren con ONNX Runtime, como el separador. Cada
-archivo se comprueba con su sha256 al bajarlo (`data/voces.json`, con la
+archivo se comprueba con su sha256 al bajarlo (`data/voices.json`, con la
 revision fijada: lo de HuggingFace no cambia por debajo).
 
 Las voces, el sonido de cada guia (recortarla, su volumen, el WAV, su onda,
-el editor) y el catalogo van en Rust (analisis/src/voces.rs,
-analisis/src/guias.rs, biblioteca/src/guias.rs); aqui quedan las carpetas,
+el editor) y el catalogo van en Rust (analysis/src/voices.rs,
+analysis/src/cues.rs, library/src/cues.rs); aqui quedan las carpetas,
 la bajada de las voces (con sus hilos) y la voz cargada.
 """
 
@@ -36,11 +36,11 @@ from pathlib import Path
 
 import danplay_core as _rust
 
-from . import config, convert, habla
+from . import config, convert, speech
 
 log = logging.getLogger(__name__)
 
-CATALOG = Path(__file__).resolve().parent / "data" / "voces.json"
+CATALOG = Path(__file__).resolve().parent / "data" / "voices.json"
 USER_AGENT = "DanPlay (+https://github.com/dani17r/danplay)"
 TIMEOUT = 60
 # Lo que cambia como suena una voz: con otro numero, las guias ya dichas no
@@ -53,7 +53,7 @@ MAX_SECONDS = 60.0
 # guarda enteras en memoria).
 MAX_IMPORT_SECONDS = 300.0
 # Lo que queda alrededor de la voz al recortar el silencio (el de
-# analisis/src/guias.rs).
+# analysis/src/cues.rs).
 MARGIN = 0.03
 # Tras este rato sin decir nada, se suelta la voz cargada (la de Supertonic
 # ocupa medio GB de memoria).
@@ -67,15 +67,15 @@ CueError = _rust.CueError
 
 
 def folder() -> Path:
-    return config.DATA_DIR / "guias"
+    return config.DATA_DIR / "cues"
 
 
 def _previews() -> Path:
-    return folder() / "prueba"
+    return folder() / "previews"
 
 
 def _voices_dir() -> Path:
-    return config.DATA_DIR / "voces"
+    return config.DATA_DIR / "voices"
 
 
 @functools.cache
@@ -280,7 +280,7 @@ def say(text: str, voice_id: str):
     if reason:
         raise CueError(reason)
     lang = "en" if v.get("lang", "es").startswith("en") else "es"
-    spoken = habla.normalize(text, lang)
+    spoken = speech.normalize(text, lang)
     if not spoken.strip(" ."):
         raise CueError("no hay nada que decir")
     with _SPEAK:
@@ -377,7 +377,7 @@ def wave_of(file: str, buckets: int = 96) -> dict:
 
 
 # lo que se le puede hacer a una guia grabada o importada, como en un editor
-# (el tope de los fundidos, el de analisis/src/guias.rs)
+# (el tope de los fundidos, el de analysis/src/cues.rs)
 EDIT_FADE_MAX = 5.0
 
 

@@ -3,7 +3,7 @@
 Reconoce la cancion por como suena, no por el nombre del archivo.
 Necesita el binario `fpcalc` (paquete libchromaprint-tools) y una API key gratuita.
 
-La huella y la consulta las hace el crate de Rust (biblioteca/src/huella.rs,
+La huella y la consulta las hace el crate de Rust (library/src/fingerprint.rs,
 antes pyacoustid); aqui queda la puerta de Python y lo que depende de
 `config` (la clave, donde esta fpcalc).
 """

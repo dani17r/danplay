@@ -921,14 +921,15 @@ def _work(entry: Entry) -> None:
         _stop(entry, "unavailable", safe.datum(problem, 160))
         return
     with _LOCK:
-        todo = [
+        remaining = [
             (i, r.target, _cache_key(r)) for i, r in enumerate(entry.rows) if r.state == "buscando"
         ]
     pool = ThreadPoolExecutor(max_workers=PARALLEL, thread_name_prefix="danplay-plan")
     blocked = threading.Event()
     try:
         futures = {
-            pool.submit(_lookup, query, key, search.cancel, blocked): i for i, query, key in todo
+            pool.submit(_lookup, query, key, search.cancel, blocked): i
+            for i, query, key in remaining
         }
         pending = set(futures)
         while pending and not search.cancel.is_set():

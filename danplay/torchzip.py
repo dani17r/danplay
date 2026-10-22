@@ -3,7 +3,7 @@
 Un checkpoint moderno es un zip: `data.pkl` (un pickle que dice que tensor es
 cual) y `data/<n>` (los numeros de cada almacen, en crudo). Abrir el pickle
 con `pickle.load` sin mas ejecutaria lo que trajera dentro: lo lee el crate
-(analisis/src/pesos.rs), con una maquina de pickle propia que solo conoce lo
+(analysis/src/weights.rs), con una maquina de pickle propia que solo conoce lo
 que un diccionario de pesos necesita (reconstruir un tensor desde su almacen,
 un OrderedDict) y rechaza todo lo demas. Rust dice donde esta cada tensor en
 el archivo y aqui se mapean con numpy, sin copiarlos (los checkpoints van sin

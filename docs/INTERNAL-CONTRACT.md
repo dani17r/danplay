@@ -1,0 +1,633 @@
+# Contratos internos entre capas
+
+Referencia para quien toque una capa sin ver las otras. Cada apartado dice
+quién lo implementa (Rust, Python o Vue) y quién lo consume. Lo que no está
+aquí no es contrato: se puede cambiar libremente dentro de su capa.
+
+## 1. Reproducción y cola (Rust → Vue)
+
+La cola de reproducción vive en Rust (`desktop/src-tauri/src/queue.rs`). La
+interfaz manda la lista y las órdenes; Rust decide qué suena y lo cuenta por
+un evento. No hay sondeo desde JS.
+
+La app del celular (`mobile/src/player.rs`) cumple este mismo contrato sobre el
+motor de pistas, y contesta el puente `api` (§2) con las pistas importadas en
+vez de con Python (`mobile/src/api.rs`): así la misma interfaz funciona en los
+dos sitios sin cambios. Los tipos (`Track`, `PlaybackState`, el metrónomo)
+viven en `engine/` y los usan las dos apps.
+
+### Tipos
+
+```ts
+type Track = {
+  id: number, title: string, artist: string, duration: number, blur: boolean,
+  path?: string             // donde esta el archivo, si quien lo manda lo sabe
+}
+type Repeat = 'list' | 'one' | 'once' | 'queue'
+type PlaybackState = {
+  track: Track | null,      // lo que suena (o lo ultimo cargado)
+  index: number,            // posicion en la cola (-1 si nada)
+  length: number,           // tamaño de la cola
+  playing: boolean,
+  position: number,         // segundos
+  duration: number,         // segundos (de Rust si la sabe, si no la del indice)
+  volume: number,           // 0..1.5 (por encima de 1, más alta de como viene)
+  speed: number,            // 0.25..3
+  repeat: Repeat,
+  shuffle: boolean,
+  has_previous: boolean,
+  has_next: boolean,
+  error: string,            // en castellano, vacio si no hay
+  has_output: boolean,      // false = este equipo no tiene salida de audio
+  origin: any | null        // lo que la interfaz paso en set_queue (opaco para Rust)
+}
+```
+
+La **ruta del archivo** viaja en `Track.path` cuando quien manda la canción la
+sabe: la interfaz la trae del índice con cada canción, y «Abrir con DanPlay»
+la recibe en la orden. Si el archivo está ahí, Rust lo pone a sonar sin
+preguntarle nada al núcleo. Si no viene, o el archivo ya no está donde
+estaba, Rust se la pide al núcleo (`GET /api/song/{id}/path`, con un tope de
+8 s) al empezar la pista. Si tampoco así se localiza, `error` lo dice en
+castellano y, si la canción se acabó sola, se prueba con la siguiente.
+
+### Eventos del núcleo (Rust → Vue)
+
+- `danplay://core` → `{ ready, message }`: el núcleo arrancó, murió o se
+  reinició.
+- `danplay://changed` → `{ revision }`: algo de lo que se enseña ha cambiado
+  en el núcleo (índice, listas, estrellas), lo haya hecho quien lo haya hecho:
+  también el vigilante de carpetas, cuando algo se mueve o se borra por fuera.
+  Rust lo detecta comparando `revision` de `GET /api/status` en su vigilancia
+  (cada 2 s); la interfaz responde con un refresco completo (lista de la
+  vista, repertorios, estado, ficha abierta, cola). La primera lectura solo
+  fija el punto de partida, salvo que `revision` ya no sea 0 (el núcleo cambió
+  algo nada más arrancar: entonces se emite). Un núcleo sin `revision` nunca
+  lo emite. Con cada cambio, Rust además pone la cola al día (ver abajo).
+- `danplay://recent` → la lista del reproductor cambió (se abrió algo desde
+  fuera).
+
+### Comandos (`invoke`)
+
+| Comando | Argumentos | Efecto |
+| --- | --- | --- |
+| `set_queue` | `{ items: Track[], start: number \| null, origin: any }` | Sustituye la cola y empieza por `start` (o por el primero). Si `start` es el que ya suena, vuelve a empezar. |
+| `queue_next` | — | Siguiente (a mano siempre avanza; da la vuelta al final). |
+| `queue_previous` | — | Anterior (da la vuelta al principio). |
+| `queue_jump` | `{ id }` | Salta a esa canción de la cola; si es la actual, la reinicia. |
+| `set_repeat` | `{ mode: Repeat }` | |
+| `set_shuffle` | `{ on: boolean }` | |
+| `toggle_pause` | — | Pausa o sigue. Si la pista acabó, la vuelve a poner. |
+| `stop` | — | Para y vacía «lo que suena» (la cola se conserva). |
+| `seek` | `{ seconds }` | |
+| `set_volume` | `{ value }` | 0..1,5. Por encima de 1 la canción suena más alta de como viene; lo que se pase de la salida lo recoge el limitador. |
+| `set_speed` | `{ value }` | |
+| `set_stems` | `{ song, tracks \| null }` | Las pistas separadas en vez de la canción (ver «Pistas separadas», §3). Sin corte: la canción sigue hasta que entran las pistas, a la par, y se cruzan en 0,15 s (igual al quitarlas y al cambiar velocidad o tono). |
+| `set_crossfade` | `{ seconds }` | Cuánto se funden dos canciones al pasar de una a otra (0..12; 0 = sin fundido). Al acercarse el final, Rust lo avisa (`Ending`) y la cola manda ya la siguiente, que sube mientras la otra baja; a mano, como mucho 2 s. Con el clic, la cuenta o tramos puestos no se funden. La interfaz lo guarda (`danplay.fundido`, de fábrica 4) y lo manda al arrancar. |
+| `set_beat_grid` | `{ path, grid }` | La rejilla de Beat This! que da el núcleo, para el metrónomo (ver el metrónomo, §3). |
+| `playback_state` | — | Devuelve `PlaybackState` (para pintar nada más montar). |
+| `queue_items` | — | Devuelve `{ items: Track[], origin }`. |
+
+### Evento
+
+`danplay://state` con `PlaybackState` como carga. Se emite:
+
+- al instante en cada cambio (orden recibida, pista que empieza o acaba, error);
+- cada 250 ms mientras suena (para la barra de progreso);
+- tras un salto (`seek`) siempre, también en pausa: si no, la aguja se
+  quedaba donde estaba hasta reanudar;
+- nada más mientras está parado o en pausa.
+
+La interfaz pinta el salto donde lo pidió sin esperar a este evento, y
+durante 800 ms no deja que un tick que venía en camino con la posición vieja
+la devuelva atrás (`usePlayback.seek`).
+
+Al acabar una pista, **Rust** aplica el modo de repetición: `list` sigue y
+da la vuelta; `one` repite; `once` se para; `queue` se para al llegar al
+final. Con `shuffle` elige otra al azar distinta de la actual.
+
+**Canciones que ya no están.** Al abrir, la sesión guardada vuelve sin las
+canciones cuyo archivo ya no está donde estaba (también la actual); si no
+queda ninguna, la cola arranca vacía y `track` es `null`. Con la app
+abierta, cuando el núcleo avisa de un cambio (o arranca), Rust pregunta por
+las canciones de la cola que no están donde creía (`POST /api/songs/locate`):
+las movidas siguen con su ruta nueva y las que ya no existen salen de la
+cola (`revision` de la cola sube). La actual no se quita mientras suena; si
+se quita estando parada, la siguiente que quede pasa a ser la actual, cargada
+en silencio. Sin núcleo no se quita nada.
+
+### Ventana mini y bandeja (Rust → Vue)
+
+| Comando | Efecto |
+| --- | --- |
+| `show_window` | Trae la ventana principal al frente (y la muestra si estaba oculta). |
+| `hide_mini` | Oculta el popup del mini reproductor. |
+| `toggle_mini` | Muestra u oculta el popup. |
+| `quit_app` | Cierra DanPlay del todo (lo mismo que «Salir» en la bandeja). |
+| `tray_available` | `boolean`: hay bandeja donde quedarse. Si es `false`, cerrar la ventana cierra la app. |
+| `share_targets` | → `{ telegram: boolean }`: a dónde se puede enviar una canción desde este equipo. Se busca Telegram Desktop donde lo pone cada sistema (PATH, snap y flatpak en Linux; `%APPDATA%`, Archivos de programa y el alias de la Store en Windows; `/Applications` en macOS). Sin Telegram, la opción no se enseña. |
+| `send_to_telegram` | `{ paths: string[] }`: abre Telegram con esos archivos listos para enviar (una canción, una selección o un repertorio) (`-sendpath`; `open -a` en macOS; con `--file-forwarding` en flatpak). El chat lo elige la persona allí: no se manda nada solo. |
+| `reveal_in_folder` | `{ path }`: abre el explorador del sistema señalando ese archivo (con `tauri-plugin-opener`: `FileManager1.ShowItems` por D-Bus en Linux, `SHOpenFolderAndSelectItems` en Windows, `open -R` en macOS). Error en castellano si la ruta no existe. Abrir enlaces (`open_in_browser`) y la hoja del atril (`open_html`) van por el mismo plugin: ya no se pasa nada por `cmd /C start`, que en Windows ejecutaba lo que viniera tras un `&`. |
+
+Evento `danplay://mini-visible` con `{ visible: boolean }` cuando el popup
+se muestra u oculta. Evento `danplay://core` con `{ ready: boolean, message }`
+cuando el núcleo Python arranca, muere o se reinicia.
+
+La ventana `mini` se declara en `tauri.conf.json` (label `mini`, url
+`index.html?mini=1`, oculta al arrancar) y tiene su propia *capability*
+(`capabilities/mini.json`). Se oculta sola al perder el foco y con Escape
+(la interfaz llama a `hide_mini`).
+
+**Qué puede invocar cada ventana.** Los comandos propios se declaran en
+`build.rs` (Tauri genera un permiso `allow-<comando>` por cada uno, en
+`permissions/autogenerated/`) y `permissions/ventanas.toml` los junta en un
+grupo por ventana: la principal, todos; la ventanita, solo sus mandos (nada
+de `api` ni de Telegram); la de proyección, lo que usa, incluido `api` para
+leer la letra. Un comando nuevo se añade en los dos sitios, y hay una prueba
+que falla si alguno se queda sin permiso.
+
+Ya no existen: `play`, `audio_state`, `set_now_playing`, `now_playing`,
+`show_mini`, ni los eventos `danplay://command` y `danplay://now`.
+
+## 2. Núcleo Python ↔ Rust (transporte)
+
+- **Linux y macOS**: socket Unix `0600`, como hasta ahora (`--uds RUTA`).
+- **Windows**: TCP en `127.0.0.1` con puerto elegido por Rust
+  (`serve --host 127.0.0.1 --port N`) y un secreto de un solo arranque en la
+  variable de entorno `DANPLAY_TOKEN` (32 bytes en hex). Con esa variable
+  presente, el núcleo exige `Authorization: Bearer <token>` en **todas** las
+  rutas `/api/` y responde `401` sin él. Rust la manda en cada petición.
+- **Modo desarrollo** (`danplay serve` sin `--uds` ni token): se mantiene la
+  comprobación de `Host`, y además **toda** petición a `/api/`, también los
+  `GET` (hay `GET` que gastan IA), debe llevar la cabecera `X-DanPlay: 1`
+  (fuerza *preflight* y corta el CSRF de peticiones simples), salvo el `GET`
+  de `/api/song/{id}/audio` y `/api/song/{id}/cover`, que el navegador pide
+  desde `<audio>` e `<img>`. `api.js` la añade siempre en modo navegador.
+  `--host` que no sea de loopback sin token: el núcleo no arranca. No hay
+  `/docs`, `/redoc` ni `/openapi.json`.
+- **El núcleo muere con la app**: Rust lo arranca con
+  `DANPLAY_PARENT_PID=<su pid>` y el núcleo se apaga en cuanto ese proceso ya
+  no existe (en Windows con la API de procesos: allí `os.kill(pid, 0)` mata).
+
+Rutas nuevas o cambiadas (Python):
+
+- `GET /api/song/{id}/cover?size=N` → miniatura JPEG de N px (96, 192 o 320),
+  generada con ffmpeg y cacheada en disco en `DATA_DIR/covers/`. Sin `size`,
+  la imagen original. Rust reenvía la *query* tal cual desde
+  `danplay://cover/<id>?size=N` y añade `Cache-Control`.
+- `GET /api/song/{id}/path` → `{ path, kind, bytes }` donde `kind` es el MIME
+  real por extensión (`audio/mpeg`, `audio/flac`, `audio/ogg`, `audio/mp4`,
+  `audio/wav`, `audio/x-ms-wma`, `audio/opus`).
+- `POST /api/songs/locate` `{ ids }` → `{ paths: { "<id>": ruta | null } }`:
+  dónde está ahora cada canción (`null` si su archivo ya no está). Ids
+  negativos: archivos abiertos desde fuera. Lo usa la cola de Rust.
+- `GET /api/jobs/{name}` → `{ name, active, done, total, message, result,
+  error, started, ended }`: cómo va una tarea larga (ver §4) y, al acabar, su
+  `result` o su `error` en castellano.
+- `GET /api/search` → `{ total, count, songs }`: `count` es cuántas cumplen la
+  consulta y los filtros sin contar `limit` ni `from_key` (y `limit` admite
+  hasta 20000). Las canciones de las listas (`/search`, las de un repertorio,
+  `/external`, favoritos) son **ligeras**: sin `lyrics`, `lyrics_synced`,
+  `chords`, `study` ni `stems`, y con `has_lyrics`, `has_synced_lyrics`,
+  `has_chords`, `has_study`, `has_stems`. La ficha entera, en
+  `GET /api/song/{id}`.
+- `POST /api/duplicates/scan` → la búsqueda de duplicados como tarea larga
+  (`duplicados`); su `result` es el informe que antes daba
+  `GET /api/duplicates`, que ya no existe.
+- `POST /api/duplicates/resolve` → `dry_run` es `true` por defecto; solo rutas
+  dentro de las carpetas gestionadas y con extensión de audio; borrar = papelera.
+- `GET /api/youtube` → además de `{ available, reason }`: `version` (la de
+  yt-dlp que se usa), `bundled_version` (la que viaja con la app),
+  `js_runtime` (`deno | node | bun | quickjs | null`) y `js_runtime_hint`
+  (qué instalar si es `null`).
+- `GET /api/downloads/folder` → `{ path, ready, reason, suggested }`: dónde se
+  guarda lo descargado (`config.LIBRARY`). `ready` es `false` hasta que la
+  persona la elige (`reason: "unset"`), si ya no está (`"gone"`) o si no es
+  de sus carpetas de música (`"unmanaged"`: lo bajado no saldría).
+  `suggested` es la que se le propone. La interfaz la pregunta antes de la
+  primera descarga (`utils/downloadFolder.js`), desde Descargas y desde el
+  asistente.
+- `PUT /api/downloads/folder { path }` → la elige: tiene que existir y ser
+  (o estar dentro de) una carpeta gestionada; la interfaz la añade antes si
+  no lo era. Se guarda en los ajustes (`DANPLAY_LIBRARY`) y dentro se crean
+  las que falten de `Artistas/`, `Pistas/`, `Secuencias/`, `Tutoriales y Play
+  Along/` y `Entrada/`. Devuelve lo mismo que el `GET`. `409` si no vale.
+- `POST /api/youtube/download` y `POST /api/chat/confirm` con `download_music`
+  → `409` («elige antes dónde guardar lo que descargas») mientras la carpeta
+  de descargas no esté lista.
+- `POST /api/youtube/update` → pone yt-dlp al día como tarea larga (`yt-dlp`),
+  con `result: { previous, version, updated }`.
+- `POST /api/external/play` → `400` si el archivo no es de audio.
+- `PATCH /api/song/{id}` → solo `artist, title, album, year, genre, key, bpm,
+  lyrics`. Otras claves: `422`.
+- `GET /api/tidy` → «Transformar»: `{items: [{id, from, to, artist, title,
+  why: [...], sure}], looked, total}`, lo que no está en su sitio o con su
+  nombre (`Artistas/<Artista>/<Artista - Título>.ext`), las seguras
+  primero. Solo mira lo suelto en la raíz de la biblioteca y lo de
+  `Artistas/`; las carpetas propias y las demás carpetas de música, no. El
+  nombre «Artista - Título» manda sobre las etiquetas; lo que solo sale de
+  ellas va como no seguro. No toca nada.
+- `POST /api/song/{id}/tidy { artist, title, tags } | { to }` → la pone en
+  `Artistas/<artist>/<artist - title>.ext` (o en la ruta `to` de la
+  biblioteca: deshacer). Misma canción (mismo id, con todo lo suyo) y la
+  rejilla del clic y la onda la siguen. `tags: true` escribe también artista
+  y título en el archivo (si no, sus etiquetas no se tocan). Devuelve
+  `{song, from, to}`. `409` si algo no vale o el disco no deja (en Windows,
+  una canción abierta por otro programa).
+- `POST /api/song/{id}/move { category }` → lleva el archivo a su carpeta de
+  la biblioteca: `track` a `Pistas/`, `tutorial` a `Tutoriales y Play Along/`,
+  `sequence` a `Secuencias/` (`ingest.CATEGORY_FOLDER`). Devuelve la ficha: el
+  mismo `id`, con sus estrellas, listas, estudio y pistas separadas; el nombre
+  del archivo no cambia (salvo « - r» si allí ya hay uno igual). `404` si no
+  está en la biblioteca; `409` si su archivo no está o el disco no deja
+  moverlo; `422` con otra categoría.
+- `GET /api/youtube` → cada resultado de una descarga archivada en
+  `Artistas/` cuyo título dice que no es la canción sin más (una Drum Cam, un
+  tutorial, una secuencia…) lleva `kind: { category, what, folder }`
+  (`names.video_kind`): la página de Descargas ofrece moverla con la llamada
+  de arriba. Solo se sugiere; nunca se archiva sola por eso.
+- `PATCH /api/playlists/{id}` → `{ name?, note? }`: renombra la lista o
+  cambia su nota. `409` si el nombre ya es de otra; `400` sin nada que cambiar.
+- `PUT /api/playlists/{id}/songs { ids }` → `{ removed, added, total, songs }`:
+  deja la lista EXACTAMENTE con esas canciones y en ese orden, en una sola
+  transacción (lo usan «Dejar solo estas» y «Deshacer» de la tabla de una lista
+  en el chat). `400` con `ids` vacío (una lista no se vacía por aquí), `404` si
+  la lista no existe.
+- `POST /api/chat` → ver §3.
+
+## 3. Asistente: confirmaciones (Python ↔ Vue)
+
+Las herramientas destructivas (`delete_song`, `delete_playlist`,
+`download_music`) **nunca se ejecutan dentro de la conversación**. Cuando el
+modelo las llama (o `fill_playlist` propone bajar lo que falta de una lista),
+el núcleo **registra la propuesta** (`danplay/chat/plan.py`) y la respuesta
+HTTP lleva:
+
+```json
+{ "text": "...", "tools": [...], "actions": [...],
+  "confirm": { "id": "kq3V…", "tool": "download_music",
+               "summary": "Descargar 2 temas de YouTube",
+               "effect": "Al terminar: añado 2 a «domingo»",
+               "plan_state": "buscando", "args": {...} },
+  "setlist": { ... } }
+```
+
+- El **id lo genera el servidor**, y `summary` y `effect` los escribe él.
+  `confirm` es `null` si no hay nada pendiente (como mucho una por respuesta);
+  una propuesta nueva de la misma herramienta deja sin valor la anterior, y
+  caduca a los 30 minutos (o al reiniciar el núcleo: vive en memoria).
+- `args` va solo por compatibilidad con una interfaz antigua: la de ahora
+  **confirma por id** y no manda argumentos.
+- Antes de proponer una descarga, el núcleo mira la biblioteca: lo que ya está
+  no se propone (y se le dice al modelo dónde está).
+
+Rutas:
+
+- `POST /api/chat/confirm { id, selection? }`: la ejecuta desde el REGISTRO,
+  nunca desde lo que mande el cliente. `selection` son los índices (`i`) de las
+  filas marcadas de la tarjeta. Con `id` no se aceptan `tool` ni `args` (422).
+  - Descarga → `{ ok, result: { active, id, job, items, force, trimmed,
+    playlist: {id, name} | null, skipped }, text }`, arrancada en segundo
+    plano. Si la propuesta venía de una lista, al terminar la descarga y antes
+    de soltar el turno se meten las bajadas en su sitio (`plan.apply_after`,
+    una sola escritura).
+  - `delete_*` → lo que devuelve la herramienta (`{ ok, result, text }`).
+  - `410` si ya no vale (usada, sustituida, caducada o desconocida, o lo que
+    se iba a borrar ya no es lo mismo); `409` si hay otra descarga en marcha o
+    falta la carpeta; `503` sin yt-dlp; `400` si con esas casillas no queda
+    nada. En `409`, `503` y `400` la propuesta sigue viva.
+- Forma antigua, por compatibilidad: `POST /api/chat/confirm { tool, args }`
+  ejecuta esa herramienta como antes (un `after` metido en `args` se ignora).
+- `GET /api/chat/confirm/{id}` → `{ state: live | used | superseded | expired
+  | unknown, tool, summary }`: la tarjeta solo habilita sus botones con `live`.
+- `GET /api/chat/plan/{id}` → `{ state: buscando | listo | parcial | error,
+  items: [{ i, n, query, kind, url, title, channel, duration, state, checked,
+  badge, note }], already: [{ n, title, song }], unresolved: [...], effect,
+  trimmed, reason }`: las filas de la tarjeta según el núcleo busca en YouTube
+  lo que falta (dos consultas a la vez como mucho, sin reintentos, con caché
+  de 10 min). `404` si esa propuesta no tiene plan.
+- `POST /api/chat/plan/{id}/cancel` → deja de buscar; la propuesta sigue viva.
+- `GET /api/youtube` → además de `active`, `phase` (también `listing`: metiendo
+  lo bajado en la lista), `results`…, trae `job` (el turno de la descarga) y
+  `after`: `{ state: done | error, playlist, added, placed: [{n, id}], failed:
+  [{n, item, label, reason}], skipped, order, job }` o `null`. `placed` dice qué
+  fila de la tabla quedó con qué canción (el aviso `download_done` lo guarda
+  como `filled` y la tabla deja de decir «falta»). `active: false` quiere
+  decir que está TODO hecho, también la lista.
+
+`setlist` es la tabla de una lista metida o comprobada con `fill_playlist`:
+`{ playlist: {id, name, created}, mode: add | check | set, applied, rows: [{
+n, title, status: found | other_version | ambiguous | probable | missing,
+song: {id, artist, title} | null, alts, note, link: {url} | null, in_list,
+kind }], added, already_in, removed, extras_in_list, order_differs, previous
+| null, ignored, truncated }`. `previous` (el orden de antes) solo si se quitó
+o se reordenó algo, para «Deshacer» (`PUT /api/playlists/{id}/songs`).
+
+Las burbujas del asistente se pintan como **markdown** (negritas, listas,
+títulos, tablas, código) con un conversor propio que escapa todo el HTML
+antes de marcar nada (`desktop/src/utils/markdown.js`). Los enlaces no se
+convierten en `<a>`: se enseñan como texto con la dirección al lado.
+
+### El chat en vivo, el contexto y las conversaciones
+
+- `POST /api/chat` y `POST /api/chat/start` aceptan `context`: lo que la
+  persona tiene delante — `{ view: {kind, name, id?}, songs: [{id, artist,
+  title}] (las primeras 20 de la lista, en su orden), total, selected:
+  [{id, artist, title}], playing: {id, artist, title, paused} | null }`. El
+  núcleo lo mete en el ESTADO REAL de ese turno, así que «la segunda»,
+  «esta» o «las seleccionadas» significan algo.
+- `POST /api/chat/start` → `{ id }`; la respuesta se prepara en un hilo.
+  `GET /api/chat/poll/{id}` → `{ text, tools, done, result }`: `text` es lo
+  que lleva escrito el modelo (vacío si lo que parecía respuesta era el
+  preámbulo de una herramienta, o se retiró por narración), `tools` las
+  herramientas ya ejecutadas, y con `done` llega `result`, idéntico a lo que
+  devuelve `/api/chat`. `POST /api/chat/cancel/{id}` corta: el resultado
+  trae `canceled: true` y el texto que hubiera. La interfaz sondea cada
+  250 ms por el puente de siempre; no hay flujo abierto ni cambios en Rust.
+- El resultado lleva además `usage: { calls, prompt, completion, cost |
+  null }` (el coste según el catálogo; `null` si el precio no se conoce) y
+  `via: { id, name, model, fallback, reason }`: quién respondió en la última
+  llamada de conversación (el juez no cuenta), si fue un respaldo y por qué
+  falló el elegido (`billing`, `auth`, `rate`, `down`, o `tools` si su modelo
+  no usa herramientas).
+- `GET /api/chat/tools` trae además `primary_problem` (`{ kind, code, at }` o
+  `null`: por qué no se está llamando al proveedor elegido, mientras dure la
+  marca) y `answering` (el `via` de la última respuesta, o `null`). Nunca
+  lleva texto del proveedor (puede repetir trozos de la clave): la interfaz
+  compone la frase por `kind`. `POST /api/ai/recheck` olvida el fallo del
+  elegido para volver a probarlo y devuelve `{ primary, answering }`.
+- Conversaciones guardadas: `GET /api/chats` → `{ chats: [{id, title,
+  updated, n}] }`; `POST /api/chats {title?}` → la nueva; `GET
+  /api/chats/{id}` → `{ id, title, messages }` con cada mensaje como lo pinta
+  la interfaz (`role, text, tools?, app?, event?, hidden?, narrated?,
+  error?, usage?, via?, canceled?, confirm?, setlist?, ref?`; `ref` es el id de
+  la tarjeta a la que se refiere un mensaje de la app que la cambia); `POST
+  /api/chats/{id}/messages {messages}` añade al final (el título sale del primer mensaje del usuario
+  si no tenía); `PATCH /api/chats/{id} {title}`; `DELETE /api/chats/{id}`;
+  `GET /api/chats/search?q=` → `{ hits: [{chat_id, title, role, snippet,
+  at}] }`.
+- `GET /api/ai/usage` → `{ today, month, total }`, cada uno `{ calls,
+  prompt, completion, cost, unpriced }`. `POST /api/ai/fallback { enabled }`
+  enciende o apaga el respaldo; `GET /api/ai/providers` trae `fallback` y
+  `fallbacks: [{id, name, chat_model}]`.
+- `POST /api/playlists/{id}/sheet { with_lyrics }` → `{ file }`: la hoja para
+  el atril (HTML en `Listas/`); la app la abre con el navegador por el
+  comando de Rust `open_html`, que solo acepta `.html` que existan.
+- `GET /api/ai/usage` añade `by_provider` (este mes), `budget` y
+  `over_budget`; `POST /api/ai/budget { dollars }` fija el tope (0 = sin
+  aviso). El resultado de `/api/chat` lleva `budget: { limit, month, over }`
+  cuando hay tope: la interfaz avisa, no corta.
+- `GET /api/chats/{id}/export` → `{ markdown }`.
+- `PUT /api/song/{id}/study { loop?: [a, b], loops?: [[a, b], …], speed?,
+  markers?: [{t, end?, parts?, label, notes?}], notes? }` → la ficha; lo que
+  no venga se quita. `loops` son varios tramos que se repiten seguidos (hasta
+  64; se guardan hasta 32, en orden, juntando los que se pisan y al
+  centésimo). Un solo tramo se guarda siempre como `loop`, venga como venga:
+  es lo que entienden las versiones de antes. Un marcador es un tramo
+  (`t`–`end`) con nombre y sus notas; sin `end` (o con un `end` que no vaya
+  detrás de `t`) es un instante suelto. Con `parts` (dos o más tramos) es un
+  marcador de varios tramos, y `t`–`end` van del principio del primero al
+  final del último. Va al índice
+  (`study`, JSON) y a la etiqueta `ESTUDIO` del archivo, y vuelve al
+  escanear. Se va con la canción: la fila del índice se borra al mandarla a
+  la papelera o cuando el escaneo la da por desaparecida.
+- `GET /api/song/{id}/waveform?buckets=800` → `{ peaks, rms, buckets }`: la
+  forma de onda para la línea de tiempo del estudio, `buckets` columnas con
+  pico y RMS entre 0 y 1 (normalizados al pico más alto). Vale para canciones
+  de fuera de la biblioteca. La calcula `danplay_core.waveform` (Rust) o, si
+  no está compilado, ffmpeg a PCM crudo; se guarda en `DATA_DIR/waveforms/`,
+  un archivo por canción nombrado por su ruta (dentro van ruta, mtime y
+  columnas: si no coinciden se recalcula). Se borra con la canción
+  (`library.forget`, `forget_path`, y las que el escaneo da por perdidas) y
+  el escaneo poda las que no correspondan a ninguna canción del índice.
+  `404` sin archivo, `501` sin nada con que decodificar, `422` si no se pudo.
+- Reproducción: `set_loop(a, b, segments?, defer?)` (sin valores, lo quita);
+  el estado trae `loop_a`, `loop_b` (0,0 = sin bucle), `loops`, `loop_defer`
+  y `pitch_preserved` (la velocidad conserva el tono: ffmpeg `atempo`;
+  `false` = sin ffmpeg, cambia el tono). `set_loop` no mueve la canción: el
+  tramo se **arma** si la canción está dentro (o cuando entra, o con un
+  `seek` dentro) y solo entonces, al pasar de B, vuelve a A. Con un tramo
+  puesto la canción no se acaba: al final vuelve a A y no se avisa del fin de
+  pista. Quien quiera empezar el tramo ya manda un `seek(a)` detrás (la
+  interfaz lo hace salvo con el candado de la onda puesto).
+  - `segments: [[a, b], …]` son **varios tramos** en vez de uno (y entonces
+    `a` y `b` no cuentan): Rust los ordena, junta los que se pisan, descarta
+    los de 0,2 s o menos y se queda con 64 como mucho. Al pasar del final
+    del armado salta al principio del siguiente, y del último al primero. El
+    estado los trae en `loops` (uno solo también), con `loop_a` el principio
+    del primero y `loop_b` el final del último.
+  - `defer: true` es **repetir cuando acabe la canción**: los tramos no se
+    arman aunque la canción pase por ellos; al llegar al final vuelve al
+    primero, `loop_defer` pasa a `false` y ya se repiten. Un `seek` dentro de
+    un tramo también lo quita. Sin tramos, `loop_defer` es siempre `false`.
+  - Los dos son opcionales: `set_loop(a, b)` sigue siendo el bucle de
+    siempre, y así va la interfaz con un solo tramo.
+- `set_pitch(semitones)` (−12..12, con fracciones: 0,5 es un cuarto de
+  tono; se redondea al centésimo): el tono corrido, por ffmpeg
+  (`rubberband=tempo:pitch` si lo trae, que es lo normal; si no,
+  `asetrate`+`aresample`+`atempo`). Reabre la canción donde iba, como la
+  velocidad. El estado trae `pitch`. Sin ffmpeg no hace nada.
+- `analyze_beats(path, hint_bpm)` → `BeatGrid { bpm, meter, beats[],
+  first_downbeat, phase3, phase4, confidence }`: el pulso y el compás del
+  archivo, calculados en Rust (`beats.rs`: envolvente de ataques por FFT,
+  tempo por autocorrelación, rejilla por programación dinámica, el «1» por
+  bombo y cambios de acorde). Un par de segundos; Rust guarda la rejilla
+  por ruta durante la sesión y el metrónomo la usa. Es lo de reserva: la
+  interfaz pide antes la de Beat This! al núcleo (`/api/song/{id}/beats`) y
+  se la da con `set_beat_grid`. Con `bars` (de Beat This!), el «1» de cada
+  compás es el de la lista, y un compás más largo se completa con `meter`;
+  el compás puesto a mano (otro que el suyo) vuelve a un «1» regular.
+- `set_metronome({ on, bpm, meter, shift, mult, volume, sound, count_in })`: se manda
+  entero. `bpm`/`meter` en null = lo detectado. `bpm` a mano admite
+  decimales y el clic va a su aire, pero con la canción sonando y rejilla su
+  primer golpe cae en el siguiente pulso de ella (al ponerlo y en cada play,
+  salto o vuelta del bucle). `meter` a mano: 0 = sin acento, o de 2 a 12 (el
+  «1» sale de las fases de 3 o de 4). `shift` corre el «1» tantos pulsos;
+  `mult` −1/0/1 = mitad/tal cual/doble de clics, sobre la rejilla y también
+  sobre el tempo a mano. `volume` 0..2. El clic es un sink aparte del
+  mezclador (su volumen y su marcha, independientes de la canción); sonando
+  con la canción se reengancha a su rejilla en cada play, salto, cambio de
+  velocidad y vuelta del bucle, y sigue la velocidad del estudio. `sound`:
+  `clasico | madera | baqueta | cencerro` (el mismo que `danplay/click.py`
+  pone en la mezcla). `count_in` 0..2: con la canción en pausa, play cuenta
+  esos compases al tempo y en el compás de la rejilla y la canción entra
+  donde caería el golpe siguiente (su próximo pulso); pausa en plena cuenta
+  la deja en pausa. El modo estudio lo pone al abrirse y lo quita al
+  cerrarse. El estado trae `metronome { on, bpm, meter, shift, mult, volume,
+  has_grid, free, confidence, sound, count_in }` (`bpm` ya con el doble o la
+  mitad), `counting_in` (se está contando) y `path` (el archivo que suena de
+  verdad: la clave de la rejilla).
+- `PUT /api/song/{id}/study` admite además `pitch` (−12..12 semitonos, con
+  fracciones al centésimo; 0 no se guarda y uno entero se guarda entero),
+  `metronome { bpm?, meter?, shift?, mult? }` (solo lo ajustado a mano sobre
+  lo detectado: `bpm` 20..300 con dos decimales, `meter` 0 o 2..12) y
+  `mixer { on?, tracks?: { <fuente>: { gain?, pan?, mute?, solo? } } }`: si
+  suenan las pistas separadas y, de cada una, lo que no está como viene
+  (`gain` 0..2, `pan` −1..1).
+
+### Pistas separadas (Python ↔ Vue, Rust)
+
+- `GET /api/separate` → `{ ok, reason, bytes, pending, installed, folder,
+  format, opus, current, queue, events }`: si se puede separar aquí
+  (`reason` dice por qué no: sin numpy u onnxruntime, sin ffmpeg), lo que
+  pesa el separador entero y lo que falta por bajar (`pending`), en qué se
+  guardan las pistas (`format`: `flac | opus`; `opus`, si este ffmpeg sabe
+  hacerlo), y la cola: la que va (`current: { id, title, stage, done,
+  total, step }`) y las que esperan. `stage` es `separate` (la pasada
+  rápida; al acabar, la canción ya tiene pistas y su mejora va a la cola) o
+  `refine` (la buena, sobre las rápidas); las rápidas van antes que
+  cualquier mejora. `step`: `download | decode | load | separate | compose
+  | encode`. `events: [{ seq, id, title, stage, ok, error }]` son las
+  últimas pasadas que acabaron (50): la interfaz se queda con el `seq` más
+  alto que vio y avisa de lo nuevo (si baja, el núcleo volvió a arrancar).
+- `POST /api/song/{id}/separate` (sin cuerpo) → `202` con lo mismo y `job`:
+  a la cola, con la mejor calidad. Si la canción ya tiene las pistas
+  rápidas enteras, solo se mejoran. La cola es la tarea `separacion`; su
+  `result` es `{ separated: [{ id, title, folder, seconds, took, tracks,
+  levels }], failed: [{ id, title, stage, error }], cancelled }` (una
+  entrada por pasada). La primera vez baja el separador (su sha256 viaja
+  con la app). `404` si la canción no está; `422` si no se puede.
+- `DELETE /api/separate` para la que se separa y vacía la cola;
+  `DELETE /api/separate/queue/{id}` quita una que espera;
+  `DELETE /api/separate/weights` borra todo lo bajado (`409` separando).
+- `GET /api/song/{id}/stems` → `{ folder, model, created, quality, best,
+  complete, dropped, tracks: [{ source, name, file, path, exists, wave: {
+  peaks, rms } }] }`, en el orden del mezclador (batería, voces, bajo,
+  guitarra, piano, otros), solo las que están en la canción (`dropped`, las
+  que la red casi no encontró). `quality`: `rapida`, `mejor`, o vacío si se
+  separaron con 1.16.0; `best` si ya son las mejores. Las ondas, todas a la
+  misma escala. `404` sin pistas (y si su carpeta ya no está, se olvida).
+  `DELETE` las manda a la papelera.
+- En las listas, cada canción lleva `has_stems` y `stems_best`.
+- `GET /api/song/{id}/beats` → la rejilla del metrónomo con Beat This!
+  (`BeatGrid`: `{ bpm, meter, beats, first_downbeat, phase3, phase4,
+  confidence, bars }`, con `bars` el índice de cada «1», compás a compás).
+  La primera vez tarda (15-20 s, un proceso aparte); luego sale de lo
+  guardado en `DATA_DIR/pulso/`. Con `?wait=false` no espera: si no está
+  guardada, `202 {pending: true}` y se calcula en segundo plano (un hilo,
+  lo pedido así va delante); se vuelve a preguntar. `404` sin archivo; `503`
+  si aquí no se puede (sin el grafo, sin ffmpeg): la interfaz sigue con
+  `analyze_beats` de Rust; `422` si la canción no tiene pulso.
+- `POST /api/song/{id}/beats/prepare` → `{queued}`: deja calculándose,
+  detrás, la rejilla de una canción que vendrá después (la siguiente de la
+  cola con el clic puesto). Nunca espera.
+- Rust: `set_beat_grid(path, grid)` se queda con esa rejilla para el
+  metrónomo, como si la hubiera analizado `analyze_beats` (la revisa antes:
+  pulsos en orden, tempo tocable, índices dentro).
+- `POST /api/song/{id}/stems/mix { tracks: [{ source, gain, pan, side?,
+  mono? }], path, format?: mp3|flac|wav, speed?, pitch?, click?, cues? }` →
+  la tarea `mezcla`, con `result: { path, name, id, title }`. Solo las
+  pistas que suenan (`source: "song"`: la canción tal cual); `path` dentro
+  de la biblioteca y sin ser una canción suya; `id` es la canción nueva si
+  entra en la biblioteca (fuera de una carpeta de pistas). `click: { beats,
+  accents, sound, volume, side? }` suma el clic del metrónomo (los pulsos en
+  segundos de la canción y cuáles son el «1»; `sound`: `clasico | madera |
+  baqueta | cencerro`), después de la velocidad y el tono; el título dice
+  «con clic». `cues: [{ at, file, gain, side? }]`, las guías. `side`:
+  `both | L | R` (desde 1.30: cada cosa por su lado, como suena con «Salidas»;
+  `mono` junta los dos lados de una pista, como el motor).
+- Las guías: `GET /api/cues/voices`; `POST /api/song/{id}/cues { text,
+  voice, preview? }` → `{ file, seconds }` (409 si la voz se está bajando);
+  `POST /api/song/{id}/cues/import { path, limit? }`; `GET /api/cues/wave?
+  file=&buckets=` → `{ seconds, peaks }`; `POST /api/cues/edit { file,
+  start?, end?, fade_in?, fade_out?, denoise?, highpass?, normalize?,
+  preview? }` → una guía nueva. Desde 1.30, `POST /api/song/{id}/cues/auto
+  { voice, bars?, beat?, sections? }` → la tarea `guia-automatica`, con
+  `result: { sections: [{ start, end, label }], cues: [{ t, text, voice,
+  file, seconds }] }` (`danplay/structure.py`); 409 si la voz no está
+  bajada (se empieza a bajar).
+- Rust: `set_stems(song, tracks | null)`, con `tracks: [{ path, gain, pan,
+  on }]`: que suenen esas pistas en vez de la canción `song` (su ruta: si
+  ya suena otra, no hace nada). Con las mismas pistas que ya suenan solo
+  cambia la mezcla, al momento; si no, se reabre donde iba. «Las mismas»
+  son las mismas rutas y, además, sin rehacer: al mejorarlas, el separador
+  deja otras con los mismos nombres, y se reabren (se mira la fecha y el
+  tamaño de cada archivo). Al pasar a otra
+  canción se sueltan (la misma otra vez, al repetirla, las conserva). El
+  estado trae `stems` (si suenan). Sin ffmpeg, o si no se pueden abrir,
+  `error` lo dice y sigue sonando la canción.
+
+## 4. Ajustes (Python ↔ Vue), nombres correctos
+
+- `/api/status`: `ai` (no `ia`). `missing_folders`: rutas de las carpetas
+  gestionadas que ya no están donde estaban (sus canciones están apartadas).
+  `configured` sigue siendo «hay alguna carpeta dada de alta», exista o no.
+- `/api/convert` body: `{ dry_run, quality, keep }`. Con `dry_run` contesta
+  al momento; sin él es la tarea larga `conversion`.
+- **Tareas largas**: `POST /api/scan` (`escaneo`), `POST /api/import`
+  (`importacion`, también con `dry_run`), `POST /api/convert` sin `dry_run`
+  (`conversion`), `POST /api/duplicates/scan` (`duplicados`) y
+  `POST /api/youtube/update` (`yt-dlp`) arrancan en segundo plano y contestan
+  `202 { job }` al momento. Si ya hay una en marcha con ese nombre, `202` con
+  esa y `already_running: true` (antes `409`). Se sigue con
+  `GET /api/jobs/{name}`; `api.runJob(start, name, { onProgress })` lo hace
+  (sondeo cada ~500 ms) y devuelve `result` o lanza el `error`.
+  `/api/status` conserva `jobs` con todas.
+- `/api/folders` respuesta `action`: `added | already_there | replaced |
+  confirm | relocated`. `relocated`: la carpeta era una gestionada que se
+  movió; se cambia su ruta en vez de añadir otra y sus canciones vuelven con su
+  id (`notice.other` es la ruta de antes).
+- `GET /api/folders`: cada carpeta lleva `exists` (si sigue en su sitio).
+- `POST /api/folders/relocate` `{ from, to }` → lo mismo a mano: `from` es una
+  carpeta gestionada que ya no existe y `to` dónde está ahora. Devuelve
+  `{ from, to, back, folders, exclusions, always_excluded }` (`back`: cuántas
+  canciones volvieron). `400` si `from` sigue existiendo o `to` no existe.
+- Calidad: `high | medium | variable`.
+
+## 5. Proveedor de IA (Python ↔ Vue)
+
+Una clave guardada solo se reutiliza hacia **la URL con la que se guardó**:
+probar un perfil con otra `base_url` sin escribir la clave no manda la
+guardada a ese servidor. Los valores de `headers` y `extra` salen
+enmascarados como la clave; si vuelven sin cambiar, se conserva lo guardado.
+
+La IA vale con cualquier servicio que hable el *chat completions* de OpenAI
+(todos, hoy). Qué proveedor, con qué clave y qué modelos lo guarda el núcleo
+en `~/.config/danplay/ai.json` (0600), **un perfil por proveedor
+configurado** y uno activo. Las claves entran por `POST` y salen siempre
+enmascaradas (`sk-o…f3a1`); una caja de clave vacía significa «conserva la
+guardada».
+
+- `GET /api/ai/providers[?refresh=1]` → `{ catalog, groups, profiles, active,
+  active_profile, ai_enabled, ai_ready, ai_reason, catalog_status }`.
+  `catalog` es la lista de servicios conocidos (`id, name, group, base_url,
+  key: required|optional|none, key_url, docs, fields, suggest, note`);
+  `fields` son los huecos de la URL (`{region}`, `{resource}`…) que el
+  formulario pide. Sin `refresh`, el núcleo comprueba models.dev en segundo
+  plano (petición condicional con ETag: sin cambios, cero bytes); con
+  `refresh=1`, espera a hacerlo.
+- `POST /api/ai/profile` con `AiProfile` (`id?, provider, name?, key?,
+  base_url?, fields?, model, chat_model, headers?, extra?, timeout?,
+  activate=true`) → guarda y devuelve lo mismo que `GET` más `saved` (el
+  id). Un `custom` nuevo recibe id `custom-<nombre>`; puede haber varios.
+- `DELETE /api/ai/profile/{id}` → borra clave y ajustes de ese perfil.
+- `POST /api/ai/activate` `{ id }` → cambia el activo (un local sin perfil se
+  crea con sus valores por defecto).
+- `POST /api/ai/free` (sin cuerpo) → «Probar gratis, sin clave»: prueba por
+  orden los del grupo `free` (`providers.FREE_ORDER`), guarda y activa el
+  primero que responda. Devuelve lo mismo que `GET` más `free: { ok, chosen,
+  name, model, chat_model, tools_ok, tried: [{id, name, ok, reason}],
+  reason }`. Sin clave, `/api/ai/models` de esos proveedores devuelve solo lo
+  que sirven a anónimos (`quirks.anon_filter`).
+- `POST /api/ai/check` con el mismo cuerpo → prueba **sin guardar**:
+  `{ ok, reason, provider, model, chat_model, latency_ms, tools_ok,
+  tools_reason }`. Hace la llamada más barata posible (un token) con el
+  modelo rápido, otra con el de conversación si es distinto, y una tercera
+  con una herramienta de prueba para saber si el asistente podrá usarlo.
+- `POST /api/ai/models` con el mismo cuerpo → `{ ok, reason, source, models,
+  catalog, suggest, catalog_status }`. `models` es lo que lista el proveedor
+  con esa clave (`/models`) cruzado con el catálogo (`tools, cost_in,
+  cost_out, context, released, deprecated, known`); `catalog` lo que sabe
+  models.dev de ese proveedor aunque no responda; `suggest` `{fast, chat}`
+  recomendados (herramientas, reciente, barato, ni obsoleto ni experimental).
+- `/api/settings` conserva `model`, `ai_key`, `has_ai_key` (van al perfil
+  activo) y añade `chat_model`, `provider`, `provider_name`, `ai_ready`,
+  `ai_reason`, `ai_file`. `/api/status` y `/api/chat/tools` añaden
+  `provider`.
+- `POST /api/settings/check-ai` prueba el perfil activo (mismo resultado que
+  `/api/ai/check`).
+
+Variables de entorno que mandan sobre el archivo, para la línea de órdenes:
+`DANPLAY_AI_PROVIDER`, `DANPLAY_AI_KEY`, `DANPLAY_AI_BASE_URL`,
+`DANPLAY_AI_MODEL`, `DANPLAY_AI_CHAT_MODEL`. Las `DEEPINFRA_*` de antes se
+leen una sola vez para migrar la clave al perfil `deepinfra`.

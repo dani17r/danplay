@@ -6,7 +6,7 @@ import sys
 from danplay import no_console
 
 
-def test_se_añade_la_marca_salvo_si_se_pide_consola_a_proposito():
+def test_the_flag_is_added_unless_a_console_is_requested():
     assert no_console.hidden(None) == no_console.CREATE_NO_WINDOW
     assert no_console.hidden(0x200) == 0x200 | no_console.CREATE_NO_WINDOW
     new_console, detached = 0x10, 0x08
@@ -26,7 +26,7 @@ def _fake_popen():
     return Popen, Child
 
 
-def test_en_windows_todos_los_procesos_van_sin_ventana():
+def test_on_windows_every_process_runs_without_a_window():
     Popen, Child = _fake_popen()
     assert no_console.install("win32", Popen)
     assert Popen(["ffmpeg"]).kwargs["creationflags"] == no_console.CREATE_NO_WINDOW
@@ -35,13 +35,13 @@ def test_en_windows_todos_los_procesos_van_sin_ventana():
     assert not no_console.install("win32", Popen), "una sola vez, sin envolverlo dos veces"
 
 
-def test_en_linux_no_se_toca_nada():
+def test_on_linux_nothing_is_touched():
     Popen, _ = _fake_popen()
     assert not no_console.install("linux", Popen)
     assert "creationflags" not in Popen(["ffmpeg"]).kwargs
 
 
-def test_al_importar_danplay_el_popen_de_verdad_solo_cambia_en_windows():
+def test_importing_danplay_changes_real_popen_only_on_windows():
     # la CI corre esto tambien en Windows, donde si debe ir instalado
-    instalado = getattr(subprocess.Popen, "_danplay_no_console", False)
-    assert instalado == (sys.platform == "win32")
+    installed = getattr(subprocess.Popen, "_danplay_no_console", False)
+    assert installed == (sys.platform == "win32")

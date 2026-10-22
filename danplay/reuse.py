@@ -65,7 +65,7 @@ def _close(a, b, tol=DURATION_TOL) -> bool:
 def twins(song) -> list[dict]:
     """Las otras filas que son esta misma cancion: de la biblioteca y de las
     apartadas (con `missing`: True), de la duracion mas parecida a la menos.
-    Las busca Rust (biblioteca/src/reaprovechar.rs)."""
+    Las busca Rust (library/src/reuse.rs)."""
     from .library import db
 
     with db.connect() as conn:
@@ -421,7 +421,7 @@ def adopt_grid(path: str, twin: dict, lag: float) -> bool:
     key = _old_key(twin)
     if not key or beatgrid.cached(path):
         return False
-    folder = config.DATA_DIR / "pulso"
+    folder = config.DATA_DIR / "beats"
     old_json, old_raw = folder / f"{key}.json", folder / f"{key}.npz"
     try:
         saved = json.loads(old_json.read_text(encoding="utf-8"))
@@ -468,7 +468,7 @@ def _worth(row) -> int:
     clic, y su clic mas que su estudio."""
     worth = 4 if _stems_folder(row) else 0
     key = _old_key(row)
-    folder = config.DATA_DIR / "pulso"
+    folder = config.DATA_DIR / "beats"
     if key and ((folder / f"{key}.npz").is_file() or (folder / f"{key}.json").is_file()):
         worth += 2
     if row.get("study"):

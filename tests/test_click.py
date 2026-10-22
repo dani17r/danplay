@@ -1,5 +1,5 @@
 """El clic de la mezcla que se guarda (danplay/click.py): el mismo que suena
-en el modo estudio (motor/src/click.rs). Los numeros de aqui son los mismos que
+en el modo estudio (engine/src/click.rs). Los numeros de aqui son los mismos que
 comprueba la prueba de Rust `every_sound_matches_the_one_in_the_saved_mix`:
 si cambia uno, tiene que cambiar el otro."""
 

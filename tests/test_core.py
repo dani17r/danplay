@@ -22,8 +22,8 @@ from danplay import youtube as Y
 MUSIC = pathlib.Path(os.environ.get("DANPLAY_TEST_MUSIC") or pathlib.Path.home() / "Musica")
 
 
-def _muestra(relativa: str) -> str:
-    return str(MUSIC / relativa)
+def _sample_path(relative: str) -> str:
+    return str(MUSIC / relative)
 
 
 # ------------------------------------------------------------------ nombres
@@ -78,7 +78,7 @@ def test_clean_strips_noise(dirty, clean_name):
     assert N.clean(os.path.splitext(dirty)[0]) == clean_name
 
 
-def test_sanitize_quita_los_caracteres_de_control():
+def test_sanitize_removes_control_characters():
     """Lo decia el docstring y no lo hacia: final_name('X', 'a\\nb') daba
     un nombre de archivo con un salto de linea dentro."""
     assert N.final_name("X", "a\nb") == "X - a b.mp3"
@@ -88,7 +88,7 @@ def test_sanitize_quita_los_caracteres_de_control():
     assert N.clean("Barak\x07 Mi Gozo") == "Barak Mi Gozo"
 
 
-def test_los_nul_no_se_convierten_en_enye():
+def test_nuls_do_not_turn_into_enye():
     """strip_accents escondia la ñ tras \\x00 y \\x01: si esos venian en el
     texto, salian convertidos en ñ."""
     assert N.clean("Ma\x00ana") == "Maana"
@@ -112,7 +112,7 @@ def test_los_nul_no_se_convierten_en_enye():
         ("Barak - Mi Gozo - r2.mp3", ("Barak", "Mi Gozo", "")),
     ],
 )
-def test_artista_guion_titulo_se_lee_del_nombre(name, expected):
+def test_artist_dash_title_is_read_from_the_name(name, expected):
     r = N.split_artist_title(name)
     assert (r["artist"], r["title"], r["feat"]) == expected
 
@@ -120,7 +120,7 @@ def test_artista_guion_titulo_se_lee_del_nombre(name, expected):
 @pytest.mark.parametrize(
     "name", ["Sin guion.mp3", "01 - Intro.mp3", " - Solo titulo.mp3", "Guion-pegado.mp3"]
 )
-def test_sin_guion_no_hay_artista(name):
+def test_without_dash_there_is_no_artist(name):
     assert N.split_artist_title(name) is None
 
 
@@ -258,7 +258,7 @@ def mp3(tmp_path, synthetic_ok):
     """Un mp3 de verdad: el de tu biblioteca si DANPLAY_TEST_MUSIC la da, si
     no uno sintetico (antes, sin tu musica, estas pruebas se saltaban)."""
     target = tmp_path / "prueba.mp3"
-    source_path = _muestra("Artistas/Barak/Barak - Mi Gozo.mp3")
+    source_path = _sample_path("Artistas/Barak/Barak - Mi Gozo.mp3")
     if os.path.exists(source_path):
         shutil.copy(source_path, target)
         return str(target)
@@ -300,7 +300,7 @@ def test_wav_duration_is_not_zero(tmp_path, synthetic_ok):
     """mutagen.File() devuelve None para algunos .wav; debe usarse el lector concreto."""
     from conftest import make_audio
 
-    folder = _muestra("Secuencias")
+    folder = _sample_path("Secuencias")
     wavs = (
         [os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(".wav")]
         if os.path.isdir(folder)
@@ -482,7 +482,7 @@ def test_download_state_starts_idle():
     assert set(Y.STATE) >= {"active", "phase", "percent", "index", "total"}
 
 
-def test_el_turno_de_descarga_es_de_uno_solo():
+def test_only_one_can_hold_the_download_turn():
     """`claim` reserva y `release` suelta; entre medias nadie mas entra."""
     assert Y.claim()
     try:
@@ -495,51 +495,51 @@ def test_el_turno_de_descarga_es_de_uno_solo():
     Y.release()
 
 
-def test_run_job_no_se_bloquea_con_el_turno_ya_cogido(monkeypatch):
+def test_run_job_does_not_block_when_the_turn_is_already_held(monkeypatch):
     """Es el fallo de fondo del boton y del asistente: la API se quedaba el
     turno y `run_job` se negaba a descargar por verlo cogido."""
-    llamadas = []
-    monkeypatch.setattr(Y, "download", lambda q, **kw: llamadas.append(q) or [{"ok": True}])
+    calls = []
+    monkeypatch.setattr(Y, "download", lambda q, **kw: calls.append(q) or [{"ok": True}])
     assert Y.claim()
     rs = Y.run_job("una", claimed=True)
-    assert llamadas == ["una"], "con claimed=True tiene que descargar"
+    assert calls == ["una"], "con claimed=True tiene que descargar"
     assert rs and rs[0]["ok"]
     assert not Y.STATE["active"], "y soltar el turno al terminar"
     # sin claimed, se lo coge el mismo
     rs = Y.run_job("dos")
-    assert llamadas == ["una", "dos"] and not Y.STATE["active"]
+    assert calls == ["una", "dos"] and not Y.STATE["active"]
 
 
-def test_run_many_baja_todo_bajo_un_turno_y_publica_el_avance(monkeypatch):
+def test_run_many_uses_one_turn_and_publishes_progress(monkeypatch):
     """Tres temas del asistente: un solo turno, resultados acumulados y un
     indice/total del conjunto, no de cada busqueda por separado."""
-    vistos = []
+    seen = []
 
-    def falsa(q, progress=None, **kw):
+    def fake_download(q, progress=None, **kw):
         assert Y.STATE["active"], "durante la descarga el turno esta cogido"
         if progress:
             progress({"phase": "starting", "index": 1, "total": 1, "name": q, "percent": 0})
-            vistos.append((Y.STATE["index"], Y.STATE["total"]))
+            seen.append((Y.STATE["index"], Y.STATE["total"]))
         return [{"ok": q != "mala", "title": q, "reason": "" if q != "mala" else "no"}]
 
-    monkeypatch.setattr(Y, "download", falsa)
+    monkeypatch.setattr(Y, "download", fake_download)
     rs = Y.run_many(["a", "mala", "c"], results=1, source="assistant")
     assert [r["title"] for r in rs] == ["a", "mala", "c"]
-    assert vistos == [(1, 3), (2, 3), (3, 3)], vistos
+    assert seen == [(1, 3), (2, 3), (3, 3)], seen
     assert Y.STATE["results"] == rs
     assert not Y.STATE["active"] and Y.STATE["phase"] == "done"
 
 
-def test_run_many_sin_nada_suelta_el_turno():
+def test_run_many_with_nothing_releases_the_turn():
     assert Y.run_many([]) == []
     assert not Y.STATE["active"]
 
 
-def test_un_fallo_dentro_de_la_descarga_no_deja_el_turno_cogido(monkeypatch):
-    def rompe(q, **kw):
+def test_a_failed_download_does_not_leave_the_turn_held(monkeypatch):
+    def failing_download(q, **kw):
         raise RuntimeError("se cayo la red")
 
-    monkeypatch.setattr(Y, "download", rompe)
+    monkeypatch.setattr(Y, "download", failing_download)
     rs = Y.run_job("x")
     assert not rs[0]["ok"] and "red" in rs[0]["reason"]
     assert not Y.STATE["active"], "el turno tiene que soltarse aunque falle"
@@ -551,25 +551,25 @@ def test_un_fallo_dentro_de_la_descarga_no_deja_el_turno_cogido(monkeypatch):
 # nada. Se prueban variantes cada vez mas limpias.
 
 
-def test_las_consultas_de_caratula_van_de_precisa_a_suelta():
+def test_cover_queries_go_from_precise_to_loose():
     qs = EN._cover_queries("Adoracion La Ibi", "Santo Por Siempre (En Vivo) - r", "")
     assert qs[0] == "Adoracion La Ibi Santo Por Siempre (En Vivo)"
     assert "Adoracion La Ibi Santo Por Siempre" in qs  # sin el parentesis
     assert all(" - r" not in q for q in qs), "el sufijo de duplicado no debe ir"
 
 
-def test_sin_artista_se_busca_solo_por_titulo():
+def test_without_artist_it_searches_by_title_only():
     qs = EN._cover_queries("", "Eres Libre (Freedom) (cover Jesus Culture)", "")
     assert qs and all(not q.startswith(" ") for q in qs)
     assert "Eres Libre" in qs
 
 
-def test_el_album_manda_sobre_el_titulo():
+def test_the_album_takes_precedence_over_the_title():
     qs = EN._cover_queries("Barak", "Mi Gozo", "Generacion Radical")
     assert qs[0] == "Barak Generacion Radical"
 
 
-def test_un_titulo_vacio_no_genera_consultas_basura():
+def test_an_empty_title_makes_no_junk_queries():
     assert EN._cover_queries("", "", "") == []
 
 
@@ -580,7 +580,7 @@ def test_un_titulo_vacio_no_genera_consultas_basura():
 
 
 @pytest.mark.parametrize(
-    "campo,valor",
+    "field,value",
     [
         ("album", "desconocido"),
         ("album", "N/A"),
@@ -593,12 +593,12 @@ def test_un_titulo_vacio_no_genera_consultas_basura():
         ("genre", "   "),
     ],
 )
-def test_lo_que_la_ia_no_sabe_no_se_guarda(campo, valor):
-    assert EN._dato_util(campo, valor) == ""
+def test_what_the_ai_does_not_know_is_not_saved(field, value):
+    assert EN._useful_value(field, value) == ""
 
 
 @pytest.mark.parametrize(
-    "valor,esperado",
+    "value,expected",
     [
         ("2019", "2019"),
         ("circa 2019", "2019"),
@@ -608,20 +608,20 @@ def test_lo_que_la_ia_no_sabe_no_se_guarda(campo, valor):
         ("19", ""),
     ],
 )
-def test_el_año_son_cuatro_cifras_o_nada(valor, esperado):
-    assert EN._dato_util("year", valor) == esperado
+def test_the_year_is_four_digits_or_nothing(value, expected):
+    assert EN._useful_value("year", value) == expected
 
 
 @pytest.mark.parametrize(
-    "campo,valor",
+    "field,value",
     [
         ("album", "Generacion Radical"),
         ("genre", "Adoracion"),
         ("key", "Bb"),
     ],
 )
-def test_un_dato_de_verdad_si_se_guarda(campo, valor):
-    assert EN._dato_util(campo, valor) == valor
+def test_a_real_value_is_saved(field, value):
+    assert EN._useful_value(field, value) == value
 
 
 # ---------------------------------------------------------------------------
@@ -629,7 +629,7 @@ def test_un_dato_de_verdad_si_se_guarda(campo, valor):
 # grupos que comparar todo contra todo. Es lo unico que autoriza el atajo.
 
 
-def _grupos_a_lo_bruto(paths, umbral=0.88):
+def _brute_force_groups(paths, threshold=0.88):
     """Todos contra todos, sin atajos. La referencia."""
     import os
     from collections import defaultdict
@@ -639,31 +639,31 @@ def _grupos_a_lo_bruto(paths, umbral=0.88):
     from danplay import names
 
     mk = {r: names.match_key(os.path.basename(r)) for r in paths}
-    por_clave = defaultdict(list)
+    by_key = defaultdict(list)
     for r, k in mk.items():
         if k:
-            por_clave[k].append(r)
-    grupos = [g for g in por_clave.values() if len(g) > 1]
-    ya = {r for g in grupos for r in g}
-    resto = [r for r in paths if r not in ya and mk[r]]
-    usados = set()
-    for i, a in enumerate(resto):
-        if a in usados:
+            by_key[k].append(r)
+    groups = [g for g in by_key.values() if len(g) > 1]
+    already_there = {r for g in groups for r in g}
+    rest = [r for r in paths if r not in already_there and mk[r]]
+    used = set()
+    for i, a in enumerate(rest):
+        if a in used:
             continue
         g = [a]
-        for b in resto[i + 1 :]:
-            if b in usados:
+        for b in rest[i + 1 :]:
+            if b in used:
                 continue
-            if fuzz.token_set_ratio(mk[a], mk[b]) / 100.0 >= umbral:
+            if fuzz.token_set_ratio(mk[a], mk[b]) / 100.0 >= threshold:
                 g.append(b)
         if len(g) > 1:
-            grupos.append(g)
-            usados.update(g)
-    return grupos
+            groups.append(g)
+            used.update(g)
+    return groups
 
 
-def _normalizar(grupos):
-    return sorted(tuple(sorted(g)) for g in grupos)
+def _normalize(groups):
+    return sorted(tuple(sorted(g)) for g in groups)
 
 
 def test_the_shortcut_finds_exactly_the_same_duplicate_groups():
@@ -671,7 +671,7 @@ def test_the_shortcut_finds_exactly_the_same_duplicate_groups():
 
     from danplay import duplicates
 
-    casos = {
+    cases = {
         # plurales y erratas: NO comparten ninguna palabra, asi que caen por
         # la rama de comparacion simple. Son las que romperia un atajo ingenuo.
         "plurales": [
@@ -694,7 +694,7 @@ def test_the_shortcut_finds_exactly_the_same_duplicate_groups():
         "raros": ["/x/.mp3", "/x/a.mp3", "/x/el la de.mp3", "/x/AAA.mp3", "/x/aaa.mp3"],
     }
     random.seed(4)
-    palabras = [
+    words = [
         "barak",
         "gozo",
         "vivo",
@@ -708,15 +708,15 @@ def test_the_shortcut_finds_exactly_the_same_duplicate_groups():
         "paz",
         "luz",
     ]
-    casos["mezcla"] = [
-        f"/x/{random.choice(palabras).title()} - "  # noqa: S311
-        f"{' '.join(random.sample(palabras, 3))}.mp3"
+    cases["mezcla"] = [
+        f"/x/{random.choice(words).title()} - "  # noqa: S311
+        f"{' '.join(random.sample(words, 3))}.mp3"
         for _ in range(400)
     ]
-    for nombre, paths in casos.items():
-        esperado = _normalizar(_grupos_a_lo_bruto(paths))
-        obtenido = _normalizar(duplicates.same_song(paths))
-        assert obtenido == esperado, f"difieren en «{nombre}»"
+    for name, paths in cases.items():
+        expected = _normalize(_brute_force_groups(paths))
+        got = _normalize(duplicates.same_song(paths))
+        assert got == expected, f"difieren en «{name}»"
 
 
 def test_identical_files_are_grouped_byte_by_byte(tmp_path):
@@ -728,8 +728,8 @@ def test_identical_files_are_grouped_byte_by_byte(tmp_path):
     b.write_bytes(b"x" * 5000)
     c = tmp_path / "c.mp3"
     c.write_bytes(b"y" * 5000)
-    grupos = duplicates.identical([str(a), str(b), str(c)])
-    assert _normalizar(grupos) == [(str(a), str(b))]
+    groups = duplicates.identical([str(a), str(b), str(c)])
+    assert _normalize(groups) == [(str(a), str(b))]
 
 
 # ---------------------------------------------------------------------------
@@ -738,7 +738,7 @@ def test_identical_files_are_grouped_byte_by_byte(tmp_path):
 # «Acerca de» o el nombre de un paquete.
 
 
-def _raiz():
+def _repo_root():
     return pathlib.Path(__file__).resolve().parent.parent
 
 
@@ -748,25 +748,25 @@ def _versiones() -> dict:
     Los crates de Rust la heredan del workspace (`Cargo.toml` de la raiz), el
     paquete Python la lee de `danplay/__init__.py`, el del crate PyO3 la toma
     de Cargo (maturin) y la app de escritorio la de su crate (Tauri): ninguno
-    la repite, y `test_la_version_no_se_repite` vigila que siga asi.
+    la repite, y `test_the_version_is_not_repeated` vigila que siga asi.
     """
     import json
     import re
     import tomllib
 
-    raiz = _raiz()
-    fuentes = {}
+    root = _repo_root()
+    sources = {}
 
-    ini = (raiz / "danplay/__init__.py").read_text(encoding="utf-8")
-    fuentes["danplay/__init__.py"] = re.search(r'__version__ = "([^"]+)"', ini).group(1)
+    ini = (root / "danplay/__init__.py").read_text(encoding="utf-8")
+    sources["danplay/__init__.py"] = re.search(r'__version__ = "([^"]+)"', ini).group(1)
 
-    cargo = tomllib.loads((raiz / "Cargo.toml").read_text(encoding="utf-8"))
-    fuentes["Cargo.toml"] = cargo["workspace"]["package"]["version"]
+    cargo = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
+    sources["Cargo.toml"] = cargo["workspace"]["package"]["version"]
 
-    paquete = json.loads((raiz / "desktop/package.json").read_text(encoding="utf-8"))
-    fuentes["desktop/package.json"] = paquete["version"]
+    package = json.loads((root / "desktop/package.json").read_text(encoding="utf-8"))
+    sources["desktop/package.json"] = package["version"]
 
-    return fuentes
+    return sources
 
 
 def test_all_the_pieces_carry_the_same_version():
@@ -776,53 +776,55 @@ def test_all_the_pieces_carry_the_same_version():
     )
 
 
-def test_la_version_no_se_repite():
+def test_the_version_is_not_repeated():
     """Los que antes llevaban su propia copia la heredan ahora: subirla en un
     sitio y olvidarla en otro dejaba el .deb, el instalador y el «Acerca de»
     con versiones distintas."""
     import json
     import tomllib
 
-    raiz = _raiz()
+    root = _repo_root()
     for crate in ("core/Cargo.toml", "desktop/src-tauri/Cargo.toml"):
-        paquete = tomllib.loads((raiz / crate).read_text(encoding="utf-8"))["package"]
-        assert paquete["version"] == {"workspace": True}, f"{crate} repite la version"
-    nucleo = tomllib.loads((raiz / "core/pyproject.toml").read_text(encoding="utf-8"))
-    assert "version" in nucleo["project"]["dynamic"], "core/pyproject.toml repite la version"
-    tauri = json.loads((raiz / "desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+        package = tomllib.loads((root / crate).read_text(encoding="utf-8"))["package"]
+        assert package["version"] == {"workspace": True}, f"{crate} repite la version"
+    core = tomllib.loads((root / "core/pyproject.toml").read_text(encoding="utf-8"))
+    assert "version" in core["project"]["dynamic"], "core/pyproject.toml repite la version"
+    tauri = json.loads((root / "desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
     assert "version" not in tauri, "tauri.conf.json repite la version: Tauri la toma de Cargo"
     # La del celular la necesita para el APK (sin ella salia «1.0», código 1),
     # pero apunta a la de la interfaz, que sube el script: nunca un número
-    movil = json.loads((raiz / "movil/tauri.conf.json").read_text(encoding="utf-8"))
-    assert movil["version"] == "../desktop/package.json", "movil/tauri.conf.json repite la version"
-    for crate in ("motor/Cargo.toml", "movil/Cargo.toml"):
-        paquete = tomllib.loads((raiz / crate).read_text(encoding="utf-8"))["package"]
-        assert paquete["version"] == {"workspace": True}, f"{crate} repite la version"
+    mobile = json.loads((root / "mobile/tauri.conf.json").read_text(encoding="utf-8"))
+    assert mobile["version"] == "../desktop/package.json", (
+        "mobile/tauri.conf.json repite la version"
+    )
+    for crate in ("engine/Cargo.toml", "mobile/Cargo.toml"):
+        package = tomllib.loads((root / crate).read_text(encoding="utf-8"))["package"]
+        assert package["version"] == {"workspace": True}, f"{crate} repite la version"
 
 
-def test_el_script_de_version_toca_todos_los_sitios_que_mira_esta_prueba():
+def test_the_version_script_touches_every_place_this_test_checks():
     """Regla de la casa: cada cambio sube la version, y se sube con el script.
 
     Si alguien añade un sitio nuevo donde vive la version a `_versiones()` y
     se olvida del script (o al reves), subir la version volveria a dejar
     piezas atras. Los dos tienen que hablar de los mismos archivos.
     """
-    script = (_raiz() / "scripts/subir-version.sh").read_text(encoding="utf-8")
+    script = (_repo_root() / "scripts/bump-version.sh").read_text(encoding="utf-8")
     for path in _versiones():
-        assert path in script, f"scripts/subir-version.sh no toca {path}"
+        assert path in script, f"scripts/bump-version.sh no toca {path}"
     for extra in ("README.md", "Cargo.lock", "package-lock.json"):
-        assert extra in script, f"scripts/subir-version.sh no toca {extra}"
+        assert extra in script, f"scripts/bump-version.sh no toca {extra}"
     # y la regla esta escrita donde la lee quien contribuye
-    guia = (_raiz() / "docs/CONTRIBUIR.md").read_text(encoding="utf-8")
-    assert "Cada cambio que se entrega sube la versión" in guia
-    assert "subir-version.sh" in guia
+    cue_error = (_repo_root() / "docs/CONTRIBUTING.md").read_text(encoding="utf-8")
+    assert "Cada cambio que se entrega sube la versión" in cue_error
+    assert "bump-version.sh" in cue_error
 
 
-def test_el_paquete_python_lee_la_version_de_un_solo_sitio():
+def test_the_python_package_reads_the_version_from_one_place():
     """pyproject.toml no repite la version: la saca de danplay/__init__.py."""
     import tomllib
 
-    data = tomllib.loads((_raiz() / "pyproject.toml").read_text(encoding="utf-8"))
+    data = tomllib.loads((_repo_root() / "pyproject.toml").read_text(encoding="utf-8"))
     assert "version" not in data["project"] and "version" in data["project"]["dynamic"]
     assert data["tool"]["setuptools"]["dynamic"]["version"] == {"attr": "danplay.__version__"}
 
@@ -841,21 +843,21 @@ def test_the_api_does_not_repeat_the_version():
 def test_the_version_looks_like_a_version():
     import re
 
-    for archivo, v in _versiones().items():
-        assert re.fullmatch(r"\d+\.\d+\.\d+", v), f"{archivo} tiene «{v}»"
+    for file, v in _versiones().items():
+        assert re.fullmatch(r"\d+\.\d+\.\d+", v), f"{file} tiene «{v}»"
 
 
 def test_nothing_hardcodes_the_version_in_a_file_name():
     """Los scripts buscan los paquetes por extension, no por nombre.
 
-    Con la version dentro del nombre, subirla dejaba a `que-version.sh`
+    Con la version dentro del nombre, subirla dejaba a `which-version.sh`
     mirando un archivo que ya no existe: el aviso de «este paquete es viejo»
     desaparecia justo cuando mas falta hace.
     """
     from danplay import __version__
 
-    for script in ("scripts/build.sh", "scripts/que-version.sh"):
-        txt = (_raiz() / script).read_text(encoding="utf-8")
+    for script in ("scripts/build.sh", "scripts/which-version.sh"):
+        txt = (_repo_root() / script).read_text(encoding="utf-8")
         assert __version__ not in txt, f"{script} lleva la version escrita a mano"
 
 
@@ -870,7 +872,7 @@ def test_nothing_hardcodes_the_version_in_a_file_name():
 def _associations() -> list:
     import json
 
-    conf = json.loads((_raiz() / "desktop/src-tauri/tauri.conf.json").read_text("utf-8"))
+    conf = json.loads((_repo_root() / "desktop/src-tauri/tauri.conf.json").read_text("utf-8"))
     return conf["bundle"]["fileAssociations"]
 
 
@@ -900,14 +902,14 @@ def test_rust_knows_the_same_types():
     """La copia de Rust (`associate.rs`) tiene que decir lo mismo."""
     import re
 
-    src = (_raiz() / "desktop/src-tauri/src/associate.rs").read_text("utf-8")
-    bloque = re.search(r"MIME_TYPES: &\[&str\] = &\[(.*?)\];", src, re.S).group(1)
-    tipos = set(re.findall(r'"([^"]+)"', bloque))
-    assert tipos == {a["mimeType"] for a in _associations()}
+    src = (_repo_root() / "desktop/src-tauri/src/associate.rs").read_text("utf-8")
+    block = re.search(r"MIME_TYPES: &\[&str\] = &\[(.*?)\];", src, re.S).group(1)
+    mime_types = set(re.findall(r'"([^"]+)"', block))
+    assert mime_types == {a["mimeType"] for a in _associations()}
 
-    src = (_raiz() / "desktop/src-tauri/src/open.rs").read_text("utf-8")
-    bloque = re.search(r"EXTENSIONS: &\[&str\] = &\[(.*?)\];", src, re.S).group(1)
-    exts = {f".{e}" for e in re.findall(r'"([^"]+)"', bloque)}
+    src = (_repo_root() / "desktop/src-tauri/src/open.rs").read_text("utf-8")
+    block = re.search(r"EXTENSIONS: &\[&str\] = &\[(.*?)\];", src, re.S).group(1)
+    exts = {f".{e}" for e in re.findall(r'"([^"]+)"', block)}
     assert exts == {f".{a['ext'][0]}" for a in _associations()}
 
 
@@ -917,10 +919,10 @@ def test_the_desktop_entry_passes_the_file_to_the_app():
     Es la plantilla de Tauri con ese cambio, y al actualizar Tauri es justo lo
     que se pierde sin que falle nada.
     """
-    plantilla = (_raiz() / "packaging/danplay.desktop").read_text("utf-8")
-    exec_line = [l for l in plantilla.splitlines() if l.startswith("Exec=")]
+    template = (_repo_root() / "packaging/danplay.desktop").read_text("utf-8")
+    exec_line = [l for l in template.splitlines() if l.startswith("Exec=")]
     assert exec_line == ["Exec={{exec}} %F"], f"la linea Exec es {exec_line}"
-    assert "MimeType={{mime_type}}" in plantilla
+    assert "MimeType={{mime_type}}" in template
 
 
 # ------------------------------------------------------------------ Windows
@@ -937,11 +939,11 @@ def test_external_tools_are_looked_up_next_to_the_executable(tmp_path, monkeypat
     """
     from danplay import config
 
-    herramienta = tmp_path / "ffmpeg"
-    herramienta.write_text("#!/bin/sh\n")
-    herramienta.chmod(0o755)
+    tool = tmp_path / "ffmpeg"
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
     monkeypatch.setattr(config, "TOOLS_DIR", str(tmp_path))
-    assert config.find_tool("ffmpeg") == str(herramienta)
+    assert config.find_tool("ffmpeg") == str(tool)
     # lo que no esta ahi se sigue buscando en el PATH
     assert config.find_tool("no-existe-este-programa") is None
 
@@ -959,10 +961,10 @@ def test_on_windows_the_exe_suffix_is_tried(tmp_path, monkeypatch):
 def test_reserved_windows_names_get_out_of_the_way():
     """`CON`, `PRN`, `NUL`... no se pueden usar como nombre de archivo en
     Windows. Hay artistas que se llaman asi («Con Poder»)."""
-    for reservado in ("CON", "con", "PRN", "AUX", "NUL", "COM1", "LPT9"):
-        limpio = N.sanitize(reservado)
-        assert limpio.upper() not in {"CON", "PRN", "AUX", "NUL", "COM1", "LPT9"}, limpio
-        assert limpio, "no puede quedarse vacio"
+    for reserved in ("CON", "con", "PRN", "AUX", "NUL", "COM1", "LPT9"):
+        cleaned = N.sanitize(reserved)
+        assert cleaned.upper() not in {"CON", "PRN", "AUX", "NUL", "COM1", "LPT9"}, cleaned
+        assert cleaned, "no puede quedarse vacio"
     # y con extension tambien
     assert N.sanitize("NUL.mp3").upper() != "NUL.MP3"
     # los nombres normales no se tocan
@@ -972,9 +974,9 @@ def test_reserved_windows_names_get_out_of_the_way():
 def test_names_do_not_end_in_a_dot_or_a_space():
     """Windows los quita al crear el archivo, y luego la ruta guardada en el
     indice ya no coincide con la de verdad."""
-    for entrada in ("Cancion.", "Cancion ", "Cancion. ", "Cancion..."):
-        limpio = N.sanitize(entrada)
-        assert not limpio.endswith((".", " ")), repr(limpio)
+    for input in ("Cancion.", "Cancion ", "Cancion. ", "Cancion..."):
+        cleaned = N.sanitize(input)
+        assert not cleaned.endswith((".", " ")), repr(cleaned)
 
 
 def test_being_inside_the_library_is_decided_by_components():
@@ -992,7 +994,7 @@ def test_being_inside_the_library_is_decided_by_components():
 
 # ------------------------------------------------- narrar no es hacer: el corpus
 # El asistente decia «Descargando…», «Añadida a la lista», «Ya la cree» sin
-# llamar a nada. `claims_action` es la primera red; tests/narracion.json es el
+# llamar a nada. `claims_action` es la primera red; tests/narration.json es el
 # corpus con el que se afino: 179 frases que afirman una accion y 134 que no
 # (datos musicales, preguntas, condicionales, letras citadas, muletillas).
 # Lo que se tolera —frases sobre el estado de la biblioteca que sin
@@ -1006,11 +1008,11 @@ def _corpus():
     import pathlib
 
     return json.loads(
-        (pathlib.Path(__file__).parent / "narracion.json").read_text(encoding="utf-8")
+        (pathlib.Path(__file__).parent / "narration.json").read_text(encoding="utf-8")
     )
 
 
-def test_el_detector_reconoce_todo_el_corpus_de_narraciones():
+def test_the_detector_recognizes_the_whole_narration_corpus():
     from danplay import chat
 
     d = _corpus()
@@ -1020,7 +1022,7 @@ def test_el_detector_reconoce_todo_el_corpus_de_narraciones():
     assert len(tolerated) <= 2, "que no crezca lo que se deja pasar"
 
 
-def test_el_detector_no_salta_con_lo_informativo():
+def test_the_detector_does_not_fire_on_informative_text():
     from danplay import chat
 
     d = _corpus()
@@ -1030,7 +1032,7 @@ def test_el_detector_no_salta_con_lo_informativo():
     assert len(tolerated) <= 15, "que no crezca lo que salta de mas"
 
 
-def test_lo_tolerado_sigue_siendo_lo_que_se_penso():
+def test_the_tolerated_cases_are_still_the_intended_ones():
     """Si una rama nueva arregla un caso tolerado, hay que quitarlo de la lista
     para que la prueba lo proteja de verdad."""
     from danplay import chat
@@ -1072,27 +1074,27 @@ def test_lo_tolerado_sigue_siendo_lo_que_se_penso():
         ("", None),
     ],
 )
-def test_el_tipo_de_video_sale_de_palabras_inequivocas(title, category):
+def test_the_video_kind_comes_from_unambiguous_words(title, category):
     kind = N.video_kind(title)
     assert (kind or {}).get("category") == category
     if kind:
         assert kind["what"]
 
 
-def test_la_drum_cam_es_de_quien_la_toca_no_del_artista_original():
+def test_a_drum_cam_is_by_the_drummer_not_the_original_artist():
     r = N.from_video("QUE SE ABRÁ EL CIELO - ISH MELTON DRUM CAM", "Ish Melton", {})
     assert (r["artist"], r["title"]) == ("Ish Melton", "Que Se Abra El Cielo (Drum Cam)")
     assert r["source"] == "youtube"
 
 
-def test_un_artista_que_ya_tienes_manda_en_cualquier_orden():
+def test_an_artist_you_already_have_wins_in_any_order():
     vocab = {"barak": "Barak"}
     assert N.from_video("Barak - Mi Gozo (Video Oficial)", "BarakVEVO", vocab)["title"] == "Mi Gozo"
     r = N.from_video("Mi Gozo - Barak | Letra", "Musica Cristiana HD", vocab)
     assert (r["artist"], r["title"]) == ("Barak", "Mi Gozo")
 
 
-def test_el_canal_dentro_del_titulo_es_el_artista():
+def test_the_channel_inside_the_title_is_the_artist():
     r = N.from_video("I Want Jesus (Live) - @JohnWilds , Bethel Music", "Bethel Music", {})
     assert (r["artist"], r["title"]) == ("Bethel Music", "I Want Jesus (Live)")
     r = N.from_video(
@@ -1102,14 +1104,14 @@ def test_el_canal_dentro_del_titulo_es_el_artista():
     assert r["title"] == "Ruja O Leao + Que Se Abram Os Ceus (Ao Vivo)"
 
 
-def test_artista_guion_titulo_es_el_orden_habitual():
+def test_artist_dash_title_is_the_usual_order():
     r = N.from_video("Oceans (Where Feet May Fail) - Hillsong UNITED", "Hillsong UNITED", {})
     assert (r["artist"], r["title"]) == ("Hillsong United", "Oceans (Where Feet May Fail)")
     r = N.from_video("Un Corazon - Babel (Letra)", "Otro Canal", {})
     assert (r["artist"], r["title"]) == ("Un Corazon", "Babel")
 
 
-def test_sin_guion_el_canal_hace_de_artista_y_youtube_music_manda():
+def test_no_dash_channel_is_artist_and_youtube_music_wins():
     r = N.from_video("Santo Por Siempre (En Vivo)", "Adoracion La Ibi", {})
     assert (r["artist"], r["title"]) == ("Adoracion La Ibi", "Santo Por Siempre (En Vivo)")
     r = N.from_video(
@@ -1120,9 +1122,7 @@ def test_sin_guion_el_canal_hace_de_artista_y_youtube_music_manda():
     assert N.channel_as_artist("Ish Melton - Topic") == "Ish Melton"
 
 
-def test_process_con_nombre_conocido_no_pasa_por_la_cascada(
-    configured_library, monkeypatch, tmp_path
-):
+def test_process_with_a_known_name_skips_the_cascade(configured_library, monkeypatch, tmp_path):
     """Con `known`, ingest archiva con ese nombre y no llama a la huella ni a la IA."""
     from conftest import make_mp3
 
@@ -1156,22 +1156,22 @@ def test_process_con_nombre_conocido_no_pasa_por_la_cascada(
 # nueva ya no traia.
 
 
-def test_el_instalador_de_windows_actualiza_en_vez_de_duplicar():
-    nsi = (_raiz() / "packaging/windows/installer.nsi").read_text("utf-8")
+def test_the_windows_installer_upgrades_instead_of_duplicating():
+    nsi = (_repo_root() / "packaging/windows/installer.nsi").read_text("utf-8")
     # va siempre a la carpeta de la instalacion anterior y a la misma ficha
     assert 'InstallDirRegKey HKCU "${CLAVE}" "InstallDir"' in nsi
     assert nsi.count('"${DESINSTALAR}"') >= 8, "una sola entrada en Aplicaciones instaladas"
     # limpia lo suyo antes de copiar, pieza a pieza, nunca la carpeta a ciegas
     assert "Call LimpiarInstalacionAnterior" in nsi
-    limpiar = nsi[
+    cleanup = nsi[
         nsi.index("Function LimpiarInstalacionAnterior") : nsi.index(
             "FunctionEnd", nsi.index("Function LimpiarInstalacionAnterior")
         )
     ]
     for piece in ("python", "tools", "${EJECUTABLE}", "danplay-core.exe", "WebView2Loader.dll"):
-        assert piece in limpiar, f"la limpieza no quita {piece}"
-    assert 'RMDir /r "$INSTDIR"' not in limpiar, "al actualizar no se borra la carpeta entera"
-    assert '${IfNot} ${FileExists} "$INSTDIR\\${EJECUTABLE}"' in limpiar, (
+        assert piece in cleanup, f"la limpieza no quita {piece}"
+    assert 'RMDir /r "$INSTDIR"' not in cleanup, "al actualizar no se borra la carpeta entera"
+    assert '${IfNot} ${FileExists} "$INSTDIR\\${EJECUTABLE}"' in cleanup, (
         "solo si ahi hay un DanPlay"
     )
     # y la limpieza cubre todo lo que produce la version portatil
@@ -1185,10 +1185,10 @@ def test_el_instalador_de_windows_actualiza_en_vez_de_duplicar():
     }
     for item in portable:
         name = "${EJECUTABLE}" if item == "danplay-app.exe" else item
-        assert name in limpiar, f"{item} se quedaria huerfano al actualizar"
+        assert name in cleanup, f"{item} se quedaria huerfano al actualizar"
 
 
-def test_el_nucleo_empaquetado_arranca_sin_consola(monkeypatch):
+def test_the_packaged_core_starts_without_a_console(monkeypatch):
     """En Windows el nucleo empaquetado va sin consola y Python deja
     `sys.stdout` en None: uvicorn pregunta `isatty()` al configurar sus avisos
     y el nucleo se caia antes de escuchar. El instalador nunca llego a
@@ -1198,7 +1198,7 @@ def test_el_nucleo_empaquetado_arranca_sin_consola(monkeypatch):
     from uvicorn.logging import DefaultFormatter
 
     spec = importlib.util.spec_from_file_location(
-        "core_entry", _raiz() / "packaging" / "core_entry.py"
+        "core_entry", _repo_root() / "packaging" / "core_entry.py"
     )
     assert spec and spec.loader
     entry = importlib.util.module_from_spec(spec)

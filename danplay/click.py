@@ -1,8 +1,8 @@
 """El clic del metronomo, para la mezcla que se guarda con clic.
 
 Es el mismo que suena en el modo estudio: la tabla de sonidos y la cuenta
-por muestra son las de `motor/src/click.rs`, y esto las usa a traves del
-crate (analisis/src/clic.rs). Antes estaban copiadas aqui, con numpy, y si se
+por muestra son las de `engine/src/click.rs`, y esto las usa a traves del
+crate (analysis/src/click.rs). Antes estaban copiadas aqui, con numpy, y si se
 cambiaba una habia que cambiar la otra.
 """
 

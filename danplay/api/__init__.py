@@ -22,7 +22,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-from .. import __version__, diario, logs, model_catalog, reuse, watcher, youtube
+from .. import __version__, journal, logs, model_catalog, reuse, watcher, youtube
 from .. import ai as ai_core
 from .common import AUDIO_TYPES, audio_type
 from .routes import (
@@ -64,11 +64,13 @@ async def lifespan(_app: FastAPI):
     if watcher.start() is None:
         # sin vigilante, el diario se compara igual al arrancar
         threading.Thread(
-            target=lambda: diario.after_scan(None, first=True), name="danplay-diario-0", daemon=True
+            target=lambda: journal.after_scan(None, first=True),
+            name="danplay-diario-0",
+            daemon=True,
         ).start()
     # el diario: lo tuyo, escrito junto a tu musica unos segundos despues de
     # cada cambio
-    diario.start()
+    journal.start()
     model_catalog.refresh_in_background()
     ai_core.warm_in_background()
     # una vez: lo hecho para otro archivo de cada cancion (pistas, clic,
@@ -79,12 +81,12 @@ async def lifespan(_app: FastAPI):
     finally:
         youtube.cancel()
         watcher.stop()
-        diario.stop()
+        journal.stop()
 
 
 # Sin /docs, /redoc ni /openapi.json: quedaban fuera de la comprobacion del
 # token y contaban a cualquiera que pregunte que sabe hacer la API. El
-# contrato esta escrito en docs/CONTRATO-INTERNO.md.
+# contrato esta escrito en docs/INTERNAL-CONTRACT.md.
 app = FastAPI(
     title="DanPlay",
     version=__version__,
@@ -199,8 +201,8 @@ async def _guard(request: Request, call_next):
 
     length = request.headers.get("content-length")
     if length and length.isdigit():
-        tope = MAX_CHAT_BODY if path.startswith("/api/chat") else MAX_BODY
-        if int(length) > tope:
+        cap = MAX_CHAT_BODY if path.startswith("/api/chat") else MAX_BODY
+        if int(length) > cap:
             return Response(status_code=413, content=b"eso es demasiado grande")
     return await call_next(request)
 

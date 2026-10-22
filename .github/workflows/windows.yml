@@ -3,7 +3,7 @@
 # Por que aqui y no en el equipo de nadie: PyInstaller **no compila para otro
 # sistema**. El nucleo Python tiene que empaquetarse en Windows, y punto. Desde
 # Linux se puede comprobar que el codigo de Rust compila para Windows (lo hace
-# `pruebas.yml`), pero el ejecutable completo sale de aqui.
+# `tests.yml`), pero el ejecutable completo sale de aqui.
 #
 # Deja el instalador (.exe de NSIS) y el portatil (.zip) como artefactos
 # descargables, y si el push lleva una etiqueta de version
@@ -70,7 +70,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # con hashes (salen de uv.lock): pip comprueba cada paquete. Sin
-          # los de las pruebas: esas ya corren en pruebas.yml
+          # los de las pruebas: esas ya corren en tests.yml
           pip install -r requirements.txt
           # PyInstaller aparte (en una orden con hashes no se puede mezclar uno
           # sin ellos), con la misma version que en desarrollo
@@ -105,7 +105,7 @@ jobs:
           Get-ChildItem $tools
 
       # Las pruebas del nucleo en Windows (sin el crate de Rust, como viaja en
-      # el instalador) no van aqui: ya las pasa pruebas.yml en cada push, y
+      # el instalador) no van aqui: ya las pasa tests.yml en cada push, y
       # delante del instalador lo retrasaban siete minutos. Lo que si se
       # comprueba aqui es el nucleo ya empaquetado (abajo).
 

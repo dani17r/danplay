@@ -10,8 +10,8 @@ Los datos de cada proveedor que el usuario haya configurado se recuerdan
 TODOS (no solo el activo), en `~/.config/danplay/ai.json` con permisos 0600:
 cambiar de Ollama a OpenRouter y volver no obliga a pegar la clave otra vez.
 
-Lo hace Rust (biblioteca/src/ia/proveedores.rs, con el catalogo en
-proveedores/lista.rs); esto es la puerta de Python, con los mismos nombres.
+Lo hace Rust (library/src/ai/providers.rs, con el catalogo en
+providers/list.rs); esto es la puerta de Python, con los mismos nombres.
 Lo guardado se lee una vez por ruta (`PROFILES_FILE`, que las pruebas
 cambian) y se recuerda hasta `reload`.
 """
@@ -24,7 +24,7 @@ from . import config
 
 PROFILES_FILE = config.CONFIG_DIR / "ai.json"
 
-# Los grupos, el catalogo y el orden de los gratuitos (en Rust: lista.rs)
+# Los grupos, el catalogo y el orden de los gratuitos (en Rust: list.rs)
 GROUPS: list[dict] = _rust.providers_groups()
 CATALOG: list[dict] = _rust.providers_catalog()
 BY_ID = {p["id"]: p for p in CATALOG}

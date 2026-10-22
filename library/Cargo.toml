@@ -1,0 +1,56 @@
+[package]
+name = "danplay-library"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "library"
+
+[dependencies]
+# Las carpetas del sistema en Windows (AppData\Local, Música), como platformdirs
+dirs = "7.0.0"
+fancy-regex = "0.19.2"
+# El proyecto de Ableton de una secuencia (.als) es XML en gzip
+flate2 = "1.1.10"
+# Leer y escribir las etiquetas (ID3, Vorbis, MP4): MIT o Apache-2.0. Es lo
+# que sustituye a mutagen, que es GPL.
+lofty = "0.25"
+# Los hashes de los archivos (duplicados idénticos)
+md-5 = "0.11.0"
+# ...y su XML
+quick-xml = "0.42.0"
+# Leer las etiquetas del escaneo por tandas, en todos los núcleos
+rayon = "1.12.0"
+regex = "1.13.1"
+# El índice (SQLite, con FTS5): la copia de SQLite va dentro, la misma en
+# todos los sistemas.
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+# Las filas y los diccionarios que van y vienen (en el orden de sus columnas,
+# y con los decimales exactos: una fecha que vuelve de un JSON tiene que ser
+# el mismo número, o el escaneo y la caché de la onda creerían que el archivo
+# cambió)
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+sha1 = "0.11.0"
+# La huella de una clave de IA (para recordar qué modelos funcionan con ella
+# sin guardarla)
+sha2 = "0.10.9"
+# Decodificar el audio para la forma de onda, sin ffmpeg (los formatos de
+# siempre; opus y wma van por ffmpeg).
+symphonia = { version = "0.6", features = ["mp3", "wav", "flac", "isomp4", "aac", "ogg", "vorbis"] }
+tempfile = "3.27.0"
+# `str.isidentifier()` de Python (py.rs)
+unicode-ident = "1"
+unicode-normalization = "0.1.26"
+unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
+# Pedir páginas (cifrados, la búsqueda en la web, la huella) cuando el núcleo
+# entero esté en Rust: síncrono y con rustls, sin OpenSSL ni un runtime async.
+ureq = "3.4.2"
+# El paquete .danpista del celular es un zip (los mismos rasgos que el del
+# motor y el del análisis, para no compilar otro)
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[lints]
+workspace = true

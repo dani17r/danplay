@@ -2,7 +2,7 @@
 
 Deterministico a proposito: transponer es matematica, no se le pregunta a una IA.
 
-Lo hace el crate de Rust (biblioteca/src/teoria.rs, con la misma expresion
+Lo hace el crate de Rust (library/src/theory.rs, con la misma expresion
 para reconocer un acorde); esto es la puerta de Python, con los mismos nombres.
 """
 
@@ -57,10 +57,10 @@ def distance(from_key, to_key):
     return _rust.theory_distance(_txt(from_key or ""), _txt(to_key or ""))
 
 
-def transpose_to(text, tono_actual, to_key):
-    if distance(tono_actual, to_key) is None:
+def transpose_to(text, current_key, to_key):
+    if distance(current_key, to_key) is None:
         return text
-    return _rust.theory_transpose_to(_txt(text), _txt(tono_actual or ""), _txt(to_key or ""))
+    return _rust.theory_transpose_to(_txt(text), _txt(current_key or ""), _txt(to_key or ""))
 
 
 def to_latin(text):
@@ -72,11 +72,11 @@ def available_keys():
     return _rust.theory_available_keys()
 
 
-def suggested_capo(tono_actual, easy_shapes=EASY_SHAPES):
+def suggested_capo(current_key, easy_shapes=EASY_SHAPES):
     """Devuelve [(traste, forma)] para tocar un tono dificil con acordes abiertos."""
-    if tono_actual not in INDEX_SQL:
+    if current_key not in INDEX_SQL:
         return []
-    return _rust.theory_suggested_capo(tono_actual, [_txt(s) for s in easy_shapes])
+    return _rust.theory_suggested_capo(current_key, [_txt(s) for s in easy_shapes])
 
 
 def _split_key(key):

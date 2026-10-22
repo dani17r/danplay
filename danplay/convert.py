@@ -4,7 +4,7 @@ Es opcional y desactivable: en la app sera una casilla.
 Las carpetas de trabajo (Secuencias, Pistas) quedan siempre fuera:
 ahi los .wav son material de produccion y comprimirlos seria perder calidad.
 
-Lo hace el crate de Rust (biblioteca/src/convertir.rs): la conversion, las
+Lo hace el crate de Rust (library/src/convert.rs): la conversion, las
 medidas de una imagen y encoger caratulas. Aqui queda la puerta de Python,
 con los mismos nombres, y lo que depende de `config` (donde esta ffmpeg, que
 carpetas no se tocan) o de la biblioteca (los candidatos).

@@ -1,4 +1,4 @@
-"""La configuracion que leera el nucleo en Rust (biblioteca/src/config.rs)
+"""La configuracion que leera el nucleo en Rust (library/src/config.rs)
 contra la de Python (danplay/config.py): las mismas carpetas y los mismos
 valores, y el archivo de ajustes leido igual que lo lee python-dotenv."""
 
@@ -84,7 +84,7 @@ def _rust_config(env: dict) -> dict:
     return json.loads(r.stdout)
 
 
-def test_la_configuracion_de_rust_es_la_de_python(tmp_path):
+def test_rust_config_matches_the_python_config(tmp_path):
     """En el entorno de las pruebas, y con ajustes en el archivo (con
     comillas, comentarios, nombres viejos y ${VARIABLES})."""
     base = dict(os.environ)
@@ -147,7 +147,7 @@ LINE = st.sampled_from(
 @settings(max_examples=800)
 @given(st.lists(LINE, max_size=8), st.sampled_from(["\n", "\r\n", "\r"]))
 @example(["A=1", "L=${A}-${NADA:-def}-${:-x}-${M:N}"], "\n")
-def test_el_archivo_de_ajustes_se_lee_como_python_dotenv(lines, newline):
+def test_settings_file_is_read_like_python_dotenv(lines, newline):
     text = newline.join(lines)
     env = {"HOME": "/home/x", "A": "del entorno"}
     old = os.environ.copy()
@@ -164,7 +164,7 @@ def test_el_archivo_de_ajustes_se_lee_como_python_dotenv(lines, newline):
 @given(st.text(max_size=20))
 @example("/home/ana/Musica #2")
 @example(" lados ")
-def test_lo_que_se_guarda_se_escribe_como_python_y_se_relee_igual(value):
+def test_saved_values_are_written_like_python_and_read_back(value):
     written = config.dotenv_value(value)
     assert R._compat("dotenv_value", [value]) == written
     if "\n" not in value and "\r" not in value:

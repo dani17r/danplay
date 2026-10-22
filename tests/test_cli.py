@@ -26,7 +26,7 @@ def run(capsys, *argv) -> str:
     return capsys.readouterr().out
 
 
-def test_estado_escanear_y_buscar(lib, capsys):
+def test_status_scan_and_search(lib, capsys):
     out = run(capsys, "status")
     assert "Biblioteca" in out and "3 canciones" in out
     out = run(capsys, "scan")
@@ -48,25 +48,25 @@ def test_estado_escanear_y_buscar(lib, capsys):
         ("playlist", "export"),
     ],
 )
-def test_sin_el_dato_que_hace_falta_se_dice_y_ya(lib, capsys, argv):
+def test_a_missing_required_value_is_reported_and_exits(lib, capsys, argv):
     with pytest.raises(SystemExit) as e:
         cli.main(list(argv))
     assert "falta" in str(e.value)
 
 
-def test_carpetas_y_exclusiones(lib, capsys, tmp_path):
-    otra = tmp_path / "otra"
-    otra.mkdir()
-    assert "agregada" in run(capsys, "folder", "add", str(otra), "--label", "Otra")
+def test_folders_and_exclusions(lib, capsys, tmp_path):
+    other = tmp_path / "otra"
+    other.mkdir()
+    assert "agregada" in run(capsys, "folder", "add", str(other), "--label", "Otra")
     assert "Otra" in run(capsys, "folder")
     assert "no existe" in run(capsys, "folder", "add", str(tmp_path / "no-esta"))
-    assert "quitada" in run(capsys, "folder", "remove", str(otra))
+    assert "quitada" in run(capsys, "folder", "remove", str(other))
     assert "excluido" in run(capsys, "exclude", "add", "Secuencias", "--note", "pistas")
     assert "Secuencias" in run(capsys, "exclude")
     assert "quitada" in run(capsys, "exclude", "remove", "Secuencias")
 
 
-def test_listas_por_id_o_por_nombre(lib, capsys):
+def test_playlists_by_id_or_by_name(lib, capsys):
     from danplay import library, playlists
 
     assert "creada" in run(capsys, "playlist", "create", "Domingo")
@@ -84,20 +84,20 @@ def test_listas_por_id_o_por_nombre(lib, capsys):
     assert playlists.by_name("Domingo") is None
 
 
-def test_duplicados_con_una_carpeta_fuera_de_la_biblioteca(lib, capsys, tmp_path):
+def test_duplicates_with_a_folder_outside_the_library(lib, capsys, tmp_path):
     """`relative_to(LIBRARY)` reventaba con cualquier carpeta de otro sitio."""
     from danplay import library
 
-    fuera = tmp_path / "disco-externo"
-    shutil.copytree(lib[0] / "Artistas", fuera)
-    library.add_folder(fuera)
+    external = tmp_path / "disco-externo"
+    shutil.copytree(lib[0] / "Artistas", external)
+    library.add_folder(external)
     library.scan()
     out = run(capsys, "duplicates")
-    assert "IDENTICOS" in out and str(fuera) in out
+    assert "IDENTICOS" in out and str(external) in out
     assert "Nada se ha borrado" in out
 
 
-def test_importar_convertir_y_organizar_sin_tocar_nada(lib, capsys):
+def test_import_convert_and_organize_without_touching_anything(lib, capsys):
     from danplay import config
 
     root, _ = lib
@@ -114,7 +114,7 @@ def test_importar_convertir_y_organizar_sin_tocar_nada(lib, capsys):
     assert "No existe" in run(capsys, "organize", "no-hay-tal")
 
 
-def test_youtube_sin_red_lo_cuenta(lib, capsys, monkeypatch):
+def test_youtube_without_network_says_so(lib, capsys, monkeypatch):
     from danplay import youtube
 
     monkeypatch.setattr(youtube, "available", lambda: True)

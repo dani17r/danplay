@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# La app del celular para Android (movil/), lista para mandar a la banda.
+# La app del celular para Android (mobile/), lista para mandar a la banda.
 #
 #   ./scripts/build-android.sh            el APK firmado para teléfonos
 #                                         (arm64 y armv7: casi todos)
@@ -13,7 +13,7 @@
 # el SDK con su plataforma y build-tools, el NDK y un JDK 17; y en Rust los
 # destinos de Android (`rustup target add aarch64-linux-android
 # armv7-linux-androideabi x86_64-linux-android i686-linux-android`). Ver
-# docs/CONTRIBUIR.md, «La app del celular».
+# docs/CONTRIBUTING.md, «La app del celular».
 #
 # La firma sale de ~/Android/claves/keystore.properties (o de donde diga
 # DANPLAY_KEYSTORE). Tiene que ser SIEMPRE la misma llave: un teléfono solo

@@ -11,7 +11,7 @@
 # igualmente», o quitando la cuarentena:
 #   xattr -dr com.apple.quarantine /Applications/DanPlay.app
 #
-# Nadie lo ha probado todavia en un Mac de verdad (ver docs/CONTRIBUIR.md),
+# Nadie lo ha probado todavia en un Mac de verdad (ver docs/CONTRIBUTING.md),
 # pero todas las versiones lo llevan: con una etiqueta de version
 # (`git tag v1.13.0 && git push --tags`) se publica en ella como los demas.
 #
@@ -55,7 +55,7 @@ jobs:
       # con ffprobe, que la app ya no lleva pero algunas pruebas usan para
       # mirar lo que sale
       - name: ffmpeg, ffprobe, fpcalc y QuickJS
-        run: ./scripts/herramientas-macos.sh --con-ffprobe
+        run: ./scripts/tools-macos.sh --con-ffprobe
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -63,8 +63,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # con hashes (salen de uv.lock); en los Intel, con el onnxruntime
-          # que si existe para ellos (ver scripts/requisitos-mac.py)
-          pip install -r "$(python scripts/requisitos-mac.py)" -r requirements-test.txt
+          # que si existe para ellos (ver scripts/requirements-mac.py)
+          pip install -r "$(python scripts/requirements-mac.py)" -r requirements-test.txt
           # el crate de Rust del núcleo, compilado con maturin
           pip install ./core
 
@@ -114,7 +114,7 @@ jobs:
       # Linux y Windows), para el procesador de este Mac
       - name: ffmpeg, fpcalc y QuickJS
         run: |
-          ./scripts/herramientas-macos.sh
+          ./scripts/tools-macos.sh
           ls -la desktop/src-tauri/tools
 
       - name: dependencias de Python
@@ -123,7 +123,7 @@ jobs:
           # con hashes (salen de uv.lock), y en los Intel con el onnxruntime
           # que si existe para ellos; PyInstaller aparte, que en una orden con
           # hashes no se puede mezclar uno sin ellos
-          pip install -r "$(python scripts/requisitos-mac.py)"
+          pip install -r "$(python scripts/requirements-mac.py)"
           pip install "$(grep -i '^pyinstaller==' requirements-dev.txt)"
           # el crate de Rust del nucleo (las etiquetas, con lofty): se compila
           # aqui, con maturin, y el nucleo empaquetado lo lleva dentro
@@ -132,7 +132,7 @@ jobs:
       - name: núcleo empaquetado
         run: |
           # la foto del catalogo de modelos de IA, la de hoy (sin red se queda la que hay)
-          python scripts/actualizar-modelos.py || true
+          python scripts/update-models.py || true
           pyinstaller --noconfirm --clean --distpath dist/core packaging/core.spec
           test -x dist/core/danplay-core/danplay-core
           # con el crate de Rust y sin mutagen, que es GPL (ver core.spec)

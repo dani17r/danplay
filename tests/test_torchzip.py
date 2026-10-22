@@ -13,7 +13,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def test_the_weights_come_out_as_torch_saved_them():
     from danplay import torchzip
 
-    w = torchzip.load(FIXTURES / "pesos.ckpt")
+    w = torchzip.load(FIXTURES / "weights.ckpt")
     assert set(w) == {"a", "b", "c", "d", "e", "layer.weight"}, "sin el «epoch» de fuera"
     a = np.array([[1.540996, -0.293429, -2.178789], [0.568431, -1.084522, -1.398595]], np.float32)
     np.testing.assert_allclose(w["a"], a, atol=1e-6)
@@ -30,6 +30,6 @@ def test_a_checkpoint_that_runs_code_is_refused():
     from danplay import torchzip
 
     with pytest.raises(torchzip.CheckpointError, match="no es un peso"):
-        torchzip.load(FIXTURES / "trampa.ckpt")
+        torchzip.load(FIXTURES / "malicious.ckpt")
     with pytest.raises(torchzip.CheckpointError):
         torchzip.load(Path(__file__))

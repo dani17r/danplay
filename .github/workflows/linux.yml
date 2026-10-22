@@ -60,7 +60,7 @@ jobs:
           # aqui, con maturin, y el nucleo empaquetado lo lleva dentro
           pip install ./core
           # la foto del catalogo de modelos de IA, la de hoy (sin red se queda la que hay)
-          python scripts/actualizar-modelos.py || true
+          python scripts/update-models.py || true
           pyinstaller --noconfirm --clean --distpath dist/core packaging/core.spec
           test -x dist/core/danplay-core/danplay-core
           # con el crate de Rust y sin mutagen, que es GPL (ver core.spec)
@@ -89,7 +89,7 @@ jobs:
       # dentro de los paquetes: sin instalar nada aparte, y sin depender de
       # las bibliotecas de cada distribucion (ver el script)
       - name: ffmpeg, fpcalc y QuickJS dentro
-        run: ./scripts/herramientas-linux.sh
+        run: ./scripts/tools-linux.sh
 
       - name: paquetes
         working-directory: desktop

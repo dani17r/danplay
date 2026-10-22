@@ -4,13 +4,13 @@ Una lista de mil canciones pedia mil caratulas completas —a menudo de dos
 megas cada una— para pintarlas a 40 pixeles; ahora se pide el tamaño que se
 va a enseñar (96, 192 o 320) y se guarda para la proxima.
 
-Cada miniatura se llama por su cancion: `<ruta>_<tamaño>_<version>.<ext>`,
+Cada miniatura se llama por su cancion: `<path>_<tamaño>_<version>.<ext>`,
 con la ruta y la version (fecha y tamaño del archivo) resumidas en un hash.
 Asi se pueden podar como las formas de onda: al escanear se van las de
 canciones que ya no estan y las versiones viejas de una caratula que cambio.
 Ademas hay un tope en bytes: pasado, se van las que hace mas que no se piden.
 
-Lo hace el crate de Rust (biblioteca/src/miniaturas.rs); aqui queda la
+Lo hace el crate de Rust (library/src/thumbnails.rs); aqui queda la
 puerta de Python, y lo que depende de `config` (la carpeta, solo para su
 dueño) y de las etiquetas (la caratula original).
 """

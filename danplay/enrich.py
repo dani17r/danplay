@@ -3,7 +3,7 @@
 Fuentes, en orden de preferencia:
   letra    -> LRCLIB (abierto, gratis, con letra sincronizada) -> IA
   portada  -> iTunes Search (sin clave) -> Cover Art Archive
-  acordes  -> un cifrado publicado (Ultimate Guitar, LaCuerda: ver cifrados.py),
+  acordes  -> un cifrado publicado (Ultimate Guitar, LaCuerda: ver chord_sheets.py),
               nunca la IA; el tono, solo si el cifrado lo dice
   metadata -> MusicBrainz -> IA
 """
@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
-from . import ai, cifrados, convert, library, tags, theory
+from . import ai, chord_sheets, convert, library, tags, theory
 
 log = logging.getLogger(__name__)
 
@@ -105,11 +105,11 @@ def lyrics_lrclib(artist, title, album="", duration: float = 0) -> dict | None:
     return None
 
 
-def lyrics(artist, title, album="", duration: float = 0, permitir_ia=True) -> dict | None:
+def lyrics(artist, title, album="", duration: float = 0, allow_ai=True) -> dict | None:
     r = lyrics_lrclib(artist, title, album, duration)
     if r:
         return r
-    if permitir_ia and ai.available():
+    if allow_ai and ai.available():
         d = ai.ask(
             f"Letra completa de la cancion '{title}' de {artist}. "
             "Si no la conoces con certeza, responde exactamente NO_LA_SE. "
@@ -131,16 +131,16 @@ def _cover_queries(artist, title, album) -> list[str]:
     «(cover X)») y con eso iTunes no encuentra nada. Se prueba tambien una
     version limpia, y sin artista cuando no lo hay.
     """
-    limpio = re.sub(r"\s*-\s*r\d*$", "", title or "").strip()
-    sin_parentesis = re.sub(r"\s*[\(\[][^)\]]*[\)\]]", "", limpio).strip()
-    salida = []
-    for t in (album or "", limpio, sin_parentesis):
+    cleaned = re.sub(r"\s*-\s*r\d*$", "", title or "").strip()
+    without_parens = re.sub(r"\s*[\(\[][^)\]]*[\)\]]", "", cleaned).strip()
+    output = []
+    for t in (album or "", cleaned, without_parens):
         if not t:
             continue
         for q in (f"{artist} {t}".strip(), t):
-            if q and q not in salida:
-                salida.append(q)
-    return salida[:4]
+            if q and q not in output:
+                output.append(q)
+    return output[:4]
 
 
 def _fetch_image(url: str) -> tuple[bytes, str] | None:
@@ -332,7 +332,7 @@ def chords(song: Mapping[str, Any], refresh: bool = False) -> dict:
             "failed": [],
             "error": "la cancion no tiene titulo",
         }
-    r = cifrados.find(str(song.get("artist") or ""), str(song.get("title") or ""))
+    r = chord_sheets.find(str(song.get("artist") or ""), str(song.get("title") or ""))
     today = date.today().isoformat()
     if r["sheet"] or not r["failed"]:
         doc.update(sheet=r["sheet"], sheet_checked=today, sheet_tried=r["tried"])
@@ -373,7 +373,7 @@ FILLABLE = ("album", "year", "genre", "key")
 
 # Lo que devuelve un modelo cuando no sabe algo. Guardarlo seria peor que
 # dejarlo vacio: el campo parece relleno y ya nadie vuelve a mirarlo.
-NO_SABE = {
+UNKNOWN_VALUES = {
     "desconocido",
     "desconocida",
     "unknown",
@@ -395,12 +395,12 @@ NO_SABE = {
 }
 
 
-def _dato_util(campo: str, valor) -> str:
+def _useful_value(field: str, value) -> str:
     """El valor si sirve, o cadena vacia. Evita guardar «desconocido»."""
-    v = str(valor or "").strip()
-    if not v or v.lower() in NO_SABE:
+    v = str(value or "").strip()
+    if not v or v.lower() in UNKNOWN_VALUES:
         return ""
-    if campo == "year":
+    if field == "year":
         m = re.search(r"\b(1[89]\d{2}|20\d{2})\b", v)  # un año de verdad
         return m.group(0) if m else ""
     return v
@@ -419,64 +419,64 @@ def autofill(song_id) -> dict:
     if not c:
         return {"ok": False, "filled": {}, "missing": [], "reason": "no existe esa cancion"}
 
-    faltan = [k for k in FILLABLE if not str(c.get(k) or "").strip()]
-    if not faltan:
+    missing = [k for k in FILLABLE if not str(c.get(k) or "").strip()]
+    if not missing:
         return {"ok": True, "filled": {}, "missing": [], "reason": "", "complete": True}
     if not str(c["artist"] or "").strip():
         return {
             "ok": False,
             "filled": {},
-            "missing": faltan,
+            "missing": missing,
             "reason": "esta cancion no tiene artista identificado, asi que no se puede reconocer",
         }
 
-    nuevos: dict[str, str] = {}
-    motivos: list[str] = []
+    filled: dict[str, str] = {}
+    reasons: list[str] = []
     # lo que impidio preguntar (la IA sin configurar, la red), no que no lo sepan
-    fallos = 0
-    if "key" in faltan:
+    failures = 0
+    if "key" in missing:
         r = chords(c)
-        if key := cifrados.sheet_key(r["sheet"]):
-            nuevos["key"] = key
+        if key := chord_sheets.sheet_key(r["sheet"]):
+            filled["key"] = key
         elif r["sheet"] and r["sheet"].get("key"):
-            motivos.append("el cifrado va con cejilla: su tono no es el que suena")
+            reasons.append("el cifrado va con cejilla: su tono no es el que suena")
         elif r["sheet"]:
-            motivos.append(f"el cifrado de {r['sheet']['source']} no dice el tono")
+            reasons.append(f"el cifrado de {r['sheet']['source']} no dice el tono")
         elif r["failed"]:
-            fallos += 1
-            motivos.append("no se pudo consultar " + " ni ".join(r["failed"]))
+            failures += 1
+            reasons.append("no se pudo consultar " + " ni ".join(r["failed"]))
         else:
-            motivos.append("no hay cifrado publicado en " + " ni ".join(r["tried"]))
+            reasons.append("no hay cifrado publicado en " + " ni ".join(r["tried"]))
 
-    pide_ia = [k for k in faltan if k != "key"]
-    if pide_ia and not ai.available():
-        fallos += 1
-        motivos.append(f"la IA no esta lista: {ai.unavailable_reason()} (Ajustes)")
-    elif pide_ia:
+    ai_fields = [k for k in missing if k != "key"]
+    if ai_fields and not ai.available():
+        failures += 1
+        reasons.append(f"la IA no esta lista: {ai.unavailable_reason()} (Ajustes)")
+    elif ai_fields:
         d = details(c)
         if not isinstance(d, dict) or not d or d.get("error"):
-            fallos += 1
-            motivos.append(
+            failures += 1
+            reasons.append(
                 (d.get("error") if isinstance(d, dict) else "") or "la IA no pudo responder"
             )
         else:
-            for k in pide_ia:
-                if v := _dato_util(k, d.get(k)):
-                    nuevos[k] = v
-            if any(k not in nuevos for k in pide_ia):
-                motivos.append(
+            for k in ai_fields:
+                if v := _useful_value(k, d.get(k)):
+                    filled[k] = v
+            if any(k not in filled for k in ai_fields):
+                reasons.append(
                     f"la IA no reconoce bien esta cancion (confianza {round(_confidence(d) * 100)}%)"
                 )
-    if nuevos:
-        library.edit(song_id, **nuevos)
+    if filled:
+        library.edit(song_id, **filled)
 
-    restantes = [k for k in faltan if k not in nuevos]
+    remaining = [k for k in missing if k not in filled]
     return {
-        "ok": bool(nuevos) or not fallos,
-        "filled": nuevos,
-        "missing": restantes,
-        "reason": "; ".join(motivos) if restantes else "",
-        "complete": not restantes,
+        "ok": bool(filled) or not failures,
+        "filled": filled,
+        "missing": remaining,
+        "reason": "; ".join(reasons) if remaining else "",
+        "complete": not remaining,
     }
 
 
@@ -516,9 +516,9 @@ def enrich(
             # OJO: por aqui tambien entra lo que dice la IA, asi que pasa por
             # el mismo filtro que `autofill`. Sin el, un «desconocido» del
             # modelo se guardaba como album de verdad.
-            album = _dato_util("album", d.get("album")) or c["album"]
-            year = _dato_util("year", d.get("year")) or str(c["year"] or "")
-            genre = _dato_util("genre", d.get("genre")) or c["genre"]
+            album = _useful_value("album", d.get("album")) or c["album"]
+            year = _useful_value("year", d.get("year")) or str(c["year"] or "")
+            genre = _useful_value("genre", d.get("genre")) or c["genre"]
             _save_details(c, d)
             library.update(song_id, album=album, year=year, genre=genre)
             if save_to_file:

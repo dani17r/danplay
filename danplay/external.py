@@ -23,7 +23,7 @@ Que los ids de fuera sean NEGATIVOS no es un truco: es lo que impide que una
 operacion de biblioteca —borrar, renombrar, escribir etiquetas— caiga por
 error sobre un archivo que no es suyo. `library.by_id` no los encuentra.
 
-Lo hace Rust (biblioteca/src/fuera.rs); esto es la puerta de Python, con los
+Lo hace Rust (library/src/external.rs); esto es la puerta de Python, con los
 mismos nombres.
 """
 
@@ -179,6 +179,6 @@ def save_as_playlist(name: str) -> dict:
     songs = listing()
     if not songs:
         raise ValueError("la lista esta vacia")
-    lista = playlists.create(name)
-    playlists.add(lista["id"], [s["id"] for s in songs])
-    return {**lista, "n": len(songs)}
+    list = playlists.create(name)
+    playlists.add(list["id"], [s["id"] for s in songs])
+    return {**list, "n": len(songs)}

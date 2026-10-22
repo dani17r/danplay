@@ -129,8 +129,8 @@ def cmd_playlist(args):
         made = playlists.create(
             _need((args.name or "").strip(), "danplay playlist create <nombre>")
         )
-        estado = "creada" if made["created"] else "ya existia"
-        print(f"{GREEN}{estado}{RESET} id={made['id']}")
+        state = "creada" if made["created"] else "ya existia"
+        print(f"{GREEN}{state}{RESET} id={made['id']}")
     elif args.action == "remove":
         playlists.remove(_playlist_id(args.name))
         print("borrada")
@@ -226,16 +226,16 @@ def cmd_youtube(args):
             print(f"  {i:2}. {t_['title']}  {CYAN}{t_['channel']}  {_mmss(t_['duration'])}{RESET}")
         return 0
 
-    ultimo = {"linea": ""}
+    last = {"linea": ""}
 
     def progress(p):
         line = (
             f"  [{p.get('index', '?')}/{p.get('total', '?')}] "
             f"{p.get('phase', ''):<12} {p.get('percent', 0):5.1f}%  {p.get('name', '')[:52]}"
         )
-        if line != ultimo["linea"]:
+        if line != last["linea"]:
             print(line.ljust(96), end="\r", flush=True)
-            ultimo["linea"] = line
+            last["linea"] = line
 
     res = youtube.download(
         query,

@@ -1,6 +1,6 @@
 """Llevar una cancion separada al celular: un solo archivo `.danpista`.
 
-La app del celular (`movil/`) no separa, ni convierte, ni ordena nada: solo
+La app del celular (`mobile/`) no separa, ni convierte, ni ordena nada: solo
 abre lo que se separo aqui y deja estudiarlo (cada parte con su volumen, el
 clic, la velocidad, los tramos, la letra y los acordes). Para eso necesita
 todo lo de la cancion en un archivo que se pueda mandar por WhatsApp, Drive o
@@ -31,7 +31,7 @@ ella. Volver a llevarla pisa la de antes (con lo que se haya cambiado desde
 entonces). El escaneo no la mira: no es audio.
 
 El manifiesto, las partes (en paralelo) y el zip los hace Rust
-(biblioteca/src/celular.rs); aqui se piden la rejilla, la caratula y la onda.
+(library/src/bundle.rs); aqui se piden la rejilla, la caratula y la onda.
 """
 
 import contextlib

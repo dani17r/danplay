@@ -34,7 +34,7 @@ Lo que hace, en orden:
 
 Nada de esto toca la red ni descarga: solo lee la base.
 
-Lo hace Rust (biblioteca/src/asistente/emparejar.rs, cuenta a cuenta y en el
+Lo hace Rust (library/src/assistant/matching.rs, cuenta a cuenta y en el
 mismo orden que antes estaba aqui, con los umbrales y los pesos); esto es la
 puerta de Python: el indice por revision y su cerrojo, el lote con sus topes
 y su presupuesto, y los mismos nombres.
@@ -67,7 +67,7 @@ __all__ = [
 ]
 
 # ------------------------------------------------------------------ ajustes
-# (los pesos y el resto de umbrales estan en emparejar.rs)
+# (los pesos y el resto de umbrales estan en matching.rs)
 
 # Hasta aqui el indice entero en memoria y sin prefiltro; por encima, FTS5.
 FULL_LIMIT = 5000

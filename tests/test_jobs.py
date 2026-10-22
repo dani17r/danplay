@@ -13,7 +13,7 @@ from danplay.api import jobs
 
 
 @pytest.fixture(autouse=True)
-def limpio():
+def cleaned():
     with jobs._lock:
         jobs._jobs.clear()
     yield
@@ -21,7 +21,7 @@ def limpio():
         jobs._jobs.clear()
 
 
-def test_un_trabajo_cuenta_su_avance_y_deja_su_resultado():
+def test_a_job_reports_its_progress_and_leaves_its_result():
     gate = threading.Event()
 
     def work(progress):
@@ -55,7 +55,7 @@ def test_un_trabajo_cuenta_su_avance_y_deja_su_resultado():
     assert done["error"] == "" and done["ended"] >= done["started"]
 
 
-def test_la_instantanea_es_una_copia():
+def test_the_snapshot_is_a_copy():
     jobs.start("copia", lambda p: {"lista": [1]})
     jobs.wait("copia")
     snap = jobs.snapshot("copia")
@@ -65,21 +65,21 @@ def test_la_instantanea_es_una_copia():
     assert not jobs.snapshot_all()["copia"]["active"]
 
 
-def test_los_errores_salen_en_castellano():
-    def previsto(progress):
+def test_errors_come_out_in_spanish():
+    def expected_error(progress):
         raise jobs.JobError("hay una descarga en marcha: prueba luego")
 
-    def inesperado(progress):
+    def unexpected_error(progress):
         raise ValueError("disco lleno")
 
-    jobs.start("a", previsto, failure="no se pudo")
-    jobs.start("b", inesperado, failure="la conversion fallo")
+    jobs.start("a", expected_error, failure="no se pudo")
+    jobs.start("b", unexpected_error, failure="la conversion fallo")
     assert jobs.wait("a")["error"] == "hay una descarga en marcha: prueba luego"
     b = jobs.wait("b")
     assert b["error"] == "la conversion fallo: disco lleno" and b["result"] is None
 
 
-def test_lo_terminado_se_olvida_al_rato(monkeypatch):
+def test_finished_jobs_are_forgotten_after_a_while(monkeypatch):
     jobs.start("viejo", lambda p: 1)
     jobs.wait("viejo")
     monkeypatch.setattr(jobs, "TTL", 0.0)
@@ -87,7 +87,7 @@ def test_lo_terminado_se_olvida_al_rato(monkeypatch):
     assert jobs.snapshot("viejo") is None and jobs.snapshot_all() == {}
 
 
-def test_el_estado_lleva_una_copia_de_los_trabajos(configured_library):
+def test_the_status_carries_a_copy_of_the_jobs(configured_library):
     from fastapi.testclient import TestClient
 
     from danplay import api, library
@@ -103,7 +103,7 @@ def test_el_estado_lleva_una_copia_de_los_trabajos(configured_library):
     assert c.get("/api/jobs/no-existe").status_code == 404
 
 
-def test_pedir_otro_escaneo_mientras_corre_devuelve_el_mismo(configured_library, monkeypatch):
+def test_asking_for_a_scan_while_one_runs_returns_the_same(configured_library, monkeypatch):
     from fastapi.testclient import TestClient
 
     from danplay import api, library
@@ -127,7 +127,7 @@ def test_pedir_otro_escaneo_mientras_corre_devuelve_el_mismo(configured_library,
     jobs.wait("escaneo")
 
 
-def test_convertir_de_verdad_es_un_trabajo_y_simular_no(configured_library, monkeypatch):
+def test_a_real_convert_is_a_job_and_a_dry_run_is_not(configured_library, monkeypatch):
     from fastapi.testclient import TestClient
 
     from danplay import api, convert
@@ -147,7 +147,7 @@ def test_convertir_de_verdad_es_un_trabajo_y_simular_no(configured_library, monk
     assert c.get("/api/jobs/conversion").json()["done"] == 1
 
 
-def test_importar_es_un_trabajo_que_cuenta_cada_archivo(configured_library):
+def test_import_is_a_job_that_counts_each_file(configured_library):
     from conftest import make_mp3
     from fastapi.testclient import TestClient
 

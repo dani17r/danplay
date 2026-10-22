@@ -24,7 +24,7 @@ cuando hace falta, numeros y booleanos tal cual, `null` para None, listas de
 primitivos en una linea, tablas para listas de objetos iguales y planos, y
 la forma de lista con «- » para lo demas. Solo codifica: no hace falta leerlo.
 
-Lo hace el crate de Rust (biblioteca/src/toon.rs); esto es la puerta de
+Lo hace el crate de Rust (library/src/toon.rs); esto es la puerta de
 Python, con los mismos nombres.
 """
 

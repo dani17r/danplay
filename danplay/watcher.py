@@ -124,11 +124,11 @@ class Watcher:
                 pass
 
     def _run(self) -> None:
-        from . import diario
+        from . import journal
 
         self.refresh_roots()
         # lo que se movio o se perdio mientras DanPlay estaba cerrado
-        diario.after_scan(self.scan("al arrancar"), first=True)
+        journal.after_scan(self.scan("al arrancar"), first=True)
         last_check = last_full = time.monotonic()
         while not self._stop.is_set():
             self._wake.wait(timeout=1.0)
@@ -142,10 +142,10 @@ class Watcher:
                 if self.refresh_roots():
                     self.mark()  # una carpeta se fue o volvio
             if self.due(time.monotonic()):
-                diario.after_scan(self.scan("cambios en el disco"))
+                journal.after_scan(self.scan("cambios en el disco"))
                 last_full = time.monotonic()
             elif self.rescan_every and now - last_full >= self.rescan_every:
-                diario.after_scan(self.scan("repaso"))
+                journal.after_scan(self.scan("repaso"))
                 last_full = time.monotonic()
 
     # ------------------------------------------------------------ escanear

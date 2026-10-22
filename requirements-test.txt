@@ -2,7 +2,7 @@
 # pip install -r requirements.txt -r requirements-test.txt
 #
 # GENERADO desde uv.lock: no lo edites a mano. Para regenerarlo:
-#   ./.venv/bin/python scripts/exportar-requisitos.py
+#   ./.venv/bin/python scripts/export-requirements.py
 # (que ejecuta: uv export --format requirements-txt --frozen --no-emit-project --no-header --only-group test -o requirements-test.txt)
 anyio==4.15.1 \
     --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101 \

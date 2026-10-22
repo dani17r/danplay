@@ -1,7 +1,7 @@
 //! Los valores de JSON (`serde_json`) a Python y de vuelta: así llegan y
 //! salen las filas y los diccionarios de lo que está en Rust. Un entero
 //! sigue siendo `int` y un real `float`, como los devolvía `sqlite3`.
-use biblioteca::serde_json::{Map, Number, Value};
+use library::serde_json::{Map, Number, Value};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};

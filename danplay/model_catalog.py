@@ -16,13 +16,13 @@ Como se mantiene al dia:
     en cuanto ellos la publiquen;
   - la copia vive en la carpeta de datos del usuario; sin internet se usa esa;
   - y la app lleva dentro una foto (`data/models-snapshot.json`, regenerada
-    con scripts/actualizar-modelos.py) para el primer arranque sin red.
+    con scripts/update-models.py) para el primer arranque sin red.
 
 La lista de lo que el usuario PUEDE usar de verdad con su clave la da el
 propio proveedor (`ai.list_models`); esto es el mapa completo, con precios y
 capacidades, que se cruza con aquella.
 
-Lo hace Rust (biblioteca/src/ia/catalogo.rs: recortar, guardar, cargar y
+Lo hace Rust (library/src/ai/catalog.rs: recortar, guardar, cargar y
 consultar); la descarga la sigue haciendo Python, con urllib (las pruebas
 cortan la red ahi).
 """
@@ -164,7 +164,7 @@ def recommend(models: list[dict]) -> dict:
 
 def build_snapshot(path: Path = SNAPSHOT, only: set | None = None) -> int:
     """Descarga models.dev entera y deja la foto que viaja con la app.
-    Devuelve cuantos modelos quedaron. Lo usa scripts/actualizar-modelos.py."""
+    Devuelve cuantos modelos quedaron. Lo usa scripts/update-models.py."""
     req = urllib.request.Request(SOURCE, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=60) as r:
         raw = json.loads(r.read().decode("utf-8"))

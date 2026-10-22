@@ -13,7 +13,7 @@ from .narration import _txt
 
 # Cuanto historial se le da al modelo, lo que se recuerda de la tabla de una
 # lista y cuantas canciones de la vista se le enseñan: ver
-# biblioteca/src/asistente/contexto.rs, que es quien escribe las notas.
+# library/src/assistant/context.rs, que es quien escribe las notas.
 HISTORY_MESSAGES = 48
 HISTORY_CHARS = 16_000
 LIST_DETAIL = 1800

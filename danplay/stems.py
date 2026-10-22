@@ -26,20 +26,20 @@ un proceso aparte y con prioridad baja:
    (htdemucs_ft, una red afinada para esa sola fuente). Tarda el doble que
    la rapida y los cambia por otros mas limpios, sin cortar lo que suena.
    La voz no: su especialista no la saca mejor que la rapida. Lo medido,
-   con scripts/evaluar-separador.py, en docs/ARQUITECTURA.md.
+   con scripts/evaluate-separator.py, en docs/ARCHITECTURE.md.
 
 Va en una cola: se pueden pedir varias y se separan una detras de otra
 mientras se sigue usando la app. Las rapidas de todas van antes que
 cualquier mejora: un repertorio entero se puede ensayar cuanto antes.
 
 Como todo lo que el usuario crea, no depende de la base: la carpeta dice de
-que cancion es (`.danplay-pistas.json`), y un escaneo vuelve a unirlas si el
+que cancion es (`.danplay-stems.json`), y un escaneo vuelve a unirlas si el
 indice se pierde. El escaneo no mete estas pistas en la biblioteca como
 canciones sueltas: una carpeta con ese archivo se salta.
 
 Lo de las carpetas, los manifiestos, unirlas con su cancion y el filtro de
-la mezcla lo hace Rust (biblioteca/src/pistas.rs; el clic y las guias de la
-mezcla, analisis/src/mezcla.rs). Aqui quedan la cola, el proceso que separa,
+la mezcla lo hace Rust (library/src/stems.rs; el clic y las guias de la
+mezcla, analysis/src/mix.rs). Aqui quedan la cola, el proceso que separa,
 bajar los pesos y lanzar ffmpeg.
 """
 
@@ -68,7 +68,7 @@ from .api import jobs
 
 log = logging.getLogger(__name__)
 
-GRAPHS = Path(__file__).resolve().parent / "data" / "separador"
+GRAPHS = Path(__file__).resolve().parent / "data" / "separator"
 FOLDER = "Separadas"
 MANIFEST = ".danplay-pistas.json"
 WAVES = ".danplay-ondas.json"
@@ -77,7 +77,7 @@ MIX_JOB = "mezcla"
 
 # Cada fuente de Demucs en castellano: como se llama su archivo (sin tildes,
 # como todos los de la casa) y como se enseña. En el orden del mezclador (la
-# tabla esta en biblioteca/src/pistas.rs).
+# tabla esta en library/src/stems.rs).
 SOURCES = {key: (file, name) for key, file, name in _rust.stems_sources()}
 REST = "other"  # la que es «lo que queda»: la cancion menos las demas
 
@@ -94,7 +94,7 @@ MAX = "mega53"
 # Como estan las pistas de una cancion (en su manifiesto): de la rapida, que
 # se mejora luego, o ya de la buena. Las de 1.16.0 no lo dicen: se hicieron
 # con una sola red, de seis o de cuatro, y se pueden separar otra vez.
-QUICK, FINAL, MAXIMA = "rapida", "mejor", "maxima"
+QUICK, FINAL, MAXIMUM = "rapida", "mejor", "maxima"
 
 FORMATS = ("flac", "opus")
 
@@ -129,7 +129,7 @@ def parts() -> dict[str, dict]:
 
 
 def _weights_dir() -> Path:
-    return config.DATA_DIR / "separador"
+    return config.DATA_DIR / "separator"
 
 
 def weights_path(part: str) -> Path:
@@ -285,18 +285,18 @@ def download(part: str, progress=None, cancelled=None) -> Path:
 def _fetch(needed: list[str], progress) -> None:
     """Baja lo que falte de esas partes, contando el total como una descarga.
     Y quita lo que ya no usa ninguna (los pesos de 1.16.0 de cuatro pistas)."""
-    todo = [p for p in needed if not installed(p)]
-    if not todo:
+    remaining = [p for p in needed if not installed(p)]
+    if not remaining:
         return
     known = {part["file"] for part in parts().values()}
     with contextlib.suppress(OSError):
         for old in _weights_dir().glob("*.safetensors"):
             if old.name not in known:
                 old.unlink()
-    sizes = {p: parts()[p]["bytes"] for p in todo}
+    sizes = {p: parts()[p]["bytes"] for p in remaining}
     total, before = sum(sizes.values()), 0
     progress(step="download")
-    for p in todo:
+    for p in remaining:
         download(
             p,
             lambda got, _t, _b=before: progress(_b + got, total, step="download"),
@@ -674,7 +674,7 @@ def max_song(cid: int, progress=None) -> dict:
     manifest = read_manifest(target) if target else None
     if target is None or manifest is None:
         raise SeparateError("esta canción ya no tiene sus pistas separadas")
-    if manifest.get("quality") not in (FINAL, MAXIMA):
+    if manifest.get("quality") not in (FINAL, MAXIMUM):
         raise SeparateError("antes hay que tener las pistas buenas")
     if MAX not in parts():
         raise SeparateError("falta la separación de máxima calidad en esta instalación")
@@ -683,7 +683,7 @@ def max_song(cid: int, progress=None) -> dict:
     carry = {
         s: str(have[s]) for s in ("drums", "bass", "vocals") if s in have and have[s].is_file()
     }
-    if manifest.get("quality") == MAXIMA:
+    if manifest.get("quality") == MAXIMUM:
         # otra vez: de las de antes del reparto no queda la bateria entera
         raise SeparateError("ya tiene la máxima calidad")
     _fetch([MAX], progress)
@@ -717,7 +717,7 @@ def max_song(cid: int, progress=None) -> dict:
             raise SeparateError("sus pistas cambiaron mientras se separaban")
         levels = {**(manifest.get("levels") or {}), **(result.get("levels") or {})}
         result = {**result, "levels": levels}
-        _write_manifest(work, song, result, MAXIMA, manifest.get("created") or time.time())
+        _write_manifest(work, song, result, MAXIMUM, manifest.get("created") or time.time())
         old = _publish(work, target, ".mejores")
     except BaseException:
         shutil.rmtree(work, ignore_errors=True)
@@ -729,7 +729,7 @@ def max_song(cid: int, progress=None) -> dict:
             shutil.rmtree(old, ignore_errors=True)
     rel = os.path.relpath(target, song["root"])
     model = f"{FAST}+htdemucs_ft+{MAX}"
-    library.update(cid, stems=json.dumps({"folder": rel, "model": model, "quality": MAXIMA}))
+    library.update(cid, stems=json.dumps({"folder": rel, "model": model, "quality": MAXIMUM}))
     return {"id": cid, "title": _title(song), "folder": str(target), **result}
 
 
@@ -1042,7 +1042,7 @@ def matrix(
     (izquierdo desde izquierdo, izquierdo desde derecho, derecho desde
     izquierdo, derecho desde derecho). Primero su volumen y su balance
     (`gains`); en mono, o por un solo lado, los dos canales juntos a la mitad
-    (ver `biblioteca::pistas::matrix`)."""
+    (ver `library::stems::matrix`)."""
     return _rust.stems_matrix(float(gain), float(pan), str(side), bool(mono))
 
 

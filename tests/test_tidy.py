@@ -21,25 +21,25 @@ def _song(found):
 
 
 @pytest.fixture
-def biblioteca(configured_library, tmp_path, monkeypatch):
+def music_library(configured_library, tmp_path, monkeypatch):
     from danplay import config, library
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
     root, _ = configured_library
-    artistas = root / "Artistas"
+    artists = root / "Artistas"
     made = {
         "suelta": make_mp3(
             root / "Barak - Nueva (Official Video).mp3", artist="Barak", title="Nueva"
         ),
         "disco": make_mp3(
-            artistas / "Barak" / "Generacion Radical (2018)" / "06 - Hasta Ver Tu Gloria.mp3",
+            artists / "Barak" / "Generacion Radical (2018)" / "06 - Hasta Ver Tu Gloria.mp3",
             artist="Barak",
             title="Hasta Ver Tu Gloria (Live)",
         ),
-        "cam": make_mp3(artistas / "Barak" / "Barak - Danzar (Drum Cam).mp3", artist="Barak"),
+        "cam": make_mp3(artists / "Barak" / "Barak - Danzar (Drum Cam).mp3", artist="Barak"),
         "propia": make_mp3(root / "Pistas" / "cualquier cosa.mp3", title="x"),
         # solo cambiaria un espacio: no merece moverla
-        "pegada": make_mp3(artistas / "Barak" / "Barak - Intro #EternoLive.mp3", artist="Barak"),
+        "pegada": make_mp3(artists / "Barak" / "Barak - Intro #EternoLive.mp3", artist="Barak"),
         "etiquetas": make_mp3(root / "sin nombre.mp3", artist="Un Canal De YouTube", title="Algo"),
     }
     files = {k: Path(p) for k, p in made.items()}
@@ -53,22 +53,22 @@ def _by_from(items):
     return {p["from"]: p for p in items}
 
 
-def test_it_proposes_only_what_is_out_of_place_and_never_your_own_folders(biblioteca):
+def test_it_proposes_only_what_is_out_of_place_and_never_your_own_folders(music_library):
     from danplay.library import tidy
 
-    _, _, ids = biblioteca
+    _, _, ids = music_library
     found = tidy.proposals()
     items = _by_from(found["items"])
-    disco = items[
+    album = items[
         os.path.join(
             "Artistas", "Barak", "Generacion Radical (2018)", "06 - Hasta Ver Tu Gloria.mp3"
         )
     ]
-    assert disco["to"] == os.path.join("Artistas", "Barak", "Barak - Hasta Ver Tu Gloria.mp3")
-    assert disco["sure"] and "dentro de una subcarpeta" in disco["why"]
-    suelta = items["Barak - Nueva (Official Video).mp3"]
-    assert suelta["to"] == os.path.join("Artistas", "Barak", "Barak - Nueva.mp3")
-    assert suelta["sure"] and suelta["why"][0] == "suelta en la raíz de tu música"
+    assert album["to"] == os.path.join("Artistas", "Barak", "Barak - Hasta Ver Tu Gloria.mp3")
+    assert album["sure"] and "dentro de una subcarpeta" in album["why"]
+    loose = items["Barak - Nueva (Official Video).mp3"]
+    assert loose["to"] == os.path.join("Artistas", "Barak", "Barak - Nueva.mp3")
+    assert loose["sure"] and loose["why"][0] == "suelta en la raíz de tu música"
     cam = items[os.path.join("Artistas", "Barak", "Barak - Danzar (Drum Cam).mp3")]
     assert cam["to"] == os.path.join("Pistas", "Barak - Danzar (Drum Cam).mp3"), (
         "a su carpeta, con su nombre"
@@ -93,11 +93,11 @@ def test_it_proposes_only_what_is_out_of_place_and_never_your_own_folders(biblio
     }
 
 
-def test_applying_keeps_the_same_song_and_tidies_the_empty_folder(biblioteca):
+def test_applying_keeps_the_same_song_and_tidies_the_empty_folder(music_library):
     from danplay import library, tags
     from danplay.library import tidy
 
-    root, files, ids = biblioteca
+    root, files, ids = music_library
     cid = ids["disco"]
     library.set_study(cid, {"speed": 0.8})
     done = tidy.apply(cid, artist="Barak", title="Hasta Ver Tu Gloria")
@@ -121,11 +121,11 @@ def test_applying_keeps_the_same_song_and_tidies_the_empty_folder(biblioteca):
     assert back["to"] == str(files["disco"]) and files["disco"].is_file()
 
 
-def test_corrected_by_hand_it_goes_to_the_tags_too(biblioteca):
+def test_corrected_by_hand_it_goes_to_the_tags_too(music_library):
     from danplay import library, tags
     from danplay.library import tidy
 
-    root, _, ids = biblioteca
+    root, _, ids = music_library
     cid = ids["etiquetas"]
     done = tidy.apply(cid, artist="Marcos Witt", title="Exaltate", write_tags=True)
     new = root / "Artistas" / "Marcos Witt" / "Marcos Witt - Exaltate.mp3"
@@ -135,16 +135,16 @@ def test_corrected_by_hand_it_goes_to_the_tags_too(biblioteca):
     assert _song(library.by_id(cid))["artist"] == "Marcos Witt"
 
 
-def test_what_was_worked_out_from_the_sound_follows_the_song(biblioteca):
+def test_what_was_worked_out_from_the_sound_follows_the_song(music_library):
     """La rejilla del clic se reconoce por la ruta: al moverla, se iba (y el
     clic volvia a tardar 15-20 s)."""
     from danplay import beatgrid, config
     from danplay.library import tidy
     from danplay.pulse import key_of
 
-    _, files, ids = biblioteca
+    _, files, ids = music_library
     src = str(files["suelta"])
-    cache = config.DATA_DIR / "pulso" / f"{key_of(src)}.json"
+    cache = config.DATA_DIR / "beats" / f"{key_of(src)}.json"
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps({"version": beatgrid.VERSION, "path": src, "grid": {"bpm": 90}}))
     done = tidy.apply(ids["suelta"], artist="Barak", title="Nueva")
@@ -153,21 +153,21 @@ def test_what_was_worked_out_from_the_sound_follows_the_song(biblioteca):
     assert not cache.exists()
 
 
-def test_the_api_lists_applies_and_refuses_paths_outside(biblioteca):
+def test_the_api_lists_applies_and_refuses_paths_outside(music_library):
     from fastapi.testclient import TestClient
 
     from danplay import api
 
-    _, _, ids = biblioteca
-    cliente = TestClient(api.app)
-    r = cliente.get("/api/tidy")
+    _, _, ids = music_library
+    client = TestClient(api.app)
+    r = client.get("/api/tidy")
     assert r.status_code == 200 and len(r.json()["items"]) == 4
     assert r.json()["looked"] >= 7
-    r = cliente.post(f"/api/song/{ids['suelta']}/tidy", json={"artist": "Barak", "title": "Nueva"})
+    r = client.post(f"/api/song/{ids['suelta']}/tidy", json={"artist": "Barak", "title": "Nueva"})
     assert r.status_code == 200, r.text
     assert r.json()["song"]["id"] == ids["suelta"]
     assert r.json()["to"].endswith(os.path.join("Artistas", "Barak", "Barak - Nueva.mp3"))
-    r = cliente.post(f"/api/song/{ids['cam']}/tidy", json={"to": "../fuera.mp3"})
+    r = client.post(f"/api/song/{ids['cam']}/tidy", json={"to": "../fuera.mp3"})
     assert r.status_code == 409
-    assert cliente.post("/api/song/999999/tidy", json={"to": "x.mp3"}).status_code == 404
-    assert cliente.post(f"/api/song/{ids['cam']}/tidy", json={}).status_code == 409
+    assert client.post("/api/song/999999/tidy", json={"to": "x.mp3"}).status_code == 404
+    assert client.post(f"/api/song/{ids['cam']}/tidy", json={}).status_code == 409

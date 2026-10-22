@@ -20,7 +20,7 @@ from danplay import ai, config, model_catalog, providers
 
 
 @pytest.fixture
-def perfiles(tmp_path, monkeypatch):
+def temp_profiles(tmp_path, monkeypatch):
     """Perfiles en un archivo temporal, sin variables de entorno que manden."""
     monkeypatch.setattr(providers, "PROFILES_FILE", tmp_path / "ai.json")
     for v in (
@@ -106,7 +106,7 @@ class _FakeClient:
 # ------------------------------------------------------------- catalogo
 
 
-def test_el_catalogo_tiene_los_grupos_y_urls_bien_formadas():
+def test_catalog_has_groups_and_well_formed_urls():
     ids = {p["id"] for p in providers.CATALOG}
     for wanted in (
         "openai",
@@ -134,7 +134,7 @@ def test_el_catalogo_tiene_los_grupos_y_urls_bien_formadas():
     assert len(ids) == len(providers.CATALOG), "ids repetidos"
 
 
-def test_los_locales_no_piden_clave_y_apuntan_a_este_equipo():
+def test_local_providers_need_no_key_and_point_here():
     for p in providers.CATALOG:
         if p["group"] == "local":
             assert p["key"] != "required", p["id"]
@@ -144,13 +144,13 @@ def test_los_locales_no_piden_clave_y_apuntan_a_este_equipo():
 # -------------------------------------------------------------- perfiles
 
 
-def test_sin_nada_configurado_la_ia_no_esta_disponible(perfiles):
+def test_with_nothing_configured_ai_is_unavailable(temp_profiles):
     assert providers.active() is None
     assert not ai.available()
     assert "proveedor" in ai.unavailable_reason()
 
 
-def test_guardar_un_perfil_lo_activa_y_la_clave_no_vuelve_entera(perfiles):
+def test_saving_profile_activates_it_and_key_comes_back_masked(temp_profiles):
     pid = providers.save_profile(
         {
             "provider": "openrouter",
@@ -171,17 +171,17 @@ def test_guardar_un_perfil_lo_activa_y_la_clave_no_vuelve_entera(perfiles):
     assert ai.available()
     # y el archivo es solo del dueño
     if os.name == "posix":
-        assert oct(perfiles.stat().st_mode & 0o777) == "0o600"
+        assert oct(temp_profiles.stat().st_mode & 0o777) == "0o600"
 
 
-def test_guardar_sin_clave_conserva_la_guardada(perfiles):
+def test_saving_without_key_keeps_the_saved_one(temp_profiles):
     providers.save_profile({"provider": "groq", "key": "gsk_secreto123456", "model": "x"})
     providers.save_profile({"id": "groq", "provider": "groq", "model": "y", "key": ""})
     p = providers.active()
     assert p["key"] == "gsk_secreto123456" and p["model"] == "y"
 
 
-def test_los_huecos_de_la_url_se_rellenan_con_los_campos(perfiles):
+def test_url_placeholders_are_filled_from_the_fields(temp_profiles):
     providers.save_profile(
         {"provider": "bedrock", "key": "k", "fields": {"region": "eu-west-1"}, "model": "m"}
     )
@@ -195,7 +195,7 @@ def test_los_huecos_de_la_url_se_rellenan_con_los_campos(perfiles):
     assert not ai.available()
 
 
-def test_varios_servidores_propios_conviven_y_se_puede_cambiar(perfiles):
+def test_several_own_servers_coexist_and_can_be_switched(temp_profiles):
     a = providers.save_profile(
         {"provider": "custom", "name": "Casa", "base_url": "http://casa:8080/v1", "model": "m"}
     )
@@ -210,7 +210,7 @@ def test_varios_servidores_propios_conviven_y_se_puede_cambiar(perfiles):
     assert providers.active_id() == b
 
 
-def test_un_local_sin_clave_se_activa_tal_cual(perfiles):
+def test_local_without_key_is_activated_as_is(temp_profiles):
     providers.activate("ollama")
     p = providers.active()
     assert p["base_url"] == "http://localhost:11434/v1" and p["local"]
@@ -218,7 +218,7 @@ def test_un_local_sin_clave_se_activa_tal_cual(perfiles):
     assert ai.available()
 
 
-def test_las_variables_de_entorno_mandan_sobre_el_archivo(perfiles, monkeypatch):
+def test_env_vars_override_the_file(temp_profiles, monkeypatch):
     providers.save_profile({"provider": "openai", "key": "sk-archivo", "model": "gpt"})
     monkeypatch.setenv("DANPLAY_AI_KEY", "sk-entorno")
     monkeypatch.setenv("DANPLAY_AI_MODEL", "otro")
@@ -228,20 +228,20 @@ def test_las_variables_de_entorno_mandan_sobre_el_archivo(perfiles, monkeypatch)
     assert providers.active()["provider"] == "ollama"
 
 
-def test_la_clave_de_deepinfra_de_antes_se_migra_sola(perfiles, monkeypatch):
+def test_old_deepinfra_key_is_migrated_automatically(temp_profiles, monkeypatch):
     monkeypatch.setenv("DEEPINFRA_API_KEY", "clave-vieja")
     monkeypatch.setenv("DEEPINFRA_MODEL", "modelo-viejo")
     providers.reload()
     p = providers.active()
     assert p["provider"] == "deepinfra" and p["key"] == "clave-vieja"
     assert p["model"] == "modelo-viejo"
-    assert perfiles.is_file(), "queda escrita para no depender mas de la variable"
+    assert temp_profiles.is_file(), "queda escrita para no depender mas de la variable"
 
 
 # ------------------------------------------------------ catalogo de modelos
 
 
-def test_el_recorte_del_catalogo_deja_solo_conversacion():
+def test_catalog_trim_keeps_only_chat_models():
     raw = {
         "x": {
             "name": "X",
@@ -271,7 +271,7 @@ def test_el_recorte_del_catalogo_deja_solo_conversacion():
     assert out["x"]["models"]["old"]["deprecated"]
 
 
-def test_la_foto_incluida_en_la_app_existe_y_conoce_a_los_grandes():
+def test_bundled_snapshot_exists_and_knows_the_big_ones():
     assert model_catalog.SNAPSHOT.is_file(), "falta danplay/data/models-snapshot.json"
     d = json.loads(model_catalog.SNAPSHOT.read_text(encoding="utf-8"))
     for pid in ("openai", "anthropic", "google", "deepinfra", "openrouter"):
@@ -279,7 +279,7 @@ def test_la_foto_incluida_en_la_app_existe_y_conoce_a_los_grandes():
         assert d["providers"][pid]["models"], pid
 
 
-def test_la_recomendacion_evita_obsoletos_experimentales_y_sin_herramientas():
+def test_recommendation_skips_deprecated_experimental_toolless():
     models = [
         {
             "id": "a-exp",
@@ -332,7 +332,7 @@ def test_la_recomendacion_evita_obsoletos_experimentales_y_sin_herramientas():
     assert model_catalog.recommend([]) == {"chat": "", "fast": ""}
 
 
-def test_sin_red_el_catalogo_no_rompe_nada(monkeypatch, tmp_path):
+def test_offline_catalog_breaks_nothing(monkeypatch, tmp_path):
     monkeypatch.setattr(model_catalog, "CACHE", tmp_path / "no.json")
     monkeypatch.setattr(model_catalog, "SOURCE", "http://127.0.0.1:9/nada")
     model_catalog.forget()
@@ -352,7 +352,7 @@ def _fake(monkeypatch, fake):
     monkeypatch.setattr(ai, "_build_client", lambda p: fake)
 
 
-def test_si_el_proveedor_rechaza_json_se_reintenta_sin_el_y_se_recuerda(perfiles, monkeypatch):
+def test_json_rejected_is_retried_without_it_and_remembered(temp_profiles, monkeypatch):
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
     fake = _FakeClient(
         rejects={"response_format": "400: response_format is not supported"},
@@ -368,7 +368,7 @@ def test_si_el_proveedor_rechaza_json_se_reintenta_sin_el_y_se_recuerda(perfiles
     )
 
 
-def test_tool_choice_obligatorio_baja_a_auto_si_no_lo_admiten(perfiles, monkeypatch):
+def test_required_tool_choice_falls_back_to_auto_if_unsupported(temp_profiles, monkeypatch):
     providers.save_profile({"provider": "lmstudio", "model": "m", "chat_model": "m"})
     fake = _FakeClient(rejects={"tool_choice": "400: tool_choice 'required' is not supported"})
     _fake(monkeypatch, fake)
@@ -381,7 +381,7 @@ def test_tool_choice_obligatorio_baja_a_auto_si_no_lo_admiten(perfiles, monkeypa
     assert fake.calls[-1]["tool_choice"] == "auto"
 
 
-def test_un_modelo_sin_herramientas_se_dice_claro(perfiles, monkeypatch):
+def test_model_without_tools_is_reported_clearly(temp_profiles, monkeypatch):
     providers.save_profile({"provider": "ollama", "model": "gemma", "chat_model": "gemma"})
     fake = _FakeClient(
         rejects={"tools": "400: registry.ollama.ai/library/gemma does not support tools"}
@@ -398,7 +398,7 @@ def test_un_modelo_sin_herramientas_se_dice_claro(perfiles, monkeypatch):
     assert "herramientas" in r["error"] and "gemma" in r["error"]
 
 
-def test_los_razonadores_de_openai_no_reciben_temperatura(perfiles, monkeypatch):
+def test_openai_reasoners_get_no_temperature(temp_profiles, monkeypatch):
     providers.save_profile(
         {"provider": "openai", "key": "sk", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"}
     )
@@ -408,7 +408,7 @@ def test_los_razonadores_de_openai_no_reciben_temperatura(perfiles, monkeypatch)
     assert "temperature" not in fake.calls[-1], "el catalogo dice que no la admite"
 
 
-def test_los_parametros_extra_del_perfil_viajan_en_cada_peticion(perfiles, monkeypatch):
+def test_profile_extra_params_go_with_every_request(temp_profiles, monkeypatch):
     providers.save_profile(
         {
             "provider": "openrouter",
@@ -423,7 +423,7 @@ def test_los_parametros_extra_del_perfil_viajan_en_cada_peticion(perfiles, monke
     assert fake.calls[-1]["extra_body"] == {"reasoning": {"effort": "low"}}
 
 
-def test_probar_distingue_clave_mala_de_sin_conexion(perfiles, monkeypatch):
+def test_check_tells_bad_key_from_no_connection(temp_profiles, monkeypatch):
     providers.save_profile({"provider": "groq", "key": "k", "model": "m"})
     bad = Exception("Error code: 401 - invalid api key")
     bad.status_code = 401
@@ -447,7 +447,7 @@ def test_probar_distingue_clave_mala_de_sin_conexion(perfiles, monkeypatch):
     assert not r["ok"] and "arrancado" in r["reason"]
 
 
-def test_probar_comprueba_que_el_modelo_de_conversacion_usa_herramientas(perfiles, monkeypatch):
+def test_check_verifies_the_chat_model_uses_tools(temp_profiles, monkeypatch):
     providers.save_profile(
         {"provider": "groq", "key": "k", "model": "chico", "chat_model": "grande"}
     )
@@ -471,7 +471,7 @@ def test_probar_comprueba_que_el_modelo_de_conversacion_usa_herramientas(perfile
     assert calls[0]["max_tokens"] == 1, "la prueba de clave es la mas barata posible"
 
 
-def test_la_lista_de_modelos_cruza_con_el_catalogo(perfiles, monkeypatch):
+def test_model_list_is_crossed_with_the_catalog(temp_profiles, monkeypatch):
     providers.save_profile({"provider": "openai", "key": "k", "model": "m"})
     fake = _FakeClient(models=["gpt-6-astra", "modelo-desconocido"])
     _fake(monkeypatch, fake)
@@ -489,12 +489,12 @@ def _error(status, text):
     )
 
 
-def test_solo_se_enseñan_los_modelos_que_la_clave_puede_usar(perfiles, monkeypatch):
+def test_only_models_the_key_can_use_are_shown(temp_profiles, monkeypatch):
     """Google lista sesenta modelos a una clave gratuita y muchos no sirven:
     retirados, sin cuota en ese plan, que no son de chat. Se prueba cada uno
     y se quitan; el saturado se queda (es pasajero)."""
     providers.save_profile({"provider": "google", "key": "k", "model": "m"})
-    fallos = {
+    failures = {
         "gemini-2.5-pro": _error(
             404, "This model models/gemini-2.5-pro is no longer available to new users."
         ),
@@ -505,14 +505,14 @@ def test_solo_se_enseñan_los_modelos_que_la_clave_puede_usar(perfiles, monkeypa
         "gemini-3.8-flash": _error(429, "Quota exceeded, limit: 20, model: gemini-3.8-flash"),
         "gemini-3.6-flash": _error(503, "This model is currently experiencing high demand."),
     }
-    listados = [*fallos, "gemini-3.5-flash", "gemini-embedding-2", "gemini-3.8-flash-tts"]
-    fake = _FakeClient(models=[f"models/{m}" for m in listados])
-    probados = []
+    listed = [*failures, "gemini-3.5-flash", "gemini-embedding-2", "gemini-3.8-flash-tts"]
+    fake = _FakeClient(models=[f"models/{m}" for m in listed])
+    probed = []
 
     def create(**kw):
-        probados.append(kw["model"])
-        if kw["model"] in fallos:
-            raise fallos[kw["model"]]
+        probed.append(kw["model"])
+        if kw["model"] in failures:
+            raise failures[kw["model"]]
         return type("r", (), {"choices": [type("c", (), {"message": _Msg("ok")})()]})()
 
     fake.chat.completions.create = create
@@ -524,26 +524,26 @@ def test_solo_se_enseñan_los_modelos_que_la_clave_puede_usar(perfiles, monkeypa
         "gemini-3.8-flash",
         "gemini-3.6-flash",
     }, "sin el prefijo models/, y sin voz ni embeddings"
-    por_id = {m["id"]: m for m in r["models"]}
-    assert por_id["gemini-3.8-flash"]["note"] and por_id["gemini-3.6-flash"]["note"]
-    assert "note" not in por_id["gemini-3.5-flash"]
-    ocultos = {h["id"]: h["reason"] for h in r["hidden"]}
-    assert set(ocultos) == {"gemini-2.5-pro", "gemini-3.1-pro-preview", "antigravity-preview"}
-    assert "retirado" in ocultos["gemini-2.5-pro"]
-    assert "cuota" in ocultos["gemini-3.1-pro-preview"]
-    assert "embedding" not in " ".join(probados), "lo que no conversa ni se prueba"
+    by_id = {m["id"]: m for m in r["models"]}
+    assert by_id["gemini-3.8-flash"]["note"] and by_id["gemini-3.6-flash"]["note"]
+    assert "note" not in by_id["gemini-3.5-flash"]
+    hidden = {h["id"]: h["reason"] for h in r["hidden"]}
+    assert set(hidden) == {"gemini-2.5-pro", "gemini-3.1-pro-preview", "antigravity-preview"}
+    assert "retirado" in hidden["gemini-2.5-pro"]
+    assert "cuota" in hidden["gemini-3.1-pro-preview"]
+    assert "embedding" not in " ".join(probed), "lo que no conversa ni se prueba"
 
     # lo probado se recuerda: abrir el modal otra vez no gasta cuota
-    probados.clear()
+    probed.clear()
     ai.forget_verified()  # tambien tras reiniciar: esta en disco
     r2 = ai.list_models()
-    assert probados == [] and {m["id"] for m in r2["models"]} == set(por_id)
+    assert probed == [] and {m["id"] for m in r2["models"]} == set(by_id)
     # con «Cargar la lista» se vuelve a probar todo
     ai.list_models(recheck=True)
-    assert len(probados) == len(fallos) + 1
+    assert len(probed) == len(failures) + 1
 
 
-def test_un_servidor_local_no_se_prueba_modelo_a_modelo(perfiles, monkeypatch):
+def test_local_server_models_are_not_checked_one_by_one(temp_profiles, monkeypatch):
     """Lo que lista Ollama es lo descargado; probarlo cargaria cada modelo."""
     providers.save_profile({"provider": "ollama", "model": "m"})
     fake = _FakeClient(models=["qwen3:8b", "nomic-embed-text"])
@@ -553,7 +553,7 @@ def test_un_servidor_local_no_se_prueba_modelo_a_modelo(perfiles, monkeypatch):
     assert fake.calls == []
 
 
-def test_un_borrador_sin_clave_usa_la_guardada(perfiles):
+def test_draft_without_key_uses_the_saved_one(temp_profiles):
     providers.save_profile({"provider": "mistral", "key": "clave-guardada", "model": "m"})
     d = providers.with_saved_key({"id": "mistral", "provider": "mistral", "model": "otro"})
     assert d["key"] == "clave-guardada"
@@ -564,7 +564,7 @@ def test_un_borrador_sin_clave_usa_la_guardada(perfiles):
 # --------------------------------------------------------- gratis, sin clave
 
 
-def test_los_gratuitos_van_primero_y_no_exigen_clave():
+def test_free_providers_come_first_and_need_no_key():
     assert providers.GROUPS[0]["id"] == "free"
     assert providers.FREE_ORDER and providers.FREE_ORDER[0] == "llm7"
     for pid in providers.FREE_ORDER:
@@ -576,7 +576,7 @@ def test_los_gratuitos_van_primero_y_no_exigen_clave():
         )
 
 
-def test_probar_gratis_activa_el_primero_que_responde(perfiles, monkeypatch):
+def test_try_free_activates_the_first_that_answers(temp_profiles, monkeypatch):
     class _Call:
         id = "1"
         function = type("f", (), {"name": "saluda", "arguments": "{}"})()
@@ -608,7 +608,7 @@ def test_probar_gratis_activa_el_primero_que_responde(perfiles, monkeypatch):
     assert ai.available(), "sin clave, pero listo"
 
 
-def test_probar_gratis_sin_ninguno_vivo_lo_dice_y_no_activa_nada(perfiles, monkeypatch):
+def test_try_free_with_none_alive_says_so_activates_none(temp_profiles, monkeypatch):
     def client_for(p):
         fake = _FakeClient()
 
@@ -625,7 +625,7 @@ def test_probar_gratis_sin_ninguno_vivo_lo_dice_y_no_activa_nada(perfiles, monke
     assert providers.active_id() == ""
 
 
-def test_sin_clave_la_lista_solo_enseña_lo_que_sirve_a_anonimos(perfiles, monkeypatch):
+def test_without_key_list_only_shows_anonymous_models(temp_profiles, monkeypatch):
     rows = [{"id": "minimax-m2.7", "tier": "turbo"}, {"id": "gpt-6-astra", "tier": "pro"}]
     fake = _FakeClient()
     fake.models = type(
@@ -653,14 +653,14 @@ def test_sin_clave_la_lista_solo_enseña_lo_que_sirve_a_anonimos(perfiles, monke
     monkeypatch.setattr(ai, "_build_client", lambda p: fake)
     sin = ai.list_models({"provider": "llm7"})
     assert [m["id"] for m in sin["models"]] == ["minimax-m2.7"]
-    con = ai.list_models({"provider": "llm7", "key": "token"})
-    assert {m["id"] for m in con["models"]} == {"minimax-m2.7", "gpt-6-astra"}
+    with_extra = ai.list_models({"provider": "llm7", "key": "token"})
+    assert {m["id"] for m in with_extra["models"]} == {"minimax-m2.7", "gpt-6-astra"}
 
 
 # ---------------------------------------------------------------------- TOON
 
 
-def test_toon_sigue_la_especificacion():
+def test_toon_follows_the_spec():
     from danplay import toon
 
     enc = toon.encode
@@ -715,7 +715,7 @@ def test_toon_sigue_la_especificacion():
         enc({}, ";")
 
 
-def test_las_herramientas_llegan_al_modelo_en_toon_y_pesan_menos(perfiles, monkeypatch):
+def test_tools_reach_the_model_in_toon_and_weigh_less(temp_profiles, monkeypatch):
     from danplay import chat, toon
 
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
@@ -758,17 +758,17 @@ def test_las_herramientas_llegan_al_modelo_en_toon_y_pesan_menos(perfiles, monke
     )
 
 
-def test_una_ficha_de_ia_vacia_no_se_reutiliza(monkeypatch):
+def test_empty_ai_details_are_not_reused(monkeypatch):
     from danplay import enrich
 
-    vacia = json.dumps({"album": "", "confidence": 0.2})
+    empty = json.dumps({"album": "", "confidence": 0.2})
     # de antes de 1.21: con el tono y los acordes que la IA decia de memoria
-    buena = json.dumps(
+    good = json.dumps(
         {"album": "Gozo", "likely_key": "Bb", "progression": "| Bb | Gm |", "confidence": 0.8}
     )
-    assert enrich.cached_details({"chords": vacia}) is None
-    assert enrich.cached_details({"chords": buena})["album"] == "Gozo"
-    assert "likely_key" not in (enrich.cached_details({"chords": buena}) or {}), "ya no se enseña"
+    assert enrich.cached_details({"chords": empty}) is None
+    assert enrich.cached_details({"chords": good})["album"] == "Gozo"
+    assert "likely_key" not in (enrich.cached_details({"chords": good}) or {}), "ya no se enseña"
     assert enrich.cached_details({"chords": ""}) is None
     assert enrich.cached_details({"chords": "esto no es json"}) is None
     # con una vacia guardada se vuelve a preguntar, y lo nuevo se guarda
@@ -782,10 +782,10 @@ def test_una_ficha_de_ia_vacia_no_se_reutiliza(monkeypatch):
     )
     saved = {}
     monkeypatch.setattr(enrich.library, "update", lambda cid, **f: saved.update(f))
-    d, cached = enrich.details_for({"id": 7, "chords": vacia})
+    d, cached = enrich.details_for({"id": 7, "chords": empty})
     assert asked == [7] and not cached and d["album"] == "Gozo"
     assert json.loads(saved["chords"]) == {"album": "Gozo", "confidence": 0.7}
-    d, cached = enrich.details_for({"id": 8, "chords": buena})
+    d, cached = enrich.details_for({"id": 8, "chords": good})
     assert cached and asked == [7], "la buena se reutiliza sin preguntar"
 
 
@@ -803,7 +803,7 @@ def _chunk(content=None, tool=None, usage=None):
     return NS(choices=[NS(delta=delta)] if (content is not None or tool) else [], usage=usage)
 
 
-def test_la_respuesta_en_trozos_se_junta_y_se_va_enseñando():
+def test_chunked_reply_is_joined_and_shown_as_it_arrives():
     from types import SimpleNamespace as NS
 
     seen = []
@@ -816,7 +816,7 @@ def test_la_respuesta_en_trozos_se_junta_y_se_va_enseñando():
     assert usage.prompt_tokens == 10
 
 
-def test_las_herramientas_en_trozos_se_recomponen_y_el_preambulo_se_retira():
+def test_chunked_tool_calls_are_rebuilt_and_preamble_dropped():
     seen = []
     stream = iter(
         [
@@ -836,7 +836,7 @@ def test_las_herramientas_en_trozos_se_recomponen_y_el_preambulo_se_retira():
     assert msg.tool_calls[0].function.arguments == "{}"
 
 
-def test_el_razonamiento_abierto_no_se_enseña_a_medias():
+def test_unclosed_reasoning_is_not_shown_half_done():
     seen = []
     stream = iter([_chunk("<think>pienso"), _chunk(" mas</think>"), _chunk("Respuesta")])
     msg, _ = ai._collect(stream, on_text=seen.append)
@@ -844,7 +844,7 @@ def test_el_razonamiento_abierto_no_se_enseña_a_medias():
     assert ai.message_text(msg) == "Respuesta"
 
 
-def test_cancelar_corta_la_respuesta_y_cierra_el_flujo():
+def test_cancel_cuts_the_reply_and_closes_the_stream():
     import threading
 
     closed = []
@@ -867,7 +867,7 @@ def test_cancelar_corta_la_respuesta_y_cierra_el_flujo():
     assert closed == [True]
 
 
-def test_si_el_activo_esta_caido_responde_el_respaldo(perfiles, monkeypatch):
+def test_fallback_answers_when_the_active_one_is_down(temp_profiles, monkeypatch):
     providers.save_profile(
         {"provider": "openai", "key": "k", "model": "gpt-5.6-luna", "chat_model": "gpt-5.6-luna"}
     )
@@ -922,7 +922,7 @@ def test_si_el_activo_esta_caido_responde_el_respaldo(perfiles, monkeypatch):
         ai.complete([{"role": "user", "content": "hola"}], purpose="chat")
 
 
-def test_un_error_del_mensaje_no_dispara_el_respaldo(perfiles, monkeypatch):
+def test_message_error_does_not_trigger_the_fallback(temp_profiles, monkeypatch):
     providers.save_profile({"provider": "openai", "key": "k", "model": "m", "chat_model": "m"})
     providers.save_profile({"provider": "groq", "key": "k2", "model": "g", "activate": False})
     providers.activate("openai")
@@ -947,7 +947,7 @@ def test_un_error_del_mensaje_no_dispara_el_respaldo(perfiles, monkeypatch):
     assert tried == ["openai"], "un 400 es cosa del mensaje: el respaldo no lo arregla"
 
 
-def test_el_uso_se_apunta_por_turno_y_en_la_base(perfiles, monkeypatch, tmp_path):
+def test_usage_is_logged_per_turn_and_in_the_db(temp_profiles, monkeypatch, tmp_path):
     from types import SimpleNamespace as NS
 
     from danplay import library
@@ -980,7 +980,7 @@ def test_el_uso_se_apunta_por_turno_y_en_la_base(perfiles, monkeypatch, tmp_path
     assert abs(s["today"]["cost"] - usage["cost"]) < 1e-6
 
 
-def test_la_identificacion_pide_esquema_si_el_modelo_lo_admite(perfiles, monkeypatch):
+def test_identify_asks_for_schema_if_the_model_supports_it(temp_profiles, monkeypatch):
     providers.save_profile(
         {"provider": "openai", "key": "k", "model": "gpt-6-astra", "chat_model": "gpt-6-astra"}
     )
@@ -1020,7 +1020,7 @@ def test_la_identificacion_pide_esquema_si_el_modelo_lo_admite(perfiles, monkeyp
 # ------------------------------------------------------- lo que ve el usuario
 
 
-def test_el_estado_real_cuenta_lo_que_ve_selecciona_y_suena():
+def test_screen_state_tells_what_is_seen_selected_playing():
     from danplay import chat
 
     lines = chat._screen_note(
@@ -1043,7 +1043,7 @@ def test_el_estado_real_cuenta_lo_que_ve_selecciona_y_suena():
     assert chat._screen_note(None) == [] and chat._screen_note({}) == []
 
 
-def test_el_contexto_llega_al_modelo_en_el_estado_real(perfiles, monkeypatch):
+def test_context_reaches_the_model_as_screen_state(temp_profiles, monkeypatch):
     from danplay import chat
 
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
@@ -1067,7 +1067,7 @@ def test_el_contexto_llega_al_modelo_en_el_estado_real(perfiles, monkeypatch):
 # --------------------------------------------------------- tonos y la hoja
 
 
-def test_los_tonos_vecinos():
+def test_neighbor_keys():
     from danplay import theory
 
     r = theory.related_keys("G")
@@ -1077,7 +1077,7 @@ def test_los_tonos_vecinos():
     assert theory.related_keys("nada") is None
 
 
-def test_las_conversaciones_se_guardan_y_se_buscan(monkeypatch, tmp_path):
+def test_chats_are_saved_and_searchable(monkeypatch, tmp_path):
     from danplay import chats
 
     monkeypatch.setattr(config, "DATABASE", tmp_path / "chats.db")
@@ -1120,12 +1120,12 @@ def test_las_conversaciones_se_guardan_y_se_buscan(monkeypatch, tmp_path):
     assert chats.delete(c["id"]) and chats.get(c["id"]) is None
     assert chats.title_from("x" * 100).endswith("…")
     # la lista pegada: la primera linea con texto, sin las marcas de WhatsApp
-    pegada = "\n  \nagrégame esto a la lista:\n*Domingo*✅\n*1.- Mi Gozo*"
-    assert chats.title_from(pegada) == "agrégame esto a la lista:"
+    pasted = "\n  \nagrégame esto a la lista:\n*Domingo*✅\n*1.- Mi Gozo*"
+    assert chats.title_from(pasted) == "agrégame esto a la lista:"
     assert chats.title_from("*Domingo* _ensayo_ ~viejo~") == "Domingo ensayo viejo"
 
 
-def test_una_llamada_escrita_como_texto_se_ejecuta_igual(perfiles, monkeypatch):
+def test_tool_call_written_as_text_still_runs(temp_profiles, monkeypatch):
     """Algun modelo, en vez de llamar a la herramienta, escribe la llamada:
     «búsqueda: search_songs query="rey infinito"». Si es solo eso, se entiende
     y es una consulta, se ejecuta como si la hubiera hecho; si no se entiende,
@@ -1210,7 +1210,7 @@ def test_una_llamada_escrita_como_texto_se_ejecuta_igual(perfiles, monkeypatch):
     assert fake.calls[1]["tool_choice"] == "required"
 
 
-def test_un_flujo_roto_a_medias_se_repite_entero(perfiles, monkeypatch):
+def test_stream_broken_halfway_is_retried_whole(temp_profiles, monkeypatch):
     """DeepInfra manda de vez en cuando un evento vacio y el SDK rompe el
     flujo: la peticion se repite sin trozos y la respuesta llega igual."""
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
@@ -1246,7 +1246,7 @@ def test_un_flujo_roto_a_medias_se_repite_entero(perfiles, monkeypatch):
     assert [bool(c.get("stream")) for c in fake.calls] == [False]
 
 
-def test_al_juez_solo_se_le_molesta_si_se_pidio_una_accion(perfiles, monkeypatch):
+def test_judge_is_only_called_when_an_action_was_asked(temp_profiles, monkeypatch):
     """«Di solo: listo» costaba cuatro llamadas: «listo» disparaba al juez,
     que decia que si, y venia el toque. En una charla normal no hay accion
     que narrar; el juez es para cuando la persona PIDIO hacer algo."""
@@ -1279,7 +1279,7 @@ def test_al_juez_solo_se_le_molesta_si_se_pidio_una_accion(perfiles, monkeypatch
     assert any(kw.get("max_tokens") == 3 for kw in fake2.calls), "el juez se consulto"
 
 
-def test_las_herramientas_opcionales_solo_van_cuando_la_charla_lo_pide():
+def test_optional_tools_only_sent_when_the_chat_needs_them():
     """Cada herramienta declarada cuesta tokens en cada llamada: las de
     descargar, las de musico y la de letra+caratula solo se añaden si la
     conversacion (cualquiera de los dos) habla de eso."""
@@ -1305,7 +1305,7 @@ def test_las_herramientas_opcionales_solo_van_cuando_la_charla_lo_pide():
     assert {"transpose_chords", "setlist_sheet"} <= music
 
 
-def test_el_presupuesto_solo_avisa(perfiles, monkeypatch, tmp_path):
+def test_budget_only_warns(temp_profiles, monkeypatch, tmp_path):
     from danplay import chat, library
 
     monkeypatch.setattr(config, "DATABASE", tmp_path / "gasto.db")
@@ -1328,7 +1328,7 @@ def test_el_presupuesto_solo_avisa(perfiles, monkeypatch, tmp_path):
     assert "budget" not in r
 
 
-def test_una_conversacion_se_exporta_como_texto(monkeypatch, tmp_path):
+def test_chat_is_exported_as_text(monkeypatch, tmp_path):
     from danplay import chats
 
     monkeypatch.setattr(config, "DATABASE", tmp_path / "chats.db")
@@ -1356,7 +1356,7 @@ def test_una_conversacion_se_exporta_como_texto(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("text", ["[1, 2]", '"una cadena"', "null", "42", "no es json"])
-def test_solo_un_objeto_json_cuenta_como_respuesta(text):
+def test_only_a_json_object_counts_as_a_reply(text):
     """Un modelo puede contestar una lista, una cadena o `null` (JSON valido):
     quien llama hace `.get` y eso era un 500 en la ficha."""
     assert ai._json_from(text) is None
@@ -1365,7 +1365,7 @@ def test_solo_un_objeto_json_cuenta_como_respuesta(text):
 
 
 @pytest.mark.parametrize("answer", [None, [], "texto", 7])
-def test_la_ficha_aguanta_una_respuesta_que_no_es_un_objeto(monkeypatch, answer):
+def test_details_survive_a_reply_that_is_not_an_object(monkeypatch, answer):
     from danplay import enrich
 
     monkeypatch.setattr(enrich, "details", lambda song: answer)
@@ -1394,7 +1394,7 @@ def test_la_ficha_aguanta_una_respuesta_que_no_es_un_objeto(monkeypatch, answer)
     assert "error" not in enrich.enrich(1, with_lyrics=False, with_cover=False)
 
 
-def test_una_confianza_que_no_es_numero_no_rompe_nada(monkeypatch):
+def test_non_numeric_confidence_breaks_nothing(monkeypatch):
     from danplay import enrich
 
     assert enrich.cached_details({"chords": json.dumps({"confidence": "alta"})}) is None
@@ -1420,7 +1420,7 @@ def test_una_confianza_que_no_es_numero_no_rompe_nada(monkeypatch):
     assert r["ok"] and "0%" in r["reason"] and "LaCuerda" in r["reason"]
 
 
-def test_argumentos_null_no_tumban_el_chat(perfiles, monkeypatch):
+def test_null_arguments_do_not_crash_the_chat(temp_profiles, monkeypatch):
     """`"arguments": "null"` dejaba args=None y el dialogo de confirmacion
     reventaba fuera de todo try: un 500 en vez de una respuesta. Ahora, ademas,
     una confirmacion sin nada que confirmar no se pide: el modelo recibe el
@@ -1455,7 +1455,7 @@ def test_argumentos_null_no_tumban_el_chat(perfiles, monkeypatch):
     assert chat._describe("delete_song", {"id": "abc"}), "sin excepcion"
 
 
-def test_las_herramientas_tienen_topes(monkeypatch):
+def test_tools_have_limits(monkeypatch):
     from danplay import chat, library, web, youtube
 
     seen = {}
@@ -1476,7 +1476,7 @@ def test_las_herramientas_tienen_topes(monkeypatch):
     assert seen["web"] == 10
 
 
-def test_editar_por_el_asistente_solo_toca_lo_declarado(monkeypatch):
+def test_assistant_edit_only_touches_declared_fields(monkeypatch):
     """Una clave de mas llegaba a library.update y podia pisar el estudio o
     los acordes."""
     from danplay import chat, library
@@ -1505,7 +1505,7 @@ def test_editar_por_el_asistente_solo_toca_lo_declarado(monkeypatch):
     assert "error" in chat.run_tool("edit_song", {"id": 3, "study": "{}"})
 
 
-def test_la_letra_con_tiempos_no_llega_al_uslt(monkeypatch):
+def test_timed_lyrics_do_not_reach_the_uslt(monkeypatch):
     """Se grababa la LRC en el USLT y la hoja del atril imprimia las marcas."""
     from danplay import enrich
 
@@ -1540,7 +1540,7 @@ def test_la_letra_con_tiempos_no_llega_al_uslt(monkeypatch):
 # ------------------------------------------------ el registro de herramientas
 
 
-def test_cada_herramienta_declarada_tiene_su_manejador():
+def test_every_declared_tool_has_a_handler():
     from danplay import chat
 
     declared = {t["function"]["name"] for t in chat.TOOLS}
@@ -1549,7 +1549,7 @@ def test_cada_herramienta_declarada_tiene_su_manejador():
         assert new in chat.HANDLERS, old
 
 
-def test_los_argumentos_que_no_valen_se_dicen_en_castellano():
+def test_invalid_arguments_are_reported_in_spanish():
     from danplay import chat
 
     r = chat.run_tool("edit_song", {"title": "x"})
@@ -1561,7 +1561,7 @@ def test_los_argumentos_que_no_valen_se_dicen_en_castellano():
     assert chat.run_tool("no_existe", {})["error"] == "herramienta desconocida: no_existe"
 
 
-def test_los_numeros_como_texto_y_el_año_como_numero_valen(monkeypatch):
+def test_numbers_as_text_and_year_as_number_are_accepted(monkeypatch):
     from danplay import chat, library
 
     got = {}
@@ -1585,7 +1585,7 @@ def test_los_numeros_como_texto_y_el_año_como_numero_valen(monkeypatch):
     assert r["ok"] and got == {"cid": 7, "year": "2018", "bpm": 120.0}
 
 
-def test_los_nombres_viejos_siguen_valiendo(monkeypatch):
+def test_old_names_still_work(monkeypatch):
     from danplay import chat, enrich, playlists
 
     rated = []

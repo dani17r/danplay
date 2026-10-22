@@ -1,10 +1,10 @@
-//! `_compat`: las reglas de Python de `biblioteca::py`, para compararlas con
+//! `_compat`: las reglas de Python de `library::py`, para compararlas con
 //! las de verdad desde las pruebas (tests/test_compat.py).
-use biblioteca::py;
+use library::py;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-/// Llama a la regla `name` de `biblioteca::py` con esos argumentos.
+/// Llama a la regla `name` de `library::py` con esos argumentos.
 #[pyfunction(name = "_compat")]
 #[allow(clippy::too_many_lines, reason = "una tabla de reglas, una por línea")]
 pub fn compat(py: Python<'_>, name: &str, args: Vec<Bound<'_, PyAny>>) -> PyResult<Py<PyAny>> {
@@ -90,7 +90,7 @@ pub fn compat(py: Python<'_>, name: &str, args: Vec<Bound<'_, PyAny>>) -> PyResu
             // el texto, y el entorno como diccionario
             let env: std::collections::HashMap<String, String> = args[1].extract()?;
             let lookup = |n: &str| env.get(n).cloned();
-            let out = biblioteca::config::dotenv::values(&text(0)?, &lookup);
+            let out = library::config::dotenv::values(&text(0)?, &lookup);
             out.into_pyobject(py)?.into_any().unbind()
         }
         "config" => config(py, args[0].extract()?, args[1].extract()?)?,
@@ -100,17 +100,17 @@ pub fn compat(py: Python<'_>, name: &str, args: Vec<Bound<'_, PyAny>>) -> PyResu
             let path: std::path::PathBuf = args[0].extract()?;
             let applied = py
                 .detach(|| {
-                    let conn = biblioteca::indice::abrir(&path)?;
-                    biblioteca::indice::esquema::prepare(&conn)
+                    let conn = library::index::open(&path)?;
+                    library::index::schema::prepare(&conn)
                 })
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
             applied.into_pyobject(py)?.into_any().unbind()
         }
-        "schema_version" => biblioteca::indice::esquema::SCHEMA_VERSION
+        "schema_version" => library::index::schema::SCHEMA_VERSION
             .into_pyobject(py)?
             .into_any()
             .unbind(),
-        "dotenv_value" => biblioteca::config::dotenv_value(&text(0)?)
+        "dotenv_value" => library::config::dotenv_value(&text(0)?)
             .into_pyobject(py)?
             .into_any()
             .unbind(),
@@ -119,9 +119,9 @@ pub fn compat(py: Python<'_>, name: &str, args: Vec<Bound<'_, PyAny>>) -> PyResu
     Ok(out)
 }
 
-/// Lo que lee `biblioteca::config::Config`, con los nombres de config.py.
+/// Lo que lee `library::config::Config`, con los nombres de config.py.
 fn config(py: Python<'_>, frozen: bool, root: std::path::PathBuf) -> PyResult<Py<PyAny>> {
-    let c = biblioteca::config::Config::load(frozen, root);
+    let c = library::config::Config::load(frozen, root);
     let d = pyo3::types::PyDict::new(py);
     d.set_item("DATA_DIR", &c.data_dir)?;
     d.set_item("CONFIG_DIR", &c.config_dir)?;
@@ -144,6 +144,6 @@ fn config(py: Python<'_>, frozen: bool, root: std::path::PathBuf) -> PyResult<Py
     d.set_item("STEMS_FORMAT", &c.stems_format)?;
     d.set_item("DUPLICATE_THRESHOLD", c.duplicate_threshold)?;
     d.set_item("ffmpeg", c.find_tool("ffmpeg"))?;
-    d.set_item("default_library", biblioteca::config::default_library())?;
+    d.set_item("default_library", library::config::default_library())?;
     Ok(d.into_any().unbind())
 }

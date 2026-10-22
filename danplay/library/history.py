@@ -1,7 +1,7 @@
 """Lo que no es de ninguna cancion pero se guarda en la base: el historial de
 descargas y lo que gasta la IA. El escaneo no lo toca (solo vacia `songs`).
 
-Lo hace Rust (biblioteca/src/indice/historial.rs); esto es la puerta de
+Lo hace Rust (library/src/index/history.rs); esto es la puerta de
 Python, con los mismos nombres.
 """
 

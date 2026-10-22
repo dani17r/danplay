@@ -44,7 +44,7 @@ def sdk_error(status: int, body: Any) -> openai.APIStatusError:
 
 
 # Anthropic (su capa compatible con OpenAI) sin saldo: el caso del usuario
-ANTHROPIC_SIN_SALDO = {
+ANTHROPIC_NO_CREDIT = {
     "error": {
         "code": "invalid_request_error",
         "message": "Your credit balance is too low to access the Anthropic API. "
@@ -59,7 +59,7 @@ ANTHROPIC_401 = {
 }
 ANTHROPIC_529 = {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}
 # OpenAI: sin saldo (con un 429, que parece «espera») y limite de peticiones
-OPENAI_SIN_CUOTA = {
+OPENAI_NO_QUOTA = {
     "error": {
         "message": "You exceeded your current quota, please check your plan and billing "
         "details. For more information on this error, read the docs: "
@@ -69,7 +69,7 @@ OPENAI_SIN_CUOTA = {
         "code": "insufficient_quota",
     }
 }
-OPENAI_LIMITE = {
+OPENAI_RATE_LIMIT = {
     "error": {
         "message": "Rate limit reached for gpt-5.6-luna in organization org-PruebaPrueba on "
         "requests per min (RPM): Limit 3, Used 3, Requested 1. Please try again in 20s. "
@@ -79,7 +79,7 @@ OPENAI_LIMITE = {
         "code": "rate_limit_exceeded",
     }
 }
-OPENAI_CLAVE_MALA = {
+OPENAI_BAD_KEY = {
     "error": {
         "message": "Incorrect API key provided: sk-proj-********************wxyz. You can find "
         "your API key at https://platform.openai.com/account/api-keys.",
@@ -98,7 +98,7 @@ OPENAI_500 = {
 }
 # Gemini: el limite por minuto (que pasa solo) con «billing» en el texto, y el
 # plan sin cuota para ese modelo (`limit: 0`, que no pasa)
-GEMINI_POR_MINUTO = [
+GEMINI_PER_MINUTE = [
     {
         "error": {
             "code": 429,
@@ -110,7 +110,7 @@ GEMINI_POR_MINUTO = [
         }
     }
 ]
-GEMINI_GRATIS = [
+GEMINI_FREE_TIER = [
     {
         "error": {
             "code": 429,
@@ -123,7 +123,7 @@ GEMINI_GRATIS = [
         }
     }
 ]
-GEMINI_SIN_CUOTA = [
+GEMINI_NO_QUOTA = [
     {
         "error": {
             "code": 429,
@@ -135,7 +135,7 @@ GEMINI_SIN_CUOTA = [
         }
     }
 ]
-GEMINI_CLAVE_400 = [
+GEMINI_KEY_400 = [
     {
         "error": {
             "code": 400,
@@ -145,7 +145,7 @@ GEMINI_CLAVE_400 = [
         }
     }
 ]
-GOOGLE_CLAVE_FILTRADA = [
+GOOGLE_LEAKED_KEY = [
     {
         "error": {
             "code": 403,
@@ -155,7 +155,7 @@ GOOGLE_CLAVE_FILTRADA = [
     }
 ]
 # OpenRouter: modera UN mensaje (403: no es la clave) y se queda sin creditos
-OPENROUTER_MODERACION = {
+OPENROUTER_MODERATION = {
     "error": {
         "message": "Your chosen model requires moderation and your input was flagged as "
         "violating the provider's content policy.",
@@ -175,13 +175,13 @@ OPENROUTER_402 = {
     }
 }
 # otros: xAI sin creditos (con un 403 que habla de permisos), Groq, DeepSeek, Mistral
-XAI_SIN_CREDITOS = {
+XAI_NO_CREDITS = {
     "code": "The caller does not have permission to execute the specified operation",
     "error": "Your team 00000000-test has either used all available credits or reached its "
     "monthly spending limit. To continue making API requests, please purchase more credits "
     "or raise your spending limit.",
 }
-GROQ_LIMITE = {
+GROQ_RATE_LIMIT = {
     "error": {
         "message": "Rate limit reached for model `llama-3.3-70b-versatile` in organization "
         "`org_prueba` service tier `on_demand` on tokens per minute (TPM): Limit 12000, Used "
@@ -206,7 +206,7 @@ ANTHROPIC_403 = {
         "message": "Your API key does not have permission to use the specified resource.",
     },
 }
-OPENAI_CUENTA_INACTIVA = {
+OPENAI_INACTIVE_ACCOUNT = {
     "error": {
         "message": "Your account is not active, please check your billing details on our website.",
         "type": "billing_not_active",
@@ -214,22 +214,22 @@ OPENAI_CUENTA_INACTIVA = {
         "code": "billing_not_active",
     }
 }
-JSON_MAL = {
+BAD_JSON = {
     "error": {
         "message": "Invalid JSON: unbalanced braces near a quotation mark in the request body.",
         "type": "invalid_request_error",
     }
 }
-SERVICIO_503 = {
+SERVICE_503 = {
     "error": {
         "message": "The model is overloaded. Please try again later.",
         "code": 503,
         "status": "UNAVAILABLE",
     }
 }
-PAGINA_502 = "<html><body><h1>502 Bad Gateway</h1></body></html>"
+PAGE_502 = "<html><body><h1>502 Bad Gateway</h1></body></html>"
 # fallos DEL MENSAJE: el respaldo no los arregla
-MENSAJE_VACIO = {
+EMPTY_MESSAGE = {
     "error": {
         "message": "messages must not be empty",
         "type": "invalid_request_error",
@@ -237,7 +237,7 @@ MENSAJE_VACIO = {
         "code": None,
     }
 }
-MODELO_NO_EXISTE = {
+MODEL_NOT_FOUND = {
     "error": {
         "message": "The model `gpt-x` does not exist or you do not have access to it.",
         "type": "invalid_request_error",
@@ -247,9 +247,9 @@ MODELO_NO_EXISTE = {
 }
 
 # secretos falsos (y nada de nombres reales de nadie)
-CLAVE = "zz-clave-falsa-0123456789abcdef"
-CLAVE_RESPALDO = "zz-clave-del-respaldo-9876543210"
-CABECERA = "valor-secreto-de-cabecera-77"
+KEY = "zz-clave-falsa-0123456789abcdef"
+FALLBACK_KEY = "zz-clave-del-respaldo-9876543210"
+HEADER = "valor-secreto-de-cabecera-77"
 EXTRA = "valor-secreto-de-extra-8899"
 
 
@@ -297,7 +297,7 @@ class _Fake:
         self.chat = SimpleNamespace(completions=_Completions)
 
 
-class _FlujoRoto:
+class _BrokenStream:
     """Un flujo que se corta nada mas empezar, con un mensaje."""
 
     def __init__(self, text: str):
@@ -331,7 +331,7 @@ def chat_call(**kw):
 
 
 @pytest.fixture
-def perfiles(tmp_path, monkeypatch):
+def temp_profiles(tmp_path, monkeypatch):
     """Perfiles en un archivo temporal, sin variables de entorno que manden y la
     base del uso de la IA en un temporal."""
     monkeypatch.setattr(providers, "PROFILES_FILE", tmp_path / "ai.json")
@@ -358,7 +358,7 @@ def perfiles(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def reloj(perfiles, monkeypatch):
+def fake_clock(temp_profiles, monkeypatch):
     """La hora, a mano: solo avanza si la prueba se lo dice."""
     clock = _Clock()
     monkeypatch.setattr(ai, "_now", clock)
@@ -370,7 +370,7 @@ def two_providers(extra: dict | None = None, headers: dict | None = None) -> Non
     providers.save_profile(
         {
             "provider": "anthropic",
-            "key": CLAVE,
+            "key": KEY,
             "model": "claude-sonnet-5-5",
             "chat_model": "claude-sonnet-5-5",
             "extra": extra or {},
@@ -380,7 +380,7 @@ def two_providers(extra: dict | None = None, headers: dict | None = None) -> Non
     providers.save_profile(
         {
             "provider": "deepinfra",
-            "key": CLAVE_RESPALDO,
+            "key": FALLBACK_KEY,
             "model": "google/gemini-3.1-flash-lite",
             "chat_model": "Qwen/Qwen3-Next-80B-A3B-Instruct",
         },
@@ -400,56 +400,56 @@ def api_client():
 
 # ---------------------------------------------------- clasificar un fallo
 
-CASOS = [
-    pytest.param(400, ANTHROPIC_SIN_SALDO, "billing", id="anthropic-400-credit-balance"),
-    pytest.param(429, OPENAI_SIN_CUOTA, "billing", id="openai-429-insufficient_quota"),
-    pytest.param(429, OPENAI_LIMITE, "rate", id="openai-429-limite-de-peticiones"),
-    pytest.param(429, GEMINI_POR_MINUTO, "rate", id="gemini-429-quota-exceeded-per-minute"),
-    pytest.param(429, GEMINI_GRATIS, "rate", id="gemini-429-con-billing-en-el-texto"),
-    pytest.param(429, GEMINI_SIN_CUOTA, "billing", id="gemini-429-limit-0"),
-    pytest.param(429, OPENAI_CUENTA_INACTIVA, "billing", id="openai-429-billing_not_active"),
+ERROR_CASES = [
+    pytest.param(400, ANTHROPIC_NO_CREDIT, "billing", id="anthropic-400-credit-balance"),
+    pytest.param(429, OPENAI_NO_QUOTA, "billing", id="openai-429-insufficient_quota"),
+    pytest.param(429, OPENAI_RATE_LIMIT, "rate", id="openai-429-limite-de-peticiones"),
+    pytest.param(429, GEMINI_PER_MINUTE, "rate", id="gemini-429-quota-exceeded-per-minute"),
+    pytest.param(429, GEMINI_FREE_TIER, "rate", id="gemini-429-con-billing-en-el-texto"),
+    pytest.param(429, GEMINI_NO_QUOTA, "billing", id="gemini-429-limit-0"),
+    pytest.param(429, OPENAI_INACTIVE_ACCOUNT, "billing", id="openai-429-billing_not_active"),
     pytest.param(402, OPENROUTER_402, "billing", id="openrouter-402"),
-    pytest.param(403, OPENROUTER_MODERACION, "down", id="openrouter-403-moderacion"),
-    pytest.param(401, OPENAI_CLAVE_MALA, "auth", id="openai-401-clave"),
+    pytest.param(403, OPENROUTER_MODERATION, "down", id="openrouter-403-moderacion"),
+    pytest.param(401, OPENAI_BAD_KEY, "auth", id="openai-401-clave"),
     pytest.param(401, ANTHROPIC_401, "auth", id="anthropic-401-x-api-key"),
-    pytest.param(403, GOOGLE_CLAVE_FILTRADA, "auth", id="google-403-clave-filtrada"),
-    pytest.param(400, GEMINI_CLAVE_400, "auth", id="gemini-400-api-key-not-valid"),
-    pytest.param(403, XAI_SIN_CREDITOS, "billing", id="xai-403-creditos-agotados"),
-    pytest.param(429, GROQ_LIMITE, "rate", id="groq-429-tokens-por-minuto"),
+    pytest.param(403, GOOGLE_LEAKED_KEY, "auth", id="google-403-clave-filtrada"),
+    pytest.param(400, GEMINI_KEY_400, "auth", id="gemini-400-api-key-not-valid"),
+    pytest.param(403, XAI_NO_CREDITS, "billing", id="xai-403-creditos-agotados"),
+    pytest.param(429, GROQ_RATE_LIMIT, "rate", id="groq-429-tokens-por-minuto"),
     pytest.param(402, DEEPSEEK_402, "billing", id="deepseek-402-insufficient-balance"),
     pytest.param(401, MISTRAL_401, "auth", id="mistral-401"),
     pytest.param(403, ANTHROPIC_403, "auth", id="anthropic-403-permission_error"),
     pytest.param(500, OPENAI_500, "down", id="500"),
-    pytest.param(502, PAGINA_502, "down", id="502-pagina-html"),
-    pytest.param(503, SERVICIO_503, "down", id="503-saturado"),
+    pytest.param(502, PAGE_502, "down", id="502-pagina-html"),
+    pytest.param(503, SERVICE_503, "down", id="503-saturado"),
     pytest.param(529, ANTHROPIC_529, "down", id="529-overloaded"),
-    pytest.param(400, MENSAJE_VACIO, "", id="400-del-mensaje"),
-    pytest.param(400, JSON_MAL, "", id="400-con-palabras-que-parecen-de-dinero"),
-    pytest.param(404, MODELO_NO_EXISTE, "", id="404-modelo-inexistente"),
+    pytest.param(400, EMPTY_MESSAGE, "", id="400-del-mensaje"),
+    pytest.param(400, BAD_JSON, "", id="400-con-palabras-que-parecen-de-dinero"),
+    pytest.param(404, MODEL_NOT_FOUND, "", id="404-modelo-inexistente"),
 ]
 
 
-@pytest.mark.parametrize(("status", "body", "kind"), CASOS)
-def test_cada_error_real_se_clasifica_por_su_texto_antes_que_por_su_codigo(status, body, kind):
+@pytest.mark.parametrize(("status", "body", "kind"), ERROR_CASES)
+def test_real_errors_are_classified_by_text_before_code(status, body, kind):
     e = sdk_error(status, body)
     assert isinstance(e, openai.APIStatusError) and e.status_code == status
     assert ai.classify_failure(e) == (kind, status)
     assert ai._is_down(e) is bool(kind), "solo lo del servicio manda al respaldo"
 
 
-def test_el_tiempo_agotado_y_la_conexion_caida_son_down_y_sin_codigo():
+def test_timeout_and_lost_connection_are_down_without_code():
     timeout = openai.APITimeoutError(request=_REQUEST)
-    conexion = openai.APIConnectionError(message="Connection error.", request=_REQUEST)
-    assert str(timeout) == "Request timed out." and str(conexion) == "Connection error."
+    connection_error = openai.APIConnectionError(message="Connection error.", request=_REQUEST)
+    assert str(timeout) == "Request timed out." and str(connection_error) == "Connection error."
     assert ai.classify_failure(timeout) == ("down", None)
-    assert ai.classify_failure(conexion) == ("down", None)
+    assert ai.classify_failure(connection_error) == ("down", None)
     # y los que no son del SDK
     assert ai.classify_failure(TimeoutError("timed out")) == ("down", None)
     assert ai.classify_failure(ConnectionRefusedError("Connection refused")) == ("down", None)
     assert ai.classify_failure(ValueError("el modelo devolvio algo raro")) == ("", None)
 
 
-def test_el_codigo_tambien_se_lee_del_texto_si_la_excepcion_no_lo_trae():
+def test_code_is_read_from_the_text_if_the_exception_lacks_it():
     assert ai.classify_failure(Exception("Error code: 503 - service unavailable")) == ("down", 503)
     assert ai.classify_failure(Exception("429 Too Many Requests")) == ("rate", 429)
     assert ai.classify_failure(Exception("402 Payment Required")) == ("billing", 402)
@@ -459,62 +459,60 @@ def test_el_codigo_tambien_se_lee_del_texto_si_la_excepcion_no_lo_trae():
 @pytest.mark.parametrize(
     ("status", "body", "kind", "hold"),
     [
-        pytest.param(400, ANTHROPIC_SIN_SALDO, "billing", 20 * 60, id="sin-saldo-20-min"),
-        pytest.param(401, OPENAI_CLAVE_MALA, "auth", 20 * 60, id="clave-20-min"),
-        pytest.param(429, GEMINI_POR_MINUTO, "rate", 120, id="limite-2-min"),
-        pytest.param(503, SERVICIO_503, "down", 60, id="caido-60-s"),
-        pytest.param(403, OPENROUTER_MODERACION, "down", 60, id="403-sin-motivo-60-s"),
+        pytest.param(400, ANTHROPIC_NO_CREDIT, "billing", 20 * 60, id="sin-saldo-20-min"),
+        pytest.param(401, OPENAI_BAD_KEY, "auth", 20 * 60, id="clave-20-min"),
+        pytest.param(429, GEMINI_PER_MINUTE, "rate", 120, id="limite-2-min"),
+        pytest.param(503, SERVICE_503, "down", 60, id="caido-60-s"),
+        pytest.param(403, OPENROUTER_MODERATION, "down", 60, id="403-sin-motivo-60-s"),
     ],
 )
-def test_cuanto_se_da_por_caido_depende_de_por_que_fallo(
-    reloj, monkeypatch, status, body, kind, hold
+def test_how_long_it_stays_down_depends_on_why_it_failed(
+    fake_clock, monkeypatch, status, body, kind, hold
 ):
     two_providers()
-    principal = _Fake(fails(status, body))
-    server(monkeypatch, anthropic=principal, deepinfra=_Fake(answers("desde el respaldo")))
+    primary = _Fake(fails(status, body))
+    server(monkeypatch, anthropic=primary, deepinfra=_Fake(answers("desde el respaldo")))
     r = chat_call()
     assert ai.message_text(r.message) == "desde el respaldo"
-    assert ai._down_until["anthropic"] == reloj() + hold
-    assert ai.status()["primary"]["problem"] == {"kind": kind, "code": status, "at": reloj()}
+    assert ai._down_until["anthropic"] == fake_clock() + hold
+    assert ai.status()["primary"]["problem"] == {"kind": kind, "code": status, "at": fake_clock()}
     assert r.via["fallback"] and r.via["reason"] == kind
 
 
 # --------------------------------------------- la marca nace al fallar
 
 
-def test_la_marca_nace_al_fallar_y_no_antes_de_la_llamada(reloj, monkeypatch):
+def test_the_mark_is_set_on_failure_not_before_the_call(fake_clock, monkeypatch):
     """Con un tiempo limite de 60 s y los reintentos del SDK, un proveedor
     caido tarda minutos en fallar. La marca se ponia con la hora de ANTES de
     la llamada y nacia ya caducada: el turno siguiente volvia a esperarle."""
     two_providers()
 
-    def tarda_y_cae(kw):
-        reloj.advance(200)  # el tiempo limite y los reintentos del SDK
-        raise sdk_error(503, SERVICIO_503)
+    def slow_then_down(kw):
+        fake_clock.advance(200)  # el tiempo limite y los reintentos del SDK
+        raise sdk_error(503, SERVICE_503)
 
-    principal = _Fake(tarda_y_cae)
-    server(monkeypatch, anthropic=principal, deepinfra=_Fake(answers("desde el respaldo")))
+    primary = _Fake(slow_then_down)
+    server(monkeypatch, anthropic=primary, deepinfra=_Fake(answers("desde el respaldo")))
     r = chat_call()
     assert r.via["fallback"]
-    fallo = reloj()  # el instante en que acabo de fallar
-    assert ai._down_until["anthropic"] == fallo + ai.DOWN_FOR
-    assert ai._down_until["anthropic"] > reloj(), "no nace caducada"
+    error = fake_clock()  # el instante en que acabo de fallar
+    assert ai._down_until["anthropic"] == error + ai.DOWN_FOR
+    assert ai._down_until["anthropic"] > fake_clock(), "no nace caducada"
     chat_call()
-    assert len(principal.calls) == 1, "el segundo turno va directo al respaldo"
+    assert len(primary.calls) == 1, "el segundo turno va directo al respaldo"
 
 
-def test_sin_saldo_el_segundo_turno_va_directo_al_respaldo_hasta_pasados_20_minutos(
-    reloj, monkeypatch
-):
+def test_no_credit_next_turn_goes_to_fallback_for_20_minutes(fake_clock, monkeypatch):
     """El caso del usuario: Anthropic sin saldo contestaba el respaldo en TODOS
     los mensajes, y cada uno perdia ademas una llamada fallida."""
     two_providers()
-    principal = _Fake(fails(400, ANTHROPIC_SIN_SALDO))
-    respaldo = _Fake(answers("hola, soy el respaldo"))
-    server(monkeypatch, anthropic=principal, deepinfra=respaldo)
+    primary = _Fake(fails(400, ANTHROPIC_NO_CREDIT))
+    fallback = _Fake(answers("hola, soy el respaldo"))
+    server(monkeypatch, anthropic=primary, deepinfra=fallback)
 
     r1 = chat_call()
-    assert len(principal.calls) == 1 and len(respaldo.calls) == 1
+    assert len(primary.calls) == 1 and len(fallback.calls) == 1
     assert r1.via == {
         "id": "deepinfra",
         "name": providers.BY_ID["deepinfra"]["name"],
@@ -522,30 +520,30 @@ def test_sin_saldo_el_segundo_turno_va_directo_al_respaldo_hasta_pasados_20_minu
         "fallback": True,
         "reason": "billing",
     }
-    reloj.advance(30)
+    fake_clock.advance(30)
     r2 = chat_call()
-    assert len(principal.calls) == 1, "ni se le llama: ya se sabe que no tiene saldo"
+    assert len(primary.calls) == 1, "ni se le llama: ya se sabe que no tiene saldo"
     assert r2.via["fallback"] and r2.via["reason"] == "billing", "lo dice la marca"
-    reloj.advance(19 * 60)  # 19 min y 30 s desde el fallo
+    fake_clock.advance(19 * 60)  # 19 min y 30 s desde el fallo
     chat_call()
-    assert len(principal.calls) == 1
-    reloj.advance(60)  # ya pasaron los 20 minutos: se vuelve a probar
+    assert len(primary.calls) == 1
+    fake_clock.advance(60)  # ya pasaron los 20 minutos: se vuelve a probar
     assert ai.status()["primary"]["problem"] is None, "la marca caduco: no se afirma nada"
     chat_call()
-    assert len(principal.calls) == 2
+    assert len(primary.calls) == 2
     assert ai.status()["primary"]["problem"]["kind"] == "billing", (
         "y como sigue igual, se vuelve a marcar"
     )
 
 
-def test_cuando_el_principal_vuelve_a_contestar_se_olvida_el_fallo(reloj, monkeypatch):
+def test_failure_is_forgotten_when_the_primary_answers_again(fake_clock, monkeypatch):
     two_providers()
-    principal = _Fake(fails(429, GEMINI_POR_MINUTO))
-    server(monkeypatch, anthropic=principal, deepinfra=_Fake(answers("respaldo")))
+    primary = _Fake(fails(429, GEMINI_PER_MINUTE))
+    server(monkeypatch, anthropic=primary, deepinfra=_Fake(answers("respaldo")))
     chat_call()
     assert ai.status()["primary"]["problem"]["kind"] == "rate"
-    reloj.advance(121)
-    principal.behave = answers("ya estoy")
+    fake_clock.advance(121)
+    primary.behave = answers("ya estoy")
     r = chat_call()
     assert not r.via["fallback"] and r.via["reason"] == ""
     st = ai.status()
@@ -553,43 +551,41 @@ def test_cuando_el_principal_vuelve_a_contestar_se_olvida_el_fallo(reloj, monkey
     assert "anthropic" not in ai._down_until and "anthropic" not in ai._problems
 
 
-def test_un_error_del_mensaje_no_marca_a_nadie(perfiles, monkeypatch):
+def test_a_message_error_marks_nobody(temp_profiles, monkeypatch):
     two_providers()
-    principal = _Fake(fails(400, MENSAJE_VACIO))
-    respaldo = _Fake(answers("no deberia llegar"))
-    server(monkeypatch, anthropic=principal, deepinfra=respaldo)
+    primary = _Fake(fails(400, EMPTY_MESSAGE))
+    fallback = _Fake(answers("no deberia llegar"))
+    server(monkeypatch, anthropic=primary, deepinfra=fallback)
     with pytest.raises(openai.BadRequestError):
         chat_call()
-    assert not respaldo.calls and not ai._down_until and not ai._problems
+    assert not fallback.calls and not ai._down_until and not ai._problems
     assert ai.status()["primary"]["problem"] is None
 
 
-def test_sin_respaldo_el_principal_se_sigue_llamando_pero_el_problema_se_ve(reloj, monkeypatch):
+def test_without_fallback_primary_is_still_called_problem_shows(fake_clock, monkeypatch):
     two_providers()
     providers.set_fallback(False)
-    principal = _Fake(fails(400, ANTHROPIC_SIN_SALDO))
-    server(monkeypatch, anthropic=principal)
+    primary = _Fake(fails(400, ANTHROPIC_NO_CREDIT))
+    server(monkeypatch, anthropic=primary)
     for _ in range(2):
         with pytest.raises(openai.BadRequestError):
             chat_call()
-    assert len(principal.calls) == 2, "es el unico: se prueba siempre"
+    assert len(primary.calls) == 2, "es el unico: se prueba siempre"
     st = ai.status()
-    assert st["primary"]["problem"] == {"kind": "billing", "code": 400, "at": reloj()}
+    assert st["primary"]["problem"] == {"kind": "billing", "code": 400, "at": fake_clock()}
     assert st["answering"] is None
 
 
-def test_si_el_modelo_del_principal_no_usa_herramientas_contesta_el_respaldo_con_ese_motivo(
-    perfiles, monkeypatch
-):
+def test_primary_model_without_tools_falls_back_with_that_reason(temp_profiles, monkeypatch):
     two_providers()
-    sin_tools = {
+    no_tools = {
         "error": {
             "message": "registry.ollama.ai/library/gemma does not support tools",
             "code": None,
         }
     }
-    principal = _Fake(fails(400, sin_tools))
-    server(monkeypatch, anthropic=principal, deepinfra=_Fake(answers("con herramientas")))
+    primary = _Fake(fails(400, no_tools))
+    server(monkeypatch, anthropic=primary, deepinfra=_Fake(answers("con herramientas")))
     r = chat_call(tools=[{"type": "function"}])
     assert r.via["fallback"] and r.via["reason"] == "tools"
     st = ai.status()
@@ -600,25 +596,25 @@ def test_si_el_modelo_del_principal_no_usa_herramientas_contesta_el_respaldo_con
 # ------------------------------------------------- la forma de status()
 
 
-def test_status_sin_ningun_perfil_esta_vacio(perfiles):
+def test_status_without_any_profile_is_empty(temp_profiles):
     assert ai.status() == {
         "primary": {"id": "", "name": "", "model": "", "problem": None},
         "answering": None,
     }
 
 
-def test_status_tiene_la_forma_del_contrato(reloj, monkeypatch):
+def test_status_has_the_contract_shape(fake_clock, monkeypatch):
     two_providers()
     server(
         monkeypatch,
-        anthropic=_Fake(fails(400, ANTHROPIC_SIN_SALDO)),
+        anthropic=_Fake(fails(400, ANTHROPIC_NO_CREDIT)),
         deepinfra=_Fake(answers("respaldo")),
     )
-    nombre = providers.BY_ID["anthropic"]["name"]
+    name = providers.BY_ID["anthropic"]["name"]
     assert ai.status() == {
         "primary": {
             "id": "anthropic",
-            "name": nombre,
+            "name": name,
             "model": "claude-sonnet-5-5",
             "problem": None,
         },
@@ -628,7 +624,7 @@ def test_status_tiene_la_forma_del_contrato(reloj, monkeypatch):
     st = ai.status()
     assert set(st) == {"primary", "answering"}
     assert set(st["primary"]) == {"id", "name", "model", "problem"}
-    assert st["primary"]["problem"] == {"kind": "billing", "code": 400, "at": reloj()}
+    assert st["primary"]["problem"] == {"kind": "billing", "code": 400, "at": fake_clock()}
     assert set(st["answering"]) == {"id", "name", "model", "fallback", "reason"}
     assert st["answering"] == r.via
     json.dumps(st)  # se serializa tal cual
@@ -639,72 +635,72 @@ def test_status_tiene_la_forma_del_contrato(reloj, monkeypatch):
     assert ai.status()["primary"]["problem"]["kind"] == "billing"
 
 
-def test_status_se_ve_desde_otro_hilo(perfiles, monkeypatch):
+def test_status_is_visible_from_another_thread(temp_profiles, monkeypatch):
     """`_turn` es por hilo: el estado que lee la ruta de la franja (otro hilo)
     no puede salir de ahi."""
     two_providers()
     server(
         monkeypatch,
-        anthropic=_Fake(fails(400, ANTHROPIC_SIN_SALDO)),
+        anthropic=_Fake(fails(400, ANTHROPIC_NO_CREDIT)),
         deepinfra=_Fake(answers("respaldo")),
     )
     ai.begin_turn()
     r = chat_call()
-    visto: dict = {}
+    seen: dict = {}
 
-    def otro_hilo():
-        visto["status"] = ai.status()
-        visto["turno"] = ai.turn_summary()
+    def other_thread():
+        seen["status"] = ai.status()
+        seen["turno"] = ai.turn_summary()
 
-    t = threading.Thread(target=otro_hilo)
+    t = threading.Thread(target=other_thread)
     t.start()
     t.join(10)
     assert not t.is_alive()
-    assert visto["turno"] == (None, None), "lo del turno es de ESE hilo"
-    assert visto["status"]["answering"] == r.via
-    assert visto["status"]["primary"]["problem"]["kind"] == "billing"
+    assert seen["turno"] == (None, None), "lo del turno es de ESE hilo"
+    assert seen["status"]["answering"] == r.via
+    assert seen["status"]["primary"]["problem"]["kind"] == "billing"
 
 
-def test_el_registro_aguanta_lectores_y_escritores_a_la_vez(perfiles):
+def test_status_survives_concurrent_readers_and_writers(temp_profiles):
     two_providers()
     errores: list[BaseException] = []
-    parar = threading.Event()
+    stop = threading.Event()
 
-    def lee():
+    def reader():
         try:
-            while not parar.is_set():
+            while not stop.is_set():
                 st = ai.status()
                 assert set(st) == {"primary", "answering"}
         except Exception as e:  # noqa: BLE001
             errores.append(e)
 
-    lectores = [threading.Thread(target=lee) for _ in range(4)]
-    for t in lectores:
+    readers = [threading.Thread(target=reader) for _ in range(4)]
+    for t in readers:
         t.start()
     for _ in range(300):
         ai._note_failure("anthropic", "billing", 400)
         ai.recheck()
-    parar.set()
-    for t in lectores:
+    stop.set()
+    for t in readers:
         t.join(10)
-    assert not errores and not any(t.is_alive() for t in lectores)
+    assert not errores and not any(t.is_alive() for t in readers)
 
 
 # ----------------------------- quien contesta: solo la conversacion cuenta
 
 
-def test_el_juez_y_la_identificacion_no_cambian_quien_contesta(reloj, monkeypatch):
+def test_judge_and_identify_calls_do_not_change_who_answers(fake_clock, monkeypatch):
     two_providers()
-    principal = _Fake(fails(400, ANTHROPIC_SIN_SALDO), usage=True)
-    respaldo = _Fake(answers("respaldo"), usage=True)
-    server(monkeypatch, anthropic=principal, deepinfra=respaldo)
+    primary = _Fake(fails(400, ANTHROPIC_NO_CREDIT), usage=True)
+    fallback = _Fake(answers("respaldo"), usage=True)
+    server(monkeypatch, anthropic=primary, deepinfra=fallback)
     ai.begin_turn()
     chat = chat_call()
     assert chat.via["fallback"]
     # pasa el plazo y el principal vuelve: lo siguiente (el juez, una
     # identificacion) lo contesta el, y NO es lo que contesto la conversacion
-    reloj.advance(25 * 60)
-    principal.behave = answers("SI")
+    fake_clock.advance(25 * 60)
+    primary.behave = answers("SI")
     for purpose in ("judge", "identify"):
         r = ai.complete(MSG, purpose=purpose)
         assert not r.via["fallback"] and r.via["id"] == "anthropic"
@@ -719,26 +715,26 @@ def test_el_juez_y_la_identificacion_no_cambian_quien_contesta(reloj, monkeypatc
     assert ai.status()["answering"] == r.via and ai.turn_summary()[1] == r.via
 
 
-def test_el_contador_de_peticiones_del_turno_no_se_deja_ninguna(reloj, monkeypatch):
+def test_the_turn_request_counter_misses_none(fake_clock, monkeypatch):
     """El presupuesto de llamadas de un turno tiene que ver tambien la consulta
     al juez (se hace dentro de otro modulo), las que fallan y las que pasan de
     un proveedor a otro. `calls` solo cuenta las que devolvieron lo gastado."""
     two_providers()
-    principal = _Fake(fails(400, ANTHROPIC_SIN_SALDO))
-    respaldo = _Fake(answers("respaldo"))  # sin `usage`: algunos servidores no lo mandan
-    server(monkeypatch, anthropic=principal, deepinfra=respaldo)
-    sin_turno: list[int] = []
-    t = threading.Thread(target=lambda: sin_turno.append(ai.turn_requests()))
+    primary = _Fake(fails(400, ANTHROPIC_NO_CREDIT))
+    fallback = _Fake(answers("respaldo"))  # sin `usage`: algunos servidores no lo mandan
+    server(monkeypatch, anthropic=primary, deepinfra=fallback)
+    no_turn_counts: list[int] = []
+    t = threading.Thread(target=lambda: no_turn_counts.append(ai.turn_requests()))
     t.start()
     t.join(10)
-    assert sin_turno == [0], "un hilo sin turno no ha pedido nada"
+    assert no_turn_counts == [0], "un hilo sin turno no ha pedido nada"
     ai.begin_turn()
     assert ai.turn_requests() == 0
     chat_call()  # el principal falla, contesta el respaldo: UNA peticion del turno
     chat_call()
     ai.complete(MSG, purpose="judge")
     assert ai.turn_requests() == 3
-    respaldo.behave = fails(400, MENSAJE_VACIO)
+    fallback.behave = fails(400, EMPTY_MESSAGE)
     with pytest.raises(openai.BadRequestError):
         chat_call()
     assert ai.turn_requests() == 4, "tambien la que acaba en error"
@@ -748,15 +744,13 @@ def test_el_contador_de_peticiones_del_turno_no_se_deja_ninguna(reloj, monkeypat
     assert ai.turn_requests() == 0, "cada turno empieza de cero"
 
 
-def test_un_fallo_del_principal_en_otra_llamada_tambien_se_apunta_pero_no_cambia_la_respuesta(
-    perfiles, monkeypatch
-):
+def test_primary_failure_elsewhere_is_noted_but_answer_unchanged(temp_profiles, monkeypatch):
     """El principal falla en una identificacion: la franja ya puede avisar, pero
     nadie ha contestado aun en el chat."""
     two_providers()
     server(
         monkeypatch,
-        anthropic=_Fake(fails(401, OPENAI_CLAVE_MALA)),
+        anthropic=_Fake(fails(401, OPENAI_BAD_KEY)),
         deepinfra=_Fake(answers("{}")),
     )
     ai.complete(MSG, purpose="identify")
@@ -767,69 +761,71 @@ def test_un_fallo_del_principal_en_otra_llamada_tambien_se_apunta_pero_no_cambia
 # ------------------------- recheck, reset_client y check limpian la marca
 
 
-def _con_el_principal_sin_saldo(monkeypatch):
+def _with_primary_out_of_credit(monkeypatch):
     two_providers()
-    principal = _Fake(fails(400, ANTHROPIC_SIN_SALDO))
-    respaldo = _Fake(answers("respaldo"))
-    server(monkeypatch, anthropic=principal, deepinfra=respaldo)
+    primary = _Fake(fails(400, ANTHROPIC_NO_CREDIT))
+    fallback = _Fake(answers("respaldo"))
+    server(monkeypatch, anthropic=primary, deepinfra=fallback)
     chat_call()
     assert ai.status()["primary"]["problem"] and ai.status()["answering"]["fallback"]
-    return principal, respaldo
+    return primary, fallback
 
 
-def test_recheck_borra_la_marca_y_el_siguiente_mensaje_prueba_el_principal(perfiles, monkeypatch):
-    principal, _ = _con_el_principal_sin_saldo(monkeypatch)
+def test_recheck_clears_the_mark_and_next_message_tries_primary(temp_profiles, monkeypatch):
+    primary, _ = _with_primary_out_of_credit(monkeypatch)
     st = ai.recheck()
     assert st["primary"]["problem"] is None and st["answering"] is None
     assert st == ai.status()
-    principal.behave = answers("ya hay saldo")
+    primary.behave = answers("ya hay saldo")
     r = chat_call()
-    assert len(principal.calls) == 2 and not r.via["fallback"]
+    assert len(primary.calls) == 2 and not r.via["fallback"]
 
 
-def test_reset_client_olvida_el_fallo_y_quien_contesto(perfiles, monkeypatch):
-    principal, _ = _con_el_principal_sin_saldo(monkeypatch)
+def test_reset_client_forgets_the_failure_and_who_answered(temp_profiles, monkeypatch):
+    primary, _ = _with_primary_out_of_credit(monkeypatch)
     ai.reset_client()  # lo que hace guardar ajustes, cambiar de perfil…
     assert ai.status()["primary"]["problem"] is None and ai.status()["answering"] is None
     assert not ai._down_until and not ai._problems
     chat_call()
-    assert len(principal.calls) == 2
+    assert len(primary.calls) == 2
 
 
-def test_un_check_correcto_del_activo_borra_la_marca_pero_uno_de_borrador_no(perfiles, monkeypatch):
-    principal, _ = _con_el_principal_sin_saldo(monkeypatch)
-    principal.behave = answers("ok")  # la persona recargo el saldo
+def test_active_check_clears_the_mark_but_a_draft_check_does_not(temp_profiles, monkeypatch):
+    primary, _ = _with_primary_out_of_credit(monkeypatch)
+    primary.behave = answers("ok")  # la persona recargo el saldo
     # probar lo que hay en el formulario sin guardar no dice nada del activo
-    borrador = ai.check({"provider": "anthropic", "key": "zz-otra-clave-de-prueba-1", "model": "m"})
-    assert borrador["ok"] and ai.status()["primary"]["problem"]["kind"] == "billing"
+    draft = ai.check({"provider": "anthropic", "key": "zz-otra-clave-de-prueba-1", "model": "m"})
+    assert draft["ok"] and ai.status()["primary"]["problem"]["kind"] == "billing"
     r = ai.check()  # el boton «Probar» de Ajustes
     assert r["ok"]
     st = ai.status()
     assert st["primary"]["problem"] is None and st["answering"] is None
     # y un check que falla no borra nada
-    principal.behave = fails(400, ANTHROPIC_SIN_SALDO)
+    primary.behave = fails(400, ANTHROPIC_NO_CREDIT)
     chat_call()
     assert ai.status()["primary"]["problem"]["kind"] == "billing"
     assert not ai.check()["ok"]
     assert ai.status()["primary"]["problem"]["kind"] == "billing"
 
 
-def test_la_ruta_recheck_borra_la_marca_y_devuelve_el_estado(perfiles, monkeypatch, api_client):
-    principal, _ = _con_el_principal_sin_saldo(monkeypatch)
+def test_recheck_route_clears_the_mark_and_returns_the_status(
+    temp_profiles, monkeypatch, api_client
+):
+    primary, _ = _with_primary_out_of_credit(monkeypatch)
     r = api_client.post("/api/ai/recheck")
     assert r.status_code == 200
-    nombre = providers.BY_ID["anthropic"]["name"]
+    name = providers.BY_ID["anthropic"]["name"]
     assert r.json() == {
         "primary": {
             "id": "anthropic",
-            "name": nombre,
+            "name": name,
             "model": "claude-sonnet-5-5",
             "problem": None,
         },
         "answering": None,
     }
     chat_call()
-    assert len(principal.calls) == 2
+    assert len(primary.calls) == 2
     # la ruta no cambia ningun ajuste
     assert providers.active_id() == "anthropic" and providers.fallback_enabled()
 
@@ -855,7 +851,7 @@ class _Loopback:
                 which = "p" if self.path.startswith("/p/") else "f"
                 outer.hits[which] += 1
                 if which == "p":
-                    self.reply(400, ANTHROPIC_SIN_SALDO)
+                    self.reply(400, ANTHROPIC_NO_CREDIT)
                     return
                 msg = {"role": "assistant", "content": "respaldo ok"}
                 self.reply(
@@ -890,12 +886,12 @@ class _Loopback:
         self.httpd.server_close()
 
 
-def test_con_el_sdk_real_el_principal_sin_saldo_recibe_una_peticion_cada_20_minutos(reloj):
+def test_real_sdk_primary_without_credit_gets_a_call_per_20_min(fake_clock):
     """El caso del usuario, de punta a punta y sin dobles de cliente: el SDK de
     verdad contra un servidor local que contesta 400 «credit balance». Antes
     cada mensaje pagaba una peticion fallida (1 s) al principal."""
     with _Loopback() as srv:
-        for name, path, key in (("Principal", "p", CLAVE), ("Respaldo", "f", CLAVE_RESPALDO)):
+        for name, path, key in (("Principal", "p", KEY), ("Respaldo", "f", FALLBACK_KEY)):
             providers.save_profile(
                 {
                     "provider": "custom",
@@ -915,9 +911,9 @@ def test_con_el_sdk_real_el_principal_sin_saldo_recibe_una_peticion_cada_20_minu
         assert ai.status()["primary"]["problem"] == {
             "kind": "billing",
             "code": 400,
-            "at": reloj(),
+            "at": fake_clock(),
         }
-        reloj.advance(20 * 60 + 1)
+        fake_clock.advance(20 * 60 + 1)
         chat_call()
         assert srv.hits == {"p": 2, "f": 4}, "pasados los 20 minutos se vuelve a probar"
 
@@ -925,15 +921,15 @@ def test_con_el_sdk_real_el_principal_sin_saldo_recibe_una_peticion_cada_20_minu
 # --------------------------------------------------- /api/chat/tools
 
 
-def test_chat_tools_devuelve_los_campos_nuevos_y_lo_de_siempre(reloj, monkeypatch, api_client):
+def test_chat_tools_returns_the_new_fields_and_the_usual_ones(fake_clock, monkeypatch, api_client):
     two_providers()
     server(
         monkeypatch,
-        anthropic=_Fake(fails(400, ANTHROPIC_SIN_SALDO)),
+        anthropic=_Fake(fails(400, ANTHROPIC_NO_CREDIT)),
         deepinfra=_Fake(answers("respaldo")),
     )
-    antes = api_client.get("/api/chat/tools").json()
-    assert antes["primary_problem"] is None and antes["answering"] is None
+    before = api_client.get("/api/chat/tools").json()
+    assert before["primary_problem"] is None and before["answering"] is None
     chat_call()
     d = api_client.get("/api/chat/tools").json()
     # lo de siempre
@@ -941,7 +937,7 @@ def test_chat_tools_devuelve_los_campos_nuevos_y_lo_de_siempre(reloj, monkeypatc
     assert d["available"] is True and d["reason"] == ""
     assert {t["name"] for t in d["tools"]} >= {"search_songs", "create_playlist"}
     # lo nuevo, sin ningun texto del proveedor
-    assert d["primary_problem"] == {"kind": "billing", "code": 400, "at": reloj()}
+    assert d["primary_problem"] == {"kind": "billing", "code": 400, "at": fake_clock()}
     assert d["answering"] == {
         "id": "deepinfra",
         "name": providers.BY_ID["deepinfra"]["name"],
@@ -955,12 +951,12 @@ def test_chat_tools_devuelve_los_campos_nuevos_y_lo_de_siempre(reloj, monkeypatc
 # ------------------------------------------ el bucle del chat, de punta a punta
 
 
-def test_el_bucle_cuenta_quien_contesto_y_por_que(perfiles, monkeypatch):
+def test_the_loop_reports_who_answered_and_why(temp_profiles, monkeypatch):
     from danplay import chat
 
     two_providers()
-    principal = _Fake(fails(400, ANTHROPIC_SIN_SALDO))
-    server(monkeypatch, anthropic=principal, deepinfra=_Fake(answers("Hola, ¿que cancion buscas?")))
+    primary = _Fake(fails(400, ANTHROPIC_NO_CREDIT))
+    server(monkeypatch, anthropic=primary, deepinfra=_Fake(answers("Hola, ¿que cancion buscas?")))
     r = chat.reply([{"role": "user", "text": "hola"}])
     assert "error" not in r and r["text"]
     assert (
@@ -968,17 +964,17 @@ def test_el_bucle_cuenta_quien_contesto_y_por_que(perfiles, monkeypatch):
     )
     assert ai.status()["answering"] == r["via"]
     r = chat.reply([{"role": "user", "text": "hola otra vez"}])
-    assert len(principal.calls) == 1, "el segundo mensaje ya no pierde una llamada fallida"
+    assert len(primary.calls) == 1, "el segundo mensaje ya no pierde una llamada fallida"
     assert r["via"]["fallback"] and r["via"]["reason"] == "billing"
 
 
 # ------------------------------------------- nada del proveedor sale de aqui
 
-FUGAS = [
-    pytest.param(CLAVE, (CLAVE,), id="la-clave-del-perfil"),
-    pytest.param(CABECERA, (CABECERA,), id="un-valor-de-cabecera"),
+LEAKS = [
+    pytest.param(KEY, (KEY,), id="la-clave-del-perfil"),
+    pytest.param(HEADER, (HEADER,), id="un-valor-de-cabecera"),
     pytest.param(EXTRA, (EXTRA,), id="un-valor-de-extra"),
-    pytest.param(CLAVE_RESPALDO, (CLAVE_RESPALDO,), id="la-clave-del-respaldo"),
+    pytest.param(FALLBACK_KEY, (FALLBACK_KEY,), id="la-clave-del-respaldo"),
     pytest.param("sk-live-ABCDEFGH12345678", ("ABCDEFGH12345678",), id="sk"),
     pytest.param("sk-proj-********************wxyz.", ("wxyz", "sk-proj"), id="sk-enmascarada"),
     pytest.param("AIzaSyDUMMYKEYDUMMYKEYDUMMYKEY1234567", ("DUMMYKEYDUMMY",), id="AIza"),
@@ -995,72 +991,74 @@ FUGAS = [
 ]
 
 
-def _con_fuga(monkeypatch, fuga: str, respaldo: bool = True) -> tuple[_Fake, _Fake]:
-    """El principal falla (500) con un mensaje que repite `fuga`."""
-    two_providers(extra={"metadato": EXTRA}, headers={"X-Privado": CABECERA})
-    if not respaldo:
+def _with_leak(monkeypatch, leak: str, fallback: bool = True) -> tuple[_Fake, _Fake]:
+    """El principal falla (500) con un mensaje que repite `leak`."""
+    two_providers(extra={"metadato": EXTRA}, headers={"X-Privado": HEADER})
+    if not fallback:
         providers.set_fallback(False)
-    principal = _Fake(fails(500, {"error": {"message": f"upstream failure: {fuga}", "code": None}}))
-    secundario = _Fake(answers("desde el respaldo"))
-    server(monkeypatch, anthropic=principal, deepinfra=secundario)
-    return principal, secundario
+    primary = _Fake(fails(500, {"error": {"message": f"upstream failure: {leak}", "code": None}}))
+    secondary = _Fake(answers("desde el respaldo"))
+    server(monkeypatch, anthropic=primary, deepinfra=secondary)
+    return primary, secondary
 
 
-@pytest.mark.parametrize(("fuga", "agujas"), FUGAS)
-def test_ni_status_ni_la_ruta_ni_r_error_ni_los_logs_llevan_lo_del_proveedor(
-    perfiles, monkeypatch, caplog, api_client, fuga, agujas
+@pytest.mark.parametrize(("leak", "needles"), LEAKS)
+def test_no_provider_secret_in_status_route_error_or_logs(
+    temp_profiles, monkeypatch, caplog, api_client, leak, needles
 ):
     from danplay import chat
 
     caplog.set_level(logging.DEBUG)
     # 1) el principal falla, contesta el respaldo: el estado y la ruta
-    _con_fuga(monkeypatch, fuga)
+    _with_leak(monkeypatch, leak)
     chat_call()
     visible = json.dumps(ai.status()) + api_client.get("/api/chat/tools").text
     # 2) el flujo se corta a mitad con el mismo mensaje: el aviso del registro
     ai.reset_client()
-    rota = _Fake(lambda kw: _FlujoRoto(f"upstream failure: {fuga}") if kw.get("stream") else "ok")
-    server(monkeypatch, anthropic=rota, deepinfra=_Fake(answers("x")))
+    broken = _Fake(
+        lambda kw: _BrokenStream(f"upstream failure: {leak}") if kw.get("stream") else "ok"
+    )
+    server(monkeypatch, anthropic=broken, deepinfra=_Fake(answers("x")))
     ai.complete(MSG, purpose="chat", on_text=lambda t: None)
     # 3) sin respaldo: el bucle del chat da su error, y la consulta suelta lo registra
     ai.reset_client()
-    _con_fuga(monkeypatch, fuga, respaldo=False)
+    _with_leak(monkeypatch, leak, fallback=False)
     r = chat.reply([{"role": "user", "text": "hola"}])
     assert "upstream" in r["error"], "el error sale (saneado), no se calla"
     assert ai.ask("hola") is None
     ident = ai.resolve("pista.mp3")
     assert ident is not None and "upstream" in ident["error"]
-    for aguja in agujas:
-        assert aguja not in visible
-        assert aguja not in r["error"]
-        assert aguja not in ident["error"]
-        assert aguja not in caplog.text
+    for needle in needles:
+        assert needle not in visible
+        assert needle not in r["error"]
+        assert needle not in ident["error"]
+        assert needle not in caplog.text
     # y que los avisos se emitieron (si no, la prueba no probaria nada)
-    for aviso in ("no responde (down:", "corto el flujo", "la consulta a la IA fallo"):
-        assert aviso in caplog.text
+    for warning in ("no responde (down:", "corto el flujo", "la consulta a la IA fallo"):
+        assert warning in caplog.text
 
 
-def test_describe_error_ya_no_confunde_un_limite_con_falta_de_saldo_ni_un_403_con_la_clave(
-    perfiles,
+def test_describe_error_tells_rate_limit_billing_and_403_apart(
+    temp_profiles,
 ):
     two_providers()
     p = ai.profile()
     assert p is not None
-    nombre = p["name"]
-    assert "pide esperar" in ai.describe_error(sdk_error(429, GEMINI_GRATIS), p)
-    assert ai.describe_error(sdk_error(429, OPENAI_SIN_CUOTA), p) == (
+    name = p["name"]
+    assert "pide esperar" in ai.describe_error(sdk_error(429, GEMINI_FREE_TIER), p)
+    assert ai.describe_error(sdk_error(429, OPENAI_NO_QUOTA), p) == (
         "la clave es valida pero no tiene credito"
     )
-    assert ai.describe_error(sdk_error(401, OPENAI_CLAVE_MALA), p) == f"{nombre} rechaza la clave"
-    moderado = ai.describe_error(sdk_error(403, OPENROUTER_MODERACION), p)
-    assert "clave" in moderado and "rechaza la clave" not in moderado and "403" in moderado
+    assert ai.describe_error(sdk_error(401, OPENAI_BAD_KEY), p) == f"{name} rechaza la clave"
+    moderated = ai.describe_error(sdk_error(403, OPENROUTER_MODERATION), p)
+    assert "clave" in moderated and "rechaza la clave" not in moderated and "403" in moderated
     assert "conexion" in ai.describe_error(openai.APIConnectionError(request=_REQUEST), p)
 
 
 # ---------------------------------------------- sanitize_provider_message
 
 
-def test_sanitize_quita_lo_secreto_y_deja_el_resto(perfiles):
+def test_sanitize_removes_secrets_and_keeps_the_rest(temp_profiles):
     two_providers(extra={"metadato": EXTRA, "reasoning": {"effort": "low"}})
     f = ai.sanitize_provider_message
     # la URL se queda en su servidor: sin usuario:clave@, ruta ni parametros
@@ -1075,48 +1073,46 @@ def test_sanitize_quita_lo_secreto_y_deja_el_resto(perfiles):
     assert f("token=abc123 y password: hunter2xx") == "token=*** y password: ***"
     assert f("Authorization: Bearer abc123") == "Authorization: ***"
     # lo del perfil activo y el de respaldo, y los valores de cabeceras/extras
-    assert f(f"clave {CLAVE} y {CLAVE_RESPALDO}") == "clave *** y ***"
+    assert f(f"clave {KEY} y {FALLBACK_KEY}") == "clave *** y ***"
     assert f(f"extra {EXTRA}") == "extra ***"
     # un valor corto (lo de «reasoning»: low) no es un secreto
     assert f("el esfuerzo low sigue") == "el esfuerzo low sigue"
     # con un perfil de fuera (un borrador de Ajustes), tambien el suyo
-    borrador = ai.providers.resolve(
-        "openai", {"provider": "openai", "key": "zz-clave-de-borrador-1"}
-    )
-    assert f("clave zz-clave-de-borrador-1", borrador) == "clave ***"
+    draft = ai.providers.resolve("openai", {"provider": "openai", "key": "zz-clave-de-borrador-1"})
+    assert f("clave zz-clave-de-borrador-1", draft) == "clave ***"
 
 
-def test_sanitize_siempre_una_linea_de_160_como_mucho_y_sin_invisibles(perfiles):
+def test_sanitize_gives_one_line_of_160_max_without_invisibles(temp_profiles):
     f = ai.sanitize_provider_message
     assert f("uno\n\tdos\r\n\x07tres") == "uno dos tres"
-    largo = f("palabra " * 100)
-    assert len(largo) == 160 and largo.endswith("…") and "\n" not in largo
+    length = f("palabra " * 100)
+    assert len(length) == 160 and length.endswith("…") and "\n" not in length
     # ceros de ancho y cambios de sentido de escritura: fuera
-    sucio = "pa" + chr(0x200B) + "la" + chr(0x202E) + "bra" + chr(0xFEFF)
-    assert f(sucio) == "palabra"
+    dirty = "pa" + chr(0x200B) + "la" + chr(0x202E) + "bra" + chr(0xFEFF)
+    assert f(dirty) == "palabra"
     # lo que no cabe nunca se corta a medias de un secreto: se limpia antes
     assert "ABCDEFGH" not in f("x" * 150 + " sk-live-ABCDEFGH12345678")
     # y es estable
-    una_vez = f("fallo en https://u:p@h.example/x?key=zzz1234567 con Bearer abcdef")
-    assert f(una_vez) == una_vez
+    sanitized_once = f("fallo en https://u:p@h.example/x?key=zzz1234567 con Bearer abcdef")
+    assert f(sanitized_once) == sanitized_once
 
 
-def test_sanitize_no_lanza_con_lo_que_sea(perfiles):
+def test_sanitize_never_raises_whatever_it_gets(temp_profiles):
     f = ai.sanitize_provider_message
 
-    class Roto:
+    class Broken:
         def __str__(self):
             raise RuntimeError("no se puede")
 
     assert f(None) == ""
     assert f(123) == "123"
     assert f(b"bytes") == "b'bytes'"
-    assert f(Roto()) == "Roto"
+    assert f(Broken()) == "Broken"
     assert f(ValueError("algo " + "x" * 50_000)).startswith("algo xxx")
     assert f("https://[::1") == "[url]", "una URL rota no tumba nada"
 
 
-def test_el_sdk_se_precarga_en_segundo_plano_solo_con_ia(monkeypatch):
+def test_the_sdk_preloads_in_the_background_only_with_ai(monkeypatch):
     """Importar el SDK de openai es lo mas caro de la primera respuesta: se
     hace al arrancar, en segundo plano, y solo si hay IA configurada."""
     monkeypatch.setattr(ai, "available", lambda: False)

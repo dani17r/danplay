@@ -1,5 +1,5 @@
 """El asistente: la conversacion (entera o en vivo), sus confirmaciones y las
-conversaciones guardadas (docs/CONTRATO-INTERNO.md §3)."""
+conversaciones guardadas (docs/INTERNAL-CONTRACT.md §3)."""
 
 import logging
 import secrets

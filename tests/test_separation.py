@@ -6,7 +6,7 @@ devuelve lo que le entra: si todo lo de alrededor esta bien, la cancion sale
 tal cual. El grafo de verdad se carga con pesos inventados del tamaño de los
 oficiales: asi se comprueba que la app sabe rellenar cada peso sin bajarse
 los 55 MB. Que el grafo da lo mismo que Demucs lo comprueba
-scripts/exportar-separador.py al generarlo.
+scripts/export-separator.py al generarlo.
 """
 
 import json

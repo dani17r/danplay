@@ -12,7 +12,7 @@ import pytest
 from danplay import api
 
 
-def test_sin_variable_se_mira_el_padre_como_siempre(monkeypatch):
+def test_without_the_variable_the_parent_is_watched_as_usual(monkeypatch):
     monkeypatch.delenv("DANPLAY_PARENT_PID", raising=False)
     check = api._parent_check()
     if os.name == "nt":
@@ -21,7 +21,7 @@ def test_sin_variable_se_mira_el_padre_como_siempre(monkeypatch):
         assert check is not None and check() is True
 
 
-def test_con_la_variable_se_mira_ese_proceso(monkeypatch):
+def test_with_the_variable_that_process_is_watched(monkeypatch):
     monkeypatch.setenv("DANPLAY_PARENT_PID", str(os.getpid()))
     assert api._parent_check()() is True
     # un proceso que ya termino
@@ -32,7 +32,7 @@ def test_con_la_variable_se_mira_ese_proceso(monkeypatch):
 
 
 @pytest.mark.parametrize("raw", ["", "abc", "0", "-5"])
-def test_un_pid_raro_no_vigila_nada(monkeypatch, raw):
+def test_an_odd_pid_watches_nothing(monkeypatch, raw):
     monkeypatch.setenv("DANPLAY_PARENT_PID", raw)
     if raw == "":
         return  # sin variable: lo de siempre
@@ -40,7 +40,7 @@ def test_un_pid_raro_no_vigila_nada(monkeypatch, raw):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="en Windows se prueba otro camino")
-def test_en_posix_se_pregunta_con_la_senal_cero(monkeypatch):
+def test_on_posix_it_asks_with_signal_zero(monkeypatch):
     """os.kill(pid, 0) solo pregunta en POSIX (en Windows MATARIA el proceso:
     alli se usa OpenProcess/GetExitCodeProcess)."""
     asked = []
@@ -50,7 +50,7 @@ def test_en_posix_se_pregunta_con_la_senal_cero(monkeypatch):
     assert asked == [(4242, 0)]
 
 
-def test_el_nucleo_arranca_por_el_socket_y_contesta(tmp_path):
+def test_the_core_starts_on_the_socket_and_answers(tmp_path):
     """`danplay serve --uds` con HOME/XDG aislados arranca y responde."""
     if not hasattr(__import__("socket"), "AF_UNIX") or os.name == "nt":
         pytest.skip("sockets Unix")
@@ -111,7 +111,7 @@ def test_el_nucleo_arranca_por_el_socket_y_contesta(tmp_path):
     assert gone, "el socket se borra al salir"
 
 
-def test_al_arrancar_y_al_apagar(monkeypatch):
+def test_on_startup_and_on_shutdown(monkeypatch):
     """Lo que antes hacia `serve` a mano va en `lifespan`: vale igual para el
     socket, el puerto y quien monte la app, y al apagar se para todo."""
     from fastapi.testclient import TestClient
@@ -130,7 +130,7 @@ def test_al_arrancar_y_al_apagar(monkeypatch):
     assert calls[-2:] == ["cancel", "stop"]
 
 
-def test_al_servir_se_escribe_un_registro_que_rota(tmp_path, monkeypatch):
+def test_serving_writes_a_rotating_log(tmp_path, monkeypatch):
     import logging
 
     from danplay import config, logs

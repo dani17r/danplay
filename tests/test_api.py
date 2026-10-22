@@ -55,7 +55,7 @@ def _copy_library(lib):
 
 
 @pytest.fixture(scope="module")
-def cliente():
+def client():
     from fastapi.testclient import TestClient
 
     from danplay import config
@@ -90,34 +90,34 @@ def cliente():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
-def test_status(cliente):
-    d = cliente.get("/api/status").json()
+def test_status(client):
+    d = client.get("/api/status").json()
     assert d["stats"]["total"] > 0
     assert {"rust", "ai", "ffmpeg", "fingerprint"} <= set(d)
 
 
-def test_search_everything(cliente):
-    d = cliente.get("/api/search", params={"limit": 100}).json()
+def test_search_everything(client):
+    d = client.get("/api/search", params={"limit": 100}).json()
     assert d["total"] > 0 and "songs" in d
 
 
-def test_search_by_artist(cliente):
-    d = cliente.get("/api/search", params={"q": "artista:barak"}).json()
+def test_search_by_artist(client):
+    d = client.get("/api/search", params={"q": "artista:barak"}).json()
     assert d["total"] > 0
     assert all("barak" in c["artist"].lower() for c in d["songs"])
 
 
-def test_search_duration_comparator(cliente):
-    d = cliente.get("/api/search", params={"q": "duracion>1"}).json()
+def test_search_duration_comparator(client):
+    d = client.get("/api/search", params={"q": "duracion>1"}).json()
     assert all(c["duration"] > 1 for c in d["songs"])
 
 
-def test_search_with_no_results(cliente):
-    d = cliente.get("/api/search", params={"q": "zzzznoexistezzz"}).json()
+def test_search_with_no_results(client):
+    d = client.get("/api/search", params={"q": "zzzznoexistezzz"}).json()
     assert d["total"] == 0
 
 
-def test_search_ignores_lone_punctuation_and_knows_title_filter(cliente):
+def test_search_ignores_lone_punctuation_and_knows_title_filter(client):
     """«Barak - Mi Gozo», tal cual se escribe, devolvia cero: el guion iba a
     FTS como termino. Y `titulo:`/`title:` no existian como filtro, con lo
     que el asistente (que lo intenta siempre) tampoco encontraba nada."""
@@ -125,156 +125,154 @@ def test_search_ignores_lone_punctuation_and_knows_title_filter(cliente):
 
     first = library.search("", limit=1)[0]
     q = f"{first['artist']} - {first['title']}"
-    d = cliente.get("/api/search", params={"q": q}).json()
+    d = client.get("/api/search", params={"q": q}).json()
     assert d["total"] >= 1 and any(c["id"] == first["id"] for c in d["songs"])
-    d = cliente.get("/api/search", params={"q": f"titulo:{first['title'].split()[0]}"}).json()
+    d = client.get("/api/search", params={"q": f"titulo:{first['title'].split()[0]}"}).json()
     assert any(c["id"] == first["id"] for c in d["songs"])
-    d = cliente.get(
+    d = client.get(
         "/api/search", params={"q": f"artist:{first['artist']} title:{first['title']}"}
     ).json()
     assert any(c["id"] == first["id"] for c in d["songs"])
-    assert cliente.get("/api/search", params={"q": "- & /"}).json()["total"] > 0, (
+    assert client.get("/api/search", params={"q": "- & /"}).json()["total"] > 0, (
         "solo puntuacion = sin filtro de texto"
     )
 
 
-def test_facets(cliente):
-    d = cliente.get("/api/facets").json()
+def test_facets(client):
+    d = client.get("/api/facets").json()
     assert "artists" in d and len(d["artists"]) > 0
 
 
-def test_song_and_edit(cliente):
-    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
-    c = cliente.get(f"/api/song/{cid}").json()
+def test_song_and_edit(client):
+    cid = client.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    c = client.get(f"/api/song/{cid}").json()
     assert c["id"] == cid and c["existe"] is True
-    r = cliente.patch(f"/api/song/{cid}", json={"genre": "Adoracion"}).json()
+    r = client.patch(f"/api/song/{cid}", json={"genre": "Adoracion"}).json()
     assert r["genre"] == "Adoracion"
 
 
-def test_missing_song(cliente):
-    assert cliente.get("/api/cancion/999999").status_code == 404
+def test_missing_song(client):
+    assert client.get("/api/cancion/999999").status_code == 404
 
 
-def test_stars_and_favorite(cliente):
-    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
-    assert cliente.post(f"/api/song/{cid}/stars", json={"stars": 5}).json()["stars"] == 5
-    assert (
-        cliente.post(f"/api/song/{cid}/favorite", json={"favorite": True}).json()["favorite"] == 1
-    )
-    d = cliente.get("/api/search", params={"only_favorites": True}).json()
+def test_stars_and_favorite(client):
+    cid = client.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    assert client.post(f"/api/song/{cid}/stars", json={"stars": 5}).json()["stars"] == 5
+    assert client.post(f"/api/song/{cid}/favorite", json={"favorite": True}).json()["favorite"] == 1
+    d = client.get("/api/search", params={"only_favorites": True}).json()
     assert any(c["id"] == cid for c in d["songs"])
 
 
-def test_audio_is_served(cliente):
-    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
-    r = cliente.get(f"/api/song/{cid}/audio")
+def test_audio_is_served(client):
+    cid = client.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    r = client.get(f"/api/song/{cid}/audio")
     assert r.status_code == 200 and r.headers["content-type"].startswith("audio/")
     assert len(r.content) > 1000
 
 
-def test_path_for_rust(cliente):
+def test_path_for_rust(client):
     """Rust pide la ruta en disco para servir el audio sin pasar por Python."""
-    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
-    d = cliente.get(f"/api/song/{cid}/path").json()
+    cid = client.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    d = client.get(f"/api/song/{cid}/path").json()
     assert os.path.isfile(d["path"]) and d["bytes"] > 0
 
 
-def test_cover_without_artwork_gives_404(cliente):
-    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
-    assert cliente.get(f"/api/song/{cid}/cover").status_code in (200, 404)
+def test_cover_without_artwork_gives_404(client):
+    cid = client.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    assert client.get(f"/api/song/{cid}/cover").status_code in (200, 404)
 
 
-def test_playlist_lifecycle(cliente):
-    lid = cliente.post("/api/playlists", json={"name": "Prueba"}).json()["id"]
-    ids = [c["id"] for c in cliente.get("/api/search", params={"limit": 3}).json()["songs"]]
-    r = cliente.post(f"/api/playlists/{lid}/songs", json={"ids": ids}).json()
+def test_playlist_lifecycle(client):
+    lid = client.post("/api/playlists", json={"name": "Prueba"}).json()["id"]
+    ids = [c["id"] for c in client.get("/api/search", params={"limit": 3}).json()["songs"]]
+    r = client.post(f"/api/playlists/{lid}/songs", json={"ids": ids}).json()
     assert len(r["songs"]) == len(ids)
-    cliente.post(f"/api/playlists/{lid}/order", json={"ids": list(reversed(ids))})
-    assert cliente.get(f"/api/playlists/{lid}/songs").json()["songs"][0]["id"] == ids[-1]
+    client.post(f"/api/playlists/{lid}/order", json={"ids": list(reversed(ids))})
+    assert client.get(f"/api/playlists/{lid}/songs").json()["songs"][0]["id"] == ids[-1]
     # dejarla exacta de una vez («Dejar solo estas», «Deshacer»)
-    r = cliente.put(f"/api/playlists/{lid}/songs", json={"ids": [ids[1], ids[0]]}).json()
+    r = client.put(f"/api/playlists/{lid}/songs", json={"ids": [ids[1], ids[0]]}).json()
     assert [c["id"] for c in r["songs"]] == [ids[1], ids[0]] and r["removed"] == len(ids) - 2
-    r = cliente.put(f"/api/playlists/{lid}/songs", json={"ids": ids}).json()
+    r = client.put(f"/api/playlists/{lid}/songs", json={"ids": ids}).json()
     assert [c["id"] for c in r["songs"]] == ids and r["added"] == len(ids) - 2
-    assert cliente.put(f"/api/playlists/{lid}/songs", json={"ids": []}).status_code == 400
-    assert cliente.put("/api/playlists/999999/songs", json={"ids": ids}).status_code == 404
-    cliente.delete(f"/api/playlists/{lid}/songs/{ids[0]}")
-    assert len(cliente.get(f"/api/playlists/{lid}/songs").json()["songs"]) == len(ids) - 1
-    assert cliente.post(f"/api/playlists/{lid}/export").json()["file"].endswith(".m3u8")
-    cliente.delete(f"/api/playlists/{lid}")
-    assert all(l["id"] != lid for l in cliente.get("/api/playlists").json()["playlists"])
+    assert client.put(f"/api/playlists/{lid}/songs", json={"ids": []}).status_code == 400
+    assert client.put("/api/playlists/999999/songs", json={"ids": ids}).status_code == 404
+    client.delete(f"/api/playlists/{lid}/songs/{ids[0]}")
+    assert len(client.get(f"/api/playlists/{lid}/songs").json()["songs"]) == len(ids) - 1
+    assert client.post(f"/api/playlists/{lid}/export").json()["file"].endswith(".m3u8")
+    client.delete(f"/api/playlists/{lid}")
+    assert all(l["id"] != lid for l in client.get("/api/playlists").json()["playlists"])
 
 
-def test_folders_and_exclusions(cliente):
-    d = cliente.get("/api/folders").json()
+def test_folders_and_exclusions(client):
+    d = client.get("/api/folders").json()
     assert len(d["folders"]) >= 1
-    d = cliente.post("/api/exclusions", json={"pattern": "Secuencias"}).json()
+    d = client.post("/api/exclusions", json={"pattern": "Secuencias"}).json()
     assert any(e["pattern"] == "Secuencias" for e in d["exclusions"])
-    d = cliente.delete("/api/exclusions", params={"pattern": "Secuencias"}).json()
+    d = client.delete("/api/exclusions", params={"pattern": "Secuencias"}).json()
     assert all(e["pattern"] != "Secuencias" for e in d["exclusions"])
 
 
-def test_adding_missing_folder_gives_400(cliente):
-    assert cliente.post("/api/folders", json={"path": "/no/existe/xyz"}).status_code == 400
+def test_adding_missing_folder_gives_400(client):
+    assert client.post("/api/folders", json={"path": "/no/existe/xyz"}).status_code == 400
 
 
-def test_transpose_endpoint(cliente):
-    d = cliente.post(
+def test_transpose_endpoint(client):
+    d = client.post(
         "/api/transpose", json={"text": "| Bb | Gm7 |", "from_key": "Bb", "to_key": "G"}
     ).json()
     assert d["text"] == "| G | Em7 |"
     assert d["latin"] == "| Sol | Mim7 |"
 
 
-def test_inbox_and_convertible(cliente):
-    assert "files" in cliente.get("/api/inbox").json()
-    d = cliente.get("/api/convertible").json()
+def test_inbox_and_convertible(client):
+    assert "files" in client.get("/api/inbox").json()
+    d = client.get("/api/convertible").json()
     assert "Secuencias" in d["protected"]
 
 
-def test_dry_run_import_moves_nothing(cliente):
+def test_dry_run_import_moves_nothing(client):
     from danplay import config
 
-    source_path = next(iter(cliente.get("/api/search", params={"limit": 1}).json()["songs"]))
+    source_path = next(iter(client.get("/api/search", params={"limit": 1}).json()["songs"]))
     shutil.copy(source_path["path"], config.INBOX / "prueba_import.mp3")
     before = len(os.listdir(config.INBOX))
-    r = run_job(cliente, "/api/import", "importacion", json={"dry_run": True})
+    r = run_job(client, "/api/import", "importacion", json={"dry_run": True})
     assert [x["action"] for x in r["results"]] == ["dry_run"]
     assert len(os.listdir(config.INBOX)) == before
     os.remove(config.INBOX / "prueba_import.mp3")
 
 
-def test_duplicates(cliente):
-    d = run_job(cliente, "/api/duplicates/scan", "duplicados")
+def test_duplicates(client):
+    d = run_job(client, "/api/duplicates/scan", "duplicados")
     assert "identical" in d and "similar" in d
-    assert cliente.get("/api/duplicates").status_code in (404, 405), "la ruta sincrona ya no existe"
+    assert client.get("/api/duplicates").status_code in (404, 405), "la ruta sincrona ya no existe"
 
 
-def test_settings_round_trip(cliente):
-    original = cliente.get("/api/settings").json()["convert_mp3"]
-    d = cliente.post("/api/settings", json={"convert_mp3": not original}).json()
+def test_settings_round_trip(client):
+    original = client.get("/api/settings").json()["convert_mp3"]
+    d = client.post("/api/settings", json={"convert_mp3": not original}).json()
     assert d["convert_mp3"] == (not original)
-    cliente.post("/api/settings", json={"convert_mp3": original})
+    client.post("/api/settings", json={"convert_mp3": original})
 
 
-def test_the_stems_format_is_a_setting(cliente, monkeypatch):
+def test_the_stems_format_is_a_setting(client, monkeypatch):
     from danplay import config
 
     monkeypatch.setattr(config, "STEMS_FORMAT", "flac")
     monkeypatch.setattr(config, "save_env", lambda pairs: None)  # sin tocar el archivo
-    assert cliente.get("/api/settings").json()["stems_format"] == "flac"
-    d = cliente.post("/api/settings", json={"stems_format": "opus"}).json()
+    assert client.get("/api/settings").json()["stems_format"] == "flac"
+    d = client.post("/api/settings", json={"stems_format": "opus"}).json()
     assert d["stems_format"] == "opus" and config.STEMS_FORMAT == "opus"
-    assert cliente.post("/api/settings", json={"stems_format": "mp3"}).status_code == 422
+    assert client.post("/api/settings", json={"stems_format": "mp3"}).status_code == 422
 
 
-def test_ai_key_is_never_returned_whole(cliente):
-    d = cliente.get("/api/settings").json()
+def test_ai_key_is_never_returned_whole(client):
+    d = client.get("/api/settings").json()
     assert "…" in d["ai_key"] or d["ai_key"] == ""
 
 
 @pytest.fixture
-def perfiles_ia(tmp_path, monkeypatch):
+def ai_profiles(tmp_path, monkeypatch):
     """Los perfiles de IA en un archivo temporal: nada toca los del usuario."""
     from danplay import ai, providers
 
@@ -296,8 +294,8 @@ def perfiles_ia(tmp_path, monkeypatch):
     ai.reset_client()
 
 
-def test_ai_providers_overview(cliente, perfiles_ia):
-    d = cliente.get("/api/ai/providers").json()
+def test_ai_providers_overview(client, ai_profiles):
+    d = client.get("/api/ai/providers").json()
     ids = {p["id"] for p in d["catalog"]}
     assert {"openai", "anthropic", "google", "deepinfra", "openrouter", "ollama", "custom"} <= ids
     assert [g["id"] for g in d["groups"]] == [
@@ -315,8 +313,8 @@ def test_ai_providers_overview(cliente, perfiles_ia):
     assert "key" not in json.dumps(d["profiles"])
 
 
-def test_ai_profile_save_activate_and_delete(cliente, perfiles_ia):
-    r = cliente.post(
+def test_ai_profile_save_activate_and_delete(client, ai_profiles):
+    r = client.post(
         "/api/ai/profile",
         json={
             "provider": "openrouter",
@@ -331,30 +329,28 @@ def test_ai_profile_save_activate_and_delete(cliente, perfiles_ia):
     assert d["active_profile"]["chat_model"] == "google/gemini-3.8-flash"
     assert "abcdefghijklmnop" not in r.text, "la clave nunca vuelve entera"
     assert d["profiles"]["openrouter"]["has_key"]
-    s = cliente.get("/api/settings").json()
+    s = client.get("/api/settings").json()
     assert s["provider"] == "openrouter" and s["provider_name"] == "OpenRouter"
     assert s["model"] == "google/gemini-3.5-flash-lite" and s["has_ai_key"]
-    assert cliente.get("/api/status").json()["provider"] == "OpenRouter"
-    assert cliente.get("/api/chat/tools").json()["provider"] == "OpenRouter"
+    assert client.get("/api/status").json()["provider"] == "OpenRouter"
+    assert client.get("/api/chat/tools").json()["provider"] == "OpenRouter"
 
     # un segundo proveedor, sin activarlo, no quita el activo
-    d = cliente.post(
+    d = client.post(
         "/api/ai/profile", json={"provider": "ollama", "model": "qwen3:8b", "activate": False}
     ).json()
     assert d["active"] == "openrouter" and "ollama" in d["profiles"]
-    d = cliente.post("/api/ai/activate", json={"id": "ollama"}).json()
+    d = client.post("/api/ai/activate", json={"id": "ollama"}).json()
     assert d["active"] == "ollama" and d["active_profile"]["local"]
-    d = cliente.delete("/api/ai/profile/ollama").json()
+    d = client.delete("/api/ai/profile/ollama").json()
     assert d["active"] == "openrouter" and "ollama" not in d["profiles"]
 
-    assert cliente.post("/api/ai/profile", json={"provider": "inventado"}).status_code == 400
-    assert cliente.post("/api/ai/activate", json={"id": "inventado"}).status_code == 400
-    assert (
-        cliente.post("/api/ai/profile", json={"provider": "openai", "raro": 1}).status_code == 422
-    )
+    assert client.post("/api/ai/profile", json={"provider": "inventado"}).status_code == 400
+    assert client.post("/api/ai/activate", json={"id": "inventado"}).status_code == 400
+    assert client.post("/api/ai/profile", json={"provider": "openai", "raro": 1}).status_code == 422
 
 
-def test_ai_check_and_models_with_a_fake_provider(cliente, perfiles_ia, monkeypatch):
+def test_ai_check_and_models_with_a_fake_provider(client, ai_profiles, monkeypatch):
     from danplay import ai
 
     calls = []
@@ -398,11 +394,11 @@ def test_ai_check_and_models_with_a_fake_provider(cliente, perfiles_ia, monkeypa
         "model": "gpt-5.6-luna",
         "chat_model": "gpt-6-astra",
     }
-    d = cliente.post("/api/ai/check", json=draft).json()
+    d = client.post("/api/ai/check", json=draft).json()
     assert d["ok"] and d["tools_ok"] and d["provider"] == "OpenAI", d
     assert [c["model"] for c in calls] == ["gpt-5.6-luna", "gpt-6-astra", "gpt-6-astra"]
 
-    d = cliente.post("/api/ai/models", json=draft).json()
+    d = client.post("/api/ai/models", json=draft).json()
     assert d["ok"] and [m["id"] for m in d["models"]]
     astra = next(m for m in d["models"] if m["id"] == "gpt-6-astra")
     assert astra["known"] and astra["tools"] and astra["cost_out"]
@@ -410,10 +406,10 @@ def test_ai_check_and_models_with_a_fake_provider(cliente, perfiles_ia, monkeypa
     assert d["suggest"]["chat"] and d["suggest"]["fast"]
 
     # sin proveedor en el borrador, error claro, no un 500
-    assert cliente.post("/api/ai/models", json={"provider": "custom"}).json()["ok"] is False
+    assert client.post("/api/ai/models", json={"provider": "custom"}).json()["ok"] is False
 
 
-def test_chat_start_poll_and_cancel(cliente, perfiles_ia, monkeypatch):
+def test_chat_start_poll_and_cancel(client, ai_profiles, monkeypatch):
     """El chat en vivo: se arranca, se pregunta y llega el mismo resultado que
     da /api/chat, con las herramientas segun terminan."""
     import time as _t
@@ -444,7 +440,7 @@ def test_chat_start_poll_and_cancel(cliente, perfiles_ia, monkeypatch):
     monkeypatch.setattr(ai, "_get_client", lambda: _Fake())
     monkeypatch.setattr(ai, "_build_client", lambda p: _Fake())
 
-    r = cliente.post(
+    r = client.post(
         "/api/chat/start",
         json={
             "messages": [{"role": "user", "text": "¿que listas tengo?"}],
@@ -454,23 +450,23 @@ def test_chat_start_poll_and_cancel(cliente, perfiles_ia, monkeypatch):
     assert r.status_code == 200, r.text
     job = r.json()["id"]
     for _ in range(100):
-        d = cliente.get(f"/api/chat/poll/{job}").json()
+        d = client.get(f"/api/chat/poll/{job}").json()
         if d["done"]:
             break
         _t.sleep(0.02)
     assert d["done"] and d["result"]["text"] == "No tienes repertorios."
     assert [t["name"] for t in d["tools"]] == ["list_playlists"]
     assert d["result"]["tools"][0]["name"] == "list_playlists"
-    assert cliente.post(f"/api/chat/cancel/{job}").json()["ok"]
-    assert cliente.get("/api/chat/poll/nada").status_code == 404
-    assert cliente.post("/api/chat/start", json={"messages": []}).status_code == 400
+    assert client.post(f"/api/chat/cancel/{job}").json()["ok"]
+    assert client.get("/api/chat/poll/nada").status_code == 404
+    assert client.post("/api/chat/start", json={"messages": []}).status_code == 400
 
 
-def test_chats_are_kept_and_searchable(cliente):
-    c = cliente.post("/api/chats", json={}).json()
+def test_chats_are_kept_and_searchable(client):
+    c = client.post("/api/chats", json={}).json()
     assert c["id"]
     assert (
-        cliente.post(
+        client.post(
             f"/api/chats/{c['id']}/messages",
             json={
                 "messages": [
@@ -485,39 +481,39 @@ def test_chats_are_kept_and_searchable(cliente):
         ).json()["n"]
         == 2
     )
-    got = cliente.get(f"/api/chats/{c['id']}").json()
+    got = client.get(f"/api/chats/{c['id']}").json()
     assert got["title"] == "armame una lista para el domingo"
     assert got["messages"][1]["tools"][0]["name"] == "create_playlist"
-    assert cliente.get("/api/chats").json()["chats"][0]["id"] == c["id"]
-    hits = cliente.get("/api/chats/search", params={"q": "domingo"}).json()["hits"]
+    assert client.get("/api/chats").json()["chats"][0]["id"] == c["id"]
+    hits = client.get("/api/chats/search", params={"q": "domingo"}).json()["hits"]
     assert hits and hits[0]["chat_id"] == c["id"]
-    assert cliente.patch(f"/api/chats/{c['id']}", json={"title": "Set del domingo"}).json()["ok"]
-    assert cliente.get(f"/api/chats/{c['id']}").json()["title"] == "Set del domingo"
-    assert cliente.delete(f"/api/chats/{c['id']}").json()["ok"]
-    assert cliente.get(f"/api/chats/{c['id']}").status_code == 404
+    assert client.patch(f"/api/chats/{c['id']}", json={"title": "Set del domingo"}).json()["ok"]
+    assert client.get(f"/api/chats/{c['id']}").json()["title"] == "Set del domingo"
+    assert client.delete(f"/api/chats/{c['id']}").json()["ok"]
+    assert client.get(f"/api/chats/{c['id']}").status_code == 404
     assert (
-        cliente.post(
+        client.post(
             "/api/chats/999999/messages", json={"messages": [{"role": "me", "text": "x"}]}
         ).status_code
         == 404
     )
 
 
-def test_ai_usage_and_fallback_settings(cliente, perfiles_ia):
+def test_ai_usage_and_fallback_settings(client, ai_profiles):
     from danplay import library
 
     library.log_ai_usage("openai", "gpt-6-astra", "chat", 1000, 100, 0.015)
-    u = cliente.get("/api/ai/usage").json()
+    u = client.get("/api/ai/usage").json()
     assert u["today"]["calls"] >= 1 and u["month"]["prompt"] >= 1000 and u["today"]["cost"] >= 0.015
-    cliente.post("/api/ai/profile", json={"provider": "openai", "key": "k", "model": "a"})
-    cliente.post("/api/ai/profile", json={"provider": "ollama", "model": "b", "activate": False})
-    d = cliente.get("/api/ai/providers").json()
+    client.post("/api/ai/profile", json={"provider": "openai", "key": "k", "model": "a"})
+    client.post("/api/ai/profile", json={"provider": "ollama", "model": "b", "activate": False})
+    d = client.get("/api/ai/providers").json()
     assert d["fallback"] is True and [f["id"] for f in d["fallbacks"]] == ["ollama"]
-    d = cliente.post("/api/ai/fallback", json={"enabled": False}).json()
+    d = client.post("/api/ai/fallback", json={"enabled": False}).json()
     assert d["fallback"] is False
 
 
-def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
+def test_study_mode_is_saved_in_the_index_and_in_the_file(client):
     """Bucle, velocidad, marcadores y notas viajan con el archivo (etiqueta
     ESTUDIO) y vuelven al indice si este se pierde, como las estrellas."""
     from danplay import config, library, tags
@@ -533,7 +529,7 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
             {"t": -1, "label": "no"},
         ],
     }
-    d = cliente.put(f"/api/song/{c['id']}/study", json=body).json()
+    d = client.put(f"/api/song/{c['id']}/study", json=body).json()
     study = json.loads(d["study"])
     assert study["loop"] == [12.5, 30.0] and study["speed"] == 0.75
     assert [m["label"] for m in study["markers"]] == ["verso", "coro"], "ordenados y sin negativos"
@@ -554,12 +550,12 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
         library.restore_study_from_tags({c["path"]: tags.read_all(c["path"])["study"]})
         assert json.loads(library.by_id(c["id"])["study"])["speed"] == 0.75
     # vacio lo quita; lo raro se rechaza
-    assert cliente.put(f"/api/song/{c['id']}/study", json={}).json()["study"] == ""
-    assert cliente.put(f"/api/song/{c['id']}/study", json={"loop": [30, 10]}).json()["study"] == ""
-    assert cliente.put("/api/song/999999/study", json={}).status_code == 404
-    assert cliente.put(f"/api/song/{c['id']}/study", json={"raro": 1}).status_code == 422
+    assert client.put(f"/api/song/{c['id']}/study", json={}).json()["study"] == ""
+    assert client.put(f"/api/song/{c['id']}/study", json={"loop": [30, 10]}).json()["study"] == ""
+    assert client.put("/api/song/999999/study", json={}).status_code == 404
+    assert client.put(f"/api/song/{c['id']}/study", json={"raro": 1}).status_code == 422
     # tono corrido y ajustes del metronomo, saneados
-    d = cliente.put(
+    d = client.put(
         f"/api/song/{c['id']}/study",
         json={
             "pitch": -3,
@@ -569,23 +565,23 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
     study = json.loads(d["study"])
     assert study["pitch"] == -3
     assert study["metronome"] == {"bpm": 98.26, "meter": 3, "shift": 1, "mult": -1}
-    d = cliente.put(
+    d = client.put(
         f"/api/song/{c['id']}/study", json={"pitch": 0, "metronome": {"meter": 1, "mult": 2}}
     ).json()
     assert d["study"] == "", "tono 0 y ajustes invalidos: no queda nada"
-    assert cliente.put(f"/api/song/{c['id']}/study", json={"pitch": 13}).status_code == 422
+    assert client.put(f"/api/song/{c['id']}/study", json={"pitch": 13}).status_code == 422
     # un cuarto de tono (medio semitono), tempo con decimales y sin acento
-    d = cliente.put(
+    d = client.put(
         f"/api/song/{c['id']}/study",
         json={"pitch": 0.5, "metronome": {"bpm": 90.7, "meter": 0}},
     ).json()
     study = json.loads(d["study"])
     assert study["pitch"] == 0.5
     assert study["metronome"] == {"bpm": 90.7, "meter": 0}
-    d = cliente.put(f"/api/song/{c['id']}/study", json={"pitch": -2.0}).json()
+    d = client.put(f"/api/song/{c['id']}/study", json={"pitch": -2.0}).json()
     assert d["study"] == '{"pitch": -2}', "un tono entero se guarda entero"
     # varios tramos: en orden, juntando los que se pisan y sin los que no valen
-    d = cliente.put(
+    d = client.put(
         f"/api/song/{c['id']}/study",
         json={
             "loops": [[30, 40], [10, 20], [35, 45], [-1, 3], [9, 2]],
@@ -600,7 +596,7 @@ def test_study_mode_is_saved_in_the_index_and_in_the_file(cliente):
         {"t": 10.0, "end": 60.0, "label": "partes", "parts": [[10.0, 20.0], [50.0, 60.0]]}
     ]
     # un solo tramo se guarda como el bucle de siempre
-    d = cliente.put(f"/api/song/{c['id']}/study", json={"loops": [[5, 8]]}).json()
+    d = client.put(f"/api/song/{c['id']}/study", json={"loops": [[5, 8]]}).json()
     assert json.loads(d["study"]) == {"loop": [5.0, 8.0]}
 
 
@@ -621,7 +617,7 @@ def test_waveform_columns_follow_the_sound():
     assert len(waveform.columns([5, 5], 6)[0]) == 6
 
 
-def test_waveform_endpoint_draws_the_song_and_caches_it(cliente, tmp_path):
+def test_waveform_endpoint_draws_the_song_and_caches_it(client, tmp_path):
     """Un mp3 que suena (tono en la segunda mitad) da columnas callado/alto,
     con el pico mas alto en 1; la segunda peticion sale de la cache."""
     from conftest import make_mp3
@@ -663,7 +659,7 @@ def test_waveform_endpoint_draws_the_song_and_caches_it(cliente, tmp_path):
         x for x in library.search("Onda", limit=5) if x["title"] == "Onda" or "Onda" in x["file"]
     )
 
-    r = cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 10})
+    r = client.get(f"/api/song/{c['id']}/waveform", params={"buckets": 10})
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["buckets"] == 10 and len(d["peaks"]) == 10 and len(d["rms"]) == 10
@@ -676,15 +672,15 @@ def test_waveform_endpoint_draws_the_song_and_caches_it(cliente, tmp_path):
     # cacheada en disco, con el numero de columnas en la clave
     cached = list((config.DATA_DIR / "waveforms").glob("*.json"))
     assert cached, "no se guardo"
-    assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 10}).json() == d
+    assert client.get(f"/api/song/{c['id']}/waveform", params={"buckets": 10}).json() == d
     # el respaldo por ffmpeg da lo mismo que Rust, a grandes rasgos
     made = waveform._with_ffmpeg(str(target), 10)
     if made is not None:
         assert max(made[0][:3]) < 0.1 and min(made[0][7:]) > 0.8
-    assert cliente.get("/api/song/999999/waveform").status_code == 404
-    assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 0}).status_code == 422
+    assert client.get("/api/song/999999/waveform").status_code == 404
+    assert client.get(f"/api/song/{c['id']}/waveform", params={"buckets": 0}).status_code == 422
     # de cerca: solo un trozo, con detalle, a la escala del tope digital
-    near = cliente.get(
+    near = client.get(
         f"/api/song/{c['id']}/waveform", params={"start": 0.8, "end": 1.4, "buckets": 60}
     )
     assert near.status_code == 200, near.text
@@ -694,11 +690,11 @@ def test_waveform_endpoint_draws_the_song_and_caches_it(cliente, tmp_path):
     # tope digital: la interfaz la iguala con la de toda la cancion)
     assert max(n["peaks"][:10]) < 0.01, n["peaks"]
     assert min(n["peaks"][-20:]) > 0.05, n["peaks"]
-    bad = cliente.get(f"/api/song/{c['id']}/waveform", params={"start": 2, "end": 1})
+    bad = client.get(f"/api/song/{c['id']}/waveform", params={"start": 2, "end": 1})
     assert bad.status_code == 422
 
 
-def test_waveform_cache_goes_away_with_the_song(cliente):
+def test_waveform_cache_goes_away_with_the_song(client):
     """La onda guardada en disco se borra con la cancion: al mandarla a la
     papelera, y al escanear si desaparecio por fuera. Las huerfanas de otro
     formato tambien caen. Si no, la carpeta crecia sin fin."""
@@ -718,15 +714,13 @@ def test_waveform_cache_goes_away_with_the_song(cliente):
     )
     library.scan()
     c = next(x for x in library.search("Efimera", limit=5))
-    assert cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 8}).status_code == 200
+    assert client.get(f"/api/song/{c['id']}/waveform", params={"buckets": 8}).status_code == 200
     cached = waveform._cache_file(c["path"])
     assert cached.is_file()
     saved = json.loads(cached.read_text())
     assert saved["path"] == c["path"] and len(saved["peaks"]) == 8
     # otro numero de columnas se recalcula y sustituye al anterior (un solo archivo por cancion)
-    assert (
-        cliente.get(f"/api/song/{c['id']}/waveform", params={"buckets": 4}).json()["buckets"] == 4
-    )
+    assert client.get(f"/api/song/{c['id']}/waveform", params={"buckets": 4}).json()["buckets"] == 4
     assert len(json.loads(cached.read_text())["peaks"]) == 4
     assert waveform._cache_file(c["path"]) == cached
 
@@ -740,9 +734,7 @@ def test_waveform_cache_goes_away_with_the_song(cliente):
     assert not orphan.exists(), "una onda huerfana de otro formato sigue en disco"
     # y las de las canciones que siguen no se tocan
     other = library.search("", limit=1)[0]
-    assert (
-        cliente.get(f"/api/song/{other['id']}/waveform", params={"buckets": 4}).status_code == 200
-    )
+    assert client.get(f"/api/song/{other['id']}/waveform", params={"buckets": 4}).status_code == 200
     kept = waveform._cache_file(other["path"])
     library.scan()
     assert kept.is_file()
@@ -756,7 +748,7 @@ def test_waveform_cache_goes_away_with_the_song(cliente):
     )
     library.scan()
     c2 = next(x for x in library.search("Efimera 2", limit=5) if x["title"] == "Efimera 2")
-    cliente.get(f"/api/song/{c2['id']}/waveform", params={"buckets": 4})
+    client.get(f"/api/song/{c2['id']}/waveform", params={"buckets": 4})
     cached2 = waveform._cache_file(c2["path"])
     assert cached2.is_file()
     library.forget(c2["id"])
@@ -765,7 +757,7 @@ def test_waveform_cache_goes_away_with_the_song(cliente):
     library.scan()
 
 
-def test_playlist_sheet_is_written_inside_listas(cliente):
+def test_playlist_sheet_is_written_in_the_playlists_folder(client):
     from danplay import config, library, playlists
 
     songs = library.search("", limit=2)
@@ -777,7 +769,7 @@ def test_playlist_sheet_is_written_inside_listas(cliente):
     # sin tono en la ficha: el que dice su cifrado
     library.update(songs[1]["id"], key="", chords=json.dumps({"sheet": {**sheet, "key": "D"}}))
     try:
-        r = cliente.post(f"/api/playlists/{made['id']}/sheet", json={"with_lyrics": True}).json()
+        r = client.post(f"/api/playlists/{made['id']}/sheet", json={"with_lyrics": True}).json()
         path = pathlib.Path(r["file"])
         assert path.is_file() and path.parent == config.LIBRARY / "Listas"
         page = path.read_text(encoding="utf-8")
@@ -785,12 +777,12 @@ def test_playlist_sheet_is_written_inside_listas(cliente):
         assert "(de LaCuerda)" in page, "se dice de donde salen los acordes"
         assert "Sib" in page, "el tono tambien en latino"
         assert "D · Re" in page
-        assert cliente.post("/api/playlists/999999/sheet", json={}).status_code == 400
+        assert client.post("/api/playlists/999999/sheet", json={}).status_code == 400
     finally:
         playlists.remove(made["id"])
 
 
-def test_ai_free_activates_a_keyless_provider(cliente, perfiles_ia, monkeypatch):
+def test_ai_free_activates_a_keyless_provider(client, ai_profiles, monkeypatch):
     from danplay import ai
 
     class _Call:
@@ -810,11 +802,11 @@ def test_ai_free_activates_a_keyless_provider(cliente, perfiles_ia, monkeypatch)
                     return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
 
     monkeypatch.setattr(ai, "_build_client", lambda p: _Fake())
-    d = cliente.post("/api/ai/free").json()
+    d = client.post("/api/ai/free").json()
     assert d["free"]["ok"] and d["free"]["chosen"] == "llm7"
     assert d["active"] == "llm7" and d["ai_ready"]
     assert not d["profiles"]["llm7"]["has_key"], "sin clave: de eso se trata"
-    assert cliente.get("/api/chat/tools").json()["available"]
+    assert client.get("/api/chat/tools").json()["available"]
 
 
 def test_indexes_nothing_without_folders(tmp_path, monkeypatch):
@@ -824,7 +816,7 @@ def test_indexes_nothing_without_folders(tmp_path, monkeypatch):
     from danplay import config
     from danplay import library as B
 
-    bd_previa, bib_previa = config.DATABASE, config.LIBRARY
+    prev_db, prev_library = config.DATABASE, config.LIBRARY
     config.DATABASE = pathlib.Path(tmp_path) / "vacia.db"
     config.LIBRARY = pathlib.Path(tmp_path) / "no-usar"
     (config.LIBRARY / "Artistas").mkdir(parents=True)
@@ -833,30 +825,30 @@ def test_indexes_nothing_without_folders(tmp_path, monkeypatch):
         assert B.scan()["total"] == 0
         assert B.stats_of()["total"] == 0
     finally:
-        config.DATABASE, config.LIBRARY = bd_previa, bib_previa
+        config.DATABASE, config.LIBRARY = prev_db, prev_library
 
 
-def test_status_warns_when_no_folders(cliente):
-    d = cliente.get("/api/status").json()
+def test_status_warns_when_no_folders(client):
+    d = client.get("/api/status").json()
     assert "configured" in d and isinstance(d["configured"], bool)
 
 
-def test_warns_if_folder_is_inside_another(cliente):
+def test_warns_if_folder_is_inside_another(client):
     from danplay import config
 
     sub = str(config.ARTISTS_DIR)
-    d = cliente.post("/api/check-folder", json={"path": sub}).json()
+    d = client.post("/api/check-folder", json={"path": sub}).json()
     assert d["notice"] and d["notice"]["kind"] == "inside"
 
 
-def test_warns_if_folder_was_already_there(cliente):
+def test_warns_if_folder_was_already_there(client):
     from danplay import config
 
-    d = cliente.post("/api/check-folder", json={"path": str(config.LIBRARY)}).json()
+    d = client.post("/api/check-folder", json={"path": str(config.LIBRARY)}).json()
     assert d["notice"] and d["notice"]["kind"] == "same"
 
 
-def test_finds_a_copy_of_the_same_music(cliente, tmp_path):
+def test_finds_a_copy_of_the_same_music(client, tmp_path):
     """El caso real: el original y su respaldo en rutas distintas."""
     import shutil
 
@@ -864,45 +856,45 @@ def test_finds_a_copy_of_the_same_music(cliente, tmp_path):
 
     copy = tmp_path / "respaldo"
     shutil.copytree(config.ARTISTS_DIR, copy)
-    d = cliente.post("/api/check-folder", json={"path": str(copy)}).json()
+    d = client.post("/api/check-folder", json={"path": str(copy)}).json()
     assert d["notice"], "deberia avisar de que es la misma musica"
     assert d["notice"]["kind"] == "copy"
     assert d["notice"]["percent"] >= 60
 
 
-def test_unrelated_folder_does_not_warn(cliente, tmp_path):
+def test_unrelated_folder_does_not_warn(client, tmp_path):
     empty = tmp_path / "otra-cosa"
     empty.mkdir()
-    d = cliente.post("/api/check-folder", json={"path": str(empty)}).json()
+    d = client.post("/api/check-folder", json={"path": str(empty)}).json()
     assert d["notice"] is None
 
 
-def test_adding_the_same_folder_twice_does_not_duplicate(cliente):
+def test_adding_the_same_folder_twice_does_not_duplicate(client):
     """Repetir la misma carpeta debe avisar y dejarlo todo como estaba."""
     from danplay import config
 
     path = str(config.LIBRARY)
-    before = len(cliente.get("/api/folders").json()["folders"])
-    total_antes = cliente.get("/api/status").json()["stats"]["total"]
+    before = len(client.get("/api/folders").json()["folders"])
+    total_before = client.get("/api/status").json()["stats"]["total"]
     for _ in range(3):
-        r = cliente.post("/api/folders", json={"path": path}).json()
+        r = client.post("/api/folders", json={"path": path}).json()
         assert r["action"] == "already_there"
         assert r["notice"]["kind"] == "same"
-    assert len(cliente.get("/api/folders").json()["folders"]) == before
-    r = run_job(cliente, "/api/scan", "escaneo")
-    assert r["stats"]["total"] == total_antes
-    assert cliente.get("/api/status").json()["stats"]["total"] == total_antes
+    assert len(client.get("/api/folders").json()["folders"]) == before
+    r = run_job(client, "/api/scan", "escaneo")
+    assert r["stats"]["total"] == total_before
+    assert client.get("/api/status").json()["stats"]["total"] == total_before
 
 
-def test_subfolder_of_indexed_is_not_added(cliente):
+def test_subfolder_of_indexed_is_not_added(client):
     from danplay import config
 
-    r = cliente.post("/api/folders", json={"path": str(config.ARTISTS_DIR)}).json()
+    r = client.post("/api/folders", json={"path": str(config.ARTISTS_DIR)}).json()
     assert r["action"] == "already_there" and r["notice"]["kind"] == "inside"
     assert all(c["path"] != str(config.ARTISTS_DIR) for c in r["folders"])
 
 
-def test_parent_folder_replaces_inner_one(cliente, tmp_path):
+def test_parent_folder_replaces_inner_one(client, tmp_path):
     import shutil
 
     from danplay import config
@@ -912,30 +904,30 @@ def test_parent_folder_replaces_inner_one(cliente, tmp_path):
     child.mkdir(parents=True)
     for f in list(config.ARTISTS_DIR.rglob("*.mp3"))[:3]:
         shutil.copy(f, child / f.name)
-    cliente.post("/api/folders", json={"path": str(child)})
-    r = cliente.post("/api/folders", json={"path": str(parent)}).json()
+    client.post("/api/folders", json={"path": str(child)})
+    r = client.post("/api/folders", json={"path": str(parent)}).json()
     assert r["action"] == "replaced"
-    rutas = [c["path"] for c in r["folders"]]
-    assert str(parent) in rutas and str(child) not in rutas
-    cliente.delete("/api/folders", params={"path": str(parent)})
+    paths = [c["path"] for c in r["folders"]]
+    assert str(parent) in paths and str(child) not in paths
+    client.delete("/api/folders", params={"path": str(parent)})
 
 
-def test_a_copy_asks_for_confirmation_and_can_be_forced(cliente, tmp_path):
+def test_a_copy_asks_for_confirmation_and_can_be_forced(client, tmp_path):
     import shutil
 
     from danplay import config
 
     copy = tmp_path / "respaldo2"
     shutil.copytree(config.ARTISTS_DIR, copy)
-    r = cliente.post("/api/folders", json={"path": str(copy)}).json()
+    r = client.post("/api/folders", json={"path": str(copy)}).json()
     assert r["action"] == "confirm" and r["notice"]["kind"] == "copy"
     assert all(c["path"] != str(copy) for c in r["folders"])
-    r = cliente.post("/api/folders", json={"path": str(copy), "force": True}).json()
+    r = client.post("/api/folders", json={"path": str(copy), "force": True}).json()
     assert r["action"] == "added"
-    cliente.delete("/api/folders", params={"path": str(copy)})
+    client.delete("/api/folders", params={"path": str(copy)})
 
 
-def test_exclusions_ignore_case(cliente):
+def test_exclusions_ignore_case(client):
     """Escribir «secuencias» debe excluir la carpeta «Secuencias»."""
     from danplay import config
 
@@ -944,19 +936,19 @@ def test_exclusions_ignore_case(cliente):
 
     source_path = next(config.ARTISTS_DIR.rglob("*.mp3"))
     shutil.copy(source_path, config.LIBRARY / "Secuencias" / "pista.mp3")
-    run_job(cliente, "/api/scan", "escaneo")
-    before = cliente.get("/api/status").json()["stats"]["total"]
+    run_job(client, "/api/scan", "escaneo")
+    before = client.get("/api/status").json()["stats"]["total"]
 
-    cliente.post("/api/exclusions", json={"pattern": "secuencias"})  # en minusculas
-    run_job(cliente, "/api/scan", "escaneo")
-    after = cliente.get("/api/status").json()["stats"]["total"]
-    cliente.delete("/api/exclusions", params={"pattern": "secuencias"})
-    run_job(cliente, "/api/scan", "escaneo")
+    client.post("/api/exclusions", json={"pattern": "secuencias"})  # en minusculas
+    run_job(client, "/api/scan", "escaneo")
+    after = client.get("/api/status").json()["stats"]["total"]
+    client.delete("/api/exclusions", params={"pattern": "secuencias"})
+    run_job(client, "/api/scan", "escaneo")
     assert after < before, "la exclusion en minusculas no surtio efecto"
 
 
-def test_chat_tools_are_declared(cliente):
-    d = cliente.get("/api/chat/tools").json()
+def test_chat_tools_are_declared(client):
+    d = client.get("/api/chat/tools").json()
     names = [h["name"] for h in d["tools"]]
     # las de siempre
     assert "search_songs" in names and "create_playlist" in names
@@ -976,16 +968,16 @@ def test_chat_tools_are_declared(cliente):
     # cada llamada), pero siguen valiendo por su nombre viejo
     from danplay import chat as CH
 
-    for viejo in ("set_stars", "set_favorite", "play_song", "play_playlist", "lyrics_by_name"):
-        assert viejo not in names and viejo in CH.TOOL_NAMES
+    for old_name in ("set_stars", "set_favorite", "play_song", "play_playlist", "lyrics_by_name"):
+        assert old_name not in names and old_name in CH.TOOL_NAMES
     assert all(h["description"] for h in d["tools"]), "todas necesitan descripcion"
 
 
-def test_chat_requires_messages(cliente):
-    assert cliente.post("/api/chat", json={"messages": []}).status_code == 400
+def test_chat_requires_messages(client):
+    assert client.post("/api/chat", json={"messages": []}).status_code == 400
 
 
-def test_chat_search_tool(cliente):
+def test_chat_search_tool(client):
     from danplay import chat as CH
 
     r = CH.run_tool("search_songs", {"query": "artista:barak", "limit": 5})
@@ -993,7 +985,7 @@ def test_chat_search_tool(cliente):
     assert all("id" in c and "title" in c for c in r["songs"])
 
 
-def test_chat_create_playlist_tool(cliente):
+def test_chat_create_playlist_tool(client):
     from danplay import chat as CH
     from danplay import playlists as L
 
@@ -1004,16 +996,16 @@ def test_chat_create_playlist_tool(cliente):
     L.remove(r["playlist_id"])
 
 
-def test_chat_transpose_tool(cliente):
+def test_chat_transpose_tool(client):
     from danplay import chat as CH
 
     r = CH.run_tool("transpose_chords", {"chords": "| Bb | Gm7 |", "from_key": "Bb", "to_key": "G"})
     assert r["chords"] == "| G | Em7 |"
 
 
-def test_chat_chords_tool_says_where_they_come_from(cliente, monkeypatch):
+def test_chat_chords_tool_says_where_they_come_from(client, monkeypatch):
     from danplay import chat as CH
-    from danplay import cifrados, library
+    from danplay import chord_sheets, library
 
     sheet = {
         "source": "Ultimate Guitar",
@@ -1026,7 +1018,7 @@ def test_chat_chords_tool_says_where_they_come_from(cliente, monkeypatch):
         "sections": [{"name": "Coro", "chords": ["D", "A"], "lines": []}],
     }
     found = {"sheet": sheet, "tried": ["Ultimate Guitar", "LaCuerda"], "failed": []}
-    monkeypatch.setattr(cifrados, "find", lambda a, t: found)
+    monkeypatch.setattr(chord_sheets, "find", lambda a, t: found)
     r = CH.run_tool("get_chords", {"artist": "Barak", "title": "Mi Gozo"})
     assert r["url"] == sheet["url"] and r["key"] == "el cifrado no dice el tono"
     assert r["sections"] == [{"name": "Coro", "chords": "D A"}]
@@ -1043,8 +1035,8 @@ def test_chat_chords_tool_says_where_they_come_from(cliente, monkeypatch):
     library.update(c["id"], chords="")
 
 
-def test_chords_endpoints(cliente, monkeypatch):
-    from danplay import cifrados, library
+def test_chords_endpoints(client, monkeypatch):
+    from danplay import chord_sheets, library
 
     c = library.search("", limit=1)[0]
     library.update(c["id"], chords="")
@@ -1062,29 +1054,29 @@ def test_chords_endpoints(cliente, monkeypatch):
     }
     calls = []
     monkeypatch.setattr(
-        cifrados,
+        chord_sheets,
         "find",
         lambda a, t: calls.append(t) or {"sheet": sheet, "tried": ["LaCuerda"], "failed": []},
     )
     url = f"/api/song/{c['id']}/chords"
-    assert cliente.post(f"{url}/transposed", json={"to_key": "G"}).status_code == 404
-    r = cliente.post(url, json={}).json()
+    assert client.post(f"{url}/transposed", json={"to_key": "G"}).status_code == 404
+    r = client.post(url, json={}).json()
     assert r["sheet"]["key"] == "Bb" and not r["cached"] and "sheet" in r["song"]["chords"]
-    assert cliente.post(url).json()["cached"] and len(calls) == 1
-    assert not cliente.post(url, json={"refresh": True}).json()["cached"] and len(calls) == 2
-    t = cliente.post(f"{url}/transposed", json={"to_key": "G"}).json()["sheet"]
+    assert client.post(url).json()["cached"] and len(calls) == 1
+    assert not client.post(url, json={"refresh": True}).json()["cached"] and len(calls) == 2
+    t = client.post(f"{url}/transposed", json={"to_key": "G"}).json()["sheet"]
     assert t["key"] == "G" and t["sections"][0]["chords"] == ["G", "Em"]
-    assert cliente.post("/api/song/999999/chords", json={}).status_code == 404
+    assert client.post("/api/song/999999/chords", json={}).status_code == 404
     library.update(c["id"], chords="")
 
 
-def test_unknown_tool_does_not_blow_up(cliente):
+def test_unknown_tool_does_not_blow_up(client):
     from danplay import chat as CH
 
     assert "error" in CH.run_tool("herramienta_que_no_existe", {"url": "x"})
 
 
-def test_download_without_items_skips_network(cliente):
+def test_download_without_items_skips_network(client):
     """El caso vacio se corta antes de salir a internet."""
     from danplay import chat as CH
     from danplay import youtube as YT
@@ -1094,7 +1086,7 @@ def test_download_without_items_skips_network(cliente):
     assert not YT.STATE["active"], "no deberia haber arrancado ninguna descarga"
 
 
-def test_system_prompt_only_talks_music(cliente):
+def test_system_prompt_only_talks_music(client):
     """Lo que no es musica se rechaza; es el limite que pidio el usuario."""
     from danplay import chat as CH
 
@@ -1105,7 +1097,7 @@ def test_system_prompt_only_talks_music(cliente):
     assert any(x in s for x in ("politica", "guerras", "deportes"))
 
 
-def test_system_prompt_never_downloads_alone(cliente):
+def test_system_prompt_never_downloads_alone(client):
     """Puede descargar, pero solo si se lo piden: 'que no haga mas de la cuenta'."""
     from danplay import chat as CH
 
@@ -1121,8 +1113,8 @@ def test_system_prompt_never_downloads_alone(cliente):
 # asi que esas herramientas devuelven una `action` que ejecuta la app.
 
 
-def test_las_herramientas_de_control_estan_declaradas(cliente):
-    d = cliente.get("/api/chat/tools").json()
+def test_the_control_tools_are_declared(client):
+    d = client.get("/api/chat/tools").json()
     names = [h["nombre" if "nombre" in h else "name"] for h in d["tools"]]
     for n in (
         "play",
@@ -1136,7 +1128,7 @@ def test_las_herramientas_de_control_estan_declaradas(cliente):
         assert n in names, f"al asistente le falta {n}"
 
 
-def test_reproducir_devuelve_una_orden_para_la_app(cliente):
+def test_play_returns_a_command_for_the_app(client):
     from danplay import chat, library
 
     cid = library.search("", limit=1)[0]["id"]
@@ -1148,13 +1140,13 @@ def test_reproducir_devuelve_una_orden_para_la_app(cliente):
     assert "error" in chat.run_tool("play", {"name": "no existe esta lista"})
 
 
-def test_reproducir_algo_que_no_existe_no_revienta(cliente):
+def test_playing_something_missing_does_not_crash(client):
     from danplay import chat
 
     assert "error" in chat.run_tool("play_song", {"id": 999999})
 
 
-def test_control_del_reproductor_valida_la_orden(cliente):
+def test_player_control_validates_the_command(client):
     from danplay import chat
 
     assert chat.run_tool("player_control", {"command": "next"})["action"] == {
@@ -1164,7 +1156,7 @@ def test_control_del_reproductor_valida_la_orden(cliente):
     assert "error" in chat.run_tool("player_control", {"command": "bailar"})
 
 
-def test_el_asistente_puntua_y_marca_favorito(cliente):
+def test_the_assistant_rates_and_marks_favorite(client):
     from danplay import chat, library
 
     cid = library.search("", limit=1)[0]["id"]
@@ -1185,7 +1177,7 @@ def test_el_asistente_puntua_y_marca_favorito(cliente):
     )
 
 
-def test_el_asistente_corrige_datos(cliente):
+def test_the_assistant_edits_song_data(client):
     from danplay import chat, library
 
     cid = library.search("", limit=1)[0]["id"]
@@ -1196,24 +1188,24 @@ def test_el_asistente_corrige_datos(cliente):
     assert "error" in chat.run_tool("edit_song", {"id": cid})
 
 
-def test_lo_descargado_entra_en_el_indice_sin_reescanear(cliente):
+def test_downloads_enter_the_index_without_rescanning(client):
     """El archivo llegaba a Artistas/ pero no al indice: no salia en la app."""
     import shutil
 
     from danplay import config, library
 
-    origen = library.search("", limit=1)[0]["path"]
-    destino = config.ARTISTS_DIR / "Barak" / "Barak - Copia De Prueba.mp3"
-    shutil.copy(origen, destino)
-    antes = library.stats_of()["total"]
-    nueva = library.index_file(str(destino))
-    assert nueva and nueva["id"]
-    assert library.stats_of()["total"] == antes + 1
-    library.forget(nueva["id"])
-    destino.unlink()
+    src = library.search("", limit=1)[0]["path"]
+    dest = config.ARTISTS_DIR / "Barak" / "Barak - Copia De Prueba.mp3"
+    shutil.copy(src, dest)
+    before = library.stats_of()["total"]
+    new = library.index_file(str(dest))
+    assert new and new["id"]
+    assert library.stats_of()["total"] == before + 1
+    library.forget(new["id"])
+    dest.unlink()
 
 
-def test_indexar_algo_fuera_de_las_carpetas_no_hace_nada(cliente):
+def test_indexing_outside_the_folders_does_nothing(client):
     from danplay import library
 
     assert library.index_file("/tmp/no-existe-esto.mp3") is None
@@ -1225,7 +1217,7 @@ def test_indexar_algo_fuera_de_las_carpetas_no_hace_nada(cliente):
 # no la toca.
 
 
-def test_el_historial_empieza_vacio_y_acepta_entradas(cliente):
+def test_history_starts_empty_and_accepts_entries(client):
     from danplay import library
 
     library.clear_download_history()
@@ -1234,17 +1226,17 @@ def test_el_historial_empieza_vacio_y_acepta_entradas(cliente):
     assert library.download_count() == 1
 
 
-def test_distingue_quien_pidio_la_descarga(cliente):
+def test_tells_who_asked_for_the_download(client):
     from danplay import library
 
     library.clear_download_history()
     library.log_download({"source": "manual", "title": "A", "ok": True})
     library.log_download({"source": "assistant", "title": "B", "ok": True})
-    fuentes = {h["source"] for h in library.download_history()}
-    assert fuentes == {"manual", "assistant"}
+    sources = {h["source"] for h in library.download_history()}
+    assert sources == {"manual", "assistant"}
 
 
-def test_guarda_los_tres_estados(cliente):
+def test_stores_the_three_outcomes(client):
     from danplay import library
 
     library.clear_download_history()
@@ -1257,7 +1249,7 @@ def test_guarda_los_tres_estados(cliente):
     assert h["mal"]["ok"] == 0 and h["mal"]["reason"] == "no disponible"
 
 
-def test_el_historial_sale_de_lo_mas_nuevo_a_lo_mas_viejo(cliente):
+def test_history_comes_out_newest_first(client):
     from danplay import library
 
     library.clear_download_history()
@@ -1266,7 +1258,7 @@ def test_el_historial_sale_de_lo_mas_nuevo_a_lo_mas_viejo(cliente):
     assert [h["title"] for h in library.download_history()] == ["nueva", "media", "vieja"]
 
 
-def test_el_escaneo_no_borra_el_historial(cliente):
+def test_the_scan_does_not_erase_the_history(client):
     """El indice se reconstruye desde los archivos; el historial no es del mp3."""
     from danplay import library
 
@@ -1276,15 +1268,15 @@ def test_el_escaneo_no_borra_el_historial(cliente):
     assert library.download_count() == 1
 
 
-def test_el_endpoint_devuelve_el_historial(cliente):
+def test_the_endpoint_returns_the_history(client):
     from danplay import library
 
     library.clear_download_history()
     library.log_download({"source": "assistant", "title": "Del chat", "ok": True})
-    d = cliente.get("/api/downloads/history").json()
+    d = client.get("/api/downloads/history").json()
     assert d["total"] == 1 and d["items"][0]["title"] == "Del chat"
-    assert cliente.delete("/api/downloads/history").json()["removed"] == 1
-    assert cliente.get("/api/downloads/history").json()["total"] == 0
+    assert client.delete("/api/downloads/history").json()["removed"] == 1
+    assert client.get("/api/downloads/history").json()["total"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1292,87 +1284,87 @@ def test_el_endpoint_devuelve_el_historial(cliente):
 # implementacion: da igual como se ponga al dia el indice mientras acabe bien.
 
 
-def test_favorites_filter_is_not_cut_off_by_the_limit(cliente):
+def test_favorites_filter_is_not_cut_off_by_the_limit(client):
     """«Favoritos» debe enseñar los favoritos de TODA la biblioteca.
 
     El filtro se aplicaba despues de recortar por `limit`, asi que solo salian
     los favoritos que hubiera entre los primeros N resultados. Con un limit de
     1 y el favorito al final de la lista, no salia ninguno.
     """
-    todas = cliente.get("/api/search", params={"limit": 500}).json()["songs"]
-    assert len(todas) >= 2
-    ultima = todas[-1]
-    cliente.post(f"/api/song/{ultima['id']}/favorite", json={"favorite": True})
+    all_items = client.get("/api/search", params={"limit": 500}).json()["songs"]
+    assert len(all_items) >= 2
+    last_one = all_items[-1]
+    client.post(f"/api/song/{last_one['id']}/favorite", json={"favorite": True})
     try:
-        cuantos = cliente.get("/api/search", params={"only_favorites": True, "limit": 500}).json()
-        assert ultima["id"] in [c["id"] for c in cuantos["songs"]]
+        count = client.get("/api/search", params={"only_favorites": True, "limit": 500}).json()
+        assert last_one["id"] in [c["id"] for c in count["songs"]]
         # pedir exactamente los que hay tiene que devolverlos todos: el limite
         # se aplica a los favoritos, no a la lista entera antes de filtrar
-        n = cuantos["total"]
-        ajustado = cliente.get("/api/search", params={"only_favorites": True, "limit": n}).json()
-        assert ajustado["total"] == n
+        n = count["total"]
+        exact_fit = client.get("/api/search", params={"only_favorites": True, "limit": n}).json()
+        assert exact_fit["total"] == n
     finally:
-        cliente.post(f"/api/song/{ultima['id']}/favorite", json={"favorite": False})
+        client.post(f"/api/song/{last_one['id']}/favorite", json={"favorite": False})
 
 
-def test_min_stars_filter_is_not_cut_off_by_the_limit(cliente):
-    todas = cliente.get("/api/search", params={"limit": 500}).json()["songs"]
-    ultima = todas[-1]
-    cliente.post(f"/api/song/{ultima['id']}/stars", json={"stars": 5})
+def test_min_stars_filter_is_not_cut_off_by_the_limit(client):
+    all_items = client.get("/api/search", params={"limit": 500}).json()["songs"]
+    last_one = all_items[-1]
+    client.post(f"/api/song/{last_one['id']}/stars", json={"stars": 5})
     try:
-        todos = cliente.get("/api/search", params={"min_stars": 4, "limit": 500}).json()
-        assert ultima["id"] in [c["id"] for c in todos["songs"]]
-        n = todos["total"]
-        ajustado = cliente.get("/api/search", params={"min_stars": 4, "limit": n}).json()
-        assert ajustado["total"] == n
+        all_starred = client.get("/api/search", params={"min_stars": 4, "limit": 500}).json()
+        assert last_one["id"] in [c["id"] for c in all_starred["songs"]]
+        n = all_starred["total"]
+        exact_fit = client.get("/api/search", params={"min_stars": 4, "limit": n}).json()
+        assert exact_fit["total"] == n
     finally:
-        cliente.post(f"/api/song/{ultima['id']}/stars", json={"stars": 0})
+        client.post(f"/api/song/{last_one['id']}/stars", json={"stars": 0})
 
 
-def test_search_survives_a_quote_in_the_query(cliente):
+def test_search_survives_a_quote_in_the_query(client):
     """Una comilla rompia la sintaxis de FTS5 y reventaba la busqueda entera."""
     for q in ['rock"n roll', 'a"', '"']:
-        r = cliente.get("/api/search", params={"q": q})
+        r = client.get("/api/search", params={"q": q})
         assert r.status_code == 200, f"{q!r} -> {r.status_code}"
 
 
-def test_resolving_a_duplicate_updates_the_index(cliente):
+def test_resolving_a_duplicate_updates_the_index(client):
     """Tras conservar una copia, la borrada sale del indice y la que queda esta.
 
     Antes esto se resolvia relanzando un escaneo completo; ahora se actualiza
     solo lo que cambio, y el resultado tiene que ser el mismo.
     """
-    original = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
-    copia = pathlib.Path(original["path"]).with_name("copia duplicada - r.mp3")
-    shutil.copy(original["path"], copia)
+    original = client.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    copy_path = pathlib.Path(original["path"]).with_name("copia duplicada - r.mp3")
+    shutil.copy(original["path"], copy_path)
     from danplay import library as B
 
-    B.index_file(str(copia))
+    B.index_file(str(copy_path))
 
-    antes = {c["path"] for c in cliente.get("/api/search", params={"limit": 500}).json()["songs"]}
-    assert str(copia) in antes
+    before = {c["path"] for c in client.get("/api/search", params={"limit": 500}).json()["songs"]}
+    assert str(copy_path) in before
 
     # `dry_run` es True por defecto: borrar hay que pedirlo expresamente
-    prueba = cliente.post(
-        "/api/duplicates/resolve", json={"keep": str(copia), "remove": [original["path"]]}
+    dry_result = client.post(
+        "/api/duplicates/resolve", json={"keep": str(copy_path), "remove": [original["path"]]}
     ).json()
-    assert prueba["dry_run"] and os.path.exists(original["path"]), (
+    assert dry_result["dry_run"] and os.path.exists(original["path"]), (
         "sin pedirlo, no deberia borrar nada"
     )
 
-    r = cliente.post(
+    r = client.post(
         "/api/duplicates/resolve",
-        json={"keep": str(copia), "remove": [original["path"]], "dry_run": False},
+        json={"keep": str(copy_path), "remove": [original["path"]], "dry_run": False},
     ).json()
     assert r["ok"], r
 
-    despues = {c["path"] for c in cliente.get("/api/search", params={"limit": 500}).json()["songs"]}
-    assert original["path"] not in despues, "la copia borrada sigue en el indice"
-    assert r["kept"] in despues, "la que se conserva no quedo indexada"
+    after = {c["path"] for c in client.get("/api/search", params={"limit": 500}).json()["songs"]}
+    assert original["path"] not in after, "la copia borrada sigue en el indice"
+    assert r["kept"] in after, "la que se conserva no quedo indexada"
     assert not os.path.exists(original["path"])
 
 
-def test_untagged_files_still_report_duration(cliente):
+def test_untagged_files_still_report_duration(client):
     """Un archivo sin etiquetas tiene que enseñar su duracion igual.
 
     `mutagen.File()` devuelve un objeto cuyo len() es el NUMERO DE ETIQUETAS,
@@ -1383,24 +1375,24 @@ def test_untagged_files_still_report_duration(cliente):
 
     from danplay import tags as T
 
-    original = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
-    desnudo = pathlib.Path(original["path"]).with_name("sin etiquetas.mp3")
-    shutil.copy(original["path"], desnudo)
+    original = client.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    untagged = pathlib.Path(original["path"]).with_name("sin etiquetas.mp3")
+    shutil.copy(original["path"], untagged)
     try:
-        t = ID3(str(desnudo))
+        t = ID3(str(untagged))
         t.delete()
         t.save()
-        d = T.read_all(str(desnudo))
+        d = T.read_all(str(untagged))
         assert d["duration"] > 0, "un archivo sin etiquetas se quedo sin duracion"
     finally:
-        desnudo.unlink(missing_ok=True)
+        untagged.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
 # El puente con la interfaz.
 #
 # El JS y Python se hablan por nombres de parametro, y no hay nada que los ate:
-# al pasar el codigo a ingles se quedaron cuatro en castellano (`ruta`,
+# al pasar el codigo a ingles se quedaron cuatro en castellano (`path`,
 # `patron`, `forzar`, `keepOne`) y las funciones correspondientes de la app
 # dejaron de funcionar en silencio —un 422 que nadie miraba— hasta que alguien
 # intentaba quitar una carpeta. Esto los compara solos.
@@ -1428,7 +1420,7 @@ def test_the_interface_uses_the_query_parameters_the_api_expects():
     from danplay import api as A
 
     js = _api_js()
-    faltan = []
+    missing = []
     routes = list(A.all_routes())
     assert len(routes) > 80, "se miran las rutas de verdad, no los routers"
     for route in routes:
@@ -1438,15 +1430,15 @@ def test_the_interface_uses_the_query_parameters_the_api_expects():
         for name, p in inspect.signature(fn).parameters.items():
             if not isinstance(p.default, fastapi_params.Query):
                 continue
-            obligatorio = p.default.default in (PydanticUndefined, Ellipsis)
-            if obligatorio and f"{name}=" not in js:
-                faltan.append(f"{sorted(route.methods)} {route.path} -> «{name}»")
-    assert not faltan, "la interfaz no manda estos parametros de consulta:\n  " + "\n  ".join(
-        faltan
+            required = p.default.default in (PydanticUndefined, Ellipsis)
+            if required and f"{name}=" not in js:
+                missing.append(f"{sorted(route.methods)} {route.path} -> «{name}»")
+    assert not missing, "la interfaz no manda estos parametros de consulta:\n  " + "\n  ".join(
+        missing
     )
 
 
-def test_the_interface_sends_the_body_fields_the_api_reads(cliente):
+def test_the_interface_sends_the_body_fields_the_api_reads(client):
     """Los campos del cuerpo que la app manda tienen que existir de verdad.
 
     Se comprueba con llamadas reales, que es lo unico que demuestra que el
@@ -1454,21 +1446,21 @@ def test_the_interface_sends_the_body_fields_the_api_reads(cliente):
     y la accion no hace nada.
     """
     # quitar una carpeta: la app manda ?path=
-    d = cliente.get("/api/folders").json()
+    d = client.get("/api/folders").json()
     assert d["folders"], "la biblioteca de prueba deberia tener una carpeta"
-    ruta = d["folders"][0]["path"]
-    r = cliente.delete(f"/api/folders?path={ruta}")
+    path = d["folders"][0]["path"]
+    r = client.delete(f"/api/folders?path={path}")
     assert r.status_code == 200, r.text
-    cliente.post("/api/folders", json={"path": ruta, "label": "prueba"})
+    client.post("/api/folders", json={"path": path, "label": "prueba"})
 
     # exclusiones: la app manda ?pattern=
-    cliente.post("/api/exclusions", json={"pattern": "Prueba", "kind": "glob"})
-    r = cliente.delete("/api/exclusions?pattern=Prueba")
+    client.post("/api/exclusions", json={"pattern": "Prueba", "kind": "glob"})
+    r = client.delete("/api/exclusions?pattern=Prueba")
     assert r.status_code == 200, r.text
     assert "Prueba" not in [e["pattern"] for e in r.json()["exclusions"]]
 
 
-def test_rescanning_reuses_files_that_have_not_changed(cliente):
+def test_rescanning_reuses_files_that_have_not_changed(client):
     """Un reescaneo no vuelve a abrir los archivos que siguen igual.
 
     Y tiene que dejar el indice EXACTAMENTE igual que un escaneo completo:
@@ -1476,32 +1468,32 @@ def test_rescanning_reuses_files_that_have_not_changed(cliente):
     """
     from danplay import library as B
 
-    def foto():
+    def snapshot():
         conn = B.connect()
         d = {r["path"]: tuple(r[k] for k in B.COLUMNS) for r in conn.execute("SELECT * FROM songs")}
         conn.close()
         return d
 
     B.scan()
-    antes = foto()
+    before = snapshot()
     r = B.scan()
-    assert antes == foto(), "el reescaneo cambio el indice"
+    assert before == snapshot(), "el reescaneo cambio el indice"
     assert r["reused"] > 0, "no reaprovecho ninguno"
-    assert r["total"] == len(antes)
+    assert r["total"] == len(before)
 
     # Tocar un archivo obliga a releerlo, y el resto se sigue reaprovechando.
     # Se elige uno CON artista a proposito: los que no lo tienen se releen
     # siempre (pueden resolverse ahora que hay mas carpetas de artista), asi
     # que tocar uno de esos no cambiaria la cuenta.
-    artista_en = B.COLUMNS.index("artist")
-    alguna = next(p for p, fila in antes.items() if fila[artista_en] and os.path.exists(p))
-    os.utime(alguna, None)
+    artist_col = B.COLUMNS.index("artist")
+    some_path = next(p for p, row in before.items() if row[artist_col] and os.path.exists(p))
+    os.utime(some_path, None)
     r2 = B.scan()
     assert r2["total"] == r["total"]
     assert r2["reused"] == r["reused"] - 1, "deberia releer justo el que se toco"
 
 
-def test_a_lost_database_is_rebuilt_from_the_files(cliente):
+def test_a_lost_database_is_rebuilt_from_the_files(client):
     """Sin base de datos no hay atajo que valga: se relee todo del disco.
 
     Es la promesa de la app: las estrellas, el favorito y la letra viven
@@ -1510,10 +1502,10 @@ def test_a_lost_database_is_rebuilt_from_the_files(cliente):
     from danplay import config
     from danplay import library as B
 
-    songs = cliente.get("/api/search", params={"limit": 500}).json()["songs"]
-    elegida = songs[0]
-    cliente.post(f"/api/song/{elegida['id']}/stars", json={"stars": 4})
-    cliente.post(f"/api/song/{elegida['id']}/favorite", json={"favorite": True})
+    songs = client.get("/api/search", params={"limit": 500}).json()["songs"]
+    chosen = songs[0]
+    client.post(f"/api/song/{chosen['id']}/stars", json={"stars": 4})
+    client.post(f"/api/song/{chosen['id']}/favorite", json={"favorite": True})
 
     os.remove(config.DATABASE)
     B._prepared.clear()
@@ -1521,18 +1513,18 @@ def test_a_lost_database_is_rebuilt_from_the_files(cliente):
     r = B.scan()
     assert r["reused"] == 0, "sin base no hay nada que reaprovechar"
 
-    rehecha = {
-        c["path"]: c for c in cliente.get("/api/search", params={"limit": 500}).json()["songs"]
+    rebuilt = {
+        c["path"]: c for c in client.get("/api/search", params={"limit": 500}).json()["songs"]
     }
-    assert len(rehecha) == r["total"]
-    vuelta = rehecha[elegida["path"]]
-    assert vuelta["stars"] == 4, "las estrellas no volvieron del archivo"
-    assert vuelta["favorite"], "el favorito no volvio del archivo"
-    cliente.post(f"/api/song/{vuelta['id']}/stars", json={"stars": 0})
-    cliente.post(f"/api/song/{vuelta['id']}/favorite", json={"favorite": False})
+    assert len(rebuilt) == r["total"]
+    reloaded = rebuilt[chosen["path"]]
+    assert reloaded["stars"] == 4, "las estrellas no volvieron del archivo"
+    assert reloaded["favorite"], "el favorito no volvio del archivo"
+    client.post(f"/api/song/{reloaded['id']}/stars", json={"stars": 0})
+    client.post(f"/api/song/{reloaded['id']}/favorite", json={"favorite": False})
 
 
-def test_the_cover_cache_notices_when_the_file_changes(cliente):
+def test_the_cover_cache_notices_when_the_file_changes(client):
     """Se recuerda la caratula para no reabrir el mp3, pero sin quedarse vieja.
 
     La clave lleva la fecha y el tamaño del archivo, asi que incrustar otra
@@ -1540,38 +1532,38 @@ def test_the_cover_cache_notices_when_the_file_changes(cliente):
     """
     from danplay import tags as T
 
-    original = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
-    copia = pathlib.Path(original["path"]).with_name("con caratula.mp3")
-    shutil.copy(original["path"], copia)
+    original = client.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    copy_path = pathlib.Path(original["path"]).with_name("con caratula.mp3")
+    shutil.copy(original["path"], copy_path)
     try:
-        uno = b"\xff\xd8\xff\xe0" + b"1" * 400
-        otro = b"\xff\xd8\xff\xe0" + b"2" * 900
-        assert T.write_cover(str(copia), uno, "image/jpeg")
-        assert T.cached_cover(str(copia))[0] == uno
-        assert T.cached_cover(str(copia))[0] == uno  # ahora desde la cache
-        assert T.write_cover(str(copia), otro, "image/jpeg")
-        assert T.cached_cover(str(copia))[0] == otro, "devolvio la caratula vieja"
+        one = b"\xff\xd8\xff\xe0" + b"1" * 400
+        other = b"\xff\xd8\xff\xe0" + b"2" * 900
+        assert T.write_cover(str(copy_path), one, "image/jpeg")
+        assert T.cached_cover(str(copy_path))[0] == one
+        assert T.cached_cover(str(copy_path))[0] == one  # ahora desde la cache
+        assert T.write_cover(str(copy_path), other, "image/jpeg")
+        assert T.cached_cover(str(copy_path))[0] == other, "devolvio la caratula vieja"
     finally:
-        copia.unlink(missing_ok=True)
+        copy_path.unlink(missing_ok=True)
 
 
-def test_the_cover_cache_stays_within_its_memory_budget(cliente):
+def test_the_cover_cache_stays_within_its_memory_budget(client):
     """No puede crecer sin freno: en un equipo justo eso se nota."""
     from danplay import tags as T
 
-    original = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
-    copias = []
+    original = client.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    copies = []
     try:
-        grande = b"\xff\xd8\xff\xe0" + b"x" * (700 * 1024)
+        big = b"\xff\xd8\xff\xe0" + b"x" * (700 * 1024)
         for i in range(24):  # 24 x 700 KB = ~16 MB > tope
             c = pathlib.Path(original["path"]).with_name(f"pesada {i}.mp3")
             shutil.copy(original["path"], c)
-            copias.append(c)
-            T.write_cover(str(c), grande, "image/jpeg")
+            copies.append(c)
+            T.write_cover(str(c), big, "image/jpeg")
             T.cached_cover(str(c))
         assert T._cover_bytes <= T._COVER_CACHE_MAX_BYTES, "se paso del tope"
     finally:
-        for c in copias:
+        for c in copies:
             c.unlink(missing_ok=True)
 
 
@@ -1580,7 +1572,7 @@ def test_the_cover_cache_stays_within_its_memory_budget(cliente):
 # se toca; solo se marca como «pintala borrosa».
 
 
-def test_blurring_a_cover_does_not_touch_the_image(cliente):
+def test_blurring_a_cover_does_not_touch_the_image(client):
     """Difuminar es solo como se pinta: el archivo no cambia.
 
     La portada se pone aqui mismo en vez de buscar una cancion que ya la
@@ -1588,48 +1580,48 @@ def test_blurring_a_cover_does_not_touch_the_image(cliente):
     """
     from danplay import tags as T
 
-    elegida = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
-    imagen = b"\xff\xd8\xff\xe0" + b"portada de prueba" * 20
-    assert T.write_cover(elegida["path"], imagen, "image/jpeg")
-    antes = T.extract_cover(elegida["path"])
-    assert antes and antes[0] == imagen
+    chosen = client.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    image = b"\xff\xd8\xff\xe0" + b"portada de prueba" * 20
+    assert T.write_cover(chosen["path"], image, "image/jpeg")
+    before = T.extract_cover(chosen["path"])
+    assert before and before[0] == image
     try:
-        r = cliente.post(f"/api/song/{elegida['id']}/blur", json={"blur": True}).json()
+        r = client.post(f"/api/song/{chosen['id']}/blur", json={"blur": True}).json()
         assert r["blur"] == 1
-        despues = T.extract_cover(elegida["path"])
-        assert despues[0] == antes[0], "la imagen NO deberia cambiar al difuminarla"
-        assert despues[1] == antes[1]
+        after = T.extract_cover(chosen["path"])
+        assert after[0] == before[0], "la imagen NO deberia cambiar al difuminarla"
+        assert after[1] == before[1]
         # y al quitarlo sigue igual
-        cliente.post(f"/api/song/{elegida['id']}/blur", json={"blur": False})
-        assert T.extract_cover(elegida["path"])[0] == imagen
+        client.post(f"/api/song/{chosen['id']}/blur", json={"blur": False})
+        assert T.extract_cover(chosen["path"])[0] == image
     finally:
-        cliente.post(f"/api/song/{elegida['id']}/blur", json={"blur": False})
+        client.post(f"/api/song/{chosen['id']}/blur", json={"blur": False})
 
 
-def test_blur_survives_a_lost_database(cliente):
+def test_blur_survives_a_lost_database(client):
     """Como las estrellas: la marca vive dentro del mp3, no en el indice."""
     from danplay import config
     from danplay import library as B
 
-    elegida = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
-    cliente.post(f"/api/song/{elegida['id']}/blur", json={"blur": True})
+    chosen = client.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    client.post(f"/api/song/{chosen['id']}/blur", json={"blur": True})
 
     os.remove(config.DATABASE)
     B._prepared.clear()
     B.add_folder(str(config.LIBRARY), "prueba")
     B.scan()
 
-    vuelta = next(
+    reloaded = next(
         x
-        for x in cliente.get("/api/search", params={"limit": 500}).json()["songs"]
-        if x["path"] == elegida["path"]
+        for x in client.get("/api/search", params={"limit": 500}).json()["songs"]
+        if x["path"] == chosen["path"]
     )
-    assert vuelta["blur"] == 1, "el difuminado no volvio del archivo"
-    cliente.post(f"/api/song/{vuelta['id']}/blur", json={"blur": False})
+    assert reloaded["blur"] == 1, "el difuminado no volvio del archivo"
+    client.post(f"/api/song/{reloaded['id']}/blur", json={"blur": False})
 
 
-def test_blurring_an_unknown_song_is_a_404(cliente):
-    assert cliente.post("/api/song/999999/blur", json={"blur": True}).status_code == 404
+def test_blurring_an_unknown_song_is_a_404(client):
+    assert client.post("/api/song/999999/blur", json={"blur": True}).status_code == 404
 
 
 def test_the_blur_column_is_added_to_an_older_database(tmp_path):
@@ -1639,38 +1631,38 @@ def test_the_blur_column_is_added_to_an_older_database(tmp_path):
     from danplay import config
     from danplay import library as B
 
-    vieja = tmp_path / "vieja.db"
-    conn = sqlite3.connect(vieja)
+    old = tmp_path / "vieja.db"
+    conn = sqlite3.connect(old)
     # una tabla `songs` como la de antes, sin la columna nueva
-    sin_blur = [c for c in B.COLUMNS if c != "blur"]
+    without_blur = [c for c in B.COLUMNS if c != "blur"]
     conn.execute(
         "CREATE TABLE songs (id INTEGER PRIMARY KEY, "
-        + ",".join(f"{c} TEXT" for c in sin_blur)
+        + ",".join(f"{c} TEXT" for c in without_blur)
         + ")"
     )
     conn.execute("INSERT INTO songs (path) VALUES ('/x/uno.mp3')")
     conn.commit()
     conn.close()
 
-    antes = config.DATABASE
+    before = config.DATABASE
     try:
-        config.DATABASE = vieja
+        config.DATABASE = old
         B._prepared.clear()
         c = B.connect()
-        columnas = {r[1] for r in c.execute("PRAGMA table_info(songs)")}
-        filas = c.execute("SELECT COUNT(*) FROM songs").fetchone()[0]
+        columns = {r[1] for r in c.execute("PRAGMA table_info(songs)")}
+        rows = c.execute("SELECT COUNT(*) FROM songs").fetchone()[0]
         c.close()
-        assert "blur" in columnas, "no se añadio la columna"
-        assert filas == 1, "se perdieron filas al migrar"
+        assert "blur" in columns, "no se añadio la columna"
+        assert rows == 1, "se perdieron filas al migrar"
     finally:
-        config.DATABASE = antes
+        config.DATABASE = before
         B._prepared.clear()
 
 
 def test_the_duplicate_report_uses_the_keys_the_interface_reads():
     """El informe de duplicados y la interfaz tienen que hablar el mismo idioma.
 
-    Devolvia `sugerida`, `relativa` y `tiene_sufijo` mientras la plantilla leia
+    Devolvia `sugerida`, `relative` y `tiene_sufijo` mientras la plantilla leia
     `suggested`, `relative` y `has_suffix`: la insignia de «mejor calidad» no
     salia nunca y la ruta quedaba vacia. El remedo de la prueba del frontend
     tenia las claves en ingles, asi que pasaba en verde contra un contrato que
@@ -1681,10 +1673,10 @@ def test_the_duplicate_report_uses_the_keys_the_interface_reads():
 
     from danplay import api as A
 
-    fuente = inspect.getsource(A.duplicates_report)
-    claves_grupo = set(re.findall(r'"(\w+)":', fuente))
+    source = inspect.getsource(A.duplicates_report)
+    group_keys = set(re.findall(r'"(\w+)":', source))
     for k in ("items", "suggested", "relative", "has_suffix"):
-        assert k in claves_grupo, f"el informe ya no devuelve «{k}»"
+        assert k in group_keys, f"el informe ya no devuelve «{k}»"
 
     vue = (
         pathlib.Path(__file__).resolve().parent.parent / "desktop/src/components/DuplicateGroup.vue"
@@ -1692,9 +1684,9 @@ def test_the_duplicate_report_uses_the_keys_the_interface_reads():
     for k in ("suggested", "relative", "has_suffix"):
         assert k in vue, f"la interfaz ya no lee «{k}»"
     # y que no queden nombres del esquema anterior en ninguno de los dos lados
-    for viejo in ("sugerida", "relativa", "tiene_sufijo"):
-        assert viejo not in fuente, f"quedo «{viejo}» en la API"
-        assert viejo not in vue, f"quedo «{viejo}» en la interfaz"
+    for old_name in ("sugerida", "relativa", "tiene_sufijo"):
+        assert old_name not in source, f"quedo «{old_name}» en la API"
+        assert old_name not in vue, f"quedo «{old_name}» en la interfaz"
 
 
 # --------------------------------------------------------------- seguridad
@@ -1703,22 +1695,22 @@ def test_the_duplicate_report_uses_the_keys_the_interface_reads():
 # cualquier otro programa del equipo.
 
 
-def test_with_a_token_nothing_passes_without_it(cliente):
+def test_with_a_token_nothing_passes_without_it(client):
     from danplay import api as A
 
     A._TOKEN = "secreto-de-prueba"
     try:
-        assert cliente.get("/api/status").status_code == 401
+        assert client.get("/api/status").status_code == 401
         assert (
-            cliente.get("/api/status", headers={"Authorization": "Bearer otro"}).status_code == 401
+            client.get("/api/status", headers={"Authorization": "Bearer otro"}).status_code == 401
         )
-        ok = cliente.get("/api/status", headers={"Authorization": "Bearer secreto-de-prueba"})
+        ok = client.get("/api/status", headers={"Authorization": "Bearer secreto-de-prueba"})
         assert ok.status_code == 200
     finally:
         A._TOKEN = ""
 
 
-def test_in_browser_mode_a_plain_post_is_refused(cliente):
+def test_in_browser_mode_a_plain_post_is_refused(client):
     """Sin la cabecera propia, un POST desde otra pagina no dispara nada.
 
     CORS impide LEER la respuesta, pero no evita el efecto: un POST sin cuerpo
@@ -1731,20 +1723,20 @@ def test_in_browser_mode_a_plain_post_is_refused(cliente):
     local = {"Host": "localhost"}  # el TestClient manda «testserver»
     mine = {**local, "X-DanPlay": "1"}
     try:
-        assert cliente.post("/api/scan", headers=local).status_code == 403
-        r = cliente.post("/api/scan", headers=mine)
+        assert client.post("/api/scan", headers=local).status_code == 403
+        r = client.post("/api/scan", headers=mine)
         assert r.status_code == 202
         jobs_mod.wait("escaneo")
         # tambien los GET: hay lecturas con efectos (la ficha de IA gasta)
-        assert cliente.get("/api/status", headers=local).status_code == 403
-        assert cliente.get("/api/status", headers=mine).status_code == 200
+        assert client.get("/api/status", headers=local).status_code == 403
+        assert client.get("/api/status", headers=mine).status_code == 200
         # salvo lo que el navegador pide solo con <audio> e <img>
-        cid = cliente.get("/api/search", params={"limit": 1}, headers=mine).json()["songs"][0]["id"]
-        assert cliente.get(f"/api/song/{cid}/audio", headers=local).status_code == 200
-        assert cliente.get(f"/api/song/{cid}/cover", headers=local).status_code in (200, 404)
-        assert cliente.get(f"/api/song/{cid}/waveform", headers=local).status_code == 403
+        cid = client.get("/api/search", params={"limit": 1}, headers=mine).json()["songs"][0]["id"]
+        assert client.get(f"/api/song/{cid}/audio", headers=local).status_code == 200
+        assert client.get(f"/api/song/{cid}/cover", headers=local).status_code in (200, 404)
+        assert client.get(f"/api/song/{cid}/waveform", headers=local).status_code == 403
         # y el preflight, que no puede llevar cabeceras propias
-        pre = cliente.options(
+        pre = client.options(
             "/api/status",
             headers={
                 **local,
@@ -1758,23 +1750,23 @@ def test_in_browser_mode_a_plain_post_is_refused(cliente):
         A._ENFORCE_HOST = False
 
 
-def test_the_token_compare_does_not_break_with_odd_bytes(cliente):
+def test_the_token_compare_does_not_break_with_odd_bytes(client):
     """Una cabecera con bytes no ASCII hacia saltar un TypeError (500) en la
     comparacion del token."""
     from danplay import api as A
 
     A._TOKEN = "secreto-de-prueba"
     try:
-        r = cliente.get("/api/status", headers={"Authorization": "Bearer señor".encode("latin-1")})
+        r = client.get("/api/status", headers={"Authorization": "Bearer señor".encode("latin-1")})
         assert r.status_code == 401
     finally:
         A._TOKEN = ""
 
 
-def test_the_api_does_not_publish_its_schema(cliente):
+def test_the_api_does_not_publish_its_schema(client):
     """/docs y /openapi.json quedaban fuera del token."""
     for path in ("/docs", "/redoc", "/openapi.json"):
-        assert cliente.get(path).status_code == 404
+        assert client.get(path).status_code == 404
 
 
 def test_serving_outside_this_machine_needs_a_token(monkeypatch):
@@ -1787,58 +1779,59 @@ def test_serving_outside_this_machine_needs_a_token(monkeypatch):
     assert not A._loopback("192.168.1.10") and not A._loopback("example.com")
 
 
-def test_an_unknown_host_is_refused(cliente):
+def test_an_unknown_host_is_refused(client):
     from danplay import api as A
 
     A._ENFORCE_HOST = True
     try:
-        r = cliente.get("/api/status", headers={"Host": "malo.example"})
+        r = client.get("/api/status", headers={"Host": "malo.example"})
         assert r.status_code == 421
     finally:
         A._ENFORCE_HOST = False
 
 
-def test_editing_only_accepts_the_fields_a_person_can_fix(cliente):
+def test_editing_only_accepts_the_fields_a_person_can_fix(client):
     """Poner estrellas por aqui dejaba el indice y el archivo diciendo cosas
     distintas: las estrellas van al POPM del mp3, no a la base a secas."""
-    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
-    assert cliente.patch(f"/api/song/{cid}", json={"stars": 5}).status_code == 422
-    assert cliente.patch(f"/api/song/{cid}", json={"cid": 1}).status_code == 422
-    assert cliente.patch(f"/api/song/{cid}", json={"title": "Nuevo"}).status_code == 200
+    cid = client.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    assert client.patch(f"/api/song/{cid}", json={"stars": 5}).status_code == 422
+    assert client.patch(f"/api/song/{cid}", json={"cid": 1}).status_code == 422
+    assert client.patch(f"/api/song/{cid}", json={"title": "Nuevo"}).status_code == 200
 
 
-def test_stars_out_of_range_are_refused(cliente):
-    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
-    assert cliente.post(f"/api/song/{cid}/stars", json={"stars": 9}).status_code == 422
-    assert cliente.post(f"/api/song/{cid}/stars", json={"stars": 3}).status_code == 200
+def test_stars_out_of_range_are_refused(client):
+    cid = client.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    assert client.post(f"/api/song/{cid}/stars", json={"stars": 9}).status_code == 422
+    assert client.post(f"/api/song/{cid}/stars", json={"stars": 3}).status_code == 200
 
 
-def test_resolving_refuses_paths_outside_the_library(cliente, tmp_path):
-    fuera = tmp_path / "fuera.mp3"
-    fuera.write_bytes(b"x" * 100)
-    dentro = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["path"]
-    r = cliente.post(
-        "/api/duplicates/resolve", json={"keep": dentro, "remove": [str(fuera)], "dry_run": False}
+def test_resolving_refuses_paths_outside_the_library(client, tmp_path):
+    external = tmp_path / "fuera.mp3"
+    external.write_bytes(b"x" * 100)
+    inside = client.get("/api/search", params={"limit": 1}).json()["songs"][0]["path"]
+    r = client.post(
+        "/api/duplicates/resolve",
+        json={"keep": inside, "remove": [str(external)], "dry_run": False},
     )
     assert r.status_code == 400
-    assert fuera.exists(), "no deberia haber borrado nada de fuera"
+    assert external.exists(), "no deberia haber borrado nada de fuera"
 
 
-def test_a_cover_has_to_be_an_image(cliente, tmp_path):
+def test_a_cover_has_to_be_an_image(client, tmp_path):
     """Se podia pasar cualquier archivo del disco y recuperarlo despues
     pidiendo la caratula de esa cancion."""
-    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
-    secreto = tmp_path / "secreto.txt"
-    secreto.write_text("una contraseña")
-    assert cliente.post(f"/api/song/{cid}/cover", json={"path": str(secreto)}).status_code == 400
-    disfrazado = tmp_path / "disfrazado.jpg"
-    disfrazado.write_text("tampoco soy una imagen")
-    assert cliente.post(f"/api/song/{cid}/cover", json={"path": str(disfrazado)}).status_code == 400
+    cid = client.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    secret_file = tmp_path / "secreto.txt"
+    secret_file.write_text("una contraseña")
+    assert client.post(f"/api/song/{cid}/cover", json={"path": str(secret_file)}).status_code == 400
+    disguised = tmp_path / "disfrazado.jpg"
+    disguised.write_text("tampoco soy una imagen")
+    assert client.post(f"/api/song/{cid}/cover", json={"path": str(disguised)}).status_code == 400
 
 
-def test_the_audio_says_its_real_format(cliente):
-    d = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
-    r = cliente.get(f"/api/song/{d['id']}/path").json()
+def test_the_audio_says_its_real_format(client):
+    d = client.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    r = client.get(f"/api/song/{d['id']}/path").json()
     assert r["kind"] == "audio/mpeg"
     from danplay.api import audio_type
 
@@ -1856,7 +1849,7 @@ def test_the_assistant_does_not_delete_on_its_own():
     """
     from danplay import chat
 
-    llamadas = []
+    calls = []
 
     class _Call:
         def __init__(self, name, args):
@@ -1868,8 +1861,8 @@ def test_the_assistant_does_not_delete_on_its_own():
             class completions:
                 @staticmethod
                 def create(**kw):
-                    llamadas.append(kw)
-                    if len(llamadas) == 1:
+                    calls.append(kw)
+                    if len(calls) == 1:
                         msg = type(
                             "m",
                             (),
@@ -1882,18 +1875,18 @@ def test_the_assistant_does_not_delete_on_its_own():
                     return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
 
     original_get, original_available = chat.ai._get_client, chat.ai.available
-    borradas = []
+    trashed = []
     original_trash = chat.library.trash
     chat.ai._get_client = lambda: _FakeClient()
     chat.ai.available = lambda: True
-    chat.library.trash = lambda cid: borradas.append(cid) or {"ok": True}
+    chat.library.trash = lambda cid: trashed.append(cid) or {"ok": True}
     try:
         r = chat.reply([{"role": "user", "text": "borra la 1"}])
     finally:
         chat.ai._get_client, chat.ai.available = original_get, original_available
         chat.library.trash = original_trash
 
-    assert borradas == [], "no puede borrar sin preguntar"
+    assert trashed == [], "no puede borrar sin preguntar"
     assert r["confirm"], "deberia devolver que quiere confirmacion"
     assert r["confirm"]["tool"] == "delete_song"
     assert "papelera" in r["confirm"]["summary"]
@@ -1905,8 +1898,8 @@ def test_confirming_is_only_for_the_three_that_need_it():
     assert chat.confirm("search_songs", {})["ok"] is False
 
 
-def test_the_confirm_endpoint_refuses_anything_else(cliente):
-    r = cliente.post("/api/chat/confirm", json={"tool": "search_songs", "args": {}})
+def test_the_confirm_endpoint_refuses_anything_else(client):
+    r = client.post("/api/chat/confirm", json={"tool": "search_songs", "args": {}})
     assert r.status_code == 400
 
 
@@ -1922,15 +1915,15 @@ def test_the_confirm_endpoint_refuses_anything_else(cliente):
 
 
 @pytest.fixture
-def descarga_simulada(monkeypatch):
+def download_calls(monkeypatch):
     import time
 
     from danplay import youtube
 
-    llamadas = []
+    calls = []
 
-    def falsa(query, **kw):
-        llamadas.append({"query": query, **kw})
+    def fake_download(query, **kw):
+        calls.append({"query": query, **kw})
         time.sleep(0.02)
         return [
             {
@@ -1941,61 +1934,59 @@ def descarga_simulada(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(youtube, "download", falsa)
+    monkeypatch.setattr(youtube, "download", fake_download)
     monkeypatch.setattr(youtube, "available", lambda: True)
     youtube.STATE["active"] = False
-    yield llamadas
+    yield calls
     # que un fallo aqui no deje el turno cogido para las pruebas siguientes
     youtube.STATE["active"] = False
 
 
-def _esperar_a_que_termine(timeout=3.0):
+def _wait_until_done(timeout=3.0):
     import time
 
     from danplay import youtube
 
-    limite = time.time() + timeout
-    while youtube.STATE["active"] and time.time() < limite:
+    ceiling = time.time() + timeout
+    while youtube.STATE["active"] and time.time() < ceiling:
         time.sleep(0.02)
     assert not youtube.STATE["active"], "la descarga no ha soltado el turno"
 
 
-def test_el_boton_de_descargas_llega_a_descargar_y_suelta_el_turno(cliente, descarga_simulada):
+def test_download_button_downloads_and_releases_the_lock(client, download_calls):
     from danplay import youtube
 
-    r = cliente.post("/api/youtube/download", json={"query": "barak mi gozo", "results": 3})
+    r = client.post("/api/youtube/download", json={"query": "barak mi gozo", "results": 3})
     assert r.status_code == 200, r.text
-    _esperar_a_que_termine()
-    assert len(descarga_simulada) == 1, "download() no se llego a llamar"
-    assert descarga_simulada[0]["results"] == 3
+    _wait_until_done()
+    assert len(download_calls) == 1, "download() no se llego a llamar"
+    assert download_calls[0]["results"] == 3
     assert youtube.STATE["phase"] == "done"
     assert youtube.STATE["results"] and youtube.STATE["results"][0]["ok"]
     # y la siguiente no recibe un 409 por un turno que nadie solto
-    r = cliente.post("/api/youtube/download", json={"query": "otra"})
+    r = client.post("/api/youtube/download", json={"query": "otra"})
     assert r.status_code == 200, r.text
-    _esperar_a_que_termine()
-    assert len(descarga_simulada) == 2
+    _wait_until_done()
+    assert len(download_calls) == 2
 
 
-def test_dos_descargas_a_la_vez_no_caben(cliente, descarga_simulada):
+def test_two_downloads_at_once_are_not_allowed(client, download_calls):
     from danplay import youtube
 
     assert youtube.claim(), "el turno deberia estar libre"
     try:
-        r = cliente.post("/api/youtube/download", json={"query": "x"})
+        r = client.post("/api/youtube/download", json={"query": "x"})
         assert r.status_code == 409
-        r = cliente.post(
+        r = client.post(
             "/api/chat/confirm", json={"tool": "download_music", "args": {"items": ["x"]}}
         )
         assert r.status_code == 409
     finally:
         youtube.release()
-    assert not descarga_simulada, "no deberia haber descargado nada"
+    assert not download_calls, "no deberia haber descargado nada"
 
 
-def test_confirmar_una_descarga_del_asistente_arranca_con_sus_argumentos(
-    cliente, descarga_simulada
-):
+def test_confirming_an_assistant_download_starts_with_its_args(client, download_calls):
     """Los argumentos son los de la herramienta: `items` y `force`, no `query`.
 
     Con `query` la confirmacion acababa SIEMPRE en «400: hace falta algo que
@@ -2003,7 +1994,7 @@ def test_confirmar_una_descarga_del_asistente_arranca_con_sus_argumentos(
     """
     from danplay import youtube
 
-    r = cliente.post(
+    r = client.post(
         "/api/chat/confirm",
         json={
             "tool": "download_music",
@@ -2015,12 +2006,12 @@ def test_confirmar_una_descarga_del_asistente_arranca_con_sus_argumentos(
     assert d["ok"] and d["result"]["active"]
     assert d["result"]["items"] == ["I Want Jesus Bethel", "Ruja o Leao Carol Braga"]
     assert d["result"]["force"] is True
-    _esperar_a_que_termine()
-    assert [c["query"] for c in descarga_simulada] == [
+    _wait_until_done()
+    assert [c["query"] for c in download_calls] == [
         "I Want Jesus Bethel",
         "Ruja o Leao Carol Braga",
     ]
-    for c in descarga_simulada:
+    for c in download_calls:
         assert c["force"] is True, "el «bajala igual» tiene que llegar a la descarga"
         assert c["results"] == 1, "del chat se coge el primer resultado, no cinco"
         assert c["source"] == "assistant"
@@ -2029,24 +2020,22 @@ def test_confirmar_una_descarga_del_asistente_arranca_con_sus_argumentos(
     assert all(x["forced"] for x in youtube.STATE["results"])
 
 
-def test_confirmar_sin_nada_que_bajar_es_un_400_claro(cliente, descarga_simulada):
-    r = cliente.post("/api/chat/confirm", json={"tool": "download_music", "args": {"items": []}})
+def test_confirm_with_nothing_to_download_is_a_clear_400(client, download_calls):
+    r = client.post("/api/chat/confirm", json={"tool": "download_music", "args": {"items": []}})
     assert r.status_code == 400
     assert "descargar" in r.json()["detail"]
-    assert not descarga_simulada
+    assert not download_calls
 
 
-def test_confirmar_acepta_tambien_query_suelto(cliente, descarga_simulada):
+def test_confirm_also_accepts_a_bare_query(client, download_calls):
     """Por si el modelo manda `query` en vez de `items`: se baja igual."""
-    r = cliente.post(
-        "/api/chat/confirm", json={"tool": "download_music", "args": {"query": "algo"}}
-    )
+    r = client.post("/api/chat/confirm", json={"tool": "download_music", "args": {"query": "algo"}})
     assert r.status_code == 200, r.text
-    _esperar_a_que_termine()
-    assert [c["query"] for c in descarga_simulada] == ["algo"]
+    _wait_until_done()
+    assert [c["query"] for c in download_calls] == ["algo"]
 
 
-def test_el_plan_de_descarga_sanea_los_argumentos():
+def test_the_download_plan_sanitizes_the_arguments():
     from danplay import chat, config
 
     plan = chat.download_plan(
@@ -2055,20 +2044,20 @@ def test_el_plan_de_descarga_sanea_los_argumentos():
     assert plan["items"] == ["a", "b"], "sin vacios ni repetidos"
     assert plan["quality"] == config.MP3_QUALITY, "una calidad desconocida cae a la de la app"
     assert plan["file_it"] is False and plan["force"] is True
-    largo = chat.download_plan({"items": [str(i) for i in range(chat.MAX_DOWNLOADS + 5)]})
-    assert len(largo["items"]) == chat.MAX_DOWNLOADS and largo["trimmed"]
+    length = chat.download_plan({"items": [str(i) for i in range(chat.MAX_DOWNLOADS + 5)]})
+    assert len(length["items"]) == chat.MAX_DOWNLOADS and length["trimmed"]
     assert chat.download_plan({})["items"] == []
     assert chat.download_plan({"items": "solo una"})["items"] == ["solo una"]
 
 
-def test_el_dialogo_de_confirmacion_dice_que_se_va_a_bajar():
+def test_confirm_dialog_says_what_will_be_downloaded():
     from danplay import chat
 
-    texto = chat._describe("download_music", {"items": ["Mi Gozo", "Shekinah"]})
-    assert "«Mi Gozo»" in texto and "«Shekinah»" in texto
-    assert "otra version" not in texto
-    con_force = chat._describe("download_music", {"items": ["Mi Gozo"], "force": True})
-    assert "otra version" in con_force, "hay que avisar de que se guarda repetida"
+    text = chat._describe("download_music", {"items": ["Mi Gozo", "Shekinah"]})
+    assert "«Mi Gozo»" in text and "«Shekinah»" in text
+    assert "otra version" not in text
+    with_force = chat._describe("download_music", {"items": ["Mi Gozo"], "force": True})
+    assert "otra version" in with_force, "hay que avisar de que se guarda repetida"
 
 
 # ------------------------------------------- ids inventados y repertorios
@@ -2078,25 +2067,25 @@ def test_el_dialogo_de_confirmacion_dice_que_se_va_a_bajar():
 # repertorio id 1 —«domingo»— creyendo que era «Herlin».
 
 
-def _ids(cliente, n=3):
+def _ids(client, n=3):
     from danplay import library
 
     return [c["id"] for c in library.search("", limit=n)]
 
 
-def _limpiar_listas(*nombres):
+def _remove_playlists(*names):
     from danplay import playlists
 
     for l in playlists.list_all():
-        if l["name"] in nombres:
+        if l["name"] in names:
             playlists.remove(l["id"])
 
 
-def test_un_id_inventado_no_entra_en_ninguna_lista(cliente):
+def test_a_made_up_id_enters_no_playlist(client):
     from danplay import chat, playlists
 
-    _limpiar_listas("Inventada")
-    ids = _ids(cliente, 2)
+    _remove_playlists("Inventada")
+    ids = _ids(client, 2)
     r = chat.run_tool("create_playlist", {"name": "Inventada", "ids": [*ids, 999999]})
     assert "error" in r and "999999" in r["error"]
     assert "search_songs" in r["error"], "tiene que decirle de donde salen los ids"
@@ -2107,31 +2096,31 @@ def test_un_id_inventado_no_entra_en_ninguna_lista(cliente):
     made = playlists.create("Inventada")
     assert playlists.add(made["id"], [999999, 888888]) == 0
     assert playlists.by_id(made["id"])["n"] == 0
-    _limpiar_listas("Inventada")
+    _remove_playlists("Inventada")
 
 
-def test_crear_una_lista_devuelve_lo_que_entro_de_verdad(cliente):
+def test_creating_a_playlist_returns_what_really_went_in(client):
     from danplay import chat
 
-    _limpiar_listas("Con nombres")
-    ids = _ids(cliente, 2)
+    _remove_playlists("Con nombres")
+    ids = _ids(client, 2)
     r = chat.run_tool("create_playlist", {"name": "Con nombres", "ids": ids})
     assert r["added"] == 2 and r["created"] is True
     assert [c["id"] for c in r["songs"]] == ids, "cuenta que canciones son, no solo cuantas"
     assert all(c["title"] for c in r["songs"])
     # la ficha del chat enseña los nombres: asi se ve si metio lo que no era
-    resumen = chat._summarize("create_playlist", r)
-    assert r["songs"][0]["title"] in resumen
-    _limpiar_listas("Con nombres")
+    summary = chat._summarize("create_playlist", r)
+    assert r["songs"][0]["title"] in summary
+    _remove_playlists("Con nombres")
 
 
-def test_los_repertorios_se_nombran_por_su_nombre(cliente):
+def test_playlists_are_referred_to_by_their_name(client):
     from danplay import chat, playlists
 
-    _limpiar_listas("Herlin", "domingo")
+    _remove_playlists("Herlin", "domingo")
     a = playlists.create("domingo")["id"]
     b = playlists.create("Herlin")["id"]
-    ids = _ids(cliente, 3)
+    ids = _ids(client, 3)
     playlists.add(a, ids[:2])
     # ver: por nombre, sin distinguir mayusculas ni tildes
     r = chat.run_tool("playlist_songs", {"name": "herlín"})
@@ -2146,14 +2135,14 @@ def test_los_repertorios_se_nombran_por_su_nombre(cliente):
     # un nombre que no existe: error con la lista de las que hay
     r = chat.run_tool("playlist_songs", {"name": "No existe"})
     assert "error" in r and "«domingo»" in r["error"] and "No inventes ids" in r["error"]
-    _limpiar_listas("domingo")
+    _remove_playlists("domingo")
 
 
-def test_corregir_una_lista_la_deja_exactamente_como_se_pide(cliente):
+def test_fixing_a_playlist_leaves_it_exactly_as_asked(client):
     from danplay import chat, playlists
 
-    _limpiar_listas("Arreglame")
-    ids = _ids(cliente, 4)
+    _remove_playlists("Arreglame")
+    ids = _ids(client, 4)
     lid = playlists.create("Arreglame")["id"]
     playlists.add(lid, [ids[0], ids[1]])  # dos que no van
     r = chat.run_tool("set_playlist_songs", {"name": "Arreglame", "ids": [ids[2], ids[3], ids[1]]})
@@ -2164,14 +2153,14 @@ def test_corregir_una_lista_la_deja_exactamente_como_se_pide(cliente):
     r = chat.run_tool("set_playlist_songs", {"name": "Arreglame", "ids": [ids[0], 424242]})
     assert "error" in r
     assert [c["id"] for c in playlists.songs(lid)] == [ids[2], ids[3], ids[1]]
-    _limpiar_listas("Arreglame")
+    _remove_playlists("Arreglame")
 
 
-def test_quitar_y_renombrar(cliente):
+def test_remove_and_rename(client):
     from danplay import chat, playlists
 
-    _limpiar_listas("Vieja", "Nueva")
-    ids = _ids(cliente, 3)
+    _remove_playlists("Vieja", "Nueva")
+    ids = _ids(client, 3)
     lid = playlists.create("Vieja")["id"]
     playlists.add(lid, ids)
     r = chat.run_tool("remove_from_playlist", {"name": "Vieja", "song_ids": [ids[0], ids[2]]})
@@ -2182,26 +2171,26 @@ def test_quitar_y_renombrar(cliente):
     assert r["ok"] and r["name"] == "Nueva" and r["was"] == "Vieja"
     assert playlists.by_name("nueva")["note"] == "para el domingo"
     assert chat.run_tool("rename_playlist", {"name": "Nueva"})["error"]
-    _limpiar_listas("Nueva")
+    _remove_playlists("Nueva")
 
 
-def test_la_revision_sube_con_cada_cambio_que_se_ensena(cliente):
+def test_revision_goes_up_with_every_visible_change(client):
     """Es lo que Rust vigila para avisar a las ventanas (`danplay://changed`)."""
     from danplay import library, playlists
 
-    antes = cliente.get("/api/status").json()["revision"]
+    before = client.get("/api/status").json()["revision"]
     made = playlists.create("Revision")
     r1 = library.revision()
-    assert r1 > antes, "crear una lista cuenta"
-    playlists.add(made["id"], _ids(cliente, 1))
+    assert r1 > before, "crear una lista cuenta"
+    playlists.add(made["id"], _ids(client, 1))
     assert library.revision() > r1, "añadir a una lista cuenta"
     r2 = library.revision()
-    playlists.rate(_ids(cliente, 1)[0], 3)
+    playlists.rate(_ids(client, 1)[0], 3)
     assert library.revision() > r2, "puntuar cuenta"
     r3 = library.revision()
     playlists.remove(made["id"])
     assert library.revision() > r3, "borrar la lista cuenta"
-    assert cliente.get("/api/status").json()["revision"] == library.revision()
+    assert client.get("/api/status").json()["revision"] == library.revision()
 
 
 # ------------------------------------------------ narrar no es hacer
@@ -2211,16 +2200,16 @@ def test_la_revision_sube_con_cada_cambio_que_se_ensena(cliente):
 # cada turno, las marcas en el historial, y el reintento obligado.
 
 
-class _Turnos:
+class _ScriptedTurns:
     """Un cliente de IA de mentira que contesta por turnos y guarda lo que recibe.
 
     `judge` es lo que contesta cuando se le pregunta como clasificador (la
     llamada de una palabra de `_judge_claims`): esa no gasta turnos.
     """
 
-    def __init__(self, respuestas, judge="NO"):
-        self.respuestas = list(respuestas)
-        self.recibido = []
+    def __init__(self, replies, judge="NO"):
+        self.replies = list(replies)
+        self.received = []
         self.judge = judge
         self.judged = []
 
@@ -2240,8 +2229,8 @@ class _Turnos:
                         msg = type("m", (), {"content": outer.judge, "tool_calls": None})()
                         return type("r", (), {"choices": [type("c", (), {"message": msg})()]})()
                     # copia: el historial es la misma lista y sigue creciendo
-                    outer.recibido.append({**kw, "messages": [dict(m) for m in kw["messages"]]})
-                    r = outer.respuestas.pop(0) if outer.respuestas else ("Fin.", None)
+                    outer.received.append({**kw, "messages": [dict(m) for m in kw["messages"]]})
+                    r = outer.replies.pop(0) if outer.replies else ("Fin.", None)
                     text, calls = r
                     tool_calls = [_Call(n, a) for n, a in calls] if calls else None
                     msg = type("m", (), {"content": text, "tool_calls": tool_calls})()
@@ -2250,7 +2239,7 @@ class _Turnos:
         self.chat = chat
 
 
-def _con_cliente(fake, fn):
+def _with_client(fake, fn):
     from danplay import chat
 
     original_get, original_available = chat.ai._get_client, chat.ai.available
@@ -2262,7 +2251,7 @@ def _con_cliente(fake, fn):
         chat.ai._get_client, chat.ai.available = original_get, original_available
 
 
-def test_el_detector_de_narracion_reconoce_lo_que_paso():
+def test_narration_detector_recognizes_what_happened():
     from danplay import chat
 
     for t in (
@@ -2295,12 +2284,12 @@ def test_el_detector_de_narracion_reconoce_lo_que_paso():
         assert not chat.claims_action(t), t
 
 
-def test_una_marca_imitada_se_borra_y_cuenta_como_mentira(cliente):
+def test_a_faked_tool_mark_is_removed_and_counts_as_a_lie(client):
     """Paso: el modelo escribio «[herramientas que usaste en este mensaje:
     download_music (1 item)]» el solo, sin llamar a nada."""
     from danplay import chat
 
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [
             (
                 "Descargando. [herramientas que usaste en este mensaje: download_music (1 item)]",
@@ -2310,21 +2299,21 @@ def test_una_marca_imitada_se_borra_y_cuenta_como_mentira(cliente):
             ("Tienes canciones.", None),
         ]
     )
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "bajala"}]))
-    assert fake.recibido[1]["tool_choice"] == "required", "se le obliga a usar herramientas"
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "bajala"}]))
+    assert fake.received[1]["tool_choice"] == "required", "se le obliga a usar herramientas"
     assert r["text"] == "Tienes canciones."
     assert "[herramientas" not in "".join(
-        m["content"] for m in fake.recibido[1]["messages"] if m["role"] == "assistant"
+        m["content"] for m in fake.received[1]["messages"] if m["role"] == "assistant"
     ), "la marca imitada no vuelve a entrar en el historial"
     assert chat.strip_markers("x [Nota de la app: y] z") == "x z"
     assert chat.has_markers("[herramientas que usaste en este mensaje: x]")
 
 
-def test_si_las_frases_no_saltan_decide_el_juez(cliente):
+def test_if_no_phrase_triggers_the_judge_decides(client):
     from danplay import chat
 
     # una narracion con palabras que la lista no conoce; el juez dice que SI
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [
             ("Todo en orden con tu repertorio, quedó como pediste.", None),
             ("", [("library_summary", "{}")]),
@@ -2332,23 +2321,25 @@ def test_si_las_frases_no_saltan_decide_el_juez(cliente):
         ],
         judge="SI",
     )
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "arregla la lista"}]))
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "arregla la lista"}]))
     assert fake.judged, "se le pregunto al juez"
-    assert fake.recibido[1]["tool_choice"] == "required"
+    assert fake.received[1]["tool_choice"] == "required"
     assert r["text"] == "Vale."
     # y con el juez diciendo NO, la respuesta se queda como esta
-    fake = _Turnos([("Todo en orden con tu repertorio, quedó como pediste.", None)], judge="NO")
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "arregla la lista"}]))
-    assert r["text"].startswith("Todo en orden") and len(fake.recibido) == 1
+    fake = _ScriptedTurns(
+        [("Todo en orden con tu repertorio, quedó como pediste.", None)], judge="NO"
+    )
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "arregla la lista"}]))
+    assert r["text"].startswith("Todo en orden") and len(fake.received) == 1
 
 
-def test_un_si_a_una_pregunta_suya_obliga_a_usar_herramientas(cliente):
+def test_yes_to_its_own_question_forces_tool_use(client):
     """«¿la bajo?» — «si mejor si descargala» — «Descargando…» sin llamar a
     nada. Ahora la primera vuelta de ese turno va obligada."""
     from danplay import chat
 
-    fake = _Turnos([("", [("library_summary", "{}")]), ("Hecho.", None)])
-    _con_cliente(
+    fake = _ScriptedTurns([("", [("library_summary", "{}")]), ("Hecho.", None)])
+    _with_client(
         fake,
         lambda: chat.reply(
             [
@@ -2358,8 +2349,8 @@ def test_un_si_a_una_pregunta_suya_obliga_a_usar_herramientas(cliente):
             ]
         ),
     )
-    assert fake.recibido[0]["tool_choice"] == "required"
-    assert fake.recibido[1]["tool_choice"] == "auto"
+    assert fake.received[0]["tool_choice"] == "required"
+    assert fake.received[1]["tool_choice"] == "auto"
     # la pregunta suya puede tener un mensaje de la app entre medias
     assert chat._answers_an_offer(
         [
@@ -2380,11 +2371,11 @@ def test_un_si_a_una_pregunta_suya_obliga_a_usar_herramientas(cliente):
     )
 
 
-def test_las_notas_del_historial_son_de_sistema_no_texto_suyo(cliente):
+def test_history_notes_are_system_messages_not_its_text(client):
     from danplay import chat
 
-    fake = _Turnos([("ok", None)])
-    _con_cliente(
+    fake = _ScriptedTurns([("ok", None)])
+    _with_client(
         fake,
         lambda: chat.reply(
             [
@@ -2398,7 +2389,7 @@ def test_las_notas_del_historial_son_de_sistema_no_texto_suyo(cliente):
             ]
         ),
     )
-    msgs = fake.recibido[0]["messages"]
+    msgs = fake.received[0]["messages"]
     assistant = [m for m in msgs if m["role"] == "assistant"]
     assert assistant[0]["content"] == "Lista creada.", "sin marcas dentro de su texto"
     i = msgs.index(assistant[0])
@@ -2406,13 +2397,13 @@ def test_las_notas_del_historial_son_de_sistema_no_texto_suyo(cliente):
     assert "create_playlist (lista «X» con 3 temas)" in msgs[i + 1]["content"]
 
 
-def test_si_dice_que_hizo_algo_sin_herramientas_se_le_obliga_a_hacerlo(cliente):
+def test_claiming_an_action_without_tools_forces_it_to_act(client):
     """Primera vuelta: «Ya la cree» sin llamar a nada. Se le para y en la
     siguiente TIENE que usar herramientas; la lista se crea de verdad."""
     from danplay import chat, library, playlists
 
     cid = library.search("", limit=1)[0]["id"]
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [
             ("Ya la creé: lista **Prueba narrada** con tus canciones.", None),
             ("", [("create_playlist", f'{{"name": "Prueba narrada", "ids": [{cid}]}}')]),
@@ -2420,34 +2411,34 @@ def test_si_dice_que_hizo_algo_sin_herramientas_se_le_obliga_a_hacerlo(cliente):
         ]
     )
     try:
-        r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "creame la lista"}]))
+        r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "creame la lista"}]))
         assert [h["name"] for h in r["tools"]] == ["create_playlist"]
         assert any(l["name"] == "Prueba narrada" for l in playlists.list_all())
         assert "Ahora sí" in r["text"]
         # la segunda peticion al modelo iba obligada a usar herramientas y con el toque
-        assert fake.recibido[1]["tool_choice"] == "required"
-        assert fake.recibido[1]["messages"][-1]["role"] == "system"
-        assert "ninguna herramienta ha hecho nada" in fake.recibido[1]["messages"][-1]["content"]
+        assert fake.received[1]["tool_choice"] == "required"
+        assert fake.received[1]["messages"][-1]["role"] == "system"
+        assert "ninguna herramienta ha hecho nada" in fake.received[1]["messages"][-1]["content"]
         # y la tercera vuelve a ser libre
-        assert fake.recibido[2]["tool_choice"] == "auto"
+        assert fake.received[2]["tool_choice"] == "auto"
     finally:
         for l in playlists.list_all():
             if l["name"] == "Prueba narrada":
                 playlists.remove(l["id"])
 
 
-def test_solo_se_le_para_una_vez_y_solo_si_no_uso_nada(cliente):
+def test_stopped_only_once_and_only_if_it_used_nothing(client):
     from danplay import chat
 
     # tras consultar, decir «ya la tienes» es un dato, no una accion: vale
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [("", [("library_summary", "{}")]), ("Ya la tienes en tu biblioteca.", None)], judge="NO"
     )
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿la tengo?"}]))
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "¿la tengo?"}]))
     assert r["text"] == "Ya la tienes en tu biblioteca."
-    assert len(fake.recibido) == 2
+    assert len(fake.received) == 2
     # pero consultar y luego decir «añadida» sin añadir, no: lo pilla el juez
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [
             ("", [("search_songs", '{"query": "gozo"}')]),
             ("Añadida a la lista Herlin.", None),
@@ -2456,40 +2447,40 @@ def test_solo_se_le_para_una_vez_y_solo_si_no_uso_nada(cliente):
         ],
         judge="SI",
     )
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "añadela a Herlin"}]))
-    assert fake.recibido[2]["tool_choice"] == "required"
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "añadela a Herlin"}]))
+    assert fake.received[2]["tool_choice"] == "required"
     assert r["text"] == "Vale."
     # y con una herramienta que HACE algo, el texto vale aunque suene a accion
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [("", [("set_stars", '{"id": 1, "stars": 4}')]), ("Puntuada con 4 estrellas.", None)],
         judge="SI",
     )
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "ponle 4"}]))
-    assert r["text"] == "Puntuada con 4 estrellas." and len(fake.recibido) == 2
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "ponle 4"}]))
+    assert r["text"] == "Puntuada con 4 estrellas." and len(fake.received) == 2
     # y si tras el toque sigue narrando, no se insiste (no es un bucle), pero
     # la respuesta sale señalada
-    fake = _Turnos([("Ya la creé.", None), ("Ya la creé, de verdad.", None)])
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "crea la lista"}]))
+    fake = _ScriptedTurns([("Ya la creé.", None), ("Ya la creé, de verdad.", None)])
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "crea la lista"}]))
     assert r["text"].startswith("Ya la creé, de verdad.") and r["narrated"] is True
-    assert len(fake.recibido) == 2
+    assert len(fake.received) == 2
 
 
-def test_una_respuesta_normal_no_se_toca(cliente):
+def test_a_normal_reply_is_left_alone(client):
     from danplay import chat
 
-    fake = _Turnos([("Kind of Blue es de 1959.", None)])
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿de qué año es?"}]))
+    fake = _ScriptedTurns([("Kind of Blue es de 1959.", None)])
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "¿de qué año es?"}]))
     assert r["text"] == "Kind of Blue es de 1959."
-    assert len(fake.recibido) == 1
+    assert len(fake.received) == 1
 
 
-def test_cada_turno_lleva_el_estado_real_de_la_app(cliente):
+def test_every_turn_carries_the_real_app_state(client):
     from danplay import chat, playlists
 
     made = playlists.create("Estado real")
     try:
-        fake = _Turnos([("ok", None)])
-        _con_cliente(
+        fake = _ScriptedTurns([("ok", None)])
+        _with_client(
             fake,
             lambda: chat.reply(
                 [
@@ -2499,27 +2490,27 @@ def test_cada_turno_lleva_el_estado_real_de_la_app(cliente):
                 ]
             ),
         )
-        msgs = fake.recibido[0]["messages"]
-        nota = msgs[-1]
-        assert nota["role"] == "system" and nota is not msgs[0]
-        assert "ESTADO REAL" in nota["content"]
-        assert "«Estado real»" in nota["content"]
-        assert "Descarga en marcha: no" in nota["content"]
-        assert "no uso ninguna herramienta" in nota["content"]
+        msgs = fake.received[0]["messages"]
+        note = msgs[-1]
+        assert note["role"] == "system" and note is not msgs[0]
+        assert "ESTADO REAL" in note["content"]
+        assert "«Estado real»" in note["content"]
+        assert "Descarga en marcha: no" in note["content"]
+        assert "no uso ninguna herramienta" in note["content"]
         # el mensaje narrado va señalado en el historial, en una nota de sistema
-        narrado = next(m for m in msgs if m["role"] == "assistant")
-        assert narrado["content"] == "Ya la creé."
-        nota = msgs[msgs.index(narrado) + 1]
-        assert nota["role"] == "system" and "NO uso ninguna herramienta" in nota["content"]
+        narrated = next(m for m in msgs if m["role"] == "assistant")
+        assert narrated["content"] == "Ya la creé."
+        note = msgs[msgs.index(narrated) + 1]
+        assert note["role"] == "system" and "NO uso ninguna herramienta" in note["content"]
     finally:
         playlists.remove(made["id"])
 
 
-def test_los_mensajes_con_herramientas_van_marcados_con_lo_que_hicieron(cliente):
+def test_tool_messages_are_tagged_with_what_they_did(client):
     from danplay import chat
 
-    fake = _Turnos([("ok", None)])
-    _con_cliente(
+    fake = _ScriptedTurns([("ok", None)])
+    _with_client(
         fake,
         lambda: chat.reply(
             [
@@ -2533,24 +2524,24 @@ def test_los_mensajes_con_herramientas_van_marcados_con_lo_que_hicieron(cliente)
             ]
         ),
     )
-    msgs = fake.recibido[0]["messages"]
-    hecho = next(m for m in msgs if m["role"] == "assistant")
-    nota = msgs[msgs.index(hecho) + 1]
-    assert nota["role"] == "system"
-    assert "create_playlist (lista «X» con 3 temas)" in nota["content"]
+    msgs = fake.received[0]["messages"]
+    tool_msg = next(m for m in msgs if m["role"] == "assistant")
+    note = msgs[msgs.index(tool_msg) + 1]
+    assert note["role"] == "system"
+    assert "create_playlist (lista «X» con 3 temas)" in note["content"]
     assert "no uso ninguna herramienta" not in msgs[-1]["content"], (
         "el ultimo mensaje del asistente SI uso herramientas"
     )
 
 
-def test_una_herramienta_que_falla_no_cuenta_como_hecho(cliente):
+def test_a_failing_tool_does_not_count_as_done(client):
     """add_to_playlist con un id inventado devuelve error; si luego escribe
     «Añadida a Herlin», eso sigue siendo narracion y se le para."""
     from danplay import chat, playlists
 
-    _limpiar_listas("Fallida")
+    _remove_playlists("Fallida")
     playlists.create("Fallida")
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [
             ("", [("add_to_playlist", '{"name": "Fallida", "ids": [999999]}')]),
             ("Añadida a Fallida. Ahora tiene 1 cancion.", None),
@@ -2559,25 +2550,25 @@ def test_una_herramienta_que_falla_no_cuenta_como_hecho(cliente):
         ],
         judge="SI",
     )
-    r = _con_cliente(
+    r = _with_client(
         fake, lambda: chat.reply([{"role": "user", "text": "añade la 999999 a Fallida"}])
     )
-    assert fake.recibido[2]["tool_choice"] == "required", "tras el error hay que pararle"
+    assert fake.received[2]["tool_choice"] == "required", "tras el error hay que pararle"
     assert r["text"].startswith("No, no la he podido")
     assert r["tools"][0]["summary"].startswith("error:")
-    _limpiar_listas("Fallida")
+    _remove_playlists("Fallida")
 
 
-def test_el_aviso_de_fin_de_descarga_no_dispara_el_detector(cliente):
+def test_download_done_notice_does_not_trigger_the_detector(client):
     """El aviso de la app pide «responde solo: Terminado» y el modelo puede
     decir «Ya estan». Eso no es narrar: la descarga ocurrio, y el juez lo
     sabe. La primera vuelta va obligada a herramientas (el remate)."""
     from danplay import chat
 
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [("", [("list_playlists", "{}")]), ("Ya están en tu biblioteca.", None)], judge="NO"
     )
-    r = _con_cliente(
+    r = _with_client(
         fake,
         lambda: chat.reply(
             [
@@ -2602,39 +2593,39 @@ def test_el_aviso_de_fin_de_descarga_no_dispara_el_detector(cliente):
             ]
         ),
     )
-    assert fake.recibido[0]["tool_choice"] == "required"
+    assert fake.received[0]["tool_choice"] == "required"
     assert r["text"] == "Ya están en tu biblioteca."
     assert "narrated" not in r
     # al juez se le dijo que la descarga ya ocurrio; las frases no se miran aqui
     assert fake.judged and "YA ocurrio" in fake.judged[0]
     # y el estado real no le dice que su ultimo mensaje no hizo nada (era de la app)
-    nota = fake.recibido[0]["messages"][-1]["content"]
-    assert "no uso ninguna herramienta" not in nota
+    note = fake.received[0]["messages"][-1]["content"]
+    assert "no uso ninguna herramienta" not in note
 
 
-def test_la_segunda_confirmacion_del_turno_se_rechaza_con_claridad(cliente):
+def test_second_confirmation_in_a_turn_is_clearly_refused(client):
     from danplay import chat, playlists
 
-    _limpiar_listas("Una", "Otra")
+    _remove_playlists("Una", "Otra")
     a = playlists.create("Una")["id"]
     b = playlists.create("Otra")["id"]
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [
             ("", [("delete_playlist", f'{{"id": {a}}}'), ("delete_playlist", f'{{"id": {b}}}')]),
             ("Te he pedido confirmacion para borrar «Una»; «Otra» te la pido despues.", None),
         ]
     )
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "borra Una y Otra"}]))
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "borra Una y Otra"}]))
     assert r["confirm"]["args"]["id"] == a
     assert r["tools"][0]["summary"] == "espera tu visto bueno"
     assert r["tools"][1]["summary"].startswith("error:"), "la segunda NO se pidio y se dice"
-    _limpiar_listas("Una", "Otra")
+    _remove_playlists("Una", "Otra")
 
 
-def test_si_sigue_narrando_tras_el_toque_se_ve(cliente):
+def test_narrating_again_after_the_nudge_is_shown(client):
     from danplay import chat
 
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [
             ("Ya la creé.", None),
             ("", [("library_summary", "{}")]),
@@ -2642,40 +2633,40 @@ def test_si_sigue_narrando_tras_el_toque_se_ve(cliente):
         ],
         judge="SI",
     )
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "crea la lista"}]))
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "crea la lista"}]))
     assert r["narrated"] is True
     assert "Nota de la app" in r["text"]
-    assert len(fake.recibido) == 3, "no es un bucle: se le para una vez"
+    assert len(fake.received) == 3, "no es un bucle: se le para una vez"
 
 
-def test_el_juez_no_se_molesta_por_conocimiento_musical(cliente):
+def test_the_judge_is_not_bothered_by_music_knowledge(client):
     from danplay import chat
 
-    fake = _Turnos([("Kind of Blue es de 1959 y lo grabo Miles Davis.", None)], judge="SI")
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿de que año es?"}]))
+    fake = _ScriptedTurns([("Kind of Blue es de 1959 y lo grabo Miles Davis.", None)], judge="SI")
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "¿de que año es?"}]))
     assert r["text"].startswith("Kind of Blue") and not fake.judged
     # con palabras de la app si se le pregunta, y ve la peticion del usuario
-    fake = _Turnos([("Puedo crear la lista con esas tres si quieres.", None)], judge="NO")
-    _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "haz una lista"}]))
+    fake = _ScriptedTurns([("Puedo crear la lista con esas tres si quieres.", None)], judge="NO")
+    _with_client(fake, lambda: chat.reply([{"role": "user", "text": "haz una lista"}]))
     assert fake.judged and "haz una lista" in fake.judged[0]
 
 
-def test_tras_la_descarga_el_remate_va_obligado_y_la_lista_se_hace_de_verdad(cliente):
+def test_after_download_followup_is_forced_and_playlist_is_real(client):
     """Fue aqui donde «Añadida a la lista (id: 271)» paso sin comprobar: el
     turno del aviso de fin de descarga daba todo por hecho."""
     from danplay import chat, library, playlists
 
-    _limpiar_listas("Remate")
+    _remove_playlists("Remate")
     playlists.create("Remate")
     cid = library.search("", limit=1)[0]["id"]
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [
             ("", [("add_to_playlist", f'{{"name": "Remate", "ids": [{cid}]}}')]),
             ("Añadida a «Remate».", None),
         ],
         judge="NO",
     )
-    r = _con_cliente(
+    r = _with_client(
         fake,
         lambda: chat.reply(
             [
@@ -2694,13 +2685,13 @@ def test_tras_la_descarga_el_remate_va_obligado_y_la_lista_se_hace_de_verdad(cli
             ]
         ),
     )
-    assert fake.recibido[0]["tool_choice"] == "required", (
+    assert fake.received[0]["tool_choice"] == "required", (
         "el remate va obligado a usar herramientas"
     )
     assert [c["id"] for c in playlists.songs(playlists.by_name("Remate")["id"])] == [cid]
     assert "narrated" not in r
     # y si en ese turno solo narra («Añadida») tras consultar, el juez lo pilla
-    fake = _Turnos(
+    fake = _ScriptedTurns(
         [
             ("", [("playlist_songs", '{"name": "Remate"}')]),
             ("Añadida a «Remate», ahora tiene 2.", None),
@@ -2709,18 +2700,18 @@ def test_tras_la_descarga_el_remate_va_obligado_y_la_lista_se_hace_de_verdad(cli
         ],
         judge="SI",
     )
-    _con_cliente(
+    _with_client(
         fake,
         lambda: chat.reply(
             [{"role": "user", "text": "[aviso de la app] …", "event": "download_done"}]
         ),
     )
     assert fake.judged and "YA ocurrio" in fake.judged[0]
-    assert fake.recibido[2]["tool_choice"] == "required"
-    _limpiar_listas("Remate")
+    assert fake.received[2]["tool_choice"] == "required"
+    _remove_playlists("Remate")
 
 
-def test_un_si_a_algo_que_la_app_ya_hizo_no_obliga_a_repetirlo():
+def test_yes_to_something_the_app_did_does_not_force_a_repeat():
     from danplay import chat
 
     assert not chat._answers_an_offer(
@@ -2737,7 +2728,7 @@ def test_un_si_a_algo_que_la_app_ya_hizo_no_obliga_a_repetirlo():
     )
 
 
-def test_el_estado_real_cuenta_las_ultimas_descargas_con_su_id(cliente):
+def test_real_state_lists_the_latest_downloads_with_their_id(client):
     from danplay import chat, library
 
     cid = library.search("", limit=1)[0]["id"]
@@ -2753,13 +2744,13 @@ def test_el_estado_real_cuenta_las_ultimas_descargas_con_su_id(cliente):
             "song_id": cid,
         }
     )
-    nota = chat._context_note([{"role": "user", "text": "hola"}])
-    assert "ISH MELTON DRUM CAM" in nota and f"id {cid}" in nota
-    assert "No la vuelvas a bajar" in nota
+    note = chat._context_note([{"role": "user", "text": "hola"}])
+    assert "ISH MELTON DRUM CAM" in note and f"id {cid}" in note
+    assert "No la vuelvas a bajar" in note
     library.clear_download_history()
 
 
-def test_el_dialogo_avisa_si_esa_direccion_se_bajo_hace_poco(cliente):
+def test_dialog_warns_if_that_url_was_downloaded_recently(client):
     from danplay import chat, library
 
     cid = library.search("", limit=1)[0]["id"]
@@ -2773,13 +2764,13 @@ def test_el_dialogo_avisa_si_esa_direccion_se_bajo_hace_poco(cliente):
             "song_id": cid,
         }
     )
-    texto = chat._describe("download_music", {"items": ["https://youtu.be/x"], "force": True})
-    assert "OJO" in texto and "se bajo hace 0 min" in texto and "duplica" in texto
+    text = chat._describe("download_music", {"items": ["https://youtu.be/x"], "force": True})
+    assert "OJO" in text and "se bajo hace 0 min" in text and "duplica" in text
     assert "OJO" not in chat._describe("download_music", {"items": ["https://youtu.be/otra"]})
     library.clear_download_history()
 
 
-def test_el_prompt_deja_las_confirmaciones_a_la_app():
+def test_the_prompt_leaves_confirmations_to_the_app():
     from danplay import chat
 
     s = chat.SYSTEM_PROMPT
@@ -2788,20 +2779,22 @@ def test_el_prompt_deja_las_confirmaciones_a_la_app():
     assert "NO el titulo de YouTube" in s
 
 
-def test_lo_que_devolvio_cada_herramienta_viaja_al_turno_siguiente(cliente):
+def test_each_tool_result_travels_to_the_next_turn(client):
     """«Esa», «la segunda», «la que te dije»: sin los ids y nombres de lo que
     enseño antes, el modelo no podia entenderlo y volvia a preguntar o a
     inventar. Ahora cada herramienta deja un `detail` y el historial lo lleva."""
     from danplay import chat, library
 
     songs = library.search("", limit=2)
-    fake = _Turnos([("", [("search_songs", '{"query": "", "limit": 2}')]), ("Tienes dos.", None)])
-    r = _con_cliente(fake, lambda: chat.reply([{"role": "user", "text": "¿que tengo?"}]))
+    fake = _ScriptedTurns(
+        [("", [("search_songs", '{"query": "", "limit": 2}')]), ("Tienes dos.", None)]
+    )
+    r = _with_client(fake, lambda: chat.reply([{"role": "user", "text": "¿que tengo?"}]))
     detail = r["tools"][0]["detail"]
     assert f"id {songs[0]['id']}" in detail and songs[0]["title"] in detail
     # y al turno siguiente, la nota de sistema lo trae
-    fake = _Turnos([("La segunda es esa.", None)])
-    _con_cliente(
+    fake = _ScriptedTurns([("La segunda es esa.", None)])
+    _with_client(
         fake,
         lambda: chat.reply(
             [
@@ -2811,11 +2804,11 @@ def test_lo_que_devolvio_cada_herramienta_viaja_al_turno_siguiente(cliente):
             ]
         ),
     )
-    notas = [m["content"] for m in fake.recibido[0]["messages"] if m["role"] == "system"]
-    assert any(f"id {songs[1]['id']}" in n and songs[1]["title"] in n for n in notas), notas
+    notes = [m["content"] for m in fake.received[0]["messages"] if m["role"] == "system"]
+    assert any(f"id {songs[1]['id']}" in n and songs[1]["title"] in n for n in notes), notes
 
 
-def test_la_ventana_de_historial_empieza_en_el_usuario_y_no_se_come_la_peticion():
+def test_history_window_starts_at_user_and_keeps_the_request():
     from danplay import chat
 
     msgs = [{"role": "user", "text": "descarga esta y metela en Herlin"}]
@@ -2839,7 +2832,7 @@ def test_la_ventana_de_historial_empieza_en_el_usuario_y_no_se_come_la_peticion(
     assert len(w) == 1
 
 
-def test_brief_resume_con_ids_y_nombres():
+def test_brief_summarizes_with_ids_and_names():
     from danplay import chat
 
     assert (
@@ -2855,16 +2848,16 @@ def test_brief_resume_con_ids_y_nombres():
         == "«domingo» (id 1, 2 temas)"
     )
     assert chat._brief("search_songs", {"error": "no"}) == ""
-    largo = {"songs": [{"id": i, "artist": "A", "title": f"T{i}"} for i in range(15)]}
-    assert chat._brief("search_songs", largo).endswith("y 5 mas")
+    length = {"songs": [{"id": i, "artist": "A", "title": f"T{i}"} for i in range(15)]}
+    assert chat._brief("search_songs", length).endswith("y 5 mas")
 
 
-def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
+def test_pending_download_is_not_summarized_as_zero_downloaded():
     """La ficha del chat decia «descargo · 0 descargada(s)» cuando en realidad
     estaba esperando el visto bueno. Confundia: parecia que habia fallado."""
     from danplay import chat
 
-    llamadas = []
+    calls = []
 
     class _Call:
         def __init__(self, name, args):
@@ -2876,8 +2869,8 @@ def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
             class completions:
                 @staticmethod
                 def create(**kw):
-                    llamadas.append(kw)
-                    if len(llamadas) == 1:
+                    calls.append(kw)
+                    if len(calls) == 1:
                         msg = type(
                             "m",
                             (),
@@ -2909,7 +2902,7 @@ def test_una_descarga_pendiente_no_se_resume_como_cero_descargadas():
     assert "0 descargada" not in r["tools"][0]["summary"]
 
 
-def test_renombrar_una_lista_por_la_api(cliente):
+def test_rename_a_playlist_through_the_api(client):
     from danplay import playlists
 
     for l in playlists.list_all():
@@ -2917,14 +2910,14 @@ def test_renombrar_una_lista_por_la_api(cliente):
             playlists.remove(l["id"])
     lid = playlists.create("Vieja")["id"]
     other = playlists.create("Otra")["id"]
-    r = cliente.patch(f"/api/playlists/{lid}", json={"name": "Nueva"})
+    r = client.patch(f"/api/playlists/{lid}", json={"name": "Nueva"})
     assert r.status_code == 200, r.text
     assert r.json()["playlist"]["name"] == "Nueva"
     assert any(l["name"] == "Nueva" for l in r.json()["playlists"])
     # el nombre de otra lista no se puede pisar; ni dejarlo vacio
-    assert cliente.patch(f"/api/playlists/{lid}", json={"name": "otra"}).status_code == 409
-    assert cliente.patch(f"/api/playlists/{lid}", json={}).status_code == 400
-    assert cliente.patch("/api/playlists/999999", json={"name": "x"}).status_code == 404
+    assert client.patch(f"/api/playlists/{lid}", json={"name": "otra"}).status_code == 409
+    assert client.patch(f"/api/playlists/{lid}", json={}).status_code == 400
+    assert client.patch("/api/playlists/999999", json={"name": "x"}).status_code == 404
     playlists.remove(lid)
     playlists.remove(other)
 
@@ -2934,124 +2927,124 @@ def test_renombrar_una_lista_por_la_api(cliente):
 # se guarda es que sono, para poder volver a ella desde el reproductor.
 
 
-def _de_fuera(cliente, nombre="suelta.mp3", titulo="Suelta", artista="Nadie"):
+def _external_mp3(client, name="suelta.mp3", title="Suelta", artist="Nadie"):
     """Un mp3 real FUERA de la biblioteca."""
     from conftest import make_mp3
 
     from danplay import config
 
-    fuera = os.path.join(os.path.dirname(str(config.LIBRARY)), "fuera")
-    return make_mp3(os.path.join(fuera, nombre), artist=artista, title=titulo)
+    external = os.path.join(os.path.dirname(str(config.LIBRARY)), "fuera")
+    return make_mp3(os.path.join(external, name), artist=artist, title=title)
 
 
-def test_an_outside_song_plays_without_entering_the_library(cliente):
+def test_an_outside_song_plays_without_entering_the_library(client):
     from danplay import library
 
-    antes = library.stats_of()["total"]
-    ruta = _de_fuera(cliente)
+    before = library.stats_of()["total"]
+    path = _external_mp3(client)
 
-    r = cliente.post("/api/external/play", json={"path": ruta})
+    r = client.post("/api/external/play", json={"path": path})
     assert r.status_code == 200, r.text
     song = r.json()["song"]
     assert song["id"] < 0, "las de fuera llevan id negativo"
     assert song["title"] == "Suelta" and song["artist"] == "Nadie", song
     assert song["external"] is True
-    assert library.stats_of()["total"] == antes, "se ha colado en la biblioteca"
+    assert library.stats_of()["total"] == before, "se ha colado en la biblioteca"
     assert library.by_id(song["id"]) is None, "la biblioteca no debe encontrarla"
 
 
-def test_playing_it_again_does_not_duplicate_it_and_moves_it_up(cliente):
-    cliente.delete("/api/external")
-    una = _de_fuera(cliente, "una.mp3", "Una")
-    otra = _de_fuera(cliente, "otra.mp3", "Otra")
-    cliente.post("/api/external/play", json={"path": una})
-    cliente.post("/api/external/play", json={"path": otra})
-    titulos = [s["title"] for s in cliente.get("/api/external").json()["songs"]]
-    assert titulos == ["Otra", "Una"], titulos
+def test_playing_it_again_does_not_duplicate_it_and_moves_it_up(client):
+    client.delete("/api/external")
+    one_path = _external_mp3(client, "una.mp3", "Una")
+    other = _external_mp3(client, "otra.mp3", "Otra")
+    client.post("/api/external/play", json={"path": one_path})
+    client.post("/api/external/play", json={"path": other})
+    titles = [s["title"] for s in client.get("/api/external").json()["songs"]]
+    assert titles == ["Otra", "Una"], titles
 
-    cliente.post("/api/external/play", json={"path": una})
-    songs = cliente.get("/api/external").json()["songs"]
+    client.post("/api/external/play", json={"path": one_path})
+    songs = client.get("/api/external").json()["songs"]
     assert [s["title"] for s in songs] == ["Una", "Otra"], "no subio al reproducirla"
     assert len(songs) == 2, "se añadio dos veces"
 
 
-def test_a_library_song_opened_from_outside_stays_the_library_one(cliente):
-    cliente.delete("/api/external")
-    dentro = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]
-    ruta = cliente.get(f"/api/song/{dentro['id']}/path").json()["path"]
+def test_a_library_song_opened_from_outside_stays_the_library_one(client):
+    client.delete("/api/external")
+    inside = client.get("/api/search", params={"limit": 1}).json()["songs"][0]
+    path = client.get(f"/api/song/{inside['id']}/path").json()["path"]
 
-    song = cliente.post("/api/external/play", json={"path": ruta}).json()["song"]
-    assert song["id"] == dentro["id"], "deberia ser la de la biblioteca, con su id"
+    song = client.post("/api/external/play", json={"path": path}).json()["song"]
+    assert song["id"] == inside["id"], "deberia ser la de la biblioteca, con su id"
     assert not song.get("external")
-    assert [s["id"] for s in cliente.get("/api/external").json()["songs"]] == [dentro["id"]]
+    assert [s["id"] for s in client.get("/api/external").json()["songs"]] == [inside["id"]]
 
 
-def test_an_outside_song_serves_its_audio_and_its_cover_route(cliente):
-    ruta = _de_fuera(cliente, "sonora.mp3", "Sonora")
-    song = cliente.post("/api/external/play", json={"path": ruta}).json()["song"]
-    d = cliente.get(f"/api/song/{song['id']}/path").json()
-    assert d["path"] == ruta and d["bytes"] > 0, d
+def test_an_outside_song_serves_its_audio_and_its_cover_route(client):
+    path = _external_mp3(client, "sonora.mp3", "Sonora")
+    song = client.post("/api/external/play", json={"path": path}).json()["song"]
+    d = client.get(f"/api/song/{song['id']}/path").json()
+    assert d["path"] == path and d["bytes"] > 0, d
     # sin caratula dentro, 404 limpio: lo que importa es que resuelva el id
-    assert cliente.get(f"/api/song/{song['id']}/cover").status_code in (200, 404)
+    assert client.get(f"/api/song/{song['id']}/cover").status_code in (200, 404)
 
 
-def test_saving_the_list_keeps_it_after_discarding(cliente):
-    cliente.delete("/api/external")
-    cliente.post("/api/external/play", json={"path": _de_fuera(cliente, "g1.mp3", "G1")})
-    cliente.post("/api/external/play", json={"path": _de_fuera(cliente, "g2.mp3", "G2")})
+def test_saving_the_list_keeps_it_after_discarding(client):
+    client.delete("/api/external")
+    client.post("/api/external/play", json={"path": _external_mp3(client, "g1.mp3", "G1")})
+    client.post("/api/external/play", json={"path": _external_mp3(client, "g2.mp3", "G2")})
 
-    r = cliente.post("/api/external/save", json={"name": "Guardada del reproductor"})
+    r = client.post("/api/external/save", json={"name": "Guardada del reproductor"})
     assert r.status_code == 200, r.text
     lid, n = r.json()["id"], r.json()["n"]
     assert n == 2
 
-    assert cliente.delete("/api/external").json()["removed"] == 2
-    assert cliente.get("/api/external").json()["songs"] == []
+    assert client.delete("/api/external").json()["removed"] == 2
+    assert client.get("/api/external").json()["songs"] == []
     # y lo guardado sigue entero
-    guardada = cliente.get(f"/api/playlists/{lid}/songs").json()["songs"]
-    assert sorted(s["title"] for s in guardada) == ["G1", "G2"], guardada
+    saved_songs = client.get(f"/api/playlists/{lid}/songs").json()["songs"]
+    assert sorted(s["title"] for s in saved_songs) == ["G1", "G2"], saved_songs
 
 
-def test_an_empty_list_cannot_be_saved(cliente):
-    cliente.delete("/api/external")
-    assert cliente.post("/api/external/save", json={"name": "Vacia"}).status_code == 400
+def test_an_empty_list_cannot_be_saved(client):
+    client.delete("/api/external")
+    assert client.post("/api/external/save", json={"name": "Vacia"}).status_code == 400
 
 
-def test_one_song_can_be_dropped_from_the_list(cliente):
-    cliente.delete("/api/external")
-    a = _de_fuera(cliente, "q1.mp3", "Q1")
-    cliente.post("/api/external/play", json={"path": a})
-    cliente.post("/api/external/play", json={"path": _de_fuera(cliente, "q2.mp3", "Q2")})
-    cid = next(s for s in cliente.get("/api/external").json()["songs"] if s["title"] == "Q1")["id"]
-    assert cliente.delete(f"/api/external/{cid}").json()["removed"] is True
-    assert [s["title"] for s in cliente.get("/api/external").json()["songs"]] == ["Q2"]
+def test_one_song_can_be_dropped_from_the_list(client):
+    client.delete("/api/external")
+    a = _external_mp3(client, "q1.mp3", "Q1")
+    client.post("/api/external/play", json={"path": a})
+    client.post("/api/external/play", json={"path": _external_mp3(client, "q2.mp3", "Q2")})
+    cid = next(s for s in client.get("/api/external").json()["songs"] if s["title"] == "Q1")["id"]
+    assert client.delete(f"/api/external/{cid}").json()["removed"] is True
+    assert [s["title"] for s in client.get("/api/external").json()["songs"]] == ["Q2"]
 
 
-def test_a_file_that_is_not_there_is_not_added(cliente):
-    r = cliente.post("/api/external/play", json={"path": "/no/existe/nada.mp3"})
+def test_a_file_that_is_not_there_is_not_added(client):
+    r = client.post("/api/external/play", json={"path": "/no/existe/nada.mp3"})
     assert r.status_code == 404
 
 
-def test_an_outside_song_can_be_looked_at_but_not_touched(cliente):
-    ruta = _de_fuera(cliente, "mirar.mp3", "Mirar")
-    cid = cliente.post("/api/external/play", json={"path": ruta}).json()["song"]["id"]
+def test_an_outside_song_can_be_looked_at_but_not_touched(client):
+    path = _external_mp3(client, "mirar.mp3", "Mirar")
+    cid = client.post("/api/external/play", json={"path": path}).json()["song"]["id"]
 
     # se puede VER
-    d = cliente.get(f"/api/song/{cid}").json()
+    d = client.get(f"/api/song/{cid}").json()
     assert d["title"] == "Mirar" and d["existe"] is True
 
     # pero no se le escribe nada dentro ni se borra desde aqui
-    assert cliente.patch(f"/api/song/{cid}", json={"title": "Otro"}).status_code == 404
-    assert cliente.post(f"/api/song/{cid}/stars", json={"stars": 5}).status_code in (404, 422, 500)
-    assert cliente.delete(f"/api/song/{cid}").status_code == 404
-    assert cliente.get(f"/api/song/{cid}").json()["title"] == "Mirar", "se le cambio el titulo"
+    assert client.patch(f"/api/song/{cid}", json={"title": "Otro"}).status_code == 404
+    assert client.post(f"/api/song/{cid}/stars", json={"stars": 5}).status_code in (404, 422, 500)
+    assert client.delete(f"/api/song/{cid}").status_code == 404
+    assert client.get(f"/api/song/{cid}").json()["title"] == "Mirar", "se le cambio el titulo"
 
 
-def test_los_mensajes_del_chat_tienen_forma(cliente):
+def test_chat_messages_have_a_shape(client):
     """Lo que usa el asistente tiene su tipo; lo demas que guarda la interfaz
     (id, at, usage...) pasa tal cual y vuelve igual."""
-    c = cliente.post("/api/chats", json={}).json()
-    ok = cliente.post(
+    c = client.post("/api/chats", json={}).json()
+    ok = client.post(
         f"/api/chats/{c['id']}/messages",
         json={
             "messages": [
@@ -3061,26 +3054,26 @@ def test_los_mensajes_del_chat_tienen_forma(cliente):
         },
     )
     assert ok.status_code == 200 and ok.json()["n"] == 2
-    got = cliente.get(f"/api/chats/{c['id']}").json()["messages"]
+    got = client.get(f"/api/chats/{c['id']}").json()["messages"]
     assert got[1]["text"] == "" and got[1]["usage"] == {"calls": 1}
-    bad = cliente.post(f"/api/chats/{c['id']}/messages", json={"messages": [{"text": "sin rol"}]})
+    bad = client.post(f"/api/chats/{c['id']}/messages", json={"messages": [{"text": "sin rol"}]})
     assert bad.status_code == 422
     assert (
-        cliente.post("/api/chat", json={"messages": [{"role": "user", "tools": "no"}]}).status_code
+        client.post("/api/chat", json={"messages": [{"role": "user", "tools": "no"}]}).status_code
         == 422
     )
-    cliente.delete(f"/api/chats/{c['id']}")
+    client.delete(f"/api/chats/{c['id']}")
 
 
-def test_los_marcadores_del_estudio_tienen_forma(cliente):
-    cid = cliente.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
-    r = cliente.put(f"/api/song/{cid}/study", json={"markers": [{"t": "no es un numero"}]})
+def test_study_markers_have_a_shape(client):
+    cid = client.get("/api/search", params={"limit": 1}).json()["songs"][0]["id"]
+    r = client.put(f"/api/song/{cid}/study", json={"markers": [{"t": "no es un numero"}]})
     assert r.status_code == 422
-    r = cliente.put(
+    r = client.put(
         f"/api/song/{cid}/study",
         json={"markers": [{"t": 5, "extra": "fuera"}], "metronome": {"bpm": "90"}},
     )
     assert r.status_code == 200
     study = json.loads(r.json()["study"])
     assert study["markers"] == [{"t": 5.0, "label": ""}] and study["metronome"] == {"bpm": 90.0}
-    cliente.put(f"/api/song/{cid}/study", json={})
+    client.put(f"/api/song/{cid}/study", json={})

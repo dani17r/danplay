@@ -207,7 +207,7 @@
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 11,
-                    "endColumn": 51,
+                    "endColumn": 50,
                     "lineCount": 1
                 }
             },
@@ -512,16 +512,16 @@
             {
                 "code": "reportAttributeAccessIssue",
                 "range": {
-                    "startColumn": 46,
-                    "endColumn": 53,
+                    "startColumn": 47,
+                    "endColumn": 54,
                     "lineCount": 1
                 }
             },
             {
                 "code": "reportAttributeAccessIssue",
                 "range": {
-                    "startColumn": 63,
-                    "endColumn": 67,
+                    "startColumn": 64,
+                    "endColumn": 68,
                     "lineCount": 1
                 }
             },
@@ -529,7 +529,7 @@
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 15,
-                    "endColumn": 41,
+                    "endColumn": 45,
                     "lineCount": 1
                 }
             },
@@ -537,7 +537,7 @@
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 15,
-                    "endColumn": 41,
+                    "endColumn": 45,
                     "lineCount": 1
                 }
             },
@@ -545,7 +545,7 @@
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 15,
-                    "endColumn": 41,
+                    "endColumn": 45,
                     "lineCount": 1
                 }
             },
@@ -553,7 +553,7 @@
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 15,
-                    "endColumn": 22,
+                    "endColumn": 20,
                     "lineCount": 1
                 }
             },
@@ -561,7 +561,7 @@
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 15,
-                    "endColumn": 22,
+                    "endColumn": 20,
                     "lineCount": 1
                 }
             },
@@ -569,7 +569,7 @@
                 "code": "reportOptionalSubscript",
                 "range": {
                     "startColumn": 15,
-                    "endColumn": 47,
+                    "endColumn": 46,
                     "lineCount": 1
                 }
             },
@@ -684,16 +684,16 @@
             {
                 "code": "reportOptionalMemberAccess",
                 "range": {
-                    "startColumn": 74,
-                    "endColumn": 79,
+                    "startColumn": 73,
+                    "endColumn": 78,
                     "lineCount": 1
                 }
             },
             {
                 "code": "reportOptionalMemberAccess",
                 "range": {
-                    "startColumn": 74,
-                    "endColumn": 79,
+                    "startColumn": 73,
+                    "endColumn": 78,
                     "lineCount": 1
                 }
             },

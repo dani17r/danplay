@@ -35,7 +35,7 @@ def _columns(path, table) -> set:
         conn.close()
 
 
-def test_una_base_nueva_nace_con_la_ultima_version(base):
+def test_a_new_db_starts_at_the_latest_version(base):
     with library.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM songs").fetchone()[0] == 0
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -55,7 +55,7 @@ def test_una_base_nueva_nace_con_la_ultima_version(base):
     assert _version(base) == library.SCHEMA_VERSION == db.MIGRATIONS[-1][0]
 
 
-def test_una_base_de_antes_de_las_versiones_se_pone_al_dia(base):
+def test_a_db_from_before_versions_is_brought_up_to_date(base):
     """Una base de las primeras (sin blur, sin letra con tiempos, sin estudio
     y sin tope de ids) y con una cancion borrada que sigue en una lista."""
     conn = sqlite3.connect(base)
@@ -83,7 +83,7 @@ def test_una_base_de_antes_de_las_versiones_se_pone_al_dia(base):
     assert _version(base) == library.SCHEMA_VERSION
 
 
-def test_una_base_de_la_version_3_gana_las_pistas_separadas(base, monkeypatch):
+def test_a_version_3_db_gains_the_separated_stems(base, monkeypatch):
     """La de quien tenia la 1.15: su base (version 3) no sabe de pistas
     separadas; al abrirla se añade la columna y lo demas no se toca."""
     lines = db.SCHEMA.splitlines(keepends=True)
@@ -107,7 +107,7 @@ def test_una_base_de_la_version_3_gana_las_pistas_separadas(base, monkeypatch):
     assert _version(base) == library.SCHEMA_VERSION >= 4
 
 
-def test_el_esquema_en_castellano_se_migra_entero(base):
+def test_the_spanish_schema_is_migrated_in_full(base):
     """Las listas vienen de otro modulo: antes solo se migraban si ese modulo
     ya habia abierto la base. Ahora estan todas antes de migrar."""
     conn = sqlite3.connect(base)
@@ -150,7 +150,7 @@ def test_el_esquema_en_castellano_se_migra_entero(base):
     assert not {"canciones", "listas", "lista_canciones", "carpetas"} & tables
 
 
-def test_una_base_nueva_no_pasa_por_las_migraciones(base, monkeypatch):
+def test_a_new_db_skips_the_migrations(base, monkeypatch):
     ran = []
     monkeypatch.setattr(
         db, "MIGRATIONS", tuple((n, w, lambda c, n=n: ran.append(n)) for n, w, _ in db.MIGRATIONS)
@@ -159,7 +159,7 @@ def test_una_base_nueva_no_pasa_por_las_migraciones(base, monkeypatch):
     assert ran == [] and _version(base) == library.SCHEMA_VERSION
 
 
-def test_las_migraciones_se_aplican_una_sola_vez(base, monkeypatch):
+def test_migrations_are_applied_only_once(base, monkeypatch):
     library.connect().close()
     calls = []
     now = library.SCHEMA_VERSION
@@ -182,7 +182,7 @@ def test_las_migraciones_se_aplican_una_sola_vez(base, monkeypatch):
     assert _version(base) == fresh
 
 
-def test_una_migracion_que_falla_no_deja_nada_a_medias(base, monkeypatch):
+def test_a_failing_migration_leaves_nothing_half_done(base, monkeypatch):
     library.connect().close()
     before = library.SCHEMA_VERSION
 
@@ -203,7 +203,7 @@ def test_una_migracion_que_falla_no_deja_nada_a_medias(base, monkeypatch):
         conn.close()
 
 
-def test_una_base_de_un_danplay_mas_nuevo_no_se_toca(base):
+def test_a_db_from_a_newer_danplay_is_left_alone(base):
     library.connect().close()
     conn = sqlite3.connect(base)
     conn.execute("PRAGMA user_version = 999")
@@ -213,7 +213,7 @@ def test_una_base_de_un_danplay_mas_nuevo_no_se_toca(base):
     assert _version(base) == 999
 
 
-def test_con_with_la_conexion_se_confirma_y_se_cierra(base):
+def test_a_with_block_commits_and_closes_the_connection(base):
     with library.connect() as conn:
         conn.execute("INSERT INTO meta (key, value) VALUES ('prueba', 1)")
     with pytest.raises(sqlite3.ProgrammingError):
@@ -226,7 +226,7 @@ def test_con_with_la_conexion_se_confirma_y_se_cierra(base):
     assert "prueba" in keys and "deshecha" not in keys
 
 
-def test_nueva_o_migrada_acaban_con_las_mismas_columnas(base, tmp_path, monkeypatch):
+def test_new_or_migrated_dbs_end_with_the_same_columns(base, tmp_path, monkeypatch):
     """El esquema de partida es el de ahora: una base nueva no pasa por las
     migraciones, asi que tiene que nacer con todo lo que ellas añaden."""
     library.connect().close()

@@ -10,9 +10,9 @@ from ... import (
     ai,
     config,
     convert,
-    diario,
     duplicates,
     fingerprint,
+    journal,
     library,
     providers,
     terms,
@@ -58,7 +58,7 @@ def status():
         "jobs": jobs.snapshot_all(),
         # lo ultimo que el diario recupero solo (canciones movidas que vuelven
         # a sus listas...): la interfaz lo cuenta una vez
-        "diario": diario.status(),
+        "diario": journal.status(),
     }
 
 

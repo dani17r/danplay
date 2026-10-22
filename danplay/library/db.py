@@ -1,6 +1,6 @@
 """El indice por dentro: el esquema, sus migraciones y la conexion.
 
-La base es solo un indice (ver docs/ARQUITECTURA.md, «La base de datos es
+La base es solo un indice (ver docs/ARCHITECTURE.md, «La base de datos es
 desechable»): todo lo que el usuario crea vive dentro de sus archivos, y un
 escaneo la reconstruye entera. Aun asi, la de quien ya usa la app se pone al
 dia sola al abrirla: el esquema lleva su version (`PRAGMA user_version`) y
@@ -243,7 +243,7 @@ class Song(TypedDict):
 
 # Tablas y columnas del esquema anterior (estaban en castellano). Se migran
 # solas la primera vez que se abre la base: nadie tiene que reescanear.
-_ANTIGUO = {
+_OLD_SCHEMA = {
     "carpetas": (
         "folders",
         [
@@ -311,7 +311,7 @@ def _migrate_from_spanish(conn) -> None:
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     migrated = False
     # los nombres de tabla y columna salen de _ANTIGUO, no de fuera
-    for old, (new, cols) in _ANTIGUO.items():
+    for old, (new, cols) in _OLD_SCHEMA.items():
         if old not in tables or new not in tables:
             continue
         if conn.execute(f"SELECT COUNT(*) FROM {new}").fetchone()[0]:  # noqa: S608
@@ -519,7 +519,7 @@ def _private_database(path: Path) -> None:
         log.warning("no pude cerrar los permisos de %s", path, exc_info=True)
 
 
-# Una conexion al indice: la de Rust (core/src/indice.rs), que imita lo que
+# Una conexion al indice: la de Rust (core/src/db.rs), que imita lo que
 # se usa de `sqlite3` —`execute`, filas por nombre, transacciones implicitas,
 # sus mismas excepciones— y es la misma que usa lo que ya esta en Rust. Con
 # `with`, confirma lo hecho (o lo deshace si algo fallo) y SE CIERRA siempre;
@@ -533,9 +533,9 @@ Row = _rust.Row
 def connect() -> Connection:
     """Abre el indice (creandolo o migrandolo la primera vez).
 
-    Mejor con `with connect() as conn:`: confirma y cierra solo. Las
+    Mejor con `with connect() as with_extran:`: confirma y cierra solo. Las
     esperas (hasta cinco segundos si otro escribe) y el `synchronous=NORMAL`
-    los pone Rust al abrir (`biblioteca::indice::abrir`).
+    los pone Rust al abrir (`library::index::open`).
     """
     key = str(config.DATABASE)
     if key not in _prepared:
@@ -596,7 +596,7 @@ def _to_missing(conn, paths) -> int:
 # y, si se ha movido, avisa a las ventanas para que se refresquen. Es lo que
 # hace que un cambio hecho «por detras» —una descarga que termina, el
 # asistente, la linea de ordenes— se vea sin tener que salir y volver a entrar.
-# Lo lleva Rust (`biblioteca::indice::revision`), igual que las cifras
+# Lo lleva Rust (`library::index::revision`), igual que las cifras
 # recordadas de `stats_of`.
 def revision() -> int:
     return _rust.db_revision()
@@ -609,7 +609,7 @@ def _touch() -> None:
 
 def stats_of() -> dict:
     """Las cifras de la biblioteca, recordadas unos segundos (y olvidadas en
-    cuanto algo escribe en `songs`: ver `biblioteca::indice::stats`)."""
+    cuanto algo escribe en `songs`: ver `library::index::stats`)."""
     key = str(config.DATABASE)
     cached = _rust.db_stats_cached(key)
     if cached is not None:

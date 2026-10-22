@@ -18,7 +18,7 @@ chat de un grupo, un titulo cualquiera), asi que se escribio pensando en que
 nadie le va a dar un texto amable: la entrada se acota a 200 KB, se recorre en
 tiempo lineal y `parse_setlist` nunca lanza.
 
-Lo hace Rust (biblioteca/src/asistente/listas.rs, regla a regla lo que antes
+Lo hace Rust (library/src/assistant/intake.rs, regla a regla lo que antes
 estaba aqui: como se limpia la entrada, como se trocea cada linea en piezas,
 como se agrupan en bloques y que se devuelve en `extras` y en `people`); esto
 es la puerta de Python, con los mismos nombres. El corpus de muestras esta en

@@ -27,7 +27,7 @@ def by_id(cid: int) -> Song | None:
 
 def update(cid: int, **fields) -> int:
     """Cambia columnas del indice (solo el indice). Devuelve filas tocadas.
-    Solo las que se pueden cambiar a mano (`biblioteca::indice::canciones::
+    Solo las que se pueden cambiar a mano (`library::index::songs::
     EDITABLE`); lo demas sale del archivo."""
     with db.connect() as conn:
         n = _rust.songs_update(conn, int(cid), fields)
@@ -314,7 +314,7 @@ def paths_of(ids) -> dict[int, str | None]:
 
 # Lo que se guarda del modo estudio y sus limites: un JSON pequeño y con
 # forma conocida, no lo que mande cualquiera (lo limpia Rust:
-# `biblioteca::indice::canciones::clean_study`).
+# `library::index::songs::clean_study`).
 STUDY_KEYS = ("loop", "loops", "speed", "pitch", "metronome", "markers", "notes", "mixer")
 
 

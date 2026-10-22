@@ -1,7 +1,7 @@
 # Dependabot abre un pull request cuando sale una version nueva de algo que usa
 # DanPlay. Semanal y agrupado: un PR por ecosistema con todos los parches y
 # versiones menores, y uno aparte por cada salto de version mayor (esos pueden
-# romper y hay que mirarlos uno a uno). Las pruebas de `pruebas.yml` corren en
+# romper y hay que mirarlos uno a uno). Las pruebas de `tests.yml` corren en
 # cada PR, asi que se ve al momento si algo se rompe.
 version: 2
 

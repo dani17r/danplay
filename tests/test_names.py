@@ -67,26 +67,26 @@ TEXT = st.text(st.characters(exclude_categories=("Cs",)), max_size=80)
         (None, ""),
     ],
 )
-def test_la_forma_de_buscar(value, expected):
+def test_the_search_form(value, expected):
     assert N.search_form(value) == expected
 
 
-def test_los_emojis_compuestos_no_dejan_restos():
+def test_compound_emojis_leave_no_leftovers():
     # selector de variacion, tono de piel y union de emojis (ZWJ)
     family = f"{chr(0x1F468)}{ZWJ}{chr(0x1F469)}{ZWJ}{chr(0x1F467)}"
     assert N.search_form(f"alabanza ❤{VS16} {family} {PRAY}{SKIN}") == "alabanza"
 
 
-def test_las_tildes_de_una_i_turca_no_dejan_un_punto_suelto():
+def test_a_turkish_dotted_i_leaves_no_stray_dot():
     assert N.search_form(f"{DOT_I}stanbul") == "istanbul"
 
 
-def test_las_palabras_son_las_de_la_forma():
+def test_search_tokens_are_the_words_of_the_form():
     assert N.search_tokens("*Cena Del Señor* ✅") == ["cena", "del", "señor"]
     assert N.search_tokens("") == []
 
 
-def test_la_segunda_pasada_pliega_solo_la_enye():
+def test_the_second_pass_folds_only_the_enye():
     assert N.fold_enye(N.search_form("Cena Del Señor")) == "cena del senor"
     assert N.fold_enye("mañana ñandu") == "manana nandu"
     # la forma normal NO la pliega
@@ -97,13 +97,13 @@ def test_la_segunda_pasada_pliega_solo_la_enye():
 
 
 @given(TEXT)
-def test_es_idempotente(s):
+def test_is_idempotent(s):
     once = N.search_form(s)
     assert N.search_form(once) == once
 
 
 @given(TEXT)
-def test_solo_letras_digitos_y_espacios_simples_en_minuscula(s):
+def test_only_lowercase_letters_digits_and_single_spaces(s):
     out = N.search_form(s)
     assert out == out.strip()
     assert "  " not in out
@@ -117,6 +117,6 @@ def test_solo_letras_digitos_y_espacios_simples_en_minuscula(s):
 
 
 @given(st.text(alphabet="abcñÑáéíóúü ", max_size=40))
-def test_la_enye_nunca_se_pierde(s):
+def test_the_enye_is_never_lost(s):
     # cada ñ del texto (en cualquier mayuscula) sale como ñ
     assert N.search_form(s).count("ñ") == s.lower().count("ñ")

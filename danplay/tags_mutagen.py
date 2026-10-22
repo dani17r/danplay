@@ -2,11 +2,11 @@
 
 Solo se usa si el crate de Rust (`danplay_core`) no esta, en desarrollo o en
 las pruebas sin Rust; los paquetes llevan el crate y no llevan mutagen, que es
-GPL (ver docs/DEPENDENCIAS.md). Por eso mutagen esta entre las dependencias de
+GPL (ver docs/DEPENDENCIES.md). Por eso mutagen esta entre las dependencias de
 las pruebas y no entre las de la app: aqui se importa al usarse.
 
-Las mismas tres familias y el mismo vocabulario que `biblioteca/src/
-etiquetas.rs`, y las pruebas comparan las dos (tests/test_formats.py). Lo de
+Las mismas tres familias y el mismo vocabulario que `library/src/
+tags.rs`, y las pruebas comparan las dos (tests/test_formats.py). Lo de
 conservar el pulso y la onda al reescribir (`tags._retagged`) lo hace `tags`.
 """
 

@@ -40,7 +40,7 @@ def _image(path, size="1600x1200", color="red", extra=()):
 # ------------------------------------------------------------------ convertir
 
 
-def test_un_flac_pasa_a_mp3_con_sus_etiquetas(tmp_path, synthetic_ok):
+def test_a_flac_becomes_mp3_with_its_tags(tmp_path, synthetic_ok):
     flac = make_audio(tmp_path / "Barak - Mi Gozo.flac", ["-codec:a", "flac"], seconds=2)
     tags.write(flac, artist="Barak", title="Mi Gozo")
     r = convert.convert(flac, "medium")
@@ -53,17 +53,17 @@ def test_un_flac_pasa_a_mp3_con_sus_etiquetas(tmp_path, synthetic_ok):
     assert r2["target"].endswith("(2).mp3") and os.path.exists(flac2)
 
 
-def test_lo_que_no_se_convierte(tmp_path, synthetic_ok, monkeypatch):
+def test_what_is_not_converted(tmp_path, synthetic_ok, monkeypatch):
     mp3 = make_mp3(tmp_path / "ya.mp3")
     assert convert.convert(mp3)["skipped"]
-    protegida = make_audio(tmp_path / "Secuencias" / "click.wav", ["-codec:a", "pcm_s16le"])
-    assert convert.convert(protegida)["reason"] == "carpeta protegida"
-    assert not convert.needs_convert(protegida) and convert.needs_convert(tmp_path / "x.ogg")
+    protected = make_audio(tmp_path / "Secuencias" / "click.wav", ["-codec:a", "pcm_s16le"])
+    assert convert.convert(protected)["reason"] == "carpeta protegida"
+    assert not convert.needs_convert(protected) and convert.needs_convert(tmp_path / "x.ogg")
     monkeypatch.setattr(convert, "available", lambda: False)
     assert convert.convert(tmp_path / "x.flac")["reason"] == "falta ffmpeg"
 
 
-def test_convertir_en_lote_y_simular(configured_library, synthetic_ok):
+def test_batch_convert_and_dry_run(configured_library, synthetic_ok):
     lib, _ = configured_library
     wav = make_audio(lib / "Artistas" / "Barak" / "Barak - Pista.wav", ["-codec:a", "pcm_s16le"])
     make_audio(lib / "Secuencias" / "Barak - Click.wav", ["-codec:a", "pcm_s16le"])
@@ -76,7 +76,7 @@ def test_convertir_en_lote_y_simular(configured_library, synthetic_ok):
     assert not os.path.exists(wav) and os.path.exists(wav[:-4] + ".mp3")
 
 
-def test_una_caratula_grande_se_encoge(tmp_path, synthetic_ok):
+def test_a_large_cover_is_shrunk(tmp_path, synthetic_ok):
     big = _image(tmp_path / "grande.png", "1600x1200")
     assert convert.image_size(big) == (1600, 1200)
     data, mime = convert.shrink_image(big, max_side=500)
@@ -99,7 +99,7 @@ def test_una_caratula_grande_se_encoge(tmp_path, synthetic_ok):
         ("sin-perdida.webp", ("-lossless", "1")),
     ],
 )
-def test_las_medidas_salen_de_la_cabecera_de_la_imagen(tmp_path, synthetic_ok, name, extra):
+def test_sizes_come_from_the_image_header(tmp_path, synthetic_ok, name, extra):
     """Sin ffprobe: lo que escribe ffmpeg en cada formato, medido a mano."""
     try:
         img = _image(tmp_path / name, "333x217", extra=extra)
@@ -108,7 +108,7 @@ def test_las_medidas_salen_de_la_cabecera_de_la_imagen(tmp_path, synthetic_ok, n
     assert convert.image_size(img) == (333, 217)
 
 
-def test_las_medidas_de_cabeceras_raras(tmp_path):
+def test_sizes_from_unusual_headers(tmp_path):
     def file(name, data: bytes):
         p = tmp_path / name
         p.write_bytes(data)
@@ -134,9 +134,9 @@ def test_las_medidas_de_cabeceras_raras(tmp_path):
     jpeg = b"\xff\xd8" + exif + dht + sof2 + bytes(12) + b"\xff\xd9"
     assert convert.image_size(file("foto.jpg", jpeg)) == (1920, 1080)
     # lo que no se puede medir no es un error: (0, 0), como sin ffprobe
-    sin_sof = b"\xff\xd8\xff\xda\x00\x02" + bytes(20)
-    cortado = b"\xff\xd8\xff\xe1\x40\x00" + bytes(10)
-    for name, data in [("sin-sof.jpg", sin_sof), ("cortado.jpg", cortado), ("texto.png", b"hola")]:
+    no_sof = b"\xff\xd8\xff\xda\x00\x02" + bytes(20)
+    truncated = b"\xff\xd8\xff\xe1\x40\x00" + bytes(10)
+    for name, data in [("sin-sof.jpg", no_sof), ("cortado.jpg", truncated), ("texto.png", b"hola")]:
         assert convert.image_size(file(name, data)) == (0, 0), name
     assert convert.image_size(file("vacio.gif", b"")) == (0, 0)
     assert convert.image_size(tmp_path / "no-esta.png") == (0, 0)
@@ -145,7 +145,7 @@ def test_las_medidas_de_cabeceras_raras(tmp_path):
 # ------------------------------------------------------------------- letras
 
 
-def test_letra_de_lrclib_con_y_sin_tiempos(monkeypatch):
+def test_lrclib_lyrics_with_and_without_timestamps(monkeypatch):
     calls = []
 
     def fake(url, headers=None, binary=False):
@@ -164,7 +164,7 @@ def test_letra_de_lrclib_con_y_sin_tiempos(monkeypatch):
     assert "duration=180" in calls[0] and "album_name=Gozo" in calls[0]
 
 
-def test_letra_por_busqueda_difusa_y_por_ia(monkeypatch):
+def test_lyrics_by_fuzzy_search_and_by_ai(monkeypatch):
     def fake(url, headers=None, binary=False):
         if "/api/get" in url:
             raise OSError("404")
@@ -196,7 +196,7 @@ class _Resp(io.BytesIO):
         return False
 
 
-def test_solo_se_acepta_una_imagen_de_verdad_y_con_tope(monkeypatch):
+def test_only_a_real_image_under_the_cap_is_accepted(monkeypatch):
     monkeypatch.setattr(
         enrich.urllib.request,
         "urlopen",
@@ -222,7 +222,7 @@ def test_solo_se_acepta_una_imagen_de_verdad_y_con_tope(monkeypatch):
     assert enrich.image_type(b"RIFF1234WAVExx") == ""
 
 
-def test_la_caratula_se_busca_en_itunes_y_luego_en_musicbrainz(monkeypatch, tmp_path, synthetic_ok):
+def test_the_cover_is_searched_on_itunes_then_musicbrainz(monkeypatch, tmp_path, synthetic_ok):
     jpeg = _image(tmp_path / "tapa.jpg", "200x200").read_bytes()
     asked = []
 
@@ -261,7 +261,7 @@ def test_la_caratula_se_busca_en_itunes_y_luego_en_musicbrainz(monkeypatch, tmp_
 # ------------------------------------------------------- enriquecer entera
 
 
-def test_enriquecer_guarda_letra_caratula_y_ficha(configured_library, monkeypatch, tmp_path):
+def test_enrich_saves_lyrics_cover_and_metadata(configured_library, monkeypatch, tmp_path):
     from danplay import library
 
     lib, _songs = configured_library
@@ -314,7 +314,7 @@ def _sheet(key="Bb"):
     }
 
 
-def test_transponer_el_cifrado_toca_solo_los_acordes():
+def test_transposing_a_chord_sheet_only_touches_the_chords():
     d = enrich.transpose_sheet(_sheet(), to_key="G")
     sec = d["sections"][0]
     assert sec["chords"] == ["G", "Em"] and sec["lines"][0]["t"].split() == ["G", "Em"]
@@ -322,7 +322,7 @@ def test_transponer_el_cifrado_toca_solo_los_acordes():
     assert d["key"] == "G" and d["capo_hint"]
 
 
-def test_sin_tono_se_transpone_por_semitonos():
+def test_without_a_key_it_transposes_by_semitones():
     d = enrich.transpose_sheet(_sheet(key=""), semitones=2)
     assert d["sections"][0]["chords"] == ["C", "Am"] and d["key"] == ""
     assert enrich.transpose_sheet(_sheet(), semitones=-1)["key"] == "A"
@@ -339,7 +339,7 @@ PAGE = """
 """
 
 
-def test_la_busqueda_web_saca_titulo_enlace_y_resumen(monkeypatch):
+def test_web_search_returns_title_link_and_summary(monkeypatch):
     monkeypatch.setattr(
         web.urllib.request, "urlopen", lambda req, timeout=0: _Resp(PAGE.encode(), "text/html")
     )
@@ -353,14 +353,14 @@ def test_la_busqueda_web_saca_titulo_enlace_y_resumen(monkeypatch):
     assert web.search("  ") == []
 
 
-def test_sin_red_la_web_no_devuelve_nada():
+def test_without_network_the_web_returns_nothing():
     assert web.search("barak") == [], "la red esta cortada en las pruebas: lista vacia, sin error"
 
 
 # ---------------------------------------------------------------- la huella
 
 
-def test_la_huella_dice_lo_que_le_falta(monkeypatch):
+def test_fingerprint_says_what_it_is_missing(monkeypatch):
     monkeypatch.setattr(fingerprint, "available", lambda: False)
     assert "fpcalc" in fingerprint.unavailable_reason()
     assert fingerprint.identify("/x.mp3") is None
@@ -370,7 +370,7 @@ def test_la_huella_dice_lo_que_le_falta(monkeypatch):
     assert "ACOUSTID_API_KEY" in fingerprint.unavailable_reason()
 
 
-def test_la_huella_elige_la_mejor_coincidencia(monkeypatch):
+def test_fingerprint_picks_the_best_match(monkeypatch):
     import types
 
     monkeypatch.setattr(fingerprint, "available", lambda: True)

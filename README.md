@@ -158,7 +158,7 @@ cp .env.example .env        # y rellena las claves que quieras usar
 
 Para probarla sin compilar la versión final, `./scripts/dev.sh` la abre en
 modo desarrollo (y `--prueba CARPETA`, con una copia de esas canciones y sin
-tocar tus datos): ver [Contribuir](docs/CONTRIBUIR.md).
+tocar tus datos): ver [Contribuir](docs/CONTRIBUTING.md).
 
 Compilada desde el código, para la conversión de formatos y la huella
 acústica hacen falta dos programas del sistema (los paquetes `.deb`,
@@ -172,7 +172,7 @@ sudo apt install ffmpeg libchromaprint-tools
 
 `scripts/build.sh --package` genera además un `.deb` y un `.AppImage`. Ya no
 llevan `mutagen` (GPL): las etiquetas las escribe el crate de Rust del núcleo,
-con lofty — [por qué importa](docs/DEPENDENCIAS.md#mutagen-ya-no-va-en-los-paquetes).
+con lofty — [por qué importa](docs/DEPENDENCIES.md#mutagen-ya-no-va-en-los-paquetes).
 
 > **Nota sobre las claves.** DanPlay funciona sin ninguna clave: escanea,
 > organiza, reproduce y busca. Las claves solo activan extras: la de un
@@ -316,7 +316,7 @@ Cuatro capas, cada una en lo que mejor se le da:
   saca el pulso y el «1» para el metrónomo.
 - **Rust (PyO3)** para lo que Python hace lento: las etiquetas de cada canción
   (con lofty, en paralelo al escanear), hashes en paralelo con rayon y la forma
-  de onda. Es el principio del núcleo en Rust: `biblioteca/` es lo que la app
+  de onda. Es el principio del núcleo en Rust: `library/` es lo que la app
   usará directamente cuando no quede Python.
 
 El código está en inglés; los comentarios y todo lo que ve el usuario, en
@@ -515,12 +515,12 @@ Prefiero decirlo aquí que en un issue:
 
 | Documento | Qué encontrarás |
 | --- | --- |
-| [Arquitectura](docs/ARQUITECTURA.md) | Cómo encaja todo por dentro, decisiones de diseño y por qué. |
-| [Contrato interno](docs/CONTRATO-INTERNO.md) | Qué se dicen las capas: comandos, eventos y nombres de cada campo. |
+| [Arquitectura](docs/ARCHITECTURE.md) | Cómo encaja todo por dentro, decisiones de diseño y por qué. |
+| [Contrato interno](docs/INTERNAL-CONTRACT.md) | Qué se dicen las capas: comandos, eventos y nombres de cada campo. |
 | [Windows](docs/WINDOWS.md) | Las dos formas (portátil e instalador), cómo se construyen desde Linux y qué cambia respecto a Linux. |
-| [Contribuir](docs/CONTRIBUIR.md) | Cómo montar el entorno, ejecutar las pruebas y en qué se puede ayudar. |
+| [Contribuir](docs/CONTRIBUTING.md) | Cómo montar el entorno, ejecutar las pruebas y en qué se puede ayudar. |
 | [Cambios](CHANGELOG.md) | Qué trae cada versión. |
-| [Dependencias](docs/DEPENDENCIAS.md) | Qué usa DanPlay de otros y con qué licencia. |
+| [Dependencias](docs/DEPENDENCIES.md) | Qué usa DanPlay de otros y con qué licencia. |
 
 ## Pruebas
 
@@ -582,8 +582,8 @@ colaborar —ideas, errores, canciones para probar—, escríbele por Telegram:
 **[@Dani17r](https://t.me/Dani17r)**. Toda colaboración se hace con él y con
 el crédito a su autor.
 
-[Resumen en castellano](docs/LICENCIA-RESUMEN.md) · [Licencias de las
-dependencias](docs/DEPENDENCIAS.md)
+[Resumen en castellano](docs/LICENSE-SUMMARY.md) · [Licencias de las
+dependencias](docs/DEPENDENCIES.md)
 
 ---
 

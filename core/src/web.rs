@@ -1,7 +1,7 @@
-//! La búsqueda en la web (`biblioteca::web`) para danplay/web.py. La página
+//! La búsqueda en la web (`library::web`) para danplay/web.py. La página
 //! la pide Python (`fetch`, con urllib): así las pruebas la cortan o la
 //! sustituyen como antes.
-use biblioteca::web;
+use library::web;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 

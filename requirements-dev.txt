@@ -2,7 +2,7 @@
 # Sin hashes: pip no los admite junto a un editable (-e ./core).
 #
 # GENERADO desde uv.lock: no lo edites a mano. Para regenerarlo:
-#   ./.venv/bin/python scripts/exportar-requisitos.py
+#   ./.venv/bin/python scripts/export-requirements.py
 # (que ejecuta: uv export --format requirements-txt --frozen --no-emit-project --no-header --all-groups --no-hashes -o requirements-dev.txt)
 -e ./core
 altgraph==0.17.5

@@ -163,7 +163,7 @@ def without_raw(p: SetlistParse) -> SetlistParse:
 # ------------------------------------------------------------------ contrato
 
 
-def test_el_contrato_de_los_datos():
+def test_the_data_contract():
     assert (MAX_SETLIST_ITEMS, MAX_TITLE, MAX_URL, MAX_NOTE) == (60, 200, 300, 200)
     assert [f.name for f in dataclasses.fields(SetItem)] == [
         "n", "title", "query", "artist", "url", "kind", "people", "note", "raw",
@@ -178,7 +178,7 @@ def test_el_contrato_de_los_datos():
     assert Intent() == Intent(False, False, False, False, False)
 
 
-def test_el_fixture_esta_completo_y_limpio():
+def test_the_fixture_is_complete_and_clean():
     raw = FIXTURE.read_text(encoding="utf-8")
     ids = [s["id"] for s in SAMPLES]
     assert len(ids) == len(set(ids)) >= 90
@@ -194,7 +194,7 @@ def test_el_fixture_esta_completo_y_limpio():
 
 
 @pytest.mark.parametrize("sample", SAMPLES, ids=[s["id"] for s in SAMPLES])
-def test_muestra(sample):
+def test_sample_parses_as_expected(sample):
     got = parse_setlist(sample["text"])
     assert diff(got, sample["expect"]) == [], sample["que"]
     check_contract(got)
@@ -214,14 +214,14 @@ TRACKED = [s for s in SAMPLES if _with_tracking(s["text"]) != s["text"]]
 
 
 @pytest.mark.parametrize("sample", TRACKED, ids=[s["id"] for s in TRACKED])
-def test_el_rastreo_de_los_enlaces_no_cambia_la_lectura(sample):
+def test_link_tracking_does_not_change_the_parse(sample):
     plain = parse_setlist(sample["text"])
     tracked = parse_setlist(_with_tracking(sample["text"]))
     assert without_raw(tracked) == without_raw(plain)
     assert all(SI + "=" not in it.url for it in tracked.items)
 
 
-def test_la_misma_lista_con_cualquier_espaciado():
+def test_the_same_setlist_with_any_spacing():
     lines = [
         "*Domingo*",
         "1.- Digno De Adorar",
@@ -246,7 +246,7 @@ def test_la_misma_lista_con_cualquier_espaciado():
         assert [(i.title, i.url) for i in got.items] == [(i.title, i.url) for i in base.items], name
 
 
-def test_mas_de_sesenta_se_recortan_y_se_dice_cuantas_sobran():
+def test_over_sixty_are_trimmed_and_the_excess_is_reported():
     text = "\n".join(f"{k}. Cancion Numero {k}" for k in range(1, 100))
     got = parse_setlist(text)
     assert got.is_setlist and got.truncated == 99 - MAX_SETLIST_ITEMS
@@ -266,13 +266,13 @@ REGRESSIONS = [
 
 
 @pytest.mark.parametrize(("text", "titles"), REGRESSIONS, ids=[t[:30] for t, _ in REGRESSIONS])
-def test_rarezas_que_tumbaban_o_colaban_una_lista(text, titles):
+def test_oddities_that_crashed_or_faked_a_setlist(text, titles):
     got = intake._parse(text)
     check_contract(got)
     assert (None if not got.is_setlist else [i.title for i in got.items]) == titles
 
 
-def test_el_papel_pegado_a_la_mencion_es_la_nota_y_no_un_apellido():
+def test_a_role_after_a_mention_is_the_note_not_a_surname():
     """«@Ana Torres Voz»: «Voz» (con mayuscula) es lo que hace en la cancion,
     no parte de su nombre; con «voz principal» detras, igual."""
     p = intake.parse_setlist(
@@ -288,7 +288,7 @@ def test_el_papel_pegado_a_la_mencion_es_la_nota_y_no_un_apellido():
     ]
 
 
-def test_lo_que_no_es_texto_no_es_lista():
+def test_what_is_not_text_is_not_a_setlist():
     for value in (None, 12, b"1. A\n2. B", ["1. A", "2. B"], "", "   \n\t "):
         assert parse_setlist(value) == SetlistParse()  # pyright: ignore[reportArgumentType]
 
@@ -393,7 +393,7 @@ def test_read_intent(text, on):
     assert {f for f in INTENT_FIELDS if getattr(got, f)} == on
 
 
-def test_read_intent_en_mayusculas_y_sin_texto():
+def test_read_intent_in_uppercase_and_without_text():
     assert read_intent("VERIFICA LA LISTA").check
     assert read_intent("NO BAJES NADA").no_download
     for value in (None, 5, ""):
@@ -470,18 +470,18 @@ def test_clean_youtube_url(url, want):
 
 
 @pytest.mark.parametrize("url", HOSTILE_URLS, ids=[u[:48] for u in HOSTILE_URLS])
-def test_lo_que_no_es_de_youtube_da_vacio(url):
+def test_what_is_not_youtube_gives_empty(url):
     assert clean_youtube_url(url) == ""
     assert youtube_video_id(url) == ""
 
 
-def test_lo_que_no_es_texto_da_vacio():
+def test_what_is_not_text_gives_empty():
     for value in (None, 12, [f"https://youtu.be/{ID}"], b"https://youtu.be/x"):
         assert clean_youtube_url(value) == ""
         assert youtube_video_id(value) == ""
 
 
-def test_una_lista_pegada_conserva_la_lista_de_youtube_y_quita_el_mix():
+def test_pasted_setlist_keeps_yt_playlist_and_drops_the_mix():
     text = (
         "Setlist\n"
         f"1.- Digno De Adorar https://www.youtube.com/playlist?list={PL}\n"
@@ -496,7 +496,7 @@ def test_una_lista_pegada_conserva_la_lista_de_youtube_y_quita_el_mix():
     ]
 
 
-def test_un_enlace_hostil_en_la_lista_no_es_cancion():
+def test_a_hostile_link_in_the_setlist_is_not_a_song():
     text = (
         f"1.- Digno De Adorar https://youtube.com.evil.example/watch?v={ID}\n"
         f"2.- Te Doy Gloria https://youtube.com@evil.example/watch?v={ID2}\n"
@@ -517,19 +517,19 @@ def test_un_enlace_hostil_en_la_lista_no_es_cancion():
 
 # ------------------------------------------------------------- last_setlist
 
-LISTA_VIEJA = "1.- Digno De Adorar\n2.- Te Doy Gloria"
-LISTA_NUEVA = "*Domingo*\n1.- Hay Libertad\n2.- Aleluya"
+OLD_SETLIST = "1.- Digno De Adorar\n2.- Te Doy Gloria"
+NEW_SETLIST = "*Domingo*\n1.- Hay Libertad\n2.- Aleluya"
 
 
 def _titles(p: SetlistParse | None) -> list[str] | None:
     return None if p is None else [i.title for i in p.items]
 
 
-def test_last_setlist_toma_la_ultima_lista_visible_de_la_persona():
+def test_last_setlist_takes_the_users_last_visible_setlist():
     messages = [
-        {"role": "me", "text": LISTA_VIEJA},
+        {"role": "me", "text": OLD_SETLIST},
         {"role": "ai", "text": "Hecho."},
-        {"role": "me", "text": LISTA_NUEVA},
+        {"role": "me", "text": NEW_SETLIST},
         {"role": "ai", "text": "1.- Rey Infinito\n2.- Eres Santo"},  # la del asistente no cuenta
         {"role": "me", "text": "1.- Cena Del Señor\n2.- Mañana", "hidden": True},
         {"role": "me", "text": "1.- Salmo 23\n2.- Agnus Dei", "event": "download_done"},
@@ -542,34 +542,34 @@ def test_last_setlist_toma_la_ultima_lista_visible_de_la_persona():
     assert got is not None and got.name_hint == "Domingo"
 
 
-def test_last_setlist_acepta_role_user_y_tolera_basura():
+def test_last_setlist_accepts_role_user_and_tolerates_junk():
     messages = [
         "no es un dict",
-        {"role": "user", "text": LISTA_VIEJA},
+        {"role": "user", "text": OLD_SETLIST},
         {"role": "me", "text": None},
         {"role": "me"},
-        {"role": "assistant", "text": LISTA_NUEVA},
-        {"role": "system", "text": LISTA_NUEVA},
+        {"role": "assistant", "text": NEW_SETLIST},
+        {"role": "system", "text": NEW_SETLIST},
         7,
     ]
     assert _titles(last_setlist(messages)) == ["Digno De Adorar", "Te Doy Gloria"]
     assert _titles(last_setlist(tuple(messages))) == ["Digno De Adorar", "Te Doy Gloria"]
 
 
-def test_last_setlist_sin_lista_da_none():
+def test_last_setlist_without_a_setlist_gives_none():
     assert last_setlist([]) is None
     assert (
-        last_setlist([{"role": "me", "text": "hola"}, {"role": "ai", "text": LISTA_NUEVA}]) is None
+        last_setlist([{"role": "me", "text": "hola"}, {"role": "ai", "text": NEW_SETLIST}]) is None
     )
-    for value in (None, "texto", {"role": "me", "text": LISTA_NUEVA}, 3):
+    for value in (None, "texto", {"role": "me", "text": NEW_SETLIST}, 3):
         assert last_setlist(value) is None
 
 
-def test_last_setlist_solo_mira_la_ventana():
+def test_last_setlist_only_looks_at_the_window():
     chat = [{"role": "me", "text": "vale"}] * (intake._MAX_SCAN - 1)
-    assert last_setlist([{"role": "me", "text": LISTA_VIEJA}, *chat]) is not None
+    assert last_setlist([{"role": "me", "text": OLD_SETLIST}, *chat]) is not None
     chat.append({"role": "me", "text": "vale"})
-    assert last_setlist([{"role": "me", "text": LISTA_VIEJA}, *chat]) is None
+    assert last_setlist([{"role": "me", "text": OLD_SETLIST}, *chat]) is None
 
 
 # ------------------------------------------------------- entradas hostiles
@@ -616,7 +616,7 @@ def warm():
 
 
 @pytest.mark.parametrize("name", list(HOSTILE))
-def test_entrada_hostil_en_menos_de_un_segundo(name, warm):
+def test_hostile_input_in_under_a_second(name, warm):
     text = HOSTILE[name]()
     t0 = time.perf_counter()
     got = intake._parse(text)  # sin el try de parse_setlist: un fallo no se esconde
@@ -628,7 +628,7 @@ def test_entrada_hostil_en_menos_de_un_segundo(name, warm):
     assert time.perf_counter() - t0 < time_limit(1)
 
 
-def test_mas_de_200_kb_se_corta_y_no_cuelga(warm):
+def test_over_200_kb_is_cut_and_does_not_hang(warm):
     text = "1.- Digno De Adorar\n2.- Te Doy Gloria\n" + "x" * 1_000_000
     t0 = time.perf_counter()
     got = parse_setlist(text)
@@ -653,7 +653,7 @@ LISTISH = st.lists(st.one_of(st.sampled_from(PIECES), st.text(max_size=6)), max_
 
 @settings(max_examples=300, deadline=None)
 @given(LISTISH)
-def test_el_lector_nunca_falla_y_respeta_el_contrato(text):
+def test_the_parser_never_fails_and_keeps_the_contract(text):
     got = intake._parse(text)
     check_contract(got)
     assert parse_setlist(text) == got
@@ -661,7 +661,7 @@ def test_el_lector_nunca_falla_y_respeta_el_contrato(text):
 
 @settings(deadline=None)
 @given(st.text(max_size=200))
-def test_texto_cualquiera_tampoco(text):
+def test_any_text_does_not_break_either(text):
     check_contract(intake._parse(text))
     read_intent(text)
 
@@ -680,7 +680,7 @@ URL_PIECES = st.lists(
 
 @settings(max_examples=400, deadline=None)
 @given(st.one_of(URL_PIECES, st.text(max_size=40)))
-def test_clean_youtube_url_canonica_e_idempotente(url):
+def test_clean_youtube_url_is_canonical_and_idempotent(url):
     out = clean_youtube_url(url)
     assert out == "" or re.fullmatch(
         r"https://www\.youtube\.com/(?:watch\?v=[A-Za-z0-9_-]{11}|playlist\?list=[A-Za-z0-9_-]{2,80})",

@@ -11,7 +11,7 @@ suena en cada punto del espectrograma, y con eso se reparte:
   guitarra electrica, guitarra acustica, piano, organo, teclados (con los
   sintes), cuerdas, metales y vientos.
 
-Lo hace el crate (analisis/src/mega.rs, cuenta a cuenta lo que antes estaba
+Lo hace el crate (analysis/src/mega.rs, cuenta a cuenta lo que antes estaba
 aqui con numpy: el espectrograma propio del Mega53, el reparto por mascaras
 y los trozos de 10 s que se solapan y se funden). Esto es la puerta de
 Python, con los mismos nombres. No importa nada de DanPlay: corre en el

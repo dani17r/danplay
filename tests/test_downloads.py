@@ -86,7 +86,7 @@ def ytdl(configured_library, monkeypatch, synthetic_ok):
     youtube.STATE["active"] = False
 
 
-def test_una_descarga_entra_archivada_y_en_el_indice(ytdl):
+def test_a_download_is_filed_and_indexed(ytdl):
     steps = []
     r = youtube.download("https://youtu.be/uno", quality="medium", progress=steps.append)
     assert len(r) == 1 and r[0]["ok"], r
@@ -103,7 +103,7 @@ def test_una_descarga_entra_archivada_y_en_el_indice(ytdl):
     assert options["max_filesize"] == youtube.MAX_BYTES and options["noplaylist"]
 
 
-def test_youtube_music_manda_y_escribe_etiquetas(ytdl):
+def test_youtube_music_wins_and_writes_tags(ytdl):
     r = youtube.download("https://youtu.be/dos")
     assert r[0]["artist"] == "Ish Melton" and r[0]["identified_by"] == "youtube-music"
     from danplay import tags
@@ -111,7 +111,7 @@ def test_youtube_music_manda_y_escribe_etiquetas(ytdl):
     assert tags.read_all(r[0]["target"])["artist"] == "Ish Melton"
 
 
-def test_lo_que_ya_tienes_no_se_baja_salvo_que_se_fuerce(ytdl):
+def test_what_you_already_have_is_not_downloaded_unless_forced(ytdl):
     make_mp3(
         ytdl / "Artistas" / "Palisades" / "Palisades - Personal.mp3",
         artist="Palisades",
@@ -133,7 +133,7 @@ CAM = {
 }
 
 
-def test_una_drum_cam_se_archiva_con_su_artista_y_se_sugiere_pistas(ytdl):
+def test_a_drum_cam_is_filed_by_its_artist_and_suggests_tracks(ytdl):
     FakeYDL.videos["https://youtu.be/cam"] = CAM
     r = youtube.download("https://youtu.be/cam")[0]
     assert r["ok"] and r["target"].endswith(
@@ -144,7 +144,7 @@ def test_una_drum_cam_se_archiva_con_su_artista_y_se_sugiere_pistas(ytdl):
     assert "kind" not in youtube.download("https://youtu.be/uno")[0]
 
 
-def test_moverla_a_pistas_es_la_misma_cancion(ytdl):
+def test_moving_it_to_tracks_keeps_the_same_song(ytdl):
     from fastapi.testclient import TestClient
 
     from danplay import api, playlists
@@ -179,7 +179,7 @@ def test_moverla_a_pistas_es_la_misma_cancion(ytdl):
     assert os.path.isfile(moved["path"]) and not (ytdl.parent / "fuera").exists()
 
 
-def test_sin_archivar_se_queda_en_entrada(ytdl):
+def test_without_filing_it_stays_in_the_inbox(ytdl):
     from danplay import config
 
     r = youtube.download("https://youtu.be/uno", file_it=False)
@@ -187,7 +187,7 @@ def test_sin_archivar_se_queda_en_entrada(ytdl):
     assert "target" not in r[0] or not r[0]["target"]
 
 
-def test_una_busqueda_trae_varios_y_cancelar_corta(ytdl):
+def test_a_search_brings_several_and_cancel_stops_it(ytdl):
     info = youtube.info("palisades", results=2)
     assert info["ok"] and info["playlist"] and len(info["items"]) == 2
     calls = {"n": 0}
@@ -200,7 +200,7 @@ def test_una_busqueda_trae_varios_y_cancelar_corta(ytdl):
     assert r[-1].get("canceled")
 
 
-def test_los_fallos_se_cuentan_y_el_turno_se_suelta(ytdl):
+def test_failures_are_counted_and_the_turn_is_released(ytdl):
     assert youtube.claim()
     try:
         assert youtube.run_many(["x"]) == [{"ok": False, "reason": "ya hay una descarga en marcha"}]
@@ -213,18 +213,18 @@ def test_los_fallos_se_cuentan_y_el_turno_se_suelta(ytdl):
     assert len(youtube.STATE["results"]) == 2
 
 
-def test_un_enlace_que_no_es_de_youtube_no_se_pasa_a_yt_dlp(ytdl):
+def test_a_non_youtube_link_is_not_passed_to_yt_dlp(ytdl):
     r = youtube.info("https://otro.example/video")
     assert not r["ok"] and "no es YouTube" in r["reason"]
     assert youtube.download("https://otro.example/video")[0]["ok"] is False
 
 
-def test_un_directo_largo_se_rechaza():
+def test_a_long_live_stream_is_rejected():
     assert youtube.wanted({"duration": 3 * 3600}).startswith("dura 180 minutos")
     assert youtube.wanted({"duration": 200}) is None
 
 
-def test_sin_carpeta_elegida_no_se_baja_nada_y_se_propone_una(ytdl, monkeypatch):
+def test_no_chosen_folder_blocks_downloads_and_suggests_one(ytdl, monkeypatch):
     from fastapi.testclient import TestClient
 
     from danplay import api, config
@@ -242,21 +242,19 @@ def test_sin_carpeta_elegida_no_se_baja_nada_y_se_propone_una(ytdl, monkeypatch)
     assert not youtube.STATE["active"]
 
 
-def test_una_carpeta_que_ya_no_esta_o_fuera_de_la_biblioteca_se_vuelve_a_preguntar(
-    ytdl, monkeypatch, tmp_path
-):
+def test_a_missing_or_outside_folder_is_asked_for_again(ytdl, monkeypatch, tmp_path):
     from danplay import config
 
     monkeypatch.setattr(config, "LIBRARY", tmp_path / "disco-sin-montar")
     assert youtube.folder()["reason"] == "gone"
-    fuera = tmp_path / "fuera"
-    fuera.mkdir()
-    monkeypatch.setattr(config, "LIBRARY", fuera)
+    external = tmp_path / "fuera"
+    external.mkdir()
+    monkeypatch.setattr(config, "LIBRARY", external)
     got = youtube.folder()
     assert got["reason"] == "unmanaged" and got["suggested"] == library.list_folders()[0]["path"]
 
 
-def test_al_elegirla_se_usan_sus_subcarpetas_y_se_crean_las_que_faltan(ytdl, monkeypatch, tmp_path):
+def test_choosing_a_folder_uses_and_creates_its_subfolders(ytdl, monkeypatch, tmp_path):
     from dotenv import dotenv_values
     from fastapi.testclient import TestClient
 
@@ -281,10 +279,10 @@ def test_al_elegirla_se_usan_sus_subcarpetas_y_se_crean_las_que_faltan(ytdl, mon
     got = youtube.download("https://youtu.be/uno")[0]
     assert got["ok"] and got["target"].startswith(str(ytdl / "Artistas"))
     # lo que no vale: una que no es de tus carpetas de musica, o que no existe
-    fuera = tmp_path / "fuera"
-    fuera.mkdir()
-    for path in (fuera, ytdl / "no-existe"):
+    external = tmp_path / "fuera"
+    external.mkdir()
+    for path in (external, ytdl / "no-existe"):
         r = client.put("/api/downloads/folder", json={"path": str(path)})
         assert r.status_code == 409, path
     now = config.LIBRARY
-    assert now == ytdl and not (fuera / "Artistas").exists()
+    assert now == ytdl and not (external / "Artistas").exists()

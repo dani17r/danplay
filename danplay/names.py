@@ -7,7 +7,7 @@ Reglas acordadas con el usuario:
   - fuera el ruido de descargas (VIDEO OFICIAL, LETRA, y2mate.com, ...)
   - duplicados: sufijo " - r", " - r2", ...
 
-Lo hace el crate de Rust (biblioteca/src/nombres.rs, regla a regla lo que
+Lo hace el crate de Rust (library/src/names.rs, regla a regla lo que
 antes estaba aqui); esto es la puerta de Python, con los mismos nombres.
 """
 
@@ -31,7 +31,7 @@ def _txt(s) -> str:
 # las reglas del ruido de las descargas, tambien para quien las combina con
 # las suyas (chat/resolve.py)
 NOISE = list(_rust.names_noise())
-# Lo que `strip_controls` quita (los mismos que en nombres.rs): los de control
+# Lo que `strip_controls` quita (los mismos que en names.rs): los de control
 # ASCII y C1 y los invisibles de direccion o anchura cero. Para quien
 # compruebe un nombre (las pruebas).
 CONTROL_CHARS = re.compile("[\x00-\x08\x0e-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069]")

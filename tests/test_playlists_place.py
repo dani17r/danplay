@@ -137,7 +137,7 @@ def assert_tidy(lid):
 # ------------------------------------------------------------------ place
 
 
-def test_place_inserta_lo_que_falta_y_ordena_todo(db):
+def test_place_inserts_what_is_missing_and_orders_everything(db):
     a, b, c, d, e, _f = make_songs(6)
     lid = new_list()
     playlists.add(lid, [a, b, c])
@@ -148,7 +148,7 @@ def test_place_inserta_lo_que_falta_y_ordena_todo(db):
     assert stored(lid) == [(c, 0), (d, 1), (a, 2), (e, 3), (b, 4)]
 
 
-def test_place_mete_cada_nueva_justo_despues_de_su_anterior(db):
+def test_place_puts_each_new_one_right_after_its_previous(db):
     """Lo que hace falta al completar una lista de domingo: A, (nueva), B,
     (nueva), C, con A, B y C ya en la lista."""
     a, b, c, n1, n2 = make_songs(5)
@@ -159,7 +159,7 @@ def test_place_mete_cada_nueva_justo_despues_de_su_anterior(db):
     assert_tidy(lid)
 
 
-def test_place_dos_nuevas_seguidas_y_una_al_principio_quedan_como_se_piden(db):
+def test_place_two_new_in_a_row_and_one_first_land_as_asked(db):
     """Dos faltantes seguidos entre A y D (sin invertirse) y una al principio."""
     a, d, n1, n2, first = make_songs(5)
     lid = new_list()
@@ -169,7 +169,7 @@ def test_place_dos_nuevas_seguidas_y_una_al_principio_quedan_como_se_piden(db):
     assert stored(lid) == [(first, 0), (a, 1), (n1, 2), (n2, 3), (d, 4)]
 
 
-def test_place_deja_detras_lo_no_mencionado_en_su_orden(db):
+def test_place_leaves_the_unmentioned_behind_in_order(db):
     a, b, c, d = make_songs(4)
     lid = new_list()
     playlists.add(lid, [a, b, c, d])
@@ -178,7 +178,7 @@ def test_place_deja_detras_lo_no_mencionado_en_su_orden(db):
     assert_tidy(lid)
 
 
-def test_place_en_una_lista_vacia_y_sin_nada_que_poner(db):
+def test_place_on_an_empty_playlist_and_with_nothing_to_add(db):
     lid = new_list()
     assert playlists.place(lid, []) == {"added": 0, "total": 0, "order": []}
     a, b = make_songs(2)
@@ -187,7 +187,7 @@ def test_place_en_una_lista_vacia_y_sin_nada_que_poner(db):
     assert playlists.place(lid, a) == {"added": 0, "total": 2, "order": [a, b]}  # un id suelto
 
 
-def test_place_respeta_las_canciones_de_fuera_de_la_biblioteca(db):
+def test_place_keeps_songs_from_outside_the_library(db):
     """Los ids negativos son archivos abiertos desde fuera: ni se pierden ni
     se confunden con los de la biblioteca."""
     a, b = make_songs(2)
@@ -204,7 +204,7 @@ def test_place_respeta_las_canciones_de_fuera_de_la_biblioteca(db):
     assert playlists.place(lid, [x, b])["order"] == [x, b, y, a]
 
 
-def test_place_ignora_lo_que_no_es_una_cancion(db):
+def test_place_ignores_what_is_not_a_song(db):
     a, b = make_songs(2)
     lid = new_list()
     r = playlists.place(lid, [999999, "no", None, a, 0, -1234, "7x", b, 888888.0])
@@ -215,7 +215,7 @@ def test_place_ignora_lo_que_no_es_una_cancion(db):
     assert playlists.place(lid, [str(c), a])["order"] == [c, a, b]
 
 
-def test_place_no_repite_lo_repetido(db):
+def test_place_does_not_repeat_duplicates(db):
     a, b, c = make_songs(3)
     lid = new_list()
     r = playlists.place(lid, [a, b, a, b, c, c, a])
@@ -226,7 +226,7 @@ def test_place_no_repite_lo_repetido(db):
     assert r == {"added": 0, "total": 3, "order": [c, a, b]}
 
 
-def test_place_sella_las_etiquetas_una_sola_vez_y_solo_de_las_nuevas(db, stamps):
+def test_place_stamps_tags_once_and_only_for_new_ones(db, stamps):
     a, b, c, d = make_songs(4)
     lid = new_list()
     playlists.add(lid, [a])
@@ -244,7 +244,7 @@ def test_place_sella_las_etiquetas_una_sola_vez_y_solo_de_las_nuevas(db, stamps)
     assert stamps == [[e]]
 
 
-def test_place_es_idempotente(db, stamps):
+def test_place_is_idempotent(db, stamps):
     a, b, c, d = make_songs(4)
     x = make_outside(1)[0]
     lid = new_list()
@@ -261,7 +261,7 @@ def test_place_es_idempotente(db, stamps):
     assert len(stamps) == calls, "ni se tocan los archivos"
 
 
-def test_place_avisa_de_que_la_biblioteca_cambio(db):
+def test_place_signals_that_the_library_changed(db):
     a, b = make_songs(2)
     lid = new_list()
     before = library.revision()
@@ -272,7 +272,7 @@ def test_place_avisa_de_que_la_biblioteca_cambio(db):
     assert library.revision() > before
 
 
-def test_place_en_una_lista_que_no_existe_no_escribe_nada(db):
+def test_place_on_a_missing_playlist_writes_nothing(db):
     a = make_songs(1)[0]
     lid = new_list()
     playlists.remove(lid)
@@ -283,7 +283,7 @@ def test_place_en_una_lista_que_no_existe_no_escribe_nada(db):
         assert conn.execute("SELECT COUNT(*) FROM playlist_songs").fetchone()[0] == 0
 
 
-def test_place_deja_detras_y_sin_ensenar_la_cancion_cuyo_archivo_se_fue(db):
+def test_place_keeps_a_song_with_a_gone_file_behind_and_hidden(db):
     """Su fila se queda (si el archivo vuelve, vuelve a la lista), pero detras
     y sin contar en lo que enseña la lista."""
     a, b, c = make_songs(3)
@@ -308,7 +308,7 @@ def test_place_deja_detras_y_sin_ensenar_la_cancion_cuyo_archivo_se_fue(db):
     assert b in order(lid)
 
 
-def test_place_repara_posiciones_repetidas_o_con_huecos(db):
+def test_place_repairs_repeated_or_gapped_positions(db):
     a, b, c = make_songs(3)
     lid = new_list()
     with library.connect() as conn:
@@ -321,7 +321,7 @@ def test_place_repara_posiciones_repetidas_o_con_huecos(db):
     assert stored(lid) == [(a, 0), (b, 1), (c, 2)]
 
 
-def test_place_con_mas_ids_que_variables_admite_sqlite(db):
+def test_place_with_more_ids_than_sqlite_variables(db):
     """Las consultas van por trozos: ni 999 ni 32766 variables son un limite."""
     with library.connect() as conn:
         conn.executemany(
@@ -337,7 +337,7 @@ def test_place_con_mas_ids_que_variables_admite_sqlite(db):
     assert_tidy(lid)
 
 
-def test_place_escribe_el_nombre_de_la_lista_dentro_del_archivo_y_solo_cuando_hace_falta(
+def test_place_writes_playlist_name_into_the_file_only_if_needed(
     configured_library,
 ):
     lib, songs = configured_library
@@ -358,7 +358,7 @@ def test_place_escribe_el_nombre_de_la_lista_dentro_del_archivo_y_solo_cuando_ha
 # ---------------------------------------------- lo que ya hacian, sin cambios
 
 
-def test_add_pone_al_final_y_cuenta_solo_las_que_entran(db):
+def test_add_appends_and_counts_only_those_that_go_in(db):
     a, b, c = make_songs(3)
     lid = new_list()
     assert playlists.add(lid, [a, b]) == 2
@@ -369,14 +369,14 @@ def test_add_pone_al_final_y_cuenta_solo_las_que_entran(db):
     assert_tidy(lid)
 
 
-def test_add_sella_las_etiquetas_de_lo_que_se_pide(db, stamps):
+def test_add_stamps_the_tags_of_what_is_requested(db, stamps):
     a, b = make_songs(2)
     lid = new_list()
     playlists.add(lid, [a, b, 99999])
     assert stamps == [[a, b]]
 
 
-def test_reorder_nombra_solo_algunas_y_las_demas_se_quedan_detras(db):
+def test_reorder_names_only_some_and_the_rest_stay_behind(db):
     a, b, c, d = make_songs(4)
     lid = new_list()
     playlists.add(lid, [a, b, c, d])
@@ -388,7 +388,7 @@ def test_reorder_nombra_solo_algunas_y_las_demas_se_quedan_detras(db):
     assert_tidy(lid)
 
 
-def test_reorder_no_mete_lo_que_la_lista_no_tiene(db):
+def test_reorder_does_not_add_what_the_playlist_lacks(db):
     a, b, c = make_songs(3)
     lid = new_list()
     playlists.add(lid, [a, b])
@@ -396,7 +396,7 @@ def test_reorder_no_mete_lo_que_la_lista_no_tiene(db):
     assert order(lid) == [b, a]
 
 
-def test_remove_song_y_remove_apuntan_los_archivos(db, stamps):
+def test_remove_song_and_remove_stamp_the_files(db, stamps):
     a, b = make_songs(2)
     lid = new_list()
     playlists.add(lid, [a, b])
@@ -409,7 +409,7 @@ def test_remove_song_y_remove_apuntan_los_archivos(db, stamps):
     assert playlists.by_id(lid) is None
 
 
-def test_renombrar_apunta_las_canciones_una_vez(db, stamps):
+def test_renaming_stamps_the_songs_once(db, stamps):
     a, b = make_songs(2)
     lid = new_list()
     playlists.add(lid, [a, b])
@@ -425,7 +425,7 @@ def test_renombrar_apunta_las_canciones_una_vez(db, stamps):
 # ---------------------------------------------------------------- set_songs
 
 
-def test_set_songs_deja_la_lista_exactamente_asi(db):
+def test_set_songs_leaves_the_playlist_exactly_so(db):
     a, b, c, d = make_songs(4)
     lid = new_list()
     playlists.add(lid, [a, b])
@@ -440,7 +440,7 @@ def test_set_songs_deja_la_lista_exactamente_asi(db):
     assert order(lid) == [b, c]
 
 
-def test_set_songs_con_las_de_fuera(db):
+def test_set_songs_with_outside_songs(db):
     a, b = make_songs(2)
     x, y = make_outside(2)
     lid = new_list()
@@ -452,7 +452,7 @@ def test_set_songs_con_las_de_fuera(db):
     assert order(lid) == [b]
 
 
-def test_set_songs_sella_las_etiquetas_una_sola_vez(db, stamps):
+def test_set_songs_stamps_the_tags_only_once(db, stamps):
     a, b, c = make_songs(3)
     lid = new_list()
     playlists.add(lid, [a, b])
@@ -464,7 +464,7 @@ def test_set_songs_sella_las_etiquetas_una_sola_vez(db, stamps):
     assert stamps == []
 
 
-def test_set_songs_no_toca_las_filas_de_canciones_cuyo_archivo_se_fue(db):
+def test_set_songs_leaves_rows_of_songs_whose_file_is_gone(db):
     a, b, c = make_songs(3)
     lid = new_list()
     playlists.add(lid, [a, b, c])
@@ -476,7 +476,7 @@ def test_set_songs_no_toca_las_filas_de_canciones_cuyo_archivo_se_fue(db):
     assert_tidy(lid)
 
 
-def test_set_songs_se_comporta_como_el_modelo_con_listas_al_azar(db):
+def test_set_songs_matches_the_model_on_random_playlists(db):
     """Contra una version de papel de lo que siempre ha hecho (quitar lo que
     sobra, añadir lo que falta, dejar el orden)."""
     rnd = rng(20260117)
@@ -557,7 +557,7 @@ class Watcher:
         assert not self._thread.is_alive()
 
 
-def test_place_add_y_reorder_a_la_vez_no_pierden_ni_repiten_nada(db):
+def test_concurrent_place_add_reorder_lose_or_repeat_nothing(db):
     universe = make_songs(70)
     base, rest = universe[:10], universe[10:]
     lid = new_list()
@@ -603,7 +603,7 @@ def test_place_add_y_reorder_a_la_vez_no_pierden_ni_repiten_nada(db):
     assert_tidy(lid)
 
 
-def test_set_songs_en_medio_de_todo_lo_demas_deja_siempre_una_lista_sana(db):
+def test_set_songs_amid_everything_else_keeps_the_playlist_sound(db):
     universe = make_songs(40)
     lid = new_list()
     playlists.add(lid, universe[:8])
@@ -647,7 +647,7 @@ def placing(lid, wanted):
     return lambda: playlists.place(lid, wanted)
 
 
-def test_dos_place_a_la_vez_no_se_pisan_las_posiciones(db):
+def test_two_concurrent_places_do_not_clash_on_positions(db):
     """La carrera de siempre: los dos leen la lista [A], cada uno inserta SU
     nueva en la posicion 1 y quedan dos con la misma."""
     for round_ in range(25):
@@ -660,7 +660,7 @@ def test_dos_place_a_la_vez_no_se_pisan_las_posiciones(db):
         assert_tidy(lid)
 
 
-def test_leer_y_poner_bajo_el_cerrojo_no_pierde_lo_de_los_demas(db):
+def test_read_and_set_under_the_lock_loses_no_one_elses_songs(db):
     """El patron de quien completa una lista: leer como esta, calcular el orden
     final y ponerlo, todo bajo `LOCK`. Cada hilo mete una nueva al final de lo
     que haya VISTO, y al acabar estan todas."""
@@ -685,7 +685,7 @@ def test_leer_y_poner_bajo_el_cerrojo_no_pierde_lo_de_los_demas(db):
     assert_tidy(lid)
 
 
-def test_crear_la_misma_lista_a_la_vez_da_una_sola(db):
+def test_creating_the_same_playlist_at_once_gives_just_one(db):
     results = []
 
     def work():
@@ -698,7 +698,7 @@ def test_crear_la_misma_lista_a_la_vez_da_una_sola(db):
     assert len(playlists.list_all()) == 1
 
 
-def test_quien_envuelve_todo_en_el_cerrojo_puede_llamar_a_las_demas(db):
+def test_whoever_holds_the_lock_can_call_the_other_functions(db):
     """Es un RLock: leer, calcular y escribir sin que nadie se cuele."""
     a, b, c = make_songs(3)
     lid = new_list()
@@ -724,7 +724,7 @@ OPS = {
 
 
 @pytest.mark.parametrize("op", sorted(OPS))
-def test_cada_escritura_espera_al_cerrojo(db, op):
+def test_each_write_waits_for_the_lock(db, op):
     ids = make_songs(2)
     lid = new_list()
     playlists.add(lid, [ids[0]])
