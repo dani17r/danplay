@@ -141,6 +141,12 @@ jobs:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: requirements.txt
+      # el núcleo ya no arranca sin su crate de Rust (danplay_core): se
+      # compila aquí con maturin, como en los paquetes
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -153,6 +159,7 @@ jobs:
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/python -m pip install -r requirements.txt
+          .venv/bin/python -m pip install ./core
           cd desktop && npm ci
       - name: flujos completos
         working-directory: desktop

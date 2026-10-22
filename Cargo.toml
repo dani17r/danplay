@@ -54,6 +54,9 @@ doc_markdown = "allow"
 unwrap_used = "warn"
 undocumented_unsafe_blocks = "warn"
 print_stderr = "warn"
+# Nueva en Rust 1.99: pide `assert_eq!(x, [])` en vez de `assert!(x.is_empty())`,
+# que se lee igual y no obliga a escribir el tipo vacío de cada cosa.
+assert_is_empty = "allow"
 
 # Los perfiles solo cuentan en la raiz de un workspace (en los crates se
 # ignoran). LTO «thin» y el codigo en varios trozos, y no el LTO completo en

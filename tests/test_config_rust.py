@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import danplay_core as R
 from dotenv.main import DotEnv
@@ -110,7 +111,8 @@ def test_rust_config_matches_the_python_config(tmp_path):
     env.update(DANPLAY_CONFIG_DIR=str(cfg), DANPLAY_DATA_DIR=str(data))
     rust, python = _rust_config(env), _python_config(env)
     assert rust == python
-    assert python["LIBRARY"] == "/tmp/Mi Musica #2" and python["CONVERT_TO_MP3"] is True
+    # en Windows, la ruta del archivo sale con «\\», como la escribe Path
+    assert python["LIBRARY"] == str(Path("/tmp/Mi Musica #2")) and python["CONVERT_TO_MP3"] is True
 
     # sin carpetas puestas a mano: las de cada sistema (XDG en Linux)
     env = {k: v for k, v in base.items() if k not in ("DANPLAY_DATA_DIR", "DANPLAY_CONFIG_DIR")}
