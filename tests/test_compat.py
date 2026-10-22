@@ -190,3 +190,11 @@ def test_isidentifier_como_python(s):
 def test_isprintable_como_python(c):
     assume(_assigned(c))
     assert _compat("isprintable", c) == c.isprintable()
+
+
+@settings(max_examples=1000)
+@given(JSONISH, st.sampled_from([None, 1, 2]), st.booleans())
+def test_json_dumps_como_python(v, indent, sort_keys):
+    assume(_assigned(json.dumps(v, ensure_ascii=False)))
+    expected = json.dumps(v, ensure_ascii=False, indent=indent, sort_keys=sort_keys)
+    assert _compat("dumps", v, indent, sort_keys) == expected

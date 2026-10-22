@@ -218,12 +218,27 @@ pub fn repr(v: &Value) -> String {
 /// no es ASCII. Lo que se guarda así (el estudio, en la base y en la
 /// etiqueta) tiene que salir igual que lo escribía Python.
 pub fn dumps(v: &Value) -> String {
+    dumps_with(v, None, false)
+}
+
+/// `json.dumps(v, ensure_ascii=False, indent=..., sort_keys=...)`: con
+/// `indent`, una pieza por línea (y «,» sin espacio detrás, como Python);
+/// con `sort_keys`, las claves de cada diccionario en orden.
+pub fn dumps_with(v: &Value, indent: Option<usize>, sort_keys: bool) -> String {
     let mut out = String::new();
-    dump_into(v, &mut out);
+    dump_into(v, &mut out, indent, sort_keys, 1);
     out
 }
 
-fn dump_into(v: &Value, out: &mut String) {
+fn dump_into(v: &Value, out: &mut String, indent: Option<usize>, sort_keys: bool, level: usize) {
+    let (open, sep, close) = match indent {
+        Some(n) => (
+            format!("\n{}", " ".repeat(n * level)),
+            format!(",\n{}", " ".repeat(n * level)),
+            format!("\n{}", " ".repeat(n * (level - 1))),
+        ),
+        None => (String::new(), ", ".to_owned(), String::new()),
+    };
     match v {
         Value::Null => out.push_str("null"),
         Value::Bool(true) => out.push_str("true"),
@@ -234,26 +249,36 @@ fn dump_into(v: &Value, out: &mut String) {
             _ => out.push_str(&repr_float(n.as_f64().unwrap_or(f64::NAN))),
         },
         Value::String(s) => dump_str(s, out),
+        Value::Array(a) if a.is_empty() => out.push_str("[]"),
         Value::Array(a) => {
             out.push('[');
+            out.push_str(&open);
             for (i, x) in a.iter().enumerate() {
                 if i > 0 {
-                    out.push_str(", ");
+                    out.push_str(&sep);
                 }
-                dump_into(x, out);
+                dump_into(x, out, indent, sort_keys, level + 1);
             }
+            out.push_str(&close);
             out.push(']');
         }
+        Value::Object(o) if o.is_empty() => out.push_str("{}"),
         Value::Object(o) => {
             out.push('{');
-            for (i, (k, x)) in o.iter().enumerate() {
+            out.push_str(&open);
+            let mut items: Vec<(&String, &Value)> = o.iter().collect();
+            if sort_keys {
+                items.sort_by(|a, b| a.0.cmp(b.0));
+            }
+            for (i, (k, x)) in items.into_iter().enumerate() {
                 if i > 0 {
-                    out.push_str(", ");
+                    out.push_str(&sep);
                 }
                 dump_str(k, out);
                 out.push_str(": ");
-                dump_into(x, out);
+                dump_into(x, out, indent, sort_keys, level + 1);
             }
+            out.push_str(&close);
             out.push('}');
         }
     }

@@ -10,6 +10,7 @@ pub mod cifrados;
 pub mod compat;
 pub mod conversaciones;
 pub mod convertir;
+pub mod diario;
 pub mod duplicados;
 pub mod etiquetas;
 pub mod fuera;
@@ -176,6 +177,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     listas::register(m)?;
     fuera::register(m)?;
     conversaciones::register(m)?;
+    diario::register(m)?;
     Ok(())
 }
 

@@ -30,13 +30,13 @@ cambiaron de sitio; lo demas, ya esta en la base.
 """
 
 import contextlib
-import json
 import logging
 import os
 import threading
 import time
-import uuid
 from pathlib import Path
+
+import danplay_core as _rust
 
 from . import config, library, names
 
@@ -51,17 +51,15 @@ FIELDS = ("stars", "favorite", "blur", "study", "chords", "lyrics_synced", "key"
 # Cada cuanto se mira si hay algo nuevo que escribir.
 EVERY = 3.0
 
+# Lo de leer, escribir y comparar el diario lo hace Rust
+# (biblioteca/src/diario.rs); aqui quedan el hilo que lo escribe, el cerrojo
+# de las listas, el aviso a la interfaz y las listas exportadas.
+
 
 def _uid() -> str:
     """El id de esta base: cambia si la base es otra (se perdio, otro equipo)."""
     with library.connect() as conn:
-        row = conn.execute("SELECT value FROM meta WHERE key='library_uid'").fetchone()
-        if row and row[0]:
-            return str(row[0])
-        uid = uuid.uuid4().hex
-        conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('library_uid', ?)", (uid,))
-        conn.commit()
-        return uid
+        return _rust.diario_uid(conn)
 
 
 def _roots() -> list[str]:
@@ -70,98 +68,29 @@ def _roots() -> list[str]:
     return [r for r in roots() if os.path.isdir(r)]
 
 
-def _rel(path: str, root: str) -> str:
-    """La ruta dentro de su carpeta de musica, con «/» en todos los sistemas."""
-    return os.path.relpath(path, root).replace(os.sep, "/")
-
-
-def _root_of(path: str, roots: list[str]) -> str:
-    return next((r for r in roots if path == r or path.startswith(r.rstrip(os.sep) + os.sep)), "")
-
-
 # ------------------------------------------------------------ escribir
 
 
 def snapshot() -> dict:
     """Lo que va en el diario: las canciones con algo tuyo (o en una lista)
     con su ficha, y las listas en su orden."""
-    from . import __version__, playlists
+    from . import __version__
 
     roots = _roots()
+    uid = _uid()
     with library.connect() as conn:
-        listed = {r[0] for r in conn.execute("SELECT DISTINCT song_id FROM playlist_songs")}
-        rows = conn.execute(
-            "SELECT id, path, root, file, size, artist, title, duration, "
-            "stars, favorite, blur, study, chords, lyrics_synced, key, bpm FROM songs"
-        ).fetchall()
-        lists = conn.execute("SELECT * FROM playlists ORDER BY name").fetchall()
-        members: dict[int, list[int]] = {}
-        for r in conn.execute(
-            "SELECT playlist_id, song_id FROM playlist_songs ORDER BY playlist_id, position, rowid"
-        ):
-            members.setdefault(r[0], []).append(r[1])
-        present = {r["id"] for r in rows}
-        ghosts = playlists.cards(conn, [i for i in listed if i > 0 and i not in present])
-    songs = []
-    for r in rows:
-        mine = {f: r[f] for f in FIELDS if r[f] not in (None, "", 0, 0.0)}
-        if r["id"] not in listed and not mine:
-            continue
-        root = r["root"] or _root_of(r["path"], roots)
-        songs.append(
-            {
-                "id": r["id"],
-                "path": r["path"],
-                "root": os.path.basename(root.rstrip(os.sep)) if root else "",
-                # con «/» siempre: el diario viaja con la musica, tambien de
-                # un equipo con Windows a uno con Linux o macOS
-                "rel": _rel(r["path"], root) if root else "",
-                "file": r["file"],
-                "size": r["size"],
-                "artist": r["artist"],
-                "title": r["title"],
-                "duration": round(float(r["duration"] or 0), 2),
-                **mine,
-            }
-        )
-    for gid, card in ghosts.items():
-        songs.append({"id": gid, "gone": True, **card})
-    return {
-        "format": FORMAT,
-        "version": VERSION,
-        "app": f"DanPlay {__version__}",
-        "library": _uid(),
-        "updated": round(time.time(), 1),
-        "songs": songs,
-        "playlists": [
-            {
-                "name": p["name"],
-                "note": p["note"] or "",
-                "color": p["color"] or "",
-                "created": p["created"],
-                "songs": members.get(p["id"], []),
-            }
-            for p in lists
-        ],
-    }
+        return _rust.diario_snapshot(conn, f"DanPlay {__version__}", uid, roots)
 
 
 def _targets() -> list[Path]:
-    out = [config.DATA_DIR / FILE]
-    out += [Path(r) / FOLDER / FILE for r in _roots()]
-    return out
+    return [Path(p) for p in _rust.diario_targets(config.DATA_DIR, _roots())]
 
 
 def _write(path: Path, text: str) -> bool:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".part")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
+    if _rust.diario_write_to(path, text):
         return True
-    except OSError:
-        log.info("no se pudo escribir el diario en %s", path, exc_info=True)
-        return False
+    log.info("no se pudo escribir el diario en %s", path)
+    return False
 
 
 _STATE: dict = {"written": "", "revision": -1, "restored": False, "report": None, "seq": 0}
@@ -171,13 +100,11 @@ _LOCK = threading.Lock()
 def write() -> int:
     """Escribe el diario donde toca (si cambio). Devuelve en cuantos sitios."""
     data = snapshot()
-    body = json.dumps(
-        {k: v for k, v in data.items() if k != "updated"}, ensure_ascii=False, sort_keys=True
-    )
+    body = _rust.diario_body(data)
     with _LOCK:
         if body == _STATE["written"]:
             return 0
-    text = json.dumps(data, ensure_ascii=False, indent=1)
+    text = _rust.diario_text(data)
     n = sum(_write(p, text) for p in _targets())
     with _LOCK:
         _STATE["written"] = body
@@ -185,72 +112,35 @@ def write() -> int:
 
 
 def _load(path: Path) -> dict | None:
-    with contextlib.suppress(OSError, ValueError):
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data, dict) and data.get("format") == FORMAT:
-            return data
-    return None
+    return _rust.diario_load(path)
 
 
 def latest() -> dict | None:
     """El diario mas reciente de los que haya (el de los datos de DanPlay o
     el de alguna carpeta de musica: puede venir de otro equipo)."""
-    found = [d for d in (_load(p) for p in _targets()) if d]
-    return max(found, key=lambda d: d.get("updated") or 0) if found else None
+    return _rust.diario_latest(_targets())
 
 
 # ------------------------------------------------------------ recuperar
 
 
 def _index(rows):
-    from . import reuse
-
-    by_path, by_rel, by_file, by_key = {}, {}, {}, {}
-    roots = _roots()
-    for r in rows:
-        by_path[r["path"]] = r
-        root = r["root"] or _root_of(r["path"], roots)
-        if root:
-            by_rel[(os.path.basename(root.rstrip(os.sep)), _rel(r["path"], root))] = r
-        by_file.setdefault((r["file"], r["size"]), []).append(r)
-        by_key.setdefault(reuse.ident(r), []).append(r)
-    return by_path, by_rel, by_file, by_key
+    """Las canciones de ahora, para buscar en ellas (`_find`)."""
+    return (list(rows), _roots())
 
 
-def _sign(card: dict) -> tuple:
-    """La ficha de una cancion que no esta, para no ponerla dos veces."""
-    return (card.get("file") or "", card.get("artist") or "", card.get("title") or "")
-
-
-def _find(entry: dict, by_path, by_rel, by_file, by_key):
+def _find(entry: dict, rows, roots):
     """La cancion de ahora que es la del diario: en su ruta, en la misma ruta
     dentro de su carpeta (la carpeta se movio), con el mismo nombre y tamaño,
     o con el mismo artista y titulo y la misma duracion."""
-    from . import reuse
-
-    if entry.get("path") in by_path:
-        return by_path[entry["path"]]
-    hit = by_rel.get((entry.get("root"), str(entry.get("rel") or "").replace("\\", "/")))
-    if hit is not None:
-        return hit
-    same = by_file.get((entry.get("file"), entry.get("size")), [])
-    if len(same) == 1:
-        return same[0]
-    near = [
-        r
-        for r in by_key.get(reuse.ident(entry), [])
-        if reuse._close(r["duration"], entry.get("duration"))
-    ]
-    if len(near) == 1:
-        return near[0]
-    return None
+    at = _rust.diario_find(dict(entry), [dict(r) for r in rows], roots)
+    return None if at is None else rows[at]
 
 
 def reconcile() -> dict:
     """Compara el diario con lo que hay y recupera lo que se perdio (ver
     arriba). Devuelve lo que hizo: {songs, lists, entries, ghosts}."""
     from . import playlists
-    from .library.db import _next_song_id
 
     told = {"songs": 0, "lists": 0, "entries": 0, "ghosts": 0, "fresh": False}
     journal = latest()
@@ -258,174 +148,17 @@ def reconcile() -> dict:
         with _LOCK:
             _STATE["restored"] = True
         return told
-    fresh = journal.get("library") != _uid()
-    told["fresh"] = fresh
-    with library.connect() as conn:
-        rows = [
-            dict(r)
-            for r in conn.execute(
-                "SELECT id, path, root, file, size, artist, title, match_key, duration, "
-                "stars, favorite, blur, study, chords, lyrics_synced, key, bpm FROM songs"
-            )
-        ]
-    index = _index(rows)
-    mapping: dict[int, int] = {}  # id del diario -> id de ahora
-    moved: set[int] = set()
-    entries = {e["id"]: e for e in journal.get("songs") or [] if isinstance(e, dict) and "id" in e}
-    for old, e in entries.items():
-        if e.get("gone"):
-            continue
-        cur = _find(e, *index)
-        if cur is None:
-            continue
-        mapping[old] = cur["id"]
-        if cur["path"] != e.get("path") or old != cur["id"]:
-            moved.add(old)
-    # lo de cada cancion: solo lo que le falta (lo que hay en la base manda)
-    touched: set[int] = set()
-    with library.connect() as conn:
-        for old, new in mapping.items():
-            if not fresh and old not in moved:
-                continue
-            e = entries[old]
-            # FIELDS: nombres fijos de columnas, de aqui
-            sql = f"SELECT {', '.join(FIELDS)} FROM songs WHERE id=?"  # noqa: S608
-            cur = conn.execute(sql, (new,)).fetchone()
-            if cur is None:
-                continue
-            sets = {f: e[f] for f in FIELDS if e.get(f) not in (None, "", 0) and not cur[f]}
-            if sets:
-                conn.execute(
-                    f"UPDATE songs SET {', '.join(f + '=?' for f in sets)} WHERE id=?",  # noqa: S608
-                    (*sets.values(), new),
-                )
-                touched.add(new)
-        conn.commit()
-    told["songs"] = len(touched)
-    # las listas
-    stamp: set[int] = set()
-    present = {r["id"] for r in rows}
+    uid = _uid()
     with playlists.LOCK, library.connect() as conn:
-        for pl in journal.get("playlists") or []:
-            name = str(pl.get("name") or "").strip()
-            if not name:
-                continue
-            row = conn.execute("SELECT id FROM playlists WHERE name=?", (name,)).fetchone()
-            created = False
-            if row is None:
-                if not fresh:
-                    continue  # con la misma base, una lista que no esta se borro a proposito
-                pid = conn.execute(
-                    "INSERT INTO playlists (name, note, color, created) VALUES (?,?,?,?)",
-                    (
-                        name,
-                        pl.get("note") or "",
-                        pl.get("color") or "",
-                        pl.get("created") or time.time(),
-                    ),
-                ).lastrowid
-                created = True
-            else:
-                pid = row[0]
-                if fresh:
-                    # rehecha por las etiquetas de los archivos: sin nota ni color
-                    conn.execute(
-                        "UPDATE playlists SET note=CASE WHEN note='' OR note IS NULL THEN ? "
-                        "ELSE note END, color=CASE WHEN color='' OR color IS NULL THEN ? "
-                        "ELSE color END WHERE id=?",
-                        (pl.get("note") or "", pl.get("color") or "", pid),
-                    )
-            have = {
-                r[0]: r[1]
-                for r in conn.execute(
-                    "SELECT song_id, position FROM playlist_songs WHERE playlist_id=?", (pid,)
-                )
-            }
-            # las «No está» que ya tiene, por su ficha (no repetirlas)
-            known = {
-                _sign(card): gid
-                for gid, card in playlists.cards(
-                    conn, [i for i in have if i not in present]
-                ).items()
-            }
-            before = (told["entries"], told["ghosts"])
-            order: list[int] = []
-            for old in pl.get("songs") or []:
-                e = entries.get(old)
-                new = mapping.get(old)
-                if new is not None:
-                    if new in have:
-                        order.append(new)
-                        continue
-                    if not (fresh or old in moved or old in have):
-                        continue  # se quito de la lista a proposito
-                    if old in have and old not in mapping.values():
-                        # la fila vieja («No está») pasa a ser la de ahora
-                        conn.execute(
-                            "UPDATE playlist_songs SET song_id=? WHERE playlist_id=? AND song_id=?",
-                            (new, pid, old),
-                        )
-                        have[new] = have.pop(old)
-                    else:
-                        conn.execute(
-                            "INSERT OR IGNORE INTO playlist_songs (playlist_id, song_id, position, added) "
-                            "VALUES (?,?,?,?)",
-                            (pid, new, len(have), time.time()),
-                        )
-                        have[new] = len(have)
-                    order.append(new)
-                    stamp.add(new)
-                    told["entries"] += 1
-                elif (created or fresh) and e and _sign(e) in known:
-                    order.append(known.pop(_sign(e)))
-                elif (created or fresh) and e:
-                    # no esta: queda en la lista como «No está», con su ficha y
-                    # un id que no es de nadie (la base nueva reparte otros)
-                    gid = _next_song_id(conn)
-                    conn.execute(
-                        "INSERT OR REPLACE INTO meta (key, value) VALUES ('song_id_hwm', ?)", (gid,)
-                    )
-                    conn.execute(
-                        "INSERT OR REPLACE INTO song_cards (song_id, artist, title, duration, file, path, gone_at) "
-                        "VALUES (?,?,?,?,?,?,?)",
-                        (
-                            gid,
-                            e.get("artist") or "",
-                            e.get("title") or "",
-                            e.get("duration") or 0,
-                            e.get("file") or "",
-                            e.get("path") or "",
-                            time.time(),
-                        ),
-                    )
-                    conn.execute(
-                        "INSERT INTO playlist_songs (playlist_id, song_id, position, added) VALUES (?,?,?,?)",
-                        (pid, gid, len(have), time.time()),
-                    )
-                    have[gid] = len(have)
-                    order.append(gid)
-                    told["ghosts"] += 1
-            # el orden del diario, y detras lo que la lista tenga y el diario no
-            final = [
-                *order,
-                *(s for s, _ in sorted(have.items(), key=lambda x: x[1]) if s not in order),
-            ]
-            moved_rows = 0
-            for pos, song in enumerate(final):
-                if have.get(song) != pos:
-                    conn.execute(
-                        "UPDATE playlist_songs SET position=? WHERE playlist_id=? AND song_id=?",
-                        (pos, pid, song),
-                    )
-                    moved_rows += 1
-            if created or moved_rows or before != (told["entries"], told["ghosts"]):
-                told["lists"] += 1
-        conn.commit()
-    if touched or told["lists"] or told["entries"] or told["ghosts"]:
+        r = _rust.diario_reconcile(conn, journal, uid, _roots())
+    stamp = r.pop("stamp")
+    told.update(r)
+    fresh = told["fresh"]
+    if told["songs"] or told["lists"] or told["entries"] or told["ghosts"]:
         library._touch()
         if stamp:
             with contextlib.suppress(Exception):
-                playlists._stamp_playlists_into_files(sorted(stamp))
+                playlists._stamp_playlists_into_files(stamp)
     refresh_exports()
     if fresh:
         # el diario pasa a ser el de esta base (si no, la proxima vez se
@@ -435,7 +168,7 @@ def reconcile() -> dict:
         write()
     with _LOCK:
         _STATE["restored"] = True
-        if touched or told["lists"] or told["entries"] or told["ghosts"]:
+        if told["songs"] or told["lists"] or told["entries"] or told["ghosts"]:
             _STATE["seq"] += 1
             _STATE["report"] = {**told, "seq": _STATE["seq"], "at": round(time.time())}
     if told["songs"] or told["entries"] or told["lists"]:

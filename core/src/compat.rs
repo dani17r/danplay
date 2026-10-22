@@ -82,7 +82,9 @@ pub fn compat(py: Python<'_>, name: &str, args: Vec<Bound<'_, PyAny>>) -> PyResu
         "casefold" => py::casefold(&text(0)?).into_pyobject(py)?.into_any().unbind(),
         "dumps" => {
             let v = crate::json::from_python(&args[0])?;
-            py::dumps(&v).into_pyobject(py)?.into_any().unbind()
+            let indent: Option<usize> = args.get(1).map(PyAnyMethods::extract).transpose()?.flatten();
+            let sort: bool = args.get(2).map(PyAnyMethods::extract).transpose()?.unwrap_or(false);
+            py::dumps_with(&v, indent, sort).into_pyobject(py)?.into_any().unbind()
         }
         "dotenv_values" => {
             // el texto, y el entorno como diccionario

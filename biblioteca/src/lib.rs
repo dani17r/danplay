@@ -10,6 +10,7 @@ pub mod cifrados;
 pub mod config;
 pub mod conversaciones;
 pub mod convertir;
+pub mod diario;
 pub mod duplicados;
 pub mod etiquetas;
 pub mod fuera;
