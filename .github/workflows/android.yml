@@ -1,0 +1,98 @@
+# La app del celular para Android (el APK firmado, arm64 y armv7), con
+# `scripts/build-android.sh`, el mismo que en tu equipo: el NDK, Gradle y las
+# dos compilaciones de Rust para el teléfono no gastan nada de tu máquina.
+#
+# La llave de firma viaja en dos secretos del repositorio. Para ponerlos, o
+# para cambiarlos si algún día hace falta otra llave:
+#
+#   base64 -w0 ~/Android/claves/danplay-pistas.jks | gh secret set ANDROID_KEYSTORE_B64
+#   gh secret set ANDROID_KEYSTORE_PROPERTIES < ~/Android/claves/keystore.properties
+#
+# De keystore.properties salen las contraseñas y el alias; su storeFile se
+# cambia aquí por la ruta de la máquina de CI. Ojo al cambiar de llave: un
+# teléfono solo acepta una actualización firmada como la que tiene instalada,
+# así que con una llave nueva hay que desinstalar la app y volver a instalarla.
+#
+# Con una etiqueta de versión (`git tag v1.13.0 && git push --tags`) lo
+# publica en esa versión, junto a los paquetes de escritorio.
+name: android
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['ci/paquetes-en-github']   # TEMPORAL: probarlo antes de fusionar
+  workflow_dispatch:
+
+permissions:
+  contents: write     # publicar el APK en la versión
+
+jobs:
+  apk:
+    name: APK firmado
+    runs-on: ubuntu-latest
+    env:
+      # las mismas versiones que en el equipo de desarrollo
+      NDK_VERSION: 29.0.14206865
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi
+      - uses: Swatinem/rust-cache@v2
+
+      # La imagen de GitHub trae el SDK, pero no este NDK. (La plataforma que
+      # pida el proyecto la baja Gradle.)
+      - name: NDK de Android
+        run: |
+          sdkmanager=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "build-tools;36.1.0" "ndk;$NDK_VERSION" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: la llave de firma
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PROPERTIES: ${{ secrets.ANDROID_KEYSTORE_PROPERTIES }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PROPERTIES" ]; then
+            echo "::error::faltan los secretos de la llave (ver la cabecera de android.yml)"
+            exit 1
+          fi
+          claves=$RUNNER_TEMP/claves
+          mkdir -p "$claves"
+          echo "$KEYSTORE_B64" | base64 -d > "$claves/danplay.jks"
+          printf '%s\n' "$KEYSTORE_PROPERTIES" | grep -v '^storeFile=' > "$claves/keystore.properties"
+          echo "storeFile=$claves/danplay.jks" >> "$claves/keystore.properties"
+          echo "DANPLAY_KEYSTORE=$claves/keystore.properties" >> "$GITHUB_ENV"
+
+      - name: dependencias de la interfaz
+        working-directory: desktop
+        run: npm ci
+
+      # compila, comprueba la firma y lo deja en dist/installers/
+      - name: APK
+        run: ./scripts/build-android.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: danplay-android
+          path: dist/installers/DanPlay-*-android.apk
+          if-no-files-found: error
+
+      - name: publicar en la versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/installers/DanPlay-*-android.apk

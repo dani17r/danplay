@@ -125,6 +125,11 @@ Para compilarla hace falta, en `~/Android`:
 cd movil && npm run tauri -- android dev   # con el teléfono por USB
 ```
 
+O sin nada de lo anterior instalado: `./scripts/github.sh paquetes android`
+lo compila y lo firma en GitHub (la llave viaja en dos secretos del
+repositorio; cómo se ponen o se cambian, en la cabecera de
+`.github/workflows/android.yml`).
+
 La **llave de firma** vive fuera del repositorio, en `~/Android/claves/`
 (`danplay-pistas.jks` y `keystore.properties`). Guárdala con las copias de
 seguridad: un teléfono solo acepta una actualización firmada con la misma
@@ -161,6 +166,20 @@ Es lo mismo que comprueba la CI en cada push, y todo tiene que pasar:
 | Humo | la app **ya compilada**: socket, permisos, bandeja, ciclo de vida |
 
 `./scripts/test.sh --rapido` se salta las e2e y las de humo.
+
+Si no quieres cargar el equipo, que las corra GitHub: sube el commit
+(`git push`) y
+
+```bash
+./scripts/github.sh pruebas          # las de la CI para ese commit; si fallan, enseña qué
+./scripts/github.sh paquetes         # los siete de una versión: .deb, .AppImage, APK, dos .dmg y los dos de Windows
+./scripts/github.sh paquetes linux   # o solo los de un sistema (linux, android, macos, windows)
+```
+
+Mientras tanto aquí solo se espera; los paquetes acaban en `dist/installers/`
+como si los hubieras construido tú. Si el commit ya tiene una ejecución (la
+del push a main, la de la etiqueta de versión), se usa esa en vez de lanzar
+otra.
 
 Las pruebas de Python **nunca tocan tus datos**: `tests/conftest.py` pone
 HOME y las carpetas XDG en un temporal y corta la red antes de importar nada.
@@ -251,8 +270,11 @@ Eso los deja iguales, con los cerrojos (Cargo, npm y uv) y la insignia del
 README. Después, `./scripts/test.sh --rapido` —hay una prueba que falla si
 alguno se queda atrás—, un **commit propio** (`chore: subir a 1.3.0`, sin
 mezclarlo con el cambio) y, para publicarla, una etiqueta:
-`git tag v1.3.0 && git push --tags`. Con ella la CI construye el `.deb`, el
-`.AppImage` y el instalador de Windows y los deja en esa versión de GitHub.
+`git tag v1.3.0 && git push --tags`. Con ella la CI construye los siete
+paquetes (el `.deb`, el `.AppImage`, el APK, los dos `.dmg` y el instalador y
+el portátil de Windows) y los deja en esa versión de GitHub: no hace falta
+compilar nada en tu equipo. Si además los quieres en `dist/installers/`,
+`./scripts/github.sh paquetes` espera a esas mismas ejecuciones y te los baja.
 
 ## Estilo
 

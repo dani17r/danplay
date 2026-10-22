@@ -11,15 +11,18 @@
 # igualmente», o quitando la cuarentena:
 #   xattr -dr com.apple.quarantine /Applications/DanPlay.app
 #
-# Nadie lo ha probado todavia en un Mac de verdad (ver docs/CONTRIBUIR.md):
-# por eso solo se lanza a mano y no se publica con las versiones.
+# Nadie lo ha probado todavia en un Mac de verdad (ver docs/CONTRIBUIR.md),
+# pero todas las versiones lo llevan: con una etiqueta de version
+# (`git tag v1.13.0 && git push --tags`) se publica en ella como los demas.
 name: macos
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write     # publicar los .dmg en la version
 
 jobs:
   paquete:
@@ -32,6 +35,8 @@ jobs:
         include:
           - runner: macos-latest
             arch: arm64
+            # el .dmg se llama asi: dice para que Mac es (el de Tauri dice aarch64)
+            nombre: apple-silicon
             # Lo que se mete dentro, con version fija y su suma SHA-256 (las
             # mismas versiones que en Windows). En macOS tampoco hay gestor de
             # paquetes que ponga ffmpeg, y una app abierta desde el Finder no
@@ -44,6 +49,7 @@ jobs:
             onnxruntime: ''
           - runner: macos-15-intel
             arch: x86_64
+            nombre: intel
             ffmpeg_url: https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2
             ffmpeg_sha256: 7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4
             ffprobe_sha256: 2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd
@@ -183,6 +189,13 @@ jobs:
           ditto -c -k --keepParent DanPlay.app "DanPlay-macos-${{ matrix.arch }}.zip"
           ls -la
 
+      - name: el .dmg, con el nombre de las versiones
+        run: |
+          version=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
+          cd target/release/bundle/dmg
+          mv DanPlay_*.dmg "DanPlay-$version-mac-${{ matrix.nombre }}.dmg"
+          ls -la
+
       - uses: actions/upload-artifact@v7
         with:
           name: danplay-macos-${{ matrix.arch }}
@@ -190,3 +203,10 @@ jobs:
             target/release/bundle/dmg/*.dmg
             target/release/bundle/macos/*.zip
           if-no-files-found: error
+
+      # solo el .dmg: el .zip de la .app se queda en el artefacto
+      - name: publicar en la versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: target/release/bundle/dmg/*.dmg
