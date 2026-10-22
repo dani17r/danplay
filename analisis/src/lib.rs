@@ -7,6 +7,8 @@
 //!   del motor, el mismo que suena en el modo estudio);
 //! - `estructura`: las partes de la canción y cuándo anunciarlas (la guía
 //!   automática);
+//! - `guias`: el sonido de las guías habladas (recortarlas, su volumen, el
+//!   WAV, su onda y el editor);
 //! - `pesos`: leer los pesos de un checkpoint de PyTorch sin PyTorch ni
 //!   ejecutar nada de lo que traiga;
 //! - `pulso`: el pulso y el «1» con Beat This! (espectrograma, la red en
@@ -14,7 +16,8 @@
 //! - `separar` y `mega`: separar una canción en pistas (Demucs v4 y, para la
 //!   máxima calidad, el Mega53), con sus espectrogramas, los trozos que se
 //!   funden y el trabajo entero con ffmpeg;
-//! - `onnx`: las redes, en ONNX Runtime (`ort`, cargando la biblioteca).
+//! - `onnx`: las redes, en ONNX Runtime (`ort`, cargando la biblioteca);
+//! - `voces`: las voces de las guías (Supertonic y Piper, en ONNX Runtime).
 //!
 //! Python lo usa a través de `danplay_core` (core/); la app lo usará
 //! directamente cuando el núcleo entero esté en Rust. Aquí no se sabe nada
@@ -26,11 +29,13 @@
 
 pub mod clic;
 pub mod estructura;
+pub mod guias;
 pub mod mega;
 pub mod mezcla;
 pub mod onnx;
 pub mod pesos;
 pub mod pulso;
 pub mod separar;
+pub mod voces;
 
 mod np;
