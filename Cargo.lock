@@ -849,7 +849,9 @@ dependencies = [
  "half",
  "ort",
  "realfft",
+ "serde_json",
  "sha1",
+ "unicode-normalization",
  "zip",
 ]
 

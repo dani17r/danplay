@@ -14,6 +14,7 @@ pub mod diario;
 pub mod duplicados;
 pub mod etiquetas;
 pub mod fuera;
+pub mod guias;
 pub mod habla;
 pub mod html;
 pub mod huella;

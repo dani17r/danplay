@@ -16,24 +16,25 @@ Las voces, en el equipo y sin internet (salvo para bajarlas, una vez):
 Las dos son grafos ONNX que corren con ONNX Runtime, como el separador. Cada
 archivo se comprueba con su sha256 al bajarlo (`data/voces.json`, con la
 revision fijada: lo de HuggingFace no cambia por debajo).
+
+Las voces, el sonido de cada guia (recortarla, su volumen, el WAV, su onda,
+el editor) y el catalogo van en Rust (analisis/src/voces.rs,
+analisis/src/guias.rs, biblioteca/src/guias.rs); aqui quedan las carpetas,
+la bajada de las voces (con sus hilos) y la voz cargada.
 """
 
-import contextlib
 import functools
 import hashlib
 import json
 import logging
 import os
-import re
-import shutil
-import subprocess
 import threading
 import time
-import unicodedata
 import urllib.request
 import uuid
-import wave
 from pathlib import Path
+
+import danplay_core as _rust
 
 from . import config, convert, habla
 
@@ -51,7 +52,8 @@ MAX_SECONDS = 60.0
 # aparte): hasta lo que dure la canción, y como mucho esto (el motor las
 # guarda enteras en memoria).
 MAX_IMPORT_SECONDS = 300.0
-# Lo que queda alrededor de la voz al recortar el silencio.
+# Lo que queda alrededor de la voz al recortar el silencio (el de
+# analisis/src/guias.rs).
 MARGIN = 0.03
 # Tras este rato sin decir nada, se suelta la voz cargada (la de Supertonic
 # ocupa medio GB de memoria).
@@ -59,8 +61,9 @@ IDLE = 180.0
 AUDIO_EXTS = {".wav", ".flac", ".mp3", ".ogg", ".opus", ".m4a", ".aac", ".webm"}
 
 
-class CueError(Exception):
-    """No se pudo hacer la guia (por que, en castellano)."""
+# No se pudo hacer la guia (por que, en castellano). Es la de Rust: la lanzan
+# los dos lados.
+CueError = _rust.CueError
 
 
 def folder() -> Path:
@@ -83,55 +86,26 @@ def catalog() -> dict:
 # ------------------------------------------------------------ las voces
 
 
+@functools.cache
+def _catalog():
+    return _rust.CueCatalog(str(CATALOG))
+
+
 def _find(voice_id: str) -> dict:
     """La voz por su id, con su motor y los archivos que necesita (cada uno
     con su URL y donde va)."""
-    cat = catalog()
-    st = cat["supertonic"]
-    for v in st["voices"]:
-        if v["id"] == voice_id:
-            files = [
-                {
-                    **f,
-                    "url": st["base"] + f["path"],
-                    "dest": _voices_dir() / "supertonic-3" / f["path"],
-                }
-                for f in st["files"]
-            ]
-            return {
-                **v,
-                "engine": "supertonic",
-                "pack": "supertonic-3",
-                "lang": "es",
-                "licence": st["licence"],
-                "files": files,
-            }
-    pi = cat["piper"]
-    for v in pi["voices"]:
-        if v["id"] == voice_id:
-            files = [
-                {
-                    **f,
-                    "url": pi["base"] + f["path"],
-                    "dest": _voices_dir() / "piper" / v["model"] / Path(f["path"]).name,
-                }
-                for f in v["files"]
-            ]
-            return {**v, "engine": "piper", "pack": "piper-" + v["model"], "files": files}
-    raise CueError("no conozco esa voz")
+    v = _catalog().find(str(_voices_dir()), voice_id) if isinstance(voice_id, str) else None
+    if v is None:
+        raise CueError("no conozco esa voz")
+    for f in v["files"]:
+        f["dest"] = Path(f["dest"])
+    return v
 
 
 def _missing(voice: dict) -> list[dict]:
     """Los archivos de la voz que faltan (o estan a medias)."""
-    out = []
-    for f in voice["files"]:
-        try:
-            if f["dest"].stat().st_size == f["bytes"]:
-                continue
-        except OSError:
-            pass
-        out.append(f)
-    return out
+    files = voice["files"]
+    return [files[i] for i in _rust.cues_missing([(str(f["dest"]), f["bytes"]) for f in files])]
 
 
 def installed(voice_id: str) -> bool:
@@ -159,35 +133,9 @@ _INSTALLS: dict[str, dict] = {}
 def voices() -> list[dict]:
     """Todas las voces: las bajadas y las que se pueden bajar (con lo que
     pesa lo que les falta y, si se estan bajando, por donde van)."""
-    out = []
-    cat = catalog()
-    ids = [v["id"] for v in cat["supertonic"]["voices"]] + [v["id"] for v in cat["piper"]["voices"]]
-    for voice_id in ids:
-        v = _find(voice_id)
-        missing = _missing(v)
-        with _LOCK:
-            state = dict(_INSTALLS.get(v["pack"]) or {})
-        item = {
-            "id": v["id"],
-            "name": v["name"],
-            "lang": {
-                "es": "castellano",
-                "es-ES": "España",
-                "es-MX": "México",
-                "es-AR": "Argentina",
-            }.get(v.get("lang", "es"), v.get("lang", "es")),
-            "gender": v.get("gender", ""),
-            "engine": v["engine"],
-            "licence": v.get("licence", ""),
-            "installed": not missing,
-            "size": sum(f["bytes"] for f in missing),
-        }
-        if state and not item["installed"]:
-            item["progress"] = round(state["got"] / max(1, state["total"]), 3)
-            if state.get("error"):
-                item["error"] = state["error"]
-        out.append(item)
-    return out
+    with _LOCK:
+        states = {k: (s["got"], s["total"], s.get("error") or "") for k, s in _INSTALLS.items()}
+    return _catalog().voices(str(_voices_dir()), states)
 
 
 def _why(e: Exception) -> str:
@@ -316,111 +264,10 @@ _SPEAK = threading.Lock()
 _LOADED = _Loaded()
 
 
-def _session(path: Path):
-    import onnxruntime as ort
+def _onnxruntime() -> str:
+    from . import pulse
 
-    opts = ort.SessionOptions()
-    opts.log_severity_level = 3
-    return ort.InferenceSession(str(path), sess_options=opts, providers=["CPUExecutionProvider"])
-
-
-class _Supertonic:
-    STEPS = 8
-    SPEED = 1.05
-
-    def __init__(self, root: Path) -> None:
-        onnx = root / "onnx"
-        self.root = root
-        self.cfg = json.loads((onnx / "tts.json").read_text(encoding="utf-8"))
-        self.indexer = json.loads((onnx / "unicode_indexer.json").read_text(encoding="utf-8"))
-        self.dp = _session(onnx / "duration_predictor.onnx")
-        self.enc = _session(onnx / "text_encoder.onnx")
-        self.est = _session(onnx / "vector_estimator.onnx")
-        self.voc = _session(onnx / "vocoder.onnx")
-        self.rate = int(self.cfg["ae"]["sample_rate"])
-        ttl = self.cfg["ttl"]
-        self.chunk = int(self.cfg["ae"]["base_chunk_size"]) * int(ttl["chunk_compress_factor"])
-        self.ldim = int(ttl["latent_dim"]) * int(ttl["chunk_compress_factor"])
-
-    @functools.cache  # noqa: B019 - una por estilo, mientras viva la voz
-    def style(self, name: str):
-        import numpy as np
-
-        v = json.loads((self.root / "voice_styles" / f"{name}.json").read_text(encoding="utf-8"))
-
-        def arr(k):
-            return np.array(v[k]["data"], np.float32).reshape(v[k]["dims"])
-
-        return arr("style_ttl"), arr("style_dp")
-
-    def say(self, text: str, style: str, lang: str = "es"):
-        import numpy as np
-
-        text = unicodedata.normalize("NFKD", text)
-        ids = [
-            self.indexer[ord(c)] if ord(c) < len(self.indexer) else -1
-            for c in f"<{lang}>{text}</{lang}>"
-        ]
-        ids = np.array([[i for i in ids if i >= 0]], np.int64)
-        tmask = np.ones((1, 1, ids.shape[1]), np.float32)
-        s_ttl, s_dp = self.style(style)
-        dur = (
-            np.asarray(
-                self.dp.run(None, {"text_ids": ids, "style_dp": s_dp, "text_mask": tmask})[0]
-            )
-            / self.SPEED
-        )
-        emb = self.enc.run(None, {"text_ids": ids, "style_ttl": s_ttl, "text_mask": tmask})[0]
-        seconds = float(np.ravel(dur)[0])
-        n_lat = max(1, int(np.ceil(seconds * self.rate / self.chunk)))
-        # siempre la misma semilla: la misma frase suena igual cada vez
-        x = np.random.default_rng(0).standard_normal((1, self.ldim, n_lat)).astype(np.float32)
-        lmask = np.ones((1, 1, n_lat), np.float32)
-        total = np.array([self.STEPS], np.float32)
-        for i in range(self.STEPS):
-            x = self.est.run(
-                None,
-                {
-                    "noisy_latent": x,
-                    "text_emb": emb,
-                    "style_ttl": s_ttl,
-                    "latent_mask": lmask,
-                    "text_mask": tmask,
-                    "current_step": np.array([i], np.float32),
-                    "total_step": total,
-                },
-            )[0]
-        wav = np.asarray(self.voc.run(None, {"latent": x})[0])[0]
-        return np.asarray(wav[: int(seconds * self.rate)], np.float32), self.rate
-
-
-class _Piper:
-    def __init__(self, model: Path) -> None:
-        self.cfg = json.loads(model.with_name(model.name + ".json").read_text(encoding="utf-8"))
-        self.sess = _session(model)
-        self.rate = int(self.cfg["audio"]["sample_rate"])
-
-    def say(self, text: str, speaker: int | None):
-        import numpy as np
-
-        phones = habla.phonemes(text, self.cfg.get("espeak", {}).get("voice", "es"))
-        ids = habla.piper_ids(phones, self.cfg["phoneme_id_map"])
-        inf = self.cfg.get("inference", {})
-        feeds = {
-            "input": np.array([ids], np.int64),
-            "input_lengths": np.array([len(ids)], np.int64),
-            "scales": np.array(
-                [
-                    inf.get("noise_scale", 0.667),
-                    inf.get("length_scale", 1.0),
-                    inf.get("noise_w", 0.8),
-                ],
-                np.float32,
-            ),
-        }
-        if int(self.cfg.get("num_speakers", 1)) > 1:
-            feeds["sid"] = np.array([speaker or 0], np.int64)
-        return np.asarray(self.sess.run(None, feeds)[0], np.float32).reshape(-1), self.rate
+    return pulse.onnxruntime_library()
 
 
 def say(text: str, voice_id: str):
@@ -440,10 +287,14 @@ def say(text: str, voice_id: str):
         try:
             if v["engine"] == "supertonic":
                 root = _voices_dir() / "supertonic-3"
-                engine = _LOADED.get("supertonic", lambda: _Supertonic(root))
+                engine = _LOADED.get(
+                    "supertonic", lambda: _rust.CueSupertonic(_onnxruntime(), str(root))
+                )
                 return engine.say(spoken, v["style"], lang)
             model = _voices_dir() / "piper" / v["model"] / f"{v['model']}.onnx"
-            engine = _LOADED.get("piper-" + v["model"], lambda: _Piper(model))
+            engine = _LOADED.get(
+                "piper-" + v["model"], lambda: _rust.CuePiper(_onnxruntime(), str(model))
+            )
             return engine.say(spoken, v.get("speaker"))
         except CueError:
             raise
@@ -457,86 +308,36 @@ def say(text: str, voice_id: str):
 
 def polish(wav, rate: int):
     """Lista para sonar en su punto: sin el silencio de delante y de detras
-    (la guia empieza justo donde se puso), a -1 dBFS de pico y con un
-    fundido cortito en los bordes (sin chasquidos)."""
+    (la guia empieza justo donde se puso), a -1 dBFS de pico y con un fundido
+    cortito en los bordes (sin chasquidos)."""
     import numpy as np
 
-    wav = np.nan_to_num(np.asarray(wav, np.float32).reshape(-1))
-    if not wav.size:
-        return wav
-    peak = float(np.max(np.abs(wav)))
-    if peak <= 1e-6:
-        return wav[:0]
-    # el silencio: por debajo de -45 dB del pico, en ventanas de 10 ms
-    win = max(1, rate // 100)
-    n = wav.size // win
-    if n > 2:
-        rms = np.sqrt(np.mean(wav[: n * win].reshape(n, win) ** 2, axis=1))
-        loud = np.flatnonzero(rms > peak * 10 ** (-45 / 20))
-        if loud.size:
-            margin = int(MARGIN * rate)
-            a = max(0, loud[0] * win - margin)
-            b = min(wav.size, (loud[-1] + 1) * win + margin)
-            wav = wav[a:b]
-    wav = wav * (10 ** (-1 / 20) / peak)
-    fade = min(wav.size // 2, int(0.008 * rate))
-    if fade > 0:
-        ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
-        wav[:fade] *= ramp
-        wav[-fade:] *= ramp[::-1]
-    return wav.astype(np.float32)
+    return _rust.cues_polish(np.asarray(wav, np.float32).reshape(-1), int(rate))
 
 
 def write_wav(path: Path, wav, rate: int) -> None:
     import numpy as np
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pcm = (np.clip(wav, -1, 1) * 32767).astype("<i2")
-    tmp = path.with_name(path.name + ".part")
-    with wave.open(str(tmp), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(int(rate))
-        w.writeframes(pcm.tobytes())
-    os.replace(tmp, path)
+    x = np.asarray(wav)
+    x = x.reshape(-1) if x.dtype == np.float32 else np.asarray(x, np.float64).reshape(-1)
+    _rust.cues_write_wav(str(path), x, int(rate))
 
 
 def _seconds(path: Path) -> float:
-    with contextlib.suppress(OSError, wave.Error, EOFError), wave.open(str(path), "rb") as w:
-        return round(w.getnframes() / max(1, w.getframerate()), 2)
-    return 0.0
+    return _rust.cues_seconds(str(path))
 
 
 def _slug(text: str) -> str:
-    ascii_text = unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode()
-    s = re.sub(r"[^a-z0-9]+", "-", ascii_text)
-    return s.strip("-")[:32] or "guia"
+    return _rust.cues_slug(text)
 
 
 def make(text: str, voice_id: str, *, preview: bool = False) -> dict:
     """La guia escrita, dicha con esa voz, en su archivo: {file, seconds}. La
     misma frase con la misma voz es el mismo archivo (no se dice otra vez).
     Con `preview`, en la carpeta de pruebas (que se vacia sola)."""
-    text = str(text or "").strip()[:300]
-    if not text:
-        raise CueError("no hay nada que decir")
-    key = hashlib.sha1(f"{VERSION}|{voice_id}|{text}".encode()).hexdigest()[:12]  # noqa: S324
-    target = (_previews() if preview else folder()) / f"{_slug(text)}-{key}.wav"
-    if not target.is_file():
-        # ya dicha como prueba: se aprovecha
-        tried = _previews() / target.name
-        if not preview and tried.is_file():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(tried, target)
-        else:
-            wav, rate = say(text, voice_id)
-            wav = polish(wav, rate)
-            if not wav.size:
-                raise CueError("la voz no dijo nada")
-            write_wav(target, wav, rate)
-    if preview:
-        sweep_previews()
-    return {"file": str(target), "seconds": _seconds(target)}
+    return _rust.cues_make(
+        str(text or ""), voice_id, VERSION, str(folder()), str(_previews()), bool(preview), say
+    )
 
 
 def _decode(
@@ -545,52 +346,7 @@ def _decode(
     """Un archivo de audio a mono: (muestras, frecuencia). WAV directamente;
     lo demas, con ffmpeg (hasta el doble de `longest`, para poder decir que
     es demasiado largo)."""
-    import numpy as np
-
-    with contextlib.suppress(wave.Error, EOFError, OSError), wave.open(path, "rb") as w:
-        width, channels, rate = w.getsampwidth(), w.getnchannels(), w.getframerate()
-        if w.getnframes() > longest * rate * 4:
-            raise CueError(too_long)
-        data = w.readframes(w.getnframes())
-        if width == 2:
-            x = np.frombuffer(data, "<i2").astype(np.float32) / 32768
-        elif width == 4:
-            x = np.frombuffer(data, "<i4").astype(np.float32) / 2147483648
-        elif width == 1:
-            x = (np.frombuffer(data, np.uint8).astype(np.float32) - 128) / 128
-        else:
-            x = None
-        if x is not None:
-            return x.reshape(-1, channels).mean(axis=1), rate
-    ffmpeg = convert.tool("ffmpeg")
-    if not ffmpeg:
-        raise CueError("hace falta ffmpeg para leer esa grabación")
-    rate = 44100
-    r = subprocess.run(
-        [
-            ffmpeg,
-            "-v",
-            "error",
-            "-nostdin",
-            "-i",
-            path,
-            "-t",
-            str(longest * 2),
-            "-ac",
-            "1",
-            "-ar",
-            str(rate),
-            "-f",
-            "f32le",
-            "-",
-        ],
-        capture_output=True,
-        timeout=120,
-        check=False,
-    )
-    if r.returncode != 0 or not r.stdout:
-        raise CueError("no se pudo leer la grabación")
-    return np.frombuffer(r.stdout, np.float32), rate
+    return _rust.cues_decode(str(path), float(longest), too_long, convert.tool("ffmpeg"))
 
 
 def import_recording(path: str, longest: float | None = None) -> dict:
@@ -598,58 +354,30 @@ def import_recording(path: str, longest: float | None = None) -> dict:
     equipo) a su sitio, recortada y a su volumen: {file, seconds}.
     `longest`: lo que dura la cancion (un audio importado no puede durar
     mas), y como mucho MAX_IMPORT_SECONDS; sin el, un minuto."""
-    src = Path(str(path or ""))
-    if not src.is_file() or src.suffix.lower() not in AUDIO_EXTS:
-        raise CueError("no encuentro ese audio")
-    if src.stat().st_size > 200 * 1024 * 1024:
-        raise CueError("ese audio es demasiado grande para una guía")
-    limit = MAX_SECONDS if not longest else min(float(longest), MAX_IMPORT_SECONDS)
-    too_long = (
-        "ese audio dura más que la canción"
-        if longest and float(longest) <= MAX_IMPORT_SECONDS
-        else f"es demasiado largo para una guía ({_minutes(limit)} como mucho)"
+    return _rust.cues_import_recording(
+        str(path or ""),
+        float(longest) if longest else None,
+        float(MAX_SECONDS),
+        float(MAX_IMPORT_SECONDS),
+        sorted(AUDIO_EXTS),
+        str(folder()),
+        uuid.uuid4().hex[:12],
+        _temp_dir(),
+        convert.tool("ffmpeg"),
     )
-    wav, rate = _decode(str(src), limit, too_long)
-    if wav.size > limit * rate:
-        raise CueError(too_long)
-    wav = polish(wav, rate)
-    if not wav.size:
-        raise CueError("la grabación está en silencio")
-    target = folder() / f"grabada-{uuid.uuid4().hex[:12]}.wav"
-    write_wav(target, wav, rate)
-    # la temporal de la app ya no hace falta
-    if src.parent.resolve() == Path(_temp_dir()).resolve() and src.name.startswith("danplay-guia-"):
-        with contextlib.suppress(OSError):
-            src.unlink()
-    return {"file": str(target), "seconds": _seconds(target)}
-
-
-def _minutes(seconds: float) -> str:
-    m = round(seconds / 60)
-    return "un minuto" if m <= 1 else f"{m} minutos"
 
 
 def wave_of(file: str, buckets: int = 96) -> dict:
     """La onda de una guia, para verla en su bloque y en el editor: {seconds,
     peaks} (el pico de cada trozo, de 0 a 1, a su escala)."""
-    import numpy as np
-
     own = own_file(file, previews=True)
     if not own or not os.path.isfile(own):
         raise CueError("esa guía no está")
-    x, rate = _decode(own, MAX_IMPORT_SECONDS)
-    buckets = max(8, min(int(buckets), 2000))
-    seconds = round(x.size / max(1, rate), 3)
-    if not x.size:
-        return {"seconds": 0.0, "peaks": [0.0] * buckets}
-    a = np.abs(x)
-    edges = np.linspace(0, a.size, buckets + 1).astype(int)
-    peaks = [float(a[edges[i] : max(edges[i] + 1, edges[i + 1])].max()) for i in range(buckets)]
-    top = max(peaks) or 1.0
-    return {"seconds": seconds, "peaks": [round(p / top, 3) for p in peaks]}
+    return _rust.cues_wave_of(own, int(buckets), float(MAX_IMPORT_SECONDS), convert.tool("ffmpeg"))
 
 
 # lo que se le puede hacer a una guia grabada o importada, como en un editor
+# (el tope de los fundidos, el de analisis/src/guias.rs)
 EDIT_FADE_MAX = 5.0
 
 
@@ -670,48 +398,25 @@ def edit_clip(
     sin el ruido de fondo (`denoise`), sin los graves y golpes de microfono
     (`highpass`) y a su volumen (`normalize`). {file, seconds}. Con
     `preview`, en la carpeta de pruebas (para escucharla antes)."""
-    import hashlib
-
-    import numpy as np
-
     own = own_file(file, previews=True)
     if not own or not os.path.isfile(own):
         raise CueError("esa guía no está")
-    x, rate = _decode(own, MAX_IMPORT_SECONDS)
-    total = x.size / max(1, rate)
-    a = max(0.0, min(float(start or 0.0), total))
-    b = total if end is None else max(a, min(float(end), total))
-    if b - a < 0.05:
-        raise CueError("lo que queda es demasiado corto")
-    x = x[int(a * rate) : int(b * rate)]
-    filters = []
-    if highpass:
-        filters.append("highpass=f=100")
-    if denoise:
-        filters.append("afftdn=nf=-25")
-    if filters:
-        x = _ffmpeg_filter(x, rate, ",".join(filters))
-    fi = max(0.0, min(float(fade_in or 0.0), EDIT_FADE_MAX, x.size / rate / 2))
-    fo = max(0.0, min(float(fade_out or 0.0), EDIT_FADE_MAX, x.size / rate / 2))
-    x = np.asarray(x, np.float32).copy()
-    if fi > 0:
-        n = int(fi * rate)
-        x[:n] *= np.linspace(0.0, 1.0, n, dtype=np.float32)
-    if fo > 0:
-        n = int(fo * rate)
-        x[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)
-    if normalize:
-        peak = float(np.max(np.abs(x))) if x.size else 0.0
-        if peak > 1e-6:
-            x = x * (10 ** (-1 / 20) / peak)
-    key = hashlib.sha1(  # noqa: S324 - un nombre, no seguridad
-        f"{own}|{a:.3f}|{b:.3f}|{fi:.3f}|{fo:.3f}|{denoise}|{highpass}|{normalize}".encode()
-    ).hexdigest()[:14]
-    target = (_previews() if preview else folder()) / f"editada-{key}.wav"
-    write_wav(target, x, rate)
-    if preview:
-        sweep_previews()
-    return {"file": str(target), "seconds": _seconds(target)}
+    return _rust.cues_edit_clip(
+        own,
+        float(start or 0.0),
+        None if end is None else float(end),
+        float(fade_in or 0.0),
+        float(fade_out or 0.0),
+        bool(denoise),
+        bool(highpass),
+        bool(normalize),
+        str(folder()),
+        str(_previews()),
+        bool(preview),
+        float(MAX_IMPORT_SECONDS),
+        convert.tool("ffmpeg"),
+        _ffmpeg_filter,
+    )
 
 
 def _ffmpeg_filter(x, rate: int, chain: str):
@@ -721,34 +426,7 @@ def _ffmpeg_filter(x, rate: int, chain: str):
     ffmpeg = convert.tool("ffmpeg")
     if not ffmpeg:
         raise CueError("hace falta ffmpeg para limpiar la guía")
-    r = subprocess.run(
-        [
-            ffmpeg,
-            "-v",
-            "error",
-            "-nostdin",
-            "-f",
-            "f32le",
-            "-ar",
-            str(rate),
-            "-ac",
-            "1",
-            "-i",
-            "-",
-            "-af",
-            chain,
-            "-f",
-            "f32le",
-            "-",
-        ],
-        input=np.asarray(x, np.float32).tobytes(),
-        capture_output=True,
-        timeout=120,
-        check=False,
-    )
-    if r.returncode != 0 or not r.stdout:
-        raise CueError("no se pudo limpiar la guía")
-    return np.frombuffer(r.stdout, np.float32)
+    return _rust.cues_ffmpeg_filter(ffmpeg, np.asarray(x, np.float32).reshape(-1), int(rate), chain)
 
 
 def _temp_dir() -> str:
@@ -760,18 +438,9 @@ def _temp_dir() -> str:
 def own_file(path, *, previews: bool = False) -> str | None:
     """La ruta, si es una guia de DanPlay (de su carpeta; con `previews`,
     tambien las de prueba); si no, None."""
-    if not path or not isinstance(path, str) or len(path) > 1024:
+    if isinstance(path, str) and "\0" in path:
         return None
-    try:
-        p = Path(path).resolve()
-        base = folder().resolve()
-    except (OSError, ValueError):
-        return None
-    if p.suffix.lower() != ".wav":
-        return None
-    if p.parent == base or (previews and p.parent == base / "prueba"):
-        return str(p)
-    return None
+    return _rust.songs_own_cue_file(path, str(folder()), previews)
 
 
 def audio(path: str) -> bytes:
@@ -784,12 +453,4 @@ def audio(path: str) -> bytes:
 
 def sweep_previews(max_age: float = 3600.0) -> int:
     """Quita las pruebas de hace mas de una hora. Devuelve cuantas."""
-    n = 0
-    now = time.time()
-    with contextlib.suppress(OSError):
-        for f in _previews().iterdir():
-            with contextlib.suppress(OSError):
-                if now - f.stat().st_mtime > max_age:
-                    f.unlink()
-                    n += 1
-    return n
+    return _rust.cues_sweep_previews(str(_previews()), float(max_age))

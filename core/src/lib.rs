@@ -17,6 +17,7 @@ pub mod duplicados;
 pub mod estructura;
 pub mod etiquetas;
 pub mod fuera;
+pub mod guias;
 pub mod habla;
 pub mod huella;
 pub mod indice;
@@ -187,6 +188,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pesos::register(m)?;
     pulso::register(m)?;
     estructura::register(m)?;
+    guias::register(m)?;
     Ok(())
 }
 

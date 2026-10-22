@@ -534,3 +534,73 @@ def structure_given(sections: list[tuple[float, str]], duration: float) -> list[
 def audio_decode_mono(
     ffmpeg: _Path, path: _Path, rate: int, longest: float, timeout: float = 600.0
 ) -> Any: ...
+
+# ---- las guias habladas (biblioteca/src/guias.rs, analisis/src/guias.rs,
+# analisis/src/voces.rs): ver danplay/cues.py
+
+class CueError(Exception): ...
+
+class CueCatalog:
+    def __init__(self, path: _Path) -> None: ...
+    def find(self, voices: _Path, voice_id: str) -> dict[str, Any] | None: ...
+    def voices(
+        self, voices: _Path, installs: Mapping[str, tuple[int, int, str]]
+    ) -> list[dict[str, Any]]: ...
+
+class CueSupertonic:
+    def __init__(self, library: _Path, root: _Path) -> None: ...
+    def say(self, text: str, style: str, lang: str = "es") -> tuple[np.ndarray, int]: ...
+
+class CuePiper:
+    def __init__(self, library: _Path, model: _Path) -> None: ...
+    def say(self, text: str, speaker: int | None = None) -> tuple[np.ndarray, int]: ...
+
+def cues_missing(files: Sequence[tuple[_Path, int]]) -> list[int]: ...
+def cues_polish(wav: np.ndarray, rate: int) -> np.ndarray: ...
+def cues_write_wav(path: _Path, wav: np.ndarray, rate: int) -> None: ...
+def cues_seconds(path: _Path) -> float: ...
+def cues_slug(text: str) -> str: ...
+def cues_decode(
+    path: _Path, longest: float, too_long: str, ffmpeg: _Path | None = None
+) -> tuple[np.ndarray, int]: ...
+def cues_ffmpeg_filter(ffmpeg: _Path, x: np.ndarray, rate: int, chain: str) -> np.ndarray: ...
+def cues_sweep_previews(folder: _Path, max_age: float) -> int: ...
+def cues_make(
+    text: str,
+    voice_id: str,
+    version: int,
+    folder: _Path,
+    previews: _Path,
+    preview: bool,
+    say: Callable[[str, str], tuple[Any, int]],
+) -> dict[str, Any]: ...
+def cues_import_recording(
+    path: _Path,
+    longest: float | None,
+    max_seconds: float,
+    max_import: float,
+    exts: list[str],
+    folder: _Path,
+    name: str,
+    temp_dir: _Path,
+    ffmpeg: _Path | None = None,
+) -> dict[str, Any]: ...
+def cues_wave_of(
+    own: _Path, buckets: int, longest: float, ffmpeg: _Path | None = None
+) -> dict[str, Any]: ...
+def cues_edit_clip(
+    own: str,
+    start: float,
+    end: float | None,
+    fade_in: float,
+    fade_out: float,
+    denoise: bool,
+    highpass: bool,
+    normalize: bool,
+    folder: _Path,
+    previews: _Path,
+    preview: bool,
+    longest: float,
+    ffmpeg: _Path | None,
+    filter: Callable[[np.ndarray, int, str], Any],
+) -> dict[str, Any]: ...
