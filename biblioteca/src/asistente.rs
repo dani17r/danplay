@@ -12,6 +12,7 @@ pub mod emparejar;
 pub mod enlaces;
 pub mod listas;
 pub mod narracion;
+pub mod setlist;
 pub mod texto;
 
 mod clases;
