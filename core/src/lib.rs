@@ -2,11 +2,13 @@
 //!
 //! Desde Python se usan `hashes` (duplicados idénticos), `waveform` (la
 //! forma de onda del modo estudio), las etiquetas de cada canción (`tags_*` y
-//! `cover_*`, en `etiquetas`) y `last_error`. `partial_hash` y
+//! `cover_*`, en `etiquetas`), el análisis (`pulse_*`, `click_*` y
+//! `torchzip_*`, del crate `analisis`) y `last_error`. `partial_hash` y
 //! `full_hashes` son de la misma familia y se quedan para la línea de
 //! órdenes y las pruebas.
 pub mod audio;
 pub mod cifrados;
+pub mod clic;
 pub mod compat;
 pub mod conversaciones;
 pub mod convertir;
@@ -23,6 +25,8 @@ pub mod listas;
 pub mod miniaturas;
 pub mod nombres;
 pub mod onda;
+pub mod pesos;
+pub mod pulso;
 pub mod registro;
 pub mod seguro;
 pub mod teoria;
@@ -178,6 +182,9 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     fuera::register(m)?;
     conversaciones::register(m)?;
     diario::register(m)?;
+    clic::register(m)?;
+    pesos::register(m)?;
+    pulso::register(m)?;
     Ok(())
 }
 

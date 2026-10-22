@@ -18,6 +18,10 @@ pyo3 = "0.29"
 rayon = "1.10"
 # las etiquetas de cada canción (lofty), las mismas que usará la app
 danplay-biblioteca = { path = "../biblioteca" }
+# el análisis: el pulso (Beat This!), el clic de la mezcla, los pesos
+danplay-analisis = { path = "../analisis" }
+# los arrays de numpy que van y vienen (el espectrograma, lo que dice la red)
+numpy = "0.29"
 
 [dev-dependencies]
 # las pruebas comparan los hashes con el md5 de siempre

@@ -1,0 +1,73 @@
+//! La red de Beat This! en ONNX Runtime (`ort`).
+//!
+//! ONNX Runtime no va enlazado: se carga su biblioteca la primera vez que
+//! hace falta (`cargar`), la misma que trae el paquete `onnxruntime` de
+//! Python mientras el núcleo siga en Python (su `capi/`), y la que viaje con
+//! la app cuando no.
+use super::MELS;
+use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
+use ort::value::Tensor;
+use std::path::Path;
+use std::sync::OnceLock;
+
+/// Carga ONNX Runtime una vez por proceso. La segunda vez no hace nada,
+/// aunque sea otra ruta: un proceso solo puede tener uno.
+pub fn cargar(biblioteca: &Path) -> Result<(), String> {
+    static CARGADO: OnceLock<Result<(), String>> = OnceLock::new();
+    CARGADO
+        .get_or_init(|| {
+            let entorno = ort::init_from(biblioteca)
+                .map_err(|e| format!("no pude cargar ONNX Runtime: {e}"))?;
+            entorno.commit();
+            Ok(())
+        })
+        .clone()
+}
+
+/// Cuatro hilos: con más no va más rápido (medido: 11,7 s con 4 y 13,3 con
+/// todos en una canción de 4 min) y se deja sitio a la música y a la app.
+pub fn hilos() -> usize {
+    std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(4)
+}
+
+/// Una sesión con la red.
+pub struct Red {
+    sesion: Session,
+}
+
+impl Red {
+    /// La red del grafo `grafo`, con todas las optimizaciones de ONNX
+    /// Runtime y en la CPU.
+    pub fn abrir(biblioteca: &Path, grafo: &Path, hilos: usize) -> Result<Self, String> {
+        cargar(biblioteca)?;
+        let fallo = |e: ort::Error<_>| format!("la red de pulso no se pudo abrir: {e}");
+        let sesion = Session::builder()
+            .map_err(|e| format!("la red de pulso no se pudo abrir: {e}"))?
+            .with_optimization_level(GraphOptimizationLevel::All)
+            .map_err(fallo)?
+            .with_intra_threads(hilos)
+            .map_err(fallo)?
+            .commit_from_file(grafo)
+            .map_err(|e| format!("la red de pulso no se pudo abrir: {e}"))?;
+        Ok(Self { sesion })
+    }
+
+    /// La red sobre un trozo de `filas` tramas: lo que dice de cada una
+    /// (pulso y «1», en logits).
+    pub fn pasar(&mut self, datos: &[f32], filas: usize) -> Result<(Vec<f32>, Vec<f32>), String> {
+        let fallo = |e: ort::Error| format!("la red de pulso falló: {e}");
+        let entrada = Tensor::from_array(([1usize, filas, MELS], datos.to_vec())).map_err(fallo)?;
+        let salidas = self
+            .sesion
+            .run(ort::inputs!["spect" => entrada])
+            .map_err(fallo)?;
+        let (_, beat) = salidas["beat"].try_extract_tensor::<f32>().map_err(fallo)?;
+        let (_, down) = salidas["downbeat"]
+            .try_extract_tensor::<f32>()
+            .map_err(fallo)?;
+        Ok((beat.to_vec(), down.to_vec()))
+    }
+}
