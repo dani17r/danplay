@@ -27,7 +27,7 @@ updates:
     schedule:
       interval: weekly
     groups:
-      interfaz:
+      frontend:
         update-types: [minor, patch]
     ignore:
       # vue-tsc (`npm run typecheck`) no arranca con TypeScript 7: carga
@@ -50,5 +50,5 @@ updates:
     schedule:
       interval: monthly
     groups:
-      acciones:
+      actions:
         patterns: ['*']

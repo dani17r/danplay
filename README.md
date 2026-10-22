@@ -157,7 +157,7 @@ cp .env.example .env        # y rellena las claves que quieras usar
 ```
 
 Para probarla sin compilar la versión final, `./scripts/dev.sh` la abre en
-modo desarrollo (y `--prueba CARPETA`, con una copia de esas canciones y sin
+modo desarrollo (y `--sandbox CARPETA`, con una copia de esas canciones y sin
 tocar tus datos): ver [Contribuir](docs/CONTRIBUTING.md).
 
 Compilada desde el código, para la conversión de formatos y la huella
@@ -490,7 +490,7 @@ Prefiero decirlo aquí que en un issue:
   cada 10 canciones, y el tono en 1 de cada 3 (solo si el cifrado lo dice). Lo
   que no se encuentra no se inventa. La transposición es determinista y exacta.
 - **Solo Linux probado.** Para Windows salen las dos formas desde Linux
-  (`scripts/build-windows-cross.sh --zip --instalador`) y también desde la
+  (`scripts/build-windows-cross.sh --zip --installer`) y también desde la
   integración continua, pero **nadie las ha ejecutado todavía en un Windows de
   verdad**: hasta el primer arranque, es un «debería funcionar». macOS se
   compila en la integración continua (`macos.yml`) pero tampoco se ha abierto

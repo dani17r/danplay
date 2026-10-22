@@ -65,8 +65,8 @@ y diciéndolo en Ajustes.
 Mientras desarrollas, la app entera en modo desarrollo:
 
 ```bash
-./scripts/dev.sh                   # con tus datos de siempre
-./scripts/dev.sh --prueba ~/Musica # con datos aparte y una COPIA de esas canciones
+./scripts/dev.sh                    # con tus datos de siempre
+./scripts/dev.sh --sandbox ~/Musica # con datos aparte y una COPIA de esas canciones
 ```
 
 Es la app de escritorio de verdad (Tauri) con la interfaz servida por Vite:
@@ -76,10 +76,10 @@ empaquetado, así que un cambio en `danplay/` se ve al volver a abrirla. La
 compilación de desarrollo usa su propio identificador, su socket y su nombre
 en MPRIS y en la bandeja: convive con DanPlay instalado sin pisarle nada.
 
-`--prueba` guarda ajustes, base e índice en `.dev/prueba/` (fuera de git) y
+`--sandbox` guarda ajustes, base e índice en `.dev/sandbox/` (fuera de git) y
 copia allí las canciones que le des: la app escribe etiquetas y la importación
 mueve archivos, y así tu música no se toca. Sin carpeta, genera unas
-canciones con ffmpeg. `--prueba --limpia` empieza de cero.
+canciones con ffmpeg. `--sandbox --clean` empieza de cero.
 
 En un clon recién hecho no hay núcleo empaquetado (`desktop/src-tauri/nucleo/`
 solo trae su LEEME), y no hace falta: la app de desarrollo arranca el núcleo
@@ -121,11 +121,11 @@ Para compilarla hace falta, en `~/Android`:
 
 ```bash
 ./scripts/build-android.sh             # el APK firmado, a dist/installers/
-./scripts/build-android.sh --emulador  # el de depuración, para el emulador
+./scripts/build-android.sh --emulator  # el de depuración, para el emulador
 cd movil && npm run tauri -- android dev   # con el teléfono por USB
 ```
 
-O sin nada de lo anterior instalado: `./scripts/github.sh paquetes android`
+O sin nada de lo anterior instalado: `./scripts/github.sh packages android`
 lo compila y lo firma en GitHub (la llave viaja en dos secretos del
 repositorio; cómo se ponen o se cambian, en la cabecera de
 `.github/workflows/android.yml`).
@@ -165,15 +165,15 @@ Es lo mismo que comprueba la CI en cada push, y todo tiene que pasar:
 | e2e | la interfaz de verdad contra el núcleo de verdad, en Chrome (Playwright) |
 | Humo | la app **ya compilada**: socket, permisos, bandeja, ciclo de vida |
 
-`./scripts/test.sh --rapido` se salta las e2e y las de humo.
+`./scripts/test.sh --quick` se salta las e2e y las de humo.
 
 Si no quieres cargar el equipo, que las corra GitHub: sube el commit
 (`git push`) y
 
 ```bash
-./scripts/github.sh pruebas          # las de la CI para ese commit; si fallan, enseña qué
-./scripts/github.sh paquetes         # los siete de una versión: .deb, .AppImage, APK, dos .dmg y los dos de Windows
-./scripts/github.sh paquetes linux   # o solo los de un sistema (linux, android, macos, windows)
+./scripts/github.sh tests            # las de la CI para ese commit; si fallan, enseña qué
+./scripts/github.sh packages         # los siete de una versión: .deb, .AppImage, APK, dos .dmg y los dos de Windows
+./scripts/github.sh packages linux   # o solo los de un sistema (linux, android, macos, windows)
 ```
 
 Mientras tanto aquí solo se espera; los paquetes acaban en `dist/installers/`
@@ -267,14 +267,14 @@ de la raíz, que heredan los dos crates y del que la toman Tauri y maturin, y
 ```
 
 Eso los deja iguales, con los cerrojos (Cargo, npm y uv) y la insignia del
-README. Después, `./scripts/test.sh --rapido` —hay una prueba que falla si
+README. Después, `./scripts/test.sh --quick` —hay una prueba que falla si
 alguno se queda atrás—, un **commit propio** (`chore: subir a 1.3.0`, sin
 mezclarlo con el cambio) y, para publicarla, una etiqueta:
 `git tag v1.3.0 && git push --tags`. Con ella la CI construye los siete
 paquetes (el `.deb`, el `.AppImage`, el APK, los dos `.dmg` y el instalador y
 el portátil de Windows) y los deja en esa versión de GitHub: no hace falta
 compilar nada en tu equipo. Si además los quieres en `dist/installers/`,
-`./scripts/github.sh paquetes` espera a esas mismas ejecuciones y te los baja.
+`./scripts/github.sh packages` espera a esas mismas ejecuciones y te los baja.
 
 ## Estilo
 
@@ -297,7 +297,7 @@ pesos por banda) y todas se estancan ahí. El código está en
 falta hace.
 
 **Windows.** Ya se compila entero desde Linux: `./scripts/build-windows-cross.sh
---zip --instalador` saca la versión portátil **y** el instalador. Pero **nadie
+--zip --installer` saca la versión portátil **y** el instalador. Pero **nadie
 lo ha ejecutado en un Windows de verdad**. Falta comprobar lo que solo se ve
 al abrirlo: que suene (WASAPI), que las rutas con acentos no rompan el índice,
 que la papelera reciba los archivos, que el clic en el icono abra la

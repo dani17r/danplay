@@ -11,12 +11,12 @@
 #   DanPlay-X.Y.Z-mac-apple-silicon.dmg   M1 en adelante
 #   DanPlay-X.Y.Z-mac-intel.dmg           los de antes
 #
-# Es un atajo de scripts/github.sh (`paquetes macos` y `bajar ID`), que hace
+# Es un atajo de scripts/github.sh (`packages macos` y `download ID`), que hace
 # lo mismo con Linux y Windows y con las pruebas.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 if [ -n "${1:-}" ]; then
-    exec ./github.sh bajar "$1"
+    exec ./github.sh download "$1"
 fi
-exec ./github.sh paquetes macos
+exec ./github.sh packages macos

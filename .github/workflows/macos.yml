@@ -31,7 +31,7 @@ permissions:
 jobs:
   # Nunca se han pasado en un Mac: se ejecutan para saber que falla, pero no
   # paran el paquete (el amigo que lo prueba es justo quien lo dira).
-  pruebas:
+  tests:
     name: pruebas del núcleo en macOS ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     continue-on-error: true
@@ -55,7 +55,7 @@ jobs:
       # con ffprobe, que la app ya no lleva pero algunas pruebas usan para
       # mirar lo que sale
       - name: ffmpeg, ffprobe, fpcalc y QuickJS
-        run: ./scripts/tools-macos.sh --con-ffprobe
+        run: ./scripts/tools-macos.sh --with-ffprobe
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -73,7 +73,7 @@ jobs:
           export PATH="$PWD/desktop/src-tauri/tools:$PATH"
           pytest
 
-  paquete:
+  package:
     name: macOS ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -84,10 +84,10 @@ jobs:
           - runner: macos-latest
             arch: arm64
             # el .dmg se llama asi: dice para que Mac es (el de Tauri dice aarch64)
-            nombre: apple-silicon
+            dmg_name: apple-silicon
           - runner: macos-15-intel
             arch: x86_64
-            nombre: intel
+            dmg_name: intel
     steps:
       - uses: actions/checkout@v7
 
@@ -179,7 +179,7 @@ jobs:
         run: |
           version=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
           cd target/release/bundle/dmg
-          mv DanPlay_*.dmg "DanPlay-$version-mac-${{ matrix.nombre }}.dmg"
+          mv DanPlay_*.dmg "DanPlay-$version-mac-${{ matrix.dmg_name }}.dmg"
           ls -la
 
       - uses: actions/upload-artifact@v7

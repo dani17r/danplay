@@ -76,12 +76,12 @@ jobs:
             echo "::error::faltan los secretos de la llave (ver la cabecera de android.yml)"
             exit 1
           fi
-          claves=$RUNNER_TEMP/claves
-          mkdir -p "$claves"
-          echo "$KEYSTORE_B64" | base64 -d > "$claves/danplay.jks"
-          printf '%s\n' "$KEYSTORE_PROPERTIES" | grep -v '^storeFile=' > "$claves/keystore.properties"
-          echo "storeFile=$claves/danplay.jks" >> "$claves/keystore.properties"
-          echo "DANPLAY_KEYSTORE=$claves/keystore.properties" >> "$GITHUB_ENV"
+          keys=$RUNNER_TEMP/keys
+          mkdir -p "$keys"
+          echo "$KEYSTORE_B64" | base64 -d > "$keys/danplay.jks"
+          printf '%s\n' "$KEYSTORE_PROPERTIES" | grep -v '^storeFile=' > "$keys/keystore.properties"
+          echo "storeFile=$keys/danplay.jks" >> "$keys/keystore.properties"
+          echo "DANPLAY_KEYSTORE=$keys/keystore.properties" >> "$GITHUB_ENV"
 
       - name: dependencias de la interfaz
         working-directory: desktop

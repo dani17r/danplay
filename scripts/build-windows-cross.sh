@@ -3,9 +3,9 @@
 #
 #   ./scripts/build-windows-cross.sh                 construye dist/windows/
 #   ./scripts/build-windows-cross.sh --zip           además, el .zip portátil
-#   ./scripts/build-windows-cross.sh --instalador    además, el .exe instalador
-#   ./scripts/build-windows-cross.sh --herramientas  mete ffmpeg y fpcalc dentro
-#   ./scripts/build-windows-cross.sh --sin-crate     ver abajo: hace falta
+#   ./scripts/build-windows-cross.sh --installer     además, el .exe instalador
+#   ./scripts/build-windows-cross.sh --with-tools    mete ffmpeg y fpcalc dentro
+#   ./scripts/build-windows-cross.sh --no-crate      ver abajo: hace falta
 #
 # El .zip y el .exe quedan en dist/installers/, con la versión en el nombre,
 # junto al .deb, el .AppImage y los .dmg de Mac: todo lo que se entrega, en
@@ -15,7 +15,7 @@
 # el instalador es esa carpeta comprimida con NSIS más los accesos directos,
 # las asociaciones de archivo y el desinstalador.
 #
-# `--instalador` implica `--herramientas`: un instalador que se llama «con
+# `--installer` implica `--with-tools`: un instalador que se llama «con
 # todo» y luego no sabe convertir formatos ni reproducir .opus no es con todo.
 #
 # Por qué NO se usa PyInstaller aquí: no compila para otro sistema. En su
@@ -31,40 +31,40 @@
 # (danplay_core, con lofty), el Python embebido tendría que llevarlo
 # compilado para Windows, y aquí no se compila. Sin él, las etiquetas van con
 # mutagen, que es GPL: un portátil así es solo para tu propio uso, no para
-# repartirlo. Por eso hay que pedirlo con `--sin-crate`. El portátil y el
+# repartirlo. Por eso hay que pedirlo con `--no-crate`. El portátil y el
 # instalador de verdad salen de la integración continua (windows.yml), con el
 # núcleo empaquetado en Windows y su crate dentro.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-RAIZ=$(pwd)
+ROOT=$(pwd)
 CACHE="${DANPLAY_CACHE_WIN:-$HOME/.cache/danplay-cross}"
-DESTINO="$RAIZ/dist/windows"
+DEST="$ROOT/dist/windows"
 TRIPLE=x86_64-pc-windows-gnu
 PY_VERSION="${DANPLAY_PY_WIN:-3.13.5}"
 PY_TAG=313
 
-ZIP=0; INSTALADOR=0; HERRAMIENTAS=0; SIN_CRATE=0
+ZIP=0; INSTALLER=0; WITH_TOOLS=0; NO_CRATE=0
 for arg in "$@"; do
     case "$arg" in
         --zip)          ZIP=1 ;;
-        --instalador)   INSTALADOR=1; HERRAMIENTAS=1 ;;
-        --herramientas) HERRAMIENTAS=1 ;;
-        --sin-crate)    SIN_CRATE=1 ;;
+        --installer)    INSTALLER=1; WITH_TOOLS=1 ;;
+        --with-tools)   WITH_TOOLS=1 ;;
+        --no-crate)     NO_CRATE=1 ;;
         *) printf 'no conozco la opción %s\n' "$arg" >&2; exit 2 ;;
     esac
 done
-if [ "$SIN_CRATE" = 0 ]; then
+if [ "$NO_CRATE" = 0 ]; then
     printf '%s\n' \
         "El núcleo lleva su crate de Rust (las etiquetas, con lofty) y desde Linux no" \
         "se compila para Windows: sin él, las etiquetas irían con mutagen (GPL)." \
-        "El portátil y el instalador salen de la CI: ./scripts/github.sh paquetes windows" \
-        "Para uno solo para ti, sin el crate: $0 --sin-crate $*" >&2
+        "El portátil y el instalador salen de la CI: ./scripts/github.sh packages windows" \
+        "Para uno solo para ti, sin el crate: $0 --no-crate $*" >&2
     exit 1
 fi
 
-paso () { printf '\n\033[36m== %s\033[0m\n' "$1"; }
-aviso () { printf '\033[33m%s\033[0m\n' "$1"; }
-morir () { printf '\n\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
+step () { printf '\n\033[36m== %s\033[0m\n' "$1"; }
+warn () { printf '\033[33m%s\033[0m\n' "$1"; }
+die () { printf '\n\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 
 mkdir -p "$CACHE"
 
@@ -76,13 +76,13 @@ mkdir -p "$CACHE"
 # que hace falta el de mingw de verdad.
 SYSROOT="$CACHE/mingw"
 if [ ! -x "$SYSROOT/usr/bin/x86_64-w64-mingw32-g++-win32" ]; then
-    paso "herramientas de Windows (una vez)"
+    step "herramientas de Windows (una vez)"
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     ( cd "$tmp" && apt-get download \
         binutils-mingw-w64-x86-64 mingw-w64-x86-64-dev mingw-w64-common \
         gcc-mingw-w64-base gcc-mingw-w64-x86-64-win32-runtime \
         gcc-mingw-w64-x86-64-win32 g++-mingw-w64-x86-64-win32 >/dev/null ) \
-      || morir "no pude descargar mingw-w64. ¿Hay red y apt configurado?"
+      || die "no pude descargar mingw-w64. ¿Hay red y apt configurado?"
     mkdir -p "$SYSROOT"
     for d in "$tmp"/*.deb; do dpkg-deb -x "$d" "$SYSROOT"; done
     ln -sf x86_64-w64-mingw32-gcc-win32 "$SYSROOT/usr/bin/x86_64-w64-mingw32-gcc"
@@ -96,36 +96,36 @@ if [ -z "$ZIG" ]; then
     ZIG=$(command -v zig || true)
 fi
 if [ -z "$ZIG" ]; then
-    paso "zig (una vez, para el lanzador)"
+    step "zig (una vez, para el lanzador)"
     version=$(curl -s https://ziglang.org/download/index.json |
       python3 -c "import json,sys;d=json.load(sys.stdin);print(next(k for k in d if k!='master'))")
     url=$(curl -s https://ziglang.org/download/index.json |
       python3 -c "import json,sys;d=json.load(sys.stdin);k=next(k for k in d if k!='master');print(d[k]['x86_64-linux']['tarball'])")
-    curl -sL -o "$CACHE/zig.tar.xz" "$url" || morir "no pude descargar zig ($version)"
+    curl -sL -o "$CACHE/zig.tar.xz" "$url" || die "no pude descargar zig ($version)"
     tar xf "$CACHE/zig.tar.xz" -C "$CACHE" && rm "$CACHE/zig.tar.xz"
     ZIG=$(ls -d "$CACHE"/zig-*/zig | head -1)
 fi
 
 rustup target list --installed | grep -qx "$TRIPLE" \
   || rustup target add "$TRIPLE" \
-  || morir "no pude añadir el destino $TRIPLE"
+  || die "no pude añadir el destino $TRIPLE"
 
 # ----------------------------------------------------------------- interfaz
-paso "1/5  interfaz (Vite)"
+step "1/5  interfaz (Vite)"
 ( cd desktop && npx vite build )
 
 # ------------------------------------------------------------ nucleo Python
-paso "2/5  núcleo (Python embebido de Windows + ruedas win_amd64)"
-NUCLEO="$CACHE/core-$PY_VERSION"
-if [ ! -f "$NUCLEO/python/python.exe" ]; then
-    rm -rf "$NUCLEO"; mkdir -p "$NUCLEO"
-    curl -sL -o "$NUCLEO/python.zip" \
+step "2/5  núcleo (Python embebido de Windows + ruedas win_amd64)"
+CORE_DIR="$CACHE/core-$PY_VERSION"
+if [ ! -f "$CORE_DIR/python/python.exe" ]; then
+    rm -rf "$CORE_DIR"; mkdir -p "$CORE_DIR"
+    curl -sL -o "$CORE_DIR/python.zip" \
       "https://www.python.org/ftp/python/$PY_VERSION/python-$PY_VERSION-embed-amd64.zip" \
-      || morir "no pude descargar el Python embebido $PY_VERSION"
-    unzip -oq "$NUCLEO/python.zip" -d "$NUCLEO/python" && rm "$NUCLEO/python.zip"
+      || die "no pude descargar el Python embebido $PY_VERSION"
+    unzip -oq "$CORE_DIR/python.zip" -d "$CORE_DIR/python" && rm "$CORE_DIR/python.zip"
     # Sin `import site`, el Python embebido no mira site-packages y no
     # encuentra ninguna dependencia.
-    cat > "$NUCLEO/python/python$PY_TAG._pth" <<EOF
+    cat > "$CORE_DIR/python/python$PY_TAG._pth" <<EOF
 python$PY_TAG.zip
 .
 site-packages
@@ -136,50 +136,50 @@ fi
 # Las dependencias, otra vez cada vez que cambia requirements.txt. Antes se
 # bajaban solo con el Python y se quedaban las de la primera compilacion:
 # sin numpy ni onnxruntime, en Windows no habia separador ni pulso.
-QUIERE=$(sha256sum requirements.txt | cut -d' ' -f1)
-if [ "$(cat "$NUCLEO/requisitos.sha256" 2>/dev/null)" != "$QUIERE" ]; then
-    rm -rf "$NUCLEO/wheels" "$NUCLEO/python/site-packages"
-    mkdir -p "$NUCLEO/wheels" "$NUCLEO/python/site-packages"
+REQS_HASH=$(sha256sum requirements.txt | cut -d' ' -f1)
+if [ "$(cat "$CORE_DIR/requirements.sha256" 2>/dev/null)" != "$REQS_HASH" ]; then
+    rm -rf "$CORE_DIR/wheels" "$CORE_DIR/python/site-packages"
+    mkdir -p "$CORE_DIR/wheels" "$CORE_DIR/python/site-packages"
     # el .venv de uv no trae pip: si no esta, el de uvx (aparte, sin tocar nada)
-    if "$RAIZ/.venv/bin/python" -m pip --version >/dev/null 2>&1; then
-        PIP=("$RAIZ/.venv/bin/python" -m pip)
+    if "$ROOT/.venv/bin/python" -m pip --version >/dev/null 2>&1; then
+        PIP=("$ROOT/.venv/bin/python" -m pip)
     else
         PIP=(uvx pip)
     fi
     "${PIP[@]}" download --quiet \
         --platform win_amd64 --python-version "$PY_TAG" --only-binary=:all: \
-        --dest "$NUCLEO/wheels" -r requirements.txt \
-      || morir "alguna dependencia no tiene rueda para Windows"
-    for w in "$NUCLEO"/wheels/*.whl; do unzip -oq "$w" -d "$NUCLEO/python/site-packages"; done
-    rm -rf "$NUCLEO"/python/site-packages/*.dist-info
-    printf '%s\n' "$QUIERE" > "$NUCLEO/requisitos.sha256"
+        --dest "$CORE_DIR/wheels" -r requirements.txt \
+      || die "alguna dependencia no tiene rueda para Windows"
+    for w in "$CORE_DIR"/wheels/*.whl; do unzip -oq "$w" -d "$CORE_DIR/python/site-packages"; done
+    rm -rf "$CORE_DIR"/python/site-packages/*.dist-info
+    printf '%s\n' "$REQS_HASH" > "$CORE_DIR/requirements.sha256"
 fi
 
 # el código propio se copia siempre: cambia en cada compilación
-rm -rf "$NUCLEO/python/danplay"
-cp -r danplay "$NUCLEO/python/danplay"
-find "$NUCLEO/python/danplay" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+rm -rf "$CORE_DIR/python/danplay"
+cp -r danplay "$CORE_DIR/python/danplay"
+find "$CORE_DIR/python/danplay" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
 "$ZIG" cc -target x86_64-windows-gnu -O2 -municode \
-    -o "$NUCLEO/danplay-core.exe" packaging/launcher.c \
-  || morir "no pude compilar el lanzador"
+    -o "$CORE_DIR/danplay-core.exe" packaging/launcher.c \
+  || die "no pude compilar el lanzador"
 
 # ----------------------------------------------------------- app de escritorio
-paso "3/5  aplicación (Rust, $TRIPLE)"
+step "3/5  aplicación (Rust, $TRIPLE)"
 cargo build --release -p danplay-app --target "$TRIPLE"
 
 # ------------------------------------------------------------------- montaje
-paso "4/5  montar dist/windows"
-rm -rf "$DESTINO"; mkdir -p "$DESTINO"
+step "4/5  montar dist/windows"
+rm -rf "$DEST"; mkdir -p "$DEST"
 APP=target/$TRIPLE/release
-cp "$APP/danplay-app.exe" "$DESTINO/"
+cp "$APP/danplay-app.exe" "$DEST/"
 # WebView2Loader.dll: la aplicación lo carga al arrancar y sin él no abre
-cp "$APP/WebView2Loader.dll" "$DESTINO/" 2>/dev/null \
-  || morir "falta WebView2Loader.dll junto al ejecutable"
-cp "$NUCLEO/danplay-core.exe" "$DESTINO/"
-cp -r "$NUCLEO/python" "$DESTINO/python"
-mkdir -p "$DESTINO/tools"
-cp desktop/src-tauri/tools/LEEME.txt "$DESTINO/tools/" 2>/dev/null || true
+cp "$APP/WebView2Loader.dll" "$DEST/" 2>/dev/null \
+  || die "falta WebView2Loader.dll junto al ejecutable"
+cp "$CORE_DIR/danplay-core.exe" "$DEST/"
+cp -r "$CORE_DIR/python" "$DEST/python"
+mkdir -p "$DEST/tools"
+cp desktop/src-tauri/tools/LEEME.txt "$DEST/tools/" 2>/dev/null || true
 
 # ffmpeg, fpcalc y QuickJS: en Windows no hay `apt install`, así que o van dentro
 # o no hay conversión de formatos, ni huella acústica, ni .opus/.wma sonando,
@@ -194,30 +194,30 @@ FPCALC_URL=https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chro
 FPCALC_SHA256=735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e
 QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe
 QJS_SHA256=2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77
-bajar () {  # URL SHA256 DESTINO
-    curl -sfL -o "$3" "$1" || morir "no pude descargar $1"
-    echo "$2  $3" | sha256sum -c --status - || morir "$(basename "$1") no es lo esperado (sha256)"
+download () {  # URL SHA256 DEST
+    curl -sfL -o "$3" "$1" || die "no pude descargar $1"
+    echo "$2  $3" | sha256sum -c --status - || die "$(basename "$1") no es lo esperado (sha256)"
 }
-if [ "$HERRAMIENTAS" = 1 ]; then
+if [ "$WITH_TOOLS" = 1 ]; then
     TOOLS="$CACHE/tools-win-ffmpeg9.0.2-fpcalc1.6.1-qjs0.17.0"
     if [ ! -f "$TOOLS/qjs.exe" ]; then
-        paso "herramientas de Windows: ffmpeg, fpcalc y QuickJS (una vez, ~110 MB)"
+        step "herramientas de Windows: ffmpeg, fpcalc y QuickJS (una vez, ~110 MB)"
         rm -rf "$TOOLS"; mkdir -p "$TOOLS"
         tmp=$(mktemp -d)
-        bajar "$FFMPEG_URL" "$FFMPEG_SHA256" "$tmp/ffmpeg.zip"
+        download "$FFMPEG_URL" "$FFMPEG_SHA256" "$tmp/ffmpeg.zip"
         unzip -oq "$tmp/ffmpeg.zip" -d "$tmp/ffmpeg"
         find "$tmp/ffmpeg" -name 'ffmpeg.exe' -exec cp {} "$TOOLS/" \;
-        bajar "$FPCALC_URL" "$FPCALC_SHA256" "$tmp/fpcalc.zip"
+        download "$FPCALC_URL" "$FPCALC_SHA256" "$tmp/fpcalc.zip"
         unzip -oq "$tmp/fpcalc.zip" -d "$tmp/fpcalc"
         find "$tmp/fpcalc" -name 'fpcalc.exe' -exec cp {} "$TOOLS/" \;
         rm -rf "$tmp"
-        [ -f "$TOOLS/ffmpeg.exe" ] || morir "el zip de ffmpeg no traía ffmpeg.exe"
+        [ -f "$TOOLS/ffmpeg.exe" ] || die "el zip de ffmpeg no traía ffmpeg.exe"
         # el último: es el que dice que la caché está completa
-        bajar "$QJS_URL" "$QJS_SHA256" "$TOOLS/qjs.exe"
+        download "$QJS_URL" "$QJS_SHA256" "$TOOLS/qjs.exe"
     fi
-    cp "$TOOLS/ffmpeg.exe" "$TOOLS/fpcalc.exe" "$TOOLS/qjs.exe" "$DESTINO/tools/"
+    cp "$TOOLS/ffmpeg.exe" "$TOOLS/fpcalc.exe" "$TOOLS/qjs.exe" "$DEST/tools/"
     # el LEEME de la carpeta vacia diria que aqui no hay nada
-    cat > "$DESTINO/tools/LEEME.txt" <<'EOF'
+    cat > "$DEST/tools/LEEME.txt" <<'EOF'
 ffmpeg, fpcalc y QuickJS, incluidos.
 
 En Windows no hay gestor de paquetes que los ponga, asi que viajan aqui. Son
@@ -231,7 +231,7 @@ hacer.
 EOF
 fi
 
-cat > "$DESTINO/LEEME.txt" <<'EOF'
+cat > "$DEST/LEEME.txt" <<'EOF'
 DanPlay para Windows (versión portátil)
 =======================================
 
@@ -258,101 +258,101 @@ y su acceso directo) sale de la integración continua del proyecto.
 EOF
 
 # ------------------------------------------------------------ comprobaciones
-paso "5/5  comprobar lo que ha salido"
-fallos=0
-comprobar () {
-    if [ -e "$DESTINO/$1" ]; then printf '  ok    %s\n' "$1"
-    else printf '  FALTA %s\n' "$1"; fallos=$((fallos+1)); fi
+step "5/5  comprobar lo que ha salido"
+failures=0
+check () {
+    if [ -e "$DEST/$1" ]; then printf '  ok    %s\n' "$1"
+    else printf '  FALTA %s\n' "$1"; failures=$((failures+1)); fi
 }
-comprobar danplay-app.exe
-comprobar danplay-core.exe
-comprobar WebView2Loader.dll
-comprobar python/python.exe
-comprobar python/danplay/cli.py
-comprobar python/site-packages/fastapi
-comprobar python/site-packages/mutagen
-if [ "$HERRAMIENTAS" = 1 ]; then
-    comprobar tools/ffmpeg.exe
-    comprobar tools/fpcalc.exe
-    comprobar tools/qjs.exe
+check danplay-app.exe
+check danplay-core.exe
+check WebView2Loader.dll
+check python/python.exe
+check python/danplay/cli.py
+check python/site-packages/fastapi
+check python/site-packages/mutagen
+if [ "$WITH_TOOLS" = 1 ]; then
+    check tools/ffmpeg.exe
+    check tools/fpcalc.exe
+    check tools/qjs.exe
 fi
 
 for exe in danplay-app.exe danplay-core.exe; do
-    tipo=$(file -b "$DESTINO/$exe")
-    case "$tipo" in
+    kind=$(file -b "$DEST/$exe")
+    case "$kind" in
         PE32+*) printf '  ok    %s es un ejecutable de Windows\n' "$exe" ;;
-        *) printf '  FALLA %s no es PE32+: %s\n' "$exe" "$tipo"; fallos=$((fallos+1)) ;;
+        *) printf '  FALLA %s no es PE32+: %s\n' "$exe" "$kind"; failures=$((failures+1)) ;;
     esac
 done
 
 # que el núcleo pueda importarse: si falta una dependencia, aquí se ve
-if ! "$RAIZ/.venv/bin/python" - "$DESTINO/python/site-packages" <<'EOF'
+if ! "$ROOT/.venv/bin/python" - "$DEST/python/site-packages" <<'EOF'
 import sys, pathlib
-faltan = [m for m in ("fastapi", "uvicorn", "mutagen", "rapidfuzz", "yt_dlp",
-                      "acoustid", "dotenv", "platformdirs", "send2trash",
-                      "openai", "pydantic")
-          if not list(pathlib.Path(sys.argv[1]).glob(m + "*"))]
-if faltan:
-    print("  FALLA faltan dependencias:", ", ".join(faltan)); sys.exit(1)
+missing = [m for m in ("fastapi", "uvicorn", "mutagen", "rapidfuzz", "yt_dlp",
+                       "acoustid", "dotenv", "platformdirs", "send2trash",
+                       "openai", "pydantic")
+           if not list(pathlib.Path(sys.argv[1]).glob(m + "*"))]
+if missing:
+    print("  FALLA faltan dependencias:", ", ".join(missing)); sys.exit(1)
 print("  ok    están todas las dependencias")
 EOF
-then fallos=$((fallos+1)); fi
+then failures=$((failures+1)); fi
 
-[ "$fallos" -eq 0 ] || morir "$fallos comprobación(es) fallida(s)"
+[ "$failures" -eq 0 ] || die "$failures comprobación(es) fallida(s)"
 
 VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
-PORTATIL="dist/installers/DanPlay-$VERSION-windows-portatil.zip"
+PORTABLE="dist/installers/DanPlay-$VERSION-windows-portatil.zip"
 
 if [ "$ZIP" = 1 ]; then
-    paso "extra  comprimir el portátil"
+    step "extra  comprimir el portátil"
     mkdir -p dist/installers
     # los de versiones anteriores fuera, como hace build.sh con el .deb
     rm -f dist/installers/DanPlay-*-windows-portatil.zip
     # con python: `zip` no siempre esta instalado y esto ya lo tenemos
     python3 -c "
-import shutil, sys; shutil.make_archive(sys.argv[1], 'zip', 'dist', 'windows')" "${PORTATIL%.zip}"
-    printf '  %s\n' "$PORTATIL ($(du -h "$PORTATIL" | cut -f1))"
+import shutil, sys; shutil.make_archive(sys.argv[1], 'zip', 'dist', 'windows')" "${PORTABLE%.zip}"
+    printf '  %s\n' "$PORTABLE ($(du -h "$PORTABLE" | cut -f1))"
 fi
 
 # ---------------------------------------------------------------- instalador
-if [ "$INSTALADOR" = 1 ]; then
-    paso "extra  instalador (NSIS)"
+if [ "$INSTALLER" = 1 ]; then
+    step "extra  instalador (NSIS)"
     # NSIS también se saca de sus paquetes sin instalarlo, igual que mingw.
     NSIS="$CACHE/nsis"
     if [ ! -x "$NSIS/usr/bin/makensis" ]; then
         tmp=$(mktemp -d)
         ( cd "$tmp" && apt-get download nsis nsis-common >/dev/null ) \
-          || morir "no pude descargar NSIS. ¿Hay red y apt configurado?"
+          || die "no pude descargar NSIS. ¿Hay red y apt configurado?"
         mkdir -p "$NSIS"
         for d in "$tmp"/*.deb; do dpkg-deb -x "$d" "$NSIS"; done
         rm -rf "$tmp"
     fi
 
     mkdir -p dist/installers
-    SALIDA="$RAIZ/dist/installers/DanPlay-$VERSION-instalador.exe"
+    OUTPUT="$ROOT/dist/installers/DanPlay-$VERSION-instalador.exe"
     rm -f dist/installers/DanPlay-*-instalador.exe
 
     NSISDIR="$NSIS/usr/share/nsis" "$NSIS/usr/bin/makensis" -V2 -NOCD \
         -DVERSION="$VERSION" \
-        -DORIGEN="$DESTINO" \
-        -DSALIDA="$SALIDA" \
-        -DICONO="$RAIZ/desktop/src-tauri/icons/icon.ico" \
+        -DSOURCE_DIR="$DEST" \
+        -DOUT_FILE="$OUTPUT" \
+        -DAPP_ICON="$ROOT/desktop/src-tauri/icons/icon.ico" \
         packaging/windows/installer.nsi \
-      || morir "makensis no pudo construir el instalador"
+      || die "makensis no pudo construir el instalador"
 
-    [ -f "$SALIDA" ] || morir "makensis dijo que si pero no dejo el .exe"
+    [ -f "$OUTPUT" ] || die "makensis dijo que si pero no dejo el .exe"
     # Que dentro este TODO lo de la carpeta: si NSIS se salta archivos, la
     # aplicacion instalada arranca y falla luego, que es peor que no arrancar.
-    dentro=$(7z l "$SALIDA" 2>/dev/null | grep -c '^20[0-9][0-9]-' || echo 0)
-    fuera=$(find "$DESTINO" -type f | wc -l)
-    printf '  %s  (%s)\n' "$(basename "$SALIDA")" "$(du -h "$SALIDA" | cut -f1)"
-    if [ "$dentro" -gt 0 ] && [ "$dentro" -lt "$fuera" ]; then
-        aviso "  ojo: $dentro archivos dentro y $fuera en la carpeta"
+    packed=$(7z l "$OUTPUT" 2>/dev/null | grep -c '^20[0-9][0-9]-' || echo 0)
+    on_disk=$(find "$DEST" -type f | wc -l)
+    printf '  %s  (%s)\n' "$(basename "$OUTPUT")" "$(du -h "$OUTPUT" | cut -f1)"
+    if [ "$packed" -gt 0 ] && [ "$packed" -lt "$on_disk" ]; then
+        warn "  ojo: $packed archivos dentro y $on_disk en la carpeta"
     fi
 fi
 
 printf '\n\033[32mLISTO\033[0m\n'
-printf '  portátil    : %s  (%s)\n' "$DESTINO" "$(du -sh "$DESTINO" | cut -f1)"
-[ "$ZIP" = 1 ] && printf '  comprimido  : %s\n' "$PORTATIL"
-[ "$INSTALADOR" = 1 ] && printf '  instalador  : %s\n' "dist/installers/DanPlay-$VERSION-instalador.exe"
-aviso 'Sin probar en Windows: cópialo a uno y ejecútalo.'
+printf '  portátil    : %s  (%s)\n' "$DEST" "$(du -sh "$DEST" | cut -f1)"
+[ "$ZIP" = 1 ] && printf '  comprimido  : %s\n' "$PORTABLE"
+[ "$INSTALLER" = 1 ] && printf '  instalador  : %s\n' "dist/installers/DanPlay-$VERSION-instalador.exe"
+warn 'Sin probar en Windows: cópialo a uno y ejecútalo.'
