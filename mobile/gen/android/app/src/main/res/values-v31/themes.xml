@@ -1,13 +1,13 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Android 12 y despues: la pantalla de arranque del sistema, con el
          logo de DanPlay sobre el fondo de la app. -->
-    <style name="Theme.danplay_movil" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:windowBackground">@color/danplay_fondo</item>
-        <item name="android:statusBarColor">@color/danplay_fondo</item>
-        <item name="android:navigationBarColor">@color/danplay_fondo</item>
+    <style name="Theme.danplay_mobile" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/danplay_background</item>
+        <item name="android:statusBarColor">@color/danplay_background</item>
+        <item name="android:navigationBarColor">@color/danplay_background</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="colorPrimary">@color/danplay_verde</item>
-        <item name="android:windowSplashScreenBackground">@color/danplay_fondo</item>
+        <item name="colorPrimary">@color/danplay_green</item>
+        <item name="android:windowSplashScreenBackground">@color/danplay_background</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@color/danplay_logo</item>
     </style>
 </resources>

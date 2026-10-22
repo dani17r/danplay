@@ -1,7 +1,7 @@
 {
-  "name": "danplay-movil",
+  "name": "danplay-mobile",
   "private": true,
-  "description": "La app del celular: la CLI de Tauri apuntando a este proyecto. La interfaz y sus dependencias son las de desktop/ (entrada movil.html).",
+  "description": "La app del celular: la CLI de Tauri apuntando a este proyecto. La interfaz y sus dependencias son las de desktop/ (entrada mobile.html).",
   "scripts": {
     "tauri": "TAURI_APP_PATH=. TAURI_FRONTEND_PATH=../desktop ../desktop/node_modules/.bin/tauri"
   }

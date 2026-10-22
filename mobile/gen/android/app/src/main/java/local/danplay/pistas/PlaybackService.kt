@@ -32,14 +32,14 @@ import java.io.File
  * mandos y no la cierra en segundo plano. Mientras suena, la notificación no
  * se puede quitar; en pausa, sí.
  *
- * La página le cuenta qué suena (`DanPlayAndroid.update`, ver Puente y
- * src/movil/mediaSession.js). Lo que se pulsa va directo al motor en Rust
- * (`mandoNativo`, movil/src/mandos.rs), sin pasar por la página, que se
+ * La página le cuenta qué suena (`DanPlayAndroid.update`, ver AndroidBridge y
+ * src/mobile/mediaSession.js). Lo que se pulsa va directo al motor en Rust
+ * (`nativePress`, mobile/src/controls.rs), sin pasar por la página, que se
  * entera por el evento de siempre y vuelve a contar cómo quedó.
  */
-class Reproduciendo : Service() {
+class PlaybackService : Service() {
   /** Lo que suena, tal como lo cuenta la página. */
-  data class Ahora(
+  data class NowPlaying(
     val id: Long,
     val title: String,
     val artist: String,
@@ -52,10 +52,10 @@ class Reproduciendo : Service() {
   ) {
     companion object {
       /** null: no suena nada (se quita la notificación). */
-      fun de(json: String): Ahora? {
+      fun parse(json: String): NowPlaying? {
         val o = try { JSONObject(json) } catch (e: Exception) { return null }
         if (o.isNull("id")) return null
-        return Ahora(
+        return NowPlaying(
           id = o.optLong("id"),
           title = o.optString("title"),
           artist = o.optString("artist"),
@@ -71,7 +71,7 @@ class Reproduciendo : Service() {
   }
 
   companion object {
-    // los mismos números que movil/src/mandos.rs
+    // los mismos números que mobile/src/controls.rs
     const val PLAY = 0
     const val PAUSE = 1
     const val TOGGLE = 2
@@ -79,37 +79,37 @@ class Reproduciendo : Service() {
     const val PREVIOUS = 4
     const val SEEK = 5
 
-    private const val CANAL = "reproduccion"
-    private const val AVISO = 1
-    private const val EXTRA = "mando"
+    private const val CHANNEL = "reproduccion"
+    private const val NOTIFICATION_ID = 1
+    private const val EXTRA = "press"
     private val main = Handler(Looper.getMainLooper())
 
-    @Volatile private var ahora: Ahora? = null
-    private var servicio: Reproduciendo? = null
+    @Volatile private var nowPlaying: NowPlaying? = null
+    private var instance: PlaybackService? = null
 
     /** En Rust: el reproductor cumple lo que se pulsó. */
-    @JvmStatic external fun mandoNativo(accion: Int, segundos: Double): Boolean
+    @JvmStatic external fun nativePress(action: Int, seconds: Double): Boolean
 
-    fun mando(accion: Int, segundos: Double = 0.0) {
+    fun press(action: Int, seconds: Double = 0.0) {
       try {
-        mandoNativo(accion, segundos)
+        nativePress(action, seconds)
       } catch (e: UnsatisfiedLinkError) {
         // la app no está cargada (no debería pasar con la notificación puesta)
       }
     }
 
     /** La página cuenta qué suena. Llega en el hilo del WebView. */
-    fun cuenta(context: Context, json: String) {
-      val nuevo = Ahora.de(json)
+    fun report(context: Context, json: String) {
+      val latest = NowPlaying.parse(json)
       main.post {
-        ahora = nuevo
-        val s = servicio
+        nowPlaying = latest
+        val s = instance
         when {
-          nuevo == null -> s?.parar()
-          s != null -> s.pintar(nuevo)
+          latest == null -> s?.dismiss()
+          s != null -> s.show(latest)
           // arranca al ponerse a sonar, con la app delante (se acaba de tocar)
-          nuevo.playing -> try {
-            context.startForegroundService(Intent(context, Reproduciendo::class.java))
+          latest.playing -> try {
+            context.startForegroundService(Intent(context, PlaybackService::class.java))
           } catch (e: Exception) {
             // Android no deja arrancarlo desde segundo plano: a la próxima
           }
@@ -119,32 +119,32 @@ class Reproduciendo : Service() {
   }
 
   private lateinit var session: MediaSession
-  private var portadaDe: String? = null
-  private var portada: Bitmap? = null
-  private var enPrimerPlano = false
+  private var coverFolder: String? = null
+  private var cover: Bitmap? = null
+  private var inForeground = false
 
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onCreate() {
     super.onCreate()
-    servicio = this
+    instance = this
     val nm = getSystemService(NotificationManager::class.java)
     nm.createNotificationChannel(
-      NotificationChannel(CANAL, "Reproducción", NotificationManager.IMPORTANCE_LOW).apply {
+      NotificationChannel(CHANNEL, "Reproducción", NotificationManager.IMPORTANCE_LOW).apply {
         description = "Los mandos de lo que suena: pausa, anterior y siguiente"
         setShowBadge(false)
       }
     )
     session = MediaSession(this, "DanPlay").apply {
       setCallback(object : MediaSession.Callback() {
-        override fun onPlay() = mando(PLAY)
-        override fun onPause() = mando(PAUSE)
-        override fun onStop() = mando(PAUSE)
-        override fun onSkipToNext() = mando(NEXT)
-        override fun onSkipToPrevious() = mando(PREVIOUS)
-        override fun onSeekTo(pos: Long) = mando(SEEK, pos / 1000.0)
+        override fun onPlay() = press(PLAY)
+        override fun onPause() = press(PAUSE)
+        override fun onStop() = press(PAUSE)
+        override fun onSkipToNext() = press(NEXT)
+        override fun onSkipToPrevious() = press(PREVIOUS)
+        override fun onSeekTo(pos: Long) = press(SEEK, pos / 1000.0)
       })
-      setSessionActivity(abrirApp())
+      setSessionActivity(openApp())
       isActive = true
     }
   }
@@ -154,43 +154,43 @@ class Reproduciendo : Service() {
     // el sistema con la sesión y llegan por el Callback de arriba)
     when (intent?.getIntExtra(EXTRA, -1) ?: -1) {
       -1 -> {}
-      else -> mando(intent!!.getIntExtra(EXTRA, TOGGLE))
+      else -> press(intent!!.getIntExtra(EXTRA, TOGGLE))
     }
-    val a = ahora
-    if (a != null) pintar(a) else parar()
+    val a = nowPlaying
+    if (a != null) show(a) else dismiss()
     return START_NOT_STICKY
   }
 
   /** Quitar la app de recientes: se para la música y se va la notificación. */
   override fun onTaskRemoved(rootIntent: Intent?) {
-    mando(PAUSE)
-    parar()
+    press(PAUSE)
+    dismiss()
     super.onTaskRemoved(rootIntent)
   }
 
   override fun onDestroy() {
     session.isActive = false
     session.release()
-    servicio = null
+    instance = null
     super.onDestroy()
   }
 
-  fun pintar(a: Ahora) {
+  fun show(a: NowPlaying) {
     session.setMetadata(
       MediaMetadata.Builder()
         .putString(MediaMetadata.METADATA_KEY_TITLE, a.title)
         .putString(MediaMetadata.METADATA_KEY_ARTIST, a.artist)
         .putLong(MediaMetadata.METADATA_KEY_DURATION, a.duration)
-        .apply { portada(a.folder)?.let { putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, it) } }
+        .apply { coverOf(a.folder)?.let { putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, it) } }
         .build()
     )
-    var acciones = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
+    var actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
       PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_SKIP_TO_PREVIOUS or
       PlaybackState.ACTION_SEEK_TO or PlaybackState.ACTION_STOP
-    if (a.hasNext) acciones = acciones or PlaybackState.ACTION_SKIP_TO_NEXT
+    if (a.hasNext) actions = actions or PlaybackState.ACTION_SKIP_TO_NEXT
     session.setPlaybackState(
       PlaybackState.Builder()
-        .setActions(acciones)
+        .setActions(actions)
         .setState(
           if (a.playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
           a.position,
@@ -198,64 +198,64 @@ class Reproduciendo : Service() {
         )
         .build()
     )
-    val aviso = notificacion(a)
+    val notification = buildNotification(a)
     val nm = getSystemService(NotificationManager::class.java)
     if (a.playing) {
       try {
         if (Build.VERSION.SDK_INT >= 29) {
-          startForeground(AVISO, aviso, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+          startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
-          startForeground(AVISO, aviso)
+          startForeground(NOTIFICATION_ID, notification)
         }
-        enPrimerPlano = true
+        inForeground = true
       } catch (e: Exception) {
-        nm.notify(AVISO, aviso)
+        nm.notify(NOTIFICATION_ID, notification)
       }
     } else {
-      if (enPrimerPlano) {
+      if (inForeground) {
         stopForeground(STOP_FOREGROUND_DETACH)
-        enPrimerPlano = false
+        inForeground = false
       }
-      nm.notify(AVISO, aviso)
+      nm.notify(NOTIFICATION_ID, notification)
     }
   }
 
-  fun parar() {
+  fun dismiss() {
     stopForeground(STOP_FOREGROUND_REMOVE)
-    enPrimerPlano = false
-    getSystemService(NotificationManager::class.java).cancel(AVISO)
+    inForeground = false
+    getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
     stopSelf()
   }
 
-  private fun notificacion(a: Ahora): Notification {
-    val boton = { icono: Int, nombre: String, accion: Int ->
+  private fun buildNotification(a: NowPlaying): Notification {
+    val button = { icon: Int, name: String, action: Int ->
       Notification.Action.Builder(
-        Icon.createWithResource(this, icono),
-        nombre,
+        Icon.createWithResource(this, icon),
+        name,
         PendingIntent.getService(
           this,
-          accion,
-          Intent(this, Reproduciendo::class.java).putExtra(EXTRA, accion),
+          action,
+          Intent(this, PlaybackService::class.java).putExtra(EXTRA, action),
           PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
       ).build()
     }
-    return Notification.Builder(this, CANAL)
+    return Notification.Builder(this, CHANNEL)
       .setSmallIcon(R.drawable.ic_stat_danplay)
       .setContentTitle(a.title)
       .setContentText(a.artist)
-      .setLargeIcon(portada(a.folder))
-      .setContentIntent(abrirApp())
+      .setLargeIcon(coverOf(a.folder))
+      .setContentIntent(openApp())
       .setVisibility(Notification.VISIBILITY_PUBLIC)
       .setCategory(Notification.CATEGORY_TRANSPORT)
       .setOngoing(a.playing)
       .setShowWhen(false)
-      .addAction(boton(R.drawable.ic_mando_anterior, "Anterior", PREVIOUS))
+      .addAction(button(R.drawable.ic_control_previous, "Anterior", PREVIOUS))
       .addAction(
-        if (a.playing) boton(R.drawable.ic_mando_pausa, "Pausar", PAUSE)
-        else boton(R.drawable.ic_mando_sonar, "Reproducir", PLAY)
+        if (a.playing) button(R.drawable.ic_control_pause, "Pausar", PAUSE)
+        else button(R.drawable.ic_control_play, "Reproducir", PLAY)
       )
-      .addAction(boton(R.drawable.ic_mando_siguiente, "Siguiente", NEXT))
+      .addAction(button(R.drawable.ic_control_next, "Siguiente", NEXT))
       .setStyle(
         Notification.MediaStyle()
           .setMediaSession(session.sessionToken)
@@ -265,7 +265,7 @@ class Reproduciendo : Service() {
   }
 
   /** Tocar la notificación abre la app donde estaba. */
-  private fun abrirApp(): PendingIntent = PendingIntent.getActivity(
+  private fun openApp(): PendingIntent = PendingIntent.getActivity(
     this,
     0,
     Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -273,24 +273,24 @@ class Reproduciendo : Service() {
   )
 
   /** La portada de la pista (la que nombra su `pista.json`), pequeña. */
-  private fun portada(folder: String): Bitmap? {
-    if (folder == portadaDe) return portada
-    portadaDe = folder
-    portada = try {
+  private fun coverOf(folder: String): Bitmap? {
+    if (folder == coverFolder) return cover
+    coverFolder = folder
+    cover = try {
       val dir = File(folder)
-      val nombre = JSONObject(File(dir, "pista.json").readText()).optString("cover")
-      val archivo = File(dir, nombre)
-      if (nombre.isEmpty() || !archivo.isFile) null else {
-        val medidas = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(archivo.path, medidas)
-        var escala = 1
-        while (medidas.outWidth / (escala * 2) >= 512) escala *= 2
-        BitmapFactory.decodeFile(archivo.path, BitmapFactory.Options().apply { inSampleSize = escala })
+      val name = JSONObject(File(dir, "pista.json").readText()).optString("cover")
+      val file = File(dir, name)
+      if (name.isEmpty() || !file.isFile) null else {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        var scale = 1
+        while (bounds.outWidth / (scale * 2) >= 512) scale *= 2
+        BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = scale })
       }
     } catch (e: Exception) {
       null
     }
-    return portada
+    return cover
   }
 }
 
@@ -298,9 +298,9 @@ class Reproduciendo : Service() {
  * Lo que la página puede decirle a Android: `DanPlayAndroid.update(json)`
  * con lo que suena. Lo pone MainActivity en el WebView.
  */
-class Puente(private val context: Context) {
+class AndroidBridge(private val context: Context) {
   @JavascriptInterface
   fun update(json: String) {
-    Reproduciendo.cuenta(context, json)
+    PlaybackService.report(context, json)
   }
 }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- los de la interfaz (desktop/src/styles/base.css) -->
-    <color name="danplay_fondo">#FF0C0D10</color>
+    <color name="danplay_background">#FF0C0D10</color>
     <color name="danplay_logo">#FF121419</color>
-    <color name="danplay_verde">#FF4ADE80</color>
+    <color name="danplay_green">#FF4ADE80</color>
 </resources>

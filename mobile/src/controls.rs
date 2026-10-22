@@ -2,7 +2,7 @@
 //! la pantalla de bloqueo, los auriculares y el reloj.
 //!
 //! La notificación la lleva Kotlin con una sesión multimedia
-//! (`gen/android/.../Reproduciendo.kt`), y lo que se pulsa en ella llega aquí
+//! (`gen/android/.../PlaybackService.kt`), y lo que se pulsa en ella llega aquí
 //! directo, sin pasar por la página: así funciona aunque el WebView esté
 //! dormido en segundo plano. La página se entera por el evento de siempre
 //! (`danplay://state`) y le vuelve a contar a Kotlin cómo quedó.
@@ -15,7 +15,7 @@ use tauri::{AppHandle, Manager};
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
 
-/// Lo que se pulsó. Los números son los de `Reproduciendo.kt`.
+/// Lo que se pulsó. Los números son los de `PlaybackService.kt`.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Press {
     Play,
@@ -72,13 +72,13 @@ pub fn press(code: i32, seconds: f64) -> bool {
     true
 }
 
-/// `Reproduciendo.mandoNativo(accion, segundos)` en Kotlin. Recibe solo
+/// `PlaybackService.nativePress(action, seconds)` en Kotlin. Recibe solo
 /// números (`jint`, `jdouble`) y no toca el entorno de Java: lo único
 /// inseguro es el nombre fijo que busca la máquina de Java.
 #[cfg(target_os = "android")]
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_local_danplay_pistas_Reproduciendo_mandoNativo(
+pub extern "system" fn Java_local_danplay_pistas_PlaybackService_nativePress(
     _env: *mut std::ffi::c_void,
     _class: *mut std::ffi::c_void,
     code: i32,

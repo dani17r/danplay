@@ -30,7 +30,9 @@ pub const EXTENSIONS: &[&str] = &[
     "mp3", "flac", "wav", "ogg", "opus", "m4a", "aac", "aiff", "aif",
 ];
 /// Lo que se guarda en la carpeta de la app.
-const INDEX: &str = "musica.json";
+const INDEX: &str = "music.json";
+/// El nombre que tenia `INDEX` en las versiones anteriores.
+const LEGACY_INDEX: &str = "musica.json";
 /// Hasta donde se baja buscando carpetas con música.
 const DEPTH: usize = 5;
 /// Carpetas del teléfono que nunca tienen música de uno.
@@ -77,7 +79,7 @@ pub struct Media {
     pub mtime: u64,
 }
 
-pub struct Musica {
+pub struct Music {
     file: PathBuf,
     /// Donde se busca: la memoria del teléfono (o, en la PC, la música).
     root: PathBuf,
@@ -209,18 +211,19 @@ fn read_tags(path: &Path) -> (String, String, String, f64) {
     )
 }
 
-impl Musica {
-    pub fn new(dir: &Path) -> Musica {
-        Musica::with_root(dir, default_root())
+impl Music {
+    pub fn new(dir: &Path) -> Music {
+        Music::with_root(dir, default_root())
     }
 
-    pub fn with_root(dir: &Path, root: PathBuf) -> Musica {
+    pub fn with_root(dir: &Path, root: PathBuf) -> Music {
         let file = dir.join(INDEX);
+        danplay_engine::bundle::legacy(&file, &dir.join(LEGACY_INDEX));
         let saved = fs::read(&file)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default();
-        Musica {
+        Music {
             file,
             root,
             saved: Mutex::new(saved),
@@ -637,7 +640,7 @@ mod tests {
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("danplay-musica-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("danplay-music-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).expect("carpeta");
         d
@@ -668,7 +671,7 @@ mod tests {
     #[test]
     fn what_android_counts_includes_the_sd_card_and_the_apps_folders() {
         let app = tmp("android");
-        let m = Musica::with_root(&app, PathBuf::from("/storage/emulated/0"));
+        let m = Music::with_root(&app, PathBuf::from("/storage/emulated/0"));
         let item = |path: &str, title: &str, artist: &str| Media {
             path: path.to_string(),
             title: title.to_string(),
@@ -716,15 +719,15 @@ mod tests {
             all.iter()
                 .any(|s| s.title == "Shekinah" && s.artist == "New Wine")
         );
-        let gozo = all
+        let the_song = all
             .iter()
             .find(|s| s.title == "Mi Gozo")
             .expect("de Música");
         assert!(
-            (gozo.duration - 245.0).abs() < 1e-9,
+            (the_song.duration - 245.0).abs() < 1e-9,
             "Android la da en milisegundos"
         );
-        assert_eq!(gozo.album, "", "«<unknown>» es que no lo sabe");
+        assert_eq!(the_song.album, "", "«<unknown>» es que no lo sabe");
         // elegida también la de Telegram: su nombre sale del archivo
         let telegram = folders["folders"][1]["path"]
             .as_str()
@@ -748,7 +751,7 @@ mod tests {
         wav(&root.join("Notas/grabacion.wav"));
         wav(&root.join("Android/data/x/ruido.wav"));
         fs::write(root.join("Music/Barak/portada.jpg"), b"x").expect("jpg");
-        let m = Musica::with_root(&app, root.clone());
+        let m = Music::with_root(&app, root.clone());
         let folders = m.folders();
         let names: Vec<_> = folders["folders"]
             .as_array()
@@ -772,21 +775,21 @@ mod tests {
         );
         assert_eq!(m.scan(), 3);
         let songs = m.songs();
-        let gozo = songs.iter().find(|s| s.title == "Mi Gozo").expect("leída");
-        assert_eq!(gozo.artist, "Barak", "del nombre «Artista - Título»");
-        assert!((gozo.duration - 0.5).abs() < 0.01);
-        assert!(gozo.id < 0, "negativo: no se confunde con las pistas");
+        let the_song = songs.iter().find(|s| s.title == "Mi Gozo").expect("leída");
+        assert_eq!(the_song.artist, "Barak", "del nombre «Artista - Título»");
+        assert!((the_song.duration - 0.5).abs() < 0.01);
+        assert!(the_song.id < 0, "negativo: no se confunde con las pistas");
         // la carpeta de una: las de al lado, en orden
         let side: Vec<_> = m
-            .folder_of(gozo.id)
+            .folder_of(the_song.id)
             .iter()
             .map(|s| s.title.clone())
             .collect();
         assert_eq!(side, ["Mi Gozo", "Sera Llena"]);
         // elegir otras carpetas, y se recuerda
-        let notas = root.join("Notas").to_string_lossy().into_owned();
-        assert_eq!(m.set_folders(vec![notas]), 1);
-        let again = Musica::with_root(&app, root.clone());
+        let notes_dir = root.join("Notas").to_string_lossy().into_owned();
+        assert_eq!(m.set_folders(vec![notes_dir]), 1);
+        let again = Music::with_root(&app, root.clone());
         assert_eq!(again.songs().len(), 1);
         assert_eq!(again.folders()["chosen"], json!(true));
         let _ = fs::remove_dir_all(root);
