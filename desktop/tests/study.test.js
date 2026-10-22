@@ -121,7 +121,7 @@ async function quit(w) {
 /** Lo que llega a Rust con un tramo: los dos bordes y qué pasa al acabar (de fábrica, parar). */
 const loopArgs = (a, b, end = 'stop') => [a, b, { segments: [[a, b]], end }]
 
-describe('la barra de estudio', () => {
+describe('the study bar', () => {
   // jsdom no maqueta: la caja de la onda dice que va de x=0 a x=400
   function withWidth(w, left = 0, width = 400) {
     w.find('.tl-box').element.getBoundingClientRect = () => ({
@@ -146,7 +146,7 @@ describe('la barra de estudio', () => {
     return flushPromises()
   }
 
-  it('el tramo se elige arrastrando sobre la onda, y se guarda', async () => {
+  it('the segment is chosen by dragging over the waveform, and saved', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     expect(w.text()).toContain('Barak — Mi Gozo')
@@ -179,7 +179,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('arrastrar hacia la izquierda tambien vale, y de derecha a izquierda es el mismo tramo', async () => {
+  it('dragging to the left works too, and right to left gives the same segment', async () => {
     const w = await mountView()
     withWidth(w)
     const box = w.find('.tl-box').element
@@ -190,7 +190,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('un clic sin arrastrar lleva la cancion ahi y no toca el bucle (sin candado)', async () => {
+  it('a click without dragging moves the song there and leaves the loop alone (unlocked)', async () => {
     const w = await mountView()
     vi.clearAllMocks() // al entrar se aplica lo guardado (sin bucle): eso no cuenta
     withWidth(w)
@@ -203,7 +203,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('con el candado, sonando, un clic no mueve la cancion y el candado lo avisa', async () => {
+  it('when locked and playing, a click does not move the song and the lock says so', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     vi.clearAllMocks()
@@ -235,7 +235,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('sin candado, elegir un tramo por fuera de donde va salta a A', async () => {
+  it('unlocked, choosing a segment outside the current position jumps to A', async () => {
     localStorage.setItem('danplay.study.lock', 'false')
     const w = await mountView()
     vi.clearAllMocks()
@@ -250,7 +250,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('un tramo de menos de medio segundo no es un bucle', async () => {
+  it('a segment under half a second is not a loop', async () => {
     const w = await mountView()
     vi.clearAllMocks()
     withWidth(w)
@@ -264,7 +264,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('los bordes del tramo se cogen y se mueven; el tramo entero tambien', async () => {
+  it('the segment edges can be grabbed and moved; the whole segment too', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 100] }) })]
     const w = await mountView()
     withWidth(w)
@@ -293,7 +293,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('un borde no puede pasar al otro', async () => {
+  it('one edge cannot cross the other', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 100] }) })]
     const w = await mountView()
     withWidth(w)
@@ -307,7 +307,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('cerca de un marcador, el borde se pega a el', async () => {
+  it('near a marker, the edge snaps to it', async () => {
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ markers: [{ t: 60, label: 'coro' }] }) })
     ]
@@ -335,7 +335,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('con el candado, un tramo de la onda se pone sin saltar; desde la lista si salta', async () => {
+  it('when locked, a segment from the waveform is set without jumping; from the list it does jump', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -354,7 +354,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('las teclas A y B marcan el tramo mientras suena', async () => {
+  it('the A and B keys mark the segment while playing', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     await press('a')
@@ -381,7 +381,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('la regla lleva los minutos y el final', async () => {
+  it('the ruler shows the minutes and the end', async () => {
     const w = await mountView()
     const labels = w.findAll('.tl-tick-label').map((t) => t.text())
     // 200 s con 800 px de ancho supuesto: una marca con numero cada 30 s
@@ -390,7 +390,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('sin forma de onda (sin ffmpeg) la linea de tiempo sigue sirviendo', async () => {
+  it('without a waveform (no ffmpeg) the timeline still works', async () => {
     held.api.waveform.mockRejectedValueOnce(new Error('501: hace falta ffmpeg'))
     const w = await mountView()
     expect(w.text()).toContain('sin forma de onda')
@@ -403,14 +403,14 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('ya no hay botones de inicio y fin', async () => {
+  it('there are no start and end buttons anymore', async () => {
     const w = await mountView()
     expect(button(w, 'Marcar A')).toBeUndefined()
     expect(button(w, 'Marcar B')).toBeUndefined()
     w.unmount()
   })
 
-  it('la velocidad se aplica y se guarda; sin ffmpeg avisa de que el tono cambia', async () => {
+  it('speed is applied and saved; without ffmpeg it warns that the pitch changes', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     await button(w, '0.7×').trigger('click')
@@ -426,7 +426,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('un tramo se guarda como marcador con su inicio y su final, y sus notas', async () => {
+  it('a segment is saved as a marker with its start, its end and its notes', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     withWidth(w)
@@ -463,7 +463,7 @@ describe('la barra de estudio', () => {
     vi.useRealTimers()
   })
 
-  it('pulsar un marcador pone su bucle y coloca la cancion al principio del tramo', async () => {
+  it('clicking a marker sets its loop and puts the song at the segment start', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -501,7 +501,7 @@ describe('la barra de estudio', () => {
     expect(held.playback.bridge.setLoop).not.toHaveBeenCalled()
   })
 
-  it('en pausa, elegir un marcador deja la cancion colocada sin arrancarla', async () => {
+  it('when paused, choosing a marker positions the song without starting it', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -517,7 +517,7 @@ describe('la barra de estudio', () => {
     expect(held.playback.bridge.toggle).not.toHaveBeenCalled()
   })
 
-  it('renombrar es otro boton: pulsar el nombre no abre ningun dialogo', async () => {
+  it('renaming is a separate button: clicking the name opens no dialog', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -531,7 +531,7 @@ describe('la barra de estudio', () => {
     expect(w.find('.study-marker .field-btn[title^="Renombrar"]').exists()).toBe(true)
   })
 
-  it('con un marcador elegido, mover los bordes del tramo lo cambia a el', async () => {
+  it('with a marker selected, moving the segment edges changes the marker', async () => {
     vi.useFakeTimers()
     held.state.songs = [
       song(7, {
@@ -565,7 +565,7 @@ describe('la barra de estudio', () => {
     vi.useRealTimers()
   })
 
-  it('sin tramo elegido, «aqui» marca el instante por el que va', async () => {
+  it('with no segment chosen, «aqui» marks the current instant', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     await button(w, 'aquí').trigger('click')
@@ -581,7 +581,7 @@ describe('la barra de estudio', () => {
     vi.useRealTimers()
   })
 
-  it('quitar el marcador elegido cierra sus notas', async () => {
+  it('removing the selected marker closes its notes', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -599,7 +599,7 @@ describe('la barra de estudio', () => {
     expect(w.findAll('.study-marker')).toHaveLength(0)
   })
 
-  it('lo guardado con la cancion se aplica al entrar y se quita al cerrar', async () => {
+  it('what is saved with the song is applied on entry and removed on close', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -626,7 +626,7 @@ describe('la barra de estudio', () => {
     w.unmount()
   })
 
-  it('un clic en la onda quita el tramo; con el candado, sonando, sin mover la cancion', async () => {
+  it('a click on the waveform clears the segment; when locked and playing, without moving the song', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 100] }) })]
     const w = await mountView()
     vi.clearAllMocks()
@@ -652,7 +652,7 @@ describe('la barra de estudio', () => {
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(75)
   })
 
-  it('con «varios», cada arrastre añade un tramo, se repiten seguidos y un clic quita uno', async () => {
+  it('with «varios», each drag adds a segment, they repeat in sequence and a click removes one', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     vi.clearAllMocks()
@@ -702,7 +702,7 @@ describe('la barra de estudio', () => {
     vi.useRealTimers()
   })
 
-  it('varios tramos se guardan como un marcador, y al elegirlo vuelven todos', async () => {
+  it('several segments are saved as one marker, and choosing it brings them all back', async () => {
     vi.useFakeTimers()
     held.state.songs = [
       song(7, {
@@ -751,7 +751,7 @@ describe('la barra de estudio', () => {
     vi.useRealTimers()
   })
 
-  it('las opciones de un tramo: sonar ya, repetir al acabar, a los pulsos y quitar', async () => {
+  it('segment options: play now, repeat at the end, snap to beats and remove', async () => {
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50.1, 99.9] }) })
     ]
@@ -813,7 +813,7 @@ describe('la barra de estudio', () => {
     expect(w.find('.tl-loop').exists()).toBe(false)
   })
 
-  it('el clic derecho en la onda ofrece ir ahi y, con varios, quitar solo ese tramo', async () => {
+  it('right-clicking the waveform offers going there and, with several, removing only that segment', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -850,8 +850,8 @@ describe('la barra de estudio', () => {
   })
 })
 
-describe('lo que se guarda va a su cancion', () => {
-  it('al abrir con algo ya sonando, lo guardado se lee una sola vez', async () => {
+describe('what is saved goes to its song', () => {
+  it('opening with something already playing reads the saved data only once', async () => {
     // lo normal: el reproductor ya sabe que suena cuando se abre la barra
     await usePlayback().ready()
     held.playback.emit({
@@ -867,7 +867,7 @@ describe('lo que se guarda va a su cancion', () => {
     expect(held.api.song).toHaveBeenCalledWith(7)
   })
 
-  it('si la cancion cambia antes de guardarse, las notas se guardan en la suya', async () => {
+  it('if the song changes before saving, the notes are saved to their own song', async () => {
     // El guardado espera 600 ms y leia la cancion y las notas al hacerlo:
     // si entre medias cambiaba la cancion, las notas de la primera acababan
     // en la segunda (en el indice y en la etiqueta del archivo).
@@ -896,7 +896,7 @@ describe('lo que se guarda va a su cancion', () => {
     vi.useRealTimers()
   })
 
-  it('al ocultarlo se guarda lo pendiente sin esperar', async () => {
+  it('hiding it saves pending changes without waiting', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     await w.find('textarea').setValue('entrar tras el redoble')
@@ -909,8 +909,8 @@ describe('lo que se guarda va a su cancion', () => {
   })
 })
 
-describe('el estudio en grande', () => {
-  it('«Grande» lo sube a todo el alto y, cerrado así, se vuelve a abrir grande', async () => {
+describe('the large study view', () => {
+  it('«Grande» expands it to full height and, closed like that, it reopens large', async () => {
     const w = await mountView()
     const big = () => w.find('.study-size')
     expect(w.find('.study').classes()).not.toContain('big')
@@ -931,7 +931,7 @@ describe('el estudio en grande', () => {
   })
 })
 
-describe('tono, velocidad fina y metronomo', () => {
+describe('pitch, fine speed and metronome', () => {
   function withWidth(w, left = 0, width = 400) {
     w.find('.tl-box').element.getBoundingClientRect = () => ({
       left,
@@ -946,7 +946,7 @@ describe('tono, velocidad fina y metronomo', () => {
   }
   const bridge = () => held.playback.bridge
 
-  it('el tono se cuenta en tonos: de medio en medio (un semitono), enseña el tono resultante y se guarda', async () => {
+  it('pitch is counted in tones: in half steps (a semitone), shows the resulting key and is saved', async () => {
     vi.useFakeTimers()
     held.playback.emit({
       track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200, key: 'G' }
@@ -975,7 +975,7 @@ describe('tono, velocidad fina y metronomo', () => {
     vi.useRealTimers()
   })
 
-  it('el tono va tambien de cuarto en cuarto de tono y de tono en tono', async () => {
+  it('pitch also moves in quarter tones and in whole tones', async () => {
     vi.useFakeTimers()
     held.playback.emit({
       track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200, key: 'G' }
@@ -1002,14 +1002,14 @@ describe('tono, velocidad fina y metronomo', () => {
     vi.useRealTimers()
   })
 
-  it('un tono guardado con cuartos vuelve con la cancion', async () => {
+  it('a pitch saved with quarter tones comes back with the song', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ pitch: -0.5 }) })]
     const w = await mountView()
     expect(bridge().setPitch).toHaveBeenCalledWith(-0.5)
     expect(w.find('.study-pitch-n').text()).toBe('un cuarto de tono abajo')
   })
 
-  it('el tono guardado se aplica al entrar y se quita al salir del estudio, como la velocidad', async () => {
+  it('the saved pitch is applied on entry and removed on leaving study mode, like the speed', async () => {
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ pitch: -3, speed: 0.9 }) })
     ]
@@ -1022,7 +1022,7 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(w.emitted('exit')).toBeTruthy()
   })
 
-  it('la velocidad tiene deslizador fino ademas de los botones', async () => {
+  it('speed has a fine slider besides the buttons', async () => {
     const w = await mountView()
     await w.find('input[aria-label="Velocidad"]').setValue('0.83')
     await flushPromises()
@@ -1030,7 +1030,7 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(w.text()).toContain('83 %')
   })
 
-  it('al entrar se analiza el compas de la cancion que suena y se pinta la rejilla', async () => {
+  it('on entry the beat of the playing song is analysed and the grid is drawn', async () => {
     const w = await mountView()
     expect(held.playback.bridge.analyzeBeats).toHaveBeenCalledWith('/musica/mi-gozo.mp3', null)
     // con la rejilla ya en Rust se vuelven a mandar los ajustes para que el clic la coja
@@ -1040,7 +1040,7 @@ describe('tono, velocidad fina y metronomo', () => {
     w.unmount()
   })
 
-  it('el clic arranca al compas y se para aparte de la cancion', async () => {
+  it('the click starts on the beat and stops separately from the song', async () => {
     const w = await mountView()
     vi.clearAllMocks()
     await w.find('.study-metro-toggle').trigger('click')
@@ -1058,7 +1058,7 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(bridge().toggle).not.toHaveBeenCalled()
   })
 
-  it('la cuenta y el sonido del clic: se eligen, se recuerdan, y la cuenta se quita al cerrar', async () => {
+  it('the count-in and the click sound: chosen, remembered, and the count-in is removed on close', async () => {
     localStorage.removeItem('danplay.click.countIn')
     localStorage.removeItem('danplay.click.sound')
     try {
@@ -1110,7 +1110,7 @@ describe('tono, velocidad fina y metronomo', () => {
     }
   })
 
-  it('a otra velocidad el clic enseña el tempo que se oye, con su decimal', async () => {
+  it('at another speed the click shows the tempo as heard, with its decimal', async () => {
     const w = await mountView()
     held.playback.emit({ speed: 0.5 })
     await flushPromises()
@@ -1120,7 +1120,7 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(w.find('.study-bpm-input input').element.value).toBe('99.6')
   })
 
-  it('subir o bajar los bpm lo pone libre; «el de la cancion» vuelve a seguirla; todo se guarda', async () => {
+  it('raising or lowering the bpm makes it free; «el de la cancion» follows the song again; everything is saved', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     vi.clearAllMocks()
@@ -1155,7 +1155,7 @@ describe('tono, velocidad fina y metronomo', () => {
     vi.useRealTimers()
   })
 
-  it('el tempo se escribe con decimales, y las flechas lo mueven de decima en decima', async () => {
+  it('tempo is typed with decimals, and arrow keys move it by tenths', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     vi.clearAllMocks()
@@ -1192,7 +1192,7 @@ describe('tono, velocidad fina y metronomo', () => {
     vi.useRealTimers()
   })
 
-  it('×2 dobla tambien el tempo puesto a mano, y la onda pinta el doble de pulsos', async () => {
+  it('×2 also doubles a manually set tempo, and the waveform draws twice the beats', async () => {
     const w = await mountView()
     const tempo = w.find('.study-bpm-input input')
     await tempo.trigger('focus')
@@ -1222,7 +1222,7 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(button(w, '×2').classes()).not.toContain('on')
   })
 
-  it('sin acento: el compas 0 se guarda y la onda no marca ningun «1»', async () => {
+  it('no accent: meter 0 is saved and the waveform marks no «1»', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     await openClickMore(w)
@@ -1242,7 +1242,7 @@ describe('tono, velocidad fina y metronomo', () => {
     vi.useRealTimers()
   })
 
-  it('lo ajustado a mano vuelve con la cancion, y al cambiar de cancion se analiza la nueva', async () => {
+  it('manual adjustments come back with the song, and changing song analyses the new one', async () => {
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { meter: 3, shift: 2 } }) }),
       song(8, { title: 'Otra' })
@@ -1266,7 +1266,7 @@ describe('tono, velocidad fina y metronomo', () => {
     )
   })
 
-  it('si no se puede analizar, el clic va libre y lo dice', async () => {
+  it('if it cannot be analysed, the click runs free and says so', async () => {
     held.playback.bridge.analyzeBeats.mockRejectedValueOnce(
       new Error('no se encuentra un pulso estable')
     )
@@ -1278,7 +1278,7 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
   })
 
-  it('el volumen del clic tiene su deslizador, hasta el triple', async () => {
+  it('the click volume has its own slider, up to triple', async () => {
     const w = await mountView()
     const vol = w.find('.study-metro-vol input[type="range"]')
     expect(vol.attributes('max')).toBe('3')
@@ -1293,7 +1293,7 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(w.find('.study-metro-vol').text()).toContain('180 %')
   })
 
-  it('la cancion tambien se puede subir, hasta un 50 % mas', async () => {
+  it('the song can also be turned up, up to 50 % more', async () => {
     const w = await mountView()
     const vol = w.find('.study-song-vol input[type="range"]')
     expect(vol.attributes('max')).toBe('1.5')
@@ -1305,7 +1305,7 @@ describe('tono, velocidad fina y metronomo', () => {
     expect(w.find('.study-song-vol .slider-over').exists()).toBe(true)
   })
 
-  it('la onda recibe la rejilla y es mas alta', async () => {
+  it('the waveform receives the grid and is taller', async () => {
     const w = await mountView()
     withWidth(w)
     expect(w.find('.tl').attributes('style')).toContain('--tl-h: 80px')
@@ -1313,8 +1313,8 @@ describe('tono, velocidad fina y metronomo', () => {
   })
 })
 
-describe('el reproductor y el bucle', () => {
-  it('pinta el tramo del bucle y el boton de estudio avisa a la app', async () => {
+describe('the player and the loop', () => {
+  it('draws the loop segment and the study button notifies the app', async () => {
     const w = mount(Player, { props: { study: false }, attachTo: document.body })
     await flushPromises()
     expect(w.find('.track-loop').exists()).toBe(false)
@@ -1329,7 +1329,7 @@ describe('el reproductor y el bucle', () => {
     w.unmount()
   })
 
-  it('en el navegador el bucle vuelve a A al pasar de B, como en Rust', async () => {
+  it('in the browser the loop goes back to A after passing B, as in Rust', async () => {
     resetPlayback()
     held.api.inTauri = false
     const player = usePlayback()
@@ -1362,7 +1362,7 @@ describe('el reproductor y el bucle', () => {
     held.api.inTauri = true
   })
 
-  it('con varios tramos, el reproductor pinta uno por tramo', async () => {
+  it('with several segments, the player draws one per segment', async () => {
     const w = mount(Player, { props: { study: false }, attachTo: document.body })
     await flushPromises()
     held.playback.emit({
@@ -1381,7 +1381,7 @@ describe('el reproductor y el bucle', () => {
     w.unmount()
   })
 
-  it('en el navegador, los tramos van seguidos y al acabar repiten, paran o siguen', async () => {
+  it('in the browser, segments play in sequence and at the end they repeat, stop or continue', async () => {
     resetPlayback()
     held.api.inTauri = false
     try {
@@ -1433,7 +1433,7 @@ describe('el reproductor y el bucle', () => {
     }
   })
 
-  it('el volumen del reproductor sube hasta el 150 % y las flechas paran en el 100 %', async () => {
+  it('the player volume goes up to 150 % and arrow keys stop at 100 %', async () => {
     const w = mount(Player, { props: { study: false }, attachTo: document.body })
     await flushPromises()
     const vol = w.find('.pl-volume input[type="range"]')
@@ -1456,7 +1456,7 @@ describe('el reproductor y el bucle', () => {
   })
 })
 
-describe('las pistas separadas en el estudio', () => {
+describe('the separated stems in study mode', () => {
   // las de la canción 7: seis pistas, con la ruta de cada una
   const withStems = async (study = '') => {
     const { stemsOf } = await import('./support/backend.js')
@@ -1475,7 +1475,7 @@ describe('las pistas separadas en el estudio', () => {
     held.state.separation.events = []
   })
 
-  it('sin pistas se ofrece separarla, y al acabar suenan solas', async () => {
+  it('without stems it offers to split it, and when done they play on their own', async () => {
     const { finishSeparation } = await import('./support/backend.js')
     const { useSeparation } = await import('../src/composables/useSeparation.js')
     const w = await mountView()
@@ -1521,7 +1521,7 @@ describe('las pistas separadas en el estudio', () => {
     expect(w.find('.study-stems-progress').exists()).toBe(false)
   })
 
-  it('las rápidas que se quedaron a medias se ofrecen mejorar', async () => {
+  it('the quick ones left half done are offered an upgrade', async () => {
     const { stemsOf } = await import('./support/backend.js')
     await withStems(JSON.stringify({ mixer: { on: true } }))
     held.state.stems[7] = stemsOf(7, undefined, 'rapida')
@@ -1537,7 +1537,7 @@ describe('las pistas separadas en el estudio', () => {
     expect(held.state.separation.current).toMatchObject({ id: 7, stage: 'refine' })
   })
 
-  it('con pistas: el botón las pone y las quita, y se guarda', async () => {
+  it('with stems: the button turns them on and off, and it is saved', async () => {
     await withStems()
     const w = await mountView()
     expect(w.find('.tl-lanes').exists()).toBe(false)
@@ -1556,7 +1556,7 @@ describe('las pistas separadas en el estudio', () => {
     expect(sentStems()[1]).toBe(null)
   })
 
-  it('callar, dejar sola, volumen y panorama llegan a Rust y se guardan', async () => {
+  it('mute, solo, volume and pan reach Rust and are saved', async () => {
     await withStems(JSON.stringify({ mixer: { on: true } }))
     const w = await mountView()
     expect(lanes(w)).toHaveLength(6)
@@ -1596,7 +1596,7 @@ describe('las pistas separadas en el estudio', () => {
     )
   })
 
-  it('lo guardado vuelve: la canción suena con sus pistas como se dejaron', async () => {
+  it('saved settings come back: the song plays with its stems as they were left', async () => {
     await withStems(
       JSON.stringify({
         mixer: { on: true, tracks: { drums: { mute: true }, piano: { gain: 0.5 } } }
@@ -1609,7 +1609,7 @@ describe('las pistas separadas en el estudio', () => {
     expect(tracks[4]).toMatchObject({ gain: 0.5, on: true })
   })
 
-  it('al salir del estudio vuelve la canción tal cual', async () => {
+  it('leaving study mode brings back the song as is', async () => {
     await withStems(JSON.stringify({ mixer: { on: true } }))
     const w = await mountView()
     held.playback.emit({ stems: true })
@@ -1619,7 +1619,7 @@ describe('las pistas separadas en el estudio', () => {
     expect(sentStems()[1]).toBe(null)
   })
 
-  it('las opciones: guardar la mezcla sin batería, abrir la carpeta, borrarlas', async () => {
+  it('the options: save the mix without drums, open the folder, delete them', async () => {
     const { pickSavePath } = await import('../src/api.js')
     await withStems(JSON.stringify({ mixer: { on: true, tracks: { drums: { mute: true } } } }))
     const w = await mountView()
@@ -1635,7 +1635,7 @@ describe('las pistas separadas en el estudio', () => {
     expect(await pickSavePath()).toBe(null)
   })
 
-  it('con el clic sonando, exportar ofrece llevar el clic', async () => {
+  it('with the click playing, export offers to include the click', async () => {
     await withStems(JSON.stringify({ mixer: { on: true } }))
     const w = await mountView()
     await w.find('.study-metro-toggle').trigger('click')
@@ -1652,7 +1652,7 @@ describe('las pistas separadas en el estudio', () => {
   })
 })
 
-describe('el estudio de 1.28', () => {
+describe('the 1.28 study mode', () => {
   function withWidth(w, left = 0, width = 400) {
     w.find('.tl-box').element.getBoundingClientRect = () => ({
       left,
@@ -1667,7 +1667,7 @@ describe('el estudio de 1.28', () => {
   }
   const bridge = () => held.playback.bridge
 
-  it('al dejar «varios» se queda un solo tramo: el último que se tocó', async () => {
+  it('leaving «varios» keeps a single segment: the last one touched', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -1705,7 +1705,7 @@ describe('el estudio de 1.28', () => {
     expect(w.findAll('.tl-loop')).toHaveLength(1)
   })
 
-  it('los marcadores con su casilla se tocan seguidos, una vez o en bucle', async () => {
+  it('markers with their checkbox ticked play in sequence, once or looped', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -1753,7 +1753,7 @@ describe('el estudio de 1.28', () => {
     })
   })
 
-  it('mientras se separa otra canción, esta se pone en la cola y lo dice', async () => {
+  it('while another song is being split, this one is queued and it says so', async () => {
     const { useSeparation } = await import('../src/composables/useSeparation.js')
     // sin pistas (las pruebas de antes separaron esta)
     delete held.state.stems[7]
@@ -1782,7 +1782,7 @@ describe('el estudio de 1.28', () => {
     }
   })
 
-  it('Ctrl + rueda acerca la onda donde está el ratón, y la regla pasa a décimas', async () => {
+  it('Ctrl + wheel zooms the waveform at the mouse position, and the ruler switches to tenths', async () => {
     const w = await mountView()
     withWidth(w)
     const tl = w.findComponent({ name: 'StudyTimeline' })
@@ -1816,7 +1816,7 @@ describe('el estudio de 1.28', () => {
     expect(tl.vm.view.to - tl.vm.view.from).toBe(200)
   })
 
-  it('ajustar un pulso a mano lo guarda como el clic propio de la canción', async () => {
+  it('adjusting a beat manually saves it as a custom click for the song', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     withWidth(w)
@@ -1850,8 +1850,8 @@ describe('el estudio de 1.28', () => {
   })
 })
 
-describe('las salidas', () => {
-  it('clic y guías a la izquierda, música a la derecha', async () => {
+describe('the outputs', () => {
+  it('click and cues on the left, music on the right', async () => {
     const { resetRouting } = await import('../src/composables/useRouting.js')
     resetRouting()
     const w = await mountView()
@@ -1883,7 +1883,7 @@ describe('las salidas', () => {
     expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 4 })
   })
 
-  it('cada cosa, por su lado y en estéreo o en mono, en su carril', async () => {
+  it('each thing, on its side and in stereo or mono, in its lane', async () => {
     const { resetRouting } = await import('../src/composables/useRouting.js')
     localStorage.removeItem('danplay.outputs')
     resetRouting()
@@ -1921,7 +1921,7 @@ describe('las salidas', () => {
     resetRouting()
   })
 
-  it('el clic y la guía de una secuencia van con el clic, salvo que se diga otra cosa', async () => {
+  it('the click and the cue of a sequence go with the click, unless told otherwise', async () => {
     const { buildRouting, destOf } = await import('../src/composables/useRouting.js')
     const left = {
       device: null,
@@ -1961,8 +1961,8 @@ describe('las salidas', () => {
   })
 })
 
-describe('abrir una secuencia', () => {
-  it('se ve lo que trae, se abre con su avance y suena en el estudio', async () => {
+describe('opening a sequence', () => {
+  it('shows what it contains, opens with its progress and plays in study mode', async () => {
     const { useSequence } = await import('../src/composables/useSequence.js')
     const dialog = await import('../src/composables/useDialog.js')
     const { api } = await import('../src/api.js')
@@ -2007,7 +2007,7 @@ describe('abrir una secuencia', () => {
   })
 })
 
-describe('los carriles de las guías', () => {
+describe('the cue lanes', () => {
   const guide = (t, lane, text = 'Coro') => ({
     t,
     file: `/guias/${text}.wav`,
@@ -2032,7 +2032,7 @@ describe('los carriles de las guías', () => {
   /** Lo último que llegó a Rust de las guías. */
   const sentCues = () => held.playback.bridge.setCues.mock.calls.at(-1)[1]
 
-  it('solo con la canción parada: doble clic en el carril pone una guía ahí', async () => {
+  it('only with the song stopped: a double click on the lane puts a cue there', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo' })]
     held.playback.emit({ playing: true })
     const w = await mountView()
@@ -2056,7 +2056,7 @@ describe('los carriles de las guías', () => {
     expect(draft).toMatchObject({ t: 50, lane: 'g1', cue: null })
   })
 
-  it('cada carril con su nombre, callar, solo y volumen; hasta seis', async () => {
+  it('each lane with its name, mute, solo and volume; up to six', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -2108,7 +2108,7 @@ describe('los carriles de las guías', () => {
     expect(body.cues.find((c) => c.t === 20).lane).toBe('g2')
   })
 
-  it('arrastrar una guía la mueve, con la canción parada', async () => {
+  it('dragging a cue moves it, with the song stopped', async () => {
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ cues: [guide(10, '', 'Coro')] }) })
     ]
@@ -2135,7 +2135,7 @@ describe('los carriles de las guías', () => {
     })
   })
 
-  it('cada carril de guías, por su lado: el del baterista, a la izquierda', async () => {
+  it('each cue lane on its own side: the drummer one on the left', async () => {
     const { resetRouting } = await import('../src/composables/useRouting.js')
     localStorage.removeItem('danplay.outputs')
     resetRouting()
@@ -2167,7 +2167,7 @@ describe('los carriles de las guías', () => {
     resetRouting()
   })
 
-  it('«Salidas» queda para la salida de audio y los repartos de siempre', async () => {
+  it('«Salidas» is left for the audio output and the usual routings', async () => {
     const w = await mountView()
     await button(w, 'Salidas').trigger('click')
     await flushPromises()
@@ -2177,8 +2177,8 @@ describe('los carriles de las guías', () => {
   })
 })
 
-describe('el estilo de la onda', () => {
-  it('se elige en el menú del estudio y se recuerda', async () => {
+describe('the waveform style', () => {
+  it('is chosen in the study menu and remembered', async () => {
     const { resetPreferences, usePreferences } =
       await import('../src/composables/usePreferences.js')
     localStorage.removeItem('danplay.waveStyle')
@@ -2208,7 +2208,7 @@ describe('el estilo de la onda', () => {
   })
 })
 
-describe('el estudio de 1.28.2', () => {
+describe('the 1.28.2 study mode', () => {
   const guide = (t, lane, text = 'Coro', file = `/guias/${text}.wav`) => ({
     t,
     file,
@@ -2233,7 +2233,7 @@ describe('el estudio de 1.28.2', () => {
   const menuLabels = () => menu.value.items.filter((i) => i.label).map((i) => i.label)
   const option = (label) => menu.value.items.find((i) => i.label === label)
 
-  it('los mandos de la canción, encima de la onda', async () => {
+  it('the song controls, above the waveform', async () => {
     const w = await mountView()
     const bar = w.find('.study-transport')
     expect(bar.find('.study-time').text()).toBe('0:12 / 3:20')
@@ -2258,7 +2258,7 @@ describe('el estudio de 1.28.2', () => {
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(0)
   })
 
-  it('al pararse solo al final del tramo («Al acabar: parar») lo dice', async () => {
+  it('when it stops by itself at the end of the segment («Al acabar: parar») it says so', async () => {
     const { useNotices } = await import('../src/composables/useNotices.js')
     const { notices } = useNotices()
     held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 60] }) })]
@@ -2278,7 +2278,7 @@ describe('el estudio de 1.28.2', () => {
     expect(notices.value.at(-1)?.message).toContain('«Repetir»')
   })
 
-  it('cada botón de icono dice para qué sirve', async () => {
+  it('each icon button says what it is for', async () => {
     const w = await mountView()
     const unnamed = w
       .findAll('.study-head button, .study-bar button')
@@ -2290,7 +2290,7 @@ describe('el estudio de 1.28.2', () => {
     expect(noNotice.map((b) => b.attributes('aria-label'))).toEqual([])
   })
 
-  it('el imán pega las guías a los pulsos del clic al ponerlas y moverlas', async () => {
+  it('snapping sticks cues to the click beats when placing and moving them', async () => {
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ cues: [guide(10, '', 'Coro')] }) })
     ]
@@ -2324,7 +2324,7 @@ describe('el estudio de 1.28.2', () => {
     expect(sentCues().map((c) => c.at)).toEqual([30.75])
   })
 
-  it('las opciones de un carril: una guía aquí, importar un audio corto, renombrar…', async () => {
+  it('lane options: a cue here, import a short audio file, rename…', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo' })]
     held.playback.emit({ playing: false })
     held.audioPath = '/home/yo/cuenta.wav'
@@ -2359,14 +2359,14 @@ describe('el estudio de 1.28.2', () => {
     }
   })
 
-  it('sonando no se ponen guías desde el menú del carril', async () => {
+  it('while playing, cues cannot be placed from the lane menu', async () => {
     const w = await mountView()
     await w.find('.tl-lane-more').trigger('click')
     expect(option('Guía aquí…').disabled).toBe(true)
     expect(option('Importar un audio…').note).toBe('para la canción')
   })
 
-  it('clic derecho en una guía: escucharla, editarla, pasarla a otro carril o quitarla', async () => {
+  it('right-click on a cue: preview, edit, move to another lane or remove', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -2402,7 +2402,7 @@ describe('el estudio de 1.28.2', () => {
     expect(w.findAll('.tl-guide-clip')).toHaveLength(0)
   })
 
-  it('la lista de las guías: «Guías», y pulsar una lleva a ella en su carril', async () => {
+  it('the cue list: «Guías», and clicking one goes to it in its lane', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -2426,7 +2426,7 @@ describe('el estudio de 1.28.2', () => {
     expect(held.api.previewCue).toHaveBeenCalledWith('/guias/Final.wav')
   })
 
-  it('cada guía se ve con su onda y lo que dura de verdad', async () => {
+  it('each cue shows with its waveform and its real length', async () => {
     held.state.songs = [
       song(7, {
         title: 'Mi Gozo',
@@ -2445,7 +2445,7 @@ describe('el estudio de 1.28.2', () => {
   })
 })
 
-describe('exportar', () => {
+describe('exporting', () => {
   const withGuides = (extra = {}) =>
     JSON.stringify({
       cues: [{ t: 12, file: '/guias/coro.wav', text: 'Coro' }],
@@ -2474,7 +2474,7 @@ describe('exportar', () => {
     held.savePath = null
   })
 
-  it('la canción tal cual, con sus guías si se quiere', async () => {
+  it('the song as is, with its cues if wanted', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: withGuides() })]
     held.playback.emit({ playing: false })
     const w = await mountView()
@@ -2492,7 +2492,7 @@ describe('exportar', () => {
     })
   })
 
-  it('sin marcar las guías, sin guías; y sin guías hechas, ni se ofrecen', async () => {
+  it('with cues unticked, no cues; and with no cues made, they are not even offered', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: withGuides() })]
     held.playback.emit({ playing: false })
     let w = await mountView()
@@ -2518,7 +2518,7 @@ describe('exportar', () => {
     })
   })
 
-  it('con los canales: cada cosa por su lado, como suena', async () => {
+  it('with the channels: each thing on its own side, as it plays', async () => {
     const { resetRouting, useRouting } = await import('../src/composables/useRouting.js')
     localStorage.removeItem('danplay.outputs')
     resetRouting()

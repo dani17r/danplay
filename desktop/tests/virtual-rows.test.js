@@ -88,11 +88,11 @@ const rows = (w) => w.findAll('tbody tr:not([data-spacer])')
 const spacers = (w) => w.findAll('tbody tr[data-spacer]')
 const height = (tr) => parseInt(tr.attributes('style')?.match(/height:\s*(\d+)px/)?.[1] || '0', 10)
 
-describe('lista larga: solo se pinta lo que se ve', () => {
+describe('long list: only what is visible is rendered', () => {
   beforeEach(withLayout)
   afterEach(withoutLayout)
 
-  it('con mil canciones pinta una ventana, no las mil', async () => {
+  it('with a thousand songs it renders a window, not all thousand', async () => {
     const songs = list(1000)
     const w = mount(SongTable, {
       props: { songs, selected: null, playing: null },
@@ -106,7 +106,7 @@ describe('lista larga: solo se pinta lo que se ve', () => {
     w.unmount()
   })
 
-  it('los separadores rellenan justo lo que no se pinta', async () => {
+  it('the spacers fill exactly what is not rendered', async () => {
     const songs = list(1000)
     const w = mount(SongTable, {
       props: { songs, selected: null, playing: null },
@@ -121,7 +121,7 @@ describe('lista larga: solo se pinta lo que se ve', () => {
     w.unmount()
   })
 
-  it('empieza por el principio de la lista', async () => {
+  it('starts at the top of the list', async () => {
     const w = mount(SongTable, {
       props: { songs: list(1000), selected: null, playing: null },
       attachTo: document.body
@@ -132,7 +132,7 @@ describe('lista larga: solo se pinta lo que se ve', () => {
     w.unmount()
   })
 
-  it('la numeracion de las filas es la real, no la de la ventana', async () => {
+  it('row numbering is the real one, not the window one', async () => {
     const w = mount(SongTable, {
       props: { songs: list(1000), selected: null, playing: null },
       attachTo: document.body
@@ -143,7 +143,7 @@ describe('lista larga: solo se pinta lo que se ve', () => {
     w.unmount()
   })
 
-  it('«ir a lo que suena» trae a la ventana una fila que no estaba pintada', async () => {
+  it('«ir a lo que suena» brings into the window a row that was not rendered', async () => {
     const songs = list(1000)
     const w = mount(SongTable, {
       props: { songs, selected: null, playing: null, jumpTo: null },
@@ -159,7 +159,7 @@ describe('lista larga: solo se pinta lo que se ve', () => {
     w.unmount()
   })
 
-  it('una lista que llega después de montarse sigue al desplazamiento', async () => {
+  it('a list that arrives after mounting follows the scroll', async () => {
     // Sin canciones no hay tabla, ni ancla desde la que buscar el panel. Antes
     // solo se escuchaba al panel encontrado al montar: una lista que llegaba
     // después (el núcleo aún arrancando) medía bien, pero al bajar se quedaba
@@ -186,7 +186,7 @@ describe('lista larga: solo se pinta lo que se ve', () => {
     w.unmount()
   })
 
-  it('una lista corta se pinta entera y sin separadores', async () => {
+  it('a short list renders whole and without spacers', async () => {
     const w = mount(SongTable, {
       props: { songs: list(20), selected: null, playing: null },
       attachTo: document.body
@@ -199,8 +199,8 @@ describe('lista larga: solo se pinta lo que se ve', () => {
   })
 })
 
-describe('si no se puede medir, se pinta todo', () => {
-  it('sin maquetacion (o si el panel aun no tiene alto) no se recorta nada', async () => {
+describe('if it cannot be measured, everything is rendered', () => {
+  it('without layout (or if the panel has no height yet) nothing is windowed', async () => {
     // sin conMaquetacion(): todo mide cero, como en un primer pintado
     const w = mount(SongTable, {
       props: { songs: list(300), selected: null, playing: null },
@@ -262,11 +262,11 @@ function withGrid() {
   })
 }
 
-describe('cuadricula: varias fichas por linea', () => {
+describe('grid: several cards per line', () => {
   beforeEach(withGrid)
   afterEach(withoutLayout)
 
-  it('con mil fichas pinta solo unas cuantas lineas', async () => {
+  it('with a thousand cards it renders only a few lines', async () => {
     const w = mount(SongGrid, {
       props: { songs: list(1000), selected: null, playing: null },
       attachTo: document.body
@@ -280,7 +280,7 @@ describe('cuadricula: varias fichas por linea', () => {
     w.unmount()
   })
 
-  it('los separadores dejan el alto total correcto', async () => {
+  it('the spacers keep the total height correct', async () => {
     const songs = list(1000)
     const w = mount(SongGrid, {
       props: { songs, selected: null, playing: null },
@@ -295,7 +295,7 @@ describe('cuadricula: varias fichas por linea', () => {
     w.unmount()
   })
 
-  it('«ir a lo que suena» trae una ficha lejana', async () => {
+  it('«ir a lo que suena» brings in a far card', async () => {
     const w = mount(SongGrid, {
       props: { songs: list(1000), selected: null, playing: null, jumpTo: null },
       attachTo: document.body
@@ -353,13 +353,13 @@ function withPanel(box) {
   })
 }
 
-describe('las cuatro vistas pintan solo lo que se ve', () => {
+describe('the four views render only what is visible', () => {
   afterEach(withoutLayout)
   for (const [name, View, box] of [
-    ['la tabla', SongTable, 'table-wrap'],
-    ['la lista fina', SongRows, 'rows'],
-    ['las fichas', SongCards, 'cards'],
-    ['la cuadricula', SongGrid, 'grid']
+    ['the table', SongTable, 'table-wrap'],
+    ['the compact list', SongRows, 'rows'],
+    ['the cards', SongCards, 'cards'],
+    ['the grid', SongGrid, 'grid']
   ]) {
     it(name, async () => {
       withPanel(box)

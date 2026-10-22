@@ -70,8 +70,8 @@ async function mountView(counts) {
   return w
 }
 
-describe('lo que suena y lo que se repinta', () => {
-  it('cada tick mueve la aguja y nada mas', async () => {
+describe('what plays and what gets repainted', () => {
+  it('each tick moves the playhead and nothing else', async () => {
     held.state.status.configured = true
     held.state.songs = [song(1, { title: 'Mi Gozo' }), song(2)]
     held.state.playlists = [{ id: 7, name: 'Domingo', n: 2 }]
@@ -124,7 +124,7 @@ describe('lo que suena y lo que se repinta', () => {
     expect(w.find('.pl-bar .time').text()).toBe('0:05')
   })
 
-  it('cuando cambia algo de verdad, se entera quien lo enseña', async () => {
+  it('when something really changes, whoever displays it finds out', async () => {
     held.state.status.configured = true
     held.state.songs = [song(1, { title: 'Mi Gozo' }), song(2, { title: 'Shekinah' })]
     const w = await mountView({})

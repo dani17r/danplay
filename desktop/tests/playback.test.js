@@ -12,63 +12,63 @@ import {
 // La máquina de estados de la cola. La de verdad vive en Rust (queue.rs, con
 // sus mismas pruebas); esta es la del modo navegador, y tiene que decidir
 // exactamente lo mismo o la app y el navegador se comportarían distinto.
-describe('la maquina de estados de la cola', () => {
+describe('the queue state machine', () => {
   const q = (extra) => ({ length: 3, index: 0, repeat: 'list', shuffle: false, ...extra })
 
-  it('los cuatro modos y ninguno mas', () => {
+  it('the four modes and no more', () => {
     expect(REPEAT_MODES).toEqual(['list', 'one', 'once', 'queue'])
   })
 
-  it('un modo que no existe cae en el de siempre', () => {
+  it('an unknown mode falls back to the default', () => {
     expect(normalizeRepeat('loquesea')).toBe('list')
     expect(normalizeRepeat(null)).toBe('list')
     expect(normalizeRepeat('one')).toBe('one')
   })
 
-  it('a mano siempre se mueve, dando la vuelta en los extremos', () => {
+  it('manually it always moves, wrapping around at the ends', () => {
     expect(nextIndex(q({ index: 2 }), 1)).toBe(0)
     expect(nextIndex(q({ index: 0 }), -1)).toBe(2)
     expect(nextIndex(q({ index: 0 }), 1)).toBe(1)
   })
 
-  it('con la cola vacia no hay a donde ir', () => {
+  it('with an empty queue there is nowhere to go', () => {
     expect(nextIndex(q({ length: 0 }), 1)).toBe(-1)
     expect(afterEnd(q({ length: 0 }))).toBe(-1)
   })
 
-  it('repetir la lista vuelve al principio al acabarse', () => {
+  it('repeating the list goes back to the start when it ends', () => {
     expect(afterEnd(q({ index: 2, repeat: 'list' }))).toBe(0)
     expect(afterEnd(q({ index: 1, repeat: 'list' }))).toBe(2)
   })
 
-  it('«la lista una vez» se para al final', () => {
+  it('«la lista una vez» stops at the end', () => {
     expect(afterEnd(q({ index: 2, repeat: 'queue' }))).toBe(-1)
     expect(afterEnd(q({ index: 0, repeat: 'queue' }))).toBe(1)
   })
 
-  it('«repetir esta cancion» se queda donde esta', () => {
+  it('«repetir esta cancion» stays where it is', () => {
     expect(afterEnd(q({ index: 1, repeat: 'one' }))).toBe(1)
     expect(afterEnd(q({ index: 2, repeat: 'one' }))).toBe(2)
   })
 
-  it('«solo esta cancion» se para siempre', () => {
+  it('«solo esta cancion» always stops', () => {
     for (const index of [0, 1, 2]) expect(afterEnd(q({ index, repeat: 'once' }))).toBe(-1)
   })
 
-  it('el azar nunca repite la que ya suena', () => {
+  it('shuffle never repeats the one already playing', () => {
     for (let i = 0; i < 200; i++) expect(randomOther(4, 2)).not.toBe(2)
     // con una sola cancion no hay otra
     expect(randomOther(1, 0)).toBe(-1)
   })
 
-  it('con aleatorio, el final de la lista no para la musica', () => {
+  it('with shuffle, the end of the list does not stop the music', () => {
     const next = afterEnd(q({ index: 2, repeat: 'list', shuffle: true }))
     expect(next).toBeGreaterThanOrEqual(0)
     // salvo que se pidiera expresamente parar
     expect(afterEnd(q({ index: 2, repeat: 'once', shuffle: true }))).toBe(-1)
   })
 
-  it('sola en la cola no hay anterior ni siguiente', () => {
+  it('alone in the queue there is no previous or next', () => {
     expect(neighbours({ length: 1, index: 0 })).toEqual({ has_previous: false, has_next: false })
     expect(neighbours({ length: 3, index: 1 })).toEqual({ has_previous: true, has_next: true })
     expect(neighbours({ length: 0, index: -1 })).toEqual({ has_previous: false, has_next: false })
@@ -98,7 +98,7 @@ describe('usePlayback', () => {
     vi.clearAllMocks()
   })
 
-  it('a Rust solo se le manda lo que necesita de cada cancion', () => {
+  it('Rust only gets what it needs from each song', () => {
     const t = toTrack({
       id: 3,
       title: 'Mi Gozo',
@@ -110,19 +110,19 @@ describe('usePlayback', () => {
     expect(t).toEqual({ id: 3, title: 'Mi Gozo', artist: 'Barak', duration: 210, blur: true })
   })
 
-  it('sin titulo se usa el nombre del archivo', () => {
+  it('without a title the file name is used', () => {
     expect(toTrack({ id: 1, file: 'pista.mp3' }).title).toBe('pista.mp3')
   })
 
   // Con la ruta puesta, Rust arranca sin esperar al nucleo. Cuando iba lento
   // o aun se estaba levantando, esa espera era «le doy y no suena».
-  it('la ruta viaja con la cancion cuando se conoce', () => {
+  it('the path travels with the song when known', () => {
     expect(toTrack({ id: 1, title: 'x', path: '/musica/x.mp3' }).path).toBe('/musica/x.mp3')
     expect('path' in toTrack({ id: 1, title: 'x', path: '' })).toBe(false)
     expect('path' in toTrack({ id: 1, title: 'x' })).toBe(false)
   })
 
-  it('pone la cola y refleja lo que Rust contesta', async () => {
+  it('sets the queue and reflects what Rust answers', async () => {
     const player = usePlayback()
     await player.setQueue(
       [
@@ -139,7 +139,7 @@ describe('usePlayback', () => {
     expect(player.hasNext.value).toBe(true)
   })
 
-  it('las «No está» de una lista no entran en la cola', async () => {
+  it('the «No está» songs of a playlist do not enter the queue', async () => {
     const player = usePlayback()
     await player.setQueue(
       [
@@ -154,7 +154,7 @@ describe('usePlayback', () => {
     expect(player.queue.value.map((s) => s.id)).toEqual([1, 2])
   })
 
-  it('si Rust cambia la cola por otra del mismo tamaño, la interfaz se entera', async () => {
+  it('if Rust swaps the queue for another of the same size, the UI notices', async () => {
     // El caso de verdad: abrir una canción con DanPlay desde el explorador
     // deja una cola de UNA. Si ya había una cola de una, los dos números
     // coinciden, y antes de esto la interfaz seguía enseñando la canción
@@ -172,7 +172,7 @@ describe('usePlayback', () => {
     expect(player.queue.value[0].title).toBe('La segunda')
   })
 
-  it('el volumen y la velocidad se recuerdan entre sesiones', async () => {
+  it('volume and speed are remembered between sessions', async () => {
     const player = usePlayback()
     await player.setVolume(0.42)
     await player.setSpeed(1.25)
@@ -180,7 +180,7 @@ describe('usePlayback', () => {
     expect(localStorage.getItem('danplay.speed')).toBe('1.25')
   })
 
-  it('lo guardado lo aplica la ventana principal, no el mini ni la proyección', async () => {
+  it('saved settings are applied by the main window, not the mini player or the projection', async () => {
     const saved = () => {
       localStorage.setItem('danplay.vol', '0.3')
       localStorage.setItem('danplay.speed', '0.75')
@@ -209,7 +209,7 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.setRepeat).toHaveBeenCalledWith('one')
   })
 
-  it('el fundido entre canciones se elige, se recuerda y se manda al arrancar', async () => {
+  it('the crossfade between songs is chosen, remembered and sent on startup', async () => {
     let player = usePlayback()
     await player.ready()
     // de fábrica: 4 s, mandado a Rust nada más arrancar
@@ -232,7 +232,7 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.setCrossfade).toHaveBeenCalledWith(0)
   })
 
-  it('el volumen no se sale de su rango: hasta un 50 % por encima de como viene', async () => {
+  it('volume stays in range: up to 50 % above the original level', async () => {
     const player = usePlayback()
     await player.setVolume(9)
     await flushPromises()
@@ -242,7 +242,7 @@ describe('usePlayback', () => {
     expect(player.volume.value).toBe(0)
   })
 
-  it('adelantar no se pasa del final ni del principio', async () => {
+  it('seeking does not go past the end or the start', async () => {
     const player = usePlayback()
     await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 100 }], 1, null)
     await flushPromises()
@@ -259,7 +259,7 @@ describe('usePlayback', () => {
   // Al pedir un salto, la aguja se pinta ya donde se pidio. Un tick que venia
   // en camino con la posicion vieja no la devuelve atras; en cuanto Rust
   // confirma (o pasa el plazo), vuelve a mandar lo que diga Rust.
-  it('un salto se ve al momento y no lo pisa un tick viejo', async () => {
+  it('a seek shows right away and an old tick does not overwrite it', async () => {
     const player = usePlayback()
     await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 200 }], 1, null)
     await flushPromises()
@@ -277,7 +277,7 @@ describe('usePlayback', () => {
     expect(player.position.value).toBe(20)
   })
 
-  it('si Rust no confirma el salto, pasado el plazo manda su posicion', async () => {
+  it('if Rust does not confirm the seek, after the timeout its position wins', async () => {
     vi.useFakeTimers()
     try {
       const player = usePlayback()
@@ -294,7 +294,7 @@ describe('usePlayback', () => {
     }
   })
 
-  it('un salto no se sale de la cancion', async () => {
+  it('a seek does not leave the song', async () => {
     const player = usePlayback()
     await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 200 }], 1, null)
     await player.seek(999)
@@ -303,7 +303,7 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(0)
   })
 
-  it('al tanto por ciento: las teclas 1-9', async () => {
+  it('to a percentage: keys 1-9', async () => {
     const player = usePlayback()
     await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 200 }], 1, null)
     await player.seekPercent(50)
@@ -312,7 +312,7 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.seek).toHaveBeenLastCalledWith(180)
   })
 
-  it('desde el principio: vuelve a 0 y, en pausa, arranca (en ese orden)', async () => {
+  it('from the start: goes back to 0 and, if paused, starts playing (in that order)', async () => {
     const player = usePlayback()
     await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 200 }], 1, null)
     held.playback.emit({ position: 80, playing: true })
@@ -332,7 +332,7 @@ describe('usePlayback', () => {
     expect(order).toEqual(['toggle', 'seek'])
   })
 
-  it('sin nada cargado, «desde el principio» no manda nada', async () => {
+  it('with nothing loaded, «desde el principio» sends nothing', async () => {
     const player = usePlayback()
     await player.ready()
     vi.clearAllMocks()
@@ -341,7 +341,7 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.toggle).not.toHaveBeenCalled()
   })
 
-  it('cambiar una cancion se ve en lo que suena sin volver a pedir la cola', async () => {
+  it('editing a song shows in what is playing without fetching the queue again', async () => {
     const player = usePlayback()
     await player.setQueue([{ id: 1, title: 'A', artist: 'X', duration: 100, stars: 0 }], 1, null)
     await flushPromises()
@@ -350,7 +350,7 @@ describe('usePlayback', () => {
     expect(player.track.value.stars).toBe(5)
   })
 
-  it('el modo de repeticion cicla en orden', async () => {
+  it('the repeat mode cycles in order', async () => {
     const player = usePlayback()
     for (const expected of ['one', 'once', 'queue', 'list']) {
       await player.cycleRepeat()

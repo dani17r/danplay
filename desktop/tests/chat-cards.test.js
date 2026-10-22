@@ -175,8 +175,8 @@ const withCard = (confirm, extra = {}) => ({
   ...extra
 })
 
-describe('la tarjeta de permiso para descargar', () => {
-  it('sale en línea, se rellena sola, descarga lo marcado y al acabar cuenta lo que entró en la lista', async () => {
+describe('the download permission card', () => {
+  it('shows inline, fills itself in, downloads what is ticked and, when done, reports what got into the playlist', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista en domingo')
@@ -281,7 +281,7 @@ describe('la tarjeta de permiso para descargar', () => {
     expect(hooks.reload).toHaveBeenCalled()
   })
 
-  it('«No» no baja nada y no le pregunta al modelo', async () => {
+  it('«No» downloads nothing and does not ask the model', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -299,7 +299,7 @@ describe('la tarjeta de permiso para descargar', () => {
     expect(w.find('.cc-actions').exists()).toBe(false)
   })
 
-  it('los botones no hacen caso en el medio segundo que sigue a un cambio', async () => {
+  it('buttons ignore clicks for the half second after a change', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -323,7 +323,7 @@ describe('la tarjeta de permiso para descargar', () => {
     expect(held.api.chatConfirm).toHaveBeenCalledWith({ id: 'k1', selection: [0, 1] })
   })
 
-  it('mientras sigue buscando, preguntar por las filas (sin cambios) no bloquea los botones', async () => {
+  it('while still searching, polling the rows (unchanged) does not lock the buttons', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -335,7 +335,7 @@ describe('la tarjeta de permiso para descargar', () => {
     expect(held.api.chatConfirm).toHaveBeenCalledWith({ id: 'k1', selection: [0, 1] })
   })
 
-  it('caducada (410): lo dice y «Volver a pedirlo» se lo pide al asistente', async () => {
+  it('expired (410): says so and «Volver a pedirlo» asks the assistant again', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -360,7 +360,7 @@ describe('la tarjeta de permiso para descargar', () => {
     expect(sent().at(-1)).toEqual({ role: 'me', text: ASK_AGAIN })
   })
 
-  it('otra descarga en marcha (409) no la gasta: sigue con sus botones', async () => {
+  it('another download in progress (409) does not use it up: it keeps its buttons', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -374,7 +374,7 @@ describe('la tarjeta de permiso para descargar', () => {
     expect(w.find('.cc-actions').exists()).toBe(true)
   })
 
-  it('una propuesta nueva deja la anterior sin valor', async () => {
+  it('a new proposal invalidates the previous one', async () => {
     held.replies.push(withCard(proposal('k1')), withCard(proposal('k2')))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -385,7 +385,7 @@ describe('la tarjeta de permiso para descargar', () => {
     expect(cards[1].find('.cc-actions').exists()).toBe(true)
   })
 
-  it('«Parar»: lo que ya se hizo y la tarjeta se pintan igual', async () => {
+  it('«Parar»: what was already done and the card render the same', async () => {
     held.replies.push({
       text: '',
       canceled: true,
@@ -402,8 +402,8 @@ describe('la tarjeta de permiso para descargar', () => {
   })
 })
 
-describe('«sí» y «no» escritos', () => {
-  it('reconoce un sí o un no a secas, con o sin tildes ni signos', () => {
+describe('typed «sí» and «no»', () => {
+  it('recognizes a bare yes or no, with or without accents or punctuation', () => {
     for (const t of [
       'sí',
       'Si',
@@ -442,7 +442,7 @@ describe('«sí» y «no» escritos', () => {
     }
   })
 
-  it('un «sí» acepta la tarjeta como el clic, con tu burbuja y sin llamar al modelo', async () => {
+  it('a «sí» accepts the card like the click, with your bubble and without calling the model', async () => {
     held.replies.push(withCard(proposal()))
     resolved()
     const w = await mountView()
@@ -455,7 +455,7 @@ describe('«sí» y «no» escritos', () => {
     expect(useChat().messages.value.at(-1).event).toBe('confirm_accepted')
   })
 
-  it('un «no» la rechaza; sin tarjeta esperando, un «sí» va al modelo', async () => {
+  it('a «no» rejects it; with no card waiting, a «sí» goes to the model', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -468,7 +468,7 @@ describe('«sí» y «no» escritos', () => {
     expect(sent().at(-1)).toEqual({ role: 'me', text: 'sí' })
   })
 
-  it('«sí, pero…» no la acepta: va al modelo', async () => {
+  it('«sí, pero…» does not accept it: it goes to the model', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -478,7 +478,7 @@ describe('«sí» y «no» escritos', () => {
   })
 })
 
-describe('borrar: el diálogo, fuera del turno y de uno en uno', () => {
+describe('deleting: the dialog, outside the turn and one at a time', () => {
   const remove = (id = 'd1') => {
     held.state.chatConfirms[id] = 'live'
     return {
@@ -488,7 +488,7 @@ describe('borrar: el diálogo, fuera del turno y de uno en uno', () => {
     }
   }
 
-  it('se pregunta con el turno ya terminado y se acepta por el id', async () => {
+  it('it asks once the turn is over and is accepted by id', async () => {
     held.replies.push(remove())
     const w = await mountView()
     await typeText(w, 'borra mi gozo')
@@ -508,7 +508,7 @@ describe('borrar: el diálogo, fuera del turno y de uno en uno', () => {
     expect(hooks.reload).toHaveBeenCalled()
   })
 
-  it('nunca encima de otro diálogo: espera su turno, y lo de la cola también', async () => {
+  it('never on top of another dialog: it waits its turn, and so does what is queued', async () => {
     let release
     held.replies.push(() => new Promise((r) => (release = r)))
     held.tools = {
@@ -615,7 +615,7 @@ function list(extra = {}) {
   }
 }
 
-describe('la tabla de una lista', () => {
+describe('the setlist table', () => {
   beforeEach(() => {
     held.state.songs = [
       song(1, { title: 'Digno De Adorar', artist: 'Autor' }),
@@ -627,7 +627,7 @@ describe('la tabla de una lista', () => {
     held.state.playlistSongs = [9, 3, 1, 2].map((i) => held.state.songs.find((s) => s.id === i))
   })
 
-  it('cada fila: en la lista, otra versión, dudosa o falta, con lo pedido junto a lo hallado', async () => {
+  it('each row: in the playlist, another version, doubtful or missing, with the request next to the match', async () => {
     held.replies.push({ text: 'Añadí…', tools: [], setlist: list() })
     const w = await mountView()
     await typeText(w, 'mete esto')
@@ -653,7 +653,7 @@ describe('la tabla de una lista', () => {
     expect(w.findAll('.chat-msg.ai').at(-1).classes()).toContain('has-card')
   })
 
-  it('«Dejar solo estas» y «Deshacer», sin modelo y contándolo', async () => {
+  it('«Dejar solo estas» and «Deshacer», without the model and reporting it', async () => {
     held.replies.push({ text: 'Añadí…', tools: [], setlist: list() })
     const w = await mountView()
     await typeText(w, 'mete esto')
@@ -684,7 +684,7 @@ describe('la tabla de una lista', () => {
     expect(chip('Dejar solo estas')).toBeTruthy()
   })
 
-  it('«Ordenar como mi lista» y el «Deshacer» de lo que cambió el asistente', async () => {
+  it('«Ordenar como mi lista» and «Deshacer» for what the assistant changed', async () => {
     held.replies.push({
       text: 'Dejé…',
       tools: [],
@@ -712,7 +712,7 @@ describe('la tabla de una lista', () => {
     expect(chip('Deshacer')).toBeUndefined()
   })
 
-  it('comprobar: «Dejar solo estas» aunque no sobre nada, si la lista no está como la pegada', async () => {
+  it('checking: «Dejar solo estas» even with nothing extra, if the playlist does not match the pasted one', async () => {
     const rows = list().rows.map((r) => (r.n === 3 ? { ...r, in_list: false } : r))
     held.replies.push({
       text: 'Comprobé…',
@@ -731,7 +731,7 @@ describe('la tabla de una lista', () => {
     expect(w.findAll('.cs-actions .btn').map((b) => b.text())).toEqual(['Dejar solo estas'])
   })
 
-  it('larga, se pliega; sin desbordes con títulos larguísimos', async () => {
+  it('when long, it collapses; no overflow with very long titles', async () => {
     const longText = 'Una Canción Con Un Título Larguísimo '.repeat(12)
     const rows = Array.from({ length: 14 }, (_, k) => ({
       ...list().rows[0],
@@ -753,7 +753,7 @@ describe('la tabla de una lista', () => {
   })
 })
 
-describe('la franja del proveedor', () => {
+describe('the provider banner', () => {
   const outage = (kind, answering = true) => ({
     model: 'claude-x',
     provider: 'Claude (Anthropic)',
@@ -780,7 +780,7 @@ describe('la franja del proveedor', () => {
     ['auth', 'Claude (Anthropic) no acepta la clave; contesta DeepInfra'],
     ['rate', 'Claude (Anthropic) pide esperar (demasiadas peticiones); contesta DeepInfra'],
     ['down', 'Claude (Anthropic) no responde; contesta DeepInfra']
-  ])('%s: lo dice con sus palabras, nunca con las del proveedor', async (kind, text) => {
+  ])('%s: says it in its own words, never with the provider wording', async (kind, text) => {
     held.tools = outage(kind)
     const w = await mountView()
     const banner = w.find('.chat-banner')
@@ -789,7 +789,7 @@ describe('la franja del proveedor', () => {
     expect(banner.find('[role="status"]').text()).toContain(text)
   })
 
-  it('sin respuesta del respaldo todavía, dice solo lo del principal; sin problema, nada', async () => {
+  it('with no fallback reply yet, it only mentions the primary; with no problem, nothing', async () => {
     held.tools = outage('billing', false)
     const w = await mountView()
     expect(w.find('.chat-banner-text').text()).toBe('Claude (Anthropic) no tiene saldo.')
@@ -809,7 +809,7 @@ describe('la franja del proveedor', () => {
     expect(w2.find('.chat-banner').exists()).toBe(false)
   })
 
-  it('sale también tras una respuesta del respaldo (núcleo que no dice `answering`)', async () => {
+  it('also shows after a fallback reply (a core that does not send `answering`)', async () => {
     held.replies.push({
       text: 'hola',
       tools: [],
@@ -821,7 +821,7 @@ describe('la franja del proveedor', () => {
     expect(w.find('.chat-banner-text').text()).toBe('P no responde; contestó LLM7 · x (respaldo).')
   })
 
-  it('sus botones: Ajustes, reintentar y usar el respaldo (solo tras confirmarlo)', async () => {
+  it('its buttons: Settings, retry and use the fallback (only after confirming)', async () => {
     held.tools = outage('billing')
     const w = await mountView()
     const button = (t) => w.findAll('.chat-banner-actions .btn').find((b) => b.text().includes(t))
@@ -854,8 +854,8 @@ describe('la franja del proveedor', () => {
   })
 })
 
-describe('conversaciones guardadas y compatibilidad', () => {
-  it('se guarda la tarjeta (sin args, plan recortado y como dato), la tabla y la referencia; al modelo no van', async () => {
+describe('saved conversations and compatibility', () => {
+  it('saves the card (without args, trimmed plan and as data), the table and the reference; none of it goes to the model', async () => {
     const many = Array.from({ length: 30 }, (_, k) =>
       row(k, { title: `Título\ncon salto ${k}`, url: k ? URL1 : 'javascript:alert(1)' })
     )
@@ -887,7 +887,7 @@ describe('conversaciones guardadas y compatibilidad', () => {
     )
   })
 
-  it('al reabrir: una tarjeta sin desenlace se pregunta al servidor; tras reiniciar, caducada', async () => {
+  it('on reopening: a card without an outcome is checked with the server; after a restart, expired', async () => {
     held.state.chats = [
       {
         id: 1,
@@ -920,7 +920,7 @@ describe('conversaciones guardadas y compatibilidad', () => {
     expect(cards[1].text()).toContain('Aceptada')
   })
 
-  it('un chat guardado antes (sin tarjetas ni tablas) se lee igual', async () => {
+  it('a chat saved earlier (without cards or tables) still loads', async () => {
     held.state.chats = [
       {
         id: 1,
@@ -942,7 +942,7 @@ describe('conversaciones guardadas y compatibilidad', () => {
     expect(held.api.chatConfirmStatus).not.toHaveBeenCalled()
   })
 
-  it('un núcleo antiguo (propuesta sin id): el diálogo, ya fuera del turno, con (tool, args)', async () => {
+  it('an old core (proposal without id): the dialog, after the turn, with (tool, args)', async () => {
     held.replies.push({
       text: 'Te pido permiso.',
       tools: [],
@@ -960,7 +960,7 @@ describe('conversaciones guardadas y compatibilidad', () => {
   })
 })
 
-describe('el informe al acabar la descarga', () => {
+describe('the report when the download finishes', () => {
   /** Acepta la tarjeta y deja la descarga en marcha (job 5). */
   async function afterAccept(w, result = {}) {
     held.api.chatConfirm.mockResolvedValueOnce({
@@ -981,7 +981,7 @@ describe('el informe al acabar la descarga', () => {
     await flushPromises()
   }
 
-  it('sin `after` (o con error): el informe de siempre y el aviso oculto para que remate el modelo', async () => {
+  it('without `after` (or with an error): the usual report and the hidden notice for the model to wrap up', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -1009,7 +1009,7 @@ describe('el informe al acabar la descarga', () => {
     expect(notice.text).toContain('Lo que te pedi fue: «mete esta lista»')
   })
 
-  it('va a la conversación desde la que se pidió aunque se haya abierto otra', async () => {
+  it('goes to the conversation it was requested from even if another was opened', async () => {
     held.state.chats = [{ id: 9, title: 'otra', messages: [{ role: 'me', text: 'hola' }] }]
     held.replies.push(withCard(proposal()))
     const w = await mountView()
@@ -1048,7 +1048,7 @@ describe('el informe al acabar la descarga', () => {
     expect(useNotices().notices.value.some((n) => n.message.includes('te lo cuento en'))).toBe(true)
   })
 
-  it('la fila que faltaba deja de decir «falta» al entrar en la lista, también al reabrir', async () => {
+  it('the missing row stops saying «falta» once it enters the playlist, also on reopening', async () => {
     held.replies.push(withCard(proposal(), { setlist: list() }))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -1096,7 +1096,7 @@ describe('el informe al acabar la descarga', () => {
     expect(w.find('.cs-count.missing').exists()).toBe(false)
   })
 
-  it('una descarga de otro turno no se cuenta como la nuestra', async () => {
+  it('a download from another turn is not counted as ours', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -1117,15 +1117,15 @@ describe('el informe al acabar la descarga', () => {
   })
 })
 
-describe('lo que cambia la biblioteca y lo que se ve fuera del chat', () => {
-  it('meter una lista recarga la biblioteca', async () => {
+describe('what changes the library and what is seen outside the chat', () => {
+  it('adding a playlist reloads the library', async () => {
     held.replies.push({ text: 'Añadí…', tools: [{ name: 'fill_playlist', summary: 'x' }] })
     const w = await mountView()
     await typeText(w, 'mete esto')
     expect(hooks.reload).toHaveBeenCalled()
   })
 
-  it('con una tarjeta esperando y el chat fuera de la vista, se avisa una vez', async () => {
+  it('with a card waiting and the chat out of view, it notifies once', async () => {
     held.replies.push(withCard(proposal()))
     const w = await mountView()
     await typeText(w, 'mete esta lista')
@@ -1148,7 +1148,7 @@ describe('lo que cambia la biblioteca y lo que se ve fuera del chat', () => {
     expect(notices()).toHaveLength(1)
   })
 
-  it('el texto de fuera se guarda como dato', () => {
+  it('outside text is saved as data', () => {
     const odd = 'a\nb' + String.fromCharCode(0x202e) + 'c' + String.fromCharCode(0x200b) + 'd'
     expect(datum(odd)).toBe('a b c d')
     expect(datum('x'.repeat(200), 10)).toBe('xxxxxxxxx…')

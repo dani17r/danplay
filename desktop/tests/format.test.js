@@ -13,8 +13,8 @@ import {
 import { groupKey, groupSongs, groupedOrder } from '../src/utils/groups.js'
 import { song } from './support/backend.js'
 
-describe('formatear', () => {
-  it('la duración en m:ss, y un guion (o lo que se pida) sin dato', () => {
+describe('formatting', () => {
+  it('duration as m:ss, and a dash (or whatever is requested) without data', () => {
     expect(formatDuration(0)).toBe('—')
     expect(formatDuration(null)).toBe('—')
     expect(formatDuration(Number.NaN)).toBe('—')
@@ -27,7 +27,7 @@ describe('formatear', () => {
     expect(formatTime(61)).toBe('1:01')
   })
 
-  it('lo que dura un grupo, en minutos enteros', () => {
+  it('the length of a group, in whole minutes', () => {
     expect(formatMinutes(0)).toBe('0 min')
     expect(formatMinutes(undefined)).toBe('0 min')
     expect(formatMinutes(59)).toBe('0 min')
@@ -35,7 +35,7 @@ describe('formatear', () => {
     expect(formatMinutes(299)).toBe('4 min')
   })
 
-  it('hace cuánto', () => {
+  it('how long ago', () => {
     const now = 1_000_000 * 1000
     const ago = (s) => formatAgo(1_000_000 - s, now)
     expect(formatAgo(0, now)).toBe('nunca')
@@ -46,14 +46,14 @@ describe('formatear', () => {
     expect(ago(3 * 86400)).toBe('hace 3 días')
   })
 
-  it('los tamaños', () => {
+  it('sizes', () => {
     expect(formatMegabytes(0)).toBe('—')
     expect(formatMegabytes(1572864)).toBe('1.5 MB')
     expect(formatGigabytes(1073741824 * 12.3)).toBe('12.30')
   })
 })
 
-describe('agrupar', () => {
+describe('grouping', () => {
   const list = [
     song(1, { title: 'A Una Voz', artist: 'New Wine' }),
     song(2, { title: 'Mi Gozo', artist: 'Barak' }),
@@ -62,7 +62,7 @@ describe('agrupar', () => {
     song(5, { title: 'Ángel', artist: '' })
   ]
 
-  it('los grupos van por orden alfabético y dentro, en el orden de la lista', () => {
+  it('groups go in alphabetical order and, inside, in list order', () => {
     const groups = groupSongs(list, 'artist')
     expect(groups.map(([k, l]) => [k, l.map((s) => s.id)])).toEqual([
       ['Barak', [2, 4]],
@@ -73,7 +73,7 @@ describe('agrupar', () => {
     expect(groupedOrder(list, 'artist').map((s) => s.id)).toEqual([2, 4, 3, 1, 5])
   })
 
-  it('lo que no tiene dato va a su grupo con nombre', () => {
+  it('items without data go to their own named group', () => {
     const empty = song(9, { title: '', file: 'x.mp3', artist: '', album: '', genre: '', key: '' })
     expect(groupKey(empty, 'artist')).toBe('Sin artista')
     expect(groupKey(empty, 'album')).toBe('Sin álbum')
@@ -85,8 +85,8 @@ describe('agrupar', () => {
   })
 })
 
-describe('el nombre completo de una cancion', () => {
-  it('es el de su archivo sin la extension', () => {
+describe('the full name of a song', () => {
+  it('is its file name without the extension', () => {
     expect(
       fullName({
         file: 'New Wine - A Una Voz + Shekinah (En Vivo, Version Larga).mp3',
@@ -96,7 +96,7 @@ describe('el nombre completo de una cancion', () => {
     ).toBe('New Wine - A Una Voz + Shekinah (En Vivo, Version Larga)')
     expect(fullName({ file: 'Barak - Mi Gozo.flac' })).toBe('Barak - Mi Gozo')
   })
-  it('sin archivo, «Artista - Titulo»', () => {
+  it('without a file, «Artista - Titulo»', () => {
     expect(fullName({ title: 'Mi Gozo', artist: 'Barak' })).toBe('Barak - Mi Gozo')
     expect(fullName({ title: 'Mi Gozo' })).toBe('Mi Gozo')
     expect(fullName(null)).toBe('')

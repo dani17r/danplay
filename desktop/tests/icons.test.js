@@ -9,8 +9,8 @@ const files = [
   'src/App.vue'
 ]
 
-describe('iconos', () => {
-  it('todos los que usan los componentes existen', () => {
+describe('icons', () => {
+  it('every icon the components use exists', () => {
     const missing = []
     for (const f of files) {
       const txt = readFileSync(f, 'utf8')
@@ -27,7 +27,7 @@ describe('iconos', () => {
     expect(missing, 'iconos inexistentes: ' + missing.join(', ')).toEqual([])
   })
 
-  it('cada icono trae svg valido', () => {
+  it('each icon has valid SVG', () => {
     for (const [name, i] of Object.entries(ICONS)) {
       expect(['o', 's'], name).toContain(i.e)
       expect(i.d, name).toMatch(/^<path/)
@@ -35,7 +35,7 @@ describe('iconos', () => {
     }
   })
 
-  it('no queda ningun emoji suelto en los controles', () => {
+  it('no stray emoji is left in the controls', () => {
     const emojis = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u
     const suspects = []
     for (const f of files) {

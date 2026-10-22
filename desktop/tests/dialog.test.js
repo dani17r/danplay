@@ -27,8 +27,8 @@ const press = (target, key, extra = {}) => {
 const button = (text) =>
   [...document.querySelectorAll('.modal button')].find((b) => b.textContent.trim() === text)
 
-describe('la casilla', () => {
-  it('con casilla, aceptar dice si quedó marcada', async () => {
+describe('the checkbox', () => {
+  it('with a checkbox, accepting reports whether it was ticked', async () => {
     const w = await open({ check: { label: 'Quitarla también de sus listas', value: true } })
     const checkbox = document.querySelector('.modal-check input')
     expect(checkbox.checked).toBe(true)
@@ -40,7 +40,7 @@ describe('la casilla', () => {
     expect(w.emitted('ok')[0]).toEqual([{ checked: false }])
   })
 
-  it('sin casilla, aceptar sigue siendo true', async () => {
+  it('without a checkbox, accepting is still true', async () => {
     const w = await open()
     expect(document.querySelector('.modal-check')).toBeNull()
     button('Aceptar').click()
@@ -49,21 +49,21 @@ describe('la casilla', () => {
   })
 })
 
-describe('el dialogo se maneja con el teclado', () => {
-  it('Escape cierra tambien una confirmacion, no solo los que piden texto', async () => {
+describe('the dialog is keyboard operable', () => {
+  it('Escape also closes a confirmation, not just the prompts asking for text', async () => {
     const w = await open()
     // la tecla llega al documento, que es donde cae el foco cuando no hay campo
     await press(document, 'Escape')
     expect(w.emitted('cancel'), 'Escape no cerro la confirmacion').toBeTruthy()
   })
 
-  it('Enter acepta una confirmacion', async () => {
+  it('Enter accepts a confirmation', async () => {
     const w = await open()
     await press(document, 'Enter')
     expect(w.emitted('ok')).toBeTruthy()
   })
 
-  it('Enter con el foco en «Cancelar» no acepta', async () => {
+  it('Enter with focus on «Cancelar» does not accept', async () => {
     // Aceptaba: «Mandar a la papelera», «Borrar la lista», «Conservar solo
     // esta»... con el foco puesto en Cancelar.
     const w = await open({ okLabel: 'A la papelera', danger: true })
@@ -73,7 +73,7 @@ describe('el dialogo se maneja con el teclado', () => {
     expect(w.emitted('ok'), 'acepto con el foco en Cancelar').toBeFalsy()
   })
 
-  it('deja de escuchar el teclado al cerrarse', async () => {
+  it('stops listening to the keyboard once closed', async () => {
     const w = await open()
     await w.setProps({ open: false })
     await flushPromises()
@@ -82,8 +82,8 @@ describe('el dialogo se maneja con el teclado', () => {
   })
 })
 
-describe('el foco no se escapa', () => {
-  it('al abrir va al boton principal; si pide texto, al campo', async () => {
+describe('focus does not escape', () => {
+  it('on open it goes to the main button; if it asks for text, to the field', async () => {
     await open({ okLabel: 'Adelante' })
     expect(document.activeElement.textContent.trim()).toBe('Adelante')
     const w = await open({ kind: 'prompt', value: 'Domingo', title: 'Nueva lista' })
@@ -92,7 +92,7 @@ describe('el foco no se escapa', () => {
     w.unmount()
   })
 
-  it('Tab da la vuelta dentro del dialogo', async () => {
+  it('Tab wraps around inside the dialog', async () => {
     await open({ okLabel: 'Adelante' })
     const [cancel, proceed] = [button('Cancelar'), button('Adelante')]
     proceed.focus()
@@ -102,7 +102,7 @@ describe('el foco no se escapa', () => {
     expect(document.activeElement).toBe(proceed)
   })
 
-  it('al cerrar vuelve a donde estaba', async () => {
+  it('on close it returns to where it was', async () => {
     const before = document.createElement('button')
     before.textContent = 'el de detras'
     document.body.appendChild(before)
@@ -114,7 +114,7 @@ describe('el foco no se escapa', () => {
     expect(document.activeElement).toBe(before)
   })
 
-  it('se anuncia como dialogo con su titulo y su mensaje', async () => {
+  it('is announced as a dialog with its title and message', async () => {
     await open({ title: 'Borrar la lista', message: 'Las canciones no se borran' })
     const d = document.querySelector('[role="dialog"]')
     expect(d.getAttribute('aria-modal')).toBe('true')
@@ -127,8 +127,8 @@ describe('el foco no se escapa', () => {
   })
 })
 
-describe('pedir una carpeta', () => {
-  it('«Elegir…» abre el selector y pone lo elegido en el campo, que se puede aceptar', async () => {
+describe('asking for a folder', () => {
+  it('«Elegir…» opens the picker and puts the choice in the field, which can be accepted', async () => {
     const w = await open({
       kind: 'prompt',
       title: '¿Dónde guardo lo que descargues?',
@@ -142,7 +142,7 @@ describe('pedir una carpeta', () => {
     expect(w.emitted('ok')[0]).toEqual(['/mnt/disco/Musica'])
   })
 
-  it('si cancelas el selector, el campo se queda como estaba; sin `browse` no hay boton', async () => {
+  it('if you cancel the picker, the field stays as it was; without `browse` there is no button', async () => {
     await open({ kind: 'prompt', value: '/musica', browse: async () => null })
     button('Elegir…').click()
     await flushPromises()

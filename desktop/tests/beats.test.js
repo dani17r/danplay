@@ -25,8 +25,8 @@ const grid = () => ({
   confidence: 1
 })
 
-describe('la rejilla tal como suena, igual que en Rust', () => {
-  it('el doble y la mitad de pulsos, con el «1» donde estaba', () => {
+describe('the beat grid as it plays, same as in Rust', () => {
+  it('double and half the beats, with the «1» where it was', () => {
     const d = doubled(grid())
     expect(d.beats).toHaveLength(32)
     expect(d.beats[1]).toBeCloseTo(0.5)
@@ -39,7 +39,7 @@ describe('la rejilla tal como suena, igual que en Rust', () => {
     expect(h.bpm).toBe(60)
   })
 
-  it('otros compases sacan el «1» de donde caia en 3 o en 4', () => {
+  it('other meters take the «1» from where it fell in 3 or in 4', () => {
     expect(withMeter(grid(), 3)).toMatchObject({ meter: 3, first_downbeat: 2 })
     expect(withMeter(grid(), 2)).toMatchObject({ meter: 2, first_downbeat: 1 })
     expect(withMeter(grid(), 6)).toMatchObject({ meter: 6, first_downbeat: 2 })
@@ -49,13 +49,13 @@ describe('la rejilla tal como suena, igual que en Rust', () => {
     expect(none.beats.some((_, i) => isDownbeat(none, i))).toBe(false)
   })
 
-  it('el «1» se corre dentro del compas', () => {
+  it('the «1» shifts within the bar', () => {
     expect(shifted(grid(), 1).first_downbeat).toBe(2)
     expect(shifted(grid(), -2).first_downbeat).toBe(3)
     expect(isDownbeat(grid(), 5) && !isDownbeat(grid(), 6)).toBe(true)
   })
 
-  it('en el orden de Rust: doble o mitad, compas y «1» corrido', () => {
+  it('in the same order as Rust: double or half, meter and shifted «1»', () => {
     expect(effectiveGrid(null)).toBeNull()
     const g = effectiveGrid(grid(), { mult: 1, meter: 2, shift: 1 })
     expect(g.beats).toHaveLength(32)
@@ -66,14 +66,14 @@ describe('la rejilla tal como suena, igual que en Rust', () => {
   })
 })
 
-describe('el tempo escrito a mano', () => {
-  it('se enseña con un decimal solo si lo tiene', () => {
+describe('the manually typed tempo', () => {
+  it('is shown with a decimal only if it has one', () => {
     expect(formatBpm(120)).toBe('120')
     expect(formatBpm(120.03)).toBe('120')
     expect(formatBpm(90.68)).toBe('90.7')
     expect(formatBpm(0)).toBe('0')
   })
-  it('se lee con punto o con coma', () => {
+  it('is read with a dot or a comma', () => {
     expect(parseBpm('90.7')).toBe(90.7)
     expect(parseBpm(' 90,7 ')).toBe(90.7)
     expect(parseBpm('')).toBeNull()
@@ -81,21 +81,21 @@ describe('el tempo escrito a mano', () => {
     expect(parseBpm('-3')).toBeNull()
     expect(parseBpm(null)).toBeNull()
   })
-  it('el doble y la mitad', () => {
+  it('double and half', () => {
     expect(multFactor(1)).toBe(2)
     expect(multFactor(-1)).toBe(0.5)
     expect(multFactor(0)).toBe(1)
   })
 })
 
-describe('los golpes del clic para guardarlos en la mezcla', () => {
-  it('siguiendo la canción: los de su rejilla, con el «1» donde suena', () => {
+describe('the click hits to save in the mix', () => {
+  it('following the song: those of its grid, with the «1» where it plays', () => {
     const g = effectiveGrid(grid(), {})
     const { beats, accents } = clickTimes(g, { free: false, bpm: 120, meter: 4 }, 30)
     expect(beats).toEqual(grid().beats)
     expect(accents.slice(0, 6)).toEqual([false, true, false, false, false, true])
   })
-  it('con tempo a mano: uno cada tanto, alineados con el «1» de la canción', () => {
+  it('with manual tempo: one every interval, aligned with the «1» of the song', () => {
     const { beats, accents } = clickTimes(grid(), { free: true, bpm: 60, meter: 3 }, 5)
     // el «1» de la canción cae a 0,75: de ahí hacia atrás y hacia delante
     expect(beats).toEqual([0.75, 1.75, 2.75, 3.75, 4.75])
@@ -107,7 +107,7 @@ describe('los golpes del clic para guardarlos en la mezcla', () => {
   })
 })
 
-describe('los «1» de Beat This!, compás a compás, como en Rust', () => {
+describe('Beat This! downbeats, bar by bar, as in Rust', () => {
   // la misma que la prueba de Rust `the_bars_of_beat_this_are_followed_as_heard`
   const irregular = () => ({
     bpm: 120,
@@ -121,10 +121,10 @@ describe('los «1» de Beat This!, compás a compás, como en Rust', () => {
   })
   const ones = (g, n = 20) => Array.from({ length: n }, (_, i) => i).filter((i) => isDownbeat(g, i))
 
-  it('el compás irregular se respeta, y lo que sigue va con el compás de la canción', () => {
+  it('the irregular bar is respected, and what follows uses the song meter', () => {
     expect(ones(irregular())).toEqual([0, 4, 8, 10, 14, 18])
   })
-  it('correr el «1», el doble, la mitad y otro compás, igual que Rust', () => {
+  it('shifting the «1», double, half and another meter, same as Rust', () => {
     const g = irregular()
     expect(shifted(g, 1).bars).toEqual([1, 5, 9, 11, 15])
     expect(doubled(g).bars).toEqual([0, 8, 16, 20, 28])
@@ -135,7 +135,7 @@ describe('los «1» de Beat This!, compás a compás, como en Rust', () => {
     expect(ones(waltz, 9)).toHaveLength(3)
   })
   // las mismas que `a_hole_and_a_closed_end_stay_silent` y `halving_keeps_every_one`
-  it('el doble no mete golpes en un hueco sin pulso ni después del final', () => {
+  it('double adds no hits in a gap without beats nor after the end', () => {
     const beats = [
       ...Array.from({ length: 8 }, (_, i) => 0.5 * i),
       ...Array.from({ length: 8 }, (_, i) => 6.2 + 0.5 * i)
@@ -145,7 +145,7 @@ describe('los «1» de Beat This!, compás a compás, como en Rust', () => {
     expect(d.beats).toHaveLength(30)
     expect(d.bars).toEqual([0, 8, 15, 23])
   })
-  it('la mitad se queda con todos los «1», aunque haya un compás de tres', () => {
+  it('half keeps every «1», even with a bar of three', () => {
     const g = { ...irregular(), bars: [0, 4, 7, 11] }
     const h = halved(g)
     expect(h.bars.map((b) => h.beats[b])).toEqual(g.bars.map((b) => g.beats[b]))

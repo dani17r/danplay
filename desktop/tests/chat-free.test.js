@@ -38,8 +38,8 @@ beforeEach(() => {
   localStorage.clear()
 })
 
-describe('el chat sin IA', () => {
-  it('avisa, ofrece probar gratis y al conseguirlo enseña el proveedor', async () => {
+describe('the chat without AI', () => {
+  it('warns, offers a free trial and, once it works, shows the provider', async () => {
     const w = mount(ChatPage, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
@@ -54,7 +54,7 @@ describe('el chat sin IA', () => {
     w.unmount()
   })
 
-  it('con IA lista no molesta', async () => {
+  it('with AI ready it stays out of the way', async () => {
     held.available = true
     const w = mount(ChatPage, { attachTo: document.body })
     await flushPromises()

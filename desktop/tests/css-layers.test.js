@@ -110,12 +110,12 @@ const KNOWN = [
   '.toast  (search.css -> responsive.css): max-width'
 ].sort()
 
-describe('capas del css', () => {
-  it('ningún selector pisa a otro sin querer', () => {
+describe('CSS layers', () => {
+  it('no selector overrides another by accident', () => {
     expect(silentOverrides()).toEqual(KNOWN)
   })
 
-  it('la cabecera de la tabla se queda fija', () => {
+  it('the table header stays sticky', () => {
     // el choque que sí era un fallo, y que ya no está
     const clashes = silentOverrides().filter((c) => c.startsWith('thead th'))
     expect(clashes, 'thead th vuelve a pisarse a sí mismo').toEqual([])

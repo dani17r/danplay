@@ -25,8 +25,8 @@ const ids = (s) => s.chosenSongs.value.map((c) => c.id)
 
 beforeEach(() => vi.clearAllMocks())
 
-describe('sin el modo, como siempre', () => {
-  it('un clic deja esa sola; Ctrl suma y quita; Mayús coge el tramo', async () => {
+describe('without the mode, as always', () => {
+  it('a click leaves only that one; Ctrl adds and removes; Shift takes the range', async () => {
     const { s } = prepare()
     await s.select(2)
     await s.select(4, { ctrlKey: true })
@@ -39,7 +39,7 @@ describe('sin el modo, como siempre', () => {
     expect(ids(s)).toEqual([3, 5])
   })
 
-  it('la lista de varias (`selectedSongs`) sigue siendo solo de dos o más', async () => {
+  it('the multi-selection list (`selectedSongs`) is still only for two or more', async () => {
     const { s } = prepare()
     await s.select(2)
     expect(s.selectedSongs.value).toEqual([])
@@ -49,8 +49,8 @@ describe('sin el modo, como siempre', () => {
   })
 })
 
-describe('el modo «Seleccionar»', () => {
-  it('un clic normal pone o quita esa sin soltar las demás; Ctrl no cambia nada', async () => {
+describe('the «Seleccionar» mode', () => {
+  it('a plain click toggles that one without deselecting the rest; Ctrl changes nothing', async () => {
     const { s } = prepare()
     s.toggleMode()
     expect(s.selectMode.value).toBe(true)
@@ -64,7 +64,7 @@ describe('el modo «Seleccionar»', () => {
     expect(s.selected.value).toBe(null)
   })
 
-  it('Mayús suma el tramo a lo que había', async () => {
+  it('Shift adds the range to what was there', async () => {
     const { s } = prepare()
     s.setMode(true)
     await s.select(1, {})
@@ -73,7 +73,7 @@ describe('el modo «Seleccionar»', () => {
     expect(ids(s)).toEqual([1, 3, 4, 5])
   })
 
-  it('elegir sin un clic (la ficha de un resultado, «Ver detalles») suma, no deja sola', async () => {
+  it('selecting without a click (a result details panel, «Ver detalles») adds, it does not leave only that one', async () => {
     const { s } = prepare()
     s.setMode(true)
     await s.select(1, {})
@@ -83,7 +83,7 @@ describe('el modo «Seleccionar»', () => {
     expect(s.selected.value).toBe(5)
   })
 
-  it('quitar el modo con el botón termina (suelta todo); setMode(false) solo quita el modo', async () => {
+  it('leaving the mode with the button finishes (deselects all); setMode(false) only leaves the mode', async () => {
     const { s } = prepare()
     s.setMode(true)
     await s.select(1, {})
@@ -96,7 +96,7 @@ describe('el modo «Seleccionar»', () => {
     expect(ids(s)).toEqual([])
   })
 
-  it('«Listo» (finish) sale del modo y no deja nada elegido; la ficha se queda', async () => {
+  it('«Listo» (finish) leaves the mode and leaves nothing selected; the details panel stays', async () => {
     const { s } = prepare()
     await s.select(2)
     await flushPromises()
@@ -109,8 +109,8 @@ describe('el modo «Seleccionar»', () => {
   })
 })
 
-describe('todas y ninguna', () => {
-  it('«todas» son las que se ven, sin pedir la ficha de ninguna', async () => {
+describe('all and none', () => {
+  it('«todas» means the visible ones, without requesting the details of any', async () => {
     const { s } = prepare()
     await s.select(3)
     await flushPromises()
@@ -124,7 +124,7 @@ describe('todas y ninguna', () => {
     expect(held.api.song).not.toHaveBeenCalled()
   })
 
-  it('si la principal no está en la lista, pasa a la primera (sin abrir su ficha)', async () => {
+  it('if the main one is not in the list, it moves to the first (without opening its details)', async () => {
     const { s, shown } = prepare()
     await s.select(5)
     await flushPromises()
@@ -136,7 +136,7 @@ describe('todas y ninguna', () => {
     expect(held.api.song).not.toHaveBeenCalled()
   })
 
-  it('«ninguna» suelta también la principal, que si no seguiría marcada', async () => {
+  it('«ninguna» also deselects the main one, which would otherwise stay ticked', async () => {
     const { s } = prepare()
     s.selectAll()
     s.selectNone()
@@ -146,7 +146,7 @@ describe('todas y ninguna', () => {
     expect(s.allSelected.value).toBe(false)
   })
 
-  it('cuántas, todas o algunas', async () => {
+  it('how many, all or some', async () => {
     const { s } = prepare()
     expect([s.count.value, s.allSelected.value, s.partial.value]).toEqual([0, false, false])
     await s.select(2)
@@ -155,7 +155,7 @@ describe('todas y ninguna', () => {
     expect([s.count.value, s.allSelected.value, s.partial.value]).toEqual([5, true, false])
   })
 
-  it('con la lista vacía no están «todas»', () => {
+  it('with an empty list it is not «todas»', () => {
     const { s } = prepare([])
     s.selectAll()
     expect(s.allSelected.value).toBe(false)
@@ -163,8 +163,8 @@ describe('todas y ninguna', () => {
   })
 })
 
-describe('las elegidas', () => {
-  it('van en el orden en que se ven y solo cuentan las que están en la lista', async () => {
+describe('the selected ones', () => {
+  it('come in display order and only those in the list count', async () => {
     const { s, shown } = prepare()
     s.setMode(true)
     await s.select(4, {})
@@ -175,7 +175,7 @@ describe('las elegidas', () => {
     expect(ids(s)).toEqual([4, 3])
   })
 
-  it('lo que se pinta (el grupo y la principal) es lo que cuenta', async () => {
+  it('what is rendered (the group and the main one) is what counts', async () => {
     const { s } = prepare()
     await s.select(1)
     await s.select(2, { ctrlKey: true })
@@ -183,7 +183,7 @@ describe('las elegidas', () => {
     expect(ids(s)).toEqual([1, 2, 5])
   })
 
-  it('las que se van (papelera, fuera de la lista) se sueltan', async () => {
+  it('those that go away (trash, out of the list) are deselected', async () => {
     const { s } = prepare()
     s.setMode(true)
     await s.select(1, {})
@@ -195,15 +195,15 @@ describe('las elegidas', () => {
   })
 })
 
-describe('la que se pone a sonar (follow)', () => {
-  it('sin selección de varias pasa a ser la única elegida', async () => {
+describe('the one that starts playing (follow)', () => {
+  it('without a multi-selection it becomes the only selected one', async () => {
     const { s } = prepare()
     await s.select(1)
     s.follow(3)
     expect(ids(s), 'antes quedaban dos pintadas: la de antes y la que suena').toEqual([3])
   })
 
-  it('con varias elegidas no las suelta; la principal solo se mueve si es una de ellas', async () => {
+  it('with several selected it keeps them; the main one only moves if it is one of them', async () => {
     const { s } = prepare()
     await s.select(1)
     await s.select(2, { ctrlKey: true })
@@ -214,7 +214,7 @@ describe('la que se pone a sonar (follow)', () => {
     expect(ids(s)).toEqual([1, 2])
   })
 
-  it('en el modo no toca nada: poner una a sonar no es marcarla', async () => {
+  it('in the mode it touches nothing: playing one is not ticking it', async () => {
     const { s } = prepare()
     s.setMode(true)
     await s.select(2, {})

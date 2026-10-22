@@ -35,8 +35,8 @@ const hex = (k) =>
     .find((r) => r.find('.color-name').text() === k)
     .find('.color-hex')
 
-describe('editar un tema propio', () => {
-  it('parte de los colores de ese tema y guarda en el', async () => {
+describe('editing a custom theme', () => {
+  it('starts from the colors of that theme and saves to it', async () => {
     mountView({ editing: 'custom-red' })
     expect(w.find('h3').text()).toBe('Editar tema')
     expect(hex('Acento').element.value).toBe('#aa0000')
@@ -46,7 +46,7 @@ describe('editar un tema propio', () => {
     expect(w.emitted('saved')[0]).toEqual(['custom-red'])
   })
 
-  it('con el editor abierto, editar otro tema lo empieza con los colores de ese', async () => {
+  it('with the editor open, editing another theme starts it with the colors of that one', async () => {
     // Se quedaban los colores del primero y «Guardar» se los escribia al
     // segundo: el azul acababa rojo.
     mountView({ editing: 'custom-red' })
@@ -60,8 +60,8 @@ describe('editar un tema propio', () => {
   })
 })
 
-describe('crear un tema', () => {
-  it('parte del que esta puesto y se guarda con su nombre', async () => {
+describe('creating a theme', () => {
+  it('starts from the active one and is saved with its name', async () => {
     mountView({ editing: null, activeTheme: 'ocean' })
     expect(w.find('h3').text()).toBe('Crear tema custom')
     expect(w.find('input').element.value).toBe('Oceano (mío)')
@@ -73,7 +73,7 @@ describe('crear un tema', () => {
     expect(root().dataset.theme).toBe('custom-mi-mar')
   })
 
-  it('«Partir de» copia los colores de otro', async () => {
+  it('«Partir de» copies the colors of another', async () => {
     mountView({ editing: null })
     await w.find('.select-box').trigger('click')
     await w
@@ -85,7 +85,7 @@ describe('crear un tema', () => {
     expect(w.find('input').element.value).toBe('Vino (mío)')
   })
 
-  it('los cambios se ven al momento, y cancelar deja el tema de antes', async () => {
+  it('changes show right away, and cancelling restores the previous theme', async () => {
     mountView({ editing: null, activeTheme: 'night' })
     await hex('Acento').setValue('#123456')
     await flushPromises()
@@ -97,7 +97,7 @@ describe('crear un tema', () => {
     expect(Object.keys(customThemes())).toEqual(['custom-red', 'custom-blue'])
   })
 
-  it('por defecto enseña seis colores y, si se pide, los doce', async () => {
+  it('by default it shows six colors and, on request, all twelve', async () => {
     mountView({ editing: null })
     expect(w.findAll('.color-row')).toHaveLength(6)
     await button('Todos los colores').trigger('click')
@@ -106,7 +106,7 @@ describe('crear un tema', () => {
     expect(w.findAll('.color-row')).toHaveLength(6)
   })
 
-  it('al cerrarse a medias no deja puesta la vista previa', async () => {
+  it('closing halfway does not leave the preview applied', async () => {
     mountView({ editing: null, activeTheme: 'midnight' })
     await hex('Acento').setValue('#654321')
     await flushPromises()

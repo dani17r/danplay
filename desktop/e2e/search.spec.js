@@ -125,7 +125,7 @@ async function pickPlaylist(page, list) {
   await expect(menu(page)).toHaveCount(0)
 }
 
-test('en Favoritos, un resultado se añade a un repertorio con el clic derecho y con el «⋯», varias veces seguidas', async ({
+test('in Favorites, a result is added to a playlist with right-click and with «⋯», several times in a row', async ({
   page,
   request
 }) => {
@@ -174,7 +174,7 @@ test('en Favoritos, un resultado se añade a un repertorio con el clic derecho y
   await expect(page.locator('.sr-row')).toHaveCount(2)
 })
 
-test('el «⋯» de cada resultado se ve en el resaltado y al pasar el puntero', async ({ page }) => {
+test('the «⋯» of each result shows on the highlighted one and on hover', async ({ page }) => {
   await open(page)
   // el puntero, lejos del desplegable: ninguna fila lo tiene encima
   await page.mouse.move(700, 600)
@@ -194,7 +194,7 @@ test('el «⋯» de cada resultado se ve en el resaltado y al pasar el puntero',
   await expect(moreOf(second)).toHaveAttribute('title', 'Opciones')
 })
 
-test('dentro de un repertorio, el menú de un resultado es el del resultado y no el de la lista', async ({
+test('inside a playlist, the menu of a result is for the result, not for the playlist', async ({
   page,
   request
 }) => {
@@ -231,7 +231,7 @@ test('dentro de un repertorio, el menú de un resultado es el del resultado y no
   await expect(dropdown(page)).toBeVisible()
 })
 
-test('con un menú abierto, el clic derecho en otro resultado abre el de ese resultado', async ({
+test('with a menu open, right-clicking another result opens the menu of that result', async ({
   page,
   request
 }) => {
@@ -258,7 +258,7 @@ test('con un menú abierto, el clic derecho en otro resultado abre el de ese res
   await expect.poll(() => titlesOf(request, list)).toEqual([top])
 })
 
-test('Escape con el menú abierto cierra el menú y no el desplegable; un clic fuera lo cierra todo', async ({
+test('Escape with the menu open closes the menu but not the dropdown; a click outside closes everything', async ({
   page
 }) => {
   await open(page)
@@ -295,7 +295,7 @@ test('Escape con el menú abierto cierra el menú y no el desplegable; un clic f
   await expect(dropdown(page)).toHaveCount(0)
 })
 
-test('marcar una favorita desde el menú de un resultado cambia lo que dice el menú la próxima vez', async ({
+test('marking a favorite from a result menu changes what the menu says next time', async ({
   page,
   request
 }) => {
@@ -329,7 +329,7 @@ test('marcar una favorita desde el menú de un resultado cambia lo que dice el m
   await expect(dropdown(page)).toBeVisible()
 })
 
-test('con el teclado: Mayús+F10 y la tecla de menú abren las opciones del resultado resaltado', async ({
+test('with the keyboard: Shift+F10 and the menu key open the options of the highlighted result', async ({
   page,
   request
 }) => {
@@ -368,7 +368,7 @@ test('con el teclado: Mayús+F10 y la tecla de menú abren las opciones del resu
   await expect(dropdown(page)).toBeVisible()
 })
 
-test('«Nueva lista…» desde un resultado crea el repertorio con esa canción', async ({
+test('«Nueva lista…» from a result creates the playlist with that song', async ({
   page,
   request
 }) => {
@@ -391,7 +391,7 @@ test('«Nueva lista…» desde un resultado crea el repertorio con esa canción'
   expect(await titlesOf(request, updated.id)).toEqual(['Shekinah'])
 })
 
-test('«Reproducir» en el menú de un resultado pone esa canción y deja lo encontrado como cola', async ({
+test('«Reproducir» in a result menu plays that song and queues the search results', async ({
   page
 }) => {
   await open(page)
@@ -422,7 +422,7 @@ const count = (page) => page.locator('.search-results .sr-count')
 const buttonOf = (page, name) =>
   page.locator('.search-results .sr-head').getByRole('button', { name, exact: true })
 
-test('con «Seleccionar» y las casillas, dos resultados a un repertorio de una vez, sin cerrar el desplegable', async ({
+test('with «Seleccionar» and the checkboxes, two results go to a playlist at once without closing the dropdown', async ({
   page,
   request
 }) => {
@@ -461,7 +461,7 @@ test('con «Seleccionar» y las casillas, dos resultados a un repertorio de una 
   await expect(page.locator('.sr-row .pick-box')).toHaveCount(0)
 })
 
-test('Ctrl+clic y Mayús+clic sin el modo; la papelera desde «⋯» pide confirmación y, cancelada, no borra', async ({
+test('Ctrl+click and Shift+click without the mode; trash from «⋯» asks for confirmation and, if cancelled, deletes nothing', async ({
   page,
   request
 }) => {
@@ -502,7 +502,7 @@ test('Ctrl+clic y Mayús+clic sin el modo; la papelera desde «⋯» pide confir
   await expect(dropdown(page)).toHaveCount(0)
 })
 
-test('desde la caja: Ctrl+A es del texto; Ctrl+Espacio y Mayús+flechas eligen, y «Reproducir estas 2» las pone de cola', async ({
+test('from the box: Ctrl+A belongs to the text; Ctrl+Space and Shift+arrows select, and «Reproducir estas 2» queues them', async ({
   page
 }) => {
   await open(page)

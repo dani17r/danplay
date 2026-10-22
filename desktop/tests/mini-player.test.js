@@ -79,35 +79,35 @@ const previous = () => buttons()[0]
 const play = () => buttons()[1]
 const next = () => buttons()[2]
 
-describe('el mini reproductor', () => {
-  it('sin nada cargado, todos los mandos estan en gris', async () => {
+describe('the mini player', () => {
+  it('with nothing loaded, every control is greyed out', async () => {
     await mountMini()
     expect(w.text()).toContain('Nada sonando')
     for (const b of buttons()) expect(b.attributes('disabled')).toBeDefined()
   })
 
-  it('con una cancion cargada se habilitan los mandos', async () => {
+  it('with a song loaded the controls are enabled', async () => {
     await mountMini(PLAYING)
     expect(w.text()).toContain('Mi Gozo')
     expect(w.text()).toContain('Barak')
     for (const b of buttons()) expect(b.attributes('disabled')).toBeUndefined()
   })
 
-  it('sola en la cola, anterior y siguiente siguen en gris', async () => {
+  it('alone in the queue, previous and next stay greyed out', async () => {
     await mountMini({ ...PLAYING, length: 1, has_previous: false, has_next: false })
     expect(previous().attributes('disabled')).toBeDefined()
     expect(next().attributes('disabled')).toBeDefined()
     expect(play().attributes('disabled')).toBeUndefined()
   })
 
-  it('pausar es una orden directa al audio, sin pasar por la app', async () => {
+  it('pausing is a direct command to the audio, bypassing the app', async () => {
     await mountMini(PLAYING)
     await play().trigger('click')
     await flushPromises()
     expect(held.playback.bridge.toggle).toHaveBeenCalled()
   })
 
-  it('cambiar de cancion se le pide a quien tiene la cola', async () => {
+  it('changing song is requested from whoever owns the queue', async () => {
     await mountMini(PLAYING)
     await next().trigger('click')
     expect(held.playback.bridge.next).toHaveBeenCalled()
@@ -115,7 +115,7 @@ describe('el mini reproductor', () => {
     expect(held.playback.bridge.previous).toHaveBeenCalled()
   })
 
-  it('el boton ofrece pausar o reproducir segun este el audio de verdad', async () => {
+  it('the button offers pause or play depending on the real audio state', async () => {
     await mountMini(PLAYING)
     expect(play().attributes('title')).toBe('Pausar')
     held.playback.emit({ playing: false })
@@ -123,7 +123,7 @@ describe('el mini reproductor', () => {
     expect(play().attributes('title')).toBe('Reproducir')
   })
 
-  it('se entera de que ha cambiado la cancion sin preguntar', async () => {
+  it('learns that the song changed without asking', async () => {
     await mountMini(PLAYING)
     held.playback.emit({
       track: { id: 9, title: 'Shekinah', artist: 'New Wine', duration: 180, blur: false }
@@ -133,7 +133,7 @@ describe('el mini reproductor', () => {
     expect(w.text()).toContain('New Wine')
   })
 
-  it('espacio pausa y Escape la quita de en medio', async () => {
+  it('Space pauses and Escape gets it out of the way', async () => {
     await mountMini(PLAYING)
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }))
     await flushPromises()
@@ -142,19 +142,19 @@ describe('el mini reproductor', () => {
     expect(held.mini.hide).toHaveBeenCalled()
   })
 
-  it('la barra avanza con lo que dice el audio, no con lo que creemos', async () => {
+  it('the bar advances with what the audio reports, not with what we assume', async () => {
     await mountMini({ ...PLAYING, position: 50, duration: 200 })
     expect(w.find('.mini-seek-fill').attributes('style')).toContain('width: 25%')
   })
 
-  it('no se puede arrastrar: la coloca la bandeja cada vez', async () => {
+  it('cannot be dragged: the tray places it every time', async () => {
     await mountMini(PLAYING)
     expect(w.find('[data-tauri-drag-region]').exists()).toBe(false)
   })
 })
 
-describe('su nombre y su portada', () => {
-  it('la raiz no se llama como un modificador de boton', async () => {
+describe('its name and its cover', () => {
+  it('the root is not named like a button modifier', async () => {
     // `.mini` era a la vez la ventanita (height:100vh) y el modificador de los
     // botones pequeños («btn mini»): ganaba la ultima regla y los botones de
     // toda la app se volvian columnas de la altura de la pantalla
@@ -164,7 +164,7 @@ describe('su nombre y su portada', () => {
     expect(allCss()).toContain(`.${root}{`)
   })
 
-  it('una portada difuminada tambien se ve difuminada aqui', async () => {
+  it('a blurred cover also shows blurred here', async () => {
     await mountMini({ ...PLAYING, track: { ...PLAYING.track, blur: true } })
     expect(w.find('.cover-art').classes()).toContain('blurred')
   })

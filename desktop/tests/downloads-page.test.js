@@ -100,8 +100,8 @@ const mountView = async () => {
   return w
 }
 
-describe('el historial de descargas', () => {
-  it('esta siempre a la vista y no hay tarjeta de Resultado aparte', async () => {
+describe('the download history', () => {
+  it('is always visible and there is no separate Result card', async () => {
     const w = await mountView()
     expect(w.text()).toContain('Historial')
     expect(w.findAll('.hist-row')).toHaveLength(3)
@@ -110,7 +110,7 @@ describe('el historial de descargas', () => {
     expect(w.findAll('button').some((b) => ['Ver', 'Ocultar'].includes(b.text()))).toBe(false)
   })
 
-  it('lo bajado se pone a sonar desde su fila, y la misma fila lo pausa', async () => {
+  it('a download plays from its row, and the same row pauses it', async () => {
     const w = await mountView()
     const rows = w.findAll('.hist-row')
     expect(rows[0].find('.hist-play').exists()).toBe(true)
@@ -135,7 +135,7 @@ describe('el historial de descargas', () => {
     expect(w.findAll('.hist-row')[0].find('.hist-play').attributes('title')).toBe('Reanudar')
   })
 
-  it('se vacia como en un navegador, pero no mientras baja algo', async () => {
+  it('is cleared like in a browser, but not while something is downloading', async () => {
     const w = await mountView()
     const clear = () => w.findAll('button').find((b) => b.text() === 'Vaciar')
     expect(clear().attributes('disabled')).toBeUndefined()
@@ -163,7 +163,7 @@ describe('el historial de descargas', () => {
     expect(w.findAll('.hist-row')).toHaveLength(0)
   })
 
-  it('a partir de una tanda, ofrece cargar mas en vez de paginar', async () => {
+  it('beyond one batch, it offers to load more instead of paging', async () => {
     held.history = Array.from({ length: 45 }, (_, i) => row(i + 1))
     held.total = 45
     const w = await mountView()
@@ -180,7 +180,7 @@ describe('el historial de descargas', () => {
 describe('yt-dlp', () => {
   beforeEach(clearNotices)
 
-  it('se ve que version se usa y se puede traer la nueva', async () => {
+  it('shows which version is used and lets you fetch the new one', async () => {
     held.youtube.mockResolvedValue({
       available: true,
       active: false,
@@ -218,7 +218,7 @@ describe('yt-dlp', () => {
     held.youtube.mockResolvedValue({ available: true, active: false, results: [] })
   })
 
-  it('sin motor de JavaScript lo avisa, con lo que hay que instalar', async () => {
+  it('without a JavaScript engine it warns, with what to install', async () => {
     held.youtube.mockResolvedValue({
       available: true,
       active: false,
@@ -232,7 +232,7 @@ describe('yt-dlp', () => {
     held.youtube.mockResolvedValue({ available: true, active: false, results: [] })
   })
 
-  it('mientras baja algo, no se actualiza', async () => {
+  it('while something is downloading, it does not update', async () => {
     held.youtube.mockResolvedValue({
       available: true,
       active: true,
@@ -252,7 +252,7 @@ describe('yt-dlp', () => {
   })
 })
 
-describe('lo que parece una Drum Cam', () => {
+describe('what looks like a Drum Cam', () => {
   beforeEach(clearNotices)
 
   const drumCam = {
@@ -273,7 +273,7 @@ describe('lo que parece una Drum Cam', () => {
   }
   afterEach(() => held.youtube.mockResolvedValue({ available: true, active: false, results: [] }))
 
-  it('al terminar ofrece llevarla a su carpeta, y con un clic la mueve', async () => {
+  it('when done it offers to move it to its folder, and one click moves it', async () => {
     const w = await finish([drumCam, { ok: true, id: 8, artist: 'Barak', song: 'Mi Gozo' }])
     const card = w.find('.dl-kind')
     expect(card.text()).toContain('Parece una Drum Cam: ¿moverla a Pistas?')
@@ -291,7 +291,7 @@ describe('lo que parece una Drum Cam', () => {
     expect(notices.value.some((n) => n.message === 'Movida a Pistas')).toBe(true)
   })
 
-  it('«No, déjala en Artistas» la quita sin mover nada', async () => {
+  it('«No, déjala en Artistas» dismisses it without moving anything', async () => {
     const w = await finish([drumCam])
     await w
       .findAll('button')
@@ -301,7 +301,7 @@ describe('lo que parece una Drum Cam', () => {
     expect(api.moveSong).not.toHaveBeenCalled()
   })
 
-  it('si no se puede mover, lo dice y la sugerencia sigue ahi', async () => {
+  it('if it cannot be moved, it says so and the suggestion stays', async () => {
     api.moveSong.mockRejectedValueOnce(new Error('su archivo ya no esta donde decia el indice'))
     const w = await finish([drumCam])
     await w
@@ -315,13 +315,13 @@ describe('lo que parece una Drum Cam', () => {
   })
 })
 
-describe('la carpeta de descargas', () => {
-  it('se ve donde se guarda', async () => {
+describe('the downloads folder', () => {
+  it('shows where it is saved', async () => {
     const w = await mountView()
     expect(w.find('.dl-folder').text()).toContain('Se guarda en /musica')
   })
 
-  it('la primera vez pregunta donde, y luego baja ahi', async () => {
+  it('the first time it asks where, and then downloads there', async () => {
     held.folder = { path: '/home/x/Música', ready: false, reason: 'unset', suggested: '/musica' }
     const w = await mountView()
     expect(w.find('.dl-folder').text()).toContain('La primera vez que descargues te pregunto')
@@ -342,7 +342,7 @@ describe('la carpeta de descargas', () => {
     expect(w.find('.dl-folder').text()).toContain('Se guarda en /musica')
   })
 
-  it('sin carpeta no se baja nada', async () => {
+  it('without a folder nothing is downloaded', async () => {
     held.folder = { path: '', ready: false, reason: 'unset', suggested: '' }
     const w = await mountView()
     await w.find('input').setValue('barak mi gozo')

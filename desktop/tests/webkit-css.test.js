@@ -12,8 +12,8 @@ function rules(css) {
   return [...css.matchAll(/([^{}@]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim(), m[2]])
 }
 
-describe('lo que WebKit no pinta', () => {
-  it('ninguna sombra va en una fila de tabla: va en sus celdas', () => {
+describe('what WebKit does not paint', () => {
+  it('no shadow goes on a table row: it goes on its cells', () => {
     const bad = []
     for (const [selectors, body] of rules(allCss())) {
       if (!/(^|;)box-shadow:(?!none)/.test(body)) continue
@@ -30,7 +30,7 @@ describe('lo que WebKit no pinta', () => {
     expect(bad).toEqual([])
   })
 
-  it('la elegida y la raya de soltar se ven en la primera celda, juntas', () => {
+  it('the selected row and the drop line show on the first cell, together', () => {
     const css = allCss()
     expect(css).toMatch(
       /tbody tr\.selected\s*>\s*td:first-child\{box-shadow:\s*inset 2px 0 0 var\(--accent\)\}/

@@ -85,8 +85,8 @@ afterEach(() => {
   window.getComputedStyle = csOriginal
 })
 
-describe('desplazamiento automatico al ordenar', () => {
-  it('cerca del borde de abajo la lista baja sola, cuadro a cuadro', () => {
+describe('auto-scroll while sorting', () => {
+  it('near the bottom edge the list scrolls down on its own, frame by frame', () => {
     startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
     pointer(rows[2], 'pointermove', 10, PANEL.top + PANEL.height - 10)
     expect(frames.length, 'deberia haber un cuadro programado').toBe(1)
@@ -97,7 +97,7 @@ describe('desplazamiento automatico al ordenar', () => {
     expect(panel.scrollTop).toBeGreaterThan(afterOne)
   })
 
-  it('cerca del borde de arriba sube', () => {
+  it('near the top edge it scrolls up', () => {
     panel.scrollTop = 300
     startDrag({ id: 3 }, { clientX: 10, clientY: 400, button: 0, target: rows[2] })
     pointer(rows[0], 'pointermove', 10, PANEL.top + 5)
@@ -105,14 +105,14 @@ describe('desplazamiento automatico al ordenar', () => {
     expect(panel.scrollTop).toBeLessThan(300)
   })
 
-  it('en medio del panel no se mueve, aunque pasen cuadros', () => {
+  it('in the middle of the panel it does not move, even as frames pass', () => {
     startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
     pointer(rows[1], 'pointermove', 10, PANEL.top + PANEL.height / 2)
     frame(5)
     expect(panel.scrollTop).toBe(0)
   })
 
-  it('cuanto mas al borde, mas rapido', () => {
+  it('the closer to the edge, the faster', () => {
     startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
     pointer(rows[2], 'pointermove', 10, PANEL.top + PANEL.height - 40)
     frame()
@@ -123,7 +123,7 @@ describe('desplazamiento automatico al ordenar', () => {
     expect(panel.scrollTop).toBeGreaterThan(smooth)
   })
 
-  it('al soltar, o al cancelar, no queda ningun cuadro dando vueltas', () => {
+  it('on drop, or on cancel, no frame is left running', () => {
     startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
     pointer(rows[2], 'pointermove', 10, PANEL.top + PANEL.height - 10)
     frame()
@@ -134,7 +134,7 @@ describe('desplazamiento automatico al ordenar', () => {
     expect(frames.length).toBe(0)
   })
 
-  it('fuera de una lista ordenable no se programa nada', () => {
+  it('outside a sortable list nothing is scheduled', () => {
     const loose = document.createElement('div')
     loose.setAttribute('data-drop', 'favorites')
     document.body.appendChild(loose)
@@ -144,7 +144,7 @@ describe('desplazamiento automatico al ordenar', () => {
     loose.remove()
   })
 
-  it('la mitad del destino decide antes o despues, y se entrega al soltar', () => {
+  it('the half of the target decides before or after, and is delivered on drop', () => {
     const received = []
     onDrop((target, song, extra) => received.push([target, song.id, extra.after]))
     const { drag } = useDragSong()
@@ -160,7 +160,7 @@ describe('desplazamiento automatico al ordenar', () => {
     expect(drag.song).toBe(null)
   })
 
-  it('con una sola, `songs` llega como [song]: lo de antes sigue valiendo', () => {
+  it('with a single one, `songs` arrives as [song]: the old behaviour still holds', () => {
     const received = []
     onDrop((target, song, extra) => received.push([target, extra.songs.map((s) => s.id)]))
     startDrag({ id: 1 }, { clientX: 10, clientY: 140, button: 0, target: rows[0] })
@@ -174,10 +174,10 @@ describe('desplazamiento automatico al ordenar', () => {
 // la app decide dónde dejarlas. Aquí, lo que es del composable: que el
 // bloque llega entero, en su orden, con la mitad del destino, y que el
 // desplazamiento por el borde funciona igual que con una.
-describe('ordenar un bloque', () => {
+describe('sorting a block', () => {
   const block = () => [{ id: 1 }, { id: 2 }]
 
-  it('se entrega entero, en su orden y con la mitad del destino', () => {
+  it('is delivered whole, in order and with the target half', () => {
     const received = []
     onDrop((target, song, extra) =>
       received.push([target, song.id, extra.songs.map((s) => s.id), extra.after])
@@ -195,7 +195,7 @@ describe('ordenar un bloque', () => {
     expect(drag.songs).toEqual([])
   })
 
-  it('cerca del borde la lista también baja sola con el bloque en la mano', () => {
+  it('near the edge the list also scrolls on its own with the block in hand', () => {
     const b = block()
     startDrag(b[0], { clientX: 10, clientY: 140, button: 0, target: rows[0] }, b)
     pointer(rows[2], 'pointermove', 10, PANEL.top + PANEL.height - 10)
@@ -205,7 +205,7 @@ describe('ordenar un bloque', () => {
     expect(frames.length).toBe(0)
   })
 
-  it('cancelarlo suelta el bloque entero', () => {
+  it('cancelling it releases the whole block', () => {
     const { drag, isDragged } = useDragSong()
     const b = block()
     startDrag(b[0], { clientX: 10, clientY: 140, button: 0, target: rows[0] }, b)

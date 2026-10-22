@@ -90,14 +90,14 @@ async function mountView() {
   return w
 }
 
-describe('arranque sin carpetas', () => {
-  it('muestra la bienvenida y no pide canciones', async () => {
+describe('startup without folders', () => {
+  it('shows the welcome page and does not request songs', async () => {
     const w = await mountView()
     expect(w.text()).toContain('Bienvenido a DanPlay')
     expect(api.search).not.toHaveBeenCalled()
   })
 
-  it('tras elegir carpeta y analizar, la lista aparece sola', async () => {
+  it('after choosing a folder and scanning, the list appears on its own', async () => {
     const w = await mountView()
     await w.find('.page input[type="text"], .page input:not([type])').setValue('/musica')
     await w
@@ -115,8 +115,8 @@ describe('arranque sin carpetas', () => {
   })
 })
 
-describe('el nucleo llega tarde', () => {
-  it('la biblioteca se llena sola cuando el nucleo arranca', async () => {
+describe('the core arrives late', () => {
+  it('the library fills itself when the core starts', async () => {
     // Abrir DanPlay con una cancion desde el explorador es cuando mas tarda
     // el nucleo: todo pasa a la vez. Si la interfaz carga antes de que
     // conteste, la primera carga FALLA; y antes ese fallo cortaba el
@@ -139,7 +139,7 @@ describe('el nucleo llega tarde', () => {
     expect(w.text()).toContain(song(3).title)
   })
 
-  it('los avisos siguientes no recargan por nada', async () => {
+  it('later notifications do not reload for nothing', async () => {
     state.status.configured = true
     await mountView()
     held.coreListener?.({ ready: true, message: '' })
@@ -154,8 +154,8 @@ describe('el nucleo llega tarde', () => {
 // La musica se movio o se borro por fuera (el gestor de archivos, un disco que
 // no esta): el nucleo aparta lo que ya no esta, y si no queda nada, la app no
 // enseña una lista vacia sin mas, sino la pantalla para volver a importar.
-describe('la musica ya no esta donde estaba', () => {
-  it('si la carpeta se movio, lo dice y pregunta donde esta ahora', async () => {
+describe('the music is no longer where it was', () => {
+  it('if the folder moved, it says so and asks where it is now', async () => {
     state.status.configured = true
     state.status.missing_folders = ['/home/ana/Musica']
     const w = await mountView()
@@ -164,7 +164,7 @@ describe('la musica ya no esta donde estaba', () => {
     expect(w.text()).toContain('¿Dónde está ahora?')
   })
 
-  it('al elegirla en su sitio nuevo vuelve todo, sin mas preguntas', async () => {
+  it('picking it at its new location brings everything back, with no more questions', async () => {
     state.status.configured = true
     state.status.missing_folders = ['/home/ana/Musica']
     api.addFolder.mockImplementationOnce(async () => {
@@ -191,7 +191,7 @@ describe('la musica ya no esta donde estaba', () => {
     expect(w.text()).toContain('Mi Gozo')
   })
 
-  it('si se vacia con la app abierta, aparece sola la pantalla de importar', async () => {
+  it('if it empties with the app open, the import screen appears on its own', async () => {
     vi.useFakeTimers()
     state.status.configured = true
     state.songs = [song(1)]
@@ -211,14 +211,14 @@ describe('la musica ya no esta donde estaba', () => {
     vi.useRealTimers()
   })
 
-  it('con las carpetas en su sitio pero sin canciones, invita a elegir otra', async () => {
+  it('with the folders in place but no songs, it invites choosing another', async () => {
     state.status.configured = true
     const w = await mountView()
     expect(w.text()).toContain('Tu biblioteca está vacía')
     expect(w.text()).not.toContain('No encuentro tu música')
   })
 
-  it('en Ajustes no tapa nada: es donde se arregla', async () => {
+  it('in Settings it covers nothing: that is where it gets fixed', async () => {
     state.status.configured = true
     state.status.missing_folders = ['/musica']
     const w = await mountView()
@@ -236,8 +236,8 @@ describe('la musica ya no esta donde estaba', () => {
 // hecho quien lo haya hecho: el asistente, una descarga que termina, la linea
 // de ordenes. Antes la lista decia «6 temas» con tres hasta salir y volver a
 // entrar en la pagina.
-describe('algo cambia en el nucleo por detras', () => {
-  it('la lista, los repertorios y el estado se refrescan solos', async () => {
+describe('something changes in the core behind the scenes', () => {
+  it('the list, the playlists and the status refresh on their own', async () => {
     vi.useFakeTimers()
     state.status.configured = true
     state.status.stats.total = 1
@@ -261,7 +261,7 @@ describe('algo cambia en el nucleo por detras', () => {
     vi.useRealTimers()
   })
 
-  it('varios avisos seguidos son un solo refresco', async () => {
+  it('several notifications in a row make a single refresh', async () => {
     vi.useFakeTimers()
     state.status.configured = true
     state.songs = [song(1)]
@@ -279,8 +279,8 @@ describe('algo cambia en el nucleo por detras', () => {
   })
 })
 
-describe('la lista del reproductor abierta', () => {
-  it('se actualiza sola cuando llega una cancion desde fuera', async () => {
+describe('the open player list', () => {
+  it('updates itself when a song arrives from outside', async () => {
     state.status.configured = true
     const w = await mountView()
     // se entra a «Reproductor»
@@ -306,7 +306,7 @@ describe('la lista del reproductor abierta', () => {
     expect(w.text()).toContain('Recien llegada')
   })
 
-  it('en otra vista no se recarga por nada', async () => {
+  it('in another view it does not reload for nothing', async () => {
     state.status.configured = true
     await mountView()
     api.externalList.mockClear()
@@ -316,8 +316,8 @@ describe('la lista del reproductor abierta', () => {
   })
 })
 
-describe('reindexado desde Ajustes', () => {
-  it('al volver a la biblioteca la vista ya trae lo nuevo', async () => {
+describe('reindexing from Settings', () => {
+  it('on return to the library the view already has the new data', async () => {
     const w = await mountView()
     // simula que ya habia carpeta y se reindexa desde Ajustes
     state.status.configured = true
@@ -333,8 +333,8 @@ describe('reindexado desde Ajustes', () => {
   })
 })
 
-describe('reactividad de la tabla', () => {
-  it('las estrellas se reflejan al momento', async () => {
+describe('table reactivity', () => {
+  it('stars update right away', async () => {
     state.status.configured = true
     state.songs = [
       {
@@ -365,7 +365,7 @@ describe('reactividad de la tabla', () => {
     expect(w.findAll('tbody .stars .ico.on').length).toBe(4)
   })
 
-  it('el favorito se refleja al momento', async () => {
+  it('the favorite updates right away', async () => {
     state.status.configured = true
     state.songs = [
       {
@@ -390,8 +390,8 @@ describe('reactividad de la tabla', () => {
   })
 })
 
-describe('cambio de vista', () => {
-  it('la cuadricula muestra las mismas canciones que la lista', async () => {
+describe('switching view', () => {
+  it('the grid shows the same songs as the list', async () => {
     state.status.configured = true
     state.songs = [
       {
@@ -417,7 +417,7 @@ describe('cambio de vista', () => {
     expect(w.text()).toContain('Mi Gozo')
   })
 
-  it('agrupar por artista crea cabeceras de grupo', async () => {
+  it('grouping by artist creates group headers', async () => {
     state.status.configured = true
     state.songs = [
       {
@@ -471,7 +471,7 @@ describe('cambio de vista', () => {
   })
 })
 
-describe('cambiar de vista desde el lateral', () => {
+describe('switching view from the sidebar', () => {
   const oneSong = () => [
     {
       id: 1,
@@ -504,7 +504,7 @@ describe('cambiar de vista desde el lateral', () => {
     await settle()
   }
 
-  it('el asistente recibe lo que se estaba viendo, la seleccion y lo que suena', async () => {
+  it('the assistant receives what was being viewed, the selection and what is playing', async () => {
     // «pon la segunda», «esta», «las seleccionadas»: sin esto el modelo no
     // sabia a que se referia la persona
     state.status.configured = true
@@ -529,7 +529,7 @@ describe('cambiar de vista desde el lateral', () => {
     expect(ctx.playing).toBeNull()
   })
 
-  it('Favoritos cambia el titulo y pide solo favoritos', async () => {
+  it('Favorites changes the title and requests only favorites', async () => {
     const w = await withLibrary()
     await clickButton(w, 'Favoritos')
     expect(w.find('.filters').text()).toContain('Favoritos')
@@ -537,14 +537,14 @@ describe('cambiar de vista desde el lateral', () => {
     expect(last.only_favorites).toBe(true)
   })
 
-  it('Artistas agrupa por artista', async () => {
+  it('Artists groups by artist', async () => {
     const w = await withLibrary()
     await clickButton(w, 'Artistas')
     expect(w.find('.filters').text()).toContain('Artistas')
     expect(w.findAll('.group-head').length).toBeGreaterThan(0)
   })
 
-  it('el asistente se queda como estaba al salir y volver, y se pone al dia', async () => {
+  it('the assistant stays as it was after leaving and coming back, and catches up', async () => {
     // Las paginas se cargan al abrirlas; el asistente, ademas, se guarda al
     // salir (<KeepAlive>): lo que tenias abierto en el sigue abierto.
     const w = await withLibrary()
@@ -561,14 +561,14 @@ describe('cambiar de vista desde el lateral', () => {
     expect(api.chats.mock.calls.length).toBeGreaterThan(before)
   })
 
-  it('Duplicados muestra su propia pagina', async () => {
+  it('Duplicates shows its own page', async () => {
     const w = await withLibrary()
     await clickButton(w, 'Duplicados')
     expect(w.text()).toContain('Escúchalas y quédate con la que prefieras')
     expect(api.duplicatesScan).toHaveBeenCalled()
   })
 
-  it('Entrada muestra su propia pagina', async () => {
+  it('Inbox shows its own page', async () => {
     const w = await withLibrary()
     await clickButton(w, 'Entrada')
     // se comprueba lo que la pagina hace, no su redaccion exacta
@@ -578,7 +578,7 @@ describe('cambiar de vista desde el lateral', () => {
     expect(w.text()).toContain('Probar sin tocar nada')
   })
 
-  it('Ajustes y vuelta a la biblioteca conserva las canciones', async () => {
+  it('Settings and back to the library keeps the songs', async () => {
     const w = await withLibrary()
     await clickButton(w, 'Ajustes')
     expect(w.text()).toContain('Apariencia')
@@ -586,7 +586,7 @@ describe('cambiar de vista desde el lateral', () => {
     expect(w.text()).toContain('Mi Gozo')
   })
 
-  it('nunca vuelve a la bienvenida si ya hay canciones', async () => {
+  it('never goes back to the welcome page if there are songs', async () => {
     const w = await withLibrary()
     for (const v of ['Favoritos', 'Artistas', 'Duplicados', 'Todas las canciones']) {
       await clickButton(w, v)
@@ -595,7 +595,7 @@ describe('cambiar de vista desde el lateral', () => {
   })
 })
 
-describe('añadir la misma carpeta varias veces', () => {
+describe('adding the same folder several times', () => {
   const field = (w) => w.find('.page input[type="text"], .page input:not([type])')
   const analyze = async (w) => {
     await w
@@ -607,7 +607,7 @@ describe('añadir la misma carpeta varias veces', () => {
     await flushPromises()
   }
 
-  it('la primera vez la añade y carga la biblioteca', async () => {
+  it('the first time it adds it and loads the library', async () => {
     const w = mount(App, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
@@ -617,7 +617,7 @@ describe('añadir la misma carpeta varias veces', () => {
     expect(w.text()).toContain('Mi Gozo')
   })
 
-  it('si el backend dice que ya estaba, avisa pero carga igual', async () => {
+  it('if the backend says it was already there, it warns but loads anyway', async () => {
     // el backend responde que la carpeta ya estaba indexada
     api.addFolder.mockResolvedValueOnce({
       action: 'already_there',
@@ -642,7 +642,7 @@ describe('añadir la misma carpeta varias veces', () => {
     expect(w2.text()).not.toContain('Bienvenido a DanPlay')
   })
 
-  it('no se añade dos veces la misma ruta', async () => {
+  it('the same path is not added twice', async () => {
     const w = mount(App, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
@@ -703,8 +703,8 @@ async function play(w, index) {
   await flushPromises()
 }
 
-describe('el boton de repeticion', () => {
-  it('cicla por los cuatro modos y se lo dice a quien tiene la cola', async () => {
+describe('the repeat button', () => {
+  it('cycles through the four modes and tells whoever owns the queue', async () => {
     state.status.configured = true
     state.songs = twoSongs()
     const w = await mountView()
@@ -715,7 +715,7 @@ describe('el boton de repeticion', () => {
     }
   })
 
-  it('el modo elegido se recuerda entre sesiones', async () => {
+  it('the chosen mode is remembered between sessions', async () => {
     state.status.configured = true
     state.songs = twoSongs()
     const w = await mountView()
@@ -725,8 +725,8 @@ describe('el boton de repeticion', () => {
   })
 })
 
-describe('poner una cancion', () => {
-  it('manda la lista entera como cola, empezando por la pulsada', async () => {
+describe('playing a song', () => {
+  it('sends the whole list as the queue, starting with the clicked one', async () => {
     state.status.configured = true
     state.songs = twoSongs()
     const w = await mountView()
@@ -740,8 +740,8 @@ describe('poner una cancion', () => {
 
 // El boton de la fila de la cancion que suena es pausa, y pulsado reanuda:
 // antes volvia a empezar la cancion y desde la lista no habia forma de pararla.
-describe('pausar desde la propia fila', () => {
-  it('sobre la que suena, el boton pausa y reanuda en vez de reiniciar', async () => {
+describe('pausing from the row itself', () => {
+  it('on the playing one, the button pauses and resumes instead of restarting', async () => {
     state.status.configured = true
     state.songs = twoSongs()
     const w = await mountView()
@@ -761,7 +761,7 @@ describe('pausar desde la propia fila', () => {
     expect(w.findAll('tbody tr')[0].find('.row-play').attributes('title')).toBe('Reproducir')
   })
 
-  it('el punto de la barra lateral marca de donde sale lo que suena', async () => {
+  it('the sidebar dot marks where the playing song comes from', async () => {
     state.status.configured = true
     state.songs = twoSongs()
     const w = await mountView()
@@ -777,7 +777,7 @@ describe('pausar desde la propia fila', () => {
 
 // El menu de la cancion: «Enviar por Telegram» solo si Telegram esta en el
 // equipo (lo dice Rust al arrancar), y «Abrir la carpeta» siempre.
-describe('el menu contextual de una cancion', () => {
+describe('the context menu of a song', () => {
   async function openMenu() {
     state.status.configured = true
     state.songs = [song(1), song(2)] // con su ruta, como las de verdad
@@ -788,7 +788,7 @@ describe('el menu contextual de una cancion', () => {
   }
   const labels = (w) => w.findAll('.ctx-item .ctx-label').map((b) => b.text())
 
-  it('con Telegram instalado ofrece enviar la cancion, y manda su ruta', async () => {
+  it('with Telegram installed it offers to send the song, and sends its path', async () => {
     const w = await openMenu()
     expect(labels(w)).toContain('Enviar por Telegram')
     expect(labels(w)).toContain('Abrir la carpeta')
@@ -803,14 +803,14 @@ describe('el menu contextual de una cancion', () => {
     expect(w.text()).toContain('Telegram se ha abierto')
   })
 
-  it('sin Telegram, la opcion no aparece', async () => {
+  it('without Telegram, the option does not appear', async () => {
     held.app.shareTargets.mockResolvedValueOnce({ telegram: false })
     const w = await openMenu()
     expect(labels(w)).not.toContain('Enviar por Telegram')
     expect(labels(w)).toContain('Abrir la carpeta')
   })
 
-  it('con el panel a la vista no ofrece «Ver detalles»', async () => {
+  it('with the panel visible it does not offer «Ver detalles»', async () => {
     const w = await openMenu()
     expect(w.find('.details').exists()).toBe(true)
     expect(labels(w)).not.toContain('Ver detalles')
@@ -820,7 +820,7 @@ describe('el menu contextual de una cancion', () => {
 // Ctrl y Mayus al pulsar seleccionan varias; el menu sobre una de ellas actua
 // sobre todas: enviar, añadir a una lista, papelera (con una confirmacion que
 // dice cuantas).
-describe('seleccion multiple', () => {
+describe('multiple selection', () => {
   const three = () => [song(1), song(2), song(3)]
   async function list() {
     state.status.configured = true
@@ -830,7 +830,7 @@ describe('seleccion multiple', () => {
   const rows = (w) => w.findAll('tbody tr')
   const selectedCount = (w) => rows(w).filter((f) => f.classes().includes('selected')).length
 
-  it('Ctrl añade y quita; Mayus coge el tramo; Ctrl+Mayus lo suma', async () => {
+  it('Ctrl adds and removes; Shift takes the range; Ctrl+Shift adds it', async () => {
     const w = await list()
     await rows(w)[0].trigger('click')
     await rows(w)[2].trigger('click', { ctrlKey: true })
@@ -848,7 +848,7 @@ describe('seleccion multiple', () => {
     expect(selectedCount(w)).toBe(1)
   })
 
-  it('el menu sobre la seleccion actua sobre todas', async () => {
+  it('the menu on the selection acts on all of them', async () => {
     const w = await list()
     await rows(w)[0].trigger('click')
     await rows(w)[2].trigger('click', { shiftKey: true })
@@ -872,7 +872,7 @@ describe('seleccion multiple', () => {
     ])
   })
 
-  it('la papelera de varias pide confirmacion y dice cuantas', async () => {
+  it('trashing several asks for confirmation and says how many', async () => {
     const w = await list()
     await rows(w)[0].trigger('click')
     await rows(w)[1].trigger('click', { ctrlKey: true })
@@ -894,7 +894,7 @@ describe('seleccion multiple', () => {
     expect(api.deleteSong).not.toHaveBeenCalled()
   })
 
-  it('el menu sobre una que NO esta en la seleccion es el de esa sola', async () => {
+  it('the menu on one that is NOT in the selection is for that one alone', async () => {
     const w = await list()
     await rows(w)[0].trigger('click')
     await rows(w)[1].trigger('click', { ctrlKey: true })
@@ -907,8 +907,8 @@ describe('seleccion multiple', () => {
   })
 })
 
-describe('el menu de un repertorio', () => {
-  it('ofrece renombrar y enviar por Telegram', async () => {
+describe('the playlist menu', () => {
+  it('offers renaming and sending via Telegram', async () => {
     state.status.configured = true
     state.songs = [song(1)]
     state.playlists = [{ id: 1, name: 'domingo', n: 1 }]
@@ -921,8 +921,8 @@ describe('el menu de un repertorio', () => {
   })
 })
 
-describe('el panel de detalles, oculto o a la vista', () => {
-  it('cerrado (por ajustes) sale «Ver detalles» y abre la ventana', async () => {
+describe('the details panel, hidden or visible', () => {
+  it('when closed (via settings) «Ver detalles» shows up and opens the dialog', async () => {
     const { usePreferences } = await import('../src/composables/usePreferences.js')
     usePreferences().showDetails.value = false
     state.status.configured = true
@@ -945,8 +945,8 @@ describe('el panel de detalles, oculto o a la vista', () => {
   })
 })
 
-describe('el boton de play usa la seleccion', () => {
-  it('sin nada cargado, reproduce la cancion seleccionada', async () => {
+describe('the play button uses the selection', () => {
+  it('with nothing loaded, it plays the selected song', async () => {
     state.status.configured = true
     state.songs = songPair()
     const w = await mountView()
@@ -963,7 +963,7 @@ describe('el boton de play usa la seleccion', () => {
 // Se coge una cancion de la lista y se suelta en un repertorio del menu, en
 // Favoritos o en «Nueva lista». Lo que NO puede pasar es que un clic normal
 // acabe moviendo algo sin querer, asi que hay un umbral antes de arrastrar.
-describe('arrastrar una cancion', () => {
+describe('dragging a song', () => {
   async function withPlaylist() {
     state.status.configured = true
     state.songs = songPair()
@@ -983,7 +983,7 @@ describe('arrastrar una cancion', () => {
     return flushPromises()
   }
 
-  it('un clic sin mover el puntero no arrastra nada', async () => {
+  it('a click without moving the pointer drags nothing', async () => {
     const w = await withPlaylist()
     await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
     expect(w.vm.drag.song).toBe(null)
@@ -992,7 +992,7 @@ describe('arrastrar una cancion', () => {
     expect(api.addToPlaylist).not.toHaveBeenCalled()
   })
 
-  it('al pasar del umbral empieza el arrastre y aparece el fantasma', async () => {
+  it('past the threshold the drag starts and the ghost appears', async () => {
     const w = await withPlaylist()
     await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
     await pointer(row(w), 'pointermove', { clientX: 90, clientY: 200 })
@@ -1002,7 +1002,7 @@ describe('arrastrar una cancion', () => {
     await pointer(playlistLink(w), 'pointerup')
   })
 
-  it('soltarla en un repertorio la añade ahi', async () => {
+  it('dropping it on a playlist adds it there', async () => {
     const w = await withPlaylist()
     await pointer(row(w, 1), 'pointerdown', { clientX: 10, clientY: 10 })
     await pointer(playlistLink(w), 'pointermove', { clientX: 90, clientY: 200 })
@@ -1013,7 +1013,7 @@ describe('arrastrar una cancion', () => {
     expect(w.vm.drag.song, 'el arrastre no termino').toBe(null)
   })
 
-  it('soltarla en Favoritos la marca como favorita', async () => {
+  it('dropping it on Favorites marks it as a favorite', async () => {
     const w = await withPlaylist()
     await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
     await pointer(favorites(w), 'pointermove', { clientX: 90, clientY: 120 })
@@ -1022,7 +1022,7 @@ describe('arrastrar una cancion', () => {
     expect(api.toggleFavorite).toHaveBeenCalledWith(1, true)
   })
 
-  it('soltarla donde no hay destino no hace nada', async () => {
+  it('dropping it where there is no target does nothing', async () => {
     const w = await withPlaylist()
     await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
     await pointer(row(w, 1), 'pointermove', { clientX: 90, clientY: 200 })
@@ -1032,7 +1032,7 @@ describe('arrastrar una cancion', () => {
     expect(api.toggleFavorite).not.toHaveBeenCalled()
   })
 
-  it('Escape deja caer lo que se lleva sin soltarlo en nada', async () => {
+  it('Escape lets go of what is being dragged without dropping it anywhere', async () => {
     const w = await withPlaylist()
     await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
     await pointer(playlistLink(w), 'pointermove', { clientX: 90, clientY: 200 })
@@ -1043,14 +1043,14 @@ describe('arrastrar una cancion', () => {
     expect(api.addToPlaylist).not.toHaveBeenCalled()
   })
 
-  it('con el dedo no se arrastra: en tactil la lista se desplaza', async () => {
+  it('a finger does not drag: on touch the list scrolls', async () => {
     const w = await withPlaylist()
     await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10, pointerType: 'touch' })
     await pointer(playlistLink(w), 'pointermove', { clientX: 90, clientY: 200 })
     expect(w.vm.drag.song).toBe(null)
   })
 
-  it('los sitios donde soltar solo se marcan mientras hay algo en la mano', async () => {
+  it('drop targets are only highlighted while something is being dragged', async () => {
     const w = await withPlaylist()
     expect(w.find('.sidebar').classes()).not.toContain('drop-ready')
     await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
@@ -1061,7 +1061,7 @@ describe('arrastrar una cancion', () => {
     expect(w.find('.sidebar').classes()).not.toContain('drop-ready')
   })
 
-  it('fuera de un repertorio las filas no son destino: soltar sobre otra no cambia nada', async () => {
+  it('outside a playlist rows are not targets: dropping on another changes nothing', async () => {
     const w = await withPlaylist()
     expect(row(w).attributes('data-drop')).toBeUndefined()
     await pointer(row(w), 'pointerdown', { clientX: 10, clientY: 10 })
@@ -1071,7 +1071,7 @@ describe('arrastrar una cancion', () => {
     expect(api.reorderPlaylist).not.toHaveBeenCalled()
   })
 
-  it('un resto de la disposicion movible no rompe la vista', async () => {
+  it('a leftover from the movable layout does not break the view', async () => {
     // aquella opcion guardaba un objeto en la misma clave que el formato
     localStorage.setItem('danplay.layout', '{"topbar":"bottom","player":"top"}')
     const w = await withPlaylist()
@@ -1079,7 +1079,7 @@ describe('arrastrar una cancion', () => {
     expect(w.findAll('tbody tr')).toHaveLength(2)
   })
 
-  it('ya no queda nada para mover los paneles de sitio', async () => {
+  it('nothing is left for moving the panels around', async () => {
     const w = await withPlaylist()
     expect(w.find('.bar-grip').exists()).toBe(false)
     expect(w.find('.resizer').exists()).toBe(false)
@@ -1092,7 +1092,7 @@ describe('arrastrar una cancion', () => {
 // Los atajos se apartan con el foco en un boton, para que espacio no pulse
 // el boton Y pause. Pero un clic de raton dejaba el foco en el boton, y el
 // espacio de despues volvia a pulsar «Siguiente» en vez de pausar la musica.
-describe('tras pulsar un boton con el raton', () => {
+describe('after clicking a button with the mouse', () => {
   const press = (key) => {
     const target = document.activeElement || window
     target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
@@ -1116,7 +1116,7 @@ describe('tras pulsar un boton con el raton', () => {
     return w
   }
 
-  it('el boton suelta el foco y el espacio vuelve a pausar', async () => {
+  it('the button releases focus and Space pauses again', async () => {
     const w = await playing()
     const next = w
       .findAll('.player .pl-btn')
@@ -1131,7 +1131,7 @@ describe('tras pulsar un boton con el raton', () => {
     expect(playback.bridge.next).not.toHaveBeenCalled()
   })
 
-  it('tambien un repertorio del menu lateral', async () => {
+  it('a playlist in the sidebar too', async () => {
     state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
     const w = await playing()
     const nav = w.find('.nav-playlist')
@@ -1143,7 +1143,7 @@ describe('tras pulsar un boton con el raton', () => {
     expect(playback.bridge.toggle).toHaveBeenCalledTimes(1)
   })
 
-  it('dentro de un dialogo el foco no se toca', async () => {
+  it('inside a dialog focus is left alone', async () => {
     const w = await playing()
     await w.find('.nav-playlist, .nav-new').trigger('click') // «Nueva lista» abre un dialogo
     await flushPromises()
@@ -1160,7 +1160,7 @@ describe('tras pulsar un boton con el raton', () => {
 // Dentro de una lista que uno ha creado, las filas son destino ellas mismas:
 // se coge una cancion y se deja encima o debajo de otra. Solo ahi: en
 // «Todas» o en Favoritos el orden lo dan las columnas.
-describe('ordenar un repertorio arrastrando', () => {
+describe('reordering a playlist by dragging', () => {
   const three = () => [
     {
       id: 1,
@@ -1237,7 +1237,7 @@ describe('ordenar un repertorio arrastrando', () => {
     })
   }
 
-  it('las filas de la lista son destino, y se avisa de que se puede ordenar', async () => {
+  it('the playlist rows are targets, and it announces it can be sorted', async () => {
     const w = await inPlaylist()
     expect(titles(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
     expect(row(w).attributes('data-drop')).toBe('sort:1')
@@ -1245,7 +1245,7 @@ describe('ordenar un repertorio arrastrando', () => {
     expect(w.find('.sort-hint').text()).toContain('arrastra')
   })
 
-  it('soltarla en la mitad de abajo de otra la deja despues', async () => {
+  it('dropping it on the bottom half of another puts it after', async () => {
     const w = await inPlaylist()
     place(row(w, 2))
     await pointer(row(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
@@ -1259,7 +1259,7 @@ describe('ordenar un repertorio arrastrando', () => {
     expect(w.vm.drag.song).toBe(null)
   })
 
-  it('y en la mitad de arriba, antes', async () => {
+  it('and on the top half, before', async () => {
     const w = await inPlaylist()
     place(row(w, 0))
     await pointer(row(w, 2), 'pointerdown', { clientX: 10, clientY: 300 })
@@ -1271,7 +1271,7 @@ describe('ordenar un repertorio arrastrando', () => {
     expect(titles(w)).toEqual(['Tercera', 'Primera', 'Segunda'])
   })
 
-  it('dejarla donde ya estaba no pide nada al nucleo', async () => {
+  it('leaving it where it was requests nothing from the core', async () => {
     const w = await inPlaylist()
     place(row(w, 1))
     // la primera, justo encima de la segunda: es su sitio de siempre
@@ -1283,7 +1283,7 @@ describe('ordenar un repertorio arrastrando', () => {
     expect(titles(w)).toEqual(['Primera', 'Segunda', 'Tercera'])
   })
 
-  it('sobre la propia fila que se lleva no se marca nada', async () => {
+  it('nothing is highlighted over the dragged row itself', async () => {
     const w = await inPlaylist()
     place(row(w, 0))
     await pointer(row(w, 0), 'pointerdown', { clientX: 10, clientY: 105 })
@@ -1295,7 +1295,7 @@ describe('ordenar un repertorio arrastrando', () => {
     expect(api.reorderPlaylist).not.toHaveBeenCalled()
   })
 
-  it('si el nucleo no puede, la lista vuelve como estaba', async () => {
+  it('if the core cannot do it, the playlist goes back to how it was', async () => {
     const w = await inPlaylist()
     api.reorderPlaylist.mockRejectedValueOnce(new Error('sin base de datos'))
     place(row(w, 2))
@@ -1308,7 +1308,7 @@ describe('ordenar un repertorio arrastrando', () => {
     expect(w.find('.toast').text()).toContain('No se pudo cambiar el orden')
   })
 
-  it('las cabeceras no ordenan un repertorio: lo dicen y no recargan', async () => {
+  it('headers do not sort a playlist: they say so and do not reload', async () => {
     const w = await inPlaylist()
     expect(w.find('thead th[aria-sort]').exists(), 'no hay columna que mande').toBe(false)
     const before = api.playlistSongs.mock.calls.length
@@ -1318,7 +1318,7 @@ describe('ordenar un repertorio arrastrando', () => {
     expect(api.playlistSongs.mock.calls.length).toBe(before)
   })
 
-  it('en la lista fina las filas tambien se ordenan', async () => {
+  it('in the compact list, rows can be sorted too', async () => {
     const w = await inPlaylist()
     w.vm.layout = 'rows'
     await flushPromises()
@@ -1333,7 +1333,7 @@ describe('ordenar un repertorio arrastrando', () => {
     expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 3, 1])
   })
 
-  it('en las fichas se mira la mitad izquierda o derecha', async () => {
+  it('in the cards view the left or right half is used', async () => {
     const w = await inPlaylist()
     w.vm.layout = 'cards'
     await flushPromises()
@@ -1358,7 +1358,7 @@ describe('ordenar un repertorio arrastrando', () => {
     expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 1, 3])
   })
 
-  it('de la lista al menu lateral sigue valiendo: se añade a otro repertorio', async () => {
+  it('from the list to the sidebar still works: it is added to another playlist', async () => {
     const w = await inPlaylist([{ id: 8, name: 'Lunes', n: 0 }])
     const other = w.findAll('.nav-playlist')[1]
     await pointer(row(w, 0), 'pointerdown', { clientX: 10, clientY: 10 })
@@ -1374,8 +1374,8 @@ describe('ordenar un repertorio arrastrando', () => {
 // Con la bandeja, cerrar la ventana ya no cierra DanPlay: la unica salida
 // desde la interfaz es esta. Lo que le cuenta a la bandeja ya no sale de
 // aqui: el estado vive en Rust y el icono lo lee de alli.
-describe('salir de DanPlay', () => {
-  it('el menu de Vista ofrece salir', async () => {
+describe('quitting DanPlay', () => {
+  it('the View menu offers to quit', async () => {
     state.status.configured = true
     state.songs = twoSongs()
     const w = await mountView()
@@ -1389,8 +1389,8 @@ describe('salir de DanPlay', () => {
   })
 })
 
-describe('escribir en el buscador', () => {
-  it('no lanza una busqueda por cada tecla', async () => {
+describe('typing in the search box', () => {
+  it('does not fire a search on every keystroke', async () => {
     vi.useFakeTimers()
     try {
       state.status.configured = true
@@ -1436,7 +1436,7 @@ describe('escribir en el buscador', () => {
 // ----------------------------------------------------- lo que llega tarde
 // Las respuestas del nucleo llegan cuando llegan. Estas pruebas fijan que
 // una respuesta vieja no pisa lo que la persona tiene delante.
-describe('respuestas que llegan tarde', () => {
+describe('late responses', () => {
   const rows = (w) => w.findAll('tbody tr')
   const clickNav = async (w, text) => {
     await w
@@ -1446,7 +1446,7 @@ describe('respuestas que llegan tarde', () => {
     await settle()
   }
 
-  it('pulsar una fila mientras carga la lista no la deja a medias ni girando', async () => {
+  it('clicking a row while the list loads does not leave it half done or spinning', async () => {
     // Compartian contador: elegir una fila (o abrir su menu, que tambien la
     // elige) daba la carga por vieja, la tiraba y el indicador no paraba.
     state.status.configured = true
@@ -1473,7 +1473,7 @@ describe('respuestas que llegan tarde', () => {
     expect(w.find('.filters .loading').exists(), 'el indicador sigue girando').toBe(false)
   })
 
-  it('dos clics seguidos no acaban enseñando la ficha del primero', async () => {
+  it('two clicks in a row do not end up showing the details of the first', async () => {
     state.status.configured = true
     state.songs = [song(1, { title: 'Primera' }), song(2, { title: 'Segunda' })]
     const w = await mountView()
@@ -1493,7 +1493,7 @@ describe('respuestas que llegan tarde', () => {
     expect(w.find('.details-title').text()).toBe('Segunda')
   })
 
-  it('la letra de A que llega con B elegida no devuelve la ficha a A', async () => {
+  it('the lyrics of A arriving with B selected do not switch the details panel back to A', async () => {
     state.status.configured = true
     state.songs = [song(1, { title: 'Primera' }), song(2, { title: 'Segunda' })]
     const w = await mountView()
@@ -1519,7 +1519,7 @@ describe('respuestas que llegan tarde', () => {
     expect(w.find('.details-title').text(), 'la ficha volvio a la primera').toBe('Segunda')
   })
 
-  it('en «Artistas», que siempre agrupa, Ctrl y Mayus tambien eligen varias', async () => {
+  it('in «Artistas», which always groups, Ctrl and Shift also select several', async () => {
     // Al agrupar se perdia el evento del clic por el camino y las teclas no
     // hacian nada; en «Artistas» pasaba siempre.
     state.status.configured = true
@@ -1540,7 +1540,7 @@ describe('respuestas que llegan tarde', () => {
     expect(picked()).toBe(3)
   })
 
-  it('agrupada, Mayus elige el tramo que se ve y la cola va en ese orden', async () => {
+  it('when grouped, Shift selects the visible range and the queue follows that order', async () => {
     // La lista llega por titulo y se ve por artista. Mayus sacaba el tramo
     // del orden de la lista (no del que se ve) y se llevaba canciones de
     // otro grupo; la cola saltaba de un artista a otro.
@@ -1579,7 +1579,7 @@ describe('respuestas que llegan tarde', () => {
     expect(start).toBe(2)
   })
 
-  it('si sales del chat mientras responde, lo que pidio se hace igual', async () => {
+  it('if you leave the chat while it answers, what it requested still happens', async () => {
     // Vue descarta los `emit` de un componente desmontado: «pon la lista X» y
     // cambiar de pagina dejaba la lista sin sonar.
     state.status.configured = true
@@ -1629,7 +1629,7 @@ describe('respuestas que llegan tarde', () => {
 // La lista entera, sin cortar: antes se pedian 1000 y la vista se quedaba en
 // las mil primeras sin decir nada. Aqui se mira lo que llega, no como se pinta:
 // la tabla es un doble (en jsdom no hay maquetacion y pintaria las mil filas).
-describe('la lista entera', () => {
+describe('the whole list', () => {
   const mountLight = async () => {
     const w = mount(App, { attachTo: document.body, global: { stubs: { SongTable: true } } })
     await flushPromises()
@@ -1639,7 +1639,7 @@ describe('la lista entera', () => {
   }
   const inTable = (w) => w.findComponent({ name: 'SongTable' }).props('songs')
 
-  it('con mas de mil llegan todas: una pagina enseguida y el resto por detras', async () => {
+  it('with more than a thousand, all of them arrive: one page right away and the rest in the background', async () => {
     state.status.configured = true
     state.songs = Array.from({ length: 1200 }, (_, i) => song(i + 1))
     const w = await mountLight()
@@ -1656,7 +1656,7 @@ describe('la lista entera', () => {
     expect(first.songs[0]).toHaveProperty('has_lyrics', false)
   })
 
-  it('si el nucleo no respetara el desplazamiento, no se repiten canciones', async () => {
+  it('if the core ignored the offset, songs would still not repeat', async () => {
     state.status.configured = true
     state.songs = Array.from({ length: 900 }, (_, i) => song(i + 1))
     const original = api.search.getMockImplementation()
@@ -1677,7 +1677,7 @@ describe('la lista entera', () => {
     }
   })
 
-  it('las vistas que llegan enteras (un repertorio) cuentan lo que traen', async () => {
+  it('views that arrive whole (a playlist) count what they bring', async () => {
     state.status.configured = true
     state.songs = [song(1)]
     state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]

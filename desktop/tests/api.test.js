@@ -36,8 +36,8 @@ afterEach(() => {
   delete globalThis.fetch
 })
 
-describe('las peticiones del navegador', () => {
-  it('todas llevan X-DanPlay, tambien los GET (los hay que gastan IA)', async () => {
+describe('browser requests', () => {
+  it('all of them carry X-DanPlay, GETs too (some of them spend AI)', async () => {
     await api.status()
     await api.details(3)
     await api.setStars(3, 4)
@@ -45,7 +45,7 @@ describe('las peticiones del navegador', () => {
     expect(calls.map((c) => c.method)).toEqual(['GET', 'GET', 'POST'])
   })
 
-  it('el tipo de contenido solo va cuando hay cuerpo', async () => {
+  it('the content type is only sent when there is a body', async () => {
     await api.status()
     await api.setStars(3, 4)
     expect(calls[0].headers['Content-Type']).toBeUndefined()
@@ -54,12 +54,12 @@ describe('las peticiones del navegador', () => {
     expect(JSON.parse(calls[1].body)).toEqual({ stars: 4 })
   })
 
-  it('los medios los pide el propio navegador, sin pasar por aqui', () => {
+  it('media is requested by the browser itself, without going through here', () => {
     expect(api.audioUrl(7)).toBe('/api/song/7/audio')
     expect(mediaUrl('cover', 7, 'size=96')).toBe('/api/song/7/cover?size=96')
   })
 
-  it('un error del nucleo llega como su «detail», con su codigo', async () => {
+  it('a core error arrives as its «detail», with its code', async () => {
     respond(() => ({ status: 409, body: { detail: 'ya hay una descarga en marcha' } }))
     const e = await api.youtubeDownload({ query: 'x' }).catch((err) => err)
     expect(e).toBeInstanceOf(ApiError)
@@ -69,7 +69,7 @@ describe('las peticiones del navegador', () => {
     expect(errorMessage(await api.status().catch((err) => err))).toBe('HTTP 500')
   })
 
-  it('la busqueda manda la consulta, el limite y desde cual', async () => {
+  it('search sends the query, the limit and the offset', async () => {
     await api.search({ q: 'barak', limit: 400, from_key: 400 })
     const url = new URL(calls[0].url, 'http://x')
     expect(url.pathname).toBe('/api/search')
@@ -80,7 +80,7 @@ describe('las peticiones del navegador', () => {
     })
   })
 
-  it('los errores del puente de Rust se leen igual', () => {
+  it('errors from the Rust bridge are read the same way', () => {
     const e = fromBridge('404: {"detail":"no existe esa cancion"}')
     expect(e.status).toBe(404)
     expect(e.message).toBe('no existe esa cancion')
@@ -88,7 +88,7 @@ describe('las peticiones del navegador', () => {
   })
 })
 
-describe('las tareas largas (runJob)', () => {
+describe('long-running jobs (runJob)', () => {
   const job = (extra) => ({
     name: 'scan',
     active: true,
@@ -100,7 +100,7 @@ describe('las tareas largas (runJob)', () => {
     ...extra
   })
 
-  it('arranca, pregunta hasta que acaba, cuenta el avance y devuelve el resultado', async () => {
+  it('starts, polls until it finishes, reports progress and returns the result', async () => {
     const seen = []
     const polls = [
       job({ done: 5, total: 10 }),
@@ -117,7 +117,7 @@ describe('las tareas largas (runJob)', () => {
     expect(poll).toHaveBeenCalledWith('scan')
   })
 
-  it('si ya habia una en marcha, sigue esa', async () => {
+  it('if one was already running, it follows that one', async () => {
     const poll = vi.fn(async () => job({ active: false, result: 'la de antes' }))
     const r = await runJob(async () => ({ job: job({ done: 3 }), already_running: true }), 'scan', {
       interval: 0,
@@ -126,7 +126,7 @@ describe('las tareas largas (runJob)', () => {
     expect(r).toBe('la de antes')
   })
 
-  it('un error de la tarea llega en castellano', async () => {
+  it('a job error arrives in Spanish', async () => {
     const e = await runJob(
       async () => ({ job: job({ active: false, error: 'la carpeta ya no existe' }) }),
       'scan',
@@ -136,7 +136,7 @@ describe('las tareas largas (runJob)', () => {
     expect(e.message).toBe('la carpeta ya no existe')
   })
 
-  it('un fallo suelto al preguntar no la tira; tres seguidos, si', async () => {
+  it('a single polling failure does not abort it; three in a row do', async () => {
     let n = 0
     const flaky = vi.fn(async () => {
       if (++n === 1) throw new Error('el nucleo tarda')
@@ -156,12 +156,12 @@ describe('las tareas largas (runJob)', () => {
     expect(dead).toHaveBeenCalledTimes(3)
   })
 
-  it('sin instantanea en la respuesta, pregunta enseguida', async () => {
+  it('without a snapshot in the response, it polls right away', async () => {
     const poll = vi.fn(async () => job({ active: false, result: 1 }))
     expect(await runJob(async () => ({}), 'conversion', { interval: 0, poll })).toBe(1)
   })
 
-  it('por defecto pregunta a /api/jobs/{nombre}', async () => {
+  it('by default it polls /api/jobs/{name}', async () => {
     respond((url) => ({
       body: url.includes('/jobs/') ? job({ active: false, result: 'hecho' }) : {}
     }))
@@ -170,8 +170,8 @@ describe('las tareas largas (runJob)', () => {
   })
 })
 
-describe('en el navegador, la interfaz se entera de los cambios del nucleo', () => {
-  it('mira /api/status cada dos segundos y avisa cuando cambia `revision`', async () => {
+describe('in the browser, the UI learns about core changes', () => {
+  it('checks /api/status every two seconds and notifies when `revision` changes', async () => {
     vi.useFakeTimers()
     let revision = 3
     respond(() => ({ body: { revision } }))
@@ -190,7 +190,7 @@ describe('en el navegador, la interfaz se entera de los cambios del nucleo', () 
     expect(calls.length).toBe(before) // sin nadie escuchando, no pregunta
   })
 
-  it('avisa cuando el nucleo pasa de no contestar a contestar', async () => {
+  it('notifies when the core goes from not answering to answering', async () => {
     vi.useFakeTimers()
     let alive = false
     respond(() => (alive ? { body: { revision: 1 } } : { status: 502, body: 'Bad Gateway' }))
@@ -214,7 +214,7 @@ describe('en el navegador, la interfaz se entera de los cambios del nucleo', () 
 // docs/INTERNAL-CONTRACT.md y en danplay/api.py). Si un nombre cambia en un
 // lado y no en el otro, esta tabla lo dice; y si se añade un metodo sin
 // ponerlo aqui, tambien.
-describe('lo que cada metodo pide al nucleo', () => {
+describe('what each method requests from the core', () => {
   const ai = { provider: 'openai', model: 'chico' }
   /** metodo -> [argumentos, verbo, ruta, cuerpo (undefined si no lleva)] */
   const TABLE = {
@@ -438,7 +438,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     'coverUrlAlt'
   ]
 
-  it('no se queda ningun metodo sin mirar', () => {
+  it('no method is left unchecked', () => {
     const unchecked = Object.keys(api).filter((k) => !(k in TABLE) && !EXEMPT.includes(k))
     expect(unchecked, 'metodos del api que la tabla no conoce').toEqual([])
   })
@@ -453,7 +453,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     })
   }
 
-  it('borrar una canción puede sacarla también de sus listas', async () => {
+  it('deleting a song can also remove it from its playlists', async () => {
     await api.deleteSong(7, { fromLists: true })
     await api.deleteSong(8, { fromLists: false })
     expect(calls.map((c) => [c.method, c.url])).toEqual([
@@ -462,7 +462,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     ])
   })
 
-  it('confirmar por id sin casillas manda solo el id; un núcleo antiguo, (tool, args)', async () => {
+  it('confirming by id without checkboxes sends only the id; an old core, (tool, args)', async () => {
     await api.chatConfirm({ id: 'kq3V' })
     await api.chatConfirm('delete_song', { id: 7 })
     expect(calls.map((c) => JSON.parse(c.body))).toEqual([
@@ -472,7 +472,7 @@ describe('lo que cada metodo pide al nucleo', () => {
     expect(calls.every((c) => c.method === 'POST' && c.url === '/api/chat/confirm')).toBe(true)
   })
 
-  it('fuera de la app, lo que solo existe dentro dice que no, sin romper nada', async () => {
+  it('outside the app, what only exists inside says no without breaking anything', async () => {
     const { app, projection, mini, playback } = await import('../src/api.js')
     expect(playback.available).toBe(false)
     await expect(app.revealInFolder('/a.mp3')).rejects.toThrow(

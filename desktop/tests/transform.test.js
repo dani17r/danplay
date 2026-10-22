@@ -61,8 +61,8 @@ const mountView = async () => {
 }
 const button = (w, text) => w.findAll('button').find((b) => b.text().includes(text))
 
-describe('Transformar', () => {
-  it('enseña de una en una dónde está, dónde iría y por qué; aplicar la quita y se puede deshacer', async () => {
+describe('Transform', () => {
+  it('shows one at a time where it is, where it would go and why; applying removes it and can be undone', async () => {
     const w = await mountView()
     expect(w.text()).toContain('Canción 1 de 3')
     expect(w.text()).toContain('2 seguras')
@@ -90,7 +90,7 @@ describe('Transformar', () => {
     w.unmount()
   })
 
-  it('corregido a mano: lo dice, se ve dónde quedaría y va también a las etiquetas', async () => {
+  it('corrected manually: it says so, shows where it would end up and also goes to the tags', async () => {
     const w = await mountView()
     const [artist, title] = w.findAll('.tidy-fields input')
     await artist.setValue('Barak y Amigos')
@@ -109,7 +109,7 @@ describe('Transformar', () => {
     w.unmount()
   })
 
-  it('una Drum Cam va a su carpeta por su ruta; saltar y volver no tocan nada', async () => {
+  it('a Drum Cam goes to its folder by its path; skipping and going back touch nothing', async () => {
     const w = await mountView()
     await button(w, 'Saltar').trigger('click')
     await button(w, 'Saltar').trigger('click')
@@ -124,7 +124,7 @@ describe('Transformar', () => {
     w.unmount()
   })
 
-  it('«Aplicar las seguras» las hace una tras otra y deja las de revisar', async () => {
+  it('«Aplicar las seguras» applies them one after another and leaves the ones to review', async () => {
     const w = await mountView()
     await button(w, 'Aplicar las seguras').trigger('click')
     await flushPromises()
@@ -134,7 +134,7 @@ describe('Transformar', () => {
     w.unmount()
   })
 
-  it('si no se puede (en Windows, abierta por otro programa), lo dice en la tarjeta', async () => {
+  it('if it cannot be done (on Windows, open in another program), the card says so', async () => {
     held.state.tidyError = 'no se pudo mover: el archivo está en uso'
     const w = await mountView()
     await w.find('.tidy-apply').trigger('click')
@@ -144,7 +144,7 @@ describe('Transformar', () => {
     w.unmount()
   })
 
-  it('«¿Qué hace?» lo explica; sin nada que hacer, lo dice', async () => {
+  it('«¿Qué hace?» explains it; with nothing to do, it says so', async () => {
     const w = await mountView()
     expect(w.find('.tidy-help').exists()).toBe(false)
     await button(w, '¿Qué hace?').trigger('click')
@@ -157,7 +157,7 @@ describe('Transformar', () => {
     empty.unmount()
   })
 
-  it('la que suena lo dice: seguirá sonando', async () => {
+  it('the playing one says so: it will keep playing', async () => {
     held.playback.emit({ track: { id: 7, title: 'Hasta Ver Tu Gloria', artist: 'Barak' } })
     const w = await mountView()
     expect(w.find('.tidy-badge.playing').text()).toContain('seguirá sonando')

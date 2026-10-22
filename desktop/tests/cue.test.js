@@ -94,8 +94,8 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-describe('escribir una guía', () => {
-  it('con la voz que ya está bajada: se elige sola, se escucha y se guarda', async () => {
+describe('writing a cue', () => {
+  it('with the already downloaded voice: it is picked automatically, previewed and saved', async () => {
     const w = await card()
     expect(w.find('.cue-head').text()).toContain('Guía')
     const save = button(w, 'Guardar')
@@ -127,7 +127,7 @@ describe('escribir una guía', () => {
     ])
   })
 
-  it('«aquí» la pone donde va la canción', async () => {
+  it('«aquí» places it at the current song position', async () => {
     const w = await card({ t: 40 })
     await w.find('button[title="Donde va la canción"]').trigger('click')
     await button(w, 'Final').trigger('click')
@@ -136,7 +136,7 @@ describe('escribir una guía', () => {
     expect(w.emitted('made')[0][0].t).toBe(0)
   })
 
-  it('una voz sin bajar: se dice cuánto pesa, se baja y se ve cómo va', async () => {
+  it('a voice not yet downloaded: its size is shown, it downloads and progress is shown', async () => {
     const w = await card({ voice: DAVID.id, text: 'Puente' })
     expect(w.text()).toContain('Esta voz se baja una sola vez (63 MB)')
     expect(button(w, 'Guardar').attributes('disabled'), 'sin la voz no se guarda').toBeDefined()
@@ -158,20 +158,20 @@ describe('escribir una guía', () => {
     expect(button(w, 'Guardar').attributes('disabled')).toBeUndefined()
   })
 
-  it('las voces naturales dicen que vienen las diez', async () => {
+  it('the natural voices warn that all ten download together', async () => {
     held.voices = [{ ...NATURAL, installed: false, error: 'Se cortó la descarga' }]
     const w = await card()
     expect(w.text()).toContain('Se cortó la descarga.')
     expect(w.text()).toContain('y con ella las diez voces naturales')
   })
 
-  it('si en esta instalación no se puede, lo dice', async () => {
+  it('if this installation cannot do it, it says so', async () => {
     held.unavailable = 'falta onnxruntime'
     const w = await card()
     expect(w.text()).toContain('No se pueden decir guías aquí: falta onnxruntime')
   })
 
-  it('sin texto no se hace, y un fallo del núcleo se cuenta', async () => {
+  it('without text nothing is made, and a core failure is reported', async () => {
     const w = await card()
     await w.find('input').trigger('keydown', { key: 'Enter' })
     await flushPromises()
@@ -186,7 +186,7 @@ describe('escribir una guía', () => {
     expect(w.emitted('made')).toBeFalsy()
   })
 
-  it('bajar una voz que falla lo dice', async () => {
+  it('a failed voice download says so', async () => {
     held.api.installCueVoice.mockRejectedValueOnce(new Error('sin red'))
     const w = await card({ voice: DAVID.id })
     await w.find('.cue-get button').trigger('click')
@@ -195,8 +195,8 @@ describe('escribir una guía', () => {
   })
 })
 
-describe('grabarla con el micrófono', () => {
-  it('grabar y parar: lo grabado se trae ya, con su onda, para escucharlo y guardarlo', async () => {
+describe('recording it with the microphone', () => {
+  it('record and stop: the recording comes back right away, with its waveform, to listen to and save', async () => {
     const w = await card()
     await button(w, 'Grabar o importar').trigger('click')
     expect(w.text()).toContain('Graba tu voz o trae un audio corto')
@@ -241,7 +241,7 @@ describe('grabarla con el micrófono', () => {
     })
   })
 
-  it('si el micrófono falla, lo dice y no se queda grabando', async () => {
+  it('if the microphone fails, it says so and does not keep recording', async () => {
     held.app.recordStart.mockRejectedValueOnce(new Error('sin micrófono'))
     const w = await card()
     await button(w, 'Grabar o importar').trigger('click')
@@ -251,7 +251,7 @@ describe('grabarla con el micrófono', () => {
     expect(w.text()).not.toContain('Habla ahora')
   })
 
-  it('si lo grabado no vale (demasiado largo), lo dice', async () => {
+  it('if the recording is not valid (too long), it says so', async () => {
     held.api.importCue.mockRejectedValueOnce(new Error('ese audio dura más que la canción'))
     const w = await card()
     await button(w, 'Grabar o importar').trigger('click')
@@ -263,7 +263,7 @@ describe('grabarla con el micrófono', () => {
     expect(w.find('.cue-editor').exists()).toBe(false)
   })
 
-  it('al cerrar a media grabación, se para', async () => {
+  it('closing mid-recording stops it', async () => {
     const w = await card()
     await button(w, 'Grabar o importar').trigger('click')
     await button(w, 'Grabar').trigger('click')
@@ -274,8 +274,8 @@ describe('grabarla con el micrófono', () => {
   })
 })
 
-describe('importar un audio y arreglarlo', () => {
-  it('un audio del equipo, hasta lo que dura la canción', async () => {
+describe('importing an audio file and fixing it', () => {
+  it('an audio file from the computer, up to the song length', async () => {
     held.picked = '/home/yo/cuenta.mp3'
     const w = await card()
     await button(w, 'Grabar o importar').trigger('click')
@@ -287,7 +287,7 @@ describe('importar un audio y arreglarlo', () => {
     expect(button(w, 'Importar otro')).toBeTruthy()
   })
 
-  it('cancelar el selector no hace nada; un audio que no vale se cuenta', async () => {
+  it('cancelling the picker does nothing; an invalid audio file is reported', async () => {
     const w = await card()
     await button(w, 'Grabar o importar').trigger('click')
     await button(w, 'Importar un audio').trigger('click')
@@ -300,7 +300,7 @@ describe('importar un audio y arreglarlo', () => {
     expect(last()).toBe('No se pudo importar: ese audio dura más que la canción')
   })
 
-  it('recortar, fundidos y limpiarla: se escucha y se guarda como una nueva', async () => {
+  it('trim, fades and clean-up: it is previewed and saved as a new one', async () => {
     const w = await card({ file: '/guias/grabada.wav', seconds: 4 })
     expect(w.find('.study-tab.on').text()).toBe('Grabar o importar')
     expect(w.find('.cue-card').classes()).toContain('wide')
@@ -348,7 +348,7 @@ describe('importar un audio y arreglarlo', () => {
     expect(w.emitted('made')[0][0].file).toBe('/guias/editada.wav')
   })
 
-  it('arrastrar sobre la onda mueve el borde más cercano', async () => {
+  it('dragging over the waveform moves the nearest edge', async () => {
     const w = await card({ file: '/guias/grabada.wav', seconds: 4 })
     const wave = w.find('.cue-wave')
     wave.element.getBoundingClientRect = () => ({ left: 0, width: 400, top: 0, height: 80 })
@@ -370,8 +370,8 @@ describe('importar un audio y arreglarlo', () => {
   })
 })
 
-describe('una guía que ya estaba', () => {
-  it('grabada, abre en su editor; «Quitar» la quita', async () => {
+describe('an existing cue', () => {
+  it('recorded, it opens in its editor; «Quitar» removes it', async () => {
     const cue = { t: 30, file: '/guias/vieja.wav', text: '' }
     const w = await card({ t: 30, cue })
     expect(w.find('.study-tab.on').text()).toBe('Grabar o importar')
@@ -382,7 +382,7 @@ describe('una guía que ya estaba', () => {
     expect(w.emitted('remove')[0]).toEqual([cue])
   })
 
-  it('con el imán, antes y después van de pulso en pulso', async () => {
+  it('with snapping on, before and after move beat by beat', async () => {
     const w = await card({ t: 12 }, { beats: [10, 10.5, 11, 11.5, 12, 12.5] })
     const before = w.find('button[aria-label="Antes"]')
     expect(before.attributes('title')).toBe('Al pulso de antes (imán puesto)')
@@ -395,7 +395,7 @@ describe('una guía que ya estaba', () => {
     expect(w.emitted('made')[0][0].t).toBe(11.5)
   })
 
-  it('Escape o un clic fuera la cierran', async () => {
+  it('Escape or a click outside closes it', async () => {
     const w = await card()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(w.emitted('close')).toHaveLength(1)

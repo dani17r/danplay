@@ -102,7 +102,7 @@ const typeText = async (w, t) => {
 }
 
 describe('chat', () => {
-  it('al abrir muestra sugerencias y dice de que habla', async () => {
+  it('on open it shows suggestions and says what it talks about', async () => {
     const w = await mountView()
     expect(w.findAll('.chat-suggest .chip').length).toBeGreaterThan(2)
     // ya si descarga; lo que hay que avisar ahora es que solo lleva musica
@@ -110,12 +110,12 @@ describe('chat', () => {
     expect(w.text()).not.toContain('No puedo descargar')
   })
 
-  it('muestra el modelo que usa', async () => {
+  it('shows the model it uses', async () => {
     const w = await mountView()
     expect(w.find('.chat-model').text()).toContain('Qwen')
   })
 
-  it('enviar pinta tu mensaje y la respuesta', async () => {
+  it('sending renders your message and the reply', async () => {
     const w = await mountView()
     await typeText(w, '¿cuantas canciones tengo?')
     expect(w.findAll('.chat-msg.me')).toHaveLength(1)
@@ -123,7 +123,7 @@ describe('chat', () => {
     expect(w.text()).toContain('Tienes 260 canciones')
   })
 
-  it('manda todo el historial, no solo el ultimo', async () => {
+  it('sends the whole history, not just the last message', async () => {
     const w = await mountView()
     await typeText(w, 'hola')
     await typeText(w, 'y ahora?')
@@ -132,7 +132,7 @@ describe('chat', () => {
     expect(last[0]).toEqual({ role: 'me', text: 'hola' })
   })
 
-  it('el historial lleva que herramientas uso cada respuesta y que devolvieron', async () => {
+  it('the history carries which tools each reply used and what they returned', async () => {
     // Con eso el nucleo marca lo que se hizo de verdad en cada mensaje, el
     // modelo no toma sus propias frases («ya la cree») por hechos, y conserva
     // los ids y nombres que enseño («la segunda», «esa»).
@@ -159,7 +159,7 @@ describe('chat', () => {
     expect(last[0]).toEqual({ role: 'me', text: 'crea una lista' })
   })
 
-  it('enseña que herramientas uso', async () => {
+  it('shows which tools it used', async () => {
     api.chat.mockResolvedValueOnce({
       text: 'Lista creada',
       tools: [{ name: 'create_playlist', summary: '4 temas' }]
@@ -170,7 +170,7 @@ describe('chat', () => {
     expect(w.find('.chat-tools').text()).toContain('4 temas')
   })
 
-  it('avisa a la app cuando la IA crea una lista', async () => {
+  it('notifies the app when the AI creates a playlist', async () => {
     api.chat.mockResolvedValueOnce({
       text: 'ok',
       tools: [{ name: 'create_playlist', summary: 'x' }]
@@ -180,14 +180,14 @@ describe('chat', () => {
     expect(app.reload).toHaveBeenCalled()
   })
 
-  it('un error del backend se muestra sin romper el chat', async () => {
+  it('a backend error is shown without breaking the chat', async () => {
     api.chat.mockResolvedValueOnce({ error: 'la IA no esta configurada' })
     const w = await mountView()
     await typeText(w, 'hola')
     expect(w.find('.chat-msg.error').text()).toContain('no esta configurada')
   })
 
-  it('no envia mensajes vacios', async () => {
+  it('does not send empty messages', async () => {
     const w = await mountView()
     await w.find('.chat-foot textarea').setValue('   ')
     await w.find('.chat-foot .btn').trigger('click')
@@ -195,7 +195,7 @@ describe('chat', () => {
     expect(api.chat).not.toHaveBeenCalled()
   })
 
-  it('recuerda la conversacion al reabrir', async () => {
+  it('remembers the conversation on reopening', async () => {
     const w = await mountView()
     await typeText(w, 'hola')
     w.unmount()
@@ -205,7 +205,7 @@ describe('chat', () => {
     expect(w2.text()).toContain('hola')
   })
 
-  it('el boton de enviar lleva el icono de enviar, no el de «cancion siguiente»', async () => {
+  it('the send button has the send icon, not the «next song» one', async () => {
     const w = await mountView()
     const send = w.find('.chat-foot button[title="Enviar"]')
     expect(send.exists(), 'no encuentro el boton de enviar').toBe(true)
@@ -217,7 +217,7 @@ describe('chat', () => {
     expect(api.chatStart).toHaveBeenCalled()
   })
 
-  it('pulsar una sugerencia la envia', async () => {
+  it('clicking a suggestion sends it', async () => {
     const w = await mountView()
     await w.findAll('.chat-suggest .chip')[0].trigger('click')
     await flushPromises()
@@ -230,8 +230,8 @@ describe('chat', () => {
 // interfaz. Las herramientas de reproduccion devuelven una `action` y la app
 // la ejecuta. Si esto se rompe, el asistente dice que puso la cancion y no
 // suena nada.
-describe('ordenes del asistente hacia la app', () => {
-  it('reenvia las acciones que llegan del nucleo', async () => {
+describe('assistant commands to the app', () => {
+  it('forwards the actions that come from the core', async () => {
     api.chat.mockResolvedValueOnce({
       text: 'Ya suena',
       tools: [{ name: 'play_song', summary: 'sonando: Barak - Mi Gozo' }],
@@ -243,14 +243,14 @@ describe('ordenes del asistente hacia la app', () => {
     expect(app.action.mock.calls[0][0]).toEqual({ kind: 'play_song', song_id: 7 })
   })
 
-  it('sin acciones no emite nada', async () => {
+  it('without actions it emits nothing', async () => {
     api.chat.mockResolvedValueOnce({ text: 'Tienes 260 canciones.', tools: [] })
     const w = await mountView()
     await typeText(w, '¿cuantas tengo?')
     expect(app.action).not.toHaveBeenCalled()
   })
 
-  it('recarga la biblioteca cuando el asistente la cambia', async () => {
+  it('reloads the library when the assistant changes it', async () => {
     api.chat.mockResolvedValueOnce({
       text: 'Puntuada',
       tools: [{ name: 'set_stars', summary: '4 estrellas' }]
@@ -263,8 +263,8 @@ describe('ordenes del asistente hacia la app', () => {
 
 // El asistente contesta en markdown. Antes se pintaba tal cual, con los
 // asteriscos y las almohadillas a la vista.
-describe('el chat pinta el markdown del asistente', () => {
-  it('negritas y listas salen como HTML, no como asteriscos', async () => {
+describe('the chat renders the assistant markdown', () => {
+  it('bold and lists come out as HTML, not asterisks', async () => {
     api.chat.mockResolvedValueOnce({
       text: 'Tienes dos:\n\n1. **Mi Gozo** – Barak\n2. **Shekinah** – New Wine',
       tools: []
@@ -278,7 +278,7 @@ describe('el chat pinta el markdown del asistente', () => {
     expect(bubble.text()).not.toContain('**')
   })
 
-  it('lo que escribes tu tambien se pinta en markdown, y al nucleo va tal cual', async () => {
+  it('what you type is also rendered as markdown, and goes to the core as is', async () => {
     // lo pidio el usuario: asteriscos, almohadillas y saltos de linea a la
     // vista; mas casos en chat-composer.test.js
     const w = await mountView()
@@ -289,7 +289,7 @@ describe('el chat pinta el markdown del asistente', () => {
     expect(api.chat.mock.calls.at(-1)[0].at(-1).text).toBe('busca **esto** literal')
   })
 
-  it('un titulo de YouTube con HTML dentro no se cuela', async () => {
+  it('a YouTube title with HTML inside does not slip through', async () => {
     api.chat.mockResolvedValueOnce({
       text: 'Encontre <img src=x onerror=alert(1)> y **esto**',
       tools: []
@@ -302,7 +302,7 @@ describe('el chat pinta el markdown del asistente', () => {
     expect(bubble.find('strong').exists()).toBe(true)
   })
 
-  it('los errores del nucleo se ven como texto plano', async () => {
+  it('core errors show as plain text', async () => {
     api.chat.mockResolvedValueOnce({ error: 'la IA **no** esta configurada' })
     const w = await mountView()
     await typeText(w, 'hola')
@@ -315,7 +315,7 @@ describe('el chat pinta el markdown del asistente', () => {
 // la sigue y, al terminar, cuenta que entro y que no. Antes se decia «te lo
 // cuento en Descargas» y aqui no volvia a saberse nada; y el «bajala igual»
 // (force) se perdia por el camino.
-describe('descargas pedidas al asistente', () => {
+describe('downloads requested from the assistant', () => {
   const pending = {
     text: 'Te pido permiso.',
     tools: [{ name: 'download_music', summary: 'espera tu visto bueno' }],
@@ -326,7 +326,7 @@ describe('descargas pedidas al asistente', () => {
     }
   }
 
-  it('al aceptar manda al nucleo los argumentos tal cual, force incluido', async () => {
+  it('on accept it sends the arguments to the core as is, force included', async () => {
     api.chat.mockResolvedValueOnce(pending)
     api.chatConfirm.mockResolvedValueOnce({
       ok: true,
@@ -348,7 +348,7 @@ describe('descargas pedidas al asistente', () => {
     expect(app.reload).not.toHaveBeenCalled()
   })
 
-  it('la primera vez pregunta donde guardarla; sin carpeta no se baja', async () => {
+  it('the first time it asks where to save it; without a folder nothing is downloaded', async () => {
     api.downloadFolder.mockResolvedValueOnce({
       path: '/home/x/Música',
       ready: false,
@@ -367,7 +367,7 @@ describe('descargas pedidas al asistente', () => {
     expect(w.text()).toContain('sin carpeta de descargas no he bajado nada')
   })
 
-  it('si dices que no, no se llama a nada', async () => {
+  it('if you say no, nothing is called', async () => {
     api.chat.mockResolvedValueOnce(pending)
     const w = await mountView()
     await typeText(w, 'baja eso')
@@ -377,7 +377,7 @@ describe('descargas pedidas al asistente', () => {
     expect(w.text()).toContain('Cancelado, no he tocado nada.')
   })
 
-  it('sigue la descarga y al acabar cuenta que entro y que ya tenias', async () => {
+  it('follows the download and, when done, reports what came in and what you already had', async () => {
     vi.useFakeTimers()
     api.chat.mockResolvedValueOnce(pending)
     api.chatConfirm.mockResolvedValueOnce({
@@ -474,7 +474,7 @@ describe('descargas pedidas al asistente', () => {
     expect(w.text()).toContain('Listo: lista «Herlin» creada')
   })
 
-  it('si cambias de pagina y vuelves, retoma el seguimiento', async () => {
+  it('if you change page and come back, it resumes tracking', async () => {
     vi.useFakeTimers()
     localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
     api.youtube.mockResolvedValueOnce({
@@ -488,7 +488,7 @@ describe('descargas pedidas al asistente', () => {
     expect(localStorage.getItem('danplay.chat.download')).toBeNull()
   })
 
-  it('el aviso al asistente va etiquetado y con los ids; si el chat estaba ocupado, espera su turno', async () => {
+  it('the notice to the assistant is tagged and has the ids; if the chat was busy, it waits its turn', async () => {
     vi.useFakeTimers()
     localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
     api.youtube.mockResolvedValueOnce({
@@ -521,7 +521,7 @@ describe('descargas pedidas al asistente', () => {
     expect(sent.at(-1).text).toContain('responde solo: Terminado')
   })
 
-  it('una descarga que no pidio el chat no se cuenta como suya', async () => {
+  it('a download the chat did not request is not counted as its own', async () => {
     vi.useFakeTimers()
     localStorage.setItem(
       'danplay.chat.download',
@@ -541,7 +541,7 @@ describe('descargas pedidas al asistente', () => {
     expect(localStorage.getItem('danplay.chat.download')).toBeNull()
   })
 
-  it('lo que escribe la app va marcado y la descarga aceptada lleva su herramienta', async () => {
+  it('what the app writes is marked and the accepted download carries its tool', async () => {
     api.chat.mockResolvedValueOnce(pending)
     api.chatConfirm.mockResolvedValueOnce({
       ok: true,
@@ -559,7 +559,7 @@ describe('descargas pedidas al asistente', () => {
     expect(accepted.tools).toEqual([{ name: 'download_music', summary: 'aceptada, en marcha' }])
   })
 
-  it('una respuesta narrada se pinta señalada', async () => {
+  it('a narrated reply renders marked', async () => {
     api.chat.mockResolvedValueOnce({
       text: 'Ya la creé.\n\n_(Nota de la app: …)_',
       tools: [],
@@ -572,7 +572,7 @@ describe('descargas pedidas al asistente', () => {
     expect(msg.attributes('title')).toContain('ninguna herramienta')
   })
 
-  it('si no entro nada, no se molesta al asistente', async () => {
+  it('if nothing came in, the assistant is not bothered', async () => {
     vi.useFakeTimers()
     localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
     api.youtube.mockResolvedValueOnce({
@@ -586,7 +586,7 @@ describe('descargas pedidas al asistente', () => {
     expect(api.chat).not.toHaveBeenCalled()
   })
 
-  it('un fallo al confirmar se enseña sin romper el chat', async () => {
+  it('a failure on confirm is shown without breaking the chat', async () => {
     api.chat.mockResolvedValueOnce(pending)
     api.chatConfirm.mockRejectedValueOnce(new Error('409: ya hay una descarga en marcha'))
     const w = await mountView()
@@ -597,8 +597,8 @@ describe('descargas pedidas al asistente', () => {
   })
 })
 
-describe('el título de una conversación', () => {
-  it('sale de la primera línea con texto, sin las marcas de WhatsApp', () => {
+describe('the title of a conversation', () => {
+  it('comes from the first line with text, without the WhatsApp markup', () => {
     const pasted = '\n  \nagrégame esto a la lista:\n*Domingo*✅\n*1.- Mi Gozo*'
     expect(titleFrom(pasted)).toBe('agrégame esto a la lista:')
     expect(titleFrom('*Domingo* _ensayo_ ~viejo~')).toBe('Domingo ensayo viejo')

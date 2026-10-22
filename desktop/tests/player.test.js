@@ -89,8 +89,8 @@ const press = (key, extra = {}) => {
 const padding = () => w.find('.track-fill').attributes('style')
 const currentTime = () => w.findAll('.pl-bar .time')[0].text()
 
-describe('la aguja de la barra de tiempo', () => {
-  it('se coge y sigue al puntero sin pedir nada hasta soltar', async () => {
+describe('the seek bar handle', () => {
+  it('is grabbed and follows the pointer without requesting anything until released', async () => {
     await mountView()
     const bar = w.find('.track')
     withWidth(bar)
@@ -110,7 +110,7 @@ describe('la aguja de la barra de tiempo', () => {
     expect(padding()).toContain('width: 75%')
   })
 
-  it('un clic sin mover salta a ese punto, como antes', async () => {
+  it('a click without moving jumps to that point, as before', async () => {
     await mountView()
     const bar = w.find('.track')
     withWidth(bar)
@@ -119,7 +119,7 @@ describe('la aguja de la barra de tiempo', () => {
     expect(bridge().seek).toHaveBeenCalledWith(100)
   })
 
-  it('arrastrar mas alla de los extremos se queda en 0 o en el final', async () => {
+  it('dragging past the ends stays at 0 or at the end', async () => {
     await mountView()
     const bar = w.find('.track')
     withWidth(bar)
@@ -132,7 +132,7 @@ describe('la aguja de la barra de tiempo', () => {
     expect(bridge().seek).toHaveBeenCalledWith(200)
   })
 
-  it('un tick viejo de Rust no devuelve la aguja atras tras soltar', async () => {
+  it('an old tick from Rust does not move the handle back after release', async () => {
     await mountView()
     const bar = w.find('.track')
     withWidth(bar)
@@ -144,7 +144,7 @@ describe('la aguja de la barra de tiempo', () => {
     expect(currentTime()).toBe('2:30')
   })
 
-  it('sin cancion la barra no hace nada', async () => {
+  it('without a song the bar does nothing', async () => {
     await mountView({ track: null, duration: 0, playing: false })
     const bar = w.find('.track')
     withWidth(bar)
@@ -154,7 +154,7 @@ describe('la aguja de la barra de tiempo', () => {
     expect(bridge().seek).not.toHaveBeenCalled()
   })
 
-  it('con el boton secundario no se coge', async () => {
+  it('the secondary button does not grab it', async () => {
     await mountView()
     const bar = w.find('.track')
     withWidth(bar)
@@ -163,8 +163,8 @@ describe('la aguja de la barra de tiempo', () => {
   })
 })
 
-describe('desde el principio', () => {
-  it('hay un boton en la barra de tiempo, antes de la hora', async () => {
+describe('from the start', () => {
+  it('there is a button on the time bar, before the time', async () => {
     await mountView()
     const b = w.find('.pl-bar .pl-restart')
     expect(b.exists()).toBe(true)
@@ -177,20 +177,20 @@ describe('desde el principio', () => {
     expect(w.find('.player .pl-extra button[title="Cola de reproducción"]').exists()).toBe(true)
   })
 
-  it('sin cancion el boton esta apagado', async () => {
+  it('without a song the button is disabled', async () => {
     await mountView({ track: null, duration: 0, playing: false })
     expect(w.find('.pl-restart').attributes('disabled')).toBeDefined()
   })
 })
 
-describe('atajos de teclado', () => {
-  it('espacio pausa y reanuda', async () => {
+describe('keyboard shortcuts', () => {
+  it('Space pauses and resumes', async () => {
     await mountView()
     await press(' ')
     expect(bridge().toggle).toHaveBeenCalledTimes(1)
   })
 
-  it('0 e Inicio vuelven al principio', async () => {
+  it('0 and Home go back to the start', async () => {
     await mountView()
     await press('0')
     expect(bridge().seek).toHaveBeenLastCalledWith(0)
@@ -199,14 +199,14 @@ describe('atajos de teclado', () => {
     expect(bridge().seek).toHaveBeenLastCalledWith(0)
   })
 
-  it('en pausa, 0 ademas arranca', async () => {
+  it('when paused, 0 also starts playing', async () => {
     await mountView({ playing: false })
     await press('0')
     expect(bridge().toggle).toHaveBeenCalledTimes(1)
     expect(bridge().seek).toHaveBeenLastCalledWith(0)
   })
 
-  it('1-9 van al tanto por ciento', async () => {
+  it('1-9 jump to the percentage', async () => {
     await mountView()
     await press('5')
     expect(bridge().seek).toHaveBeenLastCalledWith(100)
@@ -214,7 +214,7 @@ describe('atajos de teclado', () => {
     expect(bridge().seek).toHaveBeenLastCalledWith(180)
   })
 
-  it('flechas: 5 s; con Ctrl 10 s; con Mayus 30 s', async () => {
+  it('arrows: 5 s; with Ctrl 10 s; with Shift 30 s', async () => {
     await mountView()
     await press('ArrowRight')
     expect(bridge().seek).toHaveBeenLastCalledWith(45)
@@ -226,7 +226,7 @@ describe('atajos de teclado', () => {
     expect(bridge().seek).toHaveBeenLastCalledWith(60)
   })
 
-  it('las flechas arriba y abajo mueven el volumen', async () => {
+  it('up and down arrows change the volume', async () => {
     await mountView()
     await press('ArrowUp')
     expect(bridge().setVolume).toHaveBeenLastCalledWith(0.95)
@@ -234,7 +234,7 @@ describe('atajos de teclado', () => {
     expect(bridge().setVolume).toHaveBeenLastCalledWith(0.9)
   })
 
-  it('con el foco en un campo de texto no actuan', async () => {
+  it('with focus in a text field they do nothing', async () => {
     await mountView()
     const input = document.createElement('input')
     document.body.appendChild(input)
@@ -245,13 +245,13 @@ describe('atajos de teclado', () => {
   })
 })
 
-describe('la portada de lo que suena', () => {
-  it('si esta difuminada, tambien aqui', async () => {
+describe('the cover of what is playing', () => {
+  it('if blurred, here too', async () => {
     await mountView({ track: { ...TRACK, blur: true } })
     expect(w.find('.pl-cover').classes()).toContain('blurred')
   })
 
-  it('el volumen tiene nombre para quien no ve la pantalla', async () => {
+  it('the volume has a name for those who cannot see the screen', async () => {
     await mountView()
     const vol = w.find('.pl-volume input[type="range"]')
     expect(vol.attributes('aria-label')).toBe('Volumen')

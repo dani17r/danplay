@@ -48,8 +48,8 @@ beforeEach(() => {
 const button = (w, act) => w.find(`[data-act="${act}"]`)
 const labels = () => menu.value.items.filter((i) => !i.separator).map((i) => i.label)
 
-describe('el contador', () => {
-  it('dice cuántas, en singular o plural, y se anuncia al cambiar', async () => {
+describe('the counter', () => {
+  it('says how many, in singular or plural, and is announced on change', async () => {
     const w = mountView({ count: 3 })
     const status = w.find('.sel-status')
     expect(status.attributes('aria-live')).toBe('polite')
@@ -60,13 +60,13 @@ describe('el contador', () => {
     expect(status.text()).toBe('Elige canciones')
   })
 
-  it('es una barra de herramientas con nombre', () => {
+  it('is a named toolbar', () => {
     const w = mountView()
     expect(w.attributes('role')).toBe('toolbar')
     expect(w.attributes('aria-label')).toBe('Canciones seleccionadas')
   })
 
-  it('si el resto de la lista aún llega, «todas» son las que han llegado y se dice', async () => {
+  it('if the rest of the list is still arriving, «todas» means the ones that have arrived and it says so', async () => {
     const w = mountView({ count: 400, allSelected: true, loading: true })
     expect(w.find('.sel-note').text()).toContain('el resto sigue cargando')
     await w.setProps({ loading: false })
@@ -74,8 +74,8 @@ describe('el contador', () => {
   })
 })
 
-describe('los botones', () => {
-  it('«Seleccionar todas», o «Ninguna» si ya lo están', async () => {
+describe('the buttons', () => {
+  it('«Seleccionar todas», or «Ninguna» if all already are', async () => {
     const w = mountView()
     await button(w, 'all').trigger('click')
     expect(w.emitted('selectAll')).toHaveLength(1)
@@ -86,7 +86,7 @@ describe('los botones', () => {
     expect(w.emitted('selectNone')).toHaveLength(1)
   })
 
-  it('Telegram solo si está instalado; quitar de la lista solo en un repertorio', async () => {
+  it('Telegram only if installed; remove from the playlist only in a playlist', async () => {
     const w = mountView()
     expect(button(w, 'telegram').exists()).toBe(false)
     expect(button(w, 'remove').exists()).toBe(false)
@@ -99,14 +99,14 @@ describe('los botones', () => {
     expect(w.emitted('removeFromList')).toHaveLength(1)
   })
 
-  it('las de fuera (la lista del reproductor) no ofrecen favoritas ni papelera', () => {
+  it('outside ones (the player list) offer neither favorites nor trash', () => {
     const w = mountView({ library: false })
     expect(button(w, 'favorites').exists()).toBe(false)
     expect(button(w, 'trash').exists()).toBe(false)
     expect(button(w, 'list').exists()).toBe(true)
   })
 
-  it('sin ninguna elegida, lo que actúa sobre ellas no se puede pulsar; todas y Listo sí', () => {
+  it('with none selected, the actions on them cannot be clicked; all and Listo can', () => {
     const w = mountView({ count: 0, telegram: true, playlist: 'Domingo' })
     for (const act of ['list', 'favorites', 'telegram', 'remove', 'trash', 'more']) {
       expect(button(w, act).attributes('disabled'), act).toBeDefined()
@@ -115,7 +115,7 @@ describe('los botones', () => {
     expect(button(w, 'done').attributes('disabled')).toBeUndefined()
   })
 
-  it('añadir y «⋯» pasan el clic (el menú se abre bajo el botón); el resto, sin más', async () => {
+  it('add and «⋯» pass the click on (the menu opens under the button); the rest, nothing else', async () => {
     const w = mountView()
     await button(w, 'list').trigger('click')
     await button(w, 'more').trigger('click')
@@ -130,7 +130,7 @@ describe('los botones', () => {
     expect(button(w, 'list').attributes('aria-haspopup')).toBe('menu')
   })
 
-  it('si ya son todas favoritas, el botón lo dice y no hace nada (quitarlas está en «⋯»)', async () => {
+  it('if all are already favorites, the button says so and does nothing (removing them is in «⋯»)', async () => {
     const w = mountView({ allFavorite: true })
     const fav = button(w, 'favorites')
     expect(fav.attributes('aria-disabled')).toBe('true')
@@ -139,7 +139,7 @@ describe('los botones', () => {
     expect(w.emitted('favorites')).toBeFalsy()
   })
 
-  it('cada botón tiene nombre aunque en estrecho solo se vea el icono', () => {
+  it('each button has a name even when narrow only the icon shows', () => {
     const w = mountView({ telegram: true, playlist: 'Domingo' })
     for (const b of w.findAll('button')) {
       expect(b.attributes('aria-label'), b.html()).toBeTruthy()
@@ -148,11 +148,11 @@ describe('los botones', () => {
   })
 })
 
-describe('lo que cabe', () => {
+describe('what fits', () => {
   // El sitio no depende solo de la ventana (el panel de la ficha estrecha la
   // lista; Telegram y «Quitar» añaden botones): la barra se mide y aprieta lo
   // justo. jsdom no maqueta, así que las medidas se fingen por nivel.
-  it('pasa a etiquetas cortas, a solo iconos o a solo el número según quepa', async () => {
+  it('switches to short labels, icons only or just the count depending on space', async () => {
     const w = mountView({ count: 2 })
     const el = w.element
     const level = () =>
@@ -175,13 +175,13 @@ describe('lo que cabe', () => {
   })
 })
 
-describe('con el teclado', () => {
+describe('with the keyboard', () => {
   const press = (el, key, extra = {}) =>
     el.element.dispatchEvent(
       new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra })
     )
 
-  it('las flechas pasan de un botón a otro (en redondo) y Escape termina', async () => {
+  it('arrow keys move between buttons (wrapping around) and Escape finishes', async () => {
     const w = mountView()
     const enabled = w.findAll('button').filter((b) => !b.attributes('disabled'))
     enabled[0].element.focus()
@@ -200,7 +200,7 @@ describe('con el teclado', () => {
 
 // Lo que hacen los botones: las acciones de useSongMenus (las mismas del menú
 // de clic derecho sobre varias), con todo lo demás falso.
-describe('lo que hace con las elegidas', () => {
+describe('what it does with the selected ones', () => {
   function prepare({ view = { kind: 'all' } } = {}) {
     const songs = ref([song(1), song(2, { title: 'Otra' }), song(3, { title: 'Tercera' })])
     const selection = useSelection({ shown: songs })
@@ -229,7 +229,7 @@ describe('lo que hace con las elegidas', () => {
     return { ctx, songs, selection, menus: useSongMenus(ctx) }
   }
 
-  it('«Añadir a una lista» abre las listas (y «Nueva lista…») debajo del botón', async () => {
+  it('«Añadir a una lista» opens the playlists (and «Nueva lista…») under the button', async () => {
     const { menus, songs, ctx } = prepare()
     const w = mountView()
     const btn = button(w, 'list').element
@@ -256,7 +256,7 @@ describe('lo que hace con las elegidas', () => {
     })
   })
 
-  it('con una sola, la lista recibe esa canción (y su aviso habla de ella)', async () => {
+  it('with a single one, the playlist gets that song (and its notice mentions it)', async () => {
     const { menus, songs, ctx } = prepare()
     menus.addToList({ clientX: 1, clientY: 1 }, [songs.value[1]])
     expect(menu.value.title).toBe('Añadir a una lista')
@@ -264,7 +264,7 @@ describe('lo que hace con las elegidas', () => {
     expect(ctx.playlistActions.addTo).toHaveBeenCalledWith(songs.value[1], expect.anything())
   })
 
-  it('favoritas marca las que no lo eran, con un aviso', async () => {
+  it('favorites marks those that were not, with a notice', async () => {
     const { menus, ctx } = prepare()
     await menus.favorites([song(1), song(2, { favorite: 1 }), song(3)])
     expect(held.api.toggleFavorite.mock.calls).toEqual([
@@ -277,7 +277,7 @@ describe('lo que hace con las elegidas', () => {
     expect(notices.value.at(-1).message).toBe('Ya era favorita')
   })
 
-  it('la papelera: con una, la confirmación de una (con su archivo); con varias, la que dice cuántas', async () => {
+  it('trash: with one, the single confirmation (with its file); with several, the one that says how many', async () => {
     const { menus } = prepare()
     menus.trash([song(1)])
     await flushPromises()
@@ -293,7 +293,7 @@ describe('lo que hace con las elegidas', () => {
     expect(held.api.deleteSong).not.toHaveBeenCalled()
   })
 
-  it('quitar de la lista: solo en un repertorio, sin preguntar, y dice de cuál', async () => {
+  it('remove from the playlist: only in a playlist, without asking, and says which one', async () => {
     const outside = prepare()
     await outside.menus.removeFromView([song(1)])
     expect(held.api.removeFromPlaylist).not.toHaveBeenCalled()
@@ -317,7 +317,7 @@ describe('lo que hace con las elegidas', () => {
     expect(notices.value.at(-1).message).toBe('«Otra» quitada de «Domingo»')
   })
 
-  it('el «⋯» es el menú de grupo, también con una sola (en singular)', async () => {
+  it('the «⋯» is the group menu, also with a single one (in singular)', async () => {
     const { menus } = prepare({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
     await menus.loadShareTargets()
     menus.groupMenu({ clientX: 5, clientY: 5 }, [song(2, { title: 'Otra' })])
@@ -341,7 +341,7 @@ describe('lo que hace con las elegidas', () => {
     expect(labels()).not.toContain('Marcar 2 como favoritas')
   })
 
-  it('las opciones del grupo desde el buscador no hablan de «esta lista» y reproducen con su cola', async () => {
+  it('group options from the search box do not mention «esta lista» and play with their own queue', async () => {
     const { menus, ctx } = prepare({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
     const play = vi.fn()
     const items = menus.groupItems([song(1), song(2)], { fromSearch: true, play })
@@ -351,7 +351,7 @@ describe('lo que hace con las elegidas', () => {
     expect(ctx.play).not.toHaveBeenCalled()
   })
 
-  it('en el modo, el clic derecho sobre una elegida es el de las elegidas y no suelta nada', async () => {
+  it('in the mode, right-clicking a selected one opens the selection menu and deselects nothing', async () => {
     const { menus, selection } = prepare()
     selection.setMode(true)
     await selection.select(1, {})
@@ -366,7 +366,7 @@ describe('lo que hace con las elegidas', () => {
   })
 })
 
-describe('los tamaños (css)', () => {
+describe('the sizes (CSS)', () => {
   const css = allCss()
   const breakpoint = (px) => {
     const i = css.indexOf(`@media (max-width:${px}px){.sel-`)
@@ -377,7 +377,7 @@ describe('los tamaños (css)', () => {
     )
   }
 
-  it('medio: etiquetas cortas; estrecho: solo iconos; columna: solo el número a la vista', () => {
+  it('medium: short labels; narrow: icons only; column: only the count visible', () => {
     expect(breakpoint(1100)).toMatch(/\.sel-long\{display:none\}/)
     expect(breakpoint(1100)).toMatch(/\.sel-short\{display:inline\}/)
     expect(breakpoint(700)).toMatch(/\.sel-label,[^{]*\{display:none\}/)
@@ -386,13 +386,13 @@ describe('los tamaños (css)', () => {
     expect(breakpoint(460)).toMatch(/\.sel-word,\.sel-note\{position:absolute;width:1px;height:1px/)
   })
 
-  it('nunca desborda: si no cabe, se desplaza en horizontal; y no se encoge la lista', () => {
+  it('never overflows: if it does not fit, it scrolls horizontally; and the list does not shrink', () => {
     expect(css).toMatch(/\.sel-bar\{[^}]*overflow:auto hidden/)
     expect(css).toMatch(/\.sel-bar\{[^}]*flex:none/)
     expect(css).toMatch(/\.sel-status\{[^}]*text-overflow:ellipsis/)
   })
 
-  it('colores del tema (claro u oscuro), ninguno fijo', async () => {
+  it('theme colors (light or dark), none fixed', async () => {
     const { readFileSync } = await import('node:fs')
     const { join, dirname } = await import('node:path')
     const { fileURLToPath } = await import('node:url')

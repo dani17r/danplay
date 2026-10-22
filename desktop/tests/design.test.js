@@ -69,10 +69,10 @@ afterEach(() => {
   cancelDrag()
 })
 
-describe('colores de tema', () => {
+describe('theme colors', () => {
   const VALID = new Set(Object.keys(CATALOG.night.v))
 
-  it('el catalogo define las mismas claves en todos los temas', () => {
+  it('the catalog defines the same keys in every theme', () => {
     for (const [name, t] of Object.entries(CATALOG)) {
       expect(new Set(Object.keys(t.v)), `el tema «${name}» no tiene las mismas claves`).toEqual(
         VALID
@@ -84,24 +84,24 @@ describe('colores de tema', () => {
   // pintan: las tarjetas de Ajustes (settings.test.js), el editor de temas
   // (theme-editor.test.js) y el selector de tema del menu de Vista (abajo)
 
-  it('cada clave de color es tambien una variable del css', () => {
+  it('every color key is also a CSS variable', () => {
     // applyTheme escribe --<clave>, asi que el css tiene que usarlas
     const missing = [...VALID].filter((k) => !CSS.includes(`var(--${k})`))
     expect(missing, 'claves de tema que el css no usa nunca').toEqual([])
   })
 
-  it('el tipo de tema se enseña traducido, no en ingles', () => {
+  it('the theme type is shown translated, not in English', () => {
     for (const t of Object.values(CATALOG)) {
       expect(KIND_LABEL[t.kind], `falta como se dice «${t.kind}»`).toBeTruthy()
     }
   })
 })
 
-describe('clases que la interfaz pinta', () => {
+describe('classes the UI renders', () => {
   /** ¿El css define esta clase en alguna parte? */
   const defined = (className) => new RegExp(`\\.${className}[\\s,{:.>+~]`).test(CSS)
 
-  it('los avisos flotantes tienen estilo (y los pinta la app: app.test.js)', () => {
+  it('floating notices are styled (and the app renders them: app.test.js)', () => {
     // Antes emitia notice-ok / notice-ambar y el css definia hint-ok /
     // hint-amber: los avisos salian siempre grises.
     for (const c of ['toast', 'hint-ok', 'hint-amber']) {
@@ -109,14 +109,14 @@ describe('clases que la interfaz pinta', () => {
     }
   })
 
-  it('la flecha de los grupos tiene estilo para girar', () => {
+  it('the group arrow is styled to rotate', () => {
     expect(defined('group-chevron')).toBe(true)
     expect(CSS).toMatch(/\.group-chevron\.open\{[^}]*rotate/)
   })
 })
 
-describe('animaciones', () => {
-  it('el modo estudio sube por encima de la lista, sin recolocar nada', () => {
+describe('animations', () => {
+  it('study mode slides up over the list without reflowing anything', () => {
     // Antes entraba en el flujo de la columna y le quitaba alto a la lista:
     // al abrirlo y al cerrarlo se recolocaba media pantalla. (Que entra con
     // su transicion se prueba montando la app: app.test.js.)
@@ -136,11 +136,11 @@ describe('animaciones', () => {
     expect(z('.study')).toBeLessThan(z('.queue'))
   })
 
-  it('los botones reaccionan al raton de forma suave', () => {
+  it('buttons react to the mouse smoothly', () => {
     expect(CSS).toMatch(/\.btn\{[^}]*transition:/)
   })
 
-  it('quien pide movimiento reducido lo obtiene en TODA la app', () => {
+  it('whoever asks for reduced motion gets it across the WHOLE app', () => {
     const block = CSS.slice(CSS.lastIndexOf('prefers-reduced-motion'))
     expect(block, 'falta la regla global').toMatch(/\*,\s*\*::before,\s*\*::after/)
     // ...pero los indicadores de «esto sigue en marcha» no se congelan
@@ -148,7 +148,7 @@ describe('animaciones', () => {
   })
 })
 
-describe('el desplegable', () => {
+describe('the dropdown', () => {
   const themes = () =>
     Object.entries(CATALOG).map(([k, t]) => ({
       v: k,
@@ -157,7 +157,7 @@ describe('el desplegable', () => {
       color: t.v.accent
     }))
 
-  it('enseña sus opciones con el punto de color de cada una', async () => {
+  it('shows its options with the color dot of each one', async () => {
     const w = mount(SelectField, {
       props: { modelValue: 'night', label: 'Tema', options: themes() }
     })
@@ -174,7 +174,7 @@ describe('el desplegable', () => {
     }
   })
 
-  it('al abrirse lleva a la vista la opcion elegida', async () => {
+  it('on opening it scrolls the chosen option into view', async () => {
     const view = vi.fn()
     Element.prototype.scrollIntoView = view
     const w = mount(SelectField, { props: { modelValue: 'wine', options: themes() } })
@@ -185,7 +185,7 @@ describe('el desplegable', () => {
     delete Element.prototype.scrollIntoView
   })
 
-  it('se puede quedar sin elegir: la «x» vuelve al valor vacio', async () => {
+  it('can be left unselected: the «x» goes back to the empty value', async () => {
     const options = [
       { v: '', n: 'Cualquiera' },
       { v: 'Barak', n: 'Barak' }
@@ -207,8 +207,8 @@ describe('el desplegable', () => {
   })
 })
 
-describe('la columna de estrellas cabe', () => {
-  it('es lo bastante ancha para las cinco estrellas', () => {
+describe('the stars column fits', () => {
+  it('is wide enough for all five stars', () => {
     // cinco iconos de 15px + cuatro huecos + el relleno de la celda
     const rule = CSS.match(/\.col-stars\{([^}]*)\}/)
     expect(rule, 'no hay regla para la columna de estrellas').toBeTruthy()
@@ -219,18 +219,18 @@ describe('la columna de estrellas cabe', () => {
     expect(width, `necesita al menos ${needed}px`).toBeGreaterThanOrEqual(needed)
   })
 
-  it('la columna de estrellas se define una sola vez fuera de media queries', () => {
+  it('the stars column is defined only once, outside media queries', () => {
     // habia dos reglas, 82px y 104px, y la de abajo pisaba a la de arriba
     const withoutMedia = CSS.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, '')
     expect((withoutMedia.match(/\.col-stars\s*\{/g) || []).length).toBe(1)
   })
 })
 
-describe('arrastrar una cancion', () => {
+describe('dragging a song', () => {
   // En el WebView de escritorio, arrastrar una fila iba dejando media lista
   // seleccionada en azul. El `user-select:none` del css no basta ahi, asi que
   // se corta el evento que inicia la seleccion.
-  it('mientras se arrastra no se puede empezar a seleccionar texto', () => {
+  it('while dragging, text selection cannot start', () => {
     const { startDrag } = useDragSong()
     const row = document.createElement('div')
     document.body.appendChild(row)
@@ -247,7 +247,7 @@ describe('arrastrar una cancion', () => {
     expect(native.defaultPrevented).toBe(true)
   })
 
-  it('al soltar deja de estorbar a la seleccion normal', () => {
+  it('on drop it no longer gets in the way of normal selection', () => {
     const { startDrag } = useDragSong()
     startDrag(
       { id: 1 },
@@ -261,7 +261,7 @@ describe('arrastrar una cancion', () => {
     )
   })
 
-  it('con el dedo no se arrastra: eso es desplazar la lista', () => {
+  it('a finger does not drag: that scrolls the list', () => {
     const { startDrag } = useDragSong()
     startDrag(
       { id: 1 },
@@ -273,8 +273,8 @@ describe('arrastrar una cancion', () => {
   })
 })
 
-describe('portadas difuminadas', () => {
-  it('la portada se pinta borrosa cuando la cancion esta marcada, y lo dice', () => {
+describe('blurred covers', () => {
+  it('the cover renders blurred when the song is flagged, and says so', () => {
     expect(
       mount(CoverArt, { props: { id: 1 } })
         .find('img')
@@ -286,7 +286,7 @@ describe('portadas difuminadas', () => {
     expect(blurred.find('img').attributes('alt')).toContain('difuminada')
   })
 
-  it('el css la difumina de verdad, no le baja la opacidad', () => {
+  it('the CSS really blurs it, it does not lower the opacity', () => {
     const rule = CSS.match(/\.cover-art\.blurred\{([^}]*)\}/)
     expect(rule, 'no hay estilo para las portadas difuminadas').toBeTruthy()
     expect(rule[1], 'deberia usar blur()').toMatch(/filter:\s*blur\(\s*\d+px/)
@@ -297,7 +297,7 @@ describe('portadas difuminadas', () => {
     expect(rule[1]).not.toMatch(/transform:\s*scale/)
   })
 
-  it('todas las listas y la ficha la respetan', async () => {
+  it('every list and the details panel respect it', async () => {
     // si una se olvida, la imagen sigue viendose donde menos se espera (el
     // reproductor y la ventanita, en sus propias pruebas; el menu que la
     // activa, en app.test.js)
@@ -317,8 +317,8 @@ describe('portadas difuminadas', () => {
   })
 })
 
-describe('campos de formulario', () => {
-  it('el input de dentro no pinta su propio anillo de foco', () => {
+describe('form fields', () => {
+  it('the inner input does not draw its own focus ring', () => {
     // La regla base `input:focus` le ponia su sombra al input, y el envoltorio
     // ponia la suya: se veian DOS anillos verdes, uno dentro del otro, con un
     // hueco oscuro en medio.
@@ -332,24 +332,24 @@ describe('campos de formulario', () => {
     }
   })
 
-  it('solo hay un anillo por campo, el del envoltorio', () => {
+  it('there is only one ring per field, the wrapper one', () => {
     const wrapper = CSS.match(/\.field\.focused \.field-box\{([^}]*)\}/)
     expect(wrapper, 'el campo enfocado deberia tener su sombra').toBeTruthy()
     expect(wrapper[1]).toMatch(/box-shadow:/)
   })
 })
 
-describe('iconos con el significado correcto', () => {
+describe('icons with the right meaning', () => {
   // que el boton de enviar del chat lleve este icono se comprueba montando
   // el chat (chat.test.js); aqui, que el icono exista
-  it('el icono de enviar existe de verdad', async () => {
+  it('the send icon really exists', async () => {
     const { ICONS } = await import('../src/icons.js')
     expect(ICONS.send, 'falta el icono «send»').toBeTruthy()
     expect(ICONS.send.d).toContain('<path')
   })
 })
 
-describe('informe de duplicados', () => {
+describe('duplicates report', () => {
   const group = {
     suggested: '/m/Barak - Mi Gozo - r.mp3',
     items: [
@@ -368,7 +368,7 @@ describe('informe de duplicados', () => {
     ]
   }
 
-  it('los datos del archivo van juntos y no se parten por la mitad', () => {
+  it('the file details stay together and do not break in half', () => {
     // «6.7» quedaba en una linea y «MB» en la siguiente, con la ruta en medio:
     // el texto suelto dentro de un flex se rompe por cualquier espacio.
     const w = mount(DuplicateGroup, { props: { group: group, playing: null, busy: false } })
@@ -376,7 +376,7 @@ describe('informe de duplicados', () => {
     expect(CSS).toMatch(/\.dup-stats\{[^}]*white-space:\s*nowrap/)
   })
 
-  it('lee las mismas claves que manda el nucleo', () => {
+  it('reads the same keys the core sends', () => {
     // `relative`, `has_suffix` y `suggested`: con los nombres viejos en
     // castellano no salia ni la ruta ni las marcas
     const w = mount(DuplicateGroup, { props: { group: group, playing: null, busy: false } })
@@ -386,8 +386,8 @@ describe('informe de duplicados', () => {
   })
 })
 
-describe('las cuatro vistas', () => {
-  it('hay exactamente cuatro y cada una tiene nombre e icono', async () => {
+describe('the four views', () => {
+  it('there are exactly four and each has a name and an icon', async () => {
     const { VIEWS, VIEW_NAMES, VIEW_ICONS } = await import('../src/composables/usePreferences.js')
     expect(VIEWS).toEqual(['rows', 'cards', 'grid', 'table'])
     for (const v of VIEWS) {
@@ -396,7 +396,7 @@ describe('las cuatro vistas', () => {
     }
   })
 
-  it('quien tenia elegida una vista vieja no la pierde', async () => {
+  it('whoever had an old view chosen does not lose it', async () => {
     const { savedLayout, resetPreferences } = await import('../src/composables/usePreferences.js')
     resetPreferences()
     for (const [legacy, current] of [
@@ -411,7 +411,7 @@ describe('las cuatro vistas', () => {
     expect(savedLayout()).toBe('table')
   })
 
-  it('las cuatro tambien valen agrupadas, con sus cabeceras de grupo', () => {
+  it('all four also work grouped, with their group headers', () => {
     const songs = [song(1), song(2, { artist: 'New Wine' }), song(3)]
     for (const [layout, box] of [
       ['rows', '.rows'],
@@ -429,7 +429,7 @@ describe('las cuatro vistas', () => {
     }
   })
 
-  it('todas se adaptan al ancho', () => {
+  it('all of them adapt to the width', () => {
     // cada vista tiene que ceder algo cuando falta sitio
     expect(CSS, 'la lista fina no se adapta').toMatch(/@media[^{]*\{\s*\.row-/)
     expect(CSS, 'las fichas no se acoplan solas').toMatch(/\.cards\{[^}]*auto-fill/)
@@ -441,13 +441,13 @@ describe('las cuatro vistas', () => {
   // con su componente, en app.test.js
 })
 
-describe('la cabecera de la tabla', () => {
+describe('the table header', () => {
   // Estaba definida DOS veces: la primera la dejaba fija (`position:sticky`) y
   // la segunda, ochenta lineas mas abajo, la pisaba con `position:relative`.
   // Resultado: al desplazar una lista larga la cabecera se iba con ella y no
   // se sabia que columna era cual. Nadie lo vio porque las dos reglas estaban
   // lejos y ninguna herramienta miraba los selectores repetidos.
-  it('se queda fija al desplazar la lista', () => {
+  it('stays fixed when scrolling the list', () => {
     const rules = [...CSS.matchAll(/(^|\n)thead th\{([^}]*)\}/g)].map((m) => m[2])
     expect(rules.length, 'thead th deberia definirse una sola vez').toBe(1)
     expect(rules[0]).toMatch(/position:\s*sticky/)
@@ -456,13 +456,13 @@ describe('la cabecera de la tabla', () => {
     expect(rules[0], 'sin fondo se ven las filas por debajo').toMatch(/background:/)
   })
 
-  it('solo las columnas que ordenan parecen pulsables', () => {
+  it('only the sortable columns look clickable', () => {
     expect(CSS).toMatch(/thead th\.sortable\{[^}]*cursor:\s*pointer/)
   })
 })
 
-describe('ordenar por una columna', () => {
-  it('la cabecera enseña por donde va el orden y hacia donde', async () => {
+describe('sorting by a column', () => {
+  it('the header shows which column sorts and in which direction', async () => {
     const w = mount(SongTable, { props: { songs: [song(1)], sort: 'title', desc: false } })
     const title = w.find('th[data-col="title"]')
     expect(title.attributes('aria-sort')).toBe('ascending')
@@ -474,7 +474,7 @@ describe('ordenar por una columna', () => {
     expect(CSS, 'la flecha no se da la vuelta').toMatch(/\.th-arrow\.up\{[^}]*rotate\(180deg\)/)
   })
 
-  it('cada columna ordena por un campo que el nucleo conoce, empezando por lo natural', async () => {
+  it('each column sorts by a field the core knows, starting with the natural order', async () => {
     // los nombres salen del nucleo (SORT_FIELDS); si aqui se inventa uno, la
     // API lo ignora y la lista no cambia. (Que pulsar dos veces la misma
     // invierte el orden, en app.test.js.)
@@ -497,7 +497,7 @@ describe('ordenar por una columna', () => {
   })
 })
 
-describe('columnas ajustables', () => {
+describe('resizable columns', () => {
   /** jsdom no maqueta: cada cabecera dice que mide 100 px. */
   const withWidths = () =>
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
@@ -510,7 +510,7 @@ describe('columnas ajustables', () => {
   /** Los anchos puestos a mano: los `col` con estilo propio. */
   const manual = (w) => w.findAll('col').filter((c) => c.attributes('style'))
 
-  it('sin tocarlas no se fija ningun ancho: la tabla se reparte sola', () => {
+  it('untouched, no width is fixed: the table distributes itself', () => {
     const w = mount(SongTable, { props: { songs: [song(1)] } })
     // los `col` estan siempre (llevan la clase de su columna, con el ancho
     // de fabrica), pero ninguno con un ancho propio
@@ -519,7 +519,7 @@ describe('columnas ajustables', () => {
     expect(w.find('table').classes()).not.toContain('sized')
   })
 
-  it('se ensanchan arrastrando el borde, se recuerdan y el doble clic las olvida', async () => {
+  it('they widen by dragging the edge, are remembered, and a double click forgets them', async () => {
     withWidths()
     const w = mount(SongTable, { props: { songs: [song(1)] }, attachTo: document.body })
     const edge = w.find('th[data-col="title"] .col-resize').element
@@ -539,23 +539,23 @@ describe('columnas ajustables', () => {
     expect(localStorage.getItem('danplay.colWidths')).toBeNull()
   })
 
-  it('con el teclado, las flechas lo ensanchan de a poco', async () => {
+  it('with the keyboard, arrow keys widen it little by little', async () => {
     withWidths()
     const w = mount(SongTable, { props: { songs: [song(1)] } })
     await w.find('th[data-col="album"] .col-resize').trigger('keydown', { key: 'ArrowRight' })
     expect(JSON.parse(localStorage.getItem('danplay.colWidths')).album).toBe(110)
   })
 
-  it('el tirador queda dentro de la celda', () => {
+  it('the handle stays inside the cell', () => {
     // `th` recorta lo que se salga: a caballo del borde no recibia el puntero
     expect(CSS).toMatch(/\.col-resize\{[^}]*right:0/)
   })
 })
 
-describe('los resultados del buscador', () => {
+describe('the search results', () => {
   const eight = () => Array.from({ length: 8 }, (_, i) => song(i + 1))
 
-  it('se ven cinco y el resto con la rueda, midiendo una fila de verdad', async () => {
+  it('five are visible and the rest with the wheel, measuring a real row', async () => {
     // la altura sale de MEDIR una fila, no de un numero a ojo: asi sigue
     // cuadrando aunque cambie la densidad o el tamaño de la app
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
@@ -572,7 +572,7 @@ describe('los resultados del buscador', () => {
     expect(CSS).toMatch(/\.sr-list\{[^}]*overflow-y:auto/)
   })
 
-  it('se manejan con el teclado desde la caja de busqueda', async () => {
+  it('are driven with the keyboard from the search box', async () => {
     const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
     const press = (key) => w.vm.onKey(new KeyboardEvent('keydown', { key, cancelable: true }))
     expect(press('ArrowDown')).toBe(true)
@@ -591,14 +591,14 @@ describe('los resultados del buscador', () => {
     expect(press('a')).toBe(false)
   })
 
-  it('se pueden reproducir, no solo mirar', async () => {
+  it('can be played, not just viewed', async () => {
     const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
     await w.findAll('.sr-play')[3].trigger('click')
     expect(w.emitted('play')[0][0].id).toBe(4)
     expect(w.emitted('pick'), 'reproducir no es elegir').toBeFalsy()
   })
 
-  it('el clic derecho y el «⋯» abren las opciones de esa fila, sin elegirla ni reproducirla', async () => {
+  it('right-click and the «⋯» open the options of that row without selecting or playing it', async () => {
     // antes no hacian nada: no se podia añadir un resultado a un repertorio
     const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
     await w.findAll('.sr-row')[2].trigger('contextmenu')
@@ -619,7 +619,7 @@ describe('los resultados del buscador', () => {
     expect(w.emitted('play'), 'ni reproducirla').toBeFalsy()
   })
 
-  it('la tecla de menu o Mayus+F10 abren las opciones de la fila resaltada', async () => {
+  it('the menu key or Shift+F10 open the options of the highlighted row', async () => {
     // el foco se queda en la caja de busqueda: el menu sale bajo el «⋯» de la fila
     const w = mount(SearchResults, {
       props: { songs: eight(), query: 'x' },
@@ -640,7 +640,7 @@ describe('los resultados del buscador', () => {
     expect(press({ key: 'F10' })).toBe(false)
   })
 
-  it('el doble clic en el «⋯» o en reproducir no llega a la fila (que lo toma por reproducir)', async () => {
+  it('a double click on the «⋯» or on play does not reach the row (which would take it as play)', async () => {
     const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
     await w.findAll('.sr-more')[2].trigger('dblclick')
     await w.findAll('.sr-play')[3].trigger('dblclick')
@@ -650,7 +650,7 @@ describe('los resultados del buscador', () => {
     expect(w.emitted('play')).toHaveLength(1)
   })
 
-  it('mientras carga no hay fila sobre la que actuar: ni Enter ni la tecla de menu', () => {
+  it('while loading there is no row to act on: neither Enter nor the menu key', () => {
     // la lista no se pinta pero `songs` conserva la busqueda anterior: la tecla
     // de menu abria las opciones de una cancion que no se ve, en la esquina
     const w = mount(SearchResults, { props: { songs: eight(), query: 'x', loading: true } })
@@ -662,7 +662,7 @@ describe('los resultados del buscador', () => {
     expect(w.emitted('pick')).toBeFalsy()
   })
 
-  it('la cabecera es corta y no se parte: el recuento, un aviso corto y «Seleccionar»; en estrecho cuelga de la ventana', async () => {
+  it('the header is short and does not wrap: the count, a short notice and «Seleccionar»; when narrow it hangs from the window', async () => {
     // «8 resultados en toda la biblioteca» y el aviso largo no cabian a 460 px
     // con el boton: el recuento se partia y el aviso se cortaba con «…»
     const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
@@ -679,13 +679,13 @@ describe('los resultados del buscador', () => {
     )
   })
 
-  it('el «⋯» se ve con el puntero encima, en la fila resaltada y donde no hay puntero', () => {
+  it('the «⋯» shows on hover, on the highlighted row and where there is no pointer', () => {
     expect(CSS).toMatch(/\.sr-more\{[^}]*opacity:0/)
     expect(CSS).toMatch(/\.sr-row\.on \.sr-more[^{]*\{[^}]*opacity:1/)
     expect(CSS).toMatch(/@media \(hover:none\)\{\.sr-more\{opacity:1/)
   })
 
-  it('se pueden arrastrar a un repertorio', async () => {
+  it('can be dragged to a playlist', async () => {
     // una fila-boton nunca podria arrastrarse: el arrastre se aparta de los
     // botones (ahi el clic tiene otra cosa que hacer)
     const w = mount(SearchResults, {
@@ -704,7 +704,7 @@ describe('los resultados del buscador', () => {
   })
 
   // ------------------------------------------------- varios a la vez
-  describe('elegir varios', () => {
+  describe('selecting several', () => {
     /** Los ids de las filas elegidas, en el orden en que se ven. */
     const picked = (w) =>
       w.findAll('.sr-row').flatMap((f, i) => (f.classes().includes('picked') ? [i + 1] : []))
@@ -715,7 +715,7 @@ describe('los resultados del buscador', () => {
       return { handled: w.vm.onKey(e), prevented: e.defaultPrevented }
     }
 
-    it('«Seleccionar» pone una casilla en cada fila y el clic las marca en vez de abrir la ficha', async () => {
+    it('«Seleccionar» puts a checkbox on each row and clicking ticks them instead of opening the details panel', async () => {
       const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       const mode = () => w.find('.sr-select')
       expect(mode().attributes('aria-pressed')).toBe('false')
@@ -754,7 +754,7 @@ describe('los resultados del buscador', () => {
       expect(CSS).toMatch(/\.sr-select\.on\{[^}]*var\(--accent\)/)
     })
 
-    it('sin el modo: Ctrl+clic pone o quita uno y Mayús+clic coge el tramo; el clic a secas abre la ficha', async () => {
+    it('without the mode: Ctrl+click toggles one and Shift+click takes the range; a plain click opens the details panel', async () => {
       const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       await rows(w)[1].trigger('click', { ctrlKey: true })
       await rows(w)[3].trigger('click', { metaKey: true }) // Cmd, en el Mac
@@ -776,7 +776,7 @@ describe('los resultados del buscador', () => {
       expect(w.emitted('pick')[0][0].id).toBe(1)
     })
 
-    it('desde la caja: Ctrl+Espacio pone o quita la resaltada y Mayús+flechas amplían o encogen', async () => {
+    it('from the box: Ctrl+Space toggles the highlighted one and Shift+arrows extend or shrink', async () => {
       const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       press(w, 'ArrowDown') // la segunda
       expect(press(w, ' ', { ctrlKey: true })).toEqual({ handled: true, prevented: true })
@@ -801,7 +801,7 @@ describe('los resultados del buscador', () => {
       expect(w.emitted('pick')).toBeFalsy()
     })
 
-    it('Ctrl+A en la caja es de su texto: no elige resultados', async () => {
+    it('Ctrl+A in the box belongs to its text: it selects no results', async () => {
       const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       expect(press(w, 'a', { ctrlKey: true })).toEqual({ handled: false, prevented: false })
       expect(press(w, 'A', { metaKey: true }).handled).toBe(false)
@@ -810,7 +810,7 @@ describe('los resultados del buscador', () => {
       expect(w.find('.sr-picking').exists()).toBe(false)
     })
 
-    it('con alguno elegido la cabecera es una barra: cuántos, añadir a una lista, «⋯» y Ninguno', async () => {
+    it('with any selected the header becomes a bar: how many, add to a playlist, «⋯» and Ninguno', async () => {
       const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       await rows(w)[4].trigger('click', { ctrlKey: true })
       expect(w.find('.sr-count').text()).toBe('1 seleccionado')
@@ -845,7 +845,7 @@ describe('los resultados del buscador', () => {
       )
     })
 
-    it('sus botones no se quedan el foco al pulsarlos: el teclado sigue en la caja', async () => {
+    it('its buttons do not keep focus when pressed: the keyboard stays in the box', async () => {
       const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       const mousedown = (el) => {
         const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
@@ -860,7 +860,7 @@ describe('los resultados del buscador', () => {
       }
     })
 
-    it('el clic derecho, el «⋯» y la tecla de menú sobre una elegida son las opciones de todas; sobre otra, las suyas', async () => {
+    it('right-click, the «⋯» and the menu key on a selected one give the options for all; on another, its own', async () => {
       const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       await rows(w)[2].trigger('click', { ctrlKey: true })
       await rows(w)[5].trigger('click', { ctrlKey: true })
@@ -882,7 +882,7 @@ describe('los resultados del buscador', () => {
       expect(where).toEqual({ clientX: expect.any(Number), clientY: expect.any(Number) })
     })
 
-    it('Escape suelta lo elegido (y el modo) antes de cerrar', async () => {
+    it('Escape clears the selection (and the mode) before closing', async () => {
       const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       await w.find('.sr-select').trigger('click')
       await rows(w)[3].trigger('click')
@@ -900,7 +900,7 @@ describe('los resultados del buscador', () => {
       expect(w.emitted('close')).toHaveLength(1)
     })
 
-    it('otra búsqueda olvida lo elegido (el modo sigue); lo que se va de los resultados se suelta', async () => {
+    it('another search forgets the selection (the mode stays); what leaves the results is deselected', async () => {
       const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       await w.find('.sr-select').trigger('click')
       await rows(w)[1].trigger('click')
@@ -917,7 +917,7 @@ describe('los resultados del buscador', () => {
       expect(w.find('.sr-select').attributes('aria-pressed')).toBe('true')
     })
 
-    it('arrastrar una de las elegidas lleva todas, en su orden; una sin elegir va sola', async () => {
+    it('dragging one of the selected takes all of them, in order; an unselected one goes alone', async () => {
       const w = mount(SearchResults, {
         props: { songs: eight(), query: 'x' },
         attachTo: document.body
@@ -944,7 +944,7 @@ describe('los resultados del buscador', () => {
   })
 })
 
-describe('la busqueda avanzada', () => {
+describe('advanced search', () => {
   const facets = {
     artists: [
       { value: 'Barak', n: 12 },
@@ -962,7 +962,7 @@ describe('la busqueda avanzada', () => {
       .findAll('.field')
       .find((f) => f.find('.field-label').exists() && f.find('.field-label').text() === labelText)
 
-  it('ofrece filtrar, comparar y ordenar', () => {
+  it('offers filtering, comparing and sorting', () => {
     const w = mountView()
     const labels = w.findAll('.field-label').map((l) => l.text())
     for (const e of ['Texto', 'Artista', 'Album', 'Genero', 'Tono', 'Carpeta', 'Por']) {
@@ -973,7 +973,7 @@ describe('la busqueda avanzada', () => {
     }
   })
 
-  it('escribe en la misma caja que se escribe a mano, sin perder lo que habia', async () => {
+  it('writes into the same box you type in, without losing what was there', async () => {
     // asi no hay dos estados que puedan discrepar, y de paso se aprende la
     // sintaxis viendo lo que aparece escrito
     const w = mountView('mi gozo bpm>100')
@@ -991,7 +991,7 @@ describe('la busqueda avanzada', () => {
     expect(w.emitted('update:query').at(-1)).toEqual(['mi gozo bpm>90'])
   })
 
-  it('cada orden que ofrece es uno que el nucleo sabe hacer', async () => {
+  it('each sort it offers is one the core can do', async () => {
     const w = mountView()
     const order = field(w, 'Por')
     await order.find('.select-box').trigger('click')
@@ -1011,7 +1011,7 @@ describe('la busqueda avanzada', () => {
     }
   })
 
-  it('«Limpiar todo» deja la busqueda como al principio', async () => {
+  it('«Limpiar todo» resets the search to how it started', async () => {
     const w = mount(SearchPanel, {
       props: { query: 'barak', facets, onlyFavorites: true, minStars: 3 }
     })
@@ -1026,8 +1026,8 @@ describe('la busqueda avanzada', () => {
   })
 })
 
-describe('copiar textos', () => {
-  it('copia al portapapeles y acusa que lo hizo', async () => {
+describe('copying text', () => {
+  it('copies to the clipboard and acknowledges it', async () => {
     const written = []
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -1044,7 +1044,7 @@ describe('copiar textos', () => {
     expect(w.attributes('title')).toBe('Copiado')
   })
 
-  it('donde el navegador niega el portapapeles, se copia por la otra via', async () => {
+  it('where the browser denies the clipboard, it copies the other way', async () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText: async () => Promise.reject(new Error('sin permiso')) }
@@ -1058,7 +1058,7 @@ describe('copiar textos', () => {
     delete document.execCommand
   })
 
-  it('no aparece si no hay nada que copiar', () => {
+  it('does not appear if there is nothing to copy', () => {
     expect(
       mount(CopyButton, { props: { text: '   ' } })
         .find('button')
@@ -1071,7 +1071,7 @@ describe('copiar textos', () => {
     ).toBe(false)
   })
 
-  it('está donde hay texto que copiar: título, artista, letra y acordes', () => {
+  it('is where there is text to copy: title, artist, lyrics and chords', () => {
     const chords = JSON.stringify({
       sheet: {
         source: 'LaCuerda',
@@ -1095,8 +1095,8 @@ describe('copiar textos', () => {
 // comprueban no se ve montando nada: una prop mal escrita se ignora en
 // silencio (no hay error que atrapar), y las otras tres cruzan todas las
 // plantillas con la hoja de estilos o con una norma de la casa.
-describe('cruces entre las plantillas y el resto', () => {
-  it('cada transicion usada en las plantillas existe en el css', () => {
+describe('cross-checks between the templates and the rest', () => {
+  it('every transition used in the templates exists in the CSS', () => {
     const used = new Set()
     for (const { code } of components()) {
       for (const m of code.matchAll(/<transition(?:-group)?[^>]*\bname="([\w-]+)"/g)) {
@@ -1108,7 +1108,7 @@ describe('cruces entre las plantillas y el resto', () => {
     expect(missing, 'transiciones nombradas en las plantillas y sin css').toEqual([])
   })
 
-  it('todos los campos de texto se pueden vaciar', () => {
+  it('every text field can be cleared', () => {
     // `clearable` viene puesto; lo que se revisa es que nadie lo apague
     const notClearable = components()
       .filter(({ code }) => /:clearable="false"/.test(code))
@@ -1116,7 +1116,7 @@ describe('cruces entre las plantillas y el resto', () => {
     expect(notClearable, 'campos sin forma de vaciarlos').toEqual([])
   })
 
-  it('ningun modificador de boton trae un alto relativo a la ventana', () => {
+  it('no button modifier brings a height relative to the window', () => {
     // `.mini` era a la vez el modificador de los botones pequeños («btn mini»)
     // y la raiz del mini reproductor, que pone height:100vh. Las dos reglas
     // pesan igual, asi que ganaba la ultima del archivo: los veintitantos
@@ -1147,7 +1147,7 @@ describe('cruces entre las plantillas y el resto', () => {
     )
   })
 
-  describe('props que se pasan a los componentes', () => {
+  describe('props passed to components', () => {
     // `limpiable` en vez de `clearable` hacia que el dialogo enseñara la «x» de
     // limpiar donde no debia, y nada avisaba: una prop que no existe se ignora
     // en silencio. Esto compara lo que se pasa con lo que cada componente
@@ -1205,7 +1205,7 @@ describe('cruces entre las plantillas y el resto', () => {
       return byName
     }
 
-    it('ninguna plantilla pasa una prop que el componente no declara', () => {
+    it('no template passes a prop the component does not declare', () => {
       const byName = declared()
       expect(byName.size).toBeGreaterThan(5)
       const bad = []

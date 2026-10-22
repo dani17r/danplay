@@ -149,15 +149,15 @@ function thinking() {
   return (reply = { text: 'Listo.', tools: [] }) => release(reply)
 }
 
-describe('la caja: teclas', () => {
-  it('Enter envía y no deja un salto de línea', async () => {
+describe('the box: keys', () => {
+  it('Enter sends and leaves no line break', async () => {
     const w = box({ modelValue: 'hola' })
     const ev = press(w.find('textarea').element)
     expect(ev.defaultPrevented).toBe(true)
     expect(w.emitted('send')).toHaveLength(1)
   })
 
-  it('Shift+Enter baja de línea y no envía', async () => {
+  it('Shift+Enter adds a new line and does not send', async () => {
     const w = box({ modelValue: 'agrégame esto a la lista:' })
     const ev = press(w.find('textarea').element, { shiftKey: true })
     // lo pone el navegador: no se le quita
@@ -165,7 +165,7 @@ describe('la caja: teclas', () => {
     expect(w.emitted('send')).toBeUndefined()
   })
 
-  it('Ctrl+Enter y Cmd+Enter también envían', async () => {
+  it('Ctrl+Enter and Cmd+Enter also send', async () => {
     const w = box({ modelValue: 'hola' })
     expect(press(w.find('textarea').element, { ctrlKey: true }).defaultPrevented).toBe(true)
     press(w.find('textarea').element, { metaKey: true })
@@ -173,7 +173,7 @@ describe('la caja: teclas', () => {
     expect(w.emitted('send')).toHaveLength(3)
   })
 
-  it('componiendo con un IME, Enter es del IME y no envía', async () => {
+  it('while composing with an IME, Enter belongs to the IME and does not send', async () => {
     const w = box({ modelValue: 'canción' })
     const a = press(w.find('textarea').element, { isComposing: true })
     const b = press(w.find('textarea').element, { keyCode: 229 })
@@ -181,7 +181,7 @@ describe('la caja: teclas', () => {
     expect(w.emitted('send')).toBeUndefined()
   })
 
-  it('vacía (o solo blancos) no envía, y el botón se apaga', async () => {
+  it('empty (or whitespace only) does not send, and the button is disabled', async () => {
     const w = box({ modelValue: '  \n ' })
     press(w.find('textarea').element)
     expect(w.emitted('send')).toBeUndefined()
@@ -192,14 +192,14 @@ describe('la caja: teclas', () => {
     expect(w.emitted('send')).toHaveLength(1)
   })
 
-  it('mantener Enter pulsado no manda una ráfaga', async () => {
+  it('holding Enter down does not send a burst', async () => {
     const w = box({ modelValue: 'hola' })
     const ev = press(w.find('textarea').element, { repeat: true })
     expect(ev.defaultPrevented).toBe(true)
     expect(w.emitted('send')).toBeUndefined()
   })
 
-  it('pegar varias líneas las conserva', async () => {
+  it('pasting several lines keeps them', async () => {
     const list = 'agrégame esto a la lista:\n*1.-Sublime Gracia* ✅\n2.- Cuán Grande Es Dios'
     const w = box()
     await w.find('textarea').setValue(list)
@@ -208,8 +208,8 @@ describe('la caja: teclas', () => {
   })
 })
 
-describe('la caja: forma y ayuda', () => {
-  it('crece con lo escrito, se desplaza pasado el tope y vuelve a una línea al vaciarse', async () => {
+describe('the box: shape and hint', () => {
+  it('grows with the text, scrolls past the cap and returns to one line when emptied', async () => {
     const w = box()
     const ta = w.find('textarea').element
     // jsdom no mide: el alto del contenido lo decide la prueba
@@ -238,7 +238,7 @@ describe('la caja: forma y ayuda', () => {
     expect(ta.getAttribute('rows')).toBe('1')
   })
 
-  it('el tope es de unas 8 líneas y nunca más del 35 % del alto de la ventana', () => {
+  it('the cap is about 8 lines and never more than 35 % of the window height', () => {
     const rule = CSS.match(/\.composer-input \{([^}]*)\}/)
     expect(rule, 'falta el estilo del textarea').toBeTruthy()
     expect(rule[1]).toMatch(/max-height:\s*min\(35vh,\s*12em\)/)
@@ -248,7 +248,7 @@ describe('la caja: forma y ayuda', () => {
     expect(rule[1]).toMatch(/overflow-wrap:\s*anywhere/)
   })
 
-  it('lleva su nombre, sus atajos, su tope de largo y la ayuda', async () => {
+  it('has its name, its shortcuts, its length cap and the hint', async () => {
     const w = box({ maxlength: DRAFT_MAX })
     const ta = w.find('textarea')
     expect(DRAFT_MAX).toBe(50000)
@@ -263,20 +263,20 @@ describe('la caja: forma y ayuda', () => {
     )
   })
 
-  it('la ayuda se oculta en ventanas de menos de 520 px de alto', () => {
+  it('the hint is hidden in windows under 520 px tall', () => {
     const block = CSS.match(/@media \(max-height: 520px\) \{([\s\S]*?)\n\}/)
     expect(block, 'falta la regla de ventana baja').toBeTruthy()
     expect(block[1]).toMatch(/\.composer-help \{\s*display: none;/)
   })
 
-  it('cerca del tope de largo dice cuánto lleva', async () => {
+  it('near the length cap it shows how much has been typed', async () => {
     const w = box({ modelValue: 'x'.repeat(46000) })
     expect(w.find('.composer-count').text()).toBe('46.000 / 50.000')
     await w.setProps({ modelValue: 'x' })
     expect(w.find('.composer-count').exists()).toBe(false)
   })
 
-  it('respondiendo: Enter deja en cola, el botón lo dice y está «Parar»', async () => {
+  it('while answering: Enter queues, the button says so and «Parar» is there', async () => {
     const w = box({ modelValue: 'otra cosa', thinking: true })
     const send = w.find('.composer-send')
     expect(send.attributes('title')).toBe('Dejar en cola')
@@ -289,7 +289,7 @@ describe('la caja: forma y ayuda', () => {
     expect(w.find('.chat-cancel').attributes('aria-label')).toBe('Parar la respuesta')
   })
 
-  it('un chip por mensaje en cola: 40 letras, las líneas que faltan y su ×', async () => {
+  it('one chip per queued message: 40 characters, the remaining lines and its ×', async () => {
     const w = box({
       thinking: true,
       queue: [
@@ -318,14 +318,14 @@ describe('la caja: forma y ayuda', () => {
     expect(w.find('[role="status"]').text()).toContain('3 mensajes en cola')
   })
 
-  it('una letra que son dos unidades (un emoji) no se parte en el chip', async () => {
+  it('a character made of two units (an emoji) is not split in the chip', async () => {
     const w = box({ thinking: true, queue: [{ id: 1, text: '🙏'.repeat(45) }] })
     expect(w.find('.composer-chip-txt').text()).toBe('🙏'.repeat(40) + '…')
   })
 })
 
-describe('enviar desde la página', () => {
-  it('Enter de verdad manda UN mensaje con todos sus saltos de línea y vacía la caja', async () => {
+describe('sending from the page', () => {
+  it('a real Enter sends ONE message with all its line breaks and empties the box', async () => {
     const w = await mountView()
     const list = 'agrégame esto a la lista:\n*1.-Sublime Gracia* ✅\n2.- Cuán Grande Es Dios'
     await typeText(w, list)
@@ -335,7 +335,7 @@ describe('enviar desde la página', () => {
     expect(useChat().draft.value).toBe('')
   })
 
-  it('Shift+Enter en la página no manda nada', async () => {
+  it('Shift+Enter on the page sends nothing', async () => {
     const w = await mountView()
     await w.find('.chat-foot textarea').setValue('primera línea')
     press(w.find('.chat-foot textarea').element, { shiftKey: true })
@@ -343,7 +343,7 @@ describe('enviar desde la página', () => {
     expect(api.chatStart).not.toHaveBeenCalled()
   })
 
-  it('el borrador se conserva al salir del chat y volver', async () => {
+  it('the draft is kept when leaving the chat and coming back', async () => {
     const w = await mountView()
     await w.find('.chat-foot textarea').setValue('a medias\nsegunda')
     w.unmount()
@@ -352,14 +352,14 @@ describe('enviar desde la página', () => {
   })
 })
 
-describe('la burbuja de lo que escribes', () => {
+describe('the bubble of what you type', () => {
   const bubble = async (text) => {
     const w = await mountView()
     await typeText(w, text)
     return { w, b: w.find('.chat-msg.me .chat-bubble') }
   }
 
-  it('markdown estándar: **negrita**, *cursiva*, títulos y listas', async () => {
+  it('standard markdown: **bold**, *italic*, headings and lists', async () => {
     const { b } = await bubble(
       '# Domingo\n**Sublime Gracia** y *Cuán Grande*\n\n- una\n- dos\n\n1. tres\n2. cuatro'
     )
@@ -372,21 +372,21 @@ describe('la burbuja de lo que escribes', () => {
     expect(b.text()).not.toContain('**')
   })
 
-  it('cada salto de línea se ve', async () => {
+  it('every line break shows', async () => {
     const { b } = await bubble('línea uno\nlínea dos\nlínea tres\n\notro párrafo')
     expect(b.findAll('p')).toHaveLength(2)
     expect(b.find('p').findAll('br')).toHaveLength(2)
     expect(b.find('p').html()).toContain('línea uno<br>línea dos<br>línea tres')
   })
 
-  it('un «#» sin espacio o un asterisco suelto no se convierten en nada', async () => {
+  it('a «#» without a space or a lone asterisk turns into nothing', async () => {
     const { b } = await bubble('#domingo y 3 * 4 = 12')
     expect(b.find('h1').exists()).toBe(false)
     expect(b.find('em').exists()).toBe(false)
     expect(b.text()).toBe('#domingo y 3 * 4 = 12')
   })
 
-  it('no se cuela HTML ni un enlace javascript:', async () => {
+  it('no HTML or javascript: link slips through', async () => {
     const { b } = await bubble(
       '<img src=x onerror=alert(1)>\n<script>alert(2)</script>\n[pulsa](javascript:alert(3)) **ok**'
     )
@@ -400,7 +400,7 @@ describe('la burbuja de lo que escribes', () => {
     expect(b.find('strong').text()).toBe('ok')
   })
 
-  it('los errores y los mensajes de la app siguen en texto plano', async () => {
+  it('errors and app messages stay as plain text', async () => {
     api.chat.mockResolvedValueOnce({ error: 'fallo con **asteriscos**' })
     const w = await mountView()
     await typeText(w, 'hola')
@@ -409,7 +409,7 @@ describe('la burbuja de lo que escribes', () => {
     expect(err.text()).toBe('fallo con **asteriscos**')
   })
 
-  it('más de 12 líneas se pliega, con «Ver más / Ver menos» accesible', async () => {
+  it('more than 12 lines collapses, with an accessible «Ver más / Ver menos»', async () => {
     const longText = Array.from({ length: 13 }, (_, i) => `${i + 1}.- tema ${i + 1}`).join('\n')
     const { w, b } = await bubble(longText)
     expect(b.classes()).toContain('chat-folded')
@@ -425,7 +425,7 @@ describe('la burbuja de lo que escribes', () => {
     expect(w.find('.chat-msg.me .chat-bubble').classes()).toContain('chat-folded')
   })
 
-  it('12 líneas no se pliegan; una sola línea larguísima, sí', async () => {
+  it('12 lines do not collapse; a single very long line does', async () => {
     const twelve = Array.from({ length: 12 }, (_, i) => `tema ${i}`).join('\n')
     const { w } = await bubble(twelve)
     expect(w.find('.chat-more').exists()).toBe(false)
@@ -433,7 +433,7 @@ describe('la burbuja de lo que escribes', () => {
     expect(w.findAll('.chat-msg.me').at(-1).find('.chat-more').exists()).toBe(true)
   })
 
-  it('la caché del markdown no guarda textos de más de 20 KB', async () => {
+  it('the markdown cache does not store texts over 20 KB', async () => {
     const big = 'línea con *algo*\n'.repeat(1400) // ~24 KB
     const small = 'chico *uno*'
     store.chats = [
@@ -458,8 +458,8 @@ describe('la burbuja de lo que escribes', () => {
   })
 })
 
-describe('la cola de mensajes', () => {
-  it('respondiendo, Enter los deja en cola (hasta 3), salen en orden y × quita uno', async () => {
+describe('the message queue', () => {
+  it('while answering, Enter queues them (up to 3), they go out in order and × removes one', async () => {
     const finish = thinking()
     const w = await mountView()
     await typeText(w, 'primera')
@@ -502,7 +502,7 @@ describe('la cola de mensajes', () => {
     expect(w.find('.chat-foot textarea').element.value).toBe('quinta')
   })
 
-  it('«Parar» corta la respuesta pero no borra la cola', async () => {
+  it('«Parar» cuts off the reply but does not clear the queue', async () => {
     const finish = thinking()
     const w = await mountView()
     await typeText(w, 'cuéntame algo largo')
@@ -517,7 +517,7 @@ describe('la cola de mensajes', () => {
     expect(sentTexts().map((m) => m.text)).toEqual(['cuéntame algo largo', 'y luego esto'])
   })
 
-  it('con un diálogo abierto no sale: espera a que se cierre', async () => {
+  it('with a dialog open it does not go out: it waits for it to close', async () => {
     const finish = thinking()
     const w = await mountView()
     await typeText(w, 'primera')
@@ -540,7 +540,7 @@ describe('la cola de mensajes', () => {
     expect(sentTexts().map((m) => m.text)).toEqual(['primera', 'después del diálogo', 'otra más'])
   })
 
-  it('el aviso de fin de descarga sale antes que lo que esperaba en la cola', async () => {
+  it('the download-finished notice goes out before what was waiting in the queue', async () => {
     vi.useFakeTimers()
     localStorage.setItem('danplay.chat.download', JSON.stringify({ items: ['x'], force: false }))
     api.youtube.mockResolvedValueOnce({
@@ -565,8 +565,8 @@ describe('la cola de mensajes', () => {
   })
 })
 
-describe('el borrador a salvo', () => {
-  it('si el núcleo no recibe el mensaje, vuelve a la caja y no cuenta como enviado', async () => {
+describe('the draft kept safe', () => {
+  it('if the core does not receive the message, it goes back to the box and does not count as sent', async () => {
     api.chatStart.mockRejectedValueOnce(new Error('Failed to fetch'))
     const w = await mountView()
     const list = 'agrégame esto:\n1. Sublime Gracia\n2. Cuán Grande Es Dios'
@@ -587,7 +587,7 @@ describe('el borrador a salvo', () => {
     expect(store.chats[0].messages.map((m) => m.role)).toEqual(['me', 'ai'])
   })
 
-  it('también si ni siquiera se pudo crear la conversación (núcleo caído)', async () => {
+  it('also if the conversation could not even be created (core down)', async () => {
     api.chatCreate.mockRejectedValueOnce(new Error('503: arrancando'))
     const w = await mountView()
     await typeText(w, 'hola')
@@ -595,7 +595,7 @@ describe('el borrador a salvo', () => {
     expect(api.chatStart).not.toHaveBeenCalled()
   })
 
-  it('un mensaje de la cola que no llega vuelve a la caja con el resto, en orden', async () => {
+  it('a queued message that does not arrive goes back to the box with the rest, in order', async () => {
     const finish = thinking()
     const w = await mountView()
     await typeText(w, 'primera')
@@ -613,14 +613,14 @@ describe('el borrador a salvo', () => {
   })
 })
 
-describe('al núcleo, solo lo último', () => {
+describe('only the latest goes to the core', () => {
   const history = (n) =>
     Array.from({ length: n }, (_, i) => ({
       role: i % 2 ? 'ai' : 'me',
       text: `mensaje ${i}`
     }))
 
-  it(`con 150 en el historial al núcleo llegan ${CORE_MESSAGES}`, async () => {
+  it(`with 150 in the history the core gets ${CORE_MESSAGES}`, async () => {
     expect(CORE_MESSAGES).toBe(60)
     store.chats = [{ id: 1, title: 'Larga', messages: history(149) }]
     const w = await mountView()
@@ -631,7 +631,7 @@ describe('al núcleo, solo lo último', () => {
     expect(sent.at(-1)).toEqual({ role: 'me', text: 'y ahora?' })
   })
 
-  it('y empezando por uno tuyo, como recorta el núcleo', async () => {
+  it('and starting with one of yours, as the core trims it', async () => {
     store.chats = [{ id: 1, title: 'Larga', messages: history(150) }]
     const w = await mountView()
     await typeText(w, 'y ahora?')

@@ -5,8 +5,8 @@ import { LEGACY_KEYS, migrateLegacyStorage } from '../src/utils/legacyStorage.js
 
 beforeEach(() => localStorage.clear())
 
-describe('lo guardado con los nombres de antes', () => {
-  it('pasa al nombre de ahora y el de antes se borra', () => {
+describe('what was saved under the old names', () => {
+  it('moves to the current name and the old one is deleted', () => {
     localStorage.setItem('danplay.vel', '0.8')
     localStorage.setItem('danplay.clic.sonido', '"madera"')
     localStorage.setItem('danplay.movil.toque', '1')
@@ -19,7 +19,7 @@ describe('lo guardado con los nombres de antes', () => {
     expect(localStorage.getItem('danplay.movil.toque')).toBeNull()
   })
 
-  it('si ya hay algo con el nombre de ahora, manda eso', () => {
+  it('if something already exists under the current name, that wins', () => {
     localStorage.setItem('danplay.vel', '0.8')
     localStorage.setItem('danplay.speed', '1.2')
     migrateLegacyStorage()
@@ -27,13 +27,13 @@ describe('lo guardado con los nombres de antes', () => {
     expect(localStorage.getItem('danplay.vel')).toBeNull()
   })
 
-  it('el estilo de la onda cambia también de valor', () => {
+  it('the waveform style also changes value', () => {
     localStorage.setItem('danplay.ondaEstilo', 'rayitas')
     migrateLegacyStorage()
     expect(localStorage.getItem('danplay.waveStyle')).toBe('lines')
   })
 
-  it('las salidas de los carriles de guías se conservan', () => {
+  it('the cue lane outputs are kept', () => {
     localStorage.setItem(
       'danplay.salidas',
       JSON.stringify({
@@ -48,7 +48,7 @@ describe('lo guardado con los nombres de antes', () => {
     expect(prefs.mono.stems).toEqual({ cues_g1: true })
   })
 
-  it('cada nombre de antes va a uno distinto, y todos en inglés', () => {
+  it('each old name maps to a different one, all of them in English', () => {
     const now = LEGACY_KEYS.map(([, key]) => key)
     expect(new Set(now).size).toBe(now.length)
     for (const [old, key] of LEGACY_KEYS) {

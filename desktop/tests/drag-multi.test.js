@@ -124,8 +124,8 @@ async function pick(w, ...positions) {
   await flushPromises()
 }
 
-describe('con varias elegidas, se arrastran todas', () => {
-  it('tres elegidas con las casillas van juntas al repertorio, en su orden y con UN aviso', async () => {
+describe('with several selected, all of them are dragged', () => {
+  it('three ticked ones go together to the playlist, in order and with ONE notice', async () => {
     const w = await mountView()
     // marcadas en otro orden que el de la lista: lo que manda es como se ven
     await pick(w, 3, 0, 2)
@@ -162,7 +162,7 @@ describe('con varias elegidas, se arrastran todas', () => {
     expect(w.find('.sel-bar .sel-status').text()).toBe('3 seleccionadas')
   })
 
-  it('también sin el modo: con Ctrl+clic', async () => {
+  it('also without the mode: with Ctrl+click', async () => {
     const w = await mountView()
     await tableRows(w)[1].trigger('click', { ctrlKey: true })
     await tableRows(w)[3].trigger('click', { ctrlKey: true })
@@ -173,7 +173,7 @@ describe('con varias elegidas, se arrastran todas', () => {
     expect(api.addToPlaylist).toHaveBeenCalledWith(7, [2, 4])
   })
 
-  it('una que NO está elegida se arrastra sola, y la selección no cambia', async () => {
+  it('one that is NOT selected is dragged alone, and the selection does not change', async () => {
     const w = await mountView()
     await pick(w, 0, 2)
     await dragTo(tableRows(w)[1], playlistLink(w), { release: false })
@@ -194,7 +194,7 @@ describe('con varias elegidas, se arrastran todas', () => {
     expect(selectedCount(w)).toEqual(['Uno', 'Tres'])
   })
 
-  it('una sola elegida (la de la ficha) también va sola', async () => {
+  it('a single selected one (the details panel one) also goes alone', async () => {
     const w = await mountView()
     await tableRows(w)[2].trigger('click')
     await flushPromises()
@@ -203,7 +203,7 @@ describe('con varias elegidas, se arrastran todas', () => {
     expect(api.addToPlaylist).toHaveBeenCalledWith(7, [3])
   })
 
-  it('soltarlas en Favoritos marca solo las que no lo eran, con un aviso', async () => {
+  it('dropping them on Favorites marks only those that were not, with a notice', async () => {
     state.songs = [
       song(1, { title: 'Uno', favorite: 1 }),
       song(2, { title: 'Dos' }),
@@ -221,7 +221,7 @@ describe('con varias elegidas, se arrastran todas', () => {
     expect(notices(w)).toEqual(['2 marcadas como favoritas'])
   })
 
-  it('y si ya lo eran todas, lo dice y no toca nada', async () => {
+  it('and if all already were, it says so and touches nothing', async () => {
     state.songs = four().map((s) => ({ ...s, favorite: 1 }))
     const w = await mountView()
     await pick(w, 1, 2)
@@ -231,7 +231,7 @@ describe('con varias elegidas, se arrastran todas', () => {
     expect(notices(w)).toEqual(['Ya eran todas favoritas'])
   })
 
-  it('soltarlas en «Nueva lista» crea la lista con todas', async () => {
+  it('dropping them on «Nueva lista» creates the playlist with all of them', async () => {
     const w = await mountView()
     await pick(w, 1, 3)
     await dragTo(tableRows(w)[1], newPlaylist(w))
@@ -246,7 +246,7 @@ describe('con varias elegidas, se arrastran todas', () => {
     expect(notices(w)).toContain('Lista «Ensayo» creada con 2 canciones')
   })
 
-  it('soltar sobre la misma fila de la que salieron no las suelta ni la desmarca', async () => {
+  it('dropping on the same row they came from neither drops them nor unticks it', async () => {
     // El navegador lanza un clic al soltar sobre la fila de la que salió el
     // arrastre; en el modo «Seleccionar» ese clic la quitaría de las elegidas
     // y, fuera del modo, dejaría elegida solo esa.
@@ -268,7 +268,7 @@ describe('con varias elegidas, se arrastran todas', () => {
     expect(selectedCount(w)).toEqual(['Dos', 'Tres'])
   })
 
-  it('Escape las deja caer todas sin soltarlas en nada', async () => {
+  it('Escape lets them all go without dropping them anywhere', async () => {
     const w = await mountView()
     await pick(w, 0, 1)
     await dragTo(tableRows(w)[0], playlistLink(w), { release: false })
@@ -284,8 +284,8 @@ describe('con varias elegidas, se arrastran todas', () => {
   })
 })
 
-describe('lo que no arrastra, tampoco con varias elegidas', () => {
-  it('con el dedo no: en táctil la lista se desplaza', async () => {
+describe('what does not drag, not even with several selected', () => {
+  it('not with a finger: on touch the list scrolls', async () => {
     const w = await mountView()
     await pick(w, 0, 1)
     await pointer(tableRows(w)[0], 'pointerdown', {
@@ -299,7 +299,7 @@ describe('lo que no arrastra, tampoco con varias elegidas', () => {
     expect(api.addToPlaylist).not.toHaveBeenCalled()
   })
 
-  it('con el botón derecho no: ese es el del menú', async () => {
+  it('not with the right button: that one is for the menu', async () => {
     const w = await mountView()
     await pick(w, 0, 1)
     await pointer(tableRows(w)[0], 'pointerdown', { clientX: 10, clientY: 10, button: 2 })
@@ -307,7 +307,7 @@ describe('lo que no arrastra, tampoco con varias elegidas', () => {
     expect(drag.song).toBe(null)
   })
 
-  it('desde un control de la fila (reproducir) no', async () => {
+  it('not from a row control (play)', async () => {
     const w = await mountView()
     await pick(w, 0, 1)
     const play = tableRows(w)[0].find('.row-play')
@@ -318,7 +318,7 @@ describe('lo que no arrastra, tampoco con varias elegidas', () => {
   })
 })
 
-describe('reordenar un bloque dentro de un repertorio', () => {
+describe('reordering a block inside a playlist', () => {
   const five = () => [
     song(1, { title: 'Uno' }),
     song(2, { title: 'Dos' }),
@@ -353,7 +353,7 @@ describe('reordenar un bloque dentro de un repertorio', () => {
   const ABOVE = 105
   const BELOW = 125
 
-  it('dos salteadas, debajo de la última: van juntas y en su orden', async () => {
+  it('two non-adjacent ones, below the last: they go together and in order', async () => {
     const w = await inPlaylist()
     await pick(w, 0, 2)
     place(tableRows(w)[4])
@@ -374,7 +374,7 @@ describe('reordenar un bloque dentro de un repertorio', () => {
     expect(selectedCount(w)).toEqual(['Uno', 'Tres'])
   })
 
-  it('encima de la primera: el bloque pasa delante', async () => {
+  it('above the first: the block moves in front', async () => {
     const w = await inPlaylist()
     await pick(w, 3, 4)
     place(tableRows(w)[0])
@@ -384,7 +384,7 @@ describe('reordenar un bloque dentro de un repertorio', () => {
     expect(titles(w)).toEqual(['Cuatro', 'Cinco', 'Uno', 'Dos', 'Tres'])
   })
 
-  it('en medio del bloque: el bloque se cierra alrededor de la de destino', async () => {
+  it('in the middle of the block: the block closes around the target', async () => {
     // elegidas la 1 y la 4, soltadas debajo de la 2: quedan 2, 1, 4
     const w = await inPlaylist()
     await pick(w, 0, 3)
@@ -394,7 +394,7 @@ describe('reordenar un bloque dentro de un repertorio', () => {
     expect(api.reorderPlaylist).toHaveBeenCalledWith(7, [2, 1, 4, 3, 5])
   })
 
-  it('soltarlo sobre una de las suyas no hace nada', async () => {
+  it('dropping it on one of its own does nothing', async () => {
     const w = await inPlaylist()
     await pick(w, 0, 2)
     place(tableRows(w)[2])
@@ -404,7 +404,7 @@ describe('reordenar un bloque dentro de un repertorio', () => {
     expect(titles(w)).toEqual(['Uno', 'Dos', 'Tres', 'Cuatro', 'Cinco'])
   })
 
-  it('si el bloque ya está ahí, no se pide nada al núcleo', async () => {
+  it('if the block is already there, nothing is requested from the core', async () => {
     const w = await inPlaylist()
     await pick(w, 1, 2)
     place(tableRows(w)[3])
@@ -414,7 +414,7 @@ describe('reordenar un bloque dentro de un repertorio', () => {
     expect(api.reorderPlaylist).not.toHaveBeenCalled()
   })
 
-  it('si el núcleo no puede, la lista vuelve como estaba', async () => {
+  it('if the core cannot do it, the playlist goes back to how it was', async () => {
     const w = await inPlaylist()
     api.reorderPlaylist.mockRejectedValueOnce(new Error('sin base de datos'))
     await pick(w, 0, 1)
@@ -426,7 +426,7 @@ describe('reordenar un bloque dentro de un repertorio', () => {
     expect(notices(w).join(' ')).toContain('No se pudo cambiar el orden')
   })
 
-  it('dos arrastres seguidos no se cruzan: van en fila y manda el último', async () => {
+  it('two drags in a row do not cross: they go one after the other and the last one wins', async () => {
     const w = await inPlaylist()
     let first
     api.reorderPlaylist.mockImplementationOnce(() => new Promise((resolve) => (first = resolve)))
@@ -449,10 +449,10 @@ describe('reordenar un bloque dentro de un repertorio', () => {
   })
 })
 
-describe('las cuatro vistas pasan las elegidas al arrastre', () => {
+describe('the four views pass the selected ones to the drag', () => {
   const VIEWS = { table: SongTable, rows: SongRows, cards: SongCards, grid: SongGrid }
   for (const [name, View] of Object.entries(VIEWS)) {
-    it(`${name}: agarrar una elegida se lleva todas; otra, solo ella`, async () => {
+    it(`${name}: grabbing a selected one takes all of them; another one, only itself`, async () => {
       const w = mount(View, {
         props: { songs: four(), selected: 4, selectedIds: [2, 4], selectMode: true },
         attachTo: document.body
@@ -476,7 +476,7 @@ describe('las cuatro vistas pasan las elegidas al arrastre', () => {
   }
 })
 
-describe('useDragSong con un grupo', () => {
+describe('useDragSong with a group', () => {
   const row = () => {
     const el = document.createElement('div')
     document.body.appendChild(el)
@@ -486,7 +486,7 @@ describe('useDragSong con un grupo', () => {
   const move = (el) =>
     el.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 60 }))
 
-  it('el grupo va en el orden en que llega, con la agarrada dentro', () => {
+  it('the group keeps the order it arrives in, with the grabbed one inside', () => {
     const el = row()
     const group = [{ id: 5 }, { id: 2 }, { id: 9 }]
     startDrag(group[1], ev(el), group)
@@ -501,7 +501,7 @@ describe('useDragSong con un grupo', () => {
     expect([5, 2, 9, 7].map(isDragged)).toEqual([true, true, true, false])
   })
 
-  it('si la agarrada no está en el grupo, o el grupo es de una, va sola', () => {
+  it('if the grabbed one is not in the group, or the group has one, it goes alone', () => {
     const el = row()
     startDrag({ id: 1 }, ev(el), [{ id: 2 }, { id: 3 }])
     move(el)
@@ -514,7 +514,7 @@ describe('useDragSong con un grupo', () => {
     expect(ids(drag.songs)).toEqual([3])
   })
 
-  it('al soltar llegan la agarrada y todas, y sin grupo `songs` es [song]', () => {
+  it('on drop both the grabbed one and all arrive, and without a group `songs` is [song]', () => {
     const received = []
     onDrop((target, s, extra) => received.push([target, s.id, ids(extra.songs)]))
     const el = row()
@@ -534,7 +534,7 @@ describe('useDragSong con un grupo', () => {
     onDrop(() => {})
   })
 
-  it('un clic sin moverse sigue siendo un clic: no se traga nada', () => {
+  it('a click without moving is still a click: nothing is swallowed', () => {
     const el = row()
     let clicks = 0
     el.addEventListener('click', () => clicks++)
@@ -544,7 +544,7 @@ describe('useDragSong con un grupo', () => {
     expect(clicks).toBe(1)
   })
 
-  it('táctil, botón derecho y controles no arman nada aunque haya grupo', () => {
+  it('touch, right button and controls set up nothing even with a group', () => {
     const el = row()
     const group = [{ id: 1 }, { id: 2 }]
     startDrag(group[0], ev(el, { pointerType: 'touch' }), group)
@@ -561,7 +561,7 @@ describe('useDragSong con un grupo', () => {
   })
 })
 
-describe('el fantasma con varias (css)', () => {
+describe('the ghost with several (CSS)', () => {
   const CSS = allCss()
   // `allCss` la compacta: `.sel{prop:valor;...}`
   const rule = (sel) => {
@@ -570,7 +570,7 @@ describe('el fantasma con varias (css)', () => {
     return CSS.slice(i, CSS.indexOf('}', i))
   }
 
-  it('la pila y la insignia salen de las variables del tema, sin colores fijos', () => {
+  it('the stack and the badge come from theme variables, with no fixed colors', () => {
     const stack = rule('.drag-ghost.many')
     const insignia = rule('.drag-ghost .ghost-count')
     for (const r of [stack, insignia]) {
@@ -582,12 +582,12 @@ describe('el fantasma con varias (css)', () => {
     expect(insignia).toMatch(/position:absolute/)
   })
 
-  it('con movimiento reducido la pila no entra animada', () => {
+  it('with reduced motion the stack does not animate in', () => {
     const media = CSS.match(/@media \(prefers-reduced-motion:reduce\)\{\.drag-ghost\.many\{[^}]*\}/)
     expect(media?.[0], 'falta la regla').toMatch(/animation:none/)
   })
 
-  it('la raya de ordenar va en las celdas de la tabla: WebKit no pinta la sombra de un <tr>', () => {
+  it('the sort line goes on the table cells: WebKit does not paint the shadow of a <tr>', () => {
     // Comprobado en WebKitGTK: con la sombra en el `tr` la raya no salía.
     expect(CSS).toMatch(
       /tr\.drop-before\s*>\s*td,\.row\.drop-before\{box-shadow:inset 0 2px 0 var\(--accent\)/

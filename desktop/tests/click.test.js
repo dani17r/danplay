@@ -102,8 +102,8 @@ const settle = async () => {
   await flushPromises()
 }
 
-describe('clic automático', () => {
-  it('mientras carga: barra en la onda, el botón no deja ponerlo, y luego se puede', async () => {
+describe('automatic click', () => {
+  it('while loading: a bar on the waveform, the button does not allow turning it on, and then it does', async () => {
     held.state.beatGridPending = [0.15, 0.6]
     const w = await mountView()
     const toggle = () => w.find('.study-metro-toggle')
@@ -128,7 +128,7 @@ describe('clic automático', () => {
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
   })
 
-  it('si venía con el clic puesto, se calla en la que aún carga y vuelve solo al llegar', async () => {
+  it('if the click was on, it goes quiet on the song still loading and comes back on its own when it arrives', async () => {
     const w = await mountView()
     await w.find('.study-metro-toggle').trigger('click')
     await settle()
@@ -151,7 +151,7 @@ describe('clic automático', () => {
     expect(w.find('.study-metro-toggle').text()).toContain('Parar')
   })
 
-  it('con el panel cerrado: la canción nueva trae su clic y sus ajustes, y se preparan las siguientes', async () => {
+  it('with the panel closed: the new song brings its click and settings, and the next ones are prepared', async () => {
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: '' }),
       song(8, { title: 'Otra', study: JSON.stringify({ metronome: { meter: 3 } }) }),
@@ -179,7 +179,7 @@ describe('clic automático', () => {
     expect(held.api.beatGridPrepare.mock.calls.map((c) => c[0])).toEqual([9, 10, 11])
   })
 
-  it('en aleatorio no se prepara nada: no se sabe cuál viene', async () => {
+  it('on shuffle nothing is prepared: the next one is unknown', async () => {
     const player = usePlayback()
     await player.ready()
     await player.setQueue(held.state.songs, 7)
@@ -191,7 +191,7 @@ describe('clic automático', () => {
     expect(held.api.beatGridPrepare).not.toHaveBeenCalled()
   })
 
-  it('sin Beat This! aquí, la rejilla de Rust al momento', async () => {
+  it('without Beat This! here, the Rust grid right away', async () => {
     held.state.beatGrid = null
     const w = await mountView()
     expect(bridge().analyzeBeats).toHaveBeenCalledWith('/musica/mi-gozo.mp3', null)
@@ -203,8 +203,8 @@ describe('clic automático', () => {
 /** El botón de un modo del clic (Automático, Propio, A mano). */
 const mode = (w, name) => w.findAll('.study-mode').find((b) => b.text() === name)
 
-describe('clic a mano', () => {
-  it('el tempo puesto sigue igual al pasar de canción, sin esperar a nada', async () => {
+describe('manual click', () => {
+  it('the set tempo stays the same when changing song, without waiting for anything', async () => {
     const w = await mountView()
     await w.find('.study-metro-toggle').trigger('click')
     await settle()
@@ -242,7 +242,7 @@ describe('clic a mano', () => {
     expect(JSON.parse(localStorage.getItem('danplay.click.manual'))).toEqual({ bpm: 140, meter: 4 })
   })
 
-  it('al volver a automático, cada canción con el suyo otra vez', async () => {
+  it('back on automatic, each song with its own again', async () => {
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { shift: 2 } }) })
     ]

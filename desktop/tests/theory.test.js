@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { parseKey, transposeKey, semitoneLabel, toneLabel, toneUnit } from '../src/utils/theory.js'
 
-describe('transponer el nombre del tono', () => {
-  it('entiende mayores, menores, sostenidos y bemoles', () => {
+describe('transposing the key name', () => {
+  it('understands major, minor, sharps and flats', () => {
     expect(parseKey('G')).toEqual([7, false, ''])
     expect(parseKey('F#m')).toEqual([6, true, ''])
     expect(parseKey('Bb')).toEqual([10, false, ''])
@@ -10,7 +10,7 @@ describe('transponer el nombre del tono', () => {
     expect(parseKey('cosa')).toBeNull()
     expect(parseKey('')).toBeNull()
   })
-  it('sube y baja, y da la vuelta a la octava', () => {
+  it('goes up and down, and wraps around the octave', () => {
     expect(transposeKey('G', 2)).toBe('A')
     expect(transposeKey('G', -2)).toBe('F')
     expect(transposeKey('B', 1)).toBe('C')
@@ -18,7 +18,7 @@ describe('transponer el nombre del tono', () => {
     expect(transposeKey('Am', 3)).toBe('Cm')
     expect(transposeKey('G', 12)).toBe('G')
   })
-  it('escribe los alterados como se leen: bemoles para Bb/Eb/Ab, sostenidos para F#/C#m', () => {
+  it('spells accidentals as they are read: flats for Bb/Eb/Ab, sharps for F#/C#m', () => {
     expect(transposeKey('C', 1)).toBe('Db')
     expect(transposeKey('C', 6)).toBe('F#')
     expect(transposeKey('Am', 4)).toBe('C#m')
@@ -28,12 +28,12 @@ describe('transponer el nombre del tono', () => {
     expect(transposeKey('F#', 1)).toBe('G')
     expect(transposeKey('F#', 2)).toBe('G#')
   })
-  it('etiqueta el corrimiento', () => {
+  it('labels the shift', () => {
     expect(semitoneLabel(0)).toBe('0')
     expect(semitoneLabel(2)).toBe('+2')
     expect(semitoneLabel(-3)).toBe('−3')
   })
-  it('cuenta el corrimiento en tonos: medio tono es un semitono', () => {
+  it('counts the shift in tones: a half tone is a semitone', () => {
     expect(toneLabel(0)).toBe('0')
     expect(toneLabel(1)).toBe('+½')
     expect(toneLabel(2)).toBe('+1')
@@ -50,7 +50,7 @@ describe('transponer el nombre del tono', () => {
     expect(toneUnit(-2)).toBe('tono')
     expect(toneUnit(3)).toBe('tonos')
   })
-  it('con un cuarto de tono dice de que tono parte y cuanto se corre', () => {
+  it('with a quarter tone it says the starting key and how much it shifts', () => {
     expect(transposeKey('G', 0.5)).toBe('G +¼')
     expect(transposeKey('G', 1.5)).toBe('Ab +¼')
     expect(transposeKey('G', -0.5)).toBe('G −¼')
@@ -59,8 +59,8 @@ describe('transponer el nombre del tono', () => {
   })
 })
 
-describe('el tono en palabras', () => {
-  it('lo dice como un músico: medio tono, 1 tono, 1 tono y medio, un cuarto', async () => {
+describe('the pitch shift in words', () => {
+  it('says it like a musician: half a tone, 1 tone, 1 and a half tones, a quarter', async () => {
     const { toneWords, semitoneWords } = await import('../src/utils/theory.js')
     expect(toneWords(0)).toBe('original')
     expect(toneWords(1)).toBe('medio tono arriba')

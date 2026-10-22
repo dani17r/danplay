@@ -82,14 +82,14 @@ const mountView = async () => {
   return w
 }
 
-describe('la proyeccion', () => {
-  it('sin nada sonando enseña la marca y una pista', async () => {
+describe('the projection', () => {
+  it('with nothing playing it shows the logo and a hint', async () => {
     const w = await mountView()
     expect(w.find('.proj-idle').text()).toContain('DanPlay')
     w.unmount()
   })
 
-  it('con letra con tiempos resalta la linea que suena y las de alrededor', async () => {
+  it('with timed lyrics it highlights the playing line and those around it', async () => {
     const w = await mountView()
     held.playback.emit(
       state({
@@ -114,7 +114,7 @@ describe('la proyeccion', () => {
     w.unmount()
   })
 
-  it('sin tiempos se pasa por bloques con las flechas', async () => {
+  it('without timestamps it moves by blocks with the arrow keys', async () => {
     const w = await mountView()
     held.playback.emit(
       state({
@@ -136,7 +136,7 @@ describe('la proyeccion', () => {
     w.unmount()
   })
 
-  it('una cancion sin letra lo dice, y F pide pantalla completa', async () => {
+  it('a song without lyrics says so, and F requests fullscreen', async () => {
     const w = await mountView()
     held.playback.emit(
       state({ track: { id: 9, title: 'Muda', artist: 'Barak', duration: 100 }, playing: true })
@@ -153,7 +153,7 @@ describe('la proyeccion', () => {
     w.unmount()
   })
 
-  it('el tamaño de letra se recuerda', async () => {
+  it('the font size is remembered', async () => {
     const w = await mountView()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: '+' }))
     await flushPromises()
@@ -163,8 +163,8 @@ describe('la proyeccion', () => {
   })
 })
 
-describe('la proyeccion se entera de lo que cambia', () => {
-  it('la letra que se encuentra con la cancion ya sonando llega al proyector', async () => {
+describe('the projection learns about changes', () => {
+  it('lyrics found while the song is already playing reach the projector', async () => {
     // Solo se releia al cambiar de cancion: si se buscaba la letra mientras
     // sonaba, el proyector seguia diciendo que no tenia.
     const w = await mountView()
