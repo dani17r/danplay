@@ -3,9 +3,9 @@
 //! que abrió Python (`library.connect()`), y escribe dentro de su transacción.
 use crate::indice::{Connection, with_conn};
 use crate::json::{dict, dicts, from_python, to_python};
-use biblioteca::indice::{self, Dic, busqueda, historial};
+use biblioteca::indice::{self, Dic, busqueda, carpetas, historial};
 use biblioteca::serde_json::Value;
-use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
@@ -288,6 +288,166 @@ pub fn search_facets<'py>(py: Python<'py>, conn: &Bound<'py, Connection>) -> PyR
     dict(py, &d)
 }
 
+// ------------------------------------------------------------------ carpetas
+
+#[pyfunction]
+pub fn folders_inside(path: &str, root: &str) -> bool {
+    carpetas::inside(path, root)
+}
+
+#[pyfunction]
+pub fn folders_resolve(path: &str) -> String {
+    carpetas::resolve(path)
+}
+
+#[pyfunction]
+pub fn folders_roots(py: Python<'_>, conn: &Bound<'_, Connection>) -> PyResult<Vec<String>> {
+    with_conn(py, conn, carpetas::roots)
+}
+
+#[pyfunction]
+pub fn folders_within_roots(py: Python<'_>, conn: &Bound<'_, Connection>, path: String) -> PyResult<bool> {
+    with_conn(py, conn, move |c| carpetas::within_roots(c, &path))
+}
+
+#[pyfunction]
+pub fn folders_list<'py>(py: Python<'py>, conn: &Bound<'py, Connection>) -> PyResult<Bound<'py, PyList>> {
+    let rows = with_conn(py, conn, carpetas::list_folders)?;
+    dicts(py, &rows)
+}
+
+#[pyfunction]
+pub fn folders_check_overlap<'py>(
+    py: Python<'py>,
+    conn: &Bound<'py, Connection>,
+    path: String,
+    extensions: Vec<String>,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let d = with_conn(py, conn, move |c| carpetas::check_overlap(c, &path, &extensions))?;
+    d.map(|d| dict(py, &d)).transpose()
+}
+
+#[pyfunction]
+pub fn folders_add(
+    py: Python<'_>,
+    conn: &Bound<'_, Connection>,
+    path: String,
+    label: String,
+    role: String,
+) -> PyResult<bool> {
+    with_conn(py, conn, move |c| carpetas::add_folder(c, &path, &label, &role))
+}
+
+#[pyfunction]
+pub fn folders_remove(py: Python<'_>, conn: &Bound<'_, Connection>, path: String) -> PyResult<()> {
+    with_conn(py, conn, move |c| carpetas::remove_folder(c, &path))
+}
+
+#[pyfunction]
+pub fn folders_missing_roots(py: Python<'_>, conn: &Bound<'_, Connection>) -> PyResult<Vec<String>> {
+    with_conn(py, conn, carpetas::missing_roots)
+}
+
+#[pyfunction]
+pub fn folders_missing_root_of(py: Python<'_>, conn: &Bound<'_, Connection>, path: String) -> PyResult<Option<String>> {
+    with_conn(py, conn, move |c| carpetas::missing_root_of(c, &path))
+}
+
+#[pyfunction]
+pub fn folders_hide_missing_roots(py: Python<'_>, conn: &Bound<'_, Connection>) -> PyResult<usize> {
+    with_conn(py, conn, carpetas::hide_missing_roots)
+}
+
+#[pyfunction]
+pub fn folders_relocation_for(py: Python<'_>, conn: &Bound<'_, Connection>, path: String) -> PyResult<Option<String>> {
+    with_conn(py, conn, move |c| carpetas::relocation_for(c, &path))
+}
+
+/// `ValueError` con el motivo si no se puede (como en Python).
+#[pyfunction]
+pub fn folders_relocate<'py>(
+    py: Python<'py>,
+    conn: &Bound<'py, Connection>,
+    old: String,
+    new: String,
+) -> PyResult<Bound<'py, PyDict>> {
+    let result = with_conn(py, conn, move |c| match carpetas::relocate_folder(c, &old, &new) {
+        Ok(d) => Ok(Ok(d)),
+        Err(carpetas::Traslado::Mal(msg)) => Ok(Err(msg)),
+        Err(carpetas::Traslado::Sqlite(e)) => Err(e),
+    })?;
+    match result {
+        Ok(d) => dict(py, &d),
+        Err(msg) => Err(PyValueError::new_err(msg)),
+    }
+}
+
+#[pyfunction]
+pub fn folders_add_exclusion(
+    py: Python<'_>,
+    conn: &Bound<'_, Connection>,
+    pattern: String,
+    kind: String,
+    note: String,
+) -> PyResult<()> {
+    with_conn(py, conn, move |c| carpetas::add_exclusion(c, &pattern, &kind, &note))
+}
+
+#[pyfunction]
+pub fn folders_remove_exclusion(py: Python<'_>, conn: &Bound<'_, Connection>, pattern: String) -> PyResult<()> {
+    with_conn(py, conn, move |c| carpetas::remove_exclusion(c, &pattern))
+}
+
+#[pyfunction]
+pub fn folders_list_exclusions<'py>(py: Python<'py>, conn: &Bound<'py, Connection>) -> PyResult<Bound<'py, PyList>> {
+    let rows = with_conn(py, conn, carpetas::list_exclusions)?;
+    dicts(py, &rows)
+}
+
+fn exclusions_of(exclusions: &Bound<'_, PyAny>) -> PyResult<Vec<Dic>> {
+    let mut out = Vec::new();
+    for e in exclusions.try_iter()? {
+        let e = e?;
+        // una fila (`Row`) o un dict: lo que haga falta es `pattern` y `kind`
+        let mut d = Dic::new();
+        for k in ["pattern", "kind"] {
+            let v = e
+                .get_item(k)
+                .map_or(Value::Null, |v| from_python(&v).unwrap_or(Value::Null));
+            d.insert(k.into(), v);
+        }
+        out.push(d);
+    }
+    Ok(out)
+}
+
+#[pyfunction]
+pub fn folders_excluded(dir_path: &str, dir_name: &str, exclusions: &Bound<'_, PyAny>) -> PyResult<bool> {
+    Ok(carpetas::excluded(dir_path, dir_name, &exclusions_of(exclusions)?))
+}
+
+/// `(rutas, {carpeta: manifiesto}, manifiestos ilegibles, nombres no UTF-8)`.
+type Recorrido<'py> = (Vec<String>, Bound<'py, PyDict>, Vec<String>, Vec<String>);
+
+/// Los archivos de audio de una carpeta (ver `carpetas::audio_files`).
+#[pyfunction]
+#[pyo3(signature = (root, exclusions, extensions, limit = None))]
+pub fn folders_audio_files<'py>(
+    py: Python<'py>,
+    root: String,
+    exclusions: &Bound<'py, PyAny>,
+    extensions: Vec<String>,
+    limit: Option<usize>,
+) -> PyResult<Recorrido<'py>> {
+    let exclusions = exclusions_of(exclusions)?;
+    let found = py.detach(move || carpetas::audio_files(&root, &exclusions, &extensions, limit));
+    let stems = PyDict::new(py);
+    for (folder, data) in &found.stems {
+        stems.set_item(folder, to_python(py, data)?)?;
+    }
+    Ok((found.paths, stems, found.unreadable, found.unstorable))
+}
+
 /// Registra las funciones en el módulo.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(db_revision, m)?)?;
@@ -317,5 +477,23 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(search_brief_by_path, m)?)?;
     m.add_function(wrap_pyfunction!(search_top_artists, m)?)?;
     m.add_function(wrap_pyfunction!(search_facets, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_inside, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_resolve, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_roots, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_within_roots, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_list, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_check_overlap, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_add, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_remove, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_missing_roots, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_missing_root_of, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_hide_missing_roots, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_relocation_for, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_relocate, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_add_exclusion, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_remove_exclusion, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_list_exclusions, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_excluded, m)?)?;
+    m.add_function(wrap_pyfunction!(folders_audio_files, m)?)?;
     Ok(())
 }
