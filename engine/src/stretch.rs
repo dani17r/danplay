@@ -2,8 +2,8 @@
 //! Signalsmith Stretch (C++, MIT; ver `cpp/README.md`).
 //!
 //! Es lo unico del workspace con `unsafe`: los enlaces con el envoltorio de C
-//! (`cpp/estirar.cpp`), escritos a mano. Cada llamada recibe el puntero que
-//! devolvio `dp_estirar_nuevo`, que vive lo que vive `Stretch`, y buferes con
+//! (`cpp/stretch.cpp`), escritos a mano. Cada llamada recibe el puntero que
+//! devolvio `dp_stretch_new`, que vive lo que vive `Stretch`, y buferes con
 //! la longitud que se le dice.
 #![allow(unsafe_code)]
 
@@ -11,14 +11,14 @@ use std::ffi::{c_double, c_float, c_int, c_void};
 use std::ptr::NonNull;
 
 unsafe extern "C" {
-    fn dp_estirar_nuevo(channels: c_int, rate: c_float) -> *mut c_void;
-    fn dp_estirar_borrar(s: *mut c_void);
-    fn dp_estirar_reiniciar(s: *mut c_void);
-    fn dp_estirar_latencia_entrada(s: *mut c_void) -> c_int;
-    fn dp_estirar_latencia_salida(s: *mut c_void) -> c_int;
-    fn dp_estirar_tono(s: *mut c_void, semitones: c_float);
-    fn dp_estirar_preparar(s: *mut c_void, input: *mut c_float, frames: c_int, rate: c_double);
-    fn dp_estirar_procesar(
+    fn dp_stretch_new(channels: c_int, rate: c_float) -> *mut c_void;
+    fn dp_stretch_free(s: *mut c_void);
+    fn dp_stretch_reset(s: *mut c_void);
+    fn dp_stretch_input_latency(s: *mut c_void) -> c_int;
+    fn dp_stretch_output_latency(s: *mut c_void) -> c_int;
+    fn dp_stretch_set_pitch(s: *mut c_void, semitones: c_float);
+    fn dp_stretch_seek(s: *mut c_void, input: *mut c_float, frames: c_int, rate: c_double);
+    fn dp_stretch_process(
         s: *mut c_void,
         input: *mut c_float,
         in_frames: c_int,
@@ -46,7 +46,7 @@ impl Stretch {
     pub fn new(rate: u32) -> Stretch {
         // SAFETY: crea un objeto nuevo y devuelve su puntero (new de C++, que
         // aborta si no hay memoria: nunca nulo)
-        let raw = unsafe { dp_estirar_nuevo(CHANNELS as c_int, rate as c_float) };
+        let raw = unsafe { dp_stretch_new(CHANNELS as c_int, rate as c_float) };
         Stretch {
             ptr: NonNull::new(raw).expect("Signalsmith Stretch sin memoria"),
         }
@@ -55,24 +55,24 @@ impl Stretch {
     /// Olvida lo que llevaba (tras un salto).
     pub fn reset(&mut self) {
         // SAFETY: puntero vivo
-        unsafe { dp_estirar_reiniciar(self.ptr.as_ptr()) }
+        unsafe { dp_stretch_reset(self.ptr.as_ptr()) }
     }
 
     /// Muestras de entrada que necesita por delante de lo que suena.
     pub fn input_latency(&self) -> usize {
         // SAFETY: puntero vivo
-        unsafe { dp_estirar_latencia_entrada(self.ptr.as_ptr()) }.max(0) as usize
+        unsafe { dp_stretch_input_latency(self.ptr.as_ptr()) }.max(0) as usize
     }
 
     /// Muestras de salida que tarda en salir lo que entra.
     pub fn output_latency(&self) -> usize {
         // SAFETY: puntero vivo
-        unsafe { dp_estirar_latencia_salida(self.ptr.as_ptr()) }.max(0) as usize
+        unsafe { dp_stretch_output_latency(self.ptr.as_ptr()) }.max(0) as usize
     }
 
     pub fn set_pitch(&mut self, semitones: f32) {
         // SAFETY: puntero vivo
-        unsafe { dp_estirar_tono(self.ptr.as_ptr(), semitones) }
+        unsafe { dp_stretch_set_pitch(self.ptr.as_ptr(), semitones) }
     }
 
     /// Le da por adelantado lo que va a sonar (tras `reset`, las primeras
@@ -82,7 +82,7 @@ impl Stretch {
         let frames = input.len() / CHANNELS;
         // SAFETY: puntero vivo; `input` tiene `frames` muestras por canal
         unsafe {
-            dp_estirar_preparar(
+            dp_stretch_seek(
                 self.ptr.as_ptr(),
                 input.as_mut_ptr(),
                 frames as c_int,
@@ -98,7 +98,7 @@ impl Stretch {
         // Signalsmith no escribe en `input` (lo pide mutable por el tipo de
         // la vista del envoltorio).
         unsafe {
-            dp_estirar_procesar(
+            dp_stretch_process(
                 self.ptr.as_ptr(),
                 input.as_mut_ptr(),
                 n_in as c_int,
@@ -112,7 +112,7 @@ impl Stretch {
 impl Drop for Stretch {
     fn drop(&mut self) {
         // SAFETY: el puntero es nuestro y no se vuelve a usar
-        unsafe { dp_estirar_borrar(self.ptr.as_ptr()) }
+        unsafe { dp_stretch_free(self.ptr.as_ptr()) }
     }
 }
 

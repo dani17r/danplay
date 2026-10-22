@@ -1,4 +1,4 @@
-//! El motor de pistas de la app del celular (`movil/`).
+//! El motor de pistas de la app del celular (`mobile/`).
 //!
 //! Abre lo que se separo en la PC (un `.danpista`, ver `danplay/bundle.py`)
 //! y lo deja estudiar: cada parte (bateria, voces, bajo...) con su volumen y

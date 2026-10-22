@@ -10,7 +10,7 @@ Van copiadas aquí, sin tocar, y no como dependencia de crates.io, porque el
 envoltorio publicado (`signalsmith-stretch` 0.1.3) genera sus enlaces con
 bindgen al compilar: necesita libclang con sus cabeceras, que en esta máquina
 no estaban, y para Android e iOS hay que apuntarle a mano el sysroot de cada
-plataforma. `estirar.cpp` es un envoltorio de C de seis funciones, y los
+plataforma. `stretch.cpp` es un envoltorio de C de seis funciones, y los
 enlaces de Rust están escritos a mano en `src/stretch.rs`: así basta con el
 compilador de C++ que traen el NDK de Android y Xcode.
 

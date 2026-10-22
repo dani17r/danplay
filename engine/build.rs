@@ -9,12 +9,12 @@ fn main() {
         build
             .cpp(true)
             .std("c++14")
-            .file("cpp/estirar.cpp")
+            .file("cpp/stretch.cpp")
             .include("cpp")
             .warnings(false);
         // sin optimizar, la FFT va diez veces mas lenta: en las pruebas (que
         // se compilan en modo depuracion) se notaria en el tiempo que tardan
         build.opt_level(2);
-        build.compile("danplay_estirar");
+        build.compile("danplay_stretch");
     }
 }
