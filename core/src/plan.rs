@@ -35,7 +35,7 @@ create_exception!(
 /// Lo que llega de Python como dato, como `json::loose`, salvo un entero que
 /// no cabe en 64 bits: sigue siendo un número (un real), no su texto. Así un
 /// `items` o un id enorme que mande el modelo no pasa por una cadena de cifras.
-fn data(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
+pub(crate) fn data(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     if obj.is_instance_of::<PyInt>() && !obj.is_instance_of::<PyBool>() {
         if let Ok(i) = obj.extract::<i64>() {
             return Ok(Value::from(i));
@@ -66,12 +66,12 @@ fn data(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
 /// Lo que lanzó una función de Python, con su `str(e) or type(e).__name__`
 /// (lo que se le cuenta a la persona).
 pub struct Failure {
-    err: PyErr,
+    pub(crate) err: PyErr,
     text: String,
 }
 
 impl Failure {
-    fn new(py: Python<'_>, err: PyErr) -> Self {
+    pub(crate) fn new(py: Python<'_>, err: PyErr) -> Self {
         let said = err.value(py).str().ok().and_then(|s| text(&s).ok()).unwrap_or_default();
         let text = if said.is_empty() {
             err.get_type(py).name().map(|n| n.to_string()).unwrap_or_default()
@@ -170,7 +170,7 @@ fn refused(e: Refused<Failure>) -> PyErr {
     }
 }
 
-fn fault(e: plan::Fault<Failure>) -> PyErr {
+pub(crate) fn fault(e: plan::Fault<Failure>) -> PyErr {
     match e {
         plan::Fault::Data(e) => error(e),
         plan::Fault::Index(f) => f.err,

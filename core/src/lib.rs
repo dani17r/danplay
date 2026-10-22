@@ -36,6 +36,7 @@ pub mod structure;
 pub mod tags;
 pub mod theory;
 pub mod thumbnails;
+pub mod tools;
 pub mod toon;
 pub mod turn;
 pub mod waveforms;
@@ -181,6 +182,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     assistant::register(m)?;
     turn::register(m)?;
     plan::register(m)?;
+    tools::register(m)?;
     speech::register(m)?;
     web::register(m)?;
     convert::register(m)?;
