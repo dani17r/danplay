@@ -81,7 +81,7 @@ copia allí las canciones que le des: la app escribe etiquetas y la importación
 mueve archivos, y así tu música no se toca. Sin carpeta, genera unas
 canciones con ffmpeg. `--sandbox --clean` empieza de cero.
 
-En un clon recién hecho no hay núcleo empaquetado (`desktop/src-tauri/nucleo/`
+En un clon recién hecho no hay núcleo empaquetado (`desktop/src-tauri/core/`
 solo trae su LEEME), y no hace falta: la app de desarrollo arranca el núcleo
 desde el código, con el Python del `.venv`.
 `DANPLAY_CORE=fuente|empaquetado` elige a mano de dónde sale el núcleo.
@@ -122,7 +122,7 @@ Para compilarla hace falta, en `~/Android`:
 ```bash
 ./scripts/build-android.sh             # el APK firmado, a dist/installers/
 ./scripts/build-android.sh --emulator  # el de depuración, para el emulador
-cd movil && npm run tauri -- android dev   # con el teléfono por USB
+cd mobile && npm run tauri -- android dev   # con el teléfono por USB
 ```
 
 O sin nada de lo anterior instalado: `./scripts/github.sh packages android`

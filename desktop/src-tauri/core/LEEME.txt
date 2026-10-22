@@ -1,6 +1,6 @@
 Aqui va el nucleo de DanPlay ya empaquetado (PyInstaller en modo onedir:
 el ejecutable danplay-core y su carpeta _internal) cuando viaja DENTRO de
-los paquetes. Viaja como recurso de Tauri ("nucleo/" en tauri.conf.json) y
+los paquetes. Viaja como recurso de Tauri ("core/" en tauri.conf.json) y
 la app lo busca alli (sidecar() en src/core.rs).
 
 Lo copian scripts/build.sh y la CI (linux.yml, macos.yml, windows.yml)

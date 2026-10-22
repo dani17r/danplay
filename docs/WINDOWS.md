@@ -18,7 +18,7 @@ Quedan en `dist/installers/` con la versión en el nombre
 al `.deb`, el `.AppImage` y los `.dmg` de Mac.
 
 Salen **de la misma compilación**, así que no pueden ser distintos: el
-portátil es la aplicación, su núcleo (`nucleo\`) y sus herramientas en un
+portátil es la aplicación, su núcleo (`core\`) y sus herramientas en un
 `.zip`; el instalador, lo mismo con NSIS, más los accesos directos, las
 asociaciones de archivo y el desinstalador.
 

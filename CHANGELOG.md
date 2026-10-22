@@ -32,7 +32,11 @@ fuera todo sigue igual; por dentro va más rápido y gasta menos.
   leyendo); y las preferencias de la interfaz. El `.danpista` del celular no
   cambia.
 - **Para quien compila**: QuickJS-NG en vez de Deno para los retos de
-  YouTube (−93 MB), y el núcleo empaquetado en una carpeta.
+  YouTube (−93 MB), y el núcleo empaquetado en una carpeta. Las órdenes de
+  los scripts, en inglés: `./scripts/github.sh tests|packages|download`,
+  `./scripts/test.sh --quick`, `./scripts/dev.sh --sandbox [--clean]`,
+  `build-android.sh --emulator`, `tools-macos.sh --with-ffprobe` y
+  `build-windows-cross.sh --installer --with-tools --no-crate`.
 
 ## 1.30.0 — 2026-10-17
 

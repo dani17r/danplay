@@ -2031,7 +2031,7 @@ paquete (las de Ubuntu 22.04, donde se compila) y en un sistema más nuevo no
 arranca.
 
 **El núcleo empaquetado, en una carpeta.** Viaja también como recurso
-(`desktop/src-tauri/nucleo/`: PyInstaller en modo *onedir*, el ejecutable y
+(`desktop/src-tauri/core/`: PyInstaller en modo *onedir*, el ejecutable y
 su `_internal`), y no como un solo archivo. El de un solo archivo se
 descomprimía entero en un temporal cada vez que arrancaba (224 MB, en un
 `/tmp` que en Linux suele ser RAM) y otra vez en cada proceso del pulso y

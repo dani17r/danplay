@@ -7,7 +7,7 @@
 # `_internal`), no en un solo archivo. El onefile se descomprimia entero en
 # un temporal cada vez que arrancaba: 224 MB y casi un segundo, en un /tmp que
 # en Linux suele estar en la RAM, y otra vez en cada proceso del pulso y del
-# separador. La carpeta viaja como recurso de Tauri (`nucleo/`, ver
+# separador. La carpeta viaja como recurso de Tauri (`core/`, ver
 # tauri.conf.json), no como `externalBin`, que solo sabe copiar un archivo.
 import glob
 import importlib.util
