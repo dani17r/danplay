@@ -6,12 +6,18 @@
 //! `full_hashes` son de la misma familia y se quedan para la línea de
 //! órdenes y las pruebas.
 pub mod audio;
+pub mod cifrados;
 pub mod compat;
 pub mod etiquetas;
+pub mod habla;
 pub mod indice;
 pub mod json;
 pub mod library;
 pub mod nombres;
+pub mod seguro;
+pub mod teoria;
+pub mod toon;
+pub mod web;
 
 use md5::{Digest, Md5};
 use pyo3::prelude::*;
@@ -208,6 +214,12 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     indice::register(m)?;
     library::register(m)?;
     m.add_function(wrap_pyfunction!(compat::compat, m)?)?;
+    teoria::register(m)?;
+    cifrados::register(m)?;
+    toon::register(m)?;
+    seguro::register(m)?;
+    habla::register(m)?;
+    web::register(m)?;
     Ok(())
 }
 

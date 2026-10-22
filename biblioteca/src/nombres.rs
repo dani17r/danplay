@@ -71,13 +71,13 @@ fn python_semantics(pattern: &str) -> String {
 
 /// Un motor de expresiones: el de `regex`, rápido, o el de `fancy_regex`
 /// para lo que `regex` no sabe hacer (mirar alrededor).
-enum Engine {
+pub(crate) enum Engine {
     Fast(regex::Regex),
     Fancy(fancy_regex::Regex),
 }
 
 /// Lo que se sacó de una coincidencia: dónde empieza y acaba cada grupo.
-type Groups = Vec<Option<(usize, usize)>>;
+pub(crate) type Groups = Vec<Option<(usize, usize)>>;
 
 impl Engine {
     fn new(pattern: &str) -> Self {
@@ -92,7 +92,7 @@ impl Engine {
 
     /// Todas las coincidencias, con sus grupos (o `None` si el motor se pasó
     /// de pasos).
-    fn all(&self, text: &str) -> Option<Vec<Groups>> {
+    pub(crate) fn all(&self, text: &str) -> Option<Vec<Groups>> {
         match self {
             Engine::Fast(re) => Some(
                 re.captures_iter(text)
@@ -107,7 +107,7 @@ impl Engine {
         }
     }
 
-    fn is_match(&self, text: &str) -> bool {
+    pub(crate) fn is_match(&self, text: &str) -> bool {
         match self {
             Engine::Fast(re) => re.is_match(text),
             Engine::Fancy(re) => re.is_match(text).unwrap_or(false),
@@ -121,13 +121,13 @@ impl Engine {
 /// no deja. Con uno que no lo es, tal cual. Y si lleva algo que Rust y
 /// Python no cuentan igual como palabra o espacio (`needs_python`), con la
 /// semántica de Python, que necesita mirar alrededor y es la más lenta.
-struct Re {
+pub(crate) struct Re {
     ascii: Engine,
     plain: Engine,
     python: Engine,
 }
 
-fn rx(pattern: &str) -> Re {
+pub(crate) fn rx(pattern: &str) -> Re {
     let ascii = pattern.replace(r"\b", r"(?-u:\b)");
     let ascii = match regex::Regex::new(&ascii) {
         Ok(fast) => Engine::Fast(fast),
@@ -159,11 +159,12 @@ fn needs_python(text: &str) -> bool {
 }
 
 impl Re {
-    fn pick(&self, text: &str) -> &Engine {
-        if text.is_ascii() {
-            &self.ascii
-        } else if needs_python(text) {
+    pub(crate) fn pick(&self, text: &str) -> &Engine {
+        // primero lo de Python: los separadores U+001C-U+001F son ASCII
+        if needs_python(text) {
             &self.python
+        } else if text.is_ascii() {
+            &self.ascii
         } else {
             &self.plain
         }
@@ -172,7 +173,7 @@ impl Re {
 
 /// `re.sub` de Python con una función: cada coincidencia, por lo que
 /// devuelva `f` (que recibe el texto entero y los grupos).
-fn sub_with(re: &Re, text: &str, mut f: impl FnMut(&str, &Groups) -> String) -> String {
+pub(crate) fn sub_with(re: &Re, text: &str, mut f: impl FnMut(&str, &Groups) -> String) -> String {
     let Some(found) = re.pick(text).all(text) else {
         return text.to_string();
     };
@@ -191,12 +192,12 @@ fn sub_with(re: &Re, text: &str, mut f: impl FnMut(&str, &Groups) -> String) -> 
 }
 
 /// `re.sub` de Python con un texto fijo.
-fn sub(re: &Re, text: &str, with: &str) -> String {
+pub(crate) fn sub(re: &Re, text: &str, with: &str) -> String {
     sub_with(re, text, |_, _| with.to_string())
 }
 
 /// El grupo `n` de una coincidencia, o vacío.
-fn group<'a>(text: &'a str, groups: &Groups, n: usize) -> &'a str {
+pub(crate) fn group<'a>(text: &'a str, groups: &Groups, n: usize) -> &'a str {
     groups
         .get(n)
         .copied()
@@ -205,7 +206,7 @@ fn group<'a>(text: &'a str, groups: &Groups, n: usize) -> &'a str {
 }
 
 /// `re.split(text, maxsplit=limit)` de Python (`limit` 0: sin tope).
-fn split(re: &Re, text: &str, limit: usize) -> Vec<String> {
+pub(crate) fn split(re: &Re, text: &str, limit: usize) -> Vec<String> {
     let mut out = Vec::new();
     let mut start = 0;
     for groups in re.pick(text).all(text).unwrap_or_default() {
@@ -220,33 +221,33 @@ fn split(re: &Re, text: &str, limit: usize) -> Vec<String> {
     out
 }
 
-fn is_match(re: &Re, text: &str) -> bool {
+pub(crate) fn is_match(re: &Re, text: &str) -> bool {
     re.pick(text).is_match(text)
 }
 
 /// Lo que para Python es espacio (`str.isspace`): el de Unicode y además los
 /// separadores U+001C-U+001F.
-fn is_py_space(c: char) -> bool {
+pub(crate) fn is_py_space(c: char) -> bool {
     c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
 }
 
 /// `str.split()` de Python: las palabras entre espacios.
-fn py_words(s: &str) -> impl Iterator<Item = &str> {
+pub(crate) fn py_words(s: &str) -> impl Iterator<Item = &str> {
     s.split(is_py_space).filter(|w| !w.is_empty())
 }
 
 /// `str.strip()` de Python, sin argumentos.
-fn py_trim(s: &str) -> &str {
+pub(crate) fn py_trim(s: &str) -> &str {
     s.trim_matches(is_py_space)
 }
 
 /// `str.strip(chars)` de Python.
-fn strip_chars<'a>(s: &'a str, chars: &str) -> &'a str {
+pub(crate) fn strip_chars<'a>(s: &'a str, chars: &str) -> &'a str {
     s.trim_matches(|c| chars.contains(c))
 }
 
 /// `str.isalnum()` de Python para un carácter: letras y números de Unicode.
-fn py_isalnum(c: char) -> bool {
+pub(crate) fn py_isalnum(c: char) -> bool {
     matches!(
         c.general_category_group(),
         GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number

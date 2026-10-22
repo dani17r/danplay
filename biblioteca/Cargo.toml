@@ -27,6 +27,9 @@ serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 unicode-ident = "1"
 unicode-normalization = "0.1.26"
 unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
+# Pedir páginas (cifrados, la búsqueda en la web) cuando el núcleo entero
+# esté en Rust: síncrono y con rustls, sin OpenSSL ni un runtime async.
+ureq = "3.5.0"
 
 [lints]
 workspace = true

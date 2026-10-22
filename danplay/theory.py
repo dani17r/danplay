@@ -1,140 +1,87 @@
 """Teoria musical: transposicion de acordes y tonalidades.
 
 Deterministico a proposito: transponer es matematica, no se le pregunta a una IA.
+
+Lo hace el crate de Rust (biblioteca/src/teoria.rs, con la misma expresion
+para reconocer un acorde); esto es la puerta de Python, con los mismos nombres.
 """
 
-import re
+import danplay_core as _rust
 
-SHARPS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-FLATS = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
-INDEX_SQL = {
-    **{n: i for i, n in enumerate(SHARPS)},
-    **{n: i for i, n in enumerate(FLATS)},
-    "E#": 5,
-    "B#": 0,
-    "Fb": 4,
-    "Cb": 11,
-}
+_SHARPS, _FLATS, _INDEX, _FLAT_KEYS, _LATIN = _rust.theory_tables()
+
+SHARPS = list(_SHARPS)
+FLATS = list(_FLATS)
+INDEX_SQL = dict(_INDEX)
 
 # tonalidades que se escriben con bemoles
-FLAT_KEYS = {"F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb", "Dm", "Gm", "Cm", "Fm", "Bbm", "Ebm", "Abm"}
+FLAT_KEYS = set(_FLAT_KEYS)
 
-LATIN = {
-    "C": "Do",
-    "C#": "Do#",
-    "Db": "Reb",
-    "D": "Re",
-    "D#": "Re#",
-    "Eb": "Mib",
-    "E": "Mi",
-    "F": "Fa",
-    "F#": "Fa#",
-    "Gb": "Solb",
-    "G": "Sol",
-    "G#": "Sol#",
-    "Ab": "Lab",
-    "A": "La",
-    "A#": "La#",
-    "Bb": "Sib",
-    "B": "Si",
-}
+LATIN = dict(_LATIN)
 
-CHORD = re.compile(
-    r"\b([A-G][#b]?)((?:maj|min|m|dim|aug|sus|add|M)?\d*(?:[#b]\d+)*"
-    r"(?:sus\d?|add\d+|dim7?|aug|maj7?|m7b5)?)"
-    r"(/([A-G][#b]?))?",
-    re.NOFLAG,
-)
+EASY_SHAPES = ("G", "C", "D", "A", "E", "Em", "Am", "Dm")
 
 
-def _nombre(index, use_flats):
-    return (FLATS if use_flats else SHARPS)[index % 12]
+def _txt(s) -> str:
+    """Un texto que se pueda pasar a Rust: los «surrogates» de un texto que
+    no es UTF-8 se cambian por «�»."""
+    try:
+        s.encode("utf-8")
+    except UnicodeEncodeError:
+        return s.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+    except AttributeError:
+        pass
+    return s
+
+
+def _flats(use_flats):
+    return None if use_flats is None else bool(use_flats)
 
 
 def transpose_note(note, semitones, use_flats=None):
     if note not in INDEX_SQL:
         return note
-    target = (INDEX_SQL[note] + semitones) % 12
-    if use_flats is None:
-        use_flats = "b" in note
-    return _nombre(target, use_flats)
+    return _rust.theory_transpose_note(note, semitones % 12, _flats(use_flats))
 
 
 def transpose(text, semitones, use_flats=None):
     """Transpone todos los acordes de un texto conservando el formato."""
     if not semitones:
         return text
-
-    def _t(m):
-        root, sufijo, _, bajo = m.group(1), m.group(2) or "", m.group(3), m.group(4)
-        new_note = transpose_note(root, semitones, use_flats)
-        out = new_note + sufijo
-        if bajo:
-            out += "/" + transpose_note(bajo, semitones, use_flats)
-        return out
-
-    return CHORD.sub(_t, text)
+    # doce semitonos no son cero: la nota se reescribe («Cb» es «B»)
+    return _rust.theory_transpose(_txt(text), semitones % 12 or 12, _flats(use_flats))
 
 
 def distance(from_key, to_key):
     """Semitonos entre dos tonalidades. None si no se reconocen."""
-    d = re.sub(r"m(in)?$", "", (from_key or "").strip())
-    h = re.sub(r"m(in)?$", "", (to_key or "").strip())
-    if d not in INDEX_SQL or h not in INDEX_SQL:
-        return None
-    return (INDEX_SQL[h] - INDEX_SQL[d]) % 12
+    return _rust.theory_distance(_txt(from_key or ""), _txt(to_key or ""))
 
 
 def transpose_to(text, tono_actual, to_key):
-    n = distance(tono_actual, to_key)
-    if n is None:
+    if distance(tono_actual, to_key) is None:
         return text
-    return transpose(text, n, use_flats=(to_key in FLAT_KEYS))
+    return _rust.theory_transpose_to(_txt(text), _txt(tono_actual or ""), _txt(to_key or ""))
 
 
 def to_latin(text):
     """Cifrado americano -> latino (Do Re Mi)."""
-    return CHORD.sub(
-        lambda m: (
-            LATIN.get(m.group(1), m.group(1))
-            + (m.group(2) or "")
-            + ("/" + LATIN.get(m.group(4), m.group(4)) if m.group(4) else "")
-        ),
-        text,
-    )
+    return _rust.theory_to_latin(_txt(text))
 
 
 def available_keys():
-    return SHARPS + [b for b in FLATS if b not in SHARPS]
+    return _rust.theory_available_keys()
 
 
-def suggested_capo(tono_actual, easy_shapes=("G", "C", "D", "A", "E", "Em", "Am", "Dm")):
+def suggested_capo(tono_actual, easy_shapes=EASY_SHAPES):
     """Devuelve [(traste, forma)] para tocar un tono dificil con acordes abiertos."""
     if tono_actual not in INDEX_SQL:
         return []
-    outs = []
-    for shape in easy_shapes:
-        base = re.sub(r"m$", "", shape)
-        if base not in INDEX_SQL:
-            continue
-        fret = (INDEX_SQL[tono_actual] - INDEX_SQL[base]) % 12
-        if 1 <= fret <= 7:
-            outs.append((fret, shape))
-    return sorted(outs)
+    return _rust.theory_suggested_capo(tono_actual, [_txt(s) for s in easy_shapes])
 
 
 def _split_key(key):
     """(indice, es_menor) de un tono escrito como «Bb», «F#m», «Am», o None."""
-    k = (key or "").strip()
-    minor = bool(re.search(r"(m|min|-)$", k)) and not k.endswith("dim")
-    root = re.sub(r"(m|min|-)$", "", k)
-    if root not in INDEX_SQL:
-        return None
-    return INDEX_SQL[root], minor
-
-
-def _key_name(index, minor, use_flats):
-    return _nombre(index, use_flats) + ("m" if minor else "")
+    return _rust.theory_split_key(_txt(key or ""))
 
 
 def related_keys(key) -> dict | None:
@@ -145,42 +92,4 @@ def related_keys(key) -> dict | None:
     natural; saltar a un tono lejano corta. Devuelve tambien la cejilla con
     la que ese tono se toca con acordes abiertos.
     """
-    parsed = _split_key(key)
-    if not parsed:
-        return None
-    i, minor = parsed
-    root = re.sub(r"(m|min|-)$", "", key.strip())
-    # se escribe con bemoles si el tono lo lleva («Bb») o si es de los que
-    # van con bemoles en la armadura («F», «Dm»); F#m no es F
-    use_flats = "b" in root[1:] or (root + ("m" if minor else "")) in FLAT_KEYS
-    if minor:
-        relative = _key_name((i + 3) % 12, False, use_flats)
-        neighbors = [
-            _key_name((i + 7) % 12, True, use_flats),
-            _key_name((i + 5) % 12, True, use_flats),
-        ]
-        cousins = [
-            _key_name((i + 10) % 12, False, use_flats),
-            _key_name((i + 8) % 12, False, use_flats),
-        ]
-    else:
-        relative = _key_name((i + 9) % 12, True, use_flats)
-        neighbors = [
-            _key_name((i + 7) % 12, False, use_flats),
-            _key_name((i + 5) % 12, False, use_flats),
-        ]
-        cousins = [
-            _key_name((i + 4) % 12, True, use_flats),
-            _key_name((i + 2) % 12, True, use_flats),
-        ]
-    name = _key_name(i, minor, use_flats)
-    return {
-        "key": name,
-        "relative": relative,
-        "neighbors": neighbors,
-        "also_close": cousins,
-        "latin": to_latin(name),
-        "capo": [{"fret": f, "shape": sh} for f, sh in suggested_capo(_nombre(i, use_flats))],
-        "note": "vecinos = misma armadura o una alteracion de diferencia: pasar de uno a "
-        "otro no suena a salto",
-    }
+    return _rust.theory_related_keys(_txt(key or ""))
