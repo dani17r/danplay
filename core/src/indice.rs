@@ -287,6 +287,12 @@ pub fn with_conn<T: Send>(
     conn.get().with(py, |c| f(c).map_err(Fallo::Sqlite))
 }
 
+/// Un error de SQLite como la excepción de `sqlite3`, para lo de Rust que abre
+/// su propia conexión (el emparejador, al consultar).
+pub fn sqlite_err(e: rusqlite::Error) -> PyErr {
+    Fallo::Sqlite(e).into()
+}
+
 /// La conexión prestada (ver `Connection::lock`).
 pub struct ConnGuard<'a>(MutexGuard<'a, Option<rusqlite::Connection>>);
 

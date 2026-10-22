@@ -5,6 +5,7 @@
 //! `cover_*`, en `etiquetas`) y `last_error`. `partial_hash` y
 //! `full_hashes` son de la misma familia y se quedan para la línea de
 //! órdenes y las pruebas.
+pub mod asistente;
 pub mod audio;
 pub mod cifrados;
 pub mod compat;
@@ -163,6 +164,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     cifrados::register(m)?;
     toon::register(m)?;
     seguro::register(m)?;
+    asistente::register(m)?;
     habla::register(m)?;
     web::register(m)?;
     convertir::register(m)?;

@@ -883,14 +883,15 @@ def test_desempates_eleccion_favorita_estrellas_y_titulo_corto(db):
 
 
 def test_un_item_que_revienta_no_tumba_el_lote(base, monkeypatch):
-    original = resolve._score
+    # la puntuacion esta en Rust: revienta el emparejado de ese item
+    original = resolve._match
 
-    def explota(q, e):
-        if "explota" in q.core:
+    def explota(snap, title, *args, **kwargs):
+        if "explota" in str(title).lower():
             raise ValueError("un titulo raro")
-        return original(q, e)
+        return original(snap, title, *args, **kwargs)
 
-    monkeypatch.setattr(resolve, "_score", explota)
+    monkeypatch.setattr(resolve, "_match", explota)
     out = resolve.resolve_items(["Rey Infinito", "Rey Explota", {"title": "Cena Del Señor"}])
     assert [r.status for r in out] == ["found", "missing", "found"]
     assert [r.failed for r in out] == [False, True, False]
