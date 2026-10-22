@@ -314,7 +314,7 @@ fn prefer_source() -> bool {
 /// El nucleo empaquetado que viaja dentro del .deb / .AppImage / instalador.
 ///
 /// Es una carpeta (PyInstaller en modo onedir: el ejecutable y su
-/// `_internal`) que va entre los recursos, `nucleo/` (ver packaging/core.spec:
+/// `_internal`) que va entre los recursos, `core/` (ver packaging/core.spec:
 /// asi no se descomprime en cada arranque). Al lado del ejecutable queda la
 /// portatil de Windows, cuyo `danplay-core.exe` lanza el Python embebido.
 fn sidecar() -> Option<PathBuf> {
