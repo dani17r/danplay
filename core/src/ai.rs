@@ -13,7 +13,7 @@ use library::serde_json::Value;
 use library::warnings::Warnings;
 use pyo3::exceptions::{PyOSError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict, PyList};
 use std::path::PathBuf;
 
 fn as_dic(obj: &Bound<'_, PyAny>) -> PyResult<Dict> {
@@ -270,9 +270,19 @@ pub fn catalog_store(
     etag: &str,
     now: f64,
 ) -> PyResult<usize> {
-    let raw = as_dic(raw)?;
     let mut warnings = Warnings::new();
-    let n = py.detach(|| catalog::store_fetched(&cache, &snapshot, &raw, etag, now, &mut warnings));
+    let n = if let Ok(bytes) = raw.cast::<PyBytes>() {
+        // el JSON tal como llega: se recorta al leerlo, sin pasar por un
+        // diccionario entero (ni el de Python ni el de Rust)
+        let bytes = bytes.as_bytes().to_vec();
+        let providers = py
+            .detach(|| catalog::trim_json(&bytes, None))
+            .map_err(PyValueError::new_err)?;
+        py.detach(|| catalog::store_trimmed(&cache, &snapshot, providers, etag, now, &mut warnings))
+    } else {
+        let raw = as_dic(raw)?;
+        py.detach(|| catalog::store_fetched(&cache, &snapshot, &raw, etag, now, &mut warnings))
+    };
     log_warnings(py, CATALOG, warnings);
     Ok(n)
 }

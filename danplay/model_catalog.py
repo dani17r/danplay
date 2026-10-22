@@ -99,7 +99,7 @@ def refresh(force: bool = False, timeout: float = 15) -> dict:
     try:
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                raw = json.loads(r.read().decode("utf-8"))
+                body = r.read()
                 etag = r.headers.get("ETag", "")
         except urllib.error.HTTPError as e:
             if e.code == 304:
@@ -108,7 +108,16 @@ def refresh(force: bool = False, timeout: float = 15) -> dict:
                 _rust.catalog_mark_checked(CACHE, SNAPSHOT, now, "")
                 return status()
             raise
-        n = _rust.catalog_store(CACHE, SNAPSHOT, raw, etag or "", now)
+        try:
+            # los bytes tal cual: Rust lo recorta al leerlo (pasarlo antes por
+            # json.loads costaba mas de 100 MB que el proceso no devolvia)
+            n = _rust.catalog_store(CACHE, SNAPSHOT, body, etag or "", now)
+        except ValueError:
+            # lo que no es un objeto JSON: que falle como fallaba (el mismo
+            # error y el mismo aviso)
+            n = _rust.catalog_store(
+                CACHE, SNAPSHOT, json.loads(body.decode("utf-8")), etag or "", now
+            )
         log.info("catalogo de modelos actualizado: %d proveedores", n)
     except Exception as e:  # noqa: BLE001
         why = _describe(e)

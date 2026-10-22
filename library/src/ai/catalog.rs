@@ -154,42 +154,99 @@ pub fn trim_model(mid: &str, m: &Dict) -> Option<Dict> {
     Some(out)
 }
 
+/// Un proveedor de models.dev recortado: su nombre, su documentación, su API
+/// y sus modelos de conversación; None si no le queda ninguno.
+fn trim_provider(pid: &str, p: &Dict) -> Option<Value> {
+    let mut models = Dict::new();
+    for (mid, m) in &dict(p.get("models")) {
+        if let Value::Object(m) = m
+            && let Some(t) = trim_model(mid, m)
+        {
+            models.insert(mid.clone(), Value::Object(t));
+        }
+    }
+    if models.is_empty() {
+        return None;
+    }
+    let or_empty = |k: &str| {
+        p.get(k)
+            .filter(|v| py::truthy(v))
+            .cloned()
+            .unwrap_or(json!(""))
+    };
+    Some(json!({
+        "name": str_or(p.get("name"), pid),
+        "doc": or_empty("doc"),
+        "api": or_empty("api"),
+        "models": models,
+    }))
+}
+
+fn wanted(pid: &str, only: Option<&[String]>) -> bool {
+    !only.is_some_and(|o| !o.is_empty() && !o.iter().any(|x| x == pid))
+}
+
 /// Lo de models.dev recortado: por proveedor, su nombre, su documentación,
 /// su API y sus modelos de conversación (con `only`, solo esos proveedores).
 pub fn trim(raw: &Dict, only: Option<&[String]>) -> Dict {
     let mut out = Dict::new();
     for (pid, p) in raw {
         let Value::Object(p) = p else { continue };
-        if only.is_some_and(|o| !o.is_empty() && !o.contains(pid)) {
-            continue;
-        }
-        let mut models = Dict::new();
-        for (mid, m) in &dict(p.get("models")) {
-            if let Value::Object(m) = m
-                && let Some(t) = trim_model(mid, m)
-            {
-                models.insert(mid.clone(), Value::Object(t));
-            }
-        }
-        if !models.is_empty() {
-            let or_empty = |k: &str| {
-                p.get(k)
-                    .filter(|v| py::truthy(v))
-                    .cloned()
-                    .unwrap_or(json!(""))
-            };
-            out.insert(
-                pid.clone(),
-                json!({
-                    "name": str_or(p.get("name"), pid),
-                    "doc": or_empty("doc"),
-                    "api": or_empty("api"),
-                    "models": models,
-                }),
-            );
+        if wanted(pid, only)
+            && let Some(t) = trim_provider(pid, p)
+        {
+            out.insert(pid.clone(), t);
         }
     }
     out
+}
+
+/// Lo mismo que `trim`, leyendo el JSON tal como llega (unos 4 MB) y
+/// recortando cada proveedor según se lee: en memoria solo está entero uno a
+/// la vez. Pasarlo antes a un diccionario (el de Python y luego el de Rust)
+/// costaba más de 100 MB que el proceso ya no devolvía. Err si no es un
+/// objeto JSON (quien llama decide qué decir).
+pub fn trim_json(bytes: &[u8], only: Option<&[String]>) -> Result<Dict, String> {
+    use serde::de::{Deserializer, MapAccess, Visitor};
+    use std::fmt;
+
+    struct Providers<'a>(Option<&'a [String]>);
+
+    impl<'de> Visitor<'de> for Providers<'_> {
+        type Value = Dict;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("un objeto con los proveedores")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Dict, A::Error> {
+            let mut out = Dict::new();
+            while let Some((pid, p)) = map.next_entry::<String, Value>()? {
+                // como el diccionario de Python: con una clave repetida
+                // cuenta la última, en el sitio de la primera
+                let kept = match &p {
+                    Value::Object(p) if wanted(&pid, self.0) => trim_provider(&pid, p),
+                    _ => None,
+                };
+                match kept {
+                    Some(t) => {
+                        out.insert(pid, t);
+                    }
+                    None => {
+                        out.shift_remove(&pid);
+                    }
+                }
+            }
+            Ok(out)
+        }
+    }
+
+    let mut de = serde_json::Deserializer::from_slice(bytes);
+    let out = (&mut de)
+        .deserialize_map(Providers(only))
+        .map_err(|e| e.to_string())?;
+    de.end().map_err(|e| e.to_string())?;
+    Ok(out)
 }
 
 // ------------------------------------------------------------------- carga
@@ -277,18 +334,31 @@ pub fn store_fetched(
     now: f64,
     out: &mut Warnings,
 ) -> usize {
-    let providers = trim(raw, None);
+    store_trimmed(cache, snapshot, trim(raw, None), etag, now, out)
+}
+
+/// Como `store_fetched`, con los proveedores ya recortados (`trim_json`).
+pub fn store_trimmed(
+    cache: &Path,
+    snapshot: &Path,
+    providers: Dict,
+    etag: &str,
+    now: f64,
+    out: &mut Warnings,
+) -> usize {
     let n = providers.len();
-    let data = json!({
-        "source": "models.dev",
-        "etag": etag,
-        "fetched_at": now,
-        "checked_at": now,
-        "error": "",
-        "providers": providers,
-    });
-    let data = data.as_object().cloned().unwrap_or_default();
+    let mut data = Dict::new();
+    data.insert("source".into(), "models.dev".into());
+    data.insert("etag".into(), etag.into());
+    data.insert("fetched_at".into(), now.into());
+    data.insert("checked_at".into(), now.into());
+    data.insert("error".into(), "".into());
+    data.insert("providers".into(), Value::Object(providers));
+    let data = Value::Object(data);
     save(cache, &data, out);
+    let Value::Object(data) = data else {
+        unreachable!("se acaba de hacer como objeto")
+    };
     let mut loaded = LOADED.lock().unwrap_or_else(PoisonError::into_inner);
     *loaded = Some(LoadedCatalog {
         cache: cache.to_owned(),
@@ -298,8 +368,8 @@ pub fn store_fetched(
     n
 }
 
-fn save(cache: &Path, data: &Dict, out: &mut Warnings) {
-    let text = py::dumps(&Value::Object(data.clone()));
+fn save(cache: &Path, data: &Value, out: &mut Warnings) {
+    let text = py::dumps(data);
     let tmp = cache.with_extension("tmp");
     let result = cache
         .parent()
@@ -564,4 +634,49 @@ pub fn recommend(models: &[Dict], now: f64) -> Dict {
     out.insert("chat".into(), id(chat).into());
     out.insert("fast".into(), id(fast).into());
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RAW: &str = r#"{
+        "uno": {"name": "Uno", "doc": "https://uno", "api": "", "models": {
+            "chat-1": {"name": "Chat 1", "tool_call": true, "modalities": {"input": ["text"]},
+                       "limit": {"context": 128000, "output": 8192}, "cost": {"input": 0.15, "output": 0.6}},
+            "embed-1": {"name": "Embed 1", "modalities": {"input": ["text"]}}
+        }},
+        "vacio": {"name": "Sin modelos", "models": {}},
+        "raro": 5,
+        "dos": {"models": {"m": {"name": "M", "tool_call": false, "reasoning": true}}},
+        "uno": {"name": "Uno otra vez", "models": {"chat-2": {"name": "Chat 2"}}}
+    }"#;
+
+    #[test]
+    fn reading_the_bytes_trims_like_the_dictionary() {
+        let parsed: Value = serde_json::from_str(RAW).expect("json");
+        let Value::Object(raw) = parsed else {
+            panic!("objeto")
+        };
+        assert_eq!(
+            trim_json(RAW.as_bytes(), None).expect("bytes"),
+            trim(&raw, None)
+        );
+        let only = ["dos".to_owned()];
+        assert_eq!(
+            trim_json(RAW.as_bytes(), Some(&only)).expect("bytes"),
+            trim(&raw, Some(&only))
+        );
+        // la clave repetida: la última, en el sitio de la primera
+        let out = trim_json(RAW.as_bytes(), None).expect("bytes");
+        assert_eq!(out.keys().collect::<Vec<_>>(), ["uno", "dos"]);
+        assert_eq!(out["uno"]["name"], "Uno otra vez");
+    }
+
+    #[test]
+    fn what_is_not_an_object_is_an_error() {
+        assert!(trim_json(b"[1, 2]", None).is_err());
+        assert!(trim_json(b"{\"a\": 1} x", None).is_err());
+        assert!(trim_json(b"\xff", None).is_err());
+    }
 }
