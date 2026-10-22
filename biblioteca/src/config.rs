@@ -52,6 +52,20 @@ fn process_env(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
 
+/// `config.env(name, default)` de Python sobre el entorno del proceso (que es
+/// donde Python deja lo de los archivos de ajustes): la variable, o la de su
+/// nombre antiguo, o `default`.
+pub fn env_proceso(name: &str, default: &str) -> String {
+    if let Some(v) = process_env(name).filter(|v| !v.is_empty()) {
+        return v;
+    }
+    let old = ALIAS
+        .iter()
+        .find(|(new, _)| *new == name)
+        .map_or(name, |(_, old)| *old);
+    process_env(old).unwrap_or_else(|| default.to_owned())
+}
+
 /// La carpeta de casa (`Path.home()`).
 pub fn home() -> PathBuf {
     PathBuf::from(py::expanduser("~"))

@@ -304,6 +304,12 @@ fn dump_str(s: &str, out: &mut String) {
     out.push('"');
 }
 
+/// `json.dumps(v, ensure_ascii=False, indent=n)` de Python: cada pieza en su
+/// línea, con `n` espacios por nivel. Es como se guardan los perfiles de IA.
+pub fn dumps_indent(v: &Value, indent: usize) -> String {
+    dumps_with(v, Some(indent), false)
+}
+
 /// `list(v)` de Python con lo que llega de un JSON (lo vacío, si no es nada:
 /// `list(v or [])`): una lista tal cual, un texto en sus caracteres, un
 /// diccionario en sus claves.

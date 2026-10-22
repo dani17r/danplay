@@ -18,6 +18,7 @@ pub mod fuera;
 pub mod habla;
 pub mod html;
 pub mod huella;
+pub mod ia;
 pub mod indice;
 pub mod listas;
 pub mod miniaturas;

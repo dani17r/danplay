@@ -18,16 +18,15 @@ palabra del proveedor, que puede llevar fragmentos de la clave
 (`sanitize_provider_message`).
 """
 
-import hashlib
 import json
 import logging
-import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any
-from urllib.parse import urlsplit
+
+import danplay_core as _rust
 
 from . import config, model_catalog, providers
 
@@ -115,14 +114,9 @@ _NO_PROFILE: providers.Profile = {
 }
 
 
-INSTRUCTIONS = """Catalogas una biblioteca musical (mucha adoracion cristiana en español, algo de pop/rock). De un nombre de archivo sucio (suele venir de un video) deduce:
-artist: interprete PRINCIPAL ("X ft Y" → X; un ministerio o proyecto, por su nombre). title: titulo limpio, sin ruido de video. feat: invitados separados por coma, o "". extra: matiz entre parentesis (En Vivo, Acustico, Cover, Instrumental, Play Along, Tutorial, Pista, Medley…) o "". category: song | track | tutorial | sequence | unknown. confidence: 0.0-1.0.
-Reglas: sin tildes (solo se conserva la ñ); nada en MAYUSCULA SOSTENIDA, escribe Capitalizado; nunca inventes un artista: si no lo sabes, artist="" y confidence baja. Si te dan artistas que ya existen, reutiliza el nombre exacto cuando sea uno de ellos.
-Responde SOLO con un objeto JSON con esas claves exactas, sin texto alrededor. Valores en el idioma original.
-Ejemplos:
-"y2mate.com - BARAK Mi Gozo VIDEO OFICIAL LETRA 320kbps.mp3" → {"artist":"Barak","title":"Mi Gozo","feat":"","extra":"","category":"song","confidence":0.9}
-"Que Se Abra El Cielo (Drum Cam) - Miel San Marcos ft Christine D'Clario.mp3" → {"artist":"Miel San Marcos","title":"Que Se Abra El Cielo","feat":"Christine D'Clario","extra":"Drum Cam","category":"song","confidence":0.85}
-"pista_2_FINAL (1).mp3" → {"artist":"","title":"Pista 2 Final","feat":"","extra":"","category":"unknown","confidence":0.1}"""
+# Lo que se le dice al modelo para identificar un archivo (en Rust:
+# biblioteca/src/ia/peticion.rs)
+INSTRUCTIONS = _rust.ai_instructions()
 
 
 # ------------------------------------------------------------------ perfil
@@ -244,9 +238,7 @@ def price_of(p: providers.Profile | None, model: str, prompt: int, completion: i
     if not p or p.get("local"):
         return 0.0 if p and p.get("local") else None
     info = model_catalog.lookup(p.get("models_dev"), model)
-    if not info or info.get("cost_in") is None or info.get("cost_out") is None:
-        return None
-    return prompt / 1e6 * info["cost_in"] + completion / 1e6 * info["cost_out"]
+    return _rust.ai_price_of(False, info, int(prompt), int(completion))
 
 
 def _account(p: providers.Profile, model: str, purpose: str, usage) -> None:
@@ -328,97 +320,40 @@ def _client_for_profile(p: providers.Profile):
 
 # ---------------------------------------------------------------- peticion
 
-# Que parametro rechaza un servidor se sabe por el texto de su error. No hay
-# un formato comun: aqui van las pistas que dejan OpenAI, Google, Mistral,
-# Ollama, llama.cpp, vLLM, OpenRouter y compañia.
-_HINTS = (
-    ("json_schema", re.compile(r"json_schema|schema|strict", re.I)),
-    (
-        "response_format",
-        re.compile(
-            r"response_format|json_object|json_schema|json mode|"
-            r"structured output",
-            re.I,
-        ),
-    ),
-    ("tool_choice", re.compile(r"tool_choice|tool choice", re.I)),
-    ("temperature", re.compile(r"temperature", re.I)),
-    (
-        "max_tokens",
-        re.compile(
-            r"max_tokens.*(?:not supported|unsupported|use .?max_completion_tokens)|"
-            r"max_completion_tokens",
-            re.I,
-        ),
-    ),
-    ("parallel_tool_calls", re.compile(r"parallel_tool_calls", re.I)),
-    ("stream_options", re.compile(r"stream_options|include_usage", re.I)),
-    (
-        "stream",
-        re.compile(r"\bstream(?:ing)?\b.{0,40}(?:not supported|unsupported|not available)", re.I),
-    ),
-)
-# Un fallo que no es del mensaje sino del servicio: caido, sin credito,
-# saturado, clave rechazada. Con eso se pasa al respaldo. (Y todo 5xx: ver
-# `classify_failure`, que ademas mira el texto para el dinero, los limites y las
-# claves; aqui solo lo que habla de la conexion.)
-_DOWN_STATUS = {401, 402, 403, 408, 425, 429}
-_DOWN_TEXT = re.compile(
-    r"connection|timeout|timed out|resolve (?:host|name)|name resolution|nodename|"
-    r"getaddrinfo|network|unreachable|refused|overloaded|service unavailable",
-    re.I,
-)
-_TOOLS_HINT = re.compile(
-    r"(?:does not support|doesn't support|not support(?:ed)?|unsupported|"
-    r"no soporta|cannot use|not available).{0,60}(?:tools|function|tool use)|"
-    r"(?:tools|functions?).{0,60}(?:not support|unsupported|not available)",
-    re.I | re.S,
-)
+
+# Lo que no se toca nunca al quitar parametros (y puede llevar objetos del
+# SDK, que Rust no conoce): el resto de la peticion va a Rust y vuelve.
+_UNTOUCHED = ("messages", "tools")
+
+
+def _view(kwargs: dict) -> dict:
+    return {k: v for k, v in kwargs.items() if k not in _UNTOUCHED}
 
 
 def _strip(kwargs: dict, what: str) -> None:
-    if what == "json_schema":
-        if (kwargs.get("response_format") or {}).get("type") == "json_schema":
-            kwargs["response_format"] = {"type": "json_object"}
-        return
-    if what == "stream":
-        kwargs.pop("stream", None)
-        kwargs.pop("stream_options", None)
-        return
-    if what == "tool_choice":
-        if kwargs.get("tool_choice") not in (None, "auto"):
-            kwargs["tool_choice"] = "auto"
-    elif what == "max_tokens":
-        if "max_tokens" in kwargs:
-            kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
-    else:
-        kwargs.pop(what, None)
+    """Quita `what` de la peticion (o lo cambia por lo que si vale)."""
+    new = _rust.ai_strip(_view(kwargs), what)
+    for k in [k for k in kwargs if k not in _UNTOUCHED and k not in new]:
+        del kwargs[k]
+    kwargs.update(new)
 
 
 def _droppable(kwargs: dict, what: str) -> bool:
     """Si quitar `what` cambia algo en la peticion (si no, reintentar es un bucle)."""
-    if what == "json_schema":
-        return (kwargs.get("response_format") or {}).get("type") == "json_schema"
-    if what == "stream":
-        return "stream" in kwargs
-    if what == "tool_choice":
-        return kwargs.get("tool_choice") not in (None, "auto")
-    if what == "max_tokens":
-        return "max_tokens" in kwargs
-    return what in kwargs
+    return _rust.ai_droppable(_view(kwargs), what)
+
+
+def _first_droppable(kwargs: dict, text: str) -> str | None:
+    """El primer parametro que el error dice que sobra y que, quitado, cambia
+    algo (las pistas, en Rust: `peticion::hints`)."""
+    return _rust.ai_first_droppable(_view(kwargs), text)
 
 
 def _known_limits(p: providers.Profile, model: str) -> set[str]:
     """Lo que se sabe sin preguntar: por el catalogo y por el proveedor."""
     out = set(_unsupported.get((p["id"], model), set()))
-    if p["quirks"].get("json_mode") is False:
-        out.add("response_format")
     info = model_catalog.lookup(p.get("models_dev"), model)
-    if info:
-        if info.get("temperature") is False:
-            out.add("temperature")
-        if info.get("json") is False:
-            out.add("response_format")
+    out.update(_rust.ai_known_limits(p["quirks"], info))
     return out
 
 
@@ -436,38 +371,6 @@ def _known_limits(p: providers.Profile, model: str) -> set[str]:
 #   down     caido, saturado, sin conexion, tiempo agotado, o un 403 sin motivo
 KINDS = ("billing", "auth", "rate", "down")
 
-# falta dinero, dicho sin rodeos (el «billing» suelto no vale: Gemini lo repite
-# en sus avisos de limite por minuto)
-_BILLING_TEXT = re.compile(
-    r"credit balance|insufficient[_ ](?:quota|credits?|funds|balance)|"
-    r"not enough (?:credits?|funds|balance)|(?:out of|no more|no remaining) credits?|"
-    r"(?:used|exhausted) (?:up )?(?:all )?(?:of )?(?:your |the )?(?:available )?credits?|"
-    r"payment[_ ]required|plans? & billing|billing[_ ](?:(?:hard[_ ])?limit|not[_ ]active)|"
-    r"account is not active|"
-    r"spending limit|key limit exceeded|(?:purchase|add) (?:more )?credits?|"
-    r"limit:\s*0(?!\d|\.\d)",
-    re.I,
-)
-# demasiadas peticiones (y cualquier otra cosa que hable de cuota o de esperar)
-_RATE_TEXT = re.compile(
-    r"rate[_ ]?limit|too many requests|\bquotas?\b|resource[_ ]exhausted|"
-    r"(?:requests|tokens|queries) per (?:min|minute|second|sec|day)|"
-    r"\bper[ _](?:minute|second)\b|(?:retry|try again) in \d|slow down|throttl",
-    re.I,
-)
-# la clave no vale
-_AUTH_TEXT = re.compile(
-    r"invalid[_ ](?:x-)?api[_ -]?key|incorrect api key|reported as leaked|"
-    r"api[_ -]?key (?:is |was )?(?:not valid|invalid|expired|revoked|disabled|suspended)|"
-    r"unauthori[sz]ed|authentication|permission[_ ]denied|permission_error|"
-    r"does not have permission|not authorized|invalid[_ ]credentials|no auth credentials",
-    re.I,
-)
-# solo dinero, de pasada: con un 400 o sin codigo vale, con un 403 no (un 403
-# repite el mensaje de quien lo moderaba) ni con un 5xx
-_BILLING_WEAK = re.compile(r"\bbilling\b|\bcredits?\b|\bbalance\b", re.I)
-_CODE_IN_TEXT = re.compile(r"\s*(?:error code:\s*)?(\d{3})\b", re.I)
-
 
 def _error_text(e: object) -> str:
     try:
@@ -476,39 +379,21 @@ def _error_text(e: object) -> str:
         return type(e).__name__
 
 
-def _http_code(e: object, text: str) -> int | None:
-    """El codigo HTTP del fallo: el del SDK o, si no lo trae, el que abre el
-    texto («Error code: 429 - …», «503 Service Unavailable»)."""
+def _status_of(e: object) -> int | None:
+    """El codigo HTTP que trae el fallo (el `status_code` del SDK), si es un
+    numero de verdad."""
     code = getattr(e, "status_code", None)
     if isinstance(code, int) and not isinstance(code, bool):
         return code
-    m = _CODE_IN_TEXT.match(text)
-    if m and 100 <= int(m.group(1)) <= 599:
-        return int(m.group(1))
     return None
 
 
 def classify_failure(e: BaseException) -> tuple[str, int | None]:
     """(tipo, codigo HTTP) de un fallo del SERVICIO. Tipo "" si el fallo es del
     mensaje (parametros que no valen, un modelo que no existe…) y probar con
-    otro proveedor no lo arreglaria. Ver `KINDS` para los tipos."""
-    text = _error_text(e)
-    code = _http_code(e, text)
-    low = text.lower()
-    if _BILLING_TEXT.search(low) or code == 402:
-        kind = "billing"
-    elif code is not None and code >= 500:
-        kind = "down"  # el cuerpo de un 5xx (una pagina de error…) no dice nada mas
-    elif code == 429 or _RATE_TEXT.search(low):
-        kind = "rate"
-    elif code == 401 or _AUTH_TEXT.search(low):
-        kind = "auth"
-    elif code in (None, 400) and _BILLING_WEAK.search(low):
-        kind = "billing"
-    elif code in _DOWN_STATUS or _DOWN_TEXT.search(low):
-        kind = "down"  # incluye el 403 que no dice por que
-    else:
-        kind = ""
+    otro proveedor no lo arreglaria. Ver `KINDS` para los tipos (y las reglas,
+    en Rust: biblioteca/src/ia/fallos.rs)."""
+    kind, code = _rust.ai_classify(_error_text(e), _status_of(e))
     return kind, code
 
 
@@ -519,9 +404,7 @@ def _is_down(e: Exception) -> bool:
 
 def _hold_for(kind: str) -> float:
     """Cuanto se da por caido un proveedor segun por que ha fallado."""
-    if kind in ("billing", "auth"):
-        return LONG_FOR
-    return RATE_FOR if kind == "rate" else DOWN_FOR
+    return _rust.ai_hold_for(kind)
 
 
 def _now() -> float:
@@ -790,20 +673,18 @@ def _complete_with(
         except Exception as e:
             status = getattr(e, "status_code", None)
             text = str(e)
-            if status not in (400, 404, 422) and not re.match(r"\s*(?:400|404|422)\b", text):
+            if status not in (400, 404, 422) and not _rust.ai_retryable_text(text):
                 raise
             # Primero lo que se puede quitar (tool_choice=required, JSON…):
             # un «tool_choice not supported» habla del parametro, no de que
             # el modelo no sepa usar herramientas.
-            dropped = next(
-                (w for w, rx in _HINTS if rx.search(text) and _droppable(kwargs, w)), None
-            )
+            dropped = _first_droppable(kwargs, text)
             if dropped and attempt < 5:
                 log.info("%s rechaza %s con %s; se reintenta sin el", p["id"], dropped, model)
                 _unsupported.setdefault(key, set()).add(dropped)
                 _strip(kwargs, dropped)
                 continue
-            if tools and _TOOLS_HINT.search(text):
+            if tools and _rust.ai_tools_hint(text):
                 _unsupported.setdefault(key, set()).add("tools")
                 raise ToolsUnsupported(model) from e
             raise
@@ -812,8 +693,7 @@ def _complete_with(
 
 def _thinking_open(text: str) -> bool:
     """Un <think> abierto sin cerrar: lo que hay es razonamiento, no respuesta."""
-    low = text.lower()
-    return low.rfind("<think>") > low.rfind("</think>")
+    return _rust.ai_thinking_open(text)
 
 
 def _collect(raw, on_text=None, cancel=None):
@@ -897,9 +777,7 @@ def message_text(msg) -> str:
 
 def strip_thoughts(t: str) -> str:
     """Algunos modelos dejan escapar su razonamiento entre <think>."""
-    t = re.sub(r"<think>.*?</think>", "", t or "", flags=re.DOTALL | re.IGNORECASE)
-    t = re.sub(r"</?think>", "", t, flags=re.IGNORECASE)
-    return t.strip()
+    return _rust.ai_strip_thoughts(t or "")
 
 
 # ------------------------------------------------------------------ prueba
@@ -910,96 +788,18 @@ def strip_thoughts(t: str) -> str:
 # la URL con `?key=`. Ese texto acaba en la pantalla, en el registro y en la
 # conversacion guardada, asi que antes pasa por `sanitize_provider_message`.
 MAX_PROVIDER_MESSAGE = 160
-_SCAN_MAX = 20_000  # de un volcado enorme no se mira mas
-_MIN_SECRET = 8  # una clave de verdad es mas larga; un valor corto («low») no es secreto
-
-_URL_RX = re.compile(r"\b[A-Za-z][A-Za-z0-9+.\-]*://[^\s'\"<>]+")
-_BEARER_RX = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=*\-]+", re.I)
-# claves con la forma de las de los proveedores (tambien las enmascaradas con *)
-_KEY_RX = re.compile(
-    r"\b(?:(?:sk|rk|gsk|xai|csk|pplx|nvapi|hf|fw)[-_][A-Za-z0-9][A-Za-z0-9_*\-]{7,}|"
-    r"AIza[0-9A-Za-z_\-]{10,})"
-)
-# «Authorization: Bearer …» / «Authorization: Basic …»: el esquema y la credencial
-_AUTH_HEADER_RX = re.compile(
-    r"(?<![A-Za-z0-9_])(authorization['\"]?\s*[:=]\s*['\"]?)(?:[A-Za-z]+ )?[^\s,;&'\")\]}]+", re.I
-)
-# «clave=valor» (en una URL, una cabecera, un volcado) y «clave: valor» solo
-# para los nombres que no son palabras de uso corriente
-_KV_EQ_RX = re.compile(
-    r"(?<![A-Za-z0-9_])((?:x-)?api[_-]?key|apikey|(?:access|auth|refresh|session)[_-]?token|"
-    r"token|client[_-]?secret|secret|password|passwd|pwd|key)=[^\s&;,'\")\]}]+",
-    re.I,
-)
-_KV_COLON_RX = re.compile(
-    r"(?<![A-Za-z0-9_])((?:x-)?api[_-]?key|apikey|(?:access|auth|refresh|session)[_-]?token|"
-    r"client[_-]?secret|secret|password|passwd)(['\"]?\s*:\s*['\"]?)[^\s,;&'\")\]}]+",
-    re.I,
-)
-_CONTROL_RX = re.compile(r"[\x00-\x1f\x7f-\x9f]")
-# ceros de ancho, marcas y cambios de sentido de escritura: un texto con ellos
-# puede parecer otra cosa de lo que dice
-_INVISIBLE_RX = re.compile(
-    "["
-    + "".join(
-        chr(c)
-        for c in (*range(0x200B, 0x2010), *range(0x202A, 0x202F), *range(0x2066, 0x206A), 0xFEFF)
-    )
-    + "]"
-)
-
-
-def _url_to_host(m: re.Match) -> str:
-    """Una URL, solo con su servidor (y puerto): sin usuario:clave@, sin ruta
-    ni parametros, que es donde viajan las claves."""
-    raw, tail = m.group(0), ""
-    while raw and raw[-1] in ".,;:!?)]}":
-        raw, tail = raw[:-1], raw[-1] + tail
-    try:
-        parts = urlsplit(raw)
-        host, port = parts.hostname or "", parts.port
-    except ValueError:
-        return "[url]" + tail
-    if not host:
-        return "[url]" + tail
-    return host + (f":{port}" if port else "") + tail
-
-
-def _walk_strings(value: object, out: set[str], depth: int = 0) -> None:
-    if depth > 4:
-        return
-    if isinstance(value, str):
-        out.add(value)
-    elif isinstance(value, dict):
-        for v in value.values():
-            _walk_strings(v, out, depth + 1)
-    elif isinstance(value, (list, tuple)):
-        for v in value:
-            _walk_strings(v, out, depth + 1)
 
 
 def _known_secrets(p: providers.Profile | None) -> list[str]:
     """Lo que no debe salir NUNCA en un texto: la clave y los valores de las
     cabeceras y de los parametros extra (ahi tambien va un «Authorization» o un
-    «api-key») del perfil que se pasa, del activo y de los de respaldo."""
-    found: set[str] = set()
-    profiles: list[providers.Profile | None] = [p]
+    «api-key») del perfil que se pasa, del activo y de los de respaldo (los
+    saca Rust de lo guardado, sin pasar los perfiles por aqui)."""
     try:
-        active = profile()
-        profiles.append(active)
-        if active:
-            profiles += providers.fallbacks(active["id"])
+        return _rust.ai_known_secrets_store(providers.PROFILES_FILE, dict(p) if p else None)
     except Exception:
         log.debug("no se pudieron leer los perfiles para limpiar un texto", exc_info=True)
-    for prof in profiles:
-        if not prof:
-            continue
-        key = prof.get("key")
-        if isinstance(key, str):
-            found.add(key)
-        _walk_strings(prof.get("headers"), found)
-        _walk_strings(prof.get("extra"), found)
-    return sorted((s for s in found if len(s) >= _MIN_SECRET), key=len, reverse=True)
+        return _rust.ai_known_secrets([dict(p)] if p else [])
 
 
 def sanitize_provider_message(text: object, p: providers.Profile | None = None) -> str:
@@ -1015,93 +815,17 @@ def sanitize_provider_message(text: object, p: providers.Profile | None = None) 
     if text is None:
         return ""
     try:
-        s = (text if isinstance(text, str) else _error_text(text))[:_SCAN_MAX]
-        for secret in _known_secrets(p):
-            s = s.replace(secret, "***")
-        s = _URL_RX.sub(_url_to_host, s)
-        s = _BEARER_RX.sub("Bearer ***", s)
-        s = _KEY_RX.sub("***", s)
-        s = _AUTH_HEADER_RX.sub(r"\1***", s)
-        s = _KV_EQ_RX.sub(r"\1=***", s)
-        s = _KV_COLON_RX.sub(r"\1\2***", s)
-        s = " ".join(_CONTROL_RX.sub(" ", _INVISIBLE_RX.sub("", s)).split())
+        s = text if isinstance(text, str) else _error_text(text)
+        return _rust.ai_sanitize(s, _known_secrets(p))
     except Exception:  # noqa: BLE001
         return "error del proveedor"
-    if len(s) <= MAX_PROVIDER_MESSAGE:
-        return s
-    return s[: MAX_PROVIDER_MESSAGE - 1].rstrip() + "…"
 
 
 def describe_error(e: Exception, p: providers.Profile | None = None) -> str:
     """Un fallo del proveedor, en una frase que el usuario entienda."""
-    name = (p or {}).get("name") or "el proveedor"
-    text = _error_text(e)
-    low = text.lower()
-    # primero lo que dice el texto sin dudas y despues el codigo (ver
-    # `classify_failure`): un 429 de OpenAI sin saldo no es «espera», un 429 de
-    # Gemini por minuto no es «sin credito» y un 403 de moderacion no es una
-    # clave mala
-    kind, status = classify_failure(e)
-    if kind == "auth":
-        return f"{name} rechaza la clave"
-    if kind == "billing":
-        return "la clave es valida pero no tiene credito"
-    if kind == "rate":
-        return f"{name} pide esperar (limite de peticiones)"
-    if status == 403:
-        return f"{name} ha rechazado esta petición (403); si se repite, revisa la clave y el modelo"
-    if status in (401, 403) or any(
-        x in low
-        for x in (
-            "401",
-            "403",
-            "unauthorized",
-            "invalid api key",
-            "invalid_api_key",
-            "authentication",
-            "incorrect api key",
-            "permission",
-        )
-    ):
-        return f"{name} rechaza la clave"
-    if status == 402 or any(
-        x in low for x in ("402", "insufficient", "credit", "balance", "billing", "quota")
-    ):
-        return "la clave es valida pero no tiene credito"
-    if status == 429 or "429" in low or "rate limit" in low:
-        return f"{name} pide esperar (limite de peticiones)"
-    if status == 404 or any(
-        x in low
-        for x in (
-            "404",
-            "not found",
-            "does not exist",
-            "no such model",
-            "not_found",
-            "unknown model",
-            "model not",
-        )
-    ):
-        return "ese modelo no existe en " + name + " (o la URL no es la de la API)"
-    if any(
-        x in low
-        for x in (
-            "connection",
-            "timeout",
-            "timed out",
-            "resolve",
-            "network",
-            "unreachable",
-            "refused",
-            "nodename",
-        )
-    ):
-        if p is not None and p.get("local"):
-            return f"no hay nada escuchando en {p['base_url']}: ¿esta arrancado {name}?"
-        return f"no hay conexion con {name}"
-    if "ssl" in low or "certificate" in low:
-        return "fallo de certificado al conectar (¿URL con https correcta?)"
-    return sanitize_provider_message(text, p)
+    return _rust.ai_describe(
+        _error_text(e), _status_of(e), dict(p) if p else None, _known_secrets(p)
+    )
 
 
 def _one_token(client, model: str, p: providers.Profile) -> None:
@@ -1131,20 +855,7 @@ def _ping(client, model: str, p: providers.Profile) -> tuple[bool, str, int]:
         return False, describe_error(e, p), int((time.monotonic() - t0) * 1000)
 
 
-_PROBE_TOOL = [
-    {
-        "type": "function",
-        "function": {
-            "name": "saluda",
-            "description": "Saluda al usuario por su nombre.",
-            "parameters": {
-                "type": "object",
-                "properties": {"nombre": {"type": "string"}},
-                "required": ["nombre"],
-            },
-        },
-    }
-]
+_PROBE_TOOL = _rust.ai_probe_tool()
 
 
 def _probe_tools(client, model: str, p: providers.Profile) -> tuple[bool, str]:
@@ -1180,13 +891,11 @@ def _probe_tools(client, model: str, p: providers.Profile) -> tuple[bool, str]:
                 waited += 1
                 time.sleep(2.5)
                 continue
-            dropped = next(
-                (w for w, rx in _HINTS if rx.search(text) and _droppable(kwargs, w)), None
-            )
+            dropped = _first_droppable(kwargs, text)
             if dropped:
                 _strip(kwargs, dropped)
                 continue
-            if _TOOLS_HINT.search(text) or re.search(r"\btools?\b", text, re.I):
+            if _rust.ai_tools_hint(text) or _rust.ai_mentions_tools(text):
                 return False, "este modelo no admite herramientas: el asistente no puede usarlo"
             return False, describe_error(e, p)
     return False, "no se pudo comprobar si admite herramientas"
@@ -1331,53 +1040,24 @@ VERIFY_TIMEOUT = 12
 _verified: dict[str, dict] | None = None
 _verified_lock = threading.Lock()
 
-_GONE = re.compile(
-    r"no longer available|not found|does not exist|no such model|unknown model|"
-    r"not supported|unsupported|only supports|deprecated|decommissioned|"
-    r"not available|no access|not have access|permission|not allowed",
-    re.I,
-)
-
 
 def _verdict(e: Exception) -> tuple[bool | None, str]:
     """Que dice un fallo de la prueba: True, se puede usar (solo esta
     ocupado); False, con esta clave no; None, no se sabe (caido, sin red)."""
     status = getattr(e, "status_code", None)
-    text = str(e)
-    low = text.lower()
-    if status == 429 or "resource_exhausted" in low or "rate limit" in low:
-        # «limit: 0» es que el plan no incluye ese modelo; otro limite, que
-        # por hoy o por este minuto ya se gasto, pero el modelo es tuyo
-        if re.search(r"limit:\s*0\b", text):
-            return False, "tu plan no tiene cuota para este modelo"
-        return True, "limite de peticiones: ahora mismo esta ocupado"
-    if status == 402:
-        return False, "sin credito para este modelo"
-    if status in (401, 403):
-        return False, "la clave no tiene acceso a este modelo"
-    if status in (400, 404, 405, 410, 422) or (status is None and _GONE.search(text)):
-        return False, _gone_reason(text)
-    return None, "no contesto al probarlo (saturado o lento): puede fallar"
+    if status is not None and not (isinstance(status, int) and not isinstance(status, bool)):
+        status = -1  # algo que no es un codigo: ni ese ni ninguno
+    return _rust.ai_verdict(status, str(e), _known_secrets(None))
 
 
 def _gone_reason(text: str) -> str:
     """Por que no sirve, en español si se reconoce; si no, el «message» del
     error del proveedor sin el resto del volcado."""
-    low = text.lower()
-    if re.search(r"no longer available|deprecated|decommissioned|retired", low):
-        return "retirado: ya no se ofrece a claves nuevas"
-    if re.search(r"only supports|not supported|unsupported", low):
-        return "no funciona por chat (es para otro uso)"
-    if re.search(r"not found|does not exist|no such model|unknown model", low):
-        return "no existe para esta clave"
-    m = re.search(r"""['"]message['"]:\s*['"](.+?)(?:\\n|['"],|['"]\})""", text)
-    t = m.group(1) if m else re.sub(r"^Error code: \d+ - ", "", text)
-    return sanitize_provider_message(t.split(". ")[0])[:140]
+    return _rust.ai_gone_reason(text, _known_secrets(None))
 
 
 def _verify_key(p: providers.Profile, model: str) -> str:
-    fp = hashlib.sha256(p["key"].encode()).hexdigest()[:16]
-    return f"{p['base_url']}|{fp}|{model}"
+    return _rust.ai_verify_key(p["base_url"], p["key"], model)
 
 
 def _load_verified() -> dict[str, dict]:
@@ -1474,46 +1154,23 @@ def _usable(models: list[dict], p: providers.Profile, recheck: bool = False):
 
 
 def _anonymous_ok(mid: str, extra: dict, rule: dict) -> bool:
-    if rule.get("suffix"):
-        return mid.endswith(rule["suffix"])
-    return extra.get(rule.get("field")) == rule.get("value")
+    return _rust.ai_anonymous_ok(mid, _jsonable(extra), dict(rule))
+
+
+def _jsonable(value):
+    """Lo que trae el /models de un proveedor, en tipos de JSON (un SDK puede
+    meter fechas u otros objetos: van como texto)."""
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except (TypeError, ValueError):
+        return {}
 
 
 def _merge(mid: str, extra: dict, p: providers.Profile) -> dict:
     """La ficha de un modelo: lo que dice el proveedor mas lo que sabe el
     catalogo. OpenRouter cuenta precio y parametros en su propio /models."""
-    info = model_catalog.lookup(p.get("models_dev"), mid) or {}
-    out = {
-        "id": mid,
-        "name": info.get("name") or str(extra.get("name") or mid),
-        "tools": info.get("tools"),
-        "json": info.get("json"),
-        "reasoning": info.get("reasoning", False),
-        "cost_in": info.get("cost_in"),
-        "cost_out": info.get("cost_out"),
-        "context": info.get("context") or extra.get("context_length"),
-        "released": info.get("released") or "",
-        "deprecated": bool(info.get("deprecated")),
-        "known": bool(info),
-    }
-    params = extra.get("supported_parameters")
-    if isinstance(params, list):
-        out["tools"] = "tools" in params
-        out["json"] = "response_format" in params or "structured_outputs" in params
-    pricing = extra.get("pricing")
-    if isinstance(pricing, dict):
-        try:
-            out["cost_in"] = round(float(pricing.get("prompt", 0)) * 1_000_000, 4)
-            out["cost_out"] = round(float(pricing.get("completion", 0)) * 1_000_000, 4)
-        except (TypeError, ValueError):
-            pass
-    created = extra.get("created")
-    if not out["released"] and isinstance(created, (int, float)) and created > 0:
-        out["released"] = time.strftime("%Y-%m-%d", time.gmtime(created))
-    # Kilo dice si el modelo puede entrenar con lo que le mandas: eso se enseña
-    if extra.get("mayTrainOnYourPrompts") is True:
-        out["trains"] = True
-    return out
+    info = model_catalog.lookup(p.get("models_dev"), mid)
+    return _rust.ai_merge(mid, _jsonable(extra), info)
 
 
 def try_free(order=None, timeout: float = 20) -> dict:
@@ -1569,36 +1226,14 @@ def try_free(order=None, timeout: float = 20) -> dict:
 # La forma exacta de lo que devuelve la identificacion. Con un modelo que
 # admite salida con esquema (lo dice el catalogo) se le exige; con los demas
 # se pide «un objeto JSON» y se extrae del texto.
-SONG_SCHEMA = {
-    "name": "song",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "artist": {"type": "string"},
-            "title": {"type": "string"},
-            "feat": {"type": "string"},
-            "extra": {"type": "string"},
-            "category": {
-                "type": "string",
-                "enum": ["song", "track", "tutorial", "sequence", "unknown"],
-            },
-            "confidence": {"type": "number"},
-        },
-        "required": ["artist", "title", "feat", "extra", "category", "confidence"],
-    },
-}
+SONG_SCHEMA = _rust.ai_song_schema()
 
 
 def json_format(schema: dict | None = None) -> dict:
     """El `response_format` mas fuerte que admite el modelo activo."""
     p = profile()
-    if schema and p:
-        info = model_catalog.lookup(p.get("models_dev"), p["model"])
-        if info and info.get("json") is True:
-            return {"type": "json_schema", "json_schema": schema}
-    return {"type": "json_object"}
+    info = model_catalog.lookup(p.get("models_dev"), p["model"]) if schema and p else None
+    return _rust.ai_json_format(schema, info)
 
 
 def _json_from(text: str) -> dict | None:
@@ -1608,21 +1243,7 @@ def _json_from(text: str) -> dict | None:
     (JSON valido las tres), y quien llama hace `.get` sobre lo que recibe;
     eso era un 500 en la ficha y en «Completar con IA».
     """
-    text = re.sub(r"^```(?:json)?|```$", "", (text or "").strip(), flags=re.MULTILINE).strip()
-    try:
-        data = json.loads(text)
-    except ValueError:
-        data = None
-    if isinstance(data, dict):
-        return data
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
-        try:
-            data = json.loads(m.group(0))
-        except ValueError:
-            return None
-        return data if isinstance(data, dict) else None
-    return None
+    return _rust.ai_json_from(text or "")
 
 
 def resolve(file_name: str, known_artists=None, extra_hint="") -> dict | None:
@@ -1650,19 +1271,7 @@ def resolve(file_name: str, known_artists=None, extra_hint="") -> dict | None:
         return {"error": describe_error(e, profile())}
     if not data:
         return None
-    try:
-        confidence = float(data.get("confidence", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        confidence = 0.0
-    return {
-        "artist": str(data.get("artist", "")).strip(),
-        "title": str(data.get("title", "")).strip(),
-        "feat": str(data.get("feat", "")).strip(),
-        "extra": str(data.get("extra", "")).strip(),
-        "category": str(data.get("category", "unknown")).strip().lower(),
-        "confidence": confidence,
-        "source": "ai",
-    }
+    return _rust.ai_identified(data)
 
 
 def ask(

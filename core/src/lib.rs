@@ -20,6 +20,7 @@ pub mod etiquetas;
 pub mod fuera;
 pub mod habla;
 pub mod huella;
+pub mod ia;
 pub mod indice;
 pub mod json;
 pub mod library;
@@ -192,6 +193,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     separar::register(m)?;
     estructura::register(m)?;
     pistas::register(m)?;
+    ia::register(m)?;
     Ok(())
 }
 
