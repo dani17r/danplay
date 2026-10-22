@@ -157,7 +157,7 @@ def warm_in_background(delay: float = 2.0) -> threading.Thread | None:
         except Exception:
             log.debug("no se pudo precargar el SDK de openai", exc_info=True)
 
-    t = threading.Thread(target=run, name="danplay-ia-precarga", daemon=True)
+    t = threading.Thread(target=run, name="danplay-ai-preload", daemon=True)
     t.start()
     return t
 

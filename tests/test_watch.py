@@ -278,7 +278,7 @@ def test_choosing_the_moved_folder_brings_everything_back(client, lib):
     assert r["action"] == "relocated"
     assert r["notice"]["other"] == str(root)
     assert [f["path"] for f in r["folders"]] == [str(new)], "la carpeta vieja se quedo"
-    run_job(client, "/api/scan", "escaneo")
+    run_job(client, "/api/scan", "scan")
     assert _ids() == ids
     assert all(s["path"].startswith(str(new)) for s in library.search("", limit=10))
     assert len(playlists.songs(sunday["id"])) == 3
@@ -331,7 +331,7 @@ def test_removing_a_folder_and_adding_it_again_keeps_the_ids(client, lib):
     client.delete("/api/folders", params={"path": str(root)})
     assert client.get("/api/status").json()["stats"]["total"] == 0
     client.post("/api/folders", json={"path": str(root)})
-    run_job(client, "/api/scan", "escaneo")
+    run_job(client, "/api/scan", "scan")
     assert _ids() == ids
 
 

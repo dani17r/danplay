@@ -974,8 +974,8 @@ def test_reserved_windows_names_get_out_of_the_way():
 def test_names_do_not_end_in_a_dot_or_a_space():
     """Windows los quita al crear el archivo, y luego la ruta guardada en el
     indice ya no coincide con la de verdad."""
-    for input in ("Cancion.", "Cancion ", "Cancion. ", "Cancion..."):
-        cleaned = N.sanitize(input)
+    for name in ("Cancion.", "Cancion ", "Cancion. ", "Cancion..."):
+        cleaned = N.sanitize(name)
         assert not cleaned.endswith((".", " ")), repr(cleaned)
 
 

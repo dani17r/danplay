@@ -360,7 +360,7 @@ def _orphan_guard() -> None:
             if os.getppid() != parent:
                 os._exit(3)
 
-    threading.Thread(target=watch, name="danplay-huerfano", daemon=True).start()
+    threading.Thread(target=watch, name="danplay-orphan", daemon=True).start()
 
 
 def main(argv=None) -> int:

@@ -122,7 +122,7 @@ pub fn manifest(
         .cloned()
         .unwrap_or(Value::Null);
     let study = json_of(song.get("study"));
-    let waves = std::fs::read_to_string(Path::new(get_str(info, "folder")).join(stems::WAVES))
+    let waves = std::fs::read_to_string(stems::waves_path(Path::new(get_str(info, "folder"))))
         .ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .filter(Value::is_object)

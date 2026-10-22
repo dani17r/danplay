@@ -2,7 +2,7 @@
 
 El texto vive en la interfaz (desktop/src/data/terminos.js), que es quien
 lo enseña; aqui solo se guarda que se aceptaron, que version y cuando, en un
-archivo de los datos de DanPlay (`terminos.json`). Asi no se pierde aunque
+archivo de los datos de DanPlay (`terms.json`). Asi no se pierde aunque
 el WebView olvide lo suyo, y vale para todas las ventanas.
 
 Sin aceptarlos, la interfaz no deja separar en pistas, usar el asistente de
@@ -17,7 +17,7 @@ from . import __version__, config
 
 log = logging.getLogger(__name__)
 
-FILE = "terminos.json"
+FILE = "terms.json"
 
 
 def _path():

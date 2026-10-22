@@ -728,7 +728,7 @@ pub fn wave_of(samples: &[f32], rate: f64, duration: f64) -> (Vec<f64>, Vec<f64>
     (peaks, rms)
 }
 
-/// Lo que se escribe en `.danplay-ondas.json` de una secuencia: la onda de
+/// Lo que se escribe en `.danplay-waveforms.json` de una secuencia: la onda de
 /// cada pista, todas a la misma escala (la del pico más alto).
 pub fn waves_text(waves: &[(String, Vec<f64>, Vec<f64>)]) -> String {
     let top = waves

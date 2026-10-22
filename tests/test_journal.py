@@ -173,14 +173,34 @@ def test_the_diary_is_written_next_to_the_music(lib):
     playlists.set_songs(pl["id"], [a, b])
     library.update(b, stars=4, study=json.dumps({"speed": 0.8}))
     assert journal.write() == 2
-    for where in (root / ".danplay" / "diario.json", config.DATA_DIR / "diario.json"):
+    for where in (root / ".danplay" / "journal.json", config.DATA_DIR / "journal.json"):
         data = json.loads(where.read_text(encoding="utf-8"))
-        assert data["format"] == "danplay-diario"
+        assert data["format"] == "danplay-journal"
         lists = {p["name"]: p for p in data["playlists"]}
         assert lists["Domingo"]["songs"] == [a, b] and lists["Domingo"]["color"] == "#f80"
         gozo = next(s for s in data["songs"] if s["id"] == b)
         assert gozo["stars"] == 4 and gozo["rel"] == "Artistas/Barak/Barak - Mi Gozo.mp3"
     assert journal.write() == 0, "sin cambios no se reescribe"
+
+
+def test_the_diary_of_before_1_31_is_still_read_and_then_replaced(lib):
+    """Hasta la 1.30 era `.danplay/journal.json`, con el formato
+    «danplay-diario»: se lee igual, y al escribir el de ahora se quita."""
+    from danplay import journal
+
+    root, _ = lib
+    assert journal.write() == 2
+    new = root / ".danplay" / "journal.json"
+    old = new.with_name("diario.json")
+    data = json.loads(new.read_text(encoding="utf-8"))
+    data["format"] = "danplay-diario"
+    data["updated"] = data["updated"] + 100
+    old.write_text(json.dumps(data), encoding="utf-8")
+    new.unlink()
+    assert (journal.latest() or {}).get("updated") == data["updated"], "el de antes cuenta"
+    journal._STATE["written"] = ""
+    assert journal.write() == 2
+    assert new.is_file() and not old.exists()
 
 
 def test_a_diary_written_on_windows_is_understood_anywhere(lib):

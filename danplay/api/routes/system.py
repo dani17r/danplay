@@ -58,7 +58,7 @@ def status():
         "jobs": jobs.snapshot_all(),
         # lo ultimo que el diario recupero solo (canciones movidas que vuelven
         # a sus listas...): la interfaz lo cuenta una vez
-        "diario": journal.status(),
+        "journal": journal.status(),
     }
 
 

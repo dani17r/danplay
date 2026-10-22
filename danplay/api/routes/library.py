@@ -134,7 +134,7 @@ def remove_exclusion(pattern: Annotated[str, Query()]):
 @router.post("/api/scan", status_code=202)
 def scan():
     """Arranca el escaneo y contesta al momento; el resultado, en
-    GET /api/jobs/escaneo. El puente de Rust corta a los 60 s y con una
+    GET /api/jobs/scan. El puente de Rust corta a los 60 s y con una
     biblioteca grande el escaneo tarda mas."""
 
     def work(progress):
@@ -145,7 +145,7 @@ def scan():
         progress(message=f"{r['total']} canciones ({r['added_count']} nuevas)")
         return {**r, "stats": library.stats_of()}
 
-    return _started(*jobs.start("escaneo", work, failure="el escaneo fallo"))
+    return _started(*jobs.start("scan", work, failure="el escaneo fallo"))
 
 
 # ---------------------------------------------------------------- busqueda
@@ -251,7 +251,7 @@ def run_import(body: Annotated[ImportIn | None, Body()] = None):
             ]
         }
 
-    return _started(*jobs.start("importacion", work, failure="la importacion fallo"))
+    return _started(*jobs.start("import", work, failure="la importacion fallo"))
 
 
 @router.get("/api/convertible")
@@ -334,7 +334,7 @@ def duplicates_scan():
         )
         return report
 
-    return _started(*jobs.start("duplicados", work, failure="la busqueda de duplicados fallo"))
+    return _started(*jobs.start("duplicates", work, failure="la busqueda de duplicados fallo"))
 
 
 def duplicates_report():

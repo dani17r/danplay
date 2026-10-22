@@ -65,7 +65,7 @@ async def lifespan(_app: FastAPI):
         # sin vigilante, el diario se compara igual al arrancar
         threading.Thread(
             target=lambda: journal.after_scan(None, first=True),
-            name="danplay-diario-0",
+            name="danplay-journal-0",
             daemon=True,
         ).start()
     # el diario: lo tuyo, escrito junto a tu musica unos segundos despues de

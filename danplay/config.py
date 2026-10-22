@@ -96,6 +96,35 @@ def write_private(path: Path, text: str) -> None:
 private_dir(DATA_DIR)
 private_dir(CONFIG_DIR)
 
+# Hasta la 1.30 lo de dentro de DATA_DIR tenia nombre en castellano. Se
+# renombra una vez, al arrancar, si lo de ahora no esta ya. (Las guias
+# guardadas en el estudio apuntan a guias/: eso lo arregla la base al
+# abrirse, `library.db._old_cue_paths`.)
+OLD_DATA_NAMES = (
+    ("pulso", "beats"),
+    ("separador", "separator"),
+    ("guias", "cues"),
+    ("voces", "voices"),
+    ("aprovechar.json", "reuse.json"),
+    ("diario.json", "journal.json"),
+    ("terminos.json", "terms.json"),
+)
+
+
+def rename_old(folder: Path, names) -> None:
+    """Cambia cada nombre de antes por el de ahora dentro de `folder`."""
+    for old, new in names:
+        src, dst = folder / old, folder / new
+        try:
+            if src.exists() and not dst.exists():
+                src.rename(dst)
+        except OSError:
+            log.warning("no se pudo renombrar %s", src, exc_info=True)
+
+
+rename_old(DATA_DIR, OLD_DATA_NAMES)
+rename_old(DATA_DIR / "cues", (("prueba", "previews"),))
+
 ENV_FILE = CONFIG_DIR / "danplay.env"
 
 

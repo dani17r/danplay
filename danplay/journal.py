@@ -8,7 +8,7 @@ colores, los cifrados... Y una lista guarda canciones por su id: si la
 cancion se mueve por fuera, se vuelve a bajar o la base se pierde, en
 cualquier reproductor la lista se rompe.
 
-Aqui se guarda todo eso en un archivo, `.danplay/diario.json`, dentro de
+Aqui se guarda todo eso en un archivo, `.danplay/journal.json`, dentro de
 cada carpeta de musica (viaja con ella si la mueves a otro disco) y en los
 datos de DanPlay, con la ficha de cada cancion (ruta, nombre, tamaño,
 artista, titulo, duracion). Se escribe solo, unos segundos despues de cada
@@ -43,8 +43,8 @@ from . import config, library, names
 log = logging.getLogger(__name__)
 
 FOLDER = ".danplay"
-FILE = "diario.json"
-FORMAT = "danplay-diario"
+FILE = "journal.json"
+FORMAT = "danplay-journal"
 VERSION = 1
 # Lo que la persona pone de una cancion, como esta en la base.
 FIELDS = ("stars", "favorite", "blur", "study", "chords", "lyrics_synced", "key", "bpm")
@@ -244,7 +244,7 @@ def start() -> None:
             with contextlib.suppress(Exception):
                 write()
 
-    t = threading.Thread(target=run, name="danplay-diario", daemon=True)
+    t = threading.Thread(target=run, name="danplay-journal", daemon=True)
     _THREAD[:] = [t]
     t.start()
 

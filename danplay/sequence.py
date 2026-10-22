@@ -46,7 +46,7 @@ AUDIO = {".wav", ".wave", ".aif", ".aiff", ".flac", ".mp3", ".m4a", ".ogg", ".op
 COVERS = ("album", "cover", "folder", "front", "artwork", "portada")
 # Un .als que descomprimido pesa mas que esto no es un proyecto normal.
 MAX_ALS = 64 * 1024 * 1024
-JOB = "secuencia"
+JOB = "sequence"
 # Las que el motor hace sonar a la vez, ademas de la cancion (render::MAX_PARTS).
 MAX_TRACKS = 31
 WAVE_BUCKETS = 800

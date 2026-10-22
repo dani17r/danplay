@@ -482,7 +482,7 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   alto que vio y avisa de lo nuevo (si baja, el núcleo volvió a arrancar).
 - `POST /api/song/{id}/separate` (sin cuerpo) → `202` con lo mismo y `job`:
   a la cola, con la mejor calidad. Si la canción ya tiene las pistas
-  rápidas enteras, solo se mejoran. La cola es la tarea `separacion`; su
+  rápidas enteras, solo se mejoran. La cola es la tarea `separation`; su
   `result` es `{ separated: [{ id, title, folder, seconds, took, tracks,
   levels }], failed: [{ id, title, stage, error }], cancelled }` (una
   entrada por pasada). La primera vez baja el separador (su sha256 viaja
@@ -503,7 +503,7 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   (`BeatGrid`: `{ bpm, meter, beats, first_downbeat, phase3, phase4,
   confidence, bars }`, con `bars` el índice de cada «1», compás a compás).
   La primera vez tarda (15-20 s, un proceso aparte); luego sale de lo
-  guardado en `DATA_DIR/pulso/`. Con `?wait=false` no espera: si no está
+  guardado en `DATA_DIR/beats/`. Con `?wait=false` no espera: si no está
   guardada, `202 {pending: true}` y se calcula en segundo plano (un hilo,
   lo pedido así va delante); se vuelve a preguntar. `404` sin archivo; `503`
   si aquí no se puede (sin el grafo, sin ffmpeg): la interfaz sigue con
@@ -516,7 +516,7 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   pulsos en orden, tempo tocable, índices dentro).
 - `POST /api/song/{id}/stems/mix { tracks: [{ source, gain, pan, side?,
   mono? }], path, format?: mp3|flac|wav, speed?, pitch?, click?, cues? }` →
-  la tarea `mezcla`, con `result: { path, name, id, title }`. Solo las
+  la tarea `mix`, con `result: { path, name, id, title }`. Solo las
   pistas que suenan (`source: "song"`: la canción tal cual); `path` dentro
   de la biblioteca y sin ser una canción suya; `id` es la canción nueva si
   entra en la biblioteca (fuera de una carpeta de pistas). `click: { beats,
@@ -532,7 +532,7 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   file=&buckets=` → `{ seconds, peaks }`; `POST /api/cues/edit { file,
   start?, end?, fade_in?, fade_out?, denoise?, highpass?, normalize?,
   preview? }` → una guía nueva. Desde 1.30, `POST /api/song/{id}/cues/auto
-  { voice, bars?, beat?, sections? }` → la tarea `guia-automatica`, con
+  { voice, bars?, beat?, sections? }` → la tarea `auto-cue`, con
   `result: { sections: [{ start, end, label }], cues: [{ t, text, voice,
   file, seconds }] }` (`danplay/structure.py`); 409 si la voz no está
   bajada (se empieza a bajar).
@@ -554,9 +554,9 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   `configured` sigue siendo «hay alguna carpeta dada de alta», exista o no.
 - `/api/convert` body: `{ dry_run, quality, keep }`. Con `dry_run` contesta
   al momento; sin él es la tarea larga `conversion`.
-- **Tareas largas**: `POST /api/scan` (`escaneo`), `POST /api/import`
-  (`importacion`, también con `dry_run`), `POST /api/convert` sin `dry_run`
-  (`conversion`), `POST /api/duplicates/scan` (`duplicados`) y
+- **Tareas largas**: `POST /api/scan` (`scan`), `POST /api/import`
+  (`import`, también con `dry_run`), `POST /api/convert` sin `dry_run`
+  (`conversion`), `POST /api/duplicates/scan` (`duplicates`) y
   `POST /api/youtube/update` (`yt-dlp`) arrancan en segundo plano y contestan
   `202 { job }` al momento. Si ya hay una en marcha con ese nombre, `202` con
   esa y `already_running: true` (antes `409`). Se sigue con

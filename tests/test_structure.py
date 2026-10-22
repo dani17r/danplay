@@ -301,7 +301,7 @@ def _near(found, truth, unit=BAR):
 def test_the_automatic_guide_finds_the_parts_and_says_them(song):
     client, cid, *_ = song
     body = {"voice": "st-F1", "bars": [i * BAR for i in range(40)], "beat": 0.5}
-    r = run_job(client, f"/api/song/{cid}/cues/auto", "guia-automatica", json=body)
+    r = run_job(client, f"/api/song/{cid}/cues/auto", "auto-cue", json=body)
     sections = r["sections"]
     assert _near([s["start"] for s in sections], TRUTH), sections
     assert sections[-1]["end"] == pytest.approx(80.0, abs=0.1)
@@ -314,7 +314,7 @@ def test_the_automatic_guide_finds_the_parts_and_says_them(song):
         assert c["voice"] == "st-F1" and c["seconds"] == 0.5 and c["file"].endswith(".wav")
         assert c["t"] == pytest.approx(s["start"] - 1.0, abs=0.01)
     # sin compases (trozos de 2 s), las mismas partes
-    r = run_job(client, f"/api/song/{cid}/cues/auto", "guia-automatica", json={"voice": "st-F1"})
+    r = run_job(client, f"/api/song/{cid}/cues/auto", "auto-cue", json={"voice": "st-F1"})
     assert _near([s["start"] for s in r["sections"]], TRUTH), r["sections"]
 
 
@@ -338,7 +338,7 @@ def test_with_its_stems_the_intro_and_the_end_are_where_nobody_sings(song):
     library.update(cid, stems=json.dumps({"folder": "Separadas/Prueba - Partes"}))
     _write(root / "Artistas" / "Prueba" / "Prueba - Partes.wav", loud + voice)
     body = {"voice": "st-F1", "bars": [i * BAR for i in range(40)], "beat": 0.5}
-    r = run_job(client, f"/api/song/{cid}/cues/auto", "guia-automatica", json=body)
+    r = run_job(client, f"/api/song/{cid}/cues/auto", "auto-cue", json=body)
     sections = r["sections"]
     assert _near([s["start"] for s in sections], TRUTH), sections
     assert _labels(sections) == ["Intro", "Estrofa 1", "Coro 1", "Estrofa 2", "Coro 2", "Final"]
@@ -362,7 +362,7 @@ def test_named_parts_are_used_as_they_are(song, monkeypatch):
             {"start": 10, "label": "Coro"},
         ],
     }
-    r = run_job(client, f"/api/song/{cid}/cues/auto", "guia-automatica", json=body)
+    r = run_job(client, f"/api/song/{cid}/cues/auto", "auto-cue", json=body)
     assert r["sections"] == [
         {"start": 0.0, "end": 10.0, "label": "Intro"},
         {"start": 10.0, "end": 30.5, "label": "Coro"},
@@ -396,5 +396,5 @@ def test_a_song_too_short_has_no_parts(song):
     short = next(x for x in library.search("", limit=100) if x["file"] == "Barak - Mi Gozo.mp3")
     r = client.post(f"/api/song/{short['id']}/cues/auto", json={"voice": "st-F1"})
     assert r.status_code == 202
-    job = jobs.wait("guia-automatica")
+    job = jobs.wait("auto-cue")
     assert job is not None and "demasiado corta" in job["error"]

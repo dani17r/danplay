@@ -1,7 +1,7 @@
 """Las guias habladas del modo estudio: lo que se oye en un punto de la
 cancion («Coro», «Puente, cuatro tiempos», «Sube medio tono»), como la pista
 «Guide» de una secuencia. Se escribe y la dice una voz, o se graba con el
-microfono; queda en un archivo de DATA_DIR/guias/ y el motor lo hace sonar
+microfono; queda en un archivo de DATA_DIR/cues/ y el motor lo hace sonar
 justo ahi, por la salida de las guias.
 
 Las voces, en el equipo y sin internet (salvo para bajarlas, una vez):
@@ -217,7 +217,7 @@ def install(voice_id: str, *, wait: bool = False) -> dict:
         if wait:
             work()
         else:
-            threading.Thread(target=work, name="danplay-voz", daemon=True).start()
+            threading.Thread(target=work, name="danplay-voice", daemon=True).start()
     with _LOCK:
         state = dict(_INSTALLS.get(pack) or {})
     if not state:

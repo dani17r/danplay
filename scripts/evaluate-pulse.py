@@ -96,12 +96,12 @@ def reference(ann: Path) -> tuple[np.ndarray, np.ndarray]:
 
 def run_app(files: list[Path], work: Path) -> dict:
     """`beats.rs`, con la herramienta de medida de sus pruebas."""
-    list, output = work / "lista.txt", work / "app.jsonl"
-    list.write_text("\n".join(str(f) for f in files))
+    list_file, output = work / "lista.txt", work / "app.jsonl"
+    list_file.write_text("\n".join(str(f) for f in files))
     env = {
         **os.environ,
-        "DANPLAY_PULSO_LISTA": str(list),
-        "DANPLAY_PULSO_SALIDA": str(output),
+        "DANPLAY_BEATS_LIST": str(list_file),
+        "DANPLAY_BEATS_RESULTS": str(output),
         "PYO3_BUILD_EXTENSION_MODULE": "1",
     }
     subprocess.run(

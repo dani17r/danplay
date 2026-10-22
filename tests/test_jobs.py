@@ -95,11 +95,11 @@ def test_the_status_carries_a_copy_of_the_jobs(configured_library):
     lib, _ = configured_library
     library.add_folder(lib)
     c = TestClient(api.app)
-    result = run_job(c, "/api/scan", "escaneo")
+    result = run_job(c, "/api/scan", "scan")
     assert result["total"] == 3 and result["stats"]["total"] == 3
     status = c.get("/api/status").json()
-    assert status["jobs"]["escaneo"]["result"]["total"] == 3
-    assert c.get("/api/jobs/escaneo").json()["message"] == "3 canciones (3 nuevas)"
+    assert status["jobs"]["scan"]["result"]["total"] == 3
+    assert c.get("/api/jobs/scan").json()["message"] == "3 canciones (3 nuevas)"
     assert c.get("/api/jobs/no-existe").status_code == 404
 
 
@@ -124,7 +124,7 @@ def test_asking_for_a_scan_while_one_runs_returns_the_same(configured_library, m
     assert second.json()["already_running"] is True
     assert second.json()["job"]["started"] == first.json()["job"]["started"]
     gate.set()
-    jobs.wait("escaneo")
+    jobs.wait("scan")
 
 
 def test_a_real_convert_is_a_job_and_a_dry_run_is_not(configured_library, monkeypatch):
@@ -157,13 +157,13 @@ def test_import_is_a_job_that_counts_each_file(configured_library):
     library.add_folder(lib)
     make_mp3(config.INBOX / "New Wine - Nueva.mp3", artist="New Wine", title="Nueva")
     c = TestClient(api.app)
-    result = run_job(c, "/api/import", "importacion", json={})
+    result = run_job(c, "/api/import", "import", json={})
     assert [r["action"] for r in result["results"]] == ["moved"]
     assert pathlib.PurePath(result["results"][0]["target"]).parts == (
         "Artistas",
         "New Wine",
         "New Wine - Nueva.mp3",
     )
-    job = c.get("/api/jobs/importacion").json()
+    job = c.get("/api/jobs/import").json()
     assert job["done"] == job["total"] == 1
     assert any(s["title"] == "Nueva" for s in library.search("Nueva")), "entra en el indice"

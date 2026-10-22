@@ -24,7 +24,7 @@ def test_accepting_is_remembered(client, tmp_path):
     assert r.status_code == 200
     got = r.json()
     assert got["accepted"] == "2026-10-16" and got["app"] == __version__ and got["at"]
-    assert (tmp_path / "datos" / "terminos.json").is_file()
+    assert (tmp_path / "datos" / "terms.json").is_file()
     assert terms.status()["accepted"] == "2026-10-16"
     # otra version, la de despues
     client.post("/api/terms/accept", json={"version": "2027-01-01"})
@@ -41,7 +41,7 @@ def test_a_strange_version_is_refused(client, bad):
 def test_a_broken_file_counts_as_not_accepted(client, tmp_path):
     folder = tmp_path / "datos"
     folder.mkdir(parents=True)
-    (folder / "terminos.json").write_text("{roto", encoding="utf-8")
+    (folder / "terms.json").write_text("{roto", encoding="utf-8")
     assert client.get("/api/terms").json()["accepted"] == ""
-    (folder / "terminos.json").write_text('{"version": "../../x"}', encoding="utf-8")
+    (folder / "terms.json").write_text('{"version": "../../x"}', encoding="utf-8")
     assert client.get("/api/terms").json()["accepted"] == ""

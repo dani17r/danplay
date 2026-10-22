@@ -8,7 +8,7 @@
 //! canciones por su id: si la canción se mueve por fuera, se vuelve a bajar o
 //! la base se pierde, en cualquier reproductor la lista se rompe.
 //!
-//! Aquí se guarda todo eso en un archivo, `.danplay/diario.json`, dentro de
+//! Aquí se guarda todo eso en un archivo, `.danplay/journal.json`, dentro de
 //! cada carpeta de música (viaja con ella si la mueves a otro disco) y en los
 //! datos de DanPlay, con la ficha de cada canción (ruta, nombre, tamaño,
 //! artista, título, duración). Y al abrir DanPlay o al cambiar algo en las
@@ -37,8 +37,12 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 pub const FOLDER: &str = ".danplay";
-pub const FILE: &str = "diario.json";
-pub const FORMAT: &str = "danplay-diario";
+pub const FILE: &str = "journal.json";
+pub const FORMAT: &str = "danplay-journal";
+/// El nombre y el formato de hasta la 1.30: se siguen leyendo, y al
+/// escribir el de ahora se quita el de antes.
+pub const LEGACY_FILE: &str = "diario.json";
+pub const LEGACY_FORMAT: &str = "danplay-diario";
 pub const VERSION: i64 = 1;
 /// Lo que la persona pone de una canción, como está en la base.
 pub const FIELDS: [&str; 8] = [
@@ -328,16 +332,37 @@ pub fn write_to(path: &Path, text: &str) -> bool {
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".part");
     let tmp = PathBuf::from(tmp);
-    std::fs::write(&tmp, text)
+    let ok = std::fs::write(&tmp, text)
         .and_then(|()| std::fs::rename(&tmp, path))
-        .is_ok()
+        .is_ok();
+    if ok && path.file_name().is_some_and(|n| n == FILE) {
+        // el de antes de la 1.31, si quedaba: ya está todo en el de ahora
+        let _ = std::fs::remove_file(path.with_file_name(LEGACY_FILE));
+    }
+    ok
 }
 
 /// El diario de ese archivo, si es uno de DanPlay.
 pub fn load(path: &Path) -> Option<Dict> {
-    let text = std::fs::read_to_string(path).ok()?;
+    let text = std::fs::read_to_string(path)
+        .or_else(|e| {
+            // el de antes de la 1.31 (`diario.json`), si solo está ese
+            if path.file_name().is_some_and(|n| n == FILE) {
+                std::fs::read_to_string(path.with_file_name(LEGACY_FILE))
+            } else {
+                Err(e)
+            }
+        })
+        .ok()?;
     match serde_json::from_str::<Value>(&text).ok()? {
-        Value::Object(d) if d.get("format").and_then(Value::as_str) == Some(FORMAT) => Some(d),
+        Value::Object(d)
+            if matches!(
+                d.get("format").and_then(Value::as_str),
+                Some(FORMAT | LEGACY_FORMAT)
+            ) =>
+        {
+            Some(d)
+        }
         _ => None,
     }
 }

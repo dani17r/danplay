@@ -41,7 +41,7 @@ from .api import jobs
 
 log = logging.getLogger(__name__)
 
-AUTO_JOB = "guia-automatica"
+AUTO_JOB = "auto-cue"
 
 RATE = 22050
 WINDOW = 4096

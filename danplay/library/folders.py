@@ -202,10 +202,6 @@ def _excluded(dir_path, dir_name, exclusions) -> bool:
     return _rust.folders_excluded(_s(dir_path), dir_name, exclusions)
 
 
-# El archivo que marca una carpeta de pistas separadas (ver danplay/stems.py).
-STEMS_MANIFEST = ".danplay-pistas.json"
-
-
 def audio_files(root, exclusions=None, stems=None):
     """Los archivos de audio de la carpeta, sin las excluidas ni las de pistas
     separadas. En `stems` (un dict) se apuntan estas ultimas."""

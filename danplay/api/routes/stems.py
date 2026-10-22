@@ -115,7 +115,7 @@ def export_mix(cid: int, body: Annotated[StemMixIn, Body()]):
     return JSONResponse(_started(snap, already), status_code=202)
 
 
-@router.post("/api/celular", status_code=202)
+@router.post("/api/bundle", status_code=202)
 def to_phone(body: Annotated[IdsIn, Body()]):
     """Prepara las canciones para la app del celular, cada una en su
     `.danpista` dentro de `Celular/` (trabajo «celular»). Las que no tienen

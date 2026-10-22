@@ -2,7 +2,7 @@
 //!
 //! El texto vive en la interfaz (desktop/src/data/terminos.js), que es quien
 //! lo enseña; aquí solo se guarda que se aceptaron, qué versión y cuándo, en
-//! un archivo de los datos de DanPlay (`terminos.json`). Así no se pierde
+//! un archivo de los datos de DanPlay (`terms.json`). Así no se pierde
 //! aunque el WebView olvide lo suyo, y vale para todas las ventanas.
 //!
 //! Sin aceptarlos, la interfaz no deja separar en pistas, usar el asistente
@@ -12,7 +12,7 @@ use crate::py;
 use serde_json::Value;
 use std::path::Path;
 
-pub const FILE: &str = "terminos.json";
+pub const FILE: &str = "terms.json";
 
 /// Una versión de los términos: su fecha (AAAA-MM-DD) o un número
 /// (`^[0-9][0-9A-Za-z.\-]{0,31}$`, con el `$` de Python, que deja pasar un

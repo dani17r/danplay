@@ -9,23 +9,49 @@
 //! ```text
 //!     Separadas/Miel San Marcos - Que Se Abra El Cielo/
 //!         Bateria.flac  Voces.flac  Bajo.flac  Guitarra.flac  Piano.flac  Otros.flac
-//!         .danplay-pistas.json   de qué canción son, con qué redes, qué hay
-//!         .danplay-ondas.json    la forma de onda de cada pista
+//!         .danplay-stems.json    de qué canción son, con qué redes, qué hay
+//!         .danplay-waveforms.json la forma de onda de cada pista
 //! ```
 //!
 //! Como todo lo que el usuario crea, no depende de la base: la carpeta dice de
-//! qué canción es (`.danplay-pistas.json`), y un escaneo vuelve a unirlas si
+//! qué canción es (`.danplay-stems.json`), y un escaneo vuelve a unirlas si
 //! el índice se pierde.
 use crate::index::{Dict, begin, fetch_all, fetch_one, get_str, now};
 use crate::py;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const FOLDER: &str = "Separadas";
-pub const MANIFEST: &str = ".danplay-pistas.json";
-pub const WAVES: &str = ".danplay-ondas.json";
+pub const MANIFEST: &str = ".danplay-stems.json";
+pub const WAVES: &str = ".danplay-waveforms.json";
+/// Los nombres de hasta la 1.30. Se siguen leyendo; el manifiesto se
+/// reescribe con el de ahora la próxima vez que se toca la carpeta.
+pub const LEGACY_MANIFEST: &str = ".danplay-pistas.json";
+pub const LEGACY_WAVES: &str = ".danplay-ondas.json";
+
+/// El archivo `name` de la carpeta, o el de antes (`legacy`) si solo está ese.
+fn current_or_legacy(folder: &Path, name: &str, legacy: &str) -> PathBuf {
+    let path = folder.join(name);
+    if !path.exists() {
+        let old = folder.join(legacy);
+        if old.exists() {
+            return old;
+        }
+    }
+    path
+}
+
+/// El manifiesto de una carpeta de pistas, con su nombre de ahora o el de antes.
+pub fn manifest_path(folder: &Path) -> PathBuf {
+    current_or_legacy(folder, MANIFEST, LEGACY_MANIFEST)
+}
+
+/// La onda de cada pista de una carpeta, con su nombre de ahora o el de antes.
+pub fn waves_path(folder: &Path) -> PathBuf {
+    current_or_legacy(folder, WAVES, LEGACY_WAVES)
+}
 
 /// Cada fuente de Demucs en castellano: cómo se llama su archivo (sin
 /// tildes, como todos los de la casa) y cómo se enseña. En el orden del
@@ -107,7 +133,7 @@ pub fn folder_of(song: &Dict, library: &str) -> Option<String> {
 
 /// El manifiesto de una carpeta de pistas, si lo tiene y es un diccionario.
 pub fn read_manifest(folder: &str) -> Option<Dict> {
-    let text = std::fs::read_to_string(Path::new(folder).join(MANIFEST)).ok()?;
+    let text = std::fs::read_to_string(manifest_path(Path::new(folder))).ok()?;
     match serde_json::from_str::<Value>(&text).ok()? {
         Value::Object(o) => Some(o),
         _ => None,
@@ -121,7 +147,7 @@ pub fn read_manifest(folder: &str) -> Option<Dict> {
 pub fn info(song: &Dict, library: &str) -> Option<Dict> {
     let folder = folder_of(song, library)?;
     let manifest = read_manifest(&folder)?;
-    let waves = std::fs::read_to_string(Path::new(&folder).join(WAVES))
+    let waves = std::fs::read_to_string(waves_path(Path::new(&folder)))
         .ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .unwrap_or_else(|| Value::Object(Dict::new()));
@@ -272,7 +298,7 @@ pub fn target_for(song: &Dict) -> String {
 
 /// La carpeta es de pistas separadas (el escaneo no la mete en la biblioteca).
 pub fn is_stems_dir(path: &str) -> bool {
-    Path::new(&py::join(path, MANIFEST)).is_file()
+    manifest_path(Path::new(path)).is_file()
 }
 
 /// `{fuente: "<Io>.flac"}`: cómo se llama cada pista al separar.
@@ -428,7 +454,7 @@ pub fn relink(conn: &Connection, found: &[(String, Dict)]) -> rusqlite::Result<u
             _ => String::new(),
         };
         let path = py::normpath(&py::join(get_str(&r, "root"), &rel));
-        if !rel.is_empty() && Path::new(&py::join(&path, MANIFEST)).is_file() {
+        if !rel.is_empty() && manifest_path(Path::new(&path)).is_file() {
             linked.push(path);
             continue;
         }

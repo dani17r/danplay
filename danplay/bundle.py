@@ -53,7 +53,7 @@ FOLDER = "Celular"
 EXTENSION = ".danpista"
 MANIFEST = "pista.json"
 PARTS = "partes"
-JOB = "celular"
+JOB = "bundle"
 # Lo que entiende la app del celular. Si cambia de forma que una app vieja no
 # lo pueda leer, sube; si solo se añade algo, no.
 VERSION = 1

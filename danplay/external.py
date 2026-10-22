@@ -179,6 +179,6 @@ def save_as_playlist(name: str) -> dict:
     songs = listing()
     if not songs:
         raise ValueError("la lista esta vacia")
-    list = playlists.create(name)
-    playlists.add(list["id"], [s["id"] for s in songs])
-    return {**list, "n": len(songs)}
+    playlist = playlists.create(name)
+    playlists.add(playlist["id"], [s["id"] for s in songs])
+    return {**playlist, "n": len(songs)}

@@ -349,3 +349,40 @@ def test_the_api_for_guides(configured_library, guides, monkeypatch):
     assert r.status_code == 200 and "editada-" in r.json()["file"]
     assert r.json()["seconds"] == 0.4
     assert client.post("/api/cues/edit", json={"file": guide, "fade_in": 9}).status_code == 422
+
+
+def test_the_guides_of_before_1_31_move_to_their_new_folder(
+    configured_library, tmp_path, monkeypatch
+):
+    """Hasta la 1.30 las guias estaban en DATA_DIR/guias/ (y las de prueba en
+    guias/prueba/): se renombra al arrancar, y lo guardado que apuntaba alli
+    (en la base o en las etiquetas) apunta a la carpeta nueva."""
+    from danplay import config, cues, library
+    from danplay.library import db
+
+    data = tmp_path / "datos"
+    monkeypatch.setattr(config, "DATA_DIR", data)
+    old = data / "guias"
+    (old / "prueba").mkdir(parents=True)
+    (old / "coro-1.wav").write_bytes(b"RIFF")
+    config.rename_old(data, config.OLD_DATA_NAMES)
+    config.rename_old(data / "cues", (("prueba", "previews"),))
+    new = data / "cues" / "coro-1.wav"
+    assert new.is_file() and (data / "cues" / "previews").is_dir() and not old.exists()
+    # lo que llega con la ruta de antes (de las etiquetas, por ejemplo)
+    assert cues.own_file(str(old / "coro-1.wav")) == str(new)
+    assert cues.own_file(str(old / "prueba" / "x.wav"), previews=True) == str(
+        data / "cues" / "previews" / "x.wav"
+    )
+    # y lo que ya estaba en la base, al abrirla
+    library.add_folder(configured_library[0])
+    library.scan()
+    cid = library.search("", limit=1, light=True)[0]["id"]
+    study = {"cues": [{"t": 1.0, "file": str(old / "coro-1.wav"), "lane": "g1"}]}
+    with library.connect() as conn:
+        conn.execute("UPDATE songs SET study = ? WHERE id = ?", (json.dumps(study), cid))
+        conn.commit()
+    db._prepared.clear()
+    with library.connect() as conn:
+        row = conn.execute("SELECT study FROM songs WHERE id = ?", (cid,)).fetchone()
+    assert json.loads(row["study"])["cues"][0]["file"] == str(new)

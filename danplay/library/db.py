@@ -9,6 +9,7 @@ una transaccion `BEGIN IMMEDIATE` (si dos procesos abren la base a la vez, el
 segundo espera y ya la encuentra migrada).
 """
 
+import json
 import logging
 import os
 import threading
@@ -424,7 +425,7 @@ def _raise_hwm(conn) -> None:
 # final, nunca tocar una que ya se reparte.
 def _add_stems_column(conn) -> None:
     """Las pistas separadas de cada cancion: donde estan y con que modelo.
-    Lo que vale esta en la carpeta (su `.danplay-pistas.json`); esto es el
+    Lo que vale esta en la carpeta (su `.danplay-stems.json`); esto es el
     indice, y un escaneo lo rehace (`stems.relink`)."""
     _add_missing_columns(conn, (("songs", "stems", "TEXT DEFAULT ''"),))
 
@@ -473,6 +474,48 @@ def _migrate(conn, fresh: bool = False) -> None:
         raise
 
 
+def _old_cue_paths(conn) -> None:
+    """Hasta la 1.30 las guias habladas estaban en DATA_DIR/guias/ (ahora
+    cues/: la renombra `config` al arrancar), y el estudio de cada cancion
+    apunta a sus archivos con la ruta entera. Lo que quede apuntando alli
+    pasa a la de ahora. (Lo que llega de las etiquetas lo traduce Rust al
+    leerlo: `library::index::songs::own_cue_file`.)"""
+    in_study, in_missing = set(), set()
+    for base in {str(config.DATA_DIR), os.path.realpath(config.DATA_DIR)}:
+        old = os.path.join(base, "guias") + os.sep
+        new = os.path.join(base, "cues") + os.sep
+        for ascii_only in (True, False):
+            # como queda dentro del JSON del estudio...
+            o = json.dumps(old, ensure_ascii=ascii_only)[1:-1]
+            n = json.dumps(new, ensure_ascii=ascii_only)[1:-1]
+            in_study.add((o, n))
+            # ...y en las apartadas, con el estudio como texto dentro del suyo
+            in_missing.add((json.dumps(o)[1:-1], json.dumps(n)[1:-1]))
+    study = "UPDATE songs SET study = replace(study, ?, ?) WHERE instr(study, ?) > 0"
+    missing = "UPDATE songs_missing SET data = replace(data, ?, ?) WHERE instr(data, ?) > 0"
+    found = any(
+        conn.execute("SELECT 1 FROM songs WHERE instr(study, ?) > 0 LIMIT 1", (o,)).fetchone()
+        for o, _ in in_study
+    ) or any(
+        conn.execute(
+            "SELECT 1 FROM songs_missing WHERE instr(data, ?) > 0 LIMIT 1", (o,)
+        ).fetchone()
+        for o, _ in in_missing
+    )
+    if not found:
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for sql, pairs in ((study, in_study), (missing, in_missing)):
+            for o, n in sorted(pairs):
+                conn.execute(sql, (o, n, o))
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    log.info("las guias del estudio apuntan ya a %s", config.DATA_DIR / "cues")
+
+
 def _prepare(conn) -> None:
     """Crea lo que falte y migra. Una vez por base y proceso (`_prepared`).
 
@@ -491,6 +534,7 @@ def _prepare(conn) -> None:
     for extra in _EXTRA_SCHEMAS:
         conn.executescript(extra)
     _migrate(conn, fresh)
+    _old_cue_paths(conn)
 
 
 def _next_song_id(conn) -> int:

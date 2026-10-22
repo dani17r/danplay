@@ -264,7 +264,7 @@ def _stems_folder(row) -> Path | None:
         rel = json.loads(row.get("stems") or "{}").get("folder")
         if rel:
             folder = Path(row.get("root") or config.LIBRARY) / rel
-            if (folder / stems.MANIFEST).is_file():
+            if stems.manifest_path(folder).is_file():
                 return folder
     return None
 
@@ -299,7 +299,7 @@ def _manifest_twin(song) -> Path | None:
     from . import stems
 
     for duration, folder in _manifest_index().get(ident(song), ()):
-        if _close(duration, song.get("duration")) and (folder / stems.MANIFEST).is_file():
+        if _close(duration, song.get("duration")) and stems.manifest_path(folder).is_file():
             return folder
     return None
 
@@ -654,7 +654,7 @@ SWEEP_VERSION = 1
 def sweep_once_in_background(delay: float = 60.0) -> bool:
     """`sweep` una sola vez por equipo, en segundo plano y pasado un rato
     (lo de este arranque primero). True si se lanzo."""
-    marker = config.DATA_DIR / "aprovechar.json"
+    marker = config.DATA_DIR / "reuse.json"
     with contextlib.suppress(OSError, ValueError):
         if json.loads(marker.read_text(encoding="utf-8")).get("version") == SWEEP_VERSION:
             return False
@@ -674,7 +674,7 @@ def sweep_once_in_background(delay: float = 60.0) -> bool:
                 encoding="utf-8",
             )
 
-    threading.Thread(target=run, name="danplay-aprovechar-todo", daemon=True).start()
+    threading.Thread(target=run, name="danplay-reuse-all", daemon=True).start()
     return True
 
 
@@ -692,7 +692,7 @@ def later(song_id: int, twin_of_missing: dict | None = None) -> None:
         _QUEUE.append((song_id, twin_of_missing))
         if _WORKER and _WORKER[0].is_alive():
             return
-        t = threading.Thread(target=_work, name="danplay-aprovechar", daemon=True)
+        t = threading.Thread(target=_work, name="danplay-reuse", daemon=True)
         _WORKER[:] = [t]
         t.start()
 

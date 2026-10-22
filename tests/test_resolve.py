@@ -1308,13 +1308,13 @@ def test_50000_songs_within_a_time_limit(db):
         ("Tú", "missing"),
         ("a", "missing"),
     ]
-    list = requested * 4  # 56 items, como una lista larga
+    items = requested * 4  # 56 items, como una lista larga
     t0 = time.perf_counter()
-    out = resolve.resolve_items([t for t, _ in list])
+    out = resolve.resolve_items([t for t, _ in items])
     total = time.perf_counter() - t0
-    assert total / len(list) < time_limit(0.3), f"{total / len(list) * 1000:.0f} ms por item"
+    assert total / len(items) < time_limit(0.3), f"{total / len(items) * 1000:.0f} ms por item"
     assert not any(r.failed for r in out)
-    for (text, state), r in zip(list, out, strict=True):
+    for (text, state), r in zip(items, out, strict=True):
         assert r.status == state, (text, r.status)
         if state != "missing":
             assert pick(r) > 50_000, text  # una de las plantadas

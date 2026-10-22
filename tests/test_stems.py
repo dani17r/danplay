@@ -158,8 +158,8 @@ def test_a_song_is_separated_into_its_own_folder(lib):
     names = sorted(p.name for p in folder.iterdir())
     assert names == sorted(
         [
-            ".danplay-ondas.json",
-            ".danplay-pistas.json",
+            ".danplay-stems.json",
+            ".danplay-waveforms.json",
             "Bajo.flac",
             "Bateria.flac",
             "Guitarra.flac",
@@ -168,7 +168,7 @@ def test_a_song_is_separated_into_its_own_folder(lib):
             "Voces.flac",
         ]
     )
-    manifest = json.loads((folder / ".danplay-pistas.json").read_text(encoding="utf-8"))
+    manifest = json.loads((folder / ".danplay-stems.json").read_text(encoding="utf-8"))
     assert manifest["quality"] == "mejor" and manifest["model"] == "htdemucs_6s+htdemucs_ft"
     assert manifest["source"]["file"] == "Barak - Mi Gozo.mp3"
     assert manifest["source"]["folder"] == os.path.join("Artistas", "Barak")
@@ -247,7 +247,7 @@ def test_what_the_song_does_not_have_is_not_a_track(lib):
     assert info["dropped"] == ["guitar", "piano"]
     folder = root / "Separadas" / "Barak - Mi Gozo"
     assert not (folder / "Piano.flac").exists()
-    manifest = json.loads((folder / ".danplay-pistas.json").read_text(encoding="utf-8"))
+    manifest = json.loads((folder / ".danplay-stems.json").read_text(encoding="utf-8"))
     assert manifest["levels"]["piano"]["db"] < -30
 
 
@@ -342,6 +342,25 @@ def test_a_lost_index_finds_the_stems_again(lib):
     # y siguen siendo las mejores: no se ofrece separarla otra vez mejor
     rows = {r["id"]: r for r in library.search("", limit=100, light=True)}
     assert rows[cid]["stems_best"]
+
+
+def test_stems_of_before_1_31_are_still_found(lib):
+    """Hasta la 1.30 el manifiesto y la onda eran `.danplay-pistas.json` y
+    `.danplay-ondas.json`: una carpeta así sigue siendo de pistas."""
+    from danplay import library
+
+    root, _ = lib
+    cid = _id("Barak - Mi Gozo.mp3")
+    _separate(cid)
+    folder = root / "Separadas" / "Barak - Mi Gozo"
+    (folder / ".danplay-stems.json").rename(folder / ".danplay-pistas.json")
+    (folder / ".danplay-waveforms.json").rename(folder / ".danplay-ondas.json")
+    library.update(cid, stems="")
+    library.scan()
+    info = _info(cid)
+    assert info is not None and info["complete"]
+    assert info["tracks"][0]["wave"] == {"peaks": [0.5, 1.0], "rms": [0.2, 0.4]}, "con su onda"
+    assert _id("Barak - Mi Gozo.mp3") == cid, "y no entran como canciones"
 
 
 def test_stems_deleted_by_hand_are_forgotten(lib):
@@ -587,7 +606,7 @@ def test_the_mix_without_drums_is_saved_and_joins_the_library(lib):
     target = root / "Pistas" / "Barak - Mi Gozo (sin bateria).mp3"
     target.parent.mkdir()
     r = run_job(
-        client, f"/api/song/{cid}/stems/mix", "mezcla", json={"tracks": tracks, "path": str(target)}
+        client, f"/api/song/{cid}/stems/mix", "mix", json={"tracks": tracks, "path": str(target)}
     )
     assert r["path"] == str(target) and target.is_file()
     assert r["title"] == "Mi Gozo (sin batería)"
@@ -840,13 +859,13 @@ def test_a_whole_set_goes_and_the_ones_without_parts_say_why(lib, monkeypatch):
     other = _id("New Wine - Shekinah.mp3")
     _separate(cid)
     client = TestClient(api.app)
-    r = run_job(client, "/api/celular", "celular", json={"ids": [other, cid, cid]})
+    r = run_job(client, "/api/bundle", "bundle", json={"ids": [other, cid, cid]})
     assert [d["id"] for d in r["done"]] == [cid]
     assert r["failed"] == [
         {"id": other, "title": "Shekinah", "error": "no tiene sus pistas separadas completas"}
     ]
     assert (root / "Celular" / "Barak - Mi Gozo.danpista").is_file()
-    assert client.post("/api/celular", json={"ids": []}).status_code == 422
+    assert client.post("/api/bundle", json={"ids": []}).status_code == 422
 
 
 # ------------------------------------------------------------------ la API
@@ -864,7 +883,7 @@ def test_the_api_separates_lists_and_deletes_stems(lib, monkeypatch):
     assert "models" not in status
     cid = _id("New Wine - Shekinah.mp3")
     assert client.get(f"/api/song/{cid}/stems").status_code == 404
-    r = run_job(client, f"/api/song/{cid}/separate", "separacion")
+    r = run_job(client, f"/api/song/{cid}/separate", "separation")
     assert [s["id"] for s in r["separated"]] == [cid, cid]
     stems = client.get(f"/api/song/{cid}/stems").json()
     assert [t["file"] for t in stems["tracks"]][:2] == ["Bateria.flac", "Voces.flac"]

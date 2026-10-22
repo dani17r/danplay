@@ -236,14 +236,14 @@ def test_dry_run_import_moves_nothing(client):
     source_path = next(iter(client.get("/api/search", params={"limit": 1}).json()["songs"]))
     shutil.copy(source_path["path"], config.INBOX / "prueba_import.mp3")
     before = len(os.listdir(config.INBOX))
-    r = run_job(client, "/api/import", "importacion", json={"dry_run": True})
+    r = run_job(client, "/api/import", "import", json={"dry_run": True})
     assert [x["action"] for x in r["results"]] == ["dry_run"]
     assert len(os.listdir(config.INBOX)) == before
     os.remove(config.INBOX / "prueba_import.mp3")
 
 
 def test_duplicates(client):
-    d = run_job(client, "/api/duplicates/scan", "duplicados")
+    d = run_job(client, "/api/duplicates/scan", "duplicates")
     assert "identical" in d and "similar" in d
     assert client.get("/api/duplicates").status_code in (404, 405), "la ruta sincrona ya no existe"
 
@@ -881,7 +881,7 @@ def test_adding_the_same_folder_twice_does_not_duplicate(client):
         assert r["action"] == "already_there"
         assert r["notice"]["kind"] == "same"
     assert len(client.get("/api/folders").json()["folders"]) == before
-    r = run_job(client, "/api/scan", "escaneo")
+    r = run_job(client, "/api/scan", "scan")
     assert r["stats"]["total"] == total_before
     assert client.get("/api/status").json()["stats"]["total"] == total_before
 
@@ -936,14 +936,14 @@ def test_exclusions_ignore_case(client):
 
     source_path = next(config.ARTISTS_DIR.rglob("*.mp3"))
     shutil.copy(source_path, config.LIBRARY / "Secuencias" / "pista.mp3")
-    run_job(client, "/api/scan", "escaneo")
+    run_job(client, "/api/scan", "scan")
     before = client.get("/api/status").json()["stats"]["total"]
 
     client.post("/api/exclusions", json={"pattern": "secuencias"})  # en minusculas
-    run_job(client, "/api/scan", "escaneo")
+    run_job(client, "/api/scan", "scan")
     after = client.get("/api/status").json()["stats"]["total"]
     client.delete("/api/exclusions", params={"pattern": "secuencias"})
-    run_job(client, "/api/scan", "escaneo")
+    run_job(client, "/api/scan", "scan")
     assert after < before, "la exclusion en minusculas no surtio efecto"
 
 
@@ -1726,7 +1726,7 @@ def test_in_browser_mode_a_plain_post_is_refused(client):
         assert client.post("/api/scan", headers=local).status_code == 403
         r = client.post("/api/scan", headers=mine)
         assert r.status_code == 202
-        jobs_mod.wait("escaneo")
+        jobs_mod.wait("scan")
         # tambien los GET: hay lecturas con efectos (la ficha de IA gasta)
         assert client.get("/api/status", headers=local).status_code == 403
         assert client.get("/api/status", headers=mine).status_code == 200

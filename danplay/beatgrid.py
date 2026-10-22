@@ -1,7 +1,7 @@
 """La rejilla de pulsos de una cancion para el metronomo del modo estudio.
 
 La calcula Beat This! (`pulse.py`) en un proceso aparte, una vez: se guarda
-en DATA_DIR/pulso/, con la ruta, el tamaño y la fecha del archivo, y la
+en DATA_DIR/beats/, con la ruta, el tamaño y la fecha del archivo, y la
 siguiente vez sale al momento. Si no se puede (sin el grafo, sin ffmpeg, una
 cancion sin pulso), quien la pide sigue con el analisis de siempre de la app
 de escritorio (`beats.rs`): el metronomo funciona igual, algo peor.
@@ -521,7 +521,7 @@ def request(path: str, *, first: bool = True) -> dict | None:
                 _QUEUE.append(path)
             del _QUEUE[MAX_QUEUE:]
         if not _WORKER:
-            t = threading.Thread(target=_work, name="danplay-pulso", daemon=True)
+            t = threading.Thread(target=_work, name="danplay-beats", daemon=True)
             _WORKER.append(t)
             t.start()
         _WAKE.notify_all()

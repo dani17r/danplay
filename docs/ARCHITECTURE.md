@@ -381,7 +381,7 @@ quería fuera.
 usuario hace cabe en las etiquetas del archivo: el orden de las listas, sus
 notas y colores, el estudio, los cifrados. Unos segundos después de cada
 cambio (un hilo que mira `library.revision()`), se escribe
-`.danplay/diario.json` dentro de cada carpeta de música (viaja con ella a
+`.danplay/journal.json` dentro de cada carpeta de música (viaja con ella a
 otro disco) y otra copia en los datos de DanPlay. Lleva las listas por ids y
 la ficha de cada canción con algo del usuario o en una lista: ruta, carpeta
 raíz y ruta relativa, nombre, tamaño, artista, título y duración, y sus
@@ -405,7 +405,7 @@ casos:
 De lo de cada canción solo se rellena lo que falta: lo que hay en la base
 manda. Las listas ya exportadas (`Listas/*.m3u8`) se reescriben con las
 rutas de ahora, así que siguen valiendo en otros reproductores. Lo
-recuperado sale en `/api/status` (`diario`) y la interfaz lo cuenta una vez.
+recuperado sale en `/api/status` (`journal`) y la interfaz lo cuenta una vez.
 El hilo no escribe hasta que se ha recuperado: una base nueva y vacía no
 puede pisar el diario que la va a rellenar.
 
@@ -574,7 +574,7 @@ la red corre en el ONNX Runtime de la biblioteca que trae el paquete
 cuenta a cuenta (sale lo mismo, bit a bit, en las 283 canciones con lo que
 oyó la red guardado). La primera vez tarda (15-20 s por canción en
 un portátil: casi todo es la red), en un proceso aparte con prioridad baja
-y cuatro hilos; se guarda en `DATA_DIR/pulso/` y luego sale al momento. La
+y cuatro hilos; se guarda en `DATA_DIR/beats/` y luego sale al momento. La
 interfaz se la pasa a Rust (`set_beat_grid`), que la usa como la suya. Si el
 núcleo no puede, Rust la saca con lo de siempre (`beats.rs`, abajo).
 
@@ -793,7 +793,7 @@ en que la red se iba al «y» y volvía. Ahora `pulse.grid`:
 - con la **batería separada**, la red se pasa también por ella y en cada
   instante manda la más segura (`pulse.combine`).
 
-Lo que dijo la red se guarda (`DATA_DIR/pulso/<clave>.npz`, float16, unos
+Lo que dijo la red se guarda (`DATA_DIR/beats/<clave>.npz`, float16, unos
 100 KB), así que cambiar la forma de sacar la rejilla o **re-analizar**
 (`POST /api/song/{id}/beats/reanalyze`: arreglar, tempo fijo, rellenar, con la
 batería; de toda la canción o de un tramo, cosido a lo de los lados) tarda
@@ -922,7 +922,7 @@ la mejora: hasta entonces todo va en FLAC, para que «Otros» salga de pistas
 sin pérdida. Se separa en una carpeta
 oculta al lado (el escaneo se salta las ocultas) y al acabar se pone en su
 sitio de golpe; si la app se cerró a mitad, la siguiente separación limpia
-lo que quedó. Junto a las pistas va `.danplay-pistas.json`, que dice de qué
+lo que quedó. Junto a las pistas va `.danplay-stems.json`, que dice de qué
 canción son: con él, el escaneo no mete las pistas en la biblioteca como
 canciones sueltas y, si el índice se pierde, las vuelve a unir con su
 canción (`stems.relink`). En el índice solo va dónde están (`songs.stems`,
@@ -1903,7 +1903,7 @@ cada versión del CHANGELOG desde la 1.20.0 está, con su fecha).
 **Los términos** salen solos la primera vez (y otra vez si sube
 `TERMS_VERSION`). La casilla no se puede marcar hasta bajar al final del
 texto, y «Aceptar» pide la casilla. Lo aceptado lo guarda el núcleo
-(`terms.py`: `terminos.json` en sus datos; `GET /api/terms`, `POST
+(`terms.py`: `terms.json` en sus datos; `GET /api/terms`, `POST
 /api/terms/accept`), no el WebView. Sin aceptarlos se puede escuchar y
 ordenar la música, pero `requireTerms()` (`useTerms.js`) para tres cosas:
 separar en pistas (`useSeparation.request`), el asistente (`useChat.send`) y

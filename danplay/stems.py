@@ -6,8 +6,8 @@ Las pistas de una cancion van en una carpeta con su nombre, dentro de
 
     Separadas/Miel San Marcos - Que Se Abra El Cielo/
         Bateria.flac  Voces.flac  Bajo.flac  Guitarra.flac  Piano.flac  Otros.flac
-        .danplay-pistas.json   de que cancion son, con que redes, que hay
-        .danplay-ondas.json    la forma de onda de cada pista
+        .danplay-stems.json    de que cancion son, con que redes, que hay
+        .danplay-waveforms.json la forma de onda de cada pista
 
 Son archivos normales: se abren con cualquier programa (un DAW, Ableton, el
 reproductor del sistema). Dentro de DanPlay suenan juntas en el modo
@@ -70,10 +70,13 @@ log = logging.getLogger(__name__)
 
 GRAPHS = Path(__file__).resolve().parent / "data" / "separator"
 FOLDER = "Separadas"
-MANIFEST = ".danplay-pistas.json"
-WAVES = ".danplay-ondas.json"
-JOB = "separacion"
-MIX_JOB = "mezcla"
+MANIFEST = ".danplay-stems.json"
+WAVES = ".danplay-waveforms.json"
+# Los nombres de hasta la 1.30: se siguen leyendo (library/src/stems.rs).
+LEGACY_MANIFEST = ".danplay-pistas.json"
+LEGACY_WAVES = ".danplay-ondas.json"
+JOB = "separation"
+MIX_JOB = "mix"
 
 # Cada fuente de Demucs en castellano: como se llama su archivo (sin tildes,
 # como todos los de la casa) y como se enseña. En el orden del mezclador (la
@@ -461,6 +464,15 @@ def _run_child(job: dict, progress) -> dict:
         return result
 
 
+def manifest_path(folder: Path) -> Path:
+    """El manifiesto de una carpeta de pistas, con su nombre de ahora o el de
+    antes de la 1.31 si solo esta ese."""
+    path = folder / MANIFEST
+    if not path.exists() and (folder / LEGACY_MANIFEST).exists():
+        return folder / LEGACY_MANIFEST
+    return path
+
+
 def _write_manifest(
     folder: Path, song: Mapping[str, Any], result: dict, quality: str, created: float
 ) -> None:
@@ -470,6 +482,8 @@ def _write_manifest(
         dict(song), dict(result), quality, created, f"DanPlay {__version__}"
     )
     (folder / MANIFEST).write_text(text, encoding="utf-8")
+    # el de antes, si lo habia: ya esta todo en el de ahora
+    (folder / LEGACY_MANIFEST).unlink(missing_ok=True)
 
 
 def _sweep(folder: Path) -> None:

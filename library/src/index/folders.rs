@@ -463,9 +463,6 @@ pub fn excluded(dir_path: &str, dir_name: &str, exclusions: &[Dict]) -> bool {
     false
 }
 
-/// El archivo que marca una carpeta de pistas separadas (ver danplay/stems.py).
-pub const STEMS_MANIFEST: &str = ".danplay-pistas.json";
-
 /// Lo que se encontró al recorrer una carpeta.
 #[derive(Debug, Default)]
 pub struct Walk {
@@ -484,8 +481,8 @@ pub struct Walk {
 /// canción, no canciones sueltas, y el escaneo no las mete en la biblioteca.
 /// Se apunta su manifiesto para unirla con su canción.
 fn stems_folder(folder: &str, found: &mut Walk) -> bool {
-    let manifest = py::join(folder, STEMS_MANIFEST);
-    if !Path::new(&manifest).is_file() {
+    let manifest = crate::stems::manifest_path(Path::new(folder));
+    if !manifest.is_file() {
         return false;
     }
     match std::fs::read_to_string(&manifest)
@@ -494,7 +491,9 @@ fn stems_folder(folder: &str, found: &mut Walk) -> bool {
     {
         Some(data @ Value::Object(_)) => found.stems.push((folder.to_owned(), data)),
         Some(_) => {}
-        None => found.unreadable.push(manifest),
+        None => found
+            .unreadable
+            .push(manifest.to_string_lossy().into_owned()),
     }
     true
 }

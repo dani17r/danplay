@@ -1119,7 +1119,7 @@ def test_the_sdk_preloads_in_the_background_only_with_ai(monkeypatch):
     assert ai.warm_in_background(delay=0) is None
     monkeypatch.setattr(ai, "available", lambda: True)
     t = ai.warm_in_background(delay=0)
-    assert t is not None and t.daemon and t.name == "danplay-ia-precarga"
+    assert t is not None and t.daemon and t.name == "danplay-ai-preload"
     t.join(timeout=120)
     assert not t.is_alive()
     import sys

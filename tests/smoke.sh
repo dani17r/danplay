@@ -86,7 +86,7 @@ envia /api/folders "{\"path\": \"$PRUEBA/Musica\"}" | grep -q '"added"' \
   && pasa "da de alta una carpeta" || falla "no dio de alta la carpeta"
 envia /api/scan '{}' >/dev/null
 i=0; while [ $i -lt 30 ]; do
-  pide /api/jobs/escaneo | grep -q '"active":false' && break; i=$((i+1)); sleep 1
+  pide /api/jobs/scan | grep -q '"active":false' && break; i=$((i+1)); sleep 1
 done
 pide /api/status | grep -q '"total":2' && pasa "escanea en segundo plano (2 canciones)" \
   || falla "el escaneo no indexo las 2 canciones"
