@@ -63,13 +63,28 @@ pub enum Error {
     Type(String),
     /// `TypeError`: `for x in v` de algo que no se recorre
     NoIterable(String),
+    /// `TypeError` con su mensaje (el de `" - ".join` con algo que no es
+    /// texto, por ejemplo)
+    TypeText(String),
+}
+
+impl Error {
+    /// El nombre de la excepción de Python (`type(e).__name__`).
+    pub fn py_type(&self) -> &'static str {
+        match self {
+            Self::Integer(_) | Self::Val(_) => "ValueError",
+            Self::Attribute(..) => "AttributeError",
+            Self::Key(_) => "KeyError",
+            Self::Type(_) | Self::NoIterable(_) | Self::TypeText(_) => "TypeError",
+        }
+    }
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Integer(v) => write!(f, "invalid literal for int() with base 10: {v}"),
-            Self::Val(m) => write!(f, "{m}"),
+            Self::Val(m) | Self::TypeText(m) => write!(f, "{m}"),
             Self::Attribute(t, a) => write!(f, "'{t}' object has no attribute '{a}'"),
             Self::Key(k) => write!(f, "{}", py::repr_str(k)),
             Self::Type(t) => write!(f, "'{t}' object is not subscriptable"),

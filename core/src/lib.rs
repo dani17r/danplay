@@ -25,6 +25,7 @@ pub mod journal;
 pub mod json;
 pub mod logging;
 pub mod names;
+pub mod plan;
 pub mod playlists;
 pub mod pulse;
 pub mod safe;
@@ -179,6 +180,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     safe::register(m)?;
     assistant::register(m)?;
     turn::register(m)?;
+    plan::register(m)?;
     speech::register(m)?;
     web::register(m)?;
     convert::register(m)?;

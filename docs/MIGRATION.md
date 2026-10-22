@@ -44,11 +44,13 @@ En Rust (con su puerta de Python):
 | 1 | el índice entero (conexión, esquema y migraciones, búsqueda, carpetas, escaneo, canciones y su estudio, «Transformar», historial), listas, lo de fuera, conversaciones, diario, nombres, etiquetas (lofty), configuración (de momento solo comparada con la de Python) |
 | 1 | convertir, forma de onda, miniaturas, huella, duplicados |
 | 2 | pulso (Beat This! con `ort`), clic, pesos de PyTorch, separar en pistas (Demucs y el Mega53), las pistas separadas, el paquete del celular, las secuencias, la estructura y la guía automática, las guías habladas y sus voces (Supertonic y Piper) |
-| 3 | teoría, cifrados, TOON, los datos de fuera (`chat/safe`), la guía hablada, la web, los proveedores de IA, su catálogo y su cliente, leer listas pegadas, emparejar con la biblioteca, la narración, lo que se le cuenta al modelo en cada turno y la lista contra un repertorio |
+| 3 | teoría, cifrados, TOON, los datos de fuera (`chat/safe`), la guía hablada, la web, los proveedores de IA, su catálogo y su cliente, leer listas pegadas, emparejar con la biblioteca, la narración, lo que se le cuenta al modelo en cada turno, la lista contra un repertorio y las confirmaciones con su plan de descarga |
 
 Siguen en Python: la API (`api/`) y sus trabajos en segundo plano, la
 rejilla del clic (`beatgrid.py`: hay un borrador probado), el resto del
-asistente (`chat/plan.py`, `tools.py`, `loop.py`), YouTube y yt-dlp,
+asistente (`chat/tools.py`, `loop.py`) y el registro de las confirmaciones
+(`chat/plan.py`: su cerrojo, sus topes y los hilos que buscan en YouTube),
+YouTube y yt-dlp,
 importar y enriquecer, el vigilante de carpetas, la línea de órdenes, y lo
 que orquesta alrededor de Rust (los hilos, los cerrojos, la red).
 
