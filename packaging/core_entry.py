@@ -13,7 +13,7 @@ que separan una cancion en pistas (danplay/separation.py) y que buscan su
 pulso y su «1» (danplay/pulse.py).
 
     danplay-core --separar TRABAJO.json
-    danplay-core --pulso GRAFO FFMPEG ARCHIVO
+    danplay-core --pulso GRAFO FFMPEG ARCHIVO [CRUDO]
 """
 
 import argparse
@@ -42,7 +42,8 @@ def main():
         from danplay.separation import main as separate
 
         return separate(sys.argv[2:])
-    if len(sys.argv) == 5 and sys.argv[1] == "--pulso":
+    # con CRUDO o sin el (desde 1.28, beatgrid siempre lo pasa)
+    if len(sys.argv) in (5, 6) and sys.argv[1] == "--pulso":
         from danplay.pulse import main as pulse
 
         return pulse(sys.argv[2:])
