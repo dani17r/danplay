@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       con_herramientas:
-        description: 'Incluir ffmpeg, fpcalc y Deno dentro del instalador (+80 MB)'
+        description: 'Incluir ffmpeg, fpcalc y QuickJS dentro del instalador (+40 MB)'
         type: boolean
         default: true
 
@@ -34,10 +34,10 @@ env:
   FFMPEG_SHA256: 60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba
   FPCALC_URL: https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-windows-x86_64.zip
   FPCALC_SHA256: 735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e
-  # YouTube ya exige un motor de JavaScript para yt-dlp; Deno es el que usa
-  # por defecto (ver danplay/youtube.py).
-  DENO_URL: https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-pc-windows-msvc.zip
-  DENO_SHA256: a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238
+  # YouTube ya exige un motor de JavaScript para yt-dlp: QuickJS-NG, un
+  # .exe suelto de 2 MB (Deno, el de antes, pesaba 93; ver danplay/ytdlp.py).
+  QJS_URL: https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe
+  QJS_SHA256: 2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77
 
 jobs:
   instalador:
@@ -80,7 +80,7 @@ jobs:
       # Lo que viaja dentro del instalador, con version fija y su sha256.
       # ffprobe ya no: lo poco que medía (una caratula, la duracion de una
       # secuencia) sale de las cabeceras de los archivos.
-      - name: ffmpeg, fpcalc y Deno
+      - name: ffmpeg, fpcalc y QuickJS
         shell: pwsh
         run: |
           $tools = "desktop/src-tauri/tools"
@@ -98,10 +98,7 @@ jobs:
           Expand-Archive fpcalc.zip -DestinationPath fpcalc-tmp
           Get-ChildItem -Recurse fpcalc-tmp -Include fpcalc.exe |
             ForEach-Object { Copy-Item $_.FullName $tools }
-          Bajar $env:DENO_URL $env:DENO_SHA256 deno.zip
-          Expand-Archive deno.zip -DestinationPath deno-tmp
-          Get-ChildItem -Recurse deno-tmp -Include deno.exe |
-            ForEach-Object { Copy-Item $_.FullName $tools }
+          Bajar $env:QJS_URL $env:QJS_SHA256 "$tools/qjs.exe"
           Get-ChildItem $tools
 
       # Las pruebas del nucleo en Windows (sin el crate de Rust, como viaja en
@@ -170,7 +167,7 @@ jobs:
           Remove-Item -Recurse -Force desktop/src-tauri/tools
           New-Item -ItemType Directory -Force -Path desktop/src-tauri/tools | Out-Null
           Set-Content desktop/src-tauri/tools/LEEME.txt `
-            "Aqui van ffmpeg.exe, fpcalc.exe y deno.exe si se quieren dentro del instalador."
+            "Aqui van ffmpeg.exe, fpcalc.exe y qjs.exe si se quieren dentro del instalador."
 
       - name: instalador
         working-directory: desktop

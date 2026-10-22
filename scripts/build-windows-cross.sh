@@ -166,7 +166,7 @@ cp -r "$NUCLEO/python" "$DESTINO/python"
 mkdir -p "$DESTINO/tools"
 cp desktop/src-tauri/tools/LEEME.txt "$DESTINO/tools/" 2>/dev/null || true
 
-# ffmpeg, fpcalc y Deno: en Windows no hay `apt install`, así que o van dentro
+# ffmpeg, fpcalc y QuickJS: en Windows no hay `apt install`, así que o van dentro
 # o no hay conversión de formatos, ni huella acústica, ni .opus/.wma sonando,
 # ni YouTube (yt-dlp necesita un motor de JavaScript).
 #
@@ -177,16 +177,16 @@ FFMPEG_URL=https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9
 FFMPEG_SHA256=60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba
 FPCALC_URL=https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-windows-x86_64.zip
 FPCALC_SHA256=735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e
-DENO_URL=https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-pc-windows-msvc.zip
-DENO_SHA256=a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238
+QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe
+QJS_SHA256=2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77
 bajar () {  # URL SHA256 DESTINO
     curl -sfL -o "$3" "$1" || morir "no pude descargar $1"
     echo "$2  $3" | sha256sum -c --status - || morir "$(basename "$1") no es lo esperado (sha256)"
 }
 if [ "$HERRAMIENTAS" = 1 ]; then
-    TOOLS="$CACHE/tools-win-ffmpeg9.0.2-fpcalc1.6.1-deno2.9.7"
-    if [ ! -f "$TOOLS/deno.exe" ]; then
-        paso "herramientas de Windows: ffmpeg, fpcalc y Deno (una vez, ~160 MB)"
+    TOOLS="$CACHE/tools-win-ffmpeg9.0.2-fpcalc1.6.1-qjs0.17.0"
+    if [ ! -f "$TOOLS/qjs.exe" ]; then
+        paso "herramientas de Windows: ffmpeg, fpcalc y QuickJS (una vez, ~110 MB)"
         rm -rf "$TOOLS"; mkdir -p "$TOOLS"
         tmp=$(mktemp -d)
         bajar "$FFMPEG_URL" "$FFMPEG_SHA256" "$tmp/ffmpeg.zip"
@@ -195,25 +195,21 @@ if [ "$HERRAMIENTAS" = 1 ]; then
         bajar "$FPCALC_URL" "$FPCALC_SHA256" "$tmp/fpcalc.zip"
         unzip -oq "$tmp/fpcalc.zip" -d "$tmp/fpcalc"
         find "$tmp/fpcalc" -name 'fpcalc.exe' -exec cp {} "$TOOLS/" \;
-        bajar "$DENO_URL" "$DENO_SHA256" "$tmp/deno.zip"
-        unzip -oq "$tmp/deno.zip" -d "$tmp/deno"
-        find "$tmp/deno" -name 'deno.exe' -exec cp {} "$TOOLS/" \;
         rm -rf "$tmp"
         [ -f "$TOOLS/ffmpeg.exe" ] || morir "el zip de ffmpeg no traía ffmpeg.exe"
-        [ -f "$TOOLS/deno.exe" ] || morir "el zip de Deno no traía deno.exe"
+        # el último: es el que dice que la caché está completa
+        bajar "$QJS_URL" "$QJS_SHA256" "$TOOLS/qjs.exe"
     fi
-    # con nombre: en una caché de antes también hay un ffprobe.exe, que ya
-    # no hace falta (lo que medía sale de las cabeceras)
-    cp "$TOOLS/ffmpeg.exe" "$TOOLS/fpcalc.exe" "$TOOLS/deno.exe" "$DESTINO/tools/"
+    cp "$TOOLS/ffmpeg.exe" "$TOOLS/fpcalc.exe" "$TOOLS/qjs.exe" "$DESTINO/tools/"
     # el LEEME de la carpeta vacia diria que aqui no hay nada
     cat > "$DESTINO/tools/LEEME.txt" <<'EOF'
-ffmpeg, fpcalc y Deno, incluidos.
+ffmpeg, fpcalc y QuickJS, incluidos.
 
 En Windows no hay gestor de paquetes que los ponga, asi que viajan aqui. Son
 los que hacen que funcionen la conversion de formatos, la reproduccion de
 .opus y .wma, el encogido de portadas, la identificacion de canciones por su
-sonido y las descargas de YouTube (Deno es el motor de JavaScript que pide
-yt-dlp). La aplicacion los busca en esta carpeta antes que en el PATH.
+sonido y las descargas de YouTube (QuickJS, qjs.exe, es el motor de
+JavaScript que pide yt-dlp). La aplicacion los busca en esta carpeta antes que en el PATH.
 
 No los borres. Si faltan, DanPlay sigue abriendo y avisa de lo que no puede
 hacer.
@@ -231,7 +227,7 @@ Qué hay aquí
   danplay-core.exe     arranca el núcleo que está en python\
   python\              Python con lo que el núcleo necesita
   WebView2Loader.dll   lo carga la aplicación al abrir
-  tools\               ffmpeg.exe, fpcalc.exe y deno.exe:
+  tools\               ffmpeg.exe, fpcalc.exe y qjs.exe:
                        conversión de formatos, reproducción de .opus y .wma,
                        identificación de canciones por su sonido y descargas
                        de YouTube. Si la carpeta está vacía, eso no funciona
@@ -263,7 +259,7 @@ comprobar python/site-packages/mutagen
 if [ "$HERRAMIENTAS" = 1 ]; then
     comprobar tools/ffmpeg.exe
     comprobar tools/fpcalc.exe
-    comprobar tools/deno.exe
+    comprobar tools/qjs.exe
 fi
 
 for exe in danplay-app.exe danplay-core.exe; do

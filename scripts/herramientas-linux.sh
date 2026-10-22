@@ -1,9 +1,11 @@
 #!/bin/sh
 # Las herramientas que viajan DENTRO de los paquetes de Linux (.deb y
 # .AppImage), en desktop/src-tauri/tools/: ffmpeg (ondas, clic, separar,
-# convertir), fpcalc (identificar por el sonido) y Deno (el motor de
-# JavaScript que YouTube exige para descargar). ffprobe ya no: lo poco que
-# medía (una carátula, la duración de una secuencia) sale de las cabeceras.
+# convertir), fpcalc (identificar por el sonido) y QuickJS-NG (`qjs`, el
+# motor de JavaScript que YouTube exige para descargar). ffprobe ya no: lo
+# poco que medía (una carátula, la duración de una secuencia) sale de las
+# cabeceras. Deno tampoco: hacía lo mismo que qjs en 96 MB en vez de 2,5
+# (más rápido, sí: unos 5 s menos por descarga).
 #
 #   ./scripts/herramientas-linux.sh
 #
@@ -26,9 +28,9 @@ FFMPEG_SHA256=fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f
 # fpcalc 1.6.1 (estático), de las versiones de Chromaprint
 FPCALC_URL=https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-linux-x86_64.tar.gz
 FPCALC_SHA256=fc16cd37a70168040bc9ceb45f1d4d1216f5a75bc4c9cf8564bea70ac6a45733
-# Deno 2.9.7, el mismo que el de Windows
-DENO_URL=https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-unknown-linux-gnu.zip
-DENO_SHA256=c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490
+# QuickJS-NG 0.17.0, el mismo que el de Windows y macOS (un binario suelto)
+QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-linux-x86_64
+QJS_SHA256=0bfc02511a9f549c28b53880d988fc7cd5d361e90c5e8afdfcd7dc6774ceace5
 
 morir () { printf '\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 [ "$(uname -m)" = x86_64 ] || morir "las herramientas de Linux son para x86_64 (esto es $(uname -m))"
@@ -50,18 +52,18 @@ bajar () {
 
 bajar "$FFMPEG_URL/ffmpeg.zip" "$FFMPEG_SHA256" ffmpeg-9.0.2.zip
 bajar "$FPCALC_URL" "$FPCALC_SHA256" fpcalc-1.6.1.tar.gz
-bajar "$DENO_URL" "$DENO_SHA256" deno-2.9.7.zip
+bajar "$QJS_URL" "$QJS_SHA256" qjs-0.17.0
 
 unzip -o -q -j "$CACHE/ffmpeg-9.0.2.zip" ffmpeg -d "$DESTINO"
-unzip -o -q -j "$CACHE/deno-2.9.7.zip" deno -d "$DESTINO"
+cp "$CACHE/qjs-0.17.0" "$DESTINO/qjs"
 tar xzf "$CACHE/fpcalc-1.6.1.tar.gz" -C "$DESTINO" --strip-components=1 \
     chromaprint-fpcalc-1.6.1-linux-x86_64/fpcalc
-# el ffprobe de una versión anterior, si quedó ahí: ya no viaja
-rm -f "$DESTINO/ffprobe"
-chmod 755 "$DESTINO/ffmpeg" "$DESTINO/fpcalc" "$DESTINO/deno"
+# el ffprobe y el Deno de una versión anterior, si quedaron ahí: ya no viajan
+rm -f "$DESTINO/ffprobe" "$DESTINO/deno"
+chmod 755 "$DESTINO/ffmpeg" "$DESTINO/fpcalc" "$DESTINO/qjs"
 
 # Que arrancan de verdad en esta máquina (la de la CI es la más vieja que se
 # admite: Ubuntu 22.04)
 "$DESTINO/ffmpeg" -hide_banner -version | head -1
 "$DESTINO/fpcalc" -version
-"$DESTINO/deno" --version | head -1
+"$DESTINO/qjs" --help 2>&1 | head -1

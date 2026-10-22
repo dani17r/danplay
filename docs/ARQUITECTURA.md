@@ -1484,7 +1484,9 @@ YouTube exige además un **motor de JavaScript** para resolver sus retos (sin é
 yt-dlp avisa de que «faltarán formatos»). Se busca, con las versiones mínimas
 que pide yt-dlp, Deno, Node, QuickJS o Bun, en la carpeta de herramientas y en
 el `PATH`, y se le pasa a yt-dlp; si no hay ninguno, Descargas dice qué
-instalar. El instalador de Windows lleva Deno dentro, como ffmpeg.
+instalar. Los paquetes llevan QuickJS-NG dentro (`qjs`, 2 MB), como ffmpeg:
+antes era Deno, que resolvía unos 5 segundos antes por descarga pero pesaba
+93 MB en cada paquete. Si el sistema tiene Deno o Node, se prefieren.
 
 ## Fundidos y cambios sin corte
 
@@ -1984,7 +1986,7 @@ la versión vieja y no se nota. Por eso hay un script y no cuatro comandos.
 ```
 
 **Los programas de fuera, dentro de los paquetes.** ffmpeg, fpcalc
-y Deno viajan en la carpeta `tools/` de cada paquete (en Linux los pone
+y QuickJS-NG viajan en la carpeta `tools/` de cada paquete (en Linux los pone
 `scripts/herramientas-linux.sh`, con versiones y sha256 fijados; en Windows y
 macOS, su CI). La app se la pasa al núcleo (`DANPLAY_TOOLS_DIR`), que la mira
 antes que el sistema. Y el núcleo empaquetado de Linux devuelve

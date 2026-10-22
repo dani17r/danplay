@@ -86,10 +86,11 @@ $triple = ((rustc -vV | Select-String '^host:') -split ' ')[1]
 New-Item -ItemType Directory -Force -Path desktop/src-tauri/binaries | Out-Null
 Copy-Item dist/core/danplay-core.exe "desktop/src-tauri/binaries/danplay-core-$triple.exe" -Force
 
-# --- ffmpeg, fpcalc y Deno --------------------------------------------------
+# --- ffmpeg, fpcalc y QuickJS -----------------------------------------------
 # Con version fija y su SHA-256, las mismas que el instalador de la CI
 # (.github/workflows/windows.yml): antes se bajaba «la ultima» sin comprobar
-# nada. Deno es el motor de JavaScript que YouTube exige a yt-dlp.
+# nada. QuickJS (qjs.exe, un .exe suelto) es el motor de JavaScript que
+# YouTube exige a yt-dlp.
 $herramientas = @(
     @{ Url = 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip'
        Sha = '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba'
@@ -97,14 +98,14 @@ $herramientas = @(
     @{ Url = 'https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-windows-x86_64.zip'
        Sha = '735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e'
        Exes = @('fpcalc.exe') },
-    @{ Url = 'https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-pc-windows-msvc.zip'
-       Sha = 'a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238'
-       Exes = @('deno.exe') }
+    @{ Url = 'https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe'
+       Sha = '2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77'
+       Exes = @('qjs.exe') }
 )
 $tools = 'desktop/src-tauri/tools'
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
-if (-not $SinHerramientas -and -not (Test-Path "$tools/deno.exe")) {
-    Paso '4b/5  ffmpeg, fpcalc y Deno (van dentro del instalador)'
+if (-not $SinHerramientas -and -not (Test-Path "$tools/qjs.exe")) {
+    Paso '4b/5  ffmpeg, fpcalc y QuickJS (van dentro del instalador)'
     $tmp = Join-Path $env:TEMP "danplay-tools-$PID"
     New-Item -ItemType Directory -Force -Path $tmp | Out-Null
     try {
@@ -113,6 +114,11 @@ if (-not $SinHerramientas -and -not (Test-Path "$tools/deno.exe")) {
             Invoke-WebRequest -Uri $h.Url -OutFile $zip
             $real = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
             if ($real -ne $h.Sha) { throw "$([IO.Path]::GetFileName($zip)) no es lo esperado: $real" }
+            if ($zip -like '*.exe') {
+                # un .exe suelto (QuickJS): no hay nada que descomprimir
+                Copy-Item $zip (Join-Path $tools $h.Exes[0]) -Force
+                continue
+            }
             $dir = "$zip.d"
             Expand-Archive $zip -DestinationPath $dir
             Get-ChildItem -Recurse $dir -Include $h.Exes |

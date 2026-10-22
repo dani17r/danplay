@@ -222,7 +222,7 @@ def _default_library() -> Path:
     return home / "Musica"
 
 
-# Carpeta con ffmpeg/fpcalc/deno cuando no estan en el PATH: la del
+# Carpeta con ffmpeg/fpcalc/qjs cuando no estan en el PATH: la del
 # instalador (junto al ejecutable) o la que diga DANPLAY_TOOLS_DIR.
 TOOLS_DIR = os.getenv("DANPLAY_TOOLS_DIR", "")
 

@@ -54,7 +54,7 @@ jobs:
 
       # con ffprobe, que la app ya no lleva pero algunas pruebas usan para
       # mirar lo que sale
-      - name: ffmpeg, ffprobe, fpcalc y Deno
+      - name: ffmpeg, ffprobe, fpcalc y QuickJS
         run: ./scripts/herramientas-macos.sh --con-ffprobe
 
       - name: dependencias de Python
@@ -110,7 +110,7 @@ jobs:
 
       # Lo que se mete dentro, con version fija y su sha256 (las mismas que en
       # Linux y Windows), para el procesador de este Mac
-      - name: ffmpeg, fpcalc y Deno
+      - name: ffmpeg, fpcalc y QuickJS
         run: |
           ./scripts/herramientas-macos.sh
           ls -la desktop/src-tauri/tools

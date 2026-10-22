@@ -81,7 +81,7 @@ jobs:
 
       # dentro de los paquetes: sin instalar nada aparte, y sin depender de
       # las bibliotecas de cada distribucion (ver el script)
-      - name: ffmpeg, fpcalc y Deno dentro
+      - name: ffmpeg, fpcalc y QuickJS dentro
         run: ./scripts/herramientas-linux.sh
 
       - name: paquetes

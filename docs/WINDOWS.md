@@ -31,7 +31,7 @@ asociaciones de archivo y el desinstalador.
 | **Accesos directos** | ninguno | menú Inicio y escritorio (se puede desmarcar) |
 | **«Abrir con DanPlay»** | lo activa la propia app desde Ajustes | lo deja puesto el instalador |
 | **Desinstalador** | borrar la carpeta | sí, y sale en «Aplicaciones instaladas» |
-| **ffmpeg, fpcalc y Deno** | solo con `--herramientas` | siempre (el de la CI; ver abajo) |
+| **ffmpeg, fpcalc y QuickJS** | solo con `--herramientas` | siempre (el de la CI; ver abajo) |
 | **Tamaño** | 273 MB (98 MB comprimido) con herramientas; 74 MB (25 MB) sin ellas | 71 MB |
 
 ## Actualizar
@@ -49,11 +49,13 @@ sitio; con `sudo dpkg -i` se reinstala aunque la versión no haya cambiado,
 mientras que `apt install ./…deb` con la **misma** versión puede no hacer
 nada), y el AppImage es un archivo: se sustituye y ya.
 
-Lo que más pesa son las herramientas: `ffmpeg.exe` (100 MB) y `deno.exe`
-(93 MB), que van enteros porque son los binarios oficiales. `ffprobe.exe`
-(otros 100 MB) ya no viaja: solo medía las portadas antes de encogerlas y la
-duración de las secuencias, y las dos cosas salen ahora de la cabecera del
-propio archivo, sin abrir ningún programa.
+Lo que más pesa es `ffmpeg.exe` (100 MB), que va entero porque es el binario
+oficial. Dos que iban y ya no: `ffprobe.exe` (otros 100 MB), que solo medía
+las portadas antes de encogerlas y la duración de las secuencias, cosas que
+salen ahora de la cabecera del propio archivo; y `deno.exe` (93 MB), el motor
+de JavaScript de YouTube, que ahora es QuickJS (`qjs.exe`, 2 MB). Deno
+resolvía los retos algo antes: con QuickJS cada descarga tarda unos 5
+segundos más.
 
 La primera vez descarga a `~/.cache/danplay-cross` lo que necesita —mingw-w64,
 zig, NSIS y el Python embebido de Windows, todos extraídos de sus paquetes sin
@@ -100,7 +102,7 @@ un solo ejecutable en vez del Python embebido:
 
 `.github/workflows/windows.yml` lo hace entero en `windows-latest`:
 
-1. Descarga `ffmpeg` 9.0.2, `fpcalc` 1.6.1 y Deno 2.9.7 (el motor de
+1. Descarga `ffmpeg` 9.0.2, `fpcalc` 1.6.1 y QuickJS-NG 0.17.0 (el motor de
    JavaScript que YouTube exige a yt-dlp), **con versión fija y comprobando
    su SHA-256**. Antes se bajaba «la última» sin comprobar nada: dos
    instaladores de la misma versión podían llevar un ffmpeg distinto. Para
@@ -140,7 +142,7 @@ Hace lo mismo que el flujo de arriba. Necesita Python 3.13, Node 24, Rust
 | **Que el núcleo muera con la app** | `PR_SET_PDEATHSIG` | Job Object con `KILL_ON_JOB_CLOSE` |
 | **Dónde van los datos** | `~/.local/share/danplay`, `~/.config/danplay` | `%LOCALAPPDATA%\danplay`, `%APPDATA%\danplay` (lo decide `platformdirs`) |
 | **Papelera** | `send2trash`, y `gio trash` si falla | `send2trash` |
-| **ffmpeg, fpcalc y el motor de JS** | ffmpeg y fpcalc los instala el gestor de paquetes (el `.deb` los declara); para YouTube, Deno o Node ≥ 22 si están | van **dentro** del instalador, en `tools\` (Deno incluido); la app se lo dice al núcleo con `DANPLAY_TOOLS_DIR` |
+| **ffmpeg, fpcalc y el motor de JS** | ffmpeg y fpcalc los instala el gestor de paquetes (el `.deb` los declara); para YouTube, Deno, Node ≥ 22 o QuickJS si están | van **dentro** del instalador, en `tools\` (QuickJS incluido); la app se lo dice al núcleo con `DANPLAY_TOOLS_DIR` |
 | **Que el núcleo se apague si la app muere** | además del `PDEATHSIG`, vigila el PID que le pasa la app (`DANPLAY_PARENT_PID`) | Job Object, también para un núcleo revivido, y el mismo PID vigilado con la API de procesos de Windows |
 | **Bandeja** | protocolo D-Bus propio (`ksni`), porque la de Tauri no entrega clics | la de Tauri, que ahí sí los entrega y además dice dónde está el icono |
 | **Mini reproductor** | lo coloca el escritorio en Wayland | pegado al icono, con `tauri-plugin-positioner` |

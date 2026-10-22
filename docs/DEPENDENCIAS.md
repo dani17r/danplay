@@ -160,7 +160,7 @@ dentro** (`tools\`), con versión fija y su SHA-256 comprobado al construirlo.
 | --- | --- | --- |
 | `ffmpeg` | LGPL-2.1+ / GPL según compilación (la de Windows, la *essentials* de Gyan, es **GPL-3.0**) | convertir formatos, encoger carátulas, opus/wma, velocidad y tono |
 | `fpcalc` (Chromaprint) | MIT / LGPL-2.1+ | calcular la huella acústica |
-| Deno | MIT | el motor de JavaScript que YouTube exige a yt-dlp (o Node, Bun, QuickJS) |
+| QuickJS-NG (`qjs`) | MIT | el motor de JavaScript que YouTube exige a yt-dlp (o Deno, Node, Bun, si están en el sistema) |
 | `yt-dlp`, `yt-dlp-ejs` | Unlicense (y MIT, ISC) | descargar de YouTube |
 | `gio` (GLib) | LGPL-2.1+ | papelera de respaldo en Linux, si `send2trash` no puede |
 

@@ -162,7 +162,7 @@ tocar tus datos): ver [Contribuir](docs/CONTRIBUIR.md).
 
 Compilada desde el código, para la conversión de formatos y la huella
 acústica hacen falta dos programas del sistema (los paquetes `.deb`,
-`.AppImage`, de Windows y de macOS ya los traen dentro, con Deno para
+`.AppImage`, de Windows y de macOS ya los traen dentro, con QuickJS para
 descargar de YouTube). Si te faltan, la app lo dice y sigue funcionando sin
 esas dos funciones:
 
