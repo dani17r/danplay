@@ -37,6 +37,7 @@ pub mod seguro;
 pub mod separar;
 pub mod teoria;
 pub mod toon;
+pub mod turno;
 pub mod web;
 
 use pyo3::prelude::*;
@@ -178,6 +179,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     toon::register(m)?;
     seguro::register(m)?;
     asistente::register(m)?;
+    turno::register(m)?;
     habla::register(m)?;
     web::register(m)?;
     convertir::register(m)?;
