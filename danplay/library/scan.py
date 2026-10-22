@@ -281,6 +281,42 @@ def _purge_missing(conn, days=None) -> int:
     return len(ids)
 
 
+# Cuantas canciones se leen de una vez (en paralelo, con el crate): bastantes
+# para aprovechar todos los nucleos y pocas para no tener en memoria las
+# etiquetas de toda la biblioteca a la vez.
+READ_BATCH = 256
+
+
+def _needs_reading(path: str, v) -> bool:
+    """Lo mismo que decide el escaneo: lo nuevo, lo que no tiene artista y lo
+    que ha cambiado desde la ultima vez (fecha o tamaño)."""
+    if v is None or not v["artist"]:
+        return True
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    return not (st.st_mtime == v["mtime"] and st.st_size == v["size"])
+
+
+class _ReadAhead:
+    """Las etiquetas de lo que el escaneo va a leer, por tandas y en paralelo
+    (`tags.read_many`): de una en una, leerlas era lo mas largo del primer
+    escaneo de una biblioteca. Lo que no este en la lista se lee al momento."""
+
+    def __init__(self, paths: list[str]):
+        self._paths = paths
+        self._where = {p: i for i, p in enumerate(paths)}
+        self._batch: dict = {}
+
+    def read(self, path: str) -> dict:
+        if path not in self._batch and path in self._where:
+            i = self._where[path]
+            self._batch = tags.read_many(self._paths[i : i + READ_BATCH])
+        found = self._batch.pop(path, None)
+        return found if found is not None else tags.read_all(path)
+
+
 def scan(progress=None) -> dict:
     """Pone el indice al dia con lo que hay en las carpetas gestionadas.
 
@@ -336,6 +372,7 @@ def _scan(progress=None) -> dict:
         gone = [p for p in existing if p not in on_disk]
         removed = _to_missing(conn, gone)
 
+        ahead = _ReadAhead([p for p, _ in present if _needs_reading(p, existing.get(p))])
         seen: set = set()
         settle: list = []
         playlists_found: dict = {}
@@ -376,7 +413,7 @@ def _scan(progress=None) -> dict:
                         progress(n, total)
                     continue
             try:
-                tag = tags.read_all(path)
+                tag = ahead.read(path)
                 row = _row(path, root, vocab, tag)
             except OSError:
                 log.warning("no se pudo indexar %s", path, exc_info=True)

@@ -97,18 +97,27 @@ def test_a_moved_song_never_disappears_halfway(lib, monkeypatch):
 
     # la cancion movida se lee entre apartarla y recuperarla: justo ahi, otra
     # conexion mira si sigue en la biblioteca
+    # (se lee de una en una o por tandas, `tags.read_many`: las dos se miran)
     seen = []
-    read_all = tags.read_all
+    read_all, read_many = tags.read_all, tags.read_many
 
-    def spy(path):
+    def look():
         other = sqlite3.connect(config.DATABASE)
         try:
             seen.append(other.execute("SELECT 1 FROM songs WHERE id=?", (song_id,)).fetchone())
         finally:
             other.close()
+
+    def spy(path):
+        look()
         return read_all(path)
 
+    def spy_many(paths):
+        look()
+        return read_many(paths)
+
     monkeypatch.setattr(tags, "read_all", spy)
+    monkeypatch.setattr(tags, "read_many", spy_many)
     assert library.scan()["back"] == 1
     assert seen, "el escaneo no releyo la cancion movida"
     assert all(seen), "otra conexion vio desaparecer la cancion a medio escaneo"
