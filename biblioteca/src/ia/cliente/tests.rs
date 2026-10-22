@@ -195,7 +195,22 @@ fn en_trozos() {
     let e = c
         .chat_stream(kwargs.as_object().expect("objeto"), &mut |_| true)
         .expect_err("error en el flujo");
-    assert_eq!(e.message, "se cayo");
+    assert!(
+        matches!(&e, Flujo::Corte(f) if f.message == "se cayo"),
+        "{e:?}"
+    );
+
+    // un evento vacío (algún servicio lo manda): el SDK no lo traga
+    let empty = "data: {\"choices\":[]}\n\ndata: \n\n";
+    let (base, _) = serve(vec![format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{empty}",
+        empty.len()
+    )]);
+    let c = Cliente::new(&profile(&base, 0));
+    let e = c
+        .chat_stream(kwargs.as_object().expect("objeto"), &mut |_| true)
+        .expect_err("evento vacío");
+    assert!(matches!(e, Flujo::Corte(_)));
 }
 
 #[test]

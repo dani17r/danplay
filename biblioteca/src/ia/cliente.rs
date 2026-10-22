@@ -79,6 +79,22 @@ impl FalloHttp {
     }
 }
 
+/// Cómo falló una petición en trozos: antes de empezar (la petición: un
+/// 429, sin conexión…) o a medias (el flujo se rompió).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Flujo {
+    Peticion(FalloHttp),
+    Corte(FalloHttp),
+}
+
+impl Flujo {
+    pub fn fallo(&self) -> &FalloHttp {
+        match self {
+            Self::Peticion(e) | Self::Corte(e) => e,
+        }
+    }
+}
+
 /// Lo que se reintenta solo: lo que no es del mensaje.
 fn retryable(e: &FalloHttp) -> bool {
     match e.status {
@@ -311,15 +327,19 @@ impl Cliente {
     }
 
     /// Una petición de chat en trozos: `each` recibe cada trozo (el JSON de
-    /// cada `data:`), y si devuelve falso se corta. Un trozo con `error` es
-    /// un fallo, como en el SDK.
+    /// cada evento), y si devuelve falso se corta. Como el SDK: un evento que
+    /// no es JSON (algún servicio manda de vez en cuando uno vacío) o que trae
+    /// `error` es un fallo, y entonces es a medias (`Flujo::Corte`): quien
+    /// llama puede repetir la petición entera, sin trozos.
     pub fn chat_stream(
         &self,
         kwargs: &Dic,
         each: &mut dyn FnMut(Value) -> bool,
-    ) -> Result<(), FalloHttp> {
+    ) -> Result<(), Flujo> {
         let (body, timeout) = Self::body_of(kwargs);
-        let response = self.send("POST", "chat/completions", Some(&body), timeout)?;
+        let response = self
+            .send("POST", "chat/completions", Some(&body), timeout)
+            .map_err(Flujo::Peticion)?;
         let reader = BufReader::new(
             response
                 .into_body()
@@ -327,48 +347,63 @@ impl Cliente {
                 .limit(LIMITE)
                 .reader(),
         );
+        // el evento en curso: sus líneas de datos y si llevaba algún campo
         let mut data: Vec<String> = Vec::new();
-        let mut handle = |data: &mut Vec<String>| -> Result<bool, FalloHttp> {
-            if data.is_empty() {
-                return Ok(true);
-            }
-            let joined = data.join("\n");
-            data.clear();
-            if joined == "[DONE]" {
-                return Ok(false);
-            }
-            let Ok(chunk) = serde_json::from_str::<Value>(&joined) else {
-                return Ok(true);
-            };
-            if let Some(err) = chunk.get("error").filter(|e| py::truthy(e)) {
-                let message = err
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .filter(|m| !m.is_empty())
-                    .unwrap_or("An error occurred during streaming")
-                    .to_owned();
-                return Err(FalloHttp {
+        let mut any_field = false;
+        let mut handle =
+            |data: &mut Vec<String>, any_field: &mut bool| -> Result<bool, FalloHttp> {
+                if !std::mem::take(any_field) {
+                    return Ok(true);
+                }
+                let joined = data.join("\n");
+                data.clear();
+                if joined.starts_with("[DONE]") {
+                    return Ok(false);
+                }
+                let chunk = serde_json::from_str::<Value>(&joined).map_err(|e| FalloHttp {
                     status: None,
-                    message,
-                    body: Some(err.clone()),
-                });
-            }
-            Ok(each(chunk))
-        };
+                    message: e.to_string(),
+                    body: None,
+                })?;
+                if let Some(err) = chunk.get("error").filter(|e| py::truthy(e)) {
+                    let message = err
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .filter(|m| !m.is_empty())
+                        .unwrap_or("An error occurred during streaming")
+                        .to_owned();
+                    return Err(FalloHttp {
+                        status: None,
+                        message,
+                        body: Some(err.clone()),
+                    });
+                }
+                Ok(each(chunk))
+            };
         for line in reader.lines() {
-            let line = line.map_err(|_| FalloHttp::connection())?;
+            let line = line.map_err(|_| Flujo::Corte(FalloHttp::connection()))?;
             let line = line.strip_suffix('\r').unwrap_or(&line);
             if line.is_empty() {
-                if !handle(&mut data)? {
+                if !handle(&mut data, &mut any_field).map_err(Flujo::Corte)? {
                     return Ok(());
                 }
                 continue;
             }
-            if let Some(rest) = line.strip_prefix("data:") {
-                data.push(rest.strip_prefix(' ').unwrap_or(rest).to_owned());
+            if line.starts_with(':') {
+                continue; // un comentario
+            }
+            let (field, value) = line.split_once(':').unwrap_or((line, ""));
+            let value = value.strip_prefix(' ').unwrap_or(value);
+            match field {
+                "data" => {
+                    data.push(value.to_owned());
+                    any_field = true;
+                }
+                "event" | "id" | "retry" => any_field = true,
+                _ => {}
             }
         }
-        handle(&mut data)?;
+        handle(&mut data, &mut any_field).map_err(Flujo::Corte)?;
         Ok(())
     }
 

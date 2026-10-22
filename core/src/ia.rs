@@ -525,6 +525,71 @@ pub fn ai_probe_tool(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
     to_python(py, &peticion::probe_tool())
 }
 
+// ------------------------------------------------------- el cliente de Rust
+
+/// Lo que devuelve el cliente de Rust a Python: `{"ok": True, "value": ...}`
+/// o `{"ok": False, "status": N|None, "message": "..."}` (el texto del SDK).
+fn client_result(py: Python<'_>, r: Result<Value, biblioteca::ia::cliente::FalloHttp>) -> PyResult<Bound<'_, PyDict>> {
+    let out = PyDict::new(py);
+    match r {
+        Ok(v) => {
+            out.set_item("ok", true)?;
+            out.set_item("value", to_python(py, &v)?)?;
+        }
+        Err(e) => {
+            out.set_item("ok", false)?;
+            out.set_item("status", e.status)?;
+            out.set_item("message", e.message)?;
+        }
+    }
+    Ok(out)
+}
+
+/// Una petición de chat con el cliente de Rust (el de la fase 4: sin el SDK
+/// de OpenAI). Para compararlo con el SDK y para probar un servidor.
+#[pyfunction]
+pub fn ai_client_chat<'py>(
+    py: Python<'py>,
+    profile: &Bound<'py, PyAny>,
+    kwargs: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let (profile, kwargs) = (as_dic(profile)?, as_dic(kwargs)?);
+    let r = py.detach(|| biblioteca::ia::cliente::Cliente::new(&profile).chat(&kwargs));
+    client_result(py, r)
+}
+
+/// La misma petición, en trozos: la lista de trozos, o el fallo (`cut`: si
+/// fue a medias).
+#[pyfunction]
+pub fn ai_client_stream<'py>(
+    py: Python<'py>,
+    profile: &Bound<'py, PyAny>,
+    kwargs: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyDict>> {
+    use biblioteca::ia::cliente::{Cliente, Flujo};
+    let (profile, kwargs) = (as_dic(profile)?, as_dic(kwargs)?);
+    let (chunks, r) = py.detach(|| {
+        let mut chunks = Vec::new();
+        let r = Cliente::new(&profile).chat_stream(&kwargs, &mut |c| {
+            chunks.push(c);
+            true
+        });
+        (chunks, r)
+    });
+    let cut = matches!(r, Err(Flujo::Corte(_)));
+    let out = client_result(py, r.map(|()| Value::Array(chunks)).map_err(|e| e.fallo().clone()))?;
+    out.set_item("cut", cut)?;
+    Ok(out)
+}
+
+/// Lo que lista el servidor en /models, con el cliente de Rust.
+#[pyfunction]
+pub fn ai_client_models<'py>(py: Python<'py>, profile: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyDict>> {
+    let profile = as_dic(profile)?;
+    let r = py.detach(|| biblioteca::ia::cliente::Cliente::new(&profile).models());
+    client_result(py, r.map(Value::Array))
+}
+
 /// Registra las funciones en el módulo.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     macro_rules! add {
@@ -594,6 +659,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         ai_identified,
         ai_instructions,
         ai_probe_tool,
+        ai_client_chat,
+        ai_client_stream,
+        ai_client_models,
     );
     Ok(())
 }

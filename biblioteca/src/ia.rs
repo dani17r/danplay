@@ -18,6 +18,7 @@ pub mod catalogo;
 pub mod cliente;
 
 pub mod fallos;
+pub mod llamar;
 
 pub mod peticion;
 pub mod proveedores;
