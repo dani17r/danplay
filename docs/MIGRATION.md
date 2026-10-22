@@ -43,14 +43,28 @@ En Rust (con su puerta de Python):
 |---|---|
 | 1 | el índice entero (conexión, esquema y migraciones, búsqueda, carpetas, escaneo, canciones y su estudio, «Transformar», historial), listas, lo de fuera, conversaciones, diario, nombres, etiquetas (lofty), configuración (de momento solo comparada con la de Python) |
 | 1 | convertir, forma de onda, miniaturas, huella, duplicados |
-| 2 | pulso (Beat This! con `ort`), clic, pesos de PyTorch |
-| 3 | teoría, cifrados, TOON, los datos de fuera (`chat/safe`), la guía hablada, la web |
+| 2 | pulso (Beat This! con `ort`), clic, pesos de PyTorch, separar en pistas (Demucs y el Mega53), las pistas separadas, el paquete del celular, las secuencias, la estructura y la guía automática, las guías habladas y sus voces (Supertonic y Piper) |
+| 3 | teoría, cifrados, TOON, los datos de fuera (`chat/safe`), la guía hablada, la web, los proveedores de IA, su catálogo y su cliente, leer listas pegadas, emparejar con la biblioteca, la narración, lo que se le cuenta al modelo en cada turno y la lista contra un repertorio |
 
-Siguen en Python (o los está portando un ayudante): la API (`api/`), la
-orquestación de la fase 2 (pistas separadas, rejilla del clic, reaprovechar,
-guías, estructura, secuencias, paquete para el celular), separar en pistas,
-el asistente (`chat/*`), la IA y sus proveedores, YouTube y yt-dlp,
-importar y enriquecer, el vigilante de carpetas y la línea de órdenes.
+Siguen en Python: la API (`api/`) y sus trabajos en segundo plano, la
+rejilla del clic (`beatgrid.py`: hay un borrador probado), el resto del
+asistente (`chat/plan.py`, `tools.py`, `loop.py`), YouTube y yt-dlp,
+importar y enriquecer, el vigilante de carpetas, la línea de órdenes, y lo
+que orquesta alrededor de Rust (los hilos, los cerrojos, la red).
+
+## Los nombres, en inglés
+
+Todo lo de dentro va en inglés (carpetas, crates, módulos, funciones, tipos,
+variables, las pruebas); en castellano, los comentarios, los mensajes y lo
+que ve quien usa la app. Lo que ya estaba guardado con nombre en castellano
+(carpetas de los datos, los manifiestos de las pistas, el diario, las
+preferencias de la interfaz) se renombra al arrancar y lo de antes se sigue
+leyendo. No cambian: el `.danpista` (`pista.json`, `estudio.json`,
+`guias/`: lo leen celulares con la app de antes), los valores guardados en
+los datos (la calidad de las pistas `rapida`/`mejor`/`maxima`, los sonidos
+del clic, el modelo `secuencia`), los estados del plan del asistente, los
+identificadores de las apps (`local.danplay.app`, `local.danplay.pistas`) y
+el canal de notificaciones de Android.
 
 ## La fase 4: sin Python
 

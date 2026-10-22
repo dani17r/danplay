@@ -23,6 +23,14 @@ fuera todo sigue igual; por dentro va más rápido y gasta menos.
   carátula) no funcionaba nunca; un tiempo «inf» en un marcador se guardaba
   como algo que la interfaz no podía leer; el núcleo empaquetado no
   aceptaba el cuarto argumento del pulso.
+- **Lo de dentro, en inglés**: carpetas, crates, módulos, funciones y
+  variables (lo que se ve sigue en castellano). Lo guardado con nombre en
+  castellano se renombra solo al arrancar, sin perder nada: en los datos de
+  DanPlay, `pulso/`, `separador/`, `guias/`, `voces/`, `diario.json` y
+  `terminos.json`; en las carpetas de música, `.danplay-pistas.json`,
+  `.danplay-ondas.json` y `.danplay/diario.json` (los de antes se siguen
+  leyendo); y las preferencias de la interfaz. El `.danpista` del celular no
+  cambia.
 - **Para quien compila**: QuickJS-NG en vez de Deno para los retos de
   YouTube (−93 MB), y el núcleo empaquetado en una carpeta.
 
