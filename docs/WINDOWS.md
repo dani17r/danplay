@@ -1,27 +1,33 @@
 # DanPlay en Windows
 
-Estado a 8 de septiembre de 2026: **hay una versión portátil compilada desde
-Linux y un flujo que genera el instalador.** Nadie lo ha ejecutado todavía en
-un Windows de verdad, así que hasta el primer arranque hay que tratarlo como
-«debería funcionar», no como «funciona».
+Estado a 22 de octubre de 2026: **el portátil y el instalador salen de la
+integración continua** (`windows.yml`, en un Windows de GitHub). Nadie los ha
+ejecutado todavía en un Windows de verdad, así que hasta el primer arranque
+hay que tratarlo como «debería funcionar», no como «funciona».
 
 ---
 
-## Las dos formas, y las dos salen desde Linux
+## Las dos formas salen de la integración continua
 
 ```bash
-./scripts/build-windows-cross.sh --zip          # portátil
-./scripts/build-windows-cross.sh --instalador   # instalador
-./scripts/build-windows-cross.sh --zip --instalador   # los dos
+./scripts/github.sh paquetes windows   # tras git push: los dos, a dist/installers/
 ```
 
-Los dos quedan en `dist/installers/` con la versión en el nombre
-(`DanPlay-X.Y.Z-windows-portatil.zip` y `DanPlay-X.Y.Z-instalador.exe`), junto
+Quedan en `dist/installers/` con la versión en el nombre
+(`DanPlay-X.Y.Z-windows-portatil.zip` y `DanPlay_X.Y.Z_x64-setup.exe`), junto
 al `.deb`, el `.AppImage` y los `.dmg` de Mac.
 
-Salen **de la misma carpeta**, así que no pueden desincronizarse: el
-instalador es esa carpeta comprimida con NSIS, más los accesos directos, las
+Salen **de la misma compilación**, así que no pueden ser distintos: el
+portátil es la aplicación, su núcleo (`nucleo\`) y sus herramientas en un
+`.zip`; el instalador, lo mismo con NSIS, más los accesos directos, las
 asociaciones de archivo y el desinstalador.
+
+Antes las dos se armaban también **desde Linux**
+(`scripts/build-windows-cross.sh`, con el Python embebido de Windows en vez
+de PyInstaller). Desde que las etiquetas van en el crate de Rust del núcleo,
+ese camino tendría que compilar el crate para Windows desde Linux, y no lo
+hace: sin `--sin-crate` se niega, y con él saca uno cuyas etiquetas van con
+mutagen (GPL), solo para uso propio.
 
 | | Portátil | Instalador |
 | --- | --- | --- |

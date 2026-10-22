@@ -6,38 +6,29 @@ merecen atención.
 
 ---
 
-## ⚠️ Aviso importante sobre `mutagen`
+## `mutagen`: ya no va en los paquetes
 
-`mutagen` es la librería que lee y escribe las etiquetas ID3, y está bajo
-**GPL-2.0-or-later**. Es la única dependencia con copyleft fuerte del proyecto,
-y tiene una consecuencia práctica:
+`mutagen` es la librería que leía y escribía las etiquetas, y está bajo
+**GPL-2.0-or-later**: la única dependencia con copyleft fuerte del proyecto.
+Mientras iba dentro del núcleo empaquetado, el `.deb`, el `.AppImage` y los
+instaladores llevaban código GPL, y la GPL no permite añadir restricciones a
+la obra combinada («solo uso no comercial», «no se puede modificar»), que es
+justo lo que dice la licencia de DanPlay.
 
-**La receta de empaquetado ([`packaging/core.spec`](../packaging/core.spec))
-mete `mutagen` dentro del binario del núcleo.** Es decir, el `.deb` y el
-`.AppImage` contienen código GPL.
+Desde la versión que trae este cambio, **las etiquetas las lee y las escribe
+el crate de Rust del núcleo** (`danplay_core`, con
+[lofty](https://github.com/Serial-ATA/lofty-rs), MIT o Apache-2.0: ver
+`biblioteca/src/etiquetas.rs`), y el núcleo empaquetado **excluye** mutagen
+(`packaging/core.spec`; la compilación comprueba que no se cuela). Se sigue
+instalando al compilar desde el código, porque lo pide `yt-dlp[default]`
+(yt-dlp solo lo usaría para meter la carátula en un m4a, un ogg o un opus, y
+DanPlay baja siempre mp3, cosa que hace con ffmpeg), y lo usan las pruebas,
+de testigo: comparan lo que leen y escriben las dos.
+`danplay/tags_mutagen.py` es la versión de antes, para cuando no está el
+crate (en desarrollo o en las pruebas sin Rust).
 
-La GPL permite redistribuir, pero pone dos condiciones que chocan de frente con
-la licencia de este proyecto:
-
-1. Hay que ofrecer el código fuente correspondiente.
-2. **No se pueden añadir restricciones** sobre la obra combinada. «Solo uso no
-   comercial» y «no se puede modificar» son exactamente eso.
-
-Traducido: *publicar el código de este repositorio* es una cosa, y
-*distribuir un binario compilado que lleve `mutagen` dentro* es otra bastante
-distinta. Lo segundo, bajo una licencia no comercial y sin derivados, es muy
-probablemente incompatible con la GPL.
-
-**Esto no es asesoramiento legal.** Es una advertencia para que la decisión se
-tome a sabiendas. Las salidas razonables son tres:
-
-- **No distribuir binarios ya compilados.** Quien quiera usar la app la
-  construye desde el código y `pip` le instala `mutagen` por su cuenta. Es lo
-  más limpio y lo que hace la mayoría de proyectos en esta situación.
-- **Cambiar `mutagen`** por una librería de etiquetas con licencia permisiva.
-  Es trabajo de verdad: escribir ID3 está en el corazón del diseño.
-- **Distribuir los binarios bajo GPL**, aceptando que eso permite el uso
-  comercial y la modificación de la obra combinada.
+**Esto no es asesoramiento legal.** Es para que la decisión se tome a
+sabiendas.
 
 ## `certifi` (MPL-2.0)
 
@@ -72,7 +63,7 @@ o intérpretes (`cffi`, `brotlicffi`, `pycparser`, `httpx2-jsfetch`).
 | `httpx2-jsfetch` | BSD-3-Clause |
 | `idna` | BSD-3-Clause |
 | `jiter` | MIT |
-| `mutagen` | GPL-2.0-or-later |
+| `mutagen` (solo al compilar y en las pruebas: el núcleo empaquetado no lo lleva) | GPL-2.0-or-later |
 | `numpy` (el separador de pistas) | BSD-3-Clause (lleva OpenBLAS, BSD-3-Clause) |
 | `onnxruntime` (el separador de pistas) | MIT |
 | `openai` | Apache-2.0 |
@@ -127,6 +118,7 @@ afecta mientras no se modifiquen sus archivos.
 | `rodio` | MIT OR Apache-2.0 |
 | `symphonia` | MPL-2.0 |
 | `pyo3` | MIT OR Apache-2.0 |
+| `lofty` (las etiquetas de cada canción) | MIT OR Apache-2.0 |
 | `rayon` | MIT OR Apache-2.0 |
 | `rustfft` (el pulso del metrónomo, en la app) | MIT OR Apache-2.0 |
 | `md-5` | MIT OR Apache-2.0 |
@@ -166,7 +158,7 @@ dentro** (`tools\`), con versión fija y su SHA-256 comprobado al construirlo.
 
 > Repartir el ffmpeg GPL dentro del instalador obliga a ofrecer su código
 > fuente (el de esa versión está en la publicación de Gyan y en el repositorio
-> de FFmpeg). Como con `mutagen`, arriba: no es asesoramiento legal, es para
+> de FFmpeg). Como lo de `mutagen`, arriba: no es asesoramiento legal, es para
 > decidirlo a sabiendas. Una compilación LGPL de ffmpeg evitaría la obligación,
 > pero sin `librubberband` el cambio de tono del modo estudio caería al método
 > peor (`asetrate`+`atempo`).

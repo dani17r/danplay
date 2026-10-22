@@ -15,6 +15,7 @@ TRABAJO=$(mktemp -d)
 trap 'rm -rf "$TRABAJO"' EXIT
 
 paso () { printf '\n\033[36m== %s\033[0m\n' "$1"; }
+morir () { printf '\n\033[31mERROR\033[0m  %s\n' "$1" >&2; exit 1; }
 
 mkdir -p dist/core dist/installers
 
@@ -22,6 +23,9 @@ paso "1/4  interfaz (Vite)"
 ( cd desktop && npx vite build )
 
 paso "2/4  nucleo empaquetado (PyInstaller)"
+# El crate de Rust del nucleo (las etiquetas, con lofty), recompilado con lo
+# de ahora: el nucleo empaquetado lo lleva dentro, y sin el no hay etiquetas.
+uv sync --locked --reinstall-package danplay-core --quiet
 # La foto del catalogo de modelos de IA se saca al dia en cada compilacion,
 # para que ningun paquete salga con una lista de hace meses, pero en el
 # temporal: la del repositorio no se toca (antes se reescribia y cada
@@ -31,6 +35,11 @@ paso "2/4  nucleo empaquetado (PyInstaller)"
 DANPLAY_SNAPSHOT="$TRABAJO/models-snapshot.json" "$PY" -m PyInstaller --noconfirm --clean \
     --workpath "$TRABAJO/work" --distpath dist/core \
     packaging/core.spec
+# lo que tiene que llevar dentro, y lo que no (mutagen es GPL: ver core.spec)
+[ -d dist/core/danplay-core/_internal/danplay_core ] \
+  || morir "el nucleo empaquetado no lleva el crate de Rust (danplay_core)"
+[ ! -e dist/core/danplay-core/_internal/mutagen ] \
+  || morir "se colo mutagen en el nucleo empaquetado (ver packaging/core.spec)"
 
 paso "3/4  copiar el nucleo junto a la app"
 # Una carpeta entera (onedir, ver packaging/core.spec) entre los recursos de

@@ -5,6 +5,7 @@
 #   ./scripts/build-windows-cross.sh --zip           además, el .zip portátil
 #   ./scripts/build-windows-cross.sh --instalador    además, el .exe instalador
 #   ./scripts/build-windows-cross.sh --herramientas  mete ffmpeg y fpcalc dentro
+#   ./scripts/build-windows-cross.sh --sin-crate     ver abajo: hace falta
 #
 # El .zip y el .exe quedan en dist/installers/, con la versión en el nombre,
 # junto al .deb, el .AppImage y los .dmg de Mac: todo lo que se entrega, en
@@ -25,6 +26,14 @@
 #
 # Todo lo que hace falta se descarga a una caché y no toca el sistema: no se
 # necesita ser administrador.
+#
+# OJO: desde que las etiquetas van en el crate de Rust del núcleo
+# (danplay_core, con lofty), el Python embebido tendría que llevarlo
+# compilado para Windows, y aquí no se compila. Sin él, las etiquetas van con
+# mutagen, que es GPL: un portátil así es solo para tu propio uso, no para
+# repartirlo. Por eso hay que pedirlo con `--sin-crate`. El portátil y el
+# instalador de verdad salen de la integración continua (windows.yml), con el
+# núcleo empaquetado en Windows y su crate dentro.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 RAIZ=$(pwd)
@@ -34,15 +43,24 @@ TRIPLE=x86_64-pc-windows-gnu
 PY_VERSION="${DANPLAY_PY_WIN:-3.13.5}"
 PY_TAG=313
 
-ZIP=0; INSTALADOR=0; HERRAMIENTAS=0
+ZIP=0; INSTALADOR=0; HERRAMIENTAS=0; SIN_CRATE=0
 for arg in "$@"; do
     case "$arg" in
         --zip)          ZIP=1 ;;
         --instalador)   INSTALADOR=1; HERRAMIENTAS=1 ;;
         --herramientas) HERRAMIENTAS=1 ;;
+        --sin-crate)    SIN_CRATE=1 ;;
         *) printf 'no conozco la opción %s\n' "$arg" >&2; exit 2 ;;
     esac
 done
+if [ "$SIN_CRATE" = 0 ]; then
+    printf '%s\n' \
+        "El núcleo lleva su crate de Rust (las etiquetas, con lofty) y desde Linux no" \
+        "se compila para Windows: sin él, las etiquetas irían con mutagen (GPL)." \
+        "El portátil y el instalador salen de la CI: ./scripts/github.sh paquetes windows" \
+        "Para uno solo para ti, sin el crate: $0 --sin-crate $*" >&2
+    exit 1
+fi
 
 paso () { printf '\n\033[36m== %s\033[0m\n' "$1"; }
 aviso () { printf '\033[33m%s\033[0m\n' "$1"; }

@@ -14,7 +14,7 @@ usarlo, con el [README](../README.md) tienes de sobra.
         │  socket Unix 0600   ← sin puerto TCP; solo tu usuario
    Python        (núcleo: identificación, índice, IA, etiquetas)
         │
-   Rust (PyO3)   (hashes en paralelo, análisis de audio)
+   Rust (PyO3)   (etiquetas, hashes en paralelo, análisis de audio)
 ```
 
 El contrato exacto entre capas —qué comandos hay, qué eventos se emiten y qué
@@ -35,9 +35,14 @@ suena al escritorio.
 etiquetas ID3, la IA, las descargas. Se puede usar solo, sin interfaz, desde
 la línea de comandos.
 
-**Rust (PyO3)** es donde va lo que Python hace lento: hashes de archivos en
-paralelo (rayon) y análisis de audio con FFT. Es opcional: si el crate no está
-compilado, Python tiene su propia versión más lenta y la app funciona igual.
+**Rust (PyO3)** es donde va lo que Python hace lento: las etiquetas de cada
+canción (`biblioteca/`, con lofty: leerlas y escribirlas, y en el escaneo por
+tandas en paralelo), hashes de archivos en paralelo (rayon) y análisis de
+audio con FFT. Los paquetes lo llevan siempre; sin él (en desarrollo o en las
+pruebas sin Rust), Python tiene su propia versión más lenta de cada cosa, y
+las etiquetas van con mutagen (`tags_mutagen.py`, GPL: por eso no viaja).
+Es el principio del núcleo en Rust: `biblioteca/` no sabe nada de Python, y
+la app lo usará directamente.
 
 ## Por qué la cola vive en Rust
 
@@ -1925,7 +1930,9 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   chats.py        las conversaciones con el asistente, guardadas y buscables
   model_catalog.py  el catálogo de modelos (models.dev), siempre al día
   data/           la foto del catálogo que viaja con la app
-core/           crate Rust (PyO3): hashes en paralelo y forma de onda
+biblioteca/     crate Rust: las etiquetas (lofty), sin nada de Python
+core/           crate Rust (PyO3): etiquetas (de biblioteca/), hashes en
+                paralelo y forma de onda
 motor/          el motor de audio de la PC y del celular (decode, feeder,
                 render, stretch, output, engine, bundle, record: grabar del
                 micrófono, spec: salidas y guías como las manda la interfaz)

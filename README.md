@@ -170,10 +170,9 @@ esas dos funciones:
 sudo apt install ffmpeg libchromaprint-tools
 ```
 
-`scripts/build.sh --package` genera además un `.deb` y un `.AppImage` para tu
-propio uso. **No los publiques**: llevan `mutagen` dentro, que es GPL, y eso
-choca con la licencia de este proyecto —
-[por qué](docs/DEPENDENCIAS.md#️-aviso-importante-sobre-mutagen).
+`scripts/build.sh --package` genera además un `.deb` y un `.AppImage`. Ya no
+llevan `mutagen` (GPL): las etiquetas las escribe el crate de Rust del núcleo,
+con lofty — [por qué importa](docs/DEPENDENCIAS.md#mutagen-ya-no-va-en-los-paquetes).
 
 > **Nota sobre las claves.** DanPlay funciona sin ninguna clave: escanea,
 > organiza, reproduce y busca. Las claves solo activan extras: la de un
@@ -300,7 +299,7 @@ Cuatro capas, cada una en lo que mejor se le da:
         │  socket Unix     0600; sin puerto TCP
    Python                  identificación, índice, IA, etiquetas
         │
-   Rust (PyO3)             hashes en paralelo y forma de onda
+   Rust (PyO3)             etiquetas (lofty), hashes en paralelo y onda
 ```
 
 - **Vue 3** para la interfaz: temas claros y oscuros, densidad ajustable,
@@ -315,8 +314,10 @@ Cuatro capas, cada una en lo que mejor se le da:
   mantiene el índice al día con lo que cambia en el disco. Y dos redes con
   ONNX Runtime, sin PyTorch: Demucs, que separa las pistas, y Beat This!, que
   saca el pulso y el «1» para el metrónomo.
-- **Rust (PyO3)** para lo que Python hace lento: hashes en paralelo con rayon y
-  la forma de onda.
+- **Rust (PyO3)** para lo que Python hace lento: las etiquetas de cada canción
+  (con lofty, en paralelo al escanear), hashes en paralelo con rayon y la forma
+  de onda. Es el principio del núcleo en Rust: `biblioteca/` es lo que la app
+  usará directamente cuando no quede Python.
 
 El código está en inglés; los comentarios y todo lo que ve el usuario, en
 castellano.

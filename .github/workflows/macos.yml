@@ -123,6 +123,9 @@ jobs:
           # hashes no se puede mezclar uno sin ellos
           pip install -r "$(python scripts/requisitos-mac.py)"
           pip install "$(grep -i '^pyinstaller==' requirements-dev.txt)"
+          # el crate de Rust del nucleo (las etiquetas, con lofty): se compila
+          # aqui, con maturin, y el nucleo empaquetado lo lleva dentro
+          pip install ./core
 
       - name: núcleo empaquetado
         run: |
@@ -130,6 +133,9 @@ jobs:
           python scripts/actualizar-modelos.py || true
           pyinstaller --noconfirm --clean --distpath dist/core packaging/core.spec
           test -x dist/core/danplay-core/danplay-core
+          # con el crate de Rust y sin mutagen, que es GPL (ver core.spec)
+          test -d dist/core/danplay-core/_internal/danplay_core
+          test ! -e dist/core/danplay-core/_internal/mutagen
 
       - name: el núcleo arranca y responde
         run: |

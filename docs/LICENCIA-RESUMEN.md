@@ -57,5 +57,5 @@ que no se pueda acordar.
 
 DanPlay usa código de otra gente, cada pieza con su propia licencia, que **no
 cambia** por estar aquí. Está todo listado en
-[DEPENDENCIAS.md](DEPENDENCIAS.md), incluida una advertencia importante sobre
-`mutagen` que conviene leer antes de distribuir nada compilado.
+[DEPENDENCIAS.md](DEPENDENCIAS.md), incluido por qué `mutagen` (GPL) ya no
+va dentro de los paquetes.

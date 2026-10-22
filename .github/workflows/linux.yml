@@ -56,10 +56,16 @@ jobs:
           # con hashes no se puede mezclar uno sin ellos
           pip install -r requirements.txt
           pip install "$(grep -i '^pyinstaller==' requirements-dev.txt)"
+          # el crate de Rust del nucleo (las etiquetas, con lofty): se compila
+          # aqui, con maturin, y el nucleo empaquetado lo lleva dentro
+          pip install ./core
           # la foto del catalogo de modelos de IA, la de hoy (sin red se queda la que hay)
           python scripts/actualizar-modelos.py || true
           pyinstaller --noconfirm --clean --distpath dist/core packaging/core.spec
           test -x dist/core/danplay-core/danplay-core
+          # con el crate de Rust y sin mutagen, que es GPL (ver core.spec)
+          test -d dist/core/danplay-core/_internal/danplay_core
+          test ! -e dist/core/danplay-core/_internal/mutagen
 
       - name: el núcleo arranca y responde
         run: |

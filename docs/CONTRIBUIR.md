@@ -327,9 +327,9 @@ No hay sistema de idiomas.
   vale; «de 890 ms a 185 ms con 20.000 canciones» sí.
 - Si algo se queda a medias o tiene una pega, dilo en la descripción. Es más
   útil que descubrirlo después.
-- Nada de añadir dependencias con copyleft fuerte (GPL, AGPL). Ya hay una
-  —`mutagen`— y complica la distribución;
-  ver [DEPENDENCIAS.md](DEPENDENCIAS.md).
+- Nada de añadir dependencias con copyleft fuerte (GPL, AGPL) a lo que viaja
+  en los paquetes. `mutagen` lo era, y por eso las etiquetas pasaron a Rust
+  (lofty); ver [DEPENDENCIAS.md](DEPENDENCIAS.md).
 
 ## Informar de un fallo
 

@@ -18,7 +18,7 @@ sys.path.insert(0, ROOT)          # para que collect_submodules encuentre `danpl
 
 hidden = (collect_submodules('uvicorn') + collect_submodules('fastapi')
           + collect_submodules('yt_dlp') + collect_submodules('yt_dlp_ejs')
-          + collect_submodules('mutagen') + collect_submodules('anyio')
+          + collect_submodules('anyio')
           # el vigilante de carpetas: watchdog elige su observador (inotify,
           # Windows, macOS) al importarse, y sin esto podia no viajar
           + collect_submodules('watchdog')
@@ -69,8 +69,16 @@ a = Analysis(['core_entry.py'],
              # por su cuenta. Excluirlo dejaba el nucleo empaquetado sin
              # arrancar, con un ModuleNotFoundError que solo se veia dentro
              # del .deb y no ejecutando el codigo a mano.
+             #
+             # Y mutagen tampoco: es GPL, y las etiquetas las lee y escribe el
+             # crate de Rust (danplay_core, con lofty). Se instala porque lo
+             # pide yt-dlp[default], pero yt-dlp solo lo usaria para meter la
+             # caratula en un m4a/ogg/opus, y DanPlay baja siempre mp3 (eso lo
+             # hace con ffmpeg). Fuera tambien danplay.tags_mutagen, que es
+             # para cuando no hay crate.
              excludes=['tkinter', 'matplotlib', 'PIL', 'numpy.distutils', 'pytest',
-                       'musicbrainzngs', 'watchfiles', 'yaml', 'hypothesis'],
+                       'musicbrainzngs', 'watchfiles', 'yaml', 'hypothesis',
+                       'mutagen', 'danplay.tags_mutagen'],
              noarchive=False)
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [],
