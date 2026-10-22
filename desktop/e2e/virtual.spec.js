@@ -39,7 +39,9 @@ async function toTheEnd(page, scroller, last) {
   expect(gap).toBeGreaterThan(-40)
 }
 
-test('«Artistas» con cientos de grupos pinta una ventana y llega al final', async ({ page }) => {
+test('«Artistas» with hundreds of groups renders a window and reaches the end', async ({
+  page
+}) => {
   await page.goto('/')
   await go(page, 'Artistas')
   await expect(page.locator('.filters .chip').first()).toHaveText(String(TOTAL))
@@ -78,7 +80,7 @@ test('«Artistas» con cientos de grupos pinta una ventana y llega al final', as
   await expect(scroller.getByText('Mi Gozo', { exact: true })).toBeInViewport()
 })
 
-test('la cuadrícula agrupada también se recorta y llega al final', async ({ page }) => {
+test('the grouped grid is windowed too and reaches the end', async ({ page }) => {
   await page.goto('/')
   await go(page, 'Artistas')
   await page.getByRole('button', { name: 'Cuadrícula' }).click()

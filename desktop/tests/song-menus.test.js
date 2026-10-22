@@ -90,8 +90,8 @@ beforeEach(async () => {
   vi.clearAllMocks()
 })
 
-describe('el menú de una canción', () => {
-  it('ofrece lo de siempre y la elige', async () => {
+describe('the song menu', () => {
+  it('offers the usual options and selects it', async () => {
     const { menus, ctx } = prepare()
     menus.songMenu(ev, held.state.songs[0])
     expect(menu.value.open).toBe(true)
@@ -112,7 +112,7 @@ describe('el menú de una canción', () => {
     expect(ctx.selection.selected.value).toBe(1)
   })
 
-  it('sobre la que suena ofrece pausar; en un repertorio, quitarla; sin panel, la ficha', async () => {
+  it('on the playing one it offers pause; in a playlist, remove; without the panel, the details', async () => {
     const { menus, ctx } = prepare({
       view: { kind: 'playlist', id: 7, name: 'Domingo' },
       playing: 1,
@@ -131,7 +131,7 @@ describe('el menú de una canción', () => {
     expect(ctx.showDetailsOf).toHaveBeenCalled()
   })
 
-  it('valorar desde el teclado: un submenú con las estrellas', async () => {
+  it('rating from the keyboard: a submenu with the stars', async () => {
     const { menus, ctx } = prepare()
     menus.songMenu(ev, song(1, { stars: 3 }))
     const rate = item('Valorar')
@@ -150,7 +150,7 @@ describe('el menú de una canción', () => {
     expect(ctx.onUpdated).toHaveBeenCalledWith(expect.objectContaining({ id: 1, stars: 5 }))
   })
 
-  it('la papelera pregunta antes, y cancelar no borra nada', async () => {
+  it('trash asks first, and cancelling deletes nothing', async () => {
     const { menus, ctx } = prepare({ playing: 1 })
     menus.songMenu(ev, held.state.songs[0])
     const done = pick('Mandar a la papelera…')
@@ -172,7 +172,7 @@ describe('el menú de una canción', () => {
     expect(ctx.refreshAll).toHaveBeenCalled()
   })
 
-  it('si está en listas, pregunta si sale también de ellas', async () => {
+  it('if it is in playlists, it asks whether to remove it from them too', async () => {
     const { menus } = prepare()
     // sin listas, ni se pregunta
     menus.songMenu(ev, held.state.songs[0])
@@ -198,7 +198,7 @@ describe('el menú de una canción', () => {
     expect(notices.value.at(-1).message).toContain('fuera de su lista')
   })
 
-  it('dejarla en sus listas la deja como «No está»', async () => {
+  it('leaving it in its playlists leaves it as «No está»', async () => {
     const { menus } = prepare()
     held.state.songs[0].playlists = ['Domingo']
     held.state.playlistSongs = [held.state.songs[0]]
@@ -212,7 +212,7 @@ describe('el menú de una canción', () => {
     expect(held.state.playlistSongs[0].ghost).toBe(true)
   })
 
-  it('renombrar, buscar la letra y difuminar cambian la canción en todas partes', async () => {
+  it('renaming, looking up lyrics and blurring change the song everywhere', async () => {
     const { menus, ctx } = prepare()
     menus.songMenu(ev, held.state.songs[0])
     const rename = pick('Renombrar…')
@@ -239,7 +239,7 @@ describe('el menú de una canción', () => {
     expect(notices.value.at(-1).message).toBe('Portada difuminada')
   })
 
-  it('abrir la carpeta y enviar por Telegram buscan la ruta si no la tienen', async () => {
+  it('opening the folder and sending via Telegram look up the path if they lack it', async () => {
     const { menus } = prepare()
     await menus.loadShareTargets()
     const noPath = { ...held.state.songs[0], path: '' }
@@ -257,11 +257,11 @@ describe('el menú de una canción', () => {
   })
 })
 
-describe('las «No está» de una lista', () => {
+describe('the «No está» entries of a playlist', () => {
   const list = { kind: 'playlist', id: 7, name: 'Domingo' }
   const gone = () => song(9, { title: 'Se Fue', artist: 'Barak', ghost: true })
 
-  it('tienen su menú: buscarla en lo que tienes, bajarla o quitarla', async () => {
+  it('have their own menu: find it in your library, download it or remove it', async () => {
     const { menus, ctx } = prepare({ view: list })
     ctx.findInLibrary = vi.fn()
     ctx.findToDownload = vi.fn()
@@ -282,7 +282,7 @@ describe('las «No está» de una lista', () => {
     expect(api().removeFromPlaylist).toHaveBeenCalledWith(7, 9)
   })
 
-  it('entre varias elegidas, solo cuentan para quitarlas de la lista', async () => {
+  it('among several selected, they only count for removing from the playlist', async () => {
     const { menus } = prepare({ view: list })
     const several = [held.state.songs[0], gone()]
     menus.groupMenu(ev, several)
@@ -300,7 +300,7 @@ describe('las «No está» de una lista', () => {
     expect(api().toggleFavorite).not.toHaveBeenCalled()
   })
 
-  it('solo «No está» elegidas: solo se pueden quitar', () => {
+  it('only «No está» selected: they can only be removed', () => {
     const { menus } = prepare({ view: list })
     menus.groupMenu(ev, [gone(), song(10, { ghost: true })])
     expect(menu.value.title).toBe('2 que no están')
@@ -308,8 +308,8 @@ describe('las «No está» de una lista', () => {
   })
 })
 
-describe('el menú de varias', () => {
-  it('sobre una de las elegidas, el menú es el de todas', async () => {
+describe('the multi-song menu', () => {
+  it('on one of the selected, the menu is for all of them', async () => {
     const { menus, ctx } = prepare({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
     await menus.loadShareTargets()
     await ctx.selection.select(1)
@@ -333,7 +333,7 @@ describe('el menú de varias', () => {
     )
   })
 
-  it('favoritas, quitarlas de la lista y la papelera, de una vez', async () => {
+  it('favorites, remove from the playlist and trash, all at once', async () => {
     const { menus, ctx } = prepare({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
     const three = held.state.songs.map((s) => ({ ...s }))
     menus.groupMenu(ev, three)
@@ -353,7 +353,7 @@ describe('el menú de varias', () => {
     expect(ctx.selection.selectedIds.value).toEqual([])
   })
 
-  it('la papelera desde el buscador no suelta lo elegido en la lista', async () => {
+  it('trash from the search box does not clear the selection in the list', async () => {
     const { menus, ctx } = prepare()
     const [a, b, c] = held.state.songs
     ctx.selection.selectedIds.value = [c.id]
@@ -366,7 +366,7 @@ describe('el menú de varias', () => {
     expect(ctx.selection.selectedIds.value).toEqual([c.id])
   })
 
-  it('las listas a las que mandarlas, y una nueva', async () => {
+  it('the playlists to send them to, and a new one', async () => {
     const { menus, ctx } = prepare()
     const two = held.state.songs.slice(0, 2)
     menus.groupMenu(ev, two)
@@ -385,8 +385,8 @@ describe('el menú de varias', () => {
   })
 })
 
-describe('el menú de un repertorio', () => {
-  it('abrir, renombrar, exportar, la hoja y borrarlo', async () => {
+describe('the playlist menu', () => {
+  it('open, rename, export, the sheet and delete', async () => {
     const { menus, ctx } = prepare({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
     const pl = { id: 7, name: 'Domingo' }
     await menus.loadShareTargets()
@@ -417,7 +417,7 @@ describe('el menú de un repertorio', () => {
     expect(ctx.view.value).toEqual({ kind: 'playlist', id: 7, name: 'Domingo' })
   })
 
-  it('enviarla por Telegram manda todas sus canciones; vacía, lo dice', async () => {
+  it('sending it via Telegram sends all its songs; when empty, it says so', async () => {
     const { menus } = prepare()
     await menus.loadShareTargets()
     menus.playlistMenu(ev, { id: 7, name: 'Domingo' })
@@ -430,8 +430,8 @@ describe('el menú de un repertorio', () => {
   })
 })
 
-describe('las pistas separadas', () => {
-  it('una sin pistas se separa con un solo clic, sin elegir nada', async () => {
+describe('the separated stems', () => {
+  it('one without stems is split with a single click, without choosing anything', async () => {
     const { menus } = prepare()
     menus.songMenu(ev, held.state.songs[0])
     expect(item('Separar pistas').children).toBeUndefined()
@@ -440,7 +440,7 @@ describe('las pistas separadas', () => {
     expect(dialog.value.open).toBeFalsy()
   })
 
-  it('bajar el separador se pregunta antes, con lo que pesa', async () => {
+  it('downloading the separator asks first, with its size', async () => {
     held.state.separation.pending = 307000000
     await useSeparation().refresh()
     const { menus } = prepare()
@@ -455,7 +455,7 @@ describe('las pistas separadas', () => {
     expect(api().separate).not.toHaveBeenCalled()
   })
 
-  it('varias a la vez van a la cola', async () => {
+  it('several at once go to the queue', async () => {
     const { menus, ctx } = prepare()
     await ctx.selection.select(1)
     await ctx.selection.select(3, { shiftKey: true })
@@ -465,7 +465,7 @@ describe('las pistas separadas', () => {
     expect(useSeparation().state.queue.map((q) => q.id)).toEqual([2, 3])
   })
 
-  it('el repertorio entero, sin repetir las que ya tienen las mejores', async () => {
+  it('the whole playlist, without redoing those that already have the best ones', async () => {
     const { menus } = prepare()
     held.state.playlistSongs[1] = {
       ...held.state.playlistSongs[1],
@@ -488,7 +488,7 @@ describe('las pistas separadas', () => {
     )
   })
 
-  it('la que se está separando o espera se puede parar o quitar', async () => {
+  it('the one being split or waiting can be stopped or removed', async () => {
     const { menus } = prepare()
     await useSeparation().request([held.state.songs[0], held.state.songs[1]])
     menus.songMenu(ev, held.state.songs[1])
@@ -499,7 +499,7 @@ describe('las pistas separadas', () => {
     expect(api().cancelSeparation).toHaveBeenCalled()
   })
 
-  it('con pistas: abrir su carpeta, separarla otra vez o borrarlas', async () => {
+  it('with stems: open their folder, split again or delete them', async () => {
     const { menus, ctx } = prepare()
     held.state.stems[1] = stemsOf(1)
     const withStems = { ...held.state.songs[0], has_stems: true, stems_best: true }
@@ -522,7 +522,7 @@ describe('las pistas separadas', () => {
     expect(ctx.refreshAll).toHaveBeenCalled()
   })
 
-  it('al celular: una desde su menú, y de varias solo las que tienen pistas', async () => {
+  it('to the phone: one from its menu, and of several only those with stems', async () => {
     const { menus, ctx, songs } = prepare()
     held.state.stems[1] = stemsOf(1)
     held.state.stems[3] = stemsOf(3)
@@ -546,7 +546,7 @@ describe('las pistas separadas', () => {
     )
   })
 
-  it('sin separador en este equipo no se ofrece', async () => {
+  it('without a separator on this computer it is not offered', async () => {
     held.state.separation.ok = false
     held.state.separation.reason = 'falta onnxruntime'
     await useSeparation().refresh()

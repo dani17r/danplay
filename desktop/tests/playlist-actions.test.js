@@ -51,13 +51,13 @@ async function answer(value) {
   await flushPromises()
 }
 
-describe('las listas', () => {
-  it('se cargan del nucleo', async () => {
+describe('playlists', () => {
+  it('are loaded from the core', async () => {
     await actions.load()
     expect(actions.playlists.value.map((l) => l.name)).toEqual(['Domingo', 'Ensayo'])
   })
 
-  it('añadir una cancion lo dice; si ya estaba, tambien', async () => {
+  it('adding a song says so; if it was already there, too', async () => {
     await actions.addTo(song(7), { id: 2, name: 'Ensayo' })
     expect(api.addToPlaylist).toHaveBeenCalledWith(2, [7])
     expect(notices()).toContain('Añadida a «Ensayo»')
@@ -66,7 +66,7 @@ describe('las listas', () => {
     expect(notices()).toContain('Ya estaba en «Ensayo»')
   })
 
-  it('varias de una vez cuentan cuantas entraron', async () => {
+  it('several at once report how many got in', async () => {
     api.addToPlaylist.mockResolvedValueOnce({ added: 3 })
     await actions.addManyTo([song(1), song(2), song(3)], { id: 2, name: 'Ensayo' })
     expect(api.addToPlaylist).toHaveBeenCalledWith(2, [1, 2, 3])
@@ -74,8 +74,8 @@ describe('las listas', () => {
   })
 })
 
-describe('crear una lista', () => {
-  it('pide el nombre y, si viene con canciones, las mete dentro', async () => {
+describe('creating a playlist', () => {
+  it('asks for the name and, if it comes with songs, adds them', async () => {
     const done = actions.create([song(4), song(5)])
     await flushPromises()
     expect(dialog().kind).toBe('prompt')
@@ -88,7 +88,7 @@ describe('crear una lista', () => {
     expect(actions.playlists.value.map((l) => l.name)).toContain('Viernes')
   })
 
-  it('con una sola cancion, o con ninguna', async () => {
+  it('with a single song, or with none', async () => {
     let done = actions.create(song(4, { title: 'Mi Gozo' }))
     await flushPromises()
     expect(dialog().message).toContain('«Mi Gozo»')
@@ -101,14 +101,14 @@ describe('crear una lista', () => {
     expect(notices()).toContain('Lista «Vacia» creada')
   })
 
-  it('si el nombre ya existe, se usa esa y se dice', async () => {
+  it('if the name already exists, that one is used and it says so', async () => {
     const done = actions.create()
     await answer('Domingo')
     await done
     expect(notices()).toContain('Ya existía una lista «Domingo»: se ha usado esa')
   })
 
-  it('cancelar no crea nada', async () => {
+  it('cancelling creates nothing', async () => {
     const done = actions.create()
     await answer(null)
     expect(await done).toBe(null)
@@ -116,8 +116,8 @@ describe('crear una lista', () => {
   })
 })
 
-describe('renombrar', () => {
-  it('cambia el nombre y, si esta abierta, el titulo la sigue', async () => {
+describe('renaming', () => {
+  it('changes the name and, if it is open, the title follows', async () => {
     api.editPlaylist.mockResolvedValueOnce({ playlist: { id: 1, name: 'Domingo 11h' } })
     const done = actions.rename({ id: 1, name: 'Domingo' })
     await answer(' Domingo 11h ')
@@ -127,14 +127,14 @@ describe('renombrar', () => {
     expect(notices()).toContain('Ahora se llama «Domingo 11h»')
   })
 
-  it('el mismo nombre no pide nada al nucleo', async () => {
+  it('the same name requests nothing from the core', async () => {
     const done = actions.rename({ id: 1, name: 'Domingo' })
     await answer('Domingo')
     await done
     expect(api.editPlaylist).not.toHaveBeenCalled()
   })
 
-  it('si el nombre ya es de otra, lo dice', async () => {
+  it('if the name belongs to another one, it says so', async () => {
     api.editPlaylist.mockRejectedValueOnce(new Error('ya hay una lista con ese nombre'))
     const done = actions.rename({ id: 2, name: 'Ensayo' })
     await answer('Domingo')
@@ -143,15 +143,15 @@ describe('renombrar', () => {
   })
 })
 
-describe('quitar, exportar y la hoja del atril', () => {
-  it('quitar una cancion de la lista abierta recarga la lista', async () => {
+describe('removing, exporting and the music stand sheet', () => {
+  it('removing a song from the open playlist reloads it', async () => {
     await actions.removeSong(song(3))
     expect(api.removeFromPlaylist).toHaveBeenCalledWith(1, 3)
     expect(reload).toHaveBeenCalled()
     expect(notices()).toContain('Quitada de la lista')
   })
 
-  it('exportar dice donde quedo; si falla, por que', async () => {
+  it('exporting says where it was saved; if it fails, why', async () => {
     await actions.exportTo({ id: 1, name: 'Domingo' })
     expect(notices()).toContain('Exportada a /musica/Listas/x.m3u8')
     api.exportPlaylist.mockRejectedValueOnce(new Error('sin permiso'))
@@ -159,7 +159,7 @@ describe('quitar, exportar y la hoja del atril', () => {
     expect(notices()).toContain('No se pudo exportar: sin permiso')
   })
 
-  it('la hoja pregunta si lleva letra y se abre en el navegador', async () => {
+  it('the sheet asks whether to include lyrics and opens in the browser', async () => {
     const done = actions.sheet({ id: 1, name: 'Domingo' })
     await flushPromises()
     expect(dialog().okLabel).toBe('Con letra')
@@ -169,7 +169,7 @@ describe('quitar, exportar y la hoja del atril', () => {
     expect(held.app.openHtml).toHaveBeenCalledWith('/musica/Listas/lista-1.html')
   })
 
-  it('«solo acordes» la pide sin letra; si no se puede abrir, se enseña en su carpeta', async () => {
+  it('«solo acordes» requests it without lyrics; if it cannot be opened, it is shown in its folder', async () => {
     held.app.openHtml.mockRejectedValueOnce(new Error('sin navegador'))
     const done = actions.sheet({ id: 1, name: 'Domingo' })
     await answer(null)
@@ -178,7 +178,7 @@ describe('quitar, exportar y la hoja del atril', () => {
     expect(held.app.revealInFolder).toHaveBeenCalledWith('/musica/Listas/lista-1.html')
   })
 
-  it('si no se puede escribir la hoja, lo dice', async () => {
+  it('if the sheet cannot be written, it says so', async () => {
     api.playlistSheet.mockRejectedValueOnce(new Error('disco lleno'))
     const done = actions.sheet({ id: 1, name: 'Domingo' })
     await answer(true)
@@ -187,8 +187,8 @@ describe('quitar, exportar y la hoja del atril', () => {
   })
 })
 
-describe('borrar una lista', () => {
-  it('pregunta antes, deja claro que las canciones no se borran y devuelve cual era', async () => {
+describe('deleting a playlist', () => {
+  it('asks first, makes clear the songs are not deleted and returns which one it was', async () => {
     const done = actions.remove({ id: 2, name: 'Ensayo' })
     await flushPromises()
     expect(dialog().danger).toBe(true)
@@ -199,7 +199,7 @@ describe('borrar una lista', () => {
     expect(actions.playlists.value.map((l) => l.id)).toEqual([1])
   })
 
-  it('cancelar no borra nada', async () => {
+  it('cancelling deletes nothing', async () => {
     const done = actions.remove(1)
     await answer(null)
     expect(await done).toBe(false)

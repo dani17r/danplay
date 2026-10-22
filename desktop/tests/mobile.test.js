@@ -70,12 +70,12 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-describe('la app del celular', () => {
-  it('sabe que es la del celular', () => {
+describe('the phone app', () => {
+  it('knows it is the phone one', () => {
     expect(isMobileApp).toBe(true)
   })
 
-  it('enseña las pistas traídas y lo que se hace con cada una, sin nada de la PC', async () => {
+  it('shows the imported tracks and what can be done with each, with nothing from the desktop app', async () => {
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     expect(w.find('.m-top').text()).toContain('Mis pistas')
@@ -109,7 +109,7 @@ describe('la app del celular', () => {
     w.unmount()
   })
 
-  it('un toque elige la canción y enseña sus botones; el doble toque la pone', async () => {
+  it('a tap selects the song and shows its buttons; a double tap plays it', async () => {
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await rowOf(w, 'Mi Gozo').trigger('click')
@@ -130,7 +130,7 @@ describe('la app del celular', () => {
     w.unmount()
   })
 
-  it('con «Un toque pone la canción», basta un toque; y la carátula siempre la pone', async () => {
+  it('with «Un toque pone la canción», one tap is enough; and the cover always plays it', async () => {
     tapPlays.value = true
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
@@ -145,7 +145,7 @@ describe('la app del celular', () => {
     w.unmount()
   })
 
-  it('mantener pulsada una canción abre sus opciones', async () => {
+  it('long-pressing a song opens its options', async () => {
     vi.useFakeTimers()
     try {
       const w = mount(MobileApp, { attachTo: document.body })
@@ -167,7 +167,7 @@ describe('la app del celular', () => {
     }
   })
 
-  it('«Estudiar» abre el estudio, y «atrás» lo cierra como su botón', async () => {
+  it('«Estudiar» opens study mode, and back closes it like its button', async () => {
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await rowOf(w, 'Mi Gozo').trigger('click')
@@ -195,7 +195,7 @@ describe('la app del celular', () => {
     expect(window.__danplayBack).toBeUndefined()
   })
 
-  it('sin pistas explica cómo traerlas de la PC', async () => {
+  it('with no tracks it explains how to bring them from the PC', async () => {
     held.state.songs = []
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
@@ -205,7 +205,7 @@ describe('la app del celular', () => {
   })
 })
 
-describe('la música del teléfono', () => {
+describe('the phone music', () => {
   const phoneSong = (id, title, artist, path) =>
     song(id, { title, artist, path, phone: true, has_stems: false, duration: 200 })
 
@@ -234,7 +234,7 @@ describe('la música del teléfono', () => {
     await flushPromises()
   }
 
-  it('se ve desde el menú; al poner una suenan detrás las de su carpeta', async () => {
+  it('is reachable from the menu; playing one queues the rest of its folder after it', async () => {
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await openPhone(w)
@@ -252,7 +252,7 @@ describe('la música del teléfono', () => {
     w.unmount()
   })
 
-  it('sin permiso lo pide, y con él se ve la música', async () => {
+  it('without permission it asks for it, and with it the music shows', async () => {
     let granted = false
     window.DanPlayMusic = {
       granted: () => granted,
@@ -277,7 +277,7 @@ describe('la música del teléfono', () => {
     w.unmount()
   })
 
-  it('las carpetas y las canciones salen de lo que cuenta Android (con la tarjeta SD)', async () => {
+  it('folders and songs come from what Android reports (SD card included)', async () => {
     const media = [
       { path: '/storage/1A2B-3C4D/Musica/coro.mp3', title: 'Coro', artist: 'Grupo' },
       { path: '/storage/emulated/0/Music/Grupo/coro-uno.mp3', title: 'Coro Uno', artist: 'Grupo' }
@@ -306,7 +306,7 @@ describe('la música del teléfono', () => {
     w.unmount()
   })
 
-  it('las carpetas se eligen como en la PC', async () => {
+  it('folders are chosen as on the PC', async () => {
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await openPhone(w)
@@ -330,8 +330,8 @@ describe('la música del teléfono', () => {
   })
 })
 
-describe('el menú de lado y las listas', () => {
-  it('«Acerca de DanPlay» dice quién lo hizo, cómo escribirle y lo nuevo', async () => {
+describe('the side menu and the playlists', () => {
+  it('«Acerca de DanPlay» says who made it, how to write to them and what is new', async () => {
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await w.find('[aria-label="Abrir el menú"]').trigger('click')
@@ -355,7 +355,7 @@ describe('el menú de lado y las listas', () => {
     w.unmount()
   })
 
-  it('abre con ☰ y lleva a las favoritas y a las listas', async () => {
+  it('opens with ☰ and leads to the favorites and the playlists', async () => {
     held.state.songs[1].favorite = 1
     held.state.playlists = [{ id: 7, name: 'Domingo', n: 1, seconds: 245 }]
     held.state.playlistSongs = [held.state.songs[0]]
@@ -400,7 +400,7 @@ describe('el menú de lado y las listas', () => {
     w.unmount()
   })
 
-  it('una lista nueva se pide por su nombre y se abre', async () => {
+  it('a new playlist is asked for by name and opens', async () => {
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     await w.find('[aria-label="Abrir el menú"]').trigger('click')
@@ -417,7 +417,7 @@ describe('el menú de lado y las listas', () => {
     w.unmount()
   })
 
-  it('una canción se añade a una lista desde sus opciones', async () => {
+  it('a song is added to a playlist from its options', async () => {
     held.state.playlists = [{ id: 3, name: 'Domingo', n: 0, seconds: 0 }]
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
@@ -432,7 +432,7 @@ describe('el menú de lado y las listas', () => {
   })
 })
 
-describe('el reproductor del celular', () => {
+describe('the phone player', () => {
   const sounding = () =>
     held.playback.emit({
       track: { id: 1, title: 'Mi Gozo', artist: 'Barak', duration: 245, path: '/pistas/mi-gozo' },
@@ -444,7 +444,7 @@ describe('el reproductor del celular', () => {
       path: '/pistas/mi-gozo'
     })
 
-  it('la barra se sube con el dedo para abrir el estudio; un toque abre el reproductor', async () => {
+  it('swiping the bar up opens study mode; a tap opens the player', async () => {
     sounding()
     const w = mount(MobilePlayer, { props: { full: false }, attachTo: document.body })
     await flushPromises()
@@ -464,7 +464,7 @@ describe('el reproductor del celular', () => {
     w.unmount()
   })
 
-  it('subirla poco no abre nada', async () => {
+  it('a short swipe up opens nothing', async () => {
     sounding()
     const w = mount(MobilePlayer, { props: { full: false }, attachTo: document.body })
     await flushPromises()
@@ -477,7 +477,7 @@ describe('el reproductor del celular', () => {
     w.unmount()
   })
 
-  it('el reproductor entero: todo grande, con el estudio, la letra y la cola', async () => {
+  it('the full player: everything large, with study mode, lyrics and queue', async () => {
     sounding()
     const w = mount(MobilePlayer, {
       props: { full: true, song: { ...song(1), title: 'Mi Gozo', key: 'A', bpm: 140 } },
@@ -506,7 +506,7 @@ describe('el reproductor del celular', () => {
     w.unmount()
   })
 
-  it('el volumen de la app, a mano y a la vista: se baja, se silencia y vuelve', async () => {
+  it('the app volume, at hand and visible: it lowers, mutes and comes back', async () => {
     sounding()
     const w = mount(MobilePlayer, { props: { full: true }, attachTo: document.body })
     await flushPromises()
@@ -526,7 +526,7 @@ describe('el reproductor del celular', () => {
     w.unmount()
   })
 
-  it('con el estudio abierto, la barra lleva la hora y los saltos de 10 s', async () => {
+  it('with study mode open, the bar has the time and the 10 s skips', async () => {
     sounding()
     const w = mount(MobilePlayer, { props: { study: true }, attachTo: document.body })
     await flushPromises()
@@ -538,8 +538,8 @@ describe('el reproductor del celular', () => {
   })
 })
 
-describe('los mandos de la bandeja de Android', () => {
-  it('cuenta a Android lo que suena, y otra vez al pausar', async () => {
+describe('the Android notification controls', () => {
+  it('tells Android what is playing, and again on pause', async () => {
     const update = vi.fn()
     window.DanPlayAndroid = { update }
     const w = mount(MobileApp, { attachTo: document.body })
@@ -578,8 +578,8 @@ describe('los mandos de la bandeja de Android', () => {
   })
 })
 
-describe('los componentes de la PC, en el celular', () => {
-  it('el menú de las pistas del estudio solo deja volver a la mezcla de fábrica', async () => {
+describe('the desktop components, on the phone', () => {
+  it('the study stems menu only allows going back to the default mix', async () => {
     held.state.songs[0].study = ''
     held.playback.emit({
       track: { id: 1, title: 'Mi Gozo', artist: 'Barak', duration: 200 },
@@ -600,7 +600,7 @@ describe('los componentes de la PC, en el celular', () => {
     w.unmount()
   })
 
-  it('las guías que trajo de la PC: se oyen y se mezclan, pero no se hacen ni se cambian', async () => {
+  it('cues brought from the PC: they play and mix, but cannot be made or changed', async () => {
     held.state.songs[0].study = JSON.stringify({
       cues: [
         { t: 8, file: 'guias/coro-1.wav', text: 'Intro', lane: 'g1' },
@@ -652,7 +652,7 @@ describe('los componentes de la PC, en el celular', () => {
     w.unmount()
   })
 
-  it('«Salidas» está a la vista en la cabecera del estudio', async () => {
+  it('«Salidas» is visible in the study header', async () => {
     const w = mount(StudyBar, { attachTo: document.body })
     await flushPromises()
     const outputs = w.find('.study-head [aria-label="Salidas"]')
@@ -664,7 +664,7 @@ describe('los componentes de la PC, en el celular', () => {
     w.unmount()
   })
 
-  it('en la onda, «varios» y el candado van en su fila y cada carril lleva su nombre', async () => {
+  it('on the waveform, «varios» and the lock sit on their row and each lane has its name', async () => {
     const lanes = [
       { key: 'drums', name: 'Batería', on: true },
       { key: 'vocals', name: 'Voces', on: false, mute: true }
@@ -689,7 +689,7 @@ describe('los componentes de la PC, en el celular', () => {
     w.unmount()
   })
 
-  it('la ficha enseña la letra y los acordes, sin buscar ni editar', async () => {
+  it('the details panel shows lyrics and chords, without searching or editing', async () => {
     const s = {
       ...song(1, { title: 'Mi Gozo', artist: 'Barak' }),
       lyrics: 'Mi gozo está en ti',
@@ -723,8 +723,8 @@ describe('los componentes de la PC, en el celular', () => {
   })
 })
 
-describe('las salidas en el celular', () => {
-  it('el menú del estudio ofrece «Salidas» y manda el reparto al motor del celular', async () => {
+describe('outputs on the phone', () => {
+  it('the study menu offers «Salidas» and sends the routing to the phone engine', async () => {
     const { resetRouting } = await import('../src/composables/useRouting.js')
     resetRouting()
     held.playback.emit({
@@ -754,8 +754,8 @@ describe('las salidas en el celular', () => {
   })
 })
 
-describe('la lista táctil, sola', () => {
-  it('ordenando una lista, cada fila sube, baja o se quita, y no se pone a sonar', async () => {
+describe('the touch list on its own', () => {
+  it('while sorting a playlist, each row moves up, down or is removed, and does not start playing', async () => {
     const songs = [song(1, { title: 'Uno' }), song(2, { title: 'Dos' })]
     const w = mount(MobileSongs, { props: { songs, editing: true } })
     const first = w.findAll('.m-song')[0]

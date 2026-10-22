@@ -27,10 +27,10 @@ const song = (id, extra = {}) => ({
 const three = () => [song(1), song(2), song(3, { favorite: 1 })]
 
 const VIEWS = [
-  ['la tabla', SongTable, 'table'],
-  ['la lista fina', SongRows, 'rows'],
-  ['las fichas', SongCards, 'cards'],
-  ['la cuadricula', SongGrid, 'grid']
+  ['the table', SongTable, 'table'],
+  ['the compact list', SongRows, 'rows'],
+  ['the cards', SongCards, 'cards'],
+  ['the grid', SongGrid, 'grid']
 ]
 // la cuadricula no enseña ni estrellas ni corazon: se valora y se marca desde
 // el menu de la cancion
@@ -46,10 +46,10 @@ function mountView(View, layout, grouped, props = {}) {
 const emitted = (w, event) => w.emitted(event)
 
 for (const grouped of [false, true]) {
-  describe(grouped ? 'agrupadas' : 'sueltas', () => {
+  describe(grouped ? 'grouped' : 'ungrouped', () => {
     for (const [name, View, layout] of VIEWS) {
       describe(name, () => {
-        it('el clic elige la cancion y lleva sus teclas (Ctrl, Mayus)', async () => {
+        it('the click selects the song and carries its keys (Ctrl, Shift)', async () => {
           const w = mountView(View, layout, grouped)
           const row = w.findAll('[data-song-row]').find((f) => f.text().includes('Cancion 2'))
           await row.trigger('click', { ctrlKey: true })
@@ -60,7 +60,7 @@ for (const grouped of [false, true]) {
           expect(emitted(w, 'select')[1][1].shiftKey).toBe(true)
         })
 
-        it('el boton y el doble clic la ponen a sonar; el clic derecho abre su menu', async () => {
+        it('the button and a double click play it; right-click opens its menu', async () => {
           const w = mountView(View, layout, grouped)
           const row = w.findAll('[data-song-row]').find((f) => f.text().includes('Cancion 2'))
           await row.find('button[title="Reproducir"]').trigger('click')
@@ -74,7 +74,7 @@ for (const grouped of [false, true]) {
         })
 
         if (WITH_STARS.includes(layout)) {
-          it('el corazon y las estrellas se cambian sin elegir la fila', async () => {
+          it('the heart and the stars change without selecting the row', async () => {
             const w = mountView(View, layout, grouped)
             const row = w.findAll('[data-song-row]').find((f) => f.text().includes('Cancion 3'))
             const heart = row.find('.heart')
@@ -88,7 +88,7 @@ for (const grouped of [false, true]) {
           })
         }
 
-        it('copia el titulo y el nombre completo sin elegir ni poner a sonar la fila', async () => {
+        it('copies the title and the full name without selecting or playing the row', async () => {
           const written = []
           Object.defineProperty(navigator, 'clipboard', {
             configurable: true,
@@ -115,7 +115,7 @@ for (const grouped of [false, true]) {
           clearNotices()
         })
 
-        it('la duracion se lee en minutos, igual en todas', () => {
+        it('the duration reads in minutes, the same in all of them', () => {
           const w = mountView(View, layout, grouped)
           if (layout === 'grid') return // la cuadricula no la enseña
           expect(w.text()).toContain('2:05')
@@ -125,8 +125,8 @@ for (const grouped of [false, true]) {
   })
 }
 
-describe('la vista agrupada', () => {
-  it('cada grupo dice cuantas lleva y cuanto duran, y se pliega', async () => {
+describe('the grouped view', () => {
+  it('each group says how many it has and how long they last, and collapses', async () => {
     const w = mount(GroupedSongs, { props: { songs: three(), by: 'artist', layout: 'rows' } })
     const [barakGroup] = w.findAll('.group-head')
     expect(barakGroup.text()).toContain('2 temas · 4 min')
@@ -138,7 +138,7 @@ describe('la vista agrupada', () => {
     expect(w.findAll('[data-song-row]')).toHaveLength(3)
   })
 
-  it('agrupa por lo que se le pida, con un nombre para lo que no lo tiene', () => {
+  it('groups by whatever is requested, with a name for what has none', () => {
     const noData = [song(1, { artist: '', album: '', genre: '', key: '' })]
     for (const [by, group] of [
       ['artist', 'Sin artista'],
@@ -153,12 +153,12 @@ describe('la vista agrupada', () => {
     }
   })
 
-  it('sin canciones lo dice', () => {
+  it('with no songs it says so', () => {
     const w = mount(GroupedSongs, { props: { songs: [], by: 'artist', layout: 'table' } })
     expect(w.text()).toContain('Nada por aquí')
   })
 
-  it('la tabla agrupada, sin cabecera, lleva el ancho de cada columna', () => {
+  it('the grouped table, without a header, carries the width of each column', () => {
     // su primera fila es la del grupo, una celda que abarca todas: sin los
     // `col`, `table-layout: fixed` las dejaba todas iguales y el titulo se
     // quedaba en «Mi …»

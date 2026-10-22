@@ -8,7 +8,7 @@ test.beforeEach(async ({ request }) => {
   await reset(request)
 })
 
-test('bienvenida: se elige la carpeta y aparece la lista', async ({ page, request }) => {
+test('welcome: picking the folder shows the list', async ({ page, request }) => {
   // sin ninguna carpeta: la primera vez que se abre la app
   await core(request, 'DELETE', `/folders?path=${encodeURIComponent(MUSIC)}`)
   await page.goto('/')
@@ -22,7 +22,9 @@ test('bienvenida: se elige la carpeta y aparece la lista', async ({ page, reques
   expect((await titleTexts(page)).sort()).toEqual(SONGS.map((s) => s[1]).sort())
 })
 
-test('buscar filtra la lista, y quitar la búsqueda la devuelve entera', async ({ page }) => {
+test('searching filters the list, and clearing the search restores it in full', async ({
+  page
+}) => {
   await openApp(page)
   await page.getByRole('combobox', { name: 'Buscar en la biblioteca' }).fill('shekinah')
   await expect(titles(page)).toHaveText(['Shekinah'])
@@ -30,7 +32,9 @@ test('buscar filtra la lista, y quitar la búsqueda la devuelve entera', async (
   await expect(rows(page)).toHaveCount(SONGS.length)
 })
 
-test('en «Artistas», que siempre agrupa, Ctrl y Mayús eligen lo que se ve', async ({ page }) => {
+test('in «Artistas», which always groups, Ctrl and Shift select what is shown', async ({
+  page
+}) => {
   await openApp(page)
   // Por título, la lista no va en el orden de los grupos: el tramo de Mayús
   // se sacaba del orden de la lista y elegía canciones que no estaban entre
@@ -60,7 +64,7 @@ test('en «Artistas», que siempre agrupa, Ctrl y Mayús eligen lo que se ve', a
   await expect(page.getByRole('menu')).toHaveCount(0)
 })
 
-test('en «Artistas» la lista es una sola: las flechas pasan de un grupo a otro', async ({
+test('in «Artistas» the list is a single one: arrow keys move from one group to the next', async ({
   page
 }) => {
   await openApp(page)
@@ -82,7 +86,7 @@ test('en «Artistas» la lista es una sola: las flechas pasan de un grupo a otro
   await expect(page.locator('.group-head')).toHaveCount(3)
 })
 
-test('la lista se recorre con el teclado y Enter pone la canción', async ({ page }) => {
+test('the list is navigated with the keyboard and Enter plays the song', async ({ page }) => {
   await openApp(page)
   // una sola parada del tabulador: la primera fila
   await expect(rows(page).first()).toHaveAttribute('tabindex', '0')

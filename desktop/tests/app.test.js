@@ -81,8 +81,8 @@ const openView = async (w) => {
 /** El nombre de la transicion con la que entra ese elemento (en las pruebas, `transition-stub`). */
 const transition = (el) => el.closest('transition-stub')?.getAttribute('name') ?? null
 
-describe('lo que se ve', () => {
-  it('los avisos se pintan con las clases que el css conoce', async () => {
+describe('what is shown', () => {
+  it('notices render with the classes the CSS knows', async () => {
     // Antes salian con notice-ok / notice-ambar y el css definia hint-ok /
     // hint-amber: los avisos eran siempre grises.
     const w = await mountView()
@@ -97,21 +97,21 @@ describe('lo que se ve', () => {
       expect(css).toMatch(new RegExp(`\\.${c}[\\s,{:.>+~]`))
   })
 
-  it('el menu de Vista entra con su transicion, como los demas paneles', async () => {
+  it('the View menu comes in with its transition, like the other panels', async () => {
     // aparecia de golpe mientras el resto se desvanecia
     const w = await mountView()
     await openView(w)
     expect(transition(w.find('.view-menu').element)).toBe('dropdown')
   })
 
-  it('el modo estudio sube desde el reproductor con su transicion', async () => {
+  it('study mode slides up from the player with its transition', async () => {
     const w = await mountView()
     await w.find('.pl-study').trigger('click')
     await flushPromises()
     expect(transition(w.find('.study').element)).toBe('study')
   })
 
-  it('cada vista se pinta con lo suyo', async () => {
+  it('each view renders with its own markup', async () => {
     const w = await mountView()
     const box = { rows: '.rows', cards: '.cards', grid: '.grid', table: 'table.song-table' }
     for (const [i, view] of ['rows', 'cards', 'grid', 'table'].entries()) {
@@ -122,7 +122,7 @@ describe('lo que se ve', () => {
     }
   })
 
-  it('donde el conmutador no cabe, la vista se elige en el menu', async () => {
+  it('where the switcher does not fit, the view is chosen from the menu', async () => {
     const w = await mountView()
     await openView(w)
     const layoutField = w.findAll('.view-menu .field').find((f) => f.text().includes('Cómo se ve'))
@@ -137,7 +137,7 @@ describe('lo que se ve', () => {
     expect(allCss()).toMatch(/\.view-switch\{display:none\}/)
   })
 
-  it('el selector de tema enseña el color de cada uno', async () => {
+  it('the theme picker shows the color of each theme', async () => {
     const w = await mountView()
     await openView(w)
     const theme = w.findAll('.view-menu .field').find((f) => f.text().includes('Tema'))
@@ -147,7 +147,7 @@ describe('lo que se ve', () => {
     for (const p of dots) expect(p.attributes('style')).toMatch(/background:\s*rgb/)
   })
 
-  it('en Entrada no se reserva sitio para la ficha; en Duplicados si', async () => {
+  it('Inbox reserves no room for the details panel; Duplicates does', async () => {
     const w = await mountView()
     expect(w.find('.details').exists()).toBe(true)
     await clickButton(w, 'Entrada')
@@ -158,8 +158,8 @@ describe('lo que se ve', () => {
   })
 })
 
-describe('ordenar', () => {
-  it('pulsar la misma columna invierte el orden; otra empieza por lo natural', async () => {
+describe('sorting', () => {
+  it('clicking the same column reverses the order; another one starts with its natural order', async () => {
     const w = await mountView()
     const column = (k) => w.find(`th[data-col="${k}"] .th-sort`)
     const last = () => api.search.mock.calls.at(-1)[0]
@@ -181,7 +181,7 @@ describe('ordenar', () => {
   })
 })
 
-describe('el buscador', () => {
+describe('the search box', () => {
   // Con temporizadores de verdad: los falsos adelantan `Date.now()` y Vue
   // descarta despues los clics sobre lo que se monto «en el futuro».
   const search = async (w, text) => {
@@ -190,7 +190,7 @@ describe('el buscador', () => {
     await flushPromises()
   }
 
-  it('en la biblioteca filtra la propia lista; fuera de ella, despliega resultados', async () => {
+  it('in the library it filters the list itself; elsewhere it opens a dropdown of results', async () => {
     const w = await mountView()
     api.search.mockClear()
     await search(w, 'gozo')
@@ -209,7 +209,7 @@ describe('el buscador', () => {
     expect(document.getElementById(box.attributes('aria-controls'))).toBeTruthy()
   })
 
-  it('al reproducir un resultado, la cola pasa a ser lo encontrado', async () => {
+  it('playing a result makes the search results the queue', async () => {
     // si no, «siguiente» no recorreria los resultados, que es lo que se
     // espera despues de buscar
     const w = await mountView()
@@ -224,7 +224,7 @@ describe('el buscador', () => {
     expect(origin.label).toContain('barak')
   })
 
-  it('la busqueda avanzada se abre desde un boton dentro del propio campo', async () => {
+  it('advanced search opens from a button inside the field itself', async () => {
     const w = await mountView()
     const button = w.find('.search-box .field-box .search-more')
     expect(button.exists(), 'el boton no va dentro del campo').toBe(true)
@@ -235,7 +235,7 @@ describe('el buscador', () => {
   // Las opciones de un resultado del desplegable: antes el clic derecho no
   // hacia nada, y un menu abierto fuera del desplegable lo cerraba al pulsar
   // en el (el clic cae «fuera» de la caja de busqueda).
-  describe('las opciones de un resultado', () => {
+  describe('the options of a result', () => {
     const prepare = async () => {
       const w = await mountView()
       await clickButton(w, 'Favoritos')
@@ -256,7 +256,7 @@ describe('el buscador', () => {
       await flushPromises()
     }
 
-    it('dejan añadir varios resultados a repertorios sin cerrar el desplegable', async () => {
+    it('allow adding several results to playlists without closing the dropdown', async () => {
       state.playlists = [
         { id: 7, name: 'Domingo', n: 0 },
         { id: 8, name: 'Ensayo', n: 2 }
@@ -278,7 +278,7 @@ describe('el buscador', () => {
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
-    it('el «⋯» de la fila abre las mismas opciones, sin elegirla ni cerrar nada', async () => {
+    it('the row «⋯» opens the same options, without selecting it or closing anything', async () => {
       const w = await prepare()
       api.song.mockClear()
       await w.findAll('.sr-more')[1].trigger('click')
@@ -294,7 +294,7 @@ describe('el buscador', () => {
       expect(texts.some((t) => t.includes('Quitar de esta lista'))).toBe(false)
     })
 
-    it('Reproducir desde el menu pone lo encontrado como cola, como el boton de la fila', async () => {
+    it('Play from the menu queues the search results, like the row button', async () => {
       const w = await prepare()
       await openOptions(w, 1)
       await pick(w, 'Reproducir')
@@ -305,7 +305,7 @@ describe('el buscador', () => {
       expect(origin.label).toContain('barak')
     })
 
-    it('marcar una favorita desde ahi se nota en su propio menu la proxima vez', async () => {
+    it('marking a favorite from there shows in its own menu next time', async () => {
       const w = await prepare()
       await openOptions(w, 0)
       await pick(w, 'Marcar como favorito')
@@ -315,7 +315,7 @@ describe('el buscador', () => {
       expect(texts.some((t) => t.includes('Quitar de favoritos'))).toBe(true)
     })
 
-    it('Escape cierra el menu y no el desplegable; con el menu cerrado, el desplegable', async () => {
+    it('Escape closes the menu but not the dropdown; with the menu closed, the dropdown', async () => {
       const w = await prepare()
       await openOptions(w, 0)
       expect(w.find('.ctx').exists()).toBe(true)
@@ -332,7 +332,7 @@ describe('el buscador', () => {
       expect(w.find('.search-results').exists()).toBe(false)
     })
 
-    it('un clic en cualquier otro sitio lo cierra todo', async () => {
+    it('a click anywhere else closes everything', async () => {
       const w = await prepare()
       await openOptions(w, 0)
       document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
@@ -341,7 +341,7 @@ describe('el buscador', () => {
       expect(w.find('.search-results').exists()).toBe(false)
     })
 
-    it('con el teclado: la tecla de menu en la caja abre las opciones del resaltado', async () => {
+    it('with the keyboard: the menu key in the box opens the options of the highlighted result', async () => {
       const w = await prepare()
       const box = w.find('.topbar input')
       await box.trigger('keydown', { key: 'ArrowDown' })
@@ -351,7 +351,7 @@ describe('el buscador', () => {
       expect(w.find('.ctx-head').text()).toContain('Shekinah')
     })
 
-    it('sobre la que suena el menu pausa: no la reinicia ni cambia la cola', async () => {
+    it('on the song that is playing the menu pauses: it neither restarts it nor changes the queue', async () => {
       const w = await prepare()
       await w.findAll('.sr-play')[1].trigger('click') // suena «Shekinah»
       await flushPromises()
@@ -372,7 +372,7 @@ describe('el buscador', () => {
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
-    it('marcar una favorita no mueve la fila resaltada (el teclado sigue donde estaba)', async () => {
+    it('marking a favorite does not move the highlighted row (the keyboard stays where it was)', async () => {
       const w = await prepare()
       const box = w.find('.topbar input')
       await box.trigger('keydown', { key: 'ArrowDown' })
@@ -386,7 +386,7 @@ describe('el buscador', () => {
       expect(w.find('.sr-row.on').text()).toContain('Cancion 3')
     })
 
-    it('un dialogo abierto desde el menu no cierra el desplegable (Nueva lista… → Crear)', async () => {
+    it('a dialog opened from the menu does not close the dropdown (Nueva lista… → Crear)', async () => {
       const w = await prepare()
       await openOptions(w, 0)
       await pick(w, 'Añadir a una lista')
@@ -416,7 +416,7 @@ describe('el buscador', () => {
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
-    it('elegir una opcion con el raton devuelve el foco a la caja', async () => {
+    it('choosing an option with the mouse returns focus to the box', async () => {
       // sin esto el foco se perdia en el <body>: lo escrito no llegaba a la caja y
       // la flecha abajo bajaba el volumen del reproductor
       const w = await prepare()
@@ -434,7 +434,7 @@ describe('el buscador', () => {
       await flushPromises()
     })
 
-    it('mandar a la papelera quita la fila del desplegable (no deja una cancion fantasma)', async () => {
+    it('moving to the trash removes the row from the dropdown (no ghost song left behind)', async () => {
       const w = await prepare()
       expect(w.findAll('.sr-row')).toHaveLength(3)
       await openOptions(w, 0)
@@ -448,7 +448,7 @@ describe('el buscador', () => {
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
-    it('«Ver detalles» de un resultado elige la cancion en el panel, sin abrir una ventana', async () => {
+    it('«Ver detalles» on a result selects the song in the panel without opening a dialog', async () => {
       const w = await prepare()
       api.song.mockClear()
       await openOptions(w, 1)
@@ -458,7 +458,7 @@ describe('el buscador', () => {
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
-    it('el doble clic en el «⋯» no reproduce ni cambia la cola', async () => {
+    it('double-clicking the «⋯» neither plays nor changes the queue', async () => {
       const w = await prepare()
       playback.bridge.setQueue.mockClear()
       await w.findAll('.sr-more')[0].trigger('dblclick')
@@ -469,7 +469,7 @@ describe('el buscador', () => {
   // Varios resultados a la vez (el botón «Seleccionar» del desplegable, Ctrl o
   // Mayús + clic, Ctrl+Espacio): lo mismo que con varias canciones de la lista,
   // sin cerrar el desplegable.
-  describe('varios resultados a la vez', () => {
+  describe('several results at once', () => {
     const prepare = async () => {
       const w = await mountView()
       await clickButton(w, 'Favoritos')
@@ -489,7 +489,7 @@ describe('el buscador', () => {
       await flushPromises()
     }
 
-    it('dos resultados a una lista con «Añadir a una lista ▾»: una sola petición y el desplegable sigue', async () => {
+    it('two results to a playlist with «Añadir a una lista ▾»: a single request and the dropdown stays open', async () => {
       state.playlists = [
         { id: 7, name: 'Domingo', n: 0 },
         { id: 8, name: 'Ensayo', n: 2 }
@@ -514,7 +514,7 @@ describe('el buscador', () => {
       expect(w.findAll('[data-song-row].selected')).toHaveLength(0)
     })
 
-    it('con Ctrl+clic y el «⋯» de la barra: las opciones de todas, sin «quitar de esta lista»', async () => {
+    it('with Ctrl+click and the bar «⋯»: the options for all of them, without «quitar de esta lista»', async () => {
       state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
       state.playlistSongs = [song(1), song(2), song(3)]
       const w = await mountView()
@@ -540,7 +540,7 @@ describe('el buscador', () => {
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
-    it('el clic derecho sobre una elegida es el menú de todas; sobre otra, el suyo', async () => {
+    it('right-clicking a selected one opens the menu for all; on another one, its own', async () => {
       const w = await prepare()
       await rows(w)[0].trigger('click', { ctrlKey: true })
       await rows(w)[1].trigger('click', { ctrlKey: true })
@@ -553,7 +553,7 @@ describe('el buscador', () => {
       expect(picked(w)).toEqual([1, 2])
     })
 
-    it('«Reproducir estas 2» pone de cola las elegidas, en el orden de los resultados', async () => {
+    it('«Reproducir estas 2» queues the selected ones, in results order', async () => {
       const w = await prepare()
       await rows(w)[2].trigger('click', { ctrlKey: true })
       await rows(w)[0].trigger('click', { ctrlKey: true })
@@ -567,7 +567,7 @@ describe('el buscador', () => {
       expect(origin.label).toContain('barak')
     })
 
-    it('la papelera pide confirmación: cancelada no borra nada; aceptada, se van del desplegable', async () => {
+    it('the trash asks for confirmation: cancelled deletes nothing; accepted, they leave the dropdown', async () => {
       const w = await prepare()
       await rows(w)[0].trigger('click', { ctrlKey: true })
       await rows(w)[1].trigger('click', { shiftKey: true })
@@ -601,7 +601,7 @@ describe('el buscador', () => {
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
-    it('desde la caja: Ctrl+Espacio, Mayús+flechas, y Escape suelta lo elegido antes de cerrar', async () => {
+    it('from the box: Ctrl+Space, Shift+arrows, and Escape clears the selection before closing', async () => {
       const w = await prepare()
       await box(w).trigger('keydown', { key: ' ', ctrlKey: true }) // la primera
       await box(w).trigger('keydown', { key: 'ArrowDown', shiftKey: true })
@@ -615,7 +615,7 @@ describe('el buscador', () => {
       expect(w.find('.search-results').exists()).toBe(false)
     })
 
-    it('Ctrl+A en la caja es del texto: no elige resultados ni canciones de la lista', async () => {
+    it('Ctrl+A in the box belongs to the text: it selects neither results nor songs in the list', async () => {
       const w = await prepare()
       const e = new KeyboardEvent('keydown', {
         key: 'a',
@@ -631,7 +631,7 @@ describe('el buscador', () => {
       expect(w.findAll('[data-song-row].selected')).toHaveLength(0)
     })
 
-    it('otra búsqueda o cerrar el desplegable olvida lo elegido', async () => {
+    it('another search or closing the dropdown forgets the selection', async () => {
       const w = await prepare()
       await rows(w)[0].trigger('click', { ctrlKey: true })
       await search(w, 'barak otra vez')
@@ -646,14 +646,14 @@ describe('el buscador', () => {
   })
 })
 
-describe('portadas difuminadas', () => {
+describe('blurred covers', () => {
   const menu = async (w, row = 0) => {
     await w.findAll('tbody tr')[row].trigger('contextmenu')
     await flushPromises()
     return w.findAll('.ctx-item')
   }
 
-  it('se difumina y se vuelve a ver desde el menu de la cancion', async () => {
+  it('it is blurred and unblurred from the song menu', async () => {
     const w = await mountView()
     const blur = (await menu(w)).find((b) => b.text().includes('Difuminar la portada'))
     expect(blur, 'falta la accion en el menu').toBeTruthy()
@@ -668,7 +668,7 @@ describe('portadas difuminadas', () => {
     expect(api.setBlur).toHaveBeenLastCalledWith(1, false)
   })
 
-  it('el fantasma que se lleva al arrastrar tambien la respeta', async () => {
+  it('the drag ghost respects it too', async () => {
     state.songs = [song(1, { blur: 1 })]
     const w = await mountView()
     const row = w.find('tbody tr').element
@@ -684,8 +684,8 @@ describe('portadas difuminadas', () => {
   })
 })
 
-describe('valorar con el teclado', () => {
-  it('las estrellas de una fila tambien se ponen desde su menu', async () => {
+describe('rating with the keyboard', () => {
+  it('the stars of a row can also be set from its menu', async () => {
     // dentro de la fila no son parada del tabulador: con el teclado se abre
     // el menu de la cancion (Mayus+F10) y se valora desde ahi
     const w = await mountView()
@@ -709,7 +709,7 @@ describe('valorar con el teclado', () => {
 // que se hace con las elegidas y las teclas con el foco en el <body> (tras un
 // clic el foco se suelta solo). Lo de dentro de cada lista (las casillas, la
 // de «todas» de la cabecera) se prueba aparte.
-describe('seleccionar varias', () => {
+describe('selecting several', () => {
   const rows = (w) => w.findAll('tbody tr')
   const selectedCount = (w) => rows(w).filter((f) => f.classes().includes('selected')).length
   const bar = (w) => w.find('.sel-bar')
@@ -728,7 +728,7 @@ describe('seleccionar varias', () => {
     await flushPromises()
   }
 
-  it('el botón pone el modo: cada clic en una fila la marca o desmarca, y la barra las cuenta', async () => {
+  it('the button turns on the mode: each click on a row ticks or unticks it, and the bar counts them', async () => {
     const w = await mountView()
     expect(bar(w).exists()).toBe(false)
     expect(button(w).attributes('aria-pressed')).toBe('false')
@@ -753,7 +753,7 @@ describe('seleccionar varias', () => {
     expect(selectedCount(w)).toBe(0)
   })
 
-  it('añadir dos a una lista desde la barra manda las dos de una vez', async () => {
+  it('adding two to a playlist from the bar sends both at once', async () => {
     state.playlists = [
       { id: 7, name: 'Domingo', n: 0 },
       { id: 8, name: 'Ensayo', n: 2 }
@@ -771,7 +771,7 @@ describe('seleccionar varias', () => {
     expect(bar(w).exists(), 'se pueden seguir haciendo cosas con ellas').toBe(true)
   })
 
-  it('Telegram desde la barra abre Telegram con sus archivos', async () => {
+  it('Telegram from the bar opens Telegram with their files', async () => {
     const w = await mountView()
     await button(w).trigger('click')
     await rows(w)[1].trigger('click')
@@ -786,7 +786,7 @@ describe('seleccionar varias', () => {
     ])
   })
 
-  it('Ctrl+A elige todas las cargadas y la barra lo cuenta, sin el modo', async () => {
+  it('Ctrl+A selects all loaded songs and the bar counts them, without the mode', async () => {
     const w = await mountView()
     await press('a', { ctrlKey: true })
     expect(selectedCount(w)).toBe(3)
@@ -797,7 +797,7 @@ describe('seleccionar varias', () => {
     expect(bar(w).exists()).toBe(false)
   })
 
-  it('Supr en la biblioteca pregunta por la papelera; cancelar no borra nada', async () => {
+  it('Delete in the library asks about the trash; cancelling deletes nothing', async () => {
     const w = await mountView()
     await press('a', { ctrlKey: true })
     await press('Delete')
@@ -810,7 +810,7 @@ describe('seleccionar varias', () => {
     expect(selectedCount(w), 'cancelar no suelta lo elegido').toBe(3)
   })
 
-  it('Supr con una sola elegida (sin modo) pregunta por esa, con su archivo', async () => {
+  it('Delete with a single selected song (no mode) asks about that one, with its file', async () => {
     const w = await mountView()
     await rows(w)[1].trigger('click')
     await flushPromises()
@@ -822,7 +822,7 @@ describe('seleccionar varias', () => {
     expect(api.deleteSong).not.toHaveBeenCalled()
   })
 
-  it('Supr en un repertorio quita de la lista (sin tocar archivos ni preguntar)', async () => {
+  it('Delete in a playlist removes from the playlist (without touching files or asking)', async () => {
     state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
     state.playlistSongs = [song(1), song(2), song(3)]
     const w = await mountView()
@@ -844,7 +844,7 @@ describe('seleccionar varias', () => {
     expect(w.findAll('.toast').at(-1).text()).toContain('2 quitadas de «Domingo»')
   })
 
-  it('Escape suelta la selección y sale del modo; sin nada elegido no hace nada', async () => {
+  it('Escape clears the selection and leaves the mode; with nothing selected it does nothing', async () => {
     const w = await mountView()
     await button(w).trigger('click')
     await rows(w)[0].trigger('click')
@@ -860,7 +860,7 @@ describe('seleccionar varias', () => {
     expect(ev.defaultPrevented).toBe(false)
   })
 
-  it('con el foco en la caja de búsqueda nada de esto se dispara', async () => {
+  it('with focus in the search box none of this fires', async () => {
     const w = await mountView()
     await button(w).trigger('click')
     await rows(w)[0].trigger('click')
@@ -876,7 +876,7 @@ describe('seleccionar varias', () => {
     expect(bar(w).exists()).toBe(true)
   })
 
-  it('con el foco en una fila, las teclas las trata la lista y llegan igual', async () => {
+  it('with focus on a row, the list handles the keys and they still arrive', async () => {
     const w = await mountView()
     await rows(w)[0].trigger('keydown', { key: 'a', ctrlKey: true })
     await flushPromises()
@@ -886,7 +886,7 @@ describe('seleccionar varias', () => {
     expect(bar(w).exists()).toBe(false)
   })
 
-  it('al cambiar de vista se sale del modo', async () => {
+  it('switching view leaves the mode', async () => {
     const w = await mountView()
     await button(w).trigger('click')
     await rows(w)[0].trigger('click')
@@ -896,7 +896,7 @@ describe('seleccionar varias', () => {
     expect(button(w).attributes('aria-pressed')).toBe('false')
   })
 
-  it('en el móvil, tocar en el modo marca sin abrir la ficha encima de la lista', async () => {
+  it('on mobile, tapping in the mode ticks without opening the details panel over the list', async () => {
     const width = window.innerWidth
     window.innerWidth = 400
     window.dispatchEvent(new Event('resize'))
@@ -918,7 +918,7 @@ describe('seleccionar varias', () => {
     }
   })
 
-  it('en el modo, poner una a sonar con su botón no la marca', async () => {
+  it('in the mode, playing one with its button does not tick it', async () => {
     const w = await mountView()
     await button(w).trigger('click')
     await rows(w)[0].trigger('click')

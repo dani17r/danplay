@@ -8,8 +8,8 @@ import {
   snapToBeats
 } from '../src/utils/segments.js'
 
-describe('los tramos que se repiten', () => {
-  it('se dejan en orden, sin los que no valen y juntando los que se pisan', () => {
+describe('loop segments', () => {
+  it('are kept in order, dropping invalid ones and merging overlapping ones', () => {
     expect(cleanSegments([[30, 40], [10, 20], [35, 45], [-1, 3], [9, 2], ['a', 5], [50]])).toEqual([
       [10, 20],
       [30, 45]
@@ -24,12 +24,12 @@ describe('los tramos que se repiten', () => {
       ])
     ).toEqual([[0, 8]])
   })
-  it('se comparan a la centesima, que es como se guardan', () => {
+  it('are compared to the hundredth, which is how they are stored', () => {
     expect(sameSegments([[10, 20]], [[10.004, 19.996]])).toBe(true)
     expect(sameSegments([[10, 20]], [[10, 21]])).toBe(false)
     expect(sameSegments([[10, 20]], [])).toBe(false)
   })
-  it('saben en cual cae un segundo, a cual se va y cuanto duran', () => {
+  it('know which one a second falls in, which one to jump to and how long they last', () => {
     const list = [
       [10, 20],
       [30, 40]
@@ -42,7 +42,7 @@ describe('los tramos que se repiten', () => {
     expect(nextSegment(list, 45), 'pasados todos, el primero').toBe(0)
     expect(segmentsLength(list)).toBe(20)
   })
-  it('se ajustan al pulso mas cercano sin quedarse cortos', () => {
+  it('snap to the nearest beat without falling short', () => {
     const beats = Array.from({ length: 40 }, (_, i) => 0.25 + 0.5 * i)
     expect(snapToBeats([[10.1, 12.4]], beats)).toEqual([[10.25, 12.25]])
     // uno que al ajustarse se quedaria en nada crece hasta el siguiente pulso

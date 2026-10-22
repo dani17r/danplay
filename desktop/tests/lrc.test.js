@@ -6,8 +6,8 @@ import SyncedLyrics from '../src/components/ui/SyncedLyrics.vue'
 const LRC =
   '[ar:Barak]\n[00:12.50]Mi gozo\n[00:15.00]es el Señor\n[00:20.25][01:02.00]coro repetido\n\n[00:30.00]'
 
-describe('letra con tiempos (LRC)', () => {
-  it('se parsea en lineas ordenadas, con las marcas repetidas desdobladas', () => {
+describe('timed lyrics (LRC)', () => {
+  it('parses into ordered lines, with repeated timestamps split out', () => {
     const lines = parseLrc(LRC)
     expect(lines.map((l) => [l.t, l.text])).toEqual([
       [12.5, 'Mi gozo'],
@@ -17,16 +17,16 @@ describe('letra con tiempos (LRC)', () => {
       [62, 'coro repetido']
     ])
   })
-  it('una letra normal no es LRC', () => {
+  it('plain lyrics are not LRC', () => {
     expect(parseLrc('Mi gozo\nes el Señor')).toBeNull()
     expect(parseLrc('')).toBeNull()
     expect(parseLrc('[00:01.00]una sola marca')).toBeNull()
   })
-  it('se puede leer sin las marcas', () => {
+  it('can be read without the timestamps', () => {
     expect(stripLrc(LRC)).toBe('Mi gozo\nes el Señor\ncoro repetido')
     expect(stripLrc('sin marcas')).toBe('sin marcas')
   })
-  it('sabe que linea suena', () => {
+  it('knows which line is playing', () => {
     const lines = parseLrc(LRC)
     expect(currentLine(lines, 0)).toBe(-1)
     expect(currentLine(lines, 12.5)).toBe(0)
@@ -36,9 +36,9 @@ describe('letra con tiempos (LRC)', () => {
   })
 })
 
-describe('la letra que sigue a la cancion', () => {
+describe('lyrics that follow the song', () => {
   const lines = parseLrc(LRC)
-  it('resalta la linea que suena y pulsar otra salta ahi', async () => {
+  it('highlights the playing line and clicking another jumps there', async () => {
     const w = mount(SyncedLyrics, { props: { lines, position: 16, active: true } })
     const rows = w.findAll('.lrc-line')
     expect(rows[1].classes()).toContain('current')
@@ -47,7 +47,7 @@ describe('la letra que sigue a la cancion', () => {
     await rows[2].trigger('click')
     expect(w.emitted('seek').at(-1)).toEqual([20.25])
   })
-  it('sigue la linea moviendo solo la caja de la letra, nunca la ficha entera', async () => {
+  it('follows the line by scrolling only the lyrics box, never the whole details panel', async () => {
     // scrollIntoView movia tambien lo que contiene la letra: en WebKitGTK
     // subia la ficha entera y la letra se quedaba pegada en medio
     const view = vi.fn()
@@ -76,7 +76,7 @@ describe('la letra que sigue a la cancion', () => {
     expect(box.scrollTo).not.toHaveBeenCalled()
     delete Element.prototype.scrollIntoView
   })
-  it('si no es la que suena, no resalta ni salta', async () => {
+  it('if it is not the one playing, it neither highlights nor jumps', async () => {
     const w = mount(SyncedLyrics, { props: { lines, position: 16, active: false } })
     expect(w.findAll('.lrc-line.current')).toHaveLength(0)
     await w.findAll('.lrc-line')[2].trigger('click')

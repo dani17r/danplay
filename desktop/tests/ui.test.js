@@ -37,42 +37,42 @@ import SliderField from '../src/components/ui/SliderField.vue'
 import ColorField from '../src/components/ui/ColorField.vue'
 import Card from '../src/components/ui/Card.vue'
 
-describe('Campo', () => {
-  it('emite lo que se escribe', async () => {
+describe('TextField', () => {
+  it('emits what is typed', async () => {
     const w = mount(TextField, { props: { modelValue: '' } })
     await w.find('input').setValue('barak')
     expect(w.emitted('update:modelValue').at(-1)).toEqual(['barak'])
   })
-  it('el boton de limpiar vacia el valor', async () => {
+  it('the clear button empties the value', async () => {
     const w = mount(TextField, { props: { modelValue: 'algo' } })
     await w.find('.field-btn').trigger('click')
     expect(w.emitted('update:modelValue').at(-1)).toEqual([''])
   })
-  it('las claves se ocultan y se pueden mostrar', async () => {
+  it('passwords are hidden and can be shown', async () => {
     const w = mount(TextField, { props: { modelValue: 'secreto', type: 'password' } })
     expect(w.find('input').attributes('type')).toBe('password')
     await w.find('.field-btn').trigger('click')
     expect(w.find('input').attributes('type')).toBe('text')
   })
-  it('marca el foco para poder estilarlo', async () => {
+  it('marks focus so it can be styled', async () => {
     const w = mount(TextField, { props: { modelValue: '' } })
     await w.find('input').trigger('focus')
     expect(w.classes()).toContain('focused')
     await w.find('input').trigger('blur')
     expect(w.classes()).not.toContain('focused')
   })
-  it('muestra el error cuando lo hay', () => {
+  it('shows the error when there is one', () => {
     const w = mount(TextField, { props: { modelValue: '', error: 'ruta invalida' } })
     expect(w.classes()).toContain('error')
     expect(w.text()).toContain('ruta invalida')
   })
-  it('avisa al pulsar Enter', async () => {
+  it('notifies on Enter', async () => {
     const w = mount(TextField, { props: { modelValue: 'x' } })
     await w.find('input').trigger('keydown.enter')
     await w.find('input').trigger('keyup.enter')
     expect(w.emitted('enter')).toHaveLength(1)
   })
-  it('un Enter que se pulso fuera y se suelta dentro no cuenta', async () => {
+  it('an Enter pressed outside and released inside does not count', async () => {
     // El Enter que activa un boton o una opcion de menu se SUELTA ya dentro del
     // campo de un dialogo que se abre con texto puesto (Renombrar…): lo
     // aceptaba al instante, sin que nadie lo hubiera pulsado ahi.
@@ -87,7 +87,7 @@ describe('Campo', () => {
   })
 })
 
-describe('Selector', () => {
+describe('SelectField', () => {
   const options = [
     { v: 'a', n: 'Alfa' },
     { v: 'b', n: 'Beta' },
@@ -95,10 +95,10 @@ describe('Selector', () => {
   ]
   const mountView = (value = 'a') => mount(SelectField, { props: { modelValue: value, options } })
 
-  it('muestra la opcion elegida', () => {
+  it('shows the chosen option', () => {
     expect(mountView('b').find('.select-text').text()).toBe('Beta')
   })
-  it('abre y cierra el menu', async () => {
+  it('opens and closes the menu', async () => {
     const w = mountView()
     expect(w.find('.select-menu').exists()).toBe(false)
     await w.find('.select-box').trigger('click')
@@ -107,14 +107,14 @@ describe('Selector', () => {
     await w.find('.select-box').trigger('click')
     expect(w.find('.select-menu').exists()).toBe(false)
   })
-  it('elegir una opcion la emite y cierra', async () => {
+  it('choosing an option emits it and closes', async () => {
     const w = mountView()
     await w.find('.select-box').trigger('click')
     await w.findAll('.select-opt')[2].trigger('click')
     expect(w.emitted('update:modelValue').at(-1)).toEqual(['c'])
     expect(w.find('.select-menu').exists()).toBe(false)
   })
-  it('se maneja con el teclado', async () => {
+  it('is keyboard operable', async () => {
     const w = mountView('a')
     await w.find('.select-box').trigger('keydown', { key: 'ArrowDown' })
     expect(w.find('.select-menu').exists()).toBe(true)
@@ -122,44 +122,44 @@ describe('Selector', () => {
     await w.find('.select-box').trigger('keydown', { key: 'Enter' })
     expect(w.emitted('update:modelValue').at(-1)).toEqual(['b'])
   })
-  it('Escape cierra sin elegir', async () => {
+  it('Escape closes without choosing', async () => {
     const w = mountView()
     await w.find('.select-box').trigger('click')
     await w.find('.select-box').trigger('keydown', { key: 'Escape' })
     expect(w.find('.select-menu').exists()).toBe(false)
     expect(w.emitted('update:modelValue')).toBeFalsy()
   })
-  it('marca cual esta activa', async () => {
+  it('marks which one is active', async () => {
     const w = mountView('b')
     await w.find('.select-box').trigger('click')
     expect(w.findAll('.select-opt')[1].classes()).toContain('current')
   })
 })
 
-describe('Casilla', () => {
-  it('alterna al pulsar', async () => {
+describe('ToggleField', () => {
+  it('toggles on click', async () => {
     const w = mount(ToggleField, { props: { modelValue: false, title: 'Convertir' } })
     await w.find('.toggle-track').trigger('click')
     expect(w.emitted('update:modelValue').at(-1)).toEqual([true])
   })
-  it('refleja el estado encendido', () => {
+  it('reflects the on state', () => {
     const w = mount(ToggleField, { props: { modelValue: true } })
     expect(w.find('.toggle-track').classes()).toContain('on')
     expect(w.find('.toggle-track').attributes('aria-checked')).toBe('true')
   })
-  it('el texto tambien alterna', async () => {
+  it('the label toggles too', async () => {
     const w = mount(ToggleField, { props: { modelValue: false, title: 'X' } })
     await w.find('.toggle-txt').trigger('click')
     expect(w.emitted('update:modelValue')).toBeTruthy()
   })
 })
 
-describe('Deslizador', () => {
-  it('calcula el porcentaje de relleno', () => {
+describe('SliderField', () => {
+  it('computes the fill percentage', () => {
     const w = mount(SliderField, { props: { modelValue: 5, min: 0, max: 10 } })
     expect(w.find('.slider-track').attributes('style')).toContain('50%')
   })
-  it('emite numeros, no cadenas', async () => {
+  it('emits numbers, not strings', async () => {
     const w = mount(SliderField, { props: { modelValue: 0, min: 0, max: 10, step: 1 } })
     await w.find('input').setValue('7')
     expect(w.emitted('update:modelValue').at(-1)).toEqual([7])
@@ -167,7 +167,7 @@ describe('Deslizador', () => {
 
   // El volumen va a Rust y vuelve un momento despues. Si ese eco, ya viejo,
   // se escribia en el <input> a mitad de arrastre, la bola saltaba atras.
-  it('mientras se arrastra, un eco viejo del modelo no mueve la bola', async () => {
+  it('while dragging, a stale echo of the model does not move the thumb', async () => {
     const w = mount(SliderField, { props: { modelValue: 0.5, min: 0, max: 1, step: 0.01 } })
     const input = w.find('input')
     await input.trigger('pointerdown')
@@ -187,7 +187,7 @@ describe('Deslizador', () => {
     expect(input.element.value).toBe('0.3')
   })
 
-  it('sin tocarlo, sigue al modelo', async () => {
+  it('untouched, it follows the model', async () => {
     const w = mount(SliderField, { props: { modelValue: 0.5, min: 0, max: 1, step: 0.01 } })
     await w.setProps({ modelValue: 0.2 })
     expect(w.find('input').element.value).toBe('0.2')
@@ -195,8 +195,8 @@ describe('Deslizador', () => {
   })
 })
 
-describe('Color', () => {
-  it('emite tanto desde la muestra como desde el hex', async () => {
+describe('ColorField', () => {
+  it('emits from both the swatch and the hex', async () => {
     const w = mount(ColorField, { props: { modelValue: '#ff0000', title: 'Acento' } })
     await w.find('input[type="color"]').setValue('#00ff00')
     expect(w.emitted('update:modelValue').at(-1)).toEqual(['#00ff00'])
@@ -205,14 +205,14 @@ describe('Color', () => {
   })
 })
 
-describe('nada de controles nativos sueltos', () => {
+describe('no bare native controls', () => {
   const views = [
     ...readdirSync('src/components')
       .filter((f) => f.endsWith('.vue'))
       .map((f) => 'src/components/' + f),
     'src/App.vue'
   ]
-  it('no hay select, checkbox, range ni color fuera de la libreria', () => {
+  it('there is no select, checkbox, range or color outside the library', () => {
     const bad = []
     for (const f of views) {
       const txt = readFileSync(f, 'utf8')
@@ -227,7 +227,7 @@ describe('nada de controles nativos sueltos', () => {
     }
     expect(bad, 'usa los componentes de ui/: ' + bad.join(', ')).toEqual([])
   })
-  it('no hay inputs de texto sin envolver', () => {
+  it('there are no unwrapped text inputs', () => {
     const bad = []
     for (const f of views) {
       if (/<input(?![^>]*type="(checkbox|range|color)")/.test(readFileSync(f, 'utf8'))) bad.push(f)
@@ -240,7 +240,7 @@ describe('nada de controles nativos sueltos', () => {
 // pruebas existen porque la caratula con su hueco estaba escrita tres veces
 // (una de ellas manipulando el DOM a mano, con una clase que ya no existia) y
 // la rejilla se descuadraba cuando una cancion no tenia portada.
-describe('lo repetido vive en un solo componente', () => {
+describe('repeated markup lives in a single component', () => {
   const views = [
     ...readdirSync('src/components')
       .filter((f) => f.endsWith('.vue'))
@@ -249,34 +249,34 @@ describe('lo repetido vive en un solo componente', () => {
   ]
   const read = (f) => readFileSync(f, 'utf8')
 
-  it('nadie monta la caratula a mano: se usa CoverArt', () => {
+  it('nobody builds the cover by hand: CoverArt is used', () => {
     const bad = views.filter((f) => /<img[^>]*coverUrl/.test(read(f)))
     expect(bad, 'usa ui/CoverArt.vue: ' + bad.join(', ')).toEqual([])
   })
 
-  it('nadie sustituye nodos del DOM a mano', () => {
+  it('nobody replaces DOM nodes by hand', () => {
     const bad = views.filter((f) => /replaceWith\(|createElement\(/.test(read(f)))
     expect(bad, 'deja que Vue pinte: ' + bad.join(', ')).toEqual([])
   })
 
-  it('el girito se pinta con Loading, no suelto', () => {
+  it('the spinner is rendered with Loading, not standalone', () => {
     const bad = views.filter(
       (f) => /class="spinner"/.test(read(f)) && !/chat-downloading/.test(read(f))
     )
     expect(bad, 'usa ui/Loading.vue: ' + bad.join(', ')).toEqual([])
   })
 
-  it('los huecos vacios se pintan con EmptyState', () => {
+  it('empty placeholders are rendered with EmptyState', () => {
     const bad = views.filter((f) => /<div[^>]*class="empty"/.test(read(f)))
     expect(bad, 'usa ui/EmptyState.vue: ' + bad.join(', ')).toEqual([])
   })
 
-  it('las tarjetas con titulo se pintan con Card', () => {
+  it('titled cards are rendered with Card', () => {
     const bad = views.filter((f) => /<div class="card"[^>]*>\s*\n\s*<h3/.test(read(f)))
     expect(bad, 'usa ui/Card.vue: ' + bad.join(', ')).toEqual([])
   })
 
-  it('CoverArt es el unico que sabe de portadas que fallan', () => {
+  it('CoverArt is the only one that knows about failing covers', () => {
     const outside = views
       .filter((f) => !f.endsWith('CoverArt.vue'))
       .filter((f) => /coverUrlAlt/.test(read(f)))
@@ -287,16 +287,16 @@ describe('lo repetido vive en un solo componente', () => {
 // Estaba al reves: al pasar el raton por la 3ª se pintaban la 3, 4 y 5. La
 // causa es que CSS solo sabe seleccionar hermanos POSTERIORES (`~`), asi que
 // el marcado va 5..1 y el contenedor lo endereza con row-reverse.
-describe('valoracion con estrellas', () => {
+describe('star rating', () => {
   const mountStars = (props = {}) => mount(StarRating, { props: { value: 0, ...props } })
 
-  it('el marcado va del 5 al 1', () => {
+  it('the markup goes from 5 to 1', () => {
     const w = mountStars({ value: 0 })
     const titles = w.findAll('.ico').map((i) => i.attributes('title'))
     expect(titles).toEqual(['5 de 5', '4 de 5', '3 de 5', '2 de 5', '1 de 5'])
   })
 
-  it('con 3 estrellas se marcan la 1, la 2 y la 3', () => {
+  it('with 3 stars, 1, 2 and 3 are lit', () => {
     const w = mountStars({ value: 3 })
     const icons = w.findAll('.ico')
     // el marcado va 5,4,3,2,1: las llenas son las tres ultimas
@@ -307,21 +307,21 @@ describe('valoracion con estrellas', () => {
     expect(icons[3].attributes('title')).toBe('2 de 5')
   })
 
-  it('pulsar una estrella manda su valor, no el del indice', async () => {
+  it('clicking a star sends its value, not the index', async () => {
     const w = mountStars({ value: 0 })
     const fourth = w.findAll('.ico').find((i) => i.attributes('title') === '4 de 5')
     await fourth.trigger('click')
     expect(w.emitted('change')[0]).toEqual([4])
   })
 
-  it('pulsar la nota actual la quita', async () => {
+  it('clicking the current rating clears it', async () => {
     const w = mountStars({ value: 3 })
     const third = w.findAll('.ico').find((i) => i.attributes('title') === 'Quitar valoración')
     await third.trigger('click')
     expect(w.emitted('change')[0]).toEqual([0])
   })
 
-  it('en solo lectura no emite nada', async () => {
+  it('in read-only mode it emits nothing', async () => {
     const w = mountStars({ value: 2, editable: false })
     await w.findAll('.ico')[0].trigger('click')
     expect(w.emitted('change')).toBeFalsy()
@@ -330,7 +330,7 @@ describe('valoracion con estrellas', () => {
 
 // Editar la ficha escribe en las ETIQUETAS del mp3, no en la base: la base es
 // solo un indice reconstruible. Estas pruebas fijan las reglas de la edicion.
-describe('editar la ficha de una cancion', () => {
+describe('editing the song details', () => {
   const song = {
     id: 7,
     title: 'Mi Gozo',
@@ -355,21 +355,21 @@ describe('editar la ficha de una cancion', () => {
     return w
   }
 
-  it('el lapiz abre el formulario', async () => {
+  it('the pencil opens the form', async () => {
     const w = mountView()
     expect(w.find('.edit-form').exists()).toBe(false)
     await openEditor(w)
     expect(w.find('.edit-form').exists()).toBe(true)
   })
 
-  it('sin cambios solo se ofrece cancelar', async () => {
+  it('without changes only cancel is offered', async () => {
     const w = await openEditor(mountView())
     const texts = w.findAll('.edit-actions .btn').map((b) => b.text())
     expect(texts).toEqual(['Cancelar'])
     expect(w.find('.edit-state').text()).toBe('Sin cambios')
   })
 
-  it('al tocar algo aparece guardar y dice cuantos campos', async () => {
+  it('touching something shows save and says how many fields', async () => {
     const w = await openEditor(mountView())
     await w.findAll('.edit-form input')[3].setValue('Generacion Radical') // album
     const texts = w.findAll('.edit-actions .btn').map((b) => b.text())
@@ -378,7 +378,7 @@ describe('editar la ficha de una cancion', () => {
     expect(w.find('.edit-state').text()).toBe('1 sin guardar')
   })
 
-  it('volver al valor original vuelve a dejarlo sin cambios', async () => {
+  it('going back to the original value leaves it unchanged again', async () => {
     const w = await openEditor(mountView())
     const album = w.findAll('.edit-form input')[3]
     await album.setValue('Algo')
@@ -388,7 +388,7 @@ describe('editar la ficha de una cancion', () => {
     expect(w.findAll('.edit-actions .btn').map((b) => b.text())).toEqual(['Cancelar'])
   })
 
-  it('Escape cierra sin guardar', async () => {
+  it('Escape closes without saving', async () => {
     const w = await openEditor(mountView())
     await w.findAll('.edit-form input')[3].setValue('Algo')
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
@@ -397,7 +397,7 @@ describe('editar la ficha de una cancion', () => {
     expect(api.edit).not.toHaveBeenCalled()
   })
 
-  it('guardar manda SOLO lo que cambio', async () => {
+  it('saving sends ONLY what changed', async () => {
     api.edit.mockResolvedValueOnce({ ...song, album: 'Generacion Radical' })
     const w = await openEditor(mountView())
     await w.findAll('.edit-form input')[3].setValue('Generacion Radical')
@@ -407,7 +407,7 @@ describe('editar la ficha de una cancion', () => {
     expect(api.edit).toHaveBeenCalledWith(7, { album: 'Generacion Radical' })
   })
 
-  it('el bpm se manda como numero, no como texto', async () => {
+  it('bpm is sent as a number, not as text', async () => {
     api.edit.mockResolvedValueOnce({ ...song, bpm: 128 })
     const w = await openEditor(mountView())
     const fields = w.findAll('.edit-form input')
@@ -417,7 +417,7 @@ describe('editar la ficha de una cancion', () => {
     expect(api.edit).toHaveBeenCalledWith(7, { bpm: 128 })
   })
 
-  it('cambiar de cancion cierra la edicion', async () => {
+  it('changing song closes editing', async () => {
     const w = await openEditor(mountView())
     await w.setProps({ song: { ...song, id: 8, title: 'Otra' } })
     expect(w.find('.edit-form').exists()).toBe(false)
@@ -426,7 +426,7 @@ describe('editar la ficha de una cancion', () => {
 
 // Las respuestas llegan cuando llegan. Lo que se pidio para una cancion no
 // se pinta en la ficha de otra que se eligio mientras tanto.
-describe('la ficha y lo que llega tarde', () => {
+describe('the details panel and late responses', () => {
   const song = {
     id: 7,
     title: 'Mi Gozo',
@@ -474,7 +474,7 @@ describe('la ficha y lo que llega tarde', () => {
     ...extra
   })
 
-  it('los acordes se buscan en la web y se dice de donde salen', async () => {
+  it('chords are looked up on the web and their source is shown', async () => {
     api.chords.mockResolvedValueOnce({
       sheet: chordChart('D', ['D', 'A']),
       tried: ['Ultimate Guitar', 'LaCuerda'],
@@ -494,7 +494,7 @@ describe('la ficha y lo que llega tarde', () => {
     expect(app.openInBrowser).toHaveBeenCalledWith('https://tabs.example/1')
   })
 
-  it('si no hay cifrado lo dice, y se puede buscar otra vez', async () => {
+  it('if there is no chord chart it says so, and it can search again', async () => {
     const chords = JSON.stringify({ sheet: null, sheet_tried: ['Ultimate Guitar', 'LaCuerda'] })
     api.chords.mockResolvedValueOnce({ sheet: null, tried: [], failed: [], song: null })
     const w = mount(DetailsPanel, { props: { song: { ...song, chords }, aiReady: true } })
@@ -504,7 +504,7 @@ describe('la ficha y lo que llega tarde', () => {
     expect(api.chords).toHaveBeenCalledWith(7, true)
   })
 
-  it('sin tono en el cifrado no se pone uno: se sube o se baja por semitonos', async () => {
+  it('without a key in the chart none is set: it moves up or down by semitones', async () => {
     const chords = JSON.stringify({ sheet: chordChart('', ['C', 'G']) })
     api.chordsTransposed.mockResolvedValueOnce({ sheet: chordChart('', ['D', 'A']) })
     const w = mount(DetailsPanel, { props: { song: { ...song, chords }, aiReady: true } })
@@ -520,7 +520,7 @@ describe('la ficha y lo que llega tarde', () => {
     expect(w.find('.chords').text()).toBe('D   A')
   })
 
-  it('el cifrado entero pone los acordes sobre la letra', async () => {
+  it('the full chart puts the chords over the lyrics', async () => {
     const chords = JSON.stringify({ sheet: chordChart('G', ['G', 'C']) })
     const w = mount(DetailsPanel, { props: { song: { ...song, chords }, aiReady: true } })
     expect(w.text()).not.toContain('Mi gozo esta en ti')
@@ -529,7 +529,7 @@ describe('la ficha y lo que llega tarde', () => {
     expect(w.find('.sheet-full .chord-line').text()).toBe('G   C')
   })
 
-  it('los detalles de IA de A no se pintan en la ficha de B', async () => {
+  it('the AI details of A are not rendered in the details of B', async () => {
     const p = pending()
     api.details.mockReturnValueOnce(p.promise)
     const w = mount(DetailsPanel, { props: { song: { ...song }, aiReady: true } })
@@ -542,7 +542,7 @@ describe('la ficha y lo que llega tarde', () => {
     expect(w.text()).not.toContain('Habla del gozo')
   })
 
-  it('la transposicion de A no se pinta en la ficha de B', async () => {
+  it('the transposition of A is not rendered in the details of B', async () => {
     const chords = JSON.stringify({ sheet: chordChart('G', ['G', 'D', 'Em', 'C']) })
     const p = pending()
     api.chordsTransposed.mockReturnValueOnce(p.promise)
@@ -565,7 +565,7 @@ describe('la ficha y lo que llega tarde', () => {
     expect(w.find('.chords').text()).toBe('E   B   C#m   A')
   })
 
-  it('un fallo de A no aparece en la ficha de B', async () => {
+  it('a failure of A does not appear in the details of B', async () => {
     const p = pending()
     api.enrich.mockReturnValueOnce(
       p.promise.then(() => {
@@ -584,27 +584,27 @@ describe('la ficha y lo que llega tarde', () => {
 // La tarjeta estaba escrita a mano veinte veces. Al unificarla, el hueco del
 // titulo trae su propio <h3> (hay titulos con icono o con una cuenta al lado),
 // asi que lo que hay que vigilar es que no acaben anidados.
-describe('tarjeta', () => {
-  it('pinta el titulo y la nota', () => {
+describe('Card', () => {
+  it('renders the title and the note', () => {
     const w = mount(Card, { props: { title: 'Apariencia', note: 'Se aplica al instante' } })
     expect(w.find('h3').text()).toBe('Apariencia')
     expect(w.find('.note').text()).toBe('Se aplica al instante')
   })
 
-  it('sin titulo ni nota no deja huecos vacios', () => {
+  it('without title or note it leaves no empty gaps', () => {
     const w = mount(Card, { slots: { default: '<p>algo</p>' } })
     expect(w.find('h3').exists()).toBe(false)
     expect(w.find('.note').exists()).toBe(false)
     expect(w.text()).toBe('algo')
   })
 
-  it('un titulo con marcado propio no se anida dentro de otro', () => {
+  it('a title with its own markup is not nested inside another', () => {
     const w = mount(Card, { slots: { title: '<h3>Historial <span class="chip">4</span></h3>' } })
     expect(w.findAll('h3'), 'el <h3> quedo dentro de otro <h3>').toHaveLength(1)
     expect(w.find('h3 .chip').text()).toBe('4')
   })
 
-  it('conserva las clases y estilos que le pasen', () => {
+  it('keeps the classes and styles passed to it', () => {
     const w = mount(Card, { attrs: { class: 'dl-dup' }, props: { title: 'x' } })
     expect(w.classes()).toContain('card')
     expect(w.classes()).toContain('dl-dup')

@@ -12,7 +12,7 @@ test.beforeEach(async ({ request }) => {
   await reset(request)
 })
 
-test('la carpeta que se mueve: «No encuentro tu música», se elige la nueva y vuelve todo', async ({
+test('a moved folder: «No encuentro tu música», picking the new one brings everything back', async ({
   page,
   request
 }) => {

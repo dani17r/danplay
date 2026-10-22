@@ -13,8 +13,8 @@ import {
 
 const css = allCss()
 
-describe('los colores salen del tema', () => {
-  it('no hay colores fijos fuera de las variables', () => {
+describe('colors come from the theme', () => {
+  it('there are no fixed colors outside the variables', () => {
     const bad = []
     for (const [n, line] of css.split('\n').entries()) {
       const l = line.trim()
@@ -32,7 +32,7 @@ describe('los colores salen del tema', () => {
     expect(bad, 'usa var(--...) o color-mix():\n' + bad.join('\n')).toEqual([])
   })
 
-  it('los componentes .vue tampoco llevan colores fijos', () => {
+  it('.vue components have no fixed colors either', () => {
     const views = [
       ...readdirSync('src/components')
         .filter((f) => f.endsWith('.vue'))
@@ -55,8 +55,8 @@ describe('los colores salen del tema', () => {
   })
 })
 
-describe('catalogo de temas', () => {
-  it('todos definen los 12 colores', () => {
+describe('theme catalog', () => {
+  it('all of them define the 12 colors', () => {
     for (const [k, t] of Object.entries(CATALOG)) {
       for (const c of FIELDS) {
         expect(t.v[c.k], `${k} no define ${c.k}`).toMatch(/^#[0-9a-fA-F]{6}$/)
@@ -64,19 +64,19 @@ describe('catalogo de temas', () => {
     }
   })
 
-  it('cada tema declara si es claro u oscuro', () => {
+  it('each theme declares whether it is light or dark', () => {
     for (const [k, t] of Object.entries(CATALOG)) {
       expect(['light', 'dark'], k).toContain(t.kind)
     }
   })
 
-  it('hay temas claros y oscuros', () => {
+  it('there are light and dark themes', () => {
     const kinds = Object.values(CATALOG).map((t) => t.kind)
     expect(kinds).toContain('light')
     expect(kinds).toContain('dark')
   })
 
-  it('en los claros el texto es oscuro y el fondo claro', () => {
+  it('in light ones the text is dark and the background light', () => {
     const lightness = (hex) => {
       const n = parseInt(hex.slice(1), 16)
       return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255
@@ -96,7 +96,7 @@ describe('catalogo de temas', () => {
     }
   })
 
-  it('el acento contrasta con el panel en todos', () => {
+  it('the accent contrasts with the panel in all of them', () => {
     const lightness = (hex) => {
       const n = parseInt(hex.slice(1), 16)
       return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255
@@ -109,7 +109,7 @@ describe('catalogo de temas', () => {
     }
   })
 
-  it('aplicar un tema escribe las variables en :root', () => {
+  it('applying a theme writes the variables on :root', () => {
     applyTheme('light')
     const r = document.documentElement
     expect(r.dataset.kind).toBe('light')
@@ -122,36 +122,36 @@ describe('catalogo de temas', () => {
 // El tamaño multiplica letra y proporciones a la vez. Es independiente de la
 // densidad: la densidad decide cuanto respira una fila, el tamaño cuanto se
 // ve todo. Se combinan porque el css multiplica la base por la escala.
-describe('tamaño de la app', () => {
-  it('hay cuatro tamaños y el mediano es la escala neutra', () => {
+describe('app size', () => {
+  it('there are four sizes and medium is the neutral scale', () => {
     expect(Object.keys(SIZES)).toEqual(['small', 'medium', 'large', 'xlarge'])
     expect(SIZES.medium.scale).toBe(1)
   })
 
-  it('van de menor a mayor sin repetirse', () => {
+  it('they go from smallest to largest without repeats', () => {
     const scales = Object.values(SIZES).map((s) => s.scale)
     expect(scales).toEqual([...scales].sort((a, b) => a - b))
     expect(new Set(scales).size).toBe(scales.length)
   })
 
-  it('aplicar un tamaño escribe la escala en :root', () => {
+  it('applying a size writes the scale on :root', () => {
     applySize('xlarge')
     expect(document.documentElement.style.getPropertyValue('--scale')).toBe('1.3')
     applySize('small')
     expect(document.documentElement.style.getPropertyValue('--scale')).toBe('0.9')
   })
 
-  it('un tamaño que no existe cae en el mediano', () => {
+  it('an unknown size falls back to medium', () => {
     applySize('gigante')
     expect(document.documentElement.style.getPropertyValue('--scale')).toBe('1')
   })
 
-  it('se recuerda entre sesiones', () => {
+  it('is remembered between sessions', () => {
     applySize('large')
     expect(savedSize()).toBe('large')
   })
 
-  it('la densidad deja la base en crudo, para poder multiplicarla', () => {
+  it('density leaves the base raw so it can be multiplied', () => {
     applyDensity('compact')
     const r = document.documentElement.style
     expect(r.getPropertyValue('--table-font-base')).toBe('12px')
@@ -161,8 +161,8 @@ describe('tamaño de la app', () => {
   })
 })
 
-describe('las preferencias no dependen de quien las pidio primero', () => {
-  it('si el primer componente que las usa se cierra, cambiar el tema sigue aplicandose', async () => {
+describe('preferences do not depend on who requested them first', () => {
+  it('if the first component using them closes, changing the theme still applies', async () => {
     // Sus `watch` vivian en el ambito de ese componente: al cerrarlo (la onda
     // del modo estudio, por ejemplo) se paraban y el tema ya no se guardaba.
     const { mount } = await import('@vue/test-utils')

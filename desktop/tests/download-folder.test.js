@@ -39,14 +39,14 @@ beforeEach(() => {
   clearNotices()
 })
 
-describe('la carpeta de descargas', () => {
-  it('ya elegida: se baja sin preguntar nada', async () => {
+describe('the downloads folder', () => {
+  it('already chosen: it downloads without asking anything', async () => {
     held.status = { path: '/musica', ready: true, reason: '', suggested: '/musica' }
     expect(await ensureDownloadFolder()).toBe(true)
     expect(dialog.value.open).toBe(false)
   })
 
-  it('la primera vez la pregunta, propone tu carpeta de música y la recuerda', async () => {
+  it('the first time it asks for it, suggests your music folder and remembers it', async () => {
     const done = ensureDownloadFolder()
     await flushPromises()
     expect(dialog.value.open).toBe(true)
@@ -63,7 +63,7 @@ describe('la carpeta de descargas', () => {
     expect(api.setDownloadFolder).toHaveBeenCalledTimes(1)
   })
 
-  it('si cancelas, no se baja nada', async () => {
+  it('if you cancel, nothing is downloaded', async () => {
     const done = ensureDownloadFolder()
     await flushPromises()
     dialogCancel()
@@ -71,7 +71,7 @@ describe('la carpeta de descargas', () => {
     expect(api.setDownloadFolder).not.toHaveBeenCalled()
   })
 
-  it('si parece una copia de otra carpeta, pregunta antes de usarla', async () => {
+  it('if it looks like a copy of another folder, it asks before using it', async () => {
     const done = chooseDownloadFolder(held.status)
     await flushPromises()
     dialogOk('/copia')
@@ -87,7 +87,7 @@ describe('la carpeta de descargas', () => {
     expect(api.setDownloadFolder).toHaveBeenCalledWith('/copia')
   })
 
-  it('si el núcleo no la acepta, lo dice y no se baja', async () => {
+  it('if the core does not accept it, it says so and nothing is downloaded', async () => {
     api.setDownloadFolder.mockRejectedValueOnce(new Error('esa carpeta no existe'))
     const done = chooseDownloadFolder(held.status)
     await flushPromises()

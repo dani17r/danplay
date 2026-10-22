@@ -61,8 +61,8 @@ afterEach(() => {
   w = null
 })
 
-describe('el reproductor solo (cuadrito y barra)', () => {
-  it('dice lo que suena, entero al pasar por encima, y se maneja', async () => {
+describe('the standalone player (square and bar)', () => {
+  it('says what is playing, in full on hover, and can be controlled', async () => {
     w = mount(CompactPlayer, { props: { variant: 'square' }, attachTo: document.body })
     await flushPromises()
     const title = w.find('.pocket-title')
@@ -80,7 +80,7 @@ describe('el reproductor solo (cuadrito y barra)', () => {
     expect(w.find('.pocket-volume').exists()).toBe(true)
   })
 
-  it('se arrastra desde lo que no es un boton (va sin marco)', () => {
+  it('is dragged from anything that is not a button (it is frameless)', () => {
     w = mount(CompactPlayer, { props: { variant: 'bar' } })
     expect(w.find('.pocket').attributes('data-tauri-drag-region')).toBeDefined()
     for (const b of w.findAll('button')) {
@@ -88,7 +88,7 @@ describe('el reproductor solo (cuadrito y barra)', () => {
     }
   })
 
-  it('las formas, en un panel que tapa el reproductor: cabe aunque la barra sea baja', async () => {
+  it('the shapes, in a panel over the player: it fits even if the bar is short', async () => {
     w = mount(CompactPlayer, { props: { variant: 'bar' }, attachTo: document.body })
     await w.find('button[aria-label="Forma de la ventana"]').trigger('click')
     const names = w.findAll('.pocket-shape').map((b) => b.text())
@@ -110,7 +110,7 @@ describe('el reproductor solo (cuadrito y barra)', () => {
     expect(w.find('.pocket-shapes').exists()).toBe(false)
   })
 
-  it('«volver a la ventana normal» la deja como estaba', async () => {
+  it('«volver a la ventana normal» restores it as it was', async () => {
     w = mount(CompactPlayer, { props: { variant: 'square' } })
     await w.find('button[aria-label="Volver a la ventana normal"]').trigger('click')
     await flushPromises()
@@ -118,8 +118,8 @@ describe('el reproductor solo (cuadrito y barra)', () => {
   })
 })
 
-describe('las formas de la ventana', () => {
-  it('el menu marca la de ahora, y siempre encima va aparte', async () => {
+describe('the window shapes', () => {
+  it('the menu checks the current one, and always-on-top is separate', async () => {
     const shape = useWindowShape()
     await shape.setShape('bar')
     const items = shape.menuItems()
@@ -133,7 +133,7 @@ describe('las formas de la ventana', () => {
     await shape.toggleOnTop()
   })
 
-  it('F11: pantalla completa, y otra vez, como estaba', async () => {
+  it('F11: fullscreen, and again, back to how it was', async () => {
     const shape = useWindowShape()
     await shape.toggleFullscreen()
     expect(held.app.setWindowShape).toHaveBeenLastCalledWith('fullscreen')
@@ -142,8 +142,8 @@ describe('las formas de la ventana', () => {
   })
 })
 
-describe('en estrecho, «⋯» lleva lo que no cabe en la barra', () => {
-  it('velocidad, volumen, estudio, cola y forma de la ventana', async () => {
+describe('when narrow, «⋯» holds what does not fit in the bar', () => {
+  it('speed, volume, study, queue and window shape', async () => {
     w = mount(Player, { attachTo: document.body })
     await flushPromises()
     await w.find('.pl-more').trigger('click')
@@ -173,7 +173,7 @@ describe('en estrecho, «⋯» lleva lo que no cabe en la barra', () => {
   })
 })
 
-describe('el tamaño decide el diseño', () => {
+describe('the size decides the layout', () => {
   const Probe = defineComponent({
     setup() {
       const v = useViewport()
@@ -186,7 +186,7 @@ describe('el tamaño decide el diseño', () => {
     window.dispatchEvent(new Event('resize'))
     await flushPromises()
   }
-  it('barra si es muy baja, cuadrito si es pequeña por los dos lados', async () => {
+  it('bar if very short, square if small on both sides', async () => {
     w = mount(Probe)
     await at(1280, 800)
     expect(w.text()).toBe('biblioteca')

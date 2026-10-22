@@ -12,13 +12,13 @@ beforeEach(() => {
   clearNotices()
 })
 
-describe('lo que dice el diario', () => {
-  it('nada que contar, nada', () => {
+describe('what the journal says', () => {
+  it('nothing to report, nothing', () => {
     expect(journalMessage(null)).toBe('')
     expect(journalMessage({ songs: 0, lists: 0, entries: 0, ghosts: 0 })).toBe('')
   })
 
-  it('canciones movidas que vuelven a sus listas', () => {
+  it('moved songs that go back to their playlists', () => {
     expect(journalMessage({ entries: 3, lists: 1 })).toBe(
       'Tus listas siguen intactas: 3 canciones que se movieron volvieron a sus listas.'
     )
@@ -27,7 +27,7 @@ describe('lo que dice el diario', () => {
     )
   })
 
-  it('una base nueva: listas rehechas, lo de cada canción y lo que no está', () => {
+  it('a new database: rebuilt playlists, the data of each song and what is missing', () => {
     expect(journalMessage({ fresh: true, lists: 2, entries: 9, songs: 4, ghosts: 1 })).toBe(
       'Tus listas siguen intactas: 9 canciones que se movieron volvieron a sus listas; ' +
         '2 listas rehechas; 4 canciones recuperaron sus estrellas y su estudio; ' +
@@ -35,7 +35,7 @@ describe('lo que dice el diario', () => {
     )
   })
 
-  it('se cuenta una vez', () => {
+  it('is reported once', () => {
     tellJournal({ entries: 2, at: 100 })
     tellJournal({ entries: 2, at: 100 })
     expect(notices.value.filter((n) => n.message.includes('volvieron'))).toHaveLength(1)

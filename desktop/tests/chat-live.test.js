@@ -57,8 +57,8 @@ const typeText = async (w, t) => {
   await flushPromises()
 }
 
-describe('la respuesta en vivo', () => {
-  it('enseña el texto segun llega y las herramientas segun terminan, y al final queda el mensaje', async () => {
+describe('the live reply', () => {
+  it('shows text as it arrives and tools as they finish, and the message remains at the end', async () => {
     vi.useFakeTimers()
     held.polls = [
       {
@@ -111,7 +111,7 @@ describe('la respuesta en vivo', () => {
     vi.useRealTimers()
   })
 
-  it('parar corta la respuesta y lo que habia llegado se queda señalado', async () => {
+  it('stopping cuts off the reply and what had arrived stays marked', async () => {
     vi.useFakeTimers()
     held.polls = [
       { text: 'Voy a', tools: [], done: false, result: null },
@@ -140,7 +140,7 @@ describe('la respuesta en vivo', () => {
     vi.useRealTimers()
   })
 
-  it('cuando respondio el respaldo, lo dice', async () => {
+  it('when the fallback answered, it says so', async () => {
     held.polls = [
       {
         text: 'ok',
@@ -162,8 +162,8 @@ describe('la respuesta en vivo', () => {
   })
 })
 
-describe('las conversaciones guardadas', () => {
-  it('el primer mensaje crea la conversacion y todo se guarda en el nucleo', async () => {
+describe('saved conversations', () => {
+  it('the first message creates the conversation and everything is saved in the core', async () => {
     const w = await mountView()
     expect(held.state.chats).toHaveLength(0)
     await typeText(w, 'armame una lista')
@@ -176,7 +176,7 @@ describe('las conversaciones guardadas', () => {
     expect(w.find('.chat-title').text()).toBe('armame una lista')
   })
 
-  it('al volver se abre la ultima, y desde la lista se cambia, se crea y se borra', async () => {
+  it('on return the last one opens, and the list switches, creates and deletes them', async () => {
     held.state.chats = [
       {
         id: 2,
@@ -227,7 +227,7 @@ describe('las conversaciones guardadas', () => {
     expect(held.state.chats.map((c) => c.id)).toEqual([1])
   })
 
-  it('buscar en todas enseña los mensajes que coinciden y abre su conversacion', async () => {
+  it('searching all of them shows matching messages and opens their conversation', async () => {
     vi.useFakeTimers()
     held.state.chats = [
       {
@@ -257,7 +257,7 @@ describe('las conversaciones guardadas', () => {
     vi.useRealTimers()
   })
 
-  it('lo que habia en el localStorage de antes pasa a la base una sola vez', async () => {
+  it('what was in the old localStorage moves to the database only once', async () => {
     localStorage.setItem(
       'danplay.chat',
       JSON.stringify([
@@ -274,8 +274,8 @@ describe('las conversaciones guardadas', () => {
   })
 })
 
-describe('exportar y presupuesto', () => {
-  it('copia la conversacion como texto al portapapeles', async () => {
+describe('export and budget', () => {
+  it('copies the conversation as text to the clipboard', async () => {
     held.state.chats = [
       {
         id: 2,
@@ -305,7 +305,7 @@ describe('exportar y presupuesto', () => {
     w.unmount()
   })
 
-  it('al pasar el tope mensual lo dice una vez, sin cortar la respuesta', async () => {
+  it('going over the monthly cap says so once, without cutting off the reply', async () => {
     held.polls = [
       {
         text: 'ok',

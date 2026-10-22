@@ -32,8 +32,8 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-describe('los avisos de los iconos', () => {
-  it('salen al dejar el ratón un momento, y se van al salir', async () => {
+describe('icon tooltips', () => {
+  it('show up after resting the mouse a moment, and go away on leave', async () => {
     const one = w.find('.one').element
     // sobre el icono de dentro: cuenta el botón
     fire(w.find('.one .ico').element, 'pointerover')
@@ -48,7 +48,7 @@ describe('los avisos de los iconos', () => {
     expect(one.getAttribute('title'), 'el title vuelve').toBe('Grande: todo el alto')
   })
 
-  it('pulsar o Escape lo quitan; un botón sin aviso no saca nada', async () => {
+  it('clicking or Escape removes it; a button without a tooltip shows nothing', async () => {
     const one = w.find('.one').element
     fire(one, 'pointerover')
     vi.advanceTimersByTime(TIP_DELAY + 5)
@@ -83,7 +83,7 @@ describe('los avisos de los iconos', () => {
     expect(tip().textContent).toBe(before)
   })
 
-  it('al desmontar se quitan sus escuchas', async () => {
+  it('on unmount its listeners are removed', async () => {
     const one = w.find('.one').element
     w.unmount()
     fire(one, 'pointerover')

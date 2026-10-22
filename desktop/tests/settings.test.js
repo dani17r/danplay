@@ -48,8 +48,8 @@ const mountView = async () => {
 const button = (text) => w.findAll('button').find((b) => b.text().includes(text))
 const notices = () => useNotices().notices.value.map((n) => n.message)
 
-describe('analizar e indexar todo', () => {
-  it('es una tarea: se ve como va y se avisa al acabar', async () => {
+describe('scanning and indexing everything', () => {
+  it('is a job: its progress shows and it notifies when done', async () => {
     // el nucleo contesta al momento y luego se pregunta hasta que acaba
     const round = [
       {
@@ -110,7 +110,7 @@ describe('analizar e indexar todo', () => {
     api().job.mockReset()
   })
 
-  it('si la tarea falla, lo dice en castellano y el boton vuelve', async () => {
+  it('if the job fails, it says so in Spanish and the button comes back', async () => {
     api().scan.mockResolvedValueOnce({
       job: {
         name: 'scan',
@@ -131,7 +131,7 @@ describe('analizar e indexar todo', () => {
   })
 })
 
-describe('convertir a mp3', () => {
+describe('converting to mp3', () => {
   beforeEach(() => {
     api().convertible.mockResolvedValue({
       total: 3,
@@ -140,7 +140,7 @@ describe('convertir a mp3', () => {
     })
   })
 
-  it('simular contesta al momento, sin tarea', async () => {
+  it('a dry run answers right away, without a job', async () => {
     await mountView()
     await button('Simular').trigger('click')
     await flushPromises()
@@ -150,7 +150,7 @@ describe('convertir a mp3', () => {
     dialogOk()
   })
 
-  it('convertir de verdad es una tarea, y «conservar el original» viaja como `keep`', async () => {
+  it('a real conversion is a job, and «conservar el original» travels as `keep`', async () => {
     // Se mandaba «keepOne», que el nucleo no lee: la casilla no hacia nada y
     // los archivos de partida se borraban igual.
     await mountView()
@@ -177,8 +177,8 @@ describe('convertir a mp3', () => {
   })
 })
 
-describe('la calidad de conversion', () => {
-  it('cada calidad que se ofrece es una que el nucleo entiende', async () => {
+describe('the conversion quality', () => {
+  it('each quality offered is one the core understands', async () => {
     // config.py: MP3_QUALITY = high | medium | variable. Ajustes ofrecia
     // «alta» y «media», que el nucleo no conoce: elegir Media acababa en 320k
     // sin decir nada.
@@ -211,14 +211,14 @@ describe('la calidad de conversion', () => {
   })
 })
 
-describe('carpetas', () => {
+describe('folders', () => {
   const folderSettings = (folders, exclusions = []) => ({
     folders,
     exclusions,
     always_excluded: ['Revisar']
   })
 
-  it('una carpeta que no esta se busca con «¿Donde esta?»', async () => {
+  it('a missing folder is located with «¿Donde esta?»', async () => {
     api().folders.mockResolvedValue(
       folderSettings([{ path: '/viejo/Musica', n: 0, exists: false }])
     )
@@ -239,7 +239,7 @@ describe('carpetas', () => {
     expect(w.emitted('changed')).toBeTruthy()
   })
 
-  it('quitar una carpeta y omitir o dejar de omitir otras', async () => {
+  it('removing a folder and skipping or unskipping others', async () => {
     api().folders.mockResolvedValue(folderSettings([{ path: '/musica', n: 3, exists: true }]))
     api().removeFolder.mockResolvedValueOnce(folderSettings([]))
     api().addExclusion.mockResolvedValueOnce(
@@ -266,7 +266,7 @@ describe('carpetas', () => {
     expect(w.findAll('button.chip').some((b) => b.text().includes('Secuencias'))).toBe(false)
   })
 
-  it('si el nucleo no puede quitarla, lo dice', async () => {
+  it('if the core cannot remove it, it says so', async () => {
     api().folders.mockResolvedValue(folderSettings([{ path: '/musica', n: 3, exists: true }]))
     api().removeFolder.mockRejectedValueOnce(new Error('sin permiso'))
     await mountView()
@@ -276,8 +276,8 @@ describe('carpetas', () => {
   })
 })
 
-describe('temas', () => {
-  it('cada tarjeta se pinta con los colores de su tema, ninguno sin definir', async () => {
+describe('themes', () => {
+  it('each card renders with its theme colors, none undefined', async () => {
     // un color que no existe (`t.v.acento` tras pasar a ingles) salia como
     // `undefined` y la tarjeta se quedaba sin fondo ni borde
     await mountView()
@@ -293,7 +293,7 @@ describe('temas', () => {
     }
   })
 
-  it('cada tema es un boton que dice si esta puesto', async () => {
+  it('each theme is a button that says whether it is active', async () => {
     await mountView()
     const cards = w.findAll('.theme-pick')
     expect(cards.length).toBe(Object.keys(CATALOG).length)
@@ -303,7 +303,7 @@ describe('temas', () => {
     expect(ocean.attributes('aria-pressed')).toBe('true')
   })
 
-  it('editar otro tema con el editor abierto lo empieza con sus colores', async () => {
+  it('editing another theme with the editor open starts it with its colors', async () => {
     saveCustomTheme('custom-red', {
       name: 'Rojo',
       kind: 'dark',
@@ -331,7 +331,7 @@ describe('temas', () => {
     expect(customThemes()['custom-red'].v.accent).toBe('#aa0000')
   })
 
-  it('crear uno propio y borrarlo', async () => {
+  it('creating a custom one and deleting it', async () => {
     await mountView()
     await button('Crear el mio').trigger('click')
     expect(w.find('h3').text()).toBeTruthy()
@@ -354,8 +354,8 @@ describe('temas', () => {
   })
 })
 
-describe('las pistas separadas', () => {
-  it('dice si el separador está bajado y deja borrarlo', async () => {
+describe('the separated stems', () => {
+  it('says whether the separator is downloaded and lets you delete it', async () => {
     const { resetSeparation, useSeparation } = await import('../src/composables/useSeparation.js')
     resetSeparation()
     await useSeparation().refresh()
@@ -381,7 +381,7 @@ describe('las pistas separadas', () => {
     held.state.separation.installed = true
   })
 
-  it('las pistas se guardan en FLAC, o en Opus si se elige', async () => {
+  it('stems are saved as FLAC, or as Opus if chosen', async () => {
     const { resetSeparation, useSeparation } = await import('../src/composables/useSeparation.js')
     resetSeparation()
     await useSeparation().refresh()
@@ -391,7 +391,7 @@ describe('las pistas separadas', () => {
     expect(card.text()).toContain('FLAC')
   })
 
-  it('si en este equipo no se puede, dice por qué', async () => {
+  it('if this computer cannot do it, it says why', async () => {
     const { resetSeparation, useSeparation } = await import('../src/composables/useSeparation.js')
     resetSeparation()
     held.state.separation.ok = false

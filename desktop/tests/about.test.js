@@ -60,8 +60,8 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-describe('la ventana de los términos', () => {
-  it('la casilla no se puede marcar hasta bajar al final, ni aceptar sin ella', async () => {
+describe('the terms dialog', () => {
+  it('the checkbox cannot be ticked before scrolling to the end, and nothing can be accepted without it', async () => {
     revokeTerms()
     // un texto largo: hay que bajarlo (las alturas, antes de que se abra)
     const height = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(1000)
@@ -108,7 +108,7 @@ describe('la ventana de los términos', () => {
     w.unmount()
   })
 
-  it('salen solos la primera vez, y no otra vez al volver a abrir', async () => {
+  it('they show up on their own the first time, and not again on reopening', async () => {
     revokeTerms()
     expect(await terms.showIfFirstTime()).toBe(true)
     expect(terms.state.open).toBe(true)
@@ -122,7 +122,7 @@ describe('la ventana de los términos', () => {
     expect(await terms.showIfFirstTime()).toBe(false)
   })
 
-  it('si los términos cambian, se vuelven a pedir', async () => {
+  it('if the terms change, they are asked for again', async () => {
     held.state.terms = { accepted: '2020-01-01', at: 1, app: '' }
     localStorage.setItem('danplay.termsSeen', '2020-01-01')
     expect(await terms.showIfFirstTime()).toBe(true)
@@ -130,8 +130,8 @@ describe('la ventana de los términos', () => {
   })
 })
 
-describe('lo que se bloquea sin aceptarlos', () => {
-  it('separar en pistas abre los términos y, sin aceptarlos, no separa', async () => {
+describe('what is blocked without accepting them', () => {
+  it('splitting into stems opens the terms and, without accepting them, does not split', async () => {
     revokeTerms()
     resetSeparation()
     const request = useSeparation().request([{ id: 1, title: 'Mi Gozo' }])
@@ -143,7 +143,7 @@ describe('lo que se bloquea sin aceptarlos', () => {
     expect(held.api.separate).not.toHaveBeenCalled()
   })
 
-  it('aceptándolos, sigue con lo que se pidió', async () => {
+  it('accepting them carries on with what was requested', async () => {
     revokeTerms()
     const request = requireTerms('chat')
     await flushPromises()
@@ -156,7 +156,7 @@ describe('lo que se bloquea sin aceptarlos', () => {
   })
 })
 
-describe('Acerca de DanPlay', () => {
+describe('About DanPlay', () => {
   const page = async (tab = 'about') => {
     const w = mount(AboutPage, { props: { tab }, attachTo: document.body })
     mounted.push(w)
@@ -164,7 +164,7 @@ describe('Acerca de DanPlay', () => {
     return w
   }
 
-  it('dice quién lo hizo y cómo escribirle para colaborar', async () => {
+  it('says who made it and how to write to them to collaborate', async () => {
     const w = await page()
     expect(w.text()).toContain('Creado y desarrollado por Daniel Rangel')
     expect(w.text()).toContain('DanPlay es obra de Daniel Rangel')
@@ -175,7 +175,7 @@ describe('Acerca de DanPlay', () => {
     expect(held.app.openInBrowser).toHaveBeenCalledWith('https://t.me/Dani17r')
   })
 
-  it('las novedades: cada versión, corta, y la tuya señalada', async () => {
+  it('the release notes: each version, short, with yours highlighted', async () => {
     const w = await page('news')
     const versions = w.findAll('.release-version').map((e) => e.text())
     expect(versions).toEqual(RELEASES.map((r) => r.version))
@@ -185,7 +185,7 @@ describe('Acerca de DanPlay', () => {
     expect(mine.text()).toContain('Tu versión')
   })
 
-  it('los términos: el texto, y si no se aceptaron, el botón para hacerlo', async () => {
+  it('the terms: the text and, if not accepted, the button to accept them', async () => {
     revokeTerms()
     await terms.load()
     const w = await page('terms')
@@ -198,15 +198,15 @@ describe('Acerca de DanPlay', () => {
     expect(terms.state.open).toBe(true)
   })
 
-  it('las pestañas avisan para cambiar', async () => {
+  it('the tabs emit the switch', async () => {
     const w = await page()
     await w.findAll('.about-tab')[1].trigger('click')
     expect(w.emitted('tab')[0]).toEqual(['news'])
   })
 })
 
-describe('el crédito en la barra lateral', () => {
-  it('siempre a la vista, y lleva a «Acerca de»', async () => {
+describe('the credit in the sidebar', () => {
+  it('always visible, and leads to «Acerca de»', async () => {
     const w = mount(Sidebar, { props: { view: { kind: 'all' } } })
     mounted.push(w)
     expect(w.find('.nav-credit').text()).toContain('Daniel Rangel')
@@ -214,7 +214,7 @@ describe('el crédito en la barra lateral', () => {
     expect(w.emitted('go').at(-1)).toEqual([{ kind: 'about', tab: 'about' }])
   })
 
-  it('tras actualizar, «Acerca de DanPlay» dice «Nuevo» y abre las novedades', async () => {
+  it('after an update, «Acerca de DanPlay» says «Nuevo» and opens the release notes', async () => {
     const w = mount(Sidebar, { props: { view: { kind: 'all' }, newsBadge: true } })
     mounted.push(w)
     const button = w.findAll('.nav-link').find((b) => b.text().includes('Acerca de DanPlay'))
@@ -224,19 +224,19 @@ describe('el crédito en la barra lateral', () => {
   })
 })
 
-describe('las novedades y el CHANGELOG', () => {
+describe('the release notes and the CHANGELOG', () => {
   const changelog = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8')
   const inChangelog = [...changelog.matchAll(/^## (\d+\.\d+\.\d+) — (.+)$/gm)].map((m) => ({
     version: m[1],
     date: /^\d{4}-\d{2}-\d{2}$/.test(m[2].trim()) ? m[2].trim() : ''
   }))
 
-  it('cada versión desde la 1.20.0 está, con su fecha', () => {
+  it('every version since 1.20.0 is there, with its date', () => {
     const since = inChangelog.filter((v) => compareVersions(v.version, '1.20.0') >= 0)
     expect(RELEASES.map((r) => [r.version, r.date])).toEqual(since.map((v) => [v.version, v.date]))
   })
 
-  it('son cortas: una línea de resumen y frases breves', () => {
+  it('they are short: a summary line and brief sentences', () => {
     for (const r of RELEASES) {
       expect(r.summary.length, r.version).toBeLessThanOrEqual(100)
       expect(r.items.length, r.version).toBeGreaterThan(0)
@@ -244,7 +244,7 @@ describe('las novedades y el CHANGELOG', () => {
     }
   })
 
-  it('lo nuevo desde la última vez que se miró', () => {
+  it('what is new since the last time they were viewed', () => {
     expect(newSince('', '1.27.0')).toEqual([])
     expect(newSince('1.25.0', '1.27.0').map((r) => r.version)).toEqual(['1.27.0', '1.26.0'])
     expect(compareVersions('1.10.0', '1.9.9')).toBeGreaterThan(0)

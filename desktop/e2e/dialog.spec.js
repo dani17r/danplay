@@ -10,7 +10,7 @@ test.beforeEach(async ({ request }) => {
   await reset(request)
 })
 
-test('Enter con el foco en «Cancelar» no manda nada a la papelera', async ({ page, request }) => {
+test('Enter with focus on «Cancelar» sends nothing to the trash', async ({ page, request }) => {
   await openApp(page)
   const [title] = await titleTexts(page)
   const song = (await songsByTitle(request))[title]

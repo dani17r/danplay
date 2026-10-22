@@ -3,10 +3,7 @@
 import { test, expect } from '@playwright/test'
 import { core, openApp, go } from './helpers.js'
 
-test('Descargas enseña la versión de yt-dlp y su motor de JavaScript', async ({
-  page,
-  request
-}) => {
+test('Downloads shows the yt-dlp version and its JavaScript engine', async ({ page, request }) => {
   const yt = await core(request, 'GET', '/youtube')
   await openApp(page)
   await go(page, 'Descargas')

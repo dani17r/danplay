@@ -22,9 +22,9 @@ const five = () => [
   song(5, { title: 'Shekinah', artist: 'New Wine', duration: 300 })
 ]
 
-describe('una sola lista con cabeceras', () => {
+describe('a single list with headers', () => {
   for (const layout of ['table', 'rows', 'cards', 'grid']) {
-    it(`${layout}: las cabeceras van entre las filas, en el orden de los grupos`, () => {
+    it(`${layout}: headers go between the rows, in group order`, () => {
       const w = mount(GroupedSongs, { props: { songs: five(), by: 'artist', layout } })
       // una lista, no una por grupo
       expect(w.findAll('[role="grid"], [role="listbox"]')).toHaveLength(1)
@@ -48,7 +48,7 @@ describe('una sola lista con cabeceras', () => {
     })
   }
 
-  it('las flechas pasan de un grupo al siguiente, y vuelven', async () => {
+  it('arrow keys move from one group to the next, and back', async () => {
     const w = mount(GroupedSongs, {
       props: { songs: five(), by: 'artist', layout: 'table' },
       attachTo: document.body
@@ -61,17 +61,17 @@ describe('una sola lista con cabeceras', () => {
     expect(w.emitted('select').at(-1)).toEqual([5, { shiftKey: false }])
   })
 
-  it('una sola parada del tabulador para toda la lista', () => {
+  it('a single tab stop for the whole list', () => {
     const w = mount(GroupedSongs, { props: { songs: five(), by: 'artist', layout: 'rows' } })
     expect(rows(w).filter((f) => f.attributes('tabindex') === '0')).toHaveLength(1)
   })
 
-  it('el número de cada fila es el de dentro de su grupo', () => {
+  it('each row number is its position within its group', () => {
     const w = mount(GroupedSongs, { props: { songs: five(), by: 'artist', layout: 'table' } })
     expect(rows(w).map((f) => f.find('.row-n').text())).toEqual(['1', '2', '1', '1', '2'])
   })
 
-  it('plegar un grupo quita sus filas y deja su cabecera', async () => {
+  it('collapsing a group removes its rows and keeps its header', async () => {
     const w = mount(GroupedSongs, { props: { songs: five(), by: 'artist', layout: 'grid' } })
     const barakGroup = w.findAll('.group-head')[0]
     await barakGroup.trigger('click')
@@ -85,7 +85,7 @@ describe('una sola lista con cabeceras', () => {
     expect(w.text()).not.toContain('Nada por aquí')
   })
 
-  it('la tabla cuenta las cabeceras como filas', () => {
+  it('the table counts headers as rows', () => {
     const w = mount(GroupedSongs, { props: { songs: five(), by: 'artist', layout: 'table' } })
     const table = w.find('[role="grid"]')
     expect(table.attributes('aria-rowcount')).toBe('8') // 5 canciones y 3 cabeceras
@@ -96,7 +96,7 @@ describe('una sola lista con cabeceras', () => {
     expect(indices).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
   })
 
-  it('en las fichas, cada grupo es un grupo con nombre', () => {
+  it('in the cards view, each group is a named group', () => {
     const w = mount(GroupedSongs, { props: { songs: five(), by: 'artist', layout: 'cards' } })
     const groups = w.findAll('[role="group"]')
     expect(groups).toHaveLength(3)
@@ -173,10 +173,10 @@ const library = () =>
     })
   )
 
-describe('agrupada y larga: solo se pinta lo que se ve', () => {
+describe('grouped and long: only what is visible is rendered', () => {
   afterEach(withoutLayout)
 
-  it('con 500 grupos pequeños pinta una ventana, no la biblioteca', async () => {
+  it('with 500 small groups it renders a window, not the library', async () => {
     withLayout()
     const w = mount(GroupedSongs, {
       props: { songs: library(), by: 'artist', layout: 'table' },
@@ -195,7 +195,7 @@ describe('agrupada y larga: solo se pinta lo que se ve', () => {
     w.unmount()
   })
 
-  it('«ir a lo que suena» trae un grupo lejano, con su cabecera', async () => {
+  it('«ir a lo que suena» brings in a far group, with its header', async () => {
     withLayout()
     const w = mount(GroupedSongs, {
       props: { songs: library(), by: 'artist', layout: 'table', jumpTo: null },

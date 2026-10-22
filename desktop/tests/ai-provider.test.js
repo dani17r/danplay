@@ -35,8 +35,8 @@ const open = async (initial = '') => {
 }
 const card = (w, id) => w.findAll('.ai-card').find((c) => c.text().includes(id))
 
-describe('elegir proveedor', () => {
-  it('enseña los proveedores por grupos y filtra al escribir', async () => {
+describe('choosing a provider', () => {
+  it('shows providers in groups and filters while typing', async () => {
     const w = await open()
     expect(w.text()).toContain('Grandes laboratorios')
     expect(w.text()).toContain('En tu equipo')
@@ -47,7 +47,7 @@ describe('elegir proveedor', () => {
     w.unmount()
   })
 
-  it('marca los ya configurados y cual esta en uso', async () => {
+  it('marks the ones already configured and the one in use', async () => {
     held.state.aiProfiles = {
       openai: {
         id: 'openai',
@@ -72,7 +72,7 @@ describe('elegir proveedor', () => {
     w.unmount()
   })
 
-  it('un proveedor de pago pide la clave y enlaza a donde conseguirla', async () => {
+  it('a paid provider asks for the key and links to where to get it', async () => {
     const w = await open()
     await card(w, 'OpenAI').trigger('click')
     await flushPromises()
@@ -88,7 +88,7 @@ describe('elegir proveedor', () => {
     w.unmount()
   })
 
-  it('uno local no pide clave, deja cambiar la URL y pide la lista al entrar', async () => {
+  it('a local one asks for no key, lets you change the URL and fetches the model list on open', async () => {
     const w = await open()
     await card(w, 'Ollama').trigger('click')
     await flushPromises()
@@ -103,7 +103,7 @@ describe('elegir proveedor', () => {
     w.unmount()
   })
 
-  it('los huecos de la URL se rellenan con lo escrito', async () => {
+  it('the URL placeholders are filled in with what was typed', async () => {
     const w = await open()
     await card(w, 'Amazon Bedrock').trigger('click')
     await flushPromises()
@@ -114,7 +114,7 @@ describe('elegir proveedor', () => {
     w.unmount()
   })
 
-  it('probar manda lo del formulario sin guardar, y guardar lo activa', async () => {
+  it('testing sends the form contents without saving, and saving activates it', async () => {
     const w = await open()
     await card(w, 'OpenAI').trigger('click')
     await flushPromises()
@@ -150,7 +150,7 @@ describe('elegir proveedor', () => {
     w.unmount()
   })
 
-  it('con clave guardada la caja llega vacia y se conserva si no se escribe otra', async () => {
+  it('with a saved key the field starts empty and the key is kept unless another is typed', async () => {
     held.state.aiProfiles = {
       openai: {
         id: 'openai',
@@ -180,7 +180,7 @@ describe('elegir proveedor', () => {
     w.unmount()
   })
 
-  it('un servidor propio pide nombre y URL http(s)', async () => {
+  it('a custom server asks for a name and an http(s) URL', async () => {
     const w = await open()
     await card(w, 'Añadir otro servidor').trigger('click')
     await flushPromises()
@@ -207,7 +207,7 @@ describe('elegir proveedor', () => {
     w.unmount()
   })
 
-  it('los parametros extra tienen que ser JSON', async () => {
+  it('extra parameters must be JSON', async () => {
     const w = await open()
     await card(w, 'Ollama').trigger('click')
     await flushPromises()
@@ -231,7 +231,7 @@ describe('elegir proveedor', () => {
     w.unmount()
   })
 
-  it('quitar un proveedor pregunta antes', async () => {
+  it('removing a provider asks first', async () => {
     held.state.aiProfiles = {
       openai: {
         id: 'openai',
@@ -262,7 +262,7 @@ describe('elegir proveedor', () => {
   })
 })
 
-describe('el selector de modelos', () => {
+describe('the model picker', () => {
   const models = [
     {
       id: 'grande',
@@ -315,7 +315,7 @@ describe('el selector de modelos', () => {
       attachTo: document.body
     })
 
-  it('enseña precio, contexto, herramientas y el recomendado', async () => {
+  it('shows price, context, tools and the recommended one', async () => {
     const w = mountView({ suggest: 'chico' })
     await w.find('input').trigger('focus')
     const rows = w.findAll('.model-row')
@@ -329,7 +329,7 @@ describe('el selector de modelos', () => {
     w.unmount()
   })
 
-  it('para conversar filtra de entrada los que no usan herramientas', async () => {
+  it('for chatting, it filters out from the start the models without tools', async () => {
     const w = mountView({ needTools: true })
     await w.find('input').trigger('focus')
     const names = w.findAll('.model-name').map((f) => f.text())
@@ -338,7 +338,7 @@ describe('el selector de modelos', () => {
     w.unmount()
   })
 
-  it('lo escrito filtra y vale aunque no este en la lista', async () => {
+  it('typed text filters and is accepted even if it is not in the list', async () => {
     const w = mountView()
     await w.find('input').setValue('gra')
     expect(w.findAll('.model-name').map((f) => f.text())).toEqual(['Grande'])
@@ -349,7 +349,7 @@ describe('el selector de modelos', () => {
     w.unmount()
   })
 
-  it('elegir una fila emite su id y avisa si no usa herramientas', async () => {
+  it('picking a row emits its id and warns if it does not use tools', async () => {
     const w = mountView()
     await w.find('input').trigger('focus')
     await w
@@ -363,8 +363,8 @@ describe('el selector de modelos', () => {
   })
 })
 
-describe('la tarjeta de IA en Ajustes', () => {
-  it('sin proveedor lo dice y ofrece elegir uno', async () => {
+describe('the AI card in Settings', () => {
+  it('with no provider it says so and offers to pick one', async () => {
     const w = mount(SettingsPage, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
@@ -378,7 +378,7 @@ describe('la tarjeta de IA en Ajustes', () => {
     w.unmount()
   })
 
-  it('con varios configurados se cambia de uno a otro con un clic', async () => {
+  it('with several configured, one click switches between them', async () => {
     held.state.aiProfiles = {
       openai: {
         id: 'openai',
@@ -424,8 +424,8 @@ describe('la tarjeta de IA en Ajustes', () => {
   })
 })
 
-describe('probar gratis, sin clave', () => {
-  it('desde Ajustes activa el primer gratuito que responde y lo cuenta', async () => {
+describe('trying it for free, without a key', () => {
+  it('from Settings it activates the first free one that responds and reports it', async () => {
     const w = mount(SettingsPage, { attachTo: document.body })
     await flushPromises()
     await flushPromises()
@@ -444,7 +444,7 @@ describe('probar gratis, sin clave', () => {
     w.unmount()
   })
 
-  it('el modal lo ofrece en el grupo gratuito y se cierra al conseguirlo', async () => {
+  it('the modal offers it in the free group and closes once it succeeds', async () => {
     const w = await open()
     expect(w.text()).toContain('Gratis, sin clave')
     await w.find('.ai-free-btn').trigger('click')
@@ -456,8 +456,8 @@ describe('probar gratis, sin clave', () => {
   })
 })
 
-describe('respaldo y gasto en Ajustes', () => {
-  it('enseña lo gastado y deja apagar el respaldo', async () => {
+describe('fallback and spending in Settings', () => {
+  it('shows the amount spent and lets you turn off the fallback', async () => {
     held.state.aiProfiles = {
       openai: {
         id: 'openai',
@@ -499,8 +499,8 @@ describe('respaldo y gasto en Ajustes', () => {
   })
 })
 
-describe('teclado en la ventana de la IA', () => {
-  it('Escape con una confirmacion encima no cierra tambien la ventana', async () => {
+describe('keyboard in the AI dialog', () => {
+  it('Escape with a confirmation on top does not also close the dialog', async () => {
     // Las dos escuchan el teclado: Escape cerraba la confirmacion Y la
     // ventana de debajo, y se perdia lo que se estaba configurando.
     held.state.aiProfiles = {

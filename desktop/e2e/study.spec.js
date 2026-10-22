@@ -14,7 +14,7 @@ const notesOf = async (request, id) => {
   return study ? JSON.parse(study).notes || '' : ''
 }
 
-test('las notas se guardan en su canción aunque se pase a la siguiente', async ({
+test('notes are saved to their song even after moving on to the next one', async ({
   page,
   request
 }) => {

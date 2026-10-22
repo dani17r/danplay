@@ -22,10 +22,7 @@ async function drag(page, from, to, { lowerHalf = false } = {}) {
   await page.mouse.up()
 }
 
-test('crear un repertorio, llevarle canciones y ordenarlo arrastrando', async ({
-  page,
-  request
-}) => {
+test('create a playlist, add songs to it and reorder it by dragging', async ({ page, request }) => {
   await openApp(page)
   await page.getByRole('button', { name: 'Nueva lista' }).click()
   const dialog = page.getByRole('dialog', { name: 'Nueva lista' })

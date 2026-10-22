@@ -21,28 +21,28 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const SRC = join(HERE, '..', 'src')
 const read = (...p) => readFileSync(join(...p), 'utf8')
 
-describe('el doble de las pruebas cubre el api de verdad', () => {
-  it('no se queda ningun metodo sin programar', () => {
+describe('the test double covers the real api', () => {
+  it('no method is left unimplemented', () => {
     const double = buildApiDouble({ api }, createState())
     const missing = Object.keys(api).filter((k) => !(k in double))
     expect(missing, 'metodos del api que el doble no conoce').toEqual([])
   })
 
-  it('y no sobra ninguno inventado', () => {
+  it('and there is no extra made-up one', () => {
     const double = buildApiDouble({ api }, createState())
     const extra = Object.keys(double).filter((k) => !(k in api))
     expect(extra, 'el doble ofrece cosas que el api no tiene').toEqual([])
   })
 })
 
-describe('los nombres que la interfaz manda al nucleo', () => {
+describe('the names the UI sends to the core', () => {
   // que las calidades que ofrece Ajustes son las que entiende el nucleo se
   // prueba eligiendolas de verdad (settings.test.js)
 
   // que «conservar el original» viaja como `keep` (y no como `keepOne`, que
   // el nucleo ignoraba) se prueba pulsando «Convertir ahora» (settings.test.js)
 
-  it('el estado de la IA se lee con el nombre que devuelve la API', () => {
+  it('the AI status is read with the name the API returns', () => {
     // api.py devuelve "ai"; se leía status.ia, así que la insignia decía
     // siempre «sin clave»
     for (const file of ['components/SettingsPage.vue', 'App.vue']) {
@@ -51,7 +51,7 @@ describe('los nombres que la interfaz manda al nucleo', () => {
     expect(coreSource()).toMatch(/"ai":/)
   })
 
-  it('las acciones al añadir una carpeta son las de la API', () => {
+  it('the actions when adding a folder are the API ones', () => {
     const helper = read(SRC, 'utils/folders.js')
     for (const action of ['added', 'already_there', 'replaced', 'confirm']) {
       expect(helper, `falta la acción «${action}»`).toContain(action)
@@ -66,20 +66,20 @@ describe('los nombres que la interfaz manda al nucleo', () => {
     }
   })
 
-  it('los campos que se pueden editar de una cancion los admite el nucleo', () => {
+  it('the editable fields of a song are accepted by the core', () => {
     const core = coreSource()
     expect(core, 'la API deberia limitar que campos se editan').toMatch(/EDITABLE|SongEdit/)
   })
 })
 
-describe('las direcciones de audio y portada', () => {
-  it('fuera de la app son rutas normales de la API', () => {
+describe('audio and cover URLs', () => {
+  it('outside the app they are plain API paths', () => {
     expect(mediaUrl('audio', 7)).toBe('/api/song/7/audio')
     expect(mediaUrl('cover', 7)).toBe('/api/song/7/cover')
     expect(mediaUrlAlt('cover', 7)).toBe(null)
   })
 
-  it('la miniatura se pide con un tamaño que el nucleo sabe cachear', () => {
+  it('the thumbnail is requested at a size the core can cache', () => {
     for (const size of COVER_SIZES) {
       expect(api.coverUrl(7, size)).toContain(`size=${size}`)
     }
@@ -88,7 +88,7 @@ describe('las direcciones de audio y portada', () => {
     expect(api.coverUrl(7)).not.toContain('size=')
   })
 
-  it('el nucleo acepta esos mismos tamaños', () => {
+  it('the core accepts those same sizes', () => {
     const core = coreSource()
     for (const size of COVER_SIZES) {
       expect(core, `el núcleo no genera miniaturas de ${size}`).toContain(String(size))
@@ -96,8 +96,8 @@ describe('las direcciones de audio y portada', () => {
   })
 })
 
-describe('los errores se cuentan en una sola frase', () => {
-  it('sin el «Error:» que añade el navegador', () => {
+describe('errors are told in a single sentence', () => {
+  it('without the «Error:» the browser adds', () => {
     expect(errorMessage(new Error('no existe'))).toBe('no existe')
     expect(errorMessage(new ApiError('404: no existe', 404))).toBe('404: no existe')
     expect(errorMessage('algo suelto')).toBe('algo suelto')
@@ -105,7 +105,7 @@ describe('los errores se cuentan en una sola frase', () => {
 
   // Rust reenvia el fallo del nucleo como `<codigo>: <cuerpo JSON>`. En el
   // chat se leia «400: {"detail":"hace falta algo que descargar"}».
-  it('lo que llega por el puente de Rust se queda con el detail', () => {
+  it('what comes through the Rust bridge keeps the detail', () => {
     const e = fromBridge(new Error('409: {"detail":"ya hay una descarga en marcha"}'))
     expect(e).toBeInstanceOf(ApiError)
     expect(e.message).toBe('ya hay una descarga en marcha')

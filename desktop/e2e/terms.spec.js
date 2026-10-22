@@ -20,7 +20,7 @@ test.afterEach(async ({ request }) => {
   await reset(request)
 })
 
-test('la primera vez salen solos, y hay que leerlos hasta el final', async ({ page }) => {
+test('the first time they show up on their own and must be read to the end', async ({ page }) => {
   // una ventana bajita: el texto no cabe y hay que bajarlo
   await page.setViewportSize({ width: 1100, height: 700 })
   await page.goto('/')
@@ -52,7 +52,7 @@ test('la primera vez salen solos, y hay que leerlos hasta el final', async ({ pa
   )
 })
 
-test('sin aceptarlos, «Transformar» los pide y no se abre', async ({ page }) => {
+test('without accepting them, «Transformar» asks for them and does not open', async ({ page }) => {
   await page.goto('/')
   await expect(rows(page)).toHaveCount(SONGS.length)
   const modal = page.getByRole('dialog', { name: 'Términos y condiciones de DanPlay' })

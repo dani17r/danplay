@@ -36,8 +36,8 @@ const group = {
   ]
 }
 
-describe('grupo de duplicados', () => {
-  it('lista todas las copias con sus datos', () => {
+describe('duplicates group', () => {
+  it('lists every copy with its details', () => {
     const w = mount(DuplicateGroup, { props: { group, playing: null, busy: false } })
     expect(w.findAll('.dup-row')).toHaveLength(2)
     expect(w.text()).toContain('128 kbps')
@@ -46,7 +46,7 @@ describe('grupo de duplicados', () => {
     expect(w.text()).toContain('7.7 MB')
   })
 
-  it('marca cual tiene mejor calidad y cual lleva el sufijo', () => {
+  it('marks which one has the best quality and which has the suffix', () => {
     const w = mount(DuplicateGroup, { props: { group, playing: null, busy: false } })
     const withSuffix = w.findAll('.dup-row')[1]
     expect(withSuffix.text()).toContain('mejor calidad')
@@ -54,18 +54,18 @@ describe('grupo de duplicados', () => {
     expect(withSuffix.classes()).toContain('suggested')
   })
 
-  it('cada copia se puede escuchar', async () => {
+  it('each copy can be played', async () => {
     const w = mount(DuplicateGroup, { props: { group, playing: null, busy: false } })
     await w.findAll('.dup-play')[1].trigger('click')
     expect(w.emitted('play')[0][0].id).toBe(2)
   })
 
-  it('marca la que esta sonando', () => {
+  it('marks the one that is playing', () => {
     const w = mount(DuplicateGroup, { props: { group, playing: 2, busy: false } })
     expect(w.findAll('.dup-row')[1].classes()).toContain('playing')
   })
 
-  it('sobre la que suena el boton es pausa, y en pausa, reanudar', () => {
+  it('on the playing one the button is pause, and while paused, resume', () => {
     // Pintaba la pausa y al pulsarla volvia a empezar la copia.
     const playing = mount(DuplicateGroup, {
       props: { group, playing: 2, paused: false, busy: false }
@@ -81,7 +81,7 @@ describe('grupo de duplicados', () => {
     expect(paused.findAll('.dup-play')[1].findComponent({ name: 'Icon' }).props('n')).toBe('play')
   })
 
-  it('mantener emite el grupo y la copia elegida', async () => {
+  it('keep emits the group and the chosen copy', async () => {
     const w = mount(DuplicateGroup, { props: { group, playing: null, busy: false } })
     await w.findAll('.dup-keep')[1].trigger('click')
     const [g, picked] = w.emitted('keepOne')[0]
@@ -89,17 +89,17 @@ describe('grupo de duplicados', () => {
     expect(g.items).toHaveLength(2)
   })
 
-  it('mientras se resuelve, los botones se bloquean', () => {
+  it('while resolving, the buttons are locked', () => {
     const w = mount(DuplicateGroup, { props: { group, playing: null, busy: true } })
     expect(w.findAll('.dup-keep')[0].attributes('disabled')).toBeDefined()
   })
 
-  it('muestra estrellas y favorito de cada copia', () => {
+  it('shows the stars and favorite of each copy', () => {
     const w = mount(DuplicateGroup, { props: { group, playing: null, busy: false } })
     expect(w.findAll('.stars .ico.on')).toHaveLength(4)
   })
 
-  it('una copia sin indexar no se puede reproducir', () => {
+  it('an unindexed copy cannot be played', () => {
     const g2 = { ...group, items: [{ ...group.items[0], id: null }] }
     const w = mount(DuplicateGroup, { props: { group: g2, playing: null, busy: false } })
     expect(w.find('.dup-play').attributes('disabled')).toBeDefined()

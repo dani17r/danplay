@@ -19,7 +19,7 @@ afterEach(() => vi.useRealTimers())
 // pagina de Descargas, el chat y la barra lateral. Sin sondeo de fondo: se
 // despierta cuando alguien arranca una descarga y se duerme al terminar.
 describe('useDownloads', () => {
-  it('despierta, sigue mientras baja, avisa al terminar y se duerme', async () => {
+  it('wakes up, tracks while downloading, notifies when done and goes back to sleep', async () => {
     const d = useDownloads()
     const done = vi.fn()
     d.onFinished(done)
@@ -50,7 +50,7 @@ describe('useDownloads', () => {
     expect(api.youtube.mock.calls.length).toBe(calls)
   })
 
-  it('si termino entre dos miradas, se cuenta igual', async () => {
+  it('if it finished between two polls, it is still reported', async () => {
     const d = useDownloads()
     const done = vi.fn()
     d.onFinished(done)
@@ -64,7 +64,7 @@ describe('useDownloads', () => {
     expect(done).toHaveBeenCalledTimes(1)
   })
 
-  it('una consulta suelta con algo en marcha sigue sola', async () => {
+  it('a one-off check with something running keeps tracking on its own', async () => {
     const d = useDownloads()
     api.youtube
       .mockResolvedValueOnce({ active: true, phase: 'downloading', index: 1, total: 1 })
@@ -75,7 +75,7 @@ describe('useDownloads', () => {
     expect(d.state.active).toBe(false)
   })
 
-  it('si el nucleo no contesta, insiste un poco y luego para', async () => {
+  it('if the core does not answer, it retries a bit and then stops', async () => {
     const d = useDownloads()
     api.youtube.mockRejectedValue(new Error('sin nucleo'))
     d.wake()
@@ -84,7 +84,7 @@ describe('useDownloads', () => {
     expect(d.state.known).toBe(false)
   })
 
-  it('desapuntarse funciona', async () => {
+  it('unsubscribing works', async () => {
     const d = useDownloads()
     const done = vi.fn()
     const stop = d.onFinished(done)
@@ -102,8 +102,8 @@ const mountView = (props = {}) =>
     global: { stubs: { TextField: true } }
   })
 
-describe('la barra lateral cuenta lo que pasa', () => {
-  it('mientras baja algo, «Descargas» lleva el numero; si no, nada', () => {
+describe('the sidebar reports what is happening', () => {
+  it('while something downloads, «Descargas» shows the count; otherwise nothing', () => {
     const w = mountView({
       download: { active: true, index: 2, total: 3, phase: 'downloading', name: 'X', percent: 40 }
     })
@@ -117,13 +117,13 @@ describe('la barra lateral cuenta lo que pasa', () => {
     expect(link2.find('.count.live').exists()).toBe(false)
   })
 
-  it('con una sola cancion el numero es 1', () => {
+  it('with a single song the count is 1', () => {
     const w = mountView({ download: { active: true, index: 1, total: 1, phase: 'filing' } })
     const link = w.findAll('.nav-link').find((b) => b.text().includes('Descargas'))
     expect(link.find('.count.live').text()).toBe('1')
   })
 
-  it('la lista de la que sale lo que suena lleva un punto', () => {
+  it('the list that the playing song comes from has a dot', () => {
     const playlists = [
       { id: 1, name: 'domingo', n: 2 },
       { id: 2, name: 'Herlin', n: 3 }
@@ -136,7 +136,7 @@ describe('la barra lateral cuenta lo que pasa', () => {
     expect(rows[1].find('.now-dot').attributes('title')).toBe('Sonando ahora')
   })
 
-  it('en pausa el punto se queda quieto; sin nada sonando no hay punto', () => {
+  it('when paused the dot stays still; with nothing playing there is no dot', () => {
     const w = mountView({ nowPlaying: { kind: 'all', id: null, playing: false } })
     const all = w.findAll('.nav-link').find((b) => b.text().includes('Todas las canciones'))
     expect(all.find('.now-dot').classes()).toContain('paused')

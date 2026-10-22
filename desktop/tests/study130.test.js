@@ -104,8 +104,8 @@ afterEach(() => {
 })
 const routing = () => held.playback.bridge.setRouting.mock.calls.at(-1)[0]
 
-describe('los canales, en números', () => {
-  it('lo que se enciende y el destino van y vuelven', () => {
+describe('the channels, in numbers', () => {
+  it('what is enabled and the destination round-trip', () => {
     expect(channelsOf('main')).toEqual([1, 2])
     expect(channelsOf('L')).toEqual([1])
     expect(channelsOf('R')).toEqual([2])
@@ -125,7 +125,7 @@ describe('los canales, en números', () => {
     expect(channelsOf('x2-3')).toEqual([2, 3])
   })
 
-  it('al exportar a un archivo estéreo: los dos lados, la izquierda o la derecha', () => {
+  it('exporting to a stereo file: both sides, the left or the right', () => {
     expect(sideOf('main')).toBe('both')
     expect(sideOf('L')).toBe('L')
     expect(sideOf('R')).toBe('R')
@@ -136,7 +136,7 @@ describe('los canales, en números', () => {
     expect(sideOf('off')).toBe(null)
   })
 
-  it('cambiar una cosa desde un reparto de fábrica no mueve las demás', async () => {
+  it('changing one thing from a default routing does not move the others', async () => {
     const r = useRouting()
     await r.update({ preset: 'click-left' })
     // la canción, a los dos lados: el clic y las guías siguen a la izquierda
@@ -148,8 +148,8 @@ describe('los canales, en números', () => {
   })
 })
 
-describe('los botones de canal de cada carril', () => {
-  it('con una interfaz de cuatro salidas: 1, 2, 3, 4, y un tercero apaga el más antiguo', async () => {
+describe('the channel buttons of each lane', () => {
+  it('with a four-output interface: 1, 2, 3, 4, and a third one turns off the oldest', async () => {
     const before = held.playback.bridge.outputDevices
     held.playback.bridge.outputDevices = vi.fn(async () => [
       { id: 'iface', name: 'Interfaz', channels: 4, default: true }
@@ -178,7 +178,7 @@ describe('los botones de canal de cada carril', () => {
     expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 3 })
   })
 
-  it('apagarlos todos la calla en la salida', async () => {
+  it('turning them all off mutes it at the output', async () => {
     const w = await mountView()
     const songHead = () => w.find('.tl-song-head .chans')
     await songHead().find('[aria-label="Izquierda"]').trigger('click')
@@ -190,7 +190,7 @@ describe('los botones de canal de cada carril', () => {
   })
 })
 
-describe('la onda', () => {
+describe('the waveform', () => {
   function withWidth(w) {
     w.find('.tl-box').element.getBoundingClientRect = () => ({
       left: 0,
@@ -210,7 +210,7 @@ describe('la onda', () => {
     await flushPromises()
   }
 
-  it('con el candado, «ir con un clic» deja saltar sonando sin quitar el tramo', async () => {
+  it('when locked, «ir con un clic» allows jumping while playing without clearing the segment', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 60] }) })]
     held.playback.emit({ playing: true })
     const w = await mountView()
@@ -238,7 +238,7 @@ describe('la onda', () => {
     expect(w.find('.tl-seek').exists()).toBe(false)
   })
 
-  it('«Mezcla» y «Canales» ocultan sus mandos de los carriles, y se recuerda', async () => {
+  it('«Mezcla» and «Canales» hide their lane controls, and it is remembered', async () => {
     const w = await mountView()
     const tl = () => w.find('.tl')
     expect(tl().classes()).not.toContain('tl-no-mix')
@@ -252,7 +252,7 @@ describe('la onda', () => {
     expect(JSON.parse(localStorage.getItem('danplay.study.showRoutes'))).toBe(false)
   })
 
-  it('el carril del clic: encenderlo y su volumen', async () => {
+  it('the click lane: turning it on and its volume', async () => {
     const w = await mountView()
     const click = w.find('.tl-click-lane')
     expect(click.classes()).toContain('off')
@@ -273,8 +273,8 @@ describe('la onda', () => {
   })
 })
 
-describe('los menús', () => {
-  it('lo puesto va marcado, y lo largo, en su aviso', async () => {
+describe('the menus', () => {
+  it('what is set is checked, and long text goes in its tooltip', async () => {
     const w = mount(ContextMenu, {
       props: {
         open: true,
@@ -297,7 +297,7 @@ describe('los menús', () => {
     w.unmount()
   })
 
-  it('el del estudio: corto, con un solo «Exportar…»', async () => {
+  it('the study one: short, with a single «Exportar…»', async () => {
     const w = await mountView()
     await w.find('.study-more').trigger('click')
     const labels = menu.value.items.filter((i) => i.label).map((i) => i.label)
@@ -315,7 +315,7 @@ describe('los menús', () => {
     expect(option('Estilo de la onda').children.filter((c) => c.active)).toHaveLength(1)
   })
 
-  it('para el celular, desde la ventana de exportar', async () => {
+  it('for the phone, from the export dialog', async () => {
     const { stemsOf } = await import('./support/backend.js')
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ mixer: { on: true } }), has_stems: true })
@@ -336,7 +336,7 @@ describe('los menús', () => {
   })
 })
 
-describe('la guía automática', () => {
+describe('the automatic cue', () => {
   const result = {
     sections: [
       { start: 0, end: 8, label: 'Intro' },
@@ -363,7 +363,7 @@ describe('la guía automática', () => {
     })
   }
 
-  it('con la voz ya elegida, la hace sin preguntar, en su carril «Partes»', async () => {
+  it('with the voice already chosen, it makes it without asking, in its «Partes» lane', async () => {
     prepare()
     localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
     const w = await mountView()
@@ -384,7 +384,7 @@ describe('la guía automática', () => {
     expect(body.cueLanes[0]).toMatchObject({ name: 'Partes', auto: true })
   })
 
-  it('sin voz elegida, pregunta cuál (y se recuerda)', async () => {
+  it('with no voice chosen, it asks which one (and remembers it)', async () => {
     prepare()
     const w = await mountView()
     await w.find('.study-auto-guide').trigger('click')
@@ -404,14 +404,14 @@ describe('la guía automática', () => {
     expect(w.findAll('.tl-guide-clip')).toHaveLength(2)
   })
 
-  it('sonando no se hace (las guías, con la canción parada)', async () => {
+  it('while playing it is not made (cues, with the song stopped)', async () => {
     prepare()
     held.playback.emit({ playing: true })
     const w = await mountView()
     expect(w.find('.study-auto-guide').attributes('disabled')).toBeDefined()
   })
 
-  it('«Cambiar la voz…» en un carril: sus guías escritas, dichas con otra', async () => {
+  it('«Cambiar la voz…» on a lane: its written cues, spoken with another voice', async () => {
     prepare()
     held.api.makeCue.mockImplementation(async (id, b) => ({
       file: `/guias/${b.text.toLowerCase()}-${b.voice}.wav`,
@@ -447,8 +447,8 @@ describe('la guía automática', () => {
   })
 })
 
-describe('el recorrido', () => {
-  it('«?» lo abre, con sus pasos y sus animaciones', async () => {
+describe('the tour', () => {
+  it('«?» opens it, with its steps and animations', async () => {
     const w = await mountView()
     await w.find('.study-help').trigger('click')
     await flushPromises()
@@ -460,7 +460,7 @@ describe('el recorrido', () => {
     expect(localStorage.getItem('danplay.study.tourSeen')).toBe('true')
   })
 
-  it('no sale solo en las pruebas (sin medidas), y una vez visto no vuelve a salir solo', async () => {
+  it('does not show up on its own in tests (no layout), and once seen it does not show up on its own again', async () => {
     await mountView()
     await new Promise((r) => setTimeout(r, 1000))
     expect(document.querySelector('.driver-popover')).toBeNull()

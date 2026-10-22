@@ -81,8 +81,8 @@ function runningJob(name, steps, result) {
   }
 }
 
-describe('la Entrada', () => {
-  it('importar es una tarea: se ve como va y al acabar el resultado', async () => {
+describe('the Inbox', () => {
+  it('importing is a job: its progress shows and, when done, the result', async () => {
     const t = runningJob(
       'import',
       [
@@ -140,7 +140,7 @@ describe('la Entrada', () => {
     api().job.mockReset()
   })
 
-  it('«probar sin tocar nada» es la misma tarea, en prueba', async () => {
+  it('«probar sin tocar nada» is the same job, as a dry run', async () => {
     await mountView(InboxPage, { waiting: 1 })
     await button('Probar sin tocar nada').trigger('click')
     await flushPromises()
@@ -148,7 +148,7 @@ describe('la Entrada', () => {
     expect(api().runImport).toHaveBeenCalledWith({ dry_run: true })
   })
 
-  it('si falla, lo dice', async () => {
+  it('if it fails, it says so', async () => {
     api().runImport.mockResolvedValueOnce({
       job: finishedJob('import', null, { error: 'la Entrada no existe' })
     })
@@ -160,7 +160,7 @@ describe('la Entrada', () => {
   })
 })
 
-describe('los duplicados', () => {
+describe('duplicates', () => {
   const group = {
     suggested: '/m/b.mp3',
     items: [
@@ -195,7 +195,7 @@ describe('los duplicados', () => {
     ]
   }
 
-  it('buscarlos es una tarea: se ve como va y luego los grupos', async () => {
+  it('finding them is a job: its progress shows and then the groups', async () => {
     const t = runningJob(
       'duplicates',
       [
@@ -222,7 +222,7 @@ describe('los duplicados', () => {
     api().job.mockReset()
   })
 
-  it('escuchar una copia, y la que suena se pausa en vez de volver a empezar', async () => {
+  it('playing a copy, and the playing one pauses instead of starting over', async () => {
     held.state.songs = [song(1), song(2)]
     held.state.duplicates = { identical: [group], similar: [] }
     await mountView(DuplicatesPage)
@@ -238,7 +238,7 @@ describe('los duplicados', () => {
     expect(w.findAll('.dup-play')[1].attributes('title')).toBe('Reanudar')
   })
 
-  it('quedarse con una pregunta antes y manda las demas a la papelera', async () => {
+  it('keeping one asks first and sends the others to the trash', async () => {
     held.state.duplicates = { identical: [group], similar: [] }
     await mountView(DuplicatesPage)
     await w.findAll('.dup-keep')[1].trigger('click')
@@ -253,14 +253,14 @@ describe('los duplicados', () => {
     expect(w.emitted('changed')).toBeTruthy()
   })
 
-  it('sin duplicados lo dice', async () => {
+  it('with no duplicates it says so', async () => {
     await mountView(DuplicatesPage)
     expect(w.text()).toContain('Sin duplicados.')
   })
 })
 
-describe('la bienvenida', () => {
-  it('al elegir la carpeta, el analisis se ve avanzar', async () => {
+describe('the welcome page', () => {
+  it('after picking the folder, the scan shows its progress', async () => {
     const t = runningJob(
       'scan',
       [
@@ -290,7 +290,7 @@ describe('la bienvenida', () => {
     api().job.mockReset()
   })
 
-  it('si el analisis falla, la carpeta queda añadida y se dice por que', async () => {
+  it('if the scan fails, the folder stays added and the reason is given', async () => {
     api().scan.mockResolvedValueOnce({
       job: finishedJob('scan', null, { error: 'no se puede leer la carpeta' })
     })
