@@ -7,6 +7,7 @@
 //! usará directamente cuando el núcleo entero esté en Rust.
 pub mod ai;
 pub mod assistant;
+pub mod beatgrid;
 pub mod bundle;
 pub mod chats;
 pub mod chord_sheets;

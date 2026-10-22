@@ -279,7 +279,7 @@ pub fn pulse_steady_beats(py: Python<'_>, period: f64, phase: f64, t0: f64, t1: 
     arr64(py, grid::steady_beats(period, phase, t0, t1))
 }
 
-fn final_dict<'py>(py: Python<'py>, f: &grid::Final) -> PyResult<Bound<'py, PyDict>> {
+pub(crate) fn final_dict<'py>(py: Python<'py>, f: &grid::Final) -> PyResult<Bound<'py, PyDict>> {
     let out = PyDict::new(py);
     out.set_item("bpm", f.bpm)?;
     out.set_item("meter", f.meter)?;
@@ -293,7 +293,7 @@ fn final_dict<'py>(py: Python<'py>, f: &grid::Final) -> PyResult<Bound<'py, PyDi
     Ok(out)
 }
 
-fn grid_dict<'py>(py: Python<'py>, r: &grid::Grid) -> PyResult<Bound<'py, PyDict>> {
+pub(crate) fn grid_dict<'py>(py: Python<'py>, r: &grid::Grid) -> PyResult<Bound<'py, PyDict>> {
     let out = final_dict(py, &r.end)?;
     let report = PyDict::new(py);
     for (k, v) in &r.report {
@@ -308,7 +308,7 @@ fn grid_dict<'py>(py: Python<'py>, r: &grid::Grid) -> PyResult<Bound<'py, PyDict
     Ok(out)
 }
 
-fn grid_error(m: String) -> PyErr {
+pub(crate) fn grid_error(m: String) -> PyErr {
     if m.starts_with("index ") {
         PyIndexError::new_err(m)
     } else {

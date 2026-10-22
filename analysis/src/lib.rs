@@ -3,6 +3,8 @@
 //! torchzip.py, pulse.py...).
 //!
 //! - `mix`: el clic y las guías habladas de una mezcla guardada, en WAV;
+//! - `beatgrid`: la rejilla del clic con lo que dijo la red: de toda la
+//!   canción, «Re-analizar el clic» (un tramo, el tempo fijo) y lo que cambió;
 //! - `click`: la pista del clic de la mezcla que se guarda (el sonido es el
 //!   del motor, el mismo que suena en el modo estudio);
 //! - `structure`: las partes de la canción y cuándo anunciarlas (la guía
@@ -27,6 +29,7 @@
 // con su tabla), y con un margen saldría otra cosa.
 #![allow(clippy::float_cmp)]
 
+pub mod beatgrid;
 pub mod click;
 pub mod cues;
 pub mod mega;

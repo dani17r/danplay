@@ -18,6 +18,14 @@ los saltos de fase, tempo fijo, rellenar silencios, solo un tramo) tarda
 milisegundos. Y si la cancion tiene la bateria separada, la red se pasa
 tambien por ella y en cada instante manda la mas segura (`pulse.combine`):
 con eso el clic se pega a la bateria sin perder la intro.
+
+Lo guardado (leerlo y escribirlo como el `json` de Python, moverlo con el
+archivo) y lo que se hace con lo que dijo la red (la rejilla de toda la
+cancion, cada opcion de «Re-analizar el clic», coser un tramo, contar lo que
+cambio) van en Rust: library/src/beatgrid.rs, analysis/src/beatgrid.rs y
+core/src/beatgrid.rs. Aqui quedan la cola (con su hilo y su cerrojo), el
+proceso del detector, la bateria separada de cada cancion y el orden de los
+pasos de `grid_of`, `reanalyze` e `improve`.
 """
 
 import contextlib
@@ -29,6 +37,8 @@ import sys
 import tempfile
 import threading
 from pathlib import Path
+
+import danplay_core as _rust
 
 from . import config, convert
 
@@ -45,8 +55,9 @@ VERSION = 3
 TIMEOUT = 600
 
 
-class BeatsError(Exception):
-    """No hay rejilla de Beat This! para esa cancion (por que, en castellano)."""
+# No hay rejilla de Beat This! para esa cancion (por que, en castellano). Es
+# la de Rust: la lanzan los dos lados.
+BeatsError = _rust.BeatsError
 
 
 def available() -> str:
@@ -103,60 +114,31 @@ def moved(old_path: str, new_path: str, before, after) -> bool:
     folder = config.DATA_DIR / "beats"
     old = folder / f"{key_of(old_path, before)}.json"
     new = folder / f"{key_of(new_path, after)}.json"
-    # lo que dijo la red va con ella
-    old_raw, new_raw = old.with_suffix(".npz"), new.with_suffix(".npz")
-    if old_raw != new_raw and old_raw.is_file():
-        with contextlib.suppress(OSError):
-            os.replace(old_raw, new_raw)
-    if old == new or not old.is_file():
-        return False
-    with contextlib.suppress(OSError, ValueError):
-        saved = json.loads(old.read_text(encoding="utf-8"))
-        saved["path"] = new_path
-        new.write_text(json.dumps(saved, separators=(",", ":")), encoding="utf-8")
-        old.unlink()
-        return True
-    return False
+    # la rejilla, y lo que dijo la red con ella
+    return _rust.beatgrid_moved(old, new, new_path)
 
 
 def cached(path: str) -> bool:
     """Si ya hay rejilla guardada para ese archivo (vale aunque aqui no se
     pudiera calcular otra)."""
     with contextlib.suppress(OSError, ValueError):
-        saved = json.loads(_cache(path).read_text(encoding="utf-8"))
-        return saved.get("version") == VERSION or bool(saved.get("exact"))
+        return _rust.beatgrid_cached(_cache(path), VERSION)
     return False
 
 
 def _save(path: str, grid: dict, edits: list | None = None) -> None:
-    cache = _cache(path)
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    with contextlib.suppress(OSError):
-        cache.write_text(
-            json.dumps(
-                {"version": VERSION, "path": path, "grid": grid, "edits": edits or []},
-                separators=(",", ":"),
-            ),
-            encoding="utf-8",
-        )
+    _rust.beatgrid_save(_cache(path), VERSION, path, grid, edits or [])
 
 
 def save_exact(path: str, grid: dict) -> None:
     """Una rejilla que no se adivina: la del tempo de un proyecto (una
     secuencia de Ableton). Vale aunque cambie la forma de sacar las demas."""
-    _save(path, grid)
-    with contextlib.suppress(OSError, ValueError):
-        cache = _cache(path)
-        saved = json.loads(cache.read_text(encoding="utf-8"))
-        saved["exact"] = True
-        cache.write_text(json.dumps(saved, separators=(",", ":")), encoding="utf-8")
+    _rust.beatgrid_save(_cache(path), VERSION, path, grid, [], True)
 
 
 def _saved(path: str) -> dict | None:
     with contextlib.suppress(OSError, ValueError):
-        saved = json.loads(_cache(path).read_text(encoding="utf-8"))
-        if isinstance(saved, dict):
-            return saved
+        return _rust.beatgrid_saved(_cache(path))
     return None
 
 
@@ -192,21 +174,7 @@ def _drums_of(path: str) -> str | None:
 
 
 def _from_raw(raw: dict, *, mode="auto", edges=False, bpm=None, extra=None) -> dict:
-    from . import pulse
-
-    beat = raw["beat"] if extra is None else pulse.combine(raw["beat"], extra["beat"])
-    try:
-        return pulse.grid(
-            beat,
-            raw["down"],
-            lowband=(raw["low"], raw["low_fps"]),
-            mode=mode,
-            edges=edges,
-            duration=raw["seconds"],
-            bpm=bpm,
-        )
-    except ValueError as e:
-        raise BeatsError(str(e)) from e
+    return _rust.beatgrid_from_raw(raw, mode, edges, bpm, extra)
 
 
 def _network(path: str) -> dict:
@@ -259,106 +227,27 @@ REANALYZE_MODES = ("repair", "steady", "fill", "drums", "follow")
 def _merge(old: dict, new_beats: list[float], start: float, end: float, raw: dict) -> dict:
     """La rejilla de antes con los pulsos de `start` a `end` cambiados por
     los nuevos, cosidos a los de los lados, y el «1» de toda otra vez."""
-    import numpy as np
-
-    from . import pulse
-
-    beats = np.asarray(old["beats"], dtype=np.float64)
-    keep_l = beats[beats < start]
-    keep_r = beats[beats > end]
-    inner = [t for t in new_beats if start <= t <= end]
-    merged = np.sort(np.concatenate([keep_l, np.asarray(inner, dtype=np.float64), keep_r]))
-    keep = np.concatenate([[True], np.diff(merged) > 0.05])
-    merged = merged[keep]
-    report: dict = {"region": [round(start, 2), round(end, 2)]}
-    # las costuras: ¿cabe un numero entero de pulsos a cada lado?
-    p = float(np.median(np.diff(merged))) if merged.size > 2 else 0.5
-    joins = {}
-    for side, (a, b) in {
-        "left": (keep_l[-1] if keep_l.size else None, inner[0] if inner else None),
-        "right": (inner[-1] if inner else None, keep_r[0] if keep_r.size else None),
-    }.items():
-        if a is None or b is None:
-            continue
-        n = float(b - a) / p
-        joins[side] = bool(abs(n - round(n)) <= 0.25)
-    report["joins"] = joins
-    return pulse.finish(merged, raw["down"], report, meter=old.get("meter"))
+    return _rust.beatgrid_merge(old, new_beats, start, end, raw)
 
 
 def _apply(path: str, base: dict, raw: dict, edit: dict, extra=None) -> dict:
     """Una re-analisis sobre la rejilla `base`: de toda la cancion, o de un
-    tramo (cosido a lo de los lados)."""
-    import numpy as np
-
+    tramo (cosido a lo de los lados). La bateria separada de «drums» se
+    busca aqui (y la red se pasa por ella, si hace falta); lo demas, en Rust."""
     mode = edit.get("mode", "repair")
-    start, end = edit.get("start"), edit.get("end")
     if mode == "drums":
         drums = _drums_of(path)
         if not drums:
             raise BeatsError("esta canción no tiene la batería separada")
         extra = raw_of(drums) or _network(drums)
-    engine = {
-        "repair": "auto",
-        "drums": "auto",
-        "steady": "steady",
-        "fill": "fill",
-        "follow": "follow",
-    }[mode]
-    whole = _from_raw(
-        raw,
-        mode=engine,
-        edges=mode == "fill",
-        bpm=edit.get("bpm"),
-        extra=extra if mode in ("drums", "repair", "fill", "steady") else None,
-    )
-    if start is None or end is None:
-        return whole
-    start, end = float(start), float(end)
-    if mode == "steady":
-        # tempo fijo entre los dos pulsos de los lados: cabe justo
-        old = np.asarray(base["beats"], dtype=np.float64)
-        left = old[old < start]
-        right = old[old > end]
-        if left.size and right.size:
-            a, b = float(left[-1]), float(right[0])
-            period = 60.0 / (edit.get("bpm") or whole["bpm"])
-            k = max(1, round((b - a) / period))
-            inner = [a + (b - a) * i / k for i in range(1, k)]
-            return _merge(base, inner, a + 1e-6, b - 1e-6, raw)
-    return _merge(base, whole["beats"], start, end, raw)
+    return _rust.beatgrid_apply(base, raw, edit, mode, extra)
 
 
 def changes(before: list[float], after: list[float], tol: float = 0.04) -> int:
     """En cuantos sitios suena distinto el clic: los trozos seguidos de
     pulsos que se movieron (mas de `tol`), aparecieron o se quitaron. Un
     hueco relleno o un salto de fase arreglado cuenta uno."""
-    import numpy as np
-
-    a = np.asarray(before, dtype=np.float64)
-    b = np.asarray(after, dtype=np.float64)
-    if not a.size or not b.size:
-        return int(bool(a.size or b.size))
-
-    def off(xs, ys):
-        i = (
-            np.clip(np.searchsorted(ys, xs), 1, ys.size - 1)
-            if ys.size > 1
-            else np.zeros(xs.size, int)
-        )
-        near = (
-            np.minimum(np.abs(xs - ys[i - 1]), np.abs(xs - ys[i]))
-            if ys.size > 1
-            else np.abs(xs - ys[0])
-        )
-        return near > tol
-
-    marks = np.concatenate([b[off(b, a)], a[off(a, b)]])
-    if not marks.size:
-        return 0
-    marks.sort()
-    # un trozo: cambios separados por menos de dos segundos
-    return int(1 + np.sum(np.diff(marks) > 2.0))
+    return _rust.beatgrid_changes(before, after, tol)
 
 
 def reanalyze(path: str, mode: str, start=None, end=None, bpm=None) -> dict:

@@ -10,6 +10,7 @@
 pub mod ai;
 pub mod assistant;
 pub mod audio;
+pub mod beatgrid;
 pub mod chats;
 pub mod chord_sheets;
 pub mod click;
@@ -198,6 +199,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     stems::register(m)?;
     ai::register(m)?;
     cues::register(m)?;
+    beatgrid::register(m)?;
     Ok(())
 }
 
