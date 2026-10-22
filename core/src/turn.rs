@@ -15,13 +15,13 @@ use pyo3::types::{PyDict, PyList, PyTuple};
 use std::collections::HashSet;
 
 /// La excepción que Python habría lanzado.
-fn error(e: Error) -> PyErr {
+pub fn error(e: Error) -> PyErr {
     let text = e.to_string();
     match e {
         Error::Integer(_) | Error::Val(_) => PyValueError::new_err(text),
         Error::Attribute(..) => PyAttributeError::new_err(text),
         Error::Key(k) => PyKeyError::new_err(k),
-        Error::Type(_) | Error::NoIterable(_) => PyTypeError::new_err(text),
+        Error::Type(_) | Error::NoIterable(_) | Error::TypeText(_) => PyTypeError::new_err(text),
     }
 }
 

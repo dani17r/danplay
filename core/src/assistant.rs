@@ -194,6 +194,11 @@ pub fn resolve_video_id(url: &str) -> String {
 /// Las herramientas que se reconocen escritas como texto (`narration_set_tools`).
 static TOOLS: RwLock<Option<Arc<Tools>>> = RwLock::new(None);
 
+/// Las herramientas apuntadas (None si aún no se importó chat/narration.py).
+pub(crate) fn pseudo_tools() -> Option<Arc<Tools>> {
+    TOOLS.read().unwrap_or_else(PoisonError::into_inner).clone()
+}
+
 /// Apunta las herramientas (una vez, al importar chat/narration.py).
 #[pyfunction]
 pub fn narration_set_tools(tool_names: Vec<String>) {
