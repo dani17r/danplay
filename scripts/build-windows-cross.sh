@@ -191,8 +191,7 @@ if [ "$HERRAMIENTAS" = 1 ]; then
         tmp=$(mktemp -d)
         bajar "$FFMPEG_URL" "$FFMPEG_SHA256" "$tmp/ffmpeg.zip"
         unzip -oq "$tmp/ffmpeg.zip" -d "$tmp/ffmpeg"
-        find "$tmp/ffmpeg" -name 'ffmpeg.exe' -o -name 'ffprobe.exe' \
-          | while read -r f; do cp "$f" "$TOOLS/"; done
+        find "$tmp/ffmpeg" -name 'ffmpeg.exe' -exec cp {} "$TOOLS/" \;
         bajar "$FPCALC_URL" "$FPCALC_SHA256" "$tmp/fpcalc.zip"
         unzip -oq "$tmp/fpcalc.zip" -d "$tmp/fpcalc"
         find "$tmp/fpcalc" -name 'fpcalc.exe' -exec cp {} "$TOOLS/" \;
@@ -203,10 +202,12 @@ if [ "$HERRAMIENTAS" = 1 ]; then
         [ -f "$TOOLS/ffmpeg.exe" ] || morir "el zip de ffmpeg no traía ffmpeg.exe"
         [ -f "$TOOLS/deno.exe" ] || morir "el zip de Deno no traía deno.exe"
     fi
-    cp "$TOOLS"/*.exe "$DESTINO/tools/"
+    # con nombre: en una caché de antes también hay un ffprobe.exe, que ya
+    # no hace falta (lo que medía sale de las cabeceras)
+    cp "$TOOLS/ffmpeg.exe" "$TOOLS/fpcalc.exe" "$TOOLS/deno.exe" "$DESTINO/tools/"
     # el LEEME de la carpeta vacia diria que aqui no hay nada
     cat > "$DESTINO/tools/LEEME.txt" <<'EOF'
-ffmpeg, ffprobe, fpcalc y Deno, incluidos.
+ffmpeg, fpcalc y Deno, incluidos.
 
 En Windows no hay gestor de paquetes que los ponga, asi que viajan aqui. Son
 los que hacen que funcionen la conversion de formatos, la reproduccion de
@@ -230,7 +231,7 @@ Qué hay aquí
   danplay-core.exe     arranca el núcleo que está en python\
   python\              Python con lo que el núcleo necesita
   WebView2Loader.dll   lo carga la aplicación al abrir
-  tools\               ffmpeg.exe, ffprobe.exe, fpcalc.exe y deno.exe:
+  tools\               ffmpeg.exe, fpcalc.exe y deno.exe:
                        conversión de formatos, reproducción de .opus y .wma,
                        identificación de canciones por su sonido y descargas
                        de YouTube. Si la carpeta está vacía, eso no funciona
@@ -261,7 +262,6 @@ comprobar python/site-packages/fastapi
 comprobar python/site-packages/mutagen
 if [ "$HERRAMIENTAS" = 1 ]; then
     comprobar tools/ffmpeg.exe
-    comprobar tools/ffprobe.exe
     comprobar tools/fpcalc.exe
     comprobar tools/deno.exe
 fi

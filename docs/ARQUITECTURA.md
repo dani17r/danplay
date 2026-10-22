@@ -1983,7 +1983,7 @@ la versión vieja y no se nota. Por eso hay un script y no cuatro comandos.
 ./scripts/build.sh --package    # además el .deb y el .AppImage
 ```
 
-**Los programas de fuera, dentro de los paquetes.** ffmpeg y ffprobe, fpcalc
+**Los programas de fuera, dentro de los paquetes.** ffmpeg, fpcalc
 y Deno viajan en la carpeta `tools/` de cada paquete (en Linux los pone
 `scripts/herramientas-linux.sh`, con versiones y sha256 fijados; en Windows y
 macOS, su CI). La app se la pasa al núcleo (`DANPLAY_TOOLS_DIR`), que la mira

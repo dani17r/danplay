@@ -93,7 +93,7 @@ Copy-Item dist/core/danplay-core.exe "desktop/src-tauri/binaries/danplay-core-$t
 $herramientas = @(
     @{ Url = 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip'
        Sha = '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba'
-       Exes = @('ffmpeg.exe', 'ffprobe.exe') },
+       Exes = @('ffmpeg.exe') },
     @{ Url = 'https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-windows-x86_64.zip'
        Sha = '735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e'
        Exes = @('fpcalc.exe') },

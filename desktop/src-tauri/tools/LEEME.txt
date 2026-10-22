@@ -1,4 +1,4 @@
-Aqui van ffmpeg, ffprobe, fpcalc y Deno cuando viajan DENTRO de los
+Aqui van ffmpeg, fpcalc y Deno cuando viajan DENTRO de los
 paquetes: la app los encuentra aqui y se los pasa al nucleo, que los usa
 antes que los del sistema. Asi no hay que instalar nada aparte.
 

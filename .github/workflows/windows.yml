@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       con_herramientas:
-        description: 'Incluir ffmpeg, fpcalc y Deno dentro del instalador (+130 MB)'
+        description: 'Incluir ffmpeg, fpcalc y Deno dentro del instalador (+80 MB)'
         type: boolean
         default: true
 
@@ -65,16 +65,17 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          # con hashes (salen de uv.lock): pip comprueba cada paquete
-          pip install -r requirements.txt -r requirements-test.txt
+          # con hashes (salen de uv.lock): pip comprueba cada paquete. Sin
+          # los de las pruebas: esas ya corren en pruebas.yml
+          pip install -r requirements.txt
           # PyInstaller aparte (en una orden con hashes no se puede mezclar uno
           # sin ellos), con la misma version que en desarrollo
           $pyinstaller = (Select-String -Path requirements-dev.txt -Pattern '^pyinstaller==' -CaseSensitive:$false).Line
           pip install $pyinstaller
 
-      # Antes que las pruebas: el nucleo se prueba con las mismas herramientas
-      # que viajan en el instalador (sin ffmpeg, las pruebas que generan una
-      # biblioteca se saltan y la cobertura no llega al minimo).
+      # Lo que viaja dentro del instalador, con version fija y su sha256.
+      # ffprobe ya no: lo poco que medía (una caratula, la duracion de una
+      # secuencia) sale de las cabeceras de los archivos.
       - name: ffmpeg, fpcalc y Deno
         shell: pwsh
         run: |
@@ -87,7 +88,7 @@ jobs:
           }
           Bajar $env:FFMPEG_URL $env:FFMPEG_SHA256 ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
-          Get-ChildItem -Recurse ffmpeg-tmp -Include ffmpeg.exe,ffprobe.exe |
+          Get-ChildItem -Recurse ffmpeg-tmp -Include ffmpeg.exe |
             ForEach-Object { Copy-Item $_.FullName $tools }
           Bajar $env:FPCALC_URL $env:FPCALC_SHA256 fpcalc.zip
           Expand-Archive fpcalc.zip -DestinationPath fpcalc-tmp
@@ -99,16 +100,10 @@ jobs:
             ForEach-Object { Copy-Item $_.FullName $tools }
           Get-ChildItem $tools
 
-      # Las pruebas ANTES de empaquetar: si el nucleo no funciona en Windows,
-      # mejor enterarse aqui que dentro de un instalador. Sin el crate de
-      # Rust, como viaja en el instalador.
-      - name: pruebas del núcleo en Windows
-        shell: pwsh
-        env:
-          DANPLAY_SIN_RUST: '1'
-        run: |
-          $env:PATH = "$(Resolve-Path desktop/src-tauri/tools);$env:PATH"
-          pytest
+      # Las pruebas del nucleo en Windows (sin el crate de Rust, como viaja en
+      # el instalador) no van aqui: ya las pasa pruebas.yml en cada push, y
+      # delante del instalador lo retrasaban siete minutos. Lo que si se
+      # comprueba aqui es el nucleo ya empaquetado (abajo).
 
       - name: interfaz
         working-directory: desktop
@@ -162,8 +157,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path desktop/src-tauri/binaries | Out-Null
           Copy-Item dist/core/danplay-core.exe "desktop/src-tauri/binaries/danplay-core-$triple.exe"
 
-      # Las herramientas ya estan (las usaron las pruebas): sin ellas en el
-      # instalador, la carpeta se queda solo con el aviso.
+      # Las herramientas ya estan: sin ellas en el instalador, la carpeta se
+      # queda solo con el aviso.
       - name: sin herramientas, la carpeta vacía igualmente
         if: env.CON_HERRAMIENTAS != 'true'
         shell: pwsh
@@ -171,7 +166,7 @@ jobs:
           Remove-Item -Recurse -Force desktop/src-tauri/tools
           New-Item -ItemType Directory -Force -Path desktop/src-tauri/tools | Out-Null
           Set-Content desktop/src-tauri/tools/LEEME.txt `
-            "Aqui van ffmpeg.exe, ffprobe.exe, fpcalc.exe y deno.exe si se quieren dentro del instalador."
+            "Aqui van ffmpeg.exe, fpcalc.exe y deno.exe si se quieren dentro del instalador."
 
       - name: instalador
         working-directory: desktop

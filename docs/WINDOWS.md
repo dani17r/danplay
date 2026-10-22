@@ -49,10 +49,11 @@ sitio; con `sudo dpkg -i` se reinstala aunque la versión no haya cambiado,
 mientras que `apt install ./…deb` con la **misma** versión puede no hacer
 nada), y el AppImage es un archivo: se sustituye y ya.
 
-De esos 273 MB, **197 son `ffmpeg.exe` y `ffprobe.exe`**, que van enteros
-porque son los binarios oficiales. `ffprobe` solo se usa para medir las
-portadas antes de encogerlas; si algún día molesta el tamaño, ahí están los
-98 MB más fáciles de quitar.
+Lo que más pesa son las herramientas: `ffmpeg.exe` (100 MB) y `deno.exe`
+(93 MB), que van enteros porque son los binarios oficiales. `ffprobe.exe`
+(otros 100 MB) ya no viaja: solo medía las portadas antes de encogerlas y la
+duración de las secuencias, y las dos cosas salen ahora de la cabecera del
+propio archivo, sin abrir ningún programa.
 
 La primera vez descarga a `~/.cache/danplay-cross` lo que necesita —mingw-w64,
 zig, NSIS y el Python embebido de Windows, todos extraídos de sus paquetes sin
@@ -104,14 +105,16 @@ un solo ejecutable en vez del Python embebido:
    su SHA-256**. Antes se bajaba «la última» sin comprobar nada: dos
    instaladores de la misma versión podían llevar un ffmpeg distinto. Para
    subir una, se cambian la URL y la suma en el propio flujo.
-2. Ejecuta las pruebas del núcleo **en Windows**, con esas mismas
-   herramientas.
-3. Compila la interfaz.
-4. Empaqueta el núcleo con PyInstaller y **comprueba que arranca y contesta**,
+2. Compila la interfaz.
+3. Empaqueta el núcleo con PyInstaller y **comprueba que arranca y contesta**,
    y que sin el token no contesta.
-5. Compila la aplicación y genera el instalador NSIS, con las herramientas
+4. Compila la aplicación y genera el instalador NSIS, con las herramientas
    dentro (salvo que se lance sin ellas).
-6. Lo deja como artefacto descargable; con una etiqueta `v*`, lo publica.
+5. Lo deja como artefacto descargable; con una etiqueta `v*`, lo publica.
+
+Las pruebas del núcleo **en Windows** no van ahí: las pasa `pruebas.yml` en
+cada push (el trabajo «núcleo Python en Windows»), y delante del instalador
+solo lo retrasaban.
 
 Se lanza a mano desde la pestaña Actions («Run workflow») o subiendo una
 etiqueta:
