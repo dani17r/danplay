@@ -1,5 +1,5 @@
 //! El reproductor del celular con el contrato del de la PC
-//! (docs/CONTRATO-INTERNO.md §1): las mismas ordenes (`set_queue`,
+//! (docs/INTERNAL-CONTRACT.md §1): las mismas ordenes (`set_queue`,
 //! `toggle_pause`, `seek`, `set_stems`, `set_metronome`...) y el mismo evento
 //! `danplay://state`, para que la interfaz de la PC (`usePlayback.js`, el
 //! reproductor, el estudio) funcione aqui sin cambiar nada.

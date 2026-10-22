@@ -9,7 +9,7 @@
 // @ts-check
 import { api, errorMessage, JOBS } from '../api.js'
 
-/** Lo que la API responde en `action` (docs/CONTRATO-INTERNO.md §4). */
+/** Lo que la API responde en `action` (docs/INTERNAL-CONTRACT.md §4). */
 export const FOLDER_ACTIONS = ['added', 'already_there', 'replaced', 'confirm', 'relocated']
 
 /**

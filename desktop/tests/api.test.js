@@ -211,7 +211,7 @@ describe('en el navegador, la interfaz se entera de los cambios del nucleo', () 
 // ---------------------------------------------------------------------------
 // Que llama cada metodo del `api`: el verbo, la ruta y el cuerpo. Es el
 // contrato con el nucleo visto desde aqui (las rutas estan en
-// docs/CONTRATO-INTERNO.md y en danplay/api.py). Si un nombre cambia en un
+// docs/INTERNAL-CONTRACT.md y en danplay/api.py). Si un nombre cambia en un
 // lado y no en el otro, esta tabla lo dice; y si se añade un metodo sin
 // ponerlo aqui, tambien.
 describe('lo que cada metodo pide al nucleo', () => {

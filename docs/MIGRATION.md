@@ -22,7 +22,7 @@ Lo que hace posible ir módulo a módulo:
   conexión de Rust (`core/src/db.rs`), que imita lo que se usaba de
   `sqlite3` (filas por nombre, `with`, las transacciones implícitas, las
   mismas excepciones). Lo de Python y lo de Rust escriben en la misma
-  transacción: `biblioteca::indice::begin` antes de escribir, como hacía
+  transacción: `library::index::begin` antes de escribir, como hacía
   `sqlite3`.
 - **Las reglas de Python, escritas en Rust** (`library/src/py.rs`):
   `os.path` de POSIX y de Windows, `fnmatch`, `round`, `repr`, `float()`,

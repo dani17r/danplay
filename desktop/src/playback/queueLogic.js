@@ -2,7 +2,7 @@
 // La máquina de estados de la cola, sin efectos.
 //
 // En la app de escritorio la cola vive en Rust y esto no se usa: Rust aplica
-// exactamente estas reglas (ver docs/CONTRATO-INTERNO.md §1). Fuera de Tauri
+// exactamente estas reglas (ver docs/INTERNAL-CONTRACT.md §1). Fuera de Tauri
 // —`npm run dev` en un navegador y las pruebas— el reproductor web necesita
 // la misma lógica, y tenerla en un módulo puro permite probarla sin audio.
 //

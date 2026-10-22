@@ -1,6 +1,6 @@
 """Los terminos y condiciones: si se aceptaron, y cuales.
 
-El texto vive en la interfaz (desktop/src/data/terminos.js), que es quien
+El texto vive en la interfaz (desktop/src/data/terms.js), que es quien
 lo enseña; aqui solo se guarda que se aceptaron, que version y cuando, en un
 archivo de los datos de DanPlay (`terms.json`). Asi no se pierde aunque
 el WebView olvide lo suyo, y vale para todas las ventanas.

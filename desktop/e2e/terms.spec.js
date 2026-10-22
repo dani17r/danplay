@@ -9,7 +9,7 @@ import { reset, rows } from './helpers.js'
 import { SONGS } from './songs.js'
 
 // donde guarda el núcleo que se aceptaron (XDG_DATA_HOME/danplay, ver server.mjs)
-const ACCEPTED = join(process.env.DANPLAY_E2E_ROOT || '', 'data', 'danplay', 'terminos.json')
+const ACCEPTED = join(process.env.DANPLAY_E2E_ROOT || '', 'data', 'danplay', 'terms.json')
 
 test.beforeEach(async ({ request }) => {
   await reset(request) // los deja aceptados: aquí se quitan

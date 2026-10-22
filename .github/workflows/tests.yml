@@ -197,7 +197,7 @@ jobs:
         run: |
           npm ci
           npx vite build
-          npx vite build --mode movil
+          npx vite build --mode mobile
       - name: estilo
         run: |
           cargo fmt --all --check

@@ -1,6 +1,6 @@
 //! La cola por fuera: lo que es una cancion en ella, los modos de repeticion,
 //! a donde lleva «siguiente» y que suena al acabar una, y lo que ve la
-//! interfaz (`danplay://state`, docs/CONTRATO-INTERNO.md §1).
+//! interfaz (`danplay://state`, docs/INTERNAL-CONTRACT.md §1).
 //!
 //! Lo comparten la app de escritorio (`queue/`) y la del celular: la misma
 //! interfaz manda las mismas ordenes y pinta el mismo estado en las dos.

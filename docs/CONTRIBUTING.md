@@ -104,9 +104,9 @@ cd desktop && npm run dev                  # Vite en el 5273, con proxy
 ## La app del celular
 
 `mobile/` es la app de Android (e iOS, cuando se compile en un Mac). Su
-interfaz es la de la PC (`desktop/movil.html` → `desktop/src/mobile/`), así
+interfaz es la de la PC (`desktop/mobile.html` → `desktop/src/mobile/`), así
 que se prueba con las mismas herramientas: `npm test` en `desktop/` incluye
-`tests/movil.test.js`, y `cargo test -p danplay-motor -p danplay-movil`
+`tests/mobile.test.js`, y `cargo test -p danplay-engine -p danplay-mobile`
 prueba el motor de pistas y lo que la app contesta en vez de Python.
 
 Para compilarla hace falta, en `~/Android`:

@@ -7,7 +7,7 @@
 // En el navegador (npm run dev suelto) cae a fetch contra el proxy de Vite.
 //
 // Lo que aquí se llama es el contrato con Rust y con Python que describe
-// docs/CONTRATO-INTERNO.md. Si un nombre cambia allí, cambia aquí.
+// docs/INTERNAL-CONTRACT.md. Si un nombre cambia allí, cambia aquí.
 
 /**
  * @typedef {Object} Track  Lo mínimo que Rust necesita de una canción en cola.

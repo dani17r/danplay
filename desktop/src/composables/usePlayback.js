@@ -4,7 +4,7 @@
 // Es un singleton, como useDragSong: el reproductor grande, el mini y la app
 // leen el MISMO estado y mandan las órdenes al mismo sitio. Dentro de Tauri
 // ese sitio es Rust, que tiene la cola y cuenta cada cambio por el evento
-// `danplay://state` (docs/CONTRATO-INTERNO.md §1); aquí no hay ningún sondeo.
+// `danplay://state` (docs/INTERNAL-CONTRACT.md §1); aquí no hay ningún sondeo.
 // Fuera de Tauri (navegador y pruebas) hay un reproductor web con <audio>
 // que aplica exactamente la misma máquina de estados (playback/queueLogic).
 import { reactive, ref, shallowRef, computed } from 'vue'

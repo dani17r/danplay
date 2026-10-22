@@ -943,7 +943,7 @@ async function cancel() {
 // ------------------------------------------------------- las propuestas
 // Lo que no tiene vuelta atrás no lo hace el modelo por su cuenta. El núcleo
 // devuelve `confirm` con lo que iba a hacer en vez de hacerlo, registrado en
-// el servidor con un id (docs/CONTRATO-INTERNO.md §3): aceptar es decir que
+// el servidor con un id (docs/INTERNAL-CONTRACT.md §3): aceptar es decir que
 // sí a ESE id, y lo que se ejecuta lo pone el servidor. Un texto copiado de
 // una web o de un título de YouTube no puede borrarte ni bajarte nada.
 //

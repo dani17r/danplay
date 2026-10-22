@@ -4,7 +4,7 @@ antes que los del sistema. Asi no hay que instalar nada aparte.
 
 - Windows (.exe): los pone .github/workflows/windows.yml o
   scripts/build-windows.ps1.
-- Linux (.deb y .AppImage): los pone scripts/herramientas-linux.sh (lo
+- Linux (.deb y .AppImage): los pone scripts/tools-linux.sh (lo
   llaman la CI y scripts/build.sh --package). Estaticos o con lo justo de
   glibc, para no depender de las bibliotecas de cada distribucion.
 - macOS: los mete .github/workflows/macos.yml en la .app.

@@ -17,7 +17,7 @@
 //! son los rasgos de cada trama, unos 9 MB por hora.
 //!
 //! El analisis y la rejilla viven en el crate compartido
-//! (`motor/src/beats.rs`), igual que en la app del celular; aqui queda lo
+//! (`engine/src/beats.rs`), igual que en la app del celular; aqui queda lo
 //! de la PC: decodificar la cancion con el mismo motor que la hace sonar (lo
 //! que no lee, pasado a FLAC con ffmpeg: `player::formats`) y pasarla a mono
 //! a `RATE` Hz.

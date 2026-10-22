@@ -8,7 +8,7 @@
 //! entero en memoria serian casi mil megas. Ni una cosa ni la otra pasan en
 //! el hilo de audio, sino en el que decodifica, que va 1,5 s por delante
 //! (en la PC, leer del disco en el hilo de audio era lo que cortaba la musica
-//! unos segundos: ver docs/ARQUITECTURA.md, «El hilo de audio no se rinde»).
+//! unos segundos: ver docs/ARCHITECTURE.md, «El hilo de audio no se rinde»).
 //!
 //! Una parte que no va a la tasa del motor (una cancion a 48 kHz junto a sus
 //! pistas, que van a 44,1) se convierte aqui, con el mismo filtro que la

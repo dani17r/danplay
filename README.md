@@ -115,7 +115,7 @@ tarjeta de sonido. El WebView no lo toca en ningún momento.
 **Tus listas no se rompen.** En cualquier reproductor, mover una canción de
 carpeta, renombrarla o volver a bajarla rompe las listas donde estaba. DanPlay
 guarda lo tuyo (las listas en su orden, las estrellas, el estudio, los
-cifrados) también en un diario junto a tu música (`.danplay/diario.json`): si
+cifrados) también en un diario junto a tu música (`.danplay/journal.json`): si
 mueves la música a otro disco o la base se pierde, al abrir todo vuelve a su
 sitio, y las listas exportadas a `.m3u8` se reescriben con las rutas nuevas.
 Una canción que desaparece se queda en su lista como «No está», para buscarla

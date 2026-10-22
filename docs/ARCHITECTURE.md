@@ -1775,17 +1775,17 @@ tipos de la cola y el sonido del clic. La app de escritorio los usa de ahí
 ### La misma interfaz
 
 El celular usa **la interfaz de la PC**, con otra entrada
-(`desktop/movil.html` → `src/mobile/`) y, desde 1.27, su propio armazón para
-los dedos: la cabecera con el menú de lado (`MovilMenu.vue`), la lista táctil
-(`MovilSongs.vue`: doble toque para sonar, un toque para elegir y enseñar los
+(`desktop/mobile.html` → `src/mobile/`) y, desde 1.27, su propio armazón para
+los dedos: la cabecera con el menú de lado (`MobileMenu.vue`), la lista táctil
+(`MobileSongs.vue`: doble toque para sonar, un toque para elegir y enseñar los
 botones, mantener pulsado para las opciones; el doble toque se cuenta a mano
 con los `click`, porque el WebView de Android no siempre manda `dblclick`), el
-reproductor (`MovilPlayer.vue`: la barra baja, que se sube con el dedo para
-abrir el estudio, y el reproductor entero) y los ajustes (`MovilSettings.vue`).
+reproductor (`MobilePlayer.vue`: la barra baja, que se sube con el dedo para
+abrir el estudio, y el reproductor entero) y los ajustes (`MobileSettings.vue`).
 El estudio (`StudyBar`, `StudyTimeline`) y la ficha (`DetailsPanel`) son los
 de la PC, con ramas `isMobileApp` donde el teléfono cambia el contenido (la
 cabecera del estudio, «varios» y el candado fuera de la onda, el nombre de
-cada pista sobre su carril) y `styles/movil.css`, que solo carga esta app,
+cada pista sobre su carril) y `styles/mobile.css`, que solo carga esta app,
 para lo demás. Lo que solo se puede en la PC (separar, guardar mezclas, buscar
 letra o acordes, editar el archivo, proyectar, las formas de la ventana) se
 esconde con `platform.js`.
@@ -1827,11 +1827,11 @@ escritorio:
   puede apagar en Ajustes).
 - **Los mandos de la bandeja** (y de la pantalla de bloqueo, los auriculares
   y el reloj): una sesión multimedia en un servicio en primer plano de tipo
-  reproducción (`Reproduciendo.kt`). La página le cuenta qué suena por
+  reproducción (`PlaybackService.kt`). La página le cuenta qué suena por
   `DanPlayAndroid.update` (`src/mobile/mediaSession.js`, solo cuando cambia
   algo o la posición salta; Android avanza la barra solo). Lo que se pulsa no
   pasa por la página: va directo al reproductor en Rust por JNI
-  (`mobile/src/mandos.rs`), así funciona con el WebView dormido, y la página se
+  (`mobile/src/controls.rs`), así funciona con el WebView dormido, y la página se
   entera por `danplay://state`. Quitar la app de recientes para la música y
   quita la notificación.
 - **El icono** es adaptable: las barras de la onda en vector, dentro de la
@@ -1864,11 +1864,11 @@ volver a firmarla cada 7 días en cada iPhone.
 ### La música del teléfono
 
 Desde 1.28 el celular también toca cualquier canción del teléfono, no solo
-las pistas traídas (`mobile/src/musica.rs`): se eligen las carpetas (se buscan
+las pistas traídas (`mobile/src/music.rs`): se eligen las carpetas (se buscan
 solas; Música y Descargas vienen elegidas), el índice se guarda y se pone al
 día por tamaño y fecha, y el título, el artista y la duración se leen con
 symphonia. En Android se abren con su ruta: con el permiso de «música y
-audio», que se pide al ir a verla (`PermisoMusica.kt`), el sistema deja leer
+audio», que se pide al ir a verla (`MusicPermission.kt`), el sistema deja leer
 así los archivos de audio. Los ids son negativos, como los archivos sueltos de
 la PC. Al poner una, la cola son las de su carpeta. El motor carga el archivo
 como una sola parte, con su clic, sus tramos y sus salidas.
@@ -1896,8 +1896,8 @@ DanPlay es obra de Daniel Rangel, y la app lo dice: en «Acerca de DanPlay»
 (`AboutPage.vue`, una página del enrutador con tres pestañas), en la
 bienvenida, al pie de la barra lateral y en el menú del celular, con su
 Telegram para colaborar. Los textos viven en la interfaz:
-`src/data/terminos.js` (los términos, su versión y el autor) y
-`src/data/novedades.js` (lo de cada versión, corto; una prueba comprueba que
+`src/data/terms.js` (los términos, su versión y el autor) y
+`src/data/releases.js` (lo de cada versión, corto; una prueba comprueba que
 cada versión del CHANGELOG desde la 1.20.0 está, con su fecha).
 
 **Los términos** salen solos la primera vez (y otra vez si sube
@@ -1967,17 +1967,17 @@ engine/          el motor de audio de la PC y del celular (decode, feeder,
                 y beats (el pulso), metro, queue y click; cpp/ Signalsmith
 mobile/          la app del celular (Tauri): el reproductor con el contrato de
                 la PC, el puente api sin Python, la biblioteca de pistas, la
-                música del teléfono (musica.rs); gen/android el proyecto de
+                música del teléfono (music.rs); gen/android el proyecto de
                 Android
 desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
-                movil.html y src/mobile/)
+                mobile.html y src/mobile/)
   src/
     App.vue       la ventana principal (la ventanita y la proyección, aparte)
     router.js     las páginas (Ajustes, Asistente, Descargas, Entrada,
                   Duplicados, Acerca de), con carga diferida y el chat en
                   <KeepAlive>
-    data/         los textos de la app: términos y autor (terminos.js) y las
-                  novedades de cada versión (novedades.js)
+    data/         los textos de la app: términos y autor (terms.js) y las
+                  novedades de cada versión (releases.js)
     composables/  estado compartido: useLibrary (lista y estado), useSelection,
                   useSongMenus, useSongList, usePlayback, useClick (el clic de
                   cada canción, con el estudio abierto o cerrado), useChat…

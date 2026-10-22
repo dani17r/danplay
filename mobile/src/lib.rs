@@ -9,7 +9,7 @@
 //! - el reproductor, con sus mismas ordenes y su mismo evento (`player.rs`),
 //!   sobre el motor de pistas (`danplay-engine`);
 //! - el puente `api`, que en la PC lleva a Python, aqui lo contesta Rust con
-//!   las pistas importadas (`api.rs`, `library.rs`);
+//!   las pistas importadas (`api.rs`, `index.rs`);
 //! - las portadas, por el mismo protocolo `danplay://`.
 //!
 //! Lo que es de la PC (ventanas, bandeja, Telegram, el explorador) contesta

@@ -1,5 +1,5 @@
 // @ts-check
-// Lo que el diario recuperó al abrir (ver danplay/diario.py), dicho para la
+// Lo que el diario recuperó al abrir (ver danplay/journal.py), dicho para la
 // persona: canciones que se movieron y volvieron a sus listas, listas
 // rehechas, lo que ya no está.
 

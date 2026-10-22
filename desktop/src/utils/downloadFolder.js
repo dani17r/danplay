@@ -1,6 +1,6 @@
 // @ts-check
 // Donde se guarda lo que se descarga: se pregunta la primera vez, y a partir
-// de ahí todo va a esa carpeta (docs/ARQUITECTURA.md, «La carpeta de
+// de ahí todo va a esa carpeta (docs/ARCHITECTURE.md, «La carpeta de
 // descargas»).
 //
 // Antes no se preguntaba: iba a la carpeta de la biblioteca, que si nadie la
