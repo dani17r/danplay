@@ -126,6 +126,16 @@ afecta mientras no se modifiquen sus archivos.
 | `serde`, `serde_json` | MIT OR Apache-2.0 |
 | `tokio` | MIT |
 | `libc` | MIT OR Apache-2.0 |
+| `rusqlite`, `libsqlite3-sys` (el índice; SQLite va dentro, y es de dominio público) | MIT |
+| `fancy-regex`, `regex` (las expresiones de los nombres, con la semántica de Python) | MIT / MIT OR Apache-2.0 |
+| `unicode-normalization`, `unicode-properties`, `unicode-ident` | (MIT OR Apache-2.0) AND Unicode-3.0 |
+| `ort`, `ort-sys` (ONNX Runtime desde Rust: el pulso y separar; carga la biblioteca del paquete `onnxruntime`) | MIT OR Apache-2.0 |
+| `realfft` (los espectrogramas del pulso y del separador) | MIT |
+| `half` (los pesos en float16), `zip` (los checkpoints de PyTorch) | MIT OR Apache-2.0 / MIT |
+| `ureq` (pedir páginas cuando el núcleo entero esté en Rust) | MIT OR Apache-2.0 |
+| `rustls`, `ring` (su TLS, sin OpenSSL) | Apache-2.0 OR ISC OR MIT / Apache-2.0 AND ISC |
+| `webpki-roots` (los certificados raíz de Mozilla, para `rustls`) | CDLA-Permissive-2.0 |
+| `sha1`, `tempfile`, `dirs` | MIT OR Apache-2.0 |
 
 ## Interfaz (npm)
 
