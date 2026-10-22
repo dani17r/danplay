@@ -34,7 +34,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, convert, names
+from . import config, convert, names, tags
 
 log = logging.getLogger(__name__)
 
@@ -343,17 +343,12 @@ def markers(sections: list, tempo: float, duration: float) -> list[dict]:
 
 
 def _duration(ffmpeg: str, path: str) -> float:
-    probe = convert.tool("ffprobe")
-    if probe:
-        r = subprocess.run(
-            [probe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-        with contextlib.suppress(ValueError):
-            return float(r.stdout.strip())
+    # Las pistas ya son FLAC (ver `flac` en `import_sequence`), y su cabecera
+    # dice las muestras que tiene: es exacto y al momento. Decodificarla
+    # entera con ffmpeg queda por si la cabecera no lo dijera.
+    seconds = tags.duration(path)
+    if seconds > 0:
+        return seconds
     r = subprocess.run(
         [ffmpeg, "-v", "error", "-nostdin", "-i", path, "-f", "null", "-"],
         capture_output=True,

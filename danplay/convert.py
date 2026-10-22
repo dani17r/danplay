@@ -6,6 +6,8 @@ ahi los .wav son material de produccion y comprimirlos seria perder calidad.
 """
 
 import logging
+import os
+import struct
 import subprocess
 import tempfile
 import time
@@ -151,34 +153,84 @@ COVER_MAX_BYTES = 600 * 1024
 
 
 def image_size(path) -> tuple[int, int]:
-    """Ancho y alto de una imagen, o (0, 0) si no se puede saber."""
-    ffprobe = tool("ffprobe")
-    if not ffprobe:
-        return (0, 0)
+    """Ancho y alto de una imagen (jpg, png, webp, gif o bmp), o (0, 0) si
+    no se puede saber.
+
+    Se leen de su cabecera, sin decodificarla. Antes se le preguntaba a
+    ffprobe: un proceso por caratula, y en el paquete de Windows 100 MB que
+    solo servian para esto y para la duracion de las secuencias."""
     try:
-        r = subprocess.run(
-            [
-                ffprobe,
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=width,height",
-                "-of",
-                "csv=p=0:s=x",
-                str(path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-        )
-        w, h = r.stdout.strip().split("x")[:2]
-        return int(w), int(h)
-    except Exception:
-        log.warning("ffprobe no pudo medir %s", path, exc_info=True)
+        with open(path, "rb") as f:
+            return _image_size(f)
+    except (OSError, ValueError, struct.error):
+        log.warning("no pude medir la imagen %s", path, exc_info=True)
         return (0, 0)
+
+
+# Los marcadores de JPEG que traen las medidas (los SOF); C4, C8 y CC, que
+# caen en medio, son otra cosa (tablas y extensiones).
+_JPEG_SOF = frozenset(
+    {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
+)
+
+
+def _image_size(f) -> tuple[int, int]:
+    head = f.read(32)
+    if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+        return struct.unpack(">II", head[16:24])
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return struct.unpack("<HH", head[6:10])
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return _webp_size(head)
+    if head[:2] == b"BM":
+        if struct.unpack("<I", head[14:18])[0] == 12:  # la cabecera vieja, de OS/2
+            return struct.unpack("<HH", head[18:22])
+        w, h = struct.unpack("<ii", head[18:26])
+        return w, abs(h)  # alto negativo: las filas van de arriba abajo
+    if head[:2] == b"\xff\xd8":
+        f.seek(2)
+        return _jpeg_size(f)
+    return (0, 0)
+
+
+def _webp_size(head: bytes) -> tuple[int, int]:
+    """Los tres sabores de WebP: con perdida (VP8), sin perdida (VP8L) y el
+    extendido (VP8X, con transparencia o animacion), que dice el lienzo."""
+    kind = head[12:16]
+    if kind == b"VP8 " and head[23:26] == b"\x9d\x01\x2a":
+        w, h = struct.unpack("<HH", head[26:30])
+        return w & 0x3FFF, h & 0x3FFF
+    if kind == b"VP8L" and head[20] == 0x2F:
+        bits = int.from_bytes(head[21:25], "little")
+        return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+    if kind == b"VP8X":
+        return int.from_bytes(head[24:27], "little") + 1, int.from_bytes(head[27:30], "little") + 1
+    return (0, 0)
+
+
+def _jpeg_size(f) -> tuple[int, int]:
+    """Segmento a segmento hasta el SOF. Delante puede haber de todo (EXIF,
+    perfiles de color, una miniatura), asi que se saltan sin leerlos."""
+    while True:
+        if f.read(1) != b"\xff":
+            return (0, 0)
+        marker = f.read(1)
+        while marker == b"\xff":  # relleno entre segmentos
+            marker = f.read(1)
+        if not marker:
+            return (0, 0)
+        m = marker[0]
+        if m in (0x01, 0xD8) or 0xD0 <= m <= 0xD7:  # sin longitud detras
+            continue
+        if m in (0xD9, 0xDA):  # se acaba, o empieza la imagen, sin SOF delante
+            return (0, 0)
+        (length,) = struct.unpack(">H", f.read(2))
+        if length < 2:
+            return (0, 0)
+        if m in _JPEG_SOF:
+            h, w = struct.unpack(">xHH", f.read(5))
+            return w, h
+        f.seek(length - 2, os.SEEK_CUR)
 
 
 def shrink_image(path, max_side=COVER_MAX_SIDE) -> tuple[bytes, str] | None:

@@ -165,6 +165,9 @@ def test_opening_it_leaves_it_ready_to_play(configured_library, downloaded, tmp_
     assert study["mixer"] == {"on": True}
     assert [m["label"] for m in study["markers"]] == ["Count Off", "Intro", "Chorus", "Parte 4"]
     assert study["markers"][2] == {"t": 8.0, "end": 12.0, "label": "Chorus"}
+    # la ultima parte llega hasta el final: la duracion de las pistas, que
+    # se lee de su cabecera (sin ffprobe)
+    assert study["markers"][-1]["end"] == pytest.approx(16.0, abs=0.05)
     # el clic exacto, y sigue valiendo aunque cambie la forma de sacar las demas
     monkeypatch.setattr(beatgrid, "VERSION", beatgrid.VERSION + 1)
     assert beatgrid.cached(song["path"])

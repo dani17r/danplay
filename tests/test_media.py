@@ -13,7 +13,8 @@ from conftest import FFMPEG, make_audio, make_mp3
 from danplay import config, convert, enrich, fingerprint, tags, web
 
 
-def _image(path, size="1600x1200", color="red"):
+def _image(path, size="1600x1200", color="red", extra=()):
+    assert FFMPEG, "las pruebas que hacen imagenes piden synthetic_ok"
     subprocess.run(
         [
             FFMPEG,
@@ -26,6 +27,7 @@ def _image(path, size="1600x1200", color="red"):
             f"color=c={color}:s={size}",
             "-frames:v",
             "1",
+            *extra,
             str(path),
         ],
         check=True,
@@ -84,6 +86,60 @@ def test_una_caratula_grande_se_encoge(tmp_path, synthetic_ok):
     assert convert.shrink_image(small) == (raw, "image/jpeg"), "si ya vale, tal cual"
     assert convert.shrink_bytes(big.read_bytes(), "image/png", max_side=200)[1] == "image/jpeg"
     assert convert.shrink_image(tmp_path / "no-esta.jpg") is None
+
+
+@pytest.mark.parametrize(
+    ("name", "extra"),
+    [
+        ("a.jpg", ()),
+        ("a.png", ()),
+        ("a.gif", ()),
+        ("a.bmp", ()),
+        ("con-perdida.webp", ()),
+        ("sin-perdida.webp", ("-lossless", "1")),
+    ],
+)
+def test_las_medidas_salen_de_la_cabecera_de_la_imagen(tmp_path, synthetic_ok, name, extra):
+    """Sin ffprobe: lo que escribe ffmpeg en cada formato, medido a mano."""
+    try:
+        img = _image(tmp_path / name, "333x217", extra=extra)
+    except subprocess.CalledProcessError:
+        pytest.skip(f"este ffmpeg no escribe {name}")
+    assert convert.image_size(img) == (333, 217)
+
+
+def test_las_medidas_de_cabeceras_raras(tmp_path):
+    def file(name, data: bytes):
+        p = tmp_path / name
+        p.write_bytes(data)
+        return p
+
+    # WebP extendido (con transparencia): dice el lienzo, menos uno
+    vp8x = b"RIFF\0\0\0\0WEBPVP8X\x0a\0\0\0\x10\0\0\0" + (1999).to_bytes(3, "little")
+    assert convert.image_size(file("x.webp", vp8x + (999).to_bytes(3, "little"))) == (2000, 1000)
+    # BMP de OS/2, y uno con el alto negativo (las filas de arriba abajo)
+    os2 = b"BM" + bytes(12) + (12).to_bytes(4, "little") + (640).to_bytes(2, "little")
+    assert convert.image_size(file("os2.bmp", os2 + (480).to_bytes(2, "little") + bytes(6))) == (
+        640,
+        480,
+    )
+    top = b"BM" + bytes(12) + (40).to_bytes(4, "little") + (800).to_bytes(4, "little")
+    top += (-600).to_bytes(4, "little", signed=True) + bytes(6)
+    assert convert.image_size(file("arriba.bmp", top)) == (800, 600)
+    # JPEG progresivo con un EXIF grande, una tabla (C4, que no es un SOF) y
+    # bytes de relleno antes de las medidas
+    exif = b"\xff\xe1" + (8192).to_bytes(2, "big") + bytes(8190)
+    dht = b"\xff\xc4\x00\x04\x00\x00"
+    sof2 = b"\xff\xff\xff\xc2\x00\x11\x08" + (1080).to_bytes(2, "big") + (1920).to_bytes(2, "big")
+    jpeg = b"\xff\xd8" + exif + dht + sof2 + bytes(12) + b"\xff\xd9"
+    assert convert.image_size(file("foto.jpg", jpeg)) == (1920, 1080)
+    # lo que no se puede medir no es un error: (0, 0), como sin ffprobe
+    sin_sof = b"\xff\xd8\xff\xda\x00\x02" + bytes(20)
+    cortado = b"\xff\xd8\xff\xe1\x40\x00" + bytes(10)
+    for name, data in [("sin-sof.jpg", sin_sof), ("cortado.jpg", cortado), ("texto.png", b"hola")]:
+        assert convert.image_size(file(name, data)) == (0, 0), name
+    assert convert.image_size(file("vacio.gif", b"")) == (0, 0)
+    assert convert.image_size(tmp_path / "no-esta.png") == (0, 0)
 
 
 # ------------------------------------------------------------------- letras
