@@ -92,7 +92,7 @@ def _command(path: str, raw: Path | None = None) -> list[str]:
     if raw is not None:
         args.append(str(raw))
     if config.FROZEN:
-        return [sys.executable, "--pulso", *args]
+        return [sys.executable, "--pulse", *args]
     return [sys.executable, "-m", "danplay.pulse", *args]
 
 

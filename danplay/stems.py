@@ -388,9 +388,9 @@ EVENTS = 50
 
 def _command(job_file: str) -> list[str]:
     """Como se lanza el proceso que separa: el propio nucleo empaquetado con
-    `--separar`, o este Python con el modulo del motor."""
+    `--separate`, o este Python con el modulo del motor."""
     if config.FROZEN:
-        return [sys.executable, "--separar", job_file]
+        return [sys.executable, "--separate", job_file]
     return [sys.executable, "-m", "danplay.separation", job_file]
 
 

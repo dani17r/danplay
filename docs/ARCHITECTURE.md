@@ -900,7 +900,7 @@ no; el grafo la calcula por bloques de 512 filas, que da exactamente lo
 mismo. Con eso y sin el plan de memoria de ORT (reserva de golpe todo lo que
 la red tendrá vivo en algún momento), el pico baja de casi 5 GB a menos de 3.
 
-**En un proceso aparte, con prioridad baja** (`danplay-core --separar`, o
+**En un proceso aparte, con prioridad baja** (`danplay-core --separate`, o
 `python -m danplay.separation` en desarrollo). La red usa todos los núcleos
 durante un par de minutos: así la música y la interfaz no lo notan, la
 memoria se devuelve al acabar, y parar es matar el proceso. Si el núcleo se
