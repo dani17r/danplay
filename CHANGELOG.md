@@ -18,7 +18,8 @@ fuera todo sigue igual; por dentro va más rápido y gasta menos.
   y el Mega53) corren en ONNX Runtime desde Rust; separar gasta unos 300 MB
   menos de memoria.
 - **Y más**: los nombres, la teoría y los cifrados, la conversión, la forma
-  de onda, las miniaturas, los duplicados, la guía hablada.
+  de onda, las miniaturas, los duplicados, la guía hablada, la rejilla del
+  clic guardada y «Re-analizar el clic».
 - **Arreglado**: el segundo intento de convertir un archivo (sin la
   carátula) no funcionaba nunca; un tiempo «inf» en un marcador se guardaba
   como algo que la interfaz no podía leer; el núcleo empaquetado no

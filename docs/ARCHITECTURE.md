@@ -799,6 +799,9 @@ Lo que dijo la red se guarda (`DATA_DIR/beats/<clave>.npz`, float16, unos
 batería; de toda la canción o de un tramo, cosido a lo de los lados) tarda
 milisegundos. Lo re-analizado a mano se guarda y se vuelve a aplicar si
 cambia la versión. `danplay pulse` pasa el análisis por toda la biblioteca.
+Todo eso va en Rust (`analysis/src/beatgrid.rs`, y lo guardado en
+`library/src/beatgrid.rs`, leído y escrito como el `json` de Python, byte a
+byte); en Python quedan la cola, su hilo y el proceso del detector.
 
 ## Separar en pistas
 
@@ -1944,8 +1947,8 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   cues.py         las guías habladas: voces, bajarlas, decir, grabaciones
   speech.py        el texto de una guía: números en palabras y fonemas (G2P)
   data/voices.json el catálogo de voces, con sha256 y revisión fijados
-  beatgrid.py     el pulso y el «1» del metrónomo: la cache (también lo que
-                  oyó la red), el proceso aparte y re-analizar
+  beatgrid.py     el pulso y el «1» del metrónomo: la cola y el proceso
+                  aparte (lo guardado y re-analizar, en Rust)
   pulse.py        Beat This! por dentro (en Rust: espectrograma, la red y la rejilla)
   data/pulse/     el grafo de Beat This!, con sus pesos
   click.py        el clic del metrónomo en la mezcla que se guarda (el del motor)

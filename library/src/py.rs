@@ -976,6 +976,37 @@ pub fn mtime(meta: &std::fs::Metadata) -> f64 {
     sec as f64 + nsec as f64 * 1e-9
 }
 
+/// `Path(path).mkdir(parents=True, exist_ok=True)`: la carpeta y las de
+/// encima que falten; si ya está y es una carpeta, nada. El error lleva la
+/// ruta que lo dio, la que Python pone en su `OSError`.
+pub fn mkdir_parents(path: &Path) -> Result<(), (std::io::Error, std::path::PathBuf)> {
+    // `exist_ok`: cualquier error vale si al final la carpeta está
+    let tolerate = |e: std::io::Error| {
+        if path.is_dir() {
+            Ok(())
+        } else {
+            Err((e, path.to_path_buf()))
+        }
+    };
+    match std::fs::create_dir(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let parent = match path.parent() {
+                Some(p) if p.as_os_str().is_empty() => Path::new("."),
+                Some(p) if p != path => p,
+                _ => return Err((e, path.to_path_buf())),
+            };
+            mkdir_parents(parent)?;
+            match std::fs::create_dir(path) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err((e, path.to_path_buf())),
+                Err(e) => tolerate(e),
+            }
+        }
+        Err(e) => tolerate(e),
+    }
+}
+
 /// `os.path.samefile`: el mismo archivo en el disco (falso si alguno no está).
 pub fn samefile(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
@@ -1246,6 +1277,7 @@ pub fn splitlines(s: &str) -> Vec<&str> {
 }
 
 mod casefold;
+pub mod json;
 
 #[cfg(test)]
 mod tests;

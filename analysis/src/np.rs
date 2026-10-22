@@ -124,6 +124,34 @@ pub fn searchsorted(a: &[f64], v: f64) -> usize {
     a.partition_point(|x| *x < v)
 }
 
+/// El `<` de numpy al ordenar y buscar: los NaN van detrás de todo.
+fn nan_last_less(a: f64, b: f64) -> bool {
+    a < b || (b.is_nan() && !a.is_nan())
+}
+
+/// `np.searchsorted(a, keys)` con la búsqueda de numpy 2 tal cual (la de
+/// mitades sin saltos de `npysort/binsearch.cpp`), con los NaN al final.
+/// Con `a` ordenado da lo mismo que `searchsorted`; con `a` desordenado (una
+/// rejilla guardada a mano), lo mismo que numpy, que no es lo mismo.
+pub fn searchsorted_numpy(a: &[f64], keys: &[f64]) -> Vec<usize> {
+    keys.iter()
+        .map(|&key| {
+            if a.is_empty() {
+                return 0;
+            }
+            let (mut base, mut n) = (0, a.len());
+            while n > 1 {
+                let half = n / 2;
+                if nan_last_less(a[base + half], key) {
+                    base += half;
+                }
+                n -= half;
+            }
+            base + usize::from(nan_last_less(a[base], key))
+        })
+        .collect()
+}
+
 /// `np.interp(x, xp, fp)`, con sus mismos casos: fuera de los extremos, el
 /// extremo; en un punto, su valor; y si la recta da NaN, por el otro lado.
 pub fn interp(x: f64, xp: &[f64], fp: &[f64]) -> f64 {
@@ -227,6 +255,17 @@ mod tests {
         assert_eq!(interp(-1.0, &[0.0, 1.0], &[2.0, 4.0]), 2.0);
         assert_eq!(interp(1.0, &[0.0, 1.0], &[2.0, 4.0]), 4.0);
         assert_eq!(searchsorted(&[1.0, 2.0, 2.0, 3.0], 2.0), 1);
+        assert_eq!(
+            searchsorted_numpy(
+                &[1.0, 2.0, 2.0, 3.0, f64::NAN],
+                &[2.0, 0.0, 9.0, f64::NAN, 2.5]
+            ),
+            [1, 0, 4, 4, 3]
+        );
+        assert_eq!(searchsorted_numpy(&[], &[1.0]), [0]);
+        // desordenado: lo que da numpy (la búsqueda de mitades de siempre daría 8)
+        let a = [0.0, 2.0, 1.0, 2.0, 2.0, 0.0, 8.0, 2.0, 8.0, 6.0, 1.0];
+        assert_eq!(searchsorted_numpy(&a, &[6.0]), [6]);
         assert_eq!(median(&[3.0, 1.0, 2.0, 10.0]), 2.5);
     }
 }
