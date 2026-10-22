@@ -20,6 +20,10 @@ md-5 = "0.11"
 symphonia = { version = "0.6", features = ["mp3", "wav", "flac", "isomp4", "aac", "ogg", "vorbis"] }
 # las etiquetas de cada canción (lofty), las mismas que usará la app
 danplay-biblioteca = { path = "../biblioteca" }
+# el análisis: el pulso (Beat This!), el clic de la mezcla, los pesos
+danplay-analisis = { path = "../analisis" }
+# los arrays de numpy que van y vienen (el espectrograma, lo que dice la red)
+numpy = "0.29"
 
 [lints]
 workspace = true

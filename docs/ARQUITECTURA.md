@@ -552,8 +552,12 @@ núcleo (`pulse.py`, `beatgrid.py`): una red que mira el espectrograma y dice,
 cada 50 avos de segundo, lo probable que es un pulso y que sea el «1». Va
 en ONNX Runtime como Demucs, sin PyTorch: el grafo con sus pesos en float16
 viaja con la app (42 MB), y el espectrograma, los trozos de 30 s y los
-máximos se hacen con numpy, igual que su código (`exportar-pulso.py` lo
-comprueba: los mismos pulsos). La primera vez tarda (15-20 s por canción en
+máximos se hacen igual que su código (`exportar-pulso.py` lo comprueba: los
+mismos pulsos). Desde la fase 2 todo eso está en Rust (`analisis/src/pulso`):
+la red corre en el ONNX Runtime de la biblioteca que trae el paquete
+`onnxruntime`, cargada desde Rust con `ort`, y la rejilla es la de numpy
+cuenta a cuenta (sale lo mismo, bit a bit, en las 283 canciones con lo que
+oyó la red guardado). La primera vez tarda (15-20 s por canción en
 un portátil: casi todo es la red), en un proceso aparte con prioridad baja
 y cuatro hilos; se guarda en `DATA_DIR/pulso/` y luego sale al momento. La
 interfaz se la pasa a Rust (`set_beat_grid`), que la usa como la suya. Si el
@@ -675,8 +679,9 @@ play.
 **Cuatro sonidos**: clásico (un pitido), madera, baqueta (corto y brillante,
 se cuela entre platos) y cencerro (se oye aunque la banda suene fuerte).
 Cada uno son unos pocos parciales con su caída (`metronome.rs`, `Sound`), y
-el «1» va más fuerte. La misma tabla está en `danplay/click.py`, que pone
-el clic en la **mezcla que se guarda** «como suena»: los golpes de la
+el «1» va más fuerte. La misma tabla (la del motor, `motor/src/click.rs`)
+la usa `danplay/click.py` a través del crate, que pone el clic en la
+**mezcla que se guarda** «como suena»: los golpes de la
 rejilla tal como suena (o del tempo a mano), pasados al tiempo de la mezcla
 y sumados después de la velocidad y el tono (que si no lo estirarían). Las
 pruebas de los dos lados comprueban las mismas muestras.
@@ -951,7 +956,9 @@ cabezas (`scripts/exportar-mega53.py`) y reparte con máscaras suaves
 Solo sale lo que suena (`presence`), y «Otros» sigue siendo la canción menos
 todo lo demás. Los pesos son el checkpoint original del autor (1,4 GB, con su
 sha256), leído **sin PyTorch** por un lector propio que no ejecuta el pickle
-(`danplay/torchzip.py`: solo reconstruye tensores). Trozos de 5 s que se
+(`analisis/src/pesos.rs`, por `danplay/torchzip.py`: una máquina de pickle
+propia que solo reconstruye tensores, y no deja que uno se salga de su
+almacén). Trozos de 5 s que se
 solapan un cuarto; la red no reserva memoria de más (sin la *arena* de ORT) y
 antes de empezar se mira que haya memoria libre. Medido en un portátil
 (Ryzen 7 5825U, 14 GB): con trozos de 10 s y 20 cabezas llegaba a 8 GB y el
@@ -1910,7 +1917,7 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   separation.py   el separador por dentro (Demucs con numpy y ONNX Runtime),
                   en un proceso aparte; run_max, la máxima calidad
   mega.py         la máxima calidad: el Mega53 y el reparto por máscaras
-  torchzip.py     leer un checkpoint de PyTorch sin PyTorch ni pickle
+  torchzip.py     leer un checkpoint de PyTorch sin PyTorch ni pickle (en Rust)
   data/separador/ los grafos del separador, sin pesos (también el Mega53)
   reuse.py        lo hecho para otro archivo de la misma canción: gemelas,
                   desfase, adoptar pistas, clic, estudio y listas
@@ -1923,15 +1930,17 @@ danplay/        núcleo Python (índice, IA, etiquetas, descargas)
   data/voces.json el catálogo de voces, con sha256 y revisión fijados
   beatgrid.py     el pulso y el «1» del metrónomo: la cache (también lo que
                   oyó la red), el proceso aparte y re-analizar
-  pulse.py        Beat This! por dentro (espectrograma y trozos con numpy, ONNX)
+  pulse.py        Beat This! por dentro (en Rust: espectrograma, la red y la rejilla)
   data/pulso/     el grafo de Beat This!, con sus pesos
-  click.py        el clic del metrónomo en la mezcla que se guarda
+  click.py        el clic del metrónomo en la mezcla que se guarda (el del motor)
   thumbnails.py   las miniaturas de las carátulas, con tope y poda
   logs.py         el registro (a un archivo rotativo al servir)
   toon.py         resultados de herramientas en TOON: la mitad de tokens que JSON
   chats.py        las conversaciones con el asistente, guardadas y buscables
   model_catalog.py  el catálogo de modelos (models.dev), siempre al día
   data/           la foto del catálogo que viaja con la app
+analisis/       crate Rust: el pulso (Beat This!, ONNX Runtime con ort), el clic
+                de la mezcla y los pesos de PyTorch, sin nada de Python
 biblioteca/     crate Rust: las etiquetas (lofty), sin nada de Python
 core/           crate Rust (PyO3): etiquetas (de biblioteca/), hashes en
                 paralelo y forma de onda

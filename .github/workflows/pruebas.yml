@@ -60,12 +60,13 @@ jobs:
       - name: estilo del crate
         env:
           PYO3_BUILD_EXTENSION_MODULE: '1'
-        run: cargo clippy -p danplay_core -p danplay-biblioteca --all-targets -- -D warnings
-      # danplay-biblioteca: las etiquetas en Rust (lofty), que usa el crate
+        run: cargo clippy -p danplay_core -p danplay-biblioteca -p danplay-analisis --all-targets -- -D warnings
+      # danplay-biblioteca: las etiquetas en Rust (lofty), que usa el crate;
+      # danplay-analisis: el pulso, el clic y los pesos de los modelos
       - name: pruebas del crate
         env:
           PYO3_BUILD_EXTENSION_MODULE: '1'
-        run: cargo test --release -p danplay_core -p danplay-biblioteca
+        run: cargo test --release -p danplay_core -p danplay-biblioteca -p danplay-analisis
 
   # El núcleo, en Windows. Es la única forma de saber si de verdad funciona
   # allí: las rutas, la papelera y el transporte por loopback con token toman
