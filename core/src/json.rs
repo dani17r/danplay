@@ -90,3 +90,58 @@ pub fn from_python(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     let kind = obj.get_type().name()?;
     Err(PyTypeError::new_err(format!("no sé pasar a Rust un «{kind}»")))
 }
+
+/// Como `from_python`, pero sin fallar: lo que no es de JSON va como su
+/// `str()`, un real que no es finito como su texto («inf», «nan») y un
+/// sustituto suelto como «�». Para lo que solo se lee para escribir un texto
+/// (los resultados de las herramientas, el contexto de la pantalla).
+pub fn loose(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
+    if obj.is_none() {
+        return Ok(Value::Null);
+    }
+    if let Ok(b) = obj.cast::<PyBool>() {
+        return Ok(Value::Bool(b.is_true()));
+    }
+    if obj.is_instance_of::<PyInt>() {
+        if let Ok(i) = obj.extract::<i64>() {
+            return Ok(Value::from(i));
+        }
+        if let Ok(u) = obj.extract::<u64>() {
+            return Ok(Value::from(u));
+        }
+    } else if obj.is_instance_of::<PyFloat>() {
+        let f: f64 = obj.extract()?;
+        if let Some(n) = Number::from_f64(f) {
+            return Ok(Value::Number(n));
+        }
+    } else if let Ok(d) = obj.cast::<PyDict>() {
+        let mut out = Map::with_capacity(d.len());
+        for (k, v) in d.iter() {
+            out.insert(text(&k.str()?)?, loose(&v)?);
+        }
+        return Ok(Value::Object(out));
+    } else if obj.is_instance_of::<PyList>() || obj.is_instance_of::<PyTuple>() {
+        let mut out = Vec::new();
+        for item in obj.try_iter()? {
+            out.push(loose(&item?)?);
+        }
+        return Ok(Value::Array(out));
+    }
+    Ok(Value::String(text(&obj.str()?)?))
+}
+
+/// Un `str` de Python como texto de Rust; cada sustituto suelto (que Rust no
+/// puede tener), «�», como hace `narration._txt`.
+pub fn text(s: &Bound<'_, PyString>) -> PyResult<String> {
+    if let Ok(t) = s.to_str() {
+        return Ok(t.to_owned());
+    }
+    let raw = s.call_method1("encode", ("utf-32-le", "surrogatepass"))?;
+    let bytes: &[u8] = raw.extract()?;
+    Ok(bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| char::from_u32(u32::from_le_bytes(*c)).unwrap_or('\u{fffd}'))
+        .collect())
+}
