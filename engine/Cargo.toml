@@ -27,7 +27,7 @@ rustfft = "6.2"
 # entre si; la PC, que tiene ffmpeg, la pasa a FLAC antes.
 symphonia = { version = "0.6", optional = true, default-features = false, features = [
     "ogg", "vorbis", "mp3", "flac", "wav", "aiff", "pcm", "isomp4", "aac", "alac", "id3v2" ] }
-cpal = { version = "0.17", optional = true }
+cpal = { version = "0.18", optional = true }
 rtrb = { version = "0.4", optional = true }
 zip = { version = "9", optional = true, default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
