@@ -55,7 +55,7 @@ jobs:
       # con ffprobe, que la app ya no lleva pero algunas pruebas usan para
       # mirar lo que sale
       - name: ffmpeg, ffprobe, fpcalc y QuickJS
-        run: ./scripts/tools-macos.sh --con-ffprobe
+        run: ./scripts/tools-macos.sh --with-ffprobe
 
       - uses: dtolnay/rust-toolchain@stable
 

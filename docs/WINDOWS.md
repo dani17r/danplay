@@ -10,7 +10,7 @@ hay que tratarlo como «debería funcionar», no como «funciona».
 ## Las dos formas salen de la integración continua
 
 ```bash
-./scripts/github.sh paquetes windows   # tras git push: los dos, a dist/installers/
+./scripts/github.sh packages windows   # tras git push: los dos, a dist/installers/
 ```
 
 Quedan en `dist/installers/` con la versión en el nombre
@@ -26,7 +26,7 @@ Antes las dos se armaban también **desde Linux**
 (`scripts/build-windows-cross.sh`, con el Python embebido de Windows en vez
 de PyInstaller). Desde que las etiquetas van en el crate de Rust del núcleo,
 ese camino tendría que compilar el crate para Windows desde Linux, y no lo
-hace: sin `--sin-crate` se niega, y con él saca uno cuyas etiquetas van con
+hace: sin `--no-crate` se niega, y con él saca uno cuyas etiquetas van con
 mutagen (GPL), solo para uso propio.
 
 | | Portátil | Instalador |
@@ -37,7 +37,7 @@ mutagen (GPL), solo para uso propio.
 | **Accesos directos** | ninguno | menú Inicio y escritorio (se puede desmarcar) |
 | **«Abrir con DanPlay»** | lo activa la propia app desde Ajustes | lo deja puesto el instalador |
 | **Desinstalador** | borrar la carpeta | sí, y sale en «Aplicaciones instaladas» |
-| **ffmpeg, fpcalc y QuickJS** | solo con `--herramientas` | siempre (el de la CI; ver abajo) |
+| **ffmpeg, fpcalc y QuickJS** | solo con `--with-tools` | siempre (el de la CI; ver abajo) |
 | **Tamaño** | 273 MB (98 MB comprimido) con herramientas; 74 MB (25 MB) sin ellas | 71 MB |
 
 ## Actualizar
@@ -134,7 +134,7 @@ git tag v1.1.0 && git push origin v1.1.0
 ### En una máquina con Windows
 
 ```powershell
-.\scripts\build-windows.ps1 -Instalador
+.\scripts\build-windows.ps1 -Installer
 ```
 
 Hace lo mismo que el flujo de arriba. Necesita Python 3.13, Node 24, Rust

@@ -10,52 +10,52 @@
 set -u
 cd "$(dirname "$0")/.."
 
-rojo=$(printf '\033[31m'); verde=$(printf '\033[32m'); ambar=$(printf '\033[33m')
-gris=$(printf '\033[90m'); fin=$(printf '\033[0m')
+red=$(printf '\033[31m'); green=$(printf '\033[32m'); amber=$(printf '\033[33m')
+gray=$(printf '\033[90m'); reset=$(printf '\033[0m')
 
-fecha () { [ -e "$1" ] && date -r "$1" +"%d-%b %H:%M" || echo "no existe"; }
-epoca () { [ -e "$1" ] && date -r "$1" +%s || echo 0; }
+mtime () { [ -e "$1" ] && date -r "$1" +"%d-%b %H:%M" || echo "no existe"; }
+epoch () { [ -e "$1" ] && date -r "$1" +%s || echo 0; }
 
 APP=target/release/danplay-app
 WEB=desktop/dist/index.html
-NUCLEO=dist/core/danplay-core/danplay-core
+CORE=dist/core/danplay-core/danplay-core
 # Sin la version en el nombre: al subirla, estas lineas se quedaban apuntando
 # a un archivo que ya no existe y el aviso de «paquete viejo» dejaba de salir
 # justo cuando mas falta hace.
-PAQUETES=$(ls -1 dist/installers/*.AppImage dist/installers/*.deb 2>/dev/null)
-APPIMAGE=$(printf '%s\n' "$PAQUETES" | grep '\.AppImage$' | head -1)
-DEB=$(printf '%s\n' "$PAQUETES" | grep '\.deb$' | head -1)
+PACKAGES=$(ls -1 dist/installers/*.AppImage dist/installers/*.deb 2>/dev/null)
+APPIMAGE=$(printf '%s\n' "$PACKAGES" | grep '\.AppImage$' | head -1)
+DEB=$(printf '%s\n' "$PACKAGES" | grep '\.deb$' | head -1)
 
 echo "Cuando se genero cada capa"
-printf "  %-34s %s\n" "interfaz (desktop/dist)"   "$(fecha $WEB)"
-printf "  %-34s %s\n" "nucleo (dist/core)"        "$(fecha $NUCLEO)"
-printf "  %-34s %s\n" "app de escritorio"         "$(fecha $APP)"
-printf "  %-34s %s\n" ".AppImage"                 "$(fecha $APPIMAGE)"
-printf "  %-34s %s\n" ".deb"                      "$(fecha $DEB)"
+printf "  %-34s %s\n" "interfaz (desktop/dist)"   "$(mtime $WEB)"
+printf "  %-34s %s\n" "nucleo (dist/core)"        "$(mtime $CORE)"
+printf "  %-34s %s\n" "app de escritorio"         "$(mtime $APP)"
+printf "  %-34s %s\n" ".AppImage"                 "$(mtime $APPIMAGE)"
+printf "  %-34s %s\n" ".deb"                      "$(mtime $DEB)"
 
-fallo=0
+stale=0
 echo
 echo "Comprobaciones"
 
 # 1) la interfaz va dentro del binario: si es mas nueva, el binario esta viejo
-if [ "$(epoca $WEB)" -gt "$(epoca $APP)" ]; then
-    echo "  ${rojo}x${fin} la interfaz es mas nueva que la app."
+if [ "$(epoch $WEB)" -gt "$(epoch $APP)" ]; then
+    echo "  ${red}x${reset} la interfaz es mas nueva que la app."
     echo "    La interfaz va INCRUSTADA en el binario, asi que lo que ves"
     echo "    sigue siendo lo anterior. Ejecuta: ./scripts/build.sh"
-    fallo=1
+    stale=1
 else
-    echo "  ${verde}ok${fin} la app lleva la interfaz actual"
+    echo "  ${green}ok${reset} la app lleva la interfaz actual"
 fi
 
 # 2) los paquetes solo se rehacen con --package. Se miran TODOS los que haya:
 #    si queda alguno de una version anterior, hay que decirlo.
-for p in $PAQUETES; do
+for p in $PACKAGES; do
     [ -e "$p" ] || continue
-    if [ "$(epoca "$p")" -lt "$(epoca $APP)" ]; then
-        echo "  ${ambar}!${fin}  $(basename "$p") es mas viejo que la app."
+    if [ "$(epoch "$p")" -lt "$(epoch $APP)" ]; then
+        echo "  ${amber}!${reset}  $(basename "$p") es mas viejo que la app."
         echo "    Si abres ese paquete veras una version anterior."
         echo "    Rehazlo con: ./scripts/build.sh --package"
-        fallo=1
+        stale=1
     fi
 done
 
@@ -63,20 +63,20 @@ done
 if [ -e "$APP" ] && [ -e "$WEB" ]; then
     css=$(grep -o 'assets/[^"]*\.css' "$WEB" | head -1)
     if [ -n "$css" ] && ! grep -aq "$css" "$APP"; then
-        echo "  ${rojo}x${fin} el binario no contiene $css"
+        echo "  ${red}x${reset} el binario no contiene $css"
         echo "    Recompilalo: ./scripts/build.sh"
-        fallo=1
+        stale=1
     elif [ -n "$css" ]; then
-        echo "  ${verde}ok${fin} el binario incrusta $css"
+        echo "  ${green}ok${reset} el binario incrusta $css"
     fi
 fi
 
 echo
-if [ "$fallo" = "0" ]; then
-    echo "${verde}Todo al dia.${fin} Abrela con ./danplay-app.sh"
+if [ "$stale" = "0" ]; then
+    echo "${green}Todo al dia.${reset} Abrela con ./danplay-app.sh"
 else
-    echo "${ambar}Hay algo desfasado${fin} (mira arriba)."
+    echo "${amber}Hay algo desfasado${reset} (mira arriba)."
 fi
-echo "${gris}Y cierra la app antes de reabrirla: una ventana ya abierta${fin}"
-echo "${gris}sigue con la interfaz que cargo al arrancar.${fin}"
-exit "$fallo"
+echo "${gray}Y cierra la app antes de reabrirla: una ventana ya abierta${reset}"
+echo "${gray}sigue con la interfaz que cargo al arrancar.${reset}"
+exit "$stale"

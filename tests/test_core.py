@@ -1159,21 +1159,19 @@ def test_process_with_a_known_name_skips_the_cascade(configured_library, monkeyp
 def test_the_windows_installer_upgrades_instead_of_duplicating():
     nsi = (_repo_root() / "packaging/windows/installer.nsi").read_text("utf-8")
     # va siempre a la carpeta de la instalacion anterior y a la misma ficha
-    assert 'InstallDirRegKey HKCU "${CLAVE}" "InstallDir"' in nsi
-    assert nsi.count('"${DESINSTALAR}"') >= 8, "una sola entrada en Aplicaciones instaladas"
+    assert 'InstallDirRegKey HKCU "${REG_KEY}" "InstallDir"' in nsi
+    assert nsi.count('"${UNINSTALL_KEY}"') >= 8, "una sola entrada en Aplicaciones instaladas"
     # limpia lo suyo antes de copiar, pieza a pieza, nunca la carpeta a ciegas
-    assert "Call LimpiarInstalacionAnterior" in nsi
+    assert "Call RemovePreviousInstall" in nsi
     cleanup = nsi[
-        nsi.index("Function LimpiarInstalacionAnterior") : nsi.index(
-            "FunctionEnd", nsi.index("Function LimpiarInstalacionAnterior")
+        nsi.index("Function RemovePreviousInstall") : nsi.index(
+            "FunctionEnd", nsi.index("Function RemovePreviousInstall")
         )
     ]
-    for piece in ("python", "tools", "${EJECUTABLE}", "danplay-core.exe", "WebView2Loader.dll"):
+    for piece in ("python", "tools", "${APP_EXE}", "danplay-core.exe", "WebView2Loader.dll"):
         assert piece in cleanup, f"la limpieza no quita {piece}"
     assert 'RMDir /r "$INSTDIR"' not in cleanup, "al actualizar no se borra la carpeta entera"
-    assert '${IfNot} ${FileExists} "$INSTDIR\\${EJECUTABLE}"' in cleanup, (
-        "solo si ahi hay un DanPlay"
-    )
+    assert '${IfNot} ${FileExists} "$INSTDIR\\${APP_EXE}"' in cleanup, "solo si ahi hay un DanPlay"
     # y la limpieza cubre todo lo que produce la version portatil
     portable = {
         "danplay-app.exe",
@@ -1184,7 +1182,7 @@ def test_the_windows_installer_upgrades_instead_of_duplicating():
         "WebView2Loader.dll",
     }
     for item in portable:
-        name = "${EJECUTABLE}" if item == "danplay-app.exe" else item
+        name = "${APP_EXE}" if item == "danplay-app.exe" else item
         assert name in cleanup, f"{item} se quedaria huerfano al actualizar"
 
 

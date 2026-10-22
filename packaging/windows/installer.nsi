@@ -1,7 +1,7 @@
 ; Instalador de DanPlay para Windows.
 ;
 ; Se compila con makensis DESDE LINUX (scripts/build-windows-cross.sh
-; --instalador), sobre la misma carpeta que produce la version portatil. Es
+; --installer), sobre la misma carpeta que produce la version portatil. Es
 ; decir: portable e instalador salen de lo mismo y no pueden desincronizarse.
 ;
 ; Instala PARA EL USUARIO, en %LOCALAPPDATA%\Programs\DanPlay:
@@ -24,51 +24,51 @@
 ; donde das el ultimo clic. Es lo mismo que hacen VLC, Spotify y foobar2000.
 ;
 ; Parametros (se pasan con -D):
-;   VERSION  el numero de version
-;   ORIGEN   la carpeta con todo lo que hay que meter dentro
-;   SALIDA   el .exe que se genera
-;   ICONO    el .ico de la aplicacion
+;   VERSION     el numero de version
+;   SOURCE_DIR  la carpeta con todo lo que hay que meter dentro
+;   OUT_FILE    el .exe que se genera
+;   APP_ICON    el .ico de la aplicacion
 
 Unicode true
 ManifestDPIAwareness PerMonitorV2
 
-!define NOMBRE "DanPlay"
-!define EJECUTABLE "danplay-app.exe"
-!define EDITOR "dani17r"
-!define CLAVE "Software\DanPlay"
-!define CAPACIDADES "Software\DanPlay\Capabilities"
-!define DESINSTALAR "Software\Microsoft\Windows\CurrentVersion\Uninstall\DanPlay"
+!define APP_NAME "DanPlay"
+!define APP_EXE "danplay-app.exe"
+!define PUBLISHER "dani17r"
+!define REG_KEY "Software\DanPlay"
+!define CAPABILITIES_KEY "Software\DanPlay\Capabilities"
+!define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\DanPlay"
 
-Name "${NOMBRE} ${VERSION}"
-OutFile "${SALIDA}"
-InstallDir "$LOCALAPPDATA\Programs\${NOMBRE}"
-InstallDirRegKey HKCU "${CLAVE}" "InstallDir"
+Name "${APP_NAME} ${VERSION}"
+OutFile "${OUT_FILE}"
+InstallDir "$LOCALAPPDATA\Programs\${APP_NAME}"
+InstallDirRegKey HKCU "${REG_KEY}" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 ShowInstDetails show
 ShowUninstDetails show
 
 VIProductVersion "${VERSION}.0"
-VIAddVersionKey /LANG=1034 "ProductName" "${NOMBRE}"
-VIAddVersionKey /LANG=1034 "FileDescription" "Instalador de ${NOMBRE}"
+VIAddVersionKey /LANG=1034 "ProductName" "${APP_NAME}"
+VIAddVersionKey /LANG=1034 "FileDescription" "Instalador de ${APP_NAME}"
 VIAddVersionKey /LANG=1034 "FileVersion" "${VERSION}"
-VIAddVersionKey /LANG=1034 "LegalCopyright" "${EDITOR}"
+VIAddVersionKey /LANG=1034 "LegalCopyright" "${PUBLISHER}"
 
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 
-!define MUI_ICON "${ICONO}"
-!define MUI_UNICON "${ICONO}"
+!define MUI_ICON "${APP_ICON}"
+!define MUI_UNICON "${APP_ICON}"
 !define MUI_ABORTWARNING
 
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${EJECUTABLE}"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "Abrir DanPlay"
 ; La segunda casilla de la ultima pagina: lleva a Ajustes de Windows, que es
 ; donde de verdad se elige el reproductor predeterminado.
 !define MUI_FINISHPAGE_SHOWREADME ""
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "Elegir DanPlay como reproductor predeterminado"
-!define MUI_FINISHPAGE_SHOWREADME_FUNCTION AbrirAjustes
+!define MUI_FINISHPAGE_SHOWREADME_FUNCTION OpenDefaultAppsSettings
 !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
 
 !insertmacro MUI_PAGE_WELCOME
@@ -91,16 +91,16 @@ VIAddVersionKey /LANG=1034 "LegalCopyright" "${EDITOR}"
 ; quitar a nadie. Escribir en `Software\Classes\.mp3` el valor por defecto si
 ; que pisaria al programa que estuviera puesto, y eso no se hace: la eleccion
 ; es del usuario.
-!macro Asociar EXT DESCRIPCION
-  WriteRegStr HKCU "Software\Classes\DanPlay.${EXT}" "" "${DESCRIPCION}"
-  WriteRegStr HKCU "Software\Classes\DanPlay.${EXT}\DefaultIcon" "" '"$INSTDIR\${EJECUTABLE}",0'
-  WriteRegStr HKCU "Software\Classes\DanPlay.${EXT}\shell\open" "" "Abrir con ${NOMBRE}"
-  WriteRegStr HKCU "Software\Classes\DanPlay.${EXT}\shell\open\command" "" '"$INSTDIR\${EJECUTABLE}" "%1"'
+!macro Associate EXT DESCRIPTION
+  WriteRegStr HKCU "Software\Classes\DanPlay.${EXT}" "" "${DESCRIPTION}"
+  WriteRegStr HKCU "Software\Classes\DanPlay.${EXT}\DefaultIcon" "" '"$INSTDIR\${APP_EXE}",0'
+  WriteRegStr HKCU "Software\Classes\DanPlay.${EXT}\shell\open" "" "Abrir con ${APP_NAME}"
+  WriteRegStr HKCU "Software\Classes\DanPlay.${EXT}\shell\open\command" "" '"$INSTDIR\${APP_EXE}" "%1"'
   WriteRegStr HKCU "Software\Classes\.${EXT}\OpenWithProgids" "DanPlay.${EXT}" ""
-  WriteRegStr HKCU "${CAPACIDADES}\FileAssociations" ".${EXT}" "DanPlay.${EXT}"
+  WriteRegStr HKCU "${CAPABILITIES_KEY}\FileAssociations" ".${EXT}" "DanPlay.${EXT}"
 !macroend
 
-!macro Desasociar EXT
+!macro Dissociate EXT
   DeleteRegKey HKCU "Software\Classes\DanPlay.${EXT}"
   DeleteRegValue HKCU "Software\Classes\.${EXT}\OpenWithProgids" "DanPlay.${EXT}"
 !macroend
@@ -109,32 +109,32 @@ VIAddVersionKey /LANG=1034 "LegalCopyright" "${EDITOR}"
 
 ; Windows no deja sobrescribir un .exe que se esta ejecutando, y el error que
 ; sale por su cuenta no dice que hacer. Esto lo dice.
-Function ComprobarSiEstaAbierta
-  ${IfNot} ${FileExists} "$INSTDIR\${EJECUTABLE}"
+Function CheckNotRunning
+  ${IfNot} ${FileExists} "$INSTDIR\${APP_EXE}"
     Return
   ${EndIf}
-  otra_vez:
+  retry:
     ClearErrors
     ; Renombrarlo es la unica forma fiable de saber si esta en uso sin
     ; plugins de terceros: si esta abierto, Windows no deja.
-    Rename "$INSTDIR\${EJECUTABLE}" "$INSTDIR\${EJECUTABLE}.viejo"
+    Rename "$INSTDIR\${APP_EXE}" "$INSTDIR\${APP_EXE}.old"
     ${If} ${Errors}
       MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
         "DanPlay esta abierto.$\n$\nCierralo del todo (icono de la bandeja, boton derecho, Salir) y vuelve a intentarlo." \
-        IDRETRY otra_vez
+        IDRETRY retry
       Abort "DanPlay estaba abierto."
     ${EndIf}
-    Delete "$INSTDIR\${EJECUTABLE}.viejo"
+    Delete "$INSTDIR\${APP_EXE}.old"
 FunctionEnd
 
 ; Ajustes > Aplicaciones predeterminadas, ya filtrado por DanPlay.
-Function AbrirAjustes
+Function OpenDefaultAppsSettings
   ExecShell "open" "ms-settings:defaultapps?registeredAppName=DanPlay"
 FunctionEnd
 
 ; Que el explorador se entere de los iconos y el «Abrir con» nuevos sin
 ; reiniciar sesion. SHCNE_ASSOCCHANGED | SHCNF_IDLIST.
-!macro RefrescarExplorador
+!macro RefreshExplorer
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 !macroend
 
@@ -145,85 +145,85 @@ FunctionEnd
 ; paquete de Python, una herramienta) y eso acaba dando fallos raros. Se borra
 ; solo lo nuestro, pieza a pieza; nunca la carpeta entera a ciegas, que el
 ; usuario pudo elegir una que ya tuviera cosas suyas.
-Function LimpiarInstalacionAnterior
-  ${IfNot} ${FileExists} "$INSTDIR\${EJECUTABLE}"
+Function RemovePreviousInstall
+  ${IfNot} ${FileExists} "$INSTDIR\${APP_EXE}"
     Return
   ${EndIf}
   DetailPrint "Quitando la version anterior de $INSTDIR"
   RMDir /r "$INSTDIR\python"
   RMDir /r "$INSTDIR\tools"
   RMDir /r "$INSTDIR\danplay-core"
-  Delete "$INSTDIR\${EJECUTABLE}"
+  Delete "$INSTDIR\${APP_EXE}"
   Delete "$INSTDIR\danplay-core.exe"
   Delete "$INSTDIR\WebView2Loader.dll"
   Delete "$INSTDIR\LEEME.txt"
   Delete "$INSTDIR\desinstalar.exe"
 FunctionEnd
 
-Section "DanPlay" SeccionApp
+Section "DanPlay" SectionApp
   SectionIn RO
-  Call ComprobarSiEstaAbierta
-  Call LimpiarInstalacionAnterior
+  Call CheckNotRunning
+  Call RemovePreviousInstall
 
   SetOutPath "$INSTDIR"
   ; Todo lo que produce la version portatil: la aplicacion, el nucleo, el
   ; Python que lo mueve y las herramientas externas si estan.
-  File /r "${ORIGEN}\*.*"
+  File /r "${SOURCE_DIR}\*.*"
 
-  WriteRegStr HKCU "${CLAVE}" "InstallDir" "$INSTDIR"
-  WriteRegStr HKCU "${CLAVE}" "Version" "${VERSION}"
+  WriteRegStr HKCU "${REG_KEY}" "InstallDir" "$INSTDIR"
+  WriteRegStr HKCU "${REG_KEY}" "Version" "${VERSION}"
   WriteUninstaller "$INSTDIR\desinstalar.exe"
 
   ; La ficha de «Aplicaciones instaladas»
-  WriteRegStr HKCU "${DESINSTALAR}" "DisplayName" "${NOMBRE}"
-  WriteRegStr HKCU "${DESINSTALAR}" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKCU "${DESINSTALAR}" "DisplayIcon" '"$INSTDIR\${EJECUTABLE}",0'
-  WriteRegStr HKCU "${DESINSTALAR}" "Publisher" "${EDITOR}"
-  WriteRegStr HKCU "${DESINSTALAR}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKCU "${DESINSTALAR}" "UninstallString" '"$INSTDIR\desinstalar.exe"'
-  WriteRegStr HKCU "${DESINSTALAR}" "QuietUninstallString" '"$INSTDIR\desinstalar.exe" /S'
-  WriteRegDWORD HKCU "${DESINSTALAR}" "NoModify" 1
-  WriteRegDWORD HKCU "${DESINSTALAR}" "NoRepair" 1
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "${APP_NAME}"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" '"$INSTDIR\${APP_EXE}",0'
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "${PUBLISHER}"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\desinstalar.exe"'
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "QuietUninstallString" '"$INSTDIR\desinstalar.exe" /S'
+  WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoModify" 1
+  WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair" 1
   ; El tamaño que enseña Windows, en KB. Sin esto pone «desconocido».
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   IntFmt $0 "0x%08X" $0
-  WriteRegDWORD HKCU "${DESINSTALAR}" "EstimatedSize" "$0"
+  WriteRegDWORD HKCU "${UNINSTALL_KEY}" "EstimatedSize" "$0"
 
-  CreateShortcut "$SMPROGRAMS\${NOMBRE}.lnk" "$INSTDIR\${EJECUTABLE}"
+  CreateShortcut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"
 SectionEnd
 
-Section "Acceso directo en el escritorio" SeccionEscritorio
-  CreateShortcut "$DESKTOP\${NOMBRE}.lnk" "$INSTDIR\${EJECUTABLE}"
+Section "Acceso directo en el escritorio" SectionDesktop
+  CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"
 SectionEnd
 
-Section "Abrir canciones con DanPlay" SeccionAsociar
+Section "Abrir canciones con DanPlay" SectionAssociate
   ; Los ocho formatos que DanPlay sabe leer. Tienen que ser los mismos que
   ; declara `bundle.fileAssociations` en tauri.conf.json; hay una prueba que
   ; lo comprueba (tests/test_core.py).
-  !insertmacro Asociar "mp3"  "Canción MP3"
-  !insertmacro Asociar "flac" "Canción FLAC"
-  !insertmacro Asociar "wav"  "Sonido WAV"
-  !insertmacro Asociar "m4a"  "Canción M4A"
-  !insertmacro Asociar "ogg"  "Canción OGG"
-  !insertmacro Asociar "opus" "Canción Opus"
-  !insertmacro Asociar "aac"  "Canción AAC"
-  !insertmacro Asociar "wma"  "Canción WMA"
+  !insertmacro Associate "mp3"  "Canción MP3"
+  !insertmacro Associate "flac" "Canción FLAC"
+  !insertmacro Associate "wav"  "Sonido WAV"
+  !insertmacro Associate "m4a"  "Canción M4A"
+  !insertmacro Associate "ogg"  "Canción OGG"
+  !insertmacro Associate "opus" "Canción Opus"
+  !insertmacro Associate "aac"  "Canción AAC"
+  !insertmacro Associate "wma"  "Canción WMA"
 
   ; Para que DanPlay salga en Ajustes > Aplicaciones predeterminadas
-  WriteRegStr HKCU "${CAPACIDADES}" "ApplicationName" "${NOMBRE}"
-  WriteRegStr HKCU "${CAPACIDADES}" "ApplicationDescription" "Gestor de biblioteca musical"
-  WriteRegStr HKCU "Software\RegisteredApplications" "${NOMBRE}" "${CAPACIDADES}"
-  !insertmacro RefrescarExplorador
+  WriteRegStr HKCU "${CAPABILITIES_KEY}" "ApplicationName" "${APP_NAME}"
+  WriteRegStr HKCU "${CAPABILITIES_KEY}" "ApplicationDescription" "Gestor de biblioteca musical"
+  WriteRegStr HKCU "Software\RegisteredApplications" "${APP_NAME}" "${CAPABILITIES_KEY}"
+  !insertmacro RefreshExplorer
 SectionEnd
 
-LangString DESC_App        ${LANG_SPANISH} "La aplicación, el núcleo y todo lo que necesita para funcionar."
-LangString DESC_Escritorio ${LANG_SPANISH} "Deja un icono de DanPlay en el escritorio."
-LangString DESC_Asociar    ${LANG_SPANISH} "Hace que DanPlay aparezca en «Abrir con» para tus canciones y en la lista de reproductores de Windows."
+LangString DESC_App       ${LANG_SPANISH} "La aplicación, el núcleo y todo lo que necesita para funcionar."
+LangString DESC_Desktop   ${LANG_SPANISH} "Deja un icono de DanPlay en el escritorio."
+LangString DESC_Associate ${LANG_SPANISH} "Hace que DanPlay aparezca en «Abrir con» para tus canciones y en la lista de reproductores de Windows."
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${SeccionApp}        $(DESC_App)
-  !insertmacro MUI_DESCRIPTION_TEXT ${SeccionEscritorio} $(DESC_Escritorio)
-  !insertmacro MUI_DESCRIPTION_TEXT ${SeccionAsociar}    $(DESC_Asociar)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SectionApp}       $(DESC_App)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SectionDesktop}   $(DESC_Desktop)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SectionAssociate} $(DESC_Associate)
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ; -------------------------------------------------------------- desinstalar
@@ -232,26 +232,26 @@ Section "Uninstall"
   ; Nunca se borra una carpeta a ciegas: si ahi no esta el ejecutable, esto no
   ; es una instalacion de DanPlay y no se toca nada. `RMDir /r` sobre una
   ; carpeta equivocada se lleva por delante lo que haya dentro.
-  ${IfNot} ${FileExists} "$INSTDIR\${EJECUTABLE}"
+  ${IfNot} ${FileExists} "$INSTDIR\${APP_EXE}"
     MessageBox MB_ICONSTOP "No encuentro DanPlay en $INSTDIR. No se ha borrado nada."
     Abort
   ${EndIf}
 
-  Delete "$SMPROGRAMS\${NOMBRE}.lnk"
-  Delete "$DESKTOP\${NOMBRE}.lnk"
+  Delete "$SMPROGRAMS\${APP_NAME}.lnk"
+  Delete "$DESKTOP\${APP_NAME}.lnk"
 
-  !insertmacro Desasociar "mp3"
-  !insertmacro Desasociar "flac"
-  !insertmacro Desasociar "wav"
-  !insertmacro Desasociar "m4a"
-  !insertmacro Desasociar "ogg"
-  !insertmacro Desasociar "opus"
-  !insertmacro Desasociar "aac"
-  !insertmacro Desasociar "wma"
-  DeleteRegValue HKCU "Software\RegisteredApplications" "${NOMBRE}"
-  DeleteRegKey HKCU "${CLAVE}"
-  DeleteRegKey HKCU "${DESINSTALAR}"
-  !insertmacro RefrescarExplorador
+  !insertmacro Dissociate "mp3"
+  !insertmacro Dissociate "flac"
+  !insertmacro Dissociate "wav"
+  !insertmacro Dissociate "m4a"
+  !insertmacro Dissociate "ogg"
+  !insertmacro Dissociate "opus"
+  !insertmacro Dissociate "aac"
+  !insertmacro Dissociate "wma"
+  DeleteRegValue HKCU "Software\RegisteredApplications" "${APP_NAME}"
+  DeleteRegKey HKCU "${REG_KEY}"
+  DeleteRegKey HKCU "${UNINSTALL_KEY}"
+  !insertmacro RefreshExplorer
 
   RMDir /r "$INSTDIR"
 

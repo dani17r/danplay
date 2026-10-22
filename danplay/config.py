@@ -141,7 +141,7 @@ def _migrate(old: Path, new: Path) -> None:
 
 # Migracion desde el nombre anterior del programa. Por platformdirs, como las
 # rutas de ahora: con las rutas fijas de antes (~/.config/melodia, ...), un
-# entorno aislado con XDG_* propios (las pruebas, `scripts/dev.sh --prueba`)
+# entorno aislado con XDG_* propios (las pruebas, `scripts/dev.sh --sandbox`)
 # se tragaba la base y las claves de IA del usuario de verdad. Para quien no
 # tiene XDG definido la ruta es la misma que antes. Con las carpetas puestas a
 # mano no se migra nada: un entorno aparte no tiene por que traerse lo de otro.

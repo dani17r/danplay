@@ -16,36 +16,36 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-nueva="${1:-}"
-case "$nueva" in
+new_version="${1:-}"
+case "$new_version" in
     [0-9]*.[0-9]*.[0-9]*) ;;
     *) echo "uso: $0 X.Y.Z" >&2; exit 2 ;;
 esac
 
-actual=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
-[ -n "$actual" ] || { echo "no encuentro la version actual en danplay/__init__.py" >&2; exit 1; }
-if [ "$nueva" = "$actual" ]; then
-    echo "ya esta en $actual" >&2; exit 1
+current=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
+[ -n "$current" ] || { echo "no encuentro la version actual en danplay/__init__.py" >&2; exit 1; }
+if [ "$new_version" = "$current" ]; then
+    echo "ya esta en $current" >&2; exit 1
 fi
 
 # Solo la linea que toca en cada archivo: la version del paquete, nunca la de
 # una dependencia que casualmente lleve el mismo numero.
-sed -i "s/^__version__ = \"$actual\"/__version__ = \"$nueva\"/" danplay/__init__.py
-sed -i "0,/^version = \"$actual\"/s//version = \"$nueva\"/" Cargo.toml
-sed -i "0,/\"version\": \"$actual\"/s//\"version\": \"$nueva\"/" desktop/package.json
-sed -i "s|badge/version-$actual-|badge/version-$nueva-|" README.md
+sed -i "s/^__version__ = \"$current\"/__version__ = \"$new_version\"/" danplay/__init__.py
+sed -i "0,/^version = \"$current\"/s//version = \"$new_version\"/" Cargo.toml
+sed -i "0,/\"version\": \"$current\"/s//\"version\": \"$new_version\"/" desktop/package.json
+sed -i "s|badge/version-$current-|badge/version-$new_version-|" README.md
 
 # El cerrojo de Cargo lleva la version de los dos crates del workspace: si no
 # se toca, el siguiente `cargo build` lo reescribe y el arbol queda sucio.
 if [ -f Cargo.lock ]; then
-    awk -v a="$actual" -v n="$nueva" '
+    awk -v a="$current" -v n="$new_version" '
         /^name = "danplay/ { mine = 1; print; next }
         mine && /^version = / { sub("\"" a "\"", "\"" n "\""); mine = 0 }
         { print }' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock
 fi
 # el de npm, que repite la version dos veces (raiz y paquete "")
 if [ -f desktop/package-lock.json ]; then
-    python3 - "$nueva" <<'EOF'
+    python3 - "$new_version" <<'EOF'
 import json, sys, pathlib
 p = pathlib.Path("desktop/package-lock.json")
 d = json.loads(p.read_text(encoding="utf-8"))
@@ -62,9 +62,9 @@ else
     echo "  sin uv: ejecuta «uv lock» antes del commit para poner al dia uv.lock" >&2
 fi
 
-echo "version: $actual -> $nueva"
-grep -n -e "\"$nueva\"" -e "version-$nueva-" \
+echo "version: $current -> $new_version"
+grep -n -e "\"$new_version\"" -e "version-$new_version-" \
     danplay/__init__.py Cargo.toml desktop/package.json README.md | sed 's/^/  /'
 echo
-echo "Ahora: ./scripts/test.sh --rapido, commit propio («chore: subir a $nueva»),"
-echo "y para publicarla: git tag v$nueva && git push --tags (la CI construye los paquetes)."
+echo "Ahora: ./scripts/test.sh --quick, commit propio («chore: subir a $new_version»),"
+echo "y para publicarla: git tag v$new_version && git push --tags (la CI construye los paquetes)."

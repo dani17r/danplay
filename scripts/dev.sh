@@ -3,49 +3,49 @@
 # nucleo Python del propio proyecto, no el empaquetado. Lo que cambies en la
 # interfaz se ve al momento; lo de Python, al volver a abrirla.
 #
-#   ./scripts/dev.sh                 con tus datos de siempre (~/.config/danplay,
-#                                    ~/.local/share/danplay): tu biblioteca real
-#   ./scripts/dev.sh --prueba [DIR]  con datos aparte, en .dev/prueba/: ajustes,
-#                                    base e indice propios y una biblioteca que
-#                                    es una COPIA de las canciones de DIR (o unas
-#                                    generadas con ffmpeg si no das ninguna).
-#                                    Ni tu musica ni tus ajustes se tocan.
-#   ./scripts/dev.sh --prueba --limpia [DIR]   lo mismo, empezando de cero
+#   ./scripts/dev.sh                  con tus datos de siempre (~/.config/danplay,
+#                                     ~/.local/share/danplay): tu biblioteca real
+#   ./scripts/dev.sh --sandbox [DIR]  con datos aparte, en .dev/sandbox/: ajustes,
+#                                     base e indice propios y una biblioteca que
+#                                     es una COPIA de las canciones de DIR (o unas
+#                                     generadas con ffmpeg si no das ninguna).
+#                                     Ni tu musica ni tus ajustes se tocan.
+#   ./scripts/dev.sh --sandbox --clean [DIR]   lo mismo, empezando de cero
 #
 # Convive con DanPlay instalado: la compilacion de desarrollo usa su propio
 # identificador, su socket y su nombre en MPRIS y en la bandeja.
 set -eu
 cd "$(dirname "$0")/.."
-RAIZ=$(pwd)
+ROOT=$(pwd)
 
-falta () { printf '\033[31mfalta\033[0m %s\n  %s\n' "$1" "$2" >&2; exit 1; }
-[ -x .venv/bin/python ] || falta ".venv" "uv sync   (o: python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-dev.txt)"
-[ -d desktop/node_modules ] || falta "desktop/node_modules" "cd desktop && npm ci"
-command -v cargo >/dev/null 2>&1 || falta "Rust" "https://rustup.rs"
+missing () { printf '\033[31mfalta\033[0m %s\n  %s\n' "$1" "$2" >&2; exit 1; }
+[ -x .venv/bin/python ] || missing ".venv" "uv sync   (o: python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-dev.txt)"
+[ -d desktop/node_modules ] || missing "desktop/node_modules" "cd desktop && npm ci"
+command -v cargo >/dev/null 2>&1 || missing "Rust" "https://rustup.rs"
 
-if [ "${1:-}" = "--prueba" ]; then
+if [ "${1:-}" = "--sandbox" ]; then
     shift
-    PRUEBA="$RAIZ/.dev/prueba"
-    if [ "${1:-}" = "--limpia" ]; then
+    SANDBOX="$ROOT/.dev/sandbox"
+    if [ "${1:-}" = "--clean" ]; then
         shift
-        rm -rf "$PRUEBA"
+        rm -rf "$SANDBOX"
     fi
-    mkdir -p "$PRUEBA/config" "$PRUEBA/datos" "$PRUEBA/cache" "$PRUEBA/Musica"
+    mkdir -p "$SANDBOX/config" "$SANDBOX/data" "$SANDBOX/cache" "$SANDBOX/Musica"
     # platformdirs (Python) y Tauri leen estas: todo lo de la app queda dentro
-    export XDG_CONFIG_HOME="$PRUEBA/config"
-    export XDG_DATA_HOME="$PRUEBA/datos"
-    export XDG_CACHE_HOME="$PRUEBA/cache"
-    export DANPLAY_LIBRARY="$PRUEBA/Musica"
+    export XDG_CONFIG_HOME="$SANDBOX/config"
+    export XDG_DATA_HOME="$SANDBOX/data"
+    export XDG_CACHE_HOME="$SANDBOX/cache"
+    export DANPLAY_LIBRARY="$SANDBOX/Musica"
     # ni el .env del proyecto (puede llevar tus claves de IA) ni su base
     export DANPLAY_PROJECT_ENV=0
-    if [ -z "$(ls -A "$PRUEBA/Musica")" ]; then
+    if [ -z "$(ls -A "$SANDBOX/Musica")" ]; then
         if [ -n "${1:-}" ]; then
             # una copia: la app escribe etiquetas y la importacion mueve archivos
             find "$1" -maxdepth 2 -type f \( -iname '*.mp3' -o -iname '*.flac' -o -iname '*.ogg' \
                 -o -iname '*.opus' -o -iname '*.m4a' -o -iname '*.wav' -o -iname '*.aac' \
-                -o -iname '*.wma' \) -exec cp {} "$PRUEBA/Musica/" \;
+                -o -iname '*.wma' \) -exec cp {} "$SANDBOX/Musica/" \;
         else
-            .venv/bin/python - "$PRUEBA/Musica" <<'EOF'
+            .venv/bin/python - "$SANDBOX/Musica" <<'EOF'
 import pathlib, sys
 sys.path.insert(0, "tests")
 from conftest import make_mp3
@@ -58,7 +58,7 @@ EOF
         fi
     fi
     printf '\033[36mprueba\033[0m datos en %s\n       biblioteca: %s (eligela en la bienvenida)\n' \
-        "$PRUEBA" "$PRUEBA/Musica"
+        "$SANDBOX" "$SANDBOX/Musica"
 fi
 
 cd desktop

@@ -19,7 +19,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-DESTINO=desktop/src-tauri/tools
+DEST=desktop/src-tauri/tools
 CACHE="${DANPLAY_CACHE_LINUX:-$HOME/.cache/danplay-linux}"
 
 # ffmpeg 9.0.2 de martin-riedl.de (el mismo que el paquete de macOS)
@@ -32,38 +32,38 @@ FPCALC_SHA256=fc16cd37a70168040bc9ceb45f1d4d1216f5a75bc4c9cf8564bea70ac6a45733
 QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-linux-x86_64
 QJS_SHA256=0bfc02511a9f549c28b53880d988fc7cd5d361e90c5e8afdfcd7dc6774ceace5
 
-morir () { printf '\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
-[ "$(uname -m)" = x86_64 ] || morir "las herramientas de Linux son para x86_64 (esto es $(uname -m))"
-mkdir -p "$CACHE" "$DESTINO"
+die () { printf '\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
+[ "$(uname -m)" = x86_64 ] || die "las herramientas de Linux son para x86_64 (esto es $(uname -m))"
+mkdir -p "$CACHE" "$DEST"
 
-# Baja `url` a la caché como `nombre`, si no está ya, y comprueba su sha256.
-bajar () {
-    url=$1 sha=$2 nombre=$3
-    archivo="$CACHE/$nombre"
-    if [ -f "$archivo" ] && echo "$sha  $archivo" | sha256sum -c --status -; then
+# Baja `url` a la caché como `name`, si no está ya, y comprueba su sha256.
+download () {
+    url=$1 sha=$2 name=$3
+    file="$CACHE/$name"
+    if [ -f "$file" ] && echo "$sha  $file" | sha256sum -c --status -; then
         return 0
     fi
-    printf '  bajando %s\n' "$nombre"
-    curl -sfL --retry 3 -o "$archivo.part" "$url" || morir "no pude bajar $url"
-    echo "$sha  $archivo.part" | sha256sum -c --status - \
-      || { rm -f "$archivo.part"; morir "$nombre no es el que se esperaba (sha256)"; }
-    mv "$archivo.part" "$archivo"
+    printf '  bajando %s\n' "$name"
+    curl -sfL --retry 3 -o "$file.part" "$url" || die "no pude bajar $url"
+    echo "$sha  $file.part" | sha256sum -c --status - \
+      || { rm -f "$file.part"; die "$name no es el que se esperaba (sha256)"; }
+    mv "$file.part" "$file"
 }
 
-bajar "$FFMPEG_URL/ffmpeg.zip" "$FFMPEG_SHA256" ffmpeg-9.0.2.zip
-bajar "$FPCALC_URL" "$FPCALC_SHA256" fpcalc-1.6.1.tar.gz
-bajar "$QJS_URL" "$QJS_SHA256" qjs-0.17.0
+download "$FFMPEG_URL/ffmpeg.zip" "$FFMPEG_SHA256" ffmpeg-9.0.2.zip
+download "$FPCALC_URL" "$FPCALC_SHA256" fpcalc-1.6.1.tar.gz
+download "$QJS_URL" "$QJS_SHA256" qjs-0.17.0
 
-unzip -o -q -j "$CACHE/ffmpeg-9.0.2.zip" ffmpeg -d "$DESTINO"
-cp "$CACHE/qjs-0.17.0" "$DESTINO/qjs"
-tar xzf "$CACHE/fpcalc-1.6.1.tar.gz" -C "$DESTINO" --strip-components=1 \
+unzip -o -q -j "$CACHE/ffmpeg-9.0.2.zip" ffmpeg -d "$DEST"
+cp "$CACHE/qjs-0.17.0" "$DEST/qjs"
+tar xzf "$CACHE/fpcalc-1.6.1.tar.gz" -C "$DEST" --strip-components=1 \
     chromaprint-fpcalc-1.6.1-linux-x86_64/fpcalc
 # el ffprobe y el Deno de una versión anterior, si quedaron ahí: ya no viajan
-rm -f "$DESTINO/ffprobe" "$DESTINO/deno"
-chmod 755 "$DESTINO/ffmpeg" "$DESTINO/fpcalc" "$DESTINO/qjs"
+rm -f "$DEST/ffprobe" "$DEST/deno"
+chmod 755 "$DEST/ffmpeg" "$DEST/fpcalc" "$DEST/qjs"
 
 # Que arrancan de verdad en esta máquina (la de la CI es la más vieja que se
 # admite: Ubuntu 22.04)
-"$DESTINO/ffmpeg" -hide_banner -version | head -1
-"$DESTINO/fpcalc" -version
-"$DESTINO/qjs" --help 2>&1 | head -1
+"$DEST/ffmpeg" -hide_banner -version | head -1
+"$DEST/fpcalc" -version
+"$DEST/qjs" --help 2>&1 | head -1
