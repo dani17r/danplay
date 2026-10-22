@@ -39,19 +39,19 @@ afterEach(() => {
   w?.unmount()
   w = null
 })
-const montar = async () => {
+const mountView = async () => {
   w = mount(SettingsPage, { attachTo: document.body })
   await flushPromises()
   await flushPromises()
   return w
 }
-const boton = (text) => w.findAll('button').find((b) => b.text().includes(text))
-const avisos = () => useNotices().notices.value.map((n) => n.message)
+const button = (text) => w.findAll('button').find((b) => b.text().includes(text))
+const notices = () => useNotices().notices.value.map((n) => n.message)
 
 describe('analizar e indexar todo', () => {
   it('es una tarea: se ve como va y se avisa al acabar', async () => {
     // el nucleo contesta al momento y luego se pregunta hasta que acaba
-    const vuelta = [
+    const round = [
       {
         name: 'escaneo',
         active: true,
@@ -76,36 +76,36 @@ describe('analizar e indexar todo', () => {
         { done: 40, total: 40, message: '40 canciones (2 nuevas)' }
       )
     ]
-    api().scan.mockResolvedValueOnce({ job: vuelta[0] })
-    let paso = 0
-    let seguir
+    api().scan.mockResolvedValueOnce({ job: round[0] })
+    let step = 0
+    let resume
     api().job.mockImplementation(
       () =>
         new Promise((r) => {
-          seguir = () => r(vuelta[++paso])
+          resume = () => r(round[++step])
         })
     )
-    await montar()
-    await boton('Analizar e indexar todo').trigger('click')
+    await mountView()
+    await button('Analizar e indexar todo').trigger('click')
     await flushPromises()
     expect(w.find('.job-progress').text()).toContain('10 / 40')
     expect(w.find('.job-progress').text()).toContain('leyendo etiquetas')
-    expect(boton('Analizando').attributes('disabled')).toBeDefined()
+    expect(button('Analizando').attributes('disabled')).toBeDefined()
     // cada respuesta, a la pregunta que toca: si se contesta antes de que
     // llegue la siguiente, `seguir` aun es el de la anterior y no hace nada
     // (en la CI, a veces: la ultima pregunta se quedaba sin respuesta)
-    const pregunta = (n) =>
+    const question = (n) =>
       vi.waitFor(() => expect(api().job).toHaveBeenCalledTimes(n), { timeout: 5000 })
-    await pregunta(1)
-    seguir()
+    await question(1)
+    resume()
     await flushPromises()
     await vi.waitFor(() => expect(w.find('.job-progress').text()).toContain('30 / 40'))
-    await pregunta(2)
-    seguir()
+    await question(2)
+    resume()
     await flushPromises()
     await flushPromises()
     await vi.waitFor(() => expect(w.find('.job-progress').exists()).toBe(false))
-    expect(avisos().some((m) => m.includes('40 canciones (2 nuevas)'))).toBe(true)
+    expect(notices().some((m) => m.includes('40 canciones (2 nuevas)'))).toBe(true)
     expect(w.emitted('reindexed')).toBeTruthy()
     api().job.mockReset()
   })
@@ -122,12 +122,12 @@ describe('analizar e indexar todo', () => {
         error: 'la carpeta ya no existe'
       }
     })
-    await montar()
-    await boton('Analizar e indexar todo').trigger('click')
+    await mountView()
+    await button('Analizar e indexar todo').trigger('click')
     await flushPromises()
     await flushPromises()
-    expect(avisos()).toContain('No se pudo analizar: la carpeta ya no existe')
-    expect(boton('Analizar e indexar todo').attributes('disabled')).toBeUndefined()
+    expect(notices()).toContain('No se pudo analizar: la carpeta ya no existe')
+    expect(button('Analizar e indexar todo').attributes('disabled')).toBeUndefined()
   })
 })
 
@@ -141,8 +141,8 @@ describe('convertir a mp3', () => {
   })
 
   it('simular contesta al momento, sin tarea', async () => {
-    await montar()
-    await boton('Simular').trigger('click')
+    await mountView()
+    await button('Simular').trigger('click')
     await flushPromises()
     expect(api().convert).toHaveBeenCalledWith(expect.objectContaining({ dry_run: true }))
     expect(api().runJob).not.toHaveBeenCalled()
@@ -153,19 +153,19 @@ describe('convertir a mp3', () => {
   it('convertir de verdad es una tarea, y «conservar el original» viaja como `keep`', async () => {
     // Se mandaba «keepOne», que el nucleo no lee: la casilla no hacia nada y
     // los archivos de partida se borraban igual.
-    await montar()
+    await mountView()
     await w
       .findAll('.toggle')
       .find((t) => t.text().includes('Conservar el archivo original'))
       .find('button')
       .trigger('click')
     await flushPromises()
-    await boton('Convertir ahora').trigger('click')
+    await button('Convertir ahora').trigger('click')
     await flushPromises()
     await flushPromises()
-    const cuerpo = api().convert.mock.calls.at(-1)[0]
-    expect(cuerpo).toMatchObject({ dry_run: false, keep: true })
-    expect(cuerpo).not.toHaveProperty('keepOne')
+    const body = api().convert.mock.calls.at(-1)[0]
+    expect(body).toMatchObject({ dry_run: false, keep: true })
+    expect(body).not.toHaveProperty('keepOne')
     expect(api().runJob).toHaveBeenCalledWith(
       expect.any(Function),
       'conversion',
@@ -182,76 +182,80 @@ describe('la calidad de conversion', () => {
     // config.py: MP3_QUALITY = high | medium | variable. Ajustes ofrecia
     // «alta» y «media», que el nucleo no conoce: elegir Media acababa en 320k
     // sin decir nada.
-    await montar()
-    const campo = w
+    await mountView()
+    const field = w
       .findAll('.field')
       .find((f) => f.find('.field-label').exists() && f.find('.field-label').text() === 'Calidad')
-    const elegir = async (nombre) => {
-      await campo.find('.select-box').trigger('click')
-      await campo
+    const pick = async (name) => {
+      await field.find('.select-box').trigger('click')
+      await field
         .findAll('.select-opt')
-        .find((o) => o.text().startsWith(nombre))
+        .find((o) => o.text().startsWith(name))
         .trigger('click')
       await flushPromises()
     }
     // empieza en «Alta»: se recorren las otras y se vuelve a ella
-    const elegidas = []
-    for (const nombre of ['Media', 'Variable', 'Alta']) {
-      await elegir(nombre)
-      elegidas.push(api().saveSettings.mock.calls.at(-1)[0].quality)
+    const picked = []
+    for (const name of ['Media', 'Variable', 'Alta']) {
+      await pick(name)
+      picked.push(api().saveSettings.mock.calls.at(-1)[0].quality)
     }
-    expect(elegidas).toEqual(['medium', 'variable', 'high'])
+    expect(picked).toEqual(['medium', 'variable', 'high'])
     // elegir la que ya estaba no guarda nada
-    const veces = api().saveSettings.mock.calls.length
-    await elegir('Alta')
-    expect(api().saveSettings).toHaveBeenCalledTimes(veces)
+    const times = api().saveSettings.mock.calls.length
+    await pick('Alta')
+    expect(api().saveSettings).toHaveBeenCalledTimes(times)
     const core = coreSource()
-    for (const q of elegidas)
+    for (const q of picked)
       expect(core, `el nucleo no conoce la calidad «${q}»`).toMatch(new RegExp(`"${q}"`))
   })
 })
 
 describe('carpetas', () => {
-  const carpetas = (folders, exclusions = []) => ({
+  const folderSettings = (folders, exclusions = []) => ({
     folders,
     exclusions,
     always_excluded: ['Revisar']
   })
 
   it('una carpeta que no esta se busca con «¿Donde esta?»', async () => {
-    api().folders.mockResolvedValue(carpetas([{ path: '/viejo/Musica', n: 0, exists: false }]))
+    api().folders.mockResolvedValue(
+      folderSettings([{ path: '/viejo/Musica', n: 0, exists: false }])
+    )
     api().relocateFolder.mockResolvedValueOnce({
       from: '/viejo/Musica',
       to: '/nuevo/Musica',
       back: 12,
-      ...carpetas([{ path: '/nuevo/Musica', n: 12, exists: true }])
+      ...folderSettings([{ path: '/nuevo/Musica', n: 12, exists: true }])
     })
     held.pickFolder.mockResolvedValueOnce('/nuevo/Musica')
-    await montar()
+    await mountView()
     expect(w.text()).toContain('no está')
-    await boton('¿Dónde está?').trigger('click')
+    await button('¿Dónde está?').trigger('click')
     await flushPromises()
     expect(api().relocateFolder).toHaveBeenCalledWith('/viejo/Musica', '/nuevo/Musica')
-    expect(avisos().some((m) => m.includes('vuelven 12 canciones'))).toBe(true)
+    expect(notices().some((m) => m.includes('vuelven 12 canciones'))).toBe(true)
     expect(w.text()).toContain('/nuevo/Musica')
     expect(w.emitted('changed')).toBeTruthy()
   })
 
   it('quitar una carpeta y omitir o dejar de omitir otras', async () => {
-    api().folders.mockResolvedValue(carpetas([{ path: '/musica', n: 3, exists: true }]))
-    api().removeFolder.mockResolvedValueOnce(carpetas([]))
-    api().addExclusion.mockResolvedValueOnce(carpetas([], [{ pattern: 'Secuencias', note: '' }]))
-    api().removeExclusion.mockResolvedValueOnce(carpetas([]))
-    await montar()
-    await boton('Quitar').trigger('click')
+    api().folders.mockResolvedValue(folderSettings([{ path: '/musica', n: 3, exists: true }]))
+    api().removeFolder.mockResolvedValueOnce(folderSettings([]))
+    api().addExclusion.mockResolvedValueOnce(
+      folderSettings([], [{ pattern: 'Secuencias', note: '' }])
+    )
+    api().removeExclusion.mockResolvedValueOnce(folderSettings([]))
+    await mountView()
+    await button('Quitar').trigger('click')
     await flushPromises()
     expect(api().removeFolder).toHaveBeenCalledWith('/musica')
     expect(w.text()).not.toContain('/musica')
-    const patron = w
+    const pattern = w
       .findAll('input')
       .find((i) => i.attributes('placeholder')?.includes('Secuencias'))
-    await patron.setValue('Secuencias')
-    await boton('Omitir').trigger('click')
+    await pattern.setValue('Secuencias')
+    await button('Omitir').trigger('click')
     await flushPromises()
     expect(api().addExclusion).toHaveBeenCalledWith('Secuencias')
     const chip = w.findAll('button.chip').find((b) => b.text().includes('Secuencias'))
@@ -263,12 +267,12 @@ describe('carpetas', () => {
   })
 
   it('si el nucleo no puede quitarla, lo dice', async () => {
-    api().folders.mockResolvedValue(carpetas([{ path: '/musica', n: 3, exists: true }]))
+    api().folders.mockResolvedValue(folderSettings([{ path: '/musica', n: 3, exists: true }]))
     api().removeFolder.mockRejectedValueOnce(new Error('sin permiso'))
-    await montar()
-    await boton('Quitar').trigger('click')
+    await mountView()
+    await button('Quitar').trigger('click')
     await flushPromises()
-    expect(avisos()).toContain('No se pudo quitar: sin permiso')
+    expect(notices()).toContain('No se pudo quitar: sin permiso')
   })
 })
 
@@ -276,13 +280,13 @@ describe('temas', () => {
   it('cada tarjeta se pinta con los colores de su tema, ninguno sin definir', async () => {
     // un color que no existe (`t.v.acento` tras pasar a ingles) salia como
     // `undefined` y la tarjeta se quedaba sin fondo ni borde
-    await montar()
-    const tarjetas = w.findAll('.theme-card')
-    expect(tarjetas.length).toBe(Object.keys(CATALOG).length)
-    for (const t of tarjetas) {
-      const estilo = t.attributes('style')
-      expect(estilo).toMatch(/background:\s*rgb/)
-      expect(estilo).toMatch(/border-color:\s*rgb/)
+    await mountView()
+    const cards = w.findAll('.theme-card')
+    expect(cards.length).toBe(Object.keys(CATALOG).length)
+    for (const t of cards) {
+      const style = t.attributes('style')
+      expect(style).toMatch(/background:\s*rgb/)
+      expect(style).toMatch(/border-color:\s*rgb/)
       for (const m of t.findAll('.theme-swatch'))
         expect(m.attributes('style')).toMatch(/background:\s*rgb/)
       expect(t.find('.theme-name').attributes('style')).toMatch(/color:\s*rgb/)
@@ -290,13 +294,13 @@ describe('temas', () => {
   })
 
   it('cada tema es un boton que dice si esta puesto', async () => {
-    await montar()
-    const tarjetas = w.findAll('.theme-pick')
-    expect(tarjetas.length).toBe(Object.keys(CATALOG).length)
-    const oceano = tarjetas.find((t) => t.text().includes('Oceano'))
-    await oceano.trigger('click')
+    await mountView()
+    const cards = w.findAll('.theme-pick')
+    expect(cards.length).toBe(Object.keys(CATALOG).length)
+    const ocean = cards.find((t) => t.text().includes('Oceano'))
+    await ocean.trigger('click')
     expect(usePreferences().theme.value).toBe('ocean')
-    expect(oceano.attributes('aria-pressed')).toBe('true')
+    expect(ocean.attributes('aria-pressed')).toBe('true')
   })
 
   it('editar otro tema con el editor abierto lo empieza con sus colores', async () => {
@@ -312,30 +316,30 @@ describe('temas', () => {
       custom: true,
       v: { ...CATALOG.night.v, accent: '#0000aa' }
     })
-    await montar()
-    const editar = (nombre) =>
+    await mountView()
+    const edit = (name) =>
       w
         .findAll('.theme-card')
-        .find((c) => c.text().includes(nombre))
+        .find((c) => c.text().includes(name))
         .findAll('button')
         .find((b) => b.text() === 'Editar')
-    await editar('Rojo').trigger('click')
-    await editar('Azul').trigger('click')
+    await edit('Rojo').trigger('click')
+    await edit('Azul').trigger('click')
     await flushPromises()
-    await boton('Guardar tema').trigger('click')
+    await button('Guardar tema').trigger('click')
     expect(customThemes()['propio-azul'].v.accent).toBe('#0000aa')
     expect(customThemes()['propio-rojo'].v.accent).toBe('#aa0000')
   })
 
   it('crear uno propio y borrarlo', async () => {
-    await montar()
-    await boton('Crear el mio').trigger('click')
+    await mountView()
+    await button('Crear el mio').trigger('click')
     expect(w.find('h3').text()).toBeTruthy()
-    await boton('Guardar tema').trigger('click')
+    await button('Guardar tema').trigger('click')
     await flushPromises()
-    const nuevo = Object.keys(customThemes())[0]
-    expect(nuevo).toMatch(/^propio-/)
-    expect(usePreferences().theme.value).toBe(nuevo)
+    const created = Object.keys(customThemes())[0]
+    expect(created).toMatch(/^propio-/)
+    expect(usePreferences().theme.value).toBe(created)
     await w
       .findAll('.theme-card')
       .find((c) => c.find('.theme-actions').exists())
@@ -355,15 +359,15 @@ describe('las pistas separadas', () => {
     const { resetSeparation, useSeparation } = await import('../src/composables/useSeparation.js')
     resetSeparation()
     await useSeparation().refresh()
-    await montar()
+    await mountView()
     const card = w.findAll('.card').find((c) => c.text().includes('Pistas separadas'))
     // uno solo, sin elegir modelo
     expect(card.text()).not.toContain('6 pistas')
     expect(card.text()).toContain('bajado · 307 MB')
     expect(card.text()).toContain('Separadas/')
-    const borrar = card.findAll('button').filter((b) => b.text() === 'Borrar')
-    expect(borrar).toHaveLength(1)
-    await borrar[0].trigger('click')
+    const remove = card.findAll('button').filter((b) => b.text() === 'Borrar')
+    expect(remove).toHaveLength(1)
+    await remove[0].trigger('click')
     await flushPromises()
     expect(useDialog().dialog.value.message).toContain('307 MB')
     dialogOk()
@@ -381,7 +385,7 @@ describe('las pistas separadas', () => {
     const { resetSeparation, useSeparation } = await import('../src/composables/useSeparation.js')
     resetSeparation()
     await useSeparation().refresh()
-    await montar()
+    await mountView()
     const card = w.findAll('.card').find((c) => c.text().includes('Pistas separadas'))
     expect(card.text()).toContain('Guardar las pistas en')
     expect(card.text()).toContain('FLAC')
@@ -394,7 +398,7 @@ describe('las pistas separadas', () => {
     held.state.separation.reason = 'hace falta ffmpeg'
     try {
       await useSeparation().refresh()
-      await montar()
+      await mountView()
       const card = w.findAll('.card').find((c) => c.text().includes('Pistas separadas'))
       expect(card.text()).toContain('No se puede separar en este equipo: hace falta ffmpeg')
     } finally {

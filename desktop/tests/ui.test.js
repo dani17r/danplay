@@ -93,13 +93,13 @@ describe('Selector', () => {
     { v: 'b', n: 'Beta' },
     { v: 'c', n: 'Gamma' }
   ]
-  const montar = (value = 'a') => mount(SelectField, { props: { modelValue: value, options } })
+  const mountView = (value = 'a') => mount(SelectField, { props: { modelValue: value, options } })
 
   it('muestra la opcion elegida', () => {
-    expect(montar('b').find('.select-text').text()).toBe('Beta')
+    expect(mountView('b').find('.select-text').text()).toBe('Beta')
   })
   it('abre y cierra el menu', async () => {
-    const w = montar()
+    const w = mountView()
     expect(w.find('.select-menu').exists()).toBe(false)
     await w.find('.select-box').trigger('click')
     expect(w.find('.select-menu').exists()).toBe(true)
@@ -108,14 +108,14 @@ describe('Selector', () => {
     expect(w.find('.select-menu').exists()).toBe(false)
   })
   it('elegir una opcion la emite y cierra', async () => {
-    const w = montar()
+    const w = mountView()
     await w.find('.select-box').trigger('click')
     await w.findAll('.select-opt')[2].trigger('click')
     expect(w.emitted('update:modelValue').at(-1)).toEqual(['c'])
     expect(w.find('.select-menu').exists()).toBe(false)
   })
   it('se maneja con el teclado', async () => {
-    const w = montar('a')
+    const w = mountView('a')
     await w.find('.select-box').trigger('keydown', { key: 'ArrowDown' })
     expect(w.find('.select-menu').exists()).toBe(true)
     await w.find('.select-box').trigger('keydown', { key: 'ArrowDown' })
@@ -123,14 +123,14 @@ describe('Selector', () => {
     expect(w.emitted('update:modelValue').at(-1)).toEqual(['b'])
   })
   it('Escape cierra sin elegir', async () => {
-    const w = montar()
+    const w = mountView()
     await w.find('.select-box').trigger('click')
     await w.find('.select-box').trigger('keydown', { key: 'Escape' })
     expect(w.find('.select-menu').exists()).toBe(false)
     expect(w.emitted('update:modelValue')).toBeFalsy()
   })
   it('marca cual esta activa', async () => {
-    const w = montar('b')
+    const w = mountView('b')
     await w.find('.select-box').trigger('click')
     expect(w.findAll('.select-opt')[1].classes()).toContain('current')
   })
@@ -206,15 +206,15 @@ describe('Color', () => {
 })
 
 describe('nada de controles nativos sueltos', () => {
-  const vistas = [
+  const views = [
     ...readdirSync('src/components')
       .filter((f) => f.endsWith('.vue'))
       .map((f) => 'src/components/' + f),
     'src/App.vue'
   ]
   it('no hay select, checkbox, range ni color fuera de la libreria', () => {
-    const malos = []
-    for (const f of vistas) {
+    const bad = []
+    for (const f of views) {
       const txt = readFileSync(f, 'utf8')
       for (const pattern of [
         /<select[\s>]/,
@@ -222,18 +222,17 @@ describe('nada de controles nativos sueltos', () => {
         /<input[^>]*type="range"/,
         /<input[^>]*type="color"/
       ]) {
-        if (pattern.test(txt)) malos.push(`${f}: ${pattern}`)
+        if (pattern.test(txt)) bad.push(`${f}: ${pattern}`)
       }
     }
-    expect(malos, 'usa los componentes de ui/: ' + malos.join(', ')).toEqual([])
+    expect(bad, 'usa los componentes de ui/: ' + bad.join(', ')).toEqual([])
   })
   it('no hay inputs de texto sin envolver', () => {
-    const malos = []
-    for (const f of vistas) {
-      if (/<input(?![^>]*type="(checkbox|range|color)")/.test(readFileSync(f, 'utf8')))
-        malos.push(f)
+    const bad = []
+    for (const f of views) {
+      if (/<input(?![^>]*type="(checkbox|range|color)")/.test(readFileSync(f, 'utf8'))) bad.push(f)
     }
-    expect(malos, 'usa TextField.vue: ' + malos.join(', ')).toEqual([])
+    expect(bad, 'usa TextField.vue: ' + bad.join(', ')).toEqual([])
   })
 })
 
@@ -242,46 +241,46 @@ describe('nada de controles nativos sueltos', () => {
 // (una de ellas manipulando el DOM a mano, con una clase que ya no existia) y
 // la rejilla se descuadraba cuando una cancion no tenia portada.
 describe('lo repetido vive en un solo componente', () => {
-  const vistas = [
+  const views = [
     ...readdirSync('src/components')
       .filter((f) => f.endsWith('.vue'))
       .map((f) => 'src/components/' + f),
     'src/App.vue'
   ]
-  const leer = (f) => readFileSync(f, 'utf8')
+  const read = (f) => readFileSync(f, 'utf8')
 
   it('nadie monta la caratula a mano: se usa CoverArt', () => {
-    const malos = vistas.filter((f) => /<img[^>]*coverUrl/.test(leer(f)))
-    expect(malos, 'usa ui/CoverArt.vue: ' + malos.join(', ')).toEqual([])
+    const bad = views.filter((f) => /<img[^>]*coverUrl/.test(read(f)))
+    expect(bad, 'usa ui/CoverArt.vue: ' + bad.join(', ')).toEqual([])
   })
 
   it('nadie sustituye nodos del DOM a mano', () => {
-    const malos = vistas.filter((f) => /replaceWith\(|createElement\(/.test(leer(f)))
-    expect(malos, 'deja que Vue pinte: ' + malos.join(', ')).toEqual([])
+    const bad = views.filter((f) => /replaceWith\(|createElement\(/.test(read(f)))
+    expect(bad, 'deja que Vue pinte: ' + bad.join(', ')).toEqual([])
   })
 
   it('el girito se pinta con Loading, no suelto', () => {
-    const malos = vistas.filter(
-      (f) => /class="spinner"/.test(leer(f)) && !/chat-downloading/.test(leer(f))
+    const bad = views.filter(
+      (f) => /class="spinner"/.test(read(f)) && !/chat-downloading/.test(read(f))
     )
-    expect(malos, 'usa ui/Loading.vue: ' + malos.join(', ')).toEqual([])
+    expect(bad, 'usa ui/Loading.vue: ' + bad.join(', ')).toEqual([])
   })
 
   it('los huecos vacios se pintan con EmptyState', () => {
-    const malos = vistas.filter((f) => /<div[^>]*class="empty"/.test(leer(f)))
-    expect(malos, 'usa ui/EmptyState.vue: ' + malos.join(', ')).toEqual([])
+    const bad = views.filter((f) => /<div[^>]*class="empty"/.test(read(f)))
+    expect(bad, 'usa ui/EmptyState.vue: ' + bad.join(', ')).toEqual([])
   })
 
   it('las tarjetas con titulo se pintan con Card', () => {
-    const malos = vistas.filter((f) => /<div class="card"[^>]*>\s*\n\s*<h3/.test(leer(f)))
-    expect(malos, 'usa ui/Card.vue: ' + malos.join(', ')).toEqual([])
+    const bad = views.filter((f) => /<div class="card"[^>]*>\s*\n\s*<h3/.test(read(f)))
+    expect(bad, 'usa ui/Card.vue: ' + bad.join(', ')).toEqual([])
   })
 
   it('CoverArt es el unico que sabe de portadas que fallan', () => {
-    const fuera = vistas
+    const outside = views
       .filter((f) => !f.endsWith('CoverArt.vue'))
-      .filter((f) => /coverUrlAlt/.test(leer(f)))
-    expect(fuera, 'el respaldo de URL vive en CoverArt: ' + fuera.join(', ')).toEqual([])
+      .filter((f) => /coverUrlAlt/.test(read(f)))
+    expect(outside, 'el respaldo de URL vive en CoverArt: ' + outside.join(', ')).toEqual([])
   })
 })
 
@@ -289,41 +288,41 @@ describe('lo repetido vive en un solo componente', () => {
 // causa es que CSS solo sabe seleccionar hermanos POSTERIORES (`~`), asi que
 // el marcado va 5..1 y el contenedor lo endereza con row-reverse.
 describe('valoracion con estrellas', () => {
-  const montarEstrellas = (props = {}) => mount(StarRating, { props: { value: 0, ...props } })
+  const mountStars = (props = {}) => mount(StarRating, { props: { value: 0, ...props } })
 
   it('el marcado va del 5 al 1', () => {
-    const w = montarEstrellas({ value: 0 })
-    const titulos = w.findAll('.ico').map((i) => i.attributes('title'))
-    expect(titulos).toEqual(['5 de 5', '4 de 5', '3 de 5', '2 de 5', '1 de 5'])
+    const w = mountStars({ value: 0 })
+    const titles = w.findAll('.ico').map((i) => i.attributes('title'))
+    expect(titles).toEqual(['5 de 5', '4 de 5', '3 de 5', '2 de 5', '1 de 5'])
   })
 
   it('con 3 estrellas se marcan la 1, la 2 y la 3', () => {
-    const w = montarEstrellas({ value: 3 })
-    const iconos = w.findAll('.ico')
+    const w = mountStars({ value: 3 })
+    const icons = w.findAll('.ico')
     // el marcado va 5,4,3,2,1: las llenas son las tres ultimas
-    const llenas = iconos.map((i) => i.classes().includes('on'))
-    expect(llenas).toEqual([false, false, true, true, true])
+    const filled = icons.map((i) => i.classes().includes('on'))
+    expect(filled).toEqual([false, false, true, true, true])
     // la de la nota actual ofrece quitarla; las de debajo, ponerse
-    expect(iconos[2].attributes('title')).toBe('Quitar valoración')
-    expect(iconos[3].attributes('title')).toBe('2 de 5')
+    expect(icons[2].attributes('title')).toBe('Quitar valoración')
+    expect(icons[3].attributes('title')).toBe('2 de 5')
   })
 
   it('pulsar una estrella manda su valor, no el del indice', async () => {
-    const w = montarEstrellas({ value: 0 })
-    const cuarta = w.findAll('.ico').find((i) => i.attributes('title') === '4 de 5')
-    await cuarta.trigger('click')
+    const w = mountStars({ value: 0 })
+    const fourth = w.findAll('.ico').find((i) => i.attributes('title') === '4 de 5')
+    await fourth.trigger('click')
     expect(w.emitted('change')[0]).toEqual([4])
   })
 
   it('pulsar la nota actual la quita', async () => {
-    const w = montarEstrellas({ value: 3 })
-    const tercera = w.findAll('.ico').find((i) => i.attributes('title') === 'Quitar valoración')
-    await tercera.trigger('click')
+    const w = mountStars({ value: 3 })
+    const third = w.findAll('.ico').find((i) => i.attributes('title') === 'Quitar valoración')
+    await third.trigger('click')
     expect(w.emitted('change')[0]).toEqual([0])
   })
 
   it('en solo lectura no emite nada', async () => {
-    const w = montarEstrellas({ value: 2, editable: false })
+    const w = mountStars({ value: 2, editable: false })
     await w.findAll('.ico')[0].trigger('click')
     expect(w.emitted('change')).toBeFalsy()
   })
@@ -332,7 +331,7 @@ describe('valoracion con estrellas', () => {
 // Editar la ficha escribe en las ETIQUETAS del mp3, no en la base: la base es
 // solo un indice reconstruible. Estas pruebas fijan las reglas de la edicion.
 describe('editar la ficha de una cancion', () => {
-  const cancion = {
+  const song = {
     id: 7,
     title: 'Mi Gozo',
     artist: 'Barak',
@@ -350,37 +349,37 @@ describe('editar la ficha de una cancion', () => {
     folder: 'Artistas/Barak',
     file: 'x.mp3'
   }
-  const montar = () => mount(DetailsPanel, { props: { song: { ...cancion }, aiReady: true } })
-  const abrirEdicion = async (w) => {
+  const mountView = () => mount(DetailsPanel, { props: { song: { ...song }, aiReady: true } })
+  const openEditor = async (w) => {
     await w.find('.icon-btn').trigger('click')
     return w
   }
 
   it('el lapiz abre el formulario', async () => {
-    const w = montar()
+    const w = mountView()
     expect(w.find('.edit-form').exists()).toBe(false)
-    await abrirEdicion(w)
+    await openEditor(w)
     expect(w.find('.edit-form').exists()).toBe(true)
   })
 
   it('sin cambios solo se ofrece cancelar', async () => {
-    const w = await abrirEdicion(montar())
-    const textos = w.findAll('.edit-actions .btn').map((b) => b.text())
-    expect(textos).toEqual(['Cancelar'])
+    const w = await openEditor(mountView())
+    const texts = w.findAll('.edit-actions .btn').map((b) => b.text())
+    expect(texts).toEqual(['Cancelar'])
     expect(w.find('.edit-state').text()).toBe('Sin cambios')
   })
 
   it('al tocar algo aparece guardar y dice cuantos campos', async () => {
-    const w = await abrirEdicion(montar())
+    const w = await openEditor(mountView())
     await w.findAll('.edit-form input')[3].setValue('Generacion Radical') // album
-    const textos = w.findAll('.edit-actions .btn').map((b) => b.text())
-    expect(textos).toContain('Guardar')
-    expect(textos).toContain('Descartar')
+    const texts = w.findAll('.edit-actions .btn').map((b) => b.text())
+    expect(texts).toContain('Guardar')
+    expect(texts).toContain('Descartar')
     expect(w.find('.edit-state').text()).toBe('1 sin guardar')
   })
 
   it('volver al valor original vuelve a dejarlo sin cambios', async () => {
-    const w = await abrirEdicion(montar())
+    const w = await openEditor(mountView())
     const album = w.findAll('.edit-form input')[3]
     await album.setValue('Algo')
     expect(w.find('.edit-state').text()).toBe('1 sin guardar')
@@ -390,7 +389,7 @@ describe('editar la ficha de una cancion', () => {
   })
 
   it('Escape cierra sin guardar', async () => {
-    const w = await abrirEdicion(montar())
+    const w = await openEditor(mountView())
     await w.findAll('.edit-form input')[3].setValue('Algo')
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await w.vm.$nextTick()
@@ -399,8 +398,8 @@ describe('editar la ficha de una cancion', () => {
   })
 
   it('guardar manda SOLO lo que cambio', async () => {
-    api.edit.mockResolvedValueOnce({ ...cancion, album: 'Generacion Radical' })
-    const w = await abrirEdicion(montar())
+    api.edit.mockResolvedValueOnce({ ...song, album: 'Generacion Radical' })
+    const w = await openEditor(mountView())
     await w.findAll('.edit-form input')[3].setValue('Generacion Radical')
     // jsdom no propaga el envio del formulario al pulsar el boton submit
     await w.find('.edit-form').trigger('submit')
@@ -409,18 +408,18 @@ describe('editar la ficha de una cancion', () => {
   })
 
   it('el bpm se manda como numero, no como texto', async () => {
-    api.edit.mockResolvedValueOnce({ ...cancion, bpm: 128 })
-    const w = await abrirEdicion(montar())
-    const campos = w.findAll('.edit-form input')
-    await campos[campos.length - 1].setValue('128') // bpm es el ultimo input
+    api.edit.mockResolvedValueOnce({ ...song, bpm: 128 })
+    const w = await openEditor(mountView())
+    const fields = w.findAll('.edit-form input')
+    await fields[fields.length - 1].setValue('128') // bpm es el ultimo input
     await w.find('.edit-form').trigger('submit')
     await flushPromises()
     expect(api.edit).toHaveBeenCalledWith(7, { bpm: 128 })
   })
 
   it('cambiar de cancion cierra la edicion', async () => {
-    const w = await abrirEdicion(montar())
-    await w.setProps({ song: { ...cancion, id: 8, title: 'Otra' } })
+    const w = await openEditor(mountView())
+    await w.setProps({ song: { ...song, id: 8, title: 'Otra' } })
     expect(w.find('.edit-form').exists()).toBe(false)
   })
 })
@@ -428,7 +427,7 @@ describe('editar la ficha de una cancion', () => {
 // Las respuestas llegan cuando llegan. Lo que se pidio para una cancion no
 // se pinta en la ficha de otra que se eligio mientras tanto.
 describe('la ficha y lo que llega tarde', () => {
-  const cancion = {
+  const song = {
     id: 7,
     title: 'Mi Gozo',
     artist: 'Barak',
@@ -445,16 +444,16 @@ describe('la ficha y lo que llega tarde', () => {
     folder: 'x',
     file: 'x.mp3'
   }
-  const pendiente = () => {
+  const pending = () => {
     let release
     const promise = new Promise((r) => {
       release = r
     })
     return { promise, release: (v) => release(v) }
   }
-  const boton = (w, text) => w.findAll('button').find((b) => b.text().includes(text))
+  const button = (w, text) => w.findAll('button').find((b) => b.text().includes(text))
   /** un cifrado como los que guarda el nucleo */
-  const cifrado = (key, chords, extra = {}) => ({
+  const chordChart = (key, chords, extra = {}) => ({
     source: 'Ultimate Guitar',
     url: 'https://tabs.example/1',
     artist: 'Barak',
@@ -477,41 +476,41 @@ describe('la ficha y lo que llega tarde', () => {
 
   it('los acordes se buscan en la web y se dice de donde salen', async () => {
     api.chords.mockResolvedValueOnce({
-      sheet: cifrado('D', ['D', 'A']),
+      sheet: chordChart('D', ['D', 'A']),
       tried: ['Ultimate Guitar', 'LaCuerda'],
       failed: [],
-      song: { ...cancion, chords: JSON.stringify({ sheet: cifrado('D', ['D', 'A']) }) }
+      song: { ...song, chords: JSON.stringify({ sheet: chordChart('D', ['D', 'A']) }) }
     })
-    const w = mount(DetailsPanel, { props: { song: { ...cancion }, aiReady: false } })
-    await boton(w, 'Buscar acordes').trigger('click')
+    const w = mount(DetailsPanel, { props: { song: { ...song }, aiReady: false } })
+    await button(w, 'Buscar acordes').trigger('click')
     expect(api.chords).toHaveBeenCalledWith(7, false)
     await flushPromises()
-    const nueva = w.emitted('updated').at(-1)[0]
-    await w.setProps({ song: nueva })
+    const updated = w.emitted('updated').at(-1)[0]
+    await w.setProps({ song: updated })
     expect(w.text()).toContain('Tono D')
     expect(w.text()).toContain('12 votos')
-    expect(boton(w, 'Buscar acordes')).toBeUndefined()
-    await boton(w, 'Ultimate Guitar').trigger('click')
+    expect(button(w, 'Buscar acordes')).toBeUndefined()
+    await button(w, 'Ultimate Guitar').trigger('click')
     expect(app.openInBrowser).toHaveBeenCalledWith('https://tabs.example/1')
   })
 
   it('si no hay cifrado lo dice, y se puede buscar otra vez', async () => {
     const chords = JSON.stringify({ sheet: null, sheet_tried: ['Ultimate Guitar', 'LaCuerda'] })
     api.chords.mockResolvedValueOnce({ sheet: null, tried: [], failed: [], song: null })
-    const w = mount(DetailsPanel, { props: { song: { ...cancion, chords }, aiReady: true } })
+    const w = mount(DetailsPanel, { props: { song: { ...song, chords }, aiReady: true } })
     expect(w.text()).toContain('No hay cifrado de esta canción en Ultimate Guitar ni LaCuerda')
     expect(w.find('.chords').exists()).toBe(false)
-    await boton(w, 'Buscar otra vez').trigger('click')
+    await button(w, 'Buscar otra vez').trigger('click')
     expect(api.chords).toHaveBeenCalledWith(7, true)
   })
 
   it('sin tono en el cifrado no se pone uno: se sube o se baja por semitonos', async () => {
-    const chords = JSON.stringify({ sheet: cifrado('', ['C', 'G']) })
-    api.chordsTransposed.mockResolvedValueOnce({ sheet: cifrado('', ['D', 'A']) })
-    const w = mount(DetailsPanel, { props: { song: { ...cancion, chords }, aiReady: true } })
+    const chords = JSON.stringify({ sheet: chordChart('', ['C', 'G']) })
+    api.chordsTransposed.mockResolvedValueOnce({ sheet: chordChart('', ['D', 'A']) })
+    const w = mount(DetailsPanel, { props: { song: { ...song, chords }, aiReady: true } })
     expect(w.text()).toContain('El cifrado no dice el tono')
-    const campo = w.findAll('.field').find((f) => f.text().includes('como está'))
-    await campo.find('.select-box').trigger('click')
+    const field = w.findAll('.field').find((f) => f.text().includes('como está'))
+    await field.find('.select-box').trigger('click')
     await w
       .findAll('.select-opt')
       .find((o) => o.text() === '+2 semitonos')
@@ -522,60 +521,60 @@ describe('la ficha y lo que llega tarde', () => {
   })
 
   it('el cifrado entero pone los acordes sobre la letra', async () => {
-    const chords = JSON.stringify({ sheet: cifrado('G', ['G', 'C']) })
-    const w = mount(DetailsPanel, { props: { song: { ...cancion, chords }, aiReady: true } })
+    const chords = JSON.stringify({ sheet: chordChart('G', ['G', 'C']) })
+    const w = mount(DetailsPanel, { props: { song: { ...song, chords }, aiReady: true } })
     expect(w.text()).not.toContain('Mi gozo esta en ti')
-    await boton(w, 'Cifrado entero').trigger('click')
+    await button(w, 'Cifrado entero').trigger('click')
     expect(w.find('.sheet-full .lyric-line').text()).toBe('Mi gozo esta en ti')
     expect(w.find('.sheet-full .chord-line').text()).toBe('G   C')
   })
 
   it('los detalles de IA de A no se pintan en la ficha de B', async () => {
-    const p = pendiente()
+    const p = pending()
     api.details.mockReturnValueOnce(p.promise)
-    const w = mount(DetailsPanel, { props: { song: { ...cancion }, aiReady: true } })
-    await boton(w, 'Ver detalles IA').trigger('click')
-    await w.setProps({ song: { ...cancion, id: 8, title: 'Otra' } })
+    const w = mount(DetailsPanel, { props: { song: { ...song }, aiReady: true } })
+    await button(w, 'Ver detalles IA').trigger('click')
+    await w.setProps({ song: { ...song, id: 8, title: 'Otra' } })
     // la otra no se queda bloqueada esperando lo de la primera
-    expect(boton(w, 'Ver detalles IA').attributes('disabled')).toBeUndefined()
+    expect(button(w, 'Ver detalles IA').attributes('disabled')).toBeUndefined()
     p.release({ details: { about_the_song: 'Habla del gozo', confidence: 0.9 } })
     await flushPromises()
     expect(w.text()).not.toContain('Habla del gozo')
   })
 
   it('la transposicion de A no se pinta en la ficha de B', async () => {
-    const chords = JSON.stringify({ sheet: cifrado('G', ['G', 'D', 'Em', 'C']) })
-    const p = pendiente()
+    const chords = JSON.stringify({ sheet: chordChart('G', ['G', 'D', 'Em', 'C']) })
+    const p = pending()
     api.chordsTransposed.mockReturnValueOnce(p.promise)
-    const w = mount(DetailsPanel, { props: { song: { ...cancion, chords }, aiReady: true } })
-    const destino = w.findAll('.field').find((f) => f.text().includes('—'))
-    await destino.find('.select-box').trigger('click')
+    const w = mount(DetailsPanel, { props: { song: { ...song, chords }, aiReady: true } })
+    const target = w.findAll('.field').find((f) => f.text().includes('—'))
+    await target.find('.select-box').trigger('click')
     await w
       .findAll('.select-opt')
       .find((o) => o.text() === 'A')
       .trigger('click')
     await w.setProps({
       song: {
-        ...cancion,
+        ...song,
         id: 8,
-        chords: JSON.stringify({ sheet: cifrado('E', ['E', 'B', 'C#m', 'A']) })
+        chords: JSON.stringify({ sheet: chordChart('E', ['E', 'B', 'C#m', 'A']) })
       }
     })
-    p.release({ sheet: cifrado('A', ['A', 'E', 'F#m', 'D']) })
+    p.release({ sheet: chordChart('A', ['A', 'E', 'F#m', 'D']) })
     await flushPromises()
     expect(w.find('.chords').text()).toBe('E   B   C#m   A')
   })
 
   it('un fallo de A no aparece en la ficha de B', async () => {
-    const p = pendiente()
+    const p = pending()
     api.enrich.mockReturnValueOnce(
       p.promise.then(() => {
         throw new Error('sin red')
       })
     )
-    const w = mount(DetailsPanel, { props: { song: { ...cancion }, aiReady: true } })
-    await boton(w, 'Buscar letra').trigger('click')
-    await w.setProps({ song: { ...cancion, id: 8, title: 'Otra' } })
+    const w = mount(DetailsPanel, { props: { song: { ...song }, aiReady: true } })
+    await button(w, 'Buscar letra').trigger('click')
+    await w.setProps({ song: { ...song, id: 8, title: 'Otra' } })
     p.release()
     await flushPromises()
     expect(w.text()).not.toContain('sin red')

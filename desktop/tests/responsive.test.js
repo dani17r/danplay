@@ -21,10 +21,10 @@ describe('tramos de pantalla', () => {
   })
 
   it('en movil lo pulsable crece para el dedo', () => {
-    const movil = css.slice(css.indexOf(`@media (max-width:${PHONE_MAX}px)`))
+    const mobile = css.slice(css.indexOf(`@media (max-width:${PHONE_MAX}px)`))
     // los objetivos tactiles comodos no bajan de ~38px
-    expect(movil).toMatch(/\.pl-play\{width:46px/)
-    expect(movil).toMatch(/\.pl-btn\{width:38px/)
+    expect(mobile).toMatch(/\.pl-play\{width:46px/)
+    expect(mobile).toMatch(/\.pl-btn\{width:38px/)
   })
 
   it('el fondo no se desplaza con un panel abierto encima', () => {
@@ -37,7 +37,7 @@ describe('tramos de pantalla', () => {
 })
 
 describe('panel que se abre por un lado', () => {
-  const montar = (props = {}) =>
+  const mountView = (props = {}) =>
     mount(Drawer, {
       props: { open: true, side: 'left', title: 'Menu', ...props },
       slots: { default: '<p class="dentro">contenido</p>' },
@@ -50,23 +50,23 @@ describe('panel que se abre por un lado', () => {
   })
 
   it('cerrado no pinta nada', () => {
-    montar({ open: false })
+    mountView({ open: false })
     expect(document.querySelector('.drawer')).toBeNull()
   })
 
   it('abierto muestra su contenido', () => {
-    montar()
+    mountView()
     expect(document.querySelector('.dentro')).toBeTruthy()
     expect(document.querySelector('.drawer-left')).toBeTruthy()
   })
 
   it('se abre por el lado que se le pida', () => {
-    montar({ side: 'right' })
+    mountView({ side: 'right' })
     expect(document.querySelector('.drawer-right')).toBeTruthy()
   })
 
   it('pulsar fuera lo cierra', async () => {
-    const w = montar()
+    const w = mountView()
     await document
       .querySelector('.drawer-backdrop')
       .dispatchEvent(Object.assign(new MouseEvent('click', { bubbles: false }), {}))
@@ -75,14 +75,14 @@ describe('panel que se abre por un lado', () => {
   })
 
   it('el boton de cerrar lo cierra', async () => {
-    const w = montar()
+    const w = mountView()
     document.querySelector('.drawer-head .icon-btn').click()
     await flushPromises()
     expect(w.emitted('close')).toBeTruthy()
   })
 
   it('mientras esta abierto marca el body, y lo suelta al cerrarse', async () => {
-    const w = montar()
+    const w = mountView()
     await flushPromises()
     expect(document.body.classList.contains('drawer-open')).toBe(true)
     await w.setProps({ open: false })

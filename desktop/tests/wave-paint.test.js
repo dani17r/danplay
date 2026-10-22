@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import { WAVE_STYLES, columnsFor, paintWave, waveStyleOf } from '../src/utils/wavePaint.js'
 
 /** Un lienzo de mentira que apunta dónde se pinta. */
-function lienzo() {
+function canvas() {
   const ys = []
   const xs = []
   const ctx = {
@@ -66,7 +66,7 @@ describe('los estilos de la onda', () => {
 
   it('cada estilo pinta dentro de su franja (un carril de 40 a 80 px)', () => {
     for (const { v } of WAVE_STYLES) {
-      const { ctx, xs, ys } = lienzo()
+      const { ctx, xs, ys } = canvas()
       paintWave(ctx, data, {
         W: 300,
         top: 40,
@@ -92,7 +92,7 @@ describe('los estilos de la onda', () => {
   })
 
   it('sin columnas no pinta nada', () => {
-    const { ctx } = lienzo()
+    const { ctx } = canvas()
     paintWave(ctx, [], { W: 100, top: 0, h: 40, rmsTop: 1, text: '#fff', accent: '#0f0' })
     expect(ctx.fills + ctx.strokes).toBe(0)
   })

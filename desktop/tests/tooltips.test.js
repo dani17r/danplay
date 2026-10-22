@@ -6,7 +6,7 @@ import { mount } from '@vue/test-utils'
 import { h, withDirectives } from 'vue'
 import { vTips, TIP_DELAY } from '../src/composables/useTooltips.js'
 
-const Caja = {
+const Box = {
   render: () =>
     withDirectives(
       h('div', { class: 'caja' }, [
@@ -18,13 +18,13 @@ const Caja = {
 }
 
 let w
-const globo = () => document.getElementById('danplay-tip')
-const pasa = (el, type, extra = {}) =>
+const tip = () => document.getElementById('danplay-tip')
+const fire = (el, type, extra = {}) =>
   el.dispatchEvent(new PointerEvent(type, { bubbles: true, ...extra }))
 
 beforeEach(() => {
   vi.useFakeTimers()
-  w = mount(Caja, { attachTo: document.body })
+  w = mount(Box, { attachTo: document.body })
 })
 afterEach(() => {
   w.unmount()
@@ -34,60 +34,60 @@ afterEach(() => {
 
 describe('los avisos de los iconos', () => {
   it('salen al dejar el ratón un momento, y se van al salir', async () => {
-    const uno = w.find('.uno').element
+    const one = w.find('.uno').element
     // sobre el icono de dentro: cuenta el botón
-    pasa(w.find('.uno .ico').element, 'pointerover')
-    expect(uno.hasAttribute('title'), 'sin el aviso del sistema a la vez').toBe(false)
-    expect(globo()?.classList.contains('on') ?? false, 'aún no').toBe(false)
+    fire(w.find('.uno .ico').element, 'pointerover')
+    expect(one.hasAttribute('title'), 'sin el aviso del sistema a la vez').toBe(false)
+    expect(tip()?.classList.contains('on') ?? false, 'aún no').toBe(false)
     vi.advanceTimersByTime(TIP_DELAY + 5)
     await vi.runAllTimersAsync()
-    expect(globo().textContent).toBe('Grande: todo el alto')
-    expect(uno.getAttribute('aria-describedby')).toBe('danplay-tip')
-    pasa(uno, 'pointerout', { relatedTarget: document.body })
-    expect(globo().classList.contains('on')).toBe(false)
-    expect(uno.getAttribute('title'), 'el title vuelve').toBe('Grande: todo el alto')
+    expect(tip().textContent).toBe('Grande: todo el alto')
+    expect(one.getAttribute('aria-describedby')).toBe('danplay-tip')
+    fire(one, 'pointerout', { relatedTarget: document.body })
+    expect(tip().classList.contains('on')).toBe(false)
+    expect(one.getAttribute('title'), 'el title vuelve').toBe('Grande: todo el alto')
   })
 
   it('pulsar o Escape lo quitan; un botón sin aviso no saca nada', async () => {
-    const uno = w.find('.uno').element
-    pasa(uno, 'pointerover')
+    const one = w.find('.uno').element
+    fire(one, 'pointerover')
     vi.advanceTimersByTime(TIP_DELAY + 5)
     await vi.runAllTimersAsync()
-    expect(globo().classList.contains('on')).toBe(true)
-    uno.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    expect(globo().classList.contains('on')).toBe(false)
+    expect(tip().classList.contains('on')).toBe(true)
+    one.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(tip().classList.contains('on')).toBe(false)
 
-    pasa(uno, 'pointerover')
-    pasa(uno, 'pointerdown')
+    fire(one, 'pointerover')
+    fire(one, 'pointerdown')
     vi.advanceTimersByTime(TIP_DELAY + 5)
     await vi.runAllTimersAsync()
-    expect(globo().classList.contains('on'), 'al pulsar, antes de salir, no sale').toBe(false)
+    expect(tip().classList.contains('on'), 'al pulsar, antes de salir, no sale').toBe(false)
 
     // y lo pulsado no lo vuelve a sacar hasta salir de él y volver
-    pasa(uno, 'pointerover')
+    fire(one, 'pointerover')
     vi.advanceTimersByTime(TIP_DELAY + 5)
     await vi.runAllTimersAsync()
-    expect(globo().classList.contains('on')).toBe(false)
-    pasa(uno, 'pointerout', { relatedTarget: document.body })
-    pasa(uno, 'pointerover')
+    expect(tip().classList.contains('on')).toBe(false)
+    fire(one, 'pointerout', { relatedTarget: document.body })
+    fire(one, 'pointerover')
     vi.advanceTimersByTime(TIP_DELAY + 5)
     await vi.runAllTimersAsync()
-    expect(globo().classList.contains('on')).toBe(true)
-    pasa(uno, 'pointerout', { relatedTarget: document.body })
+    expect(tip().classList.contains('on')).toBe(true)
+    fire(one, 'pointerout', { relatedTarget: document.body })
 
-    const before = globo().textContent
-    pasa(w.find('.dos').element, 'pointerover')
+    const before = tip().textContent
+    fire(w.find('.dos').element, 'pointerover')
     vi.advanceTimersByTime(TIP_DELAY + 5)
     await vi.runAllTimersAsync()
-    expect(globo().classList.contains('on')).toBe(false)
-    expect(globo().textContent).toBe(before)
+    expect(tip().classList.contains('on')).toBe(false)
+    expect(tip().textContent).toBe(before)
   })
 
   it('al desmontar se quitan sus escuchas', async () => {
-    const uno = w.find('.uno').element
+    const one = w.find('.uno').element
     w.unmount()
-    pasa(uno, 'pointerover')
-    expect(uno.getAttribute('title')).toBe('Grande: todo el alto')
-    w = mount(Caja, { attachTo: document.body })
+    fire(one, 'pointerover')
+    expect(one.getAttribute('title')).toBe('Grande: todo el alto')
+    w = mount(Box, { attachTo: document.body })
   })
 })

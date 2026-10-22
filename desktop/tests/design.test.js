@@ -37,10 +37,10 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
 const CSS = allCss()
 
 /** Todos los .vue del proyecto, con su ruta y su contenido. */
-function componentes(dir = SRC, out = []) {
+function components(dir = SRC, out = []) {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name)
-    if (e.isDirectory()) componentes(p, out)
+    if (e.isDirectory()) components(p, out)
     else if (e.name.endsWith('.vue'))
       out.push({ file: p.slice(SRC.length + 1), code: readFileSync(p, 'utf8') })
   }
@@ -70,12 +70,12 @@ afterEach(() => {
 })
 
 describe('colores de tema', () => {
-  const VALIDAS = new Set(Object.keys(CATALOG.night.v))
+  const VALID = new Set(Object.keys(CATALOG.night.v))
 
   it('el catalogo define las mismas claves en todos los temas', () => {
-    for (const [nombre, t] of Object.entries(CATALOG)) {
-      expect(new Set(Object.keys(t.v)), `el tema «${nombre}» no tiene las mismas claves`).toEqual(
-        VALIDAS
+    for (const [name, t] of Object.entries(CATALOG)) {
+      expect(new Set(Object.keys(t.v)), `el tema «${name}» no tiene las mismas claves`).toEqual(
+        VALID
       )
     }
   })
@@ -86,8 +86,8 @@ describe('colores de tema', () => {
 
   it('cada clave de color es tambien una variable del css', () => {
     // applyTheme escribe --<clave>, asi que el css tiene que usarlas
-    const faltan = [...VALIDAS].filter((k) => !CSS.includes(`var(--${k})`))
-    expect(faltan, 'claves de tema que el css no usa nunca').toEqual([])
+    const missing = [...VALID].filter((k) => !CSS.includes(`var(--${k})`))
+    expect(missing, 'claves de tema que el css no usa nunca').toEqual([])
   })
 
   it('el tipo de tema se enseña traducido, no en ingles', () => {
@@ -99,18 +99,18 @@ describe('colores de tema', () => {
 
 describe('clases que la interfaz pinta', () => {
   /** ¿El css define esta clase en alguna parte? */
-  const definida = (clase) => new RegExp(`\\.${clase}[\\s,{:.>+~]`).test(CSS)
+  const defined = (className) => new RegExp(`\\.${className}[\\s,{:.>+~]`).test(CSS)
 
   it('los avisos flotantes tienen estilo (y los pinta la app: app.test.js)', () => {
     // Antes emitia notice-ok / notice-ambar y el css definia hint-ok /
     // hint-amber: los avisos salian siempre grises.
     for (const c of ['toast', 'hint-ok', 'hint-amber']) {
-      expect(definida(c), `el css no define .${c}`).toBe(true)
+      expect(defined(c), `el css no define .${c}`).toBe(true)
     }
   })
 
   it('la flecha de los grupos tiene estilo para girar', () => {
-    expect(definida('group-chevron')).toBe(true)
+    expect(defined('group-chevron')).toBe(true)
     expect(CSS).toMatch(/\.group-chevron\.open\{[^}]*rotate/)
   })
 })
@@ -141,15 +141,15 @@ describe('animaciones', () => {
   })
 
   it('quien pide movimiento reducido lo obtiene en TODA la app', () => {
-    const bloque = CSS.slice(CSS.lastIndexOf('prefers-reduced-motion'))
-    expect(bloque, 'falta la regla global').toMatch(/\*,\s*\*::before,\s*\*::after/)
+    const block = CSS.slice(CSS.lastIndexOf('prefers-reduced-motion'))
+    expect(block, 'falta la regla global').toMatch(/\*,\s*\*::before,\s*\*::after/)
     // ...pero los indicadores de «esto sigue en marcha» no se congelan
-    expect(bloque).toMatch(/\.spinner[^{]*\{[^}]*infinite/)
+    expect(block).toMatch(/\.spinner[^{]*\{[^}]*infinite/)
   })
 })
 
 describe('el desplegable', () => {
-  const temas = () =>
+  const themes = () =>
     Object.entries(CATALOG).map(([k, t]) => ({
       v: k,
       n: t.name,
@@ -159,7 +159,7 @@ describe('el desplegable', () => {
 
   it('enseña sus opciones con el punto de color de cada una', async () => {
     const w = mount(SelectField, {
-      props: { modelValue: 'night', label: 'Tema', options: temas() }
+      props: { modelValue: 'night', label: 'Tema', options: themes() }
     })
     await w.find('.select-box').trigger('click')
     await flushPromises()
@@ -167,37 +167,37 @@ describe('el desplegable', () => {
     // El punto de color tiene que tener un color de VERDAD. Antes se leia
     // `t.v.acento`, que ya no existe, y salia `background: undefined`.
     // jsdom normaliza el hex a rgb(), asi que vale cualquiera de las dos.
-    for (const punto of w.findAll('.select-menu .select-dot')) {
-      const estilo = punto.attributes('style') || ''
-      expect(estilo).not.toContain('undefined')
-      expect(estilo, `color no valido: ${estilo}`).toMatch(/background:\s*(#[0-9a-f]{3,8}|rgb)/i)
+    for (const dot of w.findAll('.select-menu .select-dot')) {
+      const style = dot.attributes('style') || ''
+      expect(style).not.toContain('undefined')
+      expect(style, `color no valido: ${style}`).toMatch(/background:\s*(#[0-9a-f]{3,8}|rgb)/i)
     }
   })
 
   it('al abrirse lleva a la vista la opcion elegida', async () => {
-    const vista = vi.fn()
-    Element.prototype.scrollIntoView = vista
-    const w = mount(SelectField, { props: { modelValue: 'wine', options: temas() } })
+    const view = vi.fn()
+    Element.prototype.scrollIntoView = view
+    const w = mount(SelectField, { props: { modelValue: 'wine', options: themes() } })
     await w.find('.select-box').trigger('click')
     await flushPromises()
-    expect(vista).toHaveBeenCalled()
-    expect(vista.mock.contexts[0].textContent).toContain(CATALOG.wine.name)
+    expect(view).toHaveBeenCalled()
+    expect(view.mock.contexts[0].textContent).toContain(CATALOG.wine.name)
     delete Element.prototype.scrollIntoView
   })
 
   it('se puede quedar sin elegir: la «x» vuelve al valor vacio', async () => {
-    const opciones = [
+    const options = [
       { v: '', n: 'Cualquiera' },
       { v: 'Barak', n: 'Barak' }
     ]
-    const vacio = mount(SelectField, {
-      props: { modelValue: '', options: opciones, clearable: true }
+    const empty = mount(SelectField, {
+      props: { modelValue: '', options: options, clearable: true }
     })
-    expect(vacio.find('.select-clear').exists(), 'sin nada elegido no hay nada que quitar').toBe(
+    expect(empty.find('.select-clear').exists(), 'sin nada elegido no hay nada que quitar').toBe(
       false
     )
     const w = mount(SelectField, {
-      props: { modelValue: 'Barak', options: opciones, clearable: true }
+      props: { modelValue: 'Barak', options: options, clearable: true }
     })
     await w.find('.select-clear').trigger('click')
     expect(w.emitted('update:modelValue')[0]).toEqual([''])
@@ -210,19 +210,19 @@ describe('el desplegable', () => {
 describe('la columna de estrellas cabe', () => {
   it('es lo bastante ancha para las cinco estrellas', () => {
     // cinco iconos de 15px + cuatro huecos + el relleno de la celda
-    const regla = CSS.match(/\.col-stars\{([^}]*)\}/)
-    expect(regla, 'no hay regla para la columna de estrellas').toBeTruthy()
-    const ancho = Number(regla[1].match(/width:\s*(\d+)px/)?.[1])
-    const hueco = Number(CSS.match(/\.stars\{[^}]*gap:\s*([\d.]+)px/)?.[1] || 2.5)
-    const relleno = 20 // 10px a cada lado en `td`
-    const necesita = 5 * 15 + 4 * hueco + relleno
-    expect(ancho, `necesita al menos ${necesita}px`).toBeGreaterThanOrEqual(necesita)
+    const rule = CSS.match(/\.col-stars\{([^}]*)\}/)
+    expect(rule, 'no hay regla para la columna de estrellas').toBeTruthy()
+    const width = Number(rule[1].match(/width:\s*(\d+)px/)?.[1])
+    const gap = Number(CSS.match(/\.stars\{[^}]*gap:\s*([\d.]+)px/)?.[1] || 2.5)
+    const padding = 20 // 10px a cada lado en `td`
+    const needed = 5 * 15 + 4 * gap + padding
+    expect(width, `necesita al menos ${needed}px`).toBeGreaterThanOrEqual(needed)
   })
 
   it('la columna de estrellas se define una sola vez fuera de media queries', () => {
     // habia dos reglas, 82px y 104px, y la de abajo pisaba a la de arriba
-    const sinMedia = CSS.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, '')
-    expect((sinMedia.match(/\.col-stars\s*\{/g) || []).length).toBe(1)
+    const withoutMedia = CSS.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, '')
+    expect((withoutMedia.match(/\.col-stars\s*\{/g) || []).length).toBe(1)
   })
 })
 
@@ -232,19 +232,19 @@ describe('arrastrar una cancion', () => {
   // se corta el evento que inicia la seleccion.
   it('mientras se arrastra no se puede empezar a seleccionar texto', () => {
     const { startDrag } = useDragSong()
-    const fila = document.createElement('div')
-    document.body.appendChild(fila)
+    const row = document.createElement('div')
+    document.body.appendChild(row)
     startDrag(
       { id: 1, title: 'Mi Gozo' },
-      { pointerType: 'mouse', button: 0, clientX: 10, clientY: 10, target: fila }
+      { pointerType: 'mouse', button: 0, clientX: 10, clientY: 10, target: row }
     )
-    const seleccion = new window.Event('selectstart', { cancelable: true, bubbles: true })
-    document.dispatchEvent(seleccion)
-    expect(seleccion.defaultPrevented, 'deja que el motor empiece a seleccionar').toBe(true)
+    const selection = new window.Event('selectstart', { cancelable: true, bubbles: true })
+    document.dispatchEvent(selection)
+    expect(selection.defaultPrevented, 'deja que el motor empiece a seleccionar').toBe(true)
     // y tampoco el arrastre nativo del texto, que pinta su propio fantasma
-    const nativo = new window.Event('dragstart', { cancelable: true, bubbles: true })
-    document.dispatchEvent(nativo)
-    expect(nativo.defaultPrevented).toBe(true)
+    const native = new window.Event('dragstart', { cancelable: true, bubbles: true })
+    document.dispatchEvent(native)
+    expect(native.defaultPrevented).toBe(true)
   })
 
   it('al soltar deja de estorbar a la seleccion normal', () => {
@@ -254,9 +254,9 @@ describe('arrastrar una cancion', () => {
       { pointerType: 'mouse', button: 0, clientX: 0, clientY: 0, target: document.body }
     )
     cancelDrag()
-    const seleccion = new window.Event('selectstart', { cancelable: true, bubbles: true })
-    document.dispatchEvent(seleccion)
-    expect(seleccion.defaultPrevented, 'sigue bloqueando la seleccion sin arrastrar nada').toBe(
+    const selection = new window.Event('selectstart', { cancelable: true, bubbles: true })
+    document.dispatchEvent(selection)
+    expect(selection.defaultPrevented, 'sigue bloqueando la seleccion sin arrastrar nada').toBe(
       false
     )
   })
@@ -267,9 +267,9 @@ describe('arrastrar una cancion', () => {
       { id: 1 },
       { pointerType: 'touch', button: 0, clientX: 0, clientY: 0, target: document.body }
     )
-    const seleccion = new window.Event('selectstart', { cancelable: true, bubbles: true })
-    document.dispatchEvent(seleccion)
-    expect(seleccion.defaultPrevented, 'el toque no deberia armar un arrastre').toBe(false)
+    const selection = new window.Event('selectstart', { cancelable: true, bubbles: true })
+    document.dispatchEvent(selection)
+    expect(selection.defaultPrevented, 'el toque no deberia armar un arrastre').toBe(false)
   })
 })
 
@@ -280,39 +280,39 @@ describe('portadas difuminadas', () => {
         .find('img')
         .classes()
     ).not.toContain('blurred')
-    const borrosa = mount(CoverArt, { props: { id: 1, blur: true, alt: 'Mi Gozo' } })
-    expect(borrosa.find('img').classes(), 'no se marca como difuminada').toContain('blurred')
+    const blurred = mount(CoverArt, { props: { id: 1, blur: true, alt: 'Mi Gozo' } })
+    expect(blurred.find('img').classes(), 'no se marca como difuminada').toContain('blurred')
     // quien lee la portada se entera de que esta difuminada
-    expect(borrosa.find('img').attributes('alt')).toContain('difuminada')
+    expect(blurred.find('img').attributes('alt')).toContain('difuminada')
   })
 
   it('el css la difumina de verdad, no le baja la opacidad', () => {
-    const regla = CSS.match(/\.cover-art\.blurred\{([^}]*)\}/)
-    expect(regla, 'no hay estilo para las portadas difuminadas').toBeTruthy()
-    expect(regla[1], 'deberia usar blur()').toMatch(/filter:\s*blur\(\s*\d+px/)
+    const rule = CSS.match(/\.cover-art\.blurred\{([^}]*)\}/)
+    expect(rule, 'no hay estilo para las portadas difuminadas').toBeTruthy()
+    expect(rule[1], 'deberia usar blur()').toMatch(/filter:\s*blur\(\s*\d+px/)
     // Bajar la opacidad dejaria la imagen reconocible, que es justo lo que se
     // quiere evitar.
-    expect(regla[1]).not.toMatch(/(^|;)\s*opacity:/)
+    expect(rule[1]).not.toMatch(/(^|;)\s*opacity:/)
     // Y nada de agrandarla: se saldria de su caja y taparia lo de al lado.
-    expect(regla[1]).not.toMatch(/transform:\s*scale/)
+    expect(rule[1]).not.toMatch(/transform:\s*scale/)
   })
 
   it('todas las listas y la ficha la respetan', async () => {
     // si una se olvida, la imagen sigue viendose donde menos se espera (el
     // reproductor y la ventanita, en sus propias pruebas; el menu que la
     // activa, en app.test.js)
-    const borrosa = song(1, { blur: 1 })
-    for (const [nombre, w] of [
-      ['las fichas', mount(SongCards, { props: { songs: [borrosa] } })],
-      ['la cuadricula', mount(SongGrid, { props: { songs: [borrosa] } })],
+    const blurred = song(1, { blur: 1 })
+    for (const [name, w] of [
+      ['las fichas', mount(SongCards, { props: { songs: [blurred] } })],
+      ['la cuadricula', mount(SongGrid, { props: { songs: [blurred] } })],
       [
         'los resultados del buscador',
-        mount(SearchResults, { props: { songs: [borrosa], query: 'x' } })
+        mount(SearchResults, { props: { songs: [blurred], query: 'x' } })
       ],
-      ['la ficha', mount(DetailsPanel, { props: { song: borrosa, aiReady: false } })]
+      ['la ficha', mount(DetailsPanel, { props: { song: blurred, aiReady: false } })]
     ]) {
       await flushPromises()
-      expect(w.find('.cover-art').classes(), `${nombre} no la difumina`).toContain('blurred')
+      expect(w.find('.cover-art').classes(), `${name} no la difumina`).toContain('blurred')
     }
   })
 })
@@ -322,20 +322,20 @@ describe('campos de formulario', () => {
     // La regla base `input:focus` le ponia su sombra al input, y el envoltorio
     // ponia la suya: se veian DOS anillos verdes, uno dentro del otro, con un
     // hueco oscuro en medio.
-    const regla = CSS.match(/\.field-box input[^{]*\{[^}]*box-shadow:\s*none[^}]*\}/)
-    expect(regla, 'el input de un campo deberia anular su sombra de foco').toBeTruthy()
+    const rule = CSS.match(/\.field-box input[^{]*\{[^}]*box-shadow:\s*none[^}]*\}/)
+    expect(rule, 'el input de un campo deberia anular su sombra de foco').toBeTruthy()
     for (const sel of ['.slider-track input', '.color-swatch input']) {
-      const clase = sel.split(' ')[0].slice(1)
+      const className = sel.split(' ')[0].slice(1)
       expect(CSS, `${sel} tambien la hereda`).toMatch(
-        new RegExp(`\\.${clase}[^{]*input[^{]*\\{[^}]*box-shadow:\\s*none`)
+        new RegExp(`\\.${className}[^{]*input[^{]*\\{[^}]*box-shadow:\\s*none`)
       )
     }
   })
 
   it('solo hay un anillo por campo, el del envoltorio', () => {
-    const envoltorio = CSS.match(/\.field\.focused \.field-box\{([^}]*)\}/)
-    expect(envoltorio, 'el campo enfocado deberia tener su sombra').toBeTruthy()
-    expect(envoltorio[1]).toMatch(/box-shadow:/)
+    const wrapper = CSS.match(/\.field\.focused \.field-box\{([^}]*)\}/)
+    expect(wrapper, 'el campo enfocado deberia tener su sombra').toBeTruthy()
+    expect(wrapper[1]).toMatch(/box-shadow:/)
   })
 })
 
@@ -350,7 +350,7 @@ describe('iconos con el significado correcto', () => {
 })
 
 describe('informe de duplicados', () => {
-  const grupo = {
+  const group = {
     suggested: '/m/Barak - Mi Gozo - r.mp3',
     items: [
       {
@@ -371,7 +371,7 @@ describe('informe de duplicados', () => {
   it('los datos del archivo van juntos y no se parten por la mitad', () => {
     // «6.7» quedaba en una linea y «MB» en la siguiente, con la ruta en medio:
     // el texto suelto dentro de un flex se rompe por cualquier espacio.
-    const w = mount(DuplicateGroup, { props: { group: grupo, playing: null, busy: false } })
+    const w = mount(DuplicateGroup, { props: { group: group, playing: null, busy: false } })
     expect(w.find('.dup-stats').text().replace(/\s+/g, ' ')).toBe('320 kbps · 3:21 · 6.7 MB')
     expect(CSS).toMatch(/\.dup-stats\{[^}]*white-space:\s*nowrap/)
   })
@@ -379,7 +379,7 @@ describe('informe de duplicados', () => {
   it('lee las mismas claves que manda el nucleo', () => {
     // `relative`, `has_suffix` y `suggested`: con los nombres viejos en
     // castellano no salia ni la ruta ni las marcas
-    const w = mount(DuplicateGroup, { props: { group: grupo, playing: null, busy: false } })
+    const w = mount(DuplicateGroup, { props: { group: group, playing: null, busy: false } })
     expect(w.find('.dup-path').text()).toBe('Artistas/Barak/Barak - Mi Gozo - r.mp3')
     expect(w.text()).toContain('mejor calidad')
     expect(w.text()).toContain('lleva « - r»')
@@ -399,12 +399,12 @@ describe('las cuatro vistas', () => {
   it('quien tenia elegida una vista vieja no la pierde', async () => {
     const { savedLayout, resetPreferences } = await import('../src/composables/usePreferences.js')
     resetPreferences()
-    for (const [viejo, nuevo] of [
+    for (const [legacy, current] of [
       ['list', 'table'],
       ['compact', 'rows']
     ]) {
-      localStorage.setItem('danplay.layout', viejo)
-      expect(savedLayout(), `«${viejo}» deberia traducirse a «${nuevo}»`).toBe(nuevo)
+      localStorage.setItem('danplay.layout', legacy)
+      expect(savedLayout(), `«${legacy}» deberia traducirse a «${current}»`).toBe(current)
     }
     // y una vista que no existe no deja la app en blanco
     localStorage.setItem('danplay.layout', '{"topbar":"bottom"}')
@@ -413,7 +413,7 @@ describe('las cuatro vistas', () => {
 
   it('las cuatro tambien valen agrupadas, con sus cabeceras de grupo', () => {
     const songs = [song(1), song(2, { artist: 'New Wine' }), song(3)]
-    for (const [layout, caja] of [
+    for (const [layout, box] of [
       ['rows', '.rows'],
       ['cards', '.cards'],
       ['grid', '.grid'],
@@ -424,7 +424,7 @@ describe('las cuatro vistas', () => {
         'Barak',
         'New Wine'
       ])
-      expect(w.find(caja).exists(), `agrupado no sabe pintar «${layout}»`).toBe(true)
+      expect(w.find(box).exists(), `agrupado no sabe pintar «${layout}»`).toBe(true)
       expect(w.findAll('[data-song-row]')).toHaveLength(3)
     }
   })
@@ -448,12 +448,12 @@ describe('la cabecera de la tabla', () => {
   // se sabia que columna era cual. Nadie lo vio porque las dos reglas estaban
   // lejos y ninguna herramienta miraba los selectores repetidos.
   it('se queda fija al desplazar la lista', () => {
-    const reglas = [...CSS.matchAll(/(^|\n)thead th\{([^}]*)\}/g)].map((m) => m[2])
-    expect(reglas.length, 'thead th deberia definirse una sola vez').toBe(1)
-    expect(reglas[0]).toMatch(/position:\s*sticky/)
-    expect(reglas[0], 'sin top no se pega a ningun sitio').toMatch(/top:\s*0/)
-    expect(reglas[0], 'tiene que quedar por encima de las filas').toMatch(/z-index/)
-    expect(reglas[0], 'sin fondo se ven las filas por debajo').toMatch(/background:/)
+    const rules = [...CSS.matchAll(/(^|\n)thead th\{([^}]*)\}/g)].map((m) => m[2])
+    expect(rules.length, 'thead th deberia definirse una sola vez').toBe(1)
+    expect(rules[0]).toMatch(/position:\s*sticky/)
+    expect(rules[0], 'sin top no se pega a ningun sitio').toMatch(/top:\s*0/)
+    expect(rules[0], 'tiene que quedar por encima de las filas').toMatch(/z-index/)
+    expect(rules[0], 'sin fondo se ven las filas por debajo').toMatch(/background:/)
   })
 
   it('solo las columnas que ordenan parecen pulsables', () => {
@@ -464,13 +464,13 @@ describe('la cabecera de la tabla', () => {
 describe('ordenar por una columna', () => {
   it('la cabecera enseña por donde va el orden y hacia donde', async () => {
     const w = mount(SongTable, { props: { songs: [song(1)], sort: 'title', desc: false } })
-    const titulo = w.find('th[data-col="title"]')
-    expect(titulo.attributes('aria-sort')).toBe('ascending')
-    expect(titulo.find('.th-arrow').classes()).toContain('up')
+    const title = w.find('th[data-col="title"]')
+    expect(title.attributes('aria-sort')).toBe('ascending')
+    expect(title.find('.th-arrow').classes()).toContain('up')
     expect(w.find('th[data-col="artist"]').attributes('aria-sort')).toBeUndefined()
     await w.setProps({ desc: true })
-    expect(titulo.attributes('aria-sort')).toBe('descending')
-    expect(titulo.find('.th-arrow').classes()).not.toContain('up')
+    expect(title.attributes('aria-sort')).toBe('descending')
+    expect(title.find('.th-arrow').classes()).not.toContain('up')
     expect(CSS, 'la flecha no se da la vuelta').toMatch(/\.th-arrow\.up\{[^}]*rotate\(180deg\)/)
   })
 
@@ -480,63 +480,67 @@ describe('ordenar por una columna', () => {
     // invierte el orden, en app.test.js.)
     const w = mount(SongTable, { props: { songs: [song(1)] } })
     for (const b of w.findAll('thead .th-sort')) await b.trigger('click')
-    const pedidos = w.emitted('sortBy')
-    expect(pedidos.length).toBeGreaterThan(4)
+    const requests = w.emitted('sortBy')
+    expect(requests.length).toBeGreaterThan(4)
     const core = coreSource()
-    for (const [campo] of pedidos) {
-      expect(core, `el nucleo no sabe ordenar por «${campo}»`).toMatch(
-        new RegExp(`"${campo}":\\s*\\(`)
+    for (const [field] of requests) {
+      expect(core, `el nucleo no sabe ordenar por «${field}»`).toMatch(
+        new RegExp(`"${field}":\\s*\\(`)
       )
     }
     // por texto se espera de la A a la Z; por duracion, lo mas largo primero
-    expect(Object.fromEntries(pedidos)).toMatchObject({ title: false, duration: true, stars: true })
+    expect(Object.fromEntries(requests)).toMatchObject({
+      title: false,
+      duration: true,
+      stars: true
+    })
   })
 })
 
 describe('columnas ajustables', () => {
   /** jsdom no maqueta: cada cabecera dice que mide 100 px. */
-  const conAnchos = () =>
+  const withWidths = () =>
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
       const w = this.tagName === 'TH' ? 100 : 0
       return { width: w, height: 20, top: 0, left: 0, right: w, bottom: 20, x: 0, y: 0 }
     })
-  const puntero = (target, tipo, x) =>
-    target.dispatchEvent(new MouseEvent(tipo, { bubbles: true, cancelable: true, clientX: x }))
+  const pointer = (target, type, x) =>
+    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x }))
 
   /** Los anchos puestos a mano: los `col` con estilo propio. */
-  const aMano = (w) => w.findAll('col').filter((c) => c.attributes('style'))
+  const manual = (w) => w.findAll('col').filter((c) => c.attributes('style'))
 
   it('sin tocarlas no se fija ningun ancho: la tabla se reparte sola', () => {
     const w = mount(SongTable, { props: { songs: [song(1)] } })
     // los `col` estan siempre (llevan la clase de su columna, con el ancho
     // de fabrica), pero ninguno con un ancho propio
     expect(w.findAll('col').map((c) => c.classes()[0])).toContain('col-title')
-    expect(aMano(w)).toHaveLength(0)
+    expect(manual(w)).toHaveLength(0)
     expect(w.find('table').classes()).not.toContain('medida')
   })
 
   it('se ensanchan arrastrando el borde, se recuerdan y el doble clic las olvida', async () => {
-    conAnchos()
+    withWidths()
     const w = mount(SongTable, { props: { songs: [song(1)] }, attachTo: document.body })
-    const borde = w.find('th[data-col="title"] .col-resize').element
-    puntero(borde, 'pointerdown', 100)
-    puntero(window, 'pointermove', 160)
-    puntero(window, 'pointerup', 160)
+    const edge = w.find('th[data-col="title"] .col-resize').element
+    pointer(edge, 'pointerdown', 100)
+    pointer(window, 'pointermove', 160)
+    pointer(window, 'pointerup', 160)
     await flushPromises()
     expect(JSON.parse(localStorage.getItem('danplay.colWidths')).title).toBe(160)
     expect(w.find('col:nth-child(3)').attributes('style')).toContain('width: 160px')
     // al volver, siguen como se dejaron
-    const otra = mount(SongTable, { props: { songs: [song(1)] } })
-    expect(otra.find('col:nth-child(3)').attributes('style')).toContain('width: 160px')
+    const other = mount(SongTable, { props: { songs: [song(1)] } })
+    expect(other.find('col:nth-child(3)').attributes('style')).toContain('width: 160px')
     // doble clic en el borde: vuelve el reparto de siempre
     await w.find('th[data-col="title"] .col-resize').trigger('dblclick')
-    expect(aMano(w)).toHaveLength(0)
+    expect(manual(w)).toHaveLength(0)
     expect(w.find('table').classes()).not.toContain('medida')
     expect(localStorage.getItem('danplay.colWidths')).toBeNull()
   })
 
   it('con el teclado, las flechas lo ensanchan de a poco', async () => {
-    conAnchos()
+    withWidths()
     const w = mount(SongTable, { props: { songs: [song(1)] } })
     await w.find('th[data-col="album"] .col-resize').trigger('keydown', { key: 'ArrowRight' })
     expect(JSON.parse(localStorage.getItem('danplay.colWidths')).album).toBe(110)
@@ -549,7 +553,7 @@ describe('columnas ajustables', () => {
 })
 
 describe('los resultados del buscador', () => {
-  const ocho = () => Array.from({ length: 8 }, (_, i) => song(i + 1))
+  const eight = () => Array.from({ length: 8 }, (_, i) => song(i + 1))
 
   it('se ven cinco y el resto con la rueda, midiendo una fila de verdad', async () => {
     // la altura sale de MEDIR una fila, no de un numero a ojo: asi sigue
@@ -558,37 +562,37 @@ describe('los resultados del buscador', () => {
       const h = this.classList.contains('sr-row') ? 41 : 0
       return { height: h, width: 300, top: 0, left: 0, right: 300, bottom: h, x: 0, y: 0 }
     })
-    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+    const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
     await flushPromises()
     expect(w.find('.sr-list').attributes('style')).toContain('max-height: 205px')
     // con pocas no hace falta rueda
-    await w.setProps({ songs: ocho().slice(0, 3) })
+    await w.setProps({ songs: eight().slice(0, 3) })
     await flushPromises()
     expect(w.find('.sr-list').attributes('style')).toBeUndefined()
     expect(CSS).toMatch(/\.sr-list\{[^}]*overflow-y:auto/)
   })
 
   it('se manejan con el teclado desde la caja de busqueda', async () => {
-    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
-    const tecla = (key) => w.vm.onKey(new KeyboardEvent('keydown', { key, cancelable: true }))
-    expect(tecla('ArrowDown')).toBe(true)
-    expect(tecla('ArrowDown')).toBe(true)
-    expect(tecla('ArrowUp')).toBe(true)
+    const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
+    const press = (key) => w.vm.onKey(new KeyboardEvent('keydown', { key, cancelable: true }))
+    expect(press('ArrowDown')).toBe(true)
+    expect(press('ArrowDown')).toBe(true)
+    expect(press('ArrowUp')).toBe(true)
     await flushPromises()
     expect(w.find('.sr-row.on').text()).toContain('Cancion 2')
     // la caja sabe cual esta resaltada, para quien no ve la pantalla
     expect(document.getElementById !== undefined && w.vm.activeId).toBe(
       w.find('.sr-row.on').attributes('id')
     )
-    expect(tecla('Enter')).toBe(true)
+    expect(press('Enter')).toBe(true)
     expect(w.emitted('pick')[0][0].id).toBe(2)
-    expect(tecla('Escape')).toBe(true)
+    expect(press('Escape')).toBe(true)
     expect(w.emitted('close')).toBeTruthy()
-    expect(tecla('a')).toBe(false)
+    expect(press('a')).toBe(false)
   })
 
   it('se pueden reproducir, no solo mirar', async () => {
-    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+    const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
     await w.findAll('.sr-play')[3].trigger('click')
     expect(w.emitted('play')[0][0].id).toBe(4)
     expect(w.emitted('pick'), 'reproducir no es elegir').toBeFalsy()
@@ -596,7 +600,7 @@ describe('los resultados del buscador', () => {
 
   it('el clic derecho y el «⋯» abren las opciones de esa fila, sin elegirla ni reproducirla', async () => {
     // antes no hacian nada: no se podia añadir un resultado a un repertorio
-    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+    const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
     await w.findAll('.sr-row')[2].trigger('contextmenu')
     expect(w.emitted('menu')).toHaveLength(1)
     expect(w.emitted('menu')[0][0].id).toBe(3)
@@ -604,11 +608,11 @@ describe('los resultados del buscador', () => {
     // la fila queda resaltada: es sobre la que actua el menu
     expect(w.find('.sr-row.on').text()).toContain('Cancion 3')
 
-    const mas = w.findAll('.sr-more')[5]
+    const more = w.findAll('.sr-more')[5]
     // dentro de un «option» sus hijos son presentacionales: el nombre ya lo dice la opcion
-    expect(mas.attributes('aria-hidden')).toBe('true')
-    expect(mas.attributes('title')).toBe('Opciones')
-    await mas.trigger('click')
+    expect(more.attributes('aria-hidden')).toBe('true')
+    expect(more.attributes('title')).toBe('Opciones')
+    await more.trigger('click')
     expect(w.emitted('menu')).toHaveLength(2)
     expect(w.emitted('menu')[1][0].id).toBe(6)
     expect(w.emitted('pick'), 'abrir las opciones no es elegir la fila').toBeFalsy()
@@ -618,26 +622,26 @@ describe('los resultados del buscador', () => {
   it('la tecla de menu o Mayus+F10 abren las opciones de la fila resaltada', async () => {
     // el foco se queda en la caja de busqueda: el menu sale bajo el «⋯» de la fila
     const w = mount(SearchResults, {
-      props: { songs: ocho(), query: 'x' },
+      props: { songs: eight(), query: 'x' },
       attachTo: document.body
     })
-    const tecla = (init) => w.vm.onKey(new KeyboardEvent('keydown', { cancelable: true, ...init }))
+    const press = (init) => w.vm.onKey(new KeyboardEvent('keydown', { cancelable: true, ...init }))
     w.vm.onKey(new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true }))
     await flushPromises()
-    expect(tecla({ key: 'ContextMenu' })).toBe(true)
-    const [song, donde] = w.emitted('menu')[0]
+    expect(press({ key: 'ContextMenu' })).toBe(true)
+    const [song, where] = w.emitted('menu')[0]
     expect(song.id).toBe(2)
     // un sitio, no un evento de raton: el menu sabe que viene del teclado
-    expect(donde).not.toBeInstanceOf(MouseEvent)
-    expect(donde).toEqual({ clientX: expect.any(Number), clientY: expect.any(Number) })
-    expect(tecla({ key: 'F10', shiftKey: true })).toBe(true)
+    expect(where).not.toBeInstanceOf(MouseEvent)
+    expect(where).toEqual({ clientX: expect.any(Number), clientY: expect.any(Number) })
+    expect(press({ key: 'F10', shiftKey: true })).toBe(true)
     expect(w.emitted('menu')).toHaveLength(2)
     // F10 a secas no es el menu
-    expect(tecla({ key: 'F10' })).toBe(false)
+    expect(press({ key: 'F10' })).toBe(false)
   })
 
   it('el doble clic en el «⋯» o en reproducir no llega a la fila (que lo toma por reproducir)', async () => {
-    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+    const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
     await w.findAll('.sr-more')[2].trigger('dblclick')
     await w.findAll('.sr-play')[3].trigger('dblclick')
     expect(w.emitted('play'), 'un doble clic en un boton de la fila no reproduce').toBeFalsy()
@@ -649,11 +653,11 @@ describe('los resultados del buscador', () => {
   it('mientras carga no hay fila sobre la que actuar: ni Enter ni la tecla de menu', () => {
     // la lista no se pinta pero `songs` conserva la busqueda anterior: la tecla
     // de menu abria las opciones de una cancion que no se ve, en la esquina
-    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x', loading: true } })
-    const tecla = (init) => w.vm.onKey(new KeyboardEvent('keydown', { cancelable: true, ...init }))
-    expect(tecla({ key: 'ContextMenu' })).toBe(false)
-    expect(tecla({ key: 'F10', shiftKey: true })).toBe(false)
-    expect(tecla({ key: 'Enter' })).toBe(false)
+    const w = mount(SearchResults, { props: { songs: eight(), query: 'x', loading: true } })
+    const press = (init) => w.vm.onKey(new KeyboardEvent('keydown', { cancelable: true, ...init }))
+    expect(press({ key: 'ContextMenu' })).toBe(false)
+    expect(press({ key: 'F10', shiftKey: true })).toBe(false)
+    expect(press({ key: 'Enter' })).toBe(false)
     expect(w.emitted('menu')).toBeFalsy()
     expect(w.emitted('pick')).toBeFalsy()
   })
@@ -661,7 +665,7 @@ describe('los resultados del buscador', () => {
   it('la cabecera es corta y no se parte: el recuento, un aviso corto y «Seleccionar»; en estrecho cuelga de la ventana', async () => {
     // «8 resultados en toda la biblioteca» y el aviso largo no cabian a 460 px
     // con el boton: el recuento se partia y el aviso se cortaba con «…»
-    const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+    const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
     expect(w.find('.sr-head .sr-count').text()).toBe('8 resultados')
     expect(w.find('.sr-tip').text()).toBe('clic derecho: opciones')
     expect(w.find('.sr-head .sr-select').text()).toBe('Seleccionar')
@@ -685,12 +689,12 @@ describe('los resultados del buscador', () => {
     // una fila-boton nunca podria arrastrarse: el arrastre se aparta de los
     // botones (ahi el clic tiene otra cosa que hacer)
     const w = mount(SearchResults, {
-      props: { songs: ocho(), query: 'x' },
+      props: { songs: eight(), query: 'x' },
       attachTo: document.body
     })
-    const fila = w.findAll('.sr-row')[1].element
-    expect(fila.tagName).not.toBe('BUTTON')
-    fila.dispatchEvent(
+    const row = w.findAll('.sr-row')[1].element
+    expect(row.tagName).not.toBe('BUTTON')
+    row.dispatchEvent(
       new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 5, clientY: 5 })
     )
     window.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 90 }))
@@ -702,24 +706,24 @@ describe('los resultados del buscador', () => {
   // ------------------------------------------------- varios a la vez
   describe('elegir varios', () => {
     /** Los ids de las filas elegidas, en el orden en que se ven. */
-    const elegidas = (w) =>
+    const picked = (w) =>
       w.findAll('.sr-row').flatMap((f, i) => (f.classes().includes('picked') ? [i + 1] : []))
-    const filas = (w) => w.findAll('.sr-row')
-    const boton = (w, label) => w.find(`.sr-head button[aria-label="${label}"]`)
-    const tecla = (w, key, extra = {}) => {
+    const rows = (w) => w.findAll('.sr-row')
+    const button = (w, label) => w.find(`.sr-head button[aria-label="${label}"]`)
+    const press = (w, key, extra = {}) => {
       const e = new KeyboardEvent('keydown', { key, cancelable: true, ...extra })
       return { handled: w.vm.onKey(e), prevented: e.defaultPrevented }
     }
 
     it('«Seleccionar» pone una casilla en cada fila y el clic las marca en vez de abrir la ficha', async () => {
-      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
-      const modo = () => w.find('.sr-select')
-      expect(modo().attributes('aria-pressed')).toBe('false')
+      const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
+      const mode = () => w.find('.sr-select')
+      expect(mode().attributes('aria-pressed')).toBe('false')
       expect(w.findAll('.sr-row .pick-box')).toHaveLength(0)
       expect(w.find('[role="listbox"]').attributes('aria-multiselectable')).toBeUndefined()
 
-      await modo().trigger('click')
-      expect(modo().attributes('aria-pressed')).toBe('true')
+      await mode().trigger('click')
+      expect(mode().attributes('aria-pressed')).toBe('true')
       expect(w.findAll('.sr-row .pick-box')).toHaveLength(8)
       // decorativas: la verdad, para el lector de pantalla, es el aria-selected
       // de cada fila en una lista de eleccion multiple
@@ -727,12 +731,12 @@ describe('los resultados del buscador', () => {
       expect(w.find('[role="listbox"]').attributes('aria-multiselectable')).toBe('true')
       expect(w.find('.sr-tip').text()).toBe('marca los que quieras')
 
-      await filas(w)[1].trigger('click')
-      await filas(w)[4].trigger('click')
+      await rows(w)[1].trigger('click')
+      await rows(w)[4].trigger('click')
       expect(w.emitted('pick'), 'en el modo un clic no abre la ficha').toBeFalsy()
-      expect(elegidas(w)).toEqual([2, 5])
+      expect(picked(w)).toEqual([2, 5])
       expect(w.findAll('.pick-box.on')).toHaveLength(2)
-      expect(filas(w).map((f) => f.attributes('aria-selected'))).toEqual([
+      expect(rows(w).map((f) => f.attributes('aria-selected'))).toEqual([
         'false',
         'true',
         'false',
@@ -742,8 +746,8 @@ describe('los resultados del buscador', () => {
         'false',
         'false'
       ])
-      await filas(w)[1].trigger('click') // la desmarca, sin soltar la otra
-      expect(elegidas(w)).toEqual([5])
+      await rows(w)[1].trigger('click') // la desmarca, sin soltar la otra
+      expect(picked(w)).toEqual([5])
       // marcar y desmarcar deprisa en la casilla no pone la cancion
       await w.findAll('.pick-box')[2].trigger('dblclick')
       expect(w.emitted('play')).toBeFalsy()
@@ -751,68 +755,68 @@ describe('los resultados del buscador', () => {
     })
 
     it('sin el modo: Ctrl+clic pone o quita uno y Mayús+clic coge el tramo; el clic a secas abre la ficha', async () => {
-      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
-      await filas(w)[1].trigger('click', { ctrlKey: true })
-      await filas(w)[3].trigger('click', { metaKey: true }) // Cmd, en el Mac
-      expect(elegidas(w)).toEqual([2, 4])
+      const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
+      await rows(w)[1].trigger('click', { ctrlKey: true })
+      await rows(w)[3].trigger('click', { metaKey: true }) // Cmd, en el Mac
+      expect(picked(w)).toEqual([2, 4])
       // Mayús: el tramo desde la ultima pulsada, solo
-      await filas(w)[6].trigger('click', { shiftKey: true })
-      expect(elegidas(w)).toEqual([4, 5, 6, 7])
+      await rows(w)[6].trigger('click', { shiftKey: true })
+      expect(picked(w)).toEqual([4, 5, 6, 7])
       // Ctrl+Mayús: el tramo se suma a lo que habia
-      await filas(w)[1].trigger('click', { ctrlKey: true, shiftKey: true })
-      expect(elegidas(w)).toEqual([2, 3, 4, 5, 6, 7])
-      await filas(w)[3].trigger('click', { ctrlKey: true })
-      expect(elegidas(w)).toEqual([2, 3, 5, 6, 7])
+      await rows(w)[1].trigger('click', { ctrlKey: true, shiftKey: true })
+      expect(picked(w)).toEqual([2, 3, 4, 5, 6, 7])
+      await rows(w)[3].trigger('click', { ctrlKey: true })
+      expect(picked(w)).toEqual([2, 3, 5, 6, 7])
       expect(w.emitted('pick'), 'Ctrl y Mayús no abren la ficha').toBeFalsy()
       // sin modo no hay casillas: lo elegido se ve por el color de la fila
       expect(w.findAll('.pick-box')).toHaveLength(0)
       expect(CSS).toMatch(/\.sr-row\.picked\{[^}]*var\(--accent\)/)
       // el clic normal sigue siendo elegir la cancion (su ficha)
-      await filas(w)[0].trigger('click')
+      await rows(w)[0].trigger('click')
       expect(w.emitted('pick')[0][0].id).toBe(1)
     })
 
     it('desde la caja: Ctrl+Espacio pone o quita la resaltada y Mayús+flechas amplían o encogen', async () => {
-      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
-      tecla(w, 'ArrowDown') // la segunda
-      expect(tecla(w, ' ', { ctrlKey: true })).toEqual({ handled: true, prevented: true })
+      const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
+      press(w, 'ArrowDown') // la segunda
+      expect(press(w, ' ', { ctrlKey: true })).toEqual({ handled: true, prevented: true })
       await flushPromises()
-      expect(elegidas(w)).toEqual([2])
-      tecla(w, 'ArrowDown')
-      tecla(w, 'ArrowDown') // la cuarta
+      expect(picked(w)).toEqual([2])
+      press(w, 'ArrowDown')
+      press(w, 'ArrowDown') // la cuarta
       // amplía desde donde esta, sin soltar lo de antes; la caja no selecciona texto
-      expect(tecla(w, 'ArrowDown', { shiftKey: true })).toEqual({ handled: true, prevented: true })
-      tecla(w, 'ArrowDown', { shiftKey: true })
+      expect(press(w, 'ArrowDown', { shiftKey: true })).toEqual({ handled: true, prevented: true })
+      press(w, 'ArrowDown', { shiftKey: true })
       await flushPromises()
-      expect(elegidas(w)).toEqual([2, 4, 5, 6])
-      tecla(w, 'ArrowUp', { shiftKey: true }) // encoge el tramo, no lo de antes
+      expect(picked(w)).toEqual([2, 4, 5, 6])
+      press(w, 'ArrowUp', { shiftKey: true }) // encoge el tramo, no lo de antes
       await flushPromises()
-      expect(elegidas(w)).toEqual([2, 4, 5])
+      expect(picked(w)).toEqual([2, 4, 5])
       expect(w.find('.sr-row.on').text()).toContain('Cancion 5')
-      tecla(w, ' ', { ctrlKey: true }) // quita la resaltada
+      press(w, ' ', { ctrlKey: true }) // quita la resaltada
       await flushPromises()
-      expect(elegidas(w)).toEqual([2, 4])
+      expect(picked(w)).toEqual([2, 4])
       // el espacio a secas se escribe en la caja
-      expect(tecla(w, ' ').handled).toBe(false)
+      expect(press(w, ' ').handled).toBe(false)
       expect(w.emitted('pick')).toBeFalsy()
     })
 
     it('Ctrl+A en la caja es de su texto: no elige resultados', async () => {
-      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
-      expect(tecla(w, 'a', { ctrlKey: true })).toEqual({ handled: false, prevented: false })
-      expect(tecla(w, 'A', { metaKey: true }).handled).toBe(false)
+      const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
+      expect(press(w, 'a', { ctrlKey: true })).toEqual({ handled: false, prevented: false })
+      expect(press(w, 'A', { metaKey: true }).handled).toBe(false)
       await flushPromises()
-      expect(elegidas(w)).toEqual([])
+      expect(picked(w)).toEqual([])
       expect(w.find('.sr-picking').exists()).toBe(false)
     })
 
     it('con alguno elegido la cabecera es una barra: cuántos, añadir a una lista, «⋯» y Ninguno', async () => {
-      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
-      await filas(w)[4].trigger('click', { ctrlKey: true })
+      const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
+      await rows(w)[4].trigger('click', { ctrlKey: true })
       expect(w.find('.sr-count').text()).toBe('1 seleccionado')
-      await filas(w)[1].trigger('click', { ctrlKey: true })
-      const cabecera = w.find('.sr-head')
-      expect(cabecera.classes()).toContain('sr-picking')
+      await rows(w)[1].trigger('click', { ctrlKey: true })
+      const header = w.find('.sr-head')
+      expect(header.classes()).toContain('sr-picking')
       // el lector de pantalla anuncia la cuenta al cambiar
       expect(w.find('.sr-count').text()).toBe('2 seleccionados')
       expect(w.find('.sr-count').attributes('aria-live')).toBe('polite')
@@ -820,18 +824,18 @@ describe('los resultados del buscador', () => {
       expect(w.find('.sr-tip').exists()).toBe(false)
 
       // los elegidos van en el orden de los resultados, no en el de los clics
-      await boton(w, 'Añadir a una lista').trigger('click')
-      const [lista, donde] = w.emitted('addToList')[0]
-      expect(lista.map((c) => c.id)).toEqual([2, 5])
-      expect(donde).toBeInstanceOf(MouseEvent)
-      expect(boton(w, 'Añadir a una lista').attributes('aria-haspopup')).toBe('menu')
-      await boton(w, 'Más opciones').trigger('click')
+      await button(w, 'Añadir a una lista').trigger('click')
+      const [list, where] = w.emitted('addToList')[0]
+      expect(list.map((c) => c.id)).toEqual([2, 5])
+      expect(where).toBeInstanceOf(MouseEvent)
+      expect(button(w, 'Añadir a una lista').attributes('aria-haspopup')).toBe('menu')
+      await button(w, 'Más opciones').trigger('click')
       expect(w.emitted('groupMenu')[0][0].map((c) => c.id)).toEqual([2, 5])
       expect(w.emitted('pick'), 'nada de esto cierra ni elige').toBeFalsy()
 
       // «Ninguno»: vuelve la cabecera de siempre
-      await boton(w, 'No seleccionar ninguno').trigger('click')
-      expect(elegidas(w)).toEqual([])
+      await button(w, 'No seleccionar ninguno').trigger('click')
+      expect(picked(w)).toEqual([])
       expect(w.find('.sr-count').text()).toBe('8 resultados')
       expect(w.find('.sr-select').exists()).toBe(true)
       // y la barra no se parte: si falta sitio cede la palabra, no el numero
@@ -842,46 +846,46 @@ describe('los resultados del buscador', () => {
     })
 
     it('sus botones no se quedan el foco al pulsarlos: el teclado sigue en la caja', async () => {
-      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       const mousedown = (el) => {
         const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
         el.element.dispatchEvent(e)
         return e.defaultPrevented
       }
       expect(mousedown(w.find('.sr-select'))).toBe(true)
-      expect(mousedown(filas(w)[2])).toBe(true)
-      await filas(w)[2].trigger('click', { ctrlKey: true })
+      expect(mousedown(rows(w)[2])).toBe(true)
+      await rows(w)[2].trigger('click', { ctrlKey: true })
       for (const label of ['Añadir a una lista', 'Más opciones', 'No seleccionar ninguno']) {
-        expect(mousedown(boton(w, label)), label).toBe(true)
+        expect(mousedown(button(w, label)), label).toBe(true)
       }
     })
 
     it('el clic derecho, el «⋯» y la tecla de menú sobre una elegida son las opciones de todas; sobre otra, las suyas', async () => {
-      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
-      await filas(w)[2].trigger('click', { ctrlKey: true })
-      await filas(w)[5].trigger('click', { ctrlKey: true })
-      await filas(w)[5].trigger('contextmenu')
+      const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
+      await rows(w)[2].trigger('click', { ctrlKey: true })
+      await rows(w)[5].trigger('click', { ctrlKey: true })
+      await rows(w)[5].trigger('contextmenu')
       expect(w.emitted('groupMenu')[0][0].map((c) => c.id)).toEqual([3, 6])
       expect(w.emitted('menu')).toBeFalsy()
       await w.findAll('.sr-more')[2].trigger('click')
       expect(w.emitted('groupMenu')).toHaveLength(2)
       // sobre una que no esta elegida: la de esa, como siempre
-      await filas(w)[0].trigger('contextmenu')
+      await rows(w)[0].trigger('contextmenu')
       expect(w.emitted('menu')[0][0].id).toBe(1)
-      expect(elegidas(w), 'abrir un menu no cambia lo elegido').toEqual([3, 6])
+      expect(picked(w), 'abrir un menu no cambia lo elegido').toEqual([3, 6])
       // con el teclado, sobre la resaltada
-      tecla(w, 'ArrowDown')
-      tecla(w, 'ArrowDown') // la tercera, elegida
-      expect(tecla(w, 'ContextMenu').handled).toBe(true)
-      const [lista, donde] = w.emitted('groupMenu')[2]
-      expect(lista.map((c) => c.id)).toEqual([3, 6])
-      expect(donde).toEqual({ clientX: expect.any(Number), clientY: expect.any(Number) })
+      press(w, 'ArrowDown')
+      press(w, 'ArrowDown') // la tercera, elegida
+      expect(press(w, 'ContextMenu').handled).toBe(true)
+      const [list, where] = w.emitted('groupMenu')[2]
+      expect(list.map((c) => c.id)).toEqual([3, 6])
+      expect(where).toEqual({ clientX: expect.any(Number), clientY: expect.any(Number) })
     })
 
     it('Escape suelta lo elegido (y el modo) antes de cerrar', async () => {
-      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       await w.find('.sr-select').trigger('click')
-      await filas(w)[3].trigger('click')
+      await rows(w)[3].trigger('click')
       const e = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
       const stop = vi.spyOn(e, 'stopPropagation')
       expect(w.vm.onKey(e)).toBe(true)
@@ -889,21 +893,21 @@ describe('los resultados del buscador', () => {
       expect(stop).toHaveBeenCalled()
       await flushPromises()
       expect(w.emitted('close')).toBeFalsy()
-      expect(elegidas(w)).toEqual([])
+      expect(picked(w)).toEqual([])
       expect(w.find('.sr-select').attributes('aria-pressed')).toBe('false')
       // con nada que soltar, Escape cierra
-      expect(tecla(w, 'Escape').handled).toBe(true)
+      expect(press(w, 'Escape').handled).toBe(true)
       expect(w.emitted('close')).toHaveLength(1)
     })
 
     it('otra búsqueda olvida lo elegido (el modo sigue); lo que se va de los resultados se suelta', async () => {
-      const w = mount(SearchResults, { props: { songs: ocho(), query: 'x' } })
+      const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
       await w.find('.sr-select').trigger('click')
-      await filas(w)[1].trigger('click')
-      await filas(w)[2].trigger('click')
-      await filas(w)[3].trigger('click')
+      await rows(w)[1].trigger('click')
+      await rows(w)[2].trigger('click')
+      await rows(w)[3].trigger('click')
       // la misma busqueda pierde una fila (a la papelera): las demas siguen elegidas
-      await w.setProps({ songs: ocho().filter((c) => c.id !== 3) })
+      await w.setProps({ songs: eight().filter((c) => c.id !== 3) })
       await flushPromises()
       expect(w.find('.sr-count').text()).toBe('2 seleccionados')
       // otra consulta: nada elegido, pero quien puso el modo sigue eligiendo
@@ -915,27 +919,27 @@ describe('los resultados del buscador', () => {
 
     it('arrastrar una de las elegidas lleva todas, en su orden; una sin elegir va sola', async () => {
       const w = mount(SearchResults, {
-        props: { songs: ocho(), query: 'x' },
+        props: { songs: eight(), query: 'x' },
         attachTo: document.body
       })
-      await filas(w)[4].trigger('click', { ctrlKey: true })
-      await filas(w)[1].trigger('click', { ctrlKey: true })
-      const arrastrar = (i) => {
-        filas(w)[i].element.dispatchEvent(
+      await rows(w)[4].trigger('click', { ctrlKey: true })
+      await rows(w)[1].trigger('click', { ctrlKey: true })
+      const drag = (i) => {
+        rows(w)[i].element.dispatchEvent(
           new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 5, clientY: 5 })
         )
         window.dispatchEvent(
           new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 90 })
         )
       }
-      arrastrar(4)
+      drag(4)
       expect(useDragSong().drag.songs.map((c) => c.id)).toEqual([2, 5])
       await flushPromises()
       expect(w.findAll('.sr-row.dragged')).toHaveLength(2)
       cancelDrag()
-      arrastrar(6)
+      drag(6)
       expect(useDragSong().drag.songs.map((c) => c.id)).toEqual([7])
-      expect(elegidas(w), 'arrastrar otra no cambia lo elegido').toEqual([2, 5])
+      expect(picked(w), 'arrastrar otra no cambia lo elegido').toEqual([2, 5])
     })
   })
 })
@@ -951,58 +955,58 @@ describe('la busqueda avanzada', () => {
     keys: [],
     folders: []
   }
-  const montar = (query = '') => mount(SearchPanel, { props: { query, facets } })
+  const mountView = (query = '') => mount(SearchPanel, { props: { query, facets } })
   /** El campo con esa etiqueta. */
-  const campo = (w, etiqueta) =>
+  const field = (w, labelText) =>
     w
       .findAll('.field')
-      .find((f) => f.find('.field-label').exists() && f.find('.field-label').text() === etiqueta)
+      .find((f) => f.find('.field-label').exists() && f.find('.field-label').text() === labelText)
 
   it('ofrece filtrar, comparar y ordenar', () => {
-    const w = montar()
-    const etiquetas = w.findAll('.field-label').map((l) => l.text())
+    const w = mountView()
+    const labels = w.findAll('.field-label').map((l) => l.text())
     for (const e of ['Texto', 'Artista', 'Album', 'Genero', 'Tono', 'Carpeta', 'Por']) {
-      expect(etiquetas, `falta «${e}»`).toContain(e)
+      expect(labels, `falta «${e}»`).toContain(e)
     }
     for (const e of ['BPM', 'Duración (s)', 'Calidad (bps)', 'Año']) {
-      expect(etiquetas, `falta el rango de «${e}»`).toContain(e)
+      expect(labels, `falta el rango de «${e}»`).toContain(e)
     }
   })
 
   it('escribe en la misma caja que se escribe a mano, sin perder lo que habia', async () => {
     // asi no hay dos estados que puedan discrepar, y de paso se aprende la
     // sintaxis viendo lo que aparece escrito
-    const w = montar('mi gozo bpm>100')
-    const artista = campo(w, 'Artista')
-    await artista.find('.select-box').trigger('click')
-    await artista
+    const w = mountView('mi gozo bpm>100')
+    const artist = field(w, 'Artista')
+    await artist.find('.select-box').trigger('click')
+    await artist
       .findAll('.select-opt')
       .find((o) => o.text().includes('New Wine'))
       .trigger('click')
     expect(w.emitted('update:query').at(-1)).toEqual(['mi gozo artista:NewWine bpm>100'])
     // y lee lo ya escrito: el rango aparece en su casilla
-    const desde = w.findAll('.rango')[0].findAll('input')[0]
-    expect(desde.element.value).toBe('100')
-    await desde.setValue('90')
+    const fromInput = w.findAll('.rango')[0].findAll('input')[0]
+    expect(fromInput.element.value).toBe('100')
+    await fromInput.setValue('90')
     expect(w.emitted('update:query').at(-1)).toEqual(['mi gozo bpm>90'])
   })
 
   it('cada orden que ofrece es uno que el nucleo sabe hacer', async () => {
-    const w = montar()
-    const orden = campo(w, 'Por')
-    await orden.find('.select-box').trigger('click')
-    const nombres = orden.findAll('.select-opt').map((o) => o.text())
-    expect(nombres.length).toBeGreaterThan(8)
+    const w = mountView()
+    const order = field(w, 'Por')
+    await order.find('.select-box').trigger('click')
+    const names = order.findAll('.select-opt').map((o) => o.text())
+    expect(names.length).toBeGreaterThan(8)
     // el menu ya esta abierto: se elige la primera y luego se abre para cada una
-    for (let i = 0; i < nombres.length; i++) {
-      if (i) await orden.find('.select-box').trigger('click')
-      await orden.findAll('.select-opt')[i].trigger('click')
+    for (let i = 0; i < names.length; i++) {
+      if (i) await order.find('.select-box').trigger('click')
+      await order.findAll('.select-opt')[i].trigger('click')
     }
-    const campos = w.emitted('sort').map(([campo]) => campo)
+    const fields = w.emitted('sort').map(([field]) => field)
     const core = coreSource()
-    for (const campo of campos) {
-      expect(core, `el nucleo no sabe ordenar por «${campo}»`).toMatch(
-        new RegExp(`"${campo}":\\s*\\(`)
+    for (const field of fields) {
+      expect(core, `el nucleo no sabe ordenar por «${field}»`).toMatch(
+        new RegExp(`"${field}":\\s*\\(`)
       )
     }
   })
@@ -1024,16 +1028,16 @@ describe('la busqueda avanzada', () => {
 
 describe('copiar textos', () => {
   it('copia al portapapeles y acusa que lo hizo', async () => {
-    const escrito = []
+    const written = []
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
-      value: { writeText: async (t) => escrito.push(t) }
+      value: { writeText: async (t) => written.push(t) }
     })
     const w = mount(CopyButton, { props: { text: '  Mi Gozo ', what: 'el titulo' } })
     expect(w.attributes('aria-label')).toBe('Copiar el titulo')
     await w.trigger('click')
     await flushPromises()
-    expect(escrito).toEqual(['Mi Gozo'])
+    expect(written).toEqual(['Mi Gozo'])
     expect(w.emitted('copied')[0]).toEqual([true, 'el titulo'])
     // el portapapeles no se ve: el icono cambia un momento para decirlo
     expect(w.classes()).toContain('done')
@@ -1079,9 +1083,9 @@ describe('copiar textos', () => {
     const w = mount(DetailsPanel, {
       props: { song: song(1, { lyrics: 'Mi gozo', chords }), aiReady: true }
     })
-    const que = w.findAll('.copy-btn').map((b) => b.attributes('aria-label'))
+    const what = w.findAll('.copy-btn').map((b) => b.attributes('aria-label'))
     for (const q of ['el título', 'el artista', 'la letra', 'los acordes']) {
-      expect(que, `no se puede copiar ${q}`).toContain('Copiar ' + q)
+      expect(what, `no se puede copiar ${q}`).toContain('Copiar ' + q)
     }
   })
 })
@@ -1093,23 +1097,23 @@ describe('copiar textos', () => {
 // plantillas con la hoja de estilos o con una norma de la casa.
 describe('cruces entre las plantillas y el resto', () => {
   it('cada transicion usada en las plantillas existe en el css', () => {
-    const usadas = new Set()
-    for (const { code } of componentes()) {
+    const used = new Set()
+    for (const { code } of components()) {
       for (const m of code.matchAll(/<transition(?:-group)?[^>]*\bname="([\w-]+)"/g)) {
-        usadas.add(m[1])
+        used.add(m[1])
       }
     }
-    expect(usadas.size).toBeGreaterThan(0)
-    const faltan = [...usadas].filter((n) => !CSS.includes(`.${n}-enter-active`))
-    expect(faltan, 'transiciones nombradas en las plantillas y sin css').toEqual([])
+    expect(used.size).toBeGreaterThan(0)
+    const missing = [...used].filter((n) => !CSS.includes(`.${n}-enter-active`))
+    expect(missing, 'transiciones nombradas en las plantillas y sin css').toEqual([])
   })
 
   it('todos los campos de texto se pueden vaciar', () => {
     // `clearable` viene puesto; lo que se revisa es que nadie lo apague
-    const apagados = componentes()
+    const notClearable = components()
       .filter(({ code }) => /:clearable="false"/.test(code))
       .map(({ file }) => file)
-    expect(apagados, 'campos sin forma de vaciarlos').toEqual([])
+    expect(notClearable, 'campos sin forma de vaciarlos').toEqual([])
   })
 
   it('ningun modificador de boton trae un alto relativo a la ventana', () => {
@@ -1118,27 +1122,29 @@ describe('cruces entre las plantillas y el resto', () => {
     // pesan igual, asi que ganaba la ultima del archivo: los veintitantos
     // botones pequeños de la app se volvian columnas de la altura de la
     // pantalla.
-    const modificadores = new Set()
-    for (const { code } of componentes()) {
+    const modifiers = new Set()
+    for (const { code } of components()) {
       for (const m of code.matchAll(/class="([^"]*\bbtn\b[^"]*)"/g)) {
-        for (const c of m[1].split(/\s+/)) if (c && c !== 'btn') modificadores.add(c)
+        for (const c of m[1].split(/\s+/)) if (c && c !== 'btn') modifiers.add(c)
       }
     }
-    expect(modificadores.size).toBeGreaterThan(0)
-    const chocan = []
-    for (const c of modificadores) {
+    expect(modifiers.size).toBeGreaterThan(0)
+    const clashes = []
+    for (const c of modifiers) {
       // una regla que empieza por `.clase{` o `.clase ,` : sin `.btn` delante
-      const suelta = new RegExp(`(^|[},])\\s*\\.${c}\\s*\\{([^}]*)\\}`, 'm')
-      const m = CSS.match(suelta)
+      const loose = new RegExp(`(^|[},])\\s*\\.${c}\\s*\\{([^}]*)\\}`, 'm')
+      const m = CSS.match(loose)
       // Un alto fijo en px es normal en un boton cuadrado (.icon-btn y
       // compañia). Lo que no puede estar bien nunca es un alto relativo a la
       // ventana o al padre: eso delata que la clase es en realidad la raiz de
       // otra pantalla y se esta colando en los botones por compartir nombre.
       if (m && /(^|;)\s*height\s*:\s*[\d.]+(vh|vw|%)/.test(m[2])) {
-        chocan.push(`.${c} -> ${m[2].trim().slice(0, 60)}`)
+        clashes.push(`.${c} -> ${m[2].trim().slice(0, 60)}`)
       }
     }
-    expect(chocan, 'reglas sueltas que se cuelan en todos los .btn con ese modificador').toEqual([])
+    expect(clashes, 'reglas sueltas que se cuelan en todos los .btn con ese modificador').toEqual(
+      []
+    )
   })
 
   describe('props que se pasan a los componentes', () => {
@@ -1146,7 +1152,7 @@ describe('cruces entre las plantillas y el resto', () => {
     // limpiar donde no debia, y nada avisaba: una prop que no existe se ignora
     // en silencio. Esto compara lo que se pasa con lo que cada componente
     // declara de verdad.
-    const NATIVAS = new Set([
+    const NATIVE = new Set([
       'class',
       'style',
       'ref',
@@ -1171,61 +1177,61 @@ describe('cruces entre las plantillas y el resto', () => {
      * se buscan «palabra:» a secas tambien salen `type` y `default` de los
      * descriptores de dentro.
      */
-    function clavesDePrimerNivel(texto) {
-      const claves = new Set()
-      let hondo = 0
-      for (const t of texto.matchAll(/[{}[\]]|(\w+)\s*:/g)) {
-        if (t[0] === '{' || t[0] === '[') hondo++
-        else if (t[0] === '}' || t[0] === ']') hondo--
-        else if (hondo === 0 && t[1]) claves.add(t[1])
+    function topLevelKeys(text) {
+      const keys = new Set()
+      let depth = 0
+      for (const t of text.matchAll(/[{}[\]]|(\w+)\s*:/g)) {
+        if (t[0] === '{' || t[0] === '[') depth++
+        else if (t[0] === '}' || t[0] === ']') depth--
+        else if (depth === 0 && t[1]) keys.add(t[1])
       }
-      return claves
+      return keys
     }
 
     /** Nombre del componente -> props que declara. */
-    function declaradas() {
-      const mapa = new Map()
-      for (const { file, code } of componentes()) {
-        const nombre = file.split('/').pop().replace('.vue', '')
+    function declared() {
+      const byName = new Map()
+      for (const { file, code } of components()) {
+        const name = file.split('/').pop().replace('.vue', '')
         const props = new Set()
         const obj = code.match(/defineProps\(\{([\s\S]*?)\n\}\)/)
-        if (obj) for (const k of clavesDePrimerNivel(obj[1])) props.add(k)
+        if (obj) for (const k of topLevelKeys(obj[1])) props.add(k)
         // `defineModel()` declara `modelValue`; `defineModel('x')`, `x`
         for (const m of code.matchAll(/defineModel\(\s*(?:'(\w+)')?/g)) {
           props.add(m[1] || 'modelValue')
         }
-        if (props.size) mapa.set(nombre, props)
+        if (props.size) byName.set(name, props)
       }
-      return mapa
+      return byName
     }
 
     it('ninguna plantilla pasa una prop que el componente no declara', () => {
-      const mapa = declaradas()
-      expect(mapa.size).toBeGreaterThan(5)
-      const malos = []
-      for (const { file, code } of componentes()) {
-        for (const uso of code.matchAll(/<([A-Z]\w+)([^>]*?)\/?>/g)) {
-          const props = mapa.get(uso[1])
+      const byName = declared()
+      expect(byName.size).toBeGreaterThan(5)
+      const bad = []
+      for (const { file, code } of components()) {
+        for (const usage of code.matchAll(/<([A-Z]\w+)([^>]*?)\/?>/g)) {
+          const props = byName.get(usage[1])
           if (!props) continue
           // Se vacian los valores entrecomillados antes de buscar nombres: si
           // no, un manejador como @enter="save(x); x=''" parece traer una prop
           // llamada `x`.
-          const limpio = uso[2].replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''")
-          for (const attr of limpio.matchAll(/(?:^|\s)(:?)([\w-]+)\s*=/g)) {
-            const nombre = attr[2]
+          const clean = usage[2].replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''")
+          for (const attr of clean.matchAll(/(?:^|\s)(:?)([\w-]+)\s*=/g)) {
+            const name = attr[2]
             if (
-              nombre.startsWith('v-') ||
-              nombre.startsWith('@') ||
-              nombre.startsWith('data-') ||
-              nombre.startsWith('aria-')
+              name.startsWith('v-') ||
+              name.startsWith('@') ||
+              name.startsWith('data-') ||
+              name.startsWith('aria-')
             )
               continue
-            if (NATIVAS.has(nombre)) continue
-            if (!props.has(camel(nombre))) malos.push(`${file}: <${uso[1]} ${attr[1]}${nombre}=…>`)
+            if (NATIVE.has(name)) continue
+            if (!props.has(camel(name))) bad.push(`${file}: <${usage[1]} ${attr[1]}${name}=…>`)
           }
         }
       }
-      expect(malos, 'props inexistentes (se ignoran en silencio)').toEqual([])
+      expect(bad, 'props inexistentes (se ignoran en silencio)').toEqual([])
     })
   })
 })

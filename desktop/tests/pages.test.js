@@ -50,30 +50,30 @@ afterEach(() => {
   w?.unmount()
   w = null
 })
-const montar = async (Page, props = {}) => {
+const mountView = async (Page, props = {}) => {
   w = mount(Page, { props, attachTo: document.body })
   await flushPromises()
   await flushPromises()
   return w
 }
-const boton = (text) => w.findAll('button').find((b) => b.text().includes(text))
-const avisos = () => useNotices().notices.value.map((n) => n.message)
+const button = (text) => w.findAll('button').find((b) => b.text().includes(text))
+const notices = () => useNotices().notices.value.map((n) => n.message)
 /** Una tarea que va por donde se le diga y acaba cuando se le diga. */
-function tareaEnMarcha(name, pasos, result) {
-  const cola = [...pasos, finishedJob(name, result)]
-  let soltar = null
+function runningJob(name, steps, result) {
+  const queue = [...steps, finishedJob(name, result)]
+  let release = null
   api().job.mockImplementation(
     () =>
       new Promise((r) => {
-        soltar = () => r(cola.shift())
+        release = () => r(queue.shift())
       })
   )
   return {
     first: { job: { name, active: true, done: 0, total: 0, message: '', result: null, error: '' } },
-    siguiente: async () => {
-      await vi.waitFor(() => expect(soltar).toBeTypeOf('function'))
-      const s = soltar
-      soltar = null
+    next: async () => {
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+      const s = release
+      release = null
       s()
       await flushPromises()
       await flushPromises()
@@ -83,7 +83,7 @@ function tareaEnMarcha(name, pasos, result) {
 
 describe('la Entrada', () => {
   it('importar es una tarea: se ve como va y al acabar el resultado', async () => {
-    const t = tareaEnMarcha(
+    const t = runningJob(
       'importacion',
       [
         {
@@ -122,16 +122,16 @@ describe('la Entrada', () => {
       }
     )
     api().runImport.mockResolvedValueOnce(t.first)
-    await montar(InboxPage, { waiting: 2 })
-    await boton('Importar 2 archivos').trigger('click')
+    await mountView(InboxPage, { waiting: 2 })
+    await button('Importar 2 archivos').trigger('click')
     await flushPromises()
     expect(api().runImport).toHaveBeenCalledWith({ dry_run: false })
     expect(w.find('.job-progress').exists()).toBe(true)
-    expect(boton('Importar').attributes('disabled')).toBeDefined()
-    await t.siguiente()
+    expect(button('Importar').attributes('disabled')).toBeDefined()
+    await t.next()
     expect(w.find('.job-progress').text()).toContain('1 / 2')
     expect(w.find('.job-progress').text()).toContain('identificando «x.mp3»')
-    await t.siguiente()
+    await t.next()
     expect(w.find('.job-progress').exists()).toBe(false)
     expect(w.text()).toContain('1 archivadas · 1 a revisar')
     expect(w.text()).toContain('Barak — Mi Gozo')
@@ -141,8 +141,8 @@ describe('la Entrada', () => {
   })
 
   it('«probar sin tocar nada» es la misma tarea, en prueba', async () => {
-    await montar(InboxPage, { waiting: 1 })
-    await boton('Probar sin tocar nada').trigger('click')
+    await mountView(InboxPage, { waiting: 1 })
+    await button('Probar sin tocar nada').trigger('click')
     await flushPromises()
     await flushPromises()
     expect(api().runImport).toHaveBeenCalledWith({ dry_run: true })
@@ -152,16 +152,16 @@ describe('la Entrada', () => {
     api().runImport.mockResolvedValueOnce({
       job: finishedJob('importacion', null, { error: 'la Entrada no existe' })
     })
-    await montar(InboxPage, { waiting: 1 })
-    await boton('Importar 1 archivo').trigger('click')
+    await mountView(InboxPage, { waiting: 1 })
+    await button('Importar 1 archivo').trigger('click')
     await flushPromises()
     await flushPromises()
-    expect(avisos()).toContain('No se pudo importar: la Entrada no existe')
+    expect(notices()).toContain('No se pudo importar: la Entrada no existe')
   })
 })
 
 describe('los duplicados', () => {
-  const grupo = {
+  const group = {
     suggested: '/m/b.mp3',
     items: [
       {
@@ -196,7 +196,7 @@ describe('los duplicados', () => {
   }
 
   it('buscarlos es una tarea: se ve como va y luego los grupos', async () => {
-    const t = tareaEnMarcha(
+    const t = runningJob(
       'duplicados',
       [
         {
@@ -209,14 +209,14 @@ describe('los duplicados', () => {
           error: ''
         }
       ],
-      { identical: [], similar: [grupo] }
+      { identical: [], similar: [group] }
     )
     api().duplicatesScan.mockResolvedValueOnce(t.first)
-    await montar(DuplicatesPage)
+    await mountView(DuplicatesPage)
     expect(w.find('.job-progress').exists()).toBe(true)
-    await t.siguiente()
+    await t.next()
     expect(w.find('.job-progress').text()).toContain('300 / 900')
-    await t.siguiente()
+    await t.next()
     expect(w.findAll('.dup-row')).toHaveLength(2)
     expect(w.text()).toContain('Misma canción, archivo distinto (1)')
     api().job.mockReset()
@@ -224,8 +224,8 @@ describe('los duplicados', () => {
 
   it('escuchar una copia, y la que suena se pausa en vez de volver a empezar', async () => {
     held.state.songs = [song(1), song(2)]
-    held.state.duplicates = { identical: [grupo], similar: [] }
-    await montar(DuplicatesPage)
+    held.state.duplicates = { identical: [group], similar: [] }
+    await mountView(DuplicatesPage)
     await w.findAll('.dup-play')[1].trigger('click')
     await flushPromises()
     expect(held.playback.bridge.setQueue).toHaveBeenCalledTimes(1)
@@ -239,8 +239,8 @@ describe('los duplicados', () => {
   })
 
   it('quedarse con una pregunta antes y manda las demas a la papelera', async () => {
-    held.state.duplicates = { identical: [grupo], similar: [] }
-    await montar(DuplicatesPage)
+    held.state.duplicates = { identical: [group], similar: [] }
+    await mountView(DuplicatesPage)
     await w.findAll('.dup-keep')[1].trigger('click')
     await flushPromises()
     expect(useDialog().dialog.value.title).toBe('Conservar solo esta')
@@ -249,19 +249,19 @@ describe('los duplicados', () => {
     await flushPromises()
     await flushPromises()
     expect(api().resolveDuplicate).toHaveBeenCalledWith('/m/b.mp3', ['/m/a.mp3'])
-    expect(avisos().some((m) => m.includes('Conservada'))).toBe(true)
+    expect(notices().some((m) => m.includes('Conservada'))).toBe(true)
     expect(w.emitted('changed')).toBeTruthy()
   })
 
   it('sin duplicados lo dice', async () => {
-    await montar(DuplicatesPage)
+    await mountView(DuplicatesPage)
     expect(w.text()).toContain('Sin duplicados.')
   })
 })
 
 describe('la bienvenida', () => {
   it('al elegir la carpeta, el analisis se ve avanzar', async () => {
-    const t = tareaEnMarcha(
+    const t = runningJob(
       'escaneo',
       [
         {
@@ -277,15 +277,15 @@ describe('la bienvenida', () => {
       { stats: { total: 480 } }
     )
     api().scan.mockResolvedValueOnce(t.first)
-    await montar(WelcomePage)
+    await mountView(WelcomePage)
     await w.find('input').setValue('/musica')
-    await boton('Analizar').trigger('click')
+    await button('Analizar').trigger('click')
     await flushPromises()
     expect(api().addFolder).toHaveBeenCalledWith('/musica', '', false)
     expect(w.text()).toContain('Leyendo etiquetas')
-    await t.siguiente()
+    await t.next()
     expect(w.find('.job-progress').text()).toContain('120 / 480')
-    await t.siguiente()
+    await t.next()
     expect(w.emitted('ready')).toBeTruthy()
     api().job.mockReset()
   })
@@ -294,9 +294,9 @@ describe('la bienvenida', () => {
     api().scan.mockResolvedValueOnce({
       job: finishedJob('escaneo', null, { error: 'no se puede leer la carpeta' })
     })
-    await montar(WelcomePage)
+    await mountView(WelcomePage)
     await w.find('input').setValue('/musica')
-    await boton('Analizar').trigger('click')
+    await button('Analizar').trigger('click')
     await flushPromises()
     await flushPromises()
     expect(w.text()).toContain(

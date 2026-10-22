@@ -58,20 +58,20 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-async function montar() {
+async function mountView() {
   const w = mount(App, { attachTo: document.body })
   await flushPromises()
   await flushPromises()
   return w
 }
-const pulsar = async (w, texto) => {
+const clickButton = async (w, text) => {
   await w
     .findAll('.nav-link')
-    .find((b) => b.text().includes(texto))
+    .find((b) => b.text().includes(text))
     .trigger('click')
   await settle()
 }
-const abrirVista = async (w) => {
+const openView = async (w) => {
   await w
     .findAll('button')
     .find((b) => b.text().includes('Vista'))
@@ -79,19 +79,19 @@ const abrirVista = async (w) => {
   await flushPromises()
 }
 /** El nombre de la transicion con la que entra ese elemento (en las pruebas, `transition-stub`). */
-const transicion = (el) => el.closest('transition-stub')?.getAttribute('name') ?? null
+const transition = (el) => el.closest('transition-stub')?.getAttribute('name') ?? null
 
 describe('lo que se ve', () => {
   it('los avisos se pintan con las clases que el css conoce', async () => {
     // Antes salian con notice-ok / notice-ambar y el css definia hint-ok /
     // hint-amber: los avisos eran siempre grises.
-    const w = await montar()
+    const w = await mountView()
     notify('Guardado', 'ok')
     notify('No se pudo')
     await flushPromises()
-    const [bien, mal] = w.findAll('.toast')
-    expect(bien.classes()).toContain('hint-ok')
-    expect(mal.classes()).toContain('hint-amber')
+    const [good, bad] = w.findAll('.toast')
+    expect(good.classes()).toContain('hint-ok')
+    expect(bad.classes()).toContain('hint-amber')
     const css = allCss()
     for (const c of ['hint-ok', 'hint-amber'])
       expect(css).toMatch(new RegExp(`\\.${c}[\\s,{:.>+~]`))
@@ -99,35 +99,35 @@ describe('lo que se ve', () => {
 
   it('el menu de Vista entra con su transicion, como los demas paneles', async () => {
     // aparecia de golpe mientras el resto se desvanecia
-    const w = await montar()
-    await abrirVista(w)
-    expect(transicion(w.find('.view-menu').element)).toBe('dropdown')
+    const w = await mountView()
+    await openView(w)
+    expect(transition(w.find('.view-menu').element)).toBe('dropdown')
   })
 
   it('el modo estudio sube desde el reproductor con su transicion', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.find('.pl-study').trigger('click')
     await flushPromises()
-    expect(transicion(w.find('.study').element)).toBe('study')
+    expect(transition(w.find('.study').element)).toBe('study')
   })
 
   it('cada vista se pinta con lo suyo', async () => {
-    const w = await montar()
-    const caja = { rows: '.rows', cards: '.cards', grid: '.grid', table: 'table.song-table' }
-    for (const [i, vista] of ['rows', 'cards', 'grid', 'table'].entries()) {
+    const w = await mountView()
+    const box = { rows: '.rows', cards: '.cards', grid: '.grid', table: 'table.song-table' }
+    for (const [i, view] of ['rows', 'cards', 'grid', 'table'].entries()) {
       await w.findAll('.view-switch button')[i].trigger('click')
       await flushPromises()
-      expect(w.find(caja[vista]).exists(), `«${vista}» no pinta nada`).toBe(true)
+      expect(w.find(box[view]).exists(), `«${view}» no pinta nada`).toBe(true)
       expect(w.findAll('[data-song-row]')).toHaveLength(3)
     }
   })
 
   it('donde el conmutador no cabe, la vista se elige en el menu', async () => {
-    const w = await montar()
-    await abrirVista(w)
-    const como = w.findAll('.view-menu .field').find((f) => f.text().includes('Cómo se ve'))
-    await como.find('.select-box').trigger('click')
-    await como
+    const w = await mountView()
+    await openView(w)
+    const layoutField = w.findAll('.view-menu .field').find((f) => f.text().includes('Cómo se ve'))
+    await layoutField.find('.select-box').trigger('click')
+    await layoutField
       .findAll('.select-opt')
       .find((o) => o.text().includes('Cuadrícula'))
       .trigger('click')
@@ -138,43 +138,43 @@ describe('lo que se ve', () => {
   })
 
   it('el selector de tema enseña el color de cada uno', async () => {
-    const w = await montar()
-    await abrirVista(w)
-    const tema = w.findAll('.view-menu .field').find((f) => f.text().includes('Tema'))
-    await tema.find('.select-box').trigger('click')
-    const puntos = tema.findAll('.select-dot')
-    expect(puntos.length).toBeGreaterThan(5)
-    for (const p of puntos) expect(p.attributes('style')).toMatch(/background:\s*rgb/)
+    const w = await mountView()
+    await openView(w)
+    const theme = w.findAll('.view-menu .field').find((f) => f.text().includes('Tema'))
+    await theme.find('.select-box').trigger('click')
+    const dots = theme.findAll('.select-dot')
+    expect(dots.length).toBeGreaterThan(5)
+    for (const p of dots) expect(p.attributes('style')).toMatch(/background:\s*rgb/)
   })
 
   it('en Entrada no se reserva sitio para la ficha; en Duplicados si', async () => {
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.details').exists()).toBe(true)
-    await pulsar(w, 'Entrada')
+    await clickButton(w, 'Entrada')
     expect(w.find('.details').exists(), 'Entrada no tiene canciones que enseñar').toBe(false)
     // desde Duplicados se escuchan las copias y la ficha se llena
-    await pulsar(w, 'Duplicados')
+    await clickButton(w, 'Duplicados')
     expect(w.find('.details').exists()).toBe(true)
   })
 })
 
 describe('ordenar', () => {
   it('pulsar la misma columna invierte el orden; otra empieza por lo natural', async () => {
-    const w = await montar()
-    const columna = (k) => w.find(`th[data-col="${k}"] .th-sort`)
-    const ultimo = () => api.search.mock.calls.at(-1)[0]
-    await columna('title').trigger('click')
+    const w = await mountView()
+    const column = (k) => w.find(`th[data-col="${k}"] .th-sort`)
+    const last = () => api.search.mock.calls.at(-1)[0]
+    await column('title').trigger('click')
     await flushPromises()
-    expect([ultimo().sort, ultimo().desc]).toEqual(['title', false])
-    await columna('title').trigger('click')
+    expect([last().sort, last().desc]).toEqual(['title', false])
+    await column('title').trigger('click')
     await flushPromises()
-    expect([ultimo().sort, ultimo().desc], 'la misma columna deberia invertirse').toEqual([
+    expect([last().sort, last().desc], 'la misma columna deberia invertirse').toEqual([
       'title',
       true
     ])
-    await columna('dur').trigger('click')
+    await column('dur').trigger('click')
     await flushPromises()
-    expect([ultimo().sort, ultimo().desc], 'por duracion, lo mas largo primero').toEqual([
+    expect([last().sort, last().desc], 'por duracion, lo mas largo primero').toEqual([
       'duration',
       true
     ])
@@ -184,37 +184,37 @@ describe('ordenar', () => {
 describe('el buscador', () => {
   // Con temporizadores de verdad: los falsos adelantan `Date.now()` y Vue
   // descarta despues los clics sobre lo que se monto «en el futuro».
-  const buscar = async (w, texto) => {
-    await w.find('.topbar input').setValue(texto)
+  const search = async (w, text) => {
+    await w.find('.topbar input').setValue(text)
     await new Promise((r) => setTimeout(r, SEARCH_DELAY + 20))
     await flushPromises()
   }
 
   it('en la biblioteca filtra la propia lista; fuera de ella, despliega resultados', async () => {
-    const w = await montar()
+    const w = await mountView()
     api.search.mockClear()
-    await buscar(w, 'gozo')
+    await search(w, 'gozo')
     expect(api.search.mock.calls.at(-1)[0].q).toBe('gozo')
     expect(w.find('.search-results').exists()).toBe(false)
     // en Favoritos esa lista es otra cosa: se busca en toda la biblioteca
     await w.find('.chip.x').trigger('click') // quitar la busqueda
-    await pulsar(w, 'Favoritos')
-    await buscar(w, 'shekinah')
+    await clickButton(w, 'Favoritos')
+    await search(w, 'shekinah')
     expect(api.quickSearch).toHaveBeenCalledWith('shekinah', 60)
     expect(w.find('.search-results').exists()).toBe(true)
     // la caja anuncia la lista de resultados que maneja
-    const caja = w.find('.topbar input')
-    expect(caja.attributes('role')).toBe('combobox')
-    expect(caja.attributes('aria-expanded')).toBe('true')
-    expect(document.getElementById(caja.attributes('aria-controls'))).toBeTruthy()
+    const box = w.find('.topbar input')
+    expect(box.attributes('role')).toBe('combobox')
+    expect(box.attributes('aria-expanded')).toBe('true')
+    expect(document.getElementById(box.attributes('aria-controls'))).toBeTruthy()
   })
 
   it('al reproducir un resultado, la cola pasa a ser lo encontrado', async () => {
     // si no, «siguiente» no recorreria los resultados, que es lo que se
     // espera despues de buscar
-    const w = await montar()
-    await pulsar(w, 'Favoritos')
-    await buscar(w, 'barak')
+    const w = await mountView()
+    await clickButton(w, 'Favoritos')
+    await search(w, 'barak')
     await w.findAll('.sr-play')[1].trigger('click')
     await flushPromises()
     await flushPromises()
@@ -225,10 +225,10 @@ describe('el buscador', () => {
   })
 
   it('la busqueda avanzada se abre desde un boton dentro del propio campo', async () => {
-    const w = await montar()
-    const boton = w.find('.search-box .field-box .search-more')
-    expect(boton.exists(), 'el boton no va dentro del campo').toBe(true)
-    await boton.trigger('click')
+    const w = await mountView()
+    const button = w.find('.search-box .field-box .search-more')
+    expect(button.exists(), 'el boton no va dentro del campo').toBe(true)
+    await button.trigger('click')
     expect(w.find('.search-panel').exists()).toBe(true)
   })
 
@@ -236,21 +236,21 @@ describe('el buscador', () => {
   // hacia nada, y un menu abierto fuera del desplegable lo cerraba al pulsar
   // en el (el clic cae «fuera» de la caja de busqueda).
   describe('las opciones de un resultado', () => {
-    const preparar = async () => {
-      const w = await montar()
-      await pulsar(w, 'Favoritos')
-      await buscar(w, 'barak')
+    const prepare = async () => {
+      const w = await mountView()
+      await clickButton(w, 'Favoritos')
+      await search(w, 'barak')
       expect(w.find('.search-results').exists()).toBe(true)
       return w
     }
-    const abrirOpciones = async (w, fila) => {
-      await w.findAll('.sr-row')[fila].trigger('contextmenu')
+    const openOptions = async (w, row) => {
+      await w.findAll('.sr-row')[row].trigger('contextmenu')
       await flushPromises()
     }
     // como lo hace el raton: se pulsa (mousedown) y se suelta (click)
-    const elegir = async (w, texto) => {
-      const item = w.findAll('.ctx-item').find((b) => b.text().includes(texto))
-      expect(item, `falta «${texto}» en el menu`).toBeTruthy()
+    const pick = async (w, text) => {
+      const item = w.findAll('.ctx-item').find((b) => b.text().includes(text))
+      expect(item, `falta «${text}» en el menu`).toBeTruthy()
       await item.trigger('mousedown')
       await item.trigger('click')
       await flushPromises()
@@ -261,25 +261,25 @@ describe('el buscador', () => {
         { id: 7, name: 'Domingo', n: 0 },
         { id: 8, name: 'Ensayo', n: 2 }
       ]
-      const w = await montar()
-      await pulsar(w, 'Favoritos')
-      await buscar(w, 'barak')
-      await abrirOpciones(w, 1)
-      await elegir(w, 'Añadir a una lista')
-      await elegir(w, 'Ensayo')
+      const w = await mountView()
+      await clickButton(w, 'Favoritos')
+      await search(w, 'barak')
+      await openOptions(w, 1)
+      await pick(w, 'Añadir a una lista')
+      await pick(w, 'Ensayo')
       expect(api.addToPlaylist).toHaveBeenCalledWith(8, [2])
       expect(w.find('.ctx').exists(), 'el menu se cierra al elegir').toBe(false)
       expect(w.find('.search-results').exists(), 'el desplegable sigue ahi').toBe(true)
       // y se puede seguir: otra cancion, otro repertorio
-      await abrirOpciones(w, 0)
-      await elegir(w, 'Añadir a una lista')
-      await elegir(w, 'Domingo')
+      await openOptions(w, 0)
+      await pick(w, 'Añadir a una lista')
+      await pick(w, 'Domingo')
       expect(api.addToPlaylist).toHaveBeenLastCalledWith(7, [1])
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
     it('el «⋯» de la fila abre las mismas opciones, sin elegirla ni cerrar nada', async () => {
-      const w = await preparar()
+      const w = await prepare()
       api.song.mockClear()
       await w.findAll('.sr-more')[1].trigger('click')
       await flushPromises()
@@ -289,15 +289,15 @@ describe('el buscador', () => {
       // no es la lista: la ficha de al lado no cambia a esa cancion
       expect(api.song).not.toHaveBeenCalled()
       // y lo suyo (no lo de una fila de la lista) esta en el menu
-      const textos = w.findAll('.ctx-item').map((b) => b.text())
-      expect(textos.some((t) => t.includes('Añadir a una lista'))).toBe(true)
-      expect(textos.some((t) => t.includes('Quitar de esta lista'))).toBe(false)
+      const texts = w.findAll('.ctx-item').map((b) => b.text())
+      expect(texts.some((t) => t.includes('Añadir a una lista'))).toBe(true)
+      expect(texts.some((t) => t.includes('Quitar de esta lista'))).toBe(false)
     })
 
     it('Reproducir desde el menu pone lo encontrado como cola, como el boton de la fila', async () => {
-      const w = await preparar()
-      await abrirOpciones(w, 1)
-      await elegir(w, 'Reproducir')
+      const w = await prepare()
+      await openOptions(w, 1)
+      await pick(w, 'Reproducir')
       await flushPromises()
       const [items, start, origin] = playback.bridge.setQueue.mock.calls.at(-1)
       expect(items.map((t) => t.id)).toEqual([1, 2, 3])
@@ -306,18 +306,18 @@ describe('el buscador', () => {
     })
 
     it('marcar una favorita desde ahi se nota en su propio menu la proxima vez', async () => {
-      const w = await preparar()
-      await abrirOpciones(w, 0)
-      await elegir(w, 'Marcar como favorito')
+      const w = await prepare()
+      await openOptions(w, 0)
+      await pick(w, 'Marcar como favorito')
       expect(api.toggleFavorite).toHaveBeenCalledWith(1, true)
-      await abrirOpciones(w, 0)
-      const textos = w.findAll('.ctx-item').map((b) => b.text())
-      expect(textos.some((t) => t.includes('Quitar de favoritos'))).toBe(true)
+      await openOptions(w, 0)
+      const texts = w.findAll('.ctx-item').map((b) => b.text())
+      expect(texts.some((t) => t.includes('Quitar de favoritos'))).toBe(true)
     })
 
     it('Escape cierra el menu y no el desplegable; con el menu cerrado, el desplegable', async () => {
-      const w = await preparar()
-      await abrirOpciones(w, 0)
+      const w = await prepare()
+      await openOptions(w, 0)
       expect(w.find('.ctx').exists()).toBe(true)
       const escape = () =>
         document.dispatchEvent(
@@ -333,8 +333,8 @@ describe('el buscador', () => {
     })
 
     it('un clic en cualquier otro sitio lo cierra todo', async () => {
-      const w = await preparar()
-      await abrirOpciones(w, 0)
+      const w = await prepare()
+      await openOptions(w, 0)
       document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
       await flushPromises()
       expect(w.find('.ctx').exists()).toBe(false)
@@ -342,28 +342,28 @@ describe('el buscador', () => {
     })
 
     it('con el teclado: la tecla de menu en la caja abre las opciones del resaltado', async () => {
-      const w = await preparar()
-      const caja = w.find('.topbar input')
-      await caja.trigger('keydown', { key: 'ArrowDown' })
-      await caja.trigger('keydown', { key: 'ContextMenu' })
+      const w = await prepare()
+      const box = w.find('.topbar input')
+      await box.trigger('keydown', { key: 'ArrowDown' })
+      await box.trigger('keydown', { key: 'ContextMenu' })
       await flushPromises()
       expect(w.find('.ctx').exists()).toBe(true)
       expect(w.find('.ctx-head').text()).toContain('Shekinah')
     })
 
     it('sobre la que suena el menu pausa: no la reinicia ni cambia la cola', async () => {
-      const w = await preparar()
+      const w = await prepare()
       await w.findAll('.sr-play')[1].trigger('click') // suena «Shekinah»
       await flushPromises()
       await flushPromises()
       // reproducir cierra el desplegable: se busca otra vez
-      await buscar(w, 'barak otra vez')
+      await search(w, 'barak otra vez')
       playback.bridge.setQueue.mockClear()
       playback.bridge.toggle.mockClear()
-      await abrirOpciones(w, 1)
-      const textos = w.findAll('.ctx-item').map((b) => b.text())
-      expect(textos.some((t) => t.startsWith('Pausar'))).toBe(true)
-      await elegir(w, 'Pausar')
+      await openOptions(w, 1)
+      const texts = w.findAll('.ctx-item').map((b) => b.text())
+      expect(texts.some((t) => t.startsWith('Pausar'))).toBe(true)
+      await pick(w, 'Pausar')
       expect(playback.bridge.toggle).toHaveBeenCalledTimes(1)
       expect(
         playback.bridge.setQueue,
@@ -373,24 +373,24 @@ describe('el buscador', () => {
     })
 
     it('marcar una favorita no mueve la fila resaltada (el teclado sigue donde estaba)', async () => {
-      const w = await preparar()
-      const caja = w.find('.topbar input')
-      await caja.trigger('keydown', { key: 'ArrowDown' })
-      await caja.trigger('keydown', { key: 'ArrowDown' })
+      const w = await prepare()
+      const box = w.find('.topbar input')
+      await box.trigger('keydown', { key: 'ArrowDown' })
+      await box.trigger('keydown', { key: 'ArrowDown' })
       expect(w.find('.sr-row.on').text()).toContain('Cancion 3')
-      await caja.trigger('keydown', { key: 'ContextMenu' })
+      await box.trigger('keydown', { key: 'ContextMenu' })
       await flushPromises()
-      await elegir(w, 'Marcar como favorito')
+      await pick(w, 'Marcar como favorito')
       expect(api.toggleFavorite).toHaveBeenCalledWith(3, true)
       // se parchea en sitio: con un array nuevo se volvia a resaltar la primera
       expect(w.find('.sr-row.on').text()).toContain('Cancion 3')
     })
 
     it('un dialogo abierto desde el menu no cierra el desplegable (Nueva lista… → Crear)', async () => {
-      const w = await preparar()
-      await abrirOpciones(w, 0)
-      await elegir(w, 'Añadir a una lista')
-      await elegir(w, 'Nueva lista')
+      const w = await prepare()
+      await openOptions(w, 0)
+      await pick(w, 'Añadir a una lista')
+      await pick(w, 'Nueva lista')
       expect(useDialog().dialog.value.open).toBe(true)
       // el primer clic dentro del dialogo cae «fuera» de la caja de busqueda
       document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
@@ -406,9 +406,9 @@ describe('el buscador', () => {
       expect(useDialog().dialog.value.open).toBe(false)
       expect(w.find('.search-results').exists(), 'Escape era para el dialogo').toBe(true)
       // y se puede seguir: otra vez, esta vez aceptando
-      await abrirOpciones(w, 0)
-      await elegir(w, 'Añadir a una lista')
-      await elegir(w, 'Nueva lista')
+      await openOptions(w, 0)
+      await pick(w, 'Añadir a una lista')
+      await pick(w, 'Nueva lista')
       dialogOk('Mi lista')
       await flushPromises()
       await flushPromises()
@@ -419,15 +419,15 @@ describe('el buscador', () => {
     it('elegir una opcion con el raton devuelve el foco a la caja', async () => {
       // sin esto el foco se perdia en el <body>: lo escrito no llegaba a la caja y
       // la flecha abajo bajaba el volumen del reproductor
-      const w = await preparar()
-      await abrirOpciones(w, 0)
-      await elegir(w, 'Marcar como favorito')
+      const w = await prepare()
+      await openOptions(w, 0)
+      await pick(w, 'Marcar como favorito')
       await flushPromises()
       expect(document.activeElement).toBe(w.find('.topbar input').element)
       // pero si la opcion abre un dialogo, el foco es del dialogo
-      await abrirOpciones(w, 0)
-      await elegir(w, 'Añadir a una lista')
-      await elegir(w, 'Nueva lista')
+      await openOptions(w, 0)
+      await pick(w, 'Añadir a una lista')
+      await pick(w, 'Nueva lista')
       await flushPromises()
       expect(document.activeElement).not.toBe(w.find('.topbar input').element)
       dialogCancel()
@@ -435,10 +435,10 @@ describe('el buscador', () => {
     })
 
     it('mandar a la papelera quita la fila del desplegable (no deja una cancion fantasma)', async () => {
-      const w = await preparar()
+      const w = await prepare()
       expect(w.findAll('.sr-row')).toHaveLength(3)
-      await abrirOpciones(w, 0)
-      await elegir(w, 'Mandar a la papelera')
+      await openOptions(w, 0)
+      await pick(w, 'Mandar a la papelera')
       expect(useDialog().dialog.value.open).toBe(true)
       dialogOk()
       await flushPromises()
@@ -449,17 +449,17 @@ describe('el buscador', () => {
     })
 
     it('«Ver detalles» de un resultado elige la cancion en el panel, sin abrir una ventana', async () => {
-      const w = await preparar()
+      const w = await prepare()
       api.song.mockClear()
-      await abrirOpciones(w, 1)
-      await elegir(w, 'Ver detalles')
+      await openOptions(w, 1)
+      await pick(w, 'Ver detalles')
       await flushPromises()
       expect(api.song).toHaveBeenCalledWith(2)
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
     it('el doble clic en el «⋯» no reproduce ni cambia la cola', async () => {
-      const w = await preparar()
+      const w = await prepare()
       playback.bridge.setQueue.mockClear()
       await w.findAll('.sr-more')[0].trigger('dblclick')
       expect(playback.bridge.setQueue).not.toHaveBeenCalled()
@@ -470,21 +470,20 @@ describe('el buscador', () => {
   // Mayús + clic, Ctrl+Espacio): lo mismo que con varias canciones de la lista,
   // sin cerrar el desplegable.
   describe('varios resultados a la vez', () => {
-    const preparar = async () => {
-      const w = await montar()
-      await pulsar(w, 'Favoritos')
-      await buscar(w, 'barak')
+    const prepare = async () => {
+      const w = await mountView()
+      await clickButton(w, 'Favoritos')
+      await search(w, 'barak')
       expect(w.findAll('.sr-row')).toHaveLength(3)
       return w
     }
-    const filas = (w) => w.findAll('.sr-row')
-    const elegidas = (w) =>
-      filas(w).flatMap((f, i) => (f.classes().includes('picked') ? [i + 1] : []))
-    const boton = (w, label) => w.find(`.sr-head button[aria-label="${label}"]`)
-    const caja = (w) => w.find('.topbar input')
-    const elegir = async (w, texto) => {
-      const item = w.findAll('.ctx-item').find((b) => b.text().includes(texto))
-      expect(item, `falta «${texto}» en el menu`).toBeTruthy()
+    const rows = (w) => w.findAll('.sr-row')
+    const picked = (w) => rows(w).flatMap((f, i) => (f.classes().includes('picked') ? [i + 1] : []))
+    const button = (w, label) => w.find(`.sr-head button[aria-label="${label}"]`)
+    const box = (w) => w.find('.topbar input')
+    const pick = async (w, text) => {
+      const item = w.findAll('.ctx-item').find((b) => b.text().includes(text))
+      expect(item, `falta «${text}» en el menu`).toBeTruthy()
       await item.trigger('mousedown')
       await item.trigger('click')
       await flushPromises()
@@ -495,22 +494,22 @@ describe('el buscador', () => {
         { id: 7, name: 'Domingo', n: 0 },
         { id: 8, name: 'Ensayo', n: 2 }
       ]
-      const w = await preparar()
+      const w = await prepare()
       await w.find('.sr-select').trigger('click')
-      await filas(w)[0].trigger('click')
-      await filas(w)[2].trigger('click')
+      await rows(w)[0].trigger('click')
+      await rows(w)[2].trigger('click')
       expect(w.find('.sr-count').text()).toBe('2 seleccionados')
-      await boton(w, 'Añadir a una lista').trigger('click')
+      await button(w, 'Añadir a una lista').trigger('click')
       await flushPromises()
       expect(w.find('.ctx-head').text()).toBe('Añadir 2 a una lista')
-      await elegir(w, 'Ensayo')
+      await pick(w, 'Ensayo')
       expect(api.addToPlaylist).toHaveBeenCalledTimes(1)
       expect(api.addToPlaylist).toHaveBeenCalledWith(8, [1, 3])
       expect(w.find('.ctx').exists()).toBe(false)
       expect(w.find('.search-results').exists(), 'el desplegable sigue ahi').toBe(true)
-      expect(elegidas(w), 'y lo elegido, para seguir haciendo cosas').toEqual([1, 3])
+      expect(picked(w), 'y lo elegido, para seguir haciendo cosas').toEqual([1, 3])
       // el foco vuelve a la caja: lo que se escriba sigue llegando
-      expect(document.activeElement).toBe(caja(w).element)
+      expect(document.activeElement).toBe(box(w).element)
       // la ficha de al lado no se ha movido a ninguna
       expect(w.findAll('[data-song-row].selected')).toHaveLength(0)
     })
@@ -518,49 +517,49 @@ describe('el buscador', () => {
     it('con Ctrl+clic y el «⋯» de la barra: las opciones de todas, sin «quitar de esta lista»', async () => {
       state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
       state.playlistSongs = [song(1), song(2), song(3)]
-      const w = await montar()
+      const w = await mountView()
       await w.find('.nav-playlist').trigger('click')
       await settle()
-      await buscar(w, 'barak')
+      await search(w, 'barak')
       api.song.mockClear()
-      await filas(w)[1].trigger('click', { ctrlKey: true })
-      await filas(w)[2].trigger('click', { ctrlKey: true })
+      await rows(w)[1].trigger('click', { ctrlKey: true })
+      await rows(w)[2].trigger('click', { ctrlKey: true })
       await flushPromises()
       expect(api.song, 'Ctrl+clic no abre la ficha').not.toHaveBeenCalled()
-      await boton(w, 'Más opciones').trigger('click')
+      await button(w, 'Más opciones').trigger('click')
       await flushPromises()
       expect(w.find('.ctx-head').text()).toBe('2 canciones')
-      const textos = w.findAll('.ctx-item').map((b) => b.text())
-      expect(textos.some((t) => t.startsWith('Reproducir estas 2'))).toBe(true)
-      expect(textos.some((t) => t.startsWith('Enviar 2 por Telegram'))).toBe(true)
+      const texts = w.findAll('.ctx-item').map((b) => b.text())
+      expect(texts.some((t) => t.startsWith('Reproducir estas 2'))).toBe(true)
+      expect(texts.some((t) => t.startsWith('Enviar 2 por Telegram'))).toBe(true)
       // habla de la lista abierta, no de lo encontrado
-      expect(textos.some((t) => t.includes('de esta lista'))).toBe(false)
-      await elegir(w, 'Añadir 2 a una lista')
-      await elegir(w, 'Domingo')
+      expect(texts.some((t) => t.includes('de esta lista'))).toBe(false)
+      await pick(w, 'Añadir 2 a una lista')
+      await pick(w, 'Domingo')
       expect(api.addToPlaylist).toHaveBeenCalledWith(7, [2, 3])
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
     it('el clic derecho sobre una elegida es el menú de todas; sobre otra, el suyo', async () => {
-      const w = await preparar()
-      await filas(w)[0].trigger('click', { ctrlKey: true })
-      await filas(w)[1].trigger('click', { ctrlKey: true })
-      await filas(w)[1].trigger('contextmenu')
+      const w = await prepare()
+      await rows(w)[0].trigger('click', { ctrlKey: true })
+      await rows(w)[1].trigger('click', { ctrlKey: true })
+      await rows(w)[1].trigger('contextmenu')
       await flushPromises()
       expect(w.find('.ctx-head').text()).toBe('2 canciones')
-      await filas(w)[2].trigger('contextmenu')
+      await rows(w)[2].trigger('contextmenu')
       await flushPromises()
       expect(w.find('.ctx-head').text()).toContain('Cancion 3')
-      expect(elegidas(w)).toEqual([1, 2])
+      expect(picked(w)).toEqual([1, 2])
     })
 
     it('«Reproducir estas 2» pone de cola las elegidas, en el orden de los resultados', async () => {
-      const w = await preparar()
-      await filas(w)[2].trigger('click', { ctrlKey: true })
-      await filas(w)[0].trigger('click', { ctrlKey: true })
-      await boton(w, 'Más opciones').trigger('click')
+      const w = await prepare()
+      await rows(w)[2].trigger('click', { ctrlKey: true })
+      await rows(w)[0].trigger('click', { ctrlKey: true })
+      await button(w, 'Más opciones').trigger('click')
       await flushPromises()
-      await elegir(w, 'Reproducir estas 2')
+      await pick(w, 'Reproducir estas 2')
       await flushPromises()
       const [items, start, origin] = playback.bridge.setQueue.mock.calls.at(-1)
       expect(items.map((t) => t.id)).toEqual([1, 3])
@@ -569,27 +568,27 @@ describe('el buscador', () => {
     })
 
     it('la papelera pide confirmación: cancelada no borra nada; aceptada, se van del desplegable', async () => {
-      const w = await preparar()
-      await filas(w)[0].trigger('click', { ctrlKey: true })
-      await filas(w)[1].trigger('click', { shiftKey: true })
-      expect(elegidas(w)).toEqual([1, 2])
-      const papelera = async () => {
-        await boton(w, 'Más opciones').trigger('click')
+      const w = await prepare()
+      await rows(w)[0].trigger('click', { ctrlKey: true })
+      await rows(w)[1].trigger('click', { shiftKey: true })
+      expect(picked(w)).toEqual([1, 2])
+      const trash = async () => {
+        await button(w, 'Más opciones').trigger('click')
         await flushPromises()
-        await elegir(w, 'Mandar 2 a la papelera')
+        await pick(w, 'Mandar 2 a la papelera')
         expect(useDialog().dialog.value.open).toBe(true)
         expect(useDialog().dialog.value.title).toBe('Mandar 2 canciones a la papelera')
       }
-      await papelera()
+      await trash()
       dialogCancel()
       await flushPromises()
       await flushPromises()
       expect(api.deleteSong).not.toHaveBeenCalled()
-      expect(filas(w)).toHaveLength(3)
-      expect(elegidas(w)).toEqual([1, 2])
+      expect(rows(w)).toHaveLength(3)
+      expect(picked(w)).toEqual([1, 2])
       expect(w.find('.search-results').exists()).toBe(true)
 
-      await papelera()
+      await trash()
       dialogOk()
       await flushPromises()
       await flushPromises()
@@ -597,86 +596,86 @@ describe('el buscador', () => {
         [1, { fromLists: false }],
         [2, { fromLists: false }]
       ])
-      expect(filas(w)).toHaveLength(1)
+      expect(rows(w)).toHaveLength(1)
       expect(w.find('.sr-picking').exists(), 'lo que ya no esta, no esta elegido').toBe(false)
       expect(w.find('.search-results').exists()).toBe(true)
     })
 
     it('desde la caja: Ctrl+Espacio, Mayús+flechas, y Escape suelta lo elegido antes de cerrar', async () => {
-      const w = await preparar()
-      await caja(w).trigger('keydown', { key: ' ', ctrlKey: true }) // la primera
-      await caja(w).trigger('keydown', { key: 'ArrowDown', shiftKey: true })
-      expect(elegidas(w)).toEqual([1, 2])
-      await caja(w).trigger('keydown', { key: 'Escape' })
+      const w = await prepare()
+      await box(w).trigger('keydown', { key: ' ', ctrlKey: true }) // la primera
+      await box(w).trigger('keydown', { key: 'ArrowDown', shiftKey: true })
+      expect(picked(w)).toEqual([1, 2])
+      await box(w).trigger('keydown', { key: 'Escape' })
       await flushPromises()
-      expect(elegidas(w)).toEqual([])
+      expect(picked(w)).toEqual([])
       expect(w.find('.search-results').exists(), 'Escape era para lo elegido').toBe(true)
-      await caja(w).trigger('keydown', { key: 'Escape' })
+      await box(w).trigger('keydown', { key: 'Escape' })
       await flushPromises()
       expect(w.find('.search-results').exists()).toBe(false)
     })
 
     it('Ctrl+A en la caja es del texto: no elige resultados ni canciones de la lista', async () => {
-      const w = await preparar()
+      const w = await prepare()
       const e = new KeyboardEvent('keydown', {
         key: 'a',
         ctrlKey: true,
         bubbles: true,
         cancelable: true
       })
-      caja(w).element.dispatchEvent(e)
+      box(w).element.dispatchEvent(e)
       await flushPromises()
       expect(e.defaultPrevented, 'el navegador selecciona el texto').toBe(false)
-      expect(elegidas(w)).toEqual([])
+      expect(picked(w)).toEqual([])
       expect(w.find('.sel-bar').exists()).toBe(false)
       expect(w.findAll('[data-song-row].selected')).toHaveLength(0)
     })
 
     it('otra búsqueda o cerrar el desplegable olvida lo elegido', async () => {
-      const w = await preparar()
-      await filas(w)[0].trigger('click', { ctrlKey: true })
-      await buscar(w, 'barak otra vez')
-      expect(elegidas(w)).toEqual([])
-      await filas(w)[1].trigger('click', { ctrlKey: true })
+      const w = await prepare()
+      await rows(w)[0].trigger('click', { ctrlKey: true })
+      await search(w, 'barak otra vez')
+      expect(picked(w)).toEqual([])
+      await rows(w)[1].trigger('click', { ctrlKey: true })
       document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
       await flushPromises()
       expect(w.find('.search-results').exists()).toBe(false)
-      await buscar(w, 'barak')
-      expect(elegidas(w)).toEqual([])
+      await search(w, 'barak')
+      expect(picked(w)).toEqual([])
     })
   })
 })
 
 describe('portadas difuminadas', () => {
-  const menu = async (w, fila = 0) => {
-    await w.findAll('tbody tr')[fila].trigger('contextmenu')
+  const menu = async (w, row = 0) => {
+    await w.findAll('tbody tr')[row].trigger('contextmenu')
     await flushPromises()
     return w.findAll('.ctx-item')
   }
 
   it('se difumina y se vuelve a ver desde el menu de la cancion', async () => {
-    const w = await montar()
-    const difuminar = (await menu(w)).find((b) => b.text().includes('Difuminar la portada'))
-    expect(difuminar, 'falta la accion en el menu').toBeTruthy()
-    await difuminar.trigger('click')
+    const w = await mountView()
+    const blur = (await menu(w)).find((b) => b.text().includes('Difuminar la portada'))
+    expect(blur, 'falta la accion en el menu').toBeTruthy()
+    await blur.trigger('click')
     await flushPromises()
     expect(api.setBlur).toHaveBeenCalledWith(1, true)
     expect(w.find('.toast').text()).toContain('Portada difuminada')
-    const ver = (await menu(w)).find((b) => b.text().includes('Ver la portada'))
-    expect(ver, 'no hay forma de volver a verla').toBeTruthy()
-    await ver.trigger('click')
+    const viewCover = (await menu(w)).find((b) => b.text().includes('Ver la portada'))
+    expect(viewCover, 'no hay forma de volver a verla').toBeTruthy()
+    await viewCover.trigger('click')
     await flushPromises()
     expect(api.setBlur).toHaveBeenLastCalledWith(1, false)
   })
 
   it('el fantasma que se lleva al arrastrar tambien la respeta', async () => {
     state.songs = [song(1, { blur: 1 })]
-    const w = await montar()
-    const fila = w.find('tbody tr').element
-    fila.dispatchEvent(
+    const w = await mountView()
+    const row = w.find('tbody tr').element
+    row.dispatchEvent(
       new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 5, clientY: 5 })
     )
-    fila.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 80, clientY: 90 }))
+    row.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 80, clientY: 90 }))
     await flushPromises()
     expect(document.querySelector('.drag-ghost .cover-art').classList.contains('blurred')).toBe(
       true
@@ -689,9 +688,9 @@ describe('valorar con el teclado', () => {
   it('las estrellas de una fila tambien se ponen desde su menu', async () => {
     // dentro de la fila no son parada del tabulador: con el teclado se abre
     // el menu de la cancion (Mayus+F10) y se valora desde ahi
-    const w = await montar()
-    const fila = w.find('tbody tr')
-    await fila.trigger('keydown', { key: 'F10', shiftKey: true })
+    const w = await mountView()
+    const row = w.find('tbody tr')
+    await row.trigger('keydown', { key: 'F10', shiftKey: true })
     await flushPromises()
     await w
       .findAll('.ctx-item')
@@ -711,47 +710,47 @@ describe('valorar con el teclado', () => {
 // clic el foco se suelta solo). Lo de dentro de cada lista (las casillas, la
 // de «todas» de la cabecera) se prueba aparte.
 describe('seleccionar varias', () => {
-  const filas = (w) => w.findAll('tbody tr')
-  const marcadas = (w) => filas(w).filter((f) => f.classes().includes('selected')).length
-  const barra = (w) => w.find('.sel-bar')
-  const boton = (w) => w.find('.filters .select-toggle')
-  const tecla = async (key, extra = {}, target = document.body) => {
+  const rows = (w) => w.findAll('tbody tr')
+  const selectedCount = (w) => rows(w).filter((f) => f.classes().includes('selected')).length
+  const bar = (w) => w.find('.sel-bar')
+  const button = (w) => w.find('.filters .select-toggle')
+  const press = async (key, extra = {}, target = document.body) => {
     target.dispatchEvent(
       new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra })
     )
     await flushPromises()
   }
-  const elegir = async (w, texto) => {
-    const item = w.findAll('.ctx-item').find((b) => b.text().includes(texto))
-    expect(item, `falta «${texto}» en el menu`).toBeTruthy()
+  const pick = async (w, text) => {
+    const item = w.findAll('.ctx-item').find((b) => b.text().includes(text))
+    expect(item, `falta «${text}» en el menu`).toBeTruthy()
     await item.trigger('mousedown')
     await item.trigger('click')
     await flushPromises()
   }
 
   it('el botón pone el modo: cada clic en una fila la marca o desmarca, y la barra las cuenta', async () => {
-    const w = await montar()
-    expect(barra(w).exists()).toBe(false)
-    expect(boton(w).attributes('aria-pressed')).toBe('false')
-    await boton(w).trigger('click')
-    expect(boton(w).attributes('aria-pressed')).toBe('true')
-    expect(barra(w).find('.sel-status').text()).toBe('Elige canciones')
+    const w = await mountView()
+    expect(bar(w).exists()).toBe(false)
+    expect(button(w).attributes('aria-pressed')).toBe('false')
+    await button(w).trigger('click')
+    expect(button(w).attributes('aria-pressed')).toBe('true')
+    expect(bar(w).find('.sel-status').text()).toBe('Elige canciones')
     // las casillas, una por fila
     expect(w.findAll('tbody .pick-box')).toHaveLength(3)
-    await filas(w)[0].trigger('click')
-    await filas(w)[2].trigger('click')
+    await rows(w)[0].trigger('click')
+    await rows(w)[2].trigger('click')
     await flushPromises()
-    expect(marcadas(w)).toBe(2)
-    expect(barra(w).find('.sel-status').text()).toBe('2 seleccionadas')
-    await filas(w)[0].trigger('click') // la desmarca, sin soltar la otra
+    expect(selectedCount(w)).toBe(2)
+    expect(bar(w).find('.sel-status').text()).toBe('2 seleccionadas')
+    await rows(w)[0].trigger('click') // la desmarca, sin soltar la otra
     await flushPromises()
-    expect(marcadas(w)).toBe(1)
-    expect(barra(w).find('.sel-status').text()).toBe('1 seleccionada')
+    expect(selectedCount(w)).toBe(1)
+    expect(bar(w).find('.sel-status').text()).toBe('1 seleccionada')
     // «Listo» lo termina todo
-    await barra(w).find('[data-act="done"]').trigger('click')
-    expect(barra(w).exists()).toBe(false)
-    expect(boton(w).attributes('aria-pressed')).toBe('false')
-    expect(marcadas(w)).toBe(0)
+    await bar(w).find('[data-act="done"]').trigger('click')
+    expect(bar(w).exists()).toBe(false)
+    expect(button(w).attributes('aria-pressed')).toBe('false')
+    expect(selectedCount(w)).toBe(0)
   })
 
   it('añadir dos a una lista desde la barra manda las dos de una vez', async () => {
@@ -759,26 +758,26 @@ describe('seleccionar varias', () => {
       { id: 7, name: 'Domingo', n: 0 },
       { id: 8, name: 'Ensayo', n: 2 }
     ]
-    const w = await montar()
-    await boton(w).trigger('click')
-    await filas(w)[0].trigger('click')
-    await filas(w)[2].trigger('click')
+    const w = await mountView()
+    await button(w).trigger('click')
+    await rows(w)[0].trigger('click')
+    await rows(w)[2].trigger('click')
     await flushPromises()
-    await barra(w).find('[data-act="list"]').trigger('click')
+    await bar(w).find('[data-act="list"]').trigger('click')
     await flushPromises()
     expect(w.find('.ctx-head').text()).toBe('Añadir 2 a una lista')
-    await elegir(w, 'Ensayo')
+    await pick(w, 'Ensayo')
     expect(api.addToPlaylist).toHaveBeenCalledWith(8, [1, 3])
-    expect(barra(w).exists(), 'se pueden seguir haciendo cosas con ellas').toBe(true)
+    expect(bar(w).exists(), 'se pueden seguir haciendo cosas con ellas').toBe(true)
   })
 
   it('Telegram desde la barra abre Telegram con sus archivos', async () => {
-    const w = await montar()
-    await boton(w).trigger('click')
-    await filas(w)[1].trigger('click')
-    await filas(w)[2].trigger('click')
+    const w = await mountView()
+    await button(w).trigger('click')
+    await rows(w)[1].trigger('click')
+    await rows(w)[2].trigger('click')
     await flushPromises()
-    await barra(w).find('[data-act="telegram"]').trigger('click')
+    await bar(w).find('[data-act="telegram"]').trigger('click')
     await flushPromises()
     const { app } = await import('../src/api.js')
     expect(app.sendToTelegram).toHaveBeenCalledWith([
@@ -788,34 +787,34 @@ describe('seleccionar varias', () => {
   })
 
   it('Ctrl+A elige todas las cargadas y la barra lo cuenta, sin el modo', async () => {
-    const w = await montar()
-    await tecla('a', { ctrlKey: true })
-    expect(marcadas(w)).toBe(3)
-    expect(barra(w).find('.sel-status').text()).toBe('3 seleccionadas')
-    expect(barra(w).find('[data-act="none"]').exists(), 'ya están todas: «Ninguna»').toBe(true)
-    await barra(w).find('[data-act="none"]').trigger('click')
-    expect(marcadas(w)).toBe(0)
-    expect(barra(w).exists()).toBe(false)
+    const w = await mountView()
+    await press('a', { ctrlKey: true })
+    expect(selectedCount(w)).toBe(3)
+    expect(bar(w).find('.sel-status').text()).toBe('3 seleccionadas')
+    expect(bar(w).find('[data-act="none"]').exists(), 'ya están todas: «Ninguna»').toBe(true)
+    await bar(w).find('[data-act="none"]').trigger('click')
+    expect(selectedCount(w)).toBe(0)
+    expect(bar(w).exists()).toBe(false)
   })
 
   it('Supr en la biblioteca pregunta por la papelera; cancelar no borra nada', async () => {
-    const w = await montar()
-    await tecla('a', { ctrlKey: true })
-    await tecla('Delete')
+    const w = await mountView()
+    await press('a', { ctrlKey: true })
+    await press('Delete')
     const { dialog } = useDialog()
     expect(dialog.value.open).toBe(true)
     expect(dialog.value.title).toBe('Mandar 3 canciones a la papelera')
     dialogCancel()
     await flushPromises()
     expect(api.deleteSong).not.toHaveBeenCalled()
-    expect(marcadas(w), 'cancelar no suelta lo elegido').toBe(3)
+    expect(selectedCount(w), 'cancelar no suelta lo elegido').toBe(3)
   })
 
   it('Supr con una sola elegida (sin modo) pregunta por esa, con su archivo', async () => {
-    const w = await montar()
-    await filas(w)[1].trigger('click')
+    const w = await mountView()
+    await rows(w)[1].trigger('click')
     await flushPromises()
-    await tecla('Delete')
+    await press('Delete')
     const { dialog } = useDialog()
     expect(dialog.value.title).toBe('Mandar a la papelera')
     dialogCancel()
@@ -826,17 +825,15 @@ describe('seleccionar varias', () => {
   it('Supr en un repertorio quita de la lista (sin tocar archivos ni preguntar)', async () => {
     state.playlists = [{ id: 7, name: 'Domingo', n: 3 }]
     state.playlistSongs = [song(1), song(2), song(3)]
-    const w = await montar()
+    const w = await mountView()
     await w.find('.nav-playlist').trigger('click')
     await settle()
-    await boton(w).trigger('click')
-    await filas(w)[0].trigger('click')
-    await filas(w)[1].trigger('click')
+    await button(w).trigger('click')
+    await rows(w)[0].trigger('click')
+    await rows(w)[1].trigger('click')
     await flushPromises()
-    expect(barra(w).find('[data-act="remove"]').attributes('aria-label')).toBe(
-      'Quitar de «Domingo»'
-    )
-    await tecla('Delete')
+    expect(bar(w).find('[data-act="remove"]').attributes('aria-label')).toBe('Quitar de «Domingo»')
+    await press('Delete')
     const { dialog } = useDialog()
     expect(dialog.value.open).toBe(false)
     expect(api.removeFromPlaylist.mock.calls).toEqual([
@@ -848,15 +845,15 @@ describe('seleccionar varias', () => {
   })
 
   it('Escape suelta la selección y sale del modo; sin nada elegido no hace nada', async () => {
-    const w = await montar()
-    await boton(w).trigger('click')
-    await filas(w)[0].trigger('click')
-    await filas(w)[1].trigger('click')
+    const w = await mountView()
+    await button(w).trigger('click')
+    await rows(w)[0].trigger('click')
+    await rows(w)[1].trigger('click')
     await flushPromises()
-    await tecla('Escape')
-    expect(barra(w).exists()).toBe(false)
-    expect(boton(w).attributes('aria-pressed')).toBe('false')
-    expect(marcadas(w)).toBe(0)
+    await press('Escape')
+    expect(bar(w).exists()).toBe(false)
+    expect(button(w).attributes('aria-pressed')).toBe('false')
+    expect(selectedCount(w)).toBe(0)
     // nada que soltar: Escape no se toca (es de quien cierre otra cosa)
     const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
     document.body.dispatchEvent(ev)
@@ -864,71 +861,71 @@ describe('seleccionar varias', () => {
   })
 
   it('con el foco en la caja de búsqueda nada de esto se dispara', async () => {
-    const w = await montar()
-    await boton(w).trigger('click')
-    await filas(w)[0].trigger('click')
+    const w = await mountView()
+    await button(w).trigger('click')
+    await rows(w)[0].trigger('click')
     await flushPromises()
-    const caja = w.find('.topbar input').element
-    caja.focus()
-    await tecla('a', { ctrlKey: true }, caja)
-    expect(marcadas(w), 'Ctrl+A es del texto de la caja').toBe(1)
-    await tecla('Delete', {}, caja)
+    const box = w.find('.topbar input').element
+    box.focus()
+    await press('a', { ctrlKey: true }, box)
+    expect(selectedCount(w), 'Ctrl+A es del texto de la caja').toBe(1)
+    await press('Delete', {}, box)
     expect(useDialog().dialog.value.open).toBe(false)
-    await tecla('Escape', {}, caja)
-    expect(boton(w).attributes('aria-pressed'), 'Escape en la caja es de la caja').toBe('true')
-    expect(barra(w).exists()).toBe(true)
+    await press('Escape', {}, box)
+    expect(button(w).attributes('aria-pressed'), 'Escape en la caja es de la caja').toBe('true')
+    expect(bar(w).exists()).toBe(true)
   })
 
   it('con el foco en una fila, las teclas las trata la lista y llegan igual', async () => {
-    const w = await montar()
-    await filas(w)[0].trigger('keydown', { key: 'a', ctrlKey: true })
+    const w = await mountView()
+    await rows(w)[0].trigger('keydown', { key: 'a', ctrlKey: true })
     await flushPromises()
-    expect(marcadas(w)).toBe(3)
-    await filas(w)[0].trigger('keydown', { key: 'Escape' })
+    expect(selectedCount(w)).toBe(3)
+    await rows(w)[0].trigger('keydown', { key: 'Escape' })
     await flushPromises()
-    expect(barra(w).exists()).toBe(false)
+    expect(bar(w).exists()).toBe(false)
   })
 
   it('al cambiar de vista se sale del modo', async () => {
-    const w = await montar()
-    await boton(w).trigger('click')
-    await filas(w)[0].trigger('click')
+    const w = await mountView()
+    await button(w).trigger('click')
+    await rows(w)[0].trigger('click')
     await flushPromises()
-    await pulsar(w, 'Favoritos')
-    expect(barra(w).exists()).toBe(false)
-    expect(boton(w).attributes('aria-pressed')).toBe('false')
+    await clickButton(w, 'Favoritos')
+    expect(bar(w).exists()).toBe(false)
+    expect(button(w).attributes('aria-pressed')).toBe('false')
   })
 
   it('en el móvil, tocar en el modo marca sin abrir la ficha encima de la lista', async () => {
-    const ancho = window.innerWidth
+    const width = window.innerWidth
     window.innerWidth = 400
     window.dispatchEvent(new Event('resize'))
     try {
-      const w = await montar()
-      await boton(w).trigger('click')
-      await filas(w)[1].trigger('click')
+      const w = await mountView()
+      await button(w).trigger('click')
+      await rows(w)[1].trigger('click')
       await flushPromises()
-      expect(marcadas(w)).toBe(1)
+      expect(selectedCount(w)).toBe(1)
       expect(document.querySelector('.drawer'), 'la ficha taparía la lista a cada toque').toBe(null)
       // fuera del modo, tocar una canción sí abre su ficha (como siempre)
-      await barra(w).find('[data-act="done"]').trigger('click')
-      await filas(w)[2].trigger('click')
+      await bar(w).find('[data-act="done"]').trigger('click')
+      await rows(w)[2].trigger('click')
       await flushPromises()
       expect(document.querySelector('.drawer')).not.toBe(null)
     } finally {
-      window.innerWidth = ancho
+      window.innerWidth = width
       window.dispatchEvent(new Event('resize'))
     }
   })
 
   it('en el modo, poner una a sonar con su botón no la marca', async () => {
-    const w = await montar()
-    await boton(w).trigger('click')
-    await filas(w)[0].trigger('click')
+    const w = await mountView()
+    await button(w).trigger('click')
+    await rows(w)[0].trigger('click')
     await flushPromises()
-    await filas(w)[2].find('.row-play').trigger('click')
+    await rows(w)[2].find('.row-play').trigger('click')
     await flushPromises()
-    expect(marcadas(w)).toBe(1)
-    expect(barra(w).find('.sel-status').text()).toBe('1 seleccionada')
+    expect(selectedCount(w)).toBe(1)
+    expect(bar(w).find('.sel-status').text()).toBe('1 seleccionada')
   })
 })

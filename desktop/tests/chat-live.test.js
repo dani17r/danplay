@@ -44,13 +44,13 @@ beforeEach(() => {
   ]
 })
 
-const montar = async () => {
+const mountView = async () => {
   const w = mount(ChatPage, { attachTo: document.body })
   await flushPromises()
   await flushPromises()
   return w
 }
-const escribir = async (w, t) => {
+const typeText = async (w, t) => {
   await w.find('.chat-foot textarea').setValue(t)
   await w.find('.chat-foot .btn').trigger('click')
   await flushPromises()
@@ -87,7 +87,7 @@ describe('la respuesta en vivo', () => {
         }
       }
     ]
-    const w = await montar()
+    const w = await mountView()
     await w.find('.chat-foot textarea').setValue('¿que tengo?')
     await w.find('.chat-foot .btn').trigger('click')
     await flushPromises()
@@ -122,7 +122,7 @@ describe('la respuesta en vivo', () => {
         result: { text: '', canceled: true, tools: [], actions: [], confirm: null }
       }
     ]
-    const w = await montar()
+    const w = await mountView()
     await w.find('.chat-foot textarea').setValue('cuentame')
     await w.find('.chat-foot .btn').trigger('click')
     await flushPromises()
@@ -156,22 +156,22 @@ describe('la respuesta en vivo', () => {
         }
       }
     ]
-    const w = await montar()
-    await escribir(w, 'hola')
+    const w = await mountView()
+    await typeText(w, 'hola')
     expect(w.find('.chat-cost').text()).toBe('15 tokens · gratis · respondió LLM7 (respaldo)')
   })
 })
 
 describe('las conversaciones guardadas', () => {
   it('el primer mensaje crea la conversacion y todo se guarda en el nucleo', async () => {
-    const w = await montar()
+    const w = await mountView()
     expect(held.state.chats).toHaveLength(0)
-    await escribir(w, 'armame una lista')
+    await typeText(w, 'armame una lista')
     expect(held.api.chatCreate).toHaveBeenCalledTimes(1)
     expect(held.state.chats).toHaveLength(1)
-    const guardados = held.state.chats[0].messages
-    expect(guardados.map((m) => m.role)).toEqual(['me', 'ai'])
-    expect(guardados[0].text).toBe('armame una lista')
+    const saved = held.state.chats[0].messages
+    expect(saved.map((m) => m.role)).toEqual(['me', 'ai'])
+    expect(saved[0].text).toBe('armame una lista')
     expect(held.state.chats[0].title).toBe('armame una lista')
     expect(w.find('.chat-title').text()).toBe('armame una lista')
   })
@@ -197,7 +197,7 @@ describe('las conversaciones guardadas', () => {
         ]
       }
     ]
-    const w = await montar()
+    const w = await mountView()
     expect(w.text()).toContain('Aqui va el set.')
     await w.findAll('.chat-head .btn').at(0).trigger('click') // conversaciones
     await flushPromises()
@@ -241,7 +241,7 @@ describe('las conversaciones guardadas', () => {
       },
       { id: 2, title: 'Otra', updated: 2, messages: [{ role: 'me', text: 'hola' }] }
     ]
-    const w = await montar()
+    const w = await mountView()
     await w.findAll('.chat-head .btn').at(0).trigger('click')
     await flushPromises()
     await w.find('.chat-list input').setValue('gozo')
@@ -265,7 +265,7 @@ describe('las conversaciones guardadas', () => {
         { role: 'ai', text: 'respuesta vieja', tools: [] }
       ])
     )
-    const w = await montar()
+    const w = await mountView()
     expect(held.state.chats).toHaveLength(1)
     expect(held.state.chats[0].title).toBe('Conversación anterior')
     expect(held.state.chats[0].messages[1].text).toBe('respuesta vieja')
@@ -296,11 +296,9 @@ describe('exportar y presupuesto', () => {
       },
       configurable: true
     })
-    const w = await montar()
-    const copiar = w
-      .findAll('.chat-head .btn')
-      .find((b) => b.attributes('title')?.includes('Copiar'))
-    await copiar.trigger('click')
+    const w = await mountView()
+    const copy = w.findAll('.chat-head .btn').find((b) => b.attributes('title')?.includes('Copiar'))
+    await copy.trigger('click')
     await flushPromises()
     expect(held.api.chatExport).toHaveBeenCalledWith(2)
     expect(written[0]).toContain('# conversacion 2')
@@ -322,8 +320,8 @@ describe('exportar y presupuesto', () => {
         }
       }
     ]
-    const w = await montar()
-    await escribir(w, 'hola')
+    const w = await mountView()
+    await typeText(w, 'hola')
     expect(w.findAll('.chat-msg.ai')).toHaveLength(1)
     const { notices } = await import('../src/composables/useNotices.js').then((m) => m.useNotices())
     expect(notices.value.some((n) => n.message.includes('tope'))).toBe(true)

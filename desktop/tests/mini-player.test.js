@@ -159,9 +159,9 @@ describe('su nombre y su portada', () => {
     // botones pequeños («btn mini»): ganaba la ultima regla y los botones de
     // toda la app se volvian columnas de la altura de la pantalla
     await mountMini(PLAYING)
-    const raiz = w.element.classList[0]
-    expect(raiz).toBe('miniplayer')
-    expect(allCss()).toContain(`.${raiz}{`)
+    const root = w.element.classList[0]
+    expect(root).toBe('miniplayer')
+    expect(allCss()).toContain(`.${root}{`)
   })
 
   it('una portada difuminada tambien se ve difuminada aqui', async () => {

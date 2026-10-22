@@ -18,7 +18,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
 import TransformPanel from '../src/components/TransformPanel.vue'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 
-const DISCO = {
+const DISK = {
   id: 7,
   from: 'Artistas/Barak/Generacion Radical (2018)/06 - Hasta Ver Tu Gloria.mp3',
   to: 'Artistas/Barak/Barak - Hasta Ver Tu Gloria.mp3',
@@ -27,7 +27,7 @@ const DISCO = {
   why: ['dentro de una subcarpeta', 'al nombre le falta el artista'],
   sure: true
 }
-const SUELTA = {
+const LOOSE = {
   id: 8,
   from: 'Barak - Nueva (Official Video).mp3',
   to: 'Artistas/Barak/Barak - Nueva.mp3',
@@ -50,25 +50,25 @@ beforeEach(() => {
   vi.clearAllMocks()
   resetPlayback()
   held.playback.reset()
-  held.state.tidy = [DISCO, SUELTA, CAM].map((p) => ({ ...p }))
+  held.state.tidy = [DISK, LOOSE, CAM].map((p) => ({ ...p }))
   held.state.tidyError = ''
 })
 
-const montar = async () => {
+const mountView = async () => {
   const w = mount(TransformPanel, { props: { open: true }, attachTo: document.body })
   await flushPromises()
   return w
 }
-const boton = (w, text) => w.findAll('button').find((b) => b.text().includes(text))
+const button = (w, text) => w.findAll('button').find((b) => b.text().includes(text))
 
 describe('Transformar', () => {
   it('enseña de una en una dónde está, dónde iría y por qué; aplicar la quita y se puede deshacer', async () => {
-    const w = await montar()
+    const w = await mountView()
     expect(w.text()).toContain('Canción 1 de 3')
     expect(w.text()).toContain('2 seguras')
     const card = () => w.find('.tidy-card')
-    expect(card().text()).toContain(DISCO.from)
-    expect(card().text()).toContain(DISCO.to)
+    expect(card().text()).toContain(DISK.from)
+    expect(card().text()).toContain(DISK.to)
     expect(card().text()).toContain('dentro de una subcarpeta')
     expect(card().find('.tidy-badge.ok').exists()).toBe(true)
     await w.find('.tidy-apply').trigger('click')
@@ -80,18 +80,18 @@ describe('Transformar', () => {
     })
     expect(w.emitted('changed')).toBeTruthy()
     expect(w.text()).toContain('Canción 1 de 2')
-    expect(card().text()).toContain(SUELTA.from)
+    expect(card().text()).toContain(LOOSE.from)
     expect(w.find('.tidy-last').text()).toContain('Barak - Hasta Ver Tu Gloria.mp3')
     // deshacer: vuelve a la ruta de antes
-    await boton(w, 'Deshacer').trigger('click')
+    await button(w, 'Deshacer').trigger('click')
     await flushPromises()
-    expect(held.api.tidy).toHaveBeenLastCalledWith(7, { to: DISCO.from })
+    expect(held.api.tidy).toHaveBeenLastCalledWith(7, { to: DISK.from })
     expect(held.api.tidyList).toHaveBeenCalledTimes(2)
     w.unmount()
   })
 
   it('corregido a mano: lo dice, se ve dónde quedaría y va también a las etiquetas', async () => {
-    const w = await montar()
+    const w = await mountView()
     const [artist, title] = w.findAll('.tidy-fields input')
     await artist.setValue('Barak y Amigos')
     await title.setValue('Hasta Ver Tu Gloria (Live)')
@@ -110,9 +110,9 @@ describe('Transformar', () => {
   })
 
   it('una Drum Cam va a su carpeta por su ruta; saltar y volver no tocan nada', async () => {
-    const w = await montar()
-    await boton(w, 'Saltar').trigger('click')
-    await boton(w, 'Saltar').trigger('click')
+    const w = await mountView()
+    await button(w, 'Saltar').trigger('click')
+    await button(w, 'Saltar').trigger('click')
     await flushPromises()
     expect(w.find('.tidy-card').text()).toContain(CAM.from)
     expect(w.find('.tidy-badge.doubt').exists(), 'para revisar').toBe(true)
@@ -125,8 +125,8 @@ describe('Transformar', () => {
   })
 
   it('«Aplicar las seguras» las hace una tras otra y deja las de revisar', async () => {
-    const w = await montar()
-    await boton(w, 'Aplicar las seguras').trigger('click')
+    const w = await mountView()
+    await button(w, 'Aplicar las seguras').trigger('click')
     await flushPromises()
     expect(held.api.tidy.mock.calls.map((c) => c[0])).toEqual([7, 8])
     expect(w.text()).toContain('Canción 1 de 1')
@@ -136,7 +136,7 @@ describe('Transformar', () => {
 
   it('si no se puede (en Windows, abierta por otro programa), lo dice en la tarjeta', async () => {
     held.state.tidyError = 'no se pudo mover: el archivo está en uso'
-    const w = await montar()
+    const w = await mountView()
     await w.find('.tidy-apply').trigger('click')
     await flushPromises()
     expect(w.find('.tidy-error').text()).toContain('en uso')
@@ -145,21 +145,21 @@ describe('Transformar', () => {
   })
 
   it('«¿Qué hace?» lo explica; sin nada que hacer, lo dice', async () => {
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.tidy-help').exists()).toBe(false)
-    await boton(w, '¿Qué hace?').trigger('click')
+    await button(w, '¿Qué hace?').trigger('click')
     expect(w.find('.tidy-help').text()).toContain('Una a una, y tú decides')
     w.unmount()
     held.state.tidy = []
-    const vacia = await montar()
-    expect(vacia.text()).toContain('Todo en su sitio')
-    expect(vacia.text()).toContain('Se miraron 9 canciones')
-    vacia.unmount()
+    const empty = await mountView()
+    expect(empty.text()).toContain('Todo en su sitio')
+    expect(empty.text()).toContain('Se miraron 9 canciones')
+    empty.unmount()
   })
 
   it('la que suena lo dice: seguirá sonando', async () => {
     held.playback.emit({ track: { id: 7, title: 'Hasta Ver Tu Gloria', artist: 'Barak' } })
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.tidy-badge.playing').text()).toContain('seguirá sonando')
     w.unmount()
   })

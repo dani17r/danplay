@@ -97,7 +97,7 @@ function silentOverrides() {
 
 // Los que hay hoy, cada uno con su porqué. Todos son «primero lo general,
 // luego lo afinado», que es como se quiso.
-const CONOCIDOS = [
+const KNOWN = [
   // el relleno de las filas cambia con la densidad que elija el usuario
   'td  (base.css -> list-cards.css): padding',
   // los iconos del lateral crecieron para alinearse con el texto
@@ -112,7 +112,7 @@ const CONOCIDOS = [
 
 describe('capas del css', () => {
   it('ningún selector pisa a otro sin querer', () => {
-    expect(silentOverrides()).toEqual(CONOCIDOS)
+    expect(silentOverrides()).toEqual(KNOWN)
   })
 
   it('la cabecera de la tabla se queda fija', () => {

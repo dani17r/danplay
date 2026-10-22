@@ -28,23 +28,23 @@ import { version } from '../package.json'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const terms = useTerms()
-const montados = []
+const mounted = []
 
 /** El núcleo dice que no se aceptaron. */
-function sinAceptar() {
+function revokeTerms() {
   held.state.terms = { accepted: '', at: null, app: '' }
 }
 
 /** El lector del texto, con un alto de verdad (jsdom no mide nada). */
-function lectorConAlto(el, { scroll = 1000, alto = 300, arriba = 0 } = {}) {
+function readerWithHeight(el, { scroll = 1000, height = 300, top = 0 } = {}) {
   Object.defineProperty(el, 'scrollHeight', { configurable: true, value: scroll })
-  Object.defineProperty(el, 'clientHeight', { configurable: true, value: alto })
-  Object.defineProperty(el, 'scrollTop', { configurable: true, writable: true, value: arriba })
+  Object.defineProperty(el, 'clientHeight', { configurable: true, value: height })
+  Object.defineProperty(el, 'scrollTop', { configurable: true, writable: true, value: top })
 }
 
-async function ventana() {
+async function modal() {
   const w = mount(TermsModal, { attachTo: document.body })
-  montados.push(w)
+  mounted.push(w)
   await flushPromises()
   return w
 }
@@ -56,60 +56,60 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 afterEach(() => {
-  for (const w of montados.splice(0)) w.unmount()
+  for (const w of mounted.splice(0)) w.unmount()
   document.body.innerHTML = ''
 })
 
 describe('la ventana de los términos', () => {
   it('la casilla no se puede marcar hasta bajar al final, ni aceptar sin ella', async () => {
-    sinAceptar()
+    revokeTerms()
     // un texto largo: hay que bajarlo (las alturas, antes de que se abra)
-    const alto = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(1000)
-    const visto = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(300)
-    const w = await ventana()
+    const height = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(1000)
+    const seen = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(300)
+    const w = await modal()
     terms.show('separar canciones en pistas')
     await flushPromises()
-    const caja = document.querySelector('.terms-modal')
-    expect(caja).toBeTruthy()
-    expect(caja.textContent).toContain(AUTHOR.name)
-    expect(caja.textContent).toContain('Para separar canciones en pistas necesitas aceptar')
-    for (const sec of TERMS) expect(caja.textContent).toContain(sec.title)
-    const casilla = caja.querySelector('.terms-agree input')
-    const aceptar = [...caja.querySelectorAll('button')].find(
+    const box = document.querySelector('.terms-modal')
+    expect(box).toBeTruthy()
+    expect(box.textContent).toContain(AUTHOR.name)
+    expect(box.textContent).toContain('Para separar canciones en pistas necesitas aceptar')
+    for (const sec of TERMS) expect(box.textContent).toContain(sec.title)
+    const checkbox = box.querySelector('.terms-agree input')
+    const accept = [...box.querySelectorAll('button')].find(
       (b) => b.textContent.trim() === 'Aceptar'
     )
-    expect(casilla.disabled, 'se podía marcar sin leer').toBe(true)
-    expect(aceptar.disabled).toBe(true)
-    expect(caja.textContent).toContain('Baja hasta el final')
+    expect(checkbox.disabled, 'se podía marcar sin leer').toBe(true)
+    expect(accept.disabled).toBe(true)
+    expect(box.textContent).toContain('Baja hasta el final')
 
     // a medio camino, aún no
-    const lector = caja.querySelector('.terms-reader')
-    lectorConAlto(lector, { arriba: 300 })
-    lector.dispatchEvent(new Event('scroll'))
+    const reader = box.querySelector('.terms-reader')
+    readerWithHeight(reader, { top: 300 })
+    reader.dispatchEvent(new Event('scroll'))
     await flushPromises()
-    expect(casilla.disabled).toBe(true)
+    expect(checkbox.disabled).toBe(true)
 
     // al final, sí; y aceptar pide además la casilla
-    lector.scrollTop = 700
-    lector.dispatchEvent(new Event('scroll'))
+    reader.scrollTop = 700
+    reader.dispatchEvent(new Event('scroll'))
     await flushPromises()
-    expect(casilla.disabled).toBe(false)
-    expect(aceptar.disabled).toBe(true)
-    casilla.click()
+    expect(checkbox.disabled).toBe(false)
+    expect(accept.disabled).toBe(true)
+    checkbox.click()
     await flushPromises()
-    expect(aceptar.disabled).toBe(false)
-    aceptar.click()
+    expect(accept.disabled).toBe(false)
+    accept.click()
     await flushPromises()
     expect(held.api.acceptTerms).toHaveBeenCalledWith(TERMS_VERSION)
     expect(terms.accepted.value).toBe(true)
     expect(document.querySelector('.terms-modal')).toBeNull()
-    alto.mockRestore()
-    visto.mockRestore()
+    height.mockRestore()
+    seen.mockRestore()
     w.unmount()
   })
 
   it('salen solos la primera vez, y no otra vez al volver a abrir', async () => {
-    sinAceptar()
+    revokeTerms()
     expect(await terms.showIfFirstTime()).toBe(true)
     expect(terms.state.open).toBe(true)
     terms.close()
@@ -132,24 +132,24 @@ describe('la ventana de los términos', () => {
 
 describe('lo que se bloquea sin aceptarlos', () => {
   it('separar en pistas abre los términos y, sin aceptarlos, no separa', async () => {
-    sinAceptar()
+    revokeTerms()
     resetSeparation()
-    const pedido = useSeparation().request([{ id: 1, title: 'Mi Gozo' }])
+    const request = useSeparation().request([{ id: 1, title: 'Mi Gozo' }])
     await flushPromises()
     expect(terms.state.open).toBe(true)
     expect(terms.state.reason).toBe('separar canciones en pistas')
     terms.close()
-    expect(await pedido).toBe(false)
+    expect(await request).toBe(false)
     expect(held.api.separate).not.toHaveBeenCalled()
   })
 
   it('aceptándolos, sigue con lo que se pidió', async () => {
-    sinAceptar()
-    const pedido = requireTerms('chat')
+    revokeTerms()
+    const request = requireTerms('chat')
     await flushPromises()
     expect(terms.state.reason).toBe('usar el asistente de IA')
     await terms.accept()
-    expect(await pedido).toBe(true)
+    expect(await request).toBe(true)
     // y ya no se vuelve a preguntar
     expect(await requireTerms('transform')).toBe(true)
     expect(terms.state.open).toBe(false)
@@ -157,38 +157,38 @@ describe('lo que se bloquea sin aceptarlos', () => {
 })
 
 describe('Acerca de DanPlay', () => {
-  const pagina = async (tab = 'about') => {
+  const page = async (tab = 'about') => {
     const w = mount(AboutPage, { props: { tab }, attachTo: document.body })
-    montados.push(w)
+    mounted.push(w)
     await flushPromises()
     return w
   }
 
   it('dice quién lo hizo y cómo escribirle para colaborar', async () => {
-    const w = await pagina()
+    const w = await page()
     expect(w.text()).toContain('Creado y desarrollado por Daniel Rangel')
     expect(w.text()).toContain('DanPlay es obra de Daniel Rangel')
     expect(w.text()).toContain('@Dani17r')
     expect(w.text()).toContain('https://t.me/Dani17r')
-    const boton = w.findAll('button').find((b) => b.text().includes('Telegram'))
-    await boton.trigger('click')
+    const button = w.findAll('button').find((b) => b.text().includes('Telegram'))
+    await button.trigger('click')
     expect(held.app.openInBrowser).toHaveBeenCalledWith('https://t.me/Dani17r')
   })
 
   it('las novedades: cada versión, corta, y la tuya señalada', async () => {
-    const w = await pagina('news')
-    const versiones = w.findAll('.release-version').map((e) => e.text())
-    expect(versiones).toEqual(RELEASES.map((r) => r.version))
-    const mia = w.find('.release.mine')
-    expect(mia.exists()).toBe(true)
-    expect(mia.find('.release-version').text()).toBe(version)
-    expect(mia.text()).toContain('Tu versión')
+    const w = await page('news')
+    const versions = w.findAll('.release-version').map((e) => e.text())
+    expect(versions).toEqual(RELEASES.map((r) => r.version))
+    const mine = w.find('.release.mine')
+    expect(mine.exists()).toBe(true)
+    expect(mine.find('.release-version').text()).toBe(version)
+    expect(mine.text()).toContain('Tu versión')
   })
 
   it('los términos: el texto, y si no se aceptaron, el botón para hacerlo', async () => {
-    sinAceptar()
+    revokeTerms()
     await terms.load()
-    const w = await pagina('terms')
+    const w = await page('terms')
     expect(w.text()).toContain('Aún no los aceptaste')
     for (const sec of TERMS) expect(w.text()).toContain(sec.title)
     await w
@@ -199,7 +199,7 @@ describe('Acerca de DanPlay', () => {
   })
 
   it('las pestañas avisan para cambiar', async () => {
-    const w = await pagina()
+    const w = await page()
     await w.findAll('.about-tab')[1].trigger('click')
     expect(w.emitted('tab')[0]).toEqual(['news'])
   })
@@ -208,7 +208,7 @@ describe('Acerca de DanPlay', () => {
 describe('el crédito en la barra lateral', () => {
   it('siempre a la vista, y lleva a «Acerca de»', async () => {
     const w = mount(Sidebar, { props: { view: { kind: 'all' } } })
-    montados.push(w)
+    mounted.push(w)
     expect(w.find('.nav-credit').text()).toContain('Daniel Rangel')
     await w.find('.nav-credit').trigger('click')
     expect(w.emitted('go').at(-1)).toEqual([{ kind: 'about', tab: 'about' }])
@@ -216,24 +216,24 @@ describe('el crédito en la barra lateral', () => {
 
   it('tras actualizar, «Acerca de DanPlay» dice «Nuevo» y abre las novedades', async () => {
     const w = mount(Sidebar, { props: { view: { kind: 'all' }, newsBadge: true } })
-    montados.push(w)
-    const boton = w.findAll('.nav-link').find((b) => b.text().includes('Acerca de DanPlay'))
-    expect(boton.text()).toContain('Nuevo')
-    await boton.trigger('click')
+    mounted.push(w)
+    const button = w.findAll('.nav-link').find((b) => b.text().includes('Acerca de DanPlay'))
+    expect(button.text()).toContain('Nuevo')
+    await button.trigger('click')
     expect(w.emitted('go').at(-1)).toEqual([{ kind: 'about', tab: 'news' }])
   })
 })
 
 describe('las novedades y el CHANGELOG', () => {
   const changelog = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8')
-  const enChangelog = [...changelog.matchAll(/^## (\d+\.\d+\.\d+) — (.+)$/gm)].map((m) => ({
+  const inChangelog = [...changelog.matchAll(/^## (\d+\.\d+\.\d+) — (.+)$/gm)].map((m) => ({
     version: m[1],
     date: /^\d{4}-\d{2}-\d{2}$/.test(m[2].trim()) ? m[2].trim() : ''
   }))
 
   it('cada versión desde la 1.20.0 está, con su fecha', () => {
-    const desde = enChangelog.filter((v) => compareVersions(v.version, '1.20.0') >= 0)
-    expect(RELEASES.map((r) => [r.version, r.date])).toEqual(desde.map((v) => [v.version, v.date]))
+    const since = inChangelog.filter((v) => compareVersions(v.version, '1.20.0') >= 0)
+    expect(RELEASES.map((r) => [r.version, r.date])).toEqual(since.map((v) => [v.version, v.date]))
   })
 
   it('son cortas: una línea de resumen y frases breves', () => {

@@ -25,24 +25,24 @@ test('la primera vez salen solos, y hay que leerlos hasta el final', async ({ pa
   await page.setViewportSize({ width: 1100, height: 700 })
   await page.goto('/')
   await expect(rows(page)).toHaveCount(SONGS.length)
-  const ventana = page.getByRole('dialog', { name: 'Términos y condiciones de DanPlay' })
-  await expect(ventana).toBeVisible()
-  await expect(ventana).toContainText('Daniel Rangel')
-  const casilla = ventana.getByRole('checkbox')
-  const aceptar = ventana.getByRole('button', { name: 'Aceptar' })
-  await expect(casilla).toBeDisabled()
-  await expect(aceptar).toBeDisabled()
+  const modal = page.getByRole('dialog', { name: 'Términos y condiciones de DanPlay' })
+  await expect(modal).toBeVisible()
+  await expect(modal).toContainText('Daniel Rangel')
+  const checkbox = modal.getByRole('checkbox')
+  const accept = modal.getByRole('button', { name: 'Aceptar' })
+  await expect(checkbox).toBeDisabled()
+  await expect(accept).toBeDisabled()
 
   // al final del texto
-  await ventana.locator('.terms-reader').evaluate((el) => {
+  await modal.locator('.terms-reader').evaluate((el) => {
     el.scrollTop = el.scrollHeight
     el.dispatchEvent(new Event('scroll'))
   })
-  await expect(casilla).toBeEnabled()
-  await expect(aceptar).toBeDisabled()
-  await casilla.check()
-  await aceptar.click()
-  await expect(ventana).toHaveCount(0)
+  await expect(checkbox).toBeEnabled()
+  await expect(accept).toBeDisabled()
+  await checkbox.check()
+  await accept.click()
+  await expect(modal).toHaveCount(0)
 
   // aceptados: al volver a abrir ya no salen
   await page.reload()
@@ -55,15 +55,15 @@ test('la primera vez salen solos, y hay que leerlos hasta el final', async ({ pa
 test('sin aceptarlos, «Transformar» los pide y no se abre', async ({ page }) => {
   await page.goto('/')
   await expect(rows(page)).toHaveCount(SONGS.length)
-  const ventana = page.getByRole('dialog', { name: 'Términos y condiciones de DanPlay' })
+  const modal = page.getByRole('dialog', { name: 'Términos y condiciones de DanPlay' })
   // la primera vez: «Ahora no»
-  await ventana.getByRole('button', { name: 'Ahora no' }).click()
-  await expect(ventana).toHaveCount(0)
+  await modal.getByRole('button', { name: 'Ahora no' }).click()
+  await expect(modal).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Transformar' }).click()
-  await expect(ventana).toBeVisible()
-  await expect(ventana).toContainText('Para ordenar y renombrar con «Transformar» necesitas')
-  await ventana.getByRole('button', { name: 'Ahora no' }).click()
-  await expect(ventana).toHaveCount(0)
+  await expect(modal).toBeVisible()
+  await expect(modal).toContainText('Para ordenar y renombrar con «Transformar» necesitas')
+  await modal.getByRole('button', { name: 'Ahora no' }).click()
+  await expect(modal).toHaveCount(0)
   await expect(page.getByRole('dialog', { name: 'Transformar tu música' })).toHaveCount(0)
 })

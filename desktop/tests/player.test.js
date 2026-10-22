@@ -52,7 +52,7 @@ afterEach(() => {
   w = null
 })
 
-async function montar(patch = {}) {
+async function mountView(patch = {}) {
   w = mount(Player, { attachTo: document.body })
   await flushPromises()
   held.playback.emit({ track: TRACK, playing: true, position: 40, ...base, ...patch })
@@ -62,7 +62,7 @@ async function montar(patch = {}) {
 const bridge = () => held.playback.bridge
 
 // jsdom no maqueta: la barra dice que va de x=0 a x=400
-function conAnchura(el, left = 0, width = 400) {
+function withWidth(el, left = 0, width = 400) {
   el.element.getBoundingClientRect = () => ({
     left,
     width,
@@ -74,98 +74,98 @@ function conAnchura(el, left = 0, width = 400) {
     y: 0
   })
 }
-function puntero(target, tipo, x, extra = {}) {
+function pointer(target, type, x, extra = {}) {
   target.dispatchEvent(
-    new MouseEvent(tipo, { bubbles: true, cancelable: true, clientX: x, clientY: 2, ...extra })
+    new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 2, ...extra })
   )
   return flushPromises()
 }
-const tecla = (key, extra = {}) => {
+const press = (key, extra = {}) => {
   window.dispatchEvent(
     new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra })
   )
   return flushPromises()
 }
-const relleno = () => w.find('.track-fill').attributes('style')
-const horaActual = () => w.findAll('.pl-bar .time')[0].text()
+const padding = () => w.find('.track-fill').attributes('style')
+const currentTime = () => w.findAll('.pl-bar .time')[0].text()
 
 describe('la aguja de la barra de tiempo', () => {
   it('se coge y sigue al puntero sin pedir nada hasta soltar', async () => {
-    await montar()
-    const barra = w.find('.track')
-    conAnchura(barra)
-    await puntero(barra.element, 'pointerdown', 100)
-    expect(barra.classes()).toContain('scrubbing')
-    expect(relleno()).toContain('width: 25%')
-    expect(horaActual()).toBe('0:50')
-    await puntero(window, 'pointermove', 300)
-    expect(relleno()).toContain('width: 75%')
-    expect(horaActual()).toBe('2:30')
+    await mountView()
+    const bar = w.find('.track')
+    withWidth(bar)
+    await pointer(bar.element, 'pointerdown', 100)
+    expect(bar.classes()).toContain('scrubbing')
+    expect(padding()).toContain('width: 25%')
+    expect(currentTime()).toBe('0:50')
+    await pointer(window, 'pointermove', 300)
+    expect(padding()).toContain('width: 75%')
+    expect(currentTime()).toBe('2:30')
     expect(bridge().seek).not.toHaveBeenCalled()
-    await puntero(window, 'pointerup', 300)
+    await pointer(window, 'pointerup', 300)
     expect(bridge().seek).toHaveBeenCalledTimes(1)
     expect(bridge().seek).toHaveBeenCalledWith(150)
-    expect(barra.classes()).not.toContain('scrubbing')
+    expect(bar.classes()).not.toContain('scrubbing')
     // y la aguja se queda donde se solto, sin esperar a Rust
-    expect(relleno()).toContain('width: 75%')
+    expect(padding()).toContain('width: 75%')
   })
 
   it('un clic sin mover salta a ese punto, como antes', async () => {
-    await montar()
-    const barra = w.find('.track')
-    conAnchura(barra)
-    await puntero(barra.element, 'pointerdown', 200)
-    await puntero(window, 'pointerup', 200)
+    await mountView()
+    const bar = w.find('.track')
+    withWidth(bar)
+    await pointer(bar.element, 'pointerdown', 200)
+    await pointer(window, 'pointerup', 200)
     expect(bridge().seek).toHaveBeenCalledWith(100)
   })
 
   it('arrastrar mas alla de los extremos se queda en 0 o en el final', async () => {
-    await montar()
-    const barra = w.find('.track')
-    conAnchura(barra)
-    await puntero(barra.element, 'pointerdown', 100)
-    await puntero(window, 'pointermove', -50)
-    expect(relleno()).toContain('width: 0%')
-    await puntero(window, 'pointermove', 900)
-    expect(horaActual()).toBe('3:20')
-    await puntero(window, 'pointerup', 900)
+    await mountView()
+    const bar = w.find('.track')
+    withWidth(bar)
+    await pointer(bar.element, 'pointerdown', 100)
+    await pointer(window, 'pointermove', -50)
+    expect(padding()).toContain('width: 0%')
+    await pointer(window, 'pointermove', 900)
+    expect(currentTime()).toBe('3:20')
+    await pointer(window, 'pointerup', 900)
     expect(bridge().seek).toHaveBeenCalledWith(200)
   })
 
   it('un tick viejo de Rust no devuelve la aguja atras tras soltar', async () => {
-    await montar()
-    const barra = w.find('.track')
-    conAnchura(barra)
+    await mountView()
+    const bar = w.find('.track')
+    withWidth(bar)
     bridge().seek.mockImplementationOnce(async () => {})
-    await puntero(barra.element, 'pointerdown', 300)
-    await puntero(window, 'pointerup', 300)
+    await pointer(bar.element, 'pointerdown', 300)
+    await pointer(window, 'pointerup', 300)
     held.playback.emit({ position: 40.3 })
     await flushPromises()
-    expect(horaActual()).toBe('2:30')
+    expect(currentTime()).toBe('2:30')
   })
 
   it('sin cancion la barra no hace nada', async () => {
-    await montar({ track: null, duration: 0, playing: false })
-    const barra = w.find('.track')
-    conAnchura(barra)
-    await puntero(barra.element, 'pointerdown', 100)
-    expect(barra.classes()).not.toContain('scrubbing')
-    await puntero(window, 'pointerup', 100)
+    await mountView({ track: null, duration: 0, playing: false })
+    const bar = w.find('.track')
+    withWidth(bar)
+    await pointer(bar.element, 'pointerdown', 100)
+    expect(bar.classes()).not.toContain('scrubbing')
+    await pointer(window, 'pointerup', 100)
     expect(bridge().seek).not.toHaveBeenCalled()
   })
 
   it('con el boton secundario no se coge', async () => {
-    await montar()
-    const barra = w.find('.track')
-    conAnchura(barra)
-    await puntero(barra.element, 'pointerdown', 100, { button: 2 })
-    expect(barra.classes()).not.toContain('scrubbing')
+    await mountView()
+    const bar = w.find('.track')
+    withWidth(bar)
+    await pointer(bar.element, 'pointerdown', 100, { button: 2 })
+    expect(bar.classes()).not.toContain('scrubbing')
   })
 })
 
 describe('desde el principio', () => {
   it('hay un boton en la barra de tiempo, antes de la hora', async () => {
-    await montar()
+    await mountView()
     const b = w.find('.pl-bar .pl-restart')
     expect(b.exists()).toBe(true)
     expect(b.attributes('title')).toContain('Desde el principio')
@@ -178,64 +178,64 @@ describe('desde el principio', () => {
   })
 
   it('sin cancion el boton esta apagado', async () => {
-    await montar({ track: null, duration: 0, playing: false })
+    await mountView({ track: null, duration: 0, playing: false })
     expect(w.find('.pl-restart').attributes('disabled')).toBeDefined()
   })
 })
 
 describe('atajos de teclado', () => {
   it('espacio pausa y reanuda', async () => {
-    await montar()
-    await tecla(' ')
+    await mountView()
+    await press(' ')
     expect(bridge().toggle).toHaveBeenCalledTimes(1)
   })
 
   it('0 e Inicio vuelven al principio', async () => {
-    await montar()
-    await tecla('0')
+    await mountView()
+    await press('0')
     expect(bridge().seek).toHaveBeenLastCalledWith(0)
     held.playback.emit({ position: 90 })
-    await tecla('Home')
+    await press('Home')
     expect(bridge().seek).toHaveBeenLastCalledWith(0)
   })
 
   it('en pausa, 0 ademas arranca', async () => {
-    await montar({ playing: false })
-    await tecla('0')
+    await mountView({ playing: false })
+    await press('0')
     expect(bridge().toggle).toHaveBeenCalledTimes(1)
     expect(bridge().seek).toHaveBeenLastCalledWith(0)
   })
 
   it('1-9 van al tanto por ciento', async () => {
-    await montar()
-    await tecla('5')
+    await mountView()
+    await press('5')
     expect(bridge().seek).toHaveBeenLastCalledWith(100)
-    await tecla('9')
+    await press('9')
     expect(bridge().seek).toHaveBeenLastCalledWith(180)
   })
 
   it('flechas: 5 s; con Ctrl 10 s; con Mayus 30 s', async () => {
-    await montar()
-    await tecla('ArrowRight')
+    await mountView()
+    await press('ArrowRight')
     expect(bridge().seek).toHaveBeenLastCalledWith(45)
-    await tecla('ArrowLeft', { ctrlKey: true })
+    await press('ArrowLeft', { ctrlKey: true })
     expect(bridge().seek).toHaveBeenLastCalledWith(35)
-    await tecla('ArrowRight', { shiftKey: true })
+    await press('ArrowRight', { shiftKey: true })
     expect(bridge().seek).toHaveBeenLastCalledWith(65)
-    await tecla('ArrowLeft')
+    await press('ArrowLeft')
     expect(bridge().seek).toHaveBeenLastCalledWith(60)
   })
 
   it('las flechas arriba y abajo mueven el volumen', async () => {
-    await montar()
-    await tecla('ArrowUp')
+    await mountView()
+    await press('ArrowUp')
     expect(bridge().setVolume).toHaveBeenLastCalledWith(0.95)
-    await tecla('ArrowDown')
+    await press('ArrowDown')
     expect(bridge().setVolume).toHaveBeenLastCalledWith(0.9)
   })
 
   it('con el foco en un campo de texto no actuan', async () => {
-    await montar()
+    await mountView()
     const input = document.createElement('input')
     document.body.appendChild(input)
     input.focus()
@@ -247,12 +247,12 @@ describe('atajos de teclado', () => {
 
 describe('la portada de lo que suena', () => {
   it('si esta difuminada, tambien aqui', async () => {
-    await montar({ track: { ...TRACK, blur: true } })
+    await mountView({ track: { ...TRACK, blur: true } })
     expect(w.find('.pl-cover').classes()).toContain('blurred')
   })
 
   it('el volumen tiene nombre para quien no ve la pantalla', async () => {
-    await montar()
+    await mountView()
     const vol = w.find('.pl-volume input[type="range"]')
     expect(vol.attributes('aria-label')).toBe('Volumen')
     expect(vol.attributes('aria-valuetext')).toBe('90 %')

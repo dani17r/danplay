@@ -48,10 +48,10 @@ describe('grupo de duplicados', () => {
 
   it('marca cual tiene mejor calidad y cual lleva el sufijo', () => {
     const w = mount(DuplicateGroup, { props: { group, playing: null, busy: false } })
-    const conSufijo = w.findAll('.dup-row')[1]
-    expect(conSufijo.text()).toContain('mejor calidad')
-    expect(conSufijo.text()).toContain('lleva « - r»')
-    expect(conSufijo.classes()).toContain('suggested')
+    const withSuffix = w.findAll('.dup-row')[1]
+    expect(withSuffix.text()).toContain('mejor calidad')
+    expect(withSuffix.text()).toContain('lleva « - r»')
+    expect(withSuffix.classes()).toContain('suggested')
   })
 
   it('cada copia se puede escuchar', async () => {
@@ -67,25 +67,25 @@ describe('grupo de duplicados', () => {
 
   it('sobre la que suena el boton es pausa, y en pausa, reanudar', () => {
     // Pintaba la pausa y al pulsarla volvia a empezar la copia.
-    const sonando = mount(DuplicateGroup, {
+    const playing = mount(DuplicateGroup, {
       props: { group, playing: 2, paused: false, busy: false }
     })
-    const [otra, esta] = sonando.findAll('.dup-play')
-    expect(esta.attributes('title')).toBe('Pausar')
-    expect(esta.findComponent({ name: 'Icon' }).props('n')).toBe('pause')
-    expect(otra.attributes('title')).toBe('Escuchar')
-    const enPausa = mount(DuplicateGroup, {
+    const [other, current] = playing.findAll('.dup-play')
+    expect(current.attributes('title')).toBe('Pausar')
+    expect(current.findComponent({ name: 'Icon' }).props('n')).toBe('pause')
+    expect(other.attributes('title')).toBe('Escuchar')
+    const paused = mount(DuplicateGroup, {
       props: { group, playing: 2, paused: true, busy: false }
     })
-    expect(enPausa.findAll('.dup-play')[1].attributes('title')).toBe('Reanudar')
-    expect(enPausa.findAll('.dup-play')[1].findComponent({ name: 'Icon' }).props('n')).toBe('play')
+    expect(paused.findAll('.dup-play')[1].attributes('title')).toBe('Reanudar')
+    expect(paused.findAll('.dup-play')[1].findComponent({ name: 'Icon' }).props('n')).toBe('play')
   })
 
   it('mantener emite el grupo y la copia elegida', async () => {
     const w = mount(DuplicateGroup, { props: { group, playing: null, busy: false } })
     await w.findAll('.dup-keep')[1].trigger('click')
-    const [g, elegida] = w.emitted('keepOne')[0]
-    expect(elegida.path).toBe('/m/Barak - Mi Gozo - r.mp3')
+    const [g, picked] = w.emitted('keepOne')[0]
+    expect(picked.path).toBe('/m/Barak - Mi Gozo - r.mp3')
     expect(g.items).toHaveLength(2)
   })
 

@@ -15,43 +15,43 @@ const css = allCss()
 
 describe('los colores salen del tema', () => {
   it('no hay colores fijos fuera de las variables', () => {
-    const malas = []
-    for (const [n, linea] of css.split('\n').entries()) {
-      const l = linea.trim()
+    const bad = []
+    for (const [n, line] of css.split('\n').entries()) {
+      const l = line.trim()
       // se permiten: definicion de variables, blancos/negros puros y transparencias
       if (l.startsWith('/*') || l.startsWith('*')) continue
       // se quitan las definiciones de variables: ahi el hex es legitimo
-      const sinVars = l.replace(/--[\w-]+\s*:\s*#[0-9a-fA-F]{3,8}/g, '')
-      for (const m of sinVars.matchAll(/#([0-9a-fA-F]{3,8})\b/g)) {
+      const withoutVars = l.replace(/--[\w-]+\s*:\s*#[0-9a-fA-F]{3,8}/g, '')
+      for (const m of withoutVars.matchAll(/#([0-9a-fA-F]{3,8})\b/g)) {
         const hex = m[1].toLowerCase()
-        const soloCeros = /^0+[0-9a-f]{0,2}$/.test(hex) // negro con alfa
-        const soloUnos = /^(fff|ffffff)([0-9a-f]{2})?$/.test(hex) // blanco con alfa
-        if (!soloCeros && !soloUnos) malas.push(`style.css:${n + 1}  ${l.slice(0, 70)}`)
+        const onlyZeros = /^0+[0-9a-f]{0,2}$/.test(hex) // negro con alfa
+        const onlyOnes = /^(fff|ffffff)([0-9a-f]{2})?$/.test(hex) // blanco con alfa
+        if (!onlyZeros && !onlyOnes) bad.push(`style.css:${n + 1}  ${l.slice(0, 70)}`)
       }
     }
-    expect(malas, 'usa var(--...) o color-mix():\n' + malas.join('\n')).toEqual([])
+    expect(bad, 'usa var(--...) o color-mix():\n' + bad.join('\n')).toEqual([])
   })
 
   it('los componentes .vue tampoco llevan colores fijos', () => {
-    const vistas = [
+    const views = [
       ...readdirSync('src/components')
         .filter((f) => f.endsWith('.vue'))
         .map((f) => 'src/components/' + f),
       ...readdirSync('src/components/ui').map((f) => 'src/components/ui/' + f),
       'src/App.vue'
     ]
-    const malas = []
-    for (const f of vistas) {
-      for (const [n, linea] of readFileSync(f, 'utf8').split('\n').entries()) {
-        for (const m of linea.matchAll(/#([0-9a-fA-F]{3,8})\b/g)) {
+    const bad = []
+    for (const f of views) {
+      for (const [n, line] of readFileSync(f, 'utf8').split('\n').entries()) {
+        for (const m of line.matchAll(/#([0-9a-fA-F]{3,8})\b/g)) {
           const hex = m[1].toLowerCase()
           if (!/^0+[0-9a-f]{0,2}$/.test(hex) && !/^(fff|ffffff)([0-9a-f]{2})?$/.test(hex)) {
-            malas.push(`${f}:${n + 1}  ${linea.trim().slice(0, 60)}`)
+            bad.push(`${f}:${n + 1}  ${line.trim().slice(0, 60)}`)
           }
         }
       }
     }
-    expect(malas, 'usa var(--...):\n' + malas.join('\n')).toEqual([])
+    expect(bad, 'usa var(--...):\n' + bad.join('\n')).toEqual([])
   })
 })
 
@@ -71,39 +71,39 @@ describe('catalogo de temas', () => {
   })
 
   it('hay temas claros y oscuros', () => {
-    const tipos = Object.values(CATALOG).map((t) => t.kind)
-    expect(tipos).toContain('light')
-    expect(tipos).toContain('dark')
+    const kinds = Object.values(CATALOG).map((t) => t.kind)
+    expect(kinds).toContain('light')
+    expect(kinds).toContain('dark')
   })
 
   it('en los claros el texto es oscuro y el fondo claro', () => {
-    const luz = (hex) => {
+    const lightness = (hex) => {
       const n = parseInt(hex.slice(1), 16)
       return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255
     }
     for (const [k, t] of Object.entries(CATALOG)) {
-      const lTexto = luz(t.v.text),
-        lFondo = luz(t.v.bg)
+      const lText = lightness(t.v.text),
+        lBg = lightness(t.v.bg)
       if (t.kind === 'light') {
-        expect(lFondo, `${k}: el fondo deberia ser claro`).toBeGreaterThan(0.7)
-        expect(lTexto, `${k}: el texto deberia ser oscuro`).toBeLessThan(0.35)
+        expect(lBg, `${k}: el fondo deberia ser claro`).toBeGreaterThan(0.7)
+        expect(lText, `${k}: el texto deberia ser oscuro`).toBeLessThan(0.35)
       } else {
-        expect(lFondo, `${k}: el fondo deberia ser oscuro`).toBeLessThan(0.3)
-        expect(lTexto, `${k}: el texto deberia ser claro`).toBeGreaterThan(0.6)
+        expect(lBg, `${k}: el fondo deberia ser oscuro`).toBeLessThan(0.3)
+        expect(lText, `${k}: el texto deberia ser claro`).toBeGreaterThan(0.6)
       }
       // contraste suficiente entre texto y fondo
-      expect(Math.abs(lTexto - lFondo), `${k}: texto y fondo se confunden`).toBeGreaterThan(0.45)
+      expect(Math.abs(lText - lBg), `${k}: texto y fondo se confunden`).toBeGreaterThan(0.45)
     }
   })
 
   it('el acento contrasta con el panel en todos', () => {
-    const luz = (hex) => {
+    const lightness = (hex) => {
       const n = parseInt(hex.slice(1), 16)
       return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255
     }
     for (const [k, t] of Object.entries(CATALOG)) {
       expect(
-        Math.abs(luz(t.v.accent) - luz(t.v.panel)),
+        Math.abs(lightness(t.v.accent) - lightness(t.v.panel)),
         `${k}: el acento no se ve`
       ).toBeGreaterThan(0.2)
     }
@@ -129,9 +129,9 @@ describe('tamaño de la app', () => {
   })
 
   it('van de menor a mayor sin repetirse', () => {
-    const escalas = Object.values(SIZES).map((s) => s.scale)
-    expect(escalas).toEqual([...escalas].sort((a, b) => a - b))
-    expect(new Set(escalas).size).toBe(escalas.length)
+    const scales = Object.values(SIZES).map((s) => s.scale)
+    expect(scales).toEqual([...scales].sort((a, b) => a - b))
+    expect(new Set(scales).size).toBe(scales.length)
   })
 
   it('aplicar un tamaño escribe la escala en :root', () => {
@@ -171,13 +171,13 @@ describe('las preferencias no dependen de quien las pidio primero', () => {
       await import('../src/composables/usePreferences.js')
     resetPreferences()
     localStorage.clear()
-    const Primero = defineComponent({
+    const First = defineComponent({
       setup: () => {
         usePreferences()
         return () => h('div')
       }
     })
-    mount(Primero).unmount()
+    mount(First).unmount()
     usePreferences().theme.value = 'ocean'
     usePreferences().layout.value = 'grid'
     await nextTick()

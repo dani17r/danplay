@@ -80,25 +80,25 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-const montar = async () => {
+const mountView = async () => {
   const w = mount(ChatPage, { attachTo: document.body })
   await flushPromises()
   await flushPromises()
   return w
 }
-const escribir = async (w, t) => {
+const typeText = async (w, t) => {
   await w.find('.chat-foot textarea').setValue(t)
   await w.find('.chat-foot .btn').trigger('click')
   await flushPromises()
   await flushPromises()
 }
 /** Deja pasar el rato en que la tarjeta no hace caso de los clics. */
-const quieta = () => vi.advanceTimersByTimeAsync(CLICK_GUARD_MS + 50)
+const settle = () => vi.advanceTimersByTimeAsync(CLICK_GUARD_MS + 50)
 /** Lo que se le mandó al núcleo en el último turno. */
-const enviado = () => held.api.chatStart.mock.calls.at(-1)?.[0] || []
+const sent = () => held.api.chatStart.mock.calls.at(-1)?.[0] || []
 
 /** Una fila del plan tal como la manda el servidor. */
-function fila(i, extra = {}) {
+function row(i, extra = {}) {
   return {
     i,
     n: i + 2,
@@ -117,11 +117,11 @@ function fila(i, extra = {}) {
 }
 
 /** Una propuesta de descarga registrada (en el doble) con su plan. */
-function propuesta(id = 'k1', plan = {}) {
+function proposal(id = 'k1', plan = {}) {
   held.state.chatConfirms[id] = 'live'
   held.state.chatPlans[id] = {
     state: 'buscando',
-    items: [fila(0), fila(1)],
+    items: [row(0), row(1)],
     already: [
       { n: 1, title: 'Digno De Adorar', song: { id: 142, artist: 'Autor', title: 'Digno' } }
     ],
@@ -142,18 +142,18 @@ function propuesta(id = 'k1', plan = {}) {
 }
 
 /** Lo que pasa en el núcleo cuando YouTube contesta: las filas resueltas. */
-function resuelto(id = 'k1') {
+function resolved(id = 'k1') {
   Object.assign(held.state.chatPlans[id], {
     state: 'listo',
     items: [
-      fila(0, {
+      row(0, {
         state: 'encontrada',
         url: URL1,
         title: 'Tema 0 (En Vivo)',
         channel: 'Canal Uno',
         duration: 245
       }),
-      fila(1, {
+      row(1, {
         state: 'dudosa',
         checked: false,
         url: URL2,
@@ -168,7 +168,7 @@ function resuelto(id = 'k1') {
 }
 
 /** La respuesta del asistente con la tarjeta (y la tabla de la lista). */
-const conTarjeta = (confirm, extra = {}) => ({
+const withCard = (confirm, extra = {}) => ({
   text: 'Añadí a «domingo»: Digno De Adorar. Faltan 2: abajo te pido permiso para bajarlas.',
   tools: [{ name: 'fill_playlist', summary: '«domingo»: 1 de 3', detail: 'n=1 id142' }],
   confirm,
@@ -177,9 +177,9 @@ const conTarjeta = (confirm, extra = {}) => ({
 
 describe('la tarjeta de permiso para descargar', () => {
   it('sale en línea, se rellena sola, descarga lo marcado y al acabar cuenta lo que entró en la lista', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista en domingo')
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista en domingo')
 
     // el turno ya terminó: se puede seguir escribiendo, no hay diálogo
     expect(useChat().thinking.value).toBe(false)
@@ -195,7 +195,7 @@ describe('la tarjeta de permiso para descargar', () => {
     expect(card().find('[autofocus]').exists()).toBe(false)
 
     // YouTube contesta: las filas se rellenan solas
-    resuelto()
+    resolved()
     await vi.advanceTimersByTimeAsync(800)
     const rows = card().findAll('.cc-row')
     expect(rows[0].text()).toContain('Tema 0 (En Vivo)')
@@ -250,7 +250,7 @@ describe('la tarjeta de permiso para descargar', () => {
         }
       }
     ]
-    await quieta()
+    await settle()
     await card().find('.btn.primary').trigger('click')
     await flushPromises()
     expect(held.api.chatConfirm).toHaveBeenCalledWith({ id: 'k1', selection: [0] })
@@ -282,10 +282,10 @@ describe('la tarjeta de permiso para descargar', () => {
   })
 
   it('«No» no baja nada y no le pregunta al modelo', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
-    await quieta()
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
+    await settle()
     const no = w.findAll('.cc-actions .btn').find((b) => b.text() === 'No')
     await no.trigger('click')
     await flushPromises()
@@ -300,33 +300,33 @@ describe('la tarjeta de permiso para descargar', () => {
   })
 
   it('los botones no hacen caso en el medio segundo que sigue a un cambio', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
-    const descargar = () => w.find('.cc .btn.primary')
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
+    const download = () => w.find('.cc .btn.primary')
     // recién salida: el clic se ignora
-    await descargar().trigger('click')
+    await download().trigger('click')
     await flushPromises()
     expect(held.api.chatConfirm).not.toHaveBeenCalled()
     // llegan filas (cambia el contenido): otra vez quieta un rato
     await vi.advanceTimersByTimeAsync(400)
-    resuelto()
+    resolved()
     await vi.advanceTimersByTimeAsync(350)
-    await descargar().trigger('click')
+    await download().trigger('click')
     await flushPromises()
     expect(held.api.chatConfirm).not.toHaveBeenCalled()
     // tocar tus casillas no la «mueve»
-    await quieta()
+    await settle()
     await w.findAll('.cc-row')[1].find('[role="checkbox"]').trigger('click')
-    await descargar().trigger('click')
+    await download().trigger('click')
     await flushPromises()
     expect(held.api.chatConfirm).toHaveBeenCalledWith({ id: 'k1', selection: [0, 1] })
   })
 
   it('mientras sigue buscando, preguntar por las filas (sin cambios) no bloquea los botones', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
     // varias consultas del plan, todas iguales («buscando»)
     await vi.advanceTimersByTimeAsync(2000)
     expect(held.api.chatPlan.mock.calls.length).toBeGreaterThan(2)
@@ -336,12 +336,12 @@ describe('la tarjeta de permiso para descargar', () => {
   })
 
   it('caducada (410): lo dice y «Volver a pedirlo» se lo pide al asistente', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
     // en el servidor ya no vale (pasaron 30 minutos)
     held.state.chatConfirms.k1 = 'expired'
-    await quieta()
+    await settle()
     await w.find('.cc .btn.primary').trigger('click')
     await flushPromises()
     const failed = useChat().messages.value.at(-1)
@@ -351,23 +351,23 @@ describe('la tarjeta de permiso para descargar', () => {
     expect(card.text()).toContain('Caducada')
     expect(card.find('.cc-actions').exists()).toBe(false)
     held.replies.push({ text: 'Te la propongo otra vez.', tools: [] })
-    await quieta()
+    await settle()
     const again = card.findAll('.cc-link').find((b) => b.text() === 'Volver a pedirlo')
     await again.trigger('click')
     await flushPromises()
     await flushPromises()
     expect(held.api.chatStart).toHaveBeenCalledTimes(2)
-    expect(enviado().at(-1)).toEqual({ role: 'me', text: ASK_AGAIN })
+    expect(sent().at(-1)).toEqual({ role: 'me', text: ASK_AGAIN })
   })
 
   it('otra descarga en marcha (409) no la gasta: sigue con sus botones', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
     held.api.chatConfirm.mockRejectedValueOnce(
       Object.assign(new Error('ya hay una descarga en marcha'), { status: 409 })
     )
-    await quieta()
+    await settle()
     await w.find('.cc .btn.primary').trigger('click')
     await flushPromises()
     expect(w.text()).toContain('No se pudo: ya hay una descarga en marcha')
@@ -375,10 +375,10 @@ describe('la tarjeta de permiso para descargar', () => {
   })
 
   it('una propuesta nueva deja la anterior sin valor', async () => {
-    held.replies.push(conTarjeta(propuesta('k1')), conTarjeta(propuesta('k2')))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
-    await escribir(w, 'y esta otra')
+    held.replies.push(withCard(proposal('k1')), withCard(proposal('k2')))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
+    await typeText(w, 'y esta otra')
     const cards = w.findAll('.cc')
     expect(cards).toHaveLength(2)
     expect(cards[0].text()).toContain('Hay una propuesta más nueva')
@@ -390,11 +390,11 @@ describe('la tarjeta de permiso para descargar', () => {
       text: '',
       canceled: true,
       tools: [{ name: 'fill_playlist', summary: '«domingo»: 1 de 3' }],
-      confirm: propuesta(),
-      setlist: lista()
+      confirm: proposal(),
+      setlist: list()
     })
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
     const m = useChat().messages.value.at(-1)
     expect(m.canceled).toBe(true)
     expect(w.find('.cc .cc-actions').exists()).toBe(true)
@@ -443,11 +443,11 @@ describe('«sí» y «no» escritos', () => {
   })
 
   it('un «sí» acepta la tarjeta como el clic, con tu burbuja y sin llamar al modelo', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    resuelto()
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
-    await escribir(w, 'Sí, dale')
+    held.replies.push(withCard(proposal()))
+    resolved()
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
+    await typeText(w, 'Sí, dale')
     expect(held.api.chatStart).toHaveBeenCalledTimes(1)
     expect(held.api.chatConfirm).toHaveBeenCalledWith({ id: 'k1', selection: [0] })
     expect(w.findAll('.chat-msg.me').at(-1).text()).toBe('Sí, dale')
@@ -456,30 +456,30 @@ describe('«sí» y «no» escritos', () => {
   })
 
   it('un «no» la rechaza; sin tarjeta esperando, un «sí» va al modelo', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
-    await escribir(w, 'no')
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
+    await typeText(w, 'no')
     expect(held.api.chatStart).toHaveBeenCalledTimes(1)
     expect(useChat().messages.value.at(-1).event).toBe('confirm_declined')
     // ya contestada: el siguiente «sí» es un mensaje normal
-    await escribir(w, 'sí')
+    await typeText(w, 'sí')
     expect(held.api.chatStart).toHaveBeenCalledTimes(2)
-    expect(enviado().at(-1)).toEqual({ role: 'me', text: 'sí' })
+    expect(sent().at(-1)).toEqual({ role: 'me', text: 'sí' })
   })
 
   it('«sí, pero…» no la acepta: va al modelo', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
-    await escribir(w, 'sí, pero quita la 3')
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
+    await typeText(w, 'sí, pero quita la 3')
     expect(held.api.chatConfirm).not.toHaveBeenCalled()
     expect(held.api.chatStart).toHaveBeenCalledTimes(2)
   })
 })
 
 describe('borrar: el diálogo, fuera del turno y de uno en uno', () => {
-  const borrar = (id = 'd1') => {
+  const remove = (id = 'd1') => {
     held.state.chatConfirms[id] = 'live'
     return {
       text: 'Te pido permiso.',
@@ -489,9 +489,9 @@ describe('borrar: el diálogo, fuera del turno y de uno en uno', () => {
   }
 
   it('se pregunta con el turno ya terminado y se acepta por el id', async () => {
-    held.replies.push(borrar())
-    const w = await montar()
-    await escribir(w, 'borra mi gozo')
+    held.replies.push(remove())
+    const w = await mountView()
+    await typeText(w, 'borra mi gozo')
     expect(useChat().thinking.value).toBe(false)
     expect(useDialog().dialog.value.open).toBe(true)
     expect(useDialog().dialog.value.message).toContain('Mi Gozo')
@@ -509,19 +509,19 @@ describe('borrar: el diálogo, fuera del turno y de uno en uno', () => {
   })
 
   it('nunca encima de otro diálogo: espera su turno, y lo de la cola también', async () => {
-    let soltar
-    held.replies.push(() => new Promise((r) => (soltar = r)))
+    let release
+    held.replies.push(() => new Promise((r) => (release = r)))
     held.tools = {
       ...held.tools,
       primary_problem: { kind: 'billing', code: 400, at: 1 },
       answering: { id: 'respaldo', name: 'Respaldo', model: 'r/modelo', fallback: true }
     }
-    const w = await montar()
-    await escribir(w, 'borra mi gozo')
-    await escribir(w, 'y luego esto')
+    const w = await mountView()
+    await typeText(w, 'borra mi gozo')
+    await typeText(w, 'y luego esto')
     // mientras piensa, otro diálogo de la app (uno cualquiera)
     ask({ kind: 'confirm', title: 'Otra cosa', message: '¿Seguro?' })
-    soltar(borrar())
+    release(remove())
     await flushPromises()
     await flushPromises()
     expect(useChat().thinking.value).toBe(false)
@@ -544,13 +544,13 @@ describe('borrar: el diálogo, fuera del turno y de uno en uno', () => {
     await flushPromises()
     expect(held.api.aiActivate).not.toHaveBeenCalled()
     expect(held.api.chatStart).toHaveBeenCalledTimes(2)
-    expect(enviado().at(-1).text).toBe('y luego esto')
+    expect(sent().at(-1).text).toBe('y luego esto')
     expect(w.findAll('.composer-chip')).toHaveLength(0)
   })
 })
 
 /** La tabla de una lista metida desde el chat. */
-function lista(extra = {}) {
+function list(extra = {}) {
   return {
     playlist: { id: 7, name: 'domingo', created: false },
     mode: 'add',
@@ -628,9 +628,9 @@ describe('la tabla de una lista', () => {
   })
 
   it('cada fila: en la lista, otra versión, dudosa o falta, con lo pedido junto a lo hallado', async () => {
-    held.replies.push({ text: 'Añadí…', tools: [], setlist: lista() })
-    const w = await montar()
-    await escribir(w, 'mete esto')
+    held.replies.push({ text: 'Añadí…', tools: [], setlist: list() })
+    const w = await mountView()
+    await typeText(w, 'mete esto')
     const rows = w.findAll('.cs-row')
     expect(rows).toHaveLength(4)
     expect(rows[0].text()).toContain('en la lista')
@@ -654,12 +654,12 @@ describe('la tabla de una lista', () => {
   })
 
   it('«Dejar solo estas» y «Deshacer», sin modelo y contándolo', async () => {
-    held.replies.push({ text: 'Añadí…', tools: [], setlist: lista() })
-    const w = await montar()
-    await escribir(w, 'mete esto')
+    held.replies.push({ text: 'Añadí…', tools: [], setlist: list() })
+    const w = await mountView()
+    await typeText(w, 'mete esto')
     const chip = (t) => w.findAll('.cs-actions .btn').find((b) => b.text() === t)
     expect(chip('Deshacer')).toBeUndefined()
-    await quieta()
+    await settle()
     await chip('Dejar solo estas').trigger('click')
     await flushPromises()
     expect(held.api.setPlaylistSongs).toHaveBeenCalledWith(7, [1, 2, 3])
@@ -674,7 +674,7 @@ describe('la tabla de una lista', () => {
     // ya no sobra nada y el orden es el de la lista pegada
     expect(chip('Dejar solo estas')).toBeUndefined()
     expect(chip('Ordenar como mi lista')).toBeUndefined()
-    await quieta()
+    await settle()
     await chip('Deshacer').trigger('click')
     await flushPromises()
     expect(held.api.setPlaylistSongs).toHaveBeenLastCalledWith(7, [9, 3, 1, 2])
@@ -688,24 +688,24 @@ describe('la tabla de una lista', () => {
     held.replies.push({
       text: 'Dejé…',
       tools: [],
-      setlist: lista({ mode: 'set', extras_in_list: [], previous: [9, 1] })
+      setlist: list({ mode: 'set', extras_in_list: [], previous: [9, 1] })
     })
-    const w = await montar()
-    await escribir(w, 'déjala exactamente así')
+    const w = await mountView()
+    await typeText(w, 'déjala exactamente así')
     const chip = (t) => w.findAll('.cs-actions .btn').find((b) => b.text() === t)
     expect(chip('Dejar solo estas')).toBeUndefined()
-    await quieta()
+    await settle()
     await chip('Ordenar como mi lista').trigger('click')
     await flushPromises()
     expect(held.api.reorderPlaylist).toHaveBeenCalledWith(7, [1, 2, 3])
     expect(useChat().messages.value.at(-1).text).toBe('Ordené «domingo» como tu lista.')
     expect(chip('Ordenar como mi lista')).toBeUndefined()
     // deshacer el orden y, después, lo que hizo el asistente (`previous`)
-    await quieta()
+    await settle()
     await chip('Deshacer').trigger('click')
     await flushPromises()
     expect(held.api.setPlaylistSongs).toHaveBeenLastCalledWith(7, [9, 3, 1, 2])
-    await quieta()
+    await settle()
     await chip('Deshacer').trigger('click')
     await flushPromises()
     expect(held.api.setPlaylistSongs).toHaveBeenLastCalledWith(7, [9, 1])
@@ -713,11 +713,11 @@ describe('la tabla de una lista', () => {
   })
 
   it('comprobar: «Dejar solo estas» aunque no sobre nada, si la lista no está como la pegada', async () => {
-    const rows = lista().rows.map((r) => (r.n === 3 ? { ...r, in_list: false } : r))
+    const rows = list().rows.map((r) => (r.n === 3 ? { ...r, in_list: false } : r))
     held.replies.push({
       text: 'Comprobé…',
       tools: [],
-      setlist: lista({
+      setlist: list({
         mode: 'check',
         applied: false,
         extras_in_list: [],
@@ -725,23 +725,23 @@ describe('la tabla de una lista', () => {
         order_differs: false
       })
     })
-    const w = await montar()
-    await escribir(w, 'verifica la lista')
+    const w = await mountView()
+    await typeText(w, 'verifica la lista')
     expect(w.find('.cs').text()).toContain('Comprobada, sin cambios')
     expect(w.findAll('.cs-actions .btn').map((b) => b.text())).toEqual(['Dejar solo estas'])
   })
 
   it('larga, se pliega; sin desbordes con títulos larguísimos', async () => {
-    const largo = 'Una Canción Con Un Título Larguísimo '.repeat(12)
+    const longText = 'Una Canción Con Un Título Larguísimo '.repeat(12)
     const rows = Array.from({ length: 14 }, (_, k) => ({
-      ...lista().rows[0],
+      ...list().rows[0],
       n: k + 1,
-      title: largo,
-      song: { id: k + 1, artist: 'Autor', title: largo }
+      title: longText,
+      song: { id: k + 1, artist: 'Autor', title: longText }
     }))
-    held.replies.push({ text: 'Añadí…', tools: [], setlist: lista({ rows }) })
-    const w = await montar()
-    await escribir(w, 'mete esto')
+    held.replies.push({ text: 'Añadí…', tools: [], setlist: list({ rows }) })
+    const w = await mountView()
+    await typeText(w, 'mete esto')
     expect(w.findAll('.cs-row')).toHaveLength(6)
     const more = w.find('.cs .chat-more')
     expect(more.text()).toBe('Ver las 14')
@@ -754,7 +754,7 @@ describe('la tabla de una lista', () => {
 })
 
 describe('la franja del proveedor', () => {
-  const caido = (kind, answering = true) => ({
+  const outage = (kind, answering = true) => ({
     model: 'claude-x',
     provider: 'Claude (Anthropic)',
     available: true,
@@ -781,8 +781,8 @@ describe('la franja del proveedor', () => {
     ['rate', 'Claude (Anthropic) pide esperar (demasiadas peticiones); contesta DeepInfra'],
     ['down', 'Claude (Anthropic) no responde; contesta DeepInfra']
   ])('%s: lo dice con sus palabras, nunca con las del proveedor', async (kind, text) => {
-    held.tools = caido(kind)
-    const w = await montar()
+    held.tools = outage(kind)
+    const w = await mountView()
     const banner = w.find('.chat-banner')
     expect(banner.exists()).toBe(true)
     expect(banner.attributes('aria-label')).toBe('Estado de la IA')
@@ -790,8 +790,8 @@ describe('la franja del proveedor', () => {
   })
 
   it('sin respuesta del respaldo todavía, dice solo lo del principal; sin problema, nada', async () => {
-    held.tools = caido('billing', false)
-    const w = await montar()
+    held.tools = outage('billing', false)
+    const w = await mountView()
     expect(w.find('.chat-banner-text').text()).toBe('Claude (Anthropic) no tiene saldo.')
     expect(w.findAll('.chat-banner-actions .btn')).toHaveLength(2)
     w.unmount()
@@ -805,7 +805,7 @@ describe('la franja del proveedor', () => {
       primary_problem: null,
       answering: null
     }
-    const w2 = await montar()
+    const w2 = await mountView()
     expect(w2.find('.chat-banner').exists()).toBe(false)
   })
 
@@ -815,24 +815,24 @@ describe('la franja del proveedor', () => {
       tools: [],
       via: { id: 'llm7', name: 'LLM7', model: 'x', fallback: true, reason: 'down' }
     })
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.chat-banner').exists()).toBe(false)
-    await escribir(w, 'hola')
+    await typeText(w, 'hola')
     expect(w.find('.chat-banner-text').text()).toBe('P no responde; contestó LLM7 · x (respaldo).')
   })
 
   it('sus botones: Ajustes, reintentar y usar el respaldo (solo tras confirmarlo)', async () => {
-    held.tools = caido('billing')
-    const w = await montar()
-    const boton = (t) => w.findAll('.chat-banner-actions .btn').find((b) => b.text().includes(t))
-    await boton('Ajustes de IA').trigger('click')
+    held.tools = outage('billing')
+    const w = await mountView()
+    const button = (t) => w.findAll('.chat-banner-actions .btn').find((b) => b.text().includes(t))
+    await button('Ajustes de IA').trigger('click')
     expect(hooks.go).toHaveBeenCalledWith({ kind: 'settings' })
 
     // usar el respaldo: nombra proveedor y modelo, y sin «sí» no cambia nada
-    expect(boton('como principal').text()).toBe(
+    expect(button('como principal').text()).toBe(
       'Usar DeepInfra · Qwen3-Next-80B-A3B-Instruct como principal'
     )
-    await boton('como principal').trigger('click')
+    await button('como principal').trigger('click')
     await flushPromises()
     expect(useDialog().dialog.value.message).toContain('DeepInfra')
     expect(useDialog().dialog.value.message).toContain('Qwen/Qwen3-Next-80B-A3B-Instruct')
@@ -840,14 +840,14 @@ describe('la franja del proveedor', () => {
     dialogCancel()
     await flushPromises()
     expect(held.api.aiActivate).not.toHaveBeenCalled()
-    await boton('como principal').trigger('click')
+    await button('como principal').trigger('click')
     await flushPromises()
     dialogOk()
     await flushPromises()
     expect(held.api.aiActivate).toHaveBeenCalledWith('deepinfra')
 
     // reintentar: se olvida el fallo y la franja se va
-    await boton('Reintentar').trigger('click')
+    await button('Reintentar').trigger('click')
     await flushPromises()
     expect(held.api.aiRecheck).toHaveBeenCalled()
     expect(w.find('.chat-banner').exists()).toBe(false)
@@ -856,12 +856,12 @@ describe('la franja del proveedor', () => {
 
 describe('conversaciones guardadas y compatibilidad', () => {
   it('se guarda la tarjeta (sin args, plan recortado y como dato), la tabla y la referencia; al modelo no van', async () => {
-    const muchas = Array.from({ length: 30 }, (_, k) =>
-      fila(k, { title: `Título\ncon salto ${k}`, url: k ? URL1 : 'javascript:alert(1)' })
+    const many = Array.from({ length: 30 }, (_, k) =>
+      row(k, { title: `Título\ncon salto ${k}`, url: k ? URL1 : 'javascript:alert(1)' })
     )
-    held.replies.push(conTarjeta(propuesta('k1', { items: muchas }), { setlist: lista() }))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
+    held.replies.push(withCard(proposal('k1', { items: many }), { setlist: list() }))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
     const saved = held.state.chats[0].messages.find((m) => m.confirm)
     expect(saved.confirm.args).toBeUndefined()
     expect(saved.confirm.plan.items).toHaveLength(25)
@@ -869,7 +869,7 @@ describe('conversaciones guardadas y compatibilidad', () => {
     expect(saved.confirm.plan.items[0].url).toBe('')
     expect(saved.setlist.rows).toHaveLength(4)
     // el modelo no recibe la tarjeta ni la tabla: le basta lo que hizo cada herramienta
-    await quieta()
+    await settle()
     const no = w.findAll('.cc-actions .btn').find((b) => b.text() === 'No')
     await no.trigger('click')
     await flushPromises()
@@ -877,12 +877,12 @@ describe('conversaciones guardadas y compatibilidad', () => {
       ref: 'k1',
       event: 'confirm_declined'
     })
-    await escribir(w, 'gracias')
-    for (const m of enviado()) {
+    await typeText(w, 'gracias')
+    for (const m of sent()) {
       expect(m.confirm).toBeUndefined()
       expect(m.setlist).toBeUndefined()
     }
-    expect(enviado().find((m) => m.tools?.[0]?.name === 'fill_playlist').tools[0].detail).toBe(
+    expect(sent().find((m) => m.tools?.[0]?.name === 'fill_playlist').tools[0].detail).toBe(
       'n=1 id142'
     )
   })
@@ -908,7 +908,7 @@ describe('conversaciones guardadas y compatibilidad', () => {
         ]
       }
     ]
-    const w = await montar()
+    const w = await mountView()
     await flushPromises()
     const cards = w.findAll('.cc')
     expect(cards).toHaveLength(2)
@@ -935,7 +935,7 @@ describe('conversaciones guardadas y compatibilidad', () => {
         ]
       }
     ]
-    const w = await montar()
+    const w = await mountView()
     expect(w.findAll('.chat-msg')).toHaveLength(2)
     expect(w.find('.cc').exists()).toBe(false)
     expect(w.find('.cs').exists()).toBe(false)
@@ -948,8 +948,8 @@ describe('conversaciones guardadas y compatibilidad', () => {
       tools: [],
       confirm: { tool: 'download_music', summary: 'Descargar «X»', args: { items: ['x'] } }
     })
-    const w = await montar()
-    await escribir(w, 'baja x')
+    const w = await mountView()
+    await typeText(w, 'baja x')
     expect(useChat().thinking.value).toBe(false)
     expect(useDialog().dialog.value.open).toBe(true)
     expect(w.find('.cc').exists()).toBe(false)
@@ -962,7 +962,7 @@ describe('conversaciones guardadas y compatibilidad', () => {
 
 describe('el informe al acabar la descarga', () => {
   /** Acepta la tarjeta y deja la descarga en marcha (job 5). */
-  async function aceptada(w, result = {}) {
+  async function afterAccept(w, result = {}) {
     held.api.chatConfirm.mockResolvedValueOnce({
       ok: true,
       text: 'Descargando.',
@@ -976,15 +976,15 @@ describe('el informe al acabar la descarga', () => {
         ...result
       }
     })
-    await quieta()
+    await settle()
     await w.find('.cc .btn.primary').trigger('click')
     await flushPromises()
   }
 
   it('sin `after` (o con error): el informe de siempre y el aviso oculto para que remate el modelo', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
     held.yt = [
       {
         available: true,
@@ -996,14 +996,14 @@ describe('el informe al acabar la descarga', () => {
       }
     ]
     held.replies.push({ text: 'Añadida a «domingo».', tools: [] })
-    await aceptada(w)
+    await afterAccept(w)
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
     const report = useChat().messages.value.find((m) => m.event === 'download_done')
     expect(report.ref).toBe('k1')
     expect(report.text).toContain('No pude meterlas en «domingo» (la lista cambió de nombre)')
     expect(held.api.chatStart).toHaveBeenCalledTimes(2)
-    const notice = enviado().at(-1)
+    const notice = sent().at(-1)
     expect(notice).toMatchObject({ role: 'me', event: 'download_done' })
     expect(notice.text).toContain('(id 267)')
     expect(notice.text).toContain('Lo que te pedi fue: «mete esta lista»')
@@ -1011,10 +1011,10 @@ describe('el informe al acabar la descarga', () => {
 
   it('va a la conversación desde la que se pidió aunque se haya abierto otra', async () => {
     held.state.chats = [{ id: 9, title: 'otra', messages: [{ role: 'me', text: 'hola' }] }]
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
     useChat().newChat()
-    await escribir(w, 'mete esta lista')
+    await typeText(w, 'mete esta lista')
     const from = useChat().chatId.value
     expect(from).not.toBe(9)
     held.yt = [
@@ -1035,7 +1035,7 @@ describe('el informe al acabar la descarga', () => {
         }
       }
     ]
-    await aceptada(w)
+    await afterAccept(w)
     expect(useChat().following.value.chatId).toBe(from)
     // abre otra conversación mientras baja
     await useChat().openChat(9)
@@ -1049,9 +1049,9 @@ describe('el informe al acabar la descarga', () => {
   })
 
   it('la fila que faltaba deja de decir «falta» al entrar en la lista, también al reabrir', async () => {
-    held.replies.push(conTarjeta(propuesta(), { setlist: lista() }))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
+    held.replies.push(withCard(proposal(), { setlist: list() }))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
     const fourth = () => w.findAll('.cs-row')[3]
     expect(fourth().text()).toContain('falta')
     expect(w.find('.cs-count.missing').exists()).toBe(true)
@@ -1074,7 +1074,7 @@ describe('el informe al acabar la descarga', () => {
         }
       }
     ]
-    await aceptada(w)
+    await afterAccept(w)
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
     expect(fourth().text()).toContain('bajada, en la lista')
@@ -1097,9 +1097,9 @@ describe('el informe al acabar la descarga', () => {
   })
 
   it('una descarga de otro turno no se cuenta como la nuestra', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
     held.yt = [
       {
         available: true,
@@ -1110,7 +1110,7 @@ describe('el informe al acabar la descarga', () => {
         after: null
       }
     ]
-    await aceptada(w)
+    await afterAccept(w)
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
     expect(useChat().messages.value.some((m) => m.event === 'download_done')).toBe(false)
@@ -1120,37 +1120,37 @@ describe('el informe al acabar la descarga', () => {
 describe('lo que cambia la biblioteca y lo que se ve fuera del chat', () => {
   it('meter una lista recarga la biblioteca', async () => {
     held.replies.push({ text: 'Añadí…', tools: [{ name: 'fill_playlist', summary: 'x' }] })
-    const w = await montar()
-    await escribir(w, 'mete esto')
+    const w = await mountView()
+    await typeText(w, 'mete esto')
     expect(hooks.reload).toHaveBeenCalled()
   })
 
   it('con una tarjeta esperando y el chat fuera de la vista, se avisa una vez', async () => {
-    held.replies.push(conTarjeta(propuesta()))
-    const w = await montar()
-    await escribir(w, 'mete esta lista')
+    held.replies.push(withCard(proposal()))
+    const w = await mountView()
+    await typeText(w, 'mete esta lista')
     expect(useChat().attention.value).toBe(false)
     w.unmount()
     await flushPromises()
     expect(useChat().attention.value).toBe(true)
     // y el «Asistente» del lateral lleva su insignia
-    const lateral = mount(Sidebar, { props: { view: { kind: 'all' } } })
-    const asistente = lateral.findAll('.nav-link').find((b) => b.text().includes('Asistente'))
-    expect(asistente?.find('.count.live').text()).toBe('1')
-    expect(asistente?.attributes('title')).toBe('El asistente espera tu respuesta')
-    lateral.unmount()
-    const avisos = () =>
+    const sidebar = mount(Sidebar, { props: { view: { kind: 'all' } } })
+    const assistant = sidebar.findAll('.nav-link').find((b) => b.text().includes('Asistente'))
+    expect(assistant?.find('.count.live').text()).toBe('1')
+    expect(assistant?.attributes('title')).toBe('El asistente espera tu respuesta')
+    sidebar.unmount()
+    const notices = () =>
       useNotices().notices.value.filter((n) => n.message.includes('espera tu visto bueno'))
-    expect(avisos()).toHaveLength(1)
+    expect(notices()).toHaveLength(1)
     useChat().setVisible(true)
     useChat().setVisible(false)
     await flushPromises()
-    expect(avisos()).toHaveLength(1)
+    expect(notices()).toHaveLength(1)
   })
 
   it('el texto de fuera se guarda como dato', () => {
-    const raro = 'a\nb' + String.fromCharCode(0x202e) + 'c' + String.fromCharCode(0x200b) + 'd'
-    expect(datum(raro)).toBe('a b c d')
+    const odd = 'a\nb' + String.fromCharCode(0x202e) + 'c' + String.fromCharCode(0x200b) + 'd'
+    expect(datum(odd)).toBe('a b c d')
     expect(datum('x'.repeat(200), 10)).toBe('xxxxxxxxx…')
   })
 })

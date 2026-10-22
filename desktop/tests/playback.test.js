@@ -181,7 +181,7 @@ describe('usePlayback', () => {
   })
 
   it('lo guardado lo aplica la ventana principal, no el mini ni la proyección', async () => {
-    const guardado = () => {
+    const saved = () => {
       localStorage.setItem('danplay.vol', '0.3')
       localStorage.setItem('danplay.vel', '0.75')
       localStorage.setItem('danplay.repeat', 'one')
@@ -190,7 +190,7 @@ describe('usePlayback', () => {
       resetPlayback()
       held.playback.reset()
       vi.clearAllMocks()
-      guardado()
+      saved()
       window.history.replaceState(null, '', '/' + search)
       await usePlayback().ready()
       const b = held.playback.bridge
@@ -201,7 +201,7 @@ describe('usePlayback', () => {
     resetPlayback()
     held.playback.reset()
     vi.clearAllMocks()
-    guardado()
+    saved()
     window.history.replaceState(null, '', '/')
     await usePlayback().ready()
     expect(held.playback.bridge.setVolume).toHaveBeenCalledWith(0.3)
@@ -352,10 +352,10 @@ describe('usePlayback', () => {
 
   it('el modo de repeticion cicla en orden', async () => {
     const player = usePlayback()
-    for (const esperado of ['one', 'once', 'queue', 'list']) {
+    for (const expected of ['one', 'once', 'queue', 'list']) {
       await player.cycleRepeat()
       await flushPromises()
-      expect(player.repeat.value).toBe(esperado)
+      expect(player.repeat.value).toBe(expected)
     }
   })
 })

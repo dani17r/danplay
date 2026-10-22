@@ -99,7 +99,7 @@ beforeEach(() => {
 })
 
 /** Una pulsación de verdad, para poder mirar si se evitó lo que hace el navegador. */
-function tecla(el, opts = {}) {
+function press(el, opts = {}) {
   const { keyCode, ...init } = opts
   const ev = new KeyboardEvent('keydown', {
     key: 'Enter',
@@ -113,7 +113,7 @@ function tecla(el, opts = {}) {
 }
 
 /** La caja suelta, con su v-model funcionando. */
-function caja(props = {}) {
+function box(props = {}) {
   const w = mount(ChatComposer, {
     attachTo: document.body,
     props: {
@@ -125,20 +125,20 @@ function caja(props = {}) {
   return w
 }
 
-const montar = async () => {
+const mountView = async () => {
   const w = mount(ChatPage, { attachTo: document.body })
   await flushPromises()
   return w
 }
-const escribir = async (w, t) => {
+const typeText = async (w, t) => {
   await w.find('.chat-foot textarea').setValue(t)
-  tecla(w.find('.chat-foot textarea').element)
+  press(w.find('.chat-foot textarea').element)
   await flushPromises()
 }
 /** Lo último que recibió el núcleo en cada turno. */
-const enviados = () => api.chat.mock.calls.map((c) => c[0].at(-1))
+const sentTexts = () => api.chat.mock.calls.map((c) => c[0].at(-1))
 /** Deja al asistente «pensando» hasta que se llame a lo devuelto. */
-function pensando() {
+function thinking() {
   let release
   api.chat.mockImplementationOnce(
     () =>
@@ -151,39 +151,39 @@ function pensando() {
 
 describe('la caja: teclas', () => {
   it('Enter envía y no deja un salto de línea', async () => {
-    const w = caja({ modelValue: 'hola' })
-    const ev = tecla(w.find('textarea').element)
+    const w = box({ modelValue: 'hola' })
+    const ev = press(w.find('textarea').element)
     expect(ev.defaultPrevented).toBe(true)
     expect(w.emitted('send')).toHaveLength(1)
   })
 
   it('Shift+Enter baja de línea y no envía', async () => {
-    const w = caja({ modelValue: 'agrégame esto a la lista:' })
-    const ev = tecla(w.find('textarea').element, { shiftKey: true })
+    const w = box({ modelValue: 'agrégame esto a la lista:' })
+    const ev = press(w.find('textarea').element, { shiftKey: true })
     // lo pone el navegador: no se le quita
     expect(ev.defaultPrevented).toBe(false)
     expect(w.emitted('send')).toBeUndefined()
   })
 
   it('Ctrl+Enter y Cmd+Enter también envían', async () => {
-    const w = caja({ modelValue: 'hola' })
-    expect(tecla(w.find('textarea').element, { ctrlKey: true }).defaultPrevented).toBe(true)
-    tecla(w.find('textarea').element, { metaKey: true })
-    tecla(w.find('textarea').element, { ctrlKey: true, shiftKey: true })
+    const w = box({ modelValue: 'hola' })
+    expect(press(w.find('textarea').element, { ctrlKey: true }).defaultPrevented).toBe(true)
+    press(w.find('textarea').element, { metaKey: true })
+    press(w.find('textarea').element, { ctrlKey: true, shiftKey: true })
     expect(w.emitted('send')).toHaveLength(3)
   })
 
   it('componiendo con un IME, Enter es del IME y no envía', async () => {
-    const w = caja({ modelValue: 'canción' })
-    const a = tecla(w.find('textarea').element, { isComposing: true })
-    const b = tecla(w.find('textarea').element, { keyCode: 229 })
+    const w = box({ modelValue: 'canción' })
+    const a = press(w.find('textarea').element, { isComposing: true })
+    const b = press(w.find('textarea').element, { keyCode: 229 })
     expect(a.defaultPrevented || b.defaultPrevented).toBe(false)
     expect(w.emitted('send')).toBeUndefined()
   })
 
   it('vacía (o solo blancos) no envía, y el botón se apaga', async () => {
-    const w = caja({ modelValue: '  \n ' })
-    tecla(w.find('textarea').element)
+    const w = box({ modelValue: '  \n ' })
+    press(w.find('textarea').element)
     expect(w.emitted('send')).toBeUndefined()
     expect(w.find('button[title="Enviar"]').attributes('disabled')).toBeDefined()
     await w.setProps({ modelValue: 'hola' })
@@ -193,44 +193,44 @@ describe('la caja: teclas', () => {
   })
 
   it('mantener Enter pulsado no manda una ráfaga', async () => {
-    const w = caja({ modelValue: 'hola' })
-    const ev = tecla(w.find('textarea').element, { repeat: true })
+    const w = box({ modelValue: 'hola' })
+    const ev = press(w.find('textarea').element, { repeat: true })
     expect(ev.defaultPrevented).toBe(true)
     expect(w.emitted('send')).toBeUndefined()
   })
 
   it('pegar varias líneas las conserva', async () => {
-    const lista = 'agrégame esto a la lista:\n*1.-Sublime Gracia* ✅\n2.- Cuán Grande Es Dios'
-    const w = caja()
-    await w.find('textarea').setValue(lista)
-    expect(w.emitted('update:modelValue').at(-1)).toEqual([lista])
-    expect(w.find('textarea').element.value).toBe(lista)
+    const list = 'agrégame esto a la lista:\n*1.-Sublime Gracia* ✅\n2.- Cuán Grande Es Dios'
+    const w = box()
+    await w.find('textarea').setValue(list)
+    expect(w.emitted('update:modelValue').at(-1)).toEqual([list])
+    expect(w.find('textarea').element.value).toBe(list)
   })
 })
 
 describe('la caja: forma y ayuda', () => {
   it('crece con lo escrito, se desplaza pasado el tope y vuelve a una línea al vaciarse', async () => {
-    const w = caja()
+    const w = box()
     const ta = w.find('textarea').element
     // jsdom no mide: el alto del contenido lo decide la prueba
-    let alto = 21
-    const tope = 168 // las 8 líneas del CSS
-    Object.defineProperty(ta, 'scrollHeight', { configurable: true, get: () => alto })
+    let height = 21
+    const cap = 168 // las 8 líneas del CSS
+    Object.defineProperty(ta, 'scrollHeight', { configurable: true, get: () => height })
     Object.defineProperty(ta, 'clientHeight', {
       configurable: true,
-      get: () => Math.min(parseFloat(ta.style.height) || 0, tope)
+      get: () => Math.min(parseFloat(ta.style.height) || 0, cap)
     })
-    alto = 105
+    height = 105
     await w.find('textarea').setValue('1\n2\n3\n4\n5')
     expect(ta.style.height).toBe('105px')
     expect(ta.style.overflowY).toBe('')
-    alto = 420
+    height = 420
     await w.find('textarea').setValue('x\n'.repeat(20))
     expect(ta.style.height).toBe('420px')
     // no cabe: barra por dentro (el tope lo pone max-height)
     expect(ta.style.overflowY).toBe('auto')
     // enviar la vacía desde fuera: vuelve a una línea
-    alto = 21
+    height = 21
     await w.setProps({ modelValue: '' })
     await nextTick()
     expect(ta.style.height).toBe('21px')
@@ -239,50 +239,50 @@ describe('la caja: forma y ayuda', () => {
   })
 
   it('el tope es de unas 8 líneas y nunca más del 35 % del alto de la ventana', () => {
-    const regla = CSS.match(/\.composer-input \{([^}]*)\}/)
-    expect(regla, 'falta el estilo del textarea').toBeTruthy()
-    expect(regla[1]).toMatch(/max-height:\s*min\(35vh,\s*12em\)/)
-    expect(regla[1]).toMatch(/line-height:\s*1\.5/)
-    expect(regla[1]).toMatch(/resize:\s*none/)
+    const rule = CSS.match(/\.composer-input \{([^}]*)\}/)
+    expect(rule, 'falta el estilo del textarea').toBeTruthy()
+    expect(rule[1]).toMatch(/max-height:\s*min\(35vh,\s*12em\)/)
+    expect(rule[1]).toMatch(/line-height:\s*1\.5/)
+    expect(rule[1]).toMatch(/resize:\s*none/)
     // una línea de 5000 letras sin espacios se parte, no ensancha la caja
-    expect(regla[1]).toMatch(/overflow-wrap:\s*anywhere/)
+    expect(rule[1]).toMatch(/overflow-wrap:\s*anywhere/)
   })
 
   it('lleva su nombre, sus atajos, su tope de largo y la ayuda', async () => {
-    const w = caja({ maxlength: DRAFT_MAX })
+    const w = box({ maxlength: DRAFT_MAX })
     const ta = w.find('textarea')
     expect(DRAFT_MAX).toBe(50000)
     expect(ta.attributes('maxlength')).toBe('50000')
     expect(ta.attributes('aria-label')).toBe('Mensaje para el asistente')
     expect(ta.attributes('aria-keyshortcuts')).toContain('Enter')
     expect(ta.attributes('aria-keyshortcuts')).toContain('Control+Enter')
-    const ayuda = document.getElementById(ta.attributes('aria-describedby'))
-    expect(ayuda, 'la ayuda tiene que estar enlazada').toBeTruthy()
-    expect(ayuda.textContent.replace(/\s+/g, ' ')).toContain(
+    const hint = document.getElementById(ta.attributes('aria-describedby'))
+    expect(hint, 'la ayuda tiene que estar enlazada').toBeTruthy()
+    expect(hint.textContent.replace(/\s+/g, ' ')).toContain(
       'Enter envía · Shift+Enter nueva línea · admite markdown'
     )
   })
 
   it('la ayuda se oculta en ventanas de menos de 520 px de alto', () => {
-    const bloque = CSS.match(/@media \(max-height: 520px\) \{([\s\S]*?)\n\}/)
-    expect(bloque, 'falta la regla de ventana baja').toBeTruthy()
-    expect(bloque[1]).toMatch(/\.composer-help \{\s*display: none;/)
+    const block = CSS.match(/@media \(max-height: 520px\) \{([\s\S]*?)\n\}/)
+    expect(block, 'falta la regla de ventana baja').toBeTruthy()
+    expect(block[1]).toMatch(/\.composer-help \{\s*display: none;/)
   })
 
   it('cerca del tope de largo dice cuánto lleva', async () => {
-    const w = caja({ modelValue: 'x'.repeat(46000) })
+    const w = box({ modelValue: 'x'.repeat(46000) })
     expect(w.find('.composer-count').text()).toBe('46.000 / 50.000')
     await w.setProps({ modelValue: 'x' })
     expect(w.find('.composer-count').exists()).toBe(false)
   })
 
   it('respondiendo: Enter deja en cola, el botón lo dice y está «Parar»', async () => {
-    const w = caja({ modelValue: 'otra cosa', thinking: true })
-    const enviar = w.find('.composer-send')
-    expect(enviar.attributes('title')).toBe('Dejar en cola')
-    expect(enviar.attributes('aria-label')).toBe('Dejar en cola')
+    const w = box({ modelValue: 'otra cosa', thinking: true })
+    const send = w.find('.composer-send')
+    expect(send.attributes('title')).toBe('Dejar en cola')
+    expect(send.attributes('aria-label')).toBe('Dejar en cola')
     expect(w.find('.composer-help').text()).toContain('lo deja en cola')
-    tecla(w.find('textarea').element)
+    press(w.find('textarea').element)
     expect(w.emitted('send')).toHaveLength(1)
     await w.find('.chat-cancel').trigger('click')
     expect(w.emitted('stop')).toHaveLength(1)
@@ -290,7 +290,7 @@ describe('la caja: forma y ayuda', () => {
   })
 
   it('un chip por mensaje en cola: 40 letras, las líneas que faltan y su ×', async () => {
-    const w = caja({
+    const w = box({
       thinking: true,
       queue: [
         { id: 1, text: 'agrégame esto a la lista:\n\n1. Sublime Gracia\n2. Cuán Grande Es Dios' },
@@ -319,48 +319,48 @@ describe('la caja: forma y ayuda', () => {
   })
 
   it('una letra que son dos unidades (un emoji) no se parte en el chip', async () => {
-    const w = caja({ thinking: true, queue: [{ id: 1, text: '🙏'.repeat(45) }] })
+    const w = box({ thinking: true, queue: [{ id: 1, text: '🙏'.repeat(45) }] })
     expect(w.find('.composer-chip-txt').text()).toBe('🙏'.repeat(40) + '…')
   })
 })
 
 describe('enviar desde la página', () => {
   it('Enter de verdad manda UN mensaje con todos sus saltos de línea y vacía la caja', async () => {
-    const w = await montar()
-    const lista = 'agrégame esto a la lista:\n*1.-Sublime Gracia* ✅\n2.- Cuán Grande Es Dios'
-    await escribir(w, lista)
+    const w = await mountView()
+    const list = 'agrégame esto a la lista:\n*1.-Sublime Gracia* ✅\n2.- Cuán Grande Es Dios'
+    await typeText(w, list)
     expect(api.chatStart).toHaveBeenCalledTimes(1)
-    expect(enviados()).toEqual([{ role: 'me', text: lista }])
+    expect(sentTexts()).toEqual([{ role: 'me', text: list }])
     expect(w.find('.chat-foot textarea').element.value).toBe('')
     expect(useChat().draft.value).toBe('')
   })
 
   it('Shift+Enter en la página no manda nada', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.find('.chat-foot textarea').setValue('primera línea')
-    tecla(w.find('.chat-foot textarea').element, { shiftKey: true })
+    press(w.find('.chat-foot textarea').element, { shiftKey: true })
     await flushPromises()
     expect(api.chatStart).not.toHaveBeenCalled()
   })
 
   it('el borrador se conserva al salir del chat y volver', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.find('.chat-foot textarea').setValue('a medias\nsegunda')
     w.unmount()
-    const w2 = await montar()
+    const w2 = await mountView()
     expect(w2.find('.chat-foot textarea').element.value).toBe('a medias\nsegunda')
   })
 })
 
 describe('la burbuja de lo que escribes', () => {
-  const burbuja = async (texto) => {
-    const w = await montar()
-    await escribir(w, texto)
+  const bubble = async (text) => {
+    const w = await mountView()
+    await typeText(w, text)
     return { w, b: w.find('.chat-msg.me .chat-bubble') }
   }
 
   it('markdown estándar: **negrita**, *cursiva*, títulos y listas', async () => {
-    const { b } = await burbuja(
+    const { b } = await bubble(
       '# Domingo\n**Sublime Gracia** y *Cuán Grande*\n\n- una\n- dos\n\n1. tres\n2. cuatro'
     )
     expect(b.classes()).toContain('chat-md')
@@ -373,21 +373,21 @@ describe('la burbuja de lo que escribes', () => {
   })
 
   it('cada salto de línea se ve', async () => {
-    const { b } = await burbuja('línea uno\nlínea dos\nlínea tres\n\notro párrafo')
+    const { b } = await bubble('línea uno\nlínea dos\nlínea tres\n\notro párrafo')
     expect(b.findAll('p')).toHaveLength(2)
     expect(b.find('p').findAll('br')).toHaveLength(2)
     expect(b.find('p').html()).toContain('línea uno<br>línea dos<br>línea tres')
   })
 
   it('un «#» sin espacio o un asterisco suelto no se convierten en nada', async () => {
-    const { b } = await burbuja('#domingo y 3 * 4 = 12')
+    const { b } = await bubble('#domingo y 3 * 4 = 12')
     expect(b.find('h1').exists()).toBe(false)
     expect(b.find('em').exists()).toBe(false)
     expect(b.text()).toBe('#domingo y 3 * 4 = 12')
   })
 
   it('no se cuela HTML ni un enlace javascript:', async () => {
-    const { b } = await burbuja(
+    const { b } = await bubble(
       '<img src=x onerror=alert(1)>\n<script>alert(2)</script>\n[pulsa](javascript:alert(3)) **ok**'
     )
     expect(b.find('img').exists()).toBe(false)
@@ -402,22 +402,22 @@ describe('la burbuja de lo que escribes', () => {
 
   it('los errores y los mensajes de la app siguen en texto plano', async () => {
     api.chat.mockResolvedValueOnce({ error: 'fallo con **asteriscos**' })
-    const w = await montar()
-    await escribir(w, 'hola')
+    const w = await mountView()
+    await typeText(w, 'hola')
     const err = w.find('.chat-msg.error .chat-bubble')
     expect(err.classes()).not.toContain('chat-md')
     expect(err.text()).toBe('fallo con **asteriscos**')
   })
 
   it('más de 12 líneas se pliega, con «Ver más / Ver menos» accesible', async () => {
-    const largo = Array.from({ length: 13 }, (_, i) => `${i + 1}.- tema ${i + 1}`).join('\n')
-    const { w, b } = await burbuja(largo)
+    const longText = Array.from({ length: 13 }, (_, i) => `${i + 1}.- tema ${i + 1}`).join('\n')
+    const { w, b } = await bubble(longText)
     expect(b.classes()).toContain('chat-folded')
-    const boton = w.find('.chat-more')
-    expect(boton.text()).toBe('Ver más')
-    expect(boton.attributes('aria-expanded')).toBe('false')
-    expect(boton.attributes('aria-controls')).toBe(b.attributes('id'))
-    await boton.trigger('click')
+    const button = w.find('.chat-more')
+    expect(button.text()).toBe('Ver más')
+    expect(button.attributes('aria-expanded')).toBe('false')
+    expect(button.attributes('aria-controls')).toBe(b.attributes('id'))
+    await button.trigger('click')
     expect(w.find('.chat-msg.me .chat-bubble').classes()).not.toContain('chat-folded')
     expect(w.find('.chat-more').text()).toBe('Ver menos')
     expect(w.find('.chat-more').attributes('aria-expanded')).toBe('true')
@@ -426,47 +426,47 @@ describe('la burbuja de lo que escribes', () => {
   })
 
   it('12 líneas no se pliegan; una sola línea larguísima, sí', async () => {
-    const doce = Array.from({ length: 12 }, (_, i) => `tema ${i}`).join('\n')
-    const { w } = await burbuja(doce)
+    const twelve = Array.from({ length: 12 }, (_, i) => `tema ${i}`).join('\n')
+    const { w } = await bubble(twelve)
     expect(w.find('.chat-more').exists()).toBe(false)
-    await escribir(w, 'x'.repeat(5000))
+    await typeText(w, 'x'.repeat(5000))
     expect(w.findAll('.chat-msg.me').at(-1).find('.chat-more').exists()).toBe(true)
   })
 
   it('la caché del markdown no guarda textos de más de 20 KB', async () => {
-    const grande = 'línea con *algo*\n'.repeat(1400) // ~24 KB
-    const chico = 'chico *uno*'
+    const big = 'línea con *algo*\n'.repeat(1400) // ~24 KB
+    const small = 'chico *uno*'
     store.chats = [
       {
         id: 1,
         title: 'Lista',
         messages: [
-          { role: 'me', text: grande },
-          { role: 'me', text: chico }
+          { role: 'me', text: big },
+          { role: 'me', text: small }
         ]
       }
     ]
-    const w = await montar()
-    const veces = (t) => renderMarkdown.mock.calls.filter((c) => c[0] === t).length
-    const antes = { grande: veces(grande), chico: veces(chico) }
-    expect(antes.grande).toBeGreaterThan(0)
+    const w = await mountView()
+    const times = (t) => renderMarkdown.mock.calls.filter((c) => c[0] === t).length
+    const before = { big: times(big), small: times(small) }
+    expect(before.big).toBeGreaterThan(0)
     // cualquier repintado del chat (aquí, escribir en la caja)
     await w.find('.chat-foot textarea').setValue('algo')
     await nextTick()
-    expect(veces(grande)).toBeGreaterThan(antes.grande)
-    expect(veces(chico)).toBe(antes.chico)
+    expect(times(big)).toBeGreaterThan(before.big)
+    expect(times(small)).toBe(before.small)
   })
 })
 
 describe('la cola de mensajes', () => {
   it('respondiendo, Enter los deja en cola (hasta 3), salen en orden y × quita uno', async () => {
-    const soltar = pensando()
-    const w = await montar()
-    await escribir(w, 'primera')
+    const finish = thinking()
+    const w = await mountView()
+    await typeText(w, 'primera')
     expect(useChat().thinking.value).toBe(true)
-    await escribir(w, 'segunda')
-    await escribir(w, 'tercera\ncon dos\nlíneas')
-    await escribir(w, 'cuarta')
+    await typeText(w, 'segunda')
+    await typeText(w, 'tercera\ncon dos\nlíneas')
+    await typeText(w, 'cuarta')
     expect(QUEUE_MAX).toBe(3)
     expect(w.findAll('.composer-chip').map((c) => c.find('.composer-chip-txt').text())).toEqual([
       'segunda',
@@ -476,7 +476,7 @@ describe('la cola de mensajes', () => {
     // la caja se vacía al entrar en cola
     expect(w.find('.chat-foot textarea').element.value).toBe('')
     // la cuarta no cabe: se queda en la caja y se dice
-    await escribir(w, 'quinta')
+    await typeText(w, 'quinta')
     expect(w.findAll('.composer-chip')).toHaveLength(3)
     expect(w.find('.chat-foot textarea').element.value).toBe('quinta')
     expect(useNotices().notices.value.some((n) => n.message.includes('3 mensajes en cola'))).toBe(
@@ -489,51 +489,55 @@ describe('la cola de mensajes', () => {
     // la × quita la segunda
     await w.findAll('.composer-chip')[0].find('button').trigger('click')
     expect(w.findAll('.composer-chip')).toHaveLength(2)
-    soltar()
+    finish()
     await flushPromises()
     await flushPromises()
-    expect(enviados().map((m) => m.text)).toEqual(['primera', 'tercera\ncon dos\nlíneas', 'cuarta'])
+    expect(sentTexts().map((m) => m.text)).toEqual([
+      'primera',
+      'tercera\ncon dos\nlíneas',
+      'cuarta'
+    ])
     expect(w.findAll('.composer-chip')).toHaveLength(0)
     // la quinta sigue en la caja: no se manda sola
     expect(w.find('.chat-foot textarea').element.value).toBe('quinta')
   })
 
   it('«Parar» corta la respuesta pero no borra la cola', async () => {
-    const soltar = pensando()
-    const w = await montar()
-    await escribir(w, 'cuéntame algo largo')
-    await escribir(w, 'y luego esto')
+    const finish = thinking()
+    const w = await mountView()
+    await typeText(w, 'cuéntame algo largo')
+    await typeText(w, 'y luego esto')
     await w.find('.chat-cancel').trigger('click')
     await flushPromises()
     expect(api.chatCancel).toHaveBeenCalledWith('j1')
     expect(w.findAll('.composer-chip')).toHaveLength(1)
-    soltar({ text: '', canceled: true, tools: [] })
+    finish({ text: '', canceled: true, tools: [] })
     await flushPromises()
     await flushPromises()
-    expect(enviados().map((m) => m.text)).toEqual(['cuéntame algo largo', 'y luego esto'])
+    expect(sentTexts().map((m) => m.text)).toEqual(['cuéntame algo largo', 'y luego esto'])
   })
 
   it('con un diálogo abierto no sale: espera a que se cierre', async () => {
-    const soltar = pensando()
-    const w = await montar()
-    await escribir(w, 'primera')
-    await escribir(w, 'después del diálogo')
+    const finish = thinking()
+    const w = await mountView()
+    await typeText(w, 'primera')
+    await typeText(w, 'después del diálogo')
     // un diálogo de la app (aquí uno cualquiera) abierto al acabar el turno
     ask({ kind: 'confirm', title: 'Otra cosa', message: '¿Seguro?' })
-    soltar()
+    finish()
     await flushPromises()
     await flushPromises()
     expect(useChat().thinking.value).toBe(false)
     expect(api.chat).toHaveBeenCalledTimes(1)
     expect(w.findAll('.composer-chip')).toHaveLength(1)
     // y con el diálogo abierto, lo nuevo también espera
-    await escribir(w, 'otra más')
+    await typeText(w, 'otra más')
     expect(api.chat).toHaveBeenCalledTimes(1)
     dialogCancel()
     await flushPromises()
     await flushPromises()
     expect(useDialog().dialog.value.open).toBe(false)
-    expect(enviados().map((m) => m.text)).toEqual(['primera', 'después del diálogo', 'otra más'])
+    expect(sentTexts().map((m) => m.text)).toEqual(['primera', 'después del diálogo', 'otra más'])
   })
 
   it('el aviso de fin de descarga sale antes que lo que esperaba en la cola', async () => {
@@ -544,17 +548,17 @@ describe('la cola de mensajes', () => {
       phase: 'done',
       results: [{ ok: true, id: 301, artist: 'Autor', song: 'Tema', requested: 'x' }]
     })
-    const soltar = pensando()
-    const w = await montar()
-    await escribir(w, '¿de qué año es?')
-    await escribir(w, 'y otra pregunta')
+    const finish = thinking()
+    const w = await mountView()
+    await typeText(w, '¿de qué año es?')
+    await typeText(w, 'y otra pregunta')
     await vi.advanceTimersByTimeAsync(1000) // termina la descarga
     expect(api.chat).toHaveBeenCalledTimes(1)
-    soltar({ text: 'De 1959.', tools: [] })
+    finish({ text: 'De 1959.', tools: [] })
     await vi.advanceTimersByTimeAsync(10)
     await flushPromises()
     await flushPromises()
-    const sent = enviados()
+    const sent = sentTexts()
     expect(sent).toHaveLength(3)
     expect(sent[1].event).toBe('download_done')
     expect(sent[2].text).toBe('y otra pregunta')
@@ -564,10 +568,10 @@ describe('la cola de mensajes', () => {
 describe('el borrador a salvo', () => {
   it('si el núcleo no recibe el mensaje, vuelve a la caja y no cuenta como enviado', async () => {
     api.chatStart.mockRejectedValueOnce(new Error('Failed to fetch'))
-    const w = await montar()
-    const lista = 'agrégame esto:\n1. Sublime Gracia\n2. Cuán Grande Es Dios'
-    await escribir(w, lista)
-    expect(w.find('.chat-foot textarea').element.value).toBe(lista)
+    const w = await mountView()
+    const list = 'agrégame esto:\n1. Sublime Gracia\n2. Cuán Grande Es Dios'
+    await typeText(w, list)
+    expect(w.find('.chat-foot textarea').element.value).toBe(list)
     expect(w.findAll('.chat-msg.me')).toHaveLength(0)
     expect(w.find('.chat-msg.error').exists()).toBe(false)
     // no se guardó en la conversación
@@ -577,29 +581,29 @@ describe('el borrador a salvo', () => {
     ).toBe(true)
     expect(useChat().thinking.value).toBe(false)
     // reintentar funciona y ahora sí queda
-    tecla(w.find('.chat-foot textarea').element)
+    press(w.find('.chat-foot textarea').element)
     await flushPromises()
-    expect(enviados().map((m) => m.text)).toEqual([lista])
+    expect(sentTexts().map((m) => m.text)).toEqual([list])
     expect(store.chats[0].messages.map((m) => m.role)).toEqual(['me', 'ai'])
   })
 
   it('también si ni siquiera se pudo crear la conversación (núcleo caído)', async () => {
     api.chatCreate.mockRejectedValueOnce(new Error('503: arrancando'))
-    const w = await montar()
-    await escribir(w, 'hola')
+    const w = await mountView()
+    await typeText(w, 'hola')
     expect(w.find('.chat-foot textarea').element.value).toBe('hola')
     expect(api.chatStart).not.toHaveBeenCalled()
   })
 
   it('un mensaje de la cola que no llega vuelve a la caja con el resto, en orden', async () => {
-    const soltar = pensando()
-    const w = await montar()
-    await escribir(w, 'primera')
-    await escribir(w, 'segunda')
-    await escribir(w, 'tercera')
+    const finish = thinking()
+    const w = await mountView()
+    await typeText(w, 'primera')
+    await typeText(w, 'segunda')
+    await typeText(w, 'tercera')
     await w.find('.chat-foot textarea').setValue('a medio escribir')
     api.chatStart.mockRejectedValueOnce(new Error('Failed to fetch'))
-    soltar()
+    finish()
     await flushPromises()
     await flushPromises()
     expect(w.find('.chat-foot textarea').element.value).toBe(
@@ -610,7 +614,7 @@ describe('el borrador a salvo', () => {
 })
 
 describe('al núcleo, solo lo último', () => {
-  const historial = (n) =>
+  const history = (n) =>
     Array.from({ length: n }, (_, i) => ({
       role: i % 2 ? 'ai' : 'me',
       text: `mensaje ${i}`
@@ -618,9 +622,9 @@ describe('al núcleo, solo lo último', () => {
 
   it(`con 150 en el historial al núcleo llegan ${CORE_MESSAGES}`, async () => {
     expect(CORE_MESSAGES).toBe(60)
-    store.chats = [{ id: 1, title: 'Larga', messages: historial(149) }]
-    const w = await montar()
-    await escribir(w, 'y ahora?')
+    store.chats = [{ id: 1, title: 'Larga', messages: history(149) }]
+    const w = await mountView()
+    await typeText(w, 'y ahora?')
     const sent = api.chatStart.mock.calls.at(-1)[0]
     expect(sent).toHaveLength(60)
     expect(sent[0]).toEqual({ role: 'me', text: 'mensaje 90' })
@@ -628,9 +632,9 @@ describe('al núcleo, solo lo último', () => {
   })
 
   it('y empezando por uno tuyo, como recorta el núcleo', async () => {
-    store.chats = [{ id: 1, title: 'Larga', messages: historial(150) }]
-    const w = await montar()
-    await escribir(w, 'y ahora?')
+    store.chats = [{ id: 1, title: 'Larga', messages: history(150) }]
+    const w = await mountView()
+    await typeText(w, 'y ahora?')
     const sent = api.chatStart.mock.calls.at(-1)[0]
     expect(sent).toHaveLength(59)
     expect(sent[0]).toEqual({ role: 'me', text: 'mensaje 92' })

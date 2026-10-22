@@ -29,14 +29,14 @@ const { menu } = useContextMenu()
 const { dialog } = useDialog()
 const { notices } = useNotices()
 
-const montados = []
-const montar = (props = {}) => {
+const mounted = []
+const mountView = (props = {}) => {
   const w = mount(SelectionBar, { props: { count: 2, ...props }, attachTo: document.body })
-  montados.push(w)
+  mounted.push(w)
   return w
 }
 afterEach(() => {
-  for (const w of montados.splice(0)) w.unmount()
+  for (const w of mounted.splice(0)) w.unmount()
   document.body.innerHTML = ''
 })
 beforeEach(() => {
@@ -45,29 +45,29 @@ beforeEach(() => {
   clearNotices()
   vi.clearAllMocks()
 })
-const boton = (w, act) => w.find(`[data-act="${act}"]`)
-const etiquetas = () => menu.value.items.filter((i) => !i.separator).map((i) => i.label)
+const button = (w, act) => w.find(`[data-act="${act}"]`)
+const labels = () => menu.value.items.filter((i) => !i.separator).map((i) => i.label)
 
 describe('el contador', () => {
   it('dice cuántas, en singular o plural, y se anuncia al cambiar', async () => {
-    const w = montar({ count: 3 })
-    const estado = w.find('.sel-status')
-    expect(estado.attributes('aria-live')).toBe('polite')
-    expect(estado.text()).toBe('3 seleccionadas')
+    const w = mountView({ count: 3 })
+    const status = w.find('.sel-status')
+    expect(status.attributes('aria-live')).toBe('polite')
+    expect(status.text()).toBe('3 seleccionadas')
     await w.setProps({ count: 1 })
-    expect(estado.text()).toBe('1 seleccionada')
+    expect(status.text()).toBe('1 seleccionada')
     await w.setProps({ count: 0 })
-    expect(estado.text()).toBe('Elige canciones')
+    expect(status.text()).toBe('Elige canciones')
   })
 
   it('es una barra de herramientas con nombre', () => {
-    const w = montar()
+    const w = mountView()
     expect(w.attributes('role')).toBe('toolbar')
     expect(w.attributes('aria-label')).toBe('Canciones seleccionadas')
   })
 
   it('si el resto de la lista aún llega, «todas» son las que han llegado y se dice', async () => {
-    const w = montar({ count: 400, allSelected: true, loading: true })
+    const w = mountView({ count: 400, allSelected: true, loading: true })
     expect(w.find('.sel-note').text()).toContain('el resto sigue cargando')
     await w.setProps({ loading: false })
     expect(w.find('.sel-note').exists()).toBe(false)
@@ -76,63 +76,63 @@ describe('el contador', () => {
 
 describe('los botones', () => {
   it('«Seleccionar todas», o «Ninguna» si ya lo están', async () => {
-    const w = montar()
-    await boton(w, 'all').trigger('click')
+    const w = mountView()
+    await button(w, 'all').trigger('click')
     expect(w.emitted('selectAll')).toHaveLength(1)
-    expect(boton(w, 'none').exists()).toBe(false)
+    expect(button(w, 'none').exists()).toBe(false)
     await w.setProps({ allSelected: true })
-    expect(boton(w, 'all').exists()).toBe(false)
-    await boton(w, 'none').trigger('click')
+    expect(button(w, 'all').exists()).toBe(false)
+    await button(w, 'none').trigger('click')
     expect(w.emitted('selectNone')).toHaveLength(1)
   })
 
   it('Telegram solo si está instalado; quitar de la lista solo en un repertorio', async () => {
-    const w = montar()
-    expect(boton(w, 'telegram').exists()).toBe(false)
-    expect(boton(w, 'remove').exists()).toBe(false)
+    const w = mountView()
+    expect(button(w, 'telegram').exists()).toBe(false)
+    expect(button(w, 'remove').exists()).toBe(false)
     await w.setProps({ telegram: true, playlist: 'Domingo' })
-    expect(boton(w, 'telegram').exists()).toBe(true)
-    expect(boton(w, 'remove').attributes('aria-label')).toBe('Quitar de «Domingo»')
-    await boton(w, 'telegram').trigger('click')
-    await boton(w, 'remove').trigger('click')
+    expect(button(w, 'telegram').exists()).toBe(true)
+    expect(button(w, 'remove').attributes('aria-label')).toBe('Quitar de «Domingo»')
+    await button(w, 'telegram').trigger('click')
+    await button(w, 'remove').trigger('click')
     expect(w.emitted('telegram')).toHaveLength(1)
     expect(w.emitted('removeFromList')).toHaveLength(1)
   })
 
   it('las de fuera (la lista del reproductor) no ofrecen favoritas ni papelera', () => {
-    const w = montar({ library: false })
-    expect(boton(w, 'favorites').exists()).toBe(false)
-    expect(boton(w, 'trash').exists()).toBe(false)
-    expect(boton(w, 'list').exists()).toBe(true)
+    const w = mountView({ library: false })
+    expect(button(w, 'favorites').exists()).toBe(false)
+    expect(button(w, 'trash').exists()).toBe(false)
+    expect(button(w, 'list').exists()).toBe(true)
   })
 
   it('sin ninguna elegida, lo que actúa sobre ellas no se puede pulsar; todas y Listo sí', () => {
-    const w = montar({ count: 0, telegram: true, playlist: 'Domingo' })
+    const w = mountView({ count: 0, telegram: true, playlist: 'Domingo' })
     for (const act of ['list', 'favorites', 'telegram', 'remove', 'trash', 'more']) {
-      expect(boton(w, act).attributes('disabled'), act).toBeDefined()
+      expect(button(w, act).attributes('disabled'), act).toBeDefined()
     }
-    expect(boton(w, 'all').attributes('disabled')).toBeUndefined()
-    expect(boton(w, 'done').attributes('disabled')).toBeUndefined()
+    expect(button(w, 'all').attributes('disabled')).toBeUndefined()
+    expect(button(w, 'done').attributes('disabled')).toBeUndefined()
   })
 
   it('añadir y «⋯» pasan el clic (el menú se abre bajo el botón); el resto, sin más', async () => {
-    const w = montar()
-    await boton(w, 'list').trigger('click')
-    await boton(w, 'more').trigger('click')
-    await boton(w, 'favorites').trigger('click')
-    await boton(w, 'trash').trigger('click')
-    await boton(w, 'done').trigger('click')
+    const w = mountView()
+    await button(w, 'list').trigger('click')
+    await button(w, 'more').trigger('click')
+    await button(w, 'favorites').trigger('click')
+    await button(w, 'trash').trigger('click')
+    await button(w, 'done').trigger('click')
     expect(w.emitted('addToList')[0][0]).toBeInstanceOf(MouseEvent)
     expect(w.emitted('more')[0][0]).toBeInstanceOf(MouseEvent)
     expect(w.emitted('favorites')).toHaveLength(1)
     expect(w.emitted('trash')).toHaveLength(1)
     expect(w.emitted('done')).toHaveLength(1)
-    expect(boton(w, 'list').attributes('aria-haspopup')).toBe('menu')
+    expect(button(w, 'list').attributes('aria-haspopup')).toBe('menu')
   })
 
   it('si ya son todas favoritas, el botón lo dice y no hace nada (quitarlas está en «⋯»)', async () => {
-    const w = montar({ allFavorite: true })
-    const fav = boton(w, 'favorites')
+    const w = mountView({ allFavorite: true })
+    const fav = button(w, 'favorites')
     expect(fav.attributes('aria-disabled')).toBe('true')
     expect(fav.attributes('aria-label')).toBe('Ya son favoritas')
     await fav.trigger('click')
@@ -140,7 +140,7 @@ describe('los botones', () => {
   })
 
   it('cada botón tiene nombre aunque en estrecho solo se vea el icono', () => {
-    const w = montar({ telegram: true, playlist: 'Domingo' })
+    const w = mountView({ telegram: true, playlist: 'Domingo' })
     for (const b of w.findAll('button')) {
       expect(b.attributes('aria-label'), b.html()).toBeTruthy()
       expect(b.attributes('type')).toBe('button')
@@ -153,47 +153,47 @@ describe('lo que cabe', () => {
   // lista; Telegram y «Quitar» añaden botones): la barra se mide y aprieta lo
   // justo. jsdom no maqueta, así que las medidas se fingen por nivel.
   it('pasa a etiquetas cortas, a solo iconos o a solo el número según quepa', async () => {
-    const w = montar({ count: 2 })
+    const w = mountView({ count: 2 })
     const el = w.element
-    const nivel = () =>
+    const level = () =>
       ['fit-short', 'fit-icons', 'fit-tight'].filter((c) => el.classList.contains(c)).length
-    let ancho = 500
-    const necesita = [900, 700, 420, 300]
-    Object.defineProperty(el, 'clientWidth', { configurable: true, get: () => ancho })
-    Object.defineProperty(el, 'scrollWidth', { configurable: true, get: () => necesita[nivel()] })
+    let width = 500
+    const needed = [900, 700, 420, 300]
+    Object.defineProperty(el, 'clientWidth', { configurable: true, get: () => width })
+    Object.defineProperty(el, 'scrollWidth', { configurable: true, get: () => needed[level()] })
     await w.setProps({ count: 3 })
     await flushPromises()
     expect([...el.classList]).toEqual(['sel-bar', 'fit-short', 'fit-icons'])
-    ancho = 350
+    width = 350
     await w.setProps({ count: 4 })
     await flushPromises()
-    expect(nivel(), 'solo el número').toBe(3)
-    ancho = 1000 // se abre sitio: vuelven las etiquetas enteras
+    expect(level(), 'solo el número').toBe(3)
+    width = 1000 // se abre sitio: vuelven las etiquetas enteras
     await w.setProps({ telegram: true })
     await flushPromises()
-    expect(nivel()).toBe(0)
+    expect(level()).toBe(0)
   })
 })
 
 describe('con el teclado', () => {
-  const tecla = (el, key, extra = {}) =>
+  const press = (el, key, extra = {}) =>
     el.element.dispatchEvent(
       new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra })
     )
 
   it('las flechas pasan de un botón a otro (en redondo) y Escape termina', async () => {
-    const w = montar()
-    const activos = w.findAll('button').filter((b) => !b.attributes('disabled'))
-    activos[0].element.focus()
-    tecla(activos[0], 'ArrowRight')
-    expect(document.activeElement).toBe(activos[1].element)
-    tecla(activos[1], 'End')
-    expect(document.activeElement).toBe(activos.at(-1).element)
-    tecla(activos.at(-1), 'ArrowRight')
-    expect(document.activeElement).toBe(activos[0].element)
-    tecla(activos[0], 'ArrowLeft')
-    expect(document.activeElement).toBe(activos.at(-1).element)
-    tecla(activos.at(-1), 'Escape')
+    const w = mountView()
+    const enabled = w.findAll('button').filter((b) => !b.attributes('disabled'))
+    enabled[0].element.focus()
+    press(enabled[0], 'ArrowRight')
+    expect(document.activeElement).toBe(enabled[1].element)
+    press(enabled[1], 'End')
+    expect(document.activeElement).toBe(enabled.at(-1).element)
+    press(enabled.at(-1), 'ArrowRight')
+    expect(document.activeElement).toBe(enabled[0].element)
+    press(enabled[0], 'ArrowLeft')
+    expect(document.activeElement).toBe(enabled.at(-1).element)
+    press(enabled.at(-1), 'Escape')
     expect(w.emitted('done')).toHaveLength(1)
   })
 })
@@ -201,7 +201,7 @@ describe('con el teclado', () => {
 // Lo que hacen los botones: las acciones de useSongMenus (las mismas del menú
 // de clic derecho sobre varias), con todo lo demás falso.
 describe('lo que hace con las elegidas', () => {
-  function preparar({ view = { kind: 'all' } } = {}) {
+  function prepare({ view = { kind: 'all' } } = {}) {
     const songs = ref([song(1), song(2, { title: 'Otra' }), song(3, { title: 'Tercera' })])
     const selection = useSelection({ shown: songs })
     const ctx = {
@@ -230,9 +230,9 @@ describe('lo que hace con las elegidas', () => {
   }
 
   it('«Añadir a una lista» abre las listas (y «Nueva lista…») debajo del botón', async () => {
-    const { menus, songs, ctx } = preparar()
-    const w = montar()
-    const btn = boton(w, 'list').element
+    const { menus, songs, ctx } = prepare()
+    const w = mountView()
+    const btn = button(w, 'list').element
     btn.getBoundingClientRect = () => ({ left: 40, bottom: 120, top: 100, right: 160 })
     btn.dispatchEvent(
       new MouseEvent('click', { bubbles: true, clientX: 99, clientY: 99, detail: 1 })
@@ -243,7 +243,7 @@ describe('lo que hace con las elegidas', () => {
     expect([menu.value.x, menu.value.y]).toEqual([40, 124])
     expect(menu.value.keyboard, 'con el ratón el menú no se queda el foco').toBe(false)
     expect(menu.value.title).toBe('Añadir 2 a una lista')
-    expect(etiquetas()).toEqual([
+    expect(labels()).toEqual([
       'Domingo',
       'Una lista con un nombre larguísimo que no cabe en ningún sitio',
       'Nueva lista…'
@@ -257,7 +257,7 @@ describe('lo que hace con las elegidas', () => {
   })
 
   it('con una sola, la lista recibe esa canción (y su aviso habla de ella)', async () => {
-    const { menus, songs, ctx } = preparar()
+    const { menus, songs, ctx } = prepare()
     menus.addToList({ clientX: 1, clientY: 1 }, [songs.value[1]])
     expect(menu.value.title).toBe('Añadir a una lista')
     await menu.value.items[0].action()
@@ -265,7 +265,7 @@ describe('lo que hace con las elegidas', () => {
   })
 
   it('favoritas marca las que no lo eran, con un aviso', async () => {
-    const { menus, ctx } = preparar()
+    const { menus, ctx } = prepare()
     await menus.favorites([song(1), song(2, { favorite: 1 }), song(3)])
     expect(held.api.toggleFavorite.mock.calls).toEqual([
       [1, true],
@@ -278,7 +278,7 @@ describe('lo que hace con las elegidas', () => {
   })
 
   it('la papelera: con una, la confirmación de una (con su archivo); con varias, la que dice cuántas', async () => {
-    const { menus } = preparar()
+    const { menus } = prepare()
     menus.trash([song(1)])
     await flushPromises()
     expect(dialog.value.open).toBe(true)
@@ -294,11 +294,11 @@ describe('lo que hace con las elegidas', () => {
   })
 
   it('quitar de la lista: solo en un repertorio, sin preguntar, y dice de cuál', async () => {
-    const fuera = preparar()
-    await fuera.menus.removeFromView([song(1)])
+    const outside = prepare()
+    await outside.menus.removeFromView([song(1)])
     expect(held.api.removeFromPlaylist).not.toHaveBeenCalled()
 
-    const { menus, ctx, selection } = preparar({
+    const { menus, ctx, selection } = prepare({
       view: { kind: 'playlist', id: 7, name: 'Domingo' }
     })
     selection.setMode(true)
@@ -318,11 +318,11 @@ describe('lo que hace con las elegidas', () => {
   })
 
   it('el «⋯» es el menú de grupo, también con una sola (en singular)', async () => {
-    const { menus } = preparar({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
+    const { menus } = prepare({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
     await menus.loadShareTargets()
     menus.groupMenu({ clientX: 5, clientY: 5 }, [song(2, { title: 'Otra' })])
     expect(menu.value.title).toBe('Otra')
-    expect(etiquetas()).toEqual(
+    expect(labels()).toEqual(
       expect.arrayContaining([
         'Reproducir',
         'Añadir a una lista',
@@ -337,12 +337,12 @@ describe('lo que hace con las elegidas', () => {
       song(2, { favorite: 1 })
     ])
     expect(menu.value.title).toBe('2 canciones')
-    expect(etiquetas()).toContain('Quitar 2 de favoritas')
-    expect(etiquetas()).not.toContain('Marcar 2 como favoritas')
+    expect(labels()).toContain('Quitar 2 de favoritas')
+    expect(labels()).not.toContain('Marcar 2 como favoritas')
   })
 
   it('las opciones del grupo desde el buscador no hablan de «esta lista» y reproducen con su cola', async () => {
-    const { menus, ctx } = preparar({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
+    const { menus, ctx } = prepare({ view: { kind: 'playlist', id: 7, name: 'Domingo' } })
     const play = vi.fn()
     const items = menus.groupItems([song(1), song(2)], { fromSearch: true, play })
     expect(items.map((i) => i.label)).not.toContain('Quitar 2 de esta lista')
@@ -352,15 +352,15 @@ describe('lo que hace con las elegidas', () => {
   })
 
   it('en el modo, el clic derecho sobre una elegida es el de las elegidas y no suelta nada', async () => {
-    const { menus, selection } = preparar()
+    const { menus, selection } = prepare()
     selection.setMode(true)
     await selection.select(1, {})
     menus.songMenu({ clientX: 1, clientY: 1 }, song(1))
     expect(menu.value.title).toBe('Cancion 1')
-    expect(etiquetas()).toContain('Marcar como favorita') // el de grupo, en singular
+    expect(labels()).toContain('Marcar como favorita') // el de grupo, en singular
     // sobre una no elegida, el suyo, sin elegirla
     menus.songMenu({ clientX: 1, clientY: 1 }, song(3, { title: 'Tercera' }))
-    expect(etiquetas()).toContain('Renombrar…')
+    expect(labels()).toContain('Renombrar…')
     await flushPromises()
     expect(selection.chosenSongs.value.map((s) => s.id)).toEqual([1])
   })
@@ -368,7 +368,7 @@ describe('lo que hace con las elegidas', () => {
 
 describe('los tamaños (css)', () => {
   const css = allCss()
-  const tramo = (px) => {
+  const breakpoint = (px) => {
     const i = css.indexOf(`@media (max-width:${px}px){.sel-`)
     expect(i, `no hay tramo de ${px}px para la barra`).toBeGreaterThan(-1)
     return css.slice(
@@ -378,12 +378,12 @@ describe('los tamaños (css)', () => {
   }
 
   it('medio: etiquetas cortas; estrecho: solo iconos; columna: solo el número a la vista', () => {
-    expect(tramo(1100)).toMatch(/\.sel-long\{display:none\}/)
-    expect(tramo(1100)).toMatch(/\.sel-short\{display:inline\}/)
-    expect(tramo(700)).toMatch(/\.sel-label,[^{]*\{display:none\}/)
-    expect(tramo(700)).toMatch(/\.select-toggle \.btn-label\{display:none\}/)
+    expect(breakpoint(1100)).toMatch(/\.sel-long\{display:none\}/)
+    expect(breakpoint(1100)).toMatch(/\.sel-short\{display:inline\}/)
+    expect(breakpoint(700)).toMatch(/\.sel-label,[^{]*\{display:none\}/)
+    expect(breakpoint(700)).toMatch(/\.select-toggle \.btn-label\{display:none\}/)
     // la palabra no desaparece del todo: la lee el lector de pantalla
-    expect(tramo(460)).toMatch(/\.sel-word,\.sel-note\{position:absolute;width:1px;height:1px/)
+    expect(breakpoint(460)).toMatch(/\.sel-word,\.sel-note\{position:absolute;width:1px;height:1px/)
   })
 
   it('nunca desborda: si no cabe, se desplaza en horizontal; y no se encoge la lista', () => {

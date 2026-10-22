@@ -51,7 +51,7 @@ beforeEach(() => {
 })
 
 /** Monta la app contando cuantas veces se repinta cada componente. */
-async function montar(counts) {
+async function mountView(counts) {
   const w = mount(App, {
     attachTo: document.body,
     global: {
@@ -88,7 +88,7 @@ describe('lo que suena y lo que se repinta', () => {
       }
     ]
     const counts = {}
-    const w = await montar(counts)
+    const w = await mountView(counts)
     await w
       .findAll('.nav-link')
       .find((b) => b.text().includes('Asistente'))
@@ -127,7 +127,7 @@ describe('lo que suena y lo que se repinta', () => {
   it('cuando cambia algo de verdad, se entera quien lo enseña', async () => {
     held.state.status.configured = true
     held.state.songs = [song(1, { title: 'Mi Gozo' }), song(2, { title: 'Shekinah' })]
-    const w = await montar({})
+    const w = await mountView({})
     await w.findAll('tbody tr')[0].find('.row-play').trigger('click')
     await flushPromises()
     expect(w.find('.player .title').text()).toBe('Mi Gozo')

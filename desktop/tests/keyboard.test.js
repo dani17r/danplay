@@ -16,17 +16,17 @@ import Drawer from '../src/components/ui/Drawer.vue'
 // Todo se puede hacer sin raton: recorrer la biblioteca, poner una cancion,
 // abrir su menu, valorar, elegir en un desplegable. Y quien no ve la pantalla
 // oye que es cada cosa y en que estado esta.
-const montados = []
-const montar = (c, opts) => {
+const mounted = []
+const mountView = (c, opts) => {
   const w = mount(c, { attachTo: document.body, ...opts })
-  montados.push(w)
+  mounted.push(w)
   return w
 }
 afterEach(() => {
-  for (const w of montados.splice(0)) w.unmount()
+  for (const w of mounted.splice(0)) w.unmount()
   document.body.innerHTML = ''
 })
-const tecla = (el, key, extra = {}) => {
+const press = (el, key, extra = {}) => {
   const target = el.element || el
   target.dispatchEvent(
     new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra })
@@ -41,7 +41,7 @@ const song = (id) => ({
   stars: 0,
   favorite: 0
 })
-const tres = () => [song(1), song(2), song(3)]
+const three = () => [song(1), song(2), song(3)]
 
 describe('que quiere decir cada tecla en una lista', () => {
   it('Enter pone; espacio pausa; Ctrl+espacio elige; Mayus+F10 y la tecla de menu abren el menu', () => {
@@ -79,91 +79,93 @@ describe('que quiere decir cada tecla en una lista', () => {
 })
 
 describe('la biblioteca se recorre con el teclado', () => {
-  const filas = (w) => w.findAll('[data-song-row]')
+  const rows = (w) => w.findAll('[data-song-row]')
 
   it('toda la lista es una sola parada del tabulador: la elegida, o la primera', async () => {
-    const w = montar(SongTable, { props: { songs: tres() } })
-    expect(filas(w).map((f) => f.attributes('tabindex'))).toEqual(['0', '-1', '-1'])
+    const w = mountView(SongTable, { props: { songs: three() } })
+    expect(rows(w).map((f) => f.attributes('tabindex'))).toEqual(['0', '-1', '-1'])
     await w.setProps({ selected: 2 })
-    expect(filas(w).map((f) => f.attributes('tabindex'))).toEqual(['-1', '0', '-1'])
+    expect(rows(w).map((f) => f.attributes('tabindex'))).toEqual(['-1', '0', '-1'])
     // los botones de dentro no son paradas: se llega con el menu de la fila
-    expect(filas(w)[0].find('.row-play').attributes('tabindex')).toBe('-1')
-    expect(filas(w)[0].find('.heart').attributes('tabindex')).toBe('-1')
+    expect(rows(w)[0].find('.row-play').attributes('tabindex')).toBe('-1')
+    expect(rows(w)[0].find('.heart').attributes('tabindex')).toBe('-1')
   })
 
   it('las flechas pasan a la vecina, le dan el foco y la eligen', async () => {
-    const w = montar(SongTable, { props: { songs: tres(), selected: 1 } })
-    filas(w)[0].element.focus()
-    await tecla(filas(w)[0], 'ArrowDown')
-    expect(document.activeElement).toBe(filas(w)[1].element)
+    const w = mountView(SongTable, { props: { songs: three(), selected: 1 } })
+    rows(w)[0].element.focus()
+    await press(rows(w)[0], 'ArrowDown')
+    expect(document.activeElement).toBe(rows(w)[1].element)
     expect(w.emitted('select').at(-1)).toEqual([2, { shiftKey: false }])
     // con Mayus se amplia la seleccion (la app lo decide con el ancla)
-    await tecla(filas(w)[1], 'ArrowDown', { shiftKey: true })
+    await press(rows(w)[1], 'ArrowDown', { shiftKey: true })
     expect(w.emitted('select').at(-1)).toEqual([3, { shiftKey: true }])
     // con Ctrl solo se mueve el foco
-    const antes = w.emitted('select').length
-    await tecla(filas(w)[2], 'ArrowUp', { ctrlKey: true })
-    expect(document.activeElement).toBe(filas(w)[1].element)
-    expect(w.emitted('select')).toHaveLength(antes)
+    const before = w.emitted('select').length
+    await press(rows(w)[2], 'ArrowUp', { ctrlKey: true })
+    expect(document.activeElement).toBe(rows(w)[1].element)
+    expect(w.emitted('select')).toHaveLength(before)
     // y la que tiene el foco pasa a ser la parada del tabulador
-    expect(filas(w)[1].attributes('tabindex')).toBe('0')
+    expect(rows(w)[1].attributes('tabindex')).toBe('0')
   })
 
   it('Enter la pone a sonar y Mayus+F10 abre su menu', async () => {
-    const w = montar(SongTable, { props: { songs: tres() } })
-    await tecla(filas(w)[1], 'Enter')
+    const w = mountView(SongTable, { props: { songs: three() } })
+    await press(rows(w)[1], 'Enter')
     expect(w.emitted('play')[0][0].id).toBe(2)
-    await tecla(filas(w)[1], 'F10', { shiftKey: true })
-    const [donde, cual] = w.emitted('context')[0]
-    expect(cual.id).toBe(2)
-    expect(donde).toHaveProperty('clientX')
+    await press(rows(w)[1], 'F10', { shiftKey: true })
+    const [where, which] = w.emitted('context')[0]
+    expect(which.id).toBe(2)
+    expect(where).toHaveProperty('clientX')
   })
 
   it('una tecla sobre un boton de dentro es de ese boton, no de la fila', async () => {
-    const w = montar(SongTable, { props: { songs: tres() } })
-    await tecla(filas(w)[0].find('.heart'), 'Enter')
+    const w = mountView(SongTable, { props: { songs: three() } })
+    await press(rows(w)[0].find('.heart'), 'Enter')
     expect(w.emitted('play')).toBeFalsy()
   })
 
   it('espacio, sin nada sonando, pone la que tiene el foco', async () => {
-    const w = montar(SongRows, { props: { songs: tres() } })
-    await tecla(filas(w)[2], ' ')
+    const w = mountView(SongRows, { props: { songs: three() } })
+    await press(rows(w)[2], ' ')
     expect(w.emitted('play')[0][0].id).toBe(3)
   })
 
   it('en la cuadricula los lados tambien mueven', async () => {
-    const w = montar(SongGrid, { props: { songs: tres() } })
-    filas(w)[0].element.focus()
-    await tecla(filas(w)[0], 'ArrowRight')
-    expect(document.activeElement).toBe(filas(w)[1].element)
-    await tecla(filas(w)[1], 'End')
-    expect(document.activeElement).toBe(filas(w)[2].element)
+    const w = mountView(SongGrid, { props: { songs: three() } })
+    rows(w)[0].element.focus()
+    await press(rows(w)[0], 'ArrowRight')
+    expect(document.activeElement).toBe(rows(w)[1].element)
+    await press(rows(w)[1], 'End')
+    expect(document.activeElement).toBe(rows(w)[2].element)
   })
 
   it('se anuncia como lista de canciones, con cual esta elegida y en que puesto va', async () => {
-    const tabla = montar(SongTable, { props: { songs: tres(), selected: 2, label: 'Favoritos' } })
-    const t = tabla.find('table')
+    const table = mountView(SongTable, {
+      props: { songs: three(), selected: 2, label: 'Favoritos' }
+    })
+    const t = table.find('table')
     expect(t.attributes('role')).toBe('grid')
     expect(t.attributes('aria-label')).toBe('Favoritos')
     expect(t.attributes('aria-multiselectable')).toBe('true')
-    expect(filas(tabla).map((f) => f.attributes('aria-selected'))).toEqual([
+    expect(rows(table).map((f) => f.attributes('aria-selected'))).toEqual([
       'false',
       'true',
       'false'
     ])
-    expect(filas(tabla)[0].attributes('aria-rowindex')).toBe('2') // la 1 es la cabecera
-    const lista = montar(SongRows, { props: { songs: tres() } })
-    expect(lista.find('.rows').attributes('role')).toBe('listbox')
-    expect(filas(lista)[1].attributes('role')).toBe('option')
-    expect(filas(lista)[1].attributes('aria-posinset')).toBe('2')
-    expect(filas(lista)[1].attributes('aria-setsize')).toBe('3')
+    expect(rows(table)[0].attributes('aria-rowindex')).toBe('2') // la 1 es la cabecera
+    const list = mountView(SongRows, { props: { songs: three() } })
+    expect(list.find('.rows').attributes('role')).toBe('listbox')
+    expect(rows(list)[1].attributes('role')).toBe('option')
+    expect(rows(list)[1].attributes('aria-posinset')).toBe('2')
+    expect(rows(list)[1].attributes('aria-setsize')).toBe('3')
   })
 
   it('las cabeceras que ordenan son botones', async () => {
-    const w = montar(SongTable, { props: { songs: tres(), sort: 'title' } })
-    const titulo = w.find('th[data-col="title"]')
-    expect(titulo.attributes('aria-sort')).toBe('ascending')
-    await titulo.find('button').trigger('click')
+    const w = mountView(SongTable, { props: { songs: three(), sort: 'title' } })
+    const title = w.find('th[data-col="title"]')
+    expect(title.attributes('aria-sort')).toBe('ascending')
+    await title.find('button').trigger('click')
     expect(w.emitted('sortBy')[0]).toEqual(['title', false])
     // la columna sin texto tiene nombre para quien no la ve
     expect(w.find('th[data-col="fav"] .sr-only').text()).toBe('Favorita')
@@ -172,28 +174,28 @@ describe('la biblioteca se recorre con el teclado', () => {
 
 describe('las estrellas con el teclado', () => {
   it('son un deslizador de 0 a 5', async () => {
-    const w = montar(StarRating, { props: { value: 2 } })
+    const w = mountView(StarRating, { props: { value: 2 } })
     const s = w.find('.stars')
     expect(s.attributes('role')).toBe('slider')
     expect(s.attributes('aria-valuenow')).toBe('2')
     expect(s.attributes('aria-valuetext')).toBe('2 de 5')
     expect(s.attributes('tabindex')).toBe('0')
-    await tecla(s, 'ArrowRight')
-    await tecla(s, 'Home')
-    await tecla(s, '4')
+    await press(s, 'ArrowRight')
+    await press(s, 'Home')
+    await press(s, '4')
     expect(w.emitted('change').map((c) => c[0])).toEqual([3, 0, 4])
   })
 
   it('en una fila no son parada del tabulador, y en solo lectura no cambian', async () => {
     expect(
-      montar(StarRating, { props: { value: 1, focusable: false } })
+      mountView(StarRating, { props: { value: 1, focusable: false } })
         .find('.stars')
         .attributes('tabindex')
     ).toBe('-1')
-    const ro = montar(StarRating, { props: { value: 3, editable: false } })
+    const ro = mountView(StarRating, { props: { value: 3, editable: false } })
     expect(ro.find('.stars').attributes('role')).toBe('img')
     expect(ro.find('.stars').attributes('aria-label')).toContain('3 de 5')
-    await tecla(ro.find('.stars'), 'ArrowRight')
+    await press(ro.find('.stars'), 'ArrowRight')
     expect(ro.emitted('change')).toBeFalsy()
   })
 })
@@ -206,20 +208,20 @@ describe('el desplegable', () => {
   ]
 
   it('dice que abre una lista, si esta abierta y como se llama', async () => {
-    const w = montar(SelectField, { props: { modelValue: 'b', options, label: 'Letra' } })
-    const caja = w.find('.select-box')
-    expect(caja.attributes('aria-haspopup')).toBe('listbox')
-    expect(caja.attributes('aria-expanded')).toBe('false')
+    const w = mountView(SelectField, { props: { modelValue: 'b', options, label: 'Letra' } })
+    const box = w.find('.select-box')
+    expect(box.attributes('aria-haspopup')).toBe('listbox')
+    expect(box.attributes('aria-expanded')).toBe('false')
     // su nombre es la etiqueta (y lo elegido)
-    const nombre = caja
+    const name = box
       .attributes('aria-labelledby')
       .split(' ')
       .map((id) => document.getElementById(id).textContent.trim())
-    expect(nombre).toEqual(['Letra', 'Beta'])
-    await caja.trigger('click')
-    expect(caja.attributes('aria-expanded')).toBe('true')
-    const lista = w.find('[role="listbox"]')
-    expect(lista.attributes('id')).toBe(caja.attributes('aria-controls'))
+    expect(name).toEqual(['Letra', 'Beta'])
+    await box.trigger('click')
+    expect(box.attributes('aria-expanded')).toBe('true')
+    const list = w.find('[role="listbox"]')
+    expect(list.attributes('id')).toBe(box.attributes('aria-controls'))
     expect(w.findAll('[role="option"]').map((o) => o.attributes('aria-selected'))).toEqual([
       'false',
       'true',
@@ -228,37 +230,37 @@ describe('el desplegable', () => {
   })
 
   it('la opcion resaltada con las flechas se anuncia', async () => {
-    const w = montar(SelectField, { props: { modelValue: 'a', options, label: 'Letra' } })
-    const caja = w.find('.select-box')
-    await tecla(caja, 'ArrowDown') // abre
-    await tecla(caja, 'ArrowDown') // pasa a Beta
-    const activa = caja.attributes('aria-activedescendant')
-    expect(document.getElementById(activa).textContent).toContain('Beta')
-    await tecla(caja, 'End')
-    expect(document.getElementById(caja.attributes('aria-activedescendant')).textContent).toContain(
+    const w = mountView(SelectField, { props: { modelValue: 'a', options, label: 'Letra' } })
+    const box = w.find('.select-box')
+    await press(box, 'ArrowDown') // abre
+    await press(box, 'ArrowDown') // pasa a Beta
+    const active = box.attributes('aria-activedescendant')
+    expect(document.getElementById(active).textContent).toContain('Beta')
+    await press(box, 'End')
+    expect(document.getElementById(box.attributes('aria-activedescendant')).textContent).toContain(
       'Gamma'
     )
-    await tecla(caja, 'Enter')
+    await press(box, 'Enter')
     expect(w.emitted('update:modelValue').at(-1)).toEqual(['c'])
   })
 })
 
 describe('campos con nombre', () => {
   it('el deslizador sin etiqueta a la vista (el volumen) lleva su nombre en el control', () => {
-    const w = montar(SliderField, {
+    const w = mountView(SliderField, {
       props: { modelValue: 0.5 },
       attrs: { 'aria-label': 'Volumen' }
     })
     expect(w.find('input').attributes('aria-label')).toBe('Volumen')
-    const conEtiqueta = montar(SliderField, {
+    const withLabel = mountView(SliderField, {
       props: { modelValue: 0.5, label: 'Tamaño', valueText: '50 %' }
     })
-    expect(conEtiqueta.find('input').attributes('aria-label')).toBeUndefined()
-    expect(conEtiqueta.find('input').attributes('aria-valuetext')).toBe('50 %')
+    expect(withLabel.find('input').attributes('aria-label')).toBeUndefined()
+    expect(withLabel.find('input').attributes('aria-valuetext')).toBe('50 %')
   })
 
   it('lo que se le pasa a un campo de texto va al campo; la clase, a la caja', () => {
-    const w = montar(TextField, {
+    const w = mountView(TextField, {
       props: { modelValue: '' },
       attrs: { 'aria-label': 'Buscar', class: 'nav-filter', role: 'combobox' }
     })
@@ -269,7 +271,7 @@ describe('campos con nombre', () => {
   })
 
   it('el interruptor cambia una sola vez al pulsar su texto', async () => {
-    const w = montar(ToggleField, { props: { modelValue: false, title: 'Convertir' } })
+    const w = mountView(ToggleField, { props: { modelValue: false, title: 'Convertir' } })
     await w.find('.toggle-txt strong').trigger('click')
     expect(w.emitted('update:modelValue')).toEqual([[true]])
   })
@@ -290,45 +292,45 @@ describe('el menu con el teclado', () => {
   ]
 
   it('entra en la primera opcion, las flechas recorren y Escape cierra devolviendo el foco', async () => {
-    const fila = document.createElement('button')
-    document.body.appendChild(fila)
-    fila.focus()
-    const w = montar(ContextMenu, {
+    const row = document.createElement('button')
+    document.body.appendChild(row)
+    row.focus()
+    const w = mountView(ContextMenu, {
       props: { open: false, items: items(), title: 'Mi Gozo', keyboard: true }
     })
     await w.setProps({ open: true })
     await flushPromises()
     expect(w.find('[role="menu"]').exists()).toBe(true)
     expect(document.activeElement.textContent).toContain('Reproducir')
-    await tecla(window, 'ArrowDown')
+    await press(window, 'ArrowDown')
     expect(document.activeElement.textContent).toContain('Valorar')
-    await tecla(window, 'ArrowRight') // abre el submenu
+    await press(window, 'ArrowRight') // abre el submenu
     expect(document.activeElement.textContent).toContain('5 estrellas')
-    await tecla(window, 'ArrowLeft') // y vuelve
+    await press(window, 'ArrowLeft') // y vuelve
     expect(document.activeElement.textContent).toContain('Reproducir')
-    await tecla(window, 'Escape')
+    await press(window, 'Escape')
     expect(w.emitted('close')).toBeTruthy()
     await w.setProps({ open: false })
     await flushPromises()
-    expect(document.activeElement).toBe(fila)
+    expect(document.activeElement).toBe(row)
   })
 
   it('abierto con el raton, al cerrar no se queda el foco donde se pulso', async () => {
-    const fila = document.createElement('button')
-    document.body.appendChild(fila)
-    fila.focus()
-    const w = montar(ContextMenu, { props: { open: false, items: items(), keyboard: false } })
+    const row = document.createElement('button')
+    document.body.appendChild(row)
+    row.focus()
+    const w = mountView(ContextMenu, { props: { open: false, items: items(), keyboard: false } })
     await w.setProps({ open: true })
     await flushPromises()
     await w.setProps({ open: false })
     await flushPromises()
-    expect(document.activeElement).not.toBe(fila)
+    expect(document.activeElement).not.toBe(row)
   })
 })
 
 describe('el panel lateral', () => {
   it('atrapa el foco y Escape desde dentro lo cierra', async () => {
-    const w = montar(Drawer, {
+    const w = mountView(Drawer, {
       props: { open: false, title: 'Menu' },
       slots: { default: '<button class="dentro">x</button>' }
     })
@@ -337,7 +339,7 @@ describe('el panel lateral', () => {
     await nextTick()
     const panel = document.querySelector('.drawer')
     expect(panel.contains(document.activeElement)).toBe(true)
-    await tecla(document.activeElement, 'Escape')
+    await press(document.activeElement, 'Escape')
     expect(w.emitted('close')).toBeTruthy()
   })
 })
@@ -365,45 +367,45 @@ describe('la seleccion con el teclado', () => {
     expect(songKey({ key: 'Escape' }, { selecting: true })).toEqual({ kind: 'clear' })
   })
 
-  const filas = (w) => w.findAll('[data-song-row]')
+  const rows = (w) => w.findAll('[data-song-row]')
 
   it('la fila con el foco lo dice a la app: selectAll, remove y clearSelection', async () => {
-    for (const vista of [SongTable, SongRows, SongGrid]) {
-      const w = montar(vista, { props: { songs: tres(), selected: 1, selectMode: true } })
-      await tecla(filas(w)[0], 'a', { ctrlKey: true })
-      await tecla(filas(w)[0], 'Delete')
-      await tecla(filas(w)[0], 'Escape')
-      expect(w.emitted('selectAll'), vista.__name).toEqual([[{ toggle: false }]])
-      expect(w.emitted('remove'), vista.__name).toHaveLength(1)
-      expect(w.emitted('clearSelection'), vista.__name).toHaveLength(1)
+    for (const view of [SongTable, SongRows, SongGrid]) {
+      const w = mountView(view, { props: { songs: three(), selected: 1, selectMode: true } })
+      await press(rows(w)[0], 'a', { ctrlKey: true })
+      await press(rows(w)[0], 'Delete')
+      await press(rows(w)[0], 'Escape')
+      expect(w.emitted('selectAll'), view.__name).toEqual([[{ toggle: false }]])
+      expect(w.emitted('remove'), view.__name).toHaveLength(1)
+      expect(w.emitted('clearSelection'), view.__name).toHaveLength(1)
     }
   })
 
   it('sin modo y con una sola elegida, Escape no es de la lista (sigue su camino)', async () => {
-    const w = montar(SongRows, { props: { songs: tres(), selected: 1, selectedIds: [1] } })
-    const fuera = []
-    const escucha = (e) => fuera.push(e.key)
-    window.addEventListener('keydown', escucha)
-    await tecla(filas(w)[0], 'Escape')
-    window.removeEventListener('keydown', escucha)
+    const w = mountView(SongRows, { props: { songs: three(), selected: 1, selectedIds: [1] } })
+    const outside = []
+    const listener = (e) => outside.push(e.key)
+    window.addEventListener('keydown', listener)
+    await press(rows(w)[0], 'Escape')
+    window.removeEventListener('keydown', listener)
     expect(w.emitted('clearSelection')).toBeFalsy()
-    expect(fuera, 'Escape debe llegar a quien cierre lo que haya abierto').toEqual(['Escape'])
+    expect(outside, 'Escape debe llegar a quien cierre lo que haya abierto').toEqual(['Escape'])
     // con varias elegidas, sí
     await w.setProps({ selectedIds: [1, 2] })
-    await tecla(filas(w)[0], 'Escape')
+    await press(rows(w)[0], 'Escape')
     expect(w.emitted('clearSelection')).toHaveLength(1)
   })
 
   it('en el modo, las flechas solo mueven el foco (no marcan al pasar); Mayus suma el tramo', async () => {
-    const w = montar(SongTable, { props: { songs: tres(), selected: 1, selectMode: true } })
-    filas(w)[0].element.focus()
-    await tecla(filas(w)[0], 'ArrowDown')
-    expect(document.activeElement).toBe(filas(w)[1].element)
+    const w = mountView(SongTable, { props: { songs: three(), selected: 1, selectMode: true } })
+    rows(w)[0].element.focus()
+    await press(rows(w)[0], 'ArrowDown')
+    expect(document.activeElement).toBe(rows(w)[1].element)
     expect(w.emitted('select')).toBeFalsy()
-    await tecla(filas(w)[1], 'ArrowDown', { shiftKey: true })
+    await press(rows(w)[1], 'ArrowDown', { shiftKey: true })
     expect(w.emitted('select')).toEqual([[3, { shiftKey: true }]])
     // y Ctrl+espacio marca la que tiene el foco
-    await tecla(filas(w)[2], ' ', { ctrlKey: true })
+    await press(rows(w)[2], ' ', { ctrlKey: true })
     expect(w.emitted('select').at(-1)).toEqual([3, { ctrlKey: true }])
   })
 })

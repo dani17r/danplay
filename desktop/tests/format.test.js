@@ -54,7 +54,7 @@ describe('formatear', () => {
 })
 
 describe('agrupar', () => {
-  const lista = [
+  const list = [
     song(1, { title: 'A Una Voz', artist: 'New Wine' }),
     song(2, { title: 'Mi Gozo', artist: 'Barak' }),
     song(3, { title: 'Que Se Abra El Cielo', artist: 'Miel San Marcos' }),
@@ -63,25 +63,25 @@ describe('agrupar', () => {
   ]
 
   it('los grupos van por orden alfabético y dentro, en el orden de la lista', () => {
-    const grupos = groupSongs(lista, 'artist')
-    expect(grupos.map(([k, l]) => [k, l.map((s) => s.id)])).toEqual([
+    const groups = groupSongs(list, 'artist')
+    expect(groups.map(([k, l]) => [k, l.map((s) => s.id)])).toEqual([
       ['Barak', [2, 4]],
       ['Miel San Marcos', [3]],
       ['New Wine', [1]],
       ['Sin artista', [5]]
     ])
-    expect(groupedOrder(lista, 'artist').map((s) => s.id)).toEqual([2, 4, 3, 1, 5])
+    expect(groupedOrder(list, 'artist').map((s) => s.id)).toEqual([2, 4, 3, 1, 5])
   })
 
   it('lo que no tiene dato va a su grupo con nombre', () => {
-    const vacia = song(9, { title: '', file: 'x.mp3', artist: '', album: '', genre: '', key: '' })
-    expect(groupKey(vacia, 'artist')).toBe('Sin artista')
-    expect(groupKey(vacia, 'album')).toBe('Sin álbum')
-    expect(groupKey(vacia, 'genre')).toBe('Sin género')
-    expect(groupKey(vacia, 'key')).toBe('Sin tono')
-    expect(groupKey(vacia, 'initial')).toBe('X')
-    expect(groupKey({ ...vacia, folder: '' }, 'folder')).toBe('(raíz)')
-    expect(groupKey(vacia, 'otra cosa')).toBe('—')
+    const empty = song(9, { title: '', file: 'x.mp3', artist: '', album: '', genre: '', key: '' })
+    expect(groupKey(empty, 'artist')).toBe('Sin artista')
+    expect(groupKey(empty, 'album')).toBe('Sin álbum')
+    expect(groupKey(empty, 'genre')).toBe('Sin género')
+    expect(groupKey(empty, 'key')).toBe('Sin tono')
+    expect(groupKey(empty, 'initial')).toBe('X')
+    expect(groupKey({ ...empty, folder: '' }, 'folder')).toBe('(raíz)')
+    expect(groupKey(empty, 'otra cosa')).toBe('—')
   })
 })
 

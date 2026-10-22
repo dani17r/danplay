@@ -93,7 +93,7 @@ beforeEach(() => {
   localStorage.clear()
 })
 
-const montar = async () => {
+const mountView = async () => {
   const w = mount(DownloadsPage, { attachTo: document.body })
   await flushPromises()
   await flushPromises()
@@ -102,7 +102,7 @@ const montar = async () => {
 
 describe('el historial de descargas', () => {
   it('esta siempre a la vista y no hay tarjeta de Resultado aparte', async () => {
-    const w = await montar()
+    const w = await mountView()
     expect(w.text()).toContain('Historial')
     expect(w.findAll('.hist-row')).toHaveLength(3)
     expect(w.text()).not.toContain('Resultado')
@@ -111,7 +111,7 @@ describe('el historial de descargas', () => {
   })
 
   it('lo bajado se pone a sonar desde su fila, y la misma fila lo pausa', async () => {
-    const w = await montar()
+    const w = await mountView()
     const rows = w.findAll('.hist-row')
     expect(rows[0].find('.hist-play').exists()).toBe(true)
     expect(rows[1].find('.hist-play').exists()).toBe(false) // «ya la tenias»: nada que poner
@@ -136,9 +136,9 @@ describe('el historial de descargas', () => {
   })
 
   it('se vacia como en un navegador, pero no mientras baja algo', async () => {
-    const w = await montar()
-    const vaciar = () => w.findAll('button').find((b) => b.text() === 'Vaciar')
-    expect(vaciar().attributes('disabled')).toBeUndefined()
+    const w = await mountView()
+    const clear = () => w.findAll('button').find((b) => b.text() === 'Vaciar')
+    expect(clear().attributes('disabled')).toBeUndefined()
 
     // algo bajando: el boton se bloquea
     held.youtube.mockResolvedValueOnce({
@@ -150,12 +150,12 @@ describe('el historial de descargas', () => {
     })
     await w.vm.$.setupState.downloads.refresh()
     await flushPromises()
-    expect(vaciar().attributes('disabled')).toBeDefined()
+    expect(clear().attributes('disabled')).toBeDefined()
 
     held.youtube.mockResolvedValueOnce({ available: true, active: false, results: [] })
     await w.vm.$.setupState.downloads.refresh()
     await flushPromises()
-    await vaciar().trigger('click')
+    await clear().trigger('click')
     await flushPromises()
     dialogOk()
     await flushPromises()
@@ -166,11 +166,11 @@ describe('el historial de descargas', () => {
   it('a partir de una tanda, ofrece cargar mas en vez de paginar', async () => {
     held.history = Array.from({ length: 45 }, (_, i) => row(i + 1))
     held.total = 45
-    const w = await montar()
+    const w = await mountView()
     expect(w.findAll('.hist-row')).toHaveLength(30)
-    const mas = w.findAll('button').find((b) => b.text().startsWith('Cargar mas'))
-    expect(mas.text()).toContain('15')
-    await mas.trigger('click')
+    const more = w.findAll('button').find((b) => b.text().startsWith('Cargar mas'))
+    expect(more.text()).toContain('15')
+    await more.trigger('click')
     await flushPromises()
     expect(w.findAll('.hist-row')).toHaveLength(45)
     expect(w.findAll('button').find((b) => b.text().startsWith('Cargar mas'))).toBeUndefined()
@@ -190,7 +190,7 @@ describe('yt-dlp', () => {
       js_runtime: 'deno',
       js_runtime_hint: ''
     })
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.yt-version').text()).toBe('2026.08.01')
     expect(w.text()).toContain('Motor de JavaScript: deno')
     held.youtube.mockResolvedValue({
@@ -227,7 +227,7 @@ describe('yt-dlp', () => {
       js_runtime: null,
       js_runtime_hint: 'Instala Deno (deno.com) o Node 20 o superior'
     })
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.yt-js').text()).toContain('Instala Deno')
     held.youtube.mockResolvedValue({ available: true, active: false, results: [] })
   })
@@ -241,7 +241,7 @@ describe('yt-dlp', () => {
       total: 1,
       results: []
     })
-    const w = await montar()
+    const w = await mountView()
     expect(
       w
         .findAll('button')
@@ -263,9 +263,9 @@ describe('lo que parece una Drum Cam', () => {
     title: 'QUE SE ABRA EL CIELO - ISH MELTON DRUM CAM',
     kind: { category: 'track', what: 'una Drum Cam', folder: 'Pistas' }
   }
-  const terminar = async (results) => {
+  const finish = async (results) => {
     held.youtube.mockResolvedValue({ available: true, active: true, phase: 'filing', results: [] })
-    const w = await montar()
+    const w = await mountView()
     held.youtube.mockResolvedValue({ available: true, active: false, results })
     await useDownloads().refresh()
     await flushPromises()
@@ -274,7 +274,7 @@ describe('lo que parece una Drum Cam', () => {
   afterEach(() => held.youtube.mockResolvedValue({ available: true, active: false, results: [] }))
 
   it('al terminar ofrece llevarla a su carpeta, y con un clic la mueve', async () => {
-    const w = await terminar([drumCam, { ok: true, id: 8, artist: 'Barak', song: 'Mi Gozo' }])
+    const w = await finish([drumCam, { ok: true, id: 8, artist: 'Barak', song: 'Mi Gozo' }])
     const card = w.find('.dl-kind')
     expect(card.text()).toContain('Parece una Drum Cam: ¿moverla a Pistas?')
     // solo la que lo parece: la cancion de siempre no sale
@@ -292,7 +292,7 @@ describe('lo que parece una Drum Cam', () => {
   })
 
   it('«No, déjala en Artistas» la quita sin mover nada', async () => {
-    const w = await terminar([drumCam])
+    const w = await finish([drumCam])
     await w
       .findAll('button')
       .find((b) => b.text() === 'No, déjala en Artistas')
@@ -303,7 +303,7 @@ describe('lo que parece una Drum Cam', () => {
 
   it('si no se puede mover, lo dice y la sugerencia sigue ahi', async () => {
     api.moveSong.mockRejectedValueOnce(new Error('su archivo ya no esta donde decia el indice'))
-    const w = await terminar([drumCam])
+    const w = await finish([drumCam])
     await w
       .findAll('button')
       .find((b) => b.text() === 'Mover a Pistas')
@@ -317,13 +317,13 @@ describe('lo que parece una Drum Cam', () => {
 
 describe('la carpeta de descargas', () => {
   it('se ve donde se guarda', async () => {
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.dl-folder').text()).toContain('Se guarda en /musica')
   })
 
   it('la primera vez pregunta donde, y luego baja ahi', async () => {
     held.folder = { path: '/home/x/Música', ready: false, reason: 'unset', suggested: '/musica' }
-    const w = await montar()
+    const w = await mountView()
     expect(w.find('.dl-folder').text()).toContain('La primera vez que descargues te pregunto')
     await w.find('input').setValue('barak mi gozo')
     await w
@@ -344,7 +344,7 @@ describe('la carpeta de descargas', () => {
 
   it('sin carpeta no se baja nada', async () => {
     held.folder = { path: '', ready: false, reason: 'unset', suggested: '' }
-    const w = await montar()
+    const w = await mountView()
     await w.find('input').setValue('barak mi gozo')
     await w
       .findAll('button')

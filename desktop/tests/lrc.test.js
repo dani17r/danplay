@@ -50,8 +50,8 @@ describe('la letra que sigue a la cancion', () => {
   it('sigue la linea moviendo solo la caja de la letra, nunca la ficha entera', async () => {
     // scrollIntoView movia tambien lo que contiene la letra: en WebKitGTK
     // subia la ficha entera y la letra se quedaba pegada en medio
-    const vista = vi.fn()
-    Element.prototype.scrollIntoView = vista
+    const view = vi.fn()
+    Element.prototype.scrollIntoView = view
     const many = Array.from({ length: 40 }, (_, i) => ({ t: i * 2, text: 'linea ' + i }))
     const w = mount(SyncedLyrics, { props: { lines: many, position: 0, active: true } })
     const box = w.find('.lrc').element
@@ -67,7 +67,7 @@ describe('la letra que sigue a la cancion', () => {
     await flushPromises()
     // de 300 a 320 dentro de la caja: su centro, al 40 % de los 200 de alto
     expect(box.scrollTo).toHaveBeenLastCalledWith({ top: 230, behavior: 'smooth' })
-    expect(vista).not.toHaveBeenCalled()
+    expect(view).not.toHaveBeenCalled()
     // quien mueve la letra a mano manda un rato: no se le quita de donde la puso
     await w.find('.lrc').trigger('wheel')
     box.scrollTo.mockClear()

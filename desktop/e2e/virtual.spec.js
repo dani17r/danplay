@@ -30,9 +30,9 @@ async function toTheEnd(page, scroller, last) {
   await scroller.evaluate((el) => el.scrollTo(0, el.scrollHeight))
   await expect(scroller.getByText(last, { exact: true })).toBeInViewport()
   const gap = await scroller.evaluate((el) => {
-    const filas = [...el.querySelectorAll('[data-song-row]')]
-    const fin = Math.max(...filas.map((f) => f.getBoundingClientRect().bottom))
-    return el.getBoundingClientRect().bottom - fin
+    const rowEls = [...el.querySelectorAll('[data-song-row]')]
+    const lastBottom = Math.max(...rowEls.map((f) => f.getBoundingClientRect().bottom))
+    return el.getBoundingClientRect().bottom - lastBottom
   })
   // lo que quede es el relleno del panel, no un hueco de filas que faltan
   expect(gap).toBeLessThan(40)
@@ -44,9 +44,9 @@ test('«Artistas» con cientos de grupos pinta una ventana y llega al final', as
   await go(page, 'Artistas')
   await expect(page.locator('.filters .chip').first()).toHaveText(String(TOTAL))
   await expect(page.locator('.group-head').first()).toBeVisible()
-  const pintadas = await rows(page).count()
-  expect(pintadas).toBeGreaterThan(10)
-  expect(pintadas, 'pinta la biblioteca entera').toBeLessThan(TOTAL / 2)
+  const rendered = await rows(page).count()
+  expect(rendered).toBeGreaterThan(10)
+  expect(rendered, 'pinta la biblioteca entera').toBeLessThan(TOTAL / 2)
 
   const scroller = await panel(page, '.center .table-wrap')
   // a mitad de la lista, la cabecera de arriba es la del grupo que se ve
@@ -57,13 +57,13 @@ test('«Artistas» con cientos de grupos pinta una ventana y llega al final', as
         const top = el.getBoundingClientRect().top
         const head = document.elementFromPoint(el.getBoundingClientRect().left + 60, top + 4)
         const name = head?.closest('.group-row')?.querySelector('.group-name')?.textContent
-        const fila = [...el.querySelectorAll('[data-song-row]')].find(
+        const row = [...el.querySelectorAll('[data-song-row]')].find(
           (f) => f.getBoundingClientRect().bottom > top + 60
         )
-        const titulo = fila?.querySelector('td.title')?.textContent.trim() || ''
-        const n = Number(titulo.replace('Tema ', ''))
-        const artista = `Coro ${String(Math.floor(n / 2)).padStart(3, '0')}`
-        return name === artista ? 'ok' : `${name} ≠ ${artista}`
+        const title = row?.querySelector('td.title')?.textContent.trim() || ''
+        const n = Number(title.replace('Tema ', ''))
+        const artist = `Coro ${String(Math.floor(n / 2)).padStart(3, '0')}`
+        return name === artist ? 'ok' : `${name} ≠ ${artist}`
       })
     )
     .toBe('ok')

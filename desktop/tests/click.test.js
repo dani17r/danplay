@@ -59,7 +59,7 @@ const base = {
   }
 }
 const bridge = () => held.playback.bridge
-const otra = { track: { id: 8, title: 'Otra', artist: 'Barak', duration: 100 } }
+const other = { track: { id: 8, title: 'Otra', artist: 'Barak', duration: 100 } }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -80,7 +80,7 @@ beforeEach(() => {
 })
 
 const mounted = []
-const montar = async () => {
+const mountView = async () => {
   const w = mount(StudyBar, { attachTo: document.body })
   mounted.push(w)
   await flushPromises()
@@ -105,7 +105,7 @@ const settle = async () => {
 describe('clic automático', () => {
   it('mientras carga: barra en la onda, el botón no deja ponerlo, y luego se puede', async () => {
     held.state.beatGridPending = [0.15, 0.6]
-    const w = await montar()
+    const w = await mountView()
     const toggle = () => w.find('.study-metro-toggle')
     expect(toggle().attributes('disabled')).toBeDefined()
     expect(toggle().text()).toContain('Cargando… 15 %')
@@ -129,13 +129,13 @@ describe('clic automático', () => {
   })
 
   it('si venía con el clic puesto, se calla en la que aún carga y vuelve solo al llegar', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.find('.study-metro-toggle').trigger('click')
     await settle()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
     held.state.beatGridPending = [0.3]
     vi.clearAllMocks()
-    held.playback.emit({ ...otra, path: '/musica/otra.mp3', position: 0 })
+    held.playback.emit({ ...other, path: '/musica/otra.mp3', position: 0 })
     await settle()
     // el de la anterior no sigue sonando sobre esta: iría a otro tempo
     expect(bridge().setMetronome).toHaveBeenCalledWith(expect.objectContaining({ on: false }))
@@ -170,7 +170,7 @@ describe('clic automático', () => {
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
     expect(held.api.beatGridPrepare.mock.calls.map((c) => c[0])).toEqual([8, 9, 10])
     vi.clearAllMocks()
-    held.playback.emit({ ...otra, path: '/musica/otra.mp3', index: 1 })
+    held.playback.emit({ ...other, path: '/musica/otra.mp3', index: 1 })
     await settle()
     expect(held.api.song, 'sus ajustes, leídos sin el panel').toHaveBeenCalledWith(8)
     expect(bridge().setMetronome).toHaveBeenCalledWith(expect.objectContaining({ meter: 3 }))
@@ -193,7 +193,7 @@ describe('clic automático', () => {
 
   it('sin Beat This! aquí, la rejilla de Rust al momento', async () => {
     held.state.beatGrid = null
-    const w = await montar()
+    const w = await mountView()
     expect(bridge().analyzeBeats).toHaveBeenCalledWith('/musica/mi-gozo.mp3', null)
     expect(w.find('.study-metro-toggle').attributes('disabled')).toBeUndefined()
     expect(w.find('.tl-click-load').exists()).toBe(false)
@@ -201,17 +201,17 @@ describe('clic automático', () => {
 })
 
 /** El botón de un modo del clic (Automático, Propio, A mano). */
-const modo = (w, name) => w.findAll('.study-mode').find((b) => b.text() === name)
+const mode = (w, name) => w.findAll('.study-mode').find((b) => b.text() === name)
 
 describe('clic a mano', () => {
   it('el tempo puesto sigue igual al pasar de canción, sin esperar a nada', async () => {
-    const w = await montar()
+    const w = await mountView()
     await w.find('.study-metro-toggle').trigger('click')
     await settle()
-    await modo(w, 'A mano').trigger('click')
+    await mode(w, 'A mano').trigger('click')
     await settle()
-    expect(modo(w, 'A mano').attributes('aria-checked')).toBe('true')
-    expect(modo(w, 'Automático').attributes('aria-checked')).toBe('false')
+    expect(mode(w, 'A mano').attributes('aria-checked')).toBe('true')
+    expect(mode(w, 'Automático').attributes('aria-checked')).toBe('false')
     expect(w.text()).toContain('a mano: el mismo tempo en todas las canciones')
     // al pasar a mano se queda el que se oía: el clic no cambia de golpe
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(
@@ -228,7 +228,7 @@ describe('clic a mano', () => {
     expect(held.api.setStudy, 'es de todas las canciones, no de esta').not.toHaveBeenCalled()
     held.state.beatGridPending = [0.2]
     vi.clearAllMocks()
-    held.playback.emit({ ...otra, path: '/musica/otra.mp3', position: 0 })
+    held.playback.emit({ ...other, path: '/musica/otra.mp3', position: 0 })
     await settle()
     await vi.advanceTimersByTimeAsync(POLL_MS * 3)
     expect(held.api.beatGridNow).not.toHaveBeenCalled()
@@ -246,12 +246,12 @@ describe('clic a mano', () => {
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { shift: 2 } }) })
     ]
-    const w = await montar()
-    await modo(w, 'A mano').trigger('click')
+    const w = await mountView()
+    await mode(w, 'A mano').trigger('click')
     await settle()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ shift: 0 }))
     vi.clearAllMocks()
-    await modo(w, 'Automático').trigger('click')
+    await mode(w, 'Automático').trigger('click')
     await settle()
     expect(bridge().setMetronome).toHaveBeenCalledWith(
       expect.objectContaining({ bpm: null, shift: 2 })
