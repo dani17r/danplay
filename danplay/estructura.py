@@ -3,7 +3,8 @@ puente, solos, final), sacadas del audio, y una guia hablada justo antes de
 cada una («Estrofa 1», «Coro 1», «Puente», «Solo de guitarra»…), para
 estudiarla sin mirar la pantalla.
 
-Como se escuchan las partes, solo con numpy:
+Como se escuchan las partes (lo hace Rust, en analisis/src/estructura.rs,
+con las cuentas de numpy numero a numero):
 
 1. la cancion a mono y a 22 050 Hz (con ffmpeg), hasta veinte minutos;
 2. por cada trozo de 4096 muestras (cada 2048): lo fuerte que suena (RMS),
@@ -24,17 +25,15 @@ Como se escuchan las partes, solo con numpy:
    coro, el puente.
 
 Las cuentas van en funciones que reciben arrays (`segment`, `name_sections`,
-`plan_cues`): se prueban sin audio.
+`plan_cues`): se prueban sin audio. Aqui queda lo de alrededor: leer las
+pistas separadas (`stems`), decir las guias (`cues`) y el trabajo de fondo.
 """
 
-import itertools
 import logging
-import math
-import subprocess
-from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+import danplay_core as _rust
 import numpy as np
 
 from . import convert, cues, stems
@@ -116,39 +115,9 @@ def _decode(path: str, rate: int = RATE, longest: float = MAX_SECONDS) -> np.nda
     if not ffmpeg:
         raise EstructuraError("hace falta ffmpeg para escuchar la canción")
     try:
-        r = subprocess.run(
-            [
-                ffmpeg,
-                "-v",
-                "error",
-                "-nostdin",
-                "-i",
-                path,
-                "-t",
-                str(longest),
-                "-ac",
-                "1",
-                "-ar",
-                str(rate),
-                "-f",
-                "f32le",
-                "-",
-            ],
-            capture_output=True,
-            timeout=600,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as e:
+        return _rust.audio_decode_mono(ffmpeg, path, int(rate), float(longest), 600.0)
+    except OSError as e:
         raise EstructuraError("no se pudo leer la canción") from e
-    if r.returncode != 0 or not r.stdout:
-        raise EstructuraError("no se pudo leer la canción")
-    return np.frombuffer(r.stdout, np.float32)
-
-
-def _dct(n: int, k: int) -> np.ndarray:
-    """La DCT-II (sus `k` primeras filas) de `n` valores."""
-    i = np.arange(n)
-    return np.cos(np.pi / n * (i[None, :] + 0.5) * np.arange(k)[:, None])
 
 
 def frames(x: np.ndarray, rate: int = RATE) -> dict[str, np.ndarray]:
@@ -156,41 +125,7 @@ def frames(x: np.ndarray, rate: int = RATE) -> dict[str, np.ndarray]:
     centro en segundos (`times`), lo fuerte (`rms`), el croma (12 notas,
     comprimido y de largo 1) y el timbre (12 coeficientes de 24 bandas,
     normalizados en toda la cancion)."""
-    x = np.asarray(x, np.float32)
-    if x.size < WINDOW:
-        x = np.pad(x, (0, WINDOW - x.size))
-    view = np.lib.stride_tricks.sliding_window_view(x, WINDOW)[::HOP]
-    m = view.shape[0]
-    hann = np.hanning(WINDOW).astype(np.float32)
-    freqs = np.fft.rfftfreq(WINDOW, 1 / rate)
-    # cada frecuencia de 55 Hz a 5 kHz, a su nota (do = 0)
-    pitched = np.flatnonzero((freqs >= 55) & (freqs <= 5000))
-    notes = np.round(69 + 12 * np.log2(freqs[pitched] / 440)).astype(int) % 12
-    to_chroma = np.zeros((freqs.size, 12), np.float32)
-    to_chroma[pitched, notes] = 1
-    # las bandas, repartidas como el oido (logaritmicas)
-    edges = np.geomspace(40.0, min(10000.0, 0.95 * rate / 2), BANDS + 1)
-    to_bands = np.zeros((freqs.size, BANDS), np.float32)
-    for b in range(BANDS):
-        inside = (freqs >= edges[b]) & (freqs < edges[b + 1])
-        if not inside.any():
-            inside[np.argmin(np.abs(freqs - math.sqrt(edges[b] * edges[b + 1])))] = True
-        to_bands[inside, b] = 1
-    rms = np.empty(m, np.float32)
-    chroma = np.empty((m, 12), np.float32)
-    bands = np.empty((m, BANDS), np.float32)
-    for a in range(0, m, CHUNK):
-        block = view[a : a + CHUNK]
-        b = a + len(block)
-        rms[a:b] = np.sqrt(np.mean(np.square(block), axis=1))
-        spec = np.abs(np.fft.rfft(block * hann, axis=1)).astype(np.float32)
-        c = np.log1p(spec @ to_chroma)
-        chroma[a:b] = c / np.maximum(np.linalg.norm(c, axis=1, keepdims=True), 1e-9)
-        bands[a:b] = np.log(np.square(spec) @ to_bands + 1e-10)
-    timbre = bands @ _dct(BANDS, COEFS).T
-    timbre = (timbre - timbre.mean(axis=0)) / (timbre.std(axis=0) + 1e-9)
-    times = (np.arange(m) * HOP + WINDOW / 2) / rate
-    return {"times": times, "rms": rms, "chroma": chroma, "timbre": timbre.astype(np.float32)}
+    return _rust.structure_frames(np.ascontiguousarray(x, np.float32), int(rate))
 
 
 def units_from(
@@ -202,52 +137,31 @@ def units_from(
     Con al menos 8 compases, los compases; lo de antes del primero y lo de
     despues del ultimo (o un hueco entre dos), en trozos de un compas. Si
     no, trozos de 2 s."""
-    marks = sorted({round(float(b), 3) for b in bars or [] if 0 <= float(b) < duration})
-    if len(marks) < MIN_BARS:
-        n = max(1, round(duration / WINDOW_UNIT))
-        edges = np.linspace(0.0, duration, n + 1)
-        return [(float(a), float(b)) for a, b in itertools.pairwise(edges)], None
-    size = float(np.median(np.diff(marks)))
-    first_bar = marks[0]
-    if first_bar < 0.25 * size:
-        marks[0] = 0.0  # lo de antes del primero, con el primero
-    edges = ([0.0] if marks[0] > 0 else []) + marks + [duration]
-    out: list[tuple[float, float]] = []
-    for a, b in itertools.pairwise(edges):
-        if b - a <= 1e-3:
-            continue
-        if out and b - a < 0.25 * size:
-            out[-1] = (out[-1][0], b)  # un resto: con el de antes
-            continue
-        k = max(1, round((b - a) / size))
-        out += [(a + (b - a) * i / k, a + (b - a) * (i + 1) / k) for i in range(k)]
-    starts = np.array([u[0] for u in out])
-    return out, int(np.argmin(np.abs(starts - marks[0])))
+    return _rust.structure_units_from([float(b) for b in bars or []], float(duration))
+
+
+def _units(units) -> list[tuple[float, float]]:
+    return [(float(a), float(b)) for a, b in units]
+
+
+def _matrix(values) -> np.ndarray:
+    values = np.asarray(values, np.float64)
+    if values.ndim == 1:
+        values = values[:, None]
+    return np.ascontiguousarray(values)
 
 
 def pool(times: np.ndarray, values: np.ndarray, units: Sequence[tuple[float, float]]):
     """La media de lo de cada trozo de audio en cada unidad (el mas cercano
     si una unidad es mas corta que un trozo)."""
-    values = np.asarray(values, np.float64)
-    if values.ndim == 1:
-        values = values[:, None]
-    out = np.zeros((len(units), values.shape[1]))
-    for i, (a, b) in enumerate(units):
-        lo, hi = np.searchsorted(times, a), np.searchsorted(times, b)
-        if hi <= lo:
-            near = int(np.clip(np.searchsorted(times, (a + b) / 2), 0, len(times) - 1))
-            lo, hi = near, near + 1
-        out[i] = values[lo:hi].mean(axis=0)
-    return out
+    return _rust.structure_pool(
+        np.ascontiguousarray(times, np.float64), _matrix(values), _units(units)
+    )
 
 
 def unit_rms(x: np.ndarray, rate: int, units: Sequence[tuple[float, float]]) -> np.ndarray:
     """Lo fuerte que suena el audio en cada unidad (RMS)."""
-    energy = np.concatenate([[0.0], np.cumsum(np.square(np.asarray(x, np.float64)))])
-    n = len(x)
-    a = np.clip((np.array([u[0] for u in units]) * rate).astype(int), 0, max(0, n - 1))
-    b = np.clip((np.array([u[1] for u in units]) * rate).astype(int), a + 1, max(1, n))
-    return np.sqrt(np.maximum(energy[b] - energy[a], 0) / np.maximum(b - a, 1))
+    return _rust.structure_unit_rms(np.ascontiguousarray(x, np.float32), int(rate), _units(units))
 
 
 # ------------------------------------------------------------ las partes
@@ -256,132 +170,14 @@ def unit_rms(x: np.ndarray, rate: int, units: Sequence[tuple[float, float]]) -> 
 def _prepared(block) -> np.ndarray:
     """Cada unidad sin lo que suena en toda la cancion, y de largo 1: el
     producto de dos es su coseno."""
-    f = np.asarray(block, np.float64)
-    f = f - f.mean(axis=0)
-    return f / np.maximum(np.linalg.norm(f, axis=1, keepdims=True), 1e-9)
-
-
-def _novelty(similar: np.ndarray, half: int = KERNEL) -> np.ndarray:
-    """Cuanto cambia lo que suena al empezar cada unidad: el nucleo de
-    tablero de ajedrez (con forma de campana) por la diagonal. Lo parecido
-    de cada lado suma y lo parecido de un lado al otro resta; cerca de los
-    bordes, con lo que haya (cada mitad, con su media)."""
-    n = len(similar)
-    offs = np.arange(-half, half)
-    weight = np.exp(-0.5 * ((offs + 0.5) / (0.5 * half)) ** 2)
-    side = np.where(offs < 0, -1.0, 1.0)
-    kernel = np.outer(side * weight, side * weight)
-    np.fill_diagonal(kernel, 0.0)  # cada unidad se parece a si misma: no cuenta
-    out = np.zeros(n)
-    for t in range(1, n):
-        idx = t + offs
-        ok = (idx >= 0) & (idx < n)
-        k = kernel[np.ix_(ok, ok)]
-        s = similar[np.ix_(idx[ok], idx[ok])]
-        same, cross = k > 0, k < 0
-        if not same.any() or not cross.any():
-            continue
-        out[t] = (k[same] * s[same]).sum() / k[same].sum() - (k[cross] * s[cross]).sum() / k[
-            cross
-        ].sum()
-    return out
-
-
-def _peaks(novelty: np.ndarray, phase: int | None) -> list[int]:
-    """Los cambios de parte: los picos de la novedad por encima de su media
-    mas media desviacion, separados al menos MIN_GAP. Entre dos cercanos,
-    mejor el que cae en un multiplo de cuatro compases desde el primero."""
-    n = len(novelty)
-    if n < 3:
-        return []
-    inner = novelty[1:]
-    floor = float(inner.mean() + 0.5 * inner.std())
-    bonus = 0.5 * float(inner.std())
-    candidates = []
-    for t in range(1, n):
-        v = novelty[t]
-        if v <= floor or v < novelty[t - 1] or (t + 1 < n and v < novelty[t + 1]):
-            continue
-        aligned = phase is not None and (t - phase) % 4 == 0
-        candidates.append((v + (bonus if aligned else 0.0), t))
-    chosen: list[int] = []
-    for _, t in sorted(candidates, reverse=True):
-        if all(abs(t - c) >= MIN_GAP for c in chosen):
-            chosen.append(t)
-    return sorted(chosen)
-
-
-def _runs(flags: np.ndarray) -> list[tuple[int, int]]:
-    """Los tramos seguidos con el mismo valor: (desde, hasta)."""
-    cuts = [0, *(np.flatnonzero(flags[1:] != flags[:-1]) + 1).tolist(), len(flags)]
-    return list(itertools.pairwise(cuts))
-
-
-def voiced(vocals: Sequence[float] | np.ndarray) -> np.ndarray:
-    """En que unidades se canta (sin los tramos de menos de MIN_UNITS: un
-    respiro o una frase suelta no cambian la parte)."""
-    v = np.asarray(vocals, np.float64)
-    top = float(np.percentile(v, 95)) if v.size else 0.0
-    flags = v > VOICE_FLOOR * top if top > 1e-6 else np.zeros(v.size, bool)
-    while True:
-        runs = _runs(flags)
-        if len(runs) <= 1:
-            return flags
-        a, b = min(runs, key=lambda r: r[1] - r[0])
-        if b - a >= MIN_UNITS:
-            return flags
-        flags[a:b] = not flags[a]
-
-
-def _similarity(a: Sequence[np.ndarray], b: Sequence[np.ndarray]) -> float:
-    """Lo que se parecen dos partes: la media del coseno de cada rasgo."""
-    out = []
-    for x, y in zip(a, b, strict=True):
-        norm = float(np.linalg.norm(x) * np.linalg.norm(y))
-        out.append(float(x @ y) / norm if norm > 1e-12 else 0.0)
-    return float(np.mean(out))
+    return _rust.structure_prepared(_matrix(block))
 
 
 def _merge_short(spans: list[tuple[int, int]], blocks: list[np.ndarray]) -> list[tuple[int, int]]:
     """Las partes de menos de MIN_UNITS, con la vecina que mas se les parece."""
-    spans = list(spans)
-
-    def mean(span):
-        return [blk[span[0] : span[1]].mean(axis=0) for blk in blocks]
-
-    while len(spans) > 1:
-        i = min(range(len(spans)), key=lambda j: spans[j][1] - spans[j][0])
-        if spans[i][1] - spans[i][0] >= MIN_UNITS:
-            break
-        sides = [j for j in (i - 1, i + 1) if 0 <= j < len(spans)]
-        j = max(sides, key=lambda k: _similarity(mean(spans[i]), mean(spans[k])))
-        a, b = min(i, j), max(i, j)
-        spans[a : b + 1] = [(spans[a][0], spans[b][1])]
-    return spans
-
-
-def _clusters(means: list[list[np.ndarray]]) -> list[int]:
-    """Las partes que suenan igual, juntas: cada una con el grupo al que mas
-    se parece de media (si llega a SAME), o en uno nuevo."""
-    groups: list[list[int]] = []
-    out = []
-    for i, m in enumerate(means):
-        best, score = -1, SAME
-        for g, members in enumerate(groups):
-            s = float(np.mean([_similarity(m, means[j]) for j in members]))
-            if s >= score:
-                best, score = g, s
-        if best < 0:
-            groups.append([i])
-            out.append(len(groups) - 1)
-        else:
-            groups[best].append(i)
-            out.append(best)
-    return out
-
-
-def _letter(k: int) -> str:
-    return chr(ord("A") + k) if k < 26 else f"Z{k}"
+    return _rust.structure_merge_short(
+        [(int(a), int(b)) for a, b in spans], [_matrix(b) for b in blocks]
+    )
 
 
 def segment(
@@ -405,54 +201,18 @@ def segment(
     Cada parte: {first, last (unidades, la ultima fuera), start, end
     (segundos), cluster («A», «B»…), rms, quiet, vocal (cuanto se canta, si
     se sabe), lead (el instrumento que manda, si es un solo)}."""
-    rms = np.asarray(rms, np.float64)
-    n = len(rms)
-    if units is None:
-        units = [(float(i), float(i + 1)) for i in range(n)]
-    if n == 0:
-        return []
-    blocks = [_prepared(f) for f in features]
-    similar = sum((b @ b.T for b in blocks), start=np.zeros((n, n))) / max(1, len(blocks))
-    bounds = set(_peaks(_novelty(similar), phase))
-    presence = None
-    if vocals is not None:
-        presence = voiced(vocals)
-        # donde entra o sale la voz (y se queda), tambien es un cambio
-        for a, _ in _runs(presence)[1:]:
-            if all(abs(a - b) > 1 for b in bounds):
-                bounds.add(a)
-    edges = sorted({0, n, *bounds})
-    spans = _merge_short(list(itertools.pairwise(edges)), blocks)
-    groups = _clusters([[blk[a:b].mean(axis=0) for blk in blocks] for a, b in spans])
-    median = float(np.median(rms)) if n else 0.0
-    levels = {k: np.asarray(v, np.float64) for k, v in (sources or {}).items() if k not in VOCALS}
-    song_total = sum(float(v.mean()) for v in levels.values())
-    out = []
-    for (a, b), g in zip(spans, groups, strict=True):
-        loud = float(rms[a:b].mean())
-        part: dict[str, Any] = {
-            "first": a,
-            "last": b,
-            "start": float(units[a][0]),
-            "end": float(units[b - 1][1]),
-            "cluster": _letter(g),
-            "rms": loud,
-            "quiet": loud < QUIET * median,
-        }
-        if presence is not None:
-            part["vocal"] = float(presence[a:b].mean())
-        if levels and song_total > 1e-9:
-            here = {k: float(v[a:b].mean()) for k, v in levels.items()}
-            total = sum(here.values())
-            named = [k for k in here if k in SOLOS]
-            if total > 1e-9 and named:
-                top = max(named, key=lambda k: here[k])
-                share = here[top] / total
-                usual = float(levels[top].mean()) / song_total
-                if share >= SOLO_SHARE and share >= SOLO_OVER * usual:
-                    part["lead"] = top
-        out.append(part)
-    return out
+
+    def vector(v):
+        return np.ascontiguousarray(np.asarray(v, np.float64).reshape(-1))
+
+    return _rust.structure_segment(
+        [_matrix(f) for f in features],
+        vector(rms),
+        None if vocals is None else vector(vocals),
+        [(str(k), vector(v)) for k, v in (sources or {}).items()],
+        None if units is None else _units(units),
+        phase,
+    )
 
 
 def name_sections(segments: Sequence[Mapping[str, Any]], bar: float = 2.0) -> list[dict]:
@@ -468,85 +228,7 @@ def name_sections(segments: Sequence[Mapping[str, Any]], bar: float = 2.0) -> li
     coro, el puente. Lo que quede: estrofa antes del primer coro, puente
     despues. Las seguidas con el mismo nombre se juntan, y lo que se repite
     se numera («Coro 1», «Coro 2»)."""
-    n = len(segments)
-    if not n:
-        return []
-    names = [""] * n
-    known = any("vocal" in s for s in segments)
-    sung = [float(s.get("vocal", 0.0)) >= 0.5 for s in segments]
-    if known and any(sung):
-        first = sung.index(True)
-        last = n - 1 - sung[::-1].index(True)
-        for i in range(first):
-            names[i] = "Intro"
-        for i in range(last + 1, n):
-            names[i] = "Final"
-        for i in range(first, last + 1):
-            if not sung[i]:
-                lead = segments[i].get("lead")
-                names[i] = SOLOS.get(str(lead), "Instrumental") if lead else "Instrumental"
-    elif n > 1:
-        if segments[0].get("quiet"):
-            names[0] = "Intro"
-        if segments[-1].get("quiet"):
-            names[-1] = "Final"
-    middle = [i for i in range(n) if not names[i]]
-    counts = Counter(segments[i]["cluster"] for i in middle)
-    repeated = [c for c, k in counts.items() if k >= 2]
-    chorus = None
-    if repeated:
-
-        def energy(c):
-            return float(
-                np.mean([segments[i]["rms"] for i in middle if segments[i]["cluster"] == c])
-            )
-
-        chorus = max(repeated, key=energy)
-        others = [c for c in repeated if c != chorus]
-        verse = None
-        if others:
-            verse = min(
-                others, key=lambda c: next(i for i in middle if segments[i]["cluster"] == c)
-            )
-        for i in middle:
-            if segments[i]["cluster"] == chorus:
-                names[i] = "Coro"
-            elif segments[i]["cluster"] == verse:
-                names[i] = "Estrofa"
-    for i in middle:
-        short = segments[i]["end"] - segments[i]["start"] <= 4 * bar + 1e-6
-        before_chorus = i + 1 < n and names[i + 1] == "Coro"
-        if not names[i] and short and before_chorus and segments[i]["cluster"] != chorus:
-            names[i] = "Pre coro"
-    choruses = [i for i in range(n) if names[i] == "Coro"]
-    for i in middle:
-        if names[i]:
-            continue
-        if not choruses:
-            names[i] = "Parte"  # sin coro no hay estrofa ni puente que valgan
-        elif i < choruses[0]:
-            names[i] = "Estrofa"
-        else:
-            names[i] = "Puente"
-    merged: list[dict] = []
-    for seg, name in zip(segments, names, strict=True):
-        if merged and merged[-1]["label"] == name and name != "Parte":
-            merged[-1]["end"] = round(float(seg["end"]), 2)
-        else:
-            merged.append(
-                {
-                    "start": round(float(seg["start"]), 2),
-                    "end": round(float(seg["end"]), 2),
-                    "label": name,
-                }
-            )
-    times = Counter(m["label"] for m in merged)
-    seen: Counter[str] = Counter()
-    for m in merged:
-        if times[m["label"]] > 1:
-            seen[m["label"]] += 1
-            m["label"] = f"{m['label']} {seen[m['label']]}"
-    return merged
+    return _rust.structure_name_sections(list(segments), float(bar))
 
 
 def plan_cues(
@@ -561,23 +243,11 @@ def plan_cues(
     detras de ella, y como mucho acabando cuando empieza su parte; si ni
     asi cabe, esa parte no se anuncia). La que empieza en el primer segundo
     (la intro) no hace falta anunciarla."""
-    air = float(beat) if beat and beat > 0 else AIR
-    out: list[dict] = []
-    end = None
-    for s in sections:
-        start, label = float(s["start"]), str(s["label"])
-        clip = clip_seconds.get(label)
-        if start < FIRST or clip is None:
-            continue
-        t = max(0.0, start - clip - air)
-        if end is not None and t < end + GAP:
-            t = max(end + GAP, start - clip)
-        t = round(t, 2)
-        if t + clip > start + 0.01:
-            continue  # ya no cabe antes de su parte
-        out.append({"t": t, "text": label})
-        end = t + clip
-    return out
+    return _rust.structure_plan_cues(
+        [(float(s["start"]), str(s["label"])) for s in sections],
+        [(str(k), float(v)) for k, v in clip_seconds.items()],
+        float(beat) if beat else None,
+    )
 
 
 # ------------------------------------------------------------ la cancion
@@ -642,18 +312,10 @@ def analyse(
 def _given(sections: Sequence[Mapping[str, Any]], duration: float) -> list[dict]:
     """Las partes que ya tienen nombre (los marcadores), tal cual: en orden,
     cada una hasta la siguiente y la ultima hasta el final."""
-    seen: dict[float, str] = {}
-    for s in sections:
-        start = round(max(0.0, float(s["start"])), 2)
-        label = str(s.get("label") or "").strip()[:80]
-        if label and (not duration or start < duration) and start not in seen:
-            seen[start] = label
-    starts = sorted(seen)
-    out = []
-    for i, start in enumerate(starts):
-        end = starts[i + 1] if i + 1 < len(starts) else max(start, round(duration, 2))
-        out.append({"start": start, "end": end, "label": seen[start]})
-    return out
+    return _rust.structure_given(
+        [(float(s["start"]), str(s.get("label") or "").strip()[:80]) for s in sections],
+        float(duration),
+    )
 
 
 def auto_guide(

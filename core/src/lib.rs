@@ -14,6 +14,7 @@ pub mod conversaciones;
 pub mod convertir;
 pub mod diario;
 pub mod duplicados;
+pub mod estructura;
 pub mod etiquetas;
 pub mod fuera;
 pub mod habla;
@@ -185,6 +186,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     clic::register(m)?;
     pesos::register(m)?;
     pulso::register(m)?;
+    estructura::register(m)?;
     Ok(())
 }
 

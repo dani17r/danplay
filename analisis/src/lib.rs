@@ -4,6 +4,8 @@
 //!
 //! - `clic`: la pista del clic de la mezcla que se guarda (el sonido es el
 //!   del motor, el mismo que suena en el modo estudio);
+//! - `estructura`: las partes de la canción y cuándo anunciarlas (la guía
+//!   automática);
 //! - `pesos`: leer los pesos de un checkpoint de PyTorch sin PyTorch ni
 //!   ejecutar nada de lo que traiga;
 //! - `pulso`: el pulso y el «1» con Beat This! (espectrograma, la red en
@@ -18,6 +20,7 @@
 #![allow(clippy::float_cmp)]
 
 pub mod clic;
+pub mod estructura;
 pub mod pesos;
 pub mod pulso;
 
