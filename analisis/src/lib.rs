@@ -2,6 +2,7 @@
 //! cada canción, sacado poco a poco del núcleo Python (danplay/click.py,
 //! torchzip.py, pulse.py...).
 //!
+//! - `mezcla`: el clic y las guías habladas de una mezcla guardada, en WAV;
 //! - `clic`: la pista del clic de la mezcla que se guarda (el sonido es el
 //!   del motor, el mismo que suena en el modo estudio);
 //! - `estructura`: las partes de la canción y cuándo anunciarlas (la guía
@@ -26,6 +27,7 @@
 pub mod clic;
 pub mod estructura;
 pub mod mega;
+pub mod mezcla;
 pub mod onnx;
 pub mod pesos;
 pub mod pulso;

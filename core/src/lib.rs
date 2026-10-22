@@ -28,6 +28,7 @@ pub mod miniaturas;
 pub mod nombres;
 pub mod onda;
 pub mod pesos;
+pub mod pistas;
 pub mod pulso;
 pub mod registro;
 pub mod seguro;
@@ -190,6 +191,7 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pulso::register(m)?;
     separar::register(m)?;
     estructura::register(m)?;
+    pistas::register(m)?;
     Ok(())
 }
 

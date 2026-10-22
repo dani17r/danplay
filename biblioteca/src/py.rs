@@ -1123,6 +1123,88 @@ pub fn fnmatch(name: &str, pat: &str) -> bool {
 
 // ------------------------------------------------------------------ líneas y JSON
 
+/// `json.dumps(v, ensure_ascii=False, separators=(",", ":"))` de Python:
+/// lo más corto, sin espacios.
+pub fn dumps_compact(v: &Value) -> String {
+    dumps_with(v, None, false).replace_separators()
+}
+
+trait Compact {
+    fn replace_separators(self) -> String;
+}
+
+impl Compact for String {
+    /// Quita los espacios tras «,» y «:» que no estén dentro de un texto.
+    fn replace_separators(self) -> String {
+        let mut out = String::with_capacity(self.len());
+        let mut in_str = false;
+        let mut escaped = false;
+        let mut chars = self.chars().peekable();
+        while let Some(c) = chars.next() {
+            out.push(c);
+            if in_str {
+                if escaped {
+                    escaped = false;
+                } else if c == '\\' {
+                    escaped = true;
+                } else if c == '"' {
+                    in_str = false;
+                }
+            } else if c == '"' {
+                in_str = true;
+            } else if (c == ',' || c == ':') && chars.peek() == Some(&' ') {
+                chars.next();
+            }
+        }
+        out
+    }
+}
+
+/// `str(Path(s))`: la ruta como la escribe pathlib (sin «.», sin barras
+/// repetidas ni al final; en Windows, con «\»).
+pub fn purepath(s: &str) -> String {
+    if cfg!(windows) {
+        let s = s.replace('/', "\\");
+        let (drive, root, rest) = nt_splitroot(&s);
+        let parts: Vec<&str> = rest
+            .split('\\')
+            .filter(|c| !c.is_empty() && *c != ".")
+            .collect();
+        let out = format!("{drive}{root}{}", parts.join("\\"));
+        return if out.is_empty() { ".".into() } else { out };
+    }
+    let lead = if s.starts_with("//") && !s.starts_with("///") {
+        "//"
+    } else if s.starts_with('/') {
+        "/"
+    } else {
+        ""
+    };
+    let parts: Vec<&str> = s
+        .split('/')
+        .filter(|c| !c.is_empty() && *c != ".")
+        .collect();
+    let out = format!("{lead}{}", parts.join("/"));
+    if out.is_empty() { ".".into() } else { out }
+}
+
+/// `Path(name).suffix`: lo de después del último punto, si no es el primer
+/// ni el último carácter del nombre.
+pub fn path_suffix(path: &str) -> String {
+    let name = basename(&purepath(path));
+    match name.rfind('.') {
+        Some(i) if i > 0 && i < name.len() - 1 => name[i..].to_owned(),
+        _ => String::new(),
+    }
+}
+
+/// `Path(name).stem`: el nombre sin su `suffix`.
+pub fn path_stem(path: &str) -> String {
+    let name = basename(&purepath(path));
+    let suffix = path_suffix(path);
+    name[..name.len() - suffix.len()].to_owned()
+}
+
 /// `str.splitlines()` de Python: corta en todos los finales de línea que
 /// conoce Python (no solo «\n»), y «\r\n» cuenta como uno.
 pub fn splitlines(s: &str) -> Vec<&str> {

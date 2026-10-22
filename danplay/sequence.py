@@ -18,11 +18,13 @@ DanPlay la deja lista para tocar como una secuencia en directo:
 
 Sin el `.als` tambien vale: el tempo sale del nombre de la carpeta, y si no,
 del analisis de siempre.
+
+Leer la carpeta y el proyecto, la rejilla, los marcadores y la onda de cada
+pista lo hace Rust (biblioteca/src/secuencias.rs); aqui quedan lanzar ffmpeg y
+meterla en la biblioteca.
 """
 
 import contextlib
-import gzip
-import itertools
 import json
 import logging
 import os
@@ -34,17 +36,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import danplay_core as _rust
+
 from . import config, convert, names, tags
 
 log = logging.getLogger(__name__)
 
 AUDIO = {".wav", ".wave", ".aif", ".aiff", ".flac", ".mp3", ".m4a", ".ogg", ".opus"}
 COVERS = ("album", "cover", "folder", "front", "artwork", "portada")
-# Lo que dice el nombre de una pista: el clic y la guia hablada.
-ROLES = {
-    "click": re.compile(r"\b(click|clic|clik|metronom[eo]|metr[oó]nomo|claqueta)\b", re.I),
-    "guide": re.compile(r"\b(guide|gu[ií]as?|cues?|voice\s*cues?|count\s*in|cuenta)\b", re.I),
-}
 # Un .als que descomprimido pesa mas que esto no es un proyecto normal.
 MAX_ALS = 64 * 1024 * 1024
 JOB = "secuencia"
@@ -60,55 +59,15 @@ class SequenceError(Exception):
 # ------------------------------------------------------------ que hay
 
 
-def _audio_in(folder: Path) -> list[Path]:
-    with contextlib.suppress(OSError):
-        return sorted(
-            p
-            for p in folder.iterdir()
-            if p.is_file() and p.suffix.lower() in AUDIO and not p.name.startswith(".")
-        )
-    return []
-
-
-def _tracks_dir(folder: Path) -> Path | None:
-    """La carpeta con las pistas: esta misma, o una de dentro (MultiTracks,
-    Stems, Tracks…), hasta dos niveles. La que mas pistas tenga."""
-    best, most = None, 0
-    queue = [(folder, 0)]
-    while queue:
-        here, depth = queue.pop(0)
-        n = len(_audio_in(here))
-        if n > most:
-            best, most = here, n
-        if depth < 2:
-            with contextlib.suppress(OSError):
-                queue.extend(
-                    (d, depth + 1)
-                    for d in sorted(here.iterdir())
-                    if d.is_dir()
-                    and not d.name.startswith(".")
-                    and d.name != "Ableton Project Info"
-                )
-    return best if most >= 3 else None
-
-
 def role_of(name: str) -> str:
     """El papel de una pista por su nombre: 'click', 'guide' o ''."""
-    for role, pattern in ROLES.items():
-        if pattern.search(name):
-            return role
-    return ""
+    return _rust.sequence_role_of(str(name))
 
 
 def key_of(name: str, taken: set[str]) -> str:
     """Una clave para la pista (la del mezclador): sin tildes ni espacios,
-    que empiece por letra, unica."""
-    base = re.sub(r"[^a-z0-9]+", "_", names.strip_accents(name).lower()).strip("_")[:20]
-    if not base or not base[0].isalpha():
-        base = "p_" + base
-    key, n = base, 2
-    while key in taken:
-        key, n = f"{base[:17]}_{n}", n + 1
+    que empiece por letra, unica (y se apunta en `taken`)."""
+    key = _rust.sequence_key_of(str(name), sorted(taken))
     taken.add(key)
     return key
 
@@ -116,156 +75,27 @@ def key_of(name: str, taken: set[str]) -> str:
 def parse_name(name: str) -> dict:
     """Lo que dice el nombre de la carpeta: «This Is The Day-Shout-F-124.00bpm»,
     «Titulo - Artista - Tono - 124 bpm»..."""
-    out: dict = {"title": "", "artist": "", "key": "", "bpm": 0.0}
-    text = name.strip()
-    m = re.search(r"[-_ ]*(\d{2,3}(?:[.,]\d+)?)\s*bpm\s*$", text, re.I)
-    if m:
-        out["bpm"] = float(m[1].replace(",", "."))
-        text = text[: m.start()]
-    parts = [p.strip() for p in re.split(r"\s+-\s+|-", text) if p.strip()]
-    if parts and re.fullmatch(r"[A-G](?:#|b|♯|♭)?m?", parts[-1]):
-        out["key"] = parts.pop()
-    if len(parts) >= 2:
-        out["title"], out["artist"] = parts[0], " - ".join(parts[1:])
-    elif parts:
-        out["title"] = parts[0]
-    return out
-
-
-def _safe_xml(data: bytes) -> bytes:
-    """Un proyecto de Ableton no trae DTD: si trae, no se lee (una
-    «bomba» de entidades colgaria el nucleo)."""
-    head = data[:4096].upper()
-    if b"<!DOCTYPE" in head or b"<!ENTITY" in data[:65536].upper():
-        raise SequenceError("el proyecto de Ableton trae algo raro: no lo leo")
-    return data
-
-
-def _meter(value: int) -> tuple[int, int]:
-    """Ableton guarda el compas como un numero: 99·log2(denominador) +
-    (numerador − 1). 201 es 4/4; 200, 3/4; 302, 6/8."""
-    den = 2 ** (value // 99)
-    return value % 99 + 1, den
+    return _rust.sequence_parse_name(str(name))
 
 
 def read_als(path: Path) -> dict:
     """Lo que sirve del proyecto de Ableton: el tempo, los compases (con su
-    pulso de inicio), los localizadores y donde empieza cada pista."""
-    import xml.etree.ElementTree as ET
-
+    pulso de inicio), los localizadores y donde empieza cada pista. Un
+    proyecto con DTD no se lee (una «bomba» de entidades colgaria el nucleo)."""
     try:
-        with gzip.open(path, "rb") as f:
-            data = f.read(MAX_ALS + 1)
-    except (OSError, EOFError) as e:
-        raise SequenceError("no se pudo leer el proyecto de Ableton") from e
-    if len(data) > MAX_ALS:
-        raise SequenceError("el proyecto de Ableton es demasiado grande")
-    try:
-        root = ET.fromstring(_safe_xml(data))  # noqa: S314 - ver _safe_xml
-    except ET.ParseError as e:
-        raise SequenceError("el proyecto de Ableton está dañado") from e
-
-    def value(el, default=None):
-        return el.get("Value", default) if el is not None else default
-
-    tempo = 0.0
-    master = root.find(".//MasterTrack")
-    if master is None:
-        master = root
-    for ev in master.iterfind(".//Tempo/ArrangerAutomation/Events/FloatEvent"):
-        with contextlib.suppress(TypeError, ValueError):
-            tempo = float(ev.get("Value") or 0)
-            break
-    if not tempo:
-        with contextlib.suppress(TypeError, ValueError):
-            tempo = float(value(master.find(".//Tempo/Manual"), 0) or 0)
-    meters = []
-    for ev in master.iterfind(".//TimeSignature/ArrangerAutomation/Events/EnumEvent"):
-        with contextlib.suppress(TypeError, ValueError):
-            beat = max(0.0, float(ev.get("Time") or 0))
-            num, den = _meter(int(ev.get("Value") or 201))
-            meters.append((beat, num, den))
-    meters.sort()
-    locators = []
-    for loc in root.iterfind(".//Locators/Locators/Locator"):
-        with contextlib.suppress(TypeError, ValueError):
-            locators.append(
-                (float(value(loc.find("Time"), 0)), str(value(loc.find("Name"), "") or "").strip())
-            )
-    locators.sort()
-    clips = {}
-    for clip in root.iterfind(".//AudioClip"):
-        ref = clip.find(".//SampleRef/FileRef/Name")
-        name = value(ref)
-        if not name:
-            continue
-        with contextlib.suppress(TypeError, ValueError):
-            clips[name] = {
-                "beat": float(clip.get("Time") or 0),
-                "warped": value(clip.find("IsWarped")) == "true",
-            }
-    return {"tempo": tempo, "meters": meters, "locators": locators, "clips": clips}
+        return _rust.sequence_read_als(os.fspath(path))
+    except ValueError as e:
+        raise SequenceError(str(e)) from None
 
 
 def find(folder) -> dict:
     """La secuencia de esa carpeta (o de la carpeta de ese archivo): sus
     pistas con su papel, el proyecto, la portada y lo que dice el nombre.
     SequenceError si no lo parece."""
-    folder = Path(folder)
-    if folder.is_file():
-        folder = folder.parent
-    if not folder.is_dir():
-        raise SequenceError("no encuentro esa carpeta")
-    tracks_dir = _tracks_dir(folder)
-    # desde dentro de MultiTracks: la carpeta de la cancion es la de arriba
-    if (
-        tracks_dir == folder
-        and not list(folder.glob("*.als"))
-        and list(folder.parent.glob("*.als"))
-    ):
-        folder = folder.parent
-    if tracks_dir is None:
-        raise SequenceError("esa carpeta no tiene pistas (hacen falta al menos tres audios)")
-    als = next(iter(sorted(folder.glob("*.als"))), None) or next(
-        iter(sorted(tracks_dir.glob("*.als"))), None
-    )
-    project = None
-    if als is not None:
-        with contextlib.suppress(SequenceError):
-            project = read_als(als)
-    cover = None
-    for p in sorted(folder.iterdir()):
-        if p.suffix.lower() in (".jpg", ".jpeg", ".png") and p.is_file():
-            if p.stem.lower() in COVERS:
-                cover = p
-                break
-            cover = cover or p
-    info = parse_name(folder.name)
-    taken: set[str] = set()
-    tracks = []
-    for p in _audio_in(tracks_dir):
-        name = p.stem.strip()
-        tracks.append(
-            {"path": str(p), "name": name, "role": role_of(name), "key": key_of(name, taken)}
-        )
-    # el clic y la guia, delante (como en las apps de secuencias)
-    order = {"click": 0, "guide": 1, "": 2}
-    tracks.sort(key=lambda t: order[t["role"]])
-    tempo = (project or {}).get("tempo") or info["bpm"]
-    return {
-        "folder": str(folder),
-        "tracks_dir": str(tracks_dir),
-        "title": info["title"] or folder.name,
-        "artist": info["artist"],
-        "key": info["key"],
-        "bpm": round(float(tempo or 0), 3),
-        "project": str(als) if als else "",
-        "cover": str(cover) if cover else "",
-        "tracks": tracks,
-        "sections": [{"beat": b, "name": n} for b, n in ((project or {}).get("locators") or [])],
-        "meters": (project or {}).get("meters") or [],
-        "clips": (project or {}).get("clips") or {},
-    }
+    try:
+        return _rust.sequence_find(os.fspath(folder))
+    except ValueError as e:
+        raise SequenceError(str(e)) from None
 
 
 def summary(folder) -> dict:
@@ -294,49 +124,16 @@ def beat_seconds(beat: float, tempo: float) -> float:
 def grid(tempo: float, meters: list, duration: float) -> dict:
     """La rejilla exacta: un pulso cada 60/tempo desde el principio, y el «1»
     de cada compas segun los cambios de compas del proyecto."""
-    period = 60.0 / tempo
-    n = int(duration / period) + 1
-    beats = [round(k * period, 4) for k in range(n)]
-    changes = sorted(meters) or [(0.0, 4, 4)]
-    bars, k = [], 0
-    while k < n:
-        num = 4
-        for beat, m_num, _ in changes:
-            if beat <= k + 1e-6:
-                num = m_num
-        bars.append(k)
-        # un compas no se pasa del siguiente cambio
-        nxt = next((b for b, _, _ in changes if b > k + 1e-6), None)
-        step = max(1, num)
-        if nxt is not None and k + step > nxt:
-            step = max(1, round(nxt - k))
-        k += step
-    meter = changes[0][1]
-    return {
-        "bpm": round(tempo, 3),
-        "meter": meter if meter in (2, 3, 4, 5, 6, 7, 8, 9, 12) else 4,
-        "beats": beats,
-        "bars": bars,
-        "first_downbeat": 0,
-        "phase3": 0,
-        "phase4": 0,
-        "confidence": 1.0,
-        "closed": True,
-        "report": {"mode": "project", "exact": True},
-    }
+    return _rust.sequence_grid(
+        float(tempo), [(float(b), int(n), int(d)) for b, n, d in meters], float(duration)
+    )
 
 
 def markers(sections: list, tempo: float, duration: float) -> list[dict]:
     """Los localizadores como marcadores: cada parte hasta la siguiente."""
-    out = []
-    times = [(beat_seconds(s["beat"], tempo), s["name"]) for s in sections]
-    for i, (t, name) in enumerate(times):
-        end = times[i + 1][0] if i + 1 < len(times) else duration
-        if t >= duration:
-            break
-        label = name[:60] or f"Parte {i + 1}"
-        out.append({"t": round(t, 2), "end": round(min(end, duration), 2), "label": label})
-    return out
+    return _rust.sequence_markers(
+        [(float(s["beat"]), str(s["name"])) for s in sections], float(tempo), float(duration)
+    )
 
 
 # ------------------------------------------------------------ abrirla
@@ -365,8 +162,6 @@ def _duration(ffmpeg: str, path: str) -> float:
 
 def _wave(ffmpeg: str, path: str, duration: float) -> tuple[list[float], list[float]]:
     """Pico y RMS de una pista (a la escala de 1), para su carril."""
-    import numpy as np
-
     rate = 4000
     r = subprocess.run(
         [
@@ -388,20 +183,7 @@ def _wave(ffmpeg: str, path: str, duration: float) -> tuple[list[float], list[fl
         timeout=600,
         check=False,
     )
-    x = (
-        np.abs(np.frombuffer(r.stdout, np.float32))
-        if r.returncode == 0
-        else np.zeros(1, np.float32)
-    )
-    n = max(1, int(duration * rate))
-    x = np.pad(x[:n], (0, max(0, n - x.size)))
-    edges = (np.arange(WAVE_BUCKETS + 1) * n) // WAVE_BUCKETS
-    peaks, rms = [], []
-    for a, b in itertools.pairwise(edges):
-        chunk = x[a : max(b, a + 1)]
-        peaks.append(float(chunk.max(initial=0.0)))
-        rms.append(float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2))))
-    return peaks, rms
+    return _rust.sequence_wave(r.stdout if r.returncode == 0 else None, rate, float(duration))
 
 
 def _run(cmd: list[str], what: str) -> None:
@@ -413,15 +195,11 @@ def _run(cmd: list[str], what: str) -> None:
 
 def _offset_filter(seconds: float) -> list[str]:
     """Una pista que en el proyecto empieza mas tarde: silencio delante."""
-    if seconds <= 0.0005:
-        return []
-    return ["-af", f"adelay=delays={seconds * 1000:.3f}:all=1"]
+    return _rust.sequence_offset_filter(float(seconds))
 
 
 def target_name(seq: dict) -> str:
-    artist, title = seq["artist"].strip(), seq["title"].strip()
-    base = names.sanitize(f"{artist} - {title}" if artist else title) or "Secuencia"
-    return base[:150]
+    return _rust.sequence_target_name(seq["artist"], seq["title"])
 
 
 def import_sequence(folder, progress=None) -> dict:
@@ -530,20 +308,8 @@ def import_sequence(folder, progress=None) -> dict:
         # 3. la onda de cada pista, todas a la misma escala
         progress(done=done, total=total, message=f"Dibujando las pistas de «{seq['title']}»…")
         waves = {t["key"]: _wave(ffmpeg, str(work / files[t["key"]]), duration) for t in tracks}
-        top = max((max(p) for p, _ in waves.values() if p), default=1.0) or 1.0
         (work / stems.WAVES).write_text(
-            json.dumps(
-                {
-                    "buckets": WAVE_BUCKETS,
-                    "tracks": {
-                        k: {
-                            "peaks": [round(min(1.0, v / top), 3) for v in p],
-                            "rms": [round(min(1.0, v / top), 3) for v in r],
-                        }
-                        for k, (p, r) in waves.items()
-                    },
-                }
-            ),
+            _rust.sequence_waves_text([(k, p, r) for k, (p, r) in waves.items()]),
             encoding="utf-8",
         )
         done += 1

@@ -29,20 +29,20 @@ Va en `Celular/`, junto a `Separadas/`, dentro de la biblioteca de la que
 cuelga la cancion: como todo lo que se escribe desde la API, nunca fuera de
 ella. Volver a llevarla pisa la de antes (con lo que se haya cambiado desde
 entonces). El escaneo no la mira: no es audio.
+
+El manifiesto, las partes (en paralelo) y el zip los hace Rust
+(biblioteca/src/celular.rs); aqui se piden la rejilla, la caratula y la onda.
 """
 
 import contextlib
-import json
 import logging
-import os
 import subprocess
-import tempfile
 import time
-import zipfile
 from collections.abc import Mapping
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+
+import danplay_core as _rust
 
 from . import beatgrid, convert, stems
 from .api import jobs
@@ -79,50 +79,15 @@ def _encoders(ffmpeg: str) -> str:
 
 def codec(ffmpeg: str) -> tuple[str, list[str]]:
     """La extension y los argumentos de ffmpeg con que van las partes."""
-    found = _encoders(ffmpeg)
-    if " libvorbis " in found:
-        return ".ogg", ["-c:a", "libvorbis", "-q:a", "6"]
-    if " libmp3lame " in found:
-        return ".mp3", ["-c:a", "libmp3lame", "-b:a", "256k"]
-    raise BundleError("este ffmpeg no sabe hacer ni Vorbis ni MP3")
+    return _codec_of(_encoders(ffmpeg))
 
 
-def _encode(ffmpeg: str, source: Path, target: Path, args: list[str]) -> None:
-    # sin las etiquetas de la parte (solo pesan) y siempre en 44,1 kHz
-    # estereo: las de Opus son de 48 kHz, y el celular las suma muestra a
-    # muestra
-    cmd = [
-        ffmpeg,
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-nostdin",
-        "-y",
-        "-i",
-        str(source),
-        "-map",
-        "0:a:0",
-        "-map_metadata",
-        "-1",
-        "-ac",
-        "2",
-        "-ar",
-        "44100",
-        *args,
-        str(target),
-    ]
-    r = subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
-    )
-    if r.returncode != 0 or not target.is_file():
-        raise BundleError(f"ffmpeg no pudo preparar «{source.name}»: {r.stderr.strip()[-200:]}")
-
-
-def _json(text: Any) -> Any:
+def _codec_of(encoders: str) -> tuple[str, list[str]]:
     try:
-        return json.loads(text or "null")
-    except (TypeError, ValueError):
-        return None
+        ext, args = _rust.bundle_codec(encoders)
+    except ValueError as e:
+        raise BundleError(str(e)) from None
+    return ext, list(args)
 
 
 def _grid(path: str) -> tuple[dict | None, str]:
@@ -172,43 +137,9 @@ def manifest(
     manifiesto de `Separadas/`; lo de dentro, tal cual lo guarda la base."""
     from . import __version__
 
-    chords = _json(song.get("chords"))
-    sheet = chords.get("sheet") if isinstance(chords, dict) else None
-    study = _json(song.get("study"))
-    try:
-        waves = json.loads((Path(info["folder"]) / stems.WAVES).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        waves = None
-    return {
-        "format": "danpista",
-        "version": VERSION,
-        "app": f"DanPlay {__version__}",
-        "created": round(time.time(), 1),
-        "song": {
-            "title": song.get("title") or Path(song["file"]).stem,
-            "artist": song.get("artist") or "",
-            "album": song.get("album") or "",
-            "year": song.get("year") or "",
-            "duration": song.get("duration") or 0,
-            "key": song.get("key") or "",
-            "bpm": song.get("bpm") or 0,
-            "file": song["file"],
-        },
-        "quality": info.get("quality") or "",
-        "tracks": [
-            {"source": t["source"], "name": t["name"], "file": files[t["source"]]}
-            for t in info["tracks"]
-            if t["source"] in files
-        ],
-        "grid": grid,
-        "study": study if isinstance(study, dict) else None,
-        "lyrics": song.get("lyrics") or "",
-        "lyrics_synced": song.get("lyrics_synced") or "",
-        "chords": sheet if isinstance(sheet, dict) else None,
-        "waves": waves if isinstance(waves, dict) else None,
-        "song_wave": song_wave,
-        "cover": cover,
-    }
+    return _rust.bundle_manifest(
+        dict(song), dict(info), dict(files), grid, cover, song_wave, f"DanPlay {__version__}"
+    )
 
 
 # Las guias habladas viajan con la pista, en esta carpeta del .danpista.
@@ -223,21 +154,12 @@ def guides_of(study: dict | None) -> tuple[dict | None, dict[str, Path]]:
 
     if not isinstance(study, dict) or not study.get("cues"):
         return study, {}
-    files: dict[str, Path] = {}
-    out = []
-    for c in study["cues"]:
-        own = cues.own_file(c.get("file"))
-        if not own or not Path(own).is_file():
-            continue
-        name = f"{GUIDES}/{Path(own).name}"
-        files[name] = Path(own)
-        out.append({**c, "file": name})
-    return {**study, "cues": out}, files
+    return _rust.bundle_guides_of(study, str(cues.folder()))
 
 
 def target_for(song: Mapping[str, Any]) -> Path:
     """Donde va: `Celular/<nombre del archivo>.danpista` en su biblioteca."""
-    return Path(song["root"]) / FOLDER / (stems._safe_name(Path(song["file"]).stem) + EXTENSION)
+    return Path(_rust.bundle_target_for(dict(song)))
 
 
 def export(cid: int, progress=None) -> dict:
@@ -245,7 +167,7 @@ def export(cid: int, progress=None) -> dict:
 
     `progress(done, total)` va contando las partes ya codificadas.
     """
-    from . import library
+    from . import __version__, cues, library
 
     song = library.by_id(cid)
     if not song:
@@ -256,7 +178,8 @@ def export(cid: int, progress=None) -> dict:
     ffmpeg = convert.tool("ffmpeg")
     if not ffmpeg:
         raise BundleError("hace falta ffmpeg")
-    ext, args = codec(ffmpeg)
+    encoders = _encoders(ffmpeg)
+    _codec_of(encoders)  # que diga ya si este ffmpeg no sabe
     target = target_for(song)
     if not library.within_roots(target):
         raise BundleError("su biblioteca ya no está entre tus carpetas")
@@ -274,45 +197,23 @@ def export(cid: int, progress=None) -> dict:
     step()
     cover = _cover(song["path"])
     song_wave = _song_wave(song["path"])
-    with tempfile.TemporaryDirectory(prefix="danplay-celular-") as work:
-        work_dir = Path(work)
-        files = {t["source"]: f"{PARTS}/{Path(t['file']).stem}{ext}" for t in tracks}
-
-        def one(track: Mapping[str, Any]) -> None:
-            _encode(ffmpeg, Path(track["path"]), work_dir / files[track["source"]], args)
-            step()
-
-        (work_dir / PARTS).mkdir()
-        with ThreadPoolExecutor(max_workers=min(WORKERS, len(tracks))) as pool:
-            # list(): que salte el primer fallo de cualquiera
-            list(pool.map(one, tracks))
-        cover_name = f"portada{cover[1]}" if cover else None
-        data = manifest(song, info, files, grid, cover_name, song_wave)
-        data["study"], guides = guides_of(data["study"])
-        if guides:
-            data["guides"] = sorted(guides)
-        tmp = target.with_name(f".{target.stem}.parte{EXTENSION}")
-        try:
-            with zipfile.ZipFile(tmp, "w") as z:
-                # el manifiesto primero: el celular lo lee sin recorrer el resto
-                z.writestr(
-                    MANIFEST,
-                    json.dumps(data, ensure_ascii=False, separators=(",", ":")),
-                    compress_type=zipfile.ZIP_DEFLATED,
-                )
-                # el audio ya va comprimido: tal cual, que se lee mas rapido
-                for t in tracks:
-                    name = files[t["source"]]
-                    z.write(work_dir / name, name, compress_type=zipfile.ZIP_STORED)
-                if cover and cover_name:
-                    z.writestr(cover_name, cover[0], compress_type=zipfile.ZIP_STORED)
-                # las guias habladas: frases cortas en WAV, comprimidas
-                for name, path in guides.items():
-                    z.write(path, name, compress_type=zipfile.ZIP_DEFLATED)
-            os.replace(tmp, target)
-        except BaseException:
-            tmp.unlink(missing_ok=True)
-            raise
+    try:
+        data = _rust.bundle_write(
+            dict(song),
+            dict(info),
+            ffmpeg,
+            encoders,
+            str(target),
+            grid,
+            cover,
+            song_wave,
+            str(cues.folder()),
+            f"DanPlay {__version__}",
+            time.localtime().tm_gmtoff,
+            step,
+        )
+    except ValueError as e:
+        raise BundleError(str(e)) from None
     return {
         "id": cid,
         "title": data["song"]["title"],
