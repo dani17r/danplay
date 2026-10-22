@@ -75,6 +75,12 @@ for _var in (
 ):
     os.environ.pop(_var, None)
 
+# Con DANPLAY_SIN_RUST=1 el nucleo se prueba como si no estuviera el crate de
+# Rust aunque este instalado (en la CI de Windows no lo esta): cada cosa cae a
+# su version en Python, y las etiquetas a mutagen (danplay/tags_mutagen.py).
+if os.environ.get("DANPLAY_SIN_RUST") == "1":
+    sys.modules["danplay_core"] = None  # type: ignore[assignment]
+
 
 class NetworkBlocked(OSError):
     """Lo que recibe una prueba que intenta salir a internet."""

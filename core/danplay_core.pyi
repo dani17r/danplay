@@ -28,3 +28,28 @@ def full_hashes(paths: list[_Path]) -> list[tuple[str, str | None]]:
 
 def waveform(path: _Path, buckets: int = 800) -> tuple[list[float], list[float]] | None:
     """La forma de onda: (picos, rms), `buckets` valores entre 0 y 1 cada uno."""
+
+# ---- las etiquetas (biblioteca/src/etiquetas.rs, con lofty): ver danplay/tags.py
+
+def tags_read(path: _Path) -> dict:
+    """Todo lo de una cancion, con las claves de `tags.read_all`. No falla: lo
+    ilegible sale vacio (un panic de lofty queda en `last_error()`)."""
+
+def tags_read_many(paths: list[_Path]) -> list[tuple[str, dict]]:
+    """`tags_read` de muchas canciones, en paralelo: [(ruta, etiquetas)]."""
+
+def tags_properties(path: _Path) -> tuple[float, int]:
+    """(segundos, bits por segundo), sin mirar las etiquetas."""
+
+def tags_write(path: _Path, fields: dict) -> bool:
+    """Escribe los campos de `fields` (los de `tags._write_fields`); False si
+    no se pudo, con el motivo en `last_error()`."""
+
+def tags_write_txxx(path: _Path, description: str, value: str) -> bool:
+    """Un TXXX cualquiera (solo en los archivos con ID3)."""
+
+def cover_read(path: _Path) -> tuple[bytes, str] | None:
+    """La portada incrustada: (datos, tipo), o None."""
+
+def cover_write(path: _Path, data: bytes, mime: str) -> bool:
+    """Pone la portada (quita las que hubiera); False si no se pudo."""

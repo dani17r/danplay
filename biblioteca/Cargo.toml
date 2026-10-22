@@ -1,0 +1,17 @@
+[package]
+name = "danplay-biblioteca"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "biblioteca"
+
+[dependencies]
+# Leer y escribir las etiquetas (ID3, Vorbis, MP4): MIT o Apache-2.0. Es lo
+# que sustituye a mutagen, que es GPL.
+lofty = "0.25"
+
+[lints]
+workspace = true

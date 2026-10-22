@@ -476,7 +476,6 @@ name = "danplay"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "mutagen" },
     { name = "numpy" },
     { name = "onnxruntime" },
     { name = "openai" },
@@ -497,6 +496,7 @@ dev = [
     { name = "httpx" },
     { name = "hypothesis" },
     { name = "maturin" },
+    { name = "mutagen" },
     { name = "pyinstaller" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -505,6 +505,7 @@ dev = [
 test = [
     { name = "httpx" },
     { name = "hypothesis" },
+    { name = "mutagen" },
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
@@ -512,7 +513,6 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = "~=0.141.1" },
-    { name = "mutagen", specifier = ">=1.48.1,<2" },
     { name = "numpy", specifier = ">=2.3,<3" },
     { name = "onnxruntime", specifier = ">=1.30,<2" },
     { name = "openai", specifier = ">=3.19.2,<4" },
@@ -533,6 +533,7 @@ dev = [
     { name = "httpx", specifier = ">=0.28.1,<1" },
     { name = "hypothesis", specifier = ">=6.168.1,<7" },
     { name = "maturin", specifier = ">=1.15.0,<2" },
+    { name = "mutagen", specifier = ">=1.48.1,<2" },
     { name = "pyinstaller", specifier = ">=6.22.3,<7" },
     { name = "pytest", specifier = ">=9.1.1,<10" },
     { name = "pytest-cov", specifier = ">=7.1.0,<8" },
@@ -541,6 +542,7 @@ dev = [
 test = [
     { name = "httpx", specifier = ">=0.28.1,<1" },
     { name = "hypothesis", specifier = ">=6.168.1,<7" },
+    { name = "mutagen", specifier = ">=1.48.1,<2" },
     { name = "pytest", specifier = ">=9.1.1,<10" },
     { name = "pytest-cov", specifier = ">=7.1.0,<8" },
 ]

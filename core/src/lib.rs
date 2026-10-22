@@ -1,10 +1,12 @@
 //! El núcleo en Rust (PyO3): lo que en Python va lento.
 //!
 //! Desde Python se usan `hashes` (duplicados idénticos), `waveform` (la
-//! forma de onda del modo estudio) y `last_error`. `partial_hash` y
+//! forma de onda del modo estudio), las etiquetas de cada canción (`tags_*` y
+//! `cover_*`, en `etiquetas`) y `last_error`. `partial_hash` y
 //! `full_hashes` son de la misma familia y se quedan para la línea de
 //! órdenes y las pruebas.
 pub mod audio;
+pub mod etiquetas;
 
 use md5::{Digest, Md5};
 use pyo3::prelude::*;
@@ -26,7 +28,7 @@ thread_local! {
     static LAST_ERROR: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
-fn set_last_error(msg: Option<String>) {
+pub(crate) fn set_last_error(msg: Option<String>) {
     LAST_ERROR.with(|cell| *cell.borrow_mut() = msg);
 }
 
@@ -39,7 +41,7 @@ fn last_error() -> Option<String> {
 
 /// Resultado de una sola ruta para Python: `Option` (los llamadores ya lo
 /// esperan así) y el motivo del fallo en `last_error()`.
-fn publish_one<T>(path: &Path, result: Result<T, String>) -> Option<T> {
+pub(crate) fn publish_one<T>(path: &Path, result: Result<T, String>) -> Option<T> {
     match result {
         Ok(value) => {
             set_last_error(None);
@@ -190,6 +192,13 @@ fn danplay_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(full_hashes, m)?)?;
     m.add_function(wrap_pyfunction!(waveform, m)?)?;
     m.add_function(wrap_pyfunction!(last_error, m)?)?;
+    m.add_function(wrap_pyfunction!(etiquetas::tags_read, m)?)?;
+    m.add_function(wrap_pyfunction!(etiquetas::tags_read_many, m)?)?;
+    m.add_function(wrap_pyfunction!(etiquetas::tags_properties, m)?)?;
+    m.add_function(wrap_pyfunction!(etiquetas::tags_write, m)?)?;
+    m.add_function(wrap_pyfunction!(etiquetas::tags_write_txxx, m)?)?;
+    m.add_function(wrap_pyfunction!(etiquetas::cover_read, m)?)?;
+    m.add_function(wrap_pyfunction!(etiquetas::cover_write, m)?)?;
     Ok(())
 }
 

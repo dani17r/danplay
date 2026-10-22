@@ -18,6 +18,8 @@ pyo3 = "0.29"
 rayon = "1.10"
 md-5 = "0.11"
 symphonia = { version = "0.6", features = ["mp3", "wav", "flac", "isomp4", "aac", "ogg", "vorbis"] }
+# las etiquetas de cada canción (lofty), las mismas que usará la app
+danplay-biblioteca = { path = "../biblioteca" }
 
 [lints]
 workspace = true
