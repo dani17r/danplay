@@ -35,16 +35,31 @@ suena al escritorio.
 etiquetas ID3, la IA, las descargas. Se puede usar solo, sin interfaz, desde
 la línea de comandos.
 
-**Rust (PyO3)** es donde va pasando el núcleo, de dentro afuera: las
-etiquetas de cada canción (`biblioteca/`, con lofty: leerlas y escribirlas, y
-en el escaneo por tandas en paralelo), la limpieza de nombres, hashes de
-archivos en paralelo (rayon) y análisis de audio con FFT. Python llama al
-crate (`danplay_core`, en `core/`) con la misma API de antes, y sus pruebas
-son el testigo de que nada cambia. El crate es obligatorio: `uv sync` lo
-compila, y lo que ya está en Rust no tiene versión en Python (quedan algunas
-viejas, como las etiquetas con mutagen en `tags_mutagen.py`, GPL: por eso no
-viaja en los paquetes). `biblioteca/` no sabe nada de Python, y la app lo
-usará directamente.
+**Rust (PyO3)** es donde va pasando el núcleo, de dentro afuera. Lo que ya
+hace Rust (`biblioteca/`, sin nada de Python; `core/` es el puente):
+
+- el índice: la conexión a SQLite (`indice.rs`, que Python usa como si fuera
+  `sqlite3`, con sus transacciones), el esquema y sus migraciones, buscar,
+  las carpetas y sus exclusiones, el escaneo, cada canción y su modo
+  estudio, «Transformar», el historial;
+- las listas (con sus «No está»), lo abierto desde fuera, las
+  conversaciones y el diario;
+- las etiquetas (lofty), los nombres, la teoría y los cifrados, TOON, los
+  datos de fuera como dato, la guía hablada, la búsqueda en la web;
+- la conversión, la forma de onda, las miniaturas, la huella y los
+  duplicados;
+- la configuración (`config.rs`, que de momento solo se compara con la de
+  Python) y las reglas de Python que todo eso daba por hechas (`py.rs`:
+  `os.path`, `fnmatch`, `round`, `json.dumps`...).
+
+Python llama al crate (`danplay_core`) con la misma API de antes, y sus
+pruebas son el testigo de que nada cambia; además, cada módulo se comparó
+con su versión anterior en miles de casos. Lo que toca la red, los hilos,
+los cerrojos y lo que aún no está en Rust sigue orquestado desde Python. El
+crate es obligatorio: `uv sync` lo compila, y lo que ya está en Rust no tiene
+versión en Python (quedan algunas viejas, como las etiquetas con mutagen en
+`tags_mutagen.py`, GPL: por eso no viaja en los paquetes). `biblioteca/` no
+sabe nada de Python, y la app lo usará directamente.
 
 ## Por qué la cola vive en Rust
 
