@@ -15,7 +15,7 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
-      con_herramientas:
+      with_tools:
         description: 'Incluir ffmpeg, fpcalc y QuickJS dentro del instalador (+40 MB)'
         type: boolean
         default: true
@@ -26,7 +26,7 @@ permissions:
 env:
   # En Windows no hay `apt install ffmpeg`: o van dentro o el usuario se queda
   # sin conversion de formatos, sin identificacion por sonido y sin YouTube.
-  CON_HERRAMIENTAS: ${{ github.event_name == 'push' && 'true' || inputs.con_herramientas }}
+  WITH_TOOLS: ${{ github.event_name == 'push' && 'true' || inputs.with_tools }}
   # Lo que se mete dentro, con version fija y su suma SHA-256. Antes se bajaba
   # «la ultima» sin comprobar nada: dos instaladores de la misma version podian
   # llevar un ffmpeg distinto, y nadie habria notado uno manipulado.
@@ -40,7 +40,7 @@ env:
   QJS_SHA256: 2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77
 
 jobs:
-  instalador:
+  installer:
     name: instalador de Windows
     runs-on: windows-latest
     steps:
@@ -88,20 +88,20 @@ jobs:
         run: |
           $tools = "desktop/src-tauri/tools"
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
-          function Bajar($url, $sha, $archivo) {
-            Invoke-WebRequest -Uri $url -OutFile $archivo
-            $real = (Get-FileHash $archivo -Algorithm SHA256).Hash.ToLower()
-            if ($real -ne $sha) { throw "$archivo no es lo esperado: $real" }
+          function Download($url, $sha, $file) {
+            Invoke-WebRequest -Uri $url -OutFile $file
+            $real = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            if ($real -ne $sha) { throw "$file no es lo esperado: $real" }
           }
-          Bajar $env:FFMPEG_URL $env:FFMPEG_SHA256 ffmpeg.zip
+          Download $env:FFMPEG_URL $env:FFMPEG_SHA256 ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
           Get-ChildItem -Recurse ffmpeg-tmp -Include ffmpeg.exe |
             ForEach-Object { Copy-Item $_.FullName $tools }
-          Bajar $env:FPCALC_URL $env:FPCALC_SHA256 fpcalc.zip
+          Download $env:FPCALC_URL $env:FPCALC_SHA256 fpcalc.zip
           Expand-Archive fpcalc.zip -DestinationPath fpcalc-tmp
           Get-ChildItem -Recurse fpcalc-tmp -Include fpcalc.exe |
             ForEach-Object { Copy-Item $_.FullName $tools }
-          Bajar $env:QJS_URL $env:QJS_SHA256 "$tools/qjs.exe"
+          Download $env:QJS_URL $env:QJS_SHA256 "$tools/qjs.exe"
           Get-ChildItem $tools
 
       # Las pruebas del nucleo en Windows (sin el crate de Rust, como viaja en
@@ -128,30 +128,30 @@ jobs:
       - name: el núcleo arranca y responde
         shell: pwsh
         run: |
-          $puerto = 8731
-          $env:DANPLAY_TOKEN = "prueba-de-humo"
+          $port = 8731
+          $env:DANPLAY_TOKEN = "smoke-test"
           $p = Start-Process -PassThru -FilePath dist/core/danplay-core/danplay-core.exe `
-               -ArgumentList "--host","127.0.0.1","--port","$puerto"
+               -ArgumentList "--host","127.0.0.1","--port","$port"
           try {
             $ok = $false
             foreach ($i in 1..30) {
               Start-Sleep -Seconds 1
               try {
-                $r = Invoke-WebRequest -Uri "http://127.0.0.1:$puerto/api/status" `
-                     -Headers @{ Authorization = "Bearer prueba-de-humo" } -TimeoutSec 3
+                $r = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/status" `
+                     -Headers @{ Authorization = "Bearer smoke-test" } -TimeoutSec 3
                 if ($r.StatusCode -eq 200) { $ok = $true; break }
               } catch { }
             }
             if (-not $ok) {
               # sin consola no se ve nada: lo que quede es su registro
               if ($p.HasExited) { Write-Host "el nucleo se cerro con el codigo $($p.ExitCode)" }
-              $registro = Join-Path $env:LOCALAPPDATA "danplay\logs\danplay.log"
-              if (Test-Path $registro) { Get-Content $registro -Tail 40 }
+              $logFile = Join-Path $env:LOCALAPPDATA "danplay\logs\danplay.log"
+              if (Test-Path $logFile) { Get-Content $logFile -Tail 40 }
               throw "el nucleo no contesto en 30 s"
             }
             # y sin el token no deberia contestar
             try {
-              Invoke-WebRequest -Uri "http://127.0.0.1:$puerto/api/status" -TimeoutSec 3 | Out-Null
+              Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/status" -TimeoutSec 3 | Out-Null
               throw "contesto SIN el token: el transporte no esta protegido"
             } catch [System.Net.WebException] { }
               catch [Microsoft.PowerShell.Commands.HttpResponseException] { }
@@ -169,7 +169,7 @@ jobs:
       # Las herramientas ya estan: sin ellas en el instalador, la carpeta se
       # queda solo con el aviso.
       - name: sin herramientas, la carpeta vacía igualmente
-        if: env.CON_HERRAMIENTAS != 'true'
+        if: env.WITH_TOOLS != 'true'
         shell: pwsh
         run: |
           Remove-Item -Recurse -Force desktop/src-tauri/tools
@@ -226,7 +226,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: danplay-windows-portatil
+          name: danplay-windows-portable
           path: dist/installers/DanPlay-*-windows-portatil.zip
           if-no-files-found: error
 

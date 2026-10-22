@@ -17,11 +17,11 @@ permissions:
 
 # Un push nuevo a la misma rama deja obsoleto el anterior: no se gasta en él.
 concurrency:
-  group: pruebas-${{ github.ref }}
+  group: tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  nucleo:
+  core:
     name: núcleo Python y crate de Rust
     runs-on: ubuntu-latest
     steps:
@@ -72,7 +72,7 @@ jobs:
   # allí: las rutas, la papelera y el transporte por loopback con token toman
   # caminos distintos que en Linux no se ejecutan nunca. Con el crate de Rust,
   # que el núcleo necesita (las etiquetas, los nombres...), compilado aquí.
-  nucleo-windows:
+  core-windows:
     name: núcleo Python en Windows
     runs-on: windows-latest
     steps:
@@ -101,7 +101,7 @@ jobs:
       - name: la línea de órdenes arranca
         run: python -m danplay.cli status
 
-  interfaz:
+  frontend:
     name: interfaz
     runs-on: ubuntu-latest
     defaults:
@@ -161,11 +161,11 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-informe
+          name: playwright-report
           path: desktop/playwright-report
           if-no-files-found: ignore
 
-  escritorio:
+  desktop:
     name: envoltorio de escritorio
     runs-on: ubuntu-latest
     steps:
@@ -220,7 +220,7 @@ jobs:
         run: |
           cargo check -p danplay-app --target x86_64-pc-windows-gnu
 
-  auditoria:
+  audit:
     name: avisos de seguridad de las dependencias
     runs-on: ubuntu-latest
     steps:
