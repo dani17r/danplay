@@ -34,7 +34,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
+      # clave, se restauraban sin servir y nunca se renovaban
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
       - name: programas del sistema
         run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg libchromaprint-tools
       # --locked: si uv.lock no cuadra con pyproject.toml, falla en vez de
@@ -162,7 +166,11 @@ jobs:
         with:
           components: clippy, rustfmt
           targets: x86_64-pc-windows-gnu
+      # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
+      # clave, se restauraban sin servir y nunca se renovaban
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
       - uses: actions/setup-node@v7
         with:
           node-version: '24'

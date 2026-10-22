@@ -50,7 +50,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android, armv7-linux-androideabi
+      # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
+      # clave, se restauraban sin servir y nunca se renovaban
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
 
       # La imagen de GitHub trae el SDK, pero no este NDK, y varias
       # build-tools: se usa la misma que en el equipo de desarrollo. (La

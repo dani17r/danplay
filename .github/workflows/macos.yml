@@ -102,7 +102,11 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
+      # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
+      # clave, se restauraban sin servir y nunca se renovaban
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
 
       # Lo que se mete dentro, con version fija y su sha256 (las mismas que en
       # Linux y Windows), para el procesador de este Mac
