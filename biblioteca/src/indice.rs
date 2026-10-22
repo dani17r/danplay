@@ -12,12 +12,14 @@
 //!   canciones   una canción: leerla, cambiarla, dónde está, su modo estudio
 //!   busqueda    buscar, filtrar, ordenar; las filas ligeras de las listas
 //!   escaneo     poner el índice al día con el disco
+//!   esquema     las tablas y sus migraciones
 //!   historial   el historial de descargas y lo que gasta la IA
 //!   ordenar     «Transformar»: cada canción en su sitio y con su nombre
 pub mod busqueda;
 pub mod canciones;
 pub mod carpetas;
 pub mod escaneo;
+pub mod esquema;
 pub mod historial;
 pub mod ordenar;
 

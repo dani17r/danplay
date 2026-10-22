@@ -6,6 +6,7 @@ use pyo3::prelude::*;
 
 /// Llama a la regla `name` de `biblioteca::py` con esos argumentos.
 #[pyfunction(name = "_compat")]
+#[allow(clippy::too_many_lines, reason = "una tabla de reglas, una por línea")]
 pub fn compat(py: Python<'_>, name: &str, args: Vec<Bound<'_, PyAny>>) -> PyResult<Py<PyAny>> {
     let text = |i: usize| -> PyResult<String> { args[i].extract() };
     let out: Py<PyAny> = match name {
@@ -91,6 +92,22 @@ pub fn compat(py: Python<'_>, name: &str, args: Vec<Bound<'_, PyAny>>) -> PyResu
             out.into_pyobject(py)?.into_any().unbind()
         }
         "config" => config(py, args[0].extract()?, args[1].extract()?)?,
+        "db_prepare" => {
+            // el esquema y las migraciones de Rust sobre esa base (sin la caché
+            // de bases ya preparadas)
+            let path: std::path::PathBuf = args[0].extract()?;
+            let applied = py
+                .detach(|| {
+                    let conn = biblioteca::indice::abrir(&path)?;
+                    biblioteca::indice::esquema::prepare(&conn)
+                })
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            applied.into_pyobject(py)?.into_any().unbind()
+        }
+        "schema_version" => biblioteca::indice::esquema::SCHEMA_VERSION
+            .into_pyobject(py)?
+            .into_any()
+            .unbind(),
         "dotenv_value" => biblioteca::config::dotenv_value(&text(0)?)
             .into_pyobject(py)?
             .into_any()
