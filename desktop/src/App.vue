@@ -12,6 +12,10 @@
  *   el menú contextual       → composables/useContextMenu.js
  *   tema, densidad y vistas  → composables/usePreferences.js
  *   bienvenida, entrada y duplicados → sus propios componentes
+ *
+ * Y lo que no se ve al arrancar (el modo estudio, la ficha, Transformar, las
+ * otras vistas de la lista…) son islas: llegan cuando hacen falta o un poco
+ * antes (ver islands.js).
  */
 import { ref, onMounted, onUnmounted, watch, computed, nextTick, useTemplateRef } from 'vue'
 import { api, app as tauriApp, core, errorMessage, inTauri } from './api.js'
@@ -46,7 +50,7 @@ import { useSearch } from './composables/useSearch.js'
 import { usePlaylistActions } from './composables/usePlaylistActions.js'
 import { useDownloads } from './composables/useDownloads.js'
 import { useSequence } from './composables/useSequence.js'
-import { connectChat } from './composables/useChat.js'
+import { connectChat } from './composables/chatLink.js'
 import { groupedOrder } from './utils/groups.js'
 import { useRouter } from 'vue-router'
 import { routeFor } from './router.js'
@@ -55,21 +59,12 @@ import Drawer from './components/ui/Drawer.vue'
 import CoverArt from './components/ui/CoverArt.vue'
 import Sidebar from './components/Sidebar.vue'
 import SongTable from './components/SongTable.vue'
-import SongGrid from './components/SongGrid.vue'
-import SongRows from './components/SongRows.vue'
-import SongCards from './components/SongCards.vue'
-import SearchPanel from './components/SearchPanel.vue'
-import SearchResults from './components/SearchResults.vue'
 import GroupedSongs from './components/GroupedSongs.vue'
-import SelectionBar from './components/SelectionBar.vue'
-import DetailsPanel from './components/DetailsPanel.vue'
+import DetailsEmpty from './components/DetailsEmpty.vue'
 import Player from './components/Player.vue'
-import CompactPlayer from './components/CompactPlayer.vue'
-import WelcomePage from './components/WelcomePage.vue'
 import Icon from './components/Icon.vue'
-import StudyBar from './components/StudyBar.vue'
-import TransformPanel from './components/TransformPanel.vue'
-import TermsModal from './components/TermsModal.vue'
+import * as islands from './islands.js'
+import { vPreload, preloadWhenIdle, warm } from './islands.js'
 import { useTerms } from './composables/useTerms.js'
 import { compareVersions } from './data/releases.js'
 import { version as appVersion } from '../package.json'
@@ -80,6 +75,36 @@ import SliderField from './components/ui/SliderField.vue'
 import ContextMenu from './components/ui/ContextMenu.vue'
 import Loading from './components/ui/Loading.vue'
 import ModalDialog from './components/ui/ModalDialog.vue'
+
+// Las islas (islands.js): cada una vale null hasta que llega su trozo, y la
+// plantilla no la pinta hasta entonces (`v-if="… && StudyBar"`).
+const StudyBar = islands.study.component
+const DetailsPanel = islands.details.component
+const TransformPanel = islands.transform.component
+const TermsModal = islands.terms.component
+const WelcomePage = islands.welcome.component
+const SearchPanel = islands.searchPanel.component
+const SearchResults = islands.searchResults.component
+const SelectionBar = islands.selectionBar.component
+const CompactPlayer = islands.compactPlayer.component
+const SongRows = islands.listViews.rows.component
+const SongCards = islands.listViews.cards.component
+const SongGrid = islands.listViews.grid.component
+
+/**
+ * Trae una isla antes de abrirla. Su trozo es local y no debería fallar; si
+ * falla, se dice y no se abre a medias.
+ * @param {import('./islands.js').Island<any>} one
+ */
+async function loaded(one) {
+  try {
+    await one.load()
+    return true
+  } catch (e) {
+    notify('No se pudo abrir: ' + errorMessage(e))
+    return false
+  }
+}
 
 const player = usePlayback()
 // el clic sigue a cada canción aunque el panel de estudio esté cerrado
@@ -100,8 +125,10 @@ const view = ref({ kind: 'all' })
 // (montado, aplicando lo de cada canción); `studyOpen`: se ve.
 const studyActive = ref(false)
 const studyOpen = ref(false)
-function toggleStudy() {
+async function toggleStudy() {
   if (!studyActive.value) {
+    // la primera vez, su trozo, si no se adelantó al pasar por el botón
+    if (!StudyBar.value && !(await loaded(islands.study))) return
     studyActive.value = true
     studyOpen.value = true
   } else studyOpen.value = !studyOpen.value
@@ -121,6 +148,7 @@ async function openSequence(path) {
   if (!song) return
   player.setQueue([song], song.id, { kind: 'all', label: 'Secuencias' })
   selection.showDetail(song.id)
+  if (!StudyBar.value && !(await loaded(islands.study))) return
   studyActive.value = true
   studyOpen.value = true
 }
@@ -128,7 +156,10 @@ async function openSequence(path) {
 const tidyOpen = ref(false)
 /** «Transformar» pide los términos aceptados (ver useTerms). */
 async function openTransform() {
-  if (await terms.requireTerms('transform')) tidyOpen.value = true
+  if (!(await terms.requireTerms('transform'))) return
+  if (TransformPanel.value || (await loaded(islands.transform))) {
+    tidyOpen.value = true
+  }
 }
 
 // ------------------------------------------------- acerca de DanPlay
@@ -136,6 +167,12 @@ async function openTransform() {
 // marcan como leídas al abrir su pestaña; tras una actualización, la barra
 // lateral lo dice («Nuevo») y un aviso al arrancar.
 const terms = useTerms()
+// su ventana llega la primera vez que hay que enseñarla
+watch(
+  () => terms.state.open,
+  (open) => open && warm(islands.terms),
+  { immediate: true }
+)
 const NEWS_KEY = 'danplay.releasesSeen'
 function readNewsSeen() {
   try {
@@ -338,6 +375,12 @@ watch(detail, (c) => {
     detailsOpen.value = true
   }
 })
+// La ficha es una isla: sin canción, la app pinta lo mismo que ella
+// (DetailsEmpty); con la primera que se elige (si no llegó antes en tiempo
+// libre), se trae.
+watch(detail, (c) => c && warm(islands.details))
+// el reproductor en pequeño (cuadrito, barra), al ponerse
+watch(pocket, (p) => p && warm(islands.compactPlayer), { immediate: true })
 
 // Atajo para volver a lo que suena. Solo aparece si la lista es larga: con
 // pocas canciones se ve todo y el botón solo estorbaría.
@@ -375,6 +418,7 @@ const showWelcome = computed(() => {
   if (!configured.value) return !songs.value.length
   return stats.value?.total === 0 && LIBRARY_VIEWS.includes(view.value.kind)
 })
+watch(showWelcome, (v) => v && warm(islands.welcome), { immediate: true })
 
 // Para no recargar en cada aviso: solo cuando el núcleo PASA a estar listo.
 let coreWasReady = false
@@ -458,7 +502,10 @@ const detailModalEl = useTemplateRef('detailModalEl')
 useFocusTrap(detailModalEl, { active: detailModal })
 const sidePanelShown = computed(() => detailsVisible.value && !isCompact.value)
 async function showDetailsOf(song) {
+  // la ficha y su trozo (si aún no llegó), a la vez
+  const panel = DetailsPanel.value ? null : loaded(islands.details)
   await select(song.id)
+  if (panel && !(await panel)) return
   if (isCompact.value && detailsVisible.value && !pocket.value) detailsOpen.value = true
   else detailModal.value = true
 }
@@ -604,6 +651,7 @@ const { setStars, toggleFavorite, toggleBlur, songMenu, playlistMenu } = menus
 const selectToggle = useTemplateRef('selectToggle')
 /** La barra se ve con el modo puesto o con dos o más elegidas (Ctrl, Mayús, Ctrl+A). */
 const showSelectionBar = computed(() => selectMode.value || chosenSongs.value.length > 1)
+watch(showSelectionBar, (v) => v && warm(islands.selectionBar), { immediate: true })
 const chosenAllFavorite = computed(
   () => chosenSongs.value.length > 0 && chosenSongs.value.every((s) => s.favorite)
 )
@@ -719,6 +767,10 @@ const searchBox = useTemplateRef('searchBox')
 const resultsEl = useTemplateRef('resultsEl')
 const search = useSearch({ view, reload: () => load() })
 const { query, quick, quickLoading, quickOpen, advanced, facets, onlyFavorites, minStars } = search
+// el desplegable y la búsqueda avanzada son islas: se adelantan al entrar en
+// la caja o pasar por su botón, y si no, llegan al abrirse
+watch(quickOpen, (v) => v && warm(islands.searchResults))
+watch(advanced, (v) => v && warm(islands.searchPanel))
 
 /**
  * Buscar una «No está» entre lo que ya tienes (quizá con otro nombre): el
@@ -837,12 +889,29 @@ onClickOutside(searchBox, () => {
   if (!menu.value.open && !dialog.value.open) search.close()
 })
 
+// La vista de la lista que se pinta: la elegida en cuanto su trozo ha llegado
+// (la tabla va con la app; las otras son islas). Hasta entonces sigue la de
+// antes, sin un fotograma con la lista en blanco; al arrancar con otra, nada
+// hasta que llega, que es mientras llegan las canciones.
+const shownLayout = ref(
+  layout.value === 'table' || islands.listViews[layout.value]?.component.value ? layout.value : null
+)
+watch(
+  layout,
+  async (v) => {
+    const one = islands.listViews[v]
+    if (one && !one.component.value && !(await loaded(one))) return
+    if (layout.value === v) shownLayout.value = v
+  },
+  { immediate: true }
+)
+
 // Sin `deep`: solo interesa cuando cambia la LISTA (otra búsqueda, otra vista,
 // otra agrupación), que es lo que altera el alto del scroll. Vigilarla en
 // profundidad obligaba a recorrer las mil canciones y todos sus campos cada
 // vez que se tocaba una sola —poner una estrella, por ejemplo— para acabar
 // midiendo un scroll que no había cambiado.
-watch([songs, layout, groupBy, view], () => {
+watch([songs, shownLayout, groupBy, view], () => {
   recheckScroll()
   recheckVisible()
 })
@@ -916,6 +985,10 @@ onMounted(async () => {
   } catch {
     /* el núcleo aún no contesta: el aviso de arriba lo carga todo al llegar */
   }
+  // Ya se ve la lista: en los ratos libres, lo que probablemente viene
+  // (la ficha, en cuanto se elija una; la barra de la selección; el
+  // desplegable del buscador). Lo demás, al pasar por su botón.
+  preloadWhenIdle([islands.details, islands.selectionBar, islands.searchResults])
   offerToBeDefault()
   termsAtStart()
   // la primera vez no hay nada que contar; tras actualizar, se avisa una vez
@@ -1037,7 +1110,7 @@ function onUpdated(song) {
         <Icon n="viewList" :t="17" />
       </button>
       <div class="brand"><span class="brand-dot"></span> <span>DANPLAY</span></div>
-      <div ref="searchBox" class="search-box">
+      <div ref="searchBox" v-preload="islands.searchResults" class="search-box">
         <TextField
           v-model="query"
           icon="search"
@@ -1053,6 +1126,7 @@ function onUpdated(song) {
         >
           <template #actions>
             <button
+              v-preload="islands.searchPanel"
               class="field-btn search-more"
               :class="{ on: advanced }"
               type="button"
@@ -1067,7 +1141,7 @@ function onUpdated(song) {
 
         <transition name="dropdown">
           <SearchPanel
-            v-if="advanced"
+            v-if="advanced && SearchPanel"
             v-model:query="query"
             v-model:only-favorites="onlyFavorites"
             v-model:min-stars="minStars"
@@ -1081,7 +1155,7 @@ function onUpdated(song) {
 
         <transition name="dropdown">
           <SearchResults
-            v-if="quickOpen && !advanced"
+            v-if="quickOpen && !advanced && SearchResults"
             ref="resultsEl"
             :songs="quick"
             :loading="quickLoading"
@@ -1101,6 +1175,7 @@ function onUpdated(song) {
         <button
           v-for="v in VIEWS"
           :key="v"
+          v-preload="islands.listViews[v]"
           type="button"
           :class="{ on: layout === v }"
           :title="VIEW_NAMES[v]"
@@ -1112,6 +1187,7 @@ function onUpdated(song) {
       </div>
 
       <button
+        v-preload="islands.transform"
         type="button"
         class="btn mini tidy-open"
         style="gap: 6px"
@@ -1255,7 +1331,7 @@ function onUpdated(song) {
 
       <main ref="centerEl" class="center">
         <WelcomePage
-          v-if="showWelcome"
+          v-if="showWelcome && WelcomePage"
           :missing="missingFolders"
           :empty="configured"
           @ready="refreshAll"
@@ -1315,6 +1391,7 @@ function onUpdated(song) {
             <button
               v-if="songs.length || selectMode"
               ref="selectToggle"
+              v-preload="islands.selectionBar"
               type="button"
               class="btn mini select-toggle"
               :class="{ on: selectMode }"
@@ -1342,7 +1419,7 @@ function onUpdated(song) {
           </div>
 
           <SelectionBar
-            v-if="showSelectionBar"
+            v-if="showSelectionBar && SelectionBar"
             :count="chosenSongs.length"
             :all-selected="allSelected"
             :playlist="view.kind === 'playlist' ? view.name || 'la lista' : ''"
@@ -1362,10 +1439,10 @@ function onUpdated(song) {
           />
 
           <GroupedSongs
-            v-if="effectiveGroupBy"
+            v-if="effectiveGroupBy && shownLayout"
             :songs="songs"
             :by="effectiveGroupBy"
-            :layout="layout"
+            :layout="shownLayout"
             :sort="sort"
             :desc="sortDesc"
             :selected="selected"
@@ -1385,7 +1462,7 @@ function onUpdated(song) {
             @toggle-favorite="toggleFavorite"
           />
           <SongRows
-            v-else-if="layout === 'rows'"
+            v-else-if="shownLayout === 'rows'"
             :songs="songs"
             :sortable="sortable"
             :selected="selected"
@@ -1404,7 +1481,7 @@ function onUpdated(song) {
           />
 
           <SongCards
-            v-else-if="layout === 'cards'"
+            v-else-if="shownLayout === 'cards'"
             :songs="songs"
             :sortable="sortable"
             :selected="selected"
@@ -1423,7 +1500,7 @@ function onUpdated(song) {
           />
 
           <SongGrid
-            v-else-if="layout === 'grid'"
+            v-else-if="shownLayout === 'grid'"
             :songs="songs"
             :sortable="sortable"
             :selected="selected"
@@ -1440,7 +1517,7 @@ function onUpdated(song) {
             @context="songMenu"
           />
           <SongTable
-            v-else
+            v-else-if="shownLayout === 'table'"
             :songs="songs"
             :sortable="sortable"
             :selected="selected"
@@ -1474,14 +1551,17 @@ function onUpdated(song) {
         </transition>
       </main>
 
-      <DetailsPanel
-        v-if="detailsVisible && !isCompact"
-        :song="detail"
-        :ai-ready="!!status?.ai"
-        @updated="onUpdated"
-        @toggle-blur="toggleBlur"
-        @go-settings="view = { kind: 'settings' }"
-      />
+      <template v-if="detailsVisible && !isCompact">
+        <DetailsPanel
+          v-if="DetailsPanel"
+          :song="detail"
+          :ai-ready="!!status?.ai"
+          @updated="onUpdated"
+          @toggle-blur="toggleBlur"
+          @go-settings="view = { kind: 'settings' }"
+        />
+        <DetailsEmpty v-else />
+      </template>
 
       <Teleport to="body">
         <transition name="fade">
@@ -1507,12 +1587,14 @@ function onUpdated(song) {
                 <Icon n="close" :t="14" />
               </button>
               <DetailsPanel
+                v-if="DetailsPanel"
                 :song="detail"
                 :ai-ready="!!status?.ai"
                 @updated="onUpdated"
                 @toggle-blur="toggleBlur"
                 @go-settings="((detailModal = false), goToSettings())"
               />
+              <DetailsEmpty v-else />
             </div>
           </div>
         </transition>
@@ -1527,12 +1609,14 @@ function onUpdated(song) {
         @close="detailsOpen = false"
       >
         <DetailsPanel
+          v-if="DetailsPanel"
           :song="detail"
           :ai-ready="!!status?.ai"
           @updated="onUpdated"
           @toggle-blur="toggleBlur"
           @go-settings="goToSettings"
         />
+        <DetailsEmpty v-else />
       </Drawer>
     </div>
 
@@ -1572,12 +1656,17 @@ function onUpdated(song) {
       </div>
     </teleport>
 
-    <TransformPanel :open="tidyOpen" @close="tidyOpen = false" @changed="refreshAll" />
+    <TransformPanel
+      v-if="TransformPanel"
+      :open="tidyOpen"
+      @close="tidyOpen = false"
+      @changed="refreshAll"
+    />
 
     <!-- el estudio sube por encima de la lista, sin recolocar nada detrás -->
     <transition name="study">
       <StudyBar
-        v-if="studyActive"
+        v-if="studyActive && StudyBar"
         v-show="studyOpen"
         :visible="studyOpen"
         @hide="studyOpen = false"
@@ -1594,7 +1683,7 @@ function onUpdated(song) {
 
     <!-- tan pequeña que no cabe la biblioteca: solo el reproductor -->
     <CompactPlayer
-      v-if="pocket"
+      v-if="pocket && CompactPlayer"
       :variant="pocket"
       :roomy="width >= 560"
       @play-selected="playSelected"
@@ -1610,7 +1699,7 @@ function onUpdated(song) {
       @close="closeMenu"
     />
 
-    <TermsModal />
+    <TermsModal v-if="TermsModal" />
     <ModalDialog v-bind="dialog" @ok="dialogOk" @cancel="dialogCancel" />
   </div>
 </template>

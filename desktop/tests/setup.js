@@ -66,3 +66,19 @@ afterEach(() => {
 import { config } from '@vue/test-utils'
 import { createAppRouter } from '../src/router.js'
 config.global.plugins = [{ install: (app) => app.use(createAppRouter()) }]
+
+// Las islas (src/islands.js) llegan en la app cuando hacen falta; aquí, desde
+// el principio, como si fueran parte de la app: una prueba que la monta no
+// tiene que esperar a cada trozo. Lo propio de las islas (cargar una vez,
+// reintentar, adelantarlas) se prueba en islands.test.js con las suyas.
+// En `beforeAll` y no al importar esto: así cada trozo ve los `vi.mock` del
+// archivo de pruebas (el de api.js, sobre todo), que se apuntan al importarlo.
+import { beforeAll } from 'vitest'
+import * as islands from '../src/islands.js'
+beforeAll(() =>
+  Promise.all(
+    [...Object.values(islands), ...Object.values(islands.listViews)]
+      .filter((one) => typeof one?.load === 'function')
+      .map((one) => one.load())
+  )
+)

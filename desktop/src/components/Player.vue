@@ -16,6 +16,7 @@ import { projection } from '../api.js'
 import { openMenu } from '../composables/useContextMenu.js'
 import { useWindowShape } from '../composables/useWindowShape.js'
 import { isMobileApp } from '../platform.js'
+import { vPreload, study as studyIsland } from '../islands.js'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
 import SliderField from './ui/SliderField.vue'
@@ -495,8 +496,10 @@ useHotkeys({
     </div>
 
     <div class="pl-extra">
-      <!-- el modo estudio: bucle, velocidad sin cambiar el tono, marcadores, notas -->
+      <!-- el modo estudio: bucle, velocidad sin cambiar el tono, marcadores, notas.
+           Su trozo se adelanta al pasar el ratón por encima (islands.js) -->
       <button
+        v-preload="studyIsland"
         class="pl-btn pl-study"
         :class="{ on: props.study, active: props.studyActive && !props.study }"
         :title="
