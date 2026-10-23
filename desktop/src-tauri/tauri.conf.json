@@ -100,7 +100,7 @@
     "longDescription": "Identifica, renombra y organiza tu musica; reproduce, busca letra y acordes, y transpone tonos.",
     "resources": [
       "tools/*",
-      "core/"
+      "data/"
     ],
     "fileAssociations": [
       {

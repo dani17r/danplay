@@ -11,7 +11,7 @@ danplay.db-shm
 danplay.db.*
 *.db.viejo*
 
-# binario compilado del nucleo: pesa 40 MB y se genera con scripts/build.sh
+# el nucleo de un solo archivo de antes de la 1.30 (externalBin), si quedo
 desktop/src-tauri/binaries/
 
 # artefactos de compilacion
@@ -23,11 +23,14 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# ffmpeg y fpcalc del instalador de Windows: se descargan al compilar
+# lo que viaja con la app y se baja o se copia al compilar: ffmpeg, fpcalc,
+# QuickJS y yt-dlp (scripts/tools-*.sh) y los datos con ONNX Runtime
+# (scripts/data.sh); y el nucleo de Python empaquetado de hasta la 1.30
 desktop/src-tauri/tools/*
 !desktop/src-tauri/tools/LEEME.txt
-desktop/src-tauri/core/*
-!desktop/src-tauri/core/LEEME.txt
+desktop/src-tauri/data/*
+!desktop/src-tauri/data/LEEME.txt
+desktop/src-tauri/core/
 
 # modo desarrollo con datos de prueba (scripts/dev.sh --sandbox)
 .dev/

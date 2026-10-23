@@ -13,16 +13,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-/// La carpeta `tools/` que el instalador deja junto al ejecutable, si la hay.
-///
-/// Solo existe donde no hay gestor de paquetes que instale `ffmpeg` y
-/// `fpcalc` (Windows, macOS). Si no esta, se tira del PATH como siempre.
+/// La carpeta `tools/` que viaja con la app (ffmpeg, fpcalc, QuickJS y
+/// yt-dlp), si la hay. Si no esta, se tira del PATH como siempre.
 pub fn bundled_dir() -> Option<PathBuf> {
     bundled("tools")
 }
 
 /// Una carpeta de los recursos que viajan con la app (`bundle.resources` de
-/// tauri.conf.json: `tools/`, `core/`), alli donde la deja cada paquete.
+/// tauri.conf.json: `tools/`, `data/`), alli donde la deja cada paquete.
 pub fn bundled(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
