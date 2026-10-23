@@ -19,3 +19,4 @@ mod library;
 mod songs;
 mod stems;
 mod terms;
+mod tidy;
