@@ -10,6 +10,7 @@ mod ai;
 mod assistant;
 mod chat;
 mod chat_flow;
+mod chat_openai;
 mod downloads;
 mod external;
 mod files;

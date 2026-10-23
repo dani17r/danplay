@@ -181,6 +181,10 @@ type Answer = dyn Fn(&Value) -> Reply + Send + Sync;
 /// verdad. `base_url` va en el perfil (`{"provider": ..., "base_url": ...}`).
 pub struct FakeAi {
     pub base_url: String,
+    /// El estado de la IA (quién falla, quién contestó, los clientes) es uno
+    /// para todo el proceso: las pruebas con una IA de mentira van de una en
+    /// una.
+    _shared: Registry,
     /// Los cuerpos de las peticiones de `/chat/completions`, en orden.
     pub calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
 }
@@ -205,6 +209,7 @@ impl FakeAi {
         });
         Self {
             base_url: format!("http://127.0.0.1:{port}/v1"),
+            _shared: registry(),
             calls,
         }
     }
@@ -476,10 +481,11 @@ pub fn until_done(app: &App) -> Value {
     }
 }
 
-/// El registro de las propuestas del asistente (y lo que se finge en él) es
-/// uno para todo el proceso: las pruebas que registran, directamente o con un
-/// turno del chat, van de una en una. Una prueba lo puede pedir más de una
-/// vez (dos IA de mentira seguidas): solo la primera espera.
+/// El registro de las propuestas del asistente (y lo que se finge en él) y
+/// el estado de la IA son uno para todo el proceso: las pruebas que
+/// registran, directamente o con un turno del chat, o que hablan con una IA
+/// de mentira, van de una en una. Una prueba lo puede pedir más de una vez
+/// (dos IA de mentira seguidas): solo la primera espera.
 pub struct Registry(
     #[allow(dead_code, reason = "el cerrojo, mientras dure")] Option<MutexGuard<'static, ()>>,
 );

@@ -247,6 +247,7 @@ fn fake_ai(answers: Vec<Value>) -> (String, std::sync::Arc<Mutex<Vec<Value>>>) {
 
 #[test]
 fn a_whole_turn_against_a_fake_model() {
+    let _one = crate::testkit::registry();
     let app = crate::tests::app();
     let (url, seen) = fake_ai(vec![
         json!({"content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "list_playlists", "arguments": "{}"}}]}),
