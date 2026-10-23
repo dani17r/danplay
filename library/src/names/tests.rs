@@ -657,3 +657,138 @@ mod properties {
         }
     }
 }
+
+// ------------------------------------------------ lo de tests/test_names.py
+// La forma de buscar un nombre (`search_form`): la regla del usuario. «Al
+// buscar, hay que convertir las canciones sin caracteres extraños ni acentos,
+// todo en minúsculas, y la ñ debe ir.» Con lo que de verdad llega por el chat
+// (listas de WhatsApp con asteriscos y emojis) y con propiedades sobre texto
+// cualquiera. Los invisibles y compuestos van con su código: en el editor no
+// se distinguirían de los normales.
+
+mod search_form_cases {
+    use super::*;
+    use crate::testkit::{CASES, Gen, NASTY};
+
+    /// La virgulilla combinada: n + TILDE es una ñ descompuesta.
+    const TILDE: char = '\u{303}';
+    const ZWSP: char = '\u{200b}';
+    const ZWJ: char = '\u{200d}';
+    const NBSP: char = '\u{a0}';
+    const VS16: char = '\u{fe0f}';
+    const SKIN: char = '\u{1f3fb}';
+    const PRAY: char = '\u{1f64f}';
+    /// «İ», la i mayúscula turca con punto.
+    const DOT_I: char = '\u{130}';
+
+    #[test]
+    fn the_search_form() {
+        let cases: Vec<(String, &str)> = vec![
+            // lo que pega el usuario desde WhatsApp
+            (
+                format!("*3.-De Gloria en Gloria* ✅{PRAY}{SKIN}"),
+                "3 de gloria en gloria",
+            ),
+            (format!("*Domingo*❤{VS16}{PRAY}{SKIN}"), "domingo"),
+            ("~Rey Infinito~ _(en vivo)_".into(), "rey infinito en vivo"),
+            ("• *Hay Libertad*".into(), "hay libertad"),
+            // sin tildes ni diéresis, en minúsculas
+            ("Cuán Grande Es Dios".into(), "cuan grande es dios"),
+            ("CUÁN GRANDE ES DIOS".into(), "cuan grande es dios"),
+            ("Güero Pingüino".into(), "guero pinguino"),
+            ("Ruja O Leão".into(), "ruja o leao"),
+            ("Café Ç".into(), "cafe c"),
+            // y la ñ se queda: es otra letra, no una tilde
+            ("Cena Del Señor".into(), "cena del señor"),
+            ("NIÑO".into(), "niño"),
+            ("Ñandú".into(), "ñandu"),
+            ("Mañana".into(), "mañana"),
+            // la ñ descompuesta (de un teclado o de macOS) vuelve compuesta
+            (format!("Sen{TILDE}or"), "señor"),
+            (format!("SEN{TILDE}OR"), "señor"),
+            // apóstrofos: sin hueco
+            ("Christine D'Clario".into(), "christine dclario"),
+            ("Christine D’Clario".into(), "christine dclario"),
+            // símbolos, guiones y puntuación: espacio
+            (
+                "Barak - Mi Gozo (Video Oficial) [HD]".into(),
+                "barak mi gozo video oficial hd",
+            ),
+            ("Hay-libertad".into(), "hay libertad"),
+            ("Rock & Roll / Pop + Jazz".into(), "rock roll pop jazz"),
+            ("10.000 Razones".into(), "10 000 razones"),
+            (format!("a\tb\nc{NBSP}d{ZWSP}e"), "a b c d e"),
+            // nada que buscar
+            (String::new(), ""),
+            ("   ".into(), ""),
+            (format!("✅{PRAY}{SKIN} *** ---"), ""),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(search_form(&value), expected, "{value:?}");
+        }
+    }
+
+    /// Selector de variación, tono de piel y unión de emojis (ZWJ).
+    #[test]
+    fn compound_emojis_leave_no_leftovers() {
+        let family = format!("\u{1f468}{ZWJ}\u{1f469}{ZWJ}\u{1f467}");
+        assert_eq!(
+            search_form(&format!("alabanza ❤{VS16} {family} {PRAY}{SKIN}")),
+            "alabanza"
+        );
+    }
+
+    #[test]
+    fn a_turkish_dotted_i_leaves_no_stray_dot() {
+        assert_eq!(search_form(&format!("{DOT_I}stanbul")), "istanbul");
+    }
+
+    #[test]
+    fn is_idempotent() {
+        let mut g = Gen::new(31);
+        for _ in 0..CASES {
+            let s = g.text(40, NASTY);
+            let once = search_form(&s);
+            assert_eq!(search_form(&once), once, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn only_lowercase_letters_digits_and_single_spaces() {
+        let mut g = Gen::new(32);
+        for _ in 0..CASES {
+            let s = g.text(40, NASTY);
+            let out = search_form(&s);
+            assert_eq!(out, out.trim(), "{s:?}");
+            assert!(!out.contains("  "), "{s:?} → {out:?}");
+            assert!(
+                out.chars().all(|c| crate::py::isalnum(c) || c == ' '),
+                "{s:?} → {out:?}"
+            );
+            assert_eq!(out, out.to_lowercase(), "{s:?}");
+            // ningún diacrítico suelto, salvo la virgulilla de la ñ (que sale
+            // compuesta)
+            let decomposed: String = out.nfd().collect();
+            let decomposed = decomposed.replace(&format!("n{TILDE}"), "n");
+            assert!(
+                !decomposed
+                    .chars()
+                    .any(|c| c.general_category() == GeneralCategory::NonspacingMark),
+                "{s:?} → {out:?}"
+            );
+        }
+    }
+
+    /// Cada ñ del texto (en cualquier mayúscula) sale como ñ.
+    #[test]
+    fn the_enye_is_never_lost() {
+        let alphabet: Vec<char> = "abcñÑáéíóúü ".chars().collect();
+        let mut g = Gen::new(33);
+        for _ in 0..CASES {
+            let n = g.below(41);
+            let s: String = (0..n).map(|_| *g.pick(&alphabet)).collect();
+            let count = |t: &str| t.chars().filter(|c| *c == 'ñ').count();
+            assert_eq!(count(&search_form(&s)), count(&s.to_lowercase()), "{s:?}");
+        }
+    }
+}

@@ -46,3 +46,24 @@ fn python_set_order() {
         [2048, 3, 4100, 7, 5000, 9, 13, 6000]
     );
 }
+
+/// Lo de tests/test_names.py: las palabras de una búsqueda son las de su
+/// forma (`search_tokens` en Python, aquí `toks`).
+#[test]
+fn search_tokens_are_the_words_of_the_form() {
+    assert_eq!(toks("*Cena Del Señor* ✅"), ["cena", "del", "señor"]);
+    assert!(toks("").is_empty());
+}
+
+/// La segunda pasada, tolerante, pliega solo la ñ («senor» encuentra
+/// «señor»; `fold_enye` en Python, aquí `fold`); la forma normal no la
+/// pliega: «mañana» no es «manana».
+#[test]
+fn the_second_pass_folds_only_the_enye() {
+    assert_eq!(
+        fold(&names::search_form("Cena Del Señor")),
+        "cena del senor"
+    );
+    assert_eq!(fold("mañana ñandu"), "manana nandu");
+    assert_ne!(names::search_form("Mañana"), names::search_form("Manana"));
+}

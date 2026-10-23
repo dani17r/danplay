@@ -612,3 +612,53 @@ la compilación en `target/<perfil>/data` o en `desktop/src-tauri/data`
 | `test_the_improvement_keeps_what_was_decided` | `J` `the_improvement_keeps_what_was_decided` |
 | `test_a_source_that_only_plays_a_moment_stays` | ya estaba en `P` `a_source_heard_only_briefly_is_kept` |
 | `test_the_tracks_can_be_kept_in_opus` | `J` `the_tracks_can_be_kept_in_opus` (si ese ffmpeg sabe hacer Opus) |
+
+## tests/test_names.py
+
+`N` = `library/src/names/tests.rs` (`mod search_form_cases`); `M` =
+`library/src/assistant/matching/tests.rs`. Las propiedades, con el
+generador fijo de `testkit` en vez de Hypothesis.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_the_search_form` | `N` `the_search_form` (los casos de la tabla; el de `None` no existe en Rust, que recibe un `&str`: el vacío sí está). Cuatro ya estaban en `N` `n_with_tilde_is_kept` |
+| `test_compound_emojis_leave_no_leftovers` | `N` `compound_emojis_leave_no_leftovers` |
+| `test_a_turkish_dotted_i_leaves_no_stray_dot` | `N` `a_turkish_dotted_i_leaves_no_stray_dot` |
+| `test_search_tokens_are_the_words_of_the_form` | `M` `search_tokens_are_the_words_of_the_form` (`search_tokens` de Python es `toks` de la búsqueda) |
+| `test_the_second_pass_folds_only_the_enye` | `M` `the_second_pass_folds_only_the_enye` (`fold_enye` es `fold`) |
+| `test_is_idempotent` | `N` `is_idempotent` |
+| `test_only_lowercase_letters_digits_and_single_spaces` | `N` `only_lowercase_letters_digits_and_single_spaces` |
+| `test_the_enye_is_never_lost` | `N` `the_enye_is_never_lost` |
+
+## tests/test_formats.py
+
+`T` = `library/src/tags/tests.rs`. Los seis formatos (mp3, flac, ogg, opus,
+m4a y wav), hechos con ffmpeg; el que ese ffmpeg no sepa escribir se salta.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_all_our_own_fields_come_back_when_read` | `T` `all_our_own_fields_come_back_when_read` (casi todo ya estaba en `T` `what_is_written_reads_back_in_every_format`; faltaban el álbum, el género, las etiquetas libres, la portada difuminada y la letra de dos líneas) |
+| `test_zero_stars_read_back_as_zero` | `T` `zero_stars_read_back_as_zero_in_every_format` (la del mp3 ya estaba en `T` `zero_stars_read_as_zero`) |
+| `test_the_duration_does_not_come_out_zero` | `T` `the_duration_does_not_come_out_zero` (las de antes, `wav_duration_is_not_zero` y `mp3_duration_still_right`, solo miraban que pasara de un segundo) |
+| `test_without_tags_the_basics_are_read` | `T` `without_tags_the_basics_are_read` |
+| `test_a_format_without_tags_says_so_without_breaking` | ya estaba en `T` `non_audio_reads_empty` |
+| `test_timed_lyrics_are_cleaned` | ya estaba en `library/src/tags/lrc.rs` `takes_the_stamps_and_headers_out` |
+| `test_with_the_db_lost_study_comes_back_from_the_file` | `server/src/services/library.rs` `with_the_db_lost_study_comes_back_from_the_file` (flac, ogg y opus, con la app: escanear, guardar el estudio, borrar el índice y volver a escanear) |
+
+## tests/test_tags_lofty.py
+
+Comparaba lofty con mutagen, que hacía de testigo. Sin Python, mutagen no
+puede leer en vivo lo que escribe lofty; lo que sí se guardó (con mutagen
+1.48.1, una vez) son archivos etiquetados por él y lo que leía de ellos:
+`library/src/tags/mutagen/` (un archivo por formato con todos los campos y
+la portada, uno con veces escuchada, y `expected.json`). `L` =
+`library/src/tags/tests.rs` (`mod mutagen_cases`).
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_what_mutagen_wrote_reads_the_same` | `L` `what_mutagen_wrote_reads_the_same` |
+| `test_what_lofty_writes_mutagen_reads` | `L` `what_lofty_writes_reads_like_what_mutagen_wrote` (lo que escribe lofty se lee igual que leía mutagen lo suyo, con el bpm al par, las estrellas y la lista). No se pasa que lo lea mutagen: es una biblioteca de Python |
+| `test_lofty_touches_up_mutagen_tags_without_duplicates` | `L` `lofty_touches_up_mutagen_tags_without_duplicates` (sobre una copia del de mutagen; lo de que no se repita nada se mira con lofty: ID3v2.3, un POPM, un APIC, un TXXX:LISTAS, un solo bloque «id3 » en el wav, una imagen en el flac) |
+| `test_an_odd_frame_does_not_leave_the_file_unread` | `L` `an_odd_frame_does_not_leave_the_file_unread` (lo de cómo se escribe el año ya estaba en `T` `a_year_that_is_not_a_date_is_kept`; lo que leía mutagen, no se pasa) |
+| `test_popm_play_counts_are_kept` | `L` `popm_play_counts_are_kept` (desde el POPM que escribió mutagen) |
+| `test_many_at_once_give_the_same_as_one_by_one` | `library/src/index/scan.rs` `many_at_once_give_the_same_as_one_by_one` (`tags.read_many` es ahora la lectura por adelantado del escaneo, `ReadAhead`) |
