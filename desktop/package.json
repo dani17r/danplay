@@ -21,7 +21,7 @@
     "test:watch": "vp test",
     "test:coverage": "vp test run --coverage",
     "e2e": "playwright test",
-    "lint": "eslint src tests e2e scripts \"*.config.js\"",
+    "lint": "eslint --concurrency auto --cache --cache-location node_modules/.cache/eslint/ src tests e2e scripts \"*.config.js\"",
     "lint:css": "stylelint \"src/**/*.css\"",
     "format": "vp fmt",
     "format:check": "vp fmt --check",
