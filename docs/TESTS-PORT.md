@@ -52,6 +52,13 @@ mentira es un `sh` que copia lo que «oiría» la red, hecho en Rust. Las
 costuras, solo de pruebas: el hilo de la cola parado (`Paused`, lo que en
 Python era `with beatgrid._WAKE`) y el grafo de mentira (`set_graph`).
 
+Lo que salió: el hilo de la cola sacaba la canción de la cola y la marcaba
+como «calculándose» con dos cerrojos distintos. En ese momento no estaba en
+ningún sitio: `idle` decía que ya no quedaba nada, `progress` que no se
+había pedido, y pedirla otra vez la volvía a poner en cola (y se calculaba
+dos veces). En Python las dos cosas iban con el mismo cerrojo (`_WAKE`);
+ahora en Rust también (`beats::work`).
+
 ### tests/test_terms.py (4)
 
 | Python | Rust |

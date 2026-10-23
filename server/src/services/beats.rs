@@ -859,16 +859,21 @@ fn work() {
     loop {
         let (path, app) = {
             let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-            loop {
+            let next = loop {
                 if !held(&q)
                     && let Some(next) = q.waiting.pop_front()
                 {
                     break next;
                 }
                 q = WAKE.wait(q).unwrap_or_else(PoisonError::into_inner);
-            }
+            };
+            // con el mismo cerrojo con que sale de la cola: si no, durante un
+            // momento no estaba ni en la cola ni calculándose (`idle` decía
+            // que ya no quedaba nada, `progress` que no se pidió, y pedirla
+            // otra vez la volvía a poner en cola)
+            q.busy = Some(next.0.clone());
+            next
         };
-        QUEUE.lock().unwrap_or_else(PoisonError::into_inner).busy = Some(path.clone());
         let p = PathBuf::from(&path);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| grid_of(&app, &p)));
         let failed = match outcome {
