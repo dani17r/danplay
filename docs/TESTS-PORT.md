@@ -662,3 +662,46 @@ la portada, uno con veces escuchada, y `expected.json`). `L` =
 | `test_an_odd_frame_does_not_leave_the_file_unread` | `L` `an_odd_frame_does_not_leave_the_file_unread` (lo de cómo se escribe el año ya estaba en `T` `a_year_that_is_not_a_date_is_kept`; lo que leía mutagen, no se pasa) |
 | `test_popm_play_counts_are_kept` | `L` `popm_play_counts_are_kept` (desde el POPM que escribió mutagen) |
 | `test_many_at_once_give_the_same_as_one_by_one` | `library/src/index/scan.rs` `many_at_once_give_the_same_as_one_by_one` (`tags.read_many` es ahora la lectura por adelantado del escaneo, `ReadAhead`) |
+
+## tests/test_reuse.py
+
+`R` = `server/src/services/reuse/tests.rs` (con la app y archivos de
+verdad).
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_the_offset_between_two_files_to_the_millisecond` | ya estaba en `analysis/src/align.rs` `the_offset_to_the_millisecond` (los mismos desfases: 0, 0,3217, -1,25 y 4 s; y otra canción no se parece) |
+| `test_the_study_moves_with_the_offset` | `library/src/reuse.rs` `the_study_moves_with_the_offset` |
+| `test_moving_the_music_and_downloading_again_keeps_everything` | ya estaba en `R` `moving_the_music_and_downloading_again_keeps_everything` |
+| `test_a_second_copy_takes_the_click_and_the_study_but_not_another_song` | ya estaba en `R` `a_second_copy_takes_the_click_and_the_study_but_not_another_song` |
+| `test_asking_to_separate_a_copy_takes_the_stems_already_made` | ya estaba en `R` `asking_to_separate_a_copy_takes_the_stems_already_made` |
+| `test_what_was_lost_before_comes_back_with_one_pass` | ya estaba en `R` `what_was_lost_before_comes_back_with_one_pass` |
+
+## tests/test_mega.py
+
+`G` = `analysis/src/mega/tests.rs`.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_the_spectrogram_goes_and_comes_back` | ya estaba en `G` `spectrogram_round_trip` |
+| `test_the_split_adds_up_and_follows_what_the_net_hears` | ya estaba en `G` `split_adds_up_and_follows_what_the_net_hears` |
+| `test_the_max_pass_keeps_what_sounds_and_the_rest_is_other` | `G` `the_max_pass_keeps_what_sounds_and_the_rest_is_other` (con ffmpeg; lo que «contó» va en los `Warning`) |
+
+## tests/test_click.py
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_every_sound_is_the_one_of_the_study` | ya estaba en `engine/src/click.rs` `every_sound_matches_the_one_in_the_saved_mix` (los doce sonidos con sus números: el clic de la mezcla es ya el del motor) |
+| `test_the_click_track_puts_a_hit_on_every_beat` | `analysis/src/click.rs` `the_click_track_puts_a_hit_on_every_beat` (lo de los pulsos y el tope del volumen ya estaba, a medias, en `each_hit_on_its_beat_and_volume_capped`) |
+
+## tests/test_torchzip.py
+
+Los dos checkpoints de `tests/fixtures` se copiaron a
+`analysis/src/weights/fixtures/` (las pruebas de Rust los leían de
+`../tests/fixtures`, que se va con Python). `W` =
+`analysis/src/weights/tests.rs`.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_the_weights_come_out_as_torch_saved_them` | ya estaba en `W` `weights_come_out_as_torch_saved_them` (los nombres, las formas, los tipos y que `c` es una vista de `a`); los números de cada peso, en `W` `the_numbers_come_out_as_torch_saved_them`. Lo de «mapeado, sin copiar» (`flags.writeable` de numpy) no se pasa: Rust lee los números a su vector |
+| `test_a_checkpoint_that_runs_code_is_refused` | ya estaba en `W` `checkpoint_that_runs_code_is_refused` |

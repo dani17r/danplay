@@ -100,6 +100,45 @@ pub fn track(
 mod tests {
     use super::*;
 
+    /// Lo de tests/test_click.py: un golpe en cada pulso, el «1» más fuerte,
+    /// un sonido que no existe es el clásico y el volumen tiene tope.
+    #[test]
+    fn the_click_track_puts_a_hit_on_every_beat() {
+        let beats = [0.5, 1.0, 1.5, 2.0];
+        let pairs: Vec<(f64, bool)> = beats
+            .iter()
+            .enumerate()
+            .map(|(i, b)| (*b, i == 0))
+            .collect();
+        let t = track(&pairs, 3.0, sound("madera"), 1.0, RATE).expect("pista");
+        assert_eq!(t.len(), 3 * RATE as usize);
+        let starts: Vec<usize> = (1..t.len())
+            .filter(|&i| t[i] != 0.0 && t[i - 1] == 0.0)
+            .collect();
+        let at: Vec<f64> = starts
+            .iter()
+            .map(|&s| (s as f64 / f64::from(RATE) * 100.0).round() / 100.0)
+            .collect();
+        assert_eq!(at, beats);
+        let peak = |x: &[f32]| x.iter().fold(0f32, |a, b| a.max(b.abs()));
+        let peaks: Vec<f32> = starts.iter().map(|&s| peak(&t[s..s + 2000])).collect();
+        assert!(
+            peaks[0] > peaks[1] * 1.3,
+            "el «1» suena más fuerte: {peaks:?}"
+        );
+        assert_eq!(
+            track(&[(0.1, false)], 1.0, sound("gong"), 1.0, RATE),
+            track(&[(0.1, false)], 1.0, Sound::Classic, 1.0, RATE)
+        );
+        let loud = track(&[(0.1, true)], 1.0, Sound::Classic, 9.0, RATE).expect("pista");
+        let want = MAX_VOLUME as f32 * peak(&hit(Sound::Classic, true, RATE));
+        assert!(
+            (peak(&loud) - want).abs() <= want * 1e-6,
+            "{} {want}",
+            peak(&loud)
+        );
+    }
+
     #[test]
     fn unknown_sound_is_the_classic() {
         assert_eq!(sound("gong"), Sound::Classic);
