@@ -91,6 +91,9 @@ pub mod testing {
     /// `youtube::already_in_library(título)` de mentira.
     pub type Mine = Arc<dyn Fn(&str) -> Vec<Dict> + Send + Sync>;
     pub static MINE: Mutex<Option<Mine>> = Mutex::new(None);
+    /// Lo que se le pide a `register`, tal cual llega: {tool, args, plan,
+    /// after}.
+    pub static SEEN: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
 
     /// Cuántas propuestas hay registradas.
     pub fn entries() -> usize {
@@ -104,6 +107,12 @@ pub mod testing {
         *lock(&INFO) = None;
         *lock(&WARM) = None;
         *lock(&MINE) = None;
+        lock(&SEEN).clear();
+    }
+
+    /// Lo apuntado por `register` desde el último `clear`.
+    pub fn seen() -> Vec<serde_json::Value> {
+        lock(&SEEN).clone()
     }
 }
 
@@ -294,6 +303,9 @@ pub fn register(
     after: &Value,
     chat_id: Option<i64>,
 ) -> Result<Dict, RegisterError> {
+    #[cfg(test)]
+    testing::lock(&testing::SEEN)
+        .push(serde_json::json!({"tool": tool, "args": args, "plan": plan, "after": after}));
     let draft = p::draft(tool, args, plan, after, &mut Index(app)).map_err(|e| match e {
         Refused::Value(m) | Refused::After(m) => RegisterError::Value(m),
         Refused::Data(e) => data_error(&e),
