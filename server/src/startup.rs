@@ -1,12 +1,11 @@
 //! El arranque y el apagado (el `lifespan` de danplay/api/__init__.py, y lo
 //! que config.py y la base hacían al importarse o abrirse por primera vez).
 //!
-//! Cada paso es una función aparte: quien porte el vigilante de carpetas o
-//! «aprovechar» (`reuse.sweep_once_in_background`) añade el suyo en `start`
-//! y en `stop`.
+//! Cada paso es una función aparte; `start` y `stop` los llaman en el orden
+//! de Python.
 use crate::app::App;
 use crate::error::ApiError;
-use crate::services::{ai, folders, journal};
+use crate::services::{ai, journal, reuse, watcher};
 use library::ai::catalog;
 use library::warnings::Warnings;
 use std::fmt::Write as _;
@@ -240,58 +239,52 @@ pub fn refresh_catalog_in_background(app: &App, max_age: f64) -> bool {
 
 /// Cuánto se espera, como mucho, a apartar las canciones de las carpetas
 /// que ya no están antes de contestar la primera petición.
-pub const PREPARE_TIMEOUT: Duration = Duration::from_secs(3);
+pub const PREPARE_TIMEOUT: Duration = watcher::PREPARE_TIMEOUT;
 
 /// `watcher.prepare()`: aparta ya las canciones de las carpetas que no
 /// están (que la interfaz nunca vea canciones de una carpeta que se movió),
 /// con tope.
 pub fn hide_missing_roots(app: &App) {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let worker = app.clone();
-    let spawned = std::thread::Builder::new()
-        .name("danplay-prepare".into())
-        .spawn(move || {
-            match folders::hide_missing_roots(&worker) {
-                Ok(n) if n > 0 => log::info!("{n} canciones apartadas: su carpeta ya no esta"),
-                Ok(_) => {}
-                Err(e) => log::warn!("no pude mirar las carpetas al arrancar: {e}"),
-            }
-            let _ = tx.send(());
-        });
-    if spawned.is_ok() {
-        let _ = rx.recv_timeout(PREPARE_TIMEOUT);
-    }
+    watcher::prepare(app, PREPARE_TIMEOUT);
 }
 
 /// Si el vigilante de carpetas está encendido (`DANPLAY_WATCH`).
 pub fn watch_enabled(app: &App) -> bool {
-    !matches!(app.env("DANPLAY_WATCH", "1").as_str(), "0" | "false" | "no")
+    watcher::enabled(app)
 }
 
 /// Lo que se hace al arrancar, antes de contestar la primera petición (el
-/// socket ya escucha: las peticiones esperan en cola).
+/// socket ya escucha: las peticiones esperan en cola): se apartan las
+/// canciones de las carpetas que ya no están y arranca el vigilante de
+/// carpetas (su primer escaneo pone al día lo que pasó con la app cerrada y
+/// compara el diario); el diario, a escribirse solo; el catálogo de modelos,
+/// al día en segundo plano si hace horas de la última vez; y, una vez por
+/// equipo, lo hecho para otro archivo de cada canción (pistas, clic, listas),
+/// por si se movió la carpeta de música antes de saberlo hacer.
 ///
-/// Lo de Python que aún no está: el vigilante de carpetas (sin él, el
-/// diario se compara igual al arrancar, como cuando está apagado), precargar
-/// el SDK de la IA (en Rust no hay nada que precargar) y «aprovechar» lo de
-/// otro archivo de cada canción (`reuse.sweep_once_in_background`).
+/// Lo de Python que no hace falta: precargar el SDK de la IA (en Rust no hay
+/// nada que precargar).
 pub fn start(app: &App) {
     hide_missing_roots(app);
-    // sin vigilante, el diario se compara igual al arrancar
-    let worker = app.clone();
-    let _ = std::thread::Builder::new()
-        .name("danplay-journal-0".into())
-        .spawn(move || journal::after_scan(&worker, None, true));
+    if watcher::start(app).is_none() {
+        // sin vigilante, el diario se compara igual al arrancar
+        let worker = app.clone();
+        let _ = std::thread::Builder::new()
+            .name("danplay-journal-0".into())
+            .spawn(move || journal::after_scan(&worker, None, true));
+    }
     // el diario: lo tuyo, escrito junto a tu música unos segundos después de
     // cada cambio
     journal::start(app);
     refresh_catalog_in_background(app, catalog::BACKGROUND_MAX_AGE);
+    reuse::sweep_once_in_background(app, reuse::SWEEP_DELAY);
 }
 
-/// Lo que se hace al apagar: los hilos de fondo paran y el diario escribe
-/// lo último.
+/// Lo que se hace al apagar: los hilos de fondo paran (la descarga que
+/// hubiera, el vigilante) y el diario escribe lo último.
 pub fn stop(app: &App) {
     app.stopping.store(true, Ordering::SeqCst);
     crate::services::youtube::cancel(app);
+    watcher::stop(app);
     journal::stop(app);
 }
