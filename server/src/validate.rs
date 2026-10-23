@@ -214,6 +214,11 @@ impl Fields {
         self.errors.push(error);
     }
 
+    /// Dónde está este objeto (`["body"]`, `["body", "messages", 0]`...).
+    pub fn loc(&self) -> &[Value] {
+        &self.loc
+    }
+
     fn loc_of(&self, key: &str) -> Vec<Value> {
         let mut loc = self.loc.clone();
         loc.push(Value::from(key));
@@ -981,14 +986,8 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
     let mut pos = 0usize;
     for (i, line) in text.split('\n').enumerate() {
         if i + 1 == e.line() {
-            // al acabarse el texto, serde dice el último que leyó y Python
-            // dónde esperaba más (uno después)
-            let col = if e.is_eof() {
-                e.column()
-            } else {
-                e.column().saturating_sub(1)
-            }
-            .min(line.len());
+            // (lo que se acaba a medias lo cuenta `eof_expectation`)
+            let col = e.column().saturating_sub(1).min(line.len());
             pos += line
                 .get(..col)
                 .map_or_else(|| line.chars().count(), |s| s.chars().count());
@@ -997,6 +996,27 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
         pos += line.chars().count() + 1;
     }
     let what = e.to_string();
+    if what.contains("expected ident") {
+        // una palabra que no es `null`, `true` ni `false`: `json.loads` dice
+        // dónde EMPIEZA el valor, no dónde dejó de cuadrar
+        let chars: Vec<char> = text.chars().collect();
+        pos = pos.min(chars.len());
+        while pos > 0 && chars[pos - 1].is_ascii_alphabetic() {
+            pos -= 1;
+        }
+    }
+    if what.contains("EOF while parsing") {
+        // se acabó a medias: `json.loads` dice qué esperaba y dónde (el final,
+        // o dónde empieza el texto sin cerrar)
+        let (msg, at) = eof_expectation(&text);
+        return error(
+            "json_invalid",
+            &[Value::from("body"), Value::from(at)],
+            "JSON decode error",
+            &json!({}),
+            Some(json!({ "error": msg })),
+        );
+    }
     let msg = if what.contains("trailing characters") {
         "Extra data"
     } else if what.contains("key must be a string") {
@@ -1021,6 +1041,89 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
         &json!({}),
         Some(json!({ "error": msg })),
     )
+}
+
+/// Qué esperaba `json.loads` de un JSON que se acaba a medias, y dónde: el
+/// final, o dónde empieza el texto que no se cerró.
+fn eof_expectation(text: &str) -> (&'static str, usize) {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Want {
+        Value,
+        After,
+        Key,
+        Colon,
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut stack: Vec<char> = Vec::new();
+    let mut want = Want::Value;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        match c {
+            ' ' | '\t' | '\n' | '\r' => {}
+            '"' => {
+                let start = i;
+                i += 1;
+                while i < chars.len() && chars[i] != '"' {
+                    if chars[i] == '\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                if i >= chars.len() {
+                    return ("Unterminated string starting at", start);
+                }
+                want = if want == Want::Key { Want::Colon } else { Want::After };
+            }
+            '{' => {
+                stack.push('{');
+                want = Want::Key;
+            }
+            '[' => {
+                stack.push('[');
+                want = Want::Value;
+            }
+            '}' | ']' => {
+                stack.pop();
+                want = Want::After;
+            }
+            ':' => want = Want::Value,
+            ',' => {
+                want = if stack.last() == Some(&'{') {
+                    Want::Key
+                } else {
+                    Want::Value
+                };
+            }
+            _ => {
+                // un número o una palabra (`true`, `null`...)
+                let start = i;
+                while i + 1 < chars.len()
+                    && !matches!(chars[i + 1], ' ' | '\t' | '\n' | '\r' | ',' | ']' | '}' | ':' | '"')
+                {
+                    i += 1;
+                }
+                let token: String = chars[start..=i].iter().collect();
+                let complete = matches!(
+                    token.as_str(),
+                    "true" | "false" | "null" | "NaN" | "Infinity" | "-Infinity"
+                ) || serde_json::from_str::<serde_json::Number>(&token).is_ok();
+                if !complete && i + 1 >= chars.len() {
+                    // una palabra cortada: se esperaba un valor donde empieza
+                    return ("Expecting value", start);
+                }
+                want = Want::After;
+            }
+        }
+        i += 1;
+    }
+    let msg = match want {
+        Want::Value => "Expecting value",
+        Want::Key => "Expecting property name enclosed in double quotes",
+        Want::Colon => "Expecting ':' delimiter",
+        Want::After => "Expecting ',' delimiter",
+    };
+    (msg, chars.len())
 }
 
 /// El cuerpo como JSON, como lo lee FastAPI: sin `content-type`, o con uno
@@ -1140,6 +1243,38 @@ mod tests {
         assert_eq!(e[0]["msg"], "Input should be less than or equal to 2");
         assert_eq!(e[0]["ctx"], json!({"le": 2.0}));
         assert_eq!(e[1]["ctx"], json!({"le": 5}));
+    }
+
+    #[test]
+    fn json_that_ends_too_soon_reads_like_python() {
+        // lo que dice `json.loads` de Python (msg, pos)
+        let cases = [
+            ("{\"messages\": [", "Expecting value", 14),
+            ("{\"a\"", "Expecting ':' delimiter", 4),
+            ("{\"a\":", "Expecting value", 5),
+            ("{", "Expecting property name enclosed in double quotes", 1),
+            ("{\"a\": 1", "Expecting ',' delimiter", 7),
+            ("[1,", "Expecting value", 3),
+            ("\"abc", "Unterminated string starting at", 0),
+            ("{\"a\": \"b", "Unterminated string starting at", 6),
+            ("   ", "Expecting value", 3),
+            ("[1", "Expecting ',' delimiter", 2),
+            ("{\"a\": 1,", "Expecting property name enclosed in double quotes", 8),
+            ("{\"a\": tr", "Expecting value", 6),
+            ("[\"x\\\"", "Unterminated string starting at", 1),
+            ("{\"a\": {\"b\": [1, 2", "Expecting ',' delimiter", 17),
+        ];
+        for (text, msg, pos) in cases {
+            let Err(crate::ApiError::Validation(e)) = parse_body(None, text.as_bytes()) else {
+                panic!("tenia que fallar: {text}");
+            };
+            assert_eq!(e[0]["ctx"]["error"], msg, "{text}");
+            assert_eq!(e[0]["loc"], json!(["body", pos]), "{text}");
+        }
+        let Err(crate::ApiError::Validation(e)) = parse_body(None, b"no es json") else {
+            panic!("tenia que fallar");
+        };
+        assert_eq!(e[0]["loc"], json!(["body", 0]));
     }
 
     #[test]
