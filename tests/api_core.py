@@ -74,6 +74,8 @@ CORE = (os.environ.get("DANPLAY_API_CORE") or "python").strip().lower()
 RUST = CORE == "rust"
 if CORE not in ("python", "rust"):
     raise SystemExit(f"DANPLAY_API_CORE={CORE!r}: tiene que ser «python» o «rust»")
+if RUST and sys.platform == "win32":
+    raise SystemExit("DANPLAY_API_CORE=rust va por un socket Unix: solo en Linux y macOS")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -409,6 +411,9 @@ class _Server:
         for sub, var in (("runtime", "XDG_RUNTIME_DIR"), ("tmp", "TMPDIR")):
             (self.root / sub).mkdir(exist_ok=True, mode=0o700)
             env[var] = str(self.root / sub)
+        # las pruebas hacen de app: si se cortan de golpe, el servidor se apaga
+        # solo en vez de quedarse huérfano
+        env["DANPLAY_PARENT_PID"] = str(os.getpid())
         # nada fuera de la caja de arena: ni los datos, ni los ajustes, ni la
         # música de quien ejecuta las pruebas
         for var in (*_SANDBOXED, *_SANDBOXED_IF_SET):
