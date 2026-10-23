@@ -861,6 +861,7 @@ name = "danplay-app"
 version = "1.30.0"
 dependencies = [
  "danplay-engine",
+ "danplay-server",
  "http-body-util",
  "hyper",
  "hyper-util",

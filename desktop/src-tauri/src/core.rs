@@ -13,6 +13,10 @@
 //! archivo), se vuelve a levantar y se avisa a la interfaz. Y si sigue vivo
 //! pero no contesta (colgado), tambien: antes solo se miraba si el proceso
 //! existia, y un nucleo colgado se quedaba asi hasta reiniciar la app.
+//!
+//! Con `DANPLAY_RUST_CORE=1` (la fase 4, mientras se porta), la API la
+//! contesta el nucleo de Rust (`server`) en este mismo proceso: sin proceso
+//! aparte, sin socket y sin token. Lo que aun no esta portado contesta 404.
 use http_body_util::{BodyExt, Full};
 use hyper::Request;
 use hyper::body::Bytes;
@@ -43,6 +47,53 @@ pub enum Address {
     /// Solo se usa en Windows; en Unix esta rama existe pero no se construye.
     #[cfg_attr(unix, allow(dead_code))]
     Tcp { port: u16, token: String },
+    /// El nucleo de Rust, en este proceso (`DANPLAY_RUST_CORE=1`).
+    InProcess(server::App),
+}
+
+/// Si la API la contesta el nucleo de Rust en este proceso.
+fn rust_core() -> bool {
+    matches!(
+        std::env::var("DANPLAY_RUST_CORE").as_deref(),
+        Ok("1" | "true" | "si")
+    )
+}
+
+/// El nucleo de Rust con la configuracion del entorno (la misma que leeria
+/// el de Python) y los programas que viajan con la app.
+fn in_process() -> server::App {
+    let app = server::App::from_env(server::Guard::default());
+    if let Some(tools) = crate::tools::bundled_dir() {
+        app.update_config(|c| c.tools_dir = tools.to_string_lossy().into_owned());
+    }
+    app
+}
+
+/// Una peticion al nucleo de Rust, en un hilo de los de bloquear (las rutas
+/// leen el disco y la base).
+async fn in_process_request(
+    app: &server::App,
+    method: &str,
+    path: &str,
+    body: Option<String>,
+) -> Result<(u16, Vec<u8>, String), String> {
+    let app = app.clone();
+    let request = server::Request::new(method, path)
+        .header("content-type", "application/json")
+        .body(body.unwrap_or_default());
+    tauri::async_runtime::spawn_blocking(move || {
+        let r = server::handle(&app, &request);
+        let kind = r
+            .content_type
+            .clone()
+            .unwrap_or_else(|| "application/json".into());
+        let status = r.status;
+        r.into_bytes()
+            .map(|bytes| (status, bytes, kind))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 pub struct Core {
@@ -141,6 +192,11 @@ pub async fn request_within(
                 .map_err(|e| format!("{e}"))?,
             Some(token.as_str()),
         ),
+        Address::InProcess(app) => {
+            return tokio::time::timeout(timeout, in_process_request(app, method, path, body))
+                .await
+                .unwrap_or_else(|_| Err("el nucleo no contesta".into()));
+        }
     };
 
     let mut builder = Request::builder()
@@ -228,6 +284,9 @@ fn free_port() -> u16 {
 }
 
 fn address() -> Address {
+    if rust_core() {
+        return Address::InProcess(in_process());
+    }
     #[cfg(unix)]
     {
         Address::Socket(socket_path())
@@ -389,6 +448,9 @@ fn arm_child(cmd: &mut std::process::Command) {
 }
 
 fn spawn_core(address: &Address) -> Result<std::process::Child, String> {
+    if let Address::InProcess(_) = address {
+        return Err("el nucleo de Rust va en este proceso: no se arranca aparte".into());
+    }
     let packaged = if prefer_source() { None } else { sidecar() };
     let mut cmd = match packaged {
         // 1) nucleo empaquetado (app instalada): no necesita Python en el sistema
@@ -419,6 +481,7 @@ fn spawn_core(address: &Address) -> Result<std::process::Child, String> {
             // lista de procesos del sistema es publica.
             cmd.env("DANPLAY_TOKEN", token);
         }
+        Address::InProcess(_) => {}
     }
 
     arm_child(&mut cmd);
@@ -428,6 +491,23 @@ fn spawn_core(address: &Address) -> Result<std::process::Child, String> {
 impl Core {
     pub fn start() -> Self {
         let address = address();
+        if let Address::InProcess(app) = &address {
+            // lo de arrancar (apartar lo que no esta, el diario, el catalogo)
+            // en su hilo: la ventana no espera a que acabe
+            let app = app.clone();
+            let _ = std::thread::Builder::new()
+                .name("danplay-server-start".into())
+                .spawn(move || server::startup::start(&app));
+            log::info!("el nucleo de Rust contesta en este proceso (DANPLAY_RUST_CORE=1)");
+            return Self {
+                address,
+                child: Mutex::new(None),
+                failure: Mutex::new(String::new()),
+                stopping: AtomicBool::new(false),
+                #[cfg(windows)]
+                job: Mutex::new(None),
+            };
+        }
         let (child, failure) = match spawn_core(&address) {
             Ok(c) => (Some(c), String::new()),
             Err(reason) => {
@@ -502,7 +582,7 @@ impl Core {
     /// Si el nucleo ya no esta, se levanta otra vez. Devuelve true si hubo
     /// que revivirlo.
     fn revive_if_dead(&self) -> bool {
-        if self.stopping() {
+        if self.stopping() || self.in_process() {
             return false;
         }
         let mut guard = lock(&self.child);
@@ -520,8 +600,16 @@ impl Core {
         self.respawn(&mut guard)
     }
 
+    /// Si el nucleo es el de Rust, en este proceso (no hay hijo que vigilar).
+    fn in_process(&self) -> bool {
+        matches!(self.address, Address::InProcess(_))
+    }
+
     /// El proceso sigue vivo (conteste o no).
     fn alive(&self) -> bool {
+        if self.in_process() {
+            return true;
+        }
         lock(&self.child)
             .as_mut()
             .is_some_and(|child| matches!(child.try_wait(), Ok(None)))
@@ -529,7 +617,7 @@ impl Core {
 
     /// Mata un nucleo que sigue vivo pero no contesta y arranca otro.
     fn restart(&self) -> bool {
-        if self.stopping() {
+        if self.stopping() || self.in_process() {
             return false;
         }
         let mut guard = lock(&self.child);
@@ -564,6 +652,10 @@ impl Core {
     pub fn stop(&self) {
         // lo primero: que la vigilancia no reviva lo que se esta cerrando
         self.stopping.store(true, Ordering::SeqCst);
+        if let Address::InProcess(app) = &self.address {
+            server::startup::stop(app);
+            return;
+        }
         if let Some(child) = lock(&self.child).as_mut() {
             // SIGTERM primero: asi uvicorn cierra la base de datos como es
             // debido. SIGKILL solo si no se va por las buenas.
@@ -784,6 +876,36 @@ mod tests {
             "tardo {:?}",
             started.elapsed()
         );
+    }
+
+    /// Con el nucleo de Rust en este proceso, la peticion no sale de aqui y
+    /// contesta lo mismo que la de Python (los errores, con `detail`).
+    #[test]
+    fn the_rust_core_answers_in_process() {
+        let dir = std::env::temp_dir().join(format!("danplay-app-rust-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // carpetas temporales: nunca los datos ni los ajustes de nadie
+        let cfg = server::Config::isolated(dir.join("data"), dir.join("config"), dir.join("Musica"));
+        let address = Address::InProcess(server::App::new(cfg, server::Guard::default()));
+        let ask = |method: &str, path: &str, body: Option<&str>| {
+            tauri::async_runtime::block_on(request_within(
+                &address,
+                method,
+                path,
+                body.map(str::to_owned),
+                QUICK,
+            ))
+        };
+        let (code, bytes, kind) = ask("GET", "/api/status", None).expect("estado");
+        assert_eq!((code, kind.as_str()), (200, "application/json"));
+        let status: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(status["rust"], true);
+        let (code, bytes, _) = ask("PATCH", "/api/playlists/1", Some("{}")).expect("respuesta");
+        assert_eq!(code, 400);
+        assert_eq!(bytes, br#"{"detail":"no hay nada que cambiar"}"#);
+        let (code, _, _) = ask("GET", "/api/search?limit=0", None).expect("respuesta");
+        assert_eq!(code, 422);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// El nucleo sabe quien es su padre (contrato E) para irse si muere.
