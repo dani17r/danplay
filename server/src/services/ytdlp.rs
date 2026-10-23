@@ -1032,4 +1032,4 @@ pub fn update(app: &App, progress: &dyn Fn(i64, &str)) -> Result<Value, UpdateEr
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
