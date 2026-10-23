@@ -17,7 +17,7 @@ use library::stems::{self as ls, FAST, FINAL, MAX, MAXIMUM, QUICK, REFINE, REST}
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::io::{BufRead as _, BufReader};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -539,6 +539,30 @@ impl Report<'_> {
     }
 }
 
+/// Las líneas de lo que dice un proceso hasta que cierra (lo que no es
+/// UTF-8, con «�», como `errors="replace"`): sin dejar de leer, que un
+/// proceso al que nadie lee se queda parado.
+fn lossy_lines(r: impl std::io::Read) -> impl Iterator<Item = String> {
+    use std::io::BufRead as _;
+    let mut r = BufReader::new(r);
+    std::iter::from_fn(move || {
+        let mut buf = Vec::new();
+        match r.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => None,
+            Ok(_) => Some(String::from_utf8_lossy(&buf).trim_end_matches(['\n', '\r']).to_owned()),
+        }
+    })
+}
+
+/// `shutil.copy2`: el contenido y la fecha.
+fn copy_with_time(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::copy(from, to)?;
+    if let Ok(t) = std::fs::metadata(from).and_then(|m| m.modified()) {
+        let _ = std::fs::File::options().write(true).open(to).and_then(|f| f.set_modified(t));
+    }
+    Ok(())
+}
+
 /// El proceso que separa: el propio ejecutable con `--separate`.
 fn command(app: &App, job_file: &Path) -> Vec<OsString> {
     let mut cmd = lock(&app.separator.command).clone().unwrap_or_else(|| {
@@ -576,7 +600,7 @@ fn run_child(app: &App, job: &Value, report: &Report<'_>) -> Result<Dict> {
         let reader = stderr.map(|s| {
             let errors = errors.clone();
             std::thread::spawn(move || {
-                for line in BufReader::new(s).lines().map_while(std::result::Result::ok) {
+                for line in lossy_lines(s) {
                     let mut e = lock(&errors);
                     e.push(line.trim_end().to_owned());
                     let n = e.len();
@@ -589,7 +613,7 @@ fn run_child(app: &App, job: &Value, report: &Report<'_>) -> Result<Dict> {
         let mut result = Dict::new();
         let mut failure = String::new();
         if let Some(s) = stdout {
-            for line in BufReader::new(s).lines().map_while(std::result::Result::ok) {
+            for line in lossy_lines(s) {
                 let Ok(Value::Object(m)) = serde_json::from_str::<Value>(&line) else {
                     continue;
                 };
@@ -828,7 +852,7 @@ fn refine_song(app: &App, cid: i64, report: &Report<'_>) -> Result<Dict> {
         let mut carry = Map::new();
         for (source, name) in &have {
             if !better.contains(&source.as_str()) && source != REST {
-                std::fs::copy(target.join(name), work.join(name))?;
+                copy_with_time(&target.join(name), &work.join(name))?;
                 carry.insert(source.clone(), path_text(&work.join(name)).into());
             }
         }
@@ -1494,13 +1518,13 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
         let stderr = child.stderr.take();
         let err_reader = stderr.map(|mut s| {
             std::thread::spawn(move || {
-                let mut text = String::new();
-                let _ = std::io::Read::read_to_string(&mut s, &mut text);
-                text
+                let mut raw = Vec::new();
+                let _ = std::io::Read::read_to_end(&mut s, &mut raw);
+                String::from_utf8_lossy(&raw).into_owned()
             })
         });
         if let Some(out) = child.stdout.take() {
-            for line in BufReader::new(out).lines().map_while(std::result::Result::ok) {
+            for line in lossy_lines(out) {
                 if let Some(us) = line.strip_prefix("out_time_us=")
                     && total > 0.0
                     && let Ok(us) = us.trim().parse::<i64>()
