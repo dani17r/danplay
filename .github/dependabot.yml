@@ -22,18 +22,31 @@ updates:
       # va fijada por pydantic: subirla sola nunca resuelve (PR #3)
       - dependency-name: pydantic-core
 
-  - package-ecosystem: npm
+  # la interfaz: Bun (desktop/package.json + bun.lock)
+  - package-ecosystem: bun
     directory: /desktop
     schedule:
       interval: weekly
+    # Nada con menos de dos semanas, lo mismo que pide desktop/bunfig.toml
+    # (minimumReleaseAge): Bun no instalaria lo que proponga antes
+    cooldown:
+      default-days: 14
     groups:
       frontend:
         update-types: [minor, patch]
+        exclude-patterns: [vite-plus]
     ignore:
-      # vue-tsc (`npm run typecheck`) no arranca con TypeScript 7: carga
+      # vue-tsc (`vp run typecheck`) no arranca con TypeScript 7: carga
       # typescript/lib/tsc, que la 7 ya no exporta. Quitar cuando vue-tsc la admita
       - dependency-name: typescript
         update-types: [version-update:semver-major]
+      # Van con Vite+ y se suben con el, todos a la vez: `vite` es un alias de
+      # su nucleo, y `vitest` y su cobertura, la version que trae dentro (ver
+      # las `overrides`). Cuando llegue el PR de `vite-plus`, `vp migrate` en
+      # desktop/ los pone al dia juntos.
+      - dependency-name: vite
+      - dependency-name: vitest
+      - dependency-name: '@vitest/*'
 
   # un solo workspace (Cargo.toml y Cargo.lock en la raiz): con los dos crates
   # por separado, Dependabot no podia cargar el workspace y no proponia nada

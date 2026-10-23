@@ -132,22 +132,31 @@ jobs:
         working-directory: desktop
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      # Bun (el gestor de paquetes de la interfaz) y Vite+ (vp), en las
+      # versiones que fija desktop/package.json (packageManager y vite-plus).
+      # setup-vp, a una versión exacta: su etiqueta v1 ya no se mueve.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
+          bun-version-file: desktop/package.json
+      - uses: voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1
+        with:
+          working-directory: desktop
           node-version: '24'
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
-      - run: npm ci
+          # el Bun de arriba, no otro
+          package-manager: false
+          cache: true
+          run-install: false
+      - run: vp install --frozen-lockfile
       - name: estilo y formato
-        run: npm run lint && npm run lint:css && npm run format:check
+        run: vp run lint && vp run lint:css && vp run format:check
       - name: tipos
-        run: npm run typecheck
+        run: vp run typecheck
       - name: los iconos están al día
         run: node scripts/icons.mjs --check
       - name: pruebas, con cobertura
-        run: npm run test:coverage
+        run: vp run test:coverage
       - name: compila
-        run: npx vite build
+        run: vp build
       - name: rutas de medios
         working-directory: .
         run: node tests/test_frontend.mjs
@@ -171,11 +180,20 @@ jobs:
         with:
           cache-on-failure: true
           prefix-key: v1-rust
-      - uses: actions/setup-node@v7
+      # Bun (el gestor de paquetes de la interfaz) y Vite+ (vp), en las
+      # versiones que fija desktop/package.json (packageManager y vite-plus).
+      # setup-vp, a una versión exacta: su etiqueta v1 ya no se mueve.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
+          bun-version-file: desktop/package.json
+      - uses: voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1
+        with:
+          working-directory: desktop
           node-version: '24'
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          # el Bun de arriba, no otro
+          package-manager: false
+          cache: true
+          run-install: false
       # ffmpeg, fpcalc y QuickJS fijos (con su sha256), los mismos que viajan
       # en los paquetes, en vez de apt: un día apt tardó 20 minutos en
       # instalar ffmpeg. Guardados en la caché: la segunda vez no se baja nada.
@@ -193,10 +211,10 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/python -m pip install -r requirements.txt
           .venv/bin/python -m pip install ./core
-          cd desktop && npm ci
+          cd desktop && vp install --frozen-lockfile
       - name: flujos completos
         working-directory: desktop
-        run: npm run e2e
+        run: vp run e2e
       - name: informe si algo falló
         if: failure()
         uses: actions/upload-artifact@v7
@@ -220,11 +238,20 @@ jobs:
         with:
           cache-on-failure: true
           prefix-key: v1-rust
-      - uses: actions/setup-node@v7
+      # Bun (el gestor de paquetes de la interfaz) y Vite+ (vp), en las
+      # versiones que fija desktop/package.json (packageManager y vite-plus).
+      # setup-vp, a una versión exacta: su etiqueta v1 ya no se mueve.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
+          bun-version-file: desktop/package.json
+      - uses: voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1
+        with:
+          working-directory: desktop
           node-version: '24'
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          # el Bun de arriba, no otro
+          package-manager: false
+          cache: true
+          run-install: false
       - name: dependencias de Tauri
         run: |
           sudo apt-get update -qq
@@ -237,9 +264,9 @@ jobs:
       - name: interfaz
         working-directory: desktop
         run: |
-          npm ci
-          npx vite build
-          npx vite build --mode mobile
+          vp install --frozen-lockfile
+          vp build
+          vp build --mode mobile
       - name: estilo
         run: |
           cargo fmt --all --check
@@ -273,16 +300,17 @@ jobs:
       - name: Rust
         run: |
           cargo audit
-      - uses: actions/setup-node@v7
+      # lee bun.lock: no hace falta instalar nada
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          node-version: '24'
+          bun-version-file: desktop/package.json
       # Solo lo que va dentro de la app. Las herramientas de desarrollo
       # (stylelint, vite...) solo leen nuestro propio codigo, y un aviso sin
       # arreglo en una de ellas (braces, en 2026-09) dejaba esto en rojo
       # sin nada que hacer
-      - name: npm
+      - name: interfaz
         working-directory: desktop
-        run: npm audit --omit=dev --audit-level=moderate
+        run: bun audit --prod --audit-level=moderate
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
