@@ -17,6 +17,8 @@ import { formatTime } from './utils/format.js'
 import Icon from './components/Icon.vue'
 import CoverArt from './components/ui/CoverArt.vue'
 import { applyTheme, applyDensity, savedTheme, savedDensity } from './themes.js'
+// lo suyo, solo en esta ventana (en la grande no hace falta)
+import './styles/mini.css'
 
 const player = usePlayback()
 const { track, playing, position, duration, hasPrevious, hasNext } = player
