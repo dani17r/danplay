@@ -10,6 +10,7 @@ use crate::router::Route;
 pub mod external;
 pub mod library;
 pub mod playlists;
+pub mod songs;
 pub mod system;
 
 /// Todas las rutas, en el orden de FastAPI.
@@ -18,7 +19,7 @@ pub fn all() -> Vec<Route> {
         system::ROUTES,
         // ai::ROUTES,
         library::ROUTES,
-        // songs::ROUTES,
+        songs::ROUTES,
         playlists::ROUTES,
         // assistant::ROUTES,
         // downloads::ROUTES,

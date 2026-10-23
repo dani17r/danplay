@@ -77,7 +77,8 @@ impl Num {
     fn text(self) -> String {
         match self {
             Self::Int(i) => i.to_string(),
-            Self::Float(f) => py::repr_float(f),
+            // como lo escribe pydantic-core (en Rust): `20` y no `20.0`
+            Self::Float(f) => format!("{f}"),
         }
     }
 }
@@ -205,6 +206,12 @@ impl Fields {
             None => self.loc.clone(),
         };
         self.errors.push(error(kind, &loc, msg, input, ctx));
+    }
+
+    /// Apunta un fallo ya hecho, con su `loc` (el de un elemento de una
+    /// lista de modelos, por ejemplo).
+    pub fn push(&mut self, error: Value) {
+        self.errors.push(error);
     }
 
     fn loc_of(&self, key: &str) -> Vec<Value> {
@@ -753,7 +760,11 @@ impl Kind for Float {
             errors.push(error("float_type", loc, "Input should be a valid number", v, None));
             return None;
         };
-        bounds(x, Bounds { ge: self.ge, le: self.le, gt: self.gt, lt: self.lt }, loc, v, errors).then_some(x)
+        // en un `float`, pydantic guarda los topes como reales: el `ctx`
+        // dice `0.0` aunque el mensaje diga «0»
+        let real = |n: Option<Num>| n.map(|n| Num::Float(n.as_f64()));
+        let b = Bounds { ge: real(self.ge), le: real(self.le), gt: real(self.gt), lt: real(self.lt) };
+        bounds(x, b, loc, v, errors).then_some(x)
     }
 }
 
