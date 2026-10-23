@@ -45,25 +45,47 @@ fn in_venv(venv: &Path) -> Option<PathBuf> {
         .find_map(|p| in_folder(&p.join("onnxruntime").join("capi")))
 }
 
-/// La biblioteca de ONNX Runtime: `DANPLAY_ONNXRUNTIME` (el archivo), la
-/// que va junto al ejecutable o con los datos de la app, o la del paquete
-/// `onnxruntime` del entorno de Python del proyecto. `None` si no hay.
+/// La biblioteca de ONNX Runtime (`pulse.onnxruntime_library`): la que
+/// digan `DANPLAY_ONNXRUNTIME` o `ORT_DYLIB_PATH` (el archivo o su carpeta);
+/// la que viaja con la app (junto al ejecutable, en su `lib/` o
+/// `onnxruntime/`, en `../lib/danplay` o `../Resources`, o con los datos de
+/// la app); o, en desarrollo, la del paquete `onnxruntime` del entorno de
+/// Python del proyecto. `None` si no hay.
 pub fn library(app: &App) -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("DANPLAY_ONNXRUNTIME").filter(|p| !p.is_empty()) {
-        let p = PathBuf::from(p);
-        return p.is_file().then_some(p);
+    library_in(Some(&app.resources))
+}
+
+/// Lo mismo, para quien no tiene la app a mano (los procesos del pulso y
+/// del separador, a los que el núcleo les pasa la suya en
+/// `DANPLAY_ONNXRUNTIME`).
+pub fn library_in(resources: Option<&Path>) -> Option<PathBuf> {
+    for var in ["DANPLAY_ONNXRUNTIME", "ORT_DYLIB_PATH"] {
+        if let Some(p) = std::env::var_os(var).filter(|p| !p.is_empty()) {
+            let p = PathBuf::from(p);
+            if p.is_file() {
+                return Some(p);
+            }
+            if let Some(found) = in_folder(&p) {
+                return Some(found);
+            }
+        }
     }
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf));
     let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(d) = &exe_dir {
-        dirs.push(d.clone());
+    if let Some(d) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+    {
+        dirs.push(d.join("lib"));
         dirs.push(d.join("onnxruntime"));
+        dirs.push(d.join("..").join("lib").join("danplay"));
+        dirs.push(d.join("..").join("Resources"));
+        dirs.push(d);
     }
-    dirs.push(app.resources.clone());
-    if let Some(up) = app.resources.parent() {
-        dirs.push(up.to_path_buf());
+    if let Some(r) = resources {
+        dirs.push(r.to_path_buf());
+        if let Some(up) = r.parent() {
+            dirs.push(up.to_path_buf());
+        }
     }
     if let Some(found) = dirs.iter().find_map(|d| in_folder(d)) {
         return Some(found);

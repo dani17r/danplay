@@ -31,6 +31,16 @@ pub fn text(song: &Dict, key: &str) -> String {
     song.get(key).map(py::str_of).unwrap_or_default()
 }
 
+/// `song.get(key) or ""` (lo que es falso, vacío).
+pub fn text_or_empty(song: &Dict, key: &str) -> String {
+    song.get(key).filter(|v| py::truthy(v)).map(py::str_of).unwrap_or_default()
+}
+
+/// `library.by_path(path)`: la canción de esa ruta exacta, o `None`.
+pub fn by_path(app: &App, path: &str) -> Result<Option<Dict>, ApiError> {
+    app.db(|c| index::search::by_path(c, path))
+}
+
 /// `os.path.exists(c["path"])`.
 pub fn exists(song: &Dict) -> bool {
     let path = text(song, "path");

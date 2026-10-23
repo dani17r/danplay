@@ -5,7 +5,7 @@
 //! índice con sus pistas, sus partes y su clic exacto.
 use crate::app::App;
 use crate::jobs::{JobError, Progress};
-use crate::services::{beatgrid, index, stems, tags};
+use crate::services::{beats, songs, stems, tags};
 use library::sequence::{self as lseq, Sequence};
 use library::stems as ls;
 use serde_json::{Map, Value, json};
@@ -459,19 +459,19 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
         return Err(e);
     }
     // 5. al índice, con sus pistas, sus partes y su clic
-    let row = index::index_file(app, &mix_path)
+    let row = crate::services::library::index_file(app, &mix_path.to_string_lossy(), None, None)
         .map_err(|e| JobError::Failed(e.to_string()))?
         .ok_or_else(|| {
             expected("la canción no entró en la biblioteca (¿está la carpeta de música?)")
         })?;
     let id = row.get("id").and_then(Value::as_i64).unwrap_or(0);
-    let root = index::text(&row, "root");
+    let root = songs::text(&row, "root");
     let rel = library::py::relpath(&text(&stems_dir), &root).unwrap_or_default();
     let mut d = library::index::Dict::new();
     d.insert("folder".into(), rel.into());
     d.insert("model".into(), "secuencia".into());
     d.insert("quality".into(), ls::FINAL.into());
-    index::set_stems(app, id, &ls::stems_json(&d)).map_err(|e| JobError::Failed(e.to_string()))?;
+    songs::update_one(app, id, "stems", serde_json::Value::from(ls::stems_json(&d))).map_err(|e| JobError::Failed(e.to_string()))?;
     let mut study = Map::new();
     study.insert("mixer".into(), json!({"on": true}));
     if tempo != 0.0 {
@@ -480,9 +480,11 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
             Value::Array(lseq::markers(&project.locators, tempo, seconds)),
         );
         let grid = Value::Object(lseq::grid(tempo, &project.meters, seconds));
-        beatgrid::save_exact(app, &mix_path, &grid);
+        if let Err(e) = beats::save_exact(app, &mix_path, &grid) {
+            log::warn!("no pude guardar la rejilla de {}: {e}", mix_path.display());
+        }
     }
-    index::set_study(app, id, &Value::Object(study))
+    songs::set_study(app, id, &Value::Object(study))
         .map_err(|e| JobError::Failed(e.to_string()))?;
     p.update(
         Some(total.into()),

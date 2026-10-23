@@ -6,7 +6,7 @@ use crate::http::Response;
 use crate::jobs::{self, JobError};
 use crate::router::{Ctx, Reply, Route};
 use crate::services::stems::{self, Mix, MixClick, MixCue, MixTrack, StemsError};
-use crate::services::{bundle, index, sequence};
+use crate::services::{bundle, songs, sequence};
 use crate::validate::{Bool, Fields, List};
 use library::py;
 use serde_json::{Value, json};
@@ -88,13 +88,13 @@ fn song_stems(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     ctx.check()?;
     let app = ctx.app;
-    let song = index::by_id(app, cid)?.ok_or_else(|| ApiError::not_found("no existe"))?;
+    let song = songs::by_id(app, cid)?.ok_or_else(|| ApiError::not_found("no existe"))?;
     if let Some(data) = stems::info(app, &song) {
         return Ok(Value::Object(data).into());
     }
     if song.get("stems").is_some_and(py::truthy) {
         // la carpeta ya no está (se borró a mano): se olvida
-        index::set_stems(app, cid, "")?;
+        songs::update_one(app, cid, "stems", serde_json::Value::from(""))?;
     }
     Err(ApiError::not_found(
         "esta canción no tiene pistas separadas",
@@ -106,7 +106,7 @@ fn delete_stems(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     ctx.check()?;
     let app = ctx.app;
-    let song = index::by_id(app, cid)?.ok_or_else(|| ApiError::not_found("no existe"))?;
+    let song = songs::by_id(app, cid)?.ok_or_else(|| ApiError::not_found("no existe"))?;
     let r = stems::forget(app, &song)?;
     if r["ok"] != true {
         return Err(ApiError::http(500, r["error"].clone()));
@@ -251,7 +251,7 @@ fn export_mix(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mix = read_mix(&mut b);
     ctx.done(b)?;
     let app = ctx.app;
-    let song = index::by_id(app, cid)?;
+    let song = songs::by_id(app, cid)?;
     let whole = mix.tracks.iter().all(|t| t.source == "song");
     let Some(song) = song else {
         return Err(ApiError::not_found(
@@ -348,7 +348,7 @@ pub(crate) mod tests {
         analysis::cues::write_wav(&file, &analysis::cues::pcm16(&wav), 44_100).expect("wav");
         crate::services::folders::add_folder(&app, &lib.to_string_lossy(), "Musica")
             .expect("carpeta");
-        let row = crate::services::index::index_file(&app, &file)
+        let row = crate::services::library::index_file(&app, &file.to_string_lossy(), None, None)
             .expect("índice")
             .expect("fila");
         let id = row["id"].as_i64().expect("id");

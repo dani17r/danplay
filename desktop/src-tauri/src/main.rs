@@ -69,6 +69,13 @@ fn prefer_xwayland() {
 
 #[expect(clippy::too_many_lines, reason = "el arranque, en orden: partirlo lo esconde")]
 fn main() {
+    // Los procesos aparte del nucleo de Rust (el detector de pulso, el que
+    // separa en pistas) son esta misma app con un argumento: lo primero, sin
+    // ventana ni nada de Tauri.
+    if let Some(code) = server::child_process() {
+        std::process::exit(code);
+    }
+
     #[cfg(target_os = "linux")]
     prefer_xwayland();
 
