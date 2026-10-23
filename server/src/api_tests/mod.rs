@@ -22,3 +22,4 @@ mod songs;
 mod stems;
 mod terms;
 mod tidy;
+mod watch;

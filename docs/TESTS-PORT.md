@@ -109,3 +109,31 @@ Python era `with beatgrid._WAKE`) y el grafo de mentira (`set_graph`).
 | `test_a_diary_written_on_windows_is_understood_anywhere` | `api_tests/journal.rs`: `a_diary_written_on_windows_is_understood_anywhere` |
 | `test_a_lost_database_is_rebuilt_from_the_diary` | `api_tests/journal.rs`: `a_lost_database_is_rebuilt_from_the_diary` |
 | `test_moving_the_music_keeps_the_lists_and_does_not_undo_what_you_removed` | `api_tests/journal.rs`: `moving_the_music_keeps_the_lists_and_does_not_undo_what_you_removed` |
+
+### tests/test_watch.py (23)
+
+| Python | Rust |
+| --- | --- |
+| `test_a_song_moved_to_another_folder_keeps_its_id_and_its_lists` | `api_tests/watch.rs`: `a_song_moved_to_another_folder_keeps_its_id_and_its_lists` |
+| `test_a_moved_song_never_disappears_halfway` | `api_tests/watch.rs`: `a_moved_song_never_disappears_halfway` |
+| `test_a_song_renamed_in_place_keeps_its_id` | `api_tests/watch.rs`: `a_song_renamed_in_place_keeps_its_id` |
+| `test_a_deleted_song_leaves_the_views_and_stays_in_its_lists_as_missing` | `api_tests/watch.rs`: `a_deleted_song_leaves_the_views_and_stays_in_its_lists_as_missing` |
+| `test_a_song_that_comes_back_returns_to_its_place_in_the_list` | `api_tests/watch.rs`: `a_song_that_comes_back_returns_to_its_place_in_the_list` |
+| `test_new_songs_never_inherit_the_id_of_one_that_left` | `api_tests/watch.rs`: `new_songs_never_inherit_the_id_of_one_that_left` |
+| `test_songs_that_never_come_back_are_forgotten_after_a_while` | `api_tests/watch.rs`: `songs_that_never_come_back_are_forgotten_after_a_while` |
+| `test_a_scan_that_finds_nothing_new_does_not_refresh_the_app` | `api_tests/watch.rs`: `a_scan_that_finds_nothing_new_does_not_refresh_the_app` (la revisión es de todo el proceso y otras pruebas la mueven a la vez: se intenta hasta que un escaneo la deja quieta; si el escaneo la moviera, no lo haría nunca) |
+| `test_a_name_that_is_not_utf8_does_not_stop_the_scan` | `api_tests/watch.rs`: `a_name_that_is_not_utf8_does_not_stop_the_scan` |
+| `test_a_folder_that_moved_hides_its_songs_and_says_so` | `api_tests/watch.rs`: `a_folder_that_moved_hides_its_songs_and_says_so` |
+| `test_choosing_the_moved_folder_brings_everything_back` | `api_tests/watch.rs`: `choosing_the_moved_folder_brings_everything_back` |
+| `test_relocating_by_hand` | `api_tests/watch.rs`: `relocating_by_hand` |
+| `test_an_unrelated_folder_is_not_taken_for_the_moved_one` | `api_tests/watch.rs`: `an_unrelated_folder_is_not_taken_for_the_moved_one` |
+| `test_a_disk_that_comes_back_brings_its_songs_as_they_were` | `api_tests/watch.rs`: `a_disk_that_comes_back_brings_its_songs_as_they_were` |
+| `test_removing_a_folder_and_adding_it_again_keeps_the_ids` | `api_tests/watch.rs`: `removing_a_folder_and_adding_it_again_keeps_the_ids` |
+| `test_locate_says_where_each_song_is_now` | `api_tests/watch.rs`: `locate_says_where_each_song_is_now` |
+| `test_the_watcher_follows_what_happens_on_disk` | ya estaba en `services/watcher/tests.rs`: `the_watcher_follows_what_happens_on_disk` |
+| `test_a_folder_added_in_settings_is_indexed_without_asking` | ya estaba en `services/watcher/tests.rs`: `a_folder_added_in_settings_is_indexed_without_asking` |
+| `test_the_watcher_ignores_what_does_not_matter` | ya estaba en `services/watcher/tests.rs`: `the_watcher_ignores_what_does_not_matter` (con los avisos de `notify` en vez de los de watchdog) |
+| `test_the_watcher_waits_for_calm_before_scanning` | ya estaba en `services/watcher/tests.rs`: `the_watcher_waits_for_calm_before_scanning` |
+| `test_prepare_hides_a_missing_folder_before_the_first_answer` | ya estaba en `services/watcher/tests.rs`: `prepare_hides_a_missing_folder_before_the_first_answer` |
+| `test_nothing_brings_a_moved_folder_back_empty` | `api_tests/watch.rs`: `nothing_brings_a_moved_folder_back_empty` (con un yt-dlp de mentira en `sh`, para ver que no llega a bajar nada) |
+| `test_a_new_inbox_is_still_created_where_nothing_is_missing` | `api_tests/watch.rs`: `a_new_inbox_is_still_created_where_nothing_is_missing` |
