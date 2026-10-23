@@ -158,9 +158,22 @@ y el estado: en el comentario de `server/src/lib.rs`.
 - **La app instalada** usa `App::packaged`: los datos que viajan con ella
   (`data/`) y nada del proyecto aunque el código esté en el mismo equipo (lo
   que en Python era `sys.frozen`).
-- **Faltan**: el vigilante de carpetas (`watcher.py`) y «aprovechar» lo de
-  otro archivo de la misma canción (`reuse.settle`: el desfase se calcula
-  con numpy); las pruebas de la API de Python contra el núcleo de Rust; los
+- **El vigilante de carpetas y «aprovechar»** (`watcher.py`, `reuse.py`):
+  `notify` (inotify, FSEvents, ReadDirectoryChangesW) en vez de watchdog,
+  con los mismos avisos que cuentan y los que no, la misma calma antes de
+  escanear y el repaso periódico (`services::watcher`, que arranca y para
+  con el núcleo); y lo hecho para otro archivo de la misma canción
+  (`services::reuse`): las gemelas, el desfase, las pistas, la rejilla, el
+  estudio, las listas de la apartada y la pasada de una vez. El desfase
+  (`analysis::align`) hace las cuentas de numpy en sus tipos: contra numpy,
+  a 4e-10 s y 7e-7 de parecido en 27 parejas de audio de verdad (todas
+  iguales redondeadas como se guardan). Comparados con el núcleo de Python
+  en seis escenas (mover una canción, otra descarga con silencio delante o
+  sin lo de delante, separar una copia, volver en otro archivo, la pasada de
+  una vez y el vigilante viendo llegar, moverse y borrarse canciones y una
+  carpeta entera): 196 de 196 iguales, con la base, reuse.json, las
+  rejillas, las pistas adoptadas y los archivos de audio byte a byte.
+- **Faltan**: las pruebas de la API de Python contra el núcleo de Rust; los
   paquetes sin Python y la CI.
 
 Medido en la fase 0, lo que se espera ganar: unos 150 MB y miles de
