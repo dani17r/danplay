@@ -1,0 +1,39 @@
+[package]
+name = "danplay-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "La API del núcleo de DanPlay en Rust: las mismas rutas, cuerpos y errores que la de FastAPI (danplay/api/), en el mismo proceso que la app o por un socket"
+
+[lib]
+name = "server"
+
+[[bin]]
+name = "danplay-server"
+path = "src/main.rs"
+
+[dependencies]
+# Lo que hace el núcleo con la música (el índice, las listas, las etiquetas...)
+danplay-library = { path = "../library" }
+# El pulso, el separador y el clic (para las rutas que los usen)
+danplay-analysis = { path = "../analysis" }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+log = "0.4"
+# La consulta de la URL, como `parse_qsl` de Python
+form_urlencoded = "1"
+percent-encoding = "2"
+# Servir la API por un socket Unix o por loopback (las pruebas de la
+# interfaz, el arnés que la compara con la de Python y la línea de órdenes)
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "fs", "io-util", "time", "sync", "signal"] }
+
+[target.'cfg(unix)'.dependencies]
+# La máscara de permisos antes de crear el socket (sin `unsafe`)
+rustix = { version = "1", features = ["process", "fs"] }
+
+[lints]
+workspace = true
