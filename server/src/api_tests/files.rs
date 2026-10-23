@@ -376,3 +376,72 @@ fn the_interface_sends_the_fields_the_api_reads() {
             .all(|e| e["pattern"] != "Prueba")
     );
 }
+
+/// Cada parámetro de consulta obligatorio de una ruta
+/// (`ctx.query().….("nombre")….required()`) lo manda la interfaz: como
+/// `nombre=` en la dirección o como clave de un `URLSearchParams({…})` de
+/// `desktop/src/api.js`. Uno que la interfaz no mande es un 422 seguro.
+#[test]
+fn the_interface_sends_the_query_parameters_the_api_requires() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let api = std::fs::read_to_string(root.join("../desktop/src/api.js")).expect("api.js");
+    let words = |text: &str| -> Vec<String> {
+        text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .filter(|w| !w.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    let in_params: Vec<String> = api
+        .match_indices("URLSearchParams({")
+        .flat_map(|(i, _)| {
+            let rest = &api[i + "URLSearchParams({".len()..];
+            words(&rest[..rest.find('}').unwrap_or(rest.len())])
+        })
+        .collect();
+    // los .rs de routes/, también los de sus subcarpetas
+    let routes = root.join("src/routes");
+    let mut pending = vec![routes.clone()];
+    let mut files = Vec::new();
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).expect("rutas").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    let mut required = Vec::new();
+    for path in files {
+        let code = std::fs::read_to_string(&path).expect("ruta");
+        for statement in code.split(';') {
+            let Some(at) = statement.find("ctx.query().") else {
+                continue;
+            };
+            if !statement.contains(".required()") {
+                continue;
+            }
+            let name = statement[at..]
+                .split('"')
+                .nth(1)
+                .expect("el nombre del parámetro");
+            let file = path
+                .strip_prefix(&routes)
+                .unwrap_or(&path)
+                .display()
+                .to_string();
+            required.push((file, name.to_owned()));
+        }
+    }
+    assert!(
+        required.len() >= 4,
+        "no se encontraron los obligatorios: {required:?}"
+    );
+    for (file, name) in &required {
+        assert!(
+            api.contains(&format!("{name}=")) || in_params.contains(name),
+            "routes/{file}: la interfaz no manda «{name}»"
+        );
+    }
+}
