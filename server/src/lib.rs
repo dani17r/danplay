@@ -204,11 +204,38 @@ fn models_snapshot(args: &[std::ffi::OsString]) -> i32 {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+
+    /// Lo que dejaron en el temporal las pasadas de antes, ya terminadas (en
+    /// Linux, `/tmp` está en la memoria: no se puede dejar que crezca).
+    fn sweep_old_scratch() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+                return;
+            };
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let Some(pid) = name
+                    .strip_prefix("danplay-server-")
+                    .and_then(|rest| rest.split('-').next())
+                    .and_then(|p| p.parse::<u32>().ok())
+                else {
+                    continue;
+                };
+                let alive =
+                    pid == std::process::id() || Path::new("/proc").join(pid.to_string()).exists();
+                if cfg!(target_os = "linux") && !alive {
+                    let _ = std::fs::remove_dir_all(e.path());
+                }
+            }
+        });
+    }
 
     /// Una carpeta temporal propia de cada prueba.
     pub fn scratch(name: &str) -> PathBuf {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        sweep_old_scratch();
         let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let dir =
             std::env::temp_dir().join(format!("danplay-server-{}-{name}-{n}", std::process::id()));
