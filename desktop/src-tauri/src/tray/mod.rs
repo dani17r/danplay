@@ -13,11 +13,12 @@
 //!
 //! Lo que el resto del programa ve es lo mismo en los dos casos: `install`,
 //! `update`, `available` y `toggle_popup`.
+use crate::lazy_window;
 use crate::queue::PlaybackState;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 #[cfg(not(target_os = "linux"))]
 mod desktop;
@@ -194,6 +195,10 @@ pub fn dock(app: &AppHandle, visible: bool) {
     let _ = (app, visible);
 }
 
+// La ventanita y la proyeccion no existen al arrancar (ver lazy_window.rs):
+// se crean la primera vez que se abren, y desde ahi se esconden y se vuelven
+// a ensenar como siempre.
+
 pub fn hide_popup(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MINI) {
         let _ = window.hide();
@@ -207,15 +212,18 @@ pub fn hide_popup(app: &AppHandle) {
 /// con X11; en Wayland nadie dice donde esta el icono, y ademas colocar una
 /// ventana a mano no esta permitido: la pone el escritorio donde considere).
 pub fn toggle_popup(app: &AppHandle, near: Option<(i32, i32)>) {
-    let Some(window) = app.get_webview_window(MINI) else {
-        log::warn!("no encuentro la ventana del mini reproductor");
-        return;
-    };
-    if window.is_visible().unwrap_or(false) {
-        hide_popup(app);
-        return;
+    match app.get_webview_window(MINI) {
+        Some(window) if window.is_visible().unwrap_or(false) => hide_popup(app),
+        Some(window) => show_popup(app, &window, near),
+        // la primera vez: se crea, y se ensena en cuanto su pagina ha cargado
+        None => lazy_window::create(app, MINI, watch_popup, move |app, window| {
+            show_popup(app, window, near);
+        }),
     }
-    place(app, &window, near);
+}
+
+fn show_popup(app: &AppHandle, window: &WebviewWindow, near: Option<(i32, i32)>) {
+    place(app, window, near);
     let _ = window.show();
     let _ = window.set_focus();
     if let Some(tray) = app.try_state::<Tray>()
@@ -244,10 +252,7 @@ fn place(app: &AppHandle, window: &tauri::WebviewWindow, near: Option<(i32, i32)
 /// Con la pausa de gracia: el clic en el icono de la bandeja puede llegar
 /// **antes** de que la ventana termine de aparecer, y sin esto se cerraba sola
 /// nada mas abrirse.
-pub fn watch_popup(app: &AppHandle) {
-    let Some(window) = app.get_webview_window(MINI) else {
-        return;
-    };
+fn watch_popup(app: &AppHandle, window: &WebviewWindow) {
     let handle = app.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Focused(false) = event {
@@ -286,16 +291,37 @@ pub fn tray_available(app: AppHandle) -> bool {
 
 /// La ventana de proyeccion: la letra en grande para el proyector. Es una
 /// ventana normal (se arrastra a la otra pantalla y se pone a pantalla
-/// completa); cerrarla la esconde, para poder volver a abrirla.
+/// completa); cerrarla la esconde, para poder volver a abrirla al momento.
+/// No existe hasta que se abre la primera vez.
 pub const PROJECTION: &str = "projection";
 
 #[tauri::command]
 pub fn show_projection(app: AppHandle) {
-    if let Some(window) = app.get_webview_window(PROJECTION) {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+    match app.get_webview_window(PROJECTION) {
+        Some(window) => show_projection_window(&window),
+        // la primera vez: se crea, y se ensena en cuanto su pagina ha cargado
+        None => lazy_window::create(&app, PROJECTION, watch_projection, |_, window| {
+            show_projection_window(window);
+        }),
     }
+}
+
+fn show_projection_window(window: &WebviewWindow) {
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
+/// Recien creada: cerrarla la esconde (si se destruyera, en WebKitGTK su
+/// proceso se quedaria igual: ver lazy_window.rs).
+fn watch_projection(app: &AppHandle, window: &WebviewWindow) {
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            hide_projection(handle.clone());
+        }
+    });
 }
 
 #[tauri::command]

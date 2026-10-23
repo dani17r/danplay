@@ -367,7 +367,8 @@ describe('the checkbox CSS', () => {
 
   it('reduced motion turns off its transition (the general rule)', () => {
     expect(CSS).toMatch(/\n\.pick-box\{[^}]*transition:/)
-    const motion = CSS.slice(CSS.lastIndexOf('prefers-reduced-motion'))
+    // la de motion.css (detrás van los estilos de las islas, con los suyos)
+    const motion = CSS.slice(CSS.search(/prefers-reduced-motion:reduce\)\{\*,/))
     expect(motion).toMatch(/\*,\*::before,\*::after\{[^}]*transition-duration:0\.01ms/)
   })
 })

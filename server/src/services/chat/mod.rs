@@ -179,7 +179,7 @@ fn setlist_note(turn: &Turn) -> Option<String> {
 
 /// `_still_there(h)`: la canción de una descarga del historial, si sigue
 /// siendo ESA (los ids de canción se reutilizan).
-fn still_there(app: &App, h: &Dict) -> bool {
+pub(crate) fn still_there(app: &App, h: &Dict) -> bool {
     let Some(sid) = h
         .get("song_id")
         .filter(|v| py::truthy(v))

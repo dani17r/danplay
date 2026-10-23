@@ -794,8 +794,8 @@ mod tests {
         assert_eq!(out["x"]["models"]["old"]["deprecated"], json!(true));
     }
 
-    /// La foto del catálogo que viaja con la app (la de danplay/data, que
-    /// empaqueta scripts/data.sh).
+    /// La foto del catálogo que viaja con la app (la de data/, que empaqueta
+    /// scripts/data.sh).
     #[test]
     fn bundled_snapshot_exists_and_knows_the_big_ones() {
         let path = crate::testkit::bundled_data("models-snapshot.json");

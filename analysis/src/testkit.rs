@@ -44,11 +44,11 @@ pub fn ffmpeg() -> Option<PathBuf> {
     which("ffmpeg")
 }
 
-/// Un archivo de los datos que viajan con la app (hoy en danplay/data: los
+/// Un archivo de los datos que viajan con la app (los de data/, que
 /// empaqueta scripts/data.sh; si se mueven, se cambia aquí).
 pub fn bundled_data(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../danplay/data")
+        .join("../data")
         .join(name)
 }
 

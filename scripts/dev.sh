@@ -1,6 +1,6 @@
 #!/bin/sh
 # DanPlay en modo desarrollo: la app entera (Tauri + Vite en caliente) con el
-# nucleo dentro, compilado del codigo, y los datos de danplay/data. Lo que
+# nucleo dentro, compilado del codigo, y los datos de data/. Lo que
 # cambies en la interfaz se ve al momento; lo de Rust, cuando tauri dev lo
 # vuelve a compilar (solo, al guardar). No hace falta Python.
 #

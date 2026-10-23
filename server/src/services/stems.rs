@@ -262,7 +262,7 @@ fn weights_path(app: &App, p: &Part) -> PathBuf {
 }
 
 /// Los pesos de esa parte ya están bajados (y enteros).
-fn installed(app: &App, p: &Part) -> bool {
+pub(crate) fn installed(app: &App, p: &Part) -> bool {
     faked(app) || std::fs::metadata(weights_path(app, p)).is_ok_and(|m| m.len() == p.bytes)
 }
 
@@ -318,6 +318,13 @@ fn ffmpeg_list(app: &App, ffmpeg: &Path, what: &str) -> String {
         .unwrap_or_default();
     lock(&app.separator.encoders).insert(key, out.clone());
     out
+}
+
+/// Lo que dirá `ffmpeg -hide_banner -encoders` (las pruebas: un ffmpeg
+/// que no sabe Vorbis, o nada).
+#[cfg(test)]
+pub fn set_encoders(app: &App, ffmpeg: &Path, text: &str) {
+    lock(&app.separator.encoders).insert(ffmpeg.join("-encoders"), text.to_owned());
 }
 
 /// Lo que dice `ffmpeg -hide_banner -encoders` (para el celular).
@@ -393,7 +400,7 @@ pub fn status(app: &App) -> Value {
 /// Baja los pesos de una parte (del autor, en HuggingFace), una sola vez,
 /// comprobando el sha256 que viaja con la app. A un temporal y a su sitio
 /// al final: cortarlo no deja nada roto.
-fn download(app: &App, p: &Part, progress: &mut dyn FnMut(u64, u64)) -> Result<PathBuf> {
+pub(crate) fn download(app: &App, p: &Part, progress: &mut dyn FnMut(u64, u64)) -> Result<PathBuf> {
     let target = weights_path(app, p);
     if installed(app, p) {
         return Ok(target);

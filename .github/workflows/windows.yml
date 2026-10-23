@@ -113,7 +113,7 @@ jobs:
           Set-Content desktop/src-tauri/tools/LEEME.txt `
             "Aqui van ffmpeg.exe, fpcalc.exe, qjs.exe y yt-dlp.exe si se quieren dentro del instalador."
 
-      # Lo que hace scripts/data.sh en Linux y macOS: lo de danplay/data y
+      # Lo que hace scripts/data.sh en Linux y macOS: lo de data/ y
       # ONNX Runtime, en desktop/src-tauri/data (siempre: sin el no hay pulso,
       # ni separar, ni voces)
       - name: los datos y ONNX Runtime
@@ -138,7 +138,7 @@ jobs:
             $zip.Dispose()
           }
           foreach ($item in 'pulse', 'separator', 'voices.json', 'models-snapshot.json') {
-            Copy-Item -Recurse "danplay/data/$item" $data
+            Copy-Item -Recurse "data/$item" $data
           }
           Get-ChildItem $data
 

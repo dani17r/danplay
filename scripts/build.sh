@@ -27,7 +27,7 @@ mkdir -p dist/installers
 step "1/3  interfaz (Vite)"
 ( cd desktop && vp build )
 
-step "2/3  datos que viajan con la app (ONNX Runtime y danplay/data)"
+step "2/3  datos que viajan con la app (ONNX Runtime y data/)"
 ./scripts/data.sh
 # el nucleo de Python empaquetado de hasta la 1.30 (core/) y el de un solo
 # archivo de antes (binaries/), si quedaron: ya no viajan

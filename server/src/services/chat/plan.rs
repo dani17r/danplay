@@ -60,7 +60,60 @@ fn cut_text(kind: &str) -> &'static str {
 /// El reloj de las caducidades (`time.monotonic`).
 fn now() -> f64 {
     static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    #[cfg(test)]
+    if let Some(t) = *testing::lock(&testing::CLOCK) {
+        return t;
+    }
     START.elapsed().as_secs_f64() + 1000.0
+}
+
+/// Lo que las pruebas cambian del plan (solo al compilarlas): el reloj, la
+/// consulta a YouTube, lo que se mira antes de buscar y si ya la tienes.
+#[cfg(test)]
+pub mod testing {
+    use super::{Dict, Mutex, PoisonError, registry};
+    use std::sync::{Arc, MutexGuard};
+
+    pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+        m.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// El reloj, a mano (`None`: el de verdad).
+    pub static CLOCK: Mutex<Option<f64>> = Mutex::new(None);
+    /// `youtube::info(app, consulta, resultados, timeout)` de mentira.
+    pub type Info = Arc<dyn Fn(&str, i64, Option<f64>) -> Dict + Send + Sync>;
+    pub static INFO: Mutex<Option<Info>> = Mutex::new(None);
+    /// Sin una consulta de mentira, el plan no busca: en las pruebas no se
+    /// sale a YouTube.
+    pub const OFFLINE: &str = "en las pruebas no se sale a YouTube";
+    /// Lo que dice `_warm` (`None`: mirar yt-dlp de verdad).
+    pub static WARM: Mutex<Option<String>> = Mutex::new(None);
+    /// `youtube::already_in_library(título)` de mentira.
+    pub type Mine = Arc<dyn Fn(&str) -> Vec<Dict> + Send + Sync>;
+    pub static MINE: Mutex<Option<Mine>> = Mutex::new(None);
+    /// Lo que se le pide a `register`, tal cual llega: {tool, args, plan,
+    /// after}.
+    pub static SEEN: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+
+    /// Cuántas propuestas hay registradas.
+    pub fn entries() -> usize {
+        registry().entries.len()
+    }
+
+    /// Todo como al principio: sin propuestas, sin caché y sin nada fingido.
+    pub fn clear() {
+        super::reset();
+        *lock(&CLOCK) = None;
+        *lock(&INFO) = None;
+        *lock(&WARM) = None;
+        *lock(&MINE) = None;
+        lock(&SEEN).clear();
+    }
+
+    /// Lo apuntado por `register` desde el último `clear`.
+    pub fn seen() -> Vec<serde_json::Value> {
+        lock(&SEEN).clone()
+    }
 }
 
 /// Una propuesta registrada.
@@ -250,6 +303,9 @@ pub fn register(
     after: &Value,
     chat_id: Option<i64>,
 ) -> Result<Dict, RegisterError> {
+    #[cfg(test)]
+    testing::lock(&testing::SEEN)
+        .push(serde_json::json!({"tool": tool, "args": args, "plan": plan, "after": after}));
     let draft = p::draft(tool, args, plan, after, &mut Index(app)).map_err(|e| match e {
         Refused::Value(m) | Refused::After(m) => RegisterError::Value(m),
         Refused::Data(e) => data_error(&e),
@@ -504,6 +560,22 @@ fn lookup(app: &App, query: &str, key: &str, cancel: &AtomicBool, blocked: &Atom
         SLOTS.release();
         return skipped();
     }
+    // en las pruebas no se sale a YouTube (hay un yt-dlp en el PATH)
+    #[cfg(test)]
+    let res: Result<Dict, String> = {
+        let _ = app;
+        let fake = testing::lock(&testing::INFO).clone();
+        Ok(fake.map_or_else(
+            || {
+                Dict::from_iter([
+                    ("ok".to_owned(), Value::Bool(false)),
+                    ("reason".to_owned(), Value::from(testing::OFFLINE)),
+                ])
+            },
+            |info| info(query, 1, Some(LOOKUP_TIMEOUT)),
+        ))
+    };
+    #[cfg(not(test))]
     let res = youtube::info(app, query, 1, Some(LOOKUP_TIMEOUT));
     SLOTS.release();
     let res = match res {
@@ -553,7 +625,16 @@ fn settle_row(app: &App, id: &str, i: usize, res: &Dict) {
         .and_then(|e| e.card.as_ref())
         .and_then(|c| c.doubt(i, &found));
     let Some(doubt) = doubt else { return };
-    let mine = match youtube::already_in_library(app, &found.title) {
+    #[cfg(test)]
+    let fake = testing::lock(&testing::MINE).clone();
+    #[cfg(test)]
+    let had = match fake {
+        Some(mine) => Ok(mine(&found.title)),
+        None => youtube::already_in_library(app, &found.title),
+    };
+    #[cfg(not(test))]
+    let had = youtube::already_in_library(app, &found.title);
+    let mine = match had {
         Ok(rows) => {
             let rows = Value::Array(rows.into_iter().map(Value::Object).collect());
             p::mine(&rows).unwrap_or_default()
@@ -568,6 +649,29 @@ fn settle_row(app: &App, id: &str, i: usize, res: &Dict) {
     }
 }
 
+/// `_warm`: yt-dlp y su motor de JavaScript ANTES de abrir hilos (si no,
+/// cada hilo lo buscaba a la vez). Sin yt-dlp no se puede buscar: el porqué.
+fn warm(app: &App) -> String {
+    #[cfg(test)]
+    if let Some(why) = testing::lock(&testing::WARM).clone() {
+        return why;
+    }
+    #[cfg(test)]
+    if testing::lock(&testing::INFO).is_none() {
+        return testing::OFFLINE.into();
+    }
+    if ytdlp::executable(app).is_none() {
+        let why = youtube::unavailable_reason(app);
+        return if why.is_empty() {
+            "falta yt-dlp".into()
+        } else {
+            why
+        };
+    }
+    let _ = ytdlp::js_runtime(app, false);
+    String::new()
+}
+
 fn stop_by_id(id: &str, kind: &str, reason: &str) {
     if let Some(e) = registry().find(id) {
         stop(e, kind, reason);
@@ -577,17 +681,11 @@ fn stop_by_id(id: &str, kind: &str, reason: &str) {
 /// El hilo de una propuesta: busca sus filas en YouTube, dos a la vez. Corta
 /// el lote a la primera señal de 429, de «no eres un robot» o de red.
 fn work(app: &App, id: &str, search: &Arc<AtomicBool>) {
-    // `_warm`: yt-dlp y su motor de JavaScript ANTES de abrir hilos (si no,
-    // cada hilo lo buscaba a la vez); sin yt-dlp no se puede buscar
-    if ytdlp::executable(app).is_none() {
-        let mut why = youtube::unavailable_reason(app);
-        if why.is_empty() {
-            "falta yt-dlp".clone_into(&mut why);
-        }
+    let why = warm(app);
+    if !why.is_empty() {
         stop_by_id(id, "unavailable", &datum(&why, 160));
         return;
     }
-    let _ = ytdlp::js_runtime(app, false);
     let remaining = registry()
         .find(id)
         .and_then(|e| e.card.as_ref().map(Card::pending))

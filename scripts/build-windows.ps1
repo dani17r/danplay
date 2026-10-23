@@ -55,10 +55,10 @@ if (-not (Test-Path node_modules)) { vp install --frozen-lockfile }
 vp build
 Pop-Location
 
-# --- datos: lo de danplay/data y ONNX Runtime --------------------------------
+# --- datos: lo de data/ y ONNX Runtime --------------------------------
 # Lo mismo que scripts/data.sh en Linux y macOS, con la misma version y suma:
 # para subirla, se cambian aqui, alli y en .github/workflows/windows.yml.
-Step '2/4  datos que viajan con la app (ONNX Runtime y danplay/data)'
+Step '2/4  datos que viajan con la app (ONNX Runtime y data/)'
 $data = 'desktop/src-tauri/data'
 Get-ChildItem $data -Exclude LEEME.txt | Remove-Item -Recurse -Force
 $ort = Download 'https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-win-x64-1.31.0.zip' `
@@ -78,7 +78,7 @@ try {
     $zip.Dispose()
 }
 foreach ($item in 'pulse', 'separator', 'voices.json', 'models-snapshot.json') {
-    Copy-Item -Recurse "danplay/data/$item" $data
+    Copy-Item -Recurse "data/$item" $data
 }
 
 # --- ffmpeg, fpcalc, QuickJS y yt-dlp ----------------------------------------

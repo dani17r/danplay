@@ -5,8 +5,8 @@ use crate::app::App;
 use crate::http::{Request, Response};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 /// Las canciones de la biblioteca de prueba (las de tests/test_api.py).
 pub const ARTISTS: [(&str, [&str; 3]); 2] = [
@@ -108,6 +108,115 @@ pub fn api_library() -> Option<App> {
     Some(app)
 }
 
+// ---------------------------------------------------------------- la sintética
+
+/// La biblioteca sintética de tests/conftest.py (`synthetic_library`): la
+/// clave de cada canción, su ruta dentro de la biblioteca, artista, título
+/// y álbum.
+pub const SYNTHETIC: [(&str, &str, &str, &str, &str); 3] = [
+    (
+        "gozo",
+        "Artistas/Barak/Barak - Mi Gozo.mp3",
+        "Barak",
+        "Mi Gozo",
+        "Gozo",
+    ),
+    (
+        "tierra",
+        "Artistas/Barak/Barak - Sera Llena La Tierra.mp3",
+        "Barak",
+        "Sera Llena La Tierra",
+        "Gozo",
+    ),
+    (
+        "shekinah",
+        "Artistas/New Wine/New Wine - Shekinah.mp3",
+        "New Wine",
+        "Shekinah",
+        "Libertad",
+    ),
+];
+
+/// Las canciones de la biblioteca sintética, por su clave («gozo»...).
+pub type Songs = std::collections::HashMap<&'static str, PathBuf>;
+
+/// Sus mp3, hechos una vez y copiados después a la de cada prueba.
+fn synthetic_template() -> Option<&'static Path> {
+    static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| {
+        ffmpeg()?;
+        let dir = crate::tests::scratch("plantilla-sintetica");
+        for (_, rel, artist, title, album) in SYNTHETIC {
+            mp3(&dir.join(rel), artist, title, album, 1.0, None);
+        }
+        Some(dir)
+    })
+    .as_deref()
+}
+
+/// `configured_library` de tests/conftest.py: una app con la biblioteca
+/// sintética (sus tres canciones, y Entrada, Revisar y Secuencias), sin IA y
+/// aún sin dar de alta. `None` si no hay ffmpeg.
+pub fn configured_library() -> Option<(App, Songs)> {
+    let template = synthetic_template()?;
+    let app = crate::tests::app();
+    app.update_config(|c| c.ai_enabled = false);
+    let lib = app.config().library.clone();
+    for sub in ["Entrada", "Revisar", "Secuencias"] {
+        std::fs::create_dir_all(lib.join(sub)).expect("carpeta");
+    }
+    let mut songs = Songs::new();
+    for (key, rel, ..) in SYNTHETIC {
+        let dest = lib.join(rel);
+        std::fs::create_dir_all(dest.parent().expect("carpeta")).expect("carpeta");
+        std::fs::copy(template.join(rel), &dest).expect("copiar");
+        songs.insert(key, dest);
+    }
+    Some((app, songs))
+}
+
+/// La de antes, ya dada de alta y escaneada (el `lib` de test_watch.py,
+/// test_index.py, test_journal.py...).
+pub fn scanned_library() -> Option<(App, Songs)> {
+    let (app, songs) = configured_library()?;
+    let root = app.config().library.to_string_lossy().into_owned();
+    assert!(crate::services::folders::add_folder(&app, &root, "").expect("carpeta"));
+    crate::services::library::scan(&app, &mut |_, _| {}).expect("escaneo");
+    Some((app, songs))
+}
+
+/// Las canciones que hay ahora en la biblioteca (`library.search("")`).
+pub fn rows(app: &App) -> Vec<library::index::Dict> {
+    app.db(|c| library::index::fetch_all(c, "SELECT * FROM songs ORDER BY id", []))
+        .expect("base")
+}
+
+/// {nombre del archivo: id} de lo que hay ahora (`_ids` de test_watch.py).
+pub fn ids_by_file(app: &App) -> std::collections::BTreeMap<String, i64> {
+    rows(app)
+        .iter()
+        .map(|r| {
+            let path = library::index::get_str(r, "path");
+            (
+                library::py::basename(path),
+                r.get("id").and_then(Value::as_i64).expect("id"),
+            )
+        })
+        .collect()
+}
+
+/// La canción con ese nombre de archivo, si ahora está (`_row`).
+pub fn row(app: &App, name: &str) -> Option<library::index::Dict> {
+    rows(app)
+        .into_iter()
+        .find(|r| library::py::basename(library::index::get_str(r, "path")) == name)
+}
+
+/// El texto de una ruta.
+pub fn text(p: &Path) -> String {
+    p.to_string_lossy().into_owned()
+}
+
 /// Una petición a la API, en el mismo proceso: (código, JSON o `null`).
 pub fn call(app: &App, method: &str, path: &str, body: Option<Value>) -> (u16, Value) {
     let r = send(app, method, path, body);
@@ -181,6 +290,10 @@ type Answer = dyn Fn(&Value) -> Reply + Send + Sync;
 /// verdad. `base_url` va en el perfil (`{"provider": ..., "base_url": ...}`).
 pub struct FakeAi {
     pub base_url: String,
+    /// El estado de la IA (quién falla, quién contestó, los clientes) es uno
+    /// para todo el proceso: las pruebas con una IA de mentira van de una en
+    /// una.
+    _shared: Registry,
     /// Los cuerpos de las peticiones de `/chat/completions`, en orden.
     pub calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
 }
@@ -205,6 +318,7 @@ impl FakeAi {
         });
         Self {
             base_url: format!("http://127.0.0.1:{port}/v1"),
+            _shared: registry(),
             calls,
         }
     }
@@ -405,4 +519,99 @@ pub fn send_with(app: &App, method: &str, path: &str, headers: &[(&str, &str)]) 
         req = req.header(k, v);
     }
     crate::handle(app, &req)
+}
+
+// ------------------------------------------------------------ yt-dlp de mentira
+
+/// Un yt-dlp de mentira para `app`; devuelve el registro de sus llamadas.
+#[cfg(unix)]
+pub fn fake_ytdlp(app: &App) -> PathBuf {
+    let tools = crate::tests::scratch("ytdlp-mentira");
+    let song = tools.join("plantilla.mp3");
+    assert!(mp3(&song, "", "", "", 1.0, Some(440.0)));
+    let log = tools.join("llamadas.txt");
+    let body = format!(
+        r#"for a in "$@"; do printf '%s\t' "$a"; done >> '{log}'; echo >> '{log}'
+case " $* " in *" --version "*) echo 2026.08.19; exit 0;; esac
+out=""; prev=""; last=""
+for a in "$@"; do
+  [ "$prev" = "--output" ] && out="$a"
+  prev="$a"; last="$a"
+done
+if [ -n "$out" ]; then
+  id=$(printf '%s' "$last" | sed 's|.*v=||')
+  file=$(printf '%s' "$out" | sed "s/%(id)s/$id/; s/%(ext)s/mp3/")
+  cp '{song}' "$file"
+  printf '{{"id": "%s", "title": "Cancion %s", "uploader": "Prueba", "duration": 1, "webpage_url": "https://www.youtube.com/watch?v=%s"}}\n' "$id" "$id" "$id"
+  exit 0
+fi
+q=$(printf '%s' "$last" | sed 's|^ytsearch[0-9]*:||' | tr ' ' '_')
+case "$q" in http*) q=${{q##*v=}};; esac
+printf '{{"_type": "playlist", "title": "busqueda", "entries": [{{"id": "%s", "title": "Cancion %s", "uploader": "Prueba", "duration": 1, "webpage_url": "https://www.youtube.com/watch?v=%s"}}]}}\n' "$q" "$q" "$q""#,
+        log = log.display(),
+        song = song.display(),
+    );
+    crate::services::ytdlp::tests::script(&tools, "yt-dlp", &body);
+    let dir = tools.to_string_lossy().into_owned();
+    app.update_config(|c| c.tools_dir = dir);
+    log
+}
+
+/// Lo que se consultó (lo último de cada llamada de consulta), en orden:
+/// el registro lleva cada argumento seguido de un tabulador.
+pub fn queries(log: &Path) -> Vec<String> {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.contains("--flat-playlist"))
+        .map(|l| {
+            l.trim_end_matches('\t')
+                .rsplit('\t')
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Espera a que la descarga suelte el turno; su estado al acabar.
+pub fn until_done(app: &App) -> Value {
+    let end = Instant::now() + Duration::from_secs(60);
+    loop {
+        let s = get(app, "/api/youtube");
+        if s["active"] == false {
+            return s;
+        }
+        assert!(
+            Instant::now() < end,
+            "la descarga no ha soltado el turno: {s}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// El registro de las propuestas del asistente (y lo que se finge en él) y
+/// el estado de la IA son uno para todo el proceso: las pruebas que
+/// registran, directamente o con un turno del chat, o que hablan con una IA
+/// de mentira, van de una en una. Una prueba lo puede pedir más de una vez
+/// (dos IA de mentira seguidas): solo la primera espera.
+pub struct Registry(
+    #[allow(dead_code, reason = "el cerrojo, mientras dure")] Option<MutexGuard<'static, ()>>,
+);
+
+thread_local! {
+    static HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+pub fn registry() -> Registry {
+    static ONE: Mutex<()> = Mutex::new(());
+    let guard = (HELD.get() == 0).then(|| ONE.lock().unwrap_or_else(PoisonError::into_inner));
+    HELD.set(HELD.get() + 1);
+    Registry(guard)
+}
+
+impl Drop for Registry {
+    fn drop(&mut self) {
+        HELD.set(HELD.get() - 1);
+    }
 }

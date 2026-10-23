@@ -1,7 +1,7 @@
 {
   "name": "danplay-app",
   "private": true,
-  "version": "1.30.0",
+  "version": "1.40.0",
   "author": "Daniel Rangel (https://t.me/Dani17r)",
   "type": "module",
   "packageManager": "bun@1.4.2",
@@ -21,6 +21,7 @@
     "test:watch": "vp test",
     "test:coverage": "vp test run --coverage",
     "e2e": "playwright test",
+    "perf": "vp build && playwright test -c e2e/perf/playwright.config.js",
     "lint": "eslint --concurrency auto --cache --cache-location node_modules/.cache/eslint/ src tests e2e scripts \"*.config.js\"",
     "lint:css": "stylelint \"src/**/*.css\"",
     "format": "vp fmt --threads 4",

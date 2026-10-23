@@ -75,7 +75,8 @@ async function accept() {
 </script>
 
 <template>
-  <transition name="fade">
+  <!-- `appear`: es una isla (islands.js) y puede montarse ya abierta -->
+  <transition name="fade" appear>
     <div v-if="state.open" class="modal-back terms-back" role="presentation">
       <div
         ref="box"

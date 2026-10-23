@@ -83,7 +83,7 @@ step "1/4  interfaz (Vite)"
 ( cd desktop && vp build )
 
 # ---------------------------------------------------------------- los datos
-step "2/4  datos: ONNX Runtime de Windows y lo de danplay/data"
+step "2/4  datos: ONNX Runtime de Windows y lo de data/"
 DANPLAY_CACHE_WINDOWS="$CACHE" ./scripts/data.sh windows
 
 # ----------------------------------------------------------- app de escritorio

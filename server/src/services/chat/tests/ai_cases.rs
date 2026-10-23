@@ -11,9 +11,15 @@ type Seen = Arc<Mutex<Vec<Value>>>;
 
 /// Las pruebas de aquí que conversan, de una en una: quién contestó y la
 /// marca de «caído» son de todo el proceso (y guardar un perfil las borra).
-fn serial() -> std::sync::MutexGuard<'static, ()> {
+/// Y con el cerrojo de las demás pruebas que conversan con una IA de mentira
+/// (`testkit::registry`): un turno del chat también registra propuestas.
+fn serial() -> (crate::testkit::Registry, std::sync::MutexGuard<'static, ()>) {
     static SERIAL: Mutex<()> = Mutex::new(());
-    SERIAL.lock().unwrap_or_else(PoisonError::into_inner)
+    let shared = crate::testkit::registry();
+    (
+        shared,
+        SERIAL.lock().unwrap_or_else(PoisonError::into_inner),
+    )
 }
 
 /// Una IA que contesta según la petición: `answer` da (código, cuerpo), y

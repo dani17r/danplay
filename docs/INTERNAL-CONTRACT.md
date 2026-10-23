@@ -134,9 +134,20 @@ se muestra u oculta. Evento `danplay://core` con `{ ready: boolean, message }`
 cuando el núcleo Python arranca, muere o se reinicia.
 
 La ventana `mini` se declara en `tauri.conf.json` (label `mini`, url
-`index.html?mini=1`, oculta al arrancar) y tiene su propia *capability*
+`index.html?mini=1`, `"create": false`) y tiene su propia *capability*
 (`capabilities/mini.json`). Se oculta sola al perder el foco y con Escape
 (la interfaz llama a `hide_mini`).
+
+**La ventanita y la proyección se crean al abrirlas** (`lazy_window.rs`):
+cada una es un proceso de WebKit más, y con la app recién abierta solo
+existe la principal. `toggle_mini` y `show_projection` la crean desde su
+`WindowConfig` si no existe y la enseñan cuando su página ha cargado; desde
+ahí se esconden y se vuelven a enseñar como siempre. No se destruyen al
+esconderlas: en WebKitGTK el proceso de una ventana destruida se queda, y
+volver a crearla sumaría otro. Lo que les
+llega por eventos (`danplay://state`, `danplay://changed`) lo reciben desde
+que existen; lo de antes lo leen al montarse (`playback_state`, la ficha de
+lo que suena, el tema guardado), como cualquier ventana al arrancar.
 
 **Qué puede invocar cada ventana.** Los comandos propios se declaran en
 `build.rs` (Tauri genera un permiso `allow-<comando>` por cada uno, en

@@ -7,7 +7,7 @@
 //! mucho más que el análisis de siempre (`beats.rs` en la app de escritorio),
 //! sobre todo el «1»: ver scripts/evaluate-pulse.py y docs/ARCHITECTURE.md.
 //!
-//! Como el separador, la red va en un grafo ONNX (`danplay/data/pulse/`) y lo
+//! Como el separador, la red va en un grafo ONNX (`data/pulse/`) y lo
 //! de alrededor se hace aquí, igual que en su código (y que en el
 //! danplay/pulse.py de antes, con numpy, número a número):
 //!

@@ -44,7 +44,7 @@ pub enum Address {
 fn in_process() -> server::App {
     let app = if cfg!(debug_assertions) {
         // en desarrollo, como el de Python desde el codigo: el .env del
-        // proyecto cuenta y los datos son los de danplay/data
+        // proyecto cuenta y los datos son los de data/
         server::App::from_env(server::Guard::default())
     } else {
         // la app instalada: sus datos (`data/`: los modelos, las voces, la
