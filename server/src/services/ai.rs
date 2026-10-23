@@ -193,7 +193,7 @@ pub fn day_and_month_start(now: f64) -> (f64, f64) {
 }
 
 /// La diferencia con UTC en ese instante (la de la zona del sistema).
-fn offset_at(t: i64) -> i64 {
+pub fn offset_at(t: i64) -> i64 {
     let file = match std::env::var("TZ") {
         Ok(tz) if !tz.is_empty() => {
             let tz = tz.strip_prefix(':').unwrap_or(&tz).to_owned();

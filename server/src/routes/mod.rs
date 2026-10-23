@@ -8,6 +8,7 @@
 use crate::router::Route;
 
 pub mod ai;
+pub mod assistant;
 pub mod external;
 pub mod library;
 pub mod playlists;
@@ -21,7 +22,7 @@ pub fn all() -> Vec<Route> {
         library::ROUTES,
         // songs::ROUTES,
         playlists::ROUTES,
-        // assistant::ROUTES,
+        assistant::ROUTES,
         // downloads::ROUTES,
         external::ROUTES,
         // stems::ROUTES,
