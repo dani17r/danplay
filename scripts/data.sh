@@ -2,7 +2,7 @@
 # Los datos que viajan DENTRO de los paquetes, en desktop/src-tauri/data/ (el
 # recurso «data/» de tauri.conf.json; la app se los da al núcleo):
 #
-#   - lo de danplay/data: el detector de pulso (pulse/), los grafos del
+#   - lo de data/: el detector de pulso (pulse/), los grafos del
 #     separador (separator/), el catálogo de voces (voices.json) y la foto del
 #     catálogo de modelos de IA (models-snapshot.json, la del repositorio: la
 #     de hoy la saca la propia app con --models-snapshot una vez compilada);
@@ -120,11 +120,11 @@ cp "$work/$TOP/LICENSE" "$DEST/LICENSE-onnxruntime.txt"
 cp "$work/$TOP/ThirdPartyNotices.txt" "$DEST/ThirdPartyNotices-onnxruntime.txt"
 chmod 644 "$DEST/$LIB"
 
-# lo de danplay/data, tal cual (sin pesos del separador: se bajan al usarlo)
+# lo de data/, tal cual (sin pesos del separador: se bajan al usarlo)
 for item in pulse separator voices.json models-snapshot.json; do
-    [ -e "danplay/data/$item" ] || die "falta danplay/data/$item"
-    cp -R "danplay/data/$item" "$DEST/"
+    [ -e "data/$item" ] || die "falta data/$item"
+    cp -R "data/$item" "$DEST/"
 done
 
-printf '  ONNX Runtime %s (%s) y lo de danplay/data en %s: %s\n' \
+printf '  ONNX Runtime %s (%s) y lo de data/ en %s: %s\n' \
     "$VERSION" "$LIB" "$DEST" "$(du -sh "$DEST" | cut -f1)"

@@ -85,7 +85,7 @@ fn grid_error(m: String) -> BeatsError {
 
 // ---------------------------------------------------------------- dónde está todo
 
-/// El grafo de Beat This! (`danplay/data/pulse/beat_this.onnx`).
+/// El grafo de Beat This! (`data/pulse/beat_this.onnx`).
 pub fn graph(app: &App) -> PathBuf {
     // el de las pruebas: el detector de mentira no lo lee (y uno que no
     // está es «aquí no hay detector»)

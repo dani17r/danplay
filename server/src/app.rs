@@ -39,7 +39,7 @@ pub struct State {
     pub playlists_lock: RLock,
     /// el diario: lo último escrito y lo recuperado (`journal._STATE`)
     pub journal: journal::State,
-    /// los datos que viajan con la app (`danplay/data`: la foto del
+    /// los datos que viajan con la app (`data/`: la foto del
     /// catálogo de modelos, las voces...)
     pub resources: PathBuf,
     /// ffmpeg, fpcalc...: dónde están, y cuándo se miró (`convert.tool`)
@@ -111,7 +111,7 @@ impl App {
 
     /// La app empaquetada (la de escritorio, con el núcleo dentro): la
     /// configuración del entorno sin mirar el proyecto aunque esté en este
-    /// equipo (ni su .env, ni su danplay.db, ni su `danplay/data`, ni su
+    /// equipo (ni su .env, ni su danplay.db, ni su `data/`, ni su
     /// .venv), y los datos que viajan con ella en `resources`. Sin esto, la
     /// app compilada en el equipo donde está el código se creía en
     /// desarrollo: el núcleo de Python lo sabía por `sys.frozen`.
@@ -244,7 +244,7 @@ pub fn frozen() -> bool {
 /// respaldo, como en config.py), o la carpeta del ejecutable.
 pub fn project_root() -> PathBuf {
     let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    if !frozen() && dev.join("danplay").is_dir() {
+    if !frozen() && dev.join("Cargo.toml").is_file() {
         return PathBuf::from(library::py::normpath(&dev.to_string_lossy()));
     }
     std::env::current_exe()
@@ -253,18 +253,14 @@ pub fn project_root() -> PathBuf {
         .unwrap_or_default()
 }
 
-/// Dónde están los datos que viajan con la app: `DANPLAY_RESOURCES`, o los
-/// del proyecto (`danplay/data`), o `data/` junto al ejecutable.
+/// Dónde están los datos que viajan con la app: `DANPLAY_RESOURCES`, o
+/// `data/` en la raíz del proyecto (o junto al ejecutable).
 fn resources_dir() -> PathBuf {
     if let Some(dir) = RESOURCES.get() {
         return dir.clone();
     }
     if let Some(dir) = std::env::var_os("DANPLAY_RESOURCES").filter(|d| !d.is_empty()) {
         return PathBuf::from(dir);
-    }
-    let dev = project_root().join("danplay").join("data");
-    if dev.is_dir() {
-        return dev;
     }
     project_root().join("data")
 }
