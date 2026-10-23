@@ -10,6 +10,11 @@ import tempfile
 import pytest
 from conftest import run_job
 
+# Las de este archivo cuentan con lo que hicieron las de antes (la misma
+# biblioteca, la misma base): con `-n`, todas en el mismo proceso
+# (`--dist loadgroup`).
+pytestmark = pytest.mark.xdist_group("api")
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 # La biblioteca de prueba se GENERA: mp3 de verdad, de un segundo de

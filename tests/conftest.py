@@ -134,12 +134,12 @@ import pytest  # noqa: E402  (despues del aislamiento a proposito)
 
 def pytest_collection_modifyitems(config, items):
     """Con `DANPLAY_SHARD=k/n`, solo la parte k de n: la CI de Windows reparte
-    las pruebas entre varias maquinas a la vez. Por archivos enteros (las de
-    un archivo cuentan con lo que hicieron las de antes), y por lo que tarda
-    cada uno (tests/durations.json; los que no estan, 0,1 s por prueba): del
-    mas lento al mas rapido, cada uno a la parte que menos lleva. Siempre la
-    misma reparticion. Para rehacer los tiempos:
-    `pytest -n auto --dist loadfile --no-cov --junitxml=t.xml` y sumarlos."""
+    las pruebas entre varias maquinas a la vez. Por archivos enteros, y por
+    lo que tarda cada uno EN WINDOWS (tests/durations.json, sacado del
+    registro de una pasada en serie de la CI; los que no estan, 0,3 s por
+    prueba): del mas lento al mas rapido, cada uno a la parte que menos lleva.
+    Siempre la misma reparticion. En Windows hay archivos mucho mas lentos que
+    en Linux (test_resolve.py: 165 s alli, 10 s aqui)."""
     shard = os.environ.get("DANPLAY_SHARD", "")
     if not shard:
         return
@@ -150,7 +150,7 @@ def pytest_collection_modifyitems(config, items):
         path = item.nodeid.split("::")[0]
         cost.setdefault(path, 0.0)
         if path not in known:
-            cost[path] += 0.1
+            cost[path] += 0.3
     for path in cost:
         cost[path] = known.get(path, cost[path])
     load, part = [0.0] * n, {}
