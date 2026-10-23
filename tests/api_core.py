@@ -230,8 +230,10 @@ def _netns_works() -> bool:
 
 # ------------------------------------------------------------- el servidor
 def server_binary() -> pathlib.Path:
+    """`DANPLAY_SERVER_BIN`, o el de `cargo build -p danplay-server`."""
     configured = os.environ.get("DANPLAY_SERVER_BIN", "")
-    path = pathlib.Path(configured) if configured else ROOT / "target" / "debug" / "danplay-server"
+    target = pathlib.Path(os.environ.get("CARGO_TARGET_DIR") or ROOT / "target")
+    path = pathlib.Path(configured) if configured else target / "debug" / "danplay-server"
     if not path.is_file():
         raise RuntimeError(
             f"no está el servidor de Rust en {path}: compílalo "
