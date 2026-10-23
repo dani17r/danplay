@@ -1,8 +1,8 @@
 // DanPlay - envoltorio de escritorio.
 //
-// Toda la comunicacion con el nucleo Python pasa por aqui (ver `core.rs`): por
-// un socket Unix en Linux y macOS, y por loopback con token en Windows. El JS
-// solo conoce `invoke`; nunca hace HTTP.
+// El nucleo (el crate `server`) va dentro, en este mismo proceso: el JS le
+// habla con `invoke` (ver `core.rs`) y nunca hace HTTP. Sin socket, sin
+// puerto y sin otro programa que arrancar.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod associate;
@@ -69,9 +69,9 @@ fn prefer_xwayland() {
 
 #[expect(clippy::too_many_lines, reason = "el arranque, en orden: partirlo lo esconde")]
 fn main() {
-    // Los procesos aparte del nucleo de Rust (el detector de pulso, el que
-    // separa en pistas) son esta misma app con un argumento: lo primero, sin
-    // ventana ni nada de Tauri.
+    // Los procesos aparte del nucleo (el detector de pulso, el que separa en
+    // pistas) y la foto del catalogo de modelos al empaquetar son esta misma
+    // app con un argumento: lo primero, sin ventana ni nada de Tauri.
     if let Some(code) = server::child_process() {
         std::process::exit(code);
     }
@@ -84,19 +84,17 @@ fn main() {
     //
     // Arrancarlo antes parecia inofensivo y no lo era: al abrir una cancion
     // con DanPlay ya abierto, el sistema lanza un segundo proceso, y ese
-    // segundo proceso levantaba SU nucleo —que borra el socket y lo vuelve a
-    // crear— antes de que el plugin de instancia unica pudiera cortarlo. Al
-    // irse se llevaba el socket, y la primera instancia se quedaba viva pero
-    // sin nucleo: la musica seguia sonando (eso lo lleva Rust) mientras que
-    // buscar, las caratulas y la lista dejaban de funcionar hasta reiniciar.
+    // segundo proceso levantaba SU nucleo antes de que el plugin de instancia
+    // unica pudiera cortarlo. Con el de Python eso se llevaba el socket de la
+    // primera; con el de dentro serian dos nucleos (dos vigilantes de
+    // carpetas, dos diarios) sobre la misma base.
 
     // `mut` solo se usa fuera de Linux, donde se añade el plugin de posicion
     #[cfg_attr(target_os = "linux", allow(unused_mut))]
     let mut builder = tauri::Builder::default()
         // El primero de todos, como pide su documentacion: asi corta el
         // arranque antes de que ningun otro plugin toque nada. Sin esto, una
-        // segunda instancia borraba el socket de la primera y dejaba dos
-        // nucleos sobre la misma base de datos.
+        // segunda instancia dejaba dos nucleos sobre la misma base de datos.
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             // Abrir una cancion con DanPlay ya abierto llega por aqui: el
             // sistema arranca un segundo proceso, este le pasa los argumentos
@@ -204,7 +202,7 @@ fn main() {
         tauri::RunEvent::ExitRequested { api, code: None, .. } if tray::available(app) => {
             api.prevent_exit();
         }
-        // Solo aqui se mata el nucleo. Antes tambien se hacia al pedir la
+        // Solo aqui se para el nucleo. Antes tambien se hacia al pedir la
         // salida, y con `prevent_exit` eso dejaria la aplicacion viva pero
         // sin nucleo.
         tauri::RunEvent::Exit => {
@@ -228,7 +226,6 @@ fn setup(app: &tauri::App) {
     // Aqui ya no hay duda de que somos la instancia buena: el plugin de
     // instancia unica corta el arranque antes de llegar a `setup`.
     let core = core::Core::start();
-    let failure = core.failure.lock().map(|f| f.clone()).unwrap_or_default();
     let address = core.address.clone();
     app.manage(core);
 
@@ -258,19 +255,6 @@ fn setup(app: &tauri::App) {
         }
     } else {
         open::play(&handle, files);
-    }
-
-    if !failure.is_empty() {
-        use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-        let dialog = handle.clone();
-        std::thread::spawn(move || {
-            dialog
-                .dialog()
-                .message(failure)
-                .title("DanPlay")
-                .kind(MessageDialogKind::Error)
-                .blocking_show();
-        });
     }
 
     // La ventana de proyeccion: cerrarla la esconde, que si se destruyera no

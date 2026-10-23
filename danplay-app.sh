@@ -1,3 +1,3 @@
 #!/bin/sh
-# Abre DanPlay. El nucleo Python lo arranca la propia app por socket Unix.
+# Abre DanPlay (la compilada con ./scripts/build.sh). El nucleo va dentro.
 exec "$(dirname "$0")/target/release/danplay-app" "$@"

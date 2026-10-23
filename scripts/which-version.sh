@@ -6,7 +6,8 @@
 # interfaz va INCRUSTADA dentro del binario, asi que recompilar solo el
 # frontend no cambia nada de lo que ves.
 #
-# Esto compara las fechas de las cuatro capas y avisa de lo que no cuadre.
+# Esto compara las fechas de cada capa y avisa de lo que no cuadre. El
+# nucleo ya no es una aparte: va dentro de la app.
 set -u
 cd "$(dirname "$0")/.."
 
@@ -18,7 +19,6 @@ epoch () { [ -e "$1" ] && date -r "$1" +%s || echo 0; }
 
 APP=target/release/danplay-app
 WEB=desktop/dist/index.html
-CORE=dist/core/danplay-core/danplay-core
 # Sin la version en el nombre: al subirla, estas lineas se quedaban apuntando
 # a un archivo que ya no existe y el aviso de «paquete viejo» dejaba de salir
 # justo cuando mas falta hace.
@@ -28,7 +28,6 @@ DEB=$(printf '%s\n' "$PACKAGES" | grep '\.deb$' | head -1)
 
 echo "Cuando se genero cada capa"
 printf "  %-34s %s\n" "interfaz (desktop/dist)"   "$(mtime $WEB)"
-printf "  %-34s %s\n" "nucleo (dist/core)"        "$(mtime $CORE)"
 printf "  %-34s %s\n" "app de escritorio"         "$(mtime $APP)"
 printf "  %-34s %s\n" ".AppImage"                 "$(mtime $APPIMAGE)"
 printf "  %-34s %s\n" ".deb"                      "$(mtime $DEB)"

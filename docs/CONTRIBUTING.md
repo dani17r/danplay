@@ -19,14 +19,19 @@ prueban las cosas y en qué se puede ayudar.
 ```bash
 git clone https://github.com/dani17r/danplay.git && cd danplay
 
-# el .venv con TODO lo del cerrojo (uv.lock): el núcleo, las pruebas, las
-# herramientas de estilo y tipos, PyInstaller y el crate de Rust que usa
-# Python (hashes y forma de onda), compilado y editable
-uv sync
-
 cd desktop && npm ci && cd ..
 cp .env.example .env
+
+# solo para las pruebas del núcleo de Python (la app ya no lo lleva): el
+# .venv con TODO lo del cerrojo (uv.lock), con las pruebas, las
+# herramientas de estilo y tipos y el crate de Rust que usa Python,
+# compilado y editable
+uv sync
 ```
+
+La app y su núcleo son Rust: con Node 24 y Rust basta para compilarla y
+probarla. El núcleo de Python (`danplay/`) sigue en el repositorio de
+testigo: sus pruebas y los diferenciales comparan el de Rust con él.
 
 Las dependencias de Python se gestionan con [uv](https://docs.astral.sh/uv/):
 `pyproject.toml` dice qué hace falta, en rangos, y `uv.lock` fija la versión
@@ -70,34 +75,36 @@ Mientras desarrollas, la app entera en modo desarrollo:
 ```
 
 Es la app de escritorio de verdad (Tauri) con la interfaz servida por Vite:
-lo que cambias en `desktop/src` se ve al momento, y el núcleo Python se
-arranca **desde el código del proyecto** (su `.venv`), no desde el binario
-empaquetado, así que un cambio en `danplay/` se ve al volver a abrirla. La
-compilación de desarrollo usa su propio identificador, su socket y su nombre
-en MPRIS y en la bandeja: convive con DanPlay instalado sin pisarle nada.
+lo que cambias en `desktop/src` se ve al momento, y el núcleo, que va dentro,
+se compila del código del proyecto (`server/`, `library/`, `analysis/`) con
+los datos de `danplay/data`: un cambio en Rust se ve cuando `tauri dev` la
+vuelve a compilar, sola, al guardar. La compilación de desarrollo usa su
+propio identificador y su nombre en MPRIS y en la bandeja: convive con
+DanPlay instalado sin pisarle nada.
 
 `--sandbox` guarda ajustes, base e índice en `.dev/sandbox/` (fuera de git) y
 copia allí las canciones que le des: la app escribe etiquetas y la importación
 mueve archivos, y así tu música no se toca. Sin carpeta, genera unas
 canciones con ffmpeg. `--sandbox --clean` empieza de cero.
 
-En un clon recién hecho no hay núcleo empaquetado (`desktop/src-tauri/core/`
-solo trae su LEEME), y no hace falta: la app de desarrollo arranca el núcleo
-desde el código, con el Python del `.venv`.
-`DANPLAY_CORE=fuente|empaquetado` elige a mano de dónde sale el núcleo.
+En un clon recién hecho, `desktop/src-tauri/data/` y `desktop/src-tauri/tools/`
+solo traen su LEEME: `./scripts/dev.sh` baja ONNX Runtime la primera vez
+(`scripts/data.sh`, a una caché) y ffmpeg sale del sistema. Lo que viaja
+dentro de los paquetes lo ponen `scripts/data.sh` y `scripts/tools-linux.sh`.
 
 Para la versión que se instala:
 
 ```bash
-./scripts/build.sh     # compila las cuatro capas, en orden
-./danplay-app.sh       # la app de escritorio compilada
-./danplay.sh status    # la línea de comandos
+./scripts/build.sh     # la interfaz, los datos y la app, en orden
+./danplay-app.sh       # la app de escritorio compilada, con el núcleo dentro
+./danplay.sh status    # la línea de comandos del núcleo de Python
 ```
 
-Y solo la interfaz en el navegador, sin Rust:
+Y solo la interfaz en el navegador, con el núcleo por un puerto:
 
 ```bash
-.venv/bin/python -m danplay.cli serve      # API en el puerto 8730
+cargo run -p danplay-server                # el de Rust, en el puerto 8730
+.venv/bin/python -m danplay.cli serve      # o el de Python, en el mismo
 cd desktop && npm run dev                  # Vite en el 5273, con proxy
 ```
 
@@ -163,7 +170,7 @@ Es lo mismo que comprueba la CI en cada push, y todo tiene que pasar:
 | Interfaz (URLs) | cómo se construyen las rutas de medios en cada sistema |
 | Rust | rustfmt, clippy sin avisos y las pruebas del workspace: hashes, forma de onda, reproductor, cola, bandeja, permisos por ventana |
 | e2e | la interfaz de verdad contra el núcleo de verdad, en Chrome (Playwright) |
-| Humo | la app **ya compilada**: socket, permisos, bandeja, ciclo de vida |
+| Humo | la app **ya compilada** o empaquetada: el núcleo dentro y sin puertos, sus datos y programas, el pulso, la instancia única, el ciclo de vida |
 
 `./scripts/test.sh --quick` se salta las e2e y las de humo.
 
@@ -305,12 +312,13 @@ ventanita, que las teclas multimedia funcionen, y que el instalador deje los
 accesos directos y el «Abrir con» donde debe. Los detalles están en
 [Windows](WINDOWS.md).
 
-**macOS.** Sin probar. El transporte por socket Unix vale tal cual y la
+**macOS.** Sin probar. El núcleo va dentro, como en Linux, y la
 política de activación ya está puesta (`tray::dock`: al esconderse pasa a
 `Accessory` y sale del Dock, al volver a `Regular`). El paquete sale de la
 integración continua: `./scripts/build-macos.sh` lanza `macos.yml`, espera y
 deja en `dist/installers/` un `.dmg` para Apple Silicon y otro para Intel, con
-ffmpeg, fpcalc y QuickJS dentro y firmados solo «ad hoc» (la ejecución guarda
+ffmpeg, fpcalc, QuickJS, yt-dlp y ONNX Runtime dentro (en los Intel, la 1.23.2,
+la última que Microsoft publica para ellos) y firmados solo «ad hoc» (la ejecución guarda
 además la `.app` en `.zip`). Pero **nadie lo ha abierto todavía en un Mac
 de verdad**. Falta ver si la bandeja de Tauri entrega el clic como en
 Windows, si la ventanita queda bien pegada al icono de la barra y si el

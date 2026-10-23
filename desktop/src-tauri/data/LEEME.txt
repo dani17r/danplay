@@ -1,0 +1,23 @@
+Aqui van los datos que viajan DENTRO de los paquetes (el recurso "data/"
+de tauri.conf.json). La app se los da al nucleo (App::packaged) y el nucleo
+los busca aqui:
+
+- pulse/ y separator/: el detector de pulso (Beat This!, con sus pesos) y
+  los grafos del separador de pistas (sin pesos: se bajan al usarlo);
+- voices.json: el catalogo de voces de las guias habladas;
+- models-snapshot.json: la foto del catalogo de modelos de IA, para el
+  primer arranque sin internet (la saca al dia la propia app con
+  --models-snapshot al empaquetar; sin red, viaja la del repositorio);
+- la biblioteca de ONNX Runtime (libonnxruntime.so.*, la .dylib de macOS u
+  onnxruntime.dll), la oficial de github.com/microsoft/onnxruntime, con su
+  licencia: la cargan el pulso, el separador y las voces.
+
+Los copia y los baja scripts/data.sh (Linux, macOS y Windows desde Linux),
+o scripts/build-windows.ps1 y .github/workflows/windows.yml en Windows; lo
+llaman scripts/build.sh y la CI. Lo de danplay/data sale de alli; ONNX
+Runtime, con su sha256 comprobado, de la cache ~/.cache/danplay-<sistema>/.
+No estan en git.
+
+En desarrollo, la app usa danplay/data, y ONNX Runtime el de aqui (que la
+compilacion deja junto al ejecutable; scripts/dev.sh lo baja la primera
+vez) o el del .venv del proyecto.

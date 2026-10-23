@@ -1168,46 +1168,26 @@ def test_the_windows_installer_upgrades_instead_of_duplicating():
             "FunctionEnd", nsi.index("Function RemovePreviousInstall")
         )
     ]
-    for piece in ("python", "tools", "${APP_EXE}", "danplay-core.exe", "WebView2Loader.dll"):
+    # lo de ahora y lo de hasta la 1.30, con el nucleo de Python aparte
+    for piece in (
+        "data",
+        "tools",
+        "${APP_EXE}",
+        "WebView2Loader.dll",
+        "python",
+        "danplay-core.exe",
+    ):
         assert piece in cleanup, f"la limpieza no quita {piece}"
     assert 'RMDir /r "$INSTDIR"' not in cleanup, "al actualizar no se borra la carpeta entera"
     assert '${IfNot} ${FileExists} "$INSTDIR\\${APP_EXE}"' in cleanup, "solo si ahi hay un DanPlay"
     # y la limpieza cubre todo lo que produce la version portatil
     portable = {
         "danplay-app.exe",
-        "danplay-core.exe",
         "LEEME.txt",
-        "python",
+        "data",
         "tools",
         "WebView2Loader.dll",
     }
     for item in portable:
         name = "${APP_EXE}" if item == "danplay-app.exe" else item
         assert name in cleanup, f"{item} se quedaria huerfano al actualizar"
-
-
-def test_the_packaged_core_starts_without_a_console(monkeypatch):
-    """En Windows el nucleo empaquetado va sin consola y Python deja
-    `sys.stdout` en None: uvicorn pregunta `isatty()` al configurar sus avisos
-    y el nucleo se caia antes de escuchar. El instalador nunca llego a
-    arrancar hasta que lo probo la integracion continua."""
-    import importlib.util
-
-    from uvicorn.logging import DefaultFormatter
-
-    spec = importlib.util.spec_from_file_location(
-        "core_entry", _repo_root() / "packaging" / "core_entry.py"
-    )
-    assert spec and spec.loader
-    entry = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(entry)
-    monkeypatch.setattr(sys, "stdout", None)
-    monkeypatch.setattr(sys, "stderr", None)
-    entry.without_console()
-    out, err = sys.stdout, sys.stderr
-    assert out is not None and err is not None
-    try:
-        DefaultFormatter()  # lo que tumbaba al nucleo: sys.stdout.isatty()
-    finally:
-        out.close()
-        err.close()

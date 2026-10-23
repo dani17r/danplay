@@ -1,10 +1,12 @@
-# El nucleo Python de DanPlay. La interfaz y el envoltorio de escritorio
-# viven en desktop/, y el crate que acelera hashes y analisis en core/.
+# El nucleo Python de DanPlay. La app ya no lo lleva (desde la fase 4 de
+# docs/MIGRATION.md, el nucleo es el de Rust, dentro de la app): sigue aqui
+# para sus pruebas y para los diferenciales con el de Rust. La interfaz y el
+# envoltorio de escritorio viven en desktop/, y el crate PyO3 en core/.
 #
 # Las dependencias se gestionan con uv: `uv sync` deja el .venv como el
 # cerrojo (uv.lock). requirements*.txt siguen existiendo para quien use pip
-# (la CI de Windows, PyInstaller), pero se GENERAN desde el cerrojo: ver
-# scripts/export-requirements.py.
+# (las pruebas en Windows de tests.yml), pero se GENERAN desde el cerrojo:
+# ver scripts/export-requirements.py.
 [project]
 name = "danplay"
 dynamic = ["version"]
@@ -44,11 +46,10 @@ danplay = "danplay.cli:main"
 # instala junto al núcleo y su crate de Rust.
 test = [
     "pytest>=9.1.1,<10",
-    # mutagen ya no es de la app (es GPL; las etiquetas las lee y escribe el
-    # crate de Rust, con lofty, y el nucleo empaquetado lo excluye: ver
-    # packaging/core.spec). Lo usan las pruebas, de testigo, y
+    # mutagen no es de la app (es GPL; las etiquetas las lee y escribe el
+    # crate de Rust, con lofty). Lo usan las pruebas, de testigo, y
     # danplay/tags_mutagen.py cuando no hay crate. (Se sigue instalando con
-    # la app porque lo pide yt-dlp[default].)
+    # el nucleo de Python porque lo pide yt-dlp[default].)
     "mutagen>=1.48.1,<2",
     "pytest-cov>=7.1.0,<8",
     "hypothesis>=6.168.1,<7",
@@ -57,16 +58,14 @@ test = [
     # las pruebas repartidas entre los núcleos (`-n auto`), en la CI y aquí
     "pytest-xdist>=3.8.0,<4",
 ]
-# Para trabajar en DanPlay: las pruebas, el crate de Rust, el empaquetado y
-# las herramientas de estilo y tipos.
+# Para trabajar en el nucleo de Python: las pruebas, el crate de Rust y las
+# herramientas de estilo y tipos.
 dev = [
     { include-group = "test" },
     # el crate que acelera hashes y analisis de audio (opcional en ejecucion:
     # sin el, Python tiene su propia version mas lenta)
     "danplay-core",
     "maturin>=1.15.0,<2",
-    # el nucleo empaquetado que viaja dentro del .deb / .AppImage / instalador
-    "pyinstaller>=6.22.3,<7",
     "ruff>=0.16.9,<0.18",
     "basedpyright>=1.40.1,<2",
 ]
@@ -129,7 +128,7 @@ extend-immutable-calls = ["fastapi.Body", "fastapi.Query", "fastapi.Depends"]
 [tool.basedpyright]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
-include = ["danplay", "tests", "scripts", "packaging/core_entry.py"]
+include = ["danplay", "tests", "scripts"]
 # exportar-separador y exportar-pulso usan PyTorch (y Demucs, Beat This!);
 # evaluar-separador y evaluar-pulso, MUSDB18 y mir_eval; evaluar-laya, Laya.
 # La app no lleva nada de eso: se ejecutan aparte (ver cada script)

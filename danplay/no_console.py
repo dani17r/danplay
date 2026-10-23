@@ -1,7 +1,7 @@
 """En Windows, que ningun proceso que lance el nucleo abra una consola.
 
-El nucleo empaquetado es una aplicacion de ventanas (packaging/core.spec,
-`console=False`): no tiene consola. Y cuando un programa sin consola lanza
+El nucleo empaquetado de hasta la 1.30 era una aplicacion de ventanas
+(PyInstaller, `console=False`): no tenia consola. Y cuando un programa sin consola lanza
 uno de consola (ffmpeg, fpcalc, yt-dlp), Windows le abre una nueva: una
 ventana negra por cada onda, cada conversion, cada huella. Con la app
 analizando la biblioteca salian a decenas. En Linux no pasa nada de esto.

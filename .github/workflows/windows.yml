@@ -1,9 +1,10 @@
 # El instalador de Windows.
 #
-# Por que aqui y no en el equipo de nadie: PyInstaller **no compila para otro
-# sistema**. El nucleo Python tiene que empaquetarse en Windows, y punto. Desde
-# Linux se puede comprobar que el codigo de Rust compila para Windows (lo hace
-# `tests.yml`), pero el ejecutable completo sale de aqui.
+# Sin Python: el nucleo va dentro de la app (el crate `server`). Desde Linux
+# se compila igual (scripts/build-windows-cross.sh, y `tests.yml` comprueba
+# que el codigo de Rust compila para Windows), pero el instalador de verdad,
+# con MSVC y el NSIS de Tauri, sale de aqui. Las pruebas del nucleo de
+# Python, solo en tests.yml.
 #
 # Deja el instalador (.exe de NSIS) y el portatil (.zip) como artefactos
 # descargables, y si el push lleva una etiqueta de version
@@ -16,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       with_tools:
-        description: 'Incluir ffmpeg, fpcalc y QuickJS dentro del instalador (+40 MB)'
+        description: 'Incluir ffmpeg, fpcalc, QuickJS y yt-dlp dentro del instalador (+80 MB)'
         type: boolean
         default: true
 
@@ -35,9 +36,16 @@ env:
   FPCALC_URL: https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-windows-x86_64.zip
   FPCALC_SHA256: 735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e
   # YouTube ya exige un motor de JavaScript para yt-dlp: QuickJS-NG, un
-  # .exe suelto de 2 MB (Deno, el de antes, pesaba 93; ver danplay/ytdlp.py).
+  # .exe suelto de 2 MB (Deno, el de antes, pesaba 93).
   QJS_URL: https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe
   QJS_SHA256: 2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77
+  # yt-dlp, su ejecutable oficial (el de Linux y macOS: scripts/tools-*.sh)
+  YTDLP_URL: https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe
+  YTDLP_SHA256: 66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a
+  # ONNX Runtime oficial (el pulso, el separador, las voces), el mismo que
+  # scripts/data.sh: de su .zip solo hace falta onnxruntime.dll y su licencia
+  ORT_URL: https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-win-x64-1.31.0.zip
+  ORT_SHA256: 3958d8a44984160692c1b4ffd0de3cb48f8c39f9d34bb31e433db06e30b82195
 
 jobs:
   installer:
@@ -45,12 +53,6 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.13'
-          cache: pip
-          cache-dependency-path: requirements.txt
 
       - uses: actions/setup-node@v7
         with:
@@ -66,25 +68,11 @@ jobs:
           cache-on-failure: true
           prefix-key: v1-rust
 
-      - name: dependencias de Python
-        shell: pwsh
-        run: |
-          python -m pip install --upgrade pip
-          # con hashes (salen de uv.lock): pip comprueba cada paquete. Sin
-          # los de las pruebas: esas ya corren en tests.yml
-          pip install -r requirements.txt
-          # PyInstaller aparte (en una orden con hashes no se puede mezclar uno
-          # sin ellos), con la misma version que en desarrollo
-          $pyinstaller = (Select-String -Path requirements-dev.txt -Pattern '^pyinstaller==' -CaseSensitive:$false).Line
-          pip install $pyinstaller
-          # el crate de Rust del nucleo (las etiquetas, con lofty): se compila
-          # aqui, con maturin, y el nucleo empaquetado lo lleva dentro
-          pip install ./core
-
       # Lo que viaja dentro del instalador, con version fija y su sha256.
       # ffprobe ya no: lo poco que medía (una caratula, la duracion de una
       # secuencia) sale de las cabeceras de los archivos.
-      - name: ffmpeg, fpcalc y QuickJS
+      - name: ffmpeg, fpcalc, QuickJS y yt-dlp
+        if: env.WITH_TOOLS == 'true'
         shell: pwsh
         run: |
           $tools = "desktop/src-tauri/tools"
@@ -103,72 +91,10 @@ jobs:
           Get-ChildItem -Recurse fpcalc-tmp -Include fpcalc.exe |
             ForEach-Object { Copy-Item $_.FullName $tools }
           Download $env:QJS_URL $env:QJS_SHA256 "$tools/qjs.exe"
+          Download $env:YTDLP_URL $env:YTDLP_SHA256 "$tools/yt-dlp.exe"
           Get-ChildItem $tools
 
-      # Las pruebas del nucleo en Windows (sin el crate de Rust, como viaja en
-      # el instalador) no van aqui: ya las pasa tests.yml en cada push, y
-      # delante del instalador lo retrasaban siete minutos. Lo que si se
-      # comprueba aqui es el nucleo ya empaquetado (abajo).
-
-      - name: interfaz
-        working-directory: desktop
-        run: |
-          npm ci
-          npx vite build
-
-      - name: núcleo empaquetado
-        run: |
-          pyinstaller --noconfirm --clean --distpath dist/core packaging/core.spec
-          if (-not (Test-Path dist/core/danplay-core/danplay-core.exe)) { throw "no se genero el nucleo" }
-          # con el crate de Rust y sin mutagen, que es GPL (ver core.spec)
-          if (-not (Test-Path dist/core/danplay-core/_internal/danplay_core)) { throw "el nucleo no lleva el crate de Rust" }
-          if (Test-Path dist/core/danplay-core/_internal/mutagen) { throw "se colo mutagen en el nucleo" }
-          # y la biblioteca de ONNX Runtime que carga el pulso desde Rust
-          if (-not (Test-Path dist/core/danplay-core/_internal/onnxruntime/capi/onnxruntime.dll)) { throw "el nucleo no lleva onnxruntime.dll" }
-
-      - name: el núcleo arranca y responde
-        shell: pwsh
-        run: |
-          $port = 8731
-          $env:DANPLAY_TOKEN = "smoke-test"
-          $p = Start-Process -PassThru -FilePath dist/core/danplay-core/danplay-core.exe `
-               -ArgumentList "--host","127.0.0.1","--port","$port"
-          try {
-            $ok = $false
-            foreach ($i in 1..30) {
-              Start-Sleep -Seconds 1
-              try {
-                $r = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/status" `
-                     -Headers @{ Authorization = "Bearer smoke-test" } -TimeoutSec 3
-                if ($r.StatusCode -eq 200) { $ok = $true; break }
-              } catch { }
-            }
-            if (-not $ok) {
-              # sin consola no se ve nada: lo que quede es su registro
-              if ($p.HasExited) { Write-Host "el nucleo se cerro con el codigo $($p.ExitCode)" }
-              $logFile = Join-Path $env:LOCALAPPDATA "danplay\logs\danplay.log"
-              if (Test-Path $logFile) { Get-Content $logFile -Tail 40 }
-              throw "el nucleo no contesto en 30 s"
-            }
-            # y sin el token no deberia contestar
-            try {
-              Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/status" -TimeoutSec 3 | Out-Null
-              throw "contesto SIN el token: el transporte no esta protegido"
-            } catch [System.Net.WebException] { }
-              catch [Microsoft.PowerShell.Commands.HttpResponseException] { }
-          } finally {
-            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-          }
-
-      # una carpeta (onedir) entre los recursos de Tauri, core/: asi no se
-      # descomprime en cada arranque ni hay un cargador aparte del Python de
-      # verdad (ver packaging/core.spec)
-      - name: el núcleo, junto a la app
-        shell: pwsh
-        run: Copy-Item -Recurse -Force dist/core/danplay-core/* desktop/src-tauri/core/
-
-      # Las herramientas ya estan: sin ellas en el instalador, la carpeta se
-      # queda solo con el aviso.
+      # Sin ellas en el instalador, la carpeta se queda solo con el aviso.
       - name: sin herramientas, la carpeta vacía igualmente
         if: env.WITH_TOOLS != 'true'
         shell: pwsh
@@ -176,11 +102,78 @@ jobs:
           Remove-Item -Recurse -Force desktop/src-tauri/tools
           New-Item -ItemType Directory -Force -Path desktop/src-tauri/tools | Out-Null
           Set-Content desktop/src-tauri/tools/LEEME.txt `
-            "Aqui van ffmpeg.exe, fpcalc.exe y qjs.exe si se quieren dentro del instalador."
+            "Aqui van ffmpeg.exe, fpcalc.exe, qjs.exe y yt-dlp.exe si se quieren dentro del instalador."
+
+      # Lo que hace scripts/data.sh en Linux y macOS: lo de danplay/data y
+      # ONNX Runtime, en desktop/src-tauri/data (siempre: sin el no hay pulso,
+      # ni separar, ni voces)
+      - name: los datos y ONNX Runtime
+        shell: pwsh
+        run: |
+          $data = Join-Path $PWD "desktop/src-tauri/data"
+          Invoke-WebRequest -Uri $env:ORT_URL -OutFile ort.zip
+          $real = (Get-FileHash ort.zip -Algorithm SHA256).Hash.ToLower()
+          if ($real -ne $env:ORT_SHA256) { throw "ort.zip no es lo esperado: $real" }
+          # del .zip, solo la biblioteca y su licencia: con sus simbolos son 450 MB
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Join-Path $PWD ort.zip))
+          try {
+            $wanted = @{ 'lib/onnxruntime.dll' = 'onnxruntime.dll'; 'LICENSE' = 'LICENSE-onnxruntime.txt'
+                         'ThirdPartyNotices.txt' = 'ThirdPartyNotices-onnxruntime.txt' }
+            foreach ($name in $wanted.Keys) {
+              $entry = $zip.GetEntry("onnxruntime-win-x64-1.31.0/$name")
+              if (-not $entry) { throw "el .zip de ONNX Runtime no trae $name" }
+              [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $data $wanted[$name]), $true)
+            }
+          } finally {
+            $zip.Dispose()
+          }
+          foreach ($item in 'pulse', 'separator', 'voices.json', 'models-snapshot.json') {
+            Copy-Item -Recurse "danplay/data/$item" $data
+          }
+          Get-ChildItem $data
+
+      # Compilada sin empaquetar todavia: antes se saca con ella la foto del
+      # catalogo de modelos de IA (abajo).
+      - name: la app
+        working-directory: desktop
+        run: |
+          npm ci
+          npx tauri build --no-bundle
+
+      # La de hoy (lo que hacia scripts/update-models.py); sin red, la que hay.
+      # Con Start-Process -Wait: es una app de ventanas, y sin eso PowerShell
+      # no la espera.
+      - name: la foto del catálogo de modelos
+        shell: pwsh
+        run: |
+          $p = Start-Process -Wait -PassThru -NoNewWindow -FilePath target/release/danplay-app.exe `
+               -ArgumentList '--models-snapshot', 'desktop/src-tauri/data/models-snapshot.json'
+          Write-Host "salio con $($p.ExitCode)"
+          Get-Item desktop/src-tauri/data/models-snapshot.json
+
+      # La propia app con un argumento, como la lanza el nucleo: el detector
+      # de pulso con el grafo, ONNX Runtime y ffmpeg que viajan con ella.
+      - name: el pulso de una canción, con su ONNX Runtime
+        if: env.WITH_TOOLS == 'true'
+        shell: pwsh
+        run: |
+          $tools = "desktop/src-tauri/tools"
+          & "$tools/ffmpeg.exe" -loglevel error -f lavfi `
+            -i "aevalsrc='0.8*sin(2*PI*1500*t)*lt(mod(t\,0.5)\,0.03)':s=44100:d=12" `
+            -c:a libmp3lame clic.mp3
+          $env:DANPLAY_ONNXRUNTIME = "desktop/src-tauri/data"
+          $p = Start-Process -Wait -PassThru -NoNewWindow -FilePath target/release/danplay-app.exe `
+               -RedirectStandardOutput pulso.txt -RedirectStandardError pulso-err.txt `
+               -ArgumentList '--pulse', 'desktop/src-tauri/data/pulse/beat_this.onnx', "$tools/ffmpeg.exe", 'clic.mp3', 'crudo.json'
+          $last = Get-Content pulso.txt | Select-Object -Last 1
+          Write-Host $last
+          if ($last -notmatch '"ok": true') { Get-Content pulso-err.txt; throw "el pulso fallo ($($p.ExitCode))" }
+          if (-not (Test-Path crudo.json)) { throw "el pulso no dejo lo que oyo" }
 
       - name: instalador
         working-directory: desktop
-        run: npx tauri build --bundles nsis
+        run: npx tauri bundle --bundles nsis
 
       - name: qué salió
         shell: pwsh
@@ -188,28 +181,28 @@ jobs:
 
       # El portátil (un .zip que se descomprime y arranca, sin instalar nada):
       # lo mismo que lleva el instalador, de la misma compilación, así que no
-      # pueden ser distintos. Antes se armaba aparte, desde Linux, con el Python
-      # embebido de Windows; desde que el núcleo lleva su crate de Rust (las
-      # etiquetas) eso pediría compilarlo para Windows desde Linux.
+      # pueden ser distintos.
       - name: portátil
         shell: pwsh
         run: |
-          $version = (Select-String -Path danplay/__init__.py -Pattern '^__version__ = "(.+)"').Matches[0].Groups[1].Value
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           $dir = "dist/windows"
           New-Item -ItemType Directory -Force -Path $dir, dist/installers | Out-Null
           Copy-Item target/release/danplay-app.exe $dir
-          Copy-Item -Recurse desktop/src-tauri/core "$dir/core"
+          Copy-Item -Recurse desktop/src-tauri/data "$dir/data"
           Copy-Item -Recurse desktop/src-tauri/tools "$dir/tools"
           Set-Content -Encoding utf8 "$dir/LEEME.txt" @"
           DanPlay para Windows (version portatil)
 
           No hay que instalar nada: ejecuta danplay-app.exe.
 
-            danplay-app.exe   la aplicacion
-            core\             el nucleo de DanPlay
-            tools\            ffmpeg.exe, fpcalc.exe y qjs.exe: conversion de
-                              formatos, reproduccion de .opus y .wma,
-                              identificar por el sonido y bajar de YouTube
+            danplay-app.exe   la aplicacion, con el nucleo dentro
+            data\             los modelos (el pulso, el separador), las voces
+                              de las guias y ONNX Runtime, que los mueve
+            tools\            ffmpeg.exe, fpcalc.exe, qjs.exe y yt-dlp.exe:
+                              conversion de formatos, reproduccion de .opus
+                              y .wma, identificar por el sonido y bajar de
+                              YouTube
 
           Hace falta WebView2, que Windows 10 y 11 actualizados ya traen. Si la
           ventana sale en blanco: https://developer.microsoft.com/microsoft-edge/webview2/

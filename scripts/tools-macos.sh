@@ -1,9 +1,9 @@
 #!/bin/sh
 # Las herramientas que viajan DENTRO del paquete de macOS (la .app), en
 # desktop/src-tauri/tools/: ffmpeg (ondas, clic, separar, convertir), fpcalc
-# (identificar por el sonido) y QuickJS-NG (`qjs`, el motor de JavaScript que
-# YouTube exige para descargar), para el procesador de este Mac: Apple Silicon
-# o Intel.
+# (identificar por el sonido), yt-dlp (bajar de YouTube: su ejecutable
+# oficial, sin Python) y QuickJS-NG (`qjs`, el motor de JavaScript que YouTube
+# exige a yt-dlp), para el procesador de este Mac: Apple Silicon o Intel.
 #
 #   ./scripts/tools-macos.sh                 lo que viaja en la .app
 #   ./scripts/tools-macos.sh --with-ffprobe  y ffprobe, que la app ya
@@ -49,6 +49,9 @@ QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/$QJS
 # fpcalc 1.6.1: un solo binario para los dos procesadores
 FPCALC_URL=https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-macos-universal.tar.gz
 FPCALC_SHA256=240aeb5a8c8205af458e3625cb7487b826b711a999e491ef00111f3cebd76f00
+# yt-dlp 2026.08.19 (la de Linux y Windows): también uno para los dos
+YTDLP_URL=https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos
+YTDLP_SHA256=0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202
 
 mkdir -p "$CACHE" "$DEST"
 
@@ -69,9 +72,11 @@ download () {
 download "$FFMPEG_URL/ffmpeg.zip" "$FFMPEG_SHA256" "ffmpeg-9.0.2-$ARCH.zip"
 download "$QJS_URL" "$QJS_SHA256" "qjs-0.17.0-$ARCH"
 download "$FPCALC_URL" "$FPCALC_SHA256" fpcalc-1.6.1-universal.tar.gz
+download "$YTDLP_URL" "$YTDLP_SHA256" yt-dlp-2026.08.19
 
 unzip -o -q "$CACHE/ffmpeg-9.0.2-$ARCH.zip" -d "$DEST"
 cp "$CACHE/qjs-0.17.0-$ARCH" "$DEST/qjs"
+cp "$CACHE/yt-dlp-2026.08.19" "$DEST/yt-dlp"
 tar xzf "$CACHE/fpcalc-1.6.1-universal.tar.gz" -C "$DEST" --strip-components=1 \
     chromaprint-fpcalc-1.6.1-macos-universal/fpcalc
 if [ "$WITH_FFPROBE" = 1 ]; then
@@ -83,9 +88,10 @@ else
     rm -f "$DEST/ffprobe"
 fi
 rm -f "$DEST/deno"  # el de antes: ya no viaja
-chmod 755 "$DEST/ffmpeg" "$DEST/fpcalc" "$DEST/qjs"
+chmod 755 "$DEST/ffmpeg" "$DEST/fpcalc" "$DEST/qjs" "$DEST/yt-dlp"
 
 # Que arrancan de verdad en este Mac
 "$DEST/ffmpeg" -hide_banner -version | head -1
 "$DEST/fpcalc" -version
 "$DEST/qjs" --help 2>&1 | head -1
+printf 'yt-dlp %s\n' "$("$DEST/yt-dlp" --ignore-config --version)"

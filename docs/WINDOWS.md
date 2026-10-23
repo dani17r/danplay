@@ -1,7 +1,9 @@
 # DanPlay en Windows
 
-Estado a 22 de octubre de 2026: **el portátil y el instalador salen de la
-integración continua** (`windows.yml`, en un Windows de GitHub). Nadie los ha
+Estado a 23 de octubre de 2026: **el portátil y el instalador salen de la
+integración continua** (`windows.yml`, en un Windows de GitHub), y desde la
+fase 4 de la migración ([MIGRATION.md](MIGRATION.md)) **sin Python**: el
+núcleo va dentro de `danplay-app.exe`, como en Linux y macOS. Nadie los ha
 ejecutado todavía en un Windows de verdad, así que hasta el primer arranque
 hay que tratarlo como «debería funcionar», no como «funciona».
 
@@ -18,16 +20,18 @@ Quedan en `dist/installers/` con la versión en el nombre
 al `.deb`, el `.AppImage` y los `.dmg` de Mac.
 
 Salen **de la misma compilación**, así que no pueden ser distintos: el
-portátil es la aplicación, su núcleo (`core\`) y sus herramientas en un
-`.zip`; el instalador, lo mismo con NSIS, más los accesos directos, las
-asociaciones de archivo y el desinstalador.
+portátil es la aplicación (con el núcleo dentro), sus datos (`data\`: los
+modelos del pulso y del separador, las voces y ONNX Runtime) y sus
+herramientas (`tools\`) en un `.zip`; el instalador, lo mismo con NSIS, más
+los accesos directos, las asociaciones de archivo y el desinstalador.
 
-Antes las dos se armaban también **desde Linux**
-(`scripts/build-windows-cross.sh`, con el Python embebido de Windows en vez
-de PyInstaller). Desde que las etiquetas van en el crate de Rust del núcleo,
-ese camino tendría que compilar el crate para Windows desde Linux, y no lo
-hace: sin `--no-crate` se niega, y con él saca uno cuyas etiquetas van con
-mutagen (GPL), solo para uso propio.
+También salen **desde Linux** (`scripts/build-windows-cross.sh`): sin Python
+ya no hay nada que no se pueda compilar para Windows desde aquí. La app se
+compila con mingw-w64 (`x86_64-pc-windows-gnu`), y `data\` y `tools\` se bajan
+igual que en la CI; el instalador es el suyo
+([`packaging/windows/installer.nsi`](../packaging/windows/installer.nsi)), no
+el de Tauri. Viaja la foto del catálogo de modelos del repositorio: la de hoy
+la saca la propia app, y un `.exe` no se puede ejecutar en Linux.
 
 | | Portátil | Instalador |
 | --- | --- | --- |
@@ -37,8 +41,8 @@ mutagen (GPL), solo para uso propio.
 | **Accesos directos** | ninguno | menú Inicio y escritorio (se puede desmarcar) |
 | **«Abrir con DanPlay»** | lo activa la propia app desde Ajustes | lo deja puesto el instalador |
 | **Desinstalador** | borrar la carpeta | sí, y sale en «Aplicaciones instaladas» |
-| **ffmpeg, fpcalc y QuickJS** | solo con `--with-tools` | siempre (el de la CI; ver abajo) |
-| **Tamaño** | 273 MB (98 MB comprimido) con herramientas; 74 MB (25 MB) sin ellas | 71 MB |
+| **ffmpeg, fpcalc, QuickJS y yt-dlp** | solo con `--with-tools` | siempre (el de la CI; ver abajo) |
+| **Tamaño** | por medir sin Python (en la 1.30, con él: 217 MB comprimido) | por medir (en la 1.30: 191 MB) |
 
 ## Actualizar
 
@@ -63,11 +67,12 @@ de JavaScript de YouTube, que ahora es QuickJS (`qjs.exe`, 2 MB). Deno
 resolvía los retos algo antes: con QuickJS cada descarga tarda unos 5
 segundos más.
 
-La primera vez descarga a `~/.cache/danplay-cross` lo que necesita —mingw-w64,
-zig, NSIS y el Python embebido de Windows, todos extraídos de sus paquetes sin
-instalar nada— y luego ya es rápido. Al final comprueba lo que ha salido: que
-los dos ejecutables son PE32+, que están el Python y las dependencias, y que
-dentro del instalador va todo lo de la carpeta.
+La primera vez descarga a `~/.cache/danplay-windows` lo que necesita
+—mingw-w64 y NSIS, extraídos de sus paquetes sin instalar nada; ONNX Runtime
+y las herramientas, con su SHA-256 comprobado— y luego ya es rápido. Al final
+comprueba lo que ha salido: que la app y `onnxruntime.dll` son PE32+, que
+están los datos y las herramientas, que no queda nada de Python y que dentro
+del instalador va todo lo de la carpeta.
 
 ### Lo que el instalador NO puede hacer, y por qué
 
@@ -80,19 +85,11 @@ página de Ajustes donde das el último clic. Es lo mismo que hacen VLC, Spotify
 y foobar2000. Desde la app, ese botón está en Ajustes → «Abrir canciones con
 DanPlay».
 
-**Por qué no usa PyInstaller.** Porque PyInstaller no compila para otro
-sistema. En su lugar coge el Python embebido oficial de Windows y le mete las
-dependencias como ruedas `win_amd64`, que sí se pueden descargar desde
-cualquier parte. Un lanzador de treinta líneas
-([`packaging/launcher.c`](../packaging/launcher.c)) hace de `danplay-core.exe`
-y arranca ese Python; espera a que termine en vez de sustituirse por él, para
-que la aplicación siga vigilando un proceso vivo y el Job Object se lleve a
-los dos al cerrar.
-
-**Por qué el enlazador de mingw y no el de zig.** Zig sirve para compilar el
-lanzador y para preprocesar los recursos, pero su enlazador no sabe usar las
-bibliotecas de importación de Windows que trae Rust (`libwindows.0.52.0.a`):
-busca un `.dll` y se para. Con el `ld` de mingw enlaza a la primera.
+**Por qué mingw-w64.** El motor de audio lleva C++ (el estirado de
+Signalsmith) y Rust enlaza para `x86_64-pc-windows-gnu` con las bibliotecas
+de importación de Windows que trae (`libwindows.0.52.0.a`): el `ld` y los
+compiladores de mingw-w64 lo hacen a la primera. (Hasta la 1.30 hacía falta
+además zig, para el lanzador del Python embebido que hacía de núcleo.)
 
 **Lo que la versión portátil no trae.** Ni desinstalador ni accesos directos;
 y las asociaciones de archivo no las deja puestas nadie, así que hay que
@@ -101,28 +98,29 @@ las mismas claves que escribe el instalador).
 
 ## El instalador desde Windows, o desde la integración continua
 
-Sigue existiendo el camino con PyInstaller, que es el que produce un núcleo de
-un solo ejecutable en vez del Python embebido:
-
 ### Con la integración continua
 
-`.github/workflows/windows.yml` lo hace entero en `windows-latest`:
+`.github/workflows/windows.yml` lo hace entero en `windows-latest`, sin
+Python:
 
-1. Descarga `ffmpeg` 9.0.2, `fpcalc` 1.6.1 y QuickJS-NG 0.17.0 (el motor de
-   JavaScript que YouTube exige a yt-dlp), **con versión fija y comprobando
-   su SHA-256**. Antes se bajaba «la última» sin comprobar nada: dos
-   instaladores de la misma versión podían llevar un ffmpeg distinto. Para
-   subir una, se cambian la URL y la suma en el propio flujo.
-2. Compila la interfaz.
-3. Empaqueta el núcleo con PyInstaller y **comprueba que arranca y contesta**,
-   y que sin el token no contesta.
-4. Compila la aplicación y genera el instalador NSIS, con las herramientas
-   dentro (salvo que se lance sin ellas).
-5. Lo deja como artefacto descargable; con una etiqueta `v*`, lo publica.
+1. Descarga `ffmpeg` 9.0.2, `fpcalc` 1.6.1, QuickJS-NG 0.17.0 (el motor de
+   JavaScript que YouTube exige a yt-dlp) y yt-dlp 2026.08.19 (su ejecutable
+   oficial), **con versión fija y comprobando su SHA-256**. Antes se bajaba
+   «la última» sin comprobar nada: dos instaladores de la misma versión
+   podían llevar un ffmpeg distinto. Para subir una, se cambian la URL y la
+   suma en el propio flujo.
+2. Los datos: ONNX Runtime 1.31.0 (`onnxruntime.dll`, el oficial de
+   Microsoft, también con su SHA-256) y lo de `danplay/data`, en `data\`.
+3. Compila la interfaz y la aplicación, sin empaquetar todavía.
+4. Con ella misma saca la foto del catálogo de modelos de hoy
+   (`--models-snapshot`) y **el pulso de una canción de prueba** (`--pulse`,
+   con su ONNX Runtime y su ffmpeg).
+5. Genera el instalador NSIS, con las herramientas dentro (salvo que se
+   lance sin ellas), y el portátil.
+6. Lo deja como artefacto descargable; con una etiqueta `v*`, lo publica.
 
-Las pruebas del núcleo **en Windows** no van ahí: las pasa `tests.yml` en
-cada push (el trabajo «núcleo Python en Windows»), y delante del instalador
-solo lo retrasaban.
+Las pruebas del núcleo de Python **en Windows** no van ahí: las pasa
+`tests.yml` en cada push (el trabajo «núcleo Python en Windows»).
 
 Se lanza a mano desde la pestaña Actions («Run workflow») o subiendo una
 etiqueta:
@@ -137,35 +135,32 @@ git tag v1.1.0 && git push origin v1.1.0
 .\scripts\build-windows.ps1 -Installer
 ```
 
-Hace lo mismo que el flujo de arriba. Necesita Python 3.13, Node 24, Rust
-(MSVC) y las herramientas de compilación de Visual Studio.
+Hace lo mismo que el flujo de arriba. Necesita Node 24, Rust (MSVC) y las
+herramientas de compilación de Visual Studio; Python, ya no.
 
 ## Qué cambia respecto a Linux
 
 | | Linux y macOS | Windows |
 | --- | --- | --- |
-| **Cómo hablan la app y el núcleo** | socket Unix `0600` en una carpeta privada; sin puerto | `127.0.0.1` con un puerto libre y un secreto de un solo arranque (`DANPLAY_TOKEN`). Sin él, la API responde `401` |
-| **Que el núcleo muera con la app** | `PR_SET_PDEATHSIG` | Job Object con `KILL_ON_JOB_CLOSE` |
-| **Dónde van los datos** | `~/.local/share/danplay`, `~/.config/danplay` | `%LOCALAPPDATA%\danplay`, `%APPDATA%\danplay` (lo decide `platformdirs`) |
-| **Papelera** | `send2trash`, y `gio trash` si falla | `send2trash` |
-| **ffmpeg, fpcalc y el motor de JS** | ffmpeg y fpcalc los instala el gestor de paquetes (el `.deb` los declara); para YouTube, Deno, Node ≥ 22 o QuickJS si están | van **dentro** del instalador, en `tools\` (QuickJS incluido); la app se lo dice al núcleo con `DANPLAY_TOOLS_DIR` |
-| **Que el núcleo se apague si la app muere** | además del `PDEATHSIG`, vigila el PID que le pasa la app (`DANPLAY_PARENT_PID`) | Job Object, también para un núcleo revivido, y el mismo PID vigilado con la API de procesos de Windows |
+| **Cómo hablan la app y el núcleo** | en el mismo proceso: sin socket ni puerto | igual: sin puerto ni secreto (hasta la 1.30, con el núcleo de Python aparte, era un puerto de loopback con un secreto de un solo arranque) |
+| **Dónde van los datos** | `~/.local/share/danplay`, `~/.config/danplay` | `%LOCALAPPDATA%\danplay`, `%APPDATA%\danplay` (como decía `platformdirs`) |
+| **ONNX Runtime** (el pulso, el separador, las voces) | en `data/`, el de Microsoft para Linux (o para macOS) | en `data\`, `onnxruntime.dll` |
+| **ffmpeg, fpcalc, yt-dlp y el motor de JS** | dentro de los paquetes (`tools/`; el `.deb` declara además ffmpeg y fpcalc); para YouTube, Deno, Node ≥ 22 o QuickJS si están | van **dentro** del instalador, en `tools\` (QuickJS y yt-dlp incluidos); la app se los da al núcleo, que los usa antes que los del PATH |
 | **Bandeja** | protocolo D-Bus propio (`ksni`), porque la de Tauri no entrega clics | la de Tauri, que ahí sí los entrega y además dice dónde está el icono |
 | **Mini reproductor** | lo coloca el escritorio en Wayland | pegado al icono, con `tauri-plugin-positioner` |
 | **Mandos del sistema** | MPRIS | SMTC (los dos con `souvlaki`) |
 
-## Por qué no hay puerto abierto en Linux y sí en Windows
+## Por qué ya no hay puerto abierto, tampoco en Windows
 
 Un puerto en `localhost` no es privado: cualquier proceso del equipo puede
 hablar con él. Esta API lista tu biblioteca, manda archivos a la papelera y lee
-imágenes del disco, así que en Linux y macOS se usa un socket Unix con
-permisos `0600` y no hay puerto que valga.
+imágenes del disco. Hasta la 1.30, con el núcleo de Python como programa
+aparte, en Linux y macOS se usaba un socket Unix con permisos `0600`, y en
+Windows (donde `uvicorn` no sabía escuchar en sockets Unix ni en *named
+pipes*) un puerto de loopback con un secreto de un solo arranque.
 
-En Windows no existe esa opción: `uvicorn` no sabe escuchar en sockets Unix ni
-en *named pipes*. Lo más cerca que se puede estar es un puerto de loopback con
-un secreto que solo conocen la aplicación y el núcleo, y que viaja por el
-entorno (no por la línea de órdenes, que es pública). Otro programa del equipo
-puede llegar al puerto, pero sin el secreto se lleva un `401`.
+Ahora el núcleo va dentro de la app: la interfaz le habla sin salir del
+proceso, y no hay ni socket ni puerto que proteger, en ningún sistema.
 
 ## Lo que falta por comprobar cuando alguien lo ejecute
 
@@ -186,7 +181,7 @@ Cosas que solo se ven al abrirlo de verdad:
 - **macOS.** Se compila en la integración continua (`./scripts/build-macos.sh`
   la lanza y deja en `dist/installers/` un `.dmg` para Apple Silicon y otro
   para Intel, sin firma de Apple), pero sin probar en un Mac de verdad. El
-  transporte por socket vale y la aplicación ya sale del Dock al esconderse
+  núcleo va dentro, como aquí, y la aplicación ya sale del Dock al esconderse
   (`ActivationPolicy::Accessory`); falta que alguien con un Mac compruebe la
   bandeja.
 - **Reproducir `.opus` y `.wma` sin ffmpeg.** El decodificador no los conoce,

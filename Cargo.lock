@@ -862,12 +862,7 @@ version = "1.30.0"
 dependencies = [
  "danplay-engine",
  "danplay-server",
- "http-body-util",
- "hyper",
- "hyper-util",
- "hyperlocal",
  "ksni",
- "libc",
  "log",
  "rand 0.10.3",
  "serde",
@@ -883,7 +878,6 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-window-state",
  "tokio",
- "win32job",
  "winreg 0.56.0",
 ]
 
@@ -2060,21 +2054,6 @@ dependencies = [
  "tokio",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "hyperlocal"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "986c5ce3b994526b3cd75578e62554abd09f0899d6206de48b3e96ab34ccc8c7"
-dependencies = [
- "hex",
- "http-body-util",
- "hyper",
- "hyper-util",
- "pin-project-lite",
- "tokio",
- "tower-service",
 ]
 
 [[package]]
@@ -5967,16 +5946,6 @@ dependencies = [
  "thiserror 2.0.21",
  "windows 0.62.2",
  "windows-core 0.62.2",
-]
-
-[[package]]
-name = "win32job"
-version = "2.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c6a6724ccfbf34154a8691bd868b0fcd2be2ca3f7b47b32614654f1a01b191c"
-dependencies = [
- "thiserror 1.0.69",
- "windows 0.61.3",
 ]
 
 [[package]]

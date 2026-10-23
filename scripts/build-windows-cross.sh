@@ -4,8 +4,7 @@
 #   ./scripts/build-windows-cross.sh                 construye dist/windows/
 #   ./scripts/build-windows-cross.sh --zip           además, el .zip portátil
 #   ./scripts/build-windows-cross.sh --installer     además, el .exe instalador
-#   ./scripts/build-windows-cross.sh --with-tools    mete ffmpeg y fpcalc dentro
-#   ./scripts/build-windows-cross.sh --no-crate      ver abajo: hace falta
+#   ./scripts/build-windows-cross.sh --with-tools    mete ffmpeg, fpcalc, QuickJS y yt-dlp dentro
 #
 # El .zip y el .exe quedan en dist/installers/, con la versión en el nombre,
 # junto al .deb, el .AppImage y los .dmg de Mac: todo lo que se entrega, en
@@ -18,49 +17,32 @@
 # `--installer` implica `--with-tools`: un instalador que se llama «con
 # todo» y luego no sabe convertir formatos ni reproducir .opus no es con todo.
 #
-# Por qué NO se usa PyInstaller aquí: no compila para otro sistema. En su
-# lugar se coge el Python embebido oficial de Windows y se le meten las
-# dependencias como ruedas `win_amd64`, que sí se pueden descargar desde
-# cualquier sitio. Un lanzador diminuto (packaging/launcher.c) hace de
-# `danplay-core.exe`, que es lo que la aplicación busca.
+# Sin Python: el núcleo va dentro de la app (el crate `server`), que se
+# compila para Windows con mingw-w64. Lo que viaja con ella son sus datos
+# (data/: los modelos, las voces, la foto del catálogo del repositorio y ONNX
+# Runtime, de scripts/data.sh) y sus programas (tools/). El instalador de
+# verdad (MSVC y el NSIS de Tauri) sale de la integración continua
+# (windows.yml).
 #
-# Todo lo que hace falta se descarga a una caché y no toca el sistema: no se
-# necesita ser administrador.
-#
-# OJO: desde que las etiquetas van en el crate de Rust del núcleo
-# (danplay_core, con lofty), el Python embebido tendría que llevarlo
-# compilado para Windows, y aquí no se compila. Sin él, las etiquetas van con
-# mutagen, que es GPL: un portátil así es solo para tu propio uso, no para
-# repartirlo. Por eso hay que pedirlo con `--no-crate`. El portátil y el
-# instalador de verdad salen de la integración continua (windows.yml), con el
-# núcleo empaquetado en Windows y su crate dentro.
+# Todo lo que hace falta se descarga a una caché (~/.cache/danplay-windows) y
+# no toca el sistema: no se necesita ser administrador.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
-CACHE="${DANPLAY_CACHE_WIN:-$HOME/.cache/danplay-cross}"
+CACHE="${DANPLAY_CACHE_WIN:-$HOME/.cache/danplay-windows}"
 DEST="$ROOT/dist/windows"
 TRIPLE=x86_64-pc-windows-gnu
-PY_VERSION="${DANPLAY_PY_WIN:-3.13.5}"
-PY_TAG=313
+TARGET="${CARGO_TARGET_DIR:-target}"
 
-ZIP=0; INSTALLER=0; WITH_TOOLS=0; NO_CRATE=0
+ZIP=0; INSTALLER=0; WITH_TOOLS=0
 for arg in "$@"; do
     case "$arg" in
         --zip)          ZIP=1 ;;
         --installer)    INSTALLER=1; WITH_TOOLS=1 ;;
         --with-tools)   WITH_TOOLS=1 ;;
-        --no-crate)     NO_CRATE=1 ;;
         *) printf 'no conozco la opción %s\n' "$arg" >&2; exit 2 ;;
     esac
 done
-if [ "$NO_CRATE" = 0 ]; then
-    printf '%s\n' \
-        "El núcleo lleva su crate de Rust (las etiquetas, con lofty) y desde Linux no" \
-        "se compila para Windows: sin él, las etiquetas irían con mutagen (GPL)." \
-        "El portátil y el instalador salen de la CI: ./scripts/github.sh packages windows" \
-        "Para uno solo para ti, sin el crate: $0 --no-crate $*" >&2
-    exit 1
-fi
 
 step () { printf '\n\033[36m== %s\033[0m\n' "$1"; }
 warn () { printf '\033[33m%s\033[0m\n' "$1"; }
@@ -70,10 +52,8 @@ mkdir -p "$CACHE"
 
 # --------------------------------------------------------------- herramientas
 # mingw-w64 (enlazador, compiladores de C y C++ —el motor de audio lleva el
-# estirado de Signalsmith, en C++— y compilador de recursos) y zig (compila el
-# lanzador). Se extraen de sus paquetes sin instalarlos: el enlazador de zig
-# no sabe usar las bibliotecas de importación de Windows que trae Rust, así
-# que hace falta el de mingw de verdad.
+# estirado de Signalsmith, en C++— y compilador de recursos). Se extraen de
+# sus paquetes sin instalarlos.
 SYSROOT="$CACHE/mingw"
 if [ ! -x "$SYSROOT/usr/bin/x86_64-w64-mingw32-g++-win32" ]; then
     step "herramientas de Windows (una vez)"
@@ -91,99 +71,37 @@ if [ ! -x "$SYSROOT/usr/bin/x86_64-w64-mingw32-g++-win32" ]; then
 fi
 export PATH="$SYSROOT/usr/bin:$PATH"
 
-ZIG=$(ls -d "$CACHE"/zig-*/zig 2>/dev/null | head -1 || true)
-if [ -z "$ZIG" ]; then
-    ZIG=$(command -v zig || true)
-fi
-if [ -z "$ZIG" ]; then
-    step "zig (una vez, para el lanzador)"
-    version=$(curl -s https://ziglang.org/download/index.json |
-      python3 -c "import json,sys;d=json.load(sys.stdin);print(next(k for k in d if k!='master'))")
-    url=$(curl -s https://ziglang.org/download/index.json |
-      python3 -c "import json,sys;d=json.load(sys.stdin);k=next(k for k in d if k!='master');print(d[k]['x86_64-linux']['tarball'])")
-    curl -sL -o "$CACHE/zig.tar.xz" "$url" || die "no pude descargar zig ($version)"
-    tar xf "$CACHE/zig.tar.xz" -C "$CACHE" && rm "$CACHE/zig.tar.xz"
-    ZIG=$(ls -d "$CACHE"/zig-*/zig | head -1)
-fi
-
 rustup target list --installed | grep -qx "$TRIPLE" \
   || rustup target add "$TRIPLE" \
   || die "no pude añadir el destino $TRIPLE"
 
 # ----------------------------------------------------------------- interfaz
-step "1/5  interfaz (Vite)"
+step "1/4  interfaz (Vite)"
 ( cd desktop && npx vite build )
 
-# ------------------------------------------------------------ nucleo Python
-step "2/5  núcleo (Python embebido de Windows + ruedas win_amd64)"
-CORE_DIR="$CACHE/core-$PY_VERSION"
-if [ ! -f "$CORE_DIR/python/python.exe" ]; then
-    rm -rf "$CORE_DIR"; mkdir -p "$CORE_DIR"
-    curl -sL -o "$CORE_DIR/python.zip" \
-      "https://www.python.org/ftp/python/$PY_VERSION/python-$PY_VERSION-embed-amd64.zip" \
-      || die "no pude descargar el Python embebido $PY_VERSION"
-    unzip -oq "$CORE_DIR/python.zip" -d "$CORE_DIR/python" && rm "$CORE_DIR/python.zip"
-    # Sin `import site`, el Python embebido no mira site-packages y no
-    # encuentra ninguna dependencia.
-    cat > "$CORE_DIR/python/python$PY_TAG._pth" <<EOF
-python$PY_TAG.zip
-.
-site-packages
-
-import site
-EOF
-fi
-# Las dependencias, otra vez cada vez que cambia requirements.txt. Antes se
-# bajaban solo con el Python y se quedaban las de la primera compilacion:
-# sin numpy ni onnxruntime, en Windows no habia separador ni pulso.
-REQS_HASH=$(sha256sum requirements.txt | cut -d' ' -f1)
-if [ "$(cat "$CORE_DIR/requirements.sha256" 2>/dev/null)" != "$REQS_HASH" ]; then
-    rm -rf "$CORE_DIR/wheels" "$CORE_DIR/python/site-packages"
-    mkdir -p "$CORE_DIR/wheels" "$CORE_DIR/python/site-packages"
-    # el .venv de uv no trae pip: si no esta, el de uvx (aparte, sin tocar nada)
-    if "$ROOT/.venv/bin/python" -m pip --version >/dev/null 2>&1; then
-        PIP=("$ROOT/.venv/bin/python" -m pip)
-    else
-        PIP=(uvx pip)
-    fi
-    "${PIP[@]}" download --quiet \
-        --platform win_amd64 --python-version "$PY_TAG" --only-binary=:all: \
-        --dest "$CORE_DIR/wheels" -r requirements.txt \
-      || die "alguna dependencia no tiene rueda para Windows"
-    for w in "$CORE_DIR"/wheels/*.whl; do unzip -oq "$w" -d "$CORE_DIR/python/site-packages"; done
-    rm -rf "$CORE_DIR"/python/site-packages/*.dist-info
-    printf '%s\n' "$REQS_HASH" > "$CORE_DIR/requirements.sha256"
-fi
-
-# el código propio se copia siempre: cambia en cada compilación
-rm -rf "$CORE_DIR/python/danplay"
-cp -r danplay "$CORE_DIR/python/danplay"
-find "$CORE_DIR/python/danplay" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
-
-"$ZIG" cc -target x86_64-windows-gnu -O2 -municode \
-    -o "$CORE_DIR/danplay-core.exe" packaging/launcher.c \
-  || die "no pude compilar el lanzador"
+# ---------------------------------------------------------------- los datos
+step "2/4  datos: ONNX Runtime de Windows y lo de danplay/data"
+DANPLAY_CACHE_WINDOWS="$CACHE" ./scripts/data.sh windows
 
 # ----------------------------------------------------------- app de escritorio
-step "3/5  aplicación (Rust, $TRIPLE)"
+step "3/4  aplicación (Rust, $TRIPLE), con el núcleo dentro"
 cargo build --release -p danplay-app --target "$TRIPLE"
 
 # ------------------------------------------------------------------- montaje
-step "4/5  montar dist/windows"
+step "4/4  montar dist/windows"
 rm -rf "$DEST"; mkdir -p "$DEST"
-APP=target/$TRIPLE/release
+APP=$TARGET/$TRIPLE/release
 cp "$APP/danplay-app.exe" "$DEST/"
 # WebView2Loader.dll: la aplicación lo carga al arrancar y sin él no abre
 cp "$APP/WebView2Loader.dll" "$DEST/" 2>/dev/null \
   || die "falta WebView2Loader.dll junto al ejecutable"
-cp "$CORE_DIR/danplay-core.exe" "$DEST/"
-cp -r "$CORE_DIR/python" "$DEST/python"
+cp -r desktop/src-tauri/data "$DEST/data"
 mkdir -p "$DEST/tools"
 cp desktop/src-tauri/tools/LEEME.txt "$DEST/tools/" 2>/dev/null || true
 
-# ffmpeg, fpcalc y QuickJS: en Windows no hay `apt install`, así que o van dentro
-# o no hay conversión de formatos, ni huella acústica, ni .opus/.wma sonando,
-# ni YouTube (yt-dlp necesita un motor de JavaScript).
+# ffmpeg, fpcalc, QuickJS y yt-dlp: en Windows no hay `apt install`, así que
+# o van dentro o no hay conversión de formatos, ni huella acústica, ni
+# .opus/.wma sonando, ni YouTube.
 #
 # Con versión fija y su SHA-256, las mismas que el instalador de la CI
 # (.github/workflows/windows.yml): antes se bajaba «la última» sin comprobar
@@ -194,16 +112,18 @@ FPCALC_URL=https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chro
 FPCALC_SHA256=735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e
 QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe
 QJS_SHA256=2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77
+YTDLP_URL=https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe
+YTDLP_SHA256=66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a
 download () {  # URL SHA256 DEST
     curl -sfL -o "$3" "$1" || die "no pude descargar $1"
     echo "$2  $3" | sha256sum -c --status - || die "$(basename "$1") no es lo esperado (sha256)"
 }
 if [ "$WITH_TOOLS" = 1 ]; then
-    TOOLS="$CACHE/tools-win-ffmpeg9.0.2-fpcalc1.6.1-qjs0.17.0"
-    if [ ! -f "$TOOLS/qjs.exe" ]; then
-        step "herramientas de Windows: ffmpeg, fpcalc y QuickJS (una vez, ~110 MB)"
+    TOOLS="$CACHE/tools-win-ffmpeg9.0.2-fpcalc1.6.1-qjs0.17.0-ytdlp2026.08.19"
+    if [ ! -f "$TOOLS/yt-dlp.exe" ]; then
+        step "herramientas de Windows: ffmpeg, fpcalc, QuickJS y yt-dlp (una vez, ~150 MB)"
         rm -rf "$TOOLS"; mkdir -p "$TOOLS"
-        tmp=$(mktemp -d)
+        tmp=$(mktemp -d -p "$CACHE")
         download "$FFMPEG_URL" "$FFMPEG_SHA256" "$tmp/ffmpeg.zip"
         unzip -oq "$tmp/ffmpeg.zip" -d "$tmp/ffmpeg"
         find "$tmp/ffmpeg" -name 'ffmpeg.exe' -exec cp {} "$TOOLS/" \;
@@ -212,19 +132,21 @@ if [ "$WITH_TOOLS" = 1 ]; then
         find "$tmp/fpcalc" -name 'fpcalc.exe' -exec cp {} "$TOOLS/" \;
         rm -rf "$tmp"
         [ -f "$TOOLS/ffmpeg.exe" ] || die "el zip de ffmpeg no traía ffmpeg.exe"
-        # el último: es el que dice que la caché está completa
         download "$QJS_URL" "$QJS_SHA256" "$TOOLS/qjs.exe"
+        # el último: es el que dice que la caché está completa
+        download "$YTDLP_URL" "$YTDLP_SHA256" "$TOOLS/yt-dlp.exe"
     fi
-    cp "$TOOLS/ffmpeg.exe" "$TOOLS/fpcalc.exe" "$TOOLS/qjs.exe" "$DEST/tools/"
+    cp "$TOOLS/ffmpeg.exe" "$TOOLS/fpcalc.exe" "$TOOLS/qjs.exe" "$TOOLS/yt-dlp.exe" "$DEST/tools/"
     # el LEEME de la carpeta vacia diria que aqui no hay nada
     cat > "$DEST/tools/LEEME.txt" <<'EOF'
-ffmpeg, fpcalc y QuickJS, incluidos.
+ffmpeg, fpcalc, QuickJS y yt-dlp, incluidos.
 
 En Windows no hay gestor de paquetes que los ponga, asi que viajan aqui. Son
 los que hacen que funcionen la conversion de formatos, la reproduccion de
 .opus y .wma, el encogido de portadas, la identificacion de canciones por su
-sonido y las descargas de YouTube (QuickJS, qjs.exe, es el motor de
-JavaScript que pide yt-dlp). La aplicacion los busca en esta carpeta antes que en el PATH.
+sonido y las descargas de YouTube (yt-dlp.exe, con QuickJS, qjs.exe, el motor
+de JavaScript que pide). La aplicacion los busca en esta carpeta antes que en
+el PATH.
 
 No los borres. Si faltan, DanPlay sigue abriendo y avisa de lo que no puede
 hacer.
@@ -238,11 +160,11 @@ DanPlay para Windows (versión portátil)
 No hay que instalar nada: ejecuta danplay-app.exe.
 
 Qué hay aquí
-  danplay-app.exe      la aplicación
-  danplay-core.exe     arranca el núcleo que está en python\
-  python\              Python con lo que el núcleo necesita
+  danplay-app.exe      la aplicación, con el núcleo dentro
   WebView2Loader.dll   lo carga la aplicación al abrir
-  tools\               ffmpeg.exe, fpcalc.exe y qjs.exe:
+  data\                los modelos (el pulso, el separador), las voces de
+                       las guías y ONNX Runtime, que los mueve
+  tools\               ffmpeg.exe, fpcalc.exe, qjs.exe y yt-dlp.exe:
                        conversión de formatos, reproducción de .opus y .wma,
                        identificación de canciones por su sonido y descargas
                        de YouTube. Si la carpeta está vacía, eso no funciona
@@ -255,52 +177,48 @@ https://developer.microsoft.com/microsoft-edge/webview2/
 Esta versión se construyó desde Linux y NO se ha ejecutado en Windows todavía:
 si algo falla, es información útil. El instalador de verdad (con su desinstalador
 y su acceso directo) sale de la integración continua del proyecto.
+
+DanPlay es obra de Daniel Rangel (https://t.me/Dani17r).
 EOF
 
 # ------------------------------------------------------------ comprobaciones
-step "5/5  comprobar lo que ha salido"
+step "comprobar lo que ha salido"
 failures=0
 check () {
     if [ -e "$DEST/$1" ]; then printf '  ok    %s\n' "$1"
     else printf '  FALTA %s\n' "$1"; failures=$((failures+1)); fi
 }
 check danplay-app.exe
-check danplay-core.exe
 check WebView2Loader.dll
-check python/python.exe
-check python/danplay/cli.py
-check python/site-packages/fastapi
-check python/site-packages/mutagen
+check data/onnxruntime.dll
+check data/pulse/beat_this.onnx
+check data/voices.json
+check data/models-snapshot.json
 if [ "$WITH_TOOLS" = 1 ]; then
     check tools/ffmpeg.exe
     check tools/fpcalc.exe
     check tools/qjs.exe
+    check tools/yt-dlp.exe
 fi
 
-for exe in danplay-app.exe danplay-core.exe; do
+for exe in danplay-app.exe data/onnxruntime.dll; do
     kind=$(file -b "$DEST/$exe")
     case "$kind" in
-        PE32+*) printf '  ok    %s es un ejecutable de Windows\n' "$exe" ;;
+        PE32+*) printf '  ok    %s es de Windows (64 bits)\n' "$exe" ;;
         *) printf '  FALLA %s no es PE32+: %s\n' "$exe" "$kind"; failures=$((failures+1)) ;;
     esac
 done
 
-# que el núcleo pueda importarse: si falta una dependencia, aquí se ve
-if ! "$ROOT/.venv/bin/python" - "$DEST/python/site-packages" <<'EOF'
-import sys, pathlib
-missing = [m for m in ("fastapi", "uvicorn", "mutagen", "rapidfuzz", "yt_dlp",
-                       "acoustid", "dotenv", "platformdirs", "send2trash",
-                       "openai", "pydantic")
-           if not list(pathlib.Path(sys.argv[1]).glob(m + "*"))]
-if missing:
-    print("  FALLA faltan dependencias:", ", ".join(missing)); sys.exit(1)
-print("  ok    están todas las dependencias")
-EOF
-then failures=$((failures+1)); fi
+# ni rastro del núcleo de Python de antes
+if find "$DEST" | grep -iE 'python|\.pyc|/_internal/|danplay-core'; then
+    printf '  FALLA lleva algo del núcleo de Python\n'; failures=$((failures+1))
+else
+    printf '  ok    sin nada de Python\n'
+fi
 
 [ "$failures" -eq 0 ] || die "$failures comprobación(es) fallida(s)"
 
-VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
+VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
 PORTABLE="dist/installers/DanPlay-$VERSION-windows-portatil.zip"
 
 if [ "$ZIP" = 1 ]; then
@@ -308,9 +226,13 @@ if [ "$ZIP" = 1 ]; then
     mkdir -p dist/installers
     # los de versiones anteriores fuera, como hace build.sh con el .deb
     rm -f dist/installers/DanPlay-*-windows-portatil.zip
-    # con python: `zip` no siempre esta instalado y esto ya lo tenemos
-    python3 -c "
-import shutil, sys; shutil.make_archive(sys.argv[1], 'zip', 'dist', 'windows')" "${PORTABLE%.zip}"
+    if command -v zip >/dev/null 2>&1; then
+        ( cd dist && zip -qr "../$PORTABLE" windows )
+    elif command -v 7z >/dev/null 2>&1; then
+        ( cd dist && 7z a -tzip -bd "../$PORTABLE" windows >/dev/null )
+    else
+        die "hace falta zip o 7z para comprimir el portátil"
+    fi
     printf '  %s\n' "$PORTABLE ($(du -h "$PORTABLE" | cut -f1))"
 fi
 

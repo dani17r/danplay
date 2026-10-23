@@ -92,13 +92,10 @@ fn silent_player() -> (player::Handle, std::sync::mpsc::Receiver<player::Event>)
     (player::Handle::new(move |event| tx.send(event).is_ok()), rx)
 }
 
-/// Una direccion que no contesta. Vale mientras la prueba no dependa del
+/// Un nucleo que no contesta. Vale mientras la prueba no dependa del
 /// nucleo, que es justo lo que se comprueba al restaurar.
 fn nowhere() -> Address {
-    Address::Tcp {
-        port: 1,
-        token: String::new(),
-    }
+    Address::Unreachable
 }
 
 #[test]
@@ -399,20 +396,9 @@ fn advancing_gives_up_after_one_full_round() {
     assert_ne!(player.state().error, "");
 }
 
-/// Un nucleo que acepta la conexion y no contesta nunca (colgado).
+/// Un nucleo que no contesta nunca (colgado).
 fn hung_core() -> Address {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    std::thread::spawn(move || {
-        let mut held = Vec::new();
-        for stream in listener.incoming().flatten() {
-            held.push(stream); // se quedan abiertas y mudas
-        }
-    });
-    Address::Tcp {
-        port,
-        token: String::new(),
-    }
+    Address::Hung
 }
 
 /// Con el nucleo colgado, pasar a la siguiente no puede costar el tope

@@ -9,9 +9,9 @@
 //!   tipo, cuerpo; el audio y las carátulas, como un archivo del disco que
 //!   quien llama manda a trozos o lee entero).
 //! - **Por un socket** (`serve`, y el binario `danplay-server` con los
-//!   mismos argumentos que packaging/core_entry.py: `--uds RUTA` o `--host H
-//!   --port N`): para las pruebas de la interfaz y para compararla con la de
-//!   Python.
+//!   mismos argumentos que el núcleo empaquetado de Python de hasta la 1.30:
+//!   `--uds RUTA` o `--host H --port N`): para las pruebas de la interfaz y
+//!   para compararla con la de Python (`python -m danplay.cli serve`).
 //!
 //! # Por dentro
 //!
@@ -125,14 +125,19 @@ pub fn handle(app: &App, req: &Request) -> Response {
 
 /// Los procesos aparte que lanza el núcleo son el mismo programa con un
 /// argumento: `--pulse` (el detector de pulso) y `--separate` (separar en
-/// pistas). Si este proceso es uno de ellos, lo hace y da su código de
-/// salida; si no, `None`. Lo llaman, antes que nada, `danplay-server` y la
-/// app de escritorio (que lleva el núcleo dentro).
+/// pistas). Y uno más que no lanza el núcleo sino quien empaqueta la app:
+/// `--models-snapshot SALIDA`, la foto del catálogo de modelos que viaja con
+/// ella. Si este proceso es uno de ellos, lo hace y da su código de salida;
+/// si no, `None`. Lo llaman, antes que nada, `danplay-server` y la app de
+/// escritorio (que lleva el núcleo dentro).
 pub fn child_process() -> Option<i32> {
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let flag = args.get(1)?.to_str()?;
     if flag == "--pulse" {
         return Some(services::beats::child_main(&args[2..]));
+    }
+    if flag == "--models-snapshot" {
+        return Some(models_snapshot(&args[2..]));
     }
     if flag == services::separation::FLAG {
         let rest: Vec<String> = args[2..]
@@ -142,6 +147,52 @@ pub fn child_process() -> Option<i32> {
         return Some(services::separation::main(&rest));
     }
     None
+}
+
+/// `--models-snapshot SALIDA`: la foto del catálogo de modelos de IA, la
+/// de hoy (lo que hacía scripts/update-models.py). La escriben los scripts
+/// de empaquetar en `data/` antes de meterla en el paquete; si no hay red,
+/// no se toca lo que hubiera y sale con 1 (viaja la del repositorio).
+fn models_snapshot(args: &[std::ffi::OsString]) -> i32 {
+    use std::io::Write as _;
+    let [out] = args else {
+        let _ = writeln!(std::io::stderr(), "uso: --models-snapshot SALIDA");
+        return 2;
+    };
+    let out = std::path::Path::new(out);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64());
+    let (text, models) = match library::ai::catalog::snapshot(now, std::time::Duration::from_secs(60)) {
+        Ok(got) => got,
+        Err(e) => {
+            let _ = writeln!(
+                std::io::stderr(),
+                "no se pudo descargar models.dev ({e}); se conserva la foto anterior"
+            );
+            return 1;
+        }
+    };
+    // entera o nada: a un temporal al lado y luego en su sitio
+    let tmp = out.with_extension("json.tmp");
+    let written = out
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(&tmp, &text))
+        .and_then(|()| std::fs::rename(&tmp, out));
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        let _ = writeln!(std::io::stderr(), "no pude escribir {}: {e}", out.display());
+        return 1;
+    }
+    let _ = writeln!(
+        std::io::stdout(),
+        "foto actualizada: {models} modelos, {} KB en {}",
+        text.len() / 1024,
+        out.display()
+    );
+    0
 }
 
 #[cfg(test)]

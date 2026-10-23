@@ -93,10 +93,10 @@ busca en la base de datos abierta de MusicBrainz.
 
 ## Lo que lo hace distinto
 
-**No abre ningún puerto.** La interfaz habla con el núcleo por un socket Unix
-con permisos `0600`, dentro de una carpeta que solo tú puedes abrir. Ningún
-otro proceso de tu equipo —ni una web abierta en el navegador— puede hablar
-con la API. Comprobado en las pruebas de humo.
+**No abre ningún puerto.** El núcleo va dentro de la propia app: la interfaz
+le habla sin salir del proceso, sin socket ni puerto. Ningún otro proceso de
+tu equipo —ni una web abierta en el navegador— puede hablar con la API.
+Comprobado en las pruebas de humo.
 
 **Vive en la bandeja del sistema.** Al cerrar la ventana, DanPlay se esconde y
 la música sigue. Un clic en el icono saca un mini reproductor; el botón
@@ -142,17 +142,17 @@ OpenRouter… o un modelo en tu propio equipo.
 
 ## Instalación
 
-Se construye desde el código. Hacen falta [uv](https://docs.astral.sh/uv/)
-(Python), Node 24 y Rust:
+Se construye desde el código. Hacen falta Node 24 y Rust (Python y
+[uv](https://docs.astral.sh/uv/), solo para las pruebas del núcleo de
+Python, que sigue en el repositorio de testigo):
 
 ```bash
 git clone https://github.com/dani17r/danplay.git && cd danplay
 
-uv sync                     # el .venv, con el crate de Rust ya compilado
 cd desktop && npm ci && cd ..
 
 cp .env.example .env        # y rellena las claves que quieras usar
-./scripts/build.sh          # interfaz + núcleo + app
+./scripts/build.sh          # interfaz + datos + app, con el núcleo dentro
 ./danplay-app.sh
 ```
 
@@ -162,17 +162,19 @@ tocar tus datos): ver [Contribuir](docs/CONTRIBUTING.md).
 
 Compilada desde el código, para la conversión de formatos y la huella
 acústica hacen falta dos programas del sistema (los paquetes `.deb`,
-`.AppImage`, de Windows y de macOS ya los traen dentro, con QuickJS para
-descargar de YouTube). Si te faltan, la app lo dice y sigue funcionando sin
-esas dos funciones:
+`.AppImage`, de Windows y de macOS ya los traen dentro, con yt-dlp y QuickJS
+para descargar de YouTube). Si te faltan, la app lo dice y sigue funcionando
+sin esas dos funciones:
 
 ```bash
 sudo apt install ffmpeg libchromaprint-tools
 ```
 
-`scripts/build.sh --package` genera además un `.deb` y un `.AppImage`. Ya no
-llevan `mutagen` (GPL): las etiquetas las escribe el crate de Rust del núcleo,
-con lofty — [por qué importa](docs/DEPENDENCIES.md#mutagen-ya-no-va-en-los-paquetes).
+`scripts/build.sh --package` genera además un `.deb` y un `.AppImage`. No
+llevan Python: el núcleo va dentro de la app, con sus datos (los modelos del
+pulso y del separador, las voces y ONNX Runtime, que los mueve) y sus
+programas (ffmpeg, fpcalc, QuickJS y yt-dlp). Tampoco `mutagen` (GPL): las
+etiquetas las escribe el núcleo, con lofty — [por qué importa](docs/DEPENDENCIES.md#mutagen-ya-no-va-en-los-paquetes).
 
 > **Nota sobre las claves.** DanPlay funciona sin ninguna clave: escanea,
 > organiza, reproduce y busca. Las claves solo activan extras: la de un
@@ -272,7 +274,9 @@ genero:alabanza anio:2019     todo combinable
 
 ## Desde la terminal
 
-Todo lo que hace la app se puede hacer sin ella:
+Todo lo que hace la app se puede hacer sin ella, con la línea de órdenes del
+núcleo de Python (`./danplay.sh`, desde el `.venv` del proyecto; la app ya no
+la usa):
 
 ```bash
 danplay status                       configuración y resumen
@@ -296,10 +300,10 @@ Cuatro capas, cada una en lo que mejor se le da:
    Vue 3 + Vite            interfaz
         │  invoke()        único puente; el JS no hace HTTP
    Tauri / Rust            proceso principal, cola, audio, bandeja, MPRIS
-        │  socket Unix     0600; sin puerto TCP
-   Python                  identificación, índice, IA, etiquetas
-        │
-   Rust (PyO3)             etiquetas (lofty), hashes en paralelo y onda
+        │  en el mismo     sin socket ni puerto
+        │  proceso
+   Rust (server, library)  el núcleo: identificación, índice, IA, etiquetas,
+                           el pulso y separar (ONNX Runtime)
 ```
 
 - **Vue 3** para la interfaz: temas claros y oscuros, densidad ajustable,
@@ -309,15 +313,17 @@ Cuatro capas, cada una en lo que mejor se le da:
   el audio con su propio motor (el mismo del celular): tramos a la muestra,
   el clic y las guías en el pulso, las pistas sin cortes y cada cosa por la
   salida que elijas.
-- **Python** para el núcleo: la cascada de identificación, el índice SQLite con
-  búsqueda de texto completo (FTS5), la IA, las etiquetas, y el vigilante que
-  mantiene el índice al día con lo que cambia en el disco. Y dos redes con
-  ONNX Runtime, sin PyTorch: Demucs, que separa las pistas, y Beat This!, que
-  saca el pulso y el «1» para el metrónomo.
-- **Rust (PyO3)** para lo que Python hace lento: las etiquetas de cada canción
-  (con lofty, en paralelo al escanear), hashes en paralelo con rayon y la forma
-  de onda. Es el principio del núcleo en Rust: `library/` es lo que la app
-  usará directamente cuando no quede Python.
+- **Rust** también para el núcleo, dentro de la app (`server/`, `library/`,
+  `analysis/`): la cascada de identificación, el índice SQLite con búsqueda de
+  texto completo (FTS5), la IA y el asistente, las etiquetas (lofty, en
+  paralelo al escanear), las descargas con yt-dlp, y el vigilante que mantiene
+  el índice al día con lo que cambia en el disco. Y dos redes con ONNX
+  Runtime, sin PyTorch: Demucs, que separa las pistas, y Beat This!, que saca
+  el pulso y el «1» para el metrónomo.
+- **Python**: el núcleo de antes, que sigue en el repositorio con la misma API
+  (`danplay/`, con su puente PyO3 en `core/`) para sus pruebas y para
+  comparar el de Rust con él, respuesta a respuesta. La app ya no lo lleva
+  (ver [la migración](docs/MIGRATION.md)).
 
 El código está en inglés; los comentarios y todo lo que ve el usuario, en
 castellano.
@@ -528,27 +534,29 @@ Prefiero decirlo aquí que en un issue:
 ./scripts/test.sh
 ```
 
-1.602 pruebas repartidas así (la CI las pasa todas menos las de humo, que
+1.598 pruebas repartidas así (la CI las pasa todas menos las de humo, que
 necesitan la app ya compilada):
 
 | Tanda | Pruebas |
 | --- | --- |
-| Núcleo Python: nombres, etiquetas (mp3, flac, ogg, m4a…), índice y esquema, duplicados, teoría, la API entera sobre una biblioteca temporal de verdad, el vigilante de carpetas (mover, borrar, renombrar, carpetas que se van y vuelven), IA con cualquier proveedor, asistente, descargas y yt-dlp, separar en pistas (el motor contra una red de mentira, la cola, las carpetas, la mezcla), el pulso de Beat This! (también contra una red de mentira) y el clic de la mezcla, CLI, privacidad | 597 |
+| Núcleo Python: nombres, etiquetas (mp3, flac, ogg, m4a…), índice y esquema, duplicados, teoría, la API entera sobre una biblioteca temporal de verdad, el vigilante de carpetas (mover, borrar, renombrar, carpetas que se van y vuelven), IA con cualquier proveedor, asistente, descargas y yt-dlp, separar en pistas (el motor contra una red de mentira, la cola, las carpetas, la mezcla), el pulso de Beat This! (también contra una red de mentira) y el clic de la mezcla, CLI, privacidad | 596 |
 | Interfaz: componentes, páginas, reactividad, teclado y accesibilidad, listas grandes y agrupadas, temas, contratos, chat, modo estudio y su mezclador, proyección | 808 |
 | Interfaz: rutas de medios en cada sistema | 7 |
-| Rust: reproductor (con audio de verdad), cola, sesión, bandeja, núcleo, permisos por ventana, metrónomo (la cuenta y sus sonidos), limitador, las pistas separadas sonando juntas | 144 |
+| Rust: reproductor (con audio de verdad), cola, sesión, bandeja, núcleo, permisos por ventana, metrónomo (la cuenta y sus sonidos), limitador, las pistas separadas sonando juntas | 143 |
 | Rust: hashes y forma de onda | 14 |
 | De punta a punta: la interfaz contra el núcleo de verdad, en Chrome (Playwright) | 12 |
-| Humo sobre la app **ya compilada** | 20 |
+| Humo sobre la app **ya compilada** o empaquetada (el binario de un .deb o el AppImage) | 18 |
 
 La biblioteca de prueba **se genera**: mp3 de verdad hechos con ffmpeg. Antes
 hacía falta la música de quien ejecutara las pruebas y en cualquier otra
 máquina la mitad se saltaban solas.
 
-Las de humo arrancan la app de verdad, con sus datos aparte y una biblioteca
-generada, y comprueban, entre otras cosas, que el socket es privado (`0600`),
-que no queda ningún puerto TCP abierto, que el icono se registra en la bandeja
-del escritorio y que el núcleo muere con la app sin dejar procesos huérfanos.
+Las de humo arrancan la app de verdad (la compilada o la de un paquete), en
+su caja de arena (casa, datos, D-Bus y pantalla propios), y comprueban, entre
+otras cosas, que el núcleo va dentro y contesta, que no hay núcleo aparte ni
+socket ni puerto TCP abierto, que encuentra ONNX Runtime y ffmpeg, que saca
+el pulso de una canción, que una segunda instancia se va sin tocar la
+primera y que al cerrarla no queda ningún proceso suyo.
 
 Además, en cada push: estilo y formato (ruff, ESLint, stylelint, Prettier,
 rustfmt, clippy sin avisos), tipos (basedpyright, vue-tsc), cobertura mínima

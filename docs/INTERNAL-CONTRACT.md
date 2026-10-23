@@ -149,15 +149,19 @@ que falla si alguno se queda sin permiso.
 Ya no existen: `play`, `audio_state`, `set_now_playing`, `now_playing`,
 `show_mini`, ni los eventos `danplay://command` y `danplay://now`.
 
-## 2. Núcleo Python ↔ Rust (transporte)
+## 2. Núcleo ↔ app (transporte)
 
-- **Linux y macOS**: socket Unix `0600`, como hasta ahora (`--uds RUTA`).
-- **Windows**: TCP en `127.0.0.1` con puerto elegido por Rust
-  (`serve --host 127.0.0.1 --port N`) y un secreto de un solo arranque en la
-  variable de entorno `DANPLAY_TOKEN` (32 bytes en hex). Con esa variable
+- **En la app**: ninguno. El núcleo de Rust (el crate `server`) va en el
+  mismo proceso y `core::request_within` le pasa cada petición
+  (`server::handle`): sin socket, sin puerto y sin token. Hasta la 1.30 el
+  núcleo era el de Python, aparte, y lo de abajo era su transporte.
+- **Por un socket** (`danplay-server`, o `danplay serve` del de Python; para
+  las pruebas de la interfaz y los diferenciales): Unix `0600` con
+  `--uds RUTA`, o TCP con `--host 127.0.0.1 --port N` y, si se quiere, un
+  secreto en la variable de entorno `DANPLAY_TOKEN`. Con esa variable
   presente, el núcleo exige `Authorization: Bearer <token>` en **todas** las
-  rutas `/api/` y responde `401` sin él. Rust la manda en cada petición.
-- **Modo desarrollo** (`danplay serve` sin `--uds` ni token): se mantiene la
+  rutas `/api/` y responde `401` sin él.
+- **Modo desarrollo** (sin `--uds` ni token): se mantiene la
   comprobación de `Host`, y además **toda** petición a `/api/`, también los
   `GET` (hay `GET` que gastan IA), debe llevar la cabecera `X-DanPlay: 1`
   (fuerza *preflight* y corta el CSRF de peticiones simples), salvo el `GET`
@@ -165,9 +169,9 @@ Ya no existen: `play`, `audio_state`, `set_now_playing`, `now_playing`,
   desde `<audio>` e `<img>`. `api.js` la añade siempre en modo navegador.
   `--host` que no sea de loopback sin token: el núcleo no arranca. No hay
   `/docs`, `/redoc` ni `/openapi.json`.
-- **El núcleo muere con la app**: Rust lo arranca con
-  `DANPLAY_PARENT_PID=<su pid>` y el núcleo se apaga en cuanto ese proceso ya
-  no existe (en Windows con la API de procesos: allí `os.kill(pid, 0)` mata).
+- **El núcleo muere con quien lo lanzó** (por un socket): con
+  `DANPLAY_PARENT_PID=<su pid>` se apaga en cuanto ese proceso ya no existe.
+  En la app no hace falta: es el mismo proceso.
 
 Rutas nuevas o cambiadas (Python):
 

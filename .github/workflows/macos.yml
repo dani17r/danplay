@@ -1,8 +1,11 @@
 # El paquete de macOS (.dmg y la .app en un .zip).
 #
-# Por que aqui y no en el equipo de nadie: ni Tauri ni PyInstaller compilan
-# para macOS desde Linux (hace falta el SDK de Apple y un Mac). Salen dos, uno
-# por procesador: Apple Silicon (M1 en adelante) e Intel.
+# Por que aqui y no en el equipo de nadie: Tauri no compila para macOS desde
+# Linux (hace falta el SDK de Apple y un Mac). Salen dos, uno por procesador:
+# Apple Silicon (M1 en adelante) e Intel.
+#
+# Sin Python: el nucleo va dentro de la app (el crate `server`). Las pruebas
+# del nucleo de Python, solo en tests.yml.
 #
 # SIN FIRMA DE APPLE NI NOTARIZACION (no hay cuenta de desarrollador): va
 # firmado «ad hoc», que es lo minimo para que un Mac con Apple Silicon lo deje
@@ -14,10 +17,6 @@
 # Nadie lo ha probado todavia en un Mac de verdad (ver docs/CONTRIBUTING.md),
 # pero todas las versiones lo llevan: con una etiqueta de version
 # (`git tag v1.13.0 && git push --tags`) se publica en ella como los demas.
-#
-# Las pruebas del nucleo van en su propio trabajo, a la vez que el paquete:
-# no lo paran (nunca se han pasado en un Mac), y delante lo retrasaban cinco
-# minutos sin decidir nada.
 name: macos
 
 on:
@@ -29,50 +28,6 @@ permissions:
   contents: write     # publicar los .dmg en la version
 
 jobs:
-  # Nunca se han pasado en un Mac: se ejecutan para saber que falla, pero no
-  # paran el paquete (el amigo que lo prueba es justo quien lo dira).
-  tests:
-    name: pruebas del núcleo en macOS ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-latest
-            arch: arm64
-          - runner: macos-15-intel
-            arch: x86_64
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.13'
-          cache: pip
-          cache-dependency-path: requirements.txt
-
-      # con ffprobe, que la app ya no lleva pero algunas pruebas usan para
-      # mirar lo que sale
-      - name: ffmpeg, ffprobe, fpcalc y QuickJS
-        run: ./scripts/tools-macos.sh --with-ffprobe
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: dependencias de Python
-        run: |
-          python -m pip install --upgrade pip
-          # con hashes (salen de uv.lock); en los Intel, con el onnxruntime
-          # que si existe para ellos (ver scripts/requirements-mac.py)
-          pip install -r "$(python scripts/requirements-mac.py)" -r requirements-test.txt
-          # el crate de Rust del núcleo, compilado con maturin
-          pip install ./core
-
-      - name: pruebas
-        run: |
-          export PATH="$PWD/desktop/src-tauri/tools:$PATH"
-          pytest
-
   package:
     name: macOS ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
@@ -91,12 +46,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.13'
-          cache: pip
-          cache-dependency-path: requirements.txt
-
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -113,62 +62,63 @@ jobs:
 
       # Lo que se mete dentro, con version fija y su sha256 (las mismas que en
       # Linux y Windows), para el procesador de este Mac
-      - name: ffmpeg, fpcalc y QuickJS
+      - name: ffmpeg, fpcalc, QuickJS y yt-dlp
         run: |
           ./scripts/tools-macos.sh
           ls -la desktop/src-tauri/tools
 
-      - name: dependencias de Python
+      # ONNX Runtime 1.31.0 en Apple Silicon; en Intel, la 1.23.2, la ultima
+      # que hay para ellos (ver el script)
+      - name: los datos y ONNX Runtime
         run: |
-          python -m pip install --upgrade pip
-          # con hashes (salen de uv.lock), y en los Intel con el onnxruntime
-          # que si existe para ellos; PyInstaller aparte, que en una orden con
-          # hashes no se puede mezclar uno sin ellos
-          pip install -r "$(python scripts/requirements-mac.py)"
-          pip install "$(grep -i '^pyinstaller==' requirements-dev.txt)"
-          # el crate de Rust del nucleo (las etiquetas, con lofty): se compila
-          # aqui, con maturin, y el nucleo empaquetado lo lleva dentro
-          pip install ./core
+          ./scripts/data.sh
+          ls -la desktop/src-tauri/data
 
-      - name: núcleo empaquetado
-        run: |
-          # la foto del catalogo de modelos de IA, la de hoy (sin red se queda la que hay)
-          python scripts/update-models.py || true
-          pyinstaller --noconfirm --clean --distpath dist/core packaging/core.spec
-          test -x dist/core/danplay-core/danplay-core
-          # con el crate de Rust y sin mutagen, que es GPL (ver core.spec)
-          test -d dist/core/danplay-core/_internal/danplay_core
-          test ! -e dist/core/danplay-core/_internal/mutagen
-          # y la biblioteca de ONNX Runtime que carga el pulso desde Rust
-          ls dist/core/danplay-core/_internal/onnxruntime/capi/libonnxruntime.*dylib
-
-      - name: el núcleo arranca y responde
-        run: |
-          sock=$(mktemp -u)
-          dist/core/danplay-core/danplay-core --uds "$sock" &
-          pid=$!
-          for i in $(seq 1 30); do
-            curl -sf --unix-socket "$sock" http://x/api/status > /dev/null && break
-            sleep 1
-          done
-          curl -sf --unix-socket "$sock" http://x/api/status > /dev/null
-          kill $pid
-
-      # una carpeta (onedir) entre los recursos de Tauri, core/: asi no se
-      # descomprime en cada arranque (ver packaging/core.spec)
-      - name: el núcleo, junto a la app
-        run: cp -a dist/core/danplay-core/. desktop/src-tauri/core/
-
-      # Firma «ad hoc» (`-`) y sin «hardened runtime»: con el, macOS solo deja
-      # cargar bibliotecas firmadas por el mismo equipo de desarrollo, y el
-      # nucleo de PyInstaller descomprime las suyas al arrancar (sin firma de
-      # equipo): no arrancaria.
-      - name: paquete
+      # Compilada sin empaquetar todavia: antes se saca con ella la foto del
+      # catalogo de modelos de IA (abajo).
+      - name: la app
         working-directory: desktop
         run: |
           npm ci
-          npx tauri build --bundles app,dmg \
+          npx tauri build --no-bundle
+
+      # la de hoy (lo que hacia scripts/update-models.py); sin red, la que hay
+      - name: la foto del catálogo de modelos
+        run: target/release/danplay-app --models-snapshot desktop/src-tauri/data/models-snapshot.json || true
+
+      # La propia app con un argumento, como la lanza el nucleo: el detector
+      # de pulso con el grafo, ONNX Runtime y ffmpeg que viajan con ella.
+      - name: el pulso de una canción, con su ONNX Runtime
+        run: |
+          tools=desktop/src-tauri/tools
+          $tools/ffmpeg -loglevel error -f lavfi \
+            -i "aevalsrc='0.8*sin(2*PI*1500*t)*lt(mod(t\,0.5)\,0.03)':s=44100:d=12" \
+            -c:a libmp3lame clic.mp3
+          out=$(DANPLAY_ONNXRUNTIME=desktop/src-tauri/data target/release/danplay-app \
+            --pulse desktop/src-tauri/data/pulse/beat_this.onnx $tools/ffmpeg clic.mp3 crudo.json)
+          echo "$out" | tail -1
+          echo "$out" | tail -1 | grep -q '"ok": true'
+          test -s crudo.json
+
+      # Firma «ad hoc» (`-`) y sin «hardened runtime»: con el, macOS solo deja
+      # cargar bibliotecas firmadas por el mismo equipo de desarrollo, y ONNX
+      # Runtime (data/) y los programas de tools/ vienen firmados por otros:
+      # no se cargarian.
+      - name: paquete
+        working-directory: desktop
+        run: |
+          npx tauri bundle --bundles app,dmg \
             --config '{"bundle":{"macOS":{"signingIdentity":"-","hardenedRuntime":false}}}'
+
+      # con el nucleo, sus datos y sus programas, y sin nada de Python
+      - name: qué lleva la .app
+        run: |
+          app=target/release/bundle/macos/DanPlay.app/Contents
+          ls "$app"/Resources/data/libonnxruntime.*.dylib "$app"/Resources/data/pulse/beat_this.onnx \
+             "$app"/Resources/tools/ffmpeg "$app"/Resources/tools/yt-dlp
+          if find "$app" | grep -iE 'python|\.pyc|/_internal/'; then
+            echo "la .app lleva algo de Python"; exit 1
+          fi
 
       - name: la .app en un .zip
         run: |
@@ -178,7 +128,7 @@ jobs:
 
       - name: el .dmg, con el nombre de las versiones
         run: |
-          version=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
           cd target/release/bundle/dmg
           mv DanPlay_*.dmg "DanPlay-$version-mac-${{ matrix.dmg_name }}.dmg"
           ls -la

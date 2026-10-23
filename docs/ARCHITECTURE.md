@@ -5,17 +5,24 @@ usarlo, con el [README](../README.md) tienes de sobra.
 
 ---
 
-## Las cuatro capas
+## Las capas
 
 ```text
    Vue 3 + Vite  (interfaz)
         │  invoke() + eventos ← único puente, sin HTTP en el JS
    Tauri / Rust  (proceso principal: cola, audio, bandeja, MPRIS)
-        │  socket Unix 0600   ← sin puerto TCP; solo tu usuario
-   Python        (núcleo: identificación, índice, IA, etiquetas)
-        │
-   Rust (PyO3)   (etiquetas, hashes en paralelo, análisis de audio)
+        │  en el mismo proceso ← sin socket ni puerto
+   Rust: server, library, analysis
+                 (núcleo: identificación, índice, IA, etiquetas, el pulso
+                  y separar con ONNX Runtime)
 ```
+
+Hasta la 1.30 el núcleo era Python, un programa aparte (empaquetado con
+PyInstaller) al que la app hablaba por un socket Unix `0600`, con el crate
+PyO3 debajo para lo que Python hacía lento. Desde la fase 4 de
+[la migración](MIGRATION.md) la app lleva el de Rust dentro y no hay Python
+en ningún paquete; el de Python sigue en el repositorio, con la misma API,
+para sus pruebas y para comparar el de Rust con él.
 
 El contrato exacto entre capas —qué comandos hay, qué eventos se emiten y qué
 nombres usa cada campo— está en [INTERNAL-CONTRACT.md](INTERNAL-CONTRACT.md).
@@ -25,18 +32,23 @@ Cada capa está donde está por una razón concreta:
 **Vue 3** es interfaz y nada más. No sabe qué es un socket ni hace `fetch`.
 Todo lo que necesita del núcleo lo pide con `invoke()` a Rust.
 
-**Rust (Tauri)** es el proceso principal: arranca y **vigila** el núcleo
-Python (si se muere, lo levanta otra vez y avisa), hace de puente con la API,
-sirve el audio leyendo del disco y lo reproduce nativamente. También guarda
-**la cola de reproducción**, dibuja el icono de la bandeja y publica lo que
-suena al escritorio.
+**Rust (Tauri)** es el proceso principal: lleva **el núcleo dentro** (el
+crate `server`, que contesta la API en el mismo proceso, `core.rs`), le hace
+de puente, mira sus cambios (`revision`) para que la interfaz se refresque
+sola, y reproduce el audio nativamente. También guarda **la cola de
+reproducción**, dibuja el icono de la bandeja y publica lo que suena al
+escritorio. Los procesos aparte del núcleo (el detector de pulso y el que
+separa en pistas) son la propia app con un argumento.
 
-**Python** es el núcleo: la cascada de identificación, el índice SQLite, las
-etiquetas ID3, la IA, las descargas. Se puede usar solo, sin interfaz, desde
-la línea de comandos.
+**El núcleo** es Rust: la API y sus trabajos (`server/`), la cascada de
+identificación, el índice SQLite, las etiquetas, la IA y el asistente
+(`library/`), y lo numérico y las redes (`analysis/`). El de Python
+(`danplay/`) se puede seguir usando solo, sin interfaz, desde la línea de
+comandos.
 
-**Rust (PyO3)** es donde va pasando el núcleo, de dentro afuera. Lo que ya
-hace Rust (`library/`, sin nada de Python; `core/` es el puente):
+**Rust (PyO3)** fue el camino, de dentro afuera: el núcleo de Python fue
+pasando a Rust módulo a módulo con la misma API. Lo que hace Rust
+(`library/`, sin nada de Python; `core/` es el puente para el de Python):
 
 - el índice: la conexión a SQLite (`indice.rs`, que Python usa como si fuera
   `sqlite3`, con sus transacciones), el esquema y sus migraciones, buscar,
@@ -111,18 +123,19 @@ dejarla sin forma de volver ni de salir.
 
 ## Por qué no hay puerto TCP
 
-La API nunca escucha en un puerto. Solo en `$XDG_RUNTIME_DIR/danplay.sock` con
-permisos `0600`.
+La API de la app no escucha en ningún sitio: el núcleo va dentro y la
+interfaz le habla con `invoke()`, sin salir del proceso.
 
 Un puerto en `localhost` no es privado: cualquier proceso de tu equipo puede
 hablar con él, y una página web abierta en tu navegador también. Esta API puede
 listar tu biblioteca, mandar archivos a la papelera y leer imágenes del disco.
-Con un socket Unix `0600`, solo tu usuario puede abrirlo.
+Hasta la 1.30, con el núcleo de Python aparte, la app le hablaba por
+`$XDG_RUNTIME_DIR/danplay/core.sock` con permisos `0600` (y `uvicorn` hacía
+`chmod 0666` al socket que creaba él, así que se creaba fuera con los
+permisos buenos). Ahora no hay ni eso.
 
-`uvicorn` hace `chmod 0666` al socket que crea él mismo, así que lo creamos
-nosotros con los permisos correctos y se lo pasamos ya escuchando.
-
-Para desarrollo (`danplay serve` sin `--uds`) sí hay puerto TCP, y ahí se
+Para desarrollo y las pruebas de la interfaz (`danplay-server`, o `danplay
+serve` del de Python, sin `--uds`) sí hay puerto TCP, y ahí se
 aplican tres protecciones de navegador: CORS restringido a los orígenes de
 Vite, validación de la cabecera `Host` contra el reenlace de DNS, y una
 cabecera propia (`X-DanPlay: 1`) en **todas** las peticiones a `/api/`,
@@ -133,23 +146,23 @@ cabecera propia obliga al navegador a preguntar antes, y ahí CORS sí corta.
 Solo se libran el audio y las carátulas, que el navegador pide por su cuenta
 desde `<audio>` e `<img>` y no pueden llevarla.
 
-Y dos cosas más en ese modo: `danplay serve --host` con una dirección que no
+Y dos cosas más en ese modo: `--host` con una dirección que no
 sea de loopback se niega a arrancar si no hay token (sería abrir la API a la
 red), y no existen `/docs`, `/redoc` ni `/openapi.json`, que quedaban fuera de
 la comprobación del token y contaban a cualquiera todo lo que sabe hacer.
 
-En Windows no hay sockets Unix que uvicorn sepa escuchar, así que allí la
-aplicación levanta el núcleo en `127.0.0.1` con un puerto libre y un secreto
-de un solo arranque que le pasa por el entorno. Sin ese secreto, la API
-responde `401` a todo. Es lo más cerca de «solo la aplicación habla con el
-núcleo» que permite ese sistema.
+En Windows, hasta la 1.30, no había sockets Unix que uvicorn supiera
+escuchar, así que allí la aplicación levantaba el núcleo en `127.0.0.1` con
+un puerto libre y un secreto de un solo arranque (`DANPLAY_TOKEN`: sin él,
+`401`). Con el núcleo dentro, Windows queda como los demás: sin puerto.
 
-La prueba de humo verifica que la app de escritorio no abre ningún puerto.
+La prueba de humo verifica que la app de escritorio no abre ningún puerto ni
+socket, ni lanza ningún núcleo aparte.
 
 ## El audio no pasa por el WebView
 
-Cuando pulsas play, la interfaz pide la ruta del archivo a Python y se la
-manda a Rust. Rust lo decodifica y lo saca a la tarjeta de sonido con el
+Cuando pulsas play, la interfaz pide la ruta del archivo al núcleo y se la
+manda a la cola. Rust lo decodifica y lo saca a la tarjeta de sonido con el
 **motor de pistas** (`engine/`, el mismo que la app del celular): symphonia
 para decodificar, un render propio muestra a muestra y cpal para la salida.
 El WebView no toca el audio en ningún momento. Ver «El motor» más abajo.
@@ -464,8 +477,8 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
   vez que se abre el selector y al arrancar: sin cambios, el servidor
   responde 304 y cero bytes, así que se puede comprobar siempre. La copia
   vive en la carpeta de datos; la app lleva dentro una foto para el primer
-  arranque sin red, regenerada en cada compilación
-  (`scripts/update-models.py`). Y lo que el usuario puede usar **de
+  arranque sin red, regenerada en cada paquete por la propia app recién
+  compilada (`--models-snapshot`). Y lo que el usuario puede usar **de
   verdad** con su clave lo dice el propio proveedor (`/models`), cruzado con
   el catálogo.
 - **Gratis, sin clave**: el grupo `free` del catálogo (LLM7, las rutas
@@ -906,8 +919,9 @@ no; el grafo la calcula por bloques de 512 filas, que da exactamente lo
 mismo. Con eso y sin el plan de memoria de ORT (reserva de golpe todo lo que
 la red tendrá vivo en algún momento), el pico baja de casi 5 GB a menos de 3.
 
-**En un proceso aparte, con prioridad baja** (`danplay-core --separate`, o
-`python -m danplay.separation` en desarrollo). La red usa todos los núcleos
+**En un proceso aparte, con prioridad baja** (la propia app con
+`--separate`, o `danplay-server --separate`; en el núcleo de Python, `python
+-m danplay.separation`). La red usa todos los núcleos
 durante un par de minutos: así la música y la interfaz no lo notan, la
 memoria se devuelve al acabar, y parar es matar el proceso. Si el núcleo se
 muere, el proceso se da cuenta (cambia de padre) y se va. Cuenta cómo va
@@ -1516,14 +1530,15 @@ el que corre. Una conversión de prueba (`dry_run`) sigue siendo inmediata.
 ## yt-dlp al día
 
 YouTube cambia a menudo y yt-dlp saca versión cada pocas semanas; la que viaja
-dentro del núcleo empaquetado se quedaba congelada hasta la siguiente versión
-de DanPlay. «Actualizar yt-dlp» (Descargas) baja de PyPI la última rueda
-universal y la de `yt-dlp-ejs` que esa versión pide, comprueba su `sha256`, la
-deja en la carpeta de datos y desde ahí se usa (`ytdlp.py`): un buscador propio
-al principio de `sys.meta_path` hace que se carguen ella y sus submódulos
-también dentro del binario de PyInstaller, donde el importador congelado va
-antes que `sys.path`. Si la descargada no importa, se vuelve a la empaquetada;
-y no se cambia de versión a mitad de una descarga.
+con la app (su ejecutable oficial, en `tools/`) se quedaría congelada hasta la
+siguiente versión de DanPlay. «Actualizar yt-dlp» (Descargas) baja de GitHub
+el ejecutable de la última versión para este sistema (`yt-dlp_linux`,
+`yt-dlp_macos`, `yt-dlp.exe`), lo comprueba contra su `SHA2-256SUMS`, lo deja
+en la carpeta de datos (`tools/yt-dlp/<versión>/`, con su marca `current`) y
+desde ahí se usa (`services::ytdlp`). Si el descargado no contesta, se vuelve
+al de la app; y no se cambia de versión a mitad de una descarga. (Hasta la
+1.30 era el paquete de Python dentro del núcleo de PyInstaller, y se ponía
+al día con la rueda de PyPI.)
 
 YouTube exige además un **motor de JavaScript** para resolver sus retos (sin él
 yt-dlp avisa de que «faltarán formatos»). Se busca, con las versiones mínimas
@@ -2003,7 +2018,8 @@ desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
   tests/        pruebas de la interfaz (Vitest, con dobles del núcleo y de Rust)
   e2e/          los flujos enteros en Chrome contra el núcleo de verdad
   src-tauri/src/
-    core.rs       arrancar, vigilar y hablar con el núcleo Python
+    core.rs       el núcleo (server), en este mismo proceso: el puente de la
+                  API y el aviso de sus cambios a la interfaz
     queue/        la cola: qué suena y qué viene (model, session, logic,
                   resolve, worker, commands)
     player/       el audio sobre el motor (engine: una función por orden;
@@ -2011,13 +2027,14 @@ desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
     record.rs     grabar una guía hablada con el micrófono
     open.rs       abrir desde fuera: la carpeta a la cola, las secuencias
     protocol.rs   danplay://cover, las carátulas
-    tools.rs      dónde están ffmpeg y los demás programas
+    tools.rs      dónde están ffmpeg y los demás programas, y data/
     tray/         bandeja: linux.rs (ksni) y desktop.rs (Windows/macOS)
     media.rs      MPRIS / SMTC
   src-tauri/permissions/  qué comandos puede invocar cada ventana
 tests/          pruebas de Python, de las rutas de medios y de humo
-packaging/      receta de PyInstaller para el núcleo empaquetado
-scripts/        build.sh, test.sh e icons.mjs
+packaging/      lo del escritorio de Linux (danplay.desktop, deb/) y el
+                instalador de Windows desde Linux (windows/installer.nsi)
+scripts/        build.sh, data.sh, tools-*.sh, test.sh e icons.mjs
 docs/           esta documentación
 ```
 
@@ -2027,40 +2044,47 @@ usuario están en castellano.
 
 ## Construir
 
-Son cuatro capas y el orden importa: si compilas solo una, la app arranca con
-la versión vieja y no se nota. Por eso hay un script y no cuatro comandos.
+Son tres capas y el orden importa: si compilas solo una, la app arranca con
+la versión vieja y no se nota. Por eso hay un script y no tres comandos.
 
 ```bash
-./scripts/build.sh              # interfaz + núcleo + app
+./scripts/build.sh              # interfaz + datos + app (con el núcleo dentro)
 ./scripts/build.sh --package    # además el .deb y el .AppImage
 ```
 
-**Los programas de fuera, dentro de los paquetes.** ffmpeg, fpcalc
-y QuickJS-NG viajan en la carpeta `tools/` de cada paquete (en Linux los pone
-`scripts/tools-linux.sh`, con versiones y sha256 fijados; en Windows y
-macOS, su CI). La app se la pasa al núcleo (`DANPLAY_TOOLS_DIR`), que la mira
-antes que el sistema. Y el núcleo empaquetado de Linux devuelve
-`LD_LIBRARY_PATH` a lo que había antes de PyInstaller (`system_libs.py`): si
-no, cualquier programa del sistema que lance carga las bibliotecas del
-paquete (las de Ubuntu 22.04, donde se compila) y en un sistema más nuevo no
-arranca.
+**Sin Python.** El núcleo va dentro de la app (el crate `server`, en el
+mismo proceso: ver [la migración](MIGRATION.md)). Hasta la 1.30 era el de
+Python, empaquetado con PyInstaller en una carpeta (`core/`) que la app
+arrancaba aparte y a la que hablaba por un socket. Con `--package` la app se
+compila sin empaquetar (`tauri build --no-bundle`), saca con ella misma la
+foto del catálogo de modelos (`--models-snapshot`) y luego se empaqueta
+(`tauri bundle`); el script comprueba que el `.deb` lleva el núcleo, sus
+datos y sus programas, y nada de Python.
 
-**El núcleo empaquetado, en una carpeta.** Viaja también como recurso
-(`desktop/src-tauri/core/`: PyInstaller en modo *onedir*, el ejecutable y
-su `_internal`), y no como un solo archivo. El de un solo archivo se
-descomprimía entero en un temporal cada vez que arrancaba (224 MB, en un
-`/tmp` que en Linux suele ser RAM) y otra vez en cada proceso del pulso y
-del separador: medido, el núcleo tardaba 1,4 s en contestar y ahora 0,6, y
-sacar el pulso de una canción, casi un segundo menos. La app lo busca donde
-cada paquete deja los recursos (`tools::bundled`).
+**Los programas de fuera, dentro de los paquetes.** ffmpeg, fpcalc,
+QuickJS-NG y yt-dlp (su ejecutable oficial) viajan en la carpeta `tools/` de
+cada paquete (en Linux y macOS los ponen `scripts/tools-linux.sh` y
+`tools-macos.sh`, con versiones y sha256 fijados; en Windows, su CI). La app
+se la da al núcleo, que la mira antes que el sistema.
+
+**Los datos, en `data/`.** Lo de `danplay/data` (el grafo y los pesos de
+Beat This!, los grafos del separador, el catálogo de voces y la foto del
+catálogo de modelos) y ONNX Runtime, la biblioteca oficial de Microsoft (la
+1.31.0; en los Mac con Intel, la 1.23.2, la última que hay para ellos: `ort`
+pide la API 23), con su licencia: lo pone `scripts/data.sh`, comprobado con
+su sha256 y en una caché (`~/.cache/danplay-<sistema>/`). La app se lo da al
+núcleo (`App::packaged`), y el núcleo busca ahí ONNX Runtime
+(`services::onnx`): en `usr/lib/DanPlay/data` en el `.deb` y el AppImage, en
+`Contents/Resources/data` en macOS y junto al ejecutable en Windows
+(`tools::bundled`).
 
 Los dos crates de Rust son un **workspace** (`Cargo.toml` de la raíz): un solo
 `Cargo.lock`, una sola carpeta `target/` y la versión de DanPlay en un solo
 sitio, que heredan los dos y que Tauri y maturin leen de ahí.
 
 Para desarrollar no hace falta nada de eso: `./scripts/dev.sh` abre la app
-entera con la interfaz en caliente y el núcleo desde el código (ver
-[Contribuir](CONTRIBUTING.md)).
+entera con la interfaz en caliente y el núcleo compilado del código, con los
+datos de `danplay/data` (ver [Contribuir](CONTRIBUTING.md)).
 
 ## El tono y el tempo
 

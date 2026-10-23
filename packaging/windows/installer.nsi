@@ -141,16 +141,19 @@ FunctionEnd
 ; ------------------------------------------------------------------ secciones
 
 ; Al actualizar, fuera lo que dejo la instalacion anterior ANTES de copiar la
-; nueva: copiar encima deja huerfano lo que la version nueva ya no trae (un
-; paquete de Python, una herramienta) y eso acaba dando fallos raros. Se borra
-; solo lo nuestro, pieza a pieza; nunca la carpeta entera a ciegas, que el
-; usuario pudo elegir una que ya tuviera cosas suyas.
+; nueva: copiar encima deja huerfano lo que la version nueva ya no trae (una
+; ONNX Runtime de otra version, una herramienta) y eso acaba dando fallos
+; raros. Se borra solo lo nuestro, pieza a pieza; nunca la carpeta entera a
+; ciegas, que el usuario pudo elegir una que ya tuviera cosas suyas. Tambien
+; lo de las versiones de hasta la 1.30, que llevaban el nucleo de Python
+; aparte (python\, danplay-core\ y danplay-core.exe).
 Function RemovePreviousInstall
   ${IfNot} ${FileExists} "$INSTDIR\${APP_EXE}"
     Return
   ${EndIf}
   DetailPrint "Quitando la version anterior de $INSTDIR"
   RMDir /r "$INSTDIR\python"
+  RMDir /r "$INSTDIR\data"
   RMDir /r "$INSTDIR\tools"
   RMDir /r "$INSTDIR\danplay-core"
   Delete "$INSTDIR\${APP_EXE}"
@@ -166,8 +169,8 @@ Section "DanPlay" SectionApp
   Call RemovePreviousInstall
 
   SetOutPath "$INSTDIR"
-  ; Todo lo que produce la version portatil: la aplicacion, el nucleo, el
-  ; Python que lo mueve y las herramientas externas si estan.
+  ; Todo lo que produce la version portatil: la aplicacion (con el nucleo
+  ; dentro), sus datos con ONNX Runtime y las herramientas externas si estan.
   File /r "${SOURCE_DIR}\*.*"
 
   WriteRegStr HKCU "${REG_KEY}" "InstallDir" "$INSTDIR"

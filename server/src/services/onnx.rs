@@ -1,12 +1,14 @@
 //! Dónde está la biblioteca de ONNX Runtime (`pulse.onnxruntime_library`
 //! de Python, que la sacaba del paquete `onnxruntime`): la cargan el
-//! separador, las voces y el pulso. Sin Python, la lleva la app (fase 4 de
-//! docs/MIGRATION.md); mientras tanto, también se busca la del paquete de
-//! Python del proyecto.
+//! separador, las voces y el pulso. La lleva la app, la oficial de
+//! github.com/microsoft/onnxruntime, entre sus datos (`data/`, ver
+//! scripts/data.sh); en desarrollo vale también la del paquete de Python del
+//! proyecto.
 use crate::app::{App, project_root};
 use std::path::{Path, PathBuf};
 
-/// Si es la biblioteca de ONNX Runtime por su nombre.
+/// Si es la biblioteca de ONNX Runtime por su nombre (no la de sus
+/// proveedores, `libonnxruntime_providers_shared`).
 fn is_library(name: &str) -> bool {
     name.starts_with("libonnxruntime.") || name == "onnxruntime.dll"
 }
@@ -45,19 +47,32 @@ fn in_venv(venv: &Path) -> Option<PathBuf> {
         .find_map(|p| in_folder(&p.join("onnxruntime").join("capi")))
 }
 
+/// Dónde deja cada paquete los datos de la app (`data/`), visto desde la
+/// carpeta del ejecutable: a su lado (Windows, el portátil y la compilación
+/// en target/), en `usr/lib/DanPlay` (.deb y .AppImage, con el ejecutable en
+/// `usr/bin`) y en `Contents/Resources` (macOS, con el ejecutable en
+/// `Contents/MacOS`).
+pub fn packaged_data(exe_dir: &Path) -> [PathBuf; 3] {
+    [
+        exe_dir.join("data"),
+        exe_dir.join("..").join("lib").join("DanPlay").join("data"),
+        exe_dir.join("..").join("Resources").join("data"),
+    ]
+}
+
 /// La biblioteca de ONNX Runtime (`pulse.onnxruntime_library`): la que
 /// digan `DANPLAY_ONNXRUNTIME` o `ORT_DYLIB_PATH` (el archivo o su carpeta);
-/// la que viaja con la app (junto al ejecutable, en su `lib/` o
-/// `onnxruntime/`, en `../lib/danplay` o `../Resources`, o con los datos de
-/// la app); o, en desarrollo, la del paquete `onnxruntime` del entorno de
-/// Python del proyecto. `None` si no hay.
+/// la de los datos de la app; la de `data/` donde lo deje cada paquete
+/// (`packaged_data`) o junto al ejecutable; o, en desarrollo, la del
+/// paquete `onnxruntime` del entorno de Python del proyecto. `None` si no
+/// hay.
 pub fn library(app: &App) -> Option<PathBuf> {
     library_in(Some(&app.resources))
 }
 
 /// Lo mismo, para quien no tiene la app a mano (los procesos del pulso y
 /// del separador, a los que el núcleo les pasa la suya en
-/// `DANPLAY_ONNXRUNTIME`).
+/// `DANPLAY_ONNXRUNTIME`, y ese mismo proceso lanzado a mano).
 pub fn library_in(resources: Option<&Path>) -> Option<PathBuf> {
     for var in ["DANPLAY_ONNXRUNTIME", "ORT_DYLIB_PATH"] {
         if let Some(p) = std::env::var_os(var).filter(|p| !p.is_empty()) {
@@ -70,22 +85,13 @@ pub fn library_in(resources: Option<&Path>) -> Option<PathBuf> {
             }
         }
     }
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(d) = std::env::current_exe()
+    let mut dirs: Vec<PathBuf> = resources.map(Path::to_path_buf).into_iter().collect();
+    if let Some(exe_dir) = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(Path::to_path_buf))
     {
-        dirs.push(d.join("lib"));
-        dirs.push(d.join("onnxruntime"));
-        dirs.push(d.join("..").join("lib").join("danplay"));
-        dirs.push(d.join("..").join("Resources"));
-        dirs.push(d);
-    }
-    if let Some(r) = resources {
-        dirs.push(r.to_path_buf());
-        if let Some(up) = r.parent() {
-            dirs.push(up.to_path_buf());
-        }
+        dirs.extend(packaged_data(&exe_dir));
+        dirs.push(exe_dir);
     }
     if let Some(found) = dirs.iter().find_map(|d| in_folder(d)) {
         return Some(found);
@@ -108,5 +114,68 @@ pub fn missing(app: &App) -> String {
         String::new()
     } else {
         "falta onnxruntime en esta instalación de DanPlay".into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Las bibliotecas de cada sistema, tal como vienen en los archivos de
+    /// microsoft/onnxruntime; la de los proveedores no es la que se carga.
+    #[test]
+    fn the_library_is_known_by_its_name() {
+        for name in [
+            "libonnxruntime.so.1.31.0",
+            "libonnxruntime.1.31.0.dylib",
+            "onnxruntime.dll",
+        ] {
+            assert!(is_library(name), "{name}");
+        }
+        for name in [
+            "libonnxruntime_providers_shared.so",
+            "onnxruntime_providers_shared.dll",
+            "LICENSE-onnxruntime.txt",
+        ] {
+            assert!(!is_library(name), "{name}");
+        }
+    }
+
+    /// Lo que deja cada paquete, visto desde su ejecutable: el .deb y el
+    /// AppImage (`usr/bin` y `usr/lib/DanPlay/data`), macOS (`Contents/MacOS`
+    /// y `Contents/Resources/data`) y Windows (al lado).
+    #[test]
+    fn the_data_of_each_package_is_found_from_its_executable() {
+        let root = crate::tests::scratch("onnx-packages");
+        let layouts = [
+            (
+                "usr/bin",
+                "usr/lib/DanPlay/data",
+                "libonnxruntime.so.1.31.0",
+            ),
+            (
+                "DanPlay.app/Contents/MacOS",
+                "DanPlay.app/Contents/Resources/data",
+                "libonnxruntime.1.31.0.dylib",
+            ),
+            ("DanPlay", "DanPlay/data", "onnxruntime.dll"),
+        ];
+        for (exe, data, lib) in layouts {
+            let (exe, data) = (root.join(exe), root.join(data));
+            std::fs::create_dir_all(&exe).expect("carpeta del ejecutable");
+            std::fs::create_dir_all(&data).expect("carpeta de los datos");
+            std::fs::write(data.join(lib), b"").expect("biblioteca");
+            std::fs::write(data.join("libonnxruntime_providers_shared.so"), b"")
+                .expect("proveedores");
+            let found = packaged_data(&exe).iter().find_map(|d| in_folder(d));
+            let found = found.and_then(|p| p.canonicalize().ok());
+            assert_eq!(
+                found,
+                data.join(lib).canonicalize().ok(),
+                "{}",
+                exe.display()
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
