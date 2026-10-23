@@ -17,7 +17,7 @@ Las rutas son de `server/src/` (el crate `danplay-server`) salvo que digan
 ### tests/test_pulse.py (26)
 
 | Python | Rust |
-|---|---|
+| --- | --- |
 | `test_the_spectrogram_has_fifty_frames_a_second_and_hears_the_pitch` | ya estaba en `analysis/src/pulse/tests.rs`: `spectrogram_has_50_frames_per_second_and_hears_pitch` (ahora con las mismas cuentas: la trama 50, la banda 30, la forma de las dos) |
 | `test_the_mel_filters_cover_30_hz_to_11_khz` | ya estaba en `analysis/src/pulse/tests.rs`: `filters_span_30_hz_to_11_khz` |
 | `test_the_chunks_are_joined_back_frame_by_frame` (4 tamaños) | ya estaba en `analysis/src/pulse/tests.rs`: `chunks_join_frame_by_frame` (ahora también mira que ningún trozo pase de `CHUNK`) |
@@ -55,7 +55,7 @@ Python era `with beatgrid._WAKE`) y el grafo de mentira (`set_graph`).
 ### tests/test_terms.py (4)
 
 | Python | Rust |
-|---|---|
+| --- | --- |
 | `test_at_first_nothing_was_accepted` | `api_tests/terms.rs`: `at_first_nothing_was_accepted` |
 | `test_accepting_is_remembered` | `api_tests/terms.rs`: `accepting_is_remembered` (`lib.rs`: `tests::terms` ya miraba que se acepta, sin la versión de la app, el archivo ni la de después) |
 | `test_a_strange_version_is_refused` (5 versiones) | `api_tests/terms.rs`: `a_strange_version_is_refused` |
@@ -64,7 +64,7 @@ Python era `with beatgrid._WAKE`) y el grafo de mentira (`set_graph`).
 ### tests/test_jobs.py (8)
 
 | Python | Rust |
-|---|---|
+| --- | --- |
 | `test_a_job_reports_its_progress_and_leaves_its_result` | `jobs.rs`: `tests::a_job_reports_its_progress_and_leaves_its_result` (las claves de la instantánea ya estaban en `tests::a_job_runs_reports_and_ends`) |
 | `test_the_snapshot_is_a_copy` | `jobs.rs`: `tests::the_snapshot_is_a_copy` |
 | `test_errors_come_out_in_spanish` | ya estaba en `jobs.rs`: `tests::errors_read_like_python` (el previsto tal cual, el otro con «failure: motivo», sin resultado) |
@@ -77,9 +77,20 @@ Python era `with beatgrid._WAKE`) y el grafo de mentira (`set_graph`).
 ### tests/test_tidy.py (5)
 
 | Python | Rust |
-|---|---|
+| --- | --- |
 | `test_it_proposes_only_what_is_out_of_place_and_never_your_own_folders` | `api_tests/tidy.rs`: `it_proposes_only_what_is_out_of_place_and_never_your_own_folders` |
 | `test_applying_keeps_the_same_song_and_tidies_the_empty_folder` | `api_tests/tidy.rs`: `applying_keeps_the_same_song_and_tidies_the_empty_folder` |
 | `test_corrected_by_hand_it_goes_to_the_tags_too` | `api_tests/tidy.rs`: `corrected_by_hand_it_goes_to_the_tags_too` |
 | `test_what_was_worked_out_from_the_sound_follows_the_song` | `api_tests/tidy.rs`: `what_was_worked_out_from_the_sound_follows_the_song` |
 | `test_the_api_lists_applies_and_refuses_paths_outside` | `api_tests/tidy.rs`: `the_api_lists_applies_and_refuses_paths_outside` (`routes/songs/tests.rs`: `tidy_and_move_keep_the_same_song` ya miraba una parte: aplicar y la ruta de fuera) |
+
+### tests/test_sequence.py (6)
+
+| Python | Rust |
+| --- | --- |
+| `test_what_the_folder_says` | `api_tests/sequence.rs`: `what_the_folder_says` |
+| `test_the_names_of_downloaded_sequences` | `api_tests/sequence.rs`: `the_names_of_downloaded_sequences` |
+| `test_a_project_with_entities_is_not_read` | `api_tests/sequence.rs`: `a_project_with_entities_is_not_read` |
+| `test_the_exact_grid_follows_the_meter_changes` | `api_tests/sequence.rs`: `the_exact_grid_follows_the_meter_changes` |
+| `test_opening_it_leaves_it_ready_to_play` | `api_tests/sequence.rs`: `opening_it_leaves_it_ready_to_play` (por el trabajo «sequence», que da el avance; lo de que el clic exacto vale con otra `VERSION`, con lo guardado de otra versión en vez de cambiar la constante) |
+| `test_the_api_opens_it` | `api_tests/sequence.rs`: `the_api_opens_it` |

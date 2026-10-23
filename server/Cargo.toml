@@ -48,3 +48,5 @@ workspace = true
 [dev-dependencies]
 # leer el .danpista en las pruebas (la biblioteca lo escribe con este mismo)
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# el proyecto de Ableton (.als, en gzip) de las secuencias de prueba
+flate2 = "1.1.10"
