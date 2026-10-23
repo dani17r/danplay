@@ -554,3 +554,37 @@ decimales como sus bits. `C` = `library/src/py/tests/compat.rs`.
 | `test_json_dumps_like_python` | `C` `json_dumps_like_python` |
 
 Los ejemplos fijos de antes siguen en `library/src/py/tests.rs`.
+
+## tests/test_schema.py
+
+`S` = `library/src/index/schema/tests.rs`. Lo que en Python se hacía con
+`monkeypatch` de `db.SCHEMA` y `db.MIGRATIONS` va con `prepare_with`, que
+recibe el esquema y las migraciones (`prepare` le pasa los de verdad).
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_a_new_db_starts_at_the_latest_version` | `S` `a_new_db_starts_at_the_latest_version` |
+| `test_a_db_from_before_versions_is_brought_up_to_date` | `S` `a_db_from_before_versions_is_brought_up_to_date` |
+| `test_a_version_3_db_gains_the_separated_stems` | `S` `a_version_3_db_gains_the_separated_stems` |
+| `test_the_spanish_schema_is_migrated_in_full` | `S` `the_spanish_schema_is_migrated_in_full` |
+| `test_a_new_db_skips_the_migrations` | `S` `a_new_db_skips_the_migrations` |
+| `test_migrations_are_applied_only_once` | `S` `migrations_are_applied_only_once` |
+| `test_a_failing_migration_leaves_nothing_half_done` | `S` `a_failing_migration_leaves_nothing_half_done` |
+| `test_a_db_from_a_newer_danplay_is_left_alone` | `S` `a_db_from_a_newer_danplay_is_left_alone` |
+| `test_a_with_block_commits_and_closes_the_connection` | `server/src/app.rs` `a_db_block_commits_or_rolls_back` (`App::db` y `App::db_write`, lo que hace ahora el `with`; que la conexión quede cerrada lo da Rust al soltarla, no hay nada que mirar) |
+| `test_new_or_migrated_dbs_end_with_the_same_columns` | `S` `new_or_migrated_dbs_end_with_the_same_columns` |
+
+## tests/test_schema_rust.py
+
+Comparaba en vivo el esquema y las migraciones de Rust con los de Python
+(danplay/library/db.py). Cómo dejaba Python cada base de partida (las
+tablas, índices y triggers, la versión, las filas de cada tabla y lo que
+encuentra la búsqueda) se guardó una vez en
+`library/src/index/schema/python_cases.json`, y se compara con lo que deja
+Rust.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_rust_leaves_the_db_like_python` | `S` `rust_leaves_the_db_like_python` (las cuatro bases de partida) |
+| `test_an_up_to_date_db_does_not_change` | `S` `an_up_to_date_db_does_not_change` |
+| `test_a_db_from_a_newer_danplay_is_left_alone` | `S` `a_db_from_a_newer_danplay_is_left_alone` (la misma que la de test_schema.py, que mira también que no se aplique nada) |
