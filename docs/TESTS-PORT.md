@@ -526,3 +526,31 @@ notas. `N` = `library/src/names/tests.rs` (`mod properties`), `T` =
 | `test_a_text_round_trips_through_toon` | `O` `a_text_round_trips_through_toon` (lo de entre comillas se lee con serde_json) |
 | `test_toon_encodes_anything` | `O` `toon_encodes_anything` (enteros de cualquier tamaño, infinitos y -0.0 incluidos; sin NaN, como en Python) |
 | `test_a_list_of_uniform_rows_is_a_table` | `O` `a_list_of_uniform_rows_is_a_table` |
+
+## tests/test_compat.py
+
+En Python, cada regla de `library::py` se comparaba en vivo con la de verdad
+(a través de `danplay_core._compat`) sobre casos de Hypothesis. Sin Python,
+lo que respondían `posixpath`, `ntpath`, `fnmatch`, `round`, `repr`,
+`float`, `int` y `json` se guardó una vez (Python 3.13.5, Unicode 15.1) en
+`library/src/py/tests/compat_cases.json`: casos de la misma forma que los de
+Hypothesis, unos cientos o miles por regla, con sus `@example`, y los
+decimales como sus bits. `C` = `library/src/py/tests/compat.rs`.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_posix_paths_like_posixpath` | `C` `posix_paths_like_posixpath` |
+| `test_join_and_commonpath_like_posixpath` | `C` `join_and_commonpath_like_posixpath` |
+| `test_windows_paths_like_ntpath` | `C` `windows_paths_like_ntpath` |
+| `test_join_and_commonpath_like_ntpath` | `C` `join_and_commonpath_like_ntpath` |
+| `test_real_filesystem_paths` | `C` `real_filesystem_paths` (en otro proceso, el de las pruebas otra vez, que trabaja desde la carpeta temporal y con su HOME: `real_paths_probe`; lo esperado es lo que daba `os.path` con esa carpeta) |
+| `test_fnmatch_like_fnmatchcase` | `C` `fnmatch_like_fnmatchcase` |
+| `test_round_like_python` | `C` `round_like_python` (mirando también el signo del cero, que el `==` de Python no miraba) |
+| `test_float_repr_like_python` | `C` `float_repr_like_python` |
+| `test_float_and_int_from_text_like_python` | `C` `float_and_int_from_text_like_python` |
+| `test_repr_like_python` | `C` `repr_like_python` |
+| `test_isidentifier_like_python` | `C` `isidentifier_like_python` |
+| `test_isprintable_like_python` | `C` `isprintable_like_python` (todos los caracteres que ese Python conoce, no una muestra) |
+| `test_json_dumps_like_python` | `C` `json_dumps_like_python` |
+
+Los ejemplos fijos de antes siguen en `library/src/py/tests.rs`.
