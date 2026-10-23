@@ -79,7 +79,10 @@ pub fn user_data_dir(app: &str) -> PathBuf {
         return home().join("Library/Application Support").join(app);
     }
     if cfg!(windows) {
-        return dirs::data_local_dir().unwrap_or_else(home).join(app);
+        // platformdirs da AppData\Local del perfil aunque aún no exista; dirs,
+        // en cambio, no da nada si no existe (y caía en la carpeta personal)
+        let local = dirs::data_local_dir().unwrap_or_else(|| home().join("AppData").join("Local"));
+        return local.join(app);
     }
     xdg("XDG_DATA_HOME", "~/.local/share").join(app)
 }
