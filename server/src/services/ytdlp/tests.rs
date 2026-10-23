@@ -483,3 +483,30 @@ fn update_refuses_what_does_not_match() {
         "no se pudo consultar GitHub (el servidor contesto con un error 404)"
     );
 }
+
+/// tests/test_ytdlp.py: de los motores de JavaScript que hay, el primero que
+/// funciona en el orden de yt-dlp (deno antes que node), y es el que se le
+/// pasa. Los que son viejos, QuickJS y la pista de qué instalar se prueban
+/// sin programas en `library::ytdlp::tests`.
+#[cfg(unix)]
+#[test]
+fn the_preferred_runtime_is_the_first_that_works() {
+    let (app, tools) = app_with_tools();
+    script(&tools, "node", "echo v22.3.0");
+    let deno = script(
+        &tools,
+        "deno",
+        "echo 'deno 2.5.1 (stable, release, x86_64)'",
+    );
+    let rt = js_runtime(&app, true).expect("un motor");
+    assert_eq!((rt.name.as_str(), rt.version.as_str()), ("deno", "2.5.1"));
+    assert_eq!(rt.path, deno.to_string_lossy());
+    assert_eq!(js_runtime_hint(&app), "");
+    let args = base_args(Some(&rt), false);
+    let at = args
+        .iter()
+        .position(|a| a == "--js-runtimes")
+        .expect("el motor");
+    assert_eq!(args[at + 1], format!("deno:{}", deno.display()));
+    assert_eq!(args[at - 1], "--no-js-runtimes");
+}
