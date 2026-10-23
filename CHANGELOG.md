@@ -5,10 +5,18 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Sin publicar
 
-El núcleo, pasando a Rust: lo que hacía en Python, ahora en el crate de
-Rust que va dentro (ver [docs/MIGRATION.md](docs/MIGRATION.md)). Por
-fuera todo sigue igual; por dentro va más rápido y gasta menos.
+El núcleo, en Rust y dentro de la app: lo que hacía en Python, ahora en
+Rust (ver [docs/MIGRATION.md](docs/MIGRATION.md)). Por fuera todo sigue
+igual; por dentro va más rápido y gasta menos.
 
+- **Sin Python**: el núcleo va dentro de la propia app. Ya no hay un
+  programa aparte que arrancar y vigilar: la app no espera a que se
+  levante, gasta menos memoria (un proceso en vez de dos) y no abre ningún
+  socket ni puerto, tampoco en Windows. El paquete pesa menos (el `.deb`, de
+  166 a 145 MB, y una vez instalado, de 357 a 257 MB) aunque lleva más
+  dentro: yt-dlp, su programa oficial, que se pone al día solo desde
+  Descargas, y ONNX Runtime, que mueve el clic, separar en pistas y las
+  voces de las guías.
 - **El índice en Rust**: la base se abre con SQLite desde Rust, y buscar,
   recorrer las carpetas, escanear, cada canción, las listas, lo abierto
   desde fuera, las conversaciones y el diario van en Rust. Recorrer las
@@ -24,8 +32,7 @@ fuera todo sigue igual; por dentro va más rápido y gasta menos.
   importar lo que hay en Entrada/.
 - **Arreglado**: el segundo intento de convertir un archivo (sin la
   carátula) no funcionaba nunca; un tiempo «inf» en un marcador se guardaba
-  como algo que la interfaz no podía leer; el núcleo empaquetado no
-  aceptaba el cuarto argumento del pulso.
+  como algo que la interfaz no podía leer.
 - **Lo de dentro, en inglés**: carpetas, crates, módulos, funciones y
   variables (lo que se ve sigue en castellano). Lo guardado con nombre en
   castellano se renombra solo al arrancar, sin perder nada: en los datos de
@@ -34,12 +41,17 @@ fuera todo sigue igual; por dentro va más rápido y gasta menos.
   `.danplay-ondas.json` y `.danplay/diario.json` (los de antes se siguen
   leyendo); y las preferencias de la interfaz. El `.danpista` del celular no
   cambia.
-- **Para quien compila**: QuickJS-NG en vez de Deno para los retos de
-  YouTube (−93 MB), y el núcleo empaquetado en una carpeta. Las órdenes de
-  los scripts, en inglés: `./scripts/github.sh tests|packages|download`,
-  `./scripts/test.sh --quick`, `./scripts/dev.sh --sandbox [--clean]`,
-  `build-android.sh --emulator`, `tools-macos.sh --with-ffprobe` y
-  `build-windows-cross.sh --installer --with-tools --no-crate`.
+- **Para quien compila**: los paquetes, sin PyInstaller ni uv (Python y uv,
+  solo para las pruebas del núcleo de Python, que sigue en el repositorio);
+  `scripts/data.sh` deja los datos y ONNX Runtime en `data/`, la foto del
+  catálogo de modelos la saca la propia app (`--models-snapshot`) y
+  `build-windows-cross.sh` ya no lleva el Python embebido ni pide
+  `--no-crate`. QuickJS-NG en vez de Deno para los retos de YouTube
+  (−93 MB). Las órdenes de los scripts, en inglés:
+  `./scripts/github.sh tests|packages|download`, `./scripts/test.sh
+  --quick`, `./scripts/dev.sh --sandbox [--clean]`, `build-android.sh
+  --emulator`, `tools-macos.sh --with-ffprobe` y `build-windows-cross.sh
+  --installer --with-tools`.
 
 ## 1.30.0 — 2026-10-17
 

@@ -16,11 +16,11 @@ la obra combinada («solo uso no comercial», «no se puede modificar»), que es
 justo lo que dice la licencia de DanPlay.
 
 Desde la versión que trae este cambio, **las etiquetas las lee y las escribe
-el crate de Rust del núcleo** (`danplay_core`, con
-[lofty](https://github.com/Serial-ATA/lofty-rs), MIT o Apache-2.0: ver
-`library/src/tags.rs`), y el núcleo empaquetado **excluye** mutagen
-(`packaging/core.spec`; la compilación comprueba que no se cuela). Se sigue
-instalando al compilar desde el código, porque lo pide `yt-dlp[default]`
+el núcleo de Rust** (con [lofty](https://github.com/Serial-ATA/lofty-rs), MIT
+o Apache-2.0: ver `library/src/tags.rs`), y desde la fase 4 de la migración
+la app no lleva Python en absoluto: ni mutagen ni nada de la tabla de abajo.
+En el núcleo de Python del repositorio se sigue instalando, porque lo pide
+`yt-dlp[default]`
 (yt-dlp solo lo usaría para meter la carátula en un m4a, un ogg o un opus, y
 DanPlay baja siempre mp3, cosa que hace con ffmpeg), y lo usan las pruebas,
 de testigo: comparan lo que leen y escriben las dos.
@@ -36,11 +36,13 @@ Copyleft por archivo, no por proyecto. Mientras no se modifiquen sus archivos,
 se puede combinar con código propietario sin problema. No requiere ninguna
 acción.
 
-## Núcleo y app (Python)
+## El núcleo de Python (ya no viaja en la app)
 
-Lo que lleva la app al ejecutarse (`requirements.txt`, que sale de `uv.lock`
-con todas las versiones fijadas). Algunos solo se instalan en otros sistemas
-o intérpretes (`cffi`, `brotlicffi`, `pycparser`, `httpx2-jsfetch`).
+Lo que necesita el núcleo de Python del repositorio, el de sus pruebas y los
+diferenciales con el de Rust (`requirements.txt`, que sale de `uv.lock` con
+todas las versiones fijadas). La app no lleva nada de esto desde la fase 4
+(ver [la migración](MIGRATION.md)). Algunos solo se instalan en otros
+sistemas o intérpretes (`cffi`, `brotlicffi`, `pycparser`, `httpx2-jsfetch`).
 
 | Paquete | Licencia |
 | --- | --- |
@@ -63,7 +65,7 @@ o intérpretes (`cffi`, `brotlicffi`, `pycparser`, `httpx2-jsfetch`).
 | `httpx2-jsfetch` | BSD-3-Clause |
 | `idna` | BSD-3-Clause |
 | `jiter` | MIT |
-| `mutagen` (solo al compilar y en las pruebas: el núcleo empaquetado no lo lleva) | GPL-2.0-or-later |
+| `mutagen` (solo en el núcleo de Python y sus pruebas) | GPL-2.0-or-later |
 | `numpy` (el separador de pistas) | BSD-3-Clause (lleva OpenBLAS, BSD-3-Clause) |
 | `onnxruntime` (el separador de pistas) | MIT |
 | `openai` | Apache-2.0 |
@@ -94,11 +96,10 @@ o intérpretes (`cffi`, `brotlicffi`, `pycparser`, `httpx2-jsfetch`).
 | `yt-dlp` | Unlicense |
 | `yt-dlp-ejs` | Unlicense AND MIT AND ISC |
 
-Para desarrollar, además (no viajan en la app): `pytest`, `pytest-cov`,
-`hypothesis` y `httpx` (pruebas; MIT/BSD/MPL-2.0), `ruff` (MIT),
-`basedpyright` (MIT), `maturin` (MIT OR Apache-2.0) y `pyinstaller`
-(GPL-2.0 con excepción para lo que empaqueta: no afecta a la licencia de la
-app).
+Para desarrollar, además: `pytest`, `pytest-cov`, `hypothesis` y `httpx`
+(pruebas; MIT/BSD/MPL-2.0), `ruff` (MIT), `basedpyright` (MIT) y `maturin`
+(MIT OR Apache-2.0). PyInstaller, que empaquetaba el núcleo de Python hasta
+la 1.30, ya no se usa.
 
 ## Rust
 
@@ -114,7 +115,7 @@ afecta mientras no se modifiquen sus archivos.
 | `log` | MIT OR Apache-2.0 |
 | `rtrb` (el anillo del audio que decodifica ffmpeg) | MIT OR Apache-2.0 |
 | `rand` | MIT OR Apache-2.0 |
-| `win32job`, `winreg` (solo Windows) | MIT OR Apache-2.0 / MIT |
+| `winreg` (solo Windows) | MIT |
 | `rodio` | MIT OR Apache-2.0 |
 | `symphonia` | MPL-2.0 |
 | `pyo3` | MIT OR Apache-2.0 |
@@ -122,17 +123,17 @@ afecta mientras no se modifiquen sus archivos.
 | `rayon` | MIT OR Apache-2.0 |
 | `rustfft` (el pulso del metrónomo, en la app) | MIT OR Apache-2.0 |
 | `md-5` | MIT OR Apache-2.0 |
-| `hyper`, `hyper-util`, `hyperlocal` | MIT |
+| `hyper`, `hyper-util` (`danplay-server`, el núcleo por un puerto para las pruebas) | MIT |
 | `serde`, `serde_json` | MIT OR Apache-2.0 |
 | `tokio` | MIT |
 | `libc` | MIT OR Apache-2.0 |
 | `rusqlite`, `libsqlite3-sys` (el índice; SQLite va dentro, y es de dominio público) | MIT |
 | `fancy-regex`, `regex` (las expresiones de los nombres, con la semántica de Python) | MIT / MIT OR Apache-2.0 |
 | `unicode-normalization`, `unicode-properties`, `unicode-ident` | (MIT OR Apache-2.0) AND Unicode-3.0 |
-| `ort`, `ort-sys` (ONNX Runtime desde Rust: el pulso y separar; carga la biblioteca del paquete `onnxruntime`) | MIT OR Apache-2.0 |
+| `ort`, `ort-sys` (ONNX Runtime desde Rust: el pulso, separar y las voces; carga la biblioteca oficial que viaja con la app, ver abajo) | MIT OR Apache-2.0 |
 | `realfft` (los espectrogramas del pulso y del separador) | MIT |
 | `half` (los pesos en float16), `zip` (los checkpoints de PyTorch) | MIT OR Apache-2.0 / MIT |
-| `ureq` (pedir páginas cuando el núcleo entero esté en Rust) | MIT OR Apache-2.0 |
+| `ureq` (lo que el núcleo pide a la red) | MIT OR Apache-2.0 |
 | `rustls`, `ring` (su TLS, sin OpenSSL) | Apache-2.0 OR ISC OR MIT / Apache-2.0 AND ISC |
 | `webpki-roots` (los certificados raíz de Mozilla, para `rustls`) | CDLA-Permissive-2.0 |
 | `sha1`, `tempfile`, `dirs` | MIT OR Apache-2.0 |
@@ -154,16 +155,18 @@ Para desarrollar, además (no viajan en la app): `vite`, `@vitejs/plugin-vue`,
 
 ## Herramientas externas
 
-En Linux no se distribuyen con la app: se invocan si están en el sistema (el
-`.deb` declara ffmpeg y fpcalc). **El instalador de Windows sí las lleva
-dentro** (`tools\`), con versión fija y su SHA-256 comprobado al construirlo.
+**Viajan dentro de los paquetes** (`tools/` y, ONNX Runtime, `data/`), con
+versión fija y su SHA-256 comprobado al construirlos; compilada desde el
+código, la app usa las del sistema si están (el `.deb` declara además ffmpeg
+y fpcalc).
 
 | Programa | Licencia | Para qué |
 | --- | --- | --- |
 | `ffmpeg` | LGPL-2.1+ / GPL según compilación (la de Windows, la *essentials* de Gyan, es **GPL-3.0**) | convertir formatos, encoger carátulas, opus/wma, velocidad y tono |
 | `fpcalc` (Chromaprint) | MIT / LGPL-2.1+ | calcular la huella acústica |
 | QuickJS-NG (`qjs`) | MIT | el motor de JavaScript que YouTube exige a yt-dlp (o Deno, Node, Bun, si están en el sistema) |
-| `yt-dlp`, `yt-dlp-ejs` | Unlicense (y MIT, ISC) | descargar de YouTube |
+| `yt-dlp` | Unlicense | descargar de YouTube. Es su ejecutable oficial: un PyInstaller con su propio Python y sus dependencias dentro (entre ellas `mutagen`, GPL, y `yt-dlp-ejs`), que va como programa aparte, igual que ffmpeg |
+| ONNX Runtime (`libonnxruntime`, `onnxruntime.dll`) | MIT (viaja con su licencia y sus avisos de terceros, `ThirdPartyNotices`) | mover las redes: el pulso, separar en pistas y las voces de las guías |
 | `gio` (GLib) | LGPL-2.1+ | papelera de respaldo en Linux, si `send2trash` no puede |
 
 > Repartir el ffmpeg GPL dentro del instalador obliga a ofrecer su código

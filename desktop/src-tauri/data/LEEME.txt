@@ -18,4 +18,6 @@ llaman scripts/build.sh y la CI. Lo de danplay/data sale de alli; ONNX
 Runtime, con su sha256 comprobado, de la cache ~/.cache/danplay-<sistema>/.
 No estan en git.
 
-En desarrollo no hace falta: la app de desarrollo usa danplay/data.
+En desarrollo, la app usa danplay/data, y ONNX Runtime el de aqui (que la
+compilacion deja junto al ejecutable; scripts/dev.sh lo baja la primera
+vez) o el del .venv del proyecto.
