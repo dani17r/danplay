@@ -87,6 +87,12 @@ fn grid_error(m: String) -> BeatsError {
 
 /// El grafo de Beat This! (`danplay/data/pulse/beat_this.onnx`).
 pub fn graph(app: &App) -> PathBuf {
+    // el de las pruebas: el detector de mentira no lo lee (y uno que no
+    // está es «aquí no hay detector»)
+    #[cfg(test)]
+    if let Some(g) = tests::graph_override() {
+        return g;
+    }
     app.resources.join("pulse").join("beat_this.onnx")
 }
 
@@ -761,6 +767,21 @@ struct Queue {
     failed: HashMap<String, String>,
     progress: HashMap<String, f64>,
     worker: bool,
+    /// el hilo, parado por una prueba (lo que en Python era tener `_WAKE`):
+    /// lo que se pide se queda en la cola tal cual, para mirarla
+    #[cfg(test)]
+    paused: bool,
+}
+
+/// Si una prueba paró el hilo (`tests::Paused`).
+#[cfg(test)]
+const fn held(q: &Queue) -> bool {
+    q.paused
+}
+
+#[cfg(not(test))]
+const fn held(_: &Queue) -> bool {
+    false
 }
 
 static QUEUE: LazyLock<Mutex<Queue>> = LazyLock::new(|| Mutex::new(Queue::default()));
@@ -839,7 +860,9 @@ fn work() {
         let (path, app) = {
             let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
-                if let Some(next) = q.waiting.pop_front() {
+                if !held(&q)
+                    && let Some(next) = q.waiting.pop_front()
+                {
                     break next;
                 }
                 q = WAKE.wait(q).unwrap_or_else(PoisonError::into_inner);
@@ -878,3 +901,6 @@ pub fn idle(timeout: Duration) -> bool {
         .unwrap_or_else(PoisonError::into_inner);
     !r.timed_out()
 }
+
+#[cfg(test)]
+pub(crate) mod tests;
