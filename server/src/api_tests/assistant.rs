@@ -20,21 +20,23 @@ fn tool(app: &crate::App, name: &str, args: Value) -> Value {
 /// La IA de mentira que contesta por turnos y guarda lo que recibe; cuando
 /// se le pregunta como juez (la llamada de una palabra: `max_tokens` 3)
 /// contesta `judge` y no gasta turno.
-struct Script {
+pub(super) struct Script {
     _fake: FakeAi,
+    /// Un turno del chat puede registrar propuestas.
+    _registry: crate::testkit::Registry,
     received: Arc<Mutex<Vec<Value>>>,
     judged: Arc<Mutex<Vec<String>>>,
 }
 
 impl Script {
-    fn received(&self) -> Vec<Value> {
+    pub(super) fn received(&self) -> Vec<Value> {
         self.received
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
-    fn judged(&self) -> Vec<String> {
+    pub(super) fn judged(&self) -> Vec<String> {
         self.judged
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -43,18 +45,19 @@ impl Script {
 }
 
 /// Un turno: (texto, llamadas a herramientas como (nombre, argumentos)).
-type Step = (&'static str, Vec<(&'static str, String)>);
+pub(super) type Step = (&'static str, Vec<(&'static str, String)>);
 
-fn say(text: &'static str) -> Step {
+pub(super) fn say(text: &'static str) -> Step {
     (text, Vec::new())
 }
 
-fn call_tool(name: &'static str, args: impl Into<String>) -> Step {
+pub(super) fn call_tool(name: &'static str, args: impl Into<String>) -> Step {
     ("", vec![(name, args.into())])
 }
 
 /// Esta IA como proveedor activo de `app`.
-fn script(app: &crate::App, steps: Vec<Step>, judge: &'static str) -> Script {
+pub(super) fn script(app: &crate::App, steps: Vec<Step>, judge: &'static str) -> Script {
+    let registry = crate::testkit::registry();
     let received = Arc::new(Mutex::new(Vec::new()));
     let judged = Arc::new(Mutex::new(Vec::new()));
     let queue = Mutex::new(VecDeque::from(steps));
@@ -97,13 +100,14 @@ fn script(app: &crate::App, steps: Vec<Step>, judge: &'static str) -> Script {
     assert_eq!(s, 200, "{v}");
     Script {
         _fake: fake,
+        _registry: registry,
         received,
         judged,
     }
 }
 
 /// `chat.reply(messages)`, por la API.
-fn reply(app: &crate::App, messages: Value) -> Value {
+pub(super) fn reply(app: &crate::App, messages: Value) -> Value {
     let (s, r) = call(
         app,
         "POST",
@@ -114,7 +118,7 @@ fn reply(app: &crate::App, messages: Value) -> Value {
     r
 }
 
-fn user(text: &str) -> Value {
+pub(super) fn user(text: &str) -> Value {
     json!([{"role": "user", "text": text}])
 }
 

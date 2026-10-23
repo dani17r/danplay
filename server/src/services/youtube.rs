@@ -66,6 +66,32 @@ pub struct State {
     cancel: AtomicBool,
     /// el ejecutable, su versión y su motor de JavaScript
     pub ytdlp: ytdlp::State,
+    /// Lo que se finge en las pruebas.
+    #[cfg(test)]
+    pub testing: Mutex<testing::Testing>,
+}
+
+/// Lo que las pruebas cambian o miran de las descargas de una app.
+#[cfg(test)]
+pub mod testing {
+    use serde_json::{Map, Value};
+    use std::sync::Arc;
+
+    /// `download(consulta)` de mentira para `run_many`.
+    pub type Download = Arc<dyn Fn(&str) -> Result<Vec<Map<String, Value>>, String> + Send + Sync>;
+
+    #[derive(Default)]
+    pub struct Testing {
+        pub download: Option<Download>,
+        /// {active, after} justo al soltar cada turno.
+        pub releases: Vec<Value>,
+    }
+
+    impl std::fmt::Debug for Testing {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("Testing")
+        }
+    }
 }
 
 impl Default for State {
@@ -85,6 +111,8 @@ impl Default for State {
             turn: Mutex::new(s),
             cancel: AtomicBool::new(false),
             ytdlp: ytdlp::State::default(),
+            #[cfg(test)]
+            testing: Mutex::default(),
         }
     }
 }
@@ -141,6 +169,13 @@ pub fn release(app: &App, job: Option<u64>) {
     if job.is_some_and(|j| job_of(&s) != j) {
         return;
     }
+    #[cfg(test)]
+    app.downloads
+        .testing
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .releases
+        .push(json!({"active": s.get("active"), "after": s.get("after")}));
     s.insert("active".into(), json!(false));
     let phase = if canceled(app) { "canceled" } else { "done" };
     s.insert("phase".into(), json!(phase));
@@ -923,6 +958,20 @@ fn each_query(
             }
             publish(app, &p, token);
         };
+        #[cfg(test)]
+        let fake = app
+            .downloads
+            .testing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .download
+            .clone();
+        #[cfg(test)]
+        let mut rs = match fake {
+            Some(fake) => fake(query)?,
+            None => download(app, query, w, &mut step, &|| canceled(app))?,
+        };
+        #[cfg(not(test))]
         let mut rs = download(app, query, w, &mut step, &|| canceled(app))?;
         for r in &mut rs {
             r.entry("requested").or_insert_with(|| json!(query));

@@ -5,8 +5,8 @@ use crate::app::App;
 use crate::http::{Request, Response};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 /// Las canciones de la biblioteca de prueba (las de tests/test_api.py).
 pub const ARTISTS: [(&str, [&str; 3]); 2] = [
@@ -514,4 +514,98 @@ pub fn send_with(app: &App, method: &str, path: &str, headers: &[(&str, &str)]) 
         req = req.header(k, v);
     }
     crate::handle(app, &req)
+}
+
+// ------------------------------------------------------------ yt-dlp de mentira
+
+/// Un yt-dlp de mentira para `app`; devuelve el registro de sus llamadas.
+#[cfg(unix)]
+pub fn fake_ytdlp(app: &App) -> PathBuf {
+    let tools = crate::tests::scratch("ytdlp-mentira");
+    let song = tools.join("plantilla.mp3");
+    assert!(mp3(&song, "", "", "", 1.0, Some(440.0)));
+    let log = tools.join("llamadas.txt");
+    let body = format!(
+        r#"for a in "$@"; do printf '%s\t' "$a"; done >> '{log}'; echo >> '{log}'
+case " $* " in *" --version "*) echo 2026.08.19; exit 0;; esac
+out=""; prev=""; last=""
+for a in "$@"; do
+  [ "$prev" = "--output" ] && out="$a"
+  prev="$a"; last="$a"
+done
+if [ -n "$out" ]; then
+  id=$(printf '%s' "$last" | sed 's|.*v=||')
+  file=$(printf '%s' "$out" | sed "s/%(id)s/$id/; s/%(ext)s/mp3/")
+  cp '{song}' "$file"
+  printf '{{"id": "%s", "title": "Cancion %s", "uploader": "Prueba", "duration": 1, "webpage_url": "https://www.youtube.com/watch?v=%s"}}\n' "$id" "$id" "$id"
+  exit 0
+fi
+q=$(printf '%s' "$last" | sed 's|^ytsearch[0-9]*:||' | tr ' ' '_')
+case "$q" in http*) q=${{q##*v=}};; esac
+printf '{{"_type": "playlist", "title": "busqueda", "entries": [{{"id": "%s", "title": "Cancion %s", "uploader": "Prueba", "duration": 1, "webpage_url": "https://www.youtube.com/watch?v=%s"}}]}}\n' "$q" "$q" "$q""#,
+        log = log.display(),
+        song = song.display(),
+    );
+    crate::services::ytdlp::tests::script(&tools, "yt-dlp", &body);
+    let dir = tools.to_string_lossy().into_owned();
+    app.update_config(|c| c.tools_dir = dir);
+    log
+}
+
+/// Lo que se consultó (lo último de cada llamada de consulta), en orden:
+/// el registro lleva cada argumento seguido de un tabulador.
+pub fn queries(log: &Path) -> Vec<String> {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.contains("--flat-playlist"))
+        .map(|l| {
+            l.trim_end_matches('\t')
+                .rsplit('\t')
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Espera a que la descarga suelte el turno; su estado al acabar.
+pub fn until_done(app: &App) -> Value {
+    let end = Instant::now() + Duration::from_secs(60);
+    loop {
+        let s = get(app, "/api/youtube");
+        if s["active"] == false {
+            return s;
+        }
+        assert!(
+            Instant::now() < end,
+            "la descarga no ha soltado el turno: {s}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// El registro de las propuestas del asistente (y lo que se finge en él) es
+/// uno para todo el proceso: las pruebas que registran, directamente o con un
+/// turno del chat, van de una en una. Una prueba lo puede pedir más de una
+/// vez (dos IA de mentira seguidas): solo la primera espera.
+pub struct Registry(
+    #[allow(dead_code, reason = "el cerrojo, mientras dure")] Option<MutexGuard<'static, ()>>,
+);
+
+thread_local! {
+    static HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+pub fn registry() -> Registry {
+    static ONE: Mutex<()> = Mutex::new(());
+    let guard = (HELD.get() == 0).then(|| ONE.lock().unwrap_or_else(PoisonError::into_inner));
+    HELD.set(HELD.get() + 1);
+    Registry(guard)
+}
+
+impl Drop for Registry {
+    fn drop(&mut self) {
+        HELD.set(HELD.get() - 1);
+    }
 }
