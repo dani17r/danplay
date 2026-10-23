@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::sync::Mutex as StdMutex;
 use std::time::Instant;
 
+mod status;
+
 /// El estado de la IA es del proceso: estas pruebas van de una en una.
 static SERIAL: StdMutex<()> = StdMutex::new(());
 
@@ -80,7 +82,10 @@ fn reply(content: &str) -> Value {
 struct Bank {
     dir: PathBuf,
     usages: StdMutex<Vec<Usage>>,
-    fake_clock: StdMutex<f64>,
+    /// la hora, a mano (compartida: un servidor de mentira puede adelantarla)
+    fake_clock: Arc<StdMutex<f64>>,
+    /// lo que se apuntó en el registro (`log.info`)
+    logs: StdMutex<Vec<String>>,
     /// la foto del catálogo de modelos (ninguna, si no se pide)
     snapshot: PathBuf,
 }
@@ -98,7 +103,8 @@ impl Bank {
         Self {
             dir,
             usages: StdMutex::new(Vec::new()),
-            fake_clock: StdMutex::new(1000.0),
+            fake_clock: Arc::new(StdMutex::new(1000.0)),
+            logs: StdMutex::new(Vec::new()),
             snapshot,
         }
     }
@@ -143,7 +149,7 @@ impl Bank {
             env: &|_, d| d.to_owned(),
             now: &now,
             account: &account,
-            log: &|_| {},
+            log: &|m| self.logs.lock().expect("cerrojo").push(m.to_owned()),
         };
         f(&ctx)
     }

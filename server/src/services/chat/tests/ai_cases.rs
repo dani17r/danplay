@@ -9,6 +9,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 /// Lo que le llega a la IA de mentira.
 type Seen = Arc<Mutex<Vec<Value>>>;
 
+/// Las pruebas de aquí que conversan, de una en una: quién contestó y la
+/// marca de «caído» son de todo el proceso (y guardar un perfil las borra).
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static SERIAL: Mutex<()> = Mutex::new(());
+    SERIAL.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Una IA que contesta según la petición: `answer` da (código, cuerpo), y
 /// con 200 el cuerpo es el mensaje del asistente. Apunta cada petición.
 fn model(answer: impl Fn(&Value) -> (u16, Value) + Send + Sync + 'static) -> (String, Seen) {
@@ -149,6 +156,7 @@ fn add_song(app: &App, id: i64, artist: &str, title: &str) {
 
 #[test]
 fn model_without_tools_is_reported_clearly() {
+    let _turn = serial();
     let app = crate::tests::app();
     let (url, _) = model(|req| {
         if req.get("tools").is_some() {
@@ -171,6 +179,7 @@ fn model_without_tools_is_reported_clearly() {
 
 #[test]
 fn tools_reach_the_model_in_toon_and_weigh_less() {
+    let _turn = serial();
     let app = crate::tests::app();
     for i in 1..=20 {
         add_song(&app, i, "Barak", &format!("Tema {i}"));
@@ -213,6 +222,7 @@ fn tools_reach_the_model_in_toon_and_weigh_less() {
 
 #[test]
 fn context_reaches_the_model_as_screen_state() {
+    let _turn = serial();
     let app = crate::tests::app();
     let (url, seen) = scripted(vec![json!({"content": "Vale."})]);
     use_model(&app, &url, "Pantalla", "pantalla");
@@ -247,6 +257,7 @@ fn context_reaches_the_model_as_screen_state() {
 /// hace nada por sí sola.
 #[test]
 fn tool_call_written_as_text_still_runs() {
+    let _turn = serial();
     let app = crate::tests::app();
     add_song(&app, 1, "Barak", "Mi Gozo");
     let (url, seen) = scripted(vec![
@@ -308,6 +319,7 @@ fn tool_call_written_as_text_still_runs() {
 /// narrar; el juez es para cuando la persona PIDIÓ hacer algo.
 #[test]
 fn judge_is_only_called_when_an_action_was_asked() {
+    let _turn = serial();
     let app = crate::tests::app();
     let (url, seen) = model(|_| {
         (
@@ -351,6 +363,7 @@ fn judge_is_only_called_when_an_action_was_asked() {
 /// conversación (cualquiera de los dos) habla de eso.
 #[test]
 fn optional_tools_only_sent_when_the_chat_needs_them() {
+    let _turn = serial();
     let names = |v: Value| -> std::collections::HashSet<String> {
         v.as_array()
             .expect("lista")
@@ -414,6 +427,7 @@ fn optional_tools_only_sent_when_the_chat_needs_them() {
 
 #[test]
 fn budget_only_warns() {
+    let _turn = serial();
     let app = crate::tests::app();
     let (url, _) = model(|_| (200, json!({"content": "hola"})));
     use_model(&app, &url, "Gasto", "gasto");
@@ -460,6 +474,7 @@ fn budget_only_warns() {
 /// y la persona no ve un diálogo de «borrar la canción None».
 #[test]
 fn null_arguments_do_not_crash_the_chat() {
+    let _turn = serial();
     let app = crate::tests::app();
     let (url, _) = scripted(vec![
         tool_call("1", "delete_song", "null"),
@@ -495,6 +510,7 @@ fn run_tool(app: &App, name: &str, args: Value) -> Value {
 
 #[test]
 fn every_declared_tool_has_a_handler() {
+    let _turn = serial();
     let app = crate::tests::app();
     for t in library::assistant::tools::declared() {
         let name = t["function"]["name"].as_str().expect("nombre");
@@ -517,6 +533,7 @@ fn every_declared_tool_has_a_handler() {
 
 #[test]
 fn invalid_arguments_are_reported_in_spanish() {
+    let _turn = serial();
     let app = crate::tests::app();
     assert_eq!(
         run_tool(&app, "edit_song", json!({"title": "x"}))["error"],
@@ -543,6 +560,7 @@ fn invalid_arguments_are_reported_in_spanish() {
 
 #[test]
 fn numbers_as_text_and_year_as_number_are_accepted() {
+    let _turn = serial();
     let app = crate::tests::app();
     add_song(&app, 7, "A", "T");
     let r = run_tool(
@@ -565,6 +583,7 @@ fn numbers_as_text_and_year_as_number_are_accepted() {
 /// estrellas a su tope (lo de `lyrics_by_name`, en `tools::tests`).
 #[test]
 fn old_names_still_work() {
+    let _turn = serial();
     let app = crate::tests::app();
     let lib = app.config().library.clone();
     let file = lib.join("A - T.mp3");
@@ -586,6 +605,7 @@ fn old_names_still_work() {
 
 #[test]
 fn chat_is_exported_as_text() {
+    let _turn = serial();
     let app = crate::tests::app();
     let (_, c) = post(&app, "/api/chats", &json!({}));
     let id = c["id"].as_i64().expect("id");
@@ -611,4 +631,247 @@ fn chat_is_exported_as_text() {
     assert!(md.contains("search_songs: 1 resultados") && !md.contains("[aviso]"));
     let r = crate::handle(&app, &Request::new("GET", "/api/chats/999999/export"));
     assert_eq!(r.status, 404);
+}
+
+// ------------------------------------------- lo de tests/test_ai_status.py
+// El estado del proveedor visto desde fuera: la franja del chat
+// (/api/chat/tools), «Reintentar» (/api/ai/recheck) y el bucle del chat. Lo
+// demás de ese archivo, en library/src/ai/call/tests/status.rs.
+//
+// La marca de «caído» es de todo el proceso, y guardar un perfil en otra
+// prueba la borra (`reset_client`): lo que cuenta llamadas lo intenta unas
+// cuantas veces.
+
+/// Anthropic sin saldo, como lo dice de verdad.
+fn no_credit() -> (u16, Value) {
+    (
+        400,
+        json!({"error": {"code": "invalid_request_error", "message": "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.", "type": "invalid_request_error", "param": null}}),
+    )
+}
+
+/// Un principal que falla así y un respaldo que contesta; devuelve sus ids y
+/// lo que le llega a cada uno.
+fn primary_and_fallback(
+    app: &App,
+    tag: &str,
+    fails: impl Fn() -> (u16, Value) + Send + Sync + 'static,
+    extra: Value,
+    headers: Value,
+) -> (String, String, Seen, Seen) {
+    let (purl, pseen) = model(move |_| fails());
+    let (furl, fseen) = model(|_| (200, json!({"content": "Hola, ¿que cancion buscas?"})));
+    let save = |name: String,
+                url: &str,
+                key: &str,
+                activate: bool,
+                extra: &Value,
+                headers: &Value| {
+        let (s, v) = post(
+            app,
+            "/api/ai/profile",
+            &json!({"provider": "custom", "name": name, "base_url": url, "key": key, "model": "m", "chat_model": "m", "extra": extra, "headers": headers, "activate": activate}),
+        );
+        assert_eq!(s, 200, "{v}");
+        v["saved"].as_str().expect("id").to_owned()
+    };
+    let primary = save(
+        format!("Principal {tag}"),
+        &purl,
+        "zz-clave-falsa-0123456789abcdef",
+        true,
+        &extra,
+        &headers,
+    );
+    let fallback = save(
+        format!("Respaldo {tag}"),
+        &furl,
+        "zz-clave-del-respaldo-9876543210",
+        false,
+        &json!({}),
+        &json!({}),
+    );
+    (primary, fallback, pseen, fseen)
+}
+
+fn get_json(app: &App, path: &str) -> Value {
+    let r = crate::handle(app, &Request::new("GET", path));
+    assert_eq!(r.status, 200, "GET {path}");
+    r.json_value().unwrap_or(Value::Null)
+}
+
+#[test]
+fn the_loop_reports_who_answered_and_why() {
+    let _turn = serial();
+    for attempt in 0..3 {
+        let app = crate::tests::app();
+        let (_, fallback, pseen, _) =
+            primary_and_fallback(&app, "bucle", no_credit, json!({}), json!({}));
+        let r = reply_to(&app, "hola");
+        assert!(r.get("error").is_none() && py::truthy(&r["text"]), "{r}");
+        assert!(
+            r["via"]["fallback"] == json!(true)
+                && r["via"]["id"] == json!(fallback)
+                && r["via"]["reason"] == json!("billing"),
+            "{r}"
+        );
+        assert_eq!(get_json(&app, "/api/chat/tools")["answering"], r["via"]);
+        let r = reply_to(&app, "hola otra vez");
+        if requests(&pseen).len() != 1 && attempt < 2 {
+            continue; // otra prueba guardó un perfil y borró la marca
+        }
+        assert_eq!(
+            requests(&pseen).len(),
+            1,
+            "el segundo mensaje ya no pierde una llamada fallida"
+        );
+        assert!(r["via"]["fallback"] == json!(true) && r["via"]["reason"] == json!("billing"));
+        return;
+    }
+}
+
+#[test]
+fn recheck_route_clears_the_mark_and_returns_the_status() {
+    let _turn = serial();
+    for attempt in 0..3 {
+        let app = crate::tests::app();
+        let (primary, _, pseen, _) =
+            primary_and_fallback(&app, "reintentar", no_credit, json!({}), json!({}));
+        reply_to(&app, "hola");
+        let (s, st) = post(&app, "/api/ai/recheck", &json!({}));
+        assert_eq!(s, 200);
+        assert_eq!(
+            st,
+            json!({
+                "primary": {"id": primary, "name": "Principal reintentar", "model": "m", "problem": null},
+                "answering": null,
+            })
+        );
+        reply_to(&app, "hola");
+        if requests(&pseen).len() != 2 && attempt < 2 {
+            continue;
+        }
+        assert_eq!(requests(&pseen).len(), 2);
+        // la ruta no cambia ningún ajuste
+        let overview = get_json(&app, "/api/ai/providers");
+        assert_eq!(
+            (&overview["active"], &overview["fallback"]),
+            (&json!(primary), &json!(true))
+        );
+        return;
+    }
+}
+
+#[test]
+fn chat_tools_returns_the_new_fields_and_the_usual_ones() {
+    let _turn = serial();
+    let mut attempt = 0;
+    let (app, fallback, d) = loop {
+        let app = crate::tests::app();
+        let (_, fallback, _, _) =
+            primary_and_fallback(&app, "franja", no_credit, json!({}), json!({}));
+        let before = get_json(&app, "/api/chat/tools");
+        reply_to(&app, "hola");
+        let d = get_json(&app, "/api/chat/tools");
+        // quién contestó es de todo el proceso: si otra prueba conversó
+        // entre medias, otra vez
+        attempt += 1;
+        if attempt < 3
+            && (d["answering"]["id"] != json!(fallback) || !before["answering"].is_null())
+        {
+            continue;
+        }
+        assert!(before["primary_problem"].is_null() && before["answering"].is_null());
+        break (app, fallback, d);
+    };
+    let _ = &app;
+    // lo de siempre
+    assert_eq!(d["model"], json!("m"));
+    assert_eq!(d["provider"], json!("Principal franja"));
+    assert_eq!((&d["available"], &d["reason"]), (&json!(true), &json!("")));
+    let names: Vec<&str> = d["tools"]
+        .as_array()
+        .expect("herramientas")
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    assert!(names.contains(&"search_songs") && names.contains(&"create_playlist"));
+    // lo nuevo, sin ningún texto del proveedor
+    assert_eq!(
+        (&d["primary_problem"]["kind"], &d["primary_problem"]["code"]),
+        (&json!("billing"), &json!(400))
+    );
+    assert!(d["primary_problem"]["at"].is_number());
+    assert_eq!(
+        d["answering"],
+        json!({"id": fallback, "name": "Respaldo franja", "model": "m", "fallback": true, "reason": "billing"})
+    );
+    let shown = json!({"p": d["primary_problem"], "a": d["answering"]}).to_string();
+    assert!(!shown.contains("credit"));
+}
+
+/// Ningún secreto del proveedor sale en la ruta de la franja ni en el error
+/// del chat (el estado y el registro, en la prueba de la biblioteca).
+#[test]
+fn no_provider_secret_in_the_tools_route_or_the_chat_error() {
+    let _turn = serial();
+    let leaks: [(&str, &[&str]); 11] = [
+        (
+            "zz-clave-falsa-0123456789abcdef",
+            &["zz-clave-falsa-0123456789abcdef"],
+        ),
+        (
+            "valor-secreto-de-cabecera-77",
+            &["valor-secreto-de-cabecera-77"],
+        ),
+        (
+            "valor-secreto-de-extra-8899",
+            &["valor-secreto-de-extra-8899"],
+        ),
+        (
+            "zz-clave-del-respaldo-9876543210",
+            &["zz-clave-del-respaldo-9876543210"],
+        ),
+        ("sk-live-ABCDEFGH12345678", &["ABCDEFGH12345678"]),
+        ("sk-proj-********************wxyz.", &["wxyz", "sk-proj"]),
+        ("AIzaSyDUMMYKEYDUMMYKEYDUMMYKEY1234567", &["DUMMYKEYDUMMY"]),
+        ("Bearer tokenfalso.abc-123", &["tokenfalso"]),
+        (
+            "Authorization: Basic dXN1YXJpbzpjbGF2ZQ==",
+            &["dXN1YXJpbzpjbGF2ZQ"],
+        ),
+        (
+            "see https://usuario:contrasena@servidor.example/v1/chat?key=ZZ99887766",
+            &["contrasena", "ZZ99887766"],
+        ),
+        ("api_key=otra-clave-falsa-0001", &["otra-clave-falsa-0001"]),
+    ];
+    for (leak, needles) in leaks {
+        let app = crate::tests::app();
+        let message = format!("upstream failure: {leak}");
+        primary_and_fallback(
+            &app,
+            "secretos",
+            move || (500, json!({"error": {"message": message, "code": null}})),
+            json!({"metadato": "valor-secreto-de-extra-8899"}),
+            json!({"X-Privado": "valor-secreto-de-cabecera-77"}),
+        );
+        reply_to(&app, "hola");
+        let visible = crate::handle(&app, &Request::new("GET", "/api/chat/tools"))
+            .json_value()
+            .unwrap_or(Value::Null)
+            .to_string();
+        let (s, _) = post(&app, "/api/ai/fallback", &json!({"enabled": false}));
+        assert_eq!(s, 200);
+        let r = reply_to(&app, "hola");
+        let error = r["error"].as_str().unwrap_or("").to_owned();
+        assert!(
+            error.contains("upstream"),
+            "el error sale (saneado), no se calla: {r}"
+        );
+        for needle in needles {
+            assert!(!visible.contains(needle), "{leak}: en la franja");
+            assert!(!error.contains(needle), "{leak}: en el error");
+        }
+    }
 }

@@ -273,3 +273,48 @@ piden (`serve_fn`, y `nobody_home` para uno apagado). Abreviaturas:
 | `test_invalid_arguments_are_reported_in_spanish` | `A` `invalid_arguments_are_reported_in_spanish` (parte ya estaba en `server/src/services/chat/tests.rs` `arguments_like_pydantic`) |
 | `test_numbers_as_text_and_year_as_number_are_accepted` | `A` `numbers_as_text_and_year_as_number_are_accepted` |
 | `test_old_names_still_work` | `A` `old_names_still_work` (con un mp3 de verdad: sin archivo, poner estrellas falla), `server/src/services/chat/tools.rs` `old_names_become_the_new_ones` y `T` `lyrics_without_id_go_by_artist_and_title` (la letra por nombre de verdad va a LRCLIB, que no se prueba sin red) |
+
+## tests/test_ai_status.py
+
+Los errores, servidos por HTTP a este mismo cliente con los cuerpos reales
+de cada proveedor (en Python los hacía el constructor del SDK de openai); la
+hora, el reloj a mano de las pruebas. `S` =
+`library/src/ai/call/tests/status.rs`, `A` =
+`server/src/services/chat/tests/ai_cases.rs`.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_real_errors_are_classified_by_text_before_code` | `S` `real_errors_are_classified_by_text_before_code` (la tabla `ERROR_CASES` entera) |
+| `test_timeout_and_lost_connection_are_down_without_code` | `S` `timeout_and_lost_connection_are_down_without_code` (el tiempo agotado y la conexión perdida, de verdad) |
+| `test_code_is_read_from_the_text_if_the_exception_lacks_it` | `S` `code_is_read_from_the_text_if_the_exception_lacks_it` |
+| `test_how_long_it_stays_down_depends_on_why_it_failed` | `S` `how_long_it_stays_down_depends_on_why_it_failed` (los cinco casos) |
+| `test_the_mark_is_set_on_failure_not_before_the_call` | `S` `the_mark_is_set_on_failure_not_before_the_call` |
+| `test_no_credit_next_turn_goes_to_fallback_for_20_minutes` | `S` `no_credit_next_turn_goes_to_fallback_for_20_minutes` |
+| `test_failure_is_forgotten_when_the_primary_answers_again` | `S` `failure_is_forgotten_when_the_primary_answers_again` |
+| `test_a_message_error_marks_nobody` | `S` `a_message_error_marks_nobody` |
+| `test_without_fallback_primary_is_still_called_problem_shows` | `S` `without_fallback_primary_is_still_called_problem_shows` |
+| `test_primary_model_without_tools_falls_back_with_that_reason` | `S` `primary_model_without_tools_falls_back_with_that_reason` |
+| `test_status_without_any_profile_is_empty` | `S` `status_without_any_profile_is_empty` |
+| `test_status_has_the_contract_shape` | `S` `status_has_the_contract_shape` |
+| `test_status_is_visible_from_another_thread` | `S` `status_is_visible_from_another_thread` |
+| `test_status_survives_concurrent_readers_and_writers` | `S` `status_survives_concurrent_readers_and_writers` |
+| `test_judge_and_identify_calls_do_not_change_who_answers` | `S` `judge_and_identify_calls_do_not_change_who_answers` |
+| `test_the_turn_request_counter_misses_none` | `S` `the_turn_request_counter_misses_none` |
+| `test_primary_failure_elsewhere_is_noted_but_answer_unchanged` | `S` `primary_failure_elsewhere_is_noted_but_answer_unchanged` |
+| `test_recheck_clears_the_mark_and_next_message_tries_primary` | `S` `recheck_clears_the_mark_and_next_message_tries_primary` |
+| `test_reset_client_forgets_the_failure_and_who_answered` | `S` `reset_client_forgets_the_failure_and_who_answered` |
+| `test_active_check_clears_the_mark_but_a_draft_check_does_not` | `S` `active_check_clears_the_mark_but_a_draft_check_does_not` (el borrador con la URL del servidor de mentira: sin ella iría a Anthropic de verdad) |
+| `test_recheck_route_clears_the_mark_and_returns_the_status` | `A` `recheck_route_clears_the_mark_and_returns_the_status` |
+| `test_real_sdk_primary_without_credit_gets_a_call_per_20_min` | `S` `primary_without_credit_gets_a_call_per_20_min` (sin SDK: el cliente de Rust, por un socket de verdad) |
+| `test_chat_tools_returns_the_new_fields_and_the_usual_ones` | `A` `chat_tools_returns_the_new_fields_and_the_usual_ones` (con la hora de verdad: del «at» se mira que sea un número) |
+| `test_the_loop_reports_who_answered_and_why` | `A` `the_loop_reports_who_answered_and_why` |
+| `test_no_provider_secret_in_status_route_error_or_logs` | `S` `no_provider_secret_in_status_errors_or_logs` (el estado, el error y el registro) y `A` `no_provider_secret_in_the_tools_route_or_the_chat_error` (la franja y el error del chat), con las once fugas |
+| `test_describe_error_tells_rate_limit_billing_and_403_apart` | `S` `describe_error_tells_rate_limit_billing_and_403_apart` |
+| `test_sanitize_removes_secrets_and_keeps_the_rest` | `S` `sanitize_removes_secrets_and_keeps_the_rest` |
+| `test_sanitize_gives_one_line_of_160_max_without_invisibles` | `S` `sanitize_gives_one_line_of_160_max_without_invisibles` |
+| `test_sanitize_never_raises_whatever_it_gets` | `S` `sanitize_never_fails_whatever_it_gets` (lo que tiene sentido con un texto; `None`, números, bytes y un objeto cuyo `str()` revienta eran cosas de Python) |
+| `test_the_sdk_preloads_in_the_background_only_with_ai` | no se pasa: precargaba el SDK de openai de Python; el cliente de Rust no tiene nada que cargar |
+
+En el servidor, quién contestó y la marca de «caído» son de todo el proceso
+y guardar un perfil (en cualquier prueba) las borra: las pruebas de `A` van
+de una en una y lo que cuenta llamadas lo intenta hasta tres veces.
