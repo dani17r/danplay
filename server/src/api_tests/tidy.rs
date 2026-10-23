@@ -15,13 +15,16 @@ use std::path::{Path, PathBuf};
 
 const DISC: &str = "Artistas/Barak/Generacion Radical (2018)/06 - Hasta Ver Tu Gloria.mp3";
 
-/// `music_library`: la sintética con sus seis casos, dada de alta y
-/// escaneada. (app, {caso: ruta}, {caso: id}).
-fn music_library() -> Option<(
+/// La app, {caso: ruta} y {caso: id}.
+type Cases = (
     App,
     HashMap<&'static str, PathBuf>,
     HashMap<&'static str, i64>,
-)> {
+);
+
+/// `music_library`: la sintética con sus seis casos, dada de alta y
+/// escaneada.
+fn music_library() -> Option<Cases> {
     let (app, _) = configured_library()?;
     let root = app.config().library.clone();
     let made: [(&str, &str, &str, &str); 6] = [

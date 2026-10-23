@@ -58,7 +58,7 @@ fn a_real_convert_is_a_job_and_a_dry_run_is_not() {
         .library
         .join("Sueltas")
         .join("Para convertir.wav");
-    crate::tests::wav(&wav, &[0.0; 8000], 8000);
+    crate::tests::wav(&wav, &vec![0.0; 8000], 8000);
     let (st, v) = call(&app, "POST", "/api/convert", Some(json!({"dry_run": true})));
     assert_eq!(st, 200, "{v}");
     assert_eq!(

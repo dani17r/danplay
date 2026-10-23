@@ -116,7 +116,7 @@ fn a_recording_becomes_a_guide_and_only_guides_are_read() {
         "no encuentro",
     );
     let silent = dir.join("silencio.wav");
-    crate::tests::wav(&silent, &[0.0; 8000], 8000);
+    crate::tests::wav(&silent, &vec![0.0; 8000], 8000);
     failure(
         cues::import_recording(&app, &text(&silent), None),
         "silencio",

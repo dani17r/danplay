@@ -956,13 +956,11 @@ mod tests {
         assert!(error.contains("sha256"), "{error}");
         assert!(!installed(&app, voice));
         let piper = voices_dir(&app).join("piper");
-        let parts = std::fs::read_dir(piper.join("es_ES-carlfm-x_low"))
-            .map(|d| {
-                d.flatten()
-                    .filter(|e| e.file_name().to_string_lossy().ends_with(".part"))
-                    .count()
-            })
-            .unwrap_or(0);
+        let parts = std::fs::read_dir(piper.join("es_ES-carlfm-x_low")).map_or(0, |d| {
+            d.flatten()
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".part"))
+                .count()
+        });
         assert_eq!(parts, 0);
         // con lo de verdad (aquí, su sha256 cambiado a lo que llega)
         let app = crate::tests::app();

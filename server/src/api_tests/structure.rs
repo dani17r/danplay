@@ -111,7 +111,7 @@ fn one_bar(kind: &str, b: usize) -> (Vec<f64>, Vec<f64>) {
         return (chord(&[57, 60, 64], 0, 0.05), vec![0.0; bar_len()]);
     }
     let (notes, band, sung) = if kind == "verse" {
-        let notes = if (b / 2) % 2 == 0 {
+        let notes = if (b / 2).is_multiple_of(2) {
             [48, 52, 55]
         } else {
             [43, 47, 50]
@@ -122,7 +122,7 @@ fn one_bar(kind: &str, b: usize) -> (Vec<f64>, Vec<f64>) {
             0.08,
         )
     } else {
-        let notes = if (b / 2) % 2 == 0 {
+        let notes = if (b / 2).is_multiple_of(2) {
             [53, 57, 60]
         } else {
             [57, 60, 64]
@@ -252,7 +252,11 @@ fn the_automatic_guide_finds_the_parts_and_says_them() {
     assert_eq!(texts, NAMES[1..]);
     for (c, start) in said.iter().zip(&starts(sections)[1..]) {
         assert_eq!((&c["voice"], &c["seconds"]), (&json!("st-F1"), &json!(0.5)));
-        assert!(c["file"].as_str().is_some_and(|f| f.ends_with(".wav")));
+        assert!(
+            c["file"]
+                .as_str()
+                .is_some_and(|f| Path::new(f).extension().is_some_and(|e| e == "wav"))
+        );
         let at = c["t"].as_f64().expect("cuándo");
         assert!((at - (start - 1.0)).abs() <= 0.01, "{c}");
     }
