@@ -153,13 +153,9 @@ def test_what_was_worked_out_from_the_sound_follows_the_song(music_library):
     assert not cache.exists()
 
 
-def test_the_api_lists_applies_and_refuses_paths_outside(music_library):
-    from fastapi.testclient import TestClient
-
-    from danplay import api
-
+def test_the_api_lists_applies_and_refuses_paths_outside(music_library, connect_api):
     _, _, ids = music_library
-    client = TestClient(api.app)
+    client = connect_api()
     r = client.get("/api/tidy")
     assert r.status_code == 200 and len(r.json()["items"]) == 4
     assert r.json()["looked"] >= 7

@@ -22,12 +22,8 @@ def lib(configured_library, tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client(lib):
-    from fastapi.testclient import TestClient
-
-    from danplay import api
-
-    return TestClient(api.app)
+def client(lib, connect_api):
+    return connect_api()
 
 
 def _song(name):
@@ -197,7 +193,7 @@ def test_only_audio_is_opened(client, tmp_path):
     assert client.post("/api/external/play", json={"path": str(missing)}).status_code == 404
 
 
-def test_the_player_list_mixes_both_sources_in_order(client, lib, tmp_path):
+def test_the_player_list_mixes_both_sources_in_order(lib, tmp_path):
     from danplay import external, library
 
     external.clear()

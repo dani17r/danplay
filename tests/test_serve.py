@@ -111,10 +111,10 @@ def test_the_core_starts_on_the_socket_and_answers(tmp_path):
     assert gone, "el socket se borra al salir"
 
 
-def test_on_startup_and_on_shutdown(monkeypatch):
+@pytest.mark.python_core("sustituye lo que hace el lifespan de FastAPI al arrancar y al apagar")
+def test_on_startup_and_on_shutdown(monkeypatch, connect_api):
     """Lo que antes hacia `serve` a mano va en `lifespan`: vale igual para el
     socket, el puerto y quien monte la app, y al apagar se para todo."""
-    from fastapi.testclient import TestClient
 
     from danplay import model_catalog, watcher, youtube
 
@@ -124,7 +124,7 @@ def test_on_startup_and_on_shutdown(monkeypatch):
     monkeypatch.setattr(watcher, "stop", lambda: calls.append("stop"))
     monkeypatch.setattr(model_catalog, "refresh_in_background", lambda **k: calls.append("catalog"))
     monkeypatch.setattr(youtube, "cancel", lambda: calls.append("cancel"))
-    with TestClient(api.app) as c:
+    with connect_api() as c:
         assert calls == ["prepare", "start", "catalog"]
         assert c.get("/api/status").status_code == 200
     assert calls[-2:] == ["cancel", "stop"]

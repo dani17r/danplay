@@ -437,14 +437,13 @@ def test_progress_only_touches_the_progress_fields():
     youtube.release()
 
 
-def test_the_api_shows_after_and_job(downloads, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, ytdlp
+@pytest.mark.python_core("mira youtube.STATE en la memoria de Python")
+def test_the_api_shows_after_and_job(downloads, monkeypatch, connect_api):
+    from danplay import ytdlp
 
     monkeypatch.setattr(ytdlp, "js_runtime", lambda refresh=False: None)
     monkeypatch.setattr(ytdlp, "js_runtime_hint", lambda: "")
-    client = TestClient(api.app)
+    client = connect_api()
     youtube.run_many(["a"], on_done=lambda done: {"state": "done", "added": 1})
     got = client.get("/api/youtube").json()
     assert got["active"] is False and got["job"] == youtube.STATE["job"]

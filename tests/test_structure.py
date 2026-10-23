@@ -264,12 +264,11 @@ def _write(path, x):
 
 
 @pytest.fixture
-def song(configured_library, tmp_path, monkeypatch):
+def song(configured_library, tmp_path, monkeypatch, connect_api):
     """Una cancion con sus partes en la biblioteca, una voz de mentira y la
     carpeta de las guias aparte. Devuelve (cliente, id, raiz, banda, voz)."""
-    from fastapi.testclient import TestClient
 
-    from danplay import api, config, cues, library
+    from danplay import config, cues, library
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
     root, _ = configured_library
@@ -289,7 +288,7 @@ def song(configured_library, tmp_path, monkeypatch):
     monkeypatch.setattr(
         cues, "say", lambda text, vid: (0.3 * np.sin(np.arange(8000) / 5).astype(np.float32), 16000)
     )
-    return TestClient(api.app), row["id"], root, band, voice
+    return connect_api(), row["id"], root, band, voice
 
 
 def _near(found, truth, unit=BAR):
@@ -298,6 +297,7 @@ def _near(found, truth, unit=BAR):
     )
 
 
+@pytest.mark.python_core("la voz de mentira sustituye cues.installed y cues.say")
 def test_the_automatic_guide_finds_the_parts_and_says_them(song):
     client, cid, *_ = song
     body = {"voice": "st-F1", "bars": [i * BAR for i in range(40)], "beat": 0.5}
@@ -318,6 +318,7 @@ def test_the_automatic_guide_finds_the_parts_and_says_them(song):
     assert _near([s["start"] for s in r["sections"]], TRUTH), r["sections"]
 
 
+@pytest.mark.python_core("la voz de mentira sustituye cues.installed y cues.say")
 def test_with_its_stems_the_intro_and_the_end_are_where_nobody_sings(song):
     """Con las pistas separadas, la intro es lo de antes de la voz y el final
     lo de despues (aunque no suenen flojos)."""
@@ -344,6 +345,7 @@ def test_with_its_stems_the_intro_and_the_end_are_where_nobody_sings(song):
     assert _labels(sections) == ["Intro", "Estrofa 1", "Coro 1", "Estrofa 2", "Coro 2", "Final"]
 
 
+@pytest.mark.python_core("la voz de mentira sustituye cues.installed y cues.say")
 def test_named_parts_are_used_as_they_are(song, monkeypatch):
     from danplay import structure
 
@@ -371,6 +373,7 @@ def test_named_parts_are_used_as_they_are(song, monkeypatch):
     assert [(c["t"], c["text"]) for c in r["cues"]] == [(9.0, "Coro"), (29.5, "Final")]
 
 
+@pytest.mark.python_core("la voz de mentira sustituye cues.installed y cues.install")
 def test_without_the_voice_it_starts_downloading_it(song, monkeypatch):
     from danplay import cues
 
@@ -388,6 +391,7 @@ def test_without_the_voice_it_starts_downloading_it(song, monkeypatch):
     assert bad.status_code == 422
 
 
+@pytest.mark.python_core("la voz de mentira sustituye cues.installed y cues.say")
 def test_a_song_too_short_has_no_parts(song):
     from danplay import library
     from danplay.api import jobs

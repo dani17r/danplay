@@ -360,15 +360,16 @@ def test_writing_a_tag_keeps_what_was_worked_out_from_the_sound(synthetic_librar
     assert not beatgrid.retag(str(songs["tierra"]), before, after)
 
 
-def test_the_api_gives_the_grid_or_says_it_cannot(configured_library, detector, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, beatgrid, library
+@pytest.mark.python_core("el detector de pulso de mentira sustituye beatgrid._command")
+def test_the_api_gives_the_grid_or_says_it_cannot(
+    configured_library, detector, monkeypatch, connect_api
+):
+    from danplay import beatgrid, library
 
     root, _ = configured_library
     library.add_folder(root)
     library.scan()
-    client = TestClient(api.app)
+    client = connect_api()
     song_row = library.search("", limit=1)[0]
     r = client.get(f"/api/song/{song_row['id']}/beats")
     assert r.status_code == 200, r.text
@@ -382,15 +383,14 @@ def test_the_api_gives_the_grid_or_says_it_cannot(configured_library, detector, 
     assert client.get(f"/api/song/{song_row['id']}/beats").status_code == 200
 
 
-def test_the_api_without_waiting_and_preparing_the_next(configured_library, detector):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, beatgrid, library
+@pytest.mark.python_core("el detector de pulso de mentira sustituye beatgrid._command")
+def test_the_api_without_waiting_and_preparing_the_next(configured_library, detector, connect_api):
+    from danplay import beatgrid, library
 
     root, _ = configured_library
     library.add_folder(root)
     library.scan()
-    client = TestClient(api.app)
+    client = connect_api()
     first, second = library.search("", limit=2)
     r = client.get(f"/api/song/{first['id']}/beats", params={"wait": "false"})
     assert r.status_code == 202 and r.json()["pending"] is True
@@ -515,15 +515,14 @@ def test_changes_counts_places_not_beats():
     assert beatgrid.changes(both, beats) == 2
 
 
-def test_the_api_reanalyses(configured_library, detector):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, library
+@pytest.mark.python_core("el detector de pulso de mentira sustituye beatgrid._command")
+def test_the_api_reanalyses(configured_library, detector, connect_api):
+    from danplay import library
 
     root, _ = configured_library
     library.add_folder(root)
     library.scan()
-    client = TestClient(api.app)
+    client = connect_api()
     song_row = library.search("", limit=1)[0]
     url = f"/api/song/{song_row['id']}/beats/reanalyze"
     r = client.post(url, json={"mode": "steady"})
