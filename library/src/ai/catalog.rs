@@ -527,6 +527,43 @@ pub fn fetch(etag: Option<&str>, timeout: std::time::Duration) -> FetchOutcome {
     }
 }
 
+/// La foto que viaja con la app (`model_catalog.build_snapshot` de Python,
+/// que sacaba scripts/update-models.py): models.dev recortada a los
+/// proveedores del catálogo de DanPlay (la base entera son unos 4 MB y aquí
+/// sobra la mitad), con la hora `now`. Devuelve el JSON tal como se guarda
+/// y cuántos modelos lleva; `Err` con lo que dijo la red.
+pub fn snapshot(now: f64, timeout: std::time::Duration) -> Result<(String, usize), String> {
+    let mut wanted: Vec<String> = crate::ai::providers::catalog()
+        .iter()
+        .filter_map(|p| p.get("models_dev").and_then(Value::as_str))
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect();
+    wanted.sort();
+    wanted.dedup();
+    let raw = match fetch(None, timeout) {
+        FetchOutcome::Updated(raw, _) => raw,
+        FetchOutcome::Unchanged => {
+            return Err("models.dev contesto 304 sin haber preguntado por una copia".into());
+        }
+        FetchOutcome::Error(e) => return Err(e),
+    };
+    let providers = trim(&raw, Some(&wanted));
+    let models = providers
+        .values()
+        .filter_map(|p| p.get("models").and_then(Value::as_object))
+        .map(serde_json::Map::len)
+        .sum();
+    let data = json!({
+        "source": "snapshot",
+        "fetched_at": now,
+        "checked_at": 0,
+        "providers": providers,
+    });
+    // como `json.dumps(..., ensure_ascii=False, separators=(",", ":"))`
+    Ok((format!("{data}\n"), models))
+}
+
 // ----------------------------------------------------------------- consulta
 
 /// Los modelos de un proveedor, por fecha (los nuevos primero).

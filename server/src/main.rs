@@ -1,11 +1,15 @@
 //! `danplay-server`: la API de Rust por un socket, con los mismos argumentos
-//! que el núcleo empaquetado de Python (packaging/core_entry.py):
+//! que el núcleo empaquetado de Python de hasta la 1.30. La app no lo usa
+//! (lleva el núcleo dentro): es para las pruebas de la interfaz y los
+//! diferenciales con el de Python.
 //!
 //! ```text
 //! danplay-server --uds RUTA          socket Unix (Linux y macOS)
 //! danplay-server --host H --port N   loopback (Windows), con DANPLAY_TOKEN
 //! danplay-server --pulse GRAFO FFMPEG ARCHIVO [CRUDO]
 //!                                    el detector de pulso (lo lanza el clic)
+//! danplay-server --models-snapshot SALIDA
+//!                                    la foto del catálogo de modelos, la de hoy
 //! ```
 //!
 //! Sin socket y sin token no escucha fuera de este equipo. Se apaga si la
