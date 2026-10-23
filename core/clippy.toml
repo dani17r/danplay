@@ -1,3 +1,0 @@
-# En las pruebas, un unwrap que falla es la prueba fallando: es lo que se quiere.
-allow-unwrap-in-tests = true
-allow-print-in-tests = true

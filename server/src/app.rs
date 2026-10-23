@@ -111,8 +111,8 @@ impl App {
 
     /// La app empaquetada (la de escritorio, con el núcleo dentro): la
     /// configuración del entorno sin mirar el proyecto aunque esté en este
-    /// equipo (ni su .env, ni su danplay.db, ni su `data/`, ni su
-    /// .venv), y los datos que viajan con ella en `resources`. Sin esto, la
+    /// equipo (ni su .env, ni su danplay.db, ni su `data/`), y los datos
+    /// que viajan con ella en `resources`. Sin esto, la
     /// app compilada en el equipo donde está el código se creía en
     /// desarrollo: el núcleo de Python lo sabía por `sys.frozen`.
     pub fn packaged(guard: Guard, resources: PathBuf) -> Self {

@@ -42,7 +42,12 @@ igual; por dentro va más rápido y gasta menos.
   como algo que la interfaz no podía leer; si algo escribía en la base a la
   vez que un escaneo (el diario, una descarga), podían quedarse sin entrar
   las canciones de esa tanda; y una base borrada con la app abierta volvía
-  vacía, sin poder guardar nada, hasta reiniciar.
+  vacía, sin poder guardar nada, hasta reiniciar. Y lo que destaparon las
+  pruebas al pasar a Rust: un error de yt-dlp escrito con color perdía su
+  motivo («yt-dlp terminó con el código 1»); el clic de una canción se podía
+  calcular dos veces si se pedía justo cuando salía de la cola; y los textos
+  que llegan de fuera (títulos de YouTube, páginas) dejaban pasar algunos
+  caracteres de formato invisibles.
 - **Lo de dentro, en inglés**: carpetas, crates, módulos, funciones y
   variables (lo que se ve sigue en castellano). Lo guardado con nombre en
   castellano se renombra solo al arrancar, sin perder nada: en los datos de
@@ -52,9 +57,13 @@ igual; por dentro va más rápido y gasta menos.
   `.danplay-ondas.json` y `.danplay/diario.json` (los de antes se siguen
   leyendo); y las preferencias de la interfaz. El `.danpista` del celular no
   cambia.
-- **Para quien compila**: los paquetes, sin PyInstaller ni uv (Python y uv,
-  solo para las pruebas del núcleo de Python, que sigue en el repositorio);
-  `scripts/data.sh` deja los datos y ONNX Runtime en `data/`, la foto del
+- **Para quien compila**: Python ya no está en el repositorio. Sus casi
+  1.000 pruebas, pasadas a Rust una a una con los mismos valores esperados
+  (dónde está cada una, en [docs/TESTS-PORT.md](docs/TESTS-PORT.md)); las de
+  la interfaz de extremo a extremo, contra `danplay-server`; los datos que
+  viajan con la app, de `danplay/data` a `data/`. Los paquetes, sin
+  PyInstaller ni uv; `scripts/data.sh` deja los datos y ONNX Runtime en
+  `desktop/src-tauri/data/`, la foto del
   catálogo de modelos la saca la propia app (`--models-snapshot`) y
   `build-windows-cross.sh` ya no lleva el Python embebido ni pide
   `--no-crate`. QuickJS-NG en vez de Deno para los retos de YouTube

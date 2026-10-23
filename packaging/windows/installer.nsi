@@ -202,7 +202,7 @@ SectionEnd
 Section "Abrir canciones con DanPlay" SectionAssociate
   ; Los ocho formatos que DanPlay sabe leer. Tienen que ser los mismos que
   ; declara `bundle.fileAssociations` en tauri.conf.json; hay una prueba que
-  ; lo comprueba (tests/test_core.py).
+  ; lo comprueba (library/src/repo_checks.rs).
   !insertmacro Associate "mp3"  "Canción MP3"
   !insertmacro Associate "flac" "Canción FLAC"
   !insertmacro Associate "wav"  "Sonido WAV"

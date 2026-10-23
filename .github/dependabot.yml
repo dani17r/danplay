@@ -6,22 +6,6 @@
 version: 2
 
 updates:
-  # el nucleo (pyproject.toml + uv.lock; los requirements*.txt salen del lock)
-  - package-ecosystem: uv
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      python:
-        update-types: [minor, patch]
-    ignore:
-      # La 0.142 solo trae OpenTelemetry automatico (y una dependencia mas),
-      # que una app local no usa: se queda en la 0.141. La 0.143 si se propone
-      - dependency-name: fastapi
-        versions: ['>=0.142, <0.143']
-      # va fijada por pydantic: subirla sola nunca resuelve (PR #3)
-      - dependency-name: pydantic-core
-
   # la interfaz: Bun (desktop/package.json + bun.lock)
   - package-ecosystem: bun
     directory: /desktop
@@ -48,8 +32,9 @@ updates:
       - dependency-name: vitest
       - dependency-name: '@vitest/*'
 
-  # un solo workspace (Cargo.toml y Cargo.lock en la raiz): con los dos crates
-  # por separado, Dependabot no podia cargar el workspace y no proponia nada
+  # el nucleo y las apps: un solo workspace (Cargo.toml y Cargo.lock en la
+  # raiz); con los crates por separado, Dependabot no podia cargar el
+  # workspace y no proponia nada
   - package-ecosystem: cargo
     directory: /
     schedule:

@@ -16,6 +16,19 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.40.0',
+    date: '2026-10-23',
+    summary: 'Por dentro, nueva: más rápida, más ligera y sin programas aparte.',
+    items: [
+      'Abre antes: lo que se ve llega primero y lo demás se carga mientras la usas.',
+      'Gasta menos memoria: un proceso menos y la ventanita y la proyección, solo al usarlas.',
+      'Recorrer tus carpetas, hasta cuatro veces más rápido.',
+      'Separar en pistas gasta unos 300 MB menos.',
+      'yt-dlp se pone al día solo desde Descargas.',
+      'Arreglado: si borrabas la base con la app abierta, ya no se queda sin poder guardar.'
+    ]
+  },
+  {
     version: '1.30.0',
     date: '2026-10-17',
     summary: 'Como una secuencia: L y R en cada carril, la guía automática y exportar claro.',

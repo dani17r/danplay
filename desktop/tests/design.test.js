@@ -486,8 +486,9 @@ describe('sorting by a column', () => {
     expect(requests.length).toBeGreaterThan(4)
     const core = coreSource()
     for (const [field] of requests) {
+      // SORT_FIELDS de library/src/index/search.rs: ("campo", "c.columna", tipo)
       expect(core, `el nucleo no sabe ordenar por «${field}»`).toMatch(
-        new RegExp(`"${field}":\\s*\\(`)
+        new RegExp(`\\("${field}",\\s*"c\\.`)
       )
     }
     // por texto se espera de la A a la Z; por duracion, lo mas largo primero
@@ -1007,8 +1008,9 @@ describe('advanced search', () => {
     const fields = w.emitted('sort').map(([field]) => field)
     const core = coreSource()
     for (const field of fields) {
+      // SORT_FIELDS de library/src/index/search.rs: ("campo", "c.columna", tipo)
       expect(core, `el nucleo no sabe ordenar por «${field}»`).toMatch(
-        new RegExp(`"${field}":\\s*\\(`)
+        new RegExp(`\\("${field}",\\s*"c\\.`)
       )
     }
   })

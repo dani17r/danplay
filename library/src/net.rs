@@ -1,9 +1,8 @@
 //! Pedir una página por HTTP(S), con `ureq` (síncrono, rustls).
 //!
 //! Lo que busca en la web (los cifrados, la búsqueda de DuckDuckGo) recibe la
-//! forma de pedir una página como argumento: desde Python, la de Python
-//! (`urllib`, que las pruebas cortan o sustituyen); y cuando el núcleo entero
-//! esté en Rust, esta.
+//! forma de pedir una página como argumento: esta, o una de mentira en las
+//! pruebas.
 use std::time::Duration;
 
 /// Por qué no llegó una página.

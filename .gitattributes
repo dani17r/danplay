@@ -22,5 +22,3 @@ desktop/src/icons.js linguist-generated=true
 data/models-snapshot.json linguist-generated=true
 desktop/bun.lock linguist-generated=true
 **/Cargo.lock linguist-generated=true
-uv.lock linguist-generated=true
-requirements*.txt linguist-generated=true

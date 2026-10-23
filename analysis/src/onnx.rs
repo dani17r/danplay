@@ -1,9 +1,8 @@
 //! Las redes en ONNX Runtime (`ort`), para el pulso y para el separador.
 //!
 //! ONNX Runtime no va enlazado: se carga su biblioteca la primera vez que
-//! hace falta (`load`), la misma que trae el paquete `onnxruntime` de
-//! Python mientras el núcleo siga en Python (su `capi/`), y la que viaje con
-//! la app cuando no.
+//! hace falta (`load`): la que viaja con la app (ver
+//! `server::services::onnx`).
 use ort::ep;
 use ort::session::Session;
 use ort::session::builder::GraphOptimizationLevel;

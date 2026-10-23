@@ -1,6 +1,6 @@
-//! El análisis de DanPlay en Rust: lo que el núcleo hace con el sonido de
-//! cada canción, sacado poco a poco del núcleo Python (danplay/click.py,
-//! torchzip.py, pulse.py...).
+//! El análisis de DanPlay: lo que el núcleo hace con el sonido de cada
+//! canción. Salió del núcleo de Python de hasta la 1.30 (click.py,
+//! torchzip.py, pulse.py...), con sus mismas cuentas.
 //!
 //! - `mix`: el clic y las guías habladas de una mezcla guardada, en WAV;
 //! - `beatgrid`: la rejilla del clic con lo que dijo la red: de toda la
@@ -23,9 +23,7 @@
 //! - `align`: cuánto está corrido un archivo respecto a otro de la misma
 //!   canción (para aprovechar lo hecho con el de antes).
 //!
-//! Python lo usa a través de `danplay_core` (core/); la app lo usará
-//! directamente cuando el núcleo entero esté en Rust. Aquí no se sabe nada
-//! de Python.
+//! Lo usan la API (`server`) y las apps.
 // Las comparaciones exactas entre números con decimales son a propósito: la
 // cuenta es la de numpy, que compara igual (un máximo con su ventana, un punto
 // con su tabla), y con un margen saldría otra cosa.

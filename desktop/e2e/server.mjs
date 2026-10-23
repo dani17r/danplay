@@ -29,9 +29,10 @@ const ROOT = join(DESKTOP, '..')
 // `danplay-server` (DANPLAY_E2E_CORE, o el de `cargo build -p danplay-server`)
 const SERVER =
   process.env.DANPLAY_E2E_CORE ||
-  [join(ROOT, 'target', 'debug', 'danplay-server'), join(ROOT, 'target', 'release', 'danplay-server')].find(
-    (p) => existsSync(p)
-  )
+  [
+    join(ROOT, 'target', 'debug', 'danplay-server'),
+    join(ROOT, 'target', 'release', 'danplay-server')
+  ].find((p) => existsSync(p))
 const CORE_PORT = Number(process.env.DANPLAY_E2E_CORE_PORT || 8731)
 const VITE_PORT = Number(process.env.DANPLAY_E2E_VITE_PORT || 5274)
 const CORE = `http://127.0.0.1:${CORE_PORT}`

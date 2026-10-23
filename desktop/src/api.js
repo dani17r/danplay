@@ -1307,7 +1307,7 @@ export const api = {
   exportPlaylist: (id) => POST(`/playlists/${id}/export`),
 
   // La lista del reproductor: lo que has abierto desde FUERA de DanPlay.
-  // No entra en la biblioteca; ver `danplay/external.py`.
+  // No entra en la biblioteca; ver `server/src/services/external.rs`.
   /** @returns {Promise<{songs: Song[]}>} de lo último a lo más antiguo */
   externalList: () => GET('/external'),
   /** Apunta que esa ruta acaba de sonar. @param {string} path */
