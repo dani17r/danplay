@@ -36,10 +36,6 @@ pub const ROUTES: &[Route] = &[
     Route::get("/api/chat/tools", chat_tools),
 ];
 
-/// Lo que dice la descarga cuando aún no se eligió dónde guardar
-/// (`downloads.NO_FOLDER`).
-pub const NO_FOLDER: &str = "elige antes donde guardar lo que descargas";
-
 // ------------------------------------------------------------ los mensajes
 
 /// `list[ChatMessage]` (como `.plain()` cada uno): quién habla, el texto,
@@ -499,17 +495,17 @@ fn confirm_tool(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
             return Err(ApiError::http(503, youtube::unavailable_reason(app)));
         }
         if !folder_ready(app)? {
-            return Err(ApiError::conflict(NO_FOLDER));
+            return Err(ApiError::conflict(youtube::NO_FOLDER));
         }
-        let job = youtube::claim();
+        let job = youtube::claim(app);
         if job == 0 {
-            return Err(ApiError::conflict("ya hay una descarga en marcha"));
+            return Err(ApiError::conflict(youtube::BUSY));
         }
         let list: Vec<String> = items
             .as_array()
             .map(|a| a.iter().map(py::str_of).collect())
             .unwrap_or_default();
-        youtube::run_many_in_background(app, list.clone(), wanted.clone(), job, None);
+        youtube::start_many(app, list.clone(), tools::wanted_of(&wanted), job, None);
         let n = list.len();
         return Ok(json!({
             "ok": true,
@@ -568,16 +564,16 @@ fn confirm_registered(app: &App, entry_id: &str, selection: Option<&[Value]>) ->
         return Err(ApiError::http(503, youtube::unavailable_reason(app)));
     }
     if !folder_ready(app)? {
-        return Err(ApiError::conflict(NO_FOLDER));
+        return Err(ApiError::conflict(youtube::NO_FOLDER));
     }
-    let token = youtube::claim();
+    let token = youtube::claim(app);
     if token == 0 {
-        return Err(ApiError::conflict("ya hay una descarga en marcha"));
+        return Err(ApiError::conflict(youtube::BUSY));
     }
     let entry = match plan::claim(app, entry_id, selection) {
         Ok(e) => e,
         Err(e) => {
-            youtube::release(Some(token));
+            youtube::release(app, Some(token));
             return Err(gone(e));
         }
     };
@@ -588,7 +584,16 @@ fn confirm_registered(app: &App, entry_id: &str, selection: Option<&[Value]>) ->
         .map(|a| a.iter().map(py::str_of).collect())
         .unwrap_or_default();
     let after = entry.after.clone();
-    youtube::run_many_in_background(app, items.clone(), entry.args.clone(), token, after.clone());
+    // lo de completar la lista sale del registro, nunca del cliente
+    let on_done: Option<youtube::OnDone> = after.clone().map(|after| {
+        let worker = app.clone();
+        let finish: youtube::OnDone = Box::new(move |results| {
+            let results = Value::Array(results.into_iter().map(Value::Object).collect());
+            Ok(Some(Value::Object(plan::apply_after(&worker, &after, &results))))
+        });
+        finish
+    });
+    youtube::start_many(app, items.clone(), tools::wanted_of(&entry.args), token, on_done);
     let n = items.len();
     let mut text = downloading_text(n);
     let target = after.as_ref().and_then(|a| a.get("playlist")).cloned();
@@ -783,8 +788,9 @@ mod tests {
         assert_eq!(v["detail"], "No conozco esa propuesta (¿se reinició la app?): pídemela otra vez.");
         let (s, v) = call(&app, "POST", "/api/chat/confirm", Some(json!({"tool": "download_music", "args": {}})));
         assert_eq!((s, v), (400, json!({"detail": "hace falta algo que descargar"})));
+        // sin yt-dlp, 503; con él (si está en el PATH), sin carpeta elegida, 409
         let (s, v) = call(&app, "POST", "/api/chat/confirm", Some(json!({"tool": "download_music", "args": {"items": ["algo"]}})));
-        assert_eq!(s, 503);
+        assert!(s == 503 || (s == 409 && v["detail"] == crate::services::youtube::NO_FOLDER));
         assert!(v["detail"].as_str().is_some_and(|d| !d.is_empty()));
         let (s, v) = call(&app, "POST", "/api/chat/confirm", Some(json!({"tool": "delete_song", "args": {"id": 5}})));
         assert_eq!(s, 200);

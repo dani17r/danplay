@@ -123,6 +123,27 @@ pub fn handle(app: &App, req: &Request) -> Response {
     guard::cors(req, r)
 }
 
+/// Los procesos aparte que lanza el núcleo son el mismo programa con un
+/// argumento: `--pulse` (el detector de pulso) y `--separate` (separar en
+/// pistas). Si este proceso es uno de ellos, lo hace y da su código de
+/// salida; si no, `None`. Lo llaman, antes que nada, `danplay-server` y la
+/// app de escritorio (que lleva el núcleo dentro).
+pub fn child_process() -> Option<i32> {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let flag = args.get(1)?.to_str()?;
+    if flag == "--pulse" {
+        return Some(services::beats::child_main(&args[2..]));
+    }
+    if flag == services::separation::FLAG {
+        let rest: Vec<String> = args[2..]
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        return Some(services::separation::main(&rest));
+    }
+    None
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;

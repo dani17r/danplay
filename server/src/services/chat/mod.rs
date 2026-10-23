@@ -195,7 +195,7 @@ pub fn context_note(app: &App, messages: &[Dict], screen: &Value) -> Result<Stri
     if let Ok(lists) = playlists::list_all(app) {
         state.lists = Some(lists.into_iter().map(Value::Object).collect());
     }
-    state.download = Some(youtube::state());
+    state.download = Some(youtube::state(app));
     if let Ok(history) = app.db(|c| library::index::history::download_history(c, 6, 0)) {
         let recent: Vec<(Dict, bool)> = history
             .into_iter()

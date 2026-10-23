@@ -4,7 +4,7 @@
 //! no se pueden no paran a las demás.
 use crate::app::{App, VERSION};
 use crate::jobs::{JobError, Progress};
-use crate::services::{beatgrid, clock, cues, folders, index, stems};
+use crate::services::{beats, clock, cues, folders, songs, stems};
 use library::index::Dict;
 use library::py;
 use serde_json::{Value, json};
@@ -33,7 +33,9 @@ fn bundle_error(t: impl Into<String>) -> Failure {
 /// La rejilla del clic (la guardada, o calculada ahora) y, si no hay, por qué.
 fn grid(app: &App, path: &str) -> (Value, String) {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        beatgrid::grid_of(app, Path::new(path))
+        beats::grid_of(app, Path::new(path))
+            .map(|g| beats::as_value(&g))
+            .map_err(|e| e.to_string())
     })) {
         Ok(Ok(g)) => (g, String::new()),
         Ok(Err(why)) => (Value::Null, why),
@@ -90,7 +92,7 @@ fn cover(app: &App, path: &str) -> Option<(Vec<u8>, String)> {
 
 /// Prepara la canción `cid` para el celular y devuelve dónde quedó.
 fn export(app: &App, cid: i64, progress: &(dyn Fn(usize, usize) + Sync)) -> Result<Value, Failure> {
-    let song = index::by_id(app, cid)?
+    let song = songs::by_id(app, cid)?
         .ok_or_else(|| bundle_error("esa canción ya no está en la biblioteca"))?;
     let info = stems::info(app, &song)
         .filter(|i| i.get("complete").is_some_and(py::truthy))
@@ -118,7 +120,7 @@ fn export(app: &App, cid: i64, progress: &(dyn Fn(usize, usize) + Sync)) -> Resu
         let n = done.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         progress(n, total);
     };
-    let path = index::text(&song, "path");
+    let path = songs::text(&song, "path");
     let (grid, why) = grid(app, &path);
     step();
     let cover = cover(app, &path);
@@ -170,10 +172,10 @@ pub fn export_many(app: &App, ids: &[i64], p: &Progress) -> Result<Value, JobErr
     }
     let n = unique.len();
     for (i, cid) in unique.iter().enumerate() {
-        let song: Dict = index::by_id(app, *cid).ok().flatten().unwrap_or_default();
-        let mut title = index::text_or_empty(&song, "title");
+        let song: Dict = songs::by_id(app, *cid).ok().flatten().unwrap_or_default();
+        let mut title = songs::text_or_empty(&song, "title");
         if title.is_empty() {
-            title = stems::file_stem(&index::text_or_empty(&song, "file"));
+            title = stems::file_stem(&songs::text_or_empty(&song, "file"));
         }
         if title.is_empty() {
             title = format!("#{cid}");

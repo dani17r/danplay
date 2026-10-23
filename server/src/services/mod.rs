@@ -3,7 +3,6 @@
 //! módulo por cada uno de Python, con el mismo nombre en inglés: las rutas
 //! los usan, y los que porten las demás rutas añaden aquí los suyos.
 pub mod ai;
-pub mod beatgrid;
 pub mod beats;
 pub mod bundle;
 pub mod chat;
@@ -14,7 +13,6 @@ pub mod duplicates;
 pub mod enrich;
 pub mod external;
 pub mod folders;
-pub mod index;
 pub mod ingest;
 pub mod journal;
 pub mod library;
@@ -31,3 +29,4 @@ pub mod tags;
 pub mod tools;
 pub mod trash;
 pub mod youtube;
+pub mod ytdlp;

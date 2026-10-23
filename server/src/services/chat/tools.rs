@@ -390,6 +390,22 @@ pub fn check_downloads(app: &App, args: &Dict) -> Result<Dict, String> {
     t::check_downloads(args, &mut ServerIo { app }).map_err(|e| fault_text(&e))
 }
 
+/// Lo que se pide a `youtube.run_many` desde el asistente:
+/// `quality=args.get("quality")`, `file_it=args.get("file_it", True)`,
+/// `results=1`, `force=args.get("force", False)`, `source="assistant"`.
+pub fn wanted_of(args: &Dict) -> youtube::Wanted {
+    youtube::Wanted {
+        quality: args
+            .get("quality")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        file_it: args.get("file_it").is_none_or(py::truthy),
+        results: 1,
+        force: args.get("force").is_some_and(py::truthy),
+        source: "assistant".into(),
+    }
+}
+
 /// `_song_brief(c)`.
 pub fn song_brief(c: &Value) -> Value {
     t::song_brief(c).unwrap_or(Value::Null)
@@ -655,16 +671,25 @@ impl Io for ServerIo<'_> {
     }
 
     fn youtube_info(&mut self, query: &str, limit: i64) -> R<Value> {
-        Ok(Value::Object(youtube::info(self.app, query, limit, None)))
+        youtube::info(self.app, query, limit, None)
+            .map(Value::Object)
+            .map_err(ApiError::internal)
     }
 
-    fn run_many(&mut self, _plan: &Dict) -> R<Value> {
-        // sin las descargas en Rust no se llega aquí (`youtube_available`)
-        Ok(json!([{"ok": false, "reason": youtube::unavailable_reason(self.app)}]))
+    fn run_many(&mut self, plan: &Dict) -> R<Value> {
+        // todo bajo un solo turno (lo toma `run_many`): el avance, en el estado
+        let items: Vec<String> = plan
+            .get("items")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().map(py::str_of).collect())
+            .unwrap_or_default();
+        let wanted = wanted_of(plan);
+        let done = youtube::run_many(self.app, &items, &wanted, false, None, None);
+        Ok(Value::Array(done.into_iter().map(Value::Object).collect()))
     }
 
     fn youtube_state(&mut self) -> R<Value> {
-        Ok(Value::Object(youtube::state()))
+        Ok(Value::Object(youtube::state(self.app)))
     }
 
     fn web_search(&mut self, query: &str, limit: i64) -> R<Value> {

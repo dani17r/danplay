@@ -6,7 +6,7 @@ use crate::http::Response;
 use crate::jobs;
 use crate::router::{Ctx, Reply, Route};
 use crate::services::cues::{self, CueError, Edit};
-use crate::services::index;
+use crate::services::songs;
 use crate::services::structure::{self, AutoGuide};
 use library::index::Dict;
 use library::py;
@@ -33,8 +33,8 @@ fn with_status(e: CueError, status: u16) -> ApiError {
 }
 
 fn song(ctx: &Ctx<'_>, cid: i64) -> Result<Dict, ApiError> {
-    index::resolve(ctx.app, cid)?
-        .filter(|c| Path::new(&index::text(c, "path")).exists())
+    songs::resolve(ctx.app, cid)?
+        .filter(|c| Path::new(&songs::text(c, "path")).exists())
         .ok_or_else(|| ApiError::not_found("archivo no encontrado"))
 }
 

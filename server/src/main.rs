@@ -88,15 +88,9 @@ fn watch_parent(stop: std::sync::mpsc::Sender<()>) {
 
 fn main() {
     let _ = log::set_logger(&LOGGER).map(|()| log::set_max_level(log::LevelFilter::Info));
-    // el detector de pulso, en su proceso (lo lanza la rejilla del clic)
-    let raw: Vec<std::ffi::OsString> = std::env::args_os().collect();
-    if raw.len() >= 2 && raw[1] == "--pulse" {
-        std::process::exit(server::services::beats::child_main(&raw[2..]));
-    }
-    // el proceso que separa (lo lanza el propio núcleo): solo el motor
-    let all: Vec<String> = std::env::args().skip(1).collect();
-    if all.first().map(String::as_str) == Some(server::services::separation::FLAG) {
-        std::process::exit(server::services::separation::main(&all[1..]));
+    // el detector de pulso y el que separa: este programa con un argumento
+    if let Some(code) = server::child_process() {
+        std::process::exit(code);
     }
     let mut args = std::env::args().skip(1);
     let (mut uds, mut host, mut port) = (None, "127.0.0.1".to_owned(), 8730u16);

@@ -62,8 +62,6 @@ fn empty_library_tools() {
     );
     let r = run(&app, "download_status", json!({}));
     assert_eq!(r["active"], false);
-    let r = run(&app, "search_youtube", json!({"query": "barak"}));
-    assert!(r["error"].as_str().is_some_and(|e| !e.is_empty()));
 }
 
 #[test]
@@ -102,35 +100,29 @@ fn the_registry_of_confirmations() {
         panic!("no existe esa canción");
     };
     assert_eq!(why, "no existe esa canción");
-    // una descarga con plan: sin yt-dlp la búsqueda se para sola
+    // una descarga sin plan (con plan buscaría en YouTube de verdad: eso lo
+    // mira el diferencial, sin red); lo rechazado no se puede marcar
     let d = plan::register(
         &app,
         "download_music",
         &json!({"items": ["algo que bajar", "https://example.com/x"]}),
-        &json!({}),
+        &Value::Null,
         &Value::Null,
         None,
     )
     .expect("se registra");
-    assert_eq!(d["plan_state"], "buscando");
+    assert_eq!(d["summary"], "Descargar 1 tema de YouTube");
+    assert!(d.get("plan_state").is_none());
     let did = d["id"].as_str().expect("id").to_owned();
-    let mut view = plan::plan_view(&did).expect("lleva plan");
-    for _ in 0..100 {
-        if view["state"] != "buscando" {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        view = plan::plan_view(&did).expect("lleva plan");
-    }
-    assert_eq!(view["state"], "error");
-    assert_eq!(view["items"][1]["state"], "rechazada");
+    assert!(plan::plan_view(&did).is_none());
     let Err(plan::ClaimError::Nothing(why)) = plan::claim(&app, &did, Some(&[json!(1)])) else {
         panic!("la marcada no se puede bajar");
     };
     assert_eq!(why, "no hay nada marcado que se pueda bajar");
     assert_eq!(plan::status(&did)["state"], "live");
-    assert_eq!(plan::cancel(&did).expect("lleva plan")["ok"], true);
-    assert!(plan::plan_view(&id2).is_none());
+    let entry = plan::claim(&app, &did, None).expect("con las de siempre");
+    assert_eq!(entry.args["items"], json!(["algo que bajar"]));
+    assert!(plan::cancel(&did).is_none());
 }
 
 #[test]

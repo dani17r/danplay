@@ -18,7 +18,7 @@
 use super::lists;
 use crate::app::App;
 use crate::error::ApiError;
-use crate::services::{playlists, songs, youtube};
+use crate::services::{playlists, songs, youtube, ytdlp};
 use library::assistant::plan::{self as p, Card, Refused, Selection};
 use library::assistant::value::Error as DataError;
 use library::index::Dict;
@@ -505,6 +505,17 @@ fn lookup(app: &App, query: &str, key: &str, cancel: &AtomicBool, blocked: &Atom
     }
     let res = youtube::info(app, query, 1, Some(LOOKUP_TIMEOUT));
     SLOTS.release();
+    let res = match res {
+        Ok(r) => r,
+        // una consulta rara no tumba el lote (ni se recuerda)
+        Err(e) => {
+            let mut d = Dict::new();
+            d.insert("ok".into(), false.into());
+            let why = if e.is_empty() { "Exception".to_owned() } else { e };
+            d.insert("reason".into(), datum(&why, 160).into());
+            return d;
+        }
+    };
     let reason = res.get("reason").map(py::str_of).unwrap_or_default();
     if res.get("ok").is_some_and(py::truthy) || youtube::failure_kind(&reason).is_empty() {
         cache_put(key, res.clone());
@@ -561,12 +572,17 @@ fn stop_by_id(id: &str, kind: &str, reason: &str) {
 /// El hilo de una propuesta: busca sus filas en YouTube, dos a la vez. Corta
 /// el lote a la primera señal de 429, de «no eres un robot» o de red.
 fn work(app: &App, id: &str, search: &Arc<AtomicBool>) {
-    // sin yt-dlp no se puede buscar (lo de `_warm`)
-    if !youtube::available(app) {
-        let why = youtube::unavailable_reason(app);
+    // `_warm`: yt-dlp y su motor de JavaScript ANTES de abrir hilos (si no,
+    // cada hilo lo buscaba a la vez); sin yt-dlp no se puede buscar
+    if ytdlp::executable(app).is_none() {
+        let mut why = youtube::unavailable_reason(app);
+        if why.is_empty() {
+            "falta yt-dlp".clone_into(&mut why);
+        }
         stop_by_id(id, "unavailable", &datum(&why, 160));
         return;
     }
+    let _ = ytdlp::js_runtime(app, false);
     let remaining = registry()
         .find(id)
         .and_then(|e| e.card.as_ref().map(Card::pending))
@@ -642,7 +658,7 @@ pub fn apply_after(app: &App, after: &Dict, results: &Value) -> Dict {
         Ok(s) => s,
         Err(why) => return p::after_refused(&why),
     };
-    let canceled = youtube::canceled()
+    let canceled = youtube::canceled(app)
         || results.as_array().is_some_and(|a| {
             a.iter()
                 .any(|r| r.get("canceled").is_some_and(py::truthy))

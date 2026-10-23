@@ -10,7 +10,7 @@
 use crate::app::{App, VERSION};
 use crate::error::ApiError;
 use crate::jobs::{JobError, Progress};
-use crate::services::{folders, index, onnx, trash};
+use crate::services::{folders, songs, onnx, trash};
 use library::index::Dict;
 use library::py;
 use library::stems::{self as ls, FAST, FINAL, MAX, MAXIMUM, QUICK, REFINE, REST};
@@ -467,15 +467,15 @@ pub fn folder_of(app: &App, song: &Dict) -> Option<PathBuf> {
 }
 
 fn title_of(song: &Dict) -> String {
-    let artist = index::text_or_empty(song, "artist");
-    let title = index::text_or_empty(song, "title");
+    let artist = songs::text_or_empty(song, "artist");
+    let title = songs::text_or_empty(song, "title");
     if !artist.is_empty() && !title.is_empty() {
         return format!("{artist} - {title}");
     }
     if !title.is_empty() {
         return title;
     }
-    file_stem(&index::text_or_empty(song, "file"))
+    file_stem(&songs::text_or_empty(song, "file"))
 }
 
 /// `Path(file or "").stem`: vacío si no hay archivo.
@@ -720,12 +720,12 @@ fn write_manifest(
 }
 
 fn song_for(app: &App, cid: i64) -> Result<Dict> {
-    let song = index::by_id(app, cid)?
+    let song = songs::by_id(app, cid)?
         .ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
-    if !Path::new(&index::text(&song, "path")).is_file() {
+    if !Path::new(&songs::text(&song, "path")).is_file() {
         return Err(expected(format!(
             "no encuentro «{}»",
-            index::text(&song, "file")
+            songs::text(&song, "file")
         )));
     }
     let reason = missing(app);
@@ -782,7 +782,7 @@ fn needs_refine(app: &App, tracks: &Value) -> bool {
 }
 
 fn relative_to_root(target: &Path, song: &Dict) -> String {
-    let root = index::text(song, "root");
+    let root = songs::text(song, "root");
     py::relpath(&path_text(target), &root).unwrap_or_else(|| path_text(target))
 }
 
@@ -791,7 +791,7 @@ fn save_stems_column(app: &App, cid: i64, rel: &str, model: &str, quality: &str)
     d.insert("folder".into(), rel.into());
     d.insert("model".into(), model.into());
     d.insert("quality".into(), quality.into());
-    index::set_stems(app, cid, &ls::stems_json(&d))?;
+    songs::update_one(app, cid, "stems", serde_json::Value::from(ls::stems_json(&d)))?;
     Ok(())
 }
 
@@ -1113,7 +1113,7 @@ fn item(cid: i64, title: String, stage: &str) -> Dict {
 /// `stems.request`: a la cola, y la cola a andar si no lo está. Devuelve
 /// el estado. Pedir otra vez una que ya espera o se separa no la repite.
 pub fn request(app: &App, cid: i64, maximum: bool) -> Result<Value> {
-    let song = index::by_id(app, cid)?
+    let song = songs::by_id(app, cid)?
         .ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
     let reason = missing(app);
     if !reason.is_empty() {
@@ -1404,7 +1404,7 @@ pub fn forget(app: &App, song: &Dict) -> Result<Value, ApiError> {
             return Ok(r);
         }
     }
-    index::set_stems(app, cid, "")?;
+    songs::update_one(app, cid, "stems", serde_json::Value::from(""))?;
     Ok(json!({"ok": true, "folder": folder.map(|f| path_text(&f)).unwrap_or_default()}))
 }
 
@@ -1471,13 +1471,13 @@ fn suffix(path: &Path) -> String {
 /// canción; si cae fuera de una carpeta de pistas, entra en la biblioteca.
 #[allow(clippy::too_many_lines)]
 pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -> Result<Value> {
-    let song = index::by_id(app, cid)?
+    let song = songs::by_id(app, cid)?
         .ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
     let whole = !mix.tracks.is_empty() && mix.tracks.iter().all(|t| t.source == "song");
     let data = if whole { None } else { info(app, &song) };
     let mut chosen: Vec<(String, [f64; 4])> = Vec::new();
     if whole {
-        chosen.push((index::text(&song, "path"), track_matrix(&mix.tracks[0])));
+        chosen.push((songs::text(&song, "path"), track_matrix(&mix.tracks[0])));
     } else {
         let Some(d) = data.as_ref().filter(|d| is_true(d, "complete")) else {
             return Err(expected(
@@ -1526,7 +1526,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
     if !folders::within_roots(app, &path_text(&path))? {
         return Err(expected("la mezcla tiene que ir dentro de tu biblioteca"));
     }
-    if index::by_path(app, &path_text(&path))?.is_some() {
+    if songs::by_path(app, &path_text(&path))?.is_some() {
         return Err(expected(
             "ahí ya hay una canción de tu biblioteca: elige otro nombre",
         ));
@@ -1560,9 +1560,9 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
                 .to_lowercase()
         })
         .collect();
-    let mut title = index::text_or_empty(&song, "title");
+    let mut title = songs::text_or_empty(&song, "title");
     if title.is_empty() {
-        title = file_stem(&index::text(&song, "file"));
+        title = file_stem(&songs::text(&song, "file"));
     }
     let mut what: Vec<String> = Vec::new();
     if !muted.is_empty() {
@@ -1667,7 +1667,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             cmd.push(a.into());
         }
         cmd.extend(fmt_args.iter().map(Into::into));
-        let artist = index::text_or_empty(&song, "artist");
+        let artist = songs::text_or_empty(&song, "artist");
         if !artist.is_empty() {
             cmd.push("-metadata".into());
             cmd.push(format!("artist={artist}").into());
@@ -1724,7 +1724,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
     let indexed = if inside_stems {
         Value::Null
     } else {
-        index::index_file(app, &path)?
+        crate::services::library::index_file(app, &path.to_string_lossy(), None, None)?
             .and_then(|r| r.get("id").cloned())
             .unwrap_or(Value::Null)
     };

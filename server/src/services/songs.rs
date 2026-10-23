@@ -31,6 +31,16 @@ pub fn text(song: &Dict, key: &str) -> String {
     song.get(key).map(py::str_of).unwrap_or_default()
 }
 
+/// `song.get(key) or ""` (lo que es falso, vacío).
+pub fn text_or_empty(song: &Dict, key: &str) -> String {
+    song.get(key).filter(|v| py::truthy(v)).map(py::str_of).unwrap_or_default()
+}
+
+/// `library.by_path(path)`: la canción de esa ruta exacta, o `None`.
+pub fn by_path(app: &App, path: &str) -> Result<Option<Dict>, ApiError> {
+    app.db(|c| index::search::by_path(c, path))
+}
+
 /// `os.path.exists(c["path"])`.
 pub fn exists(song: &Dict) -> bool {
     let path = text(song, "path");
@@ -329,7 +339,7 @@ pub fn strerror(e: &std::io::Error) -> String {
 }
 
 /// `shutil.move`: renombrar, o copiar y borrar si es otro disco.
-fn move_file(src: &Path, dest: &Path) -> std::io::Result<()> {
+pub fn move_file(src: &Path, dest: &Path) -> std::io::Result<()> {
     match std::fs::rename(src, dest) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {

@@ -90,65 +90,11 @@ pub fn graph(app: &App) -> PathBuf {
     app.resources.join("pulse").join("beat_this.onnx")
 }
 
-fn ort_name(name: &str) -> bool {
-    name.starts_with("libonnxruntime.") || name == "onnxruntime.dll"
-}
-
-/// La primera biblioteca de ONNX Runtime de una carpeta (por nombre).
-fn ort_in(dir: &Path) -> Option<PathBuf> {
-    let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter(|e| ort_name(&e.file_name().to_string_lossy()))
-        .map(|e| e.path())
-        .collect();
-    found.sort();
-    found.into_iter().next()
-}
-
-/// La biblioteca de ONNX Runtime que se carga (`pulse.onnxruntime_library`):
-/// la que diga `DANPLAY_ONNXRUNTIME` (o `ORT_DYLIB_PATH`); la que viaja con
-/// la app (junto al ejecutable, o en su `lib/`); o, en desarrollo, la del
-/// paquete `onnxruntime` del entorno de Python del proyecto (su `capi/`).
-pub fn onnxruntime_library() -> Option<PathBuf> {
-    for var in ["DANPLAY_ONNXRUNTIME", "ORT_DYLIB_PATH"] {
-        if let Some(p) = std::env::var_os(var).filter(|v| !v.is_empty()) {
-            let p = PathBuf::from(p);
-            if p.is_file() {
-                return Some(p);
-            }
-            if let Some(found) = ort_in(&p) {
-                return Some(found);
-            }
-        }
-    }
-    let mut places: Vec<PathBuf> = Vec::new();
-    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
-        places.push(dir.join("lib"));
-        places.push(dir.join("..").join("lib").join("danplay"));
-        places.push(dir.join("..").join("Resources"));
-        places.push(dir);
-    }
-    let venv = crate::app::project_root().join(".venv");
-    for lib in [venv.join("lib"), venv.join("Lib")] {
-        let Ok(entries) = std::fs::read_dir(&lib) else {
-            continue;
-        };
-        let mut pythons: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
-        pythons.sort();
-        for py in pythons {
-            places.push(py.join("site-packages").join("onnxruntime").join("capi"));
-        }
-        places.push(lib.join("site-packages").join("onnxruntime").join("capi"));
-    }
-    places.iter().find_map(|p| ort_in(p))
-}
-
 /// `beatgrid.available()`: por qué no se puede calcular aquí, o vacío.
 pub fn available(app: &App) -> String {
     // con otro detector (`set_detector`), ONNX Runtime es cosa suya
     let custom = DETECTOR.lock().unwrap_or_else(PoisonError::into_inner).is_some();
-    if !custom && onnxruntime_library().is_none() {
+    if !custom && crate::services::onnx::library(app).is_none() {
         return "falta onnxruntime en esta instalación de DanPlay".into();
     }
     if app.tool("ffmpeg").is_none() {
@@ -197,6 +143,19 @@ fn save(app: &App, path: &Path, grid: &Json, edits: Json) -> Result<(), BeatsErr
     let entry = lb::entry(VERSION, Json::str(&path.to_string_lossy()), grid.clone(), edits);
     lb::write(&c, &entry);
     Ok(())
+}
+
+/// `beatgrid.save_exact(path, grid)`: una rejilla que no se adivina (la del
+/// tempo de un proyecto); vale aunque cambie la forma de sacar las demás.
+pub fn save_exact(app: &App, path: &Path, grid: &Value) -> Result<(), BeatsError> {
+    save(app, path, &from_value(grid), Json::List(Vec::new()))?;
+    let c = cache(app, path).map_err(|e| BeatsError::Other(e.to_string()))?;
+    lb::mark_exact(&c).map_err(|e| {
+        BeatsError::Other(match e {
+            lb::CacheError::TooDeep => "maximum recursion depth exceeded".into(),
+            lb::CacheError::Attribute(m) | lb::CacheError::Type(m) => m,
+        })
+    })
 }
 
 /// `beatgrid.raw_of(path)`: lo que dijo la red, si se guardó.
@@ -542,6 +501,11 @@ fn run(app: &App, path: &Path, raw: &Path) -> Result<(serde_json::Map<String, Va
         // sin ventana de consola
         cmd.creation_flags(0x0800_0000);
     }
+    // la biblioteca que encontró el núcleo (el hijo no sabe dónde están los
+    // datos de la app)
+    if let Some(lib) = crate::services::onnx::library(app) {
+        cmd.env("DANPLAY_ONNXRUNTIME", lib);
+    }
     let mut child = cmd
         .spawn()
         .map_err(|e| beats_err(format!("no pude lanzar el detector de pulso: {e}")))?;
@@ -651,7 +615,8 @@ pub fn child_main(args: &[OsString]) -> i32 {
     let raw_path = args.get(3).map(PathBuf::from);
     let mut out = std::io::stdout().lock();
     let said = (|| -> Result<(), String> {
-        let library = onnxruntime_library().ok_or("falta ONNX Runtime en esta instalación de DanPlay")?;
+        let library = crate::services::onnx::library_in(None)
+            .ok_or("falta ONNX Runtime en esta instalación de DanPlay")?;
         let (_grid, raw) = analysis::pulse::analyze(ffmpeg, path, &library, graph, &mut |part| {
             let line = Value::from(library::py::round(part, 3));
             let _ = writeln!(std::io::stdout(), "{{\"progress\": {}}}", library::py::dumps(&line));
