@@ -14,6 +14,7 @@ mod external;
 mod files;
 mod folders;
 mod guard;
+mod jobs;
 mod library;
 mod songs;
 mod stems;

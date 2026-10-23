@@ -310,6 +310,70 @@ mod tests {
         assert!(end["ended"].is_f64());
     }
 
+    /// tests/test_jobs.py: cómo va a mitad, y el mismo trabajo si se pide
+    /// otra vez mientras corre.
+    #[test]
+    fn a_job_reports_its_progress_and_leaves_its_result() {
+        let jobs = Jobs::new();
+        let (open, gate) = std::sync::mpsc::channel::<()>();
+        let (snap, already) = jobs.start("prueba", "x", move |p| {
+            p.update(Some(json!(1)), Some(json!(3)), Some("empezando"));
+            let _ = gate.recv_timeout(Duration::from_secs(5));
+            p.done(3);
+            Ok(json!({"hecho": true}))
+        });
+        assert!(!already && snap["active"] == true && snap["name"] == "prueba");
+        std::thread::sleep(Duration::from_millis(50));
+        let mid = jobs.snapshot("prueba").expect("trabajo");
+        assert_eq!(
+            (&mid["done"], &mid["total"], &mid["message"]),
+            (&json!(1), &json!(3), &json!("empezando"))
+        );
+        // otro igual mientras corre: el que ya está, no uno nuevo
+        let (again, already) = jobs.start("prueba", "x", |_| panic!("no se arranca otro"));
+        assert!(already);
+        assert_eq!(again["started"], snap["started"]);
+        open.send(()).expect("abrir");
+        let done = jobs
+            .wait("prueba", Duration::from_secs(5))
+            .expect("trabajo");
+        assert_eq!(
+            (&done["active"], &done["done"], &done["result"]),
+            (&json!(false), &json!(3), &json!({"hecho": true}))
+        );
+        assert_eq!(done["error"], "");
+        assert!(done["ended"].as_f64() >= done["started"].as_f64());
+    }
+
+    #[test]
+    fn the_snapshot_is_a_copy() {
+        let jobs = Jobs::new();
+        jobs.start("copia", "x", |_| Ok(json!({"lista": [1]})));
+        jobs.wait("copia", Duration::from_secs(5));
+        let mut snap = jobs.snapshot("copia").expect("trabajo");
+        snap["result"]["lista"]
+            .as_array_mut()
+            .expect("lista")
+            .push(json!(2));
+        snap["active"] = json!(true);
+        assert_eq!(
+            jobs.snapshot("copia").expect("trabajo")["result"],
+            json!({"lista": [1]})
+        );
+        assert_eq!(jobs.snapshot_all()["copia"]["active"], false);
+    }
+
+    #[test]
+    fn finished_jobs_are_forgotten_after_a_while() {
+        // (en Python, con `TTL` a cero; aquí, mirando pasado el `TTL`)
+        let jobs = Jobs::new();
+        jobs.start("viejo", "x", |_| Ok(json!(1)));
+        jobs.wait("viejo", Duration::from_secs(5));
+        Jobs::expire(&mut lock(&jobs.jobs), now() + TTL + 1.0);
+        assert_eq!(jobs.snapshot("viejo"), None);
+        assert_eq!(jobs.snapshot_all(), json!({}));
+    }
+
     #[test]
     fn errors_read_like_python() {
         let jobs = Jobs::new();
