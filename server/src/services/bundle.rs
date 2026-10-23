@@ -15,9 +15,19 @@ pub const JOB: &str = "bundle";
 /// Por qué no se pudo llevar una canción (el `BundleError` de Python), u
 /// otro fallo.
 #[derive(Debug)]
-enum Failure {
+pub(crate) enum Failure {
     Bundle(String),
     Other(String),
+}
+
+#[cfg(test)]
+impl Failure {
+    /// El texto del fallo (para las pruebas).
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Bundle(t) | Self::Other(t) => t,
+        }
+    }
 }
 
 impl From<crate::ApiError> for Failure {
@@ -91,7 +101,11 @@ fn cover(app: &App, path: &str) -> Option<(Vec<u8>, String)> {
 }
 
 /// Prepara la canción `cid` para el celular y devuelve dónde quedó.
-fn export(app: &App, cid: i64, progress: &(dyn Fn(usize, usize) + Sync)) -> Result<Value, Failure> {
+pub(crate) fn export(
+    app: &App,
+    cid: i64,
+    progress: &(dyn Fn(usize, usize) + Sync),
+) -> Result<Value, Failure> {
     let song = songs::by_id(app, cid)?
         .ok_or_else(|| bundle_error("esa canción ya no está en la biblioteca"))?;
     let info = stems::info(app, &song)
