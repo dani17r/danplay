@@ -14,6 +14,18 @@ Las rutas son de `server/src/` (el crate `danplay-server`) salvo que digan
 
 ## Servidor (B)
 
+De las 137 pruebas de estos once archivos: 120 nuevas en Rust, 15 que ya
+estaban (con lo que les faltaba añadido) y 2 que no se pasan (las del corte
+de red de conftest.py). Trozos sueltos que no se pasan, cada uno dicho en su
+fila: `beatgrid.improve` (solo de la CLI de Python), que `by_name` no pida
+la lista entera y `by_id("x")`, que con las partes puestas no se escuche la
+canción, y la cadena exacta de filtros de ffmpeg de una guía.
+
+Costuras nuevas, todas solo de pruebas (`#[cfg(test)]`): en `services/beats.rs`
+el hilo de la cola parado y el grafo de mentira; en `services/cues.rs` la voz
+de mentira (por app). Y una diferencia real, arreglada en Rust: la de la cola
+del pulso (abajo, en test_pulse.py).
+
 ### tests/test_pulse.py (26)
 
 | Python | Rust |
