@@ -178,3 +178,25 @@ Python era `with beatgrid._WAKE`) y el grafo de mentira (`set_graph`).
 | `test_a_broken_ai_json_is_set_aside_not_overwritten` | `api_tests/privacy.rs`: `a_broken_ai_json_is_set_aside_not_overwritten` |
 | `test_saving_profiles_at_once_loses_none` | `api_tests/privacy.rs`: `saving_profiles_at_once_loses_none` |
 | `test_folders_set_by_hand_migrate_nothing` | `api_tests/privacy.rs`: `folders_set_by_hand_migrate_nothing` (con `config_child`, como la de melodía) |
+
+### tests/test_cues.py (12)
+
+| Python | Rust |
+| --- | --- |
+| `test_numbers_and_shorthand_are_said_in_words` | `api_tests/cues.rs`: `numbers_and_shorthand_are_said_in_words` (`library/src/speech.rs` ya tenía otros casos, no estos) |
+| `test_the_phonemes_are_the_ones_the_spanish_voices_learnt` | `api_tests/cues.rs`: `the_phonemes_are_the_ones_the_spanish_voices_learnt` |
+| `test_polish_trims_the_silence_and_levels_it` | ya estaba en `analysis/src/cues.rs`: `polish_trims_silence_and_sets_level` |
+| `test_a_recording_becomes_a_guide_and_only_guides_are_read` | `api_tests/cues.rs`: `a_recording_becomes_a_guide_and_only_guides_are_read` |
+| `test_an_imported_audio_lasts_at_most_the_song` | `api_tests/cues.rs`: `an_imported_audio_lasts_at_most_the_song` (lo de «como mucho», con un audio que pasa del `MAX_IMPORT_SECONDS` de verdad en vez de bajarlo a 50) |
+| `test_a_guide_is_cut_faded_and_cleaned_into_a_new_one` | `api_tests/cues.rs`: `a_guide_is_cut_faded_and_cleaned_into_a_new_one` (lo de quitar el ruido y los graves, con ffmpeg de verdad: la cadena exacta de filtros no se ve desde fuera) |
+| `test_cleaning_a_guide_with_ffmpeg` | `api_tests/cues.rs`: `cleaning_a_guide_with_ffmpeg` (por `edit_clip`, que es quien llama a ffmpeg; el ruido, de un generador propio) |
+| `test_the_voices_and_what_they_weigh` | `services/cues.rs`: `tests::the_voices_and_what_they_weigh` |
+| `test_installing_a_voice_checks_what_arrives` | `services/cues.rs`: `tests::installing_a_voice_checks_what_arrives` (un servidor de archivos en 127.0.0.1 en vez de un `urlopen` de mentira, y archivos más ligeros que la voz de verdad) |
+| `test_the_api_for_guides` | `api_tests/cues.rs`: `the_api_for_guides` (con la voz de mentira, `services::cues::fake_voice`; lo de `available` depende de si el equipo tiene ONNX Runtime: en Python su entorno lo tenía) |
+| `test_the_old_and_the_new_name_are_merged` | ya estaba en `startup.rs`: `tests::the_old_and_the_new_name_are_merged` |
+| `test_the_guides_of_before_1_31_move_to_their_new_folder` | `api_tests/cues.rs`: `the_guides_of_before_1_31_move_to_their_new_folder` (lo de la base, al arrancar otra app sobre ella) |
+
+La voz de mentira es una costura solo de pruebas en `services/cues.rs`
+(`fake_voice`, por app): lo que en Python eran `cues.say`, `cues.installed`
+y `cues.install` sustituidos. Dice medio segundo de un tono, como la de
+Python, y no baja nada.

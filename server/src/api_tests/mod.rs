@@ -9,6 +9,7 @@
 mod ai;
 mod assistant;
 mod chat;
+mod cues;
 mod downloads;
 mod external;
 mod files;
