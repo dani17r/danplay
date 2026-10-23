@@ -1,0 +1,6 @@
+# Bun como gestor de paquetes de la interfaz (`vp install` lo llama).
+[install]
+# Nada que haya salido hace menos de dos semanas (en segundos): lo que se
+# publica con trampa suele descubrirse en unos días. Solo cuenta al resolver
+# algo nuevo; lo que ya está en bun.lock no se toca.
+minimumReleaseAge = 1209600
