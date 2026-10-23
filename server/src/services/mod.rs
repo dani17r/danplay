@@ -19,6 +19,7 @@ pub mod media;
 pub mod onnx;
 pub mod playlists;
 pub mod pyjson;
+pub mod reuse;
 pub mod separation;
 pub mod sequence;
 pub mod songs;

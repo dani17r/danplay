@@ -162,6 +162,29 @@ pub(crate) mod tests {
         dir
     }
 
+    /// Un wav mono de 16 bits con esas muestras (entre -1 y 1).
+    pub fn wav(path: &std::path::Path, samples: &[f32], rate: u32) {
+        let data: Vec<u8> = samples
+            .iter()
+            .flat_map(|s| (((s.clamp(-1.0, 1.0)) * 32767.0) as i16).to_le_bytes())
+            .collect();
+        let mut out = b"RIFF".to_vec();
+        out.extend((36 + data.len() as u32).to_le_bytes());
+        out.extend(b"WAVEfmt ");
+        out.extend(16u32.to_le_bytes());
+        out.extend(1u16.to_le_bytes());
+        out.extend(1u16.to_le_bytes());
+        out.extend(rate.to_le_bytes());
+        out.extend((rate * 2).to_le_bytes());
+        out.extend(2u16.to_le_bytes());
+        out.extend(16u16.to_le_bytes());
+        out.extend(b"data");
+        out.extend((data.len() as u32).to_le_bytes());
+        out.extend(data);
+        std::fs::create_dir_all(path.parent().expect("carpeta")).expect("carpeta");
+        std::fs::write(path, out).expect("escribir wav");
+    }
+
     /// Una app sobre carpetas temporales (nunca las de verdad).
     pub fn app() -> App {
         let dir = scratch("app");

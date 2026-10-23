@@ -121,7 +121,8 @@ fn cache(app: &App, path: &Path) -> std::io::Result<PathBuf> {
     Ok(folder(app).join(format!("{}.json", key_of(path)?)))
 }
 
-fn raw_file(app: &App, path: &Path) -> std::io::Result<PathBuf> {
+/// `beatgrid._raw_file(path)`: dónde va lo que dijo la red de un archivo.
+pub(crate) fn raw_file(app: &App, path: &Path) -> std::io::Result<PathBuf> {
     Ok(folder(app).join(format!("{}.npz", key_of(path)?)))
 }
 
@@ -137,7 +138,7 @@ fn saved(app: &App, path: &Path) -> Option<Json> {
 }
 
 /// `beatgrid._save(path, grid, edits)`.
-fn save(app: &App, path: &Path, grid: &Json, edits: Json) -> Result<(), BeatsError> {
+pub(crate) fn save(app: &App, path: &Path, grid: &Json, edits: Json) -> Result<(), BeatsError> {
     let c = cache(app, path).map_err(|e| BeatsError::Other(e.to_string()))?;
     lb::make_folder(&c).map_err(|(e, at)| BeatsError::Other(format!("{}: {e}", at.display())))?;
     let entry = lb::entry(VERSION, Json::str(&path.to_string_lossy()), grid.clone(), edits);
