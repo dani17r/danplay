@@ -406,3 +406,39 @@ carácter de formato.
 | `test_the_block_accepts_a_generator` | `F` `the_block_accepts_a_generator` |
 | `test_the_hostile_title_stays_enclosed` | `F` `the_hostile_title_stays_enclosed` |
 | `test_the_block_is_one_line_with_each_value_enclosed` | `F` `the_block_is_one_line_with_each_value_enclosed` |
+
+## tests/test_intake.py
+
+El lector de listas pegadas: `library/src/assistant/intake/tests.rs` (`I`);
+las muestras, copiadas a `library/src/assistant/intake/samples.json` (antes
+`tests/fixtures/intake_samples.json`). `last_setlist` es del servidor:
+`server/src/services/chat/tests/intake_cases.rs` (`S`). Las de Hypothesis,
+con un generador fijo.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_the_data_contract` | `I` `the_data_contract` (los topes y lo que valen sin nada; el orden de los campos de las «dataclasses» era de Python) |
+| `test_the_fixture_is_complete_and_clean` | `I` `the_fixture_is_complete_and_clean` |
+| `test_sample_parses_as_expected` | `I` `sample_parses_as_expected` (las 94 muestras, con el mismo comparador) |
+| `test_link_tracking_does_not_change_the_parse` | `I` `link_tracking_does_not_change_the_parse` |
+| `test_the_same_setlist_with_any_spacing` | `I` `the_same_setlist_with_any_spacing` |
+| `test_over_sixty_are_trimmed_and_the_excess_is_reported` | `I` `over_sixty_are_trimmed_and_the_excess_is_reported` |
+| `test_oddities_that_crashed_or_faked_a_setlist` | `I` `oddities_that_crashed_or_faked_a_setlist` |
+| `test_a_role_after_a_mention_is_the_note_not_a_surname` | `I` `a_role_after_a_mention_is_the_note_not_a_surname` |
+| `test_what_is_not_text_is_not_a_setlist` | `I` `what_is_not_text_is_not_a_setlist` (None, números, bytes y listas eran de Python: quedan el texto vacío y el de solo espacios) |
+| `test_read_intent` | `I` `read_intent_cases` (la tabla entera) |
+| `test_read_intent_in_uppercase_and_without_text` | `I` `read_intent_in_uppercase_and_without_text` |
+| `test_clean_youtube_url` | `I` `clean_youtube_url_cases` |
+| `test_what_is_not_youtube_gives_empty` | `I` `what_is_not_youtube_gives_empty` |
+| `test_what_is_not_text_gives_empty` | no se pasa: None, números, listas y bytes; en Rust la dirección siempre es texto |
+| `test_pasted_setlist_keeps_yt_playlist_and_drops_the_mix` | `I` `pasted_setlist_keeps_yt_playlist_and_drops_the_mix` |
+| `test_a_hostile_link_in_the_setlist_is_not_a_song` | `I` `a_hostile_link_in_the_setlist_is_not_a_song` |
+| `test_last_setlist_takes_the_users_last_visible_setlist` | `S` `last_setlist_takes_the_users_last_visible_setlist` |
+| `test_last_setlist_accepts_role_user_and_tolerates_junk` | `S` `last_setlist_accepts_role_user_and_tolerates_junk` |
+| `test_last_setlist_without_a_setlist_gives_none` | `S` `last_setlist_without_a_setlist_gives_none` (sin lo que no es una lista de mensajes) |
+| `test_last_setlist_only_looks_at_the_window` | `S` `last_setlist_only_looks_at_the_window` |
+| `test_hostile_input_in_under_a_second` | `I` `hostile_input_in_under_a_second` (las 25 entradas; sin optimizar, diez veces más de tope) |
+| `test_over_200_kb_is_cut_and_does_not_hang` | `I` `over_200_kb_is_cut_and_does_not_hang` |
+| `test_the_parser_never_fails_and_keeps_the_contract` | `I` `the_parser_never_fails_and_keeps_the_contract` |
+| `test_any_text_does_not_break_either` | `I` `any_text_does_not_break_either` |
+| `test_clean_youtube_url_is_canonical_and_idempotent` | `I` `clean_youtube_url_is_canonical_and_idempotent` |

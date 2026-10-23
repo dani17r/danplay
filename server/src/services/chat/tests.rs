@@ -9,6 +9,7 @@ use std::net::TcpListener;
 use std::sync::Mutex;
 
 mod ai_cases;
+mod intake_cases;
 
 /// El registro es uno para todo el proceso: las pruebas que lo tocan van de
 /// una en una.
