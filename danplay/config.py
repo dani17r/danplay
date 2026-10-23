@@ -112,18 +112,52 @@ OLD_DATA_NAMES = (
 
 
 def rename_old(folder: Path, names) -> None:
-    """Cambia cada nombre de antes por el de ahora dentro de `folder`."""
+    """Cambia cada nombre de antes por el de ahora dentro de `folder`.
+
+    Si ya estan los dos (una version de antes volvio a crear el suyo despues
+    de renombrarlo), se juntan: lo que solo esta en el de antes pasa al de
+    ahora y, si esta en los dos, se queda lo mas reciente."""
     for old, new in names:
         src, dst = folder / old, folder / new
         try:
-            if src.exists() and not dst.exists():
-                src.rename(dst)
+            if src.exists() or src.is_symlink():
+                _move_or_merge(src, dst)
         except OSError:
             log.warning("no se pudo renombrar %s", src, exc_info=True)
 
 
-rename_old(DATA_DIR, OLD_DATA_NAMES)
-rename_old(DATA_DIR / "cues", (("prueba", "previews"),))
+def _move_or_merge(src: Path, dst: Path) -> None:
+    if not (dst.exists() or dst.is_symlink()):
+        src.rename(dst)
+        return
+    if src.is_dir() and dst.is_dir():
+        for child in list(src.iterdir()):
+            _move_or_merge(child, dst / child.name)
+        log.info("juntado %s con %s", src, dst)
+        src.rmdir()
+        return
+    if src.lstat().st_mtime > dst.lstat().st_mtime:
+        _remove(dst)
+        src.rename(dst)
+    else:
+        _remove(src)
+
+
+def _remove(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+# Solo con la carpeta de datos puesta a mano (las pruebas, los arneses). La
+# app ya no usa este nucleo (desde la fase 4 lleva dentro el de Rust, que
+# renombra al arrancar), y un script de desarrollo que lo importara sin caja
+# de arena renombraba la carpeta de la app instalada: la 1.30 dejaba de ver
+# sus guias, su voz y sus rejillas (paso el 22 de octubre de 2026).
+if os.environ.get("DANPLAY_DATA_DIR"):
+    rename_old(DATA_DIR, OLD_DATA_NAMES)
+    rename_old(DATA_DIR / "cues", (("prueba", "previews"),))
 
 ENV_FILE = CONFIG_DIR / "danplay.env"
 

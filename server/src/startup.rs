@@ -26,15 +26,50 @@ pub const OLD_DATA_NAMES: [(&str, &str); 7] = [
 ];
 
 /// `config.rename_old`: cada nombre de antes por el de ahora dentro de `folder`.
+///
+/// Si ya están los dos (una versión de antes volvió a crear el suyo después
+/// de renombrarlo, como la 1.30 abierta junto a una de ahora), se juntan:
+/// lo que solo está en el de antes pasa al de ahora y, si está en los dos,
+/// se queda lo más reciente. Así no se pierde lo que hizo entretanto la de
+/// antes (su diario, una rejilla corregida) ni quedan copias repetidas.
 pub fn rename_old(folder: &Path, names: &[(&str, &str)]) {
     for (old, new) in names {
         let (src, dst) = (folder.join(old), folder.join(new));
-        if src.exists()
-            && !dst.exists()
-            && let Err(e) = std::fs::rename(&src, &dst)
-        {
+        if src.symlink_metadata().is_err() {
+            continue;
+        }
+        if let Err(e) = move_or_merge(&src, &dst) {
             log::warn!("no se pudo renombrar {}: {e}", src.display());
         }
+    }
+}
+
+fn move_or_merge(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if dst.symlink_metadata().is_err() {
+        return std::fs::rename(src, dst);
+    }
+    if src.is_dir() && dst.is_dir() {
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            move_or_merge(&entry.path(), &dst.join(entry.file_name()))?;
+        }
+        log::info!("juntado {} con {}", src.display(), dst.display());
+        return std::fs::remove_dir(src);
+    }
+    let modified = |p: &Path| p.symlink_metadata().and_then(|m| m.modified()).ok();
+    if modified(src) > modified(dst) {
+        remove_any(dst)?;
+        std::fs::rename(src, dst)
+    } else {
+        remove_any(src)
+    }
+}
+
+fn remove_any(path: &Path) -> std::io::Result<()> {
+    if path.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
     }
 }
 
@@ -303,4 +338,50 @@ pub fn stop(app: &App) {
     crate::services::youtube::cancel(app);
     watcher::stop(app);
     journal::stop(app);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, SystemTime};
+
+    fn write_at(path: &Path, text: &str, age: u64) {
+        std::fs::create_dir_all(path.parent().expect("carpeta")).expect("carpeta");
+        std::fs::write(path, text).expect("escribir");
+        let when = SystemTime::now() - Duration::from_secs(age);
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|f| f.set_modified(when))
+            .expect("fecha");
+    }
+
+    /// La 1.30 volvió a crear sus carpetas después de que una de ahora las
+    /// renombrara: se juntan, con lo más reciente de cada cosa.
+    #[test]
+    fn the_old_and_the_new_name_are_merged() {
+        let dir = std::env::temp_dir().join(format!("danplay-nombres-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // solo en la de antes, en las dos (más nueva la de antes / la de
+        // ahora) y un archivo de estado en las dos
+        write_at(&dir.join("pulso/a.json"), "solo antes", 50);
+        write_at(&dir.join("pulso/b.json"), "b antes, nueva", 10);
+        write_at(&dir.join("beats/b.json"), "b ahora, vieja", 100);
+        write_at(&dir.join("pulso/c.json"), "c antes, vieja", 100);
+        write_at(&dir.join("beats/c.json"), "c ahora, nueva", 10);
+        write_at(&dir.join("diario.json"), "diario nuevo", 10);
+        write_at(&dir.join("journal.json"), "diario viejo", 100);
+        write_at(&dir.join("voces/v.onnx"), "voz", 10);
+        rename_old(&dir, &OLD_DATA_NAMES);
+        let read = |p: &str| std::fs::read_to_string(dir.join(p)).expect(p);
+        assert_eq!(read("beats/a.json"), "solo antes");
+        assert_eq!(read("beats/b.json"), "b antes, nueva");
+        assert_eq!(read("beats/c.json"), "c ahora, nueva");
+        assert_eq!(read("journal.json"), "diario nuevo");
+        assert_eq!(read("voices/v.onnx"), "voz");
+        for gone in ["pulso", "diario.json", "voces"] {
+            assert!(!dir.join(gone).exists(), "{gone} sigue ahí");
+        }
+        std::fs::remove_dir_all(&dir).expect("borrar");
+    }
 }

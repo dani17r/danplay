@@ -4,6 +4,7 @@ y la API."""
 
 import json
 import os
+import time
 import wave
 
 import numpy as np
@@ -348,6 +349,36 @@ def test_the_api_for_guides(configured_library, guides, monkeypatch, connect_api
     assert r.status_code == 200 and "editada-" in r.json()["file"]
     assert r.json()["seconds"] == 0.4
     assert client.post("/api/cues/edit", json={"file": guide, "fade_in": 9}).status_code == 422
+
+
+def test_the_old_and_the_new_name_are_merged(tmp_path):
+    """La 1.30 vuelve a crear sus carpetas si una de ahora las renombro
+    mientras seguia en uso: al arrancar se juntan, con lo mas reciente de
+    cada cosa, y no queda el nombre de antes."""
+    from danplay import config
+
+    def write(path, text, age):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        when = time.time() - age
+        os.utime(path, (when, when))
+
+    write(tmp_path / "pulso" / "a.json", "solo antes", 50)
+    write(tmp_path / "pulso" / "b.json", "b antes, nueva", 10)
+    write(tmp_path / "beats" / "b.json", "b ahora, vieja", 100)
+    write(tmp_path / "pulso" / "c.json", "c antes, vieja", 100)
+    write(tmp_path / "beats" / "c.json", "c ahora, nueva", 10)
+    write(tmp_path / "diario.json", "diario nuevo", 10)
+    write(tmp_path / "journal.json", "diario viejo", 100)
+    write(tmp_path / "voces" / "v.onnx", "voz", 10)
+    config.rename_old(tmp_path, config.OLD_DATA_NAMES)
+    read = lambda p: (tmp_path / p).read_text(encoding="utf-8")  # noqa: E731
+    assert read("beats/a.json") == "solo antes"
+    assert read("beats/b.json") == "b antes, nueva"
+    assert read("beats/c.json") == "c ahora, nueva"
+    assert read("journal.json") == "diario nuevo"
+    assert read("voices/v.onnx") == "voz"
+    assert not any((tmp_path / gone).exists() for gone in ("pulso", "diario.json", "voces"))
 
 
 def test_the_guides_of_before_1_31_move_to_their_new_folder(
