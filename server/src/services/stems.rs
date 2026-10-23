@@ -124,6 +124,8 @@ pub struct Separator {
     encoders: Mutex<HashMap<PathBuf, String>>,
     /// cómo se lanza el proceso que separa (las pruebas ponen otro)
     command: Mutex<Option<Vec<OsString>>>,
+    /// con un separador de mentira: todo está y todo se puede
+    fake: AtomicBool,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -136,6 +138,13 @@ impl Separator {
     /// argumento.
     pub fn set_command(&self, command: Vec<OsString>) {
         *lock(&self.command) = Some(command);
+    }
+
+    /// Un separador de mentira (las pruebas): `command` en vez del de
+    /// verdad, y sin mirar si hay ONNX Runtime, ffmpeg o los pesos.
+    pub fn set_fake(&self, command: Vec<OsString>) {
+        self.set_command(command);
+        self.fake.store(true, Ordering::SeqCst);
     }
 }
 
@@ -215,11 +224,14 @@ fn weights_path(app: &App, p: &Part) -> PathBuf {
 
 /// Los pesos de esa parte ya están bajados (y enteros).
 fn installed(app: &App, p: &Part) -> bool {
-    std::fs::metadata(weights_path(app, p)).is_ok_and(|m| m.len() == p.bytes)
+    app.separator.fake.load(Ordering::SeqCst) || std::fs::metadata(weights_path(app, p)).is_ok_and(|m| m.len() == p.bytes)
 }
 
 /// Por qué no se puede separar en este equipo, o vacío si se puede.
 pub fn missing(app: &App) -> String {
+    if app.separator.fake.load(Ordering::SeqCst) {
+        return String::new();
+    }
     let reason = onnx::missing(app);
     if !reason.is_empty() {
         return reason;
@@ -436,7 +448,12 @@ fn title_of(song: &Dict) -> String {
     if !title.is_empty() {
         return title;
     }
-    py::path_stem(&index::text_or_empty(song, "file"))
+    file_stem(&index::text_or_empty(song, "file"))
+}
+
+/// `Path(file or "").stem`: vacío si no hay archivo.
+pub fn file_stem(file: &str) -> String {
+    if file.is_empty() { String::new() } else { py::path_stem(file) }
 }
 
 /// Un nombre al azar de 12 cifras hexadecimales (`uuid4().hex[:12]`).
@@ -986,14 +1003,14 @@ pub fn request(app: &App, cid: i64, maximum: bool) -> Result<Value> {
     if maximum && complete && data.as_ref().is_some_and(|d| is_true(d, "max")) {
         return Err(expected("ya tiene la máxima calidad"));
     }
-    if maximum && complete && data.as_ref().is_some_and(|d| is_true(d, "best")) {
-        enqueue(app, item(cid, title_of(&song), "max"));
+    let state = if maximum && complete && data.as_ref().is_some_and(|d| is_true(d, "best")) {
+        enqueue(app, item(cid, title_of(&song), "max"))
     } else {
         let mut it = item(cid, title_of(&song), stage_for(app, &song));
         it.insert("then_max".into(), maximum.into());
-        enqueue(app, it);
-    }
-    Ok(status(app))
+        enqueue(app, it)
+    };
+    Ok(state.unwrap_or_else(|| status(app)))
 }
 
 fn id_of(d: &Dict) -> i64 {
@@ -1004,7 +1021,10 @@ fn stage_of(d: &Dict) -> &str {
     d.get("stage").and_then(Value::as_str).unwrap_or("")
 }
 
-fn enqueue(app: &App, it: Dict) {
+/// A la cola, y la cola a andar si no lo estaba. Si se pone a andar,
+/// devuelve el estado de justo antes (con la canción aún en la cola, como lo
+/// veía Python: su hilo no empezaba hasta después de contestar).
+fn enqueue(app: &App, it: Dict) -> Option<Value> {
     let wake = {
         let mut q = lock(&app.separator.queue);
         let cid = id_of(&it);
@@ -1027,13 +1047,17 @@ fn enqueue(app: &App, it: Dict) {
         }
         wake
     };
-    if wake {
+    if !wake {
+        return None;
+    }
+    {
         // la tanda anterior pudo decidir que acababa y no haber cerrado aún
         // su trabajo: son microsegundos, pero sin esperar no arrancaría otro
         let limit = Instant::now() + Duration::from_secs(5);
         while app.jobs.active(JOB) && Instant::now() < limit {
             std::thread::sleep(Duration::from_millis(10));
         }
+        let before = status(app);
         let me = app.clone();
         app.jobs.start(JOB, "no se pudo separar", move |p| {
             /// La cola deja de andar al acabar, también si algo revienta.
@@ -1046,6 +1070,7 @@ fn enqueue(app: &App, it: Dict) {
             let _drained = Drained(&me);
             drain_queue(&me, p).map_err(JobError::from)
         });
+        Some(before)
     }
 }
 
@@ -1363,7 +1388,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
         .collect();
     let mut title = index::text_or_empty(&song, "title");
     if title.is_empty() {
-        title = py::path_stem(&index::text(&song, "file"));
+        title = file_stem(&index::text(&song, "file"));
     }
     let mut what: Vec<String> = Vec::new();
     if !muted.is_empty() {

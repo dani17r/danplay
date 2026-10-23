@@ -156,7 +156,7 @@ pub fn export_many(app: &App, ids: &[i64], p: &Progress) -> Result<Value, JobErr
         let song: Dict = index::by_id(app, *cid).ok().flatten().unwrap_or_default();
         let mut title = index::text_or_empty(&song, "title");
         if title.is_empty() {
-            title = py::path_stem(&index::text_or_empty(&song, "file"));
+            title = stems::file_stem(&index::text_or_empty(&song, "file"));
         }
         if title.is_empty() {
             title = format!("#{cid}");

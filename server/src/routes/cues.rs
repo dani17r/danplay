@@ -179,3 +179,92 @@ fn cue_audio(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let data = cues::audio(ctx.app, &file).map_err(|e| with_status(e, 404))?;
     Ok(json!({"mime": "audio/wav", "data": cues::base64(&data)}).into())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::http::Request;
+    use crate::routes::stems::tests::with_song;
+    use crate::{App, handle};
+    use serde_json::{Value, json};
+
+    fn call(app: &App, method: &str, path: &str, body: Option<Value>) -> (u16, Value) {
+        let mut req = Request::new(method, path);
+        if let Some(b) = body {
+            req = req.json(&b);
+        }
+        let r = handle(app, &req);
+        (r.status, r.json_value().unwrap_or(Value::Null))
+    }
+
+    #[test]
+    fn the_voices_and_what_is_not_there() {
+        let (app, id, _) = with_song();
+        let (st, v) = call(&app, "GET", "/api/cues/voices", None);
+        assert_eq!(st, 200);
+        assert!(v["voices"].as_array().is_some_and(|a| !a.is_empty()));
+        assert!(v["available"].is_string());
+        assert_eq!(
+            call(&app, "POST", "/api/cues/voices/nadie/install", None),
+            (404, json!({"detail": "no conozco esa voz"}))
+        );
+        assert_eq!(
+            call(&app, "POST", "/api/song/999999/cues", Some(json!({"text": "Coro", "voice": "st-F1"}))),
+            (404, json!({"detail": "archivo no encontrado"}))
+        );
+        assert_eq!(
+            call(&app, "POST", &format!("/api/song/{id}/cues"), Some(json!({"text": "Coro", "voice": "nadie"}))),
+            (422, json!({"detail": "no conozco esa voz"}))
+        );
+        let (st, v) = call(&app, "POST", &format!("/api/song/{id}/cues"), Some(json!({"text": "", "voice": "st-F1", "x": 1})));
+        assert_eq!(st, 422);
+        assert_eq!(v["detail"][0]["type"], "string_too_short");
+        assert_eq!(v["detail"][1]["type"], "extra_forbidden");
+        let (st, v) = call(&app, "GET", "/api/cues/wave", None);
+        assert_eq!((st, v["detail"][0]["loc"].clone()), (422, json!(["query", "file"])));
+        assert_eq!(
+            call(&app, "GET", "/api/cues/wave?file=/etc/passwd", None),
+            (404, json!({"detail": "esa guía no está"}))
+        );
+        assert_eq!(
+            call(&app, "POST", "/api/cues/edit", Some(json!({"file": "/etc/passwd"}))),
+            (422, json!({"detail": "esa guía no está"}))
+        );
+        assert_eq!(
+            call(&app, "POST", "/api/cues/audio", Some(json!({"file": "x"}))),
+            (404, json!({"detail": "no encuentro esa guía"}))
+        );
+        let (st, v) = call(&app, "POST", &format!("/api/song/{id}/cues/auto"), Some(json!({"voice": "st-F1", "beat": 9})));
+        assert_eq!(st, 422);
+        assert_eq!(v["detail"][0]["ctx"], json!({"le": 5.0}));
+    }
+
+    #[test]
+    fn a_recording_is_brought_trimmed_heard_and_edited() {
+        let (app, id, song) = with_song();
+        let import = format!("/api/song/{id}/cues/import");
+        assert_eq!(
+            call(&app, "POST", &import, Some(json!({"path": "/no/esta.wav"}))),
+            (422, json!({"detail": "no encuentro ese audio"}))
+        );
+        let (st, v) = call(&app, "POST", &import, Some(json!({"path": song, "limit": 30})));
+        assert_eq!(st, 200, "{v}");
+        let file = v["file"].as_str().expect("archivo").to_owned();
+        assert!(file.contains("/cues/grabada-"), "{file}");
+        assert!(v["seconds"].as_f64().is_some_and(|s| s > 1.5 && s < 2.1), "{v}");
+        let (st, w) = call(&app, "GET", &format!("/api/cues/wave?file={file}&buckets=8"), None);
+        assert_eq!(st, 200);
+        assert_eq!(w["peaks"].as_array().map(Vec::len), Some(8));
+        let (st, e) = call(&app, "POST", "/api/cues/edit", Some(json!({"file": file, "start": 0.2, "end": 1.0, "fade_in": 0.1})));
+        assert_eq!(st, 200, "{e}");
+        assert!(e["file"].as_str().is_some_and(|f| f.contains("/cues/editada-")));
+        assert_eq!(
+            call(&app, "POST", "/api/cues/edit", Some(json!({"file": file, "start": 50}))),
+            (422, json!({"detail": "lo que queda es demasiado corto"}))
+        );
+        let (st, a) = call(&app, "POST", "/api/cues/audio", Some(json!({"file": file})));
+        assert_eq!(st, 200);
+        assert_eq!(a["mime"], "audio/wav");
+        let bytes = std::fs::read(&file).expect("guía");
+        assert_eq!(a["data"], crate::services::cues::base64(&bytes));
+    }
+}
