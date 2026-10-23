@@ -56,7 +56,7 @@ jobs:
         run: uv run basedpyright
       # repartidas entre los núcleos de la máquina (pytest-xdist)
       - name: pruebas del núcleo, con cobertura
-        run: uv run pytest -n auto
+        run: uv run pytest -n auto --dist loadfile
       # Sin `extension-module` en Cargo.toml, las pruebas enlazarian con
       # libpython; con esto se compilan como la extension que hace maturin.
       - name: estilo del crate
@@ -75,8 +75,14 @@ jobs:
   # caminos distintos que en Linux no se ejecutan nunca. Con el crate de Rust,
   # que el núcleo necesita (las etiquetas, los nombres...), compilado aquí.
   core-windows:
-    name: núcleo Python en Windows
+    name: núcleo Python en Windows (${{ matrix.shard }}/2)
     runs-on: windows-latest
+    # las pruebas, repartidas entre dos máquinas a la vez (DANPLAY_SHARD:
+    # por archivos y por lo que tarda cada uno, ver tests/conftest.py)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -99,10 +105,13 @@ jobs:
           pip install -r requirements.txt -r requirements-test.txt
           # el crate de Rust del núcleo, compilado con maturin
           pip install ./core
-      # repartidas entre los núcleos de la máquina (pytest-xdist): en serie
-      # eran más de 7 minutos
+      # media suite en cada máquina, repartida entre sus núcleos (en serie
+      # eran más de 7 minutos), cada archivo entero en el mismo proceso. Sin
+      # cobertura: con media suite no llegaría al mínimo; se mide en Linux.
       - name: pruebas
-        run: pytest -n auto
+        env:
+          DANPLAY_SHARD: ${{ matrix.shard }}/2
+        run: pytest -n auto --dist loadfile --no-cov
       - name: la línea de órdenes arranca
         run: python -m danplay.cli status
 

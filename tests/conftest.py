@@ -16,6 +16,7 @@ por mutagen, y con eso se monta una biblioteca temporal completa.
 
 import atexit
 import ipaddress
+import json
 import os
 import pathlib
 import shutil
@@ -129,6 +130,40 @@ socket.getaddrinfo = _getaddrinfo
 
 # --------------------------------------------------------------- fixtures
 import pytest  # noqa: E402  (despues del aislamiento a proposito)
+
+
+def pytest_collection_modifyitems(config, items):
+    """Con `DANPLAY_SHARD=k/n`, solo la parte k de n: la CI de Windows reparte
+    las pruebas entre varias maquinas a la vez. Por archivos enteros (las de
+    un archivo cuentan con lo que hicieron las de antes), y por lo que tarda
+    cada uno (tests/durations.json; los que no estan, 0,1 s por prueba): del
+    mas lento al mas rapido, cada uno a la parte que menos lleva. Siempre la
+    misma reparticion. Para rehacer los tiempos:
+    `pytest -n auto --dist loadfile --no-cov --junitxml=t.xml` y sumarlos."""
+    shard = os.environ.get("DANPLAY_SHARD", "")
+    if not shard:
+        return
+    k, n = (int(x) for x in shard.split("/"))
+    known = json.loads((pathlib.Path(__file__).parent / "durations.json").read_text("utf-8"))
+    cost: dict[str, float] = {}
+    for item in items:
+        path = item.nodeid.split("::")[0]
+        cost.setdefault(path, 0.0)
+        if path not in known:
+            cost[path] += 0.1
+    for path in cost:
+        cost[path] = known.get(path, cost[path])
+    load, part = [0.0] * n, {}
+    for path in sorted(cost, key=lambda p: (-cost[p], p)):
+        j = load.index(min(load))
+        part[path] = j
+        load[j] += cost[path]
+    keep = [it for it in items if part[it.nodeid.split("::")[0]] == k - 1]
+    dropped = [it for it in items if part[it.nodeid.split("::")[0]] != k - 1]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+        items[:] = keep
+
 
 # Hypothesis (tests/test_properties.py): sin plazo por ejemplo. En un disco
 # lento o en la CI el primero tarda, y fallaba por tiempo y no por el codigo.
