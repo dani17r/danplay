@@ -26,28 +26,20 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["time"] }
-hyper = { version = "1", features = ["client", "http1"] }
-hyper-util = { version = "0.1", features = ["client", "client-legacy", "tokio", "http1"] }
-http-body-util = "0.1"
 rand = "0.10"
 # El motor de pistas, el mismo que el del celular: decodifica, mezcla la
 # cancion y sus pistas, estira (Signalsmith), pone el clic y las voces guia,
 # y lo saca por los canales que se elijan. Y lo que comparten las dos apps:
 # el pulso y su rejilla, el metronomo y la cola.
 danplay-engine = { path = "../../engine" }
-# El nucleo en Rust (la fase 4): con DANPLAY_RUST_CORE=1 la app le pide la
-# API a este, en el mismo proceso, en vez de al nucleo de Python.
+# El nucleo de DanPlay, en el mismo proceso: la API entera, sus trabajos, el
+# vigilante de carpetas, y el pulso y el separador (esta misma app con un
+# argumento).
 danplay-server = { path = "../../server" }
 
 # Reproduccion en el sistema (MPRIS en Linux, SMTC en Windows, Now Playing en
 # macOS): teclas multimedia, pantalla de bloqueo y el reproductor del escritorio.
 souvlaki = "0.8"
-
-[target.'cfg(unix)'.dependencies]
-# El nucleo escucha en un socket Unix 0600. En Windows no existe (ni uvicorn
-# sabe de named pipes), asi que alli se usa TCP en loopback con token.
-hyperlocal = "0.9"
-libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # La bandeja de Tauri usa libappindicator, que NO entrega los clics sobre el
@@ -62,9 +54,6 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 
 [target.'cfg(windows)'.dependencies]
-# Sin PDEATHSIG: en Windows la forma de que el nucleo muera con la app es
-# meterlo en un Job Object que se cierra al morir el proceso padre.
-win32job = "2"
 # Para registrar DanPlay como reproductor de musica: todo en HKCU, asi que no
 # hace falta ser administrador ni tocar nada de los demas usuarios.
 winreg = "0.56"
