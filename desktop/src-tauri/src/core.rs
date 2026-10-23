@@ -62,7 +62,21 @@ fn rust_core() -> bool {
 /// El nucleo de Rust con la configuracion del entorno (la misma que leeria
 /// el de Python) y los programas que viajan con la app.
 fn in_process() -> server::App {
-    let app = server::App::from_env(server::Guard::default());
+    let app = if prefer_source() {
+        // en desarrollo, como el de Python desde el codigo: el .env del
+        // proyecto cuenta y los datos son los de danplay/data
+        server::App::from_env(server::Guard::default())
+    } else {
+        // la app instalada: sus datos (`data/`, con ONNX Runtime) van entre
+        // los recursos, y el proyecto no cuenta aunque este en este equipo
+        let data = crate::tools::bundled("data").unwrap_or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(|d| d.join("data")))
+                .unwrap_or_default()
+        });
+        server::App::packaged(server::Guard::default(), data)
+    };
     if let Some(tools) = crate::tools::bundled_dir() {
         app.update_config(|c| c.tools_dir = tools.to_string_lossy().into_owned());
     }

@@ -234,28 +234,6 @@ pub fn forget(app: &App, cid: i64) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// `stems.forget(song)`: sus pistas separadas, a la papelera, y olvidadas.
-/// La cola de separar no está todavía en Rust: no hay nada que sacar de
-/// ella.
-fn forget_stems(app: &App, song: &Dict) -> Result<Value, ApiError> {
-    let cfg = app.config();
-    let folder = library::stems::folder_of(song, &cfg.library.to_string_lossy());
-    if let Some(f) = &folder
-        && Path::new(f).exists()
-    {
-        if !folders::within_roots(app, f)? {
-            return Ok(json!({"ok": false, "error": "esa carpeta está fuera de la biblioteca"}));
-        }
-        let r = trash::trash_path(Path::new(f));
-        if r.get("ok") != Some(&Value::Bool(true)) {
-            return Ok(r);
-        }
-    }
-    let id = song.get("id").and_then(Value::as_i64).unwrap_or(0);
-    update_one(app, id, "stems", Value::from(""))?;
-    Ok(json!({"ok": true, "folder": folder.unwrap_or_default()}))
-}
-
 /// `library.trash(cid, from_lists)`: el archivo a la papelera del sistema
 /// (nunca se borra sin vuelta atrás) y fuera del índice; con `from_lists`,
 /// también de sus listas.
@@ -271,7 +249,8 @@ pub fn trash(app: &App, cid: i64, from_lists: bool) -> Result<Value, ApiError> {
     // sus pistas separadas se van con ella, también a la papelera
     let mut stems_gone = false;
     if c.get("stems").is_some_and(py::truthy) {
-        stems_gone = forget_stems(app, &c)?.get("ok") == Some(&Value::Bool(true));
+        // y sale de la cola de separar, si esperaba (`stems.forget`)
+        stems_gone = crate::services::stems::forget(app, &c)?.get("ok") == Some(&Value::Bool(true));
     }
     forget(app, cid)?;
     let mut lists = 0;

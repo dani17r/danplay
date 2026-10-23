@@ -101,7 +101,7 @@ Cuando todo lo de arriba esté en Rust:
 5. **La CI**: los paquetes sin `uv` ni pruebas de Python; las pruebas de
    Python, solo en `tests.yml`.
 
-### Cómo va (22 de octubre de 2026)
+### Cómo va (23 de octubre de 2026)
 
 El enrutador ya existe: el crate `server/` (`danplay-server`). Contesta en
 el mismo proceso (`server::handle(&app, &request)`) o por un socket Unix o
@@ -143,9 +143,25 @@ y el estado: en el comentario de `server/src/lib.rs`.
   historial; las dos que no, el paso «consultando PyPI» frente a «consultando
   GitHub». Probadas de verdad: actualizar desde GitHub, consultar, bajar un
   vídeo con licencia Creative Commons y cancelar otro a medias.
-- **Faltan**: `ai.py` y `assistant.py` (`songs.py`, `stems.py` y `cues.py`
-  ya están en `routes::all`); el vigilante de carpetas (`watcher.py`) y «aprovechar» lo de otro archivo
-  de la misma canción (`reuse.settle`: el desfase se calcula con numpy).
+- **Las canciones, las pistas y las guías** (`songs.py`, `stems.py`,
+  `cues.py`): la rejilla del clic con el detector en su proceso, la cola de
+  separar con el separador en el suyo, las voces, la mezcla, el celular y
+  las secuencias. Comparadas: 229 de 229 y 98 de 98 iguales.
+- **La IA y el asistente** (`ai.py`, `assistant.py`): los rasgos del
+  asistente (`plan::Index`, `tools::Io`, `conversation::Chat`) ya tienen su
+  versión de Rust (`services/chat/`). Comparados contra un modelo falso
+  compatible con OpenAI: 210 de 210 respuestas iguales, y las 127 peticiones
+  al modelo, también.
+- **Los procesos aparte** (`--pulse`, `--separate`) son el mismo programa con
+  un argumento (`server::child_process`): `danplay-server` y la app de
+  escritorio, que lleva el núcleo dentro.
+- **La app instalada** usa `App::packaged`: los datos que viajan con ella
+  (`data/`) y nada del proyecto aunque el código esté en el mismo equipo (lo
+  que en Python era `sys.frozen`).
+- **Faltan**: el vigilante de carpetas (`watcher.py`) y «aprovechar» lo de
+  otro archivo de la misma canción (`reuse.settle`: el desfase se calcula
+  con numpy); las pruebas de la API de Python contra el núcleo de Rust; los
+  paquetes sin Python y la CI.
 
 Medido en la fase 0, lo que se espera ganar: unos 150 MB y miles de
 archivos menos en el paquete de Windows, varios minutos menos por paquete en

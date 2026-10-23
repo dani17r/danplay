@@ -448,6 +448,38 @@ pub enum FetchOutcome {
     Error(String),
 }
 
+/// Un fallo de la red con el texto que daba `urllib` de Python («<urlopen
+/// error [Errno -3] Temporary failure in name resolution>»): es lo que se
+/// guarda como error del catálogo y lo que enseña la interfaz.
+pub fn urllib_text(e: &ureq::Error) -> String {
+    let timed_out = "<urlopen error timed out>".to_owned();
+    match e {
+        ureq::Error::Timeout(_) => timed_out,
+        ureq::Error::Io(io) => {
+            if io.kind() == std::io::ErrorKind::TimedOut {
+                return timed_out;
+            }
+            let text = io.to_string();
+            if let Some(rest) = text.strip_prefix("failed to lookup address information: ") {
+                // los códigos de getaddrinfo (EAI_*) que da Python
+                let code = match rest {
+                    "Temporary failure in name resolution" => -3,
+                    "No address associated with hostname" => -5,
+                    "Non-recoverable failure in name resolution" => -4,
+                    _ => -2,
+                };
+                return format!("<urlopen error [Errno {code}] {rest}>");
+            }
+            if let Some(code) = io.raw_os_error() {
+                let why = text.split(" (os error").next().unwrap_or(&text);
+                return format!("<urlopen error [Errno {code}] {why}>");
+            }
+            format!("<urlopen error {text}>")
+        }
+        other => other.to_string(),
+    }
+}
+
 /// Pregunta a models.dev con ureq, con el ETag de la copia (para la fase 4;
 /// hoy lo pide Python).
 pub fn fetch(etag: Option<&str>, timeout: std::time::Duration) -> FetchOutcome {
@@ -465,7 +497,7 @@ pub fn fetch(etag: Option<&str>, timeout: std::time::Duration) -> FetchOutcome {
     }
     let mut response = match req.call() {
         Ok(r) => r,
-        Err(e) => return FetchOutcome::Error(e.to_string()),
+        Err(e) => return FetchOutcome::Error(urllib_text(&e)),
     };
     let status = response.status().as_u16();
     if status == 304 {

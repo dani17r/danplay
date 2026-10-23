@@ -5,6 +5,7 @@
 pub mod ai;
 pub mod beats;
 pub mod bundle;
+pub mod chat;
 pub mod clock;
 pub mod convert;
 pub mod cues;
