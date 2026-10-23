@@ -1003,14 +1003,14 @@ pub fn request(app: &App, cid: i64, maximum: bool) -> Result<Value> {
     if maximum && complete && data.as_ref().is_some_and(|d| is_true(d, "max")) {
         return Err(expected("ya tiene la máxima calidad"));
     }
-    let state = if maximum && complete && data.as_ref().is_some_and(|d| is_true(d, "best")) {
-        enqueue(app, item(cid, title_of(&song), "max"))
+    if maximum && complete && data.as_ref().is_some_and(|d| is_true(d, "best")) {
+        enqueue(app, item(cid, title_of(&song), "max"));
     } else {
         let mut it = item(cid, title_of(&song), stage_for(app, &song));
         it.insert("then_max".into(), maximum.into());
-        enqueue(app, it)
-    };
-    Ok(state.unwrap_or_else(|| status(app)))
+        enqueue(app, it);
+    }
+    Ok(status(app))
 }
 
 fn id_of(d: &Dict) -> i64 {
@@ -1021,10 +1021,11 @@ fn stage_of(d: &Dict) -> &str {
     d.get("stage").and_then(Value::as_str).unwrap_or("")
 }
 
-/// A la cola, y la cola a andar si no lo estaba. Si se pone a andar,
-/// devuelve el estado de justo antes (con la canción aún en la cola, como lo
-/// veía Python: su hilo no empezaba hasta después de contestar).
-fn enqueue(app: &App, it: Dict) -> Option<Value> {
+/// A la cola, y la cola a andar si no lo estaba. Si se pone a andar, espera
+/// (un momento) a que tome la primera: el hilo de Python la tomaba antes de
+/// que se contestara (`Thread.start` cede el intérprete al hilo nuevo), y
+/// así el estado que se contesta ya la tiene en `current`.
+fn enqueue(app: &App, it: Dict) {
     let wake = {
         let mut q = lock(&app.separator.queue);
         let cid = id_of(&it);
@@ -1048,7 +1049,7 @@ fn enqueue(app: &App, it: Dict) -> Option<Value> {
         wake
     };
     if !wake {
-        return None;
+        return;
     }
     {
         // la tanda anterior pudo decidir que acababa y no haber cerrado aún
@@ -1057,7 +1058,6 @@ fn enqueue(app: &App, it: Dict) -> Option<Value> {
         while app.jobs.active(JOB) && Instant::now() < limit {
             std::thread::sleep(Duration::from_millis(10));
         }
-        let before = status(app);
         let me = app.clone();
         app.jobs.start(JOB, "no se pudo separar", move |p| {
             /// La cola deja de andar al acabar, también si algo revienta.
@@ -1070,7 +1070,15 @@ fn enqueue(app: &App, it: Dict) -> Option<Value> {
             let _drained = Drained(&me);
             drain_queue(&me, p).map_err(JobError::from)
         });
-        Some(before)
+        let limit = Instant::now() + Duration::from_millis(200);
+        while Instant::now() < limit {
+            let q = lock(&app.separator.queue);
+            if q.current.is_some() || q.queue.is_empty() || !q.draining {
+                break;
+            }
+            drop(q);
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 }
 
