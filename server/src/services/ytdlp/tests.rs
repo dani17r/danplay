@@ -180,7 +180,7 @@ echo '{"id": "x", "title": "Hola"}'
 exit 1"#,
     );
     let mut steps = Vec::new();
-    let ran = run(&fake, &[], Some(Duration::from_secs(20)), &mut |s| steps.push(s), &|| false)
+    let ran = run(&fake, &[], Some(Duration::from_secs(20)), None, &mut |s| steps.push(s), &|| false)
         .expect("arranca");
     assert_eq!(ran.json, Some(json!({"id": "x", "title": "Hola"})));
     assert_eq!(ran.code, Some(1));
@@ -191,13 +191,30 @@ exit 1"#,
     // cancelar: se mata a él y a lo que lanzó
     let slow = script(&dir, "lento", "sleep 30 & wait");
     let t = Instant::now();
-    let ran = run(&slow, &[], None, &mut |_| {}, &|| t.elapsed() > Duration::from_millis(300))
+    let ran = run(&slow, &[], None, None, &mut |_| {}, &|| t.elapsed() > Duration::from_millis(300))
         .expect("arranca");
     assert!(ran.canceled);
     assert!(ran.json.is_none());
     assert!(t.elapsed() < Duration::from_secs(10));
+    // por las buenas primero (lo que descomprimió PyInstaller se borra), y
+    // con el temporal que se le dé
+    let polite = script(
+        &dir,
+        "educado",
+        "trap 'echo adios > \"$TMPDIR/adios\"; exit 0' TERM\nsleep 30 & wait",
+    );
+    let tmp = dir.join("tmp");
+    std::fs::create_dir_all(&tmp).expect("temporal");
+    let t = Instant::now();
+    let ran = run(&polite, &[], None, Some(&tmp), &mut |_| {}, &|| {
+        t.elapsed() > Duration::from_millis(300)
+    })
+    .expect("arranca");
+    assert!(ran.canceled);
+    assert!(tmp.join("adios").is_file());
+    assert!(t.elapsed() < Duration::from_secs(10));
     // con tope
-    let ran = run(&slow, &[], Some(Duration::from_millis(300)), &mut |_| {}, &|| false)
+    let ran = run(&slow, &[], Some(Duration::from_millis(300)), None, &mut |_| {}, &|| false)
         .expect("arranca");
     assert!(ran.timed_out);
     assert_eq!(ran.failure(), "yt-dlp tardo demasiado en contestar");

@@ -126,11 +126,26 @@ y el estado: en el comentario de `server/src/lib.rs`.
   la API al núcleo de Rust en el mismo proceso (sin proceso aparte, sin
   socket, sin token); sin la variable, todo sigue como antes. Las pruebas de
   la interfaz contra él: `DANPLAY_E2E_CORE=<ruta de danplay-server> npm run e2e`.
-- **Faltan**: `songs.py`, `stems.py`, `cues.py`, `ai.py`, `assistant.py` y
-  `downloads.py`; el vigilante de carpetas (`watcher.py`), «aprovechar» lo de
-  otro archivo de la misma canción (`reuse.settle`: el desfase se calcula
-  con numpy) y yt-dlp sin Python (hasta entonces, «disponible» es que su
-  ejecutable esté en `tools/` o en el PATH).
+- **Las descargas** (`downloads.py`, con el turno, `STATE`, `run_many` y
+  `on_done` de `youtube.py` en `services::youtube`, que es también la API de
+  Rust para el asistente): yt-dlp ya sin Python, como su ejecutable oficial
+  (`services::ytdlp`). Las opciones de la API de Python van como argumentos
+  (`--ignore-config` delante), lo que devolvía `extract_info` sale de `-J`,
+  lo que recogía el `logger` de los «WARNING:» y «ERROR:» de stderr, y el
+  avance de una plantilla `--progress-template` en JSON; cancelar es matar
+  el proceso con lo que lanzó (primero por las buenas, para que el de
+  PyInstaller borre lo que descomprimió). Ponerlo al día baja de GitHub el
+  ejecutable de este sistema (`yt-dlp_linux`...), comprobado con su
+  SHA2-256SUMS, a `DATA_DIR/tools/yt-dlp/<versión>/` con su marca `current`.
+  Comparadas con el núcleo de Python (un yt-dlp de mentira como módulo en un
+  lado, y como ejecutable en el otro detrás del lector de opciones del yt-dlp
+  de verdad): 161 de 163 iguales, con lo bajado, sus etiquetas y el
+  historial; las dos que no, el paso «consultando PyPI» frente a «consultando
+  GitHub». Probadas de verdad: actualizar desde GitHub, consultar, bajar un
+  vídeo con licencia Creative Commons y cancelar otro a medias.
+- **Faltan**: `songs.py`, `stems.py`, `cues.py`, `ai.py` y `assistant.py`;
+  el vigilante de carpetas (`watcher.py`) y «aprovechar» lo de otro archivo
+  de la misma canción (`reuse.settle`: el desfase se calcula con numpy).
 
 Medido en la fase 0, lo que se espera ganar: unos 150 MB y miles de
 archivos menos en el paquete de Windows, varios minutos menos por paquete en

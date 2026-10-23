@@ -689,6 +689,14 @@ fn kill(child: &mut Child) {
             .ok()
             .and_then(rustix::process::Pid::from_raw)
         {
+            // primero que se vaya por las buenas: el ejecutable de
+            // PyInstaller borra al salir lo que descomprimió (decenas de MB
+            // en el temporal); si no se va en unos segundos, a la fuerza
+            let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::TERM);
+            let limit = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < limit && matches!(child.try_wait(), Ok(None)) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
             let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
         }
     }
@@ -707,15 +715,22 @@ fn kill(child: &mut Child) {
 
 /// Lanza yt-dlp con esos argumentos y lo sigue hasta que acaba: el avance a
 /// `progress`, sus avisos y errores, el JSON del final. Si `cancel()` dice
-/// que sí, o pasa `cap`, se mata.
+/// que sí, o pasa `cap`, se mata. Con `tmpdir`, su temporal es ese (lo que
+/// deje ahí, aunque se le mate, se va con la carpeta).
 pub fn run(
     exe: &Path,
     args: &[String],
     cap: Option<Duration>,
+    tmpdir: Option<&Path>,
     progress: &mut dyn FnMut(Map<String, Value>),
     cancel: &dyn Fn() -> bool,
 ) -> std::io::Result<Ran> {
     let mut cmd = processes::order(exe, args);
+    if let Some(dir) = tmpdir {
+        for name in ["TMPDIR", "TEMP", "TMP"] {
+            cmd.env(name, dir);
+        }
+    }
     cmd.env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
         .stdin(Stdio::null())

@@ -297,7 +297,7 @@ fn info_unlocked(
     let rt = ytdlp::js_runtime(app, false);
     let mut args = ytdlp::base_args(rt.as_ref(), true);
     args.extend(ytdlp::query_args(&url, timeout));
-    let ran = match ytdlp::run(&exe.path, &args, Some(ytdlp::QUERY_CAP), &mut |_| {}, &|| false) {
+    let ran = match ytdlp::run(&exe.path, &args, Some(ytdlp::QUERY_CAP), None, &mut |_| {}, &|| false) {
         Ok(r) => r,
         Err(e) => {
             let text = yt::plain(&e.to_string());
@@ -410,7 +410,7 @@ pub fn download_one(
     let mut args = ytdlp::base_args(rt.as_ref(), false);
     let ffmpeg = app.tool("ffmpeg");
     args.extend(ytdlp::download_args(&outtmpl, kbps, ffmpeg.as_deref(), target_url));
-    let ran = match ytdlp::run(&exe.path, &args, None, progress, cancel) {
+    let ran = match ytdlp::run(&exe.path, &args, None, Some(tmp.path()), progress, cancel) {
         Ok(r) => r,
         Err(e) => return Ok(failure(py::head(&e.to_string(), 200))),
     };
