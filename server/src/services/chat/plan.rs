@@ -18,7 +18,7 @@
 use super::lists;
 use crate::app::App;
 use crate::error::ApiError;
-use crate::services::{playlists, youtube};
+use crate::services::{playlists, songs, youtube};
 use library::assistant::plan::{self as p, Card, Refused, Selection};
 use library::assistant::value::Error as DataError;
 use library::index::Dict;
@@ -155,7 +155,7 @@ impl p::Index for Index<'_> {
     type Error = ApiError;
 
     fn song(&mut self, id: i64) -> Result<Value, ApiError> {
-        Ok(lists::song(self.0, id)?.map_or(Value::Null, Value::Object))
+        Ok(songs::by_id(self.0, id)?.map_or(Value::Null, Value::Object))
     }
 
     fn playlist(&mut self, id: i64) -> Result<Value, ApiError> {

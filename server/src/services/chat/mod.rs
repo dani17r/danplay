@@ -172,7 +172,7 @@ fn still_there(app: &App, h: &Dict) -> bool {
     let Some(sid) = h.get("song_id").filter(|v| py::truthy(v)).and_then(lists::int_of) else {
         return false;
     };
-    let Ok(Some(song)) = lists::song(app, sid) else {
+    let Ok(Some(song)) = crate::services::songs::by_id(app, sid) else {
         return false;
     };
     let target = text_of(h, "target");
@@ -394,7 +394,7 @@ impl Chat for ServerChat<'_, '_> {
             )));
         };
         Ok(match library::py::json::loads(&raw) {
-            Ok(j @ library::py::json::Json::Dict(_)) => lookups::from_json(&j),
+            Ok(j @ library::py::json::Json::Dict(_)) => crate::services::pyjson::to_value(&j),
             Ok(_) | Err(library::py::json::LoadError::Invalid(_)) => json!({}),
             Err(library::py::json::LoadError::TooDeep) => {
                 return Err(ApiError::internal(

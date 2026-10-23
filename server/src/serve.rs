@@ -119,6 +119,16 @@ async fn answer(
     app: App,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> Result<hyper::Response<Out>, Infallible> {
+    // HTTP/1.1 sin Host: uvicorn (h11) ni llega a la app
+    if req.version() == hyper::Version::HTTP_11 && !req.headers().contains_key(hyper::header::HOST) {
+        let mut r = hyper::Response::new(full(b"Invalid HTTP request received.".to_vec()));
+        *r.status_mut() = hyper::StatusCode::BAD_REQUEST;
+        r.headers_mut().insert(
+            hyper::header::CONTENT_TYPE,
+            hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
+        );
+        return Ok(r);
+    }
     let (parts, body) = req.into_parts();
     let body = match body.collect().await {
         Ok(b) => b.to_bytes().to_vec(),

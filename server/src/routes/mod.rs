@@ -9,10 +9,16 @@ use crate::router::Route;
 
 pub mod ai;
 pub mod assistant;
+pub mod cues;
 pub mod external;
 pub mod library;
 pub mod playlists;
+pub mod songs;
+pub mod stems;
 pub mod system;
+
+#[cfg(test)]
+mod tests;
 
 /// Todas las rutas, en el orden de FastAPI.
 pub fn all() -> Vec<Route> {
@@ -20,13 +26,13 @@ pub fn all() -> Vec<Route> {
         system::ROUTES,
         ai::ROUTES,
         library::ROUTES,
-        // songs::ROUTES,
+        songs::ROUTES,
         playlists::ROUTES,
         assistant::ROUTES,
         // downloads::ROUTES,
         external::ROUTES,
-        // stems::ROUTES,
-        // cues::ROUTES,
+        stems::ROUTES,
+        cues::ROUTES,
     ]
     .concat()
 }

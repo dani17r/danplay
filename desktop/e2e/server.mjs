@@ -157,7 +157,9 @@ async function waitFor(what, fn, timeout = 90_000) {
 }
 
 async function main() {
-  if (!existsSync(PYTHON)) throw new Error(`no encuentro Python en ${PYTHON} (¿falta el .venv?)`)
+  if (!process.env.DANPLAY_E2E_CORE && !existsSync(PYTHON)) {
+    throw new Error(`no encuentro Python en ${PYTHON} (¿falta el .venv?)`)
+  }
   temp = process.env.DANPLAY_E2E_ROOT || mkdtempSync(join(tmpdir(), 'danplay-e2e-'))
   const music = join(temp, 'Musica')
   for (const [artist, title, hz] of SONGS) makeSong(music, artist, title, hz)
@@ -185,11 +187,20 @@ async function main() {
   for (const d of [env.HOME, env.XDG_CONFIG_HOME, env.XDG_DATA_HOME, env.XDG_CACHE_HOME]) {
     mkdirSync(d, { recursive: true })
   }
-  const py = spawn(
-    PYTHON,
-    ['-m', 'danplay.cli', 'serve', '--host', '127.0.0.1', '--port', String(CORE_PORT)],
-    { cwd: ROOT, env, stdio: 'inherit' }
-  )
+  // Con DANPLAY_E2E_CORE (la ruta de `danplay-server`), el núcleo de Rust
+  // de la fase 4 en vez del de Python, con los mismos argumentos.
+  const rust = process.env.DANPLAY_E2E_CORE
+  const py = rust
+    ? spawn(rust, ['--host', '127.0.0.1', '--port', String(CORE_PORT)], {
+        cwd: ROOT,
+        env,
+        stdio: 'inherit'
+      })
+    : spawn(
+        PYTHON,
+        ['-m', 'danplay.cli', 'serve', '--host', '127.0.0.1', '--port', String(CORE_PORT)],
+        { cwd: ROOT, env, stdio: 'inherit' }
+      )
   children.push(py)
   py.on('exit', (code) => {
     if (!stopping) {

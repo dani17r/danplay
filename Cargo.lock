@@ -861,6 +861,7 @@ name = "danplay-app"
 version = "1.30.0"
 dependencies = [
  "danplay-engine",
+ "danplay-server",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -954,10 +955,12 @@ dependencies = [
  "hyper",
  "hyper-util",
  "log",
+ "md-5",
  "percent-encoding",
  "rustix",
  "serde_json",
  "tokio",
+ "ureq",
 ]
 
 [[package]]

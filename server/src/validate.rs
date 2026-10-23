@@ -77,7 +77,8 @@ impl Num {
     fn text(self) -> String {
         match self {
             Self::Int(i) => i.to_string(),
-            Self::Float(f) => py::repr_float(f),
+            // como lo escribe pydantic-core (en Rust): `20` y no `20.0`
+            Self::Float(f) => format!("{f}"),
         }
     }
 }
@@ -207,9 +208,9 @@ impl Fields {
         self.errors.push(error(kind, &loc, msg, input, ctx));
     }
 
-    /// Apunta un fallo ya hecho (con su `loc` entero: el de un modelo dentro
-    /// de una lista, por ejemplo).
-    pub fn push_raw(&mut self, error: Value) {
+    /// Apunta un fallo ya hecho, con su `loc` (el de un elemento de una
+    /// lista de modelos, por ejemplo).
+    pub fn push(&mut self, error: Value) {
         self.errors.push(error);
     }
 
@@ -568,19 +569,19 @@ struct Bounds {
 /// dice y si se cumple.
 type Check<'a> = (Option<Num>, &'a str, &'a str, &'a str, fn(f64, f64) -> bool);
 
+/// Los topes de un número. En un `float`, pydantic pone el tope en `ctx`
+/// como float (`le=2` es `{"le": 2.0}`), aunque el mensaje diga «2».
 fn bounds(x: f64, b: Bounds, loc: &[Value], v: &Value, errors: &mut Vec<Value>) -> bool {
-    bounds_of(x, b, false, loc, v, errors)
+    bounds_with(x, b, loc, v, errors, false)
 }
 
-/// Como `bounds`; con `float`, el tope va en `ctx` como real (`{"ge": 5.0}`,
-/// lo que hace pydantic con un `float`), aunque el texto lo diga entero.
-fn bounds_of(
+fn bounds_with(
     x: f64,
     b: Bounds,
-    float: bool,
     loc: &[Value],
     v: &Value,
     errors: &mut Vec<Value>,
+    float_ctx: bool,
 ) -> bool {
     let checks: [Check<'_>; 4] = [
         (b.gt, "greater_than", "gt", "greater than", |x, b| x > b),
@@ -593,8 +594,14 @@ fn bounds_of(
             && !ok(x, b.as_f64())
         {
             let mut ctx = Map::new();
-            let shown = if float { Value::from(b.as_f64()) } else { b.value() };
-            ctx.insert(key.into(), shown);
+            ctx.insert(
+                key.into(),
+                if float_ctx {
+                    Value::from(b.as_f64())
+                } else {
+                    b.value()
+                },
+            );
             errors.push(error(
                 kind,
                 loc,
@@ -778,7 +785,13 @@ impl Kind for Float {
             errors.push(error("float_type", loc, "Input should be a valid number", v, None));
             return None;
         };
-        bounds_of(x, Bounds { ge: self.ge, le: self.le, gt: self.gt, lt: self.lt }, true, loc, v, errors).then_some(x)
+        let b = Bounds {
+            ge: self.ge,
+            le: self.le,
+            gt: self.gt,
+            lt: self.lt,
+        };
+        bounds_with(x, b, loc, v, errors, true).then_some(x)
     }
 }
 
@@ -973,6 +986,7 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
     let mut pos = 0usize;
     for (i, line) in text.split('\n').enumerate() {
         if i + 1 == e.line() {
+            // (lo que se acaba a medias lo cuenta `eof_expectation`)
             let col = e.column().saturating_sub(1).min(line.len());
             pos += line
                 .get(..col)
@@ -1202,6 +1216,23 @@ mod tests {
         assert_eq!(e[0]["type"], "json_invalid");
         assert_eq!(e[0]["loc"], json!(["body", 1]));
         assert_eq!(e[0]["ctx"]["error"], "Expecting property name enclosed in double quotes");
+        // cortado: donde esperaba algo más, como `json.loads`
+        let Err(crate::ApiError::Validation(e)) = parse_body(None, br#"{"tracks": ["#) else {
+            panic!("tenia que fallar");
+        };
+        assert_eq!(e[0]["loc"], json!(["body", 12]));
+        assert_eq!(e[0]["ctx"]["error"], "Expecting value");
+    }
+
+    #[test]
+    fn the_bounds_of_a_float_go_as_floats() {
+        let mut b = body(json!({"gain": 3, "n": 9}));
+        assert_eq!(b.float("gain").ge(0).le(2).opt(), None);
+        assert_eq!(b.int("n").le(5).opt(), None);
+        let e = b.into_errors();
+        assert_eq!(e[0]["msg"], "Input should be less than or equal to 2");
+        assert_eq!(e[0]["ctx"], json!({"le": 2.0}));
+        assert_eq!(e[1]["ctx"], json!({"le": 5}));
     }
 
     #[test]

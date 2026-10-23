@@ -96,6 +96,9 @@ pub mod sync;
 pub mod validate;
 
 pub use app::{App, Guard};
+/// La configuración (para quien monte una `App` a mano: la app de
+/// escritorio en sus pruebas, con `Config::isolated`).
+pub use library::config::Config;
 pub use error::ApiError;
 pub use http::{Body, Request, Response};
 pub use router::{Ctx, Reply, Route};

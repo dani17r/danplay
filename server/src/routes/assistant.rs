@@ -467,7 +467,7 @@ fn confirm_tool(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         if let Some(why) = why {
             let input = Value::Object(b.raw().clone());
             let loc = b.loc().to_vec();
-            b.push_raw(error(
+            b.push(error(
                 "value_error",
                 &loc,
                 &format!("Value error, {why}"),

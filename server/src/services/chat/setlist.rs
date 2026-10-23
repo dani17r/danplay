@@ -7,7 +7,7 @@
 use super::{lists, plan, resolve};
 use crate::app::App;
 use crate::error::ApiError;
-use crate::services::{playlists, youtube};
+use crate::services::{playlists, songs, youtube};
 use library::assistant::intake::{Intent, SetlistParse};
 use library::assistant::setlist::{self as sl, Change, Filled, ProposeArgs};
 use library::index::Dict;
@@ -304,7 +304,7 @@ pub fn fill(app: &App, args: &Dict, turn: &mut Turn) -> Result<Value, ApiError> 
     let settled = sl::fill_settle(&mut rows, &ids, &before, &after).map_err(err)?;
     let mut removed_songs = Vec::new();
     for i in &removed {
-        if let Some(s) = lists::song(app, *i)? {
+        if let Some(s) = songs::by_id(app, *i)? {
             let light = sl::light(&Value::Object(s)).map_err(err)?;
             if py::truthy(&light) {
                 removed_songs.push(light);

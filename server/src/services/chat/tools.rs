@@ -11,7 +11,7 @@ use super::{lists, lookups, resolve};
 use crate::app::App;
 use crate::error::ApiError;
 use crate::routes::system::stats_of;
-use crate::services::{playlists, youtube};
+use crate::services::{playlists, songs, youtube};
 use crate::validate::{Any, Bool, Fields, Float, Int, Kind, Str, error};
 use library::assistant::plan::Fault;
 use library::assistant::tools::{self as t, Io, NEEDS_CONFIRMATION};
@@ -447,7 +447,7 @@ impl Io for ServerIo<'_> {
 
     fn song(&mut self, id: &Value) -> R<Value> {
         let id = py_int(id)?;
-        Ok(obj(lists::song(self.app, id)?))
+        Ok(obj(songs::by_id(self.app, id)?))
     }
 
     fn stats(&mut self) -> R<Value> {
@@ -462,15 +462,15 @@ impl Io for ServerIo<'_> {
         let mut fields = Dict::new();
         fields.insert("lyrics".into(), lyrics.clone());
         fields.insert("lyrics_synced".into(), synced.clone());
-        lists::update(self.app, py_int(id)?, &fields).map(|_| ())
+        songs::update(self.app, py_int(id)?, &fields).map(|_| ())
     }
 
     fn edit(&mut self, id: &Value, fields: &Dict) -> R<Value> {
-        Ok(obj(lists::edit(self.app, py_int(id)?, fields)?))
+        Ok(obj(songs::edit(self.app, py_int(id)?, fields)?))
     }
 
     fn trash(&mut self, id: &Value) -> R<Value> {
-        Ok(Value::Object(lists::trash(self.app, py_int(id)?)?))
+        songs::trash(self.app, py_int(id)?, false)
     }
 
     fn history(&mut self, limit: i64) -> Option<Value> {
@@ -562,12 +562,12 @@ impl Io for ServerIo<'_> {
     }
 
     fn rate(&mut self, id: &Value, stars: i64) -> R<Value> {
-        Ok(json!(lists::rate(self.app, py_int(id)?, stars)?))
+        Ok(json!(songs::rate(self.app, py_int(id)?, stars)?))
     }
 
     fn favorite(&mut self, id: &Value, value: &Value) -> R<Value> {
-        let ok = lists::favorite(self.app, py_int(id)?, py::truthy(value))?;
-        Ok(json!(ok.unwrap_or(false)))
+        let ok = songs::favorite(self.app, py_int(id)?, py::truthy(value))?;
+        Ok(json!(ok))
     }
 
     fn export_sheet(&mut self, id: &Value, with_lyrics: &Value) -> R<Value> {
