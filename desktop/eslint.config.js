@@ -3,9 +3,9 @@
 // mitades iguales y una función llamada `cancelDownload` que cancelaba un tema.
 //
 // El formato (sangrías, saltos de línea, comillas) no es cosa de ESLint: lo
-// deja Prettier (`npm run format`), y `eslint-config-prettier` apaga aquí lo
-// que chocaría con él. La accesibilidad va en aviso: que se vea sin tumbar
-// nada, y el objetivo es cero avisos.
+// deja Oxfmt (`vp fmt`, que formatea como Prettier), y `eslint-config-prettier`
+// apaga aquí lo que chocaría con él. La accesibilidad va en aviso: que se vea
+// sin tumbar nada, y el objetivo es cero avisos.
 import js from '@eslint/js'
 import vue from 'eslint-plugin-vue'
 import a11y from 'eslint-plugin-vuejs-accessibility'
@@ -72,6 +72,6 @@ export default [
     languageOptions: { globals: { ...globals.node } },
     rules: { 'no-console': 'off' }
   },
-  // lo último: apaga las reglas de formato que chocarían con Prettier
+  // lo último: apaga las reglas de formato que chocarían con Oxfmt
   prettier
 ]

@@ -166,8 +166,7 @@ onMounted(async () => {
   // ficha, el asistente) cambia el nucleo y no lo que suena: sin esto, al
   // proyector no llegaba hasta cambiar de cancion.
   const stop = await core.onChanged(() => loadSong(track.value?.id ?? null))
-  if (gone)
-    stop() // se cerro mientras se apuntaba
+  if (gone) stop() // se cerro mientras se apuntaba
   else stopChanges = stop
   try {
     fullscreen.value = await projection.isFullscreen()

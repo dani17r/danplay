@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vite-plus'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
@@ -15,7 +15,7 @@ export default defineConfig({
       provider: 'v8',
       // lo de la interfaz; las pruebas de extremo a extremo (e2e/) van aparte
       include: ['src/**/*.{js,vue}'],
-      // los iconos son datos generados (`npm run icons`); main.js solo monta
+      // los iconos son datos generados (`vp run icons`); main.js solo monta
       exclude: ['src/icons.js', 'src/main.js'],
       reporter: ['text-summary', 'text', 'html', 'json-summary'],
       // No bajar de aquí. Se sube cuando se sube la cobertura, nunca al revés.
