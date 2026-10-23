@@ -468,3 +468,31 @@ mentira: lo que no conoce es «sin red»); `E` = `library/src/enrich/tests.rs`.
 | `test_filled_key_comes_from_the_chord_sheet_not_the_ai` | `E` `filled_key_comes_from_the_chord_sheet_not_the_ai` (la primera parte ya estaba en `autofill_says_what_is_missing_and_why`) |
 | `test_search_404_means_nothing_and_title_alone_is_tried` | `C` `search_404_means_nothing_and_title_alone_is_tried` (la de antes, `a_search_404_means_nothing_found`, no miraba que se probara el título solo) |
 | `test_channels_search_with_the_artist_name` | `C` `channels_search_with_the_artist_name` |
+
+## tests/test_media.py
+
+`K` = `library/src/convert/tests.rs`; `E` = `library/src/enrich/tests.rs`
+(con el `Fake` de lo de fuera); `SC` = `server/src/services/convert.rs`, `SE`
+= `server/src/services/enrich.rs` y `ST` = `server/src/services/tools.rs`
+(sus `mod tests`). Para que la app crea que falta un programa que sí está en
+el PATH, las pruebas usan `App::hide_tool` (solo en las pruebas).
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_a_flac_becomes_mp3_with_its_tags` | `K` `a_flac_becomes_mp3_with_its_tags` (lo del «(2)» ya estaba en `K` `flac_becomes_mp3_without_overwriting`) |
+| `test_what_is_not_converted` | `SC` `what_is_not_converted` |
+| `test_batch_convert_and_dry_run` | `SC` `batch_convert_and_dry_run` |
+| `test_a_large_cover_is_shrunk` | ya estaba en `K` `a_big_cover_shrinks_and_a_fine_one_does_not`; lo de «si ya vale, tal cual», en `K` `a_cover_that_already_fits_is_kept_as_is` |
+| `test_sizes_come_from_the_image_header` | `K` `sizes_come_from_the_image_header` (los seis formatos; el que ese ffmpeg no escriba se salta) |
+| `test_sizes_from_unusual_headers` | ya estaba en `K` `image_size_from_odd_headers` (lo cortado y lo que no existe dan error en Rust; el (0, 0) lo ponía la puerta de Python) |
+| `test_lrclib_lyrics_with_and_without_timestamps` | `E` `lrclib_lyrics_with_and_without_timestamps` (la lectura de la respuesta ya estaba en `E` `lrclib_gives_plain_and_timed_lyrics`) |
+| `test_lyrics_by_fuzzy_search_and_by_ai` | ya estaba en `E` `lyrics_by_exact_match_then_by_search` y `the_ai_lyrics_only_when_it_knows_them`; lo de sin red y el «NO_LA_SE» tal cual, en `E` `no_lyrics_without_network_nor_from_an_ai_that_does_not_know_them` |
+| `test_only_a_real_image_under_the_cap_is_accepted` | ya estaba en `SE` `images_like_enrich_get` y `json_pages_and_errors` (con un servidor local) y en `E` `knows_an_image_by_its_first_bytes` |
+| `test_the_cover_is_searched_on_itunes_then_musicbrainz` | ya estaba en `E` `the_cover_from_itunes_then_musicbrainz`; que el id raro no llegue a la URL y el bueno dé la carátula, en `E` `the_cover_from_musicbrainz_skips_an_odd_id` |
+| `test_enrich_saves_lyrics_cover_and_metadata` | `SE` `enrich_saves_lyrics_cover_and_metadata` (una canción de verdad, con la letra, la carátula y la ficha preparadas; se mira el índice y el archivo). Con lo de fuera de mentira ya estaba en `E` `enrich_saves_lyrics_cover_and_details` |
+| `test_transposing_a_chord_sheet_only_touches_the_chords` | ya estaba en `E` `transposes_only_the_chord_lines`; se le añadió mirar las líneas («Dios» no es un Re) |
+| `test_without_a_key_it_transposes_by_semitones` | `E` `without_a_key_it_transposes_by_semitones` (lo de -1 con tono ya estaba en `transposes_only_the_chord_lines`) |
+| `test_web_search_returns_title_link_and_summary` | ya estaba en `library/src/web.rs` `title_link_and_summary` |
+| `test_without_network_the_web_returns_nothing` | ya estaba en `library/src/web.rs` `title_link_and_summary` (con un `get` que falla) |
+| `test_fingerprint_says_what_it_is_missing` | `ST` `fingerprint_says_what_it_is_missing` (sin `fingerprint.AVAILABLE`, que era una variable del módulo de Python) |
+| `test_fingerprint_picks_the_best_match` | `ST` `fingerprint_picks_the_best_match` (con la consulta de mentira; la elección ya estaba en `library/src/fingerprint.rs` `picks_the_best_match`) |

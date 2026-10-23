@@ -374,10 +374,10 @@ fn unknown_values_are_not_kept() {
     assert_eq!(useful_value("genre", &s("Adoracion")), t("Adoracion"));
 }
 
-#[test]
-fn transposes_only_the_chord_lines() {
-    let sheet = obj(vec![
-        ("key", s("Bb")),
+/// El cifrado de las pruebas de Python (`_sheet`): un coro en ese tono.
+fn chorus_sheet(key: &str) -> Json {
+    obj(vec![
+        ("key", s(key)),
         (
             "sections",
             Json::List(vec![obj(vec![
@@ -392,10 +392,19 @@ fn transposes_only_the_chord_lines() {
                 ),
             ])]),
         ),
-    ]);
+    ])
+}
+
+#[test]
+fn transposes_only_the_chord_lines() {
+    let sheet = chorus_sheet("Bb");
     let d = transpose_sheet(&sheet, &Json::Int(0), &s("G")).expect("vale");
     let sec = &pv::iterate(d.get("sections").expect("hay")).expect("lista")[0];
     assert_eq!(sec.get("chords"), Some(&Json::List(vec![s("G"), s("Em")])));
+    let lines = pv::iterate(sec.get("lines").expect("hay")).expect("lista");
+    let line = |i: usize| plain(&pv::py_str(lines[i].get("t").expect("texto")));
+    assert_eq!(line(0).split_whitespace().collect::<Vec<_>>(), ["G", "Em"]);
+    assert_eq!(line(1), "Dios es bueno", "en la letra, «Dios» no es un Re");
     assert_eq!(d.get("key"), Some(&s("G")));
     assert_eq!(d.get("semitones"), Some(&Json::Int(9)));
     assert!(d.get("capo_hint").is_some_and(Json::truthy));
@@ -415,6 +424,97 @@ fn transposes_only_the_chord_lines() {
         transpose_sheet(&s("x"), &Json::Int(2), &s("")),
         Err(Exc::Attribute(_))
     ));
+}
+
+/// Sin tono en el cifrado se mueve por semitonos, y el tono sigue vacío.
+#[test]
+fn without_a_key_it_transposes_by_semitones() {
+    let d = transpose_sheet(&chorus_sheet(""), &Json::Int(2), &s("")).expect("vale");
+    let sec = &pv::iterate(d.get("sections").expect("hay")).expect("lista")[0];
+    assert_eq!(sec.get("chords"), Some(&Json::List(vec![s("C"), s("Am")])));
+    assert_eq!(d.get("key"), Some(&s("")));
+}
+
+/// Lo de tests/test_media.py: LRCLIB con la letra con tiempos (y sin la
+/// limpia) da las dos, y si la búsqueda exacta acierta no se busca más.
+#[test]
+fn lrclib_lyrics_with_and_without_timestamps() {
+    let mut f = Fake::default();
+    f.pages.insert(
+        "/api/get".into(),
+        obj(vec![
+            ("plainLyrics", s("")),
+            ("syncedLyrics", s("[00:01.00]Mi gozo\n[00:02.00]en ti")),
+        ]),
+    );
+    let r = lyrics_lrclib(
+        &mut f,
+        &s("Barak"),
+        &s("Mi Gozo"),
+        &s("Gozo"),
+        &Json::Int(180),
+    )
+    .expect("vale");
+    assert_eq!(
+        r,
+        obj(vec![
+            ("lyrics", s("Mi gozo\nen ti")),
+            ("synced", s("[00:01.00]Mi gozo\n[00:02.00]en ti")),
+            ("source", s("lrclib")),
+        ])
+    );
+    assert_eq!(f.asked.len(), 1, "no hace falta buscar: {:?}", f.asked);
+    assert!(f.asked[0].contains("duration=180") && f.asked[0].contains("album_name=Gozo"));
+}
+
+/// Sin red no hay letra (ni error), y la de la IA solo si se la sabe: un
+/// «NO_LA_SE» no es una letra.
+#[test]
+fn no_lyrics_without_network_nor_from_an_ai_that_does_not_know_them() {
+    let mut f = Fake::default();
+    assert_eq!(
+        lyrics_lrclib(&mut f, &s("A"), &s("B"), &s(""), &Json::Int(0)).expect("vale"),
+        Json::Null
+    );
+    let mut f = Fake {
+        ai: Some(s("NO_LA_SE")),
+        ..Fake::default()
+    };
+    assert_eq!(
+        lyrics(&mut f, &s("A"), &s("B"), &s(""), &Json::Int(0), true).expect("vale"),
+        Json::Null
+    );
+}
+
+/// En MusicBrainz, un id que no es un UUID no se pega en la URL: se salta
+/// y se usa el siguiente, que sí da la carátula.
+#[test]
+fn the_cover_from_musicbrainz_skips_an_odd_id() {
+    let jpeg = b"\xff\xd8\xffdatos".to_vec();
+    let mut f = Fake::default();
+    f.pages
+        .insert("itunes".into(), obj(vec![("results", Json::List(vec![]))]));
+    f.pages.insert(
+        "musicbrainz".into(),
+        obj(vec![(
+            "releases",
+            Json::List(vec![
+                obj(vec![("id", s("../../malo"))]),
+                obj(vec![("id", s("12345678-1234-1234-1234-123456789abc"))]),
+            ]),
+        )]),
+    );
+    f.images.insert(
+        "https://coverartarchive.org/release/12345678-1234-1234-1234-123456789abc/front-500".into(),
+        jpeg.clone(),
+    );
+    let got = cover(&mut f, &s("Barak"), &s("Mi Gozo"), &s("Gozo")).expect("vale");
+    assert_eq!(got, Some((jpeg, "image/jpeg".into())));
+    assert!(
+        !f.asked.iter().any(|u| u.contains("malo")),
+        "un id raro no se pega en la URL: {:?}",
+        f.asked
+    );
 }
 
 #[test]

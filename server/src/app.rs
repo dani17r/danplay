@@ -195,6 +195,16 @@ impl App {
         found
     }
 
+    /// En las pruebas: que la app crea que ese programa no está, aunque esté
+    /// en el PATH (en Python, `monkeypatch` de `available`). Vale una hora:
+    /// el «visto» queda en el futuro y `elapsed()` da cero hasta entonces.
+    #[cfg(test)]
+    pub(crate) fn hide_tool(&self, name: &str) {
+        let mut tools = self.tools.lock().unwrap_or_else(PoisonError::into_inner);
+        let later = Instant::now() + Duration::from_secs(3600);
+        tools.insert(name.to_owned(), (None, later));
+    }
+
     /// Lo que dice `config.env(name, default)` de Python (el entorno, los
     /// archivos de ajustes y los nombres de antes).
     pub fn env(&self, name: &str, default: &str) -> String {
