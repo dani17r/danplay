@@ -374,10 +374,9 @@ fn parse_range(header: &str, size: u64) -> Result<Vec<(u64, u64)>, RangeError> {
 }
 
 /// `FileResponse(path, media_type=..., filename=...)`: el archivo entero o
-/// el trozo que pide `Range` (206), con `content-disposition`,
-/// `last-modified` y `etag` como Starlette. Varios trozos a la vez
-/// (`multipart/byteranges`) no los pide ningún reproductor: se manda el
-/// archivo entero.
+/// lo que pide `Range` (206: un trozo, o varios en un
+/// `multipart/byteranges`), con `content-disposition`, `last-modified` y
+/// `etag` como Starlette.
 pub fn file_response(
     path: &Path,
     media_type: &str,
@@ -424,8 +423,55 @@ pub fn file_response(
             };
             Ok(r.with_header("content-range", &format!("bytes {start}-{}/{size}", end - 1)))
         }
+        Ok(ranges) if ranges.len() > 1 => multipart(r, path, media_type, &ranges, size),
         Ok(_) => Ok(r),
     }
+}
+
+/// `secrets.token_hex(13)`: la frontera de las partes, que no se repita.
+fn boundary() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut out = String::new();
+    for _ in 0..2 {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u64(N.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+        h.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        );
+        let _ = write!(out, "{:016x}", h.finish());
+    }
+    out.truncate(26);
+    out
+}
+
+/// Varios trozos a la vez (`_handle_multiple_ranges`): un
+/// `multipart/byteranges`, cada uno con su tipo y su `Content-Range`.
+fn multipart(
+    mut r: Response,
+    path: &Path,
+    media_type: &str,
+    ranges: &[(u64, u64)],
+    size: u64,
+) -> std::io::Result<Response> {
+    let boundary = boundary();
+    let mut body = Vec::new();
+    for (start, end) in ranges {
+        let head = format!(
+            "--{boundary}\r\nContent-Type: {media_type}\r\nContent-Range: bytes {start}-{}/{size}\r\n\r\n",
+            end - 1
+        );
+        body.extend_from_slice(head.as_bytes());
+        body.extend(crate::http::read_range(path, *start, end - start)?);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--").as_bytes());
+    r.status = 206;
+    r.content_type = Some(format!("multipart/byteranges; boundary={boundary}"));
+    r.body = Body::Bytes(body);
+    Ok(r)
 }
 
 #[cfg(test)]

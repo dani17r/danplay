@@ -475,3 +475,66 @@ pub fn shrink_image(app: &App, src: &Path) -> Result<Option<(Vec<u8>, String)>, 
 pub fn json_dict(items: Vec<(&str, Json)>) -> Json {
     dict(items)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write as _;
+    use std::net::TcpListener;
+
+    /// Un servidor de una sola respuesta en el propio equipo (no sale a
+    /// internet).
+    fn serve(answer: Vec<u8>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("puerto local");
+        let addr = listener.local_addr().expect("dirección");
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let _ = s.write_all(&answer);
+            }
+        });
+        format!("http://{addr}/")
+    }
+
+    fn answer(head: &str, body: &[u8]) -> Vec<u8> {
+        let mut out = format!(
+            "HTTP/1.1 {head}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        out.extend_from_slice(body);
+        out
+    }
+
+    fn why<T: std::fmt::Debug>(r: Result<T, Trouble>) -> String {
+        match r {
+            Err(Trouble::Net(m)) => m,
+            other => format!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn images_like_enrich_get() {
+        let png = b"\x89PNG\r\n\x1a\nresto";
+        let url = serve(answer("200 OK\r\nContent-Type: image/png; charset=x", png));
+        assert_eq!(get_image(&url).expect("imagen"), png);
+        let url = serve(answer("200 OK\r\nContent-Type: Text/HTML", b"<html>"));
+        assert_eq!(why(get_image(&url)), "eso no es una imagen, es text/html");
+        let url = serve(answer("200 OK", b"x"));
+        assert_eq!(why(get_image(&url)), "eso no es una imagen, es algo sin tipo");
+        let big = vec![0u8; e::MAX_IMAGE_BYTES + 1];
+        let url = serve(answer("200 OK\r\nContent-Type: image/jpeg", &big));
+        assert_eq!(why(get_image(&url)), "la imagen pesa demasiado");
+    }
+
+    #[test]
+    fn json_pages_and_errors() {
+        let body = "{\"a\": [1, 2.5, \"ñ\"]}";
+        let url = serve(answer("200 OK\r\nContent-Type: application/json", body.as_bytes()));
+        let got = get_json(&url).expect("json");
+        assert_eq!(to_value(&got), serde_json::json!({"a": [1, 2.5, "ñ"]}));
+        let url = serve(answer("404 Not Found", b""));
+        assert_eq!(why(get_json(&url)), "HTTP Error 404");
+    }
+}

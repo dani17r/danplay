@@ -270,6 +270,19 @@ fn the_audio_whole_and_in_pieces() {
     assert_eq!(r.into_bytes().expect("trozo"), whole[..10]);
     let r = send(&app, &Request::new("GET", &url).header("Range", "bytes=-4"));
     assert_eq!(r.into_bytes().expect("trozo"), whole[size - 4..]);
+    let r = send(&app, &Request::new("GET", &url).header("Range", "bytes=0-1, 10-11"));
+    assert_eq!(r.status, 206);
+    let kind = r.header_value("content-type").unwrap_or("").to_owned();
+    let boundary = kind.strip_prefix("multipart/byteranges; boundary=").expect("partes");
+    assert_eq!(boundary.len(), 26);
+    let mut want = Vec::new();
+    for (a, b) in [(0, 2), (10, 12)] {
+        want.extend(format!("--{boundary}\r\nContent-Type: audio/wav\r\nContent-Range: bytes {a}-{}/{size}\r\n\r\n", b - 1).bytes());
+        want.extend(&whole[a..b]);
+        want.extend(b"\r\n");
+    }
+    want.extend(format!("--{boundary}--").bytes());
+    assert_eq!(r.into_bytes().expect("partes"), want);
     let r = send(&app, &Request::new("GET", &url).header("Range", "bytes=999999-"));
     assert_eq!(r.status, 416);
     assert_eq!(r.header_value("content-range"), Some(format!("bytes */{size}").as_str()));
