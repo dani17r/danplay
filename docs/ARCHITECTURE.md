@@ -2003,6 +2003,10 @@ desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
                 mobile.html y src/mobile/)
   src/
     App.vue       la ventana principal (la ventanita y la proyección, aparte)
+    islands.js    lo que no se ve al arrancar (el estudio, la ficha,
+                  Transformar, tres de las cuatro vistas…): cada parte es su
+                  trozo y se carga al abrirla, en tiempo libre o al pasar el
+                  ratón por su botón (`v-preload`)
     router.js     las páginas (Ajustes, Asistente, Descargas, Entrada,
                   Duplicados, Acerca de), con carga diferida y el chat en
                   <KeepAlive>
@@ -2010,13 +2014,17 @@ desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
                   novedades de cada versión (releases.js)
     composables/  estado compartido: useLibrary (lista y estado), useSelection,
                   useSongMenus, useSongList, usePlayback, useClick (el clic de
-                  cada canción, con el estudio abierto o cerrado), useChat…
+                  cada canción, con el estudio abierto o cerrado), useChat
+                  (y chatLink, lo poco de él que la app usa sin cargarlo)…
     playback/     la máquina de estados de la cola, en JS y sin dependencias
     components/   la interfaz, una página por archivo; ui/ los controles base
-    styles/       los estilos, por áreas (base, listas, ui, responsive…)
+    styles/       los estilos, por áreas (base, listas, ui, responsive…); los
+                  del estudio, el chat, la ventanita y la proyección van con
+                  su componente
     utils/        formato, teclas, grupos, carpetas, markdown del chat
   tests/        pruebas de la interfaz (Vitest, con dobles del núcleo y de Rust)
-  e2e/          los flujos enteros en Chrome contra el núcleo de verdad
+  e2e/          los flujos enteros en Chrome contra el núcleo de verdad;
+                  perf/, lo que tarda la compilada en WebKit (`npm run perf`)
   src-tauri/src/
     core.rs       el núcleo (server), en este mismo proceso: el puente de la
                   API y el aviso de sus cambios a la interfaz
@@ -2029,6 +2037,7 @@ desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
     protocol.rs   danplay://cover, las carátulas
     tools.rs      dónde están ffmpeg y los demás programas, y data/
     tray/         bandeja: linux.rs (ksni) y desktop.rs (Windows/macOS)
+    lazy_window.rs  la ventanita y la proyección, creadas al abrirlas
     media.rs      MPRIS / SMTC
   src-tauri/permissions/  qué comandos puede invocar cada ventana
 tests/          pruebas de Python, de las rutas de medios y de humo
