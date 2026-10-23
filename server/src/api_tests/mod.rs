@@ -7,7 +7,9 @@
     reason = "cada prueba recorre una ruta entera, como la suya de Python"
 )]
 mod ai;
+mod assistant;
 mod chat;
+mod external;
 mod files;
 mod folders;
 mod guard;
