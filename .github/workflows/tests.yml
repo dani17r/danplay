@@ -120,7 +120,7 @@ jobs:
       - name: pruebas
         env:
           DANPLAY_SHARD: ${{ matrix.shard }}/2
-        run: pytest -n auto --dist loadgroup --no-cov
+        run: pytest -n auto --dist loadgroup --no-cov --durations=0 --durations-min=0.3
       - name: la línea de órdenes arranca
         run: python -m danplay.cli status
 

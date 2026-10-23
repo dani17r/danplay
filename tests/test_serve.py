@@ -143,7 +143,9 @@ def test_serving_writes_a_rotating_log(tmp_path, monkeypatch):
         logging.getLogger("danplay.prueba").warning("algo que contar")
         # solo el suyo: otra prueba del mismo proceso puede haber dejado otro
         # ya cerrado (con `-n`, el orden cambia)
-        logs._file_handler.flush()
+        handler = logs._file_handler
+        assert handler is not None
+        handler.flush()
         text = path.read_text(encoding="utf-8")
         assert "WARNING danplay.prueba: algo que contar" in text
         assert text[:4].isdigit(), "con la hora delante"
