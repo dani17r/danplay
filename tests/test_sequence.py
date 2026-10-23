@@ -222,16 +222,15 @@ def test_opening_it_leaves_it_ready_to_play(configured_library, downloaded, tmp_
     )
 
 
-def test_the_api_opens_it(configured_library, downloaded, tmp_path, monkeypatch):
+def test_the_api_opens_it(configured_library, downloaded, tmp_path, monkeypatch, connect_api):
     from conftest import run_job
-    from fastapi.testclient import TestClient
 
-    from danplay import api, config, library
+    from danplay import config, library
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
     lib, _ = configured_library
     library.add_folder(lib)
-    client = TestClient(api.app)
+    client = connect_api()
     r = client.get("/api/sequence", params={"path": str(downloaded)})
     assert r.status_code == 200 and r.json()["bpm"] == 120.0
     assert client.get("/api/sequence", params={"path": str(tmp_path)}).status_code == 422

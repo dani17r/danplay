@@ -144,10 +144,8 @@ def test_a_drum_cam_is_filed_by_its_artist_and_suggests_tracks(ytdl):
     assert "kind" not in youtube.download("https://youtu.be/uno")[0]
 
 
-def test_moving_it_to_tracks_keeps_the_same_song(ytdl):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, playlists
+def test_moving_it_to_tracks_keeps_the_same_song(ytdl, connect_api):
+    from danplay import playlists
 
     FakeYDL.videos["https://youtu.be/cam"] = CAM
     r = youtube.download("https://youtu.be/cam")[0]
@@ -155,7 +153,7 @@ def test_moving_it_to_tracks_keeps_the_same_song(ytdl):
     playlists.rate(cid, 4)
     pl = playlists.create("ensayo")
     playlists.add(pl["id"], [cid])
-    client = TestClient(api.app)
+    client = connect_api()
     got = client.post(f"/api/song/{cid}/move", json={"category": "track"})
     assert got.status_code == 200, got.text
     moved = got.json()
@@ -224,16 +222,14 @@ def test_a_long_live_stream_is_rejected():
     assert youtube.wanted({"duration": 200}) is None
 
 
-def test_no_chosen_folder_blocks_downloads_and_suggests_one(ytdl, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, config
+def test_no_chosen_folder_blocks_downloads_and_suggests_one(ytdl, monkeypatch, connect_api):
+    from danplay import config
 
     monkeypatch.setattr(config, "LIBRARY_CHOSEN", False)
     ours = library.list_folders()[0]["path"]
     got = youtube.folder()
     assert (got["ready"], got["reason"], got["suggested"]) == (False, "unset", ours)
-    client = TestClient(api.app)
+    client = connect_api()
     r = client.post("/api/youtube/download", json={"query": "https://youtu.be/uno"})
     assert r.status_code == 409 and "elige antes" in r.json()["detail"]
     # por el asistente tampoco
@@ -254,17 +250,21 @@ def test_a_missing_or_outside_folder_is_asked_for_again(ytdl, monkeypatch, tmp_p
     assert got["reason"] == "unmanaged" and got["suggested"] == library.list_folders()[0]["path"]
 
 
-def test_choosing_a_folder_uses_and_creates_its_subfolders(ytdl, monkeypatch, tmp_path):
+@pytest.mark.python_core(
+    "mira config.LIBRARY y config.ARTISTS_DIR en la memoria de Python, y baja con el yt-dlp de mentira de Python"
+)
+def test_choosing_a_folder_uses_and_creates_its_subfolders(
+    ytdl, monkeypatch, tmp_path, connect_api
+):
     from dotenv import dotenv_values
-    from fastapi.testclient import TestClient
 
-    from danplay import api, config
+    from danplay import config
 
     monkeypatch.setattr(config, "LIBRARY_CHOSEN", False)
     monkeypatch.setattr(config, "ENV_FILE", tmp_path / "danplay.env")
     (ytdl / "Pistas").mkdir()
     (ytdl / "Pistas" / "ya estaba.mp3").write_bytes(b"x")
-    client = TestClient(api.app)
+    client = connect_api()
     r = client.put("/api/downloads/folder", json={"path": str(ytdl)})
     assert r.status_code == 200, r.text
     assert r.json()["ready"] and r.json()["path"] == str(ytdl)

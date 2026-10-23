@@ -386,16 +386,12 @@ def test_apply_after_with_too_many_slots_writes_nothing(db, stamps):
 
 
 @pytest.fixture
-def api_client(db, stamps, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from danplay import api
-
+def api_client(db, stamps, monkeypatch, connect_api):
     monkeypatch.setattr(youtube, "available", lambda: True)
     monkeypatch.setattr(
         youtube, "folder", lambda: {"ready": True, "reason": "", "path": "", "suggested": ""}
     )
-    return TestClient(api.app)
+    return connect_api()
 
 
 @pytest.fixture
@@ -423,6 +419,9 @@ def wait_idle(timeout=5.0):
         time.sleep(0.01)
 
 
+@pytest.mark.python_core(
+    "las propuestas las registra el asistente de Python (plan.register) en memoria"
+)
 def test_route_410_when_no_longer_live(api_client, downloads, clock):
     r = api_client.post("/api/chat/confirm", json={"id": "no-existe"})
     assert r.status_code == 410 and "pídemela otra vez" in r.json()["detail"]
@@ -445,6 +444,9 @@ def test_route_410_when_no_longer_live(api_client, downloads, clock):
     assert [d["query"] for d in downloads.seen] == ["dos"]
 
 
+@pytest.mark.python_core(
+    "las propuestas las registra el asistente de Python (plan.register) en memoria"
+)
 def test_route_409_without_spending_the_proposal(api_client, downloads):
     got = plan.register("download_music", {"items": ["uno"]})
     token = youtube.claim()
@@ -461,6 +463,9 @@ def test_route_409_without_spending_the_proposal(api_client, downloads):
     assert all(d["results"] == 1 and d["source"] == "assistant" for d in downloads.seen)
 
 
+@pytest.mark.python_core(
+    "las propuestas las registra el asistente de Python (plan.register) en memoria"
+)
 def test_route_503_and_no_folder_do_not_spend_either(api_client, downloads, monkeypatch):
     got = plan.register("download_music", {"items": ["uno"]})
     monkeypatch.setattr(youtube, "available", lambda: False)
@@ -473,6 +478,9 @@ def test_route_503_and_no_folder_do_not_spend_either(api_client, downloads, monk
     assert plan.status(got["id"])["state"] == "live" and not youtube.STATE["active"]
 
 
+@pytest.mark.python_core(
+    "las propuestas las registra el asistente de Python (plan.register) en memoria"
+)
 def test_route_nothing_checked_is_400_and_releases_the_turn(api_client, downloads):
     got = plan.register("download_music", {"items": ["uno"]})
     r = api_client.post("/api/chat/confirm", json={"id": got["id"], "selection": [5]})
@@ -501,6 +509,9 @@ def test_the_client_cannot_sneak_args_into_the_new_form(api_client, downloads):
     assert not downloads.seen
 
 
+@pytest.mark.python_core(
+    "la descarga de mentira sustituye youtube.download, youtube.available y youtube.folder"
+)
 def test_the_old_form_still_works(api_client, downloads):
     r = api_client.post("/api/chat/confirm", json={"tool": "search_songs", "args": {}})
     assert r.status_code == 400
@@ -519,6 +530,7 @@ def test_the_old_form_still_works(api_client, downloads):
     assert [x["query"] for x in downloads.seen] == ["a", "b"]
 
 
+@pytest.mark.python_core("la descarga de mentira sustituye youtube.download y mira youtube.STATE")
 def test_an_after_from_the_client_in_the_old_form_does_nothing(api_client, downloads):
     a, new = make_songs(2)
     lid = new_list("domingo", [a])
@@ -536,6 +548,9 @@ def test_an_after_from_the_client_in_the_old_form_does_nothing(api_client, downl
     assert order(lid) == [a], "nada entra en la lista por lo que diga el cliente"
 
 
+@pytest.mark.python_core(
+    "las propuestas las registra el asistente de Python (plan.register) en memoria"
+)
 def test_delete_by_id_uses_the_registered_args(api_client, monkeypatch):
     lid = new_list("ensayo")
     got = plan.register("delete_playlist", {"name": "ensayo"})
@@ -554,6 +569,9 @@ def test_delete_by_id_uses_the_registered_args(api_client, monkeypatch):
     assert r.status_code == 200 and calls == [("delete_song", {"id": song})]
 
 
+@pytest.mark.python_core(
+    "las propuestas las registra el asistente de Python (plan.register) en memoria"
+)
 def test_status_and_plan_routes(api_client, info):
     info.gate = threading.Event()
     got = plan.register("download_music", {"items": ["uno", "dos"]}, plan={})
@@ -580,6 +598,9 @@ def test_status_and_plan_routes(api_client, info):
     assert api_client.get(f"/api/chat/plan/{no_plan['id']}").status_code == 404
 
 
+@pytest.mark.python_core(
+    "las propuestas las registra el asistente de Python (plan.register) en memoria"
+)
 def test_accepting_downloads_the_checked_and_fills_the_playlist(api_client, info, downloads):
     a, b, one, three = make_songs(4)
     lid = new_list("domingo", [a, b])

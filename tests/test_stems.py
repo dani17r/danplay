@@ -588,16 +588,12 @@ def test_the_mix_filter_pans_and_mutes_like_the_player():
     assert "atempo=0.5,atempo=0.5000" in stems.mix_filter([(1, 1)], speed=0.25)
 
 
-def test_the_mix_without_drums_is_saved_and_joins_the_library(lib):
-
+def test_the_mix_without_drums_is_saved_and_joins_the_library(lib, connect_api):
     root, _ = lib
     cid = _id("Barak - Mi Gozo.mp3")
     _separate(cid)
-    from fastapi.testclient import TestClient
 
-    from danplay import api
-
-    client = TestClient(api.app)
+    client = connect_api()
     tracks = [
         {"source": s, "gain": 0 if s == "drums" else 1}
         for s in ["drums", "vocals", "bass", "guitar", "piano", "other"]
@@ -649,10 +645,8 @@ def test_the_mix_can_carry_the_click(lib):
     assert near > 5 * far, (near, far)
 
 
-def test_a_mix_cannot_go_outside_the_library_nor_over_a_song(lib, tmp_path):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, stems
+def test_a_mix_cannot_go_outside_the_library_nor_over_a_song(lib, tmp_path, connect_api):
+    from danplay import stems
 
     root, songs = lib
     cid = _id("Barak - Mi Gozo.mp3")
@@ -664,7 +658,7 @@ def test_a_mix_cannot_go_outside_the_library_nor_over_a_song(lib, tmp_path):
         stems.export_mix(cid, tracks, songs["tierra"])
     with pytest.raises(stems.SeparateError, match="calladas"):
         stems.export_mix(cid, [{"source": "vocals", "gain": 0}], str(root / "x.mp3"))
-    client = TestClient(api.app)
+    client = connect_api()
     r = client.post(
         f"/api/song/{cid}/stems/mix", json={"tracks": tracks, "path": "x", "format": "ogg"}
     )
@@ -828,19 +822,18 @@ def test_without_vorbis_the_parts_go_in_mp3(lib, monkeypatch):
         bundle.export(cid)
 
 
-def test_a_whole_set_goes_and_the_ones_without_parts_say_why(lib, monkeypatch):
+def test_a_whole_set_goes_and_the_ones_without_parts_say_why(lib, monkeypatch, connect_api):
     """Un repertorio para la banda: las que no estan separadas no paran a
     las demas. Por la API, como lo pide la interfaz."""
-    from fastapi.testclient import TestClient
 
-    from danplay import api, beatgrid
+    from danplay import beatgrid
 
     monkeypatch.setattr(beatgrid, "grid_of", lambda path: GRID)
     root, _ = lib
     cid = _id("Barak - Mi Gozo.mp3")
     other = _id("New Wine - Shekinah.mp3")
     _separate(cid)
-    client = TestClient(api.app)
+    client = connect_api()
     r = run_job(client, "/api/bundle", "bundle", json={"ids": [other, cid, cid]})
     assert [d["id"] for d in r["done"]] == [cid]
     assert r["failed"] == [
@@ -853,13 +846,12 @@ def test_a_whole_set_goes_and_the_ones_without_parts_say_why(lib, monkeypatch):
 # ------------------------------------------------------------------ la API
 
 
-def test_the_api_separates_lists_and_deletes_stems(lib, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, library
+@pytest.mark.python_core("el separador de mentira sustituye stems._command y stems.installed")
+def test_the_api_separates_lists_and_deletes_stems(lib, monkeypatch, connect_api):
+    from danplay import library
 
     monkeypatch.setattr(library, "trash_path", lambda p: {"ok": True})
-    client = TestClient(api.app)
+    client = connect_api()
     status = client.get("/api/separate").json()
     assert status["ok"] and status["bytes"] > 200_000_000 and status["format"] == "flac"
     assert "models" not in status
@@ -951,7 +943,7 @@ def test_each_track_goes_by_its_side_or_in_mono_like_the_engine():
     assert f"[2:a]{stereo}|c0=0.4000*c0+0.4000*c1|c1=0.4000*c0+0.4000*c1[a2]" in f
 
 
-def test_the_mix_by_sides_sounds_like_a_live_sequence(lib, tmp_path, monkeypatch):
+def test_the_mix_by_sides_sounds_like_a_live_sequence(lib, tmp_path, monkeypatch, connect_api):
     """El bajo y el clic por la izquierda, la guía por la derecha: la derecha
     queda callada salvo la guía, y la guía no se oye por la izquierda."""
     import subprocess
@@ -994,10 +986,7 @@ def test_the_mix_by_sides_sounds_like_a_live_sequence(lib, tmp_path, monkeypatch
     assert np.abs(right[: int(0.29 * rate)]).max() < 1e-3
     assert np.abs(right[int(0.45 * rate) :]).max() < 1e-3
     # por la API: solo los dos lados o los dos
-    from fastapi.testclient import TestClient
 
-    from danplay import api
-
-    client = TestClient(api.app)
+    client = connect_api()
     bad = {"tracks": [{"source": "bass", "side": "C"}], "path": str(root / "x.wav")}
     assert client.post(f"/api/song/{cid}/stems/mix", json=bad).status_code == 422

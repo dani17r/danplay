@@ -46,12 +46,8 @@ def _row(name):
 
 
 @pytest.fixture
-def client(lib):
-    from fastapi.testclient import TestClient
-
-    from danplay import api
-
-    return TestClient(api.app)
+def client(lib, connect_api):
+    return connect_api()
 
 
 # ------------------------------------------------------------- canciones sueltas

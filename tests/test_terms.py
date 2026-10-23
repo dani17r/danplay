@@ -2,15 +2,14 @@
 cuando, en los datos de DanPlay. El texto lo tiene la interfaz."""
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    from danplay import api, config
+def client(tmp_path, monkeypatch, connect_api):
+    from danplay import config
 
     monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
-    return TestClient(api.app)
+    return connect_api()
 
 
 def test_at_first_nothing_was_accepted(client):

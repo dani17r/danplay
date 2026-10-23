@@ -240,15 +240,14 @@ def test_installing_a_voice_checks_what_arrives(guides, monkeypatch):
     assert cues.installed(voice["id"])
 
 
-def test_the_api_for_guides(configured_library, guides, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, cues, library
+@pytest.mark.python_core("la voz de mentira sustituye cues.install, cues.installed y cues.say")
+def test_the_api_for_guides(configured_library, guides, monkeypatch, connect_api):
+    from danplay import cues, library
 
     root, _ = configured_library
     library.add_folder(root)
     library.scan()
-    client = TestClient(api.app)
+    client = connect_api()
     c = library.search("", limit=1)[0]
     r = client.get("/api/cues/voices").json()
     assert len(r["voices"]) == 17 and r["available"] == ""

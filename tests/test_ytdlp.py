@@ -310,14 +310,13 @@ def test_without_network_it_says_so_in_spanish(pypi, monkeypatch):
         ytdlp.update()
 
 
-def test_the_api_reports_the_version_and_updates_as_a_job(pypi, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from danplay import api
-
+@pytest.mark.python_core(
+    "consulta un PyPI de mentira de Python; el núcleo de Rust pone al día yt-dlp desde GitHub"
+)
+def test_the_api_reports_the_version_and_updates_as_a_job(pypi, monkeypatch, connect_api):
     monkeypatch.setattr(ytdlp, "js_runtime", lambda refresh=False: None)
     monkeypatch.setattr(ytdlp, "js_runtime_hint", lambda: "instala Deno")
-    c = TestClient(api.app)
+    c = connect_api()
     d = c.get("/api/youtube").json()
     assert d["version"] and d["bundled_version"] == ytdlp.bundled_version()
     assert d["js_runtime"] is None and d["js_runtime_hint"] == "instala Deno"

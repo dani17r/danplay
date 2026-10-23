@@ -149,16 +149,14 @@ def test_deleting_it_from_danplay_can_take_it_out_of_its_lists(lib, monkeypatch)
     assert _titles(pl["id"]) == [("Mi Gozo", True)]
 
 
-def test_the_api_deletes_from_the_lists_too(lib, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, library, playlists
+def test_the_api_deletes_from_the_lists_too(lib, monkeypatch, connect_api):
+    from danplay import library, playlists
 
     monkeypatch.setattr(library.songs, "trash_path", lambda p: {"ok": True})
     pl = playlists.create("Dos")
     a = _id("Barak - Mi Gozo.mp3")
     playlists.set_songs(pl["id"], [a])
-    client = TestClient(api.app)
+    client = connect_api()
     r = client.delete(f"/api/song/{a}", params={"from_lists": "true"})
     assert r.status_code == 200 and r.json()["lists"] == 1
     assert client.get(f"/api/playlists/{pl['id']}/songs").json()["songs"] == []
