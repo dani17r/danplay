@@ -108,6 +108,115 @@ pub fn api_library() -> Option<App> {
     Some(app)
 }
 
+// ---------------------------------------------------------------- la sintética
+
+/// La biblioteca sintética de tests/conftest.py (`synthetic_library`): la
+/// clave de cada canción, su ruta dentro de la biblioteca, artista, título
+/// y álbum.
+pub const SYNTHETIC: [(&str, &str, &str, &str, &str); 3] = [
+    (
+        "gozo",
+        "Artistas/Barak/Barak - Mi Gozo.mp3",
+        "Barak",
+        "Mi Gozo",
+        "Gozo",
+    ),
+    (
+        "tierra",
+        "Artistas/Barak/Barak - Sera Llena La Tierra.mp3",
+        "Barak",
+        "Sera Llena La Tierra",
+        "Gozo",
+    ),
+    (
+        "shekinah",
+        "Artistas/New Wine/New Wine - Shekinah.mp3",
+        "New Wine",
+        "Shekinah",
+        "Libertad",
+    ),
+];
+
+/// Las canciones de la biblioteca sintética, por su clave («gozo»...).
+pub type Songs = std::collections::HashMap<&'static str, PathBuf>;
+
+/// Sus mp3, hechos una vez y copiados después a la de cada prueba.
+fn synthetic_template() -> Option<&'static Path> {
+    static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| {
+        ffmpeg()?;
+        let dir = crate::tests::scratch("plantilla-sintetica");
+        for (_, rel, artist, title, album) in SYNTHETIC {
+            mp3(&dir.join(rel), artist, title, album, 1.0, None);
+        }
+        Some(dir)
+    })
+    .as_deref()
+}
+
+/// `configured_library` de tests/conftest.py: una app con la biblioteca
+/// sintética (sus tres canciones, y Entrada, Revisar y Secuencias), sin IA y
+/// aún sin dar de alta. `None` si no hay ffmpeg.
+pub fn configured_library() -> Option<(App, Songs)> {
+    let template = synthetic_template()?;
+    let app = crate::tests::app();
+    app.update_config(|c| c.ai_enabled = false);
+    let lib = app.config().library.clone();
+    for sub in ["Entrada", "Revisar", "Secuencias"] {
+        std::fs::create_dir_all(lib.join(sub)).expect("carpeta");
+    }
+    let mut songs = Songs::new();
+    for (key, rel, ..) in SYNTHETIC {
+        let dest = lib.join(rel);
+        std::fs::create_dir_all(dest.parent().expect("carpeta")).expect("carpeta");
+        std::fs::copy(template.join(rel), &dest).expect("copiar");
+        songs.insert(key, dest);
+    }
+    Some((app, songs))
+}
+
+/// La de antes, ya dada de alta y escaneada (el `lib` de test_watch.py,
+/// test_index.py, test_journal.py...).
+pub fn scanned_library() -> Option<(App, Songs)> {
+    let (app, songs) = configured_library()?;
+    let root = app.config().library.to_string_lossy().into_owned();
+    assert!(crate::services::folders::add_folder(&app, &root, "").expect("carpeta"));
+    crate::services::library::scan(&app, &mut |_, _| {}).expect("escaneo");
+    Some((app, songs))
+}
+
+/// Las canciones que hay ahora en la biblioteca (`library.search("")`).
+pub fn rows(app: &App) -> Vec<library::index::Dict> {
+    app.db(|c| library::index::fetch_all(c, "SELECT * FROM songs ORDER BY id", []))
+        .expect("base")
+}
+
+/// {nombre del archivo: id} de lo que hay ahora (`_ids` de test_watch.py).
+pub fn ids_by_file(app: &App) -> std::collections::BTreeMap<String, i64> {
+    rows(app)
+        .iter()
+        .map(|r| {
+            let path = library::index::get_str(r, "path");
+            (
+                library::py::basename(path),
+                r.get("id").and_then(Value::as_i64).expect("id"),
+            )
+        })
+        .collect()
+}
+
+/// La canción con ese nombre de archivo, si ahora está (`_row`).
+pub fn row(app: &App, name: &str) -> Option<library::index::Dict> {
+    rows(app)
+        .into_iter()
+        .find(|r| library::py::basename(library::index::get_str(r, "path")) == name)
+}
+
+/// El texto de una ruta.
+pub fn text(p: &Path) -> String {
+    p.to_string_lossy().into_owned()
+}
+
 /// Una petición a la API, en el mismo proceso: (código, JSON o `null`).
 pub fn call(app: &App, method: &str, path: &str, body: Option<Value>) -> (u16, Value) {
     let r = send(app, method, path, body);

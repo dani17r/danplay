@@ -944,6 +944,7 @@ dependencies = [
  "bytes",
  "danplay-analysis",
  "danplay-library",
+ "flate2",
  "form_urlencoded",
  "http-body-util",
  "hyper",

@@ -1118,4 +1118,374 @@ mod tests {
         let plan = plan_cues(&[(10.0, "Coro".into())], &[("Coro".into(), 1.0)], Some(0.5));
         assert_eq!(plan, vec![(8.5, "Coro".to_owned())]);
     }
+
+    // ---------------------------------------------------- tests/test_structure.py
+    //
+    // Las cuentas, con rasgos sintéticos (una plantilla por parte, con
+    // ruido): sin audio. El ruido sale de un generador propio con su
+    // semilla (no del de numpy), con el mismo reparto.
+
+    /// splitmix64: siempre lo mismo con la misma semilla.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+
+        /// En [0, 1), como `rng.random()`.
+        fn random(&mut self) -> f64 {
+            (self.next() >> 11) as f64 / (1u64 << 53) as f64
+        }
+
+        /// Normal de media 0 y desviación 1, como `rng.standard_normal()`.
+        fn normal(&mut self) -> f64 {
+            let (u1, u2) = (1.0 - self.random(), self.random());
+            (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+        }
+    }
+
+    /// Una canción de rasgos: la intro y el final flojos y sin voz, las
+    /// estrofas y los coros (más fuertes) que se repiten, y el puente una
+    /// sola vez.
+    fn level(kind: char) -> f64 {
+        match kind {
+            'A' => 0.05,
+            'C' => 0.45,
+            'D' => 0.25,
+            'P' => 0.22,
+            'S' => 0.3,
+            _ => 0.2, // B, E
+        }
+    }
+
+    fn sung(kind: char) -> f64 {
+        match kind {
+            'A' | 'S' => 0.0,
+            'C' => 0.6,
+            _ => 0.5, // B, D, E, P
+        }
+    }
+
+    const SONG: [(char, usize); 8] = [
+        ('A', 4),
+        ('B', 8),
+        ('C', 8),
+        ('B', 8),
+        ('C', 8),
+        ('D', 8),
+        ('C', 8),
+        ('A', 4),
+    ];
+
+    /// (croma, timbre, rms, voz) por unidad (`_features`): cada parte, su
+    /// plantilla con ruido.
+    fn features(plan: &[(char, usize)], seed: u64) -> (Matrix, Matrix, Vec<f64>, Vec<f64>) {
+        let noise = 0.3;
+        let mut rng = Rng(seed);
+        let mut kinds: Vec<char> = plan.iter().map(|(k, _)| *k).collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        let templates: Vec<(char, Vec<f64>, Vec<f64>)> = kinds
+            .iter()
+            .map(|k| {
+                let c = (0..12).map(|_| rng.random()).collect();
+                let t = (0..12).map(|_| rng.normal()).collect();
+                (*k, c, t)
+            })
+            .collect();
+        let (mut chroma, mut timbre, mut rms, mut voice) = (vec![], vec![], vec![], vec![]);
+        for &(kind, n) in plan {
+            let (_, c, t) = templates
+                .iter()
+                .find(|(k, ..)| *k == kind)
+                .expect("plantilla");
+            for _ in 0..n {
+                chroma.extend(c.iter().map(|x| x + noise * rng.random()));
+                timbre.extend(t.iter().map(|x| x + noise * rng.normal()));
+                rms.push(level(kind) * (1.0 + 0.1 * rng.normal()));
+                let s = sung(kind) * (1.0 + 0.2 * rng.normal());
+                voice.push(if sung(kind) == 0.0 {
+                    0.003 * rng.random()
+                } else {
+                    s
+                });
+            }
+        }
+        let rows = rms.len();
+        (
+            Matrix::new(rows, 12, chroma),
+            Matrix::new(rows, 12, timbre),
+            rms,
+            voice,
+        )
+    }
+
+    fn labels(sections: &[Section]) -> Vec<String> {
+        sections.iter().map(|s| s.label.clone()).collect()
+    }
+
+    fn named(parts: &[Part], bar: f64) -> Vec<Section> {
+        let chunks: Vec<Chunk> = parts.iter().map(Chunk::from).collect();
+        name_sections(&chunks, bar)
+    }
+
+    #[test]
+    fn the_parts_come_out_with_their_names() {
+        let (chroma, timbre, rms, voice) = features(&SONG, 1);
+        let blocks = [chroma, timbre];
+        let parts = segment(&blocks, &rms, Some(&voice), &[], None, None);
+        let firsts: Vec<usize> = parts.iter().map(|p| p.first).collect();
+        assert_eq!(firsts, [0, 4, 12, 20, 28, 36, 44, 52]);
+        let groups: Vec<&str> = parts.iter().map(|p| p.cluster.as_str()).collect();
+        assert_eq!(groups, ["A", "B", "C", "B", "C", "D", "C", "A"]);
+        let names = named(&parts, 1.0);
+        assert_eq!(
+            labels(&names),
+            [
+                "Intro",
+                "Estrofa 1",
+                "Coro 1",
+                "Estrofa 2",
+                "Coro 2",
+                "Puente",
+                "Coro 3",
+                "Final"
+            ]
+        );
+        assert_eq!(
+            names[1],
+            Section {
+                start: 4.0,
+                end: 12.0,
+                label: "Estrofa 1".into()
+            }
+        );
+        // sin las pistas separadas, la intro y el final por lo flojos que
+        // suenan
+        let without = named(&segment(&blocks, &rms, None, &[], None, None), 1.0);
+        assert_eq!(labels(&without), labels(&names));
+    }
+
+    #[test]
+    fn a_solo_is_named_by_the_instrument_that_leads() {
+        // sin voz entre partes cantadas: el solo del instrumento que manda. Y
+        // lo corto justo antes del coro, el pre coro
+        let mut plan = vec![
+            ('A', 4),
+            ('B', 8),
+            ('P', 4),
+            ('C', 8),
+            ('B', 8),
+            ('P', 4),
+            ('C', 8),
+        ];
+        plan.extend([('S', 8), ('C', 8), ('A', 4)]);
+        let (chroma, timbre, rms, voice) = features(&plan, 3);
+        let blocks = [chroma, timbre];
+        let n = rms.len();
+        let solo: usize = plan[..7].iter().map(|(_, k)| k).sum();
+        let mut guitar = vec![0.05; n];
+        for g in &mut guitar[solo..solo + 8] {
+            *g = 0.5;
+        }
+        let sources = |guitar: &[f64]| {
+            vec![
+                ("drums".to_owned(), vec![0.2; n]),
+                ("bass".to_owned(), vec![0.15; n]),
+                ("guitar".to_owned(), guitar.to_vec()),
+                ("other".to_owned(), vec![0.1; n]),
+                // la voz no cuenta para los solos
+                ("vocals".to_owned(), voice.clone()),
+            ]
+        };
+        let parts = segment(&blocks, &rms, Some(&voice), &sources(&guitar), None, None);
+        assert_eq!(
+            parts
+                .iter()
+                .filter(|p| p.lead.as_deref() == Some("guitar"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            labels(&named(&parts, 1.0)),
+            [
+                "Intro",
+                "Estrofa 1",
+                "Pre coro 1",
+                "Coro 1",
+                "Estrofa 2",
+                "Pre coro 2",
+                "Coro 2",
+                "Solo de guitarra",
+                "Coro 3",
+                "Final"
+            ]
+        );
+        // si ningún instrumento manda, es un instrumental
+        for g in &mut guitar[solo..solo + 8] {
+            *g = 0.05;
+        }
+        let parts = segment(&blocks, &rms, Some(&voice), &sources(&guitar), None, None);
+        assert!(labels(&named(&parts, 1.0)).contains(&"Instrumental".to_owned()));
+    }
+
+    #[test]
+    fn what_is_left_before_the_first_chorus_is_the_verse() {
+        // una parte que no se repite antes del primer coro es más estrofa (y
+        // va con la de al lado, que ya lo era); una de un compás se junta con
+        // la vecina que más se le parece
+        let plan = [
+            ('A', 4),
+            ('B', 8),
+            ('E', 8),
+            ('C', 8),
+            ('B', 8),
+            ('C', 8),
+            ('A', 4),
+        ];
+        let (chroma, timbre, rms, voice) = features(&plan, 5);
+        let parts = segment(&[chroma, timbre], &rms, Some(&voice), &[], None, None);
+        assert_eq!(
+            labels(&named(&parts, 1.0)),
+            [
+                "Intro",
+                "Estrofa 1",
+                "Coro 1",
+                "Estrofa 2",
+                "Coro 2",
+                "Final"
+            ]
+        );
+        // una fila de unos, cuatro de unos y cuatro de menos unos, con la
+        // primera columna 0, 1, 2... (que no sean todas iguales)
+        let mut data = Vec::new();
+        for i in 0..9 {
+            let v = if i < 5 { 1.0 } else { -1.0 };
+            data.extend([v + f64::from(i), v, v]);
+        }
+        let block = prepared(&Matrix::new(9, 3, data));
+        assert_eq!(
+            merge_short(&[(0, 1), (1, 5), (5, 9)], &[block]),
+            [(0, 5), (5, 9)]
+        );
+    }
+
+    #[test]
+    fn the_voice_also_marks_a_change_and_short_parts_join_a_neighbour() {
+        // siempre lo mismo: ningún cambio por lo que suena
+        let flat = [Matrix::new(24, 12, vec![1.0; 24 * 12])];
+        let mut voice: Vec<f64> = (0..24).map(|i| if i < 10 { 0.0 } else { 1.0 }).collect();
+        voice[3] = 1.0; // una frase suelta en la intro: no cambia la parte
+        let parts = segment(&flat, &[1.0; 24], Some(&voice), &[], None, None);
+        let spans: Vec<(usize, usize)> = parts.iter().map(|p| (p.first, p.last)).collect();
+        assert_eq!(spans, [(0, 10), (10, 24)]);
+        let vocal: Vec<Option<f64>> = parts.iter().map(|p| p.vocal).collect();
+        assert_eq!(vocal, [Some(0.0), Some(1.0)]);
+        assert_eq!(labels(&named(&parts, 2.0)), ["Intro", "Parte"]);
+        // sin voz: lo que suena a lo mismo, una sola parte
+        assert_eq!(segment(&flat, &[1.0; 24], None, &[], None, None).len(), 1);
+        assert_eq!(
+            segment(&[Matrix::new(0, 12, vec![])], &[], None, &[], None, None),
+            []
+        );
+        assert_eq!(name_sections(&[], 2.0), []);
+    }
+
+    #[test]
+    fn the_units_are_the_bars_or_two_second_windows() {
+        // del 1 al 19, y la canción dura 25
+        let bars: Vec<f64> = (0..10).map(|i| 1.0 + 2.0 * f64::from(i)).collect();
+        let (units, phase) = units_from(&bars, 25.0);
+        assert_eq!(
+            (units[0], phase),
+            ((0.0, 1.0), Some(1)),
+            "lo de antes del primer compás, aparte"
+        );
+        assert_eq!(units[1], (1.0, 3.0));
+        assert_eq!(
+            units[units.len() - 3..],
+            [(19.0, 21.0), (21.0, 23.0), (23.0, 25.0)]
+        );
+        // con un primer compás casi en el cero, ese trozo va con él
+        let bars: Vec<f64> = (0..10).map(|i| 0.2 + 2.0 * f64::from(i)).collect();
+        let (units, phase) = units_from(&bars, 20.2);
+        assert_eq!((units[0], phase), ((0.0, 2.2), Some(0)));
+        // (lo de pocos compases, en trozos de 2 s, ya estaba en
+        // `no_bars_means_two_second_chunks`)
+    }
+
+    #[test]
+    fn the_frames_hear_the_notes() {
+        let x: Vec<f32> = (0..RATE as usize * 2)
+            .map(|i| {
+                (0.5 * (2.0 * std::f64::consts::PI * 440.0 * i as f64 / f64::from(RATE)).sin())
+                    as f32
+            })
+            .collect();
+        let f = frames(&x, RATE);
+        let m = f.rms.len();
+        assert_eq!((f.chroma.len(), f.timbre.len()), (m * 12, m * 12));
+        let mean: Vec<f64> = (0..12)
+            .map(|j| (0..m).map(|i| f64::from(f.chroma[i * 12 + j])).sum::<f64>() / m as f64)
+            .collect();
+        let top = (0..12).fold(0, |b, j| if mean[j] > mean[b] { j } else { b });
+        assert_eq!(top, 9, "el la (A) es la nota 9");
+        let loudest = f.rms.iter().fold(0f32, |a, b| a.max(*b));
+        let want = 0.5 / 2f64.sqrt();
+        assert!(
+            (f64::from(loudest) - want).abs() <= 0.05 * want,
+            "{loudest}"
+        );
+        assert_eq!(frames(&[0.0; 100], RATE).rms.len(), 1);
+    }
+
+    #[test]
+    fn each_guide_ends_a_beat_before_its_part_and_none_overlap() {
+        let sections: Vec<(f64, String)> = [
+            (0.0, "Intro"),
+            (8.0, "Estrofa 1"),
+            (9.5, "Pre coro"),
+            (10.0, "Coro 1"),
+            (10.3, "Puente"),
+            (20.0, "Final"),
+        ]
+        .iter()
+        .map(|(s, l)| (*s, (*l).to_owned()))
+        .collect();
+        let clips: Vec<(String, f64)> = [
+            ("Estrofa 1", 0.8),
+            ("Pre coro", 0.6),
+            ("Coro 1", 0.5),
+            ("Puente", 0.6),
+            ("Final", 0.7),
+        ]
+        .iter()
+        .map(|(l, c)| ((*l).to_owned(), *c))
+        .collect();
+        assert_eq!(
+            plan_cues(&sections, &clips, Some(0.5)),
+            [
+                (6.7, "Estrofa 1".to_owned()), // un pulso antes de que empiece
+                (8.4, "Pre coro".to_owned()),
+                // encima de la anterior: justo detrás de ella, acabando al empezar
+                (9.5, "Coro 1".to_owned()),
+                // «Puente» ya no cabe antes de su parte: no se anuncia
+                (18.8, "Final".to_owned()),
+            ]
+        );
+        // sin pulso, medio segundo; nunca antes del principio
+        assert_eq!(
+            plan_cues(&[(1.2, "Coro".into())], &[("Coro".into(), 0.4)], None),
+            [(0.3, "Coro".to_owned())]
+        );
+        assert_eq!(
+            plan_cues(&[(1.5, "Coro".into())], &[("Coro".into(), 1.2)], Some(0.6)),
+            [(0.0, "Coro".to_owned())]
+        );
+    }
 }

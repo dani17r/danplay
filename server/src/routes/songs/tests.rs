@@ -616,11 +616,18 @@ fn steady_raw(path: &Path) {
     reason = "un recorrido entero de la rejilla del clic"
 )]
 fn the_click_with_a_fake_detector() {
+    // la cola y el detector son de todo el proceso: una prueba del pulso a
+    // la vez (las de `services::beats::tests`)
+    let _serial = crate::services::beats::tests::serial();
     let app = app();
-    if app.tool("ffmpeg").is_none() || !crate::services::beats::graph(&app).is_file() {
-        return; // sin ffmpeg o sin el grafo, aquí no hay clic que probar
+    if app.tool("ffmpeg").is_none() {
+        return; // sin ffmpeg, aquí no hay clic que probar
     }
     let dir = crate::tests::scratch("detector");
+    // un grafo de mentira: el detector de mentira no lo lee
+    let graph = dir.join("beat_this.onnx");
+    std::fs::write(&graph, b"grafo").expect("grafo");
+    crate::services::beats::tests::set_graph(&graph);
     let raw = dir.join("crudo.npz");
     steady_raw(&raw);
     let good = dir.join("bien.sh");
