@@ -88,6 +88,14 @@ pub fn make_mp3(
     Some(path)
 }
 
+/// Un archivo de los datos que viajan con la app (hoy en danplay/data: los
+/// empaqueta scripts/data.sh; si se mueven, se cambia aquí).
+pub fn bundled_data(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../danplay/data")
+        .join(name)
+}
+
 /// Lo que dice una prueba que no puede hacer nada sin ffmpeg.
 pub fn without_ffmpeg(what: &str) {
     println!("sin ffmpeg: {what} no se comprueba");

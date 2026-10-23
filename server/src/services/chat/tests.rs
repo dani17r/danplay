@@ -8,6 +8,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::Mutex;
 
+mod ai_cases;
+
 /// El registro es uno para todo el proceso: las pruebas que lo tocan van de
 /// una en una.
 static REGISTRY_TESTS: Mutex<()> = Mutex::new(());

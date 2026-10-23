@@ -353,4 +353,72 @@ mod tests {
             assert!(!is_blank(&v), "{v}");
         }
     }
+
+    /// Lo de tests/test_ai.py: las conversaciones se guardan y se buscan.
+    #[test]
+    fn chats_are_saved_and_searchable() {
+        let dir = crate::testkit::Scratch::new("conversaciones");
+        let conn = crate::index::open(&dir.join("chats.db")).expect("base");
+        crate::index::schema::prepare(&conn).expect("esquema");
+        let c = create(&conn, "").expect("creada");
+        let id = c["id"].as_i64().expect("id");
+        assert!(id > 0);
+        assert_eq!(list_all(&conn, 50).expect("lista")[0]["n"], json!(0));
+        append(
+            &conn,
+            id,
+            &[
+                json!({"role": "me", "text": "¿que tengo de Barak?"}),
+                json!({
+                    "role": "ai",
+                    "text": "Tienes 18 temas.",
+                    "tools": [{"name": "search_songs", "summary": "18"}],
+                    "usage": {"prompt": 10, "completion": 5, "cost": 0.0001},
+                }),
+                json!({
+                    "role": "ai",
+                    "text": "Entró en «domingo».",
+                    "app": true,
+                    "ref": "k1",
+                    "event": "download_done",
+                    "filled": [{"n": 4, "song": {"id": 7, "artist": "A", "title": "T"}}],
+                }),
+            ],
+        )
+        .expect("añadidos");
+        let got = get(&conn, id).expect("leída").expect("está");
+        assert_eq!(got["title"], json!("¿que tengo de Barak?"));
+        let messages = got["messages"].as_array().expect("mensajes");
+        assert_eq!(messages[1]["tools"][0]["name"], json!("search_songs"));
+        assert_eq!(messages[1]["usage"]["prompt"], json!(10));
+        // las filas que completó la descarga vuelven con el aviso (la tabla las usa)
+        assert_eq!(
+            messages[2]["filled"],
+            json!([{"n": 4, "song": {"id": 7, "artist": "A", "title": "T"}}])
+        );
+        assert!(messages[0].get("hidden").is_none());
+        let hits = search(&conn, "barak", 20).expect("busca");
+        assert_eq!(hits[0]["chat_id"], json!(id));
+        assert!(
+            hits[0]["snippet"]
+                .as_str()
+                .is_some_and(|s| s.contains("Barak"))
+        );
+        assert!(search(&conn, "%", 20).expect("busca").is_empty());
+        assert!(rename(&conn, id, "Domingo").expect("renombrada"));
+        assert_eq!(
+            get(&conn, id).expect("leída").expect("está")["title"],
+            json!("Domingo")
+        );
+        assert!(delete(&conn, id).expect("borrada"));
+        assert!(get(&conn, id).expect("leída").is_none());
+        assert!(title_from(&"x".repeat(100)).ends_with('…'));
+        // la lista pegada: la primera línea con texto, sin las marcas de WhatsApp
+        let pasted = "\n  \nagrégame esto a la lista:\n*Domingo*✅\n*1.- Mi Gozo*";
+        assert_eq!(title_from(pasted), "agrégame esto a la lista:");
+        assert_eq!(
+            title_from("*Domingo* _ensayo_ ~viejo~"),
+            "Domingo ensayo viejo"
+        );
+    }
 }

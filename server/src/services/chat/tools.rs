@@ -752,3 +752,29 @@ impl Io for ServerIo<'_> {
         library::index::now()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Los nombres viejos de las herramientas (lo de tests/test_ai.py):
+    /// `set_stars` es `edit_song` con sus estrellas, y `lyrics_by_name` es
+    /// `get_lyrics` sin el id (por artista y título).
+    #[test]
+    fn old_names_become_the_new_ones() {
+        let args = |v: Value| v.as_object().cloned().unwrap_or_default();
+        let (name, a) = alias("set_stars", args(json!({"id": 3, "stars": 9})));
+        assert_eq!(
+            (name.as_str(), Value::Object(a)),
+            ("edit_song", json!({"id": 3, "stars": 9}))
+        );
+        let (name, a) = alias(
+            "lyrics_by_name",
+            args(json!({"artist": "Barak", "title": "Mi Gozo", "id": 99})),
+        );
+        assert_eq!(
+            (name.as_str(), Value::Object(a)),
+            ("get_lyrics", json!({"artist": "Barak", "title": "Mi Gozo"}))
+        );
+    }
+}

@@ -444,4 +444,81 @@ mod tests {
         );
         assert_eq!(encode(&Val::Null, ";"), Err(Error::Delimiter));
     }
+
+    /// Lo de tests/test_ai.py: la especificación de TOON, caso a caso.
+    #[test]
+    #[allow(
+        clippy::approx_constant,
+        reason = "el -3.14 de la prueba de Python, no π"
+    )]
+    fn toon_follows_the_spec() {
+        use serde_json::json;
+        let enc = |v: serde_json::Value| encode(&Val::from(v), ",").expect("toon");
+        assert_eq!(
+            enc(json!({"user": {"id": 123, "name": "Ada"}})),
+            "user:\n  id: 123\n  name: Ada"
+        );
+        assert_eq!(
+            enc(json!({"tags": ["admin", "ops", "dev"]})),
+            "tags[3]: admin,ops,dev"
+        );
+        assert_eq!(
+            enc(json!({"items": [
+                {"sku": "A1", "qty": 2, "price": 9.99},
+                {"sku": "B2", "qty": 1, "price": 14.5},
+            ]})),
+            "items[2]{sku,qty,price}:\n  A1,2,9.99\n  B2,1,14.5"
+        );
+        assert_eq!(
+            enc(json!({"items": [1, {"a": 1}, "text"]})),
+            "items[3]:\n  - 1\n  - a: 1\n  - text"
+        );
+        assert_eq!(enc(json!({"e": [], "o": {}})), "e: []\no:");
+        // números, booleanos y nulos tal cual; los flotantes enteros sin «.0»
+        let numbers = Val::Object(vec![
+            ("a".into(), Val::Real(2.0)),
+            ("b".into(), Val::Real(-3.14)),
+            ("c".into(), Val::Null),
+            ("d".into(), Val::Bool(true)),
+            ("e".into(), Val::Real(f64::NAN)),
+        ]);
+        assert_eq!(
+            encode(&numbers, ",").expect("toon"),
+            "a: 2\nb: -3.14\nc: null\nd: true\ne: null"
+        );
+        // comillas SOLO cuando hace falta, con sus escapes
+        assert_eq!(
+            enc(json!({
+                "a": "Hello world",
+                "b": "123",
+                "c": "true",
+                "d": " x",
+                "e": "",
+                "f": "a:b",
+                "g": "x,y",
+                "h": "-1x",
+                "i": "say \"hi\"",
+                "j": "l1\nl2",
+                "k": "Barak - Mi Gozo (En Vivo)",
+            })),
+            "a: Hello world\nb: \"123\"\nc: \"true\"\nd: \" x\"\ne: \"\"\nf: \"a:b\"\ng: \"x,y\"\n\
+             h: \"-1x\"\ni: \"say \\\"hi\\\"\"\nj: \"l1\\nl2\"\nk: Barak - Mi Gozo (En Vivo)"
+        );
+        assert_eq!(enc(json!({"my-key": [1, 2, 3]})), "\"my-key\"[3]: 1,2,3");
+        // una lista de objetos desiguales o anidados va en forma de lista
+        assert_eq!(
+            enc(json!({"d": [{"ok": true, "m": []}, {"ok": false, "m": [{"id": 1}]}]})),
+            "d[2]:\n  - ok: true\n    m: []\n  - ok: false\n    m[1]{id}:\n      1"
+        );
+        // otro delimitador se declara en la cabecera y vale en todas partes
+        assert_eq!(
+            encode(
+                &Val::from(json!({"items": [{"sku": "A1", "name": "x,y"}]})),
+                "|"
+            )
+            .expect("toon"),
+            "items[1|]{sku|name}:\n  A1|x,y"
+        );
+        assert_eq!(encode(&Val::from(json!({})), ";"), Err(Error::Delimiter));
+    }
 }

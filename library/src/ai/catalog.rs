@@ -748,4 +748,118 @@ mod tests {
         assert!(trim_json(b"{\"a\": 1} x", None).is_err());
         assert!(trim_json(b"\xff", None).is_err());
     }
+
+    // --------------------------------------------- lo de tests/test_ai.py
+
+    fn obj(v: Value) -> Dict {
+        v.as_object().cloned().expect("objeto")
+    }
+
+    #[test]
+    fn catalog_trim_keeps_only_chat_models() {
+        let raw = obj(json!({
+            "x": {
+                "name": "X",
+                "models": {
+                    "chat-1": {
+                        "name": "Chat",
+                        "tool_call": true,
+                        "cost": {"input": 1, "output": 2},
+                        "limit": {"context": 1000},
+                        "release_date": "2026-01-01",
+                        "modalities": {"input": ["text"], "output": ["text"]},
+                    },
+                    "embed-1": {
+                        "name": "Embed",
+                        "modalities": {"input": ["text"], "output": ["embedding"]},
+                    },
+                    "tts-1": {"name": "Voz", "modalities": {"input": ["text"], "output": ["audio"]}},
+                    "whisper-x": {"name": "Whisper"},
+                    "old": {"name": "Old", "status": "deprecated", "tool_call": false},
+                },
+            }
+        }));
+        let out = trim(&raw, None);
+        let mut ids: Vec<&String> = out["x"]["models"]
+            .as_object()
+            .expect("modelos")
+            .keys()
+            .collect();
+        ids.sort();
+        assert_eq!(ids, ["chat-1", "old"]);
+        let m = &out["x"]["models"]["chat-1"];
+        assert_eq!(m["tools"], json!(true));
+        assert_eq!(m["cost_out"].as_f64(), Some(2.0));
+        assert_eq!(m["context"].as_f64(), Some(1000.0));
+        assert_eq!(out["x"]["models"]["old"]["deprecated"], json!(true));
+    }
+
+    /// La foto del catálogo que viaja con la app (la de danplay/data, que
+    /// empaqueta scripts/data.sh).
+    #[test]
+    fn bundled_snapshot_exists_and_knows_the_big_ones() {
+        let path = crate::testkit::bundled_data("models-snapshot.json");
+        assert!(path.is_file(), "falta {}", path.display());
+        let d: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("la foto")).expect("JSON");
+        for pid in ["openai", "anthropic", "google", "deepinfra", "openrouter"] {
+            let models = &d["providers"][pid]["models"];
+            assert!(models.as_object().is_some_and(|m| !m.is_empty()), "{pid}");
+        }
+    }
+
+    #[test]
+    fn recommendation_skips_deprecated_experimental_toolless() {
+        let models: Vec<Dict> = [
+            json!({"id": "a-exp", "name": "A exp", "tools": true, "deprecated": false, "released": "2026-09-01", "cost_in": 0.1, "cost_out": 0.4}),
+            json!({"id": "b-flash", "name": "B Flash", "tools": true, "deprecated": false, "released": "2026-08-01", "cost_in": 0.1, "cost_out": 0.4}),
+            json!({"id": "c-big", "name": "C", "tools": true, "deprecated": false, "released": "2026-08-15", "cost_in": 2, "cost_out": 8}),
+            json!({"id": "d-old", "name": "D", "tools": true, "deprecated": true, "released": "2026-09-02", "cost_in": 0.01, "cost_out": 0.02}),
+            json!({"id": "e-notools", "name": "E", "tools": false, "deprecated": false, "released": "2026-09-03", "cost_in": 0.01, "cost_out": 0.02}),
+        ]
+        .into_iter()
+        .map(obj)
+        .collect();
+        // (la fecha de hoy fija: 1 de octubre de 2026)
+        let now = 1_790_812_800.0;
+        assert_eq!(
+            Value::Object(recommend(&models, now)),
+            json!({"chat": "c-big", "fast": "b-flash"})
+        );
+        assert_eq!(
+            Value::Object(recommend(&[], now)),
+            json!({"chat": "", "fast": ""})
+        );
+    }
+
+    /// Sin red, el catálogo sigue con la foto de la app y cuenta que no pudo.
+    /// La descarga (`fetch`) va siempre a models.dev, así que aquí se hace lo
+    /// que hace el servidor cuando falla (`startup::refresh_catalog`).
+    #[test]
+    fn offline_catalog_breaks_nothing() {
+        let dir = crate::testkit::Scratch::new("catalogo-sin-red");
+        let cache = dir.join("no.json");
+        let snapshot = crate::testkit::bundled_data("models-snapshot.json");
+        let mut out = Warnings::new();
+        let why = describe("<urlopen error [Errno 111] Connection refused>");
+        // lo cargado es de todo el proceso, y las pruebas de la IA cargan el
+        // suyo a la vez: si otra lo cambió entre medias, otra vez
+        let mut s = Dict::new();
+        for _ in 0..20 {
+            load(&cache, &snapshot, &mut out);
+            mark_checked(&cache, &snapshot, 1000.0, &why, &mut out);
+            s = status(&load(&cache, &snapshot, &mut out), false);
+            if s["error"].as_str().is_some_and(|e| !e.is_empty()) {
+                break;
+            }
+        }
+        assert!(
+            s["error"].as_str().is_some_and(|e| !e.is_empty()),
+            "tiene que contar que no pudo"
+        );
+        assert!(
+            s["models"].as_u64().is_some_and(|n| n > 0),
+            "y seguir con la foto de la app"
+        );
+    }
 }

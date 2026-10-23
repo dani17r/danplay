@@ -198,3 +198,78 @@ Python era Hypothesis o `random`, con un generador fijo.
 | `test_the_index_is_built_once_under_a_lock` | `S` `the_index_is_built_once_under_a_lock` (los ocho hilos reciben el mismo índice, en vez de contar las llamadas a `load`) |
 | `test_the_song_data_comes_from_the_db` | `L` `the_song_data_comes_from_the_db` |
 | `test_50000_songs_within_a_time_limit` | `L` `songs_50000_within_a_time_limit` (los topes de Python; sin optimizar, diez veces más) |
+
+## tests/test_ai.py
+
+En Python el «proveedor» era un cliente del SDK de OpenAI de mentira; en
+Rust es un servidor HTTP en el propio equipo que contesta según lo que le
+piden (`serve_fn`, y `nobody_home` para uno apagado). Abreviaturas:
+`P` = `library/src/ai/providers/tests.rs`, `K` = `library/src/ai/catalog.rs`,
+`C` = `library/src/ai/call/tests.rs`, `E` = `library/src/enrich/tests.rs`,
+`T` = `library/src/assistant/tools/tests.rs`,
+`A` = `server/src/services/chat/tests/ai_cases.rs` (un turno entero por
+`/api/chat` y las herramientas con su validación).
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_catalog_has_groups_and_well_formed_urls` | `P` `catalog_has_groups_and_well_formed_urls` |
+| `test_local_providers_need_no_key_and_point_here` | `P` `local_providers_need_no_key_and_point_here` |
+| `test_with_nothing_configured_ai_is_unavailable` | `P` `with_nothing_configured_ai_is_unavailable` |
+| `test_saving_profile_activates_it_and_key_comes_back_masked` | `P` `saving_profile_activates_it_and_key_comes_back_masked` |
+| `test_saving_without_key_keeps_the_saved_one` | `P` `saving_without_key_keeps_the_saved_one` |
+| `test_url_placeholders_are_filled_from_the_fields` | `P` `url_placeholders_are_filled_from_the_fields` |
+| `test_several_own_servers_coexist_and_can_be_switched` | `P` `several_own_servers_coexist_and_can_be_switched` |
+| `test_local_without_key_is_activated_as_is` | `P` `local_without_key_is_activated_as_is` |
+| `test_env_vars_override_the_file` | `P` `env_vars_override_the_file` (en otro proceso con esas variables) |
+| `test_old_deepinfra_key_is_migrated_automatically` | `P` `old_deepinfra_key_is_migrated_automatically` (ídem) |
+| `test_catalog_trim_keeps_only_chat_models` | `K` `catalog_trim_keeps_only_chat_models` |
+| `test_bundled_snapshot_exists_and_knows_the_big_ones` | `K` `bundled_snapshot_exists_and_knows_the_big_ones` (la foto de danplay/data: ver la nota del final) |
+| `test_recommendation_skips_deprecated_experimental_toolless` | `K` `recommendation_skips_deprecated_experimental_toolless` (con la fecha de hoy fija) |
+| `test_offline_catalog_breaks_nothing` | `K` `offline_catalog_breaks_nothing` (lo que hace el servidor cuando models.dev no contesta; la descarga en sí va siempre a models.dev y sin red no se prueba) |
+| `test_json_rejected_is_retried_without_it_and_remembered` | `C` `json_rejected_is_retried_without_it_and_remembered` |
+| `test_required_tool_choice_falls_back_to_auto_if_unsupported` | `C` `required_tool_choice_falls_back_to_auto_if_unsupported` |
+| `test_model_without_tools_is_reported_clearly` | ya estaba en `C` `a_model_without_tools`; lo que dice el asistente, `A` `model_without_tools_is_reported_clearly` |
+| `test_openai_reasoners_get_no_temperature` | `C` `openai_reasoners_get_no_temperature` (con la foto del catálogo) |
+| `test_profile_extra_params_go_with_every_request` | `C` `profile_extra_params_go_with_every_request` (`extra_body` va mezclado en el cuerpo, como el SDK) |
+| `test_check_tells_bad_key_from_no_connection` | `C` `check_tells_bad_key_from_no_connection` |
+| `test_check_verifies_the_chat_model_uses_tools` | `C` `check_verifies_the_chat_model_uses_tools` |
+| `test_model_list_is_crossed_with_the_catalog` | `C` `model_list_is_crossed_with_the_catalog` |
+| `test_only_models_the_key_can_use_are_shown` | `C` `only_models_the_key_can_use_are_shown` |
+| `test_local_server_models_are_not_checked_one_by_one` | `C` `local_server_models_are_not_checked_one_by_one` |
+| `test_draft_without_key_uses_the_saved_one` | `P` `draft_without_key_uses_the_saved_one` |
+| `test_free_providers_come_first_and_need_no_key` | `P` `free_providers_come_first_and_need_no_key` |
+| `test_try_free_activates_the_first_that_answers` | `C` `try_free_activates_the_first_that_answers` (con `try_free_at`: cada gratuito, en la dirección del servidor de mentira) |
+| `test_try_free_with_none_alive_says_so_activates_none` | `C` `try_free_with_none_alive_says_so_activates_none` |
+| `test_without_key_list_only_shows_anonymous_models` | `C` `without_key_list_only_shows_anonymous_models` |
+| `test_toon_follows_the_spec` | `library/src/toon.rs` `toon_follows_the_spec` |
+| `test_tools_reach_the_model_in_toon_and_weigh_less` | `A` `tools_reach_the_model_in_toon_and_weigh_less` (con 20 canciones de verdad en el índice en vez de un `run_tool` de mentira) |
+| `test_empty_ai_details_are_not_reused` | `E` `empty_ai_details_are_not_reused` (parte ya estaba en `the_saved_details_keep_the_sheet`) |
+| `test_chunked_reply_is_joined_and_shown_as_it_arrives` | `C` `chunked_reply_is_joined_and_shown_as_it_arrives` |
+| `test_chunked_tool_calls_are_rebuilt_and_preamble_dropped` | `C` `chunked_tool_calls_are_rebuilt_and_preamble_dropped` (parecida ya estaba en `streamed_with_preamble_and_tool`) |
+| `test_unclosed_reasoning_is_not_shown_half_done` | `C` `unclosed_reasoning_is_not_shown_half_done` |
+| `test_cancel_cuts_the_reply_and_closes_the_stream` | `C` `cancel_cuts_the_reply_and_closes_the_stream` (el servidor deja el flujo abierto: la llamada vuelve sin esperarlo y el servidor ve que se cortó) |
+| `test_fallback_answers_when_the_active_one_is_down` | `C` `fallback_answers_when_the_active_one_is_down` (el cliente de Rust reintenta el 503 como el SDK; el falso de Python no lo hacía) |
+| `test_message_error_does_not_trigger_the_fallback` | `C` `message_error_does_not_trigger_the_fallback` |
+| `test_usage_is_logged_per_turn_and_in_the_db` | `C` `usage_is_logged_per_turn_and_in_the_db` |
+| `test_identify_asks_for_schema_if_the_model_supports_it` | `C` `identify_asks_for_schema_if_the_model_supports_it` |
+| `test_screen_state_tells_what_is_seen_selected_playing` | `library/src/assistant/context.rs` `screen_state_tells_what_is_seen_selected_playing` |
+| `test_context_reaches_the_model_as_screen_state` | `A` `context_reaches_the_model_as_screen_state` |
+| `test_neighbor_keys` | `library/src/theory.rs` `neighbor_keys` |
+| `test_chats_are_saved_and_searchable` | `library/src/chats.rs` `chats_are_saved_and_searchable` (por la API ya estaba en `server/src/api_tests/ai.rs` `chats_are_kept_and_searchable`) |
+| `test_tool_call_written_as_text_still_runs` | `library/src/assistant/narration.rs` `a_tool_call_written_as_text_is_understood` y `A` `tool_call_written_as_text_still_runs` |
+| `test_stream_broken_halfway_is_retried_whole` | `C` `stream_broken_halfway_is_retried_whole` (la primera parte ya estaba en `a_broken_stream_is_retried_whole`) |
+| `test_judge_is_only_called_when_an_action_was_asked` | `library/src/assistant/narration.rs` `an_action_is_asked_only_when_it_is_asked` y `A` `judge_is_only_called_when_an_action_was_asked` |
+| `test_optional_tools_only_sent_when_the_chat_needs_them` | `A` `optional_tools_only_sent_when_the_chat_needs_them` (parte ya estaba en `T` `only_what_the_conversation_needs_is_declared`) |
+| `test_budget_only_warns` | `A` `budget_only_warns` |
+| `test_chat_is_exported_as_text` | `A` `chat_is_exported_as_text` (parte ya estaba en `server/src/routes/assistant.rs` `saved_conversations`) |
+| `test_only_a_json_object_counts_as_a_reply` | `C` `only_a_json_object_counts_as_a_reply` |
+| `test_details_survive_a_reply_that_is_not_an_object` | `E` `details_survive_a_reply_that_is_not_an_object` |
+| `test_non_numeric_confidence_breaks_nothing` | `E` `non_numeric_confidence_breaks_nothing` |
+| `test_null_arguments_do_not_crash_the_chat` | `A` `null_arguments_do_not_crash_the_chat` |
+| `test_tools_have_limits` | `T` `tools_have_limits` |
+| `test_assistant_edit_only_touches_declared_fields` | `T` `assistant_edit_only_touches_declared_fields` |
+| `test_timed_lyrics_do_not_reach_the_uslt` | `E` `timed_lyrics_do_not_reach_the_uslt` (parte ya estaba en `enrich_saves_lyrics_cover_and_details`) |
+| `test_every_declared_tool_has_a_handler` | `A` `every_declared_tool_has_a_handler` |
+| `test_invalid_arguments_are_reported_in_spanish` | `A` `invalid_arguments_are_reported_in_spanish` (parte ya estaba en `server/src/services/chat/tests.rs` `arguments_like_pydantic`) |
+| `test_numbers_as_text_and_year_as_number_are_accepted` | `A` `numbers_as_text_and_year_as_number_are_accepted` |
+| `test_old_names_still_work` | `A` `old_names_still_work` (con un mp3 de verdad: sin archivo, poner estrellas falla), `server/src/services/chat/tools.rs` `old_names_become_the_new_ones` y `T` `lyrics_without_id_go_by_artist_and_title` (la letra por nombre de verdad va a LRCLIB, que no se prueba sin red) |

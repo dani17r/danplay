@@ -370,4 +370,15 @@ mod tests {
     fn latin_notation() {
         assert_eq!(to_latin("| Bb | Gm7 |"), "| Sib | Solm7 |");
     }
+
+    /// Lo de tests/test_ai.py: los tonos vecinos de uno.
+    #[test]
+    fn neighbor_keys() {
+        let g = related_keys("G").expect("G");
+        assert_eq!(g.relative, "Em");
+        assert_eq!(g.neighbors, ["D", "C"]);
+        assert_eq!(related_keys("F#m").expect("F#m").neighbors, ["C#m", "Bm"]);
+        assert_eq!(related_keys("Bb").expect("Bb").relative, "Gm");
+        assert!(related_keys("nada").is_none());
+    }
 }

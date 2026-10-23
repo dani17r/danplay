@@ -435,6 +435,80 @@ mod tests {
         assert!(!claims_action("Tienes 18 canciones de Barak."));
     }
 
+    // ----------------------------------------- lo de tests/test_ai.py
+
+    /// Las herramientas que declara el asistente y sus nombres viejos, como
+    /// las ve `PSEUDO_CALL` (y `tool_names` en el servidor).
+    fn declared_tools() -> Tools {
+        let names: Vec<String> = crate::assistant::tools::declared()
+            .iter()
+            .filter_map(|t| t["function"]["name"].as_str().map(str::to_owned))
+            .chain(
+                crate::assistant::tools::TOOL_ALIASES
+                    .iter()
+                    .map(|(k, _)| (*k).to_owned()),
+            )
+            .collect();
+        Tools::new(&names)
+    }
+
+    /// Algún modelo, en vez de llamar a la herramienta, escribe la llamada:
+    /// «búsqueda: search_songs query="rey infinito"». Si es solo eso y se
+    /// entiende, se ejecuta; si no se entiende, se le obliga a usar
+    /// herramientas de verdad (lo de la conversación, en
+    /// server/src/services/chat/tests.rs).
+    #[test]
+    fn a_tool_call_written_as_text_is_understood() {
+        let tools = declared_tools();
+        assert!(tools.is_pseudo_call(r#"search_songs query="artist:Barak" sort="duration""#));
+        assert!(tools.is_pseudo_call("play_song(12)") && tools.is_pseudo_call("list_playlists"));
+        assert!(!tools.is_pseudo_call("Busca con search_songs si quieres."));
+        assert!(!tools.is_pseudo_call("Tienes 18 canciones de Barak."));
+        assert_eq!(
+            tools.parse_pseudo_call("set_stars id=1 stars=5"),
+            Some(("set_stars".into(), serde_json::json!({"id": 1, "stars": 5})))
+        );
+        assert_eq!(
+            tools.parse_pseudo_call(r#"create_playlist name="Domingo" ids=[1, 2]"#),
+            Some((
+                "create_playlist".into(),
+                serde_json::json!({"name": "Domingo", "ids": [1, 2]})
+            ))
+        );
+        assert_eq!(tools.parse_pseudo_call("nada que ver"), None);
+        // con lo que le ponen delante algunos modelos
+        assert_eq!(
+            tools.parse_pseudo_call(r#"búsqueda: search_songs query="rey infinito""#),
+            Some((
+                "search_songs".into(),
+                serde_json::json!({"query": "rey infinito"})
+            ))
+        );
+        assert!(tools.is_pseudo_call(r#"- `search_songs query="x"`"#));
+        // lo que no se entiende (un JSON roto) no es una llamada
+        assert_eq!(tools.parse_pseudo_call(r#"set_stars: {"id": 1,"#), None);
+    }
+
+    /// «Di solo: listo» costaba cuatro llamadas: «listo» disparaba al juez. El
+    /// juez es para cuando la persona PIDIÓ hacer algo (lo de la
+    /// conversación, en server/src/services/chat/tests.rs).
+    #[test]
+    fn an_action_is_asked_only_when_it_is_asked() {
+        for text in [
+            "crea una lista con las de Barak",
+            "¿puedes marcarla como favorita?",
+            "añádela a Domingo",
+            "ponle 4",
+            "bájame lo de Barak",
+            "arregla la lista",
+        ] {
+            assert!(wants_action(text), "{text}");
+        }
+        for text in ["Di solo: listo", "¿de que año es Kind of Blue?", "hola"] {
+            assert!(!wants_action(text), "{text}");
+        }
+    }
+
     // Narrar no es hacer: el corpus (lo de tests/test_core.py). El asistente
     // decía «Descargando…», «Añadida a la lista», «Ya la creé» sin llamar a
     // nada. `claims_action` es la primera red; narration/corpus.json (antes

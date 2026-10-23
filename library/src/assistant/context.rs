@@ -624,6 +624,32 @@ mod tests {
         assert_eq!(screen_note(&bad), Err(Error::Integer("'x'".into())));
     }
 
+    /// Lo de tests/test_ai.py: lo que se ve, lo seleccionado y lo que suena.
+    #[test]
+    fn screen_state_tells_what_is_seen_selected_playing() {
+        let lines = screen_note(&json!({
+            "view": {"kind": "playlist", "name": "Domingo"},
+            "total": 3,
+            "songs": [
+                {"id": 1, "artist": "Barak", "title": "Mi Gozo"},
+                {"id": 2, "artist": "New Wine", "title": "Shekinah"},
+            ],
+            "selected": [{"id": 2, "artist": "New Wine", "title": "Shekinah"}],
+            "playing": {"id": 1, "artist": "Barak", "title": "Mi Gozo", "paused": true},
+        }))
+        .expect("nota");
+        let text = lines.join("\n");
+        assert!(
+            text.contains("«Domingo» (repertorio): 3 canciones"),
+            "{text}"
+        );
+        assert!(text.contains("songs[2]{id,artist,title}:") && text.contains("1,Barak,Mi Gozo"));
+        assert!(text.contains("seleccionadas 1 canciones: id 2 «New Wine - Shekinah»"));
+        assert!(text.contains("en pausa: id 1 «Barak - Mi Gozo»"));
+        assert_eq!(screen_note(&Value::Null), Ok(vec![]));
+        assert_eq!(screen_note(&json!({})), Ok(vec![]));
+    }
+
     #[test]
     fn the_app_state() {
         let state = State {
