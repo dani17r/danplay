@@ -45,45 +45,6 @@ impl FetchFailure for NetError {
     }
 }
 
-/// Los bytes de `url` (como mucho `limit`) y su tipo (`Content-Type` sin
-/// parámetros, en minúsculas): para las carátulas, que no son texto.
-pub fn get_typed(
-    url: &str,
-    user_agent: &str,
-    timeout: Duration,
-    limit: u64,
-) -> Result<(Vec<u8>, String), NetError> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(timeout))
-        .build()
-        .into();
-    let mut response = agent
-        .get(url)
-        .header("User-Agent", user_agent)
-        .call()
-        .map_err(|e| match e {
-            ureq::Error::StatusCode(code) => NetError::State(code),
-            other => NetError::Other(other.to_string()),
-        })?;
-    let kind = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_lowercase();
-    let bytes = response
-        .body_mut()
-        .with_config()
-        .limit(limit)
-        .read_to_vec()
-        .map_err(|e| NetError::Other(e.to_string()))?;
-    Ok((bytes, kind))
-}
-
 /// Lo más que se lee de una página: una de cifrados ronda el MB.
 const READ_LIMIT: u64 = 64 * 1024 * 1024;
 
