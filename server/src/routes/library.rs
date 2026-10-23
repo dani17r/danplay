@@ -57,9 +57,11 @@ fn is_dir(path: &str) -> bool {
     Path::new(&library::py::expanduser(path)).is_dir()
 }
 
-/// El vigilante de carpetas: que vuelva a mirar cuáles son. Aún no está en
-/// Rust (sin él, el núcleo de Rust no vigila: escanear es a mano).
-fn folders_changed(_ctx: &Ctx<'_>) {}
+/// El vigilante de carpetas (si está en marcha): que vuelva a mirar cuáles
+/// son ya, sin esperar al siguiente repaso.
+fn folders_changed(ctx: &Ctx<'_>) {
+    crate::services::watcher::folders_changed(ctx.app);
+}
 
 /// Mira si la carpeta repite música ya indexada, antes de añadirla.
 fn check_folder(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {

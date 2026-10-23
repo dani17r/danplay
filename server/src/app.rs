@@ -55,6 +55,8 @@ pub struct State {
     /// lo que queda por aprovechar de otra copia de cada canción y los
     /// manifiestos de las pistas (`reuse._QUEUE`, `_MANIFESTS`)
     pub reuse: crate::services::reuse::State,
+    /// el vigilante de carpetas (`watcher._WATCHER`)
+    pub watcher: crate::services::watcher::Slot,
 }
 
 /// La app: un asa del estado, barata de clonar.
@@ -92,6 +94,7 @@ impl App {
             cues: crate::services::cues::Cues::default(),
             downloads: crate::services::youtube::State::default(),
             reuse: crate::services::reuse::State::default(),
+            watcher: crate::services::watcher::Slot::default(),
         }));
         if let Err(e) = crate::startup::prepare_index(&app) {
             log::warn!("no pude preparar el indice: {e}");

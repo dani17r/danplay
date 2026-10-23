@@ -34,6 +34,9 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 bytes = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "fs", "io-util", "time", "sync", "signal"] }
+# El vigilante de carpetas (lo que hacía watchdog): inotify en Linux,
+# FSEvents en el Mac, ReadDirectoryChangesW en Windows
+notify = "8.2.0"
 
 [target.'cfg(unix)'.dependencies]
 # La máscara de permisos antes de crear el socket (sin `unsafe`)
