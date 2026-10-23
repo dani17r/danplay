@@ -558,6 +558,19 @@ struct Bounds {
 type Check<'a> = (Option<Num>, &'a str, &'a str, &'a str, fn(f64, f64) -> bool);
 
 fn bounds(x: f64, b: Bounds, loc: &[Value], v: &Value, errors: &mut Vec<Value>) -> bool {
+    bounds_of(x, b, false, loc, v, errors)
+}
+
+/// Como `bounds`; con `float`, el tope va en `ctx` como real (`{"ge": 5.0}`,
+/// lo que hace pydantic con un `float`), aunque el texto lo diga entero.
+fn bounds_of(
+    x: f64,
+    b: Bounds,
+    float: bool,
+    loc: &[Value],
+    v: &Value,
+    errors: &mut Vec<Value>,
+) -> bool {
     let checks: [Check<'_>; 4] = [
         (b.gt, "greater_than", "gt", "greater than", |x, b| x > b),
         (b.ge, "greater_than_equal", "ge", "greater than or equal to", |x, b| x >= b),
@@ -569,7 +582,8 @@ fn bounds(x: f64, b: Bounds, loc: &[Value], v: &Value, errors: &mut Vec<Value>) 
             && !ok(x, b.as_f64())
         {
             let mut ctx = Map::new();
-            ctx.insert(key.into(), b.value());
+            let shown = if float { Value::from(b.as_f64()) } else { b.value() };
+            ctx.insert(key.into(), shown);
             errors.push(error(
                 kind,
                 loc,
@@ -753,7 +767,7 @@ impl Kind for Float {
             errors.push(error("float_type", loc, "Input should be a valid number", v, None));
             return None;
         };
-        bounds(x, Bounds { ge: self.ge, le: self.le, gt: self.gt, lt: self.lt }, loc, v, errors).then_some(x)
+        bounds_of(x, Bounds { ge: self.ge, le: self.le, gt: self.gt, lt: self.lt }, true, loc, v, errors).then_some(x)
     }
 }
 
@@ -957,6 +971,15 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
         pos += line.chars().count() + 1;
     }
     let what = e.to_string();
+    if what.contains("expected ident") {
+        // una palabra que no es `null`, `true` ni `false`: `json.loads` dice
+        // dónde EMPIEZA el valor, no dónde dejó de cuadrar
+        let chars: Vec<char> = text.chars().collect();
+        pos = pos.min(chars.len());
+        while pos > 0 && chars[pos - 1].is_ascii_alphabetic() {
+            pos -= 1;
+        }
+    }
     let msg = if what.contains("trailing characters") {
         "Extra data"
     } else if what.contains("key must be a string") {

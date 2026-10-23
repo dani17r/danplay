@@ -7,6 +7,7 @@
 //! ponerlo en su sitio en `all` (los que faltan están comentados).
 use crate::router::Route;
 
+pub mod ai;
 pub mod external;
 pub mod library;
 pub mod playlists;
@@ -16,7 +17,7 @@ pub mod system;
 pub fn all() -> Vec<Route> {
     [
         system::ROUTES,
-        // ai::ROUTES,
+        ai::ROUTES,
         library::ROUTES,
         // songs::ROUTES,
         playlists::ROUTES,
