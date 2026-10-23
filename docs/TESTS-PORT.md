@@ -496,3 +496,33 @@ el PATH, las pruebas usan `App::hide_tool` (solo en las pruebas).
 | `test_without_network_the_web_returns_nothing` | ya estaba en `library/src/web.rs` `title_link_and_summary` (con un `get` que falla) |
 | `test_fingerprint_says_what_it_is_missing` | `ST` `fingerprint_says_what_it_is_missing` (sin `fingerprint.AVAILABLE`, que era una variable del módulo de Python) |
 | `test_fingerprint_picks_the_best_match` | `ST` `fingerprint_picks_the_best_match` (con la consulta de mentira; la elección ya estaba en `library/src/fingerprint.rs` `picks_the_best_match`) |
+
+## tests/test_properties.py
+
+En Python, con Hypothesis. proptest no está en el espacio de trabajo, así que
+van con un generador fijo (`Gen` de `library/src/testkit.rs`, un xorshift):
+`CASES` (3000) casos por propiedad, caracteres de todo Unicode mezclados con
+lo que más rompe (`NASTY`: controles, marcas sueltas, invisibles, comillas,
+emojis, los caracteres prohibidos en un nombre, los nombres reservados de
+Windows…). Las de teoría musical, que son pocas combinaciones, prueban
+todas: cada nota de la tabla con cada semitono de -36 a 36, y cada par de
+notas. `N` = `library/src/names/tests.rs` (`mod properties`), `T` =
+`library/src/theory.rs` y `O` = `library/src/toon.rs` (sus `mod tests`).
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_sanitize_always_gives_a_valid_name` | `N` `sanitize_always_gives_a_valid_name` |
+| `test_the_final_name_is_a_valid_file_name` | `N` `the_final_name_is_a_valid_file_name` |
+| `test_strip_accents_only_removes_marks` | `N` `strip_accents_only_removes_marks` |
+| `test_strip_accents_leaves_ascii_alone` | `N` `strip_accents_leaves_ascii_alone` |
+| `test_clean_leaves_no_junk_at_the_edges_nor_controls` | `N` `clean_leaves_no_junk_at_the_edges_nor_controls` |
+| `test_the_match_key_is_stable` | `N` `the_match_key_is_stable` |
+| `test_splitting_artist_and_title_never_crashes` | `N` `splitting_artist_and_title_never_crashes` |
+| `test_transposing_a_note_moves_exactly_those_semitones` | `T` `transposing_a_note_moves_exactly_those_semitones` (todas) |
+| `test_the_round_trip_distance_is_an_octave` | `T` `the_round_trip_distance_is_an_octave` (todos los pares) |
+| `test_transposing_and_undoing_gives_the_same_pitches` | `T` `transposing_and_undoing_gives_the_same_pitches` |
+| `test_transposing_to_the_same_key_changes_nothing` | `T` `transposing_to_the_same_key_changes_nothing` |
+| `test_the_capo_is_always_between_1_and_7` | `T` `the_capo_is_always_between_1_and_7` (todas las notas) |
+| `test_a_text_round_trips_through_toon` | `O` `a_text_round_trips_through_toon` (lo de entre comillas se lee con serde_json) |
+| `test_toon_encodes_anything` | `O` `toon_encodes_anything` (enteros de cualquier tamaño, infinitos y -0.0 incluidos; sin NaN, como en Python) |
+| `test_a_list_of_uniform_rows_is_a_table` | `O` `a_list_of_uniform_rows_is_a_table` |

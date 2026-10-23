@@ -508,3 +508,152 @@ fn no_dash_channel_is_artist_and_youtube_music_wins() {
     assert_eq!(channel_as_artist("BarakVEVO"), "Barak");
     assert_eq!(channel_as_artist("Ish Melton - Topic"), "Ish Melton");
 }
+
+// ------------------------------------------- lo de tests/test_properties.py
+// Propiedades que se cumplen con CUALQUIER texto, no solo con los ejemplos de
+// siempre (en Python con Hypothesis; aquí con un generador fijo y lo que más
+// rompe mezclado). Así salieron los dos fallos de `names`: `sanitize` dejaba
+// pasar saltos de línea, y `strip_accents` convertía en ñ los caracteres NUL.
+
+mod properties {
+    use super::*;
+    use crate::testkit::{CASES, Gen, NASTY};
+
+    const FORBIDDEN: &str = "\\/:*?\"<>|";
+
+    /// `_is_control` de Python: categoría Cc o uno de `CONTROL_CHARS` (los
+    /// invisibles que cambian la dirección o no ocupan nada).
+    fn is_control(c: char) -> bool {
+        c.general_category() == GeneralCategory::Control
+            || matches!(c,
+                '\u{00}'..='\u{08}'
+                | '\u{0e}'..='\u{1f}'
+                | '\u{7f}'..='\u{9f}'
+                | '\u{200b}'..='\u{200f}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}')
+    }
+
+    /// `WINDOWS_RESERVED` de Python, con `upper()`.
+    fn reserved(stem: &str) -> bool {
+        let up = stem.to_uppercase();
+        ["CON", "PRN", "AUX", "NUL"].contains(&up.as_str())
+            || (1..=9).any(|i| up == format!("COM{i}") || up == format!("LPT{i}"))
+    }
+
+    fn texts(seed: u64) -> Vec<String> {
+        let mut g = Gen::new(seed);
+        (0..CASES).map(|_| g.text(40, NASTY)).collect()
+    }
+
+    #[test]
+    fn sanitize_always_gives_a_valid_name() {
+        for s in texts(1) {
+            let out = sanitize(&s);
+            assert!(
+                !out.chars().any(|c| FORBIDDEN.contains(c)),
+                "{s:?} → {out:?}"
+            );
+            assert!(!out.chars().any(is_control), "{s:?} → {out:?}");
+            assert_eq!(
+                out,
+                out.trim_end_matches([' ', '.']),
+                "Windows recorta puntos y espacios del final: {s:?}"
+            );
+            assert!(!out.contains("  "), "{s:?} → {out:?}");
+            let stem = out.rsplit_once('.').map_or(out.as_str(), |(stem, _)| stem);
+            assert!(!reserved(stem), "{s:?} → {out:?}");
+        }
+    }
+
+    #[test]
+    fn the_final_name_is_a_valid_file_name() {
+        let mut g = Gen::new(2);
+        for _ in 0..CASES {
+            let [artist, title, feat] = [0; 3].map(|_| g.text(30, NASTY));
+            let out = final_name(&artist, &title, &feat, "", ".mp3");
+            let what = (&artist, &title, &feat, &out);
+            #[allow(
+                clippy::case_sensitive_file_extension_comparisons,
+                reason = "como en Python: el nombre acaba en «.mp3», tal cual"
+            )]
+            let mp3 = out.ends_with(".mp3");
+            assert!(mp3, "{what:?}");
+            assert!(!out.chars().any(|c| FORBIDDEN.contains(c)), "{what:?}");
+            assert!(!out.chars().any(is_control), "{what:?}");
+        }
+    }
+
+    #[test]
+    fn strip_accents_only_removes_marks() {
+        for s in texts(3) {
+            let out = strip_accents(&s);
+            assert_eq!(strip_accents(&out), out, "idempotente: {s:?}");
+            // quedan solo las virgulillas de la ñ
+            let nfd: Vec<char> = out.nfd().collect();
+            for (i, c) in nfd.iter().enumerate() {
+                if c.general_category() == GeneralCategory::NonspacingMark {
+                    assert!(
+                        *c == '\u{303}' && i > 0 && matches!(nfd[i - 1], 'n' | 'N'),
+                        "{s:?} → {out:?}"
+                    );
+                }
+            }
+            // nunca aparece una ñ que no estuviera (antes salía de un NUL)
+            let had = s.nfd().filter(|c| *c == '\u{303}').count();
+            let enye = out.chars().filter(|c| matches!(c, 'ñ' | 'Ñ')).count();
+            assert!(enye <= had, "{s:?} → {out:?}");
+        }
+    }
+
+    #[test]
+    fn strip_accents_leaves_ascii_alone() {
+        let mut g = Gen::new(4);
+        for _ in 0..CASES {
+            let n = g.below(61);
+            let s: String = (0..n).map(|_| g.ascii_char()).collect();
+            assert_eq!(strip_accents(&s), s);
+        }
+    }
+
+    #[test]
+    fn clean_leaves_no_junk_at_the_edges_nor_controls() {
+        for s in texts(5) {
+            let out = clean(&s);
+            assert_eq!(
+                out,
+                out.trim_matches([' ', '.', '-', '–', '—', ',']),
+                "{s:?}"
+            );
+            assert!(!out.chars().any(is_control), "{s:?} → {out:?}");
+            assert!(
+                !out.chars().any(|c| FORBIDDEN.contains(c)),
+                "{s:?} → {out:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_match_key_is_stable() {
+        for s in texts(6) {
+            let k = match_key(&format!("{s}.mp3"));
+            let words: Vec<&str> = py_words(&k).collect();
+            assert!(
+                words.windows(2).all(|w| w[0] < w[1]),
+                "ordenada y sin repetir: {s:?} → {k:?}"
+            );
+            assert!(words.iter().all(|w| w.chars().count() > 2), "{s:?} → {k:?}");
+            assert_eq!(k, k.to_lowercase(), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn splitting_artist_and_title_never_crashes() {
+        for s in texts(7) {
+            if let Some((artist, title, _)) = split_artist_title(&format!("{s}.mp3")) {
+                assert!(!artist.is_empty() && !title.is_empty(), "{s:?}");
+                assert!(!artist.contains(" - "), "{s:?} → {artist:?}");
+            }
+        }
+    }
+}
