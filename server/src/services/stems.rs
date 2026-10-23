@@ -129,6 +129,29 @@ pub struct Separator {
     command: Mutex<Option<Vec<OsString>>>,
     /// con un separador de mentira: todo está y todo se puede
     fake: AtomicBool,
+    /// un motor de mentira en este mismo proceso (las pruebas): recibe el
+    /// trabajo y devuelve las líneas que diría el proceso que separa
+    #[cfg(test)]
+    engine: Mutex<EngineSlot>,
+}
+
+/// El motor de mentira de las pruebas (`Separator::set_engine`).
+#[cfg(test)]
+pub type TestEngine = Arc<dyn Fn(&Value) -> Vec<Value> + Send + Sync>;
+
+#[cfg(test)]
+#[derive(Default)]
+struct EngineSlot(Option<TestEngine>);
+
+#[cfg(test)]
+impl std::fmt::Debug for EngineSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "motor de mentira"
+        } else {
+            "sin motor de mentira"
+        })
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -147,6 +170,14 @@ impl Separator {
     /// verdad, y sin mirar si hay ONNX Runtime, ffmpeg o los pesos.
     pub fn set_fake(&self, command: Vec<OsString>) {
         self.set_command(command);
+        self.fake.store(true, Ordering::SeqCst);
+    }
+
+    /// Un motor de mentira en este proceso, sin lanzar nada (las pruebas):
+    /// lo que devuelve se lee como lo que diría el proceso que separa.
+    #[cfg(test)]
+    pub fn set_engine(&self, engine: TestEngine) {
+        lock(&self.engine).0 = Some(engine);
         self.fake.store(true, Ordering::SeqCst);
     }
 }
@@ -633,6 +664,17 @@ fn command(app: &App, job_file: &Path) -> Vec<OsString> {
 
 /// Lanza el proceso que separa y va contando lo que dice.
 fn run_child(app: &App, job: &Value, report: &Report<'_>) -> Result<Dict> {
+    #[cfg(test)]
+    let engine = lock(&app.separator.engine).0.clone();
+    #[cfg(test)]
+    if let Some(engine) = engine {
+        return read_lines(
+            app,
+            engine(job).into_iter().map(|v| v.to_string()),
+            report,
+            None,
+        );
+    }
     let tmp = make_temp_dir(&std::env::temp_dir(), "danplay-separar-")?;
     let out = (|| -> Result<Dict> {
         let job_file = tmp.join("trabajo.json");
@@ -666,53 +708,73 @@ fn run_child(app: &App, job: &Value, report: &Report<'_>) -> Result<Dict> {
                 }
             })
         });
-        let mut result = Dict::new();
-        let mut failure = String::new();
-        if let Some(s) = stdout {
-            for line in lossy_lines(s) {
-                let Ok(Value::Object(m)) = serde_json::from_str::<Value>(&line) else {
-                    continue;
-                };
-                if m.contains_key("done") {
-                    report.step(m.get("done").cloned(), m.get("total").cloned(), None);
-                } else if m.get("step").is_some_and(py::truthy) {
-                    let step = m.get("step").map(py::str_of).unwrap_or_default();
-                    report.step(None, None, Some(&step));
-                } else if m.get("error").is_some_and(py::truthy) {
-                    failure = m.get("error").map(py::str_of).unwrap_or_default();
-                } else if m.get("ok").is_some_and(py::truthy) {
-                    result = m;
-                }
-            }
-        }
-        let code = {
-            let mut c = lock(&child);
-            c.wait().ok().and_then(|s| s.code())
+        let lines: Box<dyn Iterator<Item = String>> = match stdout {
+            Some(s) => Box::new(lossy_lines(s)),
+            None => Box::new(std::iter::empty()),
         };
-        lock(&app.separator.queue).child = None;
+        let mut code = None;
+        let r = read_lines(app, lines, report, Some((&child, &mut code)));
         if let Some(r) = reader {
             let _ = r.join();
         }
-        if app.separator.cancel.load(Ordering::SeqCst) {
-            return Err(expected("cancelado"));
-        }
-        if result.is_empty() {
+        if r.is_err() && !app.separator.cancel.load(Ordering::SeqCst) {
             let errors = lock(&errors).join("\n");
             if !errors.is_empty() {
                 log::warn!("el separador fallo:\n{errors}");
             }
-            if failure.is_empty() {
-                let code = code.map_or_else(|| "None".to_owned(), |c| c.to_string());
-                return Err(expected(format!(
-                    "el separador se cerró sin terminar ({code})"
-                )));
-            }
-            return Err(expected(failure));
         }
-        Ok(result)
+        r
     })();
     let _ = std::fs::remove_dir_all(&tmp);
     out
+}
+
+/// Lo que dice el proceso que separa, línea a línea (una en JSON cada vez):
+/// el avance, el fallo o el resultado. Con `child`, espera a que acabe y
+/// apunta su código.
+#[allow(clippy::type_complexity, reason = "el proceso y dónde dejar su código")]
+fn read_lines(
+    app: &App,
+    lines: impl Iterator<Item = String>,
+    report: &Report<'_>,
+    child: Option<(&Arc<Mutex<std::process::Child>>, &mut Option<i32>)>,
+) -> Result<Dict> {
+    let mut result = Dict::new();
+    let mut failure = String::new();
+    for line in lines {
+        let Ok(Value::Object(m)) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if m.contains_key("done") {
+            report.step(m.get("done").cloned(), m.get("total").cloned(), None);
+        } else if m.get("step").is_some_and(py::truthy) {
+            let step = m.get("step").map(py::str_of).unwrap_or_default();
+            report.step(None, None, Some(&step));
+        } else if m.get("error").is_some_and(py::truthy) {
+            failure = m.get("error").map(py::str_of).unwrap_or_default();
+        } else if m.get("ok").is_some_and(py::truthy) {
+            result = m;
+        }
+    }
+    let mut code = None;
+    if let Some((child, out)) = child {
+        code = lock(child).wait().ok().and_then(|s| s.code());
+        *out = code;
+        lock(&app.separator.queue).child = None;
+    }
+    if app.separator.cancel.load(Ordering::SeqCst) {
+        return Err(expected("cancelado"));
+    }
+    if result.is_empty() {
+        if failure.is_empty() {
+            let code = code.map_or_else(|| "None".to_owned(), |c| c.to_string());
+            return Err(expected(format!(
+                "el separador se cerró sin terminar ({code})"
+            )));
+        }
+        return Err(expected(failure));
+    }
+    Ok(result)
 }
 
 fn write_manifest(
