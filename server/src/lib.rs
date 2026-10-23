@@ -95,6 +95,11 @@ pub mod startup;
 pub mod sync;
 pub mod validate;
 
+#[cfg(test)]
+mod api_tests;
+#[cfg(test)]
+mod testkit;
+
 pub use app::{App, Guard};
 pub use error::ApiError;
 pub use http::{Body, Request, Response};
