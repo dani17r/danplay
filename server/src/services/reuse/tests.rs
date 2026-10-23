@@ -81,9 +81,10 @@ fn write(app: &App, path: &Path, x: &[f32], lag: f64, codec: &[&str], tags: (&st
 const MP3: &[&str] = &["libmp3lame", "-b:a", "128k"];
 const FLAC: &[&str] = &["flac"];
 
-/// La fila entera de esa ruta.
+/// La fila entera de esa ruta (la de verdad: el índice guarda las carpetas
+/// resueltas, y en el Mac la carpeta temporal es un enlace).
 fn row(app: &App, path: &Path) -> Dict {
-    let brief = songs::by_path(app, &path.to_string_lossy()).expect("base");
+    let brief = songs::by_path(app, &py::realpath(&path.to_string_lossy())).expect("base");
     let id = brief.and_then(|b| id_of(&b)).unwrap_or_else(|| panic!("no está en el índice: {}", path.display()));
     songs::by_id(app, id).expect("base").expect("fila")
 }
@@ -181,7 +182,7 @@ fn moving_the_music_and_downloading_again_keeps_everything() {
     let data = stems::info(&app, &back).expect("sus pistas, sin separar otra vez");
     assert_eq!(data["complete"], true);
     let folder = py::str_of(&data["folder"]);
-    assert!(folder.starts_with(&*new_lib.to_string_lossy()), "{folder}");
+    assert!(folder.starts_with(&py::realpath(&new_lib.to_string_lossy())), "{folder}");
     let manifest = ls::read_manifest(&folder).expect("manifiesto");
     assert!(near(&manifest["shifted"], 0.25, 0.003), "{}", manifest["shifted"]);
     let study = study_of(&back);
@@ -399,4 +400,42 @@ fn the_pass_runs_once_per_computer() {
     assert_eq!(told["version"], 1);
     assert_eq!(told["songs"], 0);
     assert!(!sweep_once_in_background(&app, Duration::ZERO), "la segunda vez, nada");
+}
+
+/// Para el arnés que compara el desfase con el de Python con audio de
+/// verdad: `DANPLAY_REUSE_PAIRS` es un archivo con una pareja por línea
+/// (`lag` o `low`, el archivo nuevo y el de antes o sus pistas, separados
+/// por tabuladores), y por cada una sale «DESFASE desfase parecido» (o «-»).
+/// Con `low`, lo que oyó la red del de antes se saca aquí mismo.
+#[test]
+#[ignore = "lo lanza el arnés diferencial, con sus archivos"]
+fn offsets_for_the_harness() {
+    let Ok(list) = std::env::var("DANPLAY_REUSE_PAIRS") else {
+        return;
+    };
+    let app = app();
+    let ffmpeg = app.tool("ffmpeg").expect("ffmpeg");
+    for line in std::fs::read_to_string(list).expect("parejas").lines() {
+        let parts: Vec<&str> = line.split('\t').collect();
+        let (kind, new, refs) = (parts[0], Path::new(parts[1]), &parts[2..]);
+        let got = if kind == "lag" {
+            let refs: Vec<PathBuf> = refs.iter().map(PathBuf::from).collect();
+            lag_between(&app, new, &refs).expect("ffmpeg")
+        } else {
+            let mono = analysis::pulse::decode(&ffmpeg, Path::new(refs[0])).expect("decodificar");
+            let (low, low_fps) = analysis::pulse::low_band(&mono, 150.0).expect("grave");
+            let raw = Raw {
+                beat: Vec::new(),
+                down: Vec::new(),
+                low,
+                low_fps,
+                seconds: 0.0,
+            };
+            lag_from_lowband(&app, new, &raw).expect("ffmpeg")
+        };
+        match got {
+            Some((lag, score)) => println!("DESFASE {lag:?} {score:?}"),
+            None => println!("DESFASE -"),
+        }
+    }
 }

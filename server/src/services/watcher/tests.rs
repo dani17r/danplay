@@ -13,7 +13,9 @@ fn tone(path: &Path) {
     wav(path, &samples, 8000);
 }
 
-/// La biblioteca con tres canciones, añadida y escaneada. Su carpeta.
+/// La biblioteca con tres canciones, añadida y escaneada. Su carpeta, como
+/// la guarda el índice (resuelta: en el Mac la carpeta temporal es un enlace,
+/// y los avisos llegan con la ruta de verdad).
 fn library_of_three(app: &App) -> PathBuf {
     let root = app.config().library.clone();
     for f in ["Artistas/Barak/Barak - Mi Gozo.wav", "Artistas/Barak/Barak - Sera Llena.wav", "Artistas/New Wine/New Wine - Shekinah.wav"] {
@@ -21,7 +23,7 @@ fn library_of_three(app: &App) -> PathBuf {
     }
     assert!(folders::add_folder(app, &root.to_string_lossy(), "").expect("carpeta"));
     lib::scan(app, &mut |_, _| {}).expect("escaneo");
-    root
+    PathBuf::from(folders::roots(app).expect("carpetas").remove(0))
 }
 
 /// {nombre del archivo: (id, ruta)} de lo que hay ahora en la biblioteca.
