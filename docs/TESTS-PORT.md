@@ -94,3 +94,18 @@ Python era `with beatgrid._WAKE`) y el grafo de mentira (`set_graph`).
 | `test_the_exact_grid_follows_the_meter_changes` | `api_tests/sequence.rs`: `the_exact_grid_follows_the_meter_changes` |
 | `test_opening_it_leaves_it_ready_to_play` | `api_tests/sequence.rs`: `opening_it_leaves_it_ready_to_play` (por el trabajo «sequence», que da el avance; lo de que el clic exacto vale con otra `VERSION`, con lo guardado de otra versión en vez de cambiar la constante) |
 | `test_the_api_opens_it` | `api_tests/sequence.rs`: `the_api_opens_it` |
+
+### tests/test_journal.py (10)
+
+| Python | Rust |
+| --- | --- |
+| `test_a_song_that_goes_stays_in_its_list_as_missing` | `api_tests/journal.rs`: `a_song_that_goes_stays_in_its_list_as_missing` |
+| `test_it_comes_back_in_another_file_to_its_place` | `api_tests/journal.rs`: `it_comes_back_in_another_file_to_its_place` |
+| `test_a_missing_one_keeps_its_place_when_the_list_is_reordered` | `api_tests/journal.rs`: `a_missing_one_keeps_its_place_when_the_list_is_reordered` |
+| `test_deleting_it_from_danplay_can_take_it_out_of_its_lists` | `api_tests/journal.rs`: `deleting_it_from_danplay_can_take_it_out_of_its_lists` (a la papelera de las pruebas en vez de un `trash_path` de mentira) |
+| `test_the_api_deletes_from_the_lists_too` | `api_tests/journal.rs`: `the_api_deletes_from_the_lists_too` (`routes/songs/tests.rs`: `to_the_trash_and_out_of_the_lists` ya miraba el `lists`, sin la lista vacía después) |
+| `test_the_diary_is_written_next_to_the_music` | `api_tests/journal.rs`: `the_diary_is_written_next_to_the_music` |
+| `test_the_diary_of_before_1_31_is_still_read_and_then_replaced` | `api_tests/journal.rs`: `the_diary_of_before_1_31_is_still_read_and_then_replaced` (lo escrito, olvidado con otra app sobre los mismos datos en vez de tocar `_STATE`) |
+| `test_a_diary_written_on_windows_is_understood_anywhere` | `api_tests/journal.rs`: `a_diary_written_on_windows_is_understood_anywhere` |
+| `test_a_lost_database_is_rebuilt_from_the_diary` | `api_tests/journal.rs`: `a_lost_database_is_rebuilt_from_the_diary` |
+| `test_moving_the_music_keeps_the_lists_and_does_not_undo_what_you_removed` | `api_tests/journal.rs`: `moving_the_music_keeps_the_lists_and_does_not_undo_what_you_removed` |

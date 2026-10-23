@@ -15,6 +15,7 @@ mod files;
 mod folders;
 mod guard;
 mod jobs;
+mod journal;
 mod library;
 mod sequence;
 mod songs;
