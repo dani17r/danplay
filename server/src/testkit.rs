@@ -5,7 +5,7 @@ use crate::app::App;
 use crate::http::{Request, Response};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 /// Las canciones de la biblioteca de prueba (las de tests/test_api.py).
@@ -473,5 +473,30 @@ pub fn until_done(app: &App) -> Value {
             "la descarga no ha soltado el turno: {s}"
         );
         std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// El registro de las propuestas del asistente (y lo que se finge en él) es
+/// uno para todo el proceso: las pruebas que registran, directamente o con un
+/// turno del chat, van de una en una. Una prueba lo puede pedir más de una
+/// vez (dos IA de mentira seguidas): solo la primera espera.
+pub struct Registry(
+    #[allow(dead_code, reason = "el cerrojo, mientras dure")] Option<MutexGuard<'static, ()>>,
+);
+
+thread_local! {
+    static HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+pub fn registry() -> Registry {
+    static ONE: Mutex<()> = Mutex::new(());
+    let guard = (HELD.get() == 0).then(|| ONE.lock().unwrap_or_else(PoisonError::into_inner));
+    HELD.set(HELD.get() + 1);
+    Registry(guard)
+}
+
+impl Drop for Registry {
+    fn drop(&mut self) {
+        HELD.set(HELD.get() - 1);
     }
 }

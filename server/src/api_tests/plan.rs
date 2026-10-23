@@ -36,7 +36,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// Una prueba a la vez, y cada una empieza (y acaba) sin propuestas, sin
 /// caché y sin nada fingido.
 struct Serial(
-    #[allow(dead_code, reason = "el cerrojo, mientras dure la prueba")] MutexGuard<'static, ()>,
+    #[allow(dead_code, reason = "el cerrojo, mientras dure la prueba")] crate::testkit::Registry,
 );
 
 impl Drop for Serial {
@@ -46,8 +46,7 @@ impl Drop for Serial {
 }
 
 fn serial() -> Serial {
-    static ONE: Mutex<()> = Mutex::new(());
-    let guard = lock(&ONE);
+    let guard = crate::testkit::registry();
     testing::clear();
     Serial(guard)
 }

@@ -22,6 +22,8 @@ fn tool(app: &crate::App, name: &str, args: Value) -> Value {
 /// contesta `judge` y no gasta turno.
 struct Script {
     _fake: FakeAi,
+    /// Un turno del chat puede registrar propuestas.
+    _registry: crate::testkit::Registry,
     received: Arc<Mutex<Vec<Value>>>,
     judged: Arc<Mutex<Vec<String>>>,
 }
@@ -55,6 +57,7 @@ fn call_tool(name: &'static str, args: impl Into<String>) -> Step {
 
 /// Esta IA como proveedor activo de `app`.
 fn script(app: &crate::App, steps: Vec<Step>, judge: &'static str) -> Script {
+    let registry = crate::testkit::registry();
     let received = Arc::new(Mutex::new(Vec::new()));
     let judged = Arc::new(Mutex::new(Vec::new()));
     let queue = Mutex::new(VecDeque::from(steps));
@@ -97,6 +100,7 @@ fn script(app: &crate::App, steps: Vec<Step>, judge: &'static str) -> Script {
     assert_eq!(s, 200, "{v}");
     Script {
         _fake: fake,
+        _registry: registry,
         received,
         judged,
     }

@@ -8,10 +8,6 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::Mutex;
 
-/// El registro es uno para todo el proceso: las pruebas que lo tocan van de
-/// una en una.
-static REGISTRY_TESTS: Mutex<()> = Mutex::new(());
-
 fn run(app: &App, name: &str, args: Value) -> Value {
     tools::run_tool(app, name, &args, &mut Turn::default())
 }
@@ -78,9 +74,7 @@ fn empty_library_tools() {
 
 #[test]
 fn the_registry_of_confirmations() {
-    let _one = REGISTRY_TESTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _one = crate::testkit::registry();
     let app = crate::tests::app();
     let made =
         crate::services::playlists::create(&app, "Domingo", Some(""), Some("")).expect("lista");

@@ -83,6 +83,9 @@ pub mod testing {
     /// `youtube::info(app, consulta, resultados, timeout)` de mentira.
     pub type Info = Arc<dyn Fn(&str, i64, Option<f64>) -> Dict + Send + Sync>;
     pub static INFO: Mutex<Option<Info>> = Mutex::new(None);
+    /// Sin una consulta de mentira, el plan no busca: en las pruebas no se
+    /// sale a YouTube.
+    pub const OFFLINE: &str = "en las pruebas no se sale a YouTube";
     /// Lo que dice `_warm` (`None`: mirar yt-dlp de verdad).
     pub static WARM: Mutex<Option<String>> = Mutex::new(None);
     /// `youtube::already_in_library(título)` de mentira.
@@ -545,12 +548,20 @@ fn lookup(app: &App, query: &str, key: &str, cancel: &AtomicBool, blocked: &Atom
         SLOTS.release();
         return skipped();
     }
+    // en las pruebas no se sale a YouTube (hay un yt-dlp en el PATH)
     #[cfg(test)]
-    let fake = testing::lock(&testing::INFO).clone();
-    #[cfg(test)]
-    let res = match fake {
-        Some(info) => Ok(info(query, 1, Some(LOOKUP_TIMEOUT))),
-        None => youtube::info(app, query, 1, Some(LOOKUP_TIMEOUT)),
+    let res: Result<Dict, String> = {
+        let _ = app;
+        let fake = testing::lock(&testing::INFO).clone();
+        Ok(fake.map_or_else(
+            || {
+                Dict::from_iter([
+                    ("ok".to_owned(), Value::Bool(false)),
+                    ("reason".to_owned(), Value::from(testing::OFFLINE)),
+                ])
+            },
+            |info| info(query, 1, Some(LOOKUP_TIMEOUT)),
+        ))
     };
     #[cfg(not(test))]
     let res = youtube::info(app, query, 1, Some(LOOKUP_TIMEOUT));
@@ -632,6 +643,10 @@ fn warm(app: &App) -> String {
     #[cfg(test)]
     if let Some(why) = testing::lock(&testing::WARM).clone() {
         return why;
+    }
+    #[cfg(test)]
+    if testing::lock(&testing::INFO).is_none() {
+        return testing::OFFLINE.into();
     }
     if ytdlp::executable(app).is_none() {
         let why = youtube::unavailable_reason(app);
