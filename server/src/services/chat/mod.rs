@@ -25,7 +25,9 @@ use crate::error::ApiError;
 use crate::services::{ai, playlists, youtube};
 use library::ai::call::{self, AiError, CallRequest};
 use library::ai::client::HttpError;
-use library::assistant::conversation::{self as conv, Call, Chat, Failed, Fault, Pasted, Reply, Start, State};
+use library::assistant::conversation::{
+    self as conv, Call, Chat, Failed, Fault, Pasted, Reply, Start, State,
+};
 use library::assistant::narration::{self, Tools};
 use library::assistant::{context, intake};
 use library::index::Dict;
@@ -66,9 +68,8 @@ fn yes(m: &Dict, k: &str) -> bool {
 /// usuario.
 pub fn window(messages: &[Dict]) -> Vec<Dict> {
     let len = |i: usize| -> Result<usize, ()> { Ok(text_of(&messages[i], "text").chars().count()) };
-    let is_ai = |i: usize| -> Result<bool, ()> {
-        Ok(messages[i].get("role") == Some(&Value::from("ai")))
-    };
+    let is_ai =
+        |i: usize| -> Result<bool, ()> { Ok(messages[i].get("role") == Some(&Value::from("ai"))) };
     let start = context::window_start(messages.len(), len, is_ai).unwrap_or(0);
     messages[start..].to_vec()
 }
@@ -91,7 +92,11 @@ fn last_setlist(messages: &[Dict]) -> Option<intake::SetlistParse> {
     let mut seen = 0;
     for m in messages.iter().rev() {
         let role = m.get("role").and_then(Value::as_str);
-        if !matches!(role, Some("me" | "user")) || yes(m, "hidden") || yes(m, "event") || yes(m, "app") {
+        if !matches!(role, Some("me" | "user"))
+            || yes(m, "hidden")
+            || yes(m, "event")
+            || yes(m, "app")
+        {
             continue;
         }
         seen += 1;
@@ -161,7 +166,13 @@ fn setlist_note(turn: &Turn) -> Option<String> {
         people: s.people.clone(),
         extras: s.extras.clone(),
         fresh: turn.fresh,
-        intent: [i.check, i.replace, i.create, i.no_download, i.strict_version],
+        intent: [
+            i.check,
+            i.replace,
+            i.create,
+            i.no_download,
+            i.strict_version,
+        ],
     };
     Some(conv::setlist_note(&pasted))
 }
@@ -169,7 +180,11 @@ fn setlist_note(turn: &Turn) -> Option<String> {
 /// `_still_there(h)`: la canción de una descarga del historial, si sigue
 /// siendo ESA (los ids de canción se reutilizan).
 fn still_there(app: &App, h: &Dict) -> bool {
-    let Some(sid) = h.get("song_id").filter(|v| py::truthy(v)).and_then(lists::int_of) else {
+    let Some(sid) = h
+        .get("song_id")
+        .filter(|v| py::truthy(v))
+        .and_then(lists::int_of)
+    else {
         return false;
     };
     let Ok(Some(song)) = crate::services::songs::by_id(app, sid) else {
@@ -409,13 +424,22 @@ impl Chat for ServerChat<'_, '_> {
         Ok(())
     }
 
-    fn ask(&mut self, name: &Value, args: &Value, pending: Option<&Value>) -> Result<(Value, Option<Value>), ApiError> {
+    fn ask(
+        &mut self,
+        name: &Value,
+        args: &Value,
+        pending: Option<&Value>,
+    ) -> Result<(Value, Option<Value>), ApiError> {
         let name = py::str_of(name);
         Ok(ask(self.app, &name, args, pending, &mut self.turn))
     }
 
     fn run_tool(&mut self, name: &Value, args: &Value) -> Result<Value, ApiError> {
-        let name = if py::truthy(name) { py::str_of(name) } else { String::new() };
+        let name = if py::truthy(name) {
+            py::str_of(name)
+        } else {
+            String::new()
+        };
         Ok(tools::run_tool(self.app, &name, args, &mut self.turn))
     }
 
@@ -439,7 +463,13 @@ impl Chat for ServerChat<'_, '_> {
         })
     }
 
-    fn used(&mut self, name: &Value, args: &Value, summary: &str, model_res: &Value) -> Result<Value, ApiError> {
+    fn used(
+        &mut self,
+        name: &Value,
+        args: &Value,
+        summary: &str,
+        model_res: &Value,
+    ) -> Result<Value, ApiError> {
         // lo que devolvió, en corto: al turno siguiente el modelo sigue
         // sabiendo qué ids y nombres enseñó
         let detail = if model_res.is_object() {
@@ -451,11 +481,13 @@ impl Chat for ServerChat<'_, '_> {
     }
 
     fn summarize(&mut self, name: &Value, model_res: &Value) -> Result<String, ApiError> {
-        library::assistant::tools::summarize(&py::str_of(name), model_res).map_err(ApiError::internal)
+        library::assistant::tools::summarize(&py::str_of(name), model_res)
+            .map_err(ApiError::internal)
     }
 
     fn toon(&mut self, model_res: &Value) -> Result<String, ApiError> {
-        library::toon::encode(&library::toon::Val::from(model_res.clone()), ",").map_err(ApiError::internal)
+        library::toon::encode(&library::toon::Val::from(model_res.clone()), ",")
+            .map_err(ApiError::internal)
     }
 
     fn on_text(&mut self, text: &str) -> Result<(), ApiError> {
@@ -543,7 +575,13 @@ fn finish(app: &App, out: Value, state: &State<Value>) -> Value {
 /// Antes de pedir permiso para bajar, se mira la biblioteca: lo que ya está
 /// no se ofrece.
 #[allow(clippy::too_many_lines, reason = "como `_ask`, de una pieza")]
-pub fn ask(app: &App, name: &str, args: &Value, pending: Option<&Value>, turn: &mut Turn) -> (Value, Option<Value>) {
+pub fn ask(
+    app: &App,
+    name: &str,
+    args: &Value,
+    pending: Option<&Value>,
+    turn: &mut Turn,
+) -> (Value, Option<Value>) {
     // si ya hay una esperando, la segunda NO se pide
     if pending.is_some_and(py::truthy) {
         return (
@@ -591,7 +629,8 @@ pub fn ask(app: &App, name: &str, args: &Value, pending: Option<&Value>, turn: &
             asked.insert("args".into(), clean);
             Ok((asked, summary))
         } else {
-            let mut asked = plan::register(app, name, args, &Value::Null, &Value::Null, turn.chat_id)?;
+            let mut asked =
+                plan::register(app, name, args, &Value::Null, &Value::Null, turn.chat_id)?;
             let summary = asked.get("summary").map(py::str_of).unwrap_or_default();
             asked.insert("args".into(), args.clone());
             Ok((asked, summary))
@@ -620,7 +659,10 @@ pub fn ask(app: &App, name: &str, args: &Value, pending: Option<&Value>, turn: &
             return (json!({"error": "no me has dicho que bajar"}), None);
         }
         Err(plan::RegisterError::Value(m)) => {
-            return (json!({"error": format!("no se pudo pedir: {}", datum(&m, 160))}), None);
+            return (
+                json!({"error": format!("no se pudo pedir: {}", datum(&m, 160))}),
+                None,
+            );
         }
         Err(plan::RegisterError::Other(why)) => {
             log::warn!("no se pudo registrar la confirmacion de {name}: {why}");
@@ -653,7 +695,13 @@ pub fn ask(app: &App, name: &str, args: &Value, pending: Option<&Value>, turn: &
 /// `chat.reply(messages, context=...)`: conversa usando herramientas. Las que
 /// no tienen vuelta atrás no se ejecutan: se registran y se devuelven en
 /// `confirm` para que las apruebe la persona.
-pub fn reply(app: &App, messages: &[Dict], screen: &Value, live: Live<'_>, chat_id: Option<i64>) -> Result<Value, ApiError> {
+pub fn reply(
+    app: &App,
+    messages: &[Dict],
+    screen: &Value,
+    live: Live<'_>,
+    chat_id: Option<i64>,
+) -> Result<Value, ApiError> {
     if !ai::available(app) {
         return Ok(json!({ "error": conv::unavailable(&ai::unavailable_reason(app)) }));
     }

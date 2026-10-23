@@ -93,7 +93,10 @@ pub fn graph(app: &App) -> PathBuf {
 /// `beatgrid.available()`: por qué no se puede calcular aquí, o vacío.
 pub fn available(app: &App) -> String {
     // con otro detector (`set_detector`), ONNX Runtime es cosa suya
-    let custom = DETECTOR.lock().unwrap_or_else(PoisonError::into_inner).is_some();
+    let custom = DETECTOR
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_some();
     if !custom && crate::services::onnx::library(app).is_none() {
         return "falta onnxruntime en esta instalación de DanPlay".into();
     }
@@ -141,7 +144,12 @@ fn saved(app: &App, path: &Path) -> Option<Json> {
 pub(crate) fn save(app: &App, path: &Path, grid: &Json, edits: Json) -> Result<(), BeatsError> {
     let c = cache(app, path).map_err(|e| BeatsError::Other(e.to_string()))?;
     lb::make_folder(&c).map_err(|(e, at)| BeatsError::Other(format!("{}: {e}", at.display())))?;
-    let entry = lb::entry(VERSION, Json::str(&path.to_string_lossy()), grid.clone(), edits);
+    let entry = lb::entry(
+        VERSION,
+        Json::str(&path.to_string_lossy()),
+        grid.clone(),
+        edits,
+    );
     lb::write(&c, &entry);
     Ok(())
 }
@@ -199,7 +207,9 @@ fn floats(v: Option<&Json>) -> Result<Vec<f64>, BeatsError> {
     match v {
         Some(Json::List(items)) => items
             .iter()
-            .map(|x| float_of(x).ok_or_else(|| BeatsError::Value("could not convert to float".into())))
+            .map(|x| {
+                float_of(x).ok_or_else(|| BeatsError::Value("could not convert to float".into()))
+            })
             .collect(),
         Some(_) => Err(BeatsError::Value("could not convert to float".into())),
         None => Err(BeatsError::Value("KeyError: 'beats'".into())),
@@ -211,12 +221,18 @@ fn final_json(f: &grid::Final) -> Vec<(&'static str, Json)> {
     vec![
         ("bpm", Json::Float(f.bpm)),
         ("meter", Json::Int(f.meter)),
-        ("beats", Json::List(f.beats.iter().map(|b| Json::Float(*b)).collect())),
+        (
+            "beats",
+            Json::List(f.beats.iter().map(|b| Json::Float(*b)).collect()),
+        ),
         ("first_downbeat", Json::Int(f.first_downbeat)),
         ("phase3", Json::Int(f.phase3)),
         ("phase4", Json::Int(f.phase4)),
         ("confidence", Json::Float(f.confidence)),
-        ("bars", Json::List(f.bars.iter().map(|b| Json::Int(*b)).collect())),
+        (
+            "bars",
+            Json::List(f.bars.iter().map(|b| Json::Int(*b)).collect()),
+        ),
         ("closed", Json::Bool(true)),
     ]
 }
@@ -244,7 +260,13 @@ fn grid_json(g: &grid::Grid) -> Json {
 /// La rejilla de toda la canción con lo que dijo la red (y la batería, si
 /// se da): `beatgrid._from_raw`. Lo que en `pulse.grid` era un `ValueError`,
 /// aquí es `BeatsError`.
-fn whole(raw: &Raw, engine: &str, edges: bool, bpm: Option<f64>, extra: Option<&Raw>) -> Result<grid::Grid, BeatsError> {
+fn whole(
+    raw: &Raw,
+    engine: &str,
+    edges: bool,
+    bpm: Option<f64>,
+    extra: Option<&Raw>,
+) -> Result<grid::Grid, BeatsError> {
     let beat = f64s(&raw.beat);
     let down = f64s(&raw.down);
     let drums = extra.map(|e| f64s(&e.beat));
@@ -267,11 +289,24 @@ fn whole(raw: &Raw, engine: &str, edges: bool, bpm: Option<f64>, extra: Option<&
 /// La rejilla de antes con los pulsos de `start` a `end` cambiados por los
 /// nuevos, cosidos a los de los lados, y el «1» de toda otra vez
 /// (`beatgrid._merge`).
-fn merge(base: &Json, beats: &[f64], new: &[f64], (start, end): (f64, f64), raw: &Raw) -> Result<Json, BeatsError> {
+fn merge(
+    base: &Json,
+    beats: &[f64],
+    new: &[f64],
+    (start, end): (f64, f64),
+    raw: &Raw,
+) -> Result<Json, BeatsError> {
     let s = ab::stitch(beats, new, start, end).map_err(failure)?;
-    let joins: Vec<(&str, Json)> = s.joins.iter().map(|(side, ok)| (*side, Json::Bool(*ok))).collect();
+    let joins: Vec<(&str, Json)> = s
+        .joins
+        .iter()
+        .map(|(side, ok)| (*side, Json::Bool(*ok)))
+        .collect();
     let report = dict(vec![
-        ("region", Json::List(vec![Json::Float(s.region.0), Json::Float(s.region.1)])),
+        (
+            "region",
+            Json::List(vec![Json::Float(s.region.0), Json::Float(s.region.1)]),
+        ),
         ("joins", dict(joins)),
     ]);
     let meter = base.get("meter").and_then(|m| {
@@ -298,11 +333,23 @@ fn truthy_float(v: Option<&Json>) -> Option<f64> {
 /// de un tramo cosido a lo de los lados (`beatgrid._apply`). La batería
 /// separada de «drums» se busca aquí (y la red se pasa por ella si hace
 /// falta).
-fn apply(app: &App, path: &Path, base: &Json, raw: &Raw, edit: &Json, extra: Option<&Raw>) -> Result<Json, BeatsError> {
+fn apply(
+    app: &App,
+    path: &Path,
+    base: &Json,
+    raw: &Raw,
+    edit: &Json,
+    extra: Option<&Raw>,
+) -> Result<Json, BeatsError> {
     let mode_name = match edit.get("mode") {
         None => "repair".to_owned(),
         Some(Json::Str(s)) => crate::services::pyjson::string(s),
-        Some(other) => return Err(BeatsError::Value(format!("KeyError: {}", other.type_name()))),
+        Some(other) => {
+            return Err(BeatsError::Value(format!(
+                "KeyError: {}",
+                other.type_name()
+            )));
+        }
     };
     let mut drums_raw = None;
     if mode_name == "drums" {
@@ -315,7 +362,8 @@ fn apply(app: &App, path: &Path, base: &Json, raw: &Raw, edit: &Json, extra: Opt
         });
     }
     let extra = drums_raw.as_ref().or(extra);
-    let mode = Mode::from_name(&mode_name).ok_or_else(|| BeatsError::Value(format!("KeyError: '{mode_name}'")))?;
+    let mode = Mode::from_name(&mode_name)
+        .ok_or_else(|| BeatsError::Value(format!("KeyError: '{mode_name}'")))?;
     let extra = extra.filter(|_| mode.uses_drums());
     let bpm = truthy_float(edit.get("bpm"));
     let all = whole(raw, mode.engine(), mode.edges(), bpm, extra)?;
@@ -326,7 +374,10 @@ fn apply(app: &App, path: &Path, base: &Json, raw: &Raw, edit: &Json, extra: Opt
         return Ok(grid_json(&all));
     };
     let bad = || BeatsError::Value("could not convert to float".into());
-    let (start, end) = (float_of(start).ok_or_else(bad)?, float_of(end).ok_or_else(bad)?);
+    let (start, end) = (
+        float_of(start).ok_or_else(bad)?,
+        float_of(end).ok_or_else(bad)?,
+    );
     let beats = floats(base.get("beats"))?;
     if mode == Mode::Steady
         && let Some((a, b)) = ab::sides(&beats, start, end)
@@ -350,7 +401,8 @@ pub fn grid_of(app: &App, path: &Path) -> Result<Json, BeatsError> {
     }
     let saved = saved(app, path);
     if let Some(s) = &saved
-        && (s.get("version").is_some_and(|v| v.equals_int(VERSION)) || s.get("exact").is_some_and(Json::truthy))
+        && (s.get("version").is_some_and(|v| v.equals_int(VERSION))
+            || s.get("exact").is_some_and(Json::truthy))
         && let Some(g) = s.get("grid").filter(|g| g.truthy())
     {
         return Ok(g.clone());
@@ -418,7 +470,11 @@ pub fn reanalyze(
     let edit = dict(edit);
     let extra = drums_of(app, path).and_then(|d| raw_of(app, &d));
     let mut grid = apply(app, path, &current, &raw, &edit, extra.as_ref())?;
-    let fixed = ab::changes(&floats(current.get("beats"))?, &floats(grid.get("beats"))?, 0.04);
+    let fixed = ab::changes(
+        &floats(current.get("beats"))?,
+        &floats(grid.get("beats"))?,
+        0.04,
+    );
     let mut report = grid
         .get("report")
         .filter(|r| r.truthy())
@@ -462,10 +518,17 @@ pub fn set_detector(command: Vec<OsString>) {
 }
 
 fn detector() -> Vec<OsString> {
-    if let Some(c) = DETECTOR.lock().unwrap_or_else(PoisonError::into_inner).clone() {
+    if let Some(c) = DETECTOR
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+    {
         return c;
     }
-    let exe = std::env::current_exe().map_or_else(|_| OsString::from("danplay-server"), PathBuf::into_os_string);
+    let exe = std::env::current_exe().map_or_else(
+        |_| OsString::from("danplay-server"),
+        PathBuf::into_os_string,
+    );
     vec![exe, OsString::from("--pulse")]
 }
 
@@ -484,8 +547,14 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 /// `beatgrid._run`: el detector en su proceso. (su respuesta, su código, lo
 /// que dijo por la salida de errores). El avance queda en la cola según
 /// llega.
-fn run(app: &App, path: &Path, raw: &Path) -> Result<(serde_json::Map<String, Value>, i32, String), BeatsError> {
-    let ffmpeg = app.tool("ffmpeg").map_or_else(|| OsString::from("ffmpeg"), PathBuf::into_os_string);
+fn run(
+    app: &App,
+    path: &Path,
+    raw: &Path,
+) -> Result<(serde_json::Map<String, Value>, i32, String), BeatsError> {
+    let ffmpeg = app
+        .tool("ffmpeg")
+        .map_or_else(|| OsString::from("ffmpeg"), PathBuf::into_os_string);
     let command = detector();
     let mut cmd = std::process::Command::new(&command[0]);
     cmd.args(&command[1..])
@@ -594,7 +663,10 @@ fn network(app: &App, path: &Path) -> Result<Raw, BeatsError> {
         let why = answer
             .get("error")
             .filter(|e| library::py::truthy(e))
-            .map_or_else(|| format!("el detector se cerró sin terminar ({code})"), library::py::str_of);
+            .map_or_else(
+                || format!("el detector se cerró sin terminar ({code})"),
+                library::py::str_of,
+            );
         return Err(beats_err(why));
     }
     analysis::pulse::raw::read(&raw_path).ok_or_else(|| beats_err("el detector no dejó lo que oyó"))
@@ -607,12 +679,19 @@ fn network(app: &App, path: &Path) -> Result<Raw, BeatsError> {
 pub fn child_main(args: &[OsString]) -> i32 {
     use std::io::Write as _;
     if !(3..=4).contains(&args.len()) {
-        let _ = writeln!(std::io::stderr(), "uso: --pulse GRAFO FFMPEG ARCHIVO [CRUDO]");
+        let _ = writeln!(
+            std::io::stderr(),
+            "uso: --pulse GRAFO FFMPEG ARCHIVO [CRUDO]"
+        );
         return 2;
     }
     #[cfg(unix)]
     let _ = rustix::process::nice(10);
-    let (graph, ffmpeg, path) = (Path::new(&args[0]), Path::new(&args[1]), Path::new(&args[2]));
+    let (graph, ffmpeg, path) = (
+        Path::new(&args[0]),
+        Path::new(&args[1]),
+        Path::new(&args[2]),
+    );
     let raw_path = args.get(3).map(PathBuf::from);
     let mut out = std::io::stdout().lock();
     let said = (|| -> Result<(), String> {
@@ -620,13 +699,24 @@ pub fn child_main(args: &[OsString]) -> i32 {
             .ok_or("falta ONNX Runtime en esta instalación de DanPlay")?;
         let (_grid, raw) = analysis::pulse::analyze(ffmpeg, path, &library, graph, &mut |part| {
             let line = Value::from(library::py::round(part, 3));
-            let _ = writeln!(std::io::stdout(), "{{\"progress\": {}}}", library::py::dumps(&line));
+            let _ = writeln!(
+                std::io::stdout(),
+                "{{\"progress\": {}}}",
+                library::py::dumps(&line)
+            );
             let _ = std::io::stdout().flush();
         })
         .map_err(|e| e.to_string())?;
         if let Some(rp) = &raw_path {
-            analysis::pulse::raw::save(rp, &f64s(&raw.beat), &f64s(&raw.down), &f64s(&raw.low), raw.low_fps, raw.seconds)
-                .map_err(|e| e.to_string())?;
+            analysis::pulse::raw::save(
+                rp,
+                &f64s(&raw.beat),
+                &f64s(&raw.down),
+                &f64s(&raw.low),
+                raw.low_fps,
+                raw.seconds,
+            )
+            .map_err(|e| e.to_string())?;
         }
         Ok(())
     })();
@@ -636,8 +726,16 @@ pub fn child_main(args: &[OsString]) -> i32 {
             0
         }
         Err(e) => {
-            let why = if e.is_empty() { "Exception".to_owned() } else { e };
-            let _ = writeln!(out, "{}", library::py::dumps(&serde_json::json!({ "error": why })));
+            let why = if e.is_empty() {
+                "Exception".to_owned()
+            } else {
+                e
+            };
+            let _ = writeln!(
+                out,
+                "{}",
+                library::py::dumps(&serde_json::json!({ "error": why }))
+            );
             1
         }
     }

@@ -18,7 +18,12 @@ fn pid(id: i64) -> Sql {
 
 /// `create(name, note, color)`: la lista, o la que ya había con ese nombre
 /// (`created` lo dice).
-pub fn create(app: &App, name: &str, note: Option<&str>, color: Option<&str>) -> Result<Dict, ApiError> {
+pub fn create(
+    app: &App,
+    name: &str,
+    note: Option<&str>,
+    color: Option<&str>,
+) -> Result<Dict, ApiError> {
     let _lock = app.playlists_lock.lock();
     let out = app.db(|c| playlists::create(c, name, note, color))?;
     if out.get("created") == Some(&Value::Bool(true)) {
@@ -47,7 +52,12 @@ pub fn by_name(app: &App, name: &str) -> Result<Option<Dict>, ApiError> {
 }
 
 /// `edit(lid, name, note)`: la lista ya cambiada, o `None` si no existe.
-pub fn edit(app: &App, lid: i64, name: Option<&str>, note: Option<&str>) -> Result<Option<Dict>, ApiError> {
+pub fn edit(
+    app: &App,
+    lid: i64,
+    name: Option<&str>,
+    note: Option<&str>,
+) -> Result<Option<Dict>, ApiError> {
     let _lock = app.playlists_lock.lock();
     let Some((current, changed)) = app.db(|c| playlists::edit(c, lid, name, note))? else {
         return Ok(None);
@@ -190,7 +200,8 @@ pub fn export_folder(app: &App) -> PathBuf {
 fn safe_name(name: &Value) -> Result<String, ApiError> {
     let text = library::py::str_of(name).replace(['/', '\\'], " ");
     let safe = library::names::sanitize(&text);
-    if safe.is_empty() || safe == "." || safe == ".." || safe.split_whitespace().any(|w| w == "..") {
+    if safe.is_empty() || safe == "." || safe == ".." || safe.split_whitespace().any(|w| w == "..")
+    {
         return Err(ApiError::bad_request(
             "el nombre de la lista no sirve como nombre de archivo",
         ));
@@ -217,7 +228,10 @@ pub fn export_m3u(app: &App, lid: i64, target: Option<&Path>) -> Result<String, 
     };
     ensure_export_folder(app, &folder)?;
     let parent = target.parent().map(Path::to_path_buf).unwrap_or_default();
-    let file = target.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+    let file = target
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
     if !library::index::folders::inside(&parent.to_string_lossy(), &folder.to_string_lossy())
         || file.is_empty()
         || file == "."
@@ -230,7 +244,10 @@ pub fn export_m3u(app: &App, lid: i64, target: Option<&Path>) -> Result<String, 
     let mut lines = vec!["#EXTM3U".to_owned()];
     let base = parent.to_string_lossy().into_owned();
     for c in songs(app, lid, false, true)? {
-        let duration = c.get("duration").and_then(library::py::float_of).unwrap_or(0.0);
+        let duration = c
+            .get("duration")
+            .and_then(library::py::float_of)
+            .unwrap_or(0.0);
         lines.push(format!(
             "#EXTINF:{},{} - {}",
             duration.trunc() as i64,
@@ -305,7 +322,10 @@ fn lrc_to_plain(text: &str) -> String {
 /// `export_sheet(lid, with_lyrics)`: la hoja para el atril, un HTML en
 /// Listas/ con las canciones en orden, su tono, bpm, cejilla sugerida, los
 /// acordes por secciones y, si se pide, la letra.
-#[allow(clippy::too_many_lines, reason = "la hoja entera, como export_sheet de Python")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "la hoja entera, como export_sheet de Python"
+)]
 pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, ApiError> {
     let Some(name) = app.db(|c| playlists::name_of(c, &pid(lid)))? else {
         return Err(ApiError::bad_request("no existe esa lista"));
@@ -323,7 +343,11 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
     };
     let total: f64 = rows
         .iter()
-        .map(|c| c.get("duration").and_then(library::py::float_of).unwrap_or(0.0))
+        .map(|c| {
+            c.get("duration")
+                .and_then(library::py::float_of)
+                .unwrap_or(0.0)
+        })
         .sum();
     let mut parts = vec![
         format!(
@@ -345,7 +369,11 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
             && let Some(sh) = &sheet
         {
             let capo = sh.get("capo").and_then(library::py::int_of).unwrap_or(0) != 0;
-            let k = sh.get("key").map(library::py::str_of).filter(|_| sh.get("key").is_some_and(library::py::truthy)).unwrap_or_default();
+            let k = sh
+                .get("key")
+                .map(library::py::str_of)
+                .filter(|_| sh.get("key").is_some_and(library::py::truthy))
+                .unwrap_or_default();
             library::chord_sheets::sheet_key(capo, &k).clone_into(&mut key);
         }
         let mut head = format!(
@@ -362,17 +390,29 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
             );
         }
         let mut sub = Vec::new();
-        if let Some(bpm) = c.get("bpm").filter(|v| library::py::truthy(v)).and_then(library::py::float_of) {
+        if let Some(bpm) = c
+            .get("bpm")
+            .filter(|v| library::py::truthy(v))
+            .and_then(library::py::float_of)
+        {
             sub.push(format!("{} bpm", library::py::round_int(bpm)));
         }
-        sub.push(mmss(c.get("duration").and_then(library::py::float_of).unwrap_or(0.0)));
+        sub.push(mmss(
+            c.get("duration")
+                .and_then(library::py::float_of)
+                .unwrap_or(0.0),
+        ));
         let capo = if key.is_empty() {
             Vec::new()
         } else {
             library::theory::suggested_capo(&key, &library::theory::EASY_SHAPES)
         };
         if !capo.is_empty() {
-            let shown: Vec<String> = capo.iter().take(3).map(|(f, sh)| format!("{f} ({sh})")).collect();
+            let shown: Vec<String> = capo
+                .iter()
+                .take(3)
+                .map(|(f, sh)| format!("{f} ({sh})"))
+                .collect();
             sub.push(format!("cejilla {}", shown.join(", ")));
         }
         let mut item = format!("<li>{head}<div class=\"sub\">{}</div>", e(&sub.join(" · ")));
@@ -383,8 +423,14 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
                     let Some(chords) = sec.get("chords").filter(|v| library::py::truthy(v)) else {
                         continue;
                     };
-                    let name = sec.get("name").filter(|v| library::py::truthy(v)).map(library::py::str_of);
-                    let joined: Vec<String> = library::py::list_of(chords).iter().map(library::py::str_of).collect();
+                    let name = sec
+                        .get("name")
+                        .filter(|v| library::py::truthy(v))
+                        .map(library::py::str_of);
+                    let joined: Vec<String> = library::py::list_of(chords)
+                        .iter()
+                        .map(library::py::str_of)
+                        .collect();
                     lines.push(format!(
                         "{}{}",
                         name.map(|n| format!("{n}: ")).unwrap_or_default(),
@@ -404,7 +450,11 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
         }
         let lyrics = s(c, "lyrics");
         if with_lyrics && !lyrics.is_empty() {
-            let _ = write!(item, "<div class=\"lyrics\">{}</div>", e(&lrc_to_plain(&lyrics)));
+            let _ = write!(
+                item,
+                "<div class=\"lyrics\">{}</div>",
+                e(&lrc_to_plain(&lyrics))
+            );
         }
         parts.push(item + "</li>");
     }

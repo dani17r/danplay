@@ -55,9 +55,16 @@ impl<'a> Importer<'a> {
     }
 
     /// `ingest.process_inbox(dry_run, convert_mp3=...)`.
-    pub fn process_inbox(&mut self, dry_run: bool, convert_mp3: Option<bool>) -> Result<Vec<Report>, String> {
+    pub fn process_inbox(
+        &mut self,
+        dry_run: bool,
+        convert_mp3: Option<bool>,
+    ) -> Result<Vec<Report>, String> {
         let inbox = text::from_os(self.cfg.inbox.as_os_str());
-        let mut ext: Vec<Text> = library::config::EXTENSIONS.iter().map(|e| text::text(e)).collect();
+        let mut ext: Vec<Text> = library::config::EXTENSIONS
+            .iter()
+            .map(|e| text::text(e))
+            .collect();
         ext.sort();
         let progress = self.progress.is_some();
         ig::process_inbox(self, &inbox, &ext, dry_run, None, convert_mp3, progress)
@@ -182,7 +189,9 @@ impl Outside for Importer<'_> {
     }
 
     fn duration(&mut self, path: &Text) -> Result<Json, String> {
-        Ok(Json::Float(library::tags::audio_properties(&os_path(path)).0))
+        Ok(Json::Float(
+            library::tags::audio_properties(&os_path(path)).0,
+        ))
     }
 
     fn ai_resolve(&mut self, name: &[u32], vocab: &Vocab, hint: &[u32]) -> Result<Json, String> {
@@ -196,8 +205,15 @@ impl Outside for Importer<'_> {
             .collect();
         known.sort();
         known.dedup();
-        Ok(ai::identify(self.app, &pyjson::string(name), &known, &pyjson::string(hint))
-            .map_or(Json::Null, |d| pyjson::to_json(&serde_json::Value::Object(d))))
+        Ok(ai::identify(
+            self.app,
+            &pyjson::string(name),
+            &known,
+            &pyjson::string(hint),
+        )
+        .map_or(Json::Null, |d| {
+            pyjson::to_json(&serde_json::Value::Object(d))
+        }))
     }
 
     fn needs_convert(&mut self, path: &Text) -> Result<bool, String> {

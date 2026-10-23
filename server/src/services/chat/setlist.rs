@@ -138,7 +138,9 @@ fn resolve_rows(
     } else {
         sl::overrides(overrides).map_err(err)?
     };
-    Ok(resolve::resolve_items(app, &asked, prefer, &overrides, strict))
+    Ok(resolve::resolve_items(
+        app, &asked, prefer, &overrides, strict,
+    ))
 }
 
 fn outcomes(r: &[resolve::Resolution]) -> Vec<sl::Outcome> {
@@ -152,14 +154,25 @@ pub fn find(app: &App, items: &Value, turn: &Turn) -> Result<Value, ApiError> {
         return Ok(json!({"error": "no hay canciones que buscar: pasa los titulos en items"}));
     }
     let prefer = in_lists(app, None);
-    let resolved = resolve_rows(app, &wanted, &prefer, &Value::Null, turn.intent.strict_version)?;
+    let resolved = resolve_rows(
+        app,
+        &wanted,
+        &prefer,
+        &Value::Null,
+        turn.intent.strict_version,
+    )?;
     let source = origin.get("source").cloned().unwrap_or(Value::Null);
     let out = sl::find_result(&wanted, &outcomes(&resolved), &source).map_err(err)?;
     Ok(Value::Object(out))
 }
 
 /// `_target(name, turn, create)`: (lista, si se creó ahora, error).
-fn target(app: &App, name: &str, turn: &Turn, create: bool) -> Result<(Option<Value>, bool, String), ApiError> {
+fn target(
+    app: &App,
+    name: &str,
+    turn: &Turn,
+    create: bool,
+) -> Result<(Option<Value>, bool, String), ApiError> {
     let name = py::head(py::strip(name), 120).to_owned();
     let names_of = |lists: &[Value]| sl::playlist_names(lists, 12).map_err(err);
     let all = || -> Result<Vec<Value>, ApiError> {
@@ -249,7 +262,9 @@ pub fn fill(app: &App, args: &Dict, turn: &mut Turn) -> Result<Value, ApiError> 
         } else {
             " (ninguna con esos numeros en only)"
         };
-        return Ok(json!({"error": format!("no hay canciones: pega la lista o pasa los titulos en items{extra}")}));
+        return Ok(
+            json!({"error": format!("no hay canciones: pega la lista o pasa los titulos en items{extra}")}),
+        );
     }
     let (mode, mode_note) = sl::mode(&get("mode"), &turn.intent).map_err(err)?;
     let wanted_name = [get("playlist"), get("name")]
@@ -287,7 +302,10 @@ pub fn fill(app: &App, args: &Dict, turn: &mut Turn) -> Result<Value, ApiError> 
                 lists::place(app, pid, &all)?;
                 applied = true;
             }
-            Change::Set { ids: keep, removed: gone } => {
+            Change::Set {
+                ids: keep,
+                removed: gone,
+            } => {
                 removed = gone;
                 previous = json!(before);
                 playlists::set_songs(app, pid, &keep)?;
@@ -374,7 +392,14 @@ fn propose(
     });
     let clean = json!({"items": p.items, "file_it": true, "force": false});
     let plan_spec = json!({"rows": p.rows, "already": p.already});
-    match plan::register(app, "download_music", &clean, &plan_spec, &after, turn.chat_id) {
+    match plan::register(
+        app,
+        "download_music",
+        &clean,
+        &plan_spec,
+        &after,
+        turn.chat_id,
+    ) {
         Ok(mut confirm) => {
             turn.can_ask = false;
             // compatibilidad: una interfaz de antes confirma con {tool, args}

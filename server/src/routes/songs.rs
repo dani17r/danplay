@@ -92,7 +92,14 @@ fn edit(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     let mut b = ctx.body()?;
     let mut fields = Dict::new();
-    for (key, max) in [("artist", 300), ("title", 300), ("album", 300), ("year", 10), ("genre", 120), ("key", 12)] {
+    for (key, max) in [
+        ("artist", 300),
+        ("title", 300),
+        ("album", 300),
+        ("year", 10),
+        ("genre", 120),
+        ("key", 12),
+    ] {
         if let Some(v) = b.str(key).max_len(max).opt() {
             fields.insert(key.into(), v.into());
         }
@@ -104,7 +111,8 @@ fn edit(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         fields.insert("lyrics".into(), lyrics.into());
     }
     ctx.done(b)?;
-    let out = songs::edit(ctx.app, cid, &fields)?.ok_or_else(|| ApiError::not_found("no existe"))?;
+    let out =
+        songs::edit(ctx.app, cid, &fields)?.ok_or_else(|| ApiError::not_found("no existe"))?;
     Ok(Value::Object(out).into())
 }
 
@@ -117,7 +125,11 @@ fn delete_song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let r = songs::trash(ctx.app, cid, from_lists)?;
     if r.get("ok") != Some(&Value::Bool(true)) {
         let error = r.get("error").map(py::str_of).unwrap_or_default();
-        let status = if error.contains("no existe") { 404 } else { 501 };
+        let status = if error.contains("no existe") {
+            404
+        } else {
+            501
+        };
         return Err(ApiError::http(status, error));
     }
     Ok(r.into())
@@ -196,9 +208,13 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if let (Some(s), Some(e)) = (start, end)
         && e <= s
     {
-        return Err(ApiError::http(422, "un tramo necesita su principio y su final"));
+        return Err(ApiError::http(
+            422,
+            "un tramo necesita su principio y su final",
+        ));
     }
-    let grid = beats::reanalyze(ctx.app, &path_of(&c), &mode, start, end, bpm).map_err(beats_error)?;
+    let grid =
+        beats::reanalyze(ctx.app, &path_of(&c), &mode, start, end, bpm).map_err(beats_error)?;
     let grid = beats::as_value(&grid);
     let report = grid
         .get("report")
@@ -227,13 +243,22 @@ fn song_waveform(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let path = path_of(&c);
     if start.is_some() || end.is_some() {
         let (Some(s), Some(e)) = (start, end) else {
-            return Err(ApiError::http(422, "un trozo necesita su principio y su final"));
+            return Err(ApiError::http(
+                422,
+                "un trozo necesita su principio y su final",
+            ));
         };
         if e <= s {
-            return Err(ApiError::http(422, "un trozo necesita su principio y su final"));
+            return Err(ApiError::http(
+                422,
+                "un trozo necesita su principio y su final",
+            ));
         }
         let Some((peaks, rms)) = media::waveform_range(ctx.app, &path, s, e, buckets) else {
-            return Err(ApiError::http(501, "hace falta ffmpeg para ver la onda de cerca"));
+            return Err(ApiError::http(
+                501,
+                "hace falta ffmpeg para ver la onda de cerca",
+            ));
         };
         let n = peaks.len();
         return Ok(json!({"peaks": peaks, "rms": rms, "buckets": n, "start": s, "end": e}).into());
@@ -328,9 +353,16 @@ fn tidy_song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if songs::by_id(ctx.app, cid)?.is_none() {
         return Err(ApiError::not_found("no esta en la biblioteca"));
     }
-    songs::tidy_apply(ctx.app, cid, artist.as_deref(), title.as_deref(), to.as_deref(), tags)
-        .map(Reply::from)
-        .map_err(|e| e.into_api(cid))
+    songs::tidy_apply(
+        ctx.app,
+        cid,
+        artist.as_deref(),
+        title.as_deref(),
+        to.as_deref(),
+        tags,
+    )
+    .map(Reply::from)
+    .map_err(|e| e.into_api(cid))
 }
 
 const CATEGORIES: [&str; 3] = ["track", "sequence", "tutorial"];
@@ -361,7 +393,8 @@ fn blur_cover(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut b = ctx.opt_body()?;
     let value = b.as_mut().is_none_or(|b| b.bool("blur").or(true));
     ctx.done_with(b)?;
-    let c = songs::set_blur(ctx.app, cid, value)?.ok_or_else(|| ApiError::not_found("no existe"))?;
+    let c =
+        songs::set_blur(ctx.app, cid, value)?.ok_or_else(|| ApiError::not_found("no existe"))?;
     Ok(Value::Object(c).into())
 }
 
@@ -371,7 +404,11 @@ fn enrich_song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     let mut b = ctx.opt_body()?;
     let (lyrics, cover, details) = match b.as_mut() {
-        Some(b) => (b.bool("lyrics").or(true), b.bool("cover").or(true), b.bool("details").or(true)),
+        Some(b) => (
+            b.bool("lyrics").or(true),
+            b.bool("cover").or(true),
+            b.bool("details").or(true),
+        ),
         None => (true, true, true),
     };
     ctx.done_with(b)?;
@@ -480,7 +517,8 @@ fn song_study(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut b = ctx.body()?;
     let study = study_in(&mut b);
     ctx.done(b)?;
-    let c = songs::set_study(ctx.app, cid, &study)?.ok_or_else(|| ApiError::not_found("no existe"))?;
+    let c =
+        songs::set_study(ctx.app, cid, &study)?.ok_or_else(|| ApiError::not_found("no existe"))?;
     Ok(Value::Object(c).into())
 }
 
@@ -597,7 +635,13 @@ fn models(parent: &mut Fields, loc: &[Value], key: &str, max: usize) -> Option<V
     let v = parent.any(key).opt()?;
     let here = loc_with(loc, key);
     let Value::Array(items) = &v else {
-        parent.push_error("list_type", Some(key), "Input should be a valid list", &v, None);
+        parent.push_error(
+            "list_type",
+            Some(key),
+            "Input should be a valid list",
+            &v,
+            None,
+        );
         return Some(Vec::new());
     };
     if items.len() > max {
@@ -615,15 +659,30 @@ fn models(parent: &mut Fields, loc: &[Value], key: &str, max: usize) -> Option<V
 /// Lo de `StudyMetronome.own` (`StudyOwnClick`).
 fn own_click(f: &mut Fields) -> Value {
     let beats = f
-        .field("beats", Capped { item: Float::default(), max: 8000 })
+        .field(
+            "beats",
+            Capped {
+                item: Float::default(),
+                max: 8000,
+            },
+        )
         .or(Vec::new());
     let bars = f
-        .field("bars", Capped { item: Int::default(), max: 8000 })
+        .field(
+            "bars",
+            Capped {
+                item: Int::default(),
+                max: 8000,
+            },
+        )
         .or(Vec::new());
     let meter = f.int("meter").opt();
     let mut out = Map::new();
     out.insert("beats".into(), floats_value(beats));
-    out.insert("bars".into(), Value::Array(bars.into_iter().map(Value::from).collect()));
+    out.insert(
+        "bars".into(),
+        Value::Array(bars.into_iter().map(Value::from).collect()),
+    );
     if let Some(m) = meter {
         out.insert("meter".into(), m.into());
     }
@@ -658,7 +717,16 @@ fn marker(f: &mut Fields) -> Value {
     }
     out.insert("label".into(), f.str("label").or("").into());
     out.insert("notes".into(), f.str("notes").or("").into());
-    if let Some(parts) = f.field("parts", Capped { item: Floats, max: 32 }).opt() {
+    if let Some(parts) = f
+        .field(
+            "parts",
+            Capped {
+                item: Floats,
+                max: 32,
+            },
+        )
+        .opt()
+    {
         out.insert("parts".into(), segments_value(parts));
     }
     Value::Object(out)
@@ -702,7 +770,13 @@ fn mixer(f: &mut Fields, loc: &[Value]) -> Value {
                 out.insert("tracks".into(), Value::Object(done));
             }
             other => {
-                f.push_error("dict_type", Some("tracks"), "Input should be a valid dictionary", other, None);
+                f.push_error(
+                    "dict_type",
+                    Some("tracks"),
+                    "Input should be a valid dictionary",
+                    other,
+                    None,
+                );
             }
         }
     }
@@ -726,7 +800,10 @@ fn cue(f: &mut Fields) -> Value {
 
 fn cue_lane(f: &mut Fields) -> Value {
     let mut out = Map::new();
-    out.insert("key".into(), f.str("key").min_len(1).max_len(12).required().into());
+    out.insert(
+        "key".into(),
+        f.str("key").min_len(1).max_len(12).required().into(),
+    );
     out.insert("name".into(), f.str("name").max_len(40).or("").into());
     if let Some(v) = f.float("gain").ge(0).le(2).opt() {
         out.insert("gain".into(), v.into());
@@ -761,7 +838,16 @@ fn study_in(b: &mut Fields) -> Value {
     if let Some(v) = b.float_list("loop").opt() {
         out.insert("loop".into(), floats_value(v));
     }
-    if let Some(v) = b.field("loops", Capped { item: Floats, max: 64 }).opt() {
+    if let Some(v) = b
+        .field(
+            "loops",
+            Capped {
+                item: Floats,
+                max: 64,
+            },
+        )
+        .opt()
+    {
         out.insert("loops".into(), segments_value(v));
     }
     if let Some(v) = b.float("speed").opt() {

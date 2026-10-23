@@ -38,7 +38,10 @@ fn youtube_status(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     out.extend(youtube::state(app));
     out.insert("version".into(), json!(ytdlp::version(app)));
     out.insert("bundled_version".into(), json!(ytdlp::bundled_version(app)));
-    out.insert("js_runtime".into(), rt.map_or(Value::Null, |r| json!(r.name)));
+    out.insert(
+        "js_runtime".into(),
+        rt.map_or(Value::Null, |r| json!(r.name)),
+    );
     out.insert("js_runtime_hint".into(), json!(ytdlp::js_runtime_hint(app)));
     Ok(Value::Object(out).into())
 }
@@ -48,10 +51,14 @@ fn youtube_status(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 fn youtube_update(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     ctx.check()?;
     let app = ctx.app.clone();
-    let (snap, already) = ctx.app.jobs.start("yt-dlp", "no se pudo actualizar yt-dlp", move |p| {
-        let step = |n: i64, message: &str| p.update(Some(n.into()), Some(5.into()), Some(message));
-        ytdlp::update(&app, &step).map_err(|e| JobError::Expected(e.0))
-    });
+    let (snap, already) = ctx
+        .app
+        .jobs
+        .start("yt-dlp", "no se pudo actualizar yt-dlp", move |p| {
+            let step =
+                |n: i64, message: &str| p.update(Some(n.into()), Some(5.into()), Some(message));
+            ytdlp::update(&app, &step).map_err(|e| JobError::Expected(e.0))
+        });
     Ok(started(snap, already).into())
 }
 
@@ -95,7 +102,9 @@ fn youtube_info(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let body = read_youtube_in(ctx)?;
     let query = library::py::strip(&body.query);
     if query.is_empty() {
-        return Err(ApiError::bad_request("hace falta una URL o algo que buscar"));
+        return Err(ApiError::bad_request(
+            "hace falta una URL o algo que buscar",
+        ));
     }
     let out = youtube::info(ctx.app, query, body.results, None).map_err(ApiError::internal)?;
     Ok(Value::Object(out).into())
@@ -108,13 +117,18 @@ fn youtube_download(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let body = read_youtube_in(ctx)?;
     let query = library::py::strip(&body.query).to_owned();
     if query.is_empty() {
-        return Err(ApiError::bad_request("hace falta una URL o algo que buscar"));
+        return Err(ApiError::bad_request(
+            "hace falta una URL o algo que buscar",
+        ));
     }
     let app = ctx.app;
     if !youtube::available(app) {
         return Err(ApiError::http(503, youtube::unavailable_reason(app)));
     }
-    if !youtube::folder(app)?.get("ready").is_some_and(library::py::truthy) {
+    if !youtube::folder(app)?
+        .get("ready")
+        .is_some_and(library::py::truthy)
+    {
         return Err(ApiError::conflict(youtube::NO_FOLDER));
     }
     let token = youtube::claim(app);
@@ -122,7 +136,10 @@ fn youtube_download(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         return Err(ApiError::conflict(youtube::BUSY));
     }
     let wanted = youtube::Wanted {
-        quality: Some(body.quality.unwrap_or_else(|| app.config().mp3_quality.clone())),
+        quality: Some(
+            body.quality
+                .unwrap_or_else(|| app.config().mp3_quality.clone()),
+        ),
         file_it: body.file_it,
         results: body.results,
         force: body.force,

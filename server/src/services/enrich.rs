@@ -102,7 +102,11 @@ fn get_image(url: &str) -> Result<Vec<u8>, Trouble> {
         .trim()
         .to_lowercase();
     if !kind.starts_with("image/") {
-        let what = if kind.is_empty() { "algo sin tipo".to_owned() } else { kind };
+        let what = if kind.is_empty() {
+            "algo sin tipo".to_owned()
+        } else {
+            kind
+        };
         return Err(Trouble::Net(format!("eso no es una imagen, es {what}")));
     }
     let mut data = Vec::new();
@@ -119,7 +123,10 @@ fn get_image(url: &str) -> Result<Vec<u8>, Trouble> {
 
 /// `chord_sheets.USER_AGENT`.
 fn sheets_agent() -> String {
-    format!("DanPlay/{} (gestor de biblioteca personal)", crate::app::VERSION)
+    format!(
+        "DanPlay/{} (gestor de biblioteca personal)",
+        crate::app::VERSION
+    )
 }
 
 /// Un cifrado como lo daba Python (`chord_sheet_dict`).
@@ -301,15 +308,32 @@ impl Outside for Here<'_> {
         Ok(said.map_or(Json::Null, |d| from_value(&Value::Object(d))))
     }
 
-    fn lyrics_lrclib(&mut self, artist: &Json, title: &Json, album: &Json, duration: &Json) -> Result<Json, Trouble> {
+    fn lyrics_lrclib(
+        &mut self,
+        artist: &Json,
+        title: &Json,
+        album: &Json,
+        duration: &Json,
+    ) -> Result<Json, Trouble> {
         e::lyrics_lrclib(self, artist, title, album, duration).map_err(unwrap)
     }
 
-    fn lyrics(&mut self, artist: &Json, title: &Json, album: &Json, duration: &Json) -> Result<Json, Trouble> {
+    fn lyrics(
+        &mut self,
+        artist: &Json,
+        title: &Json,
+        album: &Json,
+        duration: &Json,
+    ) -> Result<Json, Trouble> {
         e::lyrics(self, artist, title, album, duration, true).map_err(unwrap)
     }
 
-    fn cover(&mut self, artist: &Json, title: &Json, album: &Json) -> Result<Option<(Vec<u8>, String)>, Trouble> {
+    fn cover(
+        &mut self,
+        artist: &Json,
+        title: &Json,
+        album: &Json,
+    ) -> Result<Option<(Vec<u8>, String)>, Trouble> {
         e::cover(self, artist, title, album).map_err(unwrap)
     }
 
@@ -356,10 +380,21 @@ impl Outside for Here<'_> {
     }
 
     fn write_cover(&mut self, path: &Json, cover: &(Vec<u8>, String)) -> Result<bool, Trouble> {
-        Ok(media::write_cover(self.app, &path_of(path), &cover.0, &cover.1))
+        Ok(media::write_cover(
+            self.app,
+            &path_of(path),
+            &cover.0,
+            &cover.1,
+        ))
     }
 
-    fn write_tags(&mut self, path: &Json, album: &Json, year: &Json, genre: &Json) -> Result<(), Trouble> {
+    fn write_tags(
+        &mut self,
+        path: &Json,
+        album: &Json,
+        year: &Json,
+        genre: &Json,
+    ) -> Result<(), Trouble> {
         let changes = library::tags::Changes {
             album: written(album),
             year: written(year),
@@ -382,13 +417,22 @@ fn unwrap(f: Failure<Trouble>) -> Trouble {
 
 // ---------------------------------------------------------------- las rutas
 
-fn run<T>(app: &App, f: impl FnOnce(&mut Here<'_>) -> Result<T, Failure<Trouble>>) -> Result<T, ApiError> {
+fn run<T>(
+    app: &App,
+    f: impl FnOnce(&mut Here<'_>) -> Result<T, Failure<Trouble>>,
+) -> Result<T, ApiError> {
     let mut here = Here { app };
     f(&mut here).map_err(api_error)
 }
 
 /// `enrich.enrich(cid, lyrics, cover, details)`.
-pub fn enrich(app: &App, cid: i64, lyrics: bool, cover: bool, details: bool) -> Result<Value, ApiError> {
+pub fn enrich(
+    app: &App,
+    cid: i64,
+    lyrics: bool,
+    cover: bool,
+    details: bool,
+) -> Result<Value, ApiError> {
     let wanted = e::Wanted {
         lyrics,
         cover,
@@ -434,7 +478,12 @@ pub fn image_type(head: &[u8]) -> &'static str {
 pub fn shrink_image(app: &App, src: &Path) -> Result<Option<(Vec<u8>, String)>, ApiError> {
     let ffmpeg = app.tool("ffmpeg");
     let mut warnings = Warnings::new();
-    let r = library::convert::shrink_image(src, library::convert::COVER_MAX_SIDE, ffmpeg.as_deref(), &mut warnings);
+    let r = library::convert::shrink_image(
+        src,
+        library::convert::COVER_MAX_SIDE,
+        ffmpeg.as_deref(),
+        &mut warnings,
+    );
     ai::log_warnings("danplay.convert", warnings);
     Ok(r?.map(|(d, m)| (d, m.to_owned())))
 }
@@ -490,7 +539,10 @@ mod tests {
         let url = serve(answer("200 OK\r\nContent-Type: Text/HTML", b"<html>"));
         assert_eq!(why(get_image(&url)), "eso no es una imagen, es text/html");
         let url = serve(answer("200 OK", b"x"));
-        assert_eq!(why(get_image(&url)), "eso no es una imagen, es algo sin tipo");
+        assert_eq!(
+            why(get_image(&url)),
+            "eso no es una imagen, es algo sin tipo"
+        );
         let big = vec![0u8; e::MAX_IMAGE_BYTES + 1];
         let url = serve(answer("200 OK\r\nContent-Type: image/jpeg", &big));
         assert_eq!(why(get_image(&url)), "la imagen pesa demasiado");
@@ -499,7 +551,10 @@ mod tests {
     #[test]
     fn json_pages_and_errors() {
         let body = "{\"a\": [1, 2.5, \"ñ\"]}";
-        let url = serve(answer("200 OK\r\nContent-Type: application/json", body.as_bytes()));
+        let url = serve(answer(
+            "200 OK\r\nContent-Type: application/json",
+            body.as_bytes(),
+        ));
         let got = get_json(&url).expect("json");
         assert_eq!(to_value(&got), serde_json::json!({"a": [1, 2.5, "ñ"]}));
         let url = serve(answer("404 Not Found", b""));

@@ -170,12 +170,7 @@ fn matched(
 }
 
 /// `match_song(title, artist, url=..., limit=...)`: ¿tenemos esta canción?
-pub fn match_song(
-    app: &App,
-    title: &str,
-    url: &str,
-    limit: usize,
-) -> Result<Resolution, ApiError> {
+pub fn match_song(app: &App, title: &str, url: &str, limit: usize) -> Result<Resolution, ApiError> {
     let snap = snapshot(app)?;
     let mut item = Dict::new();
     item.insert("title".into(), title.into());

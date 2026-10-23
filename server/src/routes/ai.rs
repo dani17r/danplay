@@ -180,9 +180,7 @@ fn edit_failed(e: providers::EditError) -> ApiError {
 fn ai_save_profile(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut data = profile_body(ctx)?;
     data.shift_remove("recheck");
-    let activate = data
-        .shift_remove("activate")
-        .is_none_or(|v| py::truthy(&v));
+    let activate = data.shift_remove("activate").is_none_or(|v| py::truthy(&v));
     let pid = ai::save_profile(ctx.app, &data, activate).map_err(edit_failed)?;
     ai::reset_client(ctx.app);
     let mut out = overview(ctx.app);
@@ -205,8 +203,10 @@ fn ai_activate(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut b = ctx.body()?;
     let id = b.str("id").max_len(80).required();
     ctx.done(b)?;
-    ai::edit_store(ctx.app, |path, env, w| providers::activate(path, env, w, &id))
-        .map_err(edit_failed)?;
+    ai::edit_store(ctx.app, |path, env, w| {
+        providers::activate(path, env, w, &id)
+    })
+    .map_err(edit_failed)?;
     ai::reset_client(ctx.app);
     Ok(Value::Object(overview(ctx.app)).into())
 }
@@ -291,10 +291,7 @@ fn ai_check(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 /// uno), y el catálogo para cuando aún no hay clave.
 fn ai_models(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut draft = profile_body(ctx)?;
-    let provider = draft
-        .get("provider")
-        .map(py::str_of)
-        .unwrap_or_default();
+    let provider = draft.get("provider").map(py::str_of).unwrap_or_default();
     draft.shift_remove("activate");
     let recheck = draft
         .shift_remove("recheck")
@@ -403,19 +400,28 @@ mod tests {
             r.json_value(),
             Some(json!({"detail": "proveedor desconocido"}))
         );
-        let r = crate::handle(&app, &Request::new("DELETE", &format!("/api/ai/profile/{saved}")));
+        let r = crate::handle(
+            &app,
+            &Request::new("DELETE", &format!("/api/ai/profile/{saved}")),
+        );
         assert_eq!(r.json_value().expect("json")["active"], "");
     }
 
     #[test]
     fn usage_and_budget() {
         let app = crate::tests::app();
-        let r = crate::handle(&app, &Request::new("POST", "/api/ai/budget").json(&json!({"dollars": 5})));
+        let r = crate::handle(
+            &app,
+            &Request::new("POST", "/api/ai/budget").json(&json!({"dollars": 5})),
+        );
         let v = r.json_value().expect("json");
         assert_eq!(v["budget"], json!(5.0));
         assert_eq!(v["over_budget"], false);
         assert_eq!(v["month"]["calls"], 0);
-        let r = crate::handle(&app, &Request::new("POST", "/api/ai/budget").json(&json!({"dollars": -1})));
+        let r = crate::handle(
+            &app,
+            &Request::new("POST", "/api/ai/budget").json(&json!({"dollars": -1})),
+        );
         assert_eq!(r.status, 422);
     }
 }

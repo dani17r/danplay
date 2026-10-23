@@ -182,7 +182,8 @@ fn manifest_twin(app: &App, song: &Dict) -> Result<Option<PathBuf>, ApiError> {
         found
             .iter()
             .find(|(d, folder)| {
-                close(Some(&Value::from(*d)), duration, DURATION_TOL) && ls::manifest_path(folder).is_file()
+                close(Some(&Value::from(*d)), duration, DURATION_TOL)
+                    && ls::manifest_path(folder).is_file()
             })
             .map(|(_, folder)| folder.clone())
     }))
@@ -204,7 +205,10 @@ fn old_key(row: &Dict) -> Option<String> {
     let Some(Value::String(path)) = row.get("path") else {
         return None;
     };
-    Some(crate::services::tags::pulse_key(Path::new(path), (size, mtime)))
+    Some(crate::services::tags::pulse_key(
+        Path::new(path),
+        (size, mtime),
+    ))
 }
 
 fn beats_folder(app: &App) -> PathBuf {
@@ -214,10 +218,15 @@ fn beats_folder(app: &App) -> PathBuf {
 /// `_worth(row)`: lo que hay que aprovechar de una fila: sus pistas valen
 /// más que su clic, y su clic más que su estudio.
 fn worth(app: &App, row: &Dict) -> i64 {
-    let mut worth = if stems_folder(app, row).is_some() { 4 } else { 0 };
+    let mut worth = if stems_folder(app, row).is_some() {
+        4
+    } else {
+        0
+    };
     let folder = beats_folder(app);
     if let Some(key) = old_key(row)
-        && (folder.join(format!("{key}.npz")).is_file() || folder.join(format!("{key}.json")).is_file())
+        && (folder.join(format!("{key}.npz")).is_file()
+            || folder.join(format!("{key}.json")).is_file())
     {
         worth += 2;
     }
@@ -247,11 +256,19 @@ fn decode(app: &App, path: &Path, seconds: f64, rate: usize) -> Result<Option<Ve
         "f32le",
         "-",
     ]);
-    let out = library::processes::run(&mut cmd, DECODE_TIMEOUT).map_err(|e| format!("ffmpeg: {e}"))?;
+    let out =
+        library::processes::run(&mut cmd, DECODE_TIMEOUT).map_err(|e| format!("ffmpeg: {e}"))?;
     if !out.succeeded() || out.stdout.len() < rate * 4 {
         return Ok(None);
     }
-    Ok(Some(out.stdout.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect()))
+    Ok(Some(
+        out.stdout
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
+            .collect(),
+    ))
 }
 
 /// `_mix(paths)`: las pistas separadas sumadas, que suenan como la canción.
@@ -271,7 +288,11 @@ fn mix(app: &App, paths: &[PathBuf]) -> Result<Option<Vec<f32>>, String> {
 
 /// `reuse.lag_between(new, refs)`: el desfase entre un archivo y otro (o
 /// sus pistas separadas sumadas) y lo que se parecen.
-pub fn lag_between(app: &App, new_path: &Path, ref_paths: &[PathBuf]) -> Result<Option<(f64, f64)>, String> {
+pub fn lag_between(
+    app: &App,
+    new_path: &Path,
+    ref_paths: &[PathBuf],
+) -> Result<Option<(f64, f64)>, String> {
     let new = decode(app, new_path, WINDOW, RATE)?;
     let reference = if ref_paths.len() == 1 {
         decode(app, &ref_paths[0], WINDOW, RATE)?
@@ -287,7 +308,11 @@ pub fn lag_between(app: &App, new_path: &Path, ref_paths: &[PathBuf]) -> Result<
 /// `reuse.lag_from_lowband(new, raw)`: el desfase con lo que dijo la red
 /// del archivo de antes (su bombo y bajo, cada 10 ms), cuando el archivo ya
 /// no está ni hay pistas.
-pub fn lag_from_lowband(app: &App, new_path: &Path, raw: &Raw) -> Result<Option<(f64, f64)>, String> {
+pub fn lag_from_lowband(
+    app: &App,
+    new_path: &Path,
+    raw: &Raw,
+) -> Result<Option<(f64, f64)>, String> {
     let Some(x) = decode(app, new_path, WINDOW, analysis::pulse::RATE as usize)? else {
         return Ok(None);
     };
@@ -295,7 +320,10 @@ pub fn lag_from_lowband(app: &App, new_path: &Path, raw: &Raw) -> Result<Option<
     let keep = low.len() + (align::MAX_LAG * fps) as usize;
     let old = &raw.low[..raw.low.len().min(keep)];
     // las tramas por segundo, las mismas exactas (`fps != raw["low_fps"]`)
-    #[allow(clippy::float_cmp, reason = "es la misma cuenta, y Python compara igual")]
+    #[allow(
+        clippy::float_cmp,
+        reason = "es la misma cuenta, y Python compara igual"
+    )]
     let other_rate = fps != raw.low_fps;
     if other_rate || (old.len() as f64) < fps * 5.0 {
         return Ok(None);
@@ -312,7 +340,10 @@ fn shift_study(study: &Value, lag: f64) -> Option<Value> {
     if !py::truthy(study) || lag.abs() < SMALL_LAG {
         return Some(study.clone());
     }
-    Some(Value::Object(library::reuse::shift_study(study.as_object()?, lag)))
+    Some(Value::Object(library::reuse::shift_study(
+        study.as_object()?,
+        lag,
+    )))
 }
 
 /// `shutil.copytree`: la carpeta entera, con las fechas de cada archivo.
@@ -352,8 +383,11 @@ fn encode_shifted(ffmpeg: &Path, src: &Path, dest: &Path, lag: f64) -> std::io::
         format!("atrim=start={:.6},asetpts=PTS-STARTPTS", -lag)
     };
     let mut cmd = library::processes::order(ffmpeg, &["-v", "error", "-nostdin", "-y", "-i"]);
-    cmd.arg(src).args(["-af", &filter, "-c:a", "flac"]).arg(dest);
-    let out = library::processes::run(&mut cmd, ENCODE_TIMEOUT).map_err(|e| std::io::Error::other(e.to_string()))?;
+    cmd.arg(src)
+        .args(["-af", &filter, "-c:a", "flac"])
+        .arg(dest);
+    let out = library::processes::run(&mut cmd, ENCODE_TIMEOUT)
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
     if !out.succeeded() {
         let text = String::from_utf8_lossy(&out.stderr).into_owned();
         let tail: String = {
@@ -367,14 +401,23 @@ fn encode_shifted(ffmpeg: &Path, src: &Path, dest: &Path, lag: f64) -> std::io::
 
 /// Un texto de la fila, o `default` si no lo tiene (`song.get(k) or ...`).
 fn or_value(song: &Dict, key: &str, default: Value) -> Value {
-    song.get(key).filter(|v| py::truthy(v)).cloned().unwrap_or(default)
+    song.get(key)
+        .filter(|v| py::truthy(v))
+        .cloned()
+        .unwrap_or(default)
 }
 
 /// `reuse.adopt_stems(song, source, lag, move)`: las pistas de `source`
 /// para esta canción, en su carpeta de pistas (movidas si ya no son de
 /// nadie, copiadas si siguen siendo de otra) y corridas `lag` segundos si
 /// hace falta. La carpeta, o `None` si no se pudo.
-pub fn adopt_stems(app: &App, song: &Dict, source: &Path, lag: f64, moving: bool) -> Result<Option<PathBuf>, ApiError> {
+pub fn adopt_stems(
+    app: &App,
+    song: &Dict,
+    source: &Path,
+    lag: f64,
+    moving: bool,
+) -> Result<Option<PathBuf>, ApiError> {
     let Some(manifest) = ls::read_manifest(&source.to_string_lossy()) else {
         return Ok(None);
     };
@@ -387,8 +430,14 @@ pub fn adopt_stems(app: &App, song: &Dict, source: &Path, lag: f64, moving: bool
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let mut work = target.with_file_name(format!(".adoptando-{name}-{}", library::index::now() as i64));
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut work = target.with_file_name(format!(
+        ".adoptando-{name}-{}",
+        library::index::now() as i64
+    ));
     let mut ffmpeg_missing = false;
     let made = (|| -> std::io::Result<Dict> {
         let mut manifest = manifest;
@@ -407,11 +456,22 @@ pub fn adopt_stems(app: &App, song: &Dict, source: &Path, lag: f64, moving: bool
             };
             std::fs::create_dir(&work)?;
             let mut tracks = Vec::new();
-            for t in manifest.get("tracks").filter(|v| py::truthy(v)).map(py::list_of).unwrap_or_default() {
+            for t in manifest
+                .get("tracks")
+                .filter(|v| py::truthy(v))
+                .map(py::list_of)
+                .unwrap_or_default()
+            {
                 let Value::Object(mut t) = t else {
-                    return Err(std::io::Error::other("una pista del manifiesto no es un diccionario"));
+                    return Err(std::io::Error::other(
+                        "una pista del manifiesto no es un diccionario",
+                    ));
                 };
-                let file = t.get("file").filter(|v| py::truthy(v)).map(py::str_of).unwrap_or_default();
+                let file = t
+                    .get("file")
+                    .filter(|v| py::truthy(v))
+                    .map(py::str_of)
+                    .unwrap_or_default();
                 let flac = format!("{}.flac", py::path_stem(&file));
                 let from = t.get("file").map(py::str_of).unwrap_or_default();
                 encode_shifted(&ffmpeg, &source.join(from), &work.join(&flac), lag)?;
@@ -424,7 +484,10 @@ pub fn adopt_stems(app: &App, song: &Dict, source: &Path, lag: f64, moving: bool
             }
         }
         let mut src = Dict::new();
-        src.insert("file".into(), song.get("file").cloned().unwrap_or(Value::Null));
+        src.insert(
+            "file".into(),
+            song.get("file").cloned().unwrap_or(Value::Null),
+        );
         src.insert("folder".into(), or_value(song, "folder", "".into()));
         src.insert("size".into(), or_value(song, "size", 0.into()));
         src.insert("duration".into(), or_value(song, "duration", 0.into()));
@@ -458,8 +521,17 @@ pub fn adopt_stems(app: &App, song: &Dict, source: &Path, lag: f64, moving: bool
     let rel = py::relpath(&target_text, &songs::text(song, "root")).unwrap_or(target_text);
     let mut data = Dict::new();
     data.insert("folder".into(), rel.into());
-    data.insert("model".into(), manifest.get("model").cloned().unwrap_or_else(|| "".into()));
-    data.insert("quality".into(), manifest.get("quality").cloned().unwrap_or_else(|| "".into()));
+    data.insert(
+        "model".into(),
+        manifest.get("model").cloned().unwrap_or_else(|| "".into()),
+    );
+    data.insert(
+        "quality".into(),
+        manifest
+            .get("quality")
+            .cloned()
+            .unwrap_or_else(|| "".into()),
+    );
     let id = song.get("id").and_then(Value::as_i64).unwrap_or(0);
     songs::update_one(app, id, "stems", Value::from(ls::stems_json(&data)))?;
     Ok(Some(target))
@@ -504,9 +576,16 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
         return Ok(false);
     }
     let folder = beats_folder(app);
-    let (old_json, old_raw) = (folder.join(format!("{key}.json")), folder.join(format!("{key}.npz")));
+    let (old_json, old_raw) = (
+        folder.join(format!("{key}.json")),
+        folder.join(format!("{key}.npz")),
+    );
     let saved = lb::load(&old_json).ok().flatten();
-    let raw = if old_raw.is_file() { analysis::pulse::raw::read(&old_raw) } else { None };
+    let raw = if old_raw.is_file() {
+        analysis::pulse::raw::read(&old_raw)
+    } else {
+        None
+    };
     let had_raw = raw.is_some();
     if let Some(mut raw) = raw {
         // lo que dijo la red, corrido: tramas de delante con silencio, o fuera
@@ -519,17 +598,29 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
         if let Some(parent) = new_raw.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        analysis::pulse::raw::save(&new_raw, &f64s(&raw.beat), &f64s(&raw.down), &f64s(&raw.low), raw.low_fps, raw.seconds)
-            .map_err(|e| e.to_string())?;
+        analysis::pulse::raw::save(
+            &new_raw,
+            &f64s(&raw.beat),
+            &f64s(&raw.down),
+            &f64s(&raw.low),
+            raw.low_fps,
+            raw.seconds,
+        )
+        .map_err(|e| e.to_string())?;
     }
     let Some(saved) = saved.filter(Json::truthy) else {
         return Ok(had_raw);
     };
     let Json::Dict(_) = saved else {
-        return Err(format!("'{}' object has no attribute 'get'", saved.type_name()));
+        return Err(format!(
+            "'{}' object has no attribute 'get'",
+            saved.type_name()
+        ));
     };
     if !saved.get("grid").is_some_and(Json::truthy)
-        || !saved.get("version").is_some_and(|v| v.equals_int(beats::VERSION))
+        || !saved
+            .get("version")
+            .is_some_and(|v| v.equals_int(beats::VERSION))
     {
         // sin rejilla de esta versión: con lo que dijo la red, se saca al momento
         return Ok(had_raw);
@@ -548,16 +639,27 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
         Some(_) => return Err("los pulsos no son una lista".into()),
     };
     let keep: Vec<usize> = (0..shifted.len()).filter(|&i| shifted[i] >= 0.0).collect();
-    let index: HashMap<usize, usize> = keep.iter().enumerate().map(|(new, &old)| (old, new)).collect();
+    let index: HashMap<usize, usize> = keep
+        .iter()
+        .enumerate()
+        .map(|(new, &old)| (old, new))
+        .collect();
     let bars: Vec<Json> = match grid.get("bars").filter(|b| b.truthy()) {
         Some(Json::List(items)) => items
             .iter()
-            .filter_map(|b| bar_index(b).and_then(|b| index.get(&b)).map(|&n| Json::Int(n as i64)))
+            .filter_map(|b| {
+                bar_index(b)
+                    .and_then(|b| index.get(&b))
+                    .map(|&n| Json::Int(n as i64))
+            })
             .collect(),
         _ => Vec::new(),
     };
     let first = bars.first().cloned().unwrap_or(Json::Int(0));
-    grid.set(&py::json::text("beats"), Json::List(keep.iter().map(|&i| Json::Float(shifted[i])).collect()));
+    grid.set(
+        &py::json::text("beats"),
+        Json::List(keep.iter().map(|&i| Json::Float(shifted[i])).collect()),
+    );
     grid.set(&py::json::text("bars"), Json::List(bars));
     grid.set(&py::json::text("first_downbeat"), first);
     let mut edits = Vec::new();
@@ -569,7 +671,10 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
             }
             if let Some(start) = e.get("start").filter(|s| **s != Json::Null) {
                 let end = e.get("end").ok_or("KeyError: 'end'")?;
-                let (Some(s), Some(t)) = (crate::services::pyjson::float_of(start), crate::services::pyjson::float_of(end)) else {
+                let (Some(s), Some(t)) = (
+                    crate::services::pyjson::float_of(start),
+                    crate::services::pyjson::float_of(end),
+                ) else {
                     return Err("un tramo que no es un número".into());
                 };
                 e.set(&py::json::text("start"), Json::Float(py::round(s + lag, 3)));
@@ -592,8 +697,16 @@ fn id_of(row: &Dict) -> Option<i64> {
 /// apartada con la que el escaneo ya la juntó (mismo id: sus listas y su
 /// estudio ya son suyos); si no, se busca una gemela entre `candidates` (o
 /// entre todas).
-#[allow(clippy::too_many_lines, reason = "los pasos de reuse.settle, en su orden")]
-pub fn settle(app: &App, song_id: i64, twin_of_missing: Option<&Dict>, candidates: Option<Vec<Dict>>) -> Result<Done, ApiError> {
+#[allow(
+    clippy::too_many_lines,
+    reason = "los pasos de reuse.settle, en su orden"
+)]
+pub fn settle(
+    app: &App,
+    song_id: i64,
+    twin_of_missing: Option<&Dict>,
+    candidates: Option<Vec<Dict>>,
+) -> Result<Done, ApiError> {
     let mut done = Done::default();
     let Some(song) = songs::by_id(app, song_id)? else {
         return Ok(done);
@@ -622,7 +735,11 @@ pub fn settle(app: &App, song_id: i64, twin_of_missing: Option<&Dict>, candidate
     let twin = if let Some(t) = twin {
         t
     } else {
-        let folder = if has_stems { None } else { manifest_twin(app, &song)? };
+        let folder = if has_stems {
+            None
+        } else {
+            manifest_twin(app, &song)?
+        };
         let Some(folder) = folder else {
             return Ok(done);
         };
@@ -631,7 +748,10 @@ pub fn settle(app: &App, song_id: i64, twin_of_missing: Option<&Dict>, candidate
         t.insert("path".into(), "".into());
         t.insert("stems".into(), "".into());
         t.insert("root".into(), "".into());
-        t.insert("manifest_folder".into(), folder.to_string_lossy().into_owned().into());
+        t.insert(
+            "manifest_folder".into(),
+            folder.to_string_lossy().into_owned().into(),
+        );
         t
     };
     done.twin = twin.get("id").cloned().unwrap_or(Value::Null);
@@ -641,36 +761,47 @@ pub fn settle(app: &App, song_id: i64, twin_of_missing: Option<&Dict>, candidate
     };
     // cuánto está corrido el archivo nuevo: contra el de antes si sigue, sus
     // pistas sumadas, o lo que oyó la red
-    let twin_path = twin.get("path").filter(|v| py::truthy(v)).map(py::str_of).unwrap_or_default();
-    let measured = if !twin_path.is_empty() && Path::new(&twin_path).is_file() && twin_path != song_path {
-        lag_between(app, Path::new(&song_path), &[PathBuf::from(&twin_path)]).map_err(ApiError::internal)?
-    } else if let Some(folder) = &folder {
-        let manifest = ls::read_manifest(&folder.to_string_lossy()).unwrap_or_default();
-        let paths: Vec<PathBuf> = manifest
-            .get("tracks")
-            .filter(|v| py::truthy(v))
-            .map(py::list_of)
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|t| t.get("file").map(|f| folder.join(py::str_of(f))))
-            .filter(|p| p.is_file())
-            .collect();
-        if paths.is_empty() {
-            None
+    let twin_path = twin
+        .get("path")
+        .filter(|v| py::truthy(v))
+        .map(py::str_of)
+        .unwrap_or_default();
+    let measured =
+        if !twin_path.is_empty() && Path::new(&twin_path).is_file() && twin_path != song_path {
+            lag_between(app, Path::new(&song_path), &[PathBuf::from(&twin_path)])
+                .map_err(ApiError::internal)?
+        } else if let Some(folder) = &folder {
+            let manifest = ls::read_manifest(&folder.to_string_lossy()).unwrap_or_default();
+            let paths: Vec<PathBuf> = manifest
+                .get("tracks")
+                .filter(|v| py::truthy(v))
+                .map(py::list_of)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|t| t.get("file").map(|f| folder.join(py::str_of(f))))
+                .filter(|p| p.is_file())
+                .collect();
+            if paths.is_empty() {
+                None
+            } else {
+                lag_between(app, Path::new(&song_path), &paths).map_err(ApiError::internal)?
+            }
         } else {
-            lag_between(app, Path::new(&song_path), &paths).map_err(ApiError::internal)?
-        }
-    } else {
-        let folder = beats_folder(app);
-        let raw = old_key(&twin).and_then(|key| {
-            let p = folder.join(format!("{key}.npz"));
-            if p.is_file() { analysis::pulse::raw::read(&p) } else { None }
-        });
-        match raw {
-            Some(raw) => lag_from_lowband(app, Path::new(&song_path), &raw).map_err(ApiError::internal)?,
-            None => None,
-        }
-    };
+            let folder = beats_folder(app);
+            let raw = old_key(&twin).and_then(|key| {
+                let p = folder.join(format!("{key}.npz"));
+                if p.is_file() {
+                    analysis::pulse::raw::read(&p)
+                } else {
+                    None
+                }
+            });
+            match raw {
+                Some(raw) => lag_from_lowband(app, Path::new(&song_path), &raw)
+                    .map_err(ApiError::internal)?,
+                None => None,
+            }
+        };
     let file = songs::text(&song, "file");
     if let Some((lag, score)) = measured {
         done.lag = py::round(lag, 4);
@@ -685,7 +816,11 @@ pub fn settle(app: &App, song_id: i64, twin_of_missing: Option<&Dict>, candidate
     } else if !close(twin.get("duration"), song.get("duration"), 0.5) && twin_of_missing.is_none() {
         return Ok(done); // sin poder comprobarlo y con otra duración: mejor nada
     }
-    let lag = if done.lag.abs() >= SMALL_LAG { done.lag } else { 0.0 };
+    let lag = if done.lag.abs() >= SMALL_LAG {
+        done.lag
+    } else {
+        0.0
+    };
     // las pistas
     if let Some(folder) = &folder {
         let here = stems::info(app, &song).is_some_and(|same| {
@@ -717,7 +852,11 @@ pub fn settle(app: &App, song_id: i64, twin_of_missing: Option<&Dict>, candidate
         }
     };
     if let Some(own) = parse(&song) {
-        let theirs = if twin_of_missing.is_some() { Some(own.clone()) } else { parse(&twin) };
+        let theirs = if twin_of_missing.is_some() {
+            Some(own.clone())
+        } else {
+            parse(&twin)
+        };
         if let Some(theirs) = theirs {
             let pick = if twin_of_missing.is_some() && py::truthy(&own) && lag != 0.0 {
                 Some(&own)
@@ -743,26 +882,40 @@ pub fn settle(app: &App, song_id: i64, twin_of_missing: Option<&Dict>, candidate
 /// saber juntarlas): sus listas y sus recientes pasan a la fila nueva, y la
 /// apartada se olvida. En cuántas listas vuelve a estar.
 pub fn merge_missing(app: &App, song_id: i64, twin: &Dict) -> Result<usize, ApiError> {
-    let Some(old) = twin.get("id").filter(|v| py::truthy(v)).and_then(Value::as_i64) else {
+    let Some(old) = twin
+        .get("id")
+        .filter(|v| py::truthy(v))
+        .and_then(Value::as_i64)
+    else {
         return Ok(0);
     };
     if old == song_id {
         return Ok(0);
     }
     let n = app.db(|conn| -> library::rusqlite::Result<usize> {
-        let tables: Vec<String> = fetch_all(conn, "SELECT name FROM sqlite_master WHERE type='table'", [])?
-            .iter()
-            .map(|r| get_str(r, "name").to_owned())
-            .collect();
+        let tables: Vec<String> = fetch_all(
+            conn,
+            "SELECT name FROM sqlite_master WHERE type='table'",
+            [],
+        )?
+        .iter()
+        .map(|r| get_str(r, "name").to_owned())
+        .collect();
         let has = |t: &str| tables.iter().any(|x| x == t);
         library::index::begin(conn)?;
         let mut n = 0;
         if has("playlist_songs") {
-            n = conn.execute("UPDATE OR IGNORE playlist_songs SET song_id=? WHERE song_id=?", [song_id, old])?;
+            n = conn.execute(
+                "UPDATE OR IGNORE playlist_songs SET song_id=? WHERE song_id=?",
+                [song_id, old],
+            )?;
             conn.execute("DELETE FROM playlist_songs WHERE song_id=?", [old])?;
         }
         if has("recent") {
-            conn.execute("UPDATE OR IGNORE recent SET song_id=? WHERE song_id=?", [song_id, old])?;
+            conn.execute(
+                "UPDATE OR IGNORE recent SET song_id=? WHERE song_id=?",
+                [song_id, old],
+            )?;
             conn.execute("DELETE FROM recent WHERE song_id=?", [old])?;
         }
         conn.execute("DELETE FROM songs_missing WHERE id=?", [old])?;
@@ -800,7 +953,10 @@ pub fn sweep(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value,
             continue;
         }
         let candidates = twins(app, &song)?;
-        for t in candidates.iter().filter(|t| t.get("missing").is_some_and(py::truthy)) {
+        for t in candidates
+            .iter()
+            .filter(|t| t.get("missing").is_some_and(py::truthy))
+        {
             lists_n += merge_missing(app, *id, t)?;
         }
         let needs = stems::info(app, &song).is_none()
@@ -821,7 +977,9 @@ pub fn sweep(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value,
         study_n += usize::from(done.study);
     }
     progress(total, total);
-    Ok(json!({"songs": total, "stems": stems_n, "grid": grid_n, "study": study_n, "lists": lists_n}))
+    Ok(
+        json!({"songs": total, "stems": stems_n, "grid": grid_n, "study": study_n, "lists": lists_n}),
+    )
 }
 
 /// Espera `delay` en trocitos; `false` si mientras tanto la app se apaga.
@@ -831,7 +989,9 @@ fn wait_unless_stopping(app: &App, delay: Duration) -> bool {
         if app.stopping.load(Ordering::SeqCst) {
             return false;
         }
-        std::thread::sleep(Duration::from_millis(100).min(end.saturating_duration_since(Instant::now())));
+        std::thread::sleep(
+            Duration::from_millis(100).min(end.saturating_duration_since(Instant::now())),
+        );
     }
     !app.stopping.load(Ordering::SeqCst)
 }
@@ -923,7 +1083,9 @@ fn work(app: &App) {
         let Some((song_id, twin)) = next else {
             return;
         };
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| settle(app, song_id, twin.as_ref(), None)));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            settle(app, song_id, twin.as_ref(), None)
+        }));
         match outcome {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => log::warn!("no se pudo aprovechar lo de la cancion {song_id}: {e}"),

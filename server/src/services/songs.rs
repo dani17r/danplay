@@ -33,7 +33,10 @@ pub fn text(song: &Dict, key: &str) -> String {
 
 /// `song.get(key) or ""` (lo que es falso, vacío).
 pub fn text_or_empty(song: &Dict, key: &str) -> String {
-    song.get(key).filter(|v| py::truthy(v)).map(py::str_of).unwrap_or_default()
+    song.get(key)
+        .filter(|v| py::truthy(v))
+        .map(py::str_of)
+        .unwrap_or_default()
 }
 
 /// `library.by_path(path)`: la canción de esa ruta exacta, o `None`.
@@ -70,8 +73,16 @@ pub fn update_one(app: &App, cid: i64, key: &str, value: Value) -> Result<usize,
 /// `str(fields.get(key, c[key]))`, o `None` si queda vacío (tags.write solo
 /// escribe lo que tiene valor).
 fn field_or(fields: &Dict, song: &Dict, key: &str, as_str: bool) -> Option<String> {
-    let v = fields.get(key).or_else(|| song.get(key)).cloned().unwrap_or(Value::Null);
-    let s = if as_str || py::truthy(&v) { py::str_of(&v) } else { String::new() };
+    let v = fields
+        .get(key)
+        .or_else(|| song.get(key))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let s = if as_str || py::truthy(&v) {
+        py::str_of(&v)
+    } else {
+        String::new()
+    };
     (!s.is_empty()).then_some(s)
 }
 
@@ -101,13 +112,25 @@ pub fn edit(app: &App, cid: i64, fields: &Dict) -> Result<Option<Dict>, ApiError
             written = tags::write_fields(app, &path, &changes) && written;
         }
         if fields.contains_key("key") || fields.contains_key("bpm") {
-            let key = fields.get("key").or_else(|| c.get("key")).cloned().unwrap_or(Value::Null);
-            let bpm = fields.get("bpm").or_else(|| c.get("bpm")).cloned().unwrap_or(Value::Null);
+            let key = fields
+                .get("key")
+                .or_else(|| c.get("key"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let bpm = fields
+                .get("bpm")
+                .or_else(|| c.get("bpm"))
+                .cloned()
+                .unwrap_or(Value::Null);
             written = write_analysis(app, &path, &key, &bpm) && written;
         }
         // la letra vive en el USLT del propio archivo, no solo en el índice
         if let Some(lyrics) = fields.get("lyrics") {
-            let text = if py::truthy(lyrics) { py::str_of(lyrics) } else { String::new() };
+            let text = if py::truthy(lyrics) {
+                py::str_of(lyrics)
+            } else {
+                String::new()
+            };
             written = write_lyrics(app, &path, &text) && written;
         }
     }
@@ -176,7 +199,11 @@ pub fn set_study(app: &App, cid: i64, study: &Value) -> Result<Option<Dict>, Api
     let Some(c) = by_id(app, cid)? else {
         return Ok(None);
     };
-    let study = if py::truthy(study) { study.clone() } else { json!({}) };
+    let study = if py::truthy(study) {
+        study.clone()
+    } else {
+        json!({})
+    };
     let raw = songs::clean_study(&study, &cues_folder(app).to_string_lossy());
     update_one(app, cid, "study", Value::from(raw.clone()))?;
     if app.config().write_tags && exists(&c) {
@@ -376,7 +403,10 @@ pub fn relocate(app: &App, cid: i64, folder: &Path, name: Option<&str>) -> Resul
         let dest = if same_file {
             wanted
         } else {
-            py::join(&dest_dir, &library::names::free_name(Path::new(&dest_dir), &name))
+            py::join(
+                &dest_dir,
+                &library::names::free_name(Path::new(&dest_dir), &name),
+            )
         };
         let before = tags::stamp(Path::new(&src));
         move_file(Path::new(&src), Path::new(&dest)).map_err(MoveError::Disk)?;
@@ -449,7 +479,9 @@ pub fn tidy_apply(
         (Some(to), _, _) => {
             let rel = py::normpath(to);
             if py::isabs(&rel) || rel.starts_with("..") {
-                return Err(MoveError::Invalid("esa ruta esta fuera de tu musica".into()));
+                return Err(MoveError::Invalid(
+                    "esa ruta esta fuera de tu musica".into(),
+                ));
             }
             rel
         }
@@ -471,7 +503,12 @@ pub fn tidy_apply(
         Some(&py::basename(&dest)),
     )?;
     let mut fields = Dict::new();
-    let current = |k: &str| song.get(k).filter(|v| py::truthy(v)).map(py::str_of).unwrap_or_default();
+    let current = |k: &str| {
+        song.get(k)
+            .filter(|v| py::truthy(v))
+            .map(py::str_of)
+            .unwrap_or_default()
+    };
     if write_tags && let Some(a) = artist {
         let a = py::strip(a);
         if a != current("artist") {

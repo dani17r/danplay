@@ -20,7 +20,10 @@ use std::path::{Path, PathBuf};
 pub enum Address {
     #[cfg(unix)]
     Socket(PathBuf),
-    Tcp { host: String, port: u16 },
+    Tcp {
+        host: String,
+        port: u16,
+    },
 }
 
 type Out = BoxBody<Bytes, std::io::Error>;
@@ -120,7 +123,8 @@ async fn answer(
     req: hyper::Request<hyper::body::Incoming>,
 ) -> Result<hyper::Response<Out>, Infallible> {
     // HTTP/1.1 sin Host: uvicorn (h11) ni llega a la app
-    if req.version() == hyper::Version::HTTP_11 && !req.headers().contains_key(hyper::header::HOST) {
+    if req.version() == hyper::Version::HTTP_11 && !req.headers().contains_key(hyper::header::HOST)
+    {
         let mut r = hyper::Response::new(full(b"Invalid HTTP request received.".to_vec()));
         *r.status_mut() = hyper::StatusCode::BAD_REQUEST;
         r.headers_mut().insert(
@@ -255,5 +259,6 @@ pub fn loopback(host: &str) -> bool {
     if host.eq_ignore_ascii_case("localhost") {
         return true;
     }
-    host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+    host.parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback())
 }

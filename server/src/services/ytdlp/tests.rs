@@ -49,9 +49,15 @@ fn the_python_options_as_arguments() {
     // una búsqueda o un vídeo: un vídeo solo; una lista a propósito, la lista
     let q = query_args("ytsearch5:barak", None);
     assert!(q.contains(&"--no-playlist".to_owned()));
-    assert_eq!(q[q.len() - 3..], ["--dump-single-json", "--", "ytsearch5:barak"]);
+    assert_eq!(
+        q[q.len() - 3..],
+        ["--dump-single-json", "--", "ytsearch5:barak"]
+    );
     assert!(q.windows(2).any(|w| w == ["--playlist-items", "1:50"]));
-    assert!(q.windows(2).any(|w| w == ["--match-filter", "duration<=?1800"]));
+    assert!(
+        q.windows(2)
+            .any(|w| w == ["--match-filter", "duration<=?1800"])
+    );
     let q = query_args("https://www.youtube.com/playlist?list=PL1", None);
     assert!(q.contains(&"--yes-playlist".to_owned()));
     let q = query_args("https://www.youtube.com/watch?v=x&list=RD1", Some(8.0));
@@ -65,7 +71,12 @@ fn the_python_options_as_arguments() {
             "--extractor-retries",
             "0"
         ]));
-    let d = download_args("/tmp/x/%(id)s.%(ext)s", "192", Some(Path::new("/usr/bin/ffmpeg")), "https://youtu.be/a");
+    let d = download_args(
+        "/tmp/x/%(id)s.%(ext)s",
+        "192",
+        Some(Path::new("/usr/bin/ffmpeg")),
+        "https://youtu.be/a",
+    );
     for pair in [
         ["--format", "bestaudio/best"],
         ["--output", "/tmp/x/%(id)s.%(ext)s"],
@@ -77,7 +88,14 @@ fn the_python_options_as_arguments() {
     ] {
         assert!(d.windows(2).any(|w| w == pair), "{pair:?}");
     }
-    for flag in ["--no-playlist", "--embed-thumbnail", "--extract-audio", "--progress", "--newline", "--no-simulate"] {
+    for flag in [
+        "--no-playlist",
+        "--embed-thumbnail",
+        "--extract-audio",
+        "--progress",
+        "--newline",
+        "--no-simulate",
+    ] {
         assert!(d.contains(&flag.to_owned()), "{flag}");
     }
     // sin --write-thumbnail: la miniatura se borraría después de pegarla
@@ -97,7 +115,10 @@ fn the_python_options_as_arguments() {
 fn the_progress_like_the_python_hook() {
     let line = "DANPLAY-PROGRESS {\"status\":\"downloading\",\"downloaded_bytes\":50,\"total_bytes\":200,\
                 \"total_bytes_estimate\":null,\"filename\":\"/tmp/x/abc.webm\"}";
-    let step = parse_progress(line).as_ref().and_then(progress_step).expect("paso");
+    let step = parse_progress(line)
+        .as_ref()
+        .and_then(progress_step)
+        .expect("paso");
     assert_eq!(
         Value::Object(step),
         json!({"phase": "downloading", "percent": 25.0, "name": "abc.webm"})
@@ -109,7 +130,10 @@ fn the_progress_like_the_python_hook() {
     assert_eq!(step["percent"], json!(33.3));
     assert_eq!(step["name"], json!(""));
     let none = json!({"status": "downloading", "downloaded_bytes": 10});
-    assert_eq!(progress_step(none.as_object().expect("dict")).expect("paso")["percent"], json!(0));
+    assert_eq!(
+        progress_step(none.as_object().expect("dict")).expect("paso")["percent"],
+        json!(0)
+    );
     let fin = json!({"status": "finished"});
     assert_eq!(
         Value::Object(progress_step(fin.as_object().expect("dict")).expect("paso")),
@@ -148,7 +172,10 @@ fn json_with_nan_and_stderr_like_the_logger() {
     e.line("WARNING: nada que ver");
     e.line("WARNING: [youtube] HTTP Error 429: Too Many Requests");
     e.line("WARNING: otra cosa");
-    assert_eq!(e.finish().0.reason(), "[youtube] HTTP Error 429: Too Many Requests");
+    assert_eq!(
+        e.finish().0.reason(),
+        "[youtube] HTTP Error 429: Too Many Requests"
+    );
 }
 
 #[test]
@@ -180,8 +207,15 @@ echo '{"id": "x", "title": "Hola"}'
 exit 1"#,
     );
     let mut steps = Vec::new();
-    let ran = run(&fake, &[], Some(Duration::from_secs(20)), None, &mut |s| steps.push(s), &|| false)
-        .expect("arranca");
+    let ran = run(
+        &fake,
+        &[],
+        Some(Duration::from_secs(20)),
+        None,
+        &mut |s| steps.push(s),
+        &|| false,
+    )
+    .expect("arranca");
     assert_eq!(ran.json, Some(json!({"id": "x", "title": "Hola"})));
     assert_eq!(ran.code, Some(1));
     assert_eq!(ran.seen.reason(), "[youtube] x: Video unavailable");
@@ -191,8 +225,10 @@ exit 1"#,
     // cancelar: se mata a él y a lo que lanzó
     let slow = script(&dir, "lento", "sleep 30 & wait");
     let t = Instant::now();
-    let ran = run(&slow, &[], None, None, &mut |_| {}, &|| t.elapsed() > Duration::from_millis(300))
-        .expect("arranca");
+    let ran = run(&slow, &[], None, None, &mut |_| {}, &|| {
+        t.elapsed() > Duration::from_millis(300)
+    })
+    .expect("arranca");
     assert!(ran.canceled);
     assert!(ran.json.is_none());
     assert!(t.elapsed() < Duration::from_secs(10));
@@ -214,8 +250,15 @@ exit 1"#,
     assert!(tmp.join("adios").is_file());
     assert!(t.elapsed() < Duration::from_secs(10));
     // con tope
-    let ran = run(&slow, &[], Some(Duration::from_millis(300)), None, &mut |_| {}, &|| false)
-        .expect("arranca");
+    let ran = run(
+        &slow,
+        &[],
+        Some(Duration::from_millis(300)),
+        None,
+        &mut |_| {},
+        &|| false,
+    )
+    .expect("arranca");
     assert!(ran.timed_out);
     assert_eq!(ran.failure(), "yt-dlp tardo demasiado en contestar");
 }
@@ -263,7 +306,11 @@ fn the_downloaded_one_wins_if_newer_and_answers() {
     assert!(!root(&app).join("current").exists());
     // una más vieja que la de la app no se usa
     std::fs::write(root(&app).join("current"), "2026.09.01").expect("marca");
-    script(&tools, "yt-dlp", &format!("{}\n# otra", fake_version("2026.12.01")));
+    script(
+        &tools,
+        "yt-dlp",
+        &format!("{}\n# otra", fake_version("2026.12.01")),
+    );
     *lock(&state(&app).current) = None;
     assert_eq!(version(&app), "2026.12.01");
 }
@@ -313,8 +360,16 @@ fn release(exe: &[u8], sum: &str) -> impl FnOnce(&str) -> Routes {
             ],
         });
         vec![
-            ("/r/latest".to_owned(), 200, listing.to_string().into_bytes()),
-            ("/sums".to_owned(), 200, format!("{sum}  {name}\n").into_bytes()),
+            (
+                "/r/latest".to_owned(),
+                200,
+                listing.to_string().into_bytes(),
+            ),
+            (
+                "/sums".to_owned(),
+                200,
+                format!("{sum}  {name}\n").into_bytes(),
+            ),
             ("/bin".to_owned(), 200, exe),
         ]
     }
@@ -324,7 +379,11 @@ fn release(exe: &[u8], sum: &str) -> impl FnOnce(&str) -> Routes {
 /// danplay.env), conservando su `tools/`.
 fn point_to(app: &App, tools: &Path, releases: &str) {
     let old = app.config();
-    std::fs::write(&old.env_file, format!("DANPLAY_YTDLP_RELEASES={releases}\n")).expect("danplay.env");
+    std::fs::write(
+        &old.env_file,
+        format!("DANPLAY_YTDLP_RELEASES={releases}\n"),
+    )
+    .expect("danplay.env");
     let cfg = library::config::Config::isolated(
         old.data_dir.clone(),
         old.config_dir.clone(),
@@ -350,7 +409,10 @@ fn update_from_github_checks_the_sum_and_switches() {
     std::fs::create_dir_all(root(&app).join("2020.01.01")).expect("vieja");
     let steps = Mutex::new(Vec::new());
     let out = update(&app, &|n, m| lock(&steps).push((n, m.to_owned()))).expect("actualiza");
-    assert_eq!(out, json!({"previous": "2026.08.19", "version": "2026.09.01", "updated": true}));
+    assert_eq!(
+        out,
+        json!({"previous": "2026.08.19", "version": "2026.09.01", "updated": true})
+    );
     assert_eq!(
         lock(&steps).iter().map(|(n, _)| *n).collect::<Vec<_>>(),
         [0, 1, 2, 3, 4]
@@ -361,10 +423,16 @@ fn update_from_github_checks_the_sum_and_switches() {
     );
     assert!(root(&app).join("2026.09.01").join(EXE).is_file());
     assert!(!root(&app).join("2020.01.01").exists());
-    assert_eq!(origin(&app), root(&app).join("2026.09.01").to_string_lossy());
+    assert_eq!(
+        origin(&app),
+        root(&app).join("2026.09.01").to_string_lossy()
+    );
     // otra vez: ya está al día
     let out = update(&app, &|_, _| {}).expect("al dia");
-    assert_eq!(out, json!({"previous": "2026.09.01", "version": "2026.09.01", "updated": false}));
+    assert_eq!(
+        out,
+        json!({"previous": "2026.09.01", "version": "2026.09.01", "updated": false})
+    );
 }
 
 #[cfg(unix)]
@@ -405,5 +473,8 @@ fn update_refuses_what_does_not_match() {
     let server = serve(|_| vec![("/r/latest".to_owned(), 404, Vec::new())]);
     point_to(&app, &tools, &format!("{server}/r"));
     let e = update(&app, &|_, _| {}).expect_err("404");
-    assert_eq!(e.0, "no se pudo consultar GitHub (el servidor contesto con un error 404)");
+    assert_eq!(
+        e.0,
+        "no se pudo consultar GitHub (el servidor contesto con un error 404)"
+    );
 }

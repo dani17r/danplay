@@ -200,7 +200,14 @@ impl Fields {
     }
 
     /// Apunta un fallo propio (un `model_validator` de pydantic, por ejemplo).
-    pub fn push_error(&mut self, kind: &str, key: Option<&str>, msg: &str, input: &Value, ctx: Option<Value>) {
+    pub fn push_error(
+        &mut self,
+        kind: &str,
+        key: Option<&str>,
+        msg: &str,
+        input: &Value,
+        ctx: Option<Value>,
+    ) {
         let loc = match key {
             Some(k) => self.loc_of(k),
             None => self.loc.clone(),
@@ -470,7 +477,13 @@ impl Kind for Str {
     type Out = String;
     fn convert(&self, v: &Value, loc: &[Value], errors: &mut Vec<Value>) -> Option<String> {
         let Value::String(s) = v else {
-            errors.push(error("string_type", loc, "Input should be a valid string", v, None));
+            errors.push(error(
+                "string_type",
+                loc,
+                "Input should be a valid string",
+                v,
+                None,
+            ));
             return None;
         };
         let n = s.chars().count();
@@ -481,7 +494,13 @@ impl Kind for Str {
                 "String should have at least {}",
                 plural(min as i64, "character", "characters")
             );
-            errors.push(error("string_too_short", loc, &msg, v, Some(json!({"min_length": min}))));
+            errors.push(error(
+                "string_too_short",
+                loc,
+                &msg,
+                v,
+                Some(json!({"min_length": min})),
+            ));
             return None;
         }
         if let Some(max) = self.max
@@ -491,7 +510,13 @@ impl Kind for Str {
                 "String should have at most {}",
                 plural(max as i64, "character", "characters")
             );
-            errors.push(error("string_too_long", loc, &msg, v, Some(json!({"max_length": max}))));
+            errors.push(error(
+                "string_too_long",
+                loc,
+                &msg,
+                v,
+                Some(json!({"max_length": max})),
+            ));
             return None;
         }
         Some(s.clone())
@@ -549,7 +574,13 @@ impl Kind for Bool {
                 _ => parsing(errors),
             },
             _ => {
-                errors.push(error("bool_type", loc, "Input should be a valid boolean", v, None));
+                errors.push(error(
+                    "bool_type",
+                    loc,
+                    "Input should be a valid boolean",
+                    v,
+                    None,
+                ));
                 None
             }
         }
@@ -585,9 +616,21 @@ fn bounds_with(
 ) -> bool {
     let checks: [Check<'_>; 4] = [
         (b.gt, "greater_than", "gt", "greater than", |x, b| x > b),
-        (b.ge, "greater_than_equal", "ge", "greater than or equal to", |x, b| x >= b),
+        (
+            b.ge,
+            "greater_than_equal",
+            "ge",
+            "greater than or equal to",
+            |x, b| x >= b,
+        ),
         (b.lt, "less_than", "lt", "less than", |x, b| x < b),
-        (b.le, "less_than_equal", "le", "less than or equal to", |x, b| x <= b),
+        (
+            b.le,
+            "less_than_equal",
+            "le",
+            "less than or equal to",
+            |x, b| x <= b,
+        ),
     ];
     for (bound, kind, key, words, ok) in checks {
         if let Some(b) = bound
@@ -701,10 +744,28 @@ impl Kind for Int {
             _ => None,
         };
         let Some(i) = n else {
-            errors.push(error("int_type", loc, "Input should be a valid integer", v, None));
+            errors.push(error(
+                "int_type",
+                loc,
+                "Input should be a valid integer",
+                v,
+                None,
+            ));
             return None;
         };
-        bounds(i as f64, Bounds { ge: self.ge, le: self.le, gt: self.gt, lt: self.lt }, loc, v, errors).then_some(i)
+        bounds(
+            i as f64,
+            Bounds {
+                ge: self.ge,
+                le: self.le,
+                gt: self.gt,
+                lt: self.lt,
+            },
+            loc,
+            v,
+            errors,
+        )
+        .then_some(i)
     }
 }
 
@@ -782,7 +843,13 @@ impl Kind for Float {
             _ => None,
         };
         let Some(x) = x else {
-            errors.push(error("float_type", loc, "Input should be a valid number", v, None));
+            errors.push(error(
+                "float_type",
+                loc,
+                "Input should be a valid number",
+                v,
+                None,
+            ));
             return None;
         };
         let b = Bounds {
@@ -879,7 +946,13 @@ impl<K: Kind> Kind for List<K> {
     type Out = Vec<K::Out>;
     fn convert(&self, v: &Value, loc: &[Value], errors: &mut Vec<Value>) -> Option<Vec<K::Out>> {
         let Value::Array(items) = v else {
-            errors.push(error("list_type", loc, "Input should be a valid list", v, None));
+            errors.push(error(
+                "list_type",
+                loc,
+                "Input should be a valid list",
+                v,
+                None,
+            ));
             return None;
         };
         let mut out = Vec::with_capacity(items.len());
@@ -971,7 +1044,13 @@ impl Kind for Dict {
         if let Value::Object(o) = v {
             return Some(o.clone());
         }
-        errors.push(error("dict_type", loc, "Input should be a valid dictionary", v, None));
+        errors.push(error(
+            "dict_type",
+            loc,
+            "Input should be a valid dictionary",
+            v,
+            None,
+        ));
         None
     }
 }
@@ -1073,7 +1152,11 @@ fn eof_expectation(text: &str) -> (&'static str, usize) {
                 if i >= chars.len() {
                     return ("Unterminated string starting at", start);
                 }
-                want = if want == Want::Key { Want::Colon } else { Want::After };
+                want = if want == Want::Key {
+                    Want::Colon
+                } else {
+                    Want::After
+                };
             }
             '{' => {
                 stack.push('{');
@@ -1099,7 +1182,10 @@ fn eof_expectation(text: &str) -> (&'static str, usize) {
                 // un número o una palabra (`true`, `null`...)
                 let start = i;
                 while i + 1 < chars.len()
-                    && !matches!(chars[i + 1], ' ' | '\t' | '\n' | '\r' | ',' | ']' | '}' | ':' | '"')
+                    && !matches!(
+                        chars[i + 1],
+                        ' ' | '\t' | '\n' | '\r' | ',' | ']' | '}' | ':' | '"'
+                    )
                 {
                     i += 1;
                 }
@@ -1131,7 +1217,12 @@ fn eof_expectation(text: &str) -> (&'static str, usize) {
 /// con otro, llegan los bytes (y ningún modelo los acepta).
 pub fn parse_body(content_type: Option<&str>, body: &[u8]) -> Result<Value, crate::ApiError> {
     let is_json = content_type.is_none_or(|ct| {
-        let main = ct.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+        let main = ct
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
         main.split_once('/').is_some_and(|(kind, sub)| {
             kind == "application" && (sub == "json" || sub.ends_with("+json"))
         })
@@ -1168,7 +1259,8 @@ mod tests {
 
     #[test]
     fn strings_numbers_and_literals() {
-        let mut b = body(json!({"name": "", "stars": 9, "kind": "x", "bpm": "1.5", "ids": [1, "2", "a"]}));
+        let mut b =
+            body(json!({"name": "", "stars": 9, "kind": "x", "bpm": "1.5", "ids": [1, "2", "a"]}));
         b.str("name").min_len(1).or("Nueva");
         b.int("stars").ge(0).le(5).required();
         b.literal("kind", &["glob", "path"]).or("glob");
@@ -1215,7 +1307,10 @@ mod tests {
         };
         assert_eq!(e[0]["type"], "json_invalid");
         assert_eq!(e[0]["loc"], json!(["body", 1]));
-        assert_eq!(e[0]["ctx"]["error"], "Expecting property name enclosed in double quotes");
+        assert_eq!(
+            e[0]["ctx"]["error"],
+            "Expecting property name enclosed in double quotes"
+        );
         // cortado: donde se acaba, como `json.loads` («char 10»)
         let Err(crate::ApiError::Validation(e)) = parse_body(None, b"{\"query\": ") else {
             panic!("tenia que fallar");
@@ -1259,7 +1354,11 @@ mod tests {
             ("{\"a\": \"b", "Unterminated string starting at", 6),
             ("   ", "Expecting value", 3),
             ("[1", "Expecting ',' delimiter", 2),
-            ("{\"a\": 1,", "Expecting property name enclosed in double quotes", 8),
+            (
+                "{\"a\": 1,",
+                "Expecting property name enclosed in double quotes",
+                8,
+            ),
             ("{\"a\": tr", "Expecting value", 6),
             ("[\"x\\\"", "Unterminated string starting at", 1),
             ("{\"a\": {\"b\": [1, 2", "Expecting ',' delimiter", 17),
@@ -1279,7 +1378,10 @@ mod tests {
 
     #[test]
     fn the_list_of_options_reads_like_pydantic() {
-        assert_eq!(expected(&["high", "medium", "variable"]), "'high', 'medium' or 'variable'");
+        assert_eq!(
+            expected(&["high", "medium", "variable"]),
+            "'high', 'medium' or 'variable'"
+        );
         assert_eq!(expected(&["x"]), "'x'");
     }
 }

@@ -49,7 +49,13 @@ impl Kind for Messages {
     type Out = Vec<Dict>;
     fn convert(&self, v: &Value, loc: &[Value], errors: &mut Vec<Value>) -> Option<Vec<Dict>> {
         let Value::Array(items) = v else {
-            errors.push(error("list_type", loc, "Input should be a valid list", v, None));
+            errors.push(error(
+                "list_type",
+                loc,
+                "Input should be a valid list",
+                v,
+                None,
+            ));
             return None;
         };
         let mut out = Vec::with_capacity(items.len());
@@ -91,7 +97,10 @@ impl Kind for Messages {
                 d.insert("text".into(), t.clone().into());
             }
             if let Some(t) = tools {
-                d.insert("tools".into(), Value::Array(t.into_iter().map(Value::Object).collect()));
+                d.insert(
+                    "tools".into(),
+                    Value::Array(t.into_iter().map(Value::Object).collect()),
+                );
             }
             if let Some(a) = app {
                 d.insert("app".into(), a.into());
@@ -160,7 +169,8 @@ struct Job {
 
 const CHAT_JOB_TTL: f64 = 600.0;
 
-static CHAT_JOBS: LazyLock<Mutex<HashMap<String, Job>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static CHAT_JOBS: LazyLock<Mutex<HashMap<String, Job>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn jobs() -> std::sync::MutexGuard<'static, HashMap<String, Job>> {
     CHAT_JOBS.lock().unwrap_or_else(PoisonError::into_inner)
@@ -175,7 +185,11 @@ fn token_hex() -> String {
     if !ok {
         use std::hash::{BuildHasher, Hasher};
         let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+        h.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        );
         bytes = h.finish().to_le_bytes();
     }
     bytes.iter().fold(String::with_capacity(16), |mut out, b| {
@@ -245,7 +259,10 @@ fn chat_job_new(app: &App, messages: Vec<Dict>, context: Value) -> String {
             j.at = library::index::now();
         }
     };
-    if let Err(e) = std::thread::Builder::new().name("danplay-chat".into()).spawn(work) {
+    if let Err(e) = std::thread::Builder::new()
+        .name("danplay-chat".into())
+        .spawn(work)
+    {
         log::warn!("no pude arrancar el chat en vivo: {e}");
     }
     id
@@ -352,7 +369,11 @@ fn local_time(at: f64) -> String {
     let local = t + ai::offset_at(t);
     let (d, m, y) = crate::services::clock::civil(local);
     let secs = local.rem_euclid(86_400);
-    format!("{d:02}/{m:02}/{y} {:02}:{:02}", secs / 3600, (secs / 60) % 60)
+    format!(
+        "{d:02}/{m:02}/{y} {:02}:{:02}",
+        secs / 3600,
+        (secs / 60) % 60
+    )
 }
 
 /// La conversación como texto, para llevársela a otro sitio.
@@ -362,7 +383,12 @@ fn export_markdown(c: &Dict) -> String {
         _ => "Conversacion".into(),
     };
     let mut lines = vec![format!("# {title}"), String::new()];
-    for m in c.get("messages").and_then(Value::as_array).into_iter().flatten() {
+    for m in c
+        .get("messages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         let Value::Object(m) = m else { continue };
         if m.get("hidden").is_some_and(py::truthy) {
             continue;
@@ -382,7 +408,11 @@ fn export_markdown(c: &Dict) -> String {
         lines.push(format!("**{who}** · {}", local_time(at)));
         lines.push(String::new());
         lines.push(m.get("text").map(py::str_of).unwrap_or_default());
-        let tools = m.get("tools").filter(|v| py::truthy(v)).cloned().unwrap_or(json!([]));
+        let tools = m
+            .get("tools")
+            .filter(|v| py::truthy(v))
+            .cloned()
+            .unwrap_or(json!([]));
         if let Value::Array(tools) = &tools
             && !tools.is_empty()
         {
@@ -528,9 +558,7 @@ fn int_ge0() -> Int {
 }
 
 fn folder_ready(app: &App) -> Result<bool, ApiError> {
-    Ok(youtube::folder(app)?
-        .get("ready")
-        .is_some_and(py::truthy))
+    Ok(youtube::folder(app)?.get("ready").is_some_and(py::truthy))
 }
 
 fn downloading_text(n: usize) -> String {
@@ -545,7 +573,11 @@ fn downloading_text(n: usize) -> String {
 /// el turno y SOLO después gasta la propuesta: si hay otra en marcha, 409 y
 /// la propuesta sigue viva; si la propuesta ya no vale, se suelta el turno y
 /// 410.
-fn confirm_registered(app: &App, entry_id: &str, selection: Option<&[Value]>) -> Result<Reply, ApiError> {
+fn confirm_registered(
+    app: &App,
+    entry_id: &str,
+    selection: Option<&[Value]>,
+) -> Result<Reply, ApiError> {
     let st = plan::status(entry_id);
     let state = st.get("state").and_then(Value::as_str).unwrap_or("unknown");
     if state != "live" {
@@ -589,11 +621,19 @@ fn confirm_registered(app: &App, entry_id: &str, selection: Option<&[Value]>) ->
         let worker = app.clone();
         let finish: youtube::OnDone = Box::new(move |results| {
             let results = Value::Array(results.into_iter().map(Value::Object).collect());
-            Ok(Some(Value::Object(plan::apply_after(&worker, &after, &results))))
+            Ok(Some(Value::Object(plan::apply_after(
+                &worker, &after, &results,
+            ))))
         });
         finish
     });
-    youtube::start_many(app, items.clone(), tools::wanted_of(&entry.args), token, on_done);
+    youtube::start_many(
+        app,
+        items.clone(),
+        tools::wanted_of(&entry.args),
+        token,
+        on_done,
+    );
     let n = items.len();
     let mut text = downloading_text(n);
     let target = after.as_ref().and_then(|a| a.get("playlist")).cloned();
@@ -663,7 +703,9 @@ fn chat_tools(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let st = ai::with_context(app, call::status);
     let tools_list: Vec<Value> = tools::declared()
         .iter()
-        .map(|h| json!({"name": h["function"]["name"], "description": h["function"]["description"]}))
+        .map(
+            |h| json!({"name": h["function"]["name"], "description": h["function"]["description"]}),
+        )
         .collect();
     Ok(json!({
         "model": ai::chat_model(app),
@@ -702,7 +744,12 @@ mod tests {
             {"role": "ai", "text": "Bien", "tools": [{"name": "search_songs", "summary": "3 resultados"}], "zz": 1},
             {"role": "me", "text": "oculto", "hidden": true}
         ]});
-        let (s, n) = call(&app, "POST", &format!("/api/chats/{id}/messages"), Some(msgs));
+        let (s, n) = call(
+            &app,
+            "POST",
+            &format!("/api/chats/{id}/messages"),
+            Some(msgs),
+        );
         assert_eq!((s, n), (200, json!({"n": 3})));
         let (_, got) = call(&app, "GET", &format!("/api/chats/{id}"), None);
         assert_eq!(got["title"], "Hola ¿qué tal?");
@@ -717,17 +764,46 @@ mod tests {
         assert_eq!(hits["hits"].as_array().map(Vec::len), Some(1));
         let (_, none) = call(&app, "GET", "/api/chats/search?q=%20%20", None);
         assert_eq!(none, json!({"hits": []}));
-        let (s, _) = call(&app, "PATCH", &format!("/api/chats/{id}"), Some(json!({"title": ""})));
+        let (s, _) = call(
+            &app,
+            "PATCH",
+            &format!("/api/chats/{id}"),
+            Some(json!({"title": ""})),
+        );
         assert_eq!(s, 422);
-        let (s, ok) = call(&app, "PATCH", &format!("/api/chats/{id}"), Some(json!({"title": "Otro"})));
+        let (s, ok) = call(
+            &app,
+            "PATCH",
+            &format!("/api/chats/{id}"),
+            Some(json!({"title": "Otro"})),
+        );
         assert_eq!((s, ok), (200, json!({"ok": true})));
-        let (s, gone) = call(&app, "POST", "/api/chats/999/messages", Some(json!({"messages": []})));
-        assert_eq!((s, gone), (404, json!({"detail": "no existe esa conversacion"})));
-        let (s, bad) = call(&app, "POST", &format!("/api/chats/{id}/messages"), Some(json!({"messages": [5, {"text": "x"}]})));
+        let (s, gone) = call(
+            &app,
+            "POST",
+            "/api/chats/999/messages",
+            Some(json!({"messages": []})),
+        );
+        assert_eq!(
+            (s, gone),
+            (404, json!({"detail": "no existe esa conversacion"}))
+        );
+        let (s, bad) = call(
+            &app,
+            "POST",
+            &format!("/api/chats/{id}/messages"),
+            Some(json!({"messages": [5, {"text": "x"}]})),
+        );
         assert_eq!(s, 422);
         assert_eq!(bad["detail"][0]["type"], "model_type");
-        assert_eq!(bad["detail"][0]["ctx"], json!({"class_name": "ChatMessage"}));
-        assert_eq!(bad["detail"][1]["loc"], json!(["body", "messages", 1, "role"]));
+        assert_eq!(
+            bad["detail"][0]["ctx"],
+            json!({"class_name": "ChatMessage"})
+        );
+        assert_eq!(
+            bad["detail"][1]["loc"],
+            json!(["body", "messages", 1, "role"])
+        );
         let (s, _) = call(&app, "DELETE", &format!("/api/chats/{id}"), None);
         assert_eq!(s, 200);
         let (s, _) = call(&app, "DELETE", &format!("/api/chats/{id}"), None);
@@ -742,12 +818,26 @@ mod tests {
         let app = crate::tests::app();
         let (s, v) = call(&app, "POST", "/api/chat", Some(json!({"messages": []})));
         assert_eq!((s, v), (400, json!({"detail": "no hay mensajes"})));
-        let (s, v) = call(&app, "POST", "/api/chat", Some(json!({"messages": [{"role": "user", "text": "hola"}]})));
+        let (s, v) = call(
+            &app,
+            "POST",
+            "/api/chat",
+            Some(json!({"messages": [{"role": "user", "text": "hola"}]})),
+        );
         assert_eq!(s, 200);
-        assert!(v["error"].as_str().is_some_and(|e| e.starts_with("la IA no esta lista (")));
+        assert!(
+            v["error"]
+                .as_str()
+                .is_some_and(|e| e.starts_with("la IA no esta lista ("))
+        );
         let (s, v) = call(&app, "GET", "/api/chat/poll/nada", None);
         assert_eq!((s, v), (404, json!({"detail": "esa respuesta ya no esta"})));
-        let (s, v) = call(&app, "POST", "/api/chat/start", Some(json!({"messages": [{"role": "user", "text": "hola"}]})));
+        let (s, v) = call(
+            &app,
+            "POST",
+            "/api/chat/start",
+            Some(json!({"messages": [{"role": "user", "text": "hola"}]})),
+        );
         assert_eq!(s, 200);
         let job = v["id"].as_str().expect("id").to_owned();
         assert_eq!(job.len(), 16);
@@ -760,7 +850,11 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        assert!(done["result"]["error"].as_str().is_some_and(|e| e.starts_with("la IA no esta lista")));
+        assert!(
+            done["result"]["error"]
+                .as_str()
+                .is_some_and(|e| e.starts_with("la IA no esta lista"))
+        );
         let (_, t) = call(&app, "GET", "/api/chat/tools", None);
         assert_eq!(t["available"], false);
         assert!(t["tools"].as_array().is_some_and(|l| l.len() > 20));
@@ -769,30 +863,74 @@ mod tests {
     #[test]
     fn confirmations() {
         let app = crate::tests::app();
-        let (s, v) = call(&app, "POST", "/api/chat/confirm", Some(json!({"id": "abc", "tool": "delete_song"})));
+        let (s, v) = call(
+            &app,
+            "POST",
+            "/api/chat/confirm",
+            Some(json!({"id": "abc", "tool": "delete_song"})),
+        );
         assert_eq!(s, 422);
         assert_eq!(
             v["detail"][0],
             json!({"type": "value_error", "loc": ["body"], "msg": "Value error, con id no se mandan tool ni args: los pone el servidor", "input": {"id": "abc", "tool": "delete_song"}, "ctx": {"error": {}}})
         );
-        let (s, v) = call(&app, "POST", "/api/chat/confirm", Some(json!({"id": "x", "selection": [-1, 1.0, "2"]})));
+        let (s, v) = call(
+            &app,
+            "POST",
+            "/api/chat/confirm",
+            Some(json!({"id": "x", "selection": [-1, 1.0, "2"]})),
+        );
         assert_eq!(s, 422);
         assert_eq!(v["detail"][0]["type"], "greater_than_equal");
         assert_eq!(v["detail"][0]["ctx"], json!({"ge": 0}));
         assert_eq!(v["detail"][1]["type"], "int_type");
         assert_eq!(v["detail"][2]["type"], "int_type");
-        let (s, v) = call(&app, "POST", "/api/chat/confirm", Some(json!({"tool": "search_songs", "args": {}})));
-        assert_eq!((s, v), (400, json!({"detail": "eso no necesita confirmacion"})));
-        let (s, v) = call(&app, "POST", "/api/chat/confirm", Some(json!({"id": "desconocida"})));
+        let (s, v) = call(
+            &app,
+            "POST",
+            "/api/chat/confirm",
+            Some(json!({"tool": "search_songs", "args": {}})),
+        );
+        assert_eq!(
+            (s, v),
+            (400, json!({"detail": "eso no necesita confirmacion"}))
+        );
+        let (s, v) = call(
+            &app,
+            "POST",
+            "/api/chat/confirm",
+            Some(json!({"id": "desconocida"})),
+        );
         assert_eq!(s, 410);
-        assert_eq!(v["detail"], "No conozco esa propuesta (¿se reinició la app?): pídemela otra vez.");
-        let (s, v) = call(&app, "POST", "/api/chat/confirm", Some(json!({"tool": "download_music", "args": {}})));
-        assert_eq!((s, v), (400, json!({"detail": "hace falta algo que descargar"})));
+        assert_eq!(
+            v["detail"],
+            "No conozco esa propuesta (¿se reinició la app?): pídemela otra vez."
+        );
+        let (s, v) = call(
+            &app,
+            "POST",
+            "/api/chat/confirm",
+            Some(json!({"tool": "download_music", "args": {}})),
+        );
+        assert_eq!(
+            (s, v),
+            (400, json!({"detail": "hace falta algo que descargar"}))
+        );
         // sin yt-dlp, 503; con él (si está en el PATH), sin carpeta elegida, 409
-        let (s, v) = call(&app, "POST", "/api/chat/confirm", Some(json!({"tool": "download_music", "args": {"items": ["algo"]}})));
+        let (s, v) = call(
+            &app,
+            "POST",
+            "/api/chat/confirm",
+            Some(json!({"tool": "download_music", "args": {"items": ["algo"]}})),
+        );
         assert!(s == 503 || (s == 409 && v["detail"] == crate::services::youtube::NO_FOLDER));
         assert!(v["detail"].as_str().is_some_and(|d| !d.is_empty()));
-        let (s, v) = call(&app, "POST", "/api/chat/confirm", Some(json!({"tool": "delete_song", "args": {"id": 5}})));
+        let (s, v) = call(
+            &app,
+            "POST",
+            "/api/chat/confirm",
+            Some(json!({"tool": "delete_song", "args": {"id": 5}})),
+        );
         assert_eq!(s, 200);
         assert_eq!(v["ok"], false);
         assert_eq!(v["text"], "no existe esa cancion");
@@ -801,6 +939,9 @@ mod tests {
         assert_eq!(s, 422);
         assert_eq!(v["detail"][0]["type"], "string_too_long");
         let (s, v) = call(&app, "GET", "/api/chat/plan/nada", None);
-        assert_eq!((s, v), (404, json!({"detail": "esa propuesta no tiene plan"})));
+        assert_eq!(
+            (s, v),
+            (404, json!({"detail": "esa propuesta no tiene plan"}))
+        );
     }
 }

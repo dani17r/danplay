@@ -81,7 +81,11 @@ pub fn enabled(app: &App) -> bool {
 pub fn rescan_every(app: &App) -> f64 {
     let raw = app.env("DANPLAY_RESCAN_MINUTES", "10");
     // `float(x or 0)`: vacío es 0; lo que no es un número, los 10 de siempre
-    let minutes = if raw.is_empty() { Some(0.0) } else { py::parse_float(&raw) };
+    let minutes = if raw.is_empty() {
+        Some(0.0)
+    } else {
+        py::parse_float(&raw)
+    };
     match minutes {
         // `max(0.0, x)`: un NaN se queda en 0
         Some(m) => (if m > 0.0 { m } else { 0.0 }) * 60.0,
@@ -145,7 +149,9 @@ struct Observer {
 
 impl std::fmt::Debug for Observer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Observer").field("watched", &self.watched).finish_non_exhaustive()
+        f.debug_struct("Observer")
+            .field("watched", &self.watched)
+            .finish_non_exhaustive()
     }
 }
 
@@ -171,7 +177,13 @@ impl Watcher {
     /// Un vigilante (sin arrancar). `rescan_every`: `None`, el de
     /// `DANPLAY_RESCAN_MINUTES`. Sin `observe`, no se piden avisos al
     /// sistema (solo se miran las carpetas y el repaso).
-    pub fn new(app: &App, quiet: f64, check_every: f64, rescan_every: Option<f64>, observe: bool) -> Arc<Self> {
+    pub fn new(
+        app: &App,
+        quiet: f64,
+        check_every: f64,
+        rescan_every: Option<f64>,
+        observe: bool,
+    ) -> Arc<Self> {
         let rescan_every = rescan_every.unwrap_or_else(|| self::rescan_every(app));
         Arc::new_cyclic(|me| Self {
             quiet,
@@ -252,7 +264,9 @@ impl Watcher {
     /// Un escaneo incremental; sus cifras, o `None` si falló.
     pub fn scan(&self, app: &App, why: &str) -> Option<Value> {
         let started = monotonic();
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lib::scan(app, &mut |_, _| {})));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            lib::scan(app, &mut |_, _| {})
+        }));
         lock(&self.timing).last_scan_took = monotonic() - started;
         let r = match r {
             Ok(Ok(r)) => r,
@@ -327,8 +341,12 @@ impl Watcher {
             // canción) no cambia nada; cerrarlo tras escribir, sí
             EventKind::Access(AccessKind::Close(AccessMode::Write)) => None,
             EventKind::Access(_) => return,
-            EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder) => Some(true),
-            EventKind::Create(CreateKind::File) | EventKind::Remove(RemoveKind::File) => Some(false),
+            EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder) => {
+                Some(true)
+            }
+            EventKind::Create(CreateKind::File) | EventKind::Remove(RemoveKind::File) => {
+                Some(false)
+            }
             _ => None,
         };
         let Some(probe) = event.paths.last() else {
@@ -362,7 +380,9 @@ impl Watcher {
             match root_of(&roots.roots, path) {
                 None => false,
                 Some(root) if path == root => true,
-                Some(root) => (is_dir || is_audio(path)) && !excluded(path, root, is_dir, &roots.exclusions),
+                Some(root) => {
+                    (is_dir || is_audio(path)) && !excluded(path, root, is_dir, &roots.exclusions)
+                }
             }
         };
         if counts {
@@ -383,14 +403,20 @@ impl Watcher {
                 return false;
             }
         };
-        let present: HashMap<String, bool> = roots.iter().map(|r| (r.clone(), Path::new(r).is_dir())).collect();
+        let present: HashMap<String, bool> = roots
+            .iter()
+            .map(|r| (r.clone(), Path::new(r).is_dir()))
+            .collect();
         let changed = {
             let mut state = self.folders.write().unwrap_or_else(PoisonError::into_inner);
             let mut changed = present
                 .iter()
                 .any(|(r, ok)| state.present.get(r).is_some_and(|before| before != ok));
             if state.known {
-                changed = changed || present.iter().any(|(r, ok)| *ok && !state.present.contains_key(r));
+                changed = changed
+                    || present
+                        .iter()
+                        .any(|(r, ok)| *ok && !state.present.contains_key(r));
             }
             state.known = true;
             state.present = present;
@@ -428,7 +454,9 @@ impl Watcher {
                     });
                 }
                 Err(e) => {
-                    log::warn!("sin avisos del sistema ({e}): la biblioteca solo se repasa cada {minutes} min");
+                    log::warn!(
+                        "sin avisos del sistema ({e}): la biblioteca solo se repasa cada {minutes} min"
+                    );
                     self.observe.store(false, Ordering::SeqCst);
                     return;
                 }
@@ -446,7 +474,12 @@ impl Watcher {
             .filter(|(_, ok)| **ok)
             .map(|(r, _)| r.clone())
             .collect();
-        let gone: Vec<String> = observer.watched.iter().filter(|r| !wanted.contains(*r)).cloned().collect();
+        let gone: Vec<String> = observer
+            .watched
+            .iter()
+            .filter(|r| !wanted.contains(*r))
+            .cloned()
+            .collect();
         for root in gone {
             observer.watched.remove(&root);
             // se había ido con su carpeta
@@ -456,13 +489,18 @@ impl Watcher {
             if observer.watched.contains(&root) {
                 continue;
             }
-            match observer.watcher.watch(Path::new(&root), RecursiveMode::Recursive) {
+            match observer
+                .watcher
+                .watch(Path::new(&root), RecursiveMode::Recursive)
+            {
                 Ok(()) => {
                     observer.watched.insert(root);
                 }
                 // sin vigilancia en esa carpeta (el tope de inotify, un sistema
                 // de archivos que no avisa): queda el repaso periódico
-                Err(e) => log::warn!("no puedo vigilar {root} ({e}): se repasara cada {minutes} min"),
+                Err(e) => {
+                    log::warn!("no puedo vigilar {root} ({e}): se repasara cada {minutes} min")
+                }
             }
         }
     }
@@ -510,7 +548,11 @@ fn excluded(path: &str, root: &str, is_dir: bool, exclusions: &[Dict]) -> bool {
             _ => None,
         })
         .collect();
-    let names = if is_dir { &parts[..] } else { &parts[..parts.len().saturating_sub(1)] };
+    let names = if is_dir {
+        &parts[..]
+    } else {
+        &parts[..parts.len().saturating_sub(1)]
+    };
     let mut folder = root.to_owned();
     for name in names {
         if library::index::folders::excluded(&folder, name, exclusions) {

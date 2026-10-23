@@ -96,11 +96,11 @@ pub mod sync;
 pub mod validate;
 
 pub use app::{App, Guard};
+pub use error::ApiError;
+pub use http::{Body, Request, Response};
 /// La configuración (para quien monte una `App` a mano: la app de
 /// escritorio en sus pruebas, con `Config::isolated`).
 pub use library::config::Config;
-pub use error::ApiError;
-pub use http::{Body, Request, Response};
 pub use router::{Ctx, Reply, Route};
 
 use std::sync::OnceLock;
@@ -163,16 +163,17 @@ fn models_snapshot(args: &[std::ffi::OsString]) -> i32 {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0.0, |d| d.as_secs_f64());
-    let (text, models) = match library::ai::catalog::snapshot(now, std::time::Duration::from_secs(60)) {
-        Ok(got) => got,
-        Err(e) => {
-            let _ = writeln!(
-                std::io::stderr(),
-                "no se pudo descargar models.dev ({e}); se conserva la foto anterior"
-            );
-            return 1;
-        }
-    };
+    let (text, models) =
+        match library::ai::catalog::snapshot(now, std::time::Duration::from_secs(60)) {
+            Ok(got) => got,
+            Err(e) => {
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "no se pudo descargar models.dev ({e}); se conserva la foto anterior"
+                );
+                return 1;
+            }
+        };
     // entera o nada: a un temporal al lado y luego en su sitio
     let tmp = out.with_extension("json.tmp");
     let written = out
@@ -204,10 +205,8 @@ pub(crate) mod tests {
     pub fn scratch(name: &str) -> PathBuf {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!(
-            "danplay-server-{}-{name}-{n}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("danplay-server-{}-{name}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("carpeta temporal");
         dir
@@ -272,13 +271,18 @@ pub(crate) mod tests {
             r.json_value(),
             Some(serde_json::json!({"detail": "no hay ningun trabajo con ese nombre"}))
         );
-        let bad = Request::new("POST", "/api/settings").json(&serde_json::json!({"stems_format": "mp3"}));
+        let bad =
+            Request::new("POST", "/api/settings").json(&serde_json::json!({"stems_format": "mp3"}));
         let r = handle(&app, &bad);
         assert_eq!(r.status, 422);
         let v = r.json_value().expect("json");
         assert_eq!(v["detail"][0]["type"], "literal_error");
-        assert_eq!(v["detail"][0]["loc"], serde_json::json!(["body", "stems_format"]));
-        let ok = Request::new("POST", "/api/settings").json(&serde_json::json!({"quality": "medium", "convert_mp3": true}));
+        assert_eq!(
+            v["detail"][0]["loc"],
+            serde_json::json!(["body", "stems_format"])
+        );
+        let ok = Request::new("POST", "/api/settings")
+            .json(&serde_json::json!({"quality": "medium", "convert_mp3": true}));
         let v = handle(&app, &ok).json_value().expect("json");
         assert_eq!(v["quality"], "medium");
         assert_eq!(v["convert_mp3"], true);
@@ -289,7 +293,10 @@ pub(crate) mod tests {
     #[test]
     fn terms() {
         let app = app();
-        let r = handle(&app, &Request::new("POST", "/api/terms/accept").json(&serde_json::json!({"version": "x"})));
+        let r = handle(
+            &app,
+            &Request::new("POST", "/api/terms/accept").json(&serde_json::json!({"version": "x"})),
+        );
         assert_eq!(r.status, 422);
         assert_eq!(
             r.json_value(),
@@ -297,10 +304,13 @@ pub(crate) mod tests {
         );
         let r = handle(
             &app,
-            &Request::new("POST", "/api/terms/accept").json(&serde_json::json!({"version": "2026-01-01", "otra": 1})),
+            &Request::new("POST", "/api/terms/accept")
+                .json(&serde_json::json!({"version": "2026-01-01", "otra": 1})),
         );
         assert_eq!(r.status, 200);
-        let v = handle(&app, &Request::new("GET", "/api/terms")).json_value().expect("json");
+        let v = handle(&app, &Request::new("GET", "/api/terms"))
+            .json_value()
+            .expect("json");
         assert_eq!(v["accepted"], "2026-01-01");
     }
 }

@@ -8,7 +8,10 @@ use std::path::Path;
 
 /// Los formatos que se reconocen, como `sorted(config.EXTENSIONS)`.
 pub fn extensions() -> Vec<String> {
-    let mut e: Vec<String> = library::config::EXTENSIONS.iter().map(|s| (*s).to_owned()).collect();
+    let mut e: Vec<String> = library::config::EXTENSIONS
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
     e.sort();
     e
 }
@@ -103,7 +106,9 @@ pub fn ensure_folder(app: &App, path: &Path) -> Result<(), String> {
     }
     let gone = missing_root_of(app, &path.to_string_lossy()).map_err(|e| e.to_string())?;
     if let Some(gone) = gone {
-        return Err(format!("la carpeta «{gone}» ya no esta donde estaba: ¿la moviste?"));
+        return Err(format!(
+            "la carpeta «{gone}» ya no esta donde estaba: ¿la moviste?"
+        ));
     }
     std::fs::create_dir_all(path).map_err(|e| e.to_string())
 }

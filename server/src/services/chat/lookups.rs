@@ -39,7 +39,13 @@ fn song_of(song: &Value) -> Dict {
 
 /// `enrich.lyrics(artist, title, album, duration)`: la de LRCLIB y, si no la
 /// tiene, la de la IA (si la sabe con certeza); None si no hay.
-pub fn lyrics(app: &App, artist: &Value, title: &Value, album: &Value, duration: &Value) -> Result<Value, ApiError> {
+pub fn lyrics(
+    app: &App,
+    artist: &Value,
+    title: &Value,
+    album: &Value,
+    duration: &Value,
+) -> Result<Value, ApiError> {
     let mut here = Here { app };
     let r = library::enrich::lyrics(
         &mut here,

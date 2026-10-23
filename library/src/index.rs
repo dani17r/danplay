@@ -377,7 +377,8 @@ mod tests {
             b.execute("INSERT INTO t VALUES (1)", []).is_err(),
             "la otra conexión no se cuela"
         );
-        a.execute("INSERT INTO t VALUES (2)", []).expect("escribir tras leer");
+        a.execute("INSERT INTO t VALUES (2)", [])
+            .expect("escribir tras leer");
         a.execute_batch("COMMIT").expect("commit");
         b.execute("INSERT INTO t VALUES (3)", []).expect("ahora sí");
         drop((a, b));

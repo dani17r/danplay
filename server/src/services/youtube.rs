@@ -276,7 +276,12 @@ pub fn query_result(data: &Value, seen: &Seen) -> Result<Map<String, Value>, Str
 /// `reason` dice por qué (ver `failure_kind`). Un enlace que no es de
 /// YouTube se rechaza sin consultar nada. `Err` es lo que en Python era una
 /// excepción (un campo que no se deja leer).
-pub fn info(app: &App, query: &str, results: i64, timeout: Option<f64>) -> Result<Map<String, Value>, String> {
+pub fn info(
+    app: &App,
+    query: &str,
+    results: i64,
+    timeout: Option<f64>,
+) -> Result<Map<String, Value>, String> {
     let _using = ytdlp::using(app);
     info_unlocked(app, query, results, timeout)
 }
@@ -297,7 +302,14 @@ fn info_unlocked(
     let rt = ytdlp::js_runtime(app, false);
     let mut args = ytdlp::base_args(rt.as_ref(), true);
     args.extend(ytdlp::query_args(&url, timeout));
-    let ran = match ytdlp::run(&exe.path, &args, Some(ytdlp::QUERY_CAP), None, &mut |_| {}, &|| false) {
+    let ran = match ytdlp::run(
+        &exe.path,
+        &args,
+        Some(ytdlp::QUERY_CAP),
+        None,
+        &mut |_| {},
+        &|| false,
+    ) {
         Ok(r) => r,
         Err(e) => {
             let text = yt::plain(&e.to_string());
@@ -409,7 +421,12 @@ pub fn download_one(
     let rt = ytdlp::js_runtime(app, false);
     let mut args = ytdlp::base_args(rt.as_ref(), false);
     let ffmpeg = app.tool("ffmpeg");
-    args.extend(ytdlp::download_args(&outtmpl, kbps, ffmpeg.as_deref(), target_url));
+    args.extend(ytdlp::download_args(
+        &outtmpl,
+        kbps,
+        ffmpeg.as_deref(),
+        target_url,
+    ));
     let ran = match ytdlp::run(&exe.path, &args, None, Some(tmp.path()), progress, cancel) {
         Ok(r) => r,
         Err(e) => return Ok(failure(py::head(&e.to_string(), 200))),
@@ -430,22 +447,23 @@ pub fn download_one(
         Ok(d) => d,
         Err(why) => return Ok(failure(why)),
     };
-    let mp3 = std::fs::read_dir(tmp.path())
-        .ok()
-        .and_then(|entries| {
-            entries
-                .flatten()
-                .map(|e| e.path())
-                .find(|p| p.extension().is_some_and(|x| x == "mp3"))
-        });
+    let mp3 = std::fs::read_dir(tmp.path()).ok().and_then(|entries| {
+        entries
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|x| x == "mp3"))
+    });
     let Some(mp3) = mp3 else {
         return Ok(failure("ffmpeg no dejo ningun mp3"));
     };
     let d = pick(&data)?;
     let tagged = tag_if_trustworthy(app, &mp3, &d);
     let null = Value::Null;
-    let name = yt::provisional_name(d.get("title").unwrap_or(&null), d.get("id").unwrap_or(&null))
-        .map_err(field_error)?;
+    let name = yt::provisional_name(
+        d.get("title").unwrap_or(&null),
+        d.get("id").unwrap_or(&null),
+    )
+    .map_err(field_error)?;
     let target = folder.join(library::names::free_name(&folder, &format!("{name}.mp3")));
     songs::move_file(&mp3, &target).map_err(|e| e.to_string())?;
     Ok(yt::downloaded(&d, &path_str(&target), tagged, kbps))
@@ -712,7 +730,10 @@ fn file_it(
     t: &Map<String, Value>,
 ) -> Result<(), String> {
     let video_title = text_of(Some(either(get_value(r, "title"), get_value(t, "title"))));
-    let channel = text_of(Some(either(get_value(r, "channel"), get_value(t, "channel"))));
+    let channel = text_of(Some(either(
+        get_value(r, "channel"),
+        get_value(t, "channel"),
+    )));
     let items = importer.vocab_items(vocab)?;
     let known = library::names::from_video(
         &video_title,
@@ -742,7 +763,12 @@ fn file_it(
     );
     r.insert(
         "warnings".into(),
-        json!(res.warnings.iter().map(|w| pyjson::string(w)).collect::<Vec<_>>()),
+        json!(
+            res.warnings
+                .iter()
+                .map(|w| pyjson::string(w))
+                .collect::<Vec<_>>()
+        ),
     );
     if let Some(target) = &target {
         // al índice, o la canción existe en el disco pero no en la app
@@ -912,7 +938,13 @@ fn results_value(done: &[Map<String, Value>]) -> Value {
 }
 
 /// `run_job`: una descarga (lo que pide el botón de Descargas).
-pub fn run_job(app: &App, query: &str, w: &Wanted, claimed: bool, job: Option<u64>) -> Vec<Map<String, Value>> {
+pub fn run_job(
+    app: &App,
+    query: &str,
+    w: &Wanted,
+    claimed: bool,
+    job: Option<u64>,
+) -> Vec<Map<String, Value>> {
     run_many(app, &[query.to_owned()], w, claimed, job, None)
 }
 
@@ -948,20 +980,27 @@ pub fn folder(app: &App) -> Result<Map<String, Value>, ApiError> {
     let cfg = app.config();
     let path = path_str(&cfg.library);
     let found = folders::list_folders(app)?;
-    yt::folder(&path, cfg.library_chosen, &found, || folders::within_roots(app, &path))
+    yt::folder(&path, cfg.library_chosen, &found, || {
+        folders::within_roots(app, &path)
+    })
 }
 
 /// `choose_folder(path)`: la carpeta donde irá todo lo descargado, elegida
 /// por la persona. Tiene que existir y ser una de sus carpetas de música (o
 /// estar dentro de una); dentro se crean las subcarpetas que falten.
 /// `Ok(Err(motivo))` si no vale (el `ValueError` de Python).
-pub fn choose_folder(app: &App, path: &str) -> Result<Result<Map<String, Value>, String>, ApiError> {
+pub fn choose_folder(
+    app: &App,
+    path: &str,
+) -> Result<Result<Map<String, Value>, String>, ApiError> {
     let chosen = py::purepath(&py::abspath(&py::expanduser(path)));
     if !Path::new(&chosen).is_dir() {
         return Ok(Err("esa carpeta no existe".into()));
     }
     if !folders::within_roots(app, &chosen)? {
-        return Ok(Err("no es una de tus carpetas de musica: añadela antes".into()));
+        return Ok(Err(
+            "no es una de tus carpetas de musica: añadela antes".into()
+        ));
     }
     app.update_config(|c| c.set_library(Path::new(&chosen)))?;
     let inbox = app.config().inbox.clone();

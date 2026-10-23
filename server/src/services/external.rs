@@ -11,7 +11,9 @@ use serde_json::Value;
 
 /// Si la ruta tiene una extensión de audio de las que se reconocen.
 pub fn is_audio(path: &str) -> bool {
-    let ext = library::names::splitext(&library::py::basename(path)).1.to_lowercase();
+    let ext = library::names::splitext(&library::py::basename(path))
+        .1
+        .to_lowercase();
     library::config::EXTENSIONS.contains(&ext.as_str())
 }
 

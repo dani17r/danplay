@@ -61,7 +61,10 @@ fn fallback(path: &Path) -> Option<Result<(), String>> {
 #[cfg(target_os = "macos")]
 fn send_to_trash(path: &Path) -> Result<(), String> {
     let abs = std::path::absolute(path).map_err(|e| e.to_string())?;
-    let quoted = abs.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"");
+    let quoted = abs
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
     let script = format!("tell application \"Finder\" to delete POSIX file \"{quoted}\"");
     let out = std::process::Command::new("osascript")
         .args(["-e", &script])
@@ -78,7 +81,11 @@ fn send_to_trash(path: &Path) -> Result<(), String> {
 fn send_to_trash(path: &Path) -> Result<(), String> {
     let abs = std::path::absolute(path).map_err(|e| e.to_string())?;
     let p = abs.to_string_lossy().replace('\'', "''");
-    let kind = if abs.is_dir() { "DeleteDirectory" } else { "DeleteFile" };
+    let kind = if abs.is_dir() {
+        "DeleteDirectory"
+    } else {
+        "DeleteFile"
+    };
     let script = format!(
         "Add-Type -AssemblyName Microsoft.VisualBasic; \
          [Microsoft.VisualBasic.FileIO.FileSystem]::{kind}('{p}', 'OnlyErrorDialogs', 'SendToRecycleBin')"
@@ -228,7 +235,9 @@ mod freedesktop {
         // la ruta de antes: relativa al disco en su papelera, entera en la
         // de casa
         let original = match top {
-            Some(t) => abs.strip_prefix(t).map_or_else(|_| abs.to_path_buf(), Path::to_path_buf),
+            Some(t) => abs
+                .strip_prefix(t)
+                .map_or_else(|_| abs.to_path_buf(), Path::to_path_buf),
             None => abs.to_path_buf(),
         };
         let text = format!(
@@ -270,7 +279,8 @@ mod tests {
         }
         assert!(trash.join("files/Mi canción.mp3").is_file());
         assert!(trash.join("files/Mi canción 1.mp3").is_file());
-        let info = std::fs::read_to_string(trash.join("info/Mi canción 1.mp3.trashinfo")).expect("info");
+        let info =
+            std::fs::read_to_string(trash.join("info/Mi canción 1.mp3.trashinfo")).expect("info");
         assert!(info.starts_with("[Trash Info]\nPath=/"));
         assert!(info.contains("Mi%20canci%C3%B3n.mp3\nDeletionDate="));
     }

@@ -54,7 +54,11 @@ pub fn resolve(app: &App, keep: &str, remove: &[String], dry_run: bool) -> Resul
     let mut deleted: Vec<String> = Vec::new();
     let mut failures: Vec<Value> = Vec::new();
     if dry_run {
-        deleted = remove.iter().filter(|b| Path::new(b).is_file()).cloned().collect();
+        deleted = remove
+            .iter()
+            .filter(|b| Path::new(b).is_file())
+            .cloned()
+            .collect();
     } else {
         for b in &remove {
             if !Path::new(b).is_file() {
@@ -64,7 +68,9 @@ pub fn resolve(app: &App, keep: &str, remove: &[String], dry_run: bool) -> Resul
             if r["ok"] == true {
                 deleted.push(b.clone());
             } else {
-                failures.push(json!({"path": b, "reason": r.get("error").cloned().unwrap_or("".into())}));
+                failures.push(
+                    json!({"path": b, "reason": r.get("error").cloned().unwrap_or("".into())}),
+                );
             }
         }
     }
@@ -154,13 +160,21 @@ pub fn report(app: &App) -> Result<Value, ApiError> {
         out
     };
     let identical = enrich(duplicates::identical(&paths));
-    let similar = enrich(duplicates::same_song(&paths, app.config().duplicate_threshold));
+    let similar = enrich(duplicates::same_song(
+        &paths,
+        app.config().duplicate_threshold,
+    ));
     Ok(json!({"identical": identical, "similar": similar}))
 }
 
 /// `/api/duplicates/resolve`: completa las rutas relativas, resuelve y
 /// pone al día solo lo que cambió.
-pub fn resolve_route(app: &App, keep: &str, remove: &[String], dry_run: bool) -> Result<Value, ApiError> {
+pub fn resolve_route(
+    app: &App,
+    keep: &str,
+    remove: &[String],
+    dry_run: bool,
+) -> Result<Value, ApiError> {
     let base = app.config().library.to_string_lossy().into_owned();
     let full = |r: &str| {
         if library::py::isabs(r) {

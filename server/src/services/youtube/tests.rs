@@ -31,7 +31,10 @@ fn the_turn_gives_a_rising_token_and_only_its_owner_writes() {
     cancel(&app);
     release(&app, Some(second));
     let s = state(&app);
-    assert_eq!((s["active"].clone(), s["phase"].clone()), (json!(false), json!("canceled")));
+    assert_eq!(
+        (s["active"].clone(), s["phase"].clone()),
+        (json!(false), json!("canceled"))
+    );
     // un turno nuevo no hereda el `after` ni la cancelación
     assert!(put(&app, second, vec![("after", json!({"x": 1}))]));
     claim(&app);
@@ -40,7 +43,10 @@ fn the_turn_gives_a_rising_token_and_only_its_owner_writes() {
     let keys: Vec<String> = state(&app).keys().cloned().collect();
     assert_eq!(
         keys,
-        ["active", "phase", "name", "percent", "index", "total", "results", "error", "after", "job"]
+        [
+            "active", "phase", "name", "percent", "index", "total", "results", "error", "after",
+            "job"
+        ]
     );
 }
 
@@ -50,7 +56,10 @@ fn run_many_runs_the_finish_before_releasing() {
     // con el turno de otro, no hace nada
     let other = claim(&app);
     let busy = run_many(&app, &["x".into()], &Wanted::default(), false, None, None);
-    assert_eq!(Value::Object(busy[0].clone()), json!({"ok": false, "reason": BUSY}));
+    assert_eq!(
+        Value::Object(busy[0].clone()),
+        json!({"ok": false, "reason": BUSY})
+    );
     release(&app, Some(other));
     // sin nada que pedir, lo de terminar corre igual, con nada
     let token = claim(&app);
@@ -64,7 +73,14 @@ fn run_many_runs_the_finish_before_releasing() {
             Some((done.len(), s["active"].clone(), s["phase"].clone()));
         Ok(Some(json!({"state": "done", "added": 0})))
     });
-    let out = run_many(&app, &["  ".into()], &Wanted::default(), true, Some(token), Some(on_done));
+    let out = run_many(
+        &app,
+        &["  ".into()],
+        &Wanted::default(),
+        true,
+        Some(token),
+        Some(on_done),
+    );
     assert!(out.is_empty());
     assert_eq!(
         *seen.lock().unwrap_or_else(PoisonError::into_inner),
@@ -72,13 +88,19 @@ fn run_many_runs_the_finish_before_releasing() {
     );
     let s = state(&app);
     assert_eq!(s["active"], json!(false));
-    assert_eq!(s["after"], json!({"state": "done", "added": 0, "job": token}));
+    assert_eq!(
+        s["after"],
+        json!({"state": "done", "added": 0, "job": token})
+    );
 }
 
 #[test]
 fn what_the_finish_returns_becomes_after() {
     let job = 7;
-    assert_eq!(after_of(Box::new(|_| Ok(None)), Vec::new(), job), Value::Null);
+    assert_eq!(
+        after_of(Box::new(|_| Ok(None)), Vec::new(), job),
+        Value::Null
+    );
     assert_eq!(
         after_of(Box::new(|_| Err("  sin\n red ".into())), Vec::new(), job),
         json!({"state": "error", "error": "sin red", "job": 7})
@@ -99,8 +121,14 @@ fn what_the_finish_returns_becomes_after() {
 
 #[test]
 fn what_is_asked_and_what_comes_back() {
-    assert_eq!(normalize("https://youtu.be/abc", 5).as_deref(), Ok("https://youtu.be/abc"));
-    assert_eq!(normalize(" barak mi gozo ", 0).as_deref(), Ok("ytsearch1:barak mi gozo"));
+    assert_eq!(
+        normalize("https://youtu.be/abc", 5).as_deref(),
+        Ok("https://youtu.be/abc")
+    );
+    assert_eq!(
+        normalize(" barak mi gozo ", 0).as_deref(),
+        Ok("ytsearch1:barak mi gozo")
+    );
     assert!(normalize("https://otro.example/v", 5).is_err_and(|e| e.contains("no es YouTube")));
     let seen = Seen::default();
     let found = query_result(
@@ -113,7 +141,10 @@ fn what_is_asked_and_what_comes_back() {
     assert_eq!(found["items"].as_array().map(Vec::len), Some(1));
     assert_eq!(found["items"][0]["duration"], json!(3.0));
     let one = query_result(&json!({"id": "a", "webpage_url": "u"}), &seen).expect("uno");
-    assert_eq!((one["playlist"].clone(), one["name"].clone()), (json!(false), json!("")));
+    assert_eq!(
+        (one["playlist"].clone(), one["name"].clone()),
+        (json!(false), json!(""))
+    );
     assert_eq!(one["items"][0]["url"], json!("u"));
     assert_eq!(
         Value::Object(query_result(&Value::Null, &seen).expect("nada")),
@@ -122,8 +153,14 @@ fn what_is_asked_and_what_comes_back() {
     assert!(query_result(&json!({"duration": "x"}), &seen).is_err());
     assert_eq!(single(Value::Null), Err("no se pudo leer el video"));
     assert_eq!(single(json!({"entries": [null]})), Err("lista vacia"));
-    assert_eq!(single(json!({"entries": [null, {"id": 2}]})), Ok(json!({"id": 2})));
-    assert_eq!(single(json!({"id": 1, "entries": []})), Ok(json!({"id": 1, "entries": []})));
+    assert_eq!(
+        single(json!({"entries": [null, {"id": 2}]})),
+        Ok(json!({"id": 2}))
+    );
+    assert_eq!(
+        single(json!({"id": 1, "entries": []})),
+        Ok(json!({"id": 1, "entries": []}))
+    );
 }
 
 #[test]
@@ -131,7 +168,10 @@ fn the_folder_must_be_one_of_yours() {
     let app = crate::tests::app();
     let lib = app.config().library.clone();
     let got = folder(&app).expect("carpeta");
-    assert_eq!((got["ready"].clone(), got["reason"].clone()), (json!(false), json!("unmanaged")));
+    assert_eq!(
+        (got["ready"].clone(), got["reason"].clone()),
+        (json!(false), json!("unmanaged"))
+    );
     let missing = lib.join("no-esta").to_string_lossy().into_owned();
     assert_eq!(
         choose_folder(&app, &missing).expect("sin fallo"),
@@ -147,7 +187,13 @@ fn the_folder_must_be_one_of_yours() {
         .expect("sin fallo")
         .expect("vale");
     assert_eq!(got["ready"], json!(true));
-    for sub in ["Artistas", "Pistas", "Secuencias", "Tutoriales y Play Along", "Entrada"] {
+    for sub in [
+        "Artistas",
+        "Pistas",
+        "Secuencias",
+        "Tutoriales y Play Along",
+        "Entrada",
+    ] {
         assert!(lib.join(sub).is_dir(), "{sub}");
     }
     let env = std::fs::read_to_string(&app.config().env_file).expect("danplay.env");

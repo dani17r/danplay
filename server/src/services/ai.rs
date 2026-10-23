@@ -118,7 +118,13 @@ pub fn with_context<T>(app: &App, f: impl FnOnce(&library::ai::call::Context<'_>
     let account = |u: &library::ai::call::Usage| {
         let r = app.db(|c| {
             library::index::history::log_ai_usage(
-                c, &u.provider, &u.model, &u.purpose, u.prompt, u.completion, u.cost,
+                c,
+                &u.provider,
+                &u.model,
+                &u.purpose,
+                u.prompt,
+                u.completion,
+                u.cost,
             )
         });
         if let Err(e) = r {
@@ -211,5 +217,7 @@ pub fn budget(app: &App) -> f64 {
 /// un nombre sucio; `None` si la IA no está o no contesta con un objeto;
 /// `{"error": ...}` si falló.
 pub fn identify(app: &App, file_name: &str, known_artists: &[String], hint: &str) -> Option<Dict> {
-    with_context(app, |ctx| library::ai::call::identify(ctx, file_name, known_artists, hint))
+    with_context(app, |ctx| {
+        library::ai::call::identify(ctx, file_name, known_artists, hint)
+    })
 }

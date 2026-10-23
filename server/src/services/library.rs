@@ -18,13 +18,20 @@ pub fn carry_grid(app: &App, old: &Dict, new_path: &str) {
     let size = old.get("size").and_then(library::py::int_of);
     let mtime = old.get("mtime").and_then(library::py::float_of);
     let old_path = index::get_str(old, "path");
-    let (Some(size), Some(mtime), Some(after)) = (size, mtime, tags::stamp(Path::new(new_path))) else {
+    let (Some(size), Some(mtime), Some(after)) = (size, mtime, tags::stamp(Path::new(new_path)))
+    else {
         return;
     };
     let before = (u64::try_from(size).unwrap_or(0), mtime);
     let beats = app.config().data_dir.join("beats");
-    let old_key = beats.join(format!("{}.json", tags::pulse_key(Path::new(old_path), before)));
-    let new_key = beats.join(format!("{}.json", tags::pulse_key(Path::new(new_path), after)));
+    let old_key = beats.join(format!(
+        "{}.json",
+        tags::pulse_key(Path::new(old_path), before)
+    ));
+    let new_key = beats.join(format!(
+        "{}.json",
+        tags::pulse_key(Path::new(new_path), after)
+    ));
     let text = new_path.to_owned();
     let _ = library::beatgrid::moved(&old_key, &new_key, || {
         Ok::<_, std::convert::Infallible>(library::py::json::Json::str(&text))
@@ -36,17 +43,25 @@ pub fn carry_grid(app: &App, old: &Dict, new_path: &str) {
 /// Confirma. Cuántas.
 pub fn purge_missing(conn: &Connection, days: f64) -> library::rusqlite::Result<usize> {
     let cutoff = index::now() - days * 86_400.0;
-    let ids: Vec<i64> = fetch_all(conn, "SELECT id FROM songs_missing WHERE gone_at < ?", [cutoff])?
-        .iter()
-        .filter_map(|r| r.get("id").and_then(Value::as_i64))
-        .collect();
+    let ids: Vec<i64> = fetch_all(
+        conn,
+        "SELECT id FROM songs_missing WHERE gone_at < ?",
+        [cutoff],
+    )?
+    .iter()
+    .filter_map(|r| r.get("id").and_then(Value::as_i64))
+    .collect();
     if ids.is_empty() {
         return Ok(0);
     }
-    let tables: Vec<String> = fetch_all(conn, "SELECT name FROM sqlite_master WHERE type='table'", [])?
-        .iter()
-        .map(|r| index::get_str(r, "name").to_owned())
-        .collect();
+    let tables: Vec<String> = fetch_all(
+        conn,
+        "SELECT name FROM sqlite_master WHERE type='table'",
+        [],
+    )?
+    .iter()
+    .map(|r| index::get_str(r, "name").to_owned())
+    .collect();
     if tables.iter().any(|t| t == "song_cards") {
         library::playlists::keep_cards(conn, &ids)?;
     }
@@ -100,7 +115,13 @@ pub fn scan(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value, 
     let _lock = app.scan_lock.lock();
     let cfg = app.config();
     let conn = app.connect()?;
-    let r = scan::scan(&conn, &cfg.artists_dir, &folders::extensions(), true, progress)?;
+    let r = scan::scan(
+        &conn,
+        &cfg.artists_dir,
+        &folders::extensions(),
+        true,
+        progress,
+    )?;
     if !conn.is_autocommit() {
         conn.execute_batch("COMMIT")?;
     }
@@ -111,7 +132,9 @@ pub fn scan(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value, 
         log::warn!("no se pudo leer {manifest}");
     }
     for path in &r.walk.unstorable {
-        log::warn!("se salta {path:?}: el nombre no es UTF-8 valido; renombralo para que DanPlay lo vea");
+        log::warn!(
+            "se salta {path:?}: el nombre no es UTF-8 valido; renombralo para que DanPlay lo vea"
+        );
     }
     for (old, new_path) in &r.carry {
         carry_grid(app, old, new_path);

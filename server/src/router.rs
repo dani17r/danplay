@@ -126,10 +126,9 @@ pub struct Ctx<'a> {
 
 impl<'a> Ctx<'a> {
     pub fn new(app: &'a App, req: &'a Request, params: &[(String, String)]) -> Self {
-        let query_pairs: Vec<(String, String)> =
-            form_urlencoded::parse(req.query.as_bytes())
-                .map(|(k, v)| (k.into_owned(), v.into_owned()))
-                .collect();
+        let query_pairs: Vec<(String, String)> = form_urlencoded::parse(req.query.as_bytes())
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
         Self {
             app,
             req,
@@ -193,8 +192,10 @@ impl<'a> Ctx<'a> {
 
     /// Igual, con un cuerpo optativo.
     pub fn done_with(&mut self, body: Option<Fields>) -> Result<(), ApiError> {
-        let mut errors = std::mem::replace(&mut self.path, Fields::params("path", &[])).into_errors();
-        errors.extend(std::mem::replace(&mut self.query, Fields::params("query", &[])).into_errors());
+        let mut errors =
+            std::mem::replace(&mut self.path, Fields::params("path", &[])).into_errors();
+        errors
+            .extend(std::mem::replace(&mut self.query, Fields::params("query", &[])).into_errors());
         if let Some(b) = body {
             errors.extend(b.into_errors());
         }
@@ -231,9 +232,8 @@ pub fn dispatch(app: &App, routes: &[Route], req: &Request) -> Response {
             continue;
         }
         let mut ctx = Ctx::new(app, req, &params);
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            (route.handler)(&mut ctx)
-        }));
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (route.handler)(&mut ctx)));
         return match outcome {
             Ok(Ok(Reply::Json(v))) => Response::json(route.status, &v),
             Ok(Ok(Reply::Response(r))) => r,
@@ -288,13 +288,19 @@ mod tests {
         ];
         let call = |m: &str, p: &str| dispatch(&app, &routes, &Request::new(m, p));
         // la segunda contesta aunque la primera encaje con la ruta
-        assert_eq!(call("POST", "/api/external/save").json_value(), Some("save".into()));
+        assert_eq!(
+            call("POST", "/api/external/save").json_value(),
+            Some("save".into())
+        );
         let r = call("DELETE", "/api/external/save");
         assert_eq!(r.status, 422);
         let v = r.json_value().expect("json");
         assert_eq!(v["detail"][0]["loc"], serde_json::json!(["path", "lid"]));
         assert_eq!(v["detail"][0]["type"], "int_parsing");
-        assert_eq!(call("DELETE", "/api/external/%33").json_value(), Some(3.into()));
+        assert_eq!(
+            call("DELETE", "/api/external/%33").json_value(),
+            Some(3.into())
+        );
         let r = call("GET", "/api/external/3");
         assert_eq!(r.status, 405);
         assert_eq!(r.header_value("allow"), Some("DELETE"));
@@ -304,6 +310,9 @@ mod tests {
         );
         let r = call("GET", "/api/nada");
         assert_eq!(r.status, 404);
-        assert_eq!(r.json_value(), Some(serde_json::json!({"detail": "Not Found"})));
+        assert_eq!(
+            r.json_value(),
+            Some(serde_json::json!({"detail": "Not Found"}))
+        );
     }
 }

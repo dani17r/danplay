@@ -7,8 +7,8 @@ use crate::http::Response;
 use crate::jobs::{JobError, started};
 use crate::router::{Ctx, Reply, Route};
 use crate::services::{convert, duplicates, external, folders, ingest, library as lib};
-use library::index::search::{self, Search};
 use library::index::Dict;
+use library::index::search::{self, Search};
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
@@ -40,7 +40,10 @@ fn rows(v: Vec<Dict>) -> Value {
 fn folders_of(ctx: &Ctx<'_>) -> Result<Map<String, Value>, ApiError> {
     let mut out = Map::new();
     out.insert("folders".into(), rows(folders::list_folders(ctx.app)?));
-    out.insert("exclusions".into(), rows(folders::list_exclusions(ctx.app)?));
+    out.insert(
+        "exclusions".into(),
+        rows(folders::list_exclusions(ctx.app)?),
+    );
     out.insert(
         "always_excluded".into(),
         json!(library::index::folders::DEFAULT_EXCLUDES),
@@ -217,7 +220,12 @@ fn search_songs(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let min_stars = ctx.query().int("min_stars").or(0);
     ctx.check()?;
     let mut filters = Dict::new();
-    for (k, v) in [("artist", artist), ("album", album), ("genre", genre), ("folder", folder)] {
+    for (k, v) in [
+        ("artist", artist),
+        ("album", album),
+        ("genre", genre),
+        ("folder", folder),
+    ] {
         if !v.is_empty() {
             filters.insert(k.into(), v.into());
         }
@@ -267,7 +275,10 @@ fn inbox(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     entries.sort();
     let mut files = Vec::new();
     for p in entries {
-        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let ext = library::names::splitext(&name).1.to_lowercase();
         let Ok(meta) = std::fs::metadata(&p) else {
             continue;
@@ -306,24 +317,27 @@ fn run_import(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     };
     ctx.done_with(b)?;
     let app = ctx.app.clone();
-    let (snap, already) = ctx.app.jobs.start("import", "la importacion fallo", move |p| {
-        let rs = ingest::Importer::new(&app, Some(p))
-            .process_inbox(dry_run, convert_mp3)
-            .map_err(JobError::Failed)?;
-        let roots = folders::roots(&app)?;
-        let text = |t: &[u32]| crate::services::pyjson::string(t);
-        let mut results = Vec::new();
-        for r in &rs {
-            if let Some(target) = &r.target
-                && r.action != "dry_run"
-                && r.action != "error"
-            {
-                lib::index_file(&app, &text(target), Some(&roots), None)?;
+    let (snap, already) = ctx
+        .app
+        .jobs
+        .start("import", "la importacion fallo", move |p| {
+            let rs = ingest::Importer::new(&app, Some(p))
+                .process_inbox(dry_run, convert_mp3)
+                .map_err(JobError::Failed)?;
+            let roots = folders::roots(&app)?;
+            let text = |t: &[u32]| crate::services::pyjson::string(t);
+            let mut results = Vec::new();
+            for r in &rs {
+                if let Some(target) = &r.target
+                    && r.action != "dry_run"
+                    && r.action != "error"
+                {
+                    lib::index_file(&app, &text(target), Some(&roots), None)?;
+                }
             }
-        }
-        for r in rs {
-            let source = text(&r.source_path);
-            results.push(json!({
+            for r in rs {
+                let source = text(&r.source_path);
+                results.push(json!({
                 "source_path": library::py::basename(&library::py::purepath(&source)),
                 "target": r.target.as_ref().map_or_else(String::new, |t| relative(&app, &text(t))),
                 "artist": crate::services::pyjson::to_value(&r.artist),
@@ -333,9 +347,9 @@ fn run_import(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
                 "action": r.action,
                 "warnings": r.warnings.iter().map(|w| text(w)).collect::<Vec<_>>(),
             }));
-        }
-        Ok(json!({"results": results}))
-    });
+            }
+            Ok(json!({"results": results}))
+        });
     Ok(started(snap, already).into())
 }
 
@@ -374,9 +388,18 @@ fn convert_batch(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         return Ok(convert::convert_batch(ctx.app, &quality, keep, true, &|_, _| {})?.into());
     }
     let app = ctx.app.clone();
-    let (snap, already) = ctx.app.jobs.start("conversion", "la conversion fallo", move |p| {
-        Ok(convert::convert_batch(&app, &quality, keep, false, &|i, n| p.count(i, n))?)
-    });
+    let (snap, already) = ctx
+        .app
+        .jobs
+        .start("conversion", "la conversion fallo", move |p| {
+            Ok(convert::convert_batch(
+                &app,
+                &quality,
+                keep,
+                false,
+                &|i, n| p.count(i, n),
+            )?)
+        });
     Ok(Response::json(202, &started(snap, already)).into())
 }
 
@@ -394,29 +417,28 @@ fn resolve_duplicate(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 fn duplicates_scan(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     ctx.check()?;
     let app = ctx.app.clone();
-    let (snap, already) = ctx.app.jobs.start(
-        "duplicates",
-        "la busqueda de duplicados fallo",
-        move |p| {
-            p.update(
-                Some(0.into()),
-                Some(2.into()),
-                Some("buscando copias identicas y versiones de la misma cancion"),
-            );
-            let report = duplicates::report(&app)?;
-            let n = |k: &str| report[k].as_array().map_or(0, Vec::len);
-            p.update(
-                Some(2.into()),
-                Some(2.into()),
-                Some(&format!(
-                    "{} grupos identicos, {} parecidos",
-                    n("identical"),
-                    n("similar")
-                )),
-            );
-            Ok(report)
-        },
-    );
+    let (snap, already) =
+        ctx.app
+            .jobs
+            .start("duplicates", "la busqueda de duplicados fallo", move |p| {
+                p.update(
+                    Some(0.into()),
+                    Some(2.into()),
+                    Some("buscando copias identicas y versiones de la misma cancion"),
+                );
+                let report = duplicates::report(&app)?;
+                let n = |k: &str| report[k].as_array().map_or(0, Vec::len);
+                p.update(
+                    Some(2.into()),
+                    Some(2.into()),
+                    Some(&format!(
+                        "{} grupos identicos, {} parecidos",
+                        n("identical"),
+                        n("similar")
+                    )),
+                );
+                Ok(report)
+            });
     Ok(started(snap, already).into())
 }
 

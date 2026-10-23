@@ -165,7 +165,9 @@ pub fn refresh_exports(app: &App) -> usize {
 
 /// Lo último que se recuperó (para avisar en la interfaz), o `None`.
 pub fn status(app: &App) -> Value {
-    app.journal.with(|s| s.report.clone()).unwrap_or(Value::Null)
+    app.journal
+        .with(|s| s.report.clone())
+        .unwrap_or(Value::Null)
 }
 
 /// Tras un escaneo: la primera vez, recuperar todo lo que haga falta; las
@@ -188,7 +190,10 @@ pub fn after_scan(app: &App, result: Option<&Value>, first: bool) {
 /// nunca antes de haber recuperado: una base nueva y vacía no puede pisar
 /// el diario que la va a rellenar).
 pub fn start(app: &App) {
-    if app.journal.with(|s| std::mem::replace(&mut s.running, true)) {
+    if app
+        .journal
+        .with(|s| std::mem::replace(&mut s.running, true))
+    {
         return;
     }
     let worker = app.clone();

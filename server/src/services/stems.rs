@@ -791,7 +791,12 @@ fn save_stems_column(app: &App, cid: i64, rel: &str, model: &str, quality: &str)
     d.insert("folder".into(), rel.into());
     d.insert("model".into(), model.into());
     d.insert("quality".into(), quality.into());
-    songs::update_one(app, cid, "stems", serde_json::Value::from(ls::stems_json(&d)))?;
+    songs::update_one(
+        app,
+        cid,
+        "stems",
+        serde_json::Value::from(ls::stems_json(&d)),
+    )?;
     Ok(())
 }
 

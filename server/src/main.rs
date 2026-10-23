@@ -100,8 +100,17 @@ fn main() {
     let (mut uds, mut host, mut port) = (None, "127.0.0.1".to_owned(), 8730u16);
     while let Some(a) = args.next() {
         match a.as_str() {
-            "--uds" => uds = Some(args.next().unwrap_or_else(|| usage("falta la ruta de --uds"))),
-            "--host" => host = args.next().unwrap_or_else(|| usage("falta el valor de --host")),
+            "--uds" => {
+                uds = Some(
+                    args.next()
+                        .unwrap_or_else(|| usage("falta la ruta de --uds")),
+                )
+            }
+            "--host" => {
+                host = args
+                    .next()
+                    .unwrap_or_else(|| usage("falta el valor de --host"))
+            }
             "--port" => {
                 port = args
                     .next()
@@ -143,14 +152,18 @@ fn main() {
         let _ = std::thread::Builder::new()
             .name("danplay-signals".into())
             .spawn(move || {
-                let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+                let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                else {
                     return;
                 };
                 rt.block_on(async {
                     use tokio::signal::unix::{SignalKind, signal};
-                    let (Ok(mut term), Ok(mut int)) =
-                        (signal(SignalKind::terminate()), signal(SignalKind::interrupt()))
-                    else {
+                    let (Ok(mut term), Ok(mut int)) = (
+                        signal(SignalKind::terminate()),
+                        signal(SignalKind::interrupt()),
+                    ) else {
                         return;
                     };
                     let (stx, mut srx) = tokio::sync::mpsc::channel::<()>(1);

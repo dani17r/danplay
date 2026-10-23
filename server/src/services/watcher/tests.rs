@@ -9,7 +9,9 @@ use notify::event::{DataChange, MetadataKind, RenameMode};
 
 /// Un segundo de algo (para que el escaneo lo vea como una canción).
 fn tone(path: &Path) {
-    let samples: Vec<f32> = (0..8000).map(|i| (f64::from(i) * 0.3).sin() as f32 * 0.5).collect();
+    let samples: Vec<f32> = (0..8000)
+        .map(|i| (f64::from(i) * 0.3).sin() as f32 * 0.5)
+        .collect();
     wav(path, &samples, 8000);
 }
 
@@ -18,7 +20,11 @@ fn tone(path: &Path) {
 /// y los avisos llegan con la ruta de verdad).
 fn library_of_three(app: &App) -> PathBuf {
     let root = app.config().library.clone();
-    for f in ["Artistas/Barak/Barak - Mi Gozo.wav", "Artistas/Barak/Barak - Sera Llena.wav", "Artistas/New Wine/New Wine - Shekinah.wav"] {
+    for f in [
+        "Artistas/Barak/Barak - Mi Gozo.wav",
+        "Artistas/Barak/Barak - Sera Llena.wav",
+        "Artistas/New Wine/New Wine - Shekinah.wav",
+    ] {
         tone(&root.join(f));
     }
     assert!(folders::add_folder(app, &root.to_string_lossy(), "").expect("carpeta"));
@@ -66,15 +72,39 @@ fn the_watcher_ignores_what_does_not_matter() {
     w.refresh_roots(&app);
     let gozo = root.join("Artistas/Barak/Barak - Mi Gozo.wav");
     let ignored = [
-        event(EventKind::Access(AccessKind::Open(AccessMode::Any)), &[&gozo]),
-        event(EventKind::Access(AccessKind::Close(AccessMode::Read)), &[&gozo]),
+        event(
+            EventKind::Access(AccessKind::Open(AccessMode::Any)),
+            &[&gozo],
+        ),
+        event(
+            EventKind::Access(AccessKind::Close(AccessMode::Read)),
+            &[&gozo],
+        ),
         event(EventKind::Access(AccessKind::Read), &[&gozo]),
-        event(EventKind::Create(CreateKind::File), &[&root.join("notas.txt")]),
-        event(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)), &[&root.join("Artistas")]),
-        event(EventKind::Modify(ModifyKind::Data(DataChange::Any)), &[&root.join("Artistas/Barak")]),
-        event(EventKind::Create(CreateKind::File), &[&root.join("Secuencias/click.wav")]),
-        event(EventKind::Create(CreateKind::Folder), &[&root.join("Artistas/Secuencias")]),
-        event(EventKind::Create(CreateKind::File), &[Path::new("/en/otro/sitio.mp3")]),
+        event(
+            EventKind::Create(CreateKind::File),
+            &[&root.join("notas.txt")],
+        ),
+        event(
+            EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
+            &[&root.join("Artistas")],
+        ),
+        event(
+            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            &[&root.join("Artistas/Barak")],
+        ),
+        event(
+            EventKind::Create(CreateKind::File),
+            &[&root.join("Secuencias/click.wav")],
+        ),
+        event(
+            EventKind::Create(CreateKind::Folder),
+            &[&root.join("Artistas/Secuencias")],
+        ),
+        event(
+            EventKind::Create(CreateKind::File),
+            &[Path::new("/en/otro/sitio.mp3")],
+        ),
     ];
     for e in &ignored {
         w.dispatch(e);
@@ -87,11 +117,26 @@ fn the_watcher_ignores_what_does_not_matter() {
             EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
             &[&root.join("a.part"), &root.join("Artistas/Barak/b.mp3")],
         ),
-        event(EventKind::Access(AccessKind::Close(AccessMode::Write)), &[&gozo]),
-        event(EventKind::Modify(ModifyKind::Data(DataChange::Any)), &[&gozo]),
-        event(EventKind::Remove(RemoveKind::Folder), &[&root.join("Artistas/Otra")]),
-        event(EventKind::Modify(ModifyKind::Name(RenameMode::From)), &[&root.join("Artistas/Movida")]),
-        event(EventKind::Remove(RemoveKind::Any), &[&root.join("Artistas/Barak/Se fue.flac")]),
+        event(
+            EventKind::Access(AccessKind::Close(AccessMode::Write)),
+            &[&gozo],
+        ),
+        event(
+            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            &[&gozo],
+        ),
+        event(
+            EventKind::Remove(RemoveKind::Folder),
+            &[&root.join("Artistas/Otra")],
+        ),
+        event(
+            EventKind::Modify(ModifyKind::Name(RenameMode::From)),
+            &[&root.join("Artistas/Movida")],
+        ),
+        event(
+            EventKind::Remove(RemoveKind::Any),
+            &[&root.join("Artistas/Barak/Se fue.flac")],
+        ),
         // la carpeta gestionada misma (se borró entera)
         event(EventKind::Remove(RemoveKind::Folder), &[&root]),
     ];
@@ -135,7 +180,10 @@ fn a_folder_added_in_settings_is_indexed_without_asking() {
     let other = scratch("mas").join("Mas musica");
     tone(&other.join("Alguien - Otra.wav"));
     assert!(folders::add_folder(&app, &other.to_string_lossy(), "").expect("carpeta"));
-    let seen = until(|| ids(&app).contains_key("Alguien - Otra.wav"), Duration::from_secs(15));
+    let seen = until(
+        || ids(&app).contains_key("Alguien - Otra.wav"),
+        Duration::from_secs(15),
+    );
     w.stop();
     assert!(seen, "no indexó la carpeta nueva");
 }
@@ -154,14 +202,21 @@ fn the_watcher_follows_what_happens_on_disk() {
         }
         let new = root.join("Artistas/Barak/Barak - Llega.wav");
         tone(&new);
-        if !until(|| ids(&app).contains_key("Barak - Llega.wav"), Duration::from_secs(15)) {
+        if !until(
+            || ids(&app).contains_key("Barak - Llega.wav"),
+            Duration::from_secs(15),
+        ) {
             return Err("no vio la canción nueva");
         }
         let new_id = ids(&app)["Barak - Llega.wav"].0;
         let moved = root.join("Artistas/Otra/Barak - Llega.wav");
         std::fs::create_dir_all(moved.parent().expect("carpeta")).expect("carpeta");
         std::fs::rename(&new, &moved).expect("mover");
-        let there = || ids(&app).get("Barak - Llega.wav").is_some_and(|(_, p)| *p == moved.to_string_lossy());
+        let there = || {
+            ids(&app)
+                .get("Barak - Llega.wav")
+                .is_some_and(|(_, p)| *p == moved.to_string_lossy())
+        };
         if !until(there, Duration::from_secs(15)) {
             return Err("no vio que se movió");
         }
@@ -169,7 +224,10 @@ fn the_watcher_follows_what_happens_on_disk() {
             return Err("la movida entró como otra");
         }
         std::fs::remove_file(&moved).expect("borrar");
-        if !until(|| !ids(&app).contains_key("Barak - Llega.wav"), Duration::from_secs(15)) {
+        if !until(
+            || !ids(&app).contains_key("Barak - Llega.wav"),
+            Duration::from_secs(15),
+        ) {
             return Err("no vio que se borró");
         }
         let away = root.with_file_name("fuera");
@@ -201,7 +259,10 @@ fn the_core_starts_and_stops_its_watcher() {
     let app = app();
     library_of_three(&app);
     let w = start(&app).expect("encendido");
-    assert!(Arc::ptr_eq(&w, &start(&app).expect("el mismo")), "uno solo por núcleo");
+    assert!(
+        Arc::ptr_eq(&w, &start(&app).expect("el mismo")),
+        "uno solo por núcleo"
+    );
     assert!(w.started.load(Ordering::SeqCst));
     folders_changed(&app);
     stop(&app);
@@ -216,7 +277,10 @@ fn the_core_starts_and_stops_its_watcher() {
 #[test]
 fn the_parts_of_a_path() {
     let roots = vec!["/m/Musica/Otra".to_owned(), "/m/Musica".to_owned()];
-    assert_eq!(root_of(&roots, "/m/Musica/Otra/a.mp3"), Some("/m/Musica/Otra"));
+    assert_eq!(
+        root_of(&roots, "/m/Musica/Otra/a.mp3"),
+        Some("/m/Musica/Otra")
+    );
     assert_eq!(root_of(&roots, "/m/Musica/b.mp3"), Some("/m/Musica"));
     assert_eq!(root_of(&roots, "/m/Musica"), Some("/m/Musica"));
     assert_eq!(root_of(&roots, "/m/MusicaVieja/c.mp3"), None);
@@ -225,12 +289,20 @@ fn the_parts_of_a_path() {
     assert!(!is_audio("/x/.mp3"));
     let secuencias: Dict = json_dict(&[("pattern", "Secuencias"), ("kind", "glob")]);
     let ex = [secuencias];
-    assert!(excluded("/m/Musica/Secuencias/click.wav", "/m/Musica", false, &ex));
+    assert!(excluded(
+        "/m/Musica/Secuencias/click.wav",
+        "/m/Musica",
+        false,
+        &ex
+    ));
     assert!(excluded("/m/Musica/A/Secuencias", "/m/Musica", true, &ex));
     assert!(!excluded("/m/Musica/A/Secuencias", "/m/Musica", false, &ex));
     assert!(!excluded("/m/Musica/A/b.mp3", "/m/Musica", false, &ex));
 }
 
 fn json_dict(items: &[(&str, &str)]) -> Dict {
-    items.iter().map(|(k, v)| ((*k).to_owned(), Value::from(*v))).collect()
+    items
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), Value::from(*v)))
+        .collect()
 }

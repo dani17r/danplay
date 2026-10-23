@@ -94,8 +94,13 @@ pub fn old_cue_paths(app: &App) -> Result<bool, ApiError> {
         }
         Ok(false)
     };
-    let any = found("SELECT 1 FROM songs WHERE instr(study, ?) > 0 LIMIT 1", &in_study)?
-        || found("SELECT 1 FROM songs_missing WHERE instr(data, ?) > 0 LIMIT 1", &in_missing)?;
+    let any = found(
+        "SELECT 1 FROM songs WHERE instr(study, ?) > 0 LIMIT 1",
+        &in_study,
+    )? || found(
+        "SELECT 1 FROM songs_missing WHERE instr(data, ?) > 0 LIMIT 1",
+        &in_missing,
+    )?;
     if !any {
         return Ok(false);
     }
@@ -179,13 +184,21 @@ pub fn refresh_catalog(app: &App, force: bool) -> serde_json::Value {
     let mut warnings = Warnings::new();
     let current = catalog::load(&cache, &snapshot, &mut warnings);
     let now = library::index::now();
-    let checked = current.get("checked_at").and_then(library::py::float_of).unwrap_or(0.0);
+    let checked = current
+        .get("checked_at")
+        .and_then(library::py::float_of)
+        .unwrap_or(0.0);
     if !force && now - checked < catalog::MIN_INTERVAL {
         ai::log_warnings("danplay.model_catalog", warnings);
         return catalog_status(app);
     }
-    let etag = (current.get("source").and_then(|v| v.as_str()) == Some("models.dev"))
-        .then(|| current.get("etag").and_then(|v| v.as_str()).unwrap_or("").to_owned());
+    let etag = (current.get("source").and_then(|v| v.as_str()) == Some("models.dev")).then(|| {
+        current
+            .get("etag")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_owned()
+    });
     REFRESHING.store(true, Ordering::SeqCst);
     match catalog::fetch(etag.as_deref(), Duration::from_secs(15)) {
         catalog::FetchOutcome::Unchanged => {
@@ -222,7 +235,10 @@ pub fn refresh_catalog_in_background(app: &App, max_age: f64) -> bool {
     let mut warnings = Warnings::new();
     let data = catalog::load(&cache, &snapshot, &mut warnings);
     ai::log_warnings("danplay.model_catalog", warnings);
-    let checked = data.get("checked_at").and_then(library::py::float_of).unwrap_or(0.0);
+    let checked = data
+        .get("checked_at")
+        .and_then(library::py::float_of)
+        .unwrap_or(0.0);
     if catalog_refreshing() || library::index::now() - checked < max_age {
         return false;
     }

@@ -354,10 +354,11 @@ pub fn claim(app: &App, entry_id: &str, selection: Option<&[Value]>) -> Result<E
     let (args, after) = if entry.tool == "download_music" {
         let card = entry.card.clone().unwrap_or_default();
         let after = entry.after.clone().map_or(Value::Null, Value::Object);
-        card.select(&entry.args, &after, selection).map_err(|e| match e {
-            Selection::Nothing(m) => ClaimError::Nothing(m),
-            Selection::Data(e) => ClaimError::Other(ApiError::internal(e)),
-        })?
+        card.select(&entry.args, &after, selection)
+            .map_err(|e| match e {
+                Selection::Nothing(m) => ClaimError::Nothing(m),
+                Selection::Data(e) => ClaimError::Other(ApiError::internal(e)),
+            })?
     } else {
         // si lo que se iba a borrar ya no es lo mismo (los ids se reutilizan)
         let changed = p::target_changed(entry.tool, &entry.args, &entry.guard, &mut Index(app))
@@ -511,7 +512,11 @@ fn lookup(app: &App, query: &str, key: &str, cancel: &AtomicBool, blocked: &Atom
         Err(e) => {
             let mut d = Dict::new();
             d.insert("ok".into(), false.into());
-            let why = if e.is_empty() { "Exception".to_owned() } else { e };
+            let why = if e.is_empty() {
+                "Exception".to_owned()
+            } else {
+                e
+            };
             d.insert("reason".into(), datum(&why, 160).into());
             return d;
         }
@@ -603,7 +608,10 @@ fn work(app: &App, id: &str, search: &Arc<AtomicBool>) {
             .name("danplay-plan".into())
             .spawn(move || {
                 loop {
-                    let next = queue.lock().unwrap_or_else(PoisonError::into_inner).pop_front();
+                    let next = queue
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .pop_front();
                     let Some((i, query, key)) = next else { break };
                     if search.load(Ordering::SeqCst) {
                         break;
@@ -659,10 +667,9 @@ pub fn apply_after(app: &App, after: &Dict, results: &Value) -> Dict {
         Err(why) => return p::after_refused(&why),
     };
     let canceled = youtube::canceled(app)
-        || results.as_array().is_some_and(|a| {
-            a.iter()
-                .any(|r| r.get("canceled").is_some_and(py::truthy))
-        });
+        || results
+            .as_array()
+            .is_some_and(|a| a.iter().any(|r| r.get("canceled").is_some_and(py::truthy)));
     let _lock = app.playlists_lock.lock();
     let (out, failure) = p::apply_after(&spec, results, canceled, &mut Index(app));
     if let Some(f) = failure {

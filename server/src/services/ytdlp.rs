@@ -58,7 +58,11 @@ pub const QUERY_CAP: Duration = Duration::from_secs(300);
 pub const PROGRESS: &str = "DANPLAY-PROGRESS ";
 
 /// El nombre del ejecutable dentro de su carpeta de versión.
-pub const EXE: &str = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
+pub const EXE: &str = if cfg!(windows) {
+    "yt-dlp.exe"
+} else {
+    "yt-dlp"
+};
 
 /// Los ejecutables oficiales que valen en este sistema, en el orden en que
 /// se prefieren (los de Linux, macOS y Windows no necesitan Python; «yt-dlp»
@@ -271,7 +275,9 @@ pub fn executable(app: &App) -> Option<Exe> {
 /// Si hay yt-dlp, SIN lanzarlo (lo pregunta `/api/status` continuamente):
 /// el descargado o el de la app, como `find_spec` en Python.
 pub fn installed(app: &App) -> bool {
-    lock(&state(app).current).as_ref().is_some_and(|e| e.path.is_file())
+    lock(&state(app).current)
+        .as_ref()
+        .is_some_and(|e| e.path.is_file())
         || marked(app).is_some()
         || bundled(app).is_some()
 }
@@ -670,7 +676,11 @@ fn read_lines(source: impl std::io::Read + Send + 'static, tx: mpsc::Sender<Line
                     Ok(_) => {
                         let text = String::from_utf8_lossy(&buf);
                         let text = text.trim_end_matches(['\n', '\r']).to_owned();
-                        let sent = if out { Line::Out(text) } else { Line::Err(text) };
+                        let sent = if out {
+                            Line::Out(text)
+                        } else {
+                            Line::Err(text)
+                        };
                         if tx.send(sent).is_err() {
                             break;
                         }
@@ -913,7 +923,10 @@ fn make_executable(_path: &Path) -> std::io::Result<()> {
 /// `_switch_to`: deja en uso la versión de `folder`, esperando a que nadie
 /// use la de ahora. Si no contesta, se borra y se sigue con la de antes.
 fn switch_to(app: &App, new_version: &str, folder: &Path) -> Result<(), UpdateError> {
-    let _writing = state(app).rw.write().unwrap_or_else(PoisonError::into_inner);
+    let _writing = state(app)
+        .rw
+        .write()
+        .unwrap_or_else(PoisonError::into_inner);
     let exe = folder.join(EXE);
     let got = match ask_version(&exe) {
         Ok(v) if y::version_tuple(&v) == y::version_tuple(new_version) => Ok(v),
@@ -978,7 +991,9 @@ pub fn update(app: &App, progress: &dyn Fn(i64, &str)) -> Result<Value, UpdateEr
     progress(1, &format!("bajando yt-dlp {latest}"));
     let (sums, _) = fetch(sums_name, sums_url, MAX_LISTING_BYTES)?;
     let Some(expected) = sum_of(&String::from_utf8_lossy(&sums), name) else {
-        return fail(format!("{name} no aparece en el {SUMS} de GitHub: no se usa"));
+        return fail(format!(
+            "{name} no aparece en el {SUMS} de GitHub: no se usa"
+        ));
     };
     let (blob, digest) = fetch(name, url, MAX_BINARY_BYTES)?;
     progress(2, "comprobando la descarga");

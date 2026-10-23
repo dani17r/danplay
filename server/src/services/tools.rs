@@ -19,7 +19,8 @@ pub fn fingerprint_unavailable_reason(app: &App) -> String {
         return "falta el binario fpcalc  ->  sudo apt install libchromaprint-tools".into();
     }
     if app.config().acoustid_api_key.is_empty() {
-        return "falta ACOUSTID_API_KEY en el .env  ->  https://acoustid.org/new-application".into();
+        return "falta ACOUSTID_API_KEY en el .env  ->  https://acoustid.org/new-application"
+            .into();
     }
     String::new()
 }
@@ -51,7 +52,11 @@ pub fn youtube_unavailable_reason(app: &App) -> String {
 /// `fingerprint.identify(path)`: {artist, title, album, year, score,
 /// source} de AcoustID, o `None` (sin fpcalc, sin clave, sin red, o nada
 /// que pase del mínimo). Un fallo del servicio no para la importación.
-pub fn fingerprint_identify(app: &App, path: &std::path::Path, minimum: f64) -> Option<serde_json::Value> {
+pub fn fingerprint_identify(
+    app: &App,
+    path: &std::path::Path,
+    minimum: f64,
+) -> Option<serde_json::Value> {
     if !fingerprint_unavailable_reason(app).is_empty() {
         return None;
     }

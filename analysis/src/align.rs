@@ -316,7 +316,15 @@ mod tests {
         // con 1,5 s de silencio delante
         let fps = 22_050.0 / 220.0;
         let low: Vec<f32> = (0..3000)
-            .map(|i| if i % 47 == 0 { 1.0 } else if i % 13 == 0 { 0.3 } else { 0.0 })
+            .map(|i| {
+                if i % 47 == 0 {
+                    1.0
+                } else if i % 13 == 0 {
+                    0.3
+                } else {
+                    0.0
+                }
+            })
             .collect();
         let mut late = vec![0f32; 150];
         late.extend_from_slice(&low);

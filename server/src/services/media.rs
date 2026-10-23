@@ -8,8 +8,8 @@ use crate::http::{Body, Response};
 use crate::services::ai::log_warnings;
 use library::warnings::Warnings;
 use std::collections::VecDeque;
-use std::fmt::Write as _;
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
@@ -46,7 +46,10 @@ fn size_of(c: Option<&Cover>) -> usize {
 fn extract_cover(path: &Path) -> Option<Cover> {
     let read = std::panic::catch_unwind(|| library::tags::read_cover(path));
     read.unwrap_or_else(|_| {
-        log::warn!("portada ilegible en {}: el lector de etiquetas fallo", path.display());
+        log::warn!(
+            "portada ilegible en {}: el lector de etiquetas fallo",
+            path.display()
+        );
         None
     })
 }
@@ -75,7 +78,8 @@ pub fn cached_cover(path: &Path) -> Option<Cover> {
         cache.bytes += size_of(found.as_ref());
         cache.entries.push_back((key, found.clone()));
         while cache.entries.len() > 1
-            && (cache.bytes > COVER_CACHE_MAX_BYTES || cache.entries.len() > COVER_CACHE_MAX_ENTRIES)
+            && (cache.bytes > COVER_CACHE_MAX_BYTES
+                || cache.entries.len() > COVER_CACHE_MAX_ENTRIES)
         {
             if let Some((_, old)) = cache.entries.pop_front() {
                 cache.bytes -= size_of(old.as_ref());
@@ -193,7 +197,13 @@ pub fn waveform(app: &App, path: &Path, buckets: i64) -> std::io::Result<Option<
     let buckets = buckets.clamp(1, 4000);
     let ffmpeg = app.tool("ffmpeg");
     let mut warnings = Warnings::new();
-    let made = library::waveform::compute(&waveform_folder(app), path, buckets, ffmpeg.as_deref(), &mut warnings);
+    let made = library::waveform::compute(
+        &waveform_folder(app),
+        path,
+        buckets,
+        ffmpeg.as_deref(),
+        &mut warnings,
+    );
     log_warnings("danplay.waveform", warnings);
     made
 }
@@ -348,13 +358,17 @@ fn parse_range(header: &str, size: u64) -> Result<Vec<(u64, u64)>, RangeError> {
         out.push((start, end));
     }
     if out.is_empty() {
-        return Err(RangeError::Malformed("Range header: range must be requested"));
+        return Err(RangeError::Malformed(
+            "Range header: range must be requested",
+        ));
     }
     if out.iter().any(|(s, _)| !(0 <= *s && *s < size_i)) {
         return Err(RangeError::NotSatisfiable);
     }
     if out.iter().any(|(s, e)| s >= e) {
-        return Err(RangeError::Malformed("Range header: start must be less than end"));
+        return Err(RangeError::Malformed(
+            "Range header: start must be less than end",
+        ));
     }
     let mut ranges: Vec<(u64, u64)> = out.iter().map(|(s, e)| (*s as u64, *e as u64)).collect();
     if ranges.len() > 1 {
@@ -421,7 +435,10 @@ pub fn file_response(
                 start,
                 len: end - start,
             };
-            Ok(r.with_header("content-range", &format!("bytes {start}-{}/{size}", end - 1)))
+            Ok(r.with_header(
+                "content-range",
+                &format!("bytes {start}-{}/{size}", end - 1),
+            ))
         }
         Ok(ranges) if ranges.len() > 1 => multipart(r, path, media_type, &ranges, size),
         Ok(_) => Ok(r),
@@ -493,8 +510,14 @@ mod tests {
         assert!(matches!(parse_range("bytes=-10", 100), Ok(r) if r == vec![(90, 100)]));
         assert!(matches!(parse_range("bytes=95-", 100), Ok(r) if r == vec![(95, 100)]));
         assert!(matches!(parse_range("bytes=0-1000", 100), Ok(r) if r == vec![(0, 100)]));
-        assert!(matches!(parse_range("bytes=200-300", 100), Err(RangeError::NotSatisfiable)));
-        assert!(matches!(parse_range("items=0-1", 100), Err(RangeError::Malformed(_))));
+        assert!(matches!(
+            parse_range("bytes=200-300", 100),
+            Err(RangeError::NotSatisfiable)
+        ));
+        assert!(matches!(
+            parse_range("items=0-1", 100),
+            Err(RangeError::Malformed(_))
+        ));
         assert!(matches!(parse_range("bytes=0-1,1-5", 100), Ok(r) if r == vec![(0, 6)]));
     }
 }

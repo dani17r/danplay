@@ -289,10 +289,15 @@ mod tests {
         assert!(!already);
         assert_eq!(snap["active"], true);
         assert_eq!(snap["name"], "scan");
-        let keys: Vec<&String> = snap.as_object().map(|o| o.keys().collect()).unwrap_or_default();
+        let keys: Vec<&String> = snap
+            .as_object()
+            .map(|o| o.keys().collect())
+            .unwrap_or_default();
         assert_eq!(
             keys,
-            ["name", "active", "done", "total", "message", "result", "error", "started", "ended"]
+            [
+                "name", "active", "done", "total", "message", "result", "error", "started", "ended"
+            ]
         );
         // otra vez mientras corre: el mismo
         let (_, again) = jobs.start("scan", "x", |_| Ok(Value::Null));
@@ -308,9 +313,15 @@ mod tests {
     #[test]
     fn errors_read_like_python() {
         let jobs = Jobs::new();
-        jobs.start("a", "la importacion fallo", |_| Err(JobError::Failed("sin disco".into())));
-        jobs.start("b", "la importacion fallo", |_| Err(JobError::Expected("no hay nada".into())));
-        jobs.start("c", "la conversion fallo", |_| Err(JobError::Failed(String::new())));
+        jobs.start("a", "la importacion fallo", |_| {
+            Err(JobError::Failed("sin disco".into()))
+        });
+        jobs.start("b", "la importacion fallo", |_| {
+            Err(JobError::Expected("no hay nada".into()))
+        });
+        jobs.start("c", "la conversion fallo", |_| {
+            Err(JobError::Failed(String::new()))
+        });
         jobs.start("d", "la busqueda fallo", |_| panic!("roto"));
         let e = |n| jobs.wait(n, Duration::from_secs(5)).expect("trabajo")["error"].clone();
         assert_eq!(e("a"), "la importacion fallo: sin disco");
@@ -319,13 +330,19 @@ mod tests {
         assert_eq!(e("d"), "la busqueda fallo");
         assert_eq!(jobs.snapshot("nada"), None);
         let all = jobs.snapshot_all();
-        let names: Vec<&String> = all.as_object().map(|o| o.keys().collect()).unwrap_or_default();
+        let names: Vec<&String> = all
+            .as_object()
+            .map(|o| o.keys().collect())
+            .unwrap_or_default();
         assert_eq!(names, ["a", "b", "c", "d"]);
     }
 
     #[test]
     fn the_answer_of_a_route_that_starts_a_job() {
-        assert_eq!(started(json!({"name": "x"}), false), json!({"job": {"name": "x"}}));
+        assert_eq!(
+            started(json!({"name": "x"}), false),
+            json!({"job": {"name": "x"}})
+        );
         assert_eq!(
             started(json!({}), true),
             json!({"job": {}, "already_running": true})

@@ -471,7 +471,13 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
     d.insert("folder".into(), rel.into());
     d.insert("model".into(), "secuencia".into());
     d.insert("quality".into(), ls::FINAL.into());
-    songs::update_one(app, id, "stems", serde_json::Value::from(ls::stems_json(&d))).map_err(|e| JobError::Failed(e.to_string()))?;
+    songs::update_one(
+        app,
+        id,
+        "stems",
+        serde_json::Value::from(ls::stems_json(&d)),
+    )
+    .map_err(|e| JobError::Failed(e.to_string()))?;
     let mut study = Map::new();
     study.insert("mixer".into(), json!({"on": true}));
     if tempo != 0.0 {

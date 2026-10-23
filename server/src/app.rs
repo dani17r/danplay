@@ -137,7 +137,11 @@ impl App {
 
     /// Cambia la configuración en memoria (lo que hacía `setattr(config, ...)`).
     pub fn update_config<T>(&self, f: impl FnOnce(&mut Config) -> T) -> T {
-        let mut guard = self.0.config.write().unwrap_or_else(PoisonError::into_inner);
+        let mut guard = self
+            .0
+            .config
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
         let mut copy = (**guard).clone();
         let out = f(&mut copy);
         *guard = Arc::new(copy);

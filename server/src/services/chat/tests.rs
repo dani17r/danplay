@@ -24,11 +24,19 @@ fn arguments_like_pydantic() {
         json!({"error": "argumentos de edit_song que no valen: «id» tiene que ser un numero"})
     );
     assert_eq!(
-        run(&app, "transpose_chords", json!({"chords": "G", "from_key": "G"})),
+        run(
+            &app,
+            "transpose_chords",
+            json!({"chords": "G", "from_key": "G"})
+        ),
         json!({"error": "argumentos de transpose_chords que no valen: falta «to_key»"})
     );
     assert_eq!(
-        run(&app, "edit_song", json!({"id": 1, "bpm": "rapido", "favorite": "quizas", "title": true})),
+        run(
+            &app,
+            "edit_song",
+            json!({"id": 1, "bpm": "rapido", "favorite": "quizas", "title": true})
+        ),
         json!({"error": "argumentos de edit_song que no valen: «title» no vale; «bpm» tiene que ser un numero; «favorite» tiene que ser true o false"})
     );
     assert_eq!(
@@ -36,7 +44,11 @@ fn arguments_like_pydantic() {
         json!({"error": "herramienta desconocida: hacer_cafe"})
     );
     // los números como texto valen, y lo que sobra se ignora
-    let r = run(&app, "transpose_chords", json!({"chords": "G C D", "from_key": "G", "to_key": "A", "x": 1}));
+    let r = run(
+        &app,
+        "transpose_chords",
+        json!({"chords": "G C D", "from_key": "G", "to_key": "A", "x": 1}),
+    );
     assert_eq!(r["chords"], "A D E");
     let r = run(&app, "related_keys", json!({"key": "G"}));
     assert_eq!(r["key"], "G");
@@ -66,19 +78,36 @@ fn empty_library_tools() {
 
 #[test]
 fn the_registry_of_confirmations() {
-    let _one = REGISTRY_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _one = REGISTRY_TESTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let app = crate::tests::app();
-    let made = crate::services::playlists::create(&app, "Domingo", Some(""), Some("")).expect("lista");
+    let made =
+        crate::services::playlists::create(&app, "Domingo", Some(""), Some("")).expect("lista");
     let pid = made["id"].as_i64().expect("id");
-    let first = plan::register(&app, "delete_playlist", &json!({"name": "domingo"}), &Value::Null, &Value::Null, None)
-        .expect("se registra");
+    let first = plan::register(
+        &app,
+        "delete_playlist",
+        &json!({"name": "domingo"}),
+        &Value::Null,
+        &Value::Null,
+        None,
+    )
+    .expect("se registra");
     let id = first["id"].as_str().expect("id").to_owned();
     assert_eq!(id.len(), 12);
     assert_eq!(first["summary"], "Borrar la lista «Domingo» (0 temas)");
     assert_eq!(plan::status(&id)["state"], "live");
     // la segunda de la misma herramienta deja sin valor la primera
-    let second = plan::register(&app, "delete_playlist", &json!({"playlist_id": pid}), &Value::Null, &Value::Null, None)
-        .expect("se registra");
+    let second = plan::register(
+        &app,
+        "delete_playlist",
+        &json!({"playlist_id": pid}),
+        &Value::Null,
+        &Value::Null,
+        None,
+    )
+    .expect("se registra");
     assert_eq!(plan::status(&id)["state"], "superseded");
     let Err(plan::ClaimError::Gone(why)) = plan::claim(&app, &id, None) else {
         panic!("tenía que estar gastada");
@@ -87,16 +116,27 @@ fn the_registry_of_confirmations() {
     let id2 = second["id"].as_str().expect("id").to_owned();
     let entry = plan::claim(&app, &id2, None).expect("se gasta");
     assert_eq!(entry.tool, "delete_playlist");
-    assert_eq!(entry.args, json!({"playlist_id": pid, "name": "Domingo"}).as_object().cloned().unwrap_or_default());
+    assert_eq!(
+        entry.args,
+        json!({"playlist_id": pid, "name": "Domingo"})
+            .as_object()
+            .cloned()
+            .unwrap_or_default()
+    );
     let Err(plan::ClaimError::Gone(why)) = plan::claim(&app, &id2, None) else {
         panic!("UNA sola vez");
     };
     assert_eq!(why, "Esa propuesta ya se atendió.");
     assert_eq!(plan::status("nada")["state"], "unknown");
     // lo que no se puede proponer
-    let Err(plan::RegisterError::Value(why)) =
-        plan::register(&app, "delete_song", &json!({"id": 5}), &Value::Null, &Value::Null, None)
-    else {
+    let Err(plan::RegisterError::Value(why)) = plan::register(
+        &app,
+        "delete_song",
+        &json!({"id": 5}),
+        &Value::Null,
+        &Value::Null,
+        None,
+    ) else {
         panic!("no existe esa canción");
     };
     assert_eq!(why, "no existe esa canción");
@@ -128,20 +168,30 @@ fn the_registry_of_confirmations() {
 #[test]
 fn the_pasted_list_of_the_turn() {
     let pasted = "Para el domingo:\n1. Digno De Adorar\n2. Océanos\n3. Mañana";
-    let msgs: Vec<Dict> = [json!({"role": "user", "text": "verifica esta lista"}), json!({"role": "user", "text": pasted})]
-        .into_iter()
-        .filter_map(|v| v.as_object().cloned())
-        .collect();
+    let msgs: Vec<Dict> = [
+        json!({"role": "user", "text": "verifica esta lista"}),
+        json!({"role": "user", "text": pasted}),
+    ]
+    .into_iter()
+    .filter_map(|v| v.as_object().cloned())
+    .collect();
     let turn = turn_for(&msgs, Some(7));
     let s = turn.setlist.as_ref().expect("lista");
     assert!(turn.fresh);
     assert_eq!(s.items.len(), 3);
     assert_eq!(turn.chat_id, Some(7));
     let note = setlist_note(&turn).expect("nota");
-    assert!(note.starts_with("Nota de la app: la app leyo la lista que acaba de pegar (3 canciones)."));
+    assert!(
+        note.starts_with("Nota de la app: la app leyo la lista que acaba de pegar (3 canciones).")
+    );
     // sin lista en el último mensaje, la última de la conversación
     let mut later = msgs.clone();
-    later.push(json!({"role": "user", "text": "completa lo que puedas"}).as_object().cloned().unwrap_or_default());
+    later.push(
+        json!({"role": "user", "text": "completa lo que puedas"})
+            .as_object()
+            .cloned()
+            .unwrap_or_default(),
+    );
     let turn = turn_for(&later, None);
     assert!(!turn.fresh);
     assert_eq!(turn.setlist.map(|s| s.items.len()), Some(3));
@@ -180,8 +230,12 @@ fn fake_ai(answers: Vec<Value>) -> (String, std::sync::Arc<Mutex<Vec<Value>>>) {
             let mut body = vec![0u8; length];
             let _ = reader.read_exact(&mut body);
             let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-            log.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(request);
-            let message = queue.pop_front().unwrap_or(json!({"content": "(sin guion)"}));
+            log.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(request);
+            let message = queue
+                .pop_front()
+                .unwrap_or(json!({"content": "(sin guion)"}));
             let answer = json!({
                 "choices": [{"message": message}],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 2},
@@ -205,7 +259,10 @@ fn a_whole_turn_against_a_fake_model() {
         json!({"content": "No tienes listas todavía."}),
     ]);
     let profile = json!({"provider": "custom", "name": "Prueba", "base_url": url, "key": "sk-prueba", "model": "rapido", "chat_model": "charla"});
-    let r = crate::handle(&app, &Request::new("POST", "/api/ai/profile").json(&profile));
+    let r = crate::handle(
+        &app,
+        &Request::new("POST", "/api/ai/profile").json(&profile),
+    );
     assert_eq!(r.status, 200);
     let body = json!({"messages": [{"role": "user", "text": "¿qué listas tengo?"}]});
     let r = crate::handle(&app, &Request::new("POST", "/api/chat").json(&body));
@@ -214,9 +271,15 @@ fn a_whole_turn_against_a_fake_model() {
     assert_eq!(v["text"], "No tienes listas todavía.");
     assert_eq!(v["tools"][0]["name"], "list_playlists");
     assert_eq!(v["tools"][0]["summary"], "0 listas");
-    assert_eq!(v["usage"], json!({"calls": 2, "prompt": 20, "completion": 4, "cost": null}));
+    assert_eq!(
+        v["usage"],
+        json!({"calls": 2, "prompt": 20, "completion": 4, "cost": null})
+    );
     assert_eq!(v["via"]["model"], "charla");
-    let seen = seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    let seen = seen
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
     assert_eq!(seen.len(), 2);
     let first = &seen[0];
     assert_eq!(first["model"], "charla");

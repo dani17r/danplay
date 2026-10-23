@@ -27,13 +27,26 @@ pub fn candidates(app: &App) -> Result<Vec<String>, ApiError> {
 /// `convert.convert(path, quality, keep_original)`: el diccionario de
 /// Python (`ok`, `source_path`, `target`, `before`, `after`,
 /// `saved_percent`; o `ok: false` con `reason` y, si se saltó, `skipped`).
-pub fn convert_one(app: &App, path: &Path, quality: &str, keep_original: bool) -> Result<Value, ApiError> {
+pub fn convert_one(
+    app: &App,
+    path: &Path,
+    quality: &str,
+    keep_original: bool,
+) -> Result<Value, ApiError> {
     let Some(ffmpeg) = app.tool("ffmpeg").filter(|_| tools::ffmpeg_available(app)) else {
         return Ok(json!({"ok": false, "reason": "falta ffmpeg"}));
     };
     let never = app.config().never_convert.clone();
     let mut warnings = Warnings::new();
-    let done = convert::convert(&ffmpeg, path, quality, keep_original, None, &never, &mut warnings);
+    let done = convert::convert(
+        &ffmpeg,
+        path,
+        quality,
+        keep_original,
+        None,
+        &never,
+        &mut warnings,
+    );
     log_warnings("danplay.convert", warnings);
     let mut out = Map::new();
     match done? {
@@ -45,7 +58,10 @@ pub fn convert_one(app: &App, path: &Path, quality: &str, keep_original: bool) -
             savings,
         } => {
             out.insert("ok".into(), true.into());
-            out.insert("source_path".into(), src.to_string_lossy().into_owned().into());
+            out.insert(
+                "source_path".into(),
+                src.to_string_lossy().into_owned().into(),
+            );
             out.insert("target".into(), dest.to_string_lossy().into_owned().into());
             out.insert("before".into(), before.into());
             out.insert("after".into(), after.into());

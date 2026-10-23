@@ -71,7 +71,13 @@ impl Kind for LooseText {
             Value::Null | Value::String(_) => Some(v.clone()),
             Value::Number(_) => Some(Value::String(py::str_of(v))),
             _ => {
-                errors.push(error("string_type", loc, "Input should be a valid string", v, None));
+                errors.push(error(
+                    "string_type",
+                    loc,
+                    "Input should be a valid string",
+                    v,
+                    None,
+                ));
                 None
             }
         }
@@ -130,7 +136,11 @@ enum Model {
 /// El modelo de cada herramienta (None si no existe).
 fn model_of(name: &str) -> Option<Model> {
     let with_ref = |more: &[(&'static str, F)]| -> Vec<(&'static str, F)> {
-        PLAYLIST_REF.iter().copied().chain(more.iter().copied()).collect()
+        PLAYLIST_REF
+            .iter()
+            .copied()
+            .chain(more.iter().copied())
+            .collect()
     };
     let fields: Vec<(&'static str, F)> = match name {
         "search_songs" => vec![
@@ -220,7 +230,10 @@ fn validate_args(
             F::Int => Value::from(b.field(key, Int::default()).required()),
             F::Bool(d) => Value::Bool(b.field(key, Bool).or(*d)),
             F::OptBool => b.field(key, Bool).opt().map_or(Value::Null, Value::Bool),
-            F::OptFloat => b.field(key, Float::default()).opt().map_or(Value::Null, Value::from),
+            F::OptFloat => b
+                .field(key, Float::default())
+                .opt()
+                .map_or(Value::Null, Value::from),
             F::Str => Value::String(b.field(key, Str::default()).required()),
             F::Any => b.field(key, Any).or(Value::Null),
         };
@@ -260,7 +273,10 @@ fn alias(name: &str, args: Dict) -> (String, Dict) {
         ),
         "set_favorite" => (
             "edit_song".into(),
-            pair(("id", get("id")), ("favorite", get_or("favorite", json!(true)))),
+            pair(
+                ("id", get("id")),
+                ("favorite", get_or("favorite", json!(true))),
+            ),
         ),
         "play_song" | "play_playlist" => ("play".into(), args),
         "lyrics_by_name" => (
@@ -339,7 +355,11 @@ pub fn confirm(app: &App, tool: &str, args: &Value) -> Value {
     if !NEEDS_CONFIRMATION.contains(&tool) {
         return json!({"ok": false, "error": "eso no necesita confirmacion"});
     }
-    let args = if py::truthy(args) { args.clone() } else { json!({}) };
+    let args = if py::truthy(args) {
+        args.clone()
+    } else {
+        json!({})
+    };
     let result = run_tool(app, tool, &args, &mut Turn::default());
     let failed = result.get("error").filter(|e| py::truthy(e));
     if let Some(e) = failed {
@@ -348,7 +368,9 @@ pub fn confirm(app: &App, tool: &str, args: &Value) -> Value {
     }
     let text = match tool {
         "delete_song" => "Listo, esta en la papelera del sistema.".to_owned(),
-        "delete_playlist" => "Repertorio borrado. Las canciones siguen en tu biblioteca.".to_owned(),
+        "delete_playlist" => {
+            "Repertorio borrado. Las canciones siguen en tu biblioteca.".to_owned()
+        }
         _ => summarize("download_music", &result),
     };
     json!({"ok": true, "result": result, "text": text})
@@ -544,7 +566,12 @@ impl Io for ServerIo<'_> {
     }
 
     fn create(&mut self, name: &str, note: &str) -> R<Value> {
-        Ok(Value::Object(playlists::create(self.app, name, Some(note), Some(""))?))
+        Ok(Value::Object(playlists::create(
+            self.app,
+            name,
+            Some(note),
+            Some(""),
+        )?))
     }
 
     fn add(&mut self, id: &Value, ids: &Value) -> R<Value> {
@@ -557,7 +584,11 @@ impl Io for ServerIo<'_> {
 
     fn set_songs(&mut self, id: &Value, ids: &Value) -> R<Value> {
         let ints = lists::ints(ids);
-        Ok(Value::Object(playlists::set_songs(self.app, py_int(id)?, &ints)?))
+        Ok(Value::Object(playlists::set_songs(
+            self.app,
+            py_int(id)?,
+            &ints,
+        )?))
     }
 
     fn rename(&mut self, id: &Value, name: &Value, note: &Value) -> R<Value> {
@@ -566,7 +597,12 @@ impl Io for ServerIo<'_> {
         };
         let text = |v: &Value| (!v.is_null()).then(|| py::str_of(v));
         let (name, note) = (text(name), text(note));
-        Ok(obj(playlists::edit(self.app, lid, name.as_deref(), note.as_deref())?))
+        Ok(obj(playlists::edit(
+            self.app,
+            lid,
+            name.as_deref(),
+            note.as_deref(),
+        )?))
     }
 
     fn remove(&mut self, id: &Value) -> R<()> {
@@ -595,7 +631,13 @@ impl Io for ServerIo<'_> {
         lookups::lyrics(self.app, artist, title, &json!(""), &json!(0))
     }
 
-    fn lyrics_of(&mut self, artist: &Value, title: &Value, album: &Value, duration: &Value) -> R<Value> {
+    fn lyrics_of(
+        &mut self,
+        artist: &Value,
+        title: &Value,
+        album: &Value,
+        duration: &Value,
+    ) -> R<Value> {
         lookups::lyrics(self.app, artist, title, album, duration)
     }
 
@@ -638,11 +680,17 @@ impl Io for ServerIo<'_> {
             return Ok(json!([]));
         }
         let capo = library::theory::suggested_capo(&key, &library::theory::EASY_SHAPES);
-        Ok(Value::Array(capo.into_iter().map(|(f, s)| json!([f, s])).collect()))
+        Ok(Value::Array(
+            capo.into_iter().map(|(f, s)| json!([f, s])).collect(),
+        ))
     }
 
     fn related_keys(&mut self, key: &Value) -> R<Value> {
-        let key = if py::truthy(key) { py::str_of(key) } else { String::new() };
+        let key = if py::truthy(key) {
+            py::str_of(key)
+        } else {
+            String::new()
+        };
         let Some(r) = library::theory::related_keys(&key) else {
             return Ok(Value::Null);
         };
