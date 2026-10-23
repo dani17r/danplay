@@ -542,11 +542,15 @@ static PREPARED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 /// aplica el esquema y las migraciones una vez por proceso.
 pub fn connect(path: &Path) -> rusqlite::Result<Connection> {
     let key = path.to_string_lossy().into_owned();
-    let ready = PREPARED
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .as_ref()
-        .is_some_and(|s| s.contains(&key));
+    // una base que se borró por fuera (para rehacerla) se prepara otra vez:
+    // si no, la nueva salía vacía y todo fallaba con «no such table»
+    let existed = path.exists();
+    let ready = existed
+        && PREPARED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|s| s.contains(&key));
     if !ready {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -556,7 +560,7 @@ pub fn connect(path: &Path) -> rusqlite::Result<Connection> {
     let conn = super::open(path)?;
     if !ready {
         let mut prepared = PREPARED.lock().unwrap_or_else(PoisonError::into_inner);
-        if !prepared.as_ref().is_some_and(|s| s.contains(&key)) {
+        if !existed || !prepared.as_ref().is_some_and(|s| s.contains(&key)) {
             prepare(&conn)?;
             prepared.get_or_insert_with(HashSet::new).insert(key);
         }

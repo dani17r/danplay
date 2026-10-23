@@ -8,6 +8,8 @@
 )]
 mod ai;
 mod chat;
+mod files;
 mod folders;
+mod guard;
 mod library;
 mod songs;

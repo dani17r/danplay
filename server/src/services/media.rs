@@ -89,6 +89,13 @@ pub fn cached_cover(path: &Path) -> Option<Cover> {
     found
 }
 
+/// Lo que ocupa ahora la caché de carátulas y su tope (para las pruebas).
+#[cfg(test)]
+pub fn cover_cache_bytes() -> (usize, usize) {
+    let cache = COVERS.lock().unwrap_or_else(PoisonError::into_inner);
+    (cache.bytes, COVER_CACHE_MAX_BYTES)
+}
+
 /// `tags.forget_cover(path)`: olvida lo recordado de un archivo (por si se
 /// tocó sin cambiar la fecha).
 pub fn forget_cover(path: &Path) {

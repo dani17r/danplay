@@ -391,3 +391,18 @@ fn serve_ai(
     out.push_str("data: [DONE]\n\n");
     send(&mut stream, 200, "text/event-stream", out.as_bytes());
 }
+
+/// Otra app sobre la misma biblioteca y la misma base que `app`, con esa
+/// guardia (el token de Windows, mirar `Host`): para las pruebas de seguridad.
+pub fn guarded(app: &App, guard: crate::app::Guard) -> App {
+    App::new((*app.config()).clone(), guard)
+}
+
+/// Una petición con esas cabeceras (sin cuerpo).
+pub fn send_with(app: &App, method: &str, path: &str, headers: &[(&str, &str)]) -> Response {
+    let mut req = Request::new(method, path);
+    for (k, v) in headers {
+        req = req.header(k, v);
+    }
+    crate::handle(app, &req)
+}
