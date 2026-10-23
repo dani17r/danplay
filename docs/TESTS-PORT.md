@@ -156,3 +156,25 @@ Python era `with beatgrid._WAKE`) y el grafo de mentira (`set_graph`).
 | `test_the_playlist_songs_index_exists` | `api_tests/index.rs`: `the_playlist_songs_index_exists` |
 | `test_thumbnails_are_pruned_by_the_scan` | `api_tests/index.rs`: `thumbnails_are_pruned_by_the_scan` |
 | `test_the_thumbnail_cache_has_a_cap` | `api_tests/index.rs`: `the_thumbnail_cache_has_a_cap` |
+
+### tests/test_privacy.py (17)
+
+| Python | Rust |
+| --- | --- |
+| `test_the_tests_do_not_touch_the_real_data` | `api_tests/privacy.rs`: `the_tests_do_not_touch_the_real_data` (lo que da `tests::app()`: todo en su temporal, nada en las carpetas de verdad, sin el .env del proyecto) |
+| `test_the_tests_do_not_reach_the_internet` | no se pasa: miraba el corte de red que ponía conftest.py en todo el proceso de Python (un `socket` de mentira). En Rust no hay tal corte: las pruebas no salen porque hablan con servidores en 127.0.0.1 (`FakeAi`) y con programas de mentira (`sh`) |
+| `test_localhost_still_works` | no se pasa: la otra mitad del corte de red de conftest.py (que 127.0.0.1 siguiera abierto). Las de la IA de mentira (`api_tests/ai.rs`, `chat.rs`, `assistant.rs`) ya hablan por 127.0.0.1 |
+| `test_the_data_folders_are_user_only` | `api_tests/privacy.rs`: `the_data_folders_are_user_only` |
+| `test_an_existing_folder_is_locked_down` | `api_tests/privacy.rs`: `an_existing_folder_is_locked_down` |
+| `test_the_db_is_created_and_stays_user_only` | `api_tests/privacy.rs`: `the_db_is_created_and_stays_user_only` |
+| `test_secrets_are_written_atomically_and_privately` | `api_tests/privacy.rs`: `secrets_are_written_atomically_and_privately` |
+| `test_a_failure_midway_leaves_the_previous_file` | `api_tests/privacy.rs`: `a_failure_midway_leaves_the_previous_file` (falla de verdad el cambio de nombre, porque en el sitio hay una carpeta con lo suyo, en vez de un `os.replace` de mentira) |
+| `test_settings_read_back_as_they_were_saved` (9 valores) | `api_tests/privacy.rs`: `settings_read_back_as_they_were_saved` (releído con `library::config::dotenv::parse`, lo que hace python-dotenv) |
+| `test_a_value_with_a_newline_does_not_invent_variables` | `api_tests/privacy.rs`: `a_value_with_a_newline_does_not_invent_variables` |
+| `test_the_migration_from_melodia_respects_xdg` | `api_tests/privacy.rs`: `the_migration_from_melodia_respects_xdg` (el proceso aparte es el mismo programa de pruebas con solo `config_child`, que lee la configuración como al arrancar) |
+| `test_profiles_are_saved_for_the_user_only` | `api_tests/privacy.rs`: `profiles_are_saved_for_the_user_only` |
+| `test_the_saved_key_does_not_travel_to_another_url` | `api_tests/privacy.rs`: `the_saved_key_does_not_travel_to_another_url` |
+| `test_headers_and_extra_go_out_masked_and_come_back_whole` | `api_tests/privacy.rs`: `headers_and_extra_go_out_masked_and_come_back_whole` |
+| `test_a_broken_ai_json_is_set_aside_not_overwritten` | `api_tests/privacy.rs`: `a_broken_ai_json_is_set_aside_not_overwritten` |
+| `test_saving_profiles_at_once_loses_none` | `api_tests/privacy.rs`: `saving_profiles_at_once_loses_none` |
+| `test_folders_set_by_hand_migrate_nothing` | `api_tests/privacy.rs`: `folders_set_by_hand_migrate_nothing` (con `config_child`, como la de melodía) |

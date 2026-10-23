@@ -18,6 +18,7 @@ mod index;
 mod jobs;
 mod journal;
 mod library;
+mod privacy;
 mod sequence;
 mod songs;
 mod stems;
