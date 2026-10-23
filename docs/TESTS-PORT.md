@@ -588,3 +588,27 @@ Rust.
 | `test_rust_leaves_the_db_like_python` | `S` `rust_leaves_the_db_like_python` (las cuatro bases de partida) |
 | `test_an_up_to_date_db_does_not_change` | `S` `an_up_to_date_db_does_not_change` |
 | `test_a_db_from_a_newer_danplay_is_left_alone` | `S` `a_db_from_a_newer_danplay_is_left_alone` (la misma que la de test_schema.py, que mira también que no se aplique nada) |
+
+## tests/test_separation.py
+
+`P` = `analysis/src/separate/tests.rs` (sin ffmpeg, con la red de mentira
+`Identity`); `J` = `analysis/src/separate/process/tests.rs` (el trabajo
+entero, con ffmpeg y canciones de tonos en wav). ONNX Runtime, para el grafo
+de verdad, se busca en `DANPLAY_ONNXRUNTIME`/`ORT_DYLIB_PATH`, en lo que deja
+la compilación en `target/<perfil>/data` o en `desktop/src-tauri/data`
+(`analysis/src/testkit.rs`); sin él, esa prueba lo dice y no comprueba nada.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_the_spectrogram_and_its_inverse_give_back_the_signal` | ya estaba en `P` `spectrogram_and_inverse_give_back_the_signal` |
+| `test_the_pieces_are_joined_back_into_the_whole_song` | ya estaba en `P` `chunks_join_into_the_whole_song` (los tres largos) |
+| `test_a_song_with_an_offset_and_a_loud_mix_comes_back_the_same` | `P` `a_song_with_an_offset_and_a_loud_mix_comes_back_the_same` |
+| `test_it_stops_when_cancelled` | ya estaba en `P` `stops_on_cancel_and_a_join_error_is_not_lost` |
+| `test_a_failure_while_joining_is_not_swallowed` | ya estaba en `P` `stops_on_cancel_and_a_join_error_is_not_lost` |
+| `test_each_track_gets_its_wave_on_a_common_scale` | ya estaba en `P` `each_stem_waveform_shares_one_scale` |
+| `test_safetensors_are_read_without_the_library` | `P` `safetensors_are_read_without_the_library` |
+| `test_the_real_graph_loads_with_weights_laid_out_like_the_official_ones` | `P` `the_real_graph_loads_with_weights_laid_out_like_the_official_ones` (los dos grafos, con ONNX Runtime de verdad; los grafos siguen en `danplay/data/separator`) |
+| `test_what_is_not_in_the_song_is_not_a_track_and_all_add_up_to_the_song` | `J` `what_is_not_in_the_song_is_not_a_track_and_all_add_up_to_the_song` (lo que «contó» va en los `Warning` que recibe quien llama, no en líneas de la salida) |
+| `test_the_improvement_keeps_what_was_decided` | `J` `the_improvement_keeps_what_was_decided` |
+| `test_a_source_that_only_plays_a_moment_stays` | ya estaba en `P` `a_source_heard_only_briefly_is_kept` |
+| `test_the_tracks_can_be_kept_in_opus` | `J` `the_tracks_can_be_kept_in_opus` (si ese ffmpeg sabe hacer Opus) |
