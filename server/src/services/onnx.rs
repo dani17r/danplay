@@ -94,7 +94,10 @@ pub fn library_in(resources: Option<&Path>) -> Option<PathBuf> {
     if let Some(v) = std::env::var_os("VIRTUAL_ENV").filter(|v| !v.is_empty()) {
         venvs.push(PathBuf::from(v));
     }
-    venvs.push(project_root().join(".venv"));
+    // la del entorno de Python del proyecto, solo en desarrollo
+    if !crate::app::frozen() {
+        venvs.push(project_root().join(".venv"));
+    }
     venvs.iter().find_map(|v| in_venv(v))
 }
 

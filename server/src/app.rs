@@ -102,6 +102,22 @@ impl App {
         Self::new(Config::load(frozen(), project_root()), guard)
     }
 
+    /// La app empaquetada (la de escritorio, con el núcleo dentro): la
+    /// configuración del entorno sin mirar el proyecto aunque esté en este
+    /// equipo (ni su .env, ni su danplay.db, ni su `danplay/data`, ni su
+    /// .venv), y los datos que viajan con ella en `resources`. Sin esto, la
+    /// app compilada en el equipo donde está el código se creía en
+    /// desarrollo: el núcleo de Python lo sabía por `sys.frozen`.
+    pub fn packaged(guard: Guard, resources: PathBuf) -> Self {
+        PACKAGED.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(dir) = std::env::var_os("DANPLAY_RESOURCES").filter(|d| !d.is_empty()) {
+            let _ = RESOURCES.set(PathBuf::from(dir));
+        } else {
+            let _ = RESOURCES.set(resources);
+        }
+        Self::from_env(guard)
+    }
+
     /// La configuración de ahora (una copia barata: lo que cambie después no
     /// la toca).
     pub fn config(&self) -> Arc<Config> {
@@ -201,16 +217,23 @@ pub fn path_str(path: &Path) -> String {
     library::py::purepath(&path.to_string_lossy())
 }
 
+/// Lo ha dicho la app empaquetada (`App::packaged`): el proyecto no cuenta.
+static PACKAGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Los datos que viajan con la app empaquetada (`App::packaged`).
+static RESOURCES: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
 /// Si es la app empaquetada (el ejecutable va con sus recursos al lado).
-fn frozen() -> bool {
-    !Path::new(env!("CARGO_MANIFEST_DIR")).is_dir()
+pub fn frozen() -> bool {
+    PACKAGED.load(std::sync::atomic::Ordering::Relaxed)
+        || !Path::new(env!("CARGO_MANIFEST_DIR")).is_dir()
 }
 
 /// La raíz del proyecto en desarrollo (su .env y su danplay.db cuentan como
 /// respaldo, como en config.py), o la carpeta del ejecutable.
 pub fn project_root() -> PathBuf {
     let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    if dev.join("danplay").is_dir() {
+    if !frozen() && dev.join("danplay").is_dir() {
         return PathBuf::from(library::py::normpath(&dev.to_string_lossy()));
     }
     std::env::current_exe()
@@ -222,6 +245,9 @@ pub fn project_root() -> PathBuf {
 /// Dónde están los datos que viajan con la app: `DANPLAY_RESOURCES`, o los
 /// del proyecto (`danplay/data`), o `data/` junto al ejecutable.
 fn resources_dir() -> PathBuf {
+    if let Some(dir) = RESOURCES.get() {
+        return dir.clone();
+    }
     if let Some(dir) = std::env::var_os("DANPLAY_RESOURCES").filter(|d| !d.is_empty()) {
         return PathBuf::from(dir);
     }
