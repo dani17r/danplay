@@ -10,7 +10,10 @@ import json
 import math
 import sys
 import textwrap
+import time
+from collections.abc import Sequence
 
+import api_core
 import numpy as np
 import pytest
 
@@ -164,9 +167,13 @@ def test_the_one_stays_put_unless_the_song_says_otherwise():
 
 FAKE = textwrap.dedent(
     """
-    import json, sys
+    import json, os, sys
     import numpy as np
     graph, ffmpeg, path = sys.argv[1:4]
+    # cada vez que se le llama, una linea (la prueba cuenta las llamadas, la
+    # lance el nucleo de Python o el de Rust)
+    with open(os.environ["DANPLAY_PULSE_CALLS"], "a", encoding="utf-8") as f:
+        f.write(path + "\\n")
     # como el de verdad: el avance, una linea cada vez, antes de la respuesta
     print(json.dumps({"progress": 0.5}), flush=True)
     if path.endswith("sin-pulso.mp3"):
@@ -195,6 +202,31 @@ FAKE = textwrap.dedent(
 )
 
 
+class _Calls(Sequence):
+    """Las canciones con que se llamo al detector de mentira, en orden: las
+    apunta el propio detector en un archivo, porque con el nucleo de Rust lo
+    lanza otro proceso."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def _lines(self):
+        if not self.path.exists():
+            return []
+        return self.path.read_text(encoding="utf-8").splitlines()
+
+    def __len__(self):
+        return len(self._lines())
+
+    def __getitem__(self, i):
+        return self._lines()[i]
+
+    def __eq__(self, other):
+        return self._lines() == list(other)
+
+    __hash__ = None
+
+
 @pytest.fixture
 def detector(tmp_path, monkeypatch):
     from danplay import beatgrid, config
@@ -202,16 +234,19 @@ def detector(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path / "datos")
     fake = tmp_path / "detector.py"
     fake.write_text(FAKE, encoding="utf-8")
-    calls = []
+    calls = tmp_path / "llamadas.txt"
+    monkeypatch.setenv("DANPLAY_PULSE_CALLS", str(calls))
 
     def command(path, raw=None):
-        calls.append(path)
         return [sys.executable, str(fake), "grafo", "ffmpeg", path, *([str(raw)] if raw else [])]
 
     monkeypatch.setattr(beatgrid, "_command", command)
     monkeypatch.setattr(beatgrid, "available", lambda: "")
+    # el nucleo de Rust, que corre aparte, lo recibe por el entorno (le añade
+    # grafo, ffmpeg, la cancion y lo crudo, como `_command`)
+    monkeypatch.setenv("DANPLAY_PULSE_DETECTOR", json.dumps([sys.executable, str(fake)]))
     beatgrid._reset()
-    yield calls
+    yield _Calls(calls)
     assert beatgrid.idle(), "la cola de rejillas se quedo trabajando"
     beatgrid._reset()
 
@@ -360,9 +395,8 @@ def test_writing_a_tag_keeps_what_was_worked_out_from_the_sound(synthetic_librar
     assert not beatgrid.retag(str(songs["tierra"]), before, after)
 
 
-@pytest.mark.python_core("el detector de pulso de mentira sustituye beatgrid._command")
 def test_the_api_gives_the_grid_or_says_it_cannot(
-    configured_library, detector, monkeypatch, connect_api
+    configured_library, detector, monkeypatch, connect_api, tmp_path
 ):
     from danplay import beatgrid, library
 
@@ -378,14 +412,33 @@ def test_the_api_gives_the_grid_or_says_it_cannot(
     # sin detector aqui, y sin nada guardado para otra cancion: 503
     other = library.search("", limit=2)[1]
     monkeypatch.setattr(beatgrid, "available", lambda: "falta el detector de pulso")
+    # (al de Rust, sin los datos que viajan con la app: sin el grafo)
+    monkeypatch.setenv("DANPLAY_RESOURCES", str(tmp_path / "sin-datos"))
     assert client.get(f"/api/song/{other['id']}/beats").status_code == 503
     # lo ya guardado sigue saliendo
     assert client.get(f"/api/song/{song_row['id']}/beats").status_code == 200
 
 
-@pytest.mark.python_core("el detector de pulso de mentira sustituye beatgrid._command")
+def _queue_done(client, ids):
+    """Que la cola de rejillas acabe: la de Python se mira por dentro; la del
+    nucleo de Rust, preguntando hasta que ninguna siga pendiente."""
+    from danplay import beatgrid
+
+    if not api_core.RUST:
+        return beatgrid.idle()
+    limit = time.monotonic() + 30
+    while time.monotonic() < limit:
+        if all(
+            client.get(f"/api/song/{cid}/beats", params={"wait": "false"}).status_code != 202
+            for cid in ids
+        ):
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def test_the_api_without_waiting_and_preparing_the_next(configured_library, detector, connect_api):
-    from danplay import beatgrid, library
+    from danplay import library
 
     root, _ = configured_library
     library.add_folder(root)
@@ -396,7 +449,7 @@ def test_the_api_without_waiting_and_preparing_the_next(configured_library, dete
     assert r.status_code == 202 and r.json()["pending"] is True
     assert 0 <= r.json()["progress"] <= 1
     assert client.post(f"/api/song/{second['id']}/beats/prepare").json() == {"queued": True}
-    assert beatgrid.idle()
+    assert _queue_done(client, [first["id"], second["id"]])
     r = client.get(f"/api/song/{first['id']}/beats", params={"wait": "false"})
     assert r.status_code == 200 and r.json()["meter"] == 4
     r = client.get(f"/api/song/{second['id']}/beats", params={"wait": "false"})
@@ -515,7 +568,6 @@ def test_changes_counts_places_not_beats():
     assert beatgrid.changes(both, beats) == 2
 
 
-@pytest.mark.python_core("el detector de pulso de mentira sustituye beatgrid._command")
 def test_the_api_reanalyses(configured_library, detector, connect_api):
     from danplay import library
 

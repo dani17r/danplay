@@ -232,13 +232,25 @@ fn weights_path(app: &App, p: &Part) -> PathBuf {
 
 /// Los pesos de esa parte ya están bajados (y enteros).
 fn installed(app: &App, p: &Part) -> bool {
-    app.separator.fake.load(Ordering::SeqCst)
-        || std::fs::metadata(weights_path(app, p)).is_ok_and(|m| m.len() == p.bytes)
+    faked(app) || std::fs::metadata(weights_path(app, p)).is_ok_and(|m| m.len() == p.bytes)
+}
+
+/// Un separador de mentira desde fuera del proceso: `DANPLAY_SEPARATE_COMMAND`
+/// (una lista JSON, a la que se añade TRABAJO.json), como hacen las pruebas
+/// de la API de Python contra este núcleo. Con él, todo está «instalado».
+fn env_command() -> Option<Vec<OsString>> {
+    let raw = std::env::var("DANPLAY_SEPARATE_COMMAND").ok()?;
+    let command: Vec<String> = serde_json::from_str(&raw).ok()?;
+    (!command.is_empty()).then(|| command.into_iter().map(OsString::from).collect())
+}
+
+fn faked(app: &App) -> bool {
+    app.separator.fake.load(Ordering::SeqCst) || env_command().is_some()
 }
 
 /// Por qué no se puede separar en este equipo, o vacío si se puede.
 pub fn missing(app: &App) -> String {
-    if app.separator.fake.load(Ordering::SeqCst) {
+    if faked(app) {
         return String::new();
     }
     let reason = onnx::missing(app);
@@ -603,15 +615,18 @@ pub(crate) fn copy_with_time(from: &Path, to: &Path) -> std::io::Result<()> {
 
 /// El proceso que separa: el propio ejecutable con `--separate`.
 fn command(app: &App, job_file: &Path) -> Vec<OsString> {
-    let mut cmd = lock(&app.separator.command).clone().unwrap_or_else(|| {
-        vec![
-            std::env::current_exe().map_or_else(
-                |_| OsString::from("danplay-server"),
-                PathBuf::into_os_string,
-            ),
-            crate::services::separation::FLAG.into(),
-        ]
-    });
+    let mut cmd = lock(&app.separator.command)
+        .clone()
+        .or_else(env_command)
+        .unwrap_or_else(|| {
+            vec![
+                std::env::current_exe().map_or_else(
+                    |_| OsString::from("danplay-server"),
+                    PathBuf::into_os_string,
+                ),
+                crate::services::separation::FLAG.into(),
+            ]
+        });
     cmd.push(job_file.as_os_str().to_owned());
     cmd
 }

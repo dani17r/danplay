@@ -92,6 +92,9 @@ def lib(configured_library, tmp_path, monkeypatch):
     engine.write_text(FAKE_ENGINE, encoding="utf-8")
     monkeypatch.setattr(stems, "_command", lambda job_file: [sys.executable, str(engine), job_file])
     monkeypatch.setattr(stems, "installed", lambda part: True)
+    # el nucleo de Rust, que corre aparte, lo recibe por el entorno (le añade
+    # el trabajo, como `_command`; con el, todo esta instalado)
+    monkeypatch.setenv("DANPLAY_SEPARATE_COMMAND", json.dumps([sys.executable, str(engine)]))
     monkeypatch.setattr(config, "STEMS_FORMAT", "flac")
     root, songs = configured_library
     library.add_folder(root)
@@ -858,7 +861,6 @@ def test_a_whole_set_goes_and_the_ones_without_parts_say_why(lib, monkeypatch, c
 # ------------------------------------------------------------------ la API
 
 
-@pytest.mark.python_core("el separador de mentira sustituye stems._command y stems.installed")
 def test_the_api_separates_lists_and_deletes_stems(lib, monkeypatch, connect_api):
     from danplay import library
 
