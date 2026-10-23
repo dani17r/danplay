@@ -4,6 +4,10 @@
 #   ./scripts/test.sh          todo, incluidas las e2e (Chrome) y la de humo
 #                              (que arranca la app compilada de verdad)
 #   ./scripts/test.sh --quick  sin las e2e ni la de humo
+#   ./scripts/test.sh api      solo las pruebas de la API de Python, contra
+#                              el nucleo de Rust (DANPLAY_API_CORE=rust; el
+#                              danplay-server de DANPLAY_SERVER_BIN, o lo
+#                              compila: ver tests/api_core.py)
 set -u
 cd "$(dirname "$0")/.."
 LOGS=$(mktemp -d)
@@ -27,6 +31,20 @@ run_check () {
 }
 # las herramientas de Python, las del .venv del proyecto
 py () { tool=$1; shift; ".venv/bin/$tool" "$@"; }
+
+if [ "${1:-}" = "api" ]; then
+    section "la API de Python contra el nucleo de Rust"
+    if [ -z "${DANPLAY_SERVER_BIN:-}" ]; then
+        run_check servidor cargo build -p danplay-server
+    fi
+    # en modo Rust solo se recogen las que hablan con la API; test_api.py
+    # va entero en un proceso, asi que con tres sobra
+    export DANPLAY_API_CORE=rust
+    run_check api-rust py python -m pytest --no-header --no-cov -n 3 --dist loadgroup
+    echo
+    [ "$failed" = "0" ] && echo "TODO CORRECTO" || echo "HAY FALLOS"
+    exit "$failed"
+fi
 
 section "nucleo Python"
 run_check ruff        py ruff check .

@@ -129,10 +129,44 @@ socket.socket.connect_ex = _connect_ex
 socket.getaddrinfo = _getaddrinfo
 
 # --------------------------------------------------------------- fixtures
+import api_core  # noqa: E402  (tests/api_core.py: el núcleo de la API, Python o Rust)
 import pytest  # noqa: E402  (despues del aislamiento a proposito)
+
+if api_core.RUST:
+    api_core.remember_baseline()
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "python_core(why): la prueba mira dentro del núcleo de Python (sustituye "
+        "funciones de danplay.*, lee su estado en memoria...); con "
+        "DANPLAY_API_CORE=rust se salta, diciendo por qué",
+    )
+
+
+def _only_the_api(config, items):
+    """Con DANPLAY_API_CORE=rust, solo las pruebas que hablan con la API (las
+    que piden `connect_api`), y sin las que necesitan el núcleo de Python."""
+    keep = [it for it in items if "connect_api" in it.fixturenames]
+    dropped = [it for it in items if "connect_api" not in it.fixturenames]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+        items[:] = keep
+    for item in items:
+        mark = item.get_closest_marker("python_core")
+        if mark is not None:
+            why = mark.args[0] if mark.args else "mira dentro del núcleo de Python"
+            item.add_marker(pytest.mark.skip(reason=f"núcleo de Python: {why}"))
 
 
 def pytest_collection_modifyitems(config, items):
+    if api_core.RUST:
+        _only_the_api(config, items)
+    _shard(config, items)
+
+
+def _shard(config, items):
     """Con `DANPLAY_SHARD=k/n`, solo la parte k de n: la CI de Windows reparte
     las pruebas entre varias maquinas a la vez. Por archivos enteros, y por
     lo que tarda cada uno EN WINDOWS (tests/durations.json, sacado del
@@ -360,3 +394,70 @@ def _nothing_left_in_the_background():
     reuse = sys.modules.get("danplay.reuse")
     if reuse is not None:
         assert reuse.idle(120), "lo de aprovechar se quedo trabajando"
+
+
+# ----------------------------------------------------- el núcleo de la API
+@pytest.fixture(scope="session")
+def connect_api():
+    """Lo que abre un cliente de la API (`connect_api()`, con los argumentos
+    del `TestClient`): el de FastAPI de siempre o, con DANPLAY_API_CORE=rust,
+    el servidor de Rust con la configuración de Python de ese momento (ver
+    tests/api_core.py). Pedirlo es lo que marca una prueba como «de la API»."""
+    return api_core.connect
+
+
+@pytest.fixture
+def fake_ai(monkeypatch):
+    """Pone una IA de mentira: `fake_ai(client, at="localhost:11434")`, con
+    `client` con la forma del SDK de OpenAI. El núcleo de Python la recibe en
+    lugar de su cliente (`ai._get_client`, `ai._build_client`); el de Rust la
+    encuentra por HTTP en `at`, el «host:puerto» de la URL de su proveedor
+    (ver `api_core.FakeAI`)."""
+    made = []
+
+    def use(client, at):
+        from danplay import ai
+
+        monkeypatch.setattr(ai, "_get_client", lambda: client)
+        monkeypatch.setattr(ai, "_build_client", lambda p: client)
+        if api_core.RUST:
+            made.append(api_core.FakeAI(client, at))
+
+    yield use
+    for fake in made:
+        fake.close()
+
+
+@pytest.fixture(autouse=True)
+def _rust_servers_of_the_test():
+    """Los servidores de Rust que abrió una prueba se cierran con ella (los
+    de un fixture de módulo, como el `client` de test_api.py, ya estaban)."""
+    if not api_core.RUST:
+        yield
+        return
+    before = api_core.live()
+    yield
+    api_core.close_all(keep=before)
+
+
+if api_core.RUST:
+    _QUIET: list[str] = []
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_runtest_call(item):
+        before = api_core.REQUESTS
+        try:
+            return (yield)
+        finally:
+            item.user_properties.append(("rust_requests", api_core.REQUESTS - before))
+
+    def pytest_runtest_logreport(report):
+        sent = dict(report.user_properties).get("rust_requests")
+        if report.when == "call" and report.passed and sent == 0:
+            _QUIET.append(report.nodeid)
+
+    def pytest_terminal_summary(terminalreporter):
+        if _QUIET:
+            terminalreporter.section("pasaron sin hablar con el servidor de Rust")
+            for nodeid in _QUIET:
+                terminalreporter.line(nodeid)

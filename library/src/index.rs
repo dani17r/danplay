@@ -145,9 +145,15 @@ pub fn now() -> f64 {
 /// confirma quien abrió la conexión (al salir del `with`, o con `commit`):
 /// así lo que hace una función de aquí y lo que hace Python a su alrededor
 /// van juntos, y se deshacen juntos si algo falla.
+///
+/// `IMMEDIATE`: el turno de escribir se toma al abrirla (esperando, como
+/// mucho, el `busy_timeout`). Con un `BEGIN` a secas, quien leía antes de
+/// escribir (el escaneo: `next_song_id`) no podía escribir si otro lo hacía
+/// entre medias, y SQLite contestaba «database is locked» al momento, sin
+/// esperar; la transacción quedaba así y fallaba el resto de la tanda.
 pub fn begin(conn: &Connection) -> rusqlite::Result<()> {
     if conn.is_autocommit() {
-        conn.execute_batch("BEGIN")?;
+        conn.execute_batch("BEGIN IMMEDIATE")?;
     }
     Ok(())
 }
@@ -348,6 +354,35 @@ pub fn stats(conn: &Connection, db: &str, rev: u64) -> rusqlite::Result<Dict> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Quien lee y luego escribe en su transacción no se queda sin poder
+    /// escribir porque otro escribió entre medias: la otra conexión espera
+    /// su turno (y, sin espera, no lo consigue).
+    #[test]
+    fn a_write_transaction_takes_its_turn_at_once() {
+        let dir = std::env::temp_dir().join(format!("danplay-turno-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("carpeta temporal");
+        let db = dir.join("prueba.db");
+        let a = open(&db).expect("abrir");
+        a.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE t (x INTEGER);")
+            .expect("tabla");
+        let b = open(&db).expect("abrir otra");
+        b.busy_timeout(Duration::ZERO).expect("sin espera");
+        begin(&a).expect("begin");
+        let n: i64 = a
+            .query_row("SELECT COUNT(*) FROM t", [], |r| r.get(0))
+            .expect("leer");
+        assert_eq!(n, 0);
+        assert!(
+            b.execute("INSERT INTO t VALUES (1)", []).is_err(),
+            "la otra conexión no se cuela"
+        );
+        a.execute("INSERT INTO t VALUES (2)", []).expect("escribir tras leer");
+        a.execute_batch("COMMIT").expect("commit");
+        b.execute("INSERT INTO t VALUES (3)", []).expect("ahora sí");
+        drop((a, b));
+        std::fs::remove_dir_all(&dir).expect("borrar");
+    }
 
     #[test]
     fn has_full_text_search() {

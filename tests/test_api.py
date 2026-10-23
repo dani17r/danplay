@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 
+import api_core
 import pytest
 from conftest import run_job
 
@@ -60,9 +61,10 @@ def _copy_library(lib):
 
 
 @pytest.fixture(scope="module")
-def client():
-    from fastapi.testclient import TestClient
-
+def api_library():
+    """La biblioteca de prueba, apuntada en `config` con su propia base. Las
+    pruebas que solo la necesitan a ella (las del asistente y del índice de
+    Python por dentro) la piden sin el cliente: no hablan con la API."""
     from danplay import config
 
     if not shutil.which("ffmpeg") and not SOURCE:
@@ -83,16 +85,21 @@ def client():
     config.REVIEW_DIR = config.LIBRARY / "Revisar"
     config.DATABASE = pathlib.Path(tmp) / "prueba.db"
 
-    from danplay import api as A
     from danplay import library as B
 
     B.add_folder(lib, "prueba")
     B.scan()
-    c = TestClient(A.app)
-    yield c
+    yield lib
     for k, v in before.items():
         setattr(config, k, v)
     shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.fixture(scope="module")
+def client(api_library, connect_api):
+    c = connect_api()
+    yield c
+    c.close()
 
 
 def test_status(client):
@@ -260,6 +267,7 @@ def test_settings_round_trip(client):
     client.post("/api/settings", json={"convert_mp3": original})
 
 
+@pytest.mark.python_core("mira config.STEMS_FORMAT en la memoria de Python (y le quita save_env)")
 def test_the_stems_format_is_a_setting(client, monkeypatch):
     from danplay import config
 
@@ -355,6 +363,9 @@ def test_ai_profile_save_activate_and_delete(client, ai_profiles):
     assert client.post("/api/ai/profile", json={"provider": "openai", "raro": 1}).status_code == 422
 
 
+@pytest.mark.python_core(
+    "la IA de mentira sustituye ai._build_client: OpenAI va por https y no admite otra"
+)
 def test_ai_check_and_models_with_a_fake_provider(client, ai_profiles, monkeypatch):
     from danplay import ai
 
@@ -414,12 +425,12 @@ def test_ai_check_and_models_with_a_fake_provider(client, ai_profiles, monkeypat
     assert client.post("/api/ai/models", json={"provider": "custom"}).json()["ok"] is False
 
 
-def test_chat_start_poll_and_cancel(client, ai_profiles, monkeypatch):
+def test_chat_start_poll_and_cancel(client, ai_profiles, fake_ai):
     """El chat en vivo: se arranca, se pregunta y llega el mismo resultado que
     da /api/chat, con las herramientas segun terminan."""
     import time as _t
 
-    from danplay import ai, providers
+    from danplay import providers
 
     providers.save_profile({"provider": "ollama", "model": "m", "chat_model": "m"})
 
@@ -442,8 +453,7 @@ def test_chat_start_poll_and_cancel(client, ai_profiles, monkeypatch):
                         "r", (), {"choices": [type("c", (), {"message": turns.pop(0)})()]}
                     )()
 
-    monkeypatch.setattr(ai, "_get_client", lambda: _Fake())
-    monkeypatch.setattr(ai, "_build_client", lambda p: _Fake())
+    fake_ai(_Fake(), at="localhost:11434")  # donde espera ollama
 
     r = client.post(
         "/api/chat/start",
@@ -787,6 +797,7 @@ def test_playlist_sheet_is_written_in_the_playlists_folder(client):
         playlists.remove(made["id"])
 
 
+@pytest.mark.python_core("la IA de mentira sustituye ai._build_client: las gratuitas van por https")
 def test_ai_free_activates_a_keyless_provider(client, ai_profiles, monkeypatch):
     from danplay import ai
 
@@ -982,7 +993,7 @@ def test_chat_requires_messages(client):
     assert client.post("/api/chat", json={"messages": []}).status_code == 400
 
 
-def test_chat_search_tool(client):
+def test_chat_search_tool(api_library):
     from danplay import chat as CH
 
     r = CH.run_tool("search_songs", {"query": "artista:barak", "limit": 5})
@@ -990,7 +1001,7 @@ def test_chat_search_tool(client):
     assert all("id" in c and "title" in c for c in r["songs"])
 
 
-def test_chat_create_playlist_tool(client):
+def test_chat_create_playlist_tool(api_library):
     from danplay import chat as CH
     from danplay import playlists as L
 
@@ -1001,14 +1012,14 @@ def test_chat_create_playlist_tool(client):
     L.remove(r["playlist_id"])
 
 
-def test_chat_transpose_tool(client):
+def test_chat_transpose_tool(api_library):
     from danplay import chat as CH
 
     r = CH.run_tool("transpose_chords", {"chords": "| Bb | Gm7 |", "from_key": "Bb", "to_key": "G"})
     assert r["chords"] == "| G | Em7 |"
 
 
-def test_chat_chords_tool_says_where_they_come_from(client, monkeypatch):
+def test_chat_chords_tool_says_where_they_come_from(api_library, monkeypatch):
     from danplay import chat as CH
     from danplay import chord_sheets, library
 
@@ -1040,6 +1051,9 @@ def test_chat_chords_tool_says_where_they_come_from(client, monkeypatch):
     library.update(c["id"], chords="")
 
 
+@pytest.mark.python_core(
+    "los cifrados de mentira sustituyen chord_sheets.find (los de verdad salen de internet)"
+)
 def test_chords_endpoints(client, monkeypatch):
     from danplay import chord_sheets, library
 
@@ -1075,13 +1089,13 @@ def test_chords_endpoints(client, monkeypatch):
     library.update(c["id"], chords="")
 
 
-def test_unknown_tool_does_not_blow_up(client):
+def test_unknown_tool_does_not_blow_up(api_library):
     from danplay import chat as CH
 
     assert "error" in CH.run_tool("herramienta_que_no_existe", {"url": "x"})
 
 
-def test_download_without_items_skips_network(client):
+def test_download_without_items_skips_network(api_library):
     """El caso vacio se corta antes de salir a internet."""
     from danplay import chat as CH
     from danplay import youtube as YT
@@ -1091,7 +1105,7 @@ def test_download_without_items_skips_network(client):
     assert not YT.STATE["active"], "no deberia haber arrancado ninguna descarga"
 
 
-def test_system_prompt_only_talks_music(client):
+def test_system_prompt_only_talks_music(api_library):
     """Lo que no es musica se rechaza; es el limite que pidio el usuario."""
     from danplay import chat as CH
 
@@ -1102,7 +1116,7 @@ def test_system_prompt_only_talks_music(client):
     assert any(x in s for x in ("politica", "guerras", "deportes"))
 
 
-def test_system_prompt_never_downloads_alone(client):
+def test_system_prompt_never_downloads_alone(api_library):
     """Puede descargar, pero solo si se lo piden: 'que no haga mas de la cuenta'."""
     from danplay import chat as CH
 
@@ -1133,7 +1147,7 @@ def test_the_control_tools_are_declared(client):
         assert n in names, f"al asistente le falta {n}"
 
 
-def test_play_returns_a_command_for_the_app(client):
+def test_play_returns_a_command_for_the_app(api_library):
     from danplay import chat, library
 
     cid = library.search("", limit=1)[0]["id"]
@@ -1145,13 +1159,13 @@ def test_play_returns_a_command_for_the_app(client):
     assert "error" in chat.run_tool("play", {"name": "no existe esta lista"})
 
 
-def test_playing_something_missing_does_not_crash(client):
+def test_playing_something_missing_does_not_crash(api_library):
     from danplay import chat
 
     assert "error" in chat.run_tool("play_song", {"id": 999999})
 
 
-def test_player_control_validates_the_command(client):
+def test_player_control_validates_the_command(api_library):
     from danplay import chat
 
     assert chat.run_tool("player_control", {"command": "next"})["action"] == {
@@ -1161,7 +1175,7 @@ def test_player_control_validates_the_command(client):
     assert "error" in chat.run_tool("player_control", {"command": "bailar"})
 
 
-def test_the_assistant_rates_and_marks_favorite(client):
+def test_the_assistant_rates_and_marks_favorite(api_library):
     from danplay import chat, library
 
     cid = library.search("", limit=1)[0]["id"]
@@ -1182,7 +1196,7 @@ def test_the_assistant_rates_and_marks_favorite(client):
     )
 
 
-def test_the_assistant_edits_song_data(client):
+def test_the_assistant_edits_song_data(api_library):
     from danplay import chat, library
 
     cid = library.search("", limit=1)[0]["id"]
@@ -1193,7 +1207,7 @@ def test_the_assistant_edits_song_data(client):
     assert "error" in chat.run_tool("edit_song", {"id": cid})
 
 
-def test_downloads_enter_the_index_without_rescanning(client):
+def test_downloads_enter_the_index_without_rescanning(api_library):
     """El archivo llegaba a Artistas/ pero no al indice: no salia en la app."""
     import shutil
 
@@ -1210,7 +1224,7 @@ def test_downloads_enter_the_index_without_rescanning(client):
     dest.unlink()
 
 
-def test_indexing_outside_the_folders_does_nothing(client):
+def test_indexing_outside_the_folders_does_nothing(api_library):
     from danplay import library
 
     assert library.index_file("/tmp/no-existe-esto.mp3") is None
@@ -1222,7 +1236,7 @@ def test_indexing_outside_the_folders_does_nothing(client):
 # no la toca.
 
 
-def test_history_starts_empty_and_accepts_entries(client):
+def test_history_starts_empty_and_accepts_entries(api_library):
     from danplay import library
 
     library.clear_download_history()
@@ -1231,7 +1245,7 @@ def test_history_starts_empty_and_accepts_entries(client):
     assert library.download_count() == 1
 
 
-def test_tells_who_asked_for_the_download(client):
+def test_tells_who_asked_for_the_download(api_library):
     from danplay import library
 
     library.clear_download_history()
@@ -1241,7 +1255,7 @@ def test_tells_who_asked_for_the_download(client):
     assert sources == {"manual", "assistant"}
 
 
-def test_stores_the_three_outcomes(client):
+def test_stores_the_three_outcomes(api_library):
     from danplay import library
 
     library.clear_download_history()
@@ -1254,7 +1268,7 @@ def test_stores_the_three_outcomes(client):
     assert h["mal"]["ok"] == 0 and h["mal"]["reason"] == "no disponible"
 
 
-def test_history_comes_out_newest_first(client):
+def test_history_comes_out_newest_first(api_library):
     from danplay import library
 
     library.clear_download_history()
@@ -1263,7 +1277,7 @@ def test_history_comes_out_newest_first(client):
     assert [h["title"] for h in library.download_history()] == ["nueva", "media", "vieja"]
 
 
-def test_the_scan_does_not_erase_the_history(client):
+def test_the_scan_does_not_erase_the_history(api_library):
     """El indice se reconstruye desde los archivos; el historial no es del mp3."""
     from danplay import library
 
@@ -1457,6 +1471,9 @@ def test_the_interface_sends_the_body_fields_the_api_reads(client):
     r = client.delete(f"/api/folders?path={path}")
     assert r.status_code == 200, r.text
     client.post("/api/folders", json={"path": path, "label": "prueba"})
+    # y la biblioteca, como estaba: al quitar la carpeta sus canciones salen
+    # del indice, y las de despues cuentan con ellas
+    run_job(client, "/api/scan", "scan")
 
     # exclusiones: la app manda ?pattern=
     client.post("/api/exclusions", json={"pattern": "Prueba", "kind": "glob"})
@@ -1465,7 +1482,7 @@ def test_the_interface_sends_the_body_fields_the_api_reads(client):
     assert "Prueba" not in [e["pattern"] for e in r.json()["exclusions"]]
 
 
-def test_rescanning_reuses_files_that_have_not_changed(client):
+def test_rescanning_reuses_files_that_have_not_changed(api_library):
     """Un reescaneo no vuelve a abrir los archivos que siguen igual.
 
     Y tiene que dejar el indice EXACTAMENTE igual que un escaneo completo:
@@ -1722,7 +1739,6 @@ def test_in_browser_mode_a_plain_post_is_refused(client):
     a /api/scan desde cualquier pestaña abierta arrancaba un escaneo.
     """
     from danplay import api as A
-    from danplay.api import jobs as jobs_mod
 
     A._ENFORCE_HOST = True
     local = {"Host": "localhost"}  # el TestClient manda «testserver»
@@ -1731,7 +1747,7 @@ def test_in_browser_mode_a_plain_post_is_refused(client):
         assert client.post("/api/scan", headers=local).status_code == 403
         r = client.post("/api/scan", headers=mine)
         assert r.status_code == 202
-        jobs_mod.wait("scan")
+        api_core.wait_job(client, "scan", headers=mine)
         # tambien los GET: hay lecturas con efectos (la ficha de IA gasta)
         assert client.get("/api/status", headers=local).status_code == 403
         assert client.get("/api/status", headers=mine).status_code == 200
@@ -1958,6 +1974,7 @@ def _wait_until_done(timeout=3.0):
     assert not youtube.STATE["active"], "la descarga no ha soltado el turno"
 
 
+@pytest.mark.python_core("la descarga de mentira sustituye youtube.download y mira youtube.STATE")
 def test_download_button_downloads_and_releases_the_lock(client, download_calls):
     from danplay import youtube
 
@@ -1975,6 +1992,7 @@ def test_download_button_downloads_and_releases_the_lock(client, download_calls)
     assert len(download_calls) == 2
 
 
+@pytest.mark.python_core("coge el turno de las descargas de Python (youtube.claim)")
 def test_two_downloads_at_once_are_not_allowed(client, download_calls):
     from danplay import youtube
 
@@ -1991,6 +2009,7 @@ def test_two_downloads_at_once_are_not_allowed(client, download_calls):
     assert not download_calls, "no deberia haber descargado nada"
 
 
+@pytest.mark.python_core("la descarga de mentira sustituye youtube.download y mira youtube.STATE")
 def test_confirming_an_assistant_download_starts_with_its_args(client, download_calls):
     """Los argumentos son los de la herramienta: `items` y `force`, no `query`.
 
@@ -2032,6 +2051,7 @@ def test_confirm_with_nothing_to_download_is_a_clear_400(client, download_calls)
     assert not download_calls
 
 
+@pytest.mark.python_core("la descarga de mentira sustituye youtube.download y mira youtube.STATE")
 def test_confirm_also_accepts_a_bare_query(client, download_calls):
     """Por si el modelo manda `query` en vez de `items`: se baja igual."""
     r = client.post("/api/chat/confirm", json={"tool": "download_music", "args": {"query": "algo"}})
@@ -2072,7 +2092,7 @@ def test_confirm_dialog_says_what_will_be_downloaded():
 # repertorio id 1 —«domingo»— creyendo que era «Herlin».
 
 
-def _ids(client, n=3):
+def _ids(n=3):
     from danplay import library
 
     return [c["id"] for c in library.search("", limit=n)]
@@ -2086,11 +2106,11 @@ def _remove_playlists(*names):
             playlists.remove(l["id"])
 
 
-def test_a_made_up_id_enters_no_playlist(client):
+def test_a_made_up_id_enters_no_playlist(api_library):
     from danplay import chat, playlists
 
     _remove_playlists("Inventada")
-    ids = _ids(client, 2)
+    ids = _ids(2)
     r = chat.run_tool("create_playlist", {"name": "Inventada", "ids": [*ids, 999999]})
     assert "error" in r and "999999" in r["error"]
     assert "search_songs" in r["error"], "tiene que decirle de donde salen los ids"
@@ -2104,11 +2124,11 @@ def test_a_made_up_id_enters_no_playlist(client):
     _remove_playlists("Inventada")
 
 
-def test_creating_a_playlist_returns_what_really_went_in(client):
+def test_creating_a_playlist_returns_what_really_went_in(api_library):
     from danplay import chat
 
     _remove_playlists("Con nombres")
-    ids = _ids(client, 2)
+    ids = _ids(2)
     r = chat.run_tool("create_playlist", {"name": "Con nombres", "ids": ids})
     assert r["added"] == 2 and r["created"] is True
     assert [c["id"] for c in r["songs"]] == ids, "cuenta que canciones son, no solo cuantas"
@@ -2119,13 +2139,13 @@ def test_creating_a_playlist_returns_what_really_went_in(client):
     _remove_playlists("Con nombres")
 
 
-def test_playlists_are_referred_to_by_their_name(client):
+def test_playlists_are_referred_to_by_their_name(api_library):
     from danplay import chat, playlists
 
     _remove_playlists("Herlin", "domingo")
     a = playlists.create("domingo")["id"]
     b = playlists.create("Herlin")["id"]
-    ids = _ids(client, 3)
+    ids = _ids(3)
     playlists.add(a, ids[:2])
     # ver: por nombre, sin distinguir mayusculas ni tildes
     r = chat.run_tool("playlist_songs", {"name": "herlín"})
@@ -2143,11 +2163,11 @@ def test_playlists_are_referred_to_by_their_name(client):
     _remove_playlists("domingo")
 
 
-def test_fixing_a_playlist_leaves_it_exactly_as_asked(client):
+def test_fixing_a_playlist_leaves_it_exactly_as_asked(api_library):
     from danplay import chat, playlists
 
     _remove_playlists("Arreglame")
-    ids = _ids(client, 4)
+    ids = _ids(4)
     lid = playlists.create("Arreglame")["id"]
     playlists.add(lid, [ids[0], ids[1]])  # dos que no van
     r = chat.run_tool("set_playlist_songs", {"name": "Arreglame", "ids": [ids[2], ids[3], ids[1]]})
@@ -2161,11 +2181,11 @@ def test_fixing_a_playlist_leaves_it_exactly_as_asked(client):
     _remove_playlists("Arreglame")
 
 
-def test_remove_and_rename(client):
+def test_remove_and_rename(api_library):
     from danplay import chat, playlists
 
     _remove_playlists("Vieja", "Nueva")
-    ids = _ids(client, 3)
+    ids = _ids(3)
     lid = playlists.create("Vieja")["id"]
     playlists.add(lid, ids)
     r = chat.run_tool("remove_from_playlist", {"name": "Vieja", "song_ids": [ids[0], ids[2]]})
@@ -2179,6 +2199,9 @@ def test_remove_and_rename(client):
     _remove_playlists("Nueva")
 
 
+@pytest.mark.python_core(
+    "cambia las listas con el núcleo de Python y compara con su contador en memoria (library.revision)"
+)
 def test_revision_goes_up_with_every_visible_change(client):
     """Es lo que Rust vigila para avisar a las ventanas (`danplay://changed`)."""
     from danplay import library, playlists
@@ -2187,10 +2210,10 @@ def test_revision_goes_up_with_every_visible_change(client):
     made = playlists.create("Revision")
     r1 = library.revision()
     assert r1 > before, "crear una lista cuenta"
-    playlists.add(made["id"], _ids(client, 1))
+    playlists.add(made["id"], _ids(1))
     assert library.revision() > r1, "añadir a una lista cuenta"
     r2 = library.revision()
-    playlists.rate(_ids(client, 1)[0], 3)
+    playlists.rate(_ids(1)[0], 3)
     assert library.revision() > r2, "puntuar cuenta"
     r3 = library.revision()
     playlists.remove(made["id"])
@@ -2289,7 +2312,7 @@ def test_narration_detector_recognizes_what_happened():
         assert not chat.claims_action(t), t
 
 
-def test_a_faked_tool_mark_is_removed_and_counts_as_a_lie(client):
+def test_a_faked_tool_mark_is_removed_and_counts_as_a_lie(api_library):
     """Paso: el modelo escribio «[herramientas que usaste en este mensaje:
     download_music (1 item)]» el solo, sin llamar a nada."""
     from danplay import chat
@@ -2314,7 +2337,7 @@ def test_a_faked_tool_mark_is_removed_and_counts_as_a_lie(client):
     assert chat.has_markers("[herramientas que usaste en este mensaje: x]")
 
 
-def test_if_no_phrase_triggers_the_judge_decides(client):
+def test_if_no_phrase_triggers_the_judge_decides(api_library):
     from danplay import chat
 
     # una narracion con palabras que la lista no conoce; el juez dice que SI
@@ -2338,7 +2361,7 @@ def test_if_no_phrase_triggers_the_judge_decides(client):
     assert r["text"].startswith("Todo en orden") and len(fake.received) == 1
 
 
-def test_yes_to_its_own_question_forces_tool_use(client):
+def test_yes_to_its_own_question_forces_tool_use(api_library):
     """«¿la bajo?» — «si mejor si descargala» — «Descargando…» sin llamar a
     nada. Ahora la primera vuelta de ese turno va obligada."""
     from danplay import chat
@@ -2376,7 +2399,7 @@ def test_yes_to_its_own_question_forces_tool_use(client):
     )
 
 
-def test_history_notes_are_system_messages_not_its_text(client):
+def test_history_notes_are_system_messages_not_its_text(api_library):
     from danplay import chat
 
     fake = _ScriptedTurns([("ok", None)])
@@ -2402,7 +2425,7 @@ def test_history_notes_are_system_messages_not_its_text(client):
     assert "create_playlist (lista «X» con 3 temas)" in msgs[i + 1]["content"]
 
 
-def test_claiming_an_action_without_tools_forces_it_to_act(client):
+def test_claiming_an_action_without_tools_forces_it_to_act(api_library):
     """Primera vuelta: «Ya la cree» sin llamar a nada. Se le para y en la
     siguiente TIENE que usar herramientas; la lista se crea de verdad."""
     from danplay import chat, library, playlists
@@ -2432,7 +2455,7 @@ def test_claiming_an_action_without_tools_forces_it_to_act(client):
                 playlists.remove(l["id"])
 
 
-def test_stopped_only_once_and_only_if_it_used_nothing(client):
+def test_stopped_only_once_and_only_if_it_used_nothing(api_library):
     from danplay import chat
 
     # tras consultar, decir «ya la tienes» es un dato, no una accion: vale
@@ -2470,7 +2493,7 @@ def test_stopped_only_once_and_only_if_it_used_nothing(client):
     assert len(fake.received) == 2
 
 
-def test_a_normal_reply_is_left_alone(client):
+def test_a_normal_reply_is_left_alone(api_library):
     from danplay import chat
 
     fake = _ScriptedTurns([("Kind of Blue es de 1959.", None)])
@@ -2479,7 +2502,7 @@ def test_a_normal_reply_is_left_alone(client):
     assert len(fake.received) == 1
 
 
-def test_every_turn_carries_the_real_app_state(client):
+def test_every_turn_carries_the_real_app_state(api_library):
     from danplay import chat, playlists
 
     made = playlists.create("Estado real")
@@ -2511,7 +2534,7 @@ def test_every_turn_carries_the_real_app_state(client):
         playlists.remove(made["id"])
 
 
-def test_tool_messages_are_tagged_with_what_they_did(client):
+def test_tool_messages_are_tagged_with_what_they_did(api_library):
     from danplay import chat
 
     fake = _ScriptedTurns([("ok", None)])
@@ -2539,7 +2562,7 @@ def test_tool_messages_are_tagged_with_what_they_did(client):
     )
 
 
-def test_a_failing_tool_does_not_count_as_done(client):
+def test_a_failing_tool_does_not_count_as_done(api_library):
     """add_to_playlist con un id inventado devuelve error; si luego escribe
     «Añadida a Herlin», eso sigue siendo narracion y se le para."""
     from danplay import chat, playlists
@@ -2564,7 +2587,7 @@ def test_a_failing_tool_does_not_count_as_done(client):
     _remove_playlists("Fallida")
 
 
-def test_download_done_notice_does_not_trigger_the_detector(client):
+def test_download_done_notice_does_not_trigger_the_detector(api_library):
     """El aviso de la app pide «responde solo: Terminado» y el modelo puede
     decir «Ya estan». Eso no es narrar: la descarga ocurrio, y el juez lo
     sabe. La primera vuelta va obligada a herramientas (el remate)."""
@@ -2608,7 +2631,7 @@ def test_download_done_notice_does_not_trigger_the_detector(client):
     assert "no uso ninguna herramienta" not in note
 
 
-def test_second_confirmation_in_a_turn_is_clearly_refused(client):
+def test_second_confirmation_in_a_turn_is_clearly_refused(api_library):
     from danplay import chat, playlists
 
     _remove_playlists("Una", "Otra")
@@ -2627,7 +2650,7 @@ def test_second_confirmation_in_a_turn_is_clearly_refused(client):
     _remove_playlists("Una", "Otra")
 
 
-def test_narrating_again_after_the_nudge_is_shown(client):
+def test_narrating_again_after_the_nudge_is_shown(api_library):
     from danplay import chat
 
     fake = _ScriptedTurns(
@@ -2644,7 +2667,7 @@ def test_narrating_again_after_the_nudge_is_shown(client):
     assert len(fake.received) == 3, "no es un bucle: se le para una vez"
 
 
-def test_the_judge_is_not_bothered_by_music_knowledge(client):
+def test_the_judge_is_not_bothered_by_music_knowledge(api_library):
     from danplay import chat
 
     fake = _ScriptedTurns([("Kind of Blue es de 1959 y lo grabo Miles Davis.", None)], judge="SI")
@@ -2656,7 +2679,7 @@ def test_the_judge_is_not_bothered_by_music_knowledge(client):
     assert fake.judged and "haz una lista" in fake.judged[0]
 
 
-def test_after_download_followup_is_forced_and_playlist_is_real(client):
+def test_after_download_followup_is_forced_and_playlist_is_real(api_library):
     """Fue aqui donde «Añadida a la lista (id: 271)» paso sin comprobar: el
     turno del aviso de fin de descarga daba todo por hecho."""
     from danplay import chat, library, playlists
@@ -2733,7 +2756,7 @@ def test_yes_to_something_the_app_did_does_not_force_a_repeat():
     )
 
 
-def test_real_state_lists_the_latest_downloads_with_their_id(client):
+def test_real_state_lists_the_latest_downloads_with_their_id(api_library):
     from danplay import chat, library
 
     cid = library.search("", limit=1)[0]["id"]
@@ -2755,7 +2778,7 @@ def test_real_state_lists_the_latest_downloads_with_their_id(client):
     library.clear_download_history()
 
 
-def test_dialog_warns_if_that_url_was_downloaded_recently(client):
+def test_dialog_warns_if_that_url_was_downloaded_recently(api_library):
     from danplay import chat, library
 
     cid = library.search("", limit=1)[0]["id"]
@@ -2784,7 +2807,7 @@ def test_the_prompt_leaves_confirmations_to_the_app():
     assert "NO el titulo de YouTube" in s
 
 
-def test_each_tool_result_travels_to_the_next_turn(client):
+def test_each_tool_result_travels_to_the_next_turn(api_library):
     """«Esa», «la segunda», «la que te dije»: sin los ids y nombres de lo que
     enseño antes, el modelo no podia entenderlo y volvia a preguntar o a
     inventar. Ahora cada herramienta deja un `detail` y el historial lo lleva."""

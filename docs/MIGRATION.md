@@ -212,8 +212,14 @@ y el estado: en el comentario de `server/src/lib.rs`.
   una vez y el vigilante viendo llegar, moverse y borrarse canciones y una
   carpeta entera): 196 de 196 iguales, con la base, reuse.json, las
   rejillas, las pistas adoptadas y los archivos de audio byte a byte.
-- **Falta**: las pruebas de la API de Python contra el núcleo de Rust (el
-  punto 3).
+- **Las pruebas de la API de Python, contra el núcleo de Rust**:
+  `./scripts/test.sh api` (o pytest con `DANPLAY_API_CORE=rust`) le da a cada
+  cliente un `danplay-server` en caja de arena y sin red, con la
+  configuración de Python de esa prueba (`tests/api_core.py`). Pasan 123; se
+  saltan 36, diciendo por qué, las que sustituyen funciones de Python o miran
+  su estado en memoria (`python_core`).
+- **Queda**: esas 36 (el punto 3: que lo que sustituyen se pueda sustituir
+  también desde Rust).
 
 Medido en la fase 0, lo que se esperaba ganar: unos 150 MB y miles de
 archivos menos en el paquete de Windows, varios minutos menos por paquete en

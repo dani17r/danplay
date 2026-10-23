@@ -87,14 +87,12 @@ def test_finished_jobs_are_forgotten_after_a_while(monkeypatch):
     assert jobs.snapshot("viejo") is None and jobs.snapshot_all() == {}
 
 
-def test_the_status_carries_a_copy_of_the_jobs(configured_library):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, library
+def test_the_status_carries_a_copy_of_the_jobs(configured_library, connect_api):
+    from danplay import library
 
     lib, _ = configured_library
     library.add_folder(lib)
-    c = TestClient(api.app)
+    c = connect_api()
     result = run_job(c, "/api/scan", "scan")
     assert result["total"] == 3 and result["stats"]["total"] == 3
     status = c.get("/api/status").json()
@@ -103,10 +101,11 @@ def test_the_status_carries_a_copy_of_the_jobs(configured_library):
     assert c.get("/api/jobs/no-existe").status_code == 404
 
 
-def test_asking_for_a_scan_while_one_runs_returns_the_same(configured_library, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from danplay import api, library
+@pytest.mark.python_core("frena el escaneo sustituyendo library.scan")
+def test_asking_for_a_scan_while_one_runs_returns_the_same(
+    configured_library, monkeypatch, connect_api
+):
+    from danplay import library
 
     gate = threading.Event()
     real = library.scan
@@ -116,7 +115,7 @@ def test_asking_for_a_scan_while_one_runs_returns_the_same(configured_library, m
         return real(progress)
 
     monkeypatch.setattr(library, "scan", slow)
-    c = TestClient(api.app)
+    c = connect_api()
     first = c.post("/api/scan")
     second = c.post("/api/scan")
     assert first.status_code == second.status_code == 202
@@ -127,12 +126,11 @@ def test_asking_for_a_scan_while_one_runs_returns_the_same(configured_library, m
     jobs.wait("scan")
 
 
-def test_a_real_convert_is_a_job_and_a_dry_run_is_not(configured_library, monkeypatch):
-    from fastapi.testclient import TestClient
+@pytest.mark.python_core("la conversión de mentira sustituye convert.convert_batch")
+def test_a_real_convert_is_a_job_and_a_dry_run_is_not(configured_library, monkeypatch, connect_api):
+    from danplay import convert
 
-    from danplay import api, convert
-
-    c = TestClient(api.app)
+    c = connect_api()
     monkeypatch.setattr(
         convert,
         "convert_batch",
@@ -147,16 +145,15 @@ def test_a_real_convert_is_a_job_and_a_dry_run_is_not(configured_library, monkey
     assert c.get("/api/jobs/conversion").json()["done"] == 1
 
 
-def test_import_is_a_job_that_counts_each_file(configured_library):
+def test_import_is_a_job_that_counts_each_file(configured_library, connect_api):
     from conftest import make_mp3
-    from fastapi.testclient import TestClient
 
-    from danplay import api, config, library
+    from danplay import config, library
 
     lib, _ = configured_library
     library.add_folder(lib)
     make_mp3(config.INBOX / "New Wine - Nueva.mp3", artist="New Wine", title="Nueva")
-    c = TestClient(api.app)
+    c = connect_api()
     result = run_job(c, "/api/import", "import", json={})
     assert [r["action"] for r in result["results"]] == ["moved"]
     assert pathlib.PurePath(result["results"][0]["target"]).parts == (

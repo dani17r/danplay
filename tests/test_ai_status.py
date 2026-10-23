@@ -390,12 +390,8 @@ def two_providers(extra: dict | None = None, headers: dict | None = None) -> Non
 
 
 @pytest.fixture
-def api_client():
-    from fastapi.testclient import TestClient
-
-    from danplay import api
-
-    return TestClient(api.app)
+def api_client(connect_api):
+    return connect_api()
 
 
 # ---------------------------------------------------- clasificar un fallo
@@ -808,6 +804,9 @@ def test_active_check_clears_the_mark_but_a_draft_check_does_not(temp_profiles, 
     assert ai.status()["primary"]["problem"]["kind"] == "billing"
 
 
+@pytest.mark.python_core(
+    "el proveedor sin saldo lo marca el chat de Python (la IA de mentira de este archivo)"
+)
 def test_recheck_route_clears_the_mark_and_returns_the_status(
     temp_profiles, monkeypatch, api_client
 ):
@@ -921,6 +920,9 @@ def test_real_sdk_primary_without_credit_gets_a_call_per_20_min(fake_clock):
 # --------------------------------------------------- /api/chat/tools
 
 
+@pytest.mark.python_core(
+    "el chat que falla lo hace el de Python (chat_call con la IA de mentira y su reloj, ai._now)"
+)
 def test_chat_tools_returns_the_new_fields_and_the_usual_ones(fake_clock, monkeypatch, api_client):
     two_providers()
     server(
