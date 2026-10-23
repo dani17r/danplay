@@ -12,6 +12,9 @@ pub mod library;
 pub mod playlists;
 pub mod system;
 
+#[cfg(test)]
+mod tests;
+
 /// Todas las rutas, en el orden de FastAPI.
 pub fn all() -> Vec<Route> {
     [
