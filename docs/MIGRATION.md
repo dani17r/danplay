@@ -119,7 +119,9 @@ y el estado: en el comentario de `server/src/lib.rs`.
   misma biblioteca (mp3 generados y canciones copiadas), las mismas
   peticiones a las dos (también los 404, 405, 409, 422 y los cuerpos rotos),
   y los códigos, los JSON y los archivos exportados iguales en 170 de 170
-  (solo se normalizan la ruta de cada caja, las horas y `revision`).
+  (solo se normalizan la ruta de cada caja, las horas y `revision`). La
+  guardia por loopback (Host, `X-DanPlay`, el tope, el token, el CORS de
+  Vite), igual en 13 de 14: la que falta es el audio, de `songs.py`.
 - **En la app**: con `DANPLAY_RUST_CORE=1`, `core::request_within` le pide
   la API al núcleo de Rust en el mismo proceso (sin proceso aparte, sin
   socket, sin token); sin la variable, todo sigue como antes. Las pruebas de

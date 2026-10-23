@@ -93,36 +93,42 @@ pub fn preflight(req: &Request) -> Option<Response> {
         return None;
     }
     let origin = req.header_value("origin")?;
-    let method = req.header_value("access-control-request-method")?;
-    let _ = method;
-    if !DEV_ORIGINS.contains(&origin) {
-        return Some(
-            Response::text(400, "Disallowed CORS origin").with_header("vary", "Origin"),
-        );
+    req.header_value("access-control-request-method")?;
+    // como el CORSMiddleware de Starlette con allow_methods y allow_headers «*»
+    let allowed = DEV_ORIGINS.contains(&origin);
+    let mut r = if allowed {
+        Response::text(200, "OK")
+    } else {
+        Response::text(400, "Disallowed CORS origin")
     }
-    let mut r = Response::text(200, "OK")
-        .with_header("vary", "Origin")
-        .with_header(
-            "access-control-allow-methods",
-            "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT",
-        )
-        .with_header("access-control-max-age", "600")
-        .with_header("access-control-allow-origin", origin);
+    .with_header(
+        "access-control-allow-methods",
+        "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, QUERY",
+    )
+    .with_header("access-control-max-age", "600")
+    .with_header(
+        "vary",
+        "Origin, Access-Control-Request-Method, Access-Control-Request-Headers, Access-Control-Request-Private-Network",
+    );
+    if allowed {
+        r = r.with_header("access-control-allow-origin", origin);
+    }
     if let Some(h) = req.header_value("access-control-request-headers") {
         r = r.with_header("access-control-allow-headers", h);
     }
     Some(r)
 }
 
-/// Lo que se añade a una respuesta normal si viene de un origen permitido.
+/// Lo que añade el CORS a una respuesta normal: `Vary: Origin` siempre (los
+/// orígenes son una lista, no «*»), y el origen si es uno de los permitidos.
 pub fn cors(req: &Request, mut r: Response) -> Response {
     if let Some(origin) = req.header_value("origin")
         && DEV_ORIGINS.contains(&origin)
     {
         r.headers
             .push(("access-control-allow-origin".into(), origin.into()));
-        r.headers.push(("vary".into(), "Origin".into()));
     }
+    r.headers.push(("vary".into(), "Origin".into()));
     r
 }
 
