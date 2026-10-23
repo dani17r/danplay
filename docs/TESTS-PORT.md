@@ -137,3 +137,22 @@ Python era `with beatgrid._WAKE`) y el grafo de mentira (`set_graph`).
 | `test_prepare_hides_a_missing_folder_before_the_first_answer` | ya estaba en `services/watcher/tests.rs`: `prepare_hides_a_missing_folder_before_the_first_answer` |
 | `test_nothing_brings_a_moved_folder_back_empty` | `api_tests/watch.rs`: `nothing_brings_a_moved_folder_back_empty` (con un yt-dlp de mentira en `sh`, para ver que no llega a bajar nada) |
 | `test_a_new_inbox_is_still_created_where_nothing_is_missing` | `api_tests/watch.rs`: `a_new_inbox_is_still_created_where_nothing_is_missing` |
+
+### tests/test_index.py (14)
+
+| Python | Rust |
+| --- | --- |
+| `test_without_tags_the_file_name_gives_the_artist` | `api_tests/index.rs`: `without_tags_the_file_name_gives_the_artist` |
+| `test_several_dashes_and_feat` | `api_tests/index.rs`: `several_dashes_and_feat` |
+| `test_the_tag_and_folder_win_over_the_file_name` | `api_tests/index.rs`: `the_tag_and_folder_win_over_the_file_name` |
+| `test_the_api_search_is_light_and_counts` | `api_tests/index.rs`: `the_api_search_is_light_and_counts` |
+| `test_playlists_and_the_player_are_light_too` | `api_tests/index.rs`: `playlists_and_the_player_are_light_too` |
+| `test_an_odd_number_in_a_search_does_not_break_the_query` | `api_tests/index.rs`: `an_odd_number_in_a_search_does_not_break_the_query` |
+| `test_the_stats_do_not_keep_a_total_from_before_a_change` | `api_tests/index.rs`: `the_stats_do_not_keep_a_total_from_before_a_change` (el «otro hilo que escribe» va entre leer la revisión y contar, en vez de en un `connect` de mentira; lo de que sin cambios vale se intenta hasta que nadie se cruza, que la caché y la revisión son de todo el proceso) |
+| `test_the_revision_loses_no_bumps_with_many_threads` | `api_tests/index.rs`: `the_revision_loses_no_bumps_with_many_threads` (otras pruebas la mueven a la vez: nunca menos de lo nuestro, y alguna vez justo lo nuestro) |
+| `test_only_audio_is_opened` | `api_tests/index.rs`: `only_audio_is_opened` (lo del 404 ya estaba en `api_tests/external.rs`: `saving_dropping_and_missing_files`) |
+| `test_the_player_list_mixes_both_sources_in_order` | `api_tests/index.rs`: `the_player_list_mixes_both_sources_in_order` |
+| `test_finding_one_repertoire_does_not_recompute_all` | `api_tests/index.rs`: `finding_one_repertoire_does_not_recompute_all` (lo que encuentra; lo de que no pide la lista entera no se pasa: en Rust `by_name` es una consulta suya y no hay `list_all` que sustituir. Y `by_id("x")` tampoco: el id es un `i64`) |
+| `test_the_playlist_songs_index_exists` | `api_tests/index.rs`: `the_playlist_songs_index_exists` |
+| `test_thumbnails_are_pruned_by_the_scan` | `api_tests/index.rs`: `thumbnails_are_pruned_by_the_scan` |
+| `test_the_thumbnail_cache_has_a_cap` | `api_tests/index.rs`: `the_thumbnail_cache_has_a_cap` |
