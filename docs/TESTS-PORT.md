@@ -51,3 +51,12 @@ detrás de otra (`services::beats::tests::serial`, que usa también
 mentira es un `sh` que copia lo que «oiría» la red, hecho en Rust. Las
 costuras, solo de pruebas: el hilo de la cola parado (`Paused`, lo que en
 Python era `with beatgrid._WAKE`) y el grafo de mentira (`set_graph`).
+
+### tests/test_terms.py (4)
+
+| Python | Rust |
+|---|---|
+| `test_at_first_nothing_was_accepted` | `api_tests/terms.rs`: `at_first_nothing_was_accepted` |
+| `test_accepting_is_remembered` | `api_tests/terms.rs`: `accepting_is_remembered` (`lib.rs`: `tests::terms` ya miraba que se acepta, sin la versión de la app, el archivo ni la de después) |
+| `test_a_strange_version_is_refused` (5 versiones) | `api_tests/terms.rs`: `a_strange_version_is_refused` |
+| `test_a_broken_file_counts_as_not_accepted` | `api_tests/terms.rs`: `a_broken_file_counts_as_not_accepted` |
