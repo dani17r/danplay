@@ -101,6 +101,37 @@ Cuando todo lo de arriba esté en Rust:
 5. **La CI**: los paquetes sin `uv` ni pruebas de Python; las pruebas de
    Python, solo en `tests.yml`.
 
+### Cómo va (22 de octubre de 2026)
+
+El enrutador ya existe: el crate `server/` (`danplay-server`). Contesta en
+el mismo proceso (`server::handle(&app, &request)`) o por un socket Unix o
+loopback con hyper (el binario `danplay-server`, con `--uds` o `--host` y
+`--port`, como `packaging/core_entry.py`). Cómo se escribe una ruta, cómo se
+comprueba lo que llega (lo de pydantic y su 422), los errores, los trabajos
+y el estado: en el comentario de `server/src/lib.rs`.
+
+- **Portadas**: `system.py`, `playlists.py`, `external.py` y `library.py`,
+  con lo que hacían los módulos de Python a su alrededor (`server/src/services/`:
+  las listas con su cerrojo y sus etiquetas, el diario, el escaneo con todo
+  lo de después, convertir, los duplicados y la papelera, importar la
+  Entrada con su `Outside` en Rust, el perfil de IA y `library::ai::call`).
+- **Comparadas** con el núcleo de Python: dos cajas de arena hechas con la
+  misma biblioteca (mp3 generados y canciones copiadas), las mismas
+  peticiones a las dos (también los 404, 405, 409, 422 y los cuerpos rotos),
+  y los códigos, los JSON y los archivos exportados iguales en 170 de 170
+  (solo se normalizan la ruta de cada caja, las horas y `revision`). La
+  guardia por loopback (Host, `X-DanPlay`, el tope, el token, el CORS de
+  Vite), igual en 13 de 14: la que falta es el audio, de `songs.py`.
+- **En la app**: con `DANPLAY_RUST_CORE=1`, `core::request_within` le pide
+  la API al núcleo de Rust en el mismo proceso (sin proceso aparte, sin
+  socket, sin token); sin la variable, todo sigue como antes. Las pruebas de
+  la interfaz contra él: `DANPLAY_E2E_CORE=<ruta de danplay-server> npm run e2e`.
+- **Faltan**: `songs.py`, `stems.py`, `cues.py`, `ai.py`, `assistant.py` y
+  `downloads.py`; el vigilante de carpetas (`watcher.py`), «aprovechar» lo de
+  otro archivo de la misma canción (`reuse.settle`: el desfase se calcula
+  con numpy) y yt-dlp sin Python (hasta entonces, «disponible» es que su
+  ejecutable esté en `tools/` o en el PATH).
+
 Medido en la fase 0, lo que se espera ganar: unos 150 MB y miles de
 archivos menos en el paquete de Windows, varios minutos menos por paquete en
 la CI, el arranque sin esperar a que Python importe nada, y menos memoria

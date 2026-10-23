@@ -861,6 +861,7 @@ name = "danplay-app"
 version = "1.30.0"
 dependencies = [
  "danplay-engine",
+ "danplay-server",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -940,6 +941,24 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
+]
+
+[[package]]
+name = "danplay-server"
+version = "1.30.0"
+dependencies = [
+ "bytes",
+ "danplay-analysis",
+ "danplay-library",
+ "form_urlencoded",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "log",
+ "percent-encoding",
+ "rustix",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -339,6 +339,47 @@ impl Config {
         cfg
     }
 
+    /// Una configuración en esas carpetas, sin mirar las de nadie: ni las
+    /// del sistema, ni el .env del proyecto, ni migrar nada de una
+    /// instalación anterior. Solo el danplay.env de `config_dir` (si lo hay)
+    /// y el entorno del proceso. Para las pruebas de Rust, que no pueden
+    /// cambiar el entorno del proceso como hacen las de Python.
+    pub fn isolated(data_dir: PathBuf, config_dir: PathBuf, library: PathBuf) -> Self {
+        let _ = private_dir(&data_dir);
+        let _ = private_dir(&config_dir);
+        let env_file = config_dir.join("danplay.env");
+        let mut cfg = Self {
+            frozen: false,
+            project_root: data_dir.clone(),
+            data_dir: data_dir.clone(),
+            config_dir,
+            env_file: env_file.clone(),
+            use_project_env: false,
+            file_env: HashMap::new(),
+            library: PathBuf::new(),
+            inbox: PathBuf::new(),
+            artists_dir: PathBuf::new(),
+            review_dir: PathBuf::new(),
+            library_chosen: false,
+            database: data_dir.join("danplay.db"),
+            tools_dir: String::new(),
+            ai_enabled: true,
+            acoustid_api_key: String::new(),
+            convert_to_mp3: false,
+            mp3_quality: String::new(),
+            keep_original: false,
+            never_convert: Vec::new(),
+            write_tags: true,
+            stems_format: String::new(),
+            duplicate_threshold: 0.88,
+        };
+        cfg.load_file(&env_file);
+        cfg.read_values();
+        cfg.set_library_paths(&library);
+        cfg.library_chosen = true;
+        cfg
+    }
+
     /// `load_dotenv(path)`: lo que el archivo define y no estaba ya.
     fn load_file(&mut self, path: &Path) {
         let Ok(text) = std::fs::read_to_string(path) else {

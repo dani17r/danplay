@@ -35,6 +35,9 @@ rand = "0.10"
 # y lo saca por los canales que se elijan. Y lo que comparten las dos apps:
 # el pulso y su rejilla, el metronomo y la cola.
 danplay-engine = { path = "../../engine" }
+# El nucleo en Rust (la fase 4): con DANPLAY_RUST_CORE=1 la app le pide la
+# API a este, en el mismo proceso, en vez de al nucleo de Python.
+danplay-server = { path = "../../server" }
 
 # Reproduccion en el sistema (MPRIS en Linux, SMTC en Windows, Now Playing en
 # macOS): teclas multimedia, pantalla de bloqueo y el reproductor del escritorio.
