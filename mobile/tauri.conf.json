@@ -4,9 +4,9 @@
   "identifier": "local.danplay.pistas",
   "version": "../desktop/package.json",
   "build": {
-    "beforeDevCommand": { "script": "npm run dev:mobile", "cwd": "../desktop", "wait": false },
+    "beforeDevCommand": { "script": "vp run dev:mobile", "cwd": "../desktop", "wait": false },
     "devUrl": "http://localhost:5274",
-    "beforeBuildCommand": { "script": "npm run build:mobile", "cwd": "../desktop" },
+    "beforeBuildCommand": { "script": "vp run build:mobile", "cwd": "../desktop" },
     "frontendDist": "../desktop/dist-mobile"
   },
   "app": {

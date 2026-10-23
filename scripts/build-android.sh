@@ -34,7 +34,10 @@ export PATH="$JAVA_HOME/bin:$PATH"
 [ -d "$ANDROID_HOME/platforms" ] || die "no encuentro el SDK de Android en $ANDROID_HOME"
 [ -n "$NDK_HOME" ] && [ -d "$NDK_HOME" ] || die "no encuentro el NDK (NDK_HOME)"
 [ -x "$JAVA_HOME/bin/java" ] || die "no encuentro el JDK 17 (JAVA_HOME)"
-[ -d desktop/node_modules ] || die "faltan las dependencias de la interfaz: cd desktop && npm ci"
+# la interfaz: Vite+ (vp) la compila y Bun lanza la CLI de Tauri del celular
+command -v vp >/dev/null 2>&1 || die "falta Vite+ (vp): curl -fsSL https://vite.plus | bash"
+command -v bun >/dev/null 2>&1 || die "falta Bun: curl -fsSL https://bun.sh/install | bash"
+[ -d desktop/node_modules ] || die "faltan las dependencias de la interfaz: cd desktop && vp install"
 
 VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
 OUTPUT="dist/installers/DanPlay-$VERSION-android.apk"
@@ -42,7 +45,7 @@ APKS=mobile/gen/android/app/build/outputs/apk/universal
 
 if [ "${1:-}" = "--emulator" ]; then
     step "APK de depuración para el emulador (x86_64)"
-    (cd mobile && npm run tauri -- android build --debug --target x86_64 --apk)
+    (cd mobile && bun run tauri android build --debug --target x86_64 --apk)
     ls -la "$APKS/debug/app-universal-debug.apk"
     exit 0
 fi
@@ -51,7 +54,7 @@ KEYSTORE="${DANPLAY_KEYSTORE:-$HOME/Android/claves/keystore.properties}"
 [ -f "$KEYSTORE" ] || die "no está la llave de firma ($KEYSTORE): sin ella el APK no se puede instalar ni actualizar"
 
 step "APK de DanPlay para Android $VERSION (arm64 y armv7)"
-(cd mobile && npm run tauri -- android build --apk --target aarch64 --target armv7)
+(cd mobile && bun run tauri android build --apk --target aarch64 --target armv7)
 APK="$APKS/release/app-universal-release.apk"
 [ -f "$APK" ] || die "no salió el APK ($APK)"
 

@@ -20,7 +20,7 @@ section () { echo; echo "=== $1 ==="; }
 run_check () {
     name=$1; shift
     if "$@" > "$LOGS/$name.log" 2>&1; then
-        summary=$(grep -E 'passed|Tests +[0-9]|test result|All checks|already formatted|0 errors|files? checked' \
+        summary=$(grep -E 'passed|Tests +[0-9]|test result|All checks|already formatted|correct format|0 errors|files? checked' \
                   "$LOGS/$name.log" | tail -1)
         printf '  ok   %-14s %s\n' "$name" "$summary"
     else
@@ -31,6 +31,9 @@ run_check () {
 }
 # las herramientas de Python, las del .venv del proyecto
 py () { tool=$1; shift; ".venv/bin/$tool" "$@"; }
+# las de la interfaz, con Vite+: el `vp` instalado (https://viteplus.dev) o,
+# si no esta, el que trae desktop/node_modules (`vp install` en desktop/)
+VP=$(command -v vp || echo "$PWD/desktop/node_modules/.bin/vp")
 
 if [ "${1:-}" = "api" ]; then
     section "la API de Python contra el nucleo de Rust"
@@ -54,9 +57,9 @@ run_check tipos       py basedpyright
 run_check pytest      py python -m pytest -q --no-header -n auto --dist loadgroup
 
 section "interfaz"
-run_check estilo      sh -c 'cd desktop && npm run lint && npm run lint:css && npm run format:check'
-run_check tipos-js    sh -c 'cd desktop && npm run typecheck'
-run_check vitest      sh -c 'cd desktop && npx vitest run --reporter=dot'
+run_check estilo      sh -c "cd desktop && $VP run lint && $VP run lint:css && $VP run format:check"
+run_check tipos-js    sh -c "cd desktop && $VP run typecheck"
+run_check vitest      sh -c "cd desktop && $VP test run --reporter=dot"
 run_check medios      node tests/test_frontend.mjs
 
 section "Rust (workspace: nucleo de audio y app de escritorio)"
@@ -69,7 +72,7 @@ run_check cargo-test  cargo test --workspace --release
 
 if [ "${1:-}" != "--quick" ]; then
     section "e2e: interfaz y nucleo juntos, en Chrome"
-    run_check playwright sh -c 'cd desktop && npm run e2e'
+    run_check playwright sh -c "cd desktop && $VP run e2e"
     section "humo: la app real"
     ./tests/smoke.sh || failed=1
 fi
