@@ -178,38 +178,6 @@ pub fn find_sheet(artist: &str, title: &str) -> Value {
 
 // ---------------------------------------------------------------- la IA
 
-/// Los sitios de la IA (`library::ai::call::Context`) para esta app.
-fn with_ai<T>(app: &App, f: impl FnOnce(&library::ai::call::Context<'_>) -> T) -> T {
-    let cfg = app.config();
-    let profiles = ai::profiles_file(app);
-    let cache = cfg.data_dir.join("models-catalog.json");
-    let snapshot = app.resources.join("models-snapshot.json");
-    let verified = cfg.data_dir.join("models-verified.json");
-    let env = |name: &str, default: &str| cfg.env(name, default);
-    let now = library::index::now;
-    let account = |u: &library::ai::call::Usage| {
-        let saved = app.db(|c| {
-            library::index::history::log_ai_usage(c, &u.provider, &u.model, &u.purpose, u.prompt, u.completion, u.cost)
-        });
-        if saved.is_err() {
-            log::debug!("no se pudo apuntar el uso de la IA");
-        }
-    };
-    let say = |m: &str| log::info!("{m}");
-    let ctx = library::ai::call::Context {
-        profiles: &profiles,
-        cache: &cache,
-        snapshot: &snapshot,
-        verified: &verified,
-        enabled: cfg.ai_enabled,
-        env: &env,
-        now: &now,
-        account: &account,
-        log: &say,
-    };
-    f(&ctx)
-}
-
 // ---------------------------------------------------------------- lo de fuera
 
 /// Lo de fuera de enriquecer, en esta app.
@@ -312,7 +280,7 @@ impl Outside for Here<'_> {
 
     fn ai_ask(&mut self, prompt: &[u32], max_tokens: u32) -> Result<Json, Trouble> {
         let prompt = utf(prompt);
-        let said = with_ai(self.app, |ctx| {
+        let said = ai::with_context(self.app, |ctx| {
             library::ai::call::ask(
                 ctx,
                 &prompt,
@@ -327,7 +295,7 @@ impl Outside for Here<'_> {
 
     fn ai_ask_json(&mut self, prompt: &[u32], system: &str) -> Result<Json, Trouble> {
         let prompt = utf(prompt);
-        let said = with_ai(self.app, |ctx| {
+        let said = ai::with_context(self.app, |ctx| {
             library::ai::call::ask_json(ctx, &prompt, system, 1200, 0.15, None, "ask_json")
         });
         Ok(said.map_or(Json::Null, |d| from_value(&Value::Object(d))))
