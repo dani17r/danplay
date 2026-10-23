@@ -23,6 +23,7 @@ mod privacy;
 mod sequence;
 mod songs;
 mod stems;
+mod structure;
 mod terms;
 mod tidy;
 mod watch;

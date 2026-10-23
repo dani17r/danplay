@@ -200,3 +200,26 @@ La voz de mentira es una costura solo de pruebas en `services/cues.rs`
 (`fake_voice`, por app): lo que en Python eran `cues.say`, `cues.installed`
 y `cues.install` sustituidos. Dice medio segundo de un tono, como la de
 Python, y no baja nada.
+
+### tests/test_structure.py (12)
+
+| Python | Rust |
+| --- | --- |
+| `test_the_parts_come_out_with_their_names` | `analysis/src/structure.rs`: `tests::the_parts_come_out_with_their_names` |
+| `test_a_solo_is_named_by_the_instrument_that_leads` | `analysis/src/structure.rs`: `tests::a_solo_is_named_by_the_instrument_that_leads` |
+| `test_what_is_left_before_the_first_chorus_is_the_verse` | `analysis/src/structure.rs`: `tests::what_is_left_before_the_first_chorus_is_the_verse` |
+| `test_the_voice_also_marks_a_change_and_short_parts_join_a_neighbour` | `analysis/src/structure.rs`: `tests::the_voice_also_marks_a_change_and_short_parts_join_a_neighbour` |
+| `test_the_units_are_the_bars_or_two_second_windows` | `analysis/src/structure.rs`: `tests::the_units_are_the_bars_or_two_second_windows` (lo de pocos compases ya estaba en `tests::no_bars_means_two_second_chunks`) |
+| `test_the_frames_hear_the_notes` | `analysis/src/structure.rs`: `tests::the_frames_hear_the_notes` |
+| `test_each_guide_ends_a_beat_before_its_part_and_none_overlap` | `analysis/src/structure.rs`: `tests::each_guide_ends_a_beat_before_its_part_and_none_overlap` (`tests::cue_ends_one_beat_before_its_section` ya miraba el caso sencillo) |
+| `test_the_automatic_guide_finds_the_parts_and_says_them` | `api_tests/structure.rs`: `the_automatic_guide_finds_the_parts_and_says_them` |
+| `test_with_its_stems_the_intro_and_the_end_are_where_nobody_sings` | `api_tests/structure.rs`: `with_its_stems_the_intro_and_the_end_are_where_nobody_sings` |
+| `test_named_parts_are_used_as_they_are` | `api_tests/structure.rs`: `named_parts_are_used_as_they_are` (lo que sale; lo de que no se escucha la canción no se pasa: en Python era un `structure.analyse` de mentira que fallaba si se llamaba, y en Rust no hay por dónde cambiarlo) |
+| `test_without_the_voice_it_starts_downloading_it` | `api_tests/structure.rs`: `without_the_voice_it_starts_downloading_it` |
+| `test_a_song_too_short_has_no_parts` | `api_tests/structure.rs`: `a_song_too_short_has_no_parts` |
+
+Los rasgos sintéticos salen de un generador propio (splitmix64, con las
+mismas semillas 1, 3 y 5) en vez del de numpy: el mismo reparto (uniforme y
+normal), otros números; con ellos salen las mismas partes y los mismos
+nombres. La canción de punta a punta, igual que la de Python (el ruido del
+charles, de otro generador).
