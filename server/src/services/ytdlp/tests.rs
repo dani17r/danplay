@@ -176,6 +176,11 @@ fn json_with_nan_and_stderr_like_the_logger() {
         e.finish().0.reason(),
         "[youtube] HTTP Error 429: Too Many Requests"
     );
+    // con color, «ERROR:» no va al principio de la línea, y sigue siéndolo
+    let mut e = Stderr::default();
+    e.line("\x1b[0;31mERROR:\x1b[0m [youtube] abc123:");
+    e.line("  Video   unavailable");
+    assert_eq!(e.finish().0.reason(), "[youtube] abc123: Video unavailable");
 }
 
 #[test]
