@@ -40,12 +40,18 @@ fn separate(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut state = match stems::request(ctx.app, cid, quality == "max") {
         Ok(s) => s,
         Err(StemsError::Expected(e)) => {
-            return Err(ApiError::http(if e.contains("ya no está") { 404 } else { 422 }, e));
+            return Err(ApiError::http(
+                if e.contains("ya no está") { 404 } else { 422 },
+                e,
+            ));
         }
         Err(StemsError::Other(e)) => return Err(ApiError::internal(e)),
     };
     if let Some(o) = state.as_object_mut() {
-        o.insert("job".into(), ctx.app.jobs.snapshot(stems::JOB).unwrap_or(Value::Null));
+        o.insert(
+            "job".into(),
+            ctx.app.jobs.snapshot(stems::JOB).unwrap_or(Value::Null),
+        );
     }
     Ok(state.into())
 }
@@ -90,7 +96,9 @@ fn song_stems(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         // la carpeta ya no está (se borró a mano): se olvida
         index::set_stems(app, cid, "")?;
     }
-    Err(ApiError::not_found("esta canción no tiene pistas separadas"))
+    Err(ApiError::not_found(
+        "esta canción no tiene pistas separadas",
+    ))
 }
 
 /// Manda a la papelera las pistas separadas de la canción.
@@ -111,15 +119,30 @@ const SOUNDS: &[&str] = &["clasico", "madera", "baqueta", "cencerro"];
 
 /// Una lista de modelos obligatoria (`tracks: list[X] = Field(min_length,
 /// max_length)`): los de dentro, o `None` si no se pudo leer.
-fn model_list(b: &mut Fields, key: &str, forbid_extra: bool, required: bool) -> Option<Vec<Fields>> {
+fn model_list(
+    b: &mut Fields,
+    key: &str,
+    forbid_extra: bool,
+    required: bool,
+) -> Option<Vec<Fields>> {
     let present = b.raw().contains_key(key);
     // «Field required» si falta (y el cuerpo es un objeto)
-    let value = if required { b.any(key).nullable() } else { b.any(key).opt() };
+    let value = if required {
+        b.any(key).nullable()
+    } else {
+        b.any(key).opt()
+    };
     if value.is_some() {
         return b.objects(key, forbid_extra);
     }
     if required && present {
-        b.push_error("list_type", Some(key), "Input should be a valid list", &Value::Null, None);
+        b.push_error(
+            "list_type",
+            Some(key),
+            "Input should be a valid list",
+            &Value::Null,
+            None,
+        );
     }
     None
 }
@@ -129,13 +152,19 @@ fn list_length(b: &mut Fields, key: &str, n: usize, min: Option<usize>, max: usi
     let input = b.raw().get(key).cloned().unwrap_or(Value::Null);
     let items = |k: usize| format!("{k} item{}", if k == 1 { "" } else { "s" });
     if n > max {
-        let msg = format!("List should have at most {} after validation, not {n}", items(max));
+        let msg = format!(
+            "List should have at most {} after validation, not {n}",
+            items(max)
+        );
         let ctx = json!({"field_type": "List", "max_length": max, "actual_length": n});
         b.push_error("too_long", Some(key), &msg, &input, Some(ctx));
     } else if let Some(min) = min
         && n < min
     {
-        let msg = format!("List should have at least {} after validation, not {n}", items(min));
+        let msg = format!(
+            "List should have at least {} after validation, not {n}",
+            items(min)
+        );
         let ctx = json!({"field_type": "List", "min_length": min, "actual_length": n});
         b.push_error("too_short", Some(key), &msg, &input, Some(ctx));
     }
@@ -153,7 +182,13 @@ fn read_mix(b: &mut Fields) -> Mix {
             let side = t.literal("side", SIDES).or("both");
             let mono = t.bool("mono").or(false);
             b.absorb(t);
-            tracks.push(MixTrack { source, gain, pan, side, mono });
+            tracks.push(MixTrack {
+                source,
+                gain,
+                pan,
+                side,
+                mono,
+            });
         }
         list_length(b, "tracks", n, Some(1), 32);
     }
@@ -163,12 +198,21 @@ fn read_mix(b: &mut Fields) -> Mix {
     let pitch = b.float("pitch").ge(-12).le(12).or(0.0);
     let click = b.object("click", true).map(|mut c| {
         let beats = c.float_list("beats").max_items(20000).or(Vec::new());
-        let accents = c.field("accents", List::of(Bool)).max_items(20000).or(Vec::new());
+        let accents = c
+            .field("accents", List::of(Bool))
+            .max_items(20000)
+            .or(Vec::new());
         let sound = c.literal("sound", SOUNDS).or("clasico");
         let volume = c.float("volume").ge(0).le(2).or(0.8);
         let side = c.literal("side", SIDES).or("both");
         b.absorb(c);
-        MixClick { beats, accents, sound, volume, side }
+        MixClick {
+            beats,
+            accents,
+            sound,
+            volume,
+            side,
+        }
     });
     let cues = model_list(b, "cues", true, false).map(|items| {
         let n = items.len();
@@ -179,12 +223,25 @@ fn read_mix(b: &mut Fields) -> Mix {
             let gain = c.float("gain").ge(0).le(9).or(1.0);
             let side = c.literal("side", SIDES).or("both");
             b.absorb(c);
-            out.push(MixCue { at, file, gain, side });
+            out.push(MixCue {
+                at,
+                file,
+                gain,
+                side,
+            });
         }
         list_length(b, "cues", n, None, 200);
         out
     });
-    Mix { tracks, path, format, speed, pitch, click, cues }
+    Mix {
+        tracks,
+        path,
+        format,
+        speed,
+        pitch,
+        click,
+        cues,
+    }
 }
 
 /// Guarda la mezcla de las pistas en un archivo (trabajo «mix»).
@@ -197,18 +254,25 @@ fn export_mix(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let song = index::by_id(app, cid)?;
     let whole = mix.tracks.iter().all(|t| t.source == "song");
     let Some(song) = song else {
-        return Err(ApiError::not_found("esta canción no tiene pistas separadas"));
+        return Err(ApiError::not_found(
+            "esta canción no tiene pistas separadas",
+        ));
     };
     if !whole && stems::info(app, &song).is_none() {
-        return Err(ApiError::not_found("esta canción no tiene pistas separadas"));
+        return Err(ApiError::not_found(
+            "esta canción no tiene pistas separadas",
+        ));
     }
     let me = app.clone();
-    let (snap, already) = app.jobs.start(stems::MIX_JOB, "no se pudo guardar la mezcla", move |p| {
-        let progress = |done: f64, total: f64| p.count(py::round(done, 1), py::round(total, 1));
-        let r = stems::export_mix(&me, cid, &mix, &progress).map_err(JobError::from)?;
-        p.message(&format!("Guardada «{}»", r["name"].as_str().unwrap_or("")));
-        Ok(r)
-    });
+    let (snap, already) =
+        app.jobs
+            .start(stems::MIX_JOB, "no se pudo guardar la mezcla", move |p| {
+                let progress =
+                    |done: f64, total: f64| p.count(py::round(done, 1), py::round(total, 1));
+                let r = stems::export_mix(&me, cid, &mix, &progress).map_err(JobError::from)?;
+                p.message(&format!("Guardada «{}»", r["name"].as_str().unwrap_or("")));
+                Ok(r)
+            });
     Ok(Response::json(202, &jobs::started(snap, already)).into())
 }
 
@@ -221,12 +285,11 @@ fn to_phone(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         return Err(ApiError::http(422, "no hay canciones que llevar"));
     }
     let me = ctx.app.clone();
-    let (snap, already) = ctx
-        .app
-        .jobs
-        .start(bundle::JOB, "no se pudo preparar para el celular", move |p| {
-            bundle::export_many(&me, &ids, p)
-        });
+    let (snap, already) = ctx.app.jobs.start(
+        bundle::JOB,
+        "no se pudo preparar para el celular",
+        move |p| bundle::export_many(&me, &ids, p),
+    );
     Ok(Response::json(202, &jobs::started(snap, already)).into())
 }
 
@@ -246,12 +309,12 @@ fn sequence_import(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     ctx.done(b)?;
     sequence::find(&path).map_err(|e| ApiError::http(422, e))?;
     let me = ctx.app.clone();
-    let (snap, already) = ctx
-        .app
-        .jobs
-        .start(sequence::JOB, "no se pudo abrir la secuencia", move |p| {
-            sequence::import_sequence(&me, &path, p)
-        });
+    let (snap, already) =
+        ctx.app
+            .jobs
+            .start(sequence::JOB, "no se pudo abrir la secuencia", move |p| {
+                sequence::import_sequence(&me, &path, p)
+            });
     Ok(jobs::started(snap, already).into())
 }
 
@@ -276,12 +339,18 @@ pub(crate) mod tests {
     pub fn with_song() -> (App, i64, PathBuf) {
         let app = crate::tests::app();
         let lib = app.config().library.clone();
-        let file = lib.join("Artistas").join("Barak").join("Barak - Mi Gozo.wav");
+        let file = lib
+            .join("Artistas")
+            .join("Barak")
+            .join("Barak - Mi Gozo.wav");
         std::fs::create_dir_all(file.parent().expect("carpeta")).expect("carpeta");
         let wav: Vec<f32> = (0..88_200).map(|i| (i as f32 * 0.05).sin() * 0.5).collect();
         analysis::cues::write_wav(&file, &analysis::cues::pcm16(&wav), 44_100).expect("wav");
-        crate::services::folders::add_folder(&app, &lib.to_string_lossy(), "Musica").expect("carpeta");
-        let row = crate::services::index::index_file(&app, &file).expect("índice").expect("fila");
+        crate::services::folders::add_folder(&app, &lib.to_string_lossy(), "Musica")
+            .expect("carpeta");
+        let row = crate::services::index::index_file(&app, &file)
+            .expect("índice")
+            .expect("fila");
         let id = row["id"].as_i64().expect("id");
         (app, id, file)
     }
@@ -296,14 +365,26 @@ pub(crate) mod tests {
         assert_eq!(v["current"], Value::Null);
         assert!(v["max"].is_boolean());
         let (st, v) = call(&app, "POST", "/api/song/999999/separate", None);
-        assert_eq!((st, v), (404, json!({"detail": "esa canción ya no está en la biblioteca"})));
+        assert_eq!(
+            (st, v),
+            (
+                404,
+                json!({"detail": "esa canción ya no está en la biblioteca"})
+            )
+        );
         let (st, v) = call(&app, "POST", "/api/song/x/separate", None);
         assert_eq!(st, 422);
         assert_eq!(v["detail"][0]["type"], "int_parsing");
-        assert_eq!(call(&app, "GET", "/api/song/999999/stems", None), (404, json!({"detail": "no existe"})));
+        assert_eq!(
+            call(&app, "GET", "/api/song/999999/stems", None),
+            (404, json!({"detail": "no existe"}))
+        );
         assert_eq!(
             call(&app, "GET", &format!("/api/song/{id}/stems"), None),
-            (404, json!({"detail": "esta canción no tiene pistas separadas"}))
+            (
+                404,
+                json!({"detail": "esta canción no tiene pistas separadas"})
+            )
         );
         let (st, v) = call(&app, "DELETE", &format!("/api/song/{id}/stems"), None);
         assert_eq!((st, v), (200, json!({"ok": true, "folder": ""})));
@@ -315,44 +396,102 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "un recorrido por los fallos de cuatro rutas"
+    )]
     fn the_mix_bundle_and_sequence_check_what_they_get() {
         let (app, id, file) = with_song();
         let mix = format!("/api/song/{id}/stems/mix");
         let (st, v) = call(&app, "POST", &mix, None);
         assert_eq!((st, v["detail"].as_array().map(Vec::len)), (422, Some(1)));
-        let (st, v) = call(&app, "POST", &mix, Some(json!({"tracks": null, "path": "x"})));
+        let (st, v) = call(
+            &app,
+            "POST",
+            &mix,
+            Some(json!({"tracks": null, "path": "x"})),
+        );
         assert_eq!(st, 422);
-        assert_eq!(v["detail"], json!([{"type": "list_type", "loc": ["body", "tracks"], "msg": "Input should be a valid list", "input": null}]));
+        assert_eq!(
+            v["detail"],
+            json!([{"type": "list_type", "loc": ["body", "tracks"], "msg": "Input should be a valid list", "input": null}])
+        );
         let (st, v) = call(&app, "POST", &mix, Some(json!({"tracks": [], "path": "x"})));
         assert_eq!(st, 422);
         assert_eq!(v["detail"][0]["type"], "too_short");
-        assert_eq!(v["detail"][0]["msg"], "List should have at least 1 item after validation, not 0");
-        let (st, v) = call(&app, "POST", &mix, Some(json!({"tracks": [{"source": "drums", "gain": 3, "x": 1}], "path": "x"})));
+        assert_eq!(
+            v["detail"][0]["msg"],
+            "List should have at least 1 item after validation, not 0"
+        );
+        let (st, v) = call(
+            &app,
+            "POST",
+            &mix,
+            Some(json!({"tracks": [{"source": "drums", "gain": 3, "x": 1}], "path": "x"})),
+        );
         assert_eq!(st, 422);
         assert_eq!(v["detail"][0]["ctx"], json!({"le": 2.0}));
         assert_eq!(v["detail"][1]["type"], "extra_forbidden");
         assert_eq!(
-            call(&app, "POST", &mix, Some(json!({"tracks": [{"source": "drums"}], "path": "x.mp3"}))),
-            (404, json!({"detail": "esta canción no tiene pistas separadas"}))
+            call(
+                &app,
+                "POST",
+                &mix,
+                Some(json!({"tracks": [{"source": "drums"}], "path": "x.mp3"}))
+            ),
+            (
+                404,
+                json!({"detail": "esta canción no tiene pistas separadas"})
+            )
         );
         // la canción tal cual, fuera de la biblioteca: el trabajo lo dice
         let out = std::env::temp_dir().join("x.wav");
-        let (st, v) = call(&app, "POST", &mix, Some(json!({"tracks": [{"source": "song"}], "path": out})));
+        let (st, v) = call(
+            &app,
+            "POST",
+            &mix,
+            Some(json!({"tracks": [{"source": "song"}], "path": out})),
+        );
         assert_eq!(st, 202);
         assert_eq!(v["job"]["name"], "mix");
-        let job = app.jobs.wait("mix", Duration::from_secs(20)).expect("trabajo");
-        assert_eq!(job["error"], "la mezcla tiene que ir dentro de tu biblioteca");
-        let (st, _) = call(&app, "POST", &mix, Some(json!({"tracks": [{"source": "song"}], "path": file})));
+        let job = app
+            .jobs
+            .wait("mix", Duration::from_secs(20))
+            .expect("trabajo");
+        assert_eq!(
+            job["error"],
+            "la mezcla tiene que ir dentro de tu biblioteca"
+        );
+        let (st, _) = call(
+            &app,
+            "POST",
+            &mix,
+            Some(json!({"tracks": [{"source": "song"}], "path": file})),
+        );
         assert_eq!(st, 202);
-        let job = app.jobs.wait("mix", Duration::from_secs(20)).expect("trabajo");
-        assert_eq!(job["error"], "ahí ya hay una canción de tu biblioteca: elige otro nombre");
+        let job = app
+            .jobs
+            .wait("mix", Duration::from_secs(20))
+            .expect("trabajo");
+        assert_eq!(
+            job["error"],
+            "ahí ya hay una canción de tu biblioteca: elige otro nombre"
+        );
         assert_eq!(
             call(&app, "POST", "/api/bundle", Some(json!({"ids": []}))),
             (422, json!({"detail": "no hay canciones que llevar"}))
         );
-        let (st, _) = call(&app, "POST", "/api/bundle", Some(json!({"ids": [id, 999_999, id]})));
+        let (st, _) = call(
+            &app,
+            "POST",
+            "/api/bundle",
+            Some(json!({"ids": [id, 999_999, id]})),
+        );
         assert_eq!(st, 202);
-        let job = app.jobs.wait("bundle", Duration::from_secs(20)).expect("trabajo");
+        let job = app
+            .jobs
+            .wait("bundle", Duration::from_secs(20))
+            .expect("trabajo");
         assert_eq!(
             job["result"]["failed"],
             json!([
@@ -361,12 +500,25 @@ pub(crate) mod tests {
             ])
         );
         let (st, v) = call(&app, "GET", "/api/sequence", None);
-        assert_eq!((st, v["detail"][0]["loc"].clone()), (422, json!(["query", "path"])));
+        assert_eq!(
+            (st, v["detail"][0]["loc"].clone()),
+            (422, json!(["query", "path"]))
+        );
         let nothing = app.config().library.clone();
-        let (st, v) = call(&app, "GET", &format!("/api/sequence?path={}", nothing.display()), None);
+        let (st, v) = call(
+            &app,
+            "GET",
+            &format!("/api/sequence?path={}", nothing.display()),
+            None,
+        );
         assert_eq!(st, 422);
         assert!(v["detail"].is_string());
-        let (st, _) = call(&app, "POST", "/api/sequence/import", Some(json!({"path": nothing})));
+        let (st, _) = call(
+            &app,
+            "POST",
+            "/api/sequence/import",
+            Some(json!({"path": nothing})),
+        );
         assert_eq!(st, 422);
     }
 
@@ -393,11 +545,15 @@ echo '{"ok":true,"seconds":2.0,"took":0.1,"tracks":{"drums":"Bateria.flac","voca
         let dir = crate::tests::scratch("motor");
         let engine = dir.join("motor.sh");
         std::fs::write(&engine, FAKE).expect("motor");
-        app.separator.set_fake(vec!["sh".into(), engine.into_os_string()]);
+        app.separator
+            .set_fake(vec!["sh".into(), engine.into_os_string()]);
         let (st, v) = call(&app, "POST", &format!("/api/song/{id}/separate"), None);
         assert_eq!(st, 202);
         assert_eq!(v["job"]["name"], "separation");
-        let job = app.jobs.wait("separation", Duration::from_secs(60)).expect("trabajo");
+        let job = app
+            .jobs
+            .wait("separation", Duration::from_secs(60))
+            .expect("trabajo");
         assert_eq!(job["error"], "");
         let done = &job["result"]["separated"];
         assert_eq!(done[0]["stage"], Value::Null);
@@ -410,7 +566,12 @@ echo '{"ok":true,"seconds":2.0,"took":0.1,"tracks":{"drums":"Bateria.flac","voca
         assert_eq!(v["complete"], true);
         assert_eq!(v["tracks"].as_array().map(Vec::len), Some(4));
         let (_, s) = call(&app, "GET", "/api/separate", None);
-        let stages: Vec<&str> = s["events"].as_array().expect("eventos").iter().filter_map(|e| e["stage"].as_str()).collect();
+        let stages: Vec<&str> = s["events"]
+            .as_array()
+            .expect("eventos")
+            .iter()
+            .filter_map(|e| e["stage"].as_str())
+            .collect();
         assert_eq!(stages, ["separate", "refine"]);
     }
 
@@ -421,7 +582,8 @@ echo '{"ok":true,"seconds":2.0,"took":0.1,"tracks":{"drums":"Bateria.flac","voca
         let dir = crate::tests::scratch("lento");
         let engine = dir.join("lento.sh");
         std::fs::write(&engine, "echo '{\"step\":\"decode\"}'\nexec sleep 30\n").expect("motor");
-        app.separator.set_fake(vec!["sh".into(), engine.into_os_string()]);
+        app.separator
+            .set_fake(vec!["sh".into(), engine.into_os_string()]);
         let (st, v) = call(&app, "POST", &format!("/api/song/{id}/separate"), None);
         assert_eq!(st, 202);
         assert_eq!(v["current"]["id"], id);
@@ -433,11 +595,17 @@ echo '{"ok":true,"seconds":2.0,"took":0.1,"tracks":{"drums":"Bateria.flac","voca
             std::thread::sleep(Duration::from_millis(20));
         }
         let (st, v) = call(&app, "DELETE", "/api/separate/weights", None);
-        assert_eq!((st, v), (409, json!({"detail": "hay una separación en marcha"})));
+        assert_eq!(
+            (st, v),
+            (409, json!({"detail": "hay una separación en marcha"}))
+        );
         let started = std::time::Instant::now();
         let (st, _) = call(&app, "DELETE", "/api/separate", None);
         assert_eq!(st, 200);
-        let job = app.jobs.wait("separation", Duration::from_secs(20)).expect("trabajo");
+        let job = app
+            .jobs
+            .wait("separation", Duration::from_secs(20))
+            .expect("trabajo");
         assert!(started.elapsed() < Duration::from_secs(10));
         assert_eq!(job["active"], false);
         assert_eq!(job["error"], "cancelado");

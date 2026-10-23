@@ -84,9 +84,9 @@ pub fn run(job: &str, library: Option<&Path>) -> Result<separate::Outcome, separ
                     weights: &str,
                     threads: Option<usize>|
      -> Result<Box<dyn separate::Net>, separate::Error> {
-        let library = library
-            .as_ref()
-            .ok_or_else(|| separate::Error::from("falta ONNX Runtime en esta instalación de DanPlay"))?;
+        let library = library.as_ref().ok_or_else(|| {
+            separate::Error::from("falta ONNX Runtime en esta instalación de DanPlay")
+        })?;
         let m = separate::Manifest::de_json(manifest)?;
         let net = separate::load_net(library, Path::new(graph), &m, Path::new(weights), threads)?;
         Ok(Box::new(net))
@@ -107,7 +107,10 @@ pub fn run(job: &str, library: Option<&Path>) -> Result<separate::Outcome, separ
 /// `DANPLAY_ONNXRUNTIME` (la pone quien lo lanza).
 pub fn main(args: &[String]) -> i32 {
     if args.len() != 1 {
-        let _ = writeln!(std::io::stderr(), "uso: danplay-server --separate TRABAJO.json");
+        let _ = writeln!(
+            std::io::stderr(),
+            "uso: danplay-server --separate TRABAJO.json"
+        );
         return 2;
     }
     lower_priority();

@@ -45,7 +45,11 @@ pub fn summary(folder: &str) -> Result<Value, String> {
             }
         })
         .collect();
-    let tracks: Vec<Value> = s.tracks.iter().map(|t| json!({"name": t.name, "role": t.role})).collect();
+    let tracks: Vec<Value> = s
+        .tracks
+        .iter()
+        .map(|t| json!({"name": t.name, "role": t.role}))
+        .collect();
     Ok(json!({
         "folder": s.folder,
         "title": s.title,
@@ -65,7 +69,14 @@ fn run(ffmpeg: &Path, args: &[OsString], what: &str) -> Result<(), JobError> {
         Ok(o) if o.succeeded() => Ok(()),
         Ok(o) => {
             let err = o.stderr_text();
-            let tail: String = err.chars().rev().take(800).collect::<Vec<_>>().into_iter().rev().collect();
+            let tail: String = err
+                .chars()
+                .rev()
+                .take(800)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
             log::warn!("{what} fallo: {tail}");
             Err(expected(format!("no se pudo {what}")))
         }
@@ -94,7 +105,9 @@ fn duration(ffmpeg: &Path, path: &Path) -> f64 {
         return 0.0;
     };
     let err = out.stderr_text();
-    let Some(at) = err.rfind("time=") else { return 0.0 };
+    let Some(at) = err.rfind("time=") else {
+        return 0.0;
+    };
     let parts: Vec<f64> = err[at + 5..]
         .split_whitespace()
         .next()
@@ -116,7 +129,13 @@ fn wave(ffmpeg: &Path, path: &Path, seconds: f64) -> (Vec<f64>, Vec<f64>) {
     args.extend(os(&["-ac", "1", "-ar", "4000", "-f", "f32le", "-"]));
     let mut cmd = library::processes::order(ffmpeg, &args);
     let raw: Vec<f32> = match library::processes::run(&mut cmd, Duration::from_secs(600)) {
-        Ok(o) if o.succeeded() => o.stdout.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect(),
+        Ok(o) if o.succeeded() => o
+            .stdout
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
+            .collect(),
         _ => vec![0.0],
     };
     lseq::wave_of(&raw, f64::from(rate), seconds)
@@ -143,7 +162,9 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
         )));
     }
     if !tracks.iter().any(|t| t.role.is_empty()) {
-        return Err(expected("la secuencia no tiene pistas de música (solo clic o guía)"));
+        return Err(expected(
+            "la secuencia no tiene pistas de música (solo clic o guía)",
+        ));
     }
     let tempo = seq.bpm;
     let empty = lseq::Project::default();
@@ -152,7 +173,10 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
     let starts: Vec<f64> = tracks
         .iter()
         .map(|t| {
-            let name = Path::new(&t.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = Path::new(&t.path)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             match project.clips.iter().find(|(n, _, _)| *n == name) {
                 Some((_, beat, _)) if tempo != 0.0 => lseq::beat_seconds(*beat, tempo),
                 _ => 0.0,
@@ -163,7 +187,10 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
     let library_root = app.config().library.clone();
     let song_dir = library_root.join("Secuencias");
     std::fs::create_dir_all(&song_dir).map_err(JobError::from)?;
-    let mix_path = song_dir.join(library::names::free_name(&song_dir, &format!("{base}.flac")));
+    let mix_path = song_dir.join(library::names::free_name(
+        &song_dir,
+        &format!("{base}.flac"),
+    ));
     let stems_parent = library_root.join(ls::FOLDER);
     std::fs::create_dir_all(&stems_parent).map_err(JobError::from)?;
     let mix_stem = library::py::path_stem(&text(&mix_path));
@@ -175,7 +202,11 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
     let work = stems::make_temp_dir(&stems_parent, ".secuencia-").map_err(JobError::from)?;
     let outcome = (|| -> Result<(Vec<(String, String)>, f64), JobError> {
         // 1. las pistas, en FLAC (con su silencio delante si entran tarde)
-        p.update(Some(0.into()), Some(total.into()), Some(&format!("Preparando «{title}»…")));
+        p.update(
+            Some(0.into()),
+            Some(total.into()),
+            Some(&format!("Preparando «{title}»…")),
+        );
         let names: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
         let files: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
         let done = Mutex::new(0usize);
@@ -188,21 +219,30 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
                 s.spawn(|| {
                     loop {
                         let i = {
-                            let mut n = next.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                            let mut n = next
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
                             let i = *n;
                             *n += 1;
                             i
                         };
                         let Some(t) = tracks.get(i) else { return };
-                        if first_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some() {
+                        if first_error
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .is_some()
+                        {
                             return;
                         }
-                        let mut name: String = library::names::sanitize(&t.name).chars().take(80).collect();
+                        let mut name: String =
+                            library::names::sanitize(&t.name).chars().take(80).collect();
                         if name.is_empty() {
                             name.clone_from(&t.key);
                         }
                         let dest = {
-                            let mut taken = names.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                            let mut taken = names
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
                             let mut dest = work.join(format!("{name}.flac"));
                             let mut n = 2;
                             while dest.exists() || taken.contains(&dest) {
@@ -215,16 +255,32 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
                         };
                         let mut args = os(&["-v", "error", "-nostdin", "-y", "-i"]);
                         args.push(t.path.clone().into());
-                        args.extend(lseq::offset_filter(starts[i]).into_iter().map(OsString::from));
+                        args.extend(
+                            lseq::offset_filter(starts[i])
+                                .into_iter()
+                                .map(OsString::from),
+                        );
                         args.extend(os(&["-c:a", "flac", "-compression_level", "5"]));
                         args.push(dest.as_os_str().to_owned());
-                        if let Err(e) = run(&ffmpeg, &args, &format!("pasar «{}» a FLAC", t.name)) {
-                            first_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_or_insert(e);
+                        if let Err(e) = run(&ffmpeg, &args, &format!("pasar «{}» a FLAC", t.name))
+                        {
+                            first_error
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .get_or_insert(e);
                             return;
                         }
-                        let file = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                        files.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((t.key.clone(), file));
-                        let mut d = done.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let file = dest
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        files
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .push((t.key.clone(), file));
+                        let mut d = done
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         *d += 1;
                         p.update(
                             Some((*d).into()),
@@ -235,15 +291,34 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
                 });
             }
         });
-        if let Some(e) = first_error.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner) {
+        if let Some(e) = first_error
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        {
             return Err(e);
         }
-        let files = files.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let file_of = |key: &str| work.join(files.iter().find(|(k, _)| k == key).map_or("", |(_, f)| f.as_str()));
-        let seconds = tracks.iter().map(|t| duration(&ffmpeg, &file_of(&t.key))).fold(f64::NEG_INFINITY, f64::max);
+        let files = files
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let file_of = |key: &str| {
+            work.join(
+                files
+                    .iter()
+                    .find(|(k, _)| k == key)
+                    .map_or("", |(_, f)| f.as_str()),
+            )
+        };
+        let seconds = tracks
+            .iter()
+            .map(|t| duration(&ffmpeg, &file_of(&t.key)))
+            .fold(f64::NEG_INFINITY, f64::max);
         let mut done = tracks.len();
         // 2. la canción: todo menos el clic y la guía, sumado
-        p.update(Some(done.into()), Some(total.into()), Some(&format!("Mezclando «{title}»…")));
+        p.update(
+            Some(done.into()),
+            Some(total.into()),
+            Some(&format!("Mezclando «{title}»…")),
+        );
         let music: Vec<_> = tracks.iter().filter(|t| t.role.is_empty()).collect();
         let mut args = os(&["-v", "error", "-nostdin", "-y"]);
         for t in &music {
@@ -264,7 +339,11 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
         run(&ffmpeg, &args, "mezclar la canción")?;
         done += 1;
         // 3. la onda de cada pista, todas a la misma escala
-        p.update(Some(done.into()), Some(total.into()), Some(&format!("Dibujando las pistas de «{title}»…")));
+        p.update(
+            Some(done.into()),
+            Some(total.into()),
+            Some(&format!("Dibujando las pistas de «{title}»…")),
+        );
         let waves: Vec<(String, Vec<f64>, Vec<f64>)> = tracks
             .iter()
             .map(|t| {
@@ -298,7 +377,11 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
         if !seq.cover.is_empty()
             && let Ok(data) = std::fs::read(&seq.cover)
         {
-            let mime = if seq.cover.to_lowercase().ends_with(".png") { "image/png" } else { "image/jpeg" };
+            let mime = if seq.cover.to_lowercase().ends_with(".png") {
+                "image/png"
+            } else {
+                "image/jpeg"
+            };
             let before = tags::stamp(&mix_path);
             if library::tags::write_cover(&mix_path, &data, mime).is_ok()
                 && let (Some(b), Some(a)) = (before, tags::stamp(&mix_path))
@@ -317,15 +400,27 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
         }
     };
     let finish = (|| -> Result<(), JobError> {
-        let size = std::fs::metadata(&mix_path).map(|m| m.len()).map_err(JobError::from)?;
+        let size = std::fs::metadata(&mix_path)
+            .map(|m| m.len())
+            .map_err(JobError::from)?;
         let now = library::py::round(library::index::now(), 1);
-        let rel_folder = library::py::relpath(&text(mix_path.parent().unwrap_or(&mix_path)), &text(&library_root)).unwrap_or_default();
+        let rel_folder = library::py::relpath(
+            &text(mix_path.parent().unwrap_or(&mix_path)),
+            &text(&library_root),
+        )
+        .unwrap_or_default();
         let sections: Vec<Value> = project
             .locators
             .iter()
             .map(|(beat, name)| json!({"beat": beat, "name": name}))
             .collect();
-        let file_of = |key: &str| files.iter().find(|(k, _)| k == key).map(|(_, f)| f.clone()).unwrap_or_default();
+        let file_of = |key: &str| {
+            files
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, f)| f.clone())
+                .unwrap_or_default()
+        };
         let manifest = json!({
             "version": 2,
             "app": "DanPlay",
@@ -366,7 +461,9 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
     // 5. al índice, con sus pistas, sus partes y su clic
     let row = index::index_file(app, &mix_path)
         .map_err(|e| JobError::Failed(e.to_string()))?
-        .ok_or_else(|| expected("la canción no entró en la biblioteca (¿está la carpeta de música?)"))?;
+        .ok_or_else(|| {
+            expected("la canción no entró en la biblioteca (¿está la carpeta de música?)")
+        })?;
     let id = row.get("id").and_then(Value::as_i64).unwrap_or(0);
     let root = index::text(&row, "root");
     let rel = library::py::relpath(&text(&stems_dir), &root).unwrap_or_default();
@@ -385,8 +482,13 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
         let grid = Value::Object(lseq::grid(tempo, &project.meters, seconds));
         beatgrid::save_exact(app, &mix_path, &grid);
     }
-    index::set_study(app, id, &Value::Object(study)).map_err(|e| JobError::Failed(e.to_string()))?;
-    p.update(Some(total.into()), Some(total.into()), Some(&format!("«{title}» lista")));
+    index::set_study(app, id, &Value::Object(study))
+        .map_err(|e| JobError::Failed(e.to_string()))?;
+    p.update(
+        Some(total.into()),
+        Some(total.into()),
+        Some(&format!("«{title}» lista")),
+    );
     Ok(json!({
         "id": id,
         "title": seq.title,

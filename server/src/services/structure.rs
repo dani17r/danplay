@@ -26,7 +26,10 @@ fn decode(app: &App, path: &str, rate: u32, longest: f64) -> Result<Vec<f32>, Jo
     };
     let longest = py::repr_float(longest);
     let rate = rate.to_string();
-    let mut args: Vec<OsString> = ["-v", "error", "-nostdin", "-i"].iter().map(Into::into).collect();
+    let mut args: Vec<OsString> = ["-v", "error", "-nostdin", "-i"]
+        .iter()
+        .map(Into::into)
+        .collect();
     args.push(path.into());
     for a in ["-t", &longest, "-ac", "1", "-ar", &rate, "-f", "f32le", "-"] {
         args.push(a.into());
@@ -52,7 +55,11 @@ fn column(v: &[f32]) -> Matrix {
 }
 
 fn matrix(v: &[f32], columns: usize) -> Matrix {
-    Matrix::new(v.len() / columns.max(1), columns, v.iter().map(|x| f64::from(*x)).collect())
+    Matrix::new(
+        v.len() / columns.max(1),
+        columns,
+        v.iter().map(|x| f64::from(*x)).collect(),
+    )
 }
 
 /// `np.median`.
@@ -62,7 +69,11 @@ fn median(mut v: Vec<f64>) -> f64 {
     }
     v.sort_by(f64::total_cmp);
     let n = v.len();
-    if n % 2 == 1 { v[n / 2] } else { f64::midpoint(v[n / 2 - 1], v[n / 2]) }
+    if n % 2 == 1 {
+        v[n / 2]
+    } else {
+        f64::midpoint(v[n / 2 - 1], v[n / 2])
+    }
 }
 
 type Levels = (Option<Vec<f64>>, Vec<(String, Vec<f64>)>);
@@ -77,7 +88,9 @@ fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
     let mut levels: Vec<(String, Vec<f64>)> = Vec::new();
     for t in data.get("tracks").map(py::list_of).unwrap_or_default() {
         let source = t.get("source").map(py::str_of).unwrap_or_default();
-        if !library::stems::SOURCES.iter().any(|(k, _, _)| *k == source) || t.get("role").is_some_and(py::truthy) {
+        if !library::stems::SOURCES.iter().any(|(k, _, _)| *k == source)
+            || t.get("role").is_some_and(py::truthy)
+        {
             continue;
         }
         let path = t.get("path").map(py::str_of).unwrap_or_default();
@@ -98,7 +111,10 @@ fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
         .collect();
     let vocals = if singing.is_empty() {
         let dropped = data.get("dropped").map(py::list_of).unwrap_or_default();
-        if dropped.iter().any(|k| k.as_str().is_some_and(|k| st::VOCALS.contains(&k))) {
+        if dropped
+            .iter()
+            .any(|k| k.as_str().is_some_and(|k| st::VOCALS.contains(&k)))
+        {
             vec![0.0; units.len()] // la red no oyó voz: es instrumental
         } else {
             return None;
@@ -106,10 +122,19 @@ fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
     } else {
         let n = singing[0].len();
         (0..n)
-            .map(|i| singing.iter().map(|v| v.get(i).map_or(0.0, |x| x * x)).sum::<f64>().sqrt())
+            .map(|i| {
+                singing
+                    .iter()
+                    .map(|v| v.get(i).map_or(0.0, |x| x * x))
+                    .sum::<f64>()
+                    .sqrt()
+            })
             .collect()
     };
-    let sources = levels.into_iter().filter(|(k, _)| !st::VOCALS.contains(&k.as_str())).collect();
+    let sources = levels
+        .into_iter()
+        .filter(|(k, _)| !st::VOCALS.contains(&k.as_str()))
+        .collect();
     Some((Some(vocals), sources))
 }
 
@@ -118,13 +143,21 @@ fn section(s: &st::Section) -> Value {
 }
 
 /// Las partes de la canción, con su nombre.
-fn analyse(app: &App, song: &Dict, bars: Option<&[f64]>, beat: Option<f64>, p: &Progress) -> Result<Vec<st::Section>, JobError> {
+fn analyse(
+    app: &App,
+    song: &Dict,
+    bars: Option<&[f64]>,
+    beat: Option<f64>,
+    p: &Progress,
+) -> Result<Vec<st::Section>, JobError> {
     p.message("Escuchando la canción…");
     let path = song.get("path").map(py::str_of).unwrap_or_default();
     let x = decode(app, &path, st::RATE, st::MAX_SECONDS)?;
     let duration = x.len() as f64 / f64::from(st::RATE);
     if duration < 4.0 * st::WINDOW_UNIT {
-        return Err(expected("la canción es demasiado corta para buscarle partes"));
+        return Err(expected(
+            "la canción es demasiado corta para buscarle partes",
+        ));
     }
     p.message("Buscando sus partes…");
     let f = st::frames(&x, st::RATE);
@@ -134,11 +167,19 @@ fn analyse(app: &App, song: &Dict, bars: Option<&[f64]>, beat: Option<f64>, p: &
     let chroma = st::pool(&f.times, &matrix(&f.chroma, 12), &units);
     let timbre = st::pool(&f.times, &matrix(&f.timbre, st::COEFS), &units);
     let (vocals, sources) = stem_levels(app, song, &units).unwrap_or((None, Vec::new()));
-    let parts = st::segment(&[chroma, timbre], &rms, vocals.as_deref(), &sources, Some(&units), phase);
+    let parts = st::segment(
+        &[chroma, timbre],
+        &rms,
+        vocals.as_deref(),
+        &sources,
+        Some(&units),
+        phase,
+    );
     let bar = if phase.is_some() {
         median(units.iter().map(|(a, b)| b - a).collect())
     } else {
-        beat.filter(|b| *b != 0.0).map_or(st::WINDOW_UNIT, |b| 4.0 * b)
+        beat.filter(|b| *b != 0.0)
+            .map_or(st::WINDOW_UNIT, |b| 4.0 * b)
     };
     let chunks: Vec<Chunk> = parts.iter().map(Chunk::from).collect();
     Ok(st::name_sections(&chunks, bar))
@@ -157,13 +198,19 @@ pub struct AutoGuide {
 /// La guía automática de una canción: sus partes y la guía hablada de cada
 /// una, justo antes. {sections: [{start, end, label}], cues: [{t, text,
 /// voice, file, seconds}]}.
-pub fn auto_guide(app: &App, song: &Dict, req: &AutoGuide, p: &Progress) -> Result<Value, JobError> {
+pub fn auto_guide(
+    app: &App,
+    song: &Dict,
+    req: &AutoGuide,
+    p: &Progress,
+) -> Result<Value, JobError> {
     let found = match req.sections.as_ref().filter(|s| !s.is_empty()) {
         Some(sections) => {
             let mut duration = song.get("duration").and_then(py::float_of).unwrap_or(0.0);
             if duration == 0.0 {
                 let path = song.get("path").map(py::str_of).unwrap_or_default();
-                duration = decode(app, &path, st::RATE, st::MAX_SECONDS)?.len() as f64 / f64::from(st::RATE);
+                duration = decode(app, &path, st::RATE, st::MAX_SECONDS)?.len() as f64
+                    / f64::from(st::RATE);
             }
             let given: Vec<(f64, String)> = sections
                 .iter()
@@ -181,12 +228,18 @@ pub fn auto_guide(app: &App, song: &Dict, req: &AutoGuide, p: &Progress) -> Resu
     }
     let mut said: Map<String, Value> = Map::new();
     for (i, label) in labels.iter().enumerate() {
-        p.update(Some(i.into()), Some(labels.len().into()), Some(&format!("Diciendo «{label}»…")));
+        p.update(
+            Some(i.into()),
+            Some(labels.len().into()),
+            Some(&format!("Diciendo «{label}»…")),
+        );
         match cues::make(app, label, &req.voice, false) {
             Ok(v) => {
                 said.insert(label.clone(), v);
             }
-            Err(cues::CueError::Cue(e)) => return Err(expected(format!("no se pudo decir «{label}»: {e}"))),
+            Err(cues::CueError::Cue(e)) => {
+                return Err(expected(format!("no se pudo decir «{label}»: {e}")));
+            }
             Err(cues::CueError::Other(e)) => return Err(JobError::Failed(e)),
         }
     }

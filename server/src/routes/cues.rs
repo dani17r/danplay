@@ -6,8 +6,8 @@ use crate::http::Response;
 use crate::jobs;
 use crate::router::{Ctx, Reply, Route};
 use crate::services::cues::{self, CueError, Edit};
-use crate::services::structure::{self, AutoGuide};
 use crate::services::index;
+use crate::services::structure::{self, AutoGuide};
 use library::index::Dict;
 use library::py;
 use serde_json::{Value, json};
@@ -54,7 +54,10 @@ fn cue_voice_install(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
             let status = if state["installed"] == true { 200 } else { 202 };
             Ok(Response::json(status, &state).into())
         }
-        Err(CueError::Cue(t)) => Err(ApiError::http(if t.contains("no conozco") { 404 } else { 502 }, t)),
+        Err(CueError::Cue(t)) => Err(ApiError::http(
+            if t.contains("no conozco") { 404 } else { 502 },
+            t,
+        )),
         Err(CueError::Other(t)) => Err(ApiError::internal(t)),
     }
 }
@@ -63,7 +66,9 @@ fn cue_voice_install(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 fn voice_ready(ctx: &Ctx<'_>, voice: &str) -> Result<(), ApiError> {
     if !cues::installed(ctx.app, voice) {
         cues::install(ctx.app, voice).map_err(|e| with_status(e, 422))?;
-        return Err(ApiError::conflict("esa voz se está bajando: en cuanto acabe se puede usar"));
+        return Err(ApiError::conflict(
+            "esa voz se está bajando: en cuanto acabe se puede usar",
+        ));
     }
     Ok(())
 }
@@ -110,17 +115,26 @@ fn cue_auto(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     ctx.done(b)?;
     let song = song(ctx, cid)?;
     voice_ready(ctx, &voice)?;
-    let req = AutoGuide { voice, bars, beat, sections };
+    let req = AutoGuide {
+        voice,
+        bars,
+        beat,
+        sections,
+    };
     let me = ctx.app.clone();
-    let (snap, already) = ctx
-        .app
-        .jobs
-        .start(structure::AUTO_JOB, "no se pudo hacer la guía automática", move |p| {
+    let (snap, already) = ctx.app.jobs.start(
+        structure::AUTO_JOB,
+        "no se pudo hacer la guía automática",
+        move |p| {
             let r = structure::auto_guide(&me, &song, &req, p)?;
             let n = r["sections"].as_array().map_or(0, Vec::len);
-            p.message(&format!("Guía lista: {n} parte{}", if n == 1 { "" } else { "s" }));
+            p.message(&format!(
+                "Guía lista: {n} parte{}",
+                if n == 1 { "" } else { "s" }
+            ));
             Ok(r)
-        });
+        },
+    );
     Ok(Response::json(202, &jobs::started(snap, already)).into())
 }
 
@@ -133,7 +147,11 @@ fn cue_import(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     ctx.done(b)?;
     let song = song(ctx, cid)?;
     let longest = limit.filter(|l| *l != 0.0).map(|l| {
-        let duration = song.get("duration").and_then(py::float_of).filter(|d| *d != 0.0).unwrap_or(l);
+        let duration = song
+            .get("duration")
+            .and_then(py::float_of)
+            .filter(|d| *d != 0.0)
+            .unwrap_or(l);
         l.min(duration + 0.5)
     });
     cues::import_recording(ctx.app, &path, longest)
@@ -208,32 +226,60 @@ mod tests {
             (404, json!({"detail": "no conozco esa voz"}))
         );
         assert_eq!(
-            call(&app, "POST", "/api/song/999999/cues", Some(json!({"text": "Coro", "voice": "st-F1"}))),
+            call(
+                &app,
+                "POST",
+                "/api/song/999999/cues",
+                Some(json!({"text": "Coro", "voice": "st-F1"}))
+            ),
             (404, json!({"detail": "archivo no encontrado"}))
         );
         assert_eq!(
-            call(&app, "POST", &format!("/api/song/{id}/cues"), Some(json!({"text": "Coro", "voice": "nadie"}))),
+            call(
+                &app,
+                "POST",
+                &format!("/api/song/{id}/cues"),
+                Some(json!({"text": "Coro", "voice": "nadie"}))
+            ),
             (422, json!({"detail": "no conozco esa voz"}))
         );
-        let (st, v) = call(&app, "POST", &format!("/api/song/{id}/cues"), Some(json!({"text": "", "voice": "st-F1", "x": 1})));
+        let (st, v) = call(
+            &app,
+            "POST",
+            &format!("/api/song/{id}/cues"),
+            Some(json!({"text": "", "voice": "st-F1", "x": 1})),
+        );
         assert_eq!(st, 422);
         assert_eq!(v["detail"][0]["type"], "string_too_short");
         assert_eq!(v["detail"][1]["type"], "extra_forbidden");
         let (st, v) = call(&app, "GET", "/api/cues/wave", None);
-        assert_eq!((st, v["detail"][0]["loc"].clone()), (422, json!(["query", "file"])));
+        assert_eq!(
+            (st, v["detail"][0]["loc"].clone()),
+            (422, json!(["query", "file"]))
+        );
         assert_eq!(
             call(&app, "GET", "/api/cues/wave?file=/etc/passwd", None),
             (404, json!({"detail": "esa guía no está"}))
         );
         assert_eq!(
-            call(&app, "POST", "/api/cues/edit", Some(json!({"file": "/etc/passwd"}))),
+            call(
+                &app,
+                "POST",
+                "/api/cues/edit",
+                Some(json!({"file": "/etc/passwd"}))
+            ),
             (422, json!({"detail": "esa guía no está"}))
         );
         assert_eq!(
             call(&app, "POST", "/api/cues/audio", Some(json!({"file": "x"}))),
             (404, json!({"detail": "no encuentro esa guía"}))
         );
-        let (st, v) = call(&app, "POST", &format!("/api/song/{id}/cues/auto"), Some(json!({"voice": "st-F1", "beat": 9})));
+        let (st, v) = call(
+            &app,
+            "POST",
+            &format!("/api/song/{id}/cues/auto"),
+            Some(json!({"voice": "st-F1", "beat": 9})),
+        );
         assert_eq!(st, 422);
         assert_eq!(v["detail"][0]["ctx"], json!({"le": 5.0}));
     }
@@ -246,19 +292,46 @@ mod tests {
             call(&app, "POST", &import, Some(json!({"path": "/no/esta.wav"}))),
             (422, json!({"detail": "no encuentro ese audio"}))
         );
-        let (st, v) = call(&app, "POST", &import, Some(json!({"path": song, "limit": 30})));
+        let (st, v) = call(
+            &app,
+            "POST",
+            &import,
+            Some(json!({"path": song, "limit": 30})),
+        );
         assert_eq!(st, 200, "{v}");
         let file = v["file"].as_str().expect("archivo").to_owned();
         assert!(file.contains("/cues/grabada-"), "{file}");
-        assert!(v["seconds"].as_f64().is_some_and(|s| s > 1.5 && s < 2.1), "{v}");
-        let (st, w) = call(&app, "GET", &format!("/api/cues/wave?file={file}&buckets=8"), None);
+        assert!(
+            v["seconds"].as_f64().is_some_and(|s| s > 1.5 && s < 2.1),
+            "{v}"
+        );
+        let (st, w) = call(
+            &app,
+            "GET",
+            &format!("/api/cues/wave?file={file}&buckets=8"),
+            None,
+        );
         assert_eq!(st, 200);
         assert_eq!(w["peaks"].as_array().map(Vec::len), Some(8));
-        let (st, e) = call(&app, "POST", "/api/cues/edit", Some(json!({"file": file, "start": 0.2, "end": 1.0, "fade_in": 0.1})));
+        let (st, e) = call(
+            &app,
+            "POST",
+            "/api/cues/edit",
+            Some(json!({"file": file, "start": 0.2, "end": 1.0, "fade_in": 0.1})),
+        );
         assert_eq!(st, 200, "{e}");
-        assert!(e["file"].as_str().is_some_and(|f| f.contains("/cues/editada-")));
+        assert!(
+            e["file"]
+                .as_str()
+                .is_some_and(|f| f.contains("/cues/editada-"))
+        );
         assert_eq!(
-            call(&app, "POST", "/api/cues/edit", Some(json!({"file": file, "start": 50}))),
+            call(
+                &app,
+                "POST",
+                "/api/cues/edit",
+                Some(json!({"file": file, "start": 50}))
+            ),
             (422, json!({"detail": "lo que queda es demasiado corto"}))
         );
         let (st, a) = call(&app, "POST", "/api/cues/audio", Some(json!({"file": file})));

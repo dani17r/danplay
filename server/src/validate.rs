@@ -563,7 +563,14 @@ fn bounds(x: f64, b: Bounds, loc: &[Value], v: &Value, errors: &mut Vec<Value>) 
     bounds_with(x, b, loc, v, errors, false)
 }
 
-fn bounds_with(x: f64, b: Bounds, loc: &[Value], v: &Value, errors: &mut Vec<Value>, float_ctx: bool) -> bool {
+fn bounds_with(
+    x: f64,
+    b: Bounds,
+    loc: &[Value],
+    v: &Value,
+    errors: &mut Vec<Value>,
+    float_ctx: bool,
+) -> bool {
     let checks: [Check<'_>; 4] = [
         (b.gt, "greater_than", "gt", "greater than", |x, b| x > b),
         (b.ge, "greater_than_equal", "ge", "greater than or equal to", |x, b| x >= b),
@@ -575,7 +582,14 @@ fn bounds_with(x: f64, b: Bounds, loc: &[Value], v: &Value, errors: &mut Vec<Val
             && !ok(x, b.as_f64())
         {
             let mut ctx = Map::new();
-            ctx.insert(key.into(), if float_ctx { Value::from(b.as_f64()) } else { b.value() });
+            ctx.insert(
+                key.into(),
+                if float_ctx {
+                    Value::from(b.as_f64())
+                } else {
+                    b.value()
+                },
+            );
             errors.push(error(
                 kind,
                 loc,
@@ -759,7 +773,12 @@ impl Kind for Float {
             errors.push(error("float_type", loc, "Input should be a valid number", v, None));
             return None;
         };
-        let b = Bounds { ge: self.ge, le: self.le, gt: self.gt, lt: self.lt };
+        let b = Bounds {
+            ge: self.ge,
+            le: self.le,
+            gt: self.gt,
+            lt: self.lt,
+        };
         bounds_with(x, b, loc, v, errors, true).then_some(x)
     }
 }
@@ -957,7 +976,12 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
         if i + 1 == e.line() {
             // al acabarse el texto, serde dice el último que leyó y Python
             // dónde esperaba más (uno después)
-            let col = if e.is_eof() { e.column() } else { e.column().saturating_sub(1) }.min(line.len());
+            let col = if e.is_eof() {
+                e.column()
+            } else {
+                e.column().saturating_sub(1)
+            }
+            .min(line.len());
             pos += line
                 .get(..col)
                 .map_or_else(|| line.chars().count(), |s| s.chars().count());

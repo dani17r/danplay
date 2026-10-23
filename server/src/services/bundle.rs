@@ -32,7 +32,9 @@ fn bundle_error(t: impl Into<String>) -> Failure {
 
 /// La rejilla del clic (la guardada, o calculada ahora) y, si no hay, por qué.
 fn grid(app: &App, path: &str) -> (Value, String) {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| beatgrid::grid_of(app, Path::new(path)))) {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        beatgrid::grid_of(app, Path::new(path))
+    })) {
         Ok(Ok(g)) => (g, String::new()),
         Ok(Err(why)) => (Value::Null, why),
         Err(_) => {
@@ -78,17 +80,24 @@ fn cover(app: &App, path: &str) -> Option<(Vec<u8>, String)> {
     )
     .ok()?;
     crate::services::ai::log_warnings("danplay.thumbnails", warnings);
-    let ext = if made.mime.contains("png") { ".png" } else { ".jpg" };
+    let ext = if made.mime.contains("png") {
+        ".png"
+    } else {
+        ".jpg"
+    };
     Some((made.data, ext.to_owned()))
 }
 
 /// Prepara la canción `cid` para el celular y devuelve dónde quedó.
 fn export(app: &App, cid: i64, progress: &(dyn Fn(usize, usize) + Sync)) -> Result<Value, Failure> {
-    let song = index::by_id(app, cid)?.ok_or_else(|| bundle_error("esa canción ya no está en la biblioteca"))?;
+    let song = index::by_id(app, cid)?
+        .ok_or_else(|| bundle_error("esa canción ya no está en la biblioteca"))?;
     let info = stems::info(app, &song)
         .filter(|i| i.get("complete").is_some_and(py::truthy))
         .ok_or_else(|| bundle_error("no tiene sus pistas separadas completas"))?;
-    let ffmpeg = app.tool("ffmpeg").ok_or_else(|| bundle_error("hace falta ffmpeg"))?;
+    let ffmpeg = app
+        .tool("ffmpeg")
+        .ok_or_else(|| bundle_error("hace falta ffmpeg"))?;
     let encoders = stems::encoders(app, &ffmpeg);
     library::bundle::codec(&encoders).map_err(Failure::Bundle)?; // que diga ya si este ffmpeg no sabe
     let target = PathBuf::from(library::bundle::target_for(&song));
@@ -98,7 +107,11 @@ fn export(app: &App, cid: i64, progress: &(dyn Fn(usize, usize) + Sync)) -> Resu
     if let Some(dir) = target.parent() {
         std::fs::create_dir_all(dir).map_err(|e| Failure::Other(e.to_string()))?;
     }
-    let tracks = info.get("tracks").map(py::list_of).unwrap_or_default().len();
+    let tracks = info
+        .get("tracks")
+        .map(py::list_of)
+        .unwrap_or_default()
+        .len();
     let total = tracks + 1;
     let done = std::sync::atomic::AtomicUsize::new(0);
     let step = || {
@@ -127,7 +140,11 @@ fn export(app: &App, cid: i64, progress: &(dyn Fn(usize, usize) + Sync)) -> Resu
         utc_offset: clock::utc_offset(),
     };
     let data = library::bundle::write(&package, &step).map_err(Failure::Bundle)?;
-    let title = data.get("song").and_then(|s| s.get("title")).cloned().unwrap_or(Value::Null);
+    let title = data
+        .get("song")
+        .and_then(|s| s.get("title"))
+        .cloned()
+        .unwrap_or(Value::Null);
     let size = std::fs::metadata(&target).map_or(0, |m| m.len());
     Ok(json!({
         "id": cid,
@@ -168,7 +185,9 @@ pub fn export_many(app: &App, ids: &[i64], p: &Progress) -> Result<Value, JobErr
         };
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| export(app, *cid, &parts))) {
             Ok(Ok(r)) => done.push(r),
-            Ok(Err(Failure::Bundle(e))) => failed.push(json!({"id": cid, "title": title, "error": e})),
+            Ok(Err(Failure::Bundle(e))) => {
+                failed.push(json!({"id": cid, "title": title, "error": e}));
+            }
             Ok(Err(Failure::Other(e))) => {
                 log::error!("no se pudo llevar {cid} al celular: {e}");
                 let e = if e.is_empty() { "falló".to_owned() } else { e };
@@ -183,7 +202,10 @@ pub fn export_many(app: &App, ids: &[i64], p: &Progress) -> Result<Value, JobErr
     p.update(Some(n.into()), Some(n.into()), Some(""));
     let count = done.len();
     if count > 0 {
-        p.message(&format!("{count} lista{} para el celular", if count == 1 { "" } else { "s" }));
+        p.message(&format!(
+            "{count} lista{} para el celular",
+            if count == 1 { "" } else { "s" }
+        ));
     }
     Ok(json!({"done": done, "failed": failed}))
 }

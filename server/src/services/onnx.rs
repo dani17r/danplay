@@ -18,7 +18,11 @@ fn in_folder(dir: &Path) -> Option<PathBuf> {
         .ok()?
         .filter_map(Result::ok)
         .map(|e| e.path())
-        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(is_library))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(is_library)
+        })
         .collect();
     found.sort();
     found.into_iter().next()

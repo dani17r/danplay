@@ -101,7 +101,10 @@ struct Graph {
 /// La cola y lo que se está separando (lo que en Python eran variables del
 /// módulo, aquí de cada `App`).
 #[derive(Debug, Default)]
-#[allow(clippy::struct_field_names, reason = "la cola, como `_queue` en Python")]
+#[allow(
+    clippy::struct_field_names,
+    reason = "la cola, como `_queue` en Python"
+)]
 struct Queue {
     /// lo que espera: [{id, title, stage, then_max}]
     queue: Vec<Dict>,
@@ -165,7 +168,12 @@ fn graph(app: &App, name: &str) -> Result<Graph> {
         sources: v
             .get("sources")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_default(),
         weights: v.get("weights").cloned().unwrap_or(Value::Null),
         specialists: v.get("specialists").cloned().unwrap_or(Value::Null),
@@ -224,7 +232,8 @@ fn weights_path(app: &App, p: &Part) -> PathBuf {
 
 /// Los pesos de esa parte ya están bajados (y enteros).
 fn installed(app: &App, p: &Part) -> bool {
-    app.separator.fake.load(Ordering::SeqCst) || std::fs::metadata(weights_path(app, p)).is_ok_and(|m| m.len() == p.bytes)
+    app.separator.fake.load(Ordering::SeqCst)
+        || std::fs::metadata(weights_path(app, p)).is_ok_and(|m| m.len() == p.bytes)
 }
 
 /// Por qué no se puede separar en este equipo, o vacío si se puede.
@@ -243,7 +252,10 @@ pub fn missing(app: &App) -> String {
         return "faltan los archivos del separador en esta instalación".into();
     };
     let dir = graphs_dir(app);
-    if !known.iter().all(|p| dir.join(format!("{}.onnx", p.graph)).is_file()) {
+    if !known
+        .iter()
+        .all(|p| dir.join(format!("{}.onnx", p.graph)).is_file())
+    {
         return "faltan los archivos del separador en esta instalación".into();
     }
     String::new()
@@ -278,7 +290,11 @@ fn has_opus(app: &App, ffmpeg: &Path) -> bool {
 /// lo sabe hacer).
 pub fn stems_format(app: &App) -> String {
     let chosen = app.config().stems_format.clone();
-    let chosen = if FORMATS.contains(&chosen.as_str()) { chosen } else { "flac".into() };
+    let chosen = if FORMATS.contains(&chosen.as_str()) {
+        chosen
+    } else {
+        "flac".into()
+    };
     if chosen == "opus" && !app.tool("ffmpeg").is_some_and(|f| has_opus(app, &f)) {
         return "flac".into();
     }
@@ -305,7 +321,11 @@ pub fn status(app: &App) -> Value {
     let (queue, current, events) = {
         let q = lock(&app.separator.queue);
         (
-            q.queue.iter().cloned().map(Value::Object).collect::<Vec<_>>(),
+            q.queue
+                .iter()
+                .cloned()
+                .map(Value::Object)
+                .collect::<Vec<_>>(),
             q.current.clone().map_or(Value::Null, Value::Object),
             q.events.clone(),
         )
@@ -364,7 +384,10 @@ fn download(app: &App, p: &Part, progress: &mut dyn FnMut(u64, u64)) -> Result<P
         }
         Err(e) => {
             let _ = std::fs::remove_file(&tmp);
-            return Err(expected(format!("no se pudo bajar el separador ({})", e.why())));
+            return Err(expected(format!(
+                "no se pudo bajar el separador ({})",
+                e.why()
+            )));
         }
     };
     if sum != p.sha256 {
@@ -401,7 +424,11 @@ fn fetch(app: &App, needed: &[&str], report: &Report<'_>) -> Result<()> {
     let mut before = 0u64;
     for p in remaining {
         download(app, p, &mut |got, _| {
-            report.step(Some(json!(before + got)), Some(json!(total)), Some("download"));
+            report.step(
+                Some(json!(before + got)),
+                Some(json!(total)),
+                Some("download"),
+            );
         })?;
         before += p.bytes;
     }
@@ -453,7 +480,11 @@ fn title_of(song: &Dict) -> String {
 
 /// `Path(file or "").stem`: vacío si no hay archivo.
 pub fn file_stem(file: &str) -> String {
-    if file.is_empty() { String::new() } else { py::path_stem(file) }
+    if file.is_empty() {
+        String::new()
+    } else {
+        py::path_stem(file)
+    }
 }
 
 /// Un nombre al azar de 12 cifras hexadecimales (`uuid4().hex[:12]`).
@@ -549,7 +580,11 @@ fn lossy_lines(r: impl std::io::Read) -> impl Iterator<Item = String> {
         let mut buf = Vec::new();
         match r.read_until(b'\n', &mut buf) {
             Ok(0) | Err(_) => None,
-            Ok(_) => Some(String::from_utf8_lossy(&buf).trim_end_matches(['\n', '\r']).to_owned()),
+            Ok(_) => Some(
+                String::from_utf8_lossy(&buf)
+                    .trim_end_matches(['\n', '\r'])
+                    .to_owned(),
+            ),
         }
     })
 }
@@ -558,7 +593,10 @@ fn lossy_lines(r: impl std::io::Read) -> impl Iterator<Item = String> {
 fn copy_with_time(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::copy(from, to)?;
     if let Ok(t) = std::fs::metadata(from).and_then(|m| m.modified()) {
-        let _ = std::fs::File::options().write(true).open(to).and_then(|f| f.set_modified(t));
+        let _ = std::fs::File::options()
+            .write(true)
+            .open(to)
+            .and_then(|f| f.set_modified(t));
     }
     Ok(())
 }
@@ -567,7 +605,10 @@ fn copy_with_time(from: &Path, to: &Path) -> std::io::Result<()> {
 fn command(app: &App, job_file: &Path) -> Vec<OsString> {
     let mut cmd = lock(&app.separator.command).clone().unwrap_or_else(|| {
         vec![
-            std::env::current_exe().map_or_else(|_| OsString::from("danplay-server"), PathBuf::into_os_string),
+            std::env::current_exe().map_or_else(
+                |_| OsString::from("danplay-server"),
+                PathBuf::into_os_string,
+            ),
             crate::services::separation::FLAG.into(),
         ]
     });
@@ -647,7 +688,9 @@ fn run_child(app: &App, job: &Value, report: &Report<'_>) -> Result<Dict> {
             }
             if failure.is_empty() {
                 let code = code.map_or_else(|| "None".to_owned(), |c| c.to_string());
-                return Err(expected(format!("el separador se cerró sin terminar ({code})")));
+                return Err(expected(format!(
+                    "el separador se cerró sin terminar ({code})"
+                )));
             }
             return Err(expected(failure));
         }
@@ -657,17 +700,33 @@ fn run_child(app: &App, job: &Value, report: &Report<'_>) -> Result<Dict> {
     out
 }
 
-fn write_manifest(work: &Path, song: &Dict, result: &Dict, quality: &str, created: &Value) -> Result<()> {
-    let text = ls::manifest_text(song, result, quality, created, &format!("DanPlay {VERSION}"));
+fn write_manifest(
+    work: &Path,
+    song: &Dict,
+    result: &Dict,
+    quality: &str,
+    created: &Value,
+) -> Result<()> {
+    let text = ls::manifest_text(
+        song,
+        result,
+        quality,
+        created,
+        &format!("DanPlay {VERSION}"),
+    );
     std::fs::write(work.join(ls::MANIFEST), text)?;
     let _ = std::fs::remove_file(work.join(ls::LEGACY_MANIFEST));
     Ok(())
 }
 
 fn song_for(app: &App, cid: i64) -> Result<Dict> {
-    let song = index::by_id(app, cid)?.ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
+    let song = index::by_id(app, cid)?
+        .ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
     if !Path::new(&index::text(&song, "path")).is_file() {
-        return Err(expected(format!("no encuentro «{}»", index::text(&song, "file"))));
+        return Err(expected(format!(
+            "no encuentro «{}»",
+            index::text(&song, "file")
+        )));
     }
     let reason = missing(app);
     if !reason.is_empty() {
@@ -680,16 +739,26 @@ fn path_text(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
 
-fn job_for(app: &App, song: &Dict, work: &Path, nets: Vec<Value>, extra: Map<String, Value>) -> Value {
+fn job_for(
+    app: &App,
+    song: &Dict,
+    work: &Path,
+    nets: Vec<Value>,
+    extra: Map<String, Value>,
+) -> Value {
     let mut job = Map::new();
-    job.insert("input".into(), song.get("path").cloned().unwrap_or(Value::Null));
+    job.insert(
+        "input".into(),
+        song.get("path").cloned().unwrap_or(Value::Null),
+    );
     job.insert("output".into(), path_text(work).into());
     job.insert("files".into(), Value::Object(ls::flac_names()));
     job.insert("rest".into(), REST.into());
     job.insert("nets".into(), Value::Array(nets));
     job.insert(
         "ffmpeg".into(),
-        app.tool("ffmpeg").map_or(Value::Null, |f| path_text(&f).into()),
+        app.tool("ffmpeg")
+            .map_or(Value::Null, |f| path_text(&f).into()),
     );
     job.insert("waves".into(), path_text(&work.join(ls::WAVES)).into());
     job.extend(extra);
@@ -752,13 +821,23 @@ fn separate_song(app: &App, cid: i64, report: &Report<'_>) -> Result<Dict> {
     ls::sweep(&path_text(&parent));
     let work = make_temp_dir(&parent, ".separando-")?;
     let (result, refine, quality, old) = in_work(&work, || {
-        let take: Vec<String> = graph(app, FAST)?.sources.into_iter().filter(|s| s != REST).collect();
+        let take: Vec<String> = graph(app, FAST)?
+            .sources
+            .into_iter()
+            .filter(|s| s != REST)
+            .collect();
         let fast = part(app, FAST)?;
         let job = job_for(app, &song, &work, vec![net(app, &fast, &take)], Map::new());
         let result = run_child(app, &job, report)?;
         let refine = needs_refine(app, result.get("tracks").unwrap_or(&Value::Null));
         let quality = if refine { QUICK } else { FINAL };
-        write_manifest(&work, &song, &result, quality, &Value::from(library::index::now()))?;
+        write_manifest(
+            &work,
+            &song,
+            &result,
+            quality,
+            &Value::from(library::index::now()),
+        )?;
         let old = ls::publish(&path_text(&work), &path_text(&target), ".antes")?;
         Ok((result, refine, quality, old))
     })?;
@@ -831,7 +910,9 @@ fn created_of(m: &Dict) -> Value {
 fn refine_song(app: &App, cid: i64, report: &Report<'_>) -> Result<Dict> {
     let song = song_for(app, cid)?;
     let target = folder_of(app, &song);
-    let manifest = target.as_ref().and_then(|t| ls::read_manifest(&path_text(t)));
+    let manifest = target
+        .as_ref()
+        .and_then(|t| ls::read_manifest(&path_text(t)));
     let (Some(target), Some(manifest)) = (target, manifest) else {
         return Err(expected("esta canción ya no tiene sus pistas separadas"));
     };
@@ -840,9 +921,15 @@ fn refine_song(app: &App, cid: i64, report: &Report<'_>) -> Result<Dict> {
     if manifest.get("quality").and_then(Value::as_str) != Some(QUICK)
         || !have.iter().all(|(_, f)| target.join(f).is_file())
     {
-        return Err(expected("sus pistas no son las de la pasada rápida: sepárala otra vez"));
+        return Err(expected(
+            "sus pistas no son las de la pasada rápida: sepárala otra vez",
+        ));
     }
-    let better: Vec<&str> = REFINE.iter().copied().filter(|s| have.iter().any(|(k, _)| k == s)).collect();
+    let better: Vec<&str> = REFINE
+        .iter()
+        .copied()
+        .filter(|s| have.iter().any(|(k, _)| k == s))
+        .collect();
     fetch(app, &better, report)?;
     let parent = target.parent().map(Path::to_path_buf).unwrap_or_default();
     ls::sweep(&path_text(&parent));
@@ -907,17 +994,24 @@ fn free_memory() -> Option<u64> {
 fn max_song(app: &App, cid: i64, report: &Report<'_>) -> Result<Dict> {
     let song = song_for(app, cid)?;
     let target = folder_of(app, &song);
-    let manifest = target.as_ref().and_then(|t| ls::read_manifest(&path_text(t)));
+    let manifest = target
+        .as_ref()
+        .and_then(|t| ls::read_manifest(&path_text(t)));
     let (Some(target), Some(manifest)) = (target, manifest) else {
         return Err(expected("esta canción ya no tiene sus pistas separadas"));
     };
-    let quality = manifest.get("quality").and_then(Value::as_str).unwrap_or("");
+    let quality = manifest
+        .get("quality")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if quality != FINAL && quality != MAXIMUM {
         return Err(expected("antes hay que tener las pistas buenas"));
     }
     let known = parts(app)?;
     let Some(mega) = known.iter().find(|p| p.key == MAX) else {
-        return Err(expected("falta la separación de máxima calidad en esta instalación"));
+        return Err(expected(
+            "falta la separación de máxima calidad en esta instalación",
+        ));
     };
     let stamp = stamp_of(&manifest);
     let have = tracks_of(&manifest);
@@ -998,7 +1092,12 @@ fn is_true(d: &Dict, k: &str) -> bool {
 /// rápidas enteras, o separarla.
 fn stage_for(app: &App, song: &Dict) -> &'static str {
     match info(app, song) {
-        Some(d) if is_true(&d, "complete") && d.get("quality").and_then(Value::as_str) == Some(QUICK) => "refine",
+        Some(d)
+            if is_true(&d, "complete")
+                && d.get("quality").and_then(Value::as_str) == Some(QUICK) =>
+        {
+            "refine"
+        }
         _ => "separate",
     }
 }
@@ -1014,7 +1113,8 @@ fn item(cid: i64, title: String, stage: &str) -> Dict {
 /// `stems.request`: a la cola, y la cola a andar si no lo está. Devuelve
 /// el estado. Pedir otra vez una que ya espera o se separa no la repite.
 pub fn request(app: &App, cid: i64, maximum: bool) -> Result<Value> {
-    let song = index::by_id(app, cid)?.ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
+    let song = index::by_id(app, cid)?
+        .ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
     let reason = missing(app);
     if !reason.is_empty() {
         return Err(expected(format!("no se puede separar: {reason}")));
@@ -1022,7 +1122,9 @@ pub fn request(app: &App, cid: i64, maximum: bool) -> Result<Value> {
     let data = info(app, &song);
     let complete = data.as_ref().is_some_and(|d| is_true(d, "complete"));
     if maximum && !parts(app)?.iter().any(|p| p.key == MAX) {
-        return Err(expected("falta la separación de máxima calidad en esta instalación"));
+        return Err(expected(
+            "falta la separación de máxima calidad en esta instalación",
+        ));
     }
     if maximum && complete && data.as_ref().is_some_and(|d| is_true(d, "max")) {
         return Err(expected("ya tiene la máxima calidad"));
@@ -1053,7 +1155,8 @@ fn enqueue(app: &App, it: Dict) {
     let wake = {
         let mut q = lock(&app.separator.queue);
         let cid = id_of(&it);
-        let busy = q.current.as_ref().is_some_and(|c| id_of(c) == cid) || q.queue.iter().any(|x| id_of(x) == cid);
+        let busy = q.current.as_ref().is_some_and(|c| id_of(c) == cid)
+            || q.queue.iter().any(|x| id_of(x) == cid);
         if !busy {
             q.queue.push(it);
         } else if is_true(&it, "then_max") || stage_of(&it) == "max" {
@@ -1155,7 +1258,11 @@ fn drain_queue(app: &App, progress: &Progress) -> Result<Value> {
     loop {
         let (it, left) = {
             let mut q = lock(&app.separator.queue);
-            let it = if cancel.load(Ordering::SeqCst) { None } else { next(&mut q) };
+            let it = if cancel.load(Ordering::SeqCst) {
+                None
+            } else {
+                next(&mut q)
+            };
             let Some(it) = it else {
                 q.current = None;
                 q.queue.clear();
@@ -1167,7 +1274,11 @@ fn drain_queue(app: &App, progress: &Progress) -> Result<Value> {
         };
         let count = done.len() + failed.len() + 1;
         let total = count + left;
-        let position = if total > 1 { format!(" ({count} de {total})") } else { String::new() };
+        let position = if total > 1 {
+            format!(" ({count} de {total})")
+        } else {
+            String::new()
+        };
         let verb = match stage_of(&it) {
             "refine" => "Mejorando",
             "max" => "Más instrumentos en",
@@ -1185,19 +1296,23 @@ fn drain_queue(app: &App, progress: &Progress) -> Result<Value> {
             "max" => max_song(app, cid, &report),
             "refine" => refine_song(app, cid, &report).inspect(|_| {
                 if wants_max(app, &it) {
-                    lock(&app.separator.queue)
-                        .queue
-                        .push(with(&it, &[("stage", "max".into()), ("then_max", false.into())]));
+                    lock(&app.separator.queue).queue.push(with(
+                        &it,
+                        &[("stage", "max".into()), ("then_max", false.into())],
+                    ));
                 }
             }),
             _ => separate_song(app, cid, &report).inspect(|r| {
                 if r.get("refine").is_some_and(py::truthy) {
                     // las rápidas ya están: la mejora, a la cola
-                    lock(&app.separator.queue).queue.push(with(&it, &[("stage", "refine".into())]));
-                } else if wants_max(app, &it) {
                     lock(&app.separator.queue)
                         .queue
-                        .push(with(&it, &[("stage", "max".into()), ("then_max", false.into())]));
+                        .push(with(&it, &[("stage", "refine".into())]));
+                } else if wants_max(app, &it) {
+                    lock(&app.separator.queue).queue.push(with(
+                        &it,
+                        &[("stage", "max".into()), ("then_max", false.into())],
+                    ));
                 }
             }),
         };
@@ -1215,7 +1330,11 @@ fn drain_queue(app: &App, progress: &Progress) -> Result<Value> {
             }
             Err(StemsError::Other(e)) => {
                 log::warn!("no se pudo separar {it:?}: {e}");
-                let e = if e.is_empty() { "Exception".to_owned() } else { e };
+                let e = if e.is_empty() {
+                    "Exception".to_owned()
+                } else {
+                    e
+                };
                 failed.push(Value::Object(with(&it, &[("error", e.clone().into())])));
                 event(app, &it, false, &e);
             }
@@ -1227,7 +1346,9 @@ fn drain_queue(app: &App, progress: &Progress) -> Result<Value> {
         return Err(expected("cancelado"));
     }
     if !failed.is_empty() && done.is_empty() {
-        return Err(expected(failed[0]["error"].as_str().unwrap_or("").to_owned()));
+        return Err(expected(
+            failed[0]["error"].as_str().unwrap_or("").to_owned(),
+        ));
     }
     Ok(json!({"separated": done, "failed": failed, "cancelled": cancelled}))
 }
@@ -1336,7 +1457,8 @@ fn track_matrix(t: &MixTrack) -> [f64; 4] {
 
 /// `path.with_name(...)`.
 fn with_name(path: &Path, name: &str) -> PathBuf {
-    path.parent().map_or_else(|| PathBuf::from(name), |p| p.join(name))
+    path.parent()
+        .map_or_else(|| PathBuf::from(name), |p| p.join(name))
 }
 
 /// `Path.suffix` (con el punto), como pathlib.
@@ -1349,7 +1471,8 @@ fn suffix(path: &Path) -> String {
 /// canción; si cae fuera de una carpeta de pistas, entra en la biblioteca.
 #[allow(clippy::too_many_lines)]
 pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -> Result<Value> {
-    let song = index::by_id(app, cid)?.ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
+    let song = index::by_id(app, cid)?
+        .ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
     let whole = !mix.tracks.is_empty() && mix.tracks.iter().all(|t| t.source == "song");
     let data = if whole { None } else { info(app, &song) };
     let mut chosen: Vec<(String, [f64; 4])> = Vec::new();
@@ -1357,11 +1480,16 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
         chosen.push((index::text(&song, "path"), track_matrix(&mix.tracks[0])));
     } else {
         let Some(d) = data.as_ref().filter(|d| is_true(d, "complete")) else {
-            return Err(expected("esta canción no tiene sus pistas separadas completas"));
+            return Err(expected(
+                "esta canción no tiene sus pistas separadas completas",
+            ));
         };
         let tracks = d.get("tracks").map(py::list_of).unwrap_or_default();
         for t in &mix.tracks {
-            let Some(track) = tracks.iter().find(|x| x.get("source").and_then(Value::as_str) == Some(&t.source)) else {
+            let Some(track) = tracks
+                .iter()
+                .find(|x| x.get("source").and_then(Value::as_str) == Some(&t.source))
+            else {
                 return Err(expected(format!("no hay una pista «{}»", t.source)));
             };
             let coefs = track_matrix(t);
@@ -1371,7 +1499,9 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
         }
     }
     if chosen.is_empty() {
-        return Err(expected("todas las pistas están calladas: no hay nada que guardar"));
+        return Err(expected(
+            "todas las pistas están calladas: no hay nada que guardar",
+        ));
     }
     let mut path = PathBuf::from(py::abspath(&py::expanduser(&mix.path)));
     let fmt = mix
@@ -1384,7 +1514,10 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
         return Err(expected("solo se puede guardar en mp3, flac o wav"));
     };
     if suffix(&path).to_lowercase() != format!(".{fmt}") {
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         path = with_name(&path, &format!("{name}.{fmt}"));
     }
     if !path.parent().is_some_and(Path::is_dir) {
@@ -1394,7 +1527,9 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
         return Err(expected("la mezcla tiene que ir dentro de tu biblioteca"));
     }
     if index::by_path(app, &path_text(&path))?.is_some() {
-        return Err(expected("ahí ya hay una canción de tu biblioteca: elige otro nombre"));
+        return Err(expected(
+            "ahí ya hay una canción de tu biblioteca: elige otro nombre",
+        ));
     }
     let Some(ffmpeg) = app.tool("ffmpeg") else {
         return Err(expected("hace falta ffmpeg"));
@@ -1408,13 +1543,20 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
         .map(py::list_of)
         .unwrap_or_default()
         .iter()
-        .filter(|t| !used.iter().any(|u| Some(u.as_str()) == t.get("path").and_then(Value::as_str)))
+        .filter(|t| {
+            !used
+                .iter()
+                .any(|u| Some(u.as_str()) == t.get("path").and_then(Value::as_str))
+        })
         .map(|t| {
             let source = t.get("source").map(py::str_of).unwrap_or_default();
             ls::SOURCES
                 .iter()
                 .find(|(k, _, _)| *k == source)
-                .map_or_else(|| t.get("name").map(py::str_of).unwrap_or_default(), |(_, _, n)| (*n).to_owned())
+                .map_or_else(
+                    || t.get("name").map(py::str_of).unwrap_or_default(),
+                    |(_, _, n)| (*n).to_owned(),
+                )
                 .to_lowercase()
         })
         .collect();
@@ -1424,9 +1566,17 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
     }
     let mut what: Vec<String> = Vec::new();
     if !muted.is_empty() {
-        what.push(if muted.len() <= 2 { format!("sin {}", muted.join(" ni ")) } else { "mezcla".into() });
+        what.push(if muted.len() <= 2 {
+            format!("sin {}", muted.join(" ni "))
+        } else {
+            "mezcla".into()
+        });
     }
-    let beats: Vec<f64> = mix.click.as_ref().map(|c| c.beats.clone()).unwrap_or_default();
+    let beats: Vec<f64> = mix
+        .click
+        .as_ref()
+        .map(|c| c.beats.clone())
+        .unwrap_or_default();
     if !beats.is_empty() {
         what.push("con clic".into());
     }
@@ -1439,7 +1589,12 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
     }
     let duration = song.get("duration").and_then(py::float_of).unwrap_or(0.0);
     let length = if duration == 0.0 {
-        beats.iter().copied().fold(None, |m: Option<f64>, b| Some(m.map_or(b, |m| m.max(b)))).unwrap_or(0.0) + 2.0
+        beats
+            .iter()
+            .copied()
+            .fold(None, |m: Option<f64>, b| Some(m.map_or(b, |m| m.max(b))))
+            .unwrap_or(0.0)
+            + 2.0
     } else {
         duration
     };
@@ -1476,10 +1631,24 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             let found: Vec<analysis::mix::Cue> = cues
                 .iter()
                 .map(|c| {
-                    let side = if c.side.is_empty() { "both".to_owned() } else { c.side.clone() };
+                    let side = if c.side.is_empty() {
+                        "both".to_owned()
+                    } else {
+                        c.side.clone()
+                    };
                     match crate::services::cues::own_file(app, &c.file, false) {
-                        Some(own) => analysis::mix::Cue { file: Some(own), at: c.at, gain: c.gain, side },
-                        None => analysis::mix::Cue { file: None, at: 0.0, gain: 1.0, side },
+                        Some(own) => analysis::mix::Cue {
+                            file: Some(own),
+                            at: c.at,
+                            gain: c.gain,
+                            side,
+                        },
+                        None => analysis::mix::Cue {
+                            file: None,
+                            at: 0.0,
+                            gain: 1.0,
+                            side,
+                        },
                     }
                 })
                 .collect();
@@ -1539,18 +1708,25 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             let _ = std::fs::remove_file(&tmp);
             let err: Vec<char> = err.trim().chars().collect();
             let tail: String = err[err.len().saturating_sub(200)..].iter().collect();
-            return Err(expected(format!("ffmpeg no pudo guardar la mezcla: {tail}")));
+            return Err(expected(format!(
+                "ffmpeg no pudo guardar la mezcla: {tail}"
+            )));
         }
         Ok(())
     })();
     let _ = std::fs::remove_dir_all(&work);
     outcome?;
     std::fs::rename(&tmp, &path)?;
-    let inside_stems = path.ancestors().skip(1).any(|p| ls::is_stems_dir(&path_text(p)));
+    let inside_stems = path
+        .ancestors()
+        .skip(1)
+        .any(|p| ls::is_stems_dir(&path_text(p)));
     let indexed = if inside_stems {
         Value::Null
     } else {
-        index::index_file(app, &path)?.and_then(|r| r.get("id").cloned()).unwrap_or(Value::Null)
+        index::index_file(app, &path)?
+            .and_then(|r| r.get("id").cloned())
+            .unwrap_or(Value::Null)
     };
     Ok(json!({
         "path": path_text(&path),
@@ -1568,8 +1744,14 @@ mod tests {
     fn names_and_messages() {
         assert_eq!(random_hex().len(), 12);
         assert_ne!(random_hex(), random_hex());
-        assert_eq!(step_message("download", "x", "Separando").as_deref(), Some("Bajando el separador (una sola vez)…"));
-        assert_eq!(step_message("separate", "A - B", "Mejorando").as_deref(), Some("Mejorando «A - B»…"));
+        assert_eq!(
+            step_message("download", "x", "Separando").as_deref(),
+            Some("Bajando el separador (una sola vez)…")
+        );
+        assert_eq!(
+            step_message("separate", "A - B", "Mejorando").as_deref(),
+            Some("Mejorando «A - B»…")
+        );
         assert_eq!(step_message("otro", "x", "y"), None);
         assert_eq!(or_zero(Some(json!(0.0))), json!(0));
         assert_eq!(or_zero(Some(json!(3))), json!(3));
@@ -1581,7 +1763,9 @@ mod tests {
         q.queue.push(item(1, "a".into(), "max"));
         q.queue.push(item(2, "b".into(), "refine"));
         q.queue.push(item(3, "c".into(), "separate"));
-        let order: Vec<i64> = std::iter::from_fn(|| next(&mut q)).map(|d| id_of(&d)).collect();
+        let order: Vec<i64> = std::iter::from_fn(|| next(&mut q))
+            .map(|d| id_of(&d))
+            .collect();
         assert_eq!(order, [3, 2, 1]);
     }
 }

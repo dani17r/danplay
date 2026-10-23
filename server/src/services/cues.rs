@@ -30,7 +30,9 @@ pub const MAX_IMPORT_SECONDS: f64 = 300.0;
 /// Tras este rato sin decir nada, se suelta la voz cargada (la de
 /// Supertonic ocupa medio GB de memoria).
 const IDLE: Duration = Duration::from_secs(180);
-const AUDIO_EXTS: [&str; 8] = [".aac", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav", ".webm"];
+const AUDIO_EXTS: [&str; 8] = [
+    ".aac", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav", ".webm",
+];
 /// Lo que dura ffmpeg como mucho con una guía.
 const FFMPEG: Duration = Duration::from_secs(120);
 /// Una guía de más de esto no se lee.
@@ -194,7 +196,8 @@ fn download(f: &VoiceFile, advance: &dyn Fn(i64)) -> std::result::Result<(), Str
     let mut tmp_name = f.dest.file_name().map(OsString::from).unwrap_or_default();
     tmp_name.push(".part");
     let tmp = f.dest.with_file_name(tmp_name);
-    let mut out = std::fs::File::create(&tmp).map_err(|e| format!("no se pudo bajar la voz ({e})"))?;
+    let mut out =
+        std::fs::File::create(&tmp).map_err(|e| format!("no se pudo bajar la voz ({e})"))?;
     let mut got: i64 = 0;
     let r = library::net::download(&f.url, USER_AGENT, TIMEOUT, &mut |block| {
         use std::io::Write as _;
@@ -327,21 +330,36 @@ fn watch(cache: &Arc<VoiceCache>) {
         });
 }
 
-fn say_with(app: &App, loaded: &mut Loaded, v: &Dict, spoken: &str, lang: &str) -> std::result::Result<(Vec<f32>, u32), String> {
+fn say_with(
+    app: &App,
+    loaded: &mut Loaded,
+    v: &Dict,
+    spoken: &str,
+    lang: &str,
+) -> std::result::Result<(Vec<f32>, u32), String> {
     let ort = onnx::library(app).ok_or("falta ONNX Runtime en esta instalación de DanPlay")?;
     let engine = v.get("engine").map(py::str_of).unwrap_or_default();
     let key = if engine == "supertonic" {
         "supertonic".to_owned()
     } else {
-        format!("piper-{}", v.get("model").map(py::str_of).unwrap_or_default())
+        format!(
+            "piper-{}",
+            v.get("model").map(py::str_of).unwrap_or_default()
+        )
     };
     if loaded.key != key || loaded.engine.is_none() {
         loaded.engine = None;
         loaded.engine = Some(if engine == "supertonic" {
-            Engine::Supertonic(Supertonic::open(&ort, &voices_dir(app).join("supertonic-3"))?)
+            Engine::Supertonic(Supertonic::open(
+                &ort,
+                &voices_dir(app).join("supertonic-3"),
+            )?)
         } else {
             let model = v.get("model").map(py::str_of).unwrap_or_default();
-            let path = voices_dir(app).join("piper").join(&model).join(format!("{model}.onnx"));
+            let path = voices_dir(app)
+                .join("piper")
+                .join(&model)
+                .join(format!("{model}.onnx"));
             Engine::Piper(Piper::open(&ort, &path)?)
         });
         loaded.key = key;
@@ -355,7 +373,8 @@ fn say_with(app: &App, loaded: &mut Loaded, v: &Dict, spoken: &str, lang: &str) 
         }
         Some(Engine::Piper(p)) => {
             let phones = library::speech::phonemes(spoken, p.espeak());
-            let ids = library::speech::piper_ids(&phones, p.id_map()).map_err(|k| format!("la voz no conoce el fonema {k}"))?;
+            let ids = library::speech::piper_ids(&phones, p.id_map())
+                .map_err(|k| format!("la voz no conoce el fonema {k}"))?;
             let speaker = v.get("speaker").and_then(Value::as_i64);
             let wav = p.say(&ids, speaker)?;
             Ok((wav, p.sample_rate() as u32))
@@ -375,7 +394,11 @@ fn say(app: &App, text: &str, voice_id: &str) -> Result<(Vec<f32>, u32)> {
     if !reason.is_empty() {
         return Err(cue(reason));
     }
-    let lang = if v.get("lang").map_or_else(|| "es".to_owned(), py::str_of).starts_with("en") {
+    let lang = if v
+        .get("lang")
+        .map_or_else(|| "es".to_owned(), py::str_of)
+        .starts_with("en")
+    {
         "en"
     } else {
         "es"
@@ -400,7 +423,11 @@ fn say(app: &App, text: &str, voice_id: &str) -> Result<(Vec<f32>, u32)> {
 
 /// ffmpeg con estos argumentos (y `input` por su stdin): lo que escribe, o
 /// `None` si no pudo.
-fn run_ffmpeg(program: &Path, args: &[OsString], input: Option<Vec<u8>>) -> Result<Option<Vec<u8>>> {
+fn run_ffmpeg(
+    program: &Path,
+    args: &[OsString],
+    input: Option<Vec<u8>>,
+) -> Result<Option<Vec<u8>>> {
     let mut cmd = library::processes::order(program, args);
     let r = match input {
         Some(i) => library::processes::run_with_input(&mut cmd, i, FFMPEG),
@@ -410,15 +437,24 @@ fn run_ffmpeg(program: &Path, args: &[OsString], input: Option<Vec<u8>>) -> Resu
         Ok(s) if s.succeeded() && !s.stdout.is_empty() => Ok(Some(s.stdout)),
         Ok(_) => Ok(None),
         Err(library::processes::Error::SpawnFailed(e)) => Err(e.into()),
-        Err(library::processes::Error::TimedOut) => Err(CueError::Other("ffmpeg tardó demasiado".into())),
+        Err(library::processes::Error::TimedOut) => {
+            Err(CueError::Other("ffmpeg tardó demasiado".into()))
+        }
     }
 }
 
 fn floats(data: &[u8]) -> Result<Vec<f32>> {
     if !data.len().is_multiple_of(4) {
-        return Err(CueError::Other("buffer size must be a multiple of element size".into()));
+        return Err(CueError::Other(
+            "buffer size must be a multiple of element size".into(),
+        ));
     }
-    Ok(data.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect())
+    Ok(data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
+        .collect())
 }
 
 /// Un audio a mono: (muestras, frecuencia). WAV directamente; lo demás, con
@@ -435,13 +471,27 @@ fn decode(app: &App, path: &Path, longest: f64, too_long: &str) -> Result<(Vec<f
     let Some(program) = ffmpeg(app) else {
         return Err(cue("hace falta ffmpeg para leer esa grabación"));
     };
-    let mut args: Vec<OsString> = ["-v", "error", "-nostdin", "-i"].iter().map(Into::into).collect();
+    let mut args: Vec<OsString> = ["-v", "error", "-nostdin", "-i"]
+        .iter()
+        .map(Into::into)
+        .collect();
     args.push(path.as_os_str().to_owned());
     let max_duration = py::repr_float(longest * 2.0);
-    for a in ["-t", &max_duration, "-ac", "1", "-ar", "44100", "-f", "f32le", "-"] {
+    for a in [
+        "-t",
+        &max_duration,
+        "-ac",
+        "1",
+        "-ar",
+        "44100",
+        "-f",
+        "f32le",
+        "-",
+    ] {
         args.push(a.into());
     }
-    let data = run_ffmpeg(&program, &args, None)?.ok_or_else(|| cue("no se pudo leer la grabación"))?;
+    let data =
+        run_ffmpeg(&program, &args, None)?.ok_or_else(|| cue("no se pudo leer la grabación"))?;
     Ok((floats(&data)?, 44_100))
 }
 
@@ -463,7 +513,8 @@ fn write(path: &Path, wav: &[f32], rate: u32) -> Result<()> {
 /// misma frase con la misma voz es el mismo archivo (no se dice otra vez).
 /// Con `preview`, en la carpeta de pruebas (que se vacía sola).
 pub fn make(app: &App, text: &str, voice_id: &str, preview: bool) -> Result<Value> {
-    let (text, name) = lc::spoken_cue_name(text, voice_id, VERSION).ok_or_else(|| cue("no hay nada que decir"))?;
+    let (text, name) =
+        lc::spoken_cue_name(text, voice_id, VERSION).ok_or_else(|| cue("no hay nada que decir"))?;
     let (folder, previews) = (folder(app), previews(app));
     let target = if preview { &previews } else { &folder }.join(&name);
     if !target.is_file() {
@@ -499,8 +550,12 @@ fn real(p: &Path) -> String {
 /// dura la canción, y como mucho `MAX_IMPORT_SECONDS`; sin él, un minuto.
 pub fn import_recording(app: &App, path: &str, longest: Option<f64>) -> Result<Value> {
     let path = PathBuf::from(path);
-    let meta = std::fs::metadata(&path).ok().filter(std::fs::Metadata::is_file);
-    let suffix = library::parity::suffix(&path).to_string_lossy().to_lowercase();
+    let meta = std::fs::metadata(&path)
+        .ok()
+        .filter(std::fs::Metadata::is_file);
+    let suffix = library::parity::suffix(&path)
+        .to_string_lossy()
+        .to_lowercase();
     let Some(meta) = meta.filter(|_| AUDIO_EXTS.contains(&suffix.as_str())) else {
         return Err(cue("no encuentro ese audio"));
     };
@@ -508,7 +563,8 @@ pub fn import_recording(app: &App, path: &str, longest: Option<f64>) -> Result<V
         return Err(cue("ese audio es demasiado grande para una guía"));
     }
     let longest = longest.filter(|l| *l != 0.0);
-    let (limit, length) = lc::import_limit(longest, MAX_SECONDS, MAX_IMPORT_SECONDS).map_err(CueError::Other)?;
+    let (limit, length) =
+        lc::import_limit(longest, MAX_SECONDS, MAX_IMPORT_SECONDS).map_err(CueError::Other)?;
     let (wav, rate) = decode(app, &path, limit, &length)?;
     if wav.len() as f64 > limit * f64::from(rate) {
         return Err(cue(length));
@@ -554,14 +610,22 @@ fn own_existing(app: &App, file: &str, missing: &str) -> Result<PathBuf> {
 /// La onda de una guía: {seconds, peaks}.
 pub fn wave_of(app: &App, file: &str, buckets: i64) -> Result<Value> {
     let own = own_existing(app, file, "esa guía no está")?;
-    let (x, rate) = decode(app, &own, MAX_IMPORT_SECONDS, "es demasiado largo para una guía")?;
+    let (x, rate) = decode(
+        app,
+        &own,
+        MAX_IMPORT_SECONDS,
+        "es demasiado largo para una guía",
+    )?;
     let (seconds, peaks) = g::waveform(&x, rate, buckets).map_err(CueError::Other)?;
     Ok(json!({"seconds": seconds, "peaks": peaks}))
 }
 
 /// Lo que se le hace a una guía grabada o importada, como en un editor.
 #[derive(Debug, Clone, Default)]
-#[allow(clippy::struct_excessive_bools, reason = "los de `CueEditIn`, tal cual")]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "los de `CueEditIn`, tal cual"
+)]
 pub struct Edit {
     pub file: String,
     pub start: f64,
@@ -578,8 +642,14 @@ pub struct Edit {
 /// ruido ni graves si se pide, con sus fundidos y a su volumen.
 pub fn edit_clip(app: &App, e: &Edit) -> Result<Value> {
     let own = own_existing(app, &e.file, "esa guía no está")?;
-    let (x, rate) = decode(app, &own, MAX_IMPORT_SECONDS, "es demasiado largo para una guía")?;
-    let (begin, up_to, a, b) = g::trim(x.len(), rate, e.start, e.end).ok_or_else(|| cue("lo que queda es demasiado corto"))?;
+    let (x, rate) = decode(
+        app,
+        &own,
+        MAX_IMPORT_SECONDS,
+        "es demasiado largo para una guía",
+    )?;
+    let (begin, up_to, a, b) = g::trim(x.len(), rate, e.start, e.end)
+        .ok_or_else(|| cue("lo que queda es demasiado corto"))?;
     let mut x = x[begin..up_to].to_vec();
     let filters: Vec<&str> = [(e.highpass, "highpass=f=100"), (e.denoise, "afftdn=nf=-25")]
         .iter()
@@ -594,19 +664,35 @@ pub fn edit_clip(app: &App, e: &Edit) -> Result<Value> {
         let rate_text = rate.to_string();
         let chain = filters.join(",");
         let args: Vec<OsString> = [
-            "-v", "error", "-nostdin", "-f", "f32le", "-ar", &rate_text, "-ac", "1", "-i", "-", "-af", &chain, "-f",
-            "f32le", "-",
+            "-v", "error", "-nostdin", "-f", "f32le", "-ar", &rate_text, "-ac", "1", "-i", "-",
+            "-af", &chain, "-f", "f32le", "-",
         ]
         .iter()
         .map(Into::into)
         .collect();
-        let data = run_ffmpeg(&program, &args, Some(input))?.ok_or_else(|| cue("no se pudo limpiar la guía"))?;
+        let data = run_ffmpeg(&program, &args, Some(input))?
+            .ok_or_else(|| cue("no se pudo limpiar la guía"))?;
         x = floats(&data)?;
     }
-    let (fi, fo) = g::fades(&mut x, rate, e.fade_in, e.fade_out, e.normalize).map_err(CueError::Other)?;
-    let name = lc::edited_cue_name(&own.to_string_lossy(), a, b, fi, fo, e.denoise, e.highpass, e.normalize);
+    let (fi, fo) =
+        g::fades(&mut x, rate, e.fade_in, e.fade_out, e.normalize).map_err(CueError::Other)?;
+    let name = lc::edited_cue_name(
+        &own.to_string_lossy(),
+        a,
+        b,
+        fi,
+        fo,
+        e.denoise,
+        e.highpass,
+        e.normalize,
+    );
     let previews = previews(app);
-    let target = if e.preview { previews.clone() } else { folder(app) }.join(name);
+    let target = if e.preview {
+        previews.clone()
+    } else {
+        folder(app)
+    }
+    .join(name);
     write(&target, &x, rate)?;
     if e.preview {
         lc::sweep_previews(&previews, 3600.0);
@@ -625,12 +711,24 @@ pub fn base64(data: &[u8]) -> String {
     const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let b = [chunk[0], chunk.get(1).copied().unwrap_or(0), chunk.get(2).copied().unwrap_or(0)];
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
         let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         out.push(ABC[(n >> 18) as usize & 63] as char);
         out.push(ABC[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { ABC[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { ABC[n as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            ABC[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ABC[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }

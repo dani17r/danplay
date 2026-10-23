@@ -71,8 +71,16 @@ pub fn index_file(app: &App, path: &Path) -> Result<Option<Dict>, ApiError> {
         let size = old.get("size").and_then(library::py::float_of);
         let mtime = old.get("mtime").and_then(library::py::float_of);
         let old_path = old.get("path").map(library::py::str_of).unwrap_or_default();
-        if let (Some(size), Some(mtime), Some(after)) = (size, mtime, tags::stamp(Path::new(new_path))) {
-            tags::carry(app, Path::new(&old_path), Path::new(new_path), (size as u64, mtime), after);
+        if let (Some(size), Some(mtime), Some(after)) =
+            (size, mtime, tags::stamp(Path::new(new_path)))
+        {
+            tags::carry(
+                app,
+                Path::new(&old_path),
+                Path::new(new_path),
+                (size as u64, mtime),
+                after,
+            );
         }
     }
     if let Some((id, before)) = &r.arrived

@@ -15,7 +15,9 @@ pub fn trash_path(path: &Path) -> Value {
     }
     match send(path) {
         Ok(()) => json!({"ok": true}),
-        Err(reason) => json!({"ok": false, "error": format!("no se pudo mandar a la papelera: {reason}")}),
+        Err(reason) => {
+            json!({"ok": false, "error": format!("no se pudo mandar a la papelera: {reason}")})
+        }
     }
 }
 
@@ -39,7 +41,11 @@ fn send(path: &Path) -> Result<(), String> {
             if out.status.success() {
                 return Ok(());
             }
-            let err: String = String::from_utf8_lossy(&out.stderr).trim().chars().take(120).collect();
+            let err: String = String::from_utf8_lossy(&out.stderr)
+                .trim()
+                .chars()
+                .take(120)
+                .collect();
             if !err.is_empty() {
                 reason = err;
             }
@@ -107,7 +113,12 @@ mod freedesktop {
         let local = library::index::now() as i64 + crate::services::clock::utc_offset();
         let (d, m, y) = crate::services::clock::civil(local);
         let s = local.rem_euclid(86_400);
-        format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}", s / 3600, s % 3600 / 60, s % 60)
+        format!(
+            "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}",
+            s / 3600,
+            s % 3600 / 60,
+            s % 60
+        )
     }
 
     fn info_for(src: &Path, topdir: &Path) -> String {
@@ -126,7 +137,10 @@ mod freedesktop {
     }
 
     fn trash_move(src: &Path, dst: &Path, topdir: &Path) -> std::io::Result<()> {
-        let name = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = src
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let (base, ext) = match name.rfind('.') {
             Some(i) if i > 0 => (name[..i].to_owned(), name[i..].to_owned()),
             _ => (name.clone(), String::new()),
@@ -135,13 +149,18 @@ mod freedesktop {
         let info = dst.join("info");
         let mut dest_name = name.clone();
         let mut counter = 0;
-        while files.join(&dest_name).exists() || info.join(format!("{dest_name}.trashinfo")).exists() {
+        while files.join(&dest_name).exists()
+            || info.join(format!("{dest_name}.trashinfo")).exists()
+        {
             counter += 1;
             dest_name = format!("{base} {counter}{ext}");
         }
         check_create(&files).map_err(std::io::Error::other)?;
         check_create(&info).map_err(std::io::Error::other)?;
-        std::fs::write(info.join(format!("{dest_name}.trashinfo")), info_for(src, topdir))?;
+        std::fs::write(
+            info.join(format!("{dest_name}.trashinfo")),
+            info_for(src, topdir),
+        )?;
         std::fs::rename(src, files.join(&dest_name))
     }
 
@@ -216,6 +235,9 @@ mod tests {
     #[test]
     fn what_is_not_there_is_already_gone() {
         let dir = crate::tests::scratch("trash");
-        assert_eq!(trash_path(&dir.join("nada")), json!({"ok": true, "missing": true}));
+        assert_eq!(
+            trash_path(&dir.join("nada")),
+            json!({"ok": true, "missing": true})
+        );
     }
 }

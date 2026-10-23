@@ -70,11 +70,18 @@ fn grid_value(g: &grid::Grid) -> Value {
 }
 
 fn save(app: &App, path: &Path, grid: &Value, edits: &Json, exact: bool) {
-    let Some(cache) = cache(app, path) else { return };
+    let Some(cache) = cache(app, path) else {
+        return;
+    };
     if lb::make_folder(&cache).is_err() {
         return;
     }
-    let value = lb::entry(VERSION, Json::str(&path.to_string_lossy()), to_json(grid), edits.clone());
+    let value = lb::entry(
+        VERSION,
+        Json::str(&path.to_string_lossy()),
+        to_json(grid),
+        edits.clone(),
+    );
     lb::write(&cache, &value);
     if exact {
         let _ = lb::mark_exact(&cache);
@@ -92,12 +99,16 @@ fn drums_of(app: &App, path: &Path) -> Option<String> {
     let brief = index::by_path(app, &path.to_string_lossy()).ok()??;
     let id = brief.get("id").and_then(Value::as_i64)?;
     let song = index::by_id(app, id).ok()??;
-    let info = stems::info(app, &song).filter(|d| d.get("complete").is_some_and(library::py::truthy))?;
+    let info =
+        stems::info(app, &song).filter(|d| d.get("complete").is_some_and(library::py::truthy))?;
     info.get("tracks")
         .map(library::py::list_of)
         .unwrap_or_default()
         .iter()
-        .find(|t| t.get("source").and_then(Value::as_str) == Some("drums") && t.get("exists") == Some(&Value::Bool(true)))
+        .find(|t| {
+            t.get("source").and_then(Value::as_str) == Some("drums")
+                && t.get("exists") == Some(&Value::Bool(true))
+        })
         .and_then(|t| t.get("path").and_then(Value::as_str).map(str::to_owned))
 }
 
@@ -129,9 +140,17 @@ fn network(app: &App, path: &Path) -> Result<raw::Raw, String> {
     if let Some(dir) = raw_path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let (_, heard) = analysis::pulse::analyze(&ffmpeg, path, &library, &graph, &mut |_| {}).map_err(|e| e.to_string())?;
-    raw::save(&raw_path, &f64s(&heard.beat), &f64s(&heard.down), &f64s(&heard.low), heard.low_fps, heard.seconds)
+    let (_, heard) = analysis::pulse::analyze(&ffmpeg, path, &library, &graph, &mut |_| {})
         .map_err(|e| e.to_string())?;
+    raw::save(
+        &raw_path,
+        &f64s(&heard.beat),
+        &f64s(&heard.down),
+        &f64s(&heard.low),
+        heard.low_fps,
+        heard.seconds,
+    )
+    .map_err(|e| e.to_string())?;
     raw::read(&raw_path).ok_or_else(|| "el detector no dejó lo que oyó".into())
 }
 
@@ -144,7 +163,8 @@ pub fn grid_of(app: &App, path: &Path) -> Result<Value, String> {
     let cache = cache(app, path).ok_or("no encuentro el archivo")?;
     let saved = lb::saved(&cache).ok().flatten();
     if let Some(s) = &saved {
-        let valid = s.get("version").is_some_and(|v| v.equals_int(VERSION)) || s.get("exact").is_some_and(Json::truthy);
+        let valid = s.get("version").is_some_and(|v| v.equals_int(VERSION))
+            || s.get("exact").is_some_and(Json::truthy);
         if valid && let Some(g) = s.get("grid").filter(|g| g.truthy()) {
             return Ok(to_value(g));
         }

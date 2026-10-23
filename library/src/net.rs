@@ -113,7 +113,10 @@ fn download_error(e: ureq::Error) -> DownloadError {
             let low = text.to_lowercase();
             if low.contains("timed out") || low.contains("timeout") {
                 DownloadError::Timeout
-            } else if low.contains("resolve") || low.contains("name or service") || low.contains("getaddrinfo") {
+            } else if low.contains("resolve")
+                || low.contains("name or service")
+                || low.contains("getaddrinfo")
+            {
                 DownloadError::Offline
             } else {
                 DownloadError::Other(text)
@@ -154,7 +157,9 @@ pub fn download(
             Ok(0) => break,
             Ok(n) => n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => return Err(DownloadError::Timeout),
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                return Err(DownloadError::Timeout);
+            }
             Err(e) => return Err(DownloadError::Other(e.to_string())),
         };
         digest.update(&buf[..n]);
@@ -190,12 +195,15 @@ mod tests {
             sum,
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        let url = serve(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        let url =
+            serve(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         let e = download(&url, "prueba", Duration::from_secs(5), &mut |_| Ok(())).expect_err("404");
         assert_eq!(e.why(), "el servidor contestó con un error 404");
         let url = serve(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc");
-        let e = download(&url, "prueba", Duration::from_secs(5), &mut |_| Err("cancelado".into()))
-            .expect_err("cortada");
+        let e = download(&url, "prueba", Duration::from_secs(5), &mut |_| {
+            Err("cancelado".into())
+        })
+        .expect_err("cortada");
         assert_eq!(e.why(), "cancelado");
     }
 
