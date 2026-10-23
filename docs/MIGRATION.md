@@ -143,8 +143,8 @@ y el estado: en el comentario de `server/src/lib.rs`.
   historial; las dos que no, el paso «consultando PyPI» frente a «consultando
   GitHub». Probadas de verdad: actualizar desde GitHub, consultar, bajar un
   vídeo con licencia Creative Commons y cancelar otro a medias.
-- **Faltan**: `songs.py`, `stems.py`, `cues.py`, `ai.py` y `assistant.py`;
-  el vigilante de carpetas (`watcher.py`) y «aprovechar» lo de otro archivo
+- **Faltan**: `ai.py` y `assistant.py` (`songs.py`, `stems.py` y `cues.py`
+  ya están en `routes::all`); el vigilante de carpetas (`watcher.py`) y «aprovechar» lo de otro archivo
   de la misma canción (`reuse.settle`: el desfase se calcula con numpy).
 
 Medido en la fase 0, lo que se espera ganar: unos 150 MB y miles de
