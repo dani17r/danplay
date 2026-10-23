@@ -229,3 +229,23 @@ la CI, el arranque sin esperar a que Python importe nada, y menos memoria
 42), y el AppImage, de 251 a 246 MB. Pesa menos de lo que se quita porque
 ahora viajan aparte ONNX Runtime (29 MB) y yt-dlp (40 MB, un ejecutable que
 lleva su propio Python dentro), y la app lleva el núcleo (de 20 a 40 MB).
+
+El núcleo, frente al de Python de la 1.30.0 (el mismo equipo, la misma
+muestra de 120 canciones copiadas, la mediana de tres pasadas):
+
+| | 1.30.0 | fase 4 |
+|---|---|---|
+| Arrancar el núcleo | 0,67 s | 0,13 s |
+| Memoria en reposo | 66 MB | 30 MB |
+| Escanear 120 canciones | 0,19 s | 0,13 s |
+| Buscar (mediana / p95) | 2,4 / 3,2 ms | 1,4 / 1,6 ms |
+| Ficha de una canción | 1,8 ms | 0,6 ms |
+| Carátula | 1,7 ms | 0,7 ms |
+| Forma de onda, la primera vez | 365 ms | 358 ms |
+| Pulso y «1» de una canción | 18,0 s | 12,7 s |
+| Memoria máxima del pulso | 1944 MB | 1658 MB |
+| Separar en pistas una canción | 129 s | 107 s |
+| Memoria máxima al separar | 3214 MB | 2823 MB |
+
+La app entera en reposo pesa lo mismo (unos 1070 MB, casi todo de WebKit),
+pero con un proceso menos.
