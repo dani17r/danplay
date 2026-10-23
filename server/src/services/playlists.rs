@@ -462,3 +462,6 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
     std::fs::write(&target, parts.concat())?;
     Ok(crate::app::path_str(&target))
 }
+
+#[cfg(test)]
+mod tests;

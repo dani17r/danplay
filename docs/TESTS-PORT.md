@@ -318,3 +318,49 @@ hora, el reloj a mano de las pruebas. `S` =
 En el servidor, quién contestó y la marca de «caído» son de todo el proceso
 y guardar un perfil (en cualquier prueba) las borra: las pruebas de `A` van
 de una en una y lo que cuenta llamadas lo intenta hasta tres veces.
+
+## tests/test_playlists_place.py
+
+El cerrojo, el aviso (`touch`) y el sellado de los archivos son del servidor
+(`services::playlists`, `services::chat::lists::place`): todo va en
+`server/src/services/playlists/tests.rs` (`P`), contra la base de verdad. Lo
+que Python apuntaba con un `monkeypatch` de `_stamp_playlists_into_files`
+aquí se ve en los archivos: canciones con su mp3 de verdad, y las que se
+sellan cambian de fecha (sin ffmpeg, esas pruebas no comprueban nada).
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_place_inserts_what_is_missing_and_orders_everything` | `P` `place_inserts_what_is_missing_and_orders_everything` |
+| `test_place_puts_each_new_one_right_after_its_previous` | `P` `place_puts_each_new_one_right_after_its_previous` |
+| `test_place_two_new_in_a_row_and_one_first_land_as_asked` | `P` `place_two_new_in_a_row_and_one_first_land_as_asked` |
+| `test_place_leaves_the_unmentioned_behind_in_order` | `P` `place_leaves_the_unmentioned_behind_in_order` |
+| `test_place_on_an_empty_playlist_and_with_nothing_to_add` | `P` `place_on_an_empty_playlist_and_with_nothing_to_add` (el id suelto, por `lists::ints`) |
+| `test_place_keeps_songs_from_outside_the_library` | `P` `place_keeps_songs_from_outside_the_library` |
+| `test_place_ignores_what_is_not_a_song` | `P` `place_ignores_what_is_not_a_song` (lo de fuera leído con `lists::ints`, como lo lee el asistente) |
+| `test_place_does_not_repeat_duplicates` | `P` `place_does_not_repeat_duplicates` |
+| `test_place_stamps_tags_once_and_only_for_new_ones` | `P` `place_stamps_tags_once_and_only_for_new_ones` (cuáles se sellan; «una vez» no se ve desde fuera) |
+| `test_place_is_idempotent` | `P` `place_is_idempotent` |
+| `test_place_signals_that_the_library_changed` | `P` `place_signals_that_the_library_changed` |
+| `test_place_on_a_missing_playlist_writes_nothing` | `P` `place_on_a_missing_playlist_writes_nothing` (sin «no» ni None: en Rust el id ya es un número) |
+| `test_place_keeps_a_song_with_a_gone_file_behind_and_hidden` | `P` `place_keeps_a_song_with_a_gone_file_behind_and_hidden` |
+| `test_place_repairs_repeated_or_gapped_positions` | `P` `place_repairs_repeated_or_gapped_positions` |
+| `test_place_with_more_ids_than_sqlite_variables` | `P` `place_with_more_ids_than_sqlite_variables` |
+| `test_place_writes_playlist_name_into_the_file_only_if_needed` | `P` `place_writes_playlist_name_into_the_file_only_if_needed` |
+| `test_add_appends_and_counts_only_those_that_go_in` | `P` `add_appends_and_counts_only_those_that_go_in` |
+| `test_add_stamps_the_tags_of_what_is_requested` | `P` `add_stamps_the_tags_of_what_is_requested` |
+| `test_reorder_names_only_some_and_the_rest_stay_behind` | `P` `reorder_names_only_some_and_the_rest_stay_behind` |
+| `test_reorder_does_not_add_what_the_playlist_lacks` | `P` `reorder_does_not_add_what_the_playlist_lacks` |
+| `test_remove_song_and_remove_stamp_the_files` | `P` `remove_song_and_remove_stamp_the_files` |
+| `test_renaming_stamps_the_songs_once` | `P` `renaming_stamps_the_songs_once` |
+| `test_set_songs_leaves_the_playlist_exactly_so` | `P` `set_songs_leaves_the_playlist_exactly_so` |
+| `test_set_songs_with_outside_songs` | `P` `set_songs_with_outside_songs` |
+| `test_set_songs_stamps_the_tags_only_once` | `P` `set_songs_stamps_the_tags_only_once` |
+| `test_set_songs_leaves_rows_of_songs_whose_file_is_gone` | `P` `set_songs_leaves_rows_of_songs_whose_file_is_gone` |
+| `test_set_songs_matches_the_model_on_random_playlists` | `P` `set_songs_matches_the_model_on_random_playlists` (un generador fijo; la basura, ids que no existen) |
+| `test_concurrent_place_add_reorder_lose_or_repeat_nothing` | `P` `concurrent_place_add_reorder_lose_or_repeat_nothing` |
+| `test_set_songs_amid_everything_else_keeps_the_playlist_sound` | `P` `set_songs_amid_everything_else_keeps_the_playlist_sound` |
+| `test_two_concurrent_places_do_not_clash_on_positions` | `P` `two_concurrent_places_do_not_clash_on_positions` |
+| `test_read_and_set_under_the_lock_loses_no_one_elses_songs` | `P` `read_and_set_under_the_lock_loses_no_one_elses_songs` |
+| `test_creating_the_same_playlist_at_once_gives_just_one` | `P` `creating_the_same_playlist_at_once_gives_just_one` |
+| `test_whoever_holds_the_lock_can_call_the_other_functions` | `P` `whoever_holds_the_lock_can_call_the_other_functions` |
+| `test_each_write_waits_for_the_lock` | `P` `each_write_waits_for_the_lock` (las ocho escrituras; `rename_folder` no se pasa: en Rust no lo llama nadie, y en Python tampoco fuera de esta prueba) |
