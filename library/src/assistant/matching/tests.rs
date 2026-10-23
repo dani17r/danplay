@@ -1,5 +1,7 @@
 use super::*;
 
+mod library_cases;
+
 #[test]
 fn typos_are_near() {
     assert!(!near("mañana", "manana"));

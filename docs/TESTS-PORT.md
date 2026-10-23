@@ -125,3 +125,76 @@ y con python-dotenv. Sin Python, se compara con lo que daban ellas.
 | `test_rust_config_matches_the_python_config` | `library/src/config/tests.rs` `config_reads_the_environment_and_the_settings_file` (en otro proceso con ese entorno, como en Python; los valores, los que daba config.py) |
 | `test_settings_file_is_read_like_python_dotenv` | `library/src/config/tests.rs` `settings_file_is_read_like_python_dotenv` (400 textos hechos con las mismas líneas, y lo que leía python-dotenv 1.2.4, generados una vez en `library/src/config/dotenv_cases.json`) |
 | `test_saved_values_are_written_like_python_and_read_back` | `library/src/config/tests.rs` `saved_values_are_written_like_python_and_read_back` (los ejemplos fijos con lo que escribía config.py, y 2000 textos de un generador fijo en vez de Hypothesis: se escriben como en config.py y se releen iguales) |
+
+## tests/test_resolve.py
+
+El emparejador. Lo que decide cada canción (`Index::matching`) va en
+`library/src/assistant/matching/tests/library_cases.rs` (abreviado
+`L` aquí abajo), contra una base temporal con las mismas filas a mano; el
+lote, el índice por revisión y su cerrojo, en
+`server/src/services/chat/resolve/tests.rs` (abreviado `S`). Lo que en
+Python era Hypothesis o `random`, con un generador fijo.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_exact_title_is_found` | `L` `exact_title_is_found` y `S` `exact_title_query` (la `query`; `index` no existe en Rust: es la posición en la lista) |
+| `test_three_versions_is_ambiguous_with_one_chosen` | `L` `three_versions_is_ambiguous_with_one_chosen` |
+| `test_the_requested_version_is_no_longer_ambiguous` | `L` `the_requested_version_is_no_longer_ambiguous` |
+| `test_a_noisy_query_finds_the_same_song` | `L` `a_noisy_query_finds_the_same_song` |
+| `test_whatsapp_decorations_do_not_get_in_the_way` | `L` `whatsapp_decorations_do_not_get_in_the_way` |
+| `test_a_wrong_artist_or_a_mention_does_not_hide_the_song` | `L` `a_wrong_artist_or_a_mention_does_not_hide_the_song` |
+| `test_the_right_artist_only_adds` | `L` `the_right_artist_only_adds` |
+| `test_the_artist_attached_or_first` | `L` `the_artist_attached_or_first` |
+| `test_dirty_tags_are_searched_by_file_and_by_tag` | `L` `dirty_tags_are_searched_by_file_and_by_tag` |
+| `test_crossed_tags_are_found_with_the_artist` | `L` `crossed_tags_are_found_with_the_artist` |
+| `test_in_house_copies_are_the_same_song` | `L` `in_house_copies_are_the_same_song` |
+| `test_titles_made_of_stop_words` | `L` `titles_made_of_stop_words` |
+| `test_enye_is_not_n_in_the_normal_form` | `L` `enye_is_not_n_in_the_normal_form` |
+| `test_the_second_pass_forgives_enye_at_a_discount` | `L` `the_second_pass_forgives_enye_at_a_discount` |
+| `test_enye_and_n_do_not_count_as_a_typo` | `L` `enye_and_n_do_not_count_as_a_typo` (parte ya estaba en `library/src/assistant/matching/tests.rs` `typos_are_near`) |
+| `test_apostrophes_in_titles_and_artists` | `L` `apostrophes_in_titles_and_artists` |
+| `test_the_artist_apostrophe_with_a_gap_too` | `L` `the_artist_apostrophe_with_a_gap_too` |
+| `test_a_typo_is_probable_and_finds_the_song` | `L` `a_typo_is_probable_and_finds_the_song` |
+| `test_a_typo_with_the_right_artist_is_found` | `L` `a_typo_with_the_right_artist_is_found` |
+| `test_a_typo_in_a_short_word_only_shows_when_joined` | `L` `a_typo_in_a_short_word_only_shows_when_joined` |
+| `test_the_start_of_a_title_is_probable` | `L` `the_start_of_a_title_is_probable` |
+| `test_the_same_words_in_another_order_is_probable` | `L` `the_same_words_in_another_order_is_probable` |
+| `test_words_joined_or_split_differently` | `L` `words_joined_or_split_differently` |
+| `test_a_subtitle_and_part_of_a_medley` | `L` `a_subtitle_and_part_of_a_medley` |
+| `test_what_is_missing_is_not_matched` | `L` `what_is_missing_is_not_matched` |
+| `test_what_is_missing_with_its_artist_is_missing_too` | `L` `what_is_missing_with_its_artist_is_missing_too` |
+| `test_an_extra_word_is_never_found` | `L` `an_extra_word_is_never_found` |
+| `test_a_changed_word_is_never_found` | `L` `a_changed_word_is_never_found` |
+| `test_an_already_downloaded_link_beats_the_title` | `L` `an_already_downloaded_link_beats_the_title` |
+| `test_the_link_is_the_same_video_however_it_is_written` | `L` `the_link_is_the_same_video_however_it_is_written` |
+| `test_what_is_not_a_youtube_video_is_not_a_link` | `L` `what_is_not_a_youtube_video_is_not_a_link` |
+| `test_a_reused_id_does_not_count` | `L` `a_reused_id_does_not_count` |
+| `test_history_is_walked_from_newest_to_oldest` | `L` `history_is_walked_from_newest_to_oldest` |
+| `test_the_same_file_name_counts_even_if_the_folder_moved` | `L` `the_same_file_name_counts_even_if_the_folder_moved` |
+| `test_already_there_is_checked_by_the_name_key` | `L` `already_there_is_checked_by_the_name_key` |
+| `test_other_version_and_strict` | `L` `other_version_and_strict` |
+| `test_the_video_title` | `L` `the_video_title` |
+| `test_a_link_pasted_in_the_title_is_not_the_title` | `L` `a_link_pasted_in_the_title_is_not_the_title` |
+| `test_resolve_items_in_order_with_each_status` | `S` `resolve_items_in_order_with_each_status` |
+| `test_overrides_and_explicit_id` | `S` `overrides_and_explicit_id` |
+| `test_the_remembered_choice_wins_ties` | `L` `the_remembered_choice_wins_ties` y `S` `the_remembered_choice_wins_ties_in_the_batch` (los `prefer_ids` que no son números, "no" y None, se quedaban en Python: en Rust ya llegan como números) |
+| `test_title_key_is_stable_and_tells_apart` | `L` `title_key_is_stable_and_tells_apart` (sin `title_key(None)`: en Rust el título siempre es texto) |
+| `test_tiebreaks_choice_favorite_stars_and_short_title` | `L` `tiebreaks_choice_favorite_stars_and_short_title` |
+| `test_an_item_that_crashes_does_not_sink_the_batch` | `S` `an_item_that_crashes_does_not_sink_the_batch` (en Python se hacía reventar `_match`; aquí revienta de verdad la consulta de ese item: su id no está en memoria y la tabla ya no se puede leer) |
+| `test_the_time_budget_and_the_item_cap` | `S` `the_time_budget_and_the_item_cap` (con `resolve_items_within`, el presupuesto y el tope como parámetros; y el tope de verdad, con 201 items) |
+| `test_a_failing_db_does_not_sink_the_batch` | `S` `a_failing_db_does_not_sink_the_batch` (una base que no se puede abrir, en vez de cambiar `INDEX.snapshot`) |
+| `test_a_setlist_of_60` | `S` `a_setlist_of_60` |
+| `test_rank_is_the_measure_search_adapter` | `L` `rank_is_the_measure_search_adapter` (el adaptador del medidor no existe en Rust; la prueba lo arma con `matching(limit=10)`, como hacía `resolve.rank`) |
+| `test_limit_and_the_copies_returned` | `L` `limit_and_the_copies_returned` |
+| `test_hostile_inputs_within_a_time_limit` | `L` `hostile_inputs_within_a_time_limit` (los dos modos: en memoria y con el prefiltro FTS5) |
+| `test_a_whole_hostile_batch_does_not_fail` | `L` `a_whole_hostile_batch_does_not_fail` (ninguna consulta da error, que es lo que en el lote sería `failed`) |
+| `test_fts_syntax_does_not_change_the_search` | `L` `fts_syntax_does_not_change_the_search` |
+| `test_a_title_of_only_stop_words_and_one_letter` | `L` `a_title_of_only_stop_words_and_one_letter` |
+| `test_any_text_gives_a_valid_answer` | `L` `any_text_gives_a_valid_answer` (300 textos de un generador fijo en vez de 120 de Hypothesis) |
+| `test_the_fts_prefilter_matches_the_in_memory_index` | `L` `the_fts_prefilter_matches_the_in_memory_index` |
+| `test_the_prefilter_finds_a_typo_with_the_tolerant_retry` | `L` `the_prefilter_finds_a_typo_with_the_tolerant_retry` |
+| `test_the_index_is_rebuilt_with_the_library_revision` | `S` `the_index_is_rebuilt_with_the_library_revision` |
+| `test_another_db_another_index` | `S` `another_db_another_index` |
+| `test_the_index_is_built_once_under_a_lock` | `S` `the_index_is_built_once_under_a_lock` (los ocho hilos reciben el mismo índice, en vez de contar las llamadas a `load`) |
+| `test_the_song_data_comes_from_the_db` | `L` `the_song_data_comes_from_the_db` |
+| `test_50000_songs_within_a_time_limit` | `L` `songs_50000_within_a_time_limit` (los topes de Python; sin optimizar, diez veces más) |

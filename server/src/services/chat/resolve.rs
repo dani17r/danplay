@@ -211,6 +211,28 @@ pub fn resolve_items(
     overrides: &[Dict],
     strict: bool,
 ) -> Vec<Resolution> {
+    resolve_items_within(
+        app,
+        items,
+        prefer_ids,
+        overrides,
+        strict,
+        BATCH_BUDGET,
+        MAX_ITEMS,
+    )
+}
+
+/// `resolve_items` con su presupuesto (segundos) y su tope de items (las
+/// pruebas los cambian, como el `budget` y el `MAX_ITEMS` de Python).
+fn resolve_items_within(
+    app: &App,
+    items: &[Dict],
+    prefer_ids: &[i64],
+    overrides: &[Dict],
+    strict: bool,
+    budget: f64,
+    max_items: usize,
+) -> Vec<Resolution> {
     let prefer: HashSet<i64> = prefer_ids.iter().copied().collect();
     let mut chosen: Vec<(i64, Value)> = Vec::new();
     for o in overrides {
@@ -229,11 +251,11 @@ pub fn resolve_items(
             Some(Value::String(t)) if t.is_empty() => Some(i as i64 + 1),
             Some(v) => int_or_none(v).or(Some(i as i64 + 1)),
         };
-        if i >= MAX_ITEMS {
+        if i >= max_items {
             out.push(failed(item, n, "demasiados items; no se miraron todos"));
             continue;
         }
-        if start.elapsed().as_secs_f64() > BATCH_BUDGET {
+        if start.elapsed().as_secs_f64() > budget {
             out.push(failed(item, n, "se acabó el tiempo; no se miró"));
             continue;
         }
@@ -293,3 +315,6 @@ pub fn resolve_items(
 pub fn title_key(title: &str, artist: &str) -> String {
     matching::title_key(title, artist)
 }
+
+#[cfg(test)]
+mod tests;
