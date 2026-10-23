@@ -15,5 +15,6 @@ mod files;
 mod folders;
 mod guard;
 mod library;
+mod plan;
 mod songs;
 mod stems;

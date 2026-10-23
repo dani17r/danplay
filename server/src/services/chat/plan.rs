@@ -60,7 +60,48 @@ fn cut_text(kind: &str) -> &'static str {
 /// El reloj de las caducidades (`time.monotonic`).
 fn now() -> f64 {
     static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    #[cfg(test)]
+    if let Some(t) = *testing::lock(&testing::CLOCK) {
+        return t;
+    }
     START.elapsed().as_secs_f64() + 1000.0
+}
+
+/// Lo que las pruebas cambian del plan (solo al compilarlas): el reloj, la
+/// consulta a YouTube, lo que se mira antes de buscar y si ya la tienes.
+#[cfg(test)]
+pub mod testing {
+    use super::{Dict, Mutex, PoisonError, registry};
+    use std::sync::{Arc, MutexGuard};
+
+    pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+        m.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// El reloj, a mano (`None`: el de verdad).
+    pub static CLOCK: Mutex<Option<f64>> = Mutex::new(None);
+    /// `youtube::info(app, consulta, resultados, timeout)` de mentira.
+    pub type Info = Arc<dyn Fn(&str, i64, Option<f64>) -> Dict + Send + Sync>;
+    pub static INFO: Mutex<Option<Info>> = Mutex::new(None);
+    /// Lo que dice `_warm` (`None`: mirar yt-dlp de verdad).
+    pub static WARM: Mutex<Option<String>> = Mutex::new(None);
+    /// `youtube::already_in_library(título)` de mentira.
+    pub type Mine = Arc<dyn Fn(&str) -> Vec<Dict> + Send + Sync>;
+    pub static MINE: Mutex<Option<Mine>> = Mutex::new(None);
+
+    /// Cuántas propuestas hay registradas.
+    pub fn entries() -> usize {
+        registry().entries.len()
+    }
+
+    /// Todo como al principio: sin propuestas, sin caché y sin nada fingido.
+    pub fn clear() {
+        super::reset();
+        *lock(&CLOCK) = None;
+        *lock(&INFO) = None;
+        *lock(&WARM) = None;
+        *lock(&MINE) = None;
+    }
 }
 
 /// Una propuesta registrada.
@@ -504,6 +545,14 @@ fn lookup(app: &App, query: &str, key: &str, cancel: &AtomicBool, blocked: &Atom
         SLOTS.release();
         return skipped();
     }
+    #[cfg(test)]
+    let fake = testing::lock(&testing::INFO).clone();
+    #[cfg(test)]
+    let res = match fake {
+        Some(info) => Ok(info(query, 1, Some(LOOKUP_TIMEOUT))),
+        None => youtube::info(app, query, 1, Some(LOOKUP_TIMEOUT)),
+    };
+    #[cfg(not(test))]
     let res = youtube::info(app, query, 1, Some(LOOKUP_TIMEOUT));
     SLOTS.release();
     let res = match res {
@@ -553,7 +602,16 @@ fn settle_row(app: &App, id: &str, i: usize, res: &Dict) {
         .and_then(|e| e.card.as_ref())
         .and_then(|c| c.doubt(i, &found));
     let Some(doubt) = doubt else { return };
-    let mine = match youtube::already_in_library(app, &found.title) {
+    #[cfg(test)]
+    let fake = testing::lock(&testing::MINE).clone();
+    #[cfg(test)]
+    let had = match fake {
+        Some(mine) => Ok(mine(&found.title)),
+        None => youtube::already_in_library(app, &found.title),
+    };
+    #[cfg(not(test))]
+    let had = youtube::already_in_library(app, &found.title);
+    let mine = match had {
         Ok(rows) => {
             let rows = Value::Array(rows.into_iter().map(Value::Object).collect());
             p::mine(&rows).unwrap_or_default()
@@ -568,6 +626,25 @@ fn settle_row(app: &App, id: &str, i: usize, res: &Dict) {
     }
 }
 
+/// `_warm`: yt-dlp y su motor de JavaScript ANTES de abrir hilos (si no,
+/// cada hilo lo buscaba a la vez). Sin yt-dlp no se puede buscar: el porqué.
+fn warm(app: &App) -> String {
+    #[cfg(test)]
+    if let Some(why) = testing::lock(&testing::WARM).clone() {
+        return why;
+    }
+    if ytdlp::executable(app).is_none() {
+        let why = youtube::unavailable_reason(app);
+        return if why.is_empty() {
+            "falta yt-dlp".into()
+        } else {
+            why
+        };
+    }
+    let _ = ytdlp::js_runtime(app, false);
+    String::new()
+}
+
 fn stop_by_id(id: &str, kind: &str, reason: &str) {
     if let Some(e) = registry().find(id) {
         stop(e, kind, reason);
@@ -577,17 +654,11 @@ fn stop_by_id(id: &str, kind: &str, reason: &str) {
 /// El hilo de una propuesta: busca sus filas en YouTube, dos a la vez. Corta
 /// el lote a la primera señal de 429, de «no eres un robot» o de red.
 fn work(app: &App, id: &str, search: &Arc<AtomicBool>) {
-    // `_warm`: yt-dlp y su motor de JavaScript ANTES de abrir hilos (si no,
-    // cada hilo lo buscaba a la vez); sin yt-dlp no se puede buscar
-    if ytdlp::executable(app).is_none() {
-        let mut why = youtube::unavailable_reason(app);
-        if why.is_empty() {
-            "falta yt-dlp".clone_into(&mut why);
-        }
+    let why = warm(app);
+    if !why.is_empty() {
         stop_by_id(id, "unavailable", &datum(&why, 160));
         return;
     }
-    let _ = ytdlp::js_runtime(app, false);
     let remaining = registry()
         .find(id)
         .and_then(|e| e.card.as_ref().map(Card::pending))
