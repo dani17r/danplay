@@ -8,7 +8,7 @@
 // - Una carpeta de música pequeña generada con ffmpeg (tonos de unos
 //   segundos, con sus etiquetas ID3), sin nada de las dependencias de
 //   desarrollo: la CI solo instala lo que el núcleo necesita para funcionar.
-// - El núcleo por TCP (`danplay.cli serve --port`), como en `vp dev`,
+// - El núcleo de Rust por TCP (`danplay-server --port`), como en `vp dev`,
 //   con la carpeta dada de alta por la API y ya analizada. El vigilante de
 //   carpetas va encendido: una de las pruebas mueve la carpeta por fuera.
 // - Vite con el proxy apuntando a ese núcleo.
@@ -26,7 +26,12 @@ import { SONGS, BIG_COUNT, bigSong } from './songs.js'
 
 const DESKTOP = join(dirname(fileURLToPath(import.meta.url)), '..')
 const ROOT = join(DESKTOP, '..')
-const PYTHON = process.env.DANPLAY_PYTHON || join(ROOT, '.venv', 'bin', 'python')
+// `danplay-server` (DANPLAY_E2E_CORE, o el de `cargo build -p danplay-server`)
+const SERVER =
+  process.env.DANPLAY_E2E_CORE ||
+  [join(ROOT, 'target', 'debug', 'danplay-server'), join(ROOT, 'target', 'release', 'danplay-server')].find(
+    (p) => existsSync(p)
+  )
 const CORE_PORT = Number(process.env.DANPLAY_E2E_CORE_PORT || 8731)
 const VITE_PORT = Number(process.env.DANPLAY_E2E_VITE_PORT || 5274)
 const CORE = `http://127.0.0.1:${CORE_PORT}`
@@ -161,8 +166,8 @@ async function waitFor(what, fn, timeout = 90_000) {
 }
 
 async function main() {
-  if (!process.env.DANPLAY_E2E_CORE && !existsSync(PYTHON)) {
-    throw new Error(`no encuentro Python en ${PYTHON} (¿falta el .venv?)`)
+  if (!SERVER || !existsSync(SERVER)) {
+    throw new Error('no encuentro danplay-server: compílalo antes (cargo build -p danplay-server)')
   }
   temp = process.env.DANPLAY_E2E_ROOT || mkdtempSync(join(tmpdir(), 'danplay-e2e-'))
   const music = join(temp, 'Musica')
@@ -176,37 +181,29 @@ async function main() {
     XDG_CONFIG_HOME: join(temp, 'config'),
     XDG_DATA_HOME: join(temp, 'data'),
     XDG_CACHE_HOME: join(temp, 'cache'),
+    // y aunque quien las ejecuta tenga las suyas puestas, estas
+    DANPLAY_DATA_DIR: join(temp, 'data', 'danplay'),
+    DANPLAY_CONFIG_DIR: join(temp, 'config', 'danplay'),
     DANPLAY_PROJECT_ENV: '0',
     // La biblioteca del núcleo (donde van las descargas y su carpeta
     // Entrada) aparte de la música: el núcleo vuelve a crear la Entrada
     // cada vez que se le pregunta por ella, y si la música fuera esa misma
     // carpeta, al moverla por fuera reaparecería vacía en su sitio y nunca
-    // saldría «No encuentro tu música» (es de la capa Python: ver el informe).
+    // saldría «No encuentro tu música» (ver el informe).
     DANPLAY_LIBRARY: join(temp, 'Biblioteca'),
     // si este proceso muere sin avisar, el núcleo se va con él (contrato E)
-    DANPLAY_PARENT_PID: String(process.pid),
-    PYTHONDONTWRITEBYTECODE: '1',
-    PYTHONUNBUFFERED: '1'
+    DANPLAY_PARENT_PID: String(process.pid)
   }
   for (const d of [env.HOME, env.XDG_CONFIG_HOME, env.XDG_DATA_HOME, env.XDG_CACHE_HOME]) {
     mkdirSync(d, { recursive: true })
   }
-  // Con DANPLAY_E2E_CORE (la ruta de `danplay-server`), el núcleo de Rust
-  // de la fase 4 en vez del de Python, con los mismos argumentos.
-  const rust = process.env.DANPLAY_E2E_CORE
-  const py = rust
-    ? spawn(rust, ['--host', '127.0.0.1', '--port', String(CORE_PORT)], {
-        cwd: ROOT,
-        env,
-        stdio: 'inherit'
-      })
-    : spawn(
-        PYTHON,
-        ['-m', 'danplay.cli', 'serve', '--host', '127.0.0.1', '--port', String(CORE_PORT)],
-        { cwd: ROOT, env, stdio: 'inherit' }
-      )
-  children.push(py)
-  py.on('exit', (code) => {
+  const server = spawn(SERVER, ['--host', '127.0.0.1', '--port', String(CORE_PORT)], {
+    cwd: ROOT,
+    env,
+    stdio: 'inherit'
+  })
+  children.push(server)
+  server.on('exit', (code) => {
     if (!stopping) {
       console.error(`[e2e] el núcleo se ha parado (código ${code})`)
       stop(1)
