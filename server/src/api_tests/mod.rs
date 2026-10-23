@@ -19,3 +19,4 @@ mod library;
 mod plan;
 mod songs;
 mod stems;
+mod youtube;
