@@ -9,6 +9,7 @@ mod associate;
 mod beats;
 mod core;
 mod dependencies;
+mod lazy_window;
 mod media;
 mod open;
 mod player;
@@ -131,6 +132,7 @@ fn main() {
 
     let app = builder
         .manage(tray::Tray::new())
+        .manage(lazy_window::Creating::default())
         .manage(record::Recording::default())
         .setup(|app| {
             setup(app);
@@ -233,7 +235,6 @@ fn setup(app: &tauri::App) {
     // WebView se ralentizan y la musica se quedaba parada entre canciones.
     app.manage(queue::Playback::new(handle.clone(), address));
     tray::install(&handle);
-    tray::watch_popup(&handle);
     media::install(&handle);
     core::watch(handle.clone());
 
@@ -257,17 +258,9 @@ fn setup(app: &tauri::App) {
         open::play(&handle, files);
     }
 
-    // La ventana de proyeccion: cerrarla la esconde, que si se destruyera no
-    // habria forma de volver a abrirla sin reiniciar.
-    if let Some(projection) = app.get_webview_window(tray::PROJECTION) {
-        let handle = handle.clone();
-        projection.on_window_event(move |event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                tray::hide_projection(handle.clone());
-            }
-        });
-    }
+    // La ventanita y la proyeccion no se crean aqui: la primera vez que se
+    // abren (ver lazy_window.rs y tray). Con la app recien abierta, WebKit
+    // tiene la pagina de la ventana principal y nada mas.
 
     // Cerrar la ventana la esconde; se sale desde la bandeja.
     if let Some(main) = app.get_webview_window("main") {

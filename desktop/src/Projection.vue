@@ -14,6 +14,8 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { api, core, projection } from './api.js'
 import { usePlayback } from './composables/usePlayback.js'
 import { parseLrc, stripLrc, currentLine } from './utils/lrc.js'
+// lo suyo, solo en esta ventana (en la grande no hace falta)
+import './styles/projection.css'
 
 const player = usePlayback()
 const { track, playing, position } = player

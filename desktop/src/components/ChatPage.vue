@@ -26,6 +26,8 @@ import ChatComposer from './ChatComposer.vue'
 import ChatConfirmCard from './ChatConfirmCard.vue'
 import ChatSetlistCard from './ChatSetlistCard.vue'
 import ProviderBanner from './ProviderBanner.vue'
+// su CSS, con la página: solo se carga al abrir el asistente
+import '../styles/chat.css'
 
 const chat = useChat()
 const {

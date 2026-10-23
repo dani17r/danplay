@@ -141,7 +141,9 @@ describe('animations', () => {
   })
 
   it('whoever asks for reduced motion gets it across the WHOLE app', () => {
-    const block = CSS.slice(CSS.lastIndexOf('prefers-reduced-motion'))
+    // la de motion.css: detrás van los estilos de las islas (study.css,
+    // chat.css), que traen sus propios retoques de movimiento reducido
+    const block = CSS.slice(CSS.search(/prefers-reduced-motion:reduce\)\{\*,/))
     expect(block, 'falta la regla global').toMatch(/\*,\s*\*::before,\s*\*::after/)
     // ...pero los indicadores de «esto sigue en marcha» no se congelan
     expect(block).toMatch(/\.spinner[^{]*\{[^}]*infinite/)

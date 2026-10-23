@@ -83,7 +83,8 @@ import {
   QUEUE_MAX
 } from '../src/composables/useChat.js'
 
-const CSS = readFileSync('src/styles/ui.css', 'utf8')
+// lo del chat va aparte, con su página (ChatPage.vue lo importa)
+const CSS = readFileSync('src/styles/chat.css', 'utf8')
 
 beforeEach(() => {
   localStorage.clear()

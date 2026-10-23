@@ -4,7 +4,13 @@
 
    Antes era un solo archivo al que se le iban pegando parches al final; ya
    no cabía en la cabeza de nadie y por eso convivían reglas muertas
-   (.searchbox, cuando la app usa .search-box) con otras repetidas. */
+   (.searchbox, cuando la app usa .search-box) con otras repetidas.
+
+   Lo que solo usa una parte va con ella y no aquí: el modo estudio
+   (study.css, con StudyBar.vue), el asistente (chat.css, con ChatPage.vue),
+   la ventanita de la bandeja (mini.css, con MiniPlayer.vue) y la proyección
+   (projection.css, con Projection.vue). Cada una se carga con su trozo del
+   paquete, cuando hace falta (ver islands.js). */
 @import url('./base.css');
 @import url('./list-rows.css');
 @import url('./list-cards.css');
@@ -15,11 +21,9 @@
 @import url('./responsive.css');
 @import url('./drawers.css');
 @import url('./drag.css');
-@import url('./mini.css');
 @import url('./pocket.css');
 @import url('./ai.css');
 @import url('./tidy.css');
-@import url('./projection.css');
 @import url('./about.css');
 @import url('./tour.css');
 @import url('./motion.css');

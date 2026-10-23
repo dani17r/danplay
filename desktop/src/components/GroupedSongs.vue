@@ -8,11 +8,9 @@
  * las de menos de 80 canciones se pintaban enteras: «Artistas», que casi
  * siempre son grupos pequeños, montaba la biblioteca completa.
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import SongTable from './SongTable.vue'
-import SongGrid from './SongGrid.vue'
-import SongRows from './SongRows.vue'
-import SongCards from './SongCards.vue'
+import { listViews } from '../islands.js'
 import { groupSongs } from '../utils/groups.js'
 
 const props = defineProps({
@@ -76,8 +74,18 @@ function toggleGroup(k) {
   collapsed.value = s
 }
 
-const LISTS = { rows: SongRows, cards: SongCards, grid: SongGrid }
-const list = computed(() => LISTS[props.layout] || null)
+// La lista fina, las fichas y la cuadrícula son islas (islands.js): la app
+// carga la que se ve antes de pasarla, y si no (las pruebas del componente
+// suelto), se carga aquí y se pinta en cuanto llega. La tabla va siempre.
+const isTable = computed(() => !Object.hasOwn(listViews, props.layout))
+const list = computed(() => (isTable.value ? null : listViews[props.layout].component.value))
+watch(
+  () => props.layout,
+  (v) => {
+    if (Object.hasOwn(listViews, v)) listViews[v].load().catch(() => {})
+  },
+  { immediate: true }
+)
 
 /** Lo que recibe la vista: lo común, lo propio de cada una y sus avisos. */
 const bindings = computed(() => {
@@ -104,7 +112,7 @@ const bindings = computed(() => {
     onSetStars: (c, n) => emit('setStars', c, n),
     onToggleFavorite: (c) => emit('toggleFavorite', c)
   }
-  if (list.value) return rated
+  if (!isTable.value) return rated
   // la tabla, sin la fila de las columnas: la cabecera de cada grupo se queda
   // arriba y chocarían
   return {
@@ -120,7 +128,7 @@ const bindings = computed(() => {
 <template>
   <component :is="list" v-if="list" v-bind="bindings" />
   <!-- la tabla sin cabecera no se desplaza sola: la envuelve su panel -->
-  <div v-else class="table-wrap">
+  <div v-else-if="isTable" class="table-wrap">
     <SongTable v-bind="bindings" />
   </div>
 </template>

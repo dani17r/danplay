@@ -11,7 +11,8 @@ import { ref, computed } from 'vue'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import { useDragSong } from '../composables/useDragSong.js'
-import { useChat } from '../composables/useChat.js'
+import { chatAttention as attention } from '../composables/chatLink.js'
+import { vPreload, pages } from '../islands.js'
 
 const props = defineProps({
   /** la vista abierta: {kind, id?, name?} */
@@ -36,7 +37,7 @@ const { drag, dragging, isOver } = useDragSong()
 
 // Una propuesta del asistente (bajar lo que falta de una lista) espera tu
 // respuesta y estás en otra página: el «Asistente» lo dice, como las descargas.
-const { attention } = useChat()
+// Viene de chatLink.js (`attention`): la barra lateral no se trae el asistente.
 
 /** Lo que se dice al pasar con canciones en la mano por encima de una lista. */
 function dropHint(/** @type {string} */ name) {
@@ -154,6 +155,7 @@ const shown = computed(() => {
         ></span>
       </button>
       <button
+        v-preload="pages.duplicates"
         type="button"
         class="nav-link"
         :class="{ active: view.kind === 'duplicates' }"
@@ -169,6 +171,7 @@ const shown = computed(() => {
         ></span>
       </button>
       <button
+        v-preload="pages.chat"
         type="button"
         class="nav-link"
         :class="{ active: view.kind === 'chat' }"
@@ -266,6 +269,7 @@ const shown = computed(() => {
     <nav class="nav-group nav-fixed nav-bottom">
       <div class="nav-title">Gestión</div>
       <button
+        v-preload="pages.inbox"
         type="button"
         class="nav-link"
         :class="{ active: view.kind === 'inbox' }"
@@ -276,6 +280,7 @@ const shown = computed(() => {
         <span v-if="inboxCount" class="count">{{ inboxCount }}</span>
       </button>
       <button
+        v-preload="pages.downloads"
         type="button"
         class="nav-link"
         :class="{ active: view.kind === 'downloads' }"
@@ -295,6 +300,7 @@ const shown = computed(() => {
         <span class="nav-icon"><Icon n="mixer" /></span> Abrir secuencia
       </button>
       <button
+        v-preload="pages.settings"
         type="button"
         class="nav-link"
         :class="{ active: view.kind === 'settings' }"
@@ -304,6 +310,7 @@ const shown = computed(() => {
         <span class="nav-icon"><Icon n="settings" /></span> Ajustes
       </button>
       <button
+        v-preload="pages.about"
         type="button"
         class="nav-link"
         :class="{ active: view.kind === 'about' }"
@@ -317,6 +324,7 @@ const shown = computed(() => {
       </button>
       <!-- quién hizo DanPlay, siempre a la vista -->
       <button
+        v-preload="pages.about"
         type="button"
         class="nav-credit"
         title="DanPlay es obra de Daniel Rangel"

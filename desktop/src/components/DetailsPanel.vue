@@ -7,7 +7,7 @@ import StarRating from './StarRating.vue'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
 import CopyButton from './ui/CopyButton.vue'
-import EmptyState from './ui/EmptyState.vue'
+import DetailsEmpty from './DetailsEmpty.vue'
 import Loading from './ui/Loading.vue'
 import SelectField from './ui/SelectField.vue'
 import TextField from './ui/TextField.vue'
@@ -748,12 +748,5 @@ async function transpose() {
     </div>
   </aside>
 
-  <aside v-else class="details">
-    <EmptyState
-      icon="note"
-      title="Selecciona una canción"
-      hint="Aquí verás su ficha, la letra y los acordes"
-      style="padding-top: 70px"
-    />
-  </aside>
+  <DetailsEmpty v-else />
 </template>

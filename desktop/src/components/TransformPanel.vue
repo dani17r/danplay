@@ -202,7 +202,8 @@ function keys(e) {
 </script>
 
 <template>
-  <transition name="fade">
+  <!-- `appear`: es una isla (islands.js) y puede montarse ya abierta -->
+  <transition name="fade" appear>
     <div
       v-if="open"
       class="modal-back"
