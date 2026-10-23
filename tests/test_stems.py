@@ -28,6 +28,10 @@ FAKE_ENGINE = textwrap.dedent(
     job = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     say = lambda **m: print(json.dumps(m), flush=True)
     if Path(job["input"]).name.startswith("rota"):
+        # la que falla también espera, si se le pide (que la otra llegue antes
+        # a la cola)
+        while Path(job["input"] + ".esperar").exists():
+            time.sleep(0.02)
         say(error="ffmpeg no pudo leer la cancion")
         sys.exit(1)
     # la pasada buena espera, si se le pide, a que la prueba la deje seguir
@@ -437,8 +441,16 @@ def test_a_song_that_fails_does_not_stop_the_queue(lib):
     root, _ = lib
     make_mp3(root / "Artistas" / "Barak" / "rota.mp3", artist="Barak", title="Rota")
     library.scan()
-    stems.request(_id("rota.mp3"))
-    stems.request(_id("Barak - Mi Gozo.mp3"))
+    # la rota no falla hasta que la otra ya espera en la cola: sin esto, si
+    # pedir la primera tardaba más que su fallo (la primera vez que se carga
+    # ONNX Runtime en el proceso), la tanda acababa antes de que llegara
+    hold = root / "Artistas" / "Barak" / "rota.mp3.esperar"
+    hold.touch()
+    try:
+        stems.request(_id("rota.mp3"))
+        stems.request(_id("Barak - Mi Gozo.mp3"))
+    finally:
+        hold.unlink()
     job = jobs.wait(stems.JOB, timeout=60)
     assert job is not None
     assert [f["error"] for f in job["result"]["failed"]] == ["ffmpeg no pudo leer la cancion"]
