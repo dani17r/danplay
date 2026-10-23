@@ -1,7 +1,7 @@
 {
   "name": "danplay-app",
   "private": true,
-  "version": "1.30.0",
+  "version": "1.40.0",
   "author": "Daniel Rangel (https://t.me/Dani17r)",
   "type": "module",
   "packageManager": "bun@1.4.2",
