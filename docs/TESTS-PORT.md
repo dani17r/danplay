@@ -364,3 +364,45 @@ sellan cambian de fecha (sin ffmpeg, esas pruebas no comprueban nada).
 | `test_creating_the_same_playlist_at_once_gives_just_one` | `P` `creating_the_same_playlist_at_once_gives_just_one` |
 | `test_whoever_holds_the_lock_can_call_the_other_functions` | `P` `whoever_holds_the_lock_can_call_the_other_functions` |
 | `test_each_write_waits_for_the_lock` | `P` `each_write_waits_for_the_lock` (las ocho escrituras; `rename_folder` no se pasa: en Rust no lo llama nadie, y en Python tampoco fuera de esta prueba) |
+
+## tests/test_safe.py
+
+Todo en `library/src/safe.rs` (`F`). Las de Hypothesis, con un generador
+fijo de texto (letras de todo Unicode y lo que suele romper).
+
+**Diferencia encontrada y arreglada**: `datum` dejaba pasar caracteres de
+formato (Cf) que no estaban en su lista, como U+0600 (marca de número árabe)
+o U+070F (marca de abreviatura siria). La prueba de propiedades de Python los
+pedía fuera (`assert_clean`), pero Hypothesis no llegó a generarlos; el
+generador de Rust sí. Ahora `datum` (y `strip_invisible`) quitan cualquier
+carácter de formato.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_a_normal_text_does_not_change` | `F` `a_normal_text_does_not_change` (sin `datum(None)` ni `datum(12)`: en Rust el dato ya es texto; lo que falta va como None en `data_block`) |
+| `test_line_breaks_become_one_space` | `F` `line_breaks_become_one_space` |
+| `test_controls_are_dropped_without_leaving_a_gap` | `F` `controls_are_dropped_without_leaving_a_gap` |
+| `test_direction_marks_are_dropped` | `F` `direction_marks_are_dropped` |
+| `test_zero_width_is_dropped` | `F` `zero_width_is_dropped` |
+| `test_invisible_tag_characters_are_dropped` | `F` `invisible_tag_characters_are_dropped` |
+| `test_odd_spaces_become_one_space` | `F` `odd_spaces_become_one_space` |
+| `test_no_curly_quote_or_guillemet_remains` | `F` `no_curly_quote_or_guillemet_remains` |
+| `test_a_value_cannot_close_its_own_quotes` | `F` `a_value_cannot_close_its_own_quotes` |
+| `test_the_apostrophe_is_kept_as_an_apostrophe` | `F` `the_apostrophe_is_kept_as_an_apostrophe` |
+| `test_the_tilde_composes_after_dropping_zero_width` | `F` `the_tilde_composes_after_dropping_zero_width` (parte ya estaba en `datum_without_disguise`) |
+| `test_it_truncates_with_an_ellipsis` | `F` `it_truncates_with_an_ellipsis` |
+| `test_the_default_is_80` | `F` `the_default_is_80` (en Rust no hay valor por defecto: quien llama pasa el 80) |
+| `test_it_is_idempotent_in_the_hard_cases` | `F` `it_is_idempotent_in_the_hard_cases` |
+| `test_any_output_is_a_clean_datum` | `F` `any_output_is_a_clean_datum_and_idempotent` |
+| `test_datum_is_idempotent` | `F` `any_output_is_a_clean_datum_and_idempotent` |
+| `test_any_text_never_crashes` | `F` `any_text_never_crashes` |
+| `test_printable_ascii_is_only_truncated` | `F` `printable_ascii_is_only_truncated` |
+| `test_a_huge_text_costs_no_more_than_a_short_one` | `F` `a_huge_text_costs_no_more_than_a_short_one` |
+| `test_a_huge_text_of_only_invisibles_does_not_hang` | `F` `a_huge_text_of_only_invisibles_does_not_hang` |
+| `test_the_block_has_the_header_and_values_in_guillemets` | `F` `the_block_has_the_header_and_values_in_guillemets` |
+| `test_the_empty_block_says_so` | `F` `the_empty_block_says_so` |
+| `test_the_block_passes_each_value_through_datum` | `F` `the_block_passes_each_value_through_datum` |
+| `test_the_block_keeps_the_cap_and_says_how_many_are_left` | `F` `the_block_keeps_the_cap_and_says_how_many_are_left` (el tope de 60 lo pasa quien llama) |
+| `test_the_block_accepts_a_generator` | `F` `the_block_accepts_a_generator` |
+| `test_the_hostile_title_stays_enclosed` | `F` `the_hostile_title_stays_enclosed` |
+| `test_the_block_is_one_line_with_each_value_enclosed` | `F` `the_block_is_one_line_with_each_value_enclosed` |
