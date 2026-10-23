@@ -142,14 +142,15 @@ OpenRouter… o un modelo en tu propio equipo.
 
 ## Instalación
 
-Se construye desde el código. Hacen falta Node 24 y Rust (Python y
+Se construye desde el código. Hacen falta Node 24,
+[Vite+](https://viteplus.dev) (`vp`, que se encarga de Bun) y Rust (Python y
 [uv](https://docs.astral.sh/uv/), solo para las pruebas del núcleo de
 Python, que sigue en el repositorio de testigo):
 
 ```bash
 git clone https://github.com/dani17r/danplay.git && cd danplay
 
-cd desktop && npm ci && cd ..
+cd desktop && vp install && cd ..
 
 cp .env.example .env        # y rellena las claves que quieras usar
 ./scripts/build.sh          # interfaz + datos + app, con el núcleo dentro
@@ -558,10 +559,10 @@ socket ni puerto TCP abierto, que encuentra ONNX Runtime y ffmpeg, que saca
 el pulso de una canción, que una segunda instancia se va sin tocar la
 primera y que al cerrarla no queda ningún proceso suyo.
 
-Además, en cada push: estilo y formato (ruff, ESLint, stylelint, Prettier,
+Además, en cada push: estilo y formato (ruff, ESLint, stylelint, Oxfmt,
 rustfmt, clippy sin avisos), tipos (basedpyright, vue-tsc), cobertura mínima
 (núcleo 70 %, interfaz 84 %), que el código solo-Windows compila, que
-`src/icons.js` sigue siendo lo que genera `npm run icons` y los avisos de
+`src/icons.js` sigue siendo lo que genera `vp run icons` y los avisos de
 seguridad de todas las dependencias.
 
 ## Licencia

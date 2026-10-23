@@ -19,7 +19,7 @@ prueban las cosas y en qué se puede ayudar.
 ```bash
 git clone https://github.com/dani17r/danplay.git && cd danplay
 
-cd desktop && npm ci && cd ..
+cd desktop && vp install && cd ..
 cp .env.example .env
 
 # solo para las pruebas del núcleo de Python (la app ya no lo lleva): el
@@ -29,9 +29,20 @@ cp .env.example .env
 uv sync
 ```
 
-La app y su núcleo son Rust: con Node 24 y Rust basta para compilarla y
-probarla. El núcleo de Python (`danplay/`) sigue en el repositorio de
-testigo: sus pruebas y los diferenciales comparan el de Rust con él.
+La app y su núcleo son Rust: con Node 24, Vite+ y Rust basta para
+compilarla y probarla. El núcleo de Python (`danplay/`) sigue en el
+repositorio de testigo: sus pruebas y los diferenciales comparan el de Rust
+con él.
+
+La interfaz (`desktop/`) va con [Vite+](https://viteplus.dev): `vp` es Vite
+(`vp dev`, `vp build`), Vitest (`vp test`), el formateador (`vp fmt`, Oxfmt)
+y el que lanza los scripts de `package.json` (`vp run lint`). Se instala una
+vez con `curl -fsSL https://vite.plus | bash`. Sus dependencias las gestiona
+Bun, que `vp` baja solo si no lo tienes: `package.json` y `bun.lock` las
+fijan, y `bunfig.toml` no deja entrar nada con menos de dos semanas.
+Añadir o subir una: `vp add paquete` / `vp update paquete`. Vite+, `vite` y
+`vitest` van juntos (`vite` es un alias de su núcleo): para subirlos,
+`vp migrate` en `desktop/`.
 
 Las dependencias de Python se gestionan con [uv](https://docs.astral.sh/uv/):
 `pyproject.toml` dice qué hace falta, en rangos, y `uv.lock` fija la versión
@@ -105,14 +116,14 @@ Y solo la interfaz en el navegador, con el núcleo por un puerto:
 ```bash
 cargo run -p danplay-server                # el de Rust, en el puerto 8730
 .venv/bin/python -m danplay.cli serve      # o el de Python, en el mismo
-cd desktop && npm run dev                  # Vite en el 5273, con proxy
+cd desktop && vp dev                       # Vite en el 5273, con proxy
 ```
 
 ## La app del celular
 
 `mobile/` es la app de Android (e iOS, cuando se compile en un Mac). Su
 interfaz es la de la PC (`desktop/mobile.html` → `desktop/src/mobile/`), así
-que se prueba con las mismas herramientas: `npm test` en `desktop/` incluye
+que se prueba con las mismas herramientas: `vp test` en `desktop/` incluye
 `tests/mobile.test.js`, y `cargo test -p danplay-engine -p danplay-mobile`
 prueba el motor de pistas y lo que la app contesta en vez de Python.
 
@@ -129,7 +140,7 @@ Para compilarla hace falta, en `~/Android`:
 ```bash
 ./scripts/build-android.sh             # el APK firmado, a dist/installers/
 ./scripts/build-android.sh --emulator  # el de depuración, para el emulador
-cd mobile && npm run tauri -- android dev   # con el teléfono por USB
+cd mobile && bun run tauri android dev      # con el teléfono por USB
 ```
 
 O sin nada de lo anterior instalado: `./scripts/github.sh packages android`
@@ -166,7 +177,7 @@ Es lo mismo que comprueba la CI en cada push, y todo tiene que pasar:
 | Tanda | Qué cubre |
 | --- | --- |
 | Núcleo Python | ruff (estilo y formato), basedpyright (tipos) y pytest con cobertura (mínimo 70 %): nombres, etiquetas, índice, API sobre una biblioteca temporal de verdad, IA, descargas, vigilante de carpetas |
-| Interfaz | ESLint, stylelint, Prettier, vue-tsc (tipos) y Vitest: componentes, reactividad, contratos, listas grandes |
+| Interfaz | ESLint, stylelint, Oxfmt (formato), vue-tsc (tipos) y Vitest: componentes, reactividad, contratos, listas grandes |
 | Interfaz (URLs) | cómo se construyen las rutas de medios en cada sistema |
 | Rust | rustfmt, clippy sin avisos y las pruebas del workspace: hashes, forma de onda, reproductor, cola, bandeja, permisos por ventana |
 | e2e | la interfaz de verdad contra el núcleo de verdad, en Chrome (Playwright) |
@@ -196,8 +207,8 @@ Una tanda suelta, mientras trabajas:
 ```bash
 .venv/bin/python -m pytest                       # todo el núcleo, con cobertura
 .venv/bin/python -m pytest tests/test_watch.py --no-cov
-cd desktop && npm run check                      # lint + css + formato + pruebas
-cd desktop && npm run e2e                        # los flujos en Chrome
+cd desktop && vp run check                       # lint + css + formato + pruebas
+cd desktop && vp run e2e                         # los flujos en Chrome
 PYO3_BUILD_EXTENSION_MODULE=1 cargo test --workspace --release
 ```
 
@@ -273,10 +284,11 @@ de la raíz, que heredan los dos crates y del que la toman Tauri y maturin, y
 ./scripts/bump-version.sh 1.3.0
 ```
 
-Eso los deja iguales, con los cerrojos (Cargo, npm y uv) y la insignia del
-README. Después, `./scripts/test.sh --quick` —hay una prueba que falla si
-alguno se queda atrás—, un **commit propio** (`chore: subir a 1.3.0`, sin
-mezclarlo con el cambio) y, para publicarla, una etiqueta:
+Eso los deja iguales, con los cerrojos (Cargo y uv; el de Bun no la
+lleva) y la insignia del README. Después, `./scripts/test.sh --quick` —hay
+una prueba que falla si alguno se queda atrás—, un **commit propio**
+(`chore: subir a 1.3.0`, sin mezclarlo con el cambio) y, para publicarla,
+una etiqueta:
 `git tag v1.3.0 && git push --tags`. Con ella la CI construye los siete
 paquetes (el `.deb`, el `.AppImage`, el APK, los dos `.dmg` y el instalador y
 el portátil de Windows) y los deja en esa versión de GitHub: no hace falta
@@ -292,7 +304,8 @@ compilar nada en tu equipo. Si además los quieres en `dist/installers/`,
   rara, el comentario cuenta qué pasó cuando se hizo de la forma normal.
 - Sin acentos en nombres de archivo generados. La ñ se conserva.
 - El formato no se discute: lo ponen `ruff format` (Python), `cargo fmt`
-  (Rust) y Prettier (interfaz), y la CI falla si algo no está formateado.
+  (Rust) y Oxfmt (`vp fmt`, la interfaz), y la CI falla si algo no está
+  formateado.
   `.editorconfig` hace que cualquier editor empiece bien.
 
 ## Dónde se puede ayudar

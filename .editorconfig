@@ -1,5 +1,5 @@
 # Lo basico para que cualquier editor escriba como el resto del proyecto.
-# El formato fino lo ponen ruff (Python), rustfmt (Rust) y Prettier (interfaz).
+# El formato fino lo ponen ruff (Python), rustfmt (Rust) y Oxfmt (interfaz).
 root = true
 
 [*]
