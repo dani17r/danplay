@@ -102,3 +102,47 @@ pub fn save_profile(
     log_warnings("danplay.providers", warnings);
     r
 }
+
+// ------------------------------------------------------------ llamar a la IA
+
+/// Lo que necesita `library::ai::call` para hablar con el modelo: dónde
+/// están ai.json, el catálogo y lo verificado, el interruptor, el entorno, la
+/// hora y dónde se apunta lo gastado (la tabla `ai_usage`).
+pub fn with_context<T>(app: &App, f: impl FnOnce(&library::ai::call::Context<'_>) -> T) -> T {
+    let cfg = app.config();
+    let profiles = profiles_file(app);
+    let (cache, snapshot) = crate::startup::catalog_paths(app);
+    let verified = cfg.data_dir.join("models-verified.json");
+    let env = |name: &str, default: &str| cfg.env(name, default);
+    let now = library::index::now;
+    let account = |u: &library::ai::call::Usage| {
+        let r = app.db(|c| {
+            library::index::history::log_ai_usage(
+                c, &u.provider, &u.model, &u.purpose, u.prompt, u.completion, u.cost,
+            )
+        });
+        if let Err(e) = r {
+            log::debug!("no se pudo apuntar el uso de la IA: {e}");
+        }
+    };
+    let say = |text: &str| log::info!("danplay.ai: {text}");
+    let ctx = library::ai::call::Context {
+        profiles: &profiles,
+        cache: &cache,
+        snapshot: &snapshot,
+        verified: &verified,
+        enabled: cfg.ai_enabled,
+        env: &env,
+        now: &now,
+        account: &account,
+        log: &say,
+    };
+    f(&ctx)
+}
+
+/// `ai.resolve(file_name, known_artists, extra_hint)`: artista y título de
+/// un nombre sucio; `None` si la IA no está o no contesta con un objeto;
+/// `{"error": ...}` si falló.
+pub fn identify(app: &App, file_name: &str, known_artists: &[String], hint: &str) -> Option<Dict> {
+    with_context(app, |ctx| library::ai::call::identify(ctx, file_name, known_artists, hint))
+}
