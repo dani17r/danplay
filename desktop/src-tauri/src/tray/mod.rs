@@ -13,11 +13,12 @@
 //!
 //! Lo que el resto del programa ve es lo mismo en los dos casos: `install`,
 //! `update`, `available` y `toggle_popup`.
+use crate::lazy_window::{self, IdleClose};
 use crate::queue::PlaybackState;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 #[cfg(not(target_os = "linux"))]
 mod desktop;
@@ -121,6 +122,10 @@ pub struct Tray {
     /// clic puede quitarle el foco antes de que termine de aparecer, y sin
     /// esta pausa se cerraba sola nada mas abrirse.
     shown_at: Mutex<Option<Instant>>,
+    /// El rato que llevan escondidas la ventanita y la proyeccion: pasado
+    /// `MINI_IDLE` o `PROJECTION_IDLE` sin volver a abrirlas, se cierran.
+    mini_idle: IdleClose,
+    projection_idle: IdleClose,
 }
 
 impl Tray {
@@ -194,10 +199,59 @@ pub fn dock(app: &AppHandle, visible: bool) {
     let _ = (app, visible);
 }
 
+// La ventanita y la proyeccion no existen al arrancar (ver lazy_window.rs):
+// se crean la primera vez que se abren y, escondidas un rato sin que nadie
+// las vuelva a abrir, se cierran, y su proceso de WebKit con ellas. Volver a
+// abrirlas enseguida es instantaneo; pasado ese rato, se crean otra vez.
+
+/// La ventanita se abre y se cierra a menudo (es un menu): un minuto.
+const MINI_IDLE: Duration = Duration::from_secs(60);
+/// En un culto la proyeccion se cierra y se abre entre canciones: cinco.
+const PROJECTION_IDLE: Duration = Duration::from_secs(5 * 60);
+
+fn idle_of<'a>(app: &'a AppHandle, label: &str) -> Option<&'a IdleClose> {
+    let tray = app.try_state::<Tray>()?.inner();
+    Some(if label == MINI {
+        &tray.mini_idle
+    } else {
+        &tray.projection_idle
+    })
+}
+
+/// Cierra la ventana `label` si pasado `after` sigue escondida y nadie la ha
+/// vuelto a abrir entre medias.
+fn close_later(app: &AppHandle, label: &'static str, after: Duration) {
+    let Some(armed) = idle_of(app, label).map(IdleClose::arm) else {
+        return;
+    };
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(after);
+        if !idle_of(&app, label).is_some_and(|idle| idle.due(armed)) {
+            return;
+        }
+        if let Some(window) = app.get_webview_window(label)
+            && !window.is_visible().unwrap_or(true)
+        {
+            // `destroy` y no `close`: no es nadie cerrandola (y la
+            // proyeccion volveria a esconderse en vez de irse)
+            let _ = window.destroy();
+        }
+    });
+}
+
+/// Se va a ensenar: lo que estuviera contando para cerrarla ya no cuenta.
+fn keep(app: &AppHandle, label: &str) {
+    if let Some(idle) = idle_of(app, label) {
+        idle.cancel();
+    }
+}
+
 pub fn hide_popup(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MINI) {
         let _ = window.hide();
         let _ = app.emit(MINI_EVENT, serde_json::json!({"visible": false}));
+        close_later(app, MINI, MINI_IDLE);
     }
 }
 
@@ -207,15 +261,20 @@ pub fn hide_popup(app: &AppHandle) {
 /// con X11; en Wayland nadie dice donde esta el icono, y ademas colocar una
 /// ventana a mano no esta permitido: la pone el escritorio donde considere).
 pub fn toggle_popup(app: &AppHandle, near: Option<(i32, i32)>) {
-    let Some(window) = app.get_webview_window(MINI) else {
-        log::warn!("no encuentro la ventana del mini reproductor");
-        return;
-    };
-    if window.is_visible().unwrap_or(false) {
-        hide_popup(app);
-        return;
+    match app.get_webview_window(MINI) {
+        Some(window) if window.is_visible().unwrap_or(false) => hide_popup(app),
+        Some(window) => show_popup(app, &window, near),
+        // la primera vez (o pasado un rato escondida): se crea, y se ensena
+        // en cuanto su pagina ha cargado
+        None => lazy_window::create(app, MINI, watch_popup, move |app, window| {
+            show_popup(app, window, near);
+        }),
     }
-    place(app, &window, near);
+}
+
+fn show_popup(app: &AppHandle, window: &WebviewWindow, near: Option<(i32, i32)>) {
+    keep(app, MINI);
+    place(app, window, near);
     let _ = window.show();
     let _ = window.set_focus();
     if let Some(tray) = app.try_state::<Tray>()
@@ -244,10 +303,7 @@ fn place(app: &AppHandle, window: &tauri::WebviewWindow, near: Option<(i32, i32)
 /// Con la pausa de gracia: el clic en el icono de la bandeja puede llegar
 /// **antes** de que la ventana termine de aparecer, y sin esto se cerraba sola
 /// nada mas abrirse.
-pub fn watch_popup(app: &AppHandle) {
-    let Some(window) = app.get_webview_window(MINI) else {
-        return;
-    };
+fn watch_popup(app: &AppHandle, window: &WebviewWindow) {
     let handle = app.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Focused(false) = event {
@@ -286,16 +342,37 @@ pub fn tray_available(app: AppHandle) -> bool {
 
 /// La ventana de proyeccion: la letra en grande para el proyector. Es una
 /// ventana normal (se arrastra a la otra pantalla y se pone a pantalla
-/// completa); cerrarla la esconde, para poder volver a abrirla.
+/// completa); cerrarla la esconde, para poder volver a abrirla al momento, y
+/// pasado `PROJECTION_IDLE` escondida se cierra de verdad.
 pub const PROJECTION: &str = "projection";
 
 #[tauri::command]
 pub fn show_projection(app: AppHandle) {
-    if let Some(window) = app.get_webview_window(PROJECTION) {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+    match app.get_webview_window(PROJECTION) {
+        Some(window) => show_projection_window(&app, &window),
+        None => lazy_window::create(&app, PROJECTION, watch_projection, show_projection_window),
     }
+}
+
+fn show_projection_window(app: &AppHandle, window: &WebviewWindow) {
+    keep(app, PROJECTION);
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
+/// Recien creada: cerrarla la esconde, como antes. Y se abre en ventana,
+/// como antes al volver a abrirla: lo que recuerda el plugin de la posicion
+/// es de cuando se cerro, quiza en pantalla completa.
+fn watch_projection(app: &AppHandle, window: &WebviewWindow) {
+    let _ = window.set_fullscreen(false);
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            hide_projection(handle.clone());
+        }
+    });
 }
 
 #[tauri::command]
@@ -303,6 +380,7 @@ pub fn hide_projection(app: AppHandle) {
     if let Some(window) = app.get_webview_window(PROJECTION) {
         let _ = window.set_fullscreen(false);
         let _ = window.hide();
+        close_later(&app, PROJECTION, PROJECTION_IDLE);
     }
 }
 
