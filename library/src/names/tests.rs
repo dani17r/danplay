@@ -120,3 +120,391 @@ fn control_separators_are_spaces_like_python() {
     assert_eq!(match_key("hola\u{1f}mundo.mp3"), "hola mundo");
     assert_eq!(py_trim("\u{1c} x \u{1f}"), "x");
 }
+
+// ------------------------------------------------- lo de tests/test_core.py
+
+fn vocab(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect()
+}
+
+#[test]
+fn strip_accents_keeps_enye() {
+    for (value, expected) in [
+        ("Espanol", "Espanol"),
+        ("Español", "Español"), // la ñ se conserva
+        ("Adoración", "Adoracion"),
+        ("Señor", "Señor"),
+        ("Muñóz", "Muñoz"),
+        ("José Luis", "Jose Luis"),
+    ] {
+        assert_eq!(strip_accents(value), expected, "{value}");
+    }
+}
+
+#[test]
+fn capitalize_words_leaves_mixed_case_alone() {
+    for (value, expected) in [
+        ("UPPERROOM", "Upperroom"),
+        ("MIEL SAN MARCOS", "Miel San Marcos"),
+        ("BJ Putnam", "Bj Putnam"),
+        ("Christine D'Clario", "Christine D'Clario"), // no toca lo mixto
+        ("CeCe Winans", "CeCe Winans"),
+    ] {
+        assert_eq!(capitalize_words(value), expected, "{value}");
+    }
+}
+
+#[test]
+fn clean_strips_noise() {
+    for (dirty, clean_name) in [
+        ("Barak  Mi Gozo VIDEO OFICIAL.mp3", "Barak Mi Gozo"),
+        ("y2mate.com - Es Mi Rey.mp3", "Es Mi Rey"),
+        ("C0080 ERES FIEL (Letras).mp3", "Eres Fiel"),
+        ("Paramore_ Decode [OFFICIAL VIDEO].mp3", "Paramore Decode"),
+        (
+            "Palisades - Personal (Official Music Video).mp3",
+            "Palisades - Personal",
+        ),
+        (
+            "Palisades - Personal (Official Audio).mp3",
+            "Palisades - Personal",
+        ),
+        (
+            "Palisades - Personal (Official Lyric Video).mp3",
+            "Palisades - Personal",
+        ),
+        (
+            "Palisades - Personal (Music Video).mp3",
+            "Palisades - Personal",
+        ),
+        ("Palisades - Personal (Audio).mp3", "Palisades - Personal"),
+        (
+            "Palisades - Personal (Visualizer).mp3",
+            "Palisades - Personal",
+        ),
+        ("Music Of The Night.mp3", "Music Of The Night"),
+    ] {
+        assert_eq!(clean(splitext(dirty).0), clean_name, "{dirty}");
+    }
+}
+
+/// Lo decía el comentario y no lo hacía: `final_name("X", "a\nb")` daba un
+/// nombre de archivo con un salto de línea dentro.
+#[test]
+fn sanitize_removes_control_characters() {
+    assert_eq!(final_name("X", "a\nb", "", "", ".mp3"), "X - a b.mp3");
+    assert_eq!(sanitize("uno\tdos\u{0}tres\u{1b}[31m"), "uno dostres[31m");
+    // los invisibles que dan la vuelta al texto (disfrazan una extensión)
+    assert_eq!(sanitize("foto\u{202e}gpj.mp3"), "fotogpj.mp3");
+    assert_eq!(clean("Barak\u{7} Mi Gozo"), "Barak Mi Gozo");
+}
+
+/// `strip_accents` escondía la ñ tras \x00 y \x01: si esos venían en el
+/// texto, salían convertidos en ñ.
+#[test]
+fn nuls_do_not_turn_into_enye() {
+    assert_eq!(clean("Ma\u{0}ana"), "Maana");
+    assert_eq!(clean("Barak\u{1}"), "Barak");
+    assert_eq!(strip_accents("Ma\u{0}ana"), "Ma\u{0}ana");
+    // la ñ, compuesta o no, se queda; lo demás pierde la tilde
+    assert_eq!(strip_accents("Señor Muñóz"), "Señor Muñoz");
+    assert_eq!(strip_accents("Sen\u{303}or"), "Señor");
+    assert_eq!(strip_accents("ÑANDÚ"), "ÑANDU");
+}
+
+#[test]
+fn artist_dash_title_is_read_from_the_name() {
+    for (name, (artist, title, feat)) in [
+        ("Palisades - Personal.mp3", ("Palisades", "Personal", "")),
+        (
+            "Palisades - Personal (Official Music Video).mp3",
+            ("Palisades", "Personal", ""),
+        ),
+        (
+            "PALISADES - PERSONAL [OFFICIAL VIDEO].mp3",
+            ("Palisades", "Personal", ""),
+        ),
+        (
+            "Palisades - Personal - Live.mp3",
+            ("Palisades", "Personal (Live)", ""),
+        ),
+        (
+            "Palisades ft. Bryan - Personal.mp3",
+            ("Palisades", "Personal", "Bryan"),
+        ),
+        (
+            "Palisades - Personal (feat. Bryan).mp3",
+            ("Palisades", "Personal", "Bryan"),
+        ),
+        ("Barak - Mi Gozo - r2.mp3", ("Barak", "Mi Gozo", "")),
+    ] {
+        assert_eq!(
+            split_artist_title(name),
+            Some((artist.to_owned(), title.to_owned(), feat.to_owned())),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn without_dash_there_is_no_artist() {
+    for name in [
+        "Sin guion.mp3",
+        "01 - Intro.mp3",
+        " - Solo titulo.mp3",
+        "Guion-pegado.mp3",
+    ] {
+        assert_eq!(split_artist_title(name), None, "{name}");
+    }
+}
+
+/// Regresión: «Con Poder» se convertía en un feat y vaciaba el título.
+#[test]
+fn feat_does_not_eat_titles_starting_with_con() {
+    assert_eq!(
+        extract_feat("Con Poder (Live)"),
+        ("Con Poder (Live)".to_owned(), String::new())
+    );
+}
+
+#[test]
+fn extract_feat_cases() {
+    for (value, title, feat) in [
+        (
+            "Tu Eres Rey (feat. Christine D'Clario)",
+            "Tu Eres Rey",
+            "Christine D'Clario",
+        ),
+        ("Mi Pastor (con Julissa)", "Mi Pastor", "Julissa"),
+        ("Vamos A Cantar", "Vamos A Cantar", ""),
+        ("Contigo", "Contigo", ""),
+    ] {
+        assert_eq!(
+            extract_feat(value),
+            (title.to_owned(), feat.to_owned()),
+            "{value}"
+        );
+    }
+}
+
+#[test]
+fn final_name_with_and_without_feat() {
+    assert_eq!(
+        final_name("Barak", "Mi Gozo", "", "", ".mp3"),
+        "Barak - Mi Gozo.mp3"
+    );
+    assert_eq!(
+        final_name("Barak", "Shekinah", "Miel San Marcos", "", ".mp3"),
+        "Barak - Shekinah (feat. Miel San Marcos).mp3"
+    );
+}
+
+#[test]
+fn name_without_invalid_chars() {
+    let n = final_name("AC/DC", "Back: in \"Black\"?", "", "", ".mp3");
+    for c in "\\/:*?\"<>|".chars() {
+        assert!(!n.contains(c), "{n} lleva {c}");
+    }
+}
+
+#[test]
+fn free_name_adds_the_duplicate_suffix() {
+    let dir = std::env::temp_dir().join(format!("danplay-nombres-libre-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("carpeta temporal");
+    std::fs::write(dir.join("A - B.mp3"), b"").expect("archivo");
+    assert_eq!(free_name(&dir, "A - B.mp3"), "A - B - r.mp3");
+    std::fs::write(dir.join("A - B - r.mp3"), b"").expect("archivo");
+    assert_eq!(free_name(&dir, "A - B.mp3"), "A - B - r2.mp3");
+    std::fs::remove_dir_all(&dir).expect("borrar");
+}
+
+#[test]
+fn match_key_groups_variants() {
+    assert_eq!(
+        match_key("Christine D'Clario - Rey.mp3"),
+        match_key("CHRISTINE DCLARIO REY (Letra) VIDEO OFICIAL.mp3")
+    );
+}
+
+#[test]
+fn artist_detected_from_vocabulary() {
+    let v = vocab(&[("barak", "Barak"), ("miel san marcos", "Miel San Marcos")]);
+    let r = detect_artist("Barak - Mi Gozo.mp3", &v);
+    assert_eq!(r.artist, "Barak");
+    assert!(r.confidence >= 0.8, "{}", r.confidence);
+}
+
+/// Con dos artistas conocidos en el nombre, debe ceder el turno a la IA.
+#[test]
+fn ambiguous_detection_lowers_confidence() {
+    let v = vocab(&[("barak", "Barak"), ("miel san marcos", "Miel San Marcos")]);
+    // sin marcador de feat: dos artistas conocidos sueltos en el nombre
+    let r = detect_artist("No hay lugar mas alto Miel San Marcos Barak.mp3", &v);
+    assert!(r.confidence < 0.8, "{}", r.confidence);
+}
+
+/// `CON`, `PRN`, `NUL`... no se pueden usar como nombre de archivo en
+/// Windows. Hay artistas que se llaman así («Con Poder»).
+#[test]
+fn reserved_windows_names_get_out_of_the_way() {
+    let reserved = ["CON", "PRN", "AUX", "NUL", "COM1", "LPT9"];
+    for name in ["CON", "con", "PRN", "AUX", "NUL", "COM1", "LPT9"] {
+        let cleaned = sanitize(name);
+        assert!(
+            !reserved.contains(&cleaned.to_uppercase().as_str()),
+            "{cleaned}"
+        );
+        assert!(!cleaned.is_empty(), "no puede quedarse vacío");
+    }
+    // y con extensión también
+    assert_ne!(sanitize("NUL.mp3").to_uppercase(), "NUL.MP3");
+    // los nombres normales no se tocan
+    assert_eq!(sanitize("Con Poder"), "Con Poder");
+}
+
+/// Windows los quita al crear el archivo, y luego la ruta guardada en el
+/// índice ya no coincide con la de verdad.
+#[test]
+fn names_do_not_end_in_a_dot_or_a_space() {
+    for name in ["Cancion.", "Cancion ", "Cancion. ", "Cancion..."] {
+        let cleaned = sanitize(name);
+        assert!(
+            !cleaned.ends_with('.') && !cleaned.ends_with(' '),
+            "{cleaned:?}"
+        );
+    }
+}
+
+// El nombre de una descarga lo pone YouTube. Regla de Daniel: lo que se baja
+// se llama como en YouTube, limpio, y no se le cuelga a otro artista porque
+// la huella acústica diga que suena como su canción. Pasó: una «Drum Cam» de
+// «Que se abra el cielo» entró como «Miel San Marcos - Que Se Abra El
+// Cielo», no la reconoció y se bajó tres veces.
+
+#[test]
+fn the_video_kind_comes_from_unambiguous_words() {
+    for (title, category) in [
+        ("QUE SE ABRÁ EL CIELO - ISH MELTON DRUM CAM", Some("track")),
+        ("Way Maker (Drumless Backing Track)", Some("track")),
+        (
+            "Grande Y Fuerte Es Nuestro Dios (Drums tutorial)",
+            Some("tutorial"),
+        ),
+        (
+            "Eric Moore - Hosanna (drum cover, Purpose Band)",
+            Some("tutorial"),
+        ),
+        ("Yo Ire (Play along, Miel San Marcos)", Some("tutorial")),
+        ("Hay Libertad | MultiTracks.com", Some("sequence")),
+        ("Majo y Dan - Fiel Secuencia", Some("sequence")),
+        ("Nuestro Dios PB (Somos Uno)", Some("sequence")),
+        ("Playback oficial - Tu Fidelidad", Some("sequence")),
+        // la canción sin más, aunque lo parezca: pistas de un disco, un cover
+        // cantado, una lección que no es de batería, «PB» dentro de otra palabra
+        ("15 - La Tierra Canta (Pista)", None),
+        ("Hosanna (Cover)", None),
+        ("Leccion De Amor", None),
+        ("APB - Cancion", None),
+        ("Barak - Mi Gozo (Video Oficial)", None),
+        ("", None),
+    ] {
+        let kind = video_kind(title);
+        assert_eq!(kind.map(|(c, _)| c), category, "{title}");
+        if let Some((_, what)) = kind {
+            assert!(!what.is_empty(), "{title}");
+        }
+    }
+}
+
+fn video(title: &str, channel: &str, v: &[(String, String)]) -> VideoDetection {
+    from_video(title, channel, v, "", "")
+}
+
+#[test]
+fn a_drum_cam_is_by_the_drummer_not_the_original_artist() {
+    let r = video(
+        "QUE SE ABRÁ EL CIELO - ISH MELTON DRUM CAM",
+        "Ish Melton",
+        &[],
+    );
+    assert_eq!(
+        (r.artist.as_str(), r.title.as_str()),
+        ("Ish Melton", "Que Se Abra El Cielo (Drum Cam)")
+    );
+    assert_eq!(r.source, "youtube");
+}
+
+#[test]
+fn an_artist_you_already_have_wins_in_any_order() {
+    let v = vocab(&[("barak", "Barak")]);
+    assert_eq!(
+        video("Barak - Mi Gozo (Video Oficial)", "BarakVEVO", &v).title,
+        "Mi Gozo"
+    );
+    let r = video("Mi Gozo - Barak | Letra", "Musica Cristiana HD", &v);
+    assert_eq!((r.artist.as_str(), r.title.as_str()), ("Barak", "Mi Gozo"));
+}
+
+#[test]
+fn the_channel_inside_the_title_is_the_artist() {
+    let r = video(
+        "I Want Jesus (Live) - @JohnWilds , Bethel Music",
+        "Bethel Music",
+        &[],
+    );
+    assert_eq!(
+        (r.artist.as_str(), r.title.as_str()),
+        ("Bethel Music", "I Want Jesus (Live)")
+    );
+    let r = video(
+        "Carol Braga | Ruja O Leão + Que Se Abram Os Céus (Ao Vivo)",
+        "Carol Braga",
+        &[],
+    );
+    assert_eq!(r.artist, "Carol Braga");
+    assert_eq!(r.title, "Ruja O Leao + Que Se Abram Os Ceus (Ao Vivo)");
+}
+
+#[test]
+fn artist_dash_title_is_the_usual_order() {
+    let r = video(
+        "Oceans (Where Feet May Fail) - Hillsong UNITED",
+        "Hillsong UNITED",
+        &[],
+    );
+    assert_eq!(
+        (r.artist.as_str(), r.title.as_str()),
+        ("Hillsong United", "Oceans (Where Feet May Fail)")
+    );
+    let r = video("Un Corazon - Babel (Letra)", "Otro Canal", &[]);
+    assert_eq!(
+        (r.artist.as_str(), r.title.as_str()),
+        ("Un Corazon", "Babel")
+    );
+}
+
+#[test]
+fn no_dash_channel_is_artist_and_youtube_music_wins() {
+    let r = video("Santo Por Siempre (En Vivo)", "Adoracion La Ibi", &[]);
+    assert_eq!(
+        (r.artist.as_str(), r.title.as_str()),
+        ("Adoracion La Ibi", "Santo Por Siempre (En Vivo)")
+    );
+    let r = from_video(
+        "Alfa y Omega",
+        "Kabed - Topic",
+        &[],
+        "Kabed",
+        "Alfa y Omega",
+    );
+    assert_eq!(
+        (r.artist.as_str(), r.title.as_str(), r.source),
+        ("Kabed", "Alfa y Omega", "youtube-music")
+    );
+    assert_eq!(channel_as_artist("BarakVEVO"), "Barak");
+    assert_eq!(channel_as_artist("Ish Melton - Topic"), "Ish Melton");
+}

@@ -334,4 +334,40 @@ mod tests {
         assert!(related_keys("Cdim").is_none());
         assert_eq!(split_key("C-"), Some((0, true)));
     }
+
+    // ------------------------------------------- lo de tests/test_core.py
+
+    #[test]
+    fn transposition_between_keys() {
+        for (from_key, to_key, value, expected) in [
+            (
+                "Bb",
+                "G",
+                "| Bb | Gm7 | Eb | F/A |",
+                "| G | Em7 | C | D/F# |",
+            ),
+            ("C", "D", "| C | Am | F | G |", "| D | Bm | G | A |"),
+            ("B", "G", "| B | G#m | E | F# |", "| G | Em | C | D |"),
+        ] {
+            assert_eq!(transpose_to(value, from_key, to_key), expected, "{value}");
+        }
+    }
+
+    #[test]
+    fn transposition_full_cycle() {
+        let p = "| Bb | Gm7 | Eb | F/A |";
+        assert_eq!(transpose(&transpose(p, 5, None), 7, None), p);
+    }
+
+    #[test]
+    fn distance_between_keys() {
+        assert_eq!(distance("C", "G"), Some(7));
+        assert_eq!(distance("Bb", "G"), Some(9));
+        assert_eq!(distance("no-existe", "G"), None);
+    }
+
+    #[test]
+    fn latin_notation() {
+        assert_eq!(to_latin("| Bb | Gm7 |"), "| Sib | Solm7 |");
+    }
 }

@@ -199,3 +199,174 @@ fn the_folder_must_be_one_of_yours() {
     let env = std::fs::read_to_string(&app.config().env_file).expect("danplay.env");
     assert!(env.contains("DANPLAY_LIBRARY="));
 }
+
+// ------------------------------------------------- lo de tests/test_core.py
+// Todo sin red: en vez de yt-dlp, una descarga de mentira (en Python, el
+// `monkeypatch` de `youtube.download`).
+
+/// Una descarga que apunta lo que se le pidió y dice que fue bien.
+fn result(ok: bool, title: &str, reason: &str) -> Map<String, Value> {
+    match json!({"ok": ok, "title": title, "reason": reason}) {
+        Value::Object(m) => m,
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn the_download_state_starts_idle() {
+    let app = crate::tests::app();
+    let s = state(&app);
+    assert_eq!(s["active"], json!(false));
+    for key in ["active", "phase", "percent", "index", "total"] {
+        assert!(s.contains_key(key), "falta {key}");
+    }
+}
+
+/// `claim` reserva y `release` suelta; entre medias nadie más entra.
+#[test]
+fn only_one_can_hold_the_download_turn() {
+    let app = crate::tests::app();
+    let first = claim(&app);
+    assert_ne!(first, 0);
+    assert_eq!(claim(&app), 0, "el segundo no debería conseguirlo");
+    let s = state(&app);
+    assert_eq!(
+        (&s["active"], &s["phase"]),
+        (&json!(true), &json!("starting"))
+    );
+    release(&app, Some(first));
+    let s = state(&app);
+    assert_eq!((&s["active"], &s["phase"]), (&json!(false), &json!("done")));
+    let again = claim(&app);
+    assert_ne!(again, 0);
+    release(&app, Some(again));
+}
+
+/// Es el fallo de fondo del botón y del asistente: la API se quedaba el
+/// turno y `run_job` se negaba a descargar por verlo cogido.
+#[test]
+fn run_job_does_not_block_when_the_turn_is_already_held() {
+    let app = crate::tests::app();
+    let calls = Mutex::new(Vec::<String>::new());
+    let fake = |_: &App,
+                q: &str,
+                _: &Wanted,
+                _: &mut dyn FnMut(Map<String, Value>),
+                _: &dyn Fn() -> bool| {
+        calls
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(q.to_owned());
+        Ok(vec![result(true, q, "")])
+    };
+    let w = Wanted::default();
+    assert_ne!(claim(&app), 0);
+    let rs = run_many_with(&app, &["una".into()], &w, true, None, None, &fake);
+    assert_eq!(
+        *calls.lock().unwrap_or_else(PoisonError::into_inner),
+        ["una"],
+        "con claimed tiene que descargar"
+    );
+    assert_eq!(rs[0]["ok"], json!(true));
+    assert_eq!(
+        state(&app)["active"],
+        json!(false),
+        "y soltar el turno al terminar"
+    );
+    // sin claimed, se lo coge él mismo
+    run_many_with(&app, &["dos".into()], &w, false, None, None, &fake);
+    assert_eq!(
+        *calls.lock().unwrap_or_else(PoisonError::into_inner),
+        ["una", "dos"]
+    );
+    assert_eq!(state(&app)["active"], json!(false));
+}
+
+/// Tres temas del asistente: un solo turno, resultados acumulados y un
+/// índice/total del conjunto, no de cada búsqueda por separado.
+#[test]
+fn run_many_uses_one_turn_and_publishes_progress() {
+    let app = crate::tests::app();
+    let seen = Mutex::new(Vec::<(Value, Value)>::new());
+    let fake = |app: &App,
+                q: &str,
+                _: &Wanted,
+                progress: &mut dyn FnMut(Map<String, Value>),
+                _: &dyn Fn() -> bool| {
+        assert_eq!(
+            state(app)["active"],
+            json!(true),
+            "durante la descarga el turno está cogido"
+        );
+        let step = json!({"phase": "starting", "index": 1, "total": 1, "name": q, "percent": 0});
+        if let Value::Object(p) = step {
+            progress(p);
+        }
+        let s = state(app);
+        seen.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((s["index"].clone(), s["total"].clone()));
+        let ok = q != "mala";
+        Ok(vec![result(ok, q, if ok { "" } else { "no" })])
+    };
+    let queries = ["a".to_owned(), "mala".to_owned(), "c".to_owned()];
+    let w = Wanted {
+        results: 1,
+        source: "assistant".into(),
+        ..Wanted::default()
+    };
+    let rs = run_many_with(&app, &queries, &w, false, None, None, &fake);
+    let titles: Vec<&Value> = rs.iter().map(|r| &r["title"]).collect();
+    assert_eq!(titles, [&json!("a"), &json!("mala"), &json!("c")]);
+    assert_eq!(
+        *seen.lock().unwrap_or_else(PoisonError::into_inner),
+        [
+            (json!(1), json!(3)),
+            (json!(2), json!(3)),
+            (json!(3), json!(3))
+        ]
+    );
+    let s = state(&app);
+    assert_eq!(s["results"], results_value(&rs));
+    assert_eq!((&s["active"], &s["phase"]), (&json!(false), &json!("done")));
+}
+
+#[test]
+fn run_many_with_nothing_releases_the_turn() {
+    let app = crate::tests::app();
+    assert!(run_many(&app, &[], &Wanted::default(), false, None, None).is_empty());
+    assert_eq!(state(&app)["active"], json!(false));
+}
+
+#[test]
+fn a_failed_download_does_not_leave_the_turn_held() {
+    let app = crate::tests::app();
+    let failing = |_: &App,
+                   _: &str,
+                   _: &Wanted,
+                   _: &mut dyn FnMut(Map<String, Value>),
+                   _: &dyn Fn() -> bool|
+     -> Result<Vec<Map<String, Value>>, String> { Err("se cayo la red".into()) };
+    let rs = run_many_with(
+        &app,
+        &["x".into()],
+        &Wanted::default(),
+        false,
+        None,
+        None,
+        &failing,
+    );
+    assert_eq!(rs[0]["ok"], json!(false));
+    assert!(
+        rs[0]["reason"].as_str().is_some_and(|r| r.contains("red")),
+        "{:?}",
+        rs[0]
+    );
+    let s = state(&app);
+    assert_eq!(
+        s["active"],
+        json!(false),
+        "el turno tiene que soltarse aunque falle"
+    );
+    assert!(s["error"].as_str().is_some_and(|e| e.contains("red")));
+}

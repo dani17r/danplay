@@ -163,3 +163,136 @@ fn non_audio_reads_empty() {
     assert_eq!(read(&dir.join("no-esta.mp3")), Tags::default());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ------------------------------------------------- lo de tests/test_core.py
+
+use crate::testkit::{Scratch, make_audio, make_mp3, without_ffmpeg};
+
+/// El mp3 de dos segundos de `test_core.mp3` (allí, el de la biblioteca de
+/// quien prueba si lo había; aquí siempre uno sintético).
+fn two_second_mp3(dir: &Scratch) -> Option<std::path::PathBuf> {
+    make_mp3(&dir.join("prueba.mp3"), "", "", "", 2.0, None)
+}
+
+fn changes() -> Changes {
+    Changes::default()
+}
+
+/// Lo que escribía cada función de danplay/tags.py, una tras otra, se lee
+/// de vuelta.
+#[test]
+fn tags_round_trip() {
+    let dir = Scratch::new("ida-y-vuelta");
+    let Some(mp3) = two_second_mp3(&dir) else {
+        return without_ffmpeg("ida y vuelta de las etiquetas");
+    };
+    let jpeg: Vec<u8> = [&b"\xff\xd8\xff\xe0"[..], &[0u8; 400]].concat();
+    let steps = [
+        Changes {
+            artist: Some("Barak".into()),
+            title: Some("Mi Gozo".into()),
+            album: Some("Radical".into()),
+            year: Some("2018".into()),
+            ..changes()
+        },
+        Changes {
+            stars: Some(4),
+            ..changes()
+        },
+        Changes {
+            favorite: Some("1".into()),
+            ..changes()
+        },
+        Changes {
+            key: Some("Bb".into()),
+            bpm: Some(72.0),
+            ..changes()
+        },
+        Changes {
+            lyrics: Some("una letra\nde dos lineas".into()),
+            language: Some("spa".into()),
+            ..changes()
+        },
+    ];
+    for step in &steps {
+        write(&mp3, step).expect("escribir");
+    }
+    write_cover(&mp3, &jpeg, "image/jpeg").expect("portada");
+    // `set_labels(["domingo", "rapida"])`, ya unidas como `_join_list`
+    write(
+        &mp3,
+        &Changes {
+            tags: Some("domingo; rapida".into()),
+            ..changes()
+        },
+    )
+    .expect("etiquetas libres");
+
+    let d = read(&mp3);
+    assert_eq!((d.artist.as_str(), d.title.as_str()), ("Barak", "Mi Gozo"));
+    assert_eq!((d.album.as_str(), d.stars), ("Radical", 4));
+    assert!(d.favorite);
+    assert_eq!((d.key.as_str(), d.bpm), ("Bb", 72.0));
+    assert!(d.lyrics.contains("dos lineas"), "{}", d.lyrics);
+    assert!(d.cover);
+    assert_eq!(d.tags, ["domingo", "rapida"]);
+}
+
+#[test]
+fn zero_stars_read_as_zero() {
+    let dir = Scratch::new("cero-estrellas");
+    let Some(mp3) = two_second_mp3(&dir) else {
+        return without_ffmpeg("las cero estrellas");
+    };
+    for stars in [5, 0] {
+        write(
+            &mp3,
+            &Changes {
+                stars: Some(stars),
+                ..changes()
+            },
+        )
+        .expect("estrellas");
+    }
+    assert_eq!(read(&mp3).stars, 0);
+}
+
+#[test]
+fn extract_cover() {
+    let dir = Scratch::new("sacar-portada");
+    let Some(mp3) = two_second_mp3(&dir) else {
+        return without_ffmpeg("sacar la portada");
+    };
+    let jpeg: Vec<u8> = [&b"\xff\xd8\xff\xe0"[..], &[0u8; 400]].concat();
+    write_cover(&mp3, &jpeg, "image/jpeg").expect("portada");
+    let (data, mime) = read_cover(&mp3).expect("la portada");
+    assert_eq!(mime, "image/jpeg");
+    assert!(data.starts_with(b"\xff\xd8"));
+}
+
+/// mutagen.File() devolvía None para algunos .wav, y con él la duración era
+/// 0: había que usar el lector concreto.
+#[test]
+fn wav_duration_is_not_zero() {
+    let dir = Scratch::new("duracion-wav");
+    let Some(wav) = make_audio(
+        &dir.join("pista.wav"),
+        &["-codec:a", "pcm_s16le"],
+        2.0,
+        None,
+    ) else {
+        return without_ffmpeg("la duración de un wav");
+    };
+    let (seconds, _) = audio_properties(&wav);
+    assert!(seconds > 1.0, "duración {seconds} en pista.wav");
+}
+
+#[test]
+fn mp3_duration_still_right() {
+    let dir = Scratch::new("duracion-mp3");
+    let Some(mp3) = two_second_mp3(&dir) else {
+        return without_ffmpeg("la duración de un mp3");
+    };
+    let (seconds, _) = audio_properties(&mp3);
+    assert!(seconds > 1.5, "{seconds}");
+}

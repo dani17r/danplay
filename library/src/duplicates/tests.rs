@@ -181,3 +181,171 @@ fn duplicate_suffix() {
         );
     }
 }
+
+// ------------------------------------------------- lo de tests/test_core.py
+
+#[test]
+fn strip_duplicate_suffix() {
+    for (value, expected) in [
+        ("Barak - Mi Gozo - r.mp3", "Barak - Mi Gozo.mp3"),
+        ("Barak - Mi Gozo - r2.mp3", "Barak - Mi Gozo.mp3"),
+        ("Barak - Mi Gozo - R3.mp3", "Barak - Mi Gozo.mp3"),
+        ("Barak - Mi Gozo.mp3", "Barak - Mi Gozo.mp3"),
+        ("Rey (En Vivo) - r.mp3", "Rey (En Vivo).mp3"),
+    ] {
+        assert_eq!(
+            name_without_suffix(OsStr::new(value)),
+            OsStr::new(expected),
+            "{value}"
+        );
+    }
+}
+
+/// Los hashes en paralelo dan lo mismo que el de un solo archivo (en Python,
+/// el de Rust frente al de `hashlib`).
+#[test]
+fn parallel_and_single_hashes_match() {
+    let dir = scratch("hashes");
+    let f = dir.join("x.mp3");
+    // 200 000 bytes que no se repiten (como `os.urandom`, pero fijos)
+    let mut state = 0x2545_f491_4f6c_dd1d_u64;
+    let data: Vec<u8> = (0..200_000)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 24) as u8
+        })
+        .collect();
+    std::fs::write(&f, &data).expect("archivo");
+    let many = partial_hashes(vec![f.clone()], PARTIAL_BYTES);
+    assert_eq!(many.len(), 1);
+    assert_eq!(many[0].1, partial_hash(&f, PARTIAL_BYTES));
+    assert_eq!(
+        partial_hash(&f, PARTIAL_BYTES).expect("hash"),
+        hex(&Md5::digest(&data))
+    );
+    std::fs::remove_dir_all(&dir).expect("borrar");
+}
+
+/// Todos contra todos, sin atajos: la referencia (lo que hacía la prueba de
+/// Python con `fuzz.token_set_ratio` de rapidfuzz).
+fn brute_force_groups(paths: &[PathBuf], threshold: f64) -> Vec<Vec<usize>> {
+    let mk: Vec<String> = paths
+        .iter()
+        .map(|p| crate::names::match_key(&p.file_name().expect("nombre").to_string_lossy()))
+        .collect();
+    let mut by_key: Vec<(String, Vec<usize>)> = Vec::new();
+    for (i, k) in mk.iter().enumerate() {
+        if k.is_empty() {
+            continue;
+        }
+        match by_key.iter_mut().find(|(key, _)| key == k) {
+            Some((_, g)) => g.push(i),
+            None => by_key.push((k.clone(), vec![i])),
+        }
+    }
+    let mut groups: Vec<Vec<usize>> = by_key
+        .into_iter()
+        .map(|(_, g)| g)
+        .filter(|g| g.len() > 1)
+        .collect();
+    let already_there: Vec<usize> = groups.iter().flatten().copied().collect();
+    let rest: Vec<usize> = (0..paths.len())
+        .filter(|i| !already_there.contains(i) && !mk[*i].is_empty())
+        .collect();
+    let mut used: Vec<usize> = Vec::new();
+    for (n, &a) in rest.iter().enumerate() {
+        if used.contains(&a) {
+            continue;
+        }
+        let mut g = vec![a];
+        for &b in &rest[n + 1..] {
+            if used.contains(&b) {
+                continue;
+            }
+            if token_set_ratio(&mk[a], &mk[b]) / 100.0 >= threshold {
+                g.push(b);
+            }
+        }
+        if g.len() > 1 {
+            used.extend(&g);
+            groups.push(g);
+        }
+    }
+    groups
+}
+
+/// Detección de duplicados: el atajo tiene que dar EXACTAMENTE los mismos
+/// grupos que comparar todo contra todo. Es lo único que autoriza el atajo.
+#[test]
+fn the_shortcut_finds_exactly_the_same_duplicate_groups() {
+    let mut cases: Vec<(&str, Vec<PathBuf>)> = vec![
+        // plurales y erratas: NO comparten ninguna palabra, así que caen por
+        // la rama de comparación simple. Son las que rompería un atajo ingenuo.
+        (
+            "plurales",
+            make_paths(&[
+                "gozo mio.mp3",
+                "gozos mios.mp3",
+                "santo fuego.mp3",
+                "santos fuegos.mp3",
+                "alabanza nueva.mp3",
+                "alabanzas nuevas.mp3",
+            ]),
+        ),
+        // uno contenido en otro: la puntuación de conjuntos da 100
+        (
+            "subconjuntos",
+            make_paths(&[
+                "barak gozo.mp3",
+                "barak gozo vivo estudio.mp3",
+                "barak.mp3",
+                "gozo.mp3",
+                "barak gozo vivo.mp3",
+            ]),
+        ),
+        // claves vacías o de una sola letra (match_key las descarta)
+        (
+            "raros",
+            make_paths(&[".mp3", "a.mp3", "el la de.mp3", "AAA.mp3", "aaa.mp3"]),
+        ),
+    ];
+    // 400 nombres «Artista - tres palabras» con un generador fijo (en Python,
+    // `random.seed(4)`; aquí no hace falta la misma secuencia, sino muchas
+    // combinaciones que se repiten en parte)
+    let words = [
+        "barak", "gozo", "vivo", "santo", "fuego", "gloria", "rey", "cristo", "amor", "cielo",
+        "paz", "luz",
+    ];
+    let mut state = 4_u64;
+    let mut next = |n: usize| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        ((state >> 33) as usize) % n
+    };
+    // (sin repetir ruta: en un disco no hay dos archivos con la misma)
+    let mut mixed: Vec<PathBuf> = Vec::new();
+    while mixed.len() < 400 {
+        let artist = words[next(words.len())];
+        let mut picked: Vec<&str> = Vec::new();
+        while picked.len() < 3 {
+            let w = words[next(words.len())];
+            if !picked.contains(&w) {
+                picked.push(w);
+            }
+        }
+        let title = artist[..1].to_uppercase() + &artist[1..];
+        let path = PathBuf::from(format!("/x/{title} - {}.mp3", picked.join(" ")));
+        if !mixed.contains(&path) {
+            mixed.push(path);
+        }
+    }
+    cases.push(("mezcla", mixed));
+    for (name, paths) in cases {
+        let expected = normalized(&paths, brute_force_groups(&paths, 0.88));
+        let got = normalized(&paths, same_song(&paths, 0.88));
+        assert_eq!(got, expected, "difieren en «{name}»");
+    }
+}

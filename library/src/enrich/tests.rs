@@ -607,3 +607,66 @@ fn enrich_saves_lyrics_cover_and_details() {
         obj(vec![("error", s("no existe esa cancion"))])
     );
 }
+
+// ------------------------------------------------- lo de tests/test_core.py
+
+/// Los títulos que vienen de descargas llevan ruido, y con eso iTunes no
+/// encuentra nada: sin artista se busca por el título, sin espacios delante.
+#[test]
+fn without_artist_it_searches_by_title_only() {
+    let qs = cover_queries(
+        &s(""),
+        &s("Eres Libre (Freedom) (cover Jesus Culture)"),
+        &s(""),
+    )
+    .expect("vale");
+    let qs: Vec<String> = qs.iter().map(|q| plain(&pv::py_str(q))).collect();
+    assert!(!qs.is_empty());
+    assert!(qs.iter().all(|q| !q.starts_with(' ')), "{qs:?}");
+    assert!(qs.iter().any(|q| q == "Eres Libre"), "{qs:?}");
+}
+
+/// Un modelo que no sabe algo contesta «desconocido». Guardarlo es peor que
+/// dejarlo vacío: el campo parece relleno y nadie vuelve a mirarlo. Pasó de
+/// verdad: escribió «desconocido» como álbum y año de una canción.
+#[test]
+fn what_the_ai_does_not_know_is_not_saved() {
+    for (field, value) in [
+        ("album", s("desconocido")),
+        ("album", s("N/A")),
+        ("album", s("-")),
+        ("genre", s("varios")),
+        ("genre", s("sin datos")),
+        ("year", s("desconocido")),
+        ("album", s("")),
+        ("album", Json::Null),
+        ("genre", s("   ")),
+    ] {
+        assert_eq!(useful_value(field, &value), t(""), "{field}: {value:?}");
+    }
+}
+
+#[test]
+fn the_year_is_four_digits_or_nothing() {
+    for (value, expected) in [
+        ("2019", "2019"),
+        ("circa 2019", "2019"),
+        ("1998", "1998"),
+        ("2019-05-01", "2019"),
+        ("siglo XXI", ""),
+        ("19", ""),
+    ] {
+        assert_eq!(useful_value("year", &s(value)), t(expected), "{value}");
+    }
+}
+
+#[test]
+fn a_real_value_is_saved() {
+    for (field, value) in [
+        ("album", "Generacion Radical"),
+        ("genre", "Adoracion"),
+        ("key", "Bb"),
+    ] {
+        assert_eq!(useful_value(field, &s(value)), t(value), "{field}");
+    }
+}
