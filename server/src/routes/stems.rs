@@ -413,4 +413,36 @@ echo '{"ok":true,"seconds":2.0,"took":0.1,"tracks":{"drums":"Bateria.flac","voca
         let stages: Vec<&str> = s["events"].as_array().expect("eventos").iter().filter_map(|e| e["stage"].as_str()).collect();
         assert_eq!(stages, ["separate", "refine"]);
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancelling_stops_the_separator_and_empties_the_queue() {
+        let (app, id, _) = with_song();
+        let dir = crate::tests::scratch("lento");
+        let engine = dir.join("lento.sh");
+        std::fs::write(&engine, "echo '{\"step\":\"decode\"}'\nexec sleep 30\n").expect("motor");
+        app.separator.set_fake(vec!["sh".into(), engine.into_os_string()]);
+        let (st, v) = call(&app, "POST", &format!("/api/song/{id}/separate"), None);
+        assert_eq!(st, 202);
+        assert_eq!(v["current"]["id"], id);
+        assert_eq!(v["current"]["stage"], "separate");
+        // a que diga por dónde va
+        let limit = std::time::Instant::now() + Duration::from_secs(10);
+        while call(&app, "GET", "/api/separate", None).1["current"]["step"] != "decode" {
+            assert!(std::time::Instant::now() < limit, "no dijo nada");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let (st, v) = call(&app, "DELETE", "/api/separate/weights", None);
+        assert_eq!((st, v), (409, json!({"detail": "hay una separación en marcha"})));
+        let started = std::time::Instant::now();
+        let (st, _) = call(&app, "DELETE", "/api/separate", None);
+        assert_eq!(st, 200);
+        let job = app.jobs.wait("separation", Duration::from_secs(20)).expect("trabajo");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert_eq!(job["active"], false);
+        assert_eq!(job["error"], "cancelado");
+        let (_, s) = call(&app, "GET", "/api/separate", None);
+        assert_eq!(s["queue"], json!([]));
+        assert_eq!(s["current"], Value::Null);
+    }
 }
