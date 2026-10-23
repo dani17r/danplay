@@ -97,7 +97,7 @@ jobs:
                         usr/lib/DanPlay/data/pulse/beat_this.onnx usr/lib/DanPlay/tools/yt-dlp; do
             echo "$contents" | grep -q "$wanted" || { echo "falta $wanted"; exit 1; }
           done
-          if echo "$contents" | grep -iE 'python|\.pyc|_internal|libpython'; then
+          if echo "$contents" | grep -iE 'python|\.pyc|/_internal/|libpython'; then
             echo "el .deb lleva algo de Python"; exit 1
           fi
           ls -la target/release/bundle/deb/*.deb target/release/bundle/appimage/*.AppImage

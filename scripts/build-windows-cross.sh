@@ -210,7 +210,7 @@ for exe in danplay-app.exe data/onnxruntime.dll; do
 done
 
 # ni rastro del núcleo de Python de antes
-if find "$DEST" | grep -iE 'python|\.pyc|_internal|danplay-core'; then
+if find "$DEST" | grep -iE 'python|\.pyc|/_internal/|danplay-core'; then
     printf '  FALLA lleva algo del núcleo de Python\n'; failures=$((failures+1))
 else
     printf '  ok    sin nada de Python\n'

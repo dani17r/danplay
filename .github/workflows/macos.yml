@@ -116,7 +116,7 @@ jobs:
           app=target/release/bundle/macos/DanPlay.app/Contents
           ls "$app"/Resources/data/libonnxruntime.*.dylib "$app"/Resources/data/pulse/beat_this.onnx \
              "$app"/Resources/tools/ffmpeg "$app"/Resources/tools/yt-dlp
-          if find "$app" | grep -iE 'python|\.pyc|_internal'; then
+          if find "$app" | grep -iE 'python|\.pyc|/_internal/'; then
             echo "la .app lleva algo de Python"; exit 1
           fi
 

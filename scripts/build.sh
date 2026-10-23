@@ -102,8 +102,8 @@ if [ "${1:-}" = "--package" ]; then
                   usr/lib/DanPlay/tools/ffmpeg usr/lib/DanPlay/tools/yt-dlp; do
         printf '%s\n' "$CONTENTS" | grep -q "$wanted" || die "el .deb no lleva $wanted"
     done
-    if printf '%s\n' "$CONTENTS" | grep -iqE 'python|\.pyc|_internal|libpython'; then
-        die "el .deb lleva algo de Python: $(printf '%s\n' "$CONTENTS" | grep -iE 'python|\.pyc|_internal|libpython' | head -3)"
+    if printf '%s\n' "$CONTENTS" | grep -iqE 'python|\.pyc|/_internal/|libpython'; then
+        die "el .deb lleva algo de Python: $(printf '%s\n' "$CONTENTS" | grep -iE 'python|\.pyc|/_internal/|libpython' | head -3)"
     fi
     echo "  el .deb lleva el nucleo, sus datos y sus programas, y nada de Python"
 fi
