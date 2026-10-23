@@ -3,10 +3,14 @@
 //!
 //! Cada ventana es un proceso de WebKit mas (en Linux, unos 90 MB de verdad
 //! cada una) y casi nunca se abren. Antes se creaban las dos al arrancar,
-//! escondidas, y vivian toda la sesion; ahora se crean la primera vez que
-//! hacen falta, con lo que dice su `WindowConfig`, y se cierran cuando dejan
-//! de usarse (la proyeccion al cerrarla; la ventanita tras un rato
-//! escondida, con `IdleClose`: ver `tray`).
+//! escondidas; ahora se crean la primera vez que hacen falta, con lo que dice
+//! su `WindowConfig`, y desde ahi se esconden y se vuelven a ensenar como
+//! antes (abrirlas otra vez es instantaneo).
+//!
+//! No se destruyen al esconderlas: en WebKitGTK el proceso de una ventana
+//! destruida no se va (medido: tras destruir las dos seguian sus dos
+//! procesos, y volver a abrir una sumaba otro). Destruirlas no ahorraria nada
+//! y cada vez que se abrieran costaria un proceso mas.
 //!
 //! Lo que les llega por eventos (lo que suena, los cambios del nucleo) lo
 //! reciben desde que existen, y lo de antes lo leen al montarse, como
@@ -14,7 +18,7 @@
 //! suena, el tema. Los permisos van por etiqueta (`capabilities/`), asi que
 //! valen igual para la ventana creada tarde.
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::webview::PageLoadEvent;
@@ -109,56 +113,8 @@ where
     Ok(window)
 }
 
-/// Cuenta el rato que una ventana lleva escondida, para cerrarla si nadie la
-/// vuelve a abrir. Cada vez que se esconde se arma con un numero nuevo; si se
-/// vuelve a ensenar (o se esconde otra vez) el numero cambia, y el aviso de
-/// la vez anterior ya no vale.
-#[derive(Default)]
-pub struct IdleClose(AtomicU64);
-
-impl IdleClose {
-    /// Empieza a contar. Lo que devuelve es lo que luego mira `due`.
-    pub fn arm(&self) -> u64 {
-        self.0.fetch_add(1, Ordering::SeqCst) + 1
-    }
-    /// Se ha vuelto a usar: lo que estuviera contando ya no cuenta.
-    pub fn cancel(&self) {
-        self.0.fetch_add(1, Ordering::SeqCst);
-    }
-    /// Sigue escondida desde la vez `armed`, sin que nadie la abriera.
-    pub fn due(&self, armed: u64) -> bool {
-        self.0.load(Ordering::SeqCst) == armed
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::IdleClose;
-
-    #[test]
-    fn hidden_for_a_while_it_is_due() {
-        let idle = IdleClose::default();
-        let armed = idle.arm();
-        assert!(idle.due(armed));
-    }
-
-    #[test]
-    fn opening_it_again_cancels_the_count() {
-        let idle = IdleClose::default();
-        let armed = idle.arm();
-        idle.cancel();
-        assert!(!idle.due(armed), "se volvio a abrir: no se cierra");
-    }
-
-    #[test]
-    fn only_the_last_hiding_counts() {
-        let idle = IdleClose::default();
-        let first = idle.arm();
-        let second = idle.arm();
-        assert!(!idle.due(first), "la cuenta de antes ya no vale");
-        assert!(idle.due(second));
-    }
-
     /// Las dos ventanas que se crean al abrirlas no se crean al arrancar, y
     /// siguen en la configuracion (de ahi sale como crearlas).
     #[test]
