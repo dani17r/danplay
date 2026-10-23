@@ -292,5 +292,6 @@ pub fn start(app: &App) {
 /// lo último.
 pub fn stop(app: &App) {
     app.stopping.store(true, Ordering::SeqCst);
+    crate::services::youtube::cancel(app);
     journal::stop(app);
 }

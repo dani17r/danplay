@@ -339,7 +339,7 @@ pub fn strerror(e: &std::io::Error) -> String {
 }
 
 /// `shutil.move`: renombrar, o copiar y borrar si es otro disco.
-fn move_file(src: &Path, dest: &Path) -> std::io::Result<()> {
+pub fn move_file(src: &Path, dest: &Path) -> std::io::Result<()> {
     match std::fs::rename(src, dest) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {

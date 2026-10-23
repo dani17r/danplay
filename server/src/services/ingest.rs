@@ -63,6 +63,27 @@ impl<'a> Importer<'a> {
         ig::process_inbox(self, &inbox, &ext, dry_run, None, convert_mp3, progress)
             .map_err(|f| failure_text(&f))
     }
+
+    /// `ingest.process(path, vocab, convert_mp3=..., known=...)`: archivar un
+    /// archivo suelto con el nombre ya decidido por quien llama (`known`:
+    /// {artist, title, feat, source}, sin la cascada). Lo usan las descargas,
+    /// donde el nombre lo pone YouTube (`names::from_video`).
+    pub fn process_known(
+        &mut self,
+        path: &str,
+        vocab: &Vocab,
+        convert_mp3: bool,
+        known: &Json,
+    ) -> Result<Report, String> {
+        let asked = Asked {
+            dry_run: false,
+            write_tags: self.cfg.write_tags,
+            convert_mp3,
+        };
+        let folders = self.folders.clone();
+        let path = self.path(&Json::str(path))?;
+        ig::process(self, path, vocab, asked, known, &folders).map_err(|f| failure_text(&f))
+    }
 }
 
 impl Outside for Importer<'_> {

@@ -50,6 +50,8 @@ pub struct State {
     pub separator: crate::services::stems::Separator,
     /// las voces que se bajan y la voz cargada (`cues._INSTALLS`, `_LOADED`)
     pub cues: crate::services::cues::Cues,
+    /// la descarga de YouTube de ahora y yt-dlp (`youtube.STATE`, `ytdlp`)
+    pub downloads: crate::services::youtube::State,
 }
 
 /// La app: un asa del estado, barata de clonar.
@@ -85,6 +87,7 @@ impl App {
             stopping: std::sync::atomic::AtomicBool::new(false),
             separator: crate::services::stems::Separator::default(),
             cues: crate::services::cues::Cues::default(),
+            downloads: crate::services::youtube::State::default(),
         }));
         if let Err(e) = crate::startup::prepare_index(&app) {
             log::warn!("no pude preparar el indice: {e}");

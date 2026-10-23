@@ -27,3 +27,5 @@ pub mod structure;
 pub mod tags;
 pub mod tools;
 pub mod trash;
+pub mod youtube;
+pub mod ytdlp;
