@@ -2,5 +2,12 @@
 //! núcleo de Rust y en el mismo proceso: cada una sobre su biblioteca de
 //! verdad en carpetas temporales (`testkit`). Cada archivo, el suyo de
 //! Python, con las mismas comprobaciones.
+#![allow(
+    clippy::too_many_lines,
+    reason = "cada prueba recorre una ruta entera, como la suya de Python"
+)]
 mod ai;
+mod chat;
+mod folders;
 mod library;
+mod songs;
