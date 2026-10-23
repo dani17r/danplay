@@ -48,6 +48,9 @@ step () { printf '\n\033[36m== %s\033[0m\n' "$1"; }
 warn () { printf '\033[33m%s\033[0m\n' "$1"; }
 die () { printf '\n\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 
+# la interfaz se compila con Vite+ (vp), que usa Bun (y lo baja si no esta)
+command -v vp >/dev/null 2>&1 || die "falta Vite+ (vp): curl -fsSL https://vite.plus | bash"
+
 mkdir -p "$CACHE"
 
 # --------------------------------------------------------------- herramientas
@@ -77,7 +80,7 @@ rustup target list --installed | grep -qx "$TRIPLE" \
 
 # ----------------------------------------------------------------- interfaz
 step "1/4  interfaz (Vite)"
-( cd desktop && npx vite build )
+( cd desktop && vp build )
 
 # ---------------------------------------------------------------- los datos
 step "2/4  datos: ONNX Runtime de Windows y lo de danplay/data"

@@ -87,7 +87,7 @@ if (mode === '--discover') {
   if (mode === '--check') {
     const current = existsSync(OUT) ? readFileSync(OUT, 'utf8') : ''
     if (current.trim() !== generated.trim()) {
-      console.error('src/icons.js no coincide con el mapa: ejecuta `npm run icons`')
+      console.error('src/icons.js no coincide con el mapa: ejecuta `vp run icons`')
       process.exit(1)
     }
     console.log('los iconos están al día')

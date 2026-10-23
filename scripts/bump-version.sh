@@ -43,18 +43,8 @@ if [ -f Cargo.lock ]; then
         mine && /^version = / { sub("\"" a "\"", "\"" n "\""); mine = 0 }
         { print }' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock
 fi
-# el de npm, que repite la version dos veces (raiz y paquete "")
-if [ -f desktop/package-lock.json ]; then
-    python3 - "$new_version" <<'EOF'
-import json, sys, pathlib
-p = pathlib.Path("desktop/package-lock.json")
-d = json.loads(p.read_text(encoding="utf-8"))
-d["version"] = sys.argv[1]
-if "" in d.get("packages", {}):
-    d["packages"][""]["version"] = sys.argv[1]
-p.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-EOF
-fi
+# (el de Bun, desktop/bun.lock, no apunta la version de la interfaz: nada que
+# tocar. El package-lock.json de npm si la llevaba, y se fue con npm.)
 # y el de uv, que apunta la version del propio paquete y la del crate
 if command -v uv >/dev/null 2>&1 && [ -f uv.lock ]; then
     uv lock --quiet || echo "  (uv lock no pudo: ejecutalo tu antes del commit)" >&2

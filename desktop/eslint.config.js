@@ -3,9 +3,17 @@
 // mitades iguales y una función llamada `cancelDownload` que cancelaba un tema.
 //
 // El formato (sangrías, saltos de línea, comillas) no es cosa de ESLint: lo
-// deja Prettier (`npm run format`), y `eslint-config-prettier` apaga aquí lo
-// que chocaría con él. La accesibilidad va en aviso: que se vea sin tumbar
-// nada, y el objetivo es cero avisos.
+// deja Oxfmt (`vp fmt`, que formatea como Prettier), y `eslint-config-prettier`
+// apaga aquí lo que chocaría con él. La accesibilidad va en aviso: que se vea
+// sin tumbar nada, y el objetivo es cero avisos.
+//
+// ¿Por qué no Oxlint, que viene con Vite+? No lee las plantillas de Vue: de
+// las 190 reglas de aquí cubre 99 (las de JavaScript y las de Vue que miran
+// el <script>), y las 91 que faltan son justo las de las plantillas y las de
+// accesibilidad. Repartirlas entre los dos (Oxlint para lo suyo y ESLint, con
+// eslint-plugin-oxlint, para el resto) ahorraba 0,3 s, y con
+// `--concurrency auto` ni eso. Así que todo sigue aquí, en varios hilos y con
+// caché (en node_modules/.cache/eslint): la segunda vez solo mira lo que cambió.
 import js from '@eslint/js'
 import vue from 'eslint-plugin-vue'
 import a11y from 'eslint-plugin-vuejs-accessibility'
@@ -72,6 +80,6 @@ export default [
     languageOptions: { globals: { ...globals.node } },
     rules: { 'no-console': 'off' }
   },
-  // lo último: apaga las reglas de formato que chocarían con Prettier
+  // lo último: apaga las reglas de formato que chocarían con Oxfmt
   prettier
 ]

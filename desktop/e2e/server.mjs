@@ -8,7 +8,7 @@
 // - Una carpeta de música pequeña generada con ffmpeg (tonos de unos
 //   segundos, con sus etiquetas ID3), sin nada de las dependencias de
 //   desarrollo: la CI solo instala lo que el núcleo necesita para funcionar.
-// - El núcleo por TCP (`danplay.cli serve --port`), como en `npm run dev`,
+// - El núcleo por TCP (`danplay.cli serve --port`), como en `vp dev`,
 //   con la carpeta dada de alta por la API y ya analizada. El vigilante de
 //   carpetas va encendido: una de las pruebas mueve la carpeta por fuera.
 // - Vite con el proxy apuntando a ese núcleo.
@@ -32,6 +32,8 @@ const VITE_PORT = Number(process.env.DANPLAY_E2E_VITE_PORT || 5274)
 const CORE = `http://127.0.0.1:${CORE_PORT}`
 
 const children = []
+/** Los que van en su propio grupo de procesos: se paran con todo el grupo. */
+const groups = new Set()
 let temp = null
 let stopping = false
 
@@ -44,7 +46,9 @@ function stop(code = 0) {
   stopping = true
   for (const c of children) {
     try {
-      c.kill('SIGTERM')
+      // el que va en su propio grupo (Vite), con todo lo que cuelga de él
+      if (groups.has(c)) process.kill(-c.pid, 'SIGTERM')
+      else c.kill('SIGTERM')
     } catch {
       /* ya había terminado */
     }
@@ -221,11 +225,15 @@ async function main() {
   const { stats } = await core('GET', '/api/status')
   log(`núcleo listo en ${CORE}: ${stats.total} canciones`)
 
+  // `vp dev` (el Vite de Vite+), con el Node que corre esto. `vp` arranca
+  // Vite en otro proceso y no le pasa el SIGTERM: va en su propio grupo de
+  // procesos, y `stop()` se lo manda al grupo entero.
   const vite = spawn(
     process.execPath,
-    [join(DESKTOP, 'node_modules', 'vite', 'bin', 'vite.js'), '--host', '127.0.0.1'],
+    [join(DESKTOP, 'node_modules', 'vite-plus', 'bin', 'vp'), 'dev', '--host', '127.0.0.1'],
     {
       cwd: DESKTOP,
+      detached: true,
       env: {
         ...process.env,
         DANPLAY_API: CORE,
@@ -236,6 +244,7 @@ async function main() {
     }
   )
   children.push(vite)
+  groups.add(vite)
   vite.on('exit', (code) => {
     if (!stopping) {
       console.error(`[e2e] Vite se ha parado (código ${code})`)

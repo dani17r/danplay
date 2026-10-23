@@ -138,20 +138,23 @@ afecta mientras no se modifiquen sus archivos.
 | `webpki-roots` (los certificados raíz de Mozilla, para `rustls`) | CDLA-Permissive-2.0 |
 | `sha1`, `tempfile`, `dirs` | MIT OR Apache-2.0 |
 
-## Interfaz (npm)
+## Interfaz (npm, instalada con Bun)
 
 | Paquete | Licencia |
 | --- | --- |
 | `vue`, `vue-router` | MIT |
 | `@tauri-apps/api`, `@tauri-apps/plugin-dialog` | MIT OR Apache-2.0 |
+| `driver.js` (el recorrido del modo estudio) | MIT |
 | `heroicons` (los iconos, copiados a `src/icons.js`) | MIT |
 
-Para desarrollar, además (no viajan en la app): `vite`, `@vitejs/plugin-vue`,
-`vite-plugin-vue-devtools`, `vitest`, `@vitest/coverage-v8`, `@vue/test-utils`,
+Para desarrollar, además (no viajan en la app): `vite-plus` (Vite+: Vite,
+Vitest y Oxfmt; `vite` y `vitest` son los suyos), `@vitejs/plugin-vue`,
+`vite-plugin-vue-devtools`, `@vitest/coverage-v8`, `@vue/test-utils`,
 `jsdom`, `eslint` y sus configuraciones (`@eslint/js`, `eslint-plugin-vue`,
-`eslint-config-prettier`, `eslint-plugin-vuejs-accessibility`), `prettier`,
-`stylelint`, `vue-tsc`, `@types/node` (MIT); `typescript` y
-`@playwright/test` (Apache-2.0); `@tauri-apps/cli` (MIT OR Apache-2.0).
+`eslint-config-prettier`, `eslint-plugin-vuejs-accessibility`), `stylelint`,
+`vue-tsc`, `@types/node` (MIT); `typescript` y `@playwright/test`
+(Apache-2.0); `@tauri-apps/cli` (MIT OR Apache-2.0). Y para instalarlas,
+Bun (MIT).
 
 ## Herramientas externas
 

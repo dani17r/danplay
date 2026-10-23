@@ -1,7 +1,7 @@
 // Pruebas de extremo a extremo: la interfaz de verdad en Chrome, contra el
 // núcleo de verdad (en modo navegador: sin Rust). Ver e2e/server.mjs.
 //
-//   npm run e2e
+//   vp run e2e
 //
 // Usa el Chrome del sistema (`channel: 'chrome'`): no hace falta descargar
 // ningún navegador. El informe queda en playwright-report/ (la CI lo sube si

@@ -54,11 +54,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      # Bun (el gestor de paquetes de la interfaz) y Vite+ (vp), en las
+      # versiones que fija desktop/package.json (packageManager y vite-plus).
+      # setup-vp, a una versión exacta: su etiqueta v1 ya no se mueve.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
+          bun-version-file: desktop/package.json
+      - uses: voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1
+        with:
+          working-directory: desktop
           node-version: '24'
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          # el Bun de arriba, no otro
+          package-manager: false
+          cache: true
+          run-install: false
 
       - uses: dtolnay/rust-toolchain@stable
       # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
@@ -138,8 +147,8 @@ jobs:
       - name: la app
         working-directory: desktop
         run: |
-          npm ci
-          npx tauri build --no-bundle
+          vp install --frozen-lockfile
+          vp exec tauri build --no-bundle
 
       # La de hoy (lo que hacia scripts/update-models.py); sin red, la que hay.
       # Con Start-Process -Wait: es una app de ventanas, y sin eso PowerShell
@@ -173,7 +182,7 @@ jobs:
 
       - name: instalador
         working-directory: desktop
-        run: npx tauri bundle --bundles nsis
+        run: vp exec tauri bundle --bundles nsis
 
       - name: qué salió
         shell: pwsh

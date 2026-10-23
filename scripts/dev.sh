@@ -20,7 +20,9 @@ cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 
 missing () { printf '\033[31mfalta\033[0m %s\n  %s\n' "$1" "$2" >&2; exit 1; }
-[ -d desktop/node_modules ] || missing "desktop/node_modules" "cd desktop && npm ci"
+# la interfaz, con Vite+ (vp) y Bun, que vp baja solo si no lo tienes
+command -v vp >/dev/null 2>&1 || missing "Vite+ (vp)" "curl -fsSL https://vite.plus | bash"
+[ -d desktop/node_modules ] || missing "desktop/node_modules" "cd desktop && vp install"
 command -v cargo >/dev/null 2>&1 || missing "Rust" "https://rustup.rs"
 # ONNX Runtime (el pulso, el separador, las voces): el que viaja con la app,
 # una vez (queda en la cache); la compilacion lo deja junto al ejecutable
@@ -65,4 +67,4 @@ if [ "${1:-}" = "--sandbox" ]; then
 fi
 
 cd desktop
-exec npm run app
+exec vp run app

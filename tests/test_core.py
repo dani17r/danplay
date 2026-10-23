@@ -812,7 +812,8 @@ def test_the_version_script_touches_every_place_this_test_checks():
     script = (_repo_root() / "scripts/bump-version.sh").read_text(encoding="utf-8")
     for path in _versiones():
         assert path in script, f"scripts/bump-version.sh no toca {path}"
-    for extra in ("README.md", "Cargo.lock", "package-lock.json"):
+    # (bun.lock, el de la interfaz, no lleva la version: no hay que tocarlo)
+    for extra in ("README.md", "Cargo.lock"):
         assert extra in script, f"scripts/bump-version.sh no toca {extra}"
     # y la regla esta escrita donde la lee quien contribuye
     cue_error = (_repo_root() / "docs/CONTRIBUTING.md").read_text(encoding="utf-8")
