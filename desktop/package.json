@@ -23,8 +23,8 @@
     "e2e": "playwright test",
     "lint": "eslint --concurrency auto --cache --cache-location node_modules/.cache/eslint/ src tests e2e scripts \"*.config.js\"",
     "lint:css": "stylelint \"src/**/*.css\"",
-    "format": "vp fmt",
-    "format:check": "vp fmt --check",
+    "format": "vp fmt --threads 4",
+    "format:check": "vp fmt --check --threads 4",
     "typecheck": "vue-tsc --noEmit -p jsconfig.json",
     "icons": "node scripts/icons.mjs",
     "check": "vp run lint && vp run lint:css && vp run format:check && vp test run"

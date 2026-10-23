@@ -17,7 +17,10 @@ export default defineConfig(({ command, mode }) => ({
     const { default: vueDevTools } = await import('vite-plugin-vue-devtools')
     return [vue(), vueDevTools()]
   }),
-  // `vp fmt` (Oxfmt), con las mismas opciones que teníamos con Prettier
+  // `vp fmt` (Oxfmt), con las mismas opciones que teníamos con Prettier. Los
+  // scripts le piden cuatro hilos (`--threads 4`): los .vue y el HTML los
+  // formatea con el Prettier que lleva dentro, cada hilo arranca el suyo, y
+  // con los 16 de este equipo tardaba más (2,4 s) que con 4 (1,5 s).
   fmt: {
     semi: false,
     singleQuote: true,
