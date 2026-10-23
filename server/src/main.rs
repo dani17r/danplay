@@ -4,6 +4,8 @@
 //! ```text
 //! danplay-server --uds RUTA          socket Unix (Linux y macOS)
 //! danplay-server --host H --port N   loopback (Windows), con DANPLAY_TOKEN
+//! danplay-server --pulse GRAFO FFMPEG ARCHIVO [CRUDO]
+//!                                    el detector de pulso (lo lanza el clic)
 //! ```
 //!
 //! Sin socket y sin token no escucha fuera de este equipo. Se apaga si la
@@ -86,6 +88,11 @@ fn watch_parent(stop: std::sync::mpsc::Sender<()>) {
 
 fn main() {
     let _ = log::set_logger(&LOGGER).map(|()| log::set_max_level(log::LevelFilter::Info));
+    // el detector de pulso, en su proceso (lo lanza la rejilla del clic)
+    let raw: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if raw.len() >= 2 && raw[1] == "--pulse" {
+        std::process::exit(server::services::beats::child_main(&raw[2..]));
+    }
     let mut args = std::env::args().skip(1);
     let (mut uds, mut host, mut port) = (None, "127.0.0.1".to_owned(), 8730u16);
     while let Some(a) = args.next() {

@@ -955,10 +955,12 @@ dependencies = [
  "hyper",
  "hyper-util",
  "log",
+ "md-5",
  "percent-encoding",
  "rustix",
  "serde_json",
  "tokio",
+ "ureq",
 ]
 
 [[package]]
