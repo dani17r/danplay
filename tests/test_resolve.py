@@ -36,6 +36,10 @@ from hypothesis import strategies as st
 from danplay import config, library, names
 from danplay.chat import resolve
 
+# En Windows, repartidas entre procesos, cada preparacion pasaba de 1 s a
+# 10-46 s (se estorbaban): todas en el mismo proceso (`--dist loadgroup`).
+pytestmark = pytest.mark.xdist_group("resolve")
+
 # Las pruebas lentas llevan la marca `slow` (`pytest -m "not slow"` las salta). La
 # marca no esta registrada en pyproject.toml, y el aviso de «marca desconocida»
 # saldria al importar este archivo: se apaga solo aqui.

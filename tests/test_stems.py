@@ -589,7 +589,6 @@ def test_the_mix_filter_pans_and_mutes_like_the_player():
 
 
 def test_the_mix_without_drums_is_saved_and_joins_the_library(lib):
-    import subprocess
 
     root, _ = lib
     cid = _id("Barak - Mi Gozo.mp3")
@@ -612,22 +611,9 @@ def test_the_mix_without_drums_is_saved_and_joins_the_library(lib):
     assert r["title"] == "Mi Gozo (sin batería)"
     row = _song(r["id"])
     assert row["title"] == "Mi Gozo (sin batería)" and row["artist"] == "Barak"
-    length = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "csv=p=0",
-            str(target),
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    assert float(length) == pytest.approx(1.0, abs=0.1)
+    # medido con mutagen, de testigo (sin depender de ffprobe, que los
+    # paquetes ya no llevan)
+    assert _probe(target)["duration"] == pytest.approx(1.0, abs=0.1)
 
 
 def test_the_mix_can_carry_the_click(lib):
@@ -699,25 +685,21 @@ GRID = {
 
 
 def _probe(path) -> dict:
-    import subprocess
+    """El formato, la frecuencia, los canales y la duracion de un audio, con
+    mutagen de testigo (como contaba ffprobe, que los paquetes ya no llevan)."""
+    import mutagen
 
-    out = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "stream=codec_name,sample_rate,channels:format=duration",
-            "-of",
-            "json",
-            str(path),
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    data = json.loads(out)
-    return {**data["streams"][0], "duration": float(data["format"]["duration"])}
+    f = mutagen.File(str(path))
+    assert f is not None, path
+    codec = {"OggVorbis": "vorbis", "OggOpus": "opus", "MP3": "mp3", "FLAC": "flac"}[
+        type(f).__name__
+    ]
+    return {
+        "codec_name": codec,
+        "sample_rate": str(f.info.sample_rate),
+        "channels": f.info.channels,
+        "duration": float(f.info.length),
+    }
 
 
 def test_a_song_goes_to_the_phone_in_one_file(lib, monkeypatch, tmp_path):
