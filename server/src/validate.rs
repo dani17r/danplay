@@ -564,7 +564,20 @@ struct Bounds {
 /// dice y si se cumple.
 type Check<'a> = (Option<Num>, &'a str, &'a str, &'a str, fn(f64, f64) -> bool);
 
+/// Los topes de un número. En un `float`, pydantic pone el tope en `ctx`
+/// como float (`le=2` es `{"le": 2.0}`), aunque el mensaje diga «2».
 fn bounds(x: f64, b: Bounds, loc: &[Value], v: &Value, errors: &mut Vec<Value>) -> bool {
+    bounds_with(x, b, loc, v, errors, false)
+}
+
+fn bounds_with(
+    x: f64,
+    b: Bounds,
+    loc: &[Value],
+    v: &Value,
+    errors: &mut Vec<Value>,
+    float_ctx: bool,
+) -> bool {
     let checks: [Check<'_>; 4] = [
         (b.gt, "greater_than", "gt", "greater than", |x, b| x > b),
         (b.ge, "greater_than_equal", "ge", "greater than or equal to", |x, b| x >= b),
@@ -576,7 +589,14 @@ fn bounds(x: f64, b: Bounds, loc: &[Value], v: &Value, errors: &mut Vec<Value>) 
             && !ok(x, b.as_f64())
         {
             let mut ctx = Map::new();
-            ctx.insert(key.into(), b.value());
+            ctx.insert(
+                key.into(),
+                if float_ctx {
+                    Value::from(b.as_f64())
+                } else {
+                    b.value()
+                },
+            );
             errors.push(error(
                 kind,
                 loc,
@@ -760,11 +780,13 @@ impl Kind for Float {
             errors.push(error("float_type", loc, "Input should be a valid number", v, None));
             return None;
         };
-        // en un `float`, pydantic guarda los topes como reales: el `ctx`
-        // dice `0.0` aunque el mensaje diga «0»
-        let real = |n: Option<Num>| n.map(|n| Num::Float(n.as_f64()));
-        let b = Bounds { ge: real(self.ge), le: real(self.le), gt: real(self.gt), lt: real(self.lt) };
-        bounds(x, b, loc, v, errors).then_some(x)
+        let b = Bounds {
+            ge: self.ge,
+            le: self.le,
+            gt: self.gt,
+            lt: self.lt,
+        };
+        bounds_with(x, b, loc, v, errors, true).then_some(x)
     }
 }
 
@@ -959,7 +981,14 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
     let mut pos = 0usize;
     for (i, line) in text.split('\n').enumerate() {
         if i + 1 == e.line() {
-            let col = e.column().saturating_sub(1).min(line.len());
+            // al acabarse el texto, serde dice el último que leyó y Python
+            // dónde esperaba más (uno después)
+            let col = if e.is_eof() {
+                e.column()
+            } else {
+                e.column().saturating_sub(1)
+            }
+            .min(line.len());
             pos += line
                 .get(..col)
                 .map_or_else(|| line.chars().count(), |s| s.chars().count());
@@ -1084,6 +1113,23 @@ mod tests {
         assert_eq!(e[0]["type"], "json_invalid");
         assert_eq!(e[0]["loc"], json!(["body", 1]));
         assert_eq!(e[0]["ctx"]["error"], "Expecting property name enclosed in double quotes");
+        // cortado: donde esperaba algo más, como `json.loads`
+        let Err(crate::ApiError::Validation(e)) = parse_body(None, br#"{"tracks": ["#) else {
+            panic!("tenia que fallar");
+        };
+        assert_eq!(e[0]["loc"], json!(["body", 12]));
+        assert_eq!(e[0]["ctx"]["error"], "Expecting value");
+    }
+
+    #[test]
+    fn the_bounds_of_a_float_go_as_floats() {
+        let mut b = body(json!({"gain": 3, "n": 9}));
+        assert_eq!(b.float("gain").ge(0).le(2).opt(), None);
+        assert_eq!(b.int("n").le(5).opt(), None);
+        let e = b.into_errors();
+        assert_eq!(e[0]["msg"], "Input should be less than or equal to 2");
+        assert_eq!(e[0]["ctx"], json!({"le": 2.0}));
+        assert_eq!(e[1]["ctx"], json!({"le": 5}));
     }
 
     #[test]

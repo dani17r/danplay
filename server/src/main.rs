@@ -93,6 +93,11 @@ fn main() {
     if raw.len() >= 2 && raw[1] == "--pulse" {
         std::process::exit(server::services::beats::child_main(&raw[2..]));
     }
+    // el proceso que separa (lo lanza el propio núcleo): solo el motor
+    let all: Vec<String> = std::env::args().skip(1).collect();
+    if all.first().map(String::as_str) == Some(server::services::separation::FLAG) {
+        std::process::exit(server::services::separation::main(&all[1..]));
+    }
     let mut args = std::env::args().skip(1);
     let (mut uds, mut host, mut port) = (None, "127.0.0.1".to_owned(), 8730u16);
     while let Some(a) = args.next() {
