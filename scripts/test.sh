@@ -33,7 +33,7 @@ run_check ruff        py ruff check .
 run_check formato     py ruff format --check .
 run_check tipos       py basedpyright
 # una sola vez: mide la cobertura del total, y por trozos no llegaria al minimo
-run_check pytest      py python -m pytest -q --no-header
+run_check pytest      py python -m pytest -q --no-header -n auto
 
 section "interfaz"
 run_check estilo      sh -c 'cd desktop && npm run lint && npm run lint:css && npm run format:check'

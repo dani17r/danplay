@@ -38,6 +38,7 @@ jobs:
       # clave, se restauraban sin servir y nunca se renovaban
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           prefix-key: v1-rust
       - name: programas del sistema
         run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg libchromaprint-tools
@@ -53,8 +54,9 @@ jobs:
           uv run ruff format --check .
       - name: tipos (basedpyright, solo errores nuevos)
         run: uv run basedpyright
+      # repartidas entre los núcleos de la máquina (pytest-xdist)
       - name: pruebas del núcleo, con cobertura
-        run: uv run pytest
+        run: uv run pytest -n auto
       # Sin `extension-module` en Cargo.toml, las pruebas enlazarian con
       # libpython; con esto se compilan como la extension que hace maturin.
       - name: estilo del crate
@@ -87,6 +89,7 @@ jobs:
       # clave, se restauraban sin servir y nunca se renovaban
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           prefix-key: v1-rust
       - name: ffmpeg (para generar la biblioteca de prueba)
         run: choco install ffmpeg --no-progress -y
@@ -96,8 +99,10 @@ jobs:
           pip install -r requirements.txt -r requirements-test.txt
           # el crate de Rust del núcleo, compilado con maturin
           pip install ./core
+      # repartidas entre los núcleos de la máquina (pytest-xdist): en serie
+      # eran más de 7 minutos
       - name: pruebas
-        run: pytest
+        run: pytest -n auto
       - name: la línea de órdenes arranca
         run: python -m danplay.cli status
 
@@ -146,6 +151,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           prefix-key: v1-rust
       - uses: actions/setup-node@v7
         with:
@@ -185,6 +191,7 @@ jobs:
       # clave, se restauraban sin servir y nunca se renovaban
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           prefix-key: v1-rust
       - uses: actions/setup-node@v7
         with:

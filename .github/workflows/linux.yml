@@ -41,6 +41,7 @@ jobs:
       # clave, se restauraban sin servir y nunca se renovaban
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           prefix-key: v1-rust
 
       - name: dependencias de Tauri

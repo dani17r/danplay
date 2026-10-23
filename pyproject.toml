@@ -40,8 +40,8 @@ dependencies = [
 danplay = "danplay.cli:main"
 
 [dependency-groups]
-# Solo lo que usan las pruebas: la CI de Windows prueba el nucleo SIN el crate
-# de Rust, como viaja en el instalador (requirements-test.txt).
+# Solo lo que usan las pruebas (requirements-test.txt): la CI de Windows las
+# instala junto al núcleo y su crate de Rust.
 test = [
     "pytest>=9.1.1,<10",
     # mutagen ya no es de la app (es GPL; las etiquetas las lee y escribe el
@@ -54,6 +54,8 @@ test = [
     "hypothesis>=6.168.1,<7",
     # el TestClient de FastAPI habla por httpx
     "httpx>=0.28.1,<1",
+    # las pruebas repartidas entre los núcleos (`-n auto`), en la CI y aquí
+    "pytest-xdist>=3.8.0,<4",
 ]
 # Para trabajar en DanPlay: las pruebas, el crate de Rust, el empaquetado y
 # las herramientas de estilo y tipos.

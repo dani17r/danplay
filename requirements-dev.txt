@@ -46,6 +46,8 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via pytest
 coverage==7.16.2
     # via pytest-cov
+execnet==2.1.2
+    # via pytest-xdist
 fastapi==0.149.0
     # via danplay
 flatbuffers==25.12.19
@@ -126,8 +128,11 @@ pyinstaller==6.22.3
 pyinstaller-hooks-contrib==2026.8
     # via pyinstaller
 pytest==9.1.1
-    # via pytest-cov
+    # via
+    #   pytest-cov
+    #   pytest-xdist
 pytest-cov==7.1.0
+pytest-xdist==3.8.0
 python-dotenv==1.2.4
     # via danplay
 pywin32-ctypes==0.2.3 ; sys_platform == 'win32'
