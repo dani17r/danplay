@@ -10,7 +10,7 @@
 use crate::app::{App, VERSION};
 use crate::error::ApiError;
 use crate::jobs::{JobError, Progress};
-use crate::services::{folders, songs, onnx, trash};
+use crate::services::{folders, onnx, reuse, songs, trash};
 use library::index::Dict;
 use library::py;
 use library::stems::{self as ls, FAST, FINAL, MAX, MAXIMUM, QUICK, REFINE, REST};
@@ -590,7 +590,7 @@ fn lossy_lines(r: impl std::io::Read) -> impl Iterator<Item = String> {
 }
 
 /// `shutil.copy2`: el contenido y la fecha.
-fn copy_with_time(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(crate) fn copy_with_time(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::copy(from, to)?;
     if let Ok(t) = std::fs::metadata(from).and_then(|m| m.modified()) {
         let _ = std::fs::File::options()
@@ -1113,8 +1113,21 @@ fn item(cid: i64, title: String, stage: &str) -> Dict {
 /// `stems.request`: a la cola, y la cola a andar si no lo está. Devuelve
 /// el estado. Pedir otra vez una que ya espera o se separa no la repite.
 pub fn request(app: &App, cid: i64, maximum: bool) -> Result<Value> {
-    let song = songs::by_id(app, cid)?
+    let mut song = songs::by_id(app, cid)?
         .ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
+    if info(app, &song).is_none() && reuse::took_stems(app, cid) {
+        // otro archivo de esta misma canción ya estaba separado (se volvió a
+        // bajar, se movió la carpeta): sus pistas, sin separar de nuevo
+        song = songs::by_id(app, cid)?.unwrap_or(song);
+        event(app, &item(cid, title_of(&song), "reuse"), true, "");
+        if stage_for(app, &song) != "refine" || !missing(app).is_empty() {
+            let mut out = status(app);
+            if let Value::Object(o) = &mut out {
+                o.insert("reused".into(), true.into());
+            }
+            return Ok(out);
+        }
+    }
     let reason = missing(app);
     if !reason.is_empty() {
         return Err(expected(format!("no se puede separar: {reason}")));

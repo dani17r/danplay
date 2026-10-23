@@ -3,7 +3,7 @@
 //! archivo suelto, sacar uno que ya no está y dónde está cada canción.
 use crate::app::App;
 use crate::error::ApiError;
-use crate::services::{folders, journal, playlists, tags};
+use crate::services::{folders, journal, playlists, reuse, tags};
 use library::index::{self, Dict, fetch_all, scan, songs, touch};
 use library::rusqlite::Connection;
 use serde_json::{Value, json};
@@ -92,53 +92,6 @@ pub fn forget_cached(app: &App, paths: &[String]) {
     crate::services::ai::log_warnings("danplay.library", warnings);
 }
 
-/// `reuse.later(cid, before)`: aprovechar lo hecho para otro archivo de la
-/// misma canción (sus pistas separadas, su clic, alineados con el nuevo).
-/// Eso es numpy en Python (decodificar y correlar) y aún no está en Rust:
-/// aquí solo se apunta. Con una biblioteca recién hecha no hay gemelas.
-pub fn reuse_later(_app: &App, cid: i64, before: Option<&Dict>) {
-    log::info!(
-        "aprovechar lo de otro archivo de la cancion {cid} aun no esta en Rust{}",
-        if before.is_some() { " (volvio en otro archivo)" } else { "" }
-    );
-}
-
-/// `reuse._manifest_index()`: las carpetas de pistas de todas las carpetas
-/// gestionadas, por la clave de su canción: {clave: [duraciones]}.
-pub fn manifest_index(app: &App) -> Result<std::collections::HashMap<String, Vec<f64>>, ApiError> {
-    let mut index: std::collections::HashMap<String, Vec<f64>> = std::collections::HashMap::new();
-    for root in folders::roots(app)? {
-        let Ok(entries) = std::fs::read_dir(Path::new(&root).join(library::stems::FOLDER)) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let folder = entry.path().to_string_lossy().into_owned();
-            let Some(manifest) = library::stems::read_manifest(&folder) else {
-                continue;
-            };
-            let Some(Value::Object(src)) = manifest.get("source").filter(|v| library::py::truthy(v)) else {
-                continue;
-            };
-            let key = scan::ident(src);
-            let duration = src.get("duration").and_then(library::py::float_of).unwrap_or(0.0);
-            if !key.is_empty() && duration > 0.0 {
-                index.entry(key).or_default().push(duration);
-            }
-        }
-    }
-    Ok(index)
-}
-
-/// `reuse.with_twins(ids)`: de esas canciones recién llegadas, las que
-/// tienen gemela (o pistas de otro archivo).
-pub fn with_twins(app: &App, ids: &[i64]) -> Result<Vec<i64>, ApiError> {
-    if ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    let manifests = manifest_index(app)?;
-    app.db(|c| library::reuse::with_twins(c, ids, &manifests))
-}
-
 /// `library.scan(progress)`: el índice al día con las carpetas gestionadas,
 /// y lo de después (las pistas, las ondas y carátulas de lo que se fue, las
 /// listas y el estudio que traen los archivos, las listas que la tenían
@@ -208,9 +161,11 @@ pub fn scan(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value, 
     if !r.study_found.is_empty() {
         app.db(|c| scan::restore_study_from_tags(c, &r.study_found))?;
     }
+    // las que volvieron en otro archivo, siempre; las nuevas, solo si tienen
+    // gemela (en una biblioteca nueva, ninguna: nada que hacer)
     for (cid, before) in &r.settle {
         if before.is_some() {
-            reuse_later(app, *cid, before.as_ref());
+            reuse::later(app, *cid, before.clone());
         }
     }
     let arrived: Vec<i64> = r
@@ -222,10 +177,10 @@ pub fn scan(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value, 
     let fresh = if arrived.is_empty() {
         Vec::new()
     } else {
-        with_twins(app, &arrived)?
+        reuse::with_twins(app, &arrived)?
     };
     for cid in fresh {
-        reuse_later(app, cid, None);
+        reuse::later(app, cid, None);
     }
     let mut changed = r.changed;
     if !arrived.is_empty() && playlists::relink_ghosts(app, &arrived)? > 0 {
@@ -298,9 +253,10 @@ pub fn index_file(
         carry_grid(app, old, new_path);
     }
     if let Some((cid, before)) = &r.arrived {
-        let twins = before.is_some() || !with_twins(app, &[*cid])?.is_empty();
+        // se volvió a bajar una que ya tenía sus pistas o su clic: se aprovechan
+        let twins = before.is_some() || !reuse::with_twins(app, &[*cid])?.is_empty();
         if twins {
-            reuse_later(app, *cid, before.as_ref());
+            reuse::later(app, *cid, before.clone());
         }
         if before.is_none() {
             playlists::relink_ghosts(app, &[*cid])?;

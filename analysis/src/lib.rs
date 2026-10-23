@@ -19,7 +19,9 @@
 //!   máxima calidad, el Mega53), con sus espectrogramas, los trozos que se
 //!   funden y el trabajo entero con ffmpeg;
 //! - `onnx`: las redes, en ONNX Runtime (`ort`, cargando la biblioteca);
-//! - `voices`: las voces de las guías (Supertonic y Piper, en ONNX Runtime).
+//! - `voices`: las voces de las guías (Supertonic y Piper, en ONNX Runtime);
+//! - `align`: cuánto está corrido un archivo respecto a otro de la misma
+//!   canción (para aprovechar lo hecho con el de antes).
 //!
 //! Python lo usa a través de `danplay_core` (core/); la app lo usará
 //! directamente cuando el núcleo entero esté en Rust. Aquí no se sabe nada
@@ -29,6 +31,7 @@
 // con su tabla), y con un margen saldría otra cosa.
 #![allow(clippy::float_cmp)]
 
+pub mod align;
 pub mod beatgrid;
 pub mod click;
 pub mod cues;
