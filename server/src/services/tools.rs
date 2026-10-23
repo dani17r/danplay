@@ -25,10 +25,10 @@ pub fn fingerprint_unavailable_reason(app: &App) -> String {
 }
 
 /// Si yt-dlp está. En Python era su módulo (el de la app o el descargado);
-/// sin Python, el ejecutable oficial (`yt-dlp`, en `tools/` o en el PATH).
-/// Hasta que las descargas se porten, sin él no hay descargas.
+/// sin Python, su ejecutable oficial: el bajado al actualizar o el de la app
+/// (`tools/` o el PATH). Ver `services::ytdlp`.
 pub fn ytdlp_installed(app: &App) -> bool {
-    app.tool("yt-dlp").is_some()
+    crate::services::ytdlp::installed(app)
 }
 
 /// `youtube.available()`.

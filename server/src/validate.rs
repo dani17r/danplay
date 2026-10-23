@@ -957,6 +957,11 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
         pos += line.chars().count() + 1;
     }
     let what = e.to_string();
+    // se acabó antes de tiempo: `json.loads` lo dice donde se acaba (tras
+    // los espacios), no en lo último que leyó
+    if e.is_eof() && !what.contains("parsing a string") {
+        pos = text.chars().count();
+    }
     let msg = if what.contains("trailing characters") {
         "Extra data"
     } else if what.contains("key must be a string") {
@@ -1073,6 +1078,16 @@ mod tests {
         assert_eq!(e[0]["type"], "json_invalid");
         assert_eq!(e[0]["loc"], json!(["body", 1]));
         assert_eq!(e[0]["ctx"]["error"], "Expecting property name enclosed in double quotes");
+        // cortado: donde se acaba, como `json.loads` («char 10»)
+        let Err(crate::ApiError::Validation(e)) = parse_body(None, b"{\"query\": ") else {
+            panic!("tenia que fallar");
+        };
+        assert_eq!(e[0]["loc"], json!(["body", 10]));
+        assert_eq!(e[0]["ctx"]["error"], "Expecting value");
+        let Err(crate::ApiError::Validation(e)) = parse_body(None, b"[") else {
+            panic!("tenia que fallar");
+        };
+        assert_eq!(e[0]["loc"], json!(["body", 1]));
     }
 
     #[test]

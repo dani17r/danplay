@@ -73,6 +73,45 @@ pub fn get(url: &str, user_agent: &str, timeout: Duration) -> Result<String, Net
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// Lo que hay en `url`, en bytes (un ejecutable, un JSON...), siguiendo las
+/// redirecciones. Se lee como mucho `limit + 1`: si vuelve más de `limit`,
+/// pesaba de más (como `r.read(limit + 1)` de Python). `timeout` es para
+/// conectar y para que conteste; `body_timeout`, para recibirlo entero.
+pub fn get_bytes(
+    url: &str,
+    user_agent: &str,
+    timeout: Duration,
+    body_timeout: Duration,
+    limit: u64,
+) -> Result<Vec<u8>, NetError> {
+    use std::io::Read;
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_connect(Some(timeout))
+        .timeout_recv_response(Some(timeout))
+        .timeout_recv_body(Some(body_timeout))
+        .build()
+        .into();
+    let mut response = agent
+        .get(url)
+        .header("User-Agent", user_agent)
+        .call()
+        .map_err(|e| match e {
+            ureq::Error::StatusCode(code) => NetError::State(code),
+            other => NetError::Other(other.to_string()),
+        })?;
+    let cap = limit.saturating_add(1);
+    let mut out = Vec::new();
+    response
+        .body_mut()
+        .with_config()
+        .limit(cap)
+        .reader()
+        .take(cap)
+        .read_to_end(&mut out)
+        .map_err(|e| NetError::Other(e.to_string()))?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,5 +146,23 @@ mod tests {
         let e = get(&url, "prueba", Duration::from_secs(5)).expect_err("404");
         assert_eq!(e.state(), Some(404));
         assert!(e.is_network_error());
+    }
+
+    #[test]
+    fn bytes_up_to_one_past_the_limit() {
+        let five = Duration::from_secs(5);
+        let url = serve(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\n\x00\x01\xffabc");
+        assert_eq!(
+            get_bytes(&url, "prueba", five, five, 6).as_deref(),
+            Ok(&b"\x00\x01\xffabc"[..])
+        );
+        // pesa de más: vuelve uno más del tope, y quien llama lo sabe
+        let url = serve(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\n123456");
+        assert_eq!(get_bytes(&url, "prueba", five, five, 4).map(|b| b.len()), Ok(5));
+        let url = serve(b"HTTP/1.1 500 Oops\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        assert_eq!(
+            get_bytes(&url, "prueba", five, five, 4),
+            Err(NetError::State(500))
+        );
     }
 }

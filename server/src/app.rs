@@ -46,6 +46,8 @@ pub struct State {
     tools: Mutex<HashMap<String, (Option<PathBuf>, Instant)>>,
     /// se está apagando: los hilos de fondo paran
     pub stopping: std::sync::atomic::AtomicBool,
+    /// la descarga de YouTube de ahora y yt-dlp (`youtube.STATE`, `ytdlp`)
+    pub downloads: crate::services::youtube::State,
 }
 
 /// La app: un asa del estado, barata de clonar.
@@ -79,6 +81,7 @@ impl App {
             resources: resources_dir(),
             tools: Mutex::new(HashMap::new()),
             stopping: std::sync::atomic::AtomicBool::new(false),
+            downloads: crate::services::youtube::State::default(),
         }));
         if let Err(e) = crate::startup::prepare_index(&app) {
             log::warn!("no pude preparar el indice: {e}");
