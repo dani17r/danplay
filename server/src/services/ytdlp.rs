@@ -21,6 +21,7 @@
 //!   de la última versión de GitHub para este sistema, comprobado contra su
 //!   SHA2-256SUMS, probado (`--version`) antes de usarlo.
 use crate::app::App;
+use library::net::DownloadError;
 use library::processes;
 use library::youtube::Seen;
 use library::ytdlp::{self as y, Runtime};
@@ -44,8 +45,6 @@ pub const MAX_BINARY_BYTES: u64 = 200 * 1024 * 1024;
 pub const MAX_LISTING_BYTES: u64 = 20 * 1024 * 1024;
 /// Para conectar y para que conteste (como el `TIMEOUT` de Python).
 pub const TIMEOUT: Duration = Duration::from_secs(60);
-/// Para recibir el ejecutable entero.
-pub const BODY_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// Sin motor de JS se vuelve a mirar cada tanto: instalar deno con la app
 /// abierta tiene que notarse sin reiniciarla.
 pub const RUNTIME_RECHECK: Duration = Duration::from_secs(60);
@@ -804,22 +803,34 @@ fn fail<T>(why: impl Into<String>) -> Result<T, UpdateError> {
     Err(UpdateError(why.into()))
 }
 
-/// `_why`: un fallo de red en una frase que se entienda.
-fn why(e: &library::net::NetError) -> String {
+/// `_why`: un fallo de red en una frase que se entienda (la de ytdlp.py).
+fn why(e: &DownloadError) -> String {
     match e {
-        library::net::NetError::State(code) => y::why(Some(&code.to_string()), ""),
-        library::net::NetError::Other(text) => y::why(None, text),
+        DownloadError::State(code) => y::why(Some(&code.to_string()), ""),
+        DownloadError::Timeout => y::why(None, "timed out"),
+        DownloadError::Offline => y::why(None, "name or service not known"),
+        DownloadError::Stopped(why) => why.clone(),
+        DownloadError::Other(text) => y::why(None, text),
     }
 }
 
-/// `_get`: lo que hay en `url`, como mucho `limit` bytes.
-fn get(url: &str, limit: u64) -> Result<Result<Vec<u8>, library::net::NetError>, UpdateError> {
-    match library::net::get_bytes(url, USER_AGENT, TIMEOUT, BODY_TIMEOUT, limit) {
-        Ok(data) if data.len() as u64 > limit => {
-            fail(format!("la descarga de {url} pesa demasiado"))
+/// `_get`: lo que hay en `url` (con su sha256), como mucho `limit` bytes;
+/// si pesa más, se corta y se dice.
+fn get(url: &str, limit: u64) -> Result<Result<(Vec<u8>, String), DownloadError>, UpdateError> {
+    let mut data = Vec::new();
+    let mut too_big = false;
+    let got = library::net::download(url, USER_AGENT, TIMEOUT, &mut |block| {
+        if (data.len() + block.len()) as u64 > limit {
+            too_big = true;
+            return Err("pesa demasiado".into());
         }
-        other => Ok(other),
+        data.extend_from_slice(block);
+        Ok(())
+    });
+    if too_big {
+        return fail(format!("la descarga de {url} pesa demasiado"));
     }
+    Ok(got.map(|sum| (data, sum)))
 }
 
 /// La dirección de las versiones de yt-dlp (`DANPLAY_YTDLP_RELEASES`).
@@ -836,7 +847,7 @@ fn releases(app: &App) -> String {
 fn latest_release(app: &App) -> Result<Map<String, Value>, UpdateError> {
     let url = format!("{}/latest", releases(app));
     let data = match get(&url, MAX_LISTING_BYTES)? {
-        Ok(d) => d,
+        Ok((d, _)) => d,
         Err(e) => return fail(format!("no se pudo consultar GitHub ({})", why(&e))),
     };
     match serde_json::from_slice::<Value>(&data) {
@@ -865,10 +876,10 @@ fn asset<'a>(release: &'a Map<String, Value>, name: &str) -> Option<(&'a str, &'
     })
 }
 
-/// `_fetch`: un archivo de la versión, entero.
-fn fetch(name: &str, url: &str, limit: u64) -> Result<Vec<u8>, UpdateError> {
+/// `_fetch`: un archivo de la versión, entero, con su sha256.
+fn fetch(name: &str, url: &str, limit: u64) -> Result<(Vec<u8>, String), UpdateError> {
     match get(url, limit)? {
-        Ok(d) => Ok(d),
+        Ok(got) => Ok(got),
         Err(e) => fail(format!("no se pudo bajar {name} ({})", why(&e))),
     }
 }
@@ -950,13 +961,13 @@ pub fn update(app: &App, progress: &dyn Fn(i64, &str)) -> Result<Value, UpdateEr
         return fail(format!("yt-dlp {latest} no publica su {SUMS}: no se usa"));
     };
     progress(1, &format!("bajando yt-dlp {latest}"));
-    let sums = fetch(sums_name, sums_url, MAX_LISTING_BYTES)?;
+    let (sums, _) = fetch(sums_name, sums_url, MAX_LISTING_BYTES)?;
     let Some(expected) = sum_of(&String::from_utf8_lossy(&sums), name) else {
         return fail(format!("{name} no aparece en el {SUMS} de GitHub: no se usa"));
     };
-    let blob = fetch(name, url, MAX_BINARY_BYTES)?;
+    let (blob, digest) = fetch(name, url, MAX_BINARY_BYTES)?;
     progress(2, "comprobando la descarga");
-    if y::sha256_hex(&blob) != expected {
+    if digest != expected {
         return fail(format!(
             "{name} no coincide con lo que publica GitHub (sha256 distinto): no se usa"
         ));

@@ -7,10 +7,13 @@
 //! ponerlo en su sitio en `all` (los que faltan están comentados).
 use crate::router::Route;
 
+pub mod cues;
 pub mod downloads;
 pub mod external;
 pub mod library;
 pub mod playlists;
+pub mod songs;
+pub mod stems;
 pub mod system;
 
 #[cfg(test)]
@@ -22,13 +25,13 @@ pub fn all() -> Vec<Route> {
         system::ROUTES,
         // ai::ROUTES,
         library::ROUTES,
-        // songs::ROUTES,
+        songs::ROUTES,
         playlists::ROUTES,
         // assistant::ROUTES,
         downloads::ROUTES,
         external::ROUTES,
-        // stems::ROUTES,
-        // cues::ROUTES,
+        stems::ROUTES,
+        cues::ROUTES,
     ]
     .concat()
 }

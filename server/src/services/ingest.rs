@@ -101,7 +101,7 @@ impl Outside for Importer<'_> {
     }
 
     fn error_text(&mut self, error: &Failure<String>) -> Text {
-        pyjson::text(&failure_text(error))
+        pyjson::text_of(&failure_text(error))
     }
 
     fn path(&mut self, x: &Json) -> Result<Text, String> {
@@ -171,7 +171,7 @@ impl Outside for Importer<'_> {
             fields
                 .iter()
                 .filter(|(_, v)| !v.is_empty())
-                .map(|(k, v)| (pyjson::text(k), Json::str(v)))
+                .map(|(k, v)| (pyjson::text_of(k), Json::str(v)))
                 .collect(),
         ))
     }

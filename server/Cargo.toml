@@ -22,6 +22,10 @@ serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 log = "0.4"
 # La consulta de la URL, como `parse_qsl` de Python
 form_urlencoded = "1"
+# El `etag` del audio, como el de Starlette (md5 de la fecha y el tamaño)
+md-5 = "0.11.0"
+# La red de enriquecer una canción (LRCLIB, iTunes, MusicBrainz, cifrados)
+ureq = "3.4.2"
 percent-encoding = "2"
 # Servir la API por un socket Unix o por loopback (las pruebas de la
 # interfaz, el arnés que la compara con la de Python y la línea de órdenes)

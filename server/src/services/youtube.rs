@@ -31,7 +31,7 @@
 //!   `cancel(&app)` y `canceled(&app)`.
 use crate::app::{App, path_str};
 use crate::error::ApiError;
-use crate::services::{folders, ingest, library as lib, pyjson, tags, tools, ytdlp};
+use crate::services::{folders, ingest, library as lib, pyjson, songs, stems, tags, tools, ytdlp};
 use library::index::{Dict, history, search};
 use library::ingest::Outside;
 use library::py;
@@ -39,7 +39,7 @@ use library::youtube::{self as yt, Logged, Seen, Target};
 use serde_json::{Map, Value, json};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// Sin carpeta elegida no se baja nada: lo bajado acabaría donde nadie lo
@@ -313,36 +313,19 @@ fn info_unlocked(
 
 // ------------------------------------------------------------ bajar uno
 
-/// Una carpeta temporal propia (`tempfile.mkdtemp`, solo para su dueño),
-/// que se borra al soltarla.
+/// Una carpeta temporal propia (`tempfile.mkdtemp`, con
+/// `stems::make_temp_dir`), solo para su dueño, que se borra al soltarla.
 struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(prefix: &str) -> std::io::Result<Self> {
-        static N: AtomicUsize = AtomicUsize::new(0);
-        let base = std::env::temp_dir();
-        let mut last = None;
-        for _ in 0..100 {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.subsec_nanos());
-            let n = N.fetch_add(1, Ordering::SeqCst);
-            let name = format!("{prefix}{:x}{n:x}{nanos:08x}", std::process::id());
-            let path = base.join(name);
-            match std::fs::create_dir(&path) {
-                Ok(()) => {
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
-                    }
-                    return Ok(Self(path));
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
-                Err(e) => return Err(e),
-            }
+        let path = stems::make_temp_dir(&std::env::temp_dir(), prefix)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
         }
-        Err(last.unwrap_or_else(|| std::io::Error::other("sin carpeta temporal")))
+        Ok(Self(path))
     }
 
     fn path(&self) -> &Path {
@@ -354,21 +337,6 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         py::rmtree(&self.0);
     }
-}
-
-/// `shutil.move`: un rename, o copiar (con su fecha) y borrar si es otro disco.
-fn move_file(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if std::fs::rename(src, dst).is_ok() {
-        return Ok(());
-    }
-    std::fs::copy(src, dst)?;
-    if let Ok(mtime) = std::fs::metadata(src).and_then(|m| m.modified()) {
-        let _ = std::fs::File::options()
-            .write(true)
-            .open(dst)
-            .and_then(|f| f.set_modified(mtime));
-    }
-    std::fs::remove_file(src)
 }
 
 /// Lo que se bajó (el JSON del final): el vídeo, o el primero de una lista.
@@ -479,7 +447,7 @@ pub fn download_one(
     let name = yt::provisional_name(d.get("title").unwrap_or(&null), d.get("id").unwrap_or(&null))
         .map_err(field_error)?;
     let target = folder.join(library::names::free_name(&folder, &format!("{name}.mp3")));
-    move_file(&mp3, &target).map_err(|e| e.to_string())?;
+    songs::move_file(&mp3, &target).map_err(|e| e.to_string())?;
     Ok(yt::downloaded(&d, &path_str(&target), tagged, kbps))
 }
 

@@ -46,6 +46,10 @@ pub struct State {
     tools: Mutex<HashMap<String, (Option<PathBuf>, Instant)>>,
     /// se está apagando: los hilos de fondo paran
     pub stopping: std::sync::atomic::AtomicBool,
+    /// la cola de separar en pistas y su proceso (`stems._queue`...)
+    pub separator: crate::services::stems::Separator,
+    /// las voces que se bajan y la voz cargada (`cues._INSTALLS`, `_LOADED`)
+    pub cues: crate::services::cues::Cues,
     /// la descarga de YouTube de ahora y yt-dlp (`youtube.STATE`, `ytdlp`)
     pub downloads: crate::services::youtube::State,
 }
@@ -81,6 +85,8 @@ impl App {
             resources: resources_dir(),
             tools: Mutex::new(HashMap::new()),
             stopping: std::sync::atomic::AtomicBool::new(false),
+            separator: crate::services::stems::Separator::default(),
+            cues: crate::services::cues::Cues::default(),
             downloads: crate::services::youtube::State::default(),
         }));
         if let Err(e) = crate::startup::prepare_index(&app) {
