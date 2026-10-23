@@ -1,11 +1,12 @@
 use super::*;
 use std::path::PathBuf;
 
-/// Los dos de tests/fixtures los hizo `torch.save` (2.14): uno de verdad y
-/// uno con un pickle que ejecutaría una orden al abrirlo.
+/// Los dos de fixtures/ (los de tests/fixtures de Python) los hizo
+/// `torch.save` (2.14): uno de verdad y uno con un pickle que ejecutaría una
+/// orden al abrirlo.
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../tests/fixtures")
+        .join("src/weights/fixtures")
         .join(name)
 }
 
@@ -104,4 +105,50 @@ fn pickle_machine_handles_the_usual_cases() {
         unpack(b"\x80\x02", &mut zip),
         Err(Error::Pickle(_))
     ));
+}
+
+/// Lo de tests/test_torchzip.py: los números de cada peso, como los guardó
+/// `torch.save` (la vista traspuesta, el float16, el bfloat16, el entero y
+/// el de la capa).
+#[test]
+fn the_numbers_come_out_as_torch_saved_them() {
+    let path = fixture("weights.ckpt");
+    let weights = read(&path, None).expect("se lee");
+    let mut file = File::open(&path).expect("abrir");
+    let mut value = |n: &str| {
+        let t = weights
+            .iter()
+            .find(|(k, _)| k == n)
+            .map(|(_, t)| Rc::clone(t))
+            .expect(n);
+        materialize(&mut file, &t).expect(n)
+    };
+    let close = |got: &[f32], want: &[f32], tol: f32| {
+        got.len() == want.len() && got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol)
+    };
+    let a = [
+        1.540_996, -0.293_429, -2.178_789, 0.568_431, -1.084_522, -1.398_595,
+    ];
+    let (shape, got) = value("a");
+    assert_eq!(shape, [2, 3]);
+    assert!(close(&got, &a, 1e-6), "{got:?}");
+    // una vista traspuesta del mismo almacén
+    let (shape, got) = value("c");
+    assert_eq!(shape, [3, 2]);
+    let a_t = [a[0], a[3], a[1], a[4], a[2], a[5]];
+    assert!(close(&got, &a_t, 1e-6), "{got:?}");
+    let (_, got) = value("b");
+    assert!(
+        close(&got, &[0.4033, 0.8379, -0.7192, -0.4033], 1e-3),
+        "{got:?}"
+    );
+    let (_, got) = value("d");
+    // en bfloat16, exactos: -153/256, 93/512 y -219/256
+    assert_eq!(got, [-153.0 / 256.0, 93.0 / 512.0, -219.0 / 256.0]);
+    let (shape, got) = value("e");
+    assert!(shape.is_empty());
+    assert_eq!(got, [7.0]);
+    let (shape, got) = value("layer.weight");
+    assert_eq!(shape, [2, 3]);
+    assert_eq!(got, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
 }

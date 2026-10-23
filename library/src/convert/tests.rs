@@ -235,3 +235,104 @@ fn second_try_drops_the_cover_but_keeps_the_audio() {
     assert!(matches!(r, ConvertOutcome::Done { .. }), "{r:?}");
     std::fs::remove_dir_all(&dir).expect("borrar");
 }
+
+// ------------------------------------------------ lo de tests/test_media.py
+
+/// Una imagen de un color, de ese tamaño, en el formato que diga el nombre
+/// (`_image` de las pruebas de Python). `false` si ese ffmpeg no lo escribe.
+fn image(ffmpeg: &Path, path: &Path, size: &str, extra: &[&str]) -> bool {
+    Command::new(ffmpeg)
+        .args(["-y", "-loglevel", "error", "-f", "lavfi"])
+        .args(["-i", &format!("color=c=red:s={size}"), "-frames:v", "1"])
+        .args(extra)
+        .arg(path)
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+/// Un flac pasa a mp3 con sus etiquetas, sin el original; y otro con el
+/// mismo nombre no pisa el que ya hay (sale «(2)») y, si se pide, se
+/// conserva el original.
+#[test]
+fn a_flac_becomes_mp3_with_its_tags() {
+    let Some(ffmpeg) = crate::testkit::ffmpeg() else {
+        crate::testkit::without_ffmpeg("pasar un flac a mp3");
+        return;
+    };
+    let dir = crate::testkit::Scratch::new("flac-etiquetas");
+    let flac = dir.join("Barak - Mi Gozo.flac");
+    crate::testkit::make_audio(&flac, &["-codec:a", "flac"], 2.0, Some(440.0)).expect("flac");
+    let changes = crate::tags::Changes {
+        artist: Some("Barak".into()),
+        title: Some("Mi Gozo".into()),
+        ..crate::tags::Changes::default()
+    };
+    crate::tags::write(&flac, &changes).expect("etiquetas");
+    let mut warnings = Warnings::new();
+    let r = convert(&ffmpeg, &flac, "medium", false, None, &[], &mut warnings).expect("convierte");
+    let ConvertOutcome::Done { dest, .. } = r else {
+        panic!("{r:?}")
+    };
+    assert_eq!(dest, dir.join("Barak - Mi Gozo.mp3"));
+    assert!(!flac.exists(), "sin conservar el original, se borra");
+    let d = crate::tags::read(&dest);
+    assert_eq!((d.artist.as_str(), d.title.as_str()), ("Barak", "Mi Gozo"));
+    assert!(d.duration > 1.5, "{}", d.duration);
+    // otra vez con el mismo nombre libre: no pisa el que hay
+    crate::testkit::make_audio(&flac, &["-codec:a", "flac"], 1.0, None).expect("flac");
+    let r = convert(&ffmpeg, &flac, "high", true, None, &[], &mut warnings).expect("convierte");
+    let ConvertOutcome::Done { dest, .. } = r else {
+        panic!("{r:?}")
+    };
+    assert!(dest.to_string_lossy().ends_with("(2).mp3"), "{dest:?}");
+    assert!(flac.is_file());
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+/// Una carátula que ya vale se devuelve tal cual: reconvertir una jpg
+/// correcta solo le quita calidad.
+#[test]
+fn a_cover_that_already_fits_is_kept_as_is() {
+    let Some(ffmpeg) = crate::testkit::ffmpeg() else {
+        crate::testkit::without_ffmpeg("una carátula que ya vale");
+        return;
+    };
+    let dir = crate::testkit::Scratch::new("caratula-pequena");
+    let small = dir.join("pequena.jpg");
+    assert!(image(&ffmpeg, &small, "300x300", &[]));
+    let raw = std::fs::read(&small).expect("leer");
+    let mut warnings = Warnings::new();
+    assert_eq!(
+        shrink_image(&small, COVER_MAX_SIDE, Some(&ffmpeg), &mut warnings).expect("lee"),
+        Some((raw, "image/jpeg")),
+        "si ya vale, tal cual"
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+/// Sin ffprobe: lo que escribe ffmpeg en cada formato, medido a mano desde
+/// la cabecera.
+#[test]
+fn sizes_come_from_the_image_header() {
+    let Some(ffmpeg) = crate::testkit::ffmpeg() else {
+        crate::testkit::without_ffmpeg("las medidas de cada formato");
+        return;
+    };
+    let dir = crate::testkit::Scratch::new("medidas");
+    let cases: [(&str, &[&str]); 6] = [
+        ("a.jpg", &[]),
+        ("a.png", &[]),
+        ("a.gif", &[]),
+        ("a.bmp", &[]),
+        ("con-perdida.webp", &[]),
+        ("sin-perdida.webp", &["-lossless", "1"]),
+    ];
+    for (name, extra) in cases {
+        let img = dir.join(name);
+        if !image(&ffmpeg, &img, "333x217", extra) {
+            println!("este ffmpeg no escribe {name}: se salta");
+            continue;
+        }
+        assert_eq!(image_size(&img), Ok((333, 217)), "{name}");
+    }
+}

@@ -885,6 +885,29 @@ pub fn run_many(
     job: Option<u64>,
     on_done: Option<OnDone>,
 ) -> Vec<Map<String, Value>> {
+    run_many_with(app, queries, w, claimed, job, on_done, &download)
+}
+
+/// Lo que baja cada consulta de `run_many`: `download` (las pruebas ponen
+/// uno de mentira, como hacía el `monkeypatch` de Python).
+type Fetch<'a> = &'a dyn Fn(
+    &App,
+    &str,
+    &Wanted,
+    &mut dyn FnMut(Map<String, Value>),
+    &dyn Fn() -> bool,
+) -> Result<Vec<Map<String, Value>>, String>;
+
+/// `run_many` con lo que baja cada consulta.
+fn run_many_with(
+    app: &App,
+    queries: &[String],
+    w: &Wanted,
+    claimed: bool,
+    job: Option<u64>,
+    on_done: Option<OnDone>,
+    fetch: Fetch<'_>,
+) -> Vec<Map<String, Value>> {
     let queries: Vec<String> = queries
         .iter()
         .map(|q| py::strip(q).to_owned())
@@ -901,7 +924,7 @@ pub fn run_many(
     let mut done: Vec<Map<String, Value>> = Vec::new();
     let mut current = String::new();
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        each_query(app, &queries, w, token, &mut done, &mut current)
+        each_query(app, &queries, w, token, &mut done, &mut current, fetch)
     }));
     let why = match outcome {
         Ok(Ok(())) => None,
@@ -939,6 +962,7 @@ fn each_query(
     token: u64,
     done: &mut Vec<Map<String, Value>>,
     current: &mut String,
+    fetch: Fetch<'_>,
 ) -> Result<(), String> {
     for (position, query) in queries.iter().enumerate() {
         if canceled(app) {
@@ -958,6 +982,8 @@ fn each_query(
             }
             publish(app, &p, token);
         };
+        // en las pruebas, la descarga de mentira de `testing` va por delante
+        // de la que se le pase
         #[cfg(test)]
         let fake = app
             .downloads
@@ -969,10 +995,10 @@ fn each_query(
         #[cfg(test)]
         let mut rs = match fake {
             Some(fake) => fake(query)?,
-            None => download(app, query, w, &mut step, &|| canceled(app))?,
+            None => fetch(app, query, w, &mut step, &|| canceled(app))?,
         };
         #[cfg(not(test))]
-        let mut rs = download(app, query, w, &mut step, &|| canceled(app))?;
+        let mut rs = fetch(app, query, w, &mut step, &|| canceled(app))?;
         for r in &mut rs {
             r.entry("requested").or_insert_with(|| json!(query));
         }

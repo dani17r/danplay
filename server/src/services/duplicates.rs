@@ -209,3 +209,132 @@ pub fn resolve_route(
     }
     Ok(r)
 }
+
+/// Resolver duplicados (lo de tests/test_core.py): `resolve` solo toca lo
+/// que está dentro de una carpeta gestionada de verdad, y lo que no se
+/// conserva va a la papelera (en las pruebas, una de mentira).
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Una app con su carpeta de música dada de alta.
+    fn managed() -> (App, PathBuf) {
+        let app = crate::tests::app();
+        let folder = app.config().library.clone();
+        folders::add_folder(&app, &folder.to_string_lossy(), "").expect("carpeta");
+        (app, folder)
+    }
+
+    fn fake_song(folder: &Path, name: &str, size: usize) -> String {
+        let path = folder.join(name);
+        std::fs::write(&path, vec![b'x'; size]).expect("archivo");
+        path.to_string_lossy().into_owned()
+    }
+
+    fn names_in(folder: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(folder)
+            .expect("carpeta")
+            .map(|e| {
+                e.expect("entrada")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn resolve_deletes_others_and_renames() {
+        let (app, folder) = managed();
+        let base = fake_song(&folder, "Barak - Mi Gozo.mp3", 100);
+        let copy = fake_song(&folder, "Barak - Mi Gozo - r.mp3", 100);
+        #[cfg(unix)]
+        let copy_inode =
+            std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(&copy).expect("stat"));
+        let r = resolve(&app, &copy, &[base], false).expect("vale");
+        assert_eq!(r["ok"], true, "{r}");
+        // queda un solo archivo, con el nombre limpio, y es el que conservamos
+        assert_eq!(names_in(&folder), ["Barak - Mi Gozo.mp3"]);
+        let kept = r["kept"].as_str().expect("kept");
+        assert_eq!(library::py::basename(kept), "Barak - Mi Gozo.mp3");
+        assert_eq!(r["renamed"], true);
+        #[cfg(unix)]
+        assert_eq!(
+            std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(kept).expect("stat")),
+            copy_inode
+        );
+    }
+
+    #[test]
+    fn resolve_keeps_clean_one_unrenamed() {
+        let (app, folder) = managed();
+        let base = fake_song(&folder, "A - B.mp3", 50);
+        let copy = fake_song(&folder, "A - B - r.mp3", 50);
+        let r = resolve(&app, &base, std::slice::from_ref(&copy), false).expect("vale");
+        assert_eq!((&r["ok"], &r["renamed"]), (&json!(true), &json!(false)));
+        assert!(Path::new(&base).is_file() && !Path::new(&copy).exists());
+    }
+
+    #[test]
+    fn resolve_deletes_nothing_on_dry_run() {
+        let (app, folder) = managed();
+        let a = fake_song(&folder, "X.mp3", 20);
+        let b = fake_song(&folder, "X - r.mp3", 20);
+        let r = resolve(&app, &b, std::slice::from_ref(&a), true).expect("vale");
+        assert_eq!(r["dry_run"], true);
+        assert!(Path::new(&a).is_file() && Path::new(&b).is_file());
+    }
+
+    /// Borrar es lo excepcional: sin pedirlo expresamente no se toca nada
+    /// (en Rust, lo que llega a la API sin `dry_run`).
+    #[test]
+    fn resolve_is_dry_by_default() {
+        let (app, folder) = managed();
+        let a = fake_song(&folder, "Y.mp3", 20);
+        let b = fake_song(&folder, "Y - r.mp3", 20);
+        let (status, r) = crate::testkit::call(
+            &app,
+            "POST",
+            "/api/duplicates/resolve",
+            Some(json!({"keep": b, "remove": [a]})),
+        );
+        assert_eq!(status, 200, "{r}");
+        assert_eq!(r["dry_run"], true);
+        assert!(Path::new(&a).is_file());
+    }
+
+    /// Lo que llega de la API no puede borrar cualquier archivo del disco.
+    #[test]
+    fn resolve_refuses_paths_outside_the_library() {
+        let (app, folder) = managed();
+        let inside = fake_song(&folder, "Z.mp3", 20);
+        let outside = fake_song(&app.config().data_dir, "fuera.mp3", 20);
+        let r = resolve(&app, &inside, std::slice::from_ref(&outside), false).expect("vale");
+        assert_eq!(r["ok"], false);
+        assert!(
+            r["reason"].as_str().is_some_and(|w| w.contains("fuera")),
+            "{r}"
+        );
+        assert!(Path::new(&outside).exists());
+    }
+
+    /// Ni siquiera dentro de la biblioteca se borra lo que no es música.
+    #[test]
+    fn resolve_refuses_non_audio() {
+        let (app, folder) = managed();
+        let keep = fake_song(&folder, "W.mp3", 20);
+        let other = fake_song(&folder, "apuntes.txt", 20);
+        let r = resolve(&app, &keep, std::slice::from_ref(&other), false).expect("vale");
+        assert_eq!(r["ok"], false);
+        assert!(Path::new(&other).is_file());
+    }
+
+    #[test]
+    fn resolve_warns_if_kept_is_missing() {
+        let app = crate::tests::app();
+        let r = resolve(&app, "/no/existe.mp3", &[], true).expect("vale");
+        assert_eq!(r["ok"], false);
+    }
+}

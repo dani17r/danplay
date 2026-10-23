@@ -4,8 +4,9 @@
 //! El esquema lleva su versión (`PRAGMA user_version`) y cada cambio es una
 //! migración numerada que se aplica una sola vez, dentro de una transacción
 //! `BEGIN IMMEDIATE` (si dos procesos abren la base a la vez, el segundo
-//! espera y ya la encuentra migrada). De momento lo aplica Python; esta
-//! versión se compara con aquella en tests/test_schema_rust.py.
+//! espera y ya la encuentra migrada). Cómo dejaba Python la base partiendo
+//! de cada una de las de antes (nueva, sin versiones, en castellano, de la
+//! versión 3) está en schema/python_cases.json, y las pruebas lo comparan.
 use super::touch;
 use rusqlite::Connection;
 use std::collections::HashSet;
@@ -453,24 +454,34 @@ pub const SCHEMA_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].0;
 
 /// Aplica las migraciones que le falten, todas o ninguna. Una base recién
 /// creada (`fresh`) ya nace con el esquema de ahora: se apunta la última
-/// versión sin pasar por las migraciones. Devuelve lo que se aplicó.
-fn migrate(conn: &Connection, fresh: bool) -> rusqlite::Result<Vec<&'static str>> {
+/// versión sin pasar por las migraciones. Devuelve lo que se aplicó. La
+/// versión de llegada es la de la última migración (con las de verdad,
+/// `SCHEMA_VERSION`; las pruebas pasan otras).
+fn migrate<F>(
+    conn: &Connection,
+    fresh: bool,
+    migrations: &[(i64, &'static str, F)],
+) -> rusqlite::Result<Vec<&'static str>>
+where
+    F: Fn(&Connection) -> rusqlite::Result<()>,
+{
+    let latest = migrations.last().map_or(0, |m| m.0);
     conn.execute_batch("BEGIN IMMEDIATE")?;
     let result = (|| {
         let mut current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if fresh && current == 0 {
-            current = SCHEMA_VERSION;
-            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
+            current = latest;
+            conn.execute_batch(&format!("PRAGMA user_version = {latest}"))?;
         }
         let mut applied = Vec::new();
-        for (number, what, step) in MIGRATIONS {
-            if number > current {
+        for (number, what, step) in migrations {
+            if *number > current {
                 step(conn)?;
-                applied.push(what);
+                applied.push(*what);
             }
         }
-        if current < SCHEMA_VERSION {
-            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
+        if current < latest {
+            conn.execute_batch(&format!("PRAGMA user_version = {latest}"))?;
         }
         Ok(applied)
     })();
@@ -488,6 +499,19 @@ fn migrate(conn: &Connection, fresh: bool) -> rusqlite::Result<Vec<&'static str>
 
 /// Crea lo que falte y migra.
 pub fn prepare(conn: &Connection) -> rusqlite::Result<Vec<&'static str>> {
+    prepare_with(conn, SCHEMA, &MIGRATIONS)
+}
+
+/// `prepare` con el esquema y las migraciones que se le digan (en las
+/// pruebas, el de una versión de antes, o migraciones de mentira).
+fn prepare_with<F>(
+    conn: &Connection,
+    schema: &str,
+    migrations: &[(i64, &'static str, F)],
+) -> rusqlite::Result<Vec<&'static str>>
+where
+    F: Fn(&Connection) -> rusqlite::Result<()>,
+{
     // sin ninguna tabla: una base nueva (no una de antes de las versiones, ni
     // una del esquema en castellano, que sí tienen tablas)
     let n: i64 = conn.query_row(
@@ -499,11 +523,11 @@ pub fn prepare(conn: &Connection) -> rusqlite::Result<Vec<&'static str>> {
     if !conn.is_autocommit() {
         conn.execute_batch("COMMIT")?;
     }
-    conn.execute_batch(SCHEMA)?;
+    conn.execute_batch(schema)?;
     for extra in EXTRA_SCHEMAS {
         conn.execute_batch(extra)?;
     }
-    migrate(conn, fresh)
+    migrate(conn, fresh, migrations)
 }
 
 /// La base lleva el historial del chat y lo que escuchas: solo para su dueño
@@ -567,3 +591,6 @@ pub fn connect(path: &Path) -> rusqlite::Result<Connection> {
     }
     Ok(conn)
 }
+
+#[cfg(test)]
+mod tests;

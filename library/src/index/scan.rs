@@ -902,3 +902,50 @@ pub fn index_file(
         carry,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::{Scratch, make_audio};
+
+    /// Lo de tests/test_tags_lofty.py (`tags.read_many`, ahora lo que lee el
+    /// escaneo por adelantado): las etiquetas leídas a la vez, por tandas y en
+    /// paralelo, son las mismas que de una en una; lo que no existe sale
+    /// vacío.
+    #[test]
+    fn many_at_once_give_the_same_as_one_by_one() {
+        let dir = Scratch::new("lote");
+        let formats: [(&str, &[&str]); 6] = [
+            ("mp3", &["-codec:a", "libmp3lame", "-b:a", "64k"]),
+            ("flac", &["-codec:a", "flac"]),
+            ("ogg", &["-codec:a", "libvorbis", "-q:a", "1"]),
+            ("opus", &["-codec:a", "libopus", "-b:a", "32k"]),
+            ("m4a", &["-codec:a", "aac", "-b:a", "64k"]),
+            ("wav", &["-codec:a", "pcm_s16le"]),
+        ];
+        let mut paths = Vec::new();
+        for (i, (ext, codec)) in formats.iter().enumerate() {
+            let Some(p) = make_audio(&dir.join(format!("lote{i}.{ext}")), codec, 1.0, None) else {
+                println!("sin ffmpeg, o este no sabe escribir {ext}: se salta");
+                continue;
+            };
+            let changes = tags::Changes {
+                artist: Some(format!("Artista {i}")),
+                title: Some((*ext).to_owned()),
+                ..tags::Changes::default()
+            };
+            tags::write(&p, &changes).expect("etiquetas");
+            paths.push(p.to_string_lossy().into_owned());
+        }
+        let missing = dir.join("no-esta.mp3").to_string_lossy().into_owned();
+        let mut all = paths.clone();
+        all.push(missing.clone());
+        let mut ahead = ReadAhead::new(all);
+        for p in &paths {
+            let (many, error) = ahead.read(p);
+            assert_eq!(error, None, "{p}");
+            assert_eq!(many, tags::read(Path::new(p)), "{p}");
+        }
+        assert_eq!(ahead.read(&missing).0.artist, "");
+    }
+}

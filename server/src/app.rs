@@ -195,6 +195,16 @@ impl App {
         found
     }
 
+    /// En las pruebas: que la app crea que ese programa no está, aunque esté
+    /// en el PATH (en Python, `monkeypatch` de `available`). Vale una hora:
+    /// el «visto» queda en el futuro y `elapsed()` da cero hasta entonces.
+    #[cfg(test)]
+    pub(crate) fn hide_tool(&self, name: &str) {
+        let mut tools = self.tools.lock().unwrap_or_else(PoisonError::into_inner);
+        let later = Instant::now() + Duration::from_secs(3600);
+        tools.insert(name.to_owned(), (None, later));
+    }
+
     /// Lo que dice `config.env(name, default)` de Python (el entorno, los
     /// archivos de ajustes y los nombres de antes).
     pub fn env(&self, name: &str, default: &str) -> String {
@@ -263,4 +273,52 @@ fn resources_dir() -> PathBuf {
         return PathBuf::from(dir);
     }
     project_root().join("data")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta_keys(app: &App) -> Vec<String> {
+        app.db(|c| {
+            let mut stmt = c.prepare("SELECT key FROM meta")?;
+            stmt.query_map([], |r| r.get::<_, String>(0))?
+                .collect::<library::rusqlite::Result<Vec<_>>>()
+        })
+        .expect("leer")
+    }
+
+    /// Lo de tests/test_schema.py (`with library.connect() as conn`): lo que
+    /// se escribe dentro se confirma al acabar bien y se deshace si algo
+    /// falla. Como en Python, escribir abre la transacción (`index::begin`,
+    /// lo que hacen las funciones de la biblioteca antes de escribir). Que la
+    /// conexión quede cerrada al salir lo da Rust: se suelta con el bloque.
+    #[test]
+    fn a_db_block_commits_or_rolls_back() {
+        let app = crate::tests::app();
+        app.db(|c| -> Result<(), ApiError> {
+            library::index::begin(c)?;
+            c.execute("INSERT INTO meta (key, value) VALUES ('prueba', 1)", [])?;
+            Ok(())
+        })
+        .expect("escribir");
+        let failed = app.db(|c| -> Result<(), ApiError> {
+            library::index::begin(c)?;
+            c.execute("INSERT INTO meta (key, value) VALUES ('deshecha', 1)", [])?;
+            Err(ApiError::internal("algo fallo"))
+        });
+        assert!(failed.is_err());
+        // con el permiso de escribir pedido antes, igual
+        let failed = app.db_write(|c| -> Result<(), ApiError> {
+            c.execute("INSERT INTO meta (key, value) VALUES ('tampoco', 1)", [])?;
+            Err(ApiError::internal("algo fallo"))
+        });
+        assert!(failed.is_err());
+        let keys = meta_keys(&app);
+        assert!(keys.iter().any(|k| k == "prueba"), "{keys:?}");
+        assert!(
+            !keys.iter().any(|k| k == "deshecha" || k == "tampoco"),
+            "{keys:?}"
+        );
+    }
 }

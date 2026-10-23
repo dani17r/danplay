@@ -8,6 +8,9 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::Mutex;
 
+mod ai_cases;
+mod intake_cases;
+
 fn run(app: &App, name: &str, args: Value) -> Value {
     tools::run_tool(app, name, &args, &mut Turn::default())
 }

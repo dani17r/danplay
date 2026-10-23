@@ -45,3 +45,5 @@ pub mod voices;
 pub mod weights;
 
 mod np;
+#[cfg(test)]
+mod testkit;

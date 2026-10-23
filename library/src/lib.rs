@@ -46,6 +46,10 @@ pub mod ytdlp;
 
 mod asf;
 mod patterns;
+#[cfg(test)]
+mod repo_checks;
+#[cfg(test)]
+mod testkit;
 
 // Las mismas versiones de rusqlite y serde_json para quien use el índice
 // (core/).

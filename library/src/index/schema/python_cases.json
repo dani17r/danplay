@@ -1,0 +1,1079 @@
+{
+ "schema_version": 4,
+ "empty": {
+  "schema": [
+   [
+    "index",
+    "i_ai_usage_at",
+    "ai_usage",
+    "CREATE INDEX i_ai_usage_at ON ai_usage(at)"
+   ],
+   [
+    "index",
+    "i_artist",
+    "songs",
+    "CREATE INDEX i_artist ON songs(artist)"
+   ],
+   [
+    "index",
+    "i_chat_messages",
+    "chat_messages",
+    "CREATE INDEX i_chat_messages ON chat_messages(chat_id, id)"
+   ],
+   [
+    "index",
+    "i_downloads_at",
+    "downloads",
+    "CREATE INDEX i_downloads_at ON downloads(at DESC)"
+   ],
+   [
+    "index",
+    "i_lc",
+    "playlist_songs",
+    "CREATE INDEX i_lc ON playlist_songs(playlist_id, position)"
+   ],
+   [
+    "index",
+    "i_match_key",
+    "songs",
+    "CREATE INDEX i_match_key   ON songs(match_key)"
+   ],
+   [
+    "index",
+    "i_missing_path",
+    "songs_missing",
+    "CREATE INDEX i_missing_path ON songs_missing(path)"
+   ],
+   [
+    "index",
+    "i_missing_root",
+    "songs_missing",
+    "CREATE INDEX i_missing_root ON songs_missing(root)"
+   ],
+   [
+    "index",
+    "i_missing_size",
+    "songs_missing",
+    "CREATE INDEX i_missing_size ON songs_missing(size)"
+   ],
+   [
+    "index",
+    "i_playlist_songs_song",
+    "playlist_songs",
+    "CREATE INDEX i_playlist_songs_song ON playlist_songs(song_id)"
+   ],
+   [
+    "index",
+    "i_recent",
+    "recent",
+    "CREATE INDEX i_recent ON recent(played DESC)"
+   ],
+   [
+    "index",
+    "i_root",
+    "songs",
+    "CREATE INDEX i_root    ON songs(root)"
+   ],
+   [
+    "table",
+    "ai_usage",
+    "ai_usage",
+    "CREATE TABLE ai_usage (\n    id         INTEGER PRIMARY KEY,\n    at         REAL,\n    provider   TEXT DEFAULT '',\n    model      TEXT DEFAULT '',\n    purpose    TEXT DEFAULT '',\n    prompt     INTEGER DEFAULT 0,\n    completion INTEGER DEFAULT 0,\n    cost       REAL\n)"
+   ],
+   [
+    "table",
+    "chat_messages",
+    "chat_messages",
+    "CREATE TABLE chat_messages (\n    id      INTEGER PRIMARY KEY,\n    chat_id INTEGER NOT NULL,\n    at      REAL,\n    role    TEXT DEFAULT '',\n    text    TEXT DEFAULT '',\n    payload TEXT DEFAULT '{}'\n)"
+   ],
+   [
+    "table",
+    "chats",
+    "chats",
+    "CREATE TABLE chats (\n    id      INTEGER PRIMARY KEY,\n    title   TEXT DEFAULT '',\n    created REAL,\n    updated REAL\n)"
+   ],
+   [
+    "table",
+    "downloads",
+    "downloads",
+    "CREATE TABLE downloads (\n    id        INTEGER PRIMARY KEY,\n    at        REAL,\n    source    TEXT DEFAULT 'manual',   -- manual | assistant\n    query     TEXT DEFAULT '',\n    title     TEXT DEFAULT '',\n    channel   TEXT DEFAULT '',\n    url       TEXT DEFAULT '',\n    ok        INTEGER DEFAULT 0,\n    already   INTEGER DEFAULT 0,\n    reason    TEXT DEFAULT '',\n    song_id   INTEGER,\n    artist    TEXT DEFAULT '',\n    song      TEXT DEFAULT '',\n    target    TEXT DEFAULT '',\n    quality   TEXT DEFAULT '',\n    kbps      TEXT DEFAULT ''\n)"
+   ],
+   [
+    "table",
+    "exclusions",
+    "exclusions",
+    "CREATE TABLE exclusions (\n    pattern  TEXT PRIMARY KEY,\n    kind    TEXT DEFAULT 'glob',     -- glob | path\n    note    TEXT DEFAULT ''\n)"
+   ],
+   [
+    "table",
+    "external_songs",
+    "external_songs",
+    "CREATE TABLE external_songs (\n    id       INTEGER PRIMARY KEY,\n    path     TEXT UNIQUE,\n    file     TEXT DEFAULT '',\n    title    TEXT DEFAULT '',\n    artist   TEXT DEFAULT '',\n    album    TEXT DEFAULT '',\n    duration REAL DEFAULT 0\n)"
+   ],
+   [
+    "table",
+    "folders",
+    "folders",
+    "CREATE TABLE folders (\n    path      TEXT PRIMARY KEY,\n    label  TEXT,\n    role       TEXT DEFAULT 'biblioteca',   -- biblioteca | entrada | pistas | otros\n    active    INTEGER DEFAULT 1,\n    added  REAL\n)"
+   ],
+   [
+    "table",
+    "meta",
+    "meta",
+    "CREATE TABLE meta (\n    key    TEXT PRIMARY KEY,\n    value\n)"
+   ],
+   [
+    "table",
+    "playlist_songs",
+    "playlist_songs",
+    "CREATE TABLE playlist_songs (\n    playlist_id   INTEGER,\n    song_id INTEGER,\n    position      INTEGER,\n    added   REAL,\n    PRIMARY KEY (playlist_id, song_id)\n)"
+   ],
+   [
+    "table",
+    "playlists",
+    "playlists",
+    "CREATE TABLE playlists (\n    id      INTEGER PRIMARY KEY,\n    name  TEXT UNIQUE,\n    note    TEXT DEFAULT '',\n    color   TEXT DEFAULT '',\n    created  REAL\n)"
+   ],
+   [
+    "table",
+    "recent",
+    "recent",
+    "CREATE TABLE recent (\n    song_id  INTEGER PRIMARY KEY,   -- positivo: biblioteca. negativo: de fuera\n    played   REAL\n)"
+   ],
+   [
+    "table",
+    "search_index",
+    "search_index",
+    "CREATE VIRTUAL TABLE search_index USING fts5(\n    artist, title, album, file, folder, genre,\n    content='songs', content_rowid='id', tokenize=\"unicode61 remove_diacritics 2\"\n)"
+   ],
+   [
+    "table",
+    "search_index_config",
+    "search_index_config",
+    "CREATE TABLE 'search_index_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+   ],
+   [
+    "table",
+    "search_index_data",
+    "search_index_data",
+    "CREATE TABLE 'search_index_data'(id INTEGER PRIMARY KEY, block BLOB)"
+   ],
+   [
+    "table",
+    "search_index_docsize",
+    "search_index_docsize",
+    "CREATE TABLE 'search_index_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+   ],
+   [
+    "table",
+    "search_index_idx",
+    "search_index_idx",
+    "CREATE TABLE 'search_index_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+   ],
+   [
+    "table",
+    "song_cards",
+    "song_cards",
+    "CREATE TABLE song_cards (\n    song_id   INTEGER PRIMARY KEY,\n    artist    TEXT DEFAULT '',\n    title     TEXT DEFAULT '',\n    duration  REAL DEFAULT 0,\n    file      TEXT DEFAULT '',\n    path      TEXT DEFAULT '',\n    gone_at   REAL DEFAULT 0\n)"
+   ],
+   [
+    "table",
+    "songs",
+    "songs",
+    "CREATE TABLE songs (\n    id        INTEGER PRIMARY KEY,\n    path      TEXT UNIQUE,\n    root      TEXT,\n    folder   TEXT,\n    file   TEXT,\n    artist   TEXT DEFAULT '',\n    title    TEXT DEFAULT '',\n    album     TEXT DEFAULT '',\n    year      TEXT DEFAULT '',\n    genre    TEXT DEFAULT '',\n    feat      TEXT DEFAULT '',\n    match_key     TEXT DEFAULT '',\n    duration  REAL DEFAULT 0,\n    bitrate   INTEGER DEFAULT 0,\n    size   INTEGER DEFAULT 0,\n    mtime     REAL DEFAULT 0,\n    key      TEXT DEFAULT '',\n    bpm       REAL DEFAULT 0,\n    cover   TEXT DEFAULT '',\n    lyrics     TEXT DEFAULT '',\n    chords   TEXT DEFAULT '',\n    analyzed REAL DEFAULT 0,\n    stars INTEGER DEFAULT 0,\n    favorite  INTEGER DEFAULT 0,\n    blur      INTEGER DEFAULT 0,   -- la portada se pinta difuminada\n    lyrics_synced TEXT DEFAULT '', -- la letra con tiempos (LRC) de LRCLIB\n    study     TEXT DEFAULT '',     -- el modo estudio, en JSON\n    stems     TEXT DEFAULT ''      -- sus pistas separadas: la carpeta y el modelo (JSON)\n)"
+   ],
+   [
+    "table",
+    "songs_missing",
+    "songs_missing",
+    "CREATE TABLE songs_missing (\n    id       INTEGER PRIMARY KEY,\n    path     TEXT,\n    root     TEXT,\n    file     TEXT,\n    size     INTEGER,\n    mtime    REAL,\n    gone_at  REAL,\n    data     TEXT              -- la fila entera, en JSON\n)"
+   ],
+   [
+    "trigger",
+    "songs_ad",
+    "songs",
+    "CREATE TRIGGER songs_ad AFTER DELETE ON songs BEGIN\n    INSERT INTO search_index(search_index, rowid, artist, title, album, file, folder, genre)\n    VALUES ('delete', old.id, old.artist, old.title, old.album, old.file, old.folder, old.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_ai",
+    "songs",
+    "CREATE TRIGGER songs_ai AFTER INSERT ON songs BEGIN\n    INSERT INTO search_index(rowid, artist, title, album, file, folder, genre)\n    VALUES (new.id, new.artist, new.title, new.album, new.file, new.folder, new.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_au",
+    "songs",
+    "CREATE TRIGGER songs_au\nAFTER UPDATE OF artist, title, album, file, folder, genre ON songs BEGIN\n    INSERT INTO search_index(search_index, rowid, artist, title, album, file, folder, genre)\n    VALUES ('delete', old.id, old.artist, old.title, old.album, old.file, old.folder, old.genre);\n    INSERT INTO search_index(rowid, artist, title, album, file, folder, genre)\n    VALUES (new.id, new.artist, new.title, new.album, new.file, new.folder, new.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_hwm",
+    "songs",
+    "CREATE TRIGGER songs_hwm AFTER INSERT ON songs BEGIN\n    INSERT OR REPLACE INTO meta (key, value) VALUES ('song_id_hwm',\n        MAX(new.id, COALESCE((SELECT value FROM meta WHERE key='song_id_hwm'), 0)));\nEND"
+   ]
+  ],
+  "version": 4,
+  "data": {
+   "folders": [],
+   "exclusions": [],
+   "songs": [],
+   "songs_missing": [],
+   "meta": [],
+   "ai_usage": [],
+   "downloads": [],
+   "chats": [],
+   "chat_messages": [],
+   "external_songs": [],
+   "recent": [],
+   "playlists": [],
+   "playlist_songs": [],
+   "song_cards": []
+  },
+  "fts": []
+ },
+ "before_versions": {
+  "schema": [
+   [
+    "index",
+    "i_ai_usage_at",
+    "ai_usage",
+    "CREATE INDEX i_ai_usage_at ON ai_usage(at)"
+   ],
+   [
+    "index",
+    "i_artist",
+    "songs",
+    "CREATE INDEX i_artist ON songs(artist)"
+   ],
+   [
+    "index",
+    "i_chat_messages",
+    "chat_messages",
+    "CREATE INDEX i_chat_messages ON chat_messages(chat_id, id)"
+   ],
+   [
+    "index",
+    "i_downloads_at",
+    "downloads",
+    "CREATE INDEX i_downloads_at ON downloads(at DESC)"
+   ],
+   [
+    "index",
+    "i_lc",
+    "playlist_songs",
+    "CREATE INDEX i_lc ON playlist_songs(playlist_id, position)"
+   ],
+   [
+    "index",
+    "i_match_key",
+    "songs",
+    "CREATE INDEX i_match_key   ON songs(match_key)"
+   ],
+   [
+    "index",
+    "i_missing_path",
+    "songs_missing",
+    "CREATE INDEX i_missing_path ON songs_missing(path)"
+   ],
+   [
+    "index",
+    "i_missing_root",
+    "songs_missing",
+    "CREATE INDEX i_missing_root ON songs_missing(root)"
+   ],
+   [
+    "index",
+    "i_missing_size",
+    "songs_missing",
+    "CREATE INDEX i_missing_size ON songs_missing(size)"
+   ],
+   [
+    "index",
+    "i_playlist_songs_song",
+    "playlist_songs",
+    "CREATE INDEX i_playlist_songs_song ON playlist_songs(song_id)"
+   ],
+   [
+    "index",
+    "i_recent",
+    "recent",
+    "CREATE INDEX i_recent ON recent(played DESC)"
+   ],
+   [
+    "index",
+    "i_root",
+    "songs",
+    "CREATE INDEX i_root    ON songs(root)"
+   ],
+   [
+    "table",
+    "ai_usage",
+    "ai_usage",
+    "CREATE TABLE ai_usage (\n    id         INTEGER PRIMARY KEY,\n    at         REAL,\n    provider   TEXT DEFAULT '',\n    model      TEXT DEFAULT '',\n    purpose    TEXT DEFAULT '',\n    prompt     INTEGER DEFAULT 0,\n    completion INTEGER DEFAULT 0,\n    cost       REAL\n)"
+   ],
+   [
+    "table",
+    "chat_messages",
+    "chat_messages",
+    "CREATE TABLE chat_messages (\n    id      INTEGER PRIMARY KEY,\n    chat_id INTEGER NOT NULL,\n    at      REAL,\n    role    TEXT DEFAULT '',\n    text    TEXT DEFAULT '',\n    payload TEXT DEFAULT '{}'\n)"
+   ],
+   [
+    "table",
+    "chats",
+    "chats",
+    "CREATE TABLE chats (\n    id      INTEGER PRIMARY KEY,\n    title   TEXT DEFAULT '',\n    created REAL,\n    updated REAL\n)"
+   ],
+   [
+    "table",
+    "downloads",
+    "downloads",
+    "CREATE TABLE downloads (\n    id        INTEGER PRIMARY KEY,\n    at        REAL,\n    source    TEXT DEFAULT 'manual',   -- manual | assistant\n    query     TEXT DEFAULT '',\n    title     TEXT DEFAULT '',\n    channel   TEXT DEFAULT '',\n    url       TEXT DEFAULT '',\n    ok        INTEGER DEFAULT 0,\n    already   INTEGER DEFAULT 0,\n    reason    TEXT DEFAULT '',\n    song_id   INTEGER,\n    artist    TEXT DEFAULT '',\n    song      TEXT DEFAULT '',\n    target    TEXT DEFAULT '',\n    quality   TEXT DEFAULT '',\n    kbps      TEXT DEFAULT ''\n)"
+   ],
+   [
+    "table",
+    "exclusions",
+    "exclusions",
+    "CREATE TABLE exclusions (\n    pattern  TEXT PRIMARY KEY,\n    kind    TEXT DEFAULT 'glob',     -- glob | path\n    note    TEXT DEFAULT ''\n)"
+   ],
+   [
+    "table",
+    "external_songs",
+    "external_songs",
+    "CREATE TABLE external_songs (\n    id       INTEGER PRIMARY KEY,\n    path     TEXT UNIQUE,\n    file     TEXT DEFAULT '',\n    title    TEXT DEFAULT '',\n    artist   TEXT DEFAULT '',\n    album    TEXT DEFAULT '',\n    duration REAL DEFAULT 0\n)"
+   ],
+   [
+    "table",
+    "folders",
+    "folders",
+    "CREATE TABLE folders (\n    path      TEXT PRIMARY KEY,\n    label  TEXT,\n    role       TEXT DEFAULT 'biblioteca',   -- biblioteca | entrada | pistas | otros\n    active    INTEGER DEFAULT 1,\n    added  REAL\n)"
+   ],
+   [
+    "table",
+    "meta",
+    "meta",
+    "CREATE TABLE meta (\n    key    TEXT PRIMARY KEY,\n    value\n)"
+   ],
+   [
+    "table",
+    "playlist_songs",
+    "playlist_songs",
+    "CREATE TABLE playlist_songs (playlist_id INTEGER, song_id INTEGER, position INTEGER, added REAL, PRIMARY KEY (playlist_id, song_id))"
+   ],
+   [
+    "table",
+    "playlists",
+    "playlists",
+    "CREATE TABLE playlists (\n    id      INTEGER PRIMARY KEY,\n    name  TEXT UNIQUE,\n    note    TEXT DEFAULT '',\n    color   TEXT DEFAULT '',\n    created  REAL\n)"
+   ],
+   [
+    "table",
+    "recent",
+    "recent",
+    "CREATE TABLE recent (\n    song_id  INTEGER PRIMARY KEY,   -- positivo: biblioteca. negativo: de fuera\n    played   REAL\n)"
+   ],
+   [
+    "table",
+    "search_index",
+    "search_index",
+    "CREATE VIRTUAL TABLE search_index USING fts5(\n    artist, title, album, file, folder, genre,\n    content='songs', content_rowid='id', tokenize=\"unicode61 remove_diacritics 2\"\n)"
+   ],
+   [
+    "table",
+    "search_index_config",
+    "search_index_config",
+    "CREATE TABLE 'search_index_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+   ],
+   [
+    "table",
+    "search_index_data",
+    "search_index_data",
+    "CREATE TABLE 'search_index_data'(id INTEGER PRIMARY KEY, block BLOB)"
+   ],
+   [
+    "table",
+    "search_index_docsize",
+    "search_index_docsize",
+    "CREATE TABLE 'search_index_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+   ],
+   [
+    "table",
+    "search_index_idx",
+    "search_index_idx",
+    "CREATE TABLE 'search_index_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+   ],
+   [
+    "table",
+    "song_cards",
+    "song_cards",
+    "CREATE TABLE song_cards (\n    song_id   INTEGER PRIMARY KEY,\n    artist    TEXT DEFAULT '',\n    title     TEXT DEFAULT '',\n    duration  REAL DEFAULT 0,\n    file      TEXT DEFAULT '',\n    path      TEXT DEFAULT '',\n    gone_at   REAL DEFAULT 0\n)"
+   ],
+   [
+    "table",
+    "songs",
+    "songs",
+    "CREATE TABLE songs (id INTEGER PRIMARY KEY, path TEXT, root TEXT, folder TEXT, file TEXT, artist TEXT, title TEXT, album TEXT, year TEXT, genre TEXT, feat TEXT, match_key TEXT, duration TEXT, bitrate TEXT, size TEXT, mtime TEXT, key TEXT, bpm TEXT, cover TEXT, lyrics TEXT, stars TEXT, favorite TEXT, chords TEXT, analyzed REAL, blur INTEGER DEFAULT 0, lyrics_synced TEXT DEFAULT '', study TEXT DEFAULT '', stems TEXT DEFAULT '')"
+   ],
+   [
+    "table",
+    "songs_missing",
+    "songs_missing",
+    "CREATE TABLE songs_missing (\n    id       INTEGER PRIMARY KEY,\n    path     TEXT,\n    root     TEXT,\n    file     TEXT,\n    size     INTEGER,\n    mtime    REAL,\n    gone_at  REAL,\n    data     TEXT              -- la fila entera, en JSON\n)"
+   ],
+   [
+    "trigger",
+    "songs_ad",
+    "songs",
+    "CREATE TRIGGER songs_ad AFTER DELETE ON songs BEGIN\n    INSERT INTO search_index(search_index, rowid, artist, title, album, file, folder, genre)\n    VALUES ('delete', old.id, old.artist, old.title, old.album, old.file, old.folder, old.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_ai",
+    "songs",
+    "CREATE TRIGGER songs_ai AFTER INSERT ON songs BEGIN\n    INSERT INTO search_index(rowid, artist, title, album, file, folder, genre)\n    VALUES (new.id, new.artist, new.title, new.album, new.file, new.folder, new.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_au",
+    "songs",
+    "CREATE TRIGGER songs_au\nAFTER UPDATE OF artist, title, album, file, folder, genre ON songs BEGIN\n    INSERT INTO search_index(search_index, rowid, artist, title, album, file, folder, genre)\n    VALUES ('delete', old.id, old.artist, old.title, old.album, old.file, old.folder, old.genre);\n    INSERT INTO search_index(rowid, artist, title, album, file, folder, genre)\n    VALUES (new.id, new.artist, new.title, new.album, new.file, new.folder, new.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_hwm",
+    "songs",
+    "CREATE TRIGGER songs_hwm AFTER INSERT ON songs BEGIN\n    INSERT OR REPLACE INTO meta (key, value) VALUES ('song_id_hwm',\n        MAX(new.id, COALESCE((SELECT value FROM meta WHERE key='song_id_hwm'), 0)));\nEND"
+   ]
+  ],
+  "version": 4,
+  "data": {
+   "songs": [
+    [
+     7,
+     "/x/uno.mp3",
+     null,
+     null,
+     null,
+     null,
+     "Mi Gozo",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     0,
+     "",
+     "",
+     ""
+    ]
+   ],
+   "playlist_songs": [
+    [
+     1,
+     40,
+     0,
+     0.0
+    ]
+   ],
+   "folders": [],
+   "exclusions": [],
+   "songs_missing": [],
+   "meta": [
+    [
+     "song_id_hwm",
+     40
+    ]
+   ],
+   "ai_usage": [],
+   "downloads": [],
+   "chats": [],
+   "chat_messages": [],
+   "external_songs": [],
+   "recent": [],
+   "playlists": [],
+   "song_cards": []
+  },
+  "fts": []
+ },
+ "spanish": {
+  "schema": [
+   [
+    "index",
+    "i_ai_usage_at",
+    "ai_usage",
+    "CREATE INDEX i_ai_usage_at ON ai_usage(at)"
+   ],
+   [
+    "index",
+    "i_artist",
+    "songs",
+    "CREATE INDEX i_artist ON songs(artist)"
+   ],
+   [
+    "index",
+    "i_chat_messages",
+    "chat_messages",
+    "CREATE INDEX i_chat_messages ON chat_messages(chat_id, id)"
+   ],
+   [
+    "index",
+    "i_downloads_at",
+    "downloads",
+    "CREATE INDEX i_downloads_at ON downloads(at DESC)"
+   ],
+   [
+    "index",
+    "i_lc",
+    "playlist_songs",
+    "CREATE INDEX i_lc ON playlist_songs(playlist_id, position)"
+   ],
+   [
+    "index",
+    "i_match_key",
+    "songs",
+    "CREATE INDEX i_match_key   ON songs(match_key)"
+   ],
+   [
+    "index",
+    "i_missing_path",
+    "songs_missing",
+    "CREATE INDEX i_missing_path ON songs_missing(path)"
+   ],
+   [
+    "index",
+    "i_missing_root",
+    "songs_missing",
+    "CREATE INDEX i_missing_root ON songs_missing(root)"
+   ],
+   [
+    "index",
+    "i_missing_size",
+    "songs_missing",
+    "CREATE INDEX i_missing_size ON songs_missing(size)"
+   ],
+   [
+    "index",
+    "i_playlist_songs_song",
+    "playlist_songs",
+    "CREATE INDEX i_playlist_songs_song ON playlist_songs(song_id)"
+   ],
+   [
+    "index",
+    "i_recent",
+    "recent",
+    "CREATE INDEX i_recent ON recent(played DESC)"
+   ],
+   [
+    "index",
+    "i_root",
+    "songs",
+    "CREATE INDEX i_root    ON songs(root)"
+   ],
+   [
+    "table",
+    "ai_usage",
+    "ai_usage",
+    "CREATE TABLE ai_usage (\n    id         INTEGER PRIMARY KEY,\n    at         REAL,\n    provider   TEXT DEFAULT '',\n    model      TEXT DEFAULT '',\n    purpose    TEXT DEFAULT '',\n    prompt     INTEGER DEFAULT 0,\n    completion INTEGER DEFAULT 0,\n    cost       REAL\n)"
+   ],
+   [
+    "table",
+    "chat_messages",
+    "chat_messages",
+    "CREATE TABLE chat_messages (\n    id      INTEGER PRIMARY KEY,\n    chat_id INTEGER NOT NULL,\n    at      REAL,\n    role    TEXT DEFAULT '',\n    text    TEXT DEFAULT '',\n    payload TEXT DEFAULT '{}'\n)"
+   ],
+   [
+    "table",
+    "chats",
+    "chats",
+    "CREATE TABLE chats (\n    id      INTEGER PRIMARY KEY,\n    title   TEXT DEFAULT '',\n    created REAL,\n    updated REAL\n)"
+   ],
+   [
+    "table",
+    "downloads",
+    "downloads",
+    "CREATE TABLE downloads (\n    id        INTEGER PRIMARY KEY,\n    at        REAL,\n    source    TEXT DEFAULT 'manual',   -- manual | assistant\n    query     TEXT DEFAULT '',\n    title     TEXT DEFAULT '',\n    channel   TEXT DEFAULT '',\n    url       TEXT DEFAULT '',\n    ok        INTEGER DEFAULT 0,\n    already   INTEGER DEFAULT 0,\n    reason    TEXT DEFAULT '',\n    song_id   INTEGER,\n    artist    TEXT DEFAULT '',\n    song      TEXT DEFAULT '',\n    target    TEXT DEFAULT '',\n    quality   TEXT DEFAULT '',\n    kbps      TEXT DEFAULT ''\n)"
+   ],
+   [
+    "table",
+    "exclusions",
+    "exclusions",
+    "CREATE TABLE exclusions (\n    pattern  TEXT PRIMARY KEY,\n    kind    TEXT DEFAULT 'glob',     -- glob | path\n    note    TEXT DEFAULT ''\n)"
+   ],
+   [
+    "table",
+    "external_songs",
+    "external_songs",
+    "CREATE TABLE external_songs (\n    id       INTEGER PRIMARY KEY,\n    path     TEXT UNIQUE,\n    file     TEXT DEFAULT '',\n    title    TEXT DEFAULT '',\n    artist   TEXT DEFAULT '',\n    album    TEXT DEFAULT '',\n    duration REAL DEFAULT 0\n)"
+   ],
+   [
+    "table",
+    "folders",
+    "folders",
+    "CREATE TABLE folders (\n    path      TEXT PRIMARY KEY,\n    label  TEXT,\n    role       TEXT DEFAULT 'biblioteca',   -- biblioteca | entrada | pistas | otros\n    active    INTEGER DEFAULT 1,\n    added  REAL\n)"
+   ],
+   [
+    "table",
+    "meta",
+    "meta",
+    "CREATE TABLE meta (\n    key    TEXT PRIMARY KEY,\n    value\n)"
+   ],
+   [
+    "table",
+    "playlist_songs",
+    "playlist_songs",
+    "CREATE TABLE playlist_songs (\n    playlist_id   INTEGER,\n    song_id INTEGER,\n    position      INTEGER,\n    added   REAL,\n    PRIMARY KEY (playlist_id, song_id)\n)"
+   ],
+   [
+    "table",
+    "playlists",
+    "playlists",
+    "CREATE TABLE playlists (\n    id      INTEGER PRIMARY KEY,\n    name  TEXT UNIQUE,\n    note    TEXT DEFAULT '',\n    color   TEXT DEFAULT '',\n    created  REAL\n)"
+   ],
+   [
+    "table",
+    "recent",
+    "recent",
+    "CREATE TABLE recent (\n    song_id  INTEGER PRIMARY KEY,   -- positivo: biblioteca. negativo: de fuera\n    played   REAL\n)"
+   ],
+   [
+    "table",
+    "search_index",
+    "search_index",
+    "CREATE VIRTUAL TABLE search_index USING fts5(\n    artist, title, album, file, folder, genre,\n    content='songs', content_rowid='id', tokenize=\"unicode61 remove_diacritics 2\"\n)"
+   ],
+   [
+    "table",
+    "search_index_config",
+    "search_index_config",
+    "CREATE TABLE 'search_index_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+   ],
+   [
+    "table",
+    "search_index_data",
+    "search_index_data",
+    "CREATE TABLE 'search_index_data'(id INTEGER PRIMARY KEY, block BLOB)"
+   ],
+   [
+    "table",
+    "search_index_docsize",
+    "search_index_docsize",
+    "CREATE TABLE 'search_index_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+   ],
+   [
+    "table",
+    "search_index_idx",
+    "search_index_idx",
+    "CREATE TABLE 'search_index_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+   ],
+   [
+    "table",
+    "song_cards",
+    "song_cards",
+    "CREATE TABLE song_cards (\n    song_id   INTEGER PRIMARY KEY,\n    artist    TEXT DEFAULT '',\n    title     TEXT DEFAULT '',\n    duration  REAL DEFAULT 0,\n    file      TEXT DEFAULT '',\n    path      TEXT DEFAULT '',\n    gone_at   REAL DEFAULT 0\n)"
+   ],
+   [
+    "table",
+    "songs",
+    "songs",
+    "CREATE TABLE songs (\n    id        INTEGER PRIMARY KEY,\n    path      TEXT UNIQUE,\n    root      TEXT,\n    folder   TEXT,\n    file   TEXT,\n    artist   TEXT DEFAULT '',\n    title    TEXT DEFAULT '',\n    album     TEXT DEFAULT '',\n    year      TEXT DEFAULT '',\n    genre    TEXT DEFAULT '',\n    feat      TEXT DEFAULT '',\n    match_key     TEXT DEFAULT '',\n    duration  REAL DEFAULT 0,\n    bitrate   INTEGER DEFAULT 0,\n    size   INTEGER DEFAULT 0,\n    mtime     REAL DEFAULT 0,\n    key      TEXT DEFAULT '',\n    bpm       REAL DEFAULT 0,\n    cover   TEXT DEFAULT '',\n    lyrics     TEXT DEFAULT '',\n    chords   TEXT DEFAULT '',\n    analyzed REAL DEFAULT 0,\n    stars INTEGER DEFAULT 0,\n    favorite  INTEGER DEFAULT 0,\n    blur      INTEGER DEFAULT 0,   -- la portada se pinta difuminada\n    lyrics_synced TEXT DEFAULT '', -- la letra con tiempos (LRC) de LRCLIB\n    study     TEXT DEFAULT '',     -- el modo estudio, en JSON\n    stems     TEXT DEFAULT ''      -- sus pistas separadas: la carpeta y el modelo (JSON)\n)"
+   ],
+   [
+    "table",
+    "songs_missing",
+    "songs_missing",
+    "CREATE TABLE songs_missing (\n    id       INTEGER PRIMARY KEY,\n    path     TEXT,\n    root     TEXT,\n    file     TEXT,\n    size     INTEGER,\n    mtime    REAL,\n    gone_at  REAL,\n    data     TEXT              -- la fila entera, en JSON\n)"
+   ],
+   [
+    "trigger",
+    "songs_ad",
+    "songs",
+    "CREATE TRIGGER songs_ad AFTER DELETE ON songs BEGIN\n    INSERT INTO search_index(search_index, rowid, artist, title, album, file, folder, genre)\n    VALUES ('delete', old.id, old.artist, old.title, old.album, old.file, old.folder, old.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_ai",
+    "songs",
+    "CREATE TRIGGER songs_ai AFTER INSERT ON songs BEGIN\n    INSERT INTO search_index(rowid, artist, title, album, file, folder, genre)\n    VALUES (new.id, new.artist, new.title, new.album, new.file, new.folder, new.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_au",
+    "songs",
+    "CREATE TRIGGER songs_au\nAFTER UPDATE OF artist, title, album, file, folder, genre ON songs BEGIN\n    INSERT INTO search_index(search_index, rowid, artist, title, album, file, folder, genre)\n    VALUES ('delete', old.id, old.artist, old.title, old.album, old.file, old.folder, old.genre);\n    INSERT INTO search_index(rowid, artist, title, album, file, folder, genre)\n    VALUES (new.id, new.artist, new.title, new.album, new.file, new.folder, new.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_hwm",
+    "songs",
+    "CREATE TRIGGER songs_hwm AFTER INSERT ON songs BEGIN\n    INSERT OR REPLACE INTO meta (key, value) VALUES ('song_id_hwm',\n        MAX(new.id, COALESCE((SELECT value FROM meta WHERE key='song_id_hwm'), 0)));\nEND"
+   ]
+  ],
+  "version": 4,
+  "data": {
+   "folders": [
+    [
+     "/m",
+     "Musica",
+     "library",
+     1,
+     0.0
+    ]
+   ],
+   "exclusions": [
+    [
+     "/m/x",
+     "path",
+     ""
+    ]
+   ],
+   "songs": [
+    [
+     3,
+     "/m/Barak - Mi Gozo.mp3",
+     null,
+     null,
+     null,
+     "Barak",
+     "Mi Gozo",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     4,
+     null,
+     0,
+     "",
+     "",
+     ""
+    ]
+   ],
+   "songs_missing": [],
+   "meta": [
+    [
+     "song_id_hwm",
+     3
+    ]
+   ],
+   "ai_usage": [],
+   "downloads": [],
+   "chats": [],
+   "chat_messages": [],
+   "external_songs": [],
+   "recent": [],
+   "playlists": [
+    [
+     1,
+     "Domingo",
+     "",
+     "",
+     0.0
+    ]
+   ],
+   "playlist_songs": [
+    [
+     1,
+     3,
+     0,
+     null
+    ]
+   ],
+   "song_cards": []
+  },
+  "fts": [
+   3
+  ]
+ },
+ "version_3": {
+  "schema": [
+   [
+    "index",
+    "i_ai_usage_at",
+    "ai_usage",
+    "CREATE INDEX i_ai_usage_at ON ai_usage(at)"
+   ],
+   [
+    "index",
+    "i_artist",
+    "songs",
+    "CREATE INDEX i_artist ON songs(artist)"
+   ],
+   [
+    "index",
+    "i_chat_messages",
+    "chat_messages",
+    "CREATE INDEX i_chat_messages ON chat_messages(chat_id, id)"
+   ],
+   [
+    "index",
+    "i_downloads_at",
+    "downloads",
+    "CREATE INDEX i_downloads_at ON downloads(at DESC)"
+   ],
+   [
+    "index",
+    "i_lc",
+    "playlist_songs",
+    "CREATE INDEX i_lc ON playlist_songs(playlist_id, position)"
+   ],
+   [
+    "index",
+    "i_match_key",
+    "songs",
+    "CREATE INDEX i_match_key   ON songs(match_key)"
+   ],
+   [
+    "index",
+    "i_missing_path",
+    "songs_missing",
+    "CREATE INDEX i_missing_path ON songs_missing(path)"
+   ],
+   [
+    "index",
+    "i_missing_root",
+    "songs_missing",
+    "CREATE INDEX i_missing_root ON songs_missing(root)"
+   ],
+   [
+    "index",
+    "i_missing_size",
+    "songs_missing",
+    "CREATE INDEX i_missing_size ON songs_missing(size)"
+   ],
+   [
+    "index",
+    "i_playlist_songs_song",
+    "playlist_songs",
+    "CREATE INDEX i_playlist_songs_song ON playlist_songs(song_id)"
+   ],
+   [
+    "index",
+    "i_recent",
+    "recent",
+    "CREATE INDEX i_recent ON recent(played DESC)"
+   ],
+   [
+    "index",
+    "i_root",
+    "songs",
+    "CREATE INDEX i_root    ON songs(root)"
+   ],
+   [
+    "table",
+    "ai_usage",
+    "ai_usage",
+    "CREATE TABLE ai_usage (\n    id         INTEGER PRIMARY KEY,\n    at         REAL,\n    provider   TEXT DEFAULT '',\n    model      TEXT DEFAULT '',\n    purpose    TEXT DEFAULT '',\n    prompt     INTEGER DEFAULT 0,\n    completion INTEGER DEFAULT 0,\n    cost       REAL\n)"
+   ],
+   [
+    "table",
+    "chat_messages",
+    "chat_messages",
+    "CREATE TABLE chat_messages (\n    id      INTEGER PRIMARY KEY,\n    chat_id INTEGER NOT NULL,\n    at      REAL,\n    role    TEXT DEFAULT '',\n    text    TEXT DEFAULT '',\n    payload TEXT DEFAULT '{}'\n)"
+   ],
+   [
+    "table",
+    "chats",
+    "chats",
+    "CREATE TABLE chats (\n    id      INTEGER PRIMARY KEY,\n    title   TEXT DEFAULT '',\n    created REAL,\n    updated REAL\n)"
+   ],
+   [
+    "table",
+    "downloads",
+    "downloads",
+    "CREATE TABLE downloads (\n    id        INTEGER PRIMARY KEY,\n    at        REAL,\n    source    TEXT DEFAULT 'manual',   -- manual | assistant\n    query     TEXT DEFAULT '',\n    title     TEXT DEFAULT '',\n    channel   TEXT DEFAULT '',\n    url       TEXT DEFAULT '',\n    ok        INTEGER DEFAULT 0,\n    already   INTEGER DEFAULT 0,\n    reason    TEXT DEFAULT '',\n    song_id   INTEGER,\n    artist    TEXT DEFAULT '',\n    song      TEXT DEFAULT '',\n    target    TEXT DEFAULT '',\n    quality   TEXT DEFAULT '',\n    kbps      TEXT DEFAULT ''\n)"
+   ],
+   [
+    "table",
+    "exclusions",
+    "exclusions",
+    "CREATE TABLE exclusions (\n    pattern  TEXT PRIMARY KEY,\n    kind    TEXT DEFAULT 'glob',     -- glob | path\n    note    TEXT DEFAULT ''\n)"
+   ],
+   [
+    "table",
+    "external_songs",
+    "external_songs",
+    "CREATE TABLE external_songs (\n    id       INTEGER PRIMARY KEY,\n    path     TEXT UNIQUE,\n    file     TEXT DEFAULT '',\n    title    TEXT DEFAULT '',\n    artist   TEXT DEFAULT '',\n    album    TEXT DEFAULT '',\n    duration REAL DEFAULT 0\n)"
+   ],
+   [
+    "table",
+    "folders",
+    "folders",
+    "CREATE TABLE folders (\n    path      TEXT PRIMARY KEY,\n    label  TEXT,\n    role       TEXT DEFAULT 'biblioteca',   -- biblioteca | entrada | pistas | otros\n    active    INTEGER DEFAULT 1,\n    added  REAL\n)"
+   ],
+   [
+    "table",
+    "meta",
+    "meta",
+    "CREATE TABLE meta (\n    key    TEXT PRIMARY KEY,\n    value\n)"
+   ],
+   [
+    "table",
+    "playlist_songs",
+    "playlist_songs",
+    "CREATE TABLE playlist_songs (\n    playlist_id   INTEGER,\n    song_id INTEGER,\n    position      INTEGER,\n    added   REAL,\n    PRIMARY KEY (playlist_id, song_id)\n)"
+   ],
+   [
+    "table",
+    "playlists",
+    "playlists",
+    "CREATE TABLE playlists (\n    id      INTEGER PRIMARY KEY,\n    name  TEXT UNIQUE,\n    note    TEXT DEFAULT '',\n    color   TEXT DEFAULT '',\n    created  REAL\n)"
+   ],
+   [
+    "table",
+    "recent",
+    "recent",
+    "CREATE TABLE recent (\n    song_id  INTEGER PRIMARY KEY,   -- positivo: biblioteca. negativo: de fuera\n    played   REAL\n)"
+   ],
+   [
+    "table",
+    "search_index",
+    "search_index",
+    "CREATE VIRTUAL TABLE search_index USING fts5(\n    artist, title, album, file, folder, genre,\n    content='songs', content_rowid='id', tokenize=\"unicode61 remove_diacritics 2\"\n)"
+   ],
+   [
+    "table",
+    "search_index_config",
+    "search_index_config",
+    "CREATE TABLE 'search_index_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+   ],
+   [
+    "table",
+    "search_index_data",
+    "search_index_data",
+    "CREATE TABLE 'search_index_data'(id INTEGER PRIMARY KEY, block BLOB)"
+   ],
+   [
+    "table",
+    "search_index_docsize",
+    "search_index_docsize",
+    "CREATE TABLE 'search_index_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+   ],
+   [
+    "table",
+    "search_index_idx",
+    "search_index_idx",
+    "CREATE TABLE 'search_index_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+   ],
+   [
+    "table",
+    "song_cards",
+    "song_cards",
+    "CREATE TABLE song_cards (\n    song_id   INTEGER PRIMARY KEY,\n    artist    TEXT DEFAULT '',\n    title     TEXT DEFAULT '',\n    duration  REAL DEFAULT 0,\n    file      TEXT DEFAULT '',\n    path      TEXT DEFAULT '',\n    gone_at   REAL DEFAULT 0\n)"
+   ],
+   [
+    "table",
+    "songs",
+    "songs",
+    "CREATE TABLE songs (\n    id        INTEGER PRIMARY KEY,\n    path      TEXT UNIQUE,\n    root      TEXT,\n    folder   TEXT,\n    file   TEXT,\n    artist   TEXT DEFAULT '',\n    title    TEXT DEFAULT '',\n    album     TEXT DEFAULT '',\n    year      TEXT DEFAULT '',\n    genre    TEXT DEFAULT '',\n    feat      TEXT DEFAULT '',\n    match_key     TEXT DEFAULT '',\n    duration  REAL DEFAULT 0,\n    bitrate   INTEGER DEFAULT 0,\n    size   INTEGER DEFAULT 0,\n    mtime     REAL DEFAULT 0,\n    key      TEXT DEFAULT '',\n    bpm       REAL DEFAULT 0,\n    cover   TEXT DEFAULT '',\n    lyrics     TEXT DEFAULT '',\n    chords   TEXT DEFAULT '',\n    analyzed REAL DEFAULT 0,\n    stars INTEGER DEFAULT 0,\n    favorite  INTEGER DEFAULT 0,\n    blur      INTEGER DEFAULT 0,   -- la portada se pinta difuminada\n    lyrics_synced TEXT DEFAULT '', -- la letra con tiempos (LRC) de LRCLIB\n    study     TEXT DEFAULT ''      -- el modo estudio, en JSON\n, stems TEXT DEFAULT '')"
+   ],
+   [
+    "table",
+    "songs_missing",
+    "songs_missing",
+    "CREATE TABLE songs_missing (\n    id       INTEGER PRIMARY KEY,\n    path     TEXT,\n    root     TEXT,\n    file     TEXT,\n    size     INTEGER,\n    mtime    REAL,\n    gone_at  REAL,\n    data     TEXT              -- la fila entera, en JSON\n)"
+   ],
+   [
+    "trigger",
+    "songs_ad",
+    "songs",
+    "CREATE TRIGGER songs_ad AFTER DELETE ON songs BEGIN\n    INSERT INTO search_index(search_index, rowid, artist, title, album, file, folder, genre)\n    VALUES ('delete', old.id, old.artist, old.title, old.album, old.file, old.folder, old.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_ai",
+    "songs",
+    "CREATE TRIGGER songs_ai AFTER INSERT ON songs BEGIN\n    INSERT INTO search_index(rowid, artist, title, album, file, folder, genre)\n    VALUES (new.id, new.artist, new.title, new.album, new.file, new.folder, new.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_au",
+    "songs",
+    "CREATE TRIGGER songs_au\nAFTER UPDATE OF artist, title, album, file, folder, genre ON songs BEGIN\n    INSERT INTO search_index(search_index, rowid, artist, title, album, file, folder, genre)\n    VALUES ('delete', old.id, old.artist, old.title, old.album, old.file, old.folder, old.genre);\n    INSERT INTO search_index(rowid, artist, title, album, file, folder, genre)\n    VALUES (new.id, new.artist, new.title, new.album, new.file, new.folder, new.genre);\nEND"
+   ],
+   [
+    "trigger",
+    "songs_hwm",
+    "songs",
+    "CREATE TRIGGER songs_hwm AFTER INSERT ON songs BEGIN\n    INSERT OR REPLACE INTO meta (key, value) VALUES ('song_id_hwm',\n        MAX(new.id, COALESCE((SELECT value FROM meta WHERE key='song_id_hwm'), 0)));\nEND"
+   ]
+  ],
+  "version": 4,
+  "data": {
+   "folders": [],
+   "exclusions": [],
+   "songs": [
+    [
+     5,
+     "/m/x.mp3",
+     null,
+     null,
+     null,
+     "",
+     "Gozo",
+     "",
+     "",
+     "",
+     "",
+     "",
+     0.0,
+     0,
+     0,
+     0.0,
+     "",
+     0.0,
+     "",
+     "",
+     "",
+     0.0,
+     0,
+     0,
+     0,
+     "",
+     "",
+     ""
+    ]
+   ],
+   "songs_missing": [],
+   "meta": [
+    [
+     "song_id_hwm",
+     5
+    ]
+   ],
+   "ai_usage": [],
+   "downloads": [],
+   "chats": [],
+   "chat_messages": [],
+   "external_songs": [],
+   "recent": [],
+   "playlists": [],
+   "playlist_songs": [],
+   "song_cards": []
+  },
+  "fts": [
+   5
+  ]
+ }
+}

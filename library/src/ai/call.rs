@@ -1261,16 +1261,31 @@ pub fn list_models(ctx: &Context<'_>, draft: Option<&Dict>, recheck: bool) -> Di
 /// «Probar gratis, sin clave»: el primero de los gratuitos que responda de
 /// verdad se guarda y se activa. Devuelve cuál, o por qué ninguno.
 pub fn try_free(ctx: &Context<'_>, order: Option<&[String]>, timeout: f64) -> Dict {
+    try_free_at(ctx, order, timeout, &|_| None)
+}
+
+/// `try_free`, preguntando a cada gratuito en la dirección que diga
+/// `base_url_of` (si dice alguna; las pruebas ponen ahí sus servidores de
+/// mentira, como hacía el `_build_client` de Python).
+fn try_free_at(
+    ctx: &Context<'_>,
+    order: Option<&[String]>,
+    timeout: f64,
+    base_url_of: &dyn Fn(&str) -> Option<String>,
+) -> Dict {
     let order: Vec<String> = order.map_or_else(providers::free_order, <[String]>::to_vec);
     let mut tried: Vec<Value> = Vec::new();
     for pid in order {
         let Some(entry) = providers::by_id(&pid) else {
             continue;
         };
-        let draft = json!({"id": pid, "provider": pid, "timeout": timeout, "retries": 0})
+        let mut draft = json!({"id": pid, "provider": pid, "timeout": timeout, "retries": 0})
             .as_object()
             .cloned()
             .unwrap_or_default();
+        if let Some(url) = base_url_of(&pid) {
+            draft.insert("base_url".into(), url.into());
+        }
         let r = check(ctx, Some(&draft));
         let ok = r.get("ok").is_some_and(py::truthy);
         let reason = [r.get("reason"), r.get("tools_reason")]

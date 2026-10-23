@@ -334,4 +334,134 @@ mod tests {
         assert!(related_keys("Cdim").is_none());
         assert_eq!(split_key("C-"), Some((0, true)));
     }
+
+    // ------------------------------------------- lo de tests/test_core.py
+
+    #[test]
+    fn transposition_between_keys() {
+        for (from_key, to_key, value, expected) in [
+            (
+                "Bb",
+                "G",
+                "| Bb | Gm7 | Eb | F/A |",
+                "| G | Em7 | C | D/F# |",
+            ),
+            ("C", "D", "| C | Am | F | G |", "| D | Bm | G | A |"),
+            ("B", "G", "| B | G#m | E | F# |", "| G | Em | C | D |"),
+        ] {
+            assert_eq!(transpose_to(value, from_key, to_key), expected, "{value}");
+        }
+    }
+
+    #[test]
+    fn transposition_full_cycle() {
+        let p = "| Bb | Gm7 | Eb | F/A |";
+        assert_eq!(transpose(&transpose(p, 5, None), 7, None), p);
+    }
+
+    #[test]
+    fn distance_between_keys() {
+        assert_eq!(distance("C", "G"), Some(7));
+        assert_eq!(distance("Bb", "G"), Some(9));
+        assert_eq!(distance("no-existe", "G"), None);
+    }
+
+    #[test]
+    fn latin_notation() {
+        assert_eq!(to_latin("| Bb | Gm7 |"), "| Sib | Solm7 |");
+    }
+
+    /// Lo de tests/test_ai.py: los tonos vecinos de uno.
+    #[test]
+    fn neighbor_keys() {
+        let g = related_keys("G").expect("G");
+        assert_eq!(g.relative, "Em");
+        assert_eq!(g.neighbors, ["D", "C"]);
+        assert_eq!(related_keys("F#m").expect("F#m").neighbors, ["C#m", "Bm"]);
+        assert_eq!(related_keys("Bb").expect("Bb").relative, "Gm");
+        assert!(related_keys("nada").is_none());
+    }
+
+    // --------------------------------------- lo de tests/test_properties.py
+    // En Python, Hypothesis sacaba notas y semitonos al azar; aquí son pocos y
+    // se prueban todos (las notas de la tabla, de -36 a 36 semitonos), y los
+    // textos salen de un generador fijo.
+
+    use crate::testkit::{CASES, Gen, NASTY};
+
+    /// Las notas de la tabla, sin repetir (`sorted(INDEX_SQL)` de Python).
+    fn notes() -> Vec<&'static str> {
+        let mut out: Vec<&str> = INDEX.iter().map(|(n, _)| *n).collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// `INDEX_SQL[note]`: falla si no es una nota de la tabla.
+    fn pitch(note: &str) -> i64 {
+        INDEX.iter().find(|(n, _)| *n == note).map_or_else(
+            || panic!("{note:?} no es una nota de la tabla"),
+            |(_, i)| *i as i64,
+        )
+    }
+
+    #[test]
+    fn transposing_a_note_moves_exactly_those_semitones() {
+        for note in notes() {
+            for n in -36..=36 {
+                let out = transpose_note(note, n, None);
+                assert_eq!(
+                    (pitch(&out) - pitch(note)).rem_euclid(12),
+                    n.rem_euclid(12),
+                    "{note} {n:+} → {out}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_round_trip_distance_is_an_octave() {
+        for a in notes() {
+            for b in notes() {
+                let there = distance(a, b).expect("nota");
+                let back = distance(b, a).expect("nota");
+                assert_eq!((there + back).rem_euclid(12), 0, "{a} ↔ {b}");
+            }
+        }
+    }
+
+    #[test]
+    fn transposing_and_undoing_gives_the_same_pitches() {
+        let all = notes();
+        let mut g = Gen::new(11);
+        for _ in 0..CASES {
+            let chords: Vec<&str> = (0..g.between(1, 8)).map(|_| *g.pick(&all)).collect();
+            let n = g.between(-36, 36);
+            let text = chords.join(" | ");
+            let back = transpose(&transpose(&text, n, None), -n, None);
+            let got: Vec<i64> = back.split(" | ").map(pitch).collect();
+            let want: Vec<i64> = chords.iter().map(|c| pitch(c)).collect();
+            assert_eq!(got, want, "{text:?} {n:+} → {back:?}");
+        }
+    }
+
+    #[test]
+    fn transposing_to_the_same_key_changes_nothing() {
+        let all = notes();
+        let mut g = Gen::new(12);
+        for _ in 0..CASES {
+            let text = g.text(40, NASTY);
+            let key = *g.pick(&all);
+            assert_eq!(transpose_to(&text, key, key), text, "{key}");
+        }
+    }
+
+    #[test]
+    fn the_capo_is_always_between_1_and_7() {
+        for key in notes() {
+            for (fret, _shape) in suggested_capo(key, &EASY_SHAPES) {
+                assert!((1..=7).contains(&fret), "{key}: {fret}");
+            }
+        }
+    }
 }

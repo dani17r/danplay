@@ -560,4 +560,215 @@ mod tests {
         let url = serve(answer("404 Not Found", b""));
         assert_eq!(why(get_json(&url)), "HTTP Error 404");
     }
+
+    /// Lo de fuera de la app, salvo la letra, la carátula y la ficha, que
+    /// vienen preparadas (en Python, `monkeypatch` de `enrich.lyrics`,
+    /// `cover` y `details`): nada sale a la red ni a la IA.
+    struct Patched<'a> {
+        here: Here<'a>,
+        lyrics: Json,
+        cover: (Vec<u8>, String),
+        details: Json,
+    }
+
+    impl Outside for Patched<'_> {
+        type Error = Trouble;
+        type Song = Dict;
+        type Image = Vec<u8>;
+        type Cover = (Vec<u8>, String);
+
+        fn recoverable(&self, error: &Trouble) -> bool {
+            self.here.recoverable(error)
+        }
+        fn log(&mut self, level: Level, message: &[u32], error: Option<&Failure<Trouble>>) {
+            self.here.log(level, message, error);
+        }
+        fn field(&mut self, song: &Dict, key: &str) -> Result<Option<Json>, Trouble> {
+            self.here.field(song, key)
+        }
+        fn get_json(&mut self, url: &str) -> Result<Json, Trouble> {
+            Err(Trouble::Net(format!("sin red: {url}")))
+        }
+        fn get_image(&mut self, url: &[u32]) -> Result<Vec<u8>, Trouble> {
+            Err(Trouble::Net(format!("sin red: {}", utf(url))))
+        }
+        fn image_bytes(&mut self, image: &Vec<u8>) -> Result<Vec<u8>, Trouble> {
+            self.here.image_bytes(image)
+        }
+        fn image_cover(
+            &mut self,
+            image: Vec<u8>,
+            kind: &str,
+        ) -> Result<(Vec<u8>, String), Trouble> {
+            self.here.image_cover(image, kind)
+        }
+        fn ai_available(&mut self) -> Result<bool, Trouble> {
+            Ok(false)
+        }
+        fn ai_unavailable_reason(&mut self) -> Result<Text, Trouble> {
+            Ok(text("sin IA en las pruebas"))
+        }
+        fn ai_ask(&mut self, _: &[u32], _: u32) -> Result<Json, Trouble> {
+            Ok(Json::Null)
+        }
+        fn ai_ask_json(&mut self, _: &[u32], _: &str) -> Result<Json, Trouble> {
+            Ok(Json::Null)
+        }
+        fn lyrics_lrclib(
+            &mut self,
+            _: &Json,
+            _: &Json,
+            _: &Json,
+            _: &Json,
+        ) -> Result<Json, Trouble> {
+            Ok(Json::Null)
+        }
+        fn lyrics(&mut self, _: &Json, _: &Json, _: &Json, _: &Json) -> Result<Json, Trouble> {
+            Ok(self.lyrics.clone())
+        }
+        fn cover(
+            &mut self,
+            _: &Json,
+            _: &Json,
+            _: &Json,
+        ) -> Result<Option<(Vec<u8>, String)>, Trouble> {
+            Ok(Some(self.cover.clone()))
+        }
+        fn cover_size(&mut self, cover: &(Vec<u8>, String)) -> Result<usize, Trouble> {
+            self.here.cover_size(cover)
+        }
+        fn details(&mut self, _: &Dict) -> Result<Json, Trouble> {
+            Ok(self.details.clone())
+        }
+        fn chords(&mut self, _: &Dict) -> Result<Json, Trouble> {
+            Ok(Json::Null)
+        }
+        fn find_sheet(&mut self, _: &[u32], _: &[u32]) -> Result<Json, Trouble> {
+            Ok(Json::Null)
+        }
+        fn today(&mut self) -> Result<String, Trouble> {
+            self.here.today()
+        }
+        fn by_id(&mut self, id: &Json) -> Result<Option<Dict>, Trouble> {
+            self.here.by_id(id)
+        }
+        fn update(&mut self, id: &Json, fields: &[(&str, Json)]) -> Result<(), Trouble> {
+            self.here.update(id, fields)
+        }
+        fn edit(&mut self, id: &Json, fields: &[(&str, Json)]) -> Result<(), Trouble> {
+            self.here.edit(id, fields)
+        }
+        fn write_lyrics(&mut self, path: &Json, lyrics: &Json) -> Result<(), Trouble> {
+            self.here.write_lyrics(path, lyrics)
+        }
+        fn write_cover(&mut self, path: &Json, cover: &(Vec<u8>, String)) -> Result<bool, Trouble> {
+            self.here.write_cover(path, cover)
+        }
+        fn write_tags(
+            &mut self,
+            path: &Json,
+            album: &Json,
+            year: &Json,
+            genre: &Json,
+        ) -> Result<(), Trouble> {
+            self.here.write_tags(path, album, year, genre)
+        }
+    }
+
+    /// Lo de tests/test_media.py: enriquecer una canción de verdad guarda
+    /// la letra, la carátula y la ficha en el índice y en el archivo. Un
+    /// «desconocido» de la IA no pisa el álbum, del año queda el número, el
+    /// tono que un modelo de antes daba de memoria no se guarda, y el cifrado
+    /// que ya había se queda al lado.
+    #[test]
+    fn enrich_saves_lyrics_cover_and_metadata() {
+        let Some(app) = crate::testkit::api_library() else {
+            println!("sin ffmpeg: enriquecer una canción no se comprueba");
+            return;
+        };
+        let found = crate::testkit::get(&app, "/api/search?q=Mi%20Gozo");
+        let song = found["songs"]
+            .as_array()
+            .expect("canciones")
+            .iter()
+            .find(|s| s["title"] == "Mi Gozo")
+            .expect("Mi Gozo")
+            .clone();
+        let id = song["id"].as_i64().expect("id");
+        let path = PathBuf::from(song["path"].as_str().expect("ruta"));
+        let cover_file = path.with_file_name("tapa.jpg");
+        let made = std::process::Command::new(crate::testkit::ffmpeg().expect("ffmpeg"))
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=200x200",
+            ])
+            .args(["-frames:v", "1"])
+            .arg(&cover_file)
+            .status()
+            .is_ok_and(|s| s.success());
+        assert!(made, "ffmpeg no hizo la carátula");
+        let jpeg = std::fs::read(&cover_file).expect("carátula");
+        std::fs::remove_file(&cover_file).expect("borrar");
+        // un cifrado ya encontrado: lo de la IA se guarda a su lado sin pisarlo
+        let mut chords = Dict::new();
+        chords.insert("chords".into(), r#"{"sheet": {"key": "G"}}"#.into());
+        songs::update(&app, id, &chords).expect("cifrado");
+        let mut o = Patched {
+            here: Here { app: &app },
+            lyrics: dict(vec![
+                ("lyrics", Json::str("Mi gozo")),
+                ("synced", Json::str("")),
+                ("source", Json::str("lrclib")),
+            ]),
+            cover: (jpeg, "image/jpeg".into()),
+            details: dict(vec![
+                ("album", Json::str("desconocido")),
+                ("year", Json::str("grabado en 2018")),
+                ("genre", Json::str("Adoracion")),
+                // un modelo de antes: el tono de memoria no se guarda
+                ("likely_key", Json::str("Bb")),
+                ("confidence", Json::Float(0.8)),
+            ]),
+        };
+        let wanted = e::Wanted {
+            lyrics: true,
+            cover: true,
+            details: true,
+            save_to_file: true,
+        };
+        let r = to_value(&e::enrich(&mut o, &Json::Int(id), wanted).expect("enriquecer"));
+        assert_eq!(r["lyrics"], "lrclib");
+        assert!(
+            r["cover"].as_str().is_some_and(|c| c.ends_with("KB")),
+            "{r}"
+        );
+        assert!(library::py::truthy(&r["details"]["genre"]));
+        let c = songs::by_id(&app, id).expect("leer").expect("está");
+        assert_eq!(c["lyrics"], "Mi gozo");
+        assert_eq!(c["cover"], "embedded");
+        assert_eq!(
+            c["album"], "Pruebas",
+            "«desconocido» no pisa el álbum de verdad"
+        );
+        assert_eq!(c["year"], "2018");
+        assert_eq!(c["genre"], "Adoracion");
+        let saved: Value =
+            serde_json::from_str(c["chords"].as_str().expect("texto")).expect("json");
+        assert_eq!(saved["confidence"], 0.8);
+        assert_eq!(saved["sheet"], serde_json::json!({"key": "G"}));
+        assert!(saved.get("likely_key").is_none(), "{saved}");
+        let d = library::tags::read(&path);
+        assert_eq!(d.lyrics, "Mi gozo");
+        assert!(d.cover);
+        assert_eq!(d.genre, "Adoracion");
+        assert_eq!(
+            to_value(&e::enrich(&mut o, &Json::Int(999_999), wanted).expect("enriquecer")),
+            serde_json::json!({"error": "no existe esa cancion"})
+        );
+    }
 }

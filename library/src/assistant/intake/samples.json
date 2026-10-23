@@ -1,0 +1,4709 @@
+[
+  {
+    "id": "real_a_una_linea",
+    "que": "[difícil] Lista real anonimizada: la lista de WhatsApp tal como la dejó el campo antiguo, en UNA línea (los saltos son espacios dobles o triples). Negritas con la numeración dentro, «3.-De» pegado, @menciones con «(En Su Presencia) Voz», enlaces de youtu.be, dos títulos seguidos al final.",
+    "text": "*Domingo*✅🙏🏻  *1.- Digno De Adorar* @Marta Rojas Velez @Noemi (En Su Presencia) Voz  *2.- Te Doy Gloria* https://youtu.be/PDuLxiU5wNB  @Marta Rojas Velez   *3.-De Gloria en Gloria* https://youtu.be/di5bmbievy3 @Luis Perez QZRKT   *Cena Del Señor* *Rey Infinito*",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "Domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [
+            "Marta Rojas Velez",
+            "Noemi"
+          ],
+          "note": "En Su Presencia, Voz"
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=PDuLxiU5wNB",
+          "kind": "video",
+          "people": [
+            "Marta Rojas Velez"
+          ],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=di5bmbievy3",
+          "kind": "video",
+          "people": [
+            "Luis Perez QZRKT"
+          ],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 5,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [
+        "Marta Rojas Velez",
+        "Noemi",
+        "Luis Perez QZRKT"
+      ],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "real_a_textarea",
+    "que": "La lista real anonimizada como habría llegado con un textarea: la orden y la lista en un solo mensaje, con sus saltos. La primera línea es la orden del usuario, no una canción.",
+    "text": "agregame esto a la lista de los domingo, la que no se consiga descargala:\n*Domingo*✅🙏🏻\n\n*1.- Digno De Adorar* @Marta Rojas Velez @Noemi (En Su Presencia) Voz\n*2.- Te Doy Gloria* https://youtu.be/PDuLxiU5wNB\n@Marta Rojas Velez\n*3.-De Gloria en Gloria* https://youtu.be/di5bmbievy3 @Luis Perez QZRKT\n*Cena Del Señor*\n*Rey Infinito*",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "Domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [
+            "Marta Rojas Velez",
+            "Noemi"
+          ],
+          "note": "En Su Presencia, Voz"
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=PDuLxiU5wNB",
+          "kind": "video",
+          "people": [
+            "Marta Rojas Velez"
+          ],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=di5bmbievy3",
+          "kind": "video",
+          "people": [
+            "Luis Perez QZRKT"
+          ],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 5,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [
+        "Marta Rojas Velez",
+        "Noemi",
+        "Luis Perez QZRKT"
+      ],
+      "extras": [
+        "agregame esto a la lista de los domingo, la que no se consiga descargala:"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "real_b_verificar",
+    "que": "Lista real anonimizada y reconstruida: «verifica estas canciones…» + lista numerada «1.-Título» sin negritas ni espacio tras el «.-». El «domingo» de la orden NO es una cabecera.",
+    "text": "verifica estas canciones que esten bien en la lista de reproduccion del domingo:\n1.-Digno De Adorar\n2.-Te Doy Gloria https://youtu.be/PDuLxiU5wNB\n3.-De Gloria en Gloria https://youtu.be/di5bmbievy3\n4.-Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=PDuLxiU5wNB",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=di5bmbievy3",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [
+        "verifica estas canciones que esten bien en la lista de reproduccion del domingo:"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "real_b_una_linea",
+    "que": "Lista real anonimizada tal como llegó: numerada «N.-Título» en UNA línea; los enlaces van pegados al título anterior.",
+    "text": "1.-Digno De Adorar 2.-Te Doy Gloria https://youtu.be/PDuLxiU5wNB  3.-De Gloria en Gloria https://youtu.be/di5bmbievy3 4.-Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=PDuLxiU5wNB",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=di5bmbievy3",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "real_c_medley_largo",
+    "que": "[difícil] Lista real anonimizada y reconstruida: dos medleys (uno «Contiene: A & B» con DOS enlaces que se emparejan en orden, otro «Eres Santo Raiza Aleluya oasis» con los títulos separados solo por negrita), artistas en texto plano tras la negrita, una canción suelta con enlace, @menciones largas, la sección «Banda:» con ensayo/consola/pendiente y, al final, la orden.",
+    "text": "*Domingo*❤\ufe0f🙏🏻\n* *Medley*\n*Contiene:* *Agnus Dei* marcos Barrientos & *Cuan grande es Dios* Chris Tomlin\nhttps://youtu.be/a2jQPnokBpV\nhttps://youtu.be/0Pm7U3U1l8d\n@Marta Rojas Velez @Luis Perez QZRKT\n• *Hay Libertad*\nhttps://youtu.be/1lFgH0Y905H\n@Marta Rojas Velez\n• *Medley*\n*Eres Santo* Raiza *Aleluya* oasis\n@Mónica Núñez Esposa Guitarrista Pablo\n@Andrea Solis Nuevo QZRKT voz de apoyo y coro...\n*Banda:*\nGuitarra: @Mateo QZRKT\nBajo: @Hugo Prado (QZRKT)\nBatería: @Tomas Vega 🥁\nTeclados: @Luis Perez QZRKT\nEnsayo: Sábado 7pm\nConsola: Rosa M.\n@Raul Ortega (Guitarrista) QZRKT\n@Zuleika Pro pendiente la próxima semana\n\narmame una lista con esto que te pase",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "Domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "marcos Barrientos",
+          "url": "https://www.youtube.com/watch?v=a2jQPnokBpV",
+          "kind": "video",
+          "people": [
+            "Marta Rojas Velez",
+            "Luis Perez QZRKT"
+          ],
+          "note": "Medley"
+        },
+        {
+          "n": 2,
+          "title": "Cuan grande es Dios",
+          "query": "cuan grande es dios",
+          "artist": "Chris Tomlin",
+          "url": "https://www.youtube.com/watch?v=0Pm7U3U1l8d",
+          "kind": "video",
+          "people": [
+            "Marta Rojas Velez",
+            "Luis Perez QZRKT"
+          ],
+          "note": "Medley"
+        },
+        {
+          "n": 3,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=1lFgH0Y905H",
+          "kind": "video",
+          "people": [
+            "Marta Rojas Velez"
+          ],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "Raiza",
+          "url": "",
+          "kind": "",
+          "people": [
+            "Mónica Núñez Esposa Guitarrista Pablo",
+            "Andrea Solis Nuevo QZRKT"
+          ],
+          "note": "Medley, voz de apoyo y coro..."
+        },
+        {
+          "n": 5,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "oasis",
+          "url": "",
+          "kind": "",
+          "people": [
+            "Mónica Núñez Esposa Guitarrista Pablo",
+            "Andrea Solis Nuevo QZRKT"
+          ],
+          "note": "Medley, voz de apoyo y coro..."
+        }
+      ],
+      "people": [
+        "Marta Rojas Velez",
+        "Luis Perez QZRKT",
+        "Mónica Núñez Esposa Guitarrista Pablo",
+        "Andrea Solis Nuevo QZRKT",
+        "Mateo QZRKT",
+        "Hugo Prado",
+        "Tomas Vega",
+        "Raul Ortega",
+        "Zuleika Pro"
+      ],
+      "extras": [
+        "Banda:",
+        "Guitarra: @Mateo QZRKT",
+        "Bajo: @Hugo Prado (QZRKT)",
+        "Batería: @Tomas Vega 🥁",
+        "Teclados: @Luis Perez QZRKT",
+        "Ensayo: Sábado 7pm",
+        "Consola: Rosa M.",
+        "@Raul Ortega (Guitarrista) QZRKT",
+        "@Zuleika Pro pendiente la próxima semana",
+        "armame una lista con esto que te pase"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "real_c_una_linea",
+    "que": "[difícil] Lista real anonimizada tal como llegó: TODO el WhatsApp aplastado en una línea (espacios simples, dobles y triples sin patrón fiable). Hay que cortar por pistas (negrita, viñetas, enlaces, @, «Etiqueta:»), no por saltos.",
+    "text": "*Domingo*❤\ufe0f🙏🏻  * *Medley*  *Contiene:* *Agnus Dei* marcos Barrientos & *Cuan grande es Dios* Chris Tomlin https://youtu.be/a2jQPnokBpV   https://youtu.be/0Pm7U3U1l8d @Marta Rojas Velez @Luis Perez QZRKT   • *Hay Libertad*  https://youtu.be/1lFgH0Y905H @Marta Rojas Velez   • *Medley*  *Eres Santo* Raiza *Aleluya* oasis  @Mónica Núñez Esposa Guitarrista Pablo   @Andrea Solis Nuevo QZRKT voz de apoyo y coro...   *Banda:*  Guitarra: @Mateo QZRKT   Bajo: @Hugo Prado (QZRKT)   Batería: @Tomas Vega 🥁  Teclados: @Luis Perez QZRKT   Ensayo: Sábado 7pm  Consola: Rosa M.  @Raul Ortega (Guitarrista) QZRKT  @Zuleika Pro pendiente la próxima semana",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "Domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "marcos Barrientos",
+          "url": "https://www.youtube.com/watch?v=a2jQPnokBpV",
+          "kind": "video",
+          "people": [
+            "Marta Rojas Velez",
+            "Luis Perez QZRKT"
+          ],
+          "note": "Medley"
+        },
+        {
+          "n": 2,
+          "title": "Cuan grande es Dios",
+          "query": "cuan grande es dios",
+          "artist": "Chris Tomlin",
+          "url": "https://www.youtube.com/watch?v=0Pm7U3U1l8d",
+          "kind": "video",
+          "people": [
+            "Marta Rojas Velez",
+            "Luis Perez QZRKT"
+          ],
+          "note": "Medley"
+        },
+        {
+          "n": 3,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=1lFgH0Y905H",
+          "kind": "video",
+          "people": [
+            "Marta Rojas Velez"
+          ],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "Raiza",
+          "url": "",
+          "kind": "",
+          "people": [
+            "Mónica Núñez Esposa Guitarrista Pablo",
+            "Andrea Solis Nuevo QZRKT"
+          ],
+          "note": "Medley, voz de apoyo y coro..."
+        },
+        {
+          "n": 5,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "oasis",
+          "url": "",
+          "kind": "",
+          "people": [
+            "Mónica Núñez Esposa Guitarrista Pablo",
+            "Andrea Solis Nuevo QZRKT"
+          ],
+          "note": "Medley, voz de apoyo y coro..."
+        }
+      ],
+      "people": [
+        "Marta Rojas Velez",
+        "Luis Perez QZRKT",
+        "Mónica Núñez Esposa Guitarrista Pablo",
+        "Andrea Solis Nuevo QZRKT",
+        "Mateo QZRKT",
+        "Hugo Prado",
+        "Tomas Vega",
+        "Raul Ortega",
+        "Zuleika Pro"
+      ],
+      "extras": [
+        "Banda:",
+        "Guitarra: @Mateo QZRKT",
+        "Bajo: @Hugo Prado (QZRKT)",
+        "Batería: @Tomas Vega 🥁",
+        "Teclados: @Luis Perez QZRKT",
+        "Ensayo: Sábado 7pm",
+        "Consola: Rosa M.",
+        "@Raul Ortega (Guitarrista) QZRKT",
+        "@Zuleika Pro pendiente la próxima semana"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "num_punto",
+    "que": "Numerada «1.» con punto y espacio, una por línea, sin cabecera.",
+    "text": "1. Digno De Adorar\n2. Te Doy Gloria\n3. De Gloria en Gloria\n4. Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "num_parentesis",
+    "que": "Numerada «1)» con paréntesis de cierre.",
+    "text": "1) Hay Libertad\n2) Aleluya\n3) Eres Santo\n4) Cena Del Señor",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "num_punto_guion",
+    "que": "Numerada «1.-» sin negritas, con 0, 1 y 2 espacios tras el «.-».",
+    "text": "1.-Digno De Adorar\n2.- Te Doy Gloria\n3.-  De Gloria en Gloria\n4.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "num_espacio_guion",
+    "que": "Numerada «1 -» (número, espacio, guion).",
+    "text": "1 - Digno De Adorar\n2 - Te Doy Gloria\n3 - De Gloria en Gloria\n4 - Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "num_mezcladas",
+    "que": "Cada línea con un estilo de numeración distinto en la misma lista («1.-», «2)», «3.», «4 -»).",
+    "text": "1.- Digno De Adorar\n2) Te Doy Gloria\n3. De Gloria en Gloria\n4 - Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "num_doce_con_numeros_en_titulo",
+    "que": "[difícil] Doce canciones: los marcadores de dos cifras («10.», «11.», «12.») y títulos que EMPIEZAN por número («10.000 Razones», «1000 Razones», «Salmo 23»). «10.» seguido de «000» no es una numeración.",
+    "text": "1. Hay Libertad\n2. Aleluya\n3. Eres Santo\n4. Cena Del Señor\n5. Digno De Adorar\n6. Te Doy Gloria\n7. De Gloria en Gloria\n8. Rey Infinito\n9. Agnus Dei\n10. 10.000 Razones\n11. 1000 Razones\n12. Salmo 23",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 5,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 6,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 7,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 8,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 9,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 10,
+          "title": "10.000 Razones",
+          "query": "10 000 razones",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 11,
+          "title": "1000 Razones",
+          "query": "1000 razones",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 12,
+          "title": "Salmo 23",
+          "query": "salmo 23",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "numtit_sin_marcas",
+    "que": "[difícil] Sin marcas y con números dentro del título: ninguna línea lleva numeración, aunque «10.000 Razones» parezca «10.» y «1000 Razones» empiece por cifras.",
+    "text": "10.000 Razones\n1000 Razones\nSalmo 23\nHay Libertad",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "10.000 Razones",
+          "query": "10 000 razones",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "1000 Razones",
+          "query": "1000 razones",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Salmo 23",
+          "query": "salmo 23",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "numtit_una_linea",
+    "que": "[difícil] En una línea: marcador «N.-» pegado a un título que empieza por cifras («1.-10.000 Razones», «2.-1000 Razones»). Solo la secuencia 1,2,3,4 y la regla ««10.» + dígito» no es marcador» lo resuelven.",
+    "text": "1.-10.000 Razones 2.-1000 Razones 3.-Salmo 23 4.-Hay Libertad",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "10.000 Razones",
+          "query": "10 000 razones",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "1000 Razones",
+          "query": "1000 razones",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Salmo 23",
+          "query": "salmo 23",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "num_salta_numeros",
+    "que": "[extra] La numeración escrita no manda: empieza en 4 y salta el 6. `n` es la posición de lectura (1,2,3), no el número escrito.",
+    "text": "4.- Hay Libertad\n5.- Aleluya\n7.- Eres Santo",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "num_keycap",
+    "que": "[extra] Numeración con emojis de teclado (1\ufe0f\u20e3 2\ufe0f\u20e3 3\ufe0f\u20e3): la cifra NO debe quedar en el título ni en la consulta.",
+    "text": "1\ufe0f\u20e3 Digno De Adorar\n2\ufe0f\u20e3 Te Doy Gloria\n3\ufe0f\u20e3 De Gloria en Gloria\n4\ufe0f\u20e3 Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "vin_guion",
+    "que": "Viñetas «-» (guion y espacio).",
+    "text": "- Digno De Adorar\n- Te Doy Gloria\n- De Gloria en Gloria\n- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "vin_punto_medio",
+    "que": "Viñetas «•» (U+2022, lo que pinta WhatsApp), con un enlace en la segunda.",
+    "text": "• Digno De Adorar\n• Te Doy Gloria https://youtu.be/_2jdSQfhD6P\n• De Gloria en Gloria\n• Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=_2jdSQfhD6P",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "vin_asterisco",
+    "que": "[difícil] Viñetas «* » (asterisco + espacio) mezcladas con negrita: «* *Hay Libertad*» es viñeta + negrita, «*Rey Infinito*» (sin espacio) es solo negrita.",
+    "text": "* Digno De Adorar\n* Te Doy Gloria\n* *Hay Libertad*\n*Rey Infinito*",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "vin_emoji",
+    "que": "[extra] Emojis como viñeta (🎶 🎵 ▶\ufe0f ✅) y un 🔥 al final de una línea: nada de eso queda en el título.",
+    "text": "🎶 Digno De Adorar\n🎵 Te Doy Gloria 🔥\n▶\ufe0f De Gloria en Gloria\n✅ Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "sin_marcas",
+    "que": "Un título por línea, sin ninguna marca.",
+    "text": "Digno De Adorar\nTe Doy Gloria\nDe Gloria en Gloria\nRey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "sin_marcas_minusculas",
+    "que": "[difícil] Un título por línea, todo en minúsculas y sin tildes (como escribe el usuario en el chat). Sin mayúsculas ni números nada distingue estas líneas de una charla: depende de que sean cortas y sin verbos ni puntuación.",
+    "text": "digno de adorar\nte doy gloria\nde gloria en gloria\nrey infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "digno de adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "te doy gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "de gloria en gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "rey infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "sin_marcas_enlace_debajo",
+    "que": "Sin marcas, con el enlace en la LÍNEA DE DEBAJO de su título (uno de youtu.be y otro de youtube.com/watch?v=).",
+    "text": "Digno De Adorar\nTe Doy Gloria\nhttps://youtu.be/1b8Te_PcceW\nDe Gloria en Gloria\nhttps://www.youtube.com/watch?v=p2-BcJLFg4I\nRey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=1b8Te_PcceW",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=p2-BcJLFg4I",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "una_linea_numerada",
+    "que": "Una sola línea con marcadores «N.-» (el campo antiguo se comía los saltos); un enlace tras la segunda.",
+    "text": "1.- Hay Libertad 2.- Aleluya https://youtu.be/gzsdActr7-Q 3.- Eres Santo 4.- Cena Del Señor",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=gzsdActr7-Q",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "una_linea_vinetas",
+    "que": "[difícil] Una sola línea separada por «•».",
+    "text": "• Digno De Adorar • Te Doy Gloria https://youtu.be/zWxxwh8Hz1M • De Gloria en Gloria • Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=zWxxwh8Hz1M",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "una_linea_negritas",
+    "que": "[difícil] Una sola línea; lo único que separa los títulos son las negritas *x* y el enlace queda entre dos de ellas.",
+    "text": "*Digno De Adorar* *Te Doy Gloria* https://youtu.be/A3Q0gMbawAE *De Gloria en Gloria* *Rey Infinito*",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=A3Q0gMbawAE",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "ws_tabs",
+    "que": "Tabuladores: sangría de una pestaña, pestaña entre la numeración y el título y entre el título y una @mención, y una pestaña al final de línea.",
+    "text": "\t1.\tDigno De Adorar\n\t2.\tTe Doy Gloria\t@Marta Rojas\n\t3.\tDe Gloria en Gloria\t\n\t4.\tRey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [
+            "Marta Rojas"
+          ],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [
+        "Marta Rojas"
+      ],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "ws_crlf_con_cabecera",
+    "que": "Saltos de línea de Windows (\\r\\n), una línea vacía y salto final: ningún título puede acabar en «\\r».",
+    "text": "*Domingo* 12/10\r\n1.- Digno De Adorar\r\n2.- Te Doy Gloria https://youtu.be/VLT-VqUgnjL\r\n\r\n3.- Rey Infinito\r\n",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "Domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=VLT-VqUgnjL",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "ws_invisibles",
+    "que": "[difícil] Espacios duros (U+00A0), un espacio fino (U+2009), marcas de dirección (U+200E) y un espacio de ancho cero (U+200B) pegados por WhatsApp, incluso delante del número; el título sale con espacios normales.",
+    "text": "1.-\u00a0Digno\u00a0De\u00a0Adorar \u200e\r\n2.- Te Doy Gloria\u200b\t\r\n\u200e3.-\tDe Gloria en Gloria\u00a0\r\n4.- Rey\u2009Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "fmt_negrita_cursiva",
+    "que": "Negrita *x*, cursiva _x_, ambas combinadas (*_x_*, _*x*_) y la negrita doble de markdown **x**; la numeración dentro o fuera de la marca.",
+    "text": "*1.- Digno De Adorar*\n2.- _Te Doy Gloria_\n3.- *_Rey Infinito_*\n4.- **Hay Libertad**\n5.- _*Aleluya*_",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 5,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "fmt_tachado",
+    "que": "[difícil] Tachado ~x~: en WhatsApp es «esto ya no va». Las dos líneas tachadas NO entran en `items` y se devuelven en `extras` (con las virgulillas, para que se vea por qué).",
+    "text": "1.- Digno De Adorar\n2.- ~Rey Infinito~\n3.- Hay Libertad\n4.- ~*Aleluya*~",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [
+        "~Rey Infinito~",
+        "~Aleluya~"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "fmt_markdown",
+    "que": "[extra] [difícil] Lista pegada de otra IA o de un documento: cabecera «###», negrita **x** y «- artista», y un enlace en markdown [Ver video](url) cuyo texto NO es nota. En «[Agnus Dei](url) - Marco Barrientos» el título no va en negrita: lo que sigue al enlace es `note` (pista débil), no `artist` (apartado 2.5).",
+    "text": "### Setlist domingo 12/10\n\n1. **Digno De Adorar** - Miel San Marcos\n2. **Te Doy Gloria** - [Ver video](https://youtu.be/EdBrmBCZzN0)\n3. [Agnus Dei](https://www.youtube.com/watch?v=NPKtAr3_qUX) - Marco Barrientos",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "Miel San Marcos",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=EdBrmBCZzN0",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=NPKtAr3_qUX",
+          "kind": "video",
+          "people": [],
+          "note": "Marco Barrientos"
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "fmt_comillas_simbolos",
+    "que": "Comillas rectas, tipográficas y latinas, corchetes y apóstrofo tipográfico en «D’Clario»: el título sale sin los envoltorios, y en la consulta el apóstrofo se quita SIN dejar hueco.",
+    "text": "1) \"Hay Libertad\"\n2) «Aleluya»\n3) “Rey Infinito”\n4) [Digno De Adorar]\n5) Rey Infinito – Christine D’Clario\n6) 'Eres Santo'",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 5,
+          "title": "Rey Infinito – Christine D’Clario",
+          "query": "rey infinito christine dclario",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 6,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "cab_fecha",
+    "que": "Cabecera «*Domingo* 12/10» (día + fecha, en negrita). La fecha no entra en el nombre.",
+    "text": "*Domingo* 12/10\n1.- Digno De Adorar\n2.- Te Doy Gloria\n3.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "Domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "cab_repertorio",
+    "que": "Cabecera «Repertorio del domingo:» con dos puntos; «Repertorio del» es genérico, el nombre es «domingo».",
+    "text": "Repertorio del domingo:\n- Digno De Adorar\n- Te Doy Gloria\n- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "cab_setlist",
+    "que": "Cabecera «Setlist» a secas: palabra genérica, no hay nombre de lista (name_hint vacío) y la línea NO es una canción ni un extra.",
+    "text": "Setlist\n1. Digno De Adorar\n2. Te Doy Gloria\n3. Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "cab_emoji_canciones_del_domingo",
+    "que": "Cabecera con emojis y «Canciones del domingo»; la lista va con «1)».",
+    "text": "🎶 *Canciones del domingo* 🎶\n1) Digno De Adorar\n2) Te Doy Gloria\n3) Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "cab_ensayo_domingo",
+    "que": "[difícil] La cabecera ES un nombre propio de lista («Ensayo domingo», como una de las listas del usuario). A diferencia de «Ensayo: Sábado 7pm» no lleva dos puntos ni valor: es título de lista, no sección.",
+    "text": "*Ensayo domingo*\n1.- Hay Libertad\n2.- Aleluya",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "Ensayo domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "cab_dia_sin_marcas",
+    "que": "[difícil] Lista sin marcas cuya primera línea es solo un día de la semana: es cabecera, no canción.",
+    "text": "Domingo\nDigno De Adorar\nTe Doy Gloria\nRey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "Domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "sec_banda_ensayo_consola",
+    "que": "Después de las canciones: «Banda:» con una línea por instrumento y @mención, «Ensayo: Sábado 7pm», «Consola: …» y «Pendiente la próxima semana». Todo eso va a `extras`, y las @menciones de la banda a `people` (no cuelgan de ninguna canción).",
+    "text": "Setlist\n1.- Digno De Adorar\n2.- Te Doy Gloria\n3.- Rey Infinito\n\nBanda:\nGuitarra: @Mateo QZRKT\nBajo: @Hugo Prado\nBatería: @Tomas Vega 🥁\nTeclados: @Luis Perez QZRKT\nEnsayo: Sábado 7pm\nConsola: Rosa M.\nPendiente la próxima semana",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [
+        "Mateo QZRKT",
+        "Hugo Prado",
+        "Tomas Vega",
+        "Luis Perez QZRKT"
+      ],
+      "extras": [
+        "Banda:",
+        "Guitarra: @Mateo QZRKT",
+        "Bajo: @Hugo Prado",
+        "Batería: @Tomas Vega 🥁",
+        "Teclados: @Luis Perez QZRKT",
+        "Ensayo: Sábado 7pm",
+        "Consola: Rosa M.",
+        "Pendiente la próxima semana"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "sec_antes_de_las_canciones",
+    "que": "Las secciones van ANTES de las canciones («Ensayo: Sábado 7pm», «Consola: …»): no son títulos aunque estén las primeras y sean cortas.",
+    "text": "Ensayo: Sábado 7pm\nConsola: Rosa M.\n\n1.- Digno De Adorar\n2.- Te Doy Gloria",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [
+        "Ensayo: Sábado 7pm",
+        "Consola: Rosa M."
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "sec_pendiente_en_medio",
+    "que": "Una línea «Pendiente la próxima semana» en MEDIO de la lista numerada: es un extra y la lista sigue después (la 3 es canción).",
+    "text": "1.- Digno De Adorar\n2.- Te Doy Gloria\nPendiente la próxima semana\n3.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [
+        "Pendiente la próxima semana"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "med_ampersand_enlaces_debajo",
+    "que": "«Medley: A & B» dentro de una lista numerada, con los DOS enlaces en las dos líneas de debajo: el 1º es de A, el 2º de B. Una línea numerada = DOS items (n=2 y n=3). Aviso: el 2º título lleva tilde.",
+    "text": "Setlist\n1.- Hay Libertad\n2.- Medley: Agnus Dei & Cuán Grande Es Dios\nhttps://youtu.be/M5VdcJvrclg\nhttps://youtu.be/M1w44RpEebr\n3.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=M5VdcJvrclg",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 3,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=M1w44RpEebr",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "med_ampersand_enlaces_misma_linea",
+    "que": "«Medley: A & B» con los dos enlaces en la MISMA línea, detrás de los dos títulos, y viñetas «•».",
+    "text": "*Domingo*\n• *Hay Libertad*\n• Medley: Agnus Dei & Cuán Grande Es Dios https://youtu.be/t2OAhpjTyi4 https://youtu.be/3bd83Q5B4hQ\n• *Rey Infinito*",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "Domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=t2OAhpjTyi4",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 3,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=3bd83Q5B4hQ",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "med_mas_intercalado",
+    "que": "«A + B» (sin la palabra Medley) con cada enlace justo DETRÁS de su título. Sin la palabra, `note` queda vacío.",
+    "text": "1.- Hay Libertad\n2.- Agnus Dei https://youtu.be/Xi-apGFlRsn + Cuán Grande Es Dios https://youtu.be/EClXVN-Qzc9\n3.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=Xi-apGFlRsn",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=EClXVN-Qzc9",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "med_barra",
+    "que": "«A / B» con la barra rodeada de espacios y los dos enlaces al final de la línea.",
+    "text": "Setlist\n1.- Digno De Adorar\n2.- Agnus Dei / Cuán Grande Es Dios https://youtu.be/HQCZ8nLF7ar https://youtu.be/Gre-GAFXPCn\n3.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=HQCZ8nLF7ar",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=Gre-GAFXPCn",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "med_tres_canciones",
+    "que": "Medley de TRES títulos con tres enlaces en tres líneas: se emparejan en orden 1-1, 2-2, 3-3.",
+    "text": "Medley: Hay Libertad + Aleluya + Eres Santo\nhttps://www.youtube.com/watch?v=45UuayP6JO2\nhttps://youtu.be/cJ2tjtoiJms\nhttps://www.youtube.com/watch?v=Xt55xgRYkwP\nRey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=45UuayP6JO2",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 2,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=cJ2tjtoiJms",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 3,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=Xt55xgRYkwP",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "med_un_enlace",
+    "que": "[difícil] DUDOSO decidido: un medley de dos títulos con UN solo enlace (casi seguro el vídeo del medley entero): el enlace se asigna a los dos items, y el emparejador bajará/usará esa pista una sola vez.",
+    "text": "Setlist\n1.- Hay Libertad\n2.- Medley: Agnus Dei + Cuán Grande Es Dios\nhttps://youtu.be/grMaZhkPlQe\n3.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=grMaZhkPlQe",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 3,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=grMaZhkPlQe",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "med_sin_enlaces_artistas_pegados",
+    "que": "[difícil] Medley en texto plano con artistas pegados y sin negritas: no hay forma de saber dónde acaba el título, así que cada mitad conserva el artista dentro de `title` (artist vacío) y el emparejador lo resuelve.",
+    "text": "1.- Hay Libertad\n2.- Medley: Agnus Dei Marco Barrientos & Cuan grande es Dios Chris Tomlin\n3.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Agnus Dei Marco Barrientos",
+          "query": "agnus dei marco barrientos",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 3,
+          "title": "Cuan grande es Dios Chris Tomlin",
+          "query": "cuan grande es dios chris tomlin",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "url_formas",
+    "que": "[difícil] Las formas de enlace de YouTube y sus parámetros: watch?v= con &feature=share, youtu.be con ?t=42, music.youtube.com, m.youtube.com y watch?v= con list= e index=. Todas salen en la forma canónica https://www.youtube.com/watch?v=ID del diseño §2: sin rastreo y sin el list= que acompaña a un v=.",
+    "text": "1.- Digno De Adorar https://www.youtube.com/watch?v=ekBH7bqg7bx&feature=share\n2.- Te Doy Gloria https://youtu.be/o9yVdO3iXZB?t=42\n3.- De Gloria en Gloria https://music.youtube.com/watch?v=nBJBK8C6uhO\n4.- Rey Infinito https://m.youtube.com/watch?v=3T5vbxhigdl\n5.- Hay Libertad https://www.youtube.com/watch?v=uRWI2mLjQsq&list=PLefnYKwF39dGhKIogAbqmKqcBdPpr2cEw&index=3",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=ekBH7bqg7bx",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=o9yVdO3iXZB",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=nBJBK8C6uhO",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=3T5vbxhigdl",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 5,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=uRWI2mLjQsq",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "url_no_youtube",
+    "que": "[difícil] Enlaces que NO son una canción por sí solos: Spotify dentro de la línea (se descarta), un reel de Instagram en su propia línea (va a `extras`) y un canal de YouTube (youtube.com/@…, tampoco es un vídeo). Solo el enlace de vídeo de la 3 cuenta.",
+    "text": "Setlist\n1.- Digno De Adorar https://open.spotify.com/track/6vhD9ktyeOxbZHZzFTU0vz\n2.- Te Doy Gloria\nhttps://www.instagram.com/reel/-5Icor0SxQj/\n3.- De Gloria en Gloria https://youtu.be/QNQEufvMJXG\n4.- Rey Infinito https://www.youtube.com/@CanalDeEjemplo",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=QNQEufvMJXG",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [
+        "https://www.instagram.com/reel/-5Icor0SxQj/"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "url_solo_enlaces",
+    "que": "[difícil] Una lista que son SOLO enlaces de YouTube, uno por línea (un enlace de YouTube sí es una canción por sí solo): tres items sin título (title y query vacíos) cuyo nombre lo pondrá YouTube.",
+    "text": "descarga y arma la lista con estos:\nhttps://youtu.be/UgvLnNcmbVZ\nhttps://youtu.be/m-Fveao_uSv\nhttps://www.youtube.com/watch?v=fPr85qwsZcx",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "",
+          "query": "",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=UgvLnNcmbVZ",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "",
+          "query": "",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=m-Fveao_uSv",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "",
+          "query": "",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=fPr85qwsZcx",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [
+        "descarga y arma la lista con estos:"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "url_puntuacion",
+    "que": "[difícil] El enlace rodeado de puntuación: entre paréntesis, con punto final, con coma final y tras «Título:»; la puntuación no pertenece ni al enlace ni al título.",
+    "text": "1.- Digno De Adorar (https://youtu.be/ta9rXbMQ4jv)\n2.- Te Doy Gloria https://youtu.be/wnJmU5WLswW\n3.- De Gloria en Gloria: https://www.youtube.com/watch?v=1IYyMe9gzI3,\n4.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=ta9rXbMQ4jv",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=wnJmU5WLswW",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=1IYyMe9gzI3",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "art_junto_al_titulo",
+    "que": "[difícil] Artista junto al título SIN pistas de formato: «Cuan grande es Dios Chris Tomlin», «Agnus Dei - Marco Barrientos», «Marco Barrientos - Rey Infinito». No se puede saber dónde acaba el título ni de qué lado va el artista, así que `artist` queda vacío y el texto entero es el título (la consulta lo lleva pegado). Lo que va entre paréntesis es `note`.",
+    "text": "1. Cuan grande es Dios Chris Tomlin\n2. Agnus Dei - Marco Barrientos\n3. Marco Barrientos - Rey Infinito\n4. Hay Libertad (Adoración La IBI)\n5. Aleluya – Oasis Ministry",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Cuan grande es Dios Chris Tomlin",
+          "query": "cuan grande es dios chris tomlin",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Agnus Dei - Marco Barrientos",
+          "query": "agnus dei marco barrientos",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Marco Barrientos - Rey Infinito",
+          "query": "marco barrientos rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": "Adoración La IBI"
+        },
+        {
+          "n": 5,
+          "title": "Aleluya – Oasis Ministry",
+          "query": "aleluya oasis ministry",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "art_negrita_artista",
+    "que": "Artista CLARO: título en negrita y, justo detrás, texto plano (sin @, sin enlace, sin paréntesis). Se conserva como se escribió («oasis» en minúscula). Es el único caso en que `artist` va relleno.",
+    "text": "*1.- Eres Santo* Raiza\n*2.- Aleluya* oasis\n*3.- Agnus Dei* Marco Barrientos",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "Raiza",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "oasis",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "Marco Barrientos",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "art_guion_largo",
+    "que": "[difícil] Guion largo (– en, — em): como separador de la numeración («1 –», «2 —», «3.–», «4.—») y dentro del título. Al artista tras el guion largo se le trata como en el guion normal (no se sabe de qué lado va).",
+    "text": "1 – Digno De Adorar\n2 — Rey Infinito\n3.– Agnus Dei – Marco Barrientos\n4.— Hay Libertad — Art Aguilera",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Agnus Dei – Marco Barrientos",
+          "query": "agnus dei marco barrientos",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Hay Libertad — Art Aguilera",
+          "query": "hay libertad art aguilera",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "tildes_ene",
+    "que": "Tildes, diéresis, mayúsculas con tilde y ñ: «Cena Del Señor», «Mañana», «Cuán…», «SEÑOR ERES DIGNO» (todo mayúsculas), «Él Es Santo», «Sin Vergüenza». El título las conserva; la consulta quita las tildes y NO la ñ.",
+    "text": "1.- Cena Del Señor\n2.- Mañana\n3.- Cuán Grande Es Dios\n4.- SEÑOR ERES DIGNO\n5.- Él Es Santo\n6.- Sin Vergüenza",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Mañana",
+          "query": "mañana",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "SEÑOR ERES DIGNO",
+          "query": "señor eres digno",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 5,
+          "title": "Él Es Santo",
+          "query": "el es santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 6,
+          "title": "Sin Vergüenza",
+          "query": "sin verguenza",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "tildes_nfd",
+    "que": "[difícil] Texto en Unicode DESCOMPUESTO (NFD: «n» + U+0303, «a» + U+0301), como llega de algunos Mac/teclados: el título sale en NFC y la consulta conserva la ñ.",
+    "text": "1. Cena Del Sen\u0303or\n2. Man\u0303ana\n3. Cua\u0301n Grande Es Dios",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Mañana",
+          "query": "mañana",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "vacias_y_duplicados",
+    "que": "Líneas vacías entre todo (no separan nada: el enlace de la 2 va debajo de su título aunque haya una vacía después) y duplicados: el lector NO los funde (cada línea es un item; fundirlos es cosa del emparejador). «Te Doy Gloria» sale dos veces con ENLACES DISTINTOS (dos versiones: el enlace manda).",
+    "text": "Setlist\n\n1.- Digno De Adorar\n\n2.- Te Doy Gloria\nhttps://youtu.be/qzqKOs7kkFg\n\n3.- Rey Infinito\n\n\n4.- Digno De Adorar\n\n5.- Te Doy Gloria\nhttps://youtu.be/z3TxD6zxx3g\n\n6.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=qzqKOs7kkFg",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 5,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=z3TxD6zxx3g",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 6,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "men_particulas_y_roles",
+    "que": "[difícil] Menciones con partículas en minúscula («Maria de los Angeles Perez», «Juan de la Cruz» NO se cortan en «de»), un texto escrito a mano tras la mención («voz principal» → nota) y un paréntesis entre dos menciones.",
+    "text": "1.- Digno De Adorar @Maria de los Angeles Perez @Juan de la Cruz\n2.- Te Doy Gloria @Ana Lopez voz principal\n3.- Rey Infinito @Luis Perez QZRKT (Coros) @Marta Rojas",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [
+            "Maria de los Angeles Perez",
+            "Juan de la Cruz"
+          ],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [
+            "Ana Lopez"
+          ],
+          "note": "voz principal"
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [
+            "Luis Perez QZRKT",
+            "Marta Rojas"
+          ],
+          "note": "Coros"
+        }
+      ],
+      "people": [
+        "Maria de los Angeles Perez",
+        "Juan de la Cruz",
+        "Ana Lopez",
+        "Luis Perez QZRKT",
+        "Marta Rojas"
+      ],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "notas_parentesis",
+    "que": "Todo lo que va entre paréntesis es `note` y NO entra en el título ni en la consulta: tono «(G)», «(tono D)», versión «(En Vivo)» y hasta un nombre «(Marco Barrientos)» (en paréntesis nunca se da por artista).",
+    "text": "1.- Digno De Adorar (G)\n2.- Te Doy Gloria (tono D)\n3.- Aleluya (En Vivo)\n4.- Hay Libertad (Marco Barrientos)",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": "G"
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": "tono D"
+        },
+        {
+          "n": 3,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": "En Vivo"
+        },
+        {
+          "n": 4,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": "Marco Barrientos"
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "orden_delante_y_detras",
+    "que": "[extra] La orden del usuario antes Y después de la lista («armame una lista con esto:» y «las que no esten…»): son `extras` y la última frase, sin marca y en minúsculas tras la lista numerada, no es la canción 4.",
+    "text": "armame una lista con esto:\n1.- Digno De Adorar\n2.- Te Doy Gloria\n3.- Rey Infinito\n\nlas que no esten en la biblioteca bajalas",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [
+        "armame una lista con esto:",
+        "las que no esten en la biblioteca bajalas"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "wa_prefijo_exportado",
+    "que": "[extra] [difícil] Copiado de WhatsApp Web/Escritorio: la primera línea trae el prefijo «[hora, fecha] Remitente:» antes de la cabecera. Ese prefijo es metadato: no es extra, ni mención, ni parte del nombre.",
+    "text": "[8:14 p. m., 3/2/2024] Carlos Mena: *Domingo*\n1.- Digno De Adorar\n2.- Te Doy Gloria\n3.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "Domingo",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_pon_la_segunda",
+    "que": "Orden corta sobre algo ya existente.",
+    "text": "pon la segunda",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_tono_mi_gozo",
+    "que": "Pregunta sobre una canción.",
+    "text": "¿en qué tono está Mi Gozo?",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_borra_lista",
+    "que": "Orden de borrar una lista.",
+    "text": "borra la lista domingo",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_parrafo_5_lineas",
+    "que": "Un párrafo de 5 líneas hablando: líneas largas con comas y puntos, ningún título.",
+    "text": "hola, buenas noches. te escribo porque el domingo pasado el sonido estuvo raro en la bateria.\ncreo que fue el cable de la caja o el microfono del bombo, no estoy seguro.\nqueria saber si puedes revisar cuantas canciones tengo en el ensayo del sabado.\ntambien me gustaria que me digas cual es la mas larga de la lista del domingo.\ngracias, me avisas cuando puedas",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_instrucciones_numeradas",
+    "que": "Lista numerada de INSTRUCCIONES para el asistente (no son canciones): imperativos que hablan de la lista y las canciones.",
+    "text": "haz esto por favor:\n1. abre la lista del domingo\n2. quita las canciones repetidas\n3. ordenalas por duracion\n4. avisame cuando termines",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_tareas_numeradas",
+    "que": "[difícil] Lista numerada de tareas del baterista con aspecto de títulos (mayúsculas iniciales, cortas, sin verbos conjugados): no son canciones, pero solo el sentido lo dice.",
+    "text": "Pendientes del ensayo:\n1.- Afinar la batería\n2.- Comprar baquetas\n3.- Llevar el cable de la caja\n4.- Revisar el micrófono del bombo",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_una_cancion_frase",
+    "que": "Mensaje real anonimizado: UNA canción pedida en una frase.",
+    "text": "descargame amoroso de bjputman",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_una_cancion_enlace",
+    "que": "Mensaje real anonimizado: una canción con título, artista y enlace dentro de una frase larga.",
+    "text": "agregame a la lista ensayo domingo la version de hay libertad de julian arce, la de este enlace https://www.youtube.com/watch?v=1lFgH0Y905H, si ya la tenemos no la bajes",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_pregunta_conteo",
+    "que": "Mensaje real anonimizado: pregunta de conteo.",
+    "text": "cuantas canciones tengo de Marco Barrientos?",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_enumeracion_en_frase",
+    "que": "[difícil] DUDOSO decidido: varias canciones enumeradas DENTRO de una frase («A, B y C»). No es una lista pegada: partir por comas y «y» rompe títulos como «Tú y Yo»; de la frase se ocupa el modelo.",
+    "text": "armame una lista con Digno De Adorar, Rey Infinito y Te Doy Gloria",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_real_orden_sola",
+    "que": "Mensaje real anonimizado: la ORDEN sola, sin la lista (con el campo antiguo la lista llegó en un segundo mensaje).",
+    "text": "agregame esto a la lista de los domingo, la que no se consiga descargala:",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_real_si_descarga",
+    "que": "Mensaje real anonimizado: confirmación con instrucciones y un nombre de lista, ningún título.",
+    "text": "si descarga las que no tengamos, y el nombre de la lista ponle: ensayo domingo",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_real_dos_titulos_en_frase",
+    "que": "[difícil] Mensaje real anonimizado: dos títulos dentro de una queja larga. Sigue sin ser una lista pegada.",
+    "text": "te doy gloria no es de luis tampoco, y de gloria en gloria tampoco es de pablo, debes buscarlas en youtube y elegir las que salgan de primero pero en la mejor calidad de sonido",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_real_rey_infinito",
+    "que": "Mensaje real anonimizado: una duda sobre quién canta una canción.",
+    "text": "rey infinito creo que es de cristine dclario con marcos barrientos",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_un_enlace_suelto",
+    "que": "Un solo enlace con una pregunta: UNA canción, no una lista (la lista exige al menos dos).",
+    "text": "¿qué canción es esta? https://youtu.be/7_h7xRFe0E-",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_un_solo_item_con_formato",
+    "que": "[difícil] Umbral decidido: cabecera + UN solo item con formato de lista sigue siendo una sola canción: is_setlist es false (hace falta ≥ 2).",
+    "text": "*Domingo*\n*1.- Digno De Adorar* @Marta Rojas Velez",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_secciones_sin_canciones",
+    "que": "Mensaje solo de secciones (banda y ensayo), sin ninguna canción: no hay lista.",
+    "text": "Banda:\nGuitarra: @Mateo QZRKT\nBajo: @Hugo Prado\nBatería: @Tomas Vega\nEnsayo: Sábado 7pm",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_tres_lineas_de_charla",
+    "que": "[difícil] Tres líneas cortas de charla, sin puntuación y sin mayúsculas: se parecen a «un título por línea» pero no lo son (llevan verbos conjugados y una frase completa).",
+    "text": "oye\nse me olvido decirte\nque el domingo no hay ensayo",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_letra_pegada",
+    "que": "[difícil] Una letra pegada (versos cortos, uno por línea, con comas y punto final): parece «un título por línea» y no lo es.",
+    "text": "Digno es el Cordero que fue inmolado,\npara recibir el poder y la riqueza,\nla sabiduría, la fuerza, el honor,\nla gloria y la alabanza.",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_saludo_gracias",
+    "que": "Saludo y agradecimiento.",
+    "text": "hola, gracias por todo",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "uno_enlace_pedido_numerado",
+    "que": "Diseño §2: «1 item con enlace dentro de un mensaje que lo pide» SÍ es lista. La orden pide algo (agregame) y la única canción va con su marca y su enlace. El «domingo» de la orden no es cabecera.",
+    "text": "agregame esta a la lista del domingo:\n1.- Hay Libertad https://youtu.be/igpEDjQkprp",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=igpEDjQkprp",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [
+        "agregame esta a la lista del domingo:"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "uno_enlace_pedido_sin_marca",
+    "que": "[difícil] La misma regla sin marcas: la orden, el título en su línea y el enlace debajo. Sin marcas hace falta que la canción traiga título propio (un enlace metido en una frase lo lee el modelo).",
+    "text": "ponla en la lista del domingo:\nHay Libertad\nhttps://youtu.be/84IEXs8OHFe",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=84IEXs8OHFe",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [
+        "ponla en la lista del domingo:"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "uno_enlace_pedido_negrita",
+    "que": "Como llega de WhatsApp: la orden y una sola canción en negrita con su enlace y una @mención.",
+    "text": "metela en ensayo domingo porfa\n*Te Doy Gloria* https://www.youtube.com/watch?v=h8GOtVX7KOk @Noemi",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=h8GOtVX7KOk",
+          "kind": "video",
+          "people": [
+            "Noemi"
+          ],
+          "note": ""
+        }
+      ],
+      "people": [
+        "Noemi"
+      ],
+      "extras": [
+        "metela en ensayo domingo porfa"
+      ],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_uno_enlace_sin_pedir",
+    "que": "Una canción con marca y enlace en un mensaje que NO pide nada («mira esta versión»): no es lista.",
+    "text": "mira esta version:\n1.- Hay Libertad https://youtu.be/jVAVjRDZ-Tj",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_frase_en_lineas_con_enlace",
+    "que": "[difícil] Una canción pedida en una frase, partida en tres líneas como se escribe en el cuadro de texto: la orden con el título dentro, el enlace solo y «si ya la tenemos no la bajes». Ni el enlace sin título ni la última frase son canciones; de la frase se ocupa el modelo.",
+    "text": "agregame a la lista ensayo domingo la version de hay libertad de julian arce\nhttps://www.youtube.com/watch?v=zJdHxo1cBA6\nsi ya la tenemos no la bajes",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "url_lista_de_youtube",
+    "que": "[difícil] Diseño §2/§5: un enlace «/playlist?list=» dentro de una lista pegada se conserva como lista (kind «playlist», forma https://www.youtube.com/playlist?list=ID) y el list= de un mix (RD…) junto a un v= se quita (kind «video»).",
+    "text": "Setlist\n1.- Digno De Adorar https://www.youtube.com/playlist?list=PLfin9wOhvo0OcThjTpc-Cwk-psY02ble6\n2.- Te Doy Gloria https://youtu.be/KbI0OjKdb2_?list=RDKbI0OjKdb2_&start_radio=1\n3.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "https://www.youtube.com/playlist?list=PLfin9wOhvo0OcThjTpc-Cwk-psY02ble6",
+          "kind": "playlist",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=KbI0OjKdb2_",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "trunc_setenta",
+    "que": "Diseño §2: más de MAX_SETLIST_ITEMS (60). Setenta líneas numeradas: salen las 60 primeras y `truncated` = 10 (se avisa). Los títulos se repiten y no se funden.",
+    "text": "1. Hay Libertad\n2. Aleluya\n3. Eres Santo\n4. Cena Del Señor\n5. Digno De Adorar\n6. Te Doy Gloria\n7. De Gloria en Gloria\n8. Rey Infinito\n9. Agnus Dei\n10. Cuán Grande Es Dios\n11. Mañana\n12. Salmo 23\n13. Sin Vergüenza\n14. Él Es Santo\n15. Hay Libertad\n16. Aleluya\n17. Eres Santo\n18. Cena Del Señor\n19. Digno De Adorar\n20. Te Doy Gloria\n21. De Gloria en Gloria\n22. Rey Infinito\n23. Agnus Dei\n24. Cuán Grande Es Dios\n25. Mañana\n26. Salmo 23\n27. Sin Vergüenza\n28. Él Es Santo\n29. Hay Libertad\n30. Aleluya\n31. Eres Santo\n32. Cena Del Señor\n33. Digno De Adorar\n34. Te Doy Gloria\n35. De Gloria en Gloria\n36. Rey Infinito\n37. Agnus Dei\n38. Cuán Grande Es Dios\n39. Mañana\n40. Salmo 23\n41. Sin Vergüenza\n42. Él Es Santo\n43. Hay Libertad\n44. Aleluya\n45. Eres Santo\n46. Cena Del Señor\n47. Digno De Adorar\n48. Te Doy Gloria\n49. De Gloria en Gloria\n50. Rey Infinito\n51. Agnus Dei\n52. Cuán Grande Es Dios\n53. Mañana\n54. Salmo 23\n55. Sin Vergüenza\n56. Él Es Santo\n57. Hay Libertad\n58. Aleluya\n59. Eres Santo\n60. Cena Del Señor\n61. Digno De Adorar\n62. Te Doy Gloria\n63. De Gloria en Gloria\n64. Rey Infinito\n65. Agnus Dei\n66. Cuán Grande Es Dios\n67. Mañana\n68. Salmo 23\n69. Sin Vergüenza\n70. Él Es Santo",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 4,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 5,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 6,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 7,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 8,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 9,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 10,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 11,
+          "title": "Mañana",
+          "query": "mañana",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 12,
+          "title": "Salmo 23",
+          "query": "salmo 23",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 13,
+          "title": "Sin Vergüenza",
+          "query": "sin verguenza",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 14,
+          "title": "Él Es Santo",
+          "query": "el es santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 15,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 16,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 17,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 18,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 19,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 20,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 21,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 22,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 23,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 24,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 25,
+          "title": "Mañana",
+          "query": "mañana",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 26,
+          "title": "Salmo 23",
+          "query": "salmo 23",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 27,
+          "title": "Sin Vergüenza",
+          "query": "sin verguenza",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 28,
+          "title": "Él Es Santo",
+          "query": "el es santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 29,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 30,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 31,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 32,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 33,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 34,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 35,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 36,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 37,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 38,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 39,
+          "title": "Mañana",
+          "query": "mañana",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 40,
+          "title": "Salmo 23",
+          "query": "salmo 23",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 41,
+          "title": "Sin Vergüenza",
+          "query": "sin verguenza",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 42,
+          "title": "Él Es Santo",
+          "query": "el es santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 43,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 44,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 45,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 46,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 47,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 48,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 49,
+          "title": "De Gloria en Gloria",
+          "query": "de gloria en gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 50,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 51,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 52,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 53,
+          "title": "Mañana",
+          "query": "mañana",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 54,
+          "title": "Salmo 23",
+          "query": "salmo 23",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 55,
+          "title": "Sin Vergüenza",
+          "query": "sin verguenza",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 56,
+          "title": "Él Es Santo",
+          "query": "el es santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 57,
+          "title": "Hay Libertad",
+          "query": "hay libertad",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 58,
+          "title": "Aleluya",
+          "query": "aleluya",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 59,
+          "title": "Eres Santo",
+          "query": "eres santo",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 60,
+          "title": "Cena Del Señor",
+          "query": "cena del señor",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 10
+    }
+  },
+  {
+    "id": "ws_cr_solo",
+    "que": "Saltos de línea de Mac antiguo (\\r suelto) y tabulador tras la numeración.",
+    "text": "Setlist\r1.\tDigno De Adorar\r2.\tTe Doy Gloria\r3.\tRey Infinito\r",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "med_enlace_de_fuera_no_cuenta",
+    "que": "[difícil] Un medley con un enlace de Spotify DELANTE de sus dos enlaces de YouTube: el de fuera se descarta y no ocupa el turno de nadie (el 1.º de YouTube sigue siendo del 1.er título). Hallado por las propiedades al cerrar el lector.",
+    "text": "Setlist\n1.- Medley: Agnus Dei & Cuán Grande Es Dios https://open.spotify.com/track/99G6K-4KuO7qoIDBafKw9k https://youtu.be/_GST4-vE_Tk https://youtu.be/2UBiG-t528B\n2.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Agnus Dei",
+          "query": "agnus dei",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=_GST4-vE_Tk",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 2,
+          "title": "Cuán Grande Es Dios",
+          "query": "cuan grande es dios",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=2UBiG-t528B",
+          "kind": "video",
+          "people": [],
+          "note": "Medley"
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "neg_solo_enlaces_de_fuera",
+    "que": "Dos líneas numeradas con SOLO enlaces que no son de YouTube: no hay ninguna canción (ni título ni vídeo).",
+    "text": "1.- https://open.spotify.com/track/BJfooBApa9vLcsk2TJdNBg\n2.- https://www.instagram.com/reel/9pEAVImeW4x/",
+    "expect": {
+      "is_setlist": false,
+      "name_hint": "",
+      "items": [],
+      "people": [],
+      "extras": [],
+      "truncated": 0
+    }
+  },
+  {
+    "id": "una_linea_con_orden",
+    "que": "[difícil] Todo en una línea, también la orden: «agregame esto a la lista domingo: 1.- … 2.- … 3.- …». La orden es un extra y no se come la primera canción.",
+    "text": "agregame esto a la lista domingo: 1.- Digno De Adorar 2.- Te Doy Gloria https://youtu.be/uEX3gCfLQAo 3.- Rey Infinito",
+    "expect": {
+      "is_setlist": true,
+      "name_hint": "",
+      "items": [
+        {
+          "n": 1,
+          "title": "Digno De Adorar",
+          "query": "digno de adorar",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 2,
+          "title": "Te Doy Gloria",
+          "query": "te doy gloria",
+          "artist": "",
+          "url": "https://www.youtube.com/watch?v=uEX3gCfLQAo",
+          "kind": "video",
+          "people": [],
+          "note": ""
+        },
+        {
+          "n": 3,
+          "title": "Rey Infinito",
+          "query": "rey infinito",
+          "artist": "",
+          "url": "",
+          "kind": "",
+          "people": [],
+          "note": ""
+        }
+      ],
+      "people": [],
+      "extras": [
+        "agregame esto a la lista domingo:"
+      ],
+      "truncated": 0
+    }
+  }
+]
