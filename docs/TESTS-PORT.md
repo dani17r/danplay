@@ -442,3 +442,29 @@ con un generador fijo.
 | `test_the_parser_never_fails_and_keeps_the_contract` | `I` `the_parser_never_fails_and_keeps_the_contract` |
 | `test_any_text_does_not_break_either` | `I` `any_text_does_not_break_either` |
 | `test_clean_youtube_url_is_canonical_and_idempotent` | `I` `clean_youtube_url_is_canonical_and_idempotent` |
+
+## tests/test_chord_sheets.py
+
+`C` = `library/src/chord_sheets/tests.rs` (las páginas, con un `get` de
+mentira: lo que no conoce es «sin red»); `E` = `library/src/enrich/tests.rs`.
+
+| Prueba de Python | En Rust |
+|---|---|
+| `test_ultimate_guitar_parsed_by_sections_and_marked_chords` | ya estaba en `C` `ultimate_guitar_by_sections_and_marked_chords` |
+| `test_sections_written_as_plain_text_also_count` | ya estaba en `C` `sections_written_as_text` |
+| `test_key_and_capo_stated_in_the_text_itself` | `C` `key_and_capo_stated_in_the_text_itself` |
+| `test_lacuerda_is_parsed_by_its_markup` | ya estaba en `C` `lacuerda_by_its_markup` |
+| `test_same_song_even_if_it_comes_from_youtube` | `C` `same_song_even_if_it_comes_from_youtube` (los cinco casos) |
+| `test_another_song_is_not_accepted` | `C` `another_song_is_not_accepted` (los cuatro) |
+| `test_search_title_drops_noise_and_the_artist` | `C` `search_title_drops_noise_and_the_artist` |
+| `test_ultimate_guitar_prefers_the_tab_that_states_its_key` | `C` `ultimate_guitar_prefers_the_tab_that_states_its_key` (con los cinco resultados; la parecida que ya estaba, `ultimate_guitar_prefers_the_one_with_a_key`, llevaba dos) |
+| `test_without_a_key_in_the_data_the_text_key_counts` | `C` `without_a_key_in_the_data_the_text_key_counts` |
+| `test_nothing_if_ultimate_guitar_does_not_have_it` | `C` `nothing_if_ultimate_guitar_does_not_have_it` |
+| `test_lacuerda_through_the_artist_page` | `C` `lacuerda_through_the_artist_page` |
+| `test_find_merges_sources_and_reports_the_failed_ones` | ya estaba en `C` `find_combines_the_sources` |
+| `test_the_key_that_can_be_asserted` | `C` `the_key_that_can_be_asserted` (sin `sheet_key(None)`) |
+| `test_what_is_found_is_saved_and_not_searched_again` | `E` `what_is_found_is_saved_and_not_searched_again` |
+| `test_not_found_is_saved_but_a_network_failure_is_not` | ya estaba en `E` `chords_are_saved_unless_the_network_failed` |
+| `test_filled_key_comes_from_the_chord_sheet_not_the_ai` | `E` `filled_key_comes_from_the_chord_sheet_not_the_ai` (la primera parte ya estaba en `autofill_says_what_is_missing_and_why`) |
+| `test_search_404_means_nothing_and_title_alone_is_tried` | `C` `search_404_means_nothing_and_title_alone_is_tried` (la de antes, `a_search_404_means_nothing_found`, no miraba que se probara el título solo) |
+| `test_channels_search_with_the_artist_name` | `C` `channels_search_with_the_artist_name` |

@@ -30,6 +30,8 @@ struct Fake {
     written: Vec<String>,
     /// lo que contesta `details` (sin él, la de verdad, que pregunta a `ai`)
     details_answer: Option<Json>,
+    /// los títulos por los que se buscó un cifrado
+    sheets_asked: Vec<String>,
 }
 
 impl Outside for Fake {
@@ -108,7 +110,8 @@ impl Outside for Fake {
     fn chords(&mut self, song: &Json) -> Result<Json, String> {
         chords(self, song, false).map_err(|e| format!("{e:?}"))
     }
-    fn find_sheet(&mut self, _: &[u32], _: &[u32]) -> Result<Json, String> {
+    fn find_sheet(&mut self, _: &[u32], title: &[u32]) -> Result<Json, String> {
+        self.sheets_asked.push(plain(title));
         Ok(self.sheet.clone())
     }
     fn today(&mut self) -> Result<String, String> {
@@ -846,4 +849,104 @@ fn timed_lyrics_do_not_reach_the_uslt() {
     let row = &f.songs[&1];
     assert_eq!(row.get("lyrics"), Some(&s("Mi gozo\nesta en ti")));
     assert_eq!(row.get("lyrics_synced"), Some(&s(lrc)));
+}
+
+// ------------------------------------------- lo de tests/test_chord_sheets.py
+
+/// Un cifrado encontrado se guarda y no se vuelve a buscar (salvo con
+/// «buscar otra vez»).
+#[test]
+fn what_is_found_is_saved_and_not_searched_again() {
+    let sheet = obj(vec![
+        ("source", s("LaCuerda")),
+        ("key", s("")),
+        ("capo", Json::Int(0)),
+        ("sections", Json::List(vec![])),
+    ]);
+    let mut f = Fake {
+        sheet: obj(vec![
+            ("sheet", sheet.clone()),
+            ("tried", Json::List(vec![s("LaCuerda")])),
+            ("failed", Json::List(vec![])),
+        ]),
+        ..Fake::default()
+    };
+    let r = chords(&mut f, &song(r#"{"album": "Gozo"}"#), false).expect("vale");
+    assert_eq!(r.get("sheet"), Some(&sheet));
+    let saved = f.updates[0].1[0].1.clone();
+    let doc = plain(&pv::py_str(&saved));
+    let doc: serde_json::Value = serde_json::from_str(&doc).expect("JSON");
+    assert_eq!(doc["album"], serde_json::json!("Gozo"));
+    assert_eq!(doc["sheet"]["source"], serde_json::json!("LaCuerda"));
+    assert_eq!(doc["sheet_tried"], serde_json::json!(["LaCuerda"]));
+    assert!(doc["sheet_checked"].as_str().is_some_and(|d| !d.is_empty()));
+    let stored = plain(&pv::py_str(&saved));
+    let again = chords(&mut f, &song(&stored), false).expect("vale");
+    assert_eq!(again.get("cached"), Some(&Json::Bool(true)));
+    assert_eq!(f.sheets_asked, ["Mi Gozo"]);
+    chords(&mut f, &song(&stored), true).expect("vale");
+    assert_eq!(
+        f.sheets_asked,
+        ["Mi Gozo", "Mi Gozo"],
+        "«buscar otra vez» sí busca"
+    );
+}
+
+/// El tono que se rellena sale del cifrado, no de la IA (que ni se
+/// pregunta); con cejilla, o sin tono en el cifrado, no se rellena.
+#[test]
+fn filled_key_comes_from_the_chord_sheet_not_the_ai() {
+    let mut f = Fake::default(); // sin IA
+    f.songs.insert(
+        5,
+        obj(vec![
+            ("id", Json::Int(5)),
+            ("artist", s("Barak")),
+            ("title", s("Mi Gozo")),
+            ("album", s("A")),
+            ("year", s("2018")),
+            ("genre", s("X")),
+            ("key", s("")),
+            ("chords", s("")),
+        ]),
+    );
+    let with = |capo: i64, key: &str| {
+        obj(vec![
+            (
+                "sheet",
+                obj(vec![
+                    ("source", s("Ultimate Guitar")),
+                    ("key", s(key)),
+                    ("capo", Json::Int(capo)),
+                ]),
+            ),
+            ("tried", Json::List(vec![])),
+            ("failed", Json::List(vec![])),
+        ])
+    };
+    f.sheet = with(0, "D");
+    let r = autofill(&mut f, &Json::Int(5)).expect("vale");
+    assert_eq!(r.get("ok"), Some(&Json::Bool(true)));
+    assert_eq!(r.get("filled"), Some(&obj(vec![("key", s("D"))])));
+    assert_eq!(f.edits, [vec![("key".to_owned(), s("D"))]]);
+    assert!(f.asked.is_empty(), "para el tono no se pregunta a la IA");
+    // (el cifrado se guardó en la canción: se vuelve a la de antes)
+    f.songs
+        .get_mut(&5)
+        .expect("la canción")
+        .set(&t("chords"), s(""));
+    f.edits.clear();
+    f.sheet = with(3, "D");
+    let r = autofill(&mut f, &Json::Int(5)).expect("vale");
+    assert!(f.edits.is_empty());
+    let reason = plain(&pv::py_str(r.get("reason").expect("motivo")));
+    assert!(reason.contains("cejilla"), "{reason}");
+    f.songs
+        .get_mut(&5)
+        .expect("la canción")
+        .set(&t("chords"), s(""));
+    f.sheet = with(0, "");
+    let r = autofill(&mut f, &Json::Int(5)).expect("vale");
+    let reason = plain(&pv::py_str(r.get("reason").expect("motivo")));
+    assert!(reason.contains("no dice el tono"), "{reason}");
 }
