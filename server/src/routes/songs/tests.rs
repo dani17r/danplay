@@ -611,6 +611,10 @@ fn steady_raw(path: &Path) {
 
 #[cfg(unix)]
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "un recorrido entero de la rejilla del clic"
+)]
 fn the_click_with_a_fake_detector() {
     let app = app();
     if app.tool("ffmpeg").is_none() || !crate::services::beats::graph(&app).is_file() {

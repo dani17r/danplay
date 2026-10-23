@@ -411,6 +411,10 @@ fn or_value(song: &Dict, key: &str, default: Value) -> Value {
 /// para esta canción, en su carpeta de pistas (movidas si ya no son de
 /// nadie, copiadas si siguen siendo de otra) y corridas `lag` segundos si
 /// hace falta. La carpeta, o `None` si no se pudo.
+#[allow(
+    clippy::too_many_lines,
+    reason = "los pasos de reuse.adopt_stems, en su orden"
+)]
 pub fn adopt_stems(
     app: &App,
     song: &Dict,
@@ -568,6 +572,10 @@ fn f64s(v: &[f32]) -> Vec<f64> {
 /// la red) de la gemela, corrida `lag` segundos, para este archivo. `Err` es
 /// lo que Python se callaba (`OSError`, `ValueError`, `KeyError`): sin
 /// rejilla, sin más.
+#[allow(
+    clippy::too_many_lines,
+    reason = "los pasos de reuse.adopt_grid, en su orden"
+)]
 fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, String> {
     let Some(key) = old_key(twin) else {
         return Ok(false);

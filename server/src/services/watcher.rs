@@ -499,7 +499,7 @@ impl Watcher {
                 // sin vigilancia en esa carpeta (el tope de inotify, un sistema
                 // de archivos que no avisa): queda el repaso periódico
                 Err(e) => {
-                    log::warn!("no puedo vigilar {root} ({e}): se repasara cada {minutes} min")
+                    log::warn!("no puedo vigilar {root} ({e}): se repasara cada {minutes} min");
                 }
             }
         }

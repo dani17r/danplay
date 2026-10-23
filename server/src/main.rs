@@ -104,12 +104,12 @@ fn main() {
                 uds = Some(
                     args.next()
                         .unwrap_or_else(|| usage("falta la ruta de --uds")),
-                )
+                );
             }
             "--host" => {
                 host = args
                     .next()
-                    .unwrap_or_else(|| usage("falta el valor de --host"))
+                    .unwrap_or_else(|| usage("falta el valor de --host"));
             }
             "--port" => {
                 port = args

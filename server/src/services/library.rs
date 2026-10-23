@@ -111,6 +111,10 @@ pub fn forget_cached(app: &App, paths: &[String]) {
 /// y lo de después (las pistas, las ondas y carátulas de lo que se fue, las
 /// listas y el estudio que traen los archivos, las listas que la tenían
 /// como «No está»). Las cifras del escaneo.
+#[allow(
+    clippy::too_many_lines,
+    reason = "los pasos de library.scan, en su orden"
+)]
 pub fn scan(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value, ApiError> {
     let _lock = app.scan_lock.lock();
     let cfg = app.config();
