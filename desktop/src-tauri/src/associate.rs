@@ -25,8 +25,8 @@ use tauri::AppHandle;
 /// Los tipos que DanPlay dice saber abrir.
 ///
 /// Tiene que coincidir con `bundle.fileAssociations` de `tauri.conf.json` y
-/// con `AUDIO_TYPES` de `danplay/api/common.py`. Hay una prueba que lo comprueba
-/// (`tests/test_core.py`), porque son tres sitios y se separan solos.
+/// con `AUDIO_TYPES` de `server/src/services/media.rs`, porque son tres sitios
+/// y se separan solos. Una prueba de alli compara esos dos.
 pub const MIME_TYPES: &[&str] = &[
     "audio/mpeg",
     "audio/flac",

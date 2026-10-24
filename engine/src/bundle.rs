@@ -1,5 +1,5 @@
 //! Las pistas guardadas en el celular: importar un `.danpista` (el ZIP que
-//! hace la PC, `danplay/bundle.py`) y saber cuales hay.
+//! hace la PC, `library::bundle`) y saber cuales hay.
 //!
 //! Cada una vive en su carpeta dentro de la de la app:
 //!
@@ -26,7 +26,8 @@ use std::path::{Path, PathBuf};
 
 pub const MANIFEST: &str = "pista.json";
 pub const STUDY: &str = "estudio.json";
-/// La version del formato que entiende esta app (la de `bundle.py`).
+/// La version del formato que entiende esta app (la que escribe la PC,
+/// `library::bundle::VERSION`).
 pub const VERSION: u64 = 1;
 /// Ni una cancion de veinte minutos con seis partes llega a esto.
 const MAX_TOTAL: u64 = 1_500_000_000;

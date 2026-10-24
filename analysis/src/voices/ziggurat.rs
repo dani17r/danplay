@@ -1,8 +1,7 @@
-//! Las tablas del zigurat con el que numpy saca sus normales
-//! (`numpy/random/src/distributions/ziggurat_constants.h` de numpy 2.5.3,
-//! BSD-3: © NumPy Developers), con el decimal más corto de cada número: el
-//! mismo double, sin cifras de sobra. Son las de la normal en float64 (las
-//! de `random_standard_normal`, la que usa `Generator.standard_normal`).
+//! Las tablas del zigurat de la normal en float64 (el de `rng`), con el
+//! decimal más corto de cada número: el mismo double, sin cifras de sobra.
+//! Son las de `numpy/random/src/distributions/ziggurat_constants.h` de NumPy
+//! 2.5.3 (BSD-3: © NumPy Developers).
 // Son tablas: los números se copian, no se leen.
 #![allow(clippy::unreadable_literal)]
 

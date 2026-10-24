@@ -1,7 +1,6 @@
-//! Lo que comparten las pruebas del análisis que eran de Python (lo de
-//! tests/conftest.py): una carpeta temporal propia que se borra sola, ffmpeg
-//! y ONNX Runtime. Sin ellos, las pruebas que los necesitan lo dicen y
-//! vuelven sin comprobar nada, como en Python.
+//! Lo que comparten las pruebas del análisis: una carpeta temporal propia que
+//! se borra sola, ffmpeg y ONNX Runtime. Sin ellos, las pruebas que los
+//! necesitan lo dicen y vuelven sin comprobar nada.
 use std::path::{Path, PathBuf};
 
 /// Una carpeta temporal para una prueba; se borra al soltarla (en Linux,

@@ -1,5 +1,5 @@
 //! La guía automática: las partes de la canción (intro, estrofas, coros,
-//! puente, solos, final), sacadas del audio (lo de danplay/structure.py).
+//! puente, solos, final), sacadas del audio.
 //!
 //! Cómo se escuchan las partes:
 //!
@@ -18,14 +18,14 @@
 //!    qué instrumento manda cuando no se canta (un solo);
 //! 6. las partes que se parecen se agrupan (A, B, C…) y se nombran.
 //!
-//! Las cuentas son las de numpy, número a número (la suma por parejas, la de
-//! las columnas de izquierda a derecha, el producto de matrices como una
-//! cadena de multiplicaciones-sumas fusionadas, como OpenBLAS): dados los
-//! mismos rasgos, salen las mismas partes. Los rasgos del audio (`frames`)
-//! pasan por una FFT, y ahí no: la de numpy y la de aquí difieren en el
-//! último decimal.
-// Los nombres cortos (x, m, a, b, n...) son los de structure.py, cuenta a
-// cuenta.
+//! Las cuentas dan lo mismo, número a número, que hasta la 1.30 (la suma por
+//! parejas, la de las columnas de izquierda a derecha, el producto de
+//! matrices como una cadena de multiplicaciones-sumas fusionadas, como
+//! OpenBLAS): dados los mismos rasgos, salen las mismas partes. Los rasgos
+//! del audio (`frames`) pasan por una FFT, y ahí no: la FFT de entonces y la
+//! de aquí difieren en el último decimal.
+// Los nombres cortos (x, m, a, b, n...) son los de la cuenta, para poder
+// seguirla.
 #![allow(clippy::many_single_char_names)]
 
 use crate::np;
@@ -89,7 +89,7 @@ fn solo_name(k: &str) -> Option<&'static str> {
     SOLOS.iter().find(|(s, _)| *s == k).map(|(_, n)| *n)
 }
 
-/// Una matriz de `rows` x `columns`, por filas (como un array de numpy).
+/// Una matriz de `rows` x `columns`, por filas.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Matrix {
     pub rows: usize,
@@ -111,8 +111,8 @@ impl Matrix {
         &self.data[i * self.columns..(i + 1) * self.columns]
     }
 
-    /// `m[a:b].mean(axis=0)`: cada columna sumada de arriba abajo (así suma
-    /// numpy por columnas) y dividida.
+    /// La media de las filas de `a` a `b` (sin la `b`): cada columna sumada
+    /// de arriba abajo, en orden, y dividida.
     pub fn mean_rows(&self, a: usize, b: usize) -> Vec<f64> {
         let mut out = vec![0.0; self.columns];
         for i in a..b {
@@ -125,7 +125,8 @@ impl Matrix {
     }
 }
 
-/// `np.dot` de dos vectores cortos: de izquierda a derecha, sin fusionar.
+/// El producto escalar de dos vectores cortos: de izquierda a derecha, sin
+/// fusionar.
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     let mut s = 0.0;
     for (x, y) in a.iter().zip(b) {
@@ -134,12 +135,12 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
     s
 }
 
-/// `np.linalg.norm` de un vector corto.
+/// Lo que mide un vector corto (la raíz de su producto consigo mismo).
 fn norm(a: &[f64]) -> f64 {
     dot(a, a).sqrt()
 }
 
-/// `x.std()` de numpy: la raíz de la media de los cuadrados de lo que se
+/// La desviación típica: la raíz de la media de los cuadrados de lo que se
 /// aparta de la media.
 fn std(a: &[f64]) -> f64 {
     let m = np::media(a);
@@ -147,8 +148,8 @@ fn std(a: &[f64]) -> f64 {
     (np::sum(&sq) / a.len() as f64).sqrt()
 }
 
-/// `np.percentile(a, q)` con el método de siempre (lineal entre los dos
-/// vecinos, como `_lerp` de numpy).
+/// El percentil `q` de `a`, lineal entre los dos vecinos (contado desde el
+/// más cercano de los dos, para que salga igual).
 fn percentile(a: &[f64], q: f64) -> f64 {
     let mut v = a.to_vec();
     v.sort_by(f64::total_cmp);
@@ -402,7 +403,7 @@ pub fn pool(times: &[f64], values: &Matrix, units: &[(f64, f64)]) -> Matrix {
             (lo, hi) = (near, near + 1);
         }
         if values.columns == 1 {
-            // una sola columna: numpy la suma por parejas
+            // una sola columna: se suma por parejas
             let col: Vec<f64> = (lo..hi).map(|i| values.data[i]).collect();
             out.push(np::media(&col));
         } else {
@@ -453,8 +454,8 @@ pub fn prepared(block: &Matrix) -> Matrix {
     Matrix::new(n, block.columns, out)
 }
 
-/// `b @ b.T`: cada producto como una cadena de multiplicaciones-sumas
-/// fusionadas, de izquierda a derecha (como el BLAS de numpy).
+/// `b` por su traspuesta: cada producto como una cadena de
+/// multiplicaciones-sumas fusionadas, de izquierda a derecha (como OpenBLAS).
 fn gram(b: &Matrix) -> Vec<f64> {
     let n = b.rows;
     let mut out = vec![0.0; n * n];
@@ -771,7 +772,7 @@ pub fn segment(
         .filter(|(k, _)| !VOCALS.contains(&k.as_str()))
         .map(|(k, v)| (k, v))
         .collect();
-    // `sum()` de Python: desde 0, de izquierda a derecha
+    // desde 0, de izquierda a derecha (no por parejas)
     let song_total: f64 = levels
         .iter()
         .map(|(_, v)| np::media(v))
@@ -1090,8 +1091,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn percentile_like_numpy() {
-        // np.percentile([1, 2, 3, 4], 95) == 3.85
+    fn percentile_is_linear_between_neighbours() {
+        // el 95 de [1, 2, 3, 4] es 3,85
         assert!((percentile(&[1.0, 2.0, 3.0, 4.0], 95.0) - 3.85).abs() < 1e-12);
         assert_eq!(percentile(&[5.0], 95.0), 5.0);
     }
@@ -1119,11 +1120,11 @@ mod tests {
         assert_eq!(plan, vec![(8.5, "Coro".to_owned())]);
     }
 
-    // ---------------------------------------------------- tests/test_structure.py
+    // ---------------------------------------------------- rasgos sintéticos
     //
     // Las cuentas, con rasgos sintéticos (una plantilla por parte, con
     // ruido): sin audio. El ruido sale de un generador propio con su
-    // semilla (no del de numpy), con el mismo reparto.
+    // semilla, uniforme o normal.
 
     /// splitmix64: siempre lo mismo con la misma semilla.
     struct Rng(u64);
@@ -1137,12 +1138,12 @@ mod tests {
             z ^ (z >> 31)
         }
 
-        /// En [0, 1), como `rng.random()`.
+        /// En [0, 1), con 53 bits.
         fn random(&mut self) -> f64 {
             (self.next() >> 11) as f64 / (1u64 << 53) as f64
         }
 
-        /// Normal de media 0 y desviación 1, como `rng.standard_normal()`.
+        /// Normal de media 0 y desviación 1 (Box-Muller).
         fn normal(&mut self) -> f64 {
             let (u1, u2) = (1.0 - self.random(), self.random());
             (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
@@ -1182,8 +1183,8 @@ mod tests {
         ('A', 4),
     ];
 
-    /// (croma, timbre, rms, voz) por unidad (`_features`): cada parte, su
-    /// plantilla con ruido.
+    /// (croma, timbre, rms, voz) por unidad: cada parte, su plantilla con
+    /// ruido.
     fn features(plan: &[(char, usize)], seed: u64) -> (Matrix, Matrix, Vec<f64>, Vec<f64>) {
         let noise = 0.3;
         let mut rng = Rng(seed);

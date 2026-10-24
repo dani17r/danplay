@@ -4,8 +4,8 @@
 //!
 //! Se sintetiza muestra a muestra, a la tasa que se pida: unos pocos
 //! parciales senoidales que se apagan, con un ataque de medio milisegundo
-//! para que no chasque. La mezcla con clic que se guarda desde la PC usa la
-//! misma tabla (`danplay/click.py`).
+//! para que no chasque. La mezcla con clic que se guarda desde la PC usa esta
+//! misma tabla (`analysis::click`).
 use serde::{Deserialize, Serialize};
 
 /// Como suena el clic. Se elige en el modo estudio.
@@ -190,9 +190,9 @@ mod tests {
         );
     }
 
-    /// Los mismos numeros que tests/test_click.py con `danplay/click.py`, que
-    /// hace el clic de la mezcla que se guarda. Si cambia uno, tiene que
-    /// cambiar el otro.
+    /// Unos numeros fijos de cada sonido. Con esta misma tabla se hace el clic
+    /// de la mezcla que se guarda en la PC (`analysis::click`): si cambia un
+    /// numero, cambia el clic en los dos sitios, y tiene que ser a proposito.
     #[test]
     fn every_sound_matches_the_one_in_the_saved_mix() {
         const RATE: u32 = 44_100;

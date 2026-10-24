@@ -1,5 +1,5 @@
-//! Lo de tests/test_separation.py que no necesita ffmpeg, con una red de
-//! mentira que devuelve lo que le entra.
+//! Lo de separar que no necesita ffmpeg, con una red de mentira que devuelve
+//! lo que le entra.
 use super::*;
 
 /// Estéreo con varios tonos: sin nada en la frecuencia de Nyquist, que el
@@ -40,7 +40,7 @@ fn spectrogram_and_inverse_give_back_the_signal() {
 }
 
 #[test]
-fn padding_reflects_like_numpy() {
+fn padding_mirrors_without_repeating_the_edge() {
     assert_eq!(
         reflect(&[1.0, 2.0, 3.0], 2, 2),
         [3.0, 2.0, 1.0, 2.0, 3.0, 2.0, 1.0]
@@ -217,7 +217,7 @@ fn a_source_heard_only_briefly_is_kept() {
 }
 
 #[test]
-fn transposed_like_numpy() {
+fn transposed_reverses_the_axes() {
     let (f, d) = transposed(&[2, 3], &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
     assert_eq!((f, d), (vec![3, 2], vec![0.0, 3.0, 1.0, 4.0, 2.0, 5.0]));
 }
@@ -255,9 +255,8 @@ fn a_song_with_an_offset_and_a_loud_mix_comes_back_the_same() {
     }
 }
 
-/// Un `.safetensors` a mano (lo de `_write_safetensors` de las pruebas de
-/// Python): el largo de la cabecera, la cabecera en JSON y los números
-/// detrás. Cada tensor: (nombre, tipo, forma, bytes).
+/// Un `.safetensors` a mano: el largo de la cabecera, la cabecera en JSON y
+/// los números detrás. Cada tensor: (nombre, tipo, forma, bytes).
 pub(super) fn write_safetensors(path: &Path, tensors: &[(&str, &str, Vec<usize>, Vec<u8>)]) {
     let mut header = serde_json::Map::new();
     let mut at = 0usize;
@@ -349,7 +348,7 @@ fn the_real_graph_loads_with_weights_laid_out_like_the_official_ones() {
                 .map(|d| usize::try_from(d.as_u64().expect("dimensión")).expect("dimensión"))
                 .collect();
             let n: usize = shape.iter().product();
-            // pequeños y distintos (en Python, una normal por 0,01)
+            // pequeños y distintos
             let values = (0..n).map(|i| ((i * 7919) % 2001) as f32 / 100_000.0 - 0.01);
             tensors.push((source, "F16", shape, f16_bytes(values)));
         }

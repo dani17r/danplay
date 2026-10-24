@@ -86,9 +86,9 @@ fn main() {
     // Arrancarlo antes parecia inofensivo y no lo era: al abrir una cancion
     // con DanPlay ya abierto, el sistema lanza un segundo proceso, y ese
     // segundo proceso levantaba SU nucleo antes de que el plugin de instancia
-    // unica pudiera cortarlo. Con el de Python eso se llevaba el socket de la
-    // primera; con el de dentro serian dos nucleos (dos vigilantes de
-    // carpetas, dos diarios) sobre la misma base.
+    // unica pudiera cortarlo. Hasta la 1.30, con el nucleo aparte, eso se
+    // llevaba el socket de la primera; ahora serian dos nucleos (dos
+    // vigilantes de carpetas, dos diarios) sobre la misma base.
 
     // `mut` solo se usa fuera de Linux, donde se añade el plugin de posicion
     #[cfg_attr(target_os = "linux", allow(unused_mut))]

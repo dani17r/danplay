@@ -1,6 +1,6 @@
 //! La rejilla que usa la app (`BeatGrid` de beats.rs) a partir de lo que
 //! dice la red trama a trama. Medido canción a canción sobre una biblioteca
-//! de alabanza (`scripts/check-metronome.py`) y contra GTZAN:
+//! de alabanza y contra GTZAN (ver docs/ARCHITECTURE.md):
 //!
 //! - un solo nivel de pulso de principio a fin. La red, por tramos, oye el
 //!   pulso al doble (el «y» de cada tiempo) o a la mitad, y el clic se
@@ -29,8 +29,8 @@
 //! - con la batería separada, la red se pasa también por ella y manda la más
 //!   segura de las dos en cada instante (`super::combine`).
 //!
-//! Es el danplay/pulse.py de antes cuenta a cuenta, en el mismo orden (las
-//! sumas, por parejas como numpy), para que salga lo mismo.
+//! Cada cuenta va en el mismo orden que hasta la 1.30 (las sumas, por
+//! parejas: `np::sum`), para que salga lo mismo.
 use super::FPS;
 use crate::np;
 
@@ -77,7 +77,7 @@ pub type LowBand<'a> = (&'a [f32], f64);
 /// Los máximos (±3 tramas) de la probabilidad de pulso que pasan de
 /// `CANDIDATE`, cada uno en su instante afinado entre tramas (el vértice de
 /// la parábola por la trama y sus dos vecinas), con su probabilidad.
-// los nombres de la cuenta de pulse.py (a, b, c, p...), para poder seguirla
+// los nombres de una letra de la cuenta (a, b, c, p...), para poder seguirla
 #[allow(clippy::many_single_char_names)]
 pub fn candidates(lg: &[f64]) -> (Vec<f64>, Vec<f64>) {
     let n = lg.len();
@@ -128,7 +128,7 @@ fn dominant_period(times: &[f64], probs: &[f64]) -> Result<f64, String> {
         return Err(NO_BEAT.into());
     }
     let edges = np::linspace(0.15f64.log2(), 3.0f64.log2(), 160);
-    // `np.histogram` con esos bordes: [a, b) salvo el último, [a, b]
+    // cuántos caen entre cada par de bordes: [a, b) salvo el último, [a, b]
     let mut logs: Vec<f64> = ibi.iter().map(|x| x.log2()).collect();
     logs.sort_by(f64::total_cmp);
     let last = edges.len() - 1;
@@ -318,7 +318,8 @@ fn fill(beats: &[f64], local: &Local, lg: Option<&[f64]>) -> Vec<f64> {
 /// Los `k - 1` pulsos que van entre `a` y `b` (que no se mueven): donde la
 /// red dice que hay pulso, sin tirones de tempo (programación dinámica por
 /// pulso y trama). Para rellenar un hueco sin descoser los extremos.
-// los nombres de la cuenta de pulse.py (a, b, k, p, c, w, d), para poder seguirla
+// los nombres de una letra de la cuenta (a, b, k, p, c, w, d), para poder
+// seguirla
 #[allow(clippy::many_single_char_names)]
 pub fn anchored(a: f64, b: f64, k: usize, lg: &[f64], slack: f64, tempo_weight: f64) -> Vec<f64> {
     let lp: Vec<f64> = lg
@@ -365,7 +366,7 @@ pub fn anchored(a: f64, b: f64, k: usize, lg: &[f64], slack: f64, tempo_weight: 
                     }
                 })
                 .collect();
-            // `np.argmax`: el primero del máximo (con todo a -inf, el 0)
+            // el primero del máximo (con todo a -inf, el 0)
             let best_match = np::argmax(&sc);
             let idx = (cf as i64).clamp(0, lp.len() as i64 - 1) as usize;
             let total = sc[best_match] + lp[idx];
@@ -460,7 +461,7 @@ fn low_vote(chunk: &[f64], local: &Local, grave: Option<LowBand<'_>>) -> f64 {
     let mids: Vec<f32> = chunk.iter().map(|t| en(t + local.en(*t) / 2.0)).collect();
     let own = f64::from(np::media32(&on_beat));
     let half = f64::from(np::media32(&mids));
-    // `max(1e-9, half)` de Python: un NaN se queda en 1e-9
+    // como poco 1e-9; un NaN también se queda en 1e-9
     own / if half > 1e-9 { half } else { 1e-9 }
 }
 
@@ -571,8 +572,8 @@ pub struct SteadyFit {
     pub flipped_share: f64,
 }
 
-/// La suma de complejos de numpy (por parejas, con cuatro acumuladores por
-/// parte en los bloques), para que el periodograma salga igual.
+/// La suma de complejos por parejas (con cuatro acumuladores por parte en
+/// los bloques), para que el periodograma salga igual, número a número.
 fn complex_sum(re: &[f64], im: &[f64]) -> (f64, f64) {
     let m = re.len();
     if m < 4 {
@@ -730,7 +731,7 @@ pub fn extend_edges(
     drop_close(&out)
 }
 
-/// La recta de mínimos cuadrados por los puntos (`np.polyfit(x, y, 1)`).
+/// La recta de mínimos cuadrados por los puntos: (pendiente, ordenada).
 fn fit_line(x: &[f64], y: &[f64]) -> (f64, f64) {
     let mx = np::media(x);
     let my = np::media(y);
@@ -872,11 +873,11 @@ fn put(report: &mut Vec<(&'static str, Value)>, key: &'static str, value: Value)
     }
 }
 
-/// Las opciones de `grid` (las de `pulse.grid`).
+/// Las opciones de `grid`.
 #[derive(Clone, Copy, Debug)]
 pub struct Options<'a> {
     pub grave: Option<LowBand<'a>>,
-    /// Si se pasó la envolvente (aunque sea vacía): `lowband is not None`.
+    /// Si se pasó la envolvente (aunque sea vacía).
     pub has_low: bool,
     pub mode: &'a str,
     pub edges: bool,
@@ -899,7 +900,7 @@ impl Default for Options<'_> {
 
 /// La rejilla que usa la app a partir de lo que dice la red trama a trama
 /// (ver el principio del archivo).
-// es `pulse.grid` de principio a fin, paso a paso como allí
+// la rejilla de principio a fin, paso a paso, en una sola función
 #[allow(clippy::too_many_lines)]
 pub fn grid(beat: &[f64], down: &[f64], op: Options<'_>) -> Result<Grid, String> {
     let (times, probs) = candidates(beat);

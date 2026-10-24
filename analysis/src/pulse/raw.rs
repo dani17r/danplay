@@ -2,9 +2,9 @@
 //! o toda la canción de otra manera («Re-analizar el clic»), tarda
 //! milisegundos.
 //!
-//! Es un `.npz` de numpy (un zip con un `.npy` por cosa), en float16: unos
-//! 100 KB para una de 4 min. Los que guardaba la versión de Python se leen
-//! igual, y numpy lee los de aquí.
+//! Es un `.npz` (un zip con un `.npy` por cosa), en float16: unos 100 KB
+//! para una de 4 min. Los que guardaban las versiones de antes se leen
+//! igual, y los de aquí son `.npz` como aquellos.
 use half::f16;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -21,8 +21,8 @@ pub struct Raw {
     pub seconds: f64,
 }
 
-/// La cabecera de un `.npy` (versión 1.0), alineada a 64 bytes como la de
-/// numpy.
+/// La cabecera de un `.npy` (versión 1.0), alineada a 64 bytes como pide el
+/// formato.
 fn header(descr: &str, shape: &str) -> Vec<u8> {
     let dict = format!("{{'descr': '{descr}', 'fortran_order': False, 'shape': {shape}, }}");
     let unpadded = 10 + dict.len() + 1;
@@ -40,7 +40,7 @@ fn npy_f16(v: &[f64]) -> Vec<u8> {
     let mut out = header("<f2", &format!("({},)", v.len()));
     for x in v {
         // la versión sin instrucciones del procesador: esas pasan por f32 y
-        // redondean dos veces; numpy, una
+        // redondean dos veces, y aquí se redondea una, como se guardó siempre
         out.extend_from_slice(&f16::from_f64_const(*x).to_le_bytes());
     }
     out
@@ -52,9 +52,8 @@ fn npy_f64(x: f64) -> Vec<u8> {
     out
 }
 
-/// Lo guarda en float16 (de cualquier `float`: como `np.asarray(x,
-/// np.float16)`, con un solo redondeo). A un temporal y a su sitio al final:
-/// cortado a medias, no queda roto.
+/// Lo guarda en float16 (de float64 directamente, con un solo redondeo). A
+/// un temporal y a su sitio al final: cortado a medias, no queda roto.
 pub fn save(
     path: &Path,
     beat: &[f64],
@@ -168,7 +167,7 @@ fn scalar(zip: &mut zip::ZipArchive<File>, name: &str) -> Option<f64> {
     }
 }
 
-/// Lo guardado por `save` (o por la versión de Python), o `None`. Uno
+/// Lo guardado por `save` (o por las versiones de antes), o `None`. Uno
 /// dañado se borra: se vuelve a calcular.
 pub fn read(path: &Path) -> Option<Raw> {
     let file = match File::open(path) {

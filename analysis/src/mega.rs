@@ -21,7 +21,8 @@
 //!
 //! El Mega53 trabaja con su propio espectrograma (2048 puntos, salto de 512,
 //! sin normalizar), en trozos de 10 s (los de su entrenamiento) que se
-//! solapan y se funden. Es el danplay/mega.py de antes, cuenta a cuenta.
+//! solapan y se funden. Cada cuenta da lo mismo, número a número, que las
+//! de antes, con las que se probó el Mega53.
 use crate::onnx::Tensor32;
 use crate::separate::{Complex32, Error, Net, Spectrum, Stft};
 
@@ -129,7 +130,8 @@ fn map_bins(a: &Stereo, f: impl Fn(usize, usize, Complex32) -> Complex32) -> Ste
     [one(0), one(1)]
 }
 
-/// `np.abs(x) ** 2`, en float32.
+/// La energía de un punto, en float32: el módulo y luego su cuadrado (no
+/// `re² + im²`, que redondea distinto).
 fn power(v: Complex32) -> f32 {
     let a = v.re.hypot(v.im);
     a * a
@@ -171,7 +173,9 @@ fn energy(estimates: &[(String, Stereo)], heads: &[&str]) -> Result<[Vec<f32>; 2
     out.ok_or_else(|| Error::from("sin cabezas"))
 }
 
-/// Un real por un complejo, como numpy (el real pasa a complejo).
+/// Un real por un complejo, con el real pasado a complejo (parte imaginaria
+/// 0) y el producto entero: con infinitos o NaN no da lo mismo que
+/// multiplicar cada parte.
 fn multiply(s: f32, v: Complex32) -> Complex32 {
     Complex32::new(s * v.re - 0.0 * v.im, s * v.im + 0.0 * v.re)
 }
@@ -292,8 +296,8 @@ pub fn chunks_for(length: usize, chunk: usize, overlap: f64) -> usize {
 /// # Panics
 ///
 /// No: cada pista se acumula en su sitio, recién puesto.
-// los nombres de la cuenta de mega.py (x, z, m, w...), para poder seguirla, y
-// los argumentos de `mega.separate`
+// los nombres de una letra de la cuenta (x, z, m, w...), para poder
+// seguirla, y todos los argumentos que necesita
 #[allow(
     clippy::too_many_arguments,
     clippy::too_many_lines,

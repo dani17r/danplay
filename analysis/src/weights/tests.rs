@@ -1,9 +1,8 @@
 use super::*;
 use std::path::PathBuf;
 
-/// Los dos de fixtures/ (los de tests/fixtures de Python) los hizo
-/// `torch.save` (2.14): uno de verdad y uno con un pickle que ejecutaría una
-/// orden al abrirlo.
+/// Los dos de fixtures/ los guardó PyTorch (2.14): uno de verdad y uno con
+/// un pickle que ejecutaría una orden al abrirlo.
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src/weights/fixtures")
@@ -68,7 +67,7 @@ fn checkpoint_that_runs_code_is_refused() {
 #[test]
 fn pickle_machine_handles_the_usual_cases() {
     // un dict con texto, enteros grandes y negativos, una lista y un real,
-    // en protocolo 2 (lo de `pickle.dumps(..., protocol=2)`)
+    // en el protocolo 2 del pickle
     let data = b"\x80\x02}q\x00(X\x01\x00\x00\x00aq\x01J\xff\xff\xff\xffX\x01\x00\x00\x00bq\x02\x8a\x05\x00\x00\x00\x00\x01X\x01\x00\x00\x00cq\x03]q\x04(K\x01G?\xf8\x00\x00\x00\x00\x00\x00eu.";
     let f = File::open(fixture("weights.ckpt")).expect("abrir");
     let mut zip = Zip {
@@ -107,9 +106,8 @@ fn pickle_machine_handles_the_usual_cases() {
     ));
 }
 
-/// Lo de tests/test_torchzip.py: los números de cada peso, como los guardó
-/// `torch.save` (la vista traspuesta, el float16, el bfloat16, el entero y
-/// el de la capa).
+/// Los números de cada peso, como los guardó PyTorch (la vista traspuesta,
+/// el float16, el bfloat16, el entero y el de la capa).
 #[test]
 fn the_numbers_come_out_as_torch_saved_them() {
     let path = fixture("weights.ckpt");

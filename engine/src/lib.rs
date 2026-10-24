@@ -1,11 +1,11 @@
 //! El motor de pistas de la app del celular (`mobile/`).
 //!
-//! Abre lo que se separo en la PC (un `.danpista`, ver `danplay/bundle.py`)
-//! y lo deja estudiar: cada parte (bateria, voces, bajo...) con su volumen y
+//! Abre lo que se separo en la PC (un `.danpista`, ver `library::bundle`) y
+//! lo deja estudiar: cada parte (bateria, voces, bajo...) con su volumen y
 //! su panorama, la velocidad sin cambiar el tono, el tono sin cambiar la
 //! velocidad, tramos que se repiten, el clic en el pulso de la cancion y la
-//! cuenta antes de entrar. Sin Python, sin ffmpeg: todo aqui, en Rust, con
-//! Signalsmith Stretch (C++) para estirar.
+//! cuenta antes de entrar. Sin ffmpeg: todo aqui, en Rust, con Signalsmith
+//! Stretch (C++) para estirar.
 //!
 //! - `bundle`: importar un `.danpista` y las pistas que hay;
 //! - `decode`: cada parte, decodificada desde memoria (symphonia);

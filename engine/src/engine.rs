@@ -705,8 +705,8 @@ impl Engine {
 }
 
 /// Volumen y panorama a lo que suena por cada lado: un balance, como el de
-/// la PC: al centro tal cual; hacia un lado, el otro baja (`stems.gains` en
-/// Python).
+/// la PC (`library::stems::gains`): al centro tal cual; hacia un lado, el
+/// otro baja.
 fn gains(gain: f32, pan: f32) -> (f32, f32) {
     // hasta el triple: una pista al doble con la cancion al 150 %
     let g = gain.clamp(0.0, 3.0);

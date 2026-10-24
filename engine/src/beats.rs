@@ -2,9 +2,9 @@
 //!
 //! Sin modelos ni dependencias: envolvente de ataques (flujo espectral por
 //! tramas de FFT), tempo por autocorrelacion con un prior alrededor de 120,
-//! y la rejilla de pulsos por programacion dinamica (Ellis 2007, lo mismo
-//! que hace librosa). El «1» de cada compas se decide por donde caen el
-//! bombo y los cambios de acorde, probando 4/4 y 3/4.
+//! y la rejilla de pulsos por programacion dinamica (Ellis 2007). El «1» de
+//! cada compas se decide por donde caen el bombo y los cambios de acorde,
+//! probando 4/4 y 3/4.
 //!
 //! Para musica grabada a click —casi toda la de alabanza— acierta el pulso
 //! de forma fiable; el «1» acierta la mayoria de las veces y se puede
@@ -31,7 +31,7 @@ const WINDOW: usize = 2048;
 const HOP: usize = 512;
 /// Tramas por segundo.
 const FPS: f64 = RATE as f64 / HOP as f64;
-/// Cuanto se castiga apartarse del periodo al enlazar pulsos (librosa: 100).
+/// Cuanto se castiga apartarse del periodo al enlazar pulsos.
 const TIGHTNESS: f64 = 100.0;
 /// A partir de cuantos pulsos sin nada es un hueco sin clic (y no un pulso
 /// que se alarga un poco): los que la rejilla deja asi no se rellenan.
@@ -287,7 +287,7 @@ const DISCARD_EVERY: usize = 1 << 16;
 /// Las tramas, calculadas segun va llegando el audio.
 ///
 /// La trama `i` esta centrada en la muestra `i*HOP` y cubre
-/// `[i*HOP - WINDOW/2, i*HOP + WINDOW/2)`, como en librosa; fuera de la
+/// `[i*HOP - WINDOW/2, i*HOP + WINDOW/2)` (tramas centradas); fuera de la
 /// cancion cuenta como silencio. Se calcula en cuanto ha llegado su ultima
 /// muestra, y lo que ya no le hace falta a ninguna trama se tira. Da
 /// exactamente lo mismo que calcularlas con la cancion entera en memoria.
@@ -564,7 +564,7 @@ fn tempo(onset: &[f32], center: f32, width_octaves: f32) -> f32 {
 
 // ------------------------------------------------------------ pulsos
 
-/// La rejilla de pulsos por programacion dinamica (Ellis 2007 / librosa):
+/// La rejilla de pulsos por programacion dinamica (Ellis 2007):
 /// cada trama puede ser un pulso; se encadena con el mejor pulso anterior a
 /// una distancia cercana al periodo, castigando apartarse de el.
 fn track(onset: &[f32], bpm: f32) -> Vec<usize> {

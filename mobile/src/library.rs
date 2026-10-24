@@ -2,7 +2,7 @@
 //!
 //! La interfaz es la de la PC (`desktop/src`): pide canciones, su ficha, sus
 //! pistas separadas, su rejilla y su onda con la misma forma que le da el
-//! nucleo de Python. Aqui no hay Python ni base: cada pista es una carpeta
+//! nucleo de la PC. Aqui no hay nucleo ni base: cada pista es una carpeta
 //! (`danplay_engine::bundle`) y lo que la interfaz espera se arma con lo que trajo de
 //! la PC (`pista.json`) mas lo que se cambio aqui (`estudio.json`, y las
 //! estrellas y el favorito en `card.json`, que antes se llamaba `ficha.json`

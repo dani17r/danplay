@@ -1,14 +1,14 @@
-//! Las voces de las guías habladas (danplay/cues.py), en ONNX Runtime como
-//! la red del pulso:
+//! Las voces de las guías habladas, en ONNX Runtime como la red del pulso:
 //!
 //! - Supertonic 3: cuatro grafos (cuánto dura, el texto, el sonido en ocho
 //!   pasos desde un ruido fijo y el vocoder), y un estilo por voz;
 //! - Piper: un grafo por voz, con los fonemas de `speech` (aquí llegan ya
 //!   como los números de la voz).
 //!
-//! Las cuentas de alrededor son las de numpy en el Python de antes (float32
-//! con los escalares de Python «débiles», el ruido de `default_rng(0)`), y
-//! ONNX Runtime es el mismo: la misma frase sale igual, muestra a muestra.
+//! Las cuentas de alrededor van en float32 (los números sueltos, como la
+//! velocidad, también se pasan a float32) y parten siempre del mismo ruido
+//! (`rng`); con el mismo ONNX Runtime, la misma frase sale igual que en las
+//! versiones de antes, muestra a muestra.
 mod rng;
 mod ziggurat;
 
@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use unicode_normalization::UnicodeNormalization;
 
-/// Un grafo de la voz, en la CPU y sin avisos (lo que hacía `_session`).
+/// Un grafo de la voz, en la CPU y sin avisos.
 fn session(graph: &Path) -> Result<Session, String> {
     let error = |e: ort::Error<_>| format!("la voz no se pudo abrir: {e}");
     Session::builder()
@@ -104,7 +104,8 @@ fn first(outputs: &ort::session::SessionOutputs<'_>) -> Result<TensorData, Strin
     })
 }
 
-/// `x[:end]` de Python: con `end` negativo, desde el final.
+/// Lo de `x` hasta `end`, sin incluirlo; con `end` negativo, contado desde
+/// el final.
 fn up_to(x: &[f32], end: i64) -> &[f32] {
     let n = x.len() as i64;
     let end = if end < 0 {
@@ -223,7 +224,7 @@ impl Supertonic {
                 .map_err(error)?;
             first(&outputs)?
         };
-        // float32 entre float32 (el 1,05 de Python, a float32 también)
+        // float32 entre float32 (el 1,05 de la velocidad, a float32 también)
         let segundos =
             f64::from(dur.data.first().ok_or("la voz no dijo cuánto dura")? / (Self::SPEED as f32));
         let latentes = (segundos * self.sample_rate as f64 / self.chunk as f64).ceil();

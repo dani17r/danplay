@@ -1,7 +1,6 @@
 //! Lo que va en una mezcla guardada además de las pistas: el clic y las
 //! guías habladas, cada uno en un WAV aparte que ffmpeg suma después de la
-//! velocidad y el tono (lo de danplay/stems.py que se hacía con numpy, con la
-//! misma cuenta: muestras en float32 y el WAV en 16 bits).
+//! velocidad y el tono. Las muestras van en float32 y el WAV, en 16 bits.
 use crate::click;
 use std::io::Write as _;
 use std::path::Path;
@@ -20,9 +19,9 @@ pub struct Signal {
     pub canales: u16,
 }
 
-/// Muestras a un WAV de 16 bits, como `wave` de Python (la cabecera de
-/// siempre, de 44 bytes): cada muestra recortada a ±1 y multiplicada por
-/// 32767, sin redondear (como `astype` de numpy).
+/// Muestras a un WAV de 16 bits (la cabecera de siempre, de 44 bytes): cada
+/// muestra recortada a ±1 y multiplicada por 32767, sin redondear (hacia el
+/// cero).
 pub fn write_wav(path: &Path, s: &Signal, rate: u32) -> std::io::Result<()> {
     let data: Vec<u8> = s
         .samples
@@ -69,8 +68,8 @@ pub fn on_side(mono: Vec<f32>, side: &str) -> Signal {
     }
 }
 
-/// Un WAV de 16 bits leído como `wave` de Python: (tasa, canales, muestras
-/// en enteros). None si no se puede leer o no es PCM de 16 bits.
+/// Un WAV de 16 bits: (tasa, canales, muestras en enteros). None si no se
+/// puede leer o no es PCM de 16 bits.
 fn read_wav16(path: &Path) -> Option<(u32, u16, Vec<i16>)> {
     let data = std::fs::read(path).ok()?;
     if data.len() < 12 || &data[..4] != b"RIFF" || &data[8..12] != b"WAVE" {
@@ -88,7 +87,7 @@ fn read_wav16(path: &Path) -> Option<(u32, u16, Vec<i16>)> {
             let channels = u16::from_le_bytes([f[2], f[3]]);
             let rate = u32::from_le_bytes([f[4], f[5], f[6], f[7]]);
             let bits = u16::from_le_bytes([f[14], f[15]]);
-            // PCM, o el «extensible» (que Python también lee)
+            // PCM, o el «extensible», que también se acepta
             if tag != 1 && tag != 0xFFFE {
                 return None;
             }
@@ -114,8 +113,9 @@ fn read_wav16(path: &Path) -> Option<(u32, u16, Vec<i16>)> {
     None
 }
 
-/// `np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x)` en
-/// float64, y de vuelta a float32: cambiar de tasa una guía.
+/// Cambiar de tasa una guía: `count` puntos repartidos por igual de la
+/// primera muestra a la última, y en cada uno la recta entre las dos que
+/// tiene al lado, en float64 y de vuelta a float32.
 fn resample(samples: &[f32], count: usize) -> Vec<f32> {
     let last = (samples.len() - 1) as f64;
     let step = if count > 1 {
@@ -134,10 +134,7 @@ fn resample(samples: &[f32], count: usize) -> Vec<f32> {
             if below + 1 >= samples.len() {
                 return samples[samples.len() - 1];
             }
-            #[allow(
-                clippy::float_cmp,
-                reason = "como numpy: en un punto de la tabla, su valor"
-            )]
+            #[allow(clippy::float_cmp, reason = "en un punto de la tabla, su valor")]
             if below as f64 == at {
                 return samples[below];
             }

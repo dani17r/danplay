@@ -1,25 +1,24 @@
-//! El ruido del que parte Supertonic: el de
-//! `np.random.default_rng(0).standard_normal(n)`, número a número. Con el
-//! mismo ruido, la misma frase suena igual que la decía el núcleo en Python
-//! (y la guía ya dicha sigue siendo la misma).
+//! El ruido del que parte Supertonic: siempre el mismo, número a número, el
+//! de las versiones de antes. Con el mismo ruido, la misma frase suena igual
+//! que entonces (y la guía ya dicha sigue siendo la misma).
 //!
-//! Es el PCG64 de numpy (XSL-RR sobre 128 bits) y su zigurat para la
-//! normal (`random_standard_normal` de numpy/random/src/distributions).
+//! Es un PCG64 (XSL-RR sobre 128 bits) con la semilla 0 y el zigurat de 256
+//! escalones para la normal (sus tablas, en `ziggurat`).
 use super::ziggurat::{FI, KI, NOR_INV_R, NOR_R, WI};
 
 // PCG_DEFAULT_MULTIPLIER_128
 const MULTIPLIER: u128 = 0x2360_ed05_1fc6_5da4_4385_df64_9fcc_f645;
 
-/// El generador de `np.random.default_rng(0)`.
+/// El generador, siempre con la semilla 0.
 pub struct Rng {
     state: u128,
     inc: u128,
 }
 
 impl Rng {
-    /// Con la semilla 0: el estado que deja en el PCG64 la `SeedSequence(0)`
-    /// de numpy (`np.random.default_rng(0).bit_generator.state`). La
-    /// semilla es siempre esa, así que no hace falta su mezcla.
+    /// Con la semilla 0: el estado y el incremento que salen de mezclar la
+    /// semilla 0. La semilla es siempre esa, así que la mezcla no hace falta:
+    /// van ya hechos.
     pub fn seed_zero() -> Self {
         Self {
             state: 0x1aa1_b534_5996_452d_0958_5eb7_a695_61e3,
@@ -27,19 +26,19 @@ impl Rng {
         }
     }
 
-    /// `next_uint64`: un paso y la salida del estado nuevo.
+    /// Un paso y la salida del estado nuevo.
     pub fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_mul(MULTIPLIER).wrapping_add(self.inc);
         let s = self.state;
         (((s >> 64) as u64) ^ (s as u64)).rotate_right((s >> 122) as u32)
     }
 
-    /// `next_double`: en [0, 1), con 53 bits.
+    /// En [0, 1), con 53 bits.
     fn next_double(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 * (1.0 / 9_007_199_254_740_992.0)
     }
 
-    /// Una normal (media 0, desviación 1), como `random_standard_normal`.
+    /// Una normal (media 0, desviación 1), por el zigurat.
     pub fn normal(&mut self) -> f64 {
         loop {
             let r = self.next_u64();
@@ -81,8 +80,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matches_numpy() {
-        // np.random.PCG64(0).random_raw(3)
+    fn the_first_numbers_from_seed_zero() {
+        // los tres primeros enteros
         let mut a = Rng::seed_zero();
         assert_eq!(
             [a.next_u64(), a.next_u64(), a.next_u64()],
@@ -92,7 +91,7 @@ mod tests {
                 0x0a7d_3da9_4ecd_e8b8
             ]
         );
-        // np.random.default_rng(0).standard_normal(5)
+        // las cinco primeras normales
         let mut a = Rng::seed_zero();
         let n: Vec<f64> = (0..5).map(|_| a.normal()).collect();
         assert_eq!(
@@ -109,8 +108,8 @@ mod tests {
 
     #[test]
     fn a_million_in_a_row_too() {
-        // si una sola se saliera del camino de numpy (las que gastan más
-        // números, las de la cola), todas las de después serían otras
+        // si una sola saliera por otro camino (las que gastan más números,
+        // las de la cola), todas las de después serían otras
         let mut a = Rng::seed_zero();
         let x: Vec<f64> = (0..1_000_000).map(|_| a.normal()).collect();
         assert_eq!(x[999_999], 0.228_642_199_590_115_86);
