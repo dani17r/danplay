@@ -312,11 +312,7 @@ fn sheet_chords(c: &Dict) -> Option<Dict> {
 }
 
 fn lrc_to_plain(text: &str) -> String {
-    let points: Vec<u32> = text.chars().map(u32::from).collect();
-    library::tags::lrc::lrc_to_plain(&points)
-        .into_iter()
-        .filter_map(char::from_u32)
-        .collect()
+    library::tags::lrc::lrc_to_plain(text)
 }
 
 /// `export_sheet(lid, with_lyrics)`: la hoja para el atril, un HTML en

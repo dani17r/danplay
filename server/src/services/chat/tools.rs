@@ -628,7 +628,13 @@ impl Io for ServerIo<'_> {
     }
 
     fn lyrics_by_name(&mut self, artist: &Value, title: &Value) -> R<Value> {
-        lookups::lyrics(self.app, artist, title, &json!(""), &json!(0))
+        Ok(lookups::lyrics(
+            self.app,
+            artist,
+            title,
+            &json!(""),
+            &json!(0),
+        ))
     }
 
     fn lyrics_of(
@@ -638,11 +644,11 @@ impl Io for ServerIo<'_> {
         album: &Value,
         duration: &Value,
     ) -> R<Value> {
-        lookups::lyrics(self.app, artist, title, album, duration)
+        Ok(lookups::lyrics(self.app, artist, title, album, duration))
     }
 
     fn lrc_to_plain(&mut self, text: &Value) -> R<Value> {
-        lookups::lrc_to_plain(text)
+        Ok(lookups::lrc_to_plain(text))
     }
 
     fn chords_of(&mut self, song: &Value) -> R<Value> {

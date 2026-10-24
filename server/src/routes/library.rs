@@ -1,7 +1,6 @@
 //! Las carpetas gestionadas, el escaneo, la búsqueda y lo que se hace con la
 //! biblioteca entera: importar, convertir, duplicados.
 //! danplay/api/routes/library.py.
-use crate::app::path_str;
 use crate::error::ApiError;
 use crate::http::Response;
 use crate::jobs::{JobError, started};
@@ -296,16 +295,13 @@ fn inbox(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(json!({"files": files, "total": total}).into())
 }
 
-/// `_relative`: la ruta relativa a la biblioteca si cuelga de ella; si no,
-/// entera.
-fn relative(app: &crate::App, path: &str) -> String {
-    let base = path_str(&app.config().library);
-    let p = library::py::purepath(path);
-    match p.strip_prefix(&base) {
-        Some("") => ".".into(),
-        // con el separador del sistema: en Windows, `purepath` deja «\\»
-        Some(rest) if rest.starts_with(std::path::MAIN_SEPARATOR) => rest[1..].to_owned(),
-        _ => p,
+/// La ruta relativa a la biblioteca si cuelga de ella («.» si es la
+/// biblioteca entera); si no, entera.
+fn relative(app: &crate::App, path: &Path) -> String {
+    match path.strip_prefix(&app.config().library) {
+        Ok(rest) if rest.as_os_str().is_empty() => ".".into(),
+        Ok(rest) => rest.to_string_lossy().into_owned(),
+        Err(_) => path.to_string_lossy().into_owned(),
     }
 }
 
@@ -326,28 +322,26 @@ fn run_import(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
                 .process_inbox(dry_run, convert_mp3)
                 .map_err(JobError::Failed)?;
             let roots = folders::roots(&app)?;
-            let text = |t: &[u32]| crate::services::pyjson::string(t);
             let mut results = Vec::new();
             for r in &rs {
                 if let Some(target) = &r.target
                     && r.action != "dry_run"
                     && r.action != "error"
                 {
-                    lib::index_file(&app, &text(target), Some(&roots), None)?;
+                    lib::index_file(&app, &target.to_string_lossy(), Some(&roots), None)?;
                 }
             }
             for r in rs {
-                let source = text(&r.source_path);
                 results.push(json!({
-                "source_path": library::py::basename(&library::py::purepath(&source)),
-                "target": r.target.as_ref().map_or_else(String::new, |t| relative(&app, &text(t))),
-                "artist": crate::services::pyjson::to_value(&r.artist),
-                "title": text(&r.title),
-                "source": crate::services::pyjson::to_value(&r.source),
-                "confidence": r.confidence,
-                "action": r.action,
-                "warnings": r.warnings.iter().map(|w| text(w)).collect::<Vec<_>>(),
-            }));
+                    "source_path": library::ingest::file_name(&r.source_path),
+                    "target": r.target.as_deref().map_or_else(String::new, |t| relative(&app, t)),
+                    "artist": r.artist,
+                    "title": r.title,
+                    "source": r.source,
+                    "confidence": r.confidence,
+                    "action": r.action,
+                    "warnings": r.warnings,
+                }));
             }
             Ok(json!({"results": results}))
         });

@@ -504,10 +504,10 @@ fn song_chords_transposed(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let Some(c) = songs::by_id(ctx.app, cid)? else {
         return Err(ApiError::not_found("no existe"));
     };
-    let Some(sheet) = enrich::stored_sheet(ctx.app, &c)? else {
+    let Some(sheet) = library::enrich::stored_sheet(&c) else {
         return Err(ApiError::not_found("esta cancion no tiene cifrado"));
     };
-    Ok(json!({"sheet": enrich::transpose_sheet(&sheet, semitones, &to_key)?}).into())
+    Ok(json!({"sheet": library::enrich::transpose_sheet(&sheet, semitones, &to_key)}).into())
 }
 
 // ---------------------------------------------------------------- el estudio

@@ -31,13 +31,11 @@
 //!   `cancel(&app)` y `canceled(&app)`.
 use crate::app::{App, path_str};
 use crate::error::ApiError;
-use crate::services::{folders, ingest, library as lib, pyjson, songs, stems, tags, tools, ytdlp};
+use crate::services::{folders, ingest, library as lib, songs, stems, tags, tools, ytdlp};
 use library::index::{Dict, history, search};
-use library::ingest::Outside;
 use library::py;
 use library::youtube::{self as yt, Logged, Seen, Target};
 use serde_json::{Map, Value, json};
-use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -641,10 +639,10 @@ fn download_unlocked(
         .map(|v| v.iter().filter_map(|i| i.as_object().cloned()).collect())
         .unwrap_or_default();
     let mut importer = ingest::Importer::new(app, None);
-    let vocab: ingest::Vocab = if w.file_it {
-        importer.vocabulary()?
+    let mut vocab = if w.file_it {
+        importer.vocabulary()
     } else {
-        RefCell::new(Vec::new())
+        library::ingest::Vocab::default()
     };
     let total = items.len();
     let mut out = Vec::new();
@@ -713,7 +711,7 @@ fn download_unlocked(
                 ("name", title.clone()),
                 ("percent", json!(100)),
             ]));
-            file_it(app, &mut importer, &vocab, &mut r, t)?;
+            file_it(app, &mut importer, &mut vocab, &mut r, t)?;
         }
         // se limpia DESPUÉS de archivar
         drop(stage);
@@ -760,7 +758,7 @@ fn object(fields: Vec<(&str, Value)>) -> Map<String, Value> {
 fn file_it(
     app: &App,
     importer: &mut ingest::Importer<'_>,
-    vocab: &ingest::Vocab,
+    vocab: &mut library::ingest::Vocab,
     r: &mut Map<String, Value>,
     t: &Map<String, Value>,
 ) -> Result<(), String> {
@@ -769,42 +767,33 @@ fn file_it(
         get_value(r, "channel"),
         get_value(t, "channel"),
     )));
-    let items = importer.vocab_items(vocab)?;
-    let known = library::names::from_video(
+    let found = library::names::from_video(
         &video_title,
         &channel,
-        &items,
+        &vocab.0,
         &text_of(t.get("artist")),
         &text_of(t.get("track")),
     );
-    let known = pyjson::to_json(&json!({
-        "artist": known.artist,
-        "title": known.title,
-        "feat": known.feat,
-        "source": known.source,
-        "confidence": known.confidence,
-    }));
+    let mut known = library::ingest::Identity::song(
+        &found.artist,
+        &found.title,
+        found.confidence,
+        &found.source,
+    );
+    known.feat = found.feat;
     let file = text_of(r.get("file"));
-    let res = importer.process_known(&file, vocab, false, &known)?;
-    let target = res.target.as_ref().map(|t| pyjson::string(t));
+    let res = importer.process_known(Path::new(&file), vocab, false, &known)?;
+    let target = res
+        .target
+        .as_ref()
+        .map(|t| t.to_string_lossy().into_owned());
     r.insert("action".into(), json!(res.action));
-    r.insert("artist".into(), pyjson::to_value(&res.artist));
-    r.insert("song".into(), json!(pyjson::string(&res.title)));
-    r.insert("identified_by".into(), pyjson::to_value(&res.source));
+    r.insert("artist".into(), json!(res.artist));
+    r.insert("song".into(), json!(res.title));
+    r.insert("identified_by".into(), json!(res.source));
     r.insert("confidence".into(), json!(res.confidence));
-    r.insert(
-        "target".into(),
-        json!(target.as_deref().map(py::purepath).unwrap_or_default()),
-    );
-    r.insert(
-        "warnings".into(),
-        json!(
-            res.warnings
-                .iter()
-                .map(|w| pyjson::string(w))
-                .collect::<Vec<_>>()
-        ),
-    );
+    r.insert("target".into(), json!(target.clone().unwrap_or_default()));
+    r.insert("warnings".into(), json!(res.warnings));
     if let Some(target) = &target {
         // al índice, o la canción existe en el disco pero no en la app
         let new = lib::index_file(app, target, None, None).map_err(|e| api_text(&e))?;
@@ -812,7 +801,7 @@ fn file_it(
             r.insert("id".into(), row.get("id").cloned().unwrap_or(Value::Null));
             let artists = app.config().artists_dir.clone();
             if let Some((category, what)) = library::names::video_kind(&video_title)
-                && Path::new(&py::purepath(target)).starts_with(&artists)
+                && Path::new(target).starts_with(&artists)
             {
                 let folder = library::ingest::CATEGORY_FOLDER
                     .iter()
@@ -827,7 +816,7 @@ fn file_it(
     }
     if res.action == "error" {
         r.insert("ok".into(), json!(false));
-        r.insert("reason".into(), json!(pyjson::string(&res.note)));
+        r.insert("reason".into(), json!(res.note));
     }
     Ok(())
 }

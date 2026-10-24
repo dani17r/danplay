@@ -1,18 +1,15 @@
-//! Importar la Entrada (lo de danplay/ingest.py): la cascada y el archivar
-//! los hace `library::ingest`; lo de fuera (`Outside`) lo da esto, ya en
-//! Rust: las etiquetas (lofty), la huella (fpcalc y AcoustID), la IA
-//! (`library::ai::call`), convertir (ffmpeg), mover el archivo y el
-//! vocabulario de artistas.
+//! Importar la Entrada: la cascada y el archivar los hace `library::ingest`;
+//! lo de fuera (`Outside`) lo da esto: las etiquetas (lofty), la huella
+//! (fpcalc y AcoustID), la IA (`library::ai::call`), convertir (ffmpeg),
+//! mover el archivo y el avance.
 use crate::app::App;
 use crate::jobs::Progress;
-use crate::services::{ai, convert, pyjson, tags, tools};
+use crate::services::{ai, convert, tags, tools};
 use library::config::Config;
-use library::enrich::Failure;
-use library::ingest::{self as ig, Asked, Folders, Outside, Report};
-use library::py::json::{Json, Text};
-use library::py::text;
-use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use library::index::Dict;
+use library::ingest::{self as ig, Asked, Converted, Folders, Identity, Outside, Report, Vocab};
+use serde_json::Value;
+use std::path::Path;
 use std::sync::Arc;
 
 /// Lo que se le da a `library::ingest` para importar.
@@ -23,28 +20,13 @@ pub struct Importer<'a> {
     progress: Option<&'a Progress>,
 }
 
-/// {forma plana: nombre de su carpeta}, en su orden (el `dict` de Python).
-pub type Vocab = RefCell<Vec<(String, Json)>>;
-
-fn os_path(t: &[u32]) -> PathBuf {
-    text::to_os(t).map_or_else(|_| PathBuf::from(pyjson::string(t)), PathBuf::from)
-}
-
-fn failure_text(f: &Failure<String>) -> String {
-    match f {
-        Failure::Py(e) => e.message(),
-        Failure::Outside(s) => s.clone(),
-    }
-}
-
 impl<'a> Importer<'a> {
     pub fn new(app: &'a App, progress: Option<&'a Progress>) -> Self {
         let cfg = app.config();
-        let as_text = |p: &Path| text::from_os(p.as_os_str());
         let folders = Folders {
-            library: as_text(&cfg.library),
-            artists: as_text(&cfg.artists_dir),
-            review: as_text(&cfg.review_dir),
+            library: cfg.library.clone(),
+            artists: cfg.artists_dir.clone(),
+            review: cfg.review_dir.clone(),
         };
         Self {
             app,
@@ -54,265 +36,157 @@ impl<'a> Importer<'a> {
         }
     }
 
-    /// `ingest.process_inbox(dry_run, convert_mp3=...)`.
+    /// El vocabulario de artistas: las carpetas de Artistas/.
+    pub fn vocabulary(&self) -> Vocab {
+        Vocab(library::names::vocabulary(&self.cfg.artists_dir))
+    }
+
+    /// Lo que se pide al importar, con lo de los ajustes.
+    fn asked(&self, dry_run: bool, convert_mp3: Option<bool>) -> Asked {
+        Asked {
+            dry_run,
+            write_tags: self.cfg.write_tags,
+            convert_mp3: convert_mp3.unwrap_or(self.cfg.convert_to_mp3),
+        }
+    }
+
+    /// Todo lo de Entrada/ (también en simulación, con `dry_run`).
     pub fn process_inbox(
         &mut self,
         dry_run: bool,
         convert_mp3: Option<bool>,
     ) -> Result<Vec<Report>, String> {
-        let inbox = text::from_os(self.cfg.inbox.as_os_str());
-        let mut ext: Vec<Text> = library::config::EXTENSIONS
-            .iter()
-            .map(|e| text::text(e))
-            .collect();
-        ext.sort();
+        let mut extensions: Vec<&str> = library::config::EXTENSIONS.to_vec();
+        extensions.sort_unstable();
+        let mut vocab = self.vocabulary();
+        let asked = self.asked(dry_run, convert_mp3);
+        let (inbox, folders) = (self.cfg.inbox.clone(), self.folders.clone());
         let progress = self.progress.is_some();
-        ig::process_inbox(self, &inbox, &ext, dry_run, None, convert_mp3, progress)
-            .map_err(|f| failure_text(&f))
+        ig::process_inbox(
+            self,
+            &inbox,
+            &extensions,
+            &mut vocab,
+            asked,
+            &folders,
+            None,
+            progress,
+        )
     }
 
-    /// `ingest.process(path, vocab, convert_mp3=..., known=...)`: archivar un
-    /// archivo suelto con el nombre ya decidido por quien llama (`known`:
-    /// {artist, title, feat, source}, sin la cascada). Lo usan las descargas,
-    /// donde el nombre lo pone YouTube (`names::from_video`).
+    /// Archiva un archivo suelto con el nombre ya decidido por quien llama
+    /// (`known`, sin la cascada). Lo usan las descargas, donde el nombre lo
+    /// pone YouTube (`names::from_video`).
     pub fn process_known(
         &mut self,
-        path: &str,
-        vocab: &Vocab,
+        path: &Path,
+        vocab: &mut Vocab,
         convert_mp3: bool,
-        known: &Json,
+        known: &Identity,
     ) -> Result<Report, String> {
-        let asked = Asked {
-            dry_run: false,
-            write_tags: self.cfg.write_tags,
-            convert_mp3,
-        };
+        let asked = self.asked(false, Some(convert_mp3));
         let folders = self.folders.clone();
-        let path = self.path(&Json::str(path))?;
-        ig::process(self, path, vocab, asked, known, &folders).map_err(|f| failure_text(&f))
+        ig::process(
+            self,
+            path.to_path_buf(),
+            vocab,
+            asked,
+            Some(known),
+            &folders,
+        )
     }
 }
 
 impl Outside for Importer<'_> {
-    type Error = String;
-    type Path = Text;
-    type Vocab = Vocab;
-    type Outcome = Report;
-
-    fn recoverable(&self, _error: &String) -> bool {
-        true
+    fn warning(&mut self, message: &str, error: &str) {
+        log::warn!("{message}: {error}");
     }
 
-    fn warning(&mut self, message: &[u32], error: &Failure<String>) {
-        log::warn!("{}: {}", pyjson::string(message), failure_text(error));
+    /// Lo que dicen las etiquetas (solo lo que tiene valor).
+    fn read_tags(&mut self, path: &Path) -> Dict {
+        let t = library::tags::read(path);
+        [
+            ("artist", t.artist),
+            ("title", t.title),
+            ("album", t.album),
+            ("date", t.year),
+            ("albumartist", t.album_artist),
+            ("genre", t.genre),
+        ]
+        .into_iter()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(k, v)| (k.to_owned(), Value::String(v)))
+        .collect()
     }
 
-    fn error_text(&mut self, error: &Failure<String>) -> Text {
-        pyjson::text_of(&failure_text(error))
+    fn identify(&mut self, path: &Path) -> Result<Option<Dict>, String> {
+        Ok(tools::fingerprint_identify(self.app, path, 0.75).and_then(|v| v.as_object().cloned()))
     }
 
-    fn path(&mut self, x: &Json) -> Result<Text, String> {
-        match x {
-            Json::Str(t) => Ok(text::through(t, library::py::purepath)),
-            other => Err(format!(
-                "expected str, bytes or os.PathLike object, not {}",
-                other.type_name()
-            )),
+    fn duration(&mut self, path: &Path) -> f64 {
+        library::tags::audio_properties(path).0
+    }
+
+    fn ai_resolve(&mut self, name: &str, vocab: &Vocab, hint: &str) -> Option<Dict> {
+        ai::identify(self.app, name, &vocab.names(), hint)
+    }
+
+    fn needs_convert(&mut self, path: &Path) -> bool {
+        convert::needs_convert(self.app, path)
+    }
+
+    fn convert(&mut self, path: &Path) -> Converted {
+        let (quality, keep) = (self.cfg.mp3_quality.clone(), self.cfg.keep_original);
+        let r = match convert::convert_one(self.app, path, &quality, keep) {
+            Ok(r) => r,
+            Err(e) => return Converted::Failed(e.to_string()),
+        };
+        let text = |key: &str| r.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+        if r.get("ok") == Some(&Value::Bool(true)) {
+            Converted::Done {
+                target: text("target").into(),
+                saved_percent: r
+                    .get("saved_percent")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0),
+            }
+        } else if r.get("skipped") == Some(&Value::Bool(true)) {
+            Converted::Skipped
+        } else {
+            Converted::Failed(text("reason"))
         }
     }
 
-    fn path_text(&mut self, path: &Text) -> Result<Text, String> {
-        Ok(path.clone())
-    }
-
-    fn resolve(&mut self, path: &Text, vocab: &Vocab) -> Result<Json, String> {
-        ig::resolve(self, path, vocab).map_err(|f| failure_text(&f))
-    }
-
-    fn tags_step(&mut self, path: &Text) -> Result<Json, String> {
-        ig::from_tags(self, path).map_err(|f| failure_text(&f))
-    }
-
-    fn fingerprint_step(&mut self, path: &Text) -> Result<Json, String> {
-        ig::from_fingerprint(self, path).map_err(|f| failure_text(&f))
-    }
-
-    fn heuristic_step(&mut self, path: &Text, vocab: &Vocab) -> Result<Json, String> {
-        ig::from_heuristic(self, path, vocab).map_err(|f| failure_text(&f))
-    }
-
-    fn ai_step(&mut self, path: &Text, vocab: &Vocab) -> Result<Json, String> {
-        ig::from_ai(self, path, vocab).map_err(|f| failure_text(&f))
-    }
-
-    fn process(
-        &mut self,
-        path: &Text,
-        vocab: &Vocab,
-        dry_run: bool,
-        convert_mp3: Option<bool>,
-    ) -> Result<Report, String> {
-        let asked = Asked {
-            dry_run,
-            write_tags: self.cfg.write_tags,
-            convert_mp3: convert_mp3.unwrap_or(self.cfg.convert_to_mp3),
-        };
-        let folders = self.folders.clone();
-        ig::process(self, path.clone(), vocab, asked, &Json::Null, &folders)
-            .map_err(|f| failure_text(&f))
-    }
-
-    /// `tags.read(path)`: lo que dice, con los nombres de antes
-    /// (`date`, `albumartist`), y solo lo que tiene valor.
-    fn read_tags(&mut self, path: &Text) -> Result<Json, String> {
-        let t = library::tags::read(&os_path(path));
-        let fields = [
-            ("artist", &t.artist),
-            ("title", &t.title),
-            ("album", &t.album),
-            ("date", &t.year),
-            ("albumartist", &t.album_artist),
-            ("genre", &t.genre),
-        ];
-        Ok(Json::Dict(
-            fields
-                .iter()
-                .filter(|(_, v)| !v.is_empty())
-                .map(|(k, v)| (pyjson::text_of(k), Json::str(v)))
-                .collect(),
-        ))
-    }
-
-    fn identify(&mut self, path: &Text) -> Result<Json, String> {
-        Ok(tools::fingerprint_identify(self.app, &os_path(path), 0.75)
-            .map_or(Json::Null, |v| pyjson::to_json(&v)))
-    }
-
-    fn duration(&mut self, path: &Text) -> Result<Json, String> {
-        Ok(Json::Float(
-            library::tags::audio_properties(&os_path(path)).0,
-        ))
-    }
-
-    fn ai_resolve(&mut self, name: &[u32], vocab: &Vocab, hint: &[u32]) -> Result<Json, String> {
-        let mut known: Vec<String> = vocab
-            .borrow()
-            .iter()
-            .map(|(_, v)| match v {
-                Json::Str(t) => pyjson::string(t),
-                other => pyjson::to_value(other).to_string(),
-            })
-            .collect();
-        known.sort();
-        known.dedup();
-        Ok(ai::identify(
-            self.app,
-            &pyjson::string(name),
-            &known,
-            &pyjson::string(hint),
-        )
-        .map_or(Json::Null, |d| {
-            pyjson::to_json(&serde_json::Value::Object(d))
-        }))
-    }
-
-    fn needs_convert(&mut self, path: &Text) -> Result<bool, String> {
-        Ok(convert::needs_convert(self.app, &os_path(path)))
-    }
-
-    fn convert(&mut self, path: &Text) -> Result<Json, String> {
-        let (quality, keep) = (self.cfg.mp3_quality.clone(), self.cfg.keep_original);
-        convert::convert_one(self.app, &os_path(path), &quality, keep)
-            .map(|v| pyjson::to_json(&v))
-            .map_err(|e| e.to_string())
-    }
-
-    /// `shutil.move(src, dst)`: un rename, o copiar y borrar si es otro disco.
-    fn move_file(&mut self, src: &[u32], dst: &[u32]) -> Result<(), String> {
-        let (src, dst) = (os_path(src), os_path(dst));
-        if std::fs::rename(&src, &dst).is_ok() {
+    /// Un rename, o copiar y borrar si es otro disco.
+    fn move_file(&mut self, src: &Path, dst: &Path) -> Result<(), String> {
+        if std::fs::rename(src, dst).is_ok() {
             return Ok(());
         }
-        std::fs::copy(&src, &dst).map_err(|e| e.to_string())?;
-        if let Ok(meta) = std::fs::metadata(&src)
+        std::fs::copy(src, dst).map_err(|e| e.to_string())?;
+        if let Ok(meta) = std::fs::metadata(src)
             && let Ok(mtime) = meta.modified()
         {
             let _ = std::fs::File::options()
                 .write(true)
-                .open(&dst)
+                .open(dst)
                 .and_then(|f| f.set_modified(mtime));
         }
-        std::fs::remove_file(&src).map_err(|e| e.to_string())
+        std::fs::remove_file(src).map_err(|e| e.to_string())
     }
 
-    /// `tags.write(Path(target), artist, title)`: solo lo que tiene valor.
-    fn write_tags(&mut self, target: &[u32], artist: &Json, title: &[u32]) -> Result<bool, String> {
-        let artist = match artist {
-            Json::Str(t) => pyjson::string(t),
-            Json::Null => String::new(),
-            other => pyjson::to_value(other).to_string(),
-        };
-        let title = pyjson::string(title);
+    /// Solo lo que tiene valor.
+    fn write_tags(&mut self, target: &Path, artist: &str, title: &str) -> bool {
         let changes = library::tags::Changes {
-            artist: (!artist.is_empty()).then_some(artist),
-            title: (!title.is_empty()).then_some(title),
+            artist: (!artist.is_empty()).then(|| artist.to_owned()),
+            title: (!title.is_empty()).then(|| title.to_owned()),
             ..library::tags::Changes::default()
         };
-        Ok(tags::write_fields(self.app, &os_path(target), &changes))
+        tags::write_fields(self.app, target, &changes)
     }
 
-    fn vocabulary(&mut self) -> Result<Vocab, String> {
-        Ok(RefCell::new(
-            library::names::vocabulary(&self.cfg.artists_dir)
-                .into_iter()
-                .map(|(k, v)| (k, Json::str(&v)))
-                .collect(),
-        ))
-    }
-
-    fn vocab_items(&mut self, vocab: &Vocab) -> Result<Vec<(String, String)>, String> {
-        Ok(vocab
-            .borrow()
-            .iter()
-            .map(|(k, v)| {
-                let v = match v {
-                    Json::Str(t) => pyjson::string(t),
-                    other => pyjson::to_value(other).to_string(),
-                };
-                (k.clone(), v)
-            })
-            .collect())
-    }
-
-    fn vocab_get(&mut self, vocab: &Vocab, key: &str) -> Result<Option<Json>, String> {
-        Ok(vocab
-            .borrow()
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.clone()))
-    }
-
-    fn vocab_has(&mut self, vocab: &Vocab, key: &str) -> Result<bool, String> {
-        Ok(vocab.borrow().iter().any(|(k, _)| k == key))
-    }
-
-    fn vocab_set(&mut self, vocab: &Vocab, key: &str, value: &Json) -> Result<(), String> {
-        let mut v = vocab.borrow_mut();
-        match v.iter_mut().find(|(k, _)| k == key) {
-            Some(slot) => slot.1 = value.clone(),
-            None => v.push((key.to_owned(), value.clone())),
-        }
-        Ok(())
-    }
-
-    fn progress(&mut self, done: usize, total: usize, name: &[u32]) -> Result<(), String> {
+    fn progress(&mut self, done: usize, total: usize, name: &str) {
         if let Some(p) = self.progress {
-            p.update(
-                Some(done.into()),
-                Some(total.into()),
-                Some(&pyjson::string(name)),
-            );
+            p.update(Some(done.into()), Some(total.into()), Some(name));
         }
-        Ok(())
     }
 }

@@ -1,25 +1,21 @@
-//! Enriquecer una canción (lo de danplay/enrich.py y chord_sheets.py que no
-//! era ya Rust): lo de fuera que pide `library::enrich` (`Outside`), ahora
-//! en Rust. La red con `ureq` (LRCLIB, iTunes, MusicBrainz, Cover Art
+//! Enriquecer una canción: lo de fuera que pide `library::enrich`
+//! (`Outside`). La red con `ureq` (LRCLIB, iTunes, MusicBrainz, Cover Art
 //! Archive y las páginas de cifrados), la IA con `library::ai::call`, el
 //! índice y las etiquetas con los servicios de la app. Los pasos (la letra,
 //! la carátula, la ficha y el cifrado) son los del propio `library::enrich`.
 use crate::app::App;
 use crate::error::ApiError;
-use crate::services::pyjson::{dict, from_value, string, to_value};
 use crate::services::{ai, media, songs};
-use library::enrich::{self as e, Failure, Level, Outside};
+use library::enrich::{self as e, Cover, Level, Outside};
 use library::index::Dict;
-use library::py::json::{Json, Text, text};
 use library::warnings::Warnings;
 use serde_json::Value;
 use std::io::Read as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 /// Lo que puede fallar fuera: la red (con su motivo) o la app (la base, el
-/// disco). En Python era una excepción; todas se pueden tragar donde
-/// enrich.py hacía `except Exception`.
+/// disco).
 #[derive(Debug)]
 pub enum Trouble {
     Net(String),
@@ -41,13 +37,12 @@ impl From<ApiError> for Trouble {
     }
 }
 
-/// Lo que no salió, como lo contesta la API: un 500 (una excepción sin
-/// capturar en Python), o el error de la app tal cual.
-pub fn api_error(f: Failure<Trouble>) -> ApiError {
-    match f {
-        Failure::Outside(Trouble::App(e)) => e,
-        Failure::Outside(Trouble::Net(why)) => ApiError::internal(format!("enriquecer: {why}")),
-        Failure::Py(exc) => ApiError::internal(format!("enriquecer: {exc:?}")),
+/// Lo que no salió, como lo contesta la API: el error de la app tal cual, o
+/// un 500 con lo que dijo la red.
+pub fn api_error(t: Trouble) -> ApiError {
+    match t {
+        Trouble::App(e) => e,
+        Trouble::Net(why) => ApiError::internal(format!("enriquecer: {why}")),
     }
 }
 
@@ -66,8 +61,8 @@ fn net_error(err: &ureq::Error) -> Trouble {
     }
 }
 
-/// `enrich._get(url)`: una página de JSON.
-fn get_json(url: &str) -> Result<Json, Trouble> {
+/// Una página de JSON.
+fn get_json(url: &str) -> Result<Value, Trouble> {
     let mut r = agent()
         .get(url)
         .header("User-Agent", e::USER_AGENT)
@@ -79,12 +74,10 @@ fn get_json(url: &str) -> Result<Json, Trouble> {
         .limit(64 * 1024 * 1024)
         .read_to_vec()
         .map_err(|err| Trouble::Net(err.to_string()))?;
-    let text = String::from_utf8(body).map_err(|err| Trouble::Net(err.to_string()))?;
-    library::py::json::loads(&text).map_err(|err| Trouble::Net(format!("{err:?}")))
+    serde_json::from_slice(&body).map_err(|err| Trouble::Net(err.to_string()))
 }
 
-/// `enrich._get(url, binary=True)`: una imagen (que diga que lo es, y sin
-/// pasar del tope).
+/// Una imagen (que diga que lo es, y sin pasar del tope).
 fn get_image(url: &str) -> Result<Vec<u8>, Trouble> {
     let r = agent()
         .get(url)
@@ -121,7 +114,7 @@ fn get_image(url: &str) -> Result<Vec<u8>, Trouble> {
     Ok(data)
 }
 
-/// `chord_sheets.USER_AGENT`.
+/// Cómo se presentan las páginas de cifrados.
 fn sheets_agent() -> String {
     format!(
         "DanPlay/{} (gestor de biblioteca personal)",
@@ -129,7 +122,7 @@ fn sheets_agent() -> String {
     )
 }
 
-/// Un cifrado como lo daba Python (`chord_sheet_dict`).
+/// Un cifrado como lo lee la interfaz.
 fn sheet_value(s: &library::chord_sheets::ChordSheet) -> Value {
     let sections: Vec<Value> = s
         .sections
@@ -158,8 +151,8 @@ fn sheet_value(s: &library::chord_sheets::ChordSheet) -> Value {
     })
 }
 
-/// `chord_sheets.find(artist, title)`: en Ultimate Guitar y LaCuerda a la
-/// vez. {sheet, tried, failed, seconds}.
+/// El cifrado de una canción, en Ultimate Guitar y LaCuerda a la vez.
+/// {sheet, tried, failed, seconds}.
 pub fn find_sheet(artist: &str, title: &str) -> Value {
     use library::chord_sheets as c;
     let ua = sheets_agent();
@@ -183,8 +176,6 @@ pub fn find_sheet(artist: &str, title: &str) -> Value {
     })
 }
 
-// ---------------------------------------------------------------- la IA
-
 // ---------------------------------------------------------------- lo de fuera
 
 /// Lo de fuera de enriquecer, en esta app.
@@ -192,75 +183,31 @@ pub struct Here<'a> {
     pub app: &'a App,
 }
 
-fn utf(t: &[u32]) -> String {
-    string(t)
-}
-
-fn path_of(v: &Json) -> PathBuf {
-    PathBuf::from(library::py::str_of(&to_value(v)))
-}
-
-/// `str(v)` si vale algo (lo que `tags.write` escribe), o `None`.
-fn written(v: &Json) -> Option<String> {
-    v.truthy().then(|| library::py::str_of(&to_value(v)))
-}
-
-fn id_of(v: &Json) -> i64 {
-    match v {
-        Json::Int(i) => *i,
-        Json::Float(f) => *f as i64,
-        Json::Str(s) => utf(s).trim().parse().unwrap_or(0),
-        Json::Bool(b) => i64::from(*b),
-        _ => 0,
-    }
-}
-
-fn fields_of(fields: &[(&str, Json)]) -> Dict {
-    fields
-        .iter()
-        .map(|(k, v)| ((*k).to_owned(), to_value(v)))
-        .collect()
+/// Lo que se escribe en una etiqueta: lo que no está vacío.
+fn written(v: &str) -> Option<String> {
+    (!v.is_empty()).then(|| v.to_owned())
 }
 
 impl Outside for Here<'_> {
     type Error = Trouble;
-    type Song = Dict;
-    type Image = Vec<u8>;
-    type Cover = (Vec<u8>, String);
 
-    fn recoverable(&self, _error: &Trouble) -> bool {
-        true
-    }
-
-    fn log(&mut self, level: Level, message: &[u32], error: Option<&Failure<Trouble>>) {
-        let why = match error {
-            Some(Failure::Outside(t)) => format!(": {t}"),
-            Some(Failure::Py(exc)) => format!(": {exc:?}"),
-            None => String::new(),
-        };
+    fn log(&mut self, level: Level, message: &str, error: Option<&Trouble>) {
+        let why = error.map(|t| format!(": {t}")).unwrap_or_default();
         match level {
-            Level::Debug => log::debug!("enriquecer: {}{why}", utf(message)),
-            Level::Warning => log::warn!("enriquecer: {}{why}", utf(message)),
+            Level::Debug => log::debug!("enriquecer: {message}{why}"),
+            Level::Warning => log::warn!("enriquecer: {message}{why}"),
         }
     }
 
-    fn field(&mut self, song: &Dict, key: &str) -> Result<Option<Json>, Trouble> {
-        Ok(song.get(key).map(from_value))
-    }
-
-    fn get_json(&mut self, url: &str) -> Result<Json, Trouble> {
+    fn get_json(&mut self, url: &str) -> Result<Value, Trouble> {
         get_json(url)
     }
 
-    fn get_image(&mut self, url: &[u32]) -> Result<Vec<u8>, Trouble> {
-        get_image(&utf(url))
+    fn get_image(&mut self, url: &str) -> Result<Vec<u8>, Trouble> {
+        get_image(url)
     }
 
-    fn image_bytes(&mut self, image: &Vec<u8>) -> Result<Vec<u8>, Trouble> {
-        Ok(image.clone())
-    }
-
-    fn image_cover(&mut self, image: Vec<u8>, kind: &str) -> Result<(Vec<u8>, String), Trouble> {
+    fn shrink_cover(&mut self, image: Vec<u8>, kind: &str) -> Cover {
         let ffmpeg = self.app.tool("ffmpeg");
         let mut warnings = Warnings::new();
         let shrunk = library::convert::shrink_bytes(
@@ -272,128 +219,80 @@ impl Outside for Here<'_> {
         );
         ai::log_warnings("danplay.convert", warnings);
         match shrunk {
-            Ok((data, mime)) if !data.is_empty() => Ok((data, mime)),
-            _ => Ok((image, kind.to_owned())),
+            Ok((data, mime)) if !data.is_empty() => Cover { data, mime },
+            _ => Cover {
+                data: image,
+                mime: kind.to_owned(),
+            },
         }
     }
 
-    fn ai_available(&mut self) -> Result<bool, Trouble> {
-        Ok(ai::available(self.app))
+    fn ai_available(&mut self) -> bool {
+        ai::available(self.app)
     }
 
-    fn ai_unavailable_reason(&mut self) -> Result<Text, Trouble> {
-        Ok(text(&ai::unavailable_reason(self.app)))
+    fn ai_unavailable_reason(&mut self) -> String {
+        ai::unavailable_reason(self.app)
     }
 
-    fn ai_ask(&mut self, prompt: &[u32], max_tokens: u32) -> Result<Json, Trouble> {
-        let prompt = utf(prompt);
-        let said = ai::with_context(self.app, |ctx| {
+    fn ai_ask(&mut self, prompt: &str, max_tokens: u32) -> Option<String> {
+        ai::with_context(self.app, |ctx| {
             library::ai::call::ask(
                 ctx,
-                &prompt,
+                prompt,
                 "Eres un asistente musical preciso y conciso.",
                 i64::from(max_tokens),
                 0.2,
                 "ask",
             )
-        });
-        Ok(said.map_or(Json::Null, |s| Json::str(&s)))
+        })
     }
 
-    fn ai_ask_json(&mut self, prompt: &[u32], system: &str) -> Result<Json, Trouble> {
-        let prompt = utf(prompt);
-        let said = ai::with_context(self.app, |ctx| {
-            library::ai::call::ask_json(ctx, &prompt, system, 1200, 0.15, None, "ask_json")
-        });
-        Ok(said.map_or(Json::Null, |d| from_value(&Value::Object(d))))
+    fn ai_ask_json(&mut self, prompt: &str, system: &str) -> Option<Dict> {
+        ai::with_context(self.app, |ctx| {
+            library::ai::call::ask_json(ctx, prompt, system, 1200, 0.15, None, "ask_json")
+        })
     }
 
-    fn lyrics_lrclib(
-        &mut self,
-        artist: &Json,
-        title: &Json,
-        album: &Json,
-        duration: &Json,
-    ) -> Result<Json, Trouble> {
-        e::lyrics_lrclib(self, artist, title, album, duration).map_err(unwrap)
+    fn find_sheet(&mut self, artist: &str, title: &str) -> Value {
+        find_sheet(artist, title)
     }
 
-    fn lyrics(
-        &mut self,
-        artist: &Json,
-        title: &Json,
-        album: &Json,
-        duration: &Json,
-    ) -> Result<Json, Trouble> {
-        e::lyrics(self, artist, title, album, duration, true).map_err(unwrap)
-    }
-
-    fn cover(
-        &mut self,
-        artist: &Json,
-        title: &Json,
-        album: &Json,
-    ) -> Result<Option<(Vec<u8>, String)>, Trouble> {
-        e::cover(self, artist, title, album).map_err(unwrap)
-    }
-
-    fn cover_size(&mut self, cover: &(Vec<u8>, String)) -> Result<usize, Trouble> {
-        Ok(cover.0.len())
-    }
-
-    fn details(&mut self, song: &Dict) -> Result<Json, Trouble> {
-        e::details(self, song).map_err(unwrap)
-    }
-
-    fn chords(&mut self, song: &Dict) -> Result<Json, Trouble> {
-        e::chords(self, song, false).map_err(unwrap)
-    }
-
-    fn find_sheet(&mut self, artist: &[u32], title: &[u32]) -> Result<Json, Trouble> {
-        Ok(from_value(&find_sheet(&utf(artist), &utf(title))))
-    }
-
-    fn today(&mut self) -> Result<String, Trouble> {
+    fn today(&mut self) -> String {
         let local = library::index::now() as i64 + crate::services::clock::utc_offset();
         let (d, m, y) = crate::services::clock::civil(local);
-        Ok(format!("{y:04}-{m:02}-{d:02}"))
+        format!("{y:04}-{m:02}-{d:02}")
     }
 
-    fn by_id(&mut self, id: &Json) -> Result<Option<Dict>, Trouble> {
-        Ok(songs::by_id(self.app, id_of(id))?.filter(|d| !d.is_empty()))
+    fn by_id(&mut self, id: i64) -> Result<Option<Dict>, Trouble> {
+        Ok(songs::by_id(self.app, id)?.filter(|d| !d.is_empty()))
     }
 
-    fn update(&mut self, id: &Json, fields: &[(&str, Json)]) -> Result<(), Trouble> {
-        songs::update(self.app, id_of(id), &fields_of(fields))?;
+    fn update(&mut self, id: i64, fields: Dict) -> Result<(), Trouble> {
+        songs::update(self.app, id, &fields)?;
         Ok(())
     }
 
-    fn edit(&mut self, id: &Json, fields: &[(&str, Json)]) -> Result<(), Trouble> {
-        songs::edit(self.app, id_of(id), &fields_of(fields))?;
+    fn edit(&mut self, id: i64, fields: Dict) -> Result<(), Trouble> {
+        songs::edit(self.app, id, &fields)?;
         Ok(())
     }
 
-    fn write_lyrics(&mut self, path: &Json, lyrics: &Json) -> Result<(), Trouble> {
-        let lyrics = written(lyrics).unwrap_or_default();
-        songs::write_lyrics(self.app, &path_of(path), &lyrics);
+    fn write_lyrics(&mut self, path: &Path, lyrics: &str) -> Result<(), Trouble> {
+        songs::write_lyrics(self.app, path, lyrics);
         Ok(())
     }
 
-    fn write_cover(&mut self, path: &Json, cover: &(Vec<u8>, String)) -> Result<bool, Trouble> {
-        Ok(media::write_cover(
-            self.app,
-            &path_of(path),
-            &cover.0,
-            &cover.1,
-        ))
+    fn write_cover(&mut self, path: &Path, cover: &Cover) -> Result<bool, Trouble> {
+        Ok(media::write_cover(self.app, path, &cover.data, &cover.mime))
     }
 
     fn write_tags(
         &mut self,
-        path: &Json,
-        album: &Json,
-        year: &Json,
-        genre: &Json,
+        path: &Path,
+        album: &str,
+        year: &str,
+        genre: &str,
     ) -> Result<(), Trouble> {
         let changes = library::tags::Changes {
             album: written(album),
@@ -401,31 +300,19 @@ impl Outside for Here<'_> {
             genre: written(genre),
             ..library::tags::Changes::default()
         };
-        crate::services::tags::write_fields(self.app, &path_of(path), &changes);
+        crate::services::tags::write_fields(self.app, path, &changes);
         Ok(())
-    }
-}
-
-/// Lo que falló dentro de un paso, como lo que lanzó ese paso (en Python,
-/// la excepción salía tal cual de la función que se llamaba).
-fn unwrap(f: Failure<Trouble>) -> Trouble {
-    match f {
-        Failure::Outside(t) => t,
-        Failure::Py(exc) => Trouble::Net(format!("{exc:?}")),
     }
 }
 
 // ---------------------------------------------------------------- las rutas
 
-fn run<T>(
-    app: &App,
-    f: impl FnOnce(&mut Here<'_>) -> Result<T, Failure<Trouble>>,
-) -> Result<T, ApiError> {
+fn run<T>(app: &App, f: impl FnOnce(&mut Here<'_>) -> Result<T, Trouble>) -> Result<T, ApiError> {
     let mut here = Here { app };
     f(&mut here).map_err(api_error)
 }
 
-/// `enrich.enrich(cid, lyrics, cover, details)`.
+/// La letra, la carátula y la ficha de una canción, lo que falte.
 pub fn enrich(
     app: &App,
     cid: i64,
@@ -439,42 +326,31 @@ pub fn enrich(
         details,
         save_to_file: true,
     };
-    run(app, |o| e::enrich(o, &Json::Int(cid), wanted)).map(|j| to_value(&j))
+    run(app, |o| e::enrich(o, cid, wanted))
 }
 
-/// `enrich.autofill(cid)`.
+/// Rellena lo que le falta a la ficha.
 pub fn autofill(app: &App, cid: i64) -> Result<Value, ApiError> {
-    run(app, |o| e::autofill(o, &Json::Int(cid))).map(|j| to_value(&j))
+    run(app, |o| e::autofill(o, cid))
 }
 
-/// `enrich.details_for(song)`: (detalles, venían guardados).
+/// La ficha de la IA: (detalles, venían guardados).
 pub fn details_for(app: &App, song: &Dict) -> Result<(Value, bool), ApiError> {
-    run(app, |o| e::details_for(o, song)).map(|(d, cached)| (to_value(&d), cached))
+    run(app, |o| e::details_for(o, song))
 }
 
-/// `enrich.chords(song, refresh)`.
+/// El cifrado guardado, o el que se encuentre (otra vez con `refresh`).
 pub fn chords(app: &App, song: &Dict, refresh: bool) -> Result<Value, ApiError> {
-    run(app, |o| e::chords(o, song, refresh)).map(|j| to_value(&j))
+    run(app, |o| e::chords(o, song, refresh))
 }
 
-/// `enrich.stored_sheet(song)`.
-pub fn stored_sheet(app: &App, song: &Dict) -> Result<Option<Json>, ApiError> {
-    run(app, |o| e::stored_sheet(o, song))
-}
-
-/// `enrich.transpose_sheet(sheet, semitones, to_key)`.
-pub fn transpose_sheet(sheet: &Json, semitones: i64, to_key: &str) -> Result<Value, ApiError> {
-    e::transpose_sheet(sheet, &Json::Int(semitones), &Json::str(to_key))
-        .map(|j| to_value(&j))
-        .map_err(|exc| ApiError::internal(format!("transponer el cifrado: {exc:?}")))
-}
-
-/// `enrich.image_type(head)`.
+/// El tipo de una imagen por sus primeros bytes ("" si no es una).
 pub fn image_type(head: &[u8]) -> &'static str {
     e::image_type(head)
 }
 
-/// `convert.shrink_image(src)`: (datos, tipo), encogida si hacía falta.
+/// Una imagen del disco lista para incrustar: (datos, tipo), encogida si
+/// hacía falta.
 pub fn shrink_image(app: &App, src: &Path) -> Result<Option<(Vec<u8>, String)>, ApiError> {
     let ffmpeg = app.tool("ffmpeg");
     let mut warnings = Warnings::new();
@@ -486,11 +362,6 @@ pub fn shrink_image(app: &App, src: &Path) -> Result<Option<(Vec<u8>, String)>, 
     );
     ai::log_warnings("danplay.convert", warnings);
     Ok(r?.map(|(d, m)| (d, m.to_owned())))
-}
-
-/// Un dict de `Json` (para las pruebas).
-pub fn json_dict(items: Vec<(&str, Json)>) -> Json {
-    dict(items)
 }
 
 #[cfg(test)]
@@ -532,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn images_like_enrich_get() {
+    fn only_real_images_are_downloaded() {
         let png = b"\x89PNG\r\n\x1a\nresto";
         let url = serve(answer("200 OK\r\nContent-Type: image/png; charset=x", png));
         assert_eq!(get_image(&url).expect("imagen"), png);
@@ -556,130 +427,92 @@ mod tests {
             body.as_bytes(),
         ));
         let got = get_json(&url).expect("json");
-        assert_eq!(to_value(&got), serde_json::json!({"a": [1, 2.5, "ñ"]}));
+        assert_eq!(got, serde_json::json!({"a": [1, 2.5, "ñ"]}));
         let url = serve(answer("404 Not Found", b""));
         assert_eq!(why(get_json(&url)), "HTTP Error 404");
     }
 
     /// Lo de fuera de la app, salvo la letra, la carátula y la ficha, que
-    /// vienen preparadas (en Python, `monkeypatch` de `enrich.lyrics`,
-    /// `cover` y `details`): nada sale a la red ni a la IA.
+    /// vienen preparadas: nada sale a la red ni a la IA.
     struct Patched<'a> {
         here: Here<'a>,
-        lyrics: Json,
-        cover: (Vec<u8>, String),
-        details: Json,
+        lyrics: e::Lyrics,
+        cover: Cover,
+        details: Dict,
     }
 
     impl Outside for Patched<'_> {
         type Error = Trouble;
-        type Song = Dict;
-        type Image = Vec<u8>;
-        type Cover = (Vec<u8>, String);
 
-        fn recoverable(&self, error: &Trouble) -> bool {
-            self.here.recoverable(error)
-        }
-        fn log(&mut self, level: Level, message: &[u32], error: Option<&Failure<Trouble>>) {
+        fn log(&mut self, level: Level, message: &str, error: Option<&Trouble>) {
             self.here.log(level, message, error);
         }
-        fn field(&mut self, song: &Dict, key: &str) -> Result<Option<Json>, Trouble> {
-            self.here.field(song, key)
-        }
-        fn get_json(&mut self, url: &str) -> Result<Json, Trouble> {
+        fn get_json(&mut self, url: &str) -> Result<Value, Trouble> {
             Err(Trouble::Net(format!("sin red: {url}")))
         }
-        fn get_image(&mut self, url: &[u32]) -> Result<Vec<u8>, Trouble> {
-            Err(Trouble::Net(format!("sin red: {}", utf(url))))
+        fn get_image(&mut self, url: &str) -> Result<Vec<u8>, Trouble> {
+            Err(Trouble::Net(format!("sin red: {url}")))
         }
-        fn image_bytes(&mut self, image: &Vec<u8>) -> Result<Vec<u8>, Trouble> {
-            self.here.image_bytes(image)
+        fn shrink_cover(&mut self, image: Vec<u8>, kind: &str) -> Cover {
+            self.here.shrink_cover(image, kind)
         }
-        fn image_cover(
-            &mut self,
-            image: Vec<u8>,
-            kind: &str,
-        ) -> Result<(Vec<u8>, String), Trouble> {
-            self.here.image_cover(image, kind)
+        fn ai_available(&mut self) -> bool {
+            false
         }
-        fn ai_available(&mut self) -> Result<bool, Trouble> {
-            Ok(false)
+        fn ai_unavailable_reason(&mut self) -> String {
+            "sin IA en las pruebas".into()
         }
-        fn ai_unavailable_reason(&mut self) -> Result<Text, Trouble> {
-            Ok(text("sin IA en las pruebas"))
+        fn ai_ask(&mut self, _: &str, _: u32) -> Option<String> {
+            None
         }
-        fn ai_ask(&mut self, _: &[u32], _: u32) -> Result<Json, Trouble> {
-            Ok(Json::Null)
+        fn ai_ask_json(&mut self, _: &str, _: &str) -> Option<Dict> {
+            None
         }
-        fn ai_ask_json(&mut self, _: &[u32], _: &str) -> Result<Json, Trouble> {
-            Ok(Json::Null)
+        fn find_sheet(&mut self, _: &str, _: &str) -> Value {
+            Value::Null
         }
-        fn lyrics_lrclib(
-            &mut self,
-            _: &Json,
-            _: &Json,
-            _: &Json,
-            _: &Json,
-        ) -> Result<Json, Trouble> {
-            Ok(Json::Null)
-        }
-        fn lyrics(&mut self, _: &Json, _: &Json, _: &Json, _: &Json) -> Result<Json, Trouble> {
-            Ok(self.lyrics.clone())
-        }
-        fn cover(
-            &mut self,
-            _: &Json,
-            _: &Json,
-            _: &Json,
-        ) -> Result<Option<(Vec<u8>, String)>, Trouble> {
-            Ok(Some(self.cover.clone()))
-        }
-        fn cover_size(&mut self, cover: &(Vec<u8>, String)) -> Result<usize, Trouble> {
-            self.here.cover_size(cover)
-        }
-        fn details(&mut self, _: &Dict) -> Result<Json, Trouble> {
-            Ok(self.details.clone())
-        }
-        fn chords(&mut self, _: &Dict) -> Result<Json, Trouble> {
-            Ok(Json::Null)
-        }
-        fn find_sheet(&mut self, _: &[u32], _: &[u32]) -> Result<Json, Trouble> {
-            Ok(Json::Null)
-        }
-        fn today(&mut self) -> Result<String, Trouble> {
+        fn today(&mut self) -> String {
             self.here.today()
         }
-        fn by_id(&mut self, id: &Json) -> Result<Option<Dict>, Trouble> {
+        fn by_id(&mut self, id: i64) -> Result<Option<Dict>, Trouble> {
             self.here.by_id(id)
         }
-        fn update(&mut self, id: &Json, fields: &[(&str, Json)]) -> Result<(), Trouble> {
+        fn update(&mut self, id: i64, fields: Dict) -> Result<(), Trouble> {
             self.here.update(id, fields)
         }
-        fn edit(&mut self, id: &Json, fields: &[(&str, Json)]) -> Result<(), Trouble> {
+        fn edit(&mut self, id: i64, fields: Dict) -> Result<(), Trouble> {
             self.here.edit(id, fields)
         }
-        fn write_lyrics(&mut self, path: &Json, lyrics: &Json) -> Result<(), Trouble> {
+        fn write_lyrics(&mut self, path: &Path, lyrics: &str) -> Result<(), Trouble> {
             self.here.write_lyrics(path, lyrics)
         }
-        fn write_cover(&mut self, path: &Json, cover: &(Vec<u8>, String)) -> Result<bool, Trouble> {
+        fn write_cover(&mut self, path: &Path, cover: &Cover) -> Result<bool, Trouble> {
             self.here.write_cover(path, cover)
         }
         fn write_tags(
             &mut self,
-            path: &Json,
-            album: &Json,
-            year: &Json,
-            genre: &Json,
+            path: &Path,
+            album: &str,
+            year: &str,
+            genre: &str,
         ) -> Result<(), Trouble> {
             self.here.write_tags(path, album, year, genre)
         }
+        fn lyrics(&mut self, _: &e::Track) -> Option<e::Lyrics> {
+            Some(self.lyrics.clone())
+        }
+        fn cover(&mut self, _: &e::Track) -> Option<Cover> {
+            Some(self.cover.clone())
+        }
+        fn details(&mut self, _: &Dict) -> Option<Dict> {
+            Some(self.details.clone())
+        }
     }
 
-    /// Lo de tests/test_media.py: enriquecer una canción de verdad guarda
-    /// la letra, la carátula y la ficha en el índice y en el archivo. Un
-    /// «desconocido» de la IA no pisa el álbum, del año queda el número, el
-    /// tono que un modelo de antes daba de memoria no se guarda, y el cifrado
-    /// que ya había se queda al lado.
+    /// Enriquecer una canción de verdad guarda la letra, la carátula y la
+    /// ficha en el índice y en el archivo. Un «desconocido» de la IA no pisa
+    /// el álbum, del año queda el número, el tono que un modelo de antes daba
+    /// de memoria no se guarda, y el cifrado que ya había se queda al lado.
     #[test]
     fn enrich_saves_lyrics_cover_and_metadata() {
         let Some(app) = crate::testkit::api_library() else {
@@ -695,7 +528,7 @@ mod tests {
             .expect("Mi Gozo")
             .clone();
         let id = song["id"].as_i64().expect("id");
-        let path = PathBuf::from(song["path"].as_str().expect("ruta"));
+        let path = std::path::PathBuf::from(song["path"].as_str().expect("ruta"));
         let cover_file = path.with_file_name("tapa.jpg");
         let made = std::process::Command::new(crate::testkit::ffmpeg().expect("ffmpeg"))
             .args([
@@ -718,22 +551,26 @@ mod tests {
         let mut chords = Dict::new();
         chords.insert("chords".into(), r#"{"sheet": {"key": "G"}}"#.into());
         songs::update(&app, id, &chords).expect("cifrado");
+        let details = serde_json::json!({
+            "album": "desconocido",
+            "year": "grabado en 2018",
+            "genre": "Adoracion",
+            // un modelo de antes: el tono de memoria no se guarda
+            "likely_key": "Bb",
+            "confidence": 0.8,
+        });
         let mut o = Patched {
             here: Here { app: &app },
-            lyrics: dict(vec![
-                ("lyrics", Json::str("Mi gozo")),
-                ("synced", Json::str("")),
-                ("source", Json::str("lrclib")),
-            ]),
-            cover: (jpeg, "image/jpeg".into()),
-            details: dict(vec![
-                ("album", Json::str("desconocido")),
-                ("year", Json::str("grabado en 2018")),
-                ("genre", Json::str("Adoracion")),
-                // un modelo de antes: el tono de memoria no se guarda
-                ("likely_key", Json::str("Bb")),
-                ("confidence", Json::Float(0.8)),
-            ]),
+            lyrics: e::Lyrics {
+                lyrics: "Mi gozo".into(),
+                synced: String::new(),
+                source: "lrclib",
+            },
+            cover: Cover {
+                data: jpeg,
+                mime: "image/jpeg".into(),
+            },
+            details: details.as_object().cloned().expect("objeto"),
         };
         let wanted = e::Wanted {
             lyrics: true,
@@ -741,13 +578,13 @@ mod tests {
             details: true,
             save_to_file: true,
         };
-        let r = to_value(&e::enrich(&mut o, &Json::Int(id), wanted).expect("enriquecer"));
+        let r = e::enrich(&mut o, id, wanted).expect("enriquecer");
         assert_eq!(r["lyrics"], "lrclib");
         assert!(
             r["cover"].as_str().is_some_and(|c| c.ends_with("KB")),
             "{r}"
         );
-        assert!(library::py::truthy(&r["details"]["genre"]));
+        assert_eq!(r["details"]["genre"], "Adoracion");
         let c = songs::by_id(&app, id).expect("leer").expect("está");
         assert_eq!(c["lyrics"], "Mi gozo");
         assert_eq!(c["cover"], "embedded");
@@ -767,7 +604,7 @@ mod tests {
         assert!(d.cover);
         assert_eq!(d.genre, "Adoracion");
         assert_eq!(
-            to_value(&e::enrich(&mut o, &Json::Int(999_999), wanted).expect("enriquecer")),
+            e::enrich(&mut o, 999_999, wanted).expect("enriquecer"),
             serde_json::json!({"error": "no existe esa cancion"})
         );
     }

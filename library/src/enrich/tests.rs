@@ -1,55 +1,43 @@
 use super::*;
 use std::collections::HashMap;
 
-fn s(x: &str) -> Json {
-    Json::str(x)
-}
-
-fn plain(t: &[u32]) -> String {
-    text::utf8(t).expect("UTF-8")
-}
-
-fn obj(items: Vec<(&str, Json)>) -> Json {
-    dict(items)
+fn obj(v: Value) -> Dict {
+    match v {
+        Value::Object(o) => o,
+        other => panic!("no es un objeto: {other}"),
+    }
 }
 
 /// Lo de fuera, de mentira: lo que contesta cada URL, la IA, el índice y lo
 /// que se escribió.
 #[derive(Default)]
 struct Fake {
-    pages: HashMap<String, Json>,
+    pages: HashMap<String, Value>,
     images: HashMap<String, Vec<u8>>,
-    ai: Option<Json>,
-    songs: HashMap<i64, Json>,
-    sheet: Json,
+    /// lo que contesta la IA (sin ella, no está lista)
+    ai: Option<Value>,
+    songs: HashMap<i64, Dict>,
+    sheet: Value,
     asked: Vec<String>,
-    updates: Vec<(Json, Vec<(String, Json)>)>,
-    edits: Vec<Vec<(String, Json)>>,
+    updates: Vec<(i64, Dict)>,
+    edits: Vec<Dict>,
     logs: Vec<String>,
-    lyrics: Json,
+    /// la letra que da `lyrics` (sin ella, la de verdad)
+    lyrics: Option<Option<Lyrics>>,
     written: Vec<String>,
     /// lo que contesta `details` (sin él, la de verdad, que pregunta a `ai`)
-    details_answer: Option<Json>,
+    details_answer: Option<Option<Dict>>,
     /// los títulos por los que se buscó un cifrado
     sheets_asked: Vec<String>,
 }
 
 impl Outside for Fake {
     type Error = String;
-    type Song = Json;
-    type Image = Vec<u8>;
-    type Cover = (Vec<u8>, String);
 
-    fn recoverable(&self, _: &String) -> bool {
-        true
+    fn log(&mut self, _: Level, message: &str, _: Option<&String>) {
+        self.logs.push(message.to_owned());
     }
-    fn log(&mut self, _: Level, message: &[u32], _: Option<&Failure<String>>) {
-        self.logs.push(plain(message));
-    }
-    fn field(&mut self, song: &Json, key: &str) -> Result<Option<Json>, String> {
-        Ok(song.get(key).cloned())
-    }
-    fn get_json(&mut self, url: &str) -> Result<Json, String> {
+    fn get_json(&mut self, url: &str) -> Result<Value, String> {
         self.asked.push(url.to_owned());
         self.pages
             .iter()
@@ -57,131 +45,109 @@ impl Outside for Fake {
             .map(|(_, v)| v.clone())
             .ok_or_else(|| "404".to_owned())
     }
-    fn get_image(&mut self, url: &[u32]) -> Result<Vec<u8>, String> {
-        let url = plain(url);
-        self.asked.push(url.clone());
+    fn get_image(&mut self, url: &str) -> Result<Vec<u8>, String> {
+        self.asked.push(url.to_owned());
         self.images
-            .get(&url)
+            .get(url)
             .cloned()
             .ok_or_else(|| "404".to_owned())
     }
-    fn image_bytes(&mut self, image: &Vec<u8>) -> Result<Vec<u8>, String> {
-        Ok(image.clone())
-    }
-    fn image_cover(&mut self, image: Vec<u8>, kind: &str) -> Result<(Vec<u8>, String), String> {
-        Ok((image, kind.to_owned()))
-    }
-    fn ai_available(&mut self) -> Result<bool, String> {
-        Ok(self.ai.is_some())
-    }
-    fn ai_unavailable_reason(&mut self) -> Result<Text, String> {
-        Ok(t("sin clave"))
-    }
-    fn ai_ask(&mut self, _: &[u32], _: u32) -> Result<Json, String> {
-        Ok(self.ai.clone().unwrap_or(Json::Null))
-    }
-    fn ai_ask_json(&mut self, prompt: &[u32], _: &str) -> Result<Json, String> {
-        self.asked.push(plain(prompt));
-        Ok(self.ai.clone().unwrap_or(Json::Null))
-    }
-    fn lyrics_lrclib(&mut self, a: &Json, ti: &Json, al: &Json, d: &Json) -> Result<Json, String> {
-        lyrics_lrclib(self, a, ti, al, d).map_err(|e| format!("{e:?}"))
-    }
-    fn lyrics(&mut self, _: &Json, _: &Json, _: &Json, _: &Json) -> Result<Json, String> {
-        Ok(self.lyrics.clone())
-    }
-    fn cover(
-        &mut self,
-        a: &Json,
-        ti: &Json,
-        al: &Json,
-    ) -> Result<Option<(Vec<u8>, String)>, String> {
-        cover(self, a, ti, al).map_err(|e| format!("{e:?}"))
-    }
-    fn cover_size(&mut self, cover: &(Vec<u8>, String)) -> Result<usize, String> {
-        Ok(cover.0.len())
-    }
-    fn details(&mut self, song: &Json) -> Result<Json, String> {
-        if let Some(answer) = &self.details_answer {
-            return Ok(answer.clone());
+    fn shrink_cover(&mut self, image: Vec<u8>, kind: &str) -> Cover {
+        Cover {
+            data: image,
+            mime: kind.to_owned(),
         }
-        details(self, song).map_err(|e| format!("{e:?}"))
     }
-    fn chords(&mut self, song: &Json) -> Result<Json, String> {
-        chords(self, song, false).map_err(|e| format!("{e:?}"))
+    fn ai_available(&mut self) -> bool {
+        self.ai.is_some()
     }
-    fn find_sheet(&mut self, _: &[u32], title: &[u32]) -> Result<Json, String> {
-        self.sheets_asked.push(plain(title));
-        Ok(self.sheet.clone())
+    fn ai_unavailable_reason(&mut self) -> String {
+        "sin clave".into()
     }
-    fn today(&mut self) -> Result<String, String> {
-        Ok("2026-10-22".into())
+    fn ai_ask(&mut self, _: &str, _: u32) -> Option<String> {
+        self.ai.as_ref()?.as_str().map(str::to_owned)
     }
-    fn by_id(&mut self, id: &Json) -> Result<Option<Json>, String> {
-        let Json::Int(i) = id else { return Ok(None) };
-        Ok(self.songs.get(i).cloned())
+    fn ai_ask_json(&mut self, prompt: &str, _: &str) -> Option<Dict> {
+        self.asked.push(prompt.to_owned());
+        self.ai.as_ref()?.as_object().cloned()
     }
-    fn update(&mut self, id: &Json, fields: &[(&str, Json)]) -> Result<(), String> {
-        let fields: Vec<(String, Json)> = fields
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), v.clone()))
-            .collect();
-        if let Json::Int(i) = id
-            && let Some(song) = self.songs.get_mut(i)
-        {
-            for (k, v) in &fields {
-                song.set(&t(k), v.clone());
-            }
+    fn find_sheet(&mut self, _: &str, title: &str) -> Value {
+        self.sheets_asked.push(title.to_owned());
+        self.sheet.clone()
+    }
+    fn today(&mut self) -> String {
+        "2026-10-22".into()
+    }
+    fn by_id(&mut self, id: i64) -> Result<Option<Dict>, String> {
+        Ok(self.songs.get(&id).cloned())
+    }
+    fn update(&mut self, id: i64, fields: Dict) -> Result<(), String> {
+        if let Some(song) = self.songs.get_mut(&id) {
+            song.extend(fields.clone());
         }
-        self.updates.push((id.clone(), fields));
+        self.updates.push((id, fields));
         Ok(())
     }
-    fn edit(&mut self, _: &Json, fields: &[(&str, Json)]) -> Result<(), String> {
-        self.edits.push(
-            fields
-                .iter()
-                .map(|(k, v)| ((*k).to_owned(), v.clone()))
-                .collect(),
-        );
+    fn edit(&mut self, _: i64, fields: Dict) -> Result<(), String> {
+        self.edits.push(fields);
         Ok(())
     }
-    fn write_lyrics(&mut self, _: &Json, text: &Json) -> Result<(), String> {
-        self.written
-            .push(format!("letra:{}", plain(&pv::py_str(text))));
+    fn write_lyrics(&mut self, _: &Path, lyrics: &str) -> Result<(), String> {
+        self.written.push(format!("letra:{lyrics}"));
         Ok(())
     }
-    fn write_cover(&mut self, _: &Json, cover: &(Vec<u8>, String)) -> Result<bool, String> {
-        self.written.push(format!("portada:{}", cover.1));
+    fn write_cover(&mut self, _: &Path, cover: &Cover) -> Result<bool, String> {
+        self.written.push(format!("portada:{}", cover.mime));
         Ok(true)
     }
-    fn write_tags(
-        &mut self,
-        _: &Json,
-        album: &Json,
-        year: &Json,
-        genre: &Json,
-    ) -> Result<(), String> {
-        let [a, y, g] = [album, year, genre].map(|x| plain(&pv::py_str(x)));
-        self.written.push(format!("etiquetas:{a}|{y}|{g}"));
+    fn write_tags(&mut self, _: &Path, album: &str, year: &str, genre: &str) -> Result<(), String> {
+        self.written
+            .push(format!("etiquetas:{album}|{year}|{genre}"));
         Ok(())
+    }
+    fn lyrics(&mut self, track: &Track) -> Option<Lyrics> {
+        match &self.lyrics {
+            Some(answer) => answer.clone(),
+            None => lyrics(self, track, true),
+        }
+    }
+    fn details(&mut self, song: &Dict) -> Option<Dict> {
+        match &self.details_answer {
+            Some(answer) => answer.clone(),
+            None => details(self, song),
+        }
     }
 }
 
-fn song(chords: &str) -> Json {
-    obj(vec![
-        ("id", Json::Int(3)),
-        ("artist", s("Barak")),
-        ("title", s("Mi Gozo")),
-        ("album", s("")),
-        ("year", s("")),
-        ("genre", s("")),
-        ("key", s("")),
-        ("duration", Json::Float(185.5)),
-        ("lyrics", s("")),
-        ("cover", s("")),
-        ("path", s("/x.mp3")),
-        ("chords", s(chords)),
-    ])
+fn song(chords: &str) -> Dict {
+    obj(json!({
+        "id": 3,
+        "artist": "Barak",
+        "title": "Mi Gozo",
+        "album": "",
+        "year": "",
+        "genre": "",
+        "key": "",
+        "duration": 185.5,
+        "lyrics": "",
+        "cover": "",
+        "path": "/x.mp3",
+        "chords": chords,
+    }))
+}
+
+fn track(artist: &str, title: &str, album: &str, duration: f64) -> Track {
+    Track {
+        artist: artist.into(),
+        title: title.into(),
+        album: album.into(),
+        duration,
+    }
+}
+
+/// Lo guardado en la columna `chords` en la actualización `i`.
+fn saved_doc(f: &Fake, i: usize) -> String {
+    f.updates[i].1["chords"].as_str().expect("texto").to_owned()
 }
 
 #[test]
@@ -196,27 +162,17 @@ fn knows_an_image_by_its_first_bytes() {
 
 #[test]
 fn a_musicbrainz_id_is_a_uuid() {
-    assert!(is_uuid(&t("12345678-1234-1234-1234-123456789abc")));
-    assert!(
-        is_uuid(&t("12345678-1234-1234-1234-123456789ABC\n")),
-        "el $ de Python"
-    );
-    assert!(!is_uuid(&t("../../malo")));
-    assert!(!is_uuid(&t("12345678-1234-1234-1234-123456789abg")));
-    assert!(!is_uuid(&t("12345678-1234-1234-1234-123456789abc\n\n")));
+    assert!(is_uuid("12345678-1234-1234-1234-123456789abc"));
+    assert!(is_uuid("12345678-1234-1234-1234-123456789ABC"));
+    assert!(!is_uuid("../../malo"));
+    assert!(!is_uuid("12345678-1234-1234-1234-123456789abg"));
+    assert!(!is_uuid("12345678-1234-1234-1234-123456789abc\n"));
 }
 
 #[test]
 fn cover_queries_go_from_precise_to_loose() {
-    let qs = cover_queries(
-        &s("Adoracion La Ibi"),
-        &s("Santo Por Siempre (En Vivo) - r"),
-        &s(""),
-    )
-    .expect("vale");
-    let qs: Vec<String> = qs.iter().map(|q| plain(&pv::py_str(q))).collect();
     assert_eq!(
-        qs,
+        cover_queries("Adoracion La Ibi", "Santo Por Siempre (En Vivo) - r", ""),
         [
             "Adoracion La Ibi Santo Por Siempre (En Vivo)",
             "Santo Por Siempre (En Vivo)",
@@ -224,35 +180,30 @@ fn cover_queries_go_from_precise_to_loose() {
             "Santo Por Siempre"
         ]
     );
-    let qs = cover_queries(&s("Barak"), &s("Mi Gozo"), &s("Generacion Radical")).expect("vale");
-    assert_eq!(qs[0], s("Barak Generacion Radical"));
-    assert!(
-        cover_queries(&s(""), &s(""), &s(""))
-            .expect("vale")
-            .is_empty()
-    );
-    assert!(cover_queries(&s(""), &Json::Int(5), &s("")).is_err());
+    let qs = cover_queries("Barak", "Mi Gozo", "Generacion Radical");
+    assert_eq!(qs[0], "Barak Generacion Radical");
+    assert!(cover_queries("", "", "").is_empty());
     // un paréntesis sin cerrar se queda; los espacios de delante del que se quita, no
-    assert_eq!(without_parens(&t("a (b) [c d")), t("a [c d"));
-    assert_eq!(without_parens(&t("a\t ( x ] y")), t("a y"));
-    assert_eq!(without_dup_suffix(&t("x -  r12\n")), t("x\n"));
-    assert_eq!(without_dup_suffix(&t("x - r1 y")), t("x - r1 y"));
+    assert_eq!(
+        cover_queries("", "a (b) [c d", ""),
+        ["a (b) [c d", "a [c d"]
+    );
+    assert_eq!(cover_queries("", "a\t ( x ] y", ""), ["a\t ( x ] y", "a y"]);
+    assert_eq!(cover_queries("", "x -  r12", ""), ["x"]);
+    assert_eq!(cover_queries("", "x - r1 y", ""), ["x - r1 y"]);
 }
 
 #[test]
 fn lrclib_gives_plain_and_timed_lyrics() {
-    let d = obj(vec![
-        ("plainLyrics", s("")),
-        ("syncedLyrics", s("[00:01.00]Mi gozo\n[00:02.00]en ti")),
-    ]);
+    let d = json!({"plainLyrics": "", "syncedLyrics": "[00:01.00]Mi gozo\n[00:02.00]en ti"});
     let r = lrclib_result(&d).expect("hay letra");
-    assert_eq!(r.get("lyrics"), Some(&s("Mi gozo\nen ti")));
-    assert_eq!(r.get("source"), Some(&s("lrclib")));
-    assert!(lrclib_result(&obj(vec![("plainLyrics", Json::Null)])).is_none());
-    assert!(lrclib_result(&Json::List(vec![])).is_none());
-    // lo que no es texto, con su `str`
-    let r = lrclib_result(&obj(vec![("plainLyrics", Json::Int(5))])).expect("hay");
-    assert_eq!(r.get("lyrics"), Some(&s("5")));
+    assert_eq!(r.lyrics, "Mi gozo\nen ti");
+    assert_eq!(r.source, "lrclib");
+    assert!(lrclib_result(&json!({"plainLyrics": null})).is_none());
+    assert!(lrclib_result(&json!([])).is_none());
+    // un número, con sus cifras
+    let r = lrclib_result(&json!({"plainLyrics": 5})).expect("hay");
+    assert_eq!(r.lyrics, "5");
 }
 
 #[test]
@@ -260,49 +211,50 @@ fn lyrics_by_exact_match_then_by_search() {
     let mut f = Fake::default();
     f.pages.insert(
         "/api/search".into(),
-        Json::List(vec![
-            obj(vec![("plainLyrics", s(""))]),
-            obj(vec![("plainLyrics", s("la segunda"))]),
-        ]),
+        json!([{"plainLyrics": ""}, {"plainLyrics": "la segunda"}]),
     );
-    let r =
-        lyrics_lrclib(&mut f, &s("A b"), &s("B"), &s("Gozo"), &Json::Float(180.9)).expect("vale");
-    assert_eq!(r.get("lyrics"), Some(&s("la segunda")));
+    let r = lyrics_lrclib(&mut f, &track("A b", "B", "Gozo", 180.9)).expect("hay");
+    assert_eq!(r.lyrics, "la segunda");
     assert_eq!(
         f.asked[0],
         "https://lrclib.net/api/get?artist_name=A+b&track_name=B&album_name=Gozo&duration=180"
     );
     assert_eq!(f.asked[1], "https://lrclib.net/api/search?q=A+b+B");
     assert_eq!(f.logs, ["LRCLIB no tiene A b - B"]);
-    // la duración se pasa a entero fuera del try: un NaN no se traga
+    // una duración que no es un número no se pide
     let mut f = Fake::default();
-    assert!(matches!(
-        lyrics_lrclib(&mut f, &s("A"), &s("B"), &s(""), &Json::Float(f64::NAN)),
-        Err(Failure::Py(Exc::Value(_)))
-    ));
+    assert_eq!(lyrics_lrclib(&mut f, &track("A", "B", "", f64::NAN)), None);
+    assert_eq!(
+        f.asked[0],
+        "https://lrclib.net/api/get?artist_name=A&track_name=B"
+    );
 }
 
 #[test]
 fn the_ai_lyrics_only_when_it_knows_them() {
     let mut f = Fake {
-        ai: Some(s(&"verso ".repeat(30))),
+        ai: Some(json!("verso ".repeat(30))),
         ..Fake::default()
     };
-    let r = lyrics(&mut f, &s("A"), &s("B"), &s(""), &Json::Int(0), true).expect("vale");
-    assert_eq!(r.get("source"), Some(&s("ai")));
+    let r = lyrics(&mut f, &track("A", "B", "", 0.0), true).expect("la de la IA");
+    assert_eq!(r.source, "ai");
+    assert_eq!(r.lyrics, "verso ".repeat(30).trim());
     let mut f = Fake {
-        ai: Some(s(&format!("{} no_la_se", "x".repeat(90)))),
+        ai: Some(json!(format!("{} no_la_se", "x".repeat(90)))),
         ..Fake::default()
     };
-    assert_eq!(
-        lyrics(&mut f, &s("A"), &s("B"), &s(""), &Json::Int(0), true).expect("vale"),
-        Json::Null
-    );
+    assert_eq!(lyrics(&mut f, &track("A", "B", "", 0.0), true), None);
+    // corta, no es una letra; y sin dejar a la IA, ni se pregunta
     let mut f = Fake {
-        ai: Some(Json::Int(5)),
+        ai: Some(json!("una frase")),
         ..Fake::default()
     };
-    assert!(lyrics(&mut f, &s("A"), &s("B"), &s(""), &Json::Int(0), true).is_err());
+    assert_eq!(lyrics(&mut f, &track("A", "B", "", 0.0), true), None);
+    let mut f = Fake {
+        ai: Some(json!("verso ".repeat(30))),
+        ..Fake::default()
+    };
+    assert_eq!(lyrics(&mut f, &track("A", "B", "", 0.0), false), None);
 }
 
 #[test]
@@ -311,41 +263,38 @@ fn the_cover_from_itunes_then_musicbrainz() {
     let mut f = Fake::default();
     f.pages.insert(
         "itunes".into(),
-        obj(vec![(
-            "results",
-            Json::List(vec![
-                obj(vec![("artworkUrl100", s("http://inseguro/100x100bb.jpg"))]),
-                obj(vec![("artworkUrl100", s("https://a/100x100bb.jpg"))]),
-            ]),
-        )]),
+        json!({"results": [
+            {"artworkUrl100": "http://inseguro/100x100bb.jpg"},
+            {"artworkUrl100": 7},
+            {"artworkUrl100": "https://a/100x100bb.jpg"},
+        ]}),
     );
     f.images
         .insert("https://a/1000x1000bb.jpg".into(), jpeg.clone());
-    let got = cover(&mut f, &s("Barak"), &s("Mi Gozo"), &s("")).expect("vale");
-    assert_eq!(got, Some((jpeg.clone(), "image/jpeg".into())));
+    let got = cover(&mut f, &track("Barak", "Mi Gozo", "", 0.0));
+    assert_eq!(
+        got,
+        Some(Cover {
+            data: jpeg,
+            mime: "image/jpeg".into()
+        })
+    );
     assert!(!f.asked.iter().any(|u| u.contains("inseguro")));
 
     let mut f = Fake::default();
-    f.pages
-        .insert("itunes".into(), obj(vec![("results", Json::List(vec![]))]));
+    f.pages.insert("itunes".into(), json!({"results": []}));
     f.pages.insert(
         "musicbrainz".into(),
-        obj(vec![(
-            "releases",
-            Json::List(vec![
-                obj(vec![("id", s("../../malo"))]),
-                obj(vec![("id", s("12345678-1234-1234-1234-123456789abc"))]),
-            ]),
-        )]),
+        json!({"releases": [
+            {"id": "../../malo"},
+            {"id": "12345678-1234-1234-1234-123456789abc"},
+        ]}),
     );
     f.images.insert(
         "https://coverartarchive.org/release/12345678-1234-1234-1234-123456789abc/front-500".into(),
         b"<html>".to_vec(),
     );
-    assert_eq!(
-        cover(&mut f, &s("Barak"), &s("Mi Gozo"), &s("Gozo")).expect("vale"),
-        None
-    );
+    assert_eq!(cover(&mut f, &track("Barak", "Mi Gozo", "Gozo", 0.0)), None);
     assert!(
         f.logs.iter().any(|l| l.ends_with("no es una imagen")),
         "{:?}",
@@ -360,108 +309,86 @@ fn the_cover_from_itunes_then_musicbrainz() {
 
 #[test]
 fn unknown_values_are_not_kept() {
-    assert_eq!(useful_value("album", &s(" Desconocido ")), t(""));
+    let useful = |field: &str, v: Value| useful_value(field, Some(&v));
+    assert_eq!(useful("album", json!(" Desconocido ")), "");
     assert_eq!(
-        useful_value("album", &s("UN\u{212a}NOWN")),
-        t(""),
+        useful("album", json!("UN\u{212a}NOWN")),
+        "",
         "el kelvin es una k en minúscula"
     );
-    assert_eq!(useful_value("year", &s("grabado en 2018")), t("2018"));
-    assert_eq!(useful_value("year", &s("a12018")), t(""));
-    assert_eq!(useful_value("year", &Json::Int(1999)), t("1999"));
-    assert_eq!(useful_value("year", &Json::Float(1999.0)), t("1999"));
-    assert_eq!(useful_value("genre", &Json::Null), t(""));
-    assert_eq!(useful_value("genre", &s("Adoracion")), t("Adoracion"));
+    assert_eq!(useful("year", json!("grabado en 2018")), "2018");
+    assert_eq!(useful("year", json!("a12018")), "");
+    assert_eq!(useful("year", json!(1999)), "1999");
+    assert_eq!(useful("year", json!(1999.0)), "1999");
+    assert_eq!(useful("genre", Value::Null), "");
+    assert_eq!(useful_value("genre", None), "");
+    assert_eq!(useful("genre", json!("Adoracion")), "Adoracion");
 }
 
-/// El cifrado de las pruebas de Python (`_sheet`): un coro en ese tono.
-fn chorus_sheet(key: &str) -> Json {
-    obj(vec![
-        ("key", s(key)),
-        (
-            "sections",
-            Json::List(vec![obj(vec![
-                ("name", s("Coro")),
-                ("chords", Json::List(vec![s("Bb"), s("Gm")])),
-                (
-                    "lines",
-                    Json::List(vec![
-                        obj(vec![("t", s("Bb      Gm")), ("c", Json::Bool(true))]),
-                        obj(vec![("t", s("Dios es bueno")), ("c", Json::Bool(false))]),
-                    ]),
-                ),
-            ])]),
-        ),
-    ])
+/// Un coro en ese tono.
+fn chorus_sheet(key: &str) -> Value {
+    json!({
+        "key": key,
+        "sections": [{
+            "name": "Coro",
+            "chords": ["Bb", "Gm"],
+            "lines": [
+                {"t": "Bb      Gm", "c": true},
+                {"t": "Dios es bueno", "c": false},
+            ],
+        }],
+    })
 }
 
 #[test]
 fn transposes_only_the_chord_lines() {
     let sheet = chorus_sheet("Bb");
-    let d = transpose_sheet(&sheet, &Json::Int(0), &s("G")).expect("vale");
-    let sec = &pv::iterate(d.get("sections").expect("hay")).expect("lista")[0];
-    assert_eq!(sec.get("chords"), Some(&Json::List(vec![s("G"), s("Em")])));
-    let lines = pv::iterate(sec.get("lines").expect("hay")).expect("lista");
-    let line = |i: usize| plain(&pv::py_str(lines[i].get("t").expect("texto")));
+    let d = transpose_sheet(&sheet, 0, "G");
+    let sec = &d["sections"][0];
+    assert_eq!(sec["chords"], json!(["G", "Em"]));
+    let line = |i: usize| sec["lines"][i]["t"].as_str().expect("texto").to_owned();
     assert_eq!(line(0).split_whitespace().collect::<Vec<_>>(), ["G", "Em"]);
     assert_eq!(line(1), "Dios es bueno", "en la letra, «Dios» no es un Re");
-    assert_eq!(d.get("key"), Some(&s("G")));
-    assert_eq!(d.get("semitones"), Some(&Json::Int(9)));
-    assert!(d.get("capo_hint").is_some_and(Json::truthy));
-    let d = transpose_sheet(&sheet, &Json::Int(-1), &s("")).expect("vale");
-    assert_eq!(d.get("key"), Some(&s("A")));
-    assert_eq!(d.get("semitones"), Some(&Json::Int(11)));
-    // sin semitonos, lo que no es texto pasa tal cual; con ellos, no
-    let odd = obj(vec![(
-        "sections",
-        Json::List(vec![obj(vec![("chords", Json::List(vec![Json::Int(5)]))])]),
-    )]);
-    assert!(transpose_sheet(&odd, &Json::Int(12), &s("")).is_ok());
-    assert!(
-        matches!(transpose_sheet(&odd, &Json::Int(2), &s("")), Err(Exc::Type(m)) if m == "'int' object is not an instance of 'str'")
-    );
-    assert!(matches!(
-        transpose_sheet(&s("x"), &Json::Int(2), &s("")),
-        Err(Exc::Attribute(_))
-    ));
+    assert_eq!(sec["name"], "Coro");
+    assert_eq!(d["key"], "G");
+    assert_eq!(d["semitones"], 9);
+    assert!(d["capo_hint"].as_array().is_some_and(|c| !c.is_empty()));
+    let d = transpose_sheet(&sheet, -1, "");
+    assert_eq!(d["key"], "A");
+    assert_eq!(d["semitones"], 11);
+    // lo que no es texto pasa tal cual, y lo que no es un cifrado no rompe nada
+    let odd = json!({"sections": [{"chords": [5]}, "x"]});
+    let d = transpose_sheet(&odd, 2, "");
+    assert_eq!(d["sections"], json!([{"chords": [5], "lines": []}, "x"]));
+    assert_eq!(transpose_sheet(&json!("x"), 2, "")["sections"], json!([]));
 }
 
 /// Sin tono en el cifrado se mueve por semitonos, y el tono sigue vacío.
 #[test]
 fn without_a_key_it_transposes_by_semitones() {
-    let d = transpose_sheet(&chorus_sheet(""), &Json::Int(2), &s("")).expect("vale");
-    let sec = &pv::iterate(d.get("sections").expect("hay")).expect("lista")[0];
-    assert_eq!(sec.get("chords"), Some(&Json::List(vec![s("C"), s("Am")])));
-    assert_eq!(d.get("key"), Some(&s("")));
+    let d = transpose_sheet(&chorus_sheet(""), 2, "");
+    assert_eq!(d["sections"][0]["chords"], json!(["C", "Am"]));
+    assert_eq!(d["key"], "");
+    assert_eq!(d["capo_hint"], json!([]));
 }
 
-/// Lo de tests/test_media.py: LRCLIB con la letra con tiempos (y sin la
-/// limpia) da las dos, y si la búsqueda exacta acierta no se busca más.
+/// LRCLIB con la letra con tiempos (y sin la limpia) da las dos, y si la
+/// búsqueda exacta acierta no se busca más.
 #[test]
 fn lrclib_lyrics_with_and_without_timestamps() {
     let mut f = Fake::default();
     f.pages.insert(
         "/api/get".into(),
-        obj(vec![
-            ("plainLyrics", s("")),
-            ("syncedLyrics", s("[00:01.00]Mi gozo\n[00:02.00]en ti")),
-        ]),
+        json!({"plainLyrics": "", "syncedLyrics": "[00:01.00]Mi gozo\n[00:02.00]en ti"}),
     );
-    let r = lyrics_lrclib(
-        &mut f,
-        &s("Barak"),
-        &s("Mi Gozo"),
-        &s("Gozo"),
-        &Json::Int(180),
-    )
-    .expect("vale");
+    let r = lyrics_lrclib(&mut f, &track("Barak", "Mi Gozo", "Gozo", 180.0)).expect("hay");
     assert_eq!(
-        r,
-        obj(vec![
-            ("lyrics", s("Mi gozo\nen ti")),
-            ("synced", s("[00:01.00]Mi gozo\n[00:02.00]en ti")),
-            ("source", s("lrclib")),
-        ])
+        r.to_value(),
+        json!({
+            "lyrics": "Mi gozo\nen ti",
+            "synced": "[00:01.00]Mi gozo\n[00:02.00]en ti",
+            "source": "lrclib",
+        })
     );
     assert_eq!(f.asked.len(), 1, "no hace falta buscar: {:?}", f.asked);
     assert!(f.asked[0].contains("duration=180") && f.asked[0].contains("album_name=Gozo"));
@@ -472,18 +399,12 @@ fn lrclib_lyrics_with_and_without_timestamps() {
 #[test]
 fn no_lyrics_without_network_nor_from_an_ai_that_does_not_know_them() {
     let mut f = Fake::default();
-    assert_eq!(
-        lyrics_lrclib(&mut f, &s("A"), &s("B"), &s(""), &Json::Int(0)).expect("vale"),
-        Json::Null
-    );
+    assert_eq!(lyrics_lrclib(&mut f, &track("A", "B", "", 0.0)), None);
     let mut f = Fake {
-        ai: Some(s("NO_LA_SE")),
+        ai: Some(json!("NO_LA_SE")),
         ..Fake::default()
     };
-    assert_eq!(
-        lyrics(&mut f, &s("A"), &s("B"), &s(""), &Json::Int(0), true).expect("vale"),
-        Json::Null
-    );
+    assert_eq!(lyrics(&mut f, &track("A", "B", "", 0.0), true), None);
 }
 
 /// En MusicBrainz, un id que no es un UUID no se pega en la URL: se salta
@@ -492,24 +413,20 @@ fn no_lyrics_without_network_nor_from_an_ai_that_does_not_know_them() {
 fn the_cover_from_musicbrainz_skips_an_odd_id() {
     let jpeg = b"\xff\xd8\xffdatos".to_vec();
     let mut f = Fake::default();
-    f.pages
-        .insert("itunes".into(), obj(vec![("results", Json::List(vec![]))]));
+    f.pages.insert("itunes".into(), json!({"results": []}));
     f.pages.insert(
         "musicbrainz".into(),
-        obj(vec![(
-            "releases",
-            Json::List(vec![
-                obj(vec![("id", s("../../malo"))]),
-                obj(vec![("id", s("12345678-1234-1234-1234-123456789abc"))]),
-            ]),
-        )]),
+        json!({"releases": [
+            {"id": "../../malo"},
+            {"id": "12345678-1234-1234-1234-123456789abc"},
+        ]}),
     );
     f.images.insert(
         "https://coverartarchive.org/release/12345678-1234-1234-1234-123456789abc/front-500".into(),
         jpeg.clone(),
     );
-    let got = cover(&mut f, &s("Barak"), &s("Mi Gozo"), &s("Gozo")).expect("vale");
-    assert_eq!(got, Some((jpeg, "image/jpeg".into())));
+    let got = cover(&mut f, &track("Barak", "Mi Gozo", "Gozo", 0.0)).expect("la carátula");
+    assert_eq!(got.data, jpeg);
     assert!(
         !f.asked.iter().any(|u| u.contains("malo")),
         "un id raro no se pega en la URL: {:?}",
@@ -520,66 +437,42 @@ fn the_cover_from_musicbrainz_skips_an_odd_id() {
 #[test]
 fn the_saved_details_keep_the_sheet() {
     let mut f = Fake {
-        ai: Some(obj(vec![
-            ("album", s("Gozo")),
-            ("likely_key", s("G")),
-            ("confidence", Json::Float(0.7)),
-        ])),
+        ai: Some(json!({"album": "Gozo", "likely_key": "G", "confidence": 0.7})),
         ..Fake::default()
     };
     let c = song(r#"{"album": "", "confidence": 0.2, "sheet": {"key": "G"}}"#);
     let (d, cached) = details_for(&mut f, &c).expect("vale");
-    assert!(!cached && d.get("album") == Some(&s("Gozo")));
-    let saved = &f.updates[0].1[0].1;
+    assert!(!cached && d["album"] == "Gozo");
     assert_eq!(
-        plain(&pv::py_str(saved)),
-        r#"{"album": "Gozo", "confidence": 0.7, "sheet": {"key": "G"}}"#
+        saved_doc(&f, 0),
+        r#"{"album":"Gozo","confidence":0.7,"sheet":{"key":"G"}}"#
     );
     assert!(f.asked[0].ends_with("Duracion: 3:05"), "{}", f.asked[0]);
     let good = song(r#"{"album": "Gozo", "progression": "| Bb |", "confidence": "0.8"}"#);
     let (d, cached) = details_for(&mut f, &good).expect("vale");
     assert!(cached);
-    assert_eq!(d, obj(vec![("album", s("Gozo")), ("confidence", s("0.8"))]));
-    assert_eq!(
-        cached_details(&mut f, &song("esto no es json")).expect("vale"),
-        None
-    );
-    assert!(matches!(
-        confidence(&obj(vec![("confidence", Json::BigInt("9".repeat(400)))])),
-        Err(Exc::Overflow(_))
-    ));
+    assert_eq!(d, json!({"album": "Gozo", "confidence": "0.8"}));
+    assert_eq!(cached_details(&song("esto no es json")), None);
 }
 
 #[test]
 fn chords_are_saved_unless_the_network_failed() {
     let mut f = Fake {
-        sheet: obj(vec![
-            ("sheet", Json::Null),
-            ("tried", Json::List(vec![s("A"), s("B")])),
-            ("failed", Json::List(vec![s("B")])),
-        ]),
+        sheet: json!({"sheet": null, "tried": ["A", "B"], "failed": ["B"]}),
         ..Fake::default()
     };
     let r = chords(&mut f, &song(""), false).expect("vale");
     assert!(f.updates.is_empty());
-    assert_eq!(r.get("checked"), Some(&s("2026-10-22")));
-    f.sheet = obj(vec![
-        ("sheet", Json::Null),
-        ("tried", Json::List(vec![s("A")])),
-        ("failed", Json::List(vec![])),
-    ]);
+    assert_eq!(r["checked"], "2026-10-22");
+    f.sheet = json!({"sheet": null, "tried": ["A"], "failed": []});
     chords(&mut f, &song(r#"{"album": "Gozo"}"#), false).expect("vale");
     assert_eq!(
-        plain(&pv::py_str(&f.updates[0].1[0].1)),
-        r#"{"album": "Gozo", "sheet": null, "sheet_checked": "2026-10-22", "sheet_tried": ["A"]}"#
+        saved_doc(&f, 0),
+        r#"{"album":"Gozo","sheet":null,"sheet_checked":"2026-10-22","sheet_tried":["A"]}"#
     );
     let again = chords(&mut f, &song(r#"{"sheet": null}"#), false).expect("vale");
-    assert_eq!(again.get("cached"), Some(&Json::Bool(true)));
-    let untitled = obj(vec![
-        ("id", Json::Int(4)),
-        ("title", s("")),
-        ("chords", s("")),
-    ]);
+    assert_eq!(again["cached"], true);
+    let untitled = obj(json!({"id": 4, "title": "", "chords": ""}));
     assert!(
         chords(&mut f, &untitled, false)
             .expect("vale")
@@ -592,97 +485,68 @@ fn chords_are_saved_unless_the_network_failed() {
 fn autofill_says_what_is_missing_and_why() {
     let mut f = Fake::default();
     f.songs.insert(1, song(""));
-    f.sheet = obj(vec![
-        (
-            "sheet",
-            obj(vec![
-                ("source", s("Ultimate Guitar")),
-                ("key", s("D")),
-                ("capo", Json::Int(0)),
-            ]),
-        ),
-        ("tried", Json::List(vec![])),
-        ("failed", Json::List(vec![])),
-    ]);
-    let r = autofill(&mut f, &Json::Int(1)).expect("vale");
-    assert_eq!(r.get("filled"), Some(&obj(vec![("key", s("D"))])));
-    assert_eq!(r.get("ok"), Some(&Json::Bool(true)), "{}", py_repr_of(&r));
-    assert_eq!(
-        r.get("reason"),
-        Some(&s("la IA no esta lista: sin clave (Ajustes)"))
-    );
+    f.sheet = json!({
+        "sheet": {"source": "Ultimate Guitar", "key": "D", "capo": 0},
+        "tried": [],
+        "failed": [],
+    });
+    let r = autofill(&mut f, 1).expect("vale");
+    assert_eq!(r["filled"], json!({"key": "D"}));
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["reason"], "la IA no esta lista: sin clave (Ajustes)");
     // con la IA, lo que diga y la confianza si no lo sabe todo
     let mut f = Fake {
-        ai: Some(obj(vec![
-            ("album", s("desconocido")),
-            ("year", s("2018")),
-            ("genre", s("Adoracion")),
-            ("confidence", Json::Float(0.425)),
-        ])),
+        ai: Some(json!({
+            "album": "desconocido",
+            "year": "2018",
+            "genre": "Adoracion",
+            "confidence": 0.425,
+        })),
         ..Fake::default()
     };
     f.songs.insert(1, song(""));
-    f.sheet = obj(vec![
-        ("sheet", Json::Null),
-        ("tried", Json::List(vec![s("LaCuerda")])),
-        ("failed", Json::List(vec![])),
-    ]);
-    let r = autofill(&mut f, &Json::Int(1)).expect("vale");
+    f.sheet = json!({"sheet": null, "tried": ["LaCuerda"], "failed": []});
+    let r = autofill(&mut f, 1).expect("vale");
     assert_eq!(
-        r.get("reason"),
-        Some(&s(
-            "no hay cifrado publicado en LaCuerda; la IA no reconoce bien esta cancion (confianza 42%)"
-        ))
+        r["reason"],
+        "no hay cifrado publicado en LaCuerda; la IA no reconoce bien esta cancion (confianza 42%)"
     );
     assert_eq!(
         f.edits,
-        [vec![
-            ("year".to_owned(), s("2018")),
-            ("genre".to_owned(), s("Adoracion"))
-        ]]
+        [obj(json!({"year": "2018", "genre": "Adoracion"}))]
     );
     assert_eq!(
-        autofill(&mut f, &Json::Int(9)).expect("vale").get("reason"),
-        Some(&s("no existe esa cancion"))
+        autofill(&mut f, 9).expect("vale")["reason"],
+        "no existe esa cancion"
     );
-}
-
-fn py_repr_of(v: &Json) -> String {
-    pv::py_repr(v)
 }
 
 #[test]
 fn enrich_saves_lyrics_cover_and_details() {
     let mut f = Fake {
-        lyrics: obj(vec![
-            ("lyrics", s("")),
-            ("synced", s("[00:01.00]Mi gozo")),
-            ("source", s("lrclib")),
-        ]),
-        ai: Some(obj(vec![
-            ("album", s("desconocido")),
-            ("year", s("grabado en 2018")),
-            ("genre", s("Adoracion")),
-            ("confidence", Json::Float(0.8)),
-        ])),
+        lyrics: Some(Some(Lyrics {
+            lyrics: String::new(),
+            synced: "[00:01.00]Mi gozo".into(),
+            source: "lrclib",
+        })),
+        ai: Some(json!({
+            "album": "desconocido",
+            "year": "grabado en 2018",
+            "genre": "Adoracion",
+            "confidence": 0.8,
+        })),
         ..Fake::default()
     };
     f.pages.insert(
         "itunes".into(),
-        obj(vec![(
-            "results",
-            Json::List(vec![obj(vec![(
-                "artworkUrl100",
-                s("https://a/100x100bb.jpg"),
-            )])]),
-        )]),
+        json!({"results": [{"artworkUrl100": "https://a/100x100bb.jpg"}]}),
     );
     f.images.insert(
         "https://a/1000x1000bb.jpg".into(),
         [0xff, 0xd8, 0xff, 0].repeat(600),
     );
     let mut c = song(r#"{"sheet": {"key": "G"}}"#);
-    c.set(&t("album"), s("Gozo"));
+    c.insert("album".into(), json!("Gozo"));
     f.songs.insert(3, c);
     let wanted = Wanted {
         lyrics: true,
@@ -690,9 +554,13 @@ fn enrich_saves_lyrics_cover_and_details() {
         details: true,
         save_to_file: true,
     };
-    let done = enrich(&mut f, &Json::Int(3), wanted).expect("vale");
-    assert_eq!(done.get("lyrics"), Some(&s("lrclib")));
-    assert_eq!(done.get("cover"), Some(&s("2 KB")));
+    let done = enrich(&mut f, 3, wanted).expect("vale");
+    assert_eq!(done["lyrics"], "lrclib");
+    assert_eq!(done["cover"], "2 KB");
+    assert_eq!(
+        done["details"],
+        json!({"genre": "Adoracion", "year": "grabado en 2018", "confidence": 0.8})
+    );
     assert_eq!(
         f.written,
         [
@@ -703,32 +571,27 @@ fn enrich_saves_lyrics_cover_and_details() {
     );
     let row = &f.songs[&3];
     assert_eq!(
-        row.get("album"),
-        Some(&s("Gozo")),
+        row["album"], "Gozo",
         "«desconocido» no pisa el álbum de verdad"
     );
     assert!(
-        plain(&pv::py_str(row.get("chords").expect("hay"))).ends_with(r#""sheet": {"key": "G"}}"#)
+        row["chords"]
+            .as_str()
+            .is_some_and(|c| c.ends_with(r#""sheet":{"key":"G"}}"#)),
+        "{}",
+        row["chords"]
     );
     assert_eq!(
-        enrich(&mut f, &Json::Int(9), wanted).expect("vale"),
-        obj(vec![("error", s("no existe esa cancion"))])
+        enrich(&mut f, 9, wanted).expect("vale"),
+        json!({"error": "no existe esa cancion"})
     );
 }
-
-// ------------------------------------------------- lo de tests/test_core.py
 
 /// Los títulos que vienen de descargas llevan ruido, y con eso iTunes no
 /// encuentra nada: sin artista se busca por el título, sin espacios delante.
 #[test]
 fn without_artist_it_searches_by_title_only() {
-    let qs = cover_queries(
-        &s(""),
-        &s("Eres Libre (Freedom) (cover Jesus Culture)"),
-        &s(""),
-    )
-    .expect("vale");
-    let qs: Vec<String> = qs.iter().map(|q| plain(&pv::py_str(q))).collect();
+    let qs = cover_queries("", "Eres Libre (Freedom) (cover Jesus Culture)", "");
     assert!(!qs.is_empty());
     assert!(qs.iter().all(|q| !q.starts_with(' ')), "{qs:?}");
     assert!(qs.iter().any(|q| q == "Eres Libre"), "{qs:?}");
@@ -740,17 +603,17 @@ fn without_artist_it_searches_by_title_only() {
 #[test]
 fn what_the_ai_does_not_know_is_not_saved() {
     for (field, value) in [
-        ("album", s("desconocido")),
-        ("album", s("N/A")),
-        ("album", s("-")),
-        ("genre", s("varios")),
-        ("genre", s("sin datos")),
-        ("year", s("desconocido")),
-        ("album", s("")),
-        ("album", Json::Null),
-        ("genre", s("   ")),
+        ("album", json!("desconocido")),
+        ("album", json!("N/A")),
+        ("album", json!("-")),
+        ("genre", json!("varios")),
+        ("genre", json!("sin datos")),
+        ("year", json!("desconocido")),
+        ("album", json!("")),
+        ("album", Value::Null),
+        ("genre", json!("   ")),
     ] {
-        assert_eq!(useful_value(field, &value), t(""), "{field}: {value:?}");
+        assert_eq!(useful_value(field, Some(&value)), "", "{field}: {value:?}");
     }
 }
 
@@ -764,7 +627,11 @@ fn the_year_is_four_digits_or_nothing() {
         ("siglo XXI", ""),
         ("19", ""),
     ] {
-        assert_eq!(useful_value("year", &s(value)), t(expected), "{value}");
+        assert_eq!(
+            useful_value("year", Some(&json!(value))),
+            expected,
+            "{value}"
+        );
     }
 }
 
@@ -775,11 +642,9 @@ fn a_real_value_is_saved() {
         ("genre", "Adoracion"),
         ("key", "Bb"),
     ] {
-        assert_eq!(useful_value(field, &s(value)), t(value), "{field}");
+        assert_eq!(useful_value(field, Some(&json!(value))), value, "{field}");
     }
 }
-
-// ------------------------------------------------- lo de tests/test_ai.py
 
 /// Una ficha vacía guardada no se reutiliza: se vuelve a preguntar, y lo
 /// nuevo se guarda (sin el tono ni los acordes que la IA decía de memoria,
@@ -791,122 +656,101 @@ fn empty_ai_details_are_not_reused() {
     // de antes de 1.21: con el tono y los acordes que la IA decía de memoria
     let good =
         r#"{"album": "Gozo", "likely_key": "Bb", "progression": "| Bb | Gm |", "confidence": 0.8}"#;
-    assert_eq!(cached_details(&mut f, &song(empty)).expect("vale"), None);
-    let cached = cached_details(&mut f, &song(good))
-        .expect("vale")
-        .expect("la buena");
-    assert_eq!(cached.get("album"), Some(&s("Gozo")));
+    assert_eq!(cached_details(&song(empty)), None);
+    let cached = cached_details(&song(good)).expect("la buena");
+    assert_eq!(cached["album"], "Gozo");
     assert!(cached.get("likely_key").is_none(), "ya no se enseña");
-    assert_eq!(cached_details(&mut f, &song("")).expect("vale"), None);
-    assert_eq!(
-        cached_details(&mut f, &song("esto no es json")).expect("vale"),
-        None
-    );
+    assert_eq!(cached_details(&song("")), None);
+    assert_eq!(cached_details(&song("esto no es json")), None);
     // con una vacía guardada se vuelve a preguntar, y lo nuevo se guarda
-    f.ai = Some(obj(vec![
-        ("album", s("Gozo")),
-        ("likely_key", s("G")),
-        ("confidence", Json::Float(0.7)),
-    ]));
+    f.ai = Some(json!({"album": "Gozo", "likely_key": "G", "confidence": 0.7}));
     let (d, was_cached) = details_for(&mut f, &song(empty)).expect("vale");
-    assert!(!was_cached && d.get("album") == Some(&s("Gozo")));
+    assert!(!was_cached && d["album"] == "Gozo");
     assert_eq!(f.asked.len(), 1, "se preguntó una vez");
-    assert_eq!(
-        plain(&pv::py_str(&f.updates[0].1[0].1)),
-        r#"{"album": "Gozo", "confidence": 0.7}"#
-    );
+    assert_eq!(saved_doc(&f, 0), r#"{"album":"Gozo","confidence":0.7}"#);
     let (_, was_cached) = details_for(&mut f, &song(good)).expect("vale");
     assert!(was_cached);
     assert_eq!(f.asked.len(), 1, "la buena se reutiliza sin preguntar");
 }
 
-/// La canción de `details_survive…`: una que no tiene nada.
-fn bare_song() -> Json {
-    obj(vec![
-        ("id", Json::Int(1)),
-        ("artist", s("Barak")),
-        ("title", s("Mi Gozo")),
-        ("album", s("")),
-        ("year", s("")),
-        ("genre", s("")),
-        ("key", s("")),
-        ("lyrics", s("")),
-        ("cover", s("")),
-        ("path", s("/no/existe.mp3")),
-        ("duration", Json::Int(0)),
-        ("chords", s("")),
-    ])
+/// Una canción que no tiene nada.
+fn bare_song() -> Dict {
+    obj(json!({
+        "id": 1,
+        "artist": "Barak",
+        "title": "Mi Gozo",
+        "album": "",
+        "year": "",
+        "genre": "",
+        "key": "",
+        "lyrics": "",
+        "cover": "",
+        "path": "/no/existe.mp3",
+        "duration": 0,
+        "chords": "",
+    }))
 }
 
-fn no_sheet(tried: &[&str]) -> Json {
-    obj(vec![
-        ("sheet", Json::Null),
-        ("tried", Json::List(tried.iter().map(|t| s(t)).collect())),
-        ("failed", Json::List(vec![])),
-    ])
+fn no_sheet(tried: &[&str]) -> Value {
+    json!({"sheet": null, "tried": tried, "failed": []})
 }
 
-/// Un modelo puede contestar algo que no es un objeto (`null`, una lista,
-/// un texto, un número): ni se guarda ni rompe la ficha.
+/// Un modelo puede no contestar, o contestar un objeto vacío: ni se guarda
+/// ni rompe la ficha.
 #[test]
-fn details_survive_a_reply_that_is_not_an_object() {
-    for answer in [Json::Null, Json::List(vec![]), s("texto"), Json::Int(7)] {
+fn details_survive_an_empty_reply() {
+    for answer in [None, Some(Dict::new())] {
         let mut f = Fake {
-            ai: Some(Json::Null),
+            ai: Some(Value::Null),
             details_answer: Some(answer.clone()),
             sheet: no_sheet(&[]),
             ..Fake::default()
         };
-        let one = obj(vec![("id", Json::Int(1)), ("chords", s(""))]);
-        assert_eq!(
-            details_for(&mut f, &one).expect("vale"),
-            (Json::Null, false),
+        let one = obj(json!({"id": 1, "chords": ""}));
+        let (d, cached) = details_for(&mut f, &one).expect("vale");
+        assert!(!cached, "{answer:?}");
+        assert!(d.is_null() || d == json!({}), "{answer:?}: {d}");
+        if answer.is_none() {
+            assert!(f.updates.is_empty(), "no se guarda: {answer:?}");
+        }
+        f.songs.insert(1, bare_song());
+        let r = autofill(&mut f, 1).expect("vale");
+        assert_eq!(r["ok"], false, "{answer:?}");
+        assert!(
+            r["reason"].as_str().is_some_and(|r| !r.is_empty()),
             "{answer:?}"
         );
-        assert!(f.updates.is_empty(), "no se guarda: {answer:?}");
-        f.songs.insert(1, bare_song());
-        let r = autofill(&mut f, &Json::Int(1)).expect("vale");
-        assert_eq!(r.get("ok"), Some(&Json::Bool(false)), "{answer:?}");
-        assert!(r.get("reason").is_some_and(Json::truthy), "{answer:?}");
         let wanted = Wanted {
             lyrics: false,
             cover: false,
             details: true,
             save_to_file: true,
         };
-        let done = enrich(&mut f, &Json::Int(1), wanted).expect("vale");
+        let done = enrich(&mut f, 1, wanted).expect("vale");
         assert!(done.get("error").is_none(), "{answer:?}");
+        assert!(done.get("details").is_none(), "{answer:?}");
     }
 }
 
 #[test]
 fn non_numeric_confidence_breaks_nothing() {
-    let mut f = Fake::default();
-    assert_eq!(
-        cached_details(&mut f, &song(r#"{"confidence": "alta"}"#)).expect("vale"),
-        None
-    );
+    assert_eq!(cached_details(&song(r#"{"confidence": "alta"}"#)), None);
     let mut f = Fake {
-        ai: Some(Json::Null),
-        details_answer: Some(obj(vec![("album", s("")), ("confidence", s("alta"))])),
+        ai: Some(Value::Null),
+        details_answer: Some(Some(obj(json!({"album": "", "confidence": "alta"})))),
         sheet: no_sheet(&["LaCuerda"]),
         ..Fake::default()
     };
     f.songs.insert(
         1,
-        obj(vec![
-            ("id", Json::Int(1)),
-            ("artist", s("Barak")),
-            ("title", s("Mi Gozo")),
-            ("album", s("")),
-            ("year", s("")),
-            ("genre", s("")),
-            ("key", s("")),
-        ]),
+        obj(json!({
+            "id": 1, "artist": "Barak", "title": "Mi Gozo",
+            "album": "", "year": "", "genre": "", "key": "",
+        })),
     );
-    let r = autofill(&mut f, &Json::Int(1)).expect("vale");
-    let reason = plain(&pv::py_str(r.get("reason").expect("el motivo")));
-    assert_eq!(r.get("ok"), Some(&Json::Bool(true)), "{reason}");
+    let r = autofill(&mut f, 1).expect("vale");
+    let reason = r["reason"].as_str().expect("el motivo");
+    assert_eq!(r["ok"], true, "{reason}");
     assert!(
         reason.contains("0%") && reason.contains("LaCuerda"),
         "{reason}"
@@ -918,25 +762,19 @@ fn non_numeric_confidence_breaks_nothing() {
 fn timed_lyrics_do_not_reach_the_uslt() {
     let lrc = "[00:01.00]Mi gozo\n[00:03.00]esta en ti";
     let mut f = Fake {
-        lyrics: obj(vec![
-            ("lyrics", s("")),
-            ("synced", s(lrc)),
-            ("source", s("lrclib")),
-        ]),
+        lyrics: Some(Some(Lyrics {
+            lyrics: String::new(),
+            synced: lrc.into(),
+            source: "lrclib",
+        })),
         ..Fake::default()
     };
     f.songs.insert(
         1,
-        obj(vec![
-            ("id", Json::Int(1)),
-            ("artist", s("Barak")),
-            ("title", s("Mi Gozo")),
-            ("album", s("")),
-            ("duration", Json::Int(3)),
-            ("lyrics", s("")),
-            ("cover", s("x")),
-            ("path", s("/x.mp3")),
-        ]),
+        obj(json!({
+            "id": 1, "artist": "Barak", "title": "Mi Gozo", "album": "",
+            "duration": 3, "lyrics": "", "cover": "x", "path": "/x.mp3",
+        })),
     );
     let wanted = Wanted {
         lyrics: true,
@@ -944,45 +782,32 @@ fn timed_lyrics_do_not_reach_the_uslt() {
         details: false,
         save_to_file: true,
     };
-    enrich(&mut f, &Json::Int(1), wanted).expect("vale");
+    enrich(&mut f, 1, wanted).expect("vale");
     assert_eq!(f.written, ["letra:Mi gozo\nesta en ti"]);
     let row = &f.songs[&1];
-    assert_eq!(row.get("lyrics"), Some(&s("Mi gozo\nesta en ti")));
-    assert_eq!(row.get("lyrics_synced"), Some(&s(lrc)));
+    assert_eq!(row["lyrics"], "Mi gozo\nesta en ti");
+    assert_eq!(row["lyrics_synced"], lrc);
 }
-
-// ------------------------------------------- lo de tests/test_chord_sheets.py
 
 /// Un cifrado encontrado se guarda y no se vuelve a buscar (salvo con
 /// «buscar otra vez»).
 #[test]
 fn what_is_found_is_saved_and_not_searched_again() {
-    let sheet = obj(vec![
-        ("source", s("LaCuerda")),
-        ("key", s("")),
-        ("capo", Json::Int(0)),
-        ("sections", Json::List(vec![])),
-    ]);
+    let sheet = json!({"source": "LaCuerda", "key": "", "capo": 0, "sections": []});
     let mut f = Fake {
-        sheet: obj(vec![
-            ("sheet", sheet.clone()),
-            ("tried", Json::List(vec![s("LaCuerda")])),
-            ("failed", Json::List(vec![])),
-        ]),
+        sheet: json!({"sheet": sheet, "tried": ["LaCuerda"], "failed": []}),
         ..Fake::default()
     };
     let r = chords(&mut f, &song(r#"{"album": "Gozo"}"#), false).expect("vale");
-    assert_eq!(r.get("sheet"), Some(&sheet));
-    let saved = f.updates[0].1[0].1.clone();
-    let doc = plain(&pv::py_str(&saved));
-    let doc: serde_json::Value = serde_json::from_str(&doc).expect("JSON");
-    assert_eq!(doc["album"], serde_json::json!("Gozo"));
-    assert_eq!(doc["sheet"]["source"], serde_json::json!("LaCuerda"));
-    assert_eq!(doc["sheet_tried"], serde_json::json!(["LaCuerda"]));
+    assert_eq!(r["sheet"], sheet);
+    let stored = saved_doc(&f, 0);
+    let doc: Value = serde_json::from_str(&stored).expect("JSON");
+    assert_eq!(doc["album"], "Gozo");
+    assert_eq!(doc["sheet"]["source"], "LaCuerda");
+    assert_eq!(doc["sheet_tried"], json!(["LaCuerda"]));
     assert!(doc["sheet_checked"].as_str().is_some_and(|d| !d.is_empty()));
-    let stored = plain(&pv::py_str(&saved));
     let again = chords(&mut f, &song(&stored), false).expect("vale");
-    assert_eq!(again.get("cached"), Some(&Json::Bool(true)));
+    assert_eq!(again["cached"], true);
     assert_eq!(f.sheets_asked, ["Mi Gozo"]);
     chords(&mut f, &song(&stored), true).expect("vale");
     assert_eq!(
@@ -999,54 +824,49 @@ fn filled_key_comes_from_the_chord_sheet_not_the_ai() {
     let mut f = Fake::default(); // sin IA
     f.songs.insert(
         5,
-        obj(vec![
-            ("id", Json::Int(5)),
-            ("artist", s("Barak")),
-            ("title", s("Mi Gozo")),
-            ("album", s("A")),
-            ("year", s("2018")),
-            ("genre", s("X")),
-            ("key", s("")),
-            ("chords", s("")),
-        ]),
+        obj(json!({
+            "id": 5, "artist": "Barak", "title": "Mi Gozo", "album": "A",
+            "year": "2018", "genre": "X", "key": "", "chords": "",
+        })),
     );
     let with = |capo: i64, key: &str| {
-        obj(vec![
-            (
-                "sheet",
-                obj(vec![
-                    ("source", s("Ultimate Guitar")),
-                    ("key", s(key)),
-                    ("capo", Json::Int(capo)),
-                ]),
-            ),
-            ("tried", Json::List(vec![])),
-            ("failed", Json::List(vec![])),
-        ])
+        json!({
+            "sheet": {"source": "Ultimate Guitar", "key": key, "capo": capo},
+            "tried": [],
+            "failed": [],
+        })
     };
     f.sheet = with(0, "D");
-    let r = autofill(&mut f, &Json::Int(5)).expect("vale");
-    assert_eq!(r.get("ok"), Some(&Json::Bool(true)));
-    assert_eq!(r.get("filled"), Some(&obj(vec![("key", s("D"))])));
-    assert_eq!(f.edits, [vec![("key".to_owned(), s("D"))]]);
+    let r = autofill(&mut f, 5).expect("vale");
+    assert_eq!(r["ok"], true);
+    assert_eq!(r["filled"], json!({"key": "D"}));
+    assert_eq!(f.edits, [obj(json!({"key": "D"}))]);
     assert!(f.asked.is_empty(), "para el tono no se pregunta a la IA");
     // (el cifrado se guardó en la canción: se vuelve a la de antes)
-    f.songs
-        .get_mut(&5)
-        .expect("la canción")
-        .set(&t("chords"), s(""));
+    let forget = |f: &mut Fake| {
+        f.songs
+            .get_mut(&5)
+            .expect("la canción")
+            .insert("chords".into(), json!(""));
+    };
+    forget(&mut f);
     f.edits.clear();
     f.sheet = with(3, "D");
-    let r = autofill(&mut f, &Json::Int(5)).expect("vale");
+    let r = autofill(&mut f, 5).expect("vale");
     assert!(f.edits.is_empty());
-    let reason = plain(&pv::py_str(r.get("reason").expect("motivo")));
+    let reason = r["reason"].as_str().expect("motivo");
     assert!(reason.contains("cejilla"), "{reason}");
-    f.songs
-        .get_mut(&5)
-        .expect("la canción")
-        .set(&t("chords"), s(""));
+    forget(&mut f);
     f.sheet = with(0, "");
-    let r = autofill(&mut f, &Json::Int(5)).expect("vale");
-    let reason = plain(&pv::py_str(r.get("reason").expect("motivo")));
+    let r = autofill(&mut f, 5).expect("vale");
+    let reason = r["reason"].as_str().expect("motivo");
     assert!(reason.contains("no dice el tono"), "{reason}");
+}
+
+#[test]
+fn durations_read_as_minutes_and_seconds() {
+    assert_eq!(duration_text(185.5), "3:05");
+    assert_eq!(duration_text(59.9), "0:59");
+    assert_eq!(duration_text(0.0), "0:00");
+    assert_eq!(duration_text(f64::NAN), "0:00");
 }

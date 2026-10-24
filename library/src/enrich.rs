@@ -1,27 +1,22 @@
-//! Enriquecer una canción, como danplay/enrich.py, paso a paso y en el mismo
-//! orden: la letra (LRCLIB, y si no la tiene, la IA), la carátula (iTunes, y
-//! si no, Cover Art Archive), la ficha de la IA (artistas, álbum, año,
-//! género y contexto; el tono y los acordes no: salen de un cifrado
-//! publicado), el cifrado de la canción y pasarlo a otro tono, y rellenar lo
-//! que le falta a la ficha.
+//! Enriquecer una canción, paso a paso y en este orden: la letra (LRCLIB, y
+//! si no la tiene, la IA), la carátula (iTunes, y si no, Cover Art Archive),
+//! la ficha de la IA (artistas, álbum, año, género y contexto; el tono y los
+//! acordes no: salen de un cifrado publicado), el cifrado de la canción y
+//! pasarlo a otro tono, y rellenar lo que le falta a la ficha.
 //!
 //! Lo de fuera lo da quien llama (`Outside`): la red, la IA, el índice, las
-//! etiquetas, el registro y los propios pasos de este módulo (la letra, la
-//! carátula, la ficha y el cifrado de una canción), que las pruebas de Python
-//! cambian. Hoy es danplay/enrich.py, que busca cada cosa en el módulo en el
-//! momento, como hacía Python; en la fase 4, el núcleo en Rust.
-//!
-//! Lo que llega de fuera son valores de JSON (`Json`, como los de
-//! `json.loads`: una fila del índice, una respuesta, lo que dijo la IA) y se
-//! tratan con las reglas de Python (`py::value`): con algo raro sale la misma
-//! excepción que antes, y con lo normal, lo mismo letra a letra.
-use crate::chord_sheets;
+//! etiquetas y el registro. Los cuatro pasos (la letra, la carátula, la
+//! ficha y el cifrado de una canción) también son métodos suyos, que de
+//! entrada hacen lo de aquí: las pruebas ponen otros en su lugar.
+use crate::index::Dict;
 use crate::patterns::quote_plus;
-use crate::py::json::{self, Json, LoadError, Text};
-use crate::py::text;
-use crate::py::value::{self as pv, Exc};
+use crate::py::truthy;
 use crate::tags::lrc;
-use crate::theory;
+use crate::{chord_sheets, theory};
+use regex::Regex;
+use serde_json::{Value, json};
+use std::path::Path;
+use std::sync::LazyLock;
 
 pub const USER_AGENT: &str = "DanPlay/0.1 (gestor de biblioteca personal)";
 pub const TIMEOUT_SECS: u64 = 15;
@@ -35,8 +30,6 @@ pub const MAGIC: [(&[u8], &str); 3] = [
     (b"\x89PNG\r\n\x1a\n", "image/png"),
     (b"RIFF", "image/webp"),
 ];
-/// La expresión de un id de MusicBrainz (`enrich.UUID`).
-pub const UUID: &str = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
 
 /// Lo que la IA decía de memoria sobre el tono y los acordes antes de 1.21.
 /// Ya no se pide, y lo que quede guardado no se enseña: eran aproximaciones.
@@ -85,32 +78,20 @@ MUY IMPORTANTE: lo que no sepas va como cadena VACIA "". Nunca escribas
 creer que el dato ya esta. El año son cuatro cifras o nada."#;
 const DETAILS_SYSTEM: &str = "Eres un musico de sesion y catalogador musical.";
 
-/// Por qué no salió: una excepción de las reglas de Python (`Exc`) o lo que
-/// lanzó lo de fuera, tal cual.
-#[derive(Debug)]
-pub enum Failure<E> {
-    Py(Exc),
-    Outside(E),
-}
-
-impl<E> From<Exc> for Failure<E> {
-    fn from(e: Exc) -> Self {
-        Self::Py(e)
-    }
-}
-
-type Res<T, E> = Result<T, Failure<E>>;
-
-/// `.out()?`: lo que falló fuera, como `Failure`.
-trait Out<T, E> {
-    fn out(self) -> Res<T, E>;
-}
-
-impl<T, E> Out<T, E> for Result<T, E> {
-    fn out(self) -> Res<T, E> {
-        self.map_err(Failure::Outside)
-    }
-}
+/// Un id de MusicBrainz: va dentro de una URL, así que tiene que ser eso.
+static UUID: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+        .expect("el UUID")
+});
+/// El sufijo de duplicado del final de un título («- r», «- r2»).
+static DUP_SUFFIX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s*-\s*r\d*$").expect("el sufijo"));
+/// Un paréntesis o un corchete cerrado, con los espacios de delante.
+static PARENS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s*[(\[][^)\]]*[)\]]").expect("los paréntesis"));
+/// Un año de verdad.
+static YEAR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(1[89]\d{2}|20\d{2})\b").expect("el año"));
 
 /// Con qué nivel se apunta algo en el registro.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,189 +100,182 @@ pub enum Level {
     Warning,
 }
 
-/// Lo de fuera que necesita enriquecer una canción. Cada método es lo que
-/// llamaba enrich.py (entre paréntesis, con su nombre de Python).
+/// Lo que se busca de una canción: su artista, su título, su álbum y lo que
+/// dura.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Track {
+    pub artist: String,
+    pub title: String,
+    pub album: String,
+    pub duration: f64,
+}
+
+impl Track {
+    /// Lo de una canción del índice.
+    pub fn of(song: &Dict) -> Self {
+        Self {
+            artist: field(song, "artist"),
+            title: field(song, "title"),
+            album: field(song, "album"),
+            duration: number(song.get("duration")),
+        }
+    }
+}
+
+/// Una letra encontrada: la limpia, la de LRCLIB con sus tiempos (o vacía)
+/// y de dónde salió («lrclib» o «ai»).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Lyrics {
+    pub lyrics: String,
+    pub synced: String,
+    pub source: &'static str,
+}
+
+impl Lyrics {
+    /// {lyrics, synced, source}.
+    pub fn to_value(&self) -> Value {
+        json!({"lyrics": self.lyrics, "synced": self.synced, "source": self.source})
+    }
+}
+
+/// Una carátula lista para incrustar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Cover {
+    pub data: Vec<u8>,
+    pub mime: String,
+}
+
+/// Lo de fuera que necesita enriquecer una canción.
 pub trait Outside {
-    /// Lo que lanza lo de fuera (en Python, la excepción).
-    type Error;
-    /// Una canción tal como llega (la fila del índice): se le piden los
-    /// campos uno a uno, y se pasa tal cual a `details` y `chords`.
-    type Song;
-    /// Lo que se bajó como imagen (`_get(url, binary=True)`).
-    type Image;
-    /// Una carátula: (bytes, tipo), como la devuelve `cover`.
-    type Cover;
+    /// Lo que puede fallar fuera: la red, el índice, el disco.
+    type Error: std::fmt::Display;
 
-    /// Si lo que falló se puede tragar (`except Exception`): un
-    /// `KeyboardInterrupt` no.
-    fn recoverable(&self, error: &Self::Error) -> bool;
-    /// Apunta algo en el registro (`log.debug`, `log.warning`), con lo que
-    /// falló si se da (`exc_info`).
-    fn log(&mut self, level: Level, message: &[u32], error: Option<&Failure<Self::Error>>);
+    /// Apunta algo en el registro, con lo que falló si se da.
+    fn log(&mut self, level: Level, message: &str, error: Option<&Self::Error>);
 
-    /// `song.get(key)`: `None` si no la tiene.
-    fn field(&mut self, song: &Self::Song, key: &str) -> Result<Option<Json>, Self::Error>;
+    /// Una página de JSON.
+    fn get_json(&mut self, url: &str) -> Result<Value, Self::Error>;
+    /// Una imagen, en bytes.
+    fn get_image(&mut self, url: &str) -> Result<Vec<u8>, Self::Error>;
+    /// La carátula lista para incrustar: encogida si hace falta (o como
+    /// llegó, si no se pudo).
+    fn shrink_cover(&mut self, image: Vec<u8>, kind: &str) -> Cover;
 
-    /// Una página de JSON (`_get(url)`).
-    fn get_json(&mut self, url: &str) -> Result<Json, Self::Error>;
-    /// Una imagen (`_get(url, binary=True)`).
-    fn get_image(&mut self, url: &[u32]) -> Result<Self::Image, Self::Error>;
-    /// Sus bytes, para ver qué es (lo que mira `image_type`).
-    fn image_bytes(&mut self, image: &Self::Image) -> Result<Vec<u8>, Self::Error>;
-    /// La carátula lista para incrustar: encogida si hace falta
-    /// (`convert.shrink_bytes(data, kind) or (data, kind)`).
-    fn image_cover(&mut self, image: Self::Image, kind: &str) -> Result<Self::Cover, Self::Error>;
+    /// Si la IA está lista para preguntarle.
+    fn ai_available(&mut self) -> bool;
+    /// Por qué no lo está.
+    fn ai_unavailable_reason(&mut self) -> String;
+    /// Lo que contesta la IA, en texto (`None` si no contestó).
+    fn ai_ask(&mut self, prompt: &str, max_tokens: u32) -> Option<String>;
+    /// Lo que contesta la IA, como objeto de JSON (`None` si no contestó).
+    fn ai_ask_json(&mut self, prompt: &str, system: &str) -> Option<Dict>;
 
-    /// `ai.available()`.
-    fn ai_available(&mut self) -> Result<bool, Self::Error>;
-    /// `ai.unavailable_reason()`, como texto.
-    fn ai_unavailable_reason(&mut self) -> Result<Text, Self::Error>;
-    /// `ai.ask(prompt, max_tokens=...)`.
-    fn ai_ask(&mut self, prompt: &[u32], max_tokens: u32) -> Result<Json, Self::Error>;
-    /// `ai.ask_json(prompt, system)`.
-    fn ai_ask_json(&mut self, prompt: &[u32], system: &str) -> Result<Json, Self::Error>;
+    /// El cifrado publicado de una canción: {sheet, tried, failed, seconds}.
+    fn find_sheet(&mut self, artist: &str, title: &str) -> Value;
+    /// La fecha de hoy («2026-10-22»).
+    fn today(&mut self) -> String;
 
-    /// `lyrics_lrclib(artist, title, album, duration)`.
-    fn lyrics_lrclib(
-        &mut self,
-        artist: &Json,
-        title: &Json,
-        album: &Json,
-        duration: &Json,
-    ) -> Result<Json, Self::Error>;
-    /// `lyrics(artist, title, album, duration)`.
-    fn lyrics(
-        &mut self,
-        artist: &Json,
-        title: &Json,
-        album: &Json,
-        duration: &Json,
-    ) -> Result<Json, Self::Error>;
-    /// `cover(artist, title, album)`: `None` si no da nada.
-    fn cover(
-        &mut self,
-        artist: &Json,
-        title: &Json,
-        album: &Json,
-    ) -> Result<Option<Self::Cover>, Self::Error>;
-    /// Lo que pesa una carátula (`len(r[0])`).
-    fn cover_size(&mut self, cover: &Self::Cover) -> Result<usize, Self::Error>;
-    /// `details(song)`.
-    fn details(&mut self, song: &Self::Song) -> Result<Json, Self::Error>;
-    /// `chords(song)`.
-    fn chords(&mut self, song: &Self::Song) -> Result<Json, Self::Error>;
-    /// `chord_sheets.find(artist, title)`.
-    fn find_sheet(&mut self, artist: &[u32], title: &[u32]) -> Result<Json, Self::Error>;
-    /// `date.today().isoformat()`.
-    fn today(&mut self) -> Result<String, Self::Error>;
+    /// La canción del índice con ese id.
+    fn by_id(&mut self, id: i64) -> Result<Option<Dict>, Self::Error>;
+    /// Cambia esos campos en el índice (lo que no es de la ficha).
+    fn update(&mut self, id: i64, fields: Dict) -> Result<(), Self::Error>;
+    /// Cambia esos campos de la ficha (en el índice y en el archivo).
+    fn edit(&mut self, id: i64, fields: Dict) -> Result<(), Self::Error>;
 
-    /// `library.by_id(id)`: `None` si no la hay (o lo que da no vale nada).
-    fn by_id(&mut self, id: &Json) -> Result<Option<Self::Song>, Self::Error>;
-    /// `library.update(id, **fields)`.
-    fn update(&mut self, id: &Json, fields: &[(&str, Json)]) -> Result<(), Self::Error>;
-    /// `library.edit(id, **fields)`.
-    fn edit(&mut self, id: &Json, fields: &[(&str, Json)]) -> Result<(), Self::Error>;
-
-    /// `tags.write_lyrics(path, text)`.
-    fn write_lyrics(&mut self, path: &Json, text: &Json) -> Result<(), Self::Error>;
-    /// `tags.write_cover(path, data, mime)`: si se escribió.
-    fn write_cover(&mut self, path: &Json, cover: &Self::Cover) -> Result<bool, Self::Error>;
-    /// `tags.write(path, album=..., year=..., genre=...)`.
+    /// Escribe la letra en el archivo.
+    fn write_lyrics(&mut self, path: &Path, lyrics: &str) -> Result<(), Self::Error>;
+    /// Incrusta la carátula en el archivo: si se pudo.
+    fn write_cover(&mut self, path: &Path, cover: &Cover) -> Result<bool, Self::Error>;
+    /// Escribe el álbum, el año y el género en el archivo (lo vacío no se
+    /// toca).
     fn write_tags(
         &mut self,
-        path: &Json,
-        album: &Json,
-        year: &Json,
-        genre: &Json,
+        path: &Path,
+        album: &str,
+        year: &str,
+        genre: &str,
     ) -> Result<(), Self::Error>;
+
+    /// La letra (el paso de `lyrics`, con la IA).
+    fn lyrics(&mut self, track: &Track) -> Option<Lyrics>
+    where
+        Self: Sized,
+    {
+        lyrics(self, track, true)
+    }
+    /// La carátula (el paso de `cover`).
+    fn cover(&mut self, track: &Track) -> Option<Cover>
+    where
+        Self: Sized,
+    {
+        cover(self, track)
+    }
+    /// La ficha de la IA (el paso de `details`).
+    fn details(&mut self, song: &Dict) -> Option<Dict>
+    where
+        Self: Sized,
+    {
+        details(self, song)
+    }
+    /// El cifrado (el paso de `chords`, sin volver a buscarlo).
+    fn chords(&mut self, song: &Dict) -> Result<Value, Self::Error>
+    where
+        Self: Sized,
+    {
+        chords(self, song, false)
+    }
 }
 
 // ------------------------------------------------------------------ piezas
 
-fn t(s: &str) -> Text {
-    text::text(s)
-}
-
-/// Unos textos seguidos.
-fn cat(parts: &[&[u32]]) -> Text {
-    parts.concat()
-}
-
-fn dict(items: Vec<(&str, Json)>) -> Json {
-    Json::Dict(items.into_iter().map(|(k, v)| (t(k), v)).collect())
-}
-
-fn empty_dict() -> Json {
-    Json::Dict(Vec::new())
-}
-
-/// Si lo que falló es de lo que `except Exception` se traga.
-fn caught<O: Outside>(o: &O, f: &Failure<O::Error>) -> bool {
-    match f {
-        Failure::Py(_) => true,
-        Failure::Outside(e) => o.recoverable(e),
+/// Un valor como texto: el texto tal cual, un número con sus cifras; lo
+/// demás (nada, `null`, un sí o no, una lista), vacío.
+pub(crate) fn text_of(v: Option<&Value>) -> String {
+    match v {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => String::new(),
     }
 }
 
-/// `song.get(key)` (o `default` si no la tiene).
-fn song_get<O: Outside>(
-    o: &mut O,
-    song: &O::Song,
-    key: &str,
-    default: Json,
-) -> Res<Json, O::Error> {
-    Ok(o.field(song, key).out()?.unwrap_or(default))
+/// Un campo de una canción (o de lo que dijo alguien) como texto.
+fn field(d: &Dict, key: &str) -> String {
+    text_of(d.get(key))
 }
 
-/// `song[key]`: `KeyError` si no la tiene.
-fn song_item<O: Outside>(o: &mut O, song: &O::Song, key: &str) -> Res<Json, O::Error> {
-    o.field(song, key)
-        .out()?
-        .ok_or_else(|| Failure::Py(Exc::Key(t(key))))
+/// Un número: el de JSON, o el que dice un texto («0.8»); si no, 0.
+fn number(v: Option<&Value>) -> f64 {
+    let x = match v {
+        Some(Value::Number(n)) => n.as_f64().unwrap_or(0.0),
+        Some(Value::String(s)) => s.trim().parse().unwrap_or(0.0),
+        _ => 0.0,
+    };
+    if x.is_finite() { x } else { 0.0 }
 }
 
-/// `d.get(key)` de un diccionario, con `None` si no está.
-fn get_or_none(d: &Json, key: &str) -> Result<Json, Exc> {
-    Ok(pv::get(d, key)?.cloned().unwrap_or(Json::Null))
-}
-
-/// `x or default`.
-fn or(x: Json, default: Json) -> Json {
-    if x.truthy() { x } else { default }
-}
-
-/// `str(x or "").strip()`.
-fn stripped(x: &Json) -> Text {
-    if x.truthy() {
-        text::strip(&pv::py_str(x)).to_vec()
-    } else {
-        Text::new()
-    }
-}
-
-/// `urllib.parse.urlencode(pairs)`: lo que no se puede pasar a UTF-8 (un
-/// «surrogate» suelto) es el `UnicodeEncodeError` de Python.
-fn urlencode(pairs: &[(&str, Text)]) -> Result<String, Exc> {
-    let mut out = String::new();
-    for (i, (k, v)) in pairs.iter().enumerate() {
-        let value = text::utf8(v).map_err(|at| Exc::Encode {
-            text: v.clone(),
-            at,
-        })?;
-        if i > 0 {
-            out.push('&');
-        }
-        out.push_str(&quote_plus(k));
-        out.push('=');
-        out.push_str(&quote_plus(&value));
-    }
-    Ok(out)
+/// Los textos de una lista (lo que no es texto, con su JSON).
+fn texts(v: Option<&Value>) -> Vec<String> {
+    v.and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|x| x.as_str().map_or_else(|| x.to_string(), str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Pide `base` + la consulta.
-fn fetch_json<O: Outside>(o: &mut O, base: &str, pairs: &[(&str, Text)]) -> Res<Json, O::Error> {
-    let query = urlencode(pairs)?;
-    o.get_json(&format!("{base}{query}")).out()
+fn fetch_json<O: Outside>(
+    o: &mut O,
+    base: &str,
+    pairs: &[(&str, &str)],
+) -> Result<Value, O::Error> {
+    let query: Vec<String> = pairs
+        .iter()
+        .map(|(k, v)| format!("{}={}", quote_plus(k), quote_plus(v)))
+        .collect();
+    o.get_json(&format!("{base}{}", query.join("&")))
 }
 
 /// El tipo real según los primeros bytes, o vacío si no es una imagen.
@@ -317,535 +291,330 @@ pub fn image_type(data: &[u8]) -> &'static str {
     ""
 }
 
-/// Si es un id de MusicBrainz (`UUID.match`, sin mirar mayúsculas; como en
-/// Python, el `$` deja pasar un «\n» al final).
-pub fn is_uuid(id: &[u32]) -> bool {
-    let id = id.strip_suffix(&[u32::from('\n')]).unwrap_or(id);
-    let groups = [8, 4, 4, 4, 12];
-    if id.len() != 36 {
-        return false;
-    }
-    let mut i = 0;
-    for (n, len) in groups.iter().enumerate() {
-        if n > 0 {
-            if id[i] != u32::from('-') {
-                return false;
-            }
-            i += 1;
-        }
-        if !id[i..i + len]
-            .iter()
-            .all(|&c| char::from_u32(c).is_some_and(|ch| ch.is_ascii_hexdigit()))
-        {
-            return false;
-        }
-        i += len;
-    }
-    true
+/// Si es un id de MusicBrainz (sin mirar mayúsculas).
+pub fn is_uuid(id: &str) -> bool {
+    UUID.is_match(id)
+}
+
+/// «m:ss» de una duración en segundos.
+pub(crate) fn duration_text(seconds: f64) -> String {
+    let seconds = if seconds.is_finite() { seconds } else { 0.0 };
+    let minutes = (seconds / 60.0).floor() as i64;
+    let rest = seconds.rem_euclid(60.0) as i64;
+    format!("{minutes}:{rest:02}")
 }
 
 // ------------------------------------------------------------------ la letra
 
-/// `tags.lrc_to_plain(x)` con lo que llegue: lo vacío, vacío; un texto, sin
-/// sus marcas; lo demás, el `TypeError` de la expresión.
-pub fn lrc_to_plain_value(x: &Json) -> Result<Json, Exc> {
-    match x {
-        _ if !x.truthy() => Ok(Json::Str(Text::new())),
-        Json::Str(s) => Ok(Json::Str(lrc::lrc_to_plain(s))),
-        other => Err(Exc::Type(format!(
-            "expected string or bytes-like object, got '{}'",
-            other.type_name()
-        ))),
-    }
-}
-
 /// Lo que interesa de una respuesta de LRCLIB: la letra limpia y la LRC.
-pub fn lrclib_result(d: &Json) -> Option<Json> {
-    if !matches!(d, Json::Dict(_)) {
-        return None;
-    }
-    let synced = str_or_empty(d.get("syncedLyrics"));
-    let mut plain = str_or_empty(d.get("plainLyrics"));
+pub fn lrclib_result(d: &Value) -> Option<Lyrics> {
+    let d = d.as_object()?;
+    let synced = field(d, "syncedLyrics");
+    let mut plain = field(d, "plainLyrics");
     if plain.is_empty() {
         plain = lrc::lrc_to_plain(&synced);
     }
     if plain.is_empty() && synced.is_empty() {
         return None;
     }
-    Some(dict(vec![
-        ("lyrics", Json::Str(plain)),
-        ("synced", Json::Str(synced)),
-        ("source", Json::str("lrclib")),
-    ]))
-}
-
-/// `str(x or "")`.
-fn str_or_empty(x: Option<&Json>) -> Text {
-    match x {
-        Some(v) if v.truthy() => pv::py_str(v),
-        _ => Text::new(),
-    }
+    Some(Lyrics {
+        lyrics: plain,
+        synced,
+        source: "lrclib",
+    })
 }
 
 /// LRCLIB da la letra plana y la sincronizada (.lrc), sin clave de API:
 /// primero la canción exacta y, si no, la búsqueda difusa.
-pub fn lyrics_lrclib<O: Outside>(
-    o: &mut O,
-    artist: &Json,
-    title: &Json,
-    album: &Json,
-    duration: &Json,
-) -> Res<Json, O::Error> {
-    let artist_text = pv::py_str(artist);
-    let title_text = pv::py_str(title);
+pub fn lyrics_lrclib<O: Outside>(o: &mut O, track: &Track) -> Option<Lyrics> {
+    let Track {
+        artist,
+        title,
+        album,
+        duration,
+    } = track;
+    let seconds = (*duration as i64).to_string();
     let mut pairs = vec![
-        ("artist_name", artist_text.clone()),
-        ("track_name", title_text.clone()),
+        ("artist_name", artist.as_str()),
+        ("track_name", title.as_str()),
     ];
-    if album.truthy() {
-        pairs.push(("album_name", pv::py_str(album)));
+    if !album.is_empty() {
+        pairs.push(("album_name", album.as_str()));
     }
-    if duration.truthy() {
-        pairs.push(("duration", pv::py_str(&pv::to_int(duration)?)));
+    if *duration as i64 != 0 {
+        pairs.push(("duration", seconds.as_str()));
     }
     match fetch_json(o, "https://lrclib.net/api/get?", &pairs) {
         Ok(d) => {
             if let Some(found) = lrclib_result(&d) {
-                return Ok(found);
+                return Some(found);
             }
         }
-        Err(failure) if caught(o, &failure) => {
-            let message = cat(&[&t("LRCLIB no tiene "), &artist_text, &t(" - "), &title_text]);
-            o.log(Level::Debug, &message, Some(&failure));
-        }
-        Err(failure) => return Err(failure),
+        Err(e) => o.log(
+            Level::Debug,
+            &format!("LRCLIB no tiene {artist} - {title}"),
+            Some(&e),
+        ),
     }
-    let query = cat(&[&artist_text, &t(" "), &title_text]);
-    match fetch_json(o, "https://lrclib.net/api/search?", &[("q", query)]) {
-        Ok(Json::List(items)) => {
+    let query = format!("{artist} {title}");
+    match fetch_json(
+        o,
+        "https://lrclib.net/api/search?",
+        &[("q", query.as_str())],
+    ) {
+        Ok(Value::Array(items)) => {
             if let Some(found) = items.iter().take(3).find_map(lrclib_result) {
-                return Ok(found);
+                return Some(found);
             }
         }
         Ok(_) => {}
-        Err(failure) if caught(o, &failure) => {
-            let message = cat(&[
-                &t("la busqueda en LRCLIB fallo para "),
-                &artist_text,
-                &t(" - "),
-                &title_text,
-            ]);
-            o.log(Level::Debug, &message, Some(&failure));
-        }
-        Err(failure) => return Err(failure),
+        Err(e) => o.log(
+            Level::Debug,
+            &format!("la busqueda en LRCLIB fallo para {artist} - {title}"),
+            Some(&e),
+        ),
     }
-    Ok(Json::Null)
+    None
 }
 
 /// La letra: la de LRCLIB y, si no la tiene y se deja, la de la IA (si la
 /// sabe con certeza).
-pub fn lyrics<O: Outside>(
-    o: &mut O,
-    artist: &Json,
-    title: &Json,
-    album: &Json,
-    duration: &Json,
-    allow_ai: bool,
-) -> Res<Json, O::Error> {
-    let r = o.lyrics_lrclib(artist, title, album, duration).out()?;
-    if r.truthy() {
-        return Ok(r);
+pub fn lyrics<O: Outside>(o: &mut O, track: &Track, allow_ai: bool) -> Option<Lyrics> {
+    if let Some(found) = lyrics_lrclib(o, track) {
+        return Some(found);
     }
-    if allow_ai && o.ai_available().out()? {
-        let prompt = cat(&[
-            &t("Letra completa de la cancion '"),
-            &pv::py_str(title),
-            &t("' de "),
-            &pv::py_str(artist),
-            &t(
-                ". Si no la conoces con certeza, responde exactamente NO_LA_SE. Devuelve solo la letra, sin comentarios.",
-            ),
-        ]);
-        let d = o.ai_ask(&prompt, 1500).out()?;
-        if d.truthy() {
-            let Json::Str(s) = &d else {
-                return Err(Exc::Attribute(format!(
-                    "'{}' object has no attribute 'upper'",
-                    d.type_name()
-                ))
-                .into());
-            };
-            if !text::contains(&text::upper(s), "NO_LA_SE") && s.len() > 80 {
-                return Ok(dict(vec![
-                    ("lyrics", Json::Str(text::strip(s).to_vec())),
-                    ("synced", Json::str("")),
-                    ("source", Json::str("ai")),
-                ]));
-            }
-        }
+    if !allow_ai || !o.ai_available() {
+        return None;
     }
-    Ok(Json::Null)
+    let prompt = format!(
+        "Letra completa de la cancion '{}' de {}. Si no la conoces con certeza, responde exactamente NO_LA_SE. Devuelve solo la letra, sin comentarios.",
+        track.title, track.artist
+    );
+    let said = o.ai_ask(&prompt, 1500)?;
+    (!said.to_uppercase().contains("NO_LA_SE") && said.chars().count() > 80).then(|| Lyrics {
+        lyrics: said.trim().to_owned(),
+        synced: String::new(),
+        source: "ai",
+    })
+}
+
+/// La letra limpia de lo que llegue: un texto, sin sus marcas de tiempo; lo
+/// demás, vacío.
+pub fn lrc_to_plain_value(x: &Value) -> String {
+    x.as_str().map(lrc::lrc_to_plain).unwrap_or_default()
 }
 
 // ------------------------------------------------------------------ la carátula
-
-/// `re.sub(r"\s*-\s*r\d*$", "", t)`: el sufijo de duplicado («- r», «- r2»)
-/// del final. Solo puede ir al final, así que se lee desde ahí (como el `$`
-/// de Python, antes de un «\n» final si lo hay).
-fn without_dup_suffix(s: &[u32]) -> Text {
-    let end = s.len() - usize::from(s.last() == Some(&u32::from('\n')));
-    let mut j = end;
-    while j > 0 && text::isdecimal(s[j - 1]) {
-        j -= 1;
-    }
-    if j == 0 || s[j - 1] != u32::from('r') {
-        return s.to_vec();
-    }
-    j -= 1;
-    while j > 0 && text::isspace(s[j - 1]) {
-        j -= 1;
-    }
-    if j == 0 || s[j - 1] != u32::from('-') {
-        return s.to_vec();
-    }
-    j -= 1;
-    while j > 0 && text::isspace(s[j - 1]) {
-        j -= 1;
-    }
-    cat(&[&s[..j], &s[end..]])
-}
-
-/// `re.sub(r"\s*[\(\[][^)\]]*[\)\]]", "", t)`: fuera los paréntesis y los
-/// corchetes (con los espacios de delante). Una apertura solo casa si
-/// después hay algún cierre.
-fn without_parens(s: &[u32]) -> Text {
-    let is_open = |c: u32| c == u32::from('(') || c == u32::from('[');
-    let is_close = |c: u32| c == u32::from(')') || c == u32::from(']');
-    // dónde está el primer cierre desde cada sitio
-    let mut next_close = vec![None; s.len() + 1];
-    for i in (0..s.len()).rev() {
-        next_close[i] = if is_close(s[i]) {
-            Some(i)
-        } else {
-            next_close[i + 1]
-        };
-    }
-    // dónde acaba la tira de espacios que empieza en cada sitio
-    let mut space_end = vec![s.len(); s.len() + 1];
-    for i in (0..s.len()).rev() {
-        space_end[i] = if text::isspace(s[i]) {
-            space_end[i + 1]
-        } else {
-            i
-        };
-    }
-    let mut out = Text::with_capacity(s.len());
-    let mut i = 0;
-    while i < s.len() {
-        let j = space_end[i];
-        if j < s.len()
-            && is_open(s[j])
-            && let Some(close) = next_close[j + 1]
-        {
-            i = close + 1;
-            continue;
-        }
-        out.push(s[i]);
-        i += 1;
-    }
-    out
-}
 
 /// Las consultas a probar, de la más precisa a la más suelta.
 ///
 /// Los títulos que vienen de descargas llevan ruido («- r», «(En Vivo)»,
 /// «(cover X)») y con eso iTunes no encuentra nada. Se prueba también una
 /// versión limpia, y sin artista cuando no lo hay.
-pub fn cover_queries(artist: &Json, title: &Json, album: &Json) -> Result<Vec<Json>, Exc> {
-    let title = match title {
-        _ if !title.truthy() => Text::new(),
-        Json::Str(s) => s.clone(),
-        other => {
-            return Err(Exc::Type(format!(
-                "expected string or bytes-like object, got '{}'",
-                other.type_name()
-            )));
-        }
-    };
-    let cleaned = text::strip(&without_dup_suffix(&title)).to_vec();
-    let bare = text::strip(&without_parens(&cleaned)).to_vec();
-    let artist = pv::py_str(artist);
-    let mut out: Vec<Json> = Vec::new();
-    for candidate in [
-        or(album.clone(), Json::str("")),
-        Json::Str(cleaned),
-        Json::Str(bare),
-    ] {
-        if !candidate.truthy() {
+pub fn cover_queries(artist: &str, title: &str, album: &str) -> Vec<String> {
+    let cleaned = DUP_SUFFIX.replace(title, "").trim().to_owned();
+    let bare = PARENS.replace_all(&cleaned, "").trim().to_owned();
+    let mut out: Vec<String> = Vec::new();
+    for candidate in [album, &cleaned, &bare] {
+        if candidate.is_empty() {
             continue;
         }
-        let both = text::strip(&cat(&[&artist, &t(" "), &pv::py_str(&candidate)])).to_vec();
-        for q in [Json::Str(both), candidate] {
-            if q.truthy() && !out.contains(&q) {
+        let both = format!("{artist} {candidate}").trim().to_owned();
+        for q in [both, candidate.to_owned()] {
+            if !q.is_empty() && !out.contains(&q) {
                 out.push(q);
             }
         }
     }
     out.truncate(4);
-    Ok(out)
+    out
 }
 
 /// Baja una imagen y la deja lista para incrustar: que de verdad sea una
 /// imagen (no la página de error de un servicio caído), y encogida.
-pub fn fetch_image<O: Outside>(o: &mut O, url: &[u32]) -> Res<Option<O::Cover>, O::Error> {
-    let image = match o.get_image(url) {
-        Ok(image) => image,
-        Err(e) if o.recoverable(&e) => {
-            let f = Failure::Outside(e);
+pub fn fetch_image<O: Outside>(o: &mut O, url: &str) -> Option<Cover> {
+    let data = match o.get_image(url) {
+        Ok(data) => data,
+        Err(e) => {
             o.log(
                 Level::Warning,
-                &cat(&[&t("no pude bajar la caratula "), url]),
-                Some(&f),
+                &format!("no pude bajar la caratula {url}"),
+                Some(&e),
             );
-            return Ok(None);
+            return None;
         }
-        Err(e) => return Err(Failure::Outside(e)),
     };
-    let data = o.image_bytes(&image).out()?;
     let kind = image_type(&data);
     if kind.is_empty() {
-        let m = cat(&[&t("lo que devolvio "), url, &t(" no es una imagen")]);
-        o.log(Level::Warning, &m, None);
-        return Ok(None);
+        o.log(
+            Level::Warning,
+            &format!("lo que devolvio {url} no es una imagen"),
+            None,
+        );
+        return None;
     }
-    Ok(Some(o.image_cover(image, kind).out()?))
+    Some(o.shrink_cover(data, kind))
 }
 
 /// Busca la carátula: iTunes primero (rápido, sin clave), luego Cover Art
 /// Archive (por MusicBrainz).
-pub fn cover<O: Outside>(
-    o: &mut O,
-    artist: &Json,
-    title: &Json,
-    album: &Json,
-) -> Res<Option<O::Cover>, O::Error> {
-    for query in cover_queries(artist, title, album)? {
-        let pairs = [
-            ("term", pv::py_str(&query)),
-            ("entity", t("song")),
-            ("limit", t("5")),
-        ];
+pub fn cover<O: Outside>(o: &mut O, track: &Track) -> Option<Cover> {
+    for query in cover_queries(&track.artist, &track.title, &track.album) {
+        let pairs = [("term", query.as_str()), ("entity", "song"), ("limit", "5")];
         let d = match fetch_json(o, "https://itunes.apple.com/search?", &pairs) {
             Ok(d) => d,
-            Err(f) if caught(o, &f) => {
-                let m = cat(&[&t("iTunes no contesto para "), &t(&pv::py_repr(&query))]);
-                o.log(Level::Warning, &m, Some(&f));
+            Err(e) => {
+                let message = format!("iTunes no contesto para «{query}»");
+                o.log(Level::Warning, &message, Some(&e));
                 continue;
             }
-            Err(f) => return Err(f),
         };
-        let results = pv::get(&d, "results")?
-            .cloned()
-            .unwrap_or(Json::List(Vec::new()));
-        for r in pv::iterate(&results)? {
-            let url = or(get_or_none(&r, "artworkUrl100")?, Json::str(""));
-            let Json::Str(url) = url else {
-                return Err(Exc::Attribute(format!(
-                    "'{}' object has no attribute 'startswith'",
-                    url.type_name()
-                ))
-                .into());
+        let results = d.get("results").and_then(Value::as_array);
+        for r in results.into_iter().flatten() {
+            let Some(url) = r.get("artworkUrl100").and_then(Value::as_str) else {
+                continue;
             };
-            if !text::starts_with(&url, "https://") {
+            if !url.starts_with("https://") {
                 continue;
             }
-            if let Some(got) = fetch_image(o, &text::replace(&url, "100x100bb", "1000x1000bb"))? {
-                return Ok(Some(got));
+            if let Some(got) = fetch_image(o, &url.replace("100x100bb", "1000x1000bb")) {
+                return Some(got);
             }
         }
     }
-    let release = if album.truthy() { album } else { title };
-    let query = cat(&[
-        &t("artist:\""),
-        &pv::py_str(artist),
-        &t("\" AND release:\""),
-        &pv::py_str(release),
-        &t("\""),
-    ]);
-    let pairs = [("query", query), ("fmt", t("json")), ("limit", t("3"))];
+    let release = if track.album.is_empty() {
+        &track.title
+    } else {
+        &track.album
+    };
+    let query = format!("artist:\"{}\" AND release:\"{release}\"", track.artist);
+    let pairs = [("query", query.as_str()), ("fmt", "json"), ("limit", "3")];
     let d = match fetch_json(o, "https://musicbrainz.org/ws/2/release/?", &pairs) {
         Ok(d) => d,
-        Err(f) if caught(o, &f) => {
-            o.log(Level::Warning, &t("MusicBrainz no contesto"), Some(&f));
-            return Ok(None);
+        Err(e) => {
+            o.log(Level::Warning, "MusicBrainz no contesto", Some(&e));
+            return None;
         }
-        Err(f) => return Err(f),
     };
-    let releases = pv::get(&d, "releases")?
-        .cloned()
-        .unwrap_or(Json::List(Vec::new()));
-    for rel in pv::iterate(&releases)? {
+    let releases = d.get("releases").and_then(Value::as_array);
+    for rel in releases.into_iter().flatten() {
         // el id se pega dentro de una URL: si no es un UUID, no se usa
-        let id = pv::get(&rel, "id")?.cloned().unwrap_or(Json::str(""));
-        if !is_uuid(&pv::py_str(&id)) {
+        let Some(id) = rel
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| is_uuid(id))
+        else {
             continue;
-        }
-        let id = pv::py_str(pv::item(&rel, "id")?);
-        let url = cat(&[
-            &t("https://coverartarchive.org/release/"),
-            &id,
-            &t("/front-500"),
-        ]);
-        if let Some(got) = fetch_image(o, &url)? {
-            return Ok(Some(got));
+        };
+        let url = format!("https://coverartarchive.org/release/{id}/front-500");
+        if let Some(got) = fetch_image(o, &url) {
+            return Some(got);
         }
     }
-    Ok(None)
+    None
 }
 
 // ------------------------------------------------------------------ la IA
 
-/// Los minutos de una duración (`f"{int(d // 60)}"`).
-pub(crate) fn minutes_of(duration: &Json) -> Result<Text, Exc> {
-    Ok(pv::py_str(&pv::to_int(&pv::floordiv(duration, 60)?)?))
-}
-
-/// Los segundos que sobran de los minutos (`f"{int(d % 60):02d}"`).
-pub(crate) fn seconds_of(duration: &Json) -> Result<Text, Exc> {
-    Ok(match pv::to_int(&pv::modulo(duration, 60)?)? {
-        Json::Int(s) => t(&format!("{s:02}")),
-        other => pv::py_str(&other),
-    })
-}
-
 /// Artistas implicados, álbum, año, género y contexto, de la IA (`None` si
-/// no está). El tono y los acordes no: esos salen de un cifrado publicado.
-pub fn details<O: Outside>(o: &mut O, song: &O::Song) -> Res<Json, O::Error> {
-    if !o.ai_available().out()? {
-        return Ok(Json::Null);
+/// no está o no contestó). El tono y los acordes no: esos salen de un
+/// cifrado publicado.
+pub fn details<O: Outside>(o: &mut O, song: &Dict) -> Option<Dict> {
+    if !o.ai_available() {
+        return None;
     }
-    let artist = song_get(o, song, "artist", Json::str("?"))?;
-    let title = song_get(o, song, "title", Json::str("?"))?;
-    let album = or(song_get(o, song, "album", Json::str(""))?, Json::str("?"));
-    let minutes = minutes_of(&song_get(o, song, "duration", Json::Int(0))?)?;
-    let seconds = seconds_of(&song_get(o, song, "duration", Json::Int(0))?)?;
-    let prompt = cat(&[
-        &t(DETAILS_SCHEMA),
-        &t("\n\nCancion:\nArtista: "),
-        &pv::py_str(&artist),
-        &t("\nTitulo: "),
-        &pv::py_str(&title),
-        &t("\nAlbum: "),
-        &pv::py_str(&album),
-        &t("\nDuracion: "),
-        &minutes,
-        &t(":"),
-        &seconds,
-    ]);
-    o.ai_ask_json(&prompt, DETAILS_SYSTEM).out()
+    let or_unknown = |key: &str| {
+        song.get(key)
+            .map_or_else(|| "?".to_owned(), |v| text_of(Some(v)))
+    };
+    let mut album = field(song, "album");
+    if album.is_empty() {
+        album = "?".into();
+    }
+    let prompt = format!(
+        "{DETAILS_SCHEMA}\n\nCancion:\nArtista: {}\nTitulo: {}\nAlbum: {album}\nDuracion: {}",
+        or_unknown("artist"),
+        or_unknown("title"),
+        duration_text(number(song.get("duration"))),
+    );
+    o.ai_ask_json(&prompt, DETAILS_SYSTEM)
 }
 
-/// El JSON de la columna `chords`: la ficha de la IA y el cifrado (un
-/// diccionario vacío si no hay nada o no se puede leer).
-pub fn doc<O: Outside>(o: &mut O, song: &O::Song) -> Res<Json, O::Error> {
-    let raw = song_get(o, song, "chords", Json::Null)?;
-    if !raw.truthy() {
-        return Ok(empty_dict());
-    }
-    let Json::Str(s) = &raw else {
-        return Err(Exc::Type(format!(
-            "the JSON object must be str, bytes or bytearray, not {}",
-            raw.type_name()
-        ))
-        .into());
-    };
-    match json::loads_text(s) {
-        Ok(d @ Json::Dict(_)) => Ok(d),
-        Ok(_) | Err(LoadError::Invalid(_)) => Ok(empty_dict()),
-        Err(LoadError::TooDeep) => Err(Exc::Recursion(
-            "maximum recursion depth exceeded while decoding a JSON object from a unicode string"
-                .into(),
-        )
-        .into()),
+/// El JSON de la columna `chords`: la ficha de la IA y el cifrado (vacío si
+/// no hay nada o no se puede leer).
+pub fn doc(song: &Dict) -> Dict {
+    let raw = field(song, "chords");
+    match serde_json::from_str(&raw) {
+        Ok(Value::Object(d)) => d,
+        _ => Dict::new(),
     }
 }
 
 /// El cifrado guardado de una canción, sin buscar nada.
-pub fn stored_sheet<O: Outside>(o: &mut O, song: &O::Song) -> Res<Option<Json>, O::Error> {
-    let d = doc(o, song)?;
-    Ok(d.get("sheet")
-        .filter(|s| matches!(s, Json::Dict(_)))
-        .cloned())
+pub fn stored_sheet(song: &Dict) -> Option<Value> {
+    doc(song).remove("sheet").filter(Value::is_object)
 }
 
-/// Guarda la columna `chords` (`json.dumps(doc, ensure_ascii=False)`).
-pub fn save_doc<O: Outside>(o: &mut O, id: &Json, doc: &Json) -> Res<(), O::Error> {
-    o.update(id, &[("chords", Json::Str(json::dumps_unicode(doc)))])
-        .out()
+/// Guarda la columna `chords`.
+pub fn save_doc<O: Outside>(o: &mut O, id: i64, doc: &Dict) -> Result<(), O::Error> {
+    let mut fields = Dict::new();
+    fields.insert(
+        "chords".into(),
+        Value::String(Value::Object(doc.clone()).to_string()),
+    );
+    o.update(id, fields)
 }
 
 /// Lo de un diccionario sin lo que adivinaba la IA ni el cifrado.
-fn without_guesses(d: &[(Text, Json)]) -> Vec<(Text, Json)> {
+fn without_guesses(d: &Dict) -> Dict {
     d.iter()
-        .filter(|(k, _)| !GUESSED.iter().chain(&SHEET).any(|g| json::text_eq(k, g)))
-        .cloned()
+        .filter(|(k, _)| !GUESSED.contains(&k.as_str()) && !SHEET.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
 }
 
+/// El id de una canción.
+fn id_of(song: &Dict) -> i64 {
+    song.get("id").and_then(Value::as_i64).unwrap_or(0)
+}
+
 /// Guarda lo que dijo la IA sin perder el cifrado que ya hubiera.
-pub fn save_details<O: Outside>(o: &mut O, song: &O::Song, d: &Json) -> Res<(), O::Error> {
-    let stored = doc(o, song)?;
-    let keep: Vec<(Text, Json)> = pv::mapping(&stored)?
-        .iter()
-        .filter(|(k, _)| SHEET.iter().any(|s| json::text_eq(k, s)))
-        .cloned()
-        .collect();
-    let mut merged = without_guesses(pv::mapping(d)?);
-    merged.extend(keep);
-    let id = song_item(o, song, "id")?;
-    save_doc(o, &id, &Json::Dict(merged))
+pub fn save_details<O: Outside>(o: &mut O, song: &Dict, d: &Dict) -> Result<(), O::Error> {
+    let mut merged = without_guesses(d);
+    for (k, v) in doc(song) {
+        if SHEET.contains(&k.as_str()) {
+            merged.insert(k, v);
+        }
+    }
+    save_doc(o, id_of(song), &merged)
 }
 
 /// La confianza que dio la IA, como número (a veces llega «alta» o nada).
-pub fn confidence(d: &Json) -> Result<f64, Exc> {
-    let c = get_or_none(d, "confidence")?;
-    if !c.truthy() {
-        return Ok(0.0);
-    }
-    match pv::to_float(&c) {
-        Ok(x) => Ok(x),
-        Err(Exc::Type(_) | Exc::Value(_)) => Ok(0.0),
-        Err(e) => Err(e),
-    }
+pub fn confidence(d: &Dict) -> f64 {
+    number(d.get("confidence"))
 }
 
 /// La ficha de la IA guardada, si merece la pena. Una respuesta con
 /// confianza baja no se reutiliza: la dio un modelo que no conocía la
 /// canción, y con otro mejor (o el mismo otro día) puede salir.
-pub fn cached_details<O: Outside>(o: &mut O, song: &O::Song) -> Res<Option<Json>, O::Error> {
-    let d = doc(o, song)?;
-    if confidence(&d)? < 0.5 {
-        return Ok(None);
-    }
-    Ok(Some(Json::Dict(without_guesses(pv::mapping(&d)?))))
+pub fn cached_details(song: &Dict) -> Option<Dict> {
+    let d = doc(song);
+    (confidence(&d) >= 0.5).then(|| without_guesses(&d))
 }
 
 /// Los detalles de una canción: los guardados si valen, y si no, se piden a
 /// la IA y se guardan. Devuelve (detalles, venían guardados).
-pub fn details_for<O: Outside>(o: &mut O, song: &O::Song) -> Res<(Json, bool), O::Error> {
-    if let Some(cached) = cached_details(o, song)?
-        && cached.truthy()
-    {
-        return Ok((cached, true));
+pub fn details_for<O: Outside>(o: &mut O, song: &Dict) -> Result<(Value, bool), O::Error> {
+    if let Some(cached) = cached_details(song).filter(|d| !d.is_empty()) {
+        return Ok((Value::Object(cached), true));
     }
-    let d = o.details(song).out()?;
-    if !matches!(d, Json::Dict(_)) {
-        return Ok((Json::Null, false));
-    }
-    if !get_or_none(&d, "error")?.truthy() {
+    let Some(d) = o.details(song) else {
+        return Ok((Value::Null, false));
+    };
+    if !d.get("error").is_some_and(truthy) {
         save_details(o, song, &d)?;
     }
-    Ok((d, false))
+    Ok((Value::Object(d), false))
 }
 
 // ------------------------------------------------------------------ los acordes
@@ -857,225 +626,157 @@ pub fn details_for<O: Outside>(o: &mut O, song: &O::Song) -> Res<(Json, bool), O
 /// "tried": fuentes consultadas, "failed": las que no respondieron}. Que no
 /// esté en ninguna se guarda también (no se vuelve a buscar sola cada vez);
 /// que no respondieran, no: es la red, no la canción.
-pub fn chords<O: Outside>(o: &mut O, song: &O::Song, refresh: bool) -> Res<Json, O::Error> {
-    let mut d = doc(o, song)?;
+pub fn chords<O: Outside>(o: &mut O, song: &Dict, refresh: bool) -> Result<Value, O::Error> {
+    let mut d = doc(song);
     if !refresh && let Some(sheet) = d.get("sheet") {
-        return Ok(dict(vec![
-            ("sheet", sheet.clone()),
-            ("cached", Json::Bool(true)),
-            (
-                "checked",
-                d.get("sheet_checked").cloned().unwrap_or(Json::str("")),
-            ),
-            (
-                "tried",
-                d.get("sheet_tried")
-                    .cloned()
-                    .unwrap_or(Json::List(Vec::new())),
-            ),
-            ("failed", Json::List(Vec::new())),
-        ]));
+        return Ok(json!({
+            "sheet": sheet,
+            "cached": true,
+            "checked": d.get("sheet_checked").cloned().unwrap_or_else(|| json!("")),
+            "tried": d.get("sheet_tried").cloned().unwrap_or_else(|| json!([])),
+            "failed": [],
+        }));
     }
-    if stripped(&song_get(o, song, "title", Json::Null)?).is_empty() {
-        return Ok(dict(vec![
-            ("sheet", Json::Null),
-            ("cached", Json::Bool(false)),
-            ("checked", Json::str("")),
-            ("tried", Json::List(Vec::new())),
-            ("failed", Json::List(Vec::new())),
-            ("error", Json::str("la cancion no tiene titulo")),
-        ]));
+    if field(song, "title").trim().is_empty() {
+        return Ok(json!({
+            "sheet": null,
+            "cached": false,
+            "checked": "",
+            "tried": [],
+            "failed": [],
+            "error": "la cancion no tiene titulo",
+        }));
     }
-    let artist = str_or_empty(Some(&song_get(o, song, "artist", Json::Null)?));
-    let title = str_or_empty(Some(&song_get(o, song, "title", Json::Null)?));
-    let r = o.find_sheet(&artist, &title).out()?;
-    let today = Json::str(&o.today().out()?);
-    let sheet = pv::item(&r, "sheet")?;
-    if sheet.truthy() || !pv::item(&r, "failed")?.truthy() {
-        let sheet = sheet.clone();
-        let tried = pv::item(&r, "tried")?.clone();
-        d.set(&t("sheet"), sheet);
-        d.set(&t("sheet_checked"), today.clone());
-        d.set(&t("sheet_tried"), tried);
-        let id = song_item(o, song, "id")?;
-        save_doc(o, &id, &d)?;
+    let r = o.find_sheet(&field(song, "artist"), &field(song, "title"));
+    let today = Value::String(o.today());
+    let sheet = r.get("sheet").cloned().unwrap_or(Value::Null);
+    if truthy(&sheet) || !r.get("failed").is_some_and(truthy) {
+        let tried = r.get("tried").cloned().unwrap_or(Value::Null);
+        d.insert("sheet".into(), sheet);
+        d.insert("sheet_checked".into(), today.clone());
+        d.insert("sheet_tried".into(), tried);
+        save_doc(o, id_of(song), &d)?;
     }
-    let mut out = Json::Dict(pv::mapping(&r)?.to_vec());
-    out.set(&t("cached"), Json::Bool(false));
-    out.set(&t("checked"), today);
-    Ok(out)
+    let mut out = r.as_object().cloned().unwrap_or_default();
+    out.insert("cached".into(), Value::Bool(false));
+    out.insert("checked".into(), today);
+    Ok(Value::Object(out))
 }
 
-/// `x.get(key) or []` (`none` es la lista vacía).
-fn listed<'a>(x: &'a Json, key: &str, none: &'a Json) -> Result<&'a Json, Exc> {
-    Ok(pv::get(x, key)?.filter(|v| v.truthy()).unwrap_or(none))
-}
-
-/// `theory._txt(x)` de un texto: con «�» lo que no es UTF-8, o el
-/// `UnicodeEncodeError` de un «surrogate» que no viene de un byte.
-fn plain_text(s: &[u32]) -> Result<String, Exc> {
-    text::lossy(s).map_err(|at| Exc::Encode {
-        text: s.to_vec(),
-        at,
-    })
-}
-
-/// `theory.transpose(x, n, flats)`: sin semitonos, tal cual (sea lo que
-/// sea); si no, tiene que ser un texto, y los semitonos un entero (`n` es
-/// lo que dio `% 12`: un entero o un real).
-fn transpose_value(x: &Json, n: &Json, flats: Option<bool>) -> Result<Json, Exc> {
-    if !n.truthy() {
-        return Ok(x.clone());
+/// Un acorde (o una línea de acordes) movido `n` semitonos (de 1 a 11); lo
+/// que no es texto, tal cual.
+fn transposed(x: &Value, n: i64, flats: Option<bool>) -> Value {
+    match x.as_str() {
+        Some(s) if n != 0 => Value::String(theory::transpose(s, n, flats)),
+        _ => x.clone(),
     }
-    let Json::Str(s) = x else {
-        return Err(Exc::Type(format!(
-            "'{}' object is not an instance of 'str'",
-            x.type_name()
-        )));
-    };
-    let s = plain_text(s)?;
-    let Json::Int(semitones) = n else {
-        return Err(Exc::Type(
-            "'float' object cannot be interpreted as an integer".into(),
-        ));
-    };
-    let n = semitones.rem_euclid(12);
-    Ok(Json::str(&theory::transpose(
-        &s,
-        if n == 0 { 12 } else { n },
-        flats,
-    )))
 }
 
 /// El cifrado en otro tono: solo se tocan las líneas de acordes (en una de
 /// letra, «Dios» no es un Re). Con `to_key` se va a ese tono (si el
 /// cifrado dice el suyo); si no, se sube o se baja `semitones`. `capo_hint`
-/// sale como lista de pares (en Python, tuplas).
-pub fn transpose_sheet(sheet: &Json, semitones: &Json, to_key: &Json) -> Result<Json, Exc> {
-    let from_key = str_or_empty(pv::get(sheet, "key")?);
-    let (n, flats, to_key) = if to_key.truthy() && !from_key.is_empty() {
-        let from = plain_text(&from_key)?;
-        let Json::Str(target) = to_key else {
-            return Err(Exc::Type(format!(
-                "'{}' object is not an instance of 'str'",
-                to_key.type_name()
-            )));
-        };
-        let target_plain = plain_text(target)?;
-        let n = theory::distance(&from, &target_plain).unwrap_or(0);
-        let flats = theory::FLAT_KEYS.iter().any(|k| json::text_eq(target, k));
-        (Json::Int(n), Some(flats), to_key.clone())
+/// va como lista de pares [traste, forma].
+pub fn transpose_sheet(sheet: &Value, semitones: i64, to_key: &str) -> Value {
+    let mut out = sheet.as_object().cloned().unwrap_or_default();
+    let from_key = text_of(sheet.get("key"));
+    let (n, flats, key) = if !to_key.is_empty() && !from_key.is_empty() {
+        let n = theory::distance(&from_key, to_key).unwrap_or(0);
+        (
+            n,
+            Some(theory::FLAT_KEYS.contains(&to_key)),
+            to_key.to_owned(),
+        )
     } else {
-        let n = pv::modulo(semitones, 12)?;
-        let key = if from_key.is_empty() {
-            Json::str("")
+        let n = semitones.rem_euclid(12);
+        let key = if from_key.is_empty() || n == 0 {
+            from_key
         } else {
-            transpose_value(&Json::Str(from_key.clone()), &n, None)?
+            theory::transpose(&from_key, n, None)
         };
         (n, None, key)
     };
-    let none = Json::List(Vec::new());
-    let base = pv::mapping(sheet)?;
-    let mut sections = Vec::new();
-    for s in pv::items(listed(sheet, "sections", &none)?)?.iter() {
-        let section = pv::mapping(s)?;
-        let mut chords = Vec::new();
-        for c in pv::items(listed(s, "chords", &none)?)?.iter() {
-            chords.push(transpose_value(c, &n, flats)?);
-        }
-        let mut lines = Vec::new();
-        for ln in pv::items(listed(s, "lines", &none)?)?.iter() {
-            if pv::get(ln, "c")?.is_some_and(Json::truthy) {
-                let line = pv::mapping(ln)?;
-                let moved = transpose_value(pv::item(ln, "t")?, &n, flats)?;
-                lines.push(pv::with_replaced(line, vec![("t", moved)]));
-            } else {
-                lines.push(ln.clone());
-            }
-        }
-        sections.push(pv::with_replaced(
-            section,
-            vec![("chords", Json::List(chords)), ("lines", Json::List(lines))],
-        ));
-    }
-    let capo = match &to_key {
-        Json::Str(k) if !k.is_empty() => text::utf8(k)
-            .ok()
-            .filter(|k| theory::index(k).is_some())
-            .map(|k| theory::suggested_capo(&k, &theory::EASY_SHAPES))
-            .unwrap_or_default(),
-        _ => Vec::new(),
-    };
-    let capo = capo
+    let sections: Vec<Value> = sheet
+        .get("sections")
+        .and_then(Value::as_array)
         .into_iter()
-        .map(|(fret, shape)| Json::List(vec![Json::Int(fret), Json::str(&shape)]))
+        .flatten()
+        .map(|s| {
+            let Some(section) = s.as_object() else {
+                return s.clone();
+            };
+            let mut section = section.clone();
+            let chords: Vec<Value> = texts_or_values(s.get("chords"))
+                .iter()
+                .map(|c| transposed(c, n, flats))
+                .collect();
+            let lines: Vec<Value> = texts_or_values(s.get("lines"))
+                .iter()
+                .map(|ln| match ln.as_object() {
+                    Some(line) if line.get("c").is_some_and(truthy) => {
+                        let mut line = line.clone();
+                        let moved = transposed(line.get("t").unwrap_or(&Value::Null), n, flats);
+                        line.insert("t".into(), moved);
+                        Value::Object(line)
+                    }
+                    _ => ln.clone(),
+                })
+                .collect();
+            section.insert("chords".into(), Value::Array(chords));
+            section.insert("lines".into(), Value::Array(lines));
+            Value::Object(section)
+        })
         .collect();
-    Ok(pv::with_replaced(
-        base,
-        vec![
-            ("sections", Json::List(sections)),
-            ("key", to_key),
-            ("semitones", n),
-            ("capo_hint", Json::List(capo)),
-        ],
-    ))
+    let capo: Vec<Value> = if theory::index(&key).is_some() {
+        theory::suggested_capo(&key, &theory::EASY_SHAPES)
+            .into_iter()
+            .map(|(fret, shape)| json!([fret, shape]))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    out.insert("sections".into(), Value::Array(sections));
+    out.insert("key".into(), Value::String(key));
+    out.insert("semitones".into(), Value::from(n));
+    out.insert("capo_hint".into(), Value::Array(capo));
+    Value::Object(out)
+}
+
+/// Lo de una lista, o nada si no lo es.
+fn texts_or_values(v: Option<&Value>) -> Vec<Value> {
+    v.and_then(Value::as_array).cloned().unwrap_or_default()
 }
 
 // ------------------------------------------------------------------ la ficha
 
-/// Si en `s` hay un año de verdad (`\b(1[89]\d{2}|20\d{2})\b`), el primero.
-fn find_year(s: &[u32]) -> Option<&[u32]> {
-    let is = |i: usize, c: char| s.get(i) == Some(&u32::from(c));
-    let digit = |i: usize| s.get(i).is_some_and(|&c| text::isdecimal(c));
-    let word = |i: usize| s.get(i).is_some_and(|&c| text::isword(c));
-    (0..s.len().saturating_sub(3)).find_map(|i| {
-        let boundary_before = i == 0 || !word(i - 1);
-        let century =
-            (is(i, '1') && (is(i + 1, '8') || is(i + 1, '9'))) || (is(i, '2') && is(i + 1, '0'));
-        let boundary_after = !word(i + 4);
-        (boundary_before && century && digit(i + 2) && digit(i + 3) && boundary_after)
-            .then(|| &s[i..i + 4])
-    })
-}
-
 /// El valor si sirve, o vacío: evita guardar «desconocido».
-pub fn useful_value(field: &str, value: &Json) -> Text {
-    let v = stripped(value);
-    if v.is_empty() {
-        return v;
-    }
-    let lower = text::lower(&v);
-    if UNKNOWN_VALUES.iter().any(|u| json::text_eq(&lower, u)) {
-        return Text::new();
+pub fn useful_value(field: &str, value: Option<&Value>) -> String {
+    let v = text_of(value).trim().to_owned();
+    if v.is_empty() || UNKNOWN_VALUES.contains(&v.to_lowercase().as_str()) {
+        return String::new();
     }
     if field == "year" {
-        return find_year(&v).map(<[u32]>::to_vec).unwrap_or_default();
+        return YEAR
+            .find(&v)
+            .map(|m| m.as_str().to_owned())
+            .unwrap_or_default();
     }
     v
 }
 
-/// `chord_sheets.sheet_key(sheet)` con lo que llegue: el tono, si el
-/// cifrado lo dice y va sin cejilla.
-fn sheet_key(sheet: &Json) -> Result<Text, Exc> {
-    if !sheet.truthy() {
-        return Ok(Text::new());
+/// El tono que dice un cifrado, si va sin cejilla.
+fn sheet_key(sheet: &Value) -> String {
+    if !truthy(sheet) {
+        return String::new();
     }
-    let capo = pv::to_int(&or(get_or_none(sheet, "capo")?, Json::Int(0)))?;
-    let key = str_or_empty(pv::get(sheet, "key")?.filter(|k| k.truthy()));
-    let key_text = text::utf8(&key).map_err(|at| Exc::Encode {
-        text: key.clone(),
-        at,
-    })?;
-    let capo = !matches!(capo, Json::Int(0));
-    Ok(t(chord_sheets::sheet_key(capo, &key_text)))
+    let capo = number(sheet.get("capo")) != 0.0;
+    chord_sheets::sheet_key(capo, &text_of(sheet.get("key"))).to_owned()
 }
 
 /// Lo que va saliendo al rellenar la ficha.
 #[derive(Default)]
 struct Filling {
-    filled: Vec<(&'static str, Text)>,
-    /// los motivos: textos, o lo que dijera la IA en «error»
-    reasons: Vec<Json>,
+    filled: Vec<(&'static str, String)>,
+    reasons: Vec<String>,
     /// lo que impidió preguntar (la IA sin configurar, la red), no que no lo sepan
     failures: usize,
 }
@@ -1087,81 +788,63 @@ impl Filling {
 }
 
 /// El tono, del cifrado publicado (y solo si lo dice y va sin cejilla).
-fn key_from_sheet<O: Outside>(o: &mut O, c: &O::Song, out: &mut Filling) -> Res<(), O::Error> {
-    let r = o.chords(c).out()?;
-    let sheet = pv::item(&r, "sheet")?.clone();
-    let key = sheet_key(&sheet)?;
+fn key_from_sheet<O: Outside>(o: &mut O, song: &Dict, out: &mut Filling) -> Result<(), O::Error> {
+    let r = o.chords(song)?;
+    let sheet = r.get("sheet").cloned().unwrap_or(Value::Null);
+    let key = sheet_key(&sheet);
     if !key.is_empty() {
         out.filled.push(("key", key));
-    } else if sheet.truthy() && get_or_none(&sheet, "key")?.truthy() {
-        out.reasons.push(Json::str(
-            "el cifrado va con cejilla: su tono no es el que suena",
-        ));
-    } else if sheet.truthy() {
-        let source = pv::py_str(pv::item(&sheet, "source")?);
-        out.reasons.push(Json::Str(cat(&[
-            &t("el cifrado de "),
-            &source,
-            &t(" no dice el tono"),
-        ])));
-    } else if pv::item(&r, "failed")?.truthy() {
-        out.failures += 1;
-        let failed = pv::join(" ni ", pv::item(&r, "failed")?)?;
+    } else if truthy(&sheet) && sheet.get("key").is_some_and(truthy) {
         out.reasons
-            .push(Json::Str(cat(&[&t("no se pudo consultar "), &failed])));
+            .push("el cifrado va con cejilla: su tono no es el que suena".into());
+    } else if truthy(&sheet) {
+        let source = text_of(sheet.get("source"));
+        out.reasons
+            .push(format!("el cifrado de {source} no dice el tono"));
+    } else if r.get("failed").is_some_and(truthy) {
+        out.failures += 1;
+        let failed = texts(r.get("failed")).join(" ni ");
+        out.reasons.push(format!("no se pudo consultar {failed}"));
     } else {
-        let tried = pv::join(" ni ", pv::item(&r, "tried")?)?;
-        out.reasons.push(Json::Str(cat(&[
-            &t("no hay cifrado publicado en "),
-            &tried,
-        ])));
+        let tried = texts(r.get("tried")).join(" ni ");
+        out.reasons
+            .push(format!("no hay cifrado publicado en {tried}"));
     }
     Ok(())
 }
 
 /// Álbum, año y género, de la IA (lo que sepa de verdad).
-fn fields_from_ai<O: Outside>(
-    o: &mut O,
-    c: &O::Song,
-    fields: &[&'static str],
-    out: &mut Filling,
-) -> Res<(), O::Error> {
-    if !o.ai_available().out()? {
+fn fields_from_ai<O: Outside>(o: &mut O, song: &Dict, fields: &[&'static str], out: &mut Filling) {
+    if !o.ai_available() {
         out.failures += 1;
-        let why = o.ai_unavailable_reason().out()?;
-        out.reasons.push(Json::Str(cat(&[
-            &t("la IA no esta lista: "),
-            &why,
-            &t(" (Ajustes)"),
-        ])));
-        return Ok(());
-    }
-    let d = o.details(c).out()?;
-    let is_dict = matches!(d, Json::Dict(_));
-    if !is_dict || !d.truthy() || get_or_none(&d, "error")?.truthy() {
-        out.failures += 1;
-        let said = if is_dict {
-            get_or_none(&d, "error")?
-        } else {
-            Json::str("")
-        };
+        let why = o.ai_unavailable_reason();
         out.reasons
-            .push(or(said, Json::str("la IA no pudo responder")));
-        return Ok(());
+            .push(format!("la IA no esta lista: {why} (Ajustes)"));
+        return;
+    }
+    let d = o.details(song).unwrap_or_default();
+    if d.is_empty() || d.get("error").is_some_and(truthy) {
+        out.failures += 1;
+        let said = field(&d, "error");
+        out.reasons.push(if said.is_empty() {
+            "la IA no pudo responder".into()
+        } else {
+            said
+        });
+        return;
     }
     for k in fields {
-        let v = useful_value(k, &get_or_none(&d, k)?);
+        let v = useful_value(k, d.get(*k));
         if !v.is_empty() {
             out.filled.push((k, v));
         }
     }
     if fields.iter().any(|k| !out.has(k)) {
-        let pct = pv::round_text(confidence(&d)? * 100.0)?;
-        out.reasons.push(Json::Str(t(&format!(
+        let pct = (confidence(&d) * 100.0).round_ties_even() as i64;
+        out.reasons.push(format!(
             "la IA no reconoce bien esta cancion (confianza {pct}%)"
-        ))));
+        ));
     }
-    Ok(())
 }
 
 /// Rellena álbum, año, género y tono, solo lo que esté vacío.
@@ -1171,78 +854,63 @@ fn fields_from_ai<O: Outside>(
 ///
 /// Devuelve qué se rellenó, qué sigue faltando y por qué, para que la
 /// interfaz pueda decirlo en vez de dejar al usuario adivinando.
-pub fn autofill<O: Outside>(o: &mut O, id: &Json) -> Res<Json, O::Error> {
-    let Some(c) = o.by_id(id).out()? else {
-        return Ok(dict(vec![
-            ("ok", Json::Bool(false)),
-            ("filled", empty_dict()),
-            ("missing", Json::List(Vec::new())),
-            ("reason", Json::str("no existe esa cancion")),
-        ]));
+pub fn autofill<O: Outside>(o: &mut O, id: i64) -> Result<Value, O::Error> {
+    let Some(song) = o.by_id(id)? else {
+        return Ok(json!({
+            "ok": false, "filled": {}, "missing": [], "reason": "no existe esa cancion",
+        }));
     };
-    let mut missing: Vec<&'static str> = Vec::new();
-    for k in FILLABLE {
-        if stripped(&song_get(o, &c, k, Json::Null)?).is_empty() {
-            missing.push(k);
-        }
-    }
-    let as_list = |keys: &[&str]| Json::List(keys.iter().map(|k| Json::str(k)).collect());
+    let missing: Vec<&'static str> = FILLABLE
+        .into_iter()
+        .filter(|k| field(&song, k).trim().is_empty())
+        .collect();
     if missing.is_empty() {
-        return Ok(dict(vec![
-            ("ok", Json::Bool(true)),
-            ("filled", empty_dict()),
-            ("missing", Json::List(Vec::new())),
-            ("reason", Json::str("")),
-            ("complete", Json::Bool(true)),
-        ]));
+        return Ok(json!({
+            "ok": true, "filled": {}, "missing": [], "reason": "", "complete": true,
+        }));
     }
-    if stripped(&song_item(o, &c, "artist")?).is_empty() {
+    if field(&song, "artist").trim().is_empty() {
         let why = "esta cancion no tiene artista identificado, asi que no se puede reconocer";
-        return Ok(dict(vec![
-            ("ok", Json::Bool(false)),
-            ("filled", empty_dict()),
-            ("missing", as_list(&missing)),
-            ("reason", Json::str(why)),
-        ]));
+        return Ok(json!({"ok": false, "filled": {}, "missing": missing, "reason": why}));
     }
     let mut out = Filling::default();
     if missing.contains(&"key") {
-        key_from_sheet(o, &c, &mut out)?;
+        key_from_sheet(o, &song, &mut out)?;
     }
     let ai_fields: Vec<&'static str> = missing.iter().copied().filter(|k| *k != "key").collect();
     if !ai_fields.is_empty() {
-        fields_from_ai(o, &c, &ai_fields, &mut out)?;
+        fields_from_ai(o, &song, &ai_fields, &mut out);
     }
-    let filled: Vec<(&str, Json)> = out
+    let filled: Dict = out
         .filled
         .iter()
-        .map(|(k, v)| (*k, Json::Str(v.clone())))
+        .map(|(k, v)| ((*k).to_owned(), Value::String(v.clone())))
         .collect();
     if !filled.is_empty() {
-        o.edit(id, &filled).out()?;
+        o.edit(id, filled.clone())?;
     }
     let remaining: Vec<&str> = missing.iter().copied().filter(|k| !out.has(k)).collect();
     let reason = if remaining.is_empty() {
-        Text::new()
+        String::new()
     } else {
-        pv::join("; ", &Json::List(out.reasons))?
+        out.reasons.join("; ")
     };
-    Ok(dict(vec![
-        ("ok", Json::Bool(!filled.is_empty() || out.failures == 0)),
-        ("filled", dict(filled)),
-        ("missing", as_list(&remaining)),
-        ("reason", Json::Str(reason)),
-        ("complete", Json::Bool(remaining.is_empty())),
-    ]))
+    Ok(json!({
+        "ok": !filled.is_empty() || out.failures == 0,
+        "filled": filled,
+        "missing": remaining,
+        "reason": reason,
+        "complete": remaining.is_empty(),
+    }))
 }
 
 // ------------------------------------------------------------------ todo junto
 
-/// Lo que se pide a `enrich` (los cuatro sí o no de enrich.py).
+/// Lo que se pide a `enrich`.
 #[derive(Clone, Copy, Debug)]
 #[allow(
     clippy::struct_excessive_bools,
-    reason = "son los cuatro argumentos de enrich.py, tal cual"
+    reason = "cuatro sí o no independientes"
 )]
 pub struct Wanted {
     pub lyrics: bool,
@@ -1254,108 +922,89 @@ pub struct Wanted {
 
 /// La letra, la carátula y la ficha de una canción, lo que falte (la ficha,
 /// siempre que se pida). Devuelve lo que se hizo.
-pub fn enrich<O: Outside>(o: &mut O, id: &Json, wanted: Wanted) -> Res<Json, O::Error> {
-    let Some(c) = o.by_id(id).out()? else {
-        return Ok(dict(vec![("error", Json::str("no existe esa cancion"))]));
+pub fn enrich<O: Outside>(o: &mut O, id: i64, wanted: Wanted) -> Result<Value, O::Error> {
+    let Some(song) = o.by_id(id)? else {
+        return Ok(json!({"error": "no existe esa cancion"}));
     };
-    let mut done = dict(vec![
-        ("id", id.clone()),
-        ("artist", song_item(o, &c, "artist")?),
-        ("title", song_item(o, &c, "title")?),
-    ]);
+    let raw = |key: &str| song.get(key).cloned().unwrap_or(Value::Null);
+    let mut done = Dict::new();
+    done.insert("id".into(), Value::from(id));
+    done.insert("artist".into(), raw("artist"));
+    done.insert("title".into(), raw("title"));
+    let path = field(&song, "path");
+    let path = Path::new(&path);
+    let track = Track::of(&song);
 
-    if wanted.lyrics && !song_item(o, &c, "lyrics")?.truthy() {
-        let artist = song_item(o, &c, "artist")?;
-        let title = song_item(o, &c, "title")?;
-        let album = song_item(o, &c, "album")?;
-        let duration = song_item(o, &c, "duration")?;
-        let r = o.lyrics(&artist, &title, &album, &duration).out()?;
-        if r.truthy() {
-            // La letra LIMPIA va al índice y al USLT del archivo; la versión
-            // con tiempos, que solo da LRCLIB, se queda en el índice como
-            // caché aparte. Antes se grababa la LRC en el USLT y, tras
-            // reescanear, la hoja del atril imprimía las marcas delante de
-            // cada verso.
-            let found = pv::item(&r, "lyrics")?.clone();
-            let plain = if found.truthy() {
-                found
-            } else {
-                lrc_to_plain_value(&or(get_or_none(&r, "synced")?, Json::str("")))?
-            };
-            let synced = or(get_or_none(&r, "synced")?, Json::str(""));
-            o.update(id, &[("lyrics", plain.clone()), ("lyrics_synced", synced)])
-                .out()?;
-            if wanted.save_to_file {
-                let path = song_item(o, &c, "path")?;
-                o.write_lyrics(&path, &plain).out()?;
-            }
-            done.set(&t("lyrics"), pv::item(&r, "source")?.clone());
+    if wanted.lyrics
+        && !truthy(&raw("lyrics"))
+        && let Some(r) = o.lyrics(&track)
+    {
+        // La letra LIMPIA va al índice y al USLT del archivo; la versión con
+        // tiempos, que solo da LRCLIB, se queda en el índice como caché
+        // aparte. Antes se grababa la LRC en el USLT y, tras reescanear, la
+        // hoja del atril imprimía las marcas delante de cada verso.
+        let plain = if r.lyrics.is_empty() {
+            lrc::lrc_to_plain(&r.synced)
+        } else {
+            r.lyrics.clone()
+        };
+        let mut fields = Dict::new();
+        fields.insert("lyrics".into(), Value::String(plain.clone()));
+        fields.insert("lyrics_synced".into(), Value::String(r.synced.clone()));
+        o.update(id, fields)?;
+        if wanted.save_to_file {
+            o.write_lyrics(path, &plain)?;
         }
+        done.insert("lyrics".into(), Value::from(r.source));
     }
 
-    if wanted.cover && !song_item(o, &c, "cover")?.truthy() {
-        let artist = song_item(o, &c, "artist")?;
-        let title = song_item(o, &c, "title")?;
-        let album = song_item(o, &c, "album")?;
-        if let Some(r) = o.cover(&artist, &title, &album).out()?
-            && wanted.save_to_file
-        {
-            let path = song_item(o, &c, "path")?;
-            if o.write_cover(&path, &r).out()? {
-                o.update(id, &[("cover", Json::str("embedded"))]).out()?;
-                let kb = o.cover_size(&r).out()? / 1024;
-                done.set(&t("cover"), Json::str(&format!("{kb} KB")));
-            }
-        }
+    if wanted.cover
+        && !truthy(&raw("cover"))
+        && let Some(r) = o.cover(&track)
+        && wanted.save_to_file
+        && o.write_cover(path, &r)?
+    {
+        let mut fields = Dict::new();
+        fields.insert("cover".into(), Value::from("embedded"));
+        o.update(id, fields)?;
+        done.insert(
+            "cover".into(),
+            Value::String(format!("{} KB", r.data.len() / 1024)),
+        );
     }
 
-    if wanted.details {
-        let d = o.details(&c).out()?;
-        if matches!(d, Json::Dict(_)) && d.truthy() && !get_or_none(&d, "error")?.truthy() {
-            // OJO: por aquí también entra lo que dice la IA, así que pasa por
-            // el mismo filtro que `autofill`. Sin él, un «desconocido» del
-            // modelo se guardaba como álbum de verdad.
-            let album = useful_value("album", &get_or_none(&d, "album")?);
-            let album = if album.is_empty() {
-                song_item(o, &c, "album")?
-            } else {
-                Json::Str(album)
-            };
-            let year = useful_value("year", &get_or_none(&d, "year")?);
-            let year = if year.is_empty() {
-                Json::Str(str_or_empty(Some(&song_item(o, &c, "year")?)))
-            } else {
-                Json::Str(year)
-            };
-            let genre = useful_value("genre", &get_or_none(&d, "genre")?);
-            let genre = if genre.is_empty() {
-                song_item(o, &c, "genre")?
-            } else {
-                Json::Str(genre)
-            };
-            save_details(o, &c, &d)?;
-            o.update(
-                id,
-                &[
-                    ("album", album.clone()),
-                    ("year", year.clone()),
-                    ("genre", genre.clone()),
-                ],
-            )
-            .out()?;
-            if wanted.save_to_file {
-                let path = song_item(o, &c, "path")?;
-                o.write_tags(&path, &album, &year, &genre).out()?;
-            }
-            let summary = dict(vec![
-                ("genre", get_or_none(&d, "genre")?),
-                ("year", get_or_none(&d, "year")?),
-                ("confidence", get_or_none(&d, "confidence")?),
-            ]);
-            done.set(&t("details"), summary);
+    if wanted.details
+        && let Some(d) = o.details(&song)
+        && !d.is_empty()
+        && !d.get("error").is_some_and(truthy)
+    {
+        // OJO: por aquí también entra lo que dice la IA, así que pasa por el
+        // mismo filtro que `autofill`. Sin él, un «desconocido» del modelo se
+        // guardaba como álbum de verdad.
+        let pick = |key: &str, keep: Value| {
+            let v = useful_value(key, d.get(key));
+            if v.is_empty() { keep } else { Value::String(v) }
+        };
+        let album = pick("album", raw("album"));
+        let year = pick("year", Value::String(field(&song, "year")));
+        let genre = pick("genre", raw("genre"));
+        save_details(o, &song, &d)?;
+        let mut fields = Dict::new();
+        fields.insert("album".into(), album.clone());
+        fields.insert("year".into(), year.clone());
+        fields.insert("genre".into(), genre.clone());
+        o.update(id, fields)?;
+        if wanted.save_to_file {
+            let [album, year, genre] = [&album, &year, &genre].map(|v| text_of(Some(v)));
+            o.write_tags(path, &album, &year, &genre)?;
         }
+        let said = |key: &str| d.get(key).cloned().unwrap_or(Value::Null);
+        done.insert(
+            "details".into(),
+            json!({"genre": said("genre"), "year": said("year"), "confidence": said("confidence")}),
+        );
     }
-    Ok(done)
+    Ok(Value::Object(done))
 }
 
 #[cfg(test)]

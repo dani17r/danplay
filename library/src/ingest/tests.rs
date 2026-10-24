@@ -1,186 +1,81 @@
 use super::*;
-use std::cell::RefCell;
+use serde_json::json;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
-fn s(x: &str) -> Json {
-    Json::str(x)
+fn obj(v: Value) -> Dict {
+    v.as_object().cloned().expect("un objeto")
 }
 
-fn plain(t: &[u32]) -> String {
-    text::utf8(t).expect("UTF-8")
-}
-
-/// Lo de fuera, de mentira: las etiquetas y la IA de cada archivo, el
-/// vocabulario y lo que se movió (de verdad, en una carpeta temporal).
+/// Lo de fuera, de mentira: las etiquetas y la IA de cada archivo y lo que
+/// se movió (de verdad, en una carpeta temporal).
 #[derive(Default)]
 struct Fake {
-    tags: HashMap<String, Json>,
-    ai: Json,
-    vocab: RefCell<Vec<(String, String)>>,
+    tags: HashMap<PathBuf, Dict>,
+    ai: Option<Dict>,
     calls: Vec<String>,
     fail_move: bool,
 }
 
 impl Outside for Fake {
-    type Error = String;
-    type Path = String;
-    type Vocab = Vocab;
-    type Outcome = Report;
-
-    fn recoverable(&self, _: &String) -> bool {
+    fn warning(&mut self, message: &str, _: &str) {
+        self.calls.push(format!("aviso:{message}"));
+    }
+    fn read_tags(&mut self, path: &Path) -> Dict {
+        self.tags.get(path).cloned().unwrap_or_default()
+    }
+    fn identify(&mut self, _: &Path) -> Result<Option<Dict>, String> {
+        Ok(None)
+    }
+    fn duration(&mut self, _: &Path) -> f64 {
+        185.0
+    }
+    fn ai_resolve(&mut self, name: &str, _: &Vocab, hint: &str) -> Option<Dict> {
+        self.calls.push(format!("ia:{name}|{hint}"));
+        self.ai.clone()
+    }
+    fn needs_convert(&mut self, _: &Path) -> bool {
+        false
+    }
+    fn convert(&mut self, _: &Path) -> Converted {
+        Converted::Skipped
+    }
+    fn move_file(&mut self, src: &Path, dst: &Path) -> Result<(), String> {
+        if self.fail_move {
+            return Err("permiso denegado".into());
+        }
+        std::fs::rename(src, dst).map_err(|e| e.to_string())
+    }
+    fn write_tags(&mut self, target: &Path, artist: &str, title: &str) -> bool {
+        self.calls
+            .push(format!("etiquetas:{}|{artist}|{title}", target.display()));
         true
     }
-    fn warning(&mut self, message: &[u32], _: &Failure<String>) {
-        self.calls.push(format!("aviso:{}", plain(message)));
+    fn progress(&mut self, done: usize, total: usize, name: &str) {
+        self.calls.push(format!("avance:{done}/{total}:{name}"));
     }
-    fn error_text(&mut self, error: &Failure<String>) -> Text {
-        match error {
-            Failure::Outside(e) => t(e),
-            Failure::Py(e) => t(&e.message()),
-        }
-    }
-    fn path(&mut self, x: &Json) -> Result<String, String> {
-        Ok(plain(&pv::py_str(x)))
-    }
-    fn path_text(&mut self, path: &String) -> Result<Text, String> {
-        Ok(t(path))
-    }
-    fn resolve(&mut self, path: &String, vocab: &Vocab) -> Result<Json, String> {
-        resolve(self, path, vocab).map_err(|e| format!("{e:?}"))
-    }
-    fn tags_step(&mut self, path: &String) -> Result<Json, String> {
-        from_tags(self, path).map_err(|e| format!("{e:?}"))
-    }
-    fn fingerprint_step(&mut self, _: &String) -> Result<Json, String> {
+    fn from_fingerprint(&mut self, _: &Path) -> Step {
         self.calls.push("huella".into());
         Err("AcoustID caído".into())
     }
-    fn heuristic_step(&mut self, path: &String, vocab: &Vocab) -> Result<Json, String> {
-        from_heuristic(self, path, vocab).map_err(|e| format!("{e:?}"))
-    }
-    fn ai_step(&mut self, path: &String, vocab: &Vocab) -> Result<Json, String> {
-        from_ai(self, path, vocab).map_err(|e| format!("{e:?}"))
-    }
-    fn process(
-        &mut self,
-        path: &String,
-        vocab: &Vocab,
-        dry_run: bool,
-        convert_mp3: Option<bool>,
-    ) -> Result<Report, String> {
-        let asked = Asked {
-            dry_run,
-            write_tags: true,
-            convert_mp3: convert_mp3.unwrap_or(false),
-        };
-        let folders = folders();
-        process(self, path.clone(), vocab, asked, &Json::Null, &folders)
-            .map_err(|e| format!("{e:?}"))
-    }
-    fn read_tags(&mut self, path: &String) -> Result<Json, String> {
-        Ok(self
-            .tags
-            .get(path)
-            .cloned()
-            .unwrap_or(Json::Dict(Vec::new())))
-    }
-    fn identify(&mut self, _: &String) -> Result<Json, String> {
-        Ok(Json::Null)
-    }
-    fn duration(&mut self, _: &String) -> Result<Json, String> {
-        Ok(Json::Float(185.0))
-    }
-    fn ai_resolve(&mut self, name: &[u32], _: &Vocab, hint: &[u32]) -> Result<Json, String> {
-        self.calls
-            .push(format!("ia:{}|{}", plain(name), plain(hint)));
-        Ok(self.ai.clone())
-    }
-    fn needs_convert(&mut self, _: &String) -> Result<bool, String> {
-        Ok(false)
-    }
-    fn convert(&mut self, _: &String) -> Result<Json, String> {
-        Ok(Json::Null)
-    }
-    fn move_file(&mut self, src: &[u32], dst: &[u32]) -> Result<(), String> {
-        if self.fail_move {
-            return Err("[Errno 13] Permission denied".into());
-        }
-        std::fs::rename(plain(src), plain(dst)).map_err(|e| e.to_string())
-    }
-    fn write_tags(&mut self, target: &[u32], artist: &Json, title: &[u32]) -> Result<bool, String> {
-        self.calls.push(format!(
-            "etiquetas:{}|{}|{}",
-            plain(target),
-            plain(&pv::py_str(artist)),
-            plain(title)
-        ));
-        Ok(true)
-    }
-    fn vocabulary(&mut self) -> Result<Vocab, String> {
-        Ok(Vocab)
-    }
-    fn vocab_items(&mut self, _: &Vocab) -> Result<Vec<(String, String)>, String> {
-        Ok(self.vocab.borrow().clone())
-    }
-    fn vocab_get(&mut self, _: &Vocab, key: &str) -> Result<Option<Json>, String> {
-        Ok(self
-            .vocab
-            .borrow()
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| s(v)))
-    }
-    fn vocab_has(&mut self, _: &Vocab, key: &str) -> Result<bool, String> {
-        Ok(self.vocab.borrow().iter().any(|(k, _)| k == key))
-    }
-    fn vocab_set(&mut self, _: &Vocab, key: &str, value: &Json) -> Result<(), String> {
-        self.vocab
-            .borrow_mut()
-            .push((key.to_owned(), plain(&pv::py_str(value))));
-        Ok(())
-    }
-    fn progress(&mut self, done: usize, total: usize, name: &[u32]) -> Result<(), String> {
-        self.calls
-            .push(format!("avance:{done}/{total}:{}", plain(name)));
-        Ok(())
-    }
 }
 
-thread_local! {
-    static ROOT: RefCell<Option<tempfile::TempDir>> = const { RefCell::new(None) };
-}
-
-/// El vocabulario va dentro de `Fake`: esto solo lo nombra.
-struct Vocab;
-
-fn folders() -> Folders {
-    let root = ROOT.with(|r| {
-        r.borrow()
-            .as_ref()
-            .map(|d| d.path().to_string_lossy().into_owned())
-    });
-    let root = root.expect("hay biblioteca");
-    Folders {
-        library: t(&root),
-        artists: t(&format!("{root}/Artistas")),
-        review: t(&format!("{root}/Revisar")),
-    }
-}
-
-/// Una biblioteca de mentira, con su Entrada/.
-fn library() -> String {
+/// Una biblioteca de mentira, con su Entrada/ y la carpeta de un artista.
+fn library() -> (tempfile::TempDir, Folders) {
     let dir = tempfile::tempdir().expect("temporal");
-    let root = dir.path().to_string_lossy().into_owned();
-    std::fs::create_dir_all(format!("{root}/Entrada")).expect("Entrada");
-    std::fs::create_dir_all(format!("{root}/Artistas/Barak")).expect("Barak");
-    ROOT.with(|r| *r.borrow_mut() = Some(dir));
-    root
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join("Entrada")).expect("Entrada");
+    std::fs::create_dir_all(root.join("Artistas/Barak")).expect("Barak");
+    let folders = Folders {
+        library: root.clone(),
+        artists: root.join("Artistas"),
+        review: root.join("Revisar"),
+    };
+    (dir, folders)
 }
 
-fn file(path: &str) -> String {
-    std::fs::write(path, b"audio").expect("se escribe");
-    path.to_owned()
+fn file(path: PathBuf) -> PathBuf {
+    std::fs::write(&path, b"audio").expect("se escribe");
+    path
 }
 
 fn asked(dry_run: bool) -> Asked {
@@ -191,28 +86,28 @@ fn asked(dry_run: bool) -> Asked {
     }
 }
 
+fn known(v: Value) -> Identity {
+    Identity::from_dict(&obj(v), "")
+}
+
 #[test]
 fn the_tags_decide_and_the_folder_already_there_is_reused() {
-    let root = library();
+    let (_dir, folders) = library();
     let mut f = Fake::default();
-    f.vocab.borrow_mut().push(("barak".into(), "Barak".into()));
-    let p = file(&format!("{root}/Entrada/x.mp3"));
+    let mut vocab = Vocab(vec![("barak".into(), "Barak".into())]);
+    let p = file(folders.library.join("Entrada/x.mp3"));
     f.tags.insert(
         p.clone(),
-        Json::Dict(vec![(t("artist"), s("BARAK")), (t("title"), s("mi gozo"))]),
+        obj(json!({"artist": "BARAK", "title": "mi gozo"})),
     );
-    let folders = folders();
-    let r = process(&mut f, p, &Vocab, asked(false), &Json::Null, &folders).expect("vale");
+    let r = process(&mut f, p, &mut vocab, asked(false), None, &folders).expect("vale");
     assert_eq!(r.action, "moved");
-    assert_eq!(r.artist, s("Barak"));
-    assert_eq!(plain(&r.title), "mi gozo");
-    assert_eq!(r.source, s("tags"));
-    let target = plain(r.target.as_ref().expect("hay destino"));
-    assert_eq!(
-        PathBuf::from(&target),
-        PathBuf::from(format!("{root}/Artistas/Barak/Barak - mi gozo.mp3"))
-    );
-    assert!(Path::new(&target).is_file());
+    assert_eq!(r.artist, "Barak");
+    assert_eq!(r.title, "mi gozo");
+    assert_eq!(r.source, "tags");
+    let target = r.target.expect("hay destino");
+    assert_eq!(target, folders.artists.join("Barak/Barak - mi gozo.mp3"));
+    assert!(target.is_file());
     assert!(
         f.calls.iter().any(|c| c.starts_with("etiquetas:")),
         "{:?}",
@@ -222,25 +117,32 @@ fn the_tags_decide_and_the_folder_already_there_is_reused() {
 
 #[test]
 fn nothing_known_goes_to_review_and_a_twin_gets_a_suffix() {
-    let root = library();
+    let (_dir, folders) = library();
     let mut f = Fake::default();
-    std::fs::create_dir_all(format!("{root}/Revisar")).expect("Revisar");
-    std::fs::write(format!("{root}/Revisar/cancion rara.mp3"), b"otra").expect("se escribe");
-    let p = file(&format!("{root}/Entrada/cancion rara.MP3"));
-    let folders = folders();
-    let r = process(&mut f, p, &Vocab, asked(true), &Json::Null, &folders).expect("vale");
+    std::fs::create_dir_all(&folders.review).expect("Revisar");
+    std::fs::write(folders.review.join("cancion rara.mp3"), b"otra").expect("se escribe");
+    let p = file(folders.library.join("Entrada/cancion rara.MP3"));
+    let r = process(
+        &mut f,
+        p,
+        &mut Vocab::default(),
+        asked(true),
+        None,
+        &folders,
+    )
+    .expect("vale");
     assert_eq!(
         r.action, "review",
         "en simulación sigue diciendo que va a revisar"
     );
-    assert_eq!(r.source, s("none"));
+    assert_eq!(r.source, "none");
     assert_eq!(
-        PathBuf::from(plain(r.target.as_ref().expect("hay destino"))),
-        PathBuf::from(format!("{root}/Revisar/cancion rara - r.mp3"))
+        r.target.expect("hay destino"),
+        folders.review.join("cancion rara - r.mp3")
     );
     assert_eq!(
         r.warnings,
-        [t("posible duplicado: se guardo con sufijo ' - r'")]
+        ["posible duplicado: se guardo con sufijo ' - r'"]
     );
     assert!(
         f.calls
@@ -251,26 +153,49 @@ fn nothing_known_goes_to_review_and_a_twin_gets_a_suffix() {
     );
 }
 
+/// Si la IA no pudo contestar, lo que dijo queda como origen.
+#[test]
+fn what_the_ai_said_when_it_failed_is_the_source() {
+    let (_dir, folders) = library();
+    let mut f = Fake {
+        ai: Some(obj(json!({"error": "no hay proveedor de IA configurado"}))),
+        ..Fake::default()
+    };
+    let p = file(folders.library.join("Entrada/rara.mp3"));
+    let r = process(
+        &mut f,
+        p,
+        &mut Vocab::default(),
+        asked(true),
+        None,
+        &folders,
+    )
+    .expect("vale");
+    assert_eq!(r.action, "review");
+    assert_eq!(r.source, "no hay proveedor de IA configurado");
+    assert_eq!(r.title, "rara");
+}
+
 #[test]
 fn a_known_name_skips_the_cascade_and_a_category_has_its_folder() {
-    let root = library();
+    let (_dir, folders) = library();
     let mut f = Fake::default();
-    let p = file(&format!("{root}/Entrada/v.mp3"));
-    let known = Json::Dict(vec![
-        (t("artist"), s("Ish Melton")),
-        (t("title"), s("Que Se Abra El Cielo (Drum Cam)")),
-        (t("category"), s("tutorial")),
-        (t("source"), s("youtube")),
-        (t("confidence"), Json::Float(0.85)),
-    ]);
-    let folders = folders();
-    let r = process(&mut f, p, &Vocab, asked(false), &known, &folders).expect("vale");
+    let p = file(folders.library.join("Entrada/v.mp3"));
+    let known = known(json!({
+        "artist": "Ish Melton",
+        "title": "Que Se Abra El Cielo (Drum Cam)",
+        "category": "tutorial",
+        "source": "youtube",
+        "confidence": 0.85,
+    }));
+    let mut vocab = Vocab::default();
+    let r = process(&mut f, p, &mut vocab, asked(false), Some(&known), &folders).expect("vale");
     assert_eq!(r.action, "moved");
     assert_eq!(
-        PathBuf::from(plain(r.target.as_ref().expect("hay destino"))),
-        PathBuf::from(format!(
-            "{root}/Tutoriales y Play Along/Que Se Abra El Cielo (Drum Cam).mp3"
-        ))
+        r.target.expect("hay destino"),
+        folders
+            .library
+            .join("Tutoriales y Play Along/Que Se Abra El Cielo (Drum Cam).mp3")
     );
     assert!(
         !f.calls.iter().any(|c| c.starts_with("ia:")),
@@ -279,25 +204,27 @@ fn a_known_name_skips_the_cascade_and_a_category_has_its_folder() {
 }
 
 /// Con `known`, se archiva con ese nombre y no se llama a la huella ni a la
-/// IA (lo de tests/test_core.py): el nombre de una descarga lo pone YouTube.
+/// IA: el nombre de una descarga lo pone YouTube.
 #[test]
 fn a_process_with_a_known_name_skips_the_cascade() {
-    let root = library();
+    let (_dir, folders) = library();
     let mut f = Fake::default();
-    let p = file(&format!(
-        "{root}/Entrada/Que Se Abra El Cielo (Drum Cam).mp3"
-    ));
-    let known = Json::Dict(vec![
-        (t("artist"), s("Ish Melton")),
-        (t("title"), s("Que Se Abra El Cielo (Drum Cam)")),
-        (t("feat"), s("")),
-        (t("source"), s("youtube")),
-        (t("confidence"), Json::Float(0.85)),
-    ]);
-    let folders = folders();
-    let r = process(&mut f, p, &Vocab, asked(false), &known, &folders).expect("vale");
-    assert_eq!((r.action, &r.artist), ("moved", &s("Ish Melton")));
-    let target = std::path::PathBuf::from(plain(r.target.as_ref().expect("hay destino")));
+    let p = file(
+        folders
+            .library
+            .join("Entrada/Que Se Abra El Cielo (Drum Cam).mp3"),
+    );
+    let known = known(json!({
+        "artist": "Ish Melton",
+        "title": "Que Se Abra El Cielo (Drum Cam)",
+        "feat": "",
+        "source": "youtube",
+        "confidence": 0.85,
+    }));
+    let mut vocab = Vocab::default();
+    let r = process(&mut f, p, &mut vocab, asked(false), Some(&known), &folders).expect("vale");
+    assert_eq!((r.action, r.artist.as_str()), ("moved", "Ish Melton"));
+    let target = r.target.expect("hay destino");
     assert_eq!(
         target.file_name().and_then(|n| n.to_str()),
         Some("Ish Melton - Que Se Abra El Cielo (Drum Cam).mp3")
@@ -309,7 +236,7 @@ fn a_process_with_a_known_name_skips_the_cascade() {
             .and_then(|n| n.to_str()),
         Some("Ish Melton")
     );
-    assert_eq!(r.source, s("youtube"));
+    assert_eq!(r.source, "youtube");
     assert!(
         !f.calls
             .iter()
@@ -317,54 +244,65 @@ fn a_process_with_a_known_name_skips_the_cascade() {
         "ni huella ni IA: el nombre ya venía decidido: {:?}",
         f.calls
     );
+    assert_eq!(vocab.get("ish melton"), Some("Ish Melton"), "se apunta");
 }
 
 #[test]
 fn a_file_that_cannot_be_moved_does_not_stop_the_import() {
-    let root = library();
+    let (_dir, folders) = library();
     let mut f = Fake {
         fail_move: true,
-        ai: Json::Dict(vec![
-            (t("artist"), s("New Wine")),
-            (t("title"), s("Nueva")),
-            (t("confidence"), Json::Float(0.9)),
-        ]),
+        ai: Some(obj(
+            json!({"artist": "New Wine", "title": "Nueva", "confidence": 0.9}),
+        )),
         ..Fake::default()
     };
-    let p = file(&format!("{root}/Entrada/nueva.mp3"));
-    let folders = folders();
-    let r = process(&mut f, p, &Vocab, asked(false), &Json::Null, &folders).expect("vale");
+    let p = file(folders.library.join("Entrada/nueva.mp3"));
+    let mut vocab = Vocab::default();
+    let r = process(&mut f, p, &mut vocab, asked(false), None, &folders).expect("vale");
     assert_eq!(r.action, "error");
-    assert_eq!(plain(&r.note), "[Errno 13] Permission denied");
+    assert_eq!(r.note, "permiso denegado");
     assert!(
         f.calls
             .iter()
             .any(|c| c.starts_with("aviso:no se pudo archivar"))
     );
-    assert!(
-        !f.vocab_has(&Vocab, "new wine").expect("vale"),
+    assert_eq!(
+        vocab.get("new wine"),
+        None,
         "no se apunta lo que no se archivó"
     );
 }
 
 #[test]
 fn the_inbox_in_order_with_its_progress() {
-    let root = library();
-    let mut f = Fake::default();
+    let (_dir, folders) = library();
+    let inbox = folders.library.join("Entrada");
     for name in ["b.mp3", "a.flac", "nota.txt", "c.MP3"] {
-        file(&format!("{root}/Entrada/{name}"));
+        file(inbox.join(name));
     }
-    std::fs::create_dir_all(format!("{root}/Entrada/carpeta.mp3")).expect("carpeta");
-    let exts = [t(".mp3"), t(".flac")];
-    let inbox = t(&format!("{root}/Entrada"));
+    std::fs::create_dir_all(inbox.join("carpeta.mp3")).expect("carpeta");
+    let exts = [".mp3", ".flac"];
     let names: Vec<String> = pending(&inbox, &exts)
         .expect("vale")
         .iter()
-        .map(|p| plain(&basename(p)))
+        .map(|p| file_name(p))
         .collect();
     assert_eq!(names, ["a.flac", "b.mp3", "c.MP3"]);
-    let out = process_inbox(&mut f, &inbox, &exts, true, Some(-1), None, true).expect("vale");
-    assert_eq!(out.len(), 2, "el tope de Python: [:-1]");
+    let mut f = Fake::default();
+    let mut vocab = Vocab::default();
+    let out = process_inbox(
+        &mut f,
+        &inbox,
+        &exts,
+        &mut vocab,
+        asked(true),
+        &folders,
+        Some(2),
+        true,
+    )
+    .expect("vale");
+    assert_eq!(out.len(), 2, "los dos primeros");
     let progress: Vec<&String> = f
         .calls
         .iter()
@@ -375,42 +313,44 @@ fn the_inbox_in_order_with_its_progress() {
         ["avance:0/2:a.flac", "avance:1/2:b.mp3", "avance:2/2:"]
     );
     let mut f = Fake::default();
-    let missing = t(&format!("{root}/no-esta"));
-    assert!(
-        process_inbox(&mut f, &missing, &exts, false, None, None, true)
-            .expect("vale")
-            .is_empty()
-    );
+    let missing = folders.library.join("no-esta");
+    let out = process_inbox(
+        &mut f,
+        &missing,
+        &exts,
+        &mut vocab,
+        asked(false),
+        &folders,
+        None,
+        true,
+    )
+    .expect("vale");
+    assert!(out.is_empty());
     assert_eq!(f.calls, ["avance:0/0:"]);
 }
 
+/// Un nombre que no es UTF-8 (un disco que viene de Windows o de un FAT
+/// viejo) se importa igual: la ruta llega entera y el título, con «�».
+#[cfg(unix)]
 #[test]
-fn paths_keep_what_is_not_utf8() {
-    // un nombre con un byte suelto (U+DCFF) se junta y se corta como en Python
-    let mut name = t("Entrada/canci");
-    name.push(0xDCFF);
-    name.extend(t("n.mp3"));
-    assert_eq!(
-        basename(&name),
-        [t("canci"), vec![0xDCFF], t("n.mp3")].concat()
-    );
-    assert_eq!(stem(&name), [t("canci"), vec![0xDCFF], t("n")].concat());
-    // `str(Path(a) / b)`: en Windows, con «\\» (como `ntpath` en Python)
-    let native = |p: &str| {
-        t(&if cfg!(windows) {
-            p.replace('/', "\\")
-        } else {
-            p.to_owned()
-        })
-    };
-    assert_eq!(
-        join(&t("/m//x/"), &name),
-        [native("/m/x/Entrada/canci"), vec![0xDCFF], t("n.mp3")].concat()
-    );
-    assert_eq!(join(&t("/m"), &t("/abs")), native("/abs"));
-    assert_eq!(join(&t("/m"), &t("")), native("/m"));
-    assert_eq!(
-        txt(&Json::Str(name)).expect("vale"),
-        "Entrada/canci\u{FFFD}n.mp3"
-    );
+fn a_name_that_is_not_utf8_is_imported_too() {
+    use std::os::unix::ffi::OsStrExt;
+    let (_dir, folders) = library();
+    let name = std::ffi::OsStr::from_bytes(b"canci\xf3n.mp3");
+    let p = file(folders.library.join("Entrada").join(name));
+    assert_eq!(file_name(&p), "canci\u{FFFD}n.mp3");
+    assert_eq!(suffix(&p), ".mp3");
+    let mut f = Fake::default();
+    let r = process(
+        &mut f,
+        p.clone(),
+        &mut Vocab::default(),
+        asked(false),
+        None,
+        &folders,
+    )
+    .expect("vale");
+    assert_eq!(r.source_path, p);
+    assert_eq!(r.action, "review");
+    assert!(r.target.expect("hay destino").is_file());
 }
