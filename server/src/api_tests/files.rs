@@ -318,10 +318,14 @@ fn the_audio_says_its_real_format() {
 #[test]
 fn the_duplicate_report_uses_the_keys_the_interface_reads() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let source = std::fs::read_to_string(root.join("server/src/services/duplicates.rs"))
-        .expect("duplicates.rs");
-    let vue = std::fs::read_to_string(root.join("desktop/src/components/DuplicateGroup.vue"))
-        .expect("DuplicateGroup.vue");
+    let source = std::fs::read_to_string(
+        root.join(crate::tests::native("server/src/services/duplicates.rs")),
+    )
+    .expect("duplicates.rs");
+    let vue = std::fs::read_to_string(root.join(crate::tests::native(
+        "desktop/src/components/DuplicateGroup.vue",
+    )))
+    .expect("DuplicateGroup.vue");
     for k in ["items", "suggested", "relative", "has_suffix"] {
         assert!(
             source.contains(&format!("\"{k}\"")),
@@ -384,7 +388,8 @@ fn the_interface_sends_the_fields_the_api_reads() {
 #[test]
 fn the_interface_sends_the_query_parameters_the_api_requires() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let api = std::fs::read_to_string(root.join("../desktop/src/api.js")).expect("api.js");
+    let api = std::fs::read_to_string(root.join(crate::tests::native("../desktop/src/api.js")))
+        .expect("api.js");
     let words = |text: &str| -> Vec<String> {
         text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
             .filter(|w| !w.is_empty())
@@ -399,7 +404,7 @@ fn the_interface_sends_the_query_parameters_the_api_requires() {
         })
         .collect();
     // los .rs de routes/, también los de sus subcarpetas
-    let routes = root.join("src/routes");
+    let routes = root.join(crate::tests::native("src/routes"));
     let mut pending = vec![routes.clone()];
     let mut files = Vec::new();
     while let Some(dir) = pending.pop() {

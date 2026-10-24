@@ -363,7 +363,7 @@ mod tests {
             let app = crate::tests::app();
             let lib = app.config().library.clone();
             let file = lib
-                .join("Artistas/Barak")
+                .join(crate::tests::native("Artistas/Barak"))
                 .join(format!("Barak - Estudio.{ext}"));
             std::fs::create_dir_all(file.parent().expect("carpeta")).expect("carpeta");
             let made = std::process::Command::new(&ffmpeg)

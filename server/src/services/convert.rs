@@ -183,8 +183,8 @@ mod tests {
         }
         let app = crate::tests::app();
         let lib = app.config().library.clone();
-        let wav = tone(&lib.join("Artistas/Barak/Barak - Pista.wav"));
-        tone(&lib.join("Secuencias/Barak - Click.wav"));
+        let wav = tone(&lib.join(crate::tests::native("Artistas/Barak/Barak - Pista.wav")));
+        tone(&lib.join(crate::tests::native("Secuencias/Barak - Click.wav")));
         let wav_text = wav.to_string_lossy().into_owned();
         assert_eq!(
             candidates(&app).expect("candidatos"),

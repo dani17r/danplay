@@ -182,7 +182,9 @@ fn moving_the_music_and_downloading_again_keeps_everything() {
     let x = sum(&kick, &hats);
     let first = write(
         &app,
-        &lib_dir.join("Artistas/Grupo/Grupo - Cancion Larga.mp3"),
+        &lib_dir.join(crate::tests::native(
+            "Artistas/Grupo/Grupo - Cancion Larga.mp3",
+        )),
         &x,
         0.0,
         MP3,
@@ -194,7 +196,7 @@ fn moving_the_music_and_downloading_again_keeps_everything() {
     fake_stems(
         &app,
         &before,
-        &lib_dir.join("Separadas/Grupo - Cancion Larga"),
+        &lib_dir.join(crate::tests::native("Separadas/Grupo - Cancion Larga")),
         &kick,
         &hats,
     );
@@ -210,7 +212,9 @@ fn moving_the_music_and_downloading_again_keeps_everything() {
     let new_lib = scratch("nueva").join("Nueva");
     let again = write(
         &app,
-        &new_lib.join("Artistas/Grupo/Grupo - Cancion Larga (Official Video).mp3"),
+        &new_lib.join(crate::tests::native(
+            "Artistas/Grupo/Grupo - Cancion Larga (Official Video).mp3",
+        )),
         &x,
         0.25,
         &["libmp3lame", "-b:a", "192k"],
@@ -264,7 +268,7 @@ fn a_second_copy_takes_the_click_and_the_study_but_not_another_song() {
     let x = sum(&kick, &hats);
     let first = write(
         &app,
-        &lib_dir.join("Artistas/Grupo/Grupo - Otra Mas.mp3"),
+        &lib_dir.join(crate::tests::native("Artistas/Grupo/Grupo - Otra Mas.mp3")),
         &x,
         0.0,
         MP3,
@@ -298,7 +302,9 @@ fn a_second_copy_takes_the_click_and_the_study_but_not_another_song() {
     // otra descarga de la misma (un poco recortada por delante), al lado
     let second = write(
         &app,
-        &lib_dir.join("Artistas/Grupo/Grupo - Otra Mas (Audio).mp3"),
+        &lib_dir.join(crate::tests::native(
+            "Artistas/Grupo/Grupo - Otra Mas (Audio).mp3",
+        )),
         &x,
         -0.1,
         MP3,
@@ -308,7 +314,9 @@ fn a_second_copy_takes_the_click_and_the_study_but_not_another_song() {
     let (ik, ih) = song(11, 30.0);
     let impostor = write(
         &app,
-        &lib_dir.join("Artistas/Grupo/Grupo - Otra Mas (En Vivo).mp3"),
+        &lib_dir.join(crate::tests::native(
+            "Artistas/Grupo/Grupo - Otra Mas (En Vivo).mp3",
+        )),
         &sum(&ik, &ih),
         0.0,
         MP3,
@@ -351,7 +359,7 @@ fn asking_to_separate_a_copy_takes_the_stems_already_made() {
     let x = sum(&kick, &hats);
     let first = write(
         &app,
-        &lib_dir.join("Artistas/Grupo/Grupo - Tercera.mp3"),
+        &lib_dir.join(crate::tests::native("Artistas/Grupo/Grupo - Tercera.mp3")),
         &x,
         0.0,
         MP3,
@@ -363,13 +371,13 @@ fn asking_to_separate_a_copy_takes_the_stems_already_made() {
     fake_stems(
         &app,
         &before,
-        &lib_dir.join("Separadas/Grupo - Tercera"),
+        &lib_dir.join(crate::tests::native("Separadas/Grupo - Tercera")),
         &kick,
         &hats,
     );
     let second = write(
         &app,
-        &lib_dir.join("Entrada/tercera.mp3"),
+        &lib_dir.join(crate::tests::native("Entrada/tercera.mp3")),
         &x,
         0.05,
         MP3,
@@ -407,7 +415,7 @@ fn what_was_lost_before_comes_back_with_one_pass() {
     let x = sum(&kick, &hats);
     let first = write(
         &app,
-        &lib_dir.join("Artistas/Grupo/Grupo - Cuarta.mp3"),
+        &lib_dir.join(crate::tests::native("Artistas/Grupo/Grupo - Cuarta.mp3")),
         &x,
         0.0,
         MP3,
@@ -419,7 +427,7 @@ fn what_was_lost_before_comes_back_with_one_pass() {
     fake_stems(
         &app,
         &before,
-        &lib_dir.join("Separadas/Grupo - Cuarta"),
+        &lib_dir.join(crate::tests::native("Separadas/Grupo - Cuarta")),
         &kick,
         &hats,
     );

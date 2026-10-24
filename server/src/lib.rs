@@ -241,7 +241,18 @@ pub(crate) mod tests {
             std::env::temp_dir().join(format!("danplay-server-{}-{name}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("carpeta temporal");
-        dir
+        // ya resuelta, como resuelve la app las carpetas que se dan de alta:
+        // en Windows el temporal puede venir con su nombre corto
+        // (C:\Users\RUNNER~1) y en macOS por un enlace (/var); si no, las
+        // rutas de la app y las de la prueba no coinciden
+        PathBuf::from(library::py::realpath(&dir.to_string_lossy()))
+    }
+
+    /// Una ruta relativa escrita con «/», con el separador del sistema: en
+    /// Windows, `join("a/b")` deja «a/b» tal cual y la app (y lo que lee del
+    /// disco) la escribe «a\\b»; para comparar rutas como textos.
+    pub fn native(rel: &str) -> PathBuf {
+        PathBuf::from(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
     }
 
     /// Un wav mono de 16 bits con esas muestras (entre -1 y 1).

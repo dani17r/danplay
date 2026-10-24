@@ -16,6 +16,10 @@ fn call(app: &crate::App, method: &str, path: &str, body: Option<Value>) -> (u16
 }
 
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "una lista de principio a fin, ruta a ruta"
+)]
 fn playlists_from_start_to_end() {
     let app = app();
     let (s, made) = call(
@@ -105,7 +109,10 @@ fn playlists_from_start_to_end() {
     let (s, v) = call(&app, "POST", &format!("/api/playlists/{lid}/export"), None);
     assert_eq!(s, 200);
     let file = v["file"].as_str().expect("archivo");
-    assert!(file.ends_with("/Listas/Domingo.m3u8"), "{file}");
+    assert!(
+        std::path::Path::new(&file).ends_with("Listas/Domingo.m3u8"),
+        "{file}"
+    );
     assert_eq!(std::fs::read_to_string(file).expect("m3u8"), "#EXTM3U\n");
     let (s, v) = call(&app, "POST", &format!("/api/playlists/{lid}/sheet"), None);
     assert_eq!(s, 200);

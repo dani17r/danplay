@@ -321,7 +321,12 @@ fn a_song_is_separated_into_its_own_folder() {
         (Some("mejor"), Some("htdemucs_6s+htdemucs_ft"))
     );
     assert_eq!(manifest["source"]["file"], "Barak - Mi Gozo.mp3");
-    assert_eq!(manifest["source"]["folder"], "Artistas/Barak");
+    assert_eq!(
+        manifest["source"]["folder"],
+        crate::tests::native("Artistas/Barak")
+            .to_string_lossy()
+            .as_ref()
+    );
     assert_eq!(manifest["dropped"], json!([]));
     // en el orden del mezclador, con su nombre en castellano
     let tracks: Vec<&str> = manifest["tracks"]

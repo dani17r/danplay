@@ -364,14 +364,34 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         // solo en la de antes, en las dos (más nueva la de antes / la de
         // ahora) y un archivo de estado en las dos
-        write_at(&dir.join("pulso/a.json"), "solo antes", 50);
-        write_at(&dir.join("pulso/b.json"), "b antes, nueva", 10);
-        write_at(&dir.join("beats/b.json"), "b ahora, vieja", 100);
-        write_at(&dir.join("pulso/c.json"), "c antes, vieja", 100);
-        write_at(&dir.join("beats/c.json"), "c ahora, nueva", 10);
+        write_at(
+            &dir.join(crate::tests::native("pulso/a.json")),
+            "solo antes",
+            50,
+        );
+        write_at(
+            &dir.join(crate::tests::native("pulso/b.json")),
+            "b antes, nueva",
+            10,
+        );
+        write_at(
+            &dir.join(crate::tests::native("beats/b.json")),
+            "b ahora, vieja",
+            100,
+        );
+        write_at(
+            &dir.join(crate::tests::native("pulso/c.json")),
+            "c antes, vieja",
+            100,
+        );
+        write_at(
+            &dir.join(crate::tests::native("beats/c.json")),
+            "c ahora, nueva",
+            10,
+        );
         write_at(&dir.join("diario.json"), "diario nuevo", 10);
         write_at(&dir.join("journal.json"), "diario viejo", 100);
-        write_at(&dir.join("voces/v.onnx"), "voz", 10);
+        write_at(&dir.join(crate::tests::native("voces/v.onnx")), "voz", 10);
         rename_old(&dir, &OLD_DATA_NAMES);
         let read = |p: &str| std::fs::read_to_string(dir.join(p)).expect(p);
         assert_eq!(read("beats/a.json"), "solo antes");

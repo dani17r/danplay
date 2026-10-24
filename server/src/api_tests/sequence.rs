@@ -294,7 +294,7 @@ fn opening_it_leaves_it_ready_to_play() {
         .expect("canción");
     let path = crate::services::songs::text(&song, "path");
     assert!(
-        path.ends_with("Secuencias/Grupo - Mi Cancion.flac"),
+        Path::new(&path).ends_with("Secuencias/Grupo - Mi Cancion.flac"),
         "{path}"
     );
     assert_eq!(

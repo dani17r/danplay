@@ -283,7 +283,7 @@ fn the_migration_from_melodia_respects_xdg() {
     // tragaba las claves del usuario de verdad
     let tmp = crate::tests::scratch("melodia");
     let home = tmp.join("home");
-    let real = home.join(".config/melodia");
+    let real = home.join(crate::tests::native(".config/melodia"));
     std::fs::create_dir_all(&real).expect("carpeta");
     std::fs::write(real.join("melodia.env"), "DEEPINFRA_API_KEY=de-verdad\n").expect("env");
     let isolated = tmp.join("aislado");
@@ -323,7 +323,7 @@ fn folders_set_by_hand_migrate_nothing() {
     // mano no se trae los datos del nombre viejo del programa
     let tmp = crate::tests::scratch("a-mano");
     let home = tmp.join("home");
-    let old = home.join(".config/melodia");
+    let old = home.join(crate::tests::native(".config/melodia"));
     std::fs::create_dir_all(&old).expect("carpeta");
     std::fs::write(old.join("melodia.env"), "DEEPINFRA_API_KEY=de-verdad\n").expect("env");
     let (data, conf, music) = (tmp.join("datos"), tmp.join("ajustes"), tmp.join("Musica"));

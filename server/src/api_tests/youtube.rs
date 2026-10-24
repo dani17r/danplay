@@ -196,7 +196,9 @@ fn youtube_music_wins_and_writes_tags() {
 #[test]
 fn what_you_already_have_is_not_downloaded_unless_forced() {
     let Some((app, _log)) = ytdl() else { return };
-    let have = library_dir(&app).join("Artistas/Palisades/Palisades - Personal.mp3");
+    let have = library_dir(&app).join(crate::tests::native(
+        "Artistas/Palisades/Palisades - Personal.mp3",
+    ));
     assert!(mp3(&have, "Palisades", "Personal", "", 1.0, None));
     run_job(&app, "/api/scan", "scan", None);
     let r = one(&app, "https://youtu.be/uno");
@@ -505,7 +507,7 @@ fn choosing_a_folder_uses_and_creates_its_subfolders() {
     let lib = library_dir(&app);
     app.update_config(|c| c.library_chosen = false);
     std::fs::create_dir_all(lib.join("Pistas")).expect("carpeta");
-    std::fs::write(lib.join("Pistas/ya estaba.mp3"), b"x").expect("archivo");
+    std::fs::write(lib.join(crate::tests::native("Pistas/ya estaba.mp3")), b"x").expect("archivo");
     let (s, r) = call(
         &app,
         "PUT",
@@ -527,7 +529,7 @@ fn choosing_a_folder_uses_and_creates_its_subfolders() {
         assert!(lib.join(sub).is_dir(), "{sub}");
     }
     assert_eq!(
-        std::fs::read(lib.join("Pistas/ya estaba.mp3")).expect("archivo"),
+        std::fs::read(lib.join(crate::tests::native("Pistas/ya estaba.mp3"))).expect("archivo"),
         b"x"
     );
     assert!(app.config().library_chosen && app.config().artists_dir == lib.join("Artistas"));
@@ -1003,8 +1005,9 @@ fn what_you_already_have_is_logged_with_its_song() {
     let Some((app, _log)) = downloader() else {
         return;
     };
-    let mine =
-        library_dir(&app).join("Artistas/Orquesta Inventada/Orquesta Inventada - Tema Uno.mp3");
+    let mine = library_dir(&app).join(crate::tests::native(
+        "Artistas/Orquesta Inventada/Orquesta Inventada - Tema Uno.mp3",
+    ));
     assert!(mp3(&mine, "Orquesta Inventada", "Tema Uno", "", 1.0, None));
     run_job(&app, "/api/scan", "scan", None);
     let w = Wanted {

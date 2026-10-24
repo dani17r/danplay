@@ -64,7 +64,7 @@ fn a_song_moved_to_another_folder_keeps_its_id_and_its_lists() {
     // solo en la base
     let gozo = before["Barak - Mi Gozo.mp3"];
     songs::update_one(&app, gozo, "chords", json!(r#"{"key": "G"}"#)).expect("cifrado");
-    let moved = root.join("Artistas/Otros/Barak - Mi Gozo.mp3");
+    let moved = root.join(crate::tests::native("Artistas/Otros/Barak - Mi Gozo.mp3"));
     rename(&files["gozo"], &moved);
     let r = scan(&app);
     assert_eq!((&r["back"], &r["added_count"]), (&json!(1), &json!(0)));
@@ -95,7 +95,7 @@ fn a_moved_song_never_disappears_halfway() {
     let song_id = ids_by_file(&app)["Barak - Mi Gozo.mp3"];
     rename(
         &files["gozo"],
-        &root.join("Artistas/Otros/Barak - Mi Gozo.mp3"),
+        &root.join(crate::tests::native("Artistas/Otros/Barak - Mi Gozo.mp3")),
     );
     // entre apartar lo que no está y recuperar la canción movida (el
     // escaneo avisa del avance justo ahí, con el total y aún sin confirmar),
@@ -220,7 +220,7 @@ fn new_songs_never_inherit_the_id_of_one_that_left() {
     let fresh = app
         .config()
         .library
-        .join("Artistas/Barak/Barak - Nueva.mp3");
+        .join(crate::tests::native("Artistas/Barak/Barak - Nueva.mp3"));
     crate::testkit::mp3(&fresh, "Barak", "Nueva", "", 2.0, None);
     let song = lib::index_file(&app, &text(&fresh), None, None)
         .expect("indexar")
@@ -476,7 +476,7 @@ fn locate_says_where_each_song_is_now() {
     };
     let root = app.config().library.clone();
     let ids = ids_by_file(&app);
-    let moved = root.join("Movidas/Barak - Mi Gozo.mp3");
+    let moved = root.join(crate::tests::native("Movidas/Barak - Mi Gozo.mp3"));
     rename(&files["gozo"], &moved);
     std::fs::remove_file(&files["tierra"]).expect("borrar");
     scan(&app);

@@ -503,7 +503,7 @@ fn tidy_and_move_keep_the_same_song() {
     assert!(
         v["path"]
             .as_str()
-            .is_some_and(|p| p.ends_with("Pistas/Drum Cam.wav"))
+            .is_some_and(|p| std::path::Path::new(p).ends_with("Pistas/Drum Cam.wav"))
     );
     let (st, v) = call(
         &app,

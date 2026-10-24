@@ -171,7 +171,7 @@ fn song() -> Option<(App, i64, PathBuf)> {
     let (app, _) = scanned_library()?;
     let root = app.config().library.clone();
     let (band, voice) = the_song();
-    let path = root.join("Artistas/Prueba/Prueba - Partes.wav");
+    let path = root.join(crate::tests::native("Artistas/Prueba/Prueba - Partes.wav"));
     write(&path, &add(band, voice));
     crate::services::library::scan(&app, &mut |_, _| {}).expect("escaneo");
     let row = songs::by_path(&app, &text(&path))
@@ -273,7 +273,7 @@ fn with_its_stems_the_intro_and_the_end_are_where_nobody_sings() {
         return;
     };
     let (band, voice) = the_song();
-    let folder = root.join("Separadas/Prueba - Partes");
+    let folder = root.join(crate::tests::native("Separadas/Prueba - Partes"));
     // la intro y el final, tan fuertes como el resto: sin la voz no se sabría
     let edge = (8.0 * f64::from(RATE)) as usize;
     let n = band.len();
@@ -299,7 +299,7 @@ fn with_its_stems_the_intro_and_the_end_are_where_nobody_sings() {
     let stems = json!({"folder": "Separadas/Prueba - Partes"}).to_string();
     songs::update_one(&app, cid, "stems", Value::from(stems)).expect("pistas");
     write(
-        &root.join("Artistas/Prueba/Prueba - Partes.wav"),
+        &root.join(crate::tests::native("Artistas/Prueba/Prueba - Partes.wav")),
         &add(&loud, voice),
     );
     let r = auto(

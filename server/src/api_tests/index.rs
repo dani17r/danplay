@@ -37,10 +37,9 @@ fn without_tags_the_file_name_gives_the_artist() {
     let Some((app, _)) = scanned_library() else {
         return;
     };
-    let path = app
-        .config()
-        .library
-        .join("Descargas/Palisades - Personal (Official Music Video).mp3");
+    let path = app.config().library.join(crate::tests::native(
+        "Descargas/Palisades - Personal (Official Music Video).mp3",
+    ));
     untagged(&path);
     let before = std::fs::metadata(&path)
         .and_then(|m| m.modified())
@@ -93,14 +92,14 @@ fn the_tag_and_folder_win_over_the_file_name() {
     };
     let root = app.config().library.clone();
     mp3(
-        &root.join("Sueltas/Otro - Nombre.mp3"),
+        &root.join(crate::tests::native("Sueltas/Otro - Nombre.mp3")),
         "Etiqueta",
         "Titulo",
         "",
         1.0,
         None,
     );
-    untagged(&root.join("Artistas/Barak/Cualquiera - Cosa.mp3"));
+    untagged(&root.join(crate::tests::native("Artistas/Barak/Cualquiera - Cosa.mp3")));
     scan(&app);
     assert_eq!(
         songs::text(&song(&app, "Otro - Nombre.mp3"), "artist"),

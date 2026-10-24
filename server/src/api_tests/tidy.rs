@@ -181,10 +181,9 @@ fn applying_keeps_the_same_song_and_tidies_the_empty_folder() {
         None,
         false,
     );
-    let new = app
-        .config()
-        .library
-        .join("Artistas/Barak/Barak - Hasta Ver Tu Gloria.mp3");
+    let new = app.config().library.join(crate::tests::native(
+        "Artistas/Barak/Barak - Hasta Ver Tu Gloria.mp3",
+    ));
     assert_eq!(done["to"], json!(new.to_string_lossy()));
     assert!(new.is_file());
     assert!(!files["disco"].exists());
@@ -222,10 +221,9 @@ fn corrected_by_hand_it_goes_to_the_tags_too() {
     };
     let cid = ids["etiquetas"];
     let done = apply(&app, cid, Some("Marcos Witt"), Some("Exaltate"), None, true);
-    let new = app
-        .config()
-        .library
-        .join("Artistas/Marcos Witt/Marcos Witt - Exaltate.mp3");
+    let new = app.config().library.join(crate::tests::native(
+        "Artistas/Marcos Witt/Marcos Witt - Exaltate.mp3",
+    ));
     assert_eq!(done["to"], json!(new.to_string_lossy()));
     assert!(new.is_file());
     let read = library::tags::read(&new);

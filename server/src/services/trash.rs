@@ -58,7 +58,7 @@ fn fallback(path: &Path) -> Option<Result<(), String>> {
     Some(Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(test)))]
 fn send_to_trash(path: &Path) -> Result<(), String> {
     let abs = std::path::absolute(path).map_err(|e| e.to_string())?;
     let quoted = abs
@@ -77,7 +77,7 @@ fn send_to_trash(path: &Path) -> Result<(), String> {
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 fn send_to_trash(path: &Path) -> Result<(), String> {
     let abs = std::path::absolute(path).map_err(|e| e.to_string())?;
     let p = abs.to_string_lossy().replace('\'', "''");
@@ -106,11 +106,12 @@ fn send_to_trash(path: &Path) -> Result<(), String> {
     freedesktop::send(path)
 }
 
-/// En las pruebas, una papelera propia (nunca la de quien las pasa).
-#[cfg(all(unix, not(target_os = "macos"), test))]
+/// En las pruebas, una papelera propia en todos los sistemas (nunca la de
+/// quien las pasa: en Windows y macOS, la de verdad se llenaba).
+#[cfg(test)]
 fn send_to_trash(path: &Path) -> Result<(), String> {
     let abs = std::path::absolute(path).map_err(|e| e.to_string())?;
-    freedesktop::put(&abs, &test_trash(), None)
+    put(&abs, &test_trash(), None)
 }
 
 /// La papelera de las pruebas (una por proceso, en el temporal).
@@ -122,7 +123,6 @@ pub fn test_trash() -> std::path::PathBuf {
 #[cfg(all(unix, not(target_os = "macos")))]
 mod freedesktop {
     //! La papelera de freedesktop.org, como la usa `send2trash`.
-    use std::fmt::Write as _;
     use std::os::unix::fs::MetadataExt;
     use std::path::{Path, PathBuf};
 
@@ -175,32 +175,6 @@ mod freedesktop {
         top.join(format!(".Trash-{uid}"))
     }
 
-    /// `urllib.parse.quote(path)`: lo que no es seguro, en %XX (la «/» no).
-    fn quote(path: &str) -> String {
-        let mut out = String::new();
-        for b in path.bytes() {
-            if b.is_ascii_alphanumeric() || b"_.-~/".contains(&b) {
-                out.push(b as char);
-            } else {
-                let _ = write!(out, "%{b:02X}");
-            }
-        }
-        out
-    }
-
-    /// La hora de ahora, aquí, como `%Y-%m-%dT%H:%M:%S`.
-    fn deletion_date() -> String {
-        let local = library::index::now() as i64 + crate::services::clock::utc_offset();
-        let (d, m, y) = crate::services::clock::civil(local);
-        let secs = local.rem_euclid(86_400);
-        format!(
-            "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}",
-            secs / 3600,
-            secs % 3600 / 60,
-            secs % 60
-        )
-    }
-
     #[cfg_attr(test, allow(dead_code))]
     pub fn send(path: &Path) -> Result<(), String> {
         let abs = std::path::absolute(path).map_err(|e| e.to_string())?;
@@ -211,48 +185,82 @@ mod freedesktop {
             let top = mount_point(&abs);
             (volume_trash(&top), Some(top))
         };
-        put(&abs, &trash, top.as_deref())
+        super::put(&abs, &trash, top.as_deref())
     }
+}
 
-    /// Lo mete en esa papelera (`top`: el disco, si es la de un disco).
-    pub fn put(abs: &Path, trash: &Path, top: Option<&Path>) -> Result<(), String> {
-        let files = trash.join("files");
-        let info = trash.join("info");
-        for dir in [&files, &info] {
-            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+// ------------------------------------------- el formato de freedesktop.org
+// (lo usan la papelera de Linux y, en las pruebas, la propia en todos los
+// sistemas)
+
+/// `urllib.parse.quote(path)`: lo que no es seguro, en %XX (la «/» no).
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn quote(path: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b"_.-~/".contains(&b) {
+            out.push(b as char);
+        } else {
+            let _ = write!(out, "%{b:02X}");
         }
-        let name = abs
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let (base, ext) = library::names::splitext(&name);
-        let mut dest = name.clone();
-        let mut n = 0;
-        while files.join(&dest).exists() || info.join(format!("{dest}.trashinfo")).exists() {
-            n += 1;
-            dest = format!("{base} {n}{ext}");
-        }
-        // la ruta de antes: relativa al disco en su papelera, entera en la
-        // de casa
-        let original = match top {
-            Some(t) => abs
-                .strip_prefix(t)
-                .map_or_else(|_| abs.to_path_buf(), Path::to_path_buf),
-            None => abs.to_path_buf(),
-        };
-        let text = format!(
-            "[Trash Info]\nPath={}\nDeletionDate={}\n",
-            quote(&original.to_string_lossy()),
-            deletion_date()
-        );
-        let info_file = info.join(format!("{dest}.trashinfo"));
-        std::fs::write(&info_file, text).map_err(|e| format!("{}: {e}", info_file.display()))?;
-        if let Err(e) = std::fs::rename(abs, files.join(&dest)) {
-            let _ = std::fs::remove_file(&info_file);
-            return Err(e.to_string());
-        }
-        Ok(())
     }
+    out
+}
+
+/// La hora de ahora, aquí, como `%Y-%m-%dT%H:%M:%S`.
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn deletion_date() -> String {
+    let local = library::index::now() as i64 + crate::services::clock::utc_offset();
+    let (d, m, y) = crate::services::clock::civil(local);
+    let secs = local.rem_euclid(86_400);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}",
+        secs / 3600,
+        secs % 3600 / 60,
+        secs % 60
+    )
+}
+
+/// Lo mete en esa papelera (`top`: el disco, si es la de un disco).
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn put(abs: &Path, trash: &Path, top: Option<&Path>) -> Result<(), String> {
+    let files = trash.join("files");
+    let info = trash.join("info");
+    for dir in [&files, &info] {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let name = abs
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let (base, ext) = library::names::splitext(&name);
+    let mut dest = name.clone();
+    let mut n = 0;
+    while files.join(&dest).exists() || info.join(format!("{dest}.trashinfo")).exists() {
+        n += 1;
+        dest = format!("{base} {n}{ext}");
+    }
+    // la ruta de antes: relativa al disco en su papelera, entera en la
+    // de casa
+    let original = match top {
+        Some(t) => abs
+            .strip_prefix(t)
+            .map_or_else(|_| abs.to_path_buf(), Path::to_path_buf),
+        None => abs.to_path_buf(),
+    };
+    let text = format!(
+        "[Trash Info]\nPath={}\nDeletionDate={}\n",
+        quote(&original.to_string_lossy()),
+        deletion_date()
+    );
+    let info_file = info.join(format!("{dest}.trashinfo"));
+    std::fs::write(&info_file, text).map_err(|e| format!("{}: {e}", info_file.display()))?;
+    if let Err(e) = std::fs::rename(abs, files.join(&dest)) {
+        let _ = std::fs::remove_file(&info_file);
+        return Err(e.to_string());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -274,13 +282,23 @@ mod tests {
         for _ in 0..2 {
             let song = dir.join("Mi canción.mp3");
             std::fs::write(&song, b"ID3").expect("archivo");
-            freedesktop::put(&song, &trash, None).expect("a la papelera");
+            put(&song, &trash, None).expect("a la papelera");
             assert!(!song.exists());
         }
-        assert!(trash.join("files/Mi canción.mp3").is_file());
-        assert!(trash.join("files/Mi canción 1.mp3").is_file());
-        let info =
-            std::fs::read_to_string(trash.join("info/Mi canción 1.mp3.trashinfo")).expect("info");
+        assert!(
+            trash
+                .join(crate::tests::native("files/Mi canción.mp3"))
+                .is_file()
+        );
+        assert!(
+            trash
+                .join(crate::tests::native("files/Mi canción 1.mp3"))
+                .is_file()
+        );
+        let info = std::fs::read_to_string(
+            trash.join(crate::tests::native("info/Mi canción 1.mp3.trashinfo")),
+        )
+        .expect("info");
         assert!(info.starts_with("[Trash Info]\nPath=/"));
         assert!(info.contains("Mi%20canci%C3%B3n.mp3\nDeletionDate="));
     }
