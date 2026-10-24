@@ -21,7 +21,9 @@
     reason = "las letras de siempre: a, b, c ya en la lista; x, y, z las que se bajan"
 )]
 use crate::services::chat::plan::{self, ClaimError, gone_text, testing};
-use crate::testkit::{api_library, call, fake_ytdlp, get, queries, until_done};
+use crate::testkit::{api_library, call, get};
+#[cfg(unix)]
+use crate::testkit::{fake_ytdlp, queries, until_done};
 use library::assistant::plan as lp;
 use library::index::Dict;
 use serde_json::{Value, json};

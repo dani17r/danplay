@@ -23,7 +23,9 @@ use crate::services::chat::plan::{self, testing};
 use crate::services::chat::setlist::{self, Turn};
 use crate::services::chat::tools::{download_plan, run_tool};
 use crate::services::chat::{ask, resolve, still_there, turn_for};
-use crate::testkit::{Registry, call, fake_ytdlp, get, queries, registry};
+use crate::testkit::{Registry, call, get, registry};
+#[cfg(unix)]
+use crate::testkit::{fake_ytdlp, queries};
 use library::assistant::conversation::{MAX_MODEL_CALLS, MESSAGE_CHARS};
 use library::assistant::setlist::{report, report_found};
 use library::index::Dict;

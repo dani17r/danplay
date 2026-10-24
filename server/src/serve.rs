@@ -13,7 +13,7 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use std::convert::Infallible;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Dónde escucha.
 #[derive(Debug, Clone)]
@@ -178,7 +178,7 @@ where
 /// Crea el socket solo para su dueño: con la máscara puesta ANTES del bind
 /// (entre el bind y el chmod habría un instante en el que sería de todos).
 #[cfg(unix)]
-fn bind_private(path: &Path) -> std::io::Result<std::os::unix::net::UnixListener> {
+fn bind_private(path: &std::path::Path) -> std::io::Result<std::os::unix::net::UnixListener> {
     use std::os::unix::fs::PermissionsExt;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

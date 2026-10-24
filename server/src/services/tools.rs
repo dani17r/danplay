@@ -103,7 +103,8 @@ fn identify_with(
     }))
 }
 
-#[cfg(test)]
+// todas con un fpcalc de mentira (un guion de sh)
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use library::fingerprint::Match;

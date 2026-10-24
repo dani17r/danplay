@@ -10,7 +10,7 @@ use crate::app::App;
 use crate::services::{folders, library as lib, playlists, songs};
 use crate::testkit::{call, get, ids_by_file, row, rows, run_job, scanned_library, text};
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 fn scan(app: &App) -> Value {
     lib::scan(app, &mut |_, _| {}).expect("escaneo")
@@ -504,7 +504,7 @@ fn locate_says_where_each_song_is_now() {
 /// Un yt-dlp de mentira para `app` que solo dice su versión y apunta cada
 /// llamada (con sus argumentos); el registro.
 #[cfg(unix)]
-fn fake_ytdlp(app: &App) -> PathBuf {
+fn fake_ytdlp(app: &App) -> std::path::PathBuf {
     let tools = crate::tests::scratch("ytdlp-mentira");
     let log = tools.join("llamadas.txt");
     let body = format!(

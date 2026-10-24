@@ -9,6 +9,10 @@ use std::process::Command;
 /// `/tmp` está en la memoria: no se puede dejar que crezca).
 pub struct Scratch(PathBuf);
 
+#[cfg_attr(
+    not(unix),
+    allow(dead_code, reason = "algunas solo las usan pruebas que corren en Unix")
+)]
 impl Scratch {
     pub fn new(name: &str) -> Self {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);

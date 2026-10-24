@@ -7,7 +7,10 @@
 //! lanzar la descarga, y esta, al verlo puesto, contestaba «ya hay una
 //! descarga en marcha» sin bajar nada; cualquier descarga posterior recibía
 //! un 409.
-use crate::testkit::{api_library, call, fake_ytdlp, get, queries, until_done};
+use crate::testkit::get;
+#[cfg(unix)]
+use crate::testkit::{api_library, call, fake_ytdlp, queries, until_done};
+#[cfg(unix)]
 use serde_json::json;
 
 #[cfg(unix)]

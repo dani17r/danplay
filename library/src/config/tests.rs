@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 // que de verdad corre en Windows lo prueba la integración continua, pero
 // estas cazan los descuidos sin esperar a un push.
 
+#[cfg(unix)]
 fn with_tools(dir: &Scratch) -> Config {
     let mut cfg = Config::isolated(dir.join("datos"), dir.join("cfg"), dir.join("Musica"));
     cfg.tools_dir = dir.join("herramientas").to_string_lossy().into_owned();
@@ -91,6 +92,7 @@ fn config_probe() {
 }
 
 /// `Config::load` en otro proceso con solo ese entorno (y el PATH).
+#[cfg(target_os = "linux")]
 fn config_in(env: &[(&str, String)], root: &Path) -> Value {
     let out = std::process::Command::new(std::env::current_exe().expect("la prueba"))
         .args(["config::tests::config_probe", "--exact", "--ignored"])
@@ -111,6 +113,7 @@ fn config_in(env: &[(&str, String)], root: &Path) -> Value {
 
 /// Lo que da la configuración sin ajustes: las mismas carpetas y los valores
 /// de siempre (los de config.py).
+#[cfg(target_os = "linux")]
 fn defaults(data: &Path, cfg: &Path, library: &Path, home: &Path) -> Value {
     let p = |p: PathBuf| p.to_string_lossy().into_owned();
     json!({

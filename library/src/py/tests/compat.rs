@@ -215,6 +215,7 @@ fn isprintable_like_python() {
 
 /// La carpeta temporal de `real_filesystem_paths`, para la prueba que
 /// trabaja desde ella en otro proceso.
+#[cfg(unix)]
 const PROBE: &str = "DANPLAY_PATHS_PROBE";
 
 /// `realpath`, `abspath`, `relpath` y `expanduser` de verdad, con enlaces
