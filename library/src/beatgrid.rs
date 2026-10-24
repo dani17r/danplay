@@ -1,222 +1,148 @@
-//! Las rejillas del clic guardadas (danplay/beatgrid.py): un JSON por
-//! archivo en DATA_DIR/beats/, con el nombre de la clave del archivo
-//! (`analysis::pulse::key`) y, al lado, lo que dijo la red (`<clave>.npz`).
-//! Dentro, {version, path, grid, edits} y, en la de un proyecto, `exact`.
+//! Las rejillas del clic guardadas: un JSON por archivo en DATA_DIR/beats/,
+//! con el nombre de la clave del archivo (`analysis::pulse::key`) y, al
+//! lado, lo que dijo la red (`<clave>.npz`). Dentro, {version, path, grid,
+//! edits} y, en la de un proyecto, `exact`.
 //!
-//! Se lee como `json.loads` y se escribe como `json.dumps(...,
-//! separators=(",", ":"))` (`py::json`): las que dejó Python siguen valiendo
-//! y las de aquí salen iguales, byte a byte. Lo que Python se callaba (no se
-//! puede leer, no es JSON, no se puede escribir) aquí también se calla; lo
-//! que no (lo guardado no es un diccionario), sale con el mismo error.
+//! Lo que no se puede leer, no es JSON o no es un objeto no vale: se
+//! calcula otra vez. Las que dejaron las versiones de antes se leen aunque
+//! lleven `NaN` o un nombre que no era UTF-8 (`crate::lenient_json`).
 use crate::parity::with_suffix;
-use crate::py::{
-    self,
-    json::{self, Json, LoadError, text},
-};
-use std::path::{Path, PathBuf};
+use serde_json::{Map, Value};
+use std::path::Path;
 
-/// Por qué no se pudo usar lo guardado, con la excepción que daba Python.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CacheError {
-    /// Más anidado de lo que se lee: el `RecursionError`.
-    TooDeep,
-    /// El `AttributeError` de `saved.get(...)` con lo que no es un
-    /// diccionario.
-    Attribute(String),
-    /// El `TypeError` de `saved[...] = ...` con lo que no es un diccionario.
-    Type(String),
+/// Lo que hay en la caché, si se puede leer y es JSON.
+pub fn load(cache: &Path) -> Option<Value> {
+    crate::lenient_json::parse(&std::fs::read_to_string(cache).ok()?)
 }
 
-/// Lo que hay en la caché, como `json.loads(cache.read_text(encoding="utf-8"))`:
-/// `None` si no se puede leer o no es JSON (el `OSError` o el `ValueError`
-/// que quien la lee se calla).
-pub fn load(cache: &Path) -> Result<Option<Json>, CacheError> {
-    let Ok(raw) = std::fs::read_to_string(cache) else {
-        return Ok(None);
-    };
-    match json::loads(&raw) {
-        Ok(v) => Ok(Some(v)),
-        Err(LoadError::Invalid(_)) => Ok(None),
-        Err(LoadError::TooDeep) => Err(CacheError::TooDeep),
-    }
-}
-
-/// La guardada si es un diccionario (`beatgrid._saved`).
-pub fn saved(cache: &Path) -> Result<Option<Json>, CacheError> {
-    Ok(load(cache)?.filter(|v| matches!(v, Json::Dict(_))))
-}
-
-/// Si la guardada vale (`beatgrid.cached`): de esta versión, o exacta (la
-/// de un proyecto, que vale siempre).
-pub fn is_valid(cache: &Path, version: i64) -> Result<bool, CacheError> {
+/// La guardada, si es un objeto.
+pub fn saved(cache: &Path) -> Option<Map<String, Value>> {
     match load(cache)? {
-        None => Ok(false),
-        Some(v @ Json::Dict(_)) => Ok(v.get("version").is_some_and(|x| x.equals_int(version))
-            || v.get("exact").is_some_and(Json::truthy)),
-        Some(v) => Err(CacheError::Attribute(format!(
-            "'{}' object has no attribute 'get'",
-            v.type_name()
-        ))),
+        Value::Object(o) => Some(o),
+        _ => None,
     }
 }
 
-/// La carpeta de la caché (`cache.parent.mkdir(parents=True, exist_ok=True)`):
-/// esto sí falla, como en Python, con la ruta que no se pudo hacer.
-pub fn make_folder(cache: &Path) -> Result<(), (std::io::Error, PathBuf)> {
-    match cache.parent() {
-        Some(p) if !p.as_os_str().is_empty() => py::mkdir_parents(p),
-        _ => py::mkdir_parents(Path::new(".")),
-    }
-}
-
-/// Lo que se guarda de una rejilla (`beatgrid._save`): {version, path,
-/// grid, edits}, en ese orden.
-pub fn entry(version: i64, path: Json, grid: Json, edits: Json) -> Json {
-    Json::Dict(vec![
-        (text("version"), Json::Int(version)),
-        (text("path"), path),
-        (text("grid"), grid),
-        (text("edits"), edits),
-    ])
-}
-
-/// Escribe lo guardado. Si no se puede, se deja: la próxima vez se calcula
-/// otra vez (como el `OSError` que Python se callaba).
-pub fn write(cache: &Path, value: &Json) {
-    let _ = std::fs::write(cache, json::dumps(value));
-}
-
-/// El `TypeError` de `saved[key] = ...` cuando lo guardado no es un
-/// diccionario.
-fn not_assignable(v: &Json) -> CacheError {
-    CacheError::Type(match v {
-        Json::List(_) => "list indices must be integers or slices, not str".into(),
-        other => format!(
-            "'{}' object does not support item assignment",
-            other.type_name()
-        ),
+/// Si la guardada vale: de esta versión, o exacta (la de un proyecto, que
+/// vale siempre).
+pub fn is_valid(cache: &Path, version: i64) -> bool {
+    saved(cache).is_some_and(|v| {
+        v.get("version").and_then(Value::as_f64) == Some(version as f64)
+            || v.get("exact").is_some_and(crate::py::truthy)
     })
 }
 
-/// Lo de `beatgrid.save_exact` tras guardarla: leerla otra vez y guardarla
-/// con `exact: true` (vale aunque cambie la forma de sacar las demás).
-pub fn mark_exact(cache: &Path) -> Result<(), CacheError> {
-    let Some(mut saved) = load(cache)? else {
-        return Ok(());
-    };
-    if !matches!(saved, Json::Dict(_)) {
-        return Err(not_assignable(&saved));
+/// La carpeta de la caché.
+pub fn make_folder(cache: &Path) -> std::io::Result<()> {
+    match cache.parent() {
+        Some(p) if !p.as_os_str().is_empty() => std::fs::create_dir_all(p),
+        _ => Ok(()),
     }
-    saved.set(&text("exact"), Json::Bool(true));
-    write(cache, &saved);
-    Ok(())
 }
 
-/// Lo que no salió al mover una rejilla: lo de la caché, o el error de
-/// `new_path` al escribirla.
-#[derive(Debug, PartialEq, Eq)]
-pub enum MoveError<E> {
-    Cache(CacheError),
-    Path(E),
+/// Lo que se guarda de una rejilla: {version, path, grid, edits}, en ese
+/// orden.
+pub fn entry(version: i64, path: &str, grid: Value, edits: Value) -> Value {
+    let mut out = Map::new();
+    out.insert("version".into(), Value::from(version));
+    out.insert("path".into(), Value::from(path));
+    out.insert("grid".into(), grid);
+    out.insert("edits".into(), edits);
+    Value::Object(out)
 }
 
-/// El archivo se movió o cambió solo de etiqueta (`beatgrid.moved`): lo que
-/// dijo la red (`.npz`) y la rejilla pasan de la clave de antes (`old`) a la
-/// de ahora (`new`), con la ruta nueva dentro (`new_path`, que solo se pide
-/// si hace falta escribirla). `true` si había que mover la rejilla.
-pub fn moved<E>(
-    old: &Path,
-    new: &Path,
-    new_path: impl FnOnce() -> Result<Json, E>,
-) -> Result<bool, MoveError<E>> {
+/// Escribe lo guardado. Si no se puede, se deja: la próxima vez se calcula
+/// otra vez.
+pub fn write(cache: &Path, value: &Value) {
+    let _ = std::fs::write(cache, value.to_string());
+}
+
+/// La guardada, marcada como exacta (vale aunque cambie la forma de sacar
+/// las demás).
+pub fn mark_exact(cache: &Path) {
+    if let Some(mut saved) = saved(cache) {
+        saved.insert("exact".into(), Value::Bool(true));
+        write(cache, &Value::Object(saved));
+    }
+}
+
+/// El archivo se movió o cambió solo de etiqueta: lo que dijo la red
+/// (`.npz`) y la rejilla pasan de la clave de antes (`old`) a la de ahora
+/// (`new`), con la ruta nueva dentro (`new_path`). `true` si había que mover
+/// la rejilla.
+pub fn moved(old: &Path, new: &Path, new_path: &str) -> bool {
     // lo que dijo la red va con ella
     let (old_raw, new_raw) = (with_suffix(old, ".npz"), with_suffix(new, ".npz"));
     if old_raw != new_raw && old_raw.is_file() {
         let _ = std::fs::rename(&old_raw, &new_raw);
     }
     if old == new || !old.is_file() {
-        return Ok(false);
+        return false;
     }
-    let Some(mut saved) = load(old).map_err(MoveError::Cache)? else {
-        return Ok(false);
+    let Some(mut saved) = saved(old) else {
+        return false;
     };
-    if !matches!(saved, Json::Dict(_)) {
-        return Err(MoveError::Cache(not_assignable(&saved)));
-    }
-    saved.set(&text("path"), new_path().map_err(MoveError::Path)?);
-    if std::fs::write(new, json::dumps(&saved)).is_err() || std::fs::remove_file(old).is_err() {
-        return Ok(false);
-    }
-    Ok(true)
+    saved.insert("path".into(), Value::from(new_path));
+    std::fs::write(new, Value::Object(saved).to_string()).is_ok()
+        && std::fs::remove_file(old).is_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::Infallible;
+    use serde_json::json;
 
-    fn grid() -> Json {
-        json::loads(r#"{"bpm":120.0,"meter":4,"beats":[0.5,1.0,1e-05],"report":{"ok":true}}"#)
-            .expect("rejilla")
+    fn grid() -> Value {
+        json!({"bpm": 120.0, "meter": 4, "beats": [0.5, 1.0, 1e-05], "report": {"ok": true}})
     }
 
     #[test]
-    fn saved_like_json_dumps() {
+    fn saved_and_read_back() {
         let dir = tempfile::tempdir().expect("carpeta");
         let cache = dir.path().join("beats").join("abc.json");
         make_folder(&cache).expect("carpeta");
-        let path = Json::str("/música/ñ \"x\".mp3");
-        write(&cache, &entry(3, path, grid(), Json::List(vec![])));
+        write(&cache, &entry(3, "/música/ñ \"x\".mp3", grid(), json!([])));
         assert_eq!(
             std::fs::read_to_string(&cache).expect("leer"),
-            r#"{"version":3,"path":"/m\u00fasica/\u00f1 \"x\".mp3","grid":{"bpm":120.0,"meter":4,"beats":[0.5,1.0,1e-05],"report":{"ok":true}},"edits":[]}"#
+            r#"{"version":3,"path":"/música/ñ \"x\".mp3","grid":{"bpm":120.0,"meter":4,"beats":[0.5,1.0,0.00001],"report":{"ok":true}},"edits":[]}"#
         );
-        assert_eq!(is_valid(&cache, 3), Ok(true));
-        assert_eq!(is_valid(&cache, 4), Ok(false));
-        assert!(
-            saved(&cache)
-                .expect("leída")
-                .is_some_and(|v| v.get("grid").and_then(|g| g.get("meter")) == Some(&Json::Int(4)))
-        );
-        write(
-            &cache,
-            &entry(2, Json::str("x"), grid(), Json::List(vec![])),
-        );
-        mark_exact(&cache).expect("exacta");
+        assert!(is_valid(&cache, 3));
+        assert!(!is_valid(&cache, 4));
+        assert_eq!(saved(&cache).expect("leída")["grid"]["meter"], 4);
+        write(&cache, &entry(2, "x", grid(), json!([])));
+        mark_exact(&cache);
         assert!(
             std::fs::read_to_string(&cache)
                 .expect("leer")
                 .ends_with(r#""edits":[],"exact":true}"#)
         );
-        assert_eq!(is_valid(&cache, 3), Ok(true), "la exacta vale siempre");
-        // una ruta que no es UTF-8 (un «surrogate» suelto)
-        write(
-            &cache,
-            &entry(3, Json::Str(vec![0x2F, 0xDCFF]), grid(), Json::List(vec![])),
-        );
-        assert!(
-            std::fs::read_to_string(&cache)
-                .expect("leer")
-                .contains(r#""path":"/\udcff""#)
-        );
-        assert_eq!(is_valid(&cache, 3), Ok(true));
+        assert!(is_valid(&cache, 3), "la exacta vale siempre");
+        // lo que no es un objeto, o no es JSON, no vale (y no se toca)
         std::fs::write(&cache, "[1]").expect("escribir");
-        assert_eq!(
-            is_valid(&cache, 3),
-            Err(CacheError::Attribute(
-                "'list' object has no attribute 'get'".into()
-            ))
-        );
-        assert_eq!(saved(&cache), Ok(None));
-        assert_eq!(
-            mark_exact(&cache),
-            Err(CacheError::Type(
-                "list indices must be integers or slices, not str".into()
-            ))
-        );
+        assert!(!is_valid(&cache, 3));
+        assert_eq!(saved(&cache), None);
+        mark_exact(&cache);
+        assert_eq!(std::fs::read_to_string(&cache).expect("leer"), "[1]");
         std::fs::write(&cache, "{\"version\": 3").expect("escribir");
-        assert_eq!((is_valid(&cache, 3), saved(&cache)), (Ok(false), Ok(None)));
-        assert_eq!(is_valid(&dir.path().join("no-esta.json"), 3), Ok(false));
+        assert!(!is_valid(&cache, 3));
+        assert!(!is_valid(&dir.path().join("no-esta.json"), 3));
+    }
+
+    /// Las de la 1.30: con espacios, con `NaN` en el tempo de una rejilla de
+    /// un pulso y con una ruta que no era UTF-8.
+    #[test]
+    fn the_old_ones_still_count() {
+        let dir = tempfile::tempdir().expect("carpeta");
+        let cache = dir.path().join("abc.json");
+        std::fs::write(
+            &cache,
+            r#"{"version": 3, "path": "/x\udcff", "grid": {"bpm": NaN, "beats": [0.5]}, "edits": []}"#,
+        )
+        .expect("escribir");
+        assert!(is_valid(&cache, 3));
+        let s = saved(&cache).expect("leída");
+        assert_eq!(s["grid"]["bpm"], Value::Null);
+        assert_eq!(s["path"], "/x\u{FFFD}");
     }
 
     #[test]
@@ -225,32 +151,27 @@ mod tests {
         let (old, new) = (dir.path().join("a.json"), dir.path().join("b.json"));
         std::fs::write(
             &old,
-            r#"{"version": 3, "path": "/x\udcff", "grid": {}, "edits": []}"#,
+            r#"{"version": 3, "path": "/x", "grid": {}, "edits": []}"#,
         )
         .expect("escribir");
         std::fs::write(dir.path().join("a.npz"), "red").expect("escribir");
-        let to = || Ok::<_, Infallible>(Json::str("/y"));
-        assert_eq!(moved(&old, &new, to), Ok(true));
+        assert!(moved(&old, &new, "/y"));
         assert!(!old.exists() && dir.path().join("b.npz").is_file());
         assert_eq!(
             std::fs::read_to_string(&new).expect("leer"),
             r#"{"version":3,"path":"/y","grid":{},"edits":[]}"#
         );
-        assert_eq!(moved(&old, &new, to), Ok(false), "ya no está");
-        assert_eq!(moved(&new, &new, to), Ok(false), "la misma clave");
-        // sin ruta dentro, va al final; y lo que no es un diccionario, con su error
+        assert!(!moved(&old, &new, "/y"), "ya no está");
+        assert!(!moved(&new, &new, "/y"), "la misma clave");
+        // sin ruta dentro, va al final; lo que no es un objeto no se mueve
         std::fs::write(&old, r#"{"grid": {}}"#).expect("escribir");
-        assert_eq!(moved(&old, &new, to), Ok(true));
+        assert!(moved(&old, &new, "/y"));
         assert_eq!(
             std::fs::read_to_string(&new).expect("leer"),
             r#"{"grid":{},"path":"/y"}"#
         );
         std::fs::write(&old, "\"texto\"").expect("escribir");
-        assert_eq!(
-            moved(&old, &new, to),
-            Err(MoveError::Cache(CacheError::Type(
-                "'str' object does not support item assignment".into()
-            )))
-        );
+        assert!(!moved(&old, &new, "/y"));
+        assert!(old.is_file());
     }
 }

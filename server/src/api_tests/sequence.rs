@@ -358,9 +358,7 @@ fn opening_it_leaves_it_ready_to_play() {
     saved["version"] = json!(crate::services::beats::VERSION + 1);
     std::fs::write(&cache, saved.to_string()).expect("rejilla");
     assert!(crate::services::beats::cached(&app, mix));
-    let g = crate::services::beats::as_value(
-        &crate::services::beats::grid_of(&app, mix).expect("rejilla"),
-    );
+    let g = crate::services::beats::grid_of(&app, mix).expect("rejilla");
     assert_eq!(g["bpm"], 120.0);
     assert_eq!(
         g["bars"].as_array().expect("compases")[..6],

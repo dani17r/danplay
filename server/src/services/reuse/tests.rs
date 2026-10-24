@@ -292,13 +292,7 @@ fn a_second_copy_takes_the_click_and_the_study_but_not_another_song() {
         "bars": (0..50).step_by(4).collect::<Vec<i64>>(),
         "first_downbeat": 0,
     });
-    beats::save(
-        &app,
-        &first,
-        &beats::from_api(&grid),
-        Json::List(Vec::new()),
-    )
-    .expect("rejilla");
+    beats::save(&app, &first, &grid, json!([])).expect("rejilla");
     // otra descarga de la misma (un poco recortada por delante), al lado
     let second = write(
         &app,
@@ -334,7 +328,7 @@ fn a_second_copy_takes_the_click_and_the_study_but_not_another_song() {
         beats::cached(&app, &second),
         "el clic, sin volver a calcularlo"
     );
-    let got = beats::as_value(&beats::grid_of(&app, &second).expect("rejilla"));
+    let got = beats::grid_of(&app, &second).expect("rejilla");
     let got = got["beats"].as_array().expect("pulsos");
     assert!(near(&got[0], 0.4, 0.003) && got.len() == 50, "{got:?}");
     assert!(near(&study_of(&copy)["markers"][0]["t"], 11.9, 0.003));
@@ -551,7 +545,7 @@ fn the_grid_and_what_the_network_said_move_with_the_offset() {
     .expect("crudo");
     // la nueva llega medio segundo antes: lo de antes de 0, fuera
     assert_eq!(adopt_grid(&app, &new_path, &twin, -0.5), Ok(true));
-    let grid = beats::as_value(&beats::grid_of(&app, &new_path).expect("rejilla"));
+    let grid = beats::grid_of(&app, &new_path).expect("rejilla");
     assert_eq!(grid["beats"], json!([0.2, 0.7, 1.2]));
     assert_eq!(grid["bars"], json!([1]));
     assert_eq!(grid["first_downbeat"], 1);

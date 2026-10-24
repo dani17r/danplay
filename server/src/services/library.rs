@@ -32,10 +32,7 @@ pub fn carry_grid(app: &App, old: &Dict, new_path: &str) {
         "{}.json",
         tags::pulse_key(Path::new(new_path), after)
     ));
-    let text = new_path.to_owned();
-    let _ = library::beatgrid::moved(&old_key, &new_key, || {
-        Ok::<_, std::convert::Infallible>(library::py::json::Json::str(&text))
-    });
+    library::beatgrid::moved(&old_key, &new_key, new_path);
 }
 
 /// `_purge_missing`: olvida del todo las canciones apartadas hace más de un

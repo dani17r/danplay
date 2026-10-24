@@ -26,13 +26,7 @@ pub fn carry(app: &App, old: &Path, new: &Path, before: (u64, f64), after: (u64,
     let beats = data.join("beats");
     let old_key = beats.join(format!("{}.json", pulse_key(old, before)));
     let new_key = beats.join(format!("{}.json", pulse_key(new, after)));
-    let new_text = new.to_string_lossy().into_owned();
-    let moved = library::beatgrid::moved(&old_key, &new_key, || {
-        Ok::<_, std::convert::Infallible>(library::py::json::Json::str(&new_text))
-    });
-    if let Err(e) = moved {
-        log::warn!("no pude conservar la rejilla de {}: {e:?}", new.display());
-    }
+    library::beatgrid::moved(&old_key, &new_key, &new.to_string_lossy());
     let waves = data.join("waveforms");
     let _ = std::fs::create_dir_all(&waves);
     library::waveform::relocate(&waves, old.as_os_str(), new.as_os_str(), before.1, after.1);

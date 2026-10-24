@@ -396,26 +396,15 @@ impl Chat for ServerChat<'_, '_> {
     }
 
     fn parse_args(&mut self, arguments: &Value) -> Result<Value, ApiError> {
-        // `json.loads(arguments or "{}")`; lo que no es un diccionario, `{}`
-        let raw = if py::truthy(arguments) {
-            arguments.clone()
+        // los argumentos llegan como texto de JSON; lo que no es un objeto, `{}`
+        let parsed = match arguments {
+            Value::String(raw) => serde_json::from_str(raw).unwrap_or_default(),
+            other => other.clone(),
+        };
+        Ok(if parsed.is_object() {
+            parsed
         } else {
-            json!("{}")
-        };
-        let Value::String(raw) = raw else {
-            return Err(ApiError::internal(format!(
-                "the JSON object must be str, bytes or bytearray, not {}",
-                library::assistant::value::type_name(&raw)
-            )));
-        };
-        Ok(match library::py::json::loads(&raw) {
-            Ok(j @ library::py::json::Json::Dict(_)) => crate::services::pyjson::to_value(&j),
-            Ok(_) | Err(library::py::json::LoadError::Invalid(_)) => json!({}),
-            Err(library::py::json::LoadError::TooDeep) => {
-                return Err(ApiError::internal(
-                    "maximum recursion depth exceeded while decoding a JSON object from a unicode string",
-                ));
-            }
+            json!({})
         })
     }
 

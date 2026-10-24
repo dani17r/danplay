@@ -189,8 +189,8 @@ fn text_of(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
 
-fn api(grid: &Json) -> Value {
-    as_value(grid)
+fn api(grid: &Value) -> Value {
+    grid.clone()
 }
 
 fn beats_of(grid: &Value) -> Vec<f64> {

@@ -19,6 +19,7 @@ pub mod html;
 pub mod index;
 pub mod ingest;
 pub mod journal;
+pub mod lenient_json;
 pub mod names;
 pub mod net;
 pub mod parity;

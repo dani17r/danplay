@@ -272,7 +272,7 @@ fn what_was_worked_out_from_the_sound_follows_the_song() {
     let to = PathBuf::from(done["to"].as_str().expect("destino"));
     assert!(crate::services::beats::cached(&app, &to));
     let grid = crate::services::beats::grid_of(&app, &to).expect("rejilla");
-    assert_eq!(crate::services::beats::as_value(&grid), json!({"bpm": 90}));
+    assert_eq!(grid, json!({"bpm": 90}));
     assert!(!cache.exists());
 }
 

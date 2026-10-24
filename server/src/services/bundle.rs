@@ -43,9 +43,7 @@ fn bundle_error(t: impl Into<String>) -> Failure {
 /// La rejilla del clic (la guardada, o calculada ahora) y, si no hay, por qué.
 fn grid(app: &App, path: &str) -> (Value, String) {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        beats::grid_of(app, Path::new(path))
-            .map(|g| beats::as_value(&g))
-            .map_err(|e| e.to_string())
+        beats::grid_of(app, Path::new(path)).map_err(|e| e.to_string())
     })) {
         Ok(Ok(g)) => (g, String::new()),
         Ok(Err(why)) => (Value::Null, why),

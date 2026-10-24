@@ -25,7 +25,7 @@ use analysis::align;
 use analysis::pulse::raw::Raw;
 use library::beatgrid as lb;
 use library::index::{Dict, fetch_all, get_str, scan};
-use library::py::{self, json::Json};
+use library::py;
 use library::reuse::{SMALL_LAG, close};
 use library::stems as ls;
 use serde_json::{Value, json};
@@ -541,15 +541,15 @@ pub fn adopt_stems(
     Ok(Some(target))
 }
 
-/// `b in index` de Python con un «1» de la rejilla: 2.0 y True valen como 2
-/// y 1.
-fn bar_index(b: &Json) -> Option<usize> {
-    match b {
-        Json::Bool(x) => Some(usize::from(*x)),
-        Json::Int(i) => usize::try_from(*i).ok(),
-        Json::Float(f) if f.fract() == 0.0 && *f >= 0.0 => Some(*f as usize),
-        _ => None,
-    }
+/// El pulso de un «1» de la rejilla (2.0 vale como 2).
+fn bar_index(b: &Value) -> Option<usize> {
+    b.as_u64()
+        .and_then(|n| usize::try_from(n).ok())
+        .or_else(|| {
+            b.as_f64()
+                .filter(|f| f.fract() == 0.0 && *f >= 0.0)
+                .map(|f| f as usize)
+        })
 }
 
 /// Lo que dijo la red, corrido `frames` tramas: con `fill` delante, o sin
@@ -568,14 +568,9 @@ fn f64s(v: &[f32]) -> Vec<f64> {
     v.iter().map(|x| f64::from(*x)).collect()
 }
 
-/// `reuse.adopt_grid(path, twin, lag)`: la rejilla del clic (y lo que dijo
-/// la red) de la gemela, corrida `lag` segundos, para este archivo. `Err` es
-/// lo que Python se callaba (`OSError`, `ValueError`, `KeyError`): sin
-/// rejilla, sin más.
-#[allow(
-    clippy::too_many_lines,
-    reason = "los pasos de reuse.adopt_grid, en su orden"
-)]
+/// La rejilla del clic (y lo que dijo la red) de la gemela, corrida `lag`
+/// segundos, para este archivo. `Err` es que no se pudo: sin rejilla, sin
+/// más.
 fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, String> {
     let Some(key) = old_key(twin) else {
         return Ok(false);
@@ -588,7 +583,7 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
         folder.join(format!("{key}.json")),
         folder.join(format!("{key}.npz")),
     );
-    let saved = lb::load(&old_json).ok().flatten();
+    let saved = lb::saved(&old_json);
     let raw = if old_raw.is_file() {
         analysis::pulse::raw::read(&old_raw)
     } else {
@@ -616,32 +611,23 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
         )
         .map_err(|e| e.to_string())?;
     }
-    let Some(saved) = saved.filter(Json::truthy) else {
+    let Some(saved) = saved else {
         return Ok(had_raw);
     };
-    let Json::Dict(_) = saved else {
-        return Err(format!(
-            "'{}' object has no attribute 'get'",
-            saved.type_name()
-        ));
+    let Some(Value::Object(grid)) = saved.get("grid").filter(|g| py::truthy(g)) else {
+        // sin rejilla: con lo que dijo la red, se saca al momento
+        return Ok(had_raw);
     };
-    if !saved.get("grid").is_some_and(Json::truthy)
-        || !saved
-            .get("version")
-            .is_some_and(|v| v.equals_int(beats::VERSION))
-    {
-        // sin rejilla de esta versión: con lo que dijo la red, se saca al momento
+    if saved.get("version").and_then(Value::as_i64) != Some(beats::VERSION) {
+        // de otra versión: lo mismo
         return Ok(had_raw);
     }
-    let mut grid = saved.get("grid").cloned().unwrap_or_default();
-    if !matches!(grid, Json::Dict(_)) {
-        return Err("la rejilla guardada no es un diccionario".into());
-    }
-    let shifted: Vec<f64> = match grid.get("beats").filter(|b| b.truthy()) {
-        None => Vec::new(),
-        Some(Json::List(items)) => items
+    let mut grid = grid.clone();
+    let shifted: Vec<f64> = match grid.get("beats") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => items
             .iter()
-            .map(|t| crate::services::pyjson::float_of(t).map(|t| py::round(t + lag, 4)))
+            .map(|t| t.as_f64().map(|t| py::round(t + lag, 4)))
             .collect::<Option<_>>()
             .ok_or("un pulso que no es un número")?,
         Some(_) => return Err("los pulsos no son una lista".into()),
@@ -652,46 +638,42 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
         .enumerate()
         .map(|(new, &old)| (old, new))
         .collect();
-    let bars: Vec<Json> = match grid.get("bars").filter(|b| b.truthy()) {
-        Some(Json::List(items)) => items
-            .iter()
-            .filter_map(|b| {
-                bar_index(b)
-                    .and_then(|b| index.get(&b))
-                    .map(|&n| Json::Int(n as i64))
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
-    let first = bars.first().cloned().unwrap_or(Json::Int(0));
-    grid.set(
-        &py::json::text("beats"),
-        Json::List(keep.iter().map(|&i| Json::Float(shifted[i])).collect()),
-    );
-    grid.set(&py::json::text("bars"), Json::List(bars));
-    grid.set(&py::json::text("first_downbeat"), first);
+    let bars: Vec<Value> = grid
+        .get("bars")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|b| {
+            bar_index(b)
+                .and_then(|b| index.get(&b))
+                .map(|&n| Value::from(n))
+        })
+        .collect();
+    let first = bars.first().cloned().unwrap_or_else(|| Value::from(0));
+    let beats: Vec<Value> = keep.iter().map(|&i| Value::from(shifted[i])).collect();
+    grid.insert("beats".into(), Value::Array(beats));
+    grid.insert("bars".into(), Value::Array(bars));
+    grid.insert("first_downbeat".into(), first);
     let mut edits = Vec::new();
-    if let Some(Json::List(items)) = saved.get("edits").filter(|e| e.truthy()) {
-        for e in items {
-            let mut e = e.clone();
-            if !matches!(e, Json::Dict(_)) {
-                return Err("un retoque que no es un diccionario".into());
-            }
-            if let Some(start) = e.get("start").filter(|s| **s != Json::Null) {
-                let end = e.get("end").ok_or("KeyError: 'end'")?;
-                let (Some(s), Some(t)) = (
-                    crate::services::pyjson::float_of(start),
-                    crate::services::pyjson::float_of(end),
-                ) else {
-                    return Err("un tramo que no es un número".into());
-                };
-                e.set(&py::json::text("start"), Json::Float(py::round(s + lag, 3)));
-                e.set(&py::json::text("end"), Json::Float(py::round(t + lag, 3)));
-            }
-            edits.push(e);
+    for e in saved
+        .get("edits")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Value::Object(mut e) = e.clone() else {
+            return Err("un retoque que no es un objeto".into());
+        };
+        if let Some(start) = e.get("start").filter(|s| !s.is_null()) {
+            let (Some(s), Some(t)) = (start.as_f64(), e.get("end").and_then(Value::as_f64)) else {
+                return Err("un tramo que no es de números".into());
+            };
+            e.insert("start".into(), Value::from(py::round(s + lag, 3)));
+            e.insert("end".into(), Value::from(py::round(t + lag, 3)));
         }
+        edits.push(Value::Object(e));
     }
-    beats::save(app, path, &grid, Json::List(edits)).map_err(|e| e.to_string())?;
+    beats::save(app, path, &Value::Object(grid), Value::Array(edits)).map_err(|e| e.to_string())?;
     Ok(true)
 }
 

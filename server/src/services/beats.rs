@@ -1,28 +1,24 @@
-//! La rejilla del clic de una canción (lo de danplay/beatgrid.py que no era
-//! ya Rust): el orden de los pasos de `grid_of` y `reanalyze`, la batería
-//! separada de cada canción, la cola de fondo (un hilo, delante lo que suena
-//! y detrás lo que vendrá) y el detector de pulso en su proceso.
+//! La rejilla del clic de una canción: el orden de los pasos de `grid_of` y
+//! `reanalyze`, la batería separada de cada canción, la cola de fondo (un
+//! hilo, delante lo que suena y detrás lo que vendrá) y el detector de
+//! pulso en su proceso.
 //!
 //! El detector (Beat This!, en ONNX Runtime: `analysis::pulse::analyze`)
-//! corre en un proceso aparte, como en Python: el propio programa con
-//! `--pulse GRAFO FFMPEG ARCHIVO CRUDO` (`child_main`), con prioridad baja,
-//! su avance por la salida (una línea JSON por paso) y un tope de diez
-//! minutos. Así un fallo de ONNX Runtime con un archivo raro no tumba la
-//! app, la memoria de la red se devuelve al terminar, y la respuesta es la
-//! de siempre: lo que el padre usa es lo que el hijo deja en CRUDO (lo que
-//! dijo la red), y la rejilla sale de ahí, aquí, igual que en Python.
+//! corre en un proceso aparte: el propio programa con `--pulse GRAFO FFMPEG
+//! ARCHIVO CRUDO` (`child_main`), con prioridad baja, su avance por la
+//! salida (una línea JSON por paso) y un tope de diez minutos. Así un fallo
+//! de ONNX Runtime con un archivo raro no tumba la app y la memoria de la
+//! red se devuelve al terminar. Lo que el padre usa es lo que el hijo deja
+//! en CRUDO (lo que dijo la red), y la rejilla sale de ahí, aquí.
 //!
 //! Lo guardado (DATA_DIR/beats/<clave>.json y .npz) se lee y se escribe con
-//! `library::beatgrid` (byte a byte como el `json` de Python): lo que dejó el
-//! núcleo de Python vale aquí, y al revés.
+//! `library::beatgrid`.
 use crate::app::App;
-use crate::services::pyjson::{dict, float_of, from_value, to_value};
 use crate::services::songs;
 use analysis::beatgrid::{self as ab, Failure, Heard, Mode};
 use analysis::pulse::{grid, raw::Raw};
 use library::beatgrid as lb;
-use library::py::json::{Json, text};
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read};
@@ -134,43 +130,33 @@ pub(crate) fn raw_file(app: &App, path: &Path) -> std::io::Result<PathBuf> {
 
 /// `beatgrid.cached(path)`: si hay rejilla guardada que valga.
 pub fn cached(app: &App, path: &Path) -> bool {
-    cache(app, path).is_ok_and(|c| lb::is_valid(&c, VERSION).unwrap_or(false))
+    cache(app, path).is_ok_and(|c| lb::is_valid(&c, VERSION))
 }
 
-/// `beatgrid._saved(path)`.
-fn saved(app: &App, path: &Path) -> Option<Json> {
-    let c = cache(app, path).ok()?;
-    lb::saved(&c).ok().flatten()
+/// La rejilla guardada de un archivo.
+fn saved(app: &App, path: &Path) -> Option<Map<String, Value>> {
+    lb::saved(&cache(app, path).ok()?)
 }
 
-/// `beatgrid._save(path, grid, edits)`.
-pub(crate) fn save(app: &App, path: &Path, grid: &Json, edits: Json) -> Result<(), BeatsError> {
+/// Guarda la rejilla de un archivo, con lo re-analizado a mano.
+pub(crate) fn save(app: &App, path: &Path, grid: &Value, edits: Value) -> Result<(), BeatsError> {
     let c = cache(app, path).map_err(|e| BeatsError::Other(e.to_string()))?;
-    lb::make_folder(&c).map_err(|(e, at)| BeatsError::Other(format!("{}: {e}", at.display())))?;
-    let entry = lb::entry(
-        VERSION,
-        Json::str(&path.to_string_lossy()),
-        grid.clone(),
-        edits,
-    );
+    lb::make_folder(&c).map_err(|e| BeatsError::Other(format!("{}: {e}", c.display())))?;
+    let entry = lb::entry(VERSION, &path.to_string_lossy(), grid.clone(), edits);
     lb::write(&c, &entry);
     Ok(())
 }
 
-/// `beatgrid.save_exact(path, grid)`: una rejilla que no se adivina (la del
-/// tempo de un proyecto); vale aunque cambie la forma de sacar las demás.
+/// Una rejilla que no se adivina (la del tempo de un proyecto): vale aunque
+/// cambie la forma de sacar las demás.
 pub fn save_exact(app: &App, path: &Path, grid: &Value) -> Result<(), BeatsError> {
-    save(app, path, &from_value(grid), Json::List(Vec::new()))?;
+    save(app, path, grid, json!([]))?;
     let c = cache(app, path).map_err(|e| BeatsError::Other(e.to_string()))?;
-    lb::mark_exact(&c).map_err(|e| {
-        BeatsError::Other(match e {
-            lb::CacheError::TooDeep => "maximum recursion depth exceeded".into(),
-            lb::CacheError::Attribute(m) | lb::CacheError::Type(m) => m,
-        })
-    })
+    lb::mark_exact(&c);
+    Ok(())
 }
 
-/// `beatgrid.raw_of(path)`: lo que dijo la red, si se guardó.
+/// Lo que dijo la red de un archivo, si se guardó.
 fn raw_of(app: &App, path: &Path) -> Option<Raw> {
     let f = raw_file(app, path).ok()?;
     if f.is_file() {
@@ -180,8 +166,7 @@ fn raw_of(app: &App, path: &Path) -> Option<Raw> {
     }
 }
 
-/// `beatgrid._drums_of(path)`: la batería separada de la canción de esa
-/// ruta, si la tiene entera.
+/// La batería separada de la canción de esa ruta, si la tiene entera.
 fn drums_of(app: &App, path: &Path) -> Option<PathBuf> {
     let p = path.to_string_lossy().into_owned();
     let brief = app.db(|c| library::index::search::by_path(c, &p)).ok()??;
@@ -205,64 +190,60 @@ fn f64s(v: &[f32]) -> Vec<f64> {
     v.iter().map(|x| f64::from(*x)).collect()
 }
 
-/// Los reales de una lista de `Json` (`np.asarray(x, np.float64)`).
-fn floats(v: Option<&Json>) -> Result<Vec<f64>, BeatsError> {
-    match v {
-        Some(Json::List(items)) => items
-            .iter()
-            .map(|x| {
-                float_of(x).ok_or_else(|| BeatsError::Value("could not convert to float".into()))
-            })
-            .collect(),
-        Some(_) => Err(BeatsError::Value("could not convert to float".into())),
-        None => Err(BeatsError::Value("KeyError: 'beats'".into())),
-    }
+/// Los pulsos de una rejilla.
+fn floats(v: Option<&Value>) -> Result<Vec<f64>, BeatsError> {
+    let Some(items) = v else {
+        return Err(BeatsError::Value("la rejilla no tiene pulsos".into()));
+    };
+    let bad = || BeatsError::Value("la rejilla tiene pulsos que no son números".into());
+    items
+        .as_array()
+        .ok_or_else(bad)?
+        .iter()
+        .map(|x| x.as_f64().ok_or_else(bad))
+        .collect()
 }
 
-/// `pulse.finish` como el diccionario de Python, en su orden.
-fn final_json(f: &grid::Final) -> Vec<(&'static str, Json)> {
-    vec![
-        ("bpm", Json::Float(f.bpm)),
-        ("meter", Json::Int(f.meter)),
-        (
-            "beats",
-            Json::List(f.beats.iter().map(|b| Json::Float(*b)).collect()),
-        ),
-        ("first_downbeat", Json::Int(f.first_downbeat)),
-        ("phase3", Json::Int(f.phase3)),
-        ("phase4", Json::Int(f.phase4)),
-        ("confidence", Json::Float(f.confidence)),
-        (
-            "bars",
-            Json::List(f.bars.iter().map(|b| Json::Int(*b)).collect()),
-        ),
-        ("closed", Json::Bool(true)),
-    ]
+/// La rejilla terminada (sin su informe).
+fn final_json(f: &grid::Final) -> Map<String, Value> {
+    let Value::Object(out) = json!({
+        "bpm": f.bpm,
+        "meter": f.meter,
+        "beats": f.beats,
+        "first_downbeat": f.first_downbeat,
+        "phase3": f.phase3,
+        "phase4": f.phase4,
+        "confidence": f.confidence,
+        "bars": f.bars,
+        "closed": true,
+    }) else {
+        unreachable!("json! de un objeto")
+    };
+    out
 }
 
-/// La rejilla con su informe (`grid_dict`).
-fn grid_json(g: &grid::Grid) -> Json {
-    let report: Vec<(&str, Json)> = g
+/// La rejilla con su informe.
+fn grid_json(g: &grid::Grid) -> Value {
+    let report: Map<String, Value> = g
         .report
         .iter()
         .map(|(k, v)| {
             let v = match v {
-                grid::Value::Text(s) => Json::str(s),
-                grid::Value::Integer(i) => Json::Int(*i),
-                grid::Value::Real(x) => Json::Float(*x),
-                grid::Value::Boolean(b) => Json::Bool(*b),
+                grid::Value::Text(s) => Value::from(s.as_str()),
+                grid::Value::Integer(i) => Value::from(*i),
+                grid::Value::Real(x) => Value::from(*x),
+                grid::Value::Boolean(b) => Value::from(*b),
             };
-            (*k, v)
+            ((*k).to_owned(), v)
         })
         .collect();
-    let mut items = final_json(&g.end);
-    items.push(("report", dict(report)));
-    dict(items)
+    let mut out = final_json(&g.end);
+    out.insert("report".into(), Value::Object(report));
+    Value::Object(out)
 }
 
 /// La rejilla de toda la canción con lo que dijo la red (y la batería, si
-/// se da): `beatgrid._from_raw`. Lo que en `pulse.grid` era un `ValueError`,
-/// aquí es `BeatsError`.
+/// se da).
 fn whole(
     raw: &Raw,
     engine: &str,
@@ -290,70 +271,48 @@ fn whole(
 }
 
 /// La rejilla de antes con los pulsos de `start` a `end` cambiados por los
-/// nuevos, cosidos a los de los lados, y el «1» de toda otra vez
-/// (`beatgrid._merge`).
+/// nuevos, cosidos a los de los lados, y el «1» de toda otra vez.
 fn merge(
-    base: &Json,
+    base: &Value,
     beats: &[f64],
     new: &[f64],
     (start, end): (f64, f64),
     raw: &Raw,
-) -> Result<Json, BeatsError> {
+) -> Result<Value, BeatsError> {
     let s = ab::stitch(beats, new, start, end).map_err(failure)?;
-    let joins: Vec<(&str, Json)> = s
+    let joins: Map<String, Value> = s
         .joins
         .iter()
-        .map(|(side, ok)| (*side, Json::Bool(*ok)))
+        .map(|(side, ok)| ((*side).to_owned(), Value::Bool(*ok)))
         .collect();
-    let report = dict(vec![
-        (
-            "region",
-            Json::List(vec![Json::Float(s.region.0), Json::Float(s.region.1)]),
-        ),
-        ("joins", dict(joins)),
-    ]);
-    let meter = base.get("meter").and_then(|m| {
-        if m.equals_int(3) {
-            Some(3)
-        } else if m.equals_int(4) {
-            Some(4)
-        } else {
-            None
-        }
-    });
-    let end = grid::finish(&s.beats, &f64s(&raw.down), meter).map_err(grid_error)?;
-    let mut items = final_json(&end);
-    items.push(("report", report));
-    Ok(dict(items))
+    let report = json!({"region": [s.region.0, s.region.1], "joins": joins});
+    let meter = base
+        .get("meter")
+        .and_then(Value::as_f64)
+        .and_then(|m| [3, 4].into_iter().find(|&n| m == f64::from(n)));
+    let end = grid::finish(&s.beats, &f64s(&raw.down), meter.map(i64::from)).map_err(grid_error)?;
+    let mut out = final_json(&end);
+    out.insert("report".into(), report);
+    Ok(Value::Object(out))
 }
 
-/// `bool(x)` y `float(x)` de lo que puede faltar.
-fn truthy_float(v: Option<&Json>) -> Option<f64> {
-    v.filter(|x| x.truthy()).and_then(float_of)
+/// Un número que no es cero (lo que no está, o es cero, nada).
+fn nonzero(v: Option<&Value>) -> Option<f64> {
+    v.and_then(Value::as_f64).filter(|x| *x != 0.0)
 }
 
 /// Una re-análisis (`edit`) sobre la rejilla `base`: de toda la canción, o
-/// de un tramo cosido a lo de los lados (`beatgrid._apply`). La batería
-/// separada de «drums» se busca aquí (y la red se pasa por ella si hace
-/// falta).
+/// de un tramo cosido a lo de los lados. La batería separada de «drums» se
+/// busca aquí (y la red se pasa por ella si hace falta).
 fn apply(
     app: &App,
     path: &Path,
-    base: &Json,
+    base: &Value,
     raw: &Raw,
-    edit: &Json,
+    edit: &Value,
     extra: Option<&Raw>,
-) -> Result<Json, BeatsError> {
-    let mode_name = match edit.get("mode") {
-        None => "repair".to_owned(),
-        Some(Json::Str(s)) => crate::services::pyjson::string(s),
-        Some(other) => {
-            return Err(BeatsError::Value(format!(
-                "KeyError: {}",
-                other.type_name()
-            )));
-        }
-    };
+) -> Result<Value, BeatsError> {
+    let mode_name = edit.get("mode").and_then(Value::as_str).unwrap_or("repair");
     let mut drums_raw = None;
     if mode_name == "drums" {
         let Some(drums) = drums_of(app, path) else {
@@ -365,21 +324,21 @@ fn apply(
         });
     }
     let extra = drums_raw.as_ref().or(extra);
-    let mode = Mode::from_name(&mode_name)
-        .ok_or_else(|| BeatsError::Value(format!("KeyError: '{mode_name}'")))?;
+    let mode = Mode::from_name(mode_name)
+        .ok_or_else(|| BeatsError::Value(format!("no sé analizar así: {mode_name}")))?;
     let extra = extra.filter(|_| mode.uses_drums());
-    let bpm = truthy_float(edit.get("bpm"));
+    let bpm = nonzero(edit.get("bpm"));
     let all = whole(raw, mode.engine(), mode.edges(), bpm, extra)?;
     let (Some(start), Some(end)) = (
-        edit.get("start").filter(|v| **v != Json::Null),
-        edit.get("end").filter(|v| **v != Json::Null),
+        edit.get("start").filter(|v| !v.is_null()),
+        edit.get("end").filter(|v| !v.is_null()),
     ) else {
         return Ok(grid_json(&all));
     };
-    let bad = || BeatsError::Value("could not convert to float".into());
+    let bad = || BeatsError::Value("el tramo no es de números".into());
     let (start, end) = (
-        float_of(start).ok_or_else(bad)?,
-        float_of(end).ok_or_else(bad)?,
+        start.as_f64().ok_or_else(bad)?,
+        end.as_f64().ok_or_else(bad)?,
     );
     let beats = floats(base.get("beats"))?;
     if mode == Mode::Steady
@@ -388,7 +347,7 @@ fn apply(
         // tempo fijo entre los dos pulsos de los lados: cabe justo
         let bpm = bpm.unwrap_or(all.end.bpm);
         if bpm == 0.0 {
-            return Err(BeatsError::Other("float division by zero".into()));
+            return Err(BeatsError::Other("un tempo de 0 bpm".into()));
         }
         let inner = ab::steady_between(a, b, 60.0 / bpm).map_err(failure)?;
         return merge(base, &beats, &inner, (a + 1e-6, b - 1e-6), raw);
@@ -396,17 +355,17 @@ fn apply(
     merge(base, &beats, &all.end.beats, (start, end), raw)
 }
 
-/// `beatgrid.grid_of(path)`: la guardada si la hay, o calculada ahora (de lo
+/// La rejilla de un archivo: la guardada si la hay, o calculada ahora (de lo
 /// que dijo la red, si se guardó; si no, pasando la red).
-pub fn grid_of(app: &App, path: &Path) -> Result<Json, BeatsError> {
+pub fn grid_of(app: &App, path: &Path) -> Result<Value, BeatsError> {
     if !path.is_file() {
         return Err(beats_err("no encuentro el archivo"));
     }
     let saved = saved(app, path);
     if let Some(s) = &saved
-        && (s.get("version").is_some_and(|v| v.equals_int(VERSION))
-            || s.get("exact").is_some_and(Json::truthy))
-        && let Some(g) = s.get("grid").filter(|g| g.truthy())
+        && (s.get("version").and_then(Value::as_i64) == Some(VERSION)
+            || s.get("exact").is_some_and(library::py::truthy))
+        && let Some(g) = s.get("grid").filter(|g| library::py::truthy(g))
     {
         return Ok(g.clone());
     }
@@ -421,25 +380,23 @@ pub fn grid_of(app: &App, path: &Path) -> Result<Json, BeatsError> {
     let edits = saved
         .as_ref()
         .and_then(|s| s.get("edits"))
-        .filter(|e| e.truthy())
+        .filter(|e| e.is_array())
         .cloned()
-        .unwrap_or(Json::List(Vec::new()));
-    if let Json::List(items) = &edits {
-        for e in items {
-            match apply(app, path, &grid, &raw, e, extra.as_ref()) {
-                Ok(g) => grid = g,
-                Err(BeatsError::Beats(_) | BeatsError::Value(_)) => {}
-                Err(other) => return Err(other),
-            }
+        .unwrap_or_else(|| json!([]));
+    for e in edits.as_array().into_iter().flatten() {
+        match apply(app, path, &grid, &raw, e, extra.as_ref()) {
+            Ok(g) => grid = g,
+            Err(BeatsError::Beats(_) | BeatsError::Value(_)) => {}
+            Err(other) => return Err(other),
         }
     }
     save(app, path, &grid, edits)?;
     Ok(grid)
 }
 
-/// `beatgrid.reanalyze(path, mode, start, end, bpm)`: la rejilla otra vez,
-/// de otra manera, de toda la canción o de un tramo; se guarda (y se vuelve
-/// a aplicar si cambia la versión) y sale con `report.fixed`.
+/// La rejilla otra vez, de otra manera, de toda la canción o de un tramo;
+/// se guarda (y se vuelve a aplicar si cambia la versión) y sale con
+/// `report.fixed`.
 pub fn reanalyze(
     app: &App,
     path: &Path,
@@ -447,7 +404,7 @@ pub fn reanalyze(
     start: Option<f64>,
     end: Option<f64>,
     bpm: Option<f64>,
-) -> Result<Json, BeatsError> {
+) -> Result<Value, BeatsError> {
     if !REANALYZE_MODES.contains(&mode) {
         return Err(beats_err(format!("no sé analizar así: {mode}")));
     }
@@ -459,18 +416,19 @@ pub fn reanalyze(
         None => network(app, path)?,
     };
     let current = grid_of(app, path)?;
-    let mut edit = vec![("mode", Json::str(mode))];
+    let mut edit = Map::new();
+    edit.insert("mode".into(), Value::from(mode));
     if let (Some(s), Some(e)) = (start, end)
         && e > s
     {
-        edit.push(("start", Json::Float(library::py::round(s, 3))));
-        edit.push(("end", Json::Float(library::py::round(e, 3))));
+        edit.insert("start".into(), Value::from(library::py::round(s, 3)));
+        edit.insert("end".into(), Value::from(library::py::round(e, 3)));
     }
     if let Some(b) = bpm.filter(|b| *b != 0.0) {
-        edit.push(("bpm", Json::Float(b)));
+        edit.insert("bpm".into(), Value::from(b));
     }
-    let ranged = edit.iter().any(|(k, _)| *k == "start");
-    let edit = dict(edit);
+    let ranged = edit.contains_key("start");
+    let edit = Value::Object(edit);
     let extra = drums_of(app, path).and_then(|d| raw_of(app, &d));
     let mut grid = apply(app, path, &current, &raw, &edit, extra.as_ref())?;
     let fixed = ab::changes(
@@ -478,32 +436,22 @@ pub fn reanalyze(
         &floats(grid.get("beats"))?,
         0.04,
     );
-    let mut report = grid
-        .get("report")
-        .filter(|r| r.truthy())
-        .cloned()
-        .unwrap_or(Json::Dict(Vec::new()));
-    report.set(&text("fixed"), Json::Int(fixed as i64));
-    grid.set(&text("report"), report);
+    if let Value::Object(g) = &mut grid {
+        let report = g.entry("report").or_insert_with(|| json!({}));
+        if !report.is_object() {
+            *report = json!({});
+        }
+        report["fixed"] = Value::from(fixed);
+    }
     let mut edits = Vec::new();
     if ranged
-        && let Some(Json::List(before)) = saved(app, path).and_then(|s| s.get("edits").cloned())
+        && let Some(Value::Array(before)) = saved(app, path).and_then(|mut s| s.remove("edits"))
     {
         edits = before;
     }
     edits.push(edit);
-    save(app, path, &grid, Json::List(edits))?;
+    save(app, path, &grid, Value::Array(edits))?;
     Ok(grid)
-}
-
-/// La rejilla para la API (`Value`).
-pub fn as_value(grid: &Json) -> Value {
-    to_value(grid)
-}
-
-/// Lo que llega de la API como `Json` (para las pruebas).
-pub fn from_api(v: &Value) -> Json {
-    from_value(v)
 }
 
 // ---------------------------------------------------------------- el detector
@@ -806,7 +754,7 @@ pub fn progress(path: &Path) -> Option<f64> {
 /// `beatgrid.request(path, first)`: la rejilla si ya está guardada; si no,
 /// `None` y queda en la cola (delante con `first`). `BeatsError` si aquí no
 /// se puede o si ya falló con este mismo archivo.
-pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Json>, BeatsError> {
+pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, BeatsError> {
     if !path.is_file() {
         return Err(beats_err("no encuentro el archivo"));
     }

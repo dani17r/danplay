@@ -178,10 +178,10 @@ fn song_beats(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     }
     if wait {
         let grid = beats::grid_of(app, &path).map_err(beats_error)?;
-        return Ok(beats::as_value(&grid).into());
+        return Ok(grid.into());
     }
     if let Some(grid) = beats::request(app, &path, true).map_err(beats_error)? {
-        return Ok(beats::as_value(&grid).into());
+        return Ok(grid.into());
     }
     let done = beats::progress(&path).unwrap_or(0.0);
     Ok(Response::json(202, &json!({"pending": true, "progress": done})).into())
@@ -215,7 +215,6 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     }
     let grid =
         beats::reanalyze(ctx.app, &path_of(&c), &mode, start, end, bpm).map_err(beats_error)?;
-    let grid = beats::as_value(&grid);
     let report = grid
         .get("report")
         .filter(|r| py::truthy(r))

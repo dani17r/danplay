@@ -1320,9 +1320,6 @@ pub fn splitlines(s: &str) -> Vec<&str> {
 }
 
 mod casefold;
-pub mod json;
-pub mod text;
-pub mod value;
 
 #[cfg(test)]
 mod tests;
