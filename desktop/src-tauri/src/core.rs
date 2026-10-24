@@ -1,8 +1,8 @@
 //! El nucleo de DanPlay (el crate `server`), en este mismo proceso.
 //!
-//! Hasta la 1.30 el nucleo era un programa aparte (Python, empaquetado con
-//! PyInstaller) al que se hablaba por un socket Unix o, en Windows, por
-//! loopback con un token, y que habia que vigilar y revivir. Ahora la API la
+//! Hasta la 1.30 el nucleo era un programa aparte, al que se hablaba por un
+//! socket Unix o, en Windows, por loopback con un token, y que habia que
+//! vigilar y revivir. Ahora la API la
 //! contesta el enrutador de Rust aqui mismo: sin proceso aparte, sin socket,
 //! sin puerto, sin token y sin latido. Todo lo que habla con el (el puente
 //! `api` del JS, las caratulas, la cola, abrir archivos) pasa por
@@ -43,8 +43,8 @@ pub enum Address {
 /// El nucleo con la configuracion del entorno y lo que viaja con la app.
 fn in_process() -> server::App {
     let app = if cfg!(debug_assertions) {
-        // en desarrollo, como el de Python desde el codigo: el .env del
-        // proyecto cuenta y los datos son los de data/
+        // en desarrollo, desde el codigo: el .env del proyecto cuenta y los
+        // datos son los de data/
         server::App::from_env(server::Guard::default())
     } else {
         // la app instalada: sus datos (`data/`: los modelos, las voces, la

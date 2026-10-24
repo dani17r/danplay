@@ -2,8 +2,8 @@
 //!
 //! Un checkpoint moderno es un zip: `data.pkl` (un pickle que dice qué
 //! tensor es cuál) y `data/<n>` (los números de cada almacén, en crudo).
-//! Abrir el pickle con el `pickle.load` de Python sin más ejecutaría lo que
-//! trajera dentro: aquí lo lee una máquina de pickle propia que solo conoce
+//! Abrir el pickle con su cargador de siempre ejecutaría lo que trajera
+//! dentro: aquí lo lee una máquina de pickle propia que solo conoce
 //! lo que un diccionario de pesos necesita (reconstruir un tensor desde su
 //! almacén, un OrderedDict, un `torch.Size`) y rechaza todo lo demás. No se
 //! copia ningún número: lo que sale es dónde está cada tensor dentro del
@@ -62,8 +62,7 @@ impl Type {
         }
     }
 
-    /// El nombre del tipo en numpy (el de los números crudos: el bfloat16
-    /// se lee como uint16).
+    /// El nombre corriente del tipo de los números («float32», «bfloat16»...).
     pub fn numpy(self) -> &'static str {
         match self {
             Self::F32 => "float32",
@@ -121,7 +120,7 @@ fn corrupt(msg: impl Into<String>) -> Error {
 
 // ------------------------------------------------------------ los valores
 
-/// Lo que se le permite reconstruir al pickle (el `find_class` de antes).
+/// Lo que se le permite reconstruir al pickle; lo demás se rechaza.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Class {
     OrderedDict,
@@ -166,7 +165,7 @@ impl Class {
         }
     }
 
-    /// El `__name__` de lo que devolvía `find_class`.
+    /// El nombre de la clase (en un almacén, su tipo: «FloatStorage»...).
     fn name(self) -> &'static str {
         match self {
             Self::OrderedDict => "OrderedDict",
@@ -223,7 +222,8 @@ impl V {
         }
     }
 
-    /// Como `==` de Python entre claves de un diccionario.
+    /// Si dos claves de un diccionario del pickle son la misma: los números,
+    /// por su valor (1, 1.0 y True son la misma clave).
     fn equals(&self, other: &Self) -> bool {
         match (self.number(), other.number()) {
             (Some(a), Some(b)) => return a == b,
@@ -262,7 +262,8 @@ impl V {
         }
     }
 
-    /// `str()` de Python, para las claves del diccionario de pesos.
+    /// La clave como texto, escrita como en Python (el lenguaje del pickle),
+    /// para las claves del diccionario de pesos.
     fn text(&self) -> String {
         match self {
             Self::Nothing => "None".into(),
@@ -368,7 +369,7 @@ impl Zip {
         if let Some(a) = self.already_read.get(&key) {
             return Ok(Rc::clone(a));
         }
-        // el nombre del tipo (lo que devolvía `find_class`, o un texto)
+        // el nombre del tipo (una clase del pickle, o un texto)
         let name = match &pid[1] {
             V::Class(c) => c.name().to_owned(),
             V::Text(s) => s.to_string(),
@@ -420,9 +421,9 @@ impl Zip {
     }
 }
 
-/// `_rebuild_tensor(storage, storage_offset, shape, steps, ...)`. A diferencia
-/// del `as_strided` de numpy, se comprueba que la vista no se salga de su
-/// almacén (un checkpoint mal hecho leía memoria de fuera).
+/// `_rebuild_tensor(storage, storage_offset, shape, steps, ...)`. Se comprueba
+/// que la vista no se salga de su almacén: sin eso, un checkpoint mal hecho
+/// leería memoria de fuera.
 fn tensor(args: &[V]) -> Result<V, Error> {
     if args.len() < 4 {
         return Err(Error::Pickle(format!(
@@ -624,8 +625,8 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
     let mut markers: Vec<usize> = Vec::new();
     let mut memo: HashMap<u64, V> = HashMap::new();
 
-    // Como el de CPython: lo de antes de la última marca no se toca (la
-    // «valla») hasta que se cierra esa marca.
+    // Como en la máquina de pickle de referencia: lo de antes de la última
+    // marca no se toca (la «valla») hasta que se cierra esa marca.
     macro_rules! pop {
         () => {{
             if stack.len() <= markers.last().copied().unwrap_or(0) {
@@ -1229,8 +1230,8 @@ fn read_at(file: &mut File, start: u64, bytes: u64) -> std::io::Result<Vec<u8>> 
     Ok(out)
 }
 
-/// Los números de un tensor de un checkpoint, en float32 y en orden C (como
-/// `astype(float32)` de la vista de numpy): solo se lee lo que ocupa.
+/// Los números de un tensor de un checkpoint, en float32 y en orden C (la
+/// vista recorrida en orden y pasada a float32): solo se lee lo que ocupa.
 pub fn materialize(file: &mut File, t: &Tensor) -> std::io::Result<(Vec<usize>, Vec<f32>)> {
     let a = &t.storage;
     let item = a.kind.bytes();

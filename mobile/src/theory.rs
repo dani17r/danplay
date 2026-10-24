@@ -1,7 +1,8 @@
-//! Transponer acordes: lo mismo que `danplay/theory.py` y `enrich.transpose_sheet`
-//! en la PC, para que el cifrado se suba o se baje igual aqui sin Python.
+//! Transponer acordes: lo mismo que `library/src/theory.rs` y
+//! `enrich::transpose_sheet` en la PC, para que el cifrado se suba o se baje
+//! igual aqui.
 //!
-//! La expresion de un acorde es la de Python, recorrida a mano y con sus
+//! La expresion de un acorde es la de la PC, recorrida a mano y con sus
 //! alternativas en el mismo orden:
 //! `\b([A-G][#b]?)((?:maj|min|m|dim|aug|sus|add|M)?\d*(?:[#b]\d+)*(?:sus\d?|add\d+|dim7?|aug|maj7?|m7b5)?)(/([A-G][#b]?))?`.
 //! Determinista a proposito: transponer es matematica.
@@ -186,7 +187,7 @@ fn suggested_capo(key: &str) -> Vec<Value> {
 
 /// El cifrado en otro tono (`to_key`, si el cifrado dice el suyo) o
 /// `semitones` arriba: solo las lineas de acordes (en una de letra, «Dios» no
-/// es un Re). Como `enrich.transpose_sheet`.
+/// es un Re). Como `enrich::transpose_sheet` de la PC.
 pub fn transpose_sheet(sheet: &Value, semitones: i32, to_key: &str) -> Value {
     let from_key = sheet.get("key").and_then(Value::as_str).unwrap_or("");
     let (n, flats, to_key) = if !to_key.is_empty() && !from_key.is_empty() {
@@ -256,7 +257,8 @@ pub fn transpose_sheet(sheet: &Value, semitones: i32, to_key: &str) -> Value {
 mod tests {
     use super::*;
 
-    /// Los mismos casos que `tests/test_core.py` en la PC.
+    /// Los mismos casos que las pruebas de transponer de la PC
+    /// (`library/src/theory.rs`).
     #[test]
     fn transposes_like_the_pc() {
         let to = |text: &str, from: &str, to: &str| {

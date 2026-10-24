@@ -1,6 +1,6 @@
 //! El análisis de DanPlay: lo que el núcleo hace con el sonido de cada
-//! canción. Salió del núcleo de Python de hasta la 1.30 (click.py,
-//! torchzip.py, pulse.py...), con sus mismas cuentas.
+//! canción. Las cuentas dan lo mismo, número a número, que las de hasta la
+//! 1.30: con ellas se prepararon y se probaron los modelos.
 //!
 //! - `mix`: el clic y las guías habladas de una mezcla guardada, en WAV;
 //! - `beatgrid`: la rejilla del clic con lo que dijo la red: de toda la
@@ -25,8 +25,8 @@
 //!
 //! Lo usan la API (`server`) y las apps.
 // Las comparaciones exactas entre números con decimales son a propósito: la
-// cuenta es la de numpy, que compara igual (un máximo con su ventana, un punto
-// con su tabla), y con un margen saldría otra cosa.
+// cuenta compara igual a igual (un máximo con su ventana, un punto con su
+// tabla), y con un margen saldría otra cosa.
 #![allow(clippy::float_cmp)]
 
 pub mod align;

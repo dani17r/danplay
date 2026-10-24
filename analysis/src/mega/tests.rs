@@ -1,5 +1,5 @@
-//! Lo de tests/test_mega.py que no necesita ffmpeg: el espectrograma, el
-//! orden de la red y el reparto con una red de mentira.
+//! Lo del Mega53 que no necesita ffmpeg: el espectrograma, el orden de la
+//! red y el reparto con una red de mentira.
 use super::*;
 use std::path::Path;
 
@@ -179,7 +179,7 @@ fn split_adds_up_and_follows_what_the_net_hears() {
 
 // ------------------------------------------- la pasada entera, con ffmpeg
 
-/// Las cabezas del Mega53, en su orden (las de la prueba de Python).
+/// Las cabezas del Mega53, en su orden.
 const HEADS: [&str; 20] = [
     "drums",
     "percussion",
@@ -203,7 +203,7 @@ const HEADS: [&str; 20] = [
     "wind",
 ];
 
-/// El archivo de cada pista (`stems.SOURCES` de la biblioteca).
+/// El archivo de cada pista (`stems::SOURCES` de la biblioteca).
 const FILES: [(&str, &str); 16] = [
     ("drums", "Bateria"),
     ("percussion", "Percusion"),
@@ -227,7 +227,7 @@ const FILES: [(&str, &str); 16] = [
 fn write_wav(path: &Path, x: &[f64]) {
     let mut data = Vec::with_capacity(x.len() * 4);
     for v in x {
-        // como `astype("<i2")` de numpy: hacia el cero
+        // a 16 bits sin redondear: hacia el cero
         let s = (v * 32767.0) as i16;
         data.extend(s.to_le_bytes());
         data.extend(s.to_le_bytes());
@@ -250,14 +250,14 @@ fn write_wav(path: &Path, x: &[f64]) {
     std::fs::write(path, out).expect("escribir el wav");
 }
 
-/// Lo de tests/test_mega.py: la pasada de máxima calidad sobre las pistas
-/// buenas de una canción de 4 s (batería, bajo y voces) con una red de
-/// mentira. La percusión sale; sin coros, las voces quedan como estaban; lo
-/// que no suena no es pista, y todo junto suena como la canción.
+/// La pasada de máxima calidad sobre las pistas buenas de una canción de
+/// 4 s (batería, bajo y voces) con una red de mentira. La percusión sale;
+/// sin coros, las voces quedan como estaban; lo que no suena no es pista, y
+/// todo junto suena como la canción.
 #[test]
 #[allow(
     clippy::too_many_lines,
-    reason = "la canción, el trabajo y lo que se mira, como en Python"
+    reason = "la canción, el trabajo y lo que se mira, en una sola prueba"
 )]
 fn the_max_pass_keeps_what_sounds_and_the_rest_is_other() {
     use crate::separate::process::{JobNet, decode};

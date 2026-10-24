@@ -29,7 +29,8 @@ use tauri::{AppHandle, Emitter, Manager};
 /// aqui, asi que el aviso sale de aqui.
 pub const RECENT_EVENT: &str = "danplay://recent";
 
-/// Las extensiones que reconoce la biblioteca (`danplay/config.py`).
+/// Las extensiones que reconoce la biblioteca (`EXTENSIONS` de
+/// `library/src/config.rs`).
 pub const EXTENSIONS: &[&str] = &["mp3", "wav", "flac", "m4a", "ogg", "opus", "aac", "wma"];
 
 pub fn is_audio(path: impl AsRef<Path>) -> bool {
@@ -211,7 +212,7 @@ fn loose(path: &str, position: usize) -> Track {
 /// devuelve la cancion de verdad —con su caratula y sus estrellas—, y si no,
 /// le lee las etiquetas y le da un id propio. En los dos casos la apunta en la
 /// lista del reproductor, que es de donde sale el historial. Ver
-/// `danplay/external.py`.
+/// `library/src/external.rs`.
 fn track_of(song: Option<&serde_json::Value>, path: &str, position: usize) -> Track {
     match song.filter(|s| !s.is_null()) {
         // el nucleo la conoce: se reproduce con su id de verdad, pero

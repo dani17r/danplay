@@ -96,8 +96,8 @@ const fn yes() -> bool {
 /// Lo que se aplica a cada canal de una pista segun su volumen y su
 /// panorama. Es un balance, como el de un equipo de musica: al centro, los
 /// dos canales como vienen; hacia un lado, el otro baja hasta callar. Es la
-/// misma cuenta que hace el nucleo al guardar la mezcla (`stems.gains`), para
-/// que lo guardado suene como lo que se oia.
+/// misma cuenta que hace el nucleo al guardar la mezcla (`stems::gains` de la
+/// biblioteca), para que lo guardado suene como lo que se oia.
 pub fn balance(gain: f32, pan: f32, on: bool) -> [f32; 2] {
     if !on || !gain.is_finite() || gain <= 0.0 {
         return [0.0, 0.0];

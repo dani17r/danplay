@@ -1,12 +1,13 @@
-//! Las pocas cuentas de numpy que importan para dar lo mismo que el Python
-//! de antes, número a número: la suma por parejas (la de `np.sum` y
-//! `np.mean`), la mediana, `linspace`, `interp`, `searchsorted` y el
-//! redondeo de Python. Lo demás (exp, log, sin...) es el mismo libm en los
-//! dos lados.
+//! Las pocas cuentas en las que el orden de las operaciones cambia el
+//! número: la suma por parejas (la de las sumas y las medias), la mediana,
+//! los puntos repartidos, la interpolación, la búsqueda en lo ordenado y el
+//! redondeo a decimales. Se hacen siempre de la misma forma para que salga
+//! lo mismo, número a número, que con lo que se prepararon y se probaron los
+//! modelos. Lo demás (exp, log, sin...) es el libm de siempre.
 
-/// `np.sum` de un `float64`: por parejas, como numpy (bloques de 8
-/// acumuladores hasta 128, y por mitades por encima), no de izquierda a
-/// derecha. Da el mismo número, bit a bit.
+/// La suma de un `float64` por parejas (bloques de 8 acumuladores hasta 128,
+/// y por mitades por encima), no de izquierda a derecha. Da el mismo número,
+/// bit a bit, que con lo que se prepararon los modelos.
 pub fn sum(a: &[f64]) -> f64 {
     let n = a.len();
     if n < 8 {
@@ -37,7 +38,7 @@ pub fn sum(a: &[f64]) -> f64 {
     }
 }
 
-/// `np.sum` de un `float32` (con acumuladores de 32 bits, como numpy).
+/// La misma suma por parejas de un `float32`, con acumuladores de 32 bits.
 pub fn sum32(a: &[f32]) -> f32 {
     let n = a.len();
     if n < 8 {
@@ -68,18 +69,18 @@ pub fn sum32(a: &[f32]) -> f32 {
     }
 }
 
-/// `np.mean` de un `float64` (NaN si está vacío, como numpy).
+/// La media de un `float64`, con la suma por parejas (NaN si está vacío).
 pub fn media(a: &[f64]) -> f64 {
     sum(a) / a.len() as f64
 }
 
-/// `np.mean` de un `float32`: la suma en 32 bits y la división por el
-/// número de elementos (un `intp`) en 64, de vuelta a 32.
+/// La media de un `float32`: la suma en 32 bits y la división por el
+/// número de elementos en 64, de vuelta a 32.
 pub fn media32(a: &[f32]) -> f32 {
     (f64::from(sum32(a)) / a.len() as f64) as f32
 }
 
-/// `np.median`: el del medio, o la media de los dos del medio.
+/// La mediana: el del medio, o la media de los dos del medio.
 pub fn median(a: &[f64]) -> f64 {
     let mut v = a.to_vec();
     if v.iter().any(|x| x.is_nan()) {
@@ -97,8 +98,8 @@ pub fn median(a: &[f64]) -> f64 {
     }
 }
 
-/// `np.linspace(start, end, n)`: `i * paso + inicio`, con el último justo
-/// en `end`.
+/// `n` puntos repartidos por igual de `start` a `end`: `i * paso + inicio`,
+/// con el último justo en `end`.
 pub fn linspace(start: f64, end: f64, n: usize) -> Vec<f64> {
     if n == 0 {
         return Vec::new();
@@ -118,21 +119,22 @@ pub fn linspace(start: f64, end: f64, n: usize) -> Vec<f64> {
     y
 }
 
-/// `np.searchsorted(a, v)` (por la izquierda): el primer índice con
+/// Dónde iría `v` en `a`, ordenado (por la izquierda): el primer índice con
 /// `a[i] >= v`.
 pub fn searchsorted(a: &[f64], v: f64) -> usize {
     a.partition_point(|x| *x < v)
 }
 
-/// El `<` de numpy al ordenar y buscar: los NaN van detrás de todo.
+/// El `<` de ordenar y buscar: los NaN van detrás de todo.
 fn nan_last_less(a: f64, b: f64) -> bool {
     a < b || (b.is_nan() && !a.is_nan())
 }
 
-/// `np.searchsorted(a, keys)` con la búsqueda de numpy 2 tal cual (la de
-/// mitades sin saltos de `npysort/binsearch.cpp`), con los NaN al final.
-/// Con `a` ordenado da lo mismo que `searchsorted`; con `a` desordenado (una
-/// rejilla guardada a mano), lo mismo que numpy, que no es lo mismo.
+/// Dónde iría cada una de `keys` en `a`, con la búsqueda por mitades sin
+/// saltos (se parte siempre por la mitad de lo que queda y se sigue hasta
+/// el final) y con los NaN al final. Con `a` ordenado da lo mismo que
+/// `searchsorted`; con `a` desordenado (una rejilla guardada a mano) da
+/// otra cosa, y es la que daban las versiones de antes.
 pub fn searchsorted_numpy(a: &[f64], keys: &[f64]) -> Vec<usize> {
     keys.iter()
         .map(|&key| {
@@ -152,8 +154,9 @@ pub fn searchsorted_numpy(a: &[f64], keys: &[f64]) -> Vec<usize> {
         .collect()
 }
 
-/// `np.interp(x, xp, fp)`, con sus mismos casos: fuera de los extremos, el
-/// extremo; en un punto, su valor; y si la recta da NaN, por el otro lado.
+/// El valor en `x` de la tabla (`xp`, `fp`), por la recta entre sus dos
+/// puntos: fuera de los extremos, el extremo; en un punto, su valor; y si la
+/// recta da NaN, por el otro lado.
 pub fn interp(x: f64, xp: &[f64], fp: &[f64]) -> f64 {
     let n = xp.len();
     if n == 1 {
@@ -187,7 +190,7 @@ pub fn interp(x: f64, xp: &[f64], fp: &[f64]) -> f64 {
     r
 }
 
-/// El primer índice del máximo (`np.argmax`: con NaN, el primer NaN).
+/// El primer índice del máximo (con NaN, el primer NaN).
 pub fn argmax(a: &[f64]) -> usize {
     let mut best = 0;
     for (i, x) in a.iter().enumerate() {
@@ -201,8 +204,8 @@ pub fn argmax(a: &[f64]) -> usize {
     best
 }
 
-/// `round(x, digits)` de Python: al decimal más cercano del valor exacto
-/// (a la par si cae justo en medio), y de vuelta al `float` más cercano.
+/// `x` con `digits` decimales: al decimal más cercano del valor exacto (a la
+/// par si cae justo en medio), y de vuelta al `f64` más cercano.
 pub fn round_to(x: f64, digits: usize) -> f64 {
     if !x.is_finite() {
         return x;
@@ -210,7 +213,7 @@ pub fn round_to(x: f64, digits: usize) -> f64 {
     format!("{x:.digits$}").parse().unwrap_or(x)
 }
 
-/// La suma acumulada de izquierda a derecha (`np.cumsum`).
+/// La suma acumulada de izquierda a derecha.
 pub fn cumsum(a: &[f64]) -> Vec<f64> {
     let mut s = 0.0;
     a.iter()
@@ -221,12 +224,12 @@ pub fn cumsum(a: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-/// `np.diff`.
+/// Las diferencias entre cada uno y el siguiente.
 pub fn diff(a: &[f64]) -> Vec<f64> {
     a.windows(2).map(|w| w[1] - w[0]).collect()
 }
 
-/// La sigmoide de numpy, en 64 bits.
+/// La sigmoide, en 64 bits.
 pub fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
 }
@@ -236,7 +239,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rounds_like_python() {
+    fn rounds_half_to_even_on_the_exact_value() {
         // los casos en el medio del valor exacto van a la par; los que solo
         // parecen estar en el medio (2.675 es 2.67499999...) van abajo
         assert_eq!(round_to(0.125, 2), 0.12);
@@ -248,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn interp_and_linspace_like_numpy() {
+    fn interp_linspace_searchsorted_and_median() {
         let x = linspace(0.0, 1.0, 5);
         assert_eq!(x, [0.0, 0.25, 0.5, 0.75, 1.0]);
         assert_eq!(interp(0.5, &[0.0, 1.0], &[2.0, 4.0]), 3.0);
@@ -263,7 +266,8 @@ mod tests {
             [1, 0, 4, 4, 3]
         );
         assert_eq!(searchsorted_numpy(&[], &[1.0]), [0]);
-        // desordenado: lo que da numpy (la búsqueda de mitades de siempre daría 8)
+        // desordenado: lo que da la búsqueda sin saltos (la de mitades de
+        // siempre daría 8)
         let a = [0.0, 2.0, 1.0, 2.0, 2.0, 0.0, 8.0, 2.0, 8.0, 6.0, 1.0];
         assert_eq!(searchsorted_numpy(&a, &[6.0]), [6]);
         assert_eq!(median(&[3.0, 1.0, 2.0, 10.0]), 2.5);

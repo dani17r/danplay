@@ -3,8 +3,7 @@
 //! Es el mismo que suena en el modo estudio: la tabla de sonidos y la cuenta
 //! por muestra son las de `engine/src/click.rs`, que comparten la app de
 //! escritorio y la del celular. Aquí solo se ponen los golpes en su sitio
-//! para hacer una pista entera (antes, con numpy, en danplay/click.py, con
-//! la tabla copiada a mano).
+//! para hacer una pista entera.
 use danplay_engine::click::{self as hits, Sound};
 
 pub use danplay_engine::click::SOUNDS;
@@ -36,8 +35,7 @@ pub fn hit(sound: Sound, accent: bool, rate: u32) -> Vec<f32> {
         .collect()
 }
 
-/// Un número que no se puede llevar a muestras (como `round` y `math.ceil`
-/// de Python con NaN o infinito).
+/// Un número que no se puede llevar a muestras: NaN o infinito.
 #[derive(Debug, PartialEq, Eq)]
 pub enum NotInteger {
     Nan,
@@ -70,7 +68,7 @@ pub fn track(
     let accented = hit(sound, true, rate);
     let unaccented = hit(sound, false, rate);
     for &(t, accent) in beats {
-        // `round` de Python: a la par en el medio
+        // al entero más cercano; justo en el medio, al par
         let start = integer((t * rate_f).round_ties_even())?;
         if start < 0.0 || start >= length as f64 {
             continue;
@@ -82,8 +80,8 @@ pub fn track(
             *o += s;
         }
     }
-    // `max(0.0, min(MAX_VOLUME, volume))` de Python, tal cual: un
-    // volumen NaN se queda en el tope
+    // primero el tope y luego el cero, en ese orden: un volumen NaN se
+    // queda en el tope
     let cap = if volume < MAX_VOLUME {
         volume
     } else {
@@ -100,8 +98,8 @@ pub fn track(
 mod tests {
     use super::*;
 
-    /// Lo de tests/test_click.py: un golpe en cada pulso, el «1» más fuerte,
-    /// un sonido que no existe es el clásico y el volumen tiene tope.
+    /// Un golpe en cada pulso, el «1» más fuerte, un sonido que no existe es
+    /// el clásico y el volumen tiene tope.
     #[test]
     fn the_click_track_puts_a_hit_on_every_beat() {
         let beats = [0.5, 1.0, 1.5, 2.0];

@@ -96,8 +96,8 @@ fn nearest(x: f64) -> Result<f64, Failure> {
     }
 }
 
-/// `np.sort` de reales: de menor a mayor y los NaN al final (y lo que es
-/// igual, en el orden en que llegó).
+/// Los reales de menor a mayor y los NaN al final (y lo que es igual, en el
+/// orden en que llegó).
 fn sort(v: &mut [f64]) {
     v.sort_by(|a, b| match (a.is_nan(), b.is_nan()) {
         (false, false) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
@@ -118,9 +118,9 @@ pub struct Heard<'a> {
     pub seconds: f64,
 }
 
-/// La rejilla de toda la canción (`beatgrid._from_raw`): con `extra` (lo que
-/// dijo la red sobre la batería), en cada trama manda la más segura. El
-/// error, el de `pulse::grid` (la canción no tiene pulso...).
+/// La rejilla de toda la canción: con `extra` (lo que dijo la red sobre la
+/// batería), en cada trama manda la más segura. El error, el de
+/// `pulse::grid` (la canción no tiene pulso...).
 pub fn whole(
     heard: &Heard<'_>,
     extra: Option<&[f64]>,
@@ -162,8 +162,8 @@ pub struct Stitched {
 }
 
 /// La rejilla de antes (`old`) con los pulsos de `start` a `end` cambiados
-/// por los nuevos (`new`), cosidos a los de los lados (`beatgrid._merge`,
-/// sin el «1», que se saca después con `pulse::grid::finish`).
+/// por los nuevos (`new`), cosidos a los de los lados (sin el «1», que se
+/// saca después con `pulse::grid::finish`).
 pub fn stitch(old: &[f64], new: &[f64], start: f64, end: f64) -> Result<Stitched, Failure> {
     let keep_l: Vec<f64> = old.iter().copied().filter(|t| *t < start).collect();
     let keep_r: Vec<f64> = old.iter().copied().filter(|t| *t > end).collect();
@@ -243,7 +243,7 @@ pub fn steady_between(a: f64, b: f64, period: f64) -> Result<Vec<f64>, Failure> 
 
 // ------------------------------------------------------------ lo que cambió
 
-/// `np.minimum`: con un NaN, NaN.
+/// El menor de los dos; con un NaN, NaN.
 fn minimum(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() {
         f64::NAN
@@ -272,9 +272,9 @@ fn far(xs: &[f64], ys: &[f64], tol: f64) -> Vec<f64> {
         .collect()
 }
 
-/// En cuántos sitios suena distinto el clic (`beatgrid.changes`): los
-/// trozos seguidos de pulsos que se movieron (más de `tol`), aparecieron o
-/// se quitaron; un trozo, cambios separados por menos de dos segundos.
+/// En cuántos sitios suena distinto el clic: los trozos seguidos de pulsos
+/// que se movieron (más de `tol`), aparecieron o se quitaron; un trozo,
+/// cambios separados por menos de dos segundos.
 pub fn changes(before: &[f64], after: &[f64], tol: f64) -> usize {
     if before.is_empty() || after.is_empty() {
         return usize::from(!before.is_empty() || !after.is_empty());

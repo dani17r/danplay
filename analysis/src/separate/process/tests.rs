@@ -1,7 +1,7 @@
-//! Lo de tests/test_separation.py que necesita ffmpeg: el trabajo entero,
-//! con canciones de tonos y las redes de mentira de `separate::tests`, que
-//! devuelven lo que les entra repartido entre sus fuentes. Sin ffmpeg, estas
-//! pruebas lo dicen y no comprueban nada.
+//! Lo de separar que necesita ffmpeg: el trabajo entero, con canciones de
+//! tonos y las redes de mentira de `separate::tests`, que devuelven lo que
+//! les entra repartido entre sus fuentes. Sin ffmpeg, estas pruebas lo dicen
+//! y no comprueban nada.
 use super::*;
 use crate::separate::QUIET_DB;
 use crate::separate::tests::{Identity, tones};
@@ -26,7 +26,7 @@ fn write_wav(path: &Path, x: &[f32]) {
     let mut data = Vec::with_capacity(n * 4);
     for i in 0..n {
         for c in 0..2 {
-            // como `astype("<i2")` de numpy: hacia el cero
+            // a 16 bits sin redondear: hacia el cero
             let v = (x[c * n + i].clamp(-1.0, 1.0) * 32767.0) as i16;
             data.extend(v.to_le_bytes());
         }
@@ -253,7 +253,7 @@ fn the_improvement_keeps_what_was_decided() {
     );
 }
 
-/// Si este ffmpeg sabe hacer Opus (`stems._has_opus` de Python).
+/// Si este ffmpeg sabe hacer Opus (lo mismo que mira el servidor).
 fn has_opus(ffmpeg: &str) -> bool {
     std::process::Command::new(ffmpeg)
         .args(["-hide_banner", "-encoders"])

@@ -1,11 +1,12 @@
-//! Las guías habladas (danplay/cues.py): lo que se le hace a su sonido.
-//! Dejarla lista para sonar en su punto (sin el silencio de los lados, a
-//! su volumen y sin chasquidos), el WAV que se guarda y el que se lee (como
-//! el módulo `wave` de Python, con sus mismos casos raros), su onda y lo que
-//! se le hace en el editor (recortarla, los fundidos, el volumen).
+//! Las guías habladas: lo que se le hace a su sonido. Dejarla lista para
+//! sonar en su punto (sin el silencio de los lados, a su volumen y sin
+//! chasquidos), el WAV que se guarda y el que se lee (con los mismos casos
+//! raros que hasta la 1.30: lo que se leía se lee igual, y lo que no, va por
+//! ffmpeg), su onda y lo que se le hace en el editor (recortarla, los
+//! fundidos, el volumen).
 //!
-//! Las cuentas son las de numpy en float32, con sus escalares de Python
-//! «débiles» (el número se pasa a float32 antes de operar o comparar).
+//! Las cuentas van en float32, también con los números sueltos (el número se
+//! pasa a float32 antes de operar o comparar).
 use crate::np;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -26,7 +27,7 @@ fn smaller(a: f64, b: f64) -> f64 {
     if b < a { b } else { a }
 }
 
-/// `np.max(np.abs(x))`: con un NaN, NaN.
+/// El pico (el mayor valor absoluto): con un NaN, NaN.
 fn peak_level(x: &[f32]) -> f32 {
     x.iter().fold(0.0f32, |m, v| {
         let v = v.abs();
@@ -38,7 +39,8 @@ fn peak_level(x: &[f32]) -> f32 {
     })
 }
 
-/// `np.linspace(a, b, n, dtype=np.float32)`: en float64 y luego a float32.
+/// `n` puntos repartidos por igual de `a` a `b`: en float64 y luego a
+/// float32.
 fn fade_ramp(a: f64, b: f64, n: usize) -> Vec<f32> {
     np::linspace(a, b, n)
         .into_iter()
@@ -50,7 +52,7 @@ fn fade_ramp(a: f64, b: f64, n: usize) -> Vec<f32> {
 /// guía empieza justo donde se puso), a -1 dBFS de pico y con un fundido
 /// cortito en los bordes (sin chasquidos). En silencio, vacía.
 pub fn polish(wav: &[f32], rate: u32) -> Vec<f32> {
-    // np.nan_to_num
+    // los NaN a 0 y los infinitos al mayor float32 de su signo
     let mut wav: Vec<f32> = wav
         .iter()
         .map(|&x| {
@@ -104,7 +106,7 @@ pub fn polish(wav: &[f32], rate: u32) -> Vec<f32> {
     wav
 }
 
-/// `(np.clip(wav, -1, 1) * 32767).astype("<i2")` de un float32 (las
+/// A 16 bits, de un float32: recortado a ±1, por 32767 y hacia el cero (las
 /// cuentas en float32; un NaN, 0).
 pub fn pcm16(wav: &[f32]) -> Vec<i16> {
     wav.iter()
@@ -119,8 +121,8 @@ pub fn pcm16_64(wav: &[f64]) -> Vec<i16> {
         .collect()
 }
 
-/// El WAV de la guía (mono, 16 bits), byte a byte como lo escribe `wave`
-/// de Python: a un temporal y a su sitio al final.
+/// El WAV de la guía (mono, 16 bits, la cabecera de siempre de 44 bytes),
+/// byte a byte como hasta la 1.30: a un temporal y a su sitio al final.
 pub fn write_wav(path: &Path, pcm: &[i16], rate: u32) -> io::Result<()> {
     if let Some(p) = path.parent() {
         fs::create_dir_all(p)?;
@@ -161,8 +163,8 @@ pub fn write_wav(path: &Path, pcm: &[i16], rate: u32) -> io::Result<()> {
 
 // ------------------------------------------------------------ leer un WAV
 
-/// Un trozo («chunk») del RIFF, como `wave._Chunk`: lo que mide, lo que ya
-/// se leyó y dónde empieza (en lo de fuera).
+/// Un trozo («chunk») del RIFF: lo que mide, lo que ya se leyó y dónde
+/// empieza (en lo de fuera).
 struct Chunk {
     tam: u64,
     loaded: u64,
@@ -171,11 +173,11 @@ struct Chunk {
 
 /// Por qué no se leyó como WAV.
 pub enum NoWav {
-    /// No es un WAV que sepa leer `wave` (`wave.Error`, `EOFError` u
-    /// `OSError`): se prueba con ffmpeg.
+    /// No es un WAV que se sepa leer aquí (otra cabecera, se acaba antes de
+    /// tiempo o no se puede abrir): se prueba con ffmpeg.
     Other,
-    /// El `RuntimeError` de `_Chunk.seek` (un trozo que se sale del RIFF):
-    /// en Python no se esperaba y salía tal cual.
+    /// Un trozo que se sale del RIFF: no se prueba con ffmpeg, sale como
+    /// error (el «RuntimeError» de siempre).
     Runtime,
 }
 
@@ -185,7 +187,7 @@ impl From<io::Error> for NoWav {
     }
 }
 
-/// Un WAV abierto como `wave.open(path, "rb")`, listo para leer sus tramas.
+/// Un WAV abierto, listo para leer sus tramas.
 pub struct Wav {
     file: File,
     riff: Chunk,
@@ -199,14 +201,14 @@ pub struct Wav {
 const PCM_EXTENSIBLE: [u8; 16] =
     *b"\x01\x00\x00\x00\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71";
 
-/// `file.read(n)`: hasta `n` bytes (menos solo al final).
+/// Hasta `n` bytes (menos solo al final).
 fn read(f: &mut File, n: u64) -> io::Result<Vec<u8>> {
     let mut out = Vec::new();
     Read::by_ref(f).take(n).read_to_end(&mut out)?;
     Ok(out)
 }
 
-/// `read` del RIFF: sin pasar de lo que mide, y con el byte de relleno al
+/// Leer del RIFF: sin pasar de lo que mide, y con el byte de relleno al
 /// acabar si mide impar.
 fn read_riff(f: &mut File, r: &mut Chunk, n: u64) -> io::Result<Vec<u8>> {
     if r.loaded >= r.tam {
@@ -220,7 +222,7 @@ fn read_riff(f: &mut File, r: &mut Chunk, n: u64) -> io::Result<Vec<u8>> {
     Ok(data)
 }
 
-/// `read` de un trozo de dentro del RIFF.
+/// Leer de un trozo de dentro del RIFF.
 fn read_chunk(f: &mut File, r: &mut Chunk, t: &mut Chunk, n: u64) -> io::Result<Vec<u8>> {
     if t.loaded >= t.tam {
         return Ok(Vec::new());
@@ -233,8 +235,8 @@ fn read_chunk(f: &mut File, r: &mut Chunk, t: &mut Chunk, n: u64) -> io::Result<
     Ok(data)
 }
 
-/// `skip` de un trozo de dentro: salta en el RIFF hasta el siguiente (si se
-/// sale de él, el `RuntimeError` de `_Chunk.seek`).
+/// Saltar lo que queda de un trozo de dentro: salta en el RIFF hasta el
+/// siguiente (si se sale de él, `NoWav::Runtime`).
 fn skip_chunk(f: &mut File, r: &mut Chunk, t: &mut Chunk) -> Result<(), NoWav> {
     let mut n = t.tam.saturating_sub(t.loaded);
     if t.tam & 1 == 1 && t.loaded <= t.tam {
@@ -259,7 +261,7 @@ fn u32_at(b: &[u8], i: usize) -> u32 {
 }
 
 impl Wav {
-    /// Abre `path` y lee su cabecera, como `wave.Wave_read.initfp`.
+    /// Abre `path` y lee su cabecera.
     pub fn open(path: &Path) -> Result<Self, NoWav> {
         let mut f = File::open(path)?;
         let name = read(&mut f, 4)?;
@@ -294,7 +296,7 @@ impl Wav {
                 fmt_chunk = Some(Self::fmt_chunk(&mut f, &mut r, &mut t)?);
             } else if name == b"data" {
                 let Some((canales, width, sample_rate)) = fmt_chunk else {
-                    // «data chunk before fmt chunk»
+                    // el «data» antes que el «fmt »
                     return Err(NoWav::Other);
                 };
                 let frames = t.tam / u64::from(canales * width);
@@ -310,7 +312,7 @@ impl Wav {
             }
             skip_chunk(&mut f, &mut r, &mut t)?;
         }
-        // «fmt chunk and/or data chunk missing»
+        // falta el «fmt » o el «data»
         Err(NoWav::Other)
     }
 
@@ -344,7 +346,7 @@ impl Wav {
         Ok((canales, width, sample_rate))
     }
 
-    /// Todas sus tramas (`readframes(getnframes())`), en bytes.
+    /// Todas sus tramas, en bytes.
     pub fn data(&mut self) -> io::Result<Vec<u8>> {
         if self.frames == 0 {
             return Ok(Vec::new());
@@ -354,10 +356,10 @@ impl Wav {
     }
 }
 
-/// Las muestras de un WAV de 8, 16 o 32 bits a mono en float32, como
-/// `np.frombuffer(...).astype(np.float32) / 32768` y la media de los
-/// canales. Con otro ancho, `None` (va por ffmpeg). Si los bytes no dan
-/// muestras o tramas enteras, el `ValueError` de numpy.
+/// Las muestras de un WAV de 8, 16 o 32 bits a mono en float32: cada una
+/// entre su escala (32768 en 16 bits) y la media de los canales. Con otro
+/// ancho, `None` (va por ffmpeg). Si los bytes no dan muestras o tramas
+/// enteras, el error, con el texto de siempre.
 pub fn mono(data: &[u8], width: u32, canales: u32) -> Result<Option<Vec<f32>>, String> {
     let x: Vec<f32> = match width {
         2 | 4 if !data.len().is_multiple_of(width as usize) => {
@@ -408,16 +410,16 @@ pub enum ReadOutcome {
     Other,
 }
 
-/// Lo que en Python salía sin esperarlo al leer un WAV.
+/// Lo que sale mal al leer un WAV y no se arregla con ffmpeg: un WAV roto.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Unexpected {
-    /// El `ValueError` de numpy: los bytes no dan muestras o tramas enteras.
+    /// Los bytes no dan muestras o tramas enteras (con el texto del error).
     Val(String),
-    /// El `RuntimeError` de `_Chunk.seek`: un trozo que se sale del RIFF.
+    /// Un trozo que se sale del RIFF.
     Runtime,
 }
 
-/// Un WAV a mono, como la primera parte de `cues._decode`.
+/// Un WAV a mono (si no se lee así, `Other`: va por ffmpeg).
 pub fn read_wav(path: &Path, longest: f64) -> Result<ReadOutcome, Unexpected> {
     let mut w = match Wav::open(path) {
         Ok(w) => w,
@@ -437,8 +439,8 @@ pub fn read_wav(path: &Path, longest: f64) -> Result<ReadOutcome, Unexpected> {
     }
 }
 
-/// Lo que dura un WAV (`cues._seconds`): en segundos con dos decimales, o
-/// 0 si no se puede leer.
+/// Lo que dura un WAV: en segundos con dos decimales, o 0 si no se puede
+/// leer.
 pub fn segundos(path: &Path) -> Result<f64, Unexpected> {
     match Wav::open(path) {
         Ok(w) => Ok(np::round_to(
@@ -452,9 +454,8 @@ pub fn segundos(path: &Path) -> Result<f64, Unexpected> {
 
 // ------------------------------------------------------------ la onda y el editor
 
-/// La onda de una guía (`cues.wave_of`): (segundos, el pico de cada trozo de
-/// 0 a 1, a su escala). `Err` con el `ValueError` de numpy si un trozo
-/// queda vacío.
+/// La onda de una guía: (segundos, el pico de cada trozo de 0 a 1, a su
+/// escala). `Err` (con el texto de siempre) si un trozo queda vacío.
 pub fn waveform(x: &[f32], rate: u32, n_buckets: i64) -> Result<(f64, Vec<f64>), String> {
     let n_buckets = n_buckets.clamp(8, 2000) as usize;
     let segundos = np::round_to(x.len() as f64 / f64::from(rate.max(1)), 3);
@@ -506,14 +507,14 @@ pub fn trim(
     if b - a < 0.05 {
         return None;
     }
-    // x[int(a * rate):int(b * rate)]
+    // de `a * rate` a `b * rate`, truncados
     let offset = |s: f64| ((s * f64::from(rate)) as i64).clamp(0, length as i64) as usize;
     let (begin, up_to) = (offset(a), offset(b));
     Some((begin, up_to.max(begin), a, b))
 }
 
-/// `a[s] *= b`, con la regla de numpy: `b` tiene que medir lo que el trozo
-/// (o 1).
+/// El trozo por la rampa, muestra a muestra: la rampa tiene que medir lo que
+/// el trozo (o 1); si no, el error, con el texto de siempre.
 fn multiply(chunk: &mut [f32], fade_ramp: &[f32]) -> Result<(), String> {
     if fade_ramp.len() == chunk.len() {
         for (x, r) in chunk.iter_mut().zip(fade_ramp) {
@@ -543,8 +544,8 @@ fn multiply(chunk: &mut [f32], fade_ramp: &[f32]) -> Result<(), String> {
 /// Los fundidos de entrada y de salida (segundos, como mucho
 /// EDIT_FADE_MAX y la mitad de lo que dura) y, con `normalize`, a -1 dBFS
 /// de pico. Devuelve los fundidos que se hicieron (los del nombre de la
-/// guía). `Err` con el `ValueError` de numpy (un fundido de menos de una
-/// muestra).
+/// guía). `Err` (con el texto de siempre) con un fundido de menos de una
+/// muestra.
 pub fn fades(
     x: &mut [f32],
     rate: u32,
@@ -565,7 +566,7 @@ pub fn fades(
     }
     if fo > 0.0 {
         let k = (fo * f64::from(rate)) as usize;
-        // x[-k:]: con k = 0 (o más que todo), entero
+        // las últimas `k` muestras; con k = 0 (o más que todas), todas
         let begin = if k == 0 || k > n { 0 } else { n - k };
         multiply(&mut x[begin..], &fade_ramp(1.0, 0.0, k))?;
     }
@@ -671,7 +672,7 @@ mod tests {
         let (fi, fo) = fades(&mut y, 16000, 0.2, 9.0, true).expect("fundidos");
         assert_eq!((fi, fo), (0.2, 0.5));
         assert!(y[0].abs() < 1e-6 && y[y.len() - 1].abs() < 1e-6);
-        // un fundido de menos de una muestra: numpy no puede
+        // un fundido de menos de una muestra: no se puede
         assert!(fades(&mut y, 16000, 0.0, 0.00001, false).is_err());
     }
 }

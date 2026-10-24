@@ -5,11 +5,11 @@
 //! 50 avos de segundo, lo probable que es que ahí haya un pulso y que ese
 //! pulso sea el «1». Medido en GTZAN (que la red no vio al entrenar), acierta
 //! mucho más que el análisis de siempre (`beats.rs` en la app de escritorio),
-//! sobre todo el «1»: ver scripts/evaluate-pulse.py y docs/ARCHITECTURE.md.
+//! sobre todo el «1»: ver docs/ARCHITECTURE.md.
 //!
 //! Como el separador, la red va en un grafo ONNX (`data/pulse/`) y lo
-//! de alrededor se hace aquí, igual que en su código (y que en el
-//! danplay/pulse.py de antes, con numpy, número a número):
+//! de alrededor se hace aquí, igual que en el código de la red (y número a
+//! número como hasta la 1.30):
 //!
 //! - el espectrograma: mel de 128 bandas (30 Hz a 11 kHz, escala de Slaney)
 //!   a 22.050 Hz, ventanas de 1024 cada 441 muestras (50 por segundo), en
@@ -53,15 +53,15 @@ pub const READ_SHARE: f64 = 0.15;
 
 // ------------------------------------------------------------ espectrograma
 
-/// La ventana de Hann de cada trama (la periódica, de `torch.hann_window`).
+/// La ventana de Hann de cada trama: la periódica (dividida por `NFFT` y no
+/// por `NFFT - 1`), la del entrenamiento de la red.
 pub fn window() -> Vec<f64> {
     (0..NFFT)
         .map(|k| 0.5 - 0.5 * (2.0 * std::f64::consts::PI * k as f64 / NFFT as f64).cos())
         .collect()
 }
 
-/// Escala de Slaney: lineal hasta 1 kHz y logarítmica por encima (librosa,
-/// torchaudio con mel_scale="slaney").
+/// Escala de Slaney: lineal hasta 1 kHz y logarítmica por encima.
 fn hz_a_mel(f: f64) -> f64 {
     let f_sp = 200.0 / 3.0;
     let mels = f / f_sp;
@@ -88,8 +88,9 @@ fn mel_a_hz(m: f64) -> f64 {
     }
 }
 
-/// (513, 128), por filas: el banco de filtros de
-/// torchaudio.functional.melscale_fbanks con esos parámetros, sin normalizar.
+/// (513, 128), por filas: el banco de filtros triangulares en la escala de
+/// Slaney con esos parámetros, sin normalizar (el del entrenamiento de la
+/// red).
 pub fn mel_filters() -> Vec<f32> {
     let bins = NFFT / 2 + 1;
     let freqs = np::linspace(0.0, f64::from(RATE / 2), bins);
@@ -139,7 +140,8 @@ pub struct Spectrum {
     pub data: Vec<f32>,
 }
 
-/// El log-mel de Beat This! (`LogMelSpect`) para `mono` a 22.050 Hz.
+/// El log-mel con el que se entrenó Beat This! (su `LogMelSpect`), para
+/// `mono` a 22.050 Hz.
 ///
 /// # Panics
 ///
@@ -150,7 +152,7 @@ pub fn spectrogram(mono: &[f32]) -> Spectrum {
     if signal.len() <= pad {
         signal.resize(pad + 1, 0.0);
     }
-    // el relleno «reflect» de numpy, sin repetir el borde
+    // el relleno en espejo («reflect»), sin repetir el borde
     let length = signal.len();
     let mut padding = Vec::with_capacity(length + 2 * pad);
     padding.extend((1..=pad).rev().map(|i| signal[i]));
@@ -164,8 +166,8 @@ pub fn spectrogram(mono: &[f32]) -> Spectrum {
     let mut output = fft.make_output_vec();
     let mut scratch = fft.make_scratch_vec();
     let mut mag = vec![0f32; NFFT / 2 + 1];
-    // normalized="frame_length" de torchaudio: torch.stft(normalized=True),
-    // que divide por la raíz del tamaño de la ventana
+    // normalizado por la trama, como en el entrenamiento: se divide por la
+    // raíz del tamaño de la ventana
     let norma = (NFFT as f64).sqrt();
     let mut data = vec![0f32; frames * MELS];
     for (t, row) in data.as_chunks_mut::<MELS>().0.iter_mut().enumerate() {
@@ -178,8 +180,9 @@ pub fn spectrogram(mono: &[f32]) -> Spectrum {
         for (m, c) in mag.iter_mut().zip(&output) {
             *m = (c.re.hypot(c.im) / norma) as f32;
         }
-        // la cuenta en 64 bits y el resultado en 32, como un producto de
-        // matrices de numpy (salvo el último decimal de un float32)
+        // la cuenta en 64 bits y el resultado en 32: lo mismo que el producto
+        // de matrices con el que se probó la red (salvo el último decimal de
+        // un float32)
         for (j, (cell, (begin, up_to))) in row.iter_mut().zip(&filters.spans).enumerate() {
             let acc: f64 = (*begin..*up_to)
                 .map(|i| f64::from(mag[i]) * f64::from(filters.filters[i * MELS + j]))
@@ -192,7 +195,9 @@ pub fn spectrogram(mono: &[f32]) -> Spectrum {
 
 // ------------------------------------------------------------ la red
 
-/// Dónde empieza cada trozo (`split_piece` con avoid_short_end).
+/// Dónde empieza cada trozo, como lo parte Beat This! (`split_piece` con
+/// `avoid_short_end`): el último se adelanta para que no quede uno corto al
+/// final.
 pub fn chunk_starts(frames: usize) -> Vec<i64> {
     let frames = frames as i64;
     let (border, chunk) = (BORDER as i64, CHUNK as i64);
@@ -284,7 +289,7 @@ fn peaks(valores: &[f64]) -> Vec<f64> {
     out.into_iter().map(|f| f / FPS).collect()
 }
 
-/// El máximo, con el NaN de numpy (uno basta para que lo sea).
+/// El máximo; con un NaN, NaN (uno basta).
 pub(crate) fn maximum(v: &[f64]) -> f64 {
     v.iter().copied().fold(f64::NEG_INFINITY, |a, b| {
         if a.is_nan() || b.is_nan() {
@@ -347,7 +352,7 @@ pub fn combine(beat: &[f64], other_stems: &[&[f64]]) -> Vec<f64> {
 /// Donde golpean el bombo y el bajo: el flujo espectral por debajo de `fmax`
 /// Hz, cada 10 ms (para decidir la fase de un trozo: el flujo de toda la
 /// banda no distingue, los platos van a corcheas). Devuelve la envolvente y
-/// sus tramas por segundo. En 32 bits, como lo hacía numpy.
+/// sus tramas por segundo. En 32 bits, como en las versiones de antes.
 ///
 /// # Panics
 ///
@@ -361,7 +366,8 @@ pub fn low_band(mono: &[f32], fmax: f64) -> Result<(Vec<f32>, f64), String> {
             mono.len()
         ));
     }
-    // `np.hanning`, con su misma cuenta
+    // la de Hann simétrica (dividida por `N - 1`), con la cuenta centrada
+    // de siempre: así sale lo mismo, número a número
     let window: Vec<f32> = (0..N)
         .map(|k| {
             let n = (1.0 - N as f64) + 2.0 * k as f64;
@@ -463,8 +469,7 @@ pub fn decode(ffmpeg: &Path, path: &Path) -> Result<Vec<f32>, ReadError> {
         .collect())
 }
 
-/// Lo que puede salir mal al analizar una canción, por partes (en Python,
-/// `RuntimeError`, el de ONNX Runtime y `ValueError`).
+/// Lo que puede salir mal al analizar una canción, por partes.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// No se pudo leer la canción.
@@ -536,8 +541,10 @@ pub fn key(absolute_path: &str, size: u64, mtime: i64) -> String {
     })
 }
 
-/// `int(st.st_mtime)` de Python a partir de los segundos y nanosegundos del
-/// archivo: Python suma los dos en un `float` antes de truncar.
+/// La fecha del archivo en segundos enteros, contada como hasta la 1.30
+/// para que la caché de entonces siga valiendo: los segundos y los
+/// nanosegundos se suman en un `f64` antes de truncar (y unos nanosegundos
+/// muy cerca del segundo siguiente ya cuentan como él).
 pub fn mtime_python(segundos: i64, nanos: u32) -> i64 {
     (segundos as f64 + f64::from(nanos) * 1e-9).trunc() as i64
 }

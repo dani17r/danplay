@@ -2,9 +2,9 @@
 //!
 //! Sin modelos ni dependencias: envolvente de ataques (flujo espectral por
 //! tramas de FFT), tempo por autocorrelacion con un prior alrededor de 120,
-//! y la rejilla de pulsos por programacion dinamica (Ellis 2007, lo mismo
-//! que hace librosa). El «1» de cada compas se decide por donde caen el
-//! bombo y los cambios de acorde, probando 4/4 y 3/4.
+//! y la rejilla de pulsos por programacion dinamica (Ellis 2007). El «1» de
+//! cada compas se decide por donde caen el bombo y los cambios de acorde,
+//! probando 4/4 y 3/4.
 //!
 //! Para musica grabada a click —casi toda la de alabanza— acierta el pulso
 //! de forma fiable; el «1» acierta la mayoria de las veces y se puede
@@ -192,8 +192,8 @@ mod tests {
         }
     }
 
-    /// No es una prueba: lo que usa `scripts/evaluate-pulse.py` para medir
-    /// este analisis frente a otros sobre canciones anotadas. Lee las rutas
+    /// No es una prueba: sirve para medir este analisis frente a otros sobre
+    /// canciones anotadas (ver docs/ARCHITECTURE.md). Lee las rutas
     /// de `DANPLAY_BEATS_LIST` (una por linea) y deja en
     /// `DANPLAY_BEATS_RESULTS` una linea JSON por cancion: sus pulsos, sus
     /// «1», el tempo y el compas, o el error.

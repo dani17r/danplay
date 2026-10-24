@@ -61,7 +61,8 @@ fn other_stems() -> String {
     "other".into()
 }
 
-/// Lo que se le pide al separador (el JSON que escribe stems.py).
+/// Lo que se le pide al separador (el JSON que escribe el servidor, en
+/// `services::stems`).
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Job {
     pub input: String,
@@ -439,7 +440,7 @@ fn all_to_opus(
         .collect()
 }
 
-/// `d[k] = v` de un diccionario de Python: si ya estaba, en su sitio.
+/// Pone `k` con `v`: si ya estaba, en su sitio; si no, al final.
 fn put<V>(d: &mut Vec<(String, V)>, k: &str, v: V) {
     if let Some(par) = d.iter_mut().find(|(x, _)| x == k) {
         par.1 = v;

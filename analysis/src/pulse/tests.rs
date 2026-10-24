@@ -1,4 +1,4 @@
-//! Las mismas comprobaciones que tests/test_pulse.py, sin la red.
+//! Las comprobaciones del pulso, sin la red.
 use super::grid::{Options, finish, grid};
 use super::*;
 
@@ -260,13 +260,13 @@ fn reports_when_there_is_no_beat() {
 }
 
 #[test]
-fn keys_match_python() {
-    // hashlib.sha1(b"/m/a.mp3|10|5").hexdigest()
+fn cache_keys_match_the_ones_saved_before() {
+    // el SHA-1 de «/m/a.mp3|10|5», en hexadecimal
     assert_eq!(
         key("/m/a.mp3", 10, 5),
         "68a796d3c01a56c441b4c1dd857a90b7a006cd73"
     );
-    // como Python: la suma en float ya llega al segundo siguiente
+    // la suma en f64 ya llega al segundo siguiente
     assert_eq!(mtime_python(1_700_000_000, 999_999_999), 1_700_000_001);
     assert_eq!(mtime_python(1_700_000_000, 999_000_000), 1_700_000_000);
     assert_eq!(mtime_python(5, 500_000_000), 5);

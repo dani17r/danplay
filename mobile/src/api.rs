@@ -1,6 +1,6 @@
 //! El comando `api` del celular: el mismo puente que en la PC (`invoke('api',
-//! {method, path, body})`, docs/INTERNAL-CONTRACT.md §2), pero sin Python
-//! detras. Contesta lo que pide la interfaz de la PC con las pistas
+//! {method, path, body})`, docs/INTERNAL-CONTRACT.md §2), pero sin el nucleo
+//! de la PC detras. Contesta lo que pide la interfaz de la PC con las pistas
 //! importadas (`index.rs`), con la misma forma que el nucleo.
 //!
 //! Lo que en el celular no existe (separar, buscar letras o cifrados en

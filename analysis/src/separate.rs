@@ -2,8 +2,8 @@
 //!
 //! La red va en un grafo ONNX sin pesos (`data/separator/`); los
 //! pesos son el archivo oficial del autor, que se baja la primera vez. Lo que
-//! Demucs hace con PyTorch alrededor de la red se hace aquí igual (antes, en
-//! danplay/separation.py, con numpy; cuenta a cuenta como allí):
+//! Demucs hace con PyTorch alrededor de la red se hace aquí igual, cuenta a
+//! cuenta como hasta la 1.30:
 //!
 //! - el espectrograma de cada trozo y su inversa (`spec`, `ispec`), con las
 //!   mismas ventanas, rellenos y normalización que `HTDemucs._spec`/`_ispec`;
@@ -44,8 +44,8 @@ pub const STRIDE: usize = ((1.0 - OVERLAP) * SEGMENT as f64) as usize;
 /// El último bin se tira, como en Demucs.
 pub const FREQS: usize = NFFT / 2;
 
-/// Un fallo con su motivo (también las excepciones de Python que lleguen
-/// por una red o un `emit` de Python).
+/// Un fallo con su motivo (también los que lleguen de una red o de un
+/// `emit`).
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 pub type Complex32 = Complex<f32>;
@@ -102,7 +102,7 @@ impl Manifest {
     }
 }
 
-/// Traspuesto como `.T` de numpy: los ejes al revés.
+/// Traspuesto: todos los ejes al revés.
 fn transposed(shape: &[usize], data: &[f32]) -> (Vec<usize>, Vec<f32>) {
     let n = shape.len();
     if n < 2 {
@@ -234,7 +234,7 @@ impl Spectrum {
     }
 }
 
-/// El relleno «reflect» de numpy, aunque sea más largo que la señal (se
+/// El relleno en espejo («reflect»), aunque sea más largo que la señal (se
 /// sigue reflejando: es periódico).
 pub fn reflect(x: &[f32], before: usize, after: usize) -> Vec<f32> {
     let n = x.len();
@@ -253,9 +253,9 @@ pub fn reflect(x: &[f32], before: usize, after: usize) -> Vec<f32> {
         .collect()
 }
 
-/// `torch.stft` y `torch.istft` (hann, center, reflect), en float32 como
-/// numpy: la de Demucs (4096 puntos, salto 1024, normalizada) y la del
-/// Mega53 (2048, 512, sin normalizar).
+/// La STFT y su inversa como las del entrenamiento de las redes (Hann,
+/// centrada, relleno en espejo), en float32: la de Demucs (4096 puntos,
+/// salto 1024, normalizada) y la del Mega53 (2048, 512, sin normalizar).
 pub struct Stft {
     pub nfft: usize,
     pub hop: usize,
@@ -357,7 +357,7 @@ impl Stft {
             for (b, e) in input.iter_mut().enumerate() {
                 *e = z.en(b, t);
             }
-            // numpy no mira la parte imaginaria de los extremos
+            // la parte imaginaria de los extremos no cuenta en la inversa
             input[0].im = 0.0;
             let last = input.len() - 1;
             input[last].im = 0.0;
@@ -475,10 +475,10 @@ pub struct Block {
     pub data: Vec<f32>,
 }
 
-/// La media y la desviación de la mezcla (de los dos canales), como numpy en
-/// float32: la red la ve normalizada, y las pistas se desnormalizan.
-// la media de los dos canales: la suma en float32 y la mitad, como numpy (no
-// `f32::midpoint`, que suma en 64 bits)
+/// La media y la desviación de la mezcla (de los dos canales), en float32:
+/// la red la ve normalizada, y las pistas se desnormalizan.
+// la media de los dos canales: la suma en float32 y la mitad (no
+// `f32::midpoint`, que suma en 64 bits y daría otro número)
 #[allow(clippy::manual_midpoint)]
 fn normalization(wav: &[f32], length: usize) -> (f64, f64) {
     let reference: Vec<f32> = (0..length)
@@ -486,7 +486,7 @@ fn normalization(wav: &[f32], length: usize) -> (f64, f64) {
         .collect();
     let n = reference.len();
     let media = np::media32(&reference);
-    // `std(ddof=1)`: también con la división en 64 bits
+    // la desviación entre n - 1: también con la división en 64 bits
     let std = if n > 1 {
         let d: Vec<f32> = reference
             .iter()
@@ -706,7 +706,7 @@ fn max32(a: f32, b: f32) -> f32 {
     }
 }
 
-/// `np.add.reduceat` de un tramo: el primero y, por parejas, los demás.
+/// La suma de un tramo: el primero, más los demás sumados por parejas.
 fn span_sum(a: &[f64]) -> f64 {
     match a {
         [] => 0.0,
@@ -846,9 +846,9 @@ impl Waveforms {
 /// con lo que se le cuela de las demás, muy por debajo de la mezcla. Se queda
 /// si en conjunto suena a más de `QUIET_DB` de la canción, o si llega a
 /// `LOUD_DB` de ella en al menos `ACTIVE` de lo que suena (un piano que solo
-/// entra en el puente). Medido con scripts/evaluate-separator.py --presencia:
-/// en canciones de verdad lo que no está sale de -44 a -63 dB y lo que está,
-/// por encima de -20.
+/// entra en el puente). Medido (ver docs/ARCHITECTURE.md): en canciones de
+/// verdad lo que no está sale de -44 a -63 dB y lo que está, por encima de
+/// -20.
 pub const QUIET_DB: f64 = -30.0;
 pub const LOUD_DB: f64 = -15.0;
 pub const ACTIVE: f64 = 0.02;
@@ -866,7 +866,7 @@ pub fn presence(energy: &[f64], mix: &[f64]) -> Level {
     }
     let e = np::sum(energy);
     let floor = total * 1e-12;
-    // `max(e, floor)` de Python: se queda `e` salvo que `floor` sea mayor
+    // se queda `e` salvo que `floor` sea mayor (un `e` NaN se queda)
     let db = 10.0 * ((if floor > e { floor } else { e }) / total).log10();
     let threshold = total / mix.len() as f64 * 1e-3;
     let factor = 10f64.powf(LOUD_DB / 10.0);

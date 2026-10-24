@@ -1,19 +1,18 @@
-//! Cuánto está corrido un archivo respecto a otro de la misma canción (lo
-//! de danplay/reuse.py que se hacía con numpy): otra descarga puede traer
-//! unos milisegundos, o unos segundos de intro, de más o de menos, y lo hecho
-//! para el archivo de antes (las pistas, el clic, los marcadores) tiene que
-//! caer en su sitio en el nuevo.
+//! Cuánto está corrido un archivo respecto a otro de la misma canción: otra
+//! descarga puede traer unos milisegundos, o unos segundos de intro, de más
+//! o de menos, y lo hecho para el archivo de antes (las pistas, el clic, los
+//! marcadores) tiene que caer en su sitio en el nuevo.
 //!
 //! Primero por los golpes (una envolvente cada 10 ms, correlada por FFT en
 //! hasta `MAX_LAG` s); después, muestra a muestra, ±15 ms alrededor. Las
-//! cuentas son las de numpy y en sus tipos (`float32` casi todo, como las
-//! muestras que da ffmpeg): las sumas por parejas de `np.mean`, la FFT en 32
-//! bits (numpy 2 la hace así con `float32`) y la parábola de cada máximo en
-//! el tipo de sus valores. Lo que no sale bit a bit es el producto escalar
-//! (`np.dot` es BLAS, y cada BLAS suma en otro orden): aquí se suma en 64
-//! bits y se redondea a 32 al final, como sale de `np.dot`. Medido contra
-//! numpy (ver las pruebas): el desfase sale a menos de 1e-10 s y el parecido
-//! a menos de 1e-7; lo que se guarda va redondeado a 0,1 ms y a milésimas.
+//! cuentas dan lo mismo que en las versiones de antes y van en sus tipos
+//! (`float32` casi todo, como las muestras que da ffmpeg): las medias con la
+//! suma por parejas, la FFT en 32 bits y la parábola de cada máximo en el
+//! tipo de sus valores. Lo que no sale bit a bit es el producto escalar
+//! (antes era el de un BLAS, y cada BLAS suma en otro orden): aquí se suma
+//! en 64 bits y se redondea a 32 al final. Medido contra lo de antes (ver
+//! las pruebas): el desfase sale a menos de 1e-10 s y el parecido a menos de
+//! 1e-7; lo que se guarda va redondeado a 0,1 ms y a milésimas.
 use crate::np;
 use realfft::RealFftPlanner;
 use realfft::num_complex::Complex;
@@ -22,7 +21,7 @@ use realfft::num_complex::Complex;
 /// segundos.
 pub const MAX_LAG: f64 = 12.0;
 
-/// `np.argmax`: el primer máximo (con NaN, el primer NaN).
+/// El primer máximo (con NaN, el primer NaN).
 fn argmax<T: PartialOrd + Copy>(a: &[T]) -> usize {
     let mut best = 0;
     for (i, x) in a.iter().enumerate() {
@@ -38,8 +37,8 @@ fn argmax<T: PartialOrd + Copy>(a: &[T]) -> usize {
     best
 }
 
-/// `x.dot(y)` de dos `float32`: los productos son exactos en 64 bits, se
-/// suman en 64 y el resultado, en 32 (lo que da `np.dot`).
+/// El producto escalar de dos `float32`: los productos son exactos en 64
+/// bits, se suman en 64 y el resultado, en 32.
 fn dot32(x: &[f32], y: &[f32]) -> f32 {
     // cuatro sumas a la vez (sin depender una de otra va mucho más rápido)
     let mut acc = [0f64; 4];
@@ -57,7 +56,7 @@ fn dot32(x: &[f32], y: &[f32]) -> f32 {
     total as f32
 }
 
-/// `v - v.mean()` y dividido por su norma (más 1e-9, por si es todo
+/// `v` menos su media y dividido por su norma (más 1e-9, por si es todo
 /// silencio), en `float32`.
 pub fn normalized(v: &[f32]) -> Vec<f32> {
     let mean = np::media32(v);
@@ -66,9 +65,9 @@ pub fn normalized(v: &[f32]) -> Vec<f32> {
     centered.iter().map(|x| x / norm).collect()
 }
 
-/// `_envelope(x, hop)`: dónde empiezan los golpes, lo que sube la energía
-/// trama a trama (`log1p(1000·media de los cuadrados)`, lo que sube, sin lo
-/// que baja), centrado y de norma 1.
+/// Dónde empiezan los golpes: lo que sube la energía trama a trama
+/// (`log1p(1000·media de los cuadrados)`, lo que sube, sin lo que baja),
+/// centrado y de norma 1.
 pub fn envelope(x: &[f32], hop: usize) -> Vec<f32> {
     let n = x.len() / hop;
     let mut squares = vec![0f32; hop];
@@ -81,7 +80,8 @@ pub fn envelope(x: &[f32], hop: usize) -> Vec<f32> {
             (1000f32 * np::media32(&squares)).ln_1p()
         })
         .collect();
-    // `np.maximum(np.diff(e, prepend=e[:1]), 0)`: con un NaN, NaN
+    // lo que sube de cada trama a la siguiente (en la primera, 0), sin lo que
+    // baja: con un NaN, NaN
     let rise: Vec<f32> = (0..energy.len())
         .map(|i| {
             let d = energy[i] - energy[i.saturating_sub(1)];
@@ -91,9 +91,8 @@ pub fn envelope(x: &[f32], hop: usize) -> Vec<f32> {
     normalized(&rise)
 }
 
-/// `_xcorr(a, b, max_lag)`: la correlación de `a` contra `b` corrido de
-/// `-max_lag` a `max_lag` (por FFT, en 32 bits). Un desfase positivo: lo de
-/// `b` llega antes.
+/// La correlación de `a` contra `b` corrido de `-max_lag` a `max_lag` (por
+/// FFT, en 32 bits). Un desfase positivo: lo de `b` llega antes.
 ///
 /// # Panics
 ///
@@ -112,9 +111,10 @@ pub fn xcorr(a: &[f32], b: &[f32], max_lag: usize) -> (Vec<i64>, Vec<f32>) {
         output
     };
     let (fa, fb) = (spectrum(a), spectrum(b));
-    // `rfft(a) * conj(rfft(b))`
+    // el espectro de `a` por el conjugado del de `b`
     let mut product: Vec<Complex<f32>> = fa.iter().zip(&fb).map(|(x, y)| x * y.conj()).collect();
-    // numpy no mira la parte imaginaria de los extremos (y aquí es cero)
+    // la parte imaginaria de los extremos no cuenta en la inversa (y aquí es
+    // cero)
     product[0].im = 0.0;
     let last = product.len() - 1;
     product[last].im = 0.0;
@@ -123,7 +123,7 @@ pub fn xcorr(a: &[f32], b: &[f32], max_lag: usize) -> (Vec<i64>, Vec<f32>) {
     inverse
         .process(&mut product, &mut c)
         .expect("tamaños de la FFT");
-    // `irfft` divide entre n (una potencia de dos: es exacto)
+    // la inversa se divide entre n (una potencia de dos: es exacto)
     let scale = 1.0 / n as f32;
     let max_lag = max_lag as i64;
     let lags: Vec<i64> = (-max_lag..=max_lag).collect();
@@ -134,8 +134,8 @@ pub fn xcorr(a: &[f32], b: &[f32], max_lag: usize) -> (Vec<i64>, Vec<f32>) {
     (lags, values)
 }
 
-/// `_peak(lags, values)` con valores `float32`: el máximo, afinado entre
-/// muestras con la parábola de sus vecinos (en 32 bits, como numpy).
+/// El máximo de unos valores `float32`, afinado entre muestras con la
+/// parábola de sus vecinos (en 32 bits, el tipo de los valores).
 fn peak32(lags: &[i64], values: &[f32]) -> (f64, f64) {
     let i = argmax(values);
     let mut best = lags[i] as f64;
@@ -149,7 +149,7 @@ fn peak32(lags: &[i64], values: &[f32]) -> (f64, f64) {
     (best, f64::from(values[i]))
 }
 
-/// `_peak(lags, values)` con valores `float64`.
+/// Lo mismo con valores `float64`.
 fn peak64(lags: &[i64], values: &[f64]) -> (f64, f64) {
     let i = argmax(values);
     let mut best = lags[i] as f64;
@@ -163,9 +163,8 @@ fn peak64(lags: &[i64], values: &[f64]) -> (f64, f64) {
     (best, values[i])
 }
 
-/// `offset(new, ref, rate)`: cuánto llega más tarde lo de `new` que lo de
-/// `reference` (segundos) y lo que se parecen (0-1). `None` si alguno tiene
-/// menos de 5 s.
+/// Cuánto llega más tarde lo de `new` que lo de `reference` (segundos) y lo
+/// que se parecen (0-1). `None` si alguno tiene menos de 5 s.
 pub fn offset(new: &[f32], reference: &[f32], rate: usize) -> Option<(f64, f64)> {
     if new.len().min(reference.len()) < rate * 5 {
         return None;
@@ -208,9 +207,10 @@ pub fn offset(new: &[f32], reference: &[f32], rate: usize) -> Option<(f64, f64)>
     Some((fine / rate as f64, score))
 }
 
-/// Lo de `lag_from_lowband` que no es leer: el desfase entre la envolvente
-/// del bombo y el bajo del archivo nuevo (`low`) y la del de antes (`old`,
-/// ya recortada), con `fps` tramas por segundo, y lo que se parecen.
+/// Lo de `lag_from_lowband` (en el servidor) que no es leer: el desfase
+/// entre la envolvente del bombo y el bajo del archivo nuevo (`low`) y la del
+/// de antes (`old`, ya recortada), con `fps` tramas por segundo, y lo que se
+/// parecen.
 pub fn lowband_offset(low: &[f32], old: &[f32], fps: f64) -> (f64, f64) {
     let (a, b) = (normalized(low), normalized(old));
     let max_lag = ((MAX_LAG * fps) as usize).min(a.len().max(b.len()) - 1);
@@ -223,10 +223,11 @@ pub fn lowband_offset(low: &[f32], old: &[f32], fps: f64) -> (f64, f64) {
 mod tests {
     use super::*;
 
-    /// Una «canción» de mentira que se hace igual en Python (ver la prueba
-    /// de abajo): golpes graves a destiempo y ráfagas de ruido detrás, con
-    /// cuentas de enteros (un generador congruencial) y en `float32` solo al
-    /// final, para que los dos lados tengan las mismas muestras.
+    /// Una «canción» de mentira que sale igual en cualquier sitio (ver la
+    /// prueba de abajo): golpes graves a destiempo y ráfagas de ruido detrás,
+    /// con cuentas de enteros (un generador congruencial) y en `float32` solo
+    /// al final, para que las muestras sean las mismas con las que se sacaron
+    /// los números de abajo.
     fn song(seed: u64, seconds: usize) -> Vec<f32> {
         let rate = 8000;
         let n = seconds * rate;
@@ -278,13 +279,13 @@ mod tests {
         assert_eq!(offset(&x[..39_999], &x, 8000), None, "menos de 5 s");
     }
 
-    /// Lo que da danplay/reuse.py (numpy 2.5) con estas mismas muestras: el
-    /// generador de arriba, copiado en Python. Salen a 5e-13 s el desfase y
-    /// a 2e-8 el parecido (el producto escalar de numpy es el de su BLAS, que
-    /// suma en otro orden); se pide 1e-9 s y 1e-6, muy por debajo de lo que
-    /// se guarda (el desfase a 0,1 ms, el parecido a milésimas).
+    /// Lo que daban las versiones de antes con estas mismas muestras (las del
+    /// generador de arriba). Salen a 5e-13 s el desfase y a 2e-8 el parecido
+    /// (allí el producto escalar era el de un BLAS, que suma en otro orden);
+    /// se pide 1e-9 s y 1e-6, muy por debajo de lo que se guarda (el desfase
+    /// a 0,1 ms, el parecido a milésimas).
     #[test]
-    fn the_same_numbers_as_numpy() {
+    fn the_same_numbers_as_before() {
         let x = song(1, 30);
         let cases: [(Vec<f32>, f64, f64); 5] = [
             (shifted(&x, 0), PY[0].0, PY[0].1),
@@ -300,8 +301,8 @@ mod tests {
         }
     }
 
-    /// (desfase, parecido) de `reuse.offset` en Python para cada caso de
-    /// `the_same_numbers_as_numpy`.
+    /// (desfase, parecido) que daban las versiones de antes en cada caso de
+    /// `the_same_numbers_as_before`.
     const PY: [(f64, f64); 5] = [
         (0.0, 1.0),
         (0.321_750_000_000_448_34, 0.927_174_947_096_23),
