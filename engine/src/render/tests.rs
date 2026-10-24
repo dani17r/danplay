@@ -634,3 +634,132 @@ fn rerouting_while_playing_moves_the_sound_without_a_jump() {
         .fold(0f32, f32::max);
     assert!(worst < 0.05, "{worst}");
 }
+
+/// Las partes de un relevo, con su alimentador aparte: se llenan a mano,
+/// cuando lo diga la prueba (para que lleguen a tiempo o tarde).
+struct Incoming {
+    feeder: Feeder,
+    free_rx: rtrb::Consumer<Box<Block>>,
+    full_tx: rtrb::Producer<Box<Block>>,
+}
+
+impl Incoming {
+    /// Las mismas partes en MP3, desde `start`, y su anillo para el render.
+    fn new(start: u64) -> (Incoming, Ring) {
+        let (bytes, _) = fixture("mp3");
+        let part = Part::open(bytes, "mp3").expect("mp3");
+        let shared = Arc::new(Shared::default());
+        let mut feeder = Feeder::new(vec![part], 88_200, Arc::clone(&shared));
+        feeder.seek(start);
+        let (mut free_tx, free_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
+        let (full_tx, full_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
+        for _ in 0..POOL {
+            let _ = free_tx.push(Box::new(Block::new(1)));
+        }
+        let ring = Ring {
+            full: full_rx,
+            free: free_tx,
+            parts: 1,
+            shared,
+            gains: Arc::new(Gains::default()),
+        };
+        (
+            Incoming {
+                feeder,
+                free_rx,
+                full_tx,
+            },
+            ring,
+        )
+    }
+
+    fn pump(&mut self) {
+        while !self.feeder.ended() && !self.full_tx.is_full() {
+            let Ok(mut b) = self.free_rx.pop() else { break };
+            self.feeder.fill(&mut b);
+            let _ = self.full_tx.push(b);
+        }
+    }
+}
+
+/// Lo que sale en `frames` muestras, a trozos de 882 (lo que pide la
+/// salida del celular), llenando también las partes nuevas si `fill`.
+fn run_with(b: &mut Bench, inc: &mut Incoming, frames: usize, fill: bool) -> Vec<f32> {
+    let mut out = vec![0f32; frames * 2];
+    for chunk in out.chunks_mut(1764) {
+        b.pump();
+        if fill {
+            inc.pump();
+        }
+        b.render.render(chunk);
+    }
+    out
+}
+
+/// El render hasta que pasa a las partes nuevas de un relevo que no han
+/// llegado a tiempo (con la envolvente abajo), a trozos pequeños.
+fn until_handed_over(b: &mut Bench, inc: &mut Incoming, out: &mut Vec<f32>) {
+    for _ in 0..2_000 {
+        out.extend(run_with(b, inc, 64, false));
+        if b.controls.handed_over.load(Ordering::Acquire) {
+            return;
+        }
+    }
+    panic!("el relevo no paso a las partes nuevas");
+}
+
+/// Un relevo que empieza en 0,35 s de lo que ya se ha tomado (como el del
+/// motor), con las partes nuevas sin nada aún.
+fn late_handoff() -> (Bench, Incoming, Vec<f32>) {
+    let mut b = Bench::new(1, 44_100);
+    b.play();
+    let out = b.run(13_230);
+    let start = b.shared.consumed_frame.load(Ordering::Acquire) + 15_435;
+    let (inc, ring) = Incoming::new(start);
+    b.render.start_handoff(Box::new(Handoff {
+        ring,
+        start,
+        fade: 2_205,
+        routing: None,
+    }));
+    (b, inc, out)
+}
+
+/// Si las partes nuevas no llegan a tiempo, el relevo pasa a ellas con la
+/// envolvente abajo, y siguen desde donde iba la canción: lo que traen de
+/// antes se tira y los golpes siguen en su sitio. Pasaba en una máquina
+/// cargada (la CI): seguían desde donde empezaba el relevo, y los golpes
+/// caían más tarde.
+#[test]
+fn a_late_handoff_carries_on_where_the_song_was() {
+    let (mut b, mut inc, mut out) = late_handoff();
+    until_handed_over(&mut b, &mut inc, &mut out);
+    out.extend(run_with(&mut b, &mut inc, 66_150, true));
+    let found = music_hits(&out);
+    assert_eq!(found.len(), 3, "{found:?}");
+    for (h, m) in found.iter().zip(MARKS) {
+        assert!(h.abs_diff(m) <= 40, "golpe en {h}, se esperaba en {m}");
+    }
+}
+
+/// Y si tardan aún más, lo que se espera es silencio: la canción sigue
+/// después desde donde iba, sin saltarse nada ni volver atrás.
+#[test]
+fn a_very_late_handoff_waits_in_silence_and_carries_on() {
+    let (mut b, mut inc, mut out) = late_handoff();
+    until_handed_over(&mut b, &mut inc, &mut out);
+    let silence = 10 * 882;
+    out.extend(run_with(&mut b, &mut inc, silence, false));
+    out.extend(run_with(&mut b, &mut inc, 66_150, true));
+    let found = music_hits(&out);
+    assert_eq!(found.len(), 3, "{found:?}");
+    assert!(found[0].abs_diff(MARKS[0]) <= 40, "{found:?}");
+    for (h, m) in found[1..].iter().zip(&MARKS[1..]) {
+        // al silencio se suma lo que quedaba del trozo de 64 en el que pasó
+        let m = m + silence;
+        assert!(
+            *h + 40 >= m && *h <= m + 64 + 40,
+            "golpe en {h}, se esperaba en {m} (+64)"
+        );
+    }
+}

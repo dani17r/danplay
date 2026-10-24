@@ -440,6 +440,9 @@ pub struct Render {
     ring: Option<Ring>,
     current: Option<Box<Block>>,
     offset: usize,
+    /// Tras un relevo tardio: la muestra de la cancion por la que iba. Lo
+    /// que llegue por detras se tira, hasta llegar a ella.
+    catch_up: Option<u64>,
     /// La generacion de lo que suena.
     generation: u64,
     gains_now: [[f32; 2]; MAX_PARTS],
@@ -536,6 +539,7 @@ impl Render {
             running: false,
             envelope: 0.0,
             pending: None,
+            catch_up: None,
             fade_now: 1.0,
             fade_target: 1.0,
             fade_step: 0.0,
@@ -590,6 +594,7 @@ impl Render {
         self.ring = ring;
         self.generation = u64::MAX; // que tome la de la cancion nueva
         self.offset = 0;
+        self.catch_up = None;
         self.running = false;
         self.envelope = 0.0;
         self.pending = None;
@@ -931,6 +936,15 @@ impl Render {
         }
     }
 
+    /// La muestra de la cancion que toca tomar ahora del anillo.
+    fn next_frame(&self) -> u64 {
+        match (&self.current, &self.ring) {
+            (Some(b), _) => b.start + self.offset as u64,
+            (None, Some(ring)) => ring.shared.consumed_frame.load(Ordering::Acquire),
+            (None, None) => self.controls.audible.load(Ordering::Acquire),
+        }
+    }
+
     /// La muestra de la cancion de lo que se oye (o de donde va a empezar).
     fn position_now(&self) -> u64 {
         self.controls.audible.load(Ordering::Acquire)
@@ -942,6 +956,7 @@ impl Render {
         if self.incoming.is_some() {
             self.promote(None);
         }
+        self.catch_up = None;
         let Some(ring) = &mut self.ring else { return };
         let good = ring.shared.generation.load(Ordering::Acquire);
         if let Some(b) = self.current.take() {
@@ -1125,6 +1140,17 @@ impl Render {
             let Some(b) = self.current.as_ref() else {
                 break;
             };
+            // tras un relevo tardio: lo de por detras de donde iba, fuera
+            if let Some(at) = self.catch_up {
+                if b.start + b.frames as u64 <= at {
+                    if let Some(b) = self.current.take() {
+                        let _ = ring.free.push(b);
+                    }
+                    continue;
+                }
+                self.offset = self.offset.max(at.saturating_sub(b.start) as usize);
+                self.catch_up = None;
+            }
             let k = (frames - i).min(b.frames - self.offset);
             let stride = ring.parts * 2;
             for j in 0..k {
@@ -1351,47 +1377,23 @@ impl Render {
     }
 
     /// Las partes nuevas pasan a ser las que suenan. `late`: la muestra de la
-    /// cancion por la que va lo que suena, si se pasa tarde (con la
-    /// envolvente abajo): las nuevas se adelantan hasta ahi si lo tienen.
+    /// cancion por la que iba lo que sonaba, si se pasa tarde (con la
+    /// envolvente abajo): las nuevas siguen desde ahi, con lo que tengan ya o
+    /// con lo que llegue despues (lo de por detras se tira al tomarlo).
     fn promote(&mut self, late: Option<u64>) {
         let Some(inc) = self.incoming.take() else {
             return;
         };
         let Incoming {
             handoff,
-            mut current,
-            mut offset,
+            current,
+            offset,
             generation,
             gains_now,
             ..
         } = inc;
-        let Handoff {
-            mut ring, routing, ..
-        } = *handoff;
-        if let Some(at) = late {
-            // lo de por detras de donde iba, fuera
-            loop {
-                if current.is_none() {
-                    match ring.full.peek() {
-                        Ok(b) if generation.is_none_or(|g| g == b.generation) => {
-                            current = ring.full.pop().ok();
-                            offset = 0;
-                        }
-                        _ => break,
-                    }
-                }
-                let Some(b) = current.as_ref() else { break };
-                let end = b.start + b.frames as u64;
-                if end <= at {
-                    if let Some(b) = current.take() {
-                        let _ = ring.free.push(b);
-                    }
-                    continue;
-                }
-                offset = at.saturating_sub(b.start) as usize;
-                break;
-            }
-        }
+        let Handoff { ring, routing, .. } = *handoff;
+        self.catch_up = late;
         if let Some(g) = generation.or_else(|| ring.full.peek().ok().map(|b| b.generation)) {
             self.generation = g;
         }
@@ -1624,7 +1626,9 @@ impl Render {
                 Some(Pending::Stretch) => self.toggle_stretch(),
                 Some(Pending::Reroute) => self.reroute_ready = true,
                 Some(Pending::Promote) => {
-                    let at = self.controls.audible.load(Ordering::Acquire);
+                    // la muestra que tocaba tomar, no la que se oye: lo que
+                    // se oye va por detras (lo que ya esta en camino)
+                    let at = self.next_frame();
                     self.promote(Some(at));
                 }
                 None => {}
