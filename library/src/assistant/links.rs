@@ -167,7 +167,7 @@ fn plain_authority(netloc: &str) -> bool {
 /// un usuario@, espacios...) devuelve su «sitio» tal cual, que nunca está en
 /// `ALLOWED_HOSTS`: cada librería de red la lee a su manera.
 pub fn host_of(text: &str) -> String {
-    let t = text::strip(text);
+    let t = text.trim();
     let lower = t.to_lowercase();
     if !(lower.starts_with("http://") || lower.starts_with("https://")) {
         return String::new();
@@ -223,7 +223,7 @@ fn param<'a>(params: &'a [(String, String)], key: &str) -> &'a str {
 /// `list=` junto a un `v=` es el mix desde el que se compartió el enlace y se
 /// descarta. Lo que lee `chat/intake.py`.
 pub fn youtube_parts(url: &str) -> Option<(String, String)> {
-    let text = text::strip(url);
+    let text = url.trim();
     if text.is_empty() || text::len(text) > 2000 {
         return None;
     }
@@ -339,7 +339,7 @@ fn parse_qs_first(query: &str, key: &str) -> Option<String> {
 /// El id de un vídeo de YouTube, o "" si no es un enlace de un vídeo (lo que
 /// lee `chat/resolve.py`, con `parse_qs`).
 pub fn video_id(url: &str) -> String {
-    let u: String = text::strip(url).chars().take(500).collect();
+    let u: String = url.trim().chars().take(500).collect();
     if u.is_empty() {
         return String::new();
     }

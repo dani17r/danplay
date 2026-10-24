@@ -158,7 +158,7 @@ fn prepare(text: &str) -> String {
 /// (primero dos, luego una) a cargo de quien llama.
 fn digits_at(c: &[char], at: usize, max: usize) -> usize {
     let mut n = 0;
-    while n < max && at + n < c.len() && tx::isdecimal(c[at + n]) {
+    while n < max && at + n < c.len() && tx::is_digit(c[at + n]) {
         n += 1;
     }
     n
@@ -186,7 +186,7 @@ fn soft_num(c: &[char]) -> Option<(i64, usize)> {
         return None;
     }
     let next = c[j];
-    (tx::is_word(next) && !tx::isdecimal(next) && next != '_').then(|| (digits_value(&c[..n]), j))
+    (tx::is_word(next) && !tx::is_digit(next) && next != '_').then(|| (digits_value(&c[..n]), j))
 }
 
 /// `\W{0,3}\d{1,2}(?:[.)]|\.?[-–—])` al principio: numeración de la de siempre.
@@ -498,7 +498,7 @@ fn is_emoji(c: char) -> bool {
 
 /// `[^\W_]`: letra o número.
 fn alnum(c: char) -> bool {
-    tx::isalnum(c)
+    tx::is_alnum(c)
 }
 
 /// Cómo empieza un enlace escrito sin «://».
@@ -518,13 +518,13 @@ fn url_start(w: &[char]) -> Option<usize> {
         (0..n.saturating_sub(2)).find(|&i| w[i] == ':' && w[i + 1] == '/' && w[i + 2] == '/')
     {
         let mut j = i;
-        while j > 0 && (tx::isalnum(w[j - 1]) || matches!(w[j - 1], '+' | '.' | '-')) {
+        while j > 0 && (tx::is_alnum(w[j - 1]) || matches!(w[j - 1], '+' | '.' | '-')) {
             j -= 1;
         }
         return (j < i).then_some(j);
     }
     let mut k = 0;
-    while k < n && !tx::isalnum(w[k]) {
+    while k < n && !tx::is_alnum(w[k]) {
         k += 1;
     }
     let rest: String = w[k..].iter().collect::<String>().to_lowercase();
@@ -540,9 +540,11 @@ fn url_start(w: &[char]) -> Option<usize> {
         let tld = &host[tld_start..];
         if host.contains(&'.')
             && !tld.is_empty()
-            && tld.iter().all(|&c| tx::isalpha(c))
+            && tld.iter().all(|&c| tx::is_letter(c))
             && tld.len() >= 2
-            && host.iter().all(|&c| tx::isalnum(c) || c == '.' || c == '-')
+            && host
+                .iter()
+                .all(|&c| tx::is_alnum(c) || c == '.' || c == '-')
             && host[0] != '.'
         {
             return Some(k);
@@ -622,7 +624,7 @@ fn placeholder_at(c: &[char], at: usize) -> Option<(usize, usize)> {
         return None;
     }
     let mut j = at + 1;
-    while j < c.len() && tx::isdecimal(c[j]) {
+    while j < c.len() && tx::is_digit(c[j]) {
         j += 1;
     }
     if j == at + 1 || c.get(j) != Some(&MUR) {
@@ -640,7 +642,7 @@ fn md_links(s: &str) -> String {
     });
     MD_LINK
         .replace_all(s, |caps: &regex::Captures<'_>| {
-            let label = tx::strip(&caps[1]);
+            let label = caps[1].trim();
             let folded = tx::fold(label).replace('-', " ");
             let words = tx::words(&folded);
             if words.is_empty()
@@ -737,7 +739,7 @@ fn mark_line(line: &str, ctx: &mut Ctx) -> String {
 }
 
 fn is_cap(w: &str) -> bool {
-    tx::first(w).is_some_and(|c| tx::isupper(c) || tx::isdigit(c))
+    tx::first(w).is_some_and(|c| tx::is_upper(c) || tx::is_digit(c))
 }
 
 /// `[^\W_][\w'’\-]*` en `c[at..]`: el fin de la palabra.
@@ -801,7 +803,7 @@ fn mention(c: &[char], at: usize) -> Option<(String, String, usize)> {
             break;
         };
         let w = word(pos + 1, e);
-        if tx::all_digit(&w) && e < n && matches!(c[e], '.' | ')' | '-' | '–' | '—') {
+        if tx::all_digits(&w) && e < n && matches!(c[e], '.' | ')' | '-' | '–' | '—') {
             break; // «@Ana 2) Titulo»: el 2 es la numeración de la siguiente
         }
         if is_cap(&w) {
@@ -812,7 +814,7 @@ fn mention(c: &[char], at: usize) -> Option<(String, String, usize)> {
             pos = e;
             continue;
         }
-        if !PARTICLES.contains(tx::lower(&w).as_str()) {
+        if !PARTICLES.contains(w.to_lowercase().as_str()) {
             break;
         }
         let mut chain = vec![w];
@@ -828,7 +830,7 @@ fn mention(c: &[char], at: usize) -> Option<(String, String, usize)> {
                 joined = true;
                 break;
             }
-            if !PARTICLES.contains(tx::lower(&w2).as_str()) {
+            if !PARTICLES.contains(w2.to_lowercase().as_str()) {
                 break;
             }
             chain.push(w2);
@@ -846,13 +848,13 @@ fn mention(c: &[char], at: usize) -> Option<(String, String, usize)> {
         let bound = n.min(j + HAND_WINDOW);
         let e = hand_stop(c, j, bound).unwrap_or(bound);
         let text = word(j, e);
-        let text = tx::strip(&text);
+        let text = text.trim();
         let first_word = tx::words(text)
             .first()
             .map(|w| tx::fold(w))
             .unwrap_or_default();
         if !text.is_empty()
-            && (tx::first(text).is_some_and(tx::islower)
+            && (tx::first(text).is_some_and(tx::is_lower)
                 || ROLE_WORDS.contains(first_word.as_str()))
         {
             text.clone_into(&mut hand);
@@ -980,7 +982,7 @@ fn num_at(c: &[char], a: usize) -> Option<(usize, i64)> {
     if a > 0 && (alnum(c[a - 1]) || matches!(c[a - 1], '.' | ',' | '/' | ':' | '-')) {
         return None;
     }
-    if !tx::isdecimal(c[a]) {
+    if !tx::is_digit(c[a]) {
         return None;
     }
     // la cifra con marco: \d, U+FE0F si acaso, U+20E3
@@ -1002,7 +1004,7 @@ fn num_at(c: &[char], a: usize) -> Option<(usize, i64)> {
         let j = a + take;
         let value = digits_value(&c[a..j]);
         // (?:\.(?!\d)|\)) [ ]* [-–—]?
-        let dot = j < n && c[j] == '.' && !(j + 1 < n && tx::isdecimal(c[j + 1]));
+        let dot = j < n && c[j] == '.' && !(j + 1 < n && tx::is_digit(c[j + 1]));
         if dot || (j < n && c[j] == ')') {
             let mut e = spaces(j + 1);
             if e < n && is_dash(c[e]) {
@@ -1012,7 +1014,7 @@ fn num_at(c: &[char], a: usize) -> Option<(usize, i64)> {
         }
         // [ ]* [-–—] (?!\d)
         let e = spaces(j);
-        if e < n && is_dash(c[e]) && !(e + 1 < n && tx::isdecimal(c[e + 1])) {
+        if e < n && is_dash(c[e]) && !(e + 1 < n && tx::is_digit(c[e + 1])) {
             return Some((spaces(e + 1), value));
         }
     }
@@ -1039,7 +1041,7 @@ fn scan_line(s: &str, toks: &mut Vec<T>, ctx: &mut Ctx) {
         toks.push(T::new(
             K::Bul,
             "",
-            tx::strip(&text(0, e)),
+            text(0, e).trim(),
             Payload::Nothing,
             false,
         ));
@@ -1060,7 +1062,7 @@ fn scan_line(s: &str, toks: &mut Vec<T>, ctx: &mut Ctx) {
         raw.push_str(&text(tstart, upto));
         pending.clear();
         *pending_text = false;
-        if !tx::strip(&raw).is_empty() {
+        if !raw.trim().is_empty() {
             *content = true;
             let ls = raw.starts_with(' ') || (tstart > 0 && c[tstart - 1] == ' ');
             add(toks, T::new(K::Txt, "", &raw, Payload::Nothing, ls));
@@ -1124,7 +1126,7 @@ fn scan_line(s: &str, toks: &mut Vec<T>, ctx: &mut Ctx) {
                 ));
             }
             G::At => {
-                let glued = a > 0 && tx::isalnum(c[a - 1]); // un correo, no una mención
+                let glued = a > 0 && tx::is_alnum(c[a - 1]); // un correo, no una mención
                 let found = if glued || ctx.mentions >= MAX_MENTIONS {
                     None
                 } else {
@@ -1145,7 +1147,7 @@ fn scan_line(s: &str, toks: &mut Vec<T>, ctx: &mut Ctx) {
                         toks.push(T::new(
                             K::Men,
                             &name,
-                            tx::strip(&text(a, end)),
+                            text(a, end).trim(),
                             Payload::Mention(hand),
                             ls,
                         ));
@@ -1196,7 +1198,7 @@ fn scan_line(s: &str, toks: &mut Vec<T>, ctx: &mut Ctx) {
                     }
                     let body = plain(inner);
                     // isdecimal y no isdigit: «(²)» es una cifra para isdigit, pero int() no la lee
-                    if g == G::Lp && tx::all_decimal(&body) && tx::len(&body) <= 2 {
+                    if g == G::Lp && tx::all_digits(&body) && tx::len(&body) <= 2 {
                         toks.push(T::new(
                             K::Num,
                             "",
@@ -1239,7 +1241,7 @@ fn scan_line(s: &str, toks: &mut Vec<T>, ctx: &mut Ctx) {
                 while j < n && c[j] == ' ' && j - b < 4 {
                     j += 1;
                 }
-                let before = !tx::strip(&text(tstart, a)).is_empty();
+                let before = !text(tstart, a).trim().is_empty();
                 if bullet && (!(content || pending_text || before) || (j < n && c[j] == MBO)) {
                     flush(
                         a,
@@ -1290,7 +1292,7 @@ fn scan_line(s: &str, toks: &mut Vec<T>, ctx: &mut Ctx) {
         }
         if junk {
             let piece = text(tstart, a);
-            pending_text = pending_text || !tx::strip(&piece).is_empty();
+            pending_text = pending_text || !piece.trim().is_empty();
             pending.push(piece);
         } else if matches!(
             g,
@@ -1374,7 +1376,7 @@ fn split_rec(recs: &mut Vec<Rec>, mut cur: Rec) -> Rec {
 
 fn content_piece(t: &T) -> bool {
     if t.k == K::Txt {
-        return t.s().chars().any(tx::isalnum);
+        return t.s().chars().any(tx::is_alnum);
     }
     matches!(t.k, K::Url | K::Men | K::Par | K::Sep)
 }
@@ -1472,7 +1474,7 @@ fn cut(toks: Vec<T>) -> Vec<Rec> {
         if k == K::Txt && cur.nc == 0 {
             if section_match(t.s()) {
                 let head = t.s().split_once(':').map_or(t.s(), |(h, _)| h);
-                let head = tx::lower(tx::strip(head));
+                let head = (head.trim()).to_lowercase();
                 section =
                     section || (head != "medley" && head != "contiene" && cur.marker.is_none());
             } else if cur.depth > 0 {
@@ -1535,7 +1537,7 @@ impl Read {
 const EDGE: &str = " .,;:-–—·|'’‘()[]{}<>•/\\";
 
 fn note_ok(s: &str) -> bool {
-    s.chars().any(tx::isalnum)
+    s.chars().any(tx::is_alnum)
         && !CONJUNCTIONS.contains(tx::strip_chars(&tx::fold(s), " .,;:!?¡¿-"))
 }
 
@@ -1683,7 +1685,7 @@ fn lead_label(toks: Vec<T>, section: bool) -> (String, Vec<T>) {
             let ls = new[i].ls;
             new[i] = T::new(K::Txt, &rest, &rest, Payload::Nothing, ls);
         }
-        return (tx::lower(&found), new);
+        return (found.to_lowercase(), new);
     }
     if section && section_match(&s) {
         return ("section".into(), toks);
@@ -1816,13 +1818,13 @@ fn title_like(text: &str) -> bool {
     if DISCOURSE.contains(first) || (n == 1 && CHAT_ONE.contains(first)) {
         return false;
     }
-    if tx::first(words[0]).is_some_and(tx::islower) && CHAT_START.contains(first) {
+    if tx::first(words[0]).is_some_and(tx::is_lower) && CHAT_START.contains(first) {
         return false;
     }
     if text.contains('?') && !(text.starts_with('¿') && n <= 4) {
         return false;
     }
-    text.chars().any(tx::isalpha)
+    text.chars().any(tx::is_letter)
 }
 
 /// Si una línea CON marca es una frase y no un título (una pregunta, un párrafo).
@@ -1838,9 +1840,9 @@ fn sentence_like(text: &str) -> bool {
 fn title_cased(text: &str) -> bool {
     let words = tx::words(text);
     words.len() >= 2
-        && tx::first(words[0]).is_some_and(tx::isupper)
+        && tx::first(words[0]).is_some_and(tx::is_upper)
         && words.iter().skip(1).take(11).all(|w| {
-            tx::first(w).is_some_and(|c| tx::isupper(c) || tx::isdigit(c)) || tx::len(w) <= 3
+            tx::first(w).is_some_and(|c| tx::is_upper(c) || tx::is_digit(c)) || tx::len(w) <= 3
         })
 }
 
@@ -2235,7 +2237,7 @@ impl Asm {
                 // tachado: ya no va
                 extras.push(format!("~{}~", clean_title(&title, MAX_TITLE)));
                 found = true;
-            } else if !tx::strip(&title).is_empty() {
+            } else if !title.trim().is_empty() {
                 let mut d = Draft::new(title, Some(idx), sg.artist.join(" "));
                 self.n_items += 1;
                 found = true;
@@ -2552,7 +2554,7 @@ static WA_EXPORT: LazyLock<regex::Regex> = LazyLock::new(|| {
 #[allow(clippy::too_many_lines, reason = "`_parse`, en su orden")]
 pub fn parse(text: &str) -> SetlistParse {
     let prepared = prepare(text);
-    if tx::strip(&prepared).is_empty() {
+    if prepared.trim().is_empty() {
         return SetlistParse::default();
     }
     let mut ctx = Ctx::default();

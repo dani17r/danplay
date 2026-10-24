@@ -6,7 +6,7 @@
 use super::narration::{claims_action, has_markers};
 pub use super::value::Error;
 use super::value::{
-    dict_of, get, int, items, key, key_of, obj, or_empty, s, s_or_empty, type_name,
+    dict_of, expected, get, int, items, key, key_of, missing, obj, or_empty, s, s_or_empty,
 };
 use crate::index::Dict;
 use crate::text;
@@ -434,7 +434,7 @@ fn lists_line(lists: &[Value]) -> Result<String, Error> {
 }
 
 fn download_line(e: &Dict) -> Result<String, Error> {
-    let need = |k: &str| e.get(k).ok_or_else(|| Error::Key(k.into()));
+    let need = |k: &str| e.get(k).ok_or_else(|| missing(k));
     if !crate::value::truthy(need("active")?) {
         return Ok("- Descarga en marcha: no.".into());
     }
@@ -444,9 +444,9 @@ fn download_line(e: &Dict) -> Result<String, Error> {
         key_of(e, "total")?,
     );
     let name = match need("name")? {
-        // `', ' + e['name']`: tiene que ser un texto
+        // tiene que ser un texto
         Value::String(n) if !n.is_empty() => format!(", {n}"),
-        v if crate::value::truthy(v) => return Err(Error::Type(type_name(v).into())),
+        v if crate::value::truthy(v) => return Err(expected("un texto", v)),
         _ => String::new(),
     };
     Ok(format!(
@@ -578,13 +578,14 @@ mod tests {
         let res = json!({"song": "Mi Gozo"});
         assert_eq!(
             brief("edit_song", &res, 10),
-            Err(Error::Attribute("str".into(), "get")),
-            "como Python"
+            Err(Error::Shape(
+                "se esperaba un objeto y llegó un texto".into()
+            ))
         );
         let res = json!({"playlists": [{"id": 1}]});
         assert_eq!(
             brief("list_playlists", &res, 10),
-            Err(Error::Key("name".into()))
+            Err(Error::Shape("falta «name»".into()))
         );
     }
 
@@ -623,7 +624,7 @@ mod tests {
         assert_eq!(lines[1], "- Tiene seleccionadas 1 canciones: id 4 «Sola».");
         assert_eq!(lines[2], "- Ahora mismo en pausa: id 3 «Mi Gozo».");
         let bad = json!({"selected": [{"id": "x"}]});
-        assert_eq!(screen_note(&bad), Err(Error::Integer("\"x\"".into())));
+        assert_eq!(screen_note(&bad), Err(Error::NotInteger("\"x\"".into())));
     }
 
     /// Lo de tests/test_ai.py: lo que se ve, lo seleccionado y lo que suena.

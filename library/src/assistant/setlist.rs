@@ -11,8 +11,8 @@ use super::intake::{Intent, MAX_NOTE, MAX_SETLIST_ITEMS, MAX_TITLE, MAX_URL, Set
 use super::links::{clean_youtube_url, host_of};
 use super::text;
 use super::value::{
-    Error, NULL, as_int, at, at_of, dic, dict_of, get, int, items, iter_of, key, obj, or_empty,
-    same, type_name, yes,
+    Error, NULL, as_int, at, at_of, dic, dict_of, expected, get, int, items, iter_of, key, obj,
+    or_empty, same, yes,
 };
 use crate::index::Dict;
 use crate::names::search_form;
@@ -442,17 +442,28 @@ pub fn overrides(raw: &Value) -> Result<Vec<Dict>, Error> {
     Ok(out)
 }
 
-/// Los números de `only` que se entienden.
-pub fn only(raw: &Value) -> Result<Vec<i64>, Error> {
+/// Los números de `only` que se entienden: de una lista, de un texto
+/// («1, 3») o uno suelto.
+pub fn only(raw: &Value) -> Vec<i64> {
+    let pieces: Vec<Value> = match raw {
+        Value::Array(a) => a.clone(),
+        Value::String(s) => s
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .filter(|p| !p.is_empty())
+            .map(Value::from)
+            .collect(),
+        v if crate::value::truthy(v) => vec![v.clone()],
+        _ => Vec::new(),
+    };
     let mut out: Vec<i64> = Vec::new();
-    for x in iter_of(raw)? {
-        if let Some(n) = crate::value::int_of(&x)
+    for x in &pieces {
+        if let Some(n) = crate::value::int_of(x)
             && !out.contains(&n)
         {
             out.push(n);
         }
     }
-    Ok(out)
+    out
 }
 
 // ------------------------------------------------------------------- filas
@@ -530,21 +541,14 @@ pub fn row(item: &Dict, res: &Outcome) -> Result<Dict, Error> {
     ]))
 }
 
-/// Las filas de lo pedido junto a lo encontrado (`zip(strict=True)`).
+/// Las filas de lo pedido junto a lo encontrado (tantas de lo uno como de
+/// lo otro).
 pub fn rows(wanted: &[Dict], resolved: &[Outcome]) -> Result<Vec<Dict>, Error> {
     if wanted.len() != resolved.len() {
-        let (a, b) = if wanted.len() < resolved.len() {
-            (2, 1)
-        } else {
-            (1, 2)
-        };
-        let rel = if wanted.len() < resolved.len() {
-            "longer"
-        } else {
-            "shorter"
-        };
-        return Err(Error::Val(format!(
-            "zip() argument {a} is {rel} than argument {b}"
+        return Err(Error::Invalid(format!(
+            "se pidieron {} y se resolvieron {}",
+            wanted.len(),
+            resolved.len()
         )));
     }
     wanted
@@ -581,7 +585,12 @@ pub fn model_rows(rows: &[Value]) -> Result<String, Error> {
                 Some("other_version") => " otra version (el enlace no)",
                 Some("ambiguous") => " varias versiones",
                 Some("probable") => " dudosa, NO añadida",
-                _ => return Err(Error::Key(crate::value::str_of(status))),
+                _ => {
+                    return Err(Error::Invalid(format!(
+                        "estado desconocido: {}",
+                        crate::value::str_of(status)
+                    )));
+                }
             };
             let mut piece = format!("n={n} id{} {}{label}", key(s, "id")?, cut(s, "title", 40)?);
             let alts = at(r, "alts")?;
@@ -668,8 +677,8 @@ pub fn find_result(wanted: &[Dict], resolved: &[Outcome], source: &Value) -> Res
 pub fn mode(asked: &Value, intent: &Intent) -> Result<(&'static str, &'static str), Error> {
     let asked = match asked {
         v if !crate::value::truthy(v) => String::new(),
-        Value::String(t) => text::lower(t.trim()),
-        other => return Err(Error::Attribute(type_name(other).into(), "strip")),
+        Value::String(t) => t.trim().to_lowercase(),
+        other => return Err(expected("un texto", other)),
     };
     let asked = asked.as_str();
     Ok(if intent.check {
@@ -1045,7 +1054,7 @@ pub fn fill_result(f: Filled<'_>) -> Result<Dict, Error> {
         "no falta ninguna"
     } else {
         ask(f.ask_note)
-            .ok_or_else(|| Error::Key(f.ask_note.into()))?
+            .ok_or_else(|| Error::Invalid(format!("nota desconocida: {}", f.ask_note)))?
             .0
     };
     let mut res = dic([

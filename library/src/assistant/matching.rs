@@ -328,7 +328,7 @@ fn strip_dup(text: &str) -> String {
     while k > 0 && tx::isspace(c[k - 1]) {
         k -= 1;
     }
-    while k > 0 && tx::isdecimal(c[k - 1]) {
+    while k > 0 && tx::is_digit(c[k - 1]) {
         k -= 1;
     }
     if k == 0 || !matches!(c[k - 1], 'r' | 'R') {
@@ -437,7 +437,7 @@ fn glue_initials(tokens: Vec<String>) -> Vec<String> {
     let mut i = 0;
     while i < tokens.len() {
         let t = &tokens[i];
-        if t.chars().count() == 1 && tx::all_alpha(t) && !stop(t) && i + 1 < tokens.len() {
+        if t.chars().count() == 1 && tx::all_letters(t) && !stop(t) && i + 1 < tokens.len() {
             out.push(format!("{t}{}", tokens[i + 1]));
             i += 2;
         } else {
@@ -617,7 +617,7 @@ fn group_names(
     }
     let parts: Vec<String> = split_medley(&core_text)
         .into_iter()
-        .filter(|p| !tx::strip(p).is_empty())
+        .filter(|p| !p.trim().is_empty())
         .collect();
     if parts.len() > 1 {
         for p in parts.iter().take(12) {
@@ -709,7 +709,7 @@ fn build_forms(
     let mut ctx: Vec<String> = Vec::new();
     let mut full_for_key: Vec<String> = Vec::new();
     for (primary, extra) in [(&file_title, &file_extra), (&tag_title, &tag_extra)] {
-        if tx::strip(primary).is_empty() {
+        if primary.trim().is_empty() {
             continue;
         }
         let (nms, v, c, full) = group_names(primary, extra);
@@ -1472,7 +1472,7 @@ fn score(q: &Q, e: &Entry) -> Option<(f64, &'static str)> {
 fn base_name(path: &str) -> String {
     let p = path.replace('\\', "/");
     let last = p.rsplit('/').next().unwrap_or("");
-    tx::strip(last).to_lowercase()
+    last.trim().to_lowercase()
 }
 
 /// El archivo de la canción es el que dejó aquella descarga.
@@ -1888,7 +1888,7 @@ impl Index {
             path: &self.db,
             conn: OnceCell::new(),
         };
-        let url_s = tx::strip(tx::head(url, 500)).to_owned();
+        let url_s = tx::head(url, 500).trim().to_owned();
         let url_s = if url_s.is_empty() {
             let c: Vec<char> = tx::head(title, MAX_CHARS).chars().collect();
             find_url(&c, 0)
@@ -1922,7 +1922,7 @@ impl Index {
         }
 
         // 2. por el título; si no hay (o no la encuentra), por el título del vídeo
-        let vt = tx::strip(tx::head(video_title, MAX_CHARS)).to_owned();
+        let vt = tx::head(video_title, MAX_CHARS).trim().to_owned();
         let q = parse_query(title, artist, hints);
         let mut result = if q.empty {
             None

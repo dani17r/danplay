@@ -14,7 +14,7 @@
 use super::links::{PLAYLIST, WATCH, clean_youtube_url, host_of};
 use super::text;
 use super::value::{
-    Error, NULL, at, at_of, dic, dict_of, get, int, items as list_items, same, type_name, yes,
+    Error, NULL, at, at_of, dic, dict_of, expected, get, int, items as list_items, same, yes,
 };
 use crate::index::Dict;
 use crate::names::search_form;
@@ -148,11 +148,7 @@ fn who(song: &Dict) -> Result<Value, Error> {
             continue;
         }
         let Value::String(s) = v else {
-            return Err(Error::TypeText(format!(
-                "sequence item {}: expected str instance, {} found",
-                parts.len(),
-                type_name(v)
-            )));
+            return Err(expected("un texto", v));
         };
         parts.push(s);
     }
@@ -924,7 +920,7 @@ pub fn mine(found: &Value) -> Result<String, Error> {
     }
     let first = match found {
         Value::Array(a) => &a[0],
-        other => return Err(Error::Type(type_name(other).into())),
+        other => return Err(expected("una lista", other)),
     };
     let who = who(dict_of(first)?)?;
     Ok(datum(&text_or(&[&who]), 80))
@@ -960,13 +956,9 @@ pub enum Fault<E> {
 }
 
 impl<E: fmt::Display> fmt::Display for Fault<E> {
-    /// `str(e) or type(e).__name__`
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Data(e) => {
-                let text = e.to_string();
-                f.write_str(if text.is_empty() { e.py_type() } else { &text })
-            }
+            Self::Data(e) => write!(f, "{e}"),
             Self::Index(e) => write!(f, "{e}"),
         }
     }
@@ -1244,28 +1236,18 @@ fn download_entry<I: Index>(
     })
 }
 
-/// Un id que llega como entero o como cifras en un texto (`raw.strip().
-/// isdigit()` y luego `int(...)`, con su `ValueError` si son cifras que
-/// `int` no lee, como «²»).
-fn loose_id(raw: &Value) -> Result<Option<i64>, Error> {
+/// Un id que llega como entero o como cifras en un texto (de cualquier
+/// escritura).
+fn loose_id(raw: &Value) -> Option<i64> {
     if let Some(i) = int_of(raw) {
-        return Ok(Some(i));
+        return Some(i);
     }
-    let Value::String(s) = raw else {
-        return Ok(None);
-    };
-    let s = s.trim();
-    if !text::all_digit(s) {
-        return Ok(None);
-    }
-    if !text::all_decimal(s) {
-        return Err(Error::Integer(format!("{s:?}")));
-    }
-    Ok(Some(text::int_of_digits(s)))
+    let s = raw.as_str()?.trim();
+    text::all_digits(s).then(|| text::int_of_digits(s))
 }
 
 fn delete_song_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refused<I::Error>> {
-    let sid = loose_id(get(args, "id"))?;
+    let sid = loose_id(get(args, "id"));
     let song = match sid {
         Some(i) => index.song(i).map_err(Refused::Index)?,
         None => Value::Null,
@@ -1300,7 +1282,7 @@ fn delete_playlist_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, 
     };
     if pl.is_null() {
         let raw = args.get("playlist_id").unwrap_or_else(|| get(args, "id"));
-        pl = match loose_id(raw)? {
+        pl = match loose_id(raw) {
             Some(pid) => index.playlist(pid).map_err(Refused::Index)?,
             None => Value::Null,
         };

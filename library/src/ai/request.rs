@@ -199,7 +199,10 @@ pub fn json_from(text: &str) -> Option<Dict> {
 
 /// Si dos valores de JSON son el mismo: un sí o no cuenta como 1 o 0, y un
 /// entero vale lo que un real con el mismo número.
-#[allow(clippy::float_cmp, reason = "se busca el mismo número, no uno parecido")]
+#[allow(
+    clippy::float_cmp,
+    reason = "se busca el mismo número, no uno parecido"
+)]
 pub fn same_value(a: &Value, b: &Value) -> bool {
     let num = |v: &Value| match v {
         Value::Bool(x) => Some(f64::from(u8::from(*x))),

@@ -303,7 +303,7 @@ fn deleting_says_what_and_guards_it() {
             &Value::Null,
             &mut f
         ),
-        Err(Refused::Data(Error::Integer(_)))
+        Err(Refused::Value(_))
     ));
     let d = draft(
         "delete_playlist",
@@ -611,6 +611,6 @@ fn what_you_already_have_reads_like_a_name() {
     assert_eq!(mine(&json!([])), Ok(String::new()));
     assert!(matches!(
         mine(&json!([{"artist": 5}])),
-        Err(Error::TypeText(_))
+        Err(Error::Shape(_))
     ));
 }

@@ -304,9 +304,7 @@ fn a_song_reads_like_python_rounds() {
     odd["duration"] = Value::Null;
     assert_eq!(
         song_brief(&odd),
-        Err(Error::TypeText(
-            "type NoneType doesn't define __round__ method".into()
-        ))
+        Err(Error::Shape("se esperaba un número y llegó nada".into()))
     );
 }
 
@@ -500,7 +498,7 @@ fn the_dialog_warns_of_a_recent_download() {
     );
     assert!(matches!(
         describe("delete_song", &args(json!({"id": "x"})), &mut f),
-        Err(Fault::Data(Error::Integer(_)))
+        Err(Fault::Data(Error::NotInteger(_)))
     ));
     assert_eq!(
         describe("delete_playlist", &args(json!({"name": "nadie"})), &mut f).unwrap_or_default(),

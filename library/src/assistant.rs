@@ -19,5 +19,3 @@ pub mod setlist;
 pub mod text;
 pub mod tools;
 pub mod value;
-
-mod char_classes;

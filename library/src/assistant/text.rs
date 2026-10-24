@@ -1,113 +1,75 @@
-//! Lo de `str` de Python que el asistente usa para leer texto: las clases de
-//! caracteres (`isalpha`, `isdigit`, `isupper`…, con las tablas de Python en
-//! `char_classes`), partir y juntar palabras como `split()`/`join`, cortar por
-//! caracteres y no por bytes, y comparar sin tildes.
-use super::char_classes;
+//! Lo que el asistente usa para leer texto: qué es una letra, una cifra o
+//! una mayúscula (en cualquier escritura), partir y juntar palabras, cortar
+//! por caracteres y no por bytes, y comparar sin tildes.
 use crate::text;
 use std::collections::HashSet;
 use unicode_normalization::UnicodeNormalization;
-use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
+use unicode_properties::{GeneralCategory, GeneralCategoryGroup, UnicodeGeneralCategory as _};
 
-fn in_table(c: char, table: &[(char, char)]) -> bool {
-    table
-        .binary_search_by(|&(a, b)| {
-            if c < a {
-                std::cmp::Ordering::Greater
-            } else if c > b {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        })
-        .is_ok()
+/// Una cifra del 0 al 9 de cualquier escritura («٣» también).
+pub fn is_digit(c: char) -> bool {
+    c.is_ascii_digit() || (!c.is_ascii() && c.general_category() == GeneralCategory::DecimalNumber)
 }
 
-/// `c.isdigit()`: también «²» o «①».
-pub fn isdigit(c: char) -> bool {
-    if c.is_ascii() {
-        return c.is_ascii_digit();
-    }
-    in_table(c, &char_classes::DIGIT)
+/// Una letra de cualquier escritura.
+pub fn is_letter(c: char) -> bool {
+    c.is_ascii_alphabetic()
+        || (!c.is_ascii() && c.general_category_group() == GeneralCategoryGroup::Letter)
 }
 
-/// `c.isdecimal()`, el `\d` de `re`.
-pub fn isdecimal(c: char) -> bool {
-    if c.is_ascii() {
-        return c.is_ascii_digit();
-    }
-    in_table(c, &char_classes::DECIMAL)
+/// Una letra o un número de cualquier escritura («½» y «²» también).
+pub fn is_alnum(c: char) -> bool {
+    c.is_ascii_alphanumeric()
+        || (!c.is_ascii()
+            && matches!(
+                c.general_category_group(),
+                GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number
+            ))
 }
 
-/// `c.isalpha()`.
-pub fn isalpha(c: char) -> bool {
-    if c.is_ascii() {
-        return c.is_ascii_alphabetic();
-    }
-    in_table(c, &char_classes::ALPHA)
-}
-
-/// `c.isalnum()`.
-pub fn isalnum(c: char) -> bool {
-    if c.is_ascii() {
-        return c.is_ascii_alphanumeric();
-    }
-    in_table(c, &char_classes::ALNUM)
-}
-
-/// `\w` de `re`: letras, números y «_».
+/// Lo que es parte de una palabra: letras, números y «_».
 pub fn is_word(c: char) -> bool {
-    c == '_' || isalnum(c)
+    c == '_' || is_alnum(c)
 }
 
-/// `c.isupper()`.
-pub fn isupper(c: char) -> bool {
-    if c.is_ascii() {
-        return c.is_ascii_uppercase();
-    }
-    in_table(c, &char_classes::UPPER)
+/// Una mayúscula.
+pub fn is_upper(c: char) -> bool {
+    c.is_uppercase()
 }
 
-/// `c.islower()`.
-pub fn islower(c: char) -> bool {
-    if c.is_ascii() {
-        return c.is_ascii_lowercase();
-    }
-    in_table(c, &char_classes::LOWER)
+/// Una minúscula.
+pub fn is_lower(c: char) -> bool {
+    c.is_lowercase()
 }
 
-/// `\s` de `re` y `str.isspace`.
+/// Un espacio (de cualquier tipo).
 pub fn isspace(c: char) -> bool {
     char::is_whitespace(c)
 }
 
-/// `s.isdecimal()` (no vacío, todo cifras decimales).
-pub fn all_decimal(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(isdecimal)
+/// Si no está vacío y todo son cifras.
+pub fn all_digits(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(is_digit)
 }
 
-/// `s.isdigit()`.
-pub fn all_digit(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(isdigit)
+/// Si no está vacío y todo son letras.
+pub fn all_letters(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(is_letter)
 }
 
-/// `s.isalpha()`.
-pub fn all_alpha(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(isalpha)
-}
-
-/// El valor de una cifra decimal de cualquier escritura (lo que lee `int()`).
+/// El valor de una cifra de cualquier escritura.
 pub fn decimal_value(c: char) -> Option<u32> {
     if let Some(d) = c.to_digit(10) {
         return Some(d);
     }
-    if !isdecimal(c) {
+    if !is_digit(c) {
         return None;
     }
     // las cifras de Unicode van en tiras seguidas del 0 al 9
     let mut back = 0;
     let mut cp = c as u32;
     while let Some(prev) = cp.checked_sub(1).and_then(char::from_u32) {
-        if !isdecimal(prev) {
+        if !is_digit(prev) {
             break;
         }
         back += 1;
@@ -116,60 +78,50 @@ pub fn decimal_value(c: char) -> Option<u32> {
     Some(back % 10)
 }
 
-/// `int(s)` de unas cifras decimales.
+/// El número de unas cifras (de cualquier escritura).
 pub fn int_of_digits(s: &str) -> i64 {
     s.chars().filter_map(decimal_value).fold(0i64, |acc, d| {
         acc.saturating_mul(10).saturating_add(i64::from(d))
     })
 }
 
-/// `s.lower()`.
-pub fn lower(s: &str) -> String {
-    s.to_lowercase()
-}
-
-/// `s.split()`.
+/// Las palabras, entre espacios.
 pub fn words(s: &str) -> Vec<&str> {
     s.split_whitespace().collect()
 }
 
-/// `len(s.split(None, maxsplit))`: las palabras, contando el resto como una
-/// más si hay más de `maxsplit`.
+/// Cuántas palabras, contando el resto como una más si hay más de
+/// `maxsplit`.
 pub fn count_split(s: &str, maxsplit: usize) -> usize {
     s.split_whitespace().take(maxsplit + 1).count()
 }
 
-/// `" ".join(s.split())`.
+/// Las palabras con un solo espacio entre ellas.
 pub fn squeeze(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// `s.strip()`.
-pub fn strip(s: &str) -> &str {
-    s.trim()
-}
-
-/// `s.strip(chars)`.
+/// Sin esos caracteres a los lados.
 pub fn strip_chars<'a>(s: &'a str, chars: &str) -> &'a str {
     s.trim_matches(|c| chars.contains(c))
 }
 
-/// `s.rstrip(chars)`.
+/// Sin esos caracteres al final.
 pub fn rstrip_chars<'a>(s: &'a str, chars: &str) -> &'a str {
     s.trim_end_matches(|c| chars.contains(c))
 }
 
-/// `s.lstrip(chars)`.
+/// Sin esos caracteres al principio.
 pub fn lstrip_chars<'a>(s: &'a str, chars: &str) -> &'a str {
     s.trim_start_matches(|c| chars.contains(c))
 }
 
-/// `s[:n]` (caracteres).
+/// Los primeros `n` caracteres.
 pub fn head(s: &str, n: usize) -> &str {
     text::head(s, n)
 }
 
-/// `len(s)` (caracteres).
+/// Cuántos caracteres.
 pub fn len(s: &str) -> usize {
     s.chars().count()
 }
@@ -187,7 +139,7 @@ pub fn fold(s: &str) -> String {
         .collect()
 }
 
-/// `unicodedata.normalize("NFC", s)`.
+/// El texto compuesto (NFC): «n» + virgulilla es «ñ».
 pub fn nfc(s: &str) -> String {
     s.nfc().collect()
 }
@@ -197,7 +149,7 @@ pub fn vocab(text: &'static str) -> HashSet<&'static str> {
     text.split_whitespace().collect()
 }
 
-/// `dict.fromkeys(xs)`: sin repetir, en el orden en que salen.
+/// Sin repetir, en el orden en que salen.
 pub fn unique(xs: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut out = Vec::new();
@@ -209,9 +161,9 @@ pub fn unique(xs: impl IntoIterator<Item = String>) -> Vec<String> {
     out
 }
 
-/// La comparación sin mayúsculas de `re.IGNORECASE` contra una letra ASCII
-/// en minúscula (con las que Python da por iguales: «İ» e «ı» con la «i», el
-/// signo de kelvin con la «k», la «ſ» con la «s»).
+/// Si `c` es esa letra ASCII en minúscula, sin mirar mayúsculas (y con las
+/// que se escriben igual: «İ» e «ı» por la «i», el signo de kelvin por la
+/// «k», la «ſ» por la «s»).
 pub fn ieq(c: char, ascii: char) -> bool {
     if c.to_ascii_lowercase() == ascii {
         return true;

@@ -110,14 +110,11 @@ fn a_request_line_is_not_a_section() {
 fn what_the_person_chose_and_only() {
     let raw = json!([{"n": "2", "id": 7.0}, {"n": 1}, "x", {"n": 3, "id": "a"}]);
     assert_eq!(overrides(&raw), Ok(vec![d(json!({"n": 2, "id": 7}))]));
-    assert_eq!(only(&json!([1, "2", "x", 1])), Ok(vec![1, 2]));
-    assert_eq!(
-        only(&json!("12")),
-        Ok(vec![1, 2]),
-        "a text is gone through letter by letter"
-    );
-    assert_eq!(only(&Value::Null), Ok(vec![]));
-    assert_eq!(only(&json!(5)), Err(Error::NoIterable("int".into())));
+    assert_eq!(only(&json!([1, "2", "x", 1])), vec![1, 2]);
+    assert_eq!(only(&json!("1, 3 x")), vec![1, 3], "un texto con números");
+    assert_eq!(only(&json!("12")), vec![12]);
+    assert_eq!(only(&Value::Null), Vec::<i64>::new());
+    assert_eq!(only(&json!(5)), vec![5]);
 }
 
 fn outcome(status: &str, song: Value, candidates: Vec<Value>) -> Outcome {

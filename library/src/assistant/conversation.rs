@@ -90,11 +90,12 @@ pub fn pseudo_ok(name: &str, args: &Value) -> bool {
     if name == "fill_playlist" {
         let a = args.as_object();
         let mode = a.map_or(String::new(), |a| {
-            text::lower(&if crate::value::truthy(get(a, "mode")) {
+            (if crate::value::truthy(get(a, "mode")) {
                 crate::value::str_of(get(a, "mode"))
             } else {
                 String::new()
             })
+            .to_lowercase()
         });
         return matches!(mode.as_str(), "" | "add" | "check")
             && !a.is_some_and(|a| yes(a, "create"));
@@ -712,7 +713,7 @@ fn look<C: Chat>(
     };
     if name == "fill_playlist" {
         let Some(sheet_obj) = chat.item(&ui, "setlist").map_err(raise)? else {
-            return Err(Fault::Data(Error::Key("setlist".into())));
+            return Err(Fault::Data(super::value::missing("setlist")));
         };
         let sheet_obj = chat.copy(&sheet_obj).map_err(raise)?;
         let confirm_view = sub("confirm");

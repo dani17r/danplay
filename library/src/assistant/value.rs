@@ -1,30 +1,28 @@
-//! Lo que llega de Python como dato (un `dict`, una lista, lo que devolvió una
-//! herramienta) y cómo lo leía el Python: `d.get(k)`, `str(x or "")`, `int(x)`
-//! y las excepciones que lanzaba cuando algo no era lo que esperaba.
+//! Lo que llega como dato (un objeto, una lista, lo que devolvió una
+//! herramienta) y cómo se lee: un campo, su texto, su número, y por qué no
+//! se pudo cuando algo no es lo que se esperaba.
 use crate::index::Dict;
 use crate::value;
 use serde_json::Value;
 
 pub static NULL: Value = Value::Null;
 
-/// `d.get(k)` de Python, con None si no está.
+/// El campo `k`, o `null` si no está.
 pub fn get<'a>(d: &'a Dict, k: &str) -> &'a Value {
     d.get(k).unwrap_or(&NULL)
 }
 
-/// `f"{d.get(k)}"`: el texto de un valor como lo escribe Python («None» si no
-/// está).
+/// El texto del campo `k` (vacío si no está o es `null`).
 pub fn s(d: &Dict, k: &str) -> String {
     value::str_of(get(d, k))
 }
 
-/// `f"{d.get(k, '')}"`: como `s`, pero vacío si la clave no está (si está y
-/// es None, «None»).
+/// Como `s`: el texto del campo `k`, vacío si no está.
 pub fn s_or_empty(d: &Dict, k: &str) -> String {
     d.get(k).map_or_else(String::new, value::str_of)
 }
 
-/// `str(x or "")`
+/// El texto de un valor, vacío si no vale nada.
 pub fn or_empty(v: &Value) -> String {
     if value::truthy(v) {
         value::str_of(v)
@@ -33,12 +31,12 @@ pub fn or_empty(v: &Value) -> String {
     }
 }
 
-/// `d.get(k)` es verdadero.
+/// Si el campo `k` vale algo.
 pub fn yes(d: &Dict, k: &str) -> bool {
     value::truthy(get(d, k))
 }
 
-/// `x or []`, como lista (lo que no es lista, nada).
+/// Lo de una lista (lo que no es una lista, nada).
 pub fn items(v: &Value) -> &[Value] {
     v.as_array().map_or(&[], Vec::as_slice)
 }
@@ -47,78 +45,62 @@ pub fn obj(v: &Value) -> Option<&Dict> {
     v.as_object()
 }
 
-/// Lo que en Python habría lanzado una excepción, con su mensaje.
+/// Lo que llega no es lo que se esperaba.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    /// `ValueError` de un `int()` que no se entiende
-    Integer(String),
-    /// `ValueError` con su mensaje
-    Val(String),
-    /// `AttributeError`: `.get` (o el método que sea) de algo que no es un
-    /// diccionario (o un texto)
-    Attribute(String, &'static str),
-    /// `KeyError`: `d[k]` sin esa clave
-    Key(String),
-    /// `TypeError`: `x[k]` de algo que no es un diccionario
-    Type(String),
-    /// `TypeError`: `for x in v` de algo que no se recorre
-    NoIterable(String),
-    /// `TypeError` con su mensaje (el de `" - ".join` con algo que no es
-    /// texto, por ejemplo)
-    TypeText(String),
-}
-
-impl Error {
-    /// El nombre de la excepción de Python (`type(e).__name__`).
-    pub fn py_type(&self) -> &'static str {
-        match self {
-            Self::Integer(_) | Self::Val(_) => "ValueError",
-            Self::Attribute(..) => "AttributeError",
-            Self::Key(_) => "KeyError",
-            Self::Type(_) | Self::NoIterable(_) | Self::TypeText(_) => "TypeError",
-        }
-    }
+    /// Un número entero que no lo es (lo que llegó, en JSON).
+    NotInteger(String),
+    /// Un valor que no vale, con su porqué.
+    Invalid(String),
+    /// Algo sin la forma que se esperaba (un objeto, una lista, un texto),
+    /// o sin un campo que hacía falta.
+    Shape(String),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Integer(v) => write!(f, "invalid literal for int() with base 10: {v}"),
-            Self::Val(m) | Self::TypeText(m) => write!(f, "{m}"),
-            Self::Attribute(t, a) => write!(f, "'{t}' object has no attribute '{a}'"),
-            Self::Key(k) => write!(f, "{k:?}"),
-            Self::Type(t) => write!(f, "'{t}' object is not subscriptable"),
-            Self::NoIterable(t) => write!(f, "'{t}' object is not iterable"),
+            Self::NotInteger(v) => write!(f, "{v} no es un número entero"),
+            Self::Invalid(m) | Self::Shape(m) => f.write_str(m),
         }
     }
 }
 
 impl std::error::Error for Error {}
 
-/// El nombre del tipo de Python de un valor.
-pub fn type_name(v: &Value) -> &'static str {
+/// Qué es un valor, para decirlo en un error («un texto», «una lista»).
+pub fn kind(v: &Value) -> &'static str {
     match v {
-        Value::Null => "NoneType",
-        Value::Bool(_) => "bool",
-        Value::Number(n) if n.is_f64() => "float",
-        Value::Number(_) => "int",
-        Value::String(_) => "str",
-        Value::Array(_) => "list",
-        Value::Object(_) => "dict",
+        Value::Null => "nada",
+        Value::Bool(_) => "un sí o no",
+        Value::Number(_) => "un número",
+        Value::String(_) => "un texto",
+        Value::Array(_) => "una lista",
+        Value::Object(_) => "un objeto",
     }
 }
 
-/// `int(v)` de Python.
+/// «Se esperaba `what` y llegó …».
+pub fn expected(what: &str, v: &Value) -> Error {
+    Error::Shape(format!("se esperaba {what} y llegó {}", kind(v)))
+}
+
+/// Falta un campo que hacía falta.
+pub fn missing(k: &str) -> Error {
+    Error::Shape(format!("falta «{k}»"))
+}
+
+/// Un entero (un número, o un texto con uno).
 pub fn int(v: &Value) -> Result<i64, Error> {
-    value::int_of(v).ok_or_else(|| Error::Integer(v.to_string()))
+    value::int_of(v).ok_or_else(|| Error::NotInteger(v.to_string()))
 }
 
-/// `c.get(...)`: `c` tiene que ser un diccionario.
+/// Un objeto.
 pub fn dict_of(v: &Value) -> Result<&Dict, Error> {
-    obj(v).ok_or_else(|| Error::Attribute(type_name(v).into(), "get"))
+    obj(v).ok_or_else(|| expected("un objeto", v))
 }
 
-/// Un número entero de Python (un `bool` cuenta: `True == 1`), o None.
+/// Un número entero (un sí o no cuenta como 1 o 0), o `None`.
 pub fn as_int(v: &Value) -> Option<i64> {
     match v {
         Value::Bool(b) => Some(i64::from(*b)),
@@ -131,8 +113,11 @@ pub fn as_int(v: &Value) -> Option<i64> {
     }
 }
 
-/// `a == b` de Python con valores de JSON (`1 == 1.0 == True`).
-#[allow(clippy::float_cmp, reason = "es el `==` de Python")]
+/// Si son el mismo valor: 1, 1.0 y `true` son el mismo número.
+#[allow(
+    clippy::float_cmp,
+    reason = "se busca el mismo número, no uno parecido"
+)]
 pub fn same(a: &Value, b: &Value) -> bool {
     let num = |v: &Value| match v {
         Value::Bool(x) => Some(f64::from(u8::from(*x))),
@@ -145,41 +130,37 @@ pub fn same(a: &Value, b: &Value) -> bool {
     }
 }
 
-/// `for x in (v or ())`: los elementos de una lista, las letras de un texto
-/// o las claves de un diccionario; nada si es falso; y el `TypeError` de
-/// Python si es un número.
+/// Los elementos de una lista (nada si no vale nada; el error, si es otra
+/// cosa).
 pub fn iter_of(v: &Value) -> Result<Vec<Value>, Error> {
     Ok(match v {
         _ if !value::truthy(v) => Vec::new(),
         Value::Array(a) => a.clone(),
-        Value::String(t) => t.chars().map(|c| Value::String(c.into())).collect(),
-        Value::Object(o) => o.keys().map(|k| Value::String(k.clone())).collect(),
-        other => return Err(Error::NoIterable(type_name(other).into())),
+        other => return Err(expected("una lista", other)),
     })
 }
 
-/// `d[k]`, con el error de Python si `d` no es un diccionario o no tiene la
-/// clave.
+/// El campo `k` de un objeto, que tiene que estar.
 pub fn at<'a>(v: &'a Value, k: &str) -> Result<&'a Value, Error> {
-    at_of(obj(v).ok_or_else(|| Error::Type(type_name(v).into()))?, k)
+    at_of(dict_of(v)?, k)
 }
 
-/// `d[k]` de un diccionario.
+/// El campo `k`, que tiene que estar.
 pub fn at_of<'a>(d: &'a Dict, k: &str) -> Result<&'a Value, Error> {
-    d.get(k).ok_or_else(|| Error::Key(k.into()))
+    d.get(k).ok_or_else(|| missing(k))
 }
 
-/// `str(d[k])`
+/// El texto del campo `k` de un objeto, que tiene que estar.
 pub fn key(v: &Value, k: &str) -> Result<String, Error> {
     at(v, k).map(value::str_of)
 }
 
-/// `str(d[k])` de un diccionario.
+/// El texto del campo `k`, que tiene que estar.
 pub fn key_of(d: &Dict, k: &str) -> Result<String, Error> {
     at_of(d, k).map(value::str_of)
 }
 
-/// Un diccionario hecho a mano, en el orden en que se escriben las claves.
+/// Un objeto hecho a mano, en el orden en que se escriben las claves.
 pub fn dic<const N: usize>(pairs: [(&str, Value); N]) -> Dict {
     pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
 }

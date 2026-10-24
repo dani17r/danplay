@@ -249,7 +249,7 @@ fn ids_of(rows: &[Dict]) -> Vec<i64> {
 pub fn fill(app: &App, args: &Dict, turn: &mut Turn) -> Result<Value, ApiError> {
     let get = |k: &str| args.get(k).cloned().unwrap_or(Value::Null);
     let (mut wanted, origin) = requested(&get("items"), turn);
-    let only = sl::only(&get("only")).map_err(err)?;
+    let only = sl::only(&get("only"));
     if !only.is_empty() {
         wanted.retain(|it| {
             it.get("n")

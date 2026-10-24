@@ -259,8 +259,8 @@ impl std::fmt::Display for RegisterError {
 
 fn data_error(e: &DataError) -> RegisterError {
     match e {
-        DataError::Integer(_) | DataError::Val(_) => RegisterError::Value(e.to_string()),
-        _ => RegisterError::Other(e.to_string()),
+        DataError::NotInteger(_) | DataError::Invalid(_) => RegisterError::Value(e.to_string()),
+        DataError::Shape(_) => RegisterError::Other(e.to_string()),
     }
 }
 

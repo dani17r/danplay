@@ -227,7 +227,7 @@ impl Tools {
 fn number(v: &str) -> Option<Value> {
     let (neg, body) = v.strip_prefix('-').map_or((false, v), |b| (true, b));
     let ascii = |s: &str| -> Option<String> {
-        (!s.is_empty() && s.chars().all(tx::isdecimal)).then(|| {
+        (!s.is_empty() && s.chars().all(tx::is_digit)).then(|| {
             s.chars()
                 .filter_map(tx::decimal_value)
                 .filter_map(|d| char::from_digit(d, 10))
@@ -260,24 +260,24 @@ fn number(v: &str) -> Option<Value> {
 /// verdad).
 impl Tools {
     pub fn parse_pseudo_call(&self, text: &str) -> Option<(String, Value)> {
-        let line = tx::strip(text).split('\n').next().unwrap_or("");
+        let line = text.trim().lines().next().unwrap_or("");
         let lead = names::sub(&PSEUDO_LEAD, line, "");
-        let first = tx::strip_chars(tx::strip(&lead), "`");
+        let first = tx::strip_chars(lead.trim(), "`");
         let groups = patterns::search(&FIRST_NAME, first)?;
         let name = names::group(first, &groups, 1).to_lowercase();
         if !self.names.contains(&name) {
             return None;
         }
-        let rest = tx::strip(names::group(first, &groups, 2));
-        let rest = tx::strip(tx::strip_chars(rest, "()"));
-        let rest = rest.strip_prefix(':').map_or(rest, tx::strip);
+        let rest = names::group(first, &groups, 2).trim();
+        let rest = tx::strip_chars(rest, "()").trim();
+        let rest = rest.strip_prefix(':').map_or(rest, str::trim);
         if rest.starts_with('{') {
             return serde_json::from_str::<Value>(rest).ok().map(|v| (name, v));
         }
         let mut args = Map::new();
         for g in patterns::find_all(&PSEUDO_ARG, rest) {
             let key = names::group(rest, &g, 1).to_owned();
-            let raw = tx::strip(names::group(rest, &g, 2));
+            let raw = names::group(rest, &g, 2).trim();
             let cs: Vec<char> = raw.chars().collect();
             let value = if cs
                 .first()
@@ -332,14 +332,14 @@ pub fn has_markers(text: &str) -> bool {
 }
 
 pub fn strip_markers(text: &str) -> String {
-    tx::strip(&names::sub(&MARKERS, text, " ")).to_owned()
+    names::sub(&MARKERS, text, " ").trim().to_owned()
 }
 
 /// Lo que se le enseñaría al juez (sin las preguntas), si el texto habla de
 /// la app; si no (conocimiento musical, charla), None: no hace falta molestarlo.
 pub fn for_the_judge(text: &str) -> Option<String> {
     let plain = names::sub(&QUESTION, text, " ");
-    let plain = tx::strip(&plain);
+    let plain = plain.trim();
     (!plain.is_empty() && patterns::search(&APPISH, plain).is_some()).then(|| plain.to_owned())
 }
 
@@ -371,7 +371,7 @@ pub fn answers_an_offer(messages: &[Message]) -> bool {
     if last.ai {
         return false;
     }
-    let answer = tx::strip(&last.text);
+    let answer = last.text.trim();
     if answer.is_empty() || patterns::search(&NO, answer).is_some() {
         return false;
     }

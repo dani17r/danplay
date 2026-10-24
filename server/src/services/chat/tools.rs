@@ -287,13 +287,13 @@ fn alias(name: &str, args: Dict) -> (String, Dict) {
     }
 }
 
-/// `str(e)` de lo que falló dentro de una herramienta.
+/// El porqué de lo que falló dentro de una herramienta.
 fn fault_text(e: &Fault<ApiError>) -> String {
     match e {
         Fault::Data(e) => {
             let text = e.to_string();
             if text.is_empty() {
-                e.py_type().to_owned()
+                "error desconocido".to_owned()
             } else {
                 text
             }
